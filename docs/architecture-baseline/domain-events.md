@@ -1,7 +1,7 @@
 # Domain Events (PR-02)
 
 > 소스: decisions.md D-06 [확정 2026-06-24]
-> 발행 주체는 모두 Aggregate Root(aggregate-boundary.md 17개)·트리거는 state-machine.md 전이와 정합.
+> 발행 주체는 모두 Aggregate Root(aggregate-boundary.md §2 — 16 Aggregate + 1 Infra/Event Processing, D-18)·트리거는 state-machine.md 전이와 정합.
 > 범위: 이벤트 카탈로그·발행/소비/멱등성/재시도 정책. 메시지 큐 구현·스키마 버저닝은 구현 단계 이연.
 
 ---
@@ -161,6 +161,23 @@
 | 재시도 | 재시도 |
 
 > 주문 흐름 외 운영자 재고 조작. 알림 연동이 불필요하면 미발행해도 무방한 선택 이벤트.
+
+### 멱등성·재시도 정책 요약 (E1~E10)
+
+> D-06 본문(§1 멱등성·재시도 원칙)을 이벤트별로 추출한 1행 요약. 상세는 각 이벤트 표 참조.
+
+| # | 이벤트 | Idempotent Key | Retry 정책 |
+|---|---|---|---|
+| E1 | OrderPlaced | order_id — 재예약 방지 | 재고 예약(동기)·롤백 / Cart·알림(비동기)·지수 백오프·DLQ |
+| E2 | PaymentCompleted | pg_tid + OrderItem.item_status=PAID 가드 | 동기·롤백 (PG 콜백 재수신 대기) / 알림·비동기·DLQ |
+| E3 | PaymentFailed | order_id 기준·reserved 가드 | 동기·롤백 |
+| E4 | DeliveryStarted | order_item_id·SHIPPING 이상 skip | 동기·롤백 / 알림·비동기·재시도 |
+| E5 | DeliveryCompleted | order_item_id·DELIVERED 이상 skip | 동기·롤백 / 알림·비동기·재시도 |
+| E6 | PurchaseConfirmed | order_item_id·정산·집계 중복 방지 | 비동기·지수 백오프·DLQ |
+| E7 | ClaimRequested | claim_id 기준 1회 | 동기·롤백 |
+| E8 | ClaimRejected | claim_id 기준 1회 | 동기·롤백 |
+| E9 | ClaimCompleted | claim_id + OrderItem.item_status 종결값 가드 | 재고/Order/결제·동기·롤백 / 알림·비동기·재시도 |
+| E10 | InventoryAdjusted | InventoryHistory append 기준 | 비동기·지수 백오프·재시도 |
 
 ---
 

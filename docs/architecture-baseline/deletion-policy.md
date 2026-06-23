@@ -14,7 +14,7 @@
 - **HARD DELETE**: 물리 삭제. 개인정보·임시 데이터·시스템 마스터.
 - **ARCHIVE**: 영구 보존(삭제 불가·법정 보관·상태 관리 통합). 주문·결제·정산·감사 로그 등. 콜드 스토리지 물리 이전은 운영 이연(M-20 (a)).
 
-**Aggregate Root 단위 적용**: 분류는 17개 Aggregate Root(aggregate-boundary.md §2) 기준으로 정한다. 종속 엔티티(Aggregate 내부 포함 엔티티)는 Root와 동일 정책을 자동 상속한다. Root와 정책이 갈리는 경계 케이스만 별도 명시한다.
+**Aggregate Root 단위 적용**: 분류는 16 Aggregate Root + 1 Infra/Event Processing(aggregate-boundary.md §2·D-18) 기준으로 정한다. 종속 엔티티(Aggregate 내부 포함 엔티티)는 Root와 동일 정책을 자동 상속한다. Root와 정책이 갈리는 경계 케이스만 별도 명시한다.
 
 > 소프트 삭제 ≠ 비식별화. 소프트 삭제(deleted_at)는 복구 가능, 비식별화(anonymized_at)는 불가역 개인정보 파기다. 두 축을 분리해 "탈퇴했으나 법정 보관 중" 상태를 표현한다(§3).
 

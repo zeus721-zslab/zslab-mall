@@ -30,3 +30,18 @@
 ### CLAUDE-DEV 룰 명문화 (수동 적용)
 - 내용: CLAUDE-DEV.md 확장 (개발환경 → 원칙·허용·금지·작업 사이클·Git 규칙·PROGRESS 규칙 추가). 사용자 수동 편집 적용 — PR 트랙 미경유
 - 상태: main 반영 완료
+
+### architecture-baseline (PR-00~05 + PR-04.5)
+- 산출물: docs/architecture-baseline/ 11종 (baseline-plan·RECON·decisions·aggregate-boundary·state-machine·domain-events·inventory-policy·read-model·audit-policy·deletion-policy·invariants) + docs/adr/001/003/005/006
+- 내용: D-01~D-21 결정·Aggregate 16+1 경계·State Machine 4건·Domain Event E1~E10·Inventory SoT·Read Model 2건·Audit Policy·삭제 정책 SOFT/HARD/ARCHIVE·⚠ 3건 정정(CHAR(30)·aud_·ADR-006)
+- 상태: main 머지 완료 (PR-00~04·PR-04.5·PR-05)
+
+### erd-update (커밋 dd3ebb6)
+- 산출물: docs/erd-update/RECON.md·decisions.md (E-01~E-06) + docs/design/erd/01~05·README + docs/design/db-schema-decisions.md v2.4
+- 내용: architecture-baseline 확정 결정(보류 3건 해소·값집합 ERD 노출·NotificationLog Infra/Event Processing 표기·db-schema 동반 갱신·헤더 v2.4 일괄·§1.13 카운트 정정 26개·↔ 복원)
+- 상태: main 머지 완료
+
+### ddl-ready-review (정찰 1파일)
+- 산출물: docs/architecture-baseline/ddl-ready-review.md (신규 1파일·결정 도입 0건)
+- 내용: ddl-ready-checklist §1~§8 전수 점검·§A~§K 전 통과·R-01·R-02 문서 표현 lag 2건(DDL 비차단)·통과 판정 Yes
+- 상태: main 반영 완료

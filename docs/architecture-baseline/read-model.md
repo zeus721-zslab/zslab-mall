@@ -8,7 +8,7 @@
 
 ## 1. 분리 원칙
 
-- **Write Model**: Aggregate 트랜잭션 일관성을 보장하는 원천 데이터(17개 Aggregate). 도메인 불변식의 단일 출처.
+- **Write Model**: Aggregate 트랜잭션 일관성을 보장하는 원천 데이터(16 Aggregate + 1 Infra/Event Processing — D-18). 도메인 불변식의 단일 출처.
 - **Read Model**: 조회 최적화·집계·검색용 **파생 데이터**. 원천(Write Model)으로부터 재생성 가능(손실 허용).
 - **분리 이유**: 집계·조회 부하를 Write 경로의 잠금 범위 밖으로 분리해 결합도·경합을 낮춘다. Read Model 손상 시 원천에서 재집계로 복구한다.
 - **동기화 방식 선택**: db-schema §1.11 3패턴에 따라 케이스별로 이벤트 핸들러 / 배치 / VIEW 중 택1.
