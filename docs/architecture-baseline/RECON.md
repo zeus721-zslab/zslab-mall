@@ -611,3 +611,253 @@ state-machine.md §6: "재고 복구 시점(CANCELLED/RETURNED 후) → PR-02 in
 |---|---|
 | `db-schema-decisions.md` 헤더 changelog `v2.3` | PR-04.5 반영 후 `v2.4` 로 한 줄 추가 권장 (선택사항) |
 | ERD 05 메모 "Attachment(att_), AuditLog만 해당" | AuditLog prefix 없이 이미 부여 언급 → prefix 추가(ERD 05 mermaid 수정)로 충분. 메모 문구 자체 수정 불필요 |
+
+---
+
+# PR-05 정찰 (리뷰 반영 6건)
+
+> 소스: baseline-plan.md §5/§6·aggregate-boundary.md·state-machine.md·domain-events.md·decisions.md(D-01·D-04)·deletion-policy.md·inventory-policy.md·ADR-003·ADR-006·db-schema-decisions.md §1.8/§2.7
+> 목적: 리뷰 반영 6건 구현 전 수정 위치 전수 확인 + invariant 인벤토리 확보. 결정 변경 1건(NotificationLog 재분류)·나머지 표현·구조 보강.
+> 본 PR 범위 외 추가 불일치 발견 시 §7에만 명시·본 PR 수정 포함 금지.
+
+---
+
+## 1. 적용 1 — OrderStatusResolver 통일 정찰
+
+**`OrderStatusCalculator` 명칭 등장 위치 (전수 3곳)**:
+
+| 파일 | 라인 | 현재 표현 | 수정 방향 |
+|---|---|---|---|
+| `docs/adr/003-order-model.md` | 77 | "Application Service에 `OrderStatusCalculator` 컴포넌트 필요" | `OrderStatusResolver`·**Domain Service** |
+| `docs/architecture-baseline/state-machine.md` | 146 | "Application Service (OrderStatusCalculator)에서 집계 후 Order.status 갱신" | `OrderStatusResolver`·**Domain Service** |
+| `docs/architecture-baseline/decisions.md` D-04 | 138 | "Service.canTransition() 또는 OrderStatusCalculator 컴포넌트 필요" | `OrderStatusResolver` |
+
+**Resolver 책임 정의 후보** (state-machine §5 신규 보강):
+- **입력**: OrderItem 상태 집합(한 Order의 모든 OrderItem.item_status)
+- **처리**: 규칙 평가(방식 B 명시적 전이 조건·평가 순서 [5]→[6]→[7]→[4]→[3]→[2])
+- **출력**: Order.status 최종값(8값 중 1)
+- **위치**: **Domain Service** (Order Aggregate 내부 파생 로직·외부 Aggregate 미관여 → Application Service 아님)
+- **재계산 트리거**: OrderItem 상태 변경(Payment/Delivery/Claim 이벤트 소비 후)
+
+**위치 표현 점검(Application → Domain)**: 현재 ADR-003·state-machine은 "Application Service"로 표기. Resolver는 OrderItem→Order.status **단일 Aggregate 내부** 집계이므로 DDD상 Domain Service가 정합. aggregate-boundary §1 "다른 Aggregate 변경은 …Application Service" 원칙과 충돌 없음(Resolver는 Aggregate 간 변경 아님). → **Domain Service로 정정 제안**(D-16 §불확실 항목에서 사용자 확정).
+
+---
+
+## 2. 적용 2 — Inventory 확장 경로 정찰
+
+| 항목 | 정찰 결과 |
+|---|---|
+| 메모 추가 위치 | `inventory-policy.md` §7 외부 이연 (신규 하위 항목 "Reservation Tracking") |
+| PR-02 D-08 보호 | "예약/해제는 InventoryHistory 미기록·reserved 컬럼만 갱신"(§6 M-11·D-08 확정) — 본문 변경 금지·재확인만 |
+| 메모 성격 | **현재 단계 도입 금지** 확장 경로 표기만. 도입 시점 = 별도 ADR 발행 + decisions.md 누적 |
+| change_type 정합 | InventoryHistory change_type A분류(ORDER/CANCEL/RETURN/ADJUST/INBOUND/OUTBOUND)에 RESERVE/RELEASE 부재 → 예약 추적 도입 시 enum 확장(=마이그레이션) 필요. 메모에 트레이드오프 명시 |
+
+> 결론: §7에 "Reservation Tracking (현재 단계 도입 금지)" 1개 하위 항목 추가. §1~§6 본문·D-08 무변경.
+
+---
+
+## 3. 적용 3 — NotificationLog 재분류 정찰 (결정 변경 1건)
+
+| 항목 | 정찰 결과 |
+|---|---|
+| 현재 위치 | `aggregate-boundary.md` §2.6 공통·보조 표 4행(Code·Attachment·AuditLog·NotificationLog) |
+| D-01 등재 | `decisions.md` D-01 #17 NotificationLog (Aggregate 17번·"append-only 이벤트 기록") |
+| 재분류 후보 위치 | `aggregate-boundary.md` 신규 **§2.7 Infra/Event Processing** 섹션·NotificationLog 이동 |
+| D-01 갱신 영향 | 17 Aggregate → **16 Aggregate + 1 Infra/Event Processing**. D-01 [확정 2026-06-24] 마킹 **유지** + [갱신 2026-06-24 PR-05] 추가 |
+| 재분류 사유 후보 | (1) 도메인 트랜잭션 주체 아님 (2) 다른 Aggregate가 발행한 이벤트(E1·E2·E4·E5·E9)의 **소비 기록** (3) AuditLog와 성격 유사하나 감사 의무 아님(발송 로그) |
+| 영향 범위 점검 | domain-events.md는 NotificationLog를 "소비 주체"로만 참조(E1·E2·E4·E5·E9·E10) → 재분류와 정합(Aggregate 번호 인용 없음). deletion-policy.md §2.2는 NotificationLog ARCHIVE("독립 Aggregate") → **"독립 Aggregate" 문구 점검 필요**(§7-b 참조) |
+
+> 비교: AuditLog는 감사 의무·CS/법적 대응 주체로 **Aggregate 유지**(#16). NotificationLog는 발송 이력 소비 기록으로 Infra/Event Processing 분리. 둘 다 append-only이나 도메인 책임이 다름.
+
+---
+
+## 4. 적용 4 — Aggregate 잠금 표현 정찰
+
+| 항목 | 정찰 결과 |
+|---|---|
+| 추가 위치 | `aggregate-boundary.md` §1 원칙 (현재 3개 불릿: ID 참조·이벤트/Application Service·Root 경유) |
+| 추가 표현 후보 | "Aggregate 분할은 **확정 결정**. 변경 필요 시 **ADR 신규 발행 + decisions.md 누적**으로만 갱신. 'DDL 전 변경 가능' 등 잠금 해제 표현 금지." |
+| 자기참조 점검 | 본 PR의 NotificationLog 재분류는 이 절차(decisions.md D-18 + D-01 갱신)를 그대로 따름 → 잠금 표현과 모순 없음(재분류 = ADR 아닌 decisions 누적 절차로 처리) |
+
+---
+
+## 5. 적용 5 — 삭제 정책 SoT 정찰
+
+| 항목 | 정찰 결과 |
+|---|---|
+| 위치 | `db-schema-decisions.md` §1.8 소프트 삭제 적용 범위 (적용/미적용 2열 표 + "주문·결제·정산은 …상태 관리" 인용) |
+| 추가 1줄 후보 | "→ 상세 분류(SOFT/HARD/ARCHIVE)·경계 케이스·비식별화 흐름은 `docs/architecture-baseline/deletion-policy.md` 단일 레퍼런스 참조." |
+| 본문 이동 금지 | §1.8 적용/미적용 표·인용은 **그대로 유지**. SoT 인용 1줄만 말미 추가(D-12 deletion-policy가 상세 SoT) |
+
+---
+
+## 6. 적용 6 — Invariant 인벤토리 정찰 (16 Aggregate + Infra/Event 1)
+
+> invariants.md 신규 문서 후보. 각 invariant: Rule·Why·Enforcement Point(DB CHECK/UK/FK · Service · Domain · Batch)·Impact·Alternative.
+> Enforcement Point는 "가장 낮은 레이어(DB) 우선·불가능 시 Service/Domain" 원칙(D-09·D-12 정합). 실제 제약 명세·코드는 외부 이연(DDL·Entity·구현 트랙).
+
+### 6.1 Inventory (INV) — 6건
+| # | Rule | Why | Enforcement | Alternative |
+|---|---|---|---|---|
+| INV-1 | quantity_available ≥ 0 | oversell 방지 | DB CHECK | Service 검증(DB 강제 누락 위험) |
+| INV-2 | quantity_available = on_hand − reserved | 캐시 정합 | Application(D-09) | DB 트리거(기각·D-09) |
+| INV-3 | quantity_reserved ≥ 0 | 예약 음수 차단 | DB CHECK | — |
+| INV-4 | quantity_on_hand ≥ 0 | 실물 음수 불가 | DB CHECK | — |
+| INV-5 | InventoryHistory append-only(on_hand 변동만) | 이력 무결성(M-11) | Domain | reserved 이력화(enum 확장·기각) |
+| INV-6 | Inventory : ProductVariant = 1:1 | SoT 단일(D-07) | DB UK(variant_id)+FK | — |
+
+### 6.2 Order (ORD) — 5건
+| # | Rule | Why | Enforcement | Alternative |
+|---|---|---|---|---|
+| ORD-1 | Order는 OrderItem 최소 1개 | 빈 주문 불가 | Service | Trigger(기각·복잡) |
+| ORD-2 | Order.status = OrderStatusResolver 결과 | 캐시 정합(D-04·ADR-003) | Domain Service | — |
+| ORD-3 | OrderItem.seller_id 멀티벤더 혼재 허용 | 멀티벤더 정산 | Domain | 단일벤더 강제(기각) |
+| ORD-4 | order_no UNIQUE | 주문번호 중복 차단 | DB UK | — |
+| ORD-5 | OrderItem.total_price = unit_price × quantity | 금액 정합 | Service/Domain | — |
+
+### 6.3 Payment (PAY) — 3건
+| # | Rule | Why | Enforcement | Alternative |
+|---|---|---|---|---|
+| PAY-1 | Refund 총액 ≤ Payment.amount | 과환불 차단 | Domain(Claim/Refund→Payment.amount 누적 검증) | — |
+| PAY-2 | Payment.status 전이 = state-machine §1 | 결제 흐름 정합 | Domain(enum canTransition) | — |
+| PAY-3 | 유효 PAID 1건(재시도=새 행·pg_tid 멱등) | 중복 결제 차단 | Domain + pg_tid 멱등 | — |
+
+> PAY-1 배치 점검: Refund는 Claim Aggregate(D-01 #13) 소속이나 규칙은 Payment.amount 참조 → **교차 Aggregate invariant**. invariants.md에 Payment 절 기재 + "Claim/Refund Domain에서 강제" 명시(§7-a 확정 필요).
+
+### 6.3b Delivery (DLV) — 3건 (§7-f 보강·정찰 누락 보정)
+| # | Rule | Why | Enforcement | Alternative |
+|---|---|---|---|---|
+| DLV-1 | tracking_no UNIQUE | 송장 중복 차단 | DB UK | — |
+| DLV-2 | Delivery는 OrderItem 없이 생성 불가(order_item_id·1:N) | 부분 배송 지원 | DB FK + NOT NULL | — |
+| DLV-3 | shipped_at ≤ delivered_at | 시간 순서 정합 | Service/Domain | — |
+
+> Delivery 상태 전이 규칙은 본 PR 범위 외(state-machine.md §6 이연). 위 invariant는 전이가 아닌 구조·시간 불변식.
+
+### 6.4 Claim (CLM) — 4건
+| # | Rule | Why | Enforcement | Alternative |
+|---|---|---|---|---|
+| CLM-1 | COMPLETED 후 상태 변경 금지 | 클레임 종결 보호 | Domain(state-machine §2) | — |
+| CLM-2 | REJECTED 재요청 = 새 Claim 행 | 이력 보존(D-05) | Service | 기존 행 복귀(기각) |
+| CLM-3 | Refund는 Claim 승인 후에만 생성 | 생명주기 공유(D-01) | Domain | — |
+| CLM-4 | Claim.status 전이 = state-machine §2 | 클레임 흐름 정합 | Domain(enum canTransition) | — |
+
+### 6.5 Product (PRD) — 5건
+| # | Rule | Why | Enforcement | Alternative |
+|---|---|---|---|---|
+| PRD-1 | Seller 없는 Product 금지 | 멀티벤더 무결성 | DB FK + NOT NULL | — |
+| PRD-2 | ProductVariant (product_id, option1~3_value_id) UNIQUE | 옵션 조합 중복 방지 | DB UK(db-schema §2.4) | — |
+| PRD-3 | ProductVariant는 Product 없이 생성 불가 | Aggregate 경계 | DB FK + Domain | — |
+| PRD-4 | ProductOptionGroup 상품당 최대 3개 | 한국 쇼핑몰 표준 | Service(애플리케이션 제약) | DB CHECK(동적 불가·기각) |
+| PRD-5 | option1_value_id NOT NULL·option2/3 nullable | 옵션 구조 | DB NOT NULL | — |
+
+### 6.6 User (USR) — 4건
+| # | Rule | Why | Enforcement | Alternative |
+|---|---|---|---|---|
+| USR-1 | User.email UNIQUE | 계정 중복 차단 | DB UK | — |
+| USR-2 | 탈퇴(withdrawn_at) 후 로그인 차단 | 보안 | Service(로그인 게이트) | — |
+| USR-3 | 비식별화(anonymized_at) 후 식별자 유지·민감정보 NULL/HASH | 법정 보관 + 개인정보 보호 | Batch + Domain(db-schema §2.1) | — |
+| USR-4 | legal_retention_until 경과 전 비식별화 금지 | 법정 보관 의무 | Batch | — |
+
+### 6.7 Auth (AUTH) — 4건
+| # | Rule | Why | Enforcement | Alternative |
+|---|---|---|---|---|
+| AUTH-1 | UserRole (user_id, role_id) 중복 금지 | 권한 중복 차단 | DB UK | — |
+| AUTH-2 | RolePermission (role_id, permission_id) 중복 금지 | 권한 매핑 중복 차단 | DB UK | — |
+| AUTH-3 | Role.code 값집합 잠금(A분류) | 권한 무결성 | DB ENUM + enum | — |
+| AUTH-4 | 권한 회수(HARD delete) 시 AuditLog 기록 | 감사(M-19·D-12) | Service | — |
+
+### 6.8 BuyerGrade (GRD) — 3건
+| # | Rule | Why | Enforcement | Alternative |
+|---|---|---|---|---|
+| GRD-1 | 활성 GradePolicy는 (grade_id·기간) 단일 | 등급 산정 모호 차단 | Service(effective 기간·is_active·version DESC LIMIT 1) | — |
+| GRD-2 | BuyerGrade.code 값집합 잠금(SILVER/GOLD/PLATINUM) | 등급 무결성 | DB ENUM | — |
+| GRD-3 | GradePolicy.min_amount ≤ max_amount | 구간 정합 | DB CHECK / Service | — |
+
+### 6.9 Seller (SLR) — 5건
+| # | Rule | Why | Enforcement | Alternative |
+|---|---|---|---|---|
+| SLR-1 | Seller.business_no UNIQUE | 사업자번호 중복 차단 | DB UK | — |
+| SLR-2 | SellerBankAccount.account_number 암호화 저장 | 금융정보 보호 | Domain(AES·db-schema §2.3) | — |
+| SLR-3 | SellerBankAccount is_primary 단일 | 정산 계좌 모호 차단 | Service(변경 시 기존 false) | — |
+| SLR-4 | Seller.status 전이(B분류 SELLER_STATUS) | 판매자 상태 정합 | Domain(enum canTransition) | — |
+| SLR-5 | SellerUser (seller_id, user_id) 중복 금지 | 소속 중복 차단 | DB UK | — |
+
+### 6.10 Settlement (STL) — 4건
+| # | Rule | Why | Enforcement | Alternative |
+|---|---|---|---|---|
+| STL-1 | net_amount = gross_amount − fee_amount − refund_amount | 정산 금액 정합 | Domain | — |
+| STL-2 | Settlement.status 전이(PENDING→CONFIRMED→PAID·A분류) | 정산 흐름 정합 | Domain(enum canTransition) | — |
+| STL-3 | bank_account_id = 정산 시점 스냅샷 | 계좌 변경 무관 정합 | Domain | — |
+| STL-4 | 상태·금액 변경 AuditLog 기록 | 감사(D-11) | Service | — |
+
+### 6.11 Category (CAT) — 2건
+| # | Rule | Why | Enforcement | Alternative |
+|---|---|---|---|---|
+| CAT-1 | parent_id self-FK 순환 금지 | 계층 무결성 | Service(사이클 검출) | DB(재귀 제약 불가·기각) |
+| CAT-2 | depth = parent.depth + 1 일관 | 표시 정합 | Service | — |
+
+### 6.12 CartItem (CRT) — 2건
+| # | Rule | Why | Enforcement | Alternative |
+|---|---|---|---|---|
+| CRT-1 | (user_id, variant_id) UNIQUE | 중복 장바구니 차단 | DB UK(db-schema §2.5) | — |
+| CRT-2 | quantity ≥ 1 | 0개 담기 차단 | DB CHECK / Service | — |
+
+### 6.13 Code (COD) — 3건
+| # | Rule | Why | Enforcement | Alternative |
+|---|---|---|---|---|
+| COD-1 | is_system=TRUE 코드 삭제·비활성 금지 | 시스템 코드 보호 | Service + Domain | — |
+| COD-2 | Code (group_id, code) UNIQUE | 코드 중복 차단 | DB UK | — |
+| COD-3 | B분류 ENUM 값 ↔ Code 시드 일치 | 코드-enum 정합(db-schema §1.13) | 시드 단계 | — |
+
+### 6.14 Attachment (ATT) — 2건
+| # | Rule | Why | Enforcement | Alternative |
+|---|---|---|---|---|
+| ATT-1 | (target_type, target_id) 논리 참조·FK 없음 | polymorphic(D분류) | Domain(화이트리스트 검증) | DB FK(동적 확장 불가·기각) |
+| ATT-2 | public_id(att_) UNIQUE | 식별자 무결성(ADR-001) | DB UK | — |
+
+### 6.15 AuditLog (AUD) — 4건
+| # | Rule | Why | Enforcement | Alternative |
+|---|---|---|---|---|
+| AUD-1 | append-only(수정·삭제 금지) | 감사 무결성(D-11) | Domain | — |
+| AUD-2 | 민감정보(비밀번호·결제 토큰·계좌번호·주민번호) 마스킹/제외 | 개인정보 보호(D-11·M-17) | Domain | — |
+| AUD-3 | diff_json = JSON·changed_fields 한정 | 변경 추적(D-11) | DB JSON(CHECK JSON_VALID) + Domain | LONGTEXT(질의 불가·기각) |
+| AUD-4 | public_id(aud_) UNIQUE | 식별자 무결성(M-22) | DB UK | — |
+
+### 6.16 Infra/Event Processing — NotificationLog (NOT) — 3건
+| # | Rule | Why | Enforcement | Alternative |
+|---|---|---|---|---|
+| NOT-1 | append-only 발송 이력 | 이력 보존(ARCHIVE·D-12) | Domain | — |
+| NOT-2 | channel/status 값집합 잠금(A분류) | 발송 무결성 | DB ENUM + enum | — |
+| NOT-3 | (target_type, target_id) 논리 참조·FK 없음 | polymorphic(D분류) | Domain(화이트리스트) | — |
+
+### 6.17 공통 Invariant (전 Aggregate 횡단)
+| # | Rule | Enforcement |
+|---|---|---|
+| COM-1 | public_id 부여 대상(12개) UNIQUE | DB UK·ADR-001 |
+| COM-2 | SOFT 대상 조회는 deleted_at IS NULL 가드 | Service·D-12 |
+| COM-3 | 시간 UTC·DATETIME(6) | 글로벌 정책 §1.2 |
+| COM-4 | 금액 BIGINT(KRW 정수·DECIMAL 금지) | 글로벌 정책 §1.3 |
+
+### 6.18 Read Model (참고 — Aggregate 아님·D-10)
+| 테이블 | 성격 | 처리 |
+|---|---|---|
+| BuyerPurchaseAggregate | buyer_id PK·재계산 가능(Order CONFIRMED SUM) | invariants.md 외부 이연 절 표기만(Write Model 파생) |
+| SellerSalesDaily | (seller_id, sale_date) 복합 PK·idempotent upsert | 동일 |
+
+> 합계: 16 Aggregate(INV·ORD·PAY·DLV·CLM·PRD·USR·AUTH·GRD·SLR·STL·CAT·CRT·COD·ATT·AUD) + Infra/Event 1(NOT) + 공통 4 + Read Model 참고 2. 도메인별 invariant 합 ≈ 62건(16 Aggregate 59 + Infra/Event 3). [보정 2026-06-24: Delivery(#12) 누락 → §6.3b 추가·"15개+Category" 오기 정정]
+> 주의: invariants.md는 **불변조건 카탈로그**·State Machine 전이 정의 아님(전이는 state-machine.md 4건 한정). DB CHECK/UK 실제 제약·Entity 검증·Service 가드 구현은 외부 이연.
+
+---
+
+## 7. 불확실·모호 항목 (사용자 확정 필요)
+
+| # | 항목 | 정찰 결과 | 처리 제안 |
+|---|---|---|---|
+| a | PAY-1(Refund≤Payment.amount) 배치 위치 | Refund는 Claim Aggregate 소속이나 규칙은 Payment.amount 참조(교차 Aggregate) | invariants.md **Payment 절** 기재 + "Claim/Refund Domain에서 강제" 명시 ← 제안. 사용자 확정 |
+| b | OrderStatusResolver 위치 표현(Application→Domain) | 현재 ADR-003·state-machine "Application Service" 표기. Resolver는 단일 Aggregate 내부 집계 → Domain Service 정합 | **Domain Service로 정정** ← 제안. 표현 변경 동의 여부 확정 |
+| c | NotificationLog 재분류 후 deletion-policy.md §2.2 "독립 Aggregate" 문구 | NotificationLog ARCHIVE 근거에 "독립 Aggregate" 표현 존재 | 본 PR 산출물 목록에 deletion-policy 미포함 → **문구 미수정·§7 등재만**(범위 외) 또는 "독립 Infra/Event 기록"으로 동시 정정 중 택1. 사용자 확정 |
+| d | Read Model(BuyerPurchaseAggregate·SellerSalesDaily) invariant 포함 여부 | Aggregate 아님(D-10 Read Model) | invariants.md "외부 이연/참고" 절에 표기만(불변조건 카탈로그 본문 제외) ← 제안 |
+| e | invariants.md Category·BuyerGrade 등 비핵심 Aggregate 깊이 | 핵심(Inventory·Order·Payment·Claim·Product) 대비 invariant 적음 | 전 16 Aggregate 커버하되 핵심은 상세·보조는 1~3건 ← 제안 |
+| f | 정찰 §6에서 Delivery(#12) 누락 | 16 Aggregate 중 DLV 미커버 | §6.3b Delivery(DLV-1~3) 추가·invariants.md §2.12 포함 ← **확정 보강** |
+
+> **확정 처리(2026-06-24)**: a~e 추천 채택·c는 deletion-policy.md 포함(산출물 7파일)·f Delivery 보강. 브랜치 베이스 = fix/pr-04.5 스택. 본 PR 범위 외 추가 불일치 없음.

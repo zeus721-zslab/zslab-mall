@@ -102,6 +102,7 @@ delete_reason   VARCHAR(255) NULL
 | User, Seller, Product, ProductVariant, Category, Attachment, UserAddress, ProductImage | Order, OrderItem, Payment, Settlement, Claim, Refund, AuditLog, Inventory, InventoryHistory, 집계 테이블, CartItem |
  
 > 주문·결제·정산은 "삭제"가 아니라 "상태 관리"로 처리.
+> → 상세 분류(SOFT/HARD/ARCHIVE)·경계 케이스·비식별화 흐름은 `docs/architecture-baseline/deletion-policy.md` 단일 레퍼런스 참조.
  
 ### 1.9 외래키(FK) 적용 범위
 | 적용 (강한 결합) | 미적용 (느슨/성능) |
