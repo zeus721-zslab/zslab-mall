@@ -223,6 +223,8 @@ anonymized_at
 - phone → HASH
 - name → NULL
 - user_id, order_id 등 식별자는 유지 (정합성 보존)
+재가입 허용 조건: 비식별화 완료 상태 (email NULL 처리 완료 후 재사용 허용) — D-22
+Seller 비식별화 시 business_no도 NULL 처리 대상 (구체 흐름은 후속 트랙) — D-22
 #### BuyerProfile (User 1:0..1 확장)
 ```
 user_id PK FK(User.id)

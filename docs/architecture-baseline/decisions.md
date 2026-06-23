@@ -626,3 +626,30 @@ REQUESTED → APPROVED → COMPLETED
 **Impact**: 신규 문서(다른 산출물 영향 없음). DDL·Entity·구현 트랙이 Enforcement Point 기준으로 직접 활용. ORD-2는 D-16(Resolver)·PAY-2/CLM-1은 state-machine과 정합.
 
 **Alternative**: invariant를 각 정책 문서에 분산 → 단일 점검점 부재·교차 검증 비용 증가(기각). DDL 트랙에서 즉흥 CHECK 작성 → 도메인 불변식 누락·근거 부재(기각).
+
+---
+
+### D-22: 비식별화 후 재가입·재등록 정책 (CR-3 A-1 채택)
+
+**상태**: [확정 2026-06-24]
+
+**결정안**: 탈퇴·종료 후 비식별화가 완료된 상태에 한해 재가입(User)·재등록(Seller)을 허용한다.
+
+- USR-1 invariant에 2줄 추가:
+  · "재가입 정책: 비식별화 완료 이후 허용 (db-schema §2.1)"
+  · "email은 비식별화(NULL 처리) 완료 후에만 재사용 허용"
+- SLR-1 invariant에 2줄 추가:
+  · "사업자 재등록 정책: 비식별화 완료 이후 허용"
+  · "business_no는 비식별화(NULL 처리) 완료 후에만 재등록 허용"
+- db-schema §2.1에 재가입 조건 1줄 + Seller business_no NULL 처리 대상 1줄 추가.
+
+**Why**: 외부 리뷰 CR-3에서 "탈퇴 직후 재가입 차단·법정 보관 기간 중 재가입 허용 여부" 미정의 지적. A-1(비식별화 완료 후 허용) 채택으로 법정 보관 기간 중에는 차단·완료 후 재가입 허용을 명확화. MariaDB UNIQUE는 NULL을 비교 제외하므로 비식별화로 email/business_no가 NULL인 row가 다중 존재해도 신규 가입의 UNIQUE 제약과 충돌 없음 → DDL 변경 없이 정책 명시만으로 일관 해석 강제.
+
+**Impact**: invariants.md USR-1·SLR-1 각 2줄·db-schema-decisions.md §2.1 2줄·TODO.md 2행 추가. DDL 영향 없음(UNIQUE 제약 그대로). Entity·구현 트랙은 본 invariant 기준으로 재가입 가드 구현. Seller 비식별화 흐름 자체 정의는 별도 후속 트랙(TODO 등재).
+
+**Alternative**: 비식별화와 무관하게 재가입 차단(법정 보관 기간 영구 차단) → 정상 운영 시나리오 제약 과도(기각). 탈퇴 즉시 재가입 허용 → 부정 사용·법정 의무 회피 우려(기각). Seller 비식별화 흐름까지 본 트랙에서 정의 → 4지점 보강 범위 초과·D-22 단일 결정 원칙 위반(기각·후속 트랙 분리).
+
+**후속**:
+- "state-machine 보강 (Refund.status)" — Entity 트랙 진입 전 처리
+- "Order.status 복구 정책 (CR-2)" — 구현 트랙 진입 전 처리
+- "Seller 비식별화 흐름 정의" — Entity 트랙 진입 전 처리

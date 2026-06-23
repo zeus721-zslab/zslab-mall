@@ -18,6 +18,8 @@
 |---|---|
 | DDL | Flyway 마이그레이션 (ddl-ready-checklist §8 운영 체크박스 6개 확인 후 착수) |
 | state-machine 보강 | Refund.status 상태 전이 정의 — 외부 리뷰 발견·신규 결정 도입 트랙·Entity 트랙 진입 전 처리 |
+| Order.status 복구 정책 | 자동 보정 배치 유무·운영 정책 — 구현 트랙 진입 전 처리 (CR-2) |
+| Seller 비식별화 흐름 | TERMINATED 후 법정 보관 기간·SellerBankAccount·Settlement 영향 — Entity 트랙 진입 전 처리 |
 | Entity | JPA 엔티티 (DDL 확정 후) |
 | API | OpenAPI·Controller·Service (Entity 확정 후) |
 | 구현 | 기능 단위 트랙 분할 (배치/워커 포함, 별도 등재) |
