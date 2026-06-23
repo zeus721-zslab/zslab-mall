@@ -861,3 +861,108 @@ state-machine.md §6: "재고 복구 시점(CANCELLED/RETURNED 후) → PR-02 in
 | f | 정찰 §6에서 Delivery(#12) 누락 | 16 Aggregate 중 DLV 미커버 | §6.3b Delivery(DLV-1~3) 추가·invariants.md §2.12 포함 ← **확정 보강** |
 
 > **확정 처리(2026-06-24)**: a~e 추천 채택·c는 deletion-policy.md 포함(산출물 7파일)·f Delivery 보강. 브랜치 베이스 = fix/pr-04.5 스택. 본 PR 범위 외 추가 불일치 없음.
+
+---
+
+# pre-ddl-cleanup-2 정찰 (2026-06-24)
+
+> 소스: invariants.md·db-schema-decisions.md §2.1/§2.3·decisions.md D-21·TODO.md
+> 목적: CR-3 A-1·CR-2 반영 4지점 현 상태 확인. 결정 도입 전 정찰. 신규 결정 제안 금지.
+
+---
+
+## 1. invariants.md USR-1·SLR-1 현 상태
+
+**USR-1~4 현 본문 (§2.1)**:
+
+| # | Rule | Why | Enforcement Point | Impact | Alternative |
+|---|---|---|---|---|---|
+| USR-1 | User.email UNIQUE | 계정 중복 차단 | DB UK | 가입 시 중복 거부 | — |
+| USR-2 | 탈퇴(withdrawn_at) 후 로그인 차단 | 보안 | Service(로그인 게이트) | 탈퇴 계정 접근 차단 | — |
+| USR-3 | 비식별화(anonymized_at) 후 식별자 유지·민감정보 NULL/HASH | 법정 보관 + 개인정보 보호 | Batch + Domain(db-schema §2.1) | ARCHIVE 데이터 정합 보존 | — |
+| USR-4 | legal_retention_until 경과 전 비식별화 금지 | 법정 보관 의무 | Batch | 보관 기간 강제 | — |
+
+- 비식별화 관련 기존 문구: USR-3(anonymized_at 후 식별자 유지·민감정보 NULL/HASH)·USR-4(법정 보관기간 경과 전 비식별화 금지) 존재
+- **재가입 허용 여부 invariant: 없음** (USR-1 email UNIQUE가 비식별화 후 email=NULL 전환·재가입 가능성 커버 여부 불명확)
+- 추가 위치 후보: USR-4 다음 행
+
+**SLR-1 현 본문 (§2.4)**:
+
+| # | Rule | Why | Enforcement Point | Impact | Alternative |
+|---|---|---|---|---|---|
+| SLR-1 | Seller.business_no UNIQUE | 사업자번호 중복 차단 | DB UK | 동일 사업자 중복 입점 차단 | — |
+
+- business_no 비식별화/탈퇴 후 처리 관련 invariant: **없음** (UNIQUE 제약만 존재)
+- 추가 위치 후보: SLR-1 다음 행
+
+---
+
+## 2. db-schema-decisions.md §2.1 현 상태
+
+**User·WithdrawnUser 비식별화 흐름 현 본문 (§2.1)**:
+```
+탈퇴 흐름: 탈퇴 → 로그인 차단 → 법정보관기간 유지 → 배치 → 비식별화
+
+비식별화 시:
+- email → NULL
+- phone → HASH
+- name → NULL
+- user_id, order_id 등 식별자는 유지 (정합성 보존)
+```
+
+- 재가입 정책 관련 문구: **없음** (§2.1 전체 검색 — 재가입 언급 없음)
+- Seller business_no 비식별화 처리 명시: **없음** (§2.3은 SellerBankAccount account_number 암호화만 다룸)
+- **Seller 비식별화 흐름 정의 유무**: §2.1은 User만 정의·§2.3은 계좌 암호화만. Seller 자체(TERMINATED 후) 비식별화 흐름 **미정의**
+
+---
+
+## 3. decisions.md 마지막 결정 번호·D-22 추가 형식
+
+- 마지막 결정: **D-21** [확정 2026-06-24] — Invariant 문서 신규(invariants.md)
+- 누적 위치: D-21 본문 끝 `---` 구분자 직후 (line 629 이후)
+- D-22 추가 형식 (D-21 구조 그대로):
+
+```
+---
+
+### D-22: [결정명]
+
+**상태**: [확정 YYYY-MM-DD]
+
+**결정안**: ...
+- 항목1
+- 항목2
+
+**Why**: ...
+
+**Impact**: ...
+
+**Alternative**: ...
+
+---
+```
+
+---
+
+## 4. TODO.md 진행 대기 트랙 추가 위치
+
+현재 "진행 대기 트랙" 표 (확인):
+
+| 트랙 | 내용 |
+|---|---|
+| DDL | Flyway 마이그레이션 |
+| state-machine 보강 | Refund.status 상태 전이 정의 — 외부 리뷰 발견·신규 결정 도입 트랙·Entity 트랙 진입 전 처리 |
+| Entity | ... |
+| API | ... |
+| 구현 | ... |
+
+"Order.status 복구 정책" 신규 행 추가 위치: **"state-machine 보강" 행 바로 다음** (state-machine 관련 작업 인접 배치·Entity 트랙 진입 전 처리와 동일 성격)
+
+---
+
+## 5. 변경 위험 평가
+
+- 회귀 위험: **낮음** — invariants.md 기존 행 미수정·§2.1/§2.4에 행 추가만·decisions.md D-22 누적·TODO.md 1행 추가. 기존 본문 내용 변경 없음.
+- DDL 영향: **있음** — 재가입 조건 invariant 추가 시 email UNIQUE 제약 범위 명확화 필요(비식별화 후 email=NULL → NULL 중복 허용으로 DB 영향 없으나 "재가입 허용" 명시 여부가 DDL 레벨 정책 문서 역할). business_no 비식별화 invariant 추가 시 Seller TERMINATED 후 UNIQUE 해소 방법(NULL vs HASH) DDL 설계에 영향.
+- Seller 비식별화 미정의 플래그: **Yes** — §2.1 User만 비식별화 흐름 정의·§2.3 계좌 암호화만·Seller 자체 비식별화 흐름 없음. 본 트랙에서 Seller 비식별화 결정 도입 여부 사용자 재확정 필요.
+- 추가 발견 사항: USR-1 email UNIQUE와 비식별화 후 email=NULL 충돌 없음(MariaDB NULL은 UNIQUE 중복 허용). 단 "탈퇴 후 재가입 시 동일 email 허용 여부" 결정이 없으면 비식별화 전 재가입 시도가 차단되지 않음(law gap). business_no도 동일 구조.

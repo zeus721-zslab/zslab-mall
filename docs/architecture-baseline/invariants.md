@@ -28,6 +28,9 @@
 | USR-3 | 비식별화(anonymized_at) 후 식별자 유지·민감정보 NULL/HASH | 법정 보관 + 개인정보 보호 | Batch + Domain(db-schema §2.1) | ARCHIVE 데이터 정합 보존 | — |
 | USR-4 | legal_retention_until 경과 전 비식별화 금지 | 법정 보관 의무 | Batch | 보관 기간 강제 | — |
 
+> 재가입 정책: 비식별화 완료 이후 허용 (db-schema §2.1) — D-22
+> email은 비식별화(NULL 처리) 완료 후에만 재사용 허용
+
 ### 2.2 Auth
 | # | Rule | Why | Enforcement Point | Impact | Alternative |
 |---|---|---|---|---|---|
@@ -51,6 +54,9 @@
 | SLR-3 | SellerBankAccount is_primary 단일 | 정산 계좌 모호 차단 | Service(변경 시 기존 false) | 정산 대상 계좌 결정성 | — |
 | SLR-4 | Seller.status 전이(B분류 SELLER_STATUS) | 판매자 상태 정합 | Domain(enum canTransition) | 비합법 상태 전이 차단 | — |
 | SLR-5 | SellerUser (seller_id, user_id) 중복 금지 | 소속 중복 차단 | DB UK | 동일 소속 중복 차단 | — |
+
+> 사업자 재등록 정책: 비식별화 완료 이후 허용 — D-22
+> business_no는 비식별화(NULL 처리) 완료 후에만 재등록 허용
 
 ### 2.5 Settlement
 | # | Rule | Why | Enforcement Point | Impact | Alternative |
