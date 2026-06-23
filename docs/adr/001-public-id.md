@@ -36,6 +36,7 @@
 | Claim | `clm_` |
 | Refund | `rfn_` |
 | Attachment | `att_` |
+| AuditLog | `aud_` |
 
 ---
 
@@ -54,7 +55,7 @@
 
 ## 영향
 
-- 모든 Aggregate Root 테이블에 `public_id VARCHAR(30) NOT NULL UNIQUE` 컬럼 추가 필요 (DDL은 PR-04)
+- 모든 Aggregate Root 테이블에 `public_id CHAR(30) NOT NULL UNIQUE` 컬럼 추가 필요 (ULID 26자 + prefix 4자 = 30자 고정. DDL은 다음 트랙)
 - API 레이어는 public_id로만 외부 노출; 내부 PK는 서비스 레이어에서 조회
 - public_id 조회용 인덱스 필요 (`CREATE INDEX ON table(public_id)`)
 

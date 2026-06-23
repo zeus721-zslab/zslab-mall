@@ -106,28 +106,28 @@
 
 ---
 
-## 7. DDL 진입 전 해소 필요 (⚠) — 3건
+## 7. DDL 진입 전 해소 필요 (⚠) — 3건 ✅ PR-04.5 해소 완료
 
-> 정찰 중 발견한 DDL 직전 불일치. **본 PR(PR-04) 산출물 5+1파일 범위 밖**(ADR-001·db-schema §1.1·ERD·ADR-006 본문 수정 필요) → 등재만. 실제 정정은 **PR-04.5 (architecture-baseline-fix)** 에서 처리.
+> PR-04 정찰 중 발견한 DDL 직전 불일치. **PR-04.5 (fix/pr-04.5-architecture-baseline-fix)** 에서 전건 정정 완료. DDL 트랙 진입 가능.
 
-### ⚠ 7-1. public_id 컬럼 타입 불일치 (M-21)
+### ✅ 7-1. public_id 컬럼 타입 불일치 (M-21) — 해소 완료
 
 - **현상**: db-schema §1.1 `CHAR(26)` ↔ ADR-001 §영향 `VARCHAR(30)`.
-- **분석**: ULID 26자 + prefix 4자(usr_·ord_ 등 11종 모두 4자) = **30자 고정**. CHAR(26)은 prefix 수용 불가.
-- **결정 방향(확정)**: **`CHAR(30)` 통일** — 고정 길이로 B-Tree 효율 미세 우위.
-- **처리**: PR-04.5에서 db-schema §1.1·ADR-001 §영향 정정.
+- **분석**: ULID 26자 + prefix 4자(usr_·ord_ 등 12종 모두 4자) = **30자 고정**. CHAR(26)은 prefix 수용 불가.
+- **결정(확정)**: **`CHAR(30)` 통일** — 고정 길이로 B-Tree 효율 미세 우위.
+- **처리 결과**: db-schema §1.1/§1.4·ADR-001 §영향·ERD 01~05 mermaid 14곳 `CHAR(30)` 통일 완료.
 
-### ⚠ 7-2. AuditLog public_id 부여 여부 불일치 (M-22)
+### ✅ 7-2. AuditLog public_id 부여 여부 불일치 (M-22) — 해소 완료
 
 - **현상**: db-schema §1.1 미부여 + ADR-001 prefix 목록 부재 ↔ ERD 05·db-schema §2.7 `char26 public_id` 보유(ERD 05 메모 "Attachment·AuditLog만").
-- **결정 방향(확정)**: **AuditLog public_id 부여·prefix `aud_`** — ERD가 최신 방향·독립 Aggregate(D-01 #16)·CS 티켓 참조 가치. 부여 대상 11 → 12.
-- **처리**: PR-04.5에서 db-schema §1.1 부여 목록·ADR-001 prefix 표 정정.
+- **결정(확정)**: **AuditLog public_id 부여·prefix `aud_`** — ERD가 최신 방향·독립 Aggregate(D-01 #16)·CS 티켓 참조 가치. 부여 대상 11 → 12.
+- **처리 결과**: db-schema §1.1 부여 목록·ADR-001 prefix 표·ERD 05 mermaid(`char30 public_id "prefix: aud_"`)·ERD README prefix 목록 정정 완료.
 
-### ⚠ 7-3. ADR-006 partial index 표현 보정
+### ✅ 7-3. ADR-006 partial index 표현 보정 — 해소 완료
 
-- **현상**: ADR-006 영향 절 "소프트 삭제 컬럼 인덱스" 관련 partial index 가능성 언급. **MariaDB는 partial index(`WHERE deleted_at IS NULL`) 미지원**.
-- **결정 방향(확정)**: 일반 인덱스 또는 (status, deleted_at) 복합으로 대체(index-strategy.md §4 명시).
-- **처리**: ADR-006 본문 "partial index" 표현 자체 보정은 PR-04.5에서 처리.
+- **현상**: ADR-006 §영향 "(전략은 PR-04)" 모호 참조. MariaDB는 partial index(`WHERE deleted_at IS NULL`) **미지원**.
+- **결정(확정)**: 일반 인덱스 또는 (status, deleted_at) 복합으로 대체(index-strategy.md §4.2 명시).
+- **처리 결과**: ADR-006 §영향 "(전략은 PR-04)" → "MariaDB partial index 미지원 → 일반 인덱스 또는 복합(index-strategy.md §4.2)" 으로 표현 구체화 완료.
 
 ---
 

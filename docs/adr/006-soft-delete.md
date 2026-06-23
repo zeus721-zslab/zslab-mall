@@ -41,7 +41,7 @@
 ## 영향
 
 - 모든 조회 쿼리는 SOFT 대상에 `deleted_at IS NULL` 가드가 필요하다(누락 시 삭제분 노출).
-- 소프트 삭제 컬럼(`deleted_at`)은 조회 필터에 쓰이므로 인덱스 영향이 있다(전략은 PR-04).
+- 소프트 삭제 컬럼(`deleted_at`)은 조회 필터에 쓰이므로 인덱스 영향이 있다. MariaDB는 partial index(`WHERE deleted_at IS NULL`) 미지원 → 일반 인덱스 또는 (status, deleted_at) 복합으로 대체(index-strategy.md §4.2).
 - 삭제는 전체관리자 한정·삭제 시 AuditLog.action=DELETE 자동 기록(audit-policy.md).
 - 자동 비식별화 배치 잡이 필요하다(구현 단계 이연).
 

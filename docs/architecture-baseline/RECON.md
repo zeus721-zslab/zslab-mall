@@ -546,3 +546,68 @@ state-machine.md §6: "재고 복구 시점(CANCELLED/RETURNED 후) → PR-02 in
 | M-23 | README.md "총 테이블 29개" 동일 카운트 오류 | ERD README 머리말 | db-schema §3와 동일 오류. 본 PR(5파일)에 README 포함 여부 사용자 확정 |
 
 > M-21·M-22는 ADR-001·db-schema §1.1·ERD를 건드려야 해소 가능 → 본 PR 산출물(5파일) 범위를 벗어나므로 **수정하지 않고 체크리스트에 "DDL 진입 전 해소 필요" 항목으로 등재만** 한다. 실제 정정은 사용자 확정 후 별도 처리(ERD 갱신 트랙 또는 본 PR 범위 확대 결정 시).
+
+---
+
+# PR-04.5 정찰 (정합성 정정)
+
+> 소스: ddl-ready-checklist.md §7 ⚠ 해소 필요 3건·decisions.md D-13~D-15·index-strategy.md §4.2
+> 목적: PR-04.5 구현 전 수정 위치 전수 확인. 신규 결정 없음 — 사용자 확정 방향만 반영.
+
+---
+
+## 1. M-21 대상 위치 (public_id 컬럼 타입 CHAR(30) 통일)
+
+| 파일 | 현재 표기 | 수정 방향 |
+|---|---|---|
+| `docs/design/db-schema-decisions.md` §1.1 표 | `CHAR(26)` | `CHAR(30)` |
+| `docs/design/db-schema-decisions.md` §1.4 표 | `public_id \| CHAR(26)` | `CHAR(30)` |
+| `docs/adr/001-public-id.md` §영향 | `VARCHAR(30)` | `CHAR(30)` |
+| ERD 01 (User) | `char26 public_id "prefix: usr_"` | `char30 public_id "prefix: usr_"` |
+| ERD 02 (Seller) | `char26 public_id "prefix: slr_"` | `char30 public_id "prefix: slr_"` |
+| ERD 03 (Product) | `char26 public_id "prefix: prd_"` | `char30 public_id "prefix: prd_"` |
+| ERD 03 (ProductVariant) | `char26 public_id "prefix: var_"` | `char30 public_id "prefix: var_"` |
+| ERD 04 (Order) | `char26 public_id "prefix: ord_"` | `char30 public_id "prefix: ord_"` |
+| ERD 04 (OrderItem) | `char26 public_id "prefix: oit_"` | `char30 public_id "prefix: oit_"` |
+| ERD 04 (Payment) | `char26 public_id "prefix: pay_"` | `char30 public_id "prefix: pay_"` |
+| ERD 04 (Delivery) | `char26 public_id "prefix: dlv_"` | `char30 public_id "prefix: dlv_"` |
+| ERD 04 (Claim) | `char26 public_id "prefix: clm_"` | `char30 public_id "prefix: clm_"` |
+| ERD 04 (Refund) | `char26 public_id "prefix: rfn_"` | `char30 public_id "prefix: rfn_"` |
+| ERD 05 (Attachment) | `char26 public_id "prefix: att_"` | `char30 public_id "prefix: att_"` |
+| ERD 05 (AuditLog) | `char26 public_id` | `char30 public_id "prefix: aud_"` (M-22 동시) |
+
+**합계**: 14곳 (`char26` → `char30`). ERD 05 AuditLog는 M-22 prefix 추가와 동시 처리.
+
+---
+
+## 2. M-22 대상 위치 (AuditLog public_id 부여 + prefix `aud_`)
+
+| 파일 | 수정 내용 |
+|---|---|
+| `docs/design/db-schema-decisions.md` §1.1 "부여" 표 | "부여" 열에 AuditLog 추가 / "미부여" 열에서 AuditLog 제거 (11→12) |
+| `docs/adr/001-public-id.md` prefix 목록 | `\| AuditLog \| aud_ \|` 행 추가 (11→12) |
+| ERD 05 AuditLog mermaid | `char26 public_id` → `char30 public_id "prefix: aud_"` (M-21 동시) |
+| `docs/design/erd/README.md` prefix 목록 | `\| \`aud_\` \| AuditLog \|` 행 추가 |
+
+> 참고: ERD 05 메모 라인 "Attachment(att_), AuditLog만 해당"은 이미 AuditLog 부여를 반영. db-schema §1.1·ADR-001 prefix 목록만 미등재 → 해당 2곳 + ERD mermaid prefix 표기·README 목록 추가.
+
+---
+
+## 3. ADR-006 표현 보정 위치
+
+| 파일 | 현재 표현 | 수정 방향 |
+|---|---|---|
+| `docs/adr/006-soft-delete.md` §영향 마지막 줄 | "인덱스 영향이 있다(전략은 PR-04)." | "인덱스 영향이 있다. MariaDB는 partial index(`WHERE deleted_at IS NULL`) 미지원 → 일반 인덱스 또는 (status, deleted_at) 복합으로 대체(index-strategy.md §4.2)." |
+
+> 점검: ADR-006 본문에 "partial index"라는 단어 **자체가 없음** — 정정 내용은 "partial index 언급 삭제"가 아니라 "(전략은 PR-04)" 모호한 참조를 구체적 대체 방법으로 치환하는 것.
+
+---
+
+## 4. 본 PR 범위 외 변경 점검
+
+정찰 중 추가 불일치 발견 없음. 아래는 기존 등재 항목과 동일한 범위.
+
+| 항목 | 처리 |
+|---|---|
+| `db-schema-decisions.md` 헤더 changelog `v2.3` | PR-04.5 반영 후 `v2.4` 로 한 줄 추가 권장 (선택사항) |
+| ERD 05 메모 "Attachment(att_), AuditLog만 해당" | AuditLog prefix 없이 이미 부여 언급 → prefix 추가(ERD 05 mermaid 수정)로 충분. 메모 문구 자체 수정 불필요 |
