@@ -293,3 +293,136 @@ state-machine.md §6: "재고 복구 시점(CANCELLED/RETURNED 후) → PR-02 in
 | M-13 | 재고 예약을 주문 생성과 동일 트랜잭션(동기)으로 묶는가 | §1.2 E1 | 제안: 동기 (oversell 방지 — eventual consistency는 초과판매 위험) |
 | M-14 | 결제 만료(미결제 자동 취소) 타이머로 예약 자동 해제 | §1.2 E3 | 제안: 정책만 명시·실제 타이머/배치는 구현 단계 이연 |
 | M-15 | E4·E5 Delivery 상태 트리거 참조가 state-machine.md §6(Delivery 전이 이연)와 충돌하는가 | §1.2 경고 | 제안: 트리거 참조만 허용(전이 규칙 미정의)·사용자 확정 필요 |
+
+---
+
+# PR-03 정찰
+
+> 소스: baseline-plan.md §5/§8/§9 #2/§10·aggregate-boundary.md §3·state-machine.md·domain-events.md(E2·E6)·decisions.md(D-01~D-09)·inventory-policy.md·ADR-001/003/005·db-schema-decisions.md §1.7/§1.8/§1.11/§2.1/§2.2/§2.7/§2.8/§1.13·ERD 05
+> 목적: read-model.md·audit-policy.md·deletion-policy.md·ADR-006 작성 전 근거 수집
+
+---
+
+## 1. Read Model 후보 인벤토리
+
+### 1.1 BuyerPurchaseAggregate (이벤트 핸들러 갱신)
+
+| 항목 | 내용 |
+|---|---|
+| 컬럼(db-schema §2.2) | buyer_id PK·lifetime_purchase_amount·last_ordered_at·updated_at |
+| 원천(Write Model) | Order/OrderItem (CONFIRMED 항목 total_price 합) |
+| 갱신 트리거 | **domain-events.md E6 PurchaseConfirmed**(OrderItem→CONFIRMED·발행 주체 Order) |
+| 집계 키 | buyer_id |
+| 집계 단위 | 구매확정 누적 (lifetime) |
+| 갱신 시점 | E6 수신 시 즉시(이벤트 핸들러)·lifetime += confirmed total·last_ordered_at 갱신 |
+| 재계산 가능 | 가능 — Order/OrderItem(CONFIRMED) 원천으로 SUM 재집계(이벤트 유실 시 배치 보정) |
+| 후속 사용 | GradeEvaluator → BuyerProfile.grade_id (db-schema §2.2) |
+
+> **정합 노트**: db-schema §2.2는 "Order COMPLETED 이벤트" 표기. PR-01에서 Order.status에 COMPLETED 값 부재·CONFIRMED로 확정(D-02). domain-events.md E6 PurchaseConfirmed가 정합 트리거. 등급 산정 원천은 BuyerProfile 미보유(lifetime은 Aggregate 단독 보유).
+
+### 1.2 SellerSalesDaily (배치 갱신)
+
+| 항목 | 내용 |
+|---|---|
+| 컬럼(db-schema §2.8) | seller_id·sale_date 복합 PK·order_count·gross_amount·refund_amount·net_amount |
+| 원천(Write Model) | OrderItem(seller_id별 매출)·Refund(환불 차감) |
+| 갱신 방식 | db-schema §1.11·§2.8 "집계 테이블(배치 갱신)" 명시 — 일 1회 마감 집계 |
+| 집계 키 | (seller_id, sale_date) |
+| 집계 단위 | 판매자 × 일자 |
+| 재계산 가능 | 가능 — 특정 일자 재배치(idempotent upsert) |
+
+> **배치 vs 이벤트(M-16)**: db-schema는 배치 명시. refund_amount·net_amount는 당일 확정값 마감이 필요하므로 일 마감 배치가 적합. 이벤트 즉시 집계는 환불·취소가 같은 날 섞일 때 중간 상태 노출 위험.
+
+### 1.3 추가 Read Model 후보 (VIEW — db-schema §1.11)
+
+| 뷰명 | 용도 | 방식(§1.11) |
+|---|---|---|
+| vw_seller_sales_monthly | 월간 매출(SellerSalesDaily 30개 GROUP BY) | 즉시 집계 VIEW (SellerSalesMonthly 테이블 폐기 대체) |
+| vw_order_admin | 주문 관리 화면(단순 JOIN·조건·페이징) | MERGE VIEW |
+| vw_seller_dashboard | 판매자 대시보드 | MERGE VIEW |
+| vw_buyer_grade_history | 등급 변경 이력(grade_changed_reason 제거 대체·db-schema §2.1) | VIEW (AuditLog 기반) |
+
+> VIEW는 테이블이 아닌 조회 파생. 본 트랙은 뷰명·용도·방식만 분류. 실제 SQL·ALGORITHM·인덱스는 PR-04/구현 이연(§5 배제).
+
+### 1.4 Write↔Read 동기화 패턴 (db-schema §1.11)
+
+| 케이스 | 방식 | 본 도메인 매핑 |
+|---|---|---|
+| 단순 JOIN·조건·페이징 | MERGE VIEW | vw_order_admin·vw_seller_dashboard |
+| GROUP BY·대량 집계 | 집계 테이블(배치) 또는 즉시 집계 VIEW | SellerSalesDaily(배치)·vw_seller_sales_monthly(VIEW) |
+| 이벤트 기반 실시간 집계 | Aggregate 테이블(이벤트 핸들러) | BuyerPurchaseAggregate(E6 핸들러) |
+
+---
+
+## 2. Audit Policy 후보
+
+### 2.1 AuditLog 현재 정의 (db-schema §2.7·ERD 05)
+
+- 컬럼: public_id·actor_user_id(nullable)·actor_role·action·target_type(polymorphic D분류)·target_id·diff_json·ip_address·user_agent·created_at
+- FK 없음(논리 참조만)·append-only(수정·삭제 없음·비식별화 후에도 정합 유지).
+
+### 2.2 diff_json 컬럼 타입 후보 (baseline-plan §9 #2)
+
+| 타입 | 비고 |
+|---|---|
+| JSON (권장) | MariaDB에서 JSON = LONGTEXT alias + CHECK(JSON_VALID). 함수 질의(JSON_EXTRACT)·유효성 보장 |
+| LONGTEXT | 검증 없음·질의 불편 |
+
+→ baseline-plan §9 #2·ERD 05 설계메모 모두 **JSON 권장**. 본 PR 확정 대상.
+
+### 2.3 추적 액션 인벤토리 (db-schema §1.13 A분류 #18)
+
+- AuditLog.action = CREATE / UPDATE / DELETE / APPROVE / REJECT / LOGIN / LOGOUT (A분류 잠금·확장 시 마이그레이션).
+
+### 2.4 diff_json 기록 범위 후보 (M-17)
+
+- ERD 05 "변경 전후 JSON". changed_fields는 diff_json 내부 키로 표현 가능.
+- 후보 구조: `{ changed_fields: [...], before: {...}, after: {...} }` — 변경 필드 한정 기록.
+- 민감정보(비밀번호·결제 토큰·계좌번호·주민번호)는 diff에서 제외/마스킹.
+
+### 2.5 적용 우선 대상 테이블 (운영자/시스템 행위 추적 필수)
+
+| 대상 | 추적 사유 |
+|---|---|
+| Settlement (status·금액) | 정산 분쟁 — 금액·상태 변경 감사 |
+| Seller.status | 판매자 정지·해지 운영 행위 |
+| Product.status | 상품 승인/거부(APPROVE/REJECT) |
+| SellerUser·UserRole·RolePermission | 권한 부여·회수 추적 |
+| SellerBankAccount | 정산 계좌 변경(금전 직결) |
+| BuyerProfile.grade | 등급 수동 변경(grade_changed_reason 제거→AuditLog 통일·db-schema §2.1) |
+
+---
+
+## 3. 삭제 정책 후보
+
+### 3.1 db-schema §1.8 소프트 삭제 적용 범위
+
+| 적용(8) | 미적용(상태 관리) |
+|---|---|
+| User, Seller, Product, ProductVariant, Category, Attachment, UserAddress, ProductImage | Order, OrderItem, Payment, Settlement, Claim, Refund, AuditLog, Inventory, InventoryHistory, 집계 테이블, CartItem |
+
+> §1.8 주석: "주문·결제·정산은 삭제가 아니라 상태 관리로 처리".
+
+### 3.2 분류 경계 정찰
+
+- **SOFT DELETE**: §1.8 적용 8개. deleted_at·deleted_by·delete_reason(§1.7) 마킹·복구 가능.
+- **HARD DELETE 후보**: CartItem(주문 소비/물리 삭제·보존가치 낮음·M-18)·권한 매핑(UserRole·RolePermission 회수 = 물리 삭제 + AuditLog·M-19). 세션·임시파일·검증토큰은 현재 ERD 미존재 → "도입 시 HARD" 정책만 명시(선제 테이블 생성 금지·§5).
+- **삭제 불가(상태 관리·영구 보존)**: Order·OrderItem·Payment·Settlement·Claim·Refund·AuditLog·InventoryHistory·집계. 전자상거래법 보관·분쟁·감사 대응. → **3분류(SOFT/HARD/ARCHIVE)에 매핑 곤란(M-20)**.
+
+### 3.3 소프트 삭제 vs 비식별화 분리 (db-schema §2.1)
+
+- User 탈퇴 흐름: 탈퇴(withdrawn_at) → 로그인 차단 → 법정 보관 기간(WithdrawnUser.legal_retention_until·전자상거래법 5년) 유지 → 배치 → 비식별화(anonymized_at).
+- 비식별화: email→NULL·phone→HASH·name→NULL. 식별자(user_id·order_id)는 유지(정합성 보존).
+- **개념 분리**: 소프트 삭제(deleted_at/withdrawn_at·복구 가능) ≠ 비식별화(anonymized_at·불가역 개인정보 파기). 두 축을 분리해야 "탈퇴했으나 법정 보관 중" 상태를 표현 가능.
+
+---
+
+## 4. 불확실·모호 항목
+
+| # | 항목 | 출처 | 처리 제안 |
+|---|---|---|---|
+| M-16 | SellerSalesDaily 갱신 = 배치 vs 이벤트 | §1.2 | 배치(일 마감) — db-schema 명시·환불 마감 정확성. BuyerPurchaseAggregate만 이벤트 |
+| M-17 | diff_json 기록 범위 = 전체 vs changed_fields | §2.4 | changed_fields + before/after(변경 필드 한정)·민감정보 마스킹 |
+| M-18 | CartItem 삭제 분류 = HARD vs SOFT | §3.2 | HARD — §1.8 소프트 미적용·주문 소비 시 물리 삭제·보존가치 낮음 |
+| M-19 | 권한 매핑(UserRole·RolePermission) 삭제 분류 | §3.2 | HARD + AuditLog 기록(회수 이력은 감사 로그로) |
+| M-20 | 삭제 불가(상태 관리) 테이블의 3분류 매핑 | §3.2 | **사용자 확정 필요**: (a) ARCHIVE에 "영구 보존(삭제 불가·상태 관리)" 포함 — 3분류 유지 / (b) 4번째 분류 RETAIN(상태 관리) 신설. 제안: (a) — 스펙 3분류 유지·ARCHIVE 정의에 "법정 보관·상태 관리 영구 보존" 명시. "별도 콜드 스토리지 이전"은 운영 이연 |
