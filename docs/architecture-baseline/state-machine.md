@@ -1,7 +1,7 @@
 # State Machine (PR-01)
 
-> 소스: decisions.md D-02·D-03·D-04·D-05 [확정 2026-06-24]
-> 범위: Order·OrderItem·Payment·Claim 4건 한정 (baseline-plan.md §4 결정 1)
+> 소스: decisions.md D-02·D-03·D-04·D-05 [확정 2026-06-24] · D-23 [확정 2026-06-24·§7 Seller.status]
+> 범위: Order·OrderItem·Payment·Claim 4건 (baseline-plan.md §4 결정 1) + Seller.status §7 (D-23) — 5건
 
 ---
 
@@ -166,3 +166,43 @@ Order.status는 OrderItem 집계 캐시이므로, OrderItem 상태가 변경될 
 - **Delivery·Refund·Settlement 상태 전이** → 각 도메인 별도 정의 (본 PR 범위 외)
 - **자동 구매확정 타이머** (배송 후 N일 → CONFIRMED) → 구현 단계
 - **재고 복구 시점** (CANCELLED/RETURNED 후) → PR-02 inventory-policy.md
+
+---
+
+## 7. Seller.status (B분류 — Code 참조, SELLER_STATUS)
+
+> 소스: decisions.md D-23 [확정 2026-06-24]·SLR-4(invariants.md §2.4)·§1.13 B#1.
+> B분류: Code 테이블로 라벨 관리. 값 집합은 코드 레이어 enum으로 고정(추가 = Flyway 마이그레이션 + Code 시드).
+> 본 절은 §6 외부 이연 대상이 아니다(§6은 Delivery·Refund·Settlement 한정). Seller.status는 D-23으로 본 절에 정의된다.
+
+```
+   PENDING ──→ ACTIVE ⇄ SUSPENDED
+      │          │          │
+      └──────────┴──────────┴──→ TERMINATED (불가역)
+```
+
+**확정 값 집합 (4개)** (V1__init.sql seller.status·§1.13 B#1):
+
+| 값 | 진입 조건 | 비고 |
+|---|---|---|
+| PENDING | Seller 행 생성 시 초기값 | 입점 심사 대기 |
+| ACTIVE | 운영자 입점 승인 | 정상 영업 |
+| SUSPENDED | 운영자 정지 (정책 위반·정산 미납 등) | ACTIVE에서만 진입·복귀 가능 |
+| TERMINATED | 탈퇴 요청·운영자 강제 종료·승인 거부/심사 철회 | 불가역·WithdrawnSeller 행 생성·비식별화 흐름 시작 (D-23·SLR-6) |
+
+**전이 규칙**:
+
+| 전이 | 트리거 |
+|---|---|
+| PENDING → ACTIVE | 운영자 입점 승인 |
+| PENDING → TERMINATED | 승인 거부·심사 중 철회 |
+| ACTIVE → SUSPENDED | 운영자 정지 (정책 위반·정산 미납 등) |
+| SUSPENDED → ACTIVE | 운영자 정지 해제 |
+| ACTIVE → TERMINATED | 탈퇴 요청·운영자 강제 종료 |
+| SUSPENDED → TERMINATED | 강제 종료 |
+
+**불가역**: TERMINATED. 진입 후 상태 변경 없음. WithdrawnSeller 행 생성 → 법정 보관 → 배치 비식별화 (D-23 흐름).
+
+**전이 권한**: 운영자(ADMIN_OPERATOR 이상)가 모든 전이를 수행. 판매자 자기 종료(SELLER_OWNER) 요청은 운영자 승인을 경유 — 판매자 직접 종료 권한 부여 여부는 구현 트랙 이연(본 트랙 결정 범위 외).
+
+**TERMINATED → 비식별화 연동**: TERMINATED 진입이 D-23 비식별화 흐름의 시작점이다. state-machine 전이(상태)와 비식별화(불가역 개인정보 파기)는 별개 축이며, 후자는 deletion-policy §3·D-23 배치가 담당한다.
