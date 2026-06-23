@@ -1,6 +1,6 @@
 # 회원 / 권한 / 등급 ERD
 
-> **소스**: db-schema-decisions.md v2.2 § 2.1 회원·권한, § 2.2 등급
+> **소스**: db-schema-decisions.md v2.4 § 2.1 회원·권한, § 2.2 등급
 
 ---
 

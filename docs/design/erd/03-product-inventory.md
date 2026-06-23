@@ -1,6 +1,6 @@
 # 상품 / 재고 ERD
 
-> **소스**: db-schema-decisions.md v2.2 § 2.4 상품·재고
+> **소스**: db-schema-decisions.md v2.4 § 2.4 상품·재고
 
 ---
 
@@ -136,7 +136,7 @@ erDiagram
 - **UNIQUE 제약**: `(product_id, option1_value_id, option2_value_id, option3_value_id)` — 동일 옵션 조합 중복 방지. NULL 허용 컬럼 포함 복합 UNIQUE는 MariaDB에서 NULL != NULL이므로 애플리케이션 레이어 추가 검증 필요.
 - **판매 가능 판정 3단계**: ① `status != SALE` → 비노출 ② `quantity_available <= 0` → 품절 ③ `is_soldout_manual = TRUE` → 운영자 강제 품절.
 - **Inventory 분리 + 단일 창고 전제**: `warehouse_id` 제거. 단일 창고 전제로 단순화. 멀티 창고 도입 시 컬럼 추가 예정.
-- **quantity_available 캐시**: `= quantity_on_hand - quantity_reserved`. 갱신 방식은 DDL 작성 전 결정 보류 (트리거 vs 애플리케이션 — [README 결정 보류 항목](./README.md) 참조).
+- **quantity_available 캐시**: `= quantity_on_hand - quantity_reserved`. **확정 (D-09)**: 애플리케이션 갱신. Inventory Aggregate 단일 진입점에서 재계산. DB 트리거 기각 (ADR-005·docs/domain/inventory-policy.md §5 참조).
 - **ProductImage 전용 분리**: Attachment polymorphic에서 상품 이미지 제외(target_type에 PRODUCT 없음). 상품 이미지는 다중·정렬·대표 지정 등 전용 UX가 필요하여 전용 테이블 채택.
 - **public_id 부여**: Product, ProductVariant만 해당. Category, ProductImage, ProductOptionGroup, ProductOptionValue, Inventory, InventoryHistory는 내부 BIGINT id.
 - **enum 분류 (v2.3)**: Product.status·ProductVariant.status·InventoryHistory.change_type = A분류(잠금)·InventoryHistory.reference_type = D분류(polymorphic varchar). 상세는 db-schema-decisions.md §1.13.

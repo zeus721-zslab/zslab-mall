@@ -1,6 +1,6 @@
 # 코드 / 공통 / 집계 ERD
 
-> **소스**: db-schema-decisions.md v2.2 § 2.6 코드·상태 관리, § 2.7 공통, § 2.8 집계
+> **소스**: db-schema-decisions.md v2.4 § 2.6 코드·상태 관리, § 2.7 공통, § 2.8 집계
 
 ---
 
@@ -116,7 +116,8 @@ erDiagram
 - **Code.color 제거**: 상태 색상 표시는 디자인 시스템 영역. DB 컬럼 보유 불필요.
 - **Attachment polymorphic 범위**: CLAIM, REVIEW, SELLER_DOCUMENT 등 비정형 첨부. **PRODUCT 제외** — 상품 이미지는 ProductImage 전용 테이블 사용.
 - **AuditLog FK 없음**: actor_user_id, target_id 모두 논리적 참조만. 비식별화 후에도 로그 정합성 유지 (user_id 유지, 개인정보 null). append-only, 수정·삭제 없음.
-- **AuditLog.diff_json 타입**: DDL 작성 전 결정 보류. MariaDB JSON = LONGTEXT + CHECK 제약 alias. 추천: JSON 타입 ([README 결정 보류 항목](./README.md) 참조).
+- **AuditLog.diff_json 타입**: **확정 (D-11)**: JSON 타입. MariaDB JSON = LONGTEXT + CHECK 제약 alias. JSON 경로 함수(`JSON_EXTRACT`) 지원·유효성 검증 CHECK 자동 적용 (docs/architecture-baseline/audit-policy.md·ADR-006 참조).
+- **NotificationLog 분류 (D-18)**: NotificationLog = Infra/Event Processing (이벤트 소비 기록·Aggregate 아님). 16 Aggregate + 1 Infra/Event Processing 구조 (docs/architecture-baseline/aggregate-boundary.md §2.7 참조).
 - **NotificationLog 1차 범위**: 발송 이력만. `recipient_user_id` FK 없음 (시스템 발송·비식별화 유저 발송 허용). 발송 트리거·재시도·템플릿 관리는 2차 도입.
 - **SellerSalesMonthly 폐기**: 월간 집계는 `vw_seller_sales_monthly` VIEW로 즉시 집계. `SellerSalesDaily` 30개 GROUP BY는 MariaDB에서 부하 없음.
 - **public_id 부여**: Attachment(att_), AuditLog만 해당. CodeGroup, Code, NotificationLog, SellerSalesDaily는 내부 id.

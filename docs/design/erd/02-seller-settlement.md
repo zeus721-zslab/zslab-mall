@@ -1,6 +1,6 @@
 # 판매자 / 정산 ERD
 
-> **소스**: db-schema-decisions.md v2.2 § 2.3 판매자
+> **소스**: db-schema-decisions.md v2.4 § 2.3 판매자
 
 ---
 
