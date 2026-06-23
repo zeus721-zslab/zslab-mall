@@ -626,7 +626,7 @@ net_amount
  
 ## 3. 최종 테이블 목록
  
-총 **29개** (집계 1개 제외 시 28개):
+총 **37개**:
  
 **회원·권한 (9)**
 - User, WithdrawnUser, BuyerProfile, UserAddress
@@ -647,6 +647,8 @@ net_amount
 - Attachment, AuditLog, NotificationLog
 **집계 (1)**
 - SellerSalesDaily
+
+**합계**: 9 + 3 + 3 + 8 + 8 + 5 + 1 = **37개**
 ---
  
 ## 4. ERD 진입 시 결정 보류 항목
