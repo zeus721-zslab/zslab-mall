@@ -65,8 +65,8 @@
 
 | # | 항목 | 점검 |
 |---|---|---|
-| - [ ] | prefix 11건 | usr_·slr_·prd_·var_·ord_·oit_·pay_·dlv_·clm_·rfn_·att_ |
-| - [ ] | AuditLog prefix | `aud_` 부여 확정 — ⚠ §7-2 해소(ERD/§1.1 정합) 후 반영 |
+| - [ ] | prefix 12건 | usr_·slr_·prd_·var_·ord_·oit_·pay_·dlv_·clm_·rfn_·att_·aud_ (12건·PR-04.5 해소) |
+| - [ ] | AuditLog prefix | `aud_` 부여 확정·CHAR(30)·db-schema §1.1/§1.4·ADR-001·ERD 05 정합 |
 
 ---
 
@@ -139,3 +139,14 @@
 4. DDL 생성(Flyway 마이그레이션) 진입.
 
 > 본 PR(PR-04) 머지 시점에 architecture-baseline 트랙 "주요 산출물" 완료. PR-04.5는 정정 처리 트랙.
+
+### DDL 트랙 진입 운영 체크박스
+
+> 위 4조건 충족 후 DDL 트랙 착수 직전 확인용. 아래 6개 항목 모두 체크 시 Flyway 마이그레이션 작성 진입 가능.
+
+- [ ] 결정 문서 잠금 (decisions.md D-01~D-21 머지 완료·erd-update E-01~E-06 머지 완료)
+- [ ] ERD 최신 (db-schema v2.4·ERD 5종 erd-update 반영 완료)
+- [ ] Invariant Enforcement Point 검증 완료 (invariants.md §2~§4 컬럼 점검)
+- [ ] 인덱스 전략 확정 (index-strategy.md §1~§7)
+- [ ] 삭제 정책 연결 (deletion-policy.md SOFT/HARD/ARCHIVE 3분류)
+- [ ] 보류 결정 0건 (baseline-plan §9 3건 모두 erd-update에서 해소·ddl-ready-review §F 확인)

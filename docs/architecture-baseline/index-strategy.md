@@ -51,7 +51,7 @@
 ### 4.1 public_id 인덱스 (ADR-001)
 
 - 부여 대상에 **UNIQUE 인덱스 필수**(API/URL 외부 조회 키).
-- 현재 부여 11건(User·Seller·Product·ProductVariant·Order·OrderItem·Payment·Delivery·Claim·Refund·Attachment) + **AuditLog 부여 확정 시 12건**(prefix `aud_`·ddl-ready-checklist §7-2·PR-04.5 정합).
+- 부여 12건(User·Seller·Product·ProductVariant·Order·OrderItem·Payment·Delivery·Claim·Refund·Attachment·AuditLog — PR-04.5 해소·prefix 목록은 ADR-001/ERD README).
 - ULID는 시간 정렬 가능 → 무작위 UUID 대비 B-Tree 단편화 적음(ADR-001).
 - 컬럼 타입은 `CHAR(30)` 통일 방향(ddl-ready-checklist §7-1·PR-04.5 정합).
 
@@ -86,4 +86,4 @@
 - **테이블별 실제 인덱스 명세·CREATE INDEX**: DDL 트랙.
 - **커버링 인덱스 컬럼 확정·인덱스 성능 측정·튜닝**: 구현/운영 단계(측정 기반).
 - **파티셔닝**: 운영 단계(대량 로그 AuditLog·Order 후보).
-- **public_id 타입·AuditLog 부여 정정**: PR-04.5(ddl-ready-checklist §7).
+- **public_id 타입 CHAR(30) 통일·AuditLog 부여(aud_) 정정**: 완료(PR-04.5·ddl-ready-checklist §7).
