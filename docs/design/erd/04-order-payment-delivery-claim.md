@@ -22,7 +22,7 @@ erDiagram
         char26 public_id "prefix: ord_"
         bigint buyer_id FK
         varchar50 order_no "표시용: 20260623-A1B2"
-        varchar50 status "Code 참조"
+        enum status "Code 참조 (B분류)·db-schema §1.13"
         bigint total_price
         bigint discount_amount
         bigint shipping_fee
@@ -40,7 +40,7 @@ erDiagram
         int quantity
         bigint unit_price
         bigint total_price
-        varchar50 item_status "항목별 상태"
+        enum item_status "Code 참조 (B분류)·DDL 보류§3"
     }
 
     OrderShippingSnapshot {
@@ -59,9 +59,9 @@ erDiagram
         bigint id PK
         char26 public_id "prefix: pay_"
         bigint order_id FK
-        varchar50 method "CARD|BANK|VBANK|KAKAO 등"
+        enum method "CARD|BANK|VBANK|KAKAO|..."
         bigint amount
-        varchar20 status "PENDING|PAID|FAILED|CANCELLED"
+        enum status "PENDING|PAID|FAILED|CANCELLED"
         varchar50 pg_provider
         varchar100 pg_tid
         datetime6 paid_at
@@ -71,9 +71,9 @@ erDiagram
         bigint id PK
         char26 public_id "prefix: dlv_"
         bigint order_item_id FK
-        varchar50 carrier "CJ|한진|우체국 등"
+        enum carrier "CJ|HANJIN|POST|LOGEN|..."
         varchar100 tracking_no
-        varchar20 status "READY|SHIPPING|DELIVERED"
+        enum status "READY|SHIPPING|DELIVERED"
         datetime6 shipped_at
         datetime6 delivered_at
     }
@@ -82,10 +82,10 @@ erDiagram
         bigint id PK
         char26 public_id "prefix: clm_"
         bigint order_item_id FK
-        varchar20 type "CANCEL|RETURN|EXCHANGE"
+        enum type "CANCEL|RETURN|EXCHANGE"
         varchar50 reason_code
         text reason_detail
-        varchar20 status "REQUESTED|APPROVED|REJECTED|COMPLETED"
+        enum status "REQUESTED|APPROVED|REJECTED|COMPLETED"
         bigint requested_by
         datetime6 requested_at
         datetime6 processed_at
@@ -97,7 +97,7 @@ erDiagram
         bigint claim_id FK
         bigint payment_id FK
         bigint amount
-        varchar20 status "PENDING|COMPLETED|FAILED"
+        enum status "PENDING|COMPLETED|FAILED"
         datetime6 refunded_at
         varchar100 pg_refund_id
     }
@@ -153,3 +153,4 @@ erDiagram
 - **Payment.pg_tid로 환불 대사**: Refund는 payment_id로 어떤 결제 건의 환불인지 추적. PG 환불 ID(pg_refund_id)로 외부 대사 가능.
 - **소프트 삭제 미적용**: Order, OrderItem, Payment, Delivery, Claim, Refund는 상태(status) 관리. "삭제"가 아닌 "상태 전이"로 처리.
 - **public_id 부여**: Order(ord_), OrderItem(oit_), Payment(pay_), Delivery(dlv_), Claim(clm_), Refund(rfn_). CartItem, OrderShippingSnapshot은 BIGINT id.
+- **enum 분류 (v2.3)**: Order.status·OrderItem.item_status = B분류·Payment/Delivery/Claim/Refund의 type·status·method·carrier 9건 = A분류. 상세는 db-schema-decisions.md §1.13.

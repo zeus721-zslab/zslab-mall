@@ -28,7 +28,7 @@ erDiagram
     Attachment {
         bigint id PK
         char26 public_id "prefix: att_"
-        varchar50 target_type "CLAIM|REVIEW|SELLER_DOCUMENT 등 (PRODUCT 제외)"
+        varchar50 target_type "polymorphic (D분류)·CLAIM|REVIEW|SELLER_DOCUMENT+"
         bigint target_id
         varchar200 file_name
         varchar2048 file_path
@@ -43,8 +43,8 @@ erDiagram
         char26 public_id
         bigint actor_user_id "nullable (시스템 작업)"
         varchar50 actor_role
-        varchar50 action "CREATE|UPDATE|DELETE|APPROVE 등"
-        varchar50 target_type
+        enum action "CREATE|UPDATE|DELETE|APPROVE|REJECT|LOGIN|..."
+        varchar50 target_type "polymorphic (D분류)"
         bigint target_id
         json diff_json "변경 전후 JSON"
         varchar45 ip_address
@@ -55,13 +55,13 @@ erDiagram
     NotificationLog {
         bigint id PK
         bigint recipient_user_id "nullable (FK 없음)"
-        varchar20 channel "EMAIL|SMS|PUSH|IN_APP"
+        enum channel "EMAIL|SMS|PUSH|IN_APP"
         varchar100 template_code "ORDER_PAID|DELIVERY_STARTED|CLAIM_APPROVED 등"
-        varchar50 target_type "Order|Claim|Settlement 등"
+        varchar50 target_type "polymorphic (D분류)"
         bigint target_id
         varchar200 title
         text content "발송 본문 스냅샷"
-        varchar20 status "PENDING|SENT|FAILED"
+        enum status "PENDING|SENT|FAILED"
         datetime6 sent_at
         text failed_reason
         datetime6 created_at
@@ -118,3 +118,4 @@ erDiagram
 - **NotificationLog 1차 범위**: 발송 이력만. `recipient_user_id` FK 없음 (시스템 발송·비식별화 유저 발송 허용). 발송 트리거·재시도·템플릿 관리는 2차 도입.
 - **SellerSalesMonthly 폐기**: 월간 집계는 `vw_seller_sales_monthly` VIEW로 즉시 집계. `SellerSalesDaily` 30개 GROUP BY는 MariaDB에서 부하 없음.
 - **public_id 부여**: Attachment(att_), AuditLog만 해당. CodeGroup, Code, NotificationLog, SellerSalesDaily는 내부 id.
+- **enum 분류 (v2.3)**: AuditLog.action·NotificationLog.channel·NotificationLog.status = A분류·Attachment/AuditLog/NotificationLog의 target_type = D분류(polymorphic varchar). 상세는 db-schema-decisions.md §1.13.

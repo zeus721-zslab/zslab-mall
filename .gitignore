@@ -9,3 +9,8 @@ PROGRESS.md
 
 # 인프라 문서 (로컬 참고용)
 docs/infra/
+
+# claude 관련
+CLAUDE.md
+CLAUDE-DEV.md
+CLAUDE-TEST.md
