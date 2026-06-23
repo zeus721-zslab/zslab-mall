@@ -16,3 +16,6 @@ docs/infra/
 CLAUDE.md
 CLAUDE-DEV.md
 CLAUDE-TEST.md
+
+# git commit 부산물
+commit-msg.txt
