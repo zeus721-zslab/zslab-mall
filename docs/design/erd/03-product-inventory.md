@@ -24,7 +24,7 @@ erDiagram
         bigint category_id FK
         varchar200 name
         longtext description
-        varchar50 status "DRAFT|PENDING|APPROVED|REJECTED|SALE|HIDDEN|STOPPED"
+        enum status "DRAFT|PENDING|APPROVED|REJECTED|SALE|HIDDEN|STOPPED"
         bigint base_price
         varchar2048 thumbnail_url
         datetime6 deleted_at
@@ -61,7 +61,7 @@ erDiagram
         varchar100 seller_sku
         varchar100 barcode
         bigint additional_price
-        varchar20 status "SALE|HIDDEN|STOPPED"
+        enum status "SALE|HIDDEN|STOPPED"
         boolean is_soldout_manual
         int display_order
         bigint option1_value_id FK
@@ -82,9 +82,9 @@ erDiagram
     InventoryHistory {
         bigint id PK
         bigint inventory_id FK
-        varchar20 change_type "ORDER|CANCEL|RETURN|ADJUST|INBOUND|OUTBOUND"
+        enum change_type "ORDER|CANCEL|RETURN|ADJUST|INBOUND|OUTBOUND"
         int quantity_delta
-        varchar50 reference_type "Order|Claim|Manual"
+        varchar50 reference_type "polymorphic (D분류)·Order|Claim|Manual+"
         bigint reference_id
         varchar255 reason
         datetime6 created_at
@@ -139,3 +139,4 @@ erDiagram
 - **quantity_available 캐시**: `= quantity_on_hand - quantity_reserved`. 갱신 방식은 DDL 작성 전 결정 보류 (트리거 vs 애플리케이션 — [README 결정 보류 항목](./README.md) 참조).
 - **ProductImage 전용 분리**: Attachment polymorphic에서 상품 이미지 제외(target_type에 PRODUCT 없음). 상품 이미지는 다중·정렬·대표 지정 등 전용 UX가 필요하여 전용 테이블 채택.
 - **public_id 부여**: Product, ProductVariant만 해당. Category, ProductImage, ProductOptionGroup, ProductOptionValue, Inventory, InventoryHistory는 내부 BIGINT id.
+- **enum 분류 (v2.3)**: Product.status·ProductVariant.status·InventoryHistory.change_type = A분류(잠금)·InventoryHistory.reference_type = D분류(polymorphic varchar). 상세는 db-schema-decisions.md §1.13.

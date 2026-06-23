@@ -1,1 +1,16 @@
+# 환경변수
+.env
+
+# 민감 문서
+docs/design/자바_쇼핑몰.md
+
+# 작업내역 리스트
 PROGRESS.md
+
+# 인프라 문서 (로컬 참고용)
+docs/infra/
+
+# claude 관련
+CLAUDE.md
+CLAUDE-DEV.md
+CLAUDE-TEST.md

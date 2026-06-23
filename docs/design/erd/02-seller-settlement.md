@@ -16,7 +16,7 @@ erDiagram
         varchar50 ceo_name
         varchar254 contact_email
         varchar20 contact_phone
-        varchar50 status "Code 참조: PENDING|ACTIVE|SUSPENDED|TERMINATED"
+        enum status "PENDING|ACTIVE|SUSPENDED|TERMINATED (B분류, Code 라벨 조인)"
         datetime6 deleted_at
     }
 
@@ -28,7 +28,7 @@ erDiagram
         varchar50 account_holder
         boolean is_primary
         datetime6 verified_at
-        varchar20 status "PENDING|VERIFIED|REJECTED"
+        enum status "PENDING|VERIFIED|REJECTED"
     }
 
     Settlement {
@@ -41,7 +41,7 @@ erDiagram
         bigint fee_amount
         bigint refund_amount
         bigint net_amount
-        varchar20 status "PENDING|CONFIRMED|PAID"
+        enum status "PENDING|CONFIRMED|PAID"
         datetime6 paid_at
     }
 
@@ -81,3 +81,4 @@ erDiagram
 - **금액 분해 구조**: `gross_amount - fee_amount - refund_amount = net_amount`. 각 항목을 개별 컬럼으로 분리하여 정산 검증 용이.
 - **Seller.status Code 참조**: PENDING(심사중) → ACTIVE(활성) → SUSPENDED(정지) → TERMINATED(해지). 상태 전이 규칙은 코드 레이어 enum으로 관리 (CodeTransition 폐기).
 - **public_id 부여**: Seller만 해당. SellerBankAccount, Settlement는 내부 BIGINT id.
+- **enum 분류 (v2.3)**: Seller.status = B분류(ENUM + Code 라벨 조인)·SellerBankAccount.status·Settlement.status = A분류(잠금). 상세는 db-schema-decisions.md §1.13.

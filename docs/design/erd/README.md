@@ -1,6 +1,6 @@
 # ERD 인덱스
 
-> **기반 문서**: [db-schema-decisions.md v2.2](../db-schema-decisions.md)
+> **기반 문서**: [db-schema-decisions.md v2.3](../db-schema-decisions.md)
 > **총 테이블**: 29개 (집계 포함) / 도메인 5개 다이어그램
 
 ---
@@ -18,6 +18,8 @@
 ---
 
 ## DDL 작성 전 결정 보류 항목
+
+> ✅ **v2.3 확정 (enum 정책)**: 신규 type/status 컬럼 분류 정책 (A/B/D) 및 Java enum 정책 (E-2~E-5) 확정. 상세는 db-schema-decisions.md §1.13 참조. 잔여 보류 3건은 아래 유지.
 
 > 아래 3건은 ERD 단계에서 확정되지 않은 사항입니다. DDL 작성 시작 전 결정 필요.
 

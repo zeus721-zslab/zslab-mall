@@ -51,7 +51,7 @@ erDiagram
 
     Role {
         bigint id PK
-        varchar50 code "SUPER_ADMIN|ADMIN_OPERATOR|BUYER|SELLER_OWNER|SELLER_MANAGER|SELLER_STAFF"
+        enum code "SUPER_ADMIN|ADMIN_OPERATOR|BUYER|SELLER_OWNER|SELLER_MANAGER|SELLER_STAFF"
         varchar50 name
     }
 
@@ -82,7 +82,7 @@ erDiagram
 
     BuyerGrade {
         bigint id PK
-        varchar50 code "SILVER|GOLD|PLATINUM"
+        enum code "SILVER|GOLD|PLATINUM"
         varchar50 name
     }
 
@@ -158,3 +158,4 @@ erDiagram
 - **탈퇴 3단계 흐름**: `withdrawn_at` 설정 → 로그인 차단 → `legal_retention_until` 경과 → 배치 → `anonymized_at` 설정 + 개인정보 비식별화 (email→NULL, phone→HASH, name→NULL, 식별자 유지).
 - **GradePolicy 버전 관리**: `version + effective_from/effective_to + is_active` 복합 조건으로 활성 정책 결정. `is_active=FALSE`로 선제 비활성화 가능.
 - **public_id 부여**: User, Seller만 해당. BuyerProfile, UserAddress, Role 계열, BuyerGrade, GradePolicy, BuyerPurchaseAggregate는 내부 BIGINT id로 충분.
+- **enum 분류 (v2.3)**: Role.code·BuyerGrade.code·BuyerProfile.grade_source = A분류(잠금). 상세는 db-schema-decisions.md §1.13.
