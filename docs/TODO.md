@@ -10,7 +10,7 @@
 ## 현재 트랙
 **DDL** — Flyway 마이그레이션 작성 단계
 
-목표: 37개 테이블 DDL 생성·Flyway 마이그레이션 스크립트·골든 리뷰(ddl-ready-checklist §8 운영 체크박스 확인)
+목표: 37개 테이블 DDL 생성·Flyway 마이그레이션 스크립트·골든 리뷰(ddl-ready-checklist §8 운영 체크박스 확인) (V1 기준·V2 withdrawn_seller 별도·D-23)
 
 ## 진행 대기 트랙
 

@@ -21,6 +21,7 @@
 - `created_by`·`updated_by`·`deleted_by`: FK 없음(§1.7·시스템 작업 NULL 허용)·BIGINT NULL.
 - `created_at` NOT NULL·`updated_at` NOT NULL(집계·시드성 포함)·기본값 DEFAULT 미지정(앱/JPA Auditing 주입·UTC).
 - soft delete 3컬럼(`deleted_at`·`deleted_by`·`delete_reason VARCHAR(255)`)은 audit와 별개로 **SOFT 8 테이블 한정** 부착(§1.8): User·Seller·Product·ProductVariant·Category·Attachment·UserAddress·ProductImage.
+> V2(D-23·withdrawn_seller): audit full 분류 → full 28→29 (V2 적용 시점). 본 합계 37은 V1__init 스코프 기준.
 
 ## 결정 2 — 파일 경로 docs/ddl/V1__init.sql
 
@@ -34,6 +35,8 @@ MariaDB `COMMENT '...'` 절 사용. 도메인 가독성·온보딩 목적.
 
 **테이블 코멘트 — 37건 전건 필수.** 형식: `COMMENT='<한글명>(<Aggregate 코드>·<삭제정책>·public_id <prefix>)'`. public_id 미부여·집계 등은 해당 항목 생략.
 예: `COMMENT='회원(USR·SOFT·public_id usr_)'`
+
+> V2(withdrawn_seller·D-23) 적용 시 테이블 코멘트 38건. 본 37건은 V1__init 스코프 기준.
 
 **컬럼 코멘트 — 다음 한정 부착:**
 - 도메인 컬럼 전건(업무 의미가 있는 컬럼).
@@ -90,3 +93,4 @@ MariaDB `COMMENT '...'` 절 사용. 도메인 가독성·온보딩 목적.
 - **(보정 1) seller.business_no `NOT NULL` → `NULL`**: 정찰 §2.3은 NN으로 표기했으나, db-schema 마스터 §2.3 및 D-22(재등록 = 비식별화 완료 상태) 명세상 Seller 비식별화 시 business_no를 NULL로 비워 UK 슬롯을 해제해야 함(User.email NULL과 동일 패턴). 따라서 `business_no VARCHAR(20) NULL`·UK 유지(다중 NULL 허용). **가정 표면화**: D-22 재등록 흐름을 위한 nullable 채택.
 - **(보정 2) §6 FK 표 `code → code_group` 누락·총계 40→41**: 정찰 §6 요약표가 code 테이블의 group_id FK 행을 누락하고 합계를 40으로 기재. §2.6은 group_id를 FK로 명시하므로 DDL은 `fk_code_group`을 정상 포함(FK 총 41). RECON.md §6 표·총계 정정 완료.
 - **(검증 메모) audit 5분류·SOFT 8·ENUM 21·UK 23·CHECK 6·public_id 12** 전부 테이블별 파싱 검증 통과(집계 카운트 아닌 블록별 시그니처 대조).
+> V2(withdrawn_seller·D-23) 적용 시 FK 41→42(+fk_withdrawn_seller_seller)·audit full 28→29. 본 보정·검증 메모는 V1__init 스코프 기준.
