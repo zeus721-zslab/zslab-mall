@@ -45,8 +45,17 @@ erDiagram
         datetime6 paid_at
     }
 
+    WithdrawnSeller {
+        bigint id PK
+        bigint original_seller_id FK
+        varchar255 terminate_reason
+        datetime6 legal_retention_until
+        datetime6 anonymized_at
+    }
+
     Seller ||--o{ SellerBankAccount : "1:N 정산 계좌"
     Seller ||--o{ Settlement : "1:N 정산 내역"
+    Seller ||--o| WithdrawnSeller : "1:0..1 종료"
     SellerBankAccount ||--o{ Settlement : "1:N 정산 시점 계좌 스냅샷"
 ```
 
@@ -59,6 +68,7 @@ erDiagram
 | Seller | 입점 판매자. 상태(status)는 Code 참조. 소프트 삭제 |
 | SellerBankAccount | 정산 계좌. account_number AES 암호화. 계좌 변경 시 신규 row 추가 (이력 보존) |
 | Settlement | 정산 내역. 정산 시점 계좌(bank_account_id) 스냅샷 고정. 금액 분해 구조 |
+| WithdrawnSeller | 종료 판매자 아카이브. Seller TERMINATED 진입 시 행 생성. 법정 보관기간·비식별화 시점 관리(public_id 없음·ARCHIVE·D-23) |
 
 ---
 

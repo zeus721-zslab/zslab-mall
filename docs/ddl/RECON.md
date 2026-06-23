@@ -1,8 +1,8 @@
 # DDL 작성 트랙 — 정찰 입력 사본
 
-> 본 파일은 `docs/architecture-baseline/RECON.md` 의 "DDL 정찰 — 37 테이블 전수 매핑 (2026-06-24)" 섹션 사본이다.
+> 본 파일은 V1__init.sql 작성 트랙의 "DDL 정찰 — 37 테이블 전수 매핑 (2026-06-24)" **단일 보유처**다. `docs/architecture-baseline/RECON.md` 에는 본 위상정렬·테이블별 상세 섹션이 부재하며(M-09 카운트 정찰만 보유), 본 파일이 V1 토폴로지 SoT다.
 > 목적: V1__init.sql 작성 트랙의 단일 입력 보존(작성 중 architecture-baseline 4문서 재참조 부담 제거).
-> 원본 정찰은 read-only 모드로 산출되었고, 본 사본이 작성 트랙의 SoT 입력이다.
+> 원본 정찰은 read-only 모드로 산출되었고, 본 파일이 작성 트랙의 SoT 입력이다.
 
 ---
 
@@ -91,7 +91,7 @@
 
 #### 2.3 판매자 (3)
 
-**Seller** — Aggregate Seller(Root) · SOFT · public_id `slr_` — public_id CHAR(30) NN UK / company_name VARCHAR(100) NN / business_no VARCHAR(20) NN(UK·SLR-1·재등록 D-22) / ceo_name VARCHAR(50) NN / contact_email VARCHAR(254) NULL / contact_phone VARCHAR(20) NULL / status ENUM(PENDING,ACTIVE,SUSPENDED,TERMINATED) NN(B·SELLER_STATUS·SLR-4).
+**Seller** — Aggregate Seller(Root) · SOFT · public_id `slr_` — public_id CHAR(30) NN UK / company_name VARCHAR(100) NN(V2 NULL·D-23) / business_no VARCHAR(20) NULL(UK·SLR-1·재등록 D-22·보정1) / ceo_name VARCHAR(50) NN(V2 NULL·D-23) / contact_email VARCHAR(254) NULL / contact_phone VARCHAR(20) NULL / status ENUM(PENDING,ACTIVE,SUSPENDED,TERMINATED) NN(B·SELLER_STATUS·SLR-4).
 
 **SellerBankAccount** — Seller 종속 · ARCHIVE(경계) — seller_id BIGINT NN(FK) / bank_code VARCHAR(20) NN / account_number VARCHAR(255) NN(AES·SLR-2) / account_holder VARCHAR(50) NN / is_primary BOOLEAN NN(SLR-3) / verified_at DATETIME(6) NULL / status ENUM(PENDING,VERIFIED,REJECTED) NN(A#4).
 
@@ -294,3 +294,7 @@
 - ③ Claim.reason_code 값집합 미확정 → **VARCHAR(50) + Code 시드 정합**(ENUM·FK 미적용).
 - ④ zonecode 길이(§2.1 "5자리" vs ERD VARCHAR(10)) → **VARCHAR(10)**.
 - ⑤ "17 Aggregate" 표현 lag(D-13·ddl-ready-checklist §2) → 본 트랙 범위 외·TODO 등재.
+
+---
+
+> **V2 propagation note (D-23·2026-06-24)**: 본 정찰은 V1__init.sql(37 테이블) 스코프다. V2(withdrawn_seller CREATE·seller company_name·ceo_name NULL ALTER)는 별도 마이그레이션이며 본 V1 정찰 범위 외. 현재 스키마 누적 총계는 38 테이블(db-schema §3·deletion-policy §2.3·ERD README).

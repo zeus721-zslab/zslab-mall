@@ -1,7 +1,7 @@
 # ERD 인덱스
 
 > **기반 문서**: [db-schema-decisions.md v2.4](../db-schema-decisions.md)
-> **총 테이블**: 37개 (집계 포함) / 도메인 5개 다이어그램
+> **총 테이블**: 38개 (집계 포함) / 도메인 5개 다이어그램
 
 ---
 
@@ -10,7 +10,7 @@
 | 파일 | 도메인 | 포함 엔티티 수 | 설명 |
 |---|---|---|---|
 | [01-user-permission-grade.md](./01-user-permission-grade.md) | 회원·권한·등급 | 12 | User, 탈퇴, 주소록, RBAC, 판매자 소속, 구매 등급·정책·집계 |
-| [02-seller-settlement.md](./02-seller-settlement.md) | 판매자·정산 | 3 | Seller, 정산 계좌(암호화), 정산 내역(금액 분해) |
+| [02-seller-settlement.md](./02-seller-settlement.md) | 판매자·정산 | 4 | Seller, 정산 계좌(암호화), 정산 내역(금액 분해), 종료 판매자 아카이브 |
 | [03-product-inventory.md](./03-product-inventory.md) | 상품·재고 | 8 | 카테고리 계층, 상품, 이미지, 옵션 그룹/값, SKU, 실재고, 변동 이력 |
 | [04-order-payment-delivery-claim.md](./04-order-payment-delivery-claim.md) | 주문·결제·배송·클레임 | 8 | 장바구니, 주문, 배송지 스냅샷, 결제, 배송, 클레임, 환불 |
 | [05-common-code-aggregate.md](./05-common-code-aggregate.md) | 코드·공통·집계 | 6 | 상태 코드, 첨부파일, 감사 로그, 알림 이력, 일별 매출 집계 |
