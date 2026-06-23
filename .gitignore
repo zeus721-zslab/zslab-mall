@@ -1,5 +1,7 @@
 # 환경변수
 .env
+.env.local
+.env.*.local
 
 # 민감 문서
 docs/design/자바_쇼핑몰.md
