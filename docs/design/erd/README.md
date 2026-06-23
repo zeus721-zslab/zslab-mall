@@ -1,6 +1,6 @@
 # ERD 인덱스
 
-> **기반 문서**: [db-schema-decisions.md v2.3](../db-schema-decisions.md)
+> **기반 문서**: [db-schema-decisions.md v2.4](../db-schema-decisions.md)
 > **총 테이블**: 37개 (집계 포함) / 도메인 5개 다이어그램
 
 ---
@@ -17,40 +17,29 @@
 
 ---
 
-## DDL 작성 전 결정 보류 항목
+## architecture-baseline 트랙 확정 항목 (v2.4)
 
-> ✅ **v2.3 확정 (enum 정책)**: 신규 type/status 컬럼 분류 정책 (A/B/D) 및 Java enum 정책 (E-2~E-5) 확정. 상세는 db-schema-decisions.md §1.13 참조. 잔여 보류 3건은 아래 유지.
+> ✅ **v2.3 확정 (enum 정책)**: 신규 type/status 컬럼 분류 정책 (A/B/D) 및 Java enum 정책 (E-2~E-5) 확정. 상세는 db-schema-decisions.md §1.13 참조.
 
-> 아래 3건은 ERD 단계에서 확정되지 않은 사항입니다. DDL 작성 시작 전 결정 필요.
+> ✅ **v2.4 확정 (erd-update 트랙)**: 아래 3건은 architecture-baseline 트랙(PR-00~05)에서 모두 확정되었습니다. DDL 작성 전 별도 결정 불필요.
 
-### 1. Inventory.quantity_available 갱신 방식
+### 1. ✅ Inventory.quantity_available 갱신 방식 — 확정 (D-09)
 
-`quantity_available = quantity_on_hand - quantity_reserved` 캐시 컬럼.
+**확정**: 애플리케이션 갱신.
 
-| 방식 | 장점 | 단점 |
-|---|---|---|
-| **애플리케이션 갱신** | 디버깅 용이, 트랜잭션 명시적 제어 | 갱신 누락 시 캐시 불일치 가능 |
-| DB 트리거 | 강제 일관성 | 디버깅 난이도 ↑, ORM과 마찰 |
+`quantity_available = quantity_on_hand - quantity_reserved` 재계산을 Inventory Aggregate 단일 진입점에서 수행. DB 트리거는 디버깅 난이도·ORM 마찰 문제로 기각 (ADR-005·docs/domain/inventory-policy.md §5 참조).
 
-> 추천: **애플리케이션 갱신** (트리거 디버깅 난이도 및 ORM 마찰 고려).
+### 2. ✅ AuditLog.diff_json 컬럼 타입 — 확정 (D-11)
 
-### 2. AuditLog.diff_json 컬럼 타입
+**확정**: JSON 타입.
 
-| 타입 | 비고 |
-|---|---|
-| `JSON` | MariaDB 10.2+에서 LONGTEXT + CHECK 제약 alias. JSON 경로 함수(`JSON_EXTRACT`) 사용 가능 |
-| `LONGTEXT` | 단순 저장, 경로 함수 미지원 |
+MariaDB `JSON` = LONGTEXT + CHECK 제약 alias. JSON 경로 함수(`JSON_EXTRACT`) 지원·유효성 검증 CHECK 자동 적용 (docs/architecture-baseline/audit-policy.md·ADR-006 참조).
 
-> 추천: **JSON 타입** (경로 기반 쿼리, 유효성 검증 CHECK 제약 자동 적용).
+### 3. ✅ OrderItem.item_status ↔ Order.status 동기화 규칙 — 확정 (D-04·D-16)
 
-### 3. OrderItem.item_status ↔ Order.status 동기화 규칙
+**확정**: 방식 B (명시적 전이 조건·`OrderStatusResolver` Domain Service).
 
-`OrderItem.item_status`(항목별 상태)와 `Order.status`(주문 전체 상태) 이중 관리 정책 명세 필요.
-
-결정해야 할 사항:
-- 모든 OrderItem이 `DELIVERED` → Order를 `COMPLETED`로 자동 전이하는 주체 (이벤트 핸들러 vs 배치)
-- 일부 항목만 클레임인 경우 Order.status 정책 (부분 클레임 상태 표현 방법)
-- OrderItem.item_status가 Order.status와 충돌 시 우선순위
+OrderItem 상태 변경 시 `OrderStatusResolver`가 방식 B 7조건([5]→[6]→[7]→[4]→[3]→[2] 평가 순서)을 적용해 Order.status를 재계산 (docs/architecture-baseline/state-machine.md §5 참조).
 
 ---
 

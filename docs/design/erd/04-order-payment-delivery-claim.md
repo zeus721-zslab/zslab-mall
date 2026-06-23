@@ -1,6 +1,6 @@
 # 주문 / 결제 / 배송 / 클레임 ERD
 
-> **소스**: db-schema-decisions.md v2.2 § 2.5 주문·결제·배송
+> **소스**: db-schema-decisions.md v2.4 § 2.5 주문·결제·배송
 
 ---
 
@@ -22,7 +22,7 @@ erDiagram
         char30 public_id "prefix: ord_"
         bigint buyer_id FK
         varchar50 order_no "표시용: 20260623-A1B2"
-        enum status "Code 참조 (B분류)·db-schema §1.13"
+        enum status "Code 참조 (B분류)·8값 확정·§1.13"
         bigint total_price
         bigint discount_amount
         bigint shipping_fee
@@ -40,7 +40,7 @@ erDiagram
         int quantity
         bigint unit_price
         bigint total_price
-        enum item_status "Code 참조 (B분류)·DDL 보류§3"
+        enum item_status "Code 참조 (B분류)·12값 확정·§1.13"
     }
 
     OrderShippingSnapshot {
@@ -148,7 +148,37 @@ erDiagram
 - **OrderItem.seller_id 비정규화**: `Product.seller_id`와 중복이지만 의도된 설계. 멀티벤더 정산 시 OrderItem 단위로 seller_id 직접 참조 필요. 주문 당시 판매자 관계 고정.
 - **OrderShippingSnapshot**: 주문 시점 배송지 시점 스냅샷. UserAddress 변경·삭제 무관하게 주문 데이터 정합성 보존. Order와 1:1.
 - **Delivery는 OrderItem 단위**: 동일 주문의 상품별 배송사·운송장이 다를 수 있음 (부분 배송). OrderItem 1:N Delivery.
-- **Order.status vs OrderItem.item_status 이중 관리**: Order 전체 상태와 항목별 상태를 분리 관리. 동기화 규칙은 DDL 작성 전 결정 보류 ([README 결정 보류 항목](./README.md) 참조).
+- **Order.status 8값 확정 (D-02·B분류·ORDER_STATUS)** — SoT: docs/architecture-baseline/state-machine.md §4
+
+| 값 | 설명 |
+|---|---|
+| PENDING_PAYMENT | 결제 전 (주문 생성 직후) |
+| PAID | 결제완료 |
+| PREPARING | 준비중 |
+| SHIPPING | 배송중 |
+| DELIVERED | 배송완료 |
+| CONFIRMED | 구매확정 |
+| CANCELLED | 전체 취소 |
+| PARTIAL_CANCEL | 부분취소 |
+
+- **OrderItem.item_status 12값 확정 (D-03·B분류·ORDER_ITEM_STATUS)** — SoT: docs/architecture-baseline/state-machine.md §3
+
+| 값 | 설명 |
+|---|---|
+| ORDERED | 주문됨 |
+| PAID | 결제완료 |
+| PREPARING | 준비중 |
+| SHIPPING | 배송중 |
+| DELIVERED | 배송완료 |
+| CONFIRMED | 구매확정 |
+| CANCEL_REQUESTED | 취소요청 |
+| CANCELLED | 취소완료 |
+| RETURN_REQUESTED | 반품요청 |
+| RETURNED | 반품완료 |
+| EXCHANGE_REQUESTED | 교환요청 |
+| EXCHANGED | 교환완료 |
+
+- **Order.status vs OrderItem.item_status 동기화 — 확정 (D-04·D-16)**: 방식 B (명시적 전이 조건). `OrderStatusResolver` Domain Service가 OrderItem 상태 변경 시 방식 B 7조건([5]→[6]→[7]→[4]→[3]→[2])을 적용해 Order.status 재계산 (docs/architecture-baseline/state-machine.md §5 참조).
 - **Claim(요청) → Refund(처리) 분리**: 클레임 승인 후 환불 처리는 별도 행. Claim은 요청·승인·거절 이력, Refund는 PG 실환불 결과 기록.
 - **Payment.pg_tid로 환불 대사**: Refund는 payment_id로 어떤 결제 건의 환불인지 추적. PG 환불 ID(pg_refund_id)로 외부 대사 가능.
 - **소프트 삭제 미적용**: Order, OrderItem, Payment, Delivery, Claim, Refund는 상태(status) 관리. "삭제"가 아닌 "상태 전이"로 처리.
