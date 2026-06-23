@@ -43,7 +43,7 @@ erDiagram
         char26 public_id
         bigint actor_user_id "nullable (시스템 작업)"
         varchar50 actor_role
-        enum action "CREATE|UPDATE|DELETE|APPROVE|REJECT|LOGIN|..."
+        enum action "CREATE|UPDATE|DELETE|APPROVE|REJECT|LOGIN|LOGOUT"
         varchar50 target_type "polymorphic (D분류)"
         bigint target_id
         json diff_json "변경 전후 JSON"
@@ -99,6 +99,8 @@ erDiagram
 | 참조 방향 | 대상 도메인 | 비고 |
 |---|---|---|
 | Code ← Order.status | [04-order-payment-delivery-claim](./04-order-payment-delivery-claim.md) | ORDER_STATUS 그룹 Code 참조 |
+| Code ← OrderItem.item_status | [04-order-payment-delivery-claim](./04-order-payment-delivery-claim.md) | ORDER_ITEM_STATUS 그룹 Code 참조 |
+| Code ← Claim.reason_code | [04-order-payment-delivery-claim](./04-order-payment-delivery-claim.md) | CLAIM_REASON 그룹 Code 참조 |
 | Code ← Seller.status | [02-seller-settlement](./02-seller-settlement.md) | SELLER_STATUS 그룹 Code 참조 |
 | AuditLog.target_type → 모든 도메인 | 전체 | polymorphic, FK 없음 |
 | NotificationLog.target_type → 모든 도메인 | 전체 | polymorphic, FK 없음 |

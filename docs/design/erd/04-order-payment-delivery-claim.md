@@ -83,7 +83,7 @@ erDiagram
         char26 public_id "prefix: clm_"
         bigint order_item_id FK
         enum type "CANCEL|RETURN|EXCHANGE"
-        varchar50 reason_code
+        enum reason_code "Code 참조 (B분류)·CLAIM_REASON 그룹"
         text reason_detail
         enum status "REQUESTED|APPROVED|REJECTED|COMPLETED"
         bigint requested_by
@@ -153,4 +153,4 @@ erDiagram
 - **Payment.pg_tid로 환불 대사**: Refund는 payment_id로 어떤 결제 건의 환불인지 추적. PG 환불 ID(pg_refund_id)로 외부 대사 가능.
 - **소프트 삭제 미적용**: Order, OrderItem, Payment, Delivery, Claim, Refund는 상태(status) 관리. "삭제"가 아닌 "상태 전이"로 처리.
 - **public_id 부여**: Order(ord_), OrderItem(oit_), Payment(pay_), Delivery(dlv_), Claim(clm_), Refund(rfn_). CartItem, OrderShippingSnapshot은 BIGINT id.
-- **enum 분류 (v2.3)**: Order.status·OrderItem.item_status = B분류·Payment/Delivery/Claim/Refund의 type·status·method·carrier 9건 = A분류. 상세는 db-schema-decisions.md §1.13.
+- **enum 분류 (v2.3)**: Order.status·OrderItem.item_status = B분류·Payment/Delivery/Claim/Refund의 type·status·method·carrier 7건 = A분류·Claim.reason_code = B분류 1건. 상세는 db-schema-decisions.md §1.13.
