@@ -224,7 +224,7 @@ anonymized_at
 - name → NULL
 - user_id, order_id 등 식별자는 유지 (정합성 보존)
 재가입 허용 조건: 비식별화 완료 상태 (email NULL 처리 완료 후 재사용 허용) — D-22
-Seller 비식별화 시 business_no도 NULL 처리 대상 (구체 흐름은 후속 트랙) — D-22
+Seller 비식별화 시 business_no도 NULL 처리 대상 — 구체 흐름은 §2.3 Seller 비식별화 흐름·D-23
 #### BuyerProfile (User 1:0..1 확장)
 ```
 user_id PK FK(User.id)
@@ -306,11 +306,35 @@ updated_at
  
 #### Seller
 ```
-id, public_id, company_name, status (Code 참조)
-business_no NULL, ceo_name, contact_email, contact_phone
+id, public_id, company_name NULL, status (Code 참조)
+business_no NULL, ceo_name NULL, contact_email NULL, contact_phone NULL
 status: PENDING / ACTIVE / SUSPENDED / TERMINATED
 ```
-> `business_no` NULL 허용 — 비식별화 시 NULL 처리·UK 슬롯 해제 (D-22 정합).
+> `company_name`·`ceo_name`: V1 NOT NULL → V2에서 NULL 허용 (비식별화 대상·D-23). 활성 판매자 필수값은 Service 검증으로 강제.
+> `contact_email`·`contact_phone`: V1에서 이미 NULL — 배치 비식별화 대상.
+> `business_no` NULL 허용 — 비식별화 시 NULL 처리·UK 슬롯 해제 (D-22·D-23 정합).
+ 
+#### WithdrawnSeller (종료 판매자 아카이브 — ARCHIVE·D-23)
+```
+id (PK)
+original_seller_id     FK(Seller.id)  -- NOT NULL·논리 종속
+terminate_reason       NULL           -- 종료 사유
+legal_retention_until  NULL           -- 법정 보관 만료 시점
+anonymized_at          NULL           -- 비식별화 완료 시점
++ audit 4 (created_at·updated_at·created_by·updated_by)
+```
+> WithdrawnUser 패턴 준용 (회원 §2.1). public_id 없음·ARCHIVE 분류. Seller TERMINATED 진입 시 행 생성 (SLR-6).
+ 
+**Seller 비식별화 흐름** (D-23·User 패턴 대칭):
+```
+Seller TERMINATED 진입
+  → WithdrawnSeller 행 생성 (terminate_reason·legal_retention_until)
+  → 법정 보관 기간 유지
+  → 배치 → anonymized_at 마킹·비식별화
+           company_name·ceo_name·contact_email·contact_phone·business_no → NULL
+           SellerBankAccount.account_number → 암호화 키 폐기 (NOT NULL 유지·복호화 불가)
+  → 재등록 허용 (business_no UK 슬롯 해제·D-22 정합)
+```
  
 #### SellerBankAccount (정산 계좌 — 별도 분리)
 ```
@@ -323,6 +347,7 @@ verified_at         -- 계좌 실명확인 완료 시점
 status              -- PENDING / VERIFIED / REJECTED
 ```
 > 평문 저장 금지 (account_number 암호화). 계좌 변경 시 신규 row 추가 + 기존 row `is_primary=false` 처리 (이력 보존). Settlement는 정산 시점의 `bank_account_id` 스냅샷 보유 권장.
+> 비식별화: `account_number`는 NULL 대신 **암호화 키 폐기**로 비식별화 — 컬럼·NOT NULL 유지·복호화 불가 → Settlement 스냅샷 정합 보존 (D-23·SLR-2 정합).
  
 #### Settlement
 ```
@@ -632,15 +657,15 @@ net_amount
  
 ## 3. 최종 테이블 목록
  
-총 **37개**:
+총 **38개**:
  
 **회원·권한 (9)**
 - User, WithdrawnUser, BuyerProfile, UserAddress
 - Role, Permission, UserRole, RolePermission, SellerUser
 **등급 (3)**
 - BuyerGrade, GradePolicy, BuyerPurchaseAggregate
-**판매자 (3)**
-- Seller, SellerBankAccount, Settlement
+**판매자 (4)**
+- Seller, WithdrawnSeller, SellerBankAccount, Settlement
 **상품·재고 (8)**
 - Category, Product, ProductImage
 - ProductOptionGroup, ProductOptionValue, ProductVariant
@@ -654,7 +679,7 @@ net_amount
 **집계 (1)**
 - SellerSalesDaily
 
-**합계**: 9 + 3 + 3 + 8 + 8 + 5 + 1 = **37개**
+**합계**: 9 + 3 + 4 + 8 + 8 + 5 + 1 = **38개** (WithdrawnSeller 신설·D-23)
 ---
  
 ## 4. ERD 단계 확정 항목 (erd-update 트랙 v2.4)

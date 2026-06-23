@@ -11,7 +11,7 @@
 - **invariant는 상태(state) 상위 개념**이다. 상태 전이가 합법이어도 invariant를 깨면 무효다.
 - 위반 시 시스템 정합성이 붕괴한다(과판매·과환불·중복 계정 등).
 - **가장 낮은 레이어(DB)에서 강제**하고, DB로 불가능한 경우에만 Service/Domain으로 올린다(D-09·D-12 정합).
-- 본 문서는 **불변조건 카탈로그**다 — State Machine 전이 정의가 아니다(전이는 [state-machine.md](./state-machine.md) Order·OrderItem·Payment·Claim 4건 한정).
+- 본 문서는 **불변조건 카탈로그**다 — State Machine 전이 정의가 아니다(전이는 [state-machine.md](./state-machine.md) Order·OrderItem·Payment·Claim·Seller 5건 한정·Seller=D-23 §7).
 - 실제 DB CHECK·UK 제약 명세 / Entity 단위 검증 코드 / Service 가드 구현은 **외부 이연**(§5).
 
 ---
@@ -52,11 +52,13 @@
 | SLR-1 | Seller.business_no UNIQUE | 사업자번호 중복 차단 | DB UK | 동일 사업자 중복 입점 차단 | — |
 | SLR-2 | SellerBankAccount.account_number 암호화 저장 | 금융정보 보호 | Domain(AES·db-schema §2.3) | 평문 저장 금지 | — |
 | SLR-3 | SellerBankAccount is_primary 단일 | 정산 계좌 모호 차단 | Service(변경 시 기존 false) | 정산 대상 계좌 결정성 | — |
-| SLR-4 | Seller.status 전이(B분류 SELLER_STATUS) | 판매자 상태 정합 | Domain(enum canTransition) | 비합법 상태 전이 차단 | — |
+| SLR-4 | Seller.status 전이 = state-machine §7(B분류 SELLER_STATUS) | 판매자 상태 정합 | Domain(enum canTransition·D-23) | 비합법 상태 전이 차단 | — |
 | SLR-5 | SellerUser (seller_id, user_id) 중복 금지 | 소속 중복 차단 | DB UK | 동일 소속 중복 차단 | — |
+| SLR-6 | Seller TERMINATED 진입 시 WithdrawnSeller 행 생성 | 법정 보관·비식별화 추적(D-23) | Service | 종료 판매자 아카이브 누락 차단 | — |
 
 > 사업자 재등록 정책: 비식별화 완료 이후 허용 — D-22
 > business_no는 비식별화(NULL 처리) 완료 후에만 재등록 허용
+> 비식별화 흐름: WithdrawnSeller 신설·account_number 암호화 키 폐기·company_name/ceo_name/contact_email/contact_phone/business_no NULL — D-23 (전이는 state-machine §7·deletion-policy §3 대칭)
 
 ### 2.5 Settlement
 | # | Rule | Why | Enforcement Point | Impact | Alternative |
@@ -192,4 +194,4 @@
 
 ---
 
-> **커버리지**: 16 Aggregate(§2.1~2.16) + Infra/Event 1(§3) + 공통(§4). 도메인별 invariant ≈62건(16 Aggregate 59 + Infra/Event 3) + 공통 4. State Machine 전이는 state-machine.md(Order·OrderItem·Payment·Claim 4건) 한정·본 문서와 구분.
+> **커버리지**: 16 Aggregate(§2.1~2.16) + Infra/Event 1(§3) + 공통(§4). 도메인별 invariant ≈63건(16 Aggregate 60 + Infra/Event 3) + 공통 4. State Machine 전이는 state-machine.md(Order·OrderItem·Payment·Claim·Seller 5건) 한정·본 문서와 구분.
