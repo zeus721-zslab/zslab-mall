@@ -198,3 +198,98 @@ Payment.PAID → 모든 OrderItem = PAID → Order.status = PAID
 | M-08 | buyer-grade.md의 grade_changed_reason 존재 vs db-schema §2.1 제거 | 불일치 | 확인 필요 |
 | M-09 | db-schema-decisions.md §3 "총 29개" → 실제 37개 테이블 (오류 의심) | 오류 | 확인 후 수정 |
 | M-10 | REJECTED Claim 재요청 처리: 새 Claim 행 생성 vs 기존 Claim 상태 변경 | §2.2 | PR-01 |
+
+---
+
+# PR-02 정찰
+
+> 소스: baseline-plan.md §4 결정 2·§8·§9 #1·aggregate-boundary.md·state-machine.md·decisions.md(D-01·D-04·D-05)·db-schema-decisions.md §2.4/§1.11/§2.5·ERD 03/04
+> 목적: domain-events.md·inventory-policy.md·ADR-005 작성 전 근거 수집
+
+---
+
+## 1. 도메인 이벤트 후보
+
+### 1.1 발행 원칙 (정찰)
+
+aggregate-boundary.md §1: Aggregate간 참조는 ID만, 다른 Aggregate 변경은 **도메인 이벤트 또는 Application Service**로 처리.
+→ Aggregate 트랜잭션 경계를 넘는 상태 변경점이 이벤트 후보.
+
+발행 주체는 반드시 Aggregate Root (17개 중 하나).
+
+### 1.2 경계를 넘는 변경점 인벤토리 (state-machine.md 전이 매핑)
+
+| # | 이벤트 후보 | 발행 주체(Root) | 트리거(State 전이) | 소비 주체 | 동기/비동기 후보 |
+|---|---|---|---|---|---|
+| E1 | OrderPlaced | Order | Order/OrderItem 생성(ORDERED) | Inventory(예약)·CartItem(소비)·Notification | 예약=동기 / Cart·알림=비동기 |
+| E2 | PaymentCompleted | Payment | Payment PENDING→PAID | Order(OrderItem PAID·status 재계산)·Inventory(차감)·Notification | Order·재고=동기 / 알림=비동기 |
+| E3 | PaymentFailed | Payment | Payment PENDING→FAILED (+ 결제 만료) | Inventory(예약 해제) | 동기 |
+| E4 | DeliveryStarted | Delivery | Delivery →SHIPPING | Order(OrderItem SHIPPING·status 재계산) | 동기 |
+| E5 | DeliveryCompleted | Delivery | Delivery →DELIVERED | Order(OrderItem DELIVERED·status 재계산) | 동기 |
+| E6 | PurchaseConfirmed | Order | OrderItem →CONFIRMED | Settlement(정산 대상)·Read Model(PR-03 소비) | 비동기 |
+| E7 | ClaimRequested | Claim | Claim →REQUESTED | Order(OrderItem *_REQUESTED) | 동기 |
+| E8 | ClaimRejected | Claim | Claim →REJECTED | Order(OrderItem 원상 복귀) | 동기 |
+| E9 | ClaimCompleted | Claim | Claim →COMPLETED | Order(OrderItem CANCELLED/RETURNED/EXCHANGED)·Inventory(복구)·Payment(CANCELLED via Refund)·Notification | 재고·Order·결제=동기 / 알림=비동기 |
+| E10 | InventoryAdjusted (선택) | Inventory | 운영자 입고/조정(INBOUND/OUTBOUND/ADJUST) | Notification(품절 해제 등) | 비동기 |
+
+**내부 전이(이벤트 아님)**: OrderItem →PREPARING(Order 내부 status 재계산)·Claim →APPROVED(Claim 내부)는 Aggregate 내부 invariant 유지로 처리. 별도 도메인 이벤트 불필요.
+
+**경고(state-machine.md §6 경계)**: E4·E5는 Delivery.status(READY/SHIPPING/DELIVERED, ERD 04 기정의값)를 **트리거로 참조**만 함. Delivery 상태 전이 규칙 자체는 정의하지 않음(state-machine.md §6 이연 유지). OrderItem SHIPPING/DELIVERED 진입조건이 PR-01에서 이미 Delivery 상태를 참조하므로 정합. → 사용자 보고 항목.
+
+### 1.3 멱등성·재시도 후보
+
+- **멱등성 키 후보**: PG 콜백(E2)은 중복 수신 가능 → `pg_tid` 또는 event_id를 멱등성 키로. 재고 차감/복구는 OrderItem.item_status 가드(이미 PAID면 재차감 skip)로 멱등 확보.
+- **재시도 후보**: 비동기 이벤트(알림·Read Model)는 재시도(지수 백오프)·최대 N회 후 DLQ. 동기 이벤트는 트랜잭션 롤백으로 처리.
+
+---
+
+## 2. Inventory SoT 후보
+
+### 2.1 단일 SoT 확인 (정찰)
+
+- ERD 03·db-schema §2.4 확인: **Product·ProductVariant에 stock/재고 컬럼 없음**. 재고는 Inventory 테이블 단독 보유. → Inventory = 단일 SoT 확정 가능.
+- Inventory : ProductVariant = 1:1 (ERD 03 `ProductVariant ||--|| Inventory`).
+
+### 2.2 3컬럼 관계 (db-schema §2.4)
+
+| 컬럼 | 의미 | 갱신 시점 후보 |
+|---|---|---|
+| quantity_on_hand | 실물 보유 수량 | 차감(결제)·복구(취소/반품)·입고/조정 |
+| quantity_reserved | 주문 점유(예약) 수량 | 예약(주문 생성)·해제(결제 실패/만료)·차감 시 감소 |
+| quantity_available | 판매가능 캐시 = on_hand − reserved | on_hand·reserved 변경 시 재계산 |
+
+판매가능 판정(ERD 03 설계메모): ① status≠SALE → 비노출 ② quantity_available≤0 → 품절 ③ is_soldout_manual → 강제품절.
+
+### 2.3 갱신 방식 비교 (baseline-plan §9 #1)
+
+| 방식 | 장점 | 단점 |
+|---|---|---|
+| 애플리케이션 갱신 (권장) | 디버깅 용이·트랜잭션 경계 명확·테스트 가능 | 갱신 누락 위험(코드 규율 필요) |
+| DB 트리거 | 누락 불가·원자성 | 디버깅 난이도↑·이식성↓·숨은 로직 |
+
+→ baseline-plan §9 #1·db-schema §4-1 모두 **애플리케이션 갱신 권장**.
+
+---
+
+## 3. 재고 복구 시점 후보 (state-machine.md §6 의거)
+
+state-machine.md §6: "재고 복구 시점(CANCELLED/RETURNED 후) → PR-02 inventory-policy.md".
+
+| OrderItem 전이 | 결제 시점 | 재고 동작 후보 | InventoryHistory change_type |
+|---|---|---|---|
+| CANCELLED (결제 전) | PENDING_PAYMENT | quantity_reserved −= qty (예약 해제) | 미기록(on_hand 불변) |
+| CANCELLED (결제 후) | PAID 이후 | quantity_on_hand += qty (복구) | CANCEL |
+| RETURNED | 배송 후 | quantity_on_hand += qty (검수 통과 시) | RETURN |
+| EXCHANGED | 배송 후 | 회수분 복구 + 교환품 신규 차감 | RETURN(회수) + ORDER(재출고) |
+
+---
+
+## 4. 불확실·모호 항목
+
+| # | 항목 | 출처 | 처리 |
+|---|---|---|---|
+| M-11 | InventoryHistory가 reserved 변동(예약/해제)도 기록하는가 | §3 | 제안: on_hand 변동만 기록. change_type A분류(ORDER/CANCEL/RETURN/ADJUST/INBOUND/OUTBOUND)에 RESERVE/RELEASE 없음 → 예약/해제는 reserved 컬럼만 갱신·History 미기록 |
+| M-12 | 교환(EXCHANGE) change_type 매핑 | §3 | 제안: change_type EXCHANGE 부재 → 회수=RETURN·재출고=ORDER 2건 분리 기록 (A분류 enum 확장 회피) |
+| M-13 | 재고 예약을 주문 생성과 동일 트랜잭션(동기)으로 묶는가 | §1.2 E1 | 제안: 동기 (oversell 방지 — eventual consistency는 초과판매 위험) |
+| M-14 | 결제 만료(미결제 자동 취소) 타이머로 예약 자동 해제 | §1.2 E3 | 제안: 정책만 명시·실제 타이머/배치는 구현 단계 이연 |
+| M-15 | E4·E5 Delivery 상태 트리거 참조가 state-machine.md §6(Delivery 전이 이연)와 충돌하는가 | §1.2 경고 | 제안: 트리거 참조만 허용(전이 규칙 미정의)·사용자 확정 필요 |
