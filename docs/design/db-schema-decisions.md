@@ -307,9 +307,10 @@ updated_at
 #### Seller
 ```
 id, public_id, company_name, status (Code 참조)
-business_no, ceo_name, contact_email, contact_phone
+business_no NULL, ceo_name, contact_email, contact_phone
 status: PENDING / ACTIVE / SUSPENDED / TERMINATED
 ```
+> `business_no` NULL 허용 — 비식별화 시 NULL 처리·UK 슬롯 해제 (D-22 정합).
  
 #### SellerBankAccount (정산 계좌 — 별도 분리)
 ```
