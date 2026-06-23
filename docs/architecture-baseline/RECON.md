@@ -426,3 +426,123 @@ state-machine.md §6: "재고 복구 시점(CANCELLED/RETURNED 후) → PR-02 in
 | M-18 | CartItem 삭제 분류 = HARD vs SOFT | §3.2 | HARD — §1.8 소프트 미적용·주문 소비 시 물리 삭제·보존가치 낮음 |
 | M-19 | 권한 매핑(UserRole·RolePermission) 삭제 분류 | §3.2 | HARD + AuditLog 기록(회수 이력은 감사 로그로) |
 | M-20 | 삭제 불가(상태 관리) 테이블의 3분류 매핑 | §3.2 | **사용자 확정 필요**: (a) ARCHIVE에 "영구 보존(삭제 불가·상태 관리)" 포함 — 3분류 유지 / (b) 4번째 분류 RETAIN(상태 관리) 신설. 제안: (a) — 스펙 3분류 유지·ARCHIVE 정의에 "법정 보관·상태 관리 영구 보존" 명시. "별도 콜드 스토리지 이전"은 운영 이연 |
+
+---
+
+# PR-04 정찰
+
+> 소스: CLAUDE-DEV.md·baseline-plan.md §5/§8/§9·db-schema-decisions.md §1.1/§1.4/§1.6/§1.7/§1.9/§3/§4·ERD 01~05·README·ADR-001/003/005/006·decisions.md D-01~D-12
+> 목적: ddl-ready-checklist.md·index-strategy.md 작성 + db-schema §3 카운트 오류(M-09) 수정 전 근거 수집. 본 PR은 DDL "준비" — 실제 DDL·Flyway·테이블별 인덱스 명세는 다음 트랙(§5 배제).
+
+---
+
+## 1. DDL Ready 점검 항목 후보
+
+### 1.1 글로벌 정책(db-schema §1) DDL 반영 점검
+
+| 정책 | 출처 | DDL 반영 점검 |
+|---|---|---|
+| 내부 PK = BIGINT AUTO_INCREMENT | §1.1 | 전 테이블(집계 2건은 복합 PK) |
+| public_id = ULID + prefix·UNIQUE | §1.1·ADR-001 | 부여 대상 한정(§1.1 11건)·타입/부여 불일치 발견(M-21·M-22) |
+| 시간 = UTC·DATETIME(6)·timezone 컬럼 없음 | §1.2 | created_at·updated_at 등 전 시각 컬럼 |
+| 금액 = BIGINT(KRW 정수)·DECIMAL 금지 | §1.3 | total_price·amount·*_amount·base_price 등 |
+| 문자열 길이 표준(email 254·name 50·phone 20·title 200·url 2048·code 50·public_id CHAR(26)) | §1.4 | 무지성 VARCHAR(255) 금지 점검 |
+| Charset/Collation = utf8mb4 / utf8mb4_unicode_ci | §1.5 | 테이블·컬럼 일괄 |
+| 인덱스 명명 = pk_/fk_/uk_/ix_ | §1.6 | index-strategy.md 단일 소스 |
+| Audit 컬럼(created_at·created_by·updated_at·updated_by, created_by/updated_by FK 없음) | §1.7 | 핵심 테이블 공통 |
+| 소프트 삭제 컬럼(deleted_at·deleted_by·delete_reason) | §1.7·§1.8·D-12 | SOFT 분류 대상 한정 부착 |
+| FK 적용 범위(강한 결합만·polymorphic/집계/created_by 미적용) | §1.9 | index-strategy FK 가이드와 정합 |
+
+### 1.2 PR-00~03 확정 결정 DDL 반영 점검
+
+| 결정 | DDL 반영 점검 항목 |
+|---|---|
+| D-02 Order.status 8값 / D-03 OrderItem.item_status 12값 | B분류 ENUM 컬럼 + Code 시드 일치(ORDER_STATUS·ORDER_ITEM_STATUS Code Group) |
+| D-05 Payment·Claim 전이(A분류) | Payment.status·Claim.status·type ENUM 값집합 잠금 |
+| D-04 동기화 방식 B | DDL 산출물 아님(이벤트 핸들러=구현)·체크리스트 인용만 |
+| D-06 이벤트 E1~E10 | DDL 산출물 아님(발행/구독 인프라=구현)·체크리스트 인용만 |
+| D-07~D-09 Inventory 3컬럼 + 애플리케이션 갱신 | quantity_on_hand·quantity_reserved·quantity_available 컬럼·트리거 미생성 확인 |
+| D-10 Read Model 2 테이블 | BuyerPurchaseAggregate(buyer_id PK)·SellerSalesDaily((seller_id,sale_date) 복합 PK)·VIEW 4건은 DDL 트랙 |
+| D-11 AuditLog diff_json | JSON 타입(= LONGTEXT + CHECK(JSON_VALID)) |
+| D-12 삭제 분류 | SOFT 대상에만 deleted_at 부착·ARCHIVE/HARD는 미부착 |
+
+### 1.3 보류 결정 3건(baseline-plan §9) 확정값 재확인
+
+| # | 항목 | 확정값 | 출처 결정 |
+|---|---|---|---|
+| 1 | Inventory.quantity_available 갱신 방식 | 애플리케이션 갱신(DB 트리거 기각) | D-09·ADR-005 |
+| 2 | AuditLog.diff_json 컬럼 타입 | JSON | D-11 |
+| 3 | OrderItem.item_status ↔ Order.status 동기화 | 방식 B(명시적 전이) | D-04·ADR-003 |
+
+> 3건 모두 PR-01~03에서 확정 완료. ddl-ready-checklist는 "재확인·인용"만 — 재논의 금지.
+
+---
+
+## 2. 인덱스 설계 후보
+
+### 2.1 명명 규칙(db-schema §1.6 인용)
+
+`pk_{table}` · `fk_{table}_{ref}` · `uk_{table}_{column}` · `ix_{table}_{column}` · 복합 `ix_{table}_{col1}_{col2}`. 본 PR은 규칙·패턴만, 테이블별 실제 인덱스 명세는 DDL 트랙 이연.
+
+### 2.2 조회 패턴 인벤토리
+
+| 구분 | 대표 패턴 | 후보 인덱스 키(예시) |
+|---|---|---|
+| 운영 화면 | Seller/Product 승인 대기·Claim 처리·Settlement 조회·AuditLog 조회 | Product.status·Seller.status·Claim.status·Settlement.(seller_id,status) |
+| 판매자 대시보드 | 자사 주문 항목·일별 매출·재고 부족 | OrderItem.(seller_id,item_status)·SellerSalesDaily PK·Inventory.quantity_available |
+| 구매자 화면 | 상품 검색·주문 내역·마이페이지 | Product.(category_id,status)·Order.(buyer_id,status)·CartItem.(user_id) |
+| 정산 | 월간 집계·환불 차감 | SellerSalesDaily.(seller_id,sale_date)·Settlement.(period_start,period_end) |
+| CS·감사 | 대상별·행위자별·기간 추적 | AuditLog.(target_type,target_id,created_at)·AuditLog.(actor_user_id,created_at) |
+
+### 2.3 패턴별 인덱스 후보
+
+| 종류 | 적용 |
+|---|---|
+| PK | 전 테이블 BIGINT AUTO_INCREMENT(집계 2건 복합 PK) |
+| UK | public_id(부여 대상)·도메인 유니크 키(uk_user_email·uk_cartitem_user_variant·uk_variant_option_combo(4컬럼)·order_no) |
+| FK | §1.9 강한 결합 관계(InnoDB FK는 자식 컬럼 인덱스 자동 생성)·polymorphic/집계/created_by 미적용 |
+| 복합 | 조회 패턴별(ix_order_buyer_status·ix_order_item_seller_status·ix_product_category_status 등) |
+| 커버링 | 고빈도 조회 SELECT 컬럼 포함 — 구현 단계 측정 후 확정 |
+
+### 2.4 특수 인덱스 정책
+
+| 정책 | 내용 |
+|---|---|
+| public_id(ADR-001) | 부여 대상에 UNIQUE 인덱스 필수(API/URL 조회 키)·ULID 시간정렬로 B-Tree 효율 |
+| 소프트 삭제(ADR-006) | SOFT 대상 조회는 `deleted_at IS NULL` 가드 → deleted_at 단독/복합 인덱스. MariaDB는 partial index 미지원 → 일반 인덱스 또는 (status, deleted_at) 복합 |
+| polymorphic | Attachment·AuditLog·NotificationLog의 (target_type, target_id) 복합 인덱스(FK 부재 보완) |
+| Read Model | BuyerPurchaseAggregate(buyer_id PK·last_ordered_at)·SellerSalesDaily((seller_id, sale_date) 복합 PK) |
+
+> MariaDB partial index(`WHERE deleted_at IS NULL`) 미지원 → ADR-006 "partial index"는 일반 인덱스로 대체. index-strategy에 명시.
+
+---
+
+## 3. db-schema §3 카운트 오류(M-09)
+
+§3 헤딩 "총 **29개** (집계 1개 제외 시 28개)"는 오류. 카테고리별 합계는 이미 37개로 구성되어 헤딩 숫자만 불일치.
+
+| 카테고리 | 수 | 테이블 |
+|---|---|---|
+| 회원·권한 | 9 | User, WithdrawnUser, BuyerProfile, UserAddress, Role, Permission, UserRole, RolePermission, SellerUser |
+| 등급 | 3 | BuyerGrade, GradePolicy, BuyerPurchaseAggregate |
+| 판매자 | 3 | Seller, SellerBankAccount, Settlement |
+| 상품·재고 | 8 | Category, Product, ProductImage, ProductOptionGroup, ProductOptionValue, ProductVariant, Inventory, InventoryHistory |
+| 주문·결제·배송 | 8 | CartItem, Order, OrderItem, OrderShippingSnapshot, Payment, Delivery, Claim, Refund |
+| 코드·공통 | 5 | CodeGroup, Code, Attachment, AuditLog, NotificationLog |
+| 집계 | 1 | SellerSalesDaily |
+| **합계** | **37** | (9+3+3+8+8+5+1) |
+
+- 수정 위치: §3 헤딩 라인 "총 **29개** (집계 1개 제외 시 28개):" → "총 **37개**" + 합계 라인 추가.
+- 동일 오류 잔존: ERD `README.md` 머리말 "총 테이블: 29개" + 다이어그램별 합계(12+3+8+8+6=37)와 불일치 → 본 PR 포함 여부 사용자 확정(M-23).
+
+---
+
+## 4. 불확실·모호 항목
+
+| # | 항목 | 출처 | 처리 제안 |
+|---|---|---|---|
+| M-21 | public_id 컬럼 타입 불일치 | db-schema §1.1 `CHAR(26)` vs ADR-001 §영향 `VARCHAR(30)` | ULID(26) + prefix(예 `ord_` 4) = 30자 → **VARCHAR(30) 또는 CHAR(30)이 정합**. CHAR(26)은 prefix 미수용. 제안: ddl-ready-checklist에 "DDL 진입 전 해소 필요(⚠)" 등재·사용자 확정(ADR/db-schema 수정은 본 5파일 범위 외) |
+| M-22 | AuditLog public_id 부여 여부 불일치 | §1.1 미부여 + ADR-001 prefix 부재 vs ERD 05·db-schema §2.7 `char26 public_id` 보유·ERD 05 메모 "Attachment·AuditLog만" | 부여 대상이 11개(§1.1)인지 12개(AuditLog 포함)인지 미확정. AuditLog 부여 시 prefix(`aud_` 등) 미정의. 제안: 체크리스트 "해소 필요(⚠)" 등재·사용자 확정 |
+| M-23 | README.md "총 테이블 29개" 동일 카운트 오류 | ERD README 머리말 | db-schema §3와 동일 오류. 본 PR(5파일)에 README 포함 여부 사용자 확정 |
+
+> M-21·M-22는 ADR-001·db-schema §1.1·ERD를 건드려야 해소 가능 → 본 PR 산출물(5파일) 범위를 벗어나므로 **수정하지 않고 체크리스트에 "DDL 진입 전 해소 필요" 항목으로 등재만** 한다. 실제 정정은 사용자 확정 후 별도 처리(ERD 갱신 트랙 또는 본 PR 범위 확대 결정 시).
