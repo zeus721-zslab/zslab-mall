@@ -27,7 +27,7 @@ erDiagram
 
     Attachment {
         bigint id PK
-        char26 public_id "prefix: att_"
+        char30 public_id "prefix: att_"
         varchar50 target_type "polymorphic (D분류)·CLAIM|REVIEW|SELLER_DOCUMENT+"
         bigint target_id
         varchar200 file_name
@@ -40,7 +40,7 @@ erDiagram
 
     AuditLog {
         bigint id PK
-        char26 public_id
+        char30 public_id "prefix: aud_"
         bigint actor_user_id "nullable (시스템 작업)"
         varchar50 actor_role
         enum action "CREATE|UPDATE|DELETE|APPROVE|REJECT|LOGIN|LOGOUT"

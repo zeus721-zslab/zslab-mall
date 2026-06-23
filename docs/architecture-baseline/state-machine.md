@@ -141,10 +141,23 @@ ORDERED → PAID → PREPARING → SHIPPING → DELIVERED → CONFIRMED
     → Order.status = CONFIRMED
 ```
 
-**구현 참고사항**:
-- 규칙 평가 순서: [5] → [6] → [7] → [4] → [3] → [2]
-- Application Service (OrderStatusCalculator)에서 집계 후 Order.status 갱신
-- Claim 처리 완료(OrderItem → CANCELLED/RETURNED/EXCHANGED) 시 재계산 트리거
+### OrderStatusResolver (Domain Service)
+
+Order.status는 OrderItem 집계 캐시이므로, OrderItem 상태가 변경될 때마다 `OrderStatusResolver`가 재계산하여 Order.status를 갱신한다.
+
+| 항목 | 내용 |
+|---|---|
+| 입력 | 한 Order의 OrderItem 상태 집합(item_status) |
+| 처리 | 방식 B 명시적 전이 조건 평가([1]~[7]) |
+| 출력 | Order.status 최종값(8값 중 1) |
+| 위치 | **Domain Service** — Order Aggregate 내부 파생 로직(외부 Aggregate 미관여)이므로 Application Service가 아닌 Domain Service에 배치 |
+| 재계산 트리거 | OrderItem 상태 변경(Payment·Delivery·Claim 이벤트 소비 후) |
+
+**평가 순서**: [5] → [6] → [7] → [4] → [3] → [2]
+- **종료 상태 우선**: 전체 취소[5]·부분 취소[6]·전체 확정/반품/교환[7]을 먼저 판정해, 진행 중 상태가 종료 케이스를 가리지 않도록 한다.
+- **진행 상태 역순**: 이후 배송완료[4] → 배송중[3] → 준비중[2]을 평가해 "가장 진행된 단계"를 Order.status로 반영한다.
+- [1](PAID)은 결제 이벤트 직후 일괄 적용되므로 재계산 평가 순서에서 제외한다.
+- Claim 처리 완료(OrderItem → CANCELLED/RETURNED/EXCHANGED) 시 재계산 트리거.
 
 ---
 

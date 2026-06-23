@@ -10,7 +10,7 @@
 erDiagram
     User {
         bigint id PK
-        char26 public_id "prefix: usr_"
+        char30 public_id "prefix: usr_"
         varchar254 email
         varchar50 name
         varchar20 phone

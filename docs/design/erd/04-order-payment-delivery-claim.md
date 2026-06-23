@@ -19,7 +19,7 @@ erDiagram
 
     Order {
         bigint id PK
-        char26 public_id "prefix: ord_"
+        char30 public_id "prefix: ord_"
         bigint buyer_id FK
         varchar50 order_no "표시용: 20260623-A1B2"
         enum status "Code 참조 (B분류)·db-schema §1.13"
@@ -32,7 +32,7 @@ erDiagram
 
     OrderItem {
         bigint id PK
-        char26 public_id "prefix: oit_"
+        char30 public_id "prefix: oit_"
         bigint order_id FK
         bigint product_id FK
         bigint variant_id FK
@@ -57,7 +57,7 @@ erDiagram
 
     Payment {
         bigint id PK
-        char26 public_id "prefix: pay_"
+        char30 public_id "prefix: pay_"
         bigint order_id FK
         enum method "CARD|BANK|VBANK|KAKAO|..."
         bigint amount
@@ -69,7 +69,7 @@ erDiagram
 
     Delivery {
         bigint id PK
-        char26 public_id "prefix: dlv_"
+        char30 public_id "prefix: dlv_"
         bigint order_item_id FK
         enum carrier "CJ|HANJIN|POST|LOGEN|..."
         varchar100 tracking_no
@@ -80,7 +80,7 @@ erDiagram
 
     Claim {
         bigint id PK
-        char26 public_id "prefix: clm_"
+        char30 public_id "prefix: clm_"
         bigint order_item_id FK
         enum type "CANCEL|RETURN|EXCHANGE"
         enum reason_code "Code 참조 (B분류)·CLAIM_REASON 그룹"
@@ -93,7 +93,7 @@ erDiagram
 
     Refund {
         bigint id PK
-        char26 public_id "prefix: rfn_"
+        char30 public_id "prefix: rfn_"
         bigint claim_id FK
         bigint payment_id FK
         bigint amount

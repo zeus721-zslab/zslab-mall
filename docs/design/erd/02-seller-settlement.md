@@ -10,7 +10,7 @@
 erDiagram
     Seller {
         bigint id PK
-        char26 public_id "prefix: slr_"
+        char30 public_id "prefix: slr_"
         varchar100 company_name
         varchar20 business_no
         varchar50 ceo_name

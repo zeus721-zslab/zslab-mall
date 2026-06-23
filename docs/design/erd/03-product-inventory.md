@@ -19,7 +19,7 @@ erDiagram
 
     Product {
         bigint id PK
-        char26 public_id "prefix: prd_"
+        char30 public_id "prefix: prd_"
         bigint seller_id FK
         bigint category_id FK
         varchar200 name
@@ -55,7 +55,7 @@ erDiagram
 
     ProductVariant {
         bigint id PK
-        char26 public_id "prefix: var_"
+        char30 public_id "prefix: var_"
         bigint product_id FK
         varchar50 variant_code
         varchar100 seller_sku

@@ -10,10 +10,11 @@
 - Aggregate간 참조는 **ID만 허용** (객체 그래프 참조 금지)
 - 다른 Aggregate 변경은 도메인 이벤트 또는 Application Service에서 처리
 - Root를 통하지 않은 내부 엔티티 직접 수정 금지
+- Aggregate 분할은 **확정 결정**이다. 변경이 필요하면 ADR 신규 발행 + decisions.md 누적으로만 갱신한다. "DDL 전 변경 가능" 등 잠금 해제 표현을 쓰지 않는다.
 
 ---
 
-## 2. Aggregate 목록 (17개)
+## 2. Aggregate 목록 (16개 + Infra/Event Processing 1건)
 
 ### 2.1 사용자·권한·등급
 
@@ -84,12 +85,24 @@
 | Code | CodeGroup | Code | — |
 | Attachment | Attachment | — (단독, polymorphic) | target_type/target_id |
 | AuditLog | AuditLog | — (단독, append-only) | actor_user_id |
-| NotificationLog | NotificationLog | — (단독) | recipient_user_id |
 
 **경계 결정**:
 - `Code`는 `CodeGroup` 아래 다수의 Code 항목 관리 → CodeGroup이 Root
 - `Attachment`는 polymorphic 참조 (target_type/target_id)로 어느 Aggregate에도 종속되지 않음
-- `AuditLog`·`NotificationLog`는 append-only 이벤트 기록 → 각각 독립 단독 Aggregate
+- `AuditLog`는 append-only 감사 기록 → 독립 단독 Aggregate (감사 의무·분쟁/CS 대응 주체)
+- `NotificationLog`는 Aggregate가 아니라 **Infra/Event Processing**으로 분류 → §2.7 참조
+
+### 2.7 Infra/Event Processing
+
+| 분류 | 대상 | 외부 ID 참조 |
+|---|---|---|
+| Infra/Event Processing | NotificationLog | recipient_user_id, target_type/target_id |
+
+**분류 결정** (D-18·D-01 갱신):
+- `NotificationLog`는 도메인 트랜잭션 주체가 아니다 — 자체 비즈니스 불변식·상태 전이 규칙이 없다.
+- 다른 Aggregate가 발행한 이벤트(E1·E2·E4·E5·E9·E10)의 **소비 기록**(발송 이력)이다.
+- AuditLog와 같은 append-only이나 **감사 의무가 아닌** 발송 로그이므로 Aggregate에서 분리한다(AuditLog는 §2.6 Aggregate 유지).
+- 삭제 정책은 Aggregate 여부와 독립 — NotificationLog는 ARCHIVE 유지(deletion-policy.md §2.2).
 
 ---
 

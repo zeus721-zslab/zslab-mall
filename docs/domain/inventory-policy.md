@@ -94,3 +94,11 @@
 - **동시성 락 전략 구체**: 낙관/비관 락 선택·재시도·데드락 회피 → 구현 단계.
 - **결제 만료 자동 해제**: 미결제 주문 만료 판정 타이머/배치 → 구현 단계.
 - **재판매 가능 검수 흐름**: 반품/교환 회수품의 재고 복구 가부 판정(운영 워크플로) → 운영/구현 영역.
+
+### Reservation Tracking (현재 단계 도입 금지)
+
+향후 예약 추적 요구(예: 예약 이력 조회·예약 만료 통계)가 발생하면 Reservation Tracking 도입을 검토할 수 있다.
+
+- **현재 단계 도입 금지** — PR-02 D-08 결정 유지: 예약/해제는 `quantity_reserved` 컬럼만 갱신하고 InventoryHistory에 기록하지 않는다(§6 M-11).
+- **도입 시 트레이드오프**: change_type A분류(ORDER/CANCEL/RETURN/ADJUST/INBOUND/OUTBOUND)에 RESERVE/RELEASE가 없으므로, 예약을 이력화하려면 enum 확장(=Flyway 마이그레이션·4층위 잠금 재작업)이 동반된다.
+- **도입 시점**: 별도 ADR 발행 + decisions.md 누적으로만 진입한다(decisions.md D-17).
