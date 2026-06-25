@@ -5,18 +5,17 @@
 
 ## 트랙 흐름 (전체)
 
-    INIT → architecture-baseline → ERD → DDL → Entity → API → 구현
+    INIT → architecture-baseline → ERD → DDL → backend-init → 옵션 C (Track 1~7·Gate)
 
 ## 현재 트랙
-**DDL** — Flyway 마이그레이션 작성 단계
+**Track B (Order Aggregate) 진입 대기** — 옵션 C 트랙 구조 §Track 2
 
-목표: 37개 테이블 DDL 생성·Flyway 마이그레이션 스크립트·골든 리뷰(ddl-ready-checklist §8 운영 체크박스 확인) (V1 기준·V2 withdrawn_seller 별도·D-23)
+목표: Order·OrderItem·OrderShippingSnapshot Entity·Repository·Application Service 작성. 사전 트랙 (Track A Base·Docker-Mall-Stack·gitignore 보강) 완료.
 
 ## 진행 대기 트랙
 
 | 트랙 | 내용 |
 |---|---|
-| DDL | Flyway 마이그레이션 (ddl-ready-checklist §8 운영 체크박스 6개 확인 후 착수) |
 | Order.status 복구 정책 | 자동 보정 배치 유무·운영 정책 — 구현 트랙 진입 전 처리 (CR-2) |
 | Refund 수동 보정 정책 | D안 RefundAdjustment 신규 테이블 검토 — PG 콜백 누락·장애 대응. 진입 트리거: PG 연동·실 환불 운영 개시 후 콜백 누락/수동 보정 요청 누적/Settlement 불일치 발견 셋 중 하나 (D-24 후속) |
 | "17 Aggregate" 표현 lag 보정 | aggregate-boundary/ddl-ready-checklist 등 문서 일부가 "17 Aggregate"로 표기(정합: 16 Aggregate + 1 Infra/Event=NotificationLog·D-13·D-18). DDL 트랙 범위 외·문서 표현 통일 트랙에서 정정 (DDL 정찰 §10-⑤) |
@@ -27,7 +26,7 @@
 
 | 트랙 | 내용 |
 |---|---|
-| Track 1 Base | BaseEntity 5종·UlidIdentifier·AuditorAware·@EnableJpaAuditing·common 설정 |
+| Track 1 Base ✅ | BaseEntity 6종·PublicIdEntity 2종·AuditingConfig·AuditorAwareImpl·PublicIdGenerator·common (완료·32ed69e) |
 | Track 2 Order Aggregate | Order·OrderItem·OrderShippingSnapshot Entity·Repository·Service |
 | Track 3 Payment Mock | PaymentGateway·MockPaymentGateway·Resolver (PG Strategy 통합) |
 | Track 4 Order API | Controller·DTO·@RestController 통합 |
