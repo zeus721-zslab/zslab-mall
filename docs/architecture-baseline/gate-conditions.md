@@ -57,3 +57,80 @@ Gate 통과 후:
 - **예외**: 데이터 손실 없는 변경(코멘트·인덱스 추가·NULL 허용 확장 등)·오타·긴급 수정은 사유 누적 후 V3 신규 허용 (D-25 §4·운영 정합·롤백·재현성 3 조건 충족 시)
 - State Machine·Invariant 수정 허용
 - V1·V2 본문 직접 수정 절대 금지
+
+---
+
+## §4. Track 운영 정책 (외부 검토 2차 보강)
+
+> 외부 검토자 권고 반영. Track 1~7 진행 시 PR 운영·범위·금지 사항 SoT.
+> Q4 등재 위치: gate-conditions.md 통합 확정.
+
+### §4.1 Scope Drift 금지
+
+각 Track은 명시된 범위만 처리. Track 범위 외 Entity·API·Migration 추가 시 별도 Track으로 분리.
+
+예 (Track 2 Order Aggregate):
+- 허용: Order·OrderItem·OrderShippingSnapshot Entity·Repository·Service
+- 금지: Coupon·Settlement·BuyerProfile 등 Track 범위 외 Entity 신규
+
+### §4.2 PR 크기 (경고선)
+
+절대 기준 아닌 경고선. 실 기준은 리뷰 가능·롤백 가능 여부.
+
+| 항목 | 경고선 | 예외 |
+|---|---|---|
+| Entity | ≤3 | 응집 도메인(Order Aggregate Order·OrderItem·OrderShippingSnapshot)은 3 가능 |
+| API endpoint | ≤2 | Order 생성+조회 같은 페어 PR 가능 |
+| Migration | ≤1 | DDL V3 단일 |
+| Test | 필수 | Test 없는 PR 금지 |
+
+초과 시 PR 분할 또는 본문에 분할 어려운 사유 명시.
+
+### §4.3 DONE 조건 (트랙별 PR 단위)
+
+각 PR DONE 체크리스트:
+- API 동작 (해당 시·E2E 또는 Integration Test 통과)
+- 테스트 동시 작성·통과 (테스트 없는 구현 금지)
+- invariant 위반 없음 (도메인 규칙 충돌 0)
+- Scope Drift 없음 (Track 범위 외 변경 0)
+- 추적 가능한 TODO만 남김 (모호 TODO·"나중에" 표현 금지)
+
+### §4.4 금지 목록
+
+본 Track 시리즈 전체 적용:
+
+- 신규 Aggregate 생성 금지 (D-01·D-18 확정 16 + Infra/Event 1 외 추가 금지)
+- 양방향 매핑 추가 금지 (Aggregate 간 역방향·Entity 정찰 §5 원칙)
+- Cascade ALL 금지 (PERSIST·MERGE만 Aggregate 내부 허용·정찰 §5)
+- FetchType.EAGER 금지 (LAZY 일괄·정찰 §5 원칙)
+- 테스트 없는 구현 금지 (DONE 조건 정합)
+- DDL 직접 수정 금지 (D-25 정합·V3 이상 신규 마이그레이션만)
+
+### §4.5 Entity 변경 정책
+
+1차 구현 후 Entity 변경 규칙:
+
+| 변경 유형 | 정책 |
+|---|---|
+| 필드 추가 | 허용 |
+| 관계 변경 (mappedBy·cascade·nullable·fetch) | 제한·변경 사유 PR 본문 명시 필수 |
+| Entity 삭제 | 금지 |
+
+자주 흔들리는 항목 강조: `mappedBy`·`cascade`·`nullable`·`fetch`.
+
+### §4.6 DDL 변경 원인 추적
+
+DDL 수정 발생 시 (D-25 §4 예외 적용):
+
+원인 분류:
+- 설계 문제 (정찰·결정 단계 누락)
+- 구현 문제 (코드 작성 중 발견)
+- 외부 요구 (PG 사양·법규 변경 등)
+
+후속 결정(D-26 이상)에 다음 명시:
+- 원인 분류 1건
+- 데이터 손실 없음 검증
+- 롤백 가능성 검증
+- 재현성 검증
+
+원인 분류는 향후 트랙 회귀 분석 자료.
