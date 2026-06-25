@@ -27,6 +27,9 @@ dependencies {
     compileOnly("org.projectlombok:lombok")
     annotationProcessor("org.projectlombok:lombok")
     testImplementation("org.springframework.boot:spring-boot-starter-test")
+    // 버전은 Spring Boot 3.4.1이 import하는 Testcontainers BOM이 관리(단일 소스·드리프트 방지)
+    testImplementation("org.testcontainers:junit-jupiter")
+    testImplementation("org.testcontainers:mariadb")
 }
 
 tasks.test {
