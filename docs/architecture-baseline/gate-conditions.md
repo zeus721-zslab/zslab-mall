@@ -5,7 +5,7 @@
 
 ## 트랙 구조
 
-- Track 1: Base (BaseEntity 5종·UlidIdentifier·AuditorAware·@EnableJpaAuditing·common)
+- Track 1: Base (BaseEntity 6종·PublicIdEntity 2종·AuditingConfig·AuditorAwareImpl·PublicIdGenerator·common)
 - Track 2: Order Aggregate (Entity·Repository·Application Service)
 - Track 3: Payment Mock (PaymentGateway interface·MockPaymentGateway·Resolver)
 - Track 4: Order API (Controller·DTO·통합)
