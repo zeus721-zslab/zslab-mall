@@ -163,7 +163,7 @@ Order.status는 OrderItem 집계 캐시이므로, OrderItem 상태가 변경될 
 
 ## 6. 외부 이연
 
-- **Delivery·Settlement 상태 전이** → 각 도메인 별도 정의 (본 PR 범위 외)
+- **Delivery 상태 전이** → 각 도메인 별도 정의 (본 PR 범위 외)
 - **자동 구매확정 타이머** (배송 후 N일 → CONFIRMED) → 구현 단계
 - **재고 복구 시점** (CANCELLED/RETURNED 후) → PR-02 inventory-policy.md
 
@@ -248,3 +248,46 @@ PENDING ──→ COMPLETED (불가역)
 **Payment 연동 (D-05 정합)**: Refund.COMPLETED 후 Payment.status는 환불 누적 금액에 따라 CANCELLED 전이 가능 (PAY-1 invariant·Domain 검증).
 
 **전이 권한**: 자동 (PG 콜백 핸들러). 운영자 수동 보정 권한 없음 — 후속 트랙(D안 RefundAdjustment) 검토 사항.
+
+---
+
+## 9. Settlement.status (A분류 #5)
+
+> 소스: Entity 정찰 §17 발견 1·invariants.md STL-2·V1__init.sql settlement.status·§1.13 A#5·Track A 사전 결정 A6 [확정 2026-06-26].
+> A분류: ENUM 값 집합 코드 레이어 enum 고정. 추가/변경 = Flyway 마이그레이션 + db-schema 갱신.
+> 본 절은 §6 외부 이연 대상이 아니다(§6은 Delivery 한정). Settlement.status는 Track A 사전 결정 A6으로 본 절에 정의된다.
+
+전이 다이어그램 (평문 들여쓰기):
+
+    PENDING ──→ CONFIRMED ──→ PAID (불가역)
+
+**확정 값 집합 (3개)** (V1__init.sql settlement.status·§1.13 A#5):
+
+| 값 | 진입 조건 | 비고 |
+|---|---|---|
+| PENDING | Settlement 행 생성 시 초기값 (정산 주기 도래 시 Domain Service가 생성) | 정산 금액 미확정 |
+| CONFIRMED | 운영자 정산 금액 확정 (gross·fee·refund·net 검증 후) | net = gross - fee - refund (STL-1·Domain) |
+| PAID | 실 입금 처리 완료 | 불가역·paid_at 채움 |
+
+**전이 규칙**:
+
+| 전이 | 트리거 | 권한 |
+|---|---|---|
+| PENDING → CONFIRMED | 운영자 정산 금액 확정 | ADMIN_OPERATOR 이상 |
+| CONFIRMED → PAID | 실 입금 처리 완료 콜백 또는 운영자 확정 | ADMIN_OPERATOR 이상 |
+
+**역전 금지**:
+
+| 차단 전이 | 사유 |
+|---|---|
+| CONFIRMED → PENDING | 정산 확정 후 미확정 복귀 금지·조정은 별도 트랜잭션 |
+| PAID → CONFIRMED | 입금 완료 후 미입금 복귀 금지·환수는 별도 프로세스 |
+| PAID → PENDING | 직접 전이 차단 |
+
+**불가역**: PAID. 진입 후 상태 변경 없음. 정산 조정·환수 필요 시 별도 보상 트랜잭션 또는 후속 트랙(RefundAdjustment 패턴) 검토.
+
+**전이 권한**: 운영자(ADMIN_OPERATOR 이상)만 수행. 판매자 자기 전이 권한 없음. SellerBankAccount 검증(SLR-2·SLR-3)은 PENDING → CONFIRMED 전이 전제 조건.
+
+**STL-2 정합**: invariants.md STL-2 "Settlement.status 전이 Domain(enum canTransition)"를 SettlementStatus enum 내부 canTransitionTo() 메서드로 구현 (state-machine §1·§2·§3·§7·§8 동일 패턴).
+
+**Payment·Refund 연동**: Settlement는 별도 정산 주기에 일괄 처리·Payment/Refund 트랜잭션과 분리. Settlement.refund_amount는 정산 주기 내 Refund.COMPLETED 합산 결과·실시간 연동 아님.
