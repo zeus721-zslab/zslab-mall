@@ -1,6 +1,6 @@
 # Domain Events (PR-02)
 
-> 소스: decisions.md D-06 [확정 2026-06-24]
+> 소스: decisions.md D-06 [확정 2026-06-24] · D-30 [이벤트 사실 통지·items[] 제거·camelCase·occurredAt]
 > 발행 주체는 모두 Aggregate Root(aggregate-boundary.md §2 — 16 Aggregate + 1 Infra/Event Processing, D-18)·트리거는 state-machine.md 전이와 정합.
 > 범위: 이벤트 카탈로그·발행/소비/멱등성/재시도 정책. 메시지 큐 구현·스키마 버저닝은 구현 단계 이연.
 
@@ -49,9 +49,9 @@
 | 발행 주체 | Payment (#11) |
 | 트리거 | Payment.status PENDING → PAID (PG 성공 콜백) |
 | 소비 주체 | Order(OrderItem → PAID·Order.status 재계산), Inventory(차감), NotificationLog(결제 완료 알림) |
-| 페이로드 | payment_id, order_id, amount, pg_tid |
+| 페이로드 | paymentId, orderId, amount, pgTransactionId, occurredAt |
 | 동기/비동기 | Order 상태·재고 차감 = **동기** / 알림 = 비동기 |
-| 멱등성 | **pg_tid** 멱등성 키. 콜백 중복 수신 시 OrderItem.item_status=PAID 가드로 재차감 skip |
+| 멱등성 | **pgTransactionId** 멱등성 키. 콜백 중복 수신 시 OrderItem.item_status=PAID 가드로 재차감 skip |
 | 재시도 | 동기 실패 = 롤백 후 PG 콜백 재수신 대기 / 알림 = 재시도·DLQ |
 
 ### E3. PaymentFailed
@@ -61,10 +61,12 @@
 | 발행 주체 | Payment (#11) |
 | 트리거 | Payment.status PENDING → FAILED (PG 실패) 또는 결제 만료 |
 | 소비 주체 | Inventory(예약 해제) |
-| 페이로드 | payment_id, order_id, items[{ order_item_id, variant_id, quantity }] |
+| 페이로드 | paymentId, orderId, failureCode, occurredAt |
 | 동기/비동기 | 예약 해제 = **동기** |
-| 멱등성 | order_id 기준 1회. 이미 해제된 예약 재해제 방지(reserved 가드) |
+| 멱등성 | orderId 기준 1회. 이미 해제된 예약 재해제 방지(reserved 가드) |
 | 재시도 | 동기 실패 = 롤백·재시도. 결제 만료 자동 해제 타이머/배치는 구현 단계 이연 |
+
+> **소비 주의**: Inventory 예약 해제 핸들러는 이벤트 페이로드에 items[]를 포함하지 않음 — `orderId`로 `OrderItem`을 직접 조회 후 처리. 페이로드 사실 통지 원칙·도메인 상태 복제 방지(D-30).
 
 ### E4. DeliveryStarted
 
@@ -169,8 +171,8 @@
 | # | 이벤트 | Idempotent Key | Retry 정책 |
 |---|---|---|---|
 | E1 | OrderPlaced | order_id — 재예약 방지 | 재고 예약(동기)·롤백 / Cart·알림(비동기)·지수 백오프·DLQ |
-| E2 | PaymentCompleted | pg_tid + OrderItem.item_status=PAID 가드 | 동기·롤백 (PG 콜백 재수신 대기) / 알림·비동기·DLQ |
-| E3 | PaymentFailed | order_id 기준·reserved 가드 | 동기·롤백 |
+| E2 | PaymentCompleted | pgTransactionId + OrderItem.item_status=PAID 가드 | 동기·롤백 (PG 콜백 재수신 대기) / 알림·비동기·DLQ |
+| E3 | PaymentFailed | orderId 기준·reserved 가드 | 동기·롤백 |
 | E4 | DeliveryStarted | order_item_id·SHIPPING 이상 skip | 동기·롤백 / 알림·비동기·재시도 |
 | E5 | DeliveryCompleted | order_item_id·DELIVERED 이상 skip | 동기·롤백 / 알림·비동기·재시도 |
 | E6 | PurchaseConfirmed | order_item_id·정산·집계 중복 방지 | 비동기·지수 백오프·DLQ |
