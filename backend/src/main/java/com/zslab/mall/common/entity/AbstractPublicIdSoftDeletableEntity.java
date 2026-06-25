@@ -9,6 +9,8 @@ import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.ToString;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /**
  * full audit + 소프트 삭제 + 외부 노출 public_id(CHAR(30)·ULID+prefix)를 제공하는 추상 엔티티.
@@ -31,6 +33,7 @@ public abstract class AbstractPublicIdSoftDeletableEntity extends AbstractSoftDe
 
     @EqualsAndHashCode.Include
     @ToString.Include
+    @JdbcTypeCode(SqlTypes.CHAR)
     @Column(name = "public_id", length = 30, nullable = false, updatable = false)
     private String publicId;
 
