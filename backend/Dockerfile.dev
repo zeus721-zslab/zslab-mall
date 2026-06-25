@@ -1,0 +1,5 @@
+# 개발용: 소스는 docker-compose 볼륨 마운트로 주입 (이미지에 COPY 안 함)
+FROM gradle:8-jdk21
+WORKDIR /app
+EXPOSE 8080
+CMD ["gradle", "bootRun", "--no-daemon"]
