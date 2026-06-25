@@ -1,0 +1,29 @@
+services:
+  zslab_mall_backend:
+    build:
+      context: ./backend
+      dockerfile: ${BACKEND_DOCKERFILE:-Dockerfile.dev}
+    container_name: zslab_mall_backend
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-local}
+      DB_HOST: zslab_mariadb
+      DB_PORT: "3306"
+      DB_NAME: ${DB_NAME}
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - ./backend:/app
+      - mall_gradle_cache:/home/gradle/.gradle
+    networks:
+      - zslab_zslab_net
+      - gateway_net
+
+volumes:
+  mall_gradle_cache:
+
+networks:
+  zslab_zslab_net:
+    external: true
+  gateway_net:
+    external: true

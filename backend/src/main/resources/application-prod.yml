@@ -1,8 +1,6 @@
 spring:
   jpa:
-    properties:
-      hibernate:
-        show_sql: false
+    show-sql: false
 
 management:
   endpoint:
