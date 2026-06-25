@@ -55,6 +55,7 @@
 | SLR-4 | Seller.status 전이 = state-machine §7(B분류 SELLER_STATUS) | 판매자 상태 정합 | Domain(enum canTransition·D-23) | 비합법 상태 전이 차단 | — |
 | SLR-5 | SellerUser (seller_id, user_id) 중복 금지 | 소속 중복 차단 | DB UK | 동일 소속 중복 차단 | — |
 | SLR-6 | Seller TERMINATED 진입 시 WithdrawnSeller 행 생성 | 법정 보관·비식별화 추적(D-23) | Service | 종료 판매자 아카이브 누락 차단 | — |
+| SLR-7 | Seller·WithdrawnSeller 동시 수정 금지·WithdrawnSeller는 TERMINATED 진입 시 INSERT 1회 + anonymized_at 갱신만 허용 | Seller=SoT·WithdrawnSeller=Snapshot Metadata(D-23·외부 검토 2차) | Service (Domain) | 종료 메타 이중 수정 차단·SoT 단일화 | — |
 
 > 사업자 재등록 정책: 비식별화 완료 이후 허용 — D-22
 > business_no는 비식별화(NULL 처리) 완료 후에만 재등록 허용
@@ -190,6 +191,7 @@
 | COM-4 | 금액은 BIGINT(KRW 정수·DECIMAL 금지) | 통화 정밀도·오차 차단 | 글로벌 정책 §1.3 |
 
 > public_id 부여 12개(ADR-001): usr_·slr_·prd_·var_·ord_·oit_·pay_·dlv_·clm_·rfn_·att_·aud_.
+> **부여 기준** (외부 검토 2차): 외부 직접 참조 가능성(URL·API·외부 시스템 ID 노출) 기준. 조회 성능·내부 결합도와 무관. 내부 PK(BIGINT)는 별도 유지.
 
 ---
 
