@@ -5,8 +5,12 @@ import com.github.f4b6a3.ulid.UlidCreator;
 /**
  * 외부 노출 식별자 public_id 생성기. 형식: {@code <prefix>_<ULID>} = prefix 3 + '_' 1 + ULID 26 = CHAR(30).
  *
- * <p>prefix 명단 12종(ADR-001·V1 DDL): usr·slr·prd·var·ord·oit·pay·dlv·clm·rfn·att·aud.
+ * <p>prefix 명단 13종(ADR-001·V1 DDL·D-35): usr·slr·prd·var·ord·oit·pay·dlv·clm·rfn·att·aud·pat.
  * Monotonic ULID로 동일 밀리초 내 단조 증가를 보장해 B-Tree 인덱스 효율을 확보한다.
+ *
+ * <p><b>pat 주의(D-35)</b>: {@code pat}는 Payment 행의 {@code public_id}(prefix {@code pay})와 별개 키다.
+ * {@code pay_}는 Payment 행 외부 노출 식별자, {@code pat_}는 결제 시도 식별자(payment_attempt_key·PG 전달·콜백 매핑 1차 키)다.
+ * 둘은 같은 Payment 행에 공존하며 용도가 다르다.
  */
 public final class PublicIdGenerator {
 
