@@ -1,6 +1,6 @@
 # State Machine (PR-01)
 
-> 소스: decisions.md D-02·D-03·D-04·D-05 [확정 2026-06-24] · D-23 [확정 2026-06-24·§7 Seller.status] · D-24 [확정 2026-06-26·§8 Refund.status]
+> 소스: decisions.md D-02·D-03·D-04·D-05 [확정 2026-06-24] · D-23 [확정 2026-06-24·§7 Seller.status] · D-24 [확정 2026-06-26·§8 Refund.status] · D-31 [PAY-3 분리]·D-34 [콜백 매트릭스 CANCEL×PENDING]
 > 범위: Order·OrderItem·Payment·Claim 4건 (baseline-plan.md §4 결정 1) + Seller.status §7 (D-23) + Refund.status §8 (D-24) — 6건
 
 ---
@@ -18,7 +18,7 @@ PENDING ──→ PAID ──→ CANCELLED
 |---|---|---|
 | PENDING | Payment 행 생성 시 초기값 | — |
 | PAID | PG 결제 성공 콜백 | — |
-| FAILED | PG 결제 실패 콜백 | 재시도 = 새 Payment 행 생성 |
+| FAILED | PG 결제 실패 콜백·취소 콜백 수신 (CANCEL × PENDING 케이스) | 재시도 = 새 Payment 행 생성. 만료(expires_at 도달)는 상태 전이 트리거가 아님 (새 결제 시도 차단 해제 신호만) |
 | CANCELLED | Claim 환불 완료 (Refund.COMPLETED) | 불가역 |
 
 **Payment.method (A분류)**:

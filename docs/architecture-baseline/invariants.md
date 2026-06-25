@@ -1,6 +1,6 @@
 # Invariants (불변조건) — PR-05
 
-> 소스: decisions.md D-21 [확정 2026-06-24]·aggregate-boundary.md §2·state-machine.md·db-schema-decisions.md §1/§2·deletion-policy.md·inventory-policy.md
+> 소스: decisions.md D-21 [확정 2026-06-24]·aggregate-boundary.md §2·state-machine.md·db-schema-decisions.md §1/§2·deletion-policy.md·inventory-policy.md · D-31 [PAY-3 분리: PAY-3a Order×PAID 유일·PAY-3b (pg_provider,pg_tid) UNIQUE]
 > 도메인 규칙 중 절대 깨지면 안 되는 조건. DDL 제약·Entity 검증·Domain Service 가드의 단일 레퍼런스.
 > Enforcement Point = 해당 invariant를 강제하는 위치(DB CHECK·UK·FK / Service / Domain / Batch).
 
@@ -114,9 +114,10 @@
 |---|---|---|---|---|---|
 | PAY-1 | Refund 총액 ≤ Payment.amount | 과환불 차단 | Domain — **Claim/Refund Domain에서 Payment.amount 누적 검증**(교차 Aggregate) | 환불 누적 초과 차단 | — |
 | PAY-2 | Payment.status 전이 = state-machine §1 | 결제 흐름 정합 | Domain(enum canTransition) | 비합법 전이 차단 | — |
-| PAY-3 | 유효 PAID 1건(재시도=새 행·pg_tid 멱등) | 중복 결제 차단 | Domain + pg_tid 멱등 | 콜백 중복 수신 방어 | — |
+| PAY-3a | 한 주문에 PAID 상태 결제 행 최대 1건 (Order × PAID 유일성) | 중복 결제 차단 | Service 사전 가드 (MariaDB partial index 미지원으로 Service 단독 강제) | 과결제 방어 | — |
+| PAY-3b | (pg_provider, pg_tid) 복합 UNIQUE 제약 | 동일 PG 거래 식별자 중복 INSERT 차단·콜백 멱등 방어선 | DB UNIQUE KEY + Service 사전 가드 + Entity canTransitionTo | 콜백 중복 수신 방어 | — |
 
-> PAY-1은 **교차 Aggregate invariant**다. Refund는 Claim Aggregate(D-01 #13) 소속이나 규칙은 Payment.amount를 참조한다 → 강제 위치는 Claim/Refund Domain(Payment.amount 누적 대조). Payment 절에 기재해 "환불 총액 한도"를 결제 관점에서 단일 노출한다(§a 확정).
+> PAY-1은 **교차 Aggregate invariant**다. Refund는 Claim Aggregate(D-01 #13) 소속이나 규칙은 Payment.amount를 참조한다 → 강제 위치는 Claim/Refund Domain(Payment.amount 누적 대조). Payment 절에 기재해 "환불 총액 한도"를 결제 관점에서 단일 노출한다(§a 확정). <!-- D-31 PAY-3 분리 반영 -->
 
 ### 2.12 Delivery
 | # | Rule | Why | Enforcement Point | Impact | Alternative |
@@ -206,4 +207,4 @@
 
 ---
 
-> **커버리지**: 16 Aggregate(§2.1~2.16·Refund는 Claim Aggregate 내 §2.13.1) + Infra/Event 1(§3) + 공통(§4). 도메인별 invariant ≈66건(16 Aggregate 63 + Infra/Event 3) + 공통 4. State Machine 전이는 state-machine.md(Order·OrderItem·Payment·Claim·Seller 5건 + Refund §8) 한정·본 문서와 구분.
+> **커버리지**: 16 Aggregate(§2.1~2.16·Refund는 Claim Aggregate 내 §2.13.1) + Infra/Event 1(§3) + 공통(§4). 도메인별 invariant ≈67건(16 Aggregate 64 + Infra/Event 3) + 공통 4 (PAY-3→PAY-3a·PAY-3b 분리·D-31). State Machine 전이는 state-machine.md(Order·OrderItem·Payment·Claim·Seller 5건 + Refund §8) 한정·본 문서와 구분.
