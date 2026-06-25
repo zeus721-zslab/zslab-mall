@@ -19,3 +19,11 @@ CLAUDE-TEST.md
 
 # git commit 부산물
 commit-msg.txt
+
+# OS 부산물
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# Spring Initializr 부산물
+HELP.md
