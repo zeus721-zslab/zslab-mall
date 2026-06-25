@@ -718,3 +718,51 @@ Seller TERMINATED 진입
 - "Order.status 복구 정책 (CR-2)" — 구현 트랙 진입 전 처리
 
 > **propagation 보류**: WithdrawnSeller 신설로 37→38 테이블이 되나, 본 트랙 산출물(6파일) 밖의 37-테이블·WithdrawnUser 패턴 참조처(deletion-policy.md §2.2/§2.3·db-schema §1.1/§1.8·docs/ddl/decisions.md audit 5분류·docs/ddl/RECON.md)는 미반영. "37→38 테이블 카운트·분류 propagation"은 별도 정합 트랙으로 보류(M-09 29→37·"17 Aggregate" lag 처리 방식과 동일).
+
+---
+
+## Refund 상태 전이 트랙 (feat/refund-state-machine, 2026-06-26) [확정 2026-06-26]
+
+> 소스: decisions.md D-05(Claim·Refund 생명주기)·state-machine.md §2/§8·invariants.md §2 RFN·V1__init.sql refund.status·§1.13 A#15
+> Entity 차단 마지막 항목(A 트랙·Refund.status 전이) 결정 3건 사용자 확정. B 트랙(Seller 비식별화·D-23)·propagation-38 머지 완료 후 진입.
+
+---
+
+### D-24: Refund.status 상태 전이 정의 (A 트랙 3건 일괄 확정)
+
+**상태**: [확정 2026-06-26]
+
+**결정안**:
+1. **FAILED 재시도 정책**: 새 Refund 행 생성. FAILED는 불가역 종료 상태. 재시도는 동일 Claim 하위에 신규 PENDING row 생성. (state-machine §2 Claim 재시도 패턴 일관)
+2. **COMPLETED 트리거·멱등성**: PG 콜백/응답 트리거 전용. `pg_refund_id`를 멱등성 키로 사용. 동일 `pg_refund_id` 재수신 시 no-op (Service 가드). 운영자 수동 보정 경로 없음 — 후속 트랙(D안) 검토.
+3. **Claim.COMPLETED ↔ Refund.COMPLETED 연동 순서**: 케이스별 분기. state-machine.md §2 Claim 정의 미러링:
+   - CANCEL: Refund.COMPLETED → Claim.COMPLETED
+   - RETURN: 수거 확인 → Refund.COMPLETED → Claim.COMPLETED
+   - EXCHANGE: 교환 출고 → Refund.COMPLETED → Claim.COMPLETED (환불 금액 발생 시)
+
+**전이 규칙** (state-machine §8 신규):
+
+```
+PENDING ──→ COMPLETED (불가역·PG 환불 성공·refunded_at·pg_refund_id 채움)
+        └─→ FAILED    (불가역·PG 환불 실패·재시도는 새 행)
+```
+
+**불가역**: COMPLETED·FAILED 모두 불가역. 상태 변경 없음.
+
+**Why**: Refund.status 전이는 V1 DDL 시점부터 이연 상태(state-machine.md §6). Entity 트랙·Claim 엔티티 canTransition 구현 차단 항목. Claim §2 패턴(재시도=새 행)과 일관 적용해 감사 추적성·멱등성·정합성 동시 확보. PG 콜백 전용은 현 단계(PG 미연동)에서 과조기 최적화 회피·실 운영 데이터 누적 후 수동 보정 정책(D안) 재검토.
+
+**Impact**:
+- state-machine.md §8 Refund.status 전이 신규.
+- state-machine.md §6 외부 이연 라인: Refund 제거 (§7 Seller 처리와 동일 패턴).
+- invariants.md §2 신규 RFN 섹션 (RFN-1·RFN-2·RFN-3).
+- DDL 영향 없음 (Refund.status ENUM·pg_refund_id 컬럼 V1 확정).
+- Entity 트랙 Refund·Claim 진입 차단 해소.
+
+**Alternative**:
+- A-d1 B(FAILED→PENDING 복귀): 동일 row 상태 변경·시도 추적 불가·pg_refund_id 멱등성 모호 (기각).
+- A-d2 C(자동+수동 하이브리드): PG 미연동 단계 과조기 최적화·정합 신뢰도 손실·후속 트랙으로 이연 (기각).
+- A-d3 A·B(단일 순서 강제): state-machine §2 케이스별 정의와 충돌·운영 업무 흐름 불일치 (기각).
+
+**후속**:
+- Refund 수동 보정 정책 (D안 RefundAdjustment 신규 테이블 검토) — PG 운영 데이터 누적 후 진입 (TODO 등재)
+- Entity 트랙 진입 가능 (B 트랙·A 트랙 머지 완료 시)

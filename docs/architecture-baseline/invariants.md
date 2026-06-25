@@ -11,7 +11,7 @@
 - **invariant는 상태(state) 상위 개념**이다. 상태 전이가 합법이어도 invariant를 깨면 무효다.
 - 위반 시 시스템 정합성이 붕괴한다(과판매·과환불·중복 계정 등).
 - **가장 낮은 레이어(DB)에서 강제**하고, DB로 불가능한 경우에만 Service/Domain으로 올린다(D-09·D-12 정합).
-- 본 문서는 **불변조건 카탈로그**다 — State Machine 전이 정의가 아니다(전이는 [state-machine.md](./state-machine.md) Order·OrderItem·Payment·Claim·Seller 5건 한정·Seller=D-23 §7).
+- 본 문서는 **불변조건 카탈로그**다 — State Machine 전이 정의가 아니다(전이는 [state-machine.md](./state-machine.md) Order·OrderItem·Payment·Claim·Seller·Refund 6건 한정·Seller=D-23 §7·Refund=D-24 §8).
 - 실제 DB CHECK·UK 제약 명세 / Entity 단위 검증 코드 / Service 가드 구현은 **외부 이연**(§5).
 
 ---
@@ -134,6 +134,16 @@
 | CLM-3 | Refund는 Claim 승인 후에만 생성 | 생명주기 공유(D-01) | Domain | 미승인 환불 차단 | — |
 | CLM-4 | Claim.status 전이 = state-machine §2 | 클레임 흐름 정합 | Domain(enum canTransition) | 비합법 전이 차단 | — |
 
+#### 2.13.1 Refund (RFN — 3건·Claim Aggregate 내·D-01 #13)
+
+> Refund는 Claim Aggregate 소속(CLM-3). 별도 Aggregate 아님 — 상태 전이는 state-machine §8(D-24).
+
+| # | Rule | Why | Enforcement Point | Impact | Alternative |
+|---|---|---|---|---|---|
+| RFN-1 | Refund.status COMPLETED 전이는 pg_refund_id 필수 | PG 콜백 전용 멱등성(D-24 A-d2) | Service(pg_refund_id NULL 상태 COMPLETED 전이 차단) | 멱등성 키 없는 환불 완료 차단 | — |
+| RFN-2 | Refund.status FAILED·COMPLETED 불가역·재시도는 새 Refund 행 | 감사 추적성·시도별 row 독립(D-24 A-d1) | Domain(canTransition·FAILED/COMPLETED→전이 차단) | 종료 상태 재오픈 차단 | 기존 행 복귀(기각) |
+| RFN-3 | 동일 pg_refund_id 중복 콜백 시 멱등 처리(no-op) | PG 콜백 멱등성(D-24 A-d2) | Service(PG 콜백 핸들러 멱등 가드) | 콜백 중복 수신 방어 | — |
+
 ### 2.14 Code
 | # | Rule | Why | Enforcement Point | Impact | Alternative |
 |---|---|---|---|---|---|
@@ -194,4 +204,4 @@
 
 ---
 
-> **커버리지**: 16 Aggregate(§2.1~2.16) + Infra/Event 1(§3) + 공통(§4). 도메인별 invariant ≈63건(16 Aggregate 60 + Infra/Event 3) + 공통 4. State Machine 전이는 state-machine.md(Order·OrderItem·Payment·Claim·Seller 5건) 한정·본 문서와 구분.
+> **커버리지**: 16 Aggregate(§2.1~2.16·Refund는 Claim Aggregate 내 §2.13.1) + Infra/Event 1(§3) + 공통(§4). 도메인별 invariant ≈66건(16 Aggregate 63 + Infra/Event 3) + 공통 4. State Machine 전이는 state-machine.md(Order·OrderItem·Payment·Claim·Seller 5건 + Refund §8) 한정·본 문서와 구분.

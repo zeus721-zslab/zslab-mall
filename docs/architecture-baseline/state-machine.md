@@ -1,7 +1,7 @@
 # State Machine (PR-01)
 
-> 소스: decisions.md D-02·D-03·D-04·D-05 [확정 2026-06-24] · D-23 [확정 2026-06-24·§7 Seller.status]
-> 범위: Order·OrderItem·Payment·Claim 4건 (baseline-plan.md §4 결정 1) + Seller.status §7 (D-23) — 5건
+> 소스: decisions.md D-02·D-03·D-04·D-05 [확정 2026-06-24] · D-23 [확정 2026-06-24·§7 Seller.status] · D-24 [확정 2026-06-26·§8 Refund.status]
+> 범위: Order·OrderItem·Payment·Claim 4건 (baseline-plan.md §4 결정 1) + Seller.status §7 (D-23) + Refund.status §8 (D-24) — 6건
 
 ---
 
@@ -163,7 +163,7 @@ Order.status는 OrderItem 집계 캐시이므로, OrderItem 상태가 변경될 
 
 ## 6. 외부 이연
 
-- **Delivery·Refund·Settlement 상태 전이** → 각 도메인 별도 정의 (본 PR 범위 외)
+- **Delivery·Settlement 상태 전이** → 각 도메인 별도 정의 (본 PR 범위 외)
 - **자동 구매확정 타이머** (배송 후 N일 → CONFIRMED) → 구현 단계
 - **재고 복구 시점** (CANCELLED/RETURNED 후) → PR-02 inventory-policy.md
 
@@ -173,7 +173,7 @@ Order.status는 OrderItem 집계 캐시이므로, OrderItem 상태가 변경될 
 
 > 소스: decisions.md D-23 [확정 2026-06-24]·SLR-4(invariants.md §2.4)·§1.13 B#1.
 > B분류: Code 테이블로 라벨 관리. 값 집합은 코드 레이어 enum으로 고정(추가 = Flyway 마이그레이션 + Code 시드).
-> 본 절은 §6 외부 이연 대상이 아니다(§6은 Delivery·Refund·Settlement 한정). Seller.status는 D-23으로 본 절에 정의된다.
+> 본 절은 §6 외부 이연 대상이 아니다(§6은 Delivery·Settlement 한정·Refund는 §8 D-24). Seller.status는 D-23으로 본 절에 정의된다.
 
 ```
    PENDING ──→ ACTIVE ⇄ SUSPENDED
@@ -206,3 +206,45 @@ Order.status는 OrderItem 집계 캐시이므로, OrderItem 상태가 변경될 
 **전이 권한**: 운영자(ADMIN_OPERATOR 이상)가 모든 전이를 수행. 판매자 자기 종료(SELLER_OWNER) 요청은 운영자 승인을 경유 — 판매자 직접 종료 권한 부여 여부는 구현 트랙 이연(본 트랙 결정 범위 외).
 
 **TERMINATED → 비식별화 연동**: TERMINATED 진입이 D-23 비식별화 흐름의 시작점이다. state-machine 전이(상태)와 비식별화(불가역 개인정보 파기)는 별개 축이며, 후자는 deletion-policy §3·D-23 배치가 담당한다.
+
+---
+
+## 8. Refund.status (A분류 #15)
+
+> 소스: decisions.md D-24 [확정 2026-06-26]·invariants.md §2 RFN·V1__init.sql refund.status·§1.13 A#15.
+> A분류: ENUM 값 집합 코드 레이어 enum 고정. 추가/변경 = Flyway 마이그레이션 + db-schema 갱신.
+> 본 절은 §6 외부 이연 대상이 아니다(§6은 Delivery·Settlement 한정). Refund.status는 D-24로 본 절에 정의된다.
+
+```
+PENDING ──→ COMPLETED (불가역)
+        └─→ FAILED    (불가역)
+```
+
+**확정 값 집합 (3개)** (V1__init.sql refund.status·§1.13 A#15):
+
+| 값 | 진입 조건 | 비고 |
+|---|---|---|
+| PENDING | Refund 행 생성 시 초기값 (Claim 승인 후 Domain Service가 생성) | PG 환불 요청 대기 |
+| COMPLETED | PG 환불 콜백/응답 성공 | 불가역·refunded_at·pg_refund_id 채움 |
+| FAILED | PG 환불 콜백/응답 실패 | 불가역·재시도는 새 Refund 행 생성 |
+
+**전이 규칙**:
+
+| 전이 | 트리거 | 멱등성 |
+|---|---|---|
+| PENDING → COMPLETED | PG 환불 콜백/응답 성공 | pg_refund_id 키로 중복 호출 시 no-op (Service 가드) |
+| PENDING → FAILED | PG 환불 콜백/응답 실패 | failure 응답 멱등 처리·재시도는 새 행 |
+
+**불가역**: COMPLETED·FAILED 모두 불가역. 상태 변경 없음. 재시도는 동일 Claim 하위 신규 PENDING row 생성 (Claim §2 재시도 패턴 일관).
+
+**Claim 연동 (§2 미러링)**:
+
+| Claim.type | 연동 순서 |
+|---|---|
+| CANCEL | Refund.COMPLETED → Claim.COMPLETED |
+| RETURN | 수거 확인 → Refund.COMPLETED → Claim.COMPLETED |
+| EXCHANGE | 교환 출고 → Refund.COMPLETED → Claim.COMPLETED (환불 금액 발생 시) |
+
+**Payment 연동 (D-05 정합)**: Refund.COMPLETED 후 Payment.status는 환불 누적 금액에 따라 CANCELLED 전이 가능 (PAY-1 invariant·Domain 검증).
+
+**전이 권한**: 자동 (PG 콜백 핸들러). 운영자 수동 보정 권한 없음 — 후속 트랙(D안 RefundAdjustment) 검토 사항.

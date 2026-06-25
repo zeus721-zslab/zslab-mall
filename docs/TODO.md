@@ -17,8 +17,8 @@
 | 트랙 | 내용 |
 |---|---|
 | DDL | Flyway 마이그레이션 (ddl-ready-checklist §8 운영 체크박스 6개 확인 후 착수) |
-| state-machine 보강 | Refund.status 상태 전이 정의 — 외부 리뷰 발견·신규 결정 도입 트랙·Entity 트랙 진입 전 처리 |
 | Order.status 복구 정책 | 자동 보정 배치 유무·운영 정책 — 구현 트랙 진입 전 처리 (CR-2) |
+| Refund 수동 보정 정책 | D안 RefundAdjustment 신규 테이블 검토 — PG 콜백 누락·장애 대응. 진입 트리거: PG 연동·실 환불 운영 개시 후 콜백 누락/수동 보정 요청 누적/Settlement 불일치 발견 셋 중 하나 (D-24 후속) |
 | "17 Aggregate" 표현 lag 보정 | aggregate-boundary/ddl-ready-checklist 등 문서 일부가 "17 Aggregate"로 표기(정합: 16 Aggregate + 1 Infra/Event=NotificationLog·D-13·D-18). DDL 트랙 범위 외·문서 표현 통일 트랙에서 정정 (DDL 정찰 §10-⑤) |
 | Entity | JPA 엔티티 (DDL 확정 후) |
 | API | OpenAPI·Controller·Service (Entity 확정 후) |
