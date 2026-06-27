@@ -8,19 +8,24 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
+import static org.mockito.ArgumentMatchers.any;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 import org.testcontainers.containers.MariaDBContainer;
 import org.testcontainers.utility.DockerImageName;
+import com.zslab.mall.order.service.OrderService;
 
 /**
  * Checkout API 통합 테스트(실 MariaDB·Flyway V1~V4·validate). 신규 쿼리(findByPublicIdIn·fetch join)·멱등성 INSERT·
@@ -59,6 +64,14 @@ class CheckoutIntegrationTest {
 
     @PersistenceContext
     private EntityManager entityManager;
+
+    @MockitoSpyBean
+    private OrderService orderService;
+
+    @AfterEach
+    void resetSpy() {
+        Mockito.reset(orderService);
+    }
 
     private static final String CREATE_BODY = """
             {
@@ -191,6 +204,97 @@ class CheckoutIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON).content("{ \"method\": \"CARD\" }"))
                 .andExpect(status().isCreated())
                 .andExpect(header().string("Location", org.hamcrest.Matchers.startsWith("/api/v1/payments/pay_")));
+    }
+
+    @Test
+    @DisplayName("멱등성+D-66: 상품 미존재(404) 후 동일 키 재시도 → 201 — row 삭제 후 신규 처리")
+    void checkout_itemNotFound_sameKeyRetryable() throws Exception {
+        String key = "idem-key-notfound-001";
+        String notFoundBody = """
+                {
+                  "items": [ { "productId": "prd_XXXXXXXXXXXXXXXXXXXXXXXXXXXX", "variantId": "%s", "quantity": 2 } ],
+                  "shippingAddress": {
+                    "recipientName": "홍길동", "recipientPhone": "010-1234-5678",
+                    "zonecode": "06236", "addressRoad": "서울 강남대로 1", "addressDetail": "101호"
+                  },
+                  "method": "CARD"
+                }
+                """.formatted(VARIANT_PID);
+
+        // 1차: 상품 미존재 → 404 (D-66 fix: 4xx → IN_PROGRESS row 삭제)
+        mockMvc.perform(post("/api/v1/orders").header("X-Buyer-Id", "1")
+                        .header("Idempotency-Key", key)
+                        .contentType(MediaType.APPLICATION_JSON).content(notFoundBody))
+                .andExpect(status().isNotFound());
+        entityManager.flush();
+        entityManager.clear();
+
+        // 2차: 동일 키 + 올바른 상품 → row 삭제됨 → 신규 처리 → 201
+        mockMvc.perform(post("/api/v1/orders").header("X-Buyer-Id", "1")
+                        .header("Idempotency-Key", key)
+                        .contentType(MediaType.APPLICATION_JSON).content(CREATE_BODY))
+                .andExpect(status().isCreated());
+    }
+
+    @Test
+    @DisplayName("멱등성+D-66: variant 불일치(422) 후 동일 키 재시도 → 201 — row 삭제 후 신규 처리")
+    void checkout_itemMismatch_sameKeyRetryable() throws Exception {
+        String key = "idem-key-mismatch-001";
+        String wrongVariantPid = "var_0000000000000000000000IT02";
+        // product_id=9999는 PRODUCT_PID(DB id=1000)와 불일치 → CheckoutItemMismatchException(422) 유발
+        execute("INSERT INTO product_variant (id, public_id, product_id, variant_code, additional_price, status, "
+                + "is_soldout_manual, display_order, option1_value_id, created_at, updated_at) "
+                + "VALUES (1001, '" + wrongVariantPid + "', 9999, 'WRONG', 0, 'SALE', 0, 2, 1, NOW(6), NOW(6))");
+        entityManager.flush();
+
+        String mismatchBody = """
+                {
+                  "items": [ { "productId": "%s", "variantId": "%s", "quantity": 2 } ],
+                  "shippingAddress": {
+                    "recipientName": "홍길동", "recipientPhone": "010-1234-5678",
+                    "zonecode": "06236", "addressRoad": "서울 강남대로 1", "addressDetail": "101호"
+                  },
+                  "method": "CARD"
+                }
+                """.formatted(PRODUCT_PID, wrongVariantPid);
+
+        // 1차: variant 불일치 → 422 (D-66 fix: 4xx → IN_PROGRESS row 삭제)
+        mockMvc.perform(post("/api/v1/orders").header("X-Buyer-Id", "1")
+                        .header("Idempotency-Key", key)
+                        .contentType(MediaType.APPLICATION_JSON).content(mismatchBody))
+                .andExpect(status().isUnprocessableEntity());
+        entityManager.flush();
+        entityManager.clear();
+
+        // 2차: 동일 키 + 올바른 variant → row 삭제됨 → 신규 처리 → 201
+        mockMvc.perform(post("/api/v1/orders").header("X-Buyer-Id", "1")
+                        .header("Idempotency-Key", key)
+                        .contentType(MediaType.APPLICATION_JSON).content(CREATE_BODY))
+                .andExpect(status().isCreated());
+    }
+
+    @Test
+    @DisplayName("멱등성+D-66: 5xx 후 동일 키 재시도 → 409 유지 — row 잔류(회귀 방어)")
+    void checkout_5xx_sameKeyBlocked() throws Exception {
+        String key = "idem-key-5xx-001";
+        // D-66: 5xx(RuntimeException) → row 잔류 — 4xx 삭제 fix가 5xx에 영향을 주지 않는지 회귀 검증
+        Mockito.doThrow(new RuntimeException("5xx 시뮬레이션 — 예상치 못한 서버 오류"))
+                .when(orderService).createOrder(any());
+
+        // 1차: 예상치 못한 오류 → 500 (row 잔류)
+        mockMvc.perform(post("/api/v1/orders").header("X-Buyer-Id", "1")
+                        .header("Idempotency-Key", key)
+                        .contentType(MediaType.APPLICATION_JSON).content(CREATE_BODY))
+                .andExpect(status().isInternalServerError());
+        entityManager.flush();
+        entityManager.clear();
+
+        // 2차: 동일 키 → IN_PROGRESS row 잔류 → 409
+        mockMvc.perform(post("/api/v1/orders").header("X-Buyer-Id", "1")
+                        .header("Idempotency-Key", key)
+                        .contentType(MediaType.APPLICATION_JSON).content(CREATE_BODY))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("IDEMPOTENCY_KEY_IN_PROGRESS"));
     }
 
     private String performCheckout(String idempotencyKey) throws Exception {
