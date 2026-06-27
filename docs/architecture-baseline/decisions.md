@@ -1856,3 +1856,62 @@ order/controller/
 - 또는 Track 7 Redis 도입 시 멱등성 매체 마이그레이션 검토와 동시 (D-44a 기존 트리거 정합)
 
 **관련 결정**: D-44a (72h 일괄 유지).
+
+---
+
+## D-56. PaymentService.initiate 시그니처 확장 [ACTIVE]
+
+**결정일**: 2026-06-27
+**관련**: Track 4 / D-43·D-51·D-52
+
+**변경 전**: `initiate(PaymentInitiateRequest request)` — request = (orderId, method, amount)
+**변경 후**: `initiate(String orderPublicId, Long buyerId, PaymentMethod method)`
+
+**사유**:
+- D-51 진입 직후 3종 재검증 필요 (Order Snapshot 고정·판매 가능성)
+- D-52 buyerId 소유권 확인 (404 vs 403 분기)
+- attempt_key 서버 발급 원칙 유지
+- amount는 Order에서 재계산 (클라이언트 신뢰 차단)
+
+**정찰 근거**: PaymentService.java 현 시그니처 = `initiate(PaymentInitiateRequest)`·프로덕션 호출부 0건 (회귀 위험 없음).
+
+---
+
+## D-57. Inventory 엔티티 Track 4 범위 신설 [ACTIVE]
+
+**결정일**: 2026-06-27
+**관련**: Track 4 / D-51 / Track 7 deferred 일부 해제
+
+**결정**: Track 4에서 Inventory Java 엔티티·Repository 최소 신설. 범위는 read-only 조회 한정 (재고 검증용).
+
+**범위**:
+- `Inventory.java` 엔티티 (variant_id·quantity_on_hand·quantity_reserved·quantity_available)
+- `InventoryRepository` (findByVariantId 등 조회만)
+- 재고 차감/증가·InventoryHistory는 Track 7 deferred 유지
+
+**사유**:
+- DDL은 V1__init.sql L488에 이미 존재 (테이블 신설 불필요)
+- D-51 재고 검증 (`quantity_available < quantity` 차단) 온전 적용
+- Track 7 Inventory 도메인 구현 시 read-write 확장
+
+**정찰 근거**: Java inventory 패키지·엔티티 부재 (Glob 0건)·DDL inventory 테이블 존재.
+
+---
+
+## D-58. CheckoutService 오케스트레이션 계층 신설 [ACTIVE]
+
+**결정일**: 2026-06-27
+**관련**: Track 4 / D-52
+
+**결정**: createOrder ↔ initiate TX 분리 호출 순서 조립을 `CheckoutService`에서 수행.
+
+**책임**:
+- OrderService.createOrder (TX1) → PaymentService.initiate (TX2) 순서 조립
+- D-52 부분 실패 복구 (Order 생성 후 initiate 실패 시 재시도 처리)
+- 향후 쿠폰·포인트 차감 등 조립 지점 확장
+
+**제외 대안**:
+- OrderController 직접 조립: 얇은 컨트롤러 원칙 위반
+- OrderFacade: Facade는 다중 도메인 단순 위임용·오케스트레이션 책임 부적합
+
+**정찰 근거**: OrderService.createOrder는 PaymentService 미호출·OrderPlaced 이벤트만 발행 (현재 비결합 상태).

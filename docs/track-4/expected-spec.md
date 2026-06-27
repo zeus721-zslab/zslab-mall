@@ -59,11 +59,12 @@ order/controller/
 
 ### 5. 체크아웃 트랜잭션 경계 (D-43 2·3·4항·D-52)
 - `@Transactional`로 Order 생성과 Payment initiate를 **한 TX로 묶지 않음**. 각 Service 자체 `@Transactional` (D-28 정합).
+- **오케스트레이션 계층 (D-58)**: 아래 1→5 호출 순서 조립은 `CheckoutService`가 담당. `BuyerOrderController` 직접 조립 금지.
 - **호출 순서 (D-52)** — Idempotency-Key 헤더 전달 시:
   1. `order_idempotency_key` INSERT (`status=IN_PROGRESS`·`order_id=NULL`)
   2. `OrderService.createOrder()` (TX1 COMMIT)
   3. `order_idempotency_key.order_id` UPDATE (별도 짧은 TX)
-  4. `PaymentService.initiate()` (TX2 COMMIT)
+  4. `PaymentService.initiate(orderPublicId, buyerId, method)` (TX2 COMMIT) — D-56 시그니처
   5. 응답 직렬화 → `response_body` 저장 + `status=COMPLETED` UPDATE
 - 부분 실패 (Order 성공 + Payment initiate 실패):
   - Order 롤백 **금지** — `PENDING_PAYMENT` 상태 유지.
@@ -81,9 +82,9 @@ order/controller/
   - Payment 부재 (INITIATE_FAILED 직후) → 신규 Payment 생성 허용
 - **재결제 재검증 3종 (D-51)** — initiate 진입 시 Order Snapshot 고정·가격 재계산 금지·아래 3종만 차단:
   - `Product.status != SALE` → 422 `ORDER_NOT_PAYABLE` + detail `PRODUCT_NOT_ON_SALE`
-  - `ProductVariant.is_soldout_manual == true` 또는 `Inventory.quantity_available < OrderItem.quantity` → 422 `ORDER_NOT_PAYABLE` + detail `OUT_OF_STOCK`
+  - `ProductVariant.is_soldout_manual == true` 또는 `Inventory.quantity_available < OrderItem.quantity` → 422 `ORDER_NOT_PAYABLE` + detail `OUT_OF_STOCK` *(D-57: Track 4에서 `Inventory` Java 엔티티·Repository read-only 신설)*
   - 배송 불가 → 422 `ORDER_NOT_PAYABLE` + detail `SHIPPING_UNAVAILABLE`
-- 권한 검증: `PaymentService.initiatePayment(orderPublicId, buyerId)` 시그니처 강제. 본인 일치 불일치 시 404 (§2 정합).
+- 권한 검증: `PaymentService.initiate(orderPublicId, buyerId, method)` 시그니처 (D-56). 본인 일치 불일치 시 404 (§2 정합).
 - attempt_key: retry 시 **항상 신규 발급**·재사용 금지. 기존 Payment row(FAILED 상태) 재사용 금지·신규 row 추가 (D-52).
 - **응답 헤더 (D-53)**: 재결제 성공 시 `Location: /api/v1/payments/{paymentPublicId}` 강제 (Order 리소스 재사용 금지·Payment 생성이므로 Payment 가리킴).
 - 미래 상태 (EXPIRED·TIMEOUT 등) 추가 시 "활성 Payment 정의"만 갱신.
@@ -113,7 +114,7 @@ order/controller/
 - **재시도 분기 (D-52)**:
   - `status=COMPLETED` → 캐시 응답 반환 (HTTP 200 OK 고정).
   - `status=IN_PROGRESS` + `order_id IS NULL` → 409 `IDEMPOTENCY_KEY_IN_PROGRESS`.
-  - `status=IN_PROGRESS` + `order_id IS NOT NULL` → **기존 Order 복구**·`PaymentService.initiate` 재호출만 수행 (Order 재생성 금지·attempt_key 신규 발급).
+  - `status=IN_PROGRESS` + `order_id IS NOT NULL` → **기존 Order 복구**·`PaymentService.initiate(orderPublicId, buyerId, method)` 재호출만 수행 (Order 재생성 금지·attempt_key 신규 발급) — D-56 시그니처.
 
 ### 9. 멱등성 저장 — V4 Flyway (D-44a)
 - 테이블: `order_idempotency_key`.
@@ -326,3 +327,7 @@ completed_at      DATETIME(6)  NULL
 > **이력**:
 > - v1 (2026-06-27·Claude.ai·D-39~D-50 기반)
 > - v2 (2026-06-27·외부 검토 3차 흡수·D-51~D-55 + CR-06 보완 + CR-11 표기 반영)
+> - v3 (2026-06-27): D-56·D-57·D-58 반영
+>   - §5: CheckoutService 오케스트레이션 계층 명시 (D-58)·`PaymentService.initiate(orderPublicId, buyerId, method)` 시그니처 갱신 (D-56)
+>   - §6: `PaymentService.initiate(orderPublicId, buyerId, method)` 시그니처 갱신 (D-56)·`Inventory` 재고 검증 행에 D-57 Inventory Java 엔티티 read-only 신설 명시
+>   - §8: `PaymentService.initiate` 재시도 호출에 D-56 시그니처 반영
