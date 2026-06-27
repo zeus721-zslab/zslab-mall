@@ -2155,3 +2155,127 @@ order/controller/
 - D-44b (멱등성 응답 캐싱·"IN_PROGRESS row 삭제" 표현 → D-66 정합 재해석)
 - D-52 (호출 순서·재시도 분기·복구 분기 보존)
 - D-50 (409 vs 422 의미 분류)
+
+---
+
+## D-67. Track 5 Refund FAILED 진입 조건 — PG 호출 예외 포함 [ACTIVE]
+
+**결정일**: 2026-06-28
+**관련**: Track 5 / state-machine §8·CR-03
+
+### 결정
+Refund.status PENDING → FAILED 전이 트리거에 **PG 호출 자체 예외 (네트워크·timeout·gateway exception)** 를 포함한다. 콜백 응답 실패만이 아니다.
+
+### 사양
+- `RefundService.initiate` 내부 PG 호출 (`MockPaymentGateway.refund()`) 예외 발생 시 PENDING 행을 FAILED로 전이
+- 별도 `RefundFailureCode` enum·`failure_reason` 컬럼 도입하지 않음 (CR-01 보류 정합)
+- state-machine §8 본문 "PG 환불 콜백/응답 실패" 표현은 본 결정과 정합하도록 후속 PR에서 "PG 환불 콜백/응답 실패·호출 예외 포함"으로 보강
+
+### 사유
+- 현 state-machine §8 정의는 콜백 실패만 포함 — PG 호출 예외 발생 시 상태 정의 공백
+- 영구 PENDING 잔존 위험 차단 (외부 검토 운영 리스크 지적)
+- 별도 enum/컬럼은 Track 5 범위 초과·discover → repeat → promote 정합 (CR-01 보류 근거 일관)
+
+### 관련 결정
+- D-24 (Refund.status 전이 확정)·CR-03 (외부 검토 흡수)
+
+---
+
+## D-68. Track 5 RefundService.markCompleted PAY-1 사후 재검증 [ACTIVE]
+
+**결정일**: 2026-06-28
+**관련**: Track 5 / PAY-1·CR-05
+
+### 결정
+`RefundService.markCompleted()` 진입 시 PAY-1 (Σ Refund.COMPLETED.amount ≤ Payment.amount) 을 사후 재검증한다. `initiate()` 1회 검증만으로는 동시 환불 race condition 방어 불가.
+
+### 사양
+- `initiate()` 사전 검증: PAY-1 1차 (예약 단계)
+- `markCompleted()` 사후 재검증: PAY-1 2차 (확정 단계)
+- 동시 환불 시 Payment 행 직렬화 필요 — 구현체 (DB 비관적 락 `SELECT ... FOR UPDATE` vs Optimistic Lock) 선택은 구현 트랙 위임
+- SoT에는 "Payment 행 직렬화 보장"만 명시·구현체 박제 없음
+
+### 사유
+- PAY-1은 교차 Aggregate invariant (Refund/Claim → Payment.amount 참조) — 단일 트랜잭션 보호 불가
+- 동시 환불 시나리오: Refund A·B 동시 initiate 통과 → 동시 markCompleted → 초과 환불 위험
+- 락 방식 SoT 박제는 과함 (외부 검토 지적) — 구현체 자율
+
+### 관련 결정
+- PAY-1 (invariants §2.11)·CR-05 (외부 검토 흡수)·Q5 (expected-spec §11.1)
+
+---
+
+## D-69. Track 5 RefundCompleted 이벤트 Publisher·Consumer 시점 분리 [ACTIVE]
+
+**결정일**: 2026-06-28
+**관련**: Track 5 / D-29·CR-06
+
+### 결정
+RefundCompleted 이벤트 Publisher 시점과 Consumer 실행 시점을 분리 서술한다.
+
+| 구분 | 시점 | 근거 |
+|---|---|---|
+| Publisher | save → publish (flush 없음) | D-29 유지 |
+| Consumer 실행 | `@TransactionalEventListener(phase = AFTER_COMMIT)` | Refund UPDATE 커밋 후 핸들러 진입 보장 |
+
+### 사양
+- `RefundService.markCompleted()` 내부에서 `repository.save(refund); eventPublisher.publishEvent(...)` 순서 (D-29 정합)
+- `ClaimEventHandler`·`PaymentEventHandler` 모두 `@TransactionalEventListener(phase = AFTER_COMMIT)` 어노테이션 적용
+- 핸들러 자체 멱등성 보장 (이벤트 재진입 시 no-op)
+- Outbox·event_consumer_failure 등 별도 저장소 도입 없음 (CR-10 철회 정합)
+
+### 사유
+- D-29 원문은 publish 시점 정의 — `AFTER_COMMIT`은 listener 실행 시점만 지연 (publish 자체는 commit 전)
+- 두 시점 혼합 서술 시 구현자가 `TransactionSynchronization.afterCommit()` 직접 publish 구조로 오해 가능
+- 부분 실패 (Claim 성공·Payment 실패 등) 는 핸들러 멱등성으로 자연 재처리·Outbox 패턴은 Track 5 범위 초과
+
+### 관련 결정
+- D-29 (save→publish·flush 없음)·CR-06 (외부 검토 흡수·시점 분리 명시)
+
+---
+
+## D-70. Track 5 Refund.refunded_at 정의 — COMPLETED 전이 시스템 시각 [ACTIVE]
+
+**결정일**: 2026-06-28
+**관련**: Track 5 / CR-09
+
+### 결정
+`Refund.refunded_at` 컬럼 의미는 **Refund.status가 COMPLETED로 전이된 시스템 시각**이다. PG 원시 시각 (PG 승인 시각·콜백 수신 시각) 아님.
+
+### 사양
+- `RefundService.markCompleted()` 내부 `LocalDateTime.now()` 또는 동등 시스템 시각으로 채움
+- PG 콜백 페이로드 내 `pg_approved_at` 등 외부 시각은 별도 컬럼 없이 무시 (필요 시 후속 트랙)
+- 정산·CS 조회 기준은 본 컬럼
+
+### 사유
+- 콜백 수신 시각은 네트워크 지연 영향 — 정산·CS 기준 흔들림 위험
+- 시스템 상태 전이 시각이 운영 의미 안정 (외부 검토 지적)
+- 컬럼 타입·구현 동일 — 의미만 안정화
+
+### 관련 결정
+- CR-09 (외부 검토 흡수)
+
+---
+
+## D-71. Track 5 Payment.CANCELLED 의미 — 전액 환불 완료 (트랙 범위 한정) [ACTIVE]
+
+**결정일**: 2026-06-28
+**관련**: Track 5 / state-machine §1·CR-11
+
+### 결정
+Track 5 범위 내 `Payment.CANCELLED` 의미는 **전액 환불 완료**이다. 부분환불 도입 시 의미 재정의 가능 — 영구 고정 아님.
+
+### 사양
+- `PaymentService.markCancelled()` 진입 조건: Σ(Refund.COMPLETED.amount by paymentId) == Payment.amount
+- 부분환불 (Σ < Payment.amount) 시 Payment 상태 유지 (`PAID`)
+- 부분환불 트랙 도입 시 후보: `PAID → PARTIALLY_REFUNDED → CANCELLED` 또는 CANCELLED 자체 의미 재정의 — 본 결정 시점 미확정
+
+### 사유
+- 상태 의미 영구 고정은 미래 확장 비용 증가 (외부 검토 지적)
+- Track 5 범위 명시로 부분환불 도입 시 재정의 자유 확보
+- 현 트랙 구현은 전액 환불 단일 시나리오 — 의미 모호성 없음
+
+### 관련 결정
+- D-05 (Payment state machine)·CR-11 (외부 검토 흡수)
+
+---
