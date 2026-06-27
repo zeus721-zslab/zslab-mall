@@ -2493,3 +2493,91 @@ D-04 (Order.status 동기화·방식 B)·D-16 (OrderStatusResolver Domain Servic
 후속: PR-C 박제 완료 후 Gate 통과 측정 라운드 진입 (gate-conditions.md §1·§2·§3 전건 통과 검증·gate-passed.md 박제).
 
 ---
+
+## D-81. Track 7 분할 — Batch 구성·PR 단위·산출물 범위·가드 2 라벨 [ACTIVE]
+
+상태: [확정 2026-06-28]
+관련: Track 7 / Gate 통과 후속 / aggregate-boundary.md §2 / gate-conditions.md §4
+
+### 배경
+Track 6 Gate 통과 박제 완료 (gate-passed.md·11/11 PASS) 후속·가드 3 발동 (Track 7 분할 박제 권고 의무). Track 7 = 나머지 Entity 일괄 확장 트랙. 실측 잔여 28건 (V1 37 + V2 +1 + V4 +1 = 39 테이블 - 이미 구현 11건). 인계 메모 추정값 26~27건 대비 +1~2건 실측 정합 분배 필요. 운영 용이성·객관 판단·과잉문서 회피·과잉개발 회피 4 기조 기준 분할 박제.
+
+### 결정
+
+#### 1. Batch 구성 (실측 정합)
+
+| Batch | 카운트 | 대상 Entity |
+|---|---|---|
+| Batch-1 시드성·System 데이터 | 7 | role · permission · buyer_grade · code_group · code · category · grade_policy |
+| Batch-2 매핑·집계·Read Model | 6 | user_role · role_permission · seller_user · buyer_purchase_aggregate · seller_sales_daily · inventory_history |
+| Batch-3 도메인 | 15 | user · withdrawn_user · buyer_profile · user_address · seller_bank_account · settlement · withdrawn_seller · product_image · product_option_group · product_option_value · cart_item · delivery · attachment · audit_log · notification_log |
+
+#### 2. PR 단위 (총 5 PR)
+
+| PR | Batch | 대상 | 근거 |
+|---|---|---|---|
+| PR-1 | Batch-1 | 시드 7 일괄 | 시드성·Aggregate 내부 로직 거의 없음·일괄 정찰 1회 |
+| PR-2 | Batch-2 | 매핑집계 6 일괄 | 매핑·Read Model·단순 구조·일괄 처리 효율 |
+| PR-3a | Batch-3 | User Aggregate 4 (user·withdrawn_user·buyer_profile·user_address) | aggregate-boundary §2.1 자연 경계 |
+| PR-3b | Batch-3 | Seller·Settlement·CartItem·Delivery 5 (seller_bank_account·settlement·withdrawn_seller·cart_item·delivery) | aggregate-boundary §2.2·§2.4·§2.5 |
+| PR-3c | Batch-3 | Product잔여·공통보조 6 (product_image·product_option_group·product_option_value·attachment·audit_log·notification_log) | aggregate-boundary §2.3·§2.6·§2.7 |
+
+§4.2 PR 크기 경고선 (Entity ≤3) 일부 초과·근거 명시: 응집 도메인 (User Aggregate·Product 종속 등)·시드성·매핑 일괄 처리는 경고선 예외 정합.
+
+#### 3. 산출물 범위 (Track 7 트랙 한정)
+
+- **포함**: Entity (JPA 매핑)·Repository (JpaRepository 인터페이스)·Repository 단위 테스트 (`@DataJpaTest`·기본 CRUD·UK·FK 검증)
+- **이연 (Track 8+)**: Application Service·Controller·DTO·State Machine canTransitionTo 메서드·Invariant 검증 로직·E2E 통합 테스트·도메인 이벤트 핸들러
+
+#### 4. 가드 2 S/A/B 라벨
+
+| Batch | 라벨 | 근거 |
+|---|---|---|
+| Batch-1 시드 | B급 | 시드성·일괄 정찰 1회·외부 검토 생략 |
+| Batch-2 매핑집계 | B급 | 매핑·Read Model·외부 검토 생략 |
+| Batch-3 도메인 | A급 | Entity·Repository 한정·외부 검토 선택적 |
+
+S급 후보 (User·Settlement·CartItem)는 Track 8+ Application Service 트랙 진입 시 재적용. Track 7 산출물 범위 (Entity·Repository) 한정에서는 S급 풀패키지 (외부 검토 + 결정 라운드 + Application Service) 불필요.
+
+### 사유
+
+**운영 용이성**:
+- 5 PR 분할로 리뷰 단위 적정 (도메인 15건 일괄 PR은 리뷰 불가)
+- Aggregate 자연 경계 정합으로 PR 범위 명확
+- Batch당 1회 정찰로 정찰 비용 최소화
+
+**객관 판단**:
+- 실측 28건 기준 분배 (인계 메모 26~27 추정 대비 +1~2 정합)
+- aggregate-boundary §2 16 Aggregate 자연 경계 활용
+- §4.2 PR 크기 경고선 일부 초과 시 응집 도메인·시드성·매핑 일괄 처리 예외 명시
+
+**과잉문서 회피**:
+- 시드·매핑·집계는 일괄 PR (Aggregate별 7 PR 분할 대비 결정 박제 1건 처리)
+- Track 7 결정 라운드 D-81 단건 박제·Batch별 별도 결정 파일 미신설 (다건 누적 시 신설 정당)
+
+**과잉개발 회피**:
+- 산출물 범위 Entity·Repository 한정으로 Application Service·E2E·State Machine 동반 구현 차단
+- S급 풀패키지 미적용으로 외부 검토·결정 라운드 비용 최소화
+- State Machine canTransitionTo·Invariant 검증은 후속 트랙 진입 시 도메인 행위와 함께 구현
+
+### 영향 범위
+docs/architecture-baseline/decisions.md D-81 1건 추가. 코드·테스트·다른 SoT 문서 영향 0. Track 7 Batch-1 진입 가능 상태 확립.
+
+### 대안 검토
+- 대안 1: Batch 구성 4·4·18 인계 메모 정합 → 박제 시점 추정값·실측 부정합 (기각)
+- 대안 2: Batch 구성 위상정렬 11·9·8 → Batch-1 비대화·B급 일괄 정찰 부담 증가 (기각)
+- 대안 3: 도메인 1 PR 일괄 (15건) → §4.2 경고선 심각 초과·리뷰 불가·rollback 어려움 (기각)
+- 대안 4: 도메인 7 PR Aggregate별 → PR 7개 과잉문서·과잉개발 (기각)
+- 대안 5: Track 7 산출물 범위 Application Service 포함 → 과잉개발·S급 풀패키지 부담·트랙 정의 위배 (기각)
+- 대안 6: User·Settlement·CartItem S급 적용 → Track 7 산출물 범위 (Entity·Repository) 정합 불필요 (기각)
+
+### 관련 결정
+D-01 (Aggregate 16 + Infra/Event 1)·D-18 (NotificationLog Infra/Event 분류)·D-23 (WithdrawnSeller Snapshot Metadata)·D-25 (Gate 후 DDL 잠금)·D-78 (Gate 조건 보정·트랙 결정 정합)·gate-conditions.md §4.1 (Scope Drift 금지)·§4.2 (PR 크기 경고선)·§4.3 (DONE 조건)·§4.4 (금지 목록)·§4.5 (Entity 변경 정책)
+
+### 후속
+
+1. 본 결정 박제 PR 진행 (docs/track-7-split branch → main 머지)
+2. Track 7 Batch-1 (시드 7) 진입 (신규 채팅 권장·정찰 → 결정 → 구현·B급 일괄 정찰 1회)
+3. Batch-1 PR 머지 후 Batch-2·Batch-3a·3b·3c 순차 진행 (Batch별 신규 채팅 또는 동일 채팅 라운드 여유 시 연속 진행)
+
+---
