@@ -31,6 +31,7 @@
 | | 비고: User 로그인·Cart 추가 단계는 Spring Security·Cart 도메인 Track 7+ 진입 시 측정 재진입. |
 | 결제 성공 | E2E 테스트: Order 생성 → Payment.PENDING → MockPaymentGateway 콜백 → Payment.PAID |
 | 환불 성공 | E2E 테스트: Payment.PAID → Claim 생성 → Refund.PENDING → MockPaymentGateway 환불 → Refund.COMPLETED → Claim.COMPLETED |
+| | 비고: Claim 생성 단계는 ClaimService.approve() Track 5 expected-spec §1.2 OOS 정합·통합 테스트 seed 시딩 허용 (D-80). |
 | 상태 전이 검증 | Payment·Claim·OrderItem·Refund 4 enum canTransition 메서드 100% 분기 테스트 |
 | | 비고: OrderStatus는 OrderStatusResolver Domain Service가 OrderItem 상태 집합으로부터 파생 (ORD-2·D-04·D-16)·canTransitionTo 부재가 의도된 설계. |
 

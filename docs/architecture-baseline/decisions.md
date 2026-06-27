@@ -2464,3 +2464,32 @@ D-04 (Order.status 동기화·방식 B)·D-16 (OrderStatusResolver Domain Servic
 관련 결정: CLAUDE.md "라이브 트랩 방지" 룰.
 
 ---
+
+### D-80. Track 6 Gate 환불 E2E Claim 생성 단계 seed 시딩 허용 [ACTIVE]
+
+상태: [확정 2026-06-28]
+관련: Track 6 / Track 5 expected-spec §1.2·D-78·gate-conditions.md §2
+
+배경: Track 6 정찰 (docs/track-6/recon-report.md) GAP-E2E-3 — 환불 완전 E2E (Payment.PAID → Claim 생성 → Refund.PENDING → MockPaymentGateway 환불 → Refund.COMPLETED → Claim.COMPLETED) 중 "Claim 생성" 단계가 RefundWebhookIntegrationTest에서 seed 수동 시딩으로 처리됨. ClaimService.approve()는 Track 5 expected-spec §1.2 명시 Out-of-Scope (후속 트랙 이연·Claim 요청 API·Claim 승인/거절 워크플로우).
+
+결정: Gate 조건 §2 환불 성공 E2E의 "Claim 생성" 단계는 통합 테스트 seed 시딩 허용. ClaimService.approve() 구현 없이 Refund 콜백 흐름 본질 (Refund.PENDING → COMPLETED·Claim.COMPLETED 전이·Payment.CANCELLED 전이·RefundCompleted 이벤트 핸들러 AFTER_COMMIT) 검증으로 Gate 통과 판정.
+
+사유:
+- Track 5 의도적 OOS 결정 정합 — Track 6에서 ClaimService.approve() 구현은 Scope Drift (§4.1 위반)
+- RefundWebhookIntegrationTest seed 시딩이 이미 Gate 본질 (환불 콜백 흐름) 달성
+- D-78 패턴 정합 — Gate 조건이 트랙 결정 (Track 5 OOS) 정합하도록 보정
+- 대안: ClaimService.approve() 구현 = Track 5 OOS 침범·운영 부담 증가 (기각)
+- 대안: Gate §2 환불 항목 자체 제거 = 환불 도메인 핵심·Gate 측정 의미 약화 (기각)
+
+영향 범위: gate-conditions.md §2 환불 성공 E2E 비고 1줄 추가. 코드·테스트·다른 SoT 문서 영향 0. Track 6 Gate 통과 측정 가능 상태 확립.
+
+대안 검토:
+- 대안 1: ClaimService.approve() + ClaimApprovedHandler 구현 → Track 5 §1.2 OOS 침범·§4.1 Scope Drift 위반 (기각)
+- 대안 2: Gate §2 환불 E2E 항목 제거 → 환불 도메인 핵심·측정 의미 약화 (기각)
+- 대안 3: 부분 PASS·잔존 GAP 인정 → 운영자 정독 모호성 발생 (기각)
+
+관련 결정: D-78 (Gate 조건 보정·트랙 결정 정합)·Track 5 expected-spec §1.2 (Claim API OOS)·D-04·D-16 (Order.status 도메인 서비스 패턴)·§4.1 (Scope Drift 금지)
+
+후속: PR-C 박제 완료 후 Gate 통과 측정 라운드 진입 (gate-conditions.md §1·§2·§3 전건 통과 검증·gate-passed.md 박제).
+
+---
