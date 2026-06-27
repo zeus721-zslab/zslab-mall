@@ -1664,3 +1664,195 @@ order/controller/
 
 ### 외부 검토 흡수
 - 409/422 분류 기준을 Repository 계층 → 의미(동시성 vs 업무 제약)로 이동
+
+---
+
+## D-51 재결제 재검증 규칙 — Order Snapshot 고정 + 판매 가능성 차단 [ACTIVE]
+
+### 결정
+재결제(`POST /api/v1/orders/{publicId}/payments`) 진입 시 가격·수량 재계산 금지. Order 시점 Snapshot 그대로 유지. 단, 판매 종료·재고 부족·배송 불가 3종만 차단.
+
+### 사양
+- **고정 항목** (Order 생성 시점 값 그대로 사용):
+  - `OrderItem.unit_price`·`OrderItem.total_price`·`OrderItem.quantity`
+  - `OrderShippingSnapshot` 전체 (배송지·운송 정책)
+- **재검증 항목** (PaymentService.initiate 진입 시 호출):
+  - `Product.status != SALE` → 차단
+  - `ProductVariant.is_soldout_manual == true` → 차단
+  - `Inventory.quantity_available < OrderItem.quantity` → 차단
+  - 배송 불가 (배송지 기준 향후 도입 시점 정의) → 차단
+- **차단 응답**: HTTP 422 + `ORDER_NOT_PAYABLE` code. ProblemDetail.detail에 차단 사유 (`PRODUCT_NOT_ON_SALE`·`OUT_OF_STOCK`·`SHIPPING_UNAVAILABLE`) 명시.
+- **검증 위치**: `PaymentService.initiatePayment(orderPublicId, buyerId)` 진입 직후 (Order 본인 검증 다음·attempt_key 발급 전).
+- **신규 주문 경로 (`POST /api/v1/orders`)**: 본 검증 미적용 (Order 생성 시점에 OrderService가 이미 동일 검증 수행 가정).
+
+### 근거
+1. 가격 재계산은 상거래 표준 위배 — 사용자가 본 가격과 결제 가격 일치 필수
+2. Order Snapshot 보존이 OrderItem 의미 정합 (정산·환불 기준 일관)
+3. 3종 차단은 PG 결제 진행 자체가 무의미한 경우만 한정 — 가격 변동·할인 변경 등은 차단 사유 아님
+4. 422 분류는 D-50 "업무 제약 위반" 정합
+
+### 외부 검토 흡수
+- CR-15 흡수 (3차 외부 검토) — 재결제 시 가격·재고·판매상태 재검증 부재 지적
+
+### 관련 결정
+- D-43 (재결제 분리)·D-50 (Validation 매트릭스)·D-42 (404 정책)
+
+---
+
+## D-52 멱등성 + Order 생성 순서 — TX 분리 부분 실패 복구 [ACTIVE]
+
+### 결정
+`POST /api/v1/orders` 진입 시 멱등성 row INSERT → Order 생성 → order_id 저장 → Payment initiate → 응답 캐싱 순서 강제. 재시도 시 Order 재생성 금지.
+
+### 사양
+- **호출 순서** (Idempotency-Key 헤더 전달 시):
+  1. `order_idempotency_key` INSERT (`status=IN_PROGRESS`·`order_id=NULL`) — PK UNIQUE 충돌 시 409
+  2. `OrderService.createOrder()` (TX1 COMMIT)
+  3. `order_idempotency_key.order_id` UPDATE (별도 짧은 TX)
+  4. `PaymentService.initiate()` (TX2 COMMIT) — 실패 허용 (D-43 정합)
+  5. 응답 직렬화 → `response_body` 저장 + `status=COMPLETED` UPDATE (동일 TX)
+- **재시도 분기** (동일 `Idempotency-Key` 재요청):
+  - `status=COMPLETED` → 캐시 응답 반환 (D-44b 정합·HTTP 200)
+  - `status=IN_PROGRESS` + `order_id IS NULL` → 409 `IDEMPOTENCY_KEY_IN_PROGRESS`
+  - `status=IN_PROGRESS` + `order_id IS NOT NULL` → **기존 Order 복구**·`PaymentService.initiate` 재호출만 수행
+- **Order 재생성 금지** — `order_id IS NOT NULL` 상태에서 신규 Order INSERT 발생 시 invariant 위반·시스템 오류로 분류.
+- **attempt_key 재시도 정책** — initiate 재호출 시 **항상 신규 attempt_key 발급** (D-43·D-35 정합). 기존 Payment row(FAILED 상태) 재사용 금지·신규 row 추가.
+
+### 근거
+1. TX 분리(D-43) + 멱등성(D-44) 조합의 실 시나리오: Order 생성 후 응답 직전 서버 장애 발생 → 재시도 시 중복 Order 위험
+2. `order_id` 컬럼은 D-44a에 이미 포함 — 신규 컬럼·테이블 추가 없음 (절차 박제만)
+3. 재시도 시 Order 재생성은 buyer_id·OrderItem 점유·정산 단위 모두 오염
+4. attempt_key 신규 발급은 PG 콜백 정합 (D-35 prefix 정책 일관)
+
+### 외부 검토 흡수
+- CR-16 흡수 (3차 외부 검토) — TX 분리 + 멱등성 경쟁 조건 지적
+- CR-20 흡수 (3차 외부 검토) — 5xx 타임아웃 재시도 시 중복 주문 위험 → 본 결정으로 자연 해소
+- CR-09 보강 흡수 — Order 재생성 금지·attempt_key 신규 명시
+
+### 관련 결정
+- D-43 (TX 분리)·D-44/D-44a/D-44b (멱등성)·D-35 (attempt_key)
+
+---
+
+## D-53 Location 헤더 강제 — REST 리소스 타입별 분리 [ACTIVE]
+
+### 결정
+201 Created 응답에 `Location` 헤더 강제. 단, 리소스 타입에 따라 Location 대상 분리.
+
+### 사양
+
+| 케이스 | HTTP | Location |
+|---|---|---|
+| 신규 주문 + Payment initiate 성공 | 201 | `/api/v1/orders/{orderPublicId}` |
+| 신규 주문 + Payment initiate 실패 | 201 | `/api/v1/orders/{orderPublicId}` |
+| 재결제 성공 | 201 | `/api/v1/payments/{paymentPublicId}` |
+| 멱등성 캐시 재반환 | 200 | (Location 없음·재요청 응답) |
+
+- 재결제는 Payment 생성이므로 Payment 리소스를 가리킴 (Order 리소스 재사용 금지).
+- Location URL은 풀 경로 (도메인 제외·`/api/v1/...` prefix 포함).
+- `paymentPublicId`는 `pay_` prefix·CHAR(30).
+
+### 근거
+1. REST 표준 — POST 후 생성된 리소스의 canonical URI 제공
+2. 리소스 타입 분리 — 재결제는 Payment 생성·Order 변경 아님 (D-43 정합)
+3. 클라이언트 URL 빌딩 책임 분산·향후 OpenAPI 자동 문서화 정합
+4. initiate 실패도 Order는 정상 생성 — Location(order) 부여 자연
+
+### 외부 검토 흡수
+- CR-17 흡수 (3차 외부 검토) — 201 + 실패 응답 모호성 해소
+- CR-17 보정 (외부 검토 4차) — 재결제 Location 대상은 Payment 리소스
+
+### 관련 결정
+- D-43 (재결제 분리)·D-44b (멱등성 캐시 200)
+
+---
+
+## D-54 PagedResponse<T> 명시 DTO — Spring Data Page 직접 노출 금지 [ACTIVE]
+
+### 결정
+페이징 응답은 자체 정의 `PagedResponse<T>` DTO 사용. `org.springframework.data.domain.Page` 직접 직렬화 금지.
+
+### 사양
+- **DTO 구조** (record):
+  - `List<T> items`
+  - `int page`
+  - `int size`
+  - `long totalCount`
+  - `boolean hasNext`
+- **정적 팩토리**: `PagedResponse.from(Page<T>)` — Repository 반환 Page → DTO 변환.
+- **응답 필드 한정**: 위 5개. `pageable`·`sort`·`first`·`last`·`numberOfElements`·`empty` 등 Spring Data Page 내부 필드 노출 금지.
+- **적용 범위**: 본 트랙 `GET /api/v1/orders` 목록 응답. 향후 모든 페이징 응답에 일관 적용.
+
+### 근거
+1. Spring Boot 3.2+ `PageImpl` 직접 직렬화 deprecation 경고 — Spring 측에서도 명시 DTO 권장
+2. Spring Data 버전 업그레이드 시 응답 계약 안정성 (외부 영향 차단)
+3. `pageable.offset`·`sort` 등 노출 필드 축소로 응답 크기 감소
+4. 단독 개발자·단일 프론트 환경에 충분한 최소 필드 (확장 시 필드 추가 자연)
+
+### 외부 검토 흡수
+- CR-18 흡수 (3차 외부 검토) — Page<T> 직접 노출 계약 안정성 위험 지적
+
+### 관련 결정
+- D-42 (목록 조회 페이징)
+
+---
+
+## D-55 OrderSummary previewTitle 규칙 — 서버 생성 문자열 [ACTIVE]
+
+### 결정
+`OrderSummaryResponse.previewTitle` 필드 도입. 서버에서 문자열 생성·클라이언트 변환 책임 없음.
+
+### 사양
+- **필드 위치**: `OrderSummaryResponse.previewTitle` (`String` 타입·null 금지).
+- **Preview 대상 OrderItem 선정 규칙**: Order의 OrderItem 중 `created_at ASC` 첫 행. INSERT 순서 = Order 생성 시점 cart 항목 순서 (Order 단위 멱등).
+- **문자열 생성 규칙**:
+  - OrderItem 1건 → `"{productName}"`
+  - OrderItem 2건 이상 → `"{firstProductName} 외 {count - 1}건"`
+- **예시**:
+  - 단건: `"맥북 프로 14인치"`
+  - 다건: `"맥북 프로 14인치 외 2건"`
+- **OrderSummaryResponse 구조** (D-45 그룹화 비적용·목록 한정):
+  - `orderId` (public_id·`ord_` prefix)
+  - `previewTitle` (본 결정)
+  - `sellerCount` (멀티벤더 정보·정수)
+  - `totalPrice` (KRW 정수)
+  - `status` (`{code, label}` 객체·D-46 정합)
+  - `orderedAt` (ISO-8601 UTC)
+- **i18n 대응**: 향후 다국어 도입 시 서버 단일 책임 — 클라이언트는 문자열 그대로 표시. "외 N건" 부분 locale별 메시지 키 적용은 후속 결정.
+
+### 근거
+1. "첫 OrderItem = 대표" 정의를 `created_at ASC`로 박제 — 정렬 의존성 차단
+2. 서버 문자열 생성으로 클라이언트 변환 0·UI 책임 분리
+3. `sellerCount` 추가로 멀티벤더 정보 전달 (D-45 정합·목록은 그룹화 비적용)
+4. previewTitle null 금지 — D-49 필수 유지 필드 정합
+
+### 외부 검토 흡수
+- CR-19 흡수 (3차 외부 검토) — OrderSummary 비그룹화 명확화·sellerCount·previewTitle 도입
+- CR-19 보정 (외부 검토 4차) — `representativeProductName` → `previewTitle`·정렬 의존성 제거·문자열 생성 규칙 박제
+
+### 관련 결정
+- D-42 (목록 조회)·D-45 (그룹화·목록 비적용)·D-49 (null 금지)
+
+---
+
+### CR-21. 멱등성 response_body 24h NULL 처리 (Track 4) [기각]
+
+**출처**: 외부 검토 (3차) — 2026-06-27
+
+**의견 요약**:
+- D-44a 보존 윈도우 72h 일괄에서 `response_body` 저장량 증가 우려.
+- 24h 시점 `response_body = NULL` 처리·`status`·metadata만 72h 유지 권장.
+
+**기각 여부**: 기각
+
+**기각 사유**:
+1. **저장량 우려 미실증** — 체크아웃 응답 수 KB × 24h 추가 보관량 미미. 트래픽 임계 실측 없이 도입은 본 프로젝트 원칙(operate first → verify through repetition → promote to documentation) 위배.
+2. **배치 운영 부담** — 24h NULL 처리 배치 + 72h 삭제 배치 = 2회 운영. 단독 개발자 환경에 모니터링·실패 복구 부담 증가.
+3. **디버깅 의도 무력화** — 24~72h 구간 row의 `response_body` 부재 시 운영 CS 재현 자체 불가. 외부 검토 CR-11(72h 디버깅 보존) 의도와 자기 충돌.
+4. **현 단계 트래픽 가정** — Track 4는 첫 HTTP 진입 계층 신설 단계. 저장량 임계 도달 시점은 운영 트래픽 발생 이후로 자연 이연 가능.
+
+**향후 재평가 트리거**:
+- `order_idempotency_key` 테이블 row 수 임계 도달 시점
+- 또는 Track 7 Redis 도입 시 멱등성 매체 마이그레이션 검토와 동시 (D-44a 기존 트리거 정합)
+
+**관련 결정**: D-44a (72h 일괄 유지).
