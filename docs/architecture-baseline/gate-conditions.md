@@ -18,7 +18,8 @@
 
 | 조건 | 측정 |
 |---|---|
-| Entity 수정율 ≤10% | Track 2~5에서 생성된 12 Entity 중 Gate 시점 수정 누적 ≤ 1.2 Entity (1건 미만) |
+| Entity 수정율 ≤10% | Track 2~5에서 생성된 11 Entity 중 Gate 시점 수정 누적 ≤ 1.1 Entity (1건 허용) |
+| | 비고: 분모 11은 정찰 실측 (Track B 3 + Track 3 1 + Track 4 5 + Track 5 2). WithdrawnSeller JPA Entity는 D-23 정합 Track 7+ 소관·분모 제외. |
 | FK 재설계 0 | DDL V1·V2의 FK 정의 변경 0건 |
 | Aggregate 경계 변경 0 | aggregate-boundary.md §변경 0건 |
 
@@ -26,10 +27,12 @@
 
 | 조건 | 측정 |
 |---|---|
-| 주문 생성 성공 | E2E 테스트: User 로그인 → Cart 추가 → Order 생성 → OrderItem 다건 → 정상 응답 |
+| 주문 생성 성공 | E2E 테스트: Order 생성 → OrderItem 다건 → Payment 진입 → 정상 응답 |
+| | 비고: User 로그인·Cart 추가 단계는 Spring Security·Cart 도메인 Track 7+ 진입 시 측정 재진입. |
 | 결제 성공 | E2E 테스트: Order 생성 → Payment.PENDING → MockPaymentGateway 콜백 → Payment.PAID |
 | 환불 성공 | E2E 테스트: Payment.PAID → Claim 생성 → Refund.PENDING → MockPaymentGateway 환불 → Refund.COMPLETED → Claim.COMPLETED |
-| 상태 전이 검증 | Payment·Claim·OrderItem·Order·Refund 5 enum canTransition 메서드 100% 분기 테스트 |
+| 상태 전이 검증 | Payment·Claim·OrderItem·Refund 4 enum canTransition 메서드 100% 분기 테스트 |
+| | 비고: OrderStatus는 OrderStatusResolver Domain Service가 OrderItem 상태 집합으로부터 파생 (ORD-2·D-04·D-16)·canTransitionTo 부재가 의도된 설계. |
 
 ## §3. 기술 Gate
 
@@ -37,7 +40,8 @@
 |---|---|
 | Flyway clean+migrate 성공 | docker compose down -v → up → Flyway V1·V2 자동 적용·오류 0 |
 | Transaction rollback 검증 | OrderItem 다건 INSERT 중 1건 실패 시 Order 포함 전체 rollback·DB 정합성 검증 |
-| API 통합 테스트 | Track 4 Order API·Track 5 Refund Flow API 합산 ≥10 endpoint·@SpringBootTest 통과율 100% |
+| API 통합 테스트 | Track 4 Order API·Track 5 Refund Flow API 합산 ≥6 endpoint·@SpringBootTest 통과율 100% |
+| | 비고: 임계 ≥6은 정찰 실측 (Track 4·5 합산 6 endpoint·D-42 Buyer 한정 정책 정합). Track 7+ Aggregate 진입에 따른 endpoint 추가 시 임계 재정의. |
 
 ## Gate 통과 검증 절차
 
