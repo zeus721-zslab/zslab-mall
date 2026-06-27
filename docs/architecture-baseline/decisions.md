@@ -2646,3 +2646,40 @@ D-26 [ARCHIVED] (CHAR public_id 트랩)·D-79 [ARCHIVED] (SET FOREIGN_KEY_CHECKS
 4. 신규 라이브 트랩 발견 시 본 카탈로그 LT-XX 직접 추가·decisions.md 중복 박제 금지
 
 ---
+
+## D-83. Track 7 Batch-2 진입 결정 — 복합 PK 전략·Test Base·SellerUser.roleId updatable [ACTIVE]
+
+**결정일**: 2026-06-28
+**관련**: Track 7 Batch-2 / D-81 §1·§3 / docs/track-7/batch-2/recon-report.md §8
+
+### 배경
+Batch-2 정찰 (recon-report.md) §8 결정 요청 3건 (Q1·Q2·Q3) 도출. B급 일괄 정찰 1회·외부 검토 생략 트랙. 사용자 4 기조 (운영 용이성·객관 판단·과잉문서 회피·과잉개발 회피) 정합 추천안 채택.
+
+### 결정
+
+#### Q1: SellerSalesDaily 복합 PK = @IdClass(SellerSalesDailyId.class)
+Entity 필드 직접 접근(`e.sellerId·e.saleDate`)으로 코드·JPQL depth 감소. Batch-1 단순성 패턴 정합. `@EmbeddedId` 대비 `e.id.sellerId` depth 불필요·기각.
+
+#### Q2: Batch-2 Repository @DataJpaTest Base = Batch1DataJpaTestBase 재사용
+기능 차이 0·신설 비용 0 이득. "Batch1" 네이밍 아티팩트 허용. Track 7 PR 최종 단계(Batch-3c 머지 후) 클래스명 일괄 리네이밍 옵션 보류 (예: `TrackSevenDataJpaTestBase`·선택적).
+
+#### Q3: SellerUser.roleId updatable 어노테이션 명시 생략 (JPA default true)
+역할 변경 허용 여부 업무 정책 미확정 — Track 8+ Application Service 진입 시 정책 결정 후 명시. nullable=false 유지. userId는 updatable=false 유지 (행 의미 자체가 user 종속이므로 다름).
+
+### 사유
+- 기조 1 (운영 용이성): @IdClass 평탄 접근·Test Base 재사용 즉시 사용
+- 기조 2 (객관 판단): Q3 업무 정책 가정 도입 회피·Track 8+ 정책 결정 이연
+- 기조 3 (과잉문서 회피): 추가 클래스·문서 최소화
+- 기조 4 (과잉개발 회피): 미결정 사항 박제 회피·DDL 영향 0·후속 변경 시 어노테이션 1줄 수정만
+
+### 영향 범위
+SellerSalesDaily·SellerSalesDailyId 클래스·SellerUser 어노테이션·Batch1DataJpaTestBase 재사용 명시. DDL·다른 SoT 영향 0. Batch-2 구현 PR-2 진입 가능 상태 확립.
+
+### 후속
+1. Track 8+ Application Service 트랙 진입 시 SellerUser.roleId updatable 정책 결정 (역할 변경 허용 시 updatable=true 명시·삭제/재생성 정책 시 updatable=false 명시)
+2. Track 7 PR 최종 단계 (Batch-3c 머지 후) Batch1DataJpaTestBase 클래스명 일괄 리네이밍 옵션 (선택적)
+
+### 관련 결정
+D-81 (Track 7 분할)·recon-report.md §5.2.1·§5.3·§8
+
+---
