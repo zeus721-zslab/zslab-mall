@@ -1095,3 +1095,164 @@ PENDING ──→ COMPLETED (불가역·PG 환불 성공·refunded_at·pg_refund
 **의의**: 환경 변경(다운그레이드·WSL2) 없이 의존성 업그레이드만으로 해결 가능했음을 외부 검토가 먼저 제시. 향후 docker-java 호환 이슈 발생 시 버전 업그레이드 우선 검토.
 
 **영향 범위**: `payment.service` 단일 Application Service. `PaymentStatus`가 전이 규칙 보유.
+
+---
+
+### D-40. Track 4 컨트롤러 분류 — URL 액터 중립·Controller 액터 분리 (β′) (Track 4) [ACTIVE]
+
+**상태**: [확정 2026-06-27]
+
+**배경**: Track 4가 신설할 Order REST 컨트롤러의 분류·URL 구조 결정. 권한 매트릭스상 주문 생성·실행은 구매자 전용·자사 OrderItem 조회는 Seller RLS. D-39 임시 X-Buyer-Id 주입과 향후 Seller 인증(미정·JWT 가능성)이 이질적·동일 컨트롤러에서 두 인증 경로 분기 시 응집도 저하.
+
+**결정**:
+1. **URL은 액터 중립** — 리소스 중심 URL 유지(`/api/orders`·`/api/order-items`). `/api/buyer/...`·`/api/seller/...` prefix 금지.
+2. **Controller는 액터별 분리** — `BuyerOrderController` (Track 4)·`SellerOrderController` (#7 결정에 따라 본 또는 후속 트랙)·`AdminOrderController` (후속).
+3. **Security·DTO·Application Service도 액터 분리** — `@PreAuthorize` 컨트롤러 클래스 단위·DTO 액터별 분리(D-41)·향후 BuyerOrderQueryService·SellerOrderQueryService 자연 분리.
+4. **패키지 구조**:
+   ```
+   order/controller/
+    ├─ BuyerOrderController
+    └─ (후속) SellerOrderController·AdminOrderController
+   ```
+5. URL prefix 도입(γ)은 Seller API 공개 로드맵·외부 SDK 공개 시점에 재평가. 현 단계 선반영 금지.
+
+**옵션 비교**:
+| 옵션 | 채택 | 사유 |
+|---|---|---|
+| α. 단일 컨트롤러 | ✗ | 인증 분기·책임 응집 저하 |
+| β. URL 도메인 통일·Controller 분리 (원안) | ✗ | "URL 도메인 통일" 표현 모호 |
+| **β′. URL 액터 중립·Controller·Security·DTO 액터 분리** | **✓** | 액터는 애플리케이션 경계지 도메인 경계 아님 (Order Aggregate는 액터 중립)·확장 자리 선점 회피 |
+| γ. URL prefix 분리 (`/api/buyer/...`·`/api/seller/...`) | ✗ | Seller 1년 내 계획 부재·prefix 선점 무의미 |
+
+**근거**: Order Aggregate는 buyer/seller 구분 없는 단일 도메인. 변하는 건 인증·조회 범위(RLS)·응답 DTO·권한 — 모두 애플리케이션 계층 경계. URL이 아닌 Controller + Application Service 조합에서 분리하는 것이 DDD 정합·운영 원칙 "확장 가능성보다 운영 가능성 우선" 정합. Spring Security 정식 도입 시 컨트롤러 클래스 단위 매처(`.requestMatchers(BuyerOrderController.class)`)도 prefix 매처와 동등 단순. Springdoc `GroupedOpenApi`로 컨트롤러 단위 OpenAPI 그룹화 가능 → γ의 OpenAPI 우위 약함.
+
+**Alternative**:
+- α 단일 컨트롤러: 메서드별 인증 분기 산재·응집도 저하 (기각).
+- β 원안 "URL 도메인 통일": 같은 URL에 buyer/seller 의미 분기 발생 가능·표현 모호 (β′로 명확화).
+- γ prefix 분리: Seller API 공개 시점에 마이그레이션(URL 변경 + nginx + Nuxt base URL 상수) 1 커밋 분량 — 현 단계 선반영 무가치 (기각).
+
+**영향 범위**: `order/controller/BuyerOrderController` (신규)·`@PreAuthorize` 적용 위치(Security 정식 도입 시점)·후속 Seller·Admin 컨트롤러 패키지 구조 사전 박제.
+
+**관련 결정**: D-39 (임시 X-Buyer-Id)·D-41 (DTO)·D-42 (조회 범위).
+
+---
+
+### D-41. Track 4 DTO 분리 전략 — request/response 하위 분리·DTO 자기 변환 (γ 절충) (Track 4) [ACTIVE]
+
+**상태**: [확정 2026-06-27]
+
+**배경**: Track 4 Order API 진입 시 Web DTO 6~7개 신설 예상(CreateOrderRequest·OrderItemRequest·ShippingAddressRequest·OrderResponse·OrderItemResponse·OrderSummaryResponse·ShippingAddressResponse). Track 3 Payment 패턴은 `controller/` 안에 컨트롤러·Request DTO 공존·DTO 인스턴스 메서드 `toCommand()` 보유. Track 4 규모에서 패키지 구조·매핑 책임 위치를 결정.
+
+**결정**:
+1. **하위 패키지 분리** — `controller/request/`·`controller/response/`. `mapper/` 패키지는 도입하지 않는다.
+2. **DTO 자기 변환 패턴** — `request.toCommand()` 인스턴스 메서드·`Response.from(...)` 정적 팩토리 메서드.
+3. **Response 입력 범위 제한** — `Response.from(Order order)` 전체 Aggregate 직접 수신 금지. fetch join으로 로딩된 Order를 받되 Response가 의존하는 필드 범위를 시그니처에 명시 (`OrderResponse.fromOrderWithItems(Order order)` 또는 projection record 도입). Order에 향후 추가될 필드(예: payments·delivery)와의 결합 회피.
+4. **Validation 계층 분리 원칙** (D-41 박제·상세는 #11 별도 D-XX):
+   - **DTO 계층** — Bean Validation (`@NotNull`·`@Min`·`@Size` 등) — HTTP 400.
+   - **Command 계층** — 도메인 진입 직전 불변식 검증.
+   - **Domain 계층** — 비즈니스 규칙 (ORD-1·ORD-5 등) — HTTP 422.
+   상세 매핑 정책·실패 시 HTTP 상태 분기는 **#11 결정 (별도 D-XX)** 박제 대상.
+5. **Track 3 일관성 처리** — `payment/controller/PaymentCallbackRequest`를 `payment/controller/request/`로 이관(별도 작은 PR·1 파일 이동·Track 4 진입 전 또는 동반).
+
+**패키지 구조**:
+```
+order/controller/
+ ├─ BuyerOrderController
+ ├─ request/
+ │   ├─ CreateOrderRequest          (toCommand())
+ │   ├─ OrderItemRequest
+ │   └─ ShippingAddressRequest
+ └─ response/
+     ├─ OrderResponse               (fromOrderWithItems(Order))
+     ├─ OrderItemResponse
+     ├─ OrderSummaryResponse
+     └─ ShippingAddressResponse
+```
+
+**옵션 비교**:
+| 옵션 | 채택 | 사유 |
+|---|---|---|
+| α. Track 3 패턴 그대로 (`controller/` 공존) | ✗ | DTO 7개 단계에서 가독성 저하 |
+| β. mapper/ 별도 패키지 + Mapper 클래스 | ✗ | 매핑 단순도 대비 잉여 추상화·디버깅 흐름 길어짐 |
+| **γ. 하위 분리 (request·response) + DTO 자기 메서드** | **✓** | Track 3 패턴 자연 확장·파일 수 통제 |
+| δ. MapStruct 도입 | ✗ | 단독 개발자·DTO 7개 규모에 과조기 |
+
+**근거**: Order DTO ↔ Command/Domain 매핑은 필드 1:1 + 중첩 변환 수준. 별도 Mapper 클래스는 매핑 로직 복잡도가 높을 때 가치 발생·현 단계 잉여. `request.toCommand()`·`Response.from()`은 Track 3에서 검증된 패턴·DTO가 자기 변환 책임 보유. Response 입력 범위 제한으로 Aggregate 내부 구조 변경에 대한 Response 결합도 차단.
+
+**Alternative**:
+- α: PaymentCallbackRequest 위치 유지 가능하나 Order 6~7 DTO 단계에서 `controller/` 단일 패키지는 파일 폭증 (기각).
+- β: Mapper 별도 클래스는 매핑 규칙 다수·재사용 빈번 시 정당. Order 단순 매핑엔 과한 추상화 (기각).
+- δ: MapStruct는 매핑 대상 폭증·팀 규모 시 유리. 단독 개발자·DTO 7개엔 어노테이션 처리기 학습·Gradle 설정 비용 대비 효익 미미 (기각).
+
+**영향 범위**: `order/controller/request/`·`order/controller/response/` 신규·`payment/controller/PaymentCallbackRequest` 이관(작은 별도 PR)·Validation 위치 원칙은 #11 결정에서 상세화.
+
+**관련 결정**: D-40 (컨트롤러 분류)·D-42 (조회 범위)·#11 Validation 계층(후속 박제).
+
+---
+
+### D-42. Track 4 조회 API 범위 — Buyer 생성·단건·목록 한정 (β) (Track 4) [ACTIVE]
+
+**상태**: [확정 2026-06-27]
+
+**배경**: Track 4가 신설할 조회 엔드포인트 범위. Seller 자사 RLS 조회·Admin 전체 조회·검색·통계·필터 포함 여부에 따라 트랙 규모 폭증 가능. Seller 조회 포함 시 Seller 인증 출처·RLS 강제 메커니즘·Read Model 결정 3건 동반 → 트랙 규모 가르는 핵심 결정.
+
+**결정**:
+1. **Track 4 진입 엔드포인트 (Buyer 한정·3개)**:
+   ```
+   POST   /api/orders                       (주문 생성)
+   GET    /api/orders/{orderPublicId}       (Buyer 본인 단건)
+   GET    /api/orders                       (Buyer 본인 목록·페이징)
+   ```
+2. **목록 페이징 정책**:
+   - 노출 파라미터: `page`·`size` (기본 `size=20`·최대 `size=100`).
+   - **정렬(`sort`)은 본 트랙 미노출** — 서버 고정 `ORDER BY ordered_at DESC`. 향후 정렬 확장 요구 발생 시점에 별도 결정으로 노출.
+   - 응답: `Page<OrderSummaryResponse>` (Spring Data Page 구조).
+3. **단건 조회 키는 `public_id` 고정** — 내부 BIGINT id 금지. 모든 외부 노출 경로(URL·이벤트 payload)는 public_id (`ord_` prefix·CHAR(30)) 일관.
+4. **본인 조회 강제** — 컨트롤러 진입 시 D-39 `X-Buyer-Id` 헤더와 조회 대상 Order의 `buyer_id` 일치 검증. 불일치 시 404 (정보 노출 회피·403 미사용).
+5. **이연 항목 (후속 트랙)**:
+   - Seller 자사 OrderItem 조회 (Seller 인증·RLS·Read Model 결정 동반).
+   - Admin 전체 조회 (권한 매처·RLS 면제).
+   - 검색·필터 (`status`·기간·키워드·인덱스 신설 필요).
+   - 통계·집계 (`vw_order_admin`·`vw_seller_dashboard` Read Model — PR-03 이연 항목).
+
+**옵션 비교**:
+| 옵션 | 채택 | 사유 |
+|---|---|---|
+| α. 최소 (생성 + 단건) | ✗ | Buyer UX 미완결 (목록 부재) |
+| **β. Buyer 한정 기본 조회** | **✓** | Buyer 쇼핑몰 UX 완결·Read Model 조기 압박 회피 |
+| γ. Buyer + Seller RLS | ✗ | Seller 인증·RLS·Read Model 결정 3건 동반·트랙 규모 폭증 |
+| δ. 풀스코프 (admin·검색·통계 포함) | ✗ | D-25 DDL 잠금·PR-03 Read Model 이연과 충돌 |
+
+**근거**: Track 4 본질은 RECON §8 결론 "Order Aggregate 위 첫 buyer-facing HTTP 진입 계층 신설". β가 Buyer 주문 플로우(상품→주문→결제→조회) 끊김 없는 완결·목록 조회도 단순 쿼리(`WHERE buyer_id=? ORDER BY ordered_at DESC LIMIT ...`) 수준이라 Read Model 불필요·Order Aggregate 직접 조회로 충분. 정렬 미노출은 향후 `status`·`price`·`created_at` 확장 압박 회피 (operate first 원칙). public_id 키 고정은 OrderPlaced 이벤트(publicId 발행)·db-schema §1.1 ULID prefix 정책 정합.
+
+**Alternative**:
+- α: 단건만 제공 시 Buyer 본인 주문 이력 조회 불가·실 쇼핑몰 UX 미달 (기각).
+- γ: Seller 인증 출처(`X-Seller-Id` 임시 vs JWT)·RLS 강제 메커니즘(`@Filter`·AOP·Repository base)·Seller Read Model 후보(`vw_seller_dashboard`) 결정 동반 → Track 4 S-tier 1트랙이 사실상 2트랙 합치는 효과·검증 부담 폭증 (기각·후속 트랙으로 이연).
+- δ: admin·검색·필터 인덱스(`ix_order_buyer_status_ordered`·`ix_order_item_seller_status`) 신설은 DDL V3 마이그레이션·D-25 Gate 후 DDL 잠금과 직접 충돌 (기각·운영 단계 요구 발생 시점 결정).
+
+**영향 범위**: `BuyerOrderController` (POST·GET 단건·GET 목록)·`OrderRepository`(목록 쿼리·페이징 메서드 추가)·`OrderResponse`·`OrderSummaryResponse`·404 응답 매핑 (#6 전역 예외와 함께).
+
+**관련 결정**: D-39 (X-Buyer-Id 인증)·D-40 (컨트롤러 분류)·D-41 (DTO 분리)·E1 OrderPlaced (publicId 키 정합)·PR-03 Read Model 이연.
+
+---
+
+### CR-02. Track 4 외부 검토 1차·2차 통합 (β′·DTO·MDC·OpenAPI·#9 미버전·sort 보류·publicId 키) [채택]
+
+**출처**: 외부 검토 (ChatGPT) — 2026-06-27
+
+**의견 요약**:
+- β′ 본질 (URL 액터 중립·Controller·Security·DTO 액터 분리) 권고.
+- DTO 패키지 `controller/request·response` 분리·`toCommand()`·`from()` 패턴.
+- MDC 태깅 (`actor`·`aggregate`·`operation`) Track 4 동반 권고.
+- Springdoc `GroupedOpenApi`로 컨트롤러 단위 그룹 가능 → γ OpenAPI 우위 약함.
+- #9 API 버저닝은 v1 미도입 권고 (`PaymentWebhookController` 일관).
+- `Response.from(Order)` 입력 축소 (Aggregate 결합도 회피).
+- Validation 계층 분리 원칙 (DTO=Bean Validation·Command=불변식·Domain=비즈니스 규칙).
+- `GET /api/orders` 정렬 공개 보류·서버 고정 `ORDER BY ordered_at DESC`.
+- 단건 조회 `{orderPublicId}` 명시·내부 id 금지.
+
+**채택 여부**:
+- D-40 β′·D-41 γ + Response 입력 축소·D-42 β + sort 보류·publicId 키 — **전건 흡수**.
+- MDC 태깅·#9 미버전·Validation 상세는 #6·#9·#11 별도 결정에서 박제 (Track 4 진행 중 순차).
+
+**영향 범위**: D-40·D-41·D-42 본문·후속 #6·#9·#11 결정 박제 예정.
