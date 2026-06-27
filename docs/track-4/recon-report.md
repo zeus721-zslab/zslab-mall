@@ -15,12 +15,12 @@
 | 판정 | 건수 |
 |------|------|
 | PASS | 62 |
-| FAIL-코드 | 1 |
+| FAIL-코드 | 0 (1건 RESOLVED·D-66 머지) |
 | FAIL-명세 | 0 |
 | WARN | 3 |
 | OUT-OF-SCOPE | 7 |
 
-**종합 판정: 조건부 통과** — FAIL-코드 1건(D-52 IN_PROGRESS row 미삭제) 수정 후 승인 권고.
+**종합 판정: 통과** — FAIL-코드-1 D-66 박제 + main 머지(ae22113)로 해소.
 
 ---
 
@@ -267,6 +267,10 @@
 ## FAIL 항목 상세
 
 ### FAIL-코드-1 — D-52/D-44b: createOrder 예외 시 IN_PROGRESS row 미삭제
+
+> **RESOLVED 2026-06-28** — D-66 박제 + fix/track-4-d52-row-delete PR 머지 (main commit ae22113).
+> 회귀 테스트 3건 (checkout_itemNotFound_sameKeyRetryable·checkout_itemMismatch_sameKeyRetryable·
+> checkout_5xx_sameKeyBlocked) PASS·전체 127건 회귀 없음. 본 절은 이력 보존 목적 유지.
 
 - **위치**: `CheckoutService.idempotentCheckout()` (CheckoutService.java:137)
 - **SoT 근거**: decisions.md D-52 "4xx·5xx: IN_PROGRESS row 삭제 후 동일 키 재시도 허용" / D-44b 동일

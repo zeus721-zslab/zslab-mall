@@ -75,10 +75,15 @@ order/controller/
 
 ### 6. 재결제 허용 조건 (D-43 5·6·7항·D-51·D-53)
 - 엔드포인트: `POST /api/v1/orders/{orderPublicId}/payments`.
-- 활성 Payment 정의: `Payment.status ∈ {PENDING, PAID}` row.
+- "활성 Payment" 정의 (status별 응답 분리):
+  - `Payment.status = PENDING` 이고 `now < expires_at` (만료 전) → 409 `PAYMENT_IN_PROGRESS`
+  - `Payment.status = PAID` → 422 `PAYMENT_ALREADY_COMPLETED`
+  - `Payment.status = PENDING` 이고 `now >= expires_at` (만료) → 신규 Payment 생성 허용 (D-32 정합)
 - 판정 매트릭스 (Order 단위):
-  - 활성 Payment 존재 → 409 Conflict
+  - 만료 전 PENDING 존재 → 409 `PAYMENT_IN_PROGRESS`
+  - PAID 존재 → 422 `PAYMENT_ALREADY_COMPLETED`
   - FAILED Payment만 존재 → 신규 Payment 생성 허용
+  - 만료 PENDING만 존재 → 신규 Payment 생성 허용
   - Payment 부재 (INITIATE_FAILED 직후) → 신규 Payment 생성 허용
 - **재결제 재검증 2종 (D-51·D-60)** — initiate 진입 시 Order Snapshot 고정·가격 재계산 금지·아래 2종만 차단:
   - `Product.status != SALE` → 422 `ORDER_NOT_PAYABLE` + detail `PRODUCT_NOT_ON_SALE` *(D-59: Track 4에서 Product Java 엔티티·Repository read-only 신설)*
@@ -140,7 +145,10 @@ completed_at      DATETIME(6)  NULL
 ### 10. 멱등성 응답 캐싱 (D-44b)
 - 저장 시점: 응답 직렬화 후·`status=COMPLETED` UPDATE와 동일 트랜잭션 (D-52 5단계).
 - 캐싱 대상: **2xx 성공 응답만**.
-- 캐싱 제외: **4xx·5xx 모두 미캐싱** — IN_PROGRESS row 삭제 후 동일 키 재시도 허용. 단 `order_id IS NOT NULL` 상태에서는 §8 분기로 기존 Order 복구 (D-52).
+- 캐싱 제외 (성공 응답만 캐싱·실패 응답 미캐싱):
+  - **4xx**: 미캐싱 + IN_PROGRESS row 삭제 → 동일 키 재시도 허용 (D-66)
+  - **5xx**: 미캐싱 + IN_PROGRESS row 잔류 → 운영자 개입 전까지 409 유지 (D-66)
+  - 단 `order_id IS NOT NULL` 상태에서는 §8 분기로 기존 Order 복구 (D-52).
 - 재요청 처리: `response_body` 그대로 반환·HTTP **200 OK 고정** (최초 응답이 201이어도 재요청은 200).
 - 현재 상태와의 불일치: 의도된 동작 — 실제 현재 상태는 `GET /api/v1/orders/{id}` 별도 조회.
 
@@ -336,3 +344,6 @@ completed_at      DATETIME(6)  NULL
 >   - §6: 재검증 3종 → 2종 축소 (`SHIPPING_UNAVAILABLE` 본 트랙 보류·D-62a)·Product·Variant read-only 신설 명시 (D-59)
 >   - "범위 외" 절: `SHIPPING_UNAVAILABLE` 항목 추가 (D-60·D-62a)
 >   - D-61 (Payment.amount 산식) · D-59 (Product·ProductVariant·Seller read-only) · D-60 (재검증 범위 2종) 박제 반영
+> - v5 (2026-06-28): WARN-2 보정·D-66 정합 반영
+>   - §6: 활성 Payment 정의 PENDING(만료 전) → 409·PAID → 422 응답 분리
+>   - §10: 캐싱 제외 4xx 삭제·5xx 잔류 분리 (D-66)
