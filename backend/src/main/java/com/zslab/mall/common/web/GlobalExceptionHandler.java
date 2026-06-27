@@ -10,6 +10,8 @@ import com.zslab.mall.order.exception.OrderNotPayableException;
 import com.zslab.mall.payment.exception.InvalidCallbackException;
 import com.zslab.mall.payment.exception.PaymentAlreadyCompletedException;
 import com.zslab.mall.payment.exception.PaymentInProgressException;
+import com.zslab.mall.refund.exception.RefundInvariantViolationException;
+import com.zslab.mall.refund.exception.RefundNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import java.net.URI;
 import java.util.stream.Collectors;
@@ -49,6 +51,8 @@ public class GlobalExceptionHandler {
     private static final String CODE_ORDER_NOT_PAYABLE = "ORDER_NOT_PAYABLE";
     private static final String CODE_CHECKOUT_ITEM_MISMATCH = "CHECKOUT_ITEM_MISMATCH";
     private static final String CODE_INVALID_CALLBACK = "INVALID_CALLBACK";
+    private static final String CODE_REFUND_NOT_FOUND = "REFUND_NOT_FOUND";
+    private static final String CODE_REFUND_INVARIANT_VIOLATION = "REFUND_INVARIANT_VIOLATION";
     private static final String CODE_INTERNAL_ERROR = "INTERNAL_ERROR";
 
     // ===== 400 =====
@@ -86,6 +90,13 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ProblemDetail> handleCheckoutItemNotFound(
             CheckoutItemNotFoundException exception, HttpServletRequest request) {
         return build(HttpStatus.NOT_FOUND, CODE_PRODUCT_NOT_FOUND, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(RefundNotFoundException.class)
+    public ResponseEntity<ProblemDetail> handleRefundNotFound(
+            RefundNotFoundException exception, HttpServletRequest request) {
+        // Track 5 webhook: pg_refund_id 미매칭(404). 500 fallback으로 새는 라이브 트랩 차단.
+        return build(HttpStatus.NOT_FOUND, CODE_REFUND_NOT_FOUND, exception.getMessage(), request);
     }
 
     // ===== 409 =====
@@ -132,6 +143,14 @@ public class GlobalExceptionHandler {
             InvalidCallbackException exception, HttpServletRequest request) {
         log.warn("[PaymentWebhook] 콜백 거부(422): {}", exception.getMessage());
         return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_INVALID_CALLBACK, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(RefundInvariantViolationException.class)
+    public ResponseEntity<ProblemDetail> handleRefundInvariantViolation(
+            RefundInvariantViolationException exception, HttpServletRequest request) {
+        // Track 5: PAY-1 과환불·RFN-1 위반(422). 도메인 불변조건 위반.
+        log.warn("[RefundWebhook] 불변조건 위반(422): {}", exception.getMessage());
+        return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_REFUND_INVARIANT_VIOLATION, exception.getMessage(), request);
     }
 
     // ===== 500 (fallback) =====
