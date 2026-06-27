@@ -1915,3 +1915,196 @@ order/controller/
 - OrderFacade: Facade는 다중 도메인 단순 위임용·오케스트레이션 책임 부적합
 
 **정찰 근거**: OrderService.createOrder는 PaymentService 미호출·OrderPlaced 이벤트만 발행 (현재 비결합 상태).
+
+---
+
+## D-59. Product·ProductVariant·Seller 읽기전용 엔티티 Track 4 선반영 [ACTIVE]
+
+**결정일**: 2026-06-27
+**관련**: Track 4 / D-45·D-51·D-55·D-57
+
+**결정**: Track 4에서 Product·ProductVariant·Seller Java 엔티티·Repository 최소 신설. 범위는 read-only 조회 한정. 쓰기 책임은 Track 7.
+
+**범위**:
+- `product/entity/Product.java` (BIGINT id·public_id `prd_`·seller_id·category_id·name·description·status·base_price·thumbnail_url) — `AbstractPublicIdSoftDeletableEntity` 상속
+- `product/entity/ProductVariant.java` (variant_code·seller_sku·barcode·additional_price·status·is_soldout_manual·display_order·option1~3_value_id·public_id `var_`) — `AbstractPublicIdSoftDeletableEntity` 상속
+- `seller/entity/Seller.java` (BIGINT id·public_id `slr_`·company_name·status·business_no·ceo_name·contact_email·contact_phone) — `AbstractPublicIdSoftDeletableEntity` 상속
+- 각 도메인 Repository (`findById`·`findByIdIn`·`findByPublicId` 등 조회만)
+
+**제외 (Track 7 deferred 유지)**:
+- 쓰기 메서드·도메인 행위 (상태 전이·승인·재고 차감 등)
+- 부수 엔티티 (`ProductOptionGroup`·`ProductOptionValue`·`ProductImage`·`Category`) — 본 트랙 응답 필드 미요구
+- `ProductVariant.option1~3_value_id` FK 연결 — read-only 컬럼만 노출·조인 미수행
+
+**사유**:
+- D-45/§11 응답 (`slr_/prd_/var_ public_id`·`companyName`)·D-55 (`productName`)·D-51 (`Product.status`·`is_soldout_manual`)의 공통 데이터 조달 전제
+- D-57(Inventory) 선례와 일관 — 코드베이스 표준(엔티티 + Repository derived query) 유지
+- Projection 쿼리 (B안)는 코드베이스 첫 복합 JPQL·CLAUDE.md 바인딩 주석 규칙 신규 적용 부담 회피
+- 응답 필드 descope (C안)는 §11/§55 BIGINT 노출 금지 정합 위반
+
+**정찰 근거**: V1 DDL에 product·product_variant·seller 테이블 존재·DDL 필드는 audit-policy.md L1~L3 박제 (회귀 위험 낮음).
+
+**Track 7 연결**: Track 7 Product/Seller 도메인 구현 시 도메인 행위 추가·필드/베이스 재정의 금지.
+
+---
+
+## D-60. D-51 재검증 Track 4 구현 범위 [ACTIVE]
+
+**결정일**: 2026-06-27
+**관련**: Track 4 / D-51
+
+**결정**: D-51 재결제 재검증 3종 중 본 트랙 구현 범위는 **2종 한정** (`Product.status` + 재고). `SHIPPING_UNAVAILABLE`은 본 트랙 보류.
+
+**구현 범위 (Track 4 본 트랙)**:
+- `Product.status != SALE` → 422 `ORDER_NOT_PAYABLE` + detail `PRODUCT_NOT_ON_SALE`
+- `ProductVariant.is_soldout_manual == true` OR `Inventory.quantity_available < OrderItem.quantity` → 422 `ORDER_NOT_PAYABLE` + detail `OUT_OF_STOCK`
+
+**보류 (Track 4 OUT-OF-SCOPE)**:
+- `SHIPPING_UNAVAILABLE` — 배송 가능성 판정 규칙 미정의 (배송 정책·도서산간·일시 중단·재고 위치 등 동반 결정 필요)
+- 배송 규칙 정의 시점에 재진입
+
+**사유**:
+- D-59 데이터 조달 (Product·Variant·Inventory) 4종 read-only로 즉시 가능
+- 배송 가능성 판정은 도메인 정책 동반 결정 — 본 트랙 신규 박제 부담
+- 운영 현실: 입점 초기 단계에서 SHIPPING_UNAVAILABLE 발생 시나리오 희소
+
+**향후 재평가 트리거**:
+- 배송 정책 박제 (Delivery 트랙 또는 별도 결정) — 도서산간·일시 중단·재고 위치 등
+- expected-spec.md §6 `SHIPPING_UNAVAILABLE` 행 재진입 시 본 결정 [SUPERSEDED] 처리
+
+**관련 결정**: D-51 (재검증 3종 정의)·D-62a (expected-spec §6·§17 OUT-OF-SCOPE 이관).
+
+---
+
+## D-61. Payment.amount 서버 재계산 산식 [ACTIVE]
+
+**결정일**: 2026-06-27
+**관련**: Track 4 / D-56
+
+**결정**: `Payment.amount = Order.total_price - Order.discount_amount + Order.shipping_fee` (실 결제액 표준).
+
+**Track 4 시점 운용**:
+- `Order.discount_amount`·`Order.shipping_fee` **서버 0 고정**
+- `CreateOrderRequest`에 `discountAmount`·`shippingFee` 필드 **미노출**
+- 산식 실 효과는 현재 `total_price`와 동일
+
+**미래 대응**:
+- 할인·배송비 산정 로직은 Track 7 이후 (Coupon·Promotion·Delivery 정책 동반 박제 시점)
+- 산식 자체는 본 결정으로 박제 — 미래 도입 시 D-61 변경 없음·`createOrder` 산정 로직만 확장
+
+**사유**:
+- 클라이언트 amount 신뢰 차단 (D-56 amount 서버 재계산 원칙)
+- 산식 미래 대비 — Track 7 도입 시 retro 회피
+- 서버 0 고정으로 본 트랙 현시점 부담 0
+
+**정찰 근거**: V1 DDL `order` 테이블 `total_price`·`discount_amount`·`shipping_fee` 컬럼 존재 (db-schema-decisions.md §2.5).
+
+---
+
+## D-62a. expected-spec §6·§17 SHIPPING_UNAVAILABLE OUT-OF-SCOPE 이관 [ACTIVE]
+
+**결정일**: 2026-06-27
+**관련**: Track 4 / D-51·D-60
+
+**결정**: expected-spec.md v4에서 `SHIPPING_UNAVAILABLE` 행을 §6·§17 본문에서 "범위 외" 절로 이관. 배송 규칙 정의 시점에 재진입.
+
+**보정 범위**:
+- §6 재결제 재검증 3종 → 2종으로 축소 (`PRODUCT_NOT_ON_SALE`·`OUT_OF_STOCK`)
+- §17 HTTP 상태 색인에서 `SHIPPING_UNAVAILABLE` 행 제거
+- "범위 외" 절에 "배송 가능성 검증 (`SHIPPING_UNAVAILABLE`) — D-60·D-62a, Delivery 정책 박제 시점 재진입" 항목 추가
+
+**사유**:
+- D-60(A) 채택으로 본 트랙 미트리거
+- recon 시 §6·§17 행과 실 코드 1:1 PASS 판정 정확성 확보 — 미구현 행이 본문에 잔존 시 FAIL/WARN 오판정 위험
+- 보정 비용 최소 (행 이동 + 범위 외 절 1줄 추가)
+
+**버전**: expected-spec.md v3 → v4 (D-62a 보정 단독·다른 변경 없음).
+
+**관련 결정**: D-60 (`SHIPPING_UNAVAILABLE` 보류)·D-51 (재검증 3종 원문).
+
+---
+
+## D-63. D-51 재검증 적용 경로 — CheckoutService 재결제 한정 [ACTIVE]
+
+**결정일**: 2026-06-27
+**관련**: Track 4 / D-51·D-56·D-58·D-60
+
+**결정**: D-51·D-60 재검증 2종을 **`CheckoutService` 재결제 경로에만** 배치한다. `PaymentService.initiate`는 순수 결제 생성 역할만 수행.
+
+**적용 경로**:
+- **신규 주문** (`POST /api/v1/orders`): 재검증 **미적용** (D-51 명시 정합). cart → Order 생성 시점 검증은 OrderItem 생성 로직 내 ORD-5(total = unit × quantity) 등 기존 명세만 적용.
+- **재결제** (`POST /api/v1/orders/{orderPublicId}/payments`): `CheckoutService` 재결제 진입점에서 D-60 2종 검증 후 `PaymentService.initiate` 호출.
+- `PaymentService.initiate`는 자체 검증 없음 (순수 결제 row 생성·attempt_key 발급·PG redirect URL 발급).
+
+**사유**:
+- D-51 원문(decisions L1686) "신규 주문 경로 본 검증 미적용·재결제만" 충실. D-56 단일 시그니쳐 공유 시 신규 경로에서도 강제 검증되는 충돌 해소.
+- D-58 CheckoutService "재결제 진입점" 책임 명시와 정합. D-58 본문 변경 없음·본 결정이 위치 보완.
+- D-51 "initiate 진입 직후" 문구는 D-58 (CheckoutService 신설) 박제 이전 표현으로 해석. CheckoutService 계층이 생겼으므로 검증 위치도 해당 계층으로 이동.
+- 신규 주문 시나리오는 "주문·결제 시점 간격이 짧아 상품 상태·재고가 변하지 않음" 전제가 자연 성립하므로 D-51 2종 검증 실익 희소. 재결제는 "결제 실패 후 대기 간격 동안 상품 상태·재고가 변경될 수 있음" 가정이 성립.
+
+**제외 대안**:
+- (B) `initiate` 무조건 재검증: 더 엄격하나 D-51 원문 위반·신규 주문도 Product 데이터 강제 의존 — 명세와 불일치.
+
+**관련 결정**: D-51 (재검증 원문)·D-58 (CheckoutService 재결제 진입점)·D-60 (검증 범위 2종)·D-56 (initiate 시그니쳐).
+
+---
+
+## D-64. 신규 주문 unit_price·sellerId 서버 산정 [ACTIVE]
+
+**결정일**: 2026-06-27
+**관련**: Track 4 / D-56·D-59·D-61·D-63
+
+**결정**: 신규 주문 생성 시 OrderItem의 `unit_price`·`total_price`·`seller_id`는 서버가 Product/Variant 데이터에서 도출한다. 클라이언트 제공 금지.
+
+**`OrderItemRequest` 필드 한정**:
+- `productId` (public_id·`prd_` prefix·D-65)
+- `variantId` (public_id·`var_` prefix·D-65)
+- `quantity` (정수·1 이상)
+
+**서버 도출 산식** (CheckoutService 신규 주문 경로):
+- `unitPrice = Product.base_price + ProductVariant.additional_price`
+- `totalPrice = unitPrice × quantity` (OrderItem.create ORD-5 검증 재사용)
+- `sellerId = Product.seller_id`
+
+**정합성 검증** (도출 전):
+- `ProductVariant.product_id == OrderItemRequest.productId` (variant 소속 확인) → 불일치 시 422 `MALFORMED_REQUEST` 또는 도메인 예외
+- Product/Variant 존재 확인 → 부재 시 404 (조회 단계)
+
+**사유**:
+- D-56 amount 서버 재계산 원칙·D-61 산식 박제와 일관 (클라이언트 가격 신뢰 차단)
+- `sellerId` 클라이언트 신뢰 시 멀티벤더 정산 조작 고리 개방 — 보안 필수
+- D-59 read-only 엔티티 활용 — 신규·재결제 양 경로에서 일관 사용
+
+**트레이드오프**:
+- 신규 주문이 Product/Variant 데이터 존재에 의존 — Track 4 테스트 시 Product·ProductVariant·Seller 행 시딩 필요 (`@DataJpaTest`/통합 테스트 fixture)
+- 테스트 fixture 부담은 Track 7 Product 도메인 구현 시 fixture 표준화로 해소 가능
+
+**제외 대안**:
+- (B) `OrderItemRequest`에 `unitPrice` 포함: 단순하나 가격 위변조 가능·D-56 신뢰 차단 정신 약화.
+
+**관련 결정**: D-56 (amount 서버 재계산)·D-59 (read-only 엔티티)·D-61 (산식)·D-63 (경로별 적용).
+
+---
+
+## D-65. 요청 product/variant 식별자 형식 — public_id [ACTIVE]
+
+**결정일**: 2026-06-27
+**관련**: Track 4 / D-64·§11·§15
+
+**결정**: API 요청 본문의 product/variant 식별자는 **public_id** (`prd_`/`var_` prefix)로 입력한다. CheckoutService 진입점에서 `findByPublicId`로 BIGINT id 해소.
+
+**적용 범위**:
+- `OrderItemRequest.productId` → `CHAR(30)` (`prd_` prefix)
+- `OrderItemRequest.variantId` → `CHAR(30)` (`var_` prefix)
+- 응답 동일 (§11 정합 — 이미 public_id)
+
+**제외**:
+- `shippingAddress` 등 식별자 아닌 입력값 필드는 본 결정 적용 없음
+- 헤더 `X-Buyer-Id`는 입시 인증 (D-39) 시점 BIGINT 유지 (부파적 결정 아님)
+
+**사유**:
+- §11 "식별자 전체 public_id 사용·내부 BIGINT PK 노출 금지" 정합 (응답·요청 양방향)
+- 세션·로그 노출 시 BIGINT 자동증가 수 노출 회피
+- D-64 CheckoutService 데이터 로드 경로와 자연 결합 (`findByPublicId` → BIGINT id 해소)
+
+**관련 결정**: D-64 (서버 산정)·§11 (public_id 정책)·§15 (JSON 직렬화).

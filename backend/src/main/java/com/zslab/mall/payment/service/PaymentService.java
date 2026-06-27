@@ -1,9 +1,12 @@
 package com.zslab.mall.payment.service;
 
 import com.zslab.mall.common.util.PublicIdGenerator;
+import com.zslab.mall.order.entity.Order;
+import com.zslab.mall.order.exception.OrderNotFoundException;
+import com.zslab.mall.order.repository.OrderRepository;
 import com.zslab.mall.payment.command.PaymentCallbackCommand;
-import com.zslab.mall.payment.command.PaymentInitiateRequest;
 import com.zslab.mall.payment.entity.Payment;
+import com.zslab.mall.payment.enums.PaymentMethod;
 import com.zslab.mall.payment.enums.PaymentStatus;
 import com.zslab.mall.payment.exception.InvalidCallbackException;
 import com.zslab.mall.payment.exception.PaymentAlreadyCompletedException;
@@ -54,31 +57,49 @@ public class PaymentService {
     /** FAILURE 콜백 metadata에서 failureCode를 꺼낼 키. */
     private static final String METADATA_FAILURE_CODE_KEY = "failureCode";
 
+    private final OrderRepository orderRepository;
     private final PaymentRepository paymentRepository;
     private final PaymentGateway paymentGateway;
     private final ApplicationEventPublisher eventPublisher;
 
     public PaymentService(
+            OrderRepository orderRepository,
             PaymentRepository paymentRepository,
             PaymentGateway paymentGateway,
             ApplicationEventPublisher eventPublisher) {
+        this.orderRepository = orderRepository;
         this.paymentRepository = paymentRepository;
         this.paymentGateway = paymentGateway;
         this.eventPublisher = eventPublisher;
     }
 
     /**
-     * 결제 시도를 생성한다(D-28). 항상 새 PENDING 행을 만들며 기존 행을 재사용하지 않는다.
+     * 결제 시도를 생성한다(D-28·D-56). 항상 새 PENDING 행을 만들며 기존 행을 재사용하지 않는다.
      *
+     * <p>본인 일치 검증(§2)과 amount 서버 재계산(D-61)만 수행하는 순수 결제 생성 책임이다. 상품 상태·재고 재검증(D-60)은
+     * 재결제 경로의 {@code CheckoutService}가 본 메서드 호출 전에 담당한다(D-63·신규 주문 경로는 재검증 미적용).
+     *
+     * @param orderPublicId 결제 대상 주문 public_id(ord_)
+     * @param buyerId 요청자 buyer_id(X-Buyer-Id·D-39). Order.buyer_id와 일치해야 한다
+     * @param method 결제 수단
+     * @return 결제 시도 결과(PENDING 결제 행 + PG 발급 redirectUrl)
      * @throws IllegalArgumentException 입력이 불완전한 경우
+     * @throws OrderNotFoundException 주문이 없거나 타인 주문인 경우(404·정보 노출 회피·§2)
      * @throws PaymentAlreadyCompletedException 한 주문에 이미 PAID 행이 있는 경우(PAY-3a)
      * @throws PaymentInProgressException 미만료 PENDING 행이 존재해 새 시도가 차단되는 경우(D-32)
      */
-    public Payment initiate(PaymentInitiateRequest request) {
-        if (request == null || request.orderId() == null || request.method() == null || request.amount() == null) {
-            throw new IllegalArgumentException("결제 시도 입력 누락(orderId·method·amount).");
+    public PaymentInitiation initiate(String orderPublicId, Long buyerId, PaymentMethod method) {
+        if (orderPublicId == null || orderPublicId.isBlank() || buyerId == null || method == null) {
+            throw new IllegalArgumentException("결제 시도 입력 누락(orderPublicId·buyerId·method).");
         }
-        Long orderId = request.orderId();
+
+        // §2·D-42: 주문 조회 + 본인 일치 검증. 미존재·타인 주문 모두 404로 통일(정보 노출 회피).
+        Order order = orderRepository.findByPublicId(orderPublicId)
+                .orElseThrow(() -> new OrderNotFoundException("주문을 찾을 수 없습니다: " + orderPublicId));
+        if (!order.getBuyerId().equals(buyerId)) {
+            throw new OrderNotFoundException("주문을 찾을 수 없습니다: " + orderPublicId);
+        }
+        Long orderId = order.getId();
 
         // PAY-3a: 이미 결제 완료된 주문은 추가 시도 차단(MariaDB partial index 미지원·Service 단독 가드·D-31)
         if (paymentRepository.existsByOrderIdAndStatus(orderId, PaymentStatus.PAID)) {
@@ -93,14 +114,22 @@ public class PaymentService {
             throw new PaymentInProgressException("진행 중인 결제가 있습니다: orderId=" + orderId);
         }
 
+        // D-56·D-61: amount는 Order에서 서버 재계산(클라이언트 신뢰 차단). Track 4 시점 discount·shipping=0.
+        long amount = recomputeAmount(order);
+
         String attemptKey = PublicIdGenerator.generate(ATTEMPT_KEY_PREFIX);
-        Payment payment = Payment.create(orderId, request.method(), request.amount(), attemptKey, now.plus(PENDING_TTL));
+        Payment payment = Payment.create(orderId, method, amount, attemptKey, now.plus(PENDING_TTL));
         Payment saved = paymentRepository.save(payment);
 
-        // PG에 결제 시도 등록(Mock). 반환 결제창 URL의 프론트 연동은 본 트랙 범위 밖.
-        paymentGateway.requestPayment(attemptKey, saved.getAmount(), saved.getMethod());
+        // PG에 결제 시도 등록(Mock). 반환 결제창 URL(redirectUrl)은 CheckoutResponse(§7)로 전달한다.
+        String redirectUrl = paymentGateway.requestPayment(attemptKey, saved.getAmount(), saved.getMethod());
 
-        return saved;
+        return new PaymentInitiation(saved, redirectUrl);
+    }
+
+    /** 실 결제액을 Order에서 재계산한다(D-61): total_price − discount_amount + shipping_fee. */
+    private long recomputeAmount(Order order) {
+        return order.getTotalPrice() - order.getDiscountAmount() + order.getShippingFee();
     }
 
     /**

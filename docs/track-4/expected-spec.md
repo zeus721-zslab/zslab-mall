@@ -80,10 +80,10 @@ order/controller/
   - 활성 Payment 존재 → 409 Conflict
   - FAILED Payment만 존재 → 신규 Payment 생성 허용
   - Payment 부재 (INITIATE_FAILED 직후) → 신규 Payment 생성 허용
-- **재결제 재검증 3종 (D-51)** — initiate 진입 시 Order Snapshot 고정·가격 재계산 금지·아래 3종만 차단:
-  - `Product.status != SALE` → 422 `ORDER_NOT_PAYABLE` + detail `PRODUCT_NOT_ON_SALE`
-  - `ProductVariant.is_soldout_manual == true` 또는 `Inventory.quantity_available < OrderItem.quantity` → 422 `ORDER_NOT_PAYABLE` + detail `OUT_OF_STOCK` *(D-57: Track 4에서 `Inventory` Java 엔티티·Repository read-only 신설)*
-  - 배송 불가 → 422 `ORDER_NOT_PAYABLE` + detail `SHIPPING_UNAVAILABLE`
+- **재결제 재검증 2종 (D-51·D-60)** — initiate 진입 시 Order Snapshot 고정·가격 재계산 금지·아래 2종만 차단:
+  - `Product.status != SALE` → 422 `ORDER_NOT_PAYABLE` + detail `PRODUCT_NOT_ON_SALE` *(D-59: Track 4에서 Product Java 엔티티·Repository read-only 신설)*
+  - `ProductVariant.is_soldout_manual == true` 또는 `Inventory.quantity_available < OrderItem.quantity` → 422 `ORDER_NOT_PAYABLE` + detail `OUT_OF_STOCK` *(D-57·D-59: Inventory·ProductVariant 각 read-only 신설)*
+  - **배송 가능성 검증 (`SHIPPING_UNAVAILABLE`) — 본 트랙 보류·Delivery 정책 박제 시점 재진입 (D-60·D-62a)**
 - 권한 검증: `PaymentService.initiate(orderPublicId, buyerId, method)` 시그니처 (D-56). 본인 일치 불일치 시 404 (§2 정합).
 - attempt_key: retry 시 **항상 신규 발급**·재사용 금지. 기존 Payment row(FAILED 상태) 재사용 금지·신규 row 추가 (D-52).
 - **응답 헤더 (D-53)**: 재결제 성공 시 `Location: /api/v1/payments/{paymentPublicId}` 강제 (Order 리소스 재사용 금지·Payment 생성이므로 Payment 가리킴).
@@ -323,6 +323,7 @@ completed_at      DATETIME(6)  NULL
 - Redis 분산 락 도입 (Track 7 재평가).
 - Rate limit 정책·구현 (Track 6 이후 별도 결정).
 - 502/503 외부 시스템 장애 시나리오 (실 PG 연동 시점).
+- 배송 가능성 검증 (`SHIPPING_UNAVAILABLE` §6) — D-60·D-62a, Delivery 정책 박제 시점 재진입.
 
 > **이력**:
 > - v1 (2026-06-27·Claude.ai·D-39~D-50 기반)
@@ -331,3 +332,7 @@ completed_at      DATETIME(6)  NULL
 >   - §5: CheckoutService 오케스트레이션 계층 명시 (D-58)·`PaymentService.initiate(orderPublicId, buyerId, method)` 시그니처 갱신 (D-56)
 >   - §6: `PaymentService.initiate(orderPublicId, buyerId, method)` 시그니처 갱신 (D-56)·`Inventory` 재고 검증 행에 D-57 Inventory Java 엔티티 read-only 신설 명시
 >   - §8: `PaymentService.initiate` 재시도 호출에 D-56 시그니처 반영
+> - v4 (2026-06-27): D-59·D-60·D-61·D-62a 반영
+>   - §6: 재검증 3종 → 2종 축소 (`SHIPPING_UNAVAILABLE` 본 트랙 보류·D-62a)·Product·Variant read-only 신설 명시 (D-59)
+>   - "범위 외" 절: `SHIPPING_UNAVAILABLE` 항목 추가 (D-60·D-62a)
+>   - D-61 (Payment.amount 산식) · D-59 (Product·ProductVariant·Seller read-only) · D-60 (재검증 범위 2종) 박제 반영
