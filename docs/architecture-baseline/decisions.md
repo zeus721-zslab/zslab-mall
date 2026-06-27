@@ -2447,3 +2447,20 @@ D-04 (Order.status 동기화·방식 B)·D-16 (OrderStatusResolver Domain Servic
 - Track 7+ 진입 시점에 Gate 조건 재측정 (Entity 분모·endpoint 임계·Cart·인증 E2E 단계 재진입)
 
 ---
+
+### D-79. 라이브 트랩 — Testcontainers SET FOREIGN_KEY_CHECKS HikariCP 잔류 [ACTIVE]
+
+상태: [확정 2026-06-28]
+관련: Track 6 / PR-A OrderTransactionRollbackTest
+
+배경: OrderTransactionRollbackTest 작성 중 invalid FK item 시딩을 위해 SET FOREIGN_KEY_CHECKS=0 사용 시 HikariCP 커넥션 풀에 세션 변수 잔류·후속 테스트에서 FK 비활성 오염 발생.
+
+결정: SET FOREIGN_KEY_CHECKS=0 사용 시 cleanup·seed 말미에 SET FOREIGN_KEY_CHECKS=1 복원 강제. 미복원 = 라이브 트랩 (CI 미탐지·후속 테스트에서만 표면화).
+
+영향 범위: 전 Testcontainers 기반 통합 테스트. SET FOREIGN_KEY_CHECKS=0 사용 시 1:1 복원 짝 의무.
+
+후속: ≥3건 라이브 트랩 누적 시 docs/troubleshooting/live-traps.md 신설 (promote 임계 도달).
+
+관련 결정: CLAUDE.md "라이브 트랩 방지" 룰.
+
+---
