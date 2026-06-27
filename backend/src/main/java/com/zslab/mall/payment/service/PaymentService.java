@@ -13,6 +13,7 @@ import com.zslab.mall.payment.exception.PaymentAlreadyCompletedException;
 import com.zslab.mall.payment.exception.PaymentInProgressException;
 import com.zslab.mall.payment.gateway.PaymentGateway;
 import com.zslab.mall.payment.repository.PaymentRepository;
+import com.zslab.mall.refund.repository.RefundRepository;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -61,16 +62,19 @@ public class PaymentService {
     private final PaymentRepository paymentRepository;
     private final PaymentGateway paymentGateway;
     private final ApplicationEventPublisher eventPublisher;
+    private final RefundRepository refundRepository;
 
     public PaymentService(
             OrderRepository orderRepository,
             PaymentRepository paymentRepository,
             PaymentGateway paymentGateway,
-            ApplicationEventPublisher eventPublisher) {
+            ApplicationEventPublisher eventPublisher,
+            RefundRepository refundRepository) {
         this.orderRepository = orderRepository;
         this.paymentRepository = paymentRepository;
         this.paymentGateway = paymentGateway;
         this.eventPublisher = eventPublisher;
+        this.refundRepository = refundRepository;
     }
 
     /**
@@ -169,6 +173,34 @@ public class PaymentService {
     @Transactional(readOnly = true)
     public Optional<Payment> findPaidByOrderId(Long orderId) {
         return paymentRepository.findFirstByOrderIdAndStatusOrderByIdDesc(orderId, PaymentStatus.PAID);
+    }
+
+    /**
+     * 환불 완료에 따라 결제를 취소 상태로 전이한다(PAID → CANCELLED·Track 5·PAY-2·D-71). {@code RefundCompleted} 이벤트 핸들러가
+     * 호출한다(AFTER_COMMIT·각자 별도 트랜잭션).
+     *
+     * <p><b>전이 조건(D-71)</b>: Track 5 범위에서 CANCELLED는 <b>전액 환불 완료</b>를 의미한다. Σ(Refund.COMPLETED.amount) ==
+     * Payment.amount일 때만 전이하며, 부분환불(Σ &lt; amount)은 상태를 유지(no-op)한다. 이미 CANCELLED면 멱등 no-op이다.
+     *
+     * @param paymentId 결제 행 id
+     * @throws IllegalArgumentException 결제가 없는 경우
+     */
+    public void markCancelled(Long paymentId) {
+        Payment payment = paymentRepository.findById(paymentId)
+                .orElseThrow(() -> new IllegalArgumentException("결제를 찾을 수 없습니다: paymentId=" + paymentId));
+        if (payment.getStatus() == PaymentStatus.CANCELLED) {
+            log.info("[Payment] markCancelled 멱등 NO-OP(이미 CANCELLED): paymentId={}", paymentId);
+            return;
+        }
+        long totalRefunded = refundRepository.sumCompletedByPaymentId(paymentId);
+        if (totalRefunded != payment.getAmount()) {
+            // D-71: 전액 환불 일치 시에만 CANCELLED. 부분환불은 상태 유지(후속 트랙에서 의미 재정의 가능).
+            log.info("[Payment] markCancelled NO-OP(부분환불·D-71): paymentId={}, 누적환불={}, 결제액={}",
+                    paymentId, totalRefunded, payment.getAmount());
+            return;
+        }
+        payment.cancel(); // PAID → CANCELLED (PAY-2·canTransitionTo 강제)
+        paymentRepository.save(payment);
     }
 
     /** SUCCESS 콜백 처리(D-34): PENDING→PAID / PAID 멱등 NO-OP / FAILED·CANCELLED REJECT. */
