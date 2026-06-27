@@ -809,7 +809,7 @@ PENDING ──→ COMPLETED (불가역·PG 환불 성공·refunded_at·pg_refund
 
 ---
 
-### D-26: AbstractPublicId* publicId 매핑 CHAR(30) 명시 (Track B 발견 #2 흡수)
+### D-26: AbstractPublicId* publicId 매핑 CHAR(30) 명시 (Track B 발견 #2 흡수) [ARCHIVED]
 
 **상태**: [확정 2026-06-26]
 
@@ -838,6 +838,8 @@ PENDING ──→ COMPLETED (불가역·PG 환불 성공·refunded_at·pg_refund
 **후속**:
 - Track 7(User·Seller 등) 진입 시 `AbstractPublicIdSoftDeletableEntity` 첫 구체 엔티티 작성 시점에 동일 매핑 자동 적용 확인.
 - 신규 base `MappedSuperclass` 추가 시 구체 엔티티 부재 상태에서도 매핑 검증을 강제하는 방안(샘플 엔티티·@DataJpaTest) 검토 — 동종 트랩 재발 방지.
+
+> **[ARCHIVED 2026-06-28]** 본 트랩 상세는 live-traps.md LT-01로 이관·본 결정문은 박제 이력 보존 목적 유지.
 
 ---
 
@@ -2448,7 +2450,7 @@ D-04 (Order.status 동기화·방식 B)·D-16 (OrderStatusResolver Domain Servic
 
 ---
 
-### D-79. 라이브 트랩 — Testcontainers SET FOREIGN_KEY_CHECKS HikariCP 잔류 [ACTIVE]
+### D-79. 라이브 트랩 — Testcontainers SET FOREIGN_KEY_CHECKS HikariCP 잔류 [ARCHIVED]
 
 상태: [확정 2026-06-28]
 관련: Track 6 / PR-A OrderTransactionRollbackTest
@@ -2462,6 +2464,8 @@ D-04 (Order.status 동기화·방식 B)·D-16 (OrderStatusResolver Domain Servic
 후속: ≥3건 라이브 트랩 누적 시 docs/troubleshooting/live-traps.md 신설 (promote 임계 도달).
 
 관련 결정: CLAUDE.md "라이브 트랩 방지" 룰.
+
+> **[ARCHIVED 2026-06-28]** 본 트랩 상세는 live-traps.md LT-02로 이관·본 결정문은 박제 이력 보존 목적 유지.
 
 ---
 
@@ -2579,5 +2583,66 @@ D-01 (Aggregate 16 + Infra/Event 1)·D-18 (NotificationLog Infra/Event 분류)·
 1. 본 결정 박제 PR 진행 (docs/track-7-split branch → main 머지)
 2. Track 7 Batch-1 (시드 7) 진입 (신규 채팅 권장·정찰 → 결정 → 구현·B급 일괄 정찰 1회)
 3. Batch-1 PR 머지 후 Batch-2·Batch-3a·3b·3c 순차 진행 (Batch별 신규 채팅 또는 동일 채팅 라운드 여유 시 연속 진행)
+
+---
+
+## D-82. 라이브 트랩 카탈로그 신설 — live-traps.md 박제·라벨링 도입 임계 도달 [ACTIVE]
+
+**결정일**: 2026-06-28
+**관련**: Track 7 Batch-1 후속·D-26·D-79·CLAUDE.md "라이브 트랩 방지" 룰·가드 4
+
+### 배경
+Track 7 Batch-1 (Category Entity 구현) 중 @SQLRestriction @MappedSuperclass → @Entity 비전파 트랩 (HHH-17453) 발견·라이브 트랩 누적 3건 도달 (D-26·D-79·신규). 메모리 명시 임계 (≥3건 누적 시 docs/troubleshooting/live-traps.md 신설 정당) 정확히 도달. 동시에 결정 라이프사이클 라벨링 [SUPERSEDED] 1건 (D-69) + [ARCHIVED] 후보 2건 (D-26·D-79) = 합계 3건 → 가드 4 라벨링 도입 임계 도달.
+
+### 결정
+
+#### 1. live-traps.md 신설
+경로: docs/troubleshooting/live-traps.md
+내용: 트랩 카탈로그 SoT·LT-01·LT-02·LT-03 박제·후속 트랙 진입 전 정독 의무 문서.
+
+#### 2. D-26·D-79 [ARCHIVED] 처리·이관
+- D-26 → LT-01 이관 (CHAR public_id @JdbcTypeCode)
+- D-79 → LT-02 이관 (SET FOREIGN_KEY_CHECKS HikariCP 잔류)
+- 원본 D-XX 결정문 본문은 박제 이력 보존 목적 유지·말미에 이관 1줄 추가·헤더 [ARCHIVED] 라벨 부착
+
+#### 3. LT-03 신규 박제 — @SQLRestriction HHH-17453
+@MappedSuperclass에 선언한 @SQLRestriction이 Hibernate 6.6에서 @Entity 서브클래스로 전파되지 않음. @Entity 서브클래스에 직접 선언 의무.
+
+**후속 영향 (Batch-3 필수 처치)**:
+- 직접 상속 2종: UserAddress·ProductImage
+- PublicId 경유 5종: User·Seller·Product·ProductVariant·Attachment
+- Batch-3a·3b·3c 진입 시 본 트랩 정독 의무·@SQLRestriction 직접 선언 확인
+
+#### 4. 결정 라이프사이클 라벨링 도입 (가드 4 옵션 C)
+- [ACTIVE]·[ARCHIVED]·[SUPERSEDED]·[DEFERRED] 라벨 자연 적용 시작
+- decisions-index.md 신설·도메인별 분할은 차회 임계 도달 시 (옵션 C 미니멀 적용)
+- 신규 결정 박제 시 라벨 포함 (D-78 이후 패턴 유지)
+
+### 사유
+- 메모리 명시 임계 정확 도달 (≥3건)·미신설 시 룰 위반
+- Batch-3 진입 시 LT-03 미인지 = 7 Entity 회귀 위험 명확
+- 운영 용이성: 트랩 단일 카탈로그 정독으로 후속 트랙 진입 비용 절감
+- 객관 판단: 임계 도달 = 신설 시점·박제 지연 불필요
+- 과잉문서 회피: 신설 결정 단건만 박제·옵션 C 미니멀 라벨링 적용·index 분할 보류
+
+### 영향 범위
+- 신규 파일 1건: docs/troubleshooting/live-traps.md
+- 수정 파일 1건: docs/architecture-baseline/decisions.md (D-26·D-79 [ARCHIVED] 처리·D-82 추가)
+- 코드·테스트 영향 0건
+- 후속 트랙 진입 시 live-traps.md 정독 의무 신설
+
+### 대안 검토
+- 대안 1: live-traps.md 미신설·D-82만 박제 → 메모리 명시 임계 룰 위반·후속 트랙 정독 부담 분산·기각
+- 대안 2: 라벨링 도입 옵션 A·B (decisions-index.md 동반 신설) → 옵션 C 우선 원칙 위반·과잉문서·기각
+- 대안 3: PR 머지 후 신규 채팅에서 박제 → 박제 지연 위험·메모리 룰 즉시 정합 위반·기각
+
+### 관련 결정
+D-26 [ARCHIVED] (CHAR public_id 트랩)·D-79 [ARCHIVED] (SET FOREIGN_KEY_CHECKS 트랩)·CLAUDE.md "라이브 트랩 방지" 룰·가드 4 (옵션 C 라벨링 도입)
+
+### 후속
+1. live-traps.md 신설 PR 진행 (docs/track-7-batch-1-live-traps → main)
+2. Batch-2 진입 시 live-traps.md 정독 의무 적용 (신규 채팅 권장)
+3. Batch-3 진입 시 LT-03 처치 7 Entity 의무 적용
+4. 신규 라이브 트랩 발견 시 본 카탈로그 LT-XX 직접 추가·decisions.md 중복 박제 금지
 
 ---
