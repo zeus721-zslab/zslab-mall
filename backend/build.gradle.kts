@@ -7,6 +7,10 @@ plugins {
 group = "com.zslab.mall"
 version = "0.1.0-SNAPSHOT"
 
+// Spring Boot 3.4.1의 dependency-management가 testcontainers 1.20.4로 pin하므로 override.
+// docker-java 3.5.x 도입 시 도커 Desktop 4.73.1(Engine 29.4.3)과 호환 진단.
+extra["testcontainers.version"] = "1.21.4"
+
 java {
     sourceCompatibility = JavaVersion.VERSION_21
 }
@@ -27,7 +31,6 @@ dependencies {
     compileOnly("org.projectlombok:lombok")
     annotationProcessor("org.projectlombok:lombok")
     testImplementation("org.springframework.boot:spring-boot-starter-test")
-    // 버전은 Spring Boot 3.4.1이 import하는 Testcontainers BOM이 관리(단일 소스·드리프트 방지)
     testImplementation("org.testcontainers:junit-jupiter")
     testImplementation("org.testcontainers:mariadb")
 }
