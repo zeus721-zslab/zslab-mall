@@ -1256,3 +1256,90 @@ order/controller/
 - MDC 태깅·#9 미버전·Validation 상세는 #6·#9·#11 별도 결정에서 박제 (Track 4 진행 중 순차).
 
 **영향 범위**: D-40·D-41·D-42 본문·후속 #6·#9·#11 결정 박제 예정.
+
+---
+
+### D-43. Track 4 결제 시작 결합 방식 — 단일 체크아웃 + 재결제 분리 (γ′) (Track 4) [ACTIVE]
+
+**상태**: [확정 2026-06-27]
+
+**배경**: Track 4 `POST /api/orders` 진입 시 Payment initiate를 어떻게 결합할지 결정. OrderPlaced 이벤트 핸들러는 Track 7 이연 상태 → Track 4에서는 `PaymentService.initiate` 직접 호출 필요. 결합 방식이 신규 주문 UX·재결제 시나리오·Order 1:N Payment 모델 활용도를 동시에 결정.
+
+**결정**:
+
+1. **엔드포인트 2개 분리**:
+   - `POST /api/orders` — 신규 주문 + 첫 결제 시작 (1콜 완결)
+   - `POST /api/orders/{publicId}/payments` — 재결제 전용 (신규 Payment row 추가)
+
+2. **트랜잭션 경계** — `@Transactional`로 Order 생성과 Payment initiate를 한 TX로 묶지 않는다. 각 Service가 자체 `@Transactional` 보유 (D-28 정합). 호출 순서: Controller → OrderService.createOrder() (TX1 COMMIT) → PaymentService.initiate() (TX2 COMMIT).
+
+3. **부분 실패 정책** — Order 생성 성공 + Payment initiate 실패 시:
+   - Order 롤백 **금지** — `PENDING_PAYMENT` 상태 유지
+   - Payment row **미저장** — `initiate` 자체 실패는 redirect 발급 실패·결제 시도가 시작되지 않은 상태이므로 Payment 의미상 row 부재가 자연
+   - 운영 로그 5필드 보존: `orderPublicId`·`attemptKey`·`buyerId`·`failureCode`·`occurredAt`
+
+4. **PENDING_PAYMENT 의미 재정의** — "결제 없음 (INITIATE_FAILED) 또는 결제 진행 중 (Payment.PENDING)"으로 정의. 신규 OrderStatus 추가 없음. 기존 enum 의미 확장으로 처리.
+
+5. **재결제 허용 조건** (Order 단위 판정):
+   - 활성 Payment 정의: Payment.status가 `PENDING` 또는 `PAID`인 row
+   - 활성 Payment 존재 → 409 Conflict
+   - FAILED Payment만 존재 → 신규 Payment 생성 허용
+   - Payment 부재 (INITIATE_FAILED 직후) → 신규 Payment 생성 허용
+   - 미래 EXPIRED·TIMEOUT 등 상태 추가 시 "활성 Payment" 정의만 갱신
+
+6. **권한 검증** — 재결제 엔드포인트 서비스 시그니처 `initiatePayment(orderPublicId, buyerId)` 강제. 컨트롤러 진입 시 D-39 `X-Buyer-Id` 헤더와 조회 대상 Order의 `buyer_id` 일치 검증.
+   - 존재 안 함 → 404
+   - 타인 주문 → 404 (정보 노출 회피)
+   - 활성 Payment 존재 → 409
+
+7. **attempt_key 정책** — retry 요청은 항상 신규 `attempt_key` 발급. attempt_key 재사용 금지. 생성 위치는 PaymentService 내부 (컨트롤러 생성 금지). D-28·D-35 정합.
+
+8. **응답 DTO 단일 공용** — `CheckoutResponse` 정적 팩토리 `forNewOrder(...)`·`forRetry(...)` 보유. 신규/재결제 동일 구조. 의미 중심은 payment (재결제는 Order 변경 아님).
+
+9. **응답 구조 (하이브리드)**:
+   - `payment.{publicId, status, redirectUrl, expiresAt}` — Payment 직접 속성 (PG 발급)
+   - `next.{retryPaymentUrl}` — 클라이언트 다음 행동 안내 (현 단계 단일 키·확장 자리 확보 목적)
+   - 성공 응답: payment.redirectUrl 존재 + next.retryPaymentUrl 생략
+   - 실패 응답: payment.status=INITIATE_FAILED (publicId 부재로 row 미저장 표현) + next.retryPaymentUrl 제공
+   - `failureCode`는 응답 미노출·운영 로그에만 보존
+
+10. **HTTP 상태 매핑**:
+    - 신규 주문 성공 (Payment 성공) → 201 Created
+    - 신규 주문 성공 + Payment 실패 → 201 Created (Order는 정상 생성)
+    - 재결제 성공 → 201 Created
+    - 활성 Payment 존재 (PAID·PENDING) → 409 Conflict
+    - 타인 주문·존재 안 함 → 404 Not Found
+
+11. **컨트롤러 책임 경계** (BuyerOrderController 적용):
+    - 금지: Repository 직접 접근·트랜잭션 직접 제어·Payment 생성 규칙 포함
+    - 허용: Service 조합·응답 조립·HTTP 변환
+
+12. **CheckoutApplicationService 승격 조건** — 현 단계 미도입. 다음 조건 중 하나 충족 시 승격 재평가:
+    - 호출 지점 2개 이상
+    - 주문+결제 외 정책 추가 (쿠폰·포인트·배송비·프로모션)
+    - 재결제와 신규 주문 로직 30% 이상 공유
+    - 외부 PG 2종 이상 도입
+
+13. **범위 외 (후속 결정)**:
+    - PENDING 영구 정체 케이스 (webhook 미도달)는 운영 강제 전이로 해소. 자동 타임아웃 정책은 후속 결정 영역
+    - 결제 만료 자동 처리·결제 수단 변경 UX·결제 분리(부분 결제)는 본 결정 범위 외
+
+**옵션 비교**:
+
+| 옵션 | 채택 | 사유 |
+|---|---|---|
+| α. 단일 체크아웃 (재결제도 동일 엔드포인트) | ✗ | 재결제 시 Order 재생성 강제·Order 1:N Payment 모델 위배·주문 중복 발생 |
+| β. 2단계 완전 분리 (신규도 2콜) | ✗ | 신규 주문 99% 경로 2콜 강제·Buyer UX 저하·Nuxt 상태 관리 복잡도 증가 |
+| **γ′. 단일 체크아웃 + 재결제 분리 (하이브리드)** | **✓** | 신규 1콜 완결·재결제 자연 경로·Order 1:N Payment 자연 활용·D-28 트랜잭션 경계 정합 |
+| δ. POST /api/checkouts 별도 리소스 신설 | ✗ | Track 4 단계에 별도 리소스 계층 추가 과함·CheckoutApplicationService 승격 조건 도달 시 재평가 |
+
+**근거**: γ′은 신규 주문(99% 경로)에서 단일 엔드포인트 호출로 UX 손실 없이 완결되며, 재결제는 Order 1:N Payment 모델을 그대로 반영해 신규 Payment row 추가로 처리. D-28 별도 트랜잭션 원칙은 엔드포인트 결합 여부와 무관하게 트랜잭션 경계 분리만 보장하면 충족. 부분 실패 시 Order 유지·Payment 미저장 정책은 "Payment = 실제 결제 시도(redirect 발급 후)" 의미 보존·PaymentAttempt 분리 압박 회피. 응답 구조 하이브리드(payment 직접 속성 + next 행동 안내)는 PG 발급 속성과 클라이언트 다음 행동을 의미 단위로 분리. CheckoutApplicationService 미도입 + 승격 조건 박제는 "operate first → verify through repetition → promote to documentation" 원칙 정확 준수.
+
+**Alternative**:
+- α: 재결제 시 Order 재생성 강제는 멀티벤더 OrderItem·재고 점유·Order 누적 오염·운영자 설명 부담 (기각).
+- β: 아키텍처 정석이나 Track 4 본질("첫 buyer-facing 진입") 단계에서 신규 주문 2콜 강제는 프론트 상태 관리·실패 복구 부담 과중 (기각).
+- δ: Checkout 별도 리소스는 orchestration 로직이 단순 위임 단계인 현재 잉여 추상화·CheckoutApplicationService 승격 조건 도달 시 자연 재평가 (기각·승격 조건만 박제).
+
+**영향 범위**: `BuyerOrderController` (신규·POST /api/orders + POST /api/orders/{publicId}/payments)·`OrderService.createOrder` (신규)·`PaymentService.initiate(orderPublicId, buyerId)` 시그니처 (재결제 호출 경로 신설)·`CheckoutResponse` 공용 DTO 신규·운영 로그 5필드 출력 (`orderPublicId`·`attemptKey`·`buyerId`·`failureCode`·`occurredAt`).
+
+**관련 결정**: D-28 (Payment 별도 TX·1:N)·D-34 (PENDING→FAILED webhook)·D-35 (attempt_key 서버 생성·pat_ prefix)·D-39 (X-Buyer-Id)·D-40 (컨트롤러 분류)·D-41 (DTO·CheckoutResponse)·D-42 (조회 범위·404 정책).
