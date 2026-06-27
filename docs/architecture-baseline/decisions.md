@@ -1343,3 +1343,324 @@ order/controller/
 **영향 범위**: `BuyerOrderController` (신규·POST /api/orders + POST /api/orders/{publicId}/payments)·`OrderService.createOrder` (신규)·`PaymentService.initiate(orderPublicId, buyerId)` 시그니처 (재결제 호출 경로 신설)·`CheckoutResponse` 공용 DTO 신규·운영 로그 5필드 출력 (`orderPublicId`·`attemptKey`·`buyerId`·`failureCode`·`occurredAt`).
 
 **관련 결정**: D-28 (Payment 별도 TX·1:N)·D-34 (PENDING→FAILED webhook)·D-35 (attempt_key 서버 생성·pat_ prefix)·D-39 (X-Buyer-Id)·D-40 (컨트롤러 분류)·D-41 (DTO·CheckoutResponse)·D-42 (조회 범위·404 정책).
+
+---
+
+## D-44 주문 생성 멱등성 — 클라이언트 전달 `Idempotency-Key` 헤더 [ACTIVE]
+
+### 결정
+`POST /api/v1/orders` 멱등성은 클라이언트 전달 `Idempotency-Key` HTTP 헤더 방식.
+
+### 사양
+- 헤더명: `Idempotency-Key`
+- 값 형식: ULID 또는 UUID v4 (서버 형식 검증·생성 주체는 클라이언트)
+- 최대 길이: 128자 (상한 명시)
+- 스코프: `(buyer_id, idempotency_key)` 유일
+- 유효 기간: 24시간 (조회 보장 윈도우)
+- 헤더 미전달: 허용 — 매 요청 신규 주문 생성 (graceful degradation)
+- 동일 키 재요청: 최초 응답 그대로 반환
+- 동일 키 진행 중 동시 요청: 409 + `IDEMPOTENCY_KEY_IN_PROGRESS`
+
+### 근거
+1. D-43 단일 `POST /api/v1/orders` 시그니처 유지
+2. Payment `attempt_key`(D-35)는 PG 콜백 정합용 — Order 멱등성은 사용자 의도 단위로 컨텍스트 분리
+3. REST 표준 패턴 (Stripe·PayPal)
+4. 미전달 허용으로 점진 적용 가능
+
+### 후속 결정
+- D-44a: 저장 매체
+- D-44b: 응답 캐싱 형태
+
+---
+
+## D-44a 멱등성 키 저장 매체 — 별도 테이블 `order_idempotency_key` [ACTIVE]
+
+### 결정
+별도 테이블 `order_idempotency_key`. Redis 도입은 Track 7 (Inventory) 시점에 재평가.
+
+### 사양
+- 테이블명: `order_idempotency_key`
+- 컬럼:
+  - `buyer_id` BIGINT NOT NULL
+  - `idempotency_key` VARCHAR(128) NOT NULL
+  - `order_id` BIGINT NULL (진행 중엔 NULL)
+  - `status` ENUM('IN_PROGRESS', 'COMPLETED') NOT NULL
+  - `response_body` LONGTEXT NULL
+  - `created_at` DATETIME(6) NOT NULL
+  - `completed_at` DATETIME(6) NULL
+- PK: `(buyer_id, idempotency_key)` 복합
+- 동시성 제어: PK UNIQUE INSERT 충돌 감지 → 409
+- 보존 정책: 72시간 (조회 보장은 24시간·이후 48시간은 운영 디버깅 용도)
+- 정리: 72시간 경과 row 배치 삭제 (Track 6 이후 정리 배치와 묶음 검토)
+- Flyway: V4
+
+### 근거
+1. INSERT IN_PROGRESS 충돌 시 즉시 409·COMPLETED UPDATE 명확
+2. 현재 Redis 미사용 상태 유지 — 단일 용도로 인프라 의존 증설 부적절
+3. 24시간 직후 운영 디버깅 요청 시 데이터 손실 위험 회피 (외부 검토 CR-11 흡수)
+4. Flyway V4로 자연 편입
+
+### 후속 재평가 트리거
+- **Track 7 (Inventory) 진입 시**: `quantity_reserved` 동시성 제어로 Redis 분산 락(Redisson) 도입 검토. 도입 확정 시 멱등성 저장 매체도 Redis SETNX로 마이그레이션 재평가
+- 마이그레이션 방향(테이블 → Redis) 비용 낮음·역방향 대비 안전
+
+### 외부 검토 흡수 / 기각
+- 흡수: 보존 72h (CR-11)
+- 기각: `response_hash` 컬럼 추가 (CR-11) — `response_body`는 디버깅·재응답 캐시이며 원본 권위(source of truth)가 아님. 무결성 검증 필요 시 Order·Payment 재조립이 권위 경로이므로 `response_hash`는 중복 책임
+
+---
+
+## D-44b 멱등성 응답 캐싱 형태 — 전체 응답 직렬화 저장 [ACTIVE]
+
+### 결정
+최초 응답 전체 JSON을 `response_body LONGTEXT`에 저장.
+
+### 사양
+- 저장 시점: 응답 직렬화 후·`status=COMPLETED` UPDATE와 동일 트랜잭션
+- 캐싱 대상: 2xx 성공 응답만
+- 캐싱 제외: 4xx·5xx 모두 미캐싱 — IN_PROGRESS row 삭제 후 동일 키 재시도 허용
+- 재요청 처리: `response_body` 그대로 반환·HTTP 200 OK 고정
+- 현재 상태와의 불일치: 의도된 동작 — 실제 현재 상태는 `GET /api/v1/orders/{id}` 별도 조회
+
+### 근거
+1. 멱등성 정의 충족 ("동일 요청 = 동일 응답")
+2. 24h TTL·체크아웃 응답 수 KB 수준
+3. 사용자 입력 보정 후 재시도 흐름 보존
+
+### 외부 검토 흡수 / 기각
+- 기각: 4xx deterministic 응답 캐싱 (CR-12) — D-44 멱등성의 목적은 **중복 생성 방지**이지 **요청 결과 재현**이 아님. 실패 응답 캐싱은 사용자 수정 흐름과 충돌하므로 Track 4에서는 미적용
+- 흡수: 실패 시 IN_PROGRESS row 삭제 명확화 (FAILED 상태 추가 대비 단순)
+
+---
+
+## D-45 멀티벤더 OrderItem 응답 그룹화 — seller 단위 그룹화 [ACTIVE]
+
+### 결정
+주문 응답에서 OrderItem은 seller 단위로 그룹화하여 반환. 식별자는 모두 `public_id` 노출.
+
+### 사양
+```json
+{
+  "orderId": "ord_...",
+  "status": { "code": "PAID", "label": "결제완료" },
+  "sellers": [
+    {
+      "sellerId": "slr_...",
+      "companyName": "...",
+      "items": [
+        {
+          "orderItemId": "oit_...",
+          "productId": "prd_...",
+          "variantId": "var_...",
+          "quantity": 1,
+          "unitPrice": 10000,
+          "totalPrice": 10000
+        }
+      ],
+      "subtotal": 10000
+    }
+  ],
+  "totalPrice": 10000
+}
+```
+- 적용 범위: `POST /api/v1/orders`·`GET /api/v1/orders/{id}`·CheckoutResponse
+- 단일 판매자 주문도 동일 구조 유지 (`sellers` 배열 길이 1·분기 금지)
+- seller별 `subtotal` 필드 포함 (정산 단위 일치)
+- 식별자 전체 `public_id` 사용·내부 BIGINT PK 노출 금지
+
+### 근거
+1. 멀티벤더가 핵심 도메인 특성 — 평탄화 시 프론트 groupBy 반복
+2. 판매자별 카드 UI 자연 매핑
+3. 정산 단위(seller_id) 일치 — 부분 클레임·부분 배송 시 응답 구조 일관성
+4. db-schema-decisions.md 1.1 public_id 정책 정합
+
+### 외부 검토 흡수
+- publicId 명시·내부 PK 노출 금지
+
+---
+
+## D-46 status 외부 노출 방식 — `{code, label}` 객체 (UI 노출 status 한정) [ACTIVE]
+
+### 결정
+**사용자에게 표시되는 status**는 `{code, label}` 객체로 반환. **내부 기술 상태**는 string 유지.
+
+### 사양
+
+**`{code, label}` 객체 적용 (UI 노출 status)**
+
+| status | 적용 |
+|---|:---:|
+| OrderStatus | O |
+| PaymentStatus | O |
+| DeliveryStatus | O |
+| ClaimStatus | O |
+| RefundStatus | O |
+
+**string 유지 (내부 기술 상태)**
+- `order_idempotency_key.status` (IN_PROGRESS / COMPLETED)
+- 향후 도입될 재시도 큐·배치 작업 상태 등 내부 enum
+
+**객체 구조**
+- `code`: enum 값 (SCREAMING_SNAKE_CASE)
+- `label`: `Code.label` 조회 결과 (운영자 편집 반영·db-schema-decisions.md 2.6)
+- fallback: 라벨 조회 실패 시 `label = code`
+- `label`은 null 금지 (fallback으로 항상 채움·D-49 정합)
+
+### 근거
+1. 운영자 라벨 편집 실시간 반영 (UI 노출 status에 한정)
+2. 클라이언트 분기는 안정적 `code`로 처리
+3. 다국어 확장 자연 (`labelEn` 등)
+4. 기준 축을 "Code 테이블 관리 대상"이 아닌 **"UI 노출 의미"**로 설정 — 향후 내부 enum이 Code 테이블로 이동해도 API shape 영향 없음
+
+### 외부 검토 흡수
+- CR-13 부분 흡수 — 단, 기준 축을 저장 위치(Code table) → 외부 노출 의미(UI 노출)로 변경
+
+---
+
+## D-47 API 버저닝 정책 — `/api/v1` 도입 (webhook 제외) [ACTIVE]
+
+### 결정
+공개 REST API는 `/api/v1/` prefix. Webhook은 versioning 대상 제외·`/api/webhooks/` 별도 경로.
+
+### 사양
+
+**`/api/v1/` 적용**
+- `/api/v1/orders`
+- `/api/v1/products`
+- `/api/v1/payments` (결제 시작 등 사용자 호출)
+- 기타 모든 공개 REST API
+
+**Webhook 별도 경로 (versioning 미적용)**
+- `/api/webhooks/payments` (PG 콜백 수신)
+- 기존 PaymentWebhookController 마이그레이션: `/api/payments/webhook` → `/api/webhooks/payments`
+
+**버전 전환 정책**
+- breaking change 발생 시 `/api/v2` 병행 운영 → deprecation 기간 후 v1 제거
+- v2 분기 시점·기준은 별도 박제 (트랙 범위 외)
+
+### 근거
+1. breaking change는 마켓플레이스 진화상 필연 — 도입 시점이 늦을수록 마이그레이션 비용 증가
+2. Webhook은 PG 공급자별 자체 버전 체계 따름 — public API versioning 대상 아님
+3. 한국 SaaS·이커머스 표준 (Coupang·Naver Smart Store)
+
+### 외부 검토 흡수
+- webhook을 `/api/v1` 적용 범위에서 제외하고 `/api/webhooks/` 별도 경로로 분리
+
+### CR-02 재평가
+- CR-02 권고는 v1 미도입이었으나, 본 결정에서 도입으로 전환
+- 사유: breaking change 마이그레이션 비용 선제 회피·webhook 분리로 CR-02 우려(PG 호환성) 해소
+
+---
+
+## D-48 전역 예외 핸들러·HTTP 상태 매핑 [ACTIVE]
+
+### 결정
+`@RestControllerAdvice` 기반 전역 예외 핸들러. 응답 본문은 RFC 7807 ProblemDetail. MDC traceId 태깅.
+
+### 응답 구조 (ProblemDetail)
+```json
+{
+  "type": "https://zslab-mall.duckdns.org/errors/order-not-found",
+  "title": "Order Not Found",
+  "status": 404,
+  "detail": "주문을 찾을 수 없습니다.",
+  "instance": "/api/v1/orders/ord_xxx",
+  "code": "ORDER_NOT_FOUND",
+  "traceId": "..."
+}
+```
+
+### 예외 → HTTP 상태 매트릭스
+
+| 카테고리 | HTTP | code 예시 |
+|---|:---:|---|
+| Bean Validation 실패 (`@Valid`) | 400 | `VALIDATION_FAILED` |
+| 형식·파싱 오류 (JSON·타입) | 400 | `MALFORMED_REQUEST` |
+| 인증 실패 | 401 | `UNAUTHENTICATED` |
+| 권한 부족 | 403 | `FORBIDDEN` |
+| 리소스 없음 | 404 | `ORDER_NOT_FOUND` 등 |
+| 멱등성 진행 중 충돌 | 409 | `IDEMPOTENCY_KEY_IN_PROGRESS` |
+| 낙관적 락 충돌 | 409 | `OPTIMISTIC_LOCK_FAILURE` |
+| 도메인 규칙 위반 | 422 | `PAYMENT_ALREADY_COMPLETED` 등 |
+| Rate limit 초과 | 429 | `RATE_LIMIT_EXCEEDED` |
+| 외부 응답 이상 (잘못된 응답) | 502 | `BAD_GATEWAY` |
+| 서비스 이용 불가 (외부 의존 다운) | 503 | `SERVICE_UNAVAILABLE` |
+| 미분류 서버 오류 | 500 | `INTERNAL_ERROR` |
+
+### MDC
+- 요청 진입 시 `traceId` (ULID) MDC 주입·응답 헤더 `X-Trace-Id` 반환
+- 로그 패턴 `[%X{traceId}]` 포함
+- CR-02 흡수
+
+### 근거
+1. Spring Boot 3.x 표준 패턴·ProblemDetail 내장 지원
+2. 4xx/5xx 분리로 클라이언트 재시도 가능성 판단 명확
+3. 도메인 위반(422)과 형식 오류(400) 분리는 D-41 원칙 상세화
+4. 502/503 분리로 PG·외부 시스템 장애 원인 진단 용이
+
+### 외부 검토 흡수
+- CR-14 흡수 — 409 낙관락·429 rate limit·502/503 분리
+
+---
+
+## D-49 JSON 직렬화 정책 [ACTIVE]
+
+### 결정
+- **필드명**: camelCase (Spring Boot 기본)
+- **null 처리**: 응답에서 null 필드 제외 (`@JsonInclude(NON_NULL)`)
+- **null 제외 예외 (필수 유지 필드)**:
+  - `ProblemDetail.detail` — 에러 가독성 필수
+  - `subtotal`, `totalPrice` 등 금액 필드 — 계산 또는 0 fallback
+  - `label` — fallback으로 code 값 채움 (D-46 정합)
+- **날짜·시간**: ISO-8601 UTC (`2026-06-27T05:30:00.000Z`)
+- **금액**: 정수 그대로 (KRW·원 단위·db-schema-decisions.md 1.3 정합)
+- **enum**: 코드값 그대로 (SCREAMING_SNAKE_CASE)·D-46 적용 후 객체 래핑
+
+### 근거
+1. Java/Spring 진영 표준 — snake_case는 Python/Ruby 컨벤션
+2. null 제외로 페이로드 축소·필드 부재 = null 시맨틱 명확
+3. UTC 저장(db-schema-decisions.md 1.2)과 응답 일치·표시 변환은 클라이언트 책임
+4. 필수 필드(에러 detail·금액·label)는 클라이언트 분기 단순화 위해 항상 유지
+
+### 외부 검토 흡수
+- detail·subtotal·label null 금지 예외 명시
+
+---
+
+## D-50 Validation 계층 매트릭스 [ACTIVE]
+
+### 결정
+형식 검증과 도메인 규칙 검증을 계층 분리. D-41 원칙 상세화. HTTP 상태는 **의미 기준**으로 분류.
+
+### 매트릭스
+
+| 검증 위치 | 책임 | HTTP | 도구 |
+|---|---|:---:|---|
+| Controller `@Valid` | 형식·필수·범위·정규식 | 400 | Jakarta Bean Validation |
+| Service / Domain | 비즈니스 규칙·상태 전이·중복 | 422 | 도메인 예외 throw |
+| Repository (UNIQUE 위반) | 의미 기준 분류 | 409 또는 422 | 예외 변환 |
+
+### 409 vs 422 분류 (의미 기준)
+
+| 상황 | HTTP | 예 |
+|---|:---:|---|
+| 동시성 충돌 | 409 | 멱등성 키 진행 중·낙관락 충돌 |
+| 업무 제약 위반 | 422 | 중복 주문 금지·결제 완료된 주문 재결제 |
+
+> Repository 계층에서 발생하는 UNIQUE 위반이라도 의미가 "동시성"이면 409·"업무 제약"이면 422.
+
+### 중복 검증 허용 케이스
+- 컨트롤러 `@NotNull`과 도메인 객체 생성자 null 체크는 의도적 중복 허용 (도메인 객체 단독 사용 시 무결성 보장)
+
+### 400 vs 422 판단 기준
+- "요청 형식이 잘못됨" → 400 (수정 후 재요청 의미 있음)
+- "요청 형식은 맞으나 비즈니스 규칙 위반" → 422 (요청 자체 재고 필요)
+
+### 근거
+1. D-41 원칙(컨트롤러=형식·도메인=규칙) 상세화
+2. 400/422/409 분리로 클라이언트 에러 대응 정확
+3. 도메인 객체 단독 사용 시 무결성 보장 위해 중복 검증 허용
+4. 의미 기준 분류는 계층 변경에 둔감
+
+### 외부 검토 흡수
+- 409/422 분류 기준을 Repository 계층 → 의미(동시성 vs 업무 제약)로 이동
