@@ -2407,3 +2407,43 @@ Track 5에서는 Claim 1:1 Refund 제약(단일 환불 행)을 유지한다.
 - 외부 검토 CR-12
 
 ---
+
+## D-78. Track 6 Gate 조건 보정 (트랙 결정 정합) [ACTIVE]
+
+**상태**: [확정 2026-06-28]
+**관련**: Track 6 / D-04·D-16·D-23·D-42·gate-conditions.md §1·§2·§3
+
+### 배경
+Track 6 정찰 (docs/track-6/recon-report.md) 결과 Gate 조건 6항목 GAP 표면화. GAP 6건 중 3건은 Gate 조건 박제 시점 (D-25·외부 검토 2차) 이후 트랙 결정 (D-16 OrderStatusResolver·D-42 Buyer 한정 endpoint·D-23 WithdrawnSeller Entity 이연)에 의해 발생한 Gate 조건 자체의 드리프트로 분류. Gate 조건을 트랙 결정과 정합하도록 보정한다.
+
+### 결정
+gate-conditions.md §1·§2·§3 4 항목 일괄 정정.
+
+1. §1 Entity 분모 12 → 11로 정정·임계 ≤1.2 → ≤1.1 (1건 허용 유지). WithdrawnSeller Entity는 D-23 정합 Track 7+ 소관·분모 제외.
+2. §2 상태 전이 검증 5 enum → 4 enum (OrderStatus 제외). OrderStatus는 D-04·D-16 ORD-2 OrderStatusResolver Domain Service 파생·canTransitionTo 부재가 의도된 설계.
+3. §2 주문 생성 E2E에서 User 로그인·Cart 추가 단계 제거. Spring Security·Cart 도메인은 Track 7+ 진입 시 측정 재진입.
+4. §3 API endpoint 임계 ≥10 → ≥6 축소. D-42 Buyer 한정 정책 정합·현재 6 endpoint 실측 기반. Track 7+ Aggregate 진입에 따른 endpoint 추가 시 임계 재정의.
+
+### 사유
+- "좋은 설계 < 좋은 현재 설계" 원칙 정합 — 박제 시점 가정값보다 실측·결정 정합 임계가 운영 안전
+- "operate first → verify through repetition → promote to documentation" 원칙 정합 — 실측 기반 임계가 미래 가정 임계보다 운영 안정
+- Gate 조건과 트랙 결정 (D-04·D-16·D-23·D-42) 자기 충돌 해소·운영자 정독 시 측정 결과 판단 모호성 0
+- canTransitionTo 메서드 추가 (대안 B)는 OrderStatusResolver Domain Service 중복·D-16 위반
+- Gate ≥10 유지 (대안 B)는 "임계 ≥10인데 현재 6 → 통과" 판단 모호·표현 부담만 잔존
+
+### 영향 범위
+gate-conditions.md §1·§2·§3 본문 4 항목 정정·각 항목 직후 비고 1줄 추가. 코드·테스트·다른 SoT 문서 영향 0. Track 6 PR-A (보강 테스트 2건) 진입 가능 상태 확립.
+
+### 대안 검토
+- 대안 1: OrderStatus.canTransitionTo 추가·5 enum 유지 → D-16 위반·OrderStatusResolver 중복 (기각)
+- 대안 2: Gate ≥10 유지·Track 7+ 이연 명시만 추가 → 판단 모호성 잔존·운영 부담 증가 (기각)
+- 대안 3: §3 측정 기준 endpoint 수 → 커버율 변경 → 측정 기준 전면 신설·D-25 박제 시점 이후 가장 큰 변경 (기각)
+
+### 관련 결정
+D-04 (Order.status 동기화·방식 B)·D-16 (OrderStatusResolver Domain Service)·D-23 (WithdrawnSeller·Seller 비식별화)·D-42 (Track 4 조회 API 범위·Buyer 한정)·D-25 (Gate 후 DDL 잠금)
+
+### 후속
+- PR-B 본 결정 박제 + gate-conditions.md 정정 완료 후 PR-A 진입 (GAP-E2E-2·GAP-TECH-1 보강 테스트 2건)
+- Track 7+ 진입 시점에 Gate 조건 재측정 (Entity 분모·endpoint 임계·Cart·인증 E2E 단계 재진입)
+
+---
