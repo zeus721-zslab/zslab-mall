@@ -1431,6 +1431,9 @@ order/controller/
 - 기각: 4xx deterministic 응답 캐싱 (CR-12) — D-44 멱등성의 목적은 **중복 생성 방지**이지 **요청 결과 재현**이 아님. 실패 응답 캐싱은 사용자 수정 흐름과 충돌하므로 Track 4에서는 미적용
 - 흡수: 실패 시 IN_PROGRESS row 삭제 명확화 (FAILED 상태 추가 대비 단순)
 
+### 후속 보정
+- "4xx·5xx 모두 미캐싱 — IN_PROGRESS row 삭제" 정책은 **D-66으로 보정** (4xx 삭제·5xx 잔류). 본 결정의 "IN_PROGRESS row 삭제" 표현은 D-66 정합 기준으로 재해석.
+
 ---
 
 ## D-45 멀티벤더 OrderItem 응답 그룹화 — seller 단위 그룹화 [ACTIVE]
@@ -1730,7 +1733,7 @@ order/controller/
 - CR-09 보강 흡수 — Order 재생성 금지·attempt_key 신규 명시
 
 ### 관련 결정
-- D-43 (TX 분리)·D-44/D-44a/D-44b (멱등성)·D-35 (attempt_key)
+- D-43 (TX 분리)·D-44/D-44a/D-44b (멱등성)·D-35 (attempt_key)·D-66 (부분 실패 row 처리)
 
 ---
 
@@ -2108,3 +2111,47 @@ order/controller/
 - D-64 CheckoutService 데이터 로드 경로와 자연 결합 (`findByPublicId` → BIGINT id 해소)
 
 **관련 결정**: D-64 (서버 산정)·§11 (public_id 정책)·§15 (JSON 직렬화).
+
+---
+
+## D-66. 멱등성 IN_PROGRESS row 부분 실패 처리 — 4xx 삭제·5xx 잔류 [ACTIVE]
+
+**결정일**: 2026-06-28
+**관련**: Track 4 hotfix / D-44b·D-52 보정
+
+### 결정
+`CheckoutService.idempotentCheckout()` 처리 중 예외 발생 시 IN_PROGRESS row 처리 정책을 HTTP 상태별로 분기.
+
+| 예외 카테고리 | IN_PROGRESS row | 효과 |
+|---|---|---|
+| 4xx (클라이언트 교정 가능) | 삭제 | 동일 키 재시도 허용 |
+| 5xx (예상치 못한 서버 오류) | 잔류 | 운영자 개입 전까지 409 유지 |
+
+### 사양
+- **4xx 대상**: `CheckoutItemNotFoundException`(404)·`CheckoutItemMismatchException`(422)·`OrderNotPayableException`(422) 등 도메인·검증 예외
+- **5xx 대상**: 그 외 `RuntimeException`·`DataAccessException` 등 예상치 못한 서버 오류
+- **삭제 시점**: `createOrder` 호출 주변 try-catch에서 예외 catch 직후·예외 재throw 직전 (동일 메서드 내)
+- **삭제 트랜잭션**: IN_PROGRESS INSERT와 동일 독립 TX 패턴 (`REQUIRES_NEW` 또는 별도 트랜잭션 경계)
+- **위치**: `CheckoutService.idempotentCheckout()` (createOrder 호출부)
+
+### 근거
+1. **D-52 복구 분기 보존**: D-52 "IN_PROGRESS + order_id!=NULL → 기존 Order 복구·initiate 재호출" 분기가 5xx에서도 정상 동작. 옵션 B(5xx 삭제) 채택 시 분기 자체를 회피해 중복 Order 발생 위험.
+2. **5xx 자동 차단이 default 안전**: 5xx는 예상치 못한 오류 — 자동 재시도 허용보다 자동 차단이 운영 안전.
+3. **4xx 재시도 허용 자연**: 4xx는 클라이언트 교정 가능 (상품 ID 오타·재고 부족 등) — 동일 키 재시도 허용이 사용자 흐름 정합.
+4. **부분 실패 시나리오 분석** (5xx 발생 시점별):
+   - createOrder 5xx → Order 미생성·IN_PROGRESS만 잔류 → 옵션 A(잔류)로 409 차단 안전
+   - order_id UPDATE 직전 죽음 → Order 생성·order_id=NULL → 옵션 A로 409 차단 (옵션 B 시 중복 Order)
+   - initiate 5xx → Order 생성·order_id!=NULL → 옵션 A로 D-52 복구 분기 정상 작동 (옵션 B 시 중복 Order)
+
+### 외부 검토 흡수
+- recon-report.md Track 4 FAIL-코드-1 권장 (옵션 A) 흡수
+
+### 회귀 테스트
+- `checkout_itemNotFound_sameKeyRetryable` (404 → 동일 키 재시도 → 201)
+- `checkout_itemMismatch_sameKeyRetryable` (422 → 동일 키 재시도 → 201)
+- `checkout_5xx_sameKeyBlocked` (5xx → 동일 키 재시도 → 409 유지)
+
+### 관련 결정
+- D-44b (멱등성 응답 캐싱·"IN_PROGRESS row 삭제" 표현 → D-66 정합 재해석)
+- D-52 (호출 순서·재시도 분기·복구 분기 보존)
+- D-50 (409 vs 422 의미 분류)

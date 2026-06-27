@@ -134,7 +134,14 @@ public class CheckoutService {
             return handleExistingKey(raced, command);
         }
 
-        Order order = createOrder(command);          // D-52 2단계: TX1
+        Order order;
+        try {
+            order = createOrder(command);            // D-52 2단계: TX1
+        } catch (CheckoutItemNotFoundException | CheckoutItemMismatchException fourXx) {
+            // D-66: 클라이언트 교정 가능 4xx → IN_PROGRESS row 삭제하여 동일 키 재시도 허용
+            idempotencyRepository.delete(mark);
+            throw fourXx;
+        }
         mark.linkOrder(order.getId());
         idempotencyRepository.saveAndFlush(mark);    // D-52 3단계: order_id 저장(별도 커밋)
         return completeWithInitiate(order, command, mark);
