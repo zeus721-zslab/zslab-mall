@@ -159,4 +159,14 @@ public class Order extends AbstractPublicIdFullAuditableEntity {
         }
         this.status = resolvedStatus;
     }
+
+    /**
+     * 주문 확정 시각(ordered_at)을 설정한다(D-42 목록 정렬 기준·"주문 확정 시각"). 주문 생성 시점에 1회 설정한다.
+     */
+    public void markOrdered(LocalDateTime orderedAt) {
+        if (orderedAt == null) {
+            throw new IllegalArgumentException("orderedAt은 null일 수 없습니다.");
+        }
+        this.orderedAt = orderedAt;
+    }
 }

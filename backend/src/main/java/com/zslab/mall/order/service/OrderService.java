@@ -76,6 +76,7 @@ public class OrderService {
         }
 
         order.attachSnapshot(toSnapshot(command.shipping()));
+        order.markOrdered(LocalDateTime.now());   // D-42 목록 정렬 기준·주문 확정 시각
 
         Order saved = orderRepository.save(order);
 

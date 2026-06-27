@@ -1,13 +1,17 @@
 package com.zslab.mall.order.repository;
 
 import com.zslab.mall.order.entity.Order;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 /**
- * 주문 Repository(QB-5 JpaRepository 단일·메서드 이름 쿼리 + fetch join 1건).
+ * 주문 Repository(QB-5 JpaRepository 단일·메서드 이름 쿼리 + fetch join).
  */
 public interface OrderRepository extends JpaRepository<Order, Long> {
 
@@ -23,4 +27,19 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
      */
     @Query("SELECT o FROM Order o LEFT JOIN FETCH o.items WHERE o.id = :id")
     Optional<Order> findByIdWithItems(@Param("id") Long id);
+
+    /**
+     * public_id로 Order를 items·shippingSnapshot과 함께 fetch join 조회한다(GET 단건 상세·재결제 재검증).
+     * 트랜잭션 밖(CheckoutService)에서도 연관 접근이 안전하도록 선로딩한다.
+     */
+    @Query("SELECT DISTINCT o FROM Order o LEFT JOIN FETCH o.items LEFT JOIN FETCH o.shippingSnapshot "
+            + "WHERE o.publicId = :publicId")
+    Optional<Order> findByPublicIdWithItems(@Param("publicId") String publicId);
+
+    /** 여러 Order를 items와 함께 일괄 fetch join 조회한다(목록 enrich·previewTitle/sellerCount·N+1 회피). */
+    @Query("SELECT DISTINCT o FROM Order o LEFT JOIN FETCH o.items WHERE o.id IN :ids")
+    List<Order> findByIdInWithItems(@Param("ids") Collection<Long> ids);
+
+    /** Buyer 본인 주문 목록(ordered_at DESC·D-42·D-54 페이징). items는 미포함(요약 enrich는 findByIdInWithItems로 별도). */
+    Page<Order> findByBuyerIdOrderByOrderedAtDesc(Long buyerId, Pageable pageable);
 }

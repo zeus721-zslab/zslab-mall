@@ -46,7 +46,7 @@ class PaymentWebhookControllerTest {
     @Test
     @DisplayName("정상 콜백 → 200·DTO가 Command로 변환되어 Service에 전달")
     void validCallback_returns200_andMapsCommand() throws Exception {
-        mockMvc.perform(post("/api/payments/callbacks")
+        mockMvc.perform(post("/api/webhooks/payments")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(VALID_BODY))
                 .andExpect(status().isOk());
@@ -68,7 +68,7 @@ class PaymentWebhookControllerTest {
         doThrow(new InvalidCallbackException("종결 상태 불법 전이"))
                 .when(paymentService).handleCallback(Mockito.any());
 
-        mockMvc.perform(post("/api/payments/callbacks")
+        mockMvc.perform(post("/api/webhooks/payments")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(VALID_BODY))
                 .andExpect(status().isUnprocessableEntity());
@@ -86,7 +86,7 @@ class PaymentWebhookControllerTest {
                 }
                 """;
 
-        mockMvc.perform(post("/api/payments/callbacks")
+        mockMvc.perform(post("/api/webhooks/payments")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(invalidBody))
                 .andExpect(status().isBadRequest());
