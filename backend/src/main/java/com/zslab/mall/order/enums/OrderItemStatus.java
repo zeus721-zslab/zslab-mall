@@ -14,7 +14,7 @@ package com.zslab.mall.order.enums;
  * </ul>
  *
  * <p><b>Claim 진입 전이 이연</b>: 진행 단계 → *_REQUESTED 전이(취소·반품·교환 요청 진입)는 Claim 도메인 소관이며
- * Track 5(Refund Flow)에서 Claim 이벤트 소비 로직과 함께 본 매트릭스에 추가한다. 본 트랙은 QB-11 4개 규칙만 확정한다.
+ * Claim 요청·승인/거절 워크플로우 트랙(expected-spec §1.2)에서 Claim 이벤트 소비 로직과 함께 본 매트릭스에 추가한다. 본 트랙은 QB-11 4개 규칙만 확정한다.
  */
 public enum OrderItemStatus {
     ORDERED,
