@@ -2825,3 +2825,85 @@ ORDER·ORDER_ITEM·PAYMENT·DELIVERY·CLAIM·REFUND·USER·SELLER·PRODUCT·PROD
 D-01 (Aggregate 16+1·외부 참조 ID only)·D-11 (Audit Policy·diff_json JSON·changed_fields 한정)·D-18 (NotificationLog Infra/Event)·D-81 (Track 7 분할·PR-3c)·D-82 (live-traps.md·LT-03)·D-83 (Batch-2 진입·복합 PK)·D-84 (Batch-3a 진입·@MapsId)·D-85 (Batch-3b 진입·내부 @ManyToOne LAZY)·recon-report.md §8
 
 ---
+
+## D-87. Track 8 진입 결정 — 우선 Aggregate·분할 단위·Admin 분리·State Machine 위치·Order Aggregate 3 PR 분할 [ACTIVE]
+
+**결정일**: 2026-06-28
+**관련**: Track 8 / D-01·D-16·D-29·D-39·D-43·D-58·D-66·D-81 / Track 3·4 산출물
+
+### 배경
+Track 7 종료 (Batch-3c 머지·2f590e8) 후 Track 8 진입. Application Service·Controller·DTO·E2E·State Machine·Invariant 책임 범위 광역·사전 분할 전략 결정 필요. 사용자 4 기조 (운영 용이성·객관 판단·과잉문서 회피·과잉개발 회피) 정합 추천안 채택.
+
+### 결정
+
+#### Q1: 우선 Aggregate = A (Order/Payment 핵심)
+D-39 X-Buyer-Id stub 운영 중·인증 인프라 (옵션 D) 선구축은 기조 4 위배. Track 3·4 산출물 (OrderService·PaymentService·CheckoutService) 잔여 확장이 자연. 옵션 B (Product/Seller)·C (횡단 인프라)는 도메인 행위 의존·후속.
+
+#### Q2: 분할 단위 = β (Service + Controller + E2E)
+Track 4 패턴 (PaymentService + BuyerOrderController + 통합 테스트) 재적용. Aggregate 단위 PR 분할 자연. 옵션 α (Service만)는 검증 공백·옵션 γ (풀스택 일괄)는 PR 비대화.
+
+#### Q3: Admin API = 별도 트랙 (Track 9+)
+메모리 명시 "Admin API 자체 트랙 권장·~70% Service 재사용" 정합. Track 8 = Buyer/Seller 한정.
+
+#### Q4: State Machine·Invariant 위치 = α (Aggregate Root) 기본 + 복잡도 도달 시 β (Policy 객체) 추출
+D-16 OrderStatusResolver 선례 (Aggregate 경계 넘는 파생 로직)·단순 전이는 Aggregate Root 메서드 표준. Invariant 검증은 Service에서 호출.
+
+### 가드 2 라벨 (Track 8 Aggregate별 사전 박제)
+
+| Aggregate | 라벨 | 근거 |
+|---|---|---|
+| Order·Payment | S | 풀패키지·외부 검토·결정 라운드 의무 |
+| Claim·Refund | S | Track 5 패턴 정합·환불 정합성 핵심 |
+| Settlement | S | 정산 invariant·AES @Converter 신규 (D-85 Q3 이연분) |
+| CartItem·Delivery | A | 단독 Aggregate·외부 검토 선택적 |
+| Inventory | A | D-57 read-only 확장·재고 차감 invariant |
+| AuditLog·NotificationLog | A | 적재 훅·이벤트 핸들러·횡단 인프라 |
+
+### Order Aggregate 3 PR 분할
+
+| PR | 범위 | 라벨 | 근거 |
+|---|---|---|---|
+| PR-A | CheckoutService D-66 정합 최종화 + OrderPlaced 핸들러 구현 | A | D-66 박제 후 미구현분·핸들러 단독 응집·Track 4 완결 |
+| PR-B | Order Aggregate Root State Machine 메서드 (canTransitionTo·apply) + Invariant 검증 | A | Q4 α 패턴 첫 사례·도메인 행위 단독 응집 |
+| PR-C | OrderService 확장 + BuyerOrderController 잔여 endpoint + E2E | S | 외부 검토 권장·결정 라운드 의무·앞선 산출물 위에서 안전 |
+
+**진입 순서**: PR-A → PR-B → PR-C. PR-A·B 안착 후 PR-C 진입 시 회귀 표면 축소·결정 라운드 PR-C 집중 가능.
+
+### 사유
+
+**운영 용이성 (기조 1)**:
+- 3 PR 분할로 리뷰 단위 적정·롤백 영역 한정
+- Aggregate 단위 PR (β)로 Track 4 패턴 재현
+
+**객관 판단 (기조 2)**:
+- D-39 stub 운영 사실 기반 (Q1 A 선택)
+- D-16 선례 기반 (Q4 α 기본·β 추출)
+
+**과잉문서 회피 (기조 3)**:
+- D-87 단건 박제·Track 8 별도 분할 결정 파일 미신설 (D-81 패턴·임계 미도달)
+- 가드 2 라벨 본문 표 박제·Aggregate별 별도 결정 미발행
+
+**과잉개발 회피 (기조 4)**:
+- 인증·Admin·횡단 인프라 모두 이연
+- 풀패키지 일괄 PR 회피 (5개 영역 동시 수정 위험 차단)
+- State Machine Policy 객체는 복잡도 도달 시 자연 추출
+
+### 영향 범위
+docs/architecture-baseline/decisions.md D-87 1건 추가. 코드·테스트·다른 SoT 영향 0. Track 8 PR-A 정찰 진입 가능 상태 확립.
+
+### 대안 검토
+- 대안 1: Q1 옵션 D (인증 우선) → X-Buyer-Id stub 운영 중·과잉개발 (기각)
+- 대안 2: Order Aggregate 풀패키지 단일 PR → §4.2 경고선 초과·회귀 다중 표면·결정 라운드 중첩 (기각)
+- 대안 3: Q3 본 트랙 Admin 포함 → ~70% Service 재사용 가능 시점 이전·Buyer/Seller 안착 전 (기각)
+- 대안 4: Q4 γ (Service 레이어) → Anemic Domain Model·도메인 누수 (기각)
+- 대안 5: PR-A 추가 분할 (D-66 정합·OrderPlaced 핸들러 2 PR) → 정찰 비용 과잉·단일 PR 응집 충분 (기각)
+
+### 후속
+1. 본 결정 박제 PR (`docs/track-8-entry` → main)
+2. PR-A 정찰 진입 (`docs/track-8/pr-a/recon-report.md`·신규 채팅 권장)
+3. PR-B·PR-C 순차 진행 (각 PR별 정찰 → 결정 라운드 → 구현 → 1:1 대조)
+
+### 관련 결정
+D-01·D-16·D-29·D-39·D-43·D-58·D-66·D-81·D-83·D-84·D-85·D-86·gate-conditions.md §4.2 (PR 크기 경고선)
+
+---
