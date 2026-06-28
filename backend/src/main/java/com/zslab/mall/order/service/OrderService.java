@@ -23,7 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
  * 주문 Application Service(QB-6). 트랜잭션 경계는 메서드 단위다(QB-1).
  *
  * <p>주문 생성·결제 완료 반영·상태 재계산을 담당한다. Order.status 파생은 {@link OrderStatusResolver}(Domain Service)에 위임한다.
- * Claim 이벤트 핸들러(applyClaimRequested 등)는 Track 5 진입 시점에 추가한다(본 트랙 미작성).
+ * Claim 이벤트 핸들러(PaymentRefundCompletedHandler·ClaimRefundCompletedHandler 등)는 Track 5에서 추가되었다.
  */
 @Service
 @Transactional

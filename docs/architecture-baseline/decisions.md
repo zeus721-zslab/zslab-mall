@@ -2863,11 +2863,13 @@ D-16 OrderStatusResolver 선례 (Aggregate 경계 넘는 파생 로직)·단순 
 
 | PR | 범위 | 라벨 | 근거 |
 |---|---|---|---|
-| PR-A | CheckoutService D-66 정합 최종화 + OrderPlaced 핸들러 구현 | A | D-66 박제 후 미구현분·핸들러 단독 응집·Track 4 완결 |
+| PR-A | CheckoutService D-66 정합 회귀 테스트 박제 + Outdated 주석 보정 | A | D-66 박제 후 회귀 테스트 부재 차단·OrderPlaced 핸들러는 후속 트랙 자연 진입 |
 | PR-B | Order Aggregate Root State Machine 메서드 (canTransitionTo·apply) + Invariant 검증 | A | Q4 α 패턴 첫 사례·도메인 행위 단독 응집 |
 | PR-C | OrderService 확장 + BuyerOrderController 잔여 endpoint + E2E | S | 외부 검토 권장·결정 라운드 의무·앞선 산출물 위에서 안전 |
 
 **진입 순서**: PR-A → PR-B → PR-C. PR-A·B 안착 후 PR-C 진입 시 회귀 표면 축소·결정 라운드 PR-C 집중 가능.
+
+**정찰 보정 (2026-06-28·PR-A 진입)**: PR-A 범위는 회귀 테스트 박제 + Outdated 주석 보정으로 정정. OrderPlaced 핸들러 구현은 후속 트랙(NotificationLog·Inventory·CartItem·가드 2 A급) 자연 진입. 정찰 결과 CheckoutService.idempotentCheckout 내부 try-catch가 이미 4xx 삭제·5xx 잔류 정합·@Valid first-line defense로 ORD-1 등 IllegalArgumentException 도달 경로 차단. 회귀 테스트 3건(itemNotFound 404·itemMismatch 422·5xx 잔류)으로 정합 박제.
 
 ### 사유
 
