@@ -2683,3 +2683,44 @@ SellerSalesDaily·SellerSalesDailyId 클래스·SellerUser 어노테이션·Batc
 D-81 (Track 7 분할)·recon-report.md §5.2.1·§5.3·§8
 
 ---
+
+## D-84. Track 7 Batch-3a 진입 결정 — BuyerProfile 공유 PK @MapsId·재적용 결정 4건 [ACTIVE]
+
+**결정일**: 2026-06-28
+**관련**: Track 7 Batch-3a / D-81 §1 PR-3a / docs/track-7/batch-3a/recon-report.md §8
+
+### 배경
+Batch-3a 정찰 (recon-report.md) §8 결정 요청 5건 (Q1~Q5) 도출. A급 정찰 read-only 트랙·외부 검토 생략. 사용자 4 기조 정합 권고안 전건 채택. Q1만 신규 결정 (공유 PK @MapsId 전략)·Q2~Q5는 기존 결정 재적용.
+
+### 결정
+
+#### Q1: BuyerProfile 공유 PK 매핑 = @MapsId + @OneToOne LAZY (신규 결정)
+JPA 1:1 공유 PK 표준 패턴. `@MapsId`가 `user.id`를 `userId` 필드에 자동 채움·실수 차단. User 객체 직접 접근 가능 (lazy 로딩). SellerSalesDaily(@IdClass 복합 PK·D-83 Q1)와 이유 명확 분리 — 공유 PK 1:1은 @MapsId가 표준·복합 PK 다차원은 @IdClass가 자연.
+
+#### Q2~Q5 재적용 결정 (신규 결정 아님·D-XX 부여 안 함)
+
+| # | 항목 | 재적용 근거 |
+|---|---|---|
+| Q2 | WithdrawnUser.originalUser @ManyToOne LAZY | D-01 내부 Aggregate·SellerUser.seller·InventoryHistory.inventory 패턴 정합 |
+| Q3 | UserAddress.user @ManyToOne LAZY | D-01 내부 Aggregate·동일 패턴 |
+| Q4 | Test Base = Batch1DataJpaTestBase 재사용 | D-83 Q2 정합·신설 비용 0 |
+| Q5 | User.email·name·phone nullable 유지 | D-22 비식별화 정합·Service 가드 Track 8+ 이연 |
+
+### 사유
+- 기조 1 (운영 용이성): @MapsId User 직접 접근·실수 차단
+- 기조 2 (객관 판단): JPA 1:1 공유 PK 표준 패턴·SellerSalesDaily와 이유 분리 명확
+- 기조 3 (과잉문서 회피): Q2~Q5 재적용은 D-XX 부여 안 함·본문 표로 간결 박제
+- 기조 4 (과잉개발 회피): 외부 검토 생략 (A급 선택적·결정 항목 명확)
+
+### 영향 범위
+BuyerProfile 매핑·UserAddress·WithdrawnUser 매핑·UserRepositoryTest·BuyerProfileRepositoryTest·UserAddressRepositoryTest. DDL·다른 SoT 영향 0. Batch-3a 구현 완료·전체 회귀 PASS.
+
+### 후속
+- Track 8+ Application Service 진입 시 D-22 재가입 가드·비식별화 배치 로직 (User.email·name·phone Service 검증)
+- BuyerProfile.gradeLockedUntil·gradeUpdatedAt 정책 로직 Track 8+
+- Batch-3b 진입 시 LT-03 처치 의무 (Seller·SellerBankAccount·withdrawn_seller 등 검토)
+
+### 관련 결정
+D-01 (Aggregate 외부 ID 참조)·D-22 (비식별화 후 재가입 정책)·D-81 (Track 7 분할)·D-82 (라이브 트랩 카탈로그)·D-83 (Batch-2 진입 결정·복합 PK @IdClass)
+
+---

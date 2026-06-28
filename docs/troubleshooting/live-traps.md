@@ -133,9 +133,9 @@ AbstractSoftDeletableEntity·AbstractPublicIdSoftDeletableEntity 상속 Entity �
 | Entity | 상속 abstract | 처치 |
 |---|---|---|
 | Category | AbstractSoftDeletableEntity | ✓ 완료 (Track 7 Batch-1) |
-| UserAddress | AbstractSoftDeletableEntity | Batch-3a 진입 시 |
+| UserAddress | AbstractSoftDeletableEntity | ✓ 완료 (Track 7 Batch-3a) |
 | ProductImage | AbstractSoftDeletableEntity | Batch-3c 진입 시 |
-| User | AbstractPublicIdSoftDeletableEntity | Batch-3a 진입 시 |
+| User | AbstractPublicIdSoftDeletableEntity | ✓ 완료 (Track 7 Batch-3a) |
 | Seller | AbstractPublicIdSoftDeletableEntity | Batch-3b 진입 시 |
 | Product | AbstractPublicIdSoftDeletableEntity | Batch-3c 진입 시 |
 | ProductVariant | AbstractPublicIdSoftDeletableEntity | Batch-3c 진입 시 |
