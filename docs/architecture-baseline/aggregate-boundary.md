@@ -33,11 +33,12 @@
 
 | Aggregate | Root | 포함 엔티티 | 외부 ID 참조 |
 |---|---|---|---|
-| Seller | Seller | SellerBankAccount, SellerUser | User.id, Role.id |
+| Seller | Seller | SellerBankAccount, SellerUser, WithdrawnSeller | User.id, Role.id |
 | Settlement | Settlement | — (단독) | Seller.id, SellerBankAccount.id |
 
 **경계 결정**:
 - `SellerBankAccount`·`SellerUser`는 Seller 없이 존재 불가, 판매자 온보딩 트랜잭션 내 생성
+- `WithdrawnSeller`는 D-23 V2 신설·Seller Aggregate 종속·Snapshot Metadata(SLR-7 SoT·D-85 Q2). 갱신 주의: SLR-7에 따라 Seller·WithdrawnSeller 동시 수정 금지·Seller SoT
 - `Settlement`는 정산 주기별 독립 생성 (Seller 트랜잭션과 별개) → 독립 Aggregate
 
 ### 2.3 상품·카테고리·재고

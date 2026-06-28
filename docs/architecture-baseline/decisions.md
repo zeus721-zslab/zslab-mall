@@ -2724,3 +2724,45 @@ BuyerProfile 매핑·UserAddress·WithdrawnUser 매핑·UserRepositoryTest·Buye
 D-01 (Aggregate 외부 ID 참조)·D-22 (비식별화 후 재가입 정책)·D-81 (Track 7 분할)·D-82 (라이브 트랩 카탈로그)·D-83 (Batch-2 진입 결정·복합 PK @IdClass)
 
 ---
+
+## D-85. Track 7 Batch-3b 진입 결정 — Q1~Q5 일괄 채택 [ACTIVE]
+
+**결정일**: 2026-06-28
+**관련**: Track 7 Batch-3b / D-81 §1 PR-3b / docs/track-7/batch-3b/recon-report.md §8
+
+### 배경
+Batch-3b 정찰 (recon-report.md) §8 결정 요청 5건 (Q1~Q5) 도출. A급 정찰 read-only 트랙·외부 검토 생략. 정찰 WARN-1 (settlement.public_id 비존재 확인)·WARN-2 (aggregate-boundary §2.2 WithdrawnSeller 미명시)·WARN-3 (Seller.java LT-03 미처치) 반영.
+
+### 결정
+
+| # | 항목 | 결정 | 사유 |
+|---|---|---|---|
+| Q1 | settlement.bank_account_id 매핑 | **Long bankAccountId** | D-01·Settlement 독립 Aggregate·aggregate-boundary §2.2 외부 ID·STL-3 스냅샷 의미. @ManyToOne 금지 |
+| Q2 | withdrawn_seller.original_seller_id 매핑 | **@ManyToOne LAZY Seller** | D-23 SLR-7 SoT·WithdrawnUser 패턴 준용(D-84 Q2)·Seller Aggregate 내부 엔티티. Long 필드 대안 기각 |
+| Q3 | seller_bank_account.account_number 매핑 | **평문 String·AES Track 8+ 이연** | Track 7 범위 한정(Entity·Repository)·Application Service 없는 단계·D-23 B-d4 정합. 즉시 AES 적용 대안 기각 |
+| Q4 | cart_item UK(user_id, variant_id) 매핑 | **DDL 신뢰·@Table uniqueConstraints 생략** | DB UK가 제약 주체·user_id·variantId 모두 Long 필드·Batch-2 UserRole/SellerUser 패턴 정합 |
+| Q5 | Test Base | **Batch1DataJpaTestBase 재사용** | D-83 Q2·D-84 Q4 정합·신설 비용 0 |
+
+### 추가 결정 (WARN 처치)
+- **WARN-1 처치**: settlement → AbstractFullAuditableEntity (public_id 없음·DDL 실측). getPublicIdPrefix() 불필요
+- **WARN-2 처치**: aggregate-boundary §2.2 WithdrawnSeller → Seller Aggregate 포함 엔티티 추가 (동반 갱신)
+- **WARN-3 처치**: 기존 Seller.java @SQLRestriction("deleted_at IS NULL") 직접 선언 추가 (LT-03·HHH-17453)
+
+### 사유
+- 기조 1 (운영 용이성): Q1 Long 필드로 Settlement 독립성 보장·Q2 @ManyToOne으로 D-23 SLR-7 정합
+- 기조 2 (객관 판단): Q3 평문 이연은 Track 7 범위 초과 회피·Q4 DDL 신뢰는 기존 패턴 정합
+- 기조 3 (과잉문서 회피): Q5 신규 Test Base 신설 회피
+- 기조 4 (과잉개발 회피): AES @Converter·State Machine·Service 로직 일체 Track 8+ 이연
+
+### 영향 범위
+신규 14건 (SellerBankAccount·WithdrawnSeller·Settlement·CartItem·Delivery Entity + Enum 4·Repository 5)·기존 Seller.java @SQLRestriction 1줄·aggregate-boundary §2.2 갱신 1줄. DDL 영향 0.
+
+### 후속
+1. Track 8+ Application Service 진입 시 seller_bank_account.account_number AES @Converter 적용 (SLR-2·D-23 B-d4)
+2. Batch-3c 진입 시 ProductImage·Product·ProductVariant·Attachment LT-03 처치 의무
+3. Track 8+ Settlement State Machine (PENDING→CONFIRMED→PAID·STL-2)·SellerBankAccount 인증 흐름 구현
+
+### 관련 결정
+D-01·D-23 (Seller 비식별화·SLR-7)·D-81 (Track 7 분할·PR-3b)·D-82 (live-traps.md·LT-03)·D-83 (Batch-2 진입)·D-84 (Batch-3a 진입·@MapsId)·recon-report.md §8
+
+---
