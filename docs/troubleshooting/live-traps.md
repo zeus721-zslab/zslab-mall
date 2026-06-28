@@ -134,12 +134,12 @@ AbstractSoftDeletableEntity·AbstractPublicIdSoftDeletableEntity 상속 Entity �
 |---|---|---|
 | Category | AbstractSoftDeletableEntity | ✓ 완료 (Track 7 Batch-1) |
 | UserAddress | AbstractSoftDeletableEntity | ✓ 완료 (Track 7 Batch-3a) |
-| ProductImage | AbstractSoftDeletableEntity | Batch-3c 진입 시 |
+| ProductImage | AbstractSoftDeletableEntity | ✓ 완료 (Track 7 Batch-3c) |
 | User | AbstractPublicIdSoftDeletableEntity | ✓ 완료 (Track 7 Batch-3a) |
-| Seller | AbstractPublicIdSoftDeletableEntity | Batch-3b 진입 시 |
-| Product | AbstractPublicIdSoftDeletableEntity | Batch-3c 진입 시 |
-| ProductVariant | AbstractPublicIdSoftDeletableEntity | Batch-3c 진입 시 |
-| Attachment | AbstractPublicIdSoftDeletableEntity | Batch-3c 진입 시 |
+| Seller | AbstractPublicIdSoftDeletableEntity | ✓ 완료 (Track 7 Batch-3b) |
+| Product | AbstractPublicIdSoftDeletableEntity | ✓ 완료 (Track 7 Batch-3c) |
+| ProductVariant | AbstractPublicIdSoftDeletableEntity | ✓ 완료 (Track 7 Batch-3c) |
+| Attachment | AbstractPublicIdSoftDeletableEntity | ✓ 완료 (Track 7 Batch-3c) |
 
 ### 검증 방법
 @DataJpaTest 케이스 필수 1건: "soft-delete 후 findById Optional.empty" (Category 기 적용).
