@@ -2871,6 +2871,8 @@ D-16 OrderStatusResolver 선례 (Aggregate 경계 넘는 파생 로직)·단순 
 
 **정찰 보정 (2026-06-28·PR-A 진입)**: PR-A 범위는 회귀 테스트 박제 + Outdated 주석 보정으로 정정. OrderPlaced 핸들러 구현은 후속 트랙(NotificationLog·Inventory·CartItem·가드 2 A급) 자연 진입. 정찰 결과 CheckoutService.idempotentCheckout 내부 try-catch가 이미 4xx 삭제·5xx 잔류 정합·@Valid first-line defense로 ORD-1 등 IllegalArgumentException 도달 경로 차단. 회귀 테스트 3건(itemNotFound 404·itemMismatch 422·5xx 잔류)으로 정합 박제.
 
+**정찰 보정 (2026-06-29·PR-B 진입)**: PR-B 범위는 OrderItemStatus.java Javadoc 1줄 보정(Track 5 → Claim 요청 API 트랙·expected-spec §1.2)으로 정정. Order Aggregate Root State Machine 메서드(canTransitionTo·apply)·OrderStatusResolver Domain Service·ORD-1~ORD-5 강제는 정찰 결과 Track 2~5 누적 산출물로 이미 완료 박제. OrderItemStatus.canTransitionTo Claim 진입 전이 매트릭스(진행 단계 → *_REQUESTED)는 Track 5 핸들러 정찰로 미수행 확인(Claim·Payment 종결 전이만 처리)·후속 Claim 요청 API 트랙 자연 진입.
+
 ### 사유
 
 **운영 용이성 (기조 1)**:
