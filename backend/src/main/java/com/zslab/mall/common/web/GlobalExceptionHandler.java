@@ -3,6 +3,8 @@ package com.zslab.mall.common.web;
 import com.zslab.mall.checkout.exception.CheckoutItemMismatchException;
 import com.zslab.mall.checkout.exception.CheckoutItemNotFoundException;
 import com.zslab.mall.checkout.exception.IdempotencyKeyInProgressException;
+import com.zslab.mall.claim.exception.ClaimInvalidStateException;
+import com.zslab.mall.claim.exception.ClaimNotFoundException;
 import com.zslab.mall.common.exception.MalformedRequestException;
 import com.zslab.mall.common.exception.UnauthenticatedException;
 import com.zslab.mall.order.exception.OrderNotFoundException;
@@ -53,6 +55,8 @@ public class GlobalExceptionHandler {
     private static final String CODE_INVALID_CALLBACK = "INVALID_CALLBACK";
     private static final String CODE_REFUND_NOT_FOUND = "REFUND_NOT_FOUND";
     private static final String CODE_REFUND_INVARIANT_VIOLATION = "REFUND_INVARIANT_VIOLATION";
+    private static final String CODE_CLAIM_NOT_FOUND = "CLAIM_NOT_FOUND";
+    private static final String CODE_CLAIM_STATE_INVALID = "CLAIM_STATE_INVALID";
     private static final String CODE_INTERNAL_ERROR = "INTERNAL_ERROR";
 
     // ===== 400 =====
@@ -97,6 +101,13 @@ public class GlobalExceptionHandler {
             RefundNotFoundException exception, HttpServletRequest request) {
         // Track 5 webhook: pg_refund_id 미매칭(404). 500 fallback으로 새는 라이브 트랩 차단.
         return build(HttpStatus.NOT_FOUND, CODE_REFUND_NOT_FOUND, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(ClaimNotFoundException.class)
+    public ResponseEntity<ProblemDetail> handleClaimNotFound(
+            ClaimNotFoundException exception, HttpServletRequest request) {
+        // Track 9 PR-B: 클레임 미존재·타인 소유(정보 노출 회피·Q8)·주문 품목 미매칭(404).
+        return build(HttpStatus.NOT_FOUND, CODE_CLAIM_NOT_FOUND, exception.getMessage(), request);
     }
 
     // ===== 409 =====
@@ -151,6 +162,14 @@ public class GlobalExceptionHandler {
         // Track 5: PAY-1 과환불·RFN-1 위반(422). 도메인 불변조건 위반.
         log.warn("[RefundWebhook] 불변조건 위반(422): {}", exception.getMessage());
         return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_REFUND_INVARIANT_VIOLATION, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(ClaimInvalidStateException.class)
+    public ResponseEntity<ProblemDetail> handleClaimInvalidState(
+            ClaimInvalidStateException exception, HttpServletRequest request) {
+        // Track 9 PR-B(D-89 Q3): 클레임 상태·정책 위반(CANCEL 한정·CLM-5·canTransitionTo). 500 fallback 차단·422 매핑(D-50).
+        log.warn("[Claim] 상태 위반(422): {}", exception.getMessage());
+        return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_CLAIM_STATE_INVALID, exception.getMessage(), request);
     }
 
     // ===== 500 (fallback) =====

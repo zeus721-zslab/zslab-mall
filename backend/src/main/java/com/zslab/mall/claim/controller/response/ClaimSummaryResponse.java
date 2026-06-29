@@ -1,0 +1,31 @@
+package com.zslab.mall.claim.controller.response;
+
+import com.fasterxml.jackson.annotation.JsonFormat;
+import com.zslab.mall.claim.entity.Claim;
+import com.zslab.mall.claim.enums.ClaimStatus;
+import com.zslab.mall.claim.enums.ClaimType;
+import java.time.LocalDateTime;
+
+/**
+ * 클레임 목록 항목 경량 응답(D-89 Q10·OrderSummaryResponse 패턴 정합). 페이로드 절감을 위해 필드를 한정한다.
+ *
+ * <p>reasonDetail·processedAt·orderItemPublicId는 단건 상세(ClaimResponse)에서만 노출한다(목록 N+1 회피).
+ */
+public record ClaimSummaryResponse(
+        String publicId,
+        ClaimType claimType,
+        ClaimStatus status,
+        String reasonCode,
+        @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'")
+        LocalDateTime requestedAt) {
+
+    /** 영속 Claim으로 목록 항목을 조립한다. */
+    public static ClaimSummaryResponse from(Claim claim) {
+        return new ClaimSummaryResponse(
+                claim.getPublicId(),
+                claim.getType(),
+                claim.getStatus(),
+                claim.getReasonCode(),
+                claim.getRequestedAt());
+    }
+}

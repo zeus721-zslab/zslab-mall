@@ -2,6 +2,7 @@ package com.zslab.mall.claim.entity;
 
 import com.zslab.mall.claim.enums.ClaimStatus;
 import com.zslab.mall.claim.enums.ClaimType;
+import com.zslab.mall.claim.exception.ClaimInvalidStateException;
 import com.zslab.mall.common.entity.AbstractPublicIdFullAuditableEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -102,7 +103,7 @@ public class Claim extends AbstractPublicIdFullAuditableEntity {
      * 본 메서드는 합법 전이만 수행한다.
      *
      * @param processedAt 종결 처리 시각(시스템 시각)
-     * @throws IllegalStateException APPROVED가 아니어서 COMPLETED 전이가 불가한 경우(CLM-1·CLM-4)
+     * @throws ClaimInvalidStateException APPROVED가 아니어서 COMPLETED 전이가 불가한 경우(CLM-1·CLM-4)
      * @throws IllegalArgumentException processedAt가 null인 경우
      */
     public void markCompleted(LocalDateTime processedAt) {
@@ -113,10 +114,46 @@ public class Claim extends AbstractPublicIdFullAuditableEntity {
         this.processedAt = processedAt;
     }
 
-    /** 상태를 {@code next}로 전이한다. {@link ClaimStatus#canTransitionTo}로 합법성을 검증한다(CLM-4). */
+    /**
+     * 클레임을 승인한다(REQUESTED → APPROVED·CLM-4). {@code processedAt}을 처리 시각으로 채운다.
+     *
+     * <p>Buyer 요청 후 Seller/Admin 승인 흐름(Track 10 endpoint)에서 {@code ClaimService.approve}가 호출한다.
+     *
+     * @param processedAt 승인 처리 시각(시스템 시각)
+     * @throws ClaimInvalidStateException REQUESTED가 아니어서 APPROVED 전이가 불가한 경우(CLM-4)
+     * @throws IllegalArgumentException processedAt가 null인 경우
+     */
+    public void approve(LocalDateTime processedAt) {
+        if (processedAt == null) {
+            throw new IllegalArgumentException("approve: processedAt는 필수입니다.");
+        }
+        transitionTo(ClaimStatus.APPROVED);
+        this.processedAt = processedAt;
+    }
+
+    /**
+     * 클레임을 거절한다(REQUESTED → REJECTED·CLM-4). 거절 이력은 보존되며 재요청은 새 Claim 행이다(CLM-2).
+     *
+     * @param processedAt 거절 처리 시각(시스템 시각)
+     * @throws ClaimInvalidStateException REQUESTED가 아니어서 REJECTED 전이가 불가한 경우(CLM-4)
+     * @throws IllegalArgumentException processedAt가 null인 경우
+     */
+    public void reject(LocalDateTime processedAt) {
+        if (processedAt == null) {
+            throw new IllegalArgumentException("reject: processedAt는 필수입니다.");
+        }
+        transitionTo(ClaimStatus.REJECTED);
+        this.processedAt = processedAt;
+    }
+
+    /**
+     * 상태를 {@code next}로 전이한다. {@link ClaimStatus#canTransitionTo}로 합법성을 검증한다(CLM-4).
+     *
+     * @throws ClaimInvalidStateException 비합법 전이인 경우(CLM-3 책임·500 fallback 차단·422 매핑)
+     */
     private void transitionTo(ClaimStatus next) {
         if (!status.canTransitionTo(next)) {
-            throw new IllegalStateException("불법 클레임 상태 전이: " + status + " → " + next);
+            throw new ClaimInvalidStateException("불법 클레임 상태 전이: " + status + " → " + next);
         }
         this.status = next;
     }
