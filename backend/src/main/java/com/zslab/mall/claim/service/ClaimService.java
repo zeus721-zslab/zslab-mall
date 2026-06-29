@@ -124,7 +124,14 @@ public class ClaimService {
     }
 
     /**
-     * 클레임을 승인한다(REQUESTED → APPROVED·CLM-4). save 직후 {@link ClaimApproved}를 발행한다(D-29). endpoint는 Track 10 소관.
+     * Claim 승인 도메인 전이 primitive. save 직후 {@link ClaimApproved}를 발행한다(D-29).
+     *
+     * <p>외부 HTTP 진입점 직접 호출 금지. 외부 액터(Seller/Admin) 호출은 wrapper 메서드(approveBySeller 등) 경유 의무.
+     * 본 primitive는 권한 검증 미수행·도메인 상태 전이 단독 책임이다. 직접 호출은 도메인 내부 호출 또는 통합 테스트
+     * 순수 상태 전이 검증에 한정한다.
+     *
+     * <p>D-92 횡단 원칙 정합: 도메인 상태 전이 메서드는 actor 식별자가 상태 자체에 포함되지 않는 한
+     * actor 비의존 시그니처를 우선한다.
      *
      * @throws ClaimNotFoundException     클레임이 없는 경우
      * @throws ClaimInvalidStateException REQUESTED가 아닌 경우(CLM-4)
@@ -139,7 +146,14 @@ public class ClaimService {
     }
 
     /**
-     * 클레임을 거절한다(REQUESTED → REJECTED·CLM-2·CLM-4). save 직후 {@link ClaimRejected}를 발행한다(D-29). endpoint는 Track 10 소관.
+     * Claim 거부 도메인 전이 primitive. save 직후 {@link ClaimRejected}를 발행한다(D-29·CLM-2 이력 보존).
+     *
+     * <p>외부 HTTP 진입점 직접 호출 금지. 외부 액터(Seller/Admin) 호출은 wrapper 메서드(rejectBySeller 등) 경유 의무.
+     * 본 primitive는 권한 검증 미수행·도메인 상태 전이 단독 책임이다. 직접 호출은 도메인 내부 호출 또는 통합 테스트
+     * 순수 상태 전이 검증에 한정한다.
+     *
+     * <p>D-92 횡단 원칙 정합: 도메인 상태 전이 메서드는 actor 식별자가 상태 자체에 포함되지 않는 한
+     * actor 비의존 시그니처를 우선한다.
      *
      * @throws ClaimNotFoundException     클레임이 없는 경우
      * @throws ClaimInvalidStateException REQUESTED가 아닌 경우(CLM-4)
@@ -151,6 +165,38 @@ public class ClaimService {
         eventPublisher.publishEvent(new ClaimRejected(
                 claim.getId(), claim.getPublicId(), claim.getOrderItemId(),
                 claim.getType(), claim.getStatus(), LocalDateTime.now()));
+    }
+
+    /**
+     * Seller 액터의 Claim 승인 진입점(Track 10·D-92 Q3-sub a‴).
+     *
+     * <p>처리 순서: 조회 → 권한 검증 → 도메인 전이. 권한 위반은 404({@link ClaimNotFoundException})로 응답하여
+     * cross-tenant 정보 노출을 회피한다. 권한 검증 후 {@link #approve} primitive에 위임한다(클래스 단위 단일 트랜잭션).
+     *
+     * @throws ClaimNotFoundException     클레임이 없거나 요청 Seller 소유 품목이 아닌 경우
+     * @throws ClaimInvalidStateException 상태가 REQUESTED가 아닌 경우(CLM-4)
+     */
+    public void approveBySeller(Long claimId, Long sellerId, LocalDateTime processedAt) {
+        Claim claim = claimRepository.findById(claimId)
+                .orElseThrow(() -> new ClaimNotFoundException("클레임을 찾을 수 없습니다: claimId=" + claimId));
+        authorizeSellerAccess(claim, sellerId);
+        approve(claimId, processedAt);
+    }
+
+    /**
+     * Seller 액터의 Claim 거부 진입점(Track 10·D-92 Q3-sub a‴).
+     *
+     * <p>처리 순서: 조회 → 권한 검증 → 도메인 전이. 권한 위반은 404({@link ClaimNotFoundException})로 응답하여
+     * cross-tenant 정보 노출을 회피한다. 권한 검증 후 {@link #reject} primitive에 위임한다(클래스 단위 단일 트랜잭션).
+     *
+     * @throws ClaimNotFoundException     클레임이 없거나 요청 Seller 소유 품목이 아닌 경우
+     * @throws ClaimInvalidStateException 상태가 REQUESTED가 아닌 경우(CLM-4)
+     */
+    public void rejectBySeller(Long claimId, Long sellerId, LocalDateTime processedAt) {
+        Claim claim = claimRepository.findById(claimId)
+                .orElseThrow(() -> new ClaimNotFoundException("클레임을 찾을 수 없습니다: claimId=" + claimId));
+        authorizeSellerAccess(claim, sellerId);
+        reject(claimId, processedAt);
     }
 
     /**
@@ -203,6 +249,24 @@ public class ClaimService {
         eventPublisher.publishEvent(new ClaimCompleted(
                 claim.getId(), claim.getPublicId(), claim.getOrderItemId(),
                 claim.getType(), claim.getStatus(), LocalDateTime.now()));
+    }
+
+    /**
+     * Seller 액터의 Claim 접근 권한을 검증한다(D-92 Q3 실패 우선순위 최선두: 권한 → 상태 → 전이).
+     *
+     * <p>{@link OrderItem#getSellerId()}와 요청 sellerId가 불일치하면 {@link ClaimNotFoundException}을 던진다
+     * (cross-tenant 정보 노출 회피·404 매핑). Claim이 참조하는 OrderItem 부재는 데이터 무결성 위반이므로 500이다.
+     *
+     * @throws ClaimNotFoundException 요청 Seller 소유 품목이 아닌 경우(권한 위반 은닉)
+     * @throws IllegalStateException  Claim이 참조하는 OrderItem이 부재한 경우(무결성 위반)
+     */
+    private void authorizeSellerAccess(Claim claim, Long sellerId) {
+        OrderItem orderItem = orderItemRepository.findById(claim.getOrderItemId())
+                .orElseThrow(() -> new IllegalStateException(
+                        "OrderItem 무결성 위반: orderItemId=" + claim.getOrderItemId()));
+        if (!orderItem.getSellerId().equals(sellerId)) {
+            throw new ClaimNotFoundException("클레임을 찾을 수 없습니다: claimId=" + claim.getId());
+        }
     }
 
     private Claim findClaim(Long claimId) {
