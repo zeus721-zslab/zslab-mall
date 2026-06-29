@@ -23,7 +23,7 @@ class OrderItemStatusTest {
         map.put(OrderItemStatus.SHIPPING,          EnumSet.of(OrderItemStatus.DELIVERED,  OrderItemStatus.RETURN_REQUESTED));
         map.put(OrderItemStatus.DELIVERED,         EnumSet.of(OrderItemStatus.CONFIRMED,  OrderItemStatus.RETURN_REQUESTED, OrderItemStatus.EXCHANGE_REQUESTED));
         map.put(OrderItemStatus.CONFIRMED,         EnumSet.noneOf(OrderItemStatus.class));
-        map.put(OrderItemStatus.CANCEL_REQUESTED,  EnumSet.of(OrderItemStatus.CANCELLED));
+        map.put(OrderItemStatus.CANCEL_REQUESTED,  EnumSet.of(OrderItemStatus.CANCELLED, OrderItemStatus.PAID));
         map.put(OrderItemStatus.CANCELLED,         EnumSet.noneOf(OrderItemStatus.class));
         map.put(OrderItemStatus.RETURN_REQUESTED,  EnumSet.of(OrderItemStatus.RETURNED));
         map.put(OrderItemStatus.RETURNED,          EnumSet.noneOf(OrderItemStatus.class));
@@ -77,5 +77,13 @@ class OrderItemStatusTest {
     @DisplayName("DDL 정합: 12값 보유")
     void hasTwelveValues() {
         assertThat(OrderItemStatus.values()).hasSize(12);
+    }
+
+    @Test
+    @DisplayName("CANCEL_REQUESTED → PAID 허용(claim-lock release·D-90 Q3 α-1)·CANCELLED 유지·PREPARING 직접 복원 미지원")
+    void cancelRequested_allowsPaidLockRelease() {
+        assertThat(OrderItemStatus.CANCEL_REQUESTED.canTransitionTo(OrderItemStatus.PAID)).isTrue();
+        assertThat(OrderItemStatus.CANCEL_REQUESTED.canTransitionTo(OrderItemStatus.CANCELLED)).isTrue();
+        assertThat(OrderItemStatus.CANCEL_REQUESTED.canTransitionTo(OrderItemStatus.PREPARING)).isFalse();
     }
 }
