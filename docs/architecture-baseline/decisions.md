@@ -3006,3 +3006,182 @@ D-01 (Aggregate 외부 ID 참조·이벤트 경유)·D-02·D-03·D-04 (OrderItem
 3. PR-B·PR-C 순차 진행 (각 PR별 정찰 → 결정 라운드 → 구현 → 1:1 대조·PR-B 외부 검토 권장)
 
 ---
+
+## D-89. Track 9 PR-B 진입 결정 — Claim 요청 API 구현·외부 검토 1·2차 흡수·CLM-5 신설·DomainEvent 폐기·ClaimInvalidStateException 재활용 [ACTIVE]
+
+**결정일**: 2026-06-29
+**관련**: Track 9 PR-B / D-01·D-05·D-29·D-30·D-39·D-40·D-41·D-50·D-66·D-69·D-75·D-87·D-88 / state-machine §2·§3 / invariants §2.13 / aggregate-boundary §2.5 / live-traps LT-02 / docs/track-9/pr-b/recon-report.md
+
+### 배경
+Track 9 PR-A 완료 (OrderItemStatus.canTransitionTo Claim 진입 매트릭스 5건 신설·머지 41eeb61) 후 PR-B 진입. PR-B = Claim 요청 API 풀패키지 (S급·외부 검토 권장). 정찰 (docs/track-9/pr-b/recon-report.md) 결과 Q1~Q10 결정 의제 도출·외부 검토 1차 9건·2차 4건·자체 실측 12건 흡수 완료. 사용자 4 기조 정합 추천안 전건 채택.
+
+### 결정
+
+#### Q1: OrderItem 사전 검증 + active Claim 차단 = α 사전 검증 + ClaimRepository.existsActiveByOrderItemId
+race condition 대응·CLM-5 (활성 Claim 1개) 신설 정합·D-88 Q3 OrderItem.item_status 동기화 양방 정책 보조.
+
+#### Q2: idempotency 키 = α CLM-2 자연 적용
+CLM-2 "REJECTED 재요청 = 새 Claim 행" 자체가 멱등 모델·X-Idempotency-Key 헤더 신설 불필요. D-05·D-88 Q4 정합·과설계 회피 (기조 4).
+
+#### Q3: IllegalStateException HTTP·예외명 = 422 + ClaimInvalidStateException 재활용 (Track 5 박제)
+- HTTP: 422 (D-50 SoT 정합·Validation 매트릭스 422 분류·409 변경 시 다른 도메인 영향 부담)
+- 예외: 기존 ClaimInvalidStateException 재활용 (Track 5 박제·CLM-3 책임·RuntimeException + String message·RefundService.initiate 사용처 정합). 외부 검토 2차 "Conflict→Invalid 권장" 우연 정합. 신설 폐기 (기조 4)
+- Javadoc 보강: CLM-3 책임 + canTransitionTo 위반 케이스 추가 명시
+
+#### Q4: endpoint 개수 = α 3개 (POST·GET 단건·GET 목록)
+- POST `/api/v1/claims` (Claim 요청)
+- GET `/api/v1/claims/{claimPublicId}` (단건 조회)
+- GET `/api/v1/claims` (본인 목록·Pageable)
+
+Track 11 RETURN/EXCHANGE 확장 시 type 파라미터 추가로 자연 확장·URL ClaimType 중립.
+
+#### Q5: reason_code 검증 = α @ValidEnum + ClaimReasonCode ENUM 6값 (Track 9 CANCEL 한정)
+정찰 실측 9: CLAIM_REASON Code 시드 부재 확정 (V1__init.sql INSERT 0건). ENUM 신설 정당. 값:
+
+- BUYER_CHANGED_MIND·DUPLICATE_ORDER·PAYMENT_ISSUE·ORDER_MISTAKE·STOCK_DELAY·OTHER
+
+Track 11 확장: PRODUCT_DEFECT·DAMAGED_ON_ARRIVAL·WRONG_PRODUCT·DELIVERY_DELAY. Code 테이블 전환은 시드 등록 부담 발생 시점 별도 트랙.
+
+#### Q6: ClaimType 처리 = α DTO 자유 type + Service CANCEL 차단
+DTO record 필드 ClaimType 자유 입력·Service 진입부 CANCEL 외 ClaimInvalidStateException throw (422). Track 11 RETURN/EXCHANGE 진입 시 DTO 무영향·Service 차단 단락만 제거.
+
+#### Q7: ClaimResponse 필드 = reasonDetail 노출·requestedBy 미노출
+- reasonDetail: 사용자 자유 입력·본인 조회 시 노출 정합 (UX)
+- requestedBy: 내부 Long buyerId·외부 노출 시 사용자 식별 누출 (보안·기조 4)
+
+#### Q8: 권한 검증 위치 = α Service 진입부 (OrderItem 2단계 조회)
+- D-40 β′ 정합 (관심사 집중)
+- 2단계 조회: OrderItemRepository.findOrderIdById(orderItemId) → OrderRepository.findById(orderId) → order.getBuyerId() 비교
+- OrderItem.order 필드 @Getter(AccessLevel.NONE) 실측 (recon WARN-2 해소)
+
+#### Q9: LT-02 패턴 (ClaimIntegrationTest) = α SoT 정합 try-finally 명시
+ClaimIntegrationTest는 SET FOREIGN_KEY_CHECKS 사용 시 try-finally 명시. CheckoutIntegrationTest는 @Transactional rollback 의존 (정찰 실측 11)·LT-02 미적용 — 별도 트랙 보정 후보 (백로그·라이브 트랩 차단).
+
+#### Q10: ClaimSummaryResponse 신설 = α 신설 (목록 경량)·ClaimResponse 단건 상세
+BuyerOrderController OrderSummaryResponse·OrderResponse 패턴 정합. 목록은 publicId·type·status·reasonCode·requestedAt 필드 한정 (페이로드 절감).
+
+### 신규 결정
+
+#### CLM-5 신설 (invariants §2.13 추가)
+**Rule**: 동일 OrderItem에 활성 Claim 최대 1개  
+**활성 정의**: status ∈ {REQUESTED, APPROVED}  
+**Why**: 중복 클레임 차단·운영 일관성·외부 검토 1차 #6·2차 횡단 명시  
+**Enforcement Point**: Service (ClaimRepository.existsActiveByOrderItemId 사전 가드)  
+**Impact**: 동일 OrderItem 활성 Claim 중복 차단·REJECTED·COMPLETED 후 재요청 자연 허용 (CLM-2 정합)  
+**Alternative**: DB partial UK (MariaDB 미지원·기각)
+
+#### DomainEvent 추상 클래스 폐기
+정찰 실측 1: OrderPlaced·PaymentCompleted·RefundCompleted 전건 record 패턴·DomainEvent 추상 클래스 부재. ClaimRequested/Approved/Rejected 동일 record 패턴 채택 (occurredAt = LocalDateTime·D-30 QB-13 사실 통지 원칙·D-69 시점 분리 정합). correlationId/eventId/MDC/OpenTelemetry는 Track 12+ Observability 일괄 도입.
+
+#### D-50 매트릭스 별도 트랙 이연
+D-50 본문 정정·RFC 7231·Stripe·PayPal 사례 재평가는 Q3 422 결정 안착 후 별도 트랙·본 PR 범위 외.
+
+### 외부 검토 흡수 결과
+
+#### 1차 외부 검토 (9건)
+| # | 의견 | 처리 |
+|---|---|---|
+| 1 | Q1 race condition·existsActiveClaim 보강 | 수용 |
+| 2 | Q3 422 → 409 | 반박 (D-50 SoT 정합) |
+| 3 | Q5 reason_code @Pattern 약함·ENUM 권장 | 부분 수용 (ENUM 신설·Code 시드 Track 11) |
+| 4 | Q7 reasonDetail 노출 권장 | 수용 |
+| 5a | 이벤트 payload status·publicId 추가 | 수용 |
+| 5b | 이벤트 payload correlationId/eventId | 부분 수용 (Track 12+ Observability 이연) |
+| 6 | CLM-5 신설 (활성 Claim 1개) | 수용·CLM-5 신설 명문화 |
+| 7 | E2E +8건 | 부분 수용 (필수 E2E 3건·단위 분담 4건·1건 검토) |
+| 8 | ClaimPolicy 추출 | 수용 (Track 11 이연 박제) |
+
+#### 2차 외부 검토 (4건)
+| § | 의견 | 처리 |
+|---|---|---|
+| §1 | 422 유지 동의·"Conflict"→"Invalid" 권장 | 수용·실측 후 ClaimInvalidStateException 재활용 확정 |
+| §2 | ENUM 값 보정 (PRODUCT_DEFECT·DELIVERY_DELAY = RETURN 영역) | 수용·ORDER_MISTAKE·STOCK_DELAY 교체 |
+| §3 | DomainEvent 진입점 권장 | 실측 후속·record 패턴 SoT·추상 클래스 폐기 |
+| §4 | E2E 분담 동의·T17 4세부 명문화 | 수용·T17-1~T17-4 박제 |
+| 횡단 | CLM-5 활성 정의 모호 | 수용·"활성 = REQUESTED 또는 APPROVED" 명시 |
+
+#### 자체 실측 12건 (recon-report.md §3.3)
+실1 DomainEvent record 패턴·실2 LocalDateTime occurredAt·실3 payload 사실 통지 원칙·실4 OrderItemRepository.findOrderIdById·실5 AbstractPublicIdFullAuditableEntity publicId 자동 관리·실6 IllegalArgumentException 400 자동 매핑·실7 IllegalStateException 500 fallback 위험·실8 RefundInvariantViolationException 단순 패턴·실9 CLAIM_REASON 시드 부재·실10 BuyerOrderController 1:1 패턴·실11 CheckoutIntegrationTest LT-02 미적용·실12 ClaimInvalidStateException Track 5 기 박제 (신설 폐기·재활용).
+
+### 사유
+
+**운영 용이성 (기조 1)**:
+- 3 endpoint 정합·D-39 X-Buyer-Id stub 인프라 그대로 활용
+- ClaimInvalidStateException 재활용으로 GlobalExceptionHandler 매핑 단일화
+- LT-02 try-finally 명시로 라이브 트랩 차단
+
+**객관 판단 (기조 2)**:
+- 외부 검토 2회·실측 12건 흡수 후 결정·D-50 SoT 정합 유지 (Q3 422)
+- DomainEvent 폐기는 SoT 정찰 결과·억측 회피
+- CLM-5 정의 "REQUESTED 또는 APPROVED" 명시로 모호성 0
+
+**과잉문서 회피 (기조 3)**:
+- D-89 단건 박제·PR-B 별도 결정 파일 미신설
+- D-50 본문 정정은 별도 트랙 이연
+- ClaimInvalidStateException 신설 폐기 (재활용 우선)
+
+**과잉개발 회피 (기조 4)**:
+- correlationId/eventId Track 12+ 이연·DomainEvent 추상 클래스 폐기
+- ClaimReasonCode 6값 한정 (Track 11 4값 확장 자연)
+- ClaimPolicy 인터페이스 추출 Track 11 이연
+
+### 영향 범위
+
+#### 신규 파일 (12건)
+- backend/src/main/java/com/zslab/mall/claim/enums/ClaimReasonCode.java
+- backend/src/main/java/com/zslab/mall/claim/controller/BuyerClaimController.java
+- backend/src/main/java/com/zslab/mall/claim/controller/request/ClaimRequestRequest.java
+- backend/src/main/java/com/zslab/mall/claim/controller/request/ClaimRequestCommand.java
+- backend/src/main/java/com/zslab/mall/claim/controller/response/ClaimResponse.java
+- backend/src/main/java/com/zslab/mall/claim/controller/response/ClaimSummaryResponse.java
+- backend/src/main/java/com/zslab/mall/claim/event/ClaimRequested.java (record)
+- backend/src/main/java/com/zslab/mall/claim/event/ClaimApproved.java (record)
+- backend/src/main/java/com/zslab/mall/claim/event/ClaimRejected.java (record)
+- backend/src/test/java/com/zslab/mall/claim/service/ClaimServiceTest.java
+- backend/src/test/java/com/zslab/mall/claim/controller/BuyerClaimControllerTest.java
+- backend/src/test/java/com/zslab/mall/claim/integration/ClaimIntegrationTest.java
+
+#### 수정 파일 (6건)
+- backend/src/main/java/com/zslab/mall/claim/entity/Claim.java (approve·reject 메서드 신설·transitionTo 내부 ClaimInvalidStateException 변환)
+- backend/src/main/java/com/zslab/mall/claim/service/ClaimService.java (request·approve·reject 3 메서드 신설·OrderItem 2단계 조회·existsActiveByOrderItemId 차단·이벤트 발행 D-29)
+- backend/src/main/java/com/zslab/mall/claim/repository/ClaimRepository.java (existsActiveByOrderItemId·findAllByRequestedBy 신설)
+- backend/src/main/java/com/zslab/mall/order/repository/OrderItemRepository.java (findByPublicId(String publicId) 읽기 메서드 1건 신설·D-64·D-65 Service 진입점 publicId 해소 패턴 정합·스키마/엔티티 무변경)
+- backend/src/main/java/com/zslab/mall/claim/exception/ClaimInvalidStateException.java (Javadoc 보강·CLM-3 책임·canTransitionTo 위반 케이스 명시·신설 폐기 사유)
+- backend/src/main/java/com/zslab/mall/common/web/GlobalExceptionHandler.java (ClaimNotFoundException 404·ClaimInvalidStateException 422 매핑·CODE 상수 2건)
+
+#### 문서 (2건)
+- docs/architecture-baseline/invariants.md §2.13 CLM-5 신설 1행
+- docs/track-9/pr-b/recon-report.md §4·§6·§8 갱신 (외부 검토 1·2차 흡수·WARN 해소·진입 조건 [x])
+
+#### 인프라 (1건)
+- .gitignore (docs/track-*/handover.md 패턴 추가·미커밋 잔존분 PR-B 동반 커밋)
+
+**총 21건** (신규 12·수정 6 + 인프라 1·문서 2). 코드 영향: Claim 도메인 + Order Aggregate 읽기 메서드 1건(findByPublicId·스키마/엔티티 무변경)·Payment/Refund Aggregate 영향 0건 (PR-B는 OrderItem.item_status 동기화 미포함·PR-C 소관).
+
+### 대안 검토
+- 대안 1: Q3 409 Conflict 채택 → D-50 SoT 정합 위배·다른 도메인 영향 부담 (기각)
+- 대안 2: InvalidClaimStateException 신설 (Track 5 ClaimInvalidStateException과 공존) → 유사 명칭 2개·과잉개발·기조 4 위배 (기각)
+- 대안 3: ClaimReasonCode Code 테이블 전환 본 PR → V1__init.sql INSERT 0건·시드 등록 부담·기조 4 (기각)
+- 대안 4: DomainEvent 추상 클래스 신설 → 실측 record 패턴 SoT·억측 도입 (기각)
+- 대안 5: CheckoutIntegrationTest LT-02 보정 동반 → PR 범위 광역화·별도 트랙 후보 (기각)
+- 대안 6: ClaimPolicy 인터페이스 본 PR 추출 → CANCEL 단일 정책·과잉추상 (기각·Track 11 이연)
+- 대안 7: D-89 박제 단독 PR (옵션 a) → 결정 분리 PR 비용·D-87 D-88 PR-A 인라인 패턴 정합 위배 (기각·옵션 b 채택)
+
+### 관련 결정
+D-01 (Aggregate 외부 ID 참조)·D-05 (Claim REJECTED 재요청 = 새 행)·D-29 (save→publish·no flush)·D-30 (OrderPlaced 사실 통지·QB-13 record 패턴)·D-39 (X-Buyer-Id stub)·D-40 (컨트롤러 분류·URL 액터 중립)·D-41 (DTO 분리 전략)·D-50 (Validation 매트릭스·422 분류)·D-66 (idempotency 4xx 삭제·5xx 잔류)·D-69 (RefundCompleted Publisher/Consumer 시점 분리)·D-75 (이벤트 핸들러 AFTER_COMMIT·REQUIRES_NEW)·D-87 (Track 8 진입·Order Aggregate 3 PR 패턴)·D-88 (Track 9 진입·Claim 요청 API·CANCEL 한정·Buyer Scope·3 PR 분할)·LT-02 (FK_CHECKS try-finally)·Track 5 expected-spec §1.2·state-machine §2·§3·invariants §2.13 CLM-1~4·§2.13.1 RFN-1~3·aggregate-boundary §2.5·D-64 (신규 주문 unit_price·sellerId 서버 산정)·D-65 (요청 식별자 public_id·CheckoutService 진입점 findByPublicId 해소)·docs/track-9/pr-b/recon-report.md
+
+### 후속 자연 진입 트랙 (정찰 룰 #4 식별자 명시)
+- **Track 9 PR-C**: 이벤트 핸들러 (ClaimRequested/Approved/Rejected → OrderItem 동기화·Order.status 재계산 hook via OrderStatusResolver) — S급·D-88 Q3·Q7 정합
+- **Track 10**: Claim Admin API (Seller/Admin 승인·거절 endpoint·권한 매트릭스)
+- **Track 11**: Claim RETURN/EXCHANGE 확장 (Delivery 수거·재출고 도메인 동반·ClaimReasonCode +4값·ClaimPolicy 인터페이스 추출)
+- **Track 12+**: Observability (이벤트 payload correlationId/eventId·MDC·OpenTelemetry 일괄 도입)
+- **별도 트랙**: D-50 매트릭스 본문 정정 (RFC 7231·Stripe·PayPal 재평가)·CheckoutIntegrationTest LT-02 보정
+
+### 후속
+1. 본 결정 박제 = PR-B 동반 (옵션 b·D-88 Q5 정찰 보정 단락·PR-A 인라인 패턴 정합)
+2. PR-B 브랜치 `feat/track-9-pr-b` 생성 (main HEAD 41eeb61 기준)
+3. 가드 5 사전 통지 20건 일괄·승인 후 진입
+4. TDD 우선 (단위 → 통합 → E2E)·전체 회귀 BUILD SUCCESSFUL
+5. GitHub Web UI PR 생성·Base: main·Compare: feat/track-9-pr-b·외부 검토 권장 (S급)
+
+---

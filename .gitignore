@@ -30,3 +30,6 @@ HELP.md
 
 # Progress Archive
 progress-archive/
+
+# 트랙 1회용 임시 파일 (handover.md 등)
+docs/track-*/handover.md
