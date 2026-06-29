@@ -90,6 +90,8 @@ ORDERED → PAID → PREPARING → SHIPPING → DELIVERED → CONFIRMED
 | EXCHANGE_REQUESTED | 교환요청 | Claim(EXCHANGE).REQUESTED |
 | EXCHANGED | 교환완료 | Claim(EXCHANGE).COMPLETED |
 
+> **예외 전이(Track 9 PR-C·D-90 Q3)**: CANCEL_REQUESTED → PAID는 ClaimRejected 핸들러 한정 claim-lock release(재요청 허용 unlock 목적) 의미이며 과거 상태 복원이 아니다. PREPARING 직접 복원은 직전 상태 정보 부재로 미지원. canTransitionTo 매트릭스에 반영.
+
 ---
 
 ## 4. Order.status (B분류 — Code 참조, 값 집합 확정)

@@ -17,6 +17,7 @@ import com.zslab.mall.claim.enums.ClaimReasonCode;
 import com.zslab.mall.claim.enums.ClaimStatus;
 import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.event.ClaimApproved;
+import com.zslab.mall.claim.event.ClaimCompleted;
 import com.zslab.mall.claim.event.ClaimRejected;
 import com.zslab.mall.claim.event.ClaimRequested;
 import com.zslab.mall.claim.exception.ClaimInvalidStateException;
@@ -411,7 +412,7 @@ class ClaimServiceTest {
     // ===== markCompleted: Track 5 기존·보존(단위 미커버 → 멱등 분기 보강) =====
 
     @Test
-    @DisplayName("markCompleted: 이미 COMPLETED → 멱등 NO-OP·save 미호출(CLM-1)")
+    @DisplayName("markCompleted: 이미 COMPLETED → 멱등 NO-OP·save·publish 미호출(CLM-1)")
     void markCompleted_alreadyCompleted_noOp() {
         Claim claim = requestedClaim();
         claim.approve(PROCESSED_AT); // 시드: REQUESTED → APPROVED
@@ -421,5 +422,24 @@ class ClaimServiceTest {
         claimService.markCompleted(1L);
 
         verify(claimRepository, never()).save(any());
+        verify(eventPublisher, never()).publishEvent(any());
+    }
+
+    @Test
+    @DisplayName("markCompleted: APPROVED → COMPLETED 종결·save·ClaimCompleted 발행(D-29 save→publish·D-90 Q4)")
+    void markCompleted_approved_transitionsAndPublishes() {
+        Claim claim = requestedClaim();
+        claim.approve(PROCESSED_AT); // 시드: REQUESTED → APPROVED
+        when(claimRepository.findById(1L)).thenReturn(Optional.of(claim));
+
+        claimService.markCompleted(1L);
+
+        assertThat(claim.getStatus()).isEqualTo(ClaimStatus.COMPLETED);
+        verify(claimRepository).save(claim);
+        ArgumentCaptor<ClaimCompleted> captor = ArgumentCaptor.forClass(ClaimCompleted.class);
+        verify(eventPublisher).publishEvent(captor.capture());
+        assertThat(captor.getValue().status()).isEqualTo(ClaimStatus.COMPLETED);
+        assertThat(captor.getValue().orderItemId()).isEqualTo(ORDER_ITEM_ID);
+        assertThat(captor.getValue().claimType()).isEqualTo(ClaimType.CANCEL);
     }
 }

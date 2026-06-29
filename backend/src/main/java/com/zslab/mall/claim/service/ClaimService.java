@@ -7,6 +7,7 @@ import com.zslab.mall.claim.entity.Claim;
 import com.zslab.mall.claim.enums.ClaimStatus;
 import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.event.ClaimApproved;
+import com.zslab.mall.claim.event.ClaimCompleted;
 import com.zslab.mall.claim.event.ClaimRejected;
 import com.zslab.mall.claim.event.ClaimRequested;
 import com.zslab.mall.claim.exception.ClaimInvalidStateException;
@@ -181,9 +182,11 @@ public class ClaimService {
     }
 
     /**
-     * 클레임을 종결한다(APPROVED → COMPLETED·CLM-4). 이미 COMPLETED면 멱등 no-op이다(CLM-1). [Track 5 기존·보존]
+     * 클레임을 종결한다(APPROVED → COMPLETED·CLM-4). 이미 COMPLETED면 멱등 no-op이다(CLM-1).
      *
      * <p>호출 맥락은 {@code ClaimRefundCompletedHandler}(Claim.type=CANCEL·AFTER_COMMIT)다. 처리 시각은 시스템 시각으로 채운다.
+     * save 직후 {@link ClaimCompleted}를 발행한다(D-29 save→publish·D-90 Q4). 소비 핸들러 {@code ClaimCompletedHandler}가
+     * OrderItem을 CANCEL_REQUESTED → CANCELLED로 종결한다(멱등 no-op 시 미발행).
      *
      * @throws ClaimNotFoundException     클레임이 없는 경우
      * @throws ClaimInvalidStateException APPROVED·COMPLETED가 아닌 상태에서 호출된 경우(CLM-1·CLM-4)
@@ -197,6 +200,9 @@ public class ClaimService {
         }
         claim.markCompleted(LocalDateTime.now());
         claimRepository.save(claim);
+        eventPublisher.publishEvent(new ClaimCompleted(
+                claim.getId(), claim.getPublicId(), claim.getOrderItemId(),
+                claim.getType(), claim.getStatus(), LocalDateTime.now()));
     }
 
     private Claim findClaim(Long claimId) {

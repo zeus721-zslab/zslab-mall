@@ -17,6 +17,9 @@ package com.zslab.mall.order.enums;
  * SHIPPING·DELIVERED → RETURN_REQUESTED(출고 후 반품)·DELIVERED → EXCHANGE_REQUESTED(수령 후 교환).
  * 정책 차단(D-88 Q1·Q2·Q3): SHIPPING→CANCEL_REQUESTED·SHIPPING→EXCHANGE_REQUESTED·CONFIRMED→*_REQUESTED 전건 차단.
  * 시그니처(D-88 Q4): {@code canTransitionTo(next)} 단일 인자 유지(ClaimType 무관·책임 분리).
+ *
+ * <p><b>Claim 복귀 전이(Track 9 PR-C·D-90 Q3)</b>: CANCEL_REQUESTED → PAID는 ClaimRejected 핸들러 한정
+ * claim-lock release(재요청 허용 unlock 목적)이며 과거 상태 복원이 아니다. PREPARING 직접 복원은 직전 상태 정보 부재로 미지원.
  */
 public enum OrderItemStatus {
     ORDERED,
@@ -45,7 +48,7 @@ public enum OrderItemStatus {
             case PREPARING -> next == SHIPPING || next == CANCEL_REQUESTED;
             case SHIPPING -> next == DELIVERED || next == RETURN_REQUESTED;
             case DELIVERED -> next == CONFIRMED || next == RETURN_REQUESTED || next == EXCHANGE_REQUESTED;
-            case CANCEL_REQUESTED -> next == CANCELLED;
+            case CANCEL_REQUESTED -> next == CANCELLED || next == PAID;
             case RETURN_REQUESTED -> next == RETURNED;
             case EXCHANGE_REQUESTED -> next == EXCHANGED;
             // 종결 상태는 어떤 전이도 불가

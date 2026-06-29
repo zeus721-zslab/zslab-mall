@@ -3185,3 +3185,237 @@ D-01 (Aggregate 외부 ID 참조)·D-05 (Claim REJECTED 재요청 = 새 행)·D-
 5. GitHub Web UI PR 생성·Base: main·Compare: feat/track-9-pr-b·외부 검토 권장 (S급)
 
 ---
+
+## D-90. Track 9 PR-C 진입 결정 — Claim 이벤트 핸들러 풀패키지·외부 검토 흡수·Q3 claim-lock release 재해석 [ACTIVE]
+
+**결정일**: 2026-06-29
+**관련**: Track 9 PR-C / D-01·D-05·D-29·D-30·D-69·D-75·D-87·D-88·D-89 / state-machine §2·§3·§5 / invariants §2.13 CLM-1~5 / aggregate-boundary §2.5 / live-traps LT-02 / docs/track-9/pr-c/recon-report.md
+
+### 배경
+Track 9 PR-B 완료 (Claim 요청 API 풀패키지·머지 8844a48) 후 PR-C 진입. PR-C = Claim 이벤트 핸들러 풀패키지 (S급·외부 검토 권장·D-88 Q6 분할 마지막 PR). 정찰 (docs/track-9/pr-c/recon-report.md) 결과 Q1~Q5 결정 의제 도출·WARN 4건 박제·외부 검토 1차·2차 흡수 후 기조 4 정합 추천안 채택. 외부 검토 2차 Q3 γ 권장 후 CLM-2 실질 차단 지적 흡수·α-1 (claim-lock release 의미) 최종 재판단.
+
+### 결정
+
+#### Q1: PR-C 핸들러 트랜잭션 정책 = α AFTER_COMMIT + REQUIRES_NEW
+- @TransactionalEventListener(phase = AFTER_COMMIT) + @Transactional(propagation = REQUIRES_NEW)
+- ClaimRefundCompletedHandler (Track 5·D-69·D-75) 1:1 패턴
+- 정찰 A-2 실측: 기존 핸들러 동일 패턴 운영 중·신규 패턴 도입 없음
+- 외부 Aggregate 갱신 (Claim → Order)은 이벤트 경유 (D-01 정합)·D-88 Q7 혼합 패턴 외부 갱신부 = AFTER_COMMIT 명시
+
+#### Q2: ClaimApprovedHandler 역할 = γ 핸들러 미신설
+- ClaimApproved 이벤트 발행은 유지 (Track 10 Admin endpoint·NotificationLog 미래 소비자용)
+- CANCEL형 OrderItem 전이 매트릭스 실측 = PAID/PREPARING → CANCEL_REQUESTED → CANCELLED. APPROVED 시점 추가 전이 없음
+- Refund 자동 트리거는 D-87 Q3 (Admin 별도 트랙·Track 10) 이연 정합
+- 빈 핸들러 신설은 기조 4 (과잉개발) 위배·외부 검토 2차 일치
+
+#### Q3: ClaimRejectedHandler 원상 복귀 전략 = α-1 CANCEL_REQUESTED → PAID 단일 (claim-lock release 의미)
+
+**의미 재해석 (핵심)**:
+본 전이는 **과거 상태 복원이 아니라 claim-lock release** (Claim 재진입 가능 상태 복구) 목적의 최소 전이다. PR-A 박제 Claim 진입 5건과 PR-C 추가 1건은 책임 분리:
+
+| 박제 시점 | 전이 매트릭스 | 목적 |
+|---|---|---|
+| PR-A (5건) | PAID/PREPARING → CANCEL_REQUESTED·SHIPPING/DELIVERED → RETURN_REQUESTED·DELIVERED → EXCHANGE_REQUESTED | Claim 진입 lock |
+| PR-C (1건·본 결정) | CANCEL_REQUESTED → PAID | Claim REJECTED unlock·재요청 허용 |
+
+**PREPARING 복원 미포함 사유**:
+- OrderItem.previous_status 필드 부재 (정찰 C-4 실측)
+- previous_status 없이 PREPARING 복원은 추정 상태머신·운영 리스크
+- PAID 환원 후 판매자는 PAID → PREPARING 정상 재전이 가능 (정찰 A-8 매트릭스 실측·`case PAID -> next == PREPARING || next == CANCEL_REQUESTED`)·운영 흐름 자연 재개
+
+**CLM-2 실질 차단 방지 (Q3 γ 기각 사유)**:
+정찰 실측 — ClaimService.request (e) CLM-5 활성 차단 통과 후 (f) `canTransitionTo(CANCEL_REQUESTED)` 검증. CANCEL_REQUESTED 잔류 시 (f) 422 차단·**CLM-2 "REJECTED 재요청 = 새 Claim 행" 실질 봉쇄**. invariant와 런타임 동작 불일치 발생 = 기조 2 (객관성) 위배. γ 이연은 단순 운영 불편이 아닌 invariant 정합 깨짐으로 재분류·기각.
+
+**β (previous_status 필드 신설) 기각**:
+DDL V6 마이그레이션·필드·테스트·유지비. PR-C 범위 초과·기조 4 위배.
+
+#### Q4: CANCELLED 종결 전이 처리 = α ClaimCompleted 이벤트 신설 + ClaimCompletedHandler
+
+**흐름**:
+ClaimService.markCompleted → ClaimCompleted 이벤트 발행 (D-29 save→publish) → ClaimCompletedHandler (AFTER_COMMIT + REQUIRES_NEW) → OrderItem.changeStatus(CANCELLED) + OrderService.recalculateStatus 호출
+
+**β (ClaimRefundCompletedHandler 확장) 기각**:
+- Track 5 환불 정합성 핸들러에 Order Aggregate 의존 추가·관심사 혼합
+- 추후 추적·테스트 어려움·CLM-1 정합 위험
+
+**γ (이연) 기각**:
+- D-88 Q3 "완료 전이 PR-C 소관" 명시 위배
+- OrderItem CANCEL_REQUESTED 영구 잔류·CLM-1 정합 깨짐
+
+ClaimCompleted record payload = ClaimApproved 패턴 1:1: claimId·claimPublicId·orderItemId·claimType·status·occurredAt (D-30 사실 통지 원칙).
+
+#### Q5: PR-C E2E 통합 테스트 전략 = β @SpringBootTest NO @Transactional + TransactionTemplate
+
+Q1 α 채택 종속 (AFTER_COMMIT 핸들러는 @Transactional 테스트에서 commit 미발생·핸들러 미실행). RefundWebhookIntegrationTest 1:1 패턴·LT-02 try-finally 명시 의무.
+
+### 추가 결정
+
+#### LIMITATION 박제 (Q3 α-1 채택 결과)
+docs/track-9/pr-c/recon-report.md §1 또는 §9에 1줄 박제:
+- Track 9 PR-C는 "Claim 이벤트를 Order에 연결하는 최소 구현 PR"이다.
+- OrderItemStatus.CANCEL_REQUESTED → PAID 단일 전이는 claim-lock release (재요청 허용 unlock) 목적이며 과거 상태 복원이 아니다.
+- PREPARING 직접 복원은 직전 상태 정보 부재로 미지원·운영 흐름은 PAID → PREPARING 정상 재전이로 자연 재개.
+
+#### invariants.md §2.13 CLM-2 비고 갱신
+CLM-2 행 Why 또는 Impact 열에 비고 추가:
+"REJECTED 재요청 가능 상태 복구는 OrderItemStatus.CANCEL_REQUESTED → PAID claim-lock release 전이로 보장 (D-90 Q3·Track 9 PR-C)"
+
+#### state-machine.md §3 비고 갱신
+OrderItem 12값 표 또는 본문 말미에 1줄 추가:
+"예외 전이: CANCEL_REQUESTED → PAID는 ClaimRejected 핸들러 한정·claim-lock release 의미 (D-90 Q3)"
+
+#### OrderItemStatus.java Javadoc 보강 (구현 PR 동반)
+canTransitionTo 매트릭스 본문에 비고 추가:
+"CANCEL_REQUESTED → PAID: ClaimRejected 한정·claim-lock release (재요청 허용 unlock 목적·D-90 Q3·Track 9 PR-C)"
+
+#### §6 영향 범위 (recon-report.md 갱신 의무)
+- 신규: ClaimRequestedHandler·ClaimRejectedHandler·ClaimCompleted (record)·ClaimCompletedHandler·통합 테스트 (ClaimEventIntegrationTest)
+- 수정: ClaimService.markCompleted (ClaimCompleted 이벤트 발행 1줄 추가)·OrderItemStatus (CANCEL_REQUESTED → PAID 1줄 추가)·Javadoc·invariants.md·state-machine.md·recon-report.md §1·§6·§7·§9
+- 제거 (정찰 §6 예비 목록 대비): ClaimApprovedHandler 미신설·OrderItem.previousItemStatus 필드 미도입
+
+#### §7 WARN 우선순위 (외부 검토자 정합)
+- P0: WARN-2 (CANCELLED 종결 전이) → Q4 α 해소·WARN-4 (트랜잭션 정책) → Q1 α 해소
+- P1: WARN-1 (CANCEL_REQUESTED → 원상 복귀) → Q3 α-1 해소
+- P2: WARN-3 (ClaimApproved Javadoc 긴장) → Q2 γ 해소·Javadoc은 ClaimApproved 발행 자체가 Track 10·NotificationLog 미래 소비자 의도임을 본문 명시 (구현 PR 동반 보강)
+
+### 외부 검토 흡수 결과
+
+#### 1차 외부 검토 (정합성·확장성 우선)
+| Q | 1차 의견 | 처리 |
+|---|---|---|
+| Q1 | α 동의 | 수용 |
+| Q2 | β·γ 검토 요청 | γ 채택 (외부 검토 2차 강화) |
+| Q3 | α 권장·α-1/α-2 분기 검토 요청 | α-1 채택 (2차 협력 후) |
+| Q4 | α 동의 | 수용 |
+| Q5 | β 동의 (Q1 α 종속) | 수용 |
+
+#### 2차 외부 검토 (기조 4 엄격 적용)
+| Q | 2차 의견 | 처리 |
+|---|---|---|
+| Q1 | α 유지 (높음) | 수용 |
+| Q2 | γ 강하게 동의 (매우 높음) | 수용 |
+| Q3 | γ 권장 (중~높음·이연) | **부분 수용 → α-1 재판단** (CLM-2 실질 차단 지적 후 외부 검토자 자체 수정) |
+| Q4 | α 유지 (높음) | 수용 |
+| Q5 | β 유지 (높음) | 수용 |
+| 추가 의제 Q6 (멱등성) | 백로그 이연 (과잉) | 수용·백로그 추가 |
+
+#### Q3 재판단 협력 흐름 (박제 의무)
+1. 1차: α 권장 (정합성·확장성 관점)
+2. 2차: γ 권장 (기조 4 적용·"상태 복원 엔진 구축 PR 아님")
+3. CLM-2 실질 차단 지적: OrderItemStatus.canTransitionTo(CANCEL_REQUESTED) 사전 가드로 새 Claim 생성 차단·invariant 런타임 불일치
+4. 최종: α-1 채택·claim-lock release 의미 재해석·"과거 상태 복원이 아닌 재진입 가능 상태 복구"
+
+### 사유 (기조 4 정합)
+
+**기조 1 (운영 용이성)**:
+- Q1 α: 신규 패턴 도입 없음·ClaimRefundCompletedHandler 1:1 재사용
+- Q2 γ: 빈 핸들러 회피·후속 트랙 진입 시 자연 신설
+- Q3 α-1: 상태 저장 필드 없음·매트릭스 1줄 추가
+- Q4 α: 이벤트·핸들러 분리·추적 명확
+- Q5 β: 단일 표준 통합 테스트 패턴 정합
+
+**기조 2 (객관 판단)**:
+- 외부 검토 2회·정찰 실측 12건 + 추가 spot check 4건 흡수 후 결정
+- Q3 γ 기각 사유: CLM-2 실질 차단 = invariant 정합 깨짐·운영 불편 차원 아님
+- Q3 α-2 기각 사유: previous_status 부재 = 추정 상태머신 거부
+
+**기조 3 (과잉문서 회피)**:
+- D-90 단건 박제·PR-C 별도 결정 파일 미신설 (D-87·D-88·D-89 패턴)
+- LIMITATION 박제는 recon-report.md §1·§9 1줄 + invariants·state-machine 비고 1줄씩
+- OrderItemStatus Javadoc 1줄 보강 (DDL·신규 클래스 신설 회피)
+
+**기조 4 (과잉개발 회피)**:
+- Q3 β (previous_status 필드·DDL V6) 명시 기각
+- Q2 γ ClaimApprovedHandler 미신설
+- Q6 멱등성 의제 백로그 이연
+- Track 10 Admin API·Track 11 RETURN/EXCHANGE 자연 이연 유지
+
+### 영향 범위
+
+#### 신규 파일 (5건)
+- backend/src/main/java/com/zslab/mall/claim/handler/ClaimRequestedHandler.java (AFTER_COMMIT·REQUIRES_NEW·OrderItem → CANCEL_REQUESTED + recalculateStatus)
+- backend/src/main/java/com/zslab/mall/claim/handler/ClaimRejectedHandler.java (AFTER_COMMIT·REQUIRES_NEW·OrderItem → PAID claim-lock release + recalculateStatus)
+- backend/src/main/java/com/zslab/mall/claim/event/ClaimCompleted.java (record·D-30 사실 통지)
+- backend/src/main/java/com/zslab/mall/claim/handler/ClaimCompletedHandler.java (AFTER_COMMIT·REQUIRES_NEW·OrderItem → CANCELLED + recalculateStatus)
+- backend/src/test/java/com/zslab/mall/claim/integration/ClaimEventIntegrationTest.java (NO @Transactional·TransactionTemplate·LT-02 try-finally)
+
+#### 수정 파일 (5건)
+- backend/src/main/java/com/zslab/mall/claim/service/ClaimService.java (markCompleted에 ClaimCompleted 이벤트 발행 추가·D-29 save→publish)
+- backend/src/main/java/com/zslab/mall/order/enums/OrderItemStatus.java (CANCEL_REQUESTED → PAID 매트릭스 1줄 + Javadoc 1줄 보강)
+- docs/architecture-baseline/invariants.md (§2.13 CLM-2 비고 1줄)
+- docs/architecture-baseline/state-machine.md (§3 비고 1줄)
+- docs/track-9/pr-c/recon-report.md (§1·§6·§7·§9 갱신)
+
+#### 백로그 추가 (2건)
+- ClaimApproved Javadoc 보강 (Track 10·NotificationLog 미래 소비자 의도 명시·구현 PR 동반 검토)
+- 이벤트 핸들러 멱등성 표준화 (이벤트 저장소·재전달 인프라 도입 시점·Track 12+ Observability)
+
+**총 12건** (신규 5·수정 5·문서 2 추가). 코드 영향: Claim 도메인 + Order Aggregate 읽기 호출 (recalculateStatus). Payment·Refund Aggregate 영향 0.
+
+### 대안 검토
+
+- **Q1 β @EventListener 동기·동일 트랜잭션**: ClaimRefundCompletedHandler 패턴 부정합·신규 패턴 도입·D-01 위배·기각
+- **Q2 α RefundService.initiate 자동 트리거**: D-87 Q3 Admin 별도 위배·과잉개발·기각
+- **Q2 β OrderItem 동기화만 빈 핸들러**: 빈 책임·기조 4 위배·기각
+- **Q3 α-2 CANCEL_REQUESTED → PAID·PREPARING 양방**: previous_status 부재·추정 상태머신·기각
+- **Q3 β previous_status 필드 신설**: DDL V6·기조 4 위배·기각
+- **Q3 γ 이연**: CLM-2 실질 차단·invariant 런타임 불일치·기조 2 위배·기각
+- **Q4 β ClaimRefundCompletedHandler 확장**: 관심사 혼합·Track 5 핸들러 추적 어려움·기각
+- **Q4 γ 이연**: D-88 Q3 명시 위배·CLM-1 정합 깨짐·기각
+- **Q5 α @Transactional**: AFTER_COMMIT 핸들러 미실행·Q1 α 종속 모순·기각
+- **Q6 멱등성 본 PR 도입**: 이벤트 저장소·재전달 인프라 부재·과잉·기각 (백로그)
+
+### 관련 결정
+D-01 (Aggregate 외부 ID 참조·이벤트 경유)·D-05 (Claim REJECTED 재요청 = 새 행)·D-16 (OrderStatusResolver Domain Service)·D-29 (save→publish·no flush)·D-30 (사실 통지·record 패턴)·D-69 (RefundCompleted Publisher/Consumer 시점 분리)·D-75 (이벤트 핸들러 AFTER_COMMIT·REQUIRES_NEW)·D-87 (Track 8 진입·Order Aggregate 3 PR 패턴·Q3 Admin 별도)·D-88 (Track 9 진입·CANCEL 한정·3 PR 분할·Q3 OrderItem 동기화 양방·Q6 PR 분할·Q7 혼합 패턴)·D-89 (Track 9 PR-B 구현·CLM-5 신설·ClaimInvalidStateException 재활용)·LT-02 (FK_CHECKS try-finally)·state-machine §2·§3·§5·invariants §2.13 CLM-1~5·aggregate-boundary §2.5·docs/track-9/pr-c/recon-report.md
+
+### 후속 자연 진입 트랙 (정찰 룰 #4·식별자 명시)
+- **Track 10**: Claim Admin API (Seller/Admin 승인·거절 endpoint·권한 매트릭스·ClaimApproved Javadoc 보강 동반)
+- **Track 11**: Claim RETURN/EXCHANGE 확장 (Delivery 수거·재출고 도메인 동반·OrderItemStatus 추가 매트릭스 신설·ClaimReasonCode +4값)
+- **Track 12+**: Observability (이벤트 핸들러 멱등성·이벤트 저장소·correlationId/eventId 일괄 도입)
+- **별도 트랙**: D-50 매트릭스 본문 정정·CheckoutIntegrationTest/RefundWebhookIntegrationTest LT-02 보정
+
+### 후속
+1. 본 결정 박제 = PR-C 동반 (D-87·D-88·D-89 PR 인라인 패턴 정합)
+2. PR-C 브랜치 `feat/track-9-pr-c` 생성 (main HEAD 8844a48 기준)
+3. 가드 5 사전 통지 12건 일괄·승인 후 진입
+4. TDD 우선 (단위 → 통합 → E2E)·전체 회귀 BUILD SUCCESSFUL
+5. GitHub Web UI PR 생성·Base: main·Compare: feat/track-9-pr-c·외부 검토 권장 (S급)
+6. PR-C 머지로 Track 9 종결·D-88 Q6 3 PR 분할 완전 해소
+
+---
+
+## D-91. Hibernate 전체 컬럼 UPDATE FK 재검증 트랩 — 통합 테스트 seed FK 부모 그래프 신설 의무 [ACTIVE]
+
+**결정일**: 2026-06-29
+**관련**: Track 9 PR-C 구현 시 발견 / LT-02 / live-traps.md
+
+### 배경
+
+Track 9 PR-C ClaimEventIntegrationTest 구현 중 핸들러의 order_item·order UPDATE 시 Hibernate 전체 컬럼 UPDATE가 FK(seller·product·variant·user)를 재검증하여 `SET FOREIGN_KEY_CHECKS=0` seed 환경에서 상위 그래프 부재 시 SQL 1452·AFTER_COMMIT 트랜잭션 롤백이 발생하였다. CI 단위 테스트 미탐지·핸들러가 order_item을 실제 UPDATE하는 첫 통합 케이스라 표면화되었다. RefundWebhookIntegrationTest·ClaimIntegrationTest는 order_item UPDATE 부재로 회피하였던 케이스다.
+
+### 결정
+
+통합 테스트 seed에서 핸들러가 UPDATE 대상 행의 FK 부모 그래프(seller·product·variant·user 등)를 실제 INSERT 의무로 한다. `SET FOREIGN_KEY_CHECKS=0` 우회는 INSERT 차단 회피용이며 후속 UPDATE의 FK 재검증은 우회 불가다.
+
+### 사유 (기조 정합)
+
+- 기조 1 (운영 용이성): 후속 핸들러 트랙(Track 10 Admin·Track 11 RETURN/EXCHANGE) 재발 차단
+- 기조 2 (객관): 라이브 표면화·CI 미탐지·실측 검증 완료
+- 기조 3 (과잉 문서 회피): 단건 인라인 박제·LT 카탈로그 신설은 ≥3건 누적 시
+- 기조 4 (과잉개발 회피): 시스템 변경 없음·문서 1건
+
+### 영향 범위
+
+docs/architecture-baseline/decisions.md D-91 1건 추가. 코드·다른 SoT 영향 0.
+
+### 관련 결정
+
+LT-02 (FK_CHECKS try-finally)·D-82 (LT 카탈로그 promote 원칙)·D-90 (Track 9 PR-C)
+
+### 후속
+
+1. ≥3건 누적 시 live-traps.md LT-04 이관·D-91 `[ARCHIVED]` 라벨
+2. 후속 핸들러 트랙 진입 시 정독 의무
+
+---
+
