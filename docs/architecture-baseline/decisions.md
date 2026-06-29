@@ -2865,13 +2865,15 @@ D-16 OrderStatusResolver 선례 (Aggregate 경계 넘는 파생 로직)·단순 
 |---|---|---|---|
 | PR-A | CheckoutService D-66 정합 회귀 테스트 박제 + Outdated 주석 보정 | A | D-66 박제 후 회귀 테스트 부재 차단·OrderPlaced 핸들러는 후속 트랙 자연 진입 |
 | PR-B | Order Aggregate Root State Machine 메서드 (canTransitionTo·apply) + Invariant 검증 | A | Q4 α 패턴 첫 사례·도메인 행위 단독 응집 |
-| PR-C | OrderService 확장 + BuyerOrderController 잔여 endpoint + E2E | S | 외부 검토 권장·결정 라운드 의무·앞선 산출물 위에서 안전 |
+| PR-C | OrderService 확장 + BuyerOrderController 잔여 endpoint + E2E | ~~S~~ [SUPERSEDED] | 정찰 결과 산출물 기 완료·실 코드 변경 0건·폐기 |
 
 **진입 순서**: PR-A → PR-B → PR-C. PR-A·B 안착 후 PR-C 진입 시 회귀 표면 축소·결정 라운드 PR-C 집중 가능.
 
 **정찰 보정 (2026-06-28·PR-A 진입)**: PR-A 범위는 회귀 테스트 박제 + Outdated 주석 보정으로 정정. OrderPlaced 핸들러 구현은 후속 트랙(NotificationLog·Inventory·CartItem·가드 2 A급) 자연 진입. 정찰 결과 CheckoutService.idempotentCheckout 내부 try-catch가 이미 4xx 삭제·5xx 잔류 정합·@Valid first-line defense로 ORD-1 등 IllegalArgumentException 도달 경로 차단. 회귀 테스트 3건(itemNotFound 404·itemMismatch 422·5xx 잔류)으로 정합 박제.
 
 **정찰 보정 (2026-06-29·PR-B 진입)**: PR-B 범위는 OrderItemStatus.java Javadoc 1줄 보정(Track 5 → Claim 요청 API 트랙·expected-spec §1.2)으로 정정. Order Aggregate Root State Machine 메서드(canTransitionTo·apply)·OrderStatusResolver Domain Service·ORD-1~ORD-5 강제는 정찰 결과 Track 2~5 누적 산출물로 이미 완료 박제. OrderItemStatus.canTransitionTo Claim 진입 전이 매트릭스(진행 단계 → *_REQUESTED)는 Track 5 핸들러 정찰로 미수행 확인(Claim·Payment 종결 전이만 처리)·후속 Claim 요청 API 트랙 자연 진입.
+
+**정찰 보정 (2026-06-29·PR-C 진입·Track 8 종료)**: PR-C는 정찰 결과 명목 산출물 3종(OrderService 확장·BuyerOrderController 잔여 endpoint·E2E 통합 테스트) 모두 Track 4 + PR-A + PR-B 누적 산출물로 이미 완료 박제. 4 endpoint(POST `/api/v1/orders`·GET `/{orderPublicId}`·GET `/api/v1/orders`·POST `/{orderPublicId}/payments`) 운영 중·D-42 3개 + D-43 재결제 1개 정합·잔여 endpoint 부재. CheckoutIntegrationTest 11건·BuyerOrderControllerTest 11건·OrderServiceTest 6건으로 4 endpoint × HTTP 상태 매트릭스·D-66 회귀·재결제 재검증·멱등성 분기 전건 커버. OrderService 잔여 도메인 행위(markCancelled·changeOrderItemStatus 등)는 호출자 부재 상태 추가 = 데드 코드(기조 4 위배) — 후속 Delivery·Claim 요청 API·Inventory 트랙 진입 시 호출자와 함께 신설. 실 코드 변경 0건 PR 회피(기조 3) → PR-C 폐기·Track 8 종료 선언. Order Aggregate 3 PR 분할은 PR-A·PR-B 2 PR 완료로 종결.
 
 ### 사유
 
