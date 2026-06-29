@@ -3419,3 +3419,81 @@ LT-02 (FK_CHECKS try-finally)·D-82 (LT 카탈로그 promote 원칙)·D-90 (Trac
 
 ---
 
+## D-92. Track 10 Seller Claim endpoint·SellerActorResolver seam·횡단 권한 검증 원칙 [ACTIVE]
+
+**결정일**: 2026-06-30
+**관련**: Track 10 / D-39·D-40·D-87 Q1·Q3·D-88 Q2·D-89 Q3·Q7·Q8·D-90 Q2·D-91 / invariants §2.13 CLM-1~5 / state-machine §2 / aggregate-boundary §2.5 / live-traps LT-02 / docs/track-10/recon-report.md
+
+### 배경
+
+Track 10 진입(D-88 Q2 Seller endpoint 후속·D-89 Claim Service 완성 후). Buyer가 요청(REQUESTED)한 Claim을 Seller가 승인/거절하는 endpoint를 신설한다. `ClaimService.approve/reject`는 PR-B에서 Service layer로 완성되었으나 endpoint·Seller 권한 검증은 미신설 상태였다. 1·2차 외부 검토 수렴 후 결정 9건 + 횡단 원칙 1건 + 테스트 책임 경계 1건을 확정한다.
+
+### 결정 (9건)
+
+#### Q1: 권한 인프라 = α′ X-Seller-Id 헤더 stub + SellerActorResolver seam
+X-Seller-Id 헤더 stub에 `SellerActorResolver` seam 인터페이스를 더한다. Spring Security 도입 시점까지 임시이며 후속 액터 resolver로 교체 가능하다. 패키지는 `com.zslab.mall.common.auth`(claim 도메인 종속 회피). D-39 X-Buyer-Id stub 패턴 1:1.
+
+#### Q2: PR 분할 = α Seller 단독 1 PR
+Seller 단독 1 PR로 분할하고 Admin/Buyer는 분리한다. 액터별 권한 차이 검증 단위를 분리하고 후속 트랙 영향을 격리한다.
+
+#### Q3: Seller 권한 검증 = α Service 진입부 2단계 조회 + sub a‴ wrapper
+- α: Service 진입부에서 Claim → OrderItem.sellerId 비교 2단계 조회. 권한 위반 시 404 CLAIM_NOT_FOUND를 재사용한다(정보 노출 회피). 실패 우선순위는 권한 → 상태 → 전이.
+- sub a‴: Service wrapper 메서드(approveBySeller·rejectBySeller)를 신설하고 기존 approve/reject primitive는 보존·역할만 재정의한다. actor 비의존 도메인 primitive를 보존하면서 외부 액터 권한을 wrapper에 캡슐화한다.
+
+#### Q4: endpoint URL = β 액터 중립
+`/api/v1/claims/{claimPublicId}/approve`·`/reject`. BuyerClaimController와 base path를 공존하며 후속 Admin URL도 재사용한다. D-40 "URL 액터 중립·/api/seller prefix 금지" 정합.
+
+#### Q5: DTO = α ClaimResponse 재사용
+ClaimResponse를 재사용한다. OrderItem.publicId 조달은 Controller 재조회 패턴(전이 primitive가 void이므로 전이 후 재조회로 응답 조립).
+
+#### Q6: endpoint 개수 = α 2개 (approve·reject)
+승인·거절 2 endpoint만 둔다. Seller publicId 공급 경로는 NotificationLog/운영 콘솔 백로그이며 본 PR 미포함.
+
+#### Q7: ClaimApproved Javadoc·D-50 매트릭스 = γ 부분 동반
+ClaimApproved Javadoc 보강은 본 PR 동반, D-50 Validation 매트릭스 정정은 별도 트랙 이연.
+
+#### Q8: Refund 자동 트리거 = β 본 PR 미포함
+Refund 자동 트리거는 본 PR에 포함하지 않는다. 운영 절차를 박제한다: REQUESTED → APPROVED(Seller) → REFUND_PENDING → Refund 생성(Admin/Job). Refund Service 트랙 진입 시점에 ClaimApproved → RefundCreated 자동 변환을 구성한다.
+
+#### Q9: 식별자 노출 = α publicId 외부 한정
+publicId만 외부 노출 식별자로 둔다. 내부 BIGINT id는 Service 경계 이내로 한정한다.
+
+### 횡단 원칙 (Track 10-B·Track 11 재사용 의무)
+
+> 권한 검증은 Service 진입부 책임으로 둔다. 도메인 상태 전이 메서드는 actor 식별자가 상태 자체에 포함되지 않는 한 actor 비의존 시그니처를 우선한다. 액터별 권한 차이는 wrapper 진입점에서 캡슐화한다.
+
+### WARN-5 테스트 책임 경계
+
+> Track 10 테스트는 endpoint 권한 검증까지만 보장한다. 이벤트 소비 보장은 범위 외다(Refund 자동 트리거 후속 트랙 소관). ClaimIntegrationTest T7·T8의 MockMvc 승격은 권장이며 의무는 아니다. 순수 상태 전이 검증은 approve/reject primitive 직접 호출을 허용한다.
+
+### 외부 검토 흡수 흐름
+
+- 1차 외부 검토: Service 진입부 조회 방식 a → b 변경 권고 수렴
+- 2차 외부 검토: b 철회 → a‴ wrapper 패턴 최종. 도메인 primitive 시그니처 보존·테스트 가독성·후속 액터 재사용성
+
+### 영향 범위
+
+- 신규 5: SellerActorResolver·HeaderSellerActorResolver·SellerClaimController·SellerClaimControllerTest·SellerClaimIntegrationTest
+- 수정 2: ClaimService(approveBySeller·rejectBySeller·authorizeSellerAccess 신설·approve/reject primitive 시그니처·본문 보존·Javadoc 재정의)·ClaimApproved(Javadoc 보강)
+- 무변경: application.yml·build.gradle.kts·Entity·DDL·Flyway·SecurityConfig(미존재)
+- 회귀: 전체 331 tests · 0 failures · 0 errors · 신규 12 PASS(Controller 8·Integration 4) · 기존 회귀 0
+
+### 대안 검토 (기각)
+
+- Q1 α(Controller 직접 헤더 파싱·seam 부재): 후속 교체 비용 큼
+- Q3 b(도메인 primitive에 sellerId 파라미터 추가): primitive 시그니처 오염·actor 의존. 1차 채택 후 2차 철회
+- Q4 α(URL 액터 prefix /seller/...): 후속 Admin URL 분기 비용·D-40 prefix 금지 위배
+- Q8 α(본 PR Refund 자동 트리거 동반): Refund Service 진입 전 미성숙
+
+### 관련 결정
+
+D-39(X-Buyer-Id stub·resolveBuyerId 패턴 원천)·D-40(URL 액터 중립·Controller 액터별 분리)·D-87 Q3(Admin 별도 트랙)·D-88 Q2(Seller endpoint Track 10 이연)·D-89 Q3·Q7·Q8(ClaimInvalidStateException 422·requestedBy 미노출·소유권 Service 조회·404 정보 노출 회피)·D-90 Q2(Refund 자동 트리거 Track 10 이연·ClaimApproved 발행 유지)·D-91(통합 테스트 FK 부모 그래프 시드 의무)·LT-02(FK_CHECKS try-finally)·invariants §2.13 CLM-1~5·state-machine §2·aggregate-boundary §2.5·docs/track-10/recon-report.md
+
+### 후속 트랙
+
+- Refund Service 트랙: ClaimApproved → RefundCreated 자동 변환
+- NotificationLog 트랙: Seller 승인/거절 알림 source
+- D-50 별도 트랙: Validation 매트릭스 정정(Q7 γ 부분 동반 잔여)
+
+---
+
