@@ -322,6 +322,76 @@ class ClaimServiceTest {
         verify(claimRepository, never()).save(any());
     }
 
+    // ===== approveByAdmin·rejectByAdmin: Track 10-B·D-93 Q3 전체 접근·권한 검증 단락 부재 =====
+
+    @Test
+    @DisplayName("approveByAdmin: REQUESTED → APPROVED 전이·save·ClaimApproved 발행·seller scope 검증 없음(D-93 Q3)")
+    void approveByAdmin_happyPath_noSellerScope() {
+        Claim claim = requestedClaim();
+        when(claimRepository.findById(1L)).thenReturn(Optional.of(claim));
+
+        claimService.approveByAdmin(1L, PROCESSED_AT);
+
+        assertThat(claim.getStatus()).isEqualTo(ClaimStatus.APPROVED);
+        assertThat(claim.getProcessedAt()).isEqualTo(PROCESSED_AT);
+        verify(claimRepository).save(claim);
+        ArgumentCaptor<ClaimApproved> captor = ArgumentCaptor.forClass(ClaimApproved.class);
+        verify(eventPublisher).publishEvent(captor.capture());
+        assertThat(captor.getValue().status()).isEqualTo(ClaimStatus.APPROVED);
+        // D-93 Q3·Q5: Admin은 cross-tenant 검증 부재 → authorizeSellerAccess 경로(orderItemRepository) 미진입
+        verify(orderItemRepository, never()).findById(any());
+    }
+
+    @Test
+    @DisplayName("approveByAdmin: 클레임 미존재 → ClaimNotFoundException·save 미호출")
+    void approveByAdmin_notFound_throws() {
+        when(claimRepository.findById(999L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> claimService.approveByAdmin(999L, PROCESSED_AT))
+                .isInstanceOf(ClaimNotFoundException.class);
+        verify(claimRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("approveByAdmin: 이미 APPROVED 상태 → ClaimInvalidStateException(CLM-4·422)")
+    void approveByAdmin_alreadyApproved_throws() {
+        Claim claim = requestedClaim();
+        claim.approve(PROCESSED_AT); // 시드: REQUESTED → APPROVED
+        when(claimRepository.findById(1L)).thenReturn(Optional.of(claim));
+
+        assertThatThrownBy(() -> claimService.approveByAdmin(1L, PROCESSED_AT))
+                .isInstanceOf(ClaimInvalidStateException.class);
+        verify(claimRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("rejectByAdmin: REQUESTED → REJECTED 전이·save·ClaimRejected 발행·seller scope 검증 없음(D-93 Q3)")
+    void rejectByAdmin_happyPath_noSellerScope() {
+        Claim claim = requestedClaim();
+        when(claimRepository.findById(1L)).thenReturn(Optional.of(claim));
+
+        claimService.rejectByAdmin(1L, PROCESSED_AT);
+
+        assertThat(claim.getStatus()).isEqualTo(ClaimStatus.REJECTED);
+        assertThat(claim.getProcessedAt()).isEqualTo(PROCESSED_AT);
+        verify(claimRepository).save(claim);
+        ArgumentCaptor<ClaimRejected> captor = ArgumentCaptor.forClass(ClaimRejected.class);
+        verify(eventPublisher).publishEvent(captor.capture());
+        assertThat(captor.getValue().status()).isEqualTo(ClaimStatus.REJECTED);
+        // D-93 Q3·Q5: Admin은 cross-tenant 검증 부재 → authorizeSellerAccess 경로(orderItemRepository) 미진입
+        verify(orderItemRepository, never()).findById(any());
+    }
+
+    @Test
+    @DisplayName("rejectByAdmin: 클레임 미존재 → ClaimNotFoundException·save 미호출")
+    void rejectByAdmin_notFound_throws() {
+        when(claimRepository.findById(999L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> claimService.rejectByAdmin(999L, PROCESSED_AT))
+                .isInstanceOf(ClaimNotFoundException.class);
+        verify(claimRepository, never()).save(any());
+    }
+
     // ===== getClaim: J2·Q8 =====
 
     @Test

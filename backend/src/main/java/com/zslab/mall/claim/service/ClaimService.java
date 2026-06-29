@@ -200,6 +200,39 @@ public class ClaimService {
     }
 
     /**
+     * Admin 액터의 Claim 승인 진입점(Track 10-B·D-93 Q3·Q5·전체 접근).
+     *
+     * <p>Admin은 전체 Claim 접근 권한을 가지므로 권한 검증 단락이 부재한다(D-93 Q3·stub 단계 한정). Seller wrapper의
+     * {@link #authorizeSellerAccess}에 대응하는 cross-tenant 검증이 없으며 Claim 미존재만 404다. {@link #approve}
+     * primitive에 위임한다(클래스 단위 단일 트랜잭션).
+     *
+     * <p>D-92 횡단 원칙 재사용 1회차(D-93): 액터별 권한 차이는 wrapper 진입점에서 캡슐화하고 primitive는 actor
+     * 비의존 시그니처를 유지한다.
+     *
+     * @throws ClaimNotFoundException     클레임이 없는 경우
+     * @throws ClaimInvalidStateException 상태가 REQUESTED가 아닌 경우(CLM-4)
+     */
+    public void approveByAdmin(Long claimId, LocalDateTime processedAt) {
+        approve(claimId, processedAt);
+    }
+
+    /**
+     * Admin 액터의 Claim 거부 진입점(Track 10-B·D-93 Q3·Q5·전체 접근).
+     *
+     * <p>Admin은 전체 Claim 접근 권한을 가지므로 권한 검증 단락이 부재한다(D-93 Q3·stub 단계 한정). Claim 미존재만
+     * 404다. {@link #reject} primitive에 위임한다(클래스 단위 단일 트랜잭션).
+     *
+     * <p>D-92 횡단 원칙 재사용 1회차(D-93): 액터별 권한 차이는 wrapper 진입점에서 캡슐화하고 primitive는 actor
+     * 비의존 시그니처를 유지한다.
+     *
+     * @throws ClaimNotFoundException     클레임이 없는 경우
+     * @throws ClaimInvalidStateException 상태가 REQUESTED가 아닌 경우(CLM-4)
+     */
+    public void rejectByAdmin(Long claimId, LocalDateTime processedAt) {
+        reject(claimId, processedAt);
+    }
+
+    /**
      * 본인 클레임 단건을 조회한다. 소유권은 requested_by로 판정하며, 미존재·타인 클레임 모두 404다(정보 노출 회피·Q8).
      *
      * @throws ClaimNotFoundException 클레임이 없거나 소유자가 다른 경우

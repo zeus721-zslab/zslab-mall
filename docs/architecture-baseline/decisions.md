@@ -3497,3 +3497,125 @@ D-39(X-Buyer-Id stub·resolveBuyerId 패턴 원천)·D-40(URL 액터 중립·Con
 
 ---
 
+## D-93. Track 10-B Admin Claim endpoint·AdminActorResolver seam·D-40 admin prefix 본문 실측 [ACTIVE]
+
+**결정일**: 2026-06-30
+**관련**: Track 10-B / D-39·D-40·D-87 Q3·D-88 Q2·D-89 Q3·Q7·Q8·D-90 Q2·D-91·D-92 / invariants §2.13 CLM-1~5 / state-machine §2 / aggregate-boundary §2.5 / live-traps LT-02 / docs/track-10/recon-report.md §10~§19
+
+### 배경
+
+Track 10 Seller PR(D-92) 머지 직후 Track 10-B 진입. Admin이 Buyer 요청 Claim을 승인/거절하는 endpoint를 신설한다. D-92 횡단 원칙("권한 검증 = Service 진입부·primitive actor 비의존·액터별 권한은 wrapper 캡슐화")의 **첫 재사용 트랙**이다. 1·2차 외부 검토 수렴 후 결정 11건 + D-40 admin prefix 본문 실측 인용 1건을 확정한다.
+
+### 결정 (11건)
+
+#### Q1: Admin 권한 인프라 = α X-Admin-Id 헤더 stub + AdminActorResolver 신설
+D-39 X-Buyer-Id stub·D-92 X-Seller-Id stub 패턴 1:1. 패키지 `com.zslab.mall.common.auth`. Spring Security 도입 시점까지 임시.
+
+#### Q2: AdminActorResolver seam 분리 = α 별도 인터페이스
+SellerActorResolver Javadoc "후속 Admin/Buyer 액터 resolver는 본 인터페이스를 공유하지 않고 별도 인터페이스로 분리한다" 실측 정합. generic ActorResolver<T> 추출은 공통 행위가 `Long resolve(HttpServletRequest)` 1건뿐·추상화 이득 부재로 기각. SecurityContext 도입 시 resolver 구현체 제거 또는 adapter 전환 가능.
+
+#### Q3: Admin 권한 모델 = α 전체 접근·stub 단계 한정
+RBAC enforcement 미연결(RoleCode 데이터 모델만 존재) 상태. SUPER_ADMIN/ADMIN_OPERATOR 구분 미적용. X-Admin-Role 헤더 도입 반대(헤더 기반 RBAC 제거 비용만 증가). **stub 단계 한정 명시·운영 Admin 개념 승격은 Spring Security 트랙 범위.**
+
+#### Q4: PR 분할 = α Admin 단독 1 PR
+D-92 Q2 α(Seller 단독 1 PR) 패턴 직접 재적용. Admin + 목록은 ClaimRepository Admin scope 쿼리 신설 동반·기조 4 위배.
+
+#### Q5: Admin 권한 검증 위치·HTTP = α Service 진입부·Claim 미존재 → 404 단일 처리
+Admin은 cross-tenant 개념 없음(전체 접근). 권한 검증 단락 부재·Claim 미존재만 404. GlobalExceptionHandler 무변경·403 미신설. D-89 Q8 정합·D-92 Q3 정보 노출 회피 논리는 Admin scope에서 자연 적용 불요.
+
+#### Q6: endpoint URL 패턴 = γ′ `/api/v1/admin/claims/{claimPublicId}/approve|reject`
+**D-40 본문 명시 인용**: 결정 1 "`/api/buyer/...`·`/api/seller/...` prefix 금지"는 buyer·seller 2건 한정. 옵션 비교 표 γ "URL prefix 분리"도 buyer·seller만 박제. **D-40 본문 `/admin` 명시 부재 실측 확정**. 결정 5 "URL prefix 도입(γ)은 Seller API 공개 로드맵 시점에 재평가" — γ 옵션은 buyer·seller만 가리킴. γ′(/admin) 채택은 D-40 본문 직접 위배 아님.
+
+채택 사유(기조 정합):
+- 기조 1: SellerClaimController 무변경(Track 10 산출물 8 Controller 테스트·4 Integration 테스트 영향 0건)
+- 기조 4: headers 매핑 α는 T2 회귀 위험(헤더 누락 시 404 vs 401)·Swagger 영향 실측 비용 회피
+- β′(단일 컨트롤러 + delegate) 기각: D-92 wrapper 패턴과 중복 추상화·관심사 3층 분산
+
+#### Q7: DTO 재사용 = α ClaimResponse 재사용
+D-92 Q5 α 패턴 1:1. Controller 재조회 패턴(전이 primitive void·전이 후 재조회 응답 조립).
+
+#### Q8: endpoint 개수 = α 2개 (approve·reject)
+D-92 Q6 α 패턴 1:1. Admin 목록은 ClaimRepository 신규 쿼리 동반·범위 확장.
+
+#### Q9: Refund 자동 트리거 = β 본 PR 미포함
+D-90 Q2·D-92 Q8 β carry-over. ClaimApproved 소비자 부재 확정·Refund Service 트랙 진입 시점 자동 변환.
+
+#### Q10: ClaimApproved Javadoc·D-50 매트릭스 = γ 부분 동반
+ClaimApproved Javadoc 1줄 보강("Track 10-B Admin 진입점 `approveByAdmin` 경유에서도 동일 primitive 발행"). D-50 매트릭스 정정은 별도 트랙 이연(D-92 Q7 γ 패턴 재적용).
+
+#### Q11: SecurityContext 전환 seam 유지 전략 = 이연·백로그 1줄
+approveBySeller·approveByAdmin wrapper의 SecurityContext 도입 후 유지 여부(α 유지·β ActorContext 통합·γ Security 계층 이동)는 Spring Security 트랙 진입 시점 결정. 본 PR 결정 박제 가치 부재(기조 4).
+
+### 횡단 원칙 (D-92 재사용 1회차)
+
+D-92 횡단 원칙("권한 검증 = Service 진입부·primitive actor 비의존·액터별 권한은 wrapper 캡슐화") 본 PR 재사용 확인. Admin scope는 권한 검증 단락이 "전체 접근·미존재만 404"로 축소·wrapper 구조는 동일. 후속 Track 11 RETURN/EXCHANGE 재사용 의무 carry-over.
+
+### WARN 해소 결과
+
+| WARN | 해소 |
+|---|---|
+| WARN-1 라우팅 충돌 | Q6 γ′ 채택·`/api/v1/admin/...` prefix·base path 충돌 회피 |
+| WARN-2 AdminActorResolver 미존재 | Q1·Q2 α 신설 |
+| WARN-3 403 매핑 부재 | Q5 α 404 단일 처리·GlobalExceptionHandler 무변경 |
+| WARN-4 ClaimApproved 소비자 부재 | Q9 β carry-over·Refund Service 트랙 이연 |
+| WARN-5 ClaimRepository Admin scope 부재 | Q8 α(2 endpoint) 채택·신설 불요 |
+
+### 외부 검토 흡수 흐름
+
+- 1차: Q1·Q2 α 동의·Q6 β′(단일 컨트롤러 + delegate) 권장·Q3 stub 단계 한정 권장·Q5 표현 수정·Q11 신규 의제 제시
+- 2차(기조 4 재평가): β′ 자체 철회(D-92 wrapper와 중복)·γ′ 조건부 1순위(D-40 원문 재확인 조건)·α(headers 매핑) 실측 후 판단으로 하향·Q11 이연·E1 영향 범위 5건 철회·E2 Q10 γ 충돌 해소
+- D-40 본문 실측: Claude.ai MCP read·명시 prefix 2건(`/buyer`·`/seller`) 한정·`/admin` 명시 부재 확정 → γ′ 채택 근거 확보
+
+### 영향 범위
+
+#### 신규 파일 (5건)
+- backend/src/main/java/com/zslab/mall/common/auth/AdminActorResolver.java
+- backend/src/main/java/com/zslab/mall/common/auth/HeaderAdminActorResolver.java
+- backend/src/main/java/com/zslab/mall/claim/controller/AdminClaimController.java
+- backend/src/test/java/com/zslab/mall/claim/controller/AdminClaimControllerTest.java (6건·T1 승인 200·T2 401·T3 400·T4 미존재 404·T5 상태 422·T6 거부 200)
+- backend/src/test/java/com/zslab/mall/claim/integration/AdminClaimIntegrationTest.java (3건·I1 승인 + ClaimApproved 1회·I2 거부 + ClaimRejected 1회·I3 미존재 404·β 패턴·LT-02 try-finally·D-91 FK 부모 그래프 시드)
+
+#### 수정 파일 (2건)
+- backend/src/main/java/com/zslab/mall/claim/service/ClaimService.java (approveByAdmin·rejectByAdmin wrapper 신설·primitive approve·reject 시그니처·본문 불변·D-92 횡단 원칙 재사용)
+- backend/src/main/java/com/zslab/mall/claim/event/ClaimApproved.java (Javadoc 1줄 보강·Q10 γ)
+
+#### 문서 (1건)
+- docs/track-10/recon-report.md §19 결정 라운드 확정 결과 append
+
+#### 무변경 확정
+application.yml·build.gradle.kts·Entity·DDL·Flyway·SecurityConfig(미존재)·SellerClaimController(γ′ 채택으로 영향 0)·SellerClaimControllerTest·SellerClaimIntegrationTest·GlobalExceptionHandler(404 단일 처리)·ClaimRepository(2 endpoint 한정·신규 쿼리 0건).
+
+#### 회귀 예상
+전체 회귀 BUILD SUCCESSFUL·신규 9 PASS(Controller 6·Integration 3)·기존 회귀 0(D-92 331 → 340 예상).
+
+### 대안 검토 (기각)
+
+- Q1·Q2 β SellerActorResolver seam 재사용: SellerActorResolver Javadoc 명시 분리 지침 위배·기조 2 위배
+- Q1·Q2 γ generic ActorResolver<T> 추출: 공통 행위 1건·추상화 이득 부재·기조 4 위배
+- Q3 β SUPER_ADMIN/ADMIN_OPERATOR 분리: enforcement 미연결 상태 stub 구현 불가·기조 4 위배
+- Q3 X-Admin-Role 헤더 도입: 헤더 기반 RBAC 제거 비용·기조 4 위배
+- Q5 403 매핑 신설: Spring Security 동반·기조 4 위배
+- Q6 α headers 매핑: T2 회귀 위험·Swagger 영향 실측 비용·SellerClaimController 수정 동반
+- Q6 β′ 단일 컨트롤러 + delegate: D-92 wrapper 패턴과 중복 추상화·관심사 3층 분산·외부 검토 2차 자체 철회
+- Q8 β/γ 목록 endpoint 포함: ClaimRepository Admin scope 쿼리 신설·D-88 명시 범위 한정 초과
+
+### 관련 결정
+
+D-39(X-Buyer-Id stub·resolveBuyerId 패턴 원천)·D-40(URL 액터 중립·본문 명시 prefix 2건 한정·`/admin` 명시 부재 실측)·D-87 Q3(Admin 별도 트랙·~70% Service 재사용)·D-88 Q2(Seller/Admin endpoint Track 10 이연)·D-89 Q3·Q7·Q8(ClaimInvalidStateException 422·requestedBy 미노출·소유권 Service 조회·404 정보 노출 회피)·D-90 Q2(Refund 자동 트리거 Track 10 이연·ClaimApproved 발행 유지)·D-91(통합 테스트 FK 부모 그래프 시드 의무)·D-92(횡단 원칙·wrapper 캡슐화·Track 10-B 재사용 의무·SellerActorResolver Javadoc 명시 분리)·LT-02(FK_CHECKS try-finally)·invariants §2.13 CLM-1~5·state-machine §2·aggregate-boundary §2.5·docs/track-10/recon-report.md §10~§19
+
+### 후속 트랙
+
+- **Refund Service 트랙**: ClaimApproved → RefundCreated 자동 변환·CLM-3
+- **NotificationLog 트랙**: Seller/Admin 승인/거절 알림 source
+- **Track 11**: Claim RETURN/EXCHANGE 확장·D-92 횡단 원칙 재사용 2회차
+- **Spring Security 트랙**: SecurityFilterChain·UserDetailsService·auth RBAC enforcement·X-*-Id stub 3종 일괄 대체·Q11 wrapper 유지 전략 결정
+- **별도 트랙**: D-50 Validation 매트릭스 정정
+
+### 후속
+
+1. 본 결정 박제 = PR-B 동반 (D-87·D-88·D-89·D-90·D-92 PR 인라인 패턴 정합)
+2. PR-B 브랜치 `feat/track-10-pr-b` 생성 (main HEAD 1b264f3 기준)
+3. TDD 우선(단위 → 통합 → E2E)·전체 회귀 BUILD SUCCESSFUL
+4. GitHub Web UI PR 생성·Base: main·Compare: feat/track-10-pr-b
+
+---
