@@ -2913,3 +2913,94 @@ docs/architecture-baseline/decisions.md D-87 1건 추가. 코드·테스트·다
 D-01·D-16·D-29·D-39·D-43·D-58·D-66·D-81·D-83·D-84·D-85·D-86·gate-conditions.md §4.2 (PR 크기 경고선)
 
 ---
+
+## D-88. Track 9 진입 결정 — Claim 요청 API 트랙·CANCEL 한정·Buyer Scope·3 PR 분할 [ACTIVE]
+
+**결정일**: 2026-06-29
+**관련**: Track 9 / D-01·D-02·D-03·D-04·D-05·D-16·D-23·D-24·D-29·D-39·D-75·D-87 / Track 5 expected-spec §1.2 / state-machine §2·§3 / invariants §2.13·§2.13.1
+
+### 배경
+Track 8 종료 (PR-A·PR-B 완료·PR-C 폐기·Order Aggregate 2 PR 종결). Track 5 expected-spec §1.2 Out-of-Scope 7항목 중 5항목 (Claim 요청 API·승인/거절 워크플로우·OrderItem.item_status 전이 동기화·Order.status 재계산 hook·REJECTED 경로) 미해소 잔존·단일 트랙 자연 응집. Track 8 PR-A·PR-B 박제 "후속 자연 진입" 트랙 식별자 (정찰 룰 #4) 명시 의무. 사용자 4 기조 정합 추천안 전건 채택.
+
+### 결정
+
+#### Q1: Claim type 범위 = β CANCEL 우선
+RETURN·EXCHANGE는 Delivery 수거 추적·교환품 재출고 Delivery 의존 — 별도 트랙 분리 (Track 11). Track 5 박제 `Refund.COMPLETED → Claim.COMPLETED` 1전이가 CANCEL 자연 정합.
+
+#### Q2: 권한 매트릭스 = α Buyer endpoint만 + ClaimService 전체
+Buyer Claim 요청·조회 endpoint 본 트랙. ClaimService.request/approve/reject/markCompleted 4 메서드 Service layer 완성. Seller/Admin 승인·거절 endpoint는 Track 10 (Admin API) 이연·D-87 Q3 정합. E2E 테스트는 ClaimService 직접 호출로 승인/거절 흐름 검증 (Track 5 ClaimService.markCompleted 패턴).
+
+#### Q3: OrderItem.item_status 동기화 = α 양방 본 트랙
+REQUESTED 진입 (Claim 요청 시: PAID/PREPARING → CANCEL_REQUESTED 등)·완료 전이 (Claim.COMPLETED 시: CANCEL_REQUESTED → CANCELLED 등) 양방. state-machine §3 OrderItem.item_status 12값 완성 의무·Track 5 ClaimRefundCompletedHandler가 OrderItem 동기화 미박제 (PR-A·PR-B 정찰 박제).
+
+#### Q4: REJECTED 경로 = α 본 트랙 포함
+ClaimService.reject + Buyer 거절 조회 endpoint. 재요청은 동일 endpoint 재호출·CLM-2 (재요청 = 새 행) 자연 적용. 별도 재요청 UI/endpoint 신설 없음.
+
+#### Q5: OrderItemStatus.canTransitionTo Claim 진입 매트릭스 = PR-A 정찰 후 매트릭스 초안 박제·결정 라운드는 회사 정책 항목만
+state-machine §3 표 기반 일반 매트릭스 (PAID/PREPARING → CANCEL_REQUESTED·SHIPPING/DELIVERED → RETURN_REQUESTED·DELIVERED → EXCHANGE_REQUESTED) 는 정찰 자체 박제. 회사 정책 항목 (CONFIRMED 이후 클레임 허용 여부·SHIPPING 단계 CANCEL 허용 여부·기간 제한 등) 만 PR-A 결정 라운드.
+
+#### Q6: PR 분할 = 3 PR (D-87 Order 패턴 재적용)
+
+| PR | 범위 | 라벨 |
+|---|---|---|
+| PR-A | OrderItemStatus.canTransitionTo Claim 진입/완료 매트릭스 + ClaimStatus 전이 보강 (REQUESTED → APPROVED·REJECTED) | A |
+| PR-B | ClaimService (request/approve/reject/markCompleted) + BuyerClaimController + DTO + E2E | S |
+| PR-C | 이벤트 핸들러 (ClaimRequested/Approved/Rejected → OrderItem 동기화·Order.status 재계산 hook) | S |
+
+진입 순서: PR-A → PR-B → PR-C. PR-B 결정 라운드 메인·외부 검토 의무. PR-A·PR-C 가벼움.
+
+#### Q7: Order.status 재계산 트리거 = 혼합 패턴
+Claim → OrderItem 동기화: 도메인 이벤트 + `@TransactionalEventListener(AFTER_COMMIT)` 핸들러 (D-29·D-75 정합). Claim Aggregate 외부 Order Aggregate 갱신은 이벤트 경유 (D-01).
+핸들러 내부 OrderItem → Order.status 재계산: OrderStatusResolver Domain Service 동기 호출 (D-16). OrderItem은 Order Aggregate 내부 (aggregate-boundary §2.5)·동일 트랜잭션 갱신.
+
+### 가드 2 라벨 (Track 9 PR별)
+- PR-A = A급 (Enum 메서드·State Machine 보강 한정·외부 검토 선택적)
+- PR-B = S급 (Application Service·Controller·E2E 풀패키지·외부 검토 권장·결정 라운드 의무)
+- PR-C = S급 (이벤트 핸들러·Order.status 재계산 hook·환불 정합성 핵심·외부 검토 권장)
+
+### 사유
+
+**운영 용이성 (기조 1)**:
+- 3 PR 분할로 리뷰 단위 적정·롤백 영역 한정 (D-87 패턴 재적용)
+- Buyer endpoint 한정으로 D-39 X-Buyer-Id stub 인프라 그대로 활용
+
+**객관 판단 (기조 2)**:
+- Track 5 expected-spec §1.2 OOS 명시 5항목 단일 트랙 자연 응집
+- Track 8 PR-A·PR-B 박제 후속 자연 진입 식별자 명시
+- D-87 Q3 (Admin 별도) 정합·D-16 (OrderStatusResolver) 자연 호출
+
+**과잉문서 회피 (기조 3)**:
+- D-88 단건 박제·Track 9 별도 분할 결정 파일 미신설 (D-81·D-87 패턴)
+- 가드 2 라벨 본문 표 박제·PR별 별도 결정 미발행
+- 재요청 UI/endpoint 신설 회피 (CLM-2 자연 적용)
+
+**과잉개발 회피 (기조 4)**:
+- RETURN·EXCHANGE 이연 (Track 11)·Delivery 도메인 동반 차단
+- Seller/Admin endpoint 이연 (Track 10)·권한 매트릭스 구현 차단
+- 부분환불·EXCHANGE 비환불 경로 등 expected-spec §1.2 잔여 2항목 이연
+
+### 영향 범위
+docs/architecture-baseline/decisions.md D-88 1건 추가. 코드·테스트·다른 SoT 영향 0. Track 9 PR-A 정찰 진입 가능 상태 확립.
+
+### 대안 검토
+- 대안 1: Q1 α (CANCEL/RETURN/EXCHANGE 3종 일괄) → Delivery 수거·재출고 도메인 동반·과잉개발 (기각)
+- 대안 2: Q2 β (Seller 승인 endpoint 본 트랙 포함) → D-87 Q3 Admin 별도 정합 위배·인증 매트릭스 동반 (기각)
+- 대안 3: Q3 β (REQUESTED 진입만·완료 전이 후속) → OrderItem 상태 정합 불완전·E2E 검증 불가 (기각)
+- 대안 4: Q6 2 PR 압축 (PR-A·PR-B 통합) → PR-B 비대화·결정 라운드 중첩 (기각)
+- 대안 5: Q7 α (전건 동기 호출) → Claim → Order Aggregate 직접 갱신·D-01 위배 (기각)
+- 대안 6: Q7 β (전건 이벤트) → OrderItem → Order.status 재계산은 동일 트랜잭션 자연 (D-16 동기)·이벤트 분리 과잉 (기각)
+
+### 후속 자연 진입 트랙 (정찰 룰 #4·식별자 명시)
+- **Track 10**: Claim Admin API (Seller/Admin 승인·거절 endpoint·권한 매트릭스·Spring Security 진입 후보)
+- **Track 11**: Claim RETURN/EXCHANGE 확장 (Delivery 수거·교환 재출고 도메인 동반)
+- **Track 12+**: Inventory 차감 핸들러 (OrderPlaced·CANCELLED·RETURNED)·Settlement·NotificationLog 핸들러 등 (Track 8 PR-A 박제 후속)
+
+### 관련 결정
+D-01 (Aggregate 외부 ID 참조·이벤트 경유)·D-02·D-03·D-04 (OrderItem·Claim·Order.status 동기화)·D-05 (Claim REJECTED 재요청 = 새 행)·D-16 (OrderStatusResolver Domain Service)·D-23·D-24 (Claim·Refund 상태 전이)·D-29 (save→publish·no flush)·D-39 (X-Buyer-Id stub)·D-75 (이벤트 핸들러 AFTER_COMMIT·REQUIRES_NEW 정책)·D-87 (Track 8 진입·Order Aggregate 3 PR 패턴·가드 2 라벨 표)·Track 5 expected-spec §1.2 (Claim API OOS)·state-machine §2·§3 (Claim·OrderItem 상태)·invariants §2.13 CLM-1~4·§2.13.1 RFN-1~3
+
+### 후속
+1. 본 결정 박제 PR (`docs/track-9-entry` → main·신규 채팅 권장)
+2. PR-A 정찰 진입 (`docs/track-9/pr-a/recon-report.md`·신규 채팅)
+3. PR-B·PR-C 순차 진행 (각 PR별 정찰 → 결정 라운드 → 구현 → 1:1 대조·PR-B 외부 검토 권장)
+
+---
