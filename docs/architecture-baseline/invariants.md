@@ -135,6 +135,7 @@
 | CLM-2 | REJECTED 재요청 = 새 Claim 행 | 이력 보존(D-05) | Service | 거절 이력 추적 | 기존 행 복귀(기각) |
 | CLM-3 | Refund는 Claim 승인 후에만 생성 | 생명주기 공유(D-01) | Domain | 미승인 환불 차단 | — |
 | CLM-4 | Claim.status 전이 = state-machine §2 | 클레임 흐름 정합 | Domain(enum canTransition) | 비합법 전이 차단 | — |
+| CLM-5 | 동일 OrderItem 활성 Claim 최대 1개 (활성 = REQUESTED 또는 APPROVED) | 중복 클레임 차단·운영 일관성 | Service (ClaimRepository.existsActiveByOrderItemId 사전 가드) | 동일 OrderItem 활성 Claim 중복 차단 | DB partial UK (MariaDB 미지원·기각) |
 
 #### 2.13.1 Refund (RFN — 3건·Claim Aggregate 내·D-01 #13)
 
