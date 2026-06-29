@@ -2949,6 +2949,8 @@ state-machine §3 표 기반 일반 매트릭스 (PAID/PREPARING → CANCEL_REQU
 
 진입 순서: PR-A → PR-B → PR-C. PR-B 결정 라운드 메인·외부 검토 의무. PR-A·PR-C 가벼움.
 
+> **정찰 보정 (2026-06-29·PR-A 구현)**: PR-A 실 범위는 OrderItemStatus.canTransitionTo Claim 진입 매트릭스 5건 신설(PAID/PREPARING→CANCEL_REQUESTED·SHIPPING/DELIVERED→RETURN_REQUESTED·DELIVERED→EXCHANGE_REQUESTED) + OrderItemStatusTest 오라클 `Map<Set>` 리팩토링으로 정정. D-88 Q6 PR-A scope "ClaimStatus 전이 보강 (REQUESTED→APPROVED·REJECTED)"은 정찰 결과 Track 5 시점에 ClaimStatus.canTransitionTo 4×4 완전 구현 완료 박제 — PR-A 추가 작업 불필요. 회사 정책 결정 라운드: Q1(SHIPPING→CANCEL_REQUESTED 차단·출고 후 CANCEL은 RETURN 경로)·Q2(CONFIRMED 종결·*_REQUESTED 전건 차단)·Q3(SHIPPING→EXCHANGE_REQUESTED 차단·교환은 수령 후 절차)·Q4(canTransitionTo(next) 단일 인자 유지·ClaimType 무관·책임 분리). Track 8 PR-A/PR-B 사후 정정 패턴 재현·docs/track-9/pr-a/recon-report.md WARN-2 해소.
+
 #### Q7: Order.status 재계산 트리거 = 혼합 패턴
 Claim → OrderItem 동기화: 도메인 이벤트 + `@TransactionalEventListener(AFTER_COMMIT)` 핸들러 (D-29·D-75 정합). Claim Aggregate 외부 Order Aggregate 갱신은 이벤트 경유 (D-01).
 핸들러 내부 OrderItem → Order.status 재계산: OrderStatusResolver Domain Service 동기 호출 (D-16). OrderItem은 Order Aggregate 내부 (aggregate-boundary §2.5)·동일 트랜잭션 갱신.

@@ -13,8 +13,10 @@ package com.zslab.mall.order.enums;
  *   <li>역방향·단계 건너뛰기 전이 차단(예: DELIVERED → SHIPPING)</li>
  * </ul>
  *
- * <p><b>Claim 진입 전이 이연</b>: 진행 단계 → *_REQUESTED 전이(취소·반품·교환 요청 진입)는 Claim 도메인 소관이며
- * Claim 요청·승인/거절 워크플로우 트랙(expected-spec §1.2)에서 Claim 이벤트 소비 로직과 함께 본 매트릭스에 추가한다. 본 트랙은 QB-11 4개 규칙만 확정한다.
+ * <p><b>Claim 진입 전이 매트릭스(Track 9 PR-A·D-88 Q1~Q4·5건)</b>: PAID·PREPARING → CANCEL_REQUESTED(배송 전 취소)·
+ * SHIPPING·DELIVERED → RETURN_REQUESTED(출고 후 반품)·DELIVERED → EXCHANGE_REQUESTED(수령 후 교환).
+ * 정책 차단(D-88 Q1·Q2·Q3): SHIPPING→CANCEL_REQUESTED·SHIPPING→EXCHANGE_REQUESTED·CONFIRMED→*_REQUESTED 전건 차단.
+ * 시그니처(D-88 Q4): {@code canTransitionTo(next)} 단일 인자 유지(ClaimType 무관·책임 분리).
  */
 public enum OrderItemStatus {
     ORDERED,
@@ -39,10 +41,10 @@ public enum OrderItemStatus {
     public boolean canTransitionTo(OrderItemStatus next) {
         return switch (this) {
             case ORDERED -> next == PAID;
-            case PAID -> next == PREPARING;
-            case PREPARING -> next == SHIPPING;
-            case SHIPPING -> next == DELIVERED;
-            case DELIVERED -> next == CONFIRMED;
+            case PAID -> next == PREPARING || next == CANCEL_REQUESTED;
+            case PREPARING -> next == SHIPPING || next == CANCEL_REQUESTED;
+            case SHIPPING -> next == DELIVERED || next == RETURN_REQUESTED;
+            case DELIVERED -> next == CONFIRMED || next == RETURN_REQUESTED || next == EXCHANGE_REQUESTED;
             case CANCEL_REQUESTED -> next == CANCELLED;
             case RETURN_REQUESTED -> next == RETURNED;
             case EXCHANGE_REQUESTED -> next == EXCHANGED;
