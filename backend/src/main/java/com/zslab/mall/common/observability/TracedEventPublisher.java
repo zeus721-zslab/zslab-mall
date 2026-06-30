@@ -27,8 +27,11 @@ import org.springframework.stereotype.Component;
 public class TracedEventPublisher {
 
     private final ApplicationEventPublisher delegate;
+    private final EventMetricsRecorder eventMetricsRecorder;
 
     public void publishEvent(Object event) {
+        // Q4 β′: 발행 시점 = published 카운터 의미 정합. delegate 호출 전 계측해 "발행 시도"를 보존한다(EventMetricsRecorder SoT).
+        eventMetricsRecorder.recordPublished(event.getClass().getSimpleName());
         delegate.publishEvent(event);
     }
 }

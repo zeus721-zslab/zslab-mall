@@ -1,5 +1,6 @@
 package com.zslab.mall.notification.handler;
 
+import com.zslab.mall.common.observability.EventMetricsRecorder;
 import com.zslab.mall.notification.service.NotificationService;
 import com.zslab.mall.order.event.OrderPlaced;
 import lombok.RequiredArgsConstructor;
@@ -29,6 +30,7 @@ import org.springframework.transaction.event.TransactionalEventListener;
 public class NotificationOrderPlacedHandler {
 
     private final NotificationService notificationService;
+    private final EventMetricsRecorder eventMetricsRecorder;
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -38,6 +40,7 @@ public class NotificationOrderPlacedHandler {
         } catch (RuntimeException exception) {
             log.warn("[Notification] event={} target_type={} target_id={} action=manual_review correlationId={} handler={}",
                     "OrderPlaced", "ORDER", event.orderId(), MDC.get("correlationId"), this.getClass().getSimpleName(), exception);
+            eventMetricsRecorder.recordFailed(event.getClass().getSimpleName()); // Q4 β′: zslab.event.failed{event} 계측
         }
     }
 }

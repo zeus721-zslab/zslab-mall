@@ -9,6 +9,7 @@ import com.zslab.mall.claim.enums.ClaimStatus;
 import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.event.ClaimApproved;
 import com.zslab.mall.claim.event.ClaimCompleted;
+import com.zslab.mall.common.observability.EventMetricsRecorder;
 import com.zslab.mall.notification.service.NotificationService;
 import com.zslab.mall.order.event.OrderPlaced;
 import com.zslab.mall.payment.event.PaymentCompleted;
@@ -34,6 +35,8 @@ class NotificationHandlerTest {
 
     @Mock
     private NotificationService notificationService;
+    @Mock
+    private EventMetricsRecorder eventMetricsRecorder;
     @InjectMocks
     private NotificationOrderPlacedHandler orderPlacedHandler;
     @InjectMocks

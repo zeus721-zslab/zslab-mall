@@ -1,6 +1,7 @@
 package com.zslab.mall.notification.handler;
 
 import com.zslab.mall.claim.event.ClaimCompleted;
+import com.zslab.mall.common.observability.EventMetricsRecorder;
 import com.zslab.mall.notification.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -29,6 +30,7 @@ import org.springframework.transaction.event.TransactionalEventListener;
 public class NotificationClaimCompletedHandler {
 
     private final NotificationService notificationService;
+    private final EventMetricsRecorder eventMetricsRecorder;
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -38,6 +40,7 @@ public class NotificationClaimCompletedHandler {
         } catch (RuntimeException exception) {
             log.warn("[Notification] event={} target_type={} target_id={} action=manual_review correlationId={} handler={}",
                     "ClaimCompleted", "CLAIM", event.claimId(), MDC.get("correlationId"), this.getClass().getSimpleName(), exception);
+            eventMetricsRecorder.recordFailed(event.getClass().getSimpleName()); // Q4 β′: zslab.event.failed{event} 계측
         }
     }
 }

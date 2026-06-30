@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 
 import com.zslab.mall.delivery.entity.Delivery;
 import com.zslab.mall.delivery.event.DeliveryCompleted;
+import com.zslab.mall.common.observability.EventMetricsRecorder;
 import com.zslab.mall.delivery.repository.DeliveryRepository;
 import com.zslab.mall.notification.service.NotificationService;
 import java.time.LocalDateTime;
@@ -37,6 +38,8 @@ class NotificationDeliveryCompletedHandlerTest {
     private NotificationService notificationService;
     @Mock
     private DeliveryRepository deliveryRepository;
+    @Mock
+    private EventMetricsRecorder eventMetricsRecorder;
     @InjectMocks
     private NotificationDeliveryCompletedHandler handler;
 
