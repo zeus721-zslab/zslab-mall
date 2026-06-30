@@ -13,6 +13,9 @@ import com.zslab.mall.claim.event.ClaimRequested;
 import com.zslab.mall.claim.exception.ClaimInvalidStateException;
 import com.zslab.mall.claim.exception.ClaimNotFoundException;
 import com.zslab.mall.claim.repository.ClaimRepository;
+import com.zslab.mall.delivery.entity.Delivery;
+import com.zslab.mall.delivery.enums.DeliveryCarrier;
+import com.zslab.mall.delivery.service.DeliveryService;
 import com.zslab.mall.order.controller.response.PagedResponse;
 import com.zslab.mall.order.entity.Order;
 import com.zslab.mall.order.entity.OrderItem;
@@ -51,16 +54,19 @@ public class ClaimService {
     private final OrderItemRepository orderItemRepository;
     private final OrderRepository orderRepository;
     private final ApplicationEventPublisher eventPublisher;
+    private final DeliveryService deliveryService;
 
     public ClaimService(
             ClaimRepository claimRepository,
             OrderItemRepository orderItemRepository,
             OrderRepository orderRepository,
-            ApplicationEventPublisher eventPublisher) {
+            ApplicationEventPublisher eventPublisher,
+            DeliveryService deliveryService) {
         this.claimRepository = claimRepository;
         this.orderItemRepository = orderItemRepository;
         this.orderRepository = orderRepository;
         this.eventPublisher = eventPublisher;
+        this.deliveryService = deliveryService;
     }
 
     /**
@@ -339,6 +345,25 @@ public class ClaimService {
      */
     public void confirmPickupByAdmin(Long claimId, LocalDateTime pickedUpAt) {
         confirmPickup(claimId, pickedUpAt);
+    }
+
+    /**
+     * Seller 액터의 EXCHANGE 출고 등록 진입점(D-99 Q9 γ·D-92 횡단 원칙 재사용 3회차).
+     *
+     * <p>처리 순서: 조회 → 권한 검증 → primitive 위임. {@link #authorizeSellerAccess} 1:1 재사용 후
+     * {@link DeliveryService#registerExchangeShipment} primitive에 위임한다. 권한 위반은 404({@link ClaimNotFoundException})로
+     * 응답하여 cross-tenant 정보 노출을 회피한다. 이중 호출 멱등 가드는 primitive 진입부 책임이다(D-99 Q11).
+     *
+     * @return 생성된 Delivery(SHIPPING·claim_id 연결 완료)
+     * @throws ClaimNotFoundException     클레임이 없거나 요청 Seller 소유 품목이 아닌 경우
+     * @throws ClaimInvalidStateException type != EXCHANGE·orderItemId 불일치·이중 호출(DeliveryService 위임)
+     */
+    public Delivery registerExchangeShipmentBySeller(
+            Long claimId, Long sellerId, DeliveryCarrier carrier, String trackingNo) {
+        Claim claim = claimRepository.findById(claimId)
+                .orElseThrow(() -> new ClaimNotFoundException("클레임을 찾을 수 없습니다: claimId=" + claimId));
+        authorizeSellerAccess(claim, sellerId);
+        return deliveryService.registerExchangeShipment(claimId, carrier, trackingNo);
     }
 
     /**
