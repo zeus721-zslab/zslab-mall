@@ -1,6 +1,10 @@
 package com.zslab.mall.delivery.service;
 
+import com.zslab.mall.claim.entity.Claim;
+import com.zslab.mall.claim.exception.ClaimNotFoundException;
+import com.zslab.mall.claim.repository.ClaimRepository;
 import com.zslab.mall.delivery.entity.Delivery;
+import com.zslab.mall.delivery.enums.DeliveryCarrier;
 import com.zslab.mall.delivery.event.DeliveryCompleted;
 import com.zslab.mall.delivery.event.DeliveryStarted;
 import com.zslab.mall.delivery.repository.DeliveryRepository;
@@ -25,10 +29,13 @@ import org.springframework.transaction.annotation.Transactional;
 public class DeliveryService {
 
     private final DeliveryRepository deliveryRepository;
+    private final ClaimRepository claimRepository;
     private final ApplicationEventPublisher eventPublisher;
 
-    public DeliveryService(DeliveryRepository deliveryRepository, ApplicationEventPublisher eventPublisher) {
+    public DeliveryService(DeliveryRepository deliveryRepository, ClaimRepository claimRepository,
+            ApplicationEventPublisher eventPublisher) {
         this.deliveryRepository = deliveryRepository;
+        this.claimRepository = claimRepository;
         this.eventPublisher = eventPublisher;
     }
 
@@ -61,5 +68,41 @@ public class DeliveryService {
         deliveryRepository.save(delivery);
         eventPublisher.publishEvent(new DeliveryCompleted(
                 delivery.getId(), delivery.getOrderItemId(), delivery.getDeliveredAt(), LocalDateTime.now()));
+    }
+
+    /**
+     * 교환품 출고 등록(D-98 Q3·Seller Service 트랙 endpoint 진입점 예정). 단일 트랜잭션에서 (1) Delivery.create·save로
+     * id 발급 (2) {@link Claim#attachExchangeDelivery}로 type·orderItemId 불변식 검증 + {@link Delivery#attachExchangeClaim}
+     * 연결 (3) {@link Delivery#markShipping}(E4 발행)을 일괄 처리한다.
+     *
+     * <p>흐름: ClaimApproved(EXCHANGE) → ClaimPickedUp(E11) → 본 메서드 → 배송 완료 시
+     * {@code ExchangeDeliveryCompletedHandler}가 OrderItem EXCHANGED·Claim COMPLETED로 종결한다.
+     *
+     * @param claimId    교환 클레임 id (EXCHANGE·APPROVED·pickedUpAt != null 가정)
+     * @param carrier    택배사
+     * @param trackingNo 운송장번호 (NOT NULL·{@link Delivery#markShipping} 검증)
+     * @return 생성된 Delivery(SHIPPING·claim_id 연결 완료)
+     * @throws ClaimNotFoundException     클레임 미발견
+     * @throws ClaimInvalidStateException type != EXCHANGE 또는 orderItemId 불일치(Claim.attachExchangeDelivery 위임)
+     * @throws IllegalStateException      markShipping 검증 위반(trackingNo·shippedAt null)
+     */
+    public Delivery registerExchangeShipment(Long claimId, DeliveryCarrier carrier, String trackingNo) {
+        Claim claim = claimRepository.findById(claimId)
+                .orElseThrow(() -> new ClaimNotFoundException("클레임을 찾을 수 없습니다: claimId=" + claimId));
+
+        Delivery delivery = Delivery.create(claim.getOrderItemId(), carrier);
+        deliveryRepository.save(delivery); // delivery.id 발급(attachExchangeDelivery 인자 요건)
+
+        // Aggregate 불변식 검증(Claim 측·D-98 Q13·외부 검토 1차 Q3 흡수)
+        claim.attachExchangeDelivery(delivery.getId(), delivery.getOrderItemId());
+
+        delivery.attachExchangeClaim(claimId);
+        delivery.markShipping(trackingNo, LocalDateTime.now());
+        deliveryRepository.save(delivery);
+
+        eventPublisher.publishEvent(new DeliveryStarted(
+                delivery.getId(), delivery.getOrderItemId(), delivery.getCarrier(),
+                delivery.getTrackingNo(), LocalDateTime.now()));
+        return delivery;
     }
 }

@@ -57,6 +57,13 @@ public class Delivery extends AbstractPublicIdFullAuditableEntity {
     @Column(name = "delivered_at")
     private LocalDateTime deliveredAt;
 
+    /**
+     * 교환품 Delivery 참조 (D-98 Q13). 일반 주문 Delivery는 NULL, EXCHANGE 교환품 Delivery는 NOT NULL.
+     * Aggregate 외부 ID 참조(D-01) — JPA 연관(@ManyToOne) 미사용.
+     */
+    @Column(name = "claim_id")
+    private Long claimId;
+
     @Override
     protected String getPublicIdPrefix() {
         return "dlv";
@@ -77,14 +84,34 @@ public class Delivery extends AbstractPublicIdFullAuditableEntity {
     }
 
     /**
+     * 교환품 Claim 연결(D-98 Q13·{@code DeliveryService.registerExchangeShipment} 진입부 호출). 본 메서드는 단순
+     * setter이며 type·orderItemId 불변식 검증은 호출처({@code Claim.attachExchangeDelivery})가 수행한다.
+     *
+     * @throws IllegalArgumentException claimId가 null인 경우
+     */
+    public void attachExchangeClaim(Long claimId) {
+        if (claimId == null) {
+            throw new IllegalArgumentException("attachExchangeClaim: claimId는 필수입니다.");
+        }
+        this.claimId = claimId;
+    }
+
+    /**
      * 발송 처리(READY → SHIPPING·D-97 Q2). {@link DeliveryStatus#canTransitionTo}로 전이 합법성을 검증한 뒤
      * 운송장번호·발송 시각·상태를 설정한다. 이벤트 발행은 {@code DeliveryService} 책임이다(D-29 save→publish).
      *
-     * @throws IllegalStateException 불법 배송 상태 전이 시
+     * @throws IllegalStateException 불법 배송 상태 전이 또는 trackingNo·shippedAt 누락 시
      */
     public void markShipping(String trackingNo, LocalDateTime shippedAt) {
         if (!status.canTransitionTo(DeliveryStatus.SHIPPING)) {
             throw new IllegalStateException("불법 배송 상태 전이: " + status + " → " + DeliveryStatus.SHIPPING);
+        }
+        // D-98 Q3·외부 검토 1차 Q1 α 흡수·DLV-3 정합·Service 재검증 금지
+        if (trackingNo == null || trackingNo.isBlank()) {
+            throw new IllegalStateException("markShipping: trackingNo는 필수입니다.");
+        }
+        if (shippedAt == null) {
+            throw new IllegalStateException("markShipping: shippedAt는 필수입니다.");
         }
         this.trackingNo = trackingNo;
         this.shippedAt = shippedAt;

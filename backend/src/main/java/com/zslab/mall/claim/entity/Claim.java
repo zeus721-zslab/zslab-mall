@@ -180,6 +180,41 @@ public class Claim extends AbstractPublicIdFullAuditableEntity {
     }
 
     /**
+     * 교환 배송 Delivery를 본 Claim에 연결한다(D-98 Q13·외부 검토 1차 Q3 신규 의제 P1 흡수).
+     *
+     * <p>호출처: {@code DeliveryService.registerExchangeShipment} 진입부·{@code Delivery.create} 직후.
+     * RETURN/CANCEL/일반 주문은 {@code claimId == null}·본 메서드 미경유.
+     *
+     * <p>Aggregate 불변식:
+     * <ul>
+     *   <li>{@code this.type == ClaimType.EXCHANGE} — API 실수로 RETURN/CANCEL 연결 차단
+     *   <li>{@code this.orderItemId == deliveryOrderItemId} — Delivery-OrderItem 일관성
+     * </ul>
+     *
+     * <p>본 메서드 자체는 검증만 수행한다(반환 void·필드 변경 없음). Delivery.claim_id 설정은
+     * {@code Delivery.attachExchangeClaim}이 담당하며 호출 책임은 DeliveryService에 있다(D-01 Aggregate 외부 ID).
+     *
+     * @param deliveryId            교환품 Delivery.id
+     * @param deliveryOrderItemId   Delivery.orderItemId (Delivery.create 시점 인자)
+     * @throws ClaimInvalidStateException type != EXCHANGE 또는 orderItemId 불일치
+     * @throws IllegalArgumentException   필수값 누락
+     */
+    public void attachExchangeDelivery(Long deliveryId, Long deliveryOrderItemId) {
+        if (deliveryId == null || deliveryOrderItemId == null) {
+            throw new IllegalArgumentException("attachExchangeDelivery: deliveryId·deliveryOrderItemId는 필수입니다.");
+        }
+        if (this.type != ClaimType.EXCHANGE) {
+            throw new ClaimInvalidStateException(
+                    "교환 배송 연결은 EXCHANGE 클레임에서만 가능합니다: type=" + this.type);
+        }
+        if (!this.orderItemId.equals(deliveryOrderItemId)) {
+            throw new ClaimInvalidStateException(
+                    "Delivery-OrderItem 불일치: claim.orderItemId=" + this.orderItemId
+                            + ", delivery.orderItemId=" + deliveryOrderItemId);
+        }
+    }
+
+    /**
      * 상태를 {@code next}로 전이한다. {@link ClaimStatus#canTransitionTo}로 합법성을 검증한다(CLM-4).
      *
      * @throws ClaimInvalidStateException 비합법 전이인 경우(CLM-3 책임·500 fallback 차단·422 매핑)
