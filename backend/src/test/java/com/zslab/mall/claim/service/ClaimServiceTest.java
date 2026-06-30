@@ -80,7 +80,8 @@ class ClaimServiceTest {
     /** REQUESTED 상태의 영속 전 Claim 시드(approve·reject·getClaim·markCompleted 검증용). */
     private Claim requestedClaim() {
         return Claim.create(
-                ORDER_ITEM_ID, ClaimType.CANCEL, ClaimReasonCode.BUYER_CHANGED_MIND.name(), "단순 변심", BUYER_ID, REQUESTED_AT);
+                ORDER_ITEM_ID, ClaimType.CANCEL, ClaimReasonCode.BUYER_CHANGED_MIND.name(), "단순 변심", BUYER_ID,
+                REQUESTED_AT, OrderItemStatus.PAID);
     }
 
     // ===== request: D-89 Q1·Q6·Q8·CLM-5 =====
@@ -163,20 +164,25 @@ class ClaimServiceTest {
     }
 
     @Test
-    @DisplayName("request: CANCEL 외 유형(RETURN) → ClaimInvalidStateException(Q6)·CLM-5 검사 전 차단")
-    void request_nonCancelType_throws() {
+    @DisplayName("request: RETURN·DELIVERED OrderItem → 정상 처리(D-98 Q4 게이트 제거)·스냅샷(DELIVERED) 저장·save·발행")
+    void request_returnType_succeeds() {
         OrderItem orderItem = org.mockito.Mockito.mock(OrderItem.class);
         when(orderItem.getId()).thenReturn(ORDER_ITEM_ID);
+        when(orderItem.getItemStatus()).thenReturn(OrderItemStatus.DELIVERED);
         when(orderItemRepository.findByPublicId(ORDER_ITEM_PUBLIC_ID)).thenReturn(Optional.of(orderItem));
         when(orderItemRepository.findOrderIdById(ORDER_ITEM_ID)).thenReturn(Optional.of(ORDER_ID));
         Order order = org.mockito.Mockito.mock(Order.class);
         when(order.getBuyerId()).thenReturn(BUYER_ID);
         when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.of(order));
+        when(claimRepository.existsActiveByOrderItemId(ORDER_ITEM_ID)).thenReturn(false);
+        when(claimRepository.save(any(Claim.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        assertThatThrownBy(() -> claimService.request(command(ClaimType.RETURN)))
-                .isInstanceOf(ClaimInvalidStateException.class);
-        verify(claimRepository, never()).existsActiveByOrderItemId(any());
-        verify(claimRepository, never()).save(any());
+        Claim result = claimService.request(command(ClaimType.RETURN));
+
+        assertThat(result.getType()).isEqualTo(ClaimType.RETURN);
+        assertThat(result.getPreviousOrderItemStatus()).isEqualTo(OrderItemStatus.DELIVERED);
+        verify(claimRepository).save(any(Claim.class));
+        verify(eventPublisher).publishEvent(any(ClaimRequested.class));
     }
 
     @Test

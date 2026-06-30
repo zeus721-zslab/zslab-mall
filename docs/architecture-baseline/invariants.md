@@ -132,10 +132,12 @@
 | # | Rule | Why | Enforcement Point | Impact | Alternative |
 |---|---|---|---|---|---|
 | CLM-1 | COMPLETED 후 상태 변경 금지 | 클레임 종결 보호 | Domain(state-machine §2) | 종결 클레임 재오픈 차단 | — |
-| CLM-2 | REJECTED 재요청 = 새 Claim 행 | 이력 보존(D-05) | Service | 거절 이력 추적·재요청 가능 상태 복구는 OrderItemStatus.CANCEL_REQUESTED → PAID claim-lock release 전이로 보장(D-90 Q3·Track 9 PR-C) | 기존 행 복귀(기각) |
+| CLM-2 | REJECTED 재요청 = 새 Claim 행 | 이력 보존(D-05) | Service | 거절 이력 추적·재요청 가능 상태 복구는 Track 14·D-98 Q7 스냅샷 기반 원복으로 보장 (claim.previous_order_item_status 컬럼 기반 복원·claim-lock release 단어 의미 부재·D-90 Q3 의미 변경) | 기존 행 복귀(기각) |
 | CLM-3 | Refund는 Claim 승인 후에만 생성 | 생명주기 공유(D-01) | Domain | 미승인 환불 차단 | — |
 | CLM-4 | Claim.status 전이 = state-machine §2 | 클레임 흐름 정합 | Domain(enum canTransition) | 비합법 전이 차단 | — |
 | CLM-5 | 동일 OrderItem 활성 Claim 최대 1개 (활성 = REQUESTED 또는 APPROVED) | 중복 클레임 차단·운영 일관성 | Service (ClaimRepository.existsActiveByOrderItemId 사전 가드) | 동일 OrderItem 활성 Claim 중복 차단 | DB partial UK (MariaDB 미지원·기각) |
+
+> **CLM-5 비고 (D-98 Q12)**: 활성 정의(REQUESTED·APPROVED)는 picked_up_at 설정 여부와 무관하다. picked_up_at은 milestone 데이터로 활성성 판단에 영향 없음.
 
 #### 2.13.1 Refund (RFN — 3건·Claim Aggregate 내·D-01 #13)
 

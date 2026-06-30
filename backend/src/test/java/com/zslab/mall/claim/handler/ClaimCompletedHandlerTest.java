@@ -62,12 +62,18 @@ class ClaimCompletedHandlerTest {
     }
 
     @Test
-    @DisplayName("onClaimCompleted: type=RETURN → 미처리(findById·재계산 없음)")
-    void onClaimCompleted_nonCancel_noOp() {
+    @DisplayName("onClaimCompleted: type=RETURN·RETURN_REQUESTED OrderItem → RETURNED 종결·recalculateStatus 위임")
+    void onClaimCompleted_return_terminatesToReturned() {
+        OrderItem orderItem = mock(OrderItem.class);
+        when(orderItem.getId()).thenReturn(ORDER_ITEM_ID);
+        when(orderItem.getItemStatus()).thenReturn(OrderItemStatus.RETURN_REQUESTED);
+        when(orderItemRepository.findById(ORDER_ITEM_ID)).thenReturn(Optional.of(orderItem));
+        when(orderItemRepository.findOrderIdById(ORDER_ITEM_ID)).thenReturn(Optional.of(ORDER_ID));
+
         handler.onClaimCompleted(event(ClaimType.RETURN));
 
-        verify(orderItemRepository, never()).findById(anyLong());
-        verify(orderService, never()).recalculateStatus(anyLong());
+        verify(orderItem).changeStatus(OrderItemStatus.RETURNED);
+        verify(orderService).recalculateStatus(ORDER_ID);
     }
 
     @Test

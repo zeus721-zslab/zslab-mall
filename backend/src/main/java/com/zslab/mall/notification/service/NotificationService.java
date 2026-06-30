@@ -1,8 +1,10 @@
 package com.zslab.mall.notification.service;
 
 import com.zslab.mall.claim.entity.Claim;
+import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.event.ClaimApproved;
 import com.zslab.mall.claim.event.ClaimCompleted;
+import com.zslab.mall.claim.event.ClaimPickedUp;
 import com.zslab.mall.claim.repository.ClaimRepository;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
 import com.zslab.mall.delivery.entity.Delivery;
@@ -97,7 +99,8 @@ public class NotificationService {
             if (recipientUserId == null) {
                 return;
             }
-            String content = "클레임 " + event.claimPublicId() + "이(가) 승인되었습니다.";
+            String content = "클레임 " + event.claimPublicId() + " " + claimTypeLabel(event.claimType())
+                    + " 요청이 승인되었습니다.";
             save(recipientUserId, NotificationTemplateCodes.CLAIM_APPROVED,
                     PolymorphicTargetType.CLAIM, event.claimId(), "클레임 승인", content);
         } catch (RuntimeException exception) {
@@ -116,7 +119,8 @@ public class NotificationService {
             if (recipientUserId == null) {
                 return;
             }
-            String content = "클레임 " + event.claimPublicId() + "이(가) 완료되었습니다.";
+            String content = "클레임 " + event.claimPublicId() + " " + claimTypeLabel(event.claimType())
+                    + " 요청이 완료되었습니다.";
             save(recipientUserId, NotificationTemplateCodes.CLAIM_COMPLETED,
                     PolymorphicTargetType.CLAIM, event.claimId(), "클레임 완료", content);
         } catch (RuntimeException exception) {
@@ -136,17 +140,48 @@ public class NotificationService {
      * 기반으로 적재한다. catch 발화 시점에 Refund INSERT 전(Claim/PAY-1/Payment 검증 단계)일 수 있다.
      */
     public void recordRefundFailed(ClaimApproved event) {
+        recordRefundFailed(event.claimId(), event.claimPublicId());
+    }
+
+    /**
+     * D-98 Q2: RETURN 수거 확인 후 환불 자동 트리거({@code ClaimPickedUpHandler}) 실패 시 운영 알림을 적재한다.
+     * {@code ClaimApproved} 경로와 동일한 환불 실패 적재 패턴(D-96 Q3)을 {@link ClaimPickedUp}에 1:1 재사용한다.
+     */
+    public void recordRefundFailed(ClaimPickedUp event) {
+        recordRefundFailed(event.claimId(), event.claimPublicId());
+    }
+
+    private void recordRefundFailed(Long claimId, String claimPublicId) {
         try {
-            Long recipientUserId = resolveClaimRecipient(event.claimId(), "RefundFailed");
+            Long recipientUserId = resolveClaimRecipient(claimId, "RefundFailed");
             if (recipientUserId == null) {
                 return;
             }
-            String content = "클레임 " + event.claimPublicId() + " 환불 처리에 실패했습니다. 운영 확인이 필요합니다.";
+            String content = "클레임 " + claimPublicId + " 환불 처리에 실패했습니다. 운영 확인이 필요합니다.";
             save(recipientUserId, NotificationTemplateCodes.REFUND_FAILED,
-                    PolymorphicTargetType.CLAIM, event.claimId(), "환불 실패", content);
+                    PolymorphicTargetType.CLAIM, claimId, "환불 실패", content);
         } catch (RuntimeException exception) {
-            // 재조회·적재 실패는 원 흐름(클레임 승인 후 환불 자동 트리거 catch)을 막지 않는다(A2-α·재throw 금지).
-            log.warn("[Notification] RefundFailed 적재 실패 → 건너뜀: claimId={}", event.claimId(), exception);
+            // 재조회·적재 실패는 원 흐름(환불 자동 트리거 catch)을 막지 않는다(A2-α·재throw 금지).
+            log.warn("[Notification] RefundFailed 적재 실패 → 건너뜀: claimId={}", claimId, exception);
+        }
+    }
+
+    /**
+     * ClaimPickedUp(E11) 소비 → 수거 확인 알림 적재(D-98 Q8). claimId로 Claim을 재조회하고 orderItem → order를 경유해
+     * Buyer를 recipient로 산정한다. recipient 산정 불가 시 NULL 적재를 회피하고 skip한다(D-95 A1-α).
+     */
+    public void recordClaimPickedUp(ClaimPickedUp event) {
+        try {
+            Long recipientUserId = resolveClaimRecipient(event.claimId(), "ClaimPickedUp");
+            if (recipientUserId == null) {
+                return;
+            }
+            String content = "클레임 " + event.claimPublicId() + " 반품 상품 수거가 확인되었습니다.";
+            save(recipientUserId, NotificationTemplateCodes.PICKUP_CONFIRMED,
+                    PolymorphicTargetType.CLAIM, event.claimId(), "수거 확인", content);
+        } catch (RuntimeException exception) {
+            // 재조회·적재 실패는 원 흐름(수거 확인)을 막지 않는다(A2-α·재throw 금지).
+            log.warn("[Notification] ClaimPickedUp 적재 실패 → 건너뜀: claimId={}", event.claimId(), exception);
         }
     }
 
@@ -234,6 +269,14 @@ public class NotificationService {
             return null;
         }
         return order.getBuyerId();
+    }
+
+    private static String claimTypeLabel(ClaimType type) {
+        return switch (type) {
+            case CANCEL -> "취소";
+            case RETURN -> "반품";
+            case EXCHANGE -> "교환";
+        };
     }
 
     private void save(Long recipientUserId, String templateCode, PolymorphicTargetType targetType,

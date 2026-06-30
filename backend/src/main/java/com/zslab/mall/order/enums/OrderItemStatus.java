@@ -18,8 +18,11 @@ package com.zslab.mall.order.enums;
  * 정책 차단(D-88 Q1·Q2·Q3): SHIPPING→CANCEL_REQUESTED·SHIPPING→EXCHANGE_REQUESTED·CONFIRMED→*_REQUESTED 전건 차단.
  * 시그니처(D-88 Q4): {@code canTransitionTo(next)} 단일 인자 유지(ClaimType 무관·책임 분리).
  *
- * <p><b>Claim 복귀 전이(Track 9 PR-C·D-90 Q3)</b>: CANCEL_REQUESTED → PAID는 ClaimRejected 핸들러 한정
- * claim-lock release(재요청 허용 unlock 목적)이며 과거 상태 복원이 아니다. PREPARING 직접 복원은 직전 상태 정보 부재로 미지원.
+ * <p><b>Claim 복귀 전이(Track 14·D-98 Q7 스냅샷 기반·D-90 Q3 의미 변경)</b>: ClaimRejected 핸들러가
+ * {@code claim.previous_order_item_status}(D-98 Q11) 스냅샷을 기반으로 요청 시점 상태로 원복한다.
+ * 스냅샷 기반이므로 CANCEL_REQUESTED → PAID·PREPARING, RETURN_REQUESTED → SHIPPING·DELIVERED,
+ * EXCHANGE_REQUESTED → DELIVERED를 허용한다. D-90 Q3의 CANCEL_REQUESTED → PAID 고정 환원(claim-lock release)은
+ * 본 결정으로 의미 변경되었으며 claim-lock release 단어는 더 이상 의미 부재다.
  */
 public enum OrderItemStatus {
     ORDERED,
@@ -48,9 +51,9 @@ public enum OrderItemStatus {
             case PREPARING -> next == SHIPPING || next == CANCEL_REQUESTED;
             case SHIPPING -> next == DELIVERED || next == RETURN_REQUESTED;
             case DELIVERED -> next == CONFIRMED || next == RETURN_REQUESTED || next == EXCHANGE_REQUESTED;
-            case CANCEL_REQUESTED -> next == CANCELLED || next == PAID;
-            case RETURN_REQUESTED -> next == RETURNED;
-            case EXCHANGE_REQUESTED -> next == EXCHANGED;
+            case CANCEL_REQUESTED -> next == CANCELLED || next == PAID || next == PREPARING;
+            case RETURN_REQUESTED -> next == RETURNED || next == SHIPPING || next == DELIVERED;
+            case EXCHANGE_REQUESTED -> next == EXCHANGED || next == DELIVERED;
             // 종결 상태는 어떤 전이도 불가
             case CONFIRMED, CANCELLED, RETURNED, EXCHANGED -> false;
         };

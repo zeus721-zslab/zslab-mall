@@ -146,15 +146,16 @@ class RefundWebhookIntegrationTest {
     }
 
     @Test
-    @DisplayName("Claim type RETURN: Refund COMPLETED·Payment CANCELLED 되어도 Claim 미전이(본 트랙 CANCEL만)")
-    void returnClaim_doesNotCompleteClaim() throws Exception {
+    @DisplayName("Claim type RETURN: Refund COMPLETED → Claim COMPLETED 전이(D-98 Q4·CANCEL·RETURN 종결)·Payment CANCELLED")
+    void returnClaim_completesClaim() throws Exception {
         seed(ClaimType.RETURN, FULL_AMOUNT);
         String pgRefundId = refundService.initiate(CLAIM_ID, FULL_AMOUNT).getPgRefundId();
 
         postWebhook(pgRefundId, "SUCCESS");
 
         assertThat(refundStatus(pgRefundId)).isEqualTo("COMPLETED");
-        assertThat(claimStatus()).isEqualTo("APPROVED"); // RETURN은 본 트랙 미전이
+        // D-98 Q4: RETURN도 RefundCompleted 시 ClaimRefundCompletedHandler가 markCompleted 진입(EXCHANGE만 skip)
+        assertThat(claimStatus()).isEqualTo("COMPLETED");
         assertThat(paymentStatus()).isEqualTo("CANCELLED"); // Payment 핸들러는 type 무관·Σ==amount 시 취소
     }
 
@@ -185,8 +186,8 @@ class RefundWebhookIntegrationTest {
                         + "'pat_track5_it_0001', NOW(6), NOW(6), NOW(6))",
                         PAYMENT_ID, ORDER_ID, paymentAmount);
                 jdbc.update("INSERT INTO claim "
-                        + "(id, public_id, order_item_id, type, reason_code, status, created_at, updated_at) "
-                        + "VALUES (?, 'clm_track5_it_0001', ?, ?, 'CHANGE_MIND', 'APPROVED', NOW(6), NOW(6))",
+                        + "(id, public_id, order_item_id, type, reason_code, status, previous_order_item_status, created_at, updated_at) "
+                        + "VALUES (?, 'clm_track5_it_0001', ?, ?, 'CHANGE_MIND', 'APPROVED', 'PAID', NOW(6), NOW(6))",
                         CLAIM_ID, ORDER_ITEM_ID, type.name());
             } finally {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");

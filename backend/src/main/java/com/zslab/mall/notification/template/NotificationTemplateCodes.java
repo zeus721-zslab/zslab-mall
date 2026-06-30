@@ -15,6 +15,7 @@ public final class NotificationTemplateCodes {
     public static final String REFUND_FAILED = "TPL_REFUND_FAILED";
     public static final String DELIVERY_STARTED = "TPL_DELIVERY_STARTED";
     public static final String DELIVERY_COMPLETED = "TPL_DELIVERY_COMPLETED";
+    public static final String PICKUP_CONFIRMED = "TPL_PICKUP_CONFIRMED";
 
     private NotificationTemplateCodes() {
     }

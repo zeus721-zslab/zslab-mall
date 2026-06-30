@@ -206,8 +206,8 @@ class ClaimEventIntegrationTest {
 
     private void seedClaim(ClaimStatus status) {
         jdbc.update("INSERT INTO claim (id, public_id, order_item_id, type, reason_code, reason_detail, status, "
-                        + "requested_by, requested_at, created_at, updated_at) "
-                        + "VALUES (?, ?, ?, 'CANCEL', 'BUYER_CHANGED_MIND', '통합', ?, ?, NOW(6), NOW(6), NOW(6))",
+                        + "previous_order_item_status, requested_by, requested_at, created_at, updated_at) "
+                        + "VALUES (?, ?, ?, 'CANCEL', 'BUYER_CHANGED_MIND', '통합', ?, 'PAID', ?, NOW(6), NOW(6), NOW(6))",
                 CLAIM_ID, CLAIM_PID, ORDER_ITEM_ID, status.name(), USER_ID);
     }
 
