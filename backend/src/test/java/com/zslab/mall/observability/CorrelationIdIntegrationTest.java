@@ -5,7 +5,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.zslab.mall.common.observability.TracedEventPublisher;
 import com.zslab.mall.common.web.TraceIdFilter;
 import com.zslab.mall.order.event.OrderPlaced;
 import org.junit.jupiter.api.AfterEach;
@@ -40,6 +39,8 @@ import org.testcontainers.utility.DockerImageName;
  *
  * <p><b>스코프</b>: 단일 대표 endpoint(POST /api/v1/orders) 1 시나리오. 운영 지속 측정은 외부 로그 수집 인프라 도입
  * 시점 자연 진입(Q16 α 박제·"수치 집착 제거"·LogbackAppender 추가는 과잉개발 회피). 본 테스트는 PR-1 종결 기준 단독 충족.
+ * eventName MDC 단언은 D-100 Q3 β′ 옵션 4 채택(2026-06-30·TracedEventPublisher 책임 미보유)으로 제거.
+ * eventName 운영 로그 출력은 핸들러 catch 6 표준키 event 직접 인용으로 충족.
  *
  * <p><b>5중 의무(D-100 Q8 β·D-90 Q5·D-91·LT-02)</b>: NO {@code @Transactional} + {@link TransactionTemplate} +
  * {@code @RecordApplicationEvents} + LT-02 try-finally(FOREIGN_KEY_CHECKS) + D-91 FK 부모 그래프 시드. AFTER_COMMIT
@@ -50,11 +51,9 @@ import org.testcontainers.utility.DockerImageName;
  * 보조 {@code @TransactionalEventListener(AFTER_COMMIT)}로 등록해 OrderPlaced 핸들러 진입 시점 MDC 스냅샷을 캡처한다.
  * 운영 핸들러(NotificationOrderPlacedHandler)와 동일 스레드·동일 단계로 발화하므로 운영 핸들러가 관측하는 MDC와 동일하다.
  *
- * <p><b>eventName 단계 한정(실측 박제)</b>: eventName MDC는 {@link TracedEventPublisher}가 publishEvent 동기 구간에서만
- * put→finally remove한다. {@code @TransactionalEventListener(AFTER_COMMIT)}는 발행을 커밋 시점으로 지연하므로 핸들러 진입
- * 시점엔 이미 제거돼 있다(실측 확정). 운영 로그 패턴(application.yml {@code %X{traceId}})·Notification 핸들러 로그(MDC
- * correlationId)는 eventName MDC를 소비하지 않으므로 종료조건 #2에 영향 없다. traceId·correlationId는 TraceIdFilter가
- * 요청 전체를 감싸는 finally에서만 제거하므로 커밋·AFTER_COMMIT이 그 안에서 일어나 핸들러까지 보존된다.
+ * <p><b>traceId·correlationId 보존 근거</b>: traceId·correlationId는 TraceIdFilter가 요청 전체를 감싸는 finally에서만
+ * 제거하므로 커밋·AFTER_COMMIT이 그 안에서 일어나 핸들러까지 보존된다. eventName은 옵션 4 채택으로 어떤 컴포넌트도
+ * MDC에 주입하지 않으므로(TracedEventPublisher 책임 미보유) 본 테스트는 traceId·correlationId 2종만 단언한다.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -144,8 +143,6 @@ class CorrelationIdIntegrationTest {
         assertThat(captor.traceId).as("핸들러 진입 traceId").isEqualTo(traceIdHeader);
         assertThat(captor.traceId).as("traceId ULID 26자").hasSize(26);
         assertThat(captor.correlationId).as("핸들러 진입 correlationId == traceId").isEqualTo(traceIdHeader);
-        // eventName은 AFTER_COMMIT 지연 발화 시점에 publishEvent finally로 제거된 뒤라 부재(실측 박제·Javadoc 참조).
-        assertThat(captor.eventName).as("핸들러 진입 eventName(AFTER_COMMIT 지연·부재)").isNull();
         // 로그 흐름 종단: NotificationOrderPlacedHandler가 동일 단계에서 NotificationLog 1건 적재.
         assertThat(notificationLogCount()).as("ORDER 알림 적재 1건").isEqualTo(1);
     }
@@ -212,7 +209,7 @@ class CorrelationIdIntegrationTest {
     }
 
     /**
-     * OrderPlaced AFTER_COMMIT 핸들러 진입 시점 MDC 3종 스냅샷 캡처 보조 빈(운영 핸들러와 동일 단계·동일 스레드 발화).
+     * OrderPlaced AFTER_COMMIT 핸들러 진입 시점 MDC traceId·correlationId 스냅샷 캡처 보조 빈(운영 핸들러와 동일 단계·동일 스레드 발화).
      * 단일 스레드 동기 발화이므로 volatile로 충분하다(MdcPropagationTest TestOuterEventHandler 패턴 준용).
      */
     static class OrderPlacedMdcCaptor {
@@ -220,13 +217,11 @@ class CorrelationIdIntegrationTest {
         private volatile boolean fired;
         private volatile String traceId;
         private volatile String correlationId;
-        private volatile String eventName;
 
         @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
         public void onOrderPlaced(OrderPlaced event) {
             this.traceId = MDC.get(TraceIdFilter.TRACE_ID);
             this.correlationId = MDC.get(TraceIdFilter.CORRELATION_ID);
-            this.eventName = MDC.get(TracedEventPublisher.EVENT_NAME);
             this.fired = true;
         }
 
@@ -234,7 +229,6 @@ class CorrelationIdIntegrationTest {
             this.fired = false;
             this.traceId = null;
             this.correlationId = null;
-            this.eventName = null;
         }
     }
 
