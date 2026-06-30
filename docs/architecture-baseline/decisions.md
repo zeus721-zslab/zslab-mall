@@ -3619,3 +3619,185 @@ D-39(X-Buyer-Id stub·resolveBuyerId 패턴 원천)·D-40(URL 액터 중립·본
 4. GitHub Web UI PR 생성·Base: main·Compare: feat/track-10-pr-b
 
 ---
+
+---
+
+## D-94. Track 11 Refund Service · ClaimApproved → Refund 자동 트리거 · Track 식별자 재정의 [ACTIVE]
+
+**결정일**: 2026-06-30
+**관련**: Track 11 / D-29·D-66·D-67·D-69·D-72·D-73·D-75·D-87 Q3·D-90 Q2·D-92 Q8·D-93 Q9 / invariants §2.11 PAY-1·§2.13 CLM-3·§2.13.1 RFN-1~3 / state-machine §2·§8 / aggregate-boundary §2.5 / live-traps LT-02 / docs/track-11/recon-report.md §1~§10
+
+### 배경
+
+D-87 Q3 → D-90 Q2 → D-92 Q8 → D-93 Q9에 걸쳐 **4회 연속 carry-over**된 "ClaimApproved → Refund 자동 변환" 의제를 본 트랙에서 종결한다. 정찰 결과(recon-report §1.2) Refund 도메인은 Track 5(D-67~D-77)에서 사실상 완성되어 있다. `RefundService.initiate`가 CLM-3·PAY-1 사전·PG 동기 호출·D-67 FAILED 전이까지 기구현이며 역방향 루프(`RefundCompleted → Claim COMPLETED·Payment CANCELLED`)도 통합 테스트 통과 완료다. 본 트랙의 실 결손은 **`ClaimApproved` 이벤트를 소비해 `initiate`를 호출하는 forward 트리거 핸들러 1건**으로 협소하다.
+
+1·2차 외부 검토 수렴 후 결정 11건 + 신규 WARN 1건 + 트랙 식별자 재정의 1건을 확정한다.
+
+### 결정 (11건)
+
+#### Q0: 트랙 식별자 재정의 = β Track 11 = Refund Service
+
+D-88·D-89·D-90·D-93 후속 목록에 "Track 11 = Claim RETURN/EXCHANGE 확장"으로 일관 박제되어 있었으나, 본 트랙 진입 시점에 사용자 결정으로 **Track 11 = Refund Service**로 재정의한다. 기존 RETURN/EXCHANGE 라벨은 **Track 12+로 자연 이동**한다.
+
+사유:
+- 트랙 번호는 진입 순서 라벨이며 도메인 영구 바인딩이 아니다.
+- 후속 결정 D-XX·PR명·branch명·코드 인용 식별자 일관성 확보.
+- 미번호 트랙 유지 시 추후 추적 식별자 부재로 탐색 비용 증가.
+
+후속 목록 정정 의무:
+- D-88·D-89·D-90·D-93의 "Track 11 = RETURN/EXCHANGE" 표기는 본 결정 박제 시점부터 "Track 12+"로 자연 이동. 기존 결정 본문 정정은 수행하지 않는다(과잉문서 회피·D-94가 재정의 박제로 후속 정정 효과).
+
+#### Q1: ClaimApproved 핸들러 위치 = α `refund/handler/ClaimApprovedHandler`
+
+신규 패키지 `com.zslab.mall.refund.handler`에 `ClaimApprovedHandler`를 신설한다. RefundCompleted 소비자가 `claim/handler`·`payment/handler`에 반응 도메인별 분산되어 있는 패턴(recon §4.3·§5.2)과 1:1 대칭이다. 반응 도메인(Refund) 패키지 배치로 Aggregate 경계 정합 유지·`claim` 패키지에 `refund` 의존 역유입 회피.
+
+#### Q2: RefundCreated 이벤트 미신설 = α
+
+`RefundCreated` 이벤트를 신설하지 않는다. 핸들러가 `RefundService.initiate(claimId, amount)`를 직접 호출하며, `initiate`는 동기 PG 호출까지 자기완결이다(recon §3.1). D-93 후속 목록의 "ClaimApproved → RefundCreated 자동 변환" 표현은 변환 행위 서술이며 이벤트 신설 명령이 아니다. 향후 NotificationLog/Observability 소비자가 발생할 시점에 추가 검토.
+
+#### Q3: Refund 진입점 범위 = α 자동 트리거 단독
+
+ClaimApproved 자동 트리거를 단독 진입점으로 둔다. Admin 수동 환불 생성 endpoint는 본 트랙에 병존시키지 않는다.
+
+사유:
+- state-machine §8 "운영자 수동 보정 권한 없음·후속 트랙 D안 RefundAdjustment" 정합.
+- D-92 Q8 "Refund 생성(Admin/Job)" 언급은 운영 절차 박제이며 endpoint 신설 명령이 아니다.
+- 수동 endpoint는 사실상 RefundAdjustment 트랙 선행 구현·범위 확장.
+
+#### Q4: PG refund 호출 시점 = 기결정 유지
+
+`RefundService.initiate` 내부 동기 PG 호출·webhook 비동기 확정 구조(D-72·D-73·기구현)를 그대로 상속한다. 자동 트리거 핸들러는 `initiate` 호출로 본 구조에 자연 진입한다. 신규 결정 사항 없음.
+
+#### Q5: RefundStatus 상태머신 = 기결정 유지
+
+3값(PENDING·COMPLETED·FAILED)·CANCELLED 없음·DDL ENUM·enum·state-machine §8 3중 정합·RefundStatusTest 3×3 커버 완료(recon §6.3·§7). 누락값·신규 상태 도입 사유 없음. 부분환불 신상태는 Track 5 §1.2 OOS·별도 트랙 소관.
+
+#### Q6: 멱등성 = α′ Service 내부 게이트·lock 미도입
+
+`RefundService.initiate` 진입부에 멱등 게이트를 신설한다. 동일 트랜잭션 내 `refundRepository.existsActiveByClaimId(claimId)` SELECT 후 PENDING/COMPLETED 존재 시 no-op 또는 `RefundIdempotentSkipException` 시그널. **claim row pessimistic lock·DB UNIQUE(claim_id)는 도입하지 않는다.**
+
+사유:
+- 현재 인프라는 Spring ApplicationEvent **인메모리 publisher**(D-29·D-75). 외부 MQ·이벤트 저장소·Outbox·replay 부재. 동일 ClaimApproved의 동시 재전달은 현 인프라에서 자연 발생 불가.
+- 현실적 위험 원천 = 운영 재실행·테스트 중복·동일 승인 경로 중복 진입·미래 인프라 교체. existsActiveByClaimId 게이트로 대부분 차단.
+- pessimistic lock = Claim Aggregate 락 경합 비용 + 기조 4 위배 위험.
+- DB UNIQUE(claim_id) = RFN-2 "재시도 = 새 행" 의도와 구조 충돌·기각.
+
+**박제 1줄**: "현재 멱등 보호는 단일 프로세스 ApplicationEvent 가정 기반. 외부 이벤트 브로커·Outbox·다중 인스턴스 수평 확장·@Async EventListener 도입 시 본 게이트 재검토 의무." (Track 12+ Observability 트랙·이벤트 핸들러 멱등성 표준화와 통합 시점에 자연 재평가·D-90 백로그 정합.)
+
+신규 메서드: `RefundRepository.existsActiveByClaimId(Long claimId)` (status IN (PENDING, COMPLETED)).
+
+#### Q7: 환불 amount 산정 출처 = α `OrderItem.totalPrice`
+
+자동 트리거 핸들러는 `ClaimApproved.orderItemId`로 `OrderItem`을 조회하고 `OrderItem.totalPrice`를 `initiate(claimId, amount)` 인자로 전달한다.
+
+실측 조건 충족(recon §8 Q7·검토자 3 조건):
+1. CANCEL Claim = OrderItem 단위 1:1(Claim.order_item_id FK 단일·Track 5 spec §2.2·invariants CLM-3).
+2. 부분환불 본 트랙 한정 OOS(Track 5 spec §1.2 "amount 단일 행 기준"·PAY-2 비고 "부분환불 도입 시 재정의 가능").
+3. 배송비 구조 분리(OrderItem.totalPrice = unit_price × quantity·ORD-5·배송비 필드 OrderItem 외부).
+
+**박제 1줄**: "Track 11 자동 환불 amount는 OrderItem.totalPrice 기준이며 배송비 환불 정책은 본 범위 외. 부분환불·배송비 환불 도입 시 본 규칙 재정의." (WARN-10 흡수)
+
+ClaimApproved payload 수정 없음·발행처 ClaimService 수정 없음·DDL 무변경.
+
+#### Q8: FAILED 보상·운영 가시성 = α structured log만·Micrometer 보류
+
+자동 트리거 Refund FAILED 시 Claim 상태 환원 없음·재시도 허용(운영자/Job 재 initiate·RFN-2). CLM-3 정합(FAILED는 승인 취소가 아님).
+
+운영 가시성 = `ClaimApprovedHandler.handle` catch 블록에 structured log 1줄만 추가:
+
+    log.warn("Refund auto-trigger failed; claim={} refund_state=FAILED action=manual_retry_required",
+             claimPublicId, exception);
+
+**Micrometer 카운터·dashboard·alert 파이프는 본 트랙 미도입.** 현 프로젝트에 Observability 표준 박제 부재(D-90 백로그). 카운터 1개만 신설 시 후속 컨벤션 재정의 부담·기조 4 위배. NotificationLog 신설은 검토자 양차 기각·structured log + 향후 Observability 트랙 자연 흡수가 적정.
+
+#### Q9: RefundWebhookIntegrationTest LT-02 보정 동반 = α
+
+Track 5에 잔존하는 LT-02 미적용분(try-finally `=1` 복원 부재·recon §7.1)을 본 트랙에서 동반 보정한다. 신규 통합 테스트 추가에 따른 보정 비용 거의 0·라이브 트랩 차단·기조 1 정합.
+
+#### Q10: PR 분할 전략 = α 단일 PR
+
+본 트랙은 단일 PR(`feat/track-11-refund-auto-trigger`)로 구성한다. D-87·D-92·D-93 1-PR-단독 패턴 정합. 잔여 범위(핸들러 1·existsActiveByClaimId·structured log·테스트·D-94·Q9 LT-02 보정·Javadoc) 협소·분할 시 문서·PR·검증 비용 역증.
+
+### 횡단 원칙 (D-92·D-93 carry-over)
+
+D-92·D-93 횡단 원칙("권한 검증은 Service 진입부 책임·primitive actor 비의존·액터별 권한은 wrapper 캡슐화")은 본 트랙(이벤트 핸들러 트랙)에 직접 적용 대상 아니다. 단 `RefundService.initiate`가 actor 비의존 시그니처(`initiate(Long claimId, long amount)`)를 유지하는 점은 본 원칙 정합. 본 트랙은 횡단 원칙 재사용 회차에 산입하지 않는다(Track 12+ 액터 트랙 진입 시 재사용 카운트 재개).
+
+### WARN 해소 결과 (recon §9)
+
+| WARN | 해소 |
+|---|---|
+| WARN-1 트랙 식별자 충돌 | Q0 β 채택·Track 11 = Refund Service 재정의·후속 목록 자연 이동 |
+| WARN-2 amount 출처 미정 | Q7 α 채택·OrderItem.totalPrice·실측 조건 3건 충족 |
+| WARN-3 멱등성 공백 | Q6 α′ 채택·Service 내부 existsActiveByClaimId 게이트 |
+| WARN-4 FAILED 보상 부재 | Q8 α 채택·structured log·재시도 허용·Claim 환원 없음 |
+| WARN-5 LT-02 잔존 | Q9 α 채택·본 트랙 동반 보정 |
+| WARN-6 신규 통합 테스트 D-91/LT-02 의무 | ClaimEventIntegrationTest 패턴 준용·FK 부모 그래프 시드·try-finally 복원 |
+| WARN-7 CLM-4 재승인 차단 | Q6 가드와 자연 통합·이벤트 재전달 위험만 잔존·Q6 박제 1줄 흡수 |
+| WARN-8 이벤트 순서 역전 내성 | Q6 게이트로 자연 흡수·COMPLETED 상태 시 no-op |
+| WARN-9 재시도 운영 진입점 부재 | 본 결정 §후속 1줄 박제(운영자 수동 재 initiate·Job 도입은 후속 트랙) |
+| WARN-10 배송비 환불 정책 명문 박제 부재 | Q7 박제 1줄 흡수(invariants 신규 항목 미신설·정책 결정·미래 변경 가능) |
+
+### 외부 검토 흡수 흐름
+
+- **1차 외부 검토**: 11 의제 + 추천안 송부. 수용: Q0 β·Q1 α·Q2 α·Q3 α·Q4·Q5 유지·Q9 α·Q10 α·횡단 1~3·신규 WARN-8·WARN-9 제시. 부분 수용 요청: Q6(pessimistic lock 또는 Service 내부 멱등 보호)·Q7(조건 3건 확인)·Q8(structured log + 카운터).
+- **Claude.ai 축소 흡수**: Q6 α′(lock 미도입·existsActiveByClaimId 게이트만)·Q7 α(실측 조건 3건 확정·WARN-10 도출)·Q8 α(structured log만·Micrometer 보류).
+- **2차 외부 검토**: 축소안 전건 정합 확인. Q6 lock 철회 유지 동의(인메모리 publisher 가정 하 동시성 위험 모델 제한)·Q7 α 확정(payload 계약 유지)·Q8 structured log 메시지 구조화 강화(`claim={} refund_state=FAILED action=manual_retry_required`)·WARN-10 α(D-94 본문 1줄 박제·invariants 신규 항목 금지).
+- **2차 검토 자체 평가**: "축소안이 1차보다 오히려 4기조 정합성이 좋아졌다·Q6에서 일반론적 락을 현재 인프라 현실로 되돌린 점 방향 정합."
+
+### 영향 범위
+
+#### 신규 파일 (3건)
+- backend/src/main/java/com/zslab/mall/refund/handler/ClaimApprovedHandler.java (신규 패키지·@TransactionalEventListener AFTER_COMMIT·REQUIRES_NEW·CANCEL 게이트·structured log catch)
+- backend/src/test/java/com/zslab/mall/refund/handler/ClaimApprovedHandlerTest.java (단위·Mockito·정상 트리거·CANCEL 외 type 스킵·existsActive 스킵·PG 실패 시 log.warn)
+- backend/src/test/java/com/zslab/mall/refund/integration/RefundAutoTriggerIntegrationTest.java (e2e·NO @Transactional·TransactionTemplate·LT-02 try-finally·D-91 FK 부모 그래프 시드·ClaimApproved 발행→Refund PENDING→webhook→Claim COMPLETED·Payment CANCELLED 전체 루프)
+
+#### 수정 파일 (4건)
+- backend/src/main/java/com/zslab/mall/refund/service/RefundService.java (initiate 진입부 existsActiveByClaimId 게이트 추가·RefundIdempotentSkipException 또는 no-op·Javadoc 1줄)
+- backend/src/main/java/com/zslab/mall/refund/repository/RefundRepository.java (existsActiveByClaimId 신규 메서드·status IN (PENDING, COMPLETED))
+- backend/src/main/java/com/zslab/mall/claim/event/ClaimApproved.java (Javadoc 보강·"소비자 부재" → "Track 11 refund/handler/ClaimApprovedHandler 소비")
+- backend/src/test/java/com/zslab/mall/refund/controller/RefundWebhookIntegrationTest.java (Q9 LT-02 보정·seed/cleanup `SET FOREIGN_KEY_CHECKS=0` 사용부에 try-finally `=1` 복원)
+
+#### 무변경 확정
+application.yml·build.gradle.kts·DDL/Flyway(amount=OrderItem.totalPrice·스키마 무변경)·ClaimApproved record payload(amount 필드 미추가)·ClaimService(발행부 무변경)·RefundService.markCompleted/markFailed·Refund Entity·RefundStatus·역방향 루프 핸들러 전건(ClaimRefundCompletedHandler·PaymentRefundCompletedHandler·ClaimCompletedHandler)·PaymentGateway·invariants.md(RFN-4 신규 항목 미신설)·state-machine.md.
+
+#### 회귀 예상
+전체 회귀 BUILD SUCCESSFUL·신규 PASS(단위 ≥4·통합 ≥1)·기존 회귀 0(D-93 345 baseline 유지·신규 합산 ≥350).
+
+### 대안 검토 (기각)
+
+- Q0 α(미번호 트랙 유지): 후속 추적 식별자 부재·탐색 비용 증가·기각.
+- Q1 β(`claim/handler/ClaimApprovedHandler`): Refund 의존 claim 패키지 역유입·Aggregate 경계 흐림·기각.
+- Q1 γ(RefundService @TransactionalEventListener 직접 보유): Service에 이벤트 소비 책임 혼입·기존 패턴 위배·기각.
+- Q2 β(RefundCreated 신설): 현재 소비자 부재·NotificationLog/Observability 연쇄 요구·기조 4 위배·기각.
+- Q3 β(Admin 수동 endpoint 병존): state-machine §8 "운영자 수동 보정 권한 없음" 위배·RefundAdjustment 트랙 선행 구현·기각.
+- Q6 lock 도입(claim row pessimistic lock·DB UNIQUE(claim_id)): 인메모리 publisher 가정 하 동시성 위험 제한·RFN-2 충돌·기조 4 위배·기각.
+- Q7 β(ClaimApproved payload amount 추가): 이벤트 record·발행처 ClaimService 수정 동반·D-30 "사실 통지" 원칙 위배·기각.
+- Q7 γ(Payment.amount 전액): 멀티 OrderItem 주문 과환불·PAY-1 위반·기각.
+- Q8 Micrometer 카운터 본 PR 도입: Observability 표준 박제 부재·후속 컨벤션 재정의 부담·기조 4 위배·보류(Track 12+ Observability 트랙 동반).
+- Q8 RefundFailed 이벤트 신설 + Claim 보상 핸들러: 범위 확장·Q2 β 동반·과잉개발·기각.
+- Q10 분할: 범위 협소 대비 과분할·기조 3 위배·기각.
+- WARN-10 γ(invariants 신규 RFN-4): 구조적 불변 아닌 정책 결정·미래 변경 가능성 큼·기각.
+
+### 관련 결정
+
+D-29(save→publish·no flush)·D-66(idempotency 기조)·D-67(Refund FAILED 전이·PG 호출 예외)·D-69(RefundCompleted Publisher/Consumer 시점 분리)·D-72(initiate 단일 트랜잭션)·D-73(PG 호출 실패 = 비즈니스 실패)·D-75(이벤트 핸들러 AFTER_COMMIT·REQUIRES_NEW)·D-87 Q3(Refund 자동 트리거 원천 이연)·D-90 Q2(ClaimApprovedHandler 미신설·Refund 자동 트리거 D-87 Q3 정합)·D-91(통합 테스트 FK 부모 그래프 시드 의무)·D-92 Q8(Refund 자동 트리거 Refund Service 트랙 이연)·D-93 Q9(ClaimApproved 소비자 부재 확정·Refund Service 트랙 자동 변환)·LT-02(FK_CHECKS try-finally)·invariants §2.11 PAY-1·§2.13 CLM-3·§2.13.1 RFN-1~3·state-machine §2·§8·aggregate-boundary §2.5·docs/track-11/recon-report.md.
+
+### 후속 트랙
+
+- **Track 12+ Observability**: 이벤트 핸들러 멱등성 표준화·이벤트 저장소·Outbox·correlationId/eventId·Micrometer 컨벤션·Q6 박제 1줄("외부 이벤트 인프라 도입 시 본 게이트 재검토") 자연 재평가.
+- **Track 12+ RETURN/EXCHANGE**: D-88·D-89·D-90·D-93 후속 목록의 "RETURN/EXCHANGE" 라벨 자연 이동 진입·D-92 횡단 원칙 재사용 2회차·Delivery 도메인 동반·ClaimReasonCode +4값.
+- **RefundAdjustment 트랙**: state-machine §8 "운영자 수동 보정·D안" 진입 시점.
+- **NotificationLog 트랙**: Refund FAILED 운영 알림 source·structured log → 알림 채널 자연 흡수.
+- **부분환불·배송비 환불 정책 트랙**: Q7 박제 1줄 재정의 진입점·invariants RFN-4 또는 PAY-2 본문 재정의.
+- **Spring Security 트랙**: X-*-Id stub 3종 일괄 대체·Q11(D-93) wrapper 유지 전략 결정.
+
+### 후속
+
+1. 본 결정 박제 = PR 동반 (D-87·D-88·D-89·D-90·D-92·D-93 PR 인라인 패턴 정합).
+2. PR 브랜치 `feat/track-11-refund-auto-trigger` 생성 (main HEAD d8f8cb0 기준).
+3. 가드 5 사전 통지: 신규 3·수정 4·문서 1(본 D-94 박제는 사용자 직접 처리) — Claude Code 구현 프롬프트 시점 일괄 통지.
+4. TDD 우선(단위 → 통합)·전체 회귀 BUILD SUCCESSFUL·신규 ≥5 PASS·기존 회귀 0.
+5. GitHub Web UI PR 생성·Base: main·Compare: feat/track-11-refund-auto-trigger·외부 검토 권장(S급·CLM-3 정합 핵심·본 결정으로 4연속 carry-over 종결).
+6. PR 머지로 Track 11 종결·ClaimApproved 소비자 부재 carry-over 영구 해소.
+
+---
