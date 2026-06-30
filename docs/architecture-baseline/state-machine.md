@@ -165,9 +165,25 @@ Order.status는 OrderItem 집계 캐시이므로, OrderItem 상태가 변경될 
 
 ## 6. 외부 이연
 
-- **Delivery 상태 전이** → 각 도메인 별도 정의 (본 PR 범위 외)
+- **Delivery 상태 전이** → §6.1로 정의 완료 (Track 13·D-97·이연 해소)
 - **자동 구매확정 타이머** (배송 후 N일 → CONFIRMED) → 구현 단계
 - **재고 복구 시점** (CANCELLED/RETURNED 후) → PR-02 inventory-policy.md
+
+### 6.1 Delivery.status (B분류 — DELIVERY_STATUS·Track 13 D-97)
+
+> 소스: decisions.md D-97 [확정 2026-06-30]·DLV-1~3(invariants.md §2.12)·domain-events.md E4·E5·A#12.
+> Track 13에서 본래 §6 이연("Delivery 상태 전이 → 각 도메인 별도 정의")을 영구 해소한다.
+
+```
+   READY ──→ SHIPPING ──→ DELIVERED
+```
+
+- **단방향 직진**: READY → SHIPPING → DELIVERED. 단계 건너뛰기(READY → DELIVERED) 차단.
+- **DELIVERED 종결**: DELIVERED에서 어떤 전이도 불가(불가역).
+- **역방향·자기 전이 차단**: SHIPPING → READY·DELIVERED → SHIPPING·동일 상태 재전이 전건 차단.
+- **가드 위치**: `DeliveryStatus.canTransitionTo(next)`(OrderItemStatus.canTransitionTo 패턴 1:1)·전이 실행은 `Delivery.markShipping`·`markDelivered` 도메인 메서드(D-97 Q2).
+- **OrderItem 연동(§3 정합)**: SHIPPING 진입 시 E4 DeliveryStarted → OrderItem SHIPPING·DELIVERED 진입 시 E5 DeliveryCompleted → OrderItem DELIVERED(domain-events §2 "OrderItem 상태 = 동기").
+- **DLV-3**: markDelivered 시 shipped_at ≤ delivered_at 검증(invariants §2.12).
 
 ---
 

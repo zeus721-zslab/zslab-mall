@@ -75,4 +75,36 @@ public class Delivery extends AbstractPublicIdFullAuditableEntity {
         delivery.status = DeliveryStatus.READY;
         return delivery;
     }
+
+    /**
+     * 발송 처리(READY → SHIPPING·D-97 Q2). {@link DeliveryStatus#canTransitionTo}로 전이 합법성을 검증한 뒤
+     * 운송장번호·발송 시각·상태를 설정한다. 이벤트 발행은 {@code DeliveryService} 책임이다(D-29 save→publish).
+     *
+     * @throws IllegalStateException 불법 배송 상태 전이 시
+     */
+    public void markShipping(String trackingNo, LocalDateTime shippedAt) {
+        if (!status.canTransitionTo(DeliveryStatus.SHIPPING)) {
+            throw new IllegalStateException("불법 배송 상태 전이: " + status + " → " + DeliveryStatus.SHIPPING);
+        }
+        this.trackingNo = trackingNo;
+        this.shippedAt = shippedAt;
+        this.status = DeliveryStatus.SHIPPING;
+    }
+
+    /**
+     * 배송 완료 처리(SHIPPING → DELIVERED·D-97 Q2·WARN-7). 전이 합법성 검증 후 DLV-3(shipped_at ≤ delivered_at·
+     * invariants §2.12)를 강제한다. 이벤트 발행은 {@code DeliveryService} 책임이다(D-29 save→publish).
+     *
+     * @throws IllegalStateException 불법 배송 상태 전이 또는 DLV-3 위반 시
+     */
+    public void markDelivered(LocalDateTime deliveredAt) {
+        if (!status.canTransitionTo(DeliveryStatus.DELIVERED)) {
+            throw new IllegalStateException("불법 배송 상태 전이: " + status + " → " + DeliveryStatus.DELIVERED);
+        }
+        if (shippedAt != null && deliveredAt.isBefore(shippedAt)) {
+            throw new IllegalStateException("DLV-3 위반·shipped_at ≤ delivered_at 정합 깨짐");
+        }
+        this.deliveredAt = deliveredAt;
+        this.status = DeliveryStatus.DELIVERED;
+    }
 }

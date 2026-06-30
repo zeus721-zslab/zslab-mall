@@ -4209,3 +4209,257 @@ D-30 (이벤트 사실 통지·payload 무수정)·D-67 (PG 호출 예외 FAILED
 6. PR 머지로 D-94 Q8 흡수 carry-over 영구 해소·D-95 §후속 7 종결.
 
 ---
+
+## D-97. Track 13 Delivery 도메인 신설 · state-machine §6 이연 해소 · E4·E5 발행처 신설 · NotificationLog 표준 1회차 재사용 [ACTIVE]
+
+**결정일**: 2026-06-30
+**관련**: Track 13 / D-01·D-06·D-21·D-29·D-30·D-74·D-75·D-80·D-86 Batch-3b·D-91·D-94 Q0·D-95 Q1·Q4·Q5·Q6·WARN-10 / invariants §2.12 DLV-1~3 / state-machine §3·§6 / aggregate-boundary §2.5 / domain-events §2 E4·E5 / live-traps LT-02 / docs/track-13/recon-report.md §1~§11
+
+### 배경
+
+Track 12 NotificationLog 적재 표준 박제(D-95) + D-96 후속 PR(Refund FAILED 적재 전환) 머지 직후 진입. 본 트랙은 D-95 §후속 "Delivery 도메인 신설 트랙·E4·E5 발행처 + NotificationDeliveryStartedHandler·NotificationDeliveryCompletedHandler 동반" 자연 진입점이다.
+
+정찰 결과 (docs/track-13/recon-report.md §2·§3 실측 인용):
+- Delivery 도메인 영속 계층 4파일(entity·enums 2종·repository) 선구현·service/handler/controller/event 패키지 전무
+- `DeliveryStatus.canTransitionTo()` 미존재·`Delivery.markShipping()`·`markDelivered()` 미존재·E4·E5 record 미존재
+- DDL ENUM 1층 잠금 완료·4층위 룰 2~4층 미완(외부 노출 DTO 부재로 3·4층 OUT-OF-SCOPE)
+- `OrderItemStatus.canTransitionTo` PREPARING→SHIPPING·SHIPPING→DELIVERED 기정의 완료 (회귀 위험 저)
+- NotificationLog 표준 5 메서드·핸들러 4건 SoT 안정·PolymorphicTargetType.DELIVERY 기존재
+
+1·2차 외부 검토 생략 (A급·새 패턴 0·전건 1:1 재사용·D-95 표준 2차 검토 통과 후 1회차 재사용). 정찰 룰 7건·기조 5 자체 감사 통과 후 결정 12건 + WARN 처치 3건 박제.
+
+### 결정 (12건)
+
+#### Q0: 트랙 식별자 = α Track 13 = Delivery 확정
+
+기존 라벨 정정 의무: D-95 §후속 "Track 13+ Observability"·"Track 13+ RETURN/EXCHANGE"는 본 결정 박제 시점부터 **Track 14+로 자연 이동**. 기존 결정 본문 정정 수행 안 함 (과잉문서 회피·D-94 Q0 β·D-95 Q1 α 패턴 3회차).
+
+후속 트랙 라벨 누적 정정:
+- D-90 §후속·D-94 §후속의 "Track 12+ Observability" → 이미 D-95 Q1에서 Track 13+로 이동·본 결정으로 **Track 14+로 재이동**
+- D-94 §후속의 "Track 12+ RETURN/EXCHANGE" → 이미 D-95 Q1에서 Track 13+로 이동·본 결정으로 **Track 14+로 재이동**
+
+#### Q1: Delivery 상태 전이 규칙 (state-machine §6 이연 해소)
+
+`DeliveryStatus.canTransitionTo(DeliveryStatus next)` 신설:
+- READY → SHIPPING 허용
+- SHIPPING → DELIVERED 허용
+- DELIVERED → * 차단 (종결 상태)
+- 역방향 전건 차단·자기 전이 차단
+
+`OrderItemStatus.canTransitionTo` 패턴 1:1·switch expression·단순 직진 단방향. state-machine §6 "Delivery 상태 전이 → 각 도메인 별도 정의 (본 PR 범위 외)" 이연 영구 해소·본 결정 박제로 §6 본문 갱신 의무.
+
+#### Q2: 상태 전이 메서드 위치 = α Entity 도메인 메서드
+
+`Delivery.java` 내 도메인 메서드 신설:
+- `markShipping(String trackingNo, LocalDateTime shippedAt)` — canTransitionTo 가드·trackingNo·shippedAt·status 설정
+- `markDelivered(LocalDateTime deliveredAt)` — canTransitionTo 가드·DLV-3 검증(shippedAt ≤ deliveredAt)·deliveredAt·status 설정
+
+D-29 save→publish 원칙·이벤트 발행은 DeliveryService 책임. OrderItem.changeStatus + Order.markPaid 분리 패턴 1:1 정합.
+
+기각: β Service 이동 (도메인 행위 응집 위배·기조 4).
+
+#### Q3: 트리거 진입점 = α Service 직접 호출
+
+`DeliveryService.markShipping(Long deliveryId, String trackingNo)`·`markDelivered(Long deliveryId)` Service 메서드 신설·Controller·endpoint 본 트랙 OUT-OF-SCOPE.
+
+판매자 API endpoint·Admin endpoint는 별도 트랙 이연 (Seller Service 트랙 또는 Admin Service 트랙 진입 시점). 본 트랙 단위·통합 테스트는 Service 직접 호출로 충분.
+
+기각: β Controller 동반 (범위 폭발·기조 4·외부 노출 DTO @ValidEnum 3·4층 동반 의무 발생).
+
+#### Q4: Order 측 동기 소비 핸들러 위치 = α `order/handler/` 패키지
+
+신규 핸들러 2건:
+- `order/handler/DeliveryStartedHandler` — E4 소비·OrderItem → SHIPPING 전이 + Order.status 재계산 (구체 호출 경로는 기존 핸들러 3건 `ClaimRequestedHandler`·`ClaimCompletedHandler`·`payment/handler/OrderEventHandler` 실측 후 1:1 재사용)
+- `order/handler/DeliveryCompletedHandler` — E5 소비·OrderItem → DELIVERED 전이 + Order.status 재계산 (동일 패턴)
+
+D-94 Q1 α 패턴 1:1 (반응 도메인 패키지 배치)·delivery 패키지 분산·order 의존 역유입 차단.
+
+기각: β payment/handler/OrderEventHandler 확장 (Payment 핸들러에 Delivery 책임 혼입·SRP 위배·D-94 Q1 β 기각 패턴 정합).
+
+#### Q5: Order 측 트랜잭션 정책 = `@EventListener` 동기 + 동일 트랜잭션
+
+`order/handler/Delivery*Handler` 양자에 `@EventListener` 적용·**`@TransactionalEventListener` 금지**. payment/handler/OrderEventHandler(E2 PaymentCompleted 소비) 패턴 1:1.
+
+근거: domain-events.md §2 E4·E5 "OrderItem 상태 = 동기" 박제 의무·OrderItem 전이 실패 시 발행 트랜잭션 롤백 필수·AFTER_COMMIT 비동기화 시 Delivery 상태와 OrderItem 상태 불일치 윈도우 발생.
+
+#### Q6: Notification 핸들러 = `notification/handler/` 2건·AFTER_COMMIT·REQUIRES_NEW
+
+신규 핸들러 2건:
+- `notification/handler/NotificationDeliveryStartedHandler` — E4 비동기 소비·`notificationService.recordDeliveryStarted(event)` 위임
+- `notification/handler/NotificationDeliveryCompletedHandler` — E5 비동기 소비·`notificationService.recordDeliveryCompleted(event)` 위임
+
+D-95 표준 1:1 재사용 1회차·D-74 `Notification` prefix 일관 적용 (DeliveryStartedHandler·DeliveryCompletedHandler는 order/handler/에 점유·충돌 회피 의무).
+
+`NotificationService` 신규 메서드 2건:
+- `recordDeliveryStarted(DeliveryStarted event)`
+- `recordDeliveryCompleted(DeliveryCompleted event)`
+
+private 헬퍼 신설: `resolveDeliveryRecipient(Long deliveryId, String eventName)` — deliveryId → Delivery 재조회 → orderItemId → OrderItem → orderId → Order → buyerId 체인·미발견 시 null 반환·skip + warn (D-95 A1-α·A2-α 정합).
+
+#### Q7: TemplateCode = `DELIVERY_STARTED`·`DELIVERY_COMPLETED` 상수 2건 추가
+
+`NotificationTemplateCodes`에 2 상수 추가 (5→7건):
+- `DELIVERY_STARTED = "TPL_DELIVERY_STARTED"`
+- `DELIVERY_COMPLETED = "TPL_DELIVERY_COMPLETED"`
+
+Enum 승격 임계 ≥10건 유지 (D-95 WARN-10-α 정합·여유 3건). DTO @ValidEnum 수요 발생 시 재평가.
+
+#### Q8: 멱등성 가드 = α `OrderItemStatus.canTransitionTo` 자연 흡수
+
+별도 멱등 저장소 미도입. Order 측 핸들러에서 OrderItem.changeStatus 호출 시 `OrderItemStatus.canTransitionTo` 가드가 자연 흡수:
+- E4 재전달·OrderItem이 이미 SHIPPING 이상 → canTransitionTo false → no-op skip
+- E5 재전달·OrderItem이 이미 DELIVERED → canTransitionTo false → no-op skip
+
+NotificationLog 측은 D-95 Q6 α 정합·append-only 멱등 가드 미도입·재전달 시 중복 적재 가능성 수용 (인메모리 ApplicationEvent publisher 가정 하 재전달 자연 발생 불가).
+
+**박제 1줄**: "Track 13 Delivery 이벤트 멱등 보호는 OrderItemStatus.canTransitionTo 자연 흡수·외부 이벤트 브로커·Outbox·다중 인스턴스 도입 시 본 게이트 재검토 의무." (D-95 Q6 박제 1줄과 일관·Track 14+ Observability 자연 재평가)
+
+#### Q9: PR 분할 = α 단일 PR
+
+본 트랙은 단일 PR(`feat/track-13-delivery`)로 구성. D-87·D-94·D-95 1-PR 단독 패턴 4회차 정합. 범위 협소(신규 7·수정 5·문서 2·D-97 박제 1)·분할 시 문서·PR·검증 비용 역증·Order 핸들러와 Notification 핸들러는 동일 이벤트(E4·E5) 소비 결합·분리 시 통합 테스트 1회 커버 불가.
+
+정찰 보고서 §8 Q9 β(분리) 권장은 검토 부담 분산 사유였으나 외부 검토 생략 결정(Q12)으로 사유 약화·기조 4 정합 α 채택.
+
+기각: β Delivery 핵심 + Notification 분리 2 PR (E4·E5 발행 → Order·Notification 동시 소비 통합 검증 분리 비용·기조 4 위배).
+
+#### Q10: 테스트 전략 = 단위 + 통합·D-91·LT-02 의무
+
+**단위 테스트** (≥3건):
+- `DeliveryServiceTest.markShipping` 정상·canTransitionTo 위반(DELIVERED 상태에서 markShipping)·이벤트 발행 검증
+- `DeliveryServiceTest.markDelivered` 정상·DLV-3 위반(shippedAt > deliveredAt)·canTransitionTo 위반(READY 상태에서 markDelivered 스킵)
+- `order/handler/DeliveryStartedHandlerTest`·`DeliveryCompletedHandlerTest` (OrderItem 전이 + 멱등 skip 검증)
+
+**통합 테스트** (≥1건):
+- `delivery/integration/DeliveryEventIntegrationTest`
+  - T1: markShipping → E4 발행 → OrderItem SHIPPING + NotificationLog 적재 검증
+  - T2: markDelivered → E5 발행 → OrderItem DELIVERED + NotificationLog 적재 검증
+  - T3: 잘못된 상태 전이(READY→DELIVERED 스킵) → IllegalStateException·상태 무변경
+
+**의무 박제**:
+- `@Transactional` **금지** (D-90 Q5 β·AFTER_COMMIT 핸들러 미실행 트랩 회피)·TransactionTemplate 패턴
+- LT-02 try-finally `SET FOREIGN_KEY_CHECKS=1` 복원 의무
+- D-91 FK 부모 그래프 시드: seller·product·variant·user·order·order_item 실제 INSERT 의무 (DeliveryRepositoryTest seedOrderItem 패턴 + 부모 그래프 확장)
+
+#### Q11: DeliveryRepository 확장 = β 미추가
+
+`findByOrderItemId` 미추가. DeliveryService가 deliveryId를 직접 수신·`findById(deliveryId)` 재사용 충분. 운영자/판매자 endpoint 도입 시점에 수요 발생 시 추가 (별도 트랙).
+
+기각: α `findByOrderItemId` 추가 (현재 호출처 부재·기조 4 위배·과잉개발).
+
+#### Q12: 외부 검토 라벨 = A급·외부 검토 생략
+
+근거:
+- 회귀 위험 저 (OrderItemStatus.canTransitionTo 기정의 흡수·기존 테스트 회귀 0)
+- 새 패턴 0건·전건 1:1 재사용 (D-29 save→publish·D-74 Notification prefix·D-75 AFTER_COMMIT·REQUIRES_NEW·D-94 Q1 핸들러 배치·D-95 Q5/Q6 NotificationLog 표준)
+- 단일 Aggregate·결합도 낮음·state-machine §6 신규 박제는 단순 직진
+- D-95 §1.1 A급 외부 검토 선택 패턴 정합·D-95 자체 2차 검토 통과한 표준의 1회차 재사용
+
+가드 1 라벨: **외부 검토 생략 권장**.
+
+### WARN 처치 (recon-report §9 매트릭스)
+
+#### P0 처치 (Q1·Q2 결정으로 자연 해소)
+- WARN-1 canTransitionTo 미존재 → Q1 결정으로 신설
+- WARN-2 markShipping/markDelivered 미존재 → Q2 결정으로 신설
+- WARN-3 E4·E5 record 미존재 → Q1·Q2 발행처 신설 동반
+
+#### P1 처치
+- WARN-4 state-machine §6 이연 → Q1 결정 + state-machine.md §6 본문 갱신 의무
+- WARN-5 OrderService markShipping/markDelivered 미존재 → Q4 결정으로 핸들러 신설·구체 호출 패턴(OrderService 경유 또는 OrderItemRepository 직접 주입·OrderItem 전이 메서드 직접 호출)은 기존 핸들러 3건(`ClaimRequestedHandler`·`ClaimCompletedHandler`·`payment/handler/OrderEventHandler`) 구현 단계 실측 후 1:1 재사용·본 결정 박제 외 (기조 5 정합·추측 단정 회피)
+- WARN-6 Notification 핸들러 recipient 산정 → Q6 결정으로 resolveDeliveryRecipient 체인 박제
+- **WARN-7 DLV-3 강제 의무** → `Delivery.markDelivered` 내부에 `if (shippedAt != null && deliveredAt.isBefore(shippedAt)) throw new IllegalStateException("DLV-3 위반·shipped_at ≤ delivered_at 정합 깨짐")` 박제
+- **WARN-8 D-91 FK 부모 그래프 시드** → Q10 통합 테스트 의무 박제·DeliveryRepositoryTest seedOrderItem은 order+order_item만 시딩·핸들러 UPDATE는 seller·product·variant·user 추가 INSERT 필수
+
+#### P2 처치
+- WARN-9 TemplateCode 2건 → Q7 결정
+- WARN-10 Repository 확장 → Q11 β 미추가
+- WARN-11 `@Transactional` 금지 → Q10 의무 박제 (D-90 Q5 β·TransactionTemplate 패턴)
+
+### 횡단 원칙 (D-92·D-93 carry-over)
+
+D-92·D-93 횡단 원칙("권한 검증 = Service 진입부·primitive actor 비의존·액터별 권한은 wrapper 캡슐화")은 본 트랙(이벤트 핸들러 + Service 트랙)에 직접 적용 대상 아니다. DeliveryService는 actor 비의존 시그니처(`markShipping(Long deliveryId, String trackingNo)`·`markDelivered(Long deliveryId)`)·Controller endpoint OUT-OF-SCOPE. 본 트랙은 횡단 원칙 재사용 회차에 산입하지 않는다 (Track 14+ 액터 트랙·Spring Security 트랙 진입 시 재사용 카운트 재개).
+
+### 클래스 네이밍 (D-74 정합)
+
+| 신규 핸들러 | 패키지 | 충돌 기존 클래스 | 네이밍 방식 |
+|---|---|---|---|
+| DeliveryStartedHandler | order/handler/ | 없음 | 도메인 prefix 미부착 (Order 측 동기 소비) |
+| DeliveryCompletedHandler | order/handler/ | 없음 | 동일 |
+| NotificationDeliveryStartedHandler | notification/handler/ | order/handler/DeliveryStartedHandler | **충돌 회피 의무·`Notification` prefix** |
+| NotificationDeliveryCompletedHandler | notification/handler/ | order/handler/DeliveryCompletedHandler | **동일** |
+
+D-74·D-95 NotificationClaim*Handler·NotificationOrderPlaced·NotificationPaymentCompleted 선례 패턴 1:1.
+
+### 영향 범위
+
+#### 신규 파일 (7건)
+- backend/src/main/java/com/zslab/mall/delivery/event/DeliveryStarted.java (record·payload: deliveryId·orderItemId·carrier·trackingNo·occurredAt·D-30 사실 통지·Javadoc "Track 13 order/handler/DeliveryStartedHandler 동기 소비·notification/handler/NotificationDeliveryStartedHandler 비동기 소비")
+- backend/src/main/java/com/zslab/mall/delivery/event/DeliveryCompleted.java (record·payload: deliveryId·orderItemId·deliveredAt·occurredAt·D-30 사실 통지·Javadoc 동일 구조)
+- backend/src/main/java/com/zslab/mall/delivery/service/DeliveryService.java (markShipping·markDelivered·D-29 save→publish·DLV-3 검증은 Entity 위임)
+- backend/src/main/java/com/zslab/mall/order/handler/DeliveryStartedHandler.java (E4 동기 소비·@EventListener·OrderItem 전이·Order.status 재계산)
+- backend/src/main/java/com/zslab/mall/order/handler/DeliveryCompletedHandler.java (E5 동기 소비·동일 패턴)
+- backend/src/main/java/com/zslab/mall/notification/handler/NotificationDeliveryStartedHandler.java (E4 비동기·AFTER_COMMIT·REQUIRES_NEW·NotificationService 위임)
+- backend/src/main/java/com/zslab/mall/notification/handler/NotificationDeliveryCompletedHandler.java (E5 비동기·동일 패턴)
+
+#### 수정 파일 (production 5건)
+- backend/src/main/java/com/zslab/mall/delivery/enums/DeliveryStatus.java (canTransitionTo 신설·READY→SHIPPING·SHIPPING→DELIVERED·DELIVERED 종결)
+- backend/src/main/java/com/zslab/mall/delivery/entity/Delivery.java (markShipping·markDelivered 도메인 메서드 신설·DLV-3 검증·Javadoc Q2 박제)
+- backend/src/main/java/com/zslab/mall/notification/service/NotificationService.java (recordDeliveryStarted·recordDeliveryCompleted 메서드 2건 추가·resolveDeliveryRecipient private 추가·Javadoc Q6 박제)
+- backend/src/main/java/com/zslab/mall/notification/template/NotificationTemplateCodes.java (DELIVERY_STARTED·DELIVERY_COMPLETED 상수 2건 추가·7건)
+- backend/src/main/resources/db/migration/ DDL 무변경 확정 (V1__init.sql delivery 테이블 기완비)
+
+#### 신규 테스트 (≥4건)
+- backend/src/test/java/com/zslab/mall/delivery/service/DeliveryServiceTest.java (단위·markShipping 정상·canTransitionTo 위반·markDelivered 정상·DLV-3 위반·이벤트 발행 검증)
+- backend/src/test/java/com/zslab/mall/order/handler/DeliveryStartedHandlerTest.java (단위·OrderItem 전이·canTransitionTo 멱등 skip)
+- backend/src/test/java/com/zslab/mall/order/handler/DeliveryCompletedHandlerTest.java (단위·동일 패턴)
+- backend/src/test/java/com/zslab/mall/delivery/integration/DeliveryEventIntegrationTest.java (e2e·NO @Transactional·TransactionTemplate·LT-02 try-finally·D-91 FK 부모 그래프 시드·T1·T2·T3)
+
+#### 문서 수정 (2건)
+- docs/architecture-baseline/state-machine.md §6 (Delivery 상태 전이 규칙 본문 신설·READY→SHIPPING→DELIVERED 단방향·이연 해소)
+- docs/architecture-baseline/domain-events.md §2 E4·E5 표 (발행처 주석 보강·"구현 완료·Delivery.markShipping·markDelivered + DeliveryService publishEvent")
+
+#### 무변경 확정
+application.yml·build.gradle.kts·DDL/Flyway(V1__init.sql delivery 테이블·ENUM 1층 잠금 기완비·스키마 무변경)·DeliveryCarrier·DeliveryRepository·DeliveryRepositoryTest 4 케이스(회귀 유지)·OrderItemStatus.canTransitionTo(PREPARING→SHIPPING·SHIPPING→DELIVERED 기정의)·OrderItem.changeStatus·Order.status 재계산 메서드·PolymorphicTargetType(DELIVERY 기존재)·NotificationLog Entity·NotificationChannel·NotificationLogStatus·NotificationLogRepository·기존 NotificationService 5 메서드·기존 Notification 핸들러 4건·기존 이벤트 8건 payload·invariants.md(DLV-1~3 기박제·신규 항목 미신설).
+
+#### 회귀 예상
+전체 회귀 BUILD SUCCESSFUL·신규 PASS(단위 ≥6·통합 ≥3)·기존 회귀 0(D-96 baseline 377 → 신규 합산 ≥386).
+
+### 대안 검토 (기각)
+
+- Q1 양방향 전이(SHIPPING→READY 허용): 운송 분쟁 시 보정 시나리오는 별도 보정 트랙·기조 4 위배·기각.
+- Q2 β Service 이동: 도메인 행위 응집 위배·OrderItem 패턴 위배·기각.
+- Q3 β Controller 동반: 외부 노출 DTO @ValidEnum 3·4층 동반 의무·범위 폭발·기조 4 위배·기각.
+- Q4 β payment/handler/OrderEventHandler 확장: Payment 핸들러에 Delivery 책임 혼입·SRP 위배·D-94 Q1 β 기각 패턴·기각.
+- Q5 AFTER_COMMIT 비동기: domain-events §2 "OrderItem 상태 = 동기" 박제 위배·Delivery-OrderItem 상태 불일치 윈도우·기각.
+- Q6 NotificationService 메서드 미분리(통합 record 메서드): D-95 표준 1:1 위배·재조회 체인 차이 무시·기각.
+- Q7 Enum 승격 즉시 도입: DTO @ValidEnum 동반·외부 노출 DTO 부재·D-95 WARN-10-α 위배·기각.
+- Q8 멱등 저장소 도입(target_type+target_id 가드): 정당 재알림 수요 충돌·D-95 Q6 박제 1줄 위배·기각.
+- Q9 β PR 분리: 통합 테스트 1회 커버 불가·검증 비용 역증·외부 검토 생략(Q12)으로 분리 사유 약화·기각.
+- Q10 단위만(통합 생략): D-91 핸들러 동작 실측 부재·CLAUDE.md 신규 도메인 통합 3건 의무 위배·기각.
+- Q11 α findByOrderItemId 추가: 현재 호출처 부재·기조 4 위배·기각.
+- Q12 외부 검토 의무화(S급 상향): 새 패턴 0·전건 1:1 재사용·D-95 §1.1 A급 패턴 정합·기각.
+
+### 관련 결정
+
+D-01 (Aggregate 외부 ID 참조·Delivery #12)·D-06 (E4·E5 발행 주체 Delivery·소비 주체 Order·Notification 박제)·D-21 §f (DLV-1~3 invariants 보강)·D-29 (save→publish·no flush)·D-30 (이벤트 사실 통지·payload 무수정)·D-74 (이벤트 핸들러 빈 네이밍·Notification prefix 충돌 회피)·D-75 (이벤트 핸들러 AFTER_COMMIT·REQUIRES_NEW)·D-80 (Delivery ARCHIVE 분류·송장 이력 보존)·D-86 Batch-3b (Delivery Entity·enum 2·Repository 선구현 확정)·D-90 Q5 β (통합 테스트 @Transactional 금지·TransactionTemplate)·D-91 (통합 테스트 FK 부모 그래프 시드 의무)·D-94 Q0 β·Q1 α (트랙 식별자 재정의 선례·핸들러 반응 도메인 패키지 배치)·D-95 Q1 α (트랙 식별자 재정의 2회차)·D-95 Q4 α′-2 (NotificationLog 적재 범위 한정·산정 실패 skip+warn)·D-95 Q5 α (NotificationService 재조회 적재 표준)·D-95 Q6 α (멱등 가드 미도입·인메모리 publisher 가정)·D-95 WARN-10-α (NotificationTemplateCodes 상수 클래스)·D-96 (NotificationService 운영 알림 채널 패턴)·LT-02 (FK_CHECKS try-finally)·invariants §2.12 DLV-1~3·state-machine §3·§6·aggregate-boundary §2.5·domain-events §2 E4·E5·docs/track-13/recon-report.md §1~§11.
+
+### 후속 트랙
+
+- **Track 14+ Observability**: 이벤트 핸들러 멱등성 표준화·이벤트 저장소·Outbox·correlationId/eventId·Micrometer 컨벤션·D-95 Q6 박제 1줄·본 결정 Q8 박제 1줄 통합 재평가 진입점.
+- **Track 14+ RETURN/EXCHANGE**: D-94·D-95 §후속 라벨 자연 이동·Delivery DELIVERED 의존 전이(RETURN_REQUESTED·EXCHANGE_REQUESTED)·D-92·D-93 횡단 원칙 재사용 2회차·ClaimReasonCode +4값.
+- **Track 14+ Inventory 차감/복구 Order-Delivery 연동**: E1·E2·E9 차감/복구 핸들러·Inventory 도메인 행위 신설.
+- **Seller Service 트랙 (또는 Admin Service 트랙)**: Delivery Controller·endpoint 신설·판매자 운송장 등록 API·운영자 강제 전이·DTO @ValidEnum 3·4층 동반.
+- **자동 구매확정 타이머 트랙**: DELIVERED 후 N일 → OrderItem CONFIRMED 전이·배치 또는 스케줄러.
+- **택배사 API 연동 어댑터 트랙**: DeliveryCarrier·tracking_no 외부 유효성 검증·실시간 배송 추적.
+- **NotificationLog 발송 어댑터 트랙** (D-86 §후속): PENDING→SENT 전이·실 전송 게이트웨이·D-96 Q2 운영자 채널 recipient 재정의 진입점.
+
+### 후속
+
+1. 본 결정 박제 = 사용자 직접 처리 (D-94·D-95·D-96 패턴 정합).
+2. PR 브랜치 `feat/track-13-delivery` 생성 (main HEAD 8e7d4d2 기준).
+3. 가드 5 사전 통지: 신규 7 (event 2·service 1·handler 4) + 수정 5 (production 4·DDL 무변경 확정 1) + 신규 테스트 ≥4 + 문서 2 (state-machine §6·domain-events §2) + 박제 1 (본 D-97·사용자 직접 처리) — Claude Code 구현 프롬프트 시점 일괄 통지.
+4. TDD 우선(단위 → 통합)·BUILD SUCCESSFUL·신규 ≥9 PASS·기존 회귀 0.
+5. GitHub Web UI PR 생성·Base: main·Compare: feat/track-13-delivery·외부 검토 생략 (A급·D-95 §1.1 패턴 정합).
+6. PR 머지로 Track 13 종결·state-machine §6 이연 영구 해소·D-95 §후속 Delivery 도메인 신설 트랙 carry-over 영구 해소·D-95 Q4 OUT-OF-SCOPE(E4·E5) 자연 해소.
+
+---
