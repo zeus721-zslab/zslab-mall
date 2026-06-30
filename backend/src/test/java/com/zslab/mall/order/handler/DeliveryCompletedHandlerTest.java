@@ -7,7 +7,9 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.zslab.mall.delivery.entity.Delivery;
 import com.zslab.mall.delivery.event.DeliveryCompleted;
+import com.zslab.mall.delivery.repository.DeliveryRepository;
 import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.repository.OrderItemRepository;
@@ -33,10 +35,14 @@ class DeliveryCompletedHandlerTest {
     private static final Long ORDER_ID = 50L;
     private static final LocalDateTime OCCURRED_AT = LocalDateTime.of(2026, 6, 30, 9, 0);
 
+    private static final Long CLAIM_ID = 99L;
+
     @Mock
     private OrderItemRepository orderItemRepository;
     @Mock
     private OrderService orderService;
+    @Mock
+    private DeliveryRepository deliveryRepository;
     @InjectMocks
     private DeliveryCompletedHandler handler;
 
@@ -92,6 +98,19 @@ class DeliveryCompletedHandlerTest {
         handler.onDeliveryCompleted(event());
 
         verify(orderItem, never()).changeStatus(any());
+        verify(orderService, never()).recalculateStatus(anyLong());
+    }
+
+    @Test
+    @DisplayName("onDeliveryCompleted: 교환 배송(claim_id != null) → early return·OrderItem 조회·재계산 없음(D-98 Q5)")
+    void onDeliveryCompleted_exchangeDelivery_earlyReturn() {
+        Delivery delivery = mock(Delivery.class);
+        when(delivery.getClaimId()).thenReturn(CLAIM_ID);
+        when(deliveryRepository.findById(DELIVERY_ID)).thenReturn(Optional.of(delivery));
+
+        handler.onDeliveryCompleted(event());
+
+        verify(orderItemRepository, never()).findById(anyLong());
         verify(orderService, never()).recalculateStatus(anyLong());
     }
 }
