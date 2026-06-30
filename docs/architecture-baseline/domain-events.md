@@ -80,7 +80,9 @@
 | 멱등성 | order_item_id 기준. 이미 SHIPPING 이상이면 skip |
 | 재시도 | 동기 실패 = 롤백 / 알림 = 재시도 |
 
-> **경계 주의**: Delivery.status(READY/SHIPPING/DELIVERED)는 ERD 04 기정의값을 **트리거로 참조만** 한다. Delivery 상태 전이 규칙 자체는 본 PR에서 정의하지 않는다(state-machine.md §6 이연 유지). OrderItem의 SHIPPING/DELIVERED 진입조건이 PR-01에서 이미 Delivery 상태를 참조하므로 정합한다.
+> **경계 주의**: Delivery.status(READY/SHIPPING/DELIVERED)는 ERD 04 기정의값을 **트리거로 참조만** 한다. OrderItem의 SHIPPING/DELIVERED 진입조건이 PR-01에서 이미 Delivery 상태를 참조하므로 정합한다.
+>
+> **구현(Track 13·D-97)**: 발행처 `DeliveryService.markShipping(deliveryId, trackingNo)` → `Delivery.markShipping` 전이 후 save→publish(D-29). 동기 소비 `order/handler/DeliveryStartedHandler`(@EventListener·OrderItem SHIPPING 전이)·비동기 적재 `notification/handler/NotificationDeliveryStartedHandler`(AFTER_COMMIT·REQUIRES_NEW). 전이 규칙은 state-machine §6.1 정의 완료(이연 해소).
 
 ### E5. DeliveryCompleted
 
@@ -94,7 +96,9 @@
 | 멱등성 | order_item_id 기준. 이미 DELIVERED 이상이면 skip |
 | 재시도 | 동기 실패 = 롤백 / 알림 = 재시도 |
 
-> **경계 주의**: E4와 동일 — Delivery.status는 트리거 참조만, 전이 규칙 정의 금지(state-machine.md §6).
+> **경계 주의**: E4와 동일 — Delivery.status는 트리거 참조만 한다.
+>
+> **구현(Track 13·D-97)**: 발행처 `DeliveryService.markDelivered(deliveryId)` → `Delivery.markDelivered` 전이(DLV-3 shipped_at ≤ delivered_at 검증) 후 save→publish(D-29). 동기 소비 `order/handler/DeliveryCompletedHandler`(@EventListener·OrderItem DELIVERED 전이)·비동기 적재 `notification/handler/NotificationDeliveryCompletedHandler`(AFTER_COMMIT·REQUIRES_NEW). 전이 규칙은 state-machine §6.1 정의 완료.
 
 ### E6. PurchaseConfirmed
 
