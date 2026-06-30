@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 import com.zslab.mall.claim.enums.ClaimStatus;
 import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.event.ClaimApproved;
+import com.zslab.mall.notification.service.NotificationService;
 import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.payment.gateway.PaymentGatewayException;
@@ -41,6 +42,8 @@ class ClaimApprovedHandlerTest {
     private RefundService refundService;
     @Mock
     private OrderItemRepository orderItemRepository;
+    @Mock
+    private NotificationService notificationService;
     @InjectMocks
     private ClaimApprovedHandler handler;
 
@@ -94,7 +97,7 @@ class ClaimApprovedHandlerTest {
     }
 
     @Test
-    @DisplayName("T4 CANCEL·PG/도메인 예외: initiate 예외를 catch → 핸들러 밖 전파 차단(structured log)")
+    @DisplayName("T4 CANCEL·PG/도메인 예외: initiate 예외를 catch → 핸들러 밖 전파 차단·NotificationService.recordRefundFailed 1회 호출(D-96)")
     void cancel_initiateThrows_exceptionNotPropagated() {
         when(orderItemRepository.findById(ORDER_ITEM_ID)).thenReturn(Optional.of(orderItem()));
         when(refundService.initiate(eq(CLAIM_ID), eq(ITEM_TOTAL_PRICE)))
@@ -103,6 +106,7 @@ class ClaimApprovedHandlerTest {
         assertThatCode(() -> handler.handle(event(ClaimType.CANCEL))).doesNotThrowAnyException();
 
         verify(refundService).initiate(CLAIM_ID, ITEM_TOTAL_PRICE);
+        verify(notificationService).recordRefundFailed(any(ClaimApproved.class));
     }
 
     @Test
