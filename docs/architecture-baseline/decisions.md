@@ -4682,21 +4682,24 @@ ALTER TABLE claim
 
 CLM-2 (REJECTED 재요청은 새 Claim 행)·RETURN→REJECTED 후 EXCHANGE 신규 요청은 활성 종결 후 가능·정합 유지.
 
-#### Q13: WARN-5 EXCHANGE Delivery 식별 + 일관성 검증 = delivery.claim_id NULLABLE FK + INDEX + Claim.attachExchangeDelivery 진입점
+#### Q13: WARN-5 EXCHANGE Delivery 식별 + 일관성 검증 = delivery.claim_id NULLABLE FK + Claim.attachExchangeDelivery 진입점
 
 **DDL 변경** (PR-2 EXCHANGE 동반·`V{N+1}__add_delivery_claim_id.sql`):
 ```sql
 ALTER TABLE delivery
   ADD COLUMN claim_id BIGINT NULL COMMENT 'EXCHANGE 교환품 Delivery 참조·일반 주문은 NULL·Q13',
-  ADD CONSTRAINT fk_delivery_claim FOREIGN KEY (claim_id) REFERENCES claim (id) ON DELETE RESTRICT ON UPDATE CASCADE,
-  ADD INDEX idx_delivery_claim_id (claim_id);
+  ADD CONSTRAINT fk_delivery_claim FOREIGN KEY (claim_id) REFERENCES claim (id) ON DELETE RESTRICT ON UPDATE CASCADE;
 ```
+
+**INDEX 명시 선언 제거** (외부 검토 2차·R5 흡수): V1 헤더 정책(line 13 "FK 자식 컬럼 인덱스는 InnoDB 자동 생성에 의존") 정합·`fk_delivery_claim` InnoDB 자동 INDEX 의존. delivery 테이블 기존 `fk_delivery_order_item`과 동일 패턴.
 
 **UNIQUE 금지** (2·3차 검토 흡수): 향후 재출고 가능성 차단 회피.
 
-**Aggregate 행위 진입점** (3차 검토 흡수·Claim 귀속):
+**Aggregate 행위 진입점** (3차 검토 흡수·외부 검토 1차 Q3 신규 의제 P1 흡수·Claim 귀속):
 - `Claim.attachExchangeDelivery(Long deliveryId, Long deliveryOrderItemId)` primitive 메서드
-- 내부 검증: `this.orderItemId == deliveryOrderItemId` — 위반 시 `ClaimInvalidStateException` throw·로그+skip 금지
+- 내부 검증 (양자 의무·위반 시 `ClaimInvalidStateException` throw·로그+skip 금지):
+  - `this.orderItemId == deliveryOrderItemId` — Delivery-OrderItem 일관성
+  - `this.type == ClaimType.EXCHANGE` — Aggregate 불변식·API 실수로 RETURN/CANCEL 연결 차단 (외부 검토 1차 신규 의제 P1)
 - 검증 시점: create 직전 (커밋 직전 검증 금지)
 
 **RETURN/CANCEL/일반 주문**: `claim_id == null`·검증 우회 (`if (claimId == null) skip`).

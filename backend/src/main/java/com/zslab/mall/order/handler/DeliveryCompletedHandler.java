@@ -1,6 +1,8 @@
 package com.zslab.mall.order.handler;
 
+import com.zslab.mall.delivery.entity.Delivery;
 import com.zslab.mall.delivery.event.DeliveryCompleted;
+import com.zslab.mall.delivery.repository.DeliveryRepository;
 import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.repository.OrderItemRepository;
@@ -25,14 +27,24 @@ public class DeliveryCompletedHandler {
 
     private final OrderItemRepository orderItemRepository;
     private final OrderService orderService;
+    private final DeliveryRepository deliveryRepository;
 
-    public DeliveryCompletedHandler(OrderItemRepository orderItemRepository, OrderService orderService) {
+    public DeliveryCompletedHandler(OrderItemRepository orderItemRepository, OrderService orderService,
+            DeliveryRepository deliveryRepository) {
         this.orderItemRepository = orderItemRepository;
         this.orderService = orderService;
+        this.deliveryRepository = deliveryRepository;
     }
 
     @EventListener
     public void onDeliveryCompleted(DeliveryCompleted event) {
+        // D-98 Q5·교환 배송은 claim/handler/ExchangeDeliveryCompletedHandler가 종결 처리·본 핸들러 미전이
+        Delivery delivery = deliveryRepository.findById(event.deliveryId()).orElse(null);
+        if (delivery != null && delivery.getClaimId() != null) {
+            log.info("[Delivery] DeliveryCompleted 수신·교환 배송(claim_id={}) → 본 핸들러 미전이: deliveryId={}",
+                    delivery.getClaimId(), event.deliveryId());
+            return;
+        }
         OrderItem orderItem = orderItemRepository.findById(event.orderItemId()).orElse(null);
         if (orderItem == null) {
             log.warn("[Delivery] DeliveryCompleted 소비·주문 품목 미발견: orderItemId={}", event.orderItemId());

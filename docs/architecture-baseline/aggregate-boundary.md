@@ -70,7 +70,7 @@
 |---|---|---|---|
 | Order | Order | OrderItem, OrderShippingSnapshot | User.id, ProductVariant.id, Seller.id |
 | Payment | Payment | — (단독) | Order.id |
-| Delivery | Delivery | — (단독) | OrderItem.id |
+| Delivery | Delivery | — (단독) | OrderItem.id, Claim.id (교환 배송 한정·NULL=일반 배송·D-98 Q13) |
 | Claim | Claim | Refund | OrderItem.id, Payment.id |
 
 **경계 결정**:
