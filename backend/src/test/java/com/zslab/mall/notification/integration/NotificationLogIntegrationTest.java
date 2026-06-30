@@ -8,6 +8,7 @@ import com.zslab.mall.claim.enums.ClaimStatus;
 import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.event.ClaimApproved;
 import com.zslab.mall.claim.event.ClaimCompleted;
+import com.zslab.mall.common.observability.TracedEventPublisher;
 import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.enums.OrderStatus;
 import com.zslab.mall.order.event.OrderPlaced;
@@ -21,7 +22,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -87,7 +87,7 @@ class NotificationLogIntegrationTest {
     @MockitoBean
     private PaymentGateway paymentGateway;
     @Autowired
-    private ApplicationEventPublisher eventPublisher;
+    private TracedEventPublisher eventPublisher;
     @Autowired
     private JdbcTemplate jdbc;
     @Autowired
