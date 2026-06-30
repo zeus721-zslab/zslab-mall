@@ -4463,3 +4463,382 @@ D-01 (Aggregate 외부 ID 참조·Delivery #12)·D-06 (E4·E5 발행 주체 Deli
 6. PR 머지로 Track 13 종결·state-machine §6 이연 영구 해소·D-95 §후속 Delivery 도메인 신설 트랙 carry-over 영구 해소·D-95 Q4 OUT-OF-SCOPE(E4·E5) 자연 해소.
 
 ---
+
+## D-98. Track 14 Claim RETURN/EXCHANGE 확장 · state-machine §2/§8 RETURN/EXCHANGE 흐름 종결 · ClaimPickedUp 이벤트 신설 · PR-1 RETURN / PR-2 EXCHANGE 분할 · D-90 Q3 의미 변경 [ACTIVE]
+
+**결정일**: 2026-06-30
+**관련**: Track 14 / D-01·D-05·D-06·D-29·D-30·D-67·D-74·D-75·D-86·D-88·D-89·D-90 (Q3 의미 변경)·D-91·D-92·D-93·D-94·D-95·D-96·D-97 / invariants §2.11 PAY-1·§2.12 DLV-1~3·§2.13 CLM-1~5·§2.13.1 RFN-1~3 / state-machine §2·§3·§6.1·§8 / aggregate-boundary §2.5 / domain-events §2 E5·E7·E8·E9·E11(신설) / live-traps LT-02 / docs/track-14/recon-report.md §1~§12
+
+### 배경
+
+D-88·D-89·D-90·D-93·D-94·D-95·D-97 §후속에 걸쳐 **4회 연속 carry-over**된 "Claim RETURN/EXCHANGE 확장" 의제를 본 트랙에서 종결한다.
+
+**정찰 결과 (docs/track-14/recon-report.md §1.2 실측 인용)**:
+- RETURN/EXCHANGE의 값집합·상태 매트릭스·DTO·Controller·승인 wrapper는 전부 선구현
+- 결손은 "CANCEL 게이트 5중 제거 + 흐름 후반부 신설"에 집중
+
+**P0 결손 3건**:
+- WARN-1 수거 확인 미설계: state-machine §2/§8은 수거 확인을 COMPLETED 게이트로 규정하나 OrderItem 12값에 중간 상태 부재·`OrderItemStatus.canTransitionTo` 라인 52-53 `RETURN_REQUESTED → RETURNED`·`EXCHANGE_REQUESTED → EXCHANGED` 직접 전이만 존재
+- WARN-2 EXCHANGE 교환품 Delivery 생성 진입점 부재: `Delivery.create` production 호출처 0건
+- WARN-3 RETURN/EXCHANGE Refund 트리거 시점 분기 미설계: `refund/handler/ClaimApprovedHandler` 라인 50-54 CANCEL 단독 게이트
+
+1·2·3차 외부 검토 수렴 후 결정 13건 + WARN 처치 7건 + 트랙 식별자 1건 + PR 분할 1건 + D-90 Q3 의미 변경 1건을 박제한다.
+
+### 결정 (13건)
+
+#### Q0: 트랙 식별자 = α Track 14 = Claim RETURN/EXCHANGE 확장·문서 일괄·PR 분리
+
+본 트랙은 D-97 §후속 carry-over 종착지. D-94 Q0 β·D-95 Q1 α·D-97 Q0 β 선례 4회차·트랙 번호는 진입 순서 라벨.
+
+**문서·PR 분할**:
+- **D-98 박제 = RETURN+EXCHANGE 일괄** (본 결정 본문 단일·과잉문서 회피·기조 3)
+- **PR = RETURN PR-1 + EXCHANGE PR-2 분할** (1차 검토자 강권·Q10)
+
+RETURN은 state-machine §2/§8이 닫혀 있고 본 트랙에서 완결 가능·EXCHANGE는 교환 Delivery 생성·배송 완료 게이트가 새로 닫혀야 하는 모델·복잡도 상위·1-PR 5회차 비대화 회피.
+
+#### Q1: 수거 확인 모델링 = (d) 신규 이벤트 E11 ClaimPickedUp + claim.picked_up_at 컬럼
+
+**옵션 (a) OrderItem 신규 상태·(b) ClaimStatus 보조 상태·(c) ReturnDelivery 신규 Aggregate 전건 기각**.
+
+**(d) 채택**:
+- `claim` 테이블 컬럼 추가: `picked_up_at DATETIME(6) NULL COMMENT '수거 확인 시각'`
+- Claim Aggregate 행위 메서드: `Claim.confirmPickup(LocalDateTime pickedUpAt)` 신설 — `status == APPROVED` && `picked_up_at IS NULL` 가드 (멱등·이미 picked_up_at != null 시 no-op)
+- 신규 이벤트 **E11 ClaimPickedUp** (domain-events §2 E11 신설): payload = `claimId·claimPublicId·orderItemId·claimType·pickedUpAt·occurredAt` (D-30 사실 통지·기존 Claim 이벤트 record 패턴 1:1)
+
+**발행 주체**: Seller 우선·Admin override·외부 택배 어댑터는 후속 트랙. 본 트랙 Service primitive `confirmPickup` + wrapper 2건 (Q9 정합).
+
+**멱등성**: `claim.picked_up_at != null` 시 Service no-op + log.info (`ClaimService.markCompleted` 멱등 가드 라인 270-274 패턴 1:1).
+
+#### Q2: RETURN/EXCHANGE Refund 트리거 분기 = RETURN 자동 / EXCHANGE refundAmount==0 → Refund row 미생성
+
+**RETURN**:
+- 신규 핸들러 `refund/handler/ClaimPickedUpHandler` (E11 비동기 소비·`@TransactionalEventListener(AFTER_COMMIT)` + `@Transactional(REQUIRES_NEW)`·기존 `refund/handler/ClaimApprovedHandler` 패턴 1:1)
+- type=RETURN 한정 게이트·`RefundService.initiate(claimId, OrderItem.totalPrice)` 자동 호출 (`refund/handler/ClaimApprovedHandler` CANCEL 처리 패턴 1:1·D-94 Q7 amount=OrderItem.totalPrice 상속)
+- D-94 Q7 박제 1줄 (배송비 환불 OOS) 그대로 상속·D-96 Q3 catch NotificationLog 적재 패턴 1:1
+
+**EXCHANGE**:
+- 본 트랙 차액 환불 OOS·동종 교환만 지원 (refundAmount==0)
+- **Refund row 생성 자체 미수행** (1·2차 검토 흡수): RFN-1 (COMPLETED 전이 pg_refund_id 필수) 충돌 회피·state-machine §8 "환불 금액 발생 시" 단서를 "환불 금액 0 → Refund 미생성"으로 해석·CLM-3 정합 (생성 조건이지 의무 아님)
+- EXCHANGE ClaimCompleted 직접 (Refund 경유 없음)·후속 트랙(차액 환불 트랙)에서 refundAmount>0 흐름 신설
+
+**박제 1줄**: "EXCHANGE 차액 환불은 본 트랙 OOS·refundAmount==0 → Refund Aggregate 미생성·refundAmount>0 흐름은 후속 트랙(차액 환불·부분환불 트랙)에서 신설." (state-machine §8 단서 해석 명시·invariants RFN-4 신규 항목 미신설)
+
+#### Q3: EXCHANGE 교환품 Delivery 생성 = Seller 출고 등록 시점 지연·DDL 무변경·carrier NOT NULL 유지
+
+**옵션 α (ClaimApproved 자동 생성) 1·2·3차 검토 흡수로 철회**. 권장 β 채택:
+
+```
+ClaimApproved(EXCHANGE)
+  ↓
+ClaimPickedUp(E11)        ← Q1 수거 확인
+  ↓
+Seller registerExchangeShipment (별도 트랙·Seller Service)
+  ↓
+Delivery.create(orderItemId, carrier)
+  ↓
+Claim.attachExchangeDelivery(deliveryId, orderItemId)  ← Q13·WARN-5
+  ↓
+DeliveryService.markShipping(deliveryId, trackingNo)
+  ↓
+DeliveryCompleted(E5)
+  ↓
+OrderItem→EXCHANGED + Claim→COMPLETED (Q5)
+```
+
+**DDL 무변경** (V1__init.sql 라인 660-664 실측 인용):
+- `delivery.carrier ENUM('CJ','HANJIN','POST','LOGEN') NOT NULL` 유지 (NULL 허용 불요)
+- `delivery.tracking_no VARCHAR(100) NULL` 기존 유지
+
+**READY 의미 정의 박제** (3차 검토 흡수·state-machine.md §6.1 본문 1줄 추가 의무):
+
+> "READY: Delivery 행 생성 완료 상태. tracking_no·shipped_at은 비어 있을 수 있다. 출고 개시는 markShipping()에서 수행한다."
+
+**markShipping 진입부 검증** (Entity invariant·DLV-3 정합):
+- `trackingNo != null` 의무
+- `shippedAt != null` 의무
+- 위반 시 `IllegalStateException` throw
+
+**Seller 출고 등록 endpoint 신설은 본 트랙 OOS** — Seller Service 트랙 이연·PR-2 EXCHANGE는 `DeliveryService.registerExchangeShipment(Long claimId, DeliveryCarrier carrier, String trackingNo)` Service 메서드만 신설·Controller는 별도.
+
+#### Q4: CANCEL 게이트 제거 = α 게이트 제거 + 핸들러 type 분기·Service 분기 금지
+
+**ClaimService.request() (실측 라인 97-99)**: `if (command.claimType() != ClaimType.CANCEL) throw new ClaimInvalidStateException(...)` 단락 제거·type 무관 진입 허용.
+
+**(f) OrderItem 전이 검증 (실측 라인 109-112)**: `if (!orderItem.getItemStatus().canTransitionTo(OrderItemStatus.CANCEL_REQUESTED))` 하드코딩 → type별 전이 대상 분기 의무 (CANCEL_REQUESTED·RETURN_REQUESTED·EXCHANGE_REQUESTED).
+
+**핸들러 4건 type 분기 (실측 라인)**:
+- `claim/handler/ClaimRequestedHandler` 라인 41-45 CANCEL 게이트 제거·type별 OrderItem 전이 대상 분기 (CANCEL_REQUESTED·RETURN_REQUESTED·EXCHANGE_REQUESTED)·기존 멱등 가드 (CANCEL_REQUESTED 일치 확인 라인 52)는 type별 일치 분기로 확장
+- `claim/handler/ClaimRejectedHandler` 라인 41-44 CANCEL 게이트 제거·Q7 스냅샷 기반 원복 (type 무관·`claim.previous_order_item_status` 사용)·기존 PAID 환원 (라인 65 `orderItem.changeStatus(OrderItemStatus.PAID)`) 철회 (D-90 Q3 의미 변경 동반)
+- `claim/handler/ClaimCompletedHandler` 라인 41-44 CANCEL 게이트 제거·종결 전이 type 분기 (라인 56 하드코딩 `orderItem.changeStatus(OrderItemStatus.CANCELLED)`을 type별 CANCELLED·RETURNED·EXCHANGED 분기로 확장)·기존 멱등 가드 (CANCEL_REQUESTED 일치 확인 라인 50) type별 분기 확장
+- `claim/handler/ClaimRefundCompletedHandler` 라인 47-52 CANCEL 게이트 제거·type 분기 (CANCEL·RETURN → markCompleted 호출·EXCHANGE → skip·Refund 미경유)
+
+**Service 분기 금지** (1차 검토 흡수): primitive Service 메서드 (approve·reject·markCompleted) type 무관·분기는 핸들러 책임. D-92·D-93 횡단 원칙 1:1 정합 (재사용 2회차).
+
+#### Q5: RETURN/EXCHANGE COMPLETED 진입 = RETURN 기존 핸들러 확장·EXCHANGE 신규 핸들러 분리
+
+**RETURN 흐름** (PR-1):
+```
+ClaimPickedUp(E11)
+  → refund/handler/ClaimPickedUpHandler (Q2 신규)
+  → RefundService.initiate → RefundCompleted
+  → claim/handler/ClaimRefundCompletedHandler (Q4 type 분기 RETURN 진입)
+  → ClaimService.markCompleted → ClaimCompleted(E9)
+  → claim/handler/ClaimCompletedHandler (Q4 type 분기 RETURNED 전이)
+```
+
+**EXCHANGE 흐름** (PR-2·3차 검토 흡수):
+```
+ClaimPickedUp(E11) → Seller 출고 등록 (별도 트랙)
+  → DeliveryService.markShipping → DeliveryStarted(E4) → markDelivered → DeliveryCompleted(E5)
+  → claim/handler/ExchangeDeliveryCompletedHandler (신규·@TransactionalEventListener AFTER_COMMIT·REQUIRES_NEW)
+       - delivery_id로 Delivery 재조회
+       - claim_id != null 분기
+       - OrderItem (EXCHANGE_REQUESTED → EXCHANGED)
+       - Claim.markCompleted → ClaimCompleted(E9)
+  → order/handler/DeliveryCompletedHandler는 claim_id != null 시 early return (3차 검토 흡수)
+  → notification/handler/NotificationDeliveryCompletedHandler는 claim_id 분기 (교환 배송 완료 vs 일반 배송 완료 메시지)
+```
+
+**소비 순서** (3차 검토 흡수): OrderItem→EXCHANGED → Claim COMPLETED. 역순 금지 (Claim COMPLETED 이후 OrderItem 변경은 CLM-1 의미 약화).
+
+**핸들러 트랜잭션 정책**: `claim/handler/ExchangeDeliveryCompletedHandler`는 `@TransactionalEventListener(AFTER_COMMIT) + @Transactional(REQUIRES_NEW)` (기존 `ClaimRefundCompletedHandler` 라인 39-40 패턴 1:1·D-75·D-90 Q1).
+
+**E5 페이로드 무수정** (3차 검토 흡수): Delivery 재조회로 claim_id 분기·E12 신설 불요·E5 재사용.
+
+#### Q6: ClaimReasonCode +4값 추가 = α
+
+`PRODUCT_DEFECT`·`DAMAGED_ON_ARRIVAL`·`WRONG_PRODUCT`·`DELIVERY_DELAY` enum 추가 (Javadoc·D-89 Q5 예고 흡수). `claim.reason_code`는 V1__init.sql 라인 697 `VARCHAR(50) NOT NULL` 무제약 → DDL 마이그레이션 불요. 프론트 constants 동기화 동반. PR-1 RETURN 동반.
+
+#### Q7: ClaimRejected 원복 = 스냅샷 기반·type 무관 (CANCEL 포함·D-90 Q3 의미 변경)
+
+**고정 DELIVERED/PAID 복원 철회** (1·2차 검토 흡수). 모든 Claim 요청 시점 OrderItem 상태를 스냅샷으로 저장·REJECTED 시 스냅샷 복원.
+
+**적용 범위**: CANCEL·RETURN·EXCHANGE 전건 (domain-events §E8 "type 예외 없음"·2차 검토 흡수).
+
+**D-90 Q3 의미 변경 (실측 발견)**:
+- `OrderItemStatus.canTransitionTo` 라인 51 `CANCEL_REQUESTED → CANCELLED || PAID` 기정의·D-90 Q3 claim-lock release PAID 고정 환원·"과거 상태 복원 아닌 unlock"으로 박제
+- 본 결정으로 의미 변경: **CANCEL_REQUESTED → 스냅샷 상태**로 변경 (PAID·PREPARING 등 스냅샷 기반 복원)
+- canTransitionTo 매트릭스 확장: `CANCEL_REQUESTED → CANCELLED || PAID || PREPARING` 신설 의무·`RETURN_REQUESTED → RETURNED || SHIPPING || DELIVERED` 신설·`EXCHANGE_REQUESTED → EXCHANGED || DELIVERED` 신설
+- D-90 Q3 §주석 갱신 의무 (state-machine.md §3 §주석·invariants.md §2.13 CLM-2 비고): "Track 14·D-98 Q7 스냅샷 기반 원복으로 의미 변경·claim-lock release 단어는 더 이상 의미 부재"
+
+#### Q8: NotificationLog = α 재사용 + PICKUP_CONFIRMED 1건 추가
+
+기존 7 templateCode 재사용·메시지 문구 type 분기:
+- `NotificationService.recordClaimApproved` 라인 91-95 메시지 "클레임 ... 승인되었습니다" → type별 분기 ("취소 요청이 승인되었습니다"·"반품 요청이 승인되었습니다"·"교환 요청이 승인되었습니다")
+- `NotificationService.recordClaimCompleted` 라인 108-112 메시지 동일 패턴
+
+**E11 ClaimPickedUp 알림 추가**:
+- 신규 templateCode `PICKUP_CONFIRMED = "TPL_PICKUP_CONFIRMED"` 1건 추가 → 8건 (NotificationTemplateCodes Enum 승격 임계 ≥10 미도달·D-95 WARN-10-α 정합·여유 2건)
+- 신규 핸들러 `notification/handler/NotificationClaimPickedUpHandler` (E11 비동기 소비·기존 6 핸들러 패턴 1:1)
+- 신규 메서드 `NotificationService.recordClaimPickedUp(ClaimPickedUp event)`·`resolveClaimRecipient` 재사용
+
+#### Q9: D-92/D-93 wrapper 재사용 2회차 = 재사용 + confirmPickup wrapper 신설
+
+**기존 6 wrapper 무변경 재사용** (실측 라인): `ClaimService.approve` (라인 137-145)·`reject` (라인 158-166)·`approveBySeller` (라인 179-185)·`rejectBySeller` (라인 195-201)·`approveByAdmin` (라인 215-217)·`rejectByAdmin` (라인 229-231) — type·actor 무관·RETURN/EXCHANGE 그대로 통과.
+
+**신규 confirmPickup 3건** (D-92 패턴 1:1·재사용 2회차):
+- primitive: `ClaimService.confirmPickup(Long claimId, LocalDateTime pickedUpAt)` — actor·type 비의존·picked_up_at 설정 + ClaimPickedUp 발행
+- Seller wrapper: `ClaimService.confirmPickupBySeller(Long claimId, Long sellerId, LocalDateTime pickedUpAt)` — `authorizeSellerAccess` (라인 297-304) 경유
+- Admin wrapper: `ClaimService.confirmPickupByAdmin(Long claimId, LocalDateTime pickedUpAt)` — Admin 전체 접근
+
+D-97 §후속 "D-92·D-93 횡단 원칙 재사용 2회차" 명시 이행.
+
+#### Q10: PR 분할 = β RETURN PR-1 + EXCHANGE PR-2
+
+**PR-1 RETURN** (`feat/track-14-claim-return`):
+- Q1·Q2 RETURN·Q4·Q5 RETURN·Q6·Q7·Q8 PICKUP_CONFIRMED·Q9·Q11·Q12·D-90 Q3 의미 변경
+- 신규 컬럼 마이그레이션: `claim.picked_up_at`·`claim.previous_order_item_status` 동반 (PR-1에서 일괄)
+- 외부 검토 의무 (S급·1·2·3차 완료)
+
+**PR-2 EXCHANGE** (`feat/track-14-claim-exchange`):
+- Q3 (Seller 출고 등록 진입점)·Q5 EXCHANGE (신규 ExchangeDeliveryCompletedHandler·order 핸들러 early return·Notification 분기)·Q13 (delivery.claim_id FK·attachExchangeDelivery)
+- Seller 출고 등록 Controller·endpoint는 본 트랙 OOS·Seller Service 트랙 동반
+- 외부 검토 의무 (S급)
+
+1-PR 단독 패턴 5회차 비대화 회피·기조 1·4 정합.
+
+#### Q11: claim.previous_order_item_status 컬럼 신설 = VARCHAR·nullable 금지·PR-1 동반
+
+**컬럼** (Flyway 마이그레이션 `V{N}__add_claim_pickup_and_previous_status.sql` 동반):
+```sql
+ALTER TABLE claim
+  ADD COLUMN picked_up_at DATETIME(6) NULL COMMENT '수거 확인 시각·Q1',
+  ADD COLUMN previous_order_item_status VARCHAR(20) NOT NULL COMMENT '요청 시점 OrderItem 상태 스냅샷·REJECTED 원복용·Q11';
+```
+
+**타입 근거** (2차 검토 흡수·실측 V1__init.sql 라인 697): claim.reason_code VARCHAR(50) 무제약 운영 일관성·ENUM은 OrderItem enum 변경 시 DDL 동기 비용.
+
+**nullable 금지**: 스냅샷 없는 Claim 생성 금지·`ClaimService.request()` 시점 (실측 라인 115-122 `Claim.create` 호출 직전) OrderItem 상태 스냅샷 캡처 후 status 전이·Claim save.
+
+**Claim.create 시그니처 확장**: 현 시그니처 (실측 라인 78-84) `create(Long orderItemId, ClaimType type, String reasonCode, String reasonDetail, Long requestedBy, LocalDateTime requestedAt)` → 신규 인자 `OrderItemStatus previousOrderItemStatus` 추가 (마지막 위치).
+
+**마이그레이션 백필**: V1__init.sql 라인 692-712 claim 테이블 시드 INSERT 0건 실측 확인 → 운영 데이터 0건 가정 정당. ALTER TABLE 직접 적용·NOT NULL 충족·기존 행 0건이므로 백필 SQL 불요.
+
+#### Q12: CLM-5 활성성 정의 = 유지 + picked_up_at 무관 비고 1줄
+
+`invariants.md §2.13 CLM-5` 본문 무변경·비고 추가:
+
+> "활성 정의(REQUESTED·APPROVED)는 picked_up_at 설정 여부와 무관하다. picked_up_at은 milestone 데이터로 활성성 판단에 영향 없음."
+
+CLM-2 (REJECTED 재요청은 새 Claim 행)·RETURN→REJECTED 후 EXCHANGE 신규 요청은 활성 종결 후 가능·정합 유지.
+
+#### Q13: WARN-5 EXCHANGE Delivery 식별 + 일관성 검증 = delivery.claim_id NULLABLE FK + INDEX + Claim.attachExchangeDelivery 진입점
+
+**DDL 변경** (PR-2 EXCHANGE 동반·`V{N+1}__add_delivery_claim_id.sql`):
+```sql
+ALTER TABLE delivery
+  ADD COLUMN claim_id BIGINT NULL COMMENT 'EXCHANGE 교환품 Delivery 참조·일반 주문은 NULL·Q13',
+  ADD CONSTRAINT fk_delivery_claim FOREIGN KEY (claim_id) REFERENCES claim (id) ON DELETE RESTRICT ON UPDATE CASCADE,
+  ADD INDEX idx_delivery_claim_id (claim_id);
+```
+
+**UNIQUE 금지** (2·3차 검토 흡수): 향후 재출고 가능성 차단 회피.
+
+**Aggregate 행위 진입점** (3차 검토 흡수·Claim 귀속):
+- `Claim.attachExchangeDelivery(Long deliveryId, Long deliveryOrderItemId)` primitive 메서드
+- 내부 검증: `this.orderItemId == deliveryOrderItemId` — 위반 시 `ClaimInvalidStateException` throw·로그+skip 금지
+- 검증 시점: create 직전 (커밋 직전 검증 금지)
+
+**RETURN/CANCEL/일반 주문**: `claim_id == null`·검증 우회 (`if (claimId == null) skip`).
+
+**aggregate-boundary.md §2.5 Delivery 외부 ID 참조에 Claim.id 추가 의무**.
+
+### WARN 처치 (recon-report §12 매트릭스)
+
+#### P0 처치
+- WARN-1 수거 확인 미설계 → Q1 결정 (E11 + claim.picked_up_at)
+- WARN-2 EXCHANGE Delivery 생성 진입점 부재 → Q3 결정 (Seller 출고 등록 시점 지연·DDL 무변경)
+- WARN-3 RETURN/EXCHANGE Refund 트리거 미설계 → Q2 결정 (RETURN 자동·EXCHANGE refundAmount==0 Refund 미생성)
+- **WARN-4 (1차 신규)** Refund/Claim COMPLETED 중복 가능성 → CLM-1 상태 가드 단독·`ClaimService.markCompleted` 라인 270-274 멱등 가드 (이미 COMPLETED 시 no-op + log.info) 단독 유지·completed_at 컬럼 추가 불요 (2차 검토 흡수)
+
+#### P1 처치
+- WARN-4 (recon §12 원번호) CANCEL 게이트 5중 → Q4 결정 (게이트 5건 라인 인용)
+- WARN-5 (recon §12 원번호) RETURN/EXCHANGE COMPLETED 진입 경로 → Q5 결정
+- WARN-6 (recon §12 원번호) ClaimReasonCode +4값 → Q6 결정
+- WARN-7 (recon §12 원번호) 기존 통합 테스트 회귀 → Q4·Q5·Q7 구현 시 단언 갱신 의무
+- **WARN-5 (1차 신규)** EXCHANGE Delivery 식별 → Q13 결정 (delivery.claim_id FK)
+
+#### P2 처치
+- WARN-8 NotificationTemplateCode 임계 → Q8 결정 (8건·임계 ≥10 미도달·여유 2건)
+- WARN-9 D-92/D-93 wrapper 재사용 2회차 → Q9 결정
+- WARN-10 ClaimRejected 원복 매트릭스 → Q7·Q11 결정 (스냅샷 기반·고정 DELIVERED/PAID 철회·D-90 Q3 의미 변경)
+
+### 회귀 테스트 박제 (3차 검토 권고)
+
+**EXCHANGE DeliveryCompleted 중복 재전달 멱등 검증** (PR-2 EXCHANGE 통합 테스트 1건 의무):
+- 동일 E5 이벤트 2회 발행 → OrderItem EXCHANGED 상태 유지·Claim COMPLETED 유지·NotificationLog 중복 없음
+- 멱등 보장 메커니즘: `OrderItemStatus.canTransitionTo` 라인 56 종결 상태 `false` 자연 차단·`Claim.markCompleted`의 `transitionTo` 라인 162-165 `canTransitionTo` 위반 `ClaimInvalidStateException` 자연 차단·`ClaimService.markCompleted` 멱등 가드 라인 270-274 no-op
+- NotificationLog 멱등은 D-95 Q6 박제 1줄 가정 하 ApplicationEvent 인메모리 publisher 재전달 자연 차단
+
+### 횡단 원칙 (D-92·D-93 carry-over 2회차)
+
+D-97 §후속 명시 이행. Q9 confirmPickup primitive + Seller/Admin wrapper 신설·Q4 Service 분기 금지·핸들러 분기 응집·1·2회차 패턴 1:1 재사용.
+
+### 외부 검토 흡수 흐름
+
+- **1차 외부 검토**: 11 의제 + 추천안 송부. 수용: Q0·Q1·Q4·Q6·Q8·Q9·Q10 7건. 부분 수용·반박: Q2·Q3·Q5·Q7. 신규 의제: Q11·Q12·WARN-4·WARN-5.
+- **Claude.ai 2차 응답**: Q2 (b) Refund row 미생성·Q3 (β) DDL 무변경·Q5 (E5 재사용)·Q7 스냅샷·Q11 VARCHAR·Q12 정의 유지·WARN-4 CLM-1 단독·WARN-5 delivery.claim_id FK.
+- **2차 외부 검토**: 본문 결정 전건 합의·Q3 누락 (READY 정의)·Q5 누락 (소비 순서)·WARN-5 누락 (일관성 검증) 3건 신규 의제.
+- **Claude.ai 3차 응답**: Q3 (a) READY 정의·Q5 (b) 핸들러 분리·WARN-5 (d) Claim 진입점.
+- **3차 외부 검토**: 전건 합의·회귀 테스트 1건 권고·"남은 설계 위험 거의 없음" 평가.
+- **D-90 Q3 의미 변경**: Claude.ai 정찰 보강 (Sonnet 4.6 패턴·MCP read) 시점 실측 발견·`OrderItemStatus.canTransitionTo` 라인 51 `CANCEL_REQUESTED → CANCELLED || PAID` 기정의 확인·D-90 Q3 claim-lock release PAID 고정 환원 의미를 Q7 스냅샷 기반 원복으로 변경 박제·외부 검토 미경유 (실측 정합 정정).
+
+### 영향 범위
+
+#### PR-1 RETURN — 신규 파일 (8건)
+- backend/src/main/resources/db/migration/V{N}__add_claim_pickup_and_previous_status.sql (claim.picked_up_at·claim.previous_order_item_status 컬럼 추가)
+- backend/src/main/java/com/zslab/mall/claim/event/ClaimPickedUp.java (E11·record·payload: claimId·claimPublicId·orderItemId·claimType·pickedUpAt·occurredAt)
+- backend/src/main/java/com/zslab/mall/refund/handler/ClaimPickedUpHandler.java (E11 비동기 소비·AFTER_COMMIT·REQUIRES_NEW·type=RETURN 게이트·RefundService.initiate 호출·D-96 Q3 catch NotificationLog 적재 패턴)
+- backend/src/main/java/com/zslab/mall/notification/handler/NotificationClaimPickedUpHandler.java (E11 비동기·AFTER_COMMIT·REQUIRES_NEW·D-95 패턴 1:1)
+- backend/src/test/java/com/zslab/mall/claim/service/ClaimServiceConfirmPickupTest.java (단위·confirmPickup 정상·멱등·권한)
+- backend/src/test/java/com/zslab/mall/refund/handler/ClaimPickedUpHandlerTest.java (단위·type=RETURN 자동 트리거·CANCEL/EXCHANGE skip)
+- backend/src/test/java/com/zslab/mall/claim/integration/ClaimReturnIntegrationTest.java (e2e·NO @Transactional·LT-02·D-91·요청→승인→픽업→환불→RETURNED 전체 루프)
+- backend/src/test/java/com/zslab/mall/claim/integration/ClaimRejectedRestoreIntegrationTest.java (스냅샷 기반 원복·CANCEL/RETURN/EXCHANGE 3 케이스)
+
+#### PR-1 RETURN — 수정 파일 (production 10건)
+- backend/src/main/java/com/zslab/mall/claim/entity/Claim.java (picked_up_at·previous_order_item_status 필드 추가·confirmPickup 메서드 신설·create 시그니처 확장·attachExchangeDelivery는 PR-2)
+- backend/src/main/java/com/zslab/mall/claim/service/ClaimService.java (request CANCEL 게이트 라인 97-99 제거·(f)단락 라인 109-112 type 분기·confirmPickup primitive 신설·confirmPickupBySeller·confirmPickupByAdmin wrapper·스냅샷 저장)
+- backend/src/main/java/com/zslab/mall/claim/enums/ClaimReasonCode.java (PRODUCT_DEFECT·DAMAGED_ON_ARRIVAL·WRONG_PRODUCT·DELIVERY_DELAY 4값 추가·6→10건)
+- backend/src/main/java/com/zslab/mall/claim/handler/ClaimRequestedHandler.java (라인 41-45 CANCEL 게이트 제거·type별 OrderItem 전이 대상 분기·라인 52 멱등 가드 type별 확장)
+- backend/src/main/java/com/zslab/mall/claim/handler/ClaimRejectedHandler.java (라인 41-44 CANCEL 게이트 제거·라인 65 PAID 환원 철회·Q7 스냅샷 기반 원복·type 무관)
+- backend/src/main/java/com/zslab/mall/claim/handler/ClaimCompletedHandler.java (라인 41-44 CANCEL 게이트 제거·라인 50 멱등 가드 type별 확장·라인 56 하드코딩 CANCELLED → type별 CANCELLED·RETURNED·EXCHANGED 분기)
+- backend/src/main/java/com/zslab/mall/claim/handler/ClaimRefundCompletedHandler.java (라인 47-52 CANCEL 게이트 제거·type 분기 CANCEL/RETURN markCompleted 호출·EXCHANGE skip)
+- backend/src/main/java/com/zslab/mall/notification/service/NotificationService.java (recordClaimPickedUp 신설·recordClaimApproved 라인 91-95 메시지 type 분기·recordClaimCompleted 라인 108-112 메시지 type 분기·resolveClaimRecipient 재사용)
+- backend/src/main/java/com/zslab/mall/notification/template/NotificationTemplateCodes.java (PICKUP_CONFIRMED = "TPL_PICKUP_CONFIRMED" 상수 8번째)
+- backend/src/main/java/com/zslab/mall/order/enums/OrderItemStatus.java (라인 50 `CANCEL_REQUESTED → CANCELLED || PAID || PREPARING` 확장·라인 52 `RETURN_REQUESTED → RETURNED || SHIPPING || DELIVERED` 신설·라인 53 `EXCHANGE_REQUESTED → EXCHANGED || DELIVERED` 신설·D-90 Q3 의미 변경 동반 Javadoc 갱신)
+
+#### PR-1 RETURN — 문서 (3건)
+- docs/architecture-baseline/state-machine.md §3 (OrderItem RETURN_REQUESTED·EXCHANGE_REQUESTED·CANCEL_REQUESTED 원복 전이 본문 추가·D-90 Q3 의미 변경 §주석 갱신)
+- docs/architecture-baseline/domain-events.md §2 (E11 ClaimPickedUp 신설·E8 원복 본문 갱신·E9 type별 종결 본문 갱신)
+- docs/architecture-baseline/invariants.md §2.13 (CLM-5 비고 1줄 추가·CLM-2 §주석 갱신·D-90 Q3 의미 변경 동반)
+
+#### PR-2 EXCHANGE — 신규 파일 (4건)
+- backend/src/main/resources/db/migration/V{N+1}__add_delivery_claim_id.sql (delivery.claim_id FK·INDEX)
+- backend/src/main/java/com/zslab/mall/delivery/service/DeliveryService.java 신규 메서드 추가 (registerExchangeShipment·Claim.attachExchangeDelivery 호출·markShipping 진입부 NOT NULL 검증 보강)
+- backend/src/main/java/com/zslab/mall/claim/handler/ExchangeDeliveryCompletedHandler.java (E5 비동기 소비·@TransactionalEventListener AFTER_COMMIT·REQUIRES_NEW·claim_id != null 분기·OrderItem→EXCHANGED·Claim→COMPLETED)
+- backend/src/test/java/com/zslab/mall/claim/integration/ClaimExchangeIntegrationTest.java (e2e·요청→승인→픽업→Seller 출고 등록→배송 완료→EXCHANGED·중복 E5 멱등 회귀 1건 포함·LT-02·D-91)
+
+#### PR-2 EXCHANGE — 수정 파일 (production 4건)
+- backend/src/main/java/com/zslab/mall/claim/entity/Claim.java (attachExchangeDelivery primitive 메서드 추가·orderItemId 일관성 검증·throw)
+- backend/src/main/java/com/zslab/mall/delivery/entity/Delivery.java (claim_id 필드 추가·setter는 attach 메서드 경유 한정·markShipping 진입부 trackingNo·shippedAt NOT NULL 검증)
+- backend/src/main/java/com/zslab/mall/order/handler/DeliveryCompletedHandler.java (claim_id != null 시 early return·Delivery 재조회)
+- backend/src/main/java/com/zslab/mall/notification/handler/NotificationDeliveryCompletedHandler.java (claim_id 분기·교환 배송 완료 메시지·Delivery 재조회 중복 허용)
+
+#### PR-2 EXCHANGE — 문서 (2건)
+- docs/architecture-baseline/state-machine.md §6.1 (READY 의미 정의 1줄 박제·markShipping 진입부 검증 명시)
+- docs/architecture-baseline/aggregate-boundary.md §2.5 (Delivery 외부 ID 참조에 Claim.id 추가)
+
+#### 무변경 확정
+application.yml·build.gradle.kts·Refund 도메인 전건 (RefundService·Refund Entity·RefundStatus·RefundRepository·RefundWebhookIntegrationTest)·Payment 도메인 전건·Inventory 도메인 전건·기존 Notification 핸들러 6건·기존 NotificationService 메서드 시그니처 (recordOrderPlaced·recordPaymentCompleted·recordRefundFailed·recordDeliveryStarted·recordDeliveryCompleted)·DeliveryCarrier·DeliveryRepository·DeliveryRepositoryTest·기존 이벤트 10건 payload (E11 신규만)·ClaimType DDL ENUM·ClaimStatus 전이 매트릭스·DTO ClaimRequestRequest·Controller 3건·Claim 승인/거부 wrapper 6건.
+
+#### 회귀 예상
+PR-1 RETURN: 393 baseline → 신규 합산 ≥405 (단위 ≥6·통합 ≥3·기존 회귀 단언 갱신 7~10건 의무·canTransitionTo 매트릭스 확장 영향 통합 회귀)
+PR-2 EXCHANGE: PR-1 머지 후 baseline 기준 → 신규 합산 ≥3·중복 E5 멱등 회귀 1건 포함
+
+### 대안 검토 (기각)
+
+- Q0 PR 단일: 1-PR 5회차 비대화·EXCHANGE Q3 DDL/Aggregate 변경과 RETURN 흐름 분리 가능·기각.
+- Q1 (a) OrderItem 신규 상태: 12값 매트릭스 폭증·DDL ENUM 마이그레이션·canTransitionTo 전건 재설계·기조 4 위배·기각.
+- Q1 (b) ClaimStatus 보조 상태: A분류 4값 확장·CANCEL 무관 오염·기각.
+- Q1 (c) ReturnDelivery 신규 Aggregate: 과잉개발·기각.
+- Q2 EXCHANGE refundAmount=0 Refund row 생성: RFN-1 (pg_refund_id 필수) 충돌·PG 0원 환불 의미 부재·기각 (1·2차 검토 흡수).
+- Q3 α ClaimApproved 자동 Delivery 생성: carrier·trackingNo NULL 상태 행 의미 모호·기각 (1차 검토 흡수).
+- Q3 carrier NULL 허용 DDL 변경: 일반 주문 Delivery와 규칙 분기·DLV-2 의미 약화·기각 (2·3차 검토 흡수).
+- Q4 β RETURN/EXCHANGE 전용 신규 핸들러 신설: 핸들러 4→7건 폭증·기각.
+- Q5 E5 페이로드 확장 (claim_id 추가): D-30 사실 통지 위배·D-94 Q7 β·D-95 Q5 β 기각 패턴 정합·기각 (3차 검토 흡수).
+- Q5 E12 ExchangeDelivered 신규 이벤트: E5 재사용 가능·이벤트 폭증·기각 (1차 검토 흡수).
+- Q5 (a) order/handler 내부 통합 분기: Order 핸들러 책임 과밀·기각 (3차 검토 흡수).
+- Q7 고정 DELIVERED/PAID 복원: domain-events §E8 "스냅샷 기준" 위배·D-90 Q3 PAID 고정도 제거 대상·기각 (1차 검토 흡수).
+- Q11 ENUM 컬럼: OrderItem enum 변경 시 DDL 동기 비용·기각 (2차 검토 흡수).
+- Q11 nullable 허용: 스냅샷 없는 Claim 생성 허용·원복 불완전·기각.
+- WARN-4 completed_at 컬럼 추가 가드: CLM-1 canTransitionTo 자연 차단·기각 (2차 검토 흡수).
+- WARN-5 delivery.purpose ENUM: 분류가 아니라 연관 관계·claim_id FK로 충분·기각 (2차 검토 흡수).
+- WARN-5 (c) DB Trigger 검증: 운영 데이터 보호 룰 비권장·기각.
+- WARN-5 (e) 통합 테스트만: 런타임 무방어·기각.
+
+### 관련 결정
+
+D-01·D-05·D-06·D-29·D-30·D-67·D-74·D-75·D-86 Batch-3b·D-88·D-89·D-90 (Q3 의미 변경·**본 결정으로 갱신**)·D-91·D-92·D-93·D-94 (Q3·Q7 상속)·D-95·D-96 (Q3 catch NotificationLog 패턴 1:1 재사용)·D-97 (§후속 carry-over 종결·Q5 EXCHANGE Delivery 흐름)·LT-02·invariants §2.11·§2.12·§2.13·§2.13.1·state-machine §2·§3·§6.1·§8·aggregate-boundary §2.5·domain-events §2 E5·E7·E8·E9·E11(신설)·docs/track-14/recon-report.md.
+
+### 후속 트랙
+
+- **EXCHANGE 차액 환불·부분환불 트랙**: Q2 박제 1줄 ("refundAmount>0 흐름은 후속 트랙") 진입점·invariants RFN-4 또는 PAY-2 본문 재정의.
+- **Seller Service 트랙**: Q3 Seller registerExchangeShipment Controller·endpoint·DTO @ValidEnum 3·4층.
+- **Track 15+ Observability**: D-90·D-94 Q6·D-95 Q6·D-97 Q8 박제 1줄 통합 재평가·이벤트 핸들러 멱등성 표준화.
+- **외부 택배 어댑터 트랙**: Q1 발행 주체 확장·자동 픽업 확인.
+- **자동 구매확정 타이머 트랙**: DELIVERED + N일 → CONFIRMED.
+- **Inventory 차감/복구 Order-Claim 연동 트랙**: E9 ClaimCompleted Inventory 복구·EXCHANGE D-08 트랜잭션 분리.
+- **Spring Security 트랙**: X-*-Id stub 3종 일괄 대체·D-93 Q11 wrapper 유지 전략.
+
+### 후속
+
+1. 본 결정 박제 = 사용자 직접 처리 (D-94·D-95·D-96·D-97 패턴 5회차).
+2. **PR-1 RETURN** 브랜치 `feat/track-14-claim-return` 생성 (main HEAD 75188e8 기준).
+3. 가드 5 사전 통지: PR-1 신규 8 + 수정 production 10 + 문서 3 + Flyway 1·PR-2 신규 4 + 수정 production 4 + 문서 2 + Flyway 1 — Claude Code 구현 프롬프트 시점 일괄 통지.
+4. TDD 우선 (단위 → 통합)·BUILD SUCCESSFUL·PR-1 신규 ≥9 PASS·기존 회귀 0 (단언 갱신 후).
+5. GitHub Web UI PR 생성·Base: main·Compare: feat/track-14-claim-return·외부 검토 1·2·3차 완료·S급.
+6. PR-1 머지 후 PR-2 EXCHANGE 진입·동일 절차.
+7. PR-1·PR-2 양 머지로 Track 14 종결·D-88·D-89·D-90·D-93·D-94·D-95·D-97 §후속 RETURN/EXCHANGE carry-over 4회 연속 영구 해소·state-machine §2/§8 RETURN/EXCHANGE 흐름 종결·D-90 Q3 의미 변경 동반 박제 완료.
+8. **라이브 트랩 박제 (D-98 PR-1 구현 시점 실측 발견)**: V6 ALTER TABLE `previous_order_item_status VARCHAR(20) NOT NULL` 컬럼 추가 시 기존 claim 시드 SQL 7파일 전건 INSERT 차단 발생. 시드 SQL에 `previous_order_item_status 'PAID'` 추가로 해소. 단건 트랩 (LT 카탈로그 신설 임계 ≥3 미도달·D-82 정합)·향후 마이그레이션 트랙 진입 시 동일 패턴 재발 시 LT-04 후보로 박제 검토.
+
+---

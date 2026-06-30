@@ -90,7 +90,12 @@ ORDERED → PAID → PREPARING → SHIPPING → DELIVERED → CONFIRMED
 | EXCHANGE_REQUESTED | 교환요청 | Claim(EXCHANGE).REQUESTED |
 | EXCHANGED | 교환완료 | Claim(EXCHANGE).COMPLETED |
 
-> **예외 전이(Track 9 PR-C·D-90 Q3)**: CANCEL_REQUESTED → PAID는 ClaimRejected 핸들러 한정 claim-lock release(재요청 허용 unlock 목적) 의미이며 과거 상태 복원이 아니다. PREPARING 직접 복원은 직전 상태 정보 부재로 미지원. canTransitionTo 매트릭스에 반영.
+> **복귀 전이 매트릭스 (ClaimRejected 핸들러 한정·Track 14 PR-1·D-98 Q7·스냅샷 기반)**:
+> - `CANCEL_REQUESTED → CANCELLED | PAID | PREPARING` — `claim.previous_order_item_status` 스냅샷 복원
+> - `RETURN_REQUESTED → RETURNED | SHIPPING | DELIVERED` — `claim.previous_order_item_status` 스냅샷 복원
+> - `EXCHANGE_REQUESTED → EXCHANGED | DELIVERED` — `claim.previous_order_item_status` 스냅샷 복원
+>
+> **D-90 Q3 의미 변경 (Track 14·D-98 Q7)**: 기존 §주석(Track 9 PR-C)은 `CANCEL_REQUESTED → PAID`를 claim-lock release(unlock 목적·과거 상태 복원 아님)로 박제했으나, Track 14 PR-1에서 의미 변경. `claim.previous_order_item_status`(Q11) 컬럼에 Claim 요청 시점 OrderItem 상태를 저장·REJECTED 시 해당 스냅샷으로 복원(type 무관). claim-lock release 단어는 더 이상 의미 부재. PREPARING 직접 복원도 스냅샷 기반으로 지원. canTransitionTo 매트릭스 확장 반영.
 
 ---
 

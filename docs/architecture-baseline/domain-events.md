@@ -138,7 +138,7 @@
 | 멱등성 | claim_id 기준 1회. 재요청은 새 Claim 행(D-05) |
 | 재시도 | 동기 실패 = 롤백 |
 
-> 원상 복귀 대상: CANCEL_REQUESTED→직전(PAID/PREPARING/SHIPPING/DELIVERED), RETURN_REQUESTED→DELIVERED, EXCHANGE_REQUESTED→DELIVERED. 정확한 직전 상태는 Claim 요청 시점 스냅샷을 기준으로 한다(구현 단계).
+> **원상 복귀 (Track 14 PR-1·D-98 Q7 스냅샷 기반·type 무관)**: `claim.previous_order_item_status` 컬럼에 Claim 요청 시점 OrderItem 상태를 저장·REJECTED 시 해당 스냅샷으로 복원. `CANCEL_REQUESTED → PAID/PREPARING 등 스냅샷`·`RETURN_REQUESTED → DELIVERED/SHIPPING 등 스냅샷`·`EXCHANGE_REQUESTED → DELIVERED 등 스냅샷`. D-90 Q3 claim-lock release PAID 고정 환원 의미 변경 동반.
 
 ### E9. ClaimCompleted
 
@@ -153,6 +153,8 @@
 | 재시도 | 동기 실패 = 롤백 / 알림 = 재시도 |
 
 > 재고 복구/차감 상세는 inventory-policy.md §4 참조. 교환(EXCHANGE)은 회수 복구 + 신규 차감을 트랜잭션 분리(D-08).
+>
+> **type별 종결 분기 (Track 14 PR-1·D-98 Q4)**: `CANCEL → OrderItem CANCELLED`·`RETURN → OrderItem RETURNED`·`EXCHANGE → OrderItem EXCHANGED`. ClaimCompletedHandler가 type별 전이 대상을 분기해 처리. RETURN 흐름: RefundCompleted → ClaimRefundCompletedHandler → markCompleted → ClaimCompleted. EXCHANGE 흐름: DeliveryCompleted(E5) → ExchangeDeliveryCompletedHandler → markCompleted → ClaimCompleted.
 
 ### E10. InventoryAdjusted (선택)
 
@@ -168,7 +170,21 @@
 
 > 주문 흐름 외 운영자 재고 조작. 알림 연동이 불필요하면 미발행해도 무방한 선택 이벤트.
 
-### 멱등성·재시도 정책 요약 (E1~E10)
+### E11. ClaimPickedUp
+
+| 항목 | 내용 |
+|---|---|
+| 발행 주체 | Claim (#13) |
+| 트리거 | `Claim.confirmPickup(pickedUpAt)` 호출 — `status == APPROVED` && `picked_up_at IS NULL` 가드 (milestone 이벤트·상태 전이 없음) |
+| 소비 주체 | Refund (RETURN 자동 환불 트리거·ClaimPickedUpHandler), NotificationLog (NotificationClaimPickedUpHandler·수거 완료 알림) |
+| 페이로드 | claimId, claimPublicId, orderItemId, claimType, pickedUpAt, occurredAt |
+| 동기/비동기 | 양자 비동기 (AFTER_COMMIT·REQUIRES_NEW) |
+| 멱등성 | `claim.picked_up_at != null` 시 Service no-op + log.info (ClaimService 가드) |
+| 재시도 | 비동기 재시도·DLQ |
+
+> **D-98 Q1·Q2**: 발행 주체는 Seller 우선·Admin override·외부 택배 어댑터는 후속 트랙. status 필드 생략 (milestone 이벤트·D-30 사실 통지·상태 전이 아님). buyerId 미포함 (Seller/Admin 액션). RETURN 한정 RefundService.initiate 자동 트리거·CANCEL/EXCHANGE skip.
+
+### 멱등성·재시도 정책 요약 (E1~E11)
 
 > D-06 본문(§1 멱등성·재시도 원칙)을 이벤트별로 추출한 1행 요약. 상세는 각 이벤트 표 참조.
 
@@ -184,6 +200,7 @@
 | E8 | ClaimRejected | claim_id 기준 1회 | 동기·롤백 |
 | E9 | ClaimCompleted | claim_id + OrderItem.item_status 종결값 가드 | 재고/Order/결제·동기·롤백 / 알림·비동기·재시도 |
 | E10 | InventoryAdjusted | InventoryHistory append 기준 | 비동기·지수 백오프·재시도 |
+| E11 | ClaimPickedUp | claim.picked_up_at != null 가드 (Service no-op) | 비동기·AFTER_COMMIT·REQUIRES_NEW·재시도·DLQ |
 
 ---
 
