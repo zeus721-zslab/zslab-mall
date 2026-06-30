@@ -18,6 +18,7 @@ import com.zslab.mall.notification.enums.NotificationLogStatus;
 import com.zslab.mall.notification.repository.NotificationLogRepository;
 import com.zslab.mall.notification.template.NotificationTemplateCodes;
 import com.zslab.mall.order.entity.Order;
+import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.event.OrderPlaced;
 import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.order.repository.OrderRepository;
@@ -148,7 +149,7 @@ class NotificationServiceTest {
     @Test
     @DisplayName("recordClaimApproved: OrderItem 미존재(orderId 해소 실패) → skip(save 0건·A1-α)")
     void recordClaimApproved_orderItemMissing_skips() {
-        Claim claim = Claim.create(ORDER_ITEM_ID, ClaimType.CANCEL, "CHANGE_MIND", null, BUYER_ID, OCCURRED_AT);
+        Claim claim = Claim.create(ORDER_ITEM_ID, ClaimType.CANCEL, "CHANGE_MIND", null, BUYER_ID, OCCURRED_AT, OrderItemStatus.PAID);
         when(claimRepository.findById(CLAIM_ID)).thenReturn(Optional.of(claim));
         when(orderItemRepository.findOrderIdById(ORDER_ITEM_ID)).thenReturn(Optional.empty());
 
@@ -186,7 +187,7 @@ class NotificationServiceTest {
     // ---------- helpers ----------
 
     private void seedClaimChain() {
-        Claim claim = Claim.create(ORDER_ITEM_ID, ClaimType.CANCEL, "CHANGE_MIND", null, BUYER_ID, OCCURRED_AT);
+        Claim claim = Claim.create(ORDER_ITEM_ID, ClaimType.CANCEL, "CHANGE_MIND", null, BUYER_ID, OCCURRED_AT, OrderItemStatus.PAID);
         Order order = Order.create(BUYER_ID, "ORDNO1", 0L, 0L);
         when(claimRepository.findById(CLAIM_ID)).thenReturn(Optional.of(claim));
         when(orderItemRepository.findOrderIdById(ORDER_ITEM_ID)).thenReturn(Optional.of(ORDER_ID));

@@ -12,6 +12,7 @@ import com.zslab.mall.claim.enums.ClaimStatus;
 import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.exception.ClaimInvalidStateException;
 import com.zslab.mall.claim.repository.ClaimRepository;
+import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.payment.entity.Payment;
 import com.zslab.mall.payment.enums.PaymentMethod;
@@ -71,7 +72,7 @@ class RefundServiceTest {
     private RefundService refundService;
 
     private Claim claim(ClaimStatus status) {
-        Claim claim = Claim.create(ORDER_ITEM_ID, ClaimType.CANCEL, "CHANGE_MIND", null, 1L, BASE_TIME);
+        Claim claim = Claim.create(ORDER_ITEM_ID, ClaimType.CANCEL, "CHANGE_MIND", null, 1L, BASE_TIME, OrderItemStatus.PAID);
         ReflectionTestUtils.setField(claim, "id", CLAIM_ID);
         ReflectionTestUtils.setField(claim, "status", status);
         return claim;

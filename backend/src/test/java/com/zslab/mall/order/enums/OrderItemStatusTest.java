@@ -23,11 +23,11 @@ class OrderItemStatusTest {
         map.put(OrderItemStatus.SHIPPING,          EnumSet.of(OrderItemStatus.DELIVERED,  OrderItemStatus.RETURN_REQUESTED));
         map.put(OrderItemStatus.DELIVERED,         EnumSet.of(OrderItemStatus.CONFIRMED,  OrderItemStatus.RETURN_REQUESTED, OrderItemStatus.EXCHANGE_REQUESTED));
         map.put(OrderItemStatus.CONFIRMED,         EnumSet.noneOf(OrderItemStatus.class));
-        map.put(OrderItemStatus.CANCEL_REQUESTED,  EnumSet.of(OrderItemStatus.CANCELLED, OrderItemStatus.PAID));
+        map.put(OrderItemStatus.CANCEL_REQUESTED,  EnumSet.of(OrderItemStatus.CANCELLED, OrderItemStatus.PAID, OrderItemStatus.PREPARING));
         map.put(OrderItemStatus.CANCELLED,         EnumSet.noneOf(OrderItemStatus.class));
-        map.put(OrderItemStatus.RETURN_REQUESTED,  EnumSet.of(OrderItemStatus.RETURNED));
+        map.put(OrderItemStatus.RETURN_REQUESTED,  EnumSet.of(OrderItemStatus.RETURNED, OrderItemStatus.SHIPPING, OrderItemStatus.DELIVERED));
         map.put(OrderItemStatus.RETURNED,          EnumSet.noneOf(OrderItemStatus.class));
-        map.put(OrderItemStatus.EXCHANGE_REQUESTED, EnumSet.of(OrderItemStatus.EXCHANGED));
+        map.put(OrderItemStatus.EXCHANGE_REQUESTED, EnumSet.of(OrderItemStatus.EXCHANGED, OrderItemStatus.DELIVERED));
         map.put(OrderItemStatus.EXCHANGED,         EnumSet.noneOf(OrderItemStatus.class));
         return map;
     }
@@ -80,10 +80,10 @@ class OrderItemStatusTest {
     }
 
     @Test
-    @DisplayName("CANCEL_REQUESTED → PAID 허용(claim-lock release·D-90 Q3 α-1)·CANCELLED 유지·PREPARING 직접 복원 미지원")
-    void cancelRequested_allowsPaidLockRelease() {
+    @DisplayName("CANCEL_REQUESTED → PAID·PREPARING 스냅샷 원복 허용(D-98 Q7·D-90 Q3 의미 변경)·CANCELLED 종결 유지")
+    void cancelRequested_allowsSnapshotRestore() {
         assertThat(OrderItemStatus.CANCEL_REQUESTED.canTransitionTo(OrderItemStatus.PAID)).isTrue();
+        assertThat(OrderItemStatus.CANCEL_REQUESTED.canTransitionTo(OrderItemStatus.PREPARING)).isTrue();
         assertThat(OrderItemStatus.CANCEL_REQUESTED.canTransitionTo(OrderItemStatus.CANCELLED)).isTrue();
-        assertThat(OrderItemStatus.CANCEL_REQUESTED.canTransitionTo(OrderItemStatus.PREPARING)).isFalse();
     }
 }

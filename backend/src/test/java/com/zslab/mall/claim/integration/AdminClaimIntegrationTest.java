@@ -182,8 +182,8 @@ class AdminClaimIntegrationTest {
             long requestedBy, String reasonDetail) {
         entityManager.createNativeQuery(
                         "INSERT INTO claim (id, public_id, order_item_id, type, reason_code, reason_detail, status, "
-                                + "requested_by, requested_at, created_at, updated_at) "
-                                + "VALUES (?1, ?2, ?3, ?4, 'BUYER_CHANGED_MIND', ?5, ?6, ?7, NOW(6), NOW(6), NOW(6))")
+                                + "previous_order_item_status, requested_by, requested_at, created_at, updated_at) "
+                                + "VALUES (?1, ?2, ?3, ?4, 'BUYER_CHANGED_MIND', ?5, ?6, 'PAID', ?7, NOW(6), NOW(6), NOW(6))")
                 .setParameter(1, id)
                 .setParameter(2, publicId)
                 .setParameter(3, orderItemId)

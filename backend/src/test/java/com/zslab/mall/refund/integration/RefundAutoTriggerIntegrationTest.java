@@ -184,7 +184,8 @@ class RefundAutoTriggerIntegrationTest {
                                 + "'pat_track11_auto_0001', NOW(6), NOW(6), NOW(6))",
                         PAYMENT_ID, pid("pay_", "T11PAY"), ORDER_ID, FULL_AMOUNT);
                 jdbc.update("INSERT INTO claim (id, public_id, order_item_id, type, reason_code, status, "
-                                + "created_at, updated_at) VALUES (?, ?, ?, ?, 'CHANGE_MIND', ?, NOW(6), NOW(6))",
+                                + "previous_order_item_status, created_at, updated_at) "
+                                + "VALUES (?, ?, ?, ?, 'CHANGE_MIND', ?, 'PAID', NOW(6), NOW(6))",
                         CLAIM_ID, CLAIM_PID, ORDER_ITEM_ID, claimType.name(), claimStatus.name());
             } finally {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");

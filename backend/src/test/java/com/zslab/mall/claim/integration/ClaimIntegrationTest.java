@@ -167,30 +167,36 @@ class ClaimIntegrationTest {
     }
 
     @Test
-    @DisplayName("T13 요청: RETURN·EXCHANGE 유형(CANCEL 외·Q6) → 각각 422·CLAIM_STATE_INVALID·INSERT 없음")
-    void request_nonCancelType_returns422() throws Exception {
+    @DisplayName("T13 요청: RETURN·DELIVERED → 201(D-98 Q4 게이트 제거)·RETURN·PAID → 422(전이 불가·type별 검증)")
+    void request_returnType_transitionAware() throws Exception {
         long orderId = 7131L;
-        long orderItemId = 7132L;
-        String orderItemPid = pid("oit_", "T13");
+        long deliveredItemId = 7132L;
+        long paidItemId = 7133L;
+        String deliveredPid = pid("oit_", "T13DLV");
+        String paidPid = pid("oit_", "T13PAID");
         seed(() -> {
             seedOrder(orderId, pid("ord_", "T13ORD"), BUYER_A);
-            seedOrderItem(orderItemId, orderItemPid, orderId, OrderItemStatus.PAID);
+            seedOrderItem(deliveredItemId, deliveredPid, orderId, OrderItemStatus.DELIVERED);
+            seedOrderItem(paidItemId, paidPid, orderId, OrderItemStatus.PAID);
         });
 
-        // CANCEL 외 유형은 소유권 검증 이후·CLM-5 검사 이전(step d)에서 차단된다(Q6).
+        // 게이트 제거 후 type 무관 진입 허용·DELIVERED는 RETURN_REQUESTED 전이 가능(D-98 Q4·Q7) → 201
         mockMvc.perform(post("/api/v1/claims").header(BUYER_ID_HEADER, BUYER_A)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(requestBody(orderItemPid, "RETURN", "BUYER_CHANGED_MIND")))
+                        .content(requestBody(deliveredPid, "RETURN", "BUYER_CHANGED_MIND")))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.claimType").value("RETURN"))
+                .andExpect(jsonPath("$.status").value("REQUESTED"));
+
+        // PAID는 RETURN_REQUESTED 전이 불가(매트릭스) → 422(type 게이트가 아닌 전이 검증으로 차단)
+        mockMvc.perform(post("/api/v1/claims").header(BUYER_ID_HEADER, BUYER_A)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestBody(paidPid, "RETURN", "BUYER_CHANGED_MIND")))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("CLAIM_STATE_INVALID"));
 
-        mockMvc.perform(post("/api/v1/claims").header(BUYER_ID_HEADER, BUYER_A)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(requestBody(orderItemPid, "EXCHANGE", "BUYER_CHANGED_MIND")))
-                .andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.code").value("CLAIM_STATE_INVALID"));
-
-        assertThat(claimCount(orderItemId)).isZero();
+        assertThat(claimCount(deliveredItemId)).isEqualTo(1L);
+        assertThat(claimCount(paidItemId)).isZero();
     }
 
     @Test
@@ -508,8 +514,8 @@ class ClaimIntegrationTest {
             long requestedBy, String reasonDetail) {
         entityManager.createNativeQuery(
                         "INSERT INTO claim (id, public_id, order_item_id, type, reason_code, reason_detail, status, "
-                                + "requested_by, requested_at, created_at, updated_at) "
-                                + "VALUES (?1, ?2, ?3, ?4, 'BUYER_CHANGED_MIND', ?5, ?6, ?7, NOW(6), NOW(6), NOW(6))")
+                                + "previous_order_item_status, requested_by, requested_at, created_at, updated_at) "
+                                + "VALUES (?1, ?2, ?3, ?4, 'BUYER_CHANGED_MIND', ?5, ?6, 'PAID', ?7, NOW(6), NOW(6), NOW(6))")
                 .setParameter(1, id)
                 .setParameter(2, publicId)
                 .setParameter(3, orderItemId)
