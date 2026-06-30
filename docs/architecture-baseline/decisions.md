@@ -4845,3 +4845,282 @@ D-01·D-05·D-06·D-29·D-30·D-67·D-74·D-75·D-86 Batch-3b·D-88·D-89·D-90 
 8. **라이브 트랩 박제 (D-98 PR-1 구현 시점 실측 발견)**: V6 ALTER TABLE `previous_order_item_status VARCHAR(20) NOT NULL` 컬럼 추가 시 기존 claim 시드 SQL 7파일 전건 INSERT 차단 발생. 시드 SQL에 `previous_order_item_status 'PAID'` 추가로 해소. 단건 트랩 (LT 카탈로그 신설 임계 ≥3 미도달·D-82 정합)·향후 마이그레이션 트랙 진입 시 동일 패턴 재발 시 LT-04 후보로 박제 검토.
 
 ---
+
+## D-99. Track 15 Seller Service · EXCHANGE 출고 등록 Seller endpoint 신설 · D-97·D-98 §후속 carry-over 종결 [ACTIVE]
+
+**결정일**: 2026-06-30
+**관련**: Track 15 / D-40 (URL 액터 중립·Controller 액터 분리)·D-64·D-65 (publicId 해소)·D-74 (네이밍)·D-92 (횡단 원칙·권한 검증 Service 진입점·primitive actor 비의존)·D-93 (SellerActorResolver seam·X-Seller-Id 임시 헤더·재사용 3회차)·D-97 §후속 (Delivery Controller 이연)·D-98 Q3·Q13 (registerExchangeShipment primitive·Claim.attachExchangeDelivery 검증·delivery.claim_id NULLABLE FK·UNIQUE 금지·재출고 허용) / invariants §2.12 DLV-1~3 / state-machine §6.1 (READY 의미) / docs/track-15/recon-report.md §1~§18
+
+### 배경
+
+D-97·D-98 §후속에 명시된 "Seller Service 트랙: registerExchangeShipment Controller·endpoint·DTO @ValidEnum 3·4층 동반" carry-over를 본 트랙에서 종결한다.
+
+**정찰 결과** (docs/track-15/recon-report.md §1~§18 실측 인용):
+
+- Seller 도메인 Controller·Service 0건 (Track 4 read-only·D-59 박제·§2.1)
+- 기존 Seller endpoint 2건 (SellerClaimController approve·reject·§2.2)
+- `DeliveryService.registerExchangeShipment(claimId, carrier, trackingNo)` Service 완전 구현 (§3.1·DeliveryService.java L89-107)·Controller 0건
+- DeliveryService 주입 전건: `DeliveryRepository`·`ClaimRepository`·`ApplicationEventPublisher` 3건 (§14.2·L31-33·OrderItemRepository 부재)
+- D-40 본문 재실측: `/api/buyer/...`·`/api/seller/...` 액터 prefix 자체 금지·버전 prefix `/api/v1/`는 별개 (§12.1)
+- `ClaimService.authorizeSellerAccess` private 가시성·`OrderItem.sellerId == sellerId` 경유 (§14.6·ClaimService.java L353-360)
+- `Claim.attachExchangeDelivery`는 type·orderItemId 검증 전용 void 메서드·`Claim.exchangeDeliveryId` 필드 부재 (§14.4·Claim.java L202-215)
+- V1 `delivery.tracking_no VARCHAR(100) NULL` (§14.3·V1__init.sql L647)
+
+1·2·3차 외부 검토 수렴 후 결정 12건 박제.
+
+### 결정 (12건)
+
+#### Q0: 트랙 식별자 = α Track 15 = Seller Service
+
+본 트랙은 D-97·D-98 §후속 carry-over 종착지. D-94 Q0 β·D-95 Q1 α·D-97 Q0 β·D-98 Q0 α 선례 5회차.
+
+**범위**:
+- 포함: Seller Delivery API (EXCHANGE 출고 등록 단독)
+- 제외: Admin override·Spring Security 정식 도입·markShipping/markDelivered Seller endpoint·일반 주문 Delivery 생성 진입점·재출고 흐름
+
+#### Q1: endpoint URL = α `POST /api/v1/claims/{claimPublicId}/register-exchange-shipment`
+
+**채택**: claim 하위 리소스·동사형 sub-path (기존 SellerClaimController `/approve`·`/reject` 패턴 일관성)·`exchange-shipment` 명시로 일반 주문 배송 등록과 의미 충돌 회피 (외부 검토 2차 흡수).
+
+**기각**:
+- `/api/v1/seller/deliveries/...` (β·D-40 액터 prefix 금지 위반)
+- `/api/v1/deliveries/{claimPublicId}/...` (γ·base path와 path variable 의미 불일치)
+- `/api/v1/claims/{claimPublicId}/exchange-shipment` (명사형·기존 동사형 패턴과 비일관)
+- `/api/v1/claims/{claimPublicId}/register-shipment` (일반 주문 배송 등록과 의미 충돌·외부 검토 2차 권고 흡수)
+
+**근거** (정찰 §12.1 D-40 본문 인용·SellerClaimController.java L19-27 Javadoc 인용):
+> "URL은 액터 중립이다(D-92 Q4 β): base path /api/v1/claims를 BuyerClaimController와 공존하며 HTTP method·하위 경로(/approve·/reject)로 분리한다."
+
+`Claim.attachExchangeDelivery` (D-98 Q13) Aggregate 진입점이 Claim이므로 base path 의미 정합.
+
+#### Q2: markShipping/markDelivered Seller endpoint 동반 = α 단독·일반 주문 Delivery 트랙 이연
+
+**채택**: 본 트랙은 registerExchangeShipment Controller 단독. markShipping/markDelivered Seller endpoint는 본 트랙 OOS.
+
+**근거** (외부 검토 2차 근거 재정합 흡수): 일반 주문 Delivery 생성 진입점 자체가 현재 부재 (Order Aggregate 측 Delivery 생성 핸들러 미구현)·markShipping/markDelivered Controller만 추가해도 호출 가능한 일반 주문 Delivery 데이터 부재. 일반 주문 Delivery 생성 트랙 시점에 동반 도입이 정합.
+
+**박제 1줄**: "markShipping/markDelivered Seller endpoint는 일반 주문 Delivery 생성 진입점 신설 트랙 시점에 동반 도입·본 트랙은 EXCHANGE 출고 등록 단독."
+
+#### Q3: DTO 설계 = α `RegisterExchangeShipmentRequest(DeliveryCarrier carrier, @NotBlank @Size(max=100) String trackingNo)`
+
+**채택**: record·DeliveryCarrier enum 직접 바인딩·`@Size(max=100)`은 V1 `delivery.tracking_no VARCHAR(100)` 정합 (정찰 §14.3 실측 인용).
+
+```java
+public record RegisterExchangeShipmentRequest(
+    DeliveryCarrier carrier,
+    @NotBlank @Size(max=100) String trackingNo
+) {}
+```
+
+**근거**: ClaimRequestRequest 패턴 실측 (enum 직접 바인딩·Jackson 역직렬화 실패 자동 400)·Service 변환 책임 회피.
+
+#### Q4: @ValidEnum 미신설 = β Jackson 역직렬화 400 패턴 재사용
+
+**채택**: 커스텀 Constraint 어노테이션 신설 없음. Jackson enum 역직렬화 실패 시 자동 400 (Spring Boot 기본 동작).
+
+**근거**:
+- 전 프로젝트 @ValidEnum 실사용 0건
+- ConstraintValidator·메시지 리소스·테스트 동반 = 단일 트랙 최초 도입 과잉개발 (기조 4)
+- D-97 Q3 §기각 사유의 "@ValidEnum 3·4층 동반 의무 발생"은 경고였고 의무 박제 부재
+- CLAUDE.md "@Pattern 또는 커스텀 @ValidEnum 검증" = 옵션 표현 ("또는")
+
+**박제 1줄**: "@ValidEnum 신설은 enum alias·case-insensitive·legacy 입력 요구 발생 시점에 별도 트랙으로 재평가."
+
+#### Q5: Controller publicId 해소 = α 기존 SellerClaimController 패턴 1:1 재사용
+
+**채택**: Controller에서 `claimRepository.findByPublicId(claimPublicId)` → `claim.getId()` 해소 후 ClaimService wrapper에 `Long claimId` 전달.
+
+**근거** (정찰 §14.5·SellerClaimController.java L24 Javadoc 인용):
+> "HTTP 책임만 가진다(D-40 β′): 액터 해소·publicId→id 해소·Service 위임·응답 조립만 수행하며 권한/상태 판단은 ClaimService 책임이다."
+
+D-92 "권한 검증 = Service 진입점" 원칙 위배 없음 — publicId 해소는 식별자 변환 단일 책임·권한 검증은 Service 내부 `authorizeSellerAccess`에서 수행.
+
+**기각**: β `Service.registerExchangeShipmentByPublicId(String publicId, ...)` 오버로드 (Service 시그니처 분기·동일 행위 2 메서드 책임 모호).
+
+#### Q6: SellerActorResolver 재사용 = α 1:1 재사용 (3회차)
+
+기존 `HeaderSellerActorResolver` (D-93 seam·X-Seller-Id 헤더 stub) 1:1 재사용. 별도 resolver 신설 없음.
+
+#### Q7: PR 분할 = α 단일 PR
+
+`feat/track-15-seller-delivery` 단독 PR. 범위 = Controller 1 + DTO 2 (Request·Response) + ClaimService wrapper + DeliveryService 가드 + 테스트 ~8건. D-87~D-98 1-PR 단독 패턴 9회차.
+
+#### Q8: Admin Service = β 별도 트랙 이연
+
+`AdminDeliveryController` 본 트랙 OOS. Admin Service 별도 트랙 진입 시점에 D-93 AdminActorResolver 패턴으로 신설·D-92 Q3-sub a‴ 자연 재사용.
+
+#### Q9: Seller 권한 게이트 위치 = γ ClaimService wrapper 신설·DeliveryService primitive 무변경
+
+**채택**: `ClaimService.registerExchangeShipmentBySeller` wrapper 신설·내부 `authorizeSellerAccess` 호출 후 `DeliveryService.registerExchangeShipment` primitive 위임.
+
+**옵션 비교 (정찰 §16 후 재정의)**:
+
+| 옵션 | 평가 | 사유 |
+|---|---|---|
+| α | 차선 | DeliveryService에 `OrderItemRepository` 신규 주입·자체 authorize 8라인 복제·권한 규칙 분산 |
+| β | 기각 | `authorizeSellerAccess` private → package-private 공개·Service 내부 계약 누수·테스트 경계 흐려짐 |
+| **γ** | **채택** | D-92·D-98 정합·D-98 흐름 업무 주체 Claim·권한 규칙 단일 SoT·wrapper 패턴 3회차 |
+| δ | 기각 | `ExchangeShipmentApplicationService` orchestration 과잉개발·현 범위 잉여 추상화 |
+
+**근거 (외부 검토 3차 인용)**:
+> "γ가 단순히 DRY 때문이 아니라, 이미 프로젝트가 채택한 '권한 wrapper → actor 없는 primitive' 패턴과 가장 일관적입니다."
+
+**구조 (정찰 §16.3 실측 해소)**:
+
+```
+SellerDeliveryController
+  → sellerActorResolver.resolve(request) → sellerId
+  → claimRepository.findByPublicId(claimPublicId) → claim.getId()
+  → claimService.registerExchangeShipmentBySeller(claimId, sellerId, carrier, trackingNo)
+       → claimRepository.findById(claimId) → claim
+       → authorizeSellerAccess(claim, sellerId)  ← D-92 Q3 실패 우선순위 최선두
+       → deliveryService.registerExchangeShipment(claimId, carrier, trackingNo) ← primitive 무변경
+       → return Delivery
+  → RegisterExchangeShipmentResponse.from(delivery)
+```
+
+**Service 시그니처 (D-92 횡단 원칙 재사용 3회차)**:
+- primitive: `DeliveryService.registerExchangeShipment(Long claimId, DeliveryCarrier carrier, String trackingNo): Delivery` — 기존재·actor 비의존·무변경
+- Seller wrapper: `ClaimService.registerExchangeShipmentBySeller(Long claimId, Long sellerId, DeliveryCarrier carrier, String trackingNo): Delivery` — 신설·권한 검증 후 primitive 위임
+
+**ClaimService 신규 주입**: `DeliveryService` (생성자 추가).
+
+**순환 의존 부재 확인** (정찰 §16.3): `DeliveryService` → `ClaimRepository` 의존 (§14.2 L32)·`ClaimService` → `DeliveryService` 신규 주입은 Repository 대 Service 분리·순환 없음.
+
+**트랜잭션 경계**: `ClaimService` 클래스 단위 `@Transactional` 기보유 (§14.6)·wrapper 동일 트랜잭션·primitive 호출은 `Propagation.REQUIRED` 자연 전파.
+
+**이벤트 발행 위치 불변**: `DeliveryStarted` 발행은 `DeliveryService.registerExchangeShipment` L103 유지·wrapper 통과해도 위치 무변경.
+
+**권한 검증 패턴** (`authorizeSellerAccess` 1:1 재사용·정찰 §14.6 L353-360 인용):
+- `claim.orderItemId` → `orderItemRepository.findById` → `orderItem.sellerId == sellerId`
+- 불일치 시 `ClaimNotFoundException` throw (404·cross-tenant 정보 노출 회피·D-92 Q3 실패 우선순위 최선두)
+
+#### Q10: ClaimInvalidStateException → 422 매핑
+
+**채택**: `Claim.attachExchangeDelivery` 내부 검증 throw (type 불일치·orderItemId 불일치) → `ClaimInvalidStateException` → HTTP 422 매핑.
+
+**일관성** (외부 검토 2차 확인 요청 흡수): 프로젝트 전체 `ClaimInvalidStateException` → 422 통일 (ClaimService 패턴 일관).
+
+**오류 응답 정책**: 현재 상태 (`Claim.exchangeDeliveryId`·Delivery 존재 여부) 응답 본문에 포함 금지·일반 에러 메시지로 통일 (cross-tenant 정보 노출 회피).
+
+**근거 정정** (정찰 §14.4 실측): D-99 초안 "Claim 엔티티 필드 자연 흡수" 가정 무효 — `Claim.exchangeDeliveryId` 필드 부재·`attachExchangeDelivery`는 void 검증 전용. 이중 호출 차단은 Q11 별도 처리.
+
+#### Q11: 이중 호출 멱등 차단 = α DeliveryService 진입부 가드·`DeliveryRepository.findByClaimId` 신규
+
+**채택**: `DeliveryService.registerExchangeShipment` primitive 진입부에 `deliveryRepository.findByClaimId(claimId).ifPresent → throw` 가드 신설.
+
+**옵션 비교**:
+
+| 옵션 | DDL | 평가 |
+|---|---|---|
+| **α** | 무변경 | **채택**·런타임 가드·DeliveryRepository.findByClaimId 신규 메서드 1건 |
+| β | V8 마이그레이션 동반 (`delivery.claim_id UNIQUE`) | 기각·D-98 Q13 "UNIQUE 금지·재출고 가능성 차단 회피" 박제와 직접 충돌 |
+| γ | 무변경 | 기각·통합 테스트 회귀만·런타임 가드 무방어·운영 데이터 중복 위험 |
+
+**가드 위치 결정 근거** (외부 검토 3차 권고 "Claim 상태 기반" 부분 반박):
+- 외부 검토 권고: "이미 교환 배송 연결됨"을 Claim 측 가드로 차단
+- **실측 정정 (정찰 §14.4)**: `Claim.exchangeDeliveryId` 필드 부재·Claim 상태(APPROVED+pickedUpAt)만으로는 첫 등록·재호출 구분 불가
+- Claim 측 가드 실측상 불가 → Delivery 측 (`claim_id` 조회) 가드만 가능
+- D-98 Q13 박제 `delivery.claim_id NULL·UNIQUE 금지·재출고 허용` 정합
+
+**구현 위치**: Service primitive 진입부 (actor 비의존 유지·D-92 정합·`ClaimService.markCompleted` L279 멱등 가드 패턴 1:1).
+
+**예외 매핑**: 이중 호출 차단 시 `ClaimInvalidStateException` throw → Q10 일관 매핑 (HTTP 422).
+
+**박제 1줄**: "재출고 시나리오는 운영 데이터 누적 후 후속 트랙·본 트랙은 1회차 출고 등록만 보장·재출고 진입점 신설 시 본 가드 우회 경로 (별도 Service 메서드·예: `reRegisterExchangeShipment`) 동반 결정."
+
+### 응답 계약 박제
+
+`RegisterExchangeShipmentResponse` (Controller 단일 책임):
+
+```java
+public record RegisterExchangeShipmentResponse(
+    String deliveryPublicId,
+    DeliveryStatus status,
+    DeliveryCarrier carrier,
+    String trackingNo
+) {
+    public static RegisterExchangeShipmentResponse from(Delivery delivery) { ... }
+}
+```
+
+- Claim 상태 미포함 (Controller 단일 책임)
+- Delivery 상태는 박제 시점 SHIPPING (D-98 Q3 단일 트랜잭션 박제·state-machine §6.1 READY 의미 정합)
+
+### 예외 매핑 박제
+
+| 예외 | HTTP | 사유 |
+|---|---|---|
+| `ClaimNotFoundException` (미존재 + cross-tenant) | 404 | 정보 노출 회피 (D-92 Q3) |
+| `ClaimInvalidStateException` (type 불일치·orderItemId 불일치·이중 호출·CLM-4 위반) | 422 | 도메인 invariant 위반·프로젝트 일관 |
+| Bean Validation 위반 (@NotBlank·@Size) | 400 | DTO 1층 차단 |
+| Jackson enum 역직렬화 실패 | 400 | Q4 β 자연 흡수 |
+
+### 영향 범위
+
+#### 신규 파일 (5건)
+- `backend/src/main/java/com/zslab/mall/delivery/controller/SellerDeliveryController.java` (`@RestController @RequestMapping("/api/v1/claims")`·Javadoc D-40 β′·D-99 Q5·Q9 인용·SellerClaimController L19-27 패턴 1:1)
+- `backend/src/main/java/com/zslab/mall/delivery/controller/request/RegisterExchangeShipmentRequest.java` (Q3 record·@NotBlank·@Size(max=100))
+- `backend/src/main/java/com/zslab/mall/delivery/controller/response/RegisterExchangeShipmentResponse.java` (응답 계약 박제)
+- `backend/src/test/java/com/zslab/mall/delivery/controller/SellerDeliveryControllerTest.java` (@WebMvcTest·단위 ≥5건)
+- `backend/src/test/java/com/zslab/mall/delivery/integration/SellerDeliveryIntegrationTest.java` (e2e·NO @Transactional·LT-02 try-finally·D-91 FK 부모 그래프 시드·≥3건)
+
+#### 수정 파일 (production 3건)
+- `backend/src/main/java/com/zslab/mall/claim/service/ClaimService.java` (Q9 `registerExchangeShipmentBySeller` wrapper 신설·`DeliveryService` 신규 주입·`authorizeSellerAccess` 1:1 재사용)
+- `backend/src/main/java/com/zslab/mall/delivery/service/DeliveryService.java` (Q11 `registerExchangeShipment` primitive 진입부 가드 추가·`deliveryRepository.findByClaimId` 호출·이중 호출 시 `ClaimInvalidStateException` throw)
+- `backend/src/main/java/com/zslab/mall/delivery/repository/DeliveryRepository.java` (Q11 `findByClaimId(Long claimId): Optional<Delivery>` 메서드 신규 추가)
+
+#### 무변경 확정
+DeliveryService.registerExchangeShipment primitive 시그니처·Claim 도메인 전건·Delivery Entity·기존 핸들러 전건·DDL·Flyway (V8 등 마이그레이션 불요)·기존 테스트 전건·invariants.md·state-machine.md·aggregate-boundary.md·domain-events.md.
+
+#### 회귀 예상
+424 baseline → ≥432 (신규 단위 ≥5 + 통합 ≥3 = ≥8)·기존 회귀 0.
+
+### 회귀 테스트 의무 박제
+
+**Q11 이중 호출 멱등 회귀** (PR 통합 테스트 1건 의무):
+- 동일 claimId·정상 첫 등록 → 200
+- 동일 claimId 재호출 → 422 `ClaimInvalidStateException`·Delivery 추가 생성 없음·DeliveryStarted 추가 발행 없음
+- D-91 FK 부모 그래프 시드·LT-02 try-finally
+
+### 대안 검토 (기각)
+
+- Q1 명사형 `exchange-shipment` (외부 검토 1차): 기존 동사형 패턴과 비일관·기각 (외부 검토 2차 철회).
+- Q1 `register-shipment`: 일반 주문 배송 등록과 의미 충돌·기각 (외부 검토 2차 흡수).
+- Q2 β markShipping/markDelivered 동반: 일반 주문 Delivery 생성 진입점 부재·호출 데이터 부재·기각.
+- Q4 α @ValidEnum 신설: 단일 트랙 최초 도입 과잉개발·기조 4 위배·기각.
+- Q5 β Service publicId 오버로드: SellerClaimController 패턴 비일관·동일 행위 2 메서드·기각 (외부 검토 2차 철회).
+- Q7 β PR 분할: Q2 α 채택으로 분할 대상 자체 부재·기각.
+- Q9 α DeliveryService 자체 authorize: OrderItemRepository 신규 주입·권한 규칙 8라인 복제·규칙 분산·차선이나 권장 미달·기각.
+- Q9 β authorizeSellerAccess private → package-private: Service 내부 계약 누수·테스트 경계 흐려짐·기각.
+- Q9 δ ExchangeShipmentApplicationService orchestration: 현 범위 과잉개발·계층 증가·기각.
+- Q10 별도 409 분기 (이중 호출): Q11 가드가 422로 단일 매핑·HTTP 의미 중복·기각.
+- Q11 β delivery.claim_id UNIQUE 제약: D-98 Q13 "UNIQUE 금지·재출고 가능성 차단 회피" 박제 직접 충돌·기각.
+- Q11 γ 테스트만: 런타임 보호 부재·외부 요청 → Delivery 생성 → 이벤트 발행 흐름 차단 불가·기각.
+- Q11 Claim 측 가드 (외부 검토 3차 권고): `Claim.exchangeDeliveryId` 필드 부재 실측 (정찰 §14.4)·Claim 상태만으로 첫 등록·재호출 구분 불가·기각.
+
+### 관련 결정
+
+D-40 (URL 액터 중립)·D-64·D-65 (publicId 해소)·D-74 (네이밍)·D-92 (횡단 원칙·재사용 3회차)·D-93 (SellerActorResolver seam·재사용 3회차)·D-97 §후속 (Delivery Controller carry-over 종결)·D-98 Q3·Q13 (registerExchangeShipment primitive·attachExchangeDelivery 검증·delivery.claim_id NULLABLE FK·UNIQUE 금지·재출고 허용)·invariants §2.12 DLV-1~3·state-machine §6.1·SellerClaimController.java L19-27·L54·L64 패턴 SoT·ClaimService.java L50-53·L353-360 authorizeSellerAccess SoT·DeliveryService.java L31-33·L89-107 SoT·V1__init.sql L642-654 SoT·Claim.java L202-215 attachExchangeDelivery SoT·docs/track-15/recon-report.md §1~§18.
+
+### 후속 트랙
+
+- **markShipping/markDelivered Seller endpoint**: 일반 주문 Delivery 생성 진입점 신설 트랙 동반.
+- **재출고 흐름 정의**: 운영 데이터 누적 후 후속 트랙·EXCHANGE 1회차 실패 → 새 Claim 또는 동일 Claim 재시도 시나리오 확정·Q11 가드 우회 경로 (`reRegisterExchangeShipment` 등) 동반 결정.
+- **Admin Service**: `AdminDeliveryController`·D-93 AdminActorResolver 패턴 재사용·`registerExchangeShipmentByAdmin` wrapper.
+- **Spring Security 정식 도입**: X-Seller-Id stub 3종 일괄 대체·D-93 Q11 wrapper 유지 전략.
+- **외부 택배 어댑터**: D-98 Q1 ClaimPickedUp 발행 주체 확장·자동 픽업 확인.
+- **@ValidEnum 신설 트랙**: enum alias·case-insensitive·legacy 입력 요구 발생 시점.
+- **EXCHANGE 차액 환불**: D-98 Q2 박제 1줄 진입점·refundAmount>0 흐름.
+- **Observability**: D-90·D-94 Q6·D-95 Q6·D-97 Q8·D-98 Q5·D-99 Q11 박제 1줄 통합 재평가·이벤트 핸들러 멱등성 표준화.
+
+### 후속
+
+1. 본 결정 박제 = 사용자 직접 처리 (D-94·D-95·D-96·D-97·D-98 패턴 6회차).
+2. PR 브랜치 `feat/track-15-seller-delivery` 생성 (main HEAD 4e5d0b3 기준).
+3. 가드 5 사전 통지: 신규 5 (controller 1·DTO 2·테스트 2) + 수정 production 3 (ClaimService wrapper·DeliveryService 가드·DeliveryRepository 메서드 추가) — Claude Code 구현 프롬프트 시점 일괄 통지.
+4. TDD 우선 (단위 → 통합)·BUILD SUCCESSFUL·신규 ≥8 PASS·기존 회귀 0.
+5. GitHub Web UI PR 생성·Base: main·Compare: feat/track-15-seller-delivery·외부 검토 1·2·3차 완료·A급.
+6. PR 머지로 Track 15 종결·D-97·D-98 §후속 Seller Service 트랙 carry-over 영구 해소·D-92·D-93 횡단 원칙 재사용 3회차 박제·Q11 재출고 후속 트랙 carry-over 신설.
+
+---
