@@ -13,6 +13,7 @@ import com.zslab.mall.claim.event.ClaimRequested;
 import com.zslab.mall.claim.exception.ClaimInvalidStateException;
 import com.zslab.mall.claim.exception.ClaimNotFoundException;
 import com.zslab.mall.claim.repository.ClaimRepository;
+import com.zslab.mall.common.observability.TracedEventPublisher;
 import com.zslab.mall.delivery.entity.Delivery;
 import com.zslab.mall.delivery.enums.DeliveryCarrier;
 import com.zslab.mall.delivery.service.DeliveryService;
@@ -24,7 +25,6 @@ import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.order.repository.OrderRepository;
 import java.time.LocalDateTime;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -53,14 +53,14 @@ public class ClaimService {
     private final ClaimRepository claimRepository;
     private final OrderItemRepository orderItemRepository;
     private final OrderRepository orderRepository;
-    private final ApplicationEventPublisher eventPublisher;
+    private final TracedEventPublisher eventPublisher;
     private final DeliveryService deliveryService;
 
     public ClaimService(
             ClaimRepository claimRepository,
             OrderItemRepository orderItemRepository,
             OrderRepository orderRepository,
-            ApplicationEventPublisher eventPublisher,
+            TracedEventPublisher eventPublisher,
             DeliveryService deliveryService) {
         this.claimRepository = claimRepository;
         this.orderItemRepository = orderItemRepository;

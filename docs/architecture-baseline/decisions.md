@@ -5124,3 +5124,410 @@ D-40 (URL 액터 중립)·D-64·D-65 (publicId 해소)·D-74 (네이밍)·D-92 (
 6. PR 머지로 Track 15 종결·D-97·D-98 §후속 Seller Service 트랙 carry-over 영구 해소·D-92·D-93 횡단 원칙 재사용 3회차 박제·Q11 재출고 후속 트랙 carry-over 신설.
 
 ---
+
+## D-100. Track 16 Observability 표준 박제 · 관측성 컨텍스트 전파 컨벤션 · Micrometer 명명·Actuator 노출·로깅 표준·테스트 표준 · 박제 1줄 누적 6건 통합 재평가 [ACTIVE]
+
+**결정일**: 2026-06-30
+**관련**: Track 16 / D-29 (save→publish·no flush)·D-30 (이벤트 사실 통지·payload 무수정)·D-48 (TraceIdFilter MDC 박제)·D-69 (RefundCompleted Publisher/Consumer 시점 분리)·D-70 (refundedAt 시각 의미)·D-74 (이벤트 핸들러 빈 네이밍)·D-75 (이벤트 핸들러 AFTER_COMMIT·REQUIRES_NEW)·D-90 (Q1·Q3·Q5 AFTER_COMMIT 패턴·복귀 전이·통합 테스트 정책)·D-91 (FK 부모 그래프 시드)·D-94 Q6 (RefundService.initiate 활성 Refund 게이트)·D-95 Q6 (NotificationLog 멱등 미도입·인메모리 publisher 가정)·D-97 Q8 (canTransitionTo 자연 흡수)·D-98 Q5 (소비 순서)·D-99 Q11 (registerExchangeShipment 이중 호출 가드) / invariants 전건 / state-machine 전건 / aggregate-boundary 전건 / domain-events §1·§2 E1~E11 / live-traps LT-01·LT-02·LT-03 / docs/track-16/recon-report.md §1~§13.7
+
+### 배경
+
+D-99 §후속에 명시된 "Observability" carry-over를 본 트랙에서 종결한다.
+
+정찰 결과 (docs/track-16/recon-report.md §1~§13.7 실측 인용):
+
+- **이벤트 record 11종 실측** (recon §2.1): OrderPlaced·PaymentCompleted·PaymentFailed·DeliveryStarted·DeliveryCompleted·ClaimRequested·ClaimApproved·ClaimRejected·ClaimCompleted·ClaimPickedUp·RefundCompleted
+- **핸들러 18건 실측** (recon §3.1): claim 5·notification 7·order 2·payment 2·refund 2 = 5 패키지
+- **멱등 가드 패턴 5종 혼재** (recon §3.2): A canTransitionTo 자연 흡수·B Service primitive 가드·C type 분기 게이트·D catch+skip+log.warn·E 다단계 복합
+- **트랜잭션 정책 이원화** (recon §4.1·§4.2): 동기 @EventListener 4건·AFTER_COMMIT + REQUIRES_NEW 14건
+- **correlationId·eventId 전 프로젝트 0건** (recon §2.3·§5.3): `grep -rn "correlationId|eventId" → 0건`
+- **MeterRegistry·@Timed·@Counted 0건** (recon §6.2): 비즈니스 메트릭 전무
+- **Actuator 노출** (recon §6.3): health·info 한정·application-prod.yml show-details when-authorized
+- **로그 prefix 11종 산발** (recon §5.1): `[Claim]`·`[Notification]`·`[Refund]`·`[Delivery]`·`[ExchangeDelivery]`·`[Payment]`·`[Checkout]`·prefix 없음 등
+- **ApplicationEventPublisher 인메모리 단독** (recon §8.1·§8.2): publishEvent 11 호출처·외부 브로커 0건
+- **박제 1줄 누적 6건** (recon §3.3): D-90·D-94 Q6·D-95 Q6·D-97 Q8·D-98 Q5·D-99 Q11
+- **WARN 10건** (recon §10): P0 3건 (RefundCompleted 시각 필드·correlationId 0건·MeterRegistry 0건)·P1 3건·P2 4건 (WARN-10 §13.7 추가)
+
+1·2·3차 외부 검토 수렴 후 결정 18건 + WARN 처치 8건 + 진입점 카드 6 항목 박제한다.
+
+---
+
+### §원칙
+
+본 결정은 "정책(왜)"와 "검증방법(어떻게)"를 분리해 3계층(원칙·규칙·종료조건)으로 재정렬한다 (WARN-18 흡수). 박제는 책임만 기록하며 구현 클래스명·테스트 클래스명·메트릭 이벤트명 고정은 회피한다 (WARN-15·17 흡수).
+
+**1. 관측성 트랙은 도메인 트랙과 다르다**:
+- 본 트랙은 16 Aggregate·11 이벤트·18 핸들러 횡단 표준 박제이며 도메인 행위 변경 0건
+- 잘못된 결정은 이후 모든 Aggregate·이벤트·테스트·운영 규칙에 횡단 전파 위험·신중 의무
+
+**2. 인메모리 publisher 가정 유지**:
+- D-95 Q6 박제 1줄 유지 (인메모리 ApplicationEvent publisher·재전달 자연 발생 불가)
+- Outbox·외부 브로커 도입은 본 트랙 OOS·트리거 조건 박제 (Q2 γ)
+
+**3. D-30 사실 통지 원칙 유지**:
+- 이벤트 record payload 무수정·correlationId·eventId 필드 추가 회피
+- 관측성 컨텍스트는 MDC 전파 (이벤트 record 무영향)
+
+**4. 박제는 정책 책임만 기록**:
+- 구현 클래스명(TraceIdFilter·NotificationLogIntegrationTest 등) 고정 회피
+- 메트릭 이벤트명 고정 회피
+- 박제는 책임·계약만 기록·구현은 PR 단계 실측 후 결정
+
+**5. 박제 1줄 누적 6건 전건 유지**:
+- D-90·D-94 Q6·D-95 Q6·D-97 Q8·D-98 Q5·D-99 Q11 전건 통합 재평가 후 유지 확인
+- 본 트랙 신규 박제 1줄 14건 추가·총 20건 (3계층 재정렬로 유지 가능)
+
+---
+
+### §규칙 (Q0~Q17 결정 18건)
+
+#### Q0: 트랙 식별자 = α Track 16 = Observability 확정
+
+D-94 Q0 β·D-95 Q1 α·D-97 Q0 β·D-98 Q0 α·D-99 Q0 α 선례 6회차. D-99 §후속 "Observability" 명시.
+
+#### Q1: 이벤트 핸들러 멱등성 표준화 = γ 5 패턴 카탈로그 박제 + Javadoc 의무
+
+**박제 1줄**: "이벤트 핸들러 멱등 가드 표준은 패턴 5종(A canTransitionTo 자연 흡수·B Service primitive 가드·C type 분기 게이트·D catch+skip+log.warn·E 다단계 복합) 카탈로그 박제·신규 핸들러는 패턴 선택 사유를 Javadoc 1줄 의무 기록·NotificationLog 멱등 저장소는 Outbox 도입 시점 동반."
+
+**근거**: 패턴별 이벤트 성격(동기 정합성 vs 비동기 알림) 차이 반영·단일화는 SRP 위배·D-95 Q6 박제 1줄 유지.
+
+#### Q2: 이벤트 저장소·Outbox = γ 인메모리 publisher 유지 + 트리거 조건 박제
+
+**박제 1줄**: "Outbox 도입 트리거 = (1) 다중 인스턴스 배포 결정 또는 (2) 외부 브로커(Kafka·RabbitMQ·Redis Streams) 도입 또는 (3) 이벤트 누락 라이브 트랩 발생 또는 (4) 이벤트 재처리 요구 SLA 발생 — 넷 중 1건 도달 시 별도 트랙 진입 의무."
+
+**근거**: 단일 인스턴스 운영·publishEvent 11건 인메모리 단독·Outbox는 outbox 테이블·publisher·poller·retry·cleanup·replay·테스트 운영 부담 동반·기조 4 위배.
+
+#### Q3: correlationId·eventId 컨벤션 = β′ correlationId·eventName MDC + event record 무수정
+
+**박제 1줄**: "관측성 컨텍스트 전파 표준 = MDC 키 `traceId`·`correlationId` 2종 + `eventName`은 핸들러 catch 블록 `event.getClass().getSimpleName()` 직접 인용 (MDC 미주입)·event record 무수정 (D-30 사실 통지 정합)·eventId 도입은 Outbox 트리거 시점 동반."
+
+**박제 1줄 갱신 (eventName MDC 제거·실측 기반 책임 재정의·2026-06-30)**: 초기 박제 본문 "MDC 키 3종"은 AFTER_COMMIT 핸들러 진입 시점 eventName 보장 가정으로 작성됐으나, TracedEventPublisher의 finally MDC.remove(eventName)가 publishEvent 동기 구간 종료 시점에 실행되고 @TransactionalEventListener(AFTER_COMMIT) 핸들러 발화는 트랜잭션 커밋 시점이라 시간 차이로 핸들러 진입 시 MDC eventName 부재 실측 확정 (CorrelationIdIntegrationTest 캡처값 null). nested publishEvent 패턴 (핸들러 A 내부 publishEvent(B)) 발생 시 옵션 2 적용 시 MDC eventName 오염 위험 동반 → 옵션 4 채택: TracedEventPublisher 책임 = delegate 단순 위임만·eventName MDC 미주입·핸들러 catch 6 표준키 event 직접 인용으로 운영 grep 충족·Outbox 도입 시 본 클래스가 Outbox writer 자연 진입점 (이벤트 메시지에서 eventName 추출·MDC 의존 약화). 씨앗 3건 (박제 불일치·Outbox 재작업·silent null) 전건 해소.
+
+**근거**: D-30 정합·11 record 수정 회귀 회피·MDC 기반 운영 추적 효용 즉시 확보.
+
+#### Q4: Micrometer 메트릭 컨벤션 = β′ published+failed 카운터 2종 (handler 태그 미부착)
+
+**박제 1줄**: "메트릭 명명 = `zslab.event.published{event=<EventName>}`·`zslab.event.failed{event=<EventName>}` 카운터 2종 1차 박제·handler 태그 미부착(rename 시 시계열 보존·저카디널리티)·handler 식별은 로그 책임·`zslab.event.duration{handler=<HandlerClass>}` Timer + `zslab.event.consumed` 카운터는 운영 부하 측정 수요 발생 시점 후속 트랙 동반."
+
+**근거**: 핸들러 rename 시 메트릭 시계열 단절 회피·태그 폭발 위험 회피 (WARN-13 흡수)·핵심 도메인 우선 계측·후속 트랙 확장 정합.
+
+#### Q5: Actuator endpoint 노출 = α′ health·info·prometheus + gateway IP 화이트리스트
+
+**박제 1줄**: "Actuator 운영 노출 = `health`·`info`·`prometheus` 한정·`metrics` raw JSON 미노출·Prometheus scrape 단독 운영·`/actuator/prometheus` 보안은 gateway_nginx 인프라 단 IP 화이트리스트 의무·애플리케이션 단 보안 처리는 Spring Security 정식 도입 트랙 시점 결합."
+
+**근거**: Spring Security 부재·공유 인프라 gateway_nginx 기반 IP 화이트리스트 가능·운영 모니터링 즉시 확보.
+
+#### Q6: 로깅 표준 = β + 5 표준키 + Metric-Log 책임 분리
+
+**박제 1줄**: "로그 prefix 표준 = Aggregate 단위 `[<Aggregate>]` 의무 (Claim·Order·Payment·Refund·Delivery·Notification·Settlement·Inventory)·핸들러 catch 블록 structured log 키 `event·target_type·target_id·action·correlationId·handler` 6 키 박제·correlationId MDC 자동 상속·로그 책임(상세·handler 포함) vs 메트릭 책임(저카디널리티·event 단일 태그) 분리·중복 관측 회피."
+
+**근거**: prefix 통일 운영 grep 일관성·Q3 β′ correlationId MDC 통합 정합·Notification 7건 catch 블록 `action=manual_review` 패턴 1:1 유지·WARN-13 책임 분리 흡수.
+
+#### Q8: 테스트 표준화 = β + Javadoc 의도 명시 의무 (마커 어노테이션 미도입)
+
+**박제 1줄**: "통합 테스트 표준 = AFTER_COMMIT 핸들러 검증 테스트는 NO @Transactional + TransactionTemplate + @RecordApplicationEvents + LT-02 try-finally + D-91 FK 부모 그래프 시드 5중 의무·비검증 테스트는 클래스 Javadoc에 의도 명시 의무·마커 어노테이션(@TestCategory 등) 미도입 (기조 4 정합·Track 14·15 Javadoc 패턴 정착 실측)."
+
+**근거**: △ 4건 (Checkout·Claim·SellerClaim·AdminClaim) Javadoc 의도 명시 완비 실측 (recon §13.1)·강제 α는 회귀 위험·기조 4 위배·JUnit Tag 인프라 도입 과잉개발.
+
+#### Q9: AFTER_COMMIT 핸들러 실행 순서 = γ 비보장 박제 + Q2 트리거 정합
+
+**박제 1줄**: "AFTER_COMMIT 핸들러 간 실행 순서는 비보장 (Spring `ApplicationEventMulticaster` 빈 등록 순서 의존)·현재 핸들러 간 의존성 부재 (E5 DeliveryCompleted 3중 소비자 독립 Aggregate 수정 실측)·다중 인스턴스·Outbox 도입 시 명시적 순서 보장 메커니즘 동반 결정 의무 (Q2 트리거 조건 정합)."
+
+**근거**: `@Order` 어노테이션 핸들러 0건 실측 (recon §13.6)·현 시점 기능 의존성 없음·인메모리 publisher 가정 종료 시점 자연 진입.
+
+#### Q10: RefundCompleted 시각 필드 정합 = γ 의도적 박제 유지
+
+**박제 1줄**: "RefundCompleted record `refundedAt` 단독 사용은 D-70 의도적 선택 (COMPLETED 전이 시스템 시각·업무 의미 강조)·`occurredAt` 컨벤션 이탈은 의도된 비일관·이벤트 record 시각 필드는 업무 시각(`refundedAt`·`pickedUpAt`·`deliveredAt` 등)·이벤트 발행 시각(`occurredAt`) 2 트랙 자유 선택 박제."
+
+**근거**: D-70 결정 의미 보존·소비자 영향 회피·11 record 시각 필드 통일 욕심은 의미 손실.
+
+#### Q11: publicId 이벤트 record 포함 패턴 = β 현 패턴 박제
+
+**박제 1줄**: "이벤트 record publicId 포함 기준 = 소비자 NotificationLog 메시지·운영자 로그·외부 API 응답 등 표시용 사용 시 포함 의무·내부 도메인 처리만 수행 시 미포함·필드명은 `<aggregate>PublicId` 통일 (OrderPlaced.publicId는 단일 publicId 사용으로 prefix 생략 의도적 패턴 박제·정합 비고로 유지)."
+
+**근거**: Claim 5종 + OrderPlaced 1종 표시용 사용 실측·Payment/Delivery/Refund 5종 내부 처리 한정 실측·11 record 전건 수정 회귀 회피.
+
+#### Q12: PR 분할 = β′ PR-1 + PR-2
+
+- **PR-1** (`feat/track-16-observability-standards`): D-100 박제·로깅 prefix Notification 7건 적용·correlationId/eventName MDC 주입·Q14 실측 + (조건부) MdcContextCopier helper 신설·테스트 표준 박제
+- **PR-2** (`feat/track-16-observability-metrics`): Micrometer published+failed 카운터·Prometheus registry 의존성·Actuator prometheus endpoint 노출·gateway IP 화이트리스트
+
+**근거**: 1-PR 단독 패턴 9회차 누적·correlationId/로깅은 코드 산발 작음·Micrometer는 18 핸들러 영향·분리 자연·rollback 비용 저감.
+
+**박제 1줄 갱신 (β″′ 채택·2026-06-30)**: PR-1 영향 production 7→13 (TraceIdFilter 1·Notification 7·5 Service 발행처 의존 교체)·신규 2 (TracedEventPublisher + 단위 테스트)·5 Service = OrderService·PaymentService·DeliveryService·RefundService·ClaimService·발행처 ↔ ApplicationEventPublisher → TracedEventPublisher 생성자 주입 교체·publishEvent 시그니처 동일·트랜잭션 경계 무관 (D-29 save→publish 정합)·eventName MDC 주입 단일 SoT 확보·Outbox 도입 시 재작업 비용 0·Q14 ✓ 자연 상속 직접 활용.
+
+#### Q13: correlationId 정의 = α traceId 동일 값 (요청 기원 한정·요청 외 기원 분리 재평가)
+
+**박제 1줄**: "correlationId는 현재 단계에서 traceId와 동일 값 사용. 요청 기원(Request-originated) 이벤트 체인에서는 TraceIdFilter 진입 시 traceId·correlationId 동시 주입. 요청 외 기원(배치·Outbox·Replay·Scheduler·Admin trigger·CLI) 도입 시 분리 재평가."
+
+**근거**: 1 HTTP 요청 = 1 이벤트 체인 현 가정 정합·별도 ULID 분리는 추적 키 2개 운영 부담·인메모리 publisher 가정 하 효용 미약·향후 요청 외 기원 진입 시 자연 분리.
+
+#### Q14: MDC 자연 상속 실측 = α 단위 테스트 실측 + nested publishEvent 동반 + 스레드 전환 시 재결정
+
+**박제 1줄**: "AFTER_COMMIT 핸들러 MDC 자연 상속은 본 트랙 진입 시점 단위 테스트로 실측 의무·nested publishEvent (핸들러 내 추가 이벤트 발행) MDC 상속 동반 실측 의무·자연 상속 확인 시 helper 미신설·미상속 발견 시 `MdcContextCopier` helper 신설·스레드 전환(@Async·Scheduler·Outbox·Executor) 발생 시 MDC 복원 전략 재결정."
+
+**근거**: 기조 5 실측 우선·AFTER_COMMIT 동일 스레드 실행 명세 (트랜잭션 분리 ≠ 스레드 분리)·helper 무조건 신설은 과잉개발·실측 후 결정.
+
+#### Q15: MDC.clear 적용 책임 = α 정책·구현 분리 (구현 클래스명 고정 회피)
+
+**박제 1줄**: "요청 컨텍스트 종료 시 MDC 정리(MDC.clear 또는 동등 보장) 의무·PR-1 구현 단계에서 적용 여부 실측 후 누락 시 보완·구현 클래스명·매커니즘은 박제하지 않으며 책임만 기록 (WARN-15 흡수)."
+
+**근거**: WARN-12 본질은 요청 종료 시 MDC 오염 방지·구현 상태 확인은 PR-1 단계·정책과 구현 결합 회피.
+
+#### Q16: correlationId 누락 검증 = α 대표 흐름 누락 없음 검증 (수치 집착 제거)
+
+**박제 1줄**: "PR-1 종료 검증은 대표 이벤트 흐름에 대해 correlationId 누락 없음 검증 의무 (HTTP → publish → AFTER_COMMIT → 로그)·운영 지속 측정은 외부 로그 수집 인프라 도입 시점 자연 진입."
+
+**근거**: "존재율 100%" 운영 KPI식 표현 회피·대표 흐름 검증으로 충분·LogbackAppender 추가는 과잉개발.
+
+#### Q17: failed metric 검증 = α′ 메트릭 계약만 고정 (이벤트명·테스트 구현 비박제)
+
+**박제 1줄**: "PR-2 종료 검증은 이벤트 처리 실패 유발 후 `zslab.event.failed` 카운터 증가 단언 의무·검증 이벤트 종류·핸들러 구현·테스트 클래스명은 변경 가능·메트릭 계약만 고정 (WARN-17 흡수)."
+
+**근거**: 테스트 구조 변경 시 박제 깨짐 회피·메트릭 계약(증가 단언) 단독 박제·구현 자유.
+
+---
+
+### §종료조건
+
+#### PR-1 종료조건 (Done 정의·WARN-14 흡수)
+
+1. **로그 prefix 100% 적용** — 핸들러 catch 블록 `[<Aggregate>]` prefix grep 검증 의무·Notification 7건 prefix 추가 완료
+2. **traceId·correlationId 누락 없음** — 대표 이벤트 흐름 (HTTP → publish → AFTER_COMMIT → 로그) 통합 테스트 1건으로 traceId·correlationId MDC 포함 단언 (Q3 β′ 갱신 정합·eventName MDC는 책임 미보유·핸들러 로그 직접 인용으로 별도 충족)
+3. **TraceIdFilter MDC 정리 적용** — 요청 컨텍스트 종료 시 MDC 정리 실측·미적용 시 보완
+4. **Q14 MDC 자연 상속 실측 완료** — 단위 테스트 + nested publishEvent 동반·결과에 따라 helper 신설 또는 미신설 결정 박제
+5. **TracedEventPublisher 발행처 5 Service 교체 완료** — publishEvent 11 호출처 wrapper 의존 확인 (β″′ 채택)
+
+#### PR-2 종료조건 (Done 정의)
+
+6. **failed 메트릭 증가 단언** — 통합 테스트 1건으로 `zslab.event.failed` 카운터 증가 단언·이벤트명·테스트 클래스명은 변경 가능
+7. **Actuator scrape 확인** — `/actuator/prometheus` endpoint scrape 응답 본문에 `zslab.event.*` 메트릭 노출 확인
+
+**종료조건 추가 금지** (WARN-16 흡수): 위 7건 외 추가 종료조건 신설 회피·과측정 위험·운영 효용 한계.
+
+---
+
+### §진입점 (메모리 룰 #16 시범 적용)
+
+본 절은 신규 트랙 진입 시 첫 손길 들어갈 코드 위치·SoT 메서드·횡단 원칙·트랩 주의 압축 카드다.
+
+1. **목적**: 관측성 표준 박제 (correlationId 전파·로깅 prefix·Micrometer 명명·Actuator 노출·테스트 5중 의무) — 도메인 행위 변경 0건
+2. **핵심 진입점**:
+   - `common/web/TraceIdFilter.java` — D-48 SoT·correlationId MDC 동시 주입 진입점·MDC.clear 적용 위치
+   - `common/observability/TracedEventPublisher.java` — eventName MDC 주입 단일 SoT (β″′ 채택)·5 Service 발행처 의존 wrapper
+   - `notification/handler/Notification*Handler.java` 7건 — 로그 prefix 적용 대상·structured log 6 표준키 적용 대상
+   - `build.gradle.kts` — `micrometer-registry-prometheus` 의존성 추가 위치
+   - `application.yml`·`application-prod.yml` — Actuator endpoint 노출 설정
+3. **핵심 SoT 메서드**:
+   - `TracedEventPublisher.publishEvent` — 11 발행처 단일 진입점·delegate 단순 위임·Outbox writer 자연 흡수 진입점·Micrometer `zslab.event.published` 카운터 적용 대상 (eventName MDC 책임 미보유·옵션 4 채택)
+   - 핸들러 catch 블록 18건 — `zslab.event.failed` 카운터 + 로그 prefix 동반 적용 대상
+4. **영향 범위**:
+   - production: `common/web/`·`common/observability/`·`notification/handler/`·5 Service 발행처·`build.gradle.kts`·`application*.yml`
+   - test: 통합 테스트 ≥2건 (PR-1 correlationId·PR-2 failed metric) + 단위 ≥2건 (Q14 MDC·TracedEventPublisher)
+   - Aggregate 단위 변경: 0건 (도메인 행위 무변경·횡단 표준만)
+5. **패턴 재사용 SoT**:
+   - D-48 (TraceIdFilter MDC 박제) — correlationId 동시 주입 1회차 확장
+   - D-95 Q6·D-97 Q8 박제 1줄 — Q1 γ·Q2 γ 통합 재평가 흡수
+   - D-30 사실 통지 원칙 — Q3 β′ event record 무수정 정합
+   - D-29 save→publish — TracedEventPublisher 트랜잭션 경계 무관 정합 (β″′)
+6. **트랩 주의**:
+   - LT-02 try-finally — Q8 β 5중 의무 정합
+   - WARN-15 정책·구현 고정 결합 — 박제는 책임만·구현 클래스명 고정 회피
+   - WARN-17 종료조건 구현 의존성 — 테스트 클래스명 비박제
+   - WARN-18 박제 증식 — 3계층 재정렬 의무
+   - 5 Service 발행처 의존 교체 회귀 — TracedEventPublisher 시그니처 동일·통합 테스트 20건 회귀 검증 의무 (β″′)
+
+---
+
+### WARN 처치 매트릭스
+
+| WARN | Priority | 처치 | 흡수 위치 |
+|---|---|---|---|
+| 1 (RefundCompleted 시각 필드 산발) | P0 | Q10 γ 의도적 박제 | Q10 박제 1줄 |
+| 2 (correlationId·eventId 0건) | P0 | Q3 β′ MDC 주입 + Q13 α 정의 | Q3·Q13 박제 1줄 |
+| 3 (MeterRegistry 0건) | P0 | Q4 β′ published+failed 카운터 | Q4 박제 1줄 |
+| 4 (NotificationLog 멱등 미도입) | P1 | Q1 γ + D-95 Q6 박제 1줄 유지 | Q1 박제 1줄 |
+| 5 (멱등 5종 혼재) | P1 | Q1 γ 카탈로그 박제 + Javadoc 의무 | Q1 박제 1줄 |
+| 6 (로그 prefix 산발) | P1 | Q6 β prefix 표준 + 5 표준키 | Q6 박제 1줄 |
+| 7 (publicId 포함 패턴 산발) | P2 | Q11 β 현 패턴 박제 | Q11 박제 1줄 |
+| 8 (Actuator metrics 미노출) | P2 | Q5 α′ prometheus + IP 화이트리스트 | Q5 박제 1줄 |
+| 9 (@RecordApplicationEvents 3건) | P2 | Q8 β 의도 명시 의무 | Q8 박제 1줄 |
+| 10 (AFTER_COMMIT 핸들러 @Order 미정의) | P2 | Q9 γ 비보장 + Q2 트리거 정합 | Q9 박제 1줄 |
+| 11 (관측성 컨텍스트 전파 부재) | P1 | Q3 β′·Q14 α 흡수 | Q3·Q14 박제 1줄 |
+| 12 (TraceIdFilter MDC 정리 부재) | P1 | Q15 α 정책 박제 (구현 분리) | Q15 박제 1줄 |
+| 13 (Metric-Log 책임 중복) | P2 | Q6 β 책임 분리 박제 | Q6 박제 1줄 |
+| 14 (관측성 도입 완료 기준 부재) | P2 | §종료조건 7건 박제 | §종료조건 |
+| 15 (정책·구현 고정 결합 위험) | P2 | Q15 α + WARN-18 3계층 재정렬 흡수 | Q15·§원칙 |
+| 16 (완료조건 과측정 위험) | P3 | §종료조건 추가 금지 박제 | §종료조건 |
+| 17 (종료조건 구현 의존성) | P3 | Q17 α′ 메트릭 계약만 고정 | Q17 박제 1줄 |
+| 18 (박제 증식·총 20건) | P3 | 3계층 재정렬 (원칙·규칙·종료조건) | §원칙·§규칙·§종료조건 |
+| 19 (TracedEventPublisher finally MDC.remove vs AFTER_COMMIT 시점 미스매치 실측 발견·2026-06-30) | P1 | Q3 β′ 박제 본문 갱신 + 옵션 4 채택 + TracedEventPublisher 책임 재정의 | Q3 박제 1줄 갱신 |
+
+---
+
+### 외부 검토 흡수 흐름
+
+- **1차 외부 검토**: 12 의제 (Q0~Q12) 송부. 흡수: Q0·Q1 (Javadoc 보강)·Q2 (트리거 조건 보강)·Q3 β′·Q4 β′·Q5 α′·Q6 (correlationId 표준키 추가)·Q8 (마커 후속)·Q9·Q10·Q11. WARN-11 신규 (관측성 컨텍스트 전파 부재·P1).
+- **2차 외부 검토**: Q3·Q4 β′·Q8·Q12 분할·WARN-11 처치 4건 의제 송부. 흡수: Q13 α 신규 (correlationId 정의)·Q14 α 신규 (MDC 자연 상속 실측)·Q4 β′ handler 태그 제거·Q12 β′ PR-1 grep 100% 적용률·Q8 마커 반박 수용. WARN-12·13·14 신규.
+- **3차 외부 검토**: Q15·Q16·Q17 신규 + 2차 흡수 정합 의제 송부. 흡수: Q15 α 정책·구현 분리 (구현 클래스명 고정 회피)·Q16 α 수치 집착 제거·Q17 α′ 메트릭 계약만 고정. WARN-15·16·17·18 신규.
+- **Claude.ai 자체 정정**:
+  - Q1 신규 핸들러 Javadoc 사유 의무 1차 검토 흡수
+  - Q15 정책·구현 분리 3차 검토 핵심 의견 흡수 (γ → α 변경)
+  - WARN-18 3계층 재정렬 흡수
+  - **Q12 β″′ 채택 자체 정정 (2026-06-30·PR-1 Step 3 진입 전)**: α′ (catch 직접 인용) vs β″′ (TracedEventPublisher SoT) 정면 비교 후 확장성·결합도·운영 grep 효용·Q3 β′ 강해석 정합·Q14 ✓ 자연 상속 직접 활용 5건 기조 5 정합 우월 판정. PR-1 영향 production 7→13 갱신·외부 검토 4차 불요 (영향 범위·구현 디테일 갱신·결정 의제 추가 아님).
+
+---
+
+### 영향 범위
+
+#### PR-1 — 신규 파일 (4~5건)
+
+- (조건부 Q14 실측 결과) `backend/src/main/java/com/zslab/mall/common/observability/MdcContextCopier.java` — MDC 미상속 발견 시 신설·자연 상속 확인 시 미신설 (실측 결과: 자연 상속 ✓·미신설 확정)
+- `backend/src/test/java/com/zslab/mall/observability/MdcPropagationTest.java` — Q14 단위 테스트 (AFTER_COMMIT + nested publishEvent MDC 상속 실측)
+- `backend/src/test/java/com/zslab/mall/observability/CorrelationIdIntegrationTest.java` — Q16 PR-1 종료 검증 (대표 흐름 correlationId 누락 없음)
+- `backend/src/main/java/com/zslab/mall/common/observability/TracedEventPublisher.java` — β″′ 채택 필수·eventName MDC 주입 단일 SoT
+- `backend/src/test/java/com/zslab/mall/common/observability/TracedEventPublisherTest.java` — β″′ 단위 테스트 필수
+
+#### PR-1 — 수정 파일 (production 13건)
+
+- `backend/src/main/java/com/zslab/mall/common/web/TraceIdFilter.java` — correlationId·eventName MDC 동시 주입·요청 종료 시 MDC 정리 (Q15 α 실측 후 미적용 시 보완)
+- `backend/src/main/java/com/zslab/mall/notification/handler/NotificationOrderPlacedHandler.java` — `[Notification]` prefix + 6 표준키 적용
+- `backend/src/main/java/com/zslab/mall/notification/handler/NotificationPaymentCompletedHandler.java` — 동일
+- `backend/src/main/java/com/zslab/mall/notification/handler/NotificationClaimApprovedHandler.java` — 동일
+- `backend/src/main/java/com/zslab/mall/notification/handler/NotificationClaimCompletedHandler.java` — 동일
+- `backend/src/main/java/com/zslab/mall/notification/handler/NotificationClaimPickedUpHandler.java` — 동일
+- `backend/src/main/java/com/zslab/mall/notification/handler/NotificationDeliveryStartedHandler.java` — 동일
+- `backend/src/main/java/com/zslab/mall/notification/handler/NotificationDeliveryCompletedHandler.java` — 동일
+- `backend/src/main/java/com/zslab/mall/order/service/OrderService.java` — ApplicationEventPublisher → TracedEventPublisher 생성자 의존 교체 (β″′)
+- `backend/src/main/java/com/zslab/mall/payment/service/PaymentService.java` — 동일 (β″′)
+- `backend/src/main/java/com/zslab/mall/delivery/service/DeliveryService.java` — 동일 (β″′)
+- `backend/src/main/java/com/zslab/mall/refund/service/RefundService.java` — 동일 (β″′)
+- `backend/src/main/java/com/zslab/mall/claim/service/ClaimService.java` — 동일 (β″′)
+
+#### PR-2 — 수정 파일 (production 2~3건)
+
+- `backend/build.gradle.kts` — `io.micrometer:micrometer-registry-prometheus` 의존성 추가
+- `backend/src/main/resources/application.yml` — Actuator `include: health,info,prometheus` 갱신
+- `backend/src/main/resources/application-prod.yml` — 동일 + show-details 정책 유지
+
+#### PR-2 — 신규 파일 (1~2건)
+
+- `backend/src/main/java/com/zslab/mall/common/observability/EventMetricsRecorder.java` (또는 동등 구현) — `zslab.event.published`·`zslab.event.failed` 카운터 발화 위치 (TracedEventPublisher 내부 흡수 또는 별도 클래스)
+- `backend/src/test/java/com/zslab/mall/observability/EventFailedMetricIntegrationTest.java` — Q17 α′ PR-2 종료 검증 (failed 카운터 증가 단언·이벤트명 자유)
+
+#### 무변경 확정
+
+이벤트 record 11종 (D-30 정합·Q3 β′ 정합)·publishEvent 11 호출처 시그니처 (β″′ TracedEventPublisher.publishEvent = ApplicationEventPublisher.publishEvent 시그니처 동일·호출 라인 무변경)·도메인 Aggregate·invariants·state-machine·aggregate-boundary·domain-events·live-traps·DDL/Flyway (스키마 무변경)·기존 NotificationService·기존 핸들러 18건 본문 중 11건 (동기 4 + claim/order/payment/refund 7건·로직 무변경·Notification 7건만 prefix·6 표준키 적용)·기존 통합 테스트 20건 본문 (β″′ 시그니처 동일로 회귀 0 기대)·Aggregate boundary·SoT 박제 1줄 6건 (D-90·D-94 Q6·D-95 Q6·D-97 Q8·D-98 Q5·D-99 Q11).
+
+#### 회귀 예상
+
+PR-1: 433 baseline → 신규 합산 ≥438 (Q14 단위 2 + TraceIdFilter 단위 3 + TracedEventPublisher 단위 ≥2 + CorrelationId 통합 ≥1·기존 회귀 0)
+PR-2: PR-1 머지 후 baseline 기준 → 신규 합산 ≥439 (통합 ≥1·기존 회귀 0)
+
+---
+
+### 대안 검토 (기각)
+
+#### Q1
+- α 단일 표준 강제 (모든 핸들러 멱등 키 저장소): 18 핸들러 영향·NotificationLog 멱등 저장소 동반·D-95 Q6 박제 1줄 충돌·기조 4 위배·기각
+- β 패턴 B 단일화 (Service 진입부 멱등 가드 의무): A·D 패턴 SRP 위배·캐스케이드 실패 위험·기각
+
+#### Q2
+- α Transactional Outbox 즉시 도입: outbox 테이블·publisher·poller·retry·cleanup·replay·테스트 운영 부담·운영 가치 미미·기조 4 위배·기각
+- β Spring Modulith Outbox: 외부 라이브러리·DB 부하 동반·동일 사유·기각
+
+#### Q3
+- α event record 전건 eventId·correlationId 필드 추가: D-30 사실 통지 위배·11 record 수정 회귀·기각
+- γ 현 상태 유지 (correlationId 미도입): WARN-2 P0 해소 실패·운영 추적 효용 0·기각
+
+#### Q4
+- α 도메인 이벤트 전건 published/consumed/failed/duration 4종 계측: 18 핸들러 전건 영향·태그 폭발·기조 4 위배·기각
+- γ 명명 컨벤션 박제만 (계측 0): 운영 효용 0·WARN-3 P0 해소 실패·기각
+- β (handler 태그 부착): 핸들러 rename 시 시계열 단절·외부 검토 2차 흡수·기각
+
+#### Q5
+- α (metrics raw 노출): Prometheus scrape 외 metrics raw JSON 효용 0·보안 노출면 확대·기각
+- γ 현 상태 유지 (prometheus 미노출): Q4 β′ 계측 효용 0·기각
+
+#### Q6
+- α prefix 표준만 (5 표준키 미박제): catch 블록 grep 일관성 결손·운영 추적 효용 부족·기각
+- γ 현 상태 유지: WARN-6 P1 해소 실패·기각
+
+#### Q8
+- α 강제 (NO @Transactional 전건 의무): △ 4건 회귀·테스트 의도 분리 위배·기조 4 위배·기각
+- γ 미박제: WARN-9 P2 해소 실패·기각
+- 마커 어노테이션 (`@TestCategory(AFTER_COMMIT)`): JUnit Tag 인프라·CI 분리·테스트 분류 룰 동반·과잉개발·외부 검토 2차 흡수·기각
+
+#### Q9
+- α `@Order` 전건 핸들러 박제: 핸들러 추가 시 순위 재할당 비용·인메모리 가정 종료 시점 자연 진입·기각
+- β E5 한정 `@Order` 박제: 일부만 박제 시 일관성 부족·기각
+
+#### Q10
+- α `occurredAt` 추가 (양자 보유): 중복 필드·의미 모호·기각
+- β `refundedAt → occurredAt` 리네임: D-70 갱신·소비자 영향·기각
+
+#### Q11
+- α 전건 publicId 의무화 + 필드명 통일: 11 record 수정 회귀·발행처 11건 수정·기조 4 위배·기각
+- γ 현 상태 유지: WARN-7 P2 해소 실패·기각
+
+#### Q12
+- α 단일 PR: correlationId/로깅과 Micrometer 영향 범위 결합·rollback 비용 증가·기각
+- γ PR-1/PR-2/PR-3 분할: 과잉분할·기조 4 위배·기각
+- **α′ (catch 직접 인용·MDC 미주입)**: Q3 β′ 약해석 분기 위험·운영 grep 정상 흐름 추적 불가·Q14 ✓ 자연 상속 활용 못 함·18 핸들러 분산 결합 (Outbox 도입 시 재작업 비용 대)·기조 1·2·5 위배·기각 (β″′ 자체 정정 2026-06-30)
+- **β / β″ (wrapper 신설 후 미사용 또는 부분 적용)**: dead code 또는 책임 모호·기조 4 위배·기각
+
+#### Q13
+- β 별도 ULID 생성: 추적 키 2개·운영 grep 부담·인메모리 publisher 가정 하 효용 미약·기각
+- γ correlationId 미도입: Q3 γ 회귀·기각
+
+#### Q14
+- β MDC copy helper 무조건 신설: 자연 상속 가정 하 과잉개발 위험·기각
+- γ 실측 생략·미상속 발견 시 백로그: 기조 5 실측 우선 위배·기각
+
+#### Q15
+- β WARN-12 처치 별도 트랙 이연: PR-1 종료조건 결손·요청 종료 시 MDC 오염 위험 잔존·기각
+- γ PR-1 진입 전 본 채팅 즉시 MCP read: 정책 결정과 구현 상태 결합·외부 검토 3차 흡수·기각
+
+#### Q16
+- β 운영 메트릭 추가 (`zslab.log.correlationId.missing` 카운터): LogbackAppender·추가 의존성·과잉개발·기각
+- γ 통합 테스트 + 운영 메트릭 양자: 부담 가중·기각
+
+#### Q17
+- β 단위 테스트 1건 (MeterRegistry mock): 통합 흐름 미검증·기각
+- γ PR-2 종료조건 제거 (prometheus scrape로 충분): 검증 공백·운영 도입 시 첫 실패 시점에 발견·기각
+
+---
+
+### 관련 결정
+
+D-29 (save→publish·no flush·Q3 β′ event record 무수정 정합·β″′ TracedEventPublisher 트랜잭션 경계 무관 정합)·D-30 (이벤트 사실 통지·payload 무수정·Q3 β′ 정합)·D-48 (TraceIdFilter MDC 박제·Q3 β′·Q13 α 자연 확장)·D-69 (RefundCompleted Publisher/Consumer 시점 분리·Q10 γ 정합)·D-70 (refundedAt 시각 의미·Q10 γ 의도 보존)·D-74 (이벤트 핸들러 빈 네이밍)·D-75 (이벤트 핸들러 AFTER_COMMIT·REQUIRES_NEW·Q1 γ 패턴 카탈로그 SoT)·D-90 Q1 (AFTER_COMMIT 패턴·박제 1줄 유지·Q1 γ 흡수)·D-90 Q5 (통합 테스트 NO @Transactional + TransactionTemplate·Q8 β 정합)·D-91 (FK 부모 그래프 시드·Q8 β 5중 의무)·D-94 Q6 (RefundService.initiate 활성 Refund 게이트·박제 1줄 유지·Q1 γ 패턴 B 흡수)·D-95 Q6 (NotificationLog 멱등 미도입·인메모리 publisher 가정·박제 1줄 유지·Q1 γ·Q2 γ 통합 흡수)·D-97 Q8 (canTransitionTo 자연 흡수·박제 1줄 유지·Q1 γ 패턴 A 흡수)·D-98 Q5 (소비 순서·박제 1줄 유지·Q1 γ 패턴 E 흡수)·D-99 Q11 (registerExchangeShipment 이중 호출 가드·박제 1줄 유지·Q1 γ 패턴 B 흡수)·LT-02 (FK_CHECKS try-finally·Q8 β 5중 의무)·invariants 전건·state-machine 전건·aggregate-boundary 전건·domain-events §1·§2 E1~E11·docs/track-16/recon-report.md §1~§13.7·D-100 Q3 β′ 박제 본문 자체 갱신 (eventName MDC 제거·옵션 4 채택·2026-06-30).
+
+---
+
+### 후속 트랙
+
+- **Track 17+ Outbox·이벤트 저장소**: Q2 트리거 4건 (다중 인스턴스·외부 브로커·이벤트 누락 트랩·재처리 SLA) 중 1건 도달 시 별도 트랙·eventId 동반·@Order 명시적 순서 보장·Q3 β′ correlationId 별도 ULID 분리 자연 진입·TracedEventPublisher 내부 Outbox writer 자연 흡수 진입점 (β″′)
+- **Spring Security 정식 도입**: X-Seller-Id·X-Admin-Id stub 3종 일괄 대체·D-99 Q11 후속·Q5 α′ Actuator 보안 처리 결합
+- **Inventory 차감/복구 Order-Claim 연동**: E1·E2·E9 핸들러·멱등 패턴 5종 카탈로그 (Q1 γ) 적용 1회차·Inventory 도메인 행위 신설
+- **자동 구매확정 타이머**: DELIVERED + N일 → OrderItem CONFIRMED 전이·배치/스케줄러·Q14 스레드 전환 시 MDC 복원 전략 재결정 진입점
+- **NotificationLog 발송 어댑터**: PENDING→SENT 전이·실 전송 게이트웨이·D-86 §후속·Q4 β′ failed 카운터 적용 확장
+- **EXCHANGE 차액 환불·부분환불**: D-98 Q2 박제 1줄 진입점·refundAmount>0 흐름
+- **외부 택배 어댑터**: D-98 Q1 ClaimPickedUp 발행 주체 확장·자동 픽업 확인
+- **D-50 매트릭스 정정**: 본문 정정만·별도 트랙
+- **재출고 흐름 정의**: D-99 Q11 §후속·운영 데이터 누적 후 후속 트랙
+- **로그 수집 인프라 도입**: Loki·Grafana·ELK 등·Q16 운영 지속 측정 자연 진입
+- **ArchUnit 정적 검사 도입**: Q8 Javadoc 누락 시 테스트 실패 검사·외부 검토 3차 후속 검토 박제
+
+---
+
+### 후속
+
+1. 본 결정 박제 = 사용자 직접 처리 (D-94·D-95·D-96·D-97·D-98·D-99 패턴 7회차).
+2. **PR-1** 브랜치 `feat/track-16-observability-standards` 생성 (main HEAD 422a92e 기준·기 생성 완료).
+3. 가드 5 사전 통지: PR-1 신규 4~5 (TracedEventPublisher + 단위 + MdcPropagation 단위 + CorrelationId 통합 + 조건부 MdcContextCopier) + 수정 production 13 (TraceIdFilter 1·Notification 7·5 Service 발행처)·PR-2 수정 production 3 (build.gradle.kts·application.yml·application-prod.yml) + 신규 (EventMetricsRecorder 1) + 신규 테스트 1 — Claude Code 구현 프롬프트 시점 일괄 통지.
+4. TDD 우선 (단위 → 통합)·BUILD SUCCESSFUL·PR-1 신규 ≥5 PASS·기존 회귀 0.
+5. GitHub Web UI PR 생성·Base: main·Compare: feat/track-16-observability-standards·외부 검토 1·2·3차 완료·Q12 β″′ 자체 정정 동반·S급.
+6. PR-1 머지 후 PR-2 진입·동일 절차.
+7. PR-1·PR-2 양 머지로 Track 16 종결·D-99 §후속 Observability carry-over 영구 해소·박제 1줄 누적 6건 통합 재평가 완료·신규 박제 1줄 14건 + Q12 β″′ 갱신 1줄 추가·관측성 표준 박제 완료.
+
+---

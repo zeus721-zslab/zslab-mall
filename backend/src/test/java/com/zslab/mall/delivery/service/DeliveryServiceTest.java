@@ -7,6 +7,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.zslab.mall.common.observability.TracedEventPublisher;
 import com.zslab.mall.delivery.entity.Delivery;
 import com.zslab.mall.delivery.enums.DeliveryCarrier;
 import com.zslab.mall.delivery.enums.DeliveryStatus;
@@ -22,7 +23,6 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.context.ApplicationEventPublisher;
 
 /**
  * {@link DeliveryService} 단위 검증(Track 13·D-97 Q2·Q3). 발송·배송 완료 도메인 전이와 E4·E5 발행(D-29 save→publish),
@@ -38,7 +38,7 @@ class DeliveryServiceTest {
     @Mock
     private DeliveryRepository deliveryRepository;
     @Mock
-    private ApplicationEventPublisher eventPublisher;
+    private TracedEventPublisher eventPublisher;
     @InjectMocks
     private DeliveryService deliveryService;
 

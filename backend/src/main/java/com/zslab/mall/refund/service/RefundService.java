@@ -5,6 +5,7 @@ import com.zslab.mall.claim.enums.ClaimStatus;
 import com.zslab.mall.claim.exception.ClaimInvalidStateException;
 import com.zslab.mall.claim.exception.ClaimNotFoundException;
 import com.zslab.mall.claim.repository.ClaimRepository;
+import com.zslab.mall.common.observability.TracedEventPublisher;
 import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.payment.entity.Payment;
 import com.zslab.mall.payment.enums.PaymentStatus;
@@ -21,7 +22,6 @@ import com.zslab.mall.refund.repository.RefundRepository;
 import java.time.LocalDateTime;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -48,7 +48,7 @@ public class RefundService {
     private final PaymentRepository paymentRepository;
     private final RefundRepository refundRepository;
     private final PaymentGateway paymentGateway;
-    private final ApplicationEventPublisher eventPublisher;
+    private final TracedEventPublisher eventPublisher;
 
     public RefundService(
             ClaimRepository claimRepository,
@@ -56,7 +56,7 @@ public class RefundService {
             PaymentRepository paymentRepository,
             RefundRepository refundRepository,
             PaymentGateway paymentGateway,
-            ApplicationEventPublisher eventPublisher) {
+            TracedEventPublisher eventPublisher) {
         this.claimRepository = claimRepository;
         this.orderItemRepository = orderItemRepository;
         this.paymentRepository = paymentRepository;
