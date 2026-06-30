@@ -6,6 +6,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.zslab.mall.common.observability.TracedEventPublisher;
 import com.zslab.mall.order.repository.OrderRepository;
 import com.zslab.mall.payment.entity.Payment;
 import com.zslab.mall.payment.enums.PaymentMethod;
@@ -21,7 +22,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.util.ReflectionTestUtils;
 
 /**
@@ -41,7 +41,7 @@ class PaymentServiceMarkCancelledTest {
     @Mock
     private PaymentGateway paymentGateway;
     @Mock
-    private ApplicationEventPublisher eventPublisher;
+    private TracedEventPublisher eventPublisher;
     @Mock
     private RefundRepository refundRepository;
     @InjectMocks

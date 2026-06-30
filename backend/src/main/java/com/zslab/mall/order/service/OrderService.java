@@ -1,6 +1,7 @@
 package com.zslab.mall.order.service;
 
 import com.github.f4b6a3.ulid.UlidCreator;
+import com.zslab.mall.common.observability.TracedEventPublisher;
 import com.zslab.mall.order.command.CreateOrderCommand;
 import com.zslab.mall.order.command.OrderItemCommand;
 import com.zslab.mall.order.command.ShippingAddressCommand;
@@ -15,7 +16,6 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,12 +37,12 @@ public class OrderService {
 
     private final OrderRepository orderRepository;
     private final OrderStatusResolver orderStatusResolver;
-    private final ApplicationEventPublisher eventPublisher;
+    private final TracedEventPublisher eventPublisher;
 
     public OrderService(
             OrderRepository orderRepository,
             OrderStatusResolver orderStatusResolver,
-            ApplicationEventPublisher eventPublisher) {
+            TracedEventPublisher eventPublisher) {
         this.orderRepository = orderRepository;
         this.orderStatusResolver = orderStatusResolver;
         this.eventPublisher = eventPublisher;

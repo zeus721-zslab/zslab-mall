@@ -1,5 +1,6 @@
 package com.zslab.mall.payment.service;
 
+import com.zslab.mall.common.observability.TracedEventPublisher;
 import com.zslab.mall.common.util.PublicIdGenerator;
 import com.zslab.mall.order.entity.Order;
 import com.zslab.mall.order.exception.OrderNotFoundException;
@@ -61,14 +62,14 @@ public class PaymentService {
     private final OrderRepository orderRepository;
     private final PaymentRepository paymentRepository;
     private final PaymentGateway paymentGateway;
-    private final ApplicationEventPublisher eventPublisher;
+    private final TracedEventPublisher eventPublisher;
     private final RefundRepository refundRepository;
 
     public PaymentService(
             OrderRepository orderRepository,
             PaymentRepository paymentRepository,
             PaymentGateway paymentGateway,
-            ApplicationEventPublisher eventPublisher,
+            TracedEventPublisher eventPublisher,
             RefundRepository refundRepository) {
         this.orderRepository = orderRepository;
         this.paymentRepository = paymentRepository;

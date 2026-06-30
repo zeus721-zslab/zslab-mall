@@ -15,6 +15,7 @@ import com.zslab.mall.claim.event.ClaimPickedUp;
 import com.zslab.mall.claim.exception.ClaimInvalidStateException;
 import com.zslab.mall.claim.exception.ClaimNotFoundException;
 import com.zslab.mall.claim.repository.ClaimRepository;
+import com.zslab.mall.common.observability.TracedEventPublisher;
 import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.repository.OrderItemRepository;
@@ -27,7 +28,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.util.ReflectionTestUtils;
 
 /**
@@ -51,7 +51,7 @@ class ClaimServiceConfirmPickupTest {
     @Mock
     private OrderRepository orderRepository;
     @Mock
-    private ApplicationEventPublisher eventPublisher;
+    private TracedEventPublisher eventPublisher;
     @InjectMocks
     private ClaimService claimService;
 

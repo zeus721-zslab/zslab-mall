@@ -7,6 +7,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.zslab.mall.common.observability.TracedEventPublisher;
 import com.zslab.mall.payment.command.PaymentCallbackCommand;
 import com.zslab.mall.payment.entity.Payment;
 import com.zslab.mall.payment.enums.CallbackType;
@@ -26,7 +27,6 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.util.ReflectionTestUtils;
 
 /**
@@ -48,7 +48,7 @@ class PaymentEventTest {
     @Mock
     private PaymentGateway paymentGateway;
     @Mock
-    private ApplicationEventPublisher eventPublisher;
+    private TracedEventPublisher eventPublisher;
     @InjectMocks
     private PaymentService paymentService;
 

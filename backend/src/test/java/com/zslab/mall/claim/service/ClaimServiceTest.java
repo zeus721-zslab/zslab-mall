@@ -23,6 +23,7 @@ import com.zslab.mall.claim.event.ClaimRequested;
 import com.zslab.mall.claim.exception.ClaimInvalidStateException;
 import com.zslab.mall.claim.exception.ClaimNotFoundException;
 import com.zslab.mall.claim.repository.ClaimRepository;
+import com.zslab.mall.common.observability.TracedEventPublisher;
 import com.zslab.mall.order.controller.response.PagedResponse;
 import com.zslab.mall.order.entity.Order;
 import com.zslab.mall.order.entity.OrderItem;
@@ -40,7 +41,6 @@ import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -67,7 +67,7 @@ class ClaimServiceTest {
     @Mock
     private OrderRepository orderRepository;
     @Mock
-    private ApplicationEventPublisher eventPublisher;
+    private TracedEventPublisher eventPublisher;
 
     @InjectMocks
     private ClaimService claimService;

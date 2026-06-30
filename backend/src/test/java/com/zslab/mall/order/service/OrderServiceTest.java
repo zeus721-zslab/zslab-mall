@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.zslab.mall.common.observability.TracedEventPublisher;
 import com.zslab.mall.order.command.CreateOrderCommand;
 import com.zslab.mall.order.command.OrderItemCommand;
 import com.zslab.mall.order.command.ShippingAddressCommand;
@@ -24,7 +25,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.context.ApplicationEventPublisher;
 
 /**
  * {@link OrderService} 오케스트레이션 검증(Mockito). createOrder 가드·정상 흐름·markPaid·recalculateStatus.
@@ -39,7 +39,7 @@ class OrderServiceTest {
     private OrderStatusResolver orderStatusResolver;
 
     @Mock
-    private ApplicationEventPublisher eventPublisher;
+    private TracedEventPublisher eventPublisher;
 
     @InjectMocks
     private OrderService orderService;

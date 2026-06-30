@@ -4,6 +4,7 @@ import com.zslab.mall.claim.entity.Claim;
 import com.zslab.mall.claim.exception.ClaimInvalidStateException;
 import com.zslab.mall.claim.exception.ClaimNotFoundException;
 import com.zslab.mall.claim.repository.ClaimRepository;
+import com.zslab.mall.common.observability.TracedEventPublisher;
 import com.zslab.mall.delivery.entity.Delivery;
 import com.zslab.mall.delivery.enums.DeliveryCarrier;
 import com.zslab.mall.delivery.event.DeliveryCompleted;
@@ -11,7 +12,6 @@ import com.zslab.mall.delivery.event.DeliveryStarted;
 import com.zslab.mall.delivery.repository.DeliveryRepository;
 import java.time.LocalDateTime;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,10 +31,10 @@ public class DeliveryService {
 
     private final DeliveryRepository deliveryRepository;
     private final ClaimRepository claimRepository;
-    private final ApplicationEventPublisher eventPublisher;
+    private final TracedEventPublisher eventPublisher;
 
     public DeliveryService(DeliveryRepository deliveryRepository, ClaimRepository claimRepository,
-            ApplicationEventPublisher eventPublisher) {
+            TracedEventPublisher eventPublisher) {
         this.deliveryRepository = deliveryRepository;
         this.claimRepository = claimRepository;
         this.eventPublisher = eventPublisher;
