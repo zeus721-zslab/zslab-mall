@@ -4,6 +4,7 @@ import com.zslab.mall.claim.enums.ClaimStatus;
 import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.exception.ClaimInvalidStateException;
 import com.zslab.mall.common.entity.AbstractPublicIdFullAuditableEntity;
+import com.zslab.mall.order.enums.OrderItemStatus;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -63,6 +64,13 @@ public class Claim extends AbstractPublicIdFullAuditableEntity {
     @Column(name = "processed_at")
     private LocalDateTime processedAt;
 
+    @Column(name = "picked_up_at")
+    private LocalDateTime pickedUpAt;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "previous_order_item_status", length = 20, nullable = false, updatable = false)
+    private OrderItemStatus previousOrderItemStatus;
+
     @Override
     protected String getPublicIdPrefix() {
         return "clm";
@@ -73,7 +81,7 @@ public class Claim extends AbstractPublicIdFullAuditableEntity {
      *
      * <p>본 트랙은 요청 API를 구현하지 않으므로(expected-spec §1.2) 본 팩토리는 테스트 시드·후속 트랙 진입점 용도다.
      *
-     * @throws IllegalArgumentException 필수값(orderItemId·type·reasonCode) 누락 시
+     * @throws IllegalArgumentException 필수값(orderItemId·type·reasonCode·previousOrderItemStatus) 누락 시
      */
     public static Claim create(
             Long orderItemId,
@@ -81,9 +89,12 @@ public class Claim extends AbstractPublicIdFullAuditableEntity {
             String reasonCode,
             String reasonDetail,
             Long requestedBy,
-            LocalDateTime requestedAt) {
-        if (orderItemId == null || type == null || reasonCode == null || reasonCode.isBlank()) {
-            throw new IllegalArgumentException("Claim 필수값 누락(orderItemId·type·reasonCode).");
+            LocalDateTime requestedAt,
+            OrderItemStatus previousOrderItemStatus) {
+        if (orderItemId == null || type == null || reasonCode == null || reasonCode.isBlank()
+                || previousOrderItemStatus == null) {
+            throw new IllegalArgumentException(
+                    "Claim 필수값 누락(orderItemId·type·reasonCode·previousOrderItemStatus).");
         }
         Claim claim = new Claim();
         claim.orderItemId = orderItemId;
@@ -92,6 +103,7 @@ public class Claim extends AbstractPublicIdFullAuditableEntity {
         claim.reasonDetail = reasonDetail;
         claim.requestedBy = requestedBy;
         claim.requestedAt = requestedAt;
+        claim.previousOrderItemStatus = previousOrderItemStatus;
         claim.status = ClaimStatus.REQUESTED;
         return claim;
     }
@@ -112,6 +124,27 @@ public class Claim extends AbstractPublicIdFullAuditableEntity {
         }
         transitionTo(ClaimStatus.COMPLETED);
         this.processedAt = processedAt;
+    }
+
+    /**
+     * 클레임 수거 확인을 적용한다(D-98 Q1·E11 ClaimPickedUp 발행 트리거·RETURN/EXCHANGE 흐름). 상태 전이 없이
+     * {@code pickedUpAt}만 채운다(수거는 milestone 사실이며 ClaimStatus는 APPROVED 유지).
+     *
+     * <p>가드: status가 APPROVED여야 한다(CLM-4 정합). 멱등(이미 picked_up_at != null 시 no-op) 판단은 Service
+     * 책임이며({@code ClaimService.confirmPickup}·markCompleted 패턴 1:1), 본 메서드는 합법 상태에서의 설정만 수행한다.
+     *
+     * @param pickedUpAt 수거 확인 시각
+     * @throws ClaimInvalidStateException APPROVED가 아닌 경우(CLM-4)
+     * @throws IllegalArgumentException   pickedUpAt가 null인 경우
+     */
+    public void confirmPickup(LocalDateTime pickedUpAt) {
+        if (pickedUpAt == null) {
+            throw new IllegalArgumentException("confirmPickup: pickedUpAt는 필수입니다.");
+        }
+        if (this.status != ClaimStatus.APPROVED) {
+            throw new ClaimInvalidStateException("수거 확인은 APPROVED 클레임에서만 가능합니다: " + this.status);
+        }
+        this.pickedUpAt = pickedUpAt;
     }
 
     /**

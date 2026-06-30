@@ -5,9 +5,9 @@ import com.zslab.mall.claim.controller.response.ClaimResponse;
 import com.zslab.mall.claim.controller.response.ClaimSummaryResponse;
 import com.zslab.mall.claim.entity.Claim;
 import com.zslab.mall.claim.enums.ClaimStatus;
-import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.event.ClaimApproved;
 import com.zslab.mall.claim.event.ClaimCompleted;
+import com.zslab.mall.claim.event.ClaimPickedUp;
 import com.zslab.mall.claim.event.ClaimRejected;
 import com.zslab.mall.claim.event.ClaimRequested;
 import com.zslab.mall.claim.exception.ClaimInvalidStateException;
@@ -31,8 +31,9 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * 클레임 Application Service(Track 9 PR-B·D-89). 요청·승인·거절·종결·조회를 담당한다. 트랜잭션 경계는 메서드 단위다(QB-1).
  *
- * <p><b>요청(request)</b>: CANCEL 한정(Q6)·소유권 2단계 조회(Q8)·CLM-5 중복 차단·OrderItem 전이 가능성 검증 후 Claim INSERT.
- * 이벤트는 save→publish 순서로 발행한다(D-29·no flush). OrderItem.item_status 실제 전이는 PR-C 핸들러 소관이며 본 PR은 발행만 한다.
+ * <p><b>요청(request)</b>: type 무관 진입(D-98 Q4 게이트 제거·CANCEL/RETURN/EXCHANGE)·소유권 2단계 조회(Q8)·CLM-5 중복 차단·
+ * type별 OrderItem 전이 가능성 검증 후 Claim INSERT(요청 시점 상태 스냅샷 저장·D-98 Q11).
+ * 이벤트는 save→publish 순서로 발행한다(D-29·no flush). OrderItem.item_status 실제 전이는 핸들러 소관이며 본 메서드는 발행만 한다.
  *
  * <p><b>승인/거절(approve·reject)</b>: 본 PR은 Service 계층만 완성하며 endpoint는 Track 10 소관이다(D-88 Q2). E2E는 Service 직접 호출.
  *
@@ -68,7 +69,7 @@ public class ClaimService {
      * @param command orderItemPublicId·claimType·reasonCode·buyerId·requestedAt
      * @return 생성된 Claim(public_id·id 부여 완료)
      * @throws ClaimNotFoundException     주문 품목이 없거나 소유자가 다른 경우(정보 노출 회피·T3)
-     * @throws ClaimInvalidStateException CANCEL이 아니거나(Q6)·활성 클레임 중복(CLM-5)·OrderItem 상태가 취소 요청 불가인 경우(422)
+     * @throws ClaimInvalidStateException 활성 클레임 중복(CLM-5)·OrderItem 상태가 해당 type 요청 전이 불가인 경우(422)
      */
     public Claim request(ClaimRequestCommand command) {
         // (a) OrderItem public_id → id 해소(D-64·D-65). 미존재 시 404.
@@ -87,30 +88,32 @@ public class ClaimService {
             throw new ClaimNotFoundException("주문 품목을 찾을 수 없습니다: " + command.orderItemPublicId());
         }
 
-        // (d) CANCEL 외 차단(Q6·422).
-        if (command.claimType() != ClaimType.CANCEL) {
-            throw new ClaimInvalidStateException("현재 CANCEL 클레임만 지원합니다(Q6). 입력: " + command.claimType());
-        }
-
-        // (e) CLM-5: 동일 OrderItem 활성 클레임(REQUESTED·APPROVED) 중복 차단(422).
+        // (d) CLM-5: 동일 OrderItem 활성 클레임(REQUESTED·APPROVED) 중복 차단(422).
         if (claimRepository.existsActiveByOrderItemId(orderItem.getId())) {
             throw new ClaimInvalidStateException("이미 진행 중인 클레임이 있습니다(CLM-5): " + command.orderItemPublicId());
         }
 
-        // (f) OrderItem 상태가 CANCEL_REQUESTED로 전이 가능한지 검증(PR-A 매트릭스·읽기 검증만·실제 전이는 PR-C).
-        if (!orderItem.getItemStatus().canTransitionTo(OrderItemStatus.CANCEL_REQUESTED)) {
+        // (e) type별 진입 전이 대상 매핑 후 OrderItem 상태 전이 가능성 검증(D-98 Q4·읽기 검증만·실제 전이는 핸들러 소관).
+        OrderItemStatus targetStatus = switch (command.claimType()) {
+            case CANCEL -> OrderItemStatus.CANCEL_REQUESTED;
+            case RETURN -> OrderItemStatus.RETURN_REQUESTED;
+            case EXCHANGE -> OrderItemStatus.EXCHANGE_REQUESTED;
+        };
+        if (!orderItem.getItemStatus().canTransitionTo(targetStatus)) {
             throw new ClaimInvalidStateException(
-                    "현재 주문 품목 상태에서 취소 요청이 불가합니다: " + orderItem.getItemStatus());
+                    "현재 주문 품목 상태에서 " + command.claimType() + " 요청이 불가합니다: " + orderItem.getItemStatus());
         }
 
-        // (g) Claim 생성·저장 후 이벤트 발행(D-29 save→publish·no flush). public_id·id는 save 시 부여된다.
+        // (f) Claim 생성·저장 후 이벤트 발행(D-29 save→publish·no flush). public_id·id는 save 시 부여된다.
+        //     요청 시점 OrderItem 상태를 스냅샷으로 저장(D-98 Q11·REJECTED 원복용).
         Claim claim = Claim.create(
                 orderItem.getId(),
                 command.claimType(),
                 command.reasonCode().name(),
                 command.reasonDetail(),
                 command.buyerId(),
-                command.requestedAt());
+                command.requestedAt(),
+                orderItem.getItemStatus());
         claimRepository.save(claim);
         eventPublisher.publishEvent(new ClaimRequested(
                 claim.getId(),
@@ -282,6 +285,60 @@ public class ClaimService {
         eventPublisher.publishEvent(new ClaimCompleted(
                 claim.getId(), claim.getPublicId(), claim.getOrderItemId(),
                 claim.getType(), claim.getStatus(), LocalDateTime.now()));
+    }
+
+    /**
+     * 클레임 수거 확인 도메인 전이 primitive(D-98 Q1·actor·type 비의존). save 직후 {@link ClaimPickedUp}(E11)을 발행한다(D-29).
+     *
+     * <p>멱등 no-op: 이미 picked_up_at != null이면 변경 없이 log.info 후 return({@link #markCompleted} 멱등 가드 패턴 1:1).
+     * 합법 상태 전이(status == APPROVED 가드)는 {@link Claim#confirmPickup}이 수행한다.
+     *
+     * <p>외부 HTTP 진입점 직접 호출 금지. 외부 액터(Seller/Admin) 호출은 wrapper(confirmPickupBySeller 등) 경유 의무.
+     *
+     * @throws ClaimNotFoundException     클레임이 없는 경우
+     * @throws ClaimInvalidStateException APPROVED가 아닌 경우(CLM-4)
+     */
+    public void confirmPickup(Long claimId, LocalDateTime pickedUpAt) {
+        Claim claim = claimRepository.findById(claimId)
+                .orElseThrow(() -> new ClaimNotFoundException("클레임을 찾을 수 없습니다: claimId=" + claimId));
+        if (claim.getPickedUpAt() != null) {
+            log.info("[Claim] confirmPickup 멱등 NO-OP(이미 picked_up_at 설정됨): claimId={}", claimId);
+            return;
+        }
+        claim.confirmPickup(pickedUpAt);
+        claimRepository.save(claim);
+        eventPublisher.publishEvent(new ClaimPickedUp(
+                claim.getId(), claim.getPublicId(), claim.getOrderItemId(),
+                claim.getType(), pickedUpAt, LocalDateTime.now()));
+    }
+
+    /**
+     * Seller 액터의 Claim 수거 확인 진입점(D-98 Q9·D-92 횡단 원칙 재사용 2회차).
+     *
+     * <p>처리 순서: 조회 → 권한 검증 → 도메인 전이. 권한 위반은 404({@link ClaimNotFoundException})로 응답하여
+     * cross-tenant 정보 노출을 회피한다. 권한 검증 후 {@link #confirmPickup} primitive에 위임한다.
+     *
+     * @throws ClaimNotFoundException     클레임이 없거나 요청 Seller 소유 품목이 아닌 경우
+     * @throws ClaimInvalidStateException APPROVED가 아닌 경우(CLM-4)
+     */
+    public void confirmPickupBySeller(Long claimId, Long sellerId, LocalDateTime pickedUpAt) {
+        Claim claim = claimRepository.findById(claimId)
+                .orElseThrow(() -> new ClaimNotFoundException("클레임을 찾을 수 없습니다: claimId=" + claimId));
+        authorizeSellerAccess(claim, sellerId);
+        confirmPickup(claimId, pickedUpAt);
+    }
+
+    /**
+     * Admin 액터의 Claim 수거 확인 진입점(D-98 Q9·D-92 횡단 원칙 재사용 2회차).
+     *
+     * <p>Admin은 전체 Claim 접근 권한을 가지므로 권한 검증 단락이 부재한다(D-93 Q3). Claim 미존재만 404다.
+     * {@link #confirmPickup} primitive에 위임한다.
+     *
+     * @throws ClaimNotFoundException     클레임이 없는 경우
+     * @throws ClaimInvalidStateException APPROVED가 아닌 경우(CLM-4)
+     */
+    public void confirmPickupByAdmin(Long claimId, LocalDateTime pickedUpAt) {
+        confirmPickup(claimId, pickedUpAt);
     }
 
     /**

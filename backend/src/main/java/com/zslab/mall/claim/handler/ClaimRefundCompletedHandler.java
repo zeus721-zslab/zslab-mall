@@ -21,8 +21,9 @@ import org.springframework.transaction.event.TransactionalEventListener;
  * AFTER_COMMIT 시점은 원 트랜잭션이 이미 완료된 상태라 기본 전파(REQUIRES)는 쓰기가 커밋되지 않는다 → {@code REQUIRES_NEW}로
  * 별도 트랜잭션을 명시한다(D-69 "각자 별도 트랜잭션"·D-75). 부분 실패가 허용되며(재처리 가능) 핸들러는 자체 멱등성을 보장한다.
  *
- * <p><b>type 분기(expected-spec §3.2)</b>: 본 트랙은 CANCEL만 Claim.COMPLETED로 전이한다. RETURN·EXCHANGE는 수거 확인·
- * 교환품 발송 등 추가 단계가 필요해 미전이한다.
+ * <p><b>type 분기(D-98 Q4·Q2)</b>: CANCEL·RETURN은 Refund.COMPLETED 콜백으로 Claim.COMPLETED 전이한다(RETURN은
+ * 수거 확인 후 ClaimPickedUpHandler가 환불을 트리거함). EXCHANGE는 Refund를 경유하지 않으므로(refundAmount==0·
+ * Refund 미생성) 본 핸들러 미전이이며 ExchangeDeliveryCompletedHandler(PR-2)가 종결한다.
  */
 @Slf4j
 @Component
@@ -44,14 +45,14 @@ public class ClaimRefundCompletedHandler {
             log.warn("[Claim] RefundCompleted 소비·클레임 미발견: claimId={}", event.claimId());
             return;
         }
-        if (claim.getType() != ClaimType.CANCEL) {
-            // RETURN·EXCHANGE는 본 트랙 미전이(수거/교환출고 단계 필요·expected-spec §3.2)
-            log.info("[Claim] RefundCompleted 수신·type={} → 본 트랙 미전이: claimId={}", claim.getType(), event.claimId());
+        if (claim.getType() == ClaimType.EXCHANGE) {
+            // EXCHANGE는 Refund 미경유(refundAmount==0)·ExchangeDeliveryCompletedHandler(PR-2)가 종결
+            log.info("[Claim] RefundCompleted 수신·type=EXCHANGE → 본 핸들러 미전이: claimId={}", event.claimId());
             return;
         }
         if (claim.getStatus() != ClaimStatus.APPROVED) {
             // 멱등(이미 COMPLETED)·비APPROVED 안전 차단 — 리스너 예외로 인한 잡음 방지
-            log.info("[Claim] CANCEL 클레임 상태={} → 종결 전이 건너뜀: claimId={}", claim.getStatus(), event.claimId());
+            log.info("[Claim] 클레임 상태={} → 종결 전이 건너뜀: claimId={}", claim.getStatus(), event.claimId());
             return;
         }
         claimService.markCompleted(event.claimId());
