@@ -14,7 +14,8 @@ import java.time.LocalDateTime;
  *
  * <p>소비자는 Track 11(D-94)에서 신설되었다. {@code refund/handler/ClaimApprovedHandler}가 본 이벤트를 소비하며
  * CANCEL type 한정으로 {@code RefundService.initiate}를 자동 트리거한다(D-87 Q3 → D-90 Q2 → D-92 Q8 → D-93 Q9
- * carry-over 종결). NotificationLog 도메인 진입 시점에는 Seller 승인 알림 source로도 추가 소비 가능하다.
+ * carry-over 종결). Track 12 {@code notification/handler/NotificationClaimApprovedHandler}가 본 이벤트를 4번째
+ * 소비자로 추가 소비해 클레임 승인 알림을 적재한다(D-95 Q4·산정 실패 시 skip + structured log·A1-α).
  */
 public record ClaimApproved(
         Long claimId,

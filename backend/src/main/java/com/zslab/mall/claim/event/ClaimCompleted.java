@@ -9,6 +9,9 @@ import java.time.LocalDateTime;
  *
  * <p>발행 시점은 {@code ClaimService.markCompleted}의 save 직후다(D-29 save→publish·no flush). 소비측 핸들러
  * {@code ClaimCompletedHandler}(OrderItem CANCEL_REQUESTED → CANCELLED 종결 전이)는 Track 9 PR-C 소관이다.
+ *
+ * <p>Track 12 {@code notification/handler/NotificationClaimCompletedHandler}가 본 이벤트를 추가 소비해 클레임 완료
+ * 알림을 적재한다(D-95 Q4·E9 박제·claimId 재조회 기반 적재).
  */
 public record ClaimCompleted(
         Long claimId,

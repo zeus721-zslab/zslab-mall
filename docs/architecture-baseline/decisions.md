@@ -3801,3 +3801,279 @@ D-29(save→publish·no flush)·D-66(idempotency 기조)·D-67(Refund FAILED 전
 6. PR 머지로 Track 11 종결·ClaimApproved 소비자 부재 carry-over 영구 해소.
 
 ---
+
+## D-95. Track 12 NotificationLog · 이벤트 → NotificationLog 적재 표준 박제 · ClaimApproved 4번째 배선 · α′-2 fallback skip 정책 [ACTIVE]
+
+**결정일**: 2026-06-30
+**관련**: Track 12 / D-01·D-18·D-29·D-30·D-69·D-74·D-75·D-86 Q3·D-87·D-90·D-92·D-94 / invariants §3.1 NOT-1~3 / state-machine.md (NotificationLog 항목 부재·D-18 정합) / aggregate-boundary §2.7 / domain-events §1·§2 (E1·E2·E9 박제) / live-traps LT-02 / docs/track-12/recon-report.md §1~§10
+
+### 배경
+
+D-86 §후속 (Track 7 Batch-3c·"Track 8+ Application Service 진입 시 NotificationLog.status PENDING→SENT 전이 핸들러·E1·E2·E4·E5·E9·E10 이벤트 소비") → D-90 §후속 (Track 12+ Observability·이벤트 핸들러 멱등성) → D-94 Q8 (NotificationLog 신설 보류·structured log + 향후 Observability 트랙 자연 흡수) → D-94 §후속 (NotificationLog 트랙·Refund FAILED 운영 알림 source)에 걸쳐 **3회 연속 carry-over**된 "NotificationLog 적재 표준" 의제를 본 트랙에서 종결한다.
+
+정찰 결과 (recon-report §1.2) NotificationLog 도메인은 Track 7 Batch-3c (D-86)에서 영속 계층(Entity·NotificationChannel·NotificationLogStatus·Repository·Test)까지만 선구현·**Service·Handler·Controller·도메인 이벤트는 0건**·`NotificationLog.create()` 호출처는 테스트뿐(production 인스턴스화 0건). 본 트랙의 실 결손은 **발행처 존재 이벤트(E1·E2·E9 + ClaimApproved)를 소비해 NotificationLog를 PENDING 적재하는 핸들러·NotificationService 신설**로 협소하다.
+
+domain-events §2 박제 6 이벤트(E1·E2·E4·E5·E9·E10) 중 **E4 DeliveryStarted·E5 DeliveryCompleted·E10 InventoryAdjusted는 이벤트 record 자체 부재**(recon §3.5)·발행 도메인(Delivery·Inventory) 신설 선행 필요·본 트랙 OUT-OF-SCOPE. ClaimApproved는 domain-events §2 NotificationLog 소비 박제 외이나 Javadoc("NotificationLog 진입 시 Seller 승인 알림 source 추가 소비 가능") 박제 흡수.
+
+1·2차 외부 검토 수렴 후 결정 11건 + 신규 WARN 처치 2건 + 트랙 식별자 확정 1건을 박제한다.
+
+### 결정 (11건)
+
+#### Q1: 트랙 식별자 = α Track 12 = NotificationLog 확정
+
+기존 라벨 충돌 해소:
+- D-90 §후속 "Track 12+ Observability" → **Track 13+로 자연 이동**
+- D-94 §후속 "Track 12+ RETURN/EXCHANGE" → **Track 13+로 자연 이동**
+- D-94 §후속 "NotificationLog 트랙(미번호)" → 본 결정으로 Track 12 확정
+
+사유:
+- D-94 Q0 β 선례 직접 재적용 — 트랙 번호는 진입 순서 라벨·도메인 영구 바인딩 아님
+- "미번호 트랙" 유지 시 D-94 Q0 α 기각 사유(추적 식별자 부재·탐색 비용 증가) 재현
+- 후속 결정 D-XX·PR명·branch명·코드 인용 식별자 일관성 확보
+
+후속 목록 정정 의무: D-90·D-94의 "Track 12+" 표기는 본 결정 박제 시점부터 "Track 13+"로 자연 이동. 기존 결정 본문 정정은 수행하지 않는다(과잉문서 회피·D-94 Q0 β 패턴 1:1).
+
+#### Q2: 핸들러 위치 = α `notification/handler/` 신규 패키지
+
+신규 패키지 `com.zslab.mall.notification.handler`에 4 핸들러를 신설한다. D-94 Q1 α 패턴 1:1 — 반응 도메인(Notification) 패키지 배치·발행 도메인 패키지 분산 회피·notification 의존 역유입 차단.
+
+#### Q3: 트랜잭션 정책 = α `@TransactionalEventListener(AFTER_COMMIT)` + `@Transactional(REQUIRES_NEW)`
+
+D-69·D-75·D-94 Q1 표준 패턴 1:1 적용. ClaimRefundCompletedHandler·ClaimApprovedHandler(refund) 패턴 정합. domain-events §1·§2 박제 "알림 = 비동기" 정합·원 흐름 비차단·실패 격리.
+
+E2 PaymentCompleted 동기 소비(payment/OrderEventHandler·@EventListener) + 비동기 알림 핸들러 공존: AFTER_COMMIT은 동기 핸들러 커밋 후 실행 = 자연 분리·통합 테스트로 실측 의무.
+
+#### Q4: 배선 대상 이벤트 = α′-2 (4건·산정 실패 시 skip + structured log)
+
+본 트랙 배선 대상:
+- **E1 OrderPlaced** (recipient = Buyer·templateCode = TPL_ORDER_PLACED)
+- **E2 PaymentCompleted** (recipient = Buyer·templateCode = TPL_PAYMENT_COMPLETED)
+- **E9 ClaimCompleted** (recipient = Buyer·templateCode = TPL_CLAIM_COMPLETED)
+- **ClaimApproved** (recipient = Buyer·templateCode = TPL_CLAIM_APPROVED·ClaimApproved.java Javadoc 박제 흡수)
+
+**범위 한정 규칙 (외부 검토 2차 "범위는 좁게" 흡수)**:
+- ClaimApproved는 본 트랙 4번째 배선 대상에 포함·단 산정 실패(recipient·title·content·templateCode 중 어느 하나라도 산정 불가) 시 **skip + structured log**·NULL 적재 회피·NotificationLog 미적재 (A1-α 정합)
+
+OUT-OF-SCOPE (재확인):
+- E4 DeliveryStarted·E5 DeliveryCompleted (Delivery 도메인 행위 미구현·이벤트 record 부재)
+- E10 InventoryAdjusted (Inventory 도메인 행위 미구현·domain-events "선택" 박제)
+- E3 PaymentFailed (domain-events §2 NotificationLog 소비 박제 외)
+- E7 ClaimRequested·E8 ClaimRejected (domain-events §2 NotificationLog 소비 박제 외·운영 알림 수요 발생 시 별도 트랙)
+- RefundCompleted (역방향 루프 핸들러 전용·domain-events §2 NotificationLog 소비 박제 외)
+
+후속 트랙: Delivery 도메인·Inventory 도메인 신설 트랙 진입 시 E4·E5·E10 발행처 + NotificationLog 핸들러 동반 신설.
+
+#### Q5: 적재 인자 산정 출처 = α NotificationService 재조회 + templateCode 정적 매핑
+
+신규 `notification/service/NotificationService.java`·재조회 기반 적재 오케스트레이션:
+
+- recipient 산정: 이벤트 식별자 → 재조회 (orderId·orderItemId·claimId → Buyer ID)
+- title/content 산정: 재조회 데이터 + templateCode 정적 매핑으로 조립
+- templateCode: `notification/template/NotificationTemplateCodes.java` 상수 클래스 (WARN-10-α·단일 위치 응집)
+- target_type/target_id: 이벤트 식별자 직접 사용·PolymorphicTargetType (ORDER·PAYMENT·CLAIM 등) 매핑
+
+D-30 "사실 통지" 원칙 정합 — 이벤트 payload 무수정·소비측 재조회·발행처 무영향. D-94 Q7 β 기각 패턴 정합 (payload 확장 회피).
+
+#### Q6: 멱등성 = α 가드 미도입·박제 1줄
+
+본 트랙 멱등 가드 미도입. append-only ARCHIVE 특성 수용·현 인프라 인메모리 ApplicationEvent publisher(D-29·D-75·D-94 Q6 박제) 가정 하 재전달 자연 발생 불가.
+
+**박제 1줄**: "Track 12 NotificationLog 적재 멱등 보호는 단일 프로세스 ApplicationEvent 가정 기반·외부 이벤트 브로커·Outbox·다중 인스턴스 수평 확장·@Async EventListener 도입 시 본 게이트 재검토 의무." (Track 13+ Observability·이벤트 핸들러 멱등성 표준화·D-90 백로그·D-94 Q6 박제 1줄 정합)
+
+(target_type, target_id, template_code) 존재 가드는 정당 재발송(재알림) 수요와 구조 충돌 가능·기각.
+
+#### Q7: 적재 실패 격리 = α AFTER_COMMIT·REQUIRES_NEW + catch structured log
+
+각 핸들러 `handle()` 메서드 catch 블록에 structured log 1줄:
+
+    log.warn("notification log failed; event={} target_type={} target_id={} action=manual_review",
+             eventClass, targetType, targetId, exception);
+
+D-94 Q8 ClaimApprovedHandler 패턴 1:1 재사용·알림 실패가 원 도메인(주문/결제/클레임) 비차단·CLAUDE.md "알림 실패 묵살 시 주석 명시" 룰 정합.
+
+Micrometer 카운터·dashboard·alert 본 트랙 미도입(D-94 Q8 보류 정합·Observability 표준 박제 부재·Track 13+ Observability 통합 시점에 자연 재평가).
+
+#### Q8: PR 분할 = α 단일 PR
+
+본 트랙은 단일 PR(`feat/track-12-notification-log`)로 구성한다. D-87·D-92·D-93·D-94 1-PR 단독 패턴 정합. 범위 협소(핸들러 4·NotificationService 1·NotificationTemplateCodes 1·단위 4·통합 1·이벤트 Javadoc 4·D-95)·분할 시 문서·PR·검증 비용 역증.
+
+DTO @ValidEnum·프론트 constants는 D-86 §후속 유지·이연 (외부 노출 DTO 부재·검증 대상 없음).
+
+발송 어댑터·PENDING→SENT 전이는 별도 후속 PR (D-86 §OUT-OF-SCOPE 충실).
+
+#### A1: ClaimApproved fallback 정책 = A1-α 본 트랙 박제·skip + structured log
+
+ClaimApproved 소비 시 산정 실패 케이스 명시 정책:
+
+- recipient 산정 불가 (Buyer ID 재조회 실패·Claim 또는 OrderItem 미존재): skip + warn
+- title/content 조립 불가 (재조회 데이터 부족): skip + warn
+- templateCode 매핑 부재 (Q5 정적 매핑 외 케이스): skip + warn
+
+NULL 적재 회피 (적재 의미 보존)·NotificationLog 미적재·structured log 통한 운영 추적·재시도 정책은 OUT-OF-SCOPE (PENDING→SENT 전이·발송 어댑터 부재).
+
+Q4 α′-2 범위 한정 규칙과 일관·외부 검토 2차 흡수.
+
+#### A2: NotificationService 재조회 실패 정책 = A2-α skip + warn
+
+`NotificationService.record()` 진입부 재조회 실패 시 동작:
+
+- 재조회 결과 Optional.empty() → skip + warn log·예외 throw 금지
+- 재조회 중 예외 발생 → catch 후 warn log·NotificationLog 미적재·핸들러 상위로 재throw 금지
+
+Q5 α 재조회 기반 설계·Q7 α structured log 격리 패턴과 일관·원 흐름 비차단.
+
+#### D-94 Q8 흡수 시점 = B 별도 후속 PR 이연
+
+D-94 §후속 "Refund FAILED structured log → NotificationLog 채널 자연 흡수"는 본 트랙 미포함·별도 후속 PR로 이연한다.
+
+사유:
+- 본 트랙 = "이벤트 → NotificationLog 적재" 표준 박제 집중
+- Refund FAILED structured log는 이벤트 미발행 흐름·범위 혼입 시 표준 모호
+- D-94 Q8 박제 1줄(`refund/handler/ClaimApprovedHandler.handle` catch structured log) 그대로 유지·후속 PR에서 NotificationLog 적재로 전환
+- 외부 검토 2차 "D-94 의도도 '자연 흡수'에 가깝다" 정합
+
+후속 PR 명목: `feat/track-12-followup-refund-failed-notification` (또는 통합 시점 별도 식별자).
+
+### 신규 WARN 처치
+
+#### WARN-9: 재조회 기반 적재의 stale state 취약성 = WARN-9-α 박제 1줄
+
+AFTER_COMMIT 시점 NotificationService 재조회는 commit 시점 스냅샷 일관성을 전제한다. 외부 row(Buyer·OrderItem·Claim 등)가 별도 트랜잭션에서 변경된 경우 stale state 적재 가능.
+
+**박제 1줄**: "Track 12 NotificationLog 적재는 AFTER_COMMIT 시점 commit 스냅샷 일관성 가정 기반·실측 위반 사례(stale recipient·삭제 row 참조 등) 누적 시 재평가·payload 보조 필드 추가 또는 이벤트 저장소 도입은 후속 트랙(Track 13+ Observability) 통합 시점에 결정."
+
+payload 확장(WARN-9-β)은 D-30 "사실 통지" 위배·Q5 β 회귀·기각.
+
+#### WARN-10: 템플릿 코드 관리 분산 = WARN-10-α `NotificationTemplateCodes` 상수 클래스
+
+신규 `notification/template/NotificationTemplateCodes.java` 상수 클래스 신설·이벤트별 templateCode 매핑 단일 위치 응집:
+
+    public final class NotificationTemplateCodes {
+        public static final String ORDER_PLACED = "TPL_ORDER_PLACED";
+        public static final String PAYMENT_COMPLETED = "TPL_PAYMENT_COMPLETED";
+        public static final String CLAIM_APPROVED = "TPL_CLAIM_APPROVED";
+        public static final String CLAIM_COMPLETED = "TPL_CLAIM_COMPLETED";
+        private NotificationTemplateCodes() {}
+    }
+
+Enum 신설(WARN-10-β)은 DTO @ValidEnum 동반·Track 8+ 의무·범위 확장·기각. 후속 트랙(RETURN/EXCHANGE·Delivery·Inventory) 진입 시 누적 매핑 본 클래스에 추가·Enum 승격은 ≥10건 누적 또는 DTO 검증 수요 발생 시점 결정.
+
+### 횡단 원칙 (D-92·D-93 carry-over)
+
+D-92·D-93 횡단 원칙("권한 검증 = Service 진입부·primitive actor 비의존·액터별 권한은 wrapper 캡슐화")은 본 트랙(이벤트 핸들러 트랙)에 직접 적용 대상 아니다. NotificationService는 actor 비의존·단순 적재 오케스트레이션. 본 트랙은 횡단 원칙 재사용 회차에 산입하지 않는다(Track 13+ 액터 트랙 진입 시 재사용 카운트 재개).
+
+### 클래스 네이밍 (D-74 정합)
+
+기존 핸들러 클래스와 동명 충돌 회피·D-74 "동명 클래스 복수 패키지 → 클래스 리네이밍 우선" 정책 적용:
+
+| 신규 핸들러 (notification/handler/) | 충돌 기존 클래스 | 네이밍 방식 |
+|---|---|---|
+| NotificationOrderPlacedHandler | 없음 | 일관성 prefix |
+| NotificationPaymentCompletedHandler | 없음 | 일관성 prefix |
+| NotificationClaimApprovedHandler | refund/handler/ClaimApprovedHandler | **충돌 회피 의무** |
+| NotificationClaimCompletedHandler | claim/handler/ClaimCompletedHandler | **충돌 회피 의무** |
+
+`Notification` prefix 일관 적용·D-74 SellerRefundCompletedHandler·ClaimRefundCompletedHandler 선례 패턴 정합.
+
+### WARN 해소 결과 (recon-report §9)
+
+| WARN | 해소 |
+|---|---|
+| WARN-1 P0 발행처 미존재 이벤트 3건 (E4·E5·E10) | Q4 α′-2 채택·OUT-OF-SCOPE 명시·Delivery·Inventory 신설 트랙 이연 |
+| WARN-2 P1 OrderPlaced(E1) 소비자 전무 | Q4 α′-2 E1 첫 소비자 = NotificationOrderPlacedHandler·통합 테스트로 발행 검증 |
+| WARN-3 P1 적재 인자 산정 출처 미박제 | Q5 α 채택·NotificationService 재조회·A1-α·A2-α 정책 명시 |
+| WARN-4 P1 멱등성 키 미박제 | Q6 α 채택·박제 1줄·D-90 백로그 이연 |
+| WARN-5 P2 발송 어댑터 부재 | OUT-OF-SCOPE 경계 박제·Q8 발송 어댑터 후속 PR 이연 |
+| WARN-6 P0 트랙 식별자 충돌 | Q1 α 채택·Track 12 = NotificationLog 확정·D-90·D-94 라벨 Track 13+ 자연 이동 |
+| WARN-7 P2 4층위 enum 잠금 2/4층 | OUT-OF-SCOPE·D-86 §후속 Track 8+ 이연 유지 |
+| WARN-8 P1 D-94 흡수 시점 도래 | D-94 Q8 흡수 시점 B 채택·별도 후속 PR 이연 |
+| WARN-9 (신규·외부 검토 2차) 재조회 stale state | WARN-9-α 박제 1줄·Track 13+ 통합 시점 재평가 |
+| WARN-10 (신규·외부 검토 2차) 템플릿 코드 분산 | WARN-10-α NotificationTemplateCodes 상수 클래스 |
+
+### 외부 검토 흡수 흐름
+
+- **1차 외부 검토**: 8 의제(Q1~Q8) + 추천안 송부. 수용: Q1·Q2·Q3·Q5·Q6·Q7·Q8 α 전건·D-94 Q8 흡수 시점 B·A급 라벨. 부분 수용: Q4(α → α′ 권장·"범위는 좁게"·"필요하면 한정"). 신규 의제 제기: A1 ClaimApproved fallback·A2 재조회 실패 정책. 신규 WARN 제기: WARN-9 stale state·WARN-10 템플릿 분산.
+
+- **Claude.ai 축소 흡수**: Q4 α′-2 (4건 + skip + structured log 한정)·A1-α (NULL 적재 회피)·A2-α (skip + warn)·WARN-9-α (박제 1줄)·WARN-10-α (상수 클래스).
+
+- **2차 외부 검토**: 축소안 전건 정합 확인. Q4 α′-2·A1-α·A2-α·WARN-9-α·WARN-10-α 전건 수용.
+
+- **2차 검토 자체 평가**: "부분 수용·범위를 더 좁히고 fallback 정책을 명시한 방향이 1차보다 4기조 정합성 개선" (D-94 2차 검토자 자체 평가 "축소안이 1차보다 4기조 정합성 좋아졌다" 패턴 재현).
+
+### 영향 범위
+
+#### 신규 파일 (10건)
+- backend/src/main/java/com/zslab/mall/notification/service/NotificationService.java (재조회 기반 적재 오케스트레이션·NotificationLogRepository 주입·title/content 조립·skip + warn 정책)
+- backend/src/main/java/com/zslab/mall/notification/template/NotificationTemplateCodes.java (상수 클래스·4 templateCode)
+- backend/src/main/java/com/zslab/mall/notification/handler/NotificationOrderPlacedHandler.java (E1 소비·AFTER_COMMIT·REQUIRES_NEW)
+- backend/src/main/java/com/zslab/mall/notification/handler/NotificationPaymentCompletedHandler.java (E2 소비·AFTER_COMMIT·REQUIRES_NEW)
+- backend/src/main/java/com/zslab/mall/notification/handler/NotificationClaimApprovedHandler.java (ClaimApproved 소비·AFTER_COMMIT·REQUIRES_NEW·D-74 충돌 회피)
+- backend/src/main/java/com/zslab/mall/notification/handler/NotificationClaimCompletedHandler.java (E9 소비·AFTER_COMMIT·REQUIRES_NEW·D-74 충돌 회피)
+- backend/src/test/java/com/zslab/mall/notification/service/NotificationServiceTest.java (단위·Mockito·재조회 성공/실패 skip/정상 적재)
+- backend/src/test/java/com/zslab/mall/notification/handler/NotificationHandlerTest.java (단위·4 핸들러 통합·Mockito·이벤트 소비·structured log catch)
+- backend/src/test/java/com/zslab/mall/notification/integration/NotificationLogIntegrationTest.java (e2e·NO @Transactional·TransactionTemplate·LT-02 try-finally·D-91 FK 부모 그래프 시드·E1·E2·E9·ClaimApproved 발행 → NotificationLog PENDING 적재 검증·E2 동기/비동기 혼재 실측)
+- docs/track-12/recon-report.md (정찰 보고서·기 작성)
+
+#### 수정 파일 (4건·이벤트 Javadoc 보강)
+- backend/src/main/java/com/zslab/mall/order/event/OrderPlaced.java (Javadoc "Track 12 NotificationOrderPlacedHandler 소비")
+- backend/src/main/java/com/zslab/mall/payment/event/PaymentCompleted.java (Javadoc "Track 12 NotificationPaymentCompletedHandler 소비·OrderEventHandler와 동기/비동기 혼재")
+- backend/src/main/java/com/zslab/mall/claim/event/ClaimApproved.java (Javadoc "Track 12 NotificationClaimApprovedHandler 소비·산정 실패 시 skip + structured log")
+- backend/src/main/java/com/zslab/mall/claim/event/ClaimCompleted.java (Javadoc "Track 12 NotificationClaimCompletedHandler 소비")
+
+#### 무변경 확정
+application.yml·build.gradle.kts·DDL/Flyway(notification_log V1 기박제·스키마 무변경)·NotificationLog Entity·NotificationChannel·NotificationLogStatus·NotificationLogRepository·PolymorphicTargetType·AbstractCreatedOnlyEntity·이벤트 record payload 전건(D-30 정합·payload 무수정)·발행처 Service 전건(ClaimService·PaymentService·OrderService·RefundService)·기존 핸들러 7건 전건·역방향 루프(ClaimRefundCompletedHandler·PaymentRefundCompletedHandler)·refund/handler/ClaimApprovedHandler(D-94 Q8 structured log 그대로 유지·후속 PR 이연)·invariants.md (NOT-4 신규 항목 미신설)·state-machine.md·aggregate-boundary.md(§2.7 기박제).
+
+#### 회귀 예상
+전체 회귀 BUILD SUCCESSFUL·신규 PASS(단위 ≥8·통합 ≥4)·기존 회귀 0(D-94 355 baseline 유지·신규 합산 ≥367).
+
+### 대안 검토 (기각)
+
+- Q1 β(미번호 NotificationLog 트랙): D-94 Q0 α 기각 사유 재현·추적 비용 증가·기각.
+- Q2 β(발행 도메인 패키지 분산): 횡단 책임 분산·notification 의존 역유입·D-94 Q1 β 기각 패턴·기각.
+- Q2 γ(NotificationService @TransactionalEventListener 직접 보유): Service에 이벤트 소비 책임 혼입·D-94 Q1 γ 기각 패턴·기각.
+- Q3 β(@EventListener 동기): domain-events §1·§2 "알림 = 비동기" 위배·알림 실패가 원 도메인 롤백 유발·기각.
+- Q4 α(3건 한정·ClaimApproved 미포함): ClaimApproved.java Javadoc 박제 흡수 기회 손실·외부 검토 1차 α′ 권장·2차 α′-2 정합 흡수·기각.
+- Q4 α′-1(ClaimApproved 즉시 포함·fallback 정책 미박제): "범위는 좁게" 외부 검토 2차 의도 위배·기각.
+- Q4 α′-3(ClaimApproved 후속 트랙 이연): Javadoc 박제 흡수 지연·외부 검토 2차 α′-2 채택 정합·기각.
+- Q4 β(6 이벤트 전건 + Delivery·Inventory 발행처 신설): 범위 폭발·다도메인 동시 수정·기조 4 위배·기각.
+- Q5 β(이벤트 payload recipient/title 추가): record·발행처 수정 동반·D-30 "사실 통지" 위배·D-94 Q7 β 기각 패턴 정합·기각.
+- Q5 γ(최소 적재 NULL 허용): 운영 품질 저하·외부 검토 1차 "MVP성은 있으나 운영 품질 저하" 평가·A1-α (NULL 적재 회피) 일관성 위배·기각.
+- Q6 β(target+template 멱등 가드): 정당 재발송(재알림) 수요와 구조 충돌·인메모리 publisher 가정 하 재전달 자연 발생 불가·D-94 Q6 박제 1줄 정합·기각.
+- Q7 β(status=FAILED 적재 후 재시도 Job): 발송 어댑터 전제·OUT-OF-SCOPE·범위 확장·기각.
+- Q8 β(4층위 잠금 DTO @ValidEnum 동반): 외부 노출 DTO 부재·검증 대상 없음·과잉개발·기각.
+- Q8 γ(적재 + 발송 어댑터·PENDING→SENT 분할 명시): D-86 §OUT-OF-SCOPE 충실 자연 충족·별도 PR 분할 명시 박제는 과잉문서·기각.
+- A1-β(fallback 미박제·NULL 적재): 적재 의미 보존 불가·운영 리스크 증가·외부 검토 2차 A1-α 채택·기각.
+- A1-γ(ClaimApproved 본 트랙 제외): Q4 α′-2 정합 위배·Javadoc 박제 흡수 손실·기각.
+- A2-β(재조회 실패 시 fail throw): 원 흐름 비차단 원칙 위배·Q7 α structured log 격리 패턴과 충돌·기각.
+- A2-γ(NULL 적재): A1-α NULL 적재 회피 정합 위배·기각.
+- D-94 Q8 흡수 시점 A(본 트랙 동반): 범위 혼입·표준 모호·D-94 "자연 흡수" 의도 위배·외부 검토 2차 B 채택·기각.
+- WARN-9-β(이벤트 payload 보조 필드 추가): D-30 위배·Q5 β 회귀·외부 검토 2차 WARN-9-α 채택·기각.
+- WARN-9-γ(본 트랙 미박제): D-90 백로그 통합 이연 시 본 트랙 가정 추적 손실·기각.
+- WARN-10-β(Enum NotificationTemplateCode 신설): DTO @ValidEnum 동반·Track 8+ 의무·범위 확장·외부 검토 2차 WARN-10-α 채택·기각.
+- WARN-10-γ(본 트랙 미박제): 후속 트랙 누적 패턴 분산·운영 비용 증가·기각.
+
+### 관련 결정
+
+D-01 (Aggregate 외부 ID 참조)·D-18 (NotificationLog Infra/Event Processing 재분류)·D-29 (save→publish·no flush)·D-30 (이벤트 사실 통지·payload 무수정)·D-69 (RefundCompleted Publisher/Consumer 시점 분리)·D-74 (이벤트 핸들러 빈 네이밍·동명 클래스 리네이밍 우선)·D-75 (이벤트 핸들러 AFTER_COMMIT·REQUIRES_NEW)·D-86 Q3 (NotificationLog Entity AbstractCreatedOnlyEntity 직접 상속·§후속 Track 8+ 이연)·D-87 (Track 8 진입·1-PR 단독 패턴)·D-90 (이벤트 핸들러 멱등성 표준화 백로그·Track 13+ Observability 통합)·D-92·D-93 (액터 트랙 횡단 원칙·본 트랙 산입 외)·D-94 (Track 11 Refund 자동 트리거·Q0 β 트랙 식별자 재정의 선례·Q6 인메모리 publisher 멱등 박제·Q7 payload 무수정·Q8 structured log + Observability 자연 흡수·§후속 NotificationLog 트랙 위임)·LT-02 (FK_CHECKS try-finally)·domain-events §1·§2 (E1·E2·E9 NotificationLog 소비 박제·알림 = 비동기·재시도·DLQ)·invariants §3.1 NOT-1~3·aggregate-boundary §2.7 (Aggregate 아님·자체 비즈니스 불변식 없음)·docs/track-12/recon-report.md.
+
+### 후속 트랙
+
+- **Track 12 후속 PR (Refund FAILED 흡수)**: D-94 Q8 흡수 시점 B 채택 후속·refund/handler/ClaimApprovedHandler structured log → NotificationLog 적재 전환·범위 협소(catch 블록 1건 + 통합 테스트).
+- **Track 13+ Observability**: 이벤트 핸들러 멱등성 표준화·이벤트 저장소·Outbox·correlationId/eventId·Micrometer 컨벤션·WARN-9 stale state 재평가·Q6 박제 1줄 재검토 자연 진입점.
+- **Track 13+ RETURN/EXCHANGE**: D-94 §후속 라벨 자연 이동·Delivery 도메인 동반·NotificationLog 핸들러 신설 동반·NotificationTemplateCodes 추가.
+- **Delivery 도메인 신설 트랙**: E4 DeliveryStarted·E5 DeliveryCompleted 발행처 + NotificationDeliveryStartedHandler·NotificationDeliveryCompletedHandler 동반.
+- **Inventory 도메인 신설 트랙**: E10 InventoryAdjusted 발행처 + NotificationInventoryAdjustedHandler 동반 (선택).
+- **발송 어댑터 트랙**: NotificationLog PENDING→SENT 전이 메서드·실 전송 게이트웨이(EMAIL·SMS·PUSH·IN_APP)·재시도 Job·D-86 §후속 충실.
+- **Spring Security 트랙**: X-*-Id stub 3종 일괄 대체·D-93 Q11 wrapper 유지 전략 결정.
+
+### 후속
+
+1. 본 결정 박제 = 사용자 직접 처리 (D-94 패턴 1:1).
+2. PR 브랜치 `feat/track-12-notification-log` 생성 (main HEAD 8b5bc57 기준).
+3. 가드 5 사전 통지: 신규 9 (Service 1·Template 1·Handler 4·Test 3) + 수정 4 (이벤트 Javadoc) — Claude Code 구현 프롬프트 시점 일괄 통지.
+4. TDD 우선(단위 → 통합)·전체 회귀 BUILD SUCCESSFUL·신규 ≥12 PASS·기존 회귀 0.
+5. GitHub Web UI PR 생성·Base: main·Compare: feat/track-12-notification-log·외부 검토 1·2차 완료·A급·추가 검토 선택.
+6. PR 머지로 Track 12 종결·NotificationLog 적재 표준 박제·D-86 §후속 carry-over 영구 해소.
+7. 후속 PR(D-94 Q8 흡수) 진입 시점 결정.
+
+---

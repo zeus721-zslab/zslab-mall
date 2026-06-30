@@ -9,6 +9,9 @@ import java.time.LocalDateTime;
  * 소비측(OrderEventHandler·Inventory 등)은 {@code orderId}로 필요한 데이터를 재조회한다.
  *
  * <p>멱등 키는 {@code pgTransactionId}다. 동일 PG 거래의 중복 통지는 소비측에서 무시한다.
+ *
+ * <p>Track 12 {@code notification/handler/NotificationPaymentCompletedHandler}가 본 이벤트를 소비한다(D-95 Q4·E2 박제·
+ * 동기 {@code OrderEventHandler}(markPaid) 소비와 공존·AFTER_COMMIT으로 자연 분리).
  */
 public record PaymentCompleted(
         Long paymentId,
