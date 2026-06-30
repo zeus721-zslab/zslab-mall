@@ -5,6 +5,7 @@ import static org.mockito.Mockito.verify;
 
 import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.event.ClaimPickedUp;
+import com.zslab.mall.common.observability.EventMetricsRecorder;
 import com.zslab.mall.notification.service.NotificationService;
 import java.time.LocalDateTime;
 import org.junit.jupiter.api.DisplayName;
@@ -24,6 +25,8 @@ class NotificationClaimPickedUpHandlerTest {
 
     @Mock
     private NotificationService notificationService;
+    @Mock
+    private EventMetricsRecorder eventMetricsRecorder;
     @InjectMocks
     private NotificationClaimPickedUpHandler handler;
 

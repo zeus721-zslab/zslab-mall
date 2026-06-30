@@ -2,6 +2,7 @@ package com.zslab.mall.notification.handler;
 
 import com.zslab.mall.delivery.entity.Delivery;
 import com.zslab.mall.delivery.event.DeliveryCompleted;
+import com.zslab.mall.common.observability.EventMetricsRecorder;
 import com.zslab.mall.delivery.repository.DeliveryRepository;
 import com.zslab.mall.notification.service.NotificationService;
 import lombok.RequiredArgsConstructor;
@@ -35,6 +36,7 @@ public class NotificationDeliveryCompletedHandler {
 
     private final NotificationService notificationService;
     private final DeliveryRepository deliveryRepository;
+    private final EventMetricsRecorder eventMetricsRecorder;
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -51,6 +53,7 @@ public class NotificationDeliveryCompletedHandler {
         } catch (RuntimeException exception) {
             log.warn("[Notification] event={} target_type={} target_id={} action=manual_review correlationId={} handler={}",
                     "DeliveryCompleted", "DELIVERY", event.deliveryId(), MDC.get("correlationId"), this.getClass().getSimpleName(), exception);
+            eventMetricsRecorder.recordFailed(event.getClass().getSimpleName()); // Q4 β′: zslab.event.failed{event} 계측
         }
     }
 }

@@ -23,7 +23,8 @@ import org.springframework.context.ApplicationEventPublisher;
 class TracedEventPublisherTest {
 
     private final ApplicationEventPublisher delegate = mock(ApplicationEventPublisher.class);
-    private final TracedEventPublisher publisher = new TracedEventPublisher(delegate);
+    private final EventMetricsRecorder eventMetricsRecorder = mock(EventMetricsRecorder.class);
+    private final TracedEventPublisher publisher = new TracedEventPublisher(delegate, eventMetricsRecorder);
 
     @BeforeEach
     void setUp() {
@@ -51,6 +52,14 @@ class TracedEventPublisherTest {
         assertThat(MDC.get("eventName")).isNull();
         assertThat(MDC.get("traceId")).isNull();
         assertThat(MDC.get("correlationId")).isNull();
+    }
+
+    @Test
+    @DisplayName("케이스3 publishEvent 호출 시 EventMetricsRecorder.recordPublished 1회 호출(Q4 β′ published 연동)")
+    void records_published_metric() {
+        publisher.publishEvent(new TestEvent("p1"));
+
+        verify(eventMetricsRecorder, times(1)).recordPublished("TestEvent"); // event.getClass().getSimpleName()
     }
 
     /** 발행 대상 더미 이벤트. */

@@ -3,6 +3,11 @@ spring:
     show-sql: false
 
 management:
+  endpoints:
+    web:
+      exposure:
+        # Q5 α′: 운영 노출 = health·info·prometheus 한정. gateway IP 화이트리스트는 인프라 레이어 책임.
+        include: health,info,prometheus
   endpoint:
     health:
       show-details: when-authorized
