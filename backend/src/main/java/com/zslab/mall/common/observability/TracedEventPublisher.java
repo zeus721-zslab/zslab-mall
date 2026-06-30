@@ -1,42 +1,34 @@
 package com.zslab.mall.common.observability;
 
 import lombok.RequiredArgsConstructor;
-import org.slf4j.MDC;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 
 /**
- * Track 16 D-100 Q3 β′·Q12 β″′·종료조건 #5 박제. ApplicationEventPublisher를 래핑해 이벤트 발행 시점에 eventName MDC를
- * 단일 SoT로 주입한다. publishEvent 호출 후 finally로 MDC.remove("eventName") 정리.
+ * Track 16 D-100 Q3 β′ 옵션 4·Q12 β″′·종료조건 #5 박제. ApplicationEventPublisher를 래핑한 단순 위임자.
+ * 11 발행처 단일 진입점으로 작동하며, Outbox 도입 시 본 클래스가 자연 흡수 진입점이 된다(Q2 γ 트리거 정합).
  *
- * <p><b>동일 스레드·자연 상속(D-100 Q14 ✓)</b>: AFTER_COMMIT 핸들러는 발행처와 동일 스레드에서 동기 실행되며 MDC는
- * thread-local로 자연 상속된다(MdcPropagationTest 실측 완료). eventName MDC.put 시점은 publishEvent 호출 전·핸들러
- * 진입까지 보존된다.
+ * <p><b>책임 재정의(옵션 4·2026-06-30·실측 기반)</b>: 초기 박제는 eventName MDC 주입을 본 클래스 책임으로
+ * 가정했으나, AFTER_COMMIT 핸들러 발화 시점과 publishEvent 동기 구간 종료 시점 미스매치로 핸들러 진입 시
+ * MDC eventName 부재 실측 확정(CorrelationIdIntegrationTest). nested publishEvent 패턴 MDC eventName 오염
+ * 위험 동반 → 본 클래스는 eventName MDC 주입 책임 없음. 운영 로그 eventName 출력은 핸들러 catch 6 표준키
+ * {@code event.getClass().getSimpleName()} 직접 인용으로 충족(D-100 Q6 β 정합).
  *
- * <p><b>트랜잭션 경계 무관(D-29 save→publish 정합)</b>: 본 wrapper는 트랜잭션을 시작·종료하지 않으며 호출 측 트랜잭션
- * 경계를 그대로 따른다. delegate.publishEvent 시그니처는 ApplicationEventPublisher와 동일하므로 5 Service 호출 라인
- * 무변경(생성자 주입 의존만 교체).
+ * <p><b>트랜잭션 경계 무관(D-29 save→publish 정합)</b>: 본 wrapper는 트랜잭션을 시작·종료하지 않으며 호출 측
+ * 트랜잭션 경계를 그대로 따른다. delegate.publishEvent 시그니처는 ApplicationEventPublisher와 동일·5 Service
+ * 호출 라인 무변경(생성자 주입 의존만 교체).
  *
- * <p><b>스코프(Q3 β′ 박제)</b>: traceId·correlationId 주입은 TraceIdFilter(D-48 SoT) 책임. eventName 주입은 본 클래스
- * 책임. 두 책임은 분리되며 wrapper는 HTTP 요청 컨텍스트와 무관(요청 외 기원 발행도 자연 적용).
- *
- * <p><b>Outbox 도입 트리거(D-100 Q2 γ)</b>: 본 wrapper는 Outbox writer 자연 흡수 진입점. 트리거 4건 중 1건 도달 시
- * publishEvent 내부에 outbox 적재 로직 추가로 자연 확장.
+ * <p><b>스코프</b>: traceId·correlationId 주입은 TraceIdFilter(D-48 SoT) 책임. 본 클래스는 발행 경로 단일
+ * SoT 역할만 수행하며 향후 Outbox writer·메트릭 카운터(PR-2 zslab.event.published)·이벤트 저장소 등의 자연
+ * 흡수 진입점 보존.
  */
 @Component
 @RequiredArgsConstructor
 public class TracedEventPublisher {
 
-    public static final String EVENT_NAME = "eventName";
-
     private final ApplicationEventPublisher delegate;
 
     public void publishEvent(Object event) {
-        MDC.put(EVENT_NAME, event.getClass().getSimpleName());
-        try {
-            delegate.publishEvent(event);
-        } finally {
-            MDC.remove(EVENT_NAME);
-        }
+        delegate.publishEvent(event);
     }
 }
