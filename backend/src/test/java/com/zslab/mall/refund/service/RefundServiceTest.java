@@ -138,6 +138,20 @@ class RefundServiceTest {
     }
 
     @Test
+    @DisplayName("initiate: 활성 Refund(PENDING) 존재 → 멱등 no-op·기존 행 반환·save 미호출(D-94 Q6)")
+    void initiate_activeRefundExists_idempotentNoOp() {
+        Refund existing = pendingRefund();
+        when(refundRepository.existsActiveByClaimId(CLAIM_ID)).thenReturn(true);
+        when(refundRepository.findByClaimId(CLAIM_ID)).thenReturn(java.util.List.of(existing));
+
+        Refund result = refundService.initiate(CLAIM_ID, REFUND_AMOUNT);
+
+        assertThat(result).isSameAs(existing);
+        verify(refundRepository, never()).save(any());
+        verify(claimRepository, never()).findById(any());
+    }
+
+    @Test
     @DisplayName("initiate: 정상 → PENDING 생성·pg_refund_id 부여")
     void initiate_success_pendingWithPgRefundId() {
         when(claimRepository.findById(CLAIM_ID)).thenReturn(Optional.of(claim(ClaimStatus.APPROVED)));

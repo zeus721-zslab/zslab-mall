@@ -72,6 +72,9 @@ public class RefundService {
      * <p><b>PG 호출 예외(D-67·CR-03)</b>: {@code gateway.refund()}가 예외(네트워크·timeout·gateway)를 던지면 PENDING 행을
      * FAILED로 전이해 영구 PENDING 잔존을 차단한다. 별도 failure_reason 컬럼은 두지 않고 로깅만 남긴다(CR-01 보류).
      *
+     * <p><b>멱등 게이트(D-94 Q6)</b>: 동일 claimId에 활성 Refund(PENDING/COMPLETED)가 이미 있으면 신규 생성 없이 기존 행을
+     * no-op 반환한다(ClaimApproved 이벤트 재전달·중복 진입 차단). FAILED는 활성에서 제외해 RFN-2 재시도와 충돌하지 않는다.
+     *
      * @param claimId 환불 대상 클레임 id(APPROVED여야 함·CLM-3)
      * @param amount  환불 금액(KRW 정수·1 이상)
      * @return 생성된 Refund(정상 시 PENDING+pg_refund_id, PG 예외 시 FAILED)
@@ -85,6 +88,17 @@ public class RefundService {
         }
         if (amount < 1) {
             throw new IllegalArgumentException("환불금액은 1 이상이어야 합니다. 입력: " + amount);
+        }
+
+        // 멱등 게이트(D-94 Q6 α′): 동일 claimId에 활성 Refund(PENDING/COMPLETED) 존재 시 신규 생성 없이 기존 행을 no-op 반환한다.
+        // 인메모리 ApplicationEvent 가정 하 이벤트 재전달·운영 재실행·중복 진입을 차단한다(외부 브로커·Outbox 도입 시 재검토·D-94 박제).
+        if (refundRepository.existsActiveByClaimId(claimId)) {
+            return refundRepository.findByClaimId(claimId).stream()
+                    .filter(existing -> existing.getStatus() == RefundStatus.PENDING
+                            || existing.getStatus() == RefundStatus.COMPLETED)
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalStateException(
+                            "멱등 게이트 모순: existsActive=true이나 활성 Refund 미발견 claimId=" + claimId));
         }
 
         // CLM-3: Claim.APPROVED 후에만 환불 생성

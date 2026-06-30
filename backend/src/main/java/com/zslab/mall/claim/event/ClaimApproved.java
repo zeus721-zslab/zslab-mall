@@ -12,9 +12,9 @@ import java.time.LocalDateTime;
  * Admin 진입점 {@code ClaimService.approveByAdmin}(D-93 Q3·전체 접근·권한 검증 단락 부재) 경유에서도 동일 primitive에서
  * 발행된다.
  *
- * <p>소비자는 아직 부재다. D-92 Q8 β에 따라 Refund 자동 트리거는 본 트랙 범위 외이며, 후속 트랙(Refund Service
- * 진입 시점)에서 {@code ClaimApproved → RefundCreated} 자동 변환을 구성할 예정이다. NotificationLog 도메인 진입
- * 시점에는 Seller 승인 알림 source로도 소비 가능하다. Track 10 범위에서는 발행만 보장하고 소비 검증은 수행하지 않는다.
+ * <p>소비자는 Track 11(D-94)에서 신설되었다. {@code refund/handler/ClaimApprovedHandler}가 본 이벤트를 소비하며
+ * CANCEL type 한정으로 {@code RefundService.initiate}를 자동 트리거한다(D-87 Q3 → D-90 Q2 → D-92 Q8 → D-93 Q9
+ * carry-over 종결). NotificationLog 도메인 진입 시점에는 Seller 승인 알림 source로도 추가 소비 가능하다.
  */
 public record ClaimApproved(
         Long claimId,

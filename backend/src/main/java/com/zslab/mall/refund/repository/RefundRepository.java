@@ -2,8 +2,10 @@ package com.zslab.mall.refund.repository;
 
 import com.zslab.mall.refund.entity.Refund;
 import com.zslab.mall.refund.enums.RefundStatus;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -20,6 +22,21 @@ public interface RefundRepository extends JpaRepository<Refund, Long> {
 
     /** 한 클레임의 환불 행 전체(재시도 = 새 행·RFN-2 추적). */
     List<Refund> findByClaimId(Long claimId);
+
+    /**
+     * 한 클레임에 주어진 status 집합 중 하나인 환불 행이 존재하는지 여부를 반환한다(파생 쿼리).
+     *
+     * <p>모든 변수는 메서드 이름 쿼리의 바인딩 파라미터로 전달되며 SQL injection 위험이 없다.
+     */
+    boolean existsByClaimIdAndStatusIn(Long claimId, Collection<RefundStatus> statuses);
+
+    /**
+     * 한 클레임에 활성(PENDING·COMPLETED) 환불 행이 존재하는지 여부(D-94 Q6 멱등 게이트·공개 계약). FAILED는
+     * 활성에서 제외해 RFN-2(재시도 = 새 행)와 충돌하지 않는다. 호출부는 본 메서드만 사용한다.
+     */
+    default boolean existsActiveByClaimId(Long claimId) {
+        return existsByClaimIdAndStatusIn(claimId, Set.of(RefundStatus.PENDING, RefundStatus.COMPLETED));
+    }
 
     /**
      * 한 결제에 대한 COMPLETED 환불 금액 누적 합을 반환한다(PAY-1 검증·교차 Aggregate). COALESCE로 행이 없으면 0.
