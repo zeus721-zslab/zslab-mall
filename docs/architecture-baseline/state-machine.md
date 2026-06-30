@@ -183,6 +183,7 @@ Order.status는 OrderItem 집계 캐시이므로, OrderItem 상태가 변경될 
    READY ──→ SHIPPING ──→ DELIVERED
 ```
 
+- **READY 의미**: Delivery 엔티티 생성 완료 상태. carrier는 존재하며 tracking_no·shipped_at은 비어 있을 수 있다. 일반 배송·교환 배송 모두 동일 의미이며 실제 출고 개시는 `markShipping()`에서 수행한다(D-98 Q3).
 - **단방향 직진**: READY → SHIPPING → DELIVERED. 단계 건너뛰기(READY → DELIVERED) 차단.
 - **DELIVERED 종결**: DELIVERED에서 어떤 전이도 불가(불가역).
 - **역방향·자기 전이 차단**: SHIPPING → READY·DELIVERED → SHIPPING·동일 상태 재전이 전건 차단.
