@@ -121,6 +121,31 @@ public class NotificationService {
     }
 
     /**
+     * D-96 후속 PR: ClaimApprovedHandler catch 블록에서 호출되어 Refund 자동 트리거 실패 시 운영 알림을 적재한다.
+     * resolveClaimRecipient 재사용으로 Buyer를 recipient로 산정한다.
+     *
+     * <p><b>recipient 재정의 가능(D-96 Q2 α')</b>: 본 시점 Buyer 채택은 admin user 모델 부재(D-93 stub) 회피.
+     * 운영자 알림 채널 도입 시 재정의 가능·발송 어댑터 트랙(D-86 §후속) 진입 시점 결정.
+     *
+     * <p><b>Refund 행 비의존(D-96 Q3)</b>: 본 메서드는 Refund 행 존재 여부와 무관하게 ClaimApproved 식별자
+     * 기반으로 적재한다. catch 발화 시점에 Refund INSERT 전(Claim/PAY-1/Payment 검증 단계)일 수 있다.
+     */
+    public void recordRefundFailed(ClaimApproved event) {
+        try {
+            Long recipientUserId = resolveClaimRecipient(event.claimId(), "RefundFailed");
+            if (recipientUserId == null) {
+                return;
+            }
+            String content = "클레임 " + event.claimPublicId() + " 환불 처리에 실패했습니다. 운영 확인이 필요합니다.";
+            save(recipientUserId, NotificationTemplateCodes.REFUND_FAILED,
+                    PolymorphicTargetType.CLAIM, event.claimId(), "환불 실패", content);
+        } catch (RuntimeException exception) {
+            // 재조회·적재 실패는 원 흐름(클레임 승인 후 환불 자동 트리거 catch)을 막지 않는다(A2-α·재throw 금지).
+            log.warn("[Notification] RefundFailed 적재 실패 → 건너뜀: claimId={}", event.claimId(), exception);
+        }
+    }
+
+    /**
      * 클레임 알림 recipient(Buyer ID)를 산정한다. claim → orderItem → order 체인 중 어느 한 단계라도 미발견이면
      * NULL 적재를 회피하기 위해 null을 반환한다(D-95 A1-α). {@code eventName}은 skip 로그 식별용이다.
      */

@@ -2,6 +2,7 @@ package com.zslab.mall.refund.handler;
 
 import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.event.ClaimApproved;
+import com.zslab.mall.notification.service.NotificationService;
 import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.refund.service.RefundService;
@@ -30,8 +31,9 @@ import org.springframework.transaction.event.TransactionalEventListener;
  * <p><b>멱등(D-94 Q6)</b>: 동일 claimId 활성 Refund 중복 차단은 {@link RefundService#initiate} 내부 게이트가 담당한다.
  * 본 핸들러는 가드를 중복하지 않고 위임한다.
  *
- * <p><b>실패 보상(D-94 Q8 α)</b>: {@code initiate}의 예외(PG 장애·도메인 위반)는 Claim 상태를 환원하지 않는다(CLM-3·FAILED는
- * 승인 취소가 아님·RFN-2 재시도 허용). 운영 가시성은 structured log 1줄만 남기며 Micrometer 카운터는 본 트랙 미도입.
+ * <p><b>실패 보상(D-94 Q8 α·D-96 흡수)</b>: {@code initiate}의 예외(PG 장애·도메인 위반)는 Claim 상태를 환원하지 않는다(CLM-3·
+ * FAILED는 승인 취소가 아님·RFN-2 재시도 허용). 운영 가시성은 D-94 Q8의 structured log 1줄에서 D-96 후속 PR로 NotificationLog
+ * 적재(NotificationService.recordRefundFailed)로 전환되었다. Micrometer 카운터는 미도입(Track 13+ Observability 이연).
  */
 @Slf4j
 @Component
@@ -40,6 +42,7 @@ public class ClaimApprovedHandler {
 
     private final RefundService refundService;
     private final OrderItemRepository orderItemRepository;
+    private final NotificationService notificationService;
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -58,8 +61,8 @@ public class ClaimApprovedHandler {
             refundService.initiate(event.claimId(), orderItem.getTotalPrice());
         } catch (RuntimeException exception) {
             // PG 장애·도메인 위반은 핸들러 밖으로 전파하지 않는다(Claim 환원 없음·운영자/Job 재 initiate 허용·D-94 Q8).
-            log.warn("Refund auto-trigger failed; claim={} refund_state=FAILED action=manual_retry_required",
-                    event.claimPublicId(), exception);
+            // D-96: structured log → NotificationLog 적재 전환. NotificationService 내부 try-catch + skip+warn 자체 보유로 외부 catch 불필요.
+            notificationService.recordRefundFailed(event);
         }
     }
 }
