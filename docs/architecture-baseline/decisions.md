@@ -4077,3 +4077,135 @@ D-01 (Aggregate 외부 ID 참조)·D-18 (NotificationLog Infra/Event Processing 
 7. 후속 PR(D-94 Q8 흡수) 진입 시점 결정.
 
 ---
+
+## D-96. Track 12 후속 PR · D-94 Q8 흡수 · ClaimApprovedHandler structured log → NotificationLog 적재 전환 [ACTIVE]
+
+**결정일**: 2026-06-30
+**관련**: 트랙 미부여 후속 PR / D-30·D-67·D-74·D-75·D-94 Q8·D-95 Q5·A1·A2·WARN-10 / invariants §3.1 NOT-1~3 / aggregate-boundary §2.7 / live-traps LT-02
+
+### 배경
+
+D-94 Q8 "FAILED 보상·운영 가시성 = α structured log만"에서 박제된 `refund/handler/ClaimApprovedHandler.handle` catch 블록의 structured log 1줄을, D-95 §"D-94 Q8 흡수 시점 = B 별도 후속 PR" 박제에 따라 NotificationLog 적재로 전환한다.
+
+본 처치는 **트랙 미부여 후속 PR**로 진행한다. 범위 협소(catch 1건·테스트 1건 확장·상수 1건 추가)·D-94 Q0 β 선례 정합(트랙 번호는 진입 순서 라벨)·recon-report.md·외부 검토 절차 비용 회피·기조 3·4 정합. PR branch `feat/refund-failed-notification-followup` 단독.
+
+정찰 결과 (MCP 실측 5건 인용·채팅 인라인):
+- `ClaimApprovedHandler.handle` catch 현재 = `log.warn("Refund auto-trigger failed; claim={} refund_state=FAILED action=manual_retry_required", ...)` 1줄
+- `NotificationService` 4 메서드 시그니처·내부 try-catch skip+warn·`resolveClaimRecipient(claimId, eventName)` 재사용 가능·throw 0
+- `RefundAutoTriggerIntegrationTest` I3 = PaymentGatewayException → `RefundService.initiate` 내부 흡수(D-67)·catch 미발화·LT-02 try-finally 이미 적용
+- `RefundService.initiate` PG 예외 흡수 범위 = **PG 호출 시점만**·그 외(Claim 정합·CLM-3·PAY-1·Payment 미발견·existsActive 모순) 핸들러 catch까지 전파
+- `ClaimApprovedHandlerTest` T4 = `PaymentGatewayException` Mock + `assertThatCode(...).doesNotThrowAnyException()` catch 발화 검증 기보유·확장으로 충분
+
+### 결정 (5건)
+
+#### Q1: 적재 대상 범위 = α catch 블록만
+
+ClaimApprovedHandler.handle catch 블록 1건만 NotificationLog 적재 대상. PG 실패 FAILED 전이는 `RefundService.initiate` 내부 흡수(D-67)·catch 미발화·범위 포함 외.
+
+사유:
+- D-94 Q8 본문 1:1 정합 ("운영 가시성 = catch 블록에 structured log 1줄만 추가")
+- PG 실패 포함 시 RefundService.markFailed 또는 RefundFailed 이벤트 신설 동반·범위 폭발·기조 4 위배
+
+catch 발화 경로 다양성 (실측):
+- existsActive 모순·Claim 미발견·CLM-3 위반·Payment 미발견 → Refund INSERT 전·행 0건
+- PAY-1 사전 위반 → Refund INSERT 전·행 0건
+- PG 호출 외 RuntimeException → Refund 행 상태 불확정
+
+→ NotificationLog 적재는 Refund 행 존재 여부와 무관하게 ClaimApproved 식별자로 수행 (Q3 정합).
+
+#### Q2: recipient = α′ Buyer + Javadoc 재정의 박제
+
+`resolveClaimRecipient(claimId, eventName)` 재사용·기존 NotificationService 4 메서드 패턴 1:1·D-95 A1-α NULL 적재 회피 정합.
+
+**박제 1줄**: "Refund FAILED 알림 recipient는 Buyer로 시작·운영자 알림 채널 도입 시 재정의 가능·발송 어댑터 트랙(D-86 §후속) 진입 시점 결정." (NotificationService.recordRefundFailed Javadoc 흡수)
+
+Operator recipient(β) 기각: admin user 모델 부재·D-93 stub·NULL 적재 시 A1-α 위배.
+
+#### Q3: NotificationService.recordRefundFailed 신설 + REFUND_FAILED 상수
+
+신규 메서드 `NotificationService.recordRefundFailed(ClaimApproved event)`:
+- `resolveClaimRecipient(event.claimId(), "RefundFailed")` 재사용
+- templateCode = `NotificationTemplateCodes.REFUND_FAILED` (신규 5번째 상수·`TPL_REFUND_FAILED`)
+- targetType = `PolymorphicTargetType.CLAIM`·targetId = `event.claimId()`
+- title·content = 클레임 식별자(`event.claimPublicId()`) 기반 운영자 시각 메시지
+
+**박제 1줄**: "본 메서드는 Refund 행 존재 여부와 무관하게 ClaimApproved 식별자 기반으로 적재한다. catch 발화 시점에 Refund INSERT 전(Claim/PAY-1/Payment 검증 단계)일 수 있다." (NotificationService.recordRefundFailed Javadoc 흡수)
+
+#### Q4: catch 구조 = α catch 내부 NotificationService 단일 호출·log.warn 제거
+
+```java
+try {
+    refundService.initiate(event.claimId(), orderItem.getTotalPrice());
+} catch (RuntimeException exception) {
+    notificationService.recordRefundFailed(event);
+}
+```
+
+사유:
+- NotificationService 내부 try-catch + skip+warn 자체 보유·throw 0 (D-95 A2-α 정합)
+- 호출 측 추가 catch 불필요·외부 catch 추가는 과잉방어
+- 운영 가시성 = NotificationService 단일 책임 응집·로그 분산 회피
+
+기각:
+- β 이중 로깅 (catch log.warn 유지 + NotificationService 호출): 3중 로깅 가능(핸들러 warn + Service 내부 warn + skip log)·기조 4 위배
+- γ catch에 log.warn 보존 + NotificationService 호출 추가: 동일 사유·과잉방어
+
+#### Q5: 테스트 전략 = T4 확장 (신규 케이스 미추가)
+
+`ClaimApprovedHandlerTest` 기존 T4 ("CANCEL·PG/도메인 예외: initiate 예외를 catch → 핸들러 밖 전파 차단") 확장:
+- `@Mock NotificationService` 필드 추가
+- `verify(notificationService).recordRefundFailed(any(ClaimApproved.class))` 검증 추가
+
+기각:
+- 신규 케이스 추가: T4가 이미 catch 발화 검증·중복·기조 4 위배
+- 통합 테스트 신규 케이스 (Claim 미발견·PAY-1 한도 초과 시드): RefundService 모킹 또는 시드 정합성 부담·단위 테스트로 충분·기조 4 위배
+
+### 영향 범위
+
+#### 수정 파일 (4건)
+- backend/src/main/java/com/zslab/mall/refund/handler/ClaimApprovedHandler.java (catch 블록 `notificationService.recordRefundFailed(event)` 단일 호출·기존 `log.warn` 제거·NotificationService 필드 주입·Javadoc "D-96 D-94 Q8 흡수 후속 PR로 structured log → NotificationLog 적재 전환" 1줄 추가)
+- backend/src/main/java/com/zslab/mall/notification/service/NotificationService.java (`recordRefundFailed(ClaimApproved)` 신설·resolveClaimRecipient 재사용·targetType=CLAIM·targetId=claimId·Javadoc Q2·Q3 박제 2줄)
+- backend/src/main/java/com/zslab/mall/notification/template/NotificationTemplateCodes.java (`REFUND_FAILED = "TPL_REFUND_FAILED"` 상수 5번째 추가)
+- backend/src/test/java/com/zslab/mall/refund/handler/ClaimApprovedHandlerTest.java (T4 확장·`@Mock NotificationService` 필드 추가·`verify(notificationService).recordRefundFailed(any(ClaimApproved.class))` 검증)
+
+#### 무변경 확정
+ClaimApproved record payload·기존 NotificationService 4 메서드(recordOrderPlaced·recordPaymentCompleted·recordClaimApproved·recordClaimCompleted)·NotificationLog Entity·DDL/Flyway·RefundService·RefundAutoTriggerIntegrationTest (I3 PG 실패는 RefundService 내부 흡수·catch 미발화·NotificationLog 적재 없음이 의도된 동작·LT-02 try-finally 이미 적용 완료)·invariants·state-machine·aggregate-boundary.
+
+#### 회귀 예상
+전체 회귀 BUILD SUCCESSFUL·T4 확장 PASS·기존 회귀 0(D-95 baseline 377 → 377 유지·테스트 수 무증가).
+
+### 대안 검토 (기각)
+
+- Q1 β PG 실패 FAILED 전이 포함: RefundService.markFailed 수정 또는 RefundFailed 이벤트 신설 동반·범위 폭발·D-94 Q8 의도 위배·기각.
+- Q2 β Operator recipient: admin user 모델 부재·D-93 stub·NULL 적재 시 A1-α 위배·기각.
+- Q3 β payload 확장 (ClaimApproved에 refund 실패 사유 필드 추가): D-30 "사실 통지" 위배·발행처 ClaimService 수정 동반·D-94 Q7 β·D-95 Q5 β 기각 패턴 정합·기각.
+- Q4 β 이중 로깅(catch log.warn 유지 + NotificationService 호출): 3중 로깅 가능·기조 4 위배·기각.
+- Q4 γ catch에 log.warn 보존 + NotificationService 호출 추가: NotificationService 내부 try-catch 자체 보유·throw 0·외부 catch 불필요·과잉방어·기각.
+- Q5 β 신규 단위 케이스 추가: T4가 이미 catch 발화 검증·중복·기조 4 위배·기각.
+- Q5 γ 통합 테스트 신규 케이스 추가 (Claim 미발견 또는 PAY-1 한도 초과 시드): RefundService 모킹 또는 시드 정합성 부담·단위 테스트로 충분·기조 4 위배·기각.
+- 트랙 부여 (Track 13): 범위 협소·recon-report.md·외부 검토 절차 비용 과대·D-94 Q0 β 선례 정합·기각.
+- D-95 본문 추가로 흡수 (D-96 미신설): D-95 응집 흐림·결정 5건·박제 단위 적정·기각.
+
+### 외부 검토 흡수 흐름
+
+본 결정은 외부 검토 생략 (가드 1·A급·범위 협소·D-95 흡수 완료·신규 의제 5건 모두 내부 결정으로 종결). 정찰 후 5 의제 도출·기조 4 자체 재점검으로 Q2 α → α′·Q4 α 확정·실측 5건 인용으로 박제 명확화 완료.
+
+### 관련 결정
+
+D-30 (이벤트 사실 통지·payload 무수정)·D-67 (PG 호출 예외 FAILED 전이·RefundService 내부 흡수)·D-74 (이벤트 핸들러 빈 네이밍)·D-75 (이벤트 핸들러 AFTER_COMMIT·REQUIRES_NEW)·D-94 Q8 (structured log·향후 Observability/NotificationLog 자연 흡수·본 D-96으로 종결)·D-95 Q5 α (NotificationService 재조회 적재 표준)·D-95 A1-α (NULL 적재 회피·skip + warn)·D-95 A2-α (재조회 실패 skip + warn·throw 금지)·D-95 WARN-10-α (NotificationTemplateCodes 상수 클래스).
+
+### 후속 트랙
+
+- **발송 어댑터 트랙** (D-86 §후속): NotificationLog PENDING→SENT 전이·실 전송 게이트웨이(EMAIL·SMS·PUSH·IN_APP)·재시도 Job·Q2 운영자 알림 채널 recipient 재정의 진입점.
+- **Track 13+ Observability**: 이벤트 핸들러 멱등성 표준화·Refund FAILED 알림 적재의 Outbox 진입 시 본 결정 재검토.
+
+### 후속
+
+1. 본 결정 박제 = 사용자 직접 처리 (D-94·D-95 패턴 정합).
+2. PR 브랜치 `feat/refund-failed-notification-followup` 생성 (main HEAD d33f454 기준).
+3. 가드 5 사전 통지: 수정 4·문서 1(본 D-96 박제는 사용자 직접 처리) — Claude Code 구현 프롬프트 시점 일괄 통지.
+4. TDD 우선(T4 확장 → 전체 회귀)·BUILD SUCCESSFUL·기존 회귀 0.
+5. GitHub Web UI PR 생성·Base: main·Compare: feat/refund-failed-notification-followup·외부 검토 생략 (A급·D-95 흡수 완료).
+6. PR 머지로 D-94 Q8 흡수 carry-over 영구 해소·D-95 §후속 7 종결.
+
+---
