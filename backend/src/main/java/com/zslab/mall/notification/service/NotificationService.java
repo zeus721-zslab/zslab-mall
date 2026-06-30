@@ -5,6 +5,10 @@ import com.zslab.mall.claim.event.ClaimApproved;
 import com.zslab.mall.claim.event.ClaimCompleted;
 import com.zslab.mall.claim.repository.ClaimRepository;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
+import com.zslab.mall.delivery.entity.Delivery;
+import com.zslab.mall.delivery.event.DeliveryCompleted;
+import com.zslab.mall.delivery.event.DeliveryStarted;
+import com.zslab.mall.delivery.repository.DeliveryRepository;
 import com.zslab.mall.notification.entity.NotificationLog;
 import com.zslab.mall.notification.enums.NotificationChannel;
 import com.zslab.mall.notification.repository.NotificationLogRepository;
@@ -43,6 +47,7 @@ public class NotificationService {
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
     private final ClaimRepository claimRepository;
+    private final DeliveryRepository deliveryRepository;
 
     /**
      * OrderPlaced(E1) 소비 → 주문 접수 알림 적재. orderId로 Order를 재조회해 Buyer를 recipient로 산정한다.
@@ -143,6 +148,68 @@ public class NotificationService {
             // 재조회·적재 실패는 원 흐름(클레임 승인 후 환불 자동 트리거 catch)을 막지 않는다(A2-α·재throw 금지).
             log.warn("[Notification] RefundFailed 적재 실패 → 건너뜀: claimId={}", event.claimId(), exception);
         }
+    }
+
+    /**
+     * DeliveryStarted(E4) 소비 → 배송 시작 알림 적재(Track 13·D-97 Q6). deliveryId로 Delivery를 재조회하고
+     * orderItem → order를 경유해 Buyer를 recipient로 산정한다. recipient 산정 불가 시 NULL 적재를 회피하고 skip한다(D-95 A1-α).
+     */
+    public void recordDeliveryStarted(DeliveryStarted event) {
+        try {
+            Long recipientUserId = resolveDeliveryRecipient(event.deliveryId(), "DeliveryStarted");
+            if (recipientUserId == null) {
+                return;
+            }
+            String content = "배송이 시작되었습니다. 송장번호: " + event.trackingNo();
+            save(recipientUserId, NotificationTemplateCodes.DELIVERY_STARTED,
+                    PolymorphicTargetType.DELIVERY, event.deliveryId(), "배송 시작", content);
+        } catch (RuntimeException exception) {
+            // 재조회·적재 실패는 원 흐름(배송 시작)을 막지 않는다(A2-α·재throw 금지).
+            log.warn("[Notification] DeliveryStarted 적재 실패 → 건너뜀: deliveryId={}", event.deliveryId(), exception);
+        }
+    }
+
+    /**
+     * DeliveryCompleted(E5) 소비 → 배송 완료 알림 적재(Track 13·D-97 Q6). deliveryId로 Delivery를 재조회하고
+     * orderItem → order를 경유해 Buyer를 recipient로 산정한다.
+     */
+    public void recordDeliveryCompleted(DeliveryCompleted event) {
+        try {
+            Long recipientUserId = resolveDeliveryRecipient(event.deliveryId(), "DeliveryCompleted");
+            if (recipientUserId == null) {
+                return;
+            }
+            String content = "배송이 완료되었습니다.";
+            save(recipientUserId, NotificationTemplateCodes.DELIVERY_COMPLETED,
+                    PolymorphicTargetType.DELIVERY, event.deliveryId(), "배송 완료", content);
+        } catch (RuntimeException exception) {
+            // 재조회·적재 실패는 원 흐름(배송 완료)을 막지 않는다(A2-α·재throw 금지).
+            log.warn("[Notification] DeliveryCompleted 적재 실패 → 건너뜀: deliveryId={}", event.deliveryId(), exception);
+        }
+    }
+
+    /**
+     * 배송 알림 recipient(Buyer ID)를 산정한다(D-97 Q6). delivery → orderItem → order 체인 중 어느 한 단계라도
+     * 미발견이면 NULL 적재를 회피하기 위해 null을 반환한다(D-95 A1-α). {@code eventName}은 skip 로그 식별용이다.
+     */
+    private Long resolveDeliveryRecipient(Long deliveryId, String eventName) {
+        Delivery delivery = deliveryRepository.findById(deliveryId).orElse(null);
+        if (delivery == null) {
+            log.warn("[Notification] {} 소비·배송 미발견 → 적재 건너뜀: deliveryId={}", eventName, deliveryId);
+            return null;
+        }
+        Long orderId = orderItemRepository.findOrderIdById(delivery.getOrderItemId()).orElse(null);
+        if (orderId == null) {
+            log.warn("[Notification] {} 소비·주문 품목 미발견 → 적재 건너뜀: deliveryId={} orderItemId={}",
+                    eventName, deliveryId, delivery.getOrderItemId());
+            return null;
+        }
+        Order order = orderRepository.findById(orderId).orElse(null);
+        if (order == null) {
+            log.warn("[Notification] {} 소비·주문 미발견 → 적재 건너뜀: deliveryId={} orderId={}", eventName, deliveryId, orderId);
+            return null;
+        }
+        return order.getBuyerId();
     }
 
     /**

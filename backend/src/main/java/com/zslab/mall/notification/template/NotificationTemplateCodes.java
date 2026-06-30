@@ -13,6 +13,8 @@ public final class NotificationTemplateCodes {
     public static final String CLAIM_APPROVED = "TPL_CLAIM_APPROVED";
     public static final String CLAIM_COMPLETED = "TPL_CLAIM_COMPLETED";
     public static final String REFUND_FAILED = "TPL_REFUND_FAILED";
+    public static final String DELIVERY_STARTED = "TPL_DELIVERY_STARTED";
+    public static final String DELIVERY_COMPLETED = "TPL_DELIVERY_COMPLETED";
 
     private NotificationTemplateCodes() {
     }
