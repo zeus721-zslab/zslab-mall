@@ -5412,7 +5412,7 @@ D-94 Q0 β·D-95 Q1 α·D-97 Q0 β·D-98 Q0 α·D-99 Q0 α 선례 6회차. D-99 
 
 #### PR-2 — 신규 파일 (1~2건)
 
-- `backend/src/main/java/com/zslab/mall/common/observability/EventMetricsRecorder.java` (또는 동등 구현) — `zslab.event.published`·`zslab.event.failed` 카운터 발화 위치 (TracedEventPublisher 내부 흡수 또는 별도 클래스)
+- `backend/src/main/java/com/zslab/mall/common/observability/EventMetricsRecorder.java` — `recordPublished(eventName)`·`recordFailed(eventName)` 메서드·`zslab.event.published`·`zslab.event.failed` 카운터 발화 단일 SoT (β 채택·2026-06-30·SRP 정합·TracedEventPublisher 책임 최소화 옵션 4 정합·테스트 격리·failed 카운터 통일 메커니즘·Outbox 도입 시 SoT 유지). TracedEventPublisher에서 `recordPublished` 호출·핸들러 catch 블록에서 `recordFailed` 호출.
 - `backend/src/test/java/com/zslab/mall/observability/EventFailedMetricIntegrationTest.java` — Q17 α′ PR-2 종료 검증 (failed 카운터 증가 단언·이벤트명 자유)
 
 #### 무변경 확정
