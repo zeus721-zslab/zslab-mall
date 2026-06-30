@@ -1,6 +1,7 @@
 package com.zslab.mall.delivery.service;
 
 import com.zslab.mall.claim.entity.Claim;
+import com.zslab.mall.claim.exception.ClaimInvalidStateException;
 import com.zslab.mall.claim.exception.ClaimNotFoundException;
 import com.zslab.mall.claim.repository.ClaimRepository;
 import com.zslab.mall.delivery.entity.Delivery;
@@ -81,12 +82,19 @@ public class DeliveryService {
      * @param claimId    교환 클레임 id (EXCHANGE·APPROVED·pickedUpAt != null 가정)
      * @param carrier    택배사
      * @param trackingNo 운송장번호 (NOT NULL·{@link Delivery#markShipping} 검증)
+     * <p>Q11 멱등 가드: 동일 claimId 재호출 시 {@link ClaimInvalidStateException}을 던진다(422). 첫 출고 등록만 보장하며
+     * 재출고 시나리오는 후속 트랙이다(D-99 Q11 α·delivery.claim_id UNIQUE 금지·재출고 허용 박제 정합).
+     *
      * @return 생성된 Delivery(SHIPPING·claim_id 연결 완료)
      * @throws ClaimNotFoundException     클레임 미발견
-     * @throws ClaimInvalidStateException type != EXCHANGE 또는 orderItemId 불일치(Claim.attachExchangeDelivery 위임)
+     * @throws ClaimInvalidStateException type != EXCHANGE·orderItemId 불일치(Claim.attachExchangeDelivery 위임)·이중 호출(Q11 가드)
      * @throws IllegalStateException      markShipping 검증 위반(trackingNo·shippedAt null)
      */
     public Delivery registerExchangeShipment(Long claimId, DeliveryCarrier carrier, String trackingNo) {
+        deliveryRepository.findByClaimId(claimId).ifPresent(existing -> {
+            throw new ClaimInvalidStateException("교환 배송이 이미 등록되었습니다: claimId=" + claimId);
+        });
+
         Claim claim = claimRepository.findById(claimId)
                 .orElseThrow(() -> new ClaimNotFoundException("클레임을 찾을 수 없습니다: claimId=" + claimId));
 
