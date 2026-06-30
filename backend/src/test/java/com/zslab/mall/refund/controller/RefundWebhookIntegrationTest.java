@@ -171,32 +171,40 @@ class RefundWebhookIntegrationTest {
     /** order_item·payment(PAID)·claim(APPROVED)을 고정 id로 시드한다(FK 비활성·상위 그래프 생략). */
     private void seed(ClaimType type, long paymentAmount) {
         tx.executeWithoutResult(s -> {
-            jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
-            jdbc.update("INSERT INTO order_item "
-                    + "(id, public_id, order_id, product_id, variant_id, seller_id, quantity, unit_price, total_price, "
-                    + "item_status, created_at, updated_at) "
-                    + "VALUES (?, 'oit_track5_it_0001', ?, 1, 1, 1, 1, ?, ?, 'PAID', NOW(6), NOW(6))",
-                    ORDER_ITEM_ID, ORDER_ID, paymentAmount, paymentAmount);
-            jdbc.update("INSERT INTO payment "
-                    + "(id, public_id, order_id, method, amount, status, pg_provider, pg_tid, payment_attempt_key, "
-                    + "paid_at, created_at, updated_at) "
-                    + "VALUES (?, 'pay_track5_it_0001', ?, 'CARD', ?, 'PAID', 'MOCK_PG', 'tid_track5_it_0001', "
-                    + "'pat_track5_it_0001', NOW(6), NOW(6), NOW(6))",
-                    PAYMENT_ID, ORDER_ID, paymentAmount);
-            jdbc.update("INSERT INTO claim "
-                    + "(id, public_id, order_item_id, type, reason_code, status, created_at, updated_at) "
-                    + "VALUES (?, 'clm_track5_it_0001', ?, ?, 'CHANGE_MIND', 'APPROVED', NOW(6), NOW(6))",
-                    CLAIM_ID, ORDER_ITEM_ID, type.name());
+            try {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
+                jdbc.update("INSERT INTO order_item "
+                        + "(id, public_id, order_id, product_id, variant_id, seller_id, quantity, unit_price, total_price, "
+                        + "item_status, created_at, updated_at) "
+                        + "VALUES (?, 'oit_track5_it_0001', ?, 1, 1, 1, 1, ?, ?, 'PAID', NOW(6), NOW(6))",
+                        ORDER_ITEM_ID, ORDER_ID, paymentAmount, paymentAmount);
+                jdbc.update("INSERT INTO payment "
+                        + "(id, public_id, order_id, method, amount, status, pg_provider, pg_tid, payment_attempt_key, "
+                        + "paid_at, created_at, updated_at) "
+                        + "VALUES (?, 'pay_track5_it_0001', ?, 'CARD', ?, 'PAID', 'MOCK_PG', 'tid_track5_it_0001', "
+                        + "'pat_track5_it_0001', NOW(6), NOW(6), NOW(6))",
+                        PAYMENT_ID, ORDER_ID, paymentAmount);
+                jdbc.update("INSERT INTO claim "
+                        + "(id, public_id, order_item_id, type, reason_code, status, created_at, updated_at) "
+                        + "VALUES (?, 'clm_track5_it_0001', ?, ?, 'CHANGE_MIND', 'APPROVED', NOW(6), NOW(6))",
+                        CLAIM_ID, ORDER_ITEM_ID, type.name());
+            } finally {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
+            }
         });
     }
 
     private void cleanup() {
         tx.executeWithoutResult(s -> {
-            jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
-            jdbc.update("DELETE FROM refund WHERE claim_id = ?", CLAIM_ID);
-            jdbc.update("DELETE FROM claim WHERE id = ?", CLAIM_ID);
-            jdbc.update("DELETE FROM payment WHERE id = ?", PAYMENT_ID);
-            jdbc.update("DELETE FROM order_item WHERE id = ?", ORDER_ITEM_ID);
+            try {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
+                jdbc.update("DELETE FROM refund WHERE claim_id = ?", CLAIM_ID);
+                jdbc.update("DELETE FROM claim WHERE id = ?", CLAIM_ID);
+                jdbc.update("DELETE FROM payment WHERE id = ?", PAYMENT_ID);
+                jdbc.update("DELETE FROM order_item WHERE id = ?", ORDER_ITEM_ID);
+            } finally {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
+            }
         });
     }
 
