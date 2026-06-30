@@ -4,6 +4,7 @@ import com.zslab.mall.claim.event.ClaimApproved;
 import com.zslab.mall.notification.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,8 +37,8 @@ public class NotificationClaimApprovedHandler {
         try {
             notificationService.recordClaimApproved(event);
         } catch (RuntimeException exception) {
-            log.warn("notification log failed; event={} target_type={} target_id={} action=manual_review",
-                    "ClaimApproved", "CLAIM", event.claimId(), exception);
+            log.warn("[Notification] event={} target_type={} target_id={} action=manual_review correlationId={} handler={}",
+                    "ClaimApproved", "CLAIM", event.claimId(), MDC.get("correlationId"), this.getClass().getSimpleName(), exception);
         }
     }
 }

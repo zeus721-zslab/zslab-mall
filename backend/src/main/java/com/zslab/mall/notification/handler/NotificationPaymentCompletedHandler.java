@@ -4,6 +4,7 @@ import com.zslab.mall.notification.service.NotificationService;
 import com.zslab.mall.payment.event.PaymentCompleted;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,8 +35,8 @@ public class NotificationPaymentCompletedHandler {
         try {
             notificationService.recordPaymentCompleted(event);
         } catch (RuntimeException exception) {
-            log.warn("notification log failed; event={} target_type={} target_id={} action=manual_review",
-                    "PaymentCompleted", "ORDER", event.orderId(), exception);
+            log.warn("[Notification] event={} target_type={} target_id={} action=manual_review correlationId={} handler={}",
+                    "PaymentCompleted", "ORDER", event.orderId(), MDC.get("correlationId"), this.getClass().getSimpleName(), exception);
         }
     }
 }

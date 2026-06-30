@@ -6,6 +6,7 @@ import com.zslab.mall.delivery.repository.DeliveryRepository;
 import com.zslab.mall.notification.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -48,8 +49,8 @@ public class NotificationDeliveryCompletedHandler {
         try {
             notificationService.recordDeliveryCompleted(event);
         } catch (RuntimeException exception) {
-            log.warn("notification log failed; event={} target_type={} target_id={} action=manual_review",
-                    "DeliveryCompleted", "DELIVERY", event.deliveryId(), exception);
+            log.warn("[Notification] event={} target_type={} target_id={} action=manual_review correlationId={} handler={}",
+                    "DeliveryCompleted", "DELIVERY", event.deliveryId(), MDC.get("correlationId"), this.getClass().getSimpleName(), exception);
         }
     }
 }

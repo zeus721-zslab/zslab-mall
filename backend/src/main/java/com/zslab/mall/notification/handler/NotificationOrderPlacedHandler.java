@@ -4,6 +4,7 @@ import com.zslab.mall.notification.service.NotificationService;
 import com.zslab.mall.order.event.OrderPlaced;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,8 +36,8 @@ public class NotificationOrderPlacedHandler {
         try {
             notificationService.recordOrderPlaced(event);
         } catch (RuntimeException exception) {
-            log.warn("notification log failed; event={} target_type={} target_id={} action=manual_review",
-                    "OrderPlaced", "ORDER", event.orderId(), exception);
+            log.warn("[Notification] event={} target_type={} target_id={} action=manual_review correlationId={} handler={}",
+                    "OrderPlaced", "ORDER", event.orderId(), MDC.get("correlationId"), this.getClass().getSimpleName(), exception);
         }
     }
 }
