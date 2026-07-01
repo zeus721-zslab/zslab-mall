@@ -126,4 +126,15 @@ public class DeliveryService {
                                                     String trackingNo) {
         return registerExchangeShipment(claimId, carrier, trackingNo);
     }
+
+    /**
+     * Admin actor의 배송 완료 처리 wrapper.
+     * D-92 primitive actor 비의존 원칙·D-93 AdminActorResolver seam 재사용 6회차·
+     * primitive markDelivered 1:1 위임·actor 파라미터 비수신.
+     * D-102 §5 wrapper 패턴 2회차·D-104 §후속.
+     */
+    @Transactional
+    public void markDeliveredByAdmin(Long deliveryId) {
+        markDelivered(deliveryId);
+    }
 }

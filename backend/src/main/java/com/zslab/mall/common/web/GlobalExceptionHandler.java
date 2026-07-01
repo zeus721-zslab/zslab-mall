@@ -7,6 +7,7 @@ import com.zslab.mall.claim.exception.ClaimInvalidStateException;
 import com.zslab.mall.claim.exception.ClaimNotFoundException;
 import com.zslab.mall.common.exception.MalformedRequestException;
 import com.zslab.mall.common.exception.UnauthenticatedException;
+import com.zslab.mall.delivery.exception.DeliveryNotFoundException;
 import com.zslab.mall.inventory.exception.InventoryInvariantViolationException;
 import com.zslab.mall.order.exception.OrderNotFoundException;
 import com.zslab.mall.order.exception.OrderNotPayableException;
@@ -57,6 +58,7 @@ public class GlobalExceptionHandler {
     private static final String CODE_REFUND_NOT_FOUND = "REFUND_NOT_FOUND";
     private static final String CODE_REFUND_INVARIANT_VIOLATION = "REFUND_INVARIANT_VIOLATION";
     private static final String CODE_CLAIM_NOT_FOUND = "CLAIM_NOT_FOUND";
+    private static final String CODE_DELIVERY_NOT_FOUND = "DELIVERY_NOT_FOUND";
     private static final String CODE_CLAIM_STATE_INVALID = "CLAIM_STATE_INVALID";
     private static final String CODE_INVENTORY_INVARIANT_VIOLATION = "INVENTORY_INVARIANT_VIOLATION";
     private static final String CODE_INTERNAL_ERROR = "INTERNAL_ERROR";
@@ -110,6 +112,13 @@ public class GlobalExceptionHandler {
             ClaimNotFoundException exception, HttpServletRequest request) {
         // Track 9 PR-B: 클레임 미존재·타인 소유(정보 노출 회피·Q8)·주문 품목 미매칭(404).
         return build(HttpStatus.NOT_FOUND, CODE_CLAIM_NOT_FOUND, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(DeliveryNotFoundException.class)
+    public ResponseEntity<ProblemDetail> handleDeliveryNotFound(
+            DeliveryNotFoundException exception, HttpServletRequest request) {
+        // Track 20 D-104 §5: Admin mark-delivered 시 deliveryPublicId 미존재(404). 500 fallback으로 새는 트랩 차단.
+        return build(HttpStatus.NOT_FOUND, CODE_DELIVERY_NOT_FOUND, exception.getMessage(), request);
     }
 
     // ===== 409 =====
