@@ -123,10 +123,19 @@ class CheckoutServiceTest {
         when(productVariantRepository.findByPublicIdIn(any())).thenReturn(List.of(variant));
     }
 
+    /** 신규 주문 사전 재고 검증(D-101 §10 α) 스텁 — variant 20L의 가용 재고를 available로 고정. */
+    private void stubInventoryAvailable(int available) {
+        Inventory inventory = org.mockito.Mockito.mock(Inventory.class);
+        when(inventory.getVariantId()).thenReturn(20L);
+        when(inventory.getQuantityAvailable()).thenReturn(available);
+        when(inventoryRepository.findByVariantIdIn(any())).thenReturn(List.of(inventory));
+    }
+
     @Test
     @DisplayName("checkout(키 없음): 서버 가격 산정 후 createOrder·initiate → 201·멱등성 미사용")
     void checkout_freshNoKey_pricesAndInitiates() {
         stubProductResolution(8_000L, 2_000L, 99L);
+        stubInventoryAvailable(1_000);  // D-101 §10 α 사전 재고 검증 통과
         ArgumentCaptor<CreateOrderCommand> captor = ArgumentCaptor.forClass(CreateOrderCommand.class);
         when(orderService.createOrder(captor.capture())).thenReturn(order(1L, "ord_NEW00000000000000000000AA"));
         Payment payment = paymentMock("pay_1");
@@ -197,6 +206,7 @@ class CheckoutServiceTest {
     @DisplayName("checkout: PG 결제 시작 실패 → INITIATE_FAILED 응답·next.retryPaymentUrl 제공(§7)")
     void checkout_initiateFails_returnsInitiateFailed() {
         stubProductResolution(10_000L, 0L, 99L);
+        stubInventoryAvailable(1_000);  // D-101 §10 α 사전 재고 검증 통과
         when(orderService.createOrder(any())).thenReturn(order(1L, "ord_FAIL0000000000000000000AA"));
         when(paymentService.initiate(anyString(), any(), any()))
                 .thenThrow(new PaymentGatewayException("pat_x", "PG_DOWN", "redirect 발급 실패"));
@@ -207,6 +217,34 @@ class CheckoutServiceTest {
         assertThat(outcome.response().payment().publicId()).isNull();
         assertThat(outcome.response().next().retryPaymentUrl())
                 .isEqualTo("/api/v1/orders/ord_FAIL0000000000000000000AA/payments");
+    }
+
+    @Test
+    @DisplayName("checkout(키 없음): 사전 재고 부족(D-101 §10 α) → 422 OUT_OF_STOCK·createOrder 미호출")
+    void checkout_freshNoKey_outOfStock_throws422() {
+        stubProductResolution(10_000L, 0L, 99L);
+        stubInventoryAvailable(1);   // qty 2 요청 > 가용 1 → 트랜잭션 진입 전 차단
+
+        assertThatThrownBy(() -> checkoutService.checkout(command(null)))
+                .isInstanceOf(OrderNotPayableException.class)
+                .extracting(ex -> ((OrderNotPayableException) ex).getReason())
+                .isEqualTo(OrderNotPayableReason.OUT_OF_STOCK);
+        verify(orderService, never()).createOrder(any());
+    }
+
+    @Test
+    @DisplayName("checkout(멱등 키): 사전 재고 부족 → IN_PROGRESS mark 삭제 후 4xx 전파(D-66·동일 키 재시도 허용)")
+    void checkout_idempotentKey_outOfStock_deletesMark() {
+        when(idempotencyRepository.findByBuyerIdAndIdempotencyKey(BUYER_ID, "K4")).thenReturn(Optional.empty());
+        OrderIdempotencyKey mark = OrderIdempotencyKey.startInProgress(BUYER_ID, "K4", LocalDateTime.now());
+        when(idempotencyRepository.saveAndFlush(any())).thenReturn(mark);
+        stubProductResolution(10_000L, 0L, 99L);
+        stubInventoryAvailable(1);
+
+        assertThatThrownBy(() -> checkoutService.checkout(command("K4")))
+                .isInstanceOf(OrderNotPayableException.class);
+        verify(idempotencyRepository).delete(mark);
+        verify(orderService, never()).createOrder(any());
     }
 
     @Test

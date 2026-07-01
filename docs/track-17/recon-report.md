@@ -808,3 +808,516 @@ public void changeStatus(OrderItemStatus next) {
 | §15.5 throw 패턴 | 필수값 → `IllegalArgumentException`, 불변조건 → `InventoryInvariantViolationException`, 메시지 한국어 `"불법 재고 <동작>: variantId=... , 요청=... , 가용=..."` 형식 |
 
 **PR-A 구현 프롬프트 진입 가능 여부: YES** — 판단 5건 전건 확정.
+
+---
+
+## §16. PR-B 사전 구현 정찰 (2026-07-01)
+
+> 정찰자: Claude Sonnet 4.6 (read-only)  
+> 목적: Track 17 PR-B (4 핸들러 + 통합 테스트 + exchange() 신설) 구현 프롬프트 정밀도 확보  
+> 베이스: main HEAD c7867cd8662049c6035eb865d185900a15ed7539
+
+---
+
+### §16.0 정찰 시점·베이스
+
+**HEAD 실측 명령:**
+```bash
+git rev-parse HEAD
+# c7867cd8662049c6035eb865d185900a15ed7539
+```
+
+**PR-A 머지 커밋 상속 확인:**
+
+`git log --oneline -5` 실측:
+```
+c7867cd Merge pull request #86 from zeus721-zslab/feat/track-17-inventory-domain
+15c02da docs(track-17): 정찰 보고서 + 사전 구현 정찰 §15 (D-101 §2·§4·§5·§9)
+79058c0 test(inventory): Track 17 PR-A 도메인 행위 + Service 단위 테스트 20건 (D-101 §9)
+018d683 feat(inventory): Track 17 PR-A 도메인 행위 4건 + Service + 비관락 (D-101 §2·§4·§9)
+5fdd01b Merge pull request #85 from zeus721-zslab/chore/d101-companion-updates
+```
+
+**PR-A 상속 항목 (본 정찰 정의 SoT):**
+
+| 파일 | PR-A 변경 내용 |
+|---|---|
+| `inventory/entity/Inventory.java` | 도메인 행위 4건 (`reserve`·`release`·`commitReservation`·`restoreStock`) + `recalculateAvailable` 신설 |
+| `inventory/repository/InventoryRepository.java` | `findByVariantIdForUpdate` 추가 |
+| `inventory/service/InventoryService.java` | **신규** — 4 행위 진입점 + History 생성 책임 |
+| `inventory/exception/InventoryInvariantViolationException.java` | **신규** |
+
+**465 baseline 문서 인용 (실측 미실행):**  
+commit 79058c0 메시지 "Track 17 PR-A 도메인 행위 + Service 단위 테스트 20건" → §15 베이스 445 + 20 = **465 tests** (D-101 §9 정합).
+
+---
+
+### §16.1 이벤트 record 4건 실측
+
+#### OrderPlaced (`order/event/OrderPlaced.java`)
+
+**필드 카탈로그 (L14-18):**
+
+| 순서 | 필드명 | 타입 |
+|---|---|---|
+| 1 | `publicId` | `String` |
+| 2 | `orderId` | `Long` |
+| 3 | `occurredAt` | `LocalDateTime` |
+
+**Javadoc 소비자 목록 (L9-12):**  
+"Track 12 `notification/handler/NotificationOrderPlacedHandler`가 본 이벤트를 소비한다(D-95 Q4·E1 박제·orderId 재조회 기반 적재·E1 첫 소비자)."
+
+**D-30 사실 통지 정합:** payload 식별자·시각 3 필드 한정. items[]·도메인 상태 복제 없음 (L8 "소비측은 publicId/orderId로 재조회").
+
+**variant_id/quantity 포함 여부:** 없음 — InventoryOrderPlacedHandler는 orderId로 OrderItem 재조회 필요.
+
+---
+
+#### PaymentCompleted (`payment/event/PaymentCompleted.java`)
+
+**필드 카탈로그 (L16-22):**
+
+| 순서 | 필드명 | 타입 |
+|---|---|---|
+| 1 | `paymentId` | `Long` |
+| 2 | `orderId` | `Long` |
+| 3 | `amount` | `Long` |
+| 4 | `pgTransactionId` | `String` |
+| 5 | `occurredAt` | `LocalDateTime` |
+
+**Javadoc 소비자 목록 (L13-15):**  
+"Track 12 `notification/handler/NotificationPaymentCompletedHandler`가 본 이벤트를 소비한다(D-95 Q4·E2 박제·동기 `OrderEventHandler`(markPaid) 소비와 공존·AFTER_COMMIT으로 자연 분리)."
+
+**멱등 키:** `pgTransactionId` (L11: "동일 PG 거래의 중복 통지는 소비측에서 무시한다").
+
+**D-30 정합:** items[] 없음 — 소비측은 orderId 재조회.
+
+---
+
+#### PaymentFailed (`payment/event/PaymentFailed.java`)
+
+**필드 카탈로그 (L11-16):**
+
+| 순서 | 필드명 | 타입 |
+|---|---|---|
+| 1 | `paymentId` | `Long` |
+| 2 | `orderId` | `Long` |
+| 3 | `failureCode` | `String` |
+| 4 | `occurredAt` | `LocalDateTime` |
+
+**Javadoc 소비자 목록:**  
+소비자 명시 0건 (D-30 정합 주석만 존재). L8-9: "Inventory 예약 해제 핸들러는 `orderId`로 OrderItem을 직접 조회 후 처리한다(도메인 상태 복제 방지)."
+
+**D-30 사실 통지 정합:** items[] 없음 (L8 명시).
+
+> **기존 WARN-1 (P0) 재확인**: E3 PaymentFailed 소비 핸들러 0건 — inventory/handler/ 패키지 미존재·PR-B 신설 대상.
+
+---
+
+#### ClaimCompleted (`claim/event/ClaimCompleted.java`)
+
+**필드 카탈로그 (L16-23):**
+
+| 순서 | 필드명 | 타입 |
+|---|---|---|
+| 1 | `claimId` | `Long` |
+| 2 | `claimPublicId` | `String` |
+| 3 | `orderItemId` | `Long` |
+| 4 | `claimType` | `ClaimType` |
+| 5 | `status` | `ClaimStatus` |
+| 6 | `occurredAt` | `LocalDateTime` |
+
+**Javadoc 소비자 목록 (L10-15):**  
+"발행 시점은 `ClaimService.markCompleted`의 save 직후(D-29). 소비측 핸들러 `ClaimCompletedHandler`(OrderItem 종결 전이·Track 9 PR-C 소관). Track 12 `notification/handler/NotificationClaimCompletedHandler` 추가 소비."
+
+**variant_id·quantity·refund_amount 포함 여부:** **없음** — D-101 §8 β (record 무변경·orderItemId 재조회) 정합 확인.
+
+**D-101 §8 β 재조회 체인 검증:**  
+- `event.claimId()` → `ClaimRepository.findById()` → `claim.getOrderItemId()` → `OrderItemRepository.findById()` → `orderItem.getVariantId()`·`orderItem.getQuantity()`  
+- 전 단계 SoT 실측 결과 §16.3으로 확인 (Claim.orderItemId L41-42 존재·JpaRepository.findById 표준·OrderItem.variantId L47-48·OrderItem.quantity L53-54 존재).
+
+---
+
+### §16.2 OrderItem entity·OrderItemRepository 실측
+
+**파일:** `backend/src/main/java/com/zslab/mall/order/entity/OrderItem.java`
+
+**핵심 필드 카탈로그:**
+
+| 필드명 | 라인 | 타입 | 어노테이션 |
+|---|---|---|---|
+| `variantId` | L47-48 | `Long` | `@Column(name = "variant_id", nullable = false)` |
+| `quantity` | L53-54 | `int` | `@Column(name = "quantity", nullable = false)` |
+| `unitPrice` | L56-58 | `Long` | `@Column(name = "unit_price", nullable = false)` |
+| `totalPrice` | L59-60 | `Long` | `@Column(name = "total_price", nullable = false)` |
+| `itemStatus` | L62-64 | `OrderItemStatus` | `@Enumerated(EnumType.STRING) @Column(name = "item_status")` |
+
+**도메인 메서드:**  
+- `create(...)` L76-103: 정적 팩토리  
+- `changeStatus(OrderItemStatus next)` L117-125: 상태 전이·`canTransitionTo` 검증  
+- `markPaid()` L130-132: `changeStatus(PAID)` 래퍼  
+- `assignOrder(Order)` L108-110: package-private (Order 연결용)
+
+**OrderItemRepository (`order/repository/OrderItemRepository.java`):**
+
+| 메서드 | 라인 | 반환 타입 | 비고 |
+|---|---|---|---|
+| `findByOrderId(Long orderId)` | L16 | `List<OrderItem>` | 주문별 품목 전건 |
+| `findByOrderIdIn(Collection<Long> orderIds)` | L18 | `List<OrderItem>` | 배치 조회 |
+| `findByPublicId(String publicId)` | L24 | `Optional<OrderItem>` | public_id 해소 |
+| `findOrderIdById(Long id)` | L30-31 | `Optional<Long>` | 경량 projection (order_id만) |
+
+**N+1 회피용 fetch join 메서드 존재 여부:**  
+```bash
+# grep "@EntityGraph\|fetch join\|EntityGraph" backend/src/main/java/com/zslab/mall/order/repository/OrderItemRepository.java
+# 결과: 0건
+```
+`@EntityGraph` 또는 `JOIN FETCH` 쿼리 **0건** — E1 핸들러 재조회 시 `findByOrderId` 재사용 가능 (OrderItem 자체가 타겟·@ManyToOne Order는 `@Getter(AccessLevel.NONE)` 미접근·N+1 해당 없음).
+
+**E1 재조회 전략 판단:** `findByOrderId(orderId)` 1회 쿼리로 OrderItem 리스트 획득 → 각 item의 `variantId`·`quantity` 추출 → `InventoryService.reserve(variantId, qty)` 순차 호출. 신규 메서드 불필요.
+
+---
+
+### §16.3 Claim entity·ClaimRepository 실측
+
+**파일:** `backend/src/main/java/com/zslab/mall/claim/entity/Claim.java`
+
+**핵심 필드 카탈로그:**
+
+| 필드명 | 라인 | 타입 | 어노테이션 |
+|---|---|---|---|
+| `orderItemId` | L41-42 | `Long` | `@Column(name = "order_item_id", nullable = false)` |
+| `type` | L44-46 | `ClaimType` | `@Enumerated(EnumType.STRING) @Column(name = "type", nullable = false, updatable = false)` |
+| `status` | L54-56 | `ClaimStatus` | `@Enumerated(EnumType.STRING) @Column(name = "status", nullable = false)` |
+| `previousOrderItemStatus` | L70-72 | `OrderItemStatus` | `@Enumerated(EnumType.STRING) @Column(name = "previous_order_item_status", nullable = false, updatable = false)` |
+| `pickedUpAt` | L67-68 | `LocalDateTime` | `@Column(name = "picked_up_at")` |
+| `requestedBy` | L58-59 | `Long` | `@Column(name = "requested_by")` |
+
+**ClaimType enum 값 3건 (`claim/enums/ClaimType.java` L10-16):**  
+`CANCEL`, `RETURN`, `EXCHANGE` — 3값 전건 확인.
+
+**ClaimRepository (`claim/repository/ClaimRepository.java`) 메서드 카탈로그:**
+
+| 메서드 | 라인 | 비고 |
+|---|---|---|
+| `findById(Long id)` | JpaRepository 상속 표준 | 추가 선언 불필요 |
+| `findByPublicId(String publicId)` | L16 | public_id 해소 |
+| `existsActiveByOrderItemId(Long orderItemId)` | L23-28 | REQUESTED·APPROVED 활성 클레임 존재 여부 |
+| `findAllByRequestedBy(Long requestedBy, Pageable pageable)` | L31 | Buyer 목록 |
+
+**InventoryClaimCompletedHandler 재조회 체인 정합:**  
+`event.claimId()` → `claimRepository.findById(claimId)` (JpaRepository 표준·추가 선언 불필요) → `claim.getOrderItemId()` → `orderItemRepository.findById(orderItemId)` → `orderItem.getVariantId()`·`orderItem.getQuantity()`.
+
+---
+
+### §16.4 사전 재고 조회 진입점 실측
+
+**대상: D-101 §10 α (OrderService.placeOrder 사전 조회)**
+
+**OrderService.createOrder (`order/service/OrderService.java` L57-87):**  
+의존 필드: `orderRepository`, `orderStatusResolver`, `eventPublisher` (L38-48). `InventoryRepository` 주입 **없음**. 재고 조회 로직 **없음**.
+
+**CheckoutService (`checkout/service/CheckoutService.java`):**  
+의존 필드 목록 (L61-67):
+```java
+private final OrderService orderService;
+private final PaymentService paymentService;
+private final OrderRepository orderRepository;
+private final ProductRepository productRepository;
+private final ProductVariantRepository productVariantRepository;
+private final InventoryRepository inventoryRepository;   // L66 — 주입 존재
+private final OrderIdempotencyKeyRepository idempotencyRepository;
+```
+
+**`InventoryRepository` 사용 위치:**  
+- `CheckoutService.revalidatePayable(Order order)` L229-255: `inventoryRepository.findByVariantIdIn(variantIds)` L237 — **재결제 경로만** (L103 `retryPayment` → L110 `revalidatePayable` 호출).
+
+**신규 주문 경로 (`checkout` L165 `createOrder`):**  
+`orderService.createOrder(createCommand)` L201 호출 전 InventoryRepository 사용 **없음** — D-101 §10 α 사전 재고 조회 **미구현**.
+
+**D-101 §10 α 신설 위치 실측 결정:**  
+- 신설 위치: `CheckoutService.createOrder()` L165 내부 · `orderService.createOrder()` L201 호출 **직전**  
+- 사용 메서드: `InventoryRepository.findByVariantIdIn(variantIds)` (read-only·D-101 §10 "findByVariantIdIn 사용" 예외 박제 정합)  
+- 재결제 경로 `revalidatePayable`의 INV 로직 L247-253과 동일 패턴 재사용 가능
+
+> **⚠ WARN-3 (P1)**: CheckoutService.createOrder 신규 주문 경로의 α 사전 재고 조회 미구현 — D-101 §10 α PR-B 신설 대상.
+
+---
+
+### §16.5 통합 테스트 SoT 실측
+
+#### ClaimEventIntegrationTest (`claim/integration/ClaimEventIntegrationTest.java`)
+
+**클래스 Javadoc 의무 항목 실측 (L27-42):**
+
+| D-100 Q8 β 5중 의무 | 실측 | 라인 |
+|---|---|---|
+| NO @Transactional (클래스 레벨) | **충족** — 클래스 어노테이션 없음 | L43 `@SpringBootTest` 단독 |
+| TransactionTemplate | **충족** — `tx = new TransactionTemplate(txManager)` | L85 |
+| @RecordApplicationEvents | **미사용** — import·어노테이션 전건 부재 | L1-247 전범위 |
+| LT-02 try-finally | **충족** — `try { FK_CHECKS=0 ... } finally { FK_CHECKS=1 }` | L167-173 |
+| D-91 FK 부모 그래프 시드 | **충족** — user·seller·product·product_variant 4단계 | L178-191 |
+
+**LT-02 try-finally 패턴 (L164-173):**
+```java
+tx.executeWithoutResult(s -> {
+    try {
+        jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
+        seedingWork.run();
+    } finally {
+        jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
+    }
+});
+```
+
+**D-91 FK 부모 그래프 시드 패턴 (L178-191):**  
+INSERT 순서: `user` → `seller` → `product(category_id=DUMMY_FK_ID)` → `product_variant(option1_value_id=DUMMY_FK_ID)`.  
+category·option_value: `DUMMY_FK_ID = 9101L`로 FK_CHECKS=0 우회 (L53-54 Javadoc "핸들러가 해당 테이블을 UPDATE하지 않아 FK_CHECKS=0 시드로 우회").
+
+**검증 패턴:** JdbcTemplate 직접 조회 (L231-241) — @RecordApplicationEvents 미사용.
+
+---
+
+#### DeliveryEventIntegrationTest (`delivery/integration/DeliveryEventIntegrationTest.java`)
+
+**5중 의무 실측:**
+
+| D-100 Q8 β 5중 의무 | 실측 | 라인 |
+|---|---|---|
+| NO @Transactional | **충족** | L39 `@SpringBootTest` 단독 |
+| TransactionTemplate | **충족** — `tx.executeWithoutResult(s -> deliveryService.markShipping(...))` | L94-95 |
+| @RecordApplicationEvents | **미사용** | L1-229 전범위 |
+| LT-02 try-finally | **충족** — `try { FK_CHECKS=0 } finally { FK_CHECKS=1 }` | L138-174 |
+| D-91 FK 부모 그래프 시드 | **충족** — user·seller·product·product_variant·order·order_item·delivery | L140-173 |
+
+---
+
+#### inventory 통합 테스트 존재 여부
+
+```bash
+# glob: backend/src/test/java/com/zslab/mall/inventory/integration/**
+# 결과: No files found
+```
+
+`inventory/integration/` 디렉토리 **0건** — PR-B 신설 대상.
+
+> **⚠ WARN-4 (P2)**: D-100 Q8 박제 5중 의무 중 `@RecordApplicationEvents`가 기존 통합 테스트 SoT 2건(`ClaimEventIntegrationTest`·`DeliveryEventIntegrationTest`) 모두 **미사용**. 실측 SoT 패턴은 4중(NO @Transactional + TransactionTemplate + LT-02 + D-91 시드). InventoryEventIntegrationTest 신설 기준 결정 필요 — D-100 Q8 박제 의무 그대로 vs 실측 4중 SoT 정합.
+
+---
+
+### §16.6 exchange() 옵션 α/β/γ 판단 근거 실측
+
+#### `Inventory.commitReservation` 사전 조건 실측
+
+파일: `inventory/entity/Inventory.java` L98-111
+
+```java
+public void commitReservation(int qty) {
+    requirePositiveQty(qty, "commitReservation");
+    if (quantityReserved - qty < 0) {          // INV-3: 예약 부족 가드
+        throw new InventoryInvariantViolationException(
+                "불법 재고 차감·예약 부족: variantId=" + variantId + ", 요청=" + qty + ", 예약=" + quantityReserved);
+    }
+    if (quantityOnHand - qty < 0) {            // INV-4: 실물 부족 가드
+        throw new InventoryInvariantViolationException(...);
+    }
+    quantityOnHand -= qty;
+    quantityReserved -= qty;
+    recalculateAvailable();
+}
+```
+
+**사전 조건**: `quantityReserved >= qty` (INV-3). 교환품에 사전 `reserve()` 없이 직접 호출 시 `quantityReserved == 0` → qty > 0 이면 **항상 throw**.
+
+---
+
+#### EXCHANGE 흐름에서 교환품 신규 발송과 예약 개념 실측
+
+`ExchangeDeliveryCompletedHandler.java` L59-107 실측:  
+- E5 DeliveryCompleted 소비 → `delivery.getClaimId()` 체크 L67 → EXCHANGE type 가드 L78 → OrderItem EXCHANGED 전이 L84-103 → `claimService.markCompleted(claim.getId())` L106  
+- 교환품 신규 발송 완료 시 **별도 reserve() 발생 없음** — E1 OrderPlaced는 원래 주문 생성 시 1회 발행이며, 교환품 출고는 Delivery 생성·배송 완료 흐름(E4·E5) 경유.
+
+**판단**: 교환품에 대한 inventory.reserve()가 선행되지 않으므로, E9 핸들러에서 교환품 차감 시 `commitReservation(newQty)` 단독 호출은 INV-3 위반.
+
+---
+
+#### D-101 §5 예시 코드 원문 (`decisions.md L5608-5617`)
+
+```java
+@Transactional
+public void exchange(Long returnVariantId, int returnQty,
+                     Long newVariantId, int newQty, Long claimId) {
+    Inventory ret = repo.findByVariantIdForUpdate(returnVariantId)...;
+    ret.restoreStock(returnQty);
+    historyRepo.save(InventoryHistory.create(ret, RETURN, returnQty, "claim", claimId, ...));
+
+    Inventory neu = repo.findByVariantIdForUpdate(newVariantId)...;
+    neu.commitReservation(newQty);  // 또는 reserve+commit 2단계
+    historyRepo.save(InventoryHistory.create(neu, ORDER, -newQty, "claim", claimId, ...));
+}
+```
+
+**"또는 reserve+commit 2단계" = D-101 §5 미해소 코멘트 — 결정 라운드 이연 상태.**
+
+---
+
+#### 3 옵션 비교표
+
+| 옵션 | 구현 | INV-3 안전 | 의미 정합 | 신규 메서드 |
+|---|---|---|---|---|
+| **α** reserve → commitReservation 2단계 | `reserve(newQty)` 후 `commitReservation(newQty)` 동일 TX | **안전** (reserve가 quantityReserved 먼저 증가) | 교환 = 예약+즉시확정·비즈니스 의미 어색 | 불필요 |
+| **β** deductDirectly 신설 | `on_hand -= qty`·INV-4만 체크·신규 `deductDirectly(qty)` 메서드 | **안전** (reserved 무관) | 교환 직접 차감·의미 정합 | **신설 필요** (PR-A 미포함) |
+| **γ** commitReservation 단독 | `commitReservation(newQty)` 직접 | **INV-3 위반** (교환품 reserve 없음) | 의미 오류·사용 불가 | 불필요 |
+
+**실측 근거 요약:**  
+- γ: `commitReservation` L100-103 INV-3 가드 = 교환품 reserve 없는 컨텍스트에서 반드시 throw → **불가**  
+- α: PR-A 기존 `reserve()`·`commitReservation()` 재사용·신규 코드 없음. 단, `reserve`는 "예약 점유" 개념이나 교환 출고 컨텍스트에서 즉시 확정되므로 트레이드오프 존재  
+- β: 도메인 의미 정합·신규 메서드 `deductDirectly(int qty)` Inventory.java 추가 필요 (PR-B 범위 확장)
+
+> **⚠ WARN-1 (P0 이전·결정 의제)**: exchange() α/β/γ 옵션 미확정. D-101 §5 코멘트 "또는 reserve+commit 2단계" 잔존. γ 불가 확인·α vs β 결정 필요.
+
+---
+
+### §16.7 4 핸들러 신설 위치·의존 실측
+
+#### inventory/handler/ 디렉토리 부재 확인
+
+```bash
+# glob: backend/src/main/java/com/zslab/mall/inventory/handler/**
+# 결과: No files found
+```
+
+`inventory/handler/` **0건** — PR-B 신설 패키지.
+
+---
+
+#### D-101 §3 핸들러 목록 SoT (`decisions.md L5570-5575`)
+
+| 핸들러 | 이벤트 | 동작 |
+|---|---|---|
+| `InventoryOrderPlacedHandler` | E1 OrderPlaced | OrderItem별 `reserve` |
+| `InventoryPaymentCompletedHandler` | E2 PaymentCompleted | OrderItem별 `commitReservation` |
+| `InventoryPaymentFailedHandler` | E3 PaymentFailed | orderId 재조회 후 OrderItem별 `release` |
+| `InventoryClaimCompletedHandler` | E9 ClaimCompleted | claimId 재조회 후 type별 분기 |
+
+---
+
+#### InventoryClaimCompletedHandler 의존 실측
+
+재조회 체인: `event.claimId()` → `ClaimRepository.findById()` → `claim.getOrderItemId()` → `OrderItemRepository.findById()` → `variantId`·`quantity` → `InventoryService.restoreStock / exchange()`
+
+**필요 의존 목록:**  
+- `InventoryService` (도메인 행위 진입점)  
+- `ClaimRepository` (claimId → Claim 재조회·JpaRepository.findById)  
+- `OrderItemRepository` (orderItemId → OrderItem 재조회·JpaRepository.findById)
+
+---
+
+#### 기존 패턴 재사용 SoT 라인 인용
+
+**ClaimCompletedHandler.java L38-39:**
+```java
+@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+@Transactional(propagation = Propagation.REQUIRES_NEW)
+public void onClaimCompleted(ClaimCompleted event) { ... }
+```
+
+**ExchangeDeliveryCompletedHandler.java L59-60:**
+```java
+@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+@Transactional(propagation = Propagation.REQUIRES_NEW)
+public void handle(DeliveryCompleted event) { ... }
+```
+
+4 핸들러 전건 `@TransactionalEventListener(AFTER_COMMIT) + @Transactional(REQUIRES_NEW)` 패턴 적용 (D-101 §3 정합·기존 SoT 1:1 재사용).
+
+**E9 type 분기 SoT (`ClaimCompletedHandler.java` L46-55):**
+```java
+OrderItemStatus requestedStatus = switch (event.claimType()) {
+    case CANCEL  -> OrderItemStatus.CANCEL_REQUESTED;
+    case RETURN  -> OrderItemStatus.RETURN_REQUESTED;
+    case EXCHANGE -> OrderItemStatus.EXCHANGE_REQUESTED;
+};
+```
+`InventoryClaimCompletedHandler` switch 패턴 1:1 재사용 — InventoryService 호출 대상만 교체 (`CANCEL/RETURN → restoreStock`·`EXCHANGE → exchange()`).
+
+---
+
+### §16.8 WARN 카탈로그
+
+| # | 영역 | 우선순위 | 내용 | 근거 SoT |
+|---|---|---|---|---|
+| **WARN-1** | §16.6 | **P0 (결정)** | exchange() 옵션 α/β/γ 미확정 — D-101 §5 "또는 reserve+commit 2단계" 코멘트 잔존·γ 불가(INV-3)·α vs β 결정 필요 | Inventory.java L100-103·decisions.md D-101 §5 L5615 |
+| **WARN-2** | §16.4 | **P1** | CheckoutService.createOrder 신규 주문 경로 α 사전 재고 조회 미구현 — D-101 §10 α PR-B 신설 대상·`inventoryRepository.findByVariantIdIn` 사용 위치 재결제 경로(L237)만·신규 주문 경로(L165) 미적용 | CheckoutService.java L165 L229-255·decisions.md D-101 §10 L5693 |
+| **WARN-3** | §16.5 | **P1** | @RecordApplicationEvents D-100 Q8 박제 5중 포함이나 ClaimEventIntegrationTest·DeliveryEventIntegrationTest 실측 4중(미사용) — InventoryEventIntegrationTest 신설 기준 결정 필요 | ClaimEventIntegrationTest.java L1-247 전범위·DeliveryEventIntegrationTest.java L1-229·decisions.md D-100 Q8 L5228 |
+| **WARN-4** | §16.7 | **P2** | InventoryRepository.java Javadoc L14 "Track 4 read-only·D-57" 잔존 — PR-A `findByVariantIdForUpdate` 추가 후 미갱신·D-101 §4 α 비관락 일원화 설명 누락 | InventoryRepository.java L14 |
+| **WARN-5** | §16.1 | **P2** | PaymentFailed record Javadoc L8-9 "Inventory 예약 해제 핸들러는 orderId로 OrderItem을 직접 조회 후 처리" — Inventory 핸들러 소비자 미목록화 (단순 설계 코멘트이나 PR-B 구현 완료 후 Javadoc 업데이트 필요) | PaymentFailed.java L8-9 |
+
+**총계**: P0 1건 · P1 2건 · P2 2건 = 5건
+
+> P0 기준: WARN-1 (exchange() 옵션)은 결정 미확정으로 PR-B 구현 전 결정 라운드 진입 필수.
+
+---
+
+### §16.9 판단 필요 3건 정리
+
+#### 판단 1: D-101 §5 exchange() 옵션 α/β/γ
+
+**배경 SoT:**  
+- D-101 §5 코드 예시 `decisions.md L5615`: "또는 reserve+commit 2단계" — 미결  
+- `Inventory.commitReservation` INV-3 가드: L100-103  
+- 교환품 사전 reserve 없음: ExchangeDeliveryCompletedHandler L59-107 실측
+
+**실측 근거 강도: 강함**  
+- γ: 교환품 reserve 없는 컨텍스트 → INV-3 위반·**불가** (코드 실측)  
+- α: 기존 메서드만 재사용·신규 없음. EXCHANGE 컨텍스트에서 reserve 후 즉시 commit = 예약 점유 없이 동기 처리이므로 의미 불일치나 기능은 정상  
+- β: `deductDirectly(qty)` 신설 필요 (PR-A 미포함·Inventory.java 변경 동반)
+
+**결정 라운드 진입 준비도: 높음** — α/β 2안 정확 대비·근거 실측 완료.
+
+---
+
+#### 판단 2: E1 재조회 전략 — 기존 메서드 재사용 vs 신설
+
+**배경 SoT:**  
+- `OrderItemRepository.findByOrderId(Long orderId)` L16 존재 확인  
+- N+1 회피용 fetch join 메서드 0건 (§16.2 실측)  
+- OrderItem은 단순 컬럼 Aggregate (ManyToOne Order는 `@Getter(AccessLevel.NONE)` — 핸들러 내 미접근)
+
+**실측 근거 강도: 강함**  
+- `findByOrderId(orderId)` 1회 IN-쿼리로 OrderItem 전건 로드 → 핸들러 for loop 내 `variantId`·`quantity` 추출 → N+1 없음  
+- fetch join 신설 불필요: OrderItem 로드 자체가 목적이며 연관 Lazy 탐색 없음  
+- **결론: `findByOrderId` 재사용 확정·신설 불필요**
+
+**결정 라운드 진입 준비도: 완료** — 신설 불필요 확정. 별도 결정 불요.
+
+---
+
+#### 판단 3: E9 type 분기 방식 — ClaimCompletedHandler switch 패턴 1:1 재사용 정합 근거
+
+**배경 SoT:**  
+- `ClaimCompletedHandler.java` L46-55: `switch(event.claimType())` 패턴 존재 (§16.7 인용)  
+- D-101 §3 `InventoryClaimCompletedHandler`: "claimId 재조회 후 type별 분기 (§5)"  
+- ClaimType 3값: CANCEL·RETURN·EXCHANGE (§16.3 확인)
+
+**실측 근거 강도: 강함**  
+- CANCEL/RETURN: `InventoryService.restoreStock(variantId, qty, CANCEL/RETURN, ...)` — 기존 메서드 직접  
+- EXCHANGE: `InventoryService.exchange(returnVariantId, returnQty, newVariantId, newQty, claimId)` — §16.6 WARN-1 exchange() 미확정에 의존  
+- `switch` 1:1 재사용 자체는 정합 — EXCHANGE case가 exchange() 구현 완료 후 자연 충족  
+- **결론: switch 패턴 재사용 확정·EXCHANGE case 구현은 판단 1 결정 후**
+
+**결정 라운드 진입 준비도: 높음** — exchange() 옵션(판단 1) 확정 시 즉시 구현 가능.
+
+---
+
+### §16.10 OOS 명시
+
+정찰 범위 외 항목:
+
+- **E10 InventoryAdjusted 발행** — D-101 §13 α 완전 OOS (Track 18+)  
+- **Outbox·이벤트 저장소** — D-100 Q2 γ 트리거 미충족·OOS  
+- **Spring Security 정식 도입** — Track 18+ OOS  
+- **ADJUST·INBOUND·OUTBOUND 진입점** — D-101 §13 OOS (enum 유지·메서드 미신설)  
+- **교환품 다른 variant 조달** — Claim 엔티티 newVariantId 필드 없음·현 모델에서 동일 variant 교체 가정. 다른 variant 교환 지원은 데이터 모델 변경 동반·OOS  
+- **@RecordApplicationEvents 도입 판단** — WARN-3 에스컬레이션·결정 라운드 또는 사용자 직접 확인 필요 (OOS for 본 정찰)  
+- **InventoryRepository Javadoc 갱신** — WARN-4·PR-B 병행 처리 가능하나 정찰 단계 변경 금지·OOS
