@@ -136,6 +136,28 @@ public class RefundService {
     }
 
     /**
+     * 운영자 수동 환불 개시(D-106 §4·admin actor wrapper). primitive {@link #initiate}에 1:1 위임하며 actor 파라미터는
+     * 수신하지 않는다(D-92 원칙·initiate가 이미 actor 비의존 시그니처).
+     *
+     * <p><b>용도</b>: 자동 트리거({@code ClaimApprovedHandler}·{@code ClaimPickedUpHandler})가 PG 장애·도메인 위반으로
+     * 실패해 Claim이 환불 없이 APPROVED로 잔존할 때, 운영자가 동일 Claim에 대해 환불을 수동 재개시하는 fallback 경로다.
+     * D-94 Q8 원문 "재시도 허용(운영자/Job 재 initiate·RFN-2)" 정합.
+     *
+     * <p>멱등 게이트(initiate)가 동일 claimId 활성 Refund(PENDING/COMPLETED) 존재 시 기존 행을 no-op 반환하므로 중복 개시는
+     * 안전하다. {@code @Transactional}은 클래스 레벨이 커버하므로 별도 부여하지 않는다.
+     *
+     * @param claimId 환불 대상 클레임 id(APPROVED여야 함·CLM-3)
+     * @param amount  환불 금액(KRW 정수·1 이상)
+     * @return 생성된 Refund(정상 시 PENDING+pg_refund_id, PG 예외 시 FAILED)
+     * @throws ClaimNotFoundException          클레임이 없는 경우(404)
+     * @throws ClaimInvalidStateException      클레임이 APPROVED가 아닌 경우(CLM-3·422)
+     * @throws RefundInvariantViolationException PAY-1 사전 한도 초과(과환불 차단·422)
+     */
+    public Refund initiateByAdmin(Long claimId, long amount) {
+        return initiate(claimId, amount);
+    }
+
+    /**
      * 환불 완료를 적용한다(PENDING → COMPLETED·expected-spec §5.1). pg_refund_id로 행을 찾고 RFN-1·RFN-3·PAY-1 사후를 가드한 뒤
      * refunded_at을 시스템 시각(D-70)으로 채우고 {@code RefundCompleted}를 발행한다(save→publish·D-29).
      *
