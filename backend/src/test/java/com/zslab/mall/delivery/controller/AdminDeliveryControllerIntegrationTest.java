@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.zslab.mall.claim.enums.ClaimType;
+import com.zslab.mall.delivery.event.DeliveryCompleted;
 import com.zslab.mall.delivery.event.DeliveryStarted;
 import com.zslab.mall.order.enums.OrderItemStatus;
 import org.junit.jupiter.api.AfterEach;
@@ -28,12 +29,16 @@ import org.testcontainers.containers.MariaDBContainer;
 import org.testcontainers.utility.DockerImageName;
 
 /**
- * Admin 교환품 출고 등록 endpoint E2E 통합 테스트(Track 18·D-102·실 MariaDB). HTTP → {@code AdminDeliveryController} →
- * {@code DeliveryService.registerExchangeShipmentByAdmin} → primitive {@code registerExchangeShipment} → DB 흐름을
- * 실 커밋·HTTP 경유로 실측한다(라이브 트랩 차단·{@link com.zslab.mall.delivery.integration.SellerDeliveryIntegrationTest} 1:1).
+ * Admin Delivery endpoint E2E 통합 테스트(Track 18·Track 20·D-102·D-104·실 MariaDB). HTTP → {@code AdminDeliveryController} →
+ * {@code DeliveryService} wrapper → primitive → DB 흐름을 실 커밋·HTTP 경유로 실측한다(라이브 트랩 차단·
+ * {@link com.zslab.mall.delivery.integration.SellerDeliveryIntegrationTest} 1:1). 교환품 출고 등록(T1~T3)·배송 완료(T4~T6) 2 endpoint를 커버한다.
  *
  * <p><b>Admin 책임 경계(D-93 Q3·Q5)</b>: Admin은 전체 접근이므로 Seller 테스트의 cross-tenant 시나리오가 부재하다. 인증 헤더
  * 검증(401)·성공(200)·primitive 예외 전파(4xx) 3건만 보장한다(CLAUDE.md 신규 도메인 통합 테스트 3건 의무·D-102 §6).
+ *
+ * <p><b>Track 20 확장(D-104)</b>: 배송 완료 endpoint {@code POST /api/v1/admin/deliveries/{deliveryPublicId}/mark-delivered}
+ * 3건(T4 401·T5 200 교환 배송 SHIPPING→DELIVERED + AFTER_COMMIT 체인·T6 404). wrapper {@code markDeliveredByAdmin} → primitive
+ * {@code markDelivered} → E5 DeliveryCompleted → {@code ExchangeDeliveryCompletedHandler}(OrderItem EXCHANGED·Claim COMPLETED)까지 실 커밋 구동한다.
  *
  * <p><b>트랜잭션</b>: DeliveryStarted 동기 소비·AFTER_COMMIT 알림 핸들러를 실 커밋으로 구동하므로 클래스에 {@code @Transactional}을
  * 두지 않는다. 시드/정리는 {@link TransactionTemplate} + {@code FOREIGN_KEY_CHECKS=0}(LT-02 try-finally), 검증은
@@ -57,11 +62,13 @@ class AdminDeliveryControllerIntegrationTest {
     private static final long ORDER_ID = 8815L;
     private static final long ORDER_ITEM_ID = 8815L;
     private static final long CLAIM_ID = 8815L;
+    private static final long DELIVERY_ID = 8815L; // 단일 Delivery(order_item_id FK·markDelivered 대상)
     private static final long DUMMY_FK_ID = 8815L;
     private static final long ITEM_PRICE = 10_000L;
 
     private static final String CLAIM_PID = pid("clm_", "ADCLM");
     private static final String ORDER_ITEM_PID = pid("oit_", "ADOIT");
+    private static final String DELIVERY_PID = pid("dlv_", "ADDLV");
     private static final String TRACKING_NO = "CJ-AD-0001";
 
     static final MariaDBContainer<?> MARIADB;
@@ -168,6 +175,57 @@ class AdminDeliveryControllerIntegrationTest {
         assertThat(events.stream(DeliveryStarted.class).count()).isZero();
     }
 
+    @Test
+    @DisplayName("T4 인증 실패: mark-delivered X-Admin-Id 헤더 부재 → 401 UNAUTHENTICATED·DeliveryCompleted 0")
+    void markDelivered_missingAdminHeader_returns401() throws Exception {
+        // resolve()가 delivery 조회 이전 최선두에서 throw하므로 시드 불요(deliveryPublicId 미존재여도 401이 우선한다).
+        mockMvc.perform(post("/api/v1/admin/deliveries/" + DELIVERY_PID + "/mark-delivered"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
+
+        assertThat(events.stream(DeliveryCompleted.class).count()).isZero();
+    }
+
+    @Test
+    @DisplayName("T5 성공: 유효 X-Admin-Id + SHIPPING 교환 배송 → 200·DELIVERED 커밋·OrderItem EXCHANGED·Claim COMPLETED·DeliveryCompleted 1회")
+    void markDelivered_validAdmin_shippingExchangeDelivery_returns200_completesChain() throws Exception {
+        seed(() -> {
+            seedCatalog();
+            seedOrder("DELIVERED");
+            seedOrderItem(OrderItemStatus.EXCHANGE_REQUESTED);
+            seedApprovedClaim(ClaimType.EXCHANGE);
+            seedShippingExchangeDelivery();
+        });
+
+        // mark-delivered는 body 없음(D-104 확정 스펙). X-Admin-Id 헤더만 전달한다.
+        mockMvc.perform(post("/api/v1/admin/deliveries/" + DELIVERY_PID + "/mark-delivered")
+                        .header(ADMIN_ID_HEADER, String.valueOf(ADMIN)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.deliveryPublicId").value(DELIVERY_PID))
+                .andExpect(jsonPath("$.status").value("DELIVERED"))
+                .andExpect(jsonPath("$.carrier").value("CJ"))
+                .andExpect(jsonPath("$.trackingNo").value(TRACKING_NO));
+
+        // 동기 응답: Delivery SHIPPING → DELIVERED 커밋(재조회로 stale 회피 검증)
+        assertThat(deliveryStatus()).isEqualTo("DELIVERED");
+        // AFTER_COMMIT 체인(ExchangeDeliveryCompletedHandler): claim_id SET → OrderItem EXCHANGED·Claim COMPLETED
+        assertThat(orderItemStatus()).isEqualTo("EXCHANGED");
+        assertThat(claimStatus()).isEqualTo("COMPLETED");
+        // E5 DeliveryCompleted 발행 1회
+        assertThat(events.stream(DeliveryCompleted.class).count()).isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("T6 실패: 미존재 deliveryPublicId → 404 DELIVERY_NOT_FOUND·DeliveryCompleted 0")
+    void markDelivered_unknownDeliveryPublicId_returns404() throws Exception {
+        mockMvc.perform(post("/api/v1/admin/deliveries/" + pid("dlv_", "ADNONE") + "/mark-delivered")
+                        .header(ADMIN_ID_HEADER, String.valueOf(ADMIN)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("DELIVERY_NOT_FOUND"));
+
+        assertThat(events.stream(DeliveryCompleted.class).count()).isZero();
+    }
+
     // ---------- seed·helpers (SellerDeliveryIntegrationTest 패턴 1:1·cross-tenant 시나리오 제외) ----------
 
     private void seed(Runnable seedingWork) {
@@ -221,6 +279,14 @@ class AdminDeliveryControllerIntegrationTest {
                 CLAIM_ID, CLAIM_PID, ORDER_ITEM_ID, type.name());
     }
 
+    /** SHIPPING 교환 배송 시드(claim_id SET·shipped_at NOW(6)·DLV-3 정합·markDelivered 진입 상태·ClaimExchangeIntegrationTest 패턴 1:1). */
+    private void seedShippingExchangeDelivery() {
+        jdbc.update("INSERT INTO delivery (id, public_id, order_item_id, carrier, tracking_no, status, "
+                        + "shipped_at, claim_id, created_at, updated_at) "
+                        + "VALUES (?, ?, ?, 'CJ', ?, 'SHIPPING', NOW(6), ?, NOW(6), NOW(6))",
+                DELIVERY_ID, DELIVERY_PID, ORDER_ITEM_ID, TRACKING_NO, CLAIM_ID);
+    }
+
     private void cleanup() {
         tx.executeWithoutResult(s -> {
             try {
@@ -267,6 +333,14 @@ class AdminDeliveryControllerIntegrationTest {
     private String deliveryTrackingNo() {
         return jdbc.queryForObject(
                 "SELECT tracking_no FROM delivery WHERE order_item_id = ?", String.class, ORDER_ITEM_ID);
+    }
+
+    private String orderItemStatus() {
+        return jdbc.queryForObject("SELECT item_status FROM order_item WHERE id = ?", String.class, ORDER_ITEM_ID);
+    }
+
+    private String claimStatus() {
+        return jdbc.queryForObject("SELECT status FROM claim WHERE id = ?", String.class, CLAIM_ID);
     }
 
     private static String pid(String prefix, String tag) {

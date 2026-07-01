@@ -6156,3 +6156,115 @@ Track 19 = NotificationLog 발송 어댑터 트랙 (A급). D-86 §후속 "Track 
 
 ---
 
+### D-104: Track 20 AdminDeliveryController markDelivered wrapper — 배송 완료 Admin endpoint·404 예외 신설·base path 옵션 A
+
+**상태**: [확정 2026-07-02]
+
+#### §1 트랙 식별자
+
+Track 20 = AdminDeliveryController 확산 트랙 (A급). D-102 §9 carry-over "AdminDeliveryController 확장 (markShipping/markDelivered 등 일반 주문 Delivery 진입점)" 부분 종결. 배송 완료 primitive `markDelivered`에 대한 Admin actor wrapper `markDeliveredByAdmin` 신설 + `POST /api/v1/admin/deliveries/{deliveryPublicId}/mark-delivered` endpoint 확립 + 404 스펙 필수 전제인 `DeliveryNotFoundException` 신설로 D-92 wrapper 캡슐화 패턴을 mark 계열로 확장한다. 정찰 산출물: docs/track-20/recon-report.md (gitignore·FAIL 2·WARN 3·판정 집계 PASS 10).
+
+##### §1-A 트랙 범위 확정 근거 (α/β/γ 검토)
+
+Track 20 진입 시 D-102 §9 carry-over(markShipping·markDelivered·일반 주문 Delivery 생성 진입점) 해소 범위 3안 검토:
+
+| # | 범위 안 | 판정 | 근거 |
+|---|---|---|---|
+| α | markDelivered Admin wrapper 단독 (교환 배송 대상) | **채택** | 최소 범위·A급 유지·회귀 위험 최저·1-PR 단독·primitive `markDelivered` + `ExchangeDeliveryCompletedHandler` 체인 실측 SoT 위에 wrapper만 얹음·D-102 §5 패턴 1:1 재사용·기조 1·4 정합 |
+| β | 일반 주문 Delivery 생성 진입점 + markShipping·markDelivered wrapper 동반 신설 | 기각 | 트리거 시점 결정(OrderPaid 자동 vs 별도 이벤트 vs Admin 수동 create)이 상태 머신·이벤트 배선 파급·범위 급증·A→S급 승격 가능성·정찰 재수행 의무·기조 4 위반 위험·부분 배송(DLV-2) 정책 실체화 강제·carry-over 종결 목적이 도리어 새 carry-over 생성 위험 |
+| γ | 일반 주문 Delivery 생성 진입점 단독 (Admin create endpoint 또는 이벤트 핸들러) | 기각 | markShipping·markDelivered carry-over 지연·Track 20 원 목적(D-102 §9) 이탈·트리거 결정은 β와 동일 파급 |
+
+**α 채택 실증** (recon-report §4-1·§2):
+- `grep "Delivery\.create\(|new Delivery\("` → 2건뿐(교환 배송 한정·일반 주문 진입점 0건)
+- 프로덕션 영속 Delivery = 교환 배송 전용 → α는 실측 SoT 위에서 wrapper만 얹는 최단 경로
+- markShipping은 READY 상태 행 요구·현재 READY로 영속되는 Delivery 부재 → markShipping wrapper는 진입점 신설 선행 의존(Track 21+ 이연 정합)
+
+**carry-over 이월**: markShipping Admin wrapper·일반 주문 Delivery 생성 진입점(트리거·부분 배송 정책 동반)은 §8 후속 트랙 박제 의무 표에 이연 명시.
+
+#### §2 결정 3건 (재정찰 recon-report.md FAIL 2·WARN 1 해소)
+
+| # | 안건 | 채택 | 근거 |
+|---|---|---|---|
+| Q1 | base path 처리 (신규 `/api/v1/admin/deliveries` vs 기존 클래스 `/api/v1/admin/claims`) | **옵션 A** — 클래스 `@RequestMapping` 제거·메서드 절대경로 2건 | 단일 컨트롤러가 두 리소스 축 노출·"AdminDeliveryController 확장" 확정 스펙 정합·register-exchange URL 결과 불변(D-102 §3 SellerDelivery 대칭 보존) |
+| Q2 | `DeliveryNotFoundException` 신규 범위 포함 여부 | **α 포함** | 404 실패 테스트 통과 필수 전제·primitive `markDelivered`는 미존재 시 `IllegalArgumentException`→400 매핑이라 404 불가·`ClaimNotFoundException` 1:1 미러 |
+| Q3 | 성공 테스트 시드 flavor (교환 배송 claim_id SET vs 일반 배송 claim_id NULL) | **α 교환 배송** | 프로덕션 충실도(교환이 유일한 실 Delivery 영속 경로)·일반 주문 Delivery 생성 진입점 0건 실측(recon §4-1)·`ExchangeDeliveryCompletedHandler` AFTER_COMMIT 체인 실 구동 |
+
+**기각**:
+- **Q1 옵션 B (신규 별도 컨트롤러 분리·기존 무변경)**: 확정 스펙 "AdminDeliveryController 확장"과 상충·단일 Delivery Admin 컨트롤러 응집 저해. 기각.
+- **Q3 β (일반 배송 시드·claim_id NULL)**: 최소 시드이나 프로덕션 미도달 경로(일반 주문 Delivery 생성 진입점 0건)·`ExchangeDeliveryCompletedHandler` 체인 미구동. 기각.
+
+#### §3 base path 옵션 A 상세 (Q1)
+
+**채택**: 클래스 레벨 `@RequestMapping("/api/v1/admin/claims")` 제거 → 메서드별 절대경로 2건 부여.
+
+| endpoint | 절대경로 | URL 변화 |
+|---|---|---|
+| register-exchange (기존) | `POST /api/v1/admin/claims/{claimPublicId}/register-exchange-shipment` | **불변** (클래스 prefix + `/{claimPublicId}/...` = 절대경로 동일) |
+| mark-delivered (신규) | `POST /api/v1/admin/deliveries/{deliveryPublicId}/mark-delivered` | 신규 |
+
+**근거**:
+- Spring MVC는 메서드 경로가 클래스 prefix에 상대적 → 단일 컨트롤러가 두 base path를 노출하려면 클래스 prefix 제거 + 메서드 절대경로가 유일한 방법.
+- register-exchange 결과 URL 불변 → D-102 §3 SellerDelivery 1:1 대칭 보존·기존 통합 테스트(T1~T3) URL 문자열 무변경·회귀 0 실증.
+
+#### §4 markDeliveredByAdmin wrapper (D-102 §5 패턴 2회차)
+
+**구현 형식** (평문 들여쓰기):
+
+    // DeliveryService (registerExchangeShipmentByAdmin 다음·L128 직후)
+    @Transactional
+    public void markDeliveredByAdmin(Long deliveryId) {
+        markDelivered(deliveryId);
+    }
+
+- primitive `markDelivered(Long)` 1:1 위임·actor 파라미터 비수신(D-92 원칙).
+- 반환형 void: primitive가 void(엔티티 미반환)이므로 wrapper도 void·응답 조립은 Controller 재조회 책임(`AdminClaimController.approveByAdmin` void + `toResponse` 선례 정합). `registerExchangeShipmentByAdmin`이 Delivery 반환하는 것은 primitive가 생성 엔티티를 반환하기 때문이며 mark 계열과 비대칭 정상.
+- Controller: `deliveryRepository.findByPublicId(deliveryPublicId)` → id 해소(404 게이트) → wrapper 호출 → **재조회** `findByPublicId(...).map(from)` 응답. OSIV off(`application.yml` open-in-view: false)로 첫 조회 엔티티는 wrapper 트랜잭션 종료 후 stale(SHIPPING)·재조회 필수(`AdminClaimController.toResponse` 패턴 1:1).
+
+#### §5 DeliveryNotFoundException + 404 매핑 (Q2 α)
+
+- **신규 파일**: `delivery/exception/DeliveryNotFoundException.java` (RuntimeException·`ClaimNotFoundException` 1:1 미러)
+- **GlobalExceptionHandler**(`common/web/`): `@ExceptionHandler(DeliveryNotFoundException.class)` → 404 `CODE_DELIVERY_NOT_FOUND`(`handleClaimNotFound` 선례 미러)
+- **응답 계약**: 미존재 deliveryPublicId → `404 DELIVERY_NOT_FOUND`. 전이 후 재조회 실패는 `IllegalStateException`→500(무결성 위반·`AdminClaimController.toResponse` 선례 정합·client 404와 구분).
+
+#### §6 통합 테스트 T4~T6 (Q3 α·기존 파일 확장)
+
+| # | 시나리오 | 기대 결과 |
+|---|---|---|
+| T4 | mark-delivered X-Admin-Id 헤더 부재 | 401 UNAUTHENTICATED·DeliveryCompleted 0 |
+| T5 | 유효 헤더 + SHIPPING 교환 배송(claim_id SET·shipped_at NOW(6)) | 200·status=DELIVERED·deliveryPublicId 일치·**AFTER_COMMIT 체인** claim.status=COMPLETED·order_item.item_status=EXCHANGED·DeliveryCompleted 1회 |
+| T6 | 미존재 deliveryPublicId | 404 DELIVERY_NOT_FOUND·DeliveryCompleted 0 |
+
+- `AdminDeliveryControllerIntegrationTest` 확장(기존 T1~T3 register-exchange 유지·신규 T4~T6 추가).
+- 클래스 `@Transactional` 미부착 유지(AFTER_COMMIT 핸들러 실 구동 목적).
+- LT-02 try-finally 재사용·`seedApprovedClaim(EXCHANGE)` + 신규 `seedShippingExchangeDelivery`(`ClaimExchangeIntegrationTest.seedShippingDeliveryLinkedToClaim` 패턴 1:1).
+- T5 종결 전이는 `ClaimExchangeIntegrationTest.exchangeFullLoop`(기존 green)과 동일 → HTTP 진입으로 재실증.
+
+#### §7 진입점 카드 (메모리 룰 #16 적용 6회차)
+
+| # | 항목 | 내용 |
+|---|---|---|
+| 1 | **목적** | 배송 완료 primitive의 Admin actor wrapper 신설·mark-delivered endpoint 확립·404 예외 신설·D-102 §9 carry-over(markDelivered) 부분 종결 |
+| 2 | **핵심 진입점** | `delivery/service/DeliveryService.java` (wrapper `markDeliveredByAdmin` 신설) · `delivery/controller/AdminDeliveryController.java` (base path 옵션 A 재배치·DeliveryRepository 주입·mark-delivered 메서드) · `delivery/exception/DeliveryNotFoundException.java` (신설) · `common/web/GlobalExceptionHandler.java` (404 매핑) |
+| 3 | **핵심 SoT** | `markDeliveredByAdmin(Long)` — primitive `markDelivered` 1:1 위임·void·actor 비수신(D-92) · `DeliveryNotFoundException` — `ClaimNotFoundException` 미러·404 · 옵션 A 메서드 절대경로 2건(클래스 prefix 제거·register-exchange URL 불변) · Controller 재조회(OSIV off·stale 회피) |
+| 4 | **영향 범위** | Delivery Aggregate 단독 · 패키지 delivery/service·delivery/controller·delivery/exception·common/web · 신규 파일 1건(DeliveryNotFoundException) + 통합테스트 확장 · 수정 파일 3건(DeliveryService +1메서드·AdminDeliveryController base path 재배치+메서드·GlobalExceptionHandler +1핸들러) · DTO 신설 무(`RegisterExchangeShipmentResponse` 재사용) |
+| 5 | **패턴 재사용 SoT** | D-92 (primitive actor 비의존·wrapper 캡슐화) 재사용 6회차 · D-93 (AdminActorResolver seam·X-Admin-Id stub) 재사용 6회차 · D-102 §5 wrapper 패턴 2회차 · `AdminClaimController` approve/reject void + 재조회(`toResponse`) 패턴 1:1 · `ClaimExchangeIntegrationTest.seedShippingDeliveryLinkedToClaim` 시드 1:1 · 1-PR 단독(내부 3-split) 12회차 |
+| 6 | **트랩 주의** | LT-01 비해당(신규 Entity 무) · LT-02 통합 테스트 try-finally 의무 · **base path 트랩**: 클래스 prefix 제거 시 register-exchange 메서드도 절대경로 이관 필수(누락 시 URL 붕괴)·기존 T1~T3 URL 문자열 회귀 감지 SoT · **RegisterExchangeShipmentResponse 명칭 부정합**(mark-delivered 응답 재사용·시맨틱 부정합이나 필드 완전 재사용·백로그) · **재조회 필수**(OSIV off·wrapper 후 첫 조회 엔티티 stale) |
+
+#### §8 후속 트랙 박제 의무 (carry-over)
+
+| 항목 | 처치 | 이연 |
+|---|---|---|
+| markShipping Admin wrapper (READY→SHIPPING 일반 배송 발송 진입점) | D-102 §9·D-104 mark 계열 wrapper 패턴 재사용 | Track 21+ |
+| 일반 주문 Delivery 생성 진입점 (claim_id NULL·현재 프로덕션 0건·recon §4-1) | 주문 배송 흐름 트랙 SoT 확인 후 | Track 21+ |
+| RegisterExchangeShipmentResponse → 도메인 중립 DeliveryResponse 리네이밍 | mark 계열 endpoint 누적 시 시맨틱 정합화(백로그·recon §4-6) | 후속 소규모 정정 |
+| ADJUST 진입점·adjustStock·E10 | D-101 §13 carry-over 유지 | Track 21+ |
+
+#### §9 실측 검증
+
+- 504 tests PASS (기존 501 + 신규 3·110 suites·skipped 0·failures 0·errors 0·회귀 0건)·2026-07-02 로컬 실측(커밋 전 검증)
+- 기존 register-exchange 통합 테스트(T1~T3) URL 결과 불변·회귀 0 확인(옵션 A 검증)
+- 신규 mark-delivered T4(401)·T5(200 교환 배송 DELIVERED + AFTER_COMMIT 체인 EXCHANGED·COMPLETED)·T6(404) 컨테이너 실측 통과
+- 브랜치: `feat/track-20-admin-mark-delivered` (docs·feat·test 3-split·push는 명시 지시 대기)
+
+---
+
