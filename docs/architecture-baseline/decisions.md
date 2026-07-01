@@ -5591,6 +5591,20 @@ Track 17 = Inventory 도메인 행위 구현 (A급). E1 OrderPlaced(예약) · E
 
 **재평가 트리거**: D-100 Q2 Outbox 트리거 충족 시점에 @Version 도입 재평가 (본 트랙 OOS).
 
+#### §4 갱신 (2026-07-01·E3 핸들러 read-only 예외 추가)
+
+**정정**: §4 원안 "InventoryService 외부 findByVariantId 사용 금지·단일 예외 = CheckoutService 사전 조회 read-only" → "read-only 2 예외".
+
+**추가 예외**: InventoryPaymentFailedHandler.1차 가드 (§6 갱신 E3 정정 정합).
+- 목적: 잔여 reserved == 0 skip 판정 (재전달 방어)
+- 성격: read-only 조회 (쓰기 진입점 아님)
+- 방식: InventoryRepository.findByVariantId 일반 조회
+- 정합: CheckoutService 사전 조회와 동일 read-only 성격·§4 예외 취지 평행
+
+**원칙 재확인**: 쓰기 진입점 (reserve·release·commitReservation·restoreStock·exchange) 은 InventoryService·비관락 (findByVariantIdForUpdate) 일원화 유지. read-only 조회는 예외 확장 허용·건별 정당화 의무 (본 결정 정합).
+
+**재평가 트리거**: read-only 예외 ≥3건 누적 시 §4 원칙 재검토 (별도 트랙).
+
 #### §5 EXCHANGE 트랜잭션 — D-08 [갱신 Track17] (Q4)
 
 **D-08 박제 부분 갱신**: "트랜잭션 분리" → "업무 단계 분리·DB 트랜잭션 단일".
@@ -5625,6 +5639,42 @@ public void exchange(Long returnVariantId, int returnQty,
 
 **재평가 트리거**: Saga·Outbox 도입 시 D-08 원안(2 TX 분리) 회귀 재평가.
 
+#### §5 갱신 (2026-07-01·PR-B 결정 라운드 확정)
+
+**exchange() 옵션 = α 채택** (reserve → commitReservation 2단계).
+
+**채택 근거** (기조 5 재확인·docs/track-17/recon-report.md §16.6 실측 인용):
+- 기조 1 운영 용이성: 기존 4 도메인 행위(reserve·release·commitReservation·restoreStock) 재사용·운영 지식 유지
+- 기조 3 과잉문서 회피: exchange() Javadoc 1줄로 시맨틱 어색 처치
+- 기조 4 과잉개발 회피 (강): 신규 도메인 행위 0건·5번째 메서드 명명 논쟁·단위 테스트 신설 회피
+- 기조 5 실측 우선: §16.6 commitReservation INV-3 가드 실측·γ(commitReservation 단독) 불가 실증
+
+**구현 시그니처** (D-101 §5 예시 코드 그대로):
+
+    // InventoryService
+    @Transactional
+    public void exchange(Long returnVariantId, int returnQty,
+                         Long newVariantId, int newQty, Long claimId) {
+        Inventory ret = repo.findByVariantIdForUpdate(returnVariantId)...;
+        ret.restoreStock(returnQty);
+        historyRepo.save(InventoryHistory.create(ret, RETURN, returnQty, "claim", claimId, ...));
+
+        Inventory neu = repo.findByVariantIdForUpdate(newVariantId)...;
+        neu.reserve(newQty);            // α 1단계: 예약
+        neu.commitReservation(newQty);  // α 2단계: 확정
+        historyRepo.save(InventoryHistory.create(neu, ORDER, -newQty, "claim", claimId, ...));
+    }
+
+**exchange() Javadoc 의무 1줄**: "EXCHANGE 교환품 신규 발송은 예약 후 즉시 확정 패턴 (α·D-101 §5 갱신)·commitReservation INV-3 가드 자연 흡수·기조 4 정합·§7 InventoryHistoryChangeType.ADJUST 명명 충돌 회피."
+
+**restoreStock type 가드 확장 확정**: 기존 InventoryService.restoreStock의 CANCEL/RETURN 가드는 무변경 유지. exchange() 내부 회수는 restoreStock 재사용 없이 직접 `Inventory.restoreStock(qty)` + `InventoryHistoryChangeType.RETURN` History 기록으로 처치 (Service 가드 우회는 InventoryService 내부 단독 메서드 exchange()에서만 허용·외부 Service 미노출).
+
+**기각**:
+- β deductDirectly 신규 메서드: 신규 도메인 행위·명명 논쟁·기조 4 위배·기각
+- γ commitReservation 단독: §16.6 INV-3 가드 실측 위반·기각
+
+**관련 결정**: D-101 §5 (예시 코드 SoT)·§7 (InventoryHistory Immutable)·§16.6 recon-report.md 실측·기조 4·5.
+
 #### §6 4 핸들러 멱등 패턴 — γ 이중 방어 + D-100 Q1 패턴 A 보강 (Q5)
 
 **채택**: γ 핸들러 1차 가드 + 도메인 2차 가드 이중 방어.
@@ -5632,9 +5682,9 @@ public void exchange(Long returnVariantId, int returnQty,
 | 이벤트 | 핸들러 1차 가드 (패턴 B) | 도메인 2차 가드 (invariant throw) |
 |---|---|---|
 | E1 | OrderItem.item_status != ORDERED면 skip | `reserve` invariant 위반 시 throw |
-| E2 | OrderItem.item_status == PAID(이미 차감 완료)면 skip | `commitReservation` 내 reserved < qty면 throw |
+| E2 | 1차 가드 없음 (PAY-3b UNIQUE + D-100 Q2 인메모리 publisher 이중 방어) | commitReservation 내 INV-3·INV-4 위반 시 throw |
 | E3 | orderId 재조회 후 잔여 reserved == 0이면 skip | `release` invariant 위반 시 throw |
-| E9 | claimId 재조회 후 OrderItem.item_status 종결값(CANCELLED·RETURNED·EXCHANGED)이면 skip | type별 도메인 행위 invariant 위반 시 throw |
+| E9 | InventoryHistoryRepository.existsByReferenceTypeAndReferenceId("claim", claimId) true면 skip (순서 독립·D-100 Q9 γ 정합) | type별 도메인 행위 invariant 위반 시 throw |
 
 **계층 책임 분리**:
 - **Handler**: 멱등 (재실행 안전성)
@@ -5651,6 +5701,33 @@ public void exchange(Long returnVariantId, int returnQty,
 근거: 도메인 invariant(reserved < qty throw)를 패턴 A로 흡수하면 카탈로그 경계 흐려짐. 불변식은 멱등 패턴 카탈로그에 포함하지 않음. 핸들러 멱등(B)과 도메인 불변식(throw + catch 책임)을 분리.
 
 **적용**: D-100 본문 Q1 절 패턴 A 정의 1줄 갱신 (별도 박제 PR 또는 Track 17 PR-A에 동반).
+
+#### §6 갱신 (2026-07-01·라이브 트랩 발견·PR-B 구현 진입 전 정정)
+
+**발견**: PR-B 구현 진입 전 Claude Code 실측 정찰에서 §6 원안 E2·E9 1차 가드가 실제 이벤트 흐름과 충돌 확인.
+
+**E2 원안 문제 (P0)**: PaymentService.publishEvent → OrderEventHandler @EventListener (동일 TX·동기) → markPaid → 커밋 전 OrderItem PAID 전이. InventoryPaymentCompletedHandler는 AFTER_COMMIT 실행이므로 실행 시점에 모든 item 이미 PAID. "PAID면 skip" 원안 → 항상 skip → commitReservation 영구 미실행 (데드코드).
+
+**E2 정정 (A′ 채택)**: 1차 가드 제거. 재전달 방어선 이중화:
+- Payment 레벨: PAY-3b UNIQUE (pg_provider·pg_tid)로 PG 콜백 재수신 차단
+- 이벤트 레벨: D-100 Q2 γ at-most-once 인메모리 publisher
+- 도메인 레벨: commitReservation INV-3 backstop
+→ 인메모리 publisher 환경에서 이벤트 재전달 자연 발생 불가·PAY-3b 이중 방어 충분.
+
+**E3 원안 유지 확인 (2026-07-01·§4 갱신 동반)**: E3 1차 가드 "잔여 reserved == 0 skip"은 원안 유지·InventoryRepository.findByVariantId read-only 조회 사용·§4 갱신 (read-only 2 예외) 정합.
+
+**E9 원안 문제 (P1)**: InventoryClaimCompletedHandler와 기존 ClaimCompletedHandler 양자 AFTER_COMMIT 소비·`@Order` 0건 실측. ClaimCompletedHandler가 먼저 실행 시 OrderItem 종결 상태 진입 → InventoryClaimCompletedHandler skip → 재고 복구 누락. 순서 비결정적 라이브 레이스.
+
+**E9 정정 (A 채택)**: InventoryHistoryRepository.existsByReferenceTypeAndReferenceId("claim", claimId) 신규 메서드로 History 기반 멱등 가드. 형제 핸들러 순서 독립·완전 멱등.
+
+**기각**:
+- E9 옵션 B (@Order 강제): D-100 Q9 γ "AFTER_COMMIT 핸들러 간 실행 순서 비보장·핸들러 간 의존성 부재" 박제 위배·형제 Aggregate 핸들러 순서 강결합·기각.
+
+**Outbox 도입 시 재평가**: D-100 Q2 트리거 충족 시점에 E2 1차 가드 재도입 필요성 재평가 (인메모리 publisher 가정 종료 시).
+
+**D-100 Q1 카탈로그 보강 후속**: 패턴 B 세분 (B-1 상태 기반·B-2 History 기반)은 D-100 본문 갱신 시 흡수 (별도 트랙·본 트랙 OOS·기조 3).
+
+**본 트랩 라이브 트랩 카탈로그 이관 판단**: 단건 트랩·설계 결정 미스매치 성격·CI 미탐지 표면화 성격 아님·D-82 임계 미도달·decisions.md 단건 박제 유지·live-traps.md 이관 불요.
 
 #### §7 InventoryHistory `@Immutable` (Q6)
 
