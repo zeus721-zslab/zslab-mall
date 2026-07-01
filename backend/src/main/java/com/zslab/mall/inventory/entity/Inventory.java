@@ -122,6 +122,35 @@ public class Inventory extends AbstractFullAuditableEntity {
         recalculateAvailable();
     }
 
+    /**
+     * 운영자 수동 재고를 조정한다(Track 21 D-105 §4·InventoryHistoryChangeType.ADJUST). quantityDelta만큼 on_hand를
+     * 증감한 뒤 available를 재계산한다. 감소(delta&lt;0) 시 실물 부족(INV-4)·가용 음수(INV-1)를 각각 차단하며, delta=0은
+     * 무의미 조정이므로 거부한다. 증가(delta&gt;0)는 {@link #restoreStock}과 동일하게 INV-1·INV-4가 자연 정합한다.
+     * 계산·검증 후 mutate하여 위반 시 상태를 보존한다({@link #reserve} 패턴 정합).
+     *
+     * @throws IllegalArgumentException quantityDelta가 0일 때
+     * @throws InventoryInvariantViolationException 조정 결과 실물(INV-4) 또는 가용(INV-1)이 음수일 때
+     */
+    public void adjustStock(int quantityDelta) {
+        if (quantityDelta == 0) {
+            throw new IllegalArgumentException("adjustStock: quantityDelta는 0이 아니어야 합니다.");
+        }
+        int projectedOnHand = quantityOnHand + quantityDelta;
+        if (projectedOnHand < 0) {
+            throw new InventoryInvariantViolationException(
+                    "불법 재고 조정·실물 부족: variantId=" + variantId + ", delta=" + quantityDelta
+                            + ", 실물=" + quantityOnHand);
+        }
+        int projectedAvailable = projectedOnHand - quantityReserved;
+        if (projectedAvailable < 0) {
+            throw new InventoryInvariantViolationException(
+                    "불법 재고 조정·가용 부족: variantId=" + variantId + ", delta=" + quantityDelta
+                            + ", 가용=" + quantityAvailable + ", 조정후가용=" + projectedAvailable);
+        }
+        quantityOnHand = projectedOnHand;
+        recalculateAvailable();
+    }
+
     /** available = on_hand - reserved. 가용 재고 재계산은 도메인 내부가 전담한다(D-101 §2 캡슐화). */
     private void recalculateAvailable() {
         quantityAvailable = quantityOnHand - quantityReserved;
