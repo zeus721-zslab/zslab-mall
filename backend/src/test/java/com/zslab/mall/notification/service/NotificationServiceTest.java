@@ -2,7 +2,9 @@ package com.zslab.mall.notification.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.zslab.mall.claim.entity.Claim;
@@ -12,6 +14,8 @@ import com.zslab.mall.claim.event.ClaimApproved;
 import com.zslab.mall.claim.event.ClaimCompleted;
 import com.zslab.mall.claim.repository.ClaimRepository;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
+import com.zslab.mall.common.observability.NotificationDispatchMetricsRecorder;
+import com.zslab.mall.notification.adapter.NotificationSender;
 import com.zslab.mall.notification.entity.NotificationLog;
 import com.zslab.mall.notification.enums.NotificationChannel;
 import com.zslab.mall.notification.enums.NotificationLogStatus;
@@ -54,6 +58,10 @@ class NotificationServiceTest {
     private OrderItemRepository orderItemRepository;
     @Mock
     private ClaimRepository claimRepository;
+    @Mock
+    private NotificationSender notificationSender;
+    @Mock
+    private NotificationDispatchMetricsRecorder notificationDispatchMetricsRecorder;
     @InjectMocks
     private NotificationService notificationService;
 
@@ -73,9 +81,11 @@ class NotificationServiceTest {
         assertThat(saved.getTemplateCode()).isEqualTo(NotificationTemplateCodes.ORDER_PLACED);
         assertThat(saved.getTargetType()).isEqualTo(PolymorphicTargetType.ORDER);
         assertThat(saved.getTargetId()).isEqualTo(ORDER_ID);
-        assertThat(saved.getStatus()).isEqualTo(NotificationLogStatus.PENDING);
+        assertThat(saved.getStatus()).isEqualTo(NotificationLogStatus.SENT);
         assertThat(saved.getTitle()).isEqualTo("주문 접수");
         assertThat(saved.getContent()).contains("ord_pub1");
+        // 성공 발송 경로에서는 실패 계측이 발생하지 않는다(중복/오발화 회귀 가드).
+        verifyNoInteractions(notificationDispatchMetricsRecorder);
     }
 
     @Test
@@ -105,6 +115,7 @@ class NotificationServiceTest {
         assertThat(saved.getTargetId()).isEqualTo(ORDER_ID);
         assertThat(saved.getTitle()).isEqualTo("결제 완료");
         assertThat(saved.getContent()).contains("12000");
+        verifyNoInteractions(notificationDispatchMetricsRecorder);
     }
 
     @Test
@@ -134,6 +145,7 @@ class NotificationServiceTest {
         assertThat(saved.getTargetId()).isEqualTo(CLAIM_ID);
         assertThat(saved.getTitle()).isEqualTo("클레임 승인");
         assertThat(saved.getContent()).contains("clm_pub1");
+        verifyNoInteractions(notificationDispatchMetricsRecorder);
     }
 
     @Test
@@ -172,6 +184,7 @@ class NotificationServiceTest {
         assertThat(saved.getTargetType()).isEqualTo(PolymorphicTargetType.CLAIM);
         assertThat(saved.getTargetId()).isEqualTo(CLAIM_ID);
         assertThat(saved.getTitle()).isEqualTo("클레임 완료");
+        verifyNoInteractions(notificationDispatchMetricsRecorder);
     }
 
     @Test
@@ -206,7 +219,8 @@ class NotificationServiceTest {
 
     private NotificationLog captureSaved() {
         ArgumentCaptor<NotificationLog> captor = ArgumentCaptor.forClass(NotificationLog.class);
-        verify(notificationLogRepository).save(captor.capture());
+        // dispatch 분리(Track 19): save()의 PENDING 적재 + dispatch()의 SENT/FAILED 재저장으로 save는 정확히 2회 호출된다.
+        verify(notificationLogRepository, times(2)).save(captor.capture());
         return captor.getValue();
     }
 }
