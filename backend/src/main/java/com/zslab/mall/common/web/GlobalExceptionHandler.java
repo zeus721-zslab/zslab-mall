@@ -14,6 +14,7 @@ import com.zslab.mall.order.exception.OrderNotPayableException;
 import com.zslab.mall.payment.exception.InvalidCallbackException;
 import com.zslab.mall.payment.exception.PaymentAlreadyCompletedException;
 import com.zslab.mall.payment.exception.PaymentInProgressException;
+import com.zslab.mall.product.exception.ProductVariantNotFoundException;
 import com.zslab.mall.refund.exception.RefundInvariantViolationException;
 import com.zslab.mall.refund.exception.RefundNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -59,6 +60,7 @@ public class GlobalExceptionHandler {
     private static final String CODE_REFUND_INVARIANT_VIOLATION = "REFUND_INVARIANT_VIOLATION";
     private static final String CODE_CLAIM_NOT_FOUND = "CLAIM_NOT_FOUND";
     private static final String CODE_DELIVERY_NOT_FOUND = "DELIVERY_NOT_FOUND";
+    private static final String CODE_PRODUCT_VARIANT_NOT_FOUND = "PRODUCT_VARIANT_NOT_FOUND";
     private static final String CODE_CLAIM_STATE_INVALID = "CLAIM_STATE_INVALID";
     private static final String CODE_INVENTORY_INVARIANT_VIOLATION = "INVENTORY_INVARIANT_VIOLATION";
     private static final String CODE_INTERNAL_ERROR = "INTERNAL_ERROR";
@@ -119,6 +121,13 @@ public class GlobalExceptionHandler {
             DeliveryNotFoundException exception, HttpServletRequest request) {
         // Track 20 D-104 §5: Admin mark-delivered 시 deliveryPublicId 미존재(404). 500 fallback으로 새는 트랩 차단.
         return build(HttpStatus.NOT_FOUND, CODE_DELIVERY_NOT_FOUND, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(ProductVariantNotFoundException.class)
+    public ResponseEntity<ProblemDetail> handleProductVariantNotFound(
+            ProductVariantNotFoundException exception, HttpServletRequest request) {
+        // Track 21 D-105 §5: Admin 재고 조정 시 variantPublicId 미존재(404). 500 fallback으로 새는 트랩 차단.
+        return build(HttpStatus.NOT_FOUND, CODE_PRODUCT_VARIANT_NOT_FOUND, exception.getMessage(), request);
     }
 
     // ===== 409 =====

@@ -96,4 +96,22 @@ public class InventoryService {
         inventoryHistoryRepository.save(
                 InventoryHistory.create(newInventory, InventoryHistoryChangeType.ORDER, -newQty, "claim", claimId, null));
     }
+
+    /**
+     * 운영자 수동 재고를 조정한다(Track 21 D-105 §4·InventoryHistoryChangeType.ADJUST 진입점). on_hand 변동이므로 History를
+     * quantity_delta 부호 그대로 기록한다(M-11·D-101 §11). referenceType은 운영자 조정을 표기하는 {@code "admin"}이며 특정
+     * 주문·클레임 참조가 없으므로 referenceId는 null이다. 응답 조립(after 수치)을 위해 조정된 Inventory를 반환한다
+     * (Controller 재조회 회피·{@code registerExchangeShipmentByAdmin} 엔티티 반환 패턴 정합·recon §7).
+     *
+     * @throws InventoryInvariantViolationException Inventory 미존재 또는 조정 결과 불변조건(INV-1·INV-4) 위반 시
+     * @throws IllegalArgumentException quantityDelta가 0일 때
+     */
+    public Inventory adjustStock(Long variantId, int quantityDelta, String reason) {
+        Inventory inventory = inventoryRepository.findByVariantIdForUpdate(variantId)
+                .orElseThrow(() -> new InventoryInvariantViolationException("Inventory 미존재: variantId=" + variantId));
+        inventory.adjustStock(quantityDelta);
+        inventoryHistoryRepository.save(
+                InventoryHistory.create(inventory, InventoryHistoryChangeType.ADJUST, quantityDelta, "admin", null, reason));
+        return inventory;
+    }
 }
