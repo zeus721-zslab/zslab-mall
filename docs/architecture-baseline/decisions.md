@@ -6537,9 +6537,9 @@ D-94 Q3(L3658-3665)은 "Admin 수동 환불 생성 endpoint는 본 트랙에 병
 
 #### §9 실측 검증
 
-- (커밋 후 갱신) tests PASS (baseline 508 + 신규 4 = 512·failures 0·errors 0·skipped 0·회귀 0건)·2026-07-02 로컬 실측(`./gradlew.bat test`)
+- 512 tests PASS (baseline 508 + 신규 4·112 suites·failures 0·errors 0·skipped 0·회귀 0건)·2026-07-02 로컬 실측(`./gradlew.bat cleanTest test`·2m 56s)
 - 빌드툴: Gradle(`backend/gradlew.bat`)·Maven·pom.xml 부재(D-105 §9 정합)
-- 신규 T1(401)·T2(200 PENDING+pgRefundId)·T3(404)·T4(422 CLM-3 롤백) 컨테이너 실측
+- 신규 T1(401 UNAUTHENTICATED)·T2(200 PENDING+pgRefundId·Refund 1행 커밋)·T3(404 CLAIM_NOT_FOUND)·T4(422 CLAIM_STATE_INVALID·Refund 0행 롤백) 컨테이너 실측·refund 도메인 이벤트 0 단언
 - production compileJava·test compileTestJava BUILD SUCCESSFUL
 - 브랜치: `feat/track-22-refund-admin-initiate` (docs·feat·test 3-split·push는 명시 지시 대기)
 
