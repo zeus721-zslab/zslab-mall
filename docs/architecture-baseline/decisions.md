@@ -6268,3 +6268,122 @@ Track 20 진입 시 D-102 §9 carry-over(markShipping·markDelivered·일반 주
 
 ---
 
+### D-105: Track 21 재고 조정 adjustStock — Admin 재고 조정 endpoint·ProductVariantNotFoundException 신설·E10 미발행(γ)
+
+**상태**: [확정 2026-07-02]
+
+#### §1 트랙 식별자
+
+Track 21 = Inventory 쓰기 진입점 확산 트랙 (A급). D-101 §13 carry-over "ADJUST 진입점·adjustStock·E10"(D-102 §9·D-103·D-104 §8 이월 유지)를 부분 종결한다. Inventory Aggregate에 운영자 수동 조정 도메인 행위 `adjustStock`을 신설하고, InventoryService primitive·`AdminInventoryController` endpoint(`POST /api/v1/admin/inventories/{variantPublicId}/adjust`)·`ProductVariantNotFoundException`(404) 신설로 D-92 wrapper 캡슐화·D-93 AdminActorResolver seam을 재고 도메인으로 확장한다. 정찰 산출물: docs/track-21/recon-report.md (gitignore·판정 집계 PASS 6·WARN 3).
+
+##### §1-A 트랙 범위 확정 근거 (α/β/γ 검토)
+
+D-101 §13 carry-over(adjustStock·E10) 해소 범위 3안 검토:
+
+| # | 범위 안 | 판정 | 근거 |
+|---|---|---|---|
+| α | `adjustStock` 도메인·Service primitive + `AdminInventoryController` + `ProductVariantNotFoundException` (E10 미발행) | **채택** | 최소 범위·A급 유지·회귀 위험 최저·1-PR 단독·Inventory 도메인 행위 4건(reserve·release·commit·restore) SoT 위에 5번째 행위만 얹음·D-92·D-93·옵션 A 패턴 1:1 재사용·기조 1·4 정합 |
+| β | α + E10 `InventoryAdjusted` record 발행 + `NotificationInventoryAdjustedHandler` 신설 | 기각 | E10 알림 recipient 산정 정책 미확립(AdminUser 모델 grep 0건·구매자 1:1 매핑 불가·recon §2)·domain-events.md L171 "알림 연동 불필요하면 미발행 무방한 선택 이벤트" 명시 정합·핸들러 즉시 skip+log 형태는 실효 없는 배선·기조 4 과잉개발 회피 |
+| γ | β + `markInbound`/`markOutbound` Admin wrapper 동반 (INBOUND/OUTBOUND 입출고 진입점) | 기각 | INBOUND/OUTBOUND는 ADJUST와 별개 도메인 행위·입출고 트리거·참조 모델(발주·검수) 결정 파급·범위 급증·A→S급 승격 위험·기조 4 위반·Track 22+ 이연(§8) |
+
+**α 채택 실증** (recon §4·§5·§7):
+- `InventoryHistoryChangeType.ADJUST`는 V1 DDL enum·enum 상수 공히 기존 존재·미사용(D-101 §13 보존) → 도메인 행위만 얹으면 배선 완결
+- `grep publishEvent backend/.../inventory/` → 0건: inventory 패키지는 현재 이벤트 무발행·E10 신설은 신규 배선(TracedEventPublisher 주입·record·handler) 파급 → α는 배선 증분 0
+- E10 recipient FAIL(운영자 userId 부재)·WARN(구매자 다중) → 발행해도 소비처(NotificationLog) 실효 없음 → γ(발행 없음)가 domain-events.md L171 정합
+
+**carry-over 이월**: E10 `InventoryAdjusted` 발행·`NotificationInventoryAdjustedHandler`·`markInbound`/`markOutbound` Admin wrapper는 §8 후속 트랙 박제 의무 표에 Track 22+ 이연 명시.
+
+#### §2 결정 5건 (판단 1~5)
+
+| # | 안건 | 채택 | 근거 |
+|---|---|---|---|
+| Q1 | API 진입 식별자 (variantId Long vs variantPublicId String) | **α variantPublicId** | Admin 선례(claimPublicId·deliveryPublicId) 전건 publicId·`ProductVariantRepository.findByPublicId` 기존 재사용·내부 PK 노출 회피(D-40 §2) |
+| Q2 | base path 처리 | **옵션 A** — 클래스 `@RequestMapping` 없음·메서드 절대경로 | `AdminDeliveryController`(D-104 §3) 옵션 A 선례 1:1·`/api/v1/admin/inventories/...` 신규 리소스 축 |
+| Q3 | E10 InventoryAdjusted 발행 여부 | **γ 미발행** (정찰 1차 α → 재점검 γ 변경) | recipient 산정 정책 미확립·domain-events.md L171 선택 이벤트 명시·기조 4 과잉개발 회피(§1-A β 기각과 동치) |
+| Q4 | E10 알림 recipient 산정 | **γ 자연 소거** | Q3 γ(미발행) 확정으로 recipient 산정 대상 자체가 소거·핸들러·record 전건 미신설 |
+| Q5 | 조회 실패 예외 | **α `ProductVariantNotFoundException` 신설** | Q1 α(variantPublicId) 정합·variant 미존재 404·`ClaimNotFoundException` 1:1 미러·GlobalExceptionHandler 404 매핑 |
+
+**기각**:
+- **Q1 γ (variantId 직접 수신)**: exception 신설 없이 scope 최소이나 내부 PK 노출·Admin 선례 전건 위배. 기각.
+- **Q3 α (E10 발행 채택·정찰 1차안)**: §1-A β 기각 근거와 동일(recipient 실효 없음·선택 이벤트·과잉개발). 재점검 결과 γ로 변경. 기각.
+
+#### §3 판단 1 variantPublicId 진입 경로 상세 (Q1 α)
+
+**경로**:
+
+    variantPublicId → ProductVariantRepository.findByPublicId(publicId) → 미존재 시 ProductVariantNotFoundException(404)
+                    → variant.getId() → InventoryService.adjustStock(variantId, ...) → findByVariantIdForUpdate(비관락)
+
+- Admin 진입점 식별자 일관성: `AdminClaimController`(claimPublicId)·`AdminDeliveryController`(deliveryPublicId·claimPublicId) 전건 publicId → variantPublicId 정합.
+- 비관락 조회는 기존 `InventoryRepository.findByVariantIdForUpdate(Long)` 재사용(신규 쿼리 없음). ProductVariant 조회는 read-only(`findByPublicId`·락 없음)로 id 해소만 담당.
+
+#### §4 adjustStock 도메인 메서드 + Service primitive (Q3 γ)
+
+**Inventory.adjustStock(int quantityDelta)** (평문 들여쓰기·`restoreStock` 이후·`recalculateAvailable` 직전 배치):
+
+    public void adjustStock(int quantityDelta) {
+        if (quantityDelta == 0) { throw new IllegalArgumentException(...); }   // delta=0 무의미 조정 거부
+        int projectedOnHand = quantityOnHand + quantityDelta;
+        if (projectedOnHand < 0) throw InventoryInvariantViolationException(...);        // INV-4 실물 부족
+        int projectedAvailable = projectedOnHand - quantityReserved;
+        if (projectedAvailable < 0) throw InventoryInvariantViolationException(...);      // INV-1 가용 부족
+        quantityOnHand = projectedOnHand; recalculateAvailable();
+    }
+
+- 계산·검증 후 mutate: 위반 시 상태 보존(`reserve` 패턴 정합). 증가(delta>0)는 `restoreStock`과 동일하게 INV-1·INV-4 자연 정합.
+- delta=0 → `IllegalArgumentException` → 400(handleMalformed). INV-1·INV-4 위반 → `InventoryInvariantViolationException` → 422.
+
+**InventoryService.adjustStock(Long variantId, int quantityDelta, String reason): Inventory** (기존 5 메서드 다음):
+- `findByVariantIdForUpdate`(미존재 시 `InventoryInvariantViolationException` 422·기존 5 메서드 패턴 1:1) → `inventory.adjustStock(delta)` → `InventoryHistory.create(ADJUST, quantityDelta, "admin", null, reason)` save.
+- **History**: on_hand 변동이므로 기록(M-11·D-101 §11). `quantity_delta`는 부호 그대로(ORDER의 -qty 변환과 달리 조정은 부호 보존). `referenceType="admin"`(운영자 조정 표기·특정 주문·클레임 참조 부재)·`referenceId=null`(inventory_history.reference_id NULL 허용).
+- **반환 Inventory**: 응답 조립(after 수치)을 위해 조정된 Inventory 반환. `registerExchangeShipmentByAdmin`(엔티티 반환) 패턴 정합. OSIV off에서도 스칼라 필드(on_hand·reserved·available)만 읽으므로 Controller 재조회 불요(`AdminClaimController.toResponse` void+재조회 패턴과 비대칭 정상·recon §7).
+
+#### §5 ProductVariantNotFoundException + 404 매핑 (Q5 α)
+
+- **신규 파일**: `product/exception/ProductVariantNotFoundException.java` (RuntimeException·`ClaimNotFoundException` 1:1 미러·product/exception/ 디렉토리 신설).
+- **GlobalExceptionHandler**(`common/web/`): `@ExceptionHandler(ProductVariantNotFoundException.class)` → 404 `CODE_PRODUCT_VARIANT_NOT_FOUND`(`handleDeliveryNotFound` 선례 미러·상수 신설).
+- **응답 계약**: 미존재 variantPublicId → `404 PRODUCT_VARIANT_NOT_FOUND`. Inventory 미존재(variant는 존재)는 기존 `InventoryInvariantViolationException` 422 재사용(별도 InventoryNotFoundException 미신설·기존 5 메서드 일관성).
+
+#### §6 통합 테스트 T1~T4 (신규 파일)
+
+| # | 시나리오 | 기대 결과 |
+|---|---|---|
+| T1 | X-Admin-Id 헤더 부재 | 401 UNAUTHENTICATED·inventory 도메인 이벤트 0 |
+| T2 | 유효 헤더 + 유효 차감(delta=-3·on_hand 10→7·reserved 2·available 8→5) | 200·InventoryAdjustResponse 정합·DB on_hand 7·available 5·InventoryHistory ADJUST 1행(delta -3·reason·reference_type 'admin')·이벤트 0 |
+| T3 | 미존재 variantPublicId | 404 PRODUCT_VARIANT_NOT_FOUND·이벤트 0 |
+| T4 | 음수 차감(delta=-11)·on_hand 부족 | 422 INVENTORY_INVARIANT_VIOLATION·on_hand·available 롤백 불변·InventoryHistory 0행·이벤트 0 |
+
+- **신규 파일** `inventory/controller/AdminInventoryControllerIntegrationTest`(`@SpringBootTest`+`@AutoConfigureMockMvc`+`@RecordApplicationEvents`·Testcontainers static MariaDB·`AdminDeliveryControllerIntegrationTest` 패턴 1:1).
+- 클래스 `@Transactional` 미부착(adjustStock 커밋을 JdbcTemplate 직접 조회 검증).
+- LT-02 try-finally 재사용·FK 시드 그래프 확장: user→seller→product→product_variant→**inventory**(D-91).
+- **판단 3 γ 회귀 잠금**: `@RecordApplicationEvents`로 inventory 패키지 도메인 이벤트 0건 단언(E10 미발행·향후 오배선 감지 SoT).
+
+#### §7 진입점 카드 (메모리 룰 #16 적용 7회차)
+
+| # | 항목 | 내용 |
+|---|---|---|
+| 1 | **목적** | Inventory 운영자 수동 조정 도메인 행위·Admin 재고 조정 endpoint 신설·variant 404 예외 신설·D-101 §13 carry-over(adjustStock) 부분 종결 |
+| 2 | **핵심 진입점** | `inventory/entity/Inventory.java`(`adjustStock` 도메인 신설) · `inventory/service/InventoryService.java`(`adjustStock` primitive 신설·Inventory 반환) · `inventory/controller/AdminInventoryController.java`(신설·옵션 A) · `inventory/controller/request/AdminInventoryAdjustRequest.java`·`inventory/controller/response/InventoryAdjustResponse.java`(신설) · `product/exception/ProductVariantNotFoundException.java`(신설) · `common/web/GlobalExceptionHandler.java`(404 매핑) |
+| 3 | **핵심 SoT** | `Inventory.adjustStock(int)` — delta=0 거부·INV-4·INV-1 가드·계산후 mutate(상태 보존) · `InventoryService.adjustStock(Long,int,String):Inventory` — findByVariantIdForUpdate·History ADJUST(부호 보존·reference_type "admin"·reference_id null) · `ProductVariantNotFoundException` — 404·`ClaimNotFoundException` 미러 · 옵션 A 메서드 절대경로 · Inventory 반환→Controller 재조회 불요 |
+| 4 | **영향 범위** | Inventory Aggregate 단독 · 패키지 inventory/entity·service·controller(+request·response)·product/exception·common/web · 신규 파일 5건(Controller·Request·Response·Exception·통합테스트) + 수정 3건(Inventory +1도메인·InventoryService +1메서드·GlobalExceptionHandler +1핸들러+1상수+1import) · Flyway 무(ADJUST enum·inventory_history 기존)·E10 이벤트·핸들러 무(γ) |
+| 5 | **패턴 재사용 SoT** | D-92(primitive actor 비의존)·D-93(AdminActorResolver seam·X-Admin-Id stub) 재사용 7회차 · 옵션 A(메서드 절대경로) 2회차 · `ClaimNotFoundException`→404 미러 · `registerExchangeShipmentByAdmin` 엔티티 반환(재조회 회피) 패턴 · InventoryService findByVariantIdForUpdate 5→6 메서드 · LT-02 try-finally · 1-PR 단독(내부 3-split) 13회차 |
+| 6 | **트랩 주의** | LT-01 비해당(신규 Entity 무) · LT-02 통합 테스트 try-finally 의무 · **referenceType 비-null 트랩**: inventory_history.reference_type NOT NULL → "admin" 리터럴 공급 필수(누락 시 IllegalArgumentException) · **delta=0 400 vs INV 위반 422 구분**: Bean Validation은 delta=0 미차단(표준 @NotZero 부재·커스텀 금지)·도메인에서 400 처리 · **γ 미발행 회귀**: @RecordApplicationEvents inventory 이벤트 0 단언으로 향후 E10 오배선 감지 |
+
+#### §8 후속 트랙 박제 의무 (carry-over)
+
+| 항목 | 처치 | 이연 |
+|---|---|---|
+| E10 `InventoryAdjusted` record 발행 + `NotificationInventoryAdjustedHandler` | recipient 산정 정책(AdminUser 모델 or 구매자 브로드캐스트) 확립 후·domain-events.md L171 선택 이벤트 | Track 22+ |
+| `markInbound`/`markOutbound` Admin wrapper (INBOUND/OUTBOUND 입출고 진입점) | 입출고 트리거·참조 모델(발주·검수) 설계 트랙 SoT 확인 후 | Track 22+ |
+| `InventoryService` TracedEventPublisher 주입 | E10 발행 채택(위 항목) 시 동반(현재 발행 무·미주입) | Track 22+ |
+
+#### §9 실측 검증
+
+- 508 tests PASS (기존 504 + 신규 4·failures 0·errors 0·skipped 0·회귀 0건)·2026-07-02 로컬 실측(커밋 전 검증·`./gradlew test`)
+- 빌드툴 실측: 본 프로젝트는 Gradle(`backend/gradlew.bat`)·전 트랙 전건 `./gradlew test` 사용(Maven·pom.xml 부재)
+- 신규 T1(401)·T2(200 유효 차감·on_hand 7·available 5·InventoryHistory ADJUST 1행)·T3(404)·T4(422 INV-4 롤백) 컨테이너 실측 통과
+- production compileJava·test compileTestJava BUILD SUCCESSFUL
+- 브랜치: `feat/track-21-adjust-stock` (docs·feat·test 3-split·push는 명시 지시 대기)
+
+---
+
