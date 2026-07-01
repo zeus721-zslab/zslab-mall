@@ -6387,3 +6387,172 @@ D-101 §13 carry-over(adjustStock·E10) 해소 범위 3안 검토:
 
 ---
 
+### D-106: Track 22 AdminRefundController initiateByAdmin wrapper — 운영자 수동 환불 개시 endpoint·옵션 A·범위 α(생성 단독·보정 이연)
+
+**상태**: [확정 2026-07-02]
+
+#### §1 트랙 식별자·목적
+
+Track 22 = Refund Admin 진입점 확산 트랙 (A급). 환불 개시 primitive `RefundService.initiate`(L85)에 운영자 actor wrapper `initiateByAdmin`를 신설하고, `AdminRefundController`(옵션 A) + `POST /api/v1/admin/claims/{claimPublicId}/initiate-refund` endpoint를 확립해 D-92 wrapper 캡슐화·D-93 AdminActorResolver seam을 Refund 도메인으로 확장한다. 자동 트리거(`ClaimApprovedHandler`·`ClaimPickedUpHandler`)가 PG 장애·도메인 위반으로 실패해 Claim이 환불 없이 APPROVED로 잔존할 때(D-94 Q8·recon §1-1), 운영자가 동일 Claim에 대해 환불을 수동 재개시하는 fallback 경로를 확립한다. 정찰 산출물: docs/track-22/recon-report.md.
+
+근거 계승: D-92(primitive actor 비의존·wrapper 캡슐화)·D-93(AdminActorResolver·X-Admin-Id stub)·D-94 Q8(운영자/Job 재 initiate 허용)·D-104·D-105(옵션 A·A급 최소 범위·1-PR 3-split).
+
+##### §1-A 트랙 범위 확정 근거 (α/β/γ 검토)
+
+D-94 Q3이 Track 11에서 이연한 "Admin 수동 환불 생성 endpoint"(L3660) 해소 범위 3안 검토:
+
+| # | 범위 안 | 판정 | 근거 |
+|---|---|---|---|
+| α | `AdminRefundController` + `initiateByAdmin` wrapper 단독 (생성 endpoint) | **채택** | 최소 범위·A급 유지·회귀 위험 최저·1-PR 단독·`RefundService.initiate` SoT(CLM-3·PAY-1 사전·멱등 게이트·D-67 FAILED 전이 기구현) 위에 wrapper만 얹음·D-92·D-93·옵션 A 1:1 재사용·기조 1·4 정합·D-94 Q8 재 initiate 명문 허용 |
+| β | α + Payment wrapper(`markCancelledByAdmin` 등) 동시 신설 | 기각 | Admin이 Payment.status를 수동 보정하는 시나리오 실측 근거 부재(recon §1·§7 Payment wrapper 대상 실측 없음)·Refund.COMPLETED 후 Payment CANCELLED는 `PaymentRefundCompletedHandler` 자동 전이로 이미 배선(recon §6-2)·수동 Payment 개입은 별도 도메인 결정 파급·기조 4 위반 |
+| γ | β + `PaymentNotFoundException` 동반 신설 | 기각 | β 종속(Payment wrapper 없으면 신규 예외 소비처 부재)·404 경로 실체 없는 dead exception·기조 4 위반 |
+
+**α 채택 실증** (실측·recon §1-1·§1-5):
+- `RefundService.initiate(Long, long)`(L85)는 자동 트리거 2개 핸들러가 이미 호출하는 완성 primitive → wrapper만 얹으면 Admin 진입 완결(배선 증분 0)
+- 자동 트리거 실패 시 Claim은 APPROVED로 잔존(CLM-3·상태 환원 없음·recon §1-1) → 동일 Claim 재-initiate가 유일한 운영 복구 경로(D-94 Q8)
+- 멱등 게이트(initiate L95-101)가 중복 개시를 자연 차단(활성 PENDING/COMPLETED 존재 시 기존 행 no-op 반환) → Admin 재시도 안전
+
+**D-94 Q3 조정 (생성/보정 분리·해석 1)**:
+D-94 Q3(L3658-3665)은 "Admin 수동 환불 생성 endpoint는 본 트랙에 병존시키지 않는다"며 생성(initiate)과 보정(markFailed·RefundAdjustment)을 한 덩어리로 Track 11 밖으로 이연했다. "본 트랙에"(L3660)는 Track 11 **범위** 한정이며 영구 금지가 아니다. Track 22가 그 이연 대상 후속 트랙이며, Q3이 묶어둔 둘을 분리해 **생성(initiate)만** 채택한다:
+- **생성 채택**: D-94 Q8(L3704) "재시도 허용(운영자/Job 재 initiate·RFN-2)"·D-92 Q8(L3456) "Refund 생성(Admin/Job)" 운영 절차 명문 → 신규 PENDING 행 생성은 허용 행위.
+- **보정 이연**: state-machine §8 L274 "운영자 수동 보정 권한 없음"은 기존 Refund 행의 status 강제 전이(markFailed·markCompleted)에만 유효 → `markFailedByAdmin`은 §8 carry-over로 이연(판단 3).
+- Q3의 이연 근거(L274·RefundAdjustment 종속)는 **보정에 유효·생성에는 과잉 적용**이었음을 본 조정으로 명문화한다.
+
+**carry-over 이월**: `markFailedByAdmin`·Payment wrapper·`PaymentNotFoundException`은 §8 후속 트랙 박제 의무 표에 Track 23+ 이연 명시.
+
+#### §2 결정 5건 (판단 1~5)
+
+| # | 안건 | 채택 | 근거 |
+|---|---|---|---|
+| 판단 1 | 트랙 범위 (α/β/γ) | **α 생성 단독** | §1-A·D-94 Q8·기조 4·A급 최소 범위 |
+| 판단 2 | Refund primitive wrapper 대상 (initiateByAdmin / markFailedByAdmin / 둘 다) | **A `initiateByAdmin` 단독** | ① D-94 Q3(L3660 "본 트랙에" 범위 한정·생성/보정 분리) ② D-94 Q8(L3704 재 initiate 허용) ③ D-92 Q8(L3456 Refund 생성 Admin/Job 운영 절차) ④ state-machine §8 L274(보정 금지 → markFailedByAdmin 이연) |
+| 판단 3 | `markFailedByAdmin` 동반 여부 | **이연 (Track 23+)** | state-machine §8 L274 "운영자 수동 보정 권한 없음" 정면 충돌·RefundAdjustment(D안) 트랙 종속·`markFailed`는 기존 행 status 강제 전이(보정)로 생성과 도메인 성격 상이 |
+| 판단 4 | Payment wrapper(`markCancelledByAdmin`) 동반 여부 | **이연 (Track 23+)** | Admin Payment 수동 보정 시나리오 실측 근거 부재·Refund.COMPLETED→Payment CANCELLED 자동 배선 기존재(`PaymentRefundCompletedHandler`)·β 기각과 동치 |
+| 판단 5 | `PaymentNotFoundException` 동반 여부 | **이연 (Track 23+)** | 판단 4 종속·소비처 없는 dead exception·γ 기각과 동치 |
+
+**판단 2 근거 상세 (D-94 내부 정합·해석 1)**: D-94 Q3은 생성(initiate)과 보정(markFailed)을 한 덩어리로 이연하며 근거로 state-machine L274·RefundAdjustment를 들었으나, 그 근거는 **보정에만 유효**하다. 생성(신규 PENDING 행)은 동일 결정 D-94 Q8이 "운영자/Job 재 initiate 허용"으로 명문 허용하고 D-92 Q8이 "Refund 생성(Admin/Job)"을 운영 절차로 박제한 행위다. Track 22는 Q3의 "본 트랙에"(Track 11 범위 한정) 이연을 후속 트랙에서 종결하되, Q3이 과잉 결합한 생성/보정을 분리해 생성만 채택하고 보정은 L274 준수로 판단 3 이연한다. D-104(markDelivered·D-102 §9)·D-105(adjustStock·D-101 §13)가 각자 트랙에서 carry-over를 종결한 선례와 1:1.
+
+**기각**:
+- **판단 2 "둘 다"(initiateByAdmin + markFailedByAdmin)**: markFailedByAdmin은 state-machine L274 정면 충돌·범위 확대·A급 이탈. 기각.
+- **판단 1 β·γ**: §1-A 표 근거. 기각.
+
+#### §3 base path 옵션 A 상세 (실측 6)
+
+**실측 6 결과**: `AdminClaimController`(claim/controller/AdminClaimController.java L30-31)는 클래스 레벨 `@RequestMapping("/api/v1/admin/claims")` **보유** → 옵션 A 아님(별도 패턴). 옵션 A 선례는 `AdminInventoryController`·`AdminDeliveryController`(recon §2·클래스 `@RequestMapping` 없음·메서드 절대경로).
+
+**채택**: 옵션 A(`AdminInventoryController`·`AdminDeliveryController` 1:1) — 클래스 `@RestController` 단독·메서드 절대경로.
+
+    @RestController
+    public class AdminRefundController {
+        @PostMapping("/api/v1/admin/claims/{claimPublicId}/initiate-refund")
+        ...
+    }
+
+| endpoint | 절대경로 |
+|---|---|
+| initiate-refund (신규) | `POST /api/v1/admin/claims/{claimPublicId}/initiate-refund` |
+
+**라우팅 충돌 검토**: `AdminClaimController`가 `.../{claimPublicId}/approve`·`/reject`(L51·L62)를 소유하나 신설 `.../initiate-refund`는 full path 상이 → Spring handler mapping 충돌 없음(서로 다른 구체 경로·서로 다른 컨트롤러 정상). claimPublicId 리소스 축을 공유하되 Refund 개시라는 별도 행위 축이므로 별도 컨트롤러 응집 정합(Refund는 Claim 종속 Aggregate·aggregate-boundary §2.5).
+
+#### §4 initiateByAdmin wrapper (D-92 wrapper 패턴·D-104 §4 3회차)
+
+**구현 형식** (평문 들여쓰기·`initiate`(L85) 하단 인접):
+
+    // RefundService (initiate 다음)
+    public Refund initiateByAdmin(Long claimId, long amount) {
+        return initiate(claimId, amount);
+    }
+
+- primitive `initiate(Long, long)` 1:1 위임·actor 파라미터 비수신(D-92 원칙·`initiate`가 이미 actor 비의존 시그니처).
+- **`@Transactional` 미부여**: 실측 결과 `RefundService` 클래스 레벨 `@Transactional`(L43) 보유·`initiate`(L85) 메서드 어노테이션 없음 → wrapper도 클래스 레벨 프록시가 커버(별도 부여 불요·중복 회피).
+- 반환형 `Refund`: primitive가 엔티티 반환 → wrapper도 반환·Controller가 DTO 조립(`registerExchangeShipmentByAdmin`·`InventoryService.adjustStock` 엔티티 반환 패턴 정합·`AdminClaimController.toResponse` void+재조회와 비대칭 정상).
+- **Controller 재조회 불요**: 반환 `Refund`의 스칼라 필드(publicId·status·amount·pgRefundId)만 응답에 읽으므로 OSIV off에서도 재조회 불필요(D-105 §4 Inventory 반환 패턴 정합).
+
+**Javadoc 필수 기재** (D-94 Q8 원문 인용·admin 진입·자동 트리거 실패 fallback):
+- "운영자/Job 재 initiate 허용"(D-94 Q8) 원문 인용
+- 자동 트리거(`ClaimApprovedHandler`·`ClaimPickedUpHandler`) PG 장애·도메인 위반 실패 시 fallback 시나리오
+- 멱등 게이트로 중복 개시 no-op 반환(재시도 안전)
+
+#### §5 DTO 확정 (실측 1·실측 5)
+
+**AdminRefundInitiateRequest** (refund/controller/request/):
+
+    public record AdminRefundInitiateRequest(long amount) {
+    }
+
+- `long amount` 단일 필드·**Bean Validation 없음**. 근거: `RefundService.initiate` L89-91 `if (amount < 1) throw new IllegalArgumentException`·GlobalExceptionHandler L79-83 `IllegalArgumentException` → 400 MALFORMED_REQUEST 기존 매핑 → amount ≤ 0은 도메인 검증이 400 처리(`AdminInventoryAdjustRequest.quantityDelta` 무검증 1:1·recon §3-1).
+
+**AdminRefundInitiateResponse** (refund/controller/response/·실측 1 기반 5필드):
+
+    public record AdminRefundInitiateResponse(
+            String refundPublicId,
+            String claimPublicId,
+            RefundStatus status,
+            Long amount,
+            String pgRefundId) {
+        public static AdminRefundInitiateResponse from(String claimPublicId, Refund refund) {
+            return new AdminRefundInitiateResponse(
+                    refund.getPublicId(), claimPublicId, refund.getStatus(),
+                    refund.getAmount(), refund.getPgRefundId());
+        }
+    }
+
+- 필드 매핑 실측 근거(Refund.java): `refundPublicId=getPublicId()`(상속 AbstractPublicIdFullAuditableEntity L39·String)·`status=getStatus()`(L61·RefundStatus raw enum·ClaimResponse L19 정합)·`amount=getAmount()`(L57·Long boxed)·`pgRefundId=getPgRefundId()`(L64·nullable·length 100·PG 예외 시 null)·`claimPublicId`는 from() 인자(Controller path variable).
+- `from(String claimPublicId, Refund refund)` 팩토리: `InventoryAdjustResponse.from(String, Inventory)` 시그니처 패턴 1:1(recon §3-2).
+
+#### §6 통합 테스트 T1~T4 (신규 파일)
+
+| # | 시나리오 | 기대 결과 |
+|---|---|---|
+| T1 | X-Admin-Id 헤더 부재 | 401 UNAUTHENTICATED·이벤트 0·시드 불요 |
+| T2 | 유효 헤더 + APPROVED Claim + PAID Payment + 유효 amount | 200·status=PENDING·refundPublicId(rfn_)·pgRefundId NOT NULL·DB Refund 1행 커밋·이벤트 0 |
+| T3 | 미존재 claimPublicId | 404 CLAIM_NOT_FOUND·이벤트 0 |
+| T4 | APPROVED 아닌 Claim (REQUESTED) | 422 CLAIM_STATE_INVALID·Refund 0행 롤백·이벤트 0 |
+
+- **신규 파일** `refund/controller/AdminRefundControllerIntegrationTest`(`@SpringBootTest`+`@AutoConfigureMockMvc`+`@RecordApplicationEvents`·Testcontainers static MariaDB(mariadb:11.4)·`AdminInventoryControllerIntegrationTest` 패턴 1:1·recon §4 SoT).
+- 클래스 `@Transactional` 미부착(initiate 커밋을 JdbcTemplate 직접 조회 검증·MockMvc HTTP 경유 의무·primitive 직접 호출 금지).
+- LT-02 try-finally SET FOREIGN_KEY_CHECKS 0/1 재사용·FK 부모 그래프: user→seller→product→product_variant→order→order_item→claim(APPROVED)→payment(PAID).
+- **이벤트 0 단언**: initiate 성공 경로는 PENDING 반환·`RefundCompleted`는 markCompleted에서만 누적(Refund.java L137)·initiate 경로 이벤트 발행 없음(recon §6-3) → `@RecordApplicationEvents` 0건 단언.
+- T2 성공 전제: initiate가 claim→order_item→order→PAID payment 해소(RefundService L113 `resolvePaidPayment`) → PAID Payment 시드 필수. T4는 status 게이트(L107)가 payment 해소(L113) 이전이라 payment 불요·claim(REQUESTED)만으로 422.
+
+#### §7 트랩 주의 (LT-02·LT-05·D-67·RefundIdempotentNoOpException)
+
+- **LT-02**: 통합 테스트 seed/cleanup try-finally SET FOREIGN_KEY_CHECKS 0/1 의무(recon §4-1).
+- **LT-05 비해당**: initiate 경로는 `RefundCompleted` 미발행(markCompleted 전용·Refund.java L137) → AFTER_COMMIT 형제 핸들러(`ClaimRefundCompletedHandler`·`PaymentRefundCompletedHandler`) 순서 종속 없음(recon §6-3). initiateByAdmin은 형제 핸들러 신설 아님.
+- **D-67 (PG 예외 → FAILED 전이)**: initiate 내부 `gateway.refund()` 예외 시 PENDING 행 FAILED 전이(RefundService L130-134)·예외 미전파. Admin 진입도 동일 경로 → PG 장애 시 200 + status=FAILED 반환 가능(T2는 Mock PG 정상 → PENDING·pgRefundId 부여). D-67 정상 동작(failure_reason 컬럼 없음).
+- **RefundIdempotentNoOpException 발생 경로 없음**: `initiate`는 멱등 시 기존 행을 조용히 반환(L95-101)·`RefundIdempotentNoOpException` throw 없음(recon §5-3). GlobalExceptionHandler 미등록 상태이나 initiate 경로에서 발생하지 않으므로 500 fallback 트랩 무(recon §7).
+- **claimId null 경로 비도달**: initiate L87-88 `claimId == null` → IllegalArgumentException이나 Controller가 `claim.getId()`(non-null·실측 3) 전달 → Admin 경로 비도달.
+
+#### §8 후속 트랙 박제 의무 (carry-over·"carry-over 무" 아님)
+
+| 항목 | 처치 | 이연 |
+|---|---|---|
+| `markFailedByAdmin` (기존 Refund 행 status 수동 보정) | state-machine §8 L274 "운영자 수동 보정 권한 없음" 준수·RefundAdjustment(D안) 트랙 종속·D-24 후속 "수동 보정 정책(D안)" | Track 23+ |
+| Payment wrapper (`markCancelledByAdmin` 등 Admin Payment 보정) | Admin Payment 수동 개입 시나리오 실측·정책 확립 후·현재 Refund.COMPLETED→Payment CANCELLED 자동 배선 기존재 | Track 23+ |
+| `PaymentNotFoundException` + 404 매핑 | Payment wrapper(위 항목) 채택 시 동반·현재 소비처 부재 | Track 23+ |
+| E10 `InventoryAdjusted` 발행·`NotificationInventoryAdjustedHandler` (D-105 §8 이월) | Track 22가 Refund 트랙으로 Inventory 미해소 → 재이연 | Track 23+ |
+| `markInbound`/`markOutbound` Admin wrapper (D-105 §8 이월) | 입출고 트리거·참조 모델 설계 후·Track 22 미해소 재이연 | Track 23+ |
+
+본 트랙은 `markFailedByAdmin`·Payment 계열을 명시 이연하며, D-105 §8 Inventory 계열(E10·markInbound/markOutbound)은 Track 22가 Refund 트랙이므로 미해소·Track 23+ 재이연한다.
+
+#### §9 실측 검증
+
+- 512 tests PASS (baseline 508 + 신규 4·112 suites·failures 0·errors 0·skipped 0·회귀 0건)·2026-07-02 로컬 실측(`./gradlew.bat cleanTest test`·2m 56s)
+- 빌드툴: Gradle(`backend/gradlew.bat`)·Maven·pom.xml 부재(D-105 §9 정합)
+- 신규 T1(401 UNAUTHENTICATED)·T2(200 PENDING+pgRefundId·Refund 1행 커밋)·T3(404 CLAIM_NOT_FOUND)·T4(422 CLAIM_STATE_INVALID·Refund 0행 롤백) 컨테이너 실측·refund 도메인 이벤트 0 단언
+- production compileJava·test compileTestJava BUILD SUCCESSFUL
+- 브랜치: `feat/track-22-refund-admin-initiate` (docs·feat·test 3-split·push는 명시 지시 대기)
+
+#### §진입점 카드 (메모리 룰 #16 적용 8회차)
+
+| # | 항목 | 내용 |
+|---|---|---|
+| 1 | **목적** | 환불 개시 primitive의 운영자 actor wrapper 신설·initiate-refund endpoint 확립·자동 트리거 실패 fallback 경로·D-94 Q3 이연(생성 endpoint) 종결(보정 분리 이연) |
+| 2 | **핵심 진입점** | `refund/service/RefundService.java`(wrapper `initiateByAdmin` 신설·L85 하단) · `refund/controller/AdminRefundController.java`(신설·옵션 A) · `refund/controller/request/AdminRefundInitiateRequest.java`·`refund/controller/response/AdminRefundInitiateResponse.java`(신설) |
+| 3 | **핵심 SoT** | `initiateByAdmin(Long, long):Refund` — primitive `initiate` 1:1 위임·actor 비수신(D-92)·`@Transactional` 미부여(클래스 L43 커버) · 옵션 A 메서드 절대경로 · Response 5필드(실측 1·status raw enum·amount Long·pgRefundId nullable) · Request `long amount` 무검증(실측 5·400 도메인 처리) |
+| 4 | **영향 범위** | Refund Aggregate 단독 · 패키지 refund/service·refund/controller(+request·response) · 신규 파일 4건(Controller·Request·Response·통합테스트) + 수정 1건(RefundService +1 wrapper) · **GlobalExceptionHandler 무변경**(ClaimNotFound 404·ClaimInvalidState 422·IllegalArgument 400 전건 기존 매핑 재사용·실측 4·5) · 신규 예외 무 · DTO 신설 2 · Flyway 무·이벤트 무 |
+| 5 | **패턴 재사용 SoT** | D-92(primitive actor 비의존)·D-93(AdminActorResolver seam·X-Admin-Id stub) 재사용 8회차 · 옵션 A(메서드 절대경로) 3회차 · D-104 §4 wrapper 위임 패턴 3회차 · `ClaimNotFoundException`→404·`ClaimInvalidStateException`→422 기존 매핑 재사용 · `InventoryAdjustResponse.from(String, Entity)` DTO 팩토리 패턴 · LT-02 try-finally · 1-PR 단독(내부 3-split) 14회차 |
+| 6 | **트랩 주의** | LT-01 비해당(신규 Entity 무) · LT-02 통합 테스트 try-finally 의무 · LT-05 비해당(initiate 경로 RefundCompleted 미발행·형제 핸들러 순서 무관) · **base path 트랩**: AdminClaimController는 클래스 `@RequestMapping` 보유(옵션 A 아님)·AdminRefundController는 옵션 A 선례(Inventory·Delivery) 준수·claimPublicId 축 공유하되 full path 상이로 라우팅 충돌 무 · **RefundIdempotentNoOpException 500 트랩 무**: initiate는 멱등 시 조용히 기존 행 반환·본 예외 throw 없음(경로 비도달) · **D-67**: PG 예외 시 status=FAILED 반환 정상 |
+
+---
+
