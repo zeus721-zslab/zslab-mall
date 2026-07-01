@@ -158,4 +158,4 @@ deleted_at 마킹 후 보존. 복구 가능·이력/분쟁 대응.
 | DB 스키마 | docs/design/db-schema-decisions.md |
 | ERD | docs/design/erd/ |
 | ADR | docs/adr/ |
-| 트랙 로드맵 | docs/TODO.md · docs/TODO-complete.md |
+| 트랙 로드맵 | docs/architecture-baseline/decisions.md |
