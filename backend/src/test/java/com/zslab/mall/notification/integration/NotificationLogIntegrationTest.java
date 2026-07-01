@@ -34,7 +34,7 @@ import org.testcontainers.utility.DockerImageName;
 /**
  * 이벤트 → NotificationLog 적재 E2E 통합 테스트(Track 12·D-95·실 MariaDB·Flyway). 발행처 존재 4 이벤트(OrderPlaced·
  * PaymentCompleted·ClaimCompleted·ClaimApproved)를 커밋 트랜잭션에서 발행 → {@code @TransactionalEventListener(AFTER_COMMIT)}
- * 알림 핸들러 → REQUIRES_NEW에서 NotificationLog PENDING 1건 적재까지 실제 커밋 경로로 검증한다.
+ * 알림 핸들러 → REQUIRES_NEW에서 NotificationLog 1건 적재·발송(SENT 전이)까지 실제 커밋 경로로 검증한다(발송 어댑터는 Track 19에서 신설).
  *
  * <p><b>트랜잭션(RefundAutoTriggerIntegrationTest 패턴)</b>: AFTER_COMMIT 핸들러는 커밋 후에만 실행되므로 클래스에
  * {@code @Transactional}을 두지 않는다. 시드/정리는 {@link TransactionTemplate} + {@code FOREIGN_KEY_CHECKS=0}으로
@@ -107,7 +107,7 @@ class NotificationLogIntegrationTest {
     }
 
     @Test
-    @DisplayName("T1 OrderPlaced 발행 → NotificationLog PENDING 1건·target_type=ORDER·template=TPL_ORDER_PLACED·channel=EMAIL")
+    @DisplayName("T1 OrderPlaced 발행 → NotificationLog SENT 1건·target_type=ORDER·template=TPL_ORDER_PLACED·channel=EMAIL")
     void orderPlaced_recordsNotificationLog() {
         seedGraph(OrderStatus.PAID, OrderItemStatus.PAID, ClaimStatus.APPROVED, ClaimType.CANCEL);
 
@@ -117,7 +117,7 @@ class NotificationLogIntegrationTest {
         assertThat(count("ORDER", ORDER_ID)).isEqualTo(1);
         assertThat(value("template_code", "ORDER", ORDER_ID)).isEqualTo("TPL_ORDER_PLACED");
         assertThat(value("channel", "ORDER", ORDER_ID)).isEqualTo("EMAIL");
-        assertThat(value("status", "ORDER", ORDER_ID)).isEqualTo("PENDING");
+        assertThat(value("status", "ORDER", ORDER_ID)).isEqualTo("SENT");
         assertThat(recipient("ORDER", ORDER_ID)).isEqualTo(USER_ID);
     }
 
@@ -131,7 +131,7 @@ class NotificationLogIntegrationTest {
 
         assertThat(count("ORDER", ORDER_ID)).isEqualTo(1);
         assertThat(value("template_code", "ORDER", ORDER_ID)).isEqualTo("TPL_PAYMENT_COMPLETED");
-        assertThat(value("status", "ORDER", ORDER_ID)).isEqualTo("PENDING");
+        assertThat(value("status", "ORDER", ORDER_ID)).isEqualTo("SENT");
         // 동기 OrderEventHandler(markPaid)와 비동기 알림 핸들러 공존 실측
         assertThat(orderStatus()).isEqualTo("PAID");
     }
@@ -146,7 +146,7 @@ class NotificationLogIntegrationTest {
 
         assertThat(count("CLAIM", CLAIM_ID)).isEqualTo(1);
         assertThat(value("template_code", "CLAIM", CLAIM_ID)).isEqualTo("TPL_CLAIM_COMPLETED");
-        assertThat(value("status", "CLAIM", CLAIM_ID)).isEqualTo("PENDING");
+        assertThat(value("status", "CLAIM", CLAIM_ID)).isEqualTo("SENT");
         assertThat(recipient("CLAIM", CLAIM_ID)).isEqualTo(USER_ID);
     }
 
@@ -161,7 +161,7 @@ class NotificationLogIntegrationTest {
 
         assertThat(count("CLAIM", CLAIM_ID)).isEqualTo(1);
         assertThat(value("template_code", "CLAIM", CLAIM_ID)).isEqualTo("TPL_CLAIM_APPROVED");
-        assertThat(value("status", "CLAIM", CLAIM_ID)).isEqualTo("PENDING");
+        assertThat(value("status", "CLAIM", CLAIM_ID)).isEqualTo("SENT");
         // refund/ClaimApprovedHandler 공존 발화 → Refund PENDING 1건도 생성
         assertThat(refundCount()).isEqualTo(1);
     }

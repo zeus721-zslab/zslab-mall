@@ -97,4 +97,36 @@ public class NotificationLog extends AbstractCreatedOnlyEntity {
         log.status = NotificationLogStatus.PENDING;
         return log;
     }
+
+    /**
+     * 발송 성공 전이(Track 19·D-86 §후속 종결). PENDING → SENT로 전이하고 발송 시각을 기록한다.
+     * {@link AbstractCreatedOnlyEntity} Javadoc "status 전이 허용"(A2 결정) 근거로 append-only 위에서 UPDATE를 수행한다.
+     *
+     * @param sentAt 발송 완료 시각
+     * @throws IllegalStateException PENDING이 아닌 상태에서 호출 시(중복 전이 방지)
+     */
+    public void markSent(LocalDateTime sentAt) {
+        if (this.status != NotificationLogStatus.PENDING) {
+            throw new IllegalStateException(
+                    "NotificationLog 발송 전이 불가: PENDING에서만 SENT 전이 허용(현재=" + this.status + ").");
+        }
+        this.status = NotificationLogStatus.SENT;
+        this.sentAt = sentAt;
+    }
+
+    /**
+     * 발송 실패 전이(Track 19·D-86 §후속 종결). PENDING → FAILED로 전이하고 실패 사유를 기록한다.
+     * {@link AbstractCreatedOnlyEntity} Javadoc "status 전이 허용"(A2 결정) 근거로 append-only 위에서 UPDATE를 수행한다.
+     *
+     * @param reason 발송 실패 사유
+     * @throws IllegalStateException PENDING이 아닌 상태에서 호출 시(중복 전이 방지)
+     */
+    public void markFailed(String reason) {
+        if (this.status != NotificationLogStatus.PENDING) {
+            throw new IllegalStateException(
+                    "NotificationLog 실패 전이 불가: PENDING에서만 FAILED 전이 허용(현재=" + this.status + ").");
+        }
+        this.status = NotificationLogStatus.FAILED;
+        this.failedReason = reason;
+    }
 }
