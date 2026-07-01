@@ -255,16 +255,16 @@ REQUESTED → APPROVED → COMPLETED
 | 복구(결제 전 취소) | ClaimCompleted/주문취소 | quantity_reserved −= qty | 미기록 |
 | 복구(결제 후 취소) | ClaimCompleted CANCEL(E9) | quantity_on_hand += qty | change_type=CANCEL |
 | 복구(반품) | ClaimCompleted RETURN(E9) | quantity_on_hand += qty (검수 통과 시) | change_type=RETURN |
-| 교환 | ClaimCompleted EXCHANGE(E9) | 회수분 복구 + 교환품 신규 차감 (트랜잭션 분리) | RETURN(회수) + ORDER(재출고) |
+| 교환 | ClaimCompleted EXCHANGE(E9) | 회수분 복구 + 교환품 신규 차감 (업무 단계 분리·DB 트랜잭션 단일·[갱신 Track17 D-101 §5]) | RETURN(회수) + ORDER(재출고) 2건 분리 기록(단일 DB TX 내) |
 
 - **M-11 처리**: InventoryHistory는 on_hand 변동만 기록. 예약/해제(reserved만 변동)는 컬럼 갱신만·History 미기록. change_type A분류(ORDER/CANCEL/RETURN/ADJUST/INBOUND/OUTBOUND)에 RESERVE/RELEASE 부재와 정합.
-- **M-12 처리**: 교환은 change_type EXCHANGE 부재 → 회수=RETURN·재출고=ORDER 2건 분리 기록(A분류 enum 확장 회피).
+- **M-12 처리**: 교환은 change_type EXCHANGE 부재 → 회수=RETURN·재출고=ORDER 2건 분리 기록(A분류 enum 확장 회피). **[갱신 Track17 D-101 §5]**: 2 History 행 생성은 단일 DB TX 내 처리.
 - **M-13 처리**: 예약은 주문 생성과 동일 트랜잭션(동기) — oversell 방지.
 - **M-14 처리**: 결제 만료 자동 예약 해제는 정책만 명시·타이머/배치는 구현 단계 이연.
 
 **Why**: 결제 전 점유(예약)와 실물 차감(결제 후)을 분리해 oversell 방지·미결제 점유 회수 가능. 복구를 결제 전/후로 분기해 reserved/on_hand 정확히 환원.
 
-**Impact**: 재고 차감/복구 핸들러는 멱등(OrderItem.item_status 가드). 교환은 복구·차감 2트랜잭션 분리로 부분 실패 시 보상 가능.
+**Impact**: 재고 차감/복구 핸들러는 멱등(OrderItem.item_status 가드). **[갱신 Track17 D-101 §5]**: 교환은 복구·차감 단일 DB 트랜잭션 내 처리·부분 실패 시 트랜잭션 자연 롤백. 2 TX 분리·Saga 도입은 D-100 Q2 Outbox 트리거 충족 시 재평가.
 
 **Alternative**: 주문 즉시 on_hand 차감(예약 단계 생략) → 미결제 주문이 재고 점유·결제 실패 시 복구 빈발(기각).
 
@@ -5187,7 +5187,7 @@ D-94 Q0 β·D-95 Q1 α·D-97 Q0 β·D-98 Q0 α·D-99 Q0 α 선례 6회차. D-99 
 
 #### Q1: 이벤트 핸들러 멱등성 표준화 = γ 5 패턴 카탈로그 박제 + Javadoc 의무
 
-**박제 1줄**: "이벤트 핸들러 멱등 가드 표준은 패턴 5종(A canTransitionTo 자연 흡수·B Service primitive 가드·C type 분기 게이트·D catch+skip+log.warn·E 다단계 복합) 카탈로그 박제·신규 핸들러는 패턴 선택 사유를 Javadoc 1줄 의무 기록·NotificationLog 멱등 저장소는 Outbox 도입 시점 동반."
+**박제 1줄**: "이벤트 핸들러 멱등 가드 표준은 패턴 5종(A 상태전이 자연 흡수 (canTransitionTo·**불변식 제외**·[보강 Track17 D-101 §6])·B Service primitive 가드·C type 분기 게이트·D catch+skip+log.warn·E 다단계 복합) 카탈로그 박제·신규 핸들러는 패턴 선택 사유를 Javadoc 1줄 의무 기록·NotificationLog 멱등 저장소는 Outbox 도입 시점 동반."
 
 **근거**: 패턴별 이벤트 성격(동기 정합성 vs 비동기 알림) 차이 반영·단일화는 SRP 위배·D-95 Q6 박제 1줄 유지.
 
@@ -5531,3 +5531,264 @@ D-29 (save→publish·no flush·Q3 β′ event record 무수정 정합·β″′
 7. PR-1·PR-2 양 머지로 Track 16 종결·D-99 §후속 Observability carry-over 영구 해소·박제 1줄 누적 6건 통합 재평가 완료·신규 박제 1줄 14건 + Q12 β″′ 갱신 1줄 추가·관측성 표준 박제 완료.
 
 ---
+
+## PR-Track17 결정 항목 (2026-07-01) [확정 2026-07-01]
+
+> 소스: docs/track-17/recon-report.md · 외부 검토 1·2차 (2026-07-01) · D-08·D-09·D-17·D-30·D-100 Q1·Q2 박제 정합
+> 트랙 등급: A급 (도메인 행위 신설·외부 검토 1·2차 수렴 완료)
+> 베이스: main HEAD 8f17fb4 (Track 16 PR-2 머지·445 tests PASS·D-100 박제 완료)
+> 사용자 확정(2026-07-01): Q0~Q12 + WARN-7 전건 외부 검토 2차 권장안 1:1 채택.
+
+---
+
+### D-101: Track 17 Inventory 도메인 행위 구현 결정
+
+**상태**: [확정 2026-07-01]
+
+#### §1 트랙 식별자 (Q0)
+
+Track 17 = Inventory 도메인 행위 구현 (A급). E1 OrderPlaced(예약) · E2 PaymentCompleted(차감) · E3 PaymentFailed(해제) · E9 ClaimCompleted(복구) 4 이벤트 핸들러 + Inventory 도메인 행위 4건 + InventoryService 신설.
+
+#### §2 Inventory 도메인 행위 4건 (Q1)
+
+| 메서드 | 동작 | invariant 가드 |
+|---|---|---|
+| `reserve(int qty)` | reserved += qty · recalculateAvailable() | INV-1 (available ≥ 0)·INV-3 (reserved ≥ 0) |
+| `release(int qty)` | reserved -= qty · recalculateAvailable() | INV-3 |
+| `commitReservation(int qty)` | on_hand -= qty · reserved -= qty · recalculateAvailable() | INV-1·INV-3·INV-4 |
+| `restoreStock(int qty)` | on_hand += qty · recalculateAvailable() | INV-2 (available = on_hand - reserved)·INV-4 |
+
+- `private void recalculateAvailable()` Aggregate 내부 캡슐화. Service에서 available 직접 계산 금지.
+- invariant 위반 시 도메인 예외 throw (DomainException 계열).
+- Setter 미신설.
+- 명명 근거: E2는 "재고 감소"가 아니라 **"예약 확정"** (D-08 차감 = reserved -= qty + on_hand -= qty). `commitReservation`이 도메인 의미 정합. `deduct`는 직접 출고와 의미 충돌·Q12 ADJUST(향후)와 명명 충돌.
+
+#### §3 핸들러 패키지 (Q2)
+
+`inventory/handler/` 단독 패키지 신설. 소비측 Aggregate 귀속 (notification/handler·claim/handler·order/handler 기존 패턴 1:1 정합).
+
+| 핸들러 | 이벤트 | 동작 |
+|---|---|---|
+| `InventoryOrderPlacedHandler` | E1 | OrderItem별 reserve |
+| `InventoryPaymentCompletedHandler` | E2 | OrderItem별 commitReservation |
+| `InventoryPaymentFailedHandler` | E3 | orderId 재조회 후 OrderItem별 release |
+| `InventoryClaimCompletedHandler` | E9 | claimId 재조회 후 type별 분기 (§5) |
+
+#### §4 동시성 락 정책 (Q3·D-09 잔여 결정 확정)
+
+**채택**: α 비관락 일원화.
+
+- `InventoryRepository.findByVariantIdForUpdate(Long variantId)` 단일 메서드.
+- 모든 Inventory 도메인 행위(reserve·release·commitReservation·restoreStock) 진입 시 비관락 획득.
+- `@Version` 미도입. V8 Flyway 마이그레이션 미신설.
+- **InventoryService 외부에서 일반 `findByVariantId` 사용 금지** (read-only 조회는 별도 Service 경로·본 트랙 OOS).
+
+**근거**:
+- D-100 Q2 γ Outbox 트리거 4건 (다중 인스턴스·외부 브로커·이벤트 누락·재처리 SLA) 전건 미충족 = 현재 단일 인스턴스 동기 발행 환경.
+- 낙관락 도입 시 OptimisticLockException 발생·재시도 정책 부재 → 사용자 실패 직접 노출.
+- 행위별 락 혼용 시 동일 row(variant 1:1) 경합 시나리오에서 reserve 비관락 완료 후 deduct 낙관락 flush 시 version 충돌. 결국 같은 row 경합·운영 복잡도만 증가.
+- 본 단계 정책: **oversell 방지 > 처리량**.
+
+**재평가 트리거**: D-100 Q2 Outbox 트리거 충족 시점에 @Version 도입 재평가 (본 트랙 OOS).
+
+#### §5 EXCHANGE 트랜잭션 — D-08 [갱신 Track17] (Q4)
+
+**D-08 박제 부분 갱신**: "트랜잭션 분리" → "업무 단계 분리·DB 트랜잭션 단일".
+
+| D-08 박제 부분 | 변경 전 | 변경 후 |
+|---|---|---|
+| 교환 행 동작 | 회수분 복구 + 교환품 신규 차감 (**2트랜잭션 분리**) | 회수분 복구 + 교환품 신규 차감 (**업무 단계 분리·DB 트랜잭션 단일**) |
+| Impact 절 | 교환은 복구·차감 **2트랜잭션 분리**로 부분 실패 시 보상 가능 | 교환은 복구·차감 **단일 DB 트랜잭션** 내 처리·부분 실패 시 트랜잭션 롤백 |
+| M-12 | 회수=RETURN·재출고=ORDER 2건 분리 기록 | **유지** — 단일 DB TX 내 InventoryHistory 2행 (RETURN/ORDER) 생성. enum 확장 회피 목적은 유지 |
+
+**구현 형식**:
+```java
+// InventoryService
+@Transactional
+public void exchange(Long returnVariantId, int returnQty, 
+                     Long newVariantId, int newQty, Long claimId) {
+    Inventory ret = repo.findByVariantIdForUpdate(returnVariantId)...;
+    ret.restoreStock(returnQty);
+    historyRepo.save(InventoryHistory.create(ret, RETURN, returnQty, "claim", claimId, ...));
+    
+    Inventory neu = repo.findByVariantIdForUpdate(newVariantId)...;
+    neu.commitReservation(newQty);  // 또는 reserve+commit 2단계
+    historyRepo.save(InventoryHistory.create(neu, ORDER, -newQty, "claim", claimId, ...));
+}
+```
+
+**근거**:
+- 본 프로젝트 D-100 Q2 Outbox 미충족·Saga/보상 메커니즘 부재.
+- D-08 원안의 "2트랜잭션 분리"는 분산 트랜잭션 가정인데 인프라 부재 → 현실 충돌.
+- 단일 DB TX는 원자성 보장·부분 실패 시 자연 롤백.
+- 락 범위 확대(2 row 비관락 보유)는 EXCHANGE 빈도 낮아 트레이드오프 수용.
+
+**재평가 트리거**: Saga·Outbox 도입 시 D-08 원안(2 TX 분리) 회귀 재평가.
+
+#### §6 4 핸들러 멱등 패턴 — γ 이중 방어 + D-100 Q1 패턴 A 보강 (Q5)
+
+**채택**: γ 핸들러 1차 가드 + 도메인 2차 가드 이중 방어.
+
+| 이벤트 | 핸들러 1차 가드 (패턴 B) | 도메인 2차 가드 (invariant throw) |
+|---|---|---|
+| E1 | OrderItem.item_status != ORDERED면 skip | `reserve` invariant 위반 시 throw |
+| E2 | OrderItem.item_status == PAID(이미 차감 완료)면 skip | `commitReservation` 내 reserved < qty면 throw |
+| E3 | orderId 재조회 후 잔여 reserved == 0이면 skip | `release` invariant 위반 시 throw |
+| E9 | claimId 재조회 후 OrderItem.item_status 종결값(CANCELLED·RETURNED·EXCHANGED)이면 skip | type별 도메인 행위 invariant 위반 시 throw |
+
+**계층 책임 분리**:
+- **Handler**: 멱등 (재실행 안전성)
+- **Domain**: 불변식 (도메인 일관성)
+
+핸들러 Javadoc 의무 (D-100 Q1 γ 정합): 핸들러 1차 가드 패턴 B + 도메인 2차 가드 사유 1줄 명시.
+
+**D-100 Q1 카탈로그 보강 의무**:
+
+| 패턴 | 변경 전 | 변경 후 |
+|---|---|---|
+| A | canTransitionTo 자연 흡수 | **상태전이 자연 흡수 (불변식 제외)** |
+
+근거: 도메인 invariant(reserved < qty throw)를 패턴 A로 흡수하면 카탈로그 경계 흐려짐. 불변식은 멱등 패턴 카탈로그에 포함하지 않음. 핸들러 멱등(B)과 도메인 불변식(throw + catch 책임)을 분리.
+
+**적용**: D-100 본문 Q1 절 패턴 A 정의 1줄 갱신 (별도 박제 PR 또는 Track 17 PR-A에 동반).
+
+#### §7 InventoryHistory `@Immutable` (Q6)
+
+`@Immutable` 미적용 유지 (현 상태). InventoryHistory.java Javadoc 명시 "A2 결정·AbstractCreatedOnlyEntity Javadoc 정합" 1:1 유지. 도메인 메서드 부재·정적 팩토리 단일·UPDATE 진입점 부재로 코드 규율 보장.
+
+#### §8 ClaimCompleted record 데이터 조달 (Q7)
+
+**채택**: β record 무변경·orderItemId 재조회.
+
+- `ClaimCompleted` record 6 필드 유지 (claimId·claimPublicId·orderItemId·claimType·status·occurredAt).
+- `InventoryClaimCompletedHandler`가 claimId로 Claim 재조회 → orderItemId로 OrderItem 재조회 → variant_id·quantity 도출.
+- 발행처 (ClaimService.markCompleted) 무변경.
+
+**근거**:
+- D-30 사실 통지 원칙 정합 (이벤트 페이로드에 도메인 상태 복제 금지).
+- E3 PaymentFailed 동일 패턴 (orderId 재조회) 1:1 정합.
+- 기존 ClaimCompleted 소비자 2건 (ClaimCompletedHandler·NotificationClaimCompletedHandler) 모두 claimId 재조회 패턴·1:1 정합.
+- D-100 Q3 옵션 4 "11 record 수정 회귀 회피" 정합.
+
+**재평가 트리거**: EXCHANGE 신규 variant가 ExchangeItem 등 별도 Aggregate 단일 조회로 확보 불가능한 구조 변경 발생 시 재평가.
+
+#### §9 PR 분할 (Q8)
+
+**채택**: γ 2 PR.
+
+| PR | 범위 |
+|---|---|
+| `feat/track-17-inventory-domain` (PR-A) | Inventory Aggregate 도메인 행위 4건 + `recalculateAvailable` + InventoryRepository.findByVariantIdForUpdate + InventoryService + 단위 테스트 (도메인 행위·invariant 검증) |
+| `feat/track-17-inventory-handlers` (PR-B) | 4 핸들러 (E1·E2·E3·E9) + 통합 테스트 (D-100 Q8 β 5중 의무) |
+
+**근거**:
+- 결정 라운드 종결 후 락 정책(Q3) 고정 가정 → 외부 검토 추가 비용 절감.
+- 단일 PR은 머지 충돌 비용 큼.
+- 3 PR은 외부 검토 1차 3회 비용·과잉.
+
+#### §10 Inventory 부족 시 Order 영향 (Q9)
+
+**채택**: α+β 혼합 이중 방어.
+
+- **1차 (UX 정합)**: OrderService.placeOrder 진입 시 사전 재고 조회 → 부족 시 즉시 4xx 응답 (트랜잭션 진입 전).
+- **2차 (Aggregate 정합)**: Inventory.reserve 도메인 invariant 가드 → INV-3 위반 시 throw → OrderPlaced 이벤트 핸들러 트랜잭션 롤백 → Order 자체 롤백.
+
+**근거**:
+- OrderService 단독 사전 조회는 TOCTOU 취약 (조회 ↔ 예약 사이 동시성).
+- Inventory invariant 단독은 UX 저하 (커밋 시점 실패).
+- 이중 방어로 정합·UX 모두 확보.
+
+**OrderService 사전 조회 범위**: read-only `findByVariantIdIn` 사용 (Q3 §4 "InventoryService 외부 일반 findByVariantId 사용 금지" 예외 — read-only 사전 검증 한정·쓰기 진입점 아님).
+
+#### §11 InventoryHistory 생성 책임 (Q10)
+
+InventoryHistory 생성 책임 = **InventoryService** (Aggregate 비포함).
+
+- Aggregate 내부 행위(reserve·release·commitReservation·restoreStock)는 컬럼 갱신만 수행.
+- InventoryHistory append는 InventoryService 트랜잭션 책임 (도메인 행위 호출 후 직접 생성·저장).
+- 기존 `InventoryHistory.create()` 정적 팩토리 1:1 재사용.
+
+**근거**: Aggregate 강결합 회피·응집도 < 결합 증가 비용. Service 단일 트랜잭션 내 도메인 행위 + History append 원자성 보장.
+
+#### §12 이벤트 순서 보장 가정 (Q11)
+
+본 트랙은 D-100 Q2 박제 상속.
+- at-most-once + ordered (Spring ApplicationEvent 동기·D-29 save→publish).
+- 별도 D-101 항목 박제 없음 (기조 3 과잉문서 회피).
+- 트랙 진입점 카드(§15)에 "D-100 Q2 상속" 1줄 명시.
+
+#### §13 운영자 ADJUST 진입점 (Q12)
+
+**채택**: α 완전 OOS.
+
+- 본 트랙에서 `adjustStock`·`recordInbound`·`recordOutbound` 도메인 메서드 미신설.
+- 운영자 API 진입점 미신설.
+- InventoryHistoryChangeType enum 6값 (ADJUST·INBOUND·OUTBOUND 포함) 유지·미사용 상태로 보존.
+- E10 InventoryAdjusted 이벤트 발행 미신설.
+
+**근거**:
+- 진입점 없는 도메인 행위는 사양 부채.
+- enum 존재 ≠ 도메인 행위 신설 의무.
+- 기조 4 과잉개발 회피.
+
+**이연**: Track 18+ 별도 트랙.
+
+#### §14 WARN-7 (이벤트 역전) 처치
+
+**처치**: WARN 제거.
+
+**근거**:
+- 본 환경 단일 인스턴스·Spring ApplicationEvent 동기·단일 스레드.
+- Payment 상태 머신 (D-05): 한 Payment 행은 PENDING → PAID 또는 PENDING → FAILED 한 종결 상태만 보유. 동일 Payment에서 PAID·FAILED 동시 발행은 도메인 invariant 위반 (불가).
+- 재시도 = 새 Payment 행 (D-05) → 동일 OrderItem에 대해 직전 Payment FAILED 종결·신규 Payment PAID 순차 발행·역전 시나리오 없음.
+
+**재평가 트리거**: D-100 Q2 Outbox 트리거 충족 시점 (외부 브로커 도입 등)에 WARN 부활 재평가.
+
+**메모 1줄**: live-traps.md 또는 D-100 Q2 본문에 "Outbox 도입 시 이벤트 역전 WARN 재평가" 박제 (선택·본 트랙 OOS).
+
+#### §15 진입점 카드 (메모리 룰 #16 시범 적용 2회차)
+
+| # | 항목 | 내용 |
+|---|---|---|
+| 1 | **목적** | Inventory Aggregate 도메인 행위 4건 신설 + 재고 트리거 4 이벤트 핸들러 신설로 예약/차감/해제/복구 4경로 완성. D-08 [갱신 Track17]로 EXCHANGE 단일 DB TX 회귀 |
+| 2 | **핵심 진입점** | `inventory/entity/Inventory.java` (도메인 행위 4건) · `inventory/service/InventoryService.java` (신설·History 생성 책임) · `inventory/handler/` 패키지 (4 핸들러 신설) |
+| 3 | **핵심 SoT** | D-07 (Inventory SoT 3컬럼) · D-08 [갱신 Track17] (예약→차감→복구·EXCHANGE 단일 TX) · D-09 (available 캐시·비관락 일원화·§4) · D-100 Q1 γ (멱등 패턴 B + 도메인 invariant 분리·패턴 A 정의 보강) · D-100 Q2 (at-most-once + ordered 상속) |
+| 4 | **영향 범위** | inventory/ 전체 (entity·service·handler·repository) · checkout/service/CheckoutService (사전 재고 조회 진입점 §10) · docs/architecture-baseline/decisions.md (D-08·D-100 Q1 본문 갱신 동반) |
+| 5 | **패턴 재사용 SoT** | D-100 Q1 γ 5 패턴 (B 적용 4건·A 정의 보강) · D-100 Q4 β′ 메트릭 (TracedEventPublisher 자동 활용) · D-100 Q6 β 로깅 6 표준키 · D-100 Q8 β 통합 테스트 5중 의무 · D-91 FK 부모 그래프 시드 (product → product_variant → inventory) · D-92 횡단 권한 검증 (운영자 ADJUST §13 OOS) |
+| 6 | **트랩 주의** | LT-01 해당 없음 (public_id 미부여) · LT-02 try-finally 의무 (통합 테스트 신설 시) · LT-03 해당 없음 (deleted_at 없음) · **신규 트랩 후보**: 비관락 일원화 환경에서 read-only 일반 조회 진입점 격리 (`findByVariantId` 사용 금지 예외 = OrderService 사전 조회·§10 단일 예외) |
+
+#### §16 외부 검토 이력
+
+- **1차 (2026-07-01)**: Q0~Q8 9건 송부. 채택 Q0·Q2·Q6·Q7. 수정 권고 Q1(명명)·Q3(행위별 분리)·Q4(단일 TX)·Q5(γ)·Q8(3 PR). 신규 의제 4건 (Q9·Q10·Q11·Q12). 신규 WARN-7 (P0).
+- **2차 (2026-07-01)**: 1차 권고 중 Q3·Q8 방향 전환 (Q3 α 비관락 일원화·Q8 γ 2 PR). Q4 D-08 박제 수정 권장. Q5 γ + 카탈로그 보강. Q9 α+β·Q11 인용 흡수·Q12 완전 OOS·WARN-7 제거 확정.
+- **수렴 결과**: 2차 권장안 1:1 채택.
+
+#### §17 후속 트랙 박제 의무
+
+| 항목 | 처치 | 이연 |
+|---|---|---|
+| D-08 본문 갱신 | [갱신 Track17] 절 추가 (§5) | 본 D-101 박제 동반 |
+| D-100 Q1 패턴 A 정의 보강 | "상태전이 자연 흡수 (불변식 제외)" 1줄 갱신 (§6) | 본 D-101 박제 동반 |
+| Outbox 도입 시 재평가 항목 | Q3 @Version·Q4 2 TX 회귀·WARN-7 부활 | Track 18+ Observability/Outbox 트랙 |
+| ADJUST 진입점 | adjustStock 도메인 메서드·E10 발행·운영자 API | Track 18+ |
+| 자동 예약 만료 (D-08 M-14) | 타이머/배치 | 별도 트랙 |
+| Reservation Tracking (D-17) | 도입 금지 유지·확장 경로 메모 | 외부 이연 |
+
+---
+
+**Why**: Inventory Aggregate Track 4 read-only 스캐폴딩 → 재고 쓰기 4경로 (예약·차감·해제·복구) 완성. D-08 박제와 본 프로젝트 인프라(D-100 Q2 미충족) 충돌 해소. 멱등 책임을 핸들러(B)·도메인(invariant)으로 명확히 분리해 D-100 Q1 카탈로그 경계 정합.
+
+**Impact**: 
+- E1·E2·E3·E9 4 이벤트 핸들러 신설로 재고 정합성 자동화.
+- 비관락 일원화로 oversell 방지 보장 (단일 인스턴스 환경 정합).
+- D-08·D-100 Q1 본문 갱신 동반 (PR-A 또는 별도 박제 PR).
+- 운영자 ADJUST·Outbox·자동 만료 등 Track 18+ 명확한 이연.
+
+**Alternative**:
+- @Version 낙관락 도입 → 재시도 정책 부재·사용자 실패 노출 (기각).
+- EXCHANGE 2 TX 분리 유지 → Saga/Outbox 부재로 보상 불가 (기각).
+- 멱등 패턴 A에 invariant 흡수 → 카탈로그 경계 흐려짐 (기각).
+- ADJUST 도메인 메서드 사전 신설 → 진입점 없는 사양 부채 (기각).
+
+---
+
