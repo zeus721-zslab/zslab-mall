@@ -113,4 +113,17 @@ public class DeliveryService {
                 delivery.getTrackingNo(), LocalDateTime.now()));
         return delivery;
     }
+
+    /**
+     * Admin actor의 교환 배송 등록 wrapper.
+     * D-92 primitive actor 비의존 원칙·D-93 AdminActorResolver seam 재사용 4회차·
+     * primitive registerExchangeShipment 1:1 위임·actor 파라미터 비수신.
+     * D-102 §5·D-99 §후속 L5110 carry-over 해소.
+     */
+    @Transactional
+    public Delivery registerExchangeShipmentByAdmin(Long claimId,
+                                                    DeliveryCarrier carrier,
+                                                    String trackingNo) {
+        return registerExchangeShipment(claimId, carrier, trackingNo);
+    }
 }
