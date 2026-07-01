@@ -7,6 +7,7 @@ import com.zslab.mall.claim.exception.ClaimInvalidStateException;
 import com.zslab.mall.claim.exception.ClaimNotFoundException;
 import com.zslab.mall.common.exception.MalformedRequestException;
 import com.zslab.mall.common.exception.UnauthenticatedException;
+import com.zslab.mall.inventory.exception.InventoryInvariantViolationException;
 import com.zslab.mall.order.exception.OrderNotFoundException;
 import com.zslab.mall.order.exception.OrderNotPayableException;
 import com.zslab.mall.payment.exception.InvalidCallbackException;
@@ -57,6 +58,7 @@ public class GlobalExceptionHandler {
     private static final String CODE_REFUND_INVARIANT_VIOLATION = "REFUND_INVARIANT_VIOLATION";
     private static final String CODE_CLAIM_NOT_FOUND = "CLAIM_NOT_FOUND";
     private static final String CODE_CLAIM_STATE_INVALID = "CLAIM_STATE_INVALID";
+    private static final String CODE_INVENTORY_INVARIANT_VIOLATION = "INVENTORY_INVARIANT_VIOLATION";
     private static final String CODE_INTERNAL_ERROR = "INTERNAL_ERROR";
 
     // ===== 400 =====
@@ -170,6 +172,14 @@ public class GlobalExceptionHandler {
         // Track 9 PR-B(D-89 Q3): 클레임 상태·정책 위반(CANCEL 한정·CLM-5·canTransitionTo). 500 fallback 차단·422 매핑(D-50).
         log.warn("[Claim] 상태 위반(422): {}", exception.getMessage());
         return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_CLAIM_STATE_INVALID, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(InventoryInvariantViolationException.class)
+    public ResponseEntity<ProblemDetail> handleInventoryInvariantViolation(
+            InventoryInvariantViolationException exception, HttpServletRequest request) {
+        // Track 17 D-101 §2·§6: INV-1·INV-3·INV-4 위반(422). 도메인 불변조건 위반·ClaimInvalidStateException 선례 정합.
+        log.warn("[Inventory] 불변조건 위반(422): {}", exception.getMessage());
+        return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_INVENTORY_INVARIANT_VIOLATION, exception.getMessage(), request);
     }
 
     // ===== 500 (fallback) =====
