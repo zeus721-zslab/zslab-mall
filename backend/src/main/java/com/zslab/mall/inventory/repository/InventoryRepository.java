@@ -11,7 +11,10 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 /**
- * 재고 Repository(Track 4 read-only·D-57). variant 기준 조회만 제공한다(쓰기·차감 메서드는 Track 7 이연).
+ * 재고 Repository(Track 4 read-only·D-57·Track 17 PR-A 쓰기 진입점 추가). variant 기준 조회 + 비관적 락 조회
+ * ({@link #findByVariantIdForUpdate})를 제공한다. 도메인 행위(예약·해제·차감·복구)의 락 획득은 {@code InventoryService}가
+ * findByVariantIdForUpdate로 일원화하며(D-101 §4 α), 일반 {@link #findByVariantId} read-only 조회는 §4 갱신 2 예외
+ * (CheckoutService 사전 재고 조회·InventoryPaymentFailedHandler reserved 판정)에 한정한다.
  */
 public interface InventoryRepository extends JpaRepository<Inventory, Long> {
 

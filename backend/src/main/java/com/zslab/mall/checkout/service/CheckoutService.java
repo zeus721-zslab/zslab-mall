@@ -137,8 +137,8 @@ public class CheckoutService {
         Order order;
         try {
             order = createOrder(command);            // D-52 2단계: TX1
-        } catch (CheckoutItemNotFoundException | CheckoutItemMismatchException fourXx) {
-            // D-66: 클라이언트 교정 가능 4xx → IN_PROGRESS row 삭제하여 동일 키 재시도 허용
+        } catch (CheckoutItemNotFoundException | CheckoutItemMismatchException | OrderNotPayableException fourXx) {
+            // D-66: 클라이언트 교정 가능 4xx(품목 미해소·재고 부족 §10 α 포함) → IN_PROGRESS row 삭제하여 동일 키 재시도 허용
             idempotencyRepository.delete(mark);
             throw fourXx;
         }
@@ -195,10 +195,33 @@ public class CheckoutService {
                     item.quantity(), unitPrice, totalPrice));
         }
 
+        // D-101 §10 α: 트랜잭션 진입 전 사전 재고 검증(TOCTOU 완화·Inventory.reserve INV-1 2차 방어와 이중화). 부족 시 즉시 422.
+        revalidateInventory(resolvedItems);
+
         // D-61: Track 4 시점 discount·shipping = 0
         CreateOrderCommand createCommand = new CreateOrderCommand(
                 command.buyerId(), resolvedItems, command.shipping(), 0L, 0L);
         return orderService.createOrder(createCommand);
+    }
+
+    /**
+     * 신규 주문 사전 재고 검증(D-101 §10 α·§4 갱신 read-only 2 예외). variant별 요청 수량 합계가 가용 재고를 초과하면
+     * 트랜잭션 진입 전 즉시 OUT_OF_STOCK(422)로 차단한다. read-only {@code findByVariantIdIn}만 사용하며 예약은 하지 않는다
+     * (실 예약은 E1 OrderPlaced 핸들러의 {@code InventoryService.reserve}가 비관락으로 수행·2차 방어).
+     */
+    private void revalidateInventory(List<OrderItemCommand> items) {
+        List<Long> variantIds = items.stream().map(OrderItemCommand::variantId).distinct().toList();
+        Map<Long, Inventory> inventoryByVariantId = inventoryRepository.findByVariantIdIn(variantIds).stream()
+                .collect(Collectors.toMap(Inventory::getVariantId, Function.identity()));
+        Map<Long, Integer> requestedByVariantId = items.stream()
+                .collect(Collectors.groupingBy(OrderItemCommand::variantId, Collectors.summingInt(OrderItemCommand::quantity)));
+        for (Map.Entry<Long, Integer> requested : requestedByVariantId.entrySet()) {
+            Inventory inventory = inventoryByVariantId.get(requested.getKey());
+            if (inventory == null || inventory.getQuantityAvailable() < requested.getValue()) {
+                throw new OrderNotPayableException(OrderNotPayableReason.OUT_OF_STOCK,
+                        "재고 부족: variantId=" + requested.getKey() + ", 요청=" + requested.getValue());
+            }
+        }
     }
 
     /** 신규/복구 공통: initiate(TX2) → 성공 forNewOrder·PG 실패 INITIATE_FAILED. 멱등성 행 있으면 2xx 응답 캐싱(§10). */

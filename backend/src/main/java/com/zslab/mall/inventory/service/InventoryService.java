@@ -15,7 +15,8 @@ import org.springframework.transaction.annotation.Transactional;
  * 비관적 락을 획득한 뒤 Aggregate 도메인 행위를 호출한다(D-101 §4 α 비관락 일원화).
  *
  * <p>InventoryHistory 기록 책임(M-11·D-101 §11): on_hand 변동이 있는 commitReservation·restoreStock만 기록하고,
- * reserved만 변동하는 reserve·release는 기록하지 않는다. EXCHANGE 흐름은 예약 단계 실측 후 PR-B에서 신설한다(D-101 §5).
+ * reserved만 변동하는 reserve·release는 기록하지 않는다. EXCHANGE 흐름({@link #exchange})은 회수분 복구·신규분 확정을
+ * 단일 트랜잭션에서 처리하며 InventoryHistory 2행(RETURN·ORDER)을 기록한다(D-101 §5 갱신 α).
  */
 @Service
 @Transactional
@@ -70,5 +71,29 @@ public class InventoryService {
         inventory.restoreStock(qty);
         inventoryHistoryRepository.save(
                 InventoryHistory.create(inventory, type, qty, referenceType, referenceId, null));
+    }
+
+    /**
+     * 교환(EXCHANGE)을 처리한다(E9 ClaimCompleted·EXCHANGE 소비 진입점). 회수분은 실물 복구(RETURN)하고, 교환품 신규 발송은
+     * 예약 후 즉시 확정하는 2단계 패턴(α·D-101 §5 갱신)으로 차감(ORDER)한다. commitReservation INV-3 가드를 자연 흡수하며
+     * (선행 reserve가 quantityReserved를 먼저 채움), §7 InventoryHistoryChangeType.ADJUST 명명 충돌을 회피한다(기조 4 정합).
+     * 회수·신규 2 도메인 행위와 InventoryHistory 2행(RETURN·ORDER)을 단일 DB 트랜잭션에서 원자적으로 처리한다
+     * (D-08 [갱신 Track17]·M-12·부분 실패 시 자연 롤백).
+     *
+     * @throws InventoryInvariantViolationException 회수·신규 variant의 Inventory가 없거나 도메인 불변조건(INV-1)을 위반할 때
+     */
+    public void exchange(Long returnVariantId, int returnQty, Long newVariantId, int newQty, Long claimId) {
+        Inventory returnInventory = inventoryRepository.findByVariantIdForUpdate(returnVariantId)
+                .orElseThrow(() -> new InventoryInvariantViolationException("Inventory 미존재: variantId=" + returnVariantId));
+        returnInventory.restoreStock(returnQty);
+        inventoryHistoryRepository.save(
+                InventoryHistory.create(returnInventory, InventoryHistoryChangeType.RETURN, returnQty, "claim", claimId, null));
+
+        Inventory newInventory = inventoryRepository.findByVariantIdForUpdate(newVariantId)
+                .orElseThrow(() -> new InventoryInvariantViolationException("Inventory 미존재: variantId=" + newVariantId));
+        newInventory.reserve(newQty);            // α 1단계: 예약(quantityReserved 선증가)
+        newInventory.commitReservation(newQty);  // α 2단계: 확정(reserved·on_hand 동시 차감)
+        inventoryHistoryRepository.save(
+                InventoryHistory.create(newInventory, InventoryHistoryChangeType.ORDER, -newQty, "claim", claimId, null));
     }
 }
