@@ -7,10 +7,12 @@ import com.zslab.mall.claim.event.ClaimCompleted;
 import com.zslab.mall.claim.event.ClaimPickedUp;
 import com.zslab.mall.claim.repository.ClaimRepository;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
+import com.zslab.mall.common.observability.NotificationDispatchMetricsRecorder;
 import com.zslab.mall.delivery.entity.Delivery;
 import com.zslab.mall.delivery.event.DeliveryCompleted;
 import com.zslab.mall.delivery.event.DeliveryStarted;
 import com.zslab.mall.delivery.repository.DeliveryRepository;
+import com.zslab.mall.notification.adapter.NotificationSender;
 import com.zslab.mall.notification.entity.NotificationLog;
 import com.zslab.mall.notification.enums.NotificationChannel;
 import com.zslab.mall.notification.repository.NotificationLogRepository;
@@ -20,6 +22,7 @@ import com.zslab.mall.order.event.OrderPlaced;
 import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.order.repository.OrderRepository;
 import com.zslab.mall.payment.event.PaymentCompleted;
+import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -37,6 +40,10 @@ import org.springframework.stereotype.Service;
  * 회피하고 skip한다(적재 의미 보존). 예외는 핸들러 상위로 재throw하지 않는다(원 흐름 비차단).
  *
  * <p>channel은 EMAIL 고정이다(실 전송 어댑터 부재·발송 채널 선택은 본 트랙 OUT-OF-SCOPE).
+ *
+ * <p><b>즉시 발송(Track 19·판단 2 α·save/dispatch 분리)</b>: 적재 직후 {@link NotificationSender}로 발송하고 성공 시 SENT·
+ * 실패 시 FAILED로 전이한다({@code dispatch}). 발송 실패는 상위(핸들러)로 재throw하지 않으며(D-95 A2-α)
+ * {@code zslab.notification.failed} 계측과 structured log만 남긴다.
  */
 @Slf4j
 @Service
@@ -50,6 +57,8 @@ public class NotificationService {
     private final OrderItemRepository orderItemRepository;
     private final ClaimRepository claimRepository;
     private final DeliveryRepository deliveryRepository;
+    private final NotificationSender notificationSender;
+    private final NotificationDispatchMetricsRecorder notificationDispatchMetricsRecorder;
 
     /**
      * OrderPlaced(E1) 소비 → 주문 접수 알림 적재. orderId로 Order를 재조회해 Buyer를 recipient로 산정한다.
@@ -63,7 +72,7 @@ public class NotificationService {
             }
             String content = "주문 " + event.publicId() + "이(가) 접수되었습니다.";
             save(order.getBuyerId(), NotificationTemplateCodes.ORDER_PLACED,
-                    PolymorphicTargetType.ORDER, event.orderId(), "주문 접수", content);
+                    PolymorphicTargetType.ORDER, event.orderId(), "주문 접수", content, "OrderPlaced");
         } catch (RuntimeException exception) {
             // 재조회·적재 실패는 원 흐름(주문)을 막지 않는다(A2-α·재throw 금지).
             log.warn("[Notification] OrderPlaced 적재 실패 → 건너뜀: orderId={}", event.orderId(), exception);
@@ -82,7 +91,7 @@ public class NotificationService {
             }
             String content = "결제 " + event.amount() + "원이 완료되었습니다.";
             save(order.getBuyerId(), NotificationTemplateCodes.PAYMENT_COMPLETED,
-                    PolymorphicTargetType.ORDER, event.orderId(), "결제 완료", content);
+                    PolymorphicTargetType.ORDER, event.orderId(), "결제 완료", content, "PaymentCompleted");
         } catch (RuntimeException exception) {
             // 재조회·적재 실패는 원 흐름(결제)을 막지 않는다(A2-α·재throw 금지).
             log.warn("[Notification] PaymentCompleted 적재 실패 → 건너뜀: orderId={}", event.orderId(), exception);
@@ -102,7 +111,7 @@ public class NotificationService {
             String content = "클레임 " + event.claimPublicId() + " " + claimTypeLabel(event.claimType())
                     + " 요청이 승인되었습니다.";
             save(recipientUserId, NotificationTemplateCodes.CLAIM_APPROVED,
-                    PolymorphicTargetType.CLAIM, event.claimId(), "클레임 승인", content);
+                    PolymorphicTargetType.CLAIM, event.claimId(), "클레임 승인", content, "ClaimApproved");
         } catch (RuntimeException exception) {
             // 재조회·적재 실패는 원 흐름(클레임 승인)을 막지 않는다(A2-α·재throw 금지).
             log.warn("[Notification] ClaimApproved 적재 실패 → 건너뜀: claimId={}", event.claimId(), exception);
@@ -122,7 +131,7 @@ public class NotificationService {
             String content = "클레임 " + event.claimPublicId() + " " + claimTypeLabel(event.claimType())
                     + " 요청이 완료되었습니다.";
             save(recipientUserId, NotificationTemplateCodes.CLAIM_COMPLETED,
-                    PolymorphicTargetType.CLAIM, event.claimId(), "클레임 완료", content);
+                    PolymorphicTargetType.CLAIM, event.claimId(), "클레임 완료", content, "ClaimCompleted");
         } catch (RuntimeException exception) {
             // 재조회·적재 실패는 원 흐름(클레임 완료)을 막지 않는다(A2-α·재throw 금지).
             log.warn("[Notification] ClaimCompleted 적재 실패 → 건너뜀: claimId={}", event.claimId(), exception);
@@ -159,7 +168,7 @@ public class NotificationService {
             }
             String content = "클레임 " + claimPublicId + " 환불 처리에 실패했습니다. 운영 확인이 필요합니다.";
             save(recipientUserId, NotificationTemplateCodes.REFUND_FAILED,
-                    PolymorphicTargetType.CLAIM, claimId, "환불 실패", content);
+                    PolymorphicTargetType.CLAIM, claimId, "환불 실패", content, "RefundFailed");
         } catch (RuntimeException exception) {
             // 재조회·적재 실패는 원 흐름(환불 자동 트리거 catch)을 막지 않는다(A2-α·재throw 금지).
             log.warn("[Notification] RefundFailed 적재 실패 → 건너뜀: claimId={}", claimId, exception);
@@ -178,7 +187,7 @@ public class NotificationService {
             }
             String content = "클레임 " + event.claimPublicId() + " 반품 상품 수거가 확인되었습니다.";
             save(recipientUserId, NotificationTemplateCodes.PICKUP_CONFIRMED,
-                    PolymorphicTargetType.CLAIM, event.claimId(), "수거 확인", content);
+                    PolymorphicTargetType.CLAIM, event.claimId(), "수거 확인", content, "ClaimPickedUp");
         } catch (RuntimeException exception) {
             // 재조회·적재 실패는 원 흐름(수거 확인)을 막지 않는다(A2-α·재throw 금지).
             log.warn("[Notification] ClaimPickedUp 적재 실패 → 건너뜀: claimId={}", event.claimId(), exception);
@@ -197,7 +206,7 @@ public class NotificationService {
             }
             String content = "배송이 시작되었습니다. 송장번호: " + event.trackingNo();
             save(recipientUserId, NotificationTemplateCodes.DELIVERY_STARTED,
-                    PolymorphicTargetType.DELIVERY, event.deliveryId(), "배송 시작", content);
+                    PolymorphicTargetType.DELIVERY, event.deliveryId(), "배송 시작", content, "DeliveryStarted");
         } catch (RuntimeException exception) {
             // 재조회·적재 실패는 원 흐름(배송 시작)을 막지 않는다(A2-α·재throw 금지).
             log.warn("[Notification] DeliveryStarted 적재 실패 → 건너뜀: deliveryId={}", event.deliveryId(), exception);
@@ -216,7 +225,7 @@ public class NotificationService {
             }
             String content = "배송이 완료되었습니다.";
             save(recipientUserId, NotificationTemplateCodes.DELIVERY_COMPLETED,
-                    PolymorphicTargetType.DELIVERY, event.deliveryId(), "배송 완료", content);
+                    PolymorphicTargetType.DELIVERY, event.deliveryId(), "배송 완료", content, "DeliveryCompleted");
         } catch (RuntimeException exception) {
             // 재조회·적재 실패는 원 흐름(배송 완료)을 막지 않는다(A2-α·재throw 금지).
             log.warn("[Notification] DeliveryCompleted 적재 실패 → 건너뜀: deliveryId={}", event.deliveryId(), exception);
@@ -280,11 +289,33 @@ public class NotificationService {
     }
 
     private void save(Long recipientUserId, String templateCode, PolymorphicTargetType targetType,
-            Long targetId, String title, String content) {
+            Long targetId, String title, String content, String eventName) {
         NotificationLog notificationLog = NotificationLog.create(
                 recipientUserId, DEFAULT_CHANNEL, templateCode, targetType, targetId, title, content);
         notificationLogRepository.save(notificationLog);
         log.info("[Notification] 적재 완료: template={} target_type={} target_id={} recipient={}",
                 templateCode, targetType, targetId, recipientUserId);
+        dispatch(notificationLog, eventName);
+    }
+
+    /**
+     * 적재된 알림을 즉시 발송한다(Track 19·판단 2 α·save/dispatch 분리). 발송 성공 시 SENT, 실패 시 FAILED로 전이하고
+     * 발송 실패 카운터를 계측한다. 발송 예외는 상위(핸들러)로 재throw하지 않는다(D-95 A2-α·원 흐름 비차단).
+     * {@code eventName}은 실패 계측 태그({@code zslab.notification.failed{event}})에 사용한다.
+     */
+    private void dispatch(NotificationLog notificationLog, String eventName) {
+        try {
+            notificationSender.send(notificationLog);
+            notificationLog.markSent(LocalDateTime.now());
+            notificationLogRepository.save(notificationLog);
+        } catch (RuntimeException exception) {
+            // 발송 실패는 원 흐름을 막지 않는다(A2-α·재throw 금지). FAILED 전이·계측 후 structured log만 남긴다.
+            notificationLog.markFailed(exception.getMessage());
+            notificationLogRepository.save(notificationLog);
+            notificationDispatchMetricsRecorder.recordFailed(eventName, notificationLog.getChannel().name());
+            log.warn("[Notification] 발송 실패: event={} template={} target_type={} target_id={} channel={} action=manual_review",
+                    eventName, notificationLog.getTemplateCode(), notificationLog.getTargetType(),
+                    notificationLog.getTargetId(), notificationLog.getChannel(), exception);
+        }
     }
 }
