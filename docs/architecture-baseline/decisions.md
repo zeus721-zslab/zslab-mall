@@ -5869,3 +5869,136 @@ InventoryHistory 생성 책임 = **InventoryService** (Aggregate 비포함).
 
 ---
 
+### D-102: Track 18 Admin Delivery — registerExchangeShipmentByAdmin wrapper·AdminDeliveryController 진입점
+
+**상태**: [확정 2026-07-01]
+
+#### §1 트랙 식별자
+
+Track 18 = Admin Service 확산 트랙 (A급). Track 15·Track 17에서 확립된 Admin 인프라(AdminActorResolver·HeaderAdminActorResolver·AdminClaimController)를 Delivery 도메인으로 확산. registerExchangeShipmentByAdmin wrapper 신설 + AdminDeliveryController endpoint 확립으로 D-99 §후속 L5110 carry-over 해소.
+
+#### §2 우선 진입 도메인 (Q1)
+
+**채택**: α Delivery.
+
+| 후보 | 근거 | 판정 |
+|---|---|---|
+| α Delivery (registerExchangeShipmentByAdmin) | D-99 §후속 L5110 명시 carry-over·primitive `registerExchangeShipment` (DeliveryService.java) 기 존재·wrapper 최소 범위 | **채택** |
+| β ADJUST (adjustStock·E10) | D-101 §13 명시·도메인 행위 신설 동반·범위 초과·회귀 위험 중 | 기각 (Track 19+ 이연) |
+| γ Refund·Payment | Admin 진입점 부재 실측 근거 부족 | 기각 (실측 후 별도 트랙) |
+
+**근거**:
+- primitive `registerExchangeShipment` 기 존재 → wrapper만 추가로 최소 범위.
+- Admin 인프라 SoT 기 확립 (Track 15·Track 17) → 재사용 4회차로 횡단 원칙 확정.
+- 회귀 위험 하·기조 4 (과잉개발 회피) 정합.
+
+#### §3 URL 패턴·Response (Q2·재정찰 반영)
+
+**채택**: β `/api/v1/admin/claims/{claimPublicId}/register-exchange-shipment` — SellerDeliveryController URL 1:1 대칭 (액터축 admin 치환).
+
+| 항목 | 값 |
+|---|---|
+| Controller | `AdminDeliveryController` (신설) |
+| URL prefix | `/api/v1/admin/claims/*` |
+| 신규 endpoint | `POST /api/v1/admin/claims/{claimPublicId}/register-exchange-shipment` |
+| Path Variable | `claimPublicId` (String) |
+| Request Body | `RegisterExchangeShipmentRequest` (기존 DTO 재사용·`{carrier, trackingNo}`) |
+| Response | `200 OK` + `RegisterExchangeShipmentResponse` (기존 DTO 재사용) |
+
+**근거**:
+- SellerDeliveryController 실측 URL `/api/v1/claims/{claimPublicId}/register-exchange-shipment` 1:1 대칭 (액터축만 admin 치환)·기조 1 (운영 용이성) 정합.
+- 기존 `RegisterExchangeShipmentRequest`·`RegisterExchangeShipmentResponse` DTO 완전 재사용 → 신규 DTO 신설 회피·기조 4 정합.
+- publicId 사용으로 내부 ID 노출 회피·Seller와 일관.
+- Response 200 OK는 Seller controller 실측 정합·wrapper는 위임만 수행·리소스 신규 생성 시맨틱은 primitive 내부.
+
+**기각**:
+- **α (원 D-102 §3 안·`POST /api/v1/admin/deliveries/exchange` + body claimId Long)**: SellerDeliveryController URL 리소스 축 실측 결과와 불일치·Request DTO 신설 필요·내부 ID 노출·기조 4 위반. 기각.
+- **γ (`POST /api/v1/admin/claims/{claimPublicId}/exchange-shipment`)**: Seller URL과 부분 불일치·재정찰 SoT 대칭 원칙 위반. 기각.
+
+#### §4 AdminActorResolver 재사용 방식 (Q3)
+
+**채택**: α 기 구현 `AdminActorResolver` interface + `HeaderAdminActorResolver` 그대로 주입.
+
+- `backend/src/main/java/com/zslab/mall/common/auth/AdminActorResolver.java` 재사용.
+- `HeaderAdminActorResolver` (X-Admin-Id 헤더 stub·누락 401·형식오류 400) 재사용.
+- AdminClaimController approve/reject 패턴 1:1 재사용·`adminActorResolver.resolve(request)` 헤더 존재·형식 검증만·식별자 미사용 (D-93 Q3 stub 정합).
+
+**근거**:
+- D-93 Q2 "별도 인터페이스 분리" 원칙은 Buyer·Seller·Admin 간 분리 → Admin 내부 재사용은 단일 인터페이스.
+- β 전용 Resolver 신설은 채택 사유 없음 → 기각.
+
+#### §5 wrapper 시그니처 (Q4·재정찰 반영)
+
+**채택**: β DeliveryService.registerExchangeShipmentByAdmin — primitive 직접 위임.
+
+**구현 형식** (평문 들여쓰기):
+
+    // DeliveryService
+    @Transactional
+    public Delivery registerExchangeShipmentByAdmin(Long claimId,
+                                                    DeliveryCarrier carrier,
+                                                    String trackingNo) {
+        return registerExchangeShipment(claimId, carrier, trackingNo);
+    }
+
+- primitive `registerExchangeShipment` 인자 시그니처 1:1 재사용.
+- actor 파라미터 비수신 (D-92 primitive actor 비의존 원칙).
+- Admin 권한 검증은 Controller 레벨 (AdminActorResolver.resolve)·Service primitive 위임.
+- Controller에서 claimPublicId → claimId 조회 후 wrapper 호출 (AdminClaimController approve/reject 패턴 1:1 정합).
+
+**근거**:
+- Admin 권한 검증 = Controller 레벨 완결 (D-93 Q3·Q5: Admin 전체 접근·헤더 검증만)·`authorizeSellerAccess` 패턴 불필요.
+- Seller wrapper는 `ClaimService.registerExchangeShipmentBySeller`에 위치 (재정찰 실측): `authorizeSellerAccess(claim, sellerId)` — ClaimService private 메서드 의존. Admin은 이 단계 없음 → primitive 직접 위임이 최단 경로.
+- Delivery 도메인 캡슐화: primitive가 DeliveryService 소속 → wrapper도 동일 클래스가 도메인 경계 정합.
+
+**기각**:
+- **α ClaimService.registerExchangeShipmentByAdmin (Seller wrapper 위치 대칭)**: Admin은 `authorizeSellerAccess` 의존 없음·ClaimService 경유 사유 없음·기각.
+
+#### §6 통합 테스트 3건 (Q5·재정찰 반영)
+
+| # | 시나리오 | 기대 결과 |
+|---|---|---|
+| 1 | X-Admin-Id 헤더 부재 | 401 Unauthorized |
+| 2 | 유효 헤더 + 유효 claimPublicId + 승인된 Claim | 200 OK + `RegisterExchangeShipmentResponse` 반환·DB Delivery 행 생성 확인 |
+| 3 | Claim 상태 미승인 등 primitive 예외 전파 | 4xx |
+
+- CLAUDE.md 신규 도메인 통합 테스트 3건 의무 정합 (인증·성공·실패).
+- LT-02 try-finally 의무 (SET FOREIGN_KEY_CHECKS 사용 시).
+- D-91 FK 부모 그래프 시드 (claim → order → order_item·payment).
+- SellerDeliveryController 통합 테스트 (존재 시) 시드·시나리오 패턴 1:1 재사용 권장.
+
+#### §7 PR 분할 (Q6)
+
+**채택**: 1-PR 단독 (내부 3-split: docs·feat·test).
+
+| 커밋 | 범위 |
+|---|---|
+| 커밋 1 (docs) | decisions.md D-102 §1~§9 박제 (§8 §진입점 카드 4회차 포함) |
+| 커밋 2 (feat) | DeliveryService.registerExchangeShipmentByAdmin + AdminDeliveryController (기존 DTO 재사용) |
+| 커밋 3 (test) | 통합 테스트 3건 (인증·성공·실패) |
+
+브랜치: `feat/track-18-admin-delivery`
+
+**근거**:
+- 범위 좁음 (wrapper 1건 + Controller 1건 + 테스트 3건·DTO 신설 무)·A급.
+- D-92·D-93 재사용 4회차·1-PR 단독 패턴 10회차 반복·기조 4 정합.
+- 2-PR·3-PR 분할은 오버헤드·기각.
+
+#### §8 진입점 카드 (메모리 룰 #16 적용 4회차)
+
+| # | 항목 | 내용 |
+|---|---|---|
+| 1 | **목적** | 교환 배송 등록 primitive에 대한 Admin actor wrapper 신설·AdminDeliveryController endpoint 확립·D-99 §후속 L5110 carry-over 해소 |
+| 2 | **핵심 진입점** | `delivery/service/DeliveryService.java` (primitive `registerExchangeShipment` + wrapper `registerExchangeShipmentByAdmin` 신설) · `delivery/controller/AdminDeliveryController.java` (신설) · `common/auth/AdminActorResolver.java` (재사용) |
+| 3 | **핵심 SoT** | `registerExchangeShipmentByAdmin` wrapper — primitive 인자 시그니처 1:1 재사용·actor 파라미터 비수신 (D-92 primitive actor 비의존 원칙) · SellerDeliveryController URL `/api/v1/claims/{claimPublicId}/register-exchange-shipment` 1:1 대칭 (액터축 admin 치환) |
+| 4 | **영향 범위** | Delivery Aggregate 단독 · 패키지 delivery/service·delivery/controller·common/auth(재사용) · 신규 파일 2건 (AdminDeliveryController·통합테스트) · 수정 파일 1건 (DeliveryService +1메서드) · DTO 신설 무 (기존 `RegisterExchangeShipmentRequest`·`RegisterExchangeShipmentResponse` 재사용) |
+| 5 | **패턴 재사용 SoT** | D-92 (횡단 권한 원칙·Service 진입점 primitive·wrapper 캡슐화) 재사용 4회차 · D-93 (AdminActorResolver seam·X-Admin-Id stub) 재사용 4회차 · SellerDeliveryController URL 리소스 축 대칭 (액터축 admin 치환) · AdminClaimController approve/reject Controller 패턴 1:1 재사용 |
+| 6 | **트랩 주의** | LT-01 비해당 (신규 Entity 무) · LT-03 비해당 (신규 Entity 무) · LT-02 try-finally 의무 (통합 테스트 SET FOREIGN_KEY_CHECKS 사용 시) · **원칙 감시**: primitive에 actor 파라미터 추가 금지·wrapper 캡슐화 유지 · **D-40 액터 중립 재확인**: `/api/v1/admin/claims/*` Admin 전용·`/api/v1/claims/*` (Seller)와 분리 |
+
+#### §9 후속 트랙 박제 의무
+
+| 항목 | 처치 | 이연 |
+|---|---|---|
+| AdminDeliveryController 확장 (markShipping/markDelivered 등 일반 주문 Delivery 진입점) | D-99 §후속 L5108 carry-over 유지 | Track 19+ |
+| Admin Refund·Payment 진입점 | SoT 실측 후 별도 트랙 | Track 19+ |
+| ADJUST 진입점·adjustStock·E10 | D-101 §13 carry-over 유지 | Track 19+ |
