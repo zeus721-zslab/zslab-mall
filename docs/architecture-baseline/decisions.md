@@ -6746,3 +6746,66 @@ recon-report.md(460줄·외부 검토 2회 수렴)를 근거로 아래 재검토
 - **트랩**: LT-02(FK_CHECKS try-finally)·@Scheduled 테스트 자동 발화(§9 킬스위치로 차단)·AFTER_COMMIT 발화는 커밋 필수(테스트는 비-TX 직접 호출).
 
 ---
+
+## D-110. Track 26 통합 테스트 LT-02 위반 보정 — CheckoutIntegrationTest·PaymentWebhookIntegrationTest FK 세션 변수 복원 · 복원 지점 구조 의존 실증 [ACTIVE]
+
+**결정일**: 2026-07-02
+**관련**: Track 26 / D-79 [ARCHIVED]·D-89 Q9·D-90 Q5·D-91·D-100 Q8 / live-traps LT-02 / docs/handover.md (Track 26 정찰)
+
+### §1 결정 요약
+LT-02(SET FOREIGN_KEY_CHECKS=0 사용 시 HikariCP 커넥션 세션 변수 잔류) 위반 2파일 3지점을 보정한다. 복원(FK=1) 짝을 추가하되, 복원 지점은 테스트의 트랜잭션 구조에 따라 seed 블록 내부가 아니라 @AfterEach 최종 지점으로 배치한다. 나머지 22개 통합 테스트는 이미 준수·무변경. 배치 규약 SoT는 D-100 Q8이 이미 보유하므로 신규 문서(test-standards.md) 미신설. 회귀 방지는 Track 20~25 패턴 자연 준수 유지(ArchUnit 미도입).
+
+- **수정 대상 3지점**: CheckoutIntegrationTest(seed FK=0 L90 복원 부재)·PaymentWebhookIntegrationTest(seed FK=0 L103·cleanup FK=0 L124 복원 부재).
+- **복원 지점**: 두 파일 모두 FK=0을 테스트 본체 실행 구간 전체에 유지해야 하는 구조 → 복원을 @AfterEach 최종 finally로 배치(seed 블록 내부 복원은 성립 불가·실증).
+- **527 tests PASS 유지·회귀 0**.
+
+### §1-A 옵션 검토 (채택/기각·결정 근거 영구화)
+
+**트랙 범위 (α/β/γ)**:
+
+| # | 범위 안 | 판정 | 근거 |
+|---|---|---|---|
+| α | LT-02 실재 위반 2파일 3지점 전건 보정 | **채택** | Checkout·PaymentWebhook 모두 실재 위반·죽은 코드 아님·D-89 Q9 이연 사유가 "고치기 어려움"이 아니라 단순 후순위 백로그(@Transactional 롤백 의존)로 실측 확인 → 실재 결함 처치는 작업 범위와 무관하게 과잉개발 아님(기조 4 정의: 미사용·죽은 코드 회피이지 범위 크기 아님) |
+| β | PaymentWebhook 1건만 보정·Checkout은 D-89 Q9 이연 유지 | 기각 | Checkout LT-02도 실재 위반·복원 부재 시 HikariCP 세션 변수 잔류는 @Transactional 롤백과 무관(세션 변수는 트랜잭션 대상 아님)·D-89 Q9는 후순위 지목이지 영구 이연 아님 |
+| γ | 코드 무수정·test-standards.md 신설 단독 | 기각 | 실위험 2건 잔류·D-100 Q8이 이미 5중 의무 SoT로 기능 중이라 문서 신설은 미사용 문서(기조 3·4 위배) |
+
+**SoT 위치 (test-standards.md 신설 여부)**:
+- **decisions.md D-100 Q8 단독 채택**: 통합 테스트 표준(NO @Transactional·TransactionTemplate·@RecordApplicationEvents·LT-02 try-finally·D-91 FK 부모 그래프 5중 의무)은 D-100 Q8(decisions.md L5226)이 이미 단일 지점 박제. test-standards.md 신설은 기능 중 SoT 중복·실질 이득이 검색 편의에 그침 → 기조 3·4 위배로 기각. 5곳 분산 SoT(D-89·D-90 Q5·D-91·D-100 Q8·LT-02)는 각자 다른 축의 부속 SoT로 정합 기능 중.
+
+**회귀 방지 (ArchUnit)**:
+- **자연 준수 채택**: Track 20~25 통합 테스트 5건 전건 표준 준수 실측(handover §5-1)·신규 테스트 자연 수렴. ArchUnit은 D-100 Q8이 이미 이연(Javadoc 매트릭스 확정 종속)·별도 의존성 부담 → 미도입.
+
+### §2 결정 라운드 Q (재진입·재검토 수렴)
+- **재검토 1 (기조 4 정의 정합)**: 초기 추천은 CheckoutIntegrationTest를 "범위 확대"로 보아 이연 유지(β 근접)였으나, 사용자 기조 4 정의("과잉개발 = 미사용·죽은 코드 회피이지 작업 범위 크기 아님") 명시 후 재검토 → 실재 위반 2건 전건 보정(α)으로 정정. 기조 4 정의는 CLAUDE-DEV.md 5대 기조 절에 영구 박제(채팅별 해석 표류 차단).
+- **재검토 2 (D-89 Q9 이연 사유 실측)**: Checkout 미보정 사유가 "고치기 어려움"인지 확인 위해 D-89 Q9 원문(decisions.md L3057) MCP read → "@Transactional rollback 의존·별도 트랙 보정 후보(백로그)" 확인. 기술적 장애 아닌 후순위 → 본 트랙 흡수 정당.
+- **재검토 3 (복원 지점 실측 정정·핵심)**: 사전 실측(STEP 1)에서 "seed 블록 내 try-finally"(RefundWebhook 패턴)를 승인했으나 구현 시 10개 실패. 실측 원인 = ① Checkout은 @Transactional 공유 커넥션·seed finally FK=1 복원 시 테스트 본체(buyer_id=1 주문 INSERT)가 FK=1로 실행되어 fk_order_user 위반 ② PaymentWebhook은 웹훅 핸들러가 order_item 전컬럼 UPDATE(seller_id 포함) 발행·orphaned FK 참조로 FK=0이 본체 실행까지 유지 필요(RefundWebhook은 claim/payment만 변경해 회피). 복원 지점을 @AfterEach 최종 finally로 이동해 커넥션 풀 반환 전 세션 변수 정리 → LT-02 충족·527 PASS.
+
+### §3 구현 산출 (실측)
+**수정 2파일 (production·DDL·문서·22개 정상 테스트 무변경)**:
+- `checkout/CheckoutIntegrationTest.java` — seed() @BeforeEach 원본 유지(FK=0·INSERT·flush)·resetSpy() @AfterEach에 `try { SET FK=1 } finally { Mockito.reset }` 추가. @Transactional 공유 커넥션·단일 트랜잭션 구조로 FK=0이 seed~본체 전체 유지·@AfterEach 복원이 롤백 전 세션 변수 정리.
+- `payment/PaymentWebhookIntegrationTest.java` — seed()·cleanup() 원본 유지(FK=0·try-finally 없음)·tearDown() @AfterEach에 `try { cleanup() } finally { SET FK=1 }` 추가. 웹훅 order_item orphaned FK 참조로 FK=0이 본체 전체 유지·최종 복원으로 HikariCP 반환 전 정리.
+
+### §4 검증 (구현 후 실측)
+- 527 PASS(baseline 527 유지·신규 테스트 무·failures 0·errors 0·회귀 0)·BUILD SUCCESSFUL 3m 12s·`./gradlew.bat cleanTest test`·2026-07-02.
+- 빌드툴: Gradle(`backend/gradlew.bat`)·pom.xml 부재.
+- 브랜치: `feat/track-26-integration-test-lt02`(docs·feat·test 3-split·push 명시 지시 대기).
+
+### §5 핵심 실증 (복원 지점 구조 의존)
+LT-02 복원 짝의 **배치 지점은 테스트의 트랜잭션 구조에 종속**한다. 단일 표준 패턴("seed 블록 try-finally"·RefundWebhook)이 전 통합 테스트에 일괄 적용 불가:
+- **@Transactional 공유 커넥션 테스트**(Checkout): FK=0이 seed~본체 단일 트랜잭션 전체 유지 필요 → 복원은 @AfterEach.
+- **핸들러가 FK 부모 컬럼 UPDATE 발행하는 테스트**(PaymentWebhook·orphaned FK 참조): FK=0이 본체 실행까지 유지 필요 → 복원은 @AfterEach 최종.
+- **seed/cleanup만 FK 우회하고 본체가 FK 참조 안 하는 테스트**(RefundWebhook): seed 블록 내 try-finally로 충분.
+
+### §진입점 카드 (메모리 룰 #16)
+- **목적**: 통합 테스트 LT-02 위반 2파일 보정·복원 지점 구조 의존 실증.
+- **핵심 진입점**: `checkout/CheckoutIntegrationTest.java` resetSpy() @AfterEach · `payment/PaymentWebhookIntegrationTest.java` tearDown() @AfterEach.
+- **핵심 SoT**: LT-02 복원 짝 = FK=0 유지 구간 종료 지점(@AfterEach)에 배치 · D-100 Q8 5중 의무 SoT.
+- **영향 범위**: 테스트 2파일 단독 · production·DDL·문서 무변경 · 22개 정상 테스트 무변경.
+- **패턴 재사용**: LT-02(live-traps L56) · D-89 Q9 이연 해소 · RefundWebhook try-finally 패턴(단 복원 지점은 구조별 상이).
+- **트랩 주의**: seed 블록 내 복원은 @Transactional 공유 커넥션·핸들러 FK 부모 UPDATE 테스트에서 성립 불가(본체 FK 위반)·복원 지점은 테스트 트랜잭션 구조 실측 후 결정.
+
+### §8 carry-over
+- carry-over 무. Track 26은 LT-02 위반 2건 전건 보정·D-89 Q9 이연 해소로 종결. 잔여 이월 항목 없음.
+- 후속 자연 진입 트랙: 백로그 §10 유지(markFailedByAdmin·Payment wrapper·markShipping Admin wrapper·부분배송 분할·Spring Security 등)·본 트랙과 독립.
+
+---
