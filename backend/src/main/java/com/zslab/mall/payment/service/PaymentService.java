@@ -12,6 +12,7 @@ import com.zslab.mall.payment.enums.PaymentStatus;
 import com.zslab.mall.payment.exception.InvalidCallbackException;
 import com.zslab.mall.payment.exception.PaymentAlreadyCompletedException;
 import com.zslab.mall.payment.exception.PaymentInProgressException;
+import com.zslab.mall.payment.exception.PaymentNotFoundException;
 import com.zslab.mall.payment.gateway.PaymentGateway;
 import com.zslab.mall.payment.repository.PaymentRepository;
 import com.zslab.mall.refund.repository.RefundRepository;
@@ -189,12 +190,14 @@ public class PaymentService {
      * <p><b>전이 조건(D-71)</b>: Track 5 범위에서 CANCELLED는 <b>전액 환불 완료</b>를 의미한다. Σ(Refund.COMPLETED.amount) ==
      * Payment.amount일 때만 전이하며, 부분환불(Σ &lt; amount)은 상태를 유지(no-op)한다. 이미 CANCELLED면 멱등 no-op이다.
      *
+     * <p>Track 28 D-113의 {@link #markCancelledByAdmin}(운영자 수동 보정)도 본 메서드에 위임하며 전액 환불 가드·멱등 NO-OP를 그대로 공유한다.
+     *
      * @param paymentId 결제 행 id
-     * @throws IllegalArgumentException 결제가 없는 경우
+     * @throws PaymentNotFoundException 결제가 없는 경우(404)
      */
     public void markCancelled(Long paymentId) {
         Payment payment = paymentRepository.findById(paymentId)
-                .orElseThrow(() -> new IllegalArgumentException("결제를 찾을 수 없습니다: paymentId=" + paymentId));
+                .orElseThrow(() -> new PaymentNotFoundException("결제를 찾을 수 없습니다: paymentId=" + paymentId));
         if (payment.getStatus() == PaymentStatus.CANCELLED) {
             log.info("[Payment] markCancelled 멱등 NO-OP(이미 CANCELLED): paymentId={}", paymentId);
             return;
@@ -208,6 +211,28 @@ public class PaymentService {
         }
         payment.cancel(); // PAID → CANCELLED (PAY-2·canTransitionTo 강제)
         paymentRepository.save(payment);
+    }
+
+    /**
+     * 운영자 수동 결제 취소(Track 28 D-113·admin actor wrapper). primitive {@link #markCancelled}에 위임하며 actor 파라미터는
+     * 수신하지 않는다(D-92 원칙·markCancelled가 이미 actor 비의존 시그니처). 전액 환불 가드(D-71)·CANCELLED 멱등 NO-OP를
+     * 그대로 상속한다(강제 취소 아님·부분·미환불이면 상태 유지).
+     *
+     * <p><b>용도</b>: {@code RefundCompleted → Payment CANCELLED} 자동 전이({@code PaymentRefundCompletedHandler})가 유실돼
+     * 전액 환불 완료 결제가 PAID로 잔존할 때, 운영자가 동일 결제를 수동으로 CANCELLED 보정하는 fallback 경로다.
+     *
+     * <p><b>반환</b>: {@link #markCancelled}가 로드한 관리 엔티티를 동일 트랜잭션·영속성 컨텍스트(self-invocation·전파 없음)에서
+     * 재취득한다. {@code findById} 재호출은 1차 캐시 히트로 DB 재조회를 유발하지 않으며 {@code cancel()} 상태 변경이 반영된
+     * 동일 인스턴스를 돌려준다(NO-OP 경로도 현재 상태 반영). 미존재는 {@link #markCancelled}가 선차단하므로 여기 orElseThrow는 도달 불가 방어선이다.
+     *
+     * @param paymentId 결제 행 id
+     * @return 취소 반영(또는 NO-OP 후 현재 상태) 결제 행. Controller는 스칼라 status만 읽는다
+     * @throws PaymentNotFoundException 결제가 없는 경우(404)
+     */
+    public Payment markCancelledByAdmin(Long paymentId) {
+        markCancelled(paymentId);
+        return paymentRepository.findById(paymentId)
+                .orElseThrow(() -> new PaymentNotFoundException("결제를 찾을 수 없습니다: paymentId=" + paymentId));
     }
 
     /** SUCCESS 콜백 처리(D-34): PENDING→PAID / PAID 멱등 NO-OP / FAILED·CANCELLED REJECT. */
