@@ -6932,3 +6932,93 @@ MVP를 Mock 기준으로 진행하되 실 운영 진입 시 Mock→실 어댑터
 - **발주·검수 참조 모델 연동**: 실 운영자 시나리오 실증 후 별도 S급 트랙 승격(§9-6·D-105 §1-A γ 기각 근거 계승).
 
 ---
+
+## D-113. Track 28 Admin Payment mark-cancelled wrapper — markCancelledByAdmin·PaymentNotFoundException·자동전이 유실 수동 보정 [ACTIVE]
+
+**결정일**: 2026-07-03
+**관련**: Track 28 / D-106 §1-A 판단 4·5(markCancelledByAdmin·PaymentNotFoundException 이연 원문)·D-94(Refund 자동 트리거)·D-92 Q3(Admin wrapper 진입부)·D-105 §2 Q2(base path 없음·절대경로)·D-71(PAID→CANCELLED 전이) / 기조 1(운영 용이성)·기조 4(과잉개발 회피)·기조 5(실측 우선)
+
+### §1 결정 사항 (구현 완료 실측)
+Refund.COMPLETED 후 `PaymentRefundCompletedHandler` 자동전이(PAID→CANCELLED)가 유실된 경우, 운영자가 동일 도메인 로직을 수동 재실행하는 Admin wrapper를 신설한다. D-106 §1-A 판단 4·5에서 Track 23+로 이연했던 markCancelledByAdmin·PaymentNotFoundException carry-over를 종결한다.
+
+- **markCancelledByAdmin(Long) wrapper**: `PaymentService.markCancelled` 재사용(PaymentService L232~236). 전액환불 가드(L202~207)·CANCELLED 멱등 NO-OP 가드(L198) 상속. 신규 도메인 행위 미신설(기조 4).
+- **PENDING 취소 미신설**: PENDING→CANCELLED는 `PaymentStatus.canTransitionTo` 불법 전이. Admin PENDING 강제 종결 시나리오 실측상 부재(스케줄러 만료·PG FAILURE/CANCEL 콜백이 PENDING→FAILED 완전 커버).
+- **PaymentNotFoundException 신설 + 404 매핑**: Payment 도메인 404 예외 전무·재사용 후보 없음(기존 3예외 모두 422/409). GlobalExceptionHandler catch-all은 500 → 명시 핸들러 필수.
+- **markCancelled 400 트랩 동반 수정**: 기존 markCancelled L200 `IllegalArgumentException`이 GlobalExceptionHandler L81 handleMalformed에 흡수되어 404 아닌 **400 오출력**. PaymentNotFoundException 교체로 404 정상화(버그 수정 동반).
+- **request body 무**: path variable 단독(mark-delivered 정합). 취소는 추가 입력값 없음.
+- **응답 DTO**: Payment 반환(운영자 취소 결과 확인·기조 1).
+
+**검증**: `./gradlew.bat cleanTest test` 547 tests·failures 0·errors 0·skipped 0·회귀 0. baseline 541 + AdminPaymentControllerIntegrationTest 6(T1~T6) = 547.
+
+### §1-A 옵션 검토 (채택/기각·결정 근거 영구화)
+
+**판단 1 (markCancelledByAdmin wrapper 방식·전액환불 가드 상속)**:
+| 옵션 | 판정 | 근거 |
+|---|---|---|
+| ① 전액환불 가드 상속(자동전이 유실 보정) | **채택** | state-machine §1 PAID→CANCELLED = "Refund.COMPLETED" 단일 정의. markCancelledByAdmin은 자동 배선(PaymentRefundCompletedHandler) 실패 시 수동 재실행 wrapper → 가드 상속이 SoT 유일 정합. D-106 β 기각 논리("자동 배선 기존재") 계승. |
+| ② 환불 무관 강제 취소(가드 bypass) | 기각 | state-machine §1 미정의·SoT 근거 전무. 환불 없는 PAID→CANCELLED 강제 전이는 도메인 정의 위배(기조 5). |
+
+**판단 2 (PENDING 취소 경로)**:
+| 옵션 | 판정 | 근거 |
+|---|---|---|
+| 미신설 | **채택** | PENDING→CANCELLED canTransitionTo 불법·PENDING→FAILED는 스케줄러/PG 콜백 완전 커버·Admin PENDING 종결 시나리오 부재(실측). |
+| markFailedByAdmin 동반 | 기각 | state-machine L274 "운영자 수동 보정 권한 없음"·D-94 Q3·D-106 §8 3중 차단·RefundAdjustment(D안) 미존재. 이연 유지(§8). |
+
+**판단 3 (예외 매핑)**:
+| 옵션 | 판정 | 근거 |
+|---|---|---|
+| ① PaymentNotFoundException 신설 + 404 핸들러 | **채택** | Payment 404 예외 전무·재사용 후보 없음(3예외 모두 422/409). catch-all 500 → 명시 핸들러 필수. L200 400 트랩 동반 정상화. |
+| ② 기존 예외 재사용(Track 27 결정 H 재적용) | 기각 | Track 27 H는 cross-tenant 은닉 맥락(ProductVariantNotFoundException 재사용). Payment 404는 재사용 후보 자체가 부재 → 적용 불가. |
+
+**판단 4 (응답 DTO)**:
+| 옵션 | 판정 | 근거 |
+|---|---|---|
+| ① Payment 반환(AdminPaymentMarkCancelledResponse) | **채택** | 취소 결과 상태 확인이 운영자 시나리오 핵심(기조 1). InventoryAdjustResponse from 팩토리 정합. self-invocation L1 캐시 재취득(§3). |
+| ② void 재조회 없음 | 기각 | 운영자가 취소 반영 여부 확인 불가·mark-delivered와 달리 상태 전이 결과가 의미 있음. |
+
+**판단 5 (이중 호출 멱등)**:
+| 옵션 | 판정 | 근거 |
+|---|---|---|
+| ① 상태 기반 NO-OP 상속(신설 무) | **채택** | markCancelled L198 `if(status==CANCELLED) return` 가드 기존재. 자동↔수동 순서 무관 NO-OP(예외 무). 신규 멱등 예외 불요(기조 4). |
+| ② RefundIdempotentNoOpException 유사 신설 | 기각 | L198 가드로 완전 보장·Refund idempotency-key와 도메인 성격 상이·중복. |
+
+### §2 결정 라운드 재진입·재검토 수렴
+- **재진입 1 (판단 1 SoT 부재 → Phase 1 실측 게이트)**: markCancelled 전액환불 가드 상속이 Admin 의도인지 SoT 근거 미확정 → 추정 금지(기조 5)로 Phase 1 실측 진입. state-machine §1·D-94·D-106 실측 결과 시나리오 ①(전액환불 보정) 유일 정합 확정. ② 강제취소는 SoT 정의 없음.
+- **재진입 2 (판단 3 Track 27 결정 H 재적용 검토)**: 초기 "기존 예외 재사용" 가능성 검토했으나 Phase 1 실측으로 Payment 404 재사용 후보 부재 확인 → 신설 필수로 수렴. Track 27 H(cross-tenant 은닉)와 맥락 상이.
+- **재진입 3 (판단 4 반환 방식 정정)**: 초기 "재조회 필요" 단언을 기조 5 위반 소지로 정정(더티체킹 반영 가능성 미실측)·Phase 2 검증 대상 격하. 구현 실측 결과 self-invocation(프록시 미경유·단일 영속성 컨텍스트)으로 findById가 L1 캐시 hit·markCancelled 변이 인스턴스 반환 확정.
+- **버그 동반 발견**: Phase 1 정찰 2에서 markCancelled L200 IllegalArgumentException 400 오출력 트랩 발견 → PaymentNotFoundException 교체로 404 정상화 동반(별건 fix 트랙 분리 대신 흡수·Track 27 백로그 F 흡수 선례 정합).
+
+### §3 구현 산출 (실측 라인)
+**신설 3**:
+- `payment/exception/PaymentNotFoundException.java`(12줄·RuntimeException 상속 L7·`PaymentNotFoundException(String)` L9·RefundNotFoundException 1:1).
+- `payment/controller/response/AdminPaymentMarkCancelledResponse.java`(19줄·record `(String paymentPublicId, PaymentStatus status)` L12~14·`from(String, Payment)` L16).
+- `payment/controller/AdminPaymentController.java`(60줄·`@PostMapping("/api/v1/admin/payments/{paymentPublicId}/mark-cancelled")` L48·base path 없음 절대경로·D-105 §2 Q2 옵션 A).
+
+**수정 2**:
+- `payment/service/PaymentService.java`(+27/−2·287줄): `markCancelled` L200 IllegalArgumentException → PaymentNotFoundException 교체(400 트랩 수정)·`markCancelledByAdmin(Long)` wrapper L232~236 신설(L233 markCancelled 위임·L234~235 findById 재취득). markCancelled void 유지(L198).
+- `common/web/GlobalExceptionHandler.java`(+9·252줄): `CODE_PAYMENT_NOT_FOUND` L69·`handlePaymentNotFound` L137~142(404·PAYMENT_NOT_FOUND·ProductVariantNotFoundException 블록 템플릿)·import.
+
+**테스트 신설 1**:
+- `test/payment/AdminPaymentControllerIntegrationTest.java`(223줄·T1 401·T2 400·T3 404·T4 전액→CANCELLED·T5 멱등 NO-OP·T6 부분 NO-OP·LT-02 try-finally·시드 order→payment(PAID)→refund(COMPLETED)).
+
+### §4 핵심 메서드
+- **`AdminPaymentController` mark-cancelled(L48)**: `adminActorResolver.resolve`(L53·검증만·D-93 Q3) → `paymentRepository.findByPublicId.orElseThrow(PaymentNotFoundException)`(L54~55) → `paymentService.markCancelledByAdmin(payment.getId())`(L57) → `AdminPaymentMarkCancelledResponse.from`(L58).
+- **`PaymentService.markCancelledByAdmin`(L232~236)**: `markCancelled(paymentId)`(L233·도메인 위임·전이/NO-OP 판정) → `paymentRepository.findById`(L234·self-invocation L1 캐시 hit·변이 인스턴스 반환). self-invocation은 프록시 미경유로 markCancelled @Transactional 재적용 안 됨 → 단일 트랜잭션·단일 영속성 컨텍스트.
+
+### §진입점 카드
+- **목적**: Refund.COMPLETED 자동전이(PaymentRefundCompletedHandler) 유실 시 운영자 수동 결제 취소 보정(PAID→CANCELLED).
+- **핵심 진입점 파일·라인**: `payment/controller/AdminPaymentController`(mark-cancelled·L48)·`PaymentService.markCancelledByAdmin`(L232~236).
+- **핵심 SoT 메서드**: `PaymentService.markCancelled`(L198·전이·전액환불 가드 L202~207·CANCELLED 멱등 가드 L198)·`Payment.cancel`(PAID→CANCELLED 도메인 primitive).
+- **영향 범위**: production 신설 3·수정 2(PaymentService·GlobalExceptionHandler)·test 신설 1. Payment 엔티티·PaymentStatus·DDL·Flyway 무변경.
+- **패턴 재사용 SoT·회차**: D-92 Q3 Admin wrapper 진입부(AdminActorResolver 6회차)·D-105 §2 Q2 base path 없음 절대경로·AdminRefundController initiateByAdmin 위임 패턴·ProductVariantNotFoundException 404 핸들러 템플릿.
+- **트랩 주의**: ① markCancelledByAdmin 재취득 findById가 이론상 PaymentNotFoundException throw 가능하나 동일 TX·직전 markCancelled 조회 성공으로 실질 무영향 ② markCancelled 멱등 NO-OP(L198)·전액환불 미충족 NO-OP(L202)는 예외 없이 return → Admin endpoint도 200 반환(T5·T6) ③ LT-02 시드 order→payment(PAID)→refund(COMPLETED) try-finally 필수 ④ self-invocation 반환은 프록시 미경유 전제(markCancelled를 외부 주입 호출로 바꾸면 트랜잭션 분리 파급).
+
+### §8 carry-over
+- **markFailedByAdmin (Refund 수동 보정)**: state-machine L274·D-94 Q3·D-106 §8 3중 차단·RefundAdjustment(D안) 미존재. Track 28 미흡수·이연 유지. RefundAdjustment 설계 트랙(S급) 선행 필요.
+- **RefundAdjustment D안 설계 트랙**: PG 운영 데이터 누적 후 진입(state-machine §2 footer L769). markFailedByAdmin·EXCHANGE 차액 환불의 공통 선결 과제.
+- 본 트랙 자체 이월 무 — D-106 §1-A 판단 4·5 carry-over(markCancelledByAdmin·PaymentNotFoundException) 전건 종결.
+
+### §특기 SoT 신규 명문화 (박제 동반)
+state-machine.md §1 Payment PAID→CANCELLED 절에 Admin 수동 보정 경로 명문화 필요: "PAID→CANCELLED는 (a) Refund.COMPLETED 자동전이(PaymentRefundCompletedHandler) (b) 자동전이 유실 시 운영자 수동 markCancelledByAdmin 재실행 2경로. 둘 다 전액환불 가드·CANCELLED 멱등 가드 공유." 현재 SoT는 (a)만 정의·(b) 공백 → Track 28 첫 박제.
+
+---
