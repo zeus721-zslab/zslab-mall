@@ -521,7 +521,7 @@ pg_provider
 pg_tid         -- PG 거래 ID. NULL 허용 (VBANK 등 pg_tid 미발급 케이스)
 failure_code   -- VARCHAR(50) NULL. 결제 실패 사유 코드 (PaymentFailed 발행 시 채움·D-34)
 paid_at
-expires_at     -- DATETIME(6) NULL. PENDING 결제 만료 시각 (+30분 기본). 만료=상태 전이 트리거 아님 (D-34·state-machine §1)
+expires_at     -- DATETIME(6) NULL. PENDING 결제 만료 시각 (+30분 기본). 만료 시 자동 배치가 PENDING→FAILED 전이 (Track 25 D-109·state-machine §1). idx_payment_expire (status, expires_at) 인덱스가 만료 배치 조회 커버 (V8)
 ```
 
 > **추가 제약** <!-- D-31·D-32·D-35 반영 -->

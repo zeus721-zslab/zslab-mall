@@ -18,7 +18,7 @@ PENDING ──→ PAID ──→ CANCELLED
 |---|---|---|
 | PENDING | Payment 행 생성 시 초기값 | — |
 | PAID | PG 결제 성공 콜백 | — |
-| FAILED | PG 결제 실패 콜백·취소 콜백 수신 (CANCEL × PENDING 케이스) | 재시도 = 새 Payment 행 생성. 만료(expires_at 도달)는 상태 전이 트리거가 아님 (새 결제 시도 차단 해제 신호만) |
+| FAILED | PG 결제 실패 콜백·취소 콜백 수신 (CANCEL × PENDING 케이스)·만료 배치 (expires_at 도달) | 재시도 = 새 Payment 행 생성. 만료(expires_at 도달) 시 자동 배치가 PENDING→FAILED 전이 (D-08 M-14·Track 25 D-109·failure_code=PAYMENT_EXPIRED) |
 | CANCELLED | Claim 환불 완료 (Refund.COMPLETED) | 불가역 |
 
 **Payment.method (A분류)**:
