@@ -62,9 +62,9 @@
 | 트리거 | Payment.status PENDING → FAILED (PG 실패) 또는 결제 만료 |
 | 소비 주체 | Inventory(예약 해제) |
 | 페이로드 | paymentId, orderId, failureCode, occurredAt |
-| 동기/비동기 | 예약 해제 = **동기** |
+| 동기/비동기 | 이벤트 발행 = 동기(in-tx) / 소비(Inventory 예약 해제) = AFTER_COMMIT 별도 TX (REQUIRES_NEW·InventoryPaymentFailedHandler) |
 | 멱등성 | orderId 기준 1회. 이미 해제된 예약 재해제 방지(reserved 가드) |
-| 재시도 | 동기 실패 = 롤백·재시도. 결제 만료 자동 해제 타이머/배치는 구현 단계 이연 |
+| 재시도 | 동기 실패 = 롤백·재시도. 결제 만료 자동 해제는 Track 25 D-109 스케줄러(ExpirePaymentScheduler·@Scheduled 5분) 자동 만료 배치로 구현 |
 
 > **소비 주의**: Inventory 예약 해제 핸들러는 이벤트 페이로드에 items[]를 포함하지 않음 — `orderId`로 `OrderItem`을 직접 조회 후 처리. 페이로드 사실 통지 원칙·도메인 상태 복제 방지(D-30).
 
@@ -232,6 +232,6 @@ flowchart TD
 
 - **메시지 인프라**: Kafka·RabbitMQ·DB 폴링(transactional outbox) 등 실제 전파 메커니즘 → 구현 단계.
 - **이벤트 스키마 버저닝**: 페이로드 스키마 버전 관리·하위 호환 → 구현 단계.
-- **결제 만료 타이머/배치**: 미결제 주문 자동 취소·예약 자동 해제(E3) → 구현 단계.
+- **결제 만료 타이머/배치**: 예약 자동 해제(E3)는 Track 25 D-109 구현 완료(ExpirePaymentScheduler·@Scheduled 5분→PENDING 만료 FAILED 전이→PaymentFailed→Inventory 해제). 미결제 주문 자동 취소(Order.status)는 미구현·별도 트랙 이연.
 - **Read Model 정의**: BuyerPurchaseAggregate·SellerSalesDaily 구조·갱신 핸들러 → **PR-03**(본 PR은 소비 표기만).
 - **Delivery·Refund·Settlement 상태 전이 규칙**: 각 도메인 별도 정의 → state-machine.md §6 이연 유지(본 PR은 트리거 참조만).

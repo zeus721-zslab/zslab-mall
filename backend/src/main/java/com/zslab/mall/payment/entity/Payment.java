@@ -150,9 +150,10 @@ public class Payment extends AbstractPublicIdFullAuditableEntity {
 
     /**
      * 결제 실패를 적용한다(PENDING → FAILED). failureCode를 설정하고 {@link PaymentFailed}를 누적한다.
-     * CANCEL × PENDING(결제 미완료 취소)도 본 메서드로 처리한다(D-34).
+     * PG 결제 실패뿐 아니라 CANCEL × PENDING(결제 미완료 취소·D-34)과 정책 만료(자동 배치·Track 25 D-08 M-14)도
+     * 본 메서드로 FAILED 전이를 처리한다. 사유는 failureCode로 구분한다(PG_FAILURE·CANCELLED_BEFORE_PAYMENT·PAYMENT_EXPIRED).
      *
-     * @param occurredAt 실패 통지(콜백) 시각. 이벤트 occurredAt으로 사용한다(D-34).
+     * @param occurredAt 실패 통지 시각(콜백 수신 또는 만료 판정 시각). 이벤트 occurredAt으로 사용한다(D-34).
      * @throws IllegalStateException PENDING이 아니어서 FAILED 전이가 불가한 경우(PAY-2)
      * @throws IllegalArgumentException failureCode·occurredAt가 null·blank인 경우
      */

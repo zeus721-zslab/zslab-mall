@@ -3,8 +3,10 @@ package com.zslab.mall.payment.repository;
 import com.zslab.mall.payment.entity.Payment;
 import com.zslab.mall.payment.enums.PaymentStatus;
 import jakarta.persistence.LockModeType;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
@@ -36,4 +38,12 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
 
     /** 운영 조회: 한 주문의 전체 결제 행(최신순). */
     List<Payment> findAllByOrderIdOrderByIdDesc(Long orderId);
+
+    /**
+     * 만료 배치 대상 조회(Track 25·D-08 M-14): status가 주어진 값이고 expires_at이 기준 시각 이전인 행을 만료 임박순으로
+     * 최대 {@code pageable} 크기만큼 조회한다. {@code expires_at < now} 비교가 NULL 행을 자동 제외하므로 IS NOT NULL을
+     * 별도 명시하지 않는다. V8 {@code idx_payment_expire (status, expires_at)} 인덱스가 조회를 커버한다.
+     */
+    List<Payment> findByStatusAndExpiresAtBeforeOrderByExpiresAtAsc(
+            PaymentStatus status, LocalDateTime now, Pageable pageable);
 }

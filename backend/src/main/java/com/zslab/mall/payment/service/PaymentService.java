@@ -56,6 +56,12 @@ public class PaymentService {
     /** CANCEL × PENDING(결제 미완료 취소) 실패 코드(D-34). */
     private static final String CANCEL_BEFORE_PAYMENT_CODE = "CANCELLED_BEFORE_PAYMENT";
 
+    /**
+     * 정책 만료(자동 배치) 실패 코드(Track 25·D-08 M-14). PG 실패({@link #DEFAULT_FAILURE_CODE})·CANCEL×PENDING
+     * ({@link #CANCEL_BEFORE_PAYMENT_CODE})과 의미를 구분한다. {@link ExpirePaymentService}가 참조하므로 {@code public}으로 공개한다.
+     */
+    public static final String PAYMENT_EXPIRED = "PAYMENT_EXPIRED";
+
     /** FAILURE 콜백 metadata에서 failureCode를 꺼낼 키. */
     private static final String METADATA_FAILURE_CODE_KEY = "failureCode";
 

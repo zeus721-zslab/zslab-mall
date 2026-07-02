@@ -939,12 +939,12 @@ PENDING ──→ COMPLETED (불가역·PG 환불 성공·refunded_at·pg_refund
 1. `expires_at DATETIME(6) NULL` 추가. `initiate` 시 `now + 30분`.
 2. 재시도 시 PENDING 존재 + `now < expires_at` → `PaymentInProgressException` 차단. `now >= expires_at`(만료) → 새 시도 허용(만료 PENDING은 상태 변경 없이 무시).
 3. 만료 PENDING에 SUCCESS 콜백 도착: PAY-3a 위반(이미 PAID) → REJECT·운영 알림 / PAY-3a 통과 → PAID 전이(PG가 받아들였으면 결제 성립).
-4. 만료는 상태 전이 트리거가 아님 — 차단 해제 신호만(state-machine.md §1).
+4. 만료는 (Track 25 이전) 차단 해제 신호였으며, D-109에서 자동 배치 만료 전이(PENDING→FAILED·failure_code=PAYMENT_EXPIRED)로 재정의(state-machine.md §1). `ExpirePaymentScheduler`(@Scheduled 5분)가 만료 PENDING을 `ExpirePaymentService.expireOne`으로 FAILED 전이시킨다.
 5. FAILED 행은 영구 보관(ARCHIVE). 결제 화면=PAID만 / 운영 화면=전체.
 
 **근거**: 만료를 "차단 해제 신호"로만 한정해 상태 머신을 단순하게 유지. 결제 성립은 PG 수락 사실을 우선.
 
-**영향 범위**: V3 `expires_at`·`failure_code`·`PaymentService.initiate`·`Payment.isExpired`.
+**영향 범위**: V3 `expires_at`·`failure_code`·`PaymentService.initiate`·`Payment.isExpired`. (Track 25 D-109 추가) V8 `idx_payment_expire`·`PaymentRepository.findByStatusAndExpiresAtBeforeOrderByExpiresAtAsc`·`ExpirePaymentService.expireOne`·`ExpirePaymentScheduler`·`SchedulingConfig`.
 
 ---
 
@@ -5848,7 +5848,7 @@ InventoryHistory 생성 책임 = **InventoryService** (Aggregate 비포함).
 | D-100 Q1 패턴 A 정의 보강 | "상태전이 자연 흡수 (불변식 제외)" 1줄 갱신 (§6) | 본 D-101 박제 동반 |
 | Outbox 도입 시 재평가 항목 | Q3 @Version·Q4 2 TX 회귀·WARN-7 부활 | Track 18+ Observability/Outbox 트랙 |
 | ADJUST 진입점 | adjustStock 도메인 메서드·E10 발행·운영자 API | Track 18+ |
-| 자동 예약 만료 (D-08 M-14) | 타이머/배치 | 별도 트랙 |
+| 자동 예약 만료 (D-08 M-14) | Track 25 D-109 스케줄러 자동 만료 배치 박제(완료) | 해소 |
 | Reservation Tracking (D-17) | 도입 금지 유지·확장 경로 메모 | 외부 이연 |
 
 ---
@@ -6615,3 +6615,134 @@ D-94 Q3(L3658-3665)은 "Admin 수동 환불 생성 endpoint는 본 트랙에 병
 
 ---
 
+## D-108. Track 25 재이연 판정 — NotificationLog 재시도 흐름 [DEFERRED]
+
+**결정일**: 2026-07-02
+**관련**: Track 25·D-103 §10·Track 24 준용
+
+### §1 결정
+Track 25(NotificationLog 재시도 흐름) 재이연·Track 26+ 실 어댑터 도입 트랙과 동시 진행.
+
+### §1-A 재이연 옵션 검토
+- α 재이연 (채택) — Mock PENDING 0건·SoT 미확정·기조 5 정합
+- β 결정 SoT만 박제 (기각) — 실 어댑터 특성 미실측 상태 정책 결정 = 재수정 리스크
+- γ Repository findByStatus 최소 신설 (기각) — 호출자 부재 죽은 코드
+- δ 전건 구현 (기각) — 대상 0건·SoT 미확정·기조 4·5 이중 위반
+
+### §2 정찰 실측 결과 (handover.md §3·§4 인용)
+- Mock 환경 PENDING 잔류 0건 (MockNotificationSender.send() L18~23 항상 성공 → 즉시 SENT)
+- Repository findByStatus(NotificationLogStatus) 미존재 (D-103 §10 신설 대상)
+- 재시도 정책 관련 grep 0건 (retry·backoff·@Scheduled·재시도)
+- 실 어댑터(SMTP·SMS·FCM) 부재 (Track 20+ 이연·D-103 §10)
+- 재시도 요구 SoT 미확정 (D-103 §10 원문 "재시도 요구사항 SoT 확인 후" 조건절)
+
+### §3 재진입 조건
+1. 실 어댑터(SMTP·SMS·FCM 중 최소 1종) 도입 완료
+2. 재시도 요구 SoT 확정 (트리거·대상 상태·횟수·backoff·최종 실패 처리)
+3. PENDING/FAILED 잔류 실제 발생 경로 확인
+
+### §4 재진입 시 필수 정찰 항목 (SoT 확정 의무)
+1. D-08 정합·NotificationLog 만료·재시도 요구 SoT 원문
+2. NotificationLog 엔티티 현행 스키마 (retry_count 컬럼 추가 여부 판단 근거)
+3. NotificationService·NotificationSender·NotificationLogRepository 실측 (실 어댑터 도입 후 상태)
+4. state-machine·invariants NotificationLog 관련 절 재실측 (§3.1 NOT-1~3 갱신 여부)
+5. @Scheduled 기존 사용 여부·설정 실측 (Payment 만료 트랙 D-08 M-14와 동반 도입 시)
+
+### §5 재진입 판단 필요 사항 (Track 26+ 결정 라운드 진입 시)
+- 판단 1: 재시도 트리거 (α 스케줄러 자동·β Admin 수동·γ 혼합)
+- 판단 2: 재시도 대상 상태 (α PENDING only·β FAILED reset·γ 신규 행)
+- 판단 3: 횟수·backoff·최종 실패 처리·retry_count 컬럼 추가
+- 판단 4: Repository·Service 확장 범위·커스텀 예외 계층
+
+### §6 관련 결정
+- D-103 §10 (Track 19·NotificationSender seam·재시도 이연 원문)
+- D-92·D-93 (Admin wrapper 캡슐화 원칙·재진입 시 재사용)
+- D-107 (Track 23 façade·1-PR 3-split 패턴 재사용)
+
+### §7 carry-over
+재이연 판정·구현 무·§4·§5 항목이 Track 26+ carry-over.
+
+---
+
+## D-109. Track 25 자동 예약 만료 — PENDING 결제 만료 배치 (PENDING→FAILED·예약 자동 해제) [ACTIVE]
+
+**결정일**: 2026-07-02
+**관련**: D-08 M-14·D-32·D-34·D-101 §3·§17·D-100 Q3(TracedEventPublisher wrapper)·D-29(발행 순서)
+**브랜치**: feat/track-25-payment-auto-expire
+
+### §1 결정 요약
+만료된 PENDING 결제를 스케줄러 배치가 주기적으로 FAILED 전이시키고, 기존 `PaymentFailed`(E3) 파이프라인을 재활용해 재고 예약을 자동 해제한다. D-08 M-14 "타이머/배치 이연"을 해소한다.
+- **트리거**: `@Scheduled`(fixedDelay 5분) 단독 — Admin 수동 재실행 endpoint는 이연(§8-b).
+- **전이**: 기존 `Payment.fail("PAYMENT_EXPIRED", now)` 재사용 — 신규 `markExpired()` 도메인 메서드·`PaymentExpired` 이벤트 미신설.
+- **하류 자동 상속**: `PaymentFailed` 재사용으로 `InventoryPaymentFailedHandler`(AFTER_COMMIT·REQUIRES_NEW·Track 17 D-101 §3) 재고 해제가 신규 배선 없이 상속됨 — 실 신규 작업은 "PENDING→FAILED를 발화하는 트리거" 단 하나.
+
+### §1-A 옵션 검토 (채택/기각)
+| Q | 쟁점 | 채택 | 기각 |
+|---|---|---|---|
+| Q1 | 트리거 | **α 스케줄러**(@Scheduled 5분·단일 인스턴스 정합) | β Admin 수동(이연·§8-b)·γ 혼합(과잉·기조 4) |
+| Q2 | 만료 후보 조회 | **`findByStatusAndExpiresAtBeforeOrderByExpiresAtAsc` + V8 `idx_payment_expire`** | 무인덱스 full scan(recon §C FAIL 리스크) |
+| Q3 | 전이 방법 | **`fail()` 재사용**(하류 PaymentFailed 파이프라인 자동 상속) | `markExpired()` 신규 도메인 메서드(중복·이벤트 신설 유발) |
+| Q4 | failure_code | **`PAYMENT_EXPIRED`**(기존 `failure_code VARCHAR(50)` 무제약 선례 계승) | ENUM/CHECK 4층위 잠금(선례 무제약·과잉·§8) |
+| Q5 | 동시성·멱등 | **건별 `findByIdForUpdate` 비관락 + status/isExpired 재검증** | ShedLock 도입(단일 인스턴스·자연 직렬화로 불요·기조 4) |
+| Q6 | 인프라 | **`SchedulingConfig` 분리(@EnableScheduling)·batch 100·5분** | Application 클래스 직접 부착(AuditingConfig 분리 선례 위배) |
+
+### §2 외부 검토 + 재검토 수렴
+recon-report.md(460줄·외부 검토 2회 수렴)를 근거로 아래 재검토 수렴.
+- **R1 (건별 TX 경계)**: 스케줄러 TX 없음·`expireOne` 건별 @Transactional → 한 건 커밋이 AFTER_COMMIT 재고 해제 발화 조건 충족·부분 실패 격리(1건 실패가 나머지 롤백 안 함).
+- **R2 (자연 멱등)**: `findByIdForUpdate` 잠금 후 `status != PENDING`(콜백 선점)·`!isExpired`(만료 조건) 2중 재검증 → 중복 발화·경합 콜백 안전. ShedLock 없이 다중 인스턴스 직렬화(비관락).
+- **R3 (Admin 이연)**: 재실행 endpoint는 실 운영 필요성 실증 후 도입 — 현 스코프 스케줄러 단독.
+- **R4 (SoT 동반 흡수)**: 만료→FAILED 재정의는 D-08 원안(L253 E3 트리거)·domain-events E3(L62)와 모순 없음 → SoT 7건 잠금 승격만 동반.
+
+### §3 구현 산출 (실측 라인)
+**신규 6**:
+- `common/config/SchedulingConfig.java` — `@Configuration @EnableScheduling`(L12-14).
+- `payment/service/ExpirePaymentService.java` — `expireOne(Long)` @Transactional(L44).
+- `payment/scheduler/ExpirePaymentScheduler.java` — `expireBatch()` @Scheduled(fixedDelay 5분)(L49).
+- `resources/db/migration/V8__payment_expiry_index.sql` — `CREATE INDEX idx_payment_expire ON payment (status, expires_at)`(L19).
+- `test/payment/scheduler/ExpirePaymentSchedulerTest.java` — 단위 4건.
+- `test/payment/integration/PaymentExpiryIntegrationTest.java` — E2E 4건.
+
+**수정 3**:
+- `payment/service/PaymentService.java` — `public static final String PAYMENT_EXPIRED`(L63·`ExpirePaymentService` 참조 위해 public).
+- `payment/repository/PaymentRepository.java` — `findByStatusAndExpiresAtBeforeOrderByExpiresAtAsc(status, now, Pageable)`(L47·파생쿼리 + Pageable).
+- `payment/entity/Payment.java` — `fail()` Javadoc 보강(정책 만료 포함·L152-158).
+
+### §4 핵심 메서드
+- **`ExpirePaymentService.expireOne`(L44)**: `findByIdForUpdate`(비관락) → `status != PENDING` skip → `!isExpired(now)` skip → `fail(PAYMENT_EXPIRED, now)`(L62) → pull → save → 동기 publish(D-29 순서 재사용). 2중 재검증으로 조회~잠금 사이 콜백 선점 멱등 처리.
+- **`ExpirePaymentScheduler.expireBatch`(L49)**: TX 없음 → `findByStatusAndExpiresAtBeforeOrderByExpiresAtAsc(PENDING, now, PageRequest 100)`(L54) → id별 `try{ expireOne(id) } catch(Exception){ log·count·continue }` → `catch(Exception)`으로 **Error 미흡수**(치명 오류 전파)·schedulerRunId·성공/실패 건수 로그.
+
+### §5 이벤트/파이프라인 (재사용·자동 상속)
+- `PaymentFailed`(E3) payload 재사용(신규 이벤트 없음): `(paymentId, orderId, PAYMENT_EXPIRED, occurredAt)`.
+- 소비: `InventoryPaymentFailedHandler`(Track 17·D-101 §3·AFTER_COMMIT+REQUIRES_NEW) — orderId로 OrderItem 재조회·품목별 `InventoryService.release`·reserved==0 skip 멱등·실패 격리(recordFailed 흡수). **신규 배선 0건**.
+- 발화 조건: `expireOne` 트랜잭션 커밋 후 AFTER_COMMIT 핸들러 발화 → 재고 예약 해제(따라서 만료 전이는 반드시 커밋돼야 재고 해제).
+
+### §6 테스트 (구현 후 실측)
+- **527 PASS**(baseline 519 + 신규 8·116 suites·failures 0·errors 0·skipped 0·회귀 0·cleanTest test 3m23s).
+- 단위(`ExpirePaymentSchedulerTest` 4): 정상·부분실패격리(RuntimeException 흡수 후 진행)·Error 미흡수(전파·후속 중단)·빈 배치.
+- E2E(`PaymentExpiryIntegrationTest` 4): 만료 PENDING→FAILED(PAYMENT_EXPIRED)+PaymentFailed 발행+AFTER_COMMIT 재고 해제 / PAID skip(재검증 멱등) / 미만료 skip / EXPLAIN.
+- **EXPLAIN**: `type=range · possible_keys=key=idx_payment_expire · key_len=10 · Extra="Using where; Using index"` — 3행에서도 옵티마이저가 인덱스 선택·covering·full scan 없음.
+
+### §7 SoT 7건 갱신 (본 박제 동반)
+- [정책변경 5]: state-machine.md §1 L21 · decisions.md D-32 §4+영향범위 · decisions.md D-101 §17 · domain-events.md E3 L67(재시도) · db-schema-decisions.md Payment 절 expires_at.
+- [문서정정 2]: domain-events.md E3 L65(발행=동기/소비=AFTER_COMMIT 정합) · domain-events.md L235(외부 이연 해소·예약 해제 완료·주문 자동 취소 이연).
+- [검토] D-05 L160-162 = **편집 불요**(§8-c).
+
+### §8 carry-over
+- **(a) 운영 규모 인덱스 재검증**: EXPLAIN은 테스트 3행 기준 range scan. 운영 데이터 분포·통계(cardinality) 종속 → 스테이징 `EXPLAIN ANALYZE`·slow query 재검증 대상.
+- **(b) Admin 재실행 endpoint**: 수동 만료·재처리 endpoint는 실 운영 필요성 실증 후 도입(현 스코프 제외).
+- **(c) D-05 편집 판정 = 편집 불요**: D-05는 A분류(값 집합·전이 edge 잠금)이며 Track 25는 신규 상태·edge 미추가(기존 PENDING→FAILED edge에 트리거만 추가). 트리거 상세 SoT는 state-machine.md §1(위임·PAY-2 동일 원칙)이 보유하며 본 박제에서 §1 갱신. D-05 괄호주("PG 실패")는 예시 주석이며 exhaustive 트리거 목록이 아님(D-34 CANCEL×PENDING 트리거도 D-05 미기재 선례) → 만료 트리거도 D-05 직접 편집 불요.
+
+### §9 @ConditionalOnProperty 킬스위치
+`ExpirePaymentScheduler`에 `@ConditionalOnProperty(name="zslab.payment.expiry.enabled", havingValue="true", matchIfMissing=true)` 부착.
+- **사유**: 프로젝트 test profile 인프라 0건(@Profile·@ActiveProfiles·@ConditionalOnProperty 실측 0건) → @Scheduled가 모든 @SpringBootTest 컨텍스트에서 자동 발화하는 라이브 트랩.
+- **효과**: 기본 활성(운영 무영향·application.yml 미변경)·통합테스트만 `zslab.payment.expiry.enabled=false`로 발화 차단(결정론 확보)·운영 긴급 킬스위치 겸용.
+
+### §진입점 카드
+- **목적**: 만료 PENDING 결제 자동 FAILED 전이 + 재고 예약 자동 해제(D-08 M-14).
+- **진입점**: `ExpirePaymentScheduler.expireBatch`(scheduler·L49) → `ExpirePaymentService.expireOne`(service·L44).
+- **SoT 메서드**: `Payment.fail`(전이·이벤트 누적)·`Payment.isExpired`(만료 판정)·`PaymentRepository.findByStatusAndExpiresAtBeforeOrderByExpiresAtAsc`(만료 조회 SoT).
+- **영향 범위**: payment(전이·조회·PAYMENT_EXPIRED 상수)·inventory(PaymentFailed 소비·해제 자동 상속).
+- **패턴 재사용**: `TracedEventPublisher` 발행 wrapper(D-100 Q3 β′·Track 16)·D-29 pull→save→publish 순서·AuditingConfig @Configuration 분리 선례.
+- **트랩**: LT-02(FK_CHECKS try-finally)·@Scheduled 테스트 자동 발화(§9 킬스위치로 차단)·AFTER_COMMIT 발화는 커밋 필수(테스트는 비-TX 직접 호출).
+
+---
