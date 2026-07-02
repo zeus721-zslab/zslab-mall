@@ -6556,3 +6556,62 @@ D-94 Q3(L3658-3665)은 "Admin 수동 환불 생성 endpoint는 본 트랙에 병
 
 ---
 
+### D-107: 일반 주문 Delivery 생성 진입점 + PAID→PREPARING 전이
+
+**상태**: [확정 2026-07-02]
+
+#### §1 결정
+일반 주문 배송 시작 진입점 신설. 판매자가 PAID OrderItem을 출고 준비(PREPARING)→배송 시작(SHIPPING)까지 단일 façade로 처리한다. carry-over 3건 통합 해소: D-102 §9 L6002(AdminDeliveryController 확장 중 일반 주문 배송분)·D-104 §8 L6257(markShipping wrapper)·L6258(일반 주문 Delivery 생성 진입점). 구현 SoT: `OrderShippingService.prepareShipment`(order/service·L54)·`DeliveryService.createForOrder`(delivery/service·L128~131)·`SellerShippingController`(order/controller·`POST /api/v1/order-items/{orderItemPublicId}/prepare-shipment` L48).
+
+##### §1-A 트랙 범위 α/β/γ 검토 (결정 근거 영구화)
+- **트리거: β 판매자 수동 채택.** α 자동(PaymentCompleted 핸들러 즉시 생성) 기각 = state-machine §3 L82 "PREPARING=판매자 출고 준비 시작" SoT 충돌·멀티벤더 판매자별 출고 타이밍 무시. γ Admin 기각 = 운영 주체 부적합·출고는 판매자 책임 영역. (외부 검토 2회·재검토 3건 수렴.)
+- **진입점: façade 1 endpoint 채택.** 3-endpoint 분리 기각 = READY 독립 관측 요구 SoT 부재(state-machine §6.1 L186 "READY=생성 완료·출고 미개시"는 상태 의미 정의일 뿐 외부 독립 조회 요구 아님)·`registerExchangeShipment`(DeliveryService L93~115) 선례도 READY 관측 지점 없이 즉시 SHIPPING 커밋. 내부 4단계 분리·외부 API 1개.
+- **부분배송: 1:1 운영 제한 채택**(OrderItem당 Delivery 1건). 1:N 구조 유지(order_item_id UNIQUE 미추가). invariants DLV-2(L126) 원문 무변경 = 1:1 ⊂ 1:N·invariant 위반 아님·원문 수정 시 미래 확장 의도 훼손·SoT 재개정 비용. 분할 배송 후속 트랙 이연.
+- **PREPARING 전이 성격: 미구현 누락**(의도적 이연 아님·recon §H-3). 규칙(D-02 값·D-03 값·D-04 동기화 규칙 §5 [2]·D-06 내부전이 분류) 존재·전이 진입점 결정 D-XX 0건·상위 배송 흐름 이연에 암묵 귀속분을 본 트랙에서 해소.
+
+#### §2 결정 라운드 Q (논점 1~4·외부 검토 수렴)
+- 논점 1 트리거 β·논점 2 façade·논점 3 1:1·논점 4 예외 422. 외부 검토 1차 회신 → 재검토 3건(진입점 façade vs 분리 상충·DLV-2 정정 위치·예외 계층 개수) → 재검토 회신 전건 실측 수렴.
+- 예외 1개(`DeliveryInvalidStateException`) 신설·OrderItem 예외 미신설(endpoint 직접 changeStatus 없음·Service 경유)·`OrderNotFoundException` 재사용(소유자 불일치 통일·Javadoc L3~7 "주문을 찾을 수 없거나 본인 주문이 아닐 때·존재 여부 노출 회피").
+- **배선 리스크**: 같은 트랜잭션 내 PAID→PREPARING→[E4 동기소비]→SHIPPING 2회 전이 성립 여부 = 사전 실측·구현 1단계 배선 검증으로 확정(§4).
+
+#### §3 endpoint (구현 실측)
+- `POST /api/v1/order-items/{orderItemPublicId}/prepare-shipment`(SellerShippingController L48). base path 신규·`/api/v1/claims` 재사용 금지(EXCHANGE 의미 오염 회피). OrderItem public_id(oit_) 전역 유일·`orderItemRepository.findByPublicId`(controller L54) 해소·orderPublicId 불요.
+- 배치: `order/controller`(액터 prefix 부재 관례·리소스 기반 경로·BuyerClaim/SellerClaim/SellerDelivery 모두 `/api/v1/claims` 공유·Admin만 `/admin/`). PREPARING 주체=Order Aggregate·delivery/controller는 EXCHANGE+Admin 전용·혼재 회피. X-Seller-Id → `SellerActorResolver.resolve`(controller L53).
+
+#### §4 façade 내부 4단계·트랜잭션 (구현 실측·핵심)
+- `OrderShippingService.prepareShipment(sellerId, orderItemId, carrier, trackingNo)`(L54) 클래스 `@Transactional`(L30) 단일 트랜잭션(가드 A). 순서: `authorize`(L55·sellerId 대조·불일치 `OrderNotFoundException` 404·존재 은닉·L71~78) → `changeToPreparing`(L58·`orderItemRepository.findById` + `OrderItem.changeStatus(PREPARING)`·actor 비의존·D-92·L90~96) → `deliveryService.createForOrder(orderItemId, carrier)`(L60·Delivery.create+save·claim 비의존·READY·claim_id NULL·DeliveryService L128~131) → `deliveryService.markShipping`(L61·기존 primitive 재사용·E4 발화).
+- **가드 A**: façade `@Transactional` 필수(4단계 원자성·하위 DeliveryService REQUIRED join). **가드 B**: `changeToPreparing`이 `markShipping` 前 필수 — 역전 시 OrderItem PAID인 채 E4 발화 → `DeliveryStartedHandler` 가드 warn+return(조용한 skip) → Delivery SHIPPING·OrderItem PAID 불일치·façade 성공 오인. T2 역행 회귀 테스트 락인.
+- **2회 전이 성립 근거**: `DeliveryStartedHandler` `@EventListener`(평문·동기·같은 트랜잭션·AFTER_COMMIT 아님)·`TracedEventPublisher` 동기 위임·handler `findById`가 같은 영속성 컨텍스트 1차 캐시로 방금 PREPARING된 관리 인스턴스 반환 → `canTransitionTo(SHIPPING)`=true. 재설계 불요.
+- **recalc**: `changeToPreparing` recalc 생략(`DeliveryStartedHandler` L57이 최종 Order.status=SHIPPING 확정·중복 회피·기조 4).
+- **프로덕션 첫 가동**: 기존 유일 Delivery 생성 경로 EXCHANGE는 OrderItem이 EXCHANGE_REQUESTED라 `DeliveryStartedHandler` SHIPPING 전이 skip → DeliveryStartedHandler SHIPPING 성공 경로는 Track 23이 첫 프로덕션 가동(이전엔 테스트 시드만).
+
+#### §5 예외 (구현 실측)
+- `DeliveryInvalidStateException` 신규(delivery/exception·RuntimeException·L16·422·`ClaimInvalidStateException` 미러). `GlobalExceptionHandler` `CODE_DELIVERY_INVALID_STATE` 상수 + `handleDeliveryInvalidState`(L205~211·422·InventoryInvariantViolation 핸들러 다음).
+- **흡수 지점 = `changeToPreparing` 국한**(OrderShippingService L90~96·비-PAID OrderItem 중복 출고 등 `IllegalStateException`→`DeliveryInvalidStateException`). `markShipping`은 방금 생성 READY만 대상 → READY→SHIPPING 항상 합법·전이 위반 미도달·trackingNo `@NotBlank` 보장 → 선제 매핑/테스트 회피(기조 4·미도달 예외 선제 테스트 금지). handler 내부 IllegalState 오분류 회피.
+
+#### §6 부분배송 정책 박제 (invariants 무변경 흡수)
+- DLV-2(invariants L126) "부분 배송 지원·OrderItem 1:N Delivery" 구조 허용 유지. **Track 23 운영 정책 = OrderItem당 Delivery 생성 1건 제한**(DeliveryService.createForOrder L128~131·요청당 1건 생성). order_item_id UNIQUE 미추가. 분할 배송(1 OrderItem:N Delivery·수량 부분 추적) 후속 트랙 이연 = `DeliveryStarted`/`DeliveryCompleted`가 OrderItem 전체 전이 구조라 부분배송 시 OrderItem 전이 규칙 재설계 강제(D-104 §1-A L6174 "부분 배송(DLV-2) 정책 실체화 강제"). invariants 원문 수정 불요 근거(1:1 ⊂ 1:N) 명문.
+
+#### §7 진입점 카드
+| # | 항목 | 내용 |
+|---|---|---|
+| 1 | **목적** | 일반 주문 배송 시작(판매자 출고 준비→발송)·PAID OrderItem→SHIPPING 완결 |
+| 2 | **핵심 진입점** | `SellerShippingController` `POST /api/v1/order-items/{orderItemPublicId}/prepare-shipment`(L48) · `OrderShippingService.prepareShipment`(order/service·L54) |
+| 3 | **핵심 SoT 메서드** | `OrderShippingService.prepareShipment`(façade·4단계·L54) · `DeliveryService.createForOrder`(일반 주문 생성·L128~131) · `changeToPreparing`(내부·L90~96) |
+| 4 | **영향 범위** | Order Aggregate(OrderItem PREPARING/SHIPPING 전이) · Delivery Aggregate(생성·SHIPPING) · order→delivery 단방향 · production 신규 5·수정 2·test 신규 2 |
+| 5 | **패턴 재사용** | D-92 권한=Service 진입부·actor 비의존 9회차 · D-93 `SellerActorResolver` seam · façade 4단계 orchestration · DeliveryEventIntegrationTest/SellerDeliveryIntegrationTest 시드·이벤트 패턴 |
+| 6 | **트랩 주의** | 가드 A(@Transactional 원자성·하위 REQUIRED join) · 가드 B(changeToPreparing→markShipping 순서·역전 시 조용한 skip 불일치·T2 락인) · markShipping 위반 미도달(READY 신규만·422 흡수 changeToPreparing 국한) · LT-02 통합 테스트 try-finally |
+
+#### §8 후속 트랙 박제 의무 (carry-over)
+- **해소**: markShipping wrapper(D-104 §8 L6257)·일반 주문 Delivery 생성 진입점(L6258)·PREPARING 전이(암묵 귀속·recon §H-3)·D-102 §9 L6002 AdminDeliveryController 확장 중 일반 주문 배송분 → Track 23 통합 해소.
+- **이월**:
+  - 부분배송 분할(1 OrderItem:N Delivery·OrderItem 전이 규칙 재설계 동반)·후속 트랙.
+  - markShipping Admin wrapper(운영자 대행 시나리오 실측 후·현재 판매자 façade로 일반 주문 배송 충족).
+  - `DeliveryInvalidStateException` 외 Delivery 예외 계층 확장(공통 부모 EntityStateException 승격은 필요성 미입증·이연).
+
+#### §9 검증 (구현 실측)
+- **519 PASS**(baseline 512 + 신규 7·114 suites·failures 0·errors 0·skipped 0·회귀 0). 1단계 배선 검증 3(T1 2회 전이 성립·T2 가드 B 역행 회귀·T3 권한 404·`OrderShippingServiceIntegrationTest`)·2단계 controller 4(T1 200·T2 401·T3 404·T4 422·`SellerShippingControllerIntegrationTest`).
+- **파일**: production 수정 2(`GlobalExceptionHandler`·`DeliveryService`)·신규 5(`DeliveryInvalidStateException`·`OrderShippingService`·`SellerShippingController`·`PrepareShipmentRequest`·`PrepareShipmentResponse`)·test 신규 2.
+
+---
+
