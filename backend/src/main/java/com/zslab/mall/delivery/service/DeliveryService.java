@@ -115,6 +115,22 @@ public class DeliveryService {
     }
 
     /**
+     * 일반 주문 Delivery 생성(Track 23·claim 비의존). {@link Delivery#create}로 READY 상태 행을 발급·저장만 한다.
+     * {@code registerExchangeShipment}(claim 결합·EXCHANGE 전용)와 달리 claim 연결·멱등 가드가 없으며 claim_id는 NULL로
+     * 남는다(D-98 Q13 일반 주문 = claim_id NULL). 발송(markShipping)·E4 발행은 호출처({@code OrderShippingService})가
+     * 별도 단계로 수행한다(가드 B: OrderItem PREPARING 전이 이후).
+     *
+     * <p>부분배송 1:1 운영 제한(OrderItem당 Delivery 1건)은 호출처 책임이다 — order_item_id UNIQUE 미추가·1:N 구조(DLV-2) 유지.
+     *
+     * @return 생성·저장된 Delivery(READY·claim_id NULL)
+     * @throws IllegalArgumentException orderItemId·carrier가 null인 경우({@link Delivery#create} 위임)
+     */
+    public Delivery createForOrder(Long orderItemId, DeliveryCarrier carrier) {
+        Delivery delivery = Delivery.create(orderItemId, carrier);
+        return deliveryRepository.save(delivery);
+    }
+
+    /**
      * Admin actor의 교환 배송 등록 wrapper.
      * D-92 primitive actor 비의존 원칙·D-93 AdminActorResolver seam 재사용 4회차·
      * primitive registerExchangeShipment 1:1 위임·actor 파라미터 비수신.
