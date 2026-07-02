@@ -73,7 +73,13 @@ class PaymentWebhookIntegrationTest {
 
     @AfterEach
     void tearDown() {
-        cleanup();
+        // 웹훅 처리 중 order_item Hibernate 전컬럼 UPDATE가 orphaned FK(seller_id=1)를 참조하므로
+        // FK=0은 BeforeEach~Test 전체에 유지되어야 하며, 최종 tearDown 후 커넥션 반환 전 복원한다(LT-02).
+        try {
+            cleanup();
+        } finally {
+            jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
+        }
     }
 
     @Test

@@ -70,7 +70,12 @@ class CheckoutIntegrationTest {
 
     @AfterEach
     void resetSpy() {
-        Mockito.reset(orderService);
+        // @Transactional 공유 커넥션 내 FK 복원 — 트랜잭션 롤백 전 동일 커넥션에서 세션 변수 정리(LT-02)
+        try {
+            execute("SET FOREIGN_KEY_CHECKS = 1");
+        } finally {
+            Mockito.reset(orderService);
+        }
     }
 
     private static final String CREATE_BODY = """
