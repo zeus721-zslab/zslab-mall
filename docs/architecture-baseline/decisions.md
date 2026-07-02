@@ -7022,3 +7022,85 @@ Refund.COMPLETED 후 `PaymentRefundCompletedHandler` 자동전이(PAID→CANCELL
 state-machine.md §1 Payment PAID→CANCELLED 절에 Admin 수동 보정 경로 명문화 필요: "PAID→CANCELLED는 (a) Refund.COMPLETED 자동전이(PaymentRefundCompletedHandler) (b) 자동전이 유실 시 운영자 수동 markCancelledByAdmin 재실행 2경로. 둘 다 전액환불 가드·CANCELLED 멱등 가드 공유." 현재 SoT는 (a)만 정의·(b) 공백 → Track 28 첫 박제.
 
 ---
+
+## D-114: RefundAdjustment D안 설계 확정 (Track 29·설계 전용 트랙·구현 게이트 분리) [확정 2026-07-03]
+
+**성격**: 설계 전용 트랙 특수 케이스 — 구현 없이 설계 결정만 박제. 구현은 §7 구현 게이트 도달 시 별도 트랙 진입. "구현 후 실측 박제" 원칙(D-104~D-113)의 명시적 예외이며, 예외 사유 = 구현 게이트(D-24 §후속 decisions.md:769 "PG 운영 데이터 누적 후 진입") 미도달 상태에서 markFailedByAdmin·EXCHANGE 차액환불 2개 백로그의 공통 선결인 설계 확정이 선행 필요.
+
+### §1 결정 사항 (판단 1~5 + G-1·G-2)
+
+**판단 1 — 데이터 구조 = α 신규 테이블 (append-only 보정 원장)**
+- RefundAdjustment 신규 테이블 신설. 보정 = 새 행 누적. 기존 Refund 행은 읽기전용 유지·불변식 무손상.
+
+**판단 2 — markFailedByAdmin 연동 = α RefundAdjustment 경유**
+- Refund 직접 보정 메서드(markFailedByAdmin) 신설하지 않음. 수동 보정은 Adjustment 행 생성으로 표현.
+- 결과: 백로그 항목 "markFailedByAdmin"의 명칭·형태 소멸 → "Adjustment 생성 Admin 진입점"(가칭 initiateAdjustmentByAdmin)으로 재정의. 백로그 갱신 대상.
+
+**판단 3 — 상태머신 파급 = α 무파급**
+- Refund·Payment·Claim 기존 전이 규칙 무수정. SoT 개정은 state-machine.md L274 "운영자 수동 보정 권한 없음 — 후속 트랙(D안 RefundAdjustment) 검토 사항" 1행을 "운영자 수동 보정은 RefundAdjustment(D-114) 경유" 취지로 갱신하는 문서 1행뿐 (구현 게이트 통과 트랙에서 코드와 동시 갱신).
+
+**판단 4 — 구현 게이트 = α 정성 트리거 2건 중 1건 도달 시**
+- 트리거 ①: 실 PG 연동 후 자동전이 유실·콜백 불일치 실사례 1건 발생
+- 트리거 ②: EXCHANGE 차액환불(refundAmount>0) 실요구 발생
+- 도달 전 구현 착수 금지. 정량 기준(N개월·M건)은 임계값 자체가 추측이라 기각(기조 5).
+
+**판단 5 — EXCHANGE 차액환불 = γ 호환성 판정만·상세 설계 별도 트랙**
+- 호환성 판정: 차액환불 = Refund 신규 행 생성 경로(D-98 Q2 "refundAmount>0 흐름은 후속 트랙 신설")이며 기존 환불의 보정이 아님 → RefundAdjustment 비의존. 본 설계는 차액환불 트랙을 차단하지 않음.
+
+**G-1 — 자체 상태 = α 무상태 (append-only 원장·상태 컬럼 없음)**
+- 보정 행 = 즉시 확정된 사실 기록. 오기입 정정은 역-Adjustment 새 행으로 표현.
+- 승인 워크플로(PENDING→APPROVED) 기각: 단일 운영자 체제(기조 1)와 불일치·기조 4 과잉.
+
+**G-2 — 필드 골격 (구현 게이트 트랙에서 실측 재확정 전제의 설계 사양)**
+- id: Long (PK)
+- public_id: CHAR·prefix "rfa"·@JdbcTypeCode 적용 (LT-01)·AbstractPublicIdFullAuditableEntity 상속 (Refund와 동일 계보·소프트삭제 미사용)
+- refund_id: Long·updatable=false (보정 대상 Refund 참조·필수)
+- claim_id: Long·updatable=false (Claim Aggregate 정합·조회 편의)
+- adjustment_type: Enum @Enumerated(STRING)·값 2개 = MANUAL_FAIL(PENDING 잔류 Refund를 실패로 수동 판정)·MANUAL_COMPLETE(PENDING 잔류 Refund를 완료로 수동 판정·pg_refund_id 수기 입력 동반 — RFN-1 정합 방식은 구현 게이트 트랙 결정 라운드에서 확정)
+- amount: Long·updatable=false
+- reason: String·필수 (운영자 보정 사유)
+- adjusted_by: String (AdminActorResolver 산출·D-92 계보)
+- Aggregate 소속: Claim Aggregate 포함 (aggregate-boundary.md:74 Refund와 동일 — Refund 보정 원장이므로 생명주기 공유)
+
+### §1-A 트랙 범위 옵션 검토 (채택/기각 근거)
+
+| 판단 | 채택 | 기각 옵션·근거 |
+|---|---|---|
+| 1 | α 신규 테이블 | β Refund 확장: RFN-2(COMPLETED·FAILED 불가역·재시도=새 행·invariants.md §2.13.1) 정면 충돌. γ 이벤트 소싱: 전 6개 Aggregate 상태기반·선례 전무·기조 4 |
+| 2 | α Adjustment 경유 | β 직접 보정: 3중 차단(state-machine.md:274·D-94 Q3 decisions.md:3772·소스 메서드 부재) 중 ①② SoT 개정 강제·판단 1 α 모순. γ 병행: 이중 쓰기 정합 리스크·기조 4 |
+| 3 | α 무파급 | β Refund 재설계: 불가역 원칙 파괴·handler 체인 회귀 위험. γ 3종 재설계: S급 초과 범위·기조 4 |
+| 4 | α 정성 트리거 | β 정량 기준: 임계값 추측·기조 5 위반. γ 즉시 구현: D-24 §후속(decisions.md:769) 원문 위배 |
+| 5 | γ 호환성 판정만 | β 동반 상세 설계: 범위 급증·차액환불은 보정 아닌 신규 행 경로로 성격 상이. α 완전 제외: 공통 선결 지위(D-113 §8) 무시·재작업 위험 |
+| G-1 | α 무상태 | β 2상태(APPLIED/VOIDED): VOIDED도 역-Adjustment 새 행으로 표현 가능·중복. γ 승인 워크플로: 단일 운영자 불일치·기조 4 |
+
+**핵심 설계 근거 (정찰 실측)**: state-machine.md 전 6개 Aggregate(Order·OrderItem·Payment·Claim·Seller·Refund) 중 종결 상태(CANCELLED·COMPLETED·FAILED·REJECTED)를 이전 상태로 되돌리는 역전이 선례 전무 (grep 보정|역전이|롤백|되돌|reverse|correction 실측·2026-07-03). 유일 "수동 보정" 선례 = Payment markCancelledByAdmin(D-113)이며 이는 순방향 전이(PAID→CANCELLED) 수동 재실행이지 역전이 아님. OrderItem ClaimRejected 복귀(state-machine.md:93~98)는 *_REQUESTED 한정·종결 상태 역전이 아님. → append-only 원장(α)만 전 아키텍처 패턴과 정합.
+
+### §2 결정 라운드 재진입
+
+재진입 1건: G-1·G-2(엔티티 골격)가 판단 1~5 1차 라운드에 미포함 → 판단 3 α("Adjustment 자체 상태는 설계 라운드에서 확정") 잔여로 식별·2차 라운드에서 확정. 판단 1~5 자체의 재진입·번복 없음.
+
+### §3 구현 산출
+
+없음 — 설계 전용 트랙. production·test 코드 0건·DDL·Flyway 0건. docs 단독 커밋.
+
+### §진입점 카드
+① 목적: PG 콜백이 못 미치는 Refund 수동 보정을 append-only 원장(RefundAdjustment)으로 수행하는 설계 확정·구현 게이트 조건 명문화
+② 핵심 진입점: 본 D-114 (구현물 없음·구현 게이트 트랙에서 AdminRefundAdjustmentController 신설 예정)
+③ 핵심 SoT: state-machine.md:274 (개정 예정 1행)·state-machine.md:236~276 (Refund §8)·invariants.md §2.13.1 (RFN-1~3)·aggregate-boundary.md:74 (Claim Aggregate)·D-24 §후속 (decisions.md:769)·D-94 Q3 (decisions.md:3772)·D-98 Q2 (decisions.md:4519~4524)
+④ 영향 범위: 설계 시점 0 (코드 무변경). 구현 게이트 통과 시 — 신규 테이블 1·Entity 1·Admin endpoint 1·state-machine.md L274 1행 개정
+⑤ 패턴 재사용: AbstractPublicIdFullAuditableEntity 계보(LT-01 자동 적용)·AdminActorResolver(D-92·7회차 예정)·Admin wrapper 절대경로(D-105 §2 Q2)·404 핸들러 템플릿(D-113 계보)
+⑥ 트랩 주의: LT-01(신규 Entity public_id — 상속으로 자동 해소)·LT-02(구현 게이트 트랙 통합 테스트 시드 try-finally)·LT-04·LT-05(보정 이벤트 신설 시 핸들러 skip 가드·형제 순서)·MANUAL_COMPLETE의 RFN-1(pg_refund_id 필수) 정합 방식 미결 — 구현 게이트 트랙 결정 라운드 필수 안건
+
+### §8 carry-over
+
+- 구현 게이트 트랙 (판단 4 트리거 도달 시 진입): RefundAdjustment DDL·Flyway·Entity·Admin 진입점(가칭 initiateAdjustmentByAdmin) 구현·state-machine.md L274 개정·MANUAL_COMPLETE × RFN-1 정합 방식 결정
+- EXCHANGE 차액환불 상세 설계 트랙 (판단 5 γ): Refund 신규 행(refundAmount>0) 흐름 신설·D-98 Q2 후속·RefundAdjustment 비의존 확인 완료
+- 백로그 재정의: "markFailedByAdmin" 항목 → "RefundAdjustment Admin 진입점"으로 명칭·형태 변경 (판단 2 α 귀결)
+- 인계 문서 오기 정정 기록: "state-machine.md §2 footer L769" 표기는 오기 — state-machine.md는 318줄·해당 원문 위치 = decisions.md:769 (D-24 §후속). 이후 참조 시 정정된 위치 사용.
+
+### §특기
+
+- 설계 전용 트랙 선례 1호: 구현 없이 설계 결정 박제 + 구현 게이트 조건 명문. 박제 시점 원칙(구현 후 실측)의 예외 요건 = 구현 게이트 미도달 + 후속 백로그 공통 선결.
+- 결정 근거 영구화 원칙 11회차 (D-104~D-114).
+
+---
