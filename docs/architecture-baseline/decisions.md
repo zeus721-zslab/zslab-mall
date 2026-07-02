@@ -6856,4 +6856,79 @@ MVP를 Mock 기준으로 진행하되 실 운영 진입 시 Mock→실 어댑터
 - **attachment 죽은 코드 판정**: attachment Entity·Repository는 현재 소비처 0건(기조 4). 실 이미지 seam 신설 트랙에서 재활용 여부(attachment 승격 vs ProductImage 확장) 판정 필요·현 시점 존치(제거는 별도 결정).
 - 백로그 SoT = 본 §8 carry-over(별도 backlog.md 부재 실측·D-110 §8 백로그 나열 선례 정합).
 
+## D-112. Track 27 Seller 재고 self-service 입출고 wrapper — markInbound/markOutbound·3홉 소유권 검증·INBOUND/OUTBOUND enum 소비 [ACTIVE]
+
+**결정일**: 2026-07-03
+**관련**: Track 27 / D-101 §2·§13(Inventory 도메인 행위·enum 보존)·D-105 §8·D-106 §8(markInbound/markOutbound 이연)·D-92 Q3(Seller 권한 검증 Service 진입부)·D-59(Product/Seller read-only) / 기조 1(운영 용이성)·기조 4(과잉개발 회피·YAGNI)·기조 5(실측 우선)
+
+### §1 결정 사항 (A~G 확정·구현 완료 실측)
+3P 입점 위탁형 마켓플레이스(§9-6 판정)에서 판매자가 자사 재고를 직접 입·출고하는 self-service 진입점을 신설한다. D-105 §8·D-106 §8에서 Track 23+로 이연했던 markInbound/markOutbound를 Seller 액터 wrapper로 확정 구현한다.
+
+- **A (Seller self-service 신설)**: Admin markInbound/markOutbound 신설 안 함·기존 `adjustStock` 유지. Seller 액터 endpoint 2건 신설.
+- **B (INBOUND/OUTBOUND enum 소비)**: `InventoryHistoryChangeType.INBOUND/OUTBOUND`(D-101 §13 보존 enum) 소비·`referenceType="seller"`·`referenceId=sellerId`.
+- **C (C-α2 Service wrapper 재사용)**: `InventoryService.markInboundBySeller`(L137)·`markOutboundBySeller`(L160) wrapper 2건 신설. 내부에서 기존 `Inventory.adjustStock(±qty)`(entity L134 도메인 행위) 재사용·신규 도메인 메서드 미신설(기조 4).
+- **D (URL 대칭)**: `POST /api/v1/seller/inventories/{variantPublicId}/mark-inbound`·`/mark-outbound`. Admin `/api/v1/admin/inventories/`와 대칭.
+- **E (γ 계승)**: E10 InventoryAdjusted 미발행. `@RecordApplicationEvents` inventory 이벤트 0건 회귀 잠금(SellerInventoryControllerIntegrationTest T3~T8).
+- **F (백로그 흡수)**: `InventoryServiceTest`에 `adjustStock` 단위 6 케이스 동반 보강(기존 8→14).
+- **G (Service 진입부 소유권)**: 3홉(variantId→productId→sellerId) 소유권 검증을 `InventoryService.authorizeSellerAccess`(L183) 진입부에서 수행(D-92 Q3 횡단 원칙).
+
+**소유권 검증 실 로직**: Inventory는 seller_id 직접 참조 없음(§9-5·INV-6 1:1) → `productVariantRepository.findById`(변형 미존재 404) → `productRepository.findById`(FK 무결성 위반 500 IllegalStateException) → `Product.getSellerId().equals(sellerId)` 불일치 시 `ProductVariantNotFoundException`(404 은닉) 3홉. 권한 위반은 미존재와 동일 은닉(**결정 H**·아래 §1-A).
+
+**신설 3**: `SellerInventoryController`·`SellerInventoryMarkInboundRequest`·`SellerInventoryMarkOutboundRequest`. **수정 1**: `InventoryService`(ProductRepository·ProductVariantRepository DI 추가·wrapper 2·helper 1). **응답 DTO**: 기존 `InventoryAdjustResponse` 재사용(신설 안 함).
+
+**검증**: `./gradlew.bat cleanTest test` 541 tests·failures 0·errors 0·skipped 0(117 suites·3m21s). baseline 527 + SellerInventoryControllerIntegrationTest 8(T1~T8) + InventoryServiceTest adjustStock 6 = 541·기존 회귀 0.
+
+### §1-A 옵션 검토 (채택/기각·결정 근거 영구화)
+
+**A 옵션 (재고 진입점 방식)**:
+| 옵션 | 판정 | 근거 |
+|---|---|---|
+| Admin only(대행) | 기각 | 3P 위탁형에서 판매자 재고 자기관리가 MVP 운영 시나리오(§9-6)·Admin 대행은 3P 모델 부정합. |
+| **Seller self-service** | **채택** | README "멀티벤더 입점형"·actors "판매관리자=자사 상품 관리"·Product.seller_id NOT NULL(§9-2·§9-3 실측)→판매자 소유 재고 자기관리 정합. |
+| 발주·검수 참조 모델 연동 | 기각 | §9-6·D-105 §1-A: 발주서·검수서 참조 모델은 범위 급증·A→S급 승격 위험. 실 운영자 시나리오 실증 후 별도 S급 트랙(§8). |
+
+**C 옵션 (OUTBOUND/INBOUND 도메인 행위)**:
+| 옵션 | 판정 | 근거 |
+|---|---|---|
+| α adjustStock 재사용 | (부분) | on_hand ±qty·INV-1·INV-4 가드가 adjustStock와 100% 동일. |
+| β 신규 markInbound/markOutbound 도메인 행위 신설 | 기각 | 도메인 행위 신설 시 로직 100% 중복·명명만 상이(기조 4 위배). |
+| **C-α2 Service wrapper 재사용** | **채택** | 도메인 primitive는 adjustStock 재사용·액터별 권한·History 유형(INBOUND/OUTBOUND)만 wrapper에 캡슐화(D-92 Q3 sub a‴ 패턴 정합). |
+
+**E 옵션 (E10 발행)**:
+| 옵션 | 판정 | 근거 |
+|---|---|---|
+| **γ 계승(미발행)** | **채택** | recipient 산정 정책 미확립(domain-events.md L171 선택 이벤트)·adjustStock γ 잠금 계승·D-108 재진입 트랙 동반 승격 정합. |
+| 발행 승격 | 기각 | InventoryAdjusted record + TracedEventPublisher 주입 + 핸들러 신설 파급·recipient 정책 선결 필요(§8 이연). |
+
+**G 옵션 (소유권 검증 위치)**:
+| 옵션 | 판정 | 근거 |
+|---|---|---|
+| Controller 진입부 | 기각 | Controller는 HTTP 책임만(D-40 β′)·소유권 로직 혼입은 SellerShipping/SellerClaim 패턴 이탈. |
+| **Service 진입부** | **채택** | D-92 Q3 횡단 원칙·기존 3종 wrapper(approveBySeller·registerExchangeShipmentBySeller·prepareShipment) authorize 패턴 정합. |
+
+**H 옵션 (미존재·cross-tenant 예외 매핑·Track 27 결정 라운드 신규)**: task 원안은 `InventoryNotFoundException` 신설이었으나 Phase 1 실측으로 두 트랩 발견 → 재검토 후 기존 예외 재사용(①) 확정.
+| 옵션 | 판정 | 근거 |
+|---|---|---|
+| **① 기존 예외 재사용** | **채택** | cross-tenant·변형 미존재 모두 `ProductVariantNotFoundException`(404·동일 code)→full hiding(SellerShipping ORDER_NOT_FOUND·SellerClaim CLAIM_NOT_FOUND 단일 예외 패턴 정합). inventory row 미존재는 `InventoryInvariantViolationException`(422·adjustStock 정합). 신규 예외·GlobalExceptionHandler 무변경(기조 4). |
+| ② InventoryNotFoundException 신설 | 기각 | GlobalExceptionHandler에 일반 NotFound catch-all 부재(각 예외 개별 @ExceptionHandler·L94~133)→핸들러 미등록 시 500 fallback 트랩(task 수정 목록 GEH 누락). cross-tenant code가 controller의 PRODUCT_VARIANT_NOT_FOUND와 상이→변형 존재 부분 노출(full hiding 약화). |
+
+### §2 결정 라운드 재진입·재검토 수렴
+- **재진입 1 (사업 모델 정합성 §9 추가 정찰)**: α(Admin 대행) vs β(Seller self-service) 이분화 재정의. README·actors·marketplace-core-domain·Product.seller_id NOT NULL 실측(§9-2~§9-5)으로 **3P 입점 위탁형 확정**·Seller self-service(β) 채택.
+- **재진입 2 (Seller 소유권 검증 실 로직 §10 추가 정찰)**: "껍데기 위험" 해소. HeaderSellerActorResolver·ClaimService.authorizeSellerAccess·OrderShippingService.authorize 실 로직 실측(§10-1~§10-8)으로 3홉 검증 패턴 확보·SellerInventoryController 신설 시 동일 패턴 적용 확정.
+- **재진입 3 (Phase 1 예외 매핑 트랩)**: task 원안 InventoryNotFoundException이 GEH 404 핸들러 누락(500 트랩)·cross-tenant hiding 약화 유발 실측 → 결정 H① 기존 예외 재사용으로 수렴.
+- **백로그 F 동반 흡수**: 트랙 규모 과소분할 이견에 따라 adjustStock 단위 테스트 6 케이스(백로그 F)를 Track 27에 동반 흡수(InventoryServiceTest 8→14).
+
+### §진입점 카드
+- **목적**: 3P 판매자가 자사 상품 재고를 직접 입·출고하는 self-service 진입점(markInbound/markOutbound·INBOUND/OUTBOUND enum 소비).
+- **핵심 진입점 파일·라인**: `inventory/controller/SellerInventoryController`(mark-inbound·mark-outbound 2 endpoint)·`InventoryService.markInboundBySeller`(L137)·`markOutboundBySeller`(L160).
+- **핵심 SoT 메서드**: `InventoryService.authorizeSellerAccess`(L183·3홉 소유권)·`Inventory.adjustStock`(entity L134·±qty 도메인 primitive 재사용).
+- **영향 범위**: production 신설 3·수정 1(InventoryService)·test 신설 1·수정 1(InventoryServiceTest). GlobalExceptionHandler·신규 예외·DDL·Flyway 무변경(기존 예외·enum 재사용).
+- **패턴 재사용 SoT·회차**: D-92 Q3 Service 진입부 authorize(4회차·approveBySeller·registerExchangeShipmentBySeller·prepareShipment 계승)·D-105 §2 Q2 옵션 A(base path 없음·메서드 절대경로)·AdminInventoryController 응답 조립 1:1.
+- **트랩 주의**: ① LT-02 FK 시드 그래프(user→seller→product→product_variant→inventory) try-finally 필수 ② 3홉 소유권 조회 파급(variantId→productId→sellerId·Inventory seller_id 직접 참조 없음·INV-6) ③ cross-tenant는 ProductVariantNotFoundException(404)으로 미존재와 동일 은닉(code 분기 금지).
+
+### §8 carry-over (백로그)
+- **E10 InventoryAdjusted 발행·NotificationInventoryAdjustedHandler**: recipient 산정 정책 확립 후 후속 트랙(γ 계승 해제 시점).
+- **Admin markInbound/markOutbound**: 명시 미신설 확정·adjustStock 재사용(백로그에서 제거). Admin 입출고 필요 시 adjustStock(±qty)로 충족.
+- **발주·검수 참조 모델 연동**: 실 운영자 시나리오 실증 후 별도 S급 트랙 승격(§9-6·D-105 §1-A γ 기각 근거 계승).
+
 ---
