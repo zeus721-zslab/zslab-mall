@@ -7621,3 +7621,62 @@ D-118이 세운 RoleAuthorization seam(StubRoleAuthorization·항상 통과)을 
 
 ---
 
+## D-121. Track 36 γ — 판매자 구성원 user 통합·seller_user user_id 단독 UNIQUE 전환 [ACTIVE]
+
+**착수일**: 2026-07-04
+**관련**: Track 36 / D-119(V11 role seed·user_role BUYER 배선·2-도메인 스키마)·D-120(DbRoleAuthorization 실조회·SellerUserRepository.existsByUserId·§8 seller_user INSERT 프로덕션 경로 부재 실측) / 기조 4(과잉개발 회피)·기조 5(실측 우선)
+
+### §1 착수 요지 (Phase 1 한정·본문 박제는 Phase 4 실측 후)
+Track 36(γ) = 판매자 구성원을 user 계정으로 통합하고 seller_user 매핑으로 도메인을 분리한다. 선결 제약으로 seller_user UNIQUE를 복합 (seller_id, user_id)→**user_id 단독**으로 전환해 "1 user = 1 seller"를 강제한다(이후 Phase resolver가 user.id→seller.id를 단건 해소하기 위한 선결). 정찰 실측(프로덕션 seller_user INSERT 경로 부재·중복 user_id fixture 부재·D-120 §8 연장·자체 재측정)으로 기존 데이터·테스트와 충돌 없음.
+
+**Phase 1 산출**: 본 착수 헤더 · docs/track-36/RECON.md(Phase 1 정찰 실측) · Flyway V12__seller_user_user_id_unique.sql(seller_user user_id 단독 UNIQUE·단일 atomic ALTER).
+
+**V12 실측 트랩(RECON §3 상술)**: 복합 uk_seller_user (seller_id, user_id)가 FK fk_seller_user_seller의 유일 지원 인덱스를 겸함 → bare DROP INDEX uk_seller_user 시 MariaDB ERROR 1553. seller_id 보상 인덱스(idx_seller_user_seller) 선행이 필수 → A안(단일 atomic ALTER: ADD idx_seller_user_seller + DROP uk_seller_user + ADD UNIQUE uk_seller_user_user_id) 채택·MariaDB 11.4 end-to-end 실측 통과. 역방향 ROLLBACK도 동일 트랩 대칭 존재(user_id 인덱스 선복원 필수·RECON §3.4)로 4-op 보상 주석 확정. STEP 3 검증 이전 정찰 단계에서 선발견(라이브 트랩 예방).
+
+**본문 박제 예고**: 판단별 α/β/γ 채택·기각·§진입점 카드·최종 검증 수치는 구현·검증 완료 후 Phase 4에서 실측 기반 박제(기조 5).
+
+### §1-B 결정 요지 (구현·검증 완료)
+Track 36(γ) = 판매자 구성원을 user 계정으로 통합하고 seller_user 매핑으로 도메인 분리한다. "완전 독립 계정"(seller 전용 자격 저장소 신설) 요구는 폐기하고 "user 통합·진입점/토큰 스코프만 도메인 분리"로 재확정했다. 핵심 = resolver가 user.id를 seller_user 실조회로 seller.id에 단건 해소하도록 교정(passthrough 결함 해소)하고, 선결로 seller_user UNIQUE를 user_id 단독으로 전환("1 user = 1 seller").
+
+- 선결 제약: Flyway V12로 seller_user 복합 UNIQUE(seller_id, user_id) → user_id 단독 UNIQUE 전환. user.id→seller.id 최대 1건 보장.
+- 해소 배선: SellerUserRepository.findSellerIdByUserId(@Query·su.seller.id projection·Optional) 신설. HeaderSellerActorResolver가 user.id passthrough → 이 조회로 seller.id 해소. 해소 실패(빈 Optional=매핑 없는 user) → UnauthenticatedException(401) fail-closed.
+- 무변경: JWT 4클래스(subject=user.id·role-중립)·3 authorize 본체(Claim·Inventory·OrderShipping·이미 seller.id 대조)·Buyer/Admin resolver·SellerUser 엔티티.
+- 정합 결함 교정: SELLER 요청의 user.id를 seller_id 컬럼과 직접 대조하던 결함을 4개 통합테스트가 user.id==seller.id 우연일치로 은폐 중이었음. resolver 실 매핑 전환으로 결함 해소 + 테스트를 actorId≠seller_id 분리·seller_user 실 시드로 재작성해 은폐 제거.
+
+**검증**: `./gradlew.bat test --rerun-tasks` BUILD SUCCESSFUL·suites 124·tests 576·failures 0·errors 0·skipped 0·회귀 0(캐시 무효화 실측). baseline 576(D-120) 동일 — 신규 @Test 0·fixture/DisplayName 정비만.
+
+### §1-A 판단별 α/β/γ 채택·기각 (결정 근거 영구화)
+
+| 판단 | 채택 | 기각·근거 |
+|---|---|---|
+| 1 자격 저장소 형태 | **γ user 통합(기존 user+seller_user 활용)** | α(seller.id=자격 PK): 판매사=계정 1개 강제 → seller_user 복수 구성원 모델과 배치·기각. β(seller_account 신설): 구성원별 독립 자격 저장소 → 소비 데이터 부재·계층 과잉(기조 4)·기각. γ = 신규 저장소 0·계층 최소. |
+| 2 "완전 독립 계정" 요구 | **폐기·재정의** | 원 의도 아닌 중간 삽입 요구로 실측 확인(seller 자격이 이미 user에 귀속). "user 통합·진입점/토큰 스코프만 도메인 분리"로 재확정. seller 전용 자격 저장소 신설이 유지안의 실작업이나 소비 데이터 부재로 과잉. |
+| 3 seller_user UNIQUE 전환 형태 | **α 단일 atomic ALTER(seller_id 보상 인덱스 선행)** | 당초 2문(ADD/DROP)은 복합 UNIQUE가 FK fk_seller_user_seller 유일 지원 인덱스 겸용이라 bare DROP 시 MariaDB ERROR 1553(실측). idx_seller_user_seller 선행 추가로 FK 지원 보존. B안(복합을 비-UNIQUE 강등) 기각 — user_id 전역 UNIQUE 이후 복합 prefix 이득 0·2컬럼 과잉(기조 4). |
+| 4 복수 소속(1 user N seller) | **범위 밖(β 확장)** | 현 소비 데이터 없어 과잉(기조 4). 향후 user_id UNIQUE 제거 1건으로 덧쌓기(α→β 재작업 아님). |
+| 5 해소 실패 처리 | **UnauthenticatedException(401) 재사용** | resolver 기존 유일 실패 표현 재사용·새 예외 미신설. 403은 resolver가 컨트롤러 내부 실행이라 filter-layer 403 핸들러 미도달·GlobalExceptionHandler 500 fallback에 삼켜짐 → 신규 @ExceptionHandler 필요(새 관례 신설이라 기각). 기존 관례로 도달 가능한 정확한 fail-closed = 401. |
+| 6 진입점 물리 분리(endpoint 3분할) | **범위 밖(프론트 트랙)** | 백엔드는 단일 endpoint + role param로 이미 진입점 분리 성립(role별 검증 DbRoleAuthorization). endpoint 3분할은 프론트 표면 사안. |
+
+### §2 결정 라운드 재진입
+- 유지/완화 이분법 → γ(제3안) 재진입: 별도 정찰(JWT subject 파급)로 "JWT subject=user.id 전제 부재·3 authorize 이미 seller.id 대조" 실측 → seller 자격 저장소 신설 없이 resolver 1점 해소로 성립함을 확인, 유지(스키마 신설)·완화(자격 공유)를 모두 넘어선 γ 도출.
+- V12 SQL 재진입: 당초 2문 SQL이 ERROR 1553으로 실패(정찰 docker 실측) → A안(보상 인덱스 선행 atomic ALTER)으로 교정. 역방향 ROLLBACK도 대칭 트랩 존재 → 4-op 보상 주석. STEP 3 검증 이전 정찰 단계 선발견(라이브 트랩 예방).
+
+### §8 carry-over
+- **복수 소속(1 user N seller)**: 현 소비 데이터 부재·과잉. 수요 도래 시 user_id UNIQUE 제거 1건으로 확장(덧쌓기·재작업 아님). 백로그 β.
+- **입점·구성원 등록 경로**: seller_user·seller INSERT 프로덕션 경로 여전히 부재(D-119·D-120 §8 연장). 판매자 등록 트랙에서 신설 시 "1 user=1 seller"(V12) 전제 반영 필수. 별 트랙.
+- **로그인 진입점 물리 분리(endpoint 3분할)**: 백엔드 단일 endpoint+role param로 성립 → 프론트 트랙.
+- **SellerActorResolver·Seller 컨트롤러 레거시 Javadoc 표류**: X-Seller-Id 헤더 stub 기술이 SecurityContext 대체 후에도 잔존(HeaderSellerActorResolver는 본 트랙서 갱신됨). 나머지 컨트롤러 주석 표류는 B급 백로그.
+- **클래스명 rename 이연**: HeaderSellerActorResolver는 헤더 파싱 아닌 SecurityContext 해소이나 클래스명 레거시 유지(rename 이연).
+
+### §진입점 카드
+1. **목적**: 판매자 구성원을 user 계정에 통합하고 seller_user 실 매핑으로 user.id→seller.id 해소(passthrough 정합 결함 교정).
+2. **핵심 진입점**: `HeaderSellerActorResolver.resolve` (user.id → findSellerIdByUserId → seller.id·해소 실패 시 401).
+3. **핵심 SoT 메서드**: `SellerUserRepository.findSellerIdByUserId`(@Query su.seller.id projection·Optional).
+4. **영향 범위**: V12(seller_user user_id 단독 UNIQUE)·SellerUserRepository(M·조회 신설)·HeaderSellerActorResolver(M·해소 배선)·4 통합테스트(Inventory·Shipping·Delivery·Claim·seller_user 시드 재작성)·SellerUserRepositoryTest(#2 실검증 전환). JWT·3 authorize 본체·SellerUser 엔티티 무변경.
+5. **패턴 재사용**: @ManyToOne.id projection @Query(OrderItemRepository.findOrderIdById 선례)·common→seller repo 의존(DbRoleAuthorization 선례·D-120)·FK_CHECKS=0 try-finally 시드(LT-02)·role code SELECT seed(seed-id 하드코딩 회피·D-119).
+6. **트랩 주의**: (1) seller_user 복합 UNIQUE가 FK fk_seller_user_seller 유일 지원 인덱스 겸용 → bare DROP INDEX 시 ERROR 1553·seller_id 보상 인덱스 선행 필수 (2) 역방향 ROLLBACK도 대칭 트랩(user_id 인덱스 선복원 4-op) (3) user.id==seller.id 우연일치는 통합테스트 은폐성 GREEN 유발 → actorId≠seller_id 분리 시드로 실 매핑 강제.
+
+### §특기
+- 결정 근거 영구화 18회차(D-104~D-121). γ = 유지/완화 이분법을 넘어선 제3안 도출·정찰 docker 실측이 V12 라이브 트랩(ERROR 1553)을 사전 포착한 사례.
+- Track 36 트랩 후보(1553 정·역·은폐성 GREEN)는 §진입점 카드 트랩 주의 + RECON §3 기재로 갈음 — live-traps.md 이관 규정(≥3건 누적·재발생) 미충족.
+
+---
