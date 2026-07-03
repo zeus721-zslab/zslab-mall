@@ -7,7 +7,6 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.net.URI;
 import org.slf4j.MDC;
-import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
@@ -20,15 +19,15 @@ import org.springframework.stereotype.Component;
 
 /**
  * Security 필터 계층(인증 진입점·인가 거부)의 오류 응답을 {@link com.zslab.mall.common.web.GlobalExceptionHandler}와
- * 동일한 RFC7807 ProblemDetail(code·traceId 속성) 포맷으로 직렬화한다(Track 31 Phase 3). {@code @RestControllerAdvice}는
- * 필터 계층 예외를 잡지 못하므로 본 핸들러가 동일 포맷을 재현해 401/403 응답 본문 계약(예: {@code $.code=UNAUTHENTICATED})을
- * 유지한다. GlobalExceptionHandler와의 포맷 일치를 위해 TYPE_BASE·toTitle을 의도적으로 병기한다.
+ * 동일한 RFC7807 ProblemDetail(code·traceId 속성) 포맷으로 직렬화한다(Track 31 Phase 3·Track 33 P5 프로파일 무제약 승격).
+ * {@code @RestControllerAdvice}는 필터 계층 예외를 잡지 못하므로 본 핸들러가 동일 포맷을 재현해 401/403 응답 본문 계약
+ * (예: {@code $.code=UNAUTHENTICATED})을 유지한다. GlobalExceptionHandler와의 포맷 일치를 위해 TYPE_BASE·toTitle을 의도적으로 병기한다.
  *
- * <p>{@code @Profile("!prod")} — Stub 인증 체인 전용. prod 체인은 permitAll이라 인증/인가 거부가 발생하지 않는다.
+ * <p>단일 SecurityFilterChain(전 프로파일)에서 JWT 필터가 전파한 인증 실패와 AuthorizationFilter의 인가 거부를 각각
+ * authenticationEntryPoint(401)·accessDeniedHandler(403)로 위임받아 응답한다.
  */
 @Component
-@Profile("!prod")
-public class StubSecurityErrorHandler implements AuthenticationEntryPoint, AccessDeniedHandler {
+public class SecurityErrorHandler implements AuthenticationEntryPoint, AccessDeniedHandler {
 
     private static final String TYPE_BASE = "https://zslab-mall.duckdns.org/errors/";
     private static final String CODE_UNAUTHENTICATED = "UNAUTHENTICATED";
@@ -36,7 +35,7 @@ public class StubSecurityErrorHandler implements AuthenticationEntryPoint, Acces
 
     private final ObjectMapper objectMapper;
 
-    public StubSecurityErrorHandler(ObjectMapper objectMapper) {
+    public SecurityErrorHandler(ObjectMapper objectMapper) {
         // ProblemDetail의 properties(code·traceId)를 최상위로 평탄화하는 mixin을 보장한다(GlobalExceptionHandler 출력과 동일 구조).
         this.objectMapper = objectMapper.copy().addMixIn(ProblemDetail.class, ProblemDetailJacksonMixin.class);
     }

@@ -16,3 +16,7 @@ logging:
   level:
     root: WARN
     com.zslab.mall: INFO
+
+jwt:
+  # 운영: 시크릿 하드코딩·기본값 금지 — JWT_SECRET env 미주입 시 기동 실패(의도적 fail-fast). base yml 더미 override. HS256 최소 32바이트.
+  secret: ${JWT_SECRET}

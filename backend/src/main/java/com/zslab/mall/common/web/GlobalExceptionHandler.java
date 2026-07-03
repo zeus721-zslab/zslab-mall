@@ -1,5 +1,6 @@
 package com.zslab.mall.common.web;
 
+import com.zslab.mall.auth.exception.AuthenticationFailedException;
 import com.zslab.mall.checkout.exception.CheckoutItemMismatchException;
 import com.zslab.mall.checkout.exception.CheckoutItemNotFoundException;
 import com.zslab.mall.checkout.exception.IdempotencyKeyInProgressException;
@@ -49,6 +50,7 @@ public class GlobalExceptionHandler {
     private static final String CODE_VALIDATION_FAILED = "VALIDATION_FAILED";
     private static final String CODE_MALFORMED_REQUEST = "MALFORMED_REQUEST";
     private static final String CODE_UNAUTHENTICATED = "UNAUTHENTICATED";
+    private static final String CODE_AUTHENTICATION_FAILED = "AUTHENTICATION_FAILED";
     private static final String CODE_ORDER_NOT_FOUND = "ORDER_NOT_FOUND";
     private static final String CODE_PRODUCT_NOT_FOUND = "PRODUCT_NOT_FOUND";
     private static final String CODE_IDEMPOTENCY_KEY_IN_PROGRESS = "IDEMPOTENCY_KEY_IN_PROGRESS";
@@ -91,6 +93,13 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ProblemDetail> handleUnauthenticated(
             UnauthenticatedException exception, HttpServletRequest request) {
         return build(HttpStatus.UNAUTHORIZED, CODE_UNAUTHENTICATED, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(AuthenticationFailedException.class)
+    public ResponseEntity<ProblemDetail> handleAuthenticationFailed(
+            AuthenticationFailedException exception, HttpServletRequest request) {
+        // Track 33: 로그인 실패(미존재·비활성·비번·role 통합). 사유 무관 401·"Invalid email or password."(계정 열거 방지).
+        return build(HttpStatus.UNAUTHORIZED, CODE_AUTHENTICATION_FAILED, exception.getMessage(), request);
     }
 
     // ===== 404 =====
