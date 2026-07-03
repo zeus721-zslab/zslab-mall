@@ -50,7 +50,7 @@ class SellerUserRepositoryTest extends Batch1DataJpaTestBase {
     void save_findById_success() {
         Seller seller = seedSeller("slr_01234567890123456789012345");
         long userId = seedUser("usr_01234567890123456789012345");
-        Role role = roleRepository.saveAndFlush(Role.create(RoleCode.SELLER_OWNER, "판매자"));
+        Role role = roleRepository.findByCode(RoleCode.SELLER_OWNER).orElseThrow();
         SellerUser saved = sellerUserRepository.saveAndFlush(
             SellerUser.create(seller, userId, role.getId()));
         entityManager.clear();
@@ -69,7 +69,7 @@ class SellerUserRepositoryTest extends Batch1DataJpaTestBase {
     void insert_duplicateSellerUser_throwsDataIntegrityViolation() {
         Seller seller = seedSeller("slr_11234567890123456789012345");
         long userId = seedUser("usr_11234567890123456789012345");
-        Role role = roleRepository.saveAndFlush(Role.create(RoleCode.SELLER_OWNER, "판매자2"));
+        Role role = roleRepository.findByCode(RoleCode.SELLER_OWNER).orElseThrow();
         sellerUserRepository.saveAndFlush(SellerUser.create(seller, userId, role.getId()));
 
         assertThatThrownBy(() ->
@@ -81,7 +81,7 @@ class SellerUserRepositoryTest extends Batch1DataJpaTestBase {
     @DisplayName("seller_id FK 위반 삽입 → PersistenceException (FK RESTRICT)")
     void insert_invalidSellerId_throwsPersistenceException() {
         long userId = seedUser("usr_21234567890123456789012345");
-        Role role = roleRepository.saveAndFlush(Role.create(RoleCode.BUYER, "구매자"));
+        Role role = roleRepository.findByCode(RoleCode.BUYER).orElseThrow();
 
         assertThatThrownBy(() ->
             entityManager.getEntityManager()
@@ -96,7 +96,7 @@ class SellerUserRepositoryTest extends Batch1DataJpaTestBase {
     @DisplayName("user_id FK 위반 삽입 → PersistenceException (FK RESTRICT)")
     void insert_invalidUserId_throwsPersistenceException() {
         Seller seller = seedSeller("slr_21234567890123456789012345");
-        Role role = roleRepository.saveAndFlush(Role.create(RoleCode.ADMIN_OPERATOR, "관리자"));
+        Role role = roleRepository.findByCode(RoleCode.ADMIN_OPERATOR).orElseThrow();
 
         assertThatThrownBy(() ->
             entityManager.getEntityManager()
