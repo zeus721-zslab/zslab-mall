@@ -86,6 +86,9 @@ class SellerInventoryControllerIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private AuthHeaders authHeaders;
     @Autowired
     private ApplicationEvents events;
     @Autowired
@@ -120,11 +123,11 @@ class SellerInventoryControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("T2 인증 실패: 형식 오류 Stub 자격증명(비정수 id) → 401 UNAUTHENTICATED·이벤트 0")
+    @DisplayName("T2 인증 실패: 잘못된 Bearer 토큰 → 401 UNAUTHENTICATED·이벤트 0")
     void markInbound_malformedCredential_returns401() throws Exception {
-        // Track 31 Phase 3: 형식 오류는 헤더 파싱(400)이 아니라 Stub 자격증명 파싱 실패(401)로 이동한다(StubAuthenticationFilter 선차단).
+        // Track 33 P5: 잘못된 Bearer 토큰은 JwtAuthenticationFilter가 verify 실패로 예외 전파 → ExceptionTranslationFilter가 401 위임.
         mockMvc.perform(post(INBOUND_URL)
-                        .header("Authorization", "Stub seller:not-a-number")
+                        .header("Authorization", "Bearer not-a-valid-jwt")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(INBOUND_QTY, REASON)))
                 .andExpect(status().isUnauthorized())
@@ -142,7 +145,7 @@ class SellerInventoryControllerIntegrationTest {
         });
 
         mockMvc.perform(post(INBOUND_URL)
-                        .headers(AuthHeaders.seller(SELLER_A))
+                        .headers(authHeaders.seller(SELLER_A))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(INBOUND_QTY, REASON)))
                 .andExpect(status().isOk())
@@ -172,7 +175,7 @@ class SellerInventoryControllerIntegrationTest {
         });
 
         mockMvc.perform(post(OUTBOUND_URL)
-                        .headers(AuthHeaders.seller(SELLER_A))
+                        .headers(authHeaders.seller(SELLER_A))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(OUTBOUND_QTY, REASON)))
                 .andExpect(status().isOk())
@@ -195,7 +198,7 @@ class SellerInventoryControllerIntegrationTest {
     void markInbound_unknownVariantPublicId_returns404() throws Exception {
         // 시드 없음(variant 미존재). resolve 통과 후 findByPublicId 실패 → ProductVariantNotFoundException 404.
         mockMvc.perform(post(MISSING_INBOUND_URL)
-                        .headers(AuthHeaders.seller(SELLER_A))
+                        .headers(authHeaders.seller(SELLER_A))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(INBOUND_QTY, REASON)))
                 .andExpect(status().isNotFound())
@@ -214,7 +217,7 @@ class SellerInventoryControllerIntegrationTest {
 
         // variant는 존재(SELLER_A 소유)하나 SELLER_B가 조작 시도 → 3홉 소유권 위반을 미존재로 은닉(404).
         mockMvc.perform(post(INBOUND_URL)
-                        .headers(AuthHeaders.seller(SELLER_B))
+                        .headers(authHeaders.seller(SELLER_B))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(INBOUND_QTY, REASON)))
                 .andExpect(status().isNotFound())
@@ -235,7 +238,7 @@ class SellerInventoryControllerIntegrationTest {
         });
 
         mockMvc.perform(post(OUTBOUND_URL)
-                        .headers(AuthHeaders.seller(SELLER_A))
+                        .headers(authHeaders.seller(SELLER_A))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(EXCESS_OUTBOUND_QTY, REASON)))
                 .andExpect(status().isUnprocessableEntity())
@@ -258,7 +261,7 @@ class SellerInventoryControllerIntegrationTest {
 
         // quantity는 @Positive 미적용(형식/도메인 분리) → Service의 qty≤0 가드가 IllegalArgumentException(→400)으로 차단.
         mockMvc.perform(post(INBOUND_URL)
-                        .headers(AuthHeaders.seller(SELLER_A))
+                        .headers(authHeaders.seller(SELLER_A))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(0, REASON)))
                 .andExpect(status().isBadRequest())

@@ -1,30 +1,40 @@
 package com.zslab.mall.common.security;
 
 import org.springframework.http.HttpHeaders;
+import org.springframework.stereotype.Component;
 
 /**
- * 테스트 전용 Stub 인증 헤더 빌더(Track 31 Phase 3). {@code Authorization: Stub <role>:<id>} 헤더를 생성해
- * @SpringBootTest MockMvc 요청에 role 게이트(hasRole) 통과용 인증을 주입한다. base class가 아니라 static 유틸이다.
+ * 테스트 전용 인증 헤더 빌더(Track 31 Phase 3·Track 33 P6 Bearer 전환). {@code Authorization: Bearer <JWT>} 헤더를
+ * 생성해 @SpringBootTest MockMvc 요청에 role 게이트(hasRole) 통과용 인증을 주입한다.
+ *
+ * <p>실 {@link TokenProvider}로 토큰을 발급하므로 static 유틸이 아니라 빈이다(test source 컴포넌트 스캔 대상·주입은
+ * {@code @Autowired AuthHeaders}). 발급 토큰은 {@link JwtAuthenticationFilter}가 검증해 principal=actorId·ROLE_xxx로
+ * SecurityContext를 채운다.
  */
-public final class AuthHeaders {
+@Component
+public class AuthHeaders {
 
-    private AuthHeaders() {}
+    private final TokenProvider tokenProvider;
 
-    public static HttpHeaders buyer(long id) {
-        return stub("buyer", id);
+    public AuthHeaders(TokenProvider tokenProvider) {
+        this.tokenProvider = tokenProvider;
     }
 
-    public static HttpHeaders seller(long id) {
-        return stub("seller", id);
+    public HttpHeaders buyer(long id) {
+        return bearer(id, ActorRole.BUYER);
     }
 
-    public static HttpHeaders admin(long id) {
-        return stub("admin", id);
+    public HttpHeaders seller(long id) {
+        return bearer(id, ActorRole.SELLER);
     }
 
-    private static HttpHeaders stub(String role, long id) {
+    public HttpHeaders admin(long id) {
+        return bearer(id, ActorRole.ADMIN);
+    }
+
+    private HttpHeaders bearer(long id, ActorRole role) {
         HttpHeaders headers = new HttpHeaders();
-        headers.set(HttpHeaders.AUTHORIZATION, "Stub " + role + ":" + id);
+        headers.set(HttpHeaders.AUTHORIZATION, "Bearer " + tokenProvider.issue(id, role));
         return headers;
     }
 }

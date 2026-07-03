@@ -45,3 +45,8 @@ logging:
   pattern:
     # §14·D-48: 모든 로그 라인에 요청 traceId 포함(TraceIdFilter가 MDC 주입·요청 외엔 공백)
     level: "%5p [%X{traceId:-}]"
+
+jwt:
+  # 로컬 개발용 더미 시크릿 — 운영은 JWT_SECRET env 주입 필수(application-prod.yml에서 기본값 제거). HS256 최소 32바이트.
+  secret: ${JWT_SECRET:local-dev-dummy-secret-please-override-min-32-bytes-long}
+  expiration-ms: ${JWT_EXPIRATION_MS:3600000}

@@ -42,6 +42,9 @@ public class User extends AbstractPublicIdSoftDeletableEntity {
     @Column(name = "phone", length = 20)
     private String phone;
 
+    @Column(name = "password_hash", length = 60)
+    private String passwordHash;
+
     @Column(name = "withdrawn_at")
     private LocalDateTime withdrawnAt;
 

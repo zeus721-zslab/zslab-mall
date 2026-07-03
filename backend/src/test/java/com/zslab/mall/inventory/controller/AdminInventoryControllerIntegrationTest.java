@@ -82,6 +82,9 @@ class AdminInventoryControllerIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private AuthHeaders authHeaders;
     @Autowired
     private ApplicationEvents events;
     @Autowired
@@ -124,7 +127,7 @@ class AdminInventoryControllerIntegrationTest {
         });
 
         mockMvc.perform(post("/api/v1/admin/inventories/" + VARIANT_PID + "/adjust")
-                        .headers(AuthHeaders.admin(ADMIN))
+                        .headers(authHeaders.admin(ADMIN))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(VALID_DECREASE, REASON)))
                 .andExpect(status().isOk())
@@ -151,7 +154,7 @@ class AdminInventoryControllerIntegrationTest {
     void adjust_unknownVariantPublicId_returns404() throws Exception {
         // 시드 없음(variant 미존재). resolve 통과 후 findByPublicId 실패 → ProductVariantNotFoundException 404.
         mockMvc.perform(post("/api/v1/admin/inventories/" + MISSING_VARIANT_PID + "/adjust")
-                        .headers(AuthHeaders.admin(ADMIN))
+                        .headers(authHeaders.admin(ADMIN))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(VALID_DECREASE, REASON)))
                 .andExpect(status().isNotFound())
@@ -169,7 +172,7 @@ class AdminInventoryControllerIntegrationTest {
         });
 
         mockMvc.perform(post("/api/v1/admin/inventories/" + VARIANT_PID + "/adjust")
-                        .headers(AuthHeaders.admin(ADMIN))
+                        .headers(authHeaders.admin(ADMIN))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(INVALID_DECREASE, REASON)))
                 .andExpect(status().isUnprocessableEntity())

@@ -4,7 +4,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.stereotype.Component;
 
 /**
- * SecurityContext 기반 Buyer 액터 식별자 해석(Track 31 Phase 3 신설). Stub 인증 필터가 채운 principal(actorId·BIGINT)을
+ * SecurityContext 기반 Buyer 액터 식별자 해석(Track 31 Phase 3 신설). JwtAuthenticationFilter가 채운 principal(actorId·BIGINT)을
  * 반환한다. Seller/Admin resolver는 레거시명 {@code Header*}를 유지하나(rename 이연) 본 구현체는 신설이므로 실제 동작을
  * 반영한 {@code SecurityContext*} 명을 쓴다.
  *
