@@ -28,6 +28,7 @@ import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -38,6 +39,7 @@ import org.springframework.test.web.servlet.MockMvc;
  * Service는 mock이며, 본 슬라이스는 컨트롤러 ↔ 전역 예외 핸들러 ↔ HTTP 변환 경계만 검증한다.
  */
 @WebMvcTest(BuyerOrderController.class)
+@AutoConfigureMockMvc(addFilters = false) // Track 31 Phase 1: starter-security 슬라이스 기본잠금 회피(무회귀·401 등은 컨트롤러/GEH 생성물이라 무영향)
 class BuyerOrderControllerTest {
 
     private static final String BUYER_ID = "1";

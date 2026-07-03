@@ -14,6 +14,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -24,6 +25,7 @@ import org.mockito.Mockito;
  * {@link PaymentWebhookController} @WebMvcTest. HTTP 응답 코드(200/422/400)·DTO → Command 변환(D-27·D-34) 검증.
  */
 @WebMvcTest(PaymentWebhookController.class)
+@AutoConfigureMockMvc(addFilters = false) // Track 31 Phase 1: starter-security 슬라이스 기본잠금 회피(무회귀·200/422/400은 컨트롤러/GEH 생성물이라 무영향)
 class PaymentWebhookControllerTest {
 
     @Autowired

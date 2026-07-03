@@ -28,6 +28,7 @@ import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -41,6 +42,7 @@ import org.springframework.test.web.servlet.MockMvc;
  * com.zslab.mall.common.auth.HeaderAdminActorResolver} 책임이며 AdminClaimIntegrationTest가 실 헤더로 검증한다.
  */
 @WebMvcTest(AdminClaimController.class)
+@AutoConfigureMockMvc(addFilters = false) // Track 31 Phase 1: starter-security 슬라이스 기본잠금 회피(무회귀·401 등은 컨트롤러/GEH 생성물이라 무영향)
 class AdminClaimControllerTest {
 
     private static final String CLAIM_PUBLIC_ID = "clm_01ARZ3NDEKTSV4RRFFQ69G5FAV";
