@@ -30,6 +30,7 @@ dependencies {
     implementation("org.flywaydb:flyway-core")
     implementation("org.flywaydb:flyway-mysql")
     implementation("com.github.f4b6a3:ulid-creator:5.2.3")
+    implementation("net.logstash.logback:logstash-logback-encoder:8.0")
     compileOnly("org.projectlombok:lombok")
     annotationProcessor("org.projectlombok:lombok")
     testImplementation("org.springframework.boot:spring-boot-starter-test")
