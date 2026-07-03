@@ -1,0 +1,18 @@
+{
+  "index_patterns": ["zslab-mall-logs*"],
+  "data_stream": {},
+  "priority": 200,
+  "template": {
+    "settings": {
+      "index.lifecycle.name": "zslab-mall-logs-policy",
+      "number_of_replicas": 0
+    },
+    "mappings": {
+      "properties": {
+        "@timestamp": {
+          "type": "date"
+        }
+      }
+    }
+  }
+}
