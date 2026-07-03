@@ -60,7 +60,7 @@ class ClaimServiceConfirmPickupTest {
         Claim claim = Claim.create(ORDER_ITEM_ID, ClaimType.RETURN, ClaimReasonCode.PRODUCT_DEFECT.name(),
                 "하자", 100L, REQUESTED_AT, OrderItemStatus.DELIVERED);
         ReflectionTestUtils.setField(claim, "id", CLAIM_ID);
-        claim.approve(PROCESSED_AT); // REQUESTED → APPROVED
+        claim.approve(PROCESSED_AT, null); // REQUESTED → APPROVED
         return claim;
     }
 

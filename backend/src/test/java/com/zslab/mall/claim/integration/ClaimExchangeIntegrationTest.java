@@ -1,6 +1,8 @@
 package com.zslab.mall.claim.integration;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.zslab.mall.claim.controller.request.ClaimRequestCommand;
 import com.zslab.mall.claim.entity.Claim;
@@ -19,10 +21,13 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.MariaDBContainer;
@@ -39,6 +44,7 @@ import org.testcontainers.utility.DockerImageName;
  * 검증은 {@link JdbcTemplate} 직접 조회로 한다.
  */
 @SpringBootTest
+@AutoConfigureMockMvc
 class ClaimExchangeIntegrationTest {
 
     private static final long USER_ID = 9402L;
@@ -47,8 +53,10 @@ class ClaimExchangeIntegrationTest {
     private static final long VARIANT_ID = 9402L;
     private static final long ORDER_ID = 9402L;
     private static final long ORDER_ITEM_ID = 9402L;
+    private static final long PAYMENT_ID = 9402L;
     private static final long DUMMY_FK_ID = 9402L;
     private static final long ITEM_PRICE = 10_000L;
+    private static final long REFUND_DIFF = 3_000L; // 차액환불 금액(ITEM_PRICE 미만·PAY-1 정합)
 
     private static final long SEEDED_RETURN_CLAIM_ID = 9402L;
     private static final long SEEDED_DELIVERY_ID = 9402L;
@@ -70,6 +78,8 @@ class ClaimExchangeIntegrationTest {
         registry.add("spring.datasource.driver-class-name", MARIADB::getDriverClassName);
     }
 
+    @Autowired
+    private MockMvc mockMvc;
     @Autowired
     private ClaimService claimService;
     @Autowired
@@ -151,7 +161,104 @@ class ClaimExchangeIntegrationTest {
         assertThat(orderItemStatus()).isEqualTo("DELIVERED");
     }
 
+    @Test
+    @DisplayName("차액환불 성공(환불先·배송後·D-115): 출고 시 Refund 생성→webhook COMPLETED→배송완료 → EXCHANGED·Claim COMPLETED")
+    void exchangeWithRefund_refundThenDelivery_completes() throws Exception {
+        seed(() -> {
+            seedCatalog();
+            seedOrder("DELIVERED");
+            seedOrderItem(OrderItemStatus.DELIVERED);
+            seedPayment();
+        });
+
+        long[] ids = runExchangeToShipment(REFUND_DIFF);
+        long claimId = ids[0];
+        long deliveryId = ids[1];
+
+        // 출고 시 DeliveryStarted → ExchangeShipmentRefundHandler → Refund PENDING 생성(pg_refund_id 부여)
+        String pgRefundId = pgRefundId(claimId);
+        assertThat(pgRefundId).isNotNull();
+        assertThat(claimStatus(claimId)).isEqualTo("APPROVED"); // 배송·환불 미완료 → 아직 미종결
+
+        // 환불 webhook SUCCESS → Refund COMPLETED → tryCompleteExchange(배송 미완료 → no-op)
+        completeRefundWebhook(pgRefundId);
+        assertThat(refundStatus(pgRefundId)).isEqualTo("COMPLETED");
+        assertThat(claimStatus(claimId)).isEqualTo("APPROVED"); // 교환 배송 미완료로 아직 미수렴
+
+        // 배송 완료 → OrderItem EXCHANGED + tryCompleteExchange(수거·배송·환불 3조건 충족 → COMPLETED)
+        deliveryService.markDelivered(deliveryId);
+        assertThat(orderItemStatus()).isEqualTo("EXCHANGED");
+        assertThat(claimStatus(claimId)).isEqualTo("COMPLETED");
+        assertThat(completedNotificationCount(claimId)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("차액환불 순서 무관(배송先·환불後·D-115): 배송완료→webhook COMPLETED → 마지막 조건 충족 시 단일 COMPLETED 수렴")
+    void exchangeWithRefund_deliveryThenRefund_completesOnce() throws Exception {
+        seed(() -> {
+            seedCatalog();
+            seedOrder("DELIVERED");
+            seedOrderItem(OrderItemStatus.DELIVERED);
+            seedPayment();
+        });
+
+        long[] ids = runExchangeToShipment(REFUND_DIFF);
+        long claimId = ids[0];
+        long deliveryId = ids[1];
+        String pgRefundId = pgRefundId(claimId);
+        assertThat(pgRefundId).isNotNull();
+
+        // 배송 완료 먼저 → OrderItem EXCHANGED·tryCompleteExchange(환불 미완료 → no-op)
+        deliveryService.markDelivered(deliveryId);
+        assertThat(orderItemStatus()).isEqualTo("EXCHANGED");
+        assertThat(claimStatus(claimId)).isEqualTo("APPROVED"); // 차액 환불 미완료로 아직 미수렴
+
+        // 환불 webhook SUCCESS → Refund COMPLETED → tryCompleteExchange(3조건 충족 → COMPLETED)
+        completeRefundWebhook(pgRefundId);
+        assertThat(refundStatus(pgRefundId)).isEqualTo("COMPLETED");
+        assertThat(claimStatus(claimId)).isEqualTo("COMPLETED");
+        assertThat(completedNotificationCount(claimId)).isEqualTo(1); // 중복 종결·E9 재발행 없음(멱등·@Version)
+    }
+
+    @Test
+    @DisplayName("refundAmount==0 회귀(호환성 절대): 차액 없는 교환은 Refund 미생성·기존 흐름대로 EXCHANGED·Claim COMPLETED")
+    void exchangeNoRefund_regression_noRefundRow() {
+        seed(() -> {
+            seedCatalog();
+            seedOrder("DELIVERED");
+            seedOrderItem(OrderItemStatus.DELIVERED);
+            // 결제 시드 불요: 차액 없는 교환은 Refund 미경유(ExchangeShipmentRefundHandler skip)
+        });
+
+        long[] ids = runExchangeToDelivered(); // approve(refundAmount=null)
+        long claimId = ids[0];
+
+        assertThat(orderItemStatus()).isEqualTo("EXCHANGED");
+        assertThat(claimStatus(claimId)).isEqualTo("COMPLETED");
+        assertThat(refundRowCount(claimId)).isZero(); // Refund 미생성(기존 동작 100% 보존)
+    }
+
     // ---------- 흐름 helper ----------
+
+    /** 요청→승인(차액 refundAmount)→수거→교환 출고까지 구동하고 {claimId, deliveryId}를 반환한다(배송완료·환불 webhook 전). */
+    private long[] runExchangeToShipment(long refundAmount) {
+        Claim claim = claimService.request(new ClaimRequestCommand(
+                ORDER_ITEM_PID, ClaimType.EXCHANGE, ClaimReasonCode.PRODUCT_DEFECT, "하자", USER_ID, LocalDateTime.now()));
+        Long claimId = claim.getId();
+        claimService.approve(claimId, LocalDateTime.now(), refundAmount);
+        claimService.confirmPickup(claimId, LocalDateTime.now());
+        Delivery delivery = deliveryService.registerExchangeShipment(claimId, DeliveryCarrier.CJ, "CJ-EXC-DIFF");
+        return new long[] {claimId, delivery.getId()};
+    }
+
+    /** 환불 webhook(SUCCESS) 구동. body는 정적 문자열 + pgRefundId만 삽입(외부 입력 아님·SQL 미경유·injection 무관). */
+    private void completeRefundWebhook(String pgRefundId) throws Exception {
+        String body = "{ \"pgRefundId\": \"" + pgRefundId + "\", \"status\": \"SUCCESS\" }";
+        mockMvc.perform(post("/api/webhooks/refunds")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk());
+    }
 
     /** 요청→승인→수거→출고→배송완료 전 구간을 실 서비스로 구동하고 {claimId, deliveryId}를 반환한다. */
     private long[] runExchangeToDelivered() {
@@ -160,7 +267,7 @@ class ClaimExchangeIntegrationTest {
         Long claimId = claim.getId();
         assertThat(orderItemStatus()).isEqualTo("EXCHANGE_REQUESTED");
 
-        claimService.approve(claimId, LocalDateTime.now());
+        claimService.approve(claimId, LocalDateTime.now(), null); // 차액 없는 교환(refundAmount==0)
         claimService.confirmPickup(claimId, LocalDateTime.now()); // EXCHANGE는 자동 환불 미대상(ClaimPickedUpHandler skip)
 
         Delivery delivery = deliveryService.registerExchangeShipment(claimId, DeliveryCarrier.CJ, "CJ-EXC-0001");
@@ -213,6 +320,14 @@ class ClaimExchangeIntegrationTest {
                 ITEM_PRICE, ITEM_PRICE, itemStatus.name());
     }
 
+    /** 차액환불(T1·T2) 대상 PAID 결제 시드. initiate가 claim→order_item→order→PAID payment로 해소한다(PAY-1 정합). */
+    private void seedPayment() {
+        jdbc.update("INSERT INTO payment (id, public_id, order_id, method, amount, status, pg_provider, pg_tid, "
+                        + "payment_attempt_key, paid_at, created_at, updated_at) "
+                        + "VALUES (?, ?, ?, 'CARD', ?, 'PAID', 'MOCK_PG', 'tid_exc_0001', 'pat_exc_0001', NOW(6), NOW(6), NOW(6))",
+                PAYMENT_ID, pid("pay_", "EXCPAY"), ORDER_ID, ITEM_PRICE);
+    }
+
     /** type 불일치 방어(T3)용 RETURN·APPROVED 클레임 시드. */
     private void seedApprovedReturnClaim() {
         jdbc.update("INSERT INTO claim (id, public_id, order_item_id, type, reason_code, status, "
@@ -238,6 +353,7 @@ class ClaimExchangeIntegrationTest {
                 jdbc.update("DELETE FROM refund WHERE claim_id IN (SELECT id FROM claim WHERE order_item_id = ?)",
                         ORDER_ITEM_ID);
                 jdbc.update("DELETE FROM claim WHERE order_item_id = ?", ORDER_ITEM_ID);
+                jdbc.update("DELETE FROM payment WHERE id = ?", PAYMENT_ID);
                 jdbc.update("DELETE FROM order_item WHERE id = ?", ORDER_ITEM_ID);
                 jdbc.update("DELETE FROM `order` WHERE id = ?", ORDER_ID);
                 jdbc.update("DELETE FROM product_variant WHERE id = ?", VARIANT_ID);
@@ -256,6 +372,21 @@ class ClaimExchangeIntegrationTest {
 
     private String claimStatus(Long claimId) {
         return jdbc.queryForObject("SELECT status FROM claim WHERE id = ?", String.class, claimId);
+    }
+
+    /** 차액환불 Refund의 pg_refund_id(출고 시 ExchangeShipmentRefundHandler가 부여·webhook 매칭 키). */
+    private String pgRefundId(long claimId) {
+        return jdbc.queryForObject("SELECT pg_refund_id FROM refund WHERE claim_id = ?", String.class, claimId);
+    }
+
+    private String refundStatus(String pgRefundId) {
+        return jdbc.queryForObject("SELECT status FROM refund WHERE pg_refund_id = ?", String.class, pgRefundId);
+    }
+
+    /** 한 클레임의 Refund 행 수(refundAmount==0 회귀 시 0 검증). target_id는 ? 바인딩(SQL injection 위험 없음). */
+    private int refundRowCount(long claimId) {
+        Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM refund WHERE claim_id = ?", Integer.class, claimId);
+        return count == null ? 0 : count;
     }
 
     /** CLAIM_COMPLETED 알림 적재 건수(E9 재발행 차단 검증용). template_code는 상수·target_id는 ? 바인딩(SQL injection 위험 없음). */

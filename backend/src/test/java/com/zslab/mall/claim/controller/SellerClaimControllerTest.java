@@ -104,7 +104,7 @@ class SellerClaimControllerTest {
                 .andExpect(jsonPath("$.orderItemPublicId").value(ORDER_ITEM_PUBLIC_ID))
                 .andExpect(jsonPath("$.claimType").value("CANCEL"))
                 .andExpect(jsonPath("$.status").value("APPROVED"));
-        verify(claimService).approveBySeller(eq(CLAIM_ID), eq(SELLER_ID), any());
+        verify(claimService).approveBySeller(eq(CLAIM_ID), eq(SELLER_ID), any(), any());
     }
 
     @Test
@@ -115,7 +115,7 @@ class SellerClaimControllerTest {
         mockMvc.perform(post("/api/v1/claims/" + CLAIM_PUBLIC_ID + "/approve"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
-        verify(claimService, never()).approveBySeller(anyLong(), anyLong(), any());
+        verify(claimService, never()).approveBySeller(anyLong(), anyLong(), any(), any());
     }
 
     @Test
@@ -135,7 +135,7 @@ class SellerClaimControllerTest {
         when(sellerActorResolver.resolve(any())).thenReturn(OTHER_SELLER_ID);
         when(claimRepository.findByPublicId(CLAIM_PUBLIC_ID)).thenReturn(Optional.of(claim));
         doThrow(new ClaimNotFoundException("클레임을 찾을 수 없습니다: claimId=" + CLAIM_ID))
-                .when(claimService).approveBySeller(eq(CLAIM_ID), eq(OTHER_SELLER_ID), any());
+                .when(claimService).approveBySeller(eq(CLAIM_ID), eq(OTHER_SELLER_ID), any(), any());
 
         mockMvc.perform(post("/api/v1/claims/" + CLAIM_PUBLIC_ID + "/approve").header("X-Seller-Id", "2"))
                 .andExpect(status().isNotFound())
@@ -151,7 +151,7 @@ class SellerClaimControllerTest {
         mockMvc.perform(post("/api/v1/claims/" + CLAIM_PUBLIC_ID + "/approve").header("X-Seller-Id", "1"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("CLAIM_NOT_FOUND"));
-        verify(claimService, never()).approveBySeller(anyLong(), anyLong(), any());
+        verify(claimService, never()).approveBySeller(anyLong(), anyLong(), any(), any());
     }
 
     @Test
@@ -161,7 +161,7 @@ class SellerClaimControllerTest {
         when(sellerActorResolver.resolve(any())).thenReturn(SELLER_ID);
         when(claimRepository.findByPublicId(CLAIM_PUBLIC_ID)).thenReturn(Optional.of(claim));
         doThrow(new ClaimInvalidStateException("불법 클레임 상태 전이"))
-                .when(claimService).approveBySeller(eq(CLAIM_ID), eq(SELLER_ID), any());
+                .when(claimService).approveBySeller(eq(CLAIM_ID), eq(SELLER_ID), any(), any());
 
         mockMvc.perform(post("/api/v1/claims/" + CLAIM_PUBLIC_ID + "/approve").header("X-Seller-Id", "1"))
                 .andExpect(status().isUnprocessableEntity())
