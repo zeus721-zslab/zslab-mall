@@ -1,5 +1,6 @@
 package com.zslab.mall.claim.controller;
 
+import com.zslab.mall.claim.controller.request.ClaimApproveRequest;
 import com.zslab.mall.claim.controller.response.ClaimResponse;
 import com.zslab.mall.claim.entity.Claim;
 import com.zslab.mall.claim.exception.ClaimNotFoundException;
@@ -12,6 +13,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import java.time.LocalDateTime;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -47,14 +49,20 @@ public class AdminClaimController {
         this.adminActorResolver = adminActorResolver;
     }
 
-    /** Admin 클레임 승인. 미존재만 404(전체 접근·D-93 Q5). 성공 시 200 + 갱신된 ClaimResponse. */
+    /**
+     * Admin 클레임 승인. 미존재만 404(전체 접근·D-93 Q5). 성공 시 200 + 갱신된 ClaimResponse.
+     *
+     * <p>EXCHANGE 차액환불(D-115): body는 선택이며(required=false) 부재 시 refundAmount=null(차액 없음·기존 동작).
+     */
     @PostMapping("/{claimPublicId}/approve")
-    public ClaimResponse approveByAdmin(@PathVariable String claimPublicId, HttpServletRequest request) {
+    public ClaimResponse approveByAdmin(@PathVariable String claimPublicId,
+            @RequestBody(required = false) ClaimApproveRequest body, HttpServletRequest request) {
         // X-Admin-Id 존재·형식 검증만 수행한다(전체 접근·식별자 미사용·D-93 Q3). 누락 401·형식 오류 400.
         adminActorResolver.resolve(request);
         Claim claim = claimRepository.findByPublicId(claimPublicId)
                 .orElseThrow(() -> new ClaimNotFoundException("클레임을 찾을 수 없습니다: publicId=" + claimPublicId));
-        claimService.approveByAdmin(claim.getId(), LocalDateTime.now());
+        Long refundAmount = body != null ? body.refundAmount() : null;
+        claimService.approveByAdmin(claim.getId(), LocalDateTime.now(), refundAmount);
         return toResponse(claimPublicId);
     }
 

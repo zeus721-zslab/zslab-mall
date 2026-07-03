@@ -12,6 +12,7 @@ import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.order.service.OrderService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,7 +31,8 @@ import org.springframework.transaction.event.TransactionalEventListener;
  * </ul>
  *
  * <p>멱등(외부 검토 2차 R3 흡수): OrderItem 이미 EXCHANGED → 자연 skip·Claim 이미 COMPLETED →
- * {@link ClaimService#markCompleted} 멱등 가드(publishEvent 가드 안 위치·R3 실측 정합)가 자연 차단한다.
+ * {@link ClaimService#tryCompleteExchange} 멱등 가드가 자연 차단한다. 차액환불 발생 시에는 Refund.COMPLETED 조건까지
+ * 충족돼야 종결하며(D-115 결정3), 미충족이면 no-op 후 환불 완료 이벤트가 마지막 조건을 채운다.
  *
  * <p>{@code @TransactionalEventListener(AFTER_COMMIT)} + {@code @Transactional(REQUIRES_NEW)} — ClaimPickedUpHandler 패턴 1:1.
  */
@@ -102,7 +104,13 @@ public class ExchangeDeliveryCompletedHandler {
             orderService.recalculateStatus(orderId);
         }
 
-        // 2단계: Claim 종결(멱등 가드는 ClaimService.markCompleted 자연 흡수·R3 정합)
-        claimService.markCompleted(claim.getId());
+        // 2단계: Claim 종결 수렴 판정(D-115 결정3·차액환불 조건 포함). 멱등·미수렴 가드는 tryCompleteExchange가 흡수.
+        //         차액 없는 교환은 조건(3) 자동 통과로 기존 동작(즉시 종결)과 동일하다.
+        try {
+            claimService.tryCompleteExchange(claim.getId());
+        } catch (ObjectOptimisticLockingFailureException optimisticLockException) {
+            // @Version 낙관적 락 충돌(동시 수렴 진입) — 다른 트랜잭션이 이미 종결했으므로 재처리 불요(D-115 결정4)
+            log.info("[ExchangeDelivery] tryCompleteExchange 낙관적 락 충돌·skip: claimId={}", claim.getId());
+        }
     }
 }

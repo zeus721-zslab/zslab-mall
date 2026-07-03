@@ -13,6 +13,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import java.time.LocalDateTime;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -64,12 +65,21 @@ public class Claim extends AbstractPublicIdFullAuditableEntity {
     @Column(name = "processed_at")
     private LocalDateTime processedAt;
 
+    /** 교환 클레임 환불 금액(D-115 결정2). 승인 시 확정하며 NULL·0은 차액 없는 교환(=Refund 미경유). */
+    @Column(name = "refund_amount")
+    private Long refundAmount;
+
     @Column(name = "picked_up_at")
     private LocalDateTime pickedUpAt;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "previous_order_item_status", length = 20, nullable = false, updatable = false)
     private OrderItemStatus previousOrderItemStatus;
+
+    /** JPA 낙관적 락(D-115 결정4). 교환 종결 전이(tryCompleteExchange) 동시 진입 방어. */
+    @Version
+    @Column(name = "version", nullable = false)
+    private Long version;
 
     @Override
     protected String getPublicIdPrefix() {
@@ -152,16 +162,32 @@ public class Claim extends AbstractPublicIdFullAuditableEntity {
      *
      * <p>Buyer 요청 후 Seller/Admin 승인 흐름(Track 10 endpoint)에서 {@code ClaimService.approve}가 호출한다.
      *
-     * @param processedAt 승인 처리 시각(시스템 시각)
+     * <p>EXCHANGE 차액환불(D-115 결정2): {@code refundAmount}는 승인 시점에 확정한다. NULL은 차액 없는 교환(=Refund
+     * 미경유·기존 동작)이며, CANCEL·RETURN 등 비교환 클레임은 NULL을 전달한다(환불 금액은 별도 산정 경로 소관).
+     *
+     * @param processedAt  승인 처리 시각(시스템 시각)
+     * @param refundAmount 교환 차액 환불 금액(EXCHANGE 한정·NULL=차액 없음). 비교환은 NULL.
      * @throws ClaimInvalidStateException REQUESTED가 아니어서 APPROVED 전이가 불가한 경우(CLM-4)
-     * @throws IllegalArgumentException processedAt가 null인 경우
+     * @throws IllegalArgumentException processedAt가 null이거나 refundAmount가 음수인 경우
      */
-    public void approve(LocalDateTime processedAt) {
+    public void approve(LocalDateTime processedAt, Long refundAmount) {
         if (processedAt == null) {
             throw new IllegalArgumentException("approve: processedAt는 필수입니다.");
         }
+        if (refundAmount != null && refundAmount < 0) {
+            throw new IllegalArgumentException("approve: refundAmount는 음수일 수 없습니다. 입력: " + refundAmount);
+        }
         transitionTo(ClaimStatus.APPROVED);
         this.processedAt = processedAt;
+        this.refundAmount = refundAmount;
+    }
+
+    /**
+     * 교환 차액 환불이 발생하는 클레임인지 판정한다(D-115 결정2·결정3). {@code refundAmount > 0}일 때만 true다.
+     * NULL·0은 차액 없는 교환으로 Refund를 경유하지 않는다(기존 동작 100% 보존).
+     */
+    public boolean hasRefundDifference() {
+        return refundAmount != null && refundAmount > 0;
     }
 
     /**

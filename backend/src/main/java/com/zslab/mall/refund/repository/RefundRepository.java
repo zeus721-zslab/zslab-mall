@@ -31,6 +31,14 @@ public interface RefundRepository extends JpaRepository<Refund, Long> {
     boolean existsByClaimIdAndStatusIn(Long claimId, Collection<RefundStatus> statuses);
 
     /**
+     * 한 클레임에 주어진 status의 환불 행이 존재하는지 여부를 반환한다(파생 쿼리·D-115 결정3). EXCHANGE 차액환불
+     * 종결 판정({@code ClaimService.tryCompleteExchange})에서 {@code status=COMPLETED} 존재 여부 확인에 사용한다.
+     *
+     * <p>모든 변수는 메서드 이름 쿼리의 바인딩 파라미터로 전달되며 SQL injection 위험이 없다.
+     */
+    boolean existsByClaimIdAndStatus(Long claimId, RefundStatus status);
+
+    /**
      * 한 클레임에 활성(PENDING·COMPLETED) 환불 행이 존재하는지 여부(D-94 Q6 멱등 게이트·공개 계약). FAILED는
      * 활성에서 제외해 RFN-2(재시도 = 새 행)와 충돌하지 않는다. 호출부는 본 메서드만 사용한다.
      */

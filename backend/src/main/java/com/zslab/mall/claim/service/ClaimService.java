@@ -5,6 +5,7 @@ import com.zslab.mall.claim.controller.response.ClaimResponse;
 import com.zslab.mall.claim.controller.response.ClaimSummaryResponse;
 import com.zslab.mall.claim.entity.Claim;
 import com.zslab.mall.claim.enums.ClaimStatus;
+import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.event.ClaimApproved;
 import com.zslab.mall.claim.event.ClaimCompleted;
 import com.zslab.mall.claim.event.ClaimPickedUp;
@@ -23,12 +24,15 @@ import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.order.repository.OrderRepository;
+import com.zslab.mall.refund.enums.RefundStatus;
+import com.zslab.mall.refund.repository.RefundRepository;
 import java.time.LocalDateTime;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -55,18 +59,21 @@ public class ClaimService {
     private final OrderRepository orderRepository;
     private final TracedEventPublisher eventPublisher;
     private final DeliveryService deliveryService;
+    private final RefundRepository refundRepository;
 
     public ClaimService(
             ClaimRepository claimRepository,
             OrderItemRepository orderItemRepository,
             OrderRepository orderRepository,
             TracedEventPublisher eventPublisher,
-            DeliveryService deliveryService) {
+            DeliveryService deliveryService,
+            RefundRepository refundRepository) {
         this.claimRepository = claimRepository;
         this.orderItemRepository = orderItemRepository;
         this.orderRepository = orderRepository;
         this.eventPublisher = eventPublisher;
         this.deliveryService = deliveryService;
+        this.refundRepository = refundRepository;
     }
 
     /**
@@ -142,12 +149,21 @@ public class ClaimService {
      * <p>D-92 횡단 원칙 정합: 도메인 상태 전이 메서드는 actor 식별자가 상태 자체에 포함되지 않는 한
      * actor 비의존 시그니처를 우선한다.
      *
+     * <p>EXCHANGE 차액환불(D-115 결정2): {@code refundAmount}는 승인 시점에 확정한다. NULL은 차액 없는 교환(기존 동작)이며
+     * 비교환(CANCEL·RETURN)에는 NULL을 전달한다. 비교환에 refundAmount가 실려오면 무시하고 warn 로깅만 남긴다(오사용 가시화).
+     *
      * @throws ClaimNotFoundException     클레임이 없는 경우
      * @throws ClaimInvalidStateException REQUESTED가 아닌 경우(CLM-4)
      */
-    public void approve(Long claimId, LocalDateTime processedAt) {
+    public void approve(Long claimId, LocalDateTime processedAt, Long refundAmount) {
         Claim claim = findClaim(claimId);
-        claim.approve(processedAt);
+        if (refundAmount != null && claim.getType() != ClaimType.EXCHANGE) {
+            // 비교환 클레임에 차액 환불 금액이 실려온 오사용 — 무시하고 가시화만(도메인은 EXCHANGE만 소비·D-115 결정2)
+            log.warn("[Claim] 비교환(type={}) 승인에 refundAmount={} 전달됨 → 무시: claimId={}",
+                    claim.getType(), refundAmount, claimId);
+            refundAmount = null;
+        }
+        claim.approve(processedAt, refundAmount);
         claimRepository.save(claim);
         eventPublisher.publishEvent(new ClaimApproved(
                 claim.getId(), claim.getPublicId(), claim.getOrderItemId(),
@@ -185,11 +201,11 @@ public class ClaimService {
      * @throws ClaimNotFoundException     클레임이 없거나 요청 Seller 소유 품목이 아닌 경우
      * @throws ClaimInvalidStateException 상태가 REQUESTED가 아닌 경우(CLM-4)
      */
-    public void approveBySeller(Long claimId, Long sellerId, LocalDateTime processedAt) {
+    public void approveBySeller(Long claimId, Long sellerId, LocalDateTime processedAt, Long refundAmount) {
         Claim claim = claimRepository.findById(claimId)
                 .orElseThrow(() -> new ClaimNotFoundException("클레임을 찾을 수 없습니다: claimId=" + claimId));
         authorizeSellerAccess(claim, sellerId);
-        approve(claimId, processedAt);
+        approve(claimId, processedAt, refundAmount);
     }
 
     /**
@@ -221,8 +237,8 @@ public class ClaimService {
      * @throws ClaimNotFoundException     클레임이 없는 경우
      * @throws ClaimInvalidStateException 상태가 REQUESTED가 아닌 경우(CLM-4)
      */
-    public void approveByAdmin(Long claimId, LocalDateTime processedAt) {
-        approve(claimId, processedAt);
+    public void approveByAdmin(Long claimId, LocalDateTime processedAt, Long refundAmount) {
+        approve(claimId, processedAt, refundAmount);
     }
 
     /**
@@ -286,6 +302,63 @@ public class ClaimService {
             log.info("[Claim] markCompleted 멱등 NO-OP(이미 COMPLETED): claimId={}", claimId);
             return;
         }
+        claim.markCompleted(LocalDateTime.now());
+        claimRepository.save(claim);
+        eventPublisher.publishEvent(new ClaimCompleted(
+                claim.getId(), claim.getPublicId(), claim.getOrderItemId(),
+                claim.getType(), claim.getStatus(), LocalDateTime.now()));
+    }
+
+    /**
+     * EXCHANGE 차액환불 종결 수렴 판정(D-115 결정3). 3조건이 모두 충족될 때만 COMPLETED로 전이한다:
+     * (1) 수거 확인(picked_up_at != null) (2) 교환 배송 완료(OrderItem.EXCHANGED) (3) 차액 발생 시 Refund.COMPLETED.
+     * 어느 하나라도 미충족이면 no-op이며, 배송 완료·환불 완료 이벤트가 순서 무관하게 도착해도 마지막 조건 충족 시점에 수렴한다.
+     *
+     * <p>차액 없는 교환({@code hasRefundDifference()==false})은 조건(3)을 자동 통과해 (1)(2)만으로 종결한다(기존 동작 100% 보존).
+     *
+     * <p><b>트랜잭션 전파(REQUIRED·D-115·라이브 트랩 방지)</b>: 호출처 핸들러({@code ExchangeDeliveryCompletedHandler}·
+     * {@code ClaimRefundCompletedHandler})의 REQUIRES_NEW 트랜잭션에 합류해야 같은 트랜잭션에서 전이된 OrderItem.EXCHANGED를
+     * 관측할 수 있다. REQUIRES_NEW로 바꾸면 READ_COMMITTED에서 미커밋 변경을 보지 못해 배송 완료 경로가 영구 미수렴하는
+     * 트랩이 된다 — 전파 방식 변경 금지.
+     *
+     * <p>이미 COMPLETED면 멱등 no-op이다(CLM-1). {@code @Version} 낙관적 락이 동시 수렴 진입을 방어한다(결정4).
+     *
+     * @throws ClaimNotFoundException 클레임이 없는 경우(무결성 위반)
+     * @throws IllegalStateException  Claim이 참조하는 OrderItem이 부재한 경우(무결성 위반)
+     */
+    @Transactional(propagation = Propagation.REQUIRED)
+    public void tryCompleteExchange(Long claimId) {
+        Claim claim = claimRepository.findById(claimId)
+                .orElseThrow(() -> new ClaimNotFoundException("클레임을 찾을 수 없습니다: claimId=" + claimId));
+        if (claim.getStatus() == ClaimStatus.COMPLETED) {
+            log.info("[Claim] tryCompleteExchange 멱등 NO-OP(이미 COMPLETED): claimId={}", claimId);
+            return;
+        }
+        if (claim.getType() != ClaimType.EXCHANGE) {
+            log.warn("[Claim] tryCompleteExchange 비EXCHANGE 호출·skip: claimId={} type={}", claimId, claim.getType());
+            return;
+        }
+        // 조건(1): 수거 확인
+        if (claim.getPickedUpAt() == null) {
+            log.info("[Claim] tryCompleteExchange 미수렴(수거 미확인): claimId={}", claimId);
+            return;
+        }
+        // 조건(2): 교환 배송 완료(OrderItem EXCHANGED)
+        OrderItem orderItem = orderItemRepository.findById(claim.getOrderItemId())
+                .orElseThrow(() -> new IllegalStateException(
+                        "OrderItem 무결성 위반: orderItemId=" + claim.getOrderItemId()));
+        if (orderItem.getItemStatus() != OrderItemStatus.EXCHANGED) {
+            log.info("[Claim] tryCompleteExchange 미수렴(교환 배송 미완료·status={}): claimId={}",
+                    orderItem.getItemStatus(), claimId);
+            return;
+        }
+        // 조건(3): 차액 발생 시 Refund.COMPLETED. 차액 없으면 자동 통과(기존 동작 100% 보존)
+        if (claim.hasRefundDifference()
+                && !refundRepository.existsByClaimIdAndStatus(claimId, RefundStatus.COMPLETED)) {
+            log.info("[Claim] tryCompleteExchange 미수렴(차액 환불 미완료): claimId={}", claimId);
+            return;
+        }
+
         claim.markCompleted(LocalDateTime.now());
         claimRepository.save(claim);
         eventPublisher.publishEvent(new ClaimCompleted(
