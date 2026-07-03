@@ -15,6 +15,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import com.zslab.mall.common.security.AuthHeaders;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -44,7 +45,6 @@ import org.testcontainers.utility.DockerImageName;
 @AutoConfigureMockMvc
 class AdminPaymentControllerIntegrationTest {
 
-    private static final String ADMIN_ID_HEADER = "X-Admin-Id";
     private static final long ADMIN = 8201L; // Admin 액터 stub(전체 접근·검증 비대상)
 
     private static final long PAYMENT_ID = 8201L;
@@ -105,18 +105,19 @@ class AdminPaymentControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("T2 인증 실패: X-Admin-Id 형식 오류(비정수) → 400 MALFORMED_REQUEST")
-    void markCancelled_malformedAdminHeader_returns400() throws Exception {
-        mockMvc.perform(post(endpoint(PAYMENT_PID)).header(ADMIN_ID_HEADER, "not-a-number"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
+    @DisplayName("T2 인증 실패: 형식 오류 Stub 자격증명(비정수 id) → 401 UNAUTHENTICATED")
+    void markCancelled_malformedCredential_returns401() throws Exception {
+        // Track 31 Phase 3: 형식 오류는 헤더 파싱(400)이 아니라 Stub 자격증명 파싱 실패(401)로 이동한다(StubAuthenticationFilter 선차단).
+        mockMvc.perform(post(endpoint(PAYMENT_PID)).header("Authorization", "Stub admin:not-a-number"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
     }
 
     @Test
     @DisplayName("T3 실패: 미존재 paymentPublicId → 404 PAYMENT_NOT_FOUND")
     void markCancelled_unknownPaymentPublicId_returns404() throws Exception {
         // 시드 없음(payment 미존재). resolve 통과 후 findByPublicId 실패 → PaymentNotFoundException 404.
-        mockMvc.perform(post(endpoint(MISSING_PAYMENT_PID)).header(ADMIN_ID_HEADER, String.valueOf(ADMIN)))
+        mockMvc.perform(post(endpoint(MISSING_PAYMENT_PID)).headers(AuthHeaders.admin(ADMIN)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("PAYMENT_NOT_FOUND"));
     }
@@ -127,7 +128,7 @@ class AdminPaymentControllerIntegrationTest {
         seedPayment("PAID");
         seedRefund("COMPLETED", FULL_AMOUNT);
 
-        mockMvc.perform(post(endpoint(PAYMENT_PID)).header(ADMIN_ID_HEADER, String.valueOf(ADMIN)))
+        mockMvc.perform(post(endpoint(PAYMENT_PID)).headers(AuthHeaders.admin(ADMIN)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.paymentPublicId").value(PAYMENT_PID))
                 .andExpect(jsonPath("$.status").value("CANCELLED"));
@@ -141,7 +142,7 @@ class AdminPaymentControllerIntegrationTest {
     void markCancelled_alreadyCancelled_returns200_idempotent() throws Exception {
         seedPayment("CANCELLED");
 
-        mockMvc.perform(post(endpoint(PAYMENT_PID)).header(ADMIN_ID_HEADER, String.valueOf(ADMIN)))
+        mockMvc.perform(post(endpoint(PAYMENT_PID)).headers(AuthHeaders.admin(ADMIN)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("CANCELLED"));
 
@@ -154,7 +155,7 @@ class AdminPaymentControllerIntegrationTest {
         seedPayment("PAID");
         seedRefund("COMPLETED", PARTIAL_AMOUNT);
 
-        mockMvc.perform(post(endpoint(PAYMENT_PID)).header(ADMIN_ID_HEADER, String.valueOf(ADMIN)))
+        mockMvc.perform(post(endpoint(PAYMENT_PID)).headers(AuthHeaders.admin(ADMIN)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("PAID"));
 

@@ -18,6 +18,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
+import com.zslab.mall.common.security.AuthHeaders;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -45,8 +46,6 @@ import org.testcontainers.utility.DockerImageName;
 @AutoConfigureMockMvc
 @RecordApplicationEvents
 class AdminInventoryControllerIntegrationTest {
-
-    private static final String ADMIN_ID_HEADER = "X-Admin-Id";
 
     private static final long ADMIN = 7101L; // Admin 액터 stub(전체 접근·검증 비대상)
     private static final long USER_ID = 9210L;
@@ -125,7 +124,7 @@ class AdminInventoryControllerIntegrationTest {
         });
 
         mockMvc.perform(post("/api/v1/admin/inventories/" + VARIANT_PID + "/adjust")
-                        .header(ADMIN_ID_HEADER, String.valueOf(ADMIN))
+                        .headers(AuthHeaders.admin(ADMIN))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(VALID_DECREASE, REASON)))
                 .andExpect(status().isOk())
@@ -152,7 +151,7 @@ class AdminInventoryControllerIntegrationTest {
     void adjust_unknownVariantPublicId_returns404() throws Exception {
         // 시드 없음(variant 미존재). resolve 통과 후 findByPublicId 실패 → ProductVariantNotFoundException 404.
         mockMvc.perform(post("/api/v1/admin/inventories/" + MISSING_VARIANT_PID + "/adjust")
-                        .header(ADMIN_ID_HEADER, String.valueOf(ADMIN))
+                        .headers(AuthHeaders.admin(ADMIN))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(VALID_DECREASE, REASON)))
                 .andExpect(status().isNotFound())
@@ -170,7 +169,7 @@ class AdminInventoryControllerIntegrationTest {
         });
 
         mockMvc.perform(post("/api/v1/admin/inventories/" + VARIANT_PID + "/adjust")
-                        .header(ADMIN_ID_HEADER, String.valueOf(ADMIN))
+                        .headers(AuthHeaders.admin(ADMIN))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(INVALID_DECREASE, REASON)))
                 .andExpect(status().isUnprocessableEntity())

@@ -26,6 +26,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
+import com.zslab.mall.common.security.AuthHeaders;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -57,7 +58,6 @@ import org.testcontainers.utility.DockerImageName;
 @RecordApplicationEvents
 class AdminRefundControllerIntegrationTest {
 
-    private static final String ADMIN_ID_HEADER = "X-Admin-Id";
     private static final long ADMIN = 7201L; // Admin 액터 stub(전체 접근·검증 비대상)
 
     private static final long USER_ID = 9220L;
@@ -136,7 +136,7 @@ class AdminRefundControllerIntegrationTest {
         when(paymentGateway.refund(any(), any())).thenReturn(new MockRefundResponse(PG_REFUND_ID, true, null));
 
         mockMvc.perform(post("/api/v1/admin/claims/" + CLAIM_PID + "/initiate-refund")
-                        .header(ADMIN_ID_HEADER, String.valueOf(ADMIN))
+                        .headers(AuthHeaders.admin(ADMIN))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(FULL_AMOUNT)))
                 .andExpect(status().isOk())
@@ -160,7 +160,7 @@ class AdminRefundControllerIntegrationTest {
     void initiateRefund_unknownClaimPublicId_returns404() throws Exception {
         // 시드 없음(claim 미존재). resolve 통과 후 findByPublicId 실패 → ClaimNotFoundException 404.
         mockMvc.perform(post("/api/v1/admin/claims/" + MISSING_CLAIM_PID + "/initiate-refund")
-                        .header(ADMIN_ID_HEADER, String.valueOf(ADMIN))
+                        .headers(AuthHeaders.admin(ADMIN))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(FULL_AMOUNT)))
                 .andExpect(status().isNotFound())
@@ -175,7 +175,7 @@ class AdminRefundControllerIntegrationTest {
         seedGraph(ClaimStatus.REQUESTED);
 
         mockMvc.perform(post("/api/v1/admin/claims/" + CLAIM_PID + "/initiate-refund")
-                        .header(ADMIN_ID_HEADER, String.valueOf(ADMIN))
+                        .headers(AuthHeaders.admin(ADMIN))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(FULL_AMOUNT)))
                 .andExpect(status().isUnprocessableEntity())

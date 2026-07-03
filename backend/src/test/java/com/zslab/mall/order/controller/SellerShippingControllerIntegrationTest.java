@@ -19,6 +19,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
+import com.zslab.mall.common.security.AuthHeaders;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -42,8 +43,6 @@ import org.testcontainers.utility.DockerImageName;
 @AutoConfigureMockMvc
 @RecordApplicationEvents
 class SellerShippingControllerIntegrationTest {
-
-    private static final String SELLER_ID_HEADER = "X-Seller-Id";
 
     private static final long USER_ID = 9424L;
     private static final long SELLER_A = 9424L; // 품목 소유 셀러
@@ -102,7 +101,7 @@ class SellerShippingControllerIntegrationTest {
         seedItem("PAID", "PAID");
 
         mockMvc.perform(post(PREPARE_URL)
-                        .header(SELLER_ID_HEADER, String.valueOf(SELLER_A))
+                        .headers(AuthHeaders.seller(SELLER_A))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("CJ", TRACKING_NO)))
                 .andExpect(status().isOk())
@@ -141,7 +140,7 @@ class SellerShippingControllerIntegrationTest {
         seedItem("PAID", "PAID");
 
         mockMvc.perform(post(PREPARE_URL)
-                        .header(SELLER_ID_HEADER, String.valueOf(SELLER_B))
+                        .headers(AuthHeaders.seller(SELLER_B))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("CJ", TRACKING_NO)))
                 .andExpect(status().isNotFound())
@@ -158,7 +157,7 @@ class SellerShippingControllerIntegrationTest {
         seedItem("SHIPPING", "SHIPPING");
 
         mockMvc.perform(post(PREPARE_URL)
-                        .header(SELLER_ID_HEADER, String.valueOf(SELLER_A))
+                        .headers(AuthHeaders.seller(SELLER_A))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("CJ", TRACKING_NO)))
                 .andExpect(status().isUnprocessableEntity())

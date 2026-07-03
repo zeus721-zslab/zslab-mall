@@ -20,9 +20,13 @@ import com.zslab.mall.claim.controller.response.ClaimResponse;
 import com.zslab.mall.claim.exception.ClaimInvalidStateException;
 import com.zslab.mall.claim.exception.ClaimNotFoundException;
 import com.zslab.mall.claim.service.ClaimService;
+import com.zslab.mall.common.auth.BuyerActorResolver;
+import com.zslab.mall.common.exception.MalformedRequestException;
+import com.zslab.mall.common.exception.UnauthenticatedException;
 import com.zslab.mall.order.controller.response.PagedResponse;
 import java.time.LocalDateTime;
 import java.util.List;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -59,6 +63,16 @@ class BuyerClaimControllerTest {
 
     @MockitoBean
     private ClaimService claimService;
+
+    @MockitoBean
+    private BuyerActorResolver buyerActorResolver;
+
+    @BeforeEach
+    void stubBuyerActor() {
+        // Buyer actor는 SecurityContext 기반 resolver로 해소된다(Track 31 Phase 3). 슬라이스는 addFilters=false로
+        // 보안 필터를 우회하므로 resolver를 mock해 buyerId를 공급한다(Seller/Admin 슬라이스 패턴 정합). 401/400은 각 테스트가 재스텁.
+        when(buyerActorResolver.resolve(any())).thenReturn(1L);
+    }
 
     private Claim mockClaim() {
         Claim claim = org.mockito.Mockito.mock(Claim.class);
@@ -100,6 +114,8 @@ class BuyerClaimControllerTest {
     @Test
     @DisplayName("POST: X-Buyer-Id 누락 → 401 UNAUTHENTICATED")
     void request_missingBuyerId_returns401() throws Exception {
+        when(buyerActorResolver.resolve(any())).thenThrow(new UnauthenticatedException("인증된 액터가 없습니다"));
+
         mockMvc.perform(post("/api/v1/claims")
                         .contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
                 .andExpect(status().isUnauthorized())
@@ -110,7 +126,9 @@ class BuyerClaimControllerTest {
     @Test
     @DisplayName("POST: X-Buyer-Id 형식 오류 → 400 MALFORMED_REQUEST")
     void request_malformedBuyerId_returns400() throws Exception {
-        mockMvc.perform(post("/api/v1/claims").header("X-Buyer-Id", "not-a-number")
+        when(buyerActorResolver.resolve(any())).thenThrow(new MalformedRequestException("X-Buyer-Id 형식 오류"));
+
+        mockMvc.perform(post("/api/v1/claims")
                         .contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
@@ -227,6 +245,8 @@ class BuyerClaimControllerTest {
     @Test
     @DisplayName("GET 단건: X-Buyer-Id 누락 → 401 UNAUTHENTICATED")
     void getOne_missingBuyerId_returns401() throws Exception {
+        when(buyerActorResolver.resolve(any())).thenThrow(new UnauthenticatedException("인증된 액터가 없습니다"));
+
         mockMvc.perform(get("/api/v1/claims/" + CLAIM_PUBLIC_ID))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
@@ -276,6 +296,8 @@ class BuyerClaimControllerTest {
     @Test
     @DisplayName("GET 목록: X-Buyer-Id 누락 → 401 UNAUTHENTICATED")
     void list_missingBuyerId_returns401() throws Exception {
+        when(buyerActorResolver.resolve(any())).thenThrow(new UnauthenticatedException("인증된 액터가 없습니다"));
+
         mockMvc.perform(get("/api/v1/claims"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));

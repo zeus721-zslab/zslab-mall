@@ -21,6 +21,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
+import com.zslab.mall.common.security.AuthHeaders;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 import org.testcontainers.containers.MariaDBContainer;
@@ -45,7 +46,6 @@ import org.testcontainers.utility.DockerImageName;
 @RecordApplicationEvents
 class SellerClaimIntegrationTest {
 
-    private static final String SELLER_ID_HEADER = "X-Seller-Id";
     private static final long BUYER = 9501L;
     private static final long SELLER_A = 9001L; // 품목 소유 셀러
     private static final long SELLER_B = 9002L; // 타 셀러(cross-tenant)
@@ -90,7 +90,7 @@ class SellerClaimIntegrationTest {
         });
 
         mockMvc.perform(post("/api/v1/claims/" + claimPid + "/approve")
-                        .header(SELLER_ID_HEADER, String.valueOf(SELLER_A)))
+                        .headers(AuthHeaders.seller(SELLER_A)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.publicId").value(claimPid))
                 .andExpect(jsonPath("$.status").value("APPROVED"));
@@ -113,7 +113,7 @@ class SellerClaimIntegrationTest {
         });
 
         mockMvc.perform(post("/api/v1/claims/" + claimPid + "/reject")
-                        .header(SELLER_ID_HEADER, String.valueOf(SELLER_A)))
+                        .headers(AuthHeaders.seller(SELLER_A)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("REJECTED"));
 
@@ -137,7 +137,7 @@ class SellerClaimIntegrationTest {
         });
 
         mockMvc.perform(post("/api/v1/claims/" + claimPid + "/approve")
-                        .header(SELLER_ID_HEADER, String.valueOf(SELLER_B)))
+                        .headers(AuthHeaders.seller(SELLER_B)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("CLAIM_NOT_FOUND"));
 
@@ -150,7 +150,7 @@ class SellerClaimIntegrationTest {
     @DisplayName("I4 승인: 미존재 claimPublicId → 404·이벤트 0건")
     void approve_unknownPublicId_returns404() throws Exception {
         mockMvc.perform(post("/api/v1/claims/" + pid("clm_", "I4NONE") + "/approve")
-                        .header(SELLER_ID_HEADER, String.valueOf(SELLER_A)))
+                        .headers(AuthHeaders.seller(SELLER_A)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("CLAIM_NOT_FOUND"));
 
