@@ -7104,3 +7104,97 @@ state-machine.md §1 Payment PAID→CANCELLED 절에 Admin 수동 보정 경로 
 - 결정 근거 영구화 원칙 11회차 (D-104~D-114).
 
 ---
+
+## D-115. Track 30 EXCHANGE 차액환불 구현 — ExchangeShipmentRefundHandler(DeliveryStarted 구독)·Claim.refundAmount·tryCompleteExchange 3조건 수렴·@Version 최초 도입 [ACTIVE]
+
+**결정일**: 2026-07-03
+**관련**: Track 30 / D-114 판단 5 γ·§8(EXCHANGE 차액환불 = Refund 신규 행 경로·RefundAdjustment 비의존·별도 트랙)·D-98 Q2(refundAmount>0 흐름 후속 트랙 신설 원문)·D-98 Q5(ExchangeDeliveryCompletedHandler 교환 배송 완료 종결)·D-94(ClaimApproved→Refund 자동 트리거)·D-94 Q6(initiate 멱등 게이트)·D-96 Q3(recordRefundFailed 실패 보상)·D-29(save→publish·Aggregate domainEvents 축적)·D-75(AFTER_COMMIT+REQUIRES_NEW)·D-71(PAID→CANCELLED 전액환불 가드·부분환불 NO-OP)·D-101 §4(Inventory @Version 미도입 선례) / 기조 1(운영 용이성)·기조 4(과잉개발 회피)·기조 5(실측 우선)
+
+### §1 결정 사항 (구현 완료 실측)
+EXCHANGE 클레임 승인 시 구매자와 합의된 차액(refundAmount>0)을 교환품 출고 시점에 부분환불로 자동 개시하고, 수거·교환배송완료·차액환불완료 3사실이 순서 무관하게 수렴할 때 Claim을 COMPLETED로 종결한다. D-114 판단 5 γ·§8이 "RefundAdjustment 비의존·별도 트랙"으로 이월한 EXCHANGE 차액환불(D-98 Q2 후속) 백로그를 종결한다. refundAmount==0(차액 없음) 경로는 기존 동작 100% 보존(호환성 절대).
+
+- **결정1 (Refund 생성 트리거 = DeliveryStarted 이벤트 구독·γ)**: 교환 출고 시점에 발행되는 E4 DeliveryStarted를 구독하는 `ExchangeShipmentRefundHandler`(refund/handler)를 신설한다. `ClaimApprovedHandler`(CANCEL 승인 시)·`ClaimPickedUpHandler`(RETURN 수거 시) 자동환불 2핸들러와 1:1 대칭인 3번째 슬롯(AFTER_COMMIT+REQUIRES_NEW·D-75). DeliveryStarted가 claimId를 운반하지 않아 deliveryId로 Delivery 재조회 → `delivery.getClaimId()` 라우팅. 실패 시 `recordRefundFailed` 상속(best-effort 아님).
+- **결정2 (차액 저장 = Claim.refundAmount 필드·α)**: 차액은 승인 시점 구매자 합의(=Claim 결정 결과)이므로 `Claim.refundAmount`(nullable·승인 시 확정)에 저장한다. 실행 결과(PG 요청액)인 `Refund.amount`와 의미를 분리한다. `Claim.approve(processedAt, refundAmount)` 2-arg로 변경·`hasRefundDifference()`(refundAmount>0) 헬퍼 추가.
+- **결정3 (종결 판정 = ClaimService.tryCompleteExchange 3조건 수렴·β)**: 종결 판정 단일 수렴점을 신설한다. (1) 수거 확인(pickedUpAt≠null) ∧ (2) 교환 배송 완료(OrderItem.EXCHANGED) ∧ (3) 차액 발생 시 Refund.COMPLETED. 이벤트 도달 순서 무관·멱등(이미 COMPLETED면 no-op). refundAmount==0이면 조건(3) 자동 통과 → 현행 동작 동치. 트랜잭션 전파 REQUIRED(호출 핸들러 REQUIRES_NEW에 합류·같은 트랜잭션의 OrderItem.EXCHANGED 관측 필수·REQUIRES_NEW 변경 시 영구 미수렴 트랩).
+- **결정4 (동시성 = Claim @Version 낙관적 락·α)**: 두 비동기 이벤트(DeliveryCompleted·RefundCompleted)의 종결 경쟁을 `@Version`으로 방어한다(프로젝트 최초 @Version 도입). 후행 트랜잭션 OptimisticLockException→롤백→publish 미발생으로 ClaimCompleted 중복 차단. status==APPROVED 도메인 가드(비즈니스 불변식)와 @Version(동시성)을 2계층 분리·Aggregate·D-29 save→publish 패턴 무변경. version 컬럼은 refund_amount와 동일 V9 마이그레이션에 합류.
+- **무변경**: Payment 전이(D-71·부분환불 시 markCancelled NO-OP·PaymentRefundCompletedHandler 무수정)·RFN invariant(RFN-1~3 상속·신설 0·existsByClaimIdAndStatus 파생 쿼리만 추가).
+
+**검증**: `./gradlew.bat test` 550 tests·failures 0·errors 0·skipped 0·118 suites·회귀 0. baseline 547 + ClaimExchangeIntegrationTest 신규 3(T1 환불先·배송後·T2 refundAmount==0 회귀·T3 배송先·환불後 단일 수렴) = 550.
+
+### §1-A 옵션 검토 (채택/기각·결정 근거 영구화)
+
+**판단 1 (Refund 생성 트리거 시점)**:
+| 옵션 | 판정 | 근거 |
+|---|---|---|
+| α 승인 시점(approve 내 initiate) | 기각 | 수거·출고 전 환불 = 물품 미회수 상태 환불 리스크. |
+| β 수거 시점(ClaimPickedUpHandler 확장) | 기각 | 수거는 출고 선행 → 차액환불이 교환 출고보다 앞서 완료 가능·state-machine §8 순서(교환출고→Refund.COMPLETED→Claim.COMPLETED) 왜곡. |
+| γ 이벤트(DeliveryStarted 구독·핸들러 신설) | **채택** | 초기 직접호출(registerExchangeShipment 내 initiate)안에서 재선회 — DeliveryService→RefundService 신규 의존 회피·형제 핸들러(D-94/D-98) 1:1 대칭·Refund가 비동기 Aggregate(initiate→PENDING→webhook→COMPLETED)라 Delivery와 atomic 불요·recordRefundFailed 복구 전략 상속. |
+
+**판단 2 (차액 저장 위치)**:
+| 옵션 | 판정 | 근거 |
+|---|---|---|
+| α Claim.refundAmount 필드 | **채택** | 차액 = 승인 시점 구매자 합의 = Claim 결정 결과. Refund.amount(실행 결과)와 의미 분리. 단일 값이라 별도 VO는 과설계(기조 4). |
+| β 출고 API 파라미터 | 기각 | 합의 근거 미영속·Admin 임의 입력 여지. |
+| γ Order 스냅샷 자동 산정 | 기각 | 차액은 운영자 재량·쿠폰·배송비 개입 → Order 계산 불가·MVP 밖. |
+
+**판단 3 (종결 판정 방식)**:
+| 옵션 | 판정 | 근거 |
+|---|---|---|
+| α 기존 가드 단순 해제 | 기각 | Delivery 완료·차액환불 완료 미판정으로 불충분. |
+| β tryCompleteExchange 수렴 메서드 | **채택** | 종결 판정 단일 수렴점·이벤트 순서 무관·멱등·refundAmount==0 시 조건(3) 자동 통과로 현행 동치(호환). |
+| γ 별도 종결 핸들러 신설 | 기각 | 판정 분산·형제 핸들러 증가(LT-05 순서 리스크). |
+
+**판단 4 (동시성 제어)**:
+| 옵션 | 판정 | 근거 |
+|---|---|---|
+| α Claim @Version 낙관적 락 | **채택** | Aggregate·D-29 save→publish 패턴 무변경·후행 TX 롤백으로 ClaimCompleted 중복 차단·status 가드(불변식)와 2계층 분리. |
+| β 조건부 벌크 UPDATE | 기각 | Aggregate 우회·이벤트 생성 책임이 Service로 이동·D-29(Aggregate가 domainEvents 축적) 패턴 예외 발생. |
+| γ 비관적 락 | 기각 | 락 경합·데드락 운영비용 > 이익. 2개 비동기 이벤트 경쟁 수준엔 과함. |
+
+### §2 결정 라운드 재진입·재검토 수렴
+- **재진입 1 (판단 1 배선 재선회)**: 초기 직접호출(registerExchangeShipment→RefundService.initiate) α안 → 이벤트(γ)로 재선회. 근거 = `ClaimApprovedHandler`·`ClaimPickedUpHandler` 실측(이벤트 트리거 선례·recordRefundFailed 복구 전략 실재 확인)·신규 도메인 간 의존 회피.
+- **재진입 2 (외부 검토 1차 Q2 race 지적 수용)**: 두 이벤트 부수효과 중복(ClaimCompleted 재발행) 지적 → 재검토에서 동시성 방식 α(@Version) > γ(비관적) > β(벌크 UPDATE) 확정. β는 D-29 패턴 예외 발생으로 최후순위.
+- **정찰·실측 게이트**: 구조 정찰 2회(골격 → 미실측 4건 보강)·Phase 1 사전 실측 1회(배선 리스크 R1~R3). ★ 3항목(DeliveryStarted payload에 claimId 부재·recordRefundFailed 신규 (Claim) overload 필요·교환배송완료 신호=OrderItem EXCHANGED) read 실측으로 추정 배제(기조 5).
+
+### §3 구현 산출 (실측 라인)
+**신설 3**:
+- `db/migration/V9__add_claim_refund_amount_and_version.sql`: `refund_amount BIGINT NULL`(L10·AFTER processed_at·refund.amount BIGINT 정합)·`version BIGINT NOT NULL DEFAULT 0`(L11·AFTER previous_order_item_status·기존 행 0건이나 재적용 안전). 롤백 보상 SQL 주석 동반.
+- `refund/handler/ExchangeShipmentRefundHandler.java`(86줄): `handle(DeliveryStarted)`(L51)·claim_id NULL skip(L57·일반 배송)·Claim 재조회(L62)·type≠EXCHANGE skip·`hasRefundDifference()` 가드(L73)·`refundService.initiate(claimId, refundAmount)`(L80)·catch→`recordRefundFailed(claim)`(L83). AFTER_COMMIT+REQUIRES_NEW.
+- `claim/controller/request/ClaimApproveRequest.java`(11줄): `record (Long refundAmount)`·Bean Validation 무(음수는 Claim.approve 도메인 검증→400·AdminRefundInitiateRequest 정합). `claim.controller.request` 패키지(기존 컨벤션 답습·`dto` 패키지 신설 안 함).
+
+**수정 production 8**:
+- `claim/entity/Claim.java`(254줄): `refundAmount` 필드(L70)·`@Version version`(L80~82)·`approve(LocalDateTime, Long)`(L173·음수 검증·refundAmount 세팅)·`hasRefundDifference()`(L189).
+- `claim/service/ClaimService.java`(471줄): `RefundRepository` 주입(L62·L70)·`approve(Long, LocalDateTime, Long)`(L158·비EXCHANGE에 refundAmount 실림 시 warn+무시)·`approveBySeller`(L204·4-arg)·`approveByAdmin`(L240·3-arg)·`tryCompleteExchange`(L330·@Transactional REQUIRED·멱등 L333·type L337·조건1 수거 L342·조건2 EXCHANGED L350·조건3 Refund.COMPLETED L356·markCompleted+publish L362).
+- `claim/controller/SellerClaimController.java`: `@RequestBody(required=false) ClaimApproveRequest`·approveBySeller 4-arg 전파(body 부재 시 null).
+- `claim/controller/AdminClaimController.java`: 동일 패턴·approveByAdmin 3-arg 전파.
+- `refund/repository/RefundRepository.java`: `existsByClaimIdAndStatus(Long, RefundStatus)`(L39·파생 쿼리·바인딩 파라미터).
+- `notification/service/NotificationService.java`: `recordRefundFailed(Claim)` overload(L168·기존 (ClaimApproved)·(ClaimPickedUp) 대칭·private (Long,String) 위임).
+- `claim/handler/ClaimRefundCompletedHandler.java`: EXCHANGE 분기 `hasRefundDifference()`(L54)→`tryCompleteExchange`(L56)·OLE catch(L57)·차액 없음 시 기존 미전이 유지.
+- `claim/handler/ExchangeDeliveryCompletedHandler.java`: `markCompleted`→`tryCompleteExchange`(L110)·OLE catch(L111·L107 소비 순서 OrderItem EXCHANGED→종결 유지).
+
+**수정 test 7 + docs 1**:
+- `ClaimExchangeIntegrationTest`(+T1/T2/T3·MockMvc webhook·seedPayment·3→6 tests)·`ClaimServiceTest`(@Mock RefundRepository·approve 3-arg)·`ClaimServiceConfirmPickupTest`·`ClaimIntegrationTest`·`ClaimReturnIntegrationTest`(approve null)·`SellerClaimControllerTest`·`AdminClaimControllerTest`(Mockito matcher +1).
+- `docs/architecture-baseline/state-machine.md`: §2 L57 EXCHANGE COMPLETED 조건에 "(차액 발생 시) Refund.status=COMPLETED (D-115)" 추가·§8 L270 연동 순서 정렬(D-115).
+
+### §4 핵심 메서드
+- **`ClaimService.tryCompleteExchange`(L330·@Transactional REQUIRED)**: findById→COMPLETED 멱등 return(L333)→type≠EXCHANGE skip(L337)→조건(1) pickedUpAt≠null(L342)→조건(2) OrderItem.EXCHANGED(L350·orderItemRepository 재조회)→조건(3) `hasRefundDifference() && !existsByClaimIdAndStatus(COMPLETED)` 시 미수렴 return(L356)→`markCompleted`+ClaimCompleted publish(L362). REQUIRED 전파는 DeliveryCompleted 경로에서 같은 TX의 미커밋 OrderItem.EXCHANGED를 관측하기 위한 필수 조건(REQUIRES_NEW 전환 시 READ_COMMITTED로 미관측→영구 미수렴 트랩).
+- **`ExchangeShipmentRefundHandler.handle`(L51·AFTER_COMMIT+REQUIRES_NEW)**: Delivery 재조회→claim_id NULL skip(일반 배송)→Claim 재조회→type/hasRefundDifference 가드→`initiate(claimId, refundAmount)`→catch RuntimeException→`recordRefundFailed(claim)`.
+
+### §진입점 카드
+① **목적**: EXCHANGE 차액환불(refundAmount>0) 부분환불 흐름 — 교환 출고 시 Refund 개시·수거·배송·환불 3사실 수렴 시 Claim 종결.
+② **핵심 진입점**: `ExchangeShipmentRefundHandler`(DeliveryStarted 구독·L51)·`ClaimService.tryCompleteExchange`(L330).
+③ **핵심 SoT 메서드**: `RefundService.initiate`(재사용·PENDING 생성·멱등 게이트 D-94 Q6)·`Claim.hasRefundDifference`(L189)·`Claim.approve`(2-arg·L173)·`RefundRepository.existsByClaimIdAndStatus`(L39).
+④ **영향 범위**: 신설 3(V9 마이그레이션·ExchangeShipmentRefundHandler·ClaimApproveRequest)·수정 production 8(Claim·ClaimService·컨트롤러 2·RefundRepository·NotificationService·핸들러 2)·test 7·docs 1(state-machine §2·§8). ClaimStatus·RefundStatus·ClaimType 무변경.
+⑤ **패턴 재사용**: ClaimApprovedHandler/ClaimPickedUpHandler 자동환불 트리거(3번째 슬롯·AFTER_COMMIT+REQUIRES_NEW·D-75)·recordRefundFailed 실패 보상(D-96 Q3)·Actor wrapper(D-92·approveBySeller/ByAdmin)·D-29 save→publish.
+⑥ **트랩 주의**: ① @Version 최초 도입 — 마이그레이션 `NOT NULL DEFAULT 0` 필수(기존 행 0값 보장) ② tryCompleteExchange 전파 REQUIRED 고정 — REQUIRES_NEW 전환 시 DeliveryCompleted 경로 영구 미수렴 ③ OptimisticLockException은 핸들러 catch로 흡수(정상 경쟁·재처리 불요) ④ refundAmount==0 호환 절대 — 조건(3) 자동 통과·Refund 미생성 회귀 테스트(T2) 상시 유지.
+
+### §8 carry-over
+- **문서-코드 정합 별건(백로그 등재)**: state-machine.md §2 "교환품 발송 완료" 표현 vs 실코드 종결 트리거 = DeliveryCompleted(배달 완료). Track 30 무수정(§2에 차액환불 조건만 추가)·정합 이슈는 백로그 등재만.
+- **recordRefundFailed 시그니처 일원화 여지**: (ClaimApproved)·(ClaimPickedUp)·(Claim) 3 overload 공존 — 향후 실패 알림 시그니처 통합 검토 여지(현재 각 호출부 보유 객체 상이로 분리 유지).
+- **@Version 최초 도입 선례**: 향후 타 Aggregate 동시성 요구 시 본 트랙이 선례(Inventory는 D-101 §4에서 명시적 미도입). RefundAdjustment(D-114) 구현 게이트 트랙 등에서 재사용 가능.
+
+### §특기
+- D-114 판단 5 γ("EXCHANGE 차액환불 = RefundAdjustment 비의존·별도 트랙") 귀결 구현 — D-114 §8 carry-over 종결.
+- 결정 근거 영구화 원칙 12회차(D-104~D-115). 프로젝트 최초 JPA @Version 낙관적 락 적용.
+
+---

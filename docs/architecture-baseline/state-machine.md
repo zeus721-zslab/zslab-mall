@@ -54,7 +54,7 @@ REQUESTED ──→ APPROVED ──→ COMPLETED
 |---|---|
 | CANCEL | Refund.status = COMPLETED |
 | RETURN | 수거 확인 + Refund.status = COMPLETED |
-| EXCHANGE | 수거 확인 + 교환품 발송 완료 (별도 Delivery 생성) |
+| EXCHANGE | 수거 확인 + 교환품 배송 완료 (별도 Delivery 생성) + (차액 발생 시) Refund.status = COMPLETED (D-115) |
 
 **REJECTED 처리 정책**: 기존 Claim은 REJECTED 상태로 보존 (이력 추적). 재요청 시 새 Claim 행 생성.
 
@@ -267,7 +267,7 @@ PENDING ──→ COMPLETED (불가역)
 |---|---|
 | CANCEL | Refund.COMPLETED → Claim.COMPLETED |
 | RETURN | 수거 확인 → Refund.COMPLETED → Claim.COMPLETED |
-| EXCHANGE | 교환 출고 → Refund.COMPLETED → Claim.COMPLETED (환불 금액 발생 시) |
+| EXCHANGE | (차액 발생 시) 교환 출고 시 Refund 생성 → 교환 배송 완료 + Refund.COMPLETED 수렴 → Claim.COMPLETED (D-115) |
 
 **Payment 연동 (D-05 정합)**: Refund.COMPLETED 후 Payment.status는 환불 누적 금액에 따라 CANCELLED 전이 가능 (PAY-1 invariant·Domain 검증).
 
