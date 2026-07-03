@@ -30,6 +30,7 @@ import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.order.repository.OrderRepository;
+import com.zslab.mall.refund.repository.RefundRepository;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -68,6 +69,8 @@ class ClaimServiceTest {
     private OrderRepository orderRepository;
     @Mock
     private TracedEventPublisher eventPublisher;
+    @Mock
+    private RefundRepository refundRepository;
 
     @InjectMocks
     private ClaimService claimService;
@@ -255,7 +258,7 @@ class ClaimServiceTest {
         Claim claim = requestedClaim();
         when(claimRepository.findById(1L)).thenReturn(Optional.of(claim));
 
-        claimService.approve(1L, PROCESSED_AT);
+        claimService.approve(1L, PROCESSED_AT, null);
 
         assertThat(claim.getStatus()).isEqualTo(ClaimStatus.APPROVED);
         assertThat(claim.getProcessedAt()).isEqualTo(PROCESSED_AT);
@@ -270,7 +273,7 @@ class ClaimServiceTest {
     void approve_notFound_throws() {
         when(claimRepository.findById(999L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> claimService.approve(999L, PROCESSED_AT))
+        assertThatThrownBy(() -> claimService.approve(999L, PROCESSED_AT, null))
                 .isInstanceOf(ClaimNotFoundException.class);
         verify(claimRepository, never()).save(any());
     }
@@ -279,10 +282,10 @@ class ClaimServiceTest {
     @DisplayName("approve: 이미 APPROVED 상태에서 재승인 → ClaimInvalidStateException(CLM-4)")
     void approve_alreadyApproved_throws() {
         Claim claim = requestedClaim();
-        claim.approve(PROCESSED_AT); // 시드: REQUESTED → APPROVED
+        claim.approve(PROCESSED_AT, null); // 시드: REQUESTED → APPROVED
         when(claimRepository.findById(1L)).thenReturn(Optional.of(claim));
 
-        assertThatThrownBy(() -> claimService.approve(1L, PROCESSED_AT))
+        assertThatThrownBy(() -> claimService.approve(1L, PROCESSED_AT, null))
                 .isInstanceOf(ClaimInvalidStateException.class);
         verify(claimRepository, never()).save(any());
     }
@@ -319,7 +322,7 @@ class ClaimServiceTest {
     @DisplayName("reject: 종결(COMPLETED) 상태에서 거절 → ClaimInvalidStateException(CLM-4)")
     void reject_completed_throws() {
         Claim claim = requestedClaim();
-        claim.approve(PROCESSED_AT); // 시드: REQUESTED → APPROVED
+        claim.approve(PROCESSED_AT, null); // 시드: REQUESTED → APPROVED
         claim.markCompleted(PROCESSED_AT); // 시드: APPROVED → COMPLETED
         when(claimRepository.findById(1L)).thenReturn(Optional.of(claim));
 
@@ -336,7 +339,7 @@ class ClaimServiceTest {
         Claim claim = requestedClaim();
         when(claimRepository.findById(1L)).thenReturn(Optional.of(claim));
 
-        claimService.approveByAdmin(1L, PROCESSED_AT);
+        claimService.approveByAdmin(1L, PROCESSED_AT, null);
 
         assertThat(claim.getStatus()).isEqualTo(ClaimStatus.APPROVED);
         assertThat(claim.getProcessedAt()).isEqualTo(PROCESSED_AT);
@@ -353,7 +356,7 @@ class ClaimServiceTest {
     void approveByAdmin_notFound_throws() {
         when(claimRepository.findById(999L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> claimService.approveByAdmin(999L, PROCESSED_AT))
+        assertThatThrownBy(() -> claimService.approveByAdmin(999L, PROCESSED_AT, null))
                 .isInstanceOf(ClaimNotFoundException.class);
         verify(claimRepository, never()).save(any());
     }
@@ -362,10 +365,10 @@ class ClaimServiceTest {
     @DisplayName("approveByAdmin: 이미 APPROVED 상태 → ClaimInvalidStateException(CLM-4·422)")
     void approveByAdmin_alreadyApproved_throws() {
         Claim claim = requestedClaim();
-        claim.approve(PROCESSED_AT); // 시드: REQUESTED → APPROVED
+        claim.approve(PROCESSED_AT, null); // 시드: REQUESTED → APPROVED
         when(claimRepository.findById(1L)).thenReturn(Optional.of(claim));
 
-        assertThatThrownBy(() -> claimService.approveByAdmin(1L, PROCESSED_AT))
+        assertThatThrownBy(() -> claimService.approveByAdmin(1L, PROCESSED_AT, null))
                 .isInstanceOf(ClaimInvalidStateException.class);
         verify(claimRepository, never()).save(any());
     }
@@ -491,7 +494,7 @@ class ClaimServiceTest {
     @DisplayName("markCompleted: 이미 COMPLETED → 멱등 NO-OP·save·publish 미호출(CLM-1)")
     void markCompleted_alreadyCompleted_noOp() {
         Claim claim = requestedClaim();
-        claim.approve(PROCESSED_AT); // 시드: REQUESTED → APPROVED
+        claim.approve(PROCESSED_AT, null); // 시드: REQUESTED → APPROVED
         claim.markCompleted(PROCESSED_AT); // 시드: APPROVED → COMPLETED
         when(claimRepository.findById(1L)).thenReturn(Optional.of(claim));
 
@@ -505,7 +508,7 @@ class ClaimServiceTest {
     @DisplayName("markCompleted: APPROVED → COMPLETED 종결·save·ClaimCompleted 발행(D-29 save→publish·D-90 Q4)")
     void markCompleted_approved_transitionsAndPublishes() {
         Claim claim = requestedClaim();
-        claim.approve(PROCESSED_AT); // 시드: REQUESTED → APPROVED
+        claim.approve(PROCESSED_AT, null); // 시드: REQUESTED → APPROVED
         when(claimRepository.findById(1L)).thenReturn(Optional.of(claim));
 
         claimService.markCompleted(1L);

@@ -7,6 +7,7 @@ import com.zslab.mall.claim.repository.ClaimRepository;
 import com.zslab.mall.claim.service.ClaimService;
 import com.zslab.mall.refund.event.RefundCompleted;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,9 +22,10 @@ import org.springframework.transaction.event.TransactionalEventListener;
  * AFTER_COMMIT 시점은 원 트랜잭션이 이미 완료된 상태라 기본 전파(REQUIRES)는 쓰기가 커밋되지 않는다 → {@code REQUIRES_NEW}로
  * 별도 트랜잭션을 명시한다(D-69 "각자 별도 트랜잭션"·D-75). 부분 실패가 허용되며(재처리 가능) 핸들러는 자체 멱등성을 보장한다.
  *
- * <p><b>type 분기(D-98 Q4·Q2)</b>: CANCEL·RETURN은 Refund.COMPLETED 콜백으로 Claim.COMPLETED 전이한다(RETURN은
- * 수거 확인 후 ClaimPickedUpHandler가 환불을 트리거함). EXCHANGE는 Refund를 경유하지 않으므로(refundAmount==0·
- * Refund 미생성) 본 핸들러 미전이이며 ExchangeDeliveryCompletedHandler(PR-2)가 종결한다.
+ * <p><b>type 분기(D-98 Q4·Q2·D-115 결정3)</b>: CANCEL·RETURN은 Refund.COMPLETED 콜백으로 Claim.COMPLETED 전이한다(RETURN은
+ * 수거 확인 후 ClaimPickedUpHandler가 환불을 트리거함). EXCHANGE는 차액 발생 시(refundAmount&gt;0) Refund.COMPLETED가
+ * 종결 조건(3)이므로 {@code ClaimService.tryCompleteExchange} 수렴 판정을 시도한다. 차액 없는 교환(refundAmount==0)은 Refund
+ * 미생성으로 본 이벤트가 도착하지 않으며 ExchangeDeliveryCompletedHandler가 배송 완료로 종결한다.
  */
 @Slf4j
 @Component
@@ -46,8 +48,19 @@ public class ClaimRefundCompletedHandler {
             return;
         }
         if (claim.getType() == ClaimType.EXCHANGE) {
-            // EXCHANGE는 Refund 미경유(refundAmount==0)·ExchangeDeliveryCompletedHandler(PR-2)가 종결
-            log.info("[Claim] RefundCompleted 수신·type=EXCHANGE → 본 핸들러 미전이: claimId={}", event.claimId());
+            // EXCHANGE 차액환불(D-115 결정3): 차액 발생 시 Refund.COMPLETED가 종결 조건(3)이므로 수렴 판정을 시도한다.
+            // 수거 확인·교환 배송 완료가 선행됐으면 여기서 종결하고, 아니면 no-op(배송 완료 이벤트가 마지막 조건을 채움).
+            // 차액 없는 교환(refundAmount==0)은 Refund 미생성 → 본 이벤트가 도착하지 않으므로 hasRefundDifference 가드가 방어한다.
+            if (claim.hasRefundDifference()) {
+                try {
+                    claimService.tryCompleteExchange(claim.getId());
+                } catch (ObjectOptimisticLockingFailureException optimisticLockException) {
+                    // @Version 낙관적 락 충돌(동시 수렴 진입) — 다른 트랜잭션이 이미 종결·재처리 불요(D-115 결정4)
+                    log.info("[Claim] RefundCompleted·tryCompleteExchange 낙관적 락 충돌·skip: claimId={}", event.claimId());
+                }
+            } else {
+                log.info("[Claim] RefundCompleted 수신·type=EXCHANGE·차액 없음 → 본 핸들러 미전이: claimId={}", event.claimId());
+            }
             return;
         }
         if (claim.getStatus() != ClaimStatus.APPROVED) {

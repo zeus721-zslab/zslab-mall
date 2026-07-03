@@ -437,7 +437,7 @@ class ClaimIntegrationTest {
                     BUYER_A, "승인 대상");
         });
 
-        claimService.approve(claimId, LocalDateTime.now());
+        claimService.approve(claimId, LocalDateTime.now(), null);
         entityManager.flush();
 
         assertThat(claimStatus(claimId)).isEqualTo("APPROVED");

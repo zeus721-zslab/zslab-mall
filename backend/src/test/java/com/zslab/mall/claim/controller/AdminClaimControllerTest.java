@@ -104,7 +104,7 @@ class AdminClaimControllerTest {
                 .andExpect(jsonPath("$.orderItemPublicId").value(ORDER_ITEM_PUBLIC_ID))
                 .andExpect(jsonPath("$.claimType").value("CANCEL"))
                 .andExpect(jsonPath("$.status").value("APPROVED"));
-        verify(claimService).approveByAdmin(eq(CLAIM_ID), any());
+        verify(claimService).approveByAdmin(eq(CLAIM_ID), any(), any());
     }
 
     @Test
@@ -115,7 +115,7 @@ class AdminClaimControllerTest {
         mockMvc.perform(post("/api/v1/admin/claims/" + CLAIM_PUBLIC_ID + "/approve"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
-        verify(claimService, never()).approveByAdmin(anyLong(), any());
+        verify(claimService, never()).approveByAdmin(anyLong(), any(), any());
     }
 
     @Test
@@ -137,7 +137,7 @@ class AdminClaimControllerTest {
         mockMvc.perform(post("/api/v1/admin/claims/" + CLAIM_PUBLIC_ID + "/approve").header("X-Admin-Id", "1"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("CLAIM_NOT_FOUND"));
-        verify(claimService, never()).approveByAdmin(anyLong(), any());
+        verify(claimService, never()).approveByAdmin(anyLong(), any(), any());
     }
 
     @Test
@@ -147,7 +147,7 @@ class AdminClaimControllerTest {
         when(adminActorResolver.resolve(any())).thenReturn(ADMIN_ID);
         when(claimRepository.findByPublicId(CLAIM_PUBLIC_ID)).thenReturn(Optional.of(claim));
         doThrow(new ClaimInvalidStateException("불법 클레임 상태 전이"))
-                .when(claimService).approveByAdmin(eq(CLAIM_ID), any());
+                .when(claimService).approveByAdmin(eq(CLAIM_ID), any(), any());
 
         mockMvc.perform(post("/api/v1/admin/claims/" + CLAIM_PUBLIC_ID + "/approve").header("X-Admin-Id", "1"))
                 .andExpect(status().isUnprocessableEntity())

@@ -1,5 +1,6 @@
 package com.zslab.mall.claim.controller;
 
+import com.zslab.mall.claim.controller.request.ClaimApproveRequest;
 import com.zslab.mall.claim.controller.response.ClaimResponse;
 import com.zslab.mall.claim.entity.Claim;
 import com.zslab.mall.claim.exception.ClaimNotFoundException;
@@ -12,6 +13,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import java.time.LocalDateTime;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -45,13 +47,19 @@ public class SellerClaimController {
         this.sellerActorResolver = sellerActorResolver;
     }
 
-    /** Seller 클레임 승인. 미존재·권한 위반 모두 404(정보 노출 회피·D-92 Q3). 성공 시 200 + 갱신된 ClaimResponse. */
+    /**
+     * Seller 클레임 승인. 미존재·권한 위반 모두 404(정보 노출 회피·D-92 Q3). 성공 시 200 + 갱신된 ClaimResponse.
+     *
+     * <p>EXCHANGE 차액환불(D-115): body는 선택이며(required=false) 부재 시 refundAmount=null(차액 없음·기존 동작).
+     */
     @PostMapping("/{claimPublicId}/approve")
-    public ClaimResponse approveBySeller(@PathVariable String claimPublicId, HttpServletRequest request) {
+    public ClaimResponse approveBySeller(@PathVariable String claimPublicId,
+            @RequestBody(required = false) ClaimApproveRequest body, HttpServletRequest request) {
         Long sellerId = sellerActorResolver.resolve(request);
         Claim claim = claimRepository.findByPublicId(claimPublicId)
                 .orElseThrow(() -> new ClaimNotFoundException("클레임을 찾을 수 없습니다: publicId=" + claimPublicId));
-        claimService.approveBySeller(claim.getId(), sellerId, LocalDateTime.now());
+        Long refundAmount = body != null ? body.refundAmount() : null;
+        claimService.approveBySeller(claim.getId(), sellerId, LocalDateTime.now(), refundAmount);
         return toResponse(claimPublicId);
     }
 

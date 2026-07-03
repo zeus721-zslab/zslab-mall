@@ -160,6 +160,15 @@ public class NotificationService {
         recordRefundFailed(event.claimId(), event.claimPublicId());
     }
 
+    /**
+     * D-115: EXCHANGE 차액환불 자동 트리거({@code ExchangeShipmentRefundHandler}) 실패 시 운영 알림을 적재한다.
+     * 신규 핸들러가 Claim을 이미 조회한 상태라 이벤트 대신 {@link Claim}을 받아 id·publicId를 private overload에 위임한다
+     * ({@code ClaimApproved}·{@code ClaimPickedUp} 경로와 동일한 환불 실패 적재 패턴·D-96 Q3 1:1 재사용).
+     */
+    public void recordRefundFailed(Claim claim) {
+        recordRefundFailed(claim.getId(), claim.getPublicId());
+    }
+
     private void recordRefundFailed(Long claimId, String claimPublicId) {
         try {
             Long recipientUserId = resolveClaimRecipient(claimId, "RefundFailed");

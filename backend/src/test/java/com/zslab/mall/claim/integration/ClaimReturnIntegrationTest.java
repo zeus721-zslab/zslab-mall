@@ -106,8 +106,8 @@ class ClaimReturnIntegrationTest {
         Long claimId = claim.getId();
         assertThat(orderItemStatus()).isEqualTo("RETURN_REQUESTED");
 
-        // 2) 승인: RETURN은 ClaimApprovedHandler 자동 환불 미대상(CANCEL만)
-        claimService.approve(claimId, LocalDateTime.now());
+        // 2) 승인: RETURN은 ClaimApprovedHandler 자동 환불 미대상(CANCEL만)·차액 없음(refundAmount=null)
+        claimService.approve(claimId, LocalDateTime.now(), null);
 
         // 3) 수거 확인: ClaimPickedUp → ClaimPickedUpHandler → RefundService.initiate(PENDING 생성)
         claimService.confirmPickup(claimId, LocalDateTime.now());
