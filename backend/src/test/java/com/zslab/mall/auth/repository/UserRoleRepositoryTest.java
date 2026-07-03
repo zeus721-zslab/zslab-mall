@@ -37,7 +37,7 @@ class UserRoleRepositoryTest extends Batch1DataJpaTestBase {
     @DisplayName("save+findById 성공: userId·role 보존·createdAt 자동 설정")
     void save_findById_success() {
         long userId = seedUser("usr_01234567890123456789012345");
-        Role role = roleRepository.saveAndFlush(Role.create(RoleCode.BUYER, "구매자"));
+        Role role = roleRepository.findByCode(RoleCode.BUYER).orElseThrow();
         UserRole saved = userRoleRepository.saveAndFlush(UserRole.create(userId, role));
         entityManager.clear();
 
@@ -53,7 +53,7 @@ class UserRoleRepositoryTest extends Batch1DataJpaTestBase {
     @DisplayName("UK(user_id, role_id) 중복 삽입 → DataIntegrityViolationException")
     void insert_duplicateUserRole_throwsDataIntegrityViolation() {
         long userId = seedUser("usr_11234567890123456789012345");
-        Role role = roleRepository.saveAndFlush(Role.create(RoleCode.SELLER_OWNER, "판매자"));
+        Role role = roleRepository.findByCode(RoleCode.SELLER_OWNER).orElseThrow();
         userRoleRepository.saveAndFlush(UserRole.create(userId, role));
 
         assertThatThrownBy(() ->
@@ -64,7 +64,7 @@ class UserRoleRepositoryTest extends Batch1DataJpaTestBase {
     @Test
     @DisplayName("user_id FK 위반 삽입 → PersistenceException (FK RESTRICT)")
     void insert_invalidUserId_throwsPersistenceException() {
-        Role role = roleRepository.saveAndFlush(Role.create(RoleCode.BUYER, "구매자3"));
+        Role role = roleRepository.findByCode(RoleCode.BUYER).orElseThrow();
 
         assertThatThrownBy(() ->
             entityManager.getEntityManager()

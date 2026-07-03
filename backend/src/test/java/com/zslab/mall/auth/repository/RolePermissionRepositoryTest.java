@@ -32,7 +32,7 @@ class RolePermissionRepositoryTest extends Batch1DataJpaTestBase {
     @Test
     @DisplayName("save+findById 성공: role·permission 보존·createdAt 자동 설정")
     void save_findById_success() {
-        Role role = roleRepository.saveAndFlush(Role.create(RoleCode.BUYER, "구매자"));
+        Role role = roleRepository.findByCode(RoleCode.BUYER).orElseThrow();
         Permission permission = permissionRepository.saveAndFlush(Permission.create("PRODUCT_READ", "상품 조회"));
         RolePermission saved = rolePermissionRepository.saveAndFlush(RolePermission.create(role, permission));
         entityManager.clear();
@@ -48,7 +48,7 @@ class RolePermissionRepositoryTest extends Batch1DataJpaTestBase {
     @Test
     @DisplayName("UK(role_id, permission_id) 중복 삽입 → DataIntegrityViolationException")
     void insert_duplicateRolePermission_throwsDataIntegrityViolation() {
-        Role role = roleRepository.saveAndFlush(Role.create(RoleCode.SELLER_OWNER, "판매자"));
+        Role role = roleRepository.findByCode(RoleCode.SELLER_OWNER).orElseThrow();
         Permission permission = permissionRepository.saveAndFlush(Permission.create("ORDER_READ", "주문 조회"));
         rolePermissionRepository.saveAndFlush(RolePermission.create(role, permission));
 
@@ -74,7 +74,7 @@ class RolePermissionRepositoryTest extends Batch1DataJpaTestBase {
     @Test
     @DisplayName("permission_id FK 위반 삽입 → PersistenceException (FK RESTRICT)")
     void insert_invalidPermissionId_throwsPersistenceException() {
-        Role role = roleRepository.saveAndFlush(Role.create(RoleCode.ADMIN_OPERATOR, "관리자"));
+        Role role = roleRepository.findByCode(RoleCode.ADMIN_OPERATOR).orElseThrow();
 
         assertThatThrownBy(() ->
             entityManager.getEntityManager()

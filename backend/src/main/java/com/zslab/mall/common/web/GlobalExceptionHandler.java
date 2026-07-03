@@ -20,6 +20,7 @@ import com.zslab.mall.payment.exception.PaymentNotFoundException;
 import com.zslab.mall.product.exception.ProductVariantNotFoundException;
 import com.zslab.mall.refund.exception.RefundInvariantViolationException;
 import com.zslab.mall.refund.exception.RefundNotFoundException;
+import com.zslab.mall.user.exception.EmailAlreadyExistsException;
 import jakarta.servlet.http.HttpServletRequest;
 import java.net.URI;
 import java.util.stream.Collectors;
@@ -69,6 +70,7 @@ public class GlobalExceptionHandler {
     private static final String CODE_INVENTORY_INVARIANT_VIOLATION = "INVENTORY_INVARIANT_VIOLATION";
     private static final String CODE_DELIVERY_INVALID_STATE = "DELIVERY_INVALID_STATE";
     private static final String CODE_PAYMENT_NOT_FOUND = "PAYMENT_NOT_FOUND";
+    private static final String CODE_EMAIL_ALREADY_EXISTS = "EMAIL_ALREADY_EXISTS";
     private static final String CODE_INTERNAL_ERROR = "INTERNAL_ERROR";
 
     // ===== 400 =====
@@ -167,6 +169,13 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ProblemDetail> handleOptimisticLock(
             OptimisticLockingFailureException exception, HttpServletRequest request) {
         return build(HttpStatus.CONFLICT, CODE_OPTIMISTIC_LOCK_FAILURE, "동시 수정 충돌이 발생했습니다.", request);
+    }
+
+    @ExceptionHandler(EmailAlreadyExistsException.class)
+    public ResponseEntity<ProblemDetail> handleEmailAlreadyExists(
+            EmailAlreadyExistsException exception, HttpServletRequest request) {
+        // Track 34: Buyer 셀프가입 email 중복(409). existsByEmail 사전 검증 실패.
+        return build(HttpStatus.CONFLICT, CODE_EMAIL_ALREADY_EXISTS, exception.getMessage(), request);
     }
 
     // ===== 422 =====

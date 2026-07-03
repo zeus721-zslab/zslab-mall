@@ -69,4 +69,16 @@ public class User extends AbstractPublicIdSoftDeletableEntity {
         user.phone = phone;
         return user;
     }
+
+    /**
+     * 비밀번호 해시를 설정한다(회원가입·비밀번호 설정 시). raw password가 아닌 인코딩된 해시를 저장하는 계약이다.
+     *
+     * @throws IllegalArgumentException passwordHash가 null·blank인 경우
+     */
+    public void assignPasswordHash(String passwordHash) {
+        if (passwordHash == null || passwordHash.isBlank()) {
+            throw new IllegalArgumentException("passwordHash는 null·blank일 수 없습니다.");
+        }
+        this.passwordHash = passwordHash;
+    }
 }

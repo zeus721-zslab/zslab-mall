@@ -21,16 +21,15 @@ class RoleRepositoryTest extends Batch1DataJpaTestBase {
     private RoleRepository roleRepository;
 
     @Test
-    @DisplayName("save+findById 성공: id 할당·code·name 보존")
-    void save_findById_success() {
-        Role saved = roleRepository.saveAndFlush(Role.create(RoleCode.BUYER, "구매자"));
-        entityManager.clear();
-
-        Optional<Role> found = roleRepository.findById(saved.getId());
+    @DisplayName("findByCode 성공: seed된 Role의 code·name·id(non-null) 보존")
+    void findByCode_seededRole_success() {
+        // V11 seed된 BUYER Role을 조회하는 계약 검증(seed 기반 설계·직접 save 아님)
+        Optional<Role> found = roleRepository.findByCode(RoleCode.BUYER);
 
         assertThat(found).isPresent();
         assertThat(found.get().getCode()).isEqualTo(RoleCode.BUYER);
         assertThat(found.get().getName()).isEqualTo("구매자");
+        assertThat(found.get().getId()).isNotNull();
     }
 
     @Test
