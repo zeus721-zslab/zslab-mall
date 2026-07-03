@@ -6,7 +6,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 
 /**
  * SecurityContext에서 인증된 액터 식별자(BIGINT)를 꺼내는 공통 헬퍼(Track 31 Phase 3). Seller/Admin/Buyer resolver가
- * 공유한다. Stub 인증 필터가 채운 principal(actorId·Long)만 유효하며, 부재·비-Long(익명 등)은 미인증으로 본다.
+ * 공유한다. JwtAuthenticationFilter가 채운 principal(actorId·Long)만 유효하며, 부재·비-Long(익명 등)은 미인증으로 본다.
  */
 final class SecurityContextActorSupport {
 
