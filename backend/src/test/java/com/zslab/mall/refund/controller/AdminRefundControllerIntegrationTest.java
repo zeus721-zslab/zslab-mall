@@ -96,6 +96,9 @@ class AdminRefundControllerIntegrationTest {
     private PaymentGateway paymentGateway;
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private AuthHeaders authHeaders;
     @Autowired
     private ApplicationEvents events;
     @Autowired
@@ -136,7 +139,7 @@ class AdminRefundControllerIntegrationTest {
         when(paymentGateway.refund(any(), any())).thenReturn(new MockRefundResponse(PG_REFUND_ID, true, null));
 
         mockMvc.perform(post("/api/v1/admin/claims/" + CLAIM_PID + "/initiate-refund")
-                        .headers(AuthHeaders.admin(ADMIN))
+                        .headers(authHeaders.admin(ADMIN))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(FULL_AMOUNT)))
                 .andExpect(status().isOk())
@@ -160,7 +163,7 @@ class AdminRefundControllerIntegrationTest {
     void initiateRefund_unknownClaimPublicId_returns404() throws Exception {
         // 시드 없음(claim 미존재). resolve 통과 후 findByPublicId 실패 → ClaimNotFoundException 404.
         mockMvc.perform(post("/api/v1/admin/claims/" + MISSING_CLAIM_PID + "/initiate-refund")
-                        .headers(AuthHeaders.admin(ADMIN))
+                        .headers(authHeaders.admin(ADMIN))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(FULL_AMOUNT)))
                 .andExpect(status().isNotFound())
@@ -175,7 +178,7 @@ class AdminRefundControllerIntegrationTest {
         seedGraph(ClaimStatus.REQUESTED);
 
         mockMvc.perform(post("/api/v1/admin/claims/" + CLAIM_PID + "/initiate-refund")
-                        .headers(AuthHeaders.admin(ADMIN))
+                        .headers(authHeaders.admin(ADMIN))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(FULL_AMOUNT)))
                 .andExpect(status().isUnprocessableEntity())

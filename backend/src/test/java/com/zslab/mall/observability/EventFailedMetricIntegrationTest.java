@@ -109,6 +109,9 @@ class EventFailedMetricIntegrationTest {
     private NotificationService notificationService;
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private AuthHeaders authHeaders;
     @Autowired
     private MeterRegistry meterRegistry;
     @Autowired
@@ -140,7 +143,7 @@ class EventFailedMetricIntegrationTest {
 
         // 핸들러 catch가 예외를 swallow하므로 원 흐름(주문 생성)은 201로 정상 종료.
         mockMvc.perform(post("/api/v1/orders")
-                        .headers(AuthHeaders.buyer(USER_ID))
+                        .headers(authHeaders.buyer(USER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(CREATE_BODY))
                 .andExpect(status().isCreated());
 

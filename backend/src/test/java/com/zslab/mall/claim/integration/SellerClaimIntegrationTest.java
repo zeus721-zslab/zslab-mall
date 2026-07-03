@@ -69,6 +69,9 @@ class SellerClaimIntegrationTest {
     private MockMvc mockMvc;
 
     @Autowired
+    private AuthHeaders authHeaders;
+
+    @Autowired
     private ApplicationEvents events;
 
     @PersistenceContext
@@ -90,7 +93,7 @@ class SellerClaimIntegrationTest {
         });
 
         mockMvc.perform(post("/api/v1/claims/" + claimPid + "/approve")
-                        .headers(AuthHeaders.seller(SELLER_A)))
+                        .headers(authHeaders.seller(SELLER_A)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.publicId").value(claimPid))
                 .andExpect(jsonPath("$.status").value("APPROVED"));
@@ -113,7 +116,7 @@ class SellerClaimIntegrationTest {
         });
 
         mockMvc.perform(post("/api/v1/claims/" + claimPid + "/reject")
-                        .headers(AuthHeaders.seller(SELLER_A)))
+                        .headers(authHeaders.seller(SELLER_A)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("REJECTED"));
 
@@ -137,7 +140,7 @@ class SellerClaimIntegrationTest {
         });
 
         mockMvc.perform(post("/api/v1/claims/" + claimPid + "/approve")
-                        .headers(AuthHeaders.seller(SELLER_B)))
+                        .headers(authHeaders.seller(SELLER_B)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("CLAIM_NOT_FOUND"));
 
@@ -150,7 +153,7 @@ class SellerClaimIntegrationTest {
     @DisplayName("I4 승인: 미존재 claimPublicId → 404·이벤트 0건")
     void approve_unknownPublicId_returns404() throws Exception {
         mockMvc.perform(post("/api/v1/claims/" + pid("clm_", "I4NONE") + "/approve")
-                        .headers(AuthHeaders.seller(SELLER_A)))
+                        .headers(authHeaders.seller(SELLER_A)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("CLAIM_NOT_FOUND"));
 

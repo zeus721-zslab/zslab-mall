@@ -77,6 +77,9 @@ class AdminPaymentControllerIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private AuthHeaders authHeaders;
     @Autowired
     private JdbcTemplate jdbc;
     @Autowired
@@ -105,10 +108,10 @@ class AdminPaymentControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("T2 인증 실패: 형식 오류 Stub 자격증명(비정수 id) → 401 UNAUTHENTICATED")
+    @DisplayName("T2 인증 실패: 잘못된 Bearer 토큰 → 401 UNAUTHENTICATED")
     void markCancelled_malformedCredential_returns401() throws Exception {
-        // Track 31 Phase 3: 형식 오류는 헤더 파싱(400)이 아니라 Stub 자격증명 파싱 실패(401)로 이동한다(StubAuthenticationFilter 선차단).
-        mockMvc.perform(post(endpoint(PAYMENT_PID)).header("Authorization", "Stub admin:not-a-number"))
+        // Track 33 P5: 잘못된 Bearer 토큰은 JwtAuthenticationFilter가 verify 실패로 예외 전파 → ExceptionTranslationFilter가 401 위임.
+        mockMvc.perform(post(endpoint(PAYMENT_PID)).header("Authorization", "Bearer not-a-valid-jwt"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
     }
@@ -117,7 +120,7 @@ class AdminPaymentControllerIntegrationTest {
     @DisplayName("T3 실패: 미존재 paymentPublicId → 404 PAYMENT_NOT_FOUND")
     void markCancelled_unknownPaymentPublicId_returns404() throws Exception {
         // 시드 없음(payment 미존재). resolve 통과 후 findByPublicId 실패 → PaymentNotFoundException 404.
-        mockMvc.perform(post(endpoint(MISSING_PAYMENT_PID)).headers(AuthHeaders.admin(ADMIN)))
+        mockMvc.perform(post(endpoint(MISSING_PAYMENT_PID)).headers(authHeaders.admin(ADMIN)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("PAYMENT_NOT_FOUND"));
     }
@@ -128,7 +131,7 @@ class AdminPaymentControllerIntegrationTest {
         seedPayment("PAID");
         seedRefund("COMPLETED", FULL_AMOUNT);
 
-        mockMvc.perform(post(endpoint(PAYMENT_PID)).headers(AuthHeaders.admin(ADMIN)))
+        mockMvc.perform(post(endpoint(PAYMENT_PID)).headers(authHeaders.admin(ADMIN)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.paymentPublicId").value(PAYMENT_PID))
                 .andExpect(jsonPath("$.status").value("CANCELLED"));
@@ -142,7 +145,7 @@ class AdminPaymentControllerIntegrationTest {
     void markCancelled_alreadyCancelled_returns200_idempotent() throws Exception {
         seedPayment("CANCELLED");
 
-        mockMvc.perform(post(endpoint(PAYMENT_PID)).headers(AuthHeaders.admin(ADMIN)))
+        mockMvc.perform(post(endpoint(PAYMENT_PID)).headers(authHeaders.admin(ADMIN)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("CANCELLED"));
 
@@ -155,7 +158,7 @@ class AdminPaymentControllerIntegrationTest {
         seedPayment("PAID");
         seedRefund("COMPLETED", PARTIAL_AMOUNT);
 
-        mockMvc.perform(post(endpoint(PAYMENT_PID)).headers(AuthHeaders.admin(ADMIN)))
+        mockMvc.perform(post(endpoint(PAYMENT_PID)).headers(authHeaders.admin(ADMIN)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("PAID"));
 

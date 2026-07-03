@@ -70,6 +70,9 @@ class AdminClaimIntegrationTest {
     private MockMvc mockMvc;
 
     @Autowired
+    private AuthHeaders authHeaders;
+
+    @Autowired
     private ApplicationEvents events;
 
     @PersistenceContext
@@ -91,7 +94,7 @@ class AdminClaimIntegrationTest {
         });
 
         mockMvc.perform(post("/api/v1/admin/claims/" + claimPid + "/approve")
-                        .headers(AuthHeaders.admin(ADMIN)))
+                        .headers(authHeaders.admin(ADMIN)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.publicId").value(claimPid))
                 .andExpect(jsonPath("$.status").value("APPROVED"));
@@ -114,7 +117,7 @@ class AdminClaimIntegrationTest {
         });
 
         mockMvc.perform(post("/api/v1/admin/claims/" + claimPid + "/reject")
-                        .headers(AuthHeaders.admin(ADMIN)))
+                        .headers(authHeaders.admin(ADMIN)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("REJECTED"));
 
@@ -128,7 +131,7 @@ class AdminClaimIntegrationTest {
     @DisplayName("I3 승인: 미존재 claimPublicId → 404·이벤트 0건")
     void approve_unknownPublicId_returns404() throws Exception {
         mockMvc.perform(post("/api/v1/admin/claims/" + pid("clm_", "AI3NONE") + "/approve")
-                        .headers(AuthHeaders.admin(ADMIN)))
+                        .headers(authHeaders.admin(ADMIN)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("CLAIM_NOT_FOUND"));
 

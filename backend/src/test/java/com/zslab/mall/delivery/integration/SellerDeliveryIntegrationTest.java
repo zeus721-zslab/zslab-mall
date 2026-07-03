@@ -77,6 +77,9 @@ class SellerDeliveryIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private AuthHeaders authHeaders;
     @Autowired
     private ApplicationEvents events;
     @Autowired
@@ -108,7 +111,7 @@ class SellerDeliveryIntegrationTest {
         });
 
         mockMvc.perform(post("/api/v1/claims/" + CLAIM_PID + "/register-exchange-shipment")
-                        .headers(AuthHeaders.seller(SELLER_A))
+                        .headers(authHeaders.seller(SELLER_A))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("CJ", TRACKING_NO)))
                 .andExpect(status().isOk())
@@ -136,7 +139,7 @@ class SellerDeliveryIntegrationTest {
         });
 
         mockMvc.perform(post("/api/v1/claims/" + CLAIM_PID + "/register-exchange-shipment")
-                        .headers(AuthHeaders.seller(SELLER_B))
+                        .headers(authHeaders.seller(SELLER_B))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("CJ", TRACKING_NO)))
                 .andExpect(status().isNotFound())
@@ -157,7 +160,7 @@ class SellerDeliveryIntegrationTest {
         });
 
         mockMvc.perform(post("/api/v1/claims/" + CLAIM_PID + "/register-exchange-shipment")
-                        .headers(AuthHeaders.seller(SELLER_A))
+                        .headers(authHeaders.seller(SELLER_A))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("CJ", TRACKING_NO)))
                 .andExpect(status().isUnprocessableEntity())
@@ -180,14 +183,14 @@ class SellerDeliveryIntegrationTest {
 
         // 1차: 정상 등록(Delivery claim_id 연결 커밋)
         mockMvc.perform(post("/api/v1/claims/" + CLAIM_PID + "/register-exchange-shipment")
-                        .headers(AuthHeaders.seller(SELLER_A))
+                        .headers(authHeaders.seller(SELLER_A))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("CJ", TRACKING_NO)))
                 .andExpect(status().isOk());
 
         // 2차: 동일 claimId·다른 carrier/trackingNo 재호출 → Q11 가드 throw
         mockMvc.perform(post("/api/v1/claims/" + CLAIM_PID + "/register-exchange-shipment")
-                        .headers(AuthHeaders.seller(SELLER_A))
+                        .headers(authHeaders.seller(SELLER_A))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("HANJIN", "HJ-SD-9999")))
                 .andExpect(status().isUnprocessableEntity())

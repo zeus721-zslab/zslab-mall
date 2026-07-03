@@ -87,6 +87,9 @@ class AdminDeliveryControllerIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private AuthHeaders authHeaders;
     @Autowired
     private ApplicationEvents events;
     @Autowired
@@ -132,7 +135,7 @@ class AdminDeliveryControllerIntegrationTest {
         });
 
         mockMvc.perform(post("/api/v1/admin/claims/" + CLAIM_PID + "/register-exchange-shipment")
-                        .headers(AuthHeaders.admin(ADMIN))
+                        .headers(authHeaders.admin(ADMIN))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("CJ", TRACKING_NO)))
                 .andExpect(status().isOk())
@@ -163,7 +166,7 @@ class AdminDeliveryControllerIntegrationTest {
         });
 
         mockMvc.perform(post("/api/v1/admin/claims/" + CLAIM_PID + "/register-exchange-shipment")
-                        .headers(AuthHeaders.admin(ADMIN))
+                        .headers(authHeaders.admin(ADMIN))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("CJ", TRACKING_NO)))
                 .andExpect(status().isUnprocessableEntity())
@@ -198,7 +201,7 @@ class AdminDeliveryControllerIntegrationTest {
 
         // mark-delivered는 body 없음(D-104 확정 스펙). X-Admin-Id 헤더만 전달한다.
         mockMvc.perform(post("/api/v1/admin/deliveries/" + DELIVERY_PID + "/mark-delivered")
-                        .headers(AuthHeaders.admin(ADMIN)))
+                        .headers(authHeaders.admin(ADMIN)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.deliveryPublicId").value(DELIVERY_PID))
                 .andExpect(jsonPath("$.status").value("DELIVERED"))
@@ -218,7 +221,7 @@ class AdminDeliveryControllerIntegrationTest {
     @DisplayName("T6 실패: 미존재 deliveryPublicId → 404 DELIVERY_NOT_FOUND·DeliveryCompleted 0")
     void markDelivered_unknownDeliveryPublicId_returns404() throws Exception {
         mockMvc.perform(post("/api/v1/admin/deliveries/" + pid("dlv_", "ADNONE") + "/mark-delivered")
-                        .headers(AuthHeaders.admin(ADMIN)))
+                        .headers(authHeaders.admin(ADMIN)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("DELIVERY_NOT_FOUND"));
 

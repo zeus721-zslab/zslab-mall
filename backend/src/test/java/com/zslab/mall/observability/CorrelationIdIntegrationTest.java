@@ -104,6 +104,9 @@ class CorrelationIdIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private AuthHeaders authHeaders;
     @Autowired
     private JdbcTemplate jdbc;
     @Autowired
@@ -131,7 +134,7 @@ class CorrelationIdIntegrationTest {
     @DisplayName("POST /api/v1/orders → OrderPlaced AFTER_COMMIT 핸들러까지 correlationId·traceId 누락 없음(종료조건 #2)")
     void httpCheckout_propagatesCorrelationIdToAfterCommitHandler() throws Exception {
         String traceIdHeader = mockMvc.perform(post("/api/v1/orders")
-                        .headers(AuthHeaders.buyer(USER_ID))
+                        .headers(authHeaders.buyer(USER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(CREATE_BODY))
                 .andExpect(status().isCreated())
                 .andExpect(header().exists("Location"))

@@ -78,6 +78,9 @@ class ClaimIntegrationTest {
     private MockMvc mockMvc;
 
     @Autowired
+    private AuthHeaders authHeaders;
+
+    @Autowired
     private ClaimService claimService;
 
     @Autowired
@@ -104,7 +107,7 @@ class ClaimIntegrationTest {
             seedOrderItem(orderItemId, orderItemPid, orderId, OrderItemStatus.PAID);
         });
 
-        mockMvc.perform(post("/api/v1/claims").headers(AuthHeaders.buyer(BUYER_A))
+        mockMvc.perform(post("/api/v1/claims").headers(authHeaders.buyer(BUYER_A))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(requestBody(orderItemPid, "CANCEL", "BUYER_CHANGED_MIND")))
                 .andExpect(status().isCreated())
@@ -127,7 +130,7 @@ class ClaimIntegrationTest {
             seedOrderItem(orderItemId, orderItemPid, orderId, OrderItemStatus.CONFIRMED);
         });
 
-        mockMvc.perform(post("/api/v1/claims").headers(AuthHeaders.buyer(BUYER_A))
+        mockMvc.perform(post("/api/v1/claims").headers(authHeaders.buyer(BUYER_A))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(requestBody(orderItemPid, "CANCEL", "BUYER_CHANGED_MIND")))
                 .andExpect(status().isUnprocessableEntity())
@@ -147,7 +150,7 @@ class ClaimIntegrationTest {
             seedOrderItem(orderItemId, orderItemPid, orderId, OrderItemStatus.PAID);
         });
 
-        mockMvc.perform(post("/api/v1/claims").headers(AuthHeaders.buyer(BUYER_A)) // 요청자는 A
+        mockMvc.perform(post("/api/v1/claims").headers(authHeaders.buyer(BUYER_A)) // 요청자는 A
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(requestBody(orderItemPid, "CANCEL", "BUYER_CHANGED_MIND")))
                 .andExpect(status().isNotFound())
@@ -181,7 +184,7 @@ class ClaimIntegrationTest {
         });
 
         // 게이트 제거 후 type 무관 진입 허용·DELIVERED는 RETURN_REQUESTED 전이 가능(D-98 Q4·Q7) → 201
-        mockMvc.perform(post("/api/v1/claims").headers(AuthHeaders.buyer(BUYER_A))
+        mockMvc.perform(post("/api/v1/claims").headers(authHeaders.buyer(BUYER_A))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(requestBody(deliveredPid, "RETURN", "BUYER_CHANGED_MIND")))
                 .andExpect(status().isCreated())
@@ -189,7 +192,7 @@ class ClaimIntegrationTest {
                 .andExpect(jsonPath("$.status").value("REQUESTED"));
 
         // PAID는 RETURN_REQUESTED 전이 불가(매트릭스) → 422(type 게이트가 아닌 전이 검증으로 차단)
-        mockMvc.perform(post("/api/v1/claims").headers(AuthHeaders.buyer(BUYER_A))
+        mockMvc.perform(post("/api/v1/claims").headers(authHeaders.buyer(BUYER_A))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(requestBody(paidPid, "RETURN", "BUYER_CHANGED_MIND")))
                 .andExpect(status().isUnprocessableEntity())
@@ -214,7 +217,7 @@ class ClaimIntegrationTest {
                     ClaimStatus.APPROVED, BUYER_A, "활성 클레임");
         });
 
-        mockMvc.perform(post("/api/v1/claims").headers(AuthHeaders.buyer(BUYER_A))
+        mockMvc.perform(post("/api/v1/claims").headers(authHeaders.buyer(BUYER_A))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(requestBody(orderItemPid, "CANCEL", "BUYER_CHANGED_MIND")))
                 .andExpect(status().isUnprocessableEntity())
@@ -238,7 +241,7 @@ class ClaimIntegrationTest {
                     ClaimStatus.REJECTED, BUYER_A, "거절 이력");
         });
 
-        mockMvc.perform(post("/api/v1/claims").headers(AuthHeaders.buyer(BUYER_A))
+        mockMvc.perform(post("/api/v1/claims").headers(authHeaders.buyer(BUYER_A))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(requestBody(orderItemPid, "CANCEL", "ORDER_MISTAKE")))
                 .andExpect(status().isCreated())
@@ -260,13 +263,13 @@ class ClaimIntegrationTest {
             seedOrderItem(orderItemId, orderItemPid, orderId, OrderItemStatus.PAID);
         });
 
-        mockMvc.perform(post("/api/v1/claims").headers(AuthHeaders.buyer(BUYER_A))
+        mockMvc.perform(post("/api/v1/claims").headers(authHeaders.buyer(BUYER_A))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(requestBody(orderItemPid, "CANCEL", "BUYER_CHANGED_MIND")))
                 .andExpect(status().isCreated());
 
         // 1차 REQUESTED는 활성 → 2차는 CLM-5로 차단(단일 스레드 순차 검증·race 본질).
-        mockMvc.perform(post("/api/v1/claims").headers(AuthHeaders.buyer(BUYER_A))
+        mockMvc.perform(post("/api/v1/claims").headers(authHeaders.buyer(BUYER_A))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(requestBody(orderItemPid, "CANCEL", "DUPLICATE_ORDER")))
                 .andExpect(status().isUnprocessableEntity())
@@ -292,7 +295,7 @@ class ClaimIntegrationTest {
                     BUYER_A, "상세 사유 노출");
         });
 
-        mockMvc.perform(get("/api/v1/claims/" + claimPid).headers(AuthHeaders.buyer(BUYER_A)))
+        mockMvc.perform(get("/api/v1/claims/" + claimPid).headers(authHeaders.buyer(BUYER_A)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.publicId").value(claimPid))
                 .andExpect(jsonPath("$.orderItemPublicId").value(orderItemPid))
@@ -314,7 +317,7 @@ class ClaimIntegrationTest {
                     BUYER_B, "타인 클레임"); // 소유자 B
         });
 
-        mockMvc.perform(get("/api/v1/claims/" + claimPid).headers(AuthHeaders.buyer(BUYER_A))) // 접근자 A
+        mockMvc.perform(get("/api/v1/claims/" + claimPid).headers(authHeaders.buyer(BUYER_A))) // 접근자 A
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("CLAIM_NOT_FOUND"));
     }
@@ -335,7 +338,7 @@ class ClaimIntegrationTest {
                     BUYER_A, "목록 시드");
         });
 
-        mockMvc.perform(get("/api/v1/claims").headers(AuthHeaders.buyer(BUYER_A))
+        mockMvc.perform(get("/api/v1/claims").headers(authHeaders.buyer(BUYER_A))
                         .param("page", "0").param("size", "20"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.page").value(0))
@@ -366,7 +369,7 @@ class ClaimIntegrationTest {
             seedClaim(claimB, pid("clm_", "T171B"), orderItemB, ClaimType.CANCEL, ClaimStatus.REQUESTED, BUYER_B, "B");
         });
 
-        mockMvc.perform(get("/api/v1/claims").headers(AuthHeaders.buyer(BUYER_A)))
+        mockMvc.perform(get("/api/v1/claims").headers(authHeaders.buyer(BUYER_A)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(1)) // B 클레임 미포함
                 .andExpect(jsonPath("$.items[0].publicId").value(claimAPid));
@@ -391,7 +394,7 @@ class ClaimIntegrationTest {
             seedClaim(claimB, claimBPid, orderItemB, ClaimType.CANCEL, ClaimStatus.REQUESTED, BUYER_B, "B");
         });
 
-        mockMvc.perform(get("/api/v1/claims").headers(AuthHeaders.buyer(BUYER_A)).param("size", "100"))
+        mockMvc.perform(get("/api/v1/claims").headers(authHeaders.buyer(BUYER_A)).param("size", "100"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(2))
                 .andExpect(jsonPath("$.items[*].publicId", Matchers.not(Matchers.hasItem(claimBPid))));
@@ -415,7 +418,7 @@ class ClaimIntegrationTest {
         });
 
         // sort 파라미터는 컨트롤러가 받지 않으므로 무시된다(Q4 서버 고정 정렬). 권한 필터(requested_by=A)가 우선 적용된다.
-        mockMvc.perform(get("/api/v1/claims").headers(AuthHeaders.buyer(BUYER_A))
+        mockMvc.perform(get("/api/v1/claims").headers(authHeaders.buyer(BUYER_A))
                         .param("sort", "requestedAt,desc"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(2)) // A의 2건만·B 미포함

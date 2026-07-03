@@ -75,6 +75,9 @@ class SellerShippingControllerIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private AuthHeaders authHeaders;
     @Autowired
     private ApplicationEvents events;
     @Autowired
@@ -101,7 +104,7 @@ class SellerShippingControllerIntegrationTest {
         seedItem("PAID", "PAID");
 
         mockMvc.perform(post(PREPARE_URL)
-                        .headers(AuthHeaders.seller(SELLER_A))
+                        .headers(authHeaders.seller(SELLER_A))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("CJ", TRACKING_NO)))
                 .andExpect(status().isOk())
@@ -140,7 +143,7 @@ class SellerShippingControllerIntegrationTest {
         seedItem("PAID", "PAID");
 
         mockMvc.perform(post(PREPARE_URL)
-                        .headers(AuthHeaders.seller(SELLER_B))
+                        .headers(authHeaders.seller(SELLER_B))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("CJ", TRACKING_NO)))
                 .andExpect(status().isNotFound())
@@ -157,7 +160,7 @@ class SellerShippingControllerIntegrationTest {
         seedItem("SHIPPING", "SHIPPING");
 
         mockMvc.perform(post(PREPARE_URL)
-                        .headers(AuthHeaders.seller(SELLER_A))
+                        .headers(authHeaders.seller(SELLER_A))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("CJ", TRACKING_NO)))
                 .andExpect(status().isUnprocessableEntity())
