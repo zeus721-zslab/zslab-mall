@@ -25,6 +25,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import com.zslab.mall.common.security.AuthHeaders;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -139,7 +140,7 @@ class EventFailedMetricIntegrationTest {
 
         // 핸들러 catch가 예외를 swallow하므로 원 흐름(주문 생성)은 201로 정상 종료.
         mockMvc.perform(post("/api/v1/orders")
-                        .header("X-Buyer-Id", String.valueOf(USER_ID))
+                        .headers(AuthHeaders.buyer(USER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(CREATE_BODY))
                 .andExpect(status().isCreated());
 

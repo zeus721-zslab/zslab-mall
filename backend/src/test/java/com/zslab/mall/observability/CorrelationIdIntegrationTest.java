@@ -22,6 +22,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.event.RecordApplicationEvents;
+import com.zslab.mall.common.security.AuthHeaders;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.event.TransactionPhase;
@@ -130,7 +131,7 @@ class CorrelationIdIntegrationTest {
     @DisplayName("POST /api/v1/orders → OrderPlaced AFTER_COMMIT 핸들러까지 correlationId·traceId 누락 없음(종료조건 #2)")
     void httpCheckout_propagatesCorrelationIdToAfterCommitHandler() throws Exception {
         String traceIdHeader = mockMvc.perform(post("/api/v1/orders")
-                        .header("X-Buyer-Id", String.valueOf(USER_ID))
+                        .headers(AuthHeaders.buyer(USER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(CREATE_BODY))
                 .andExpect(status().isCreated())
                 .andExpect(header().exists("Location"))

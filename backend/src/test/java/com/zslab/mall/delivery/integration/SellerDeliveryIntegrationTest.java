@@ -21,6 +21,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
+import com.zslab.mall.common.security.AuthHeaders;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -43,8 +44,6 @@ import org.testcontainers.utility.DockerImageName;
 @AutoConfigureMockMvc
 @RecordApplicationEvents
 class SellerDeliveryIntegrationTest {
-
-    private static final String SELLER_ID_HEADER = "X-Seller-Id";
 
     private static final long USER_ID = 9415L;
     private static final long SELLER_A = 9415L; // 품목 소유 셀러
@@ -109,7 +108,7 @@ class SellerDeliveryIntegrationTest {
         });
 
         mockMvc.perform(post("/api/v1/claims/" + CLAIM_PID + "/register-exchange-shipment")
-                        .header(SELLER_ID_HEADER, String.valueOf(SELLER_A))
+                        .headers(AuthHeaders.seller(SELLER_A))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("CJ", TRACKING_NO)))
                 .andExpect(status().isOk())
@@ -137,7 +136,7 @@ class SellerDeliveryIntegrationTest {
         });
 
         mockMvc.perform(post("/api/v1/claims/" + CLAIM_PID + "/register-exchange-shipment")
-                        .header(SELLER_ID_HEADER, String.valueOf(SELLER_B))
+                        .headers(AuthHeaders.seller(SELLER_B))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("CJ", TRACKING_NO)))
                 .andExpect(status().isNotFound())
@@ -158,7 +157,7 @@ class SellerDeliveryIntegrationTest {
         });
 
         mockMvc.perform(post("/api/v1/claims/" + CLAIM_PID + "/register-exchange-shipment")
-                        .header(SELLER_ID_HEADER, String.valueOf(SELLER_A))
+                        .headers(AuthHeaders.seller(SELLER_A))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("CJ", TRACKING_NO)))
                 .andExpect(status().isUnprocessableEntity())
@@ -181,14 +180,14 @@ class SellerDeliveryIntegrationTest {
 
         // 1차: 정상 등록(Delivery claim_id 연결 커밋)
         mockMvc.perform(post("/api/v1/claims/" + CLAIM_PID + "/register-exchange-shipment")
-                        .header(SELLER_ID_HEADER, String.valueOf(SELLER_A))
+                        .headers(AuthHeaders.seller(SELLER_A))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("CJ", TRACKING_NO)))
                 .andExpect(status().isOk());
 
         // 2차: 동일 claimId·다른 carrier/trackingNo 재호출 → Q11 가드 throw
         mockMvc.perform(post("/api/v1/claims/" + CLAIM_PID + "/register-exchange-shipment")
-                        .header(SELLER_ID_HEADER, String.valueOf(SELLER_A))
+                        .headers(AuthHeaders.seller(SELLER_A))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("HANJIN", "HJ-SD-9999")))
                 .andExpect(status().isUnprocessableEntity())

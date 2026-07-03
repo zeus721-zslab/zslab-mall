@@ -21,6 +21,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
+import com.zslab.mall.common.security.AuthHeaders;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 import org.testcontainers.containers.MariaDBContainer;
@@ -46,7 +47,6 @@ import org.testcontainers.utility.DockerImageName;
 @RecordApplicationEvents
 class AdminClaimIntegrationTest {
 
-    private static final String ADMIN_ID_HEADER = "X-Admin-Id";
     private static final long ADMIN = 7001L; // Admin 액터 stub(전체 접근·검증 비대상)
     private static final long BUYER = 9501L;
     private static final long SELLER = 9001L; // 품목 소유 셀러(FK 부모 그래프·Admin 검증 비대상)
@@ -91,7 +91,7 @@ class AdminClaimIntegrationTest {
         });
 
         mockMvc.perform(post("/api/v1/admin/claims/" + claimPid + "/approve")
-                        .header(ADMIN_ID_HEADER, String.valueOf(ADMIN)))
+                        .headers(AuthHeaders.admin(ADMIN)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.publicId").value(claimPid))
                 .andExpect(jsonPath("$.status").value("APPROVED"));
@@ -114,7 +114,7 @@ class AdminClaimIntegrationTest {
         });
 
         mockMvc.perform(post("/api/v1/admin/claims/" + claimPid + "/reject")
-                        .header(ADMIN_ID_HEADER, String.valueOf(ADMIN)))
+                        .headers(AuthHeaders.admin(ADMIN)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("REJECTED"));
 
@@ -128,7 +128,7 @@ class AdminClaimIntegrationTest {
     @DisplayName("I3 승인: 미존재 claimPublicId → 404·이벤트 0건")
     void approve_unknownPublicId_returns404() throws Exception {
         mockMvc.perform(post("/api/v1/admin/claims/" + pid("clm_", "AI3NONE") + "/approve")
-                        .header(ADMIN_ID_HEADER, String.valueOf(ADMIN)))
+                        .headers(AuthHeaders.admin(ADMIN)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("CLAIM_NOT_FOUND"));
 

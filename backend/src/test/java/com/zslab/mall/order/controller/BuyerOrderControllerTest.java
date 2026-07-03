@@ -13,6 +13,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.zslab.mall.checkout.service.CheckoutOutcome;
 import com.zslab.mall.checkout.service.CheckoutService;
+import com.zslab.mall.common.auth.BuyerActorResolver;
+import com.zslab.mall.common.exception.MalformedRequestException;
+import com.zslab.mall.common.exception.UnauthenticatedException;
 import com.zslab.mall.order.controller.response.CheckoutResponse;
 import com.zslab.mall.order.controller.response.CheckoutResponse.PaymentView;
 import com.zslab.mall.order.controller.response.OrderResponse;
@@ -25,6 +28,7 @@ import com.zslab.mall.order.service.BuyerOrderQueryService;
 import com.zslab.mall.payment.enums.PaymentStatus;
 import com.zslab.mall.payment.exception.PaymentInProgressException;
 import java.util.List;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -51,6 +55,15 @@ class BuyerOrderControllerTest {
     private CheckoutService checkoutService;
     @MockitoBean
     private BuyerOrderQueryService buyerOrderQueryService;
+    @MockitoBean
+    private BuyerActorResolver buyerActorResolver;
+
+    @BeforeEach
+    void stubBuyerActor() {
+        // Buyer actor는 SecurityContext resolver로 해소된다(Track 31 Phase 3). 슬라이스는 addFilters=false·resolver mock으로
+        // buyerId를 공급한다(Seller/Admin 슬라이스 정합). 401/400 케이스는 각 테스트가 재스텁한다.
+        when(buyerActorResolver.resolve(any())).thenReturn(1L);
+    }
 
     private static final String VALID_BODY = """
             {
@@ -97,6 +110,8 @@ class BuyerOrderControllerTest {
     @Test
     @DisplayName("POST: X-Buyer-Id 누락 → 401 UNAUTHENTICATED")
     void create_missingBuyerId_returns401() throws Exception {
+        when(buyerActorResolver.resolve(any())).thenThrow(new UnauthenticatedException("인증된 액터가 없습니다"));
+
         mockMvc.perform(post("/api/v1/orders")
                         .contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
                 .andExpect(status().isUnauthorized())
@@ -107,7 +122,9 @@ class BuyerOrderControllerTest {
     @Test
     @DisplayName("POST: X-Buyer-Id 형식 오류 → 400 MALFORMED_REQUEST")
     void create_malformedBuyerId_returns400() throws Exception {
-        mockMvc.perform(post("/api/v1/orders").header("X-Buyer-Id", "not-a-number")
+        when(buyerActorResolver.resolve(any())).thenThrow(new MalformedRequestException("X-Buyer-Id 형식 오류"));
+
+        mockMvc.perform(post("/api/v1/orders")
                         .contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));

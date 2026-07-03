@@ -22,6 +22,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
+import com.zslab.mall.common.security.AuthHeaders;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -51,8 +52,6 @@ import org.testcontainers.utility.DockerImageName;
 @AutoConfigureMockMvc
 @RecordApplicationEvents
 class AdminDeliveryControllerIntegrationTest {
-
-    private static final String ADMIN_ID_HEADER = "X-Admin-Id";
 
     private static final long ADMIN = 7001L; // Admin 액터 stub(전체 접근·검증 비대상)
     private static final long USER_ID = 8815L;
@@ -133,7 +132,7 @@ class AdminDeliveryControllerIntegrationTest {
         });
 
         mockMvc.perform(post("/api/v1/admin/claims/" + CLAIM_PID + "/register-exchange-shipment")
-                        .header(ADMIN_ID_HEADER, String.valueOf(ADMIN))
+                        .headers(AuthHeaders.admin(ADMIN))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("CJ", TRACKING_NO)))
                 .andExpect(status().isOk())
@@ -164,7 +163,7 @@ class AdminDeliveryControllerIntegrationTest {
         });
 
         mockMvc.perform(post("/api/v1/admin/claims/" + CLAIM_PID + "/register-exchange-shipment")
-                        .header(ADMIN_ID_HEADER, String.valueOf(ADMIN))
+                        .headers(AuthHeaders.admin(ADMIN))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("CJ", TRACKING_NO)))
                 .andExpect(status().isUnprocessableEntity())
@@ -199,7 +198,7 @@ class AdminDeliveryControllerIntegrationTest {
 
         // mark-delivered는 body 없음(D-104 확정 스펙). X-Admin-Id 헤더만 전달한다.
         mockMvc.perform(post("/api/v1/admin/deliveries/" + DELIVERY_PID + "/mark-delivered")
-                        .header(ADMIN_ID_HEADER, String.valueOf(ADMIN)))
+                        .headers(AuthHeaders.admin(ADMIN)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.deliveryPublicId").value(DELIVERY_PID))
                 .andExpect(jsonPath("$.status").value("DELIVERED"))
@@ -219,7 +218,7 @@ class AdminDeliveryControllerIntegrationTest {
     @DisplayName("T6 실패: 미존재 deliveryPublicId → 404 DELIVERY_NOT_FOUND·DeliveryCompleted 0")
     void markDelivered_unknownDeliveryPublicId_returns404() throws Exception {
         mockMvc.perform(post("/api/v1/admin/deliveries/" + pid("dlv_", "ADNONE") + "/mark-delivered")
-                        .header(ADMIN_ID_HEADER, String.valueOf(ADMIN)))
+                        .headers(AuthHeaders.admin(ADMIN)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("DELIVERY_NOT_FOUND"));
 

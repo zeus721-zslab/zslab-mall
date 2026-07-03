@@ -18,6 +18,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
+import com.zslab.mall.common.security.AuthHeaders;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -44,8 +45,6 @@ import org.testcontainers.utility.DockerImageName;
 @AutoConfigureMockMvc
 @RecordApplicationEvents
 class SellerInventoryControllerIntegrationTest {
-
-    private static final String SELLER_ID_HEADER = "X-Seller-Id";
 
     private static final long USER_ID = 9520L;
     private static final long SELLER_A = 9520L; // 상품 소유 셀러
@@ -121,14 +120,15 @@ class SellerInventoryControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("T2 형식 오류: X-Seller-Id 비정수 → 400 MALFORMED_REQUEST·이벤트 0")
-    void markInbound_malformedSellerHeader_returns400() throws Exception {
+    @DisplayName("T2 인증 실패: 형식 오류 Stub 자격증명(비정수 id) → 401 UNAUTHENTICATED·이벤트 0")
+    void markInbound_malformedCredential_returns401() throws Exception {
+        // Track 31 Phase 3: 형식 오류는 헤더 파싱(400)이 아니라 Stub 자격증명 파싱 실패(401)로 이동한다(StubAuthenticationFilter 선차단).
         mockMvc.perform(post(INBOUND_URL)
-                        .header(SELLER_ID_HEADER, "not-a-number")
+                        .header("Authorization", "Stub seller:not-a-number")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(INBOUND_QTY, REASON)))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
 
         assertThat(inventoryDomainEventCount()).isZero();
     }
@@ -142,7 +142,7 @@ class SellerInventoryControllerIntegrationTest {
         });
 
         mockMvc.perform(post(INBOUND_URL)
-                        .header(SELLER_ID_HEADER, String.valueOf(SELLER_A))
+                        .headers(AuthHeaders.seller(SELLER_A))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(INBOUND_QTY, REASON)))
                 .andExpect(status().isOk())
@@ -172,7 +172,7 @@ class SellerInventoryControllerIntegrationTest {
         });
 
         mockMvc.perform(post(OUTBOUND_URL)
-                        .header(SELLER_ID_HEADER, String.valueOf(SELLER_A))
+                        .headers(AuthHeaders.seller(SELLER_A))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(OUTBOUND_QTY, REASON)))
                 .andExpect(status().isOk())
@@ -195,7 +195,7 @@ class SellerInventoryControllerIntegrationTest {
     void markInbound_unknownVariantPublicId_returns404() throws Exception {
         // 시드 없음(variant 미존재). resolve 통과 후 findByPublicId 실패 → ProductVariantNotFoundException 404.
         mockMvc.perform(post(MISSING_INBOUND_URL)
-                        .header(SELLER_ID_HEADER, String.valueOf(SELLER_A))
+                        .headers(AuthHeaders.seller(SELLER_A))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(INBOUND_QTY, REASON)))
                 .andExpect(status().isNotFound())
@@ -214,7 +214,7 @@ class SellerInventoryControllerIntegrationTest {
 
         // variant는 존재(SELLER_A 소유)하나 SELLER_B가 조작 시도 → 3홉 소유권 위반을 미존재로 은닉(404).
         mockMvc.perform(post(INBOUND_URL)
-                        .header(SELLER_ID_HEADER, String.valueOf(SELLER_B))
+                        .headers(AuthHeaders.seller(SELLER_B))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(INBOUND_QTY, REASON)))
                 .andExpect(status().isNotFound())
@@ -235,7 +235,7 @@ class SellerInventoryControllerIntegrationTest {
         });
 
         mockMvc.perform(post(OUTBOUND_URL)
-                        .header(SELLER_ID_HEADER, String.valueOf(SELLER_A))
+                        .headers(AuthHeaders.seller(SELLER_A))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(EXCESS_OUTBOUND_QTY, REASON)))
                 .andExpect(status().isUnprocessableEntity())
@@ -258,7 +258,7 @@ class SellerInventoryControllerIntegrationTest {
 
         // quantity는 @Positive 미적용(형식/도메인 분리) → Service의 qty≤0 가드가 IllegalArgumentException(→400)으로 차단.
         mockMvc.perform(post(INBOUND_URL)
-                        .header(SELLER_ID_HEADER, String.valueOf(SELLER_A))
+                        .headers(AuthHeaders.seller(SELLER_A))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(0, REASON)))
                 .andExpect(status().isBadRequest())
