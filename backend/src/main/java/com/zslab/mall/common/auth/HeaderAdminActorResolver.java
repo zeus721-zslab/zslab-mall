@@ -1,31 +1,22 @@
 package com.zslab.mall.common.auth;
 
-import com.zslab.mall.common.exception.MalformedRequestException;
 import com.zslab.mall.common.exception.UnauthenticatedException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.stereotype.Component;
 
 /**
- * {@code X-Admin-Id} 헤더 기반 Admin 액터 식별자 해석 stub(D-93 Q1 α). 운영 인증 도입 시 교체 대상이다.
+ * SecurityContext 기반 Admin 액터 식별자 해석(Track 31 Phase 3). Stub 인증 필터가 채운 principal(actorId·BIGINT)을
+ * 반환한다. Phase 1까지의 {@code X-Admin-Id} 헤더 파싱 stub(D-93 Q1 α)은 SecurityContext 조회로 대체됐다(클래스명은
+ * 레거시 유지·rename 이연).
  *
- * <p>헤더 누락 → 401({@link UnauthenticatedException})·형식 오류 → 400({@link MalformedRequestException}).
- * {@link HeaderSellerActorResolver}의 {@code X-Seller-Id} 패턴과 1:1 정합한다(D-39·D-92·D-93 Q1).
+ * <p>인증된 액터가 없으면 401({@link UnauthenticatedException}). 자격증명 형식 오류는 상위 {@code StubAuthenticationFilter}가
+ * 401로 선처리하므로 본 resolver의 400 경로는 없다. {@link HeaderSellerActorResolver}와 1:1 패턴이며 request 인자는 미사용이다.
  */
 @Component
 public class HeaderAdminActorResolver implements AdminActorResolver {
 
-    private static final String ADMIN_ID_HEADER = "X-Admin-Id";
-
     @Override
     public Long resolve(HttpServletRequest request) {
-        String raw = request.getHeader(ADMIN_ID_HEADER);
-        if (raw == null || raw.isBlank()) {
-            throw new UnauthenticatedException("X-Admin-Id 헤더 누락");
-        }
-        try {
-            return Long.parseLong(raw.trim());
-        } catch (NumberFormatException e) {
-            throw new MalformedRequestException("X-Admin-Id 형식 오류");
-        }
+        return SecurityContextActorSupport.requireActorId();
     }
 }

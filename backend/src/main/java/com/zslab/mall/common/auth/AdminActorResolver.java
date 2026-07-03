@@ -17,8 +17,7 @@ public interface AdminActorResolver {
      *
      * @param request 현재 HTTP 요청
      * @return Admin 액터 식별자(BIGINT)
-     * @throws com.zslab.mall.common.exception.UnauthenticatedException 식별 헤더가 없는 경우(401)
-     * @throws com.zslab.mall.common.exception.MalformedRequestException 식별자 형식이 올바르지 않은 경우(400)
+     * @throws com.zslab.mall.common.exception.UnauthenticatedException 인증된 액터가 없는 경우(401·SecurityContext 기반·Track 31 Phase 3)
      */
     Long resolve(HttpServletRequest request);
 }
