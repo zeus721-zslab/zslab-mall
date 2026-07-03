@@ -49,6 +49,9 @@ class SellerInventoryControllerIntegrationTest {
     private static final long USER_ID = 9520L;
     private static final long SELLER_A = 9520L; // 상품 소유 셀러
     private static final long SELLER_B = 9521L; // 타 셀러(cross-tenant)
+    // Track 36 γ Phase 3: actorId(JWT subject)를 seller_id와 다른 값으로 둔다 — user.id==seller.id 우연일치 은폐 제거.
+    private static final long SELLER_A_USER = 9522L; // SELLER_A 소속 user(actorId)
+    private static final long SELLER_B_USER = 9523L; // SELLER_B 소속 user(cross-tenant actorId)
     private static final long PRODUCT_ID = 9520L;
     private static final long VARIANT_ID = 9520L;
     private static final long INVENTORY_ID = 9520L; // inventory.id(variant 1:1)
@@ -102,6 +105,7 @@ class SellerInventoryControllerIntegrationTest {
     void setUp() {
         tx = new TransactionTemplate(txManager);
         cleanup();
+        seedSellerUsers();
     }
 
     @AfterEach
@@ -145,7 +149,7 @@ class SellerInventoryControllerIntegrationTest {
         });
 
         mockMvc.perform(post(INBOUND_URL)
-                        .headers(authHeaders.seller(SELLER_A))
+                        .headers(authHeaders.seller(SELLER_A_USER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(INBOUND_QTY, REASON)))
                 .andExpect(status().isOk())
@@ -175,7 +179,7 @@ class SellerInventoryControllerIntegrationTest {
         });
 
         mockMvc.perform(post(OUTBOUND_URL)
-                        .headers(authHeaders.seller(SELLER_A))
+                        .headers(authHeaders.seller(SELLER_A_USER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(OUTBOUND_QTY, REASON)))
                 .andExpect(status().isOk())
@@ -198,7 +202,7 @@ class SellerInventoryControllerIntegrationTest {
     void markInbound_unknownVariantPublicId_returns404() throws Exception {
         // 시드 없음(variant 미존재). resolve 통과 후 findByPublicId 실패 → ProductVariantNotFoundException 404.
         mockMvc.perform(post(MISSING_INBOUND_URL)
-                        .headers(authHeaders.seller(SELLER_A))
+                        .headers(authHeaders.seller(SELLER_A_USER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(INBOUND_QTY, REASON)))
                 .andExpect(status().isNotFound())
@@ -217,7 +221,7 @@ class SellerInventoryControllerIntegrationTest {
 
         // variant는 존재(SELLER_A 소유)하나 SELLER_B가 조작 시도 → 3홉 소유권 위반을 미존재로 은닉(404).
         mockMvc.perform(post(INBOUND_URL)
-                        .headers(authHeaders.seller(SELLER_B))
+                        .headers(authHeaders.seller(SELLER_B_USER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(INBOUND_QTY, REASON)))
                 .andExpect(status().isNotFound())
@@ -238,7 +242,7 @@ class SellerInventoryControllerIntegrationTest {
         });
 
         mockMvc.perform(post(OUTBOUND_URL)
-                        .headers(authHeaders.seller(SELLER_A))
+                        .headers(authHeaders.seller(SELLER_A_USER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(EXCESS_OUTBOUND_QTY, REASON)))
                 .andExpect(status().isUnprocessableEntity())
@@ -261,7 +265,7 @@ class SellerInventoryControllerIntegrationTest {
 
         // quantity는 @Positive 미적용(형식/도메인 분리) → Service의 qty≤0 가드가 IllegalArgumentException(→400)으로 차단.
         mockMvc.perform(post(INBOUND_URL)
-                        .headers(authHeaders.seller(SELLER_A))
+                        .headers(authHeaders.seller(SELLER_A_USER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(0, REASON)))
                 .andExpect(status().isBadRequest())
@@ -308,10 +312,28 @@ class SellerInventoryControllerIntegrationTest {
                 INVENTORY_ID, VARIANT_ID, onHand, reserved, available);
     }
 
+    // resolver 해소용 seller_user 실 매핑 시드(actorId≠seller_id·FK_CHECKS=0라 user/seller 행 부재 허용·role_id=SELLER_OWNER seed).
+    private void seedSellerUsers() {
+        tx.executeWithoutResult(s -> {
+            try {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
+                jdbc.update("INSERT INTO seller_user (user_id, seller_id, role_id, created_at, updated_at) "
+                                + "SELECT ?, ?, id, NOW(6), NOW(6) FROM role WHERE code = 'SELLER_OWNER'",
+                        SELLER_A_USER, SELLER_A);
+                jdbc.update("INSERT INTO seller_user (user_id, seller_id, role_id, created_at, updated_at) "
+                                + "SELECT ?, ?, id, NOW(6), NOW(6) FROM role WHERE code = 'SELLER_OWNER'",
+                        SELLER_B_USER, SELLER_B);
+            } finally {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
+            }
+        });
+    }
+
     private void cleanup() {
         tx.executeWithoutResult(s -> {
             try {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
+                jdbc.update("DELETE FROM seller_user WHERE user_id IN (?, ?)", SELLER_A_USER, SELLER_B_USER);
                 jdbc.update("DELETE FROM inventory_history WHERE inventory_id = ?", INVENTORY_ID);
                 jdbc.update("DELETE FROM inventory WHERE id = ?", INVENTORY_ID);
                 jdbc.update("DELETE FROM product_variant WHERE id = ?", VARIANT_ID);

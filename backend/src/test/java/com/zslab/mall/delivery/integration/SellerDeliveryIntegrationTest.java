@@ -48,6 +48,9 @@ class SellerDeliveryIntegrationTest {
     private static final long USER_ID = 9415L;
     private static final long SELLER_A = 9415L; // 품목 소유 셀러
     private static final long SELLER_B = 9416L; // 타 셀러(cross-tenant)
+    // Track 36 γ Phase 3: actorId(JWT subject)를 seller_id와 다른 값으로 둔다 — user.id==seller.id 우연일치 은폐 제거.
+    private static final long SELLER_A_USER = 9417L; // SELLER_A 소속 user(actorId)
+    private static final long SELLER_B_USER = 9418L; // SELLER_B 소속 user(cross-tenant actorId)
     private static final long PRODUCT_ID = 9415L;
     private static final long VARIANT_ID = 9415L;
     private static final long ORDER_ID = 9415L;
@@ -93,6 +96,7 @@ class SellerDeliveryIntegrationTest {
     void setUp() {
         tx = new TransactionTemplate(txManager);
         cleanup();
+        seedSellerUsers();
     }
 
     @AfterEach
@@ -111,7 +115,7 @@ class SellerDeliveryIntegrationTest {
         });
 
         mockMvc.perform(post("/api/v1/claims/" + CLAIM_PID + "/register-exchange-shipment")
-                        .headers(authHeaders.seller(SELLER_A))
+                        .headers(authHeaders.seller(SELLER_A_USER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("CJ", TRACKING_NO)))
                 .andExpect(status().isOk())
@@ -139,7 +143,7 @@ class SellerDeliveryIntegrationTest {
         });
 
         mockMvc.perform(post("/api/v1/claims/" + CLAIM_PID + "/register-exchange-shipment")
-                        .headers(authHeaders.seller(SELLER_B))
+                        .headers(authHeaders.seller(SELLER_B_USER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("CJ", TRACKING_NO)))
                 .andExpect(status().isNotFound())
@@ -160,7 +164,7 @@ class SellerDeliveryIntegrationTest {
         });
 
         mockMvc.perform(post("/api/v1/claims/" + CLAIM_PID + "/register-exchange-shipment")
-                        .headers(authHeaders.seller(SELLER_A))
+                        .headers(authHeaders.seller(SELLER_A_USER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("CJ", TRACKING_NO)))
                 .andExpect(status().isUnprocessableEntity())
@@ -183,14 +187,14 @@ class SellerDeliveryIntegrationTest {
 
         // 1차: 정상 등록(Delivery claim_id 연결 커밋)
         mockMvc.perform(post("/api/v1/claims/" + CLAIM_PID + "/register-exchange-shipment")
-                        .headers(authHeaders.seller(SELLER_A))
+                        .headers(authHeaders.seller(SELLER_A_USER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("CJ", TRACKING_NO)))
                 .andExpect(status().isOk());
 
         // 2차: 동일 claimId·다른 carrier/trackingNo 재호출 → Q11 가드 throw
         mockMvc.perform(post("/api/v1/claims/" + CLAIM_PID + "/register-exchange-shipment")
-                        .headers(authHeaders.seller(SELLER_A))
+                        .headers(authHeaders.seller(SELLER_A_USER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("HANJIN", "HJ-SD-9999")))
                 .andExpect(status().isUnprocessableEntity())
@@ -255,10 +259,28 @@ class SellerDeliveryIntegrationTest {
                 CLAIM_ID, CLAIM_PID, ORDER_ITEM_ID, type.name());
     }
 
+    // resolver 해소용 seller_user 실 매핑 시드(actorId≠seller_id·FK_CHECKS=0라 user/seller 행 부재 허용·role_id=SELLER_OWNER seed).
+    private void seedSellerUsers() {
+        tx.executeWithoutResult(s -> {
+            try {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
+                jdbc.update("INSERT INTO seller_user (user_id, seller_id, role_id, created_at, updated_at) "
+                                + "SELECT ?, ?, id, NOW(6), NOW(6) FROM role WHERE code = 'SELLER_OWNER'",
+                        SELLER_A_USER, SELLER_A);
+                jdbc.update("INSERT INTO seller_user (user_id, seller_id, role_id, created_at, updated_at) "
+                                + "SELECT ?, ?, id, NOW(6), NOW(6) FROM role WHERE code = 'SELLER_OWNER'",
+                        SELLER_B_USER, SELLER_B);
+            } finally {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
+            }
+        });
+    }
+
     private void cleanup() {
         tx.executeWithoutResult(s -> {
             try {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
+                jdbc.update("DELETE FROM seller_user WHERE user_id IN (?, ?)", SELLER_A_USER, SELLER_B_USER);
                 jdbc.update("DELETE FROM notification_log WHERE recipient_user_id = ?", USER_ID);
                 jdbc.update("DELETE FROM delivery WHERE order_item_id = ?", ORDER_ITEM_ID);
                 jdbc.update("DELETE FROM refund WHERE claim_id IN (SELECT id FROM claim WHERE order_item_id = ?)",

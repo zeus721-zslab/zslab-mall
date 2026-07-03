@@ -12,6 +12,7 @@ import com.zslab.mall.claim.event.ClaimRejected;
 import com.zslab.mall.order.enums.OrderItemStatus;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -49,6 +50,9 @@ class SellerClaimIntegrationTest {
     private static final long BUYER = 9501L;
     private static final long SELLER_A = 9001L; // 품목 소유 셀러
     private static final long SELLER_B = 9002L; // 타 셀러(cross-tenant)
+    // Track 36 γ Phase 3: actorId(JWT subject)를 seller_id와 다른 값으로 둔다 — user.id==seller.id 우연일치 은폐 제거.
+    private static final long SELLER_A_USER = 9051L; // SELLER_A 소속 user(actorId)
+    private static final long SELLER_B_USER = 9052L; // SELLER_B 소속 user(cross-tenant actorId)
 
     static final MariaDBContainer<?> MARIADB;
 
@@ -77,6 +81,15 @@ class SellerClaimIntegrationTest {
     @PersistenceContext
     private EntityManager entityManager;
 
+    @BeforeEach
+    void seedSellerUsers() {
+        // resolver가 user.id→seller.id를 seller_user로 해소하므로 실 매핑을 시드한다(모든 테스트 공통·I4 미시드 케이스 포함).
+        seed(() -> {
+            seedSellerUser(SELLER_A_USER, SELLER_A);
+            seedSellerUser(SELLER_B_USER, SELLER_B);
+        });
+    }
+
     // ===== I1·I2: 승인·거부 성공 =====
 
     @Test
@@ -93,7 +106,7 @@ class SellerClaimIntegrationTest {
         });
 
         mockMvc.perform(post("/api/v1/claims/" + claimPid + "/approve")
-                        .headers(authHeaders.seller(SELLER_A)))
+                        .headers(authHeaders.seller(SELLER_A_USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.publicId").value(claimPid))
                 .andExpect(jsonPath("$.status").value("APPROVED"));
@@ -116,7 +129,7 @@ class SellerClaimIntegrationTest {
         });
 
         mockMvc.perform(post("/api/v1/claims/" + claimPid + "/reject")
-                        .headers(authHeaders.seller(SELLER_A)))
+                        .headers(authHeaders.seller(SELLER_A_USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("REJECTED"));
 
@@ -140,7 +153,7 @@ class SellerClaimIntegrationTest {
         });
 
         mockMvc.perform(post("/api/v1/claims/" + claimPid + "/approve")
-                        .headers(authHeaders.seller(SELLER_B)))
+                        .headers(authHeaders.seller(SELLER_B_USER)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("CLAIM_NOT_FOUND"));
 
@@ -153,7 +166,7 @@ class SellerClaimIntegrationTest {
     @DisplayName("I4 승인: 미존재 claimPublicId → 404·이벤트 0건")
     void approve_unknownPublicId_returns404() throws Exception {
         mockMvc.perform(post("/api/v1/claims/" + pid("clm_", "I4NONE") + "/approve")
-                        .headers(authHeaders.seller(SELLER_A)))
+                        .headers(authHeaders.seller(SELLER_A_USER)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("CLAIM_NOT_FOUND"));
 
@@ -216,6 +229,15 @@ class SellerClaimIntegrationTest {
                 .setParameter(5, reasonDetail)
                 .setParameter(6, status.name())
                 .setParameter(7, requestedBy)
+                .executeUpdate();
+    }
+
+    private void seedSellerUser(long userId, long sellerId) {
+        entityManager.createNativeQuery(
+                        "INSERT INTO seller_user (user_id, seller_id, role_id, created_at, updated_at) "
+                                + "SELECT ?1, ?2, id, NOW(6), NOW(6) FROM role WHERE code = 'SELLER_OWNER'")
+                .setParameter(1, userId)
+                .setParameter(2, sellerId)
                 .executeUpdate();
     }
 
