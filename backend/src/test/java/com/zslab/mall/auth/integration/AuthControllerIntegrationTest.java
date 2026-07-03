@@ -42,8 +42,11 @@ class AuthControllerIntegrationTest {
 
     private static final long USER_ID = 9440L;
     private static final long NULL_PW_USER_ID = 9441L;
+    private static final long SELLER_USER_ID = 9442L;
+    private static final long SELLER_ID = 9443L;
     private static final String EMAIL = "login-test@zslab.test";
     private static final String NULL_PW_EMAIL = "nullpw@zslab.test";
+    private static final String SELLER_EMAIL = "seller-test@zslab.test";
     private static final String PASSWORD = "correct-horse-battery-staple";
     private static final String FAILURE_MESSAGE = "Invalid email or password.";
 
@@ -136,16 +139,29 @@ class AuthControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("(5) role 자격 검증 통과(Stub): role=SELLER 유효 로그인 → 200·토큰 role=SELLER")
-    void roleAuthorizationStub_passes_returns200() throws Exception {
-        MvcResult result = mockMvc.perform(post("/api/v1/auth/login")
+    @DisplayName("(5) 유효 credential+role=SELLER인데 seller_user 부재 → 401·fail-closed(role 위조 차단)")
+    void sellerRoleWithoutSellerUser_returns401() throws Exception {
+        // EMAIL 유저는 BUYER user_role만 보유·seller_user 행 없음 → SELLER 자격 없음(비번은 정상이나 role 판정에서 거부).
+        mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(loginBody(EMAIL, PASSWORD, "SELLER")))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.detail").value(FAILURE_MESSAGE));
+    }
+
+    @Test
+    @DisplayName("(6) seller_user 보유 유저+role=SELLER → 200·토큰 role=SELLER")
+    void sellerRoleWithSellerUser_returns200() throws Exception {
+        MvcResult result = mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(loginBody(SELLER_EMAIL, PASSWORD, "SELLER")))
                 .andExpect(status().isOk())
                 .andReturn();
 
         String token = objectMapper.readTree(result.getResponse().getContentAsString()).get("token").asText();
-        assertThat(tokenProvider.verify(token).role()).isEqualTo(ActorRole.SELLER);
+        TokenPayload payload = tokenProvider.verify(token);
+        assertThat(payload.actorId()).isEqualTo(SELLER_USER_ID);
+        assertThat(payload.role()).isEqualTo(ActorRole.SELLER);
     }
 
     // ---------- seed·helpers (SellerDeliveryIntegrationTest 패턴·? positional 바인딩·SQL injection 없음) ----------
@@ -160,6 +176,20 @@ class AuthControllerIntegrationTest {
                 jdbc.update("INSERT INTO `user` (id, public_id, email, created_at, updated_at) "
                                 + "VALUES (?, ?, ?, NOW(6), NOW(6))",
                         NULL_PW_USER_ID, pid("usr_", "AUTH2"), NULL_PW_EMAIL);
+                jdbc.update("INSERT INTO `user` (id, public_id, email, password_hash, created_at, updated_at) "
+                                + "VALUES (?, ?, ?, ?, NOW(6), NOW(6))",
+                        SELLER_USER_ID, pid("usr_", "AUTH3"), SELLER_EMAIL, passwordEncoder.encode(PASSWORD));
+                // (1) BUYER 성공: fail-closed RBAC 통과에 user_role 매핑 실존 필요. role_id는 V11 seed를 code로 조회(하드코딩 금지).
+                jdbc.update("INSERT INTO user_role (user_id, role_id, created_at) "
+                                + "SELECT ?, id, NOW(6) FROM role WHERE code = ?",
+                        USER_ID, "BUYER");
+                // (6) SELLER 성공: seller_user 행 존재만으로 SELLER 통과(role 종류 무관). seller 먼저 심고 SELLER_OWNER 매핑.
+                jdbc.update("INSERT INTO seller (id, public_id, company_name, ceo_name, status, created_at, updated_at) "
+                                + "VALUES (?, ?, ?, ?, 'ACTIVE', NOW(6), NOW(6))",
+                        SELLER_ID, pid("slr_", "AUTH1"), "테스트셀러", "대표");
+                jdbc.update("INSERT INTO seller_user (seller_id, user_id, role_id, created_at, updated_at) "
+                                + "SELECT ?, ?, id, NOW(6), NOW(6) FROM role WHERE code = ?",
+                        SELLER_ID, SELLER_USER_ID, "SELLER_OWNER");
             } finally {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
             }
@@ -170,7 +200,14 @@ class AuthControllerIntegrationTest {
         tx.executeWithoutResult(s -> {
             try {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
-                jdbc.update("DELETE FROM `user` WHERE id IN (?, ?)", USER_ID, NULL_PW_USER_ID);
+                // FK RESTRICT 회귀 방지: 자식(user_role·seller_user)·seller를 user보다 먼저 삭제.
+                jdbc.update("DELETE FROM user_role WHERE user_id IN (?, ?, ?)",
+                        USER_ID, NULL_PW_USER_ID, SELLER_USER_ID);
+                jdbc.update("DELETE FROM seller_user WHERE user_id IN (?, ?, ?)",
+                        USER_ID, NULL_PW_USER_ID, SELLER_USER_ID);
+                jdbc.update("DELETE FROM seller WHERE id = ?", SELLER_ID);
+                jdbc.update("DELETE FROM `user` WHERE id IN (?, ?, ?)",
+                        USER_ID, NULL_PW_USER_ID, SELLER_USER_ID);
             } finally {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
             }
