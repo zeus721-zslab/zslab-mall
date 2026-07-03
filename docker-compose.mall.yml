@@ -12,15 +12,36 @@ services:
       DB_NAME: ${DB_NAME}
       DB_USERNAME: ${DB_USERNAME}
       DB_PASSWORD: ${DB_PASSWORD}
+      LOG_PATH: ${LOG_PATH:-/app/logs}
     volumes:
       - ./backend:/app
       - mall_gradle_cache:/home/gradle/.gradle
+      - mall_backend_logs:/app/logs
     networks:
       - zslab_zslab_net
       - gateway_net
 
+  # Track 32 Phase 2 — prod 로그 수집 (named volume mall_backend_logs 공유 → zslab_elasticsearch 전송)
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:8.13.0
+    container_name: zslab_mall_filebeat
+    restart: unless-stopped
+    user: root   # 로그 파일 read + filebeat.yml read 위해
+    command: ["filebeat", "-e", "-strict.perms=false"]
+    environment:
+      ES_HOST: ${ES_HOST:-zslab_elasticsearch}
+      ES_PORT: ${ES_PORT:-9200}
+    volumes:
+      - ./docker/filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - mall_backend_logs:/app/logs:ro
+    networks:
+      - zslab_zslab_net
+    depends_on:
+      - zslab_mall_backend
+
 volumes:
   mall_gradle_cache:
+  mall_backend_logs:
 
 networks:
   zslab_zslab_net:

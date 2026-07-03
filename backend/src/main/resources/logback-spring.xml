@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+    <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+
+    <!-- LOG_PATH: .env.example LOG_PATH=/app/logs 참조 -->
+    <springProperty scope="context" name="LOG_PATH" source="LOG_PATH" defaultValue="/app/logs"/>
+
+    <springProfile name="!prod">
+        <root>
+            <appender-ref ref="CONSOLE"/>
+        </root>
+    </springProfile>
+
+    <springProfile name="prod">
+        <!-- prod: JSON 파일 appender (Filebeat 수집용) + CONSOLE (컨테이너 stdout 확인용) -->
+        <appender name="JSON_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+            <file>${LOG_PATH}/zslab-mall.json</file>
+            <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+                <fileNamePattern>${LOG_PATH}/zslab-mall-%d{yyyy-MM-dd}.%i.json</fileNamePattern>
+                <maxFileSize>100MB</maxFileSize>
+                <maxHistory>14</maxHistory>
+                <totalSizeCap>3GB</totalSizeCap>
+            </rollingPolicy>
+            <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+                <!-- MDC 3종 명시 — 계약 고정 (LogstashEncoder 기본: MDC 전체 포함) -->
+                <includeMdcKeyName>traceId</includeMdcKeyName>
+                <includeMdcKeyName>correlationId</includeMdcKeyName>
+                <includeMdcKeyName>eventName</includeMdcKeyName>
+            </encoder>
+        </appender>
+
+        <!-- 레벨은 application-prod.yml logging.level.root=WARN 이 관리 -->
+        <root>
+            <appender-ref ref="CONSOLE"/>
+            <appender-ref ref="JSON_FILE"/>
+        </root>
+    </springProfile>
+</configuration>
