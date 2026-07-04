@@ -3,6 +3,7 @@ package com.zslab.mall.common.web;
 import com.zslab.mall.auth.exception.AdminOperatorAlreadyExistsException;
 import com.zslab.mall.auth.exception.AuthenticationFailedException;
 import com.zslab.mall.auth.exception.SuperAdminRequiredException;
+import com.zslab.mall.cart.exception.CartItemNotFoundException;
 import com.zslab.mall.cart.exception.EmptyCartCheckoutException;
 import com.zslab.mall.category.exception.CategoryNotFoundException;
 import com.zslab.mall.checkout.exception.CheckoutItemMismatchException;
@@ -85,6 +86,7 @@ public class GlobalExceptionHandler {
     private static final String CODE_SELLER_USER_ALREADY_EXISTS = "SELLER_USER_ALREADY_EXISTS";
     private static final String CODE_ADMIN_OPERATOR_ALREADY_EXISTS = "ADMIN_OPERATOR_ALREADY_EXISTS";
     private static final String CODE_CATEGORY_NOT_FOUND = "CATEGORY_NOT_FOUND";
+    private static final String CODE_CART_ITEM_NOT_FOUND = "CART_ITEM_NOT_FOUND";
     private static final String CODE_PRODUCT_VARIANT_OPTION_CONFLICT = "PRODUCT_VARIANT_OPTION_CONFLICT";
     private static final String CODE_FORBIDDEN = "FORBIDDEN";
     private static final String CODE_INTERNAL_ERROR = "INTERNAL_ERROR";
@@ -197,6 +199,13 @@ public class GlobalExceptionHandler {
             CategoryNotFoundException exception, HttpServletRequest request) {
         // Track 39: 상품 등록 시 categoryId 미존재(404). 500 fallback으로 새는 트랩 차단.
         return build(HttpStatus.NOT_FOUND, CODE_CATEGORY_NOT_FOUND, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(CartItemNotFoundException.class)
+    public ResponseEntity<ProblemDetail> handleCartItemNotFound(
+            CartItemNotFoundException exception, HttpServletRequest request) {
+        // Track 45: 장바구니 수량변경·selected 토글 시 대상 variant 미담김(404). 타 buyer 소유도 동일 404 은닉.
+        return build(HttpStatus.NOT_FOUND, CODE_CART_ITEM_NOT_FOUND, exception.getMessage(), request);
     }
 
     // ===== 409 =====

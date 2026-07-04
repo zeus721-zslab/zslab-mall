@@ -2,10 +2,27 @@ package com.zslab.mall.cart.service;
 
 import com.zslab.mall.cart.controller.request.CartItemAddRequest;
 import com.zslab.mall.cart.controller.response.CartItemAddResponse;
+import com.zslab.mall.cart.controller.response.CartItemView;
+import com.zslab.mall.cart.controller.response.CartResponse;
 import com.zslab.mall.cart.entity.CartItem;
+import com.zslab.mall.cart.exception.CartItemNotFoundException;
 import com.zslab.mall.cart.repository.CartItemRepository;
+import com.zslab.mall.inventory.entity.Inventory;
+import com.zslab.mall.inventory.repository.InventoryRepository;
+import com.zslab.mall.product.entity.Product;
+import com.zslab.mall.product.entity.ProductVariant;
+import com.zslab.mall.product.enums.ProductStatus;
+import com.zslab.mall.product.enums.ProductVariantStatus;
 import com.zslab.mall.product.exception.ProductVariantNotFoundException;
+import com.zslab.mall.product.repository.ProductRepository;
 import com.zslab.mall.product.repository.ProductVariantRepository;
+import com.zslab.mall.seller.entity.Seller;
+import com.zslab.mall.seller.enums.SellerStatus;
+import com.zslab.mall.seller.repository.SellerRepository;
+import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -35,6 +52,9 @@ public class CartService {
 
     private final CartItemRepository cartItemRepository;
     private final ProductVariantRepository productVariantRepository;
+    private final ProductRepository productRepository;
+    private final InventoryRepository inventoryRepository;
+    private final SellerRepository sellerRepository;
 
     /**
      * 장바구니에 상품 변형을 담는다. 동일 (userId, variantId)가 이미 있으면 수량을 누적(M1α)하고, 없으면 신규 생성한다.
@@ -81,5 +101,123 @@ public class CartService {
             throw new OptimisticLockingFailureException(
                     "동시 담기 충돌이 발생했습니다. 다시 시도해 주세요.", exception);
         }
+    }
+
+    /**
+     * 로그인 buyer의 장바구니를 조회한다(Track 45). 담김 품목을 variant→product→seller·재고로 enrich해 단가·품절·구매가능을
+     * variant 단위로 계산한다(카탈로그 정책과 계산 대상이 달라 재구현·enrich Repository만 재사용). dangling(담긴 후 variant
+     * soft-delete로 findByIdIn 누락·비-SALE·판매자 비-ACTIVE)은 삭제하지 않고 {@code purchasable=false}로 표기 유지한다.
+     */
+    @Transactional(readOnly = true)
+    public CartResponse getCart(Long userId) {
+        List<CartItem> items = cartItemRepository.findByUserId(userId);
+        if (items.isEmpty()) {
+            return new CartResponse(List.of());
+        }
+
+        List<Long> variantIds = items.stream().map(CartItem::getVariantId).distinct().toList();
+        Map<Long, ProductVariant> variantById = productVariantRepository.findByIdIn(variantIds).stream()
+                .collect(Collectors.toMap(ProductVariant::getId, Function.identity()));
+        List<Long> productIds = variantById.values().stream().map(ProductVariant::getProductId).distinct().toList();
+        Map<Long, Product> productById = productIds.isEmpty()
+                ? Map.of()
+                : productRepository.findByIdIn(productIds).stream()
+                        .collect(Collectors.toMap(Product::getId, Function.identity()));
+        List<Long> sellerIds = productById.values().stream().map(Product::getSellerId).distinct().toList();
+        Map<Long, Seller> sellerById = sellerIds.isEmpty()
+                ? Map.of()
+                : sellerRepository.findByIdIn(sellerIds).stream()
+                        .collect(Collectors.toMap(Seller::getId, Function.identity()));
+        Map<Long, Inventory> inventoryByVariant = inventoryRepository.findByVariantIdIn(variantIds).stream()
+                .collect(Collectors.toMap(Inventory::getVariantId, Function.identity()));
+
+        List<CartItemView> views = items.stream()
+                .map(item -> toView(item, variantById, productById, sellerById, inventoryByVariant))
+                .toList();
+        return new CartResponse(views);
+    }
+
+    /**
+     * 장바구니 품목을 buyer 스코프로 물리삭제한다(Track 45). deleteByUserIdAndVariantIdIn 재사용(단건도 배열 1개)이며,
+     * userId 스코프라 타 buyer 항목은 삭제되지 않는다(소유권 자동). 대상 부재 시 0행 삭제로 무해하다.
+     */
+    public void removeItems(Long userId, List<Long> variantIds) {
+        long deleted = cartItemRepository.deleteByUserIdAndVariantIdIn(userId, variantIds);
+        log.info("[Cart] 장바구니 삭제 userId={} variant_count={} deleted={}", userId, variantIds.size(), deleted);
+    }
+
+    /**
+     * 장바구니 품목 수량을 절대값으로 변경한다(Track 45). userId 스코프 단건 조회로 소유권을 보장하며, 대상 미담김 시 404다.
+     * quantity 하한(≥1·CRT-2)은 엔티티 {@link CartItem#changeQuantity}가 재검증한다(dirty checking flush).
+     *
+     * @throws CartItemNotFoundException 대상 variant가 buyer 장바구니에 없을 때(404)
+     */
+    public void changeQuantity(Long userId, Long variantId, int quantity) {
+        CartItem cartItem = cartItemRepository.findByUserIdAndVariantId(userId, variantId)
+                .orElseThrow(() -> new CartItemNotFoundException(
+                        "장바구니에 해당 상품이 담겨 있지 않습니다: variantId=" + variantId));
+        cartItem.changeQuantity(quantity);
+    }
+
+    /**
+     * 장바구니 품목 단건의 결제 선택 상태를 토글한다(Track 45). userId 스코프 단건 조회로 소유권을 보장하며, 대상 미담김 시 404다.
+     *
+     * @throws CartItemNotFoundException 대상 variant가 buyer 장바구니에 없을 때(404)
+     */
+    public void setSelected(Long userId, Long variantId, boolean selected) {
+        CartItem cartItem = cartItemRepository.findByUserIdAndVariantId(userId, variantId)
+                .orElseThrow(() -> new CartItemNotFoundException(
+                        "장바구니에 해당 상품이 담겨 있지 않습니다: variantId=" + variantId));
+        applySelected(cartItem, selected);
+    }
+
+    /** 장바구니 전 품목의 결제 선택 상태를 일괄 토글한다(Track 45). 담김 없으면 무작업. */
+    public void setSelectedAll(Long userId, boolean selected) {
+        for (CartItem cartItem : cartItemRepository.findByUserId(userId)) {
+            applySelected(cartItem, selected);
+        }
+    }
+
+    private void applySelected(CartItem cartItem, boolean selected) {
+        if (selected) {
+            cartItem.select();
+        } else {
+            cartItem.deselect();
+        }
+    }
+
+    /**
+     * 담김 품목 1건을 enrich 뷰로 변환한다. 단가·품절·구매가능은 variant 단위 실측 공식으로 계산하며, enrich 누락(dangling)은
+     * null/0/purchasable=false로 표기한다. 품절 = isSoldoutManual OR available==0(Inventory 단독 불가·variant 결합).
+     */
+    private CartItemView toView(
+            CartItem item,
+            Map<Long, ProductVariant> variantById,
+            Map<Long, Product> productById,
+            Map<Long, Seller> sellerById,
+            Map<Long, Inventory> inventoryByVariant) {
+        ProductVariant variant = variantById.get(item.getVariantId());
+        Product product = variant != null ? productById.get(variant.getProductId()) : null;
+        Seller seller = product != null ? sellerById.get(product.getSellerId()) : null;
+        Inventory inventory = inventoryByVariant.get(item.getVariantId());
+
+        // dangling(variant soft-delete)이면 inventory 행(soft-delete 없음)이 남아 있어도 재고를 0으로 표기한다(구매불가 정합).
+        int available = (variant != null && inventory != null) ? inventory.getQuantityAvailable() : 0;
+        String productName = product != null ? product.getName() : null;
+        String sellerName = seller != null ? seller.getCompanyName() : null;
+        String thumbnailUrl = product != null ? product.getThumbnailUrl() : null;
+        long displayPrice = (product != null && variant != null)
+                ? product.getBasePrice() + variant.getAdditionalPrice()
+                : 0L;
+
+        boolean purchasable = variant != null && product != null && seller != null
+                && !variant.isSoldoutManual() && available > 0
+                && variant.getStatus() == ProductVariantStatus.SALE
+                && product.getStatus() == ProductStatus.SALE
+                && seller.getStatus() == SellerStatus.ACTIVE;
+
+        return new CartItemView(
+                item.getVariantId(), item.getQuantity(), item.getSelected(),
+                productName, sellerName, displayPrice, available, purchasable, thumbnailUrl);
     }
 }
