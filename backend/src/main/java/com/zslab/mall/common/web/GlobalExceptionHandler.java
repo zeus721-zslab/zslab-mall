@@ -21,6 +21,7 @@ import com.zslab.mall.payment.exception.InvalidCallbackException;
 import com.zslab.mall.payment.exception.PaymentAlreadyCompletedException;
 import com.zslab.mall.payment.exception.PaymentInProgressException;
 import com.zslab.mall.payment.exception.PaymentNotFoundException;
+import com.zslab.mall.product.exception.ProductNotFoundException;
 import com.zslab.mall.product.exception.ProductVariantNotFoundException;
 import com.zslab.mall.product.exception.ProductVariantOptionConflictException;
 import com.zslab.mall.refund.exception.RefundInvariantViolationException;
@@ -139,6 +140,13 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(CheckoutItemNotFoundException.class)
     public ResponseEntity<ProblemDetail> handleCheckoutItemNotFound(
             CheckoutItemNotFoundException exception, HttpServletRequest request) {
+        return build(HttpStatus.NOT_FOUND, CODE_PRODUCT_NOT_FOUND, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(ProductNotFoundException.class)
+    public ResponseEntity<ProblemDetail> handleProductNotFound(
+            ProductNotFoundException exception, HttpServletRequest request) {
+        // Track 44: 구매자 카탈로그 단건 미존재·비노출(status/판매자상태/삭제) 은닉(404). 존재 여부 노출 회피(§2).
         return build(HttpStatus.NOT_FOUND, CODE_PRODUCT_NOT_FOUND, exception.getMessage(), request);
     }
 
