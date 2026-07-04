@@ -1,5 +1,6 @@
 package com.zslab.mall.order.controller;
 
+import com.zslab.mall.checkout.controller.CheckoutOutcomeSupport;
 import com.zslab.mall.checkout.service.CheckoutOutcome;
 import com.zslab.mall.checkout.service.CheckoutService;
 import com.zslab.mall.common.auth.BuyerActorResolver;
@@ -13,7 +14,6 @@ import com.zslab.mall.order.controller.response.PagedResponse;
 import com.zslab.mall.order.service.BuyerOrderQueryService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
-import java.net.URI;
 import java.util.regex.Pattern;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -64,7 +64,7 @@ public class BuyerOrderController {
         Long buyerId = buyerActorResolver.resolve(httpRequest);
         String idempotencyKey = resolveIdempotencyKey(idempotencyKeyHeader);
         CheckoutOutcome outcome = checkoutService.checkout(request.toCommand(buyerId, idempotencyKey));
-        return toResponseEntity(outcome);
+        return CheckoutOutcomeSupport.toResponseEntity(outcome);
     }
 
     /** 본인 주문 단건 조회(§11 seller 그룹화). */
@@ -92,15 +92,7 @@ public class BuyerOrderController {
             @RequestBody @Valid RetryPaymentRequest request, HttpServletRequest httpRequest) {
         Long buyerId = buyerActorResolver.resolve(httpRequest);
         CheckoutOutcome outcome = checkoutService.retryPayment(orderPublicId, buyerId, request.method());
-        return toResponseEntity(outcome);
-    }
-
-    /** 멱등성 캐시 재반환은 200(Location 없음·§10), 그 외 신규/재결제는 201 + Location(D-53). */
-    private ResponseEntity<CheckoutResponse> toResponseEntity(CheckoutOutcome outcome) {
-        if (outcome.cached()) {
-            return ResponseEntity.ok(outcome.response());
-        }
-        return ResponseEntity.created(URI.create(outcome.location())).body(outcome.response());
+        return CheckoutOutcomeSupport.toResponseEntity(outcome);
     }
 
     /** Idempotency-Key 헤더를 검증한다. 미전달은 null 허용(§8), 전달 시 형식 위반 → 400. */
