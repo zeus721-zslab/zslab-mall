@@ -65,15 +65,17 @@ class SellerUserRepositoryTest extends Batch1DataJpaTestBase {
     }
 
     @Test
-    @DisplayName("UK(seller_id, user_id) 중복 삽입 → DataIntegrityViolationException")
-    void insert_duplicateSellerUser_throwsDataIntegrityViolation() {
-        Seller seller = seedSeller("slr_11234567890123456789012345");
+    @DisplayName("user_id 단독 UNIQUE(V12): 동일 user_id를 다른 seller에 매핑 → DataIntegrityViolationException(1 user=1 seller)")
+    void insert_sameUserDifferentSeller_throwsDataIntegrityViolation() {
+        Seller sellerA = seedSeller("slr_11234567890123456789012345");
+        Seller sellerB = seedSeller("slr_31234567890123456789012345");
         long userId = seedUser("usr_11234567890123456789012345");
         Role role = roleRepository.findByCode(RoleCode.SELLER_OWNER).orElseThrow();
-        sellerUserRepository.saveAndFlush(SellerUser.create(seller, userId, role.getId()));
+        sellerUserRepository.saveAndFlush(SellerUser.create(sellerA, userId, role.getId()));
 
+        // V12: uk_seller_user_user_id(user_id 단독)이므로 동일 user_id는 seller가 달라도 두 번째 매핑이 불가하다.
         assertThatThrownBy(() ->
-            sellerUserRepository.saveAndFlush(SellerUser.create(seller, userId, role.getId()))
+            sellerUserRepository.saveAndFlush(SellerUser.create(sellerB, userId, role.getId()))
         ).isInstanceOf(DataIntegrityViolationException.class);
     }
 

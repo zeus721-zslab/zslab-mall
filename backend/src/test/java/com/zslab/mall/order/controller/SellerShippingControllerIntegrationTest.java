@@ -47,6 +47,9 @@ class SellerShippingControllerIntegrationTest {
     private static final long USER_ID = 9424L;
     private static final long SELLER_A = 9424L; // 품목 소유 셀러
     private static final long SELLER_B = 9425L; // 타 셀러(cross-tenant)
+    // Track 36 γ Phase 3: actorId(JWT subject)를 seller_id와 다른 값으로 둔다 — user.id==seller.id 우연일치 은폐 제거.
+    private static final long SELLER_A_USER = 9426L; // SELLER_A 소속 user(actorId)
+    private static final long SELLER_B_USER = 9427L; // SELLER_B 소속 user(cross-tenant actorId)
     private static final long PRODUCT_ID = 9424L;
     private static final long VARIANT_ID = 9424L;
     private static final long ORDER_ID = 9424L;
@@ -91,6 +94,7 @@ class SellerShippingControllerIntegrationTest {
     void setUp() {
         tx = new TransactionTemplate(txManager);
         cleanup();
+        seedSellerUsers();
     }
 
     @AfterEach
@@ -104,7 +108,7 @@ class SellerShippingControllerIntegrationTest {
         seedItem("PAID", "PAID");
 
         mockMvc.perform(post(PREPARE_URL)
-                        .headers(authHeaders.seller(SELLER_A))
+                        .headers(authHeaders.seller(SELLER_A_USER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("CJ", TRACKING_NO)))
                 .andExpect(status().isOk())
@@ -143,7 +147,7 @@ class SellerShippingControllerIntegrationTest {
         seedItem("PAID", "PAID");
 
         mockMvc.perform(post(PREPARE_URL)
-                        .headers(authHeaders.seller(SELLER_B))
+                        .headers(authHeaders.seller(SELLER_B_USER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("CJ", TRACKING_NO)))
                 .andExpect(status().isNotFound())
@@ -160,7 +164,7 @@ class SellerShippingControllerIntegrationTest {
         seedItem("SHIPPING", "SHIPPING");
 
         mockMvc.perform(post(PREPARE_URL)
-                        .headers(authHeaders.seller(SELLER_A))
+                        .headers(authHeaders.seller(SELLER_A_USER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("CJ", TRACKING_NO)))
                 .andExpect(status().isUnprocessableEntity())
@@ -206,10 +210,28 @@ class SellerShippingControllerIntegrationTest {
         });
     }
 
+    // resolver 해소용 seller_user 실 매핑 시드(actorId≠seller_id·FK_CHECKS=0라 user/seller 행 부재 허용·role_id=SELLER_OWNER seed).
+    private void seedSellerUsers() {
+        tx.executeWithoutResult(s -> {
+            try {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
+                jdbc.update("INSERT INTO seller_user (user_id, seller_id, role_id, created_at, updated_at) "
+                                + "SELECT ?, ?, id, NOW(6), NOW(6) FROM role WHERE code = 'SELLER_OWNER'",
+                        SELLER_A_USER, SELLER_A);
+                jdbc.update("INSERT INTO seller_user (user_id, seller_id, role_id, created_at, updated_at) "
+                                + "SELECT ?, ?, id, NOW(6), NOW(6) FROM role WHERE code = 'SELLER_OWNER'",
+                        SELLER_B_USER, SELLER_B);
+            } finally {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
+            }
+        });
+    }
+
     private void cleanup() {
         tx.executeWithoutResult(s -> {
             try {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
+                jdbc.update("DELETE FROM seller_user WHERE user_id IN (?, ?)", SELLER_A_USER, SELLER_B_USER);
                 jdbc.update("DELETE FROM notification_log WHERE recipient_user_id = ?", USER_ID);
                 jdbc.update("DELETE FROM delivery WHERE order_item_id = ?", ORDER_ITEM_ID);
                 jdbc.update("DELETE FROM order_item WHERE id = ?", ORDER_ITEM_ID);
