@@ -71,6 +71,9 @@ public class SecurityConfig {
                         .hasRole("BUYER")
                         .requestMatchers("/api/v1/order-items/**")
                         .hasRole("SELLER")
+                        // 일반 주문 배송 완료(Track 43·Seller). /api/v1/admin/deliveries/**(ADMIN)와 prefix 상이·미충돌.
+                        .requestMatchers("/api/v1/deliveries/**")
+                        .hasRole("SELLER")
                         .requestMatchers("/api/v1/seller/**")
                         .hasRole("SELLER")
                         .requestMatchers("/api/v1/admin/**")

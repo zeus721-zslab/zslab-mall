@@ -8178,3 +8178,46 @@ Track 42는 코드 변경 0으로 배선을 실측 확인하고 domain-events.md
 
 ---
 
+## D-128. Track 43 배송 — Seller markDelivered endpoint 신설 + E2E 관통 테스트 [ACTIVE] (2026-07-05)
+
+### §1-A 판단별 옵션 (α/β/γ 채택·기각)
+- **트랙 범위**: α E2E 관통 검증만(기각) / α+β 통합 = 관통 검증 + Seller markDelivered 신설(채택). 기각 사유: markDelivered 부재(Admin 단독·Seller 부재)는 소비처 있는 실재 부채. 범위 크기로 분리·이연은 기조 4 위반("범위가 크니 이연"은 근거 불가). 실재 결함 처치는 범위 무관 정당.
+- **M1 endpoint 자리**: α delivery 키 `/api/v1/deliveries/{dlv}/mark-delivered`(채택·Admin 대칭) / β order-item 키 확장(기각·Admin 비대칭)
+- **M2 E2E 방식**: α 실 HTTP 연쇄(채택·트리거 배선까지 검증) / β JDBC 시드 단축(기각·결제→배송 트리거 단절·세그먼트 테스트와 차별성 없음)
+- **M3 일반배송 HTTP 커버**: α 신규 endpoint 테스트로 확보(채택·기존 HTTP는 EXCHANGE만 T5) / β Service 레벨 유지(기각·공백 방치)
+- **M4 비-SHIPPING 진입**: α 422 명시 매핑(채택·신규 endpoint 방어 계약) / β primitive 그대로(기각)
+- **응답 DTO**: α `RegisterExchangeShipmentResponse` 재사용(채택·Admin 대칭·신규 DTO 0) / β `MarkDeliveredResponse` 신설(기각·실익 이름뿐)
+- **등급**: A급(신규 구현 소규모·코어 배선 기 테스트 고정·저위험)
+
+### §2 결정 라운드 재진입 근거
+정찰 실측 결과 배송 코어 배선(Entity·Service·Controller 2종·Repository·Enum·E4/E5·핸들러·Flyway·테스트 28건)은 전 계층 기구현. Track 41·42에 이은 3연속 "전제 반전". 진짜 부재 = 외부 택배 seam(D-111 이연)·일반주문 Seller markDelivered·자동 구매확정(범위 밖). 이 중 markDelivered만 E2E 종점(배송완료) 달성에 필요한 실재 부채로 확정 → 트랙 범위 = 관통 검증 + markDelivered.
+
+### §3 배선 실측 (경로:라인)
+- Seller wrapper: `OrderShippingService.markDeliveredBySeller(sellerId, deliveryId)` + `authorizeDelivery` 신설. `DeliveryRepository` 주입. 소유권 = delivery→`getOrderItemId()`→OrderItem→`getSellerId().equals`, 미존재·타셀러 모두 `DeliveryNotFoundException`(404 은닉). `IllegalStateException`→`DeliveryInvalidStateException`(422) 흡수. primitive `markDelivered` 재사용(전이·E5 무변경).
+- 배치 근거: delivery⊥order(delivery 패키지 order import 0 실측) → 소유권 가드는 order 패키지.
+- 컨트롤러: `SellerDeliveryCompletionController` (order 패키지) — `POST /api/v1/deliveries/{deliveryPublicId}/mark-delivered`. `SellerActorResolver`→sellerId·`findByPublicId` 404→service→OSIV 재조회 응답 (Admin `AdminDeliveryController.java:77-90` 대칭).
+- 인가: `SecurityConfig` `/api/v1/deliveries/**`→`hasRole("SELLER")` (admin prefix 상이·미충돌).
+- 재사용 자산: `RegisterExchangeShipmentResponse`·`DeliveryInvalidStateException`(422)·`DeliveryNotFoundException`(404) — 신규 예외·DTO 0.
+- primitive: `DeliveryService.markDelivered`(DeliveryService.java:65-72)·`markDeliveredByAdmin` 1:1 위임(152-155) 선례.
+
+### 진입점 카드
+1. **목적**: 일반주문 배송완료를 Seller가 수행하는 endpoint 신설 + 회원가입→…→배송완료 E2E 실 HTTP 관통 검증.
+2. **핵심 진입점 파일/라인**: `SellerDeliveryCompletionController`(POST /api/v1/deliveries/{dlv}/mark-delivered) / `OrderShippingService.markDeliveredBySeller` / `SecurityConfig`(/api/v1/deliveries/**).
+3. **핵심 SoT 메서드**: `OrderShippingService.markDeliveredBySeller` / `authorizeDelivery` / `DeliveryService.markDelivered`(primitive 재사용).
+4. **영향 범위**: 배송·주문·재고·클레임·알림 연계. 코드 변경 = 소유권 가드+wrapper+컨트롤러+SecurityConfig. 전이·이벤트·핸들러 무변경.
+5. **패턴 재사용 SoT + 회차**: Admin markDelivered 위임 패턴(D-104) / 소유권 404 은닉 계약(`OrderShippingService.authorize`) / 이벤트 통합 테스트 패턴(InventoryEventIntegrationTest) / 컨트롤러 통합 테스트(SellerShippingControllerIntegrationTest).
+6. **트랩 주의**: LT-02(FK_CHECKS try-finally) / 클래스 @Transactional 금지(AFTER_COMMIT 실커밋) / DTO 이름-의미 드리프트(RegisterExchangeShipmentResponse 재사용).
+
+### 테스트
+- `SellerDeliveryCompletionControllerIntegrationTest` (4): 무인증 401 / 소유셀러 SHIPPING 일반배송(claim_id NULL)→200·DELIVERED·OrderItem/Order DELIVERED·E5 1회 / cross-tenant 404 / 비-SHIPPING(READY) 422.
+- `OrderFulfillmentE2EIntegrationTest` (1): 주문(buyer)→결제완료 webhook SUCCESS→발송(seller)→배송완료(seller 신설) 실 HTTP 4연쇄·각 단계 JDBC 검증·최종 Payment PAID·Order/OrderItem/Delivery DELIVERED.
+- 회귀: 645 tests·failures 0·errors 0·--rerun-tasks 실측·BUILD SUCCESSFUL.
+
+### §8 carry-over
+- 응답 DTO 이름-의미 드리프트(`RegisterExchangeShipmentResponse` 재사용) — 필요 시 후속 정합.
+- "X-Seller-Id 헤더 stub" Javadoc 레거시 명칭 드리프트(실제 Bearer JWT) — 본 트랙 범위 밖·백로그.
+- 외부 택배 seam(D-111 이연)·자동 구매확정(DELIVERED→CONFIRMED·E6)·부분배송 1:N — 후속 트랙.
+- E2E 남은 관문: 없음(회원가입→상품등록→장바구니→구매→구매완료→배송완료 관통 달성).
+
+---
+
