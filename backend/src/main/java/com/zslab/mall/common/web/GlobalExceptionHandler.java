@@ -3,6 +3,7 @@ package com.zslab.mall.common.web;
 import com.zslab.mall.auth.exception.AdminOperatorAlreadyExistsException;
 import com.zslab.mall.auth.exception.AuthenticationFailedException;
 import com.zslab.mall.auth.exception.SuperAdminRequiredException;
+import com.zslab.mall.category.exception.CategoryNotFoundException;
 import com.zslab.mall.checkout.exception.CheckoutItemMismatchException;
 import com.zslab.mall.checkout.exception.CheckoutItemNotFoundException;
 import com.zslab.mall.checkout.exception.IdempotencyKeyInProgressException;
@@ -20,6 +21,7 @@ import com.zslab.mall.payment.exception.PaymentAlreadyCompletedException;
 import com.zslab.mall.payment.exception.PaymentInProgressException;
 import com.zslab.mall.payment.exception.PaymentNotFoundException;
 import com.zslab.mall.product.exception.ProductVariantNotFoundException;
+import com.zslab.mall.product.exception.ProductVariantOptionConflictException;
 import com.zslab.mall.refund.exception.RefundInvariantViolationException;
 import com.zslab.mall.refund.exception.RefundNotFoundException;
 import com.zslab.mall.seller.exception.SellerUserAlreadyExistsException;
@@ -79,6 +81,8 @@ public class GlobalExceptionHandler {
     private static final String CODE_USER_NOT_FOUND = "USER_NOT_FOUND";
     private static final String CODE_SELLER_USER_ALREADY_EXISTS = "SELLER_USER_ALREADY_EXISTS";
     private static final String CODE_ADMIN_OPERATOR_ALREADY_EXISTS = "ADMIN_OPERATOR_ALREADY_EXISTS";
+    private static final String CODE_CATEGORY_NOT_FOUND = "CATEGORY_NOT_FOUND";
+    private static final String CODE_PRODUCT_VARIANT_OPTION_CONFLICT = "PRODUCT_VARIANT_OPTION_CONFLICT";
     private static final String CODE_FORBIDDEN = "FORBIDDEN";
     private static final String CODE_INTERNAL_ERROR = "INTERNAL_ERROR";
 
@@ -178,6 +182,13 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.NOT_FOUND, CODE_USER_NOT_FOUND, exception.getMessage(), request);
     }
 
+    @ExceptionHandler(CategoryNotFoundException.class)
+    public ResponseEntity<ProblemDetail> handleCategoryNotFound(
+            CategoryNotFoundException exception, HttpServletRequest request) {
+        // Track 39: 상품 등록 시 categoryId 미존재(404). 500 fallback으로 새는 트랩 차단.
+        return build(HttpStatus.NOT_FOUND, CODE_CATEGORY_NOT_FOUND, exception.getMessage(), request);
+    }
+
     // ===== 409 =====
     @ExceptionHandler(IdempotencyKeyInProgressException.class)
     public ResponseEntity<ProblemDetail> handleIdempotencyInProgress(
@@ -216,6 +227,13 @@ public class GlobalExceptionHandler {
             AdminOperatorAlreadyExistsException exception, HttpServletRequest request) {
         // Track 38: 운영 관리자 중복 부여(409·uk_user_role(user_id, role_id) 위반). user_role saveAndFlush 위반→@Transactional 롤백.
         return build(HttpStatus.CONFLICT, CODE_ADMIN_OPERATOR_ALREADY_EXISTS, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(ProductVariantOptionConflictException.class)
+    public ResponseEntity<ProblemDetail> handleProductVariantOptionConflict(
+            ProductVariantOptionConflictException exception, HttpServletRequest request) {
+        // Track 39: 상품 등록 시 동일 옵션 조합 변형 중복(409·uk_product_variant_options). DataIntegrityViolationException→409 변환.
+        return build(HttpStatus.CONFLICT, CODE_PRODUCT_VARIANT_OPTION_CONFLICT, exception.getMessage(), request);
     }
 
     // ===== 422 =====
