@@ -34,6 +34,20 @@ public class InventoryService {
     private final ProductVariantRepository productVariantRepository;
 
     /**
+     * 상품 등록 시 variant의 초기 재고 행을 생성한다(Track 39 provisioning·생성 전용 진입점·기존 adjust/reserve 계열과 분리).
+     * {@link Inventory#create}로 on_hand=initialStock·reserved=0·available=initialStock 행을 저장하고, INBOUND 이력 1행을
+     * quantity_delta 양수(+initialStock)·referenceType {@code "product"}·referenceId=productId로 기록한다(M-11·D-101 §11·
+     * inventory-policy.md §6 INBOUND=입고 정합). initialStock=0도 감사 baseline으로 이력을 남긴다(재고 0 허용·품절 의미 정의는
+     * 본 트랙 범위 아님). Seller self-service 입고({@link #markInboundBySeller})와 동일한 INBOUND 유형이며 referenceType만
+     * {@code "product"}로 구분한다. 호출부(등록 오케스트레이션) 배선은 후속 트랙 이연.
+     */
+    public void initializeInventory(Long variantId, Long productId, int initialStock) {
+        Inventory inventory = inventoryRepository.save(Inventory.create(variantId, initialStock));
+        inventoryHistoryRepository.save(
+                InventoryHistory.create(inventory, InventoryHistoryChangeType.INBOUND, initialStock, "product", productId, null));
+    }
+
+    /**
      * 재고를 예약한다(E1 OrderPlaced 소비 진입점). on_hand 불변이므로 History를 기록하지 않는다(M-11 정합·D-101 §11).
      */
     public void reserve(Long variantId, int qty) {

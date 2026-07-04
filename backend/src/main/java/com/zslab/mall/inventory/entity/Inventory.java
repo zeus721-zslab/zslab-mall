@@ -52,6 +52,26 @@ public class Inventory extends AbstractFullAuditableEntity {
     private int quantityAvailable;
 
     /**
+     * 초기 재고 레코드를 생성한다(Track 39 상품 등록 provisioning). on_hand=initialStock·reserved=0·available=initialStock으로
+     * 시작한다. initialStock=0을 허용하며(재고 0 허용·품절 의미 정의는 본 트랙 범위 아님) 음수만 차단한다. 기존 도메인 행위
+     * (reserve·adjustStock 등)는 이미 존재하는 재고 행을 mutate하므로, 최초 재고 seed는 본 팩토리가 전담한다(D-101 §2 캡슐화 정합).
+     *
+     * @throws IllegalArgumentException variantId 누락 또는 initialStock이 음수일 때
+     */
+    public static Inventory create(Long variantId, int initialStock) {
+        if (variantId == null || initialStock < 0) {
+            throw new IllegalArgumentException(
+                    "Inventory 초기값 오류(variantId 누락 또는 initialStock 음수): variantId=" + variantId + ", initialStock=" + initialStock);
+        }
+        Inventory inventory = new Inventory();
+        inventory.variantId = variantId;
+        inventory.quantityOnHand = initialStock;
+        inventory.quantityReserved = 0;
+        inventory.quantityAvailable = initialStock;
+        return inventory;
+    }
+
+    /**
      * 재고를 예약한다(E1 OrderPlaced). reserved += qty 후 available를 재계산하며, 예약 결과 available &lt; 0이면
      * oversell이므로 INV-1 위반으로 차단한다(D-101 §2·§10 β). 계산·검증 후 mutate하여 위반 시 상태를 보존한다.
      *
