@@ -3,6 +3,8 @@ package com.zslab.mall.order.service;
 import com.zslab.mall.delivery.entity.Delivery;
 import com.zslab.mall.delivery.enums.DeliveryCarrier;
 import com.zslab.mall.delivery.exception.DeliveryInvalidStateException;
+import com.zslab.mall.delivery.exception.DeliveryNotFoundException;
+import com.zslab.mall.delivery.repository.DeliveryRepository;
 import com.zslab.mall.delivery.service.DeliveryService;
 import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.enums.OrderItemStatus;
@@ -25,16 +27,23 @@ import org.springframework.transaction.annotation.Transactional;
  * <p><b>가드 B(순서)</b>: {@link #changeToPreparing}는 반드시 markShipping(E4 발행) 前 실행한다. 역전 시 OrderItem이 PAID인 채
  * E4가 발화하여 {@code DeliveryStartedHandler} 가드가 warn+return(조용한 skip)으로 OrderItem을 PAID로 잔류시켜
  * Delivery만 SHIPPING이 되는 데이터 불일치가 발생한다.
+ *
+ * <p><b>배송 완료(Track 43)</b>: {@link #markDeliveredBySeller}는 발송의 대칭으로 판매자 수동 배송 완료(SHIPPING→DELIVERED·E5)를
+ * 처리한다. 소유권 해소(delivery→orderItem→seller)가 order 패키지 책임이므로 Admin 경로({@code DeliveryService.markDeliveredByAdmin})와
+ * 달리 본 서비스에 위치한다(delivery는 order 무지 유지). 상태 전이·E5 발행은 primitive {@code markDelivered}를 재사용한다.
  */
 @Service
 @Transactional
 public class OrderShippingService {
 
     private final OrderItemRepository orderItemRepository;
+    private final DeliveryRepository deliveryRepository;
     private final DeliveryService deliveryService;
 
-    public OrderShippingService(OrderItemRepository orderItemRepository, DeliveryService deliveryService) {
+    public OrderShippingService(OrderItemRepository orderItemRepository, DeliveryRepository deliveryRepository,
+            DeliveryService deliveryService) {
         this.orderItemRepository = orderItemRepository;
+        this.deliveryRepository = deliveryRepository;
         this.deliveryService = deliveryService;
     }
 
@@ -92,6 +101,47 @@ public class OrderShippingService {
             orderItem.changeStatus(OrderItemStatus.PREPARING);
         } catch (IllegalStateException exception) {
             throw new DeliveryInvalidStateException("배송 개시할 수 없는 주문 품목 상태입니다: " + exception.getMessage());
+        }
+    }
+
+    /**
+     * 판매자 수동 배송 완료를 처리한다(Track 43·prepareShipment 대칭·M4). deliveryId로 배송을 조회해 소유권을 검증한 뒤
+     * 배송 완료 전이(SHIPPING→DELIVERED·E5 발행)를 primitive에 위임한다. 전이 후 E5 동기 소비({@code DeliveryCompletedHandler})가
+     * 같은 트랜잭션에서 OrderItem을 DELIVERED로 확정하고 Order.status를 재계산한다.
+     *
+     * <p><b>소유권(D-92·{@link #authorize} 계약 동일)</b>: Delivery는 sellerId를 직접 보유하지 않으므로
+     * {@link Delivery#getOrderItemId()} → OrderItem → {@link OrderItem#getSellerId()} 1-hop으로 해소한다. 배송 미존재와 타 셀러
+     * 소유를 모두 {@link DeliveryNotFoundException}(404)으로 통일해 cross-tenant 존재 노출을 회피한다.
+     *
+     * @param sellerId   요청 판매자 식별자(권한 대조)
+     * @param deliveryId 배송 완료 대상 Delivery id
+     * @throws DeliveryNotFoundException     배송 미존재 또는 요청 판매자 소유가 아닌 경우(존재 은닉·404)
+     * @throws DeliveryInvalidStateException 배송이 SHIPPING이 아니어서 DELIVERED 전이 불가한 경우(배송 완료 불가·422)
+     */
+    public void markDeliveredBySeller(Long sellerId, Long deliveryId) {
+        Delivery delivery = deliveryRepository.findById(deliveryId)
+                .orElseThrow(() -> new DeliveryNotFoundException("배송을 찾을 수 없습니다: deliveryId=" + deliveryId));
+        authorizeDelivery(sellerId, delivery);
+        try {
+            deliveryService.markDelivered(deliveryId);
+        } catch (IllegalStateException exception) {
+            // 비-SHIPPING(READY·이미 DELIVERED) 배송의 DELIVERED 전이 위반(Delivery.markDelivered)을 422로 흡수한다 —
+            // 직접 IllegalStateException 매핑은 500 fallback으로 새므로 금지(changeToPreparing 패턴 1:1·M4).
+            throw new DeliveryInvalidStateException("배송 완료 처리할 수 없는 배송 상태입니다: " + exception.getMessage());
+        }
+    }
+
+    /**
+     * 요청 판매자가 해당 배송의 OrderItem 소유 셀러인지 검증한다(delivery→orderItem→seller 1-hop·Track 43). 배송이 참조하는
+     * OrderItem 미존재와 소유자 불일치를 모두 {@link DeliveryNotFoundException}(404)으로 통일해 존재 노출을 회피한다.
+     *
+     * @throws DeliveryNotFoundException OrderItem 미존재 또는 {@link OrderItem#getSellerId()} 불일치 시
+     */
+    private void authorizeDelivery(Long sellerId, Delivery delivery) {
+        OrderItem orderItem = orderItemRepository.findById(delivery.getOrderItemId())
+                .orElseThrow(() -> new DeliveryNotFoundException("배송을 찾을 수 없습니다: deliveryId=" + delivery.getId()));
+        if (!orderItem.getSellerId().equals(sellerId)) {
+            throw new DeliveryNotFoundException("배송을 찾을 수 없습니다: deliveryId=" + delivery.getId());
         }
     }
 }
