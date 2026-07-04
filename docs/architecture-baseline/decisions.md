@@ -8221,3 +8221,71 @@ Track 42는 코드 변경 0으로 배선을 실측 확인하고 domain-events.md
 
 ---
 
+## D-129. 구매자 상품 카탈로그 조회 API 신설 (Track 44) [ACTIVE]
+
+- 일자: 2026-07-05 / 등급: A급(신규 read 도메인·외부 검토 수령) / 선행 main: 21b3b91(D-128)
+- 요약: 구매자용 상품 목록·단건 조회 API 신설. 노출대상(D1)·품절(D2)·대표가(D3) 정책 단일화. 공개 카탈로그(GET permitAll). 상태전이·금전 로직 없는 순수 read-path.
+
+### §1-A. 판단별 옵션·채택/기각
+
+M1 트랙 범위
+- α(채택) 카탈로그 read-path 5항목: 목록·단건·필터·품절정책·DEFAULT sentinel 필터. 근거: 품절·sentinel은 조회 쿼리·DTO를 공유(recon C-3 결합점)해 분리 시 1~3 재작성 유발. 결합 처치는 범위 커도 정당(기조 4).
+- β(기각) 5항목+장바구니 조회. 장바구니는 별 aggregate·read-path 재사용 이득 없음 → Track 45 분리.
+- γ(기각) 목록만. sentinel/품절 미결정 시 재작업 위험.
+
+M2 인가
+- 공개 카탈로그(채택): GET /api/v1/products/** permitAll. 근거: 로그인 전 탐색·공유 URL·SEO 관행. GET 전용·데이터 변경 없어 공격면 증가 제한적. 내부필드(sellerId 원본·costPrice) 응답 제외로 보완.
+- BUYER 한정(기각): 현행 authenticated로 자동 커버되나 로그인 전 탐색 불가·커머스 관행 이탈.
+
+M3 대표가(displayPrice)
+- basePrice + MIN(판매가능 variant additional_price)(채택). 근거: 실판매가 = base+additional이라 basePrice 단독은 구매 불가 가격 노출(외부검토 반박 수용). "N원~" 표기 의도의 최저값 정수 필드.
+- basePrice 단독(기각)·최저~최고 범위(기각·MVP 과복잡).
+
+M4 판매자 상태 결합
+- ACTIVE만 노출·SUSPENDED/TERMINATED/PENDING 비노출(채택). 단건은 404 은닉(제재/탈퇴 사실 외부 비노출). displayable 단일 개념. 카탈로그 정책 ⊥ 주문/클레임 스냅샷(기존 거래 조회 무영향).
+
+M5 상세 variant 노출
+- SALE variant만 노출(채택). HIDDEN/STOPPED SKU 유출 방지. SALE·재고0 variant는 soldOut 배지 노출. D2의 variantStatus!=SALE 항은 "비노출"로 흡수.
+- 전체 노출+배지(기각): 판매중단 옵션 유출.
+
+M6 품절(soldOut)
+- available==0 OR soldoutManual OR variantStatus!=SALE(채택). 상품 단위 soldOut = 판매가능 variant가 전부 구매불가. Inventory 별 테이블·findByVariantIdIn 배치(N+1 회피).
+
+M7 대표 이미지
+- product.thumbnail_url(채택·DDL '대표 이미지 URL' 지정 컬럼·목록 배치쿼리 불요). product_image.is_main(기각). 상세는 product_image 전체.
+
+M8 정렬
+- LATEST(기본)/PRICE_ASC/PRICE_DESC/NAME. tiebreaker created_at DESC→id DESC(안정정렬). 잘못된 sort 400.
+
+M9 페이징
+- Spring Pageable + PagedResponse(size 1~100 클램프·BuyerOrderQueryService 정합)(채택). Cursor(기각·MVP 과잉).
+
+### §2. 결정 라운드 재진입
+- 외부 검토 수령. 수용분 무발화 내재화. 반박 1(displayPrice basePrice 단독)·부분수용 1(판매자 상태)만 재검토 재진입 → M3 basePrice 철회·M4 확정.
+- Seller/Product/Variant 상태 enum·삭제 컬럼 미측정 상태로 D1·D2 값 미확정 → 상태값 정찰 재진입 후 확정(기조 5).
+
+### §3. 배선 실측 (구현·검증 후 실측·라인은 recon-report.md 대조)
+- Repository: ProductRepository.findDisplayable(categoryId, sort, pageable) 조인쿼리(Product.status=SALE ∧ Seller.status=ACTIVE·삭제는 @SQLRestriction 자동). ProductVariantRepository.findByProductIdAndStatus / findByProductIdInAndStatus(SALE). InventoryRepository.findByVariantIdIn 재사용.
+- Service: ProductCatalogService.listProducts / getProduct. 정책 단일화 = displayPrice / isPurchasable / isProductSoldOut. 단건 미존재·비노출 전부 ProductNotFoundException→404 은닉.
+- DTO: ProductSummaryResponse(record)·ProductDetailResponse(record·Variant/OptionGroup/OptionValue/Image/Option 중첩)·ProductCatalogSort(enum).
+- Controller: ProductCatalogController — GET /api/v1/products(목록·categoryId·sort·page·size)·GET /api/v1/products/{publicId}(상세). HTTP 책임만(D-40).
+- Security: SecurityConfig GET /api/v1/products/** permitAll(POST /api/v1/users permitAll 다음·구체 규칙 앞). GET 한정·다른 verb anyRequest authenticated.
+- Exception: ProductNotFoundException + GlobalExceptionHandler 404 매핑.
+- 검증: ./gradlew.bat test --rerun-tasks → BUILD SUCCESSFUL·suites=137·tests=660·failures=0·신규 15/15.
+
+### §진입점 카드
+1. 목적: 구매자 상품 목록·단건 조회(공개 카탈로그·노출/품절/대표가 정책 단일).
+2. 핵심 진입점: ProductCatalogController(GET /api/v1/products·/{publicId}) / SecurityConfig(GET products permitAll).
+3. 핵심 SoT 메서드: ProductCatalogService.listProducts·getProduct / displayPrice·isPurchasable·isProductSoldOut(정책 단일화) / ProductRepository.findDisplayable.
+4. 영향 범위: product read-path 신설(상태전이·금전 무변경). SecurityConfig permitAll 1매처 추가. 기존 트랙 무회귀(660 GREEN).
+5. 패턴 재사용: PagedResponse·size클램프(BuyerOrderQueryService) / 절대경로 컨트롤러(ProductRegistrationController·CartController) / findByIdIn enrich / @SQLRestriction 삭제 자동제외.
+6. 트랩 주의: Inventory 별 테이블·soft-delete 없음(LT 후보·N+1) / status·soldoutManual 쓰기 경로 부재(등록 시 SALE·false 고정·Track 7 이연) → 다양 status 데이터는 테스트 JDBC 시드 필요.
+
+### §8. carry-over
+- SALE variant 0개 product: displayPrice가 basePrice 단독 fallback(.orElse(0L)). soldOut=true·목록 정상 노출이라 결함 아님·후속 정합 후보.
+- 상태 전이 쓰기 경로 부재(Track 7 이연) — HIDDEN/STOPPED/SUSPENDED/TERMINATED 필터는 실동작하나 실데이터 미생성.
+- 장바구니 조회/삭제/수량변경·selected 토글(Track 45 분리·recon A 부재 확정).
+- resolveIdempotencyKey 공통화·외부 택배 seam·자동 구매확정(E6) — 기존 이연 유지.
+
+---
+
