@@ -7954,3 +7954,71 @@ Track 39(상품등록)로 "상품" 관문 확보. 다음 관문 = 장바구니(C
 D-104~D-124 실증. 다음 트랙 종결 시 D-125 동일 구조(§1-A·§2·§8·진입점 카드) 의무.
 
 ---
+
+## D-125. 장바구니 담기 경로 신설 (CartItem provisioning · buyer 주도) [ACTIVE]
+
+Track 40 · 2026-07-04 · 등급 A(외부 검토 생략) · 결정 근거 영구화 22회차
+
+### 목적
+buyer가 ProductVariant를 장바구니에 담는 write 경로 신설. E2E 사이클(회원가입→상품등록→**장바구니**→구매→배송)의 장바구니 관문. POST /api/v1/cart/items · hasRole("BUYER").
+
+### §1-A 판단별 채택·기각
+
+- **M1 중복 담기 정책 → α(수량 누적) 채택**
+  - α 수량 누적: 동일 variant 재담기 시 quantity += n. 장바구니 표준 UX·E2E 자연스러움. → 채택
+  - β 409 거부: provisioning 패턴 그대로. UX 부자연. → 기각
+  - γ 멱등 덮어쓰기: set n. 누적 손실. → 기각
+
+- **M2 variant 존재검증 → α(existsById 404) 채택**
+  - α existsById 선검증 404: D-122~124 provisioning 표준·명시적 404. → 채택
+  - β FK 위반 catch: 암묵적. → 기각
+
+- **M3 quantity 상한 → α(상한 없음) 채택**
+  - α 상한 없음: 기존 CHECK quantity>=1 하한만. 상한 실사용 요구 없음(기조 4). 재고 초과는 주문 시점 SoT. → 채택
+  - β 상한 도입(99): 근거 없는 매직넘버. → 기각
+
+- **D-1 variant 404 예외 → A(기존 재사용) 채택**
+  - A 기존 ProductVariantNotFoundException 재사용: GlobalExceptionHandler L164-169 이미 404(PRODUCT_VARIANT_NOT_FOUND) 매핑. 신규 파일 0·기조 4. → 채택
+  - B cart 예외 신설: 의미 중복. → 기각. 반론(cart 응답 code가 product 명칭)은 계약 분리 요구 부재로 수용 안 함.
+
+- **D-2 응답 식별자 노출 → B(식별자 제외) 채택**
+  - B 식별자 제외(userId·variantId·quantity·selected 4필드): cart_item public_id 컬럼 부재(HARD·id-only). 내부 PK 외부 노출은 public_id 관례(D-124) 위반. 관례 정합 우선. → 채택
+  - A 내부 id(Long) 노출: 프롬프트 "식별자" 문구엔 부합하나 관례 위반. → 기각(문구를 관례에 양보)
+
+- **R2 동시삽입 race 처리 → R2(house 패턴 catch→409) 채택**  ← 구현 전 실측으로 표면화
+  - R1 스펙 문자 그대로(catch 후 같은 TX 계속): flush의 uk 위반이 TX를 rollback-only 마킹 → commit 시 UnexpectedRollbackException 500. **라이브 트랩**. → 채택 불가
+  - R2 house 패턴: findBy present→addQuantity(순차 누적) / empty→saveAndFlush catch DataIntegrityViolationException→409 rethrow(원자 롤백). Track 37/39 대칭·트랩 0. race는 409, 클라 재시도 시 findBy가 누적. → 채택
+  - R3 REQUIRES_NEW 헬퍼(race 자동누적): 스펙 intent 보존하나 별도 빈·2차 TX·복잡도↑. 단일 운영자 MVP 과잉(기조 1/4). → 기각
+  - 예외: 기존 OptimisticLockingFailureException(409) 재사용(기조 4·의미 소폭 확장 허용).
+
+### §2 재진입 근거
+E2E 목표에서 인가 사슬(D-118~123)·상품 공급(D-124) 완료 후 다음 관문이 장바구니. 장바구니 없이 구매 시나리오 진입 불가. 정찰 실측: CartItem 엔티티·create()·BuyerActorResolver·UNIQUE 제약 존재하나 write 경로(Controller/Service) 전무 → 신설 필요.
+
+### §3 배선 실측
+- **인가**: SecurityConfig .requestMatchers("/api/v1/cart/**").hasRole("BUYER") 〔라인 확인〕 (orders/claims 매처 대칭). hasRole→ROLE_BUYER authority 매칭. 컨트롤러 @PreAuthorize 미사용.
+- **소유권**: SecurityContextBuyerActorResolver.resolve() → JWT actorId = user.id = CartItem.userId. buyer≡user(별도 Buyer 엔티티 없음·BuyerProfile은 user_id 공유 PK 종속).
+- **오케스트레이션 CartService** 〔경로/라인 확인〕:
+  1) ProductVariantRepository.existsById(variantId) false → ProductVariantNotFoundException(404)
+  2) findByUserIdAndVariantId present → CartItem.addQuantity(n)(dirty flush) / empty → CartItem.create(userId,variantId,quantity) → saveAndFlush → catch DataIntegrityViolationException → OptimisticLockingFailureException(409)
+- **재고 무연계**: 담기 시점 Inventory 호출 없음. 재고 SoT는 주문 시점(OrderPlaced·InventoryOrderPlacedHandler·D-87).
+- **스키마 무변경**: V1__init.sql:527-542 cart_item(UNIQUE uk_cart_item_user_variant·CHECK quantity>=1·FK RESTRICT) 재사용. Flyway 신규 0.
+
+### §진입점 카드
+1. **목적**: buyer가 ProductVariant를 장바구니에 담는 write 경로(수량 누적·A급).
+2. **핵심 진입점 파일**: CartController.java(POST /api/v1/cart/items) · CartService.java · SecurityConfig.java(/api/v1/cart/** 매처) 〔라인 확인〕
+3. **핵심 SoT 메서드**: CartService.add〔시그니처 확인〕 · CartItem.addQuantity(int) · CartItemRepository.findByUserIdAndVariantId(Long,Long)
+4. **영향 범위**: 신설 7(Controller·Service·요청/응답 DTO 2·통합/단위 테스트 2) · 수정 3(CartItem·CartItemRepository·SecurityConfig) · GlobalExceptionHandler 무변경 · DDL 무변경.
+5. **패턴 재사용 SoT**: provisioning 원자 TX·saveAndFlush catch→409(D-122 Seller/D-124 Product·Track 37/39) · buyer 해소 SecurityContextBuyerActorResolver(D-119 계열) · variant 참조 ProductVariant(D-124).
+6. **트랩 주의**: R2 실측(catch 후 same-TX 계속 = rollback-only→500). 순차 재담기는 pre-check findBy로 처리, race만 409 rethrow. 재고는 담기 아닌 주문 시점(D-87).
+
+### §특기
+- 회귀: 618 tests PASS(130 suites·failures 0·errors 0·skipped 0·--rerun-tasks·4m43s). 608(Track 39)→618, 신규 10(통합 6·단위 4), 기존 608 전원 통과·회귀 0.
+- 신규 파일 0 예외(D-1)·스키마 무변경(기조 4)·freeze 유지(addQuantity 추가·setter 무).
+- E2E 목표: 장바구니 관문 완료. 잔여 = 주문·결제·배송 실사용 배선.
+
+### §8 carry-over
+- "바로 결제하기"(장바구니 우회 직접 주문) 경로: Track 41 주문 정찰 시 α(장바구니 우회)/β(내부 경유) 결정. 현 미배선. 구현 가능 상황 확인됨(variant+quantity 구조·buyer resolver·재고 주문시점 SoT 재사용).
+- CartItem 조회/삭제/수량변경 경로 부재(담기 write만 신설). 장바구니 조회 API는 구매 UX 트랙에서.
+- Track 40 트랩(R2 rollback-only) = 본 D-125 §1-A/카드 박제. 재발생 시 LT-06 이관.
+
+---

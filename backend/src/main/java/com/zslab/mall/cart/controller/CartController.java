@@ -1,0 +1,45 @@
+package com.zslab.mall.cart.controller;
+
+import com.zslab.mall.cart.controller.request.CartItemAddRequest;
+import com.zslab.mall.cart.controller.response.CartItemAddResponse;
+import com.zslab.mall.cart.service.CartService;
+import com.zslab.mall.common.auth.BuyerActorResolver;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RestController;
+
+/**
+ * Buyer 장바구니 REST 컨트롤러(Track 40·buyer 주도). 담기 1 endpoint를 노출한다. 클래스 base path 없이 메서드 절대경로를
+ * 부여한다(ProductRegistrationController 선례). 인가는 SecurityConfig {@code /api/v1/cart/**}→{@code hasRole("BUYER")}가
+ * 강제하며(orders/claims 대칭), userId는 {@link BuyerActorResolver}가 SecurityContext에서 해소한다(미인증 401·비-BUYER 403·필터 계층).
+ *
+ * <p>HTTP 책임만 가진다(D-40): 액터 해소·요청 검증(@Valid)·Service 위임·201 변환. variant 존재검증·수량 누적·409 변환은
+ * {@link CartService} 책임이다. cart_item은 public_id·단건 GET 부재라 Location 없이 201+body만 반환한다(ProductRegistrationController 대칭).
+ */
+@RestController
+public class CartController {
+
+    private final CartService cartService;
+    private final BuyerActorResolver buyerActorResolver;
+
+    public CartController(CartService cartService, BuyerActorResolver buyerActorResolver) {
+        this.cartService = cartService;
+        this.buyerActorResolver = buyerActorResolver;
+    }
+
+    /**
+     * 장바구니 담기(Track 40). 성공 201 + 담김 상태. 미인증 401·비-BUYER 403(SecurityConfig 필터)·Bean Validation 위반 400·
+     * variant 미존재 404·동시삽입 충돌 409({@link CartService}·GlobalExceptionHandler).
+     */
+    @PostMapping("/api/v1/cart/items")
+    public ResponseEntity<CartItemAddResponse> addItem(
+            @Valid @RequestBody CartItemAddRequest request, HttpServletRequest httpRequest) {
+        Long userId = buyerActorResolver.resolve(httpRequest);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(cartService.addItem(userId, request));
+    }
+}
