@@ -7680,3 +7680,91 @@ Track 36(γ) = 판매자 구성원을 user 계정으로 통합하고 seller_user
 - Track 36 트랩 후보(1553 정·역·은폐성 GREEN)는 §진입점 카드 트랩 주의 + RECON §3 기재로 갈음 — live-traps.md 이관 규정(≥3건 누적·재발생) 미충족.
 
 ---
+
+## D-122. Track 37 — SELLER 계정 provisioning 경로 신설(관리자 주도)·seller/seller_user 원자 INSERT·Seller 쓰기 도입 [ACTIVE]
+
+**결정일**: 2026-07-04
+**관련**: Track 37 / D-119(V11 role seed·findByCode·Buyer 셀프가입 POST /api/v1/users·2-도메인 스키마)·D-120(DbRoleAuthorization 실조회·SellerUserRepository.existsByUserId·§8 SELLER/ADMIN 계정 생성 경로 부재 실측)·D-121(seller_user user_id 단독 UNIQUE V12·findSellerIdByUserId·HeaderSellerActorResolver 해소·§8 "판매자 등록 트랙에서 1 user=1 seller 전제 반영 필수")·D-92 Q3(actor 소유권 Service 진입부)·D-105 §2 Q2(Admin base path 없음·절대경로)·D-59(Seller read-only) / 기조 1(운영 용이성)·기조 4(과잉개발 회피)·기조 5(실측 우선)
+
+### §1 결정 요지 (구현·검증 완료 실측)
+D-119~121이 인가 소비처(RBAC 실조회·seller_user user.id→seller.id 해소)를 완성했으나 그 인가가 대조할 seller/seller_user 데이터 공급원(프로덕션 INSERT 경로)이 전무하던 공백을 종결한다. 운영관리자 주도(A 경로: 관리자 요청 접수→계정 생성→판매자 배포→판매자 첫 로그인) provisioning endpoint로 seller 입점 INSERT + 최초 owner seller_user INSERT를 단일 원자 트랜잭션으로 신설한다. ADMIN user_role 부여·Manager/Staff 구성원 등록·B 셀프가입 경로는 별 트랙 분리.
+
+- 진입점: POST /api/v1/admin/sellers(hasRole("ADMIN")·SecurityConfig /api/v1/admin/** 기존 규칙 포함·무변경). 201 + body(sellerPublicId)·Location 헤더 없음(Buyer signup 일관).
+- Seller 쓰기 도입: Seller.create(companyName, businessNo, ceoName, contactEmail, contactPhone, SellerStatus status) 정적 팩토리 신설. read-only 박제("Track 4 이연"·protected 생성자+@Getter만) 해제. NOT NULL 대상(companyName·ceoName·status) null 가드·SellerUser.create/UserRole.create 스타일 일관.
+- 원자 provisioning: SellerProvisioningService(@Transactional) — ownerUserId existsById 검증(404) → status 초기값 검증(PENDING·ACTIVE만·400) → findByCode(SELLER_OWNER) 조회(seed 누락 500) → seller save → seller_user saveAndFlush(DataIntegrityViolationException catch → 409). owner 없는 seller(고아 aggregate) 불가·전체 롤백.
+- 무변경: SecurityConfig·PaymentGateway·JWT·소유권 authorize 3곳·SellerUser 엔티티·enum 바인딩 400 핸들러(HttpMessageNotReadable.handleMalformed 재사용).
+
+**검증**: `./gradlew.bat test --rerun-tasks` BUILD SUCCESSFUL·suites 125·tests 582·failures 0·errors 0·skipped 0·회귀 0(캐시 무효화 실측·4m6s). baseline 576(D-121) + 6(AdminSellerControllerIntegrationTest: ①ADMIN 성공 seller1·seller_user1 role=SELLER_OWNER DB검증 ②비ADMIN 403 ③owner 미존재 404 ④V12 중복소속 409 ⑤status=SUSPENDED 400 ⑥롤백 seller count 0 원자성 실증) = 582.
+
+### §1-A 판단별 α/β/γ 채택·기각 (결정 근거 영구화)
+
+| 판단 | 채택 | 기각·근거 |
+|---|---|---|
+| 1 트랙 스코프 | **β seller 계열(입점+최초 owner seller_user)만** | α 3경로(seller/seller_user/ADMIN user_role) 전부 기각 — ADMIN 부여는 seller INSERT·Seller 박제 해제와 무관한 독립 경로(user_role INSERT만)·인증 성격 상이(기존 ADMIN만 부여 vs 입점 셀프신청). 한 트랙에 성격 다른 인증 결정 2개 혼입 시 결정 라운드 비대·§1-A 판단표 혼탁. γ(seller+owner 최소·추가 구성원 이연)는 β와 seller 계열 범위 동일이나 ADMIN 분리 명시가 β. seller 입점↔owner는 원자적 결속(고아 aggregate 불가)이라 분리 불가·함께. |
+| 2 Seller 쓰기 도입 방식 | **α Seller.create 정적 팩토리** | β 생성자 public+빌더 기각 — 필드 6개에 빌더 과함(과잉). γ Service native INSERT(테스트 시드 승격) 기각 — JPA 우회로 Aggregate 캡슐화 파괴·D-01 경계 위배. α = SellerUser.create·UserRole.create 기확립 팩토리 패턴 일관·null 가드/불변식 캡슐화 지점 확보. |
+| 3 status 초기값 결정 | **α-2 파라미터 주입(호출자 결정)** | α-1 create() 내부 PENDING 고정 기각 — 초기 추천은 셀프신청 심사대기 전제로 PENDING 고정이었으나, A 경로(운영관리자가 요청 검토 후 생성)는 이미 승인 판단 완료 상태라 ACTIVE 직행이 자연·PENDING 강제는 A 흐름과 불일치. status 결정을 팩토리에 가두지 않고 호출자 위임 시 A(ACTIVE)·B 셀프신청(PENDING→심사→ACTIVE) 두 경로를 같은 팩토리로 커버(과잉개발 회피·seam 확정). 내부 null 가드는 유지(NOT NULL 방어). |
+| 4 provisioning 진입점 형태 | **α ADMIN endpoint POST /api/v1/admin/sellers** | β 인가 없는 형태로 진입점만 확보·인가 이연 기각 — API 선공개+인가 다음 트랙 = 운영 위험(라이브 트랩). γ 컨트롤러 없이 Service만 기각 — 호출자 없음·Controller layer 테스트 부재로 provisioning flow 미검증·Track 목적 절반 미달. A 흐름이 "운영관리자가 생성"이라 진입점부터 ADMIN 인가 정합·hasRole("ADMIN") 3종 재사용. |
+| 4-1 owner userId 존재 검증 | **α-1 앱단 existsById 선검증+404** | α-2 DB FK 위반 위임(PersistenceException) 기각 — FK 위반 예외는 메시지 불친절·원인 불명확. 관리자 도구는 명확한 실패 사유(404 USER_NOT_FOUND) 필요. |
+| 5 owner seller_user 역할(roleId) | **α SELLER_OWNER 고정** | β 파라미터 주입(관리자 역할 선택) 기각 — 입점 시 최초 등록자는 정의상 owner(Aggregate invariant). MANAGER/STAFF 선택 허용 시 owner 없는 seller 생성 가능 = 모델 파괴. "누가 구성원을 초대·권한 관리하는가"가 owner 부재 시 미설명. roleId는 findByCode(SELLER_OWNER) seed 조회(BUYER 패턴 재사용). |
+| 6 트랜잭션 원자성·INSERT 순서 | **α 단일 @Transactional** | β seller·seller_user 별도 트랜잭션 기각 — **owner 없는 Seller = Aggregate 불변식 위반**. 부분 실패 시 고아 seller 잔존 = 데이터 정합 파괴. FK RESTRICT·NOT NULL로 순서 강제(user·role 선존재→seller save로 id 확보→seller_user). Buyer 셀프가입 User+UserRole 단일 트랜잭션 선례 일관. |
+| 7 status 유효성 제한 | **β PENDING·ACTIVE만 허용** | α 전 값 허용(관리자 재량) 기각 — **Lifecycle invariant상 생성 가능 초기 상태는 PENDING·ACTIVE뿐**. SUSPENDED(운영 중 seller 정지)·TERMINATED(종료 절차 완료)는 이미 운영 이력 존재를 전제하는 상태라 신규 생성 초기값으로 부적합. 근거를 "생성 직후 부적합(UX)"이 아닌 상태 머신 설계로 명문화(외부 검토 보강 반영). |
+| 8 통합테스트 범위 | **β α6종(성공·403·404·409·400·롤백)** | α 최소 4종(성공·403·404·409) 기각 — status 경계(400)·롤백 검증이 T2·T3·T4 실측 트랩의 실증. 특히 롤백 검증은 사안6 원자성의 CI 게이트 박제 가치. 이번 트랙 핵심 가치 = Atomic provisioning이라 미검증 시 핵심 미테스트. |
+| 9 중복 소속(V12) 가드 설계 | **옵션 A DB 제약 기반(pre-check 제거·saveAndFlush catch→409)** | 옵션 B P2 pre-check(existsByUserId→seller INSERT 전 409) 기각·옵션 C 하이브리드(pre-check+DB 백스톱) 기각 — pre-check 하에서는 409 경로에 seller INSERT가 발생하지 않아 test-6(롤백)이 @Transactional 제거해도 통과 = **우연일치 테스트**(d4c314b "우연일치 은폐 제거"·기조 5 위반). pre-check 하 seller INSERT 후 seller_user 결정론적 실패 경로 부재(FK 3개 선충족·uk는 pre-check가 배제). 옵션 A만 seller INSERT→seller_user 실패→롤백을 실제 관통해 원자성 실증(@Transactional 제거 시 test-6 실패)·DB uk가 동시 provisioning까지 방어(최종 방어선). 비용=흔치 않은 중복 시 seller INSERT 1회 낭비되나 롤백으로 잔존 0·관리자 저빈도 경로라 무시 가능. |
+| (참고) AdminActorResolver 호출 생략 | **생략** | 기존 Admin 컨트롤러 5종은 AdminActorResolver.resolve 호출하나 provisioning은 actor id를 소비하지 않음(생성 주체 식별 불요·SecurityConfig hasRole가 실 인가 강제). 미소비 배선 추가 = 과잉개발(기조 4). 기존 5종과 다른 점 명시. |
+
+### §1-B 구현 트랩(실측)
+1. **P2 pre-check ↔ P6 롤백 테스트 진정성 충돌(판단 9 귀결)**: 초안 P2가 existsByUserId pre-check로 V12를 seller INSERT 전 차단하도록 명시했으나, 같은 시나리오로 P6 test-6이 seller 롤백(원자성)을 요구 → 동시 진짜 충족 불가. pre-check가 있으면 409 경로에서 seller INSERT 자체가 없어 test-6이 @Transactional과 무관하게 통과(우연일치). Claude Code가 구현 착수 전 실측으로 포착 → 옵션 A(pre-check 제거·DB 제약 기반)로 수렴. saveAndFlush로 즉시 flush해야 catch 지점 확보(flush 없으면 트랜잭션 커밋 시점까지 예외 지연).
+2. **enum 바인딩 400 경로**: 잘못된 status 문자열(ENUM 밖)은 역직렬화 단계에서 HttpMessageNotReadableException → 기존 handleMalformed(400 MALFORMED_REQUEST) 흡수. status 값 제한(PENDING·ACTIVE) 위반은 Service 가드 IllegalArgumentException → 동일 handleMalformed(400). 신규 예외 핸들러 불요·기존 재사용 확인.
+
+### §2 결정 라운드 재진입
+- 판단 3(status): 초기 α-1(PENDING 고정) 추천 → 사용자 운영 시나리오(A 관리자 주도 생성·status 선택 요구·B 셀프신청 MVP 후) 명시로 α-2(파라미터 주입)로 정정. 팩토리 고정이 A 흐름과 불일치함을 확인·호출자 위임이 A·B 공통 커버.
+- 판단 7(status 제한): 외부 검토가 근거를 "생성 직후 부적합(UX)"에서 "Lifecycle invariant"로 격상 권고 → 재검토 아닌 근거 명문화 내재화(β 유지·근거 교체).
+- 판단 9(V12 가드): Claude Code가 P2 pre-check ↔ P6 롤백 진정성 충돌을 구현 착수 전 실측 포착 → 옵션 A로 수렴. 사전 확정 설계(pre-check)를 실측이 뒤집어 우연일치 테스트를 예방한 사례(D-120 toActorRole 폐기 계열).
+- 외부 검토 흡수: 사안 3~8 전면 채택(이견·부분수용 0)·사안 5·7 근거 명문화 2건 보강 내재화.
+
+### §3 구현 산출 (실측·라인은 커밋 전 파일 대조 재확인)
+**신설 production 6**:
+- `seller/service/SellerProvisioningService.java` — @Transactional provision(existsById 404 → validateInitialStatus 400 → findByCode(SELLER_OWNER) → sellerRepository.save → sellerUserRepository.saveAndFlush catch DataIntegrityViolationException→409).
+- `seller/controller/AdminSellerController.java` — POST /api/v1/admin/sellers·@RequestBody @Valid·201·Location 없음·base path 없음 절대경로(D-105 §2 Q2).
+- `seller/controller/request/SellerProvisioningRequest.java` — record(seller 필드+status+ownerUserId·@Size DB length SoT·status/ownerUserId @NotNull).
+- `seller/controller/response/SellerProvisioningResponse.java` — record(sellerPublicId).
+- `seller/exception/SellerUserAlreadyExistsException.java` — 409·SELLER_USER_ALREADY_EXISTS.
+- `user/exception/UserNotFoundException.java` — 404·USER_NOT_FOUND.
+
+**수정 production 2**:
+- `seller/entity/Seller.java` — create(...) 정적 팩토리 추가(companyName·ceoName·status null 가드)·"Track 4 read-only 이연" Javadoc 갱신·protected no-args+@Getter 유지.
+- `common/web/GlobalExceptionHandler.java` — handleUserNotFound(404·USER_NOT_FOUND)·handleSellerUserAlreadyExists(409·SELLER_USER_ALREADY_EXISTS) 매핑 추가.
+
+**신설 test 1**:
+- `test/seller/controller/AdminSellerControllerIntegrationTest.java` — 6종(①ADMIN 성공 DB검증 ②비ADMIN 403 ③owner 미존재 404 ④V12 409 ⑤status=SUSPENDED 400 ⑥롤백 seller count 0). user·seller_user 실 시드·우연일치 은폐 금지·LT-02 try-finally.
+
+**무변경 확인 2**: SecurityConfig(/api/v1/admin/**→hasRole("ADMIN")가 신규 경로 포함)·enum 바인딩 400(HttpMessageNotReadableException→handleMalformed 재사용).
+
+### §4 핵심 메서드
+- **SellerProvisioningService.provision(@Transactional)**: userRepository.existsById(ownerUserId) false→UserNotFoundException(404) → validateInitialStatus(status·PENDING/ACTIVE 아니면 IllegalArgumentException 400) → roleRepository.findByCode(SELLER_OWNER).orElseThrow(IllegalStateException·seed 누락 500) → sellerRepository.save(Seller.create(...)) → sellerUserRepository.saveAndFlush(SellerUser.create(seller, ownerUserId, owner.getId())) catch DataIntegrityViolationException→SellerUserAlreadyExistsException(409·전체 롤백) → SellerProvisioningResponse(seller.getPublicId()).
+- **원자성 실증**: test-6이 @Transactional 제거 시 실패하도록 구성(pre-check 없이 seller INSERT가 실제 발생→seller_user 실패→롤백 관통). 우연일치 은폐 없음.
+
+### §진입점 카드
+1. **목적**: 인가(D-119~121)가 참조할 seller/seller_user 데이터 공급원 신설 — 운영관리자 주도 seller 입점+최초 owner 원자 provisioning.
+2. **핵심 진입점**: `AdminSellerController`(POST /api/v1/admin/sellers) · `SellerProvisioningService.provision`.
+3. **핵심 SoT 메서드**: `Seller.create`(쓰기 도입·status null 가드) · `SellerUser.create(Seller, Long userId, Long roleId)`(재사용) · `RoleRepository.findByCode(SELLER_OWNER)` · `UserRepository.existsById` · `SellerUserRepository`(saveAndFlush·uk_seller_user_user_id V12 방어선).
+4. **영향 범위**: seller 도메인 신규(service·controller·request·response·exception)·user/exception(UserNotFoundException)·common/web(GlobalExceptionHandler). Seller 엔티티 쓰기 도입(read-only 박제 해제). SecurityConfig·JWT·소유권 authorize 3곳·SellerUser 엔티티·Flyway 무변경.
+5. **패턴 재사용**: Buyer 셀프가입 register 흐름(D-119·findByCode seed 조회·단일 트랜잭션 role 배선)·D-92 Q3 Service 진입부 검증·D-105 §2 Q2 Admin 절대경로·201 Created body-only(Buyer signup·Location 생략)·409 핸들러(EmailAlreadyExists 템플릿)·SellerUser.create 팩토리(D-121)·@Size DB length SoT(D-119).
+6. **트랩 주의**: (1) V12 가드는 pre-check 아닌 saveAndFlush catch→409(pre-check는 롤백 테스트 우연일치 유발·§1-B-1) (2) SELLER_OWNER seed 부재 시 500(V11 미적용 배포 오류) (3) FK RESTRICT·NOT NULL로 INSERT 순서 강제(user·role 선존재→seller→seller_user) (4) status는 PENDING·ACTIVE만(SUSPENDED/TERMINATED는 운영 이력 전제·Lifecycle invariant) (5) AdminActorResolver 미호출(provisioning actor id 미소비·기존 Admin 5종과 상이) (6) LT-02 FK 시드 그래프(user→seller→role) try-finally.
+
+### §8 carry-over
+- **ADMIN user_role 부여 경로**: Track 37 β 스코프에서 분리(백로그 상단 승계). ADMIN 계정에 user_role(SUPER_ADMIN·ADMIN_OPERATOR) INSERT 프로덕션 경로 여전히 부재. 성격상 입점 셀프신청과 상이(기존 ADMIN만 부여)·별 트랙.
+- **Manager/Staff 구성원 등록**: owner가 이후 추가하는 구성원(SELLER_MANAGER·SELLER_STAFF) 등록 경로. 추가 API·권한 정책·역할별 테스트 동반이라 별 유스케이스·별 트랙.
+- **B 셀프가입 경로(판매관리자 셀프신청→승인)**: MVP 후 진입. 호출자가 status=PENDING 주입→심사→ACTIVE 전이(같은 Seller.create·SellerProvisioningService 팩토리 재사용). seller 심사·승인 워크플로 신설 동반.
+- **status ACTIVE 승격 심사 경로**: A 경로는 관리자가 생성 시점에 status 직접 결정(ACTIVE 직행 가능). PENDING→ACTIVE 전이(심사 승인) 별도 진입점은 B 셀프가입 트랙과 동반.
+- **HeaderSellerActorResolver rename**: D-121 §8 연장·클래스명 레거시 유지(표면 정리 트랙).
+- **Track 37 신규 트랩**: P2 pre-check↔롤백 진정성 충돌(§1-B-1). 동일 트랩 재발생 시 LT-06~ 이관.
+
+### §특기
+- 결정 근거 영구화 원칙 19회차(D-104~D-122). Track 37 = D-119(credential 생성)·D-120(인가 실동작)·D-121(seller_user 해소)이 완성한 인가 소비처의 **데이터 공급원** 신설로 "가입→로그인→role 검증→데이터 존재" 사슬 완결. 인가가 빈 테이블 위에서 돌던 갭 해소.
+- Seller 엔티티 read-only 박제(D-59·"Track 4 이연") 최초 쓰기 해제 — 인가 데이터 공급원 부재라는 실재 결함 처치가 근거(범위 확대 아님·기조 4).
+- Claude Code 실측이 사전 확정 설계(P2 pre-check)를 뒤집어 우연일치 테스트를 예방(§1-B-1·판단 9). "구현 직전 실측이 미검증 설계 오류를 예방"의 D-120(toActorRole 폐기)·D-119(requireActorId package-private) 계열 3번째 사례.
+- Track 37 트랩 후보(pre-check↔롤백 진정성 충돌)는 §1-B-1 + §진입점 카드 트랩 주의 기재로 갈음 — live-traps.md 이관 규정(≥3건 누적·재발생) 미충족.
+
+---
+
