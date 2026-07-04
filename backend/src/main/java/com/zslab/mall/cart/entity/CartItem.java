@@ -67,4 +67,27 @@ public class CartItem extends AbstractFullAuditableEntity {
     public void addQuantity(int additionalQuantity) {
         this.quantity += additionalQuantity;
     }
+
+    /**
+     * 수량을 절대값으로 지정한다(Track 45 수량변경). 누적하는 {@link #addQuantity}와 분리 유지한다. quantity 하한은
+     * 요청 검증(@Min(1))과 함께 엔티티에서도 재검증한다(create()의 CRT-2 경계 정합·팩토리/mutator 동일 불변조건).
+     *
+     * @throws IllegalArgumentException newQuantity가 1 미만일 때(CRT-2)
+     */
+    public void changeQuantity(int newQuantity) {
+        if (newQuantity < 1) {
+            throw new IllegalArgumentException("CartItem quantity는 1 이상이어야 합니다(CRT-2).");
+        }
+        this.quantity = newQuantity;
+    }
+
+    /** 결제 대상으로 선택한다(Track 45 selected 토글). create() 기본값(true)과 정합. */
+    public void select() {
+        this.selected = true;
+    }
+
+    /** 결제 대상에서 해제한다(Track 45 selected 토글). CartCheckoutService의 findByUserIdAndSelectedTrue에서 제외된다. */
+    public void deselect() {
+        this.selected = false;
+    }
 }

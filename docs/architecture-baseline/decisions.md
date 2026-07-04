@@ -8289,3 +8289,68 @@ M9 페이징
 
 ---
 
+## D-130. Track 45 — 장바구니 조회/삭제/수량변경/selected 토글 (A급·2026-07-05) [ACTIVE]
+
+buyer 장바구니 관리 4기능(조회 GET·삭제 DELETE·수량변경 PATCH·selected 토글 PATCH) 신설. 담기(Track 40)만 있던 cart에 조회·수정·삭제 경로를 배선해 구매 UX를 완성한다. 인가·결제 로직 무변경.
+
+### §1-A 판단별 채택·기각
+
+- M1 대상 식별키 = **variantId** (α채택)
+  · α variantId: 내부 PK 미노출(D-124 관례)·UK(user_id, variant_id)로 buyer당 유일·소유권 userId 스코프 조회로 자동 성립.
+  · β cart_item.id 노출: 단건 식별 직관적이나 내부 PK 노출로 D-124 관례 이탈·소유권 별도 검증 필요 → 기각.
+
+- M2 삭제 범위 = **단건 + 다건(variantId 배열)** (α채택)
+  · α 다건 배열(단건도 배열 1개): 기존 deleteByUserIdAndVariantIdIn(주문 후 비우기용) 그대로 재사용·엔드포인트 1개로 단·다건 흡수.
+  · β 단건 전용 신규 쿼리: 다건 삭제 시 N회 호출·기존 다건 쿼리 방치 → 기각.
+
+- M3 수량변경 = **절대값 지정 신규 mutator** (α채택)
+  · α changeQuantity(절대값): 프론트 수량 입력 UX 정합·addQuantity(누적)와 의미 분리·CRT-2 하한 재검증(팩토리/mutator 불변조건 경계 정합).
+  · β addQuantity 증분 재사용: 절대값 UX에 델타 계산 강제·의미 오염 → 기각.
+
+- M4 selected 토글 = **단건 + 전체 선택/해제** (α채택)
+  · α 단건 + 전체: "전체 선택/해제" 장바구니 표준 UX 포함. 결제 소비처(findByUserIdAndSelectedTrue) 무변경으로 부분결제 자동 실동작·전부 해제는 기존 EmptyCartCheckoutException(422) 가드 작동.
+  · β 단건만: 전체 토글 프론트 N회 호출 강제 → 기각. create() selected=true 기본 유지(신규 담기 기본 선택).
+
+- M5 dangling(담긴 후 variant soft-delete·비-SALE·판매자 비-ACTIVE) = **purchasable=false 표기 유지** (α채택)
+  · α 표기 유지: 즉시 자동삭제는 사용자 혼란(장바구니에서 말없이 사라짐). purchasable 플래그로 프론트가 구매불가 표기·수량조정 유도.
+  · β 조회 시 자동 제외/삭제: 사용자 의도 없는 삭제·UX 불투명 → 기각.
+
+- M6 조회 페이징 = **없음(전량 반환)** (α채택)
+  · α 전량: 장바구니 규모 소규모·페이징 선례 없음·단순.
+  · β 페이징: 오버엔지니어링(기조 4·소비처 없는 복잡도) → 기각.
+
+- M7 대상 미담김 예외 = **CartItemNotFoundException 신규(404)** (α채택·보강 정찰 근거)
+  · 보강 정찰 실측: cart에 item-not-found 예외 부재(EmptyCartCheckout 422·ProductVariantNotFound는 product 도메인). PATCH 대상 미담김 표현 예외 없음.
+  · α cart 전용 신규 예외: "장바구니에 안 담김"≠"상품 변형 자체 부재"·의미 분리·타 buyer 소유도 동일 404 은닉.
+  · β ProductVariantNotFoundException 재사용: 의미 오염(상품 부재로 오인) → 기각.
+
+### §2 재진입 근거
+Track 44 정찰에서 cart 4항목(조회 목록 쿼리·수량 mutator·selected mutator·not-found 예외) 부재 확인 → Track 45 정밀 정찰(recon-report.md)로 재사용 표면 확정 후 착수. 구현 중 M7·enrich 소스 게터 시그니처 미실측 발견 → 보강 정찰(read-only)로 실측 확정 후 구현 재개(추측 구현 차단·기조 5).
+
+### §3 배선 실측 (파일:라인)
+- CartItem.changeQuantity(int)·select()·deselect() 신설(CartItem.java). CRT-2 재검증 메시지 create()와 동일.
+- CartItemRepository.findByUserId(Long) 파생 쿼리 신설.
+- CartService.getCart(enrich·variant→product→seller·inventory)·removeItems·changeQuantity·setSelected·setSelectedAll 신설. enrich = findByIdIn/findByVariantIdIn 4종 재사용·정책은 variant 단위 재구현.
+- displayPrice = product.getBasePrice() + variant.getAdditionalPrice().
+- 품절 = variant.isSoldoutManual() OR inventory.getQuantityAvailable()==0 (2엔티티 결합·Inventory 단독 불가).
+- purchasable = variant≠null ∧ product≠null ∧ seller≠null ∧ !soldoutManual ∧ available>0 ∧ variant.status==SALE ∧ product.status==SALE ∧ seller.status==ACTIVE.
+- **dangling 재고 게이트**: Inventory는 soft-delete/@SQLRestriction 없음 → variant soft-delete 시에도 재고행 잔존. toView에서 variant==null이면 available=0으로 게이트(표기 정합·테스트 T1 포착).
+- CartItemNotFoundException(cart/exception)·GlobalExceptionHandler CODE_CART_ITEM_NOT_FOUND 404 매핑 신설.
+- CartController: GET /api/v1/cart·DELETE /api/v1/cart/items·PATCH /api/v1/cart/items/quantity·/selected·/selected/all 5종 신설.
+- SecurityConfig 무변경(/api/v1/cart/**→hasRole("BUYER") 기존 매처가 GET/DELETE/PATCH 커버).
+
+### 진입점 카드
+1. 목적: buyer 장바구니 조회·삭제·수량변경·selected 토글(구매 UX 완성).
+2. 진입점 파일: CartController(5 endpoint)·CartService.getCart·CartItem.changeQuantity/select/deselect.
+3. 핵심 SoT 메서드: CartService.getCart(enrich)·removeItems(deleteByUserIdAndVariantIdIn 재사용)·setSelected/setSelectedAll(결제 소비처 무변경).
+4. 영향 범위: cart 도메인 한정. 결제(CartCheckoutService)·인가(SecurityConfig)·재고·주문 무변경.
+5. 패턴 재사용: enrich Repository findByIdIn 4종(D-129)·deleteByUserIdAndVariantIdIn(Track 40)·BuyerActorResolver·not-found 404 은닉(D-129 카탈로그). 26회차.
+6. 트랩 주의: Inventory soft-delete 부재→dangling 재고 게이트 필수(신규 LT 후보·D-129 §카드 N+1과 동일 원인). CRT-2 하한 엔티티 재검증.
+
+### §8 carry-over
+- Inventory soft-delete/@SQLRestriction 부재로 dangling 재고 게이트를 서비스에서 방어(구조적·LT-06 이관 후보 ≥3건 시).
+- selected 전체 토글은 findByUserId 로드 후 순회 update(대량 시 벌크 update 미도입·장바구니 소규모 전제).
+- 누적 이월: SALE variant 0개 fallback(D-129)·응답 DTO 명칭 드리프트(D-128)·X-Seller-Id Javadoc 레거시·상태 전이 쓰기 부재(Track 7)·외부 택배 seam·자동 구매확정(E6).
+
+---
+
