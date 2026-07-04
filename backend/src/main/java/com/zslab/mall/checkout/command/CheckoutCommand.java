@@ -18,5 +18,5 @@ public record CheckoutCommand(
         String idempotencyKey,
         List<CheckoutItemCommand> items,
         ShippingAddressCommand shipping,
-        PaymentMethod method) {
+        PaymentMethod method) implements CheckoutContext {
 }
