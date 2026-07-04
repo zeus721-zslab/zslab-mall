@@ -10,9 +10,12 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.zslab.mall.checkout.command.CartCheckoutCommand;
+import com.zslab.mall.checkout.command.CartCheckoutItemCommand;
 import com.zslab.mall.checkout.command.CheckoutCommand;
 import com.zslab.mall.checkout.command.CheckoutItemCommand;
 import com.zslab.mall.checkout.entity.OrderIdempotencyKey;
+import com.zslab.mall.checkout.exception.CheckoutItemNotFoundException;
 import com.zslab.mall.checkout.exception.IdempotencyKeyInProgressException;
 import com.zslab.mall.checkout.repository.OrderIdempotencyKeyRepository;
 import com.zslab.mall.inventory.entity.Inventory;
@@ -316,5 +319,77 @@ class CheckoutServiceTest {
         assertThat(outcome.cached()).isFalse();
         assertThat(outcome.location()).isEqualTo("/api/v1/payments/pay_RETRY");
         assertThat(outcome.response().payment().publicId()).isEqualTo("pay_RETRY");
+    }
+
+    // ===== Phase 1: 장바구니 결제(CartCheckoutCommand) 내부 id 해소(resolveByInternalId) =====
+
+    private CartCheckoutCommand cartCommand(Long variantId, int quantity) {
+        return new CartCheckoutCommand(BUYER_ID, null,
+                List.of(new CartCheckoutItemCommand(variantId, quantity)),
+                new ShippingAddressCommand("홍길동", "010-0000-0000", "06236", "서울 1", null, null, null),
+                PaymentMethod.CARD);
+    }
+
+    /** 내부 id 해소(β) 정상 스텁 — variant 20L → product 10L을 findByIdIn 경로로 해소(Phase 1 resolveByInternalId). */
+    private void stubInternalResolution(long basePrice, long additionalPrice, long sellerId) {
+        Product product = org.mockito.Mockito.mock(Product.class);
+        when(product.getId()).thenReturn(10L);
+        when(product.getBasePrice()).thenReturn(basePrice);
+        when(product.getSellerId()).thenReturn(sellerId);
+        ProductVariant variant = org.mockito.Mockito.mock(ProductVariant.class);
+        when(variant.getId()).thenReturn(20L);
+        when(variant.getProductId()).thenReturn(10L);
+        when(variant.getAdditionalPrice()).thenReturn(additionalPrice);
+        when(productVariantRepository.findByIdIn(any())).thenReturn(List.of(variant));
+        when(productRepository.findByIdIn(any())).thenReturn(List.of(product));
+    }
+
+    @Test
+    @DisplayName("checkout(CartCheckoutCommand): 내부 id 해소 → 서버 가격 산정(D-64)·createOrder·initiate(Phase 1 β)")
+    void checkout_cartInternalId_resolvesAndPrices() {
+        stubInternalResolution(8_000L, 2_000L, 99L);
+        stubInventoryAvailable(1_000);
+        ArgumentCaptor<CreateOrderCommand> captor = ArgumentCaptor.forClass(CreateOrderCommand.class);
+        when(orderService.createOrder(captor.capture())).thenReturn(order(1L, "ord_CART0000000000000000000AA"));
+        Payment payment = paymentMock("pay_cart");
+        when(paymentService.initiate(eq("ord_CART0000000000000000000AA"), eq(BUYER_ID), eq(PaymentMethod.CARD)))
+                .thenReturn(new PaymentInitiation(payment, "https://pg/redirect"));
+
+        CheckoutOutcome outcome = checkoutService.checkout(cartCommand(20L, 2));
+
+        assertThat(outcome.cached()).isFalse();
+        assertThat(outcome.response().payment().publicId()).isEqualTo("pay_cart");
+        // D-64 서버 산정: unit = base(8000) + additional(2000) = 10000·total = 10000×2 = 20000·seller = product.seller_id
+        CreateOrderCommand created = captor.getValue();
+        assertThat(created.items()).hasSize(1);
+        assertThat(created.items().get(0).productId()).isEqualTo(10L);
+        assertThat(created.items().get(0).variantId()).isEqualTo(20L);
+        assertThat(created.items().get(0).sellerId()).isEqualTo(99L);
+        assertThat(created.items().get(0).unitPrice()).isEqualTo(10_000L);
+        assertThat(created.items().get(0).totalPrice()).isEqualTo(20_000L);
+    }
+
+    @Test
+    @DisplayName("checkout(CartCheckoutCommand): variant 미해소 → CheckoutItemNotFoundException·createOrder 미호출")
+    void checkout_cartInternalId_variantNotFound_throws() {
+        when(productVariantRepository.findByIdIn(any())).thenReturn(List.of());
+
+        assertThatThrownBy(() -> checkoutService.checkout(cartCommand(20L, 2)))
+                .isInstanceOf(CheckoutItemNotFoundException.class);
+        verify(orderService, never()).createOrder(any());
+    }
+
+    @Test
+    @DisplayName("checkout(CartCheckoutCommand): variant 존재·product 미해소(soft-delete 등) → CheckoutItemNotFoundException")
+    void checkout_cartInternalId_productNotFound_throws() {
+        ProductVariant variant = org.mockito.Mockito.mock(ProductVariant.class);
+        when(variant.getId()).thenReturn(20L);
+        when(variant.getProductId()).thenReturn(10L);
+        when(productVariantRepository.findByIdIn(any())).thenReturn(List.of(variant));
+        // productRepository.findByIdIn 미stub → 기본 빈 목록 → variant.getProductId()로 product 미해소
+
+        assertThatThrownBy(() -> checkoutService.checkout(cartCommand(20L, 2)))
+                .isInstanceOf(CheckoutItemNotFoundException.class);
+        verify(orderService, never()).createOrder(any());
     }
 }
