@@ -67,6 +67,8 @@ public class SecurityConfig {
                         .hasRole("BUYER")
                         .requestMatchers("/api/v1/claims/**")
                         .hasRole("BUYER")
+                        .requestMatchers("/api/v1/cart/**")
+                        .hasRole("BUYER")
                         .requestMatchers("/api/v1/order-items/**")
                         .hasRole("SELLER")
                         .requestMatchers("/api/v1/seller/**")

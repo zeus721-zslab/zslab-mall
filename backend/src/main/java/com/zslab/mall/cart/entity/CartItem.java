@@ -59,4 +59,12 @@ public class CartItem extends AbstractFullAuditableEntity {
         cartItem.selected = true;
         return cartItem;
     }
+
+    /**
+     * 기존 수량에 추가 수량을 누적한다(M1α·동일 variant 재담기). 저장 호출 없이 필드만 갱신하며 dirty checking으로
+     * flush된다. additionalQuantity 하한(≥1) 방어는 요청 검증(@Min(1))·Service가 담당한다(create()의 CRT-2와 정합).
+     */
+    public void addQuantity(int additionalQuantity) {
+        this.quantity += additionalQuantity;
+    }
 }
