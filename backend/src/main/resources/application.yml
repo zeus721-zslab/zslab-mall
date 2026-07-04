@@ -50,3 +50,11 @@ jwt:
   # 로컬 개발용 더미 시크릿 — 운영은 JWT_SECRET env 주입 필수(application-prod.yml에서 기본값 제거). HS256 최소 32바이트.
   secret: ${JWT_SECRET:local-dev-dummy-secret-please-override-min-32-bytes-long}
   expiration-ms: ${JWT_EXPIRATION_MS:3600000}
+
+admin:
+  bootstrap:
+    # 최초 SUPER_ADMIN 공급 자격(SuperAdminBootstrapRunner·Track 38). SUPER_ADMIN 부재 시에만 소비된다 — 빈 기본값으로
+    # context는 로드되고, 생성 경로에서 blank면 기동 실패(Fail Fast). 이미 SUPER_ADMIN 존재 시 미참조(skip)라 jwt.secret과
+    # 달리 prod에서도 기본값을 제거하지 않는다(제거 시 admin 존재 환경의 재기동까지 env를 강제하게 됨).
+    email: ${ADMIN_BOOTSTRAP_EMAIL:}
+    password: ${ADMIN_BOOTSTRAP_PASSWORD:}

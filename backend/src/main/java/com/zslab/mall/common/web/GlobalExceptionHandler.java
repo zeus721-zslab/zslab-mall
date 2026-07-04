@@ -1,6 +1,8 @@
 package com.zslab.mall.common.web;
 
+import com.zslab.mall.auth.exception.AdminOperatorAlreadyExistsException;
 import com.zslab.mall.auth.exception.AuthenticationFailedException;
+import com.zslab.mall.auth.exception.SuperAdminRequiredException;
 import com.zslab.mall.checkout.exception.CheckoutItemMismatchException;
 import com.zslab.mall.checkout.exception.CheckoutItemNotFoundException;
 import com.zslab.mall.checkout.exception.IdempotencyKeyInProgressException;
@@ -41,8 +43,9 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 /**
  * 전역 예외 핸들러(§14·D-48). RFC 7807 {@link ProblemDetail} + 커스텀 {@code code}·{@code traceId} 속성으로 일원화한다.
  *
- * <p>HTTP 상태 매트릭스(§14·§17)에 1:1 매핑한다. 403(Spring Security 후속 트랙)·429/502/503(본 트랙 미구현)은 제외한다.
- * traceId는 {@link TraceIdFilter}가 MDC에 넣은 값을 읽는다.
+ * <p>HTTP 상태 매트릭스(§14·§17)에 1:1 매핑한다. 필터 계층 401/403은 {@link com.zslab.mall.common.security.SecurityErrorHandler}가
+ * 처리하나, 서비스 계층 도메인 403({@link SuperAdminRequiredException}·Track 38)은 여기서 매핑한다(동일 code=FORBIDDEN).
+ * 429/502/503(본 트랙 미구현)은 제외한다. traceId는 {@link TraceIdFilter}가 MDC에 넣은 값을 읽는다.
  */
 @Slf4j
 @RestControllerAdvice
@@ -75,6 +78,8 @@ public class GlobalExceptionHandler {
     private static final String CODE_EMAIL_ALREADY_EXISTS = "EMAIL_ALREADY_EXISTS";
     private static final String CODE_USER_NOT_FOUND = "USER_NOT_FOUND";
     private static final String CODE_SELLER_USER_ALREADY_EXISTS = "SELLER_USER_ALREADY_EXISTS";
+    private static final String CODE_ADMIN_OPERATOR_ALREADY_EXISTS = "ADMIN_OPERATOR_ALREADY_EXISTS";
+    private static final String CODE_FORBIDDEN = "FORBIDDEN";
     private static final String CODE_INTERNAL_ERROR = "INTERNAL_ERROR";
 
     // ===== 400 =====
@@ -106,6 +111,16 @@ public class GlobalExceptionHandler {
             AuthenticationFailedException exception, HttpServletRequest request) {
         // Track 33: 로그인 실패(미존재·비활성·비번·role 통합). 사유 무관 401·"Invalid email or password."(계정 열거 방지).
         return build(HttpStatus.UNAUTHORIZED, CODE_AUTHENTICATION_FAILED, exception.getMessage(), request);
+    }
+
+    // ===== 403 =====
+    @ExceptionHandler(SuperAdminRequiredException.class)
+    public ResponseEntity<ProblemDetail> handleSuperAdminRequired(
+            SuperAdminRequiredException exception, HttpServletRequest request) {
+        // Track 38: 운영 관리자 공급은 SUPER_ADMIN 전용. hasRole("ADMIN") 코어스 게이트 통과 후 서비스에서 세분 검증 실패(403).
+        // 필터 계층 403(SecurityErrorHandler)과 달리 서비스 계층이 던지는 도메인 403이라 여기서 동일 code=FORBIDDEN으로 매핑한다.
+        log.warn("[Auth] SUPER_ADMIN 인가 실패(403): {}", exception.getMessage());
+        return build(HttpStatus.FORBIDDEN, CODE_FORBIDDEN, exception.getMessage(), request);
     }
 
     // ===== 404 =====
@@ -194,6 +209,13 @@ public class GlobalExceptionHandler {
             SellerUserAlreadyExistsException exception, HttpServletRequest request) {
         // Track 37: 판매자 provisioning 중복 소속(409·V12 user_id UNIQUE). seller_user saveAndFlush 위반→seller INSERT 원자 롤백.
         return build(HttpStatus.CONFLICT, CODE_SELLER_USER_ALREADY_EXISTS, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(AdminOperatorAlreadyExistsException.class)
+    public ResponseEntity<ProblemDetail> handleAdminOperatorAlreadyExists(
+            AdminOperatorAlreadyExistsException exception, HttpServletRequest request) {
+        // Track 38: 운영 관리자 중복 부여(409·uk_user_role(user_id, role_id) 위반). user_role saveAndFlush 위반→@Transactional 롤백.
+        return build(HttpStatus.CONFLICT, CODE_ADMIN_OPERATOR_ALREADY_EXISTS, exception.getMessage(), request);
     }
 
     // ===== 422 =====

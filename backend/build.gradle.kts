@@ -44,4 +44,10 @@ dependencies {
 
 tasks.test {
     useJUnitPlatform()
+    // Track 38: SuperAdminBootstrapRunner는 매 기동 실행되며 SUPER_ADMIN 부재 + 필수 env blank 시 Fail Fast(기동 중단)한다.
+    // 통합 테스트(@SpringBootTest)는 SUPER_ADMIN을 seed하지 않으므로 전 컨텍스트 기동이 막힌다. 테스트 전용 더미 부트스트랩
+    // 자격을 주입해(운영 값 아님·프로파일 무관·40+ 테스트 개별 수정 회피) 각 컨텍스트가 실 startup 경로로 SUPER_ADMIN을 1회
+    // 생성하게 한다. Runner 로직 자체(멱등·Fail Fast)는 SuperAdminBootstrapRunnerIntegrationTest가 수동 구성 Runner로 분리 검증한다.
+    environment("ADMIN_BOOTSTRAP_EMAIL", "bootstrap-superadmin@zslab.test")
+    environment("ADMIN_BOOTSTRAP_PASSWORD", "test-only-bootstrap-pw-please-ignore")
 }
