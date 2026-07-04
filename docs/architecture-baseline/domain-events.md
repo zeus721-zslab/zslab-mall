@@ -51,7 +51,7 @@
 | 소비 주체 | Order(OrderItem → PAID·Order.status 재계산), Inventory(차감), NotificationLog(결제 완료 알림) |
 | 페이로드 | paymentId, orderId, amount, pgTransactionId, occurredAt |
 | 동기/비동기 | Order 상태·재고 차감 = **동기** / 알림 = 비동기 |
-| 멱등성 | **pgTransactionId** 멱등성 키. 콜백 중복 수신 시 OrderItem.item_status=PAID 가드로 재차감 skip |
+| 멱등성 | **pgTransactionId** 멱등성 키. 방어선 = PAY-3b (pg_provider,pg_tid) UNIQUE + at-most-once publisher + commitReservation INV-3 backstop 이중화 (1차 item_status 가드는 D-101 §6 A′에서 폐기 — AFTER_COMMIT 시점 item이 이미 PAID여서 commitReservation이 영구 미실행되는 데드코드이기 때문) |
 | 재시도 | 동기 실패 = 롤백 후 PG 콜백 재수신 대기 / 알림 = 재시도·DLQ |
 
 ### E3. PaymentFailed
