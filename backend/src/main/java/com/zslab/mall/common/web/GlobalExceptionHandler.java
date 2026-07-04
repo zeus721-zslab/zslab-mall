@@ -3,6 +3,7 @@ package com.zslab.mall.common.web;
 import com.zslab.mall.auth.exception.AdminOperatorAlreadyExistsException;
 import com.zslab.mall.auth.exception.AuthenticationFailedException;
 import com.zslab.mall.auth.exception.SuperAdminRequiredException;
+import com.zslab.mall.cart.exception.EmptyCartCheckoutException;
 import com.zslab.mall.category.exception.CategoryNotFoundException;
 import com.zslab.mall.checkout.exception.CheckoutItemMismatchException;
 import com.zslab.mall.checkout.exception.CheckoutItemNotFoundException;
@@ -67,6 +68,7 @@ public class GlobalExceptionHandler {
     private static final String CODE_PAYMENT_ALREADY_COMPLETED = "PAYMENT_ALREADY_COMPLETED";
     private static final String CODE_ORDER_NOT_PAYABLE = "ORDER_NOT_PAYABLE";
     private static final String CODE_CHECKOUT_ITEM_MISMATCH = "CHECKOUT_ITEM_MISMATCH";
+    private static final String CODE_CART_CHECKOUT_EMPTY = "CART_CHECKOUT_EMPTY";
     private static final String CODE_INVALID_CALLBACK = "INVALID_CALLBACK";
     private static final String CODE_REFUND_NOT_FOUND = "REFUND_NOT_FOUND";
     private static final String CODE_REFUND_INVARIANT_VIOLATION = "REFUND_INVARIANT_VIOLATION";
@@ -293,6 +295,13 @@ public class GlobalExceptionHandler {
         // Track 23: 배송 개시 불가 상태(OrderItem 비-PAID 등). 500 fallback 차단·422 매핑(ClaimInvalidStateException 선례).
         log.warn("[Delivery] 배송 개시 상태 위반(422): {}", exception.getMessage());
         return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_DELIVERY_INVALID_STATE, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(EmptyCartCheckoutException.class)
+    public ResponseEntity<ProblemDetail> handleEmptyCartCheckout(
+            EmptyCartCheckoutException exception, HttpServletRequest request) {
+        // Track 41 β: 장바구니 결제 시 selected 품목 0개(빈 주문 선가드·ORD-1 도달 전 차단). well-formed 요청·업무 전제 실패(422·클라 교정).
+        return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_CART_CHECKOUT_EMPTY, exception.getMessage(), request);
     }
 
     // ===== 500 (fallback) =====

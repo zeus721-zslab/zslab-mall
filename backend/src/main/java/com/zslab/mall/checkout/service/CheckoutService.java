@@ -2,7 +2,10 @@ package com.zslab.mall.checkout.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.zslab.mall.checkout.command.CartCheckoutCommand;
+import com.zslab.mall.checkout.command.CartCheckoutItemCommand;
 import com.zslab.mall.checkout.command.CheckoutCommand;
+import com.zslab.mall.checkout.command.CheckoutContext;
 import com.zslab.mall.checkout.command.CheckoutItemCommand;
 import com.zslab.mall.checkout.entity.OrderIdempotencyKey;
 import com.zslab.mall.checkout.enums.IdempotencyStatus;
@@ -87,9 +90,11 @@ public class CheckoutService {
     }
 
     /**
-     * 신규 주문 + 첫 결제 시작(POST /api/v1/orders·§5). Idempotency-Key 전달 시 D-52 분기, 미전달 시 매 요청 신규 생성(§8).
+     * 신규 주문 + 첫 결제 시작(§5). 직접주문(Buy Now·public_id·{@link CheckoutCommand})·장바구니 결제(내부 id·
+     * {@link CartCheckoutCommand})의 공통 진입(seam(i)·A-1). Idempotency-Key 전달 시 D-52 분기, 미전달 시 매 요청 신규 생성(§8).
+     * 오케스트레이션(멱등·결제 initiate)은 100% 공유하며 품목 식별자 해소만 구현 타입별로 분기한다(B-1).
      */
-    public CheckoutOutcome checkout(CheckoutCommand command) {
+    public CheckoutOutcome checkout(CheckoutContext command) {
         if (command.idempotencyKey() == null || command.idempotencyKey().isBlank()) {
             Order order = createOrder(command);
             return completeWithInitiate(order, command, null);
@@ -114,7 +119,7 @@ public class CheckoutService {
         return CheckoutOutcome.created(response, PAYMENT_LOCATION_PREFIX + initiation.payment().getPublicId());
     }
 
-    private CheckoutOutcome idempotentCheckout(CheckoutCommand command) {
+    private CheckoutOutcome idempotentCheckout(CheckoutContext command) {
         Optional<OrderIdempotencyKey> existing =
                 idempotencyRepository.findByBuyerIdAndIdempotencyKey(command.buyerId(), command.idempotencyKey());
         if (existing.isPresent()) {
@@ -147,7 +152,7 @@ public class CheckoutService {
         return completeWithInitiate(order, command, mark);
     }
 
-    private CheckoutOutcome handleExistingKey(OrderIdempotencyKey existing, CheckoutCommand command) {
+    private CheckoutOutcome handleExistingKey(OrderIdempotencyKey existing, CheckoutContext command) {
         if (existing.getStatus() == IdempotencyStatus.COMPLETED) {
             return CheckoutOutcome.cached(deserialize(existing.getResponseBody()));   // §10·HTTP 200
         }
@@ -161,9 +166,36 @@ public class CheckoutService {
         return completeWithInitiate(order, command, existing);
     }
 
-    /** D-64·D-65: 품목 public_id 해소 → 서버 가격/sellerId 산정 → OrderService.createOrder(TX1). */
-    private Order createOrder(CheckoutCommand command) {
-        List<CheckoutItemCommand> itemCommands = command.items();
+    /** D-64·D-65: 품목 식별자 해소 → 서버 가격/sellerId 산정 → OrderService.createOrder(TX1). 해소만 타입별 분기(B-1). */
+    private Order createOrder(CheckoutContext command) {
+        List<OrderItemCommand> resolvedItems = resolveItems(command);
+
+        // D-101 §10 α: 트랜잭션 진입 전 사전 재고 검증(TOCTOU 완화·Inventory.reserve INV-1 2차 방어와 이중화). 부족 시 즉시 422.
+        revalidateInventory(resolvedItems);
+
+        // D-61: Track 4 시점 discount·shipping = 0
+        CreateOrderCommand createCommand = new CreateOrderCommand(
+                command.buyerId(), resolvedItems, command.shipping(), 0L, 0L);
+        return orderService.createOrder(createCommand);
+    }
+
+    /**
+     * 품목 식별자 해소 분기(B-1). 직접주문({@link CheckoutCommand})=public_id·장바구니 결제({@link CartCheckoutCommand})=내부 id.
+     * 이후 로직(재고검증·주문생성·결제)은 산출된 resolvedItems로 100% 공유한다.
+     */
+    private List<OrderItemCommand> resolveItems(CheckoutContext command) {
+        if (command instanceof CheckoutCommand directOrder) {
+            return resolveByPublicId(directOrder.items());
+        }
+        if (command instanceof CartCheckoutCommand cartCheckout) {
+            return resolveByInternalId(cartCheckout.items());
+        }
+        throw new IllegalArgumentException(
+                "지원하지 않는 CheckoutContext 구현: " + command.getClass().getName());
+    }
+
+    /** 직접주문(public_id) 해소: findByPublicIdIn → item별 (Product·ProductVariant) 확보·소속 검증 후 조립(D-64·기존 동작 보존). */
+    private List<OrderItemCommand> resolveByPublicId(List<CheckoutItemCommand> itemCommands) {
         List<String> productPublicIds = itemCommands.stream()
                 .map(CheckoutItemCommand::productPublicId).distinct().toList();
         List<String> variantPublicIds = itemCommands.stream()
@@ -187,21 +219,50 @@ public class CheckoutService {
                 throw new CheckoutItemMismatchException("변형이 상품에 속하지 않습니다: product="
                         + item.productPublicId() + ", variant=" + item.variantPublicId());
             }
-            // D-64 서버 산정: unit_price = base_price + additional_price·total = unit × qty·seller = product.seller_id
-            long unitPrice = product.getBasePrice() + variant.getAdditionalPrice();
-            long totalPrice = unitPrice * item.quantity();
-            resolvedItems.add(new OrderItemCommand(
-                    product.getId(), variant.getId(), product.getSellerId(),
-                    item.quantity(), unitPrice, totalPrice));
+            resolvedItems.add(toOrderItemCommand(product, variant, item.quantity()));
         }
+        return resolvedItems;
+    }
 
-        // D-101 §10 α: 트랜잭션 진입 전 사전 재고 검증(TOCTOU 완화·Inventory.reserve INV-1 2차 방어와 이중화). 부족 시 즉시 422.
-        revalidateInventory(resolvedItems);
+    /**
+     * 장바구니 결제(내부 id) 해소(Track 41 β·B-1). CartItem이 보유한 variantId만으로 ProductVariant→Product를 {@code findByIdIn}으로
+     * 해소한다(revalidatePayable와 동형 로더). product는 variant.getProductId()에서 도출하므로 소속 불일치(mismatch)는 구조상
+     * 발생하지 않는다. 변형·상품 미해소(미존재·soft-delete)는 직접주문 경로와 동일하게 {@link CheckoutItemNotFoundException}
+     * (404·클라 교정 가능)으로 처리한다.
+     */
+    private List<OrderItemCommand> resolveByInternalId(List<CartCheckoutItemCommand> itemCommands) {
+        List<Long> variantIds = itemCommands.stream()
+                .map(CartCheckoutItemCommand::variantId).distinct().toList();
+        Map<Long, ProductVariant> variantById = productVariantRepository.findByIdIn(variantIds).stream()
+                .collect(Collectors.toMap(ProductVariant::getId, Function.identity()));
+        List<Long> productIds = variantById.values().stream()
+                .map(ProductVariant::getProductId).distinct().toList();
+        Map<Long, Product> productById = productRepository.findByIdIn(productIds).stream()
+                .collect(Collectors.toMap(Product::getId, Function.identity()));
 
-        // D-61: Track 4 시점 discount·shipping = 0
-        CreateOrderCommand createCommand = new CreateOrderCommand(
-                command.buyerId(), resolvedItems, command.shipping(), 0L, 0L);
-        return orderService.createOrder(createCommand);
+        List<OrderItemCommand> resolvedItems = new ArrayList<>();
+        for (CartCheckoutItemCommand item : itemCommands) {
+            ProductVariant variant = variantById.get(item.variantId());
+            if (variant == null) {
+                throw new CheckoutItemNotFoundException("상품 변형을 찾을 수 없습니다: variantId=" + item.variantId());
+            }
+            Product product = productById.get(variant.getProductId());
+            if (product == null) {
+                // 변형은 있으나 상품이 미해소(soft-delete 등) — 직접주문 경로의 상품 미존재와 동일 취급(404·클라 교정).
+                throw new CheckoutItemNotFoundException("상품을 찾을 수 없습니다: productId=" + variant.getProductId());
+            }
+            resolvedItems.add(toOrderItemCommand(product, variant, item.quantity()));
+        }
+        return resolvedItems;
+    }
+
+    /** D-64 서버 산정(양 해소 경로 공용 tail): unit_price = base_price + additional_price·total = unit × qty·seller = product.seller_id. */
+    private OrderItemCommand toOrderItemCommand(Product product, ProductVariant variant, int quantity) {
+        long unitPrice = product.getBasePrice() + variant.getAdditionalPrice();
+        long totalPrice = unitPrice * quantity;
+        return new OrderItemCommand(
+                product.getId(), variant.getId(), product.getSellerId(),
+                quantity, unitPrice, totalPrice);
     }
 
     /**
@@ -225,7 +286,7 @@ public class CheckoutService {
     }
 
     /** 신규/복구 공통: initiate(TX2) → 성공 forNewOrder·PG 실패 INITIATE_FAILED. 멱등성 행 있으면 2xx 응답 캐싱(§10). */
-    private CheckoutOutcome completeWithInitiate(Order order, CheckoutCommand command, OrderIdempotencyKey markOrNull) {
+    private CheckoutOutcome completeWithInitiate(Order order, CheckoutContext command, OrderIdempotencyKey markOrNull) {
         CheckoutResponse response;
         try {
             PaymentInitiation initiation =
