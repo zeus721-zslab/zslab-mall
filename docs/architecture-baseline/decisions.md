@@ -8354,3 +8354,91 @@ Track 44 정찰에서 cart 4항목(조회 목록 쿼리·수량 mutator·selecte
 
 ---
 
+## D-131. Category 생성 경로 신설 (Track 46) [ACTIVE]
+
+작성일: 2026-07-05 · 등급: B급(마스터 데이터·상태머신/이벤트 없음·단일 정찰) · 외부 검토: 생략 대상이나 자발적 2회 수행(M4·D3 실측 종속 판정 확정용)
+
+### 목적
+category 테이블이 비어(seed·INSERT 경로 부재) 상품 등록의 categoryId existsById가 구조적으로 항상 실패하던 blocker를 해소. ADMIN 전용 루트 카테고리 생성 쓰기 경로를 신설.
+
+### §1-A. 결정 옵션·채택/기각 근거
+
+**M1. 초기 데이터 공급** — α 채택
+- α(채택) 생성 API로만 부트스트랩·seed 미도입: 운영 흐름(ADMIN 생성→SELLER 상품등록)이 자연 경로. seed는 소비처 없어 테스트 전용 데이터가 됨(기조 4).
+- β(기각) seed 마이그레이션: 우회일 뿐 생성 경로 부재 문제 미해결. 통합테스트도 생성→상품등록 체이닝이 실운영 시나리오와 정합.
+
+**M2. 트리 계층** — α+수정 채택
+- α(채택) API Flat·parent=null 고정: MVP 유일 소비처(상품등록 categoryId 참조)가 평면으로 충족. 계층 소비 기능(breadcrumb·카테고리별 조회) 0개(기조 4).
+- β(기각) 계층 지원: 소비처 부재.
+- 외부 검토 반영 수정: Service 메서드명 `createRootCategory`로 절단선을 이름에 명시. 도메인은 트리 전제(entity self-ref·DDL self-FK) 유지, API만 루트 한정. 향후 `createChildCategory` 확장 대비.
+
+**M3. depth/sortOrder 산출** — α 채택
+- α(채택) depth 서버 고정=1·sortOrder 요청 수용(기본 0): depth는 트리 파생값이라 클라이언트가 알 정보 아님. 평면이면 항상 1. sortOrder만 정렬 용도 수용.
+- β(기각) 둘 다 클라이언트 제공: depth는 derived field.
+
+**M4. 식별자 노출** — α 채택 (2차 정찰로 확정)
+- α(채택) 내부 Long id 노출·DDL/entity 무변경: 2차 정찰 실측 — ProductSummaryResponse(Track 44)가 이미 `categoryId` Long을 "공개 taxonomy 식별자"로 응답에 박제(shipped 계약). category는 public_id 컬럼 부재. α가 기존 계약 정합.
+- β(기각) public_id 신설: ① category에 public_id 부재 ② shipped된 Long categoryId 공개 계약과 충돌 ③ 마이그레이션+entity+상품등록 파급(기조 1·4). 외부 검토가 "public_id가 표준이면 맞춰야"라 지적했으나 정찰 결과 표준 아님(public_id 보유 12 Aggregate만 노출·category는 의도적 Long 노출)이 실측 확정 → α.
+
+**M5. 권한** — ADMIN 전용
+- SecurityConfig `/api/v1/admin/**`→hasRole("ADMIN") matcher 강제(@PreAuthorize 미사용·house 관습). 카테고리는 플랫폼 정책 데이터·판매자 생성 데이터 아님.
+
+**D1. displayName 중복 정책** — γ 채택 (2차 정찰 종속)
+- 2차 정찰 실측: category UNIQUE 전무·앱단 중복 방어 코드 부재("현재 무방어" 확정).
+- α(기각) 중복 허용: 분류 혼란.
+- β(기각) 전역 UNIQUE: 향후 계층 확장 시 정상 케이스(전자제품>액세서리 / 패션>액세서리) 차단.
+- γ(채택) 형제 스코프 (parent_id, display_name) UNIQUE: Flat 현행에선 루트 형제 유니크로 동작·계층 확장 정합. → 단 구현 시 블로커로 후퇴(아래 §블로커).
+
+**D1b. soft-delete UNIQUE 상호작용** — β 채택
+- β(채택) deleted_at 포함 UNIQUE: soft-delete 후 동일명 재생성 허용. @SQLRestriction("deleted_at IS NULL") 정합.
+
+**D2. sortOrder 유효 범위** — β 채택
+- β(채택) @PositiveOrZero: 정렬 인덱스 음수 불필요. @NotNull 동반.
+
+**D3. 재생성 동시성** — house 가드 채택
+- saveAndFlush→DataIntegrityViolationException→CategoryDuplicateException(409). 앱단 existsBy 선검사 불필요(DB 최종 방어선). 외부 검토가 "앱 체크만으로 SELECT→INSERT race 미방어" 지적 → DB UNIQUE 기반 가드로 확정.
+
+**D4. 삭제 정책** — carry-over(미구현)
+- 이번 트랙 생성만. 삭제 소비처 없음(기조 4). fk_product_category ON DELETE RESTRICT가 상품 참조 중 물리삭제를 DB 레벨 차단(기본 무결성 보장).
+
+### §2. 결정 라운드 재진입 근거
+- 1차 정찰 후 M1~M5 제시 → 외부 검토 1차: M4 재검토 권고·운영 규칙 4건(D1~D4) 누락 지적.
+- M4·D1·D3 실측 종속 판정 → 2차 정찰(public_id 관습·category UNIQUE) 후 확정.
+- 외부 검토 2차: M2 네이밍 수용·D3 동시성 보완 지적 반영.
+
+### §3. 배선 실측 (구현 결과)
+- V13 마이그레이션: dedup_key STORED generated + uk_category_dedup_key
+- 요청 DTO CreateCategoryRequest(@NotBlank @Size(200) displayName·@NotNull @PositiveOrZero sortOrder)
+- 응답 DTO CreateCategoryResponse(Long categoryId)
+- CategoryService.createRootCategory(parent=null·depth=1·saveAndFlush→409 house 가드)
+- AdminCategoryController POST /api/v1/admin/categories 201
+- CategoryDuplicateException + GlobalExceptionHandler CODE_CATEGORY_DUPLICATE 409
+- 검증: 680 tests·failures 0·--rerun-tasks(캐시 아님)·category 6/6 GREEN
+
+### §블로커 실측 (구현 중 발생·설계 갱신 2건)
+
+**블로커 1**: 확정 DDL UNIQUE(parent_id, display_name, deleted_at)가 MariaDB NULL≠NULL로 무효.
+- 원인: 루트(parent_id NULL)·활성(deleted_at NULL) 행이 NULL 포함으로 중복 판정 제외 → 무제한 중복 허용·saveAndFlush 409 미발동.
+- 해결(경로 B·승인): STORED generated dedup_key로 우회. 활성 행만 non-null·soft-delete 시 NULL.
+
+**블로커 2**: generated 식에 parent_id 사용 불가.
+- 원인: fk_category_parent(self-FK·V1)의 ON UPDATE CASCADE. MariaDB는 참조 액션이 값을 바꿀 수 있는 컬럼을 GENERATED 식에서 금지.
+- 해결(경로 1·승인): dedup_key를 display_name만으로 구성 = "활성 display_name 전역 유니크". 루트 전용 현 상태에선 형제 스코프와 동치. parent_id 포함(진짜 형제 스코프)은 §8 carry-over.
+- 경로 2(ON UPDATE CASCADE 제거)를 지금 안 한 이유: 자식 생성 기능·자식 행 0개 → 존재하지 않는 자식용 개조는 YAGNI(기조 4). dead 제약 제거지만 결함 처치 아닌 미래 대비 개조. FK 재생성이 최소 변경 원칙 이탈.
+
+### §진입점 카드
+1. **목적**: ADMIN 루트 카테고리 생성 쓰기 경로(빈 category→상품등록 불가 blocker 해소)
+2. **핵심 진입점 파일/라인**: AdminCategoryController(POST /api/v1/admin/categories)·CategoryService.createRootCategory·V13__add_category_dedup_unique.sql
+3. **핵심 SoT 메서드**: CategoryService.createRootCategory(parent=null·depth=1·saveAndFlush→409)
+4. **영향 범위**: category 도메인 신설(controller/service/dto/exception)·GlobalExceptionHandler 409 추가·category 테이블 V13(generated 컬럼+UNIQUE)
+5. **패턴 재사용 SoT**: saveAndFlush→DataIntegrityViolationException→409 house 가드(D-115 SellerProvisioning·Track 39 ProductRegistration)·admin SecurityConfig matcher·record DTO
+6. **트랩 주의**: MariaDB UNIQUE NULL≠NULL(블로커1)·generated 컬럼 ON UPDATE CASCADE 참조 금지(블로커2)·soft-delete+UNIQUE dedup_key 기법
+
+### §8. carry-over
+- **자식 카테고리 생성 경로 신설 시**: (1) fk_category_parent의 ON UPDATE CASCADE 제거 선행 → (2) dedup_key를 CONCAT(COALESCE(parent_id,0),':',display_name)로 확장해 형제 스코프 재검토. (블로커2 근거·V13 주석 박제)
+- **D4 삭제 정책**: 미구현. 삭제 경로 신설 시 상품 FK(ON DELETE RESTRICT)·soft-delete·하위 카테고리 관계 동반 결정.
+- **dedup_key collation**: 테이블 기본 utf8mb4_unicode_ci 상속 → 대소문자 무구분 유니크(uk_user_email 관습 정합).
+- **soft-delete + UNIQUE 기법**: house 첫 generated-컬럼 dedup 선례. ≥3건 누적 시 live-traps.md LT 이관 후보.
+
+---
+
