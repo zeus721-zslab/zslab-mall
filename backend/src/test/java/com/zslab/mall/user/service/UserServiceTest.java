@@ -13,12 +13,17 @@ import com.zslab.mall.auth.entity.UserRole;
 import com.zslab.mall.auth.enums.RoleCode;
 import com.zslab.mall.auth.repository.RoleRepository;
 import com.zslab.mall.auth.repository.UserRoleRepository;
+import com.zslab.mall.grade.entity.BuyerGrade;
+import com.zslab.mall.grade.enums.BuyerGradeCode;
+import com.zslab.mall.grade.repository.BuyerGradeRepository;
 import com.zslab.mall.user.controller.request.ChangePasswordRequest;
 import com.zslab.mall.user.controller.request.SignupRequest;
 import com.zslab.mall.user.controller.response.SignupResponse;
+import com.zslab.mall.user.entity.BuyerProfile;
 import com.zslab.mall.user.entity.User;
 import com.zslab.mall.user.exception.EmailAlreadyExistsException;
 import com.zslab.mall.user.policy.PasswordPolicy;
+import com.zslab.mall.user.repository.BuyerProfileRepository;
 import com.zslab.mall.user.repository.UserRepository;
 import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
@@ -45,6 +50,7 @@ class UserServiceTest {
     private static final String PASSWORD = "password123";
     private static final long USER_ID = 7001L;
     private static final String PUBLIC_ID = "usr_SIGNUP0000000000000000000000";
+    private static final long SILVER_GRADE_ID = 1L;
 
     @Mock
     private UserRepository userRepository;
@@ -52,6 +58,10 @@ class UserServiceTest {
     private RoleRepository roleRepository;
     @Mock
     private UserRoleRepository userRoleRepository;
+    @Mock
+    private BuyerProfileRepository buyerProfileRepository;
+    @Mock
+    private BuyerGradeRepository buyerGradeRepository;
     @Mock
     private PasswordEncoder passwordEncoder;
     @Mock
@@ -62,6 +72,13 @@ class UserServiceTest {
 
     private SignupRequest request() {
         return new SignupRequest(EMAIL, NAME, PHONE, PASSWORD);
+    }
+
+    // 실 DB IDENTITY 대신 id를 주입한다(register가 silver.getId()로 BuyerProfile.gradeId를 채우므로 null이면 팩토리 가드 위반).
+    private BuyerGrade silverGrade() {
+        BuyerGrade grade = BuyerGrade.create(BuyerGradeCode.SILVER, "실버");
+        ReflectionTestUtils.setField(grade, "id", SILVER_GRADE_ID);
+        return grade;
     }
 
     @Test
@@ -77,6 +94,8 @@ class UserServiceTest {
         });
         when(roleRepository.findByCode(RoleCode.BUYER))
                 .thenReturn(Optional.of(Role.create(RoleCode.BUYER, "구매자")));
+        when(buyerGradeRepository.findByCode(BuyerGradeCode.SILVER))
+                .thenReturn(Optional.of(silverGrade()));
 
         SignupResponse response = userService.register(request());
 
@@ -84,6 +103,7 @@ class UserServiceTest {
         verify(passwordEncoder).encode(PASSWORD);
         verify(userRepository).save(any(User.class));
         verify(userRoleRepository).save(any(UserRole.class));
+        verify(buyerProfileRepository).save(any(BuyerProfile.class));
     }
 
     @Test
@@ -109,6 +129,27 @@ class UserServiceTest {
 
         verify(userRepository, never()).existsByEmail(any());
         verify(userRepository, never()).save(any(User.class));
+    }
+
+    @Test
+    @DisplayName("SILVER BuyerGrade seed 부재: findByCode empty → IllegalStateException·BuyerProfile 저장 없음")
+    void register_missingSilverGradeSeed_throws() {
+        when(userRepository.existsByEmail(EMAIL)).thenReturn(false);
+        when(passwordEncoder.encode(PASSWORD)).thenReturn("hashed-pw");
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> {
+            User user = invocation.getArgument(0);
+            ReflectionTestUtils.setField(user, "id", USER_ID);
+            ReflectionTestUtils.setField(user, "publicId", PUBLIC_ID);
+            return user;
+        });
+        when(roleRepository.findByCode(RoleCode.BUYER))
+                .thenReturn(Optional.of(Role.create(RoleCode.BUYER, "구매자")));
+        when(buyerGradeRepository.findByCode(BuyerGradeCode.SILVER)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> userService.register(request()))
+                .isInstanceOf(IllegalStateException.class);
+
+        verify(buyerProfileRepository, never()).save(any(BuyerProfile.class));
     }
 
     @Test
