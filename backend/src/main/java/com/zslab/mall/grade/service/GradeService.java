@@ -1,5 +1,9 @@
 package com.zslab.mall.grade.service;
 
+import com.zslab.mall.audit.enums.AuditLogAction;
+import com.zslab.mall.audit.service.AuditContext;
+import com.zslab.mall.audit.service.AuditRecorder;
+import com.zslab.mall.common.enums.PolymorphicTargetType;
 import com.zslab.mall.grade.entity.GradePolicy;
 import com.zslab.mall.grade.exception.GradePolicyUnavailableException;
 import com.zslab.mall.grade.repository.GradePolicyRepository;
@@ -10,6 +14,7 @@ import com.zslab.mall.user.enums.GradeSource;
 import com.zslab.mall.user.repository.BuyerProfileRepository;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -37,15 +42,30 @@ public class GradeService {
     private final OrderItemRepository orderItemRepository;
     private final GradePolicyRepository gradePolicyRepository;
     private final BuyerProfileRepository buyerProfileRepository;
+    private final AuditRecorder auditRecorder;
 
     /**
-     * 단일 buyer의 등급을 자동 재산정한다(AUTO). lock 기간 중이면 아무 것도 변경하지 않고 반환한다.
+     * 단일 buyer의 등급을 자동 재산정한다(AUTO·감사 미적재). 무-actor 배치({@code GradeRecalculationBatchService})가 호출하는
+     * 경로다 — 요청 컨텍스트가 없어 감사 로그를 남기지 않는다(Track 52 Phase 2 배선 대상 밖). 감사가 필요한 운영자 단건 경로는
+     * {@link #recalculate(Long, AuditContext)}를 쓴다.
      *
      * @param buyerId 산정 대상 buyer(User.id·BuyerProfile 공유 PK)
+     */
+    public void recalculate(Long buyerId) {
+        recalculate(buyerId, null);
+    }
+
+    /**
+     * 단일 buyer의 등급을 자동 재산정한다(AUTO). lock 기간 중이면 아무 것도 변경하지 않고 반환한다. {@code auditContext}가
+     * 주어지고 실제 등급(gradeId)이 바뀌면 같은 트랜잭션에서 감사 로그를 적재한다(동일 등급 재산정은 diff 없어 skip·멱등).
+     * {@code auditContext}가 {@code null}이면 감사를 남기지 않는다(무-actor 배치 경로).
+     *
+     * @param buyerId      산정 대상 buyer(User.id·BuyerProfile 공유 PK)
+     * @param auditContext 감사 행위자 컨텍스트(운영자)·무-actor 배치는 null
      * @throws GradePolicyUnavailableException 활성 정책 구간에 매칭되는 정책이 없는 경우(서버 설정 오류·500)
      * @throws IllegalStateException           BuyerProfile이 존재하지 않는 경우(모든 buyer는 가입 시 프로필 보유·불변식 위반 방어)
      */
-    public void recalculate(Long buyerId) {
+    public void recalculate(Long buyerId, AuditContext auditContext) {
         LocalDateTime now = LocalDateTime.now();
 
         long lifetimeAmount = orderItemRepository.sumConfirmedTotalPriceByBuyerId(buyerId, OrderItemStatus.CONFIRMED);
@@ -63,10 +83,17 @@ public class GradeService {
 
         GradePolicy selectedPolicy = selectPolicyByAmount(gradePolicyRepository.findActivePolicies(now), lifetimeAmount, buyerId);
 
+        Long beforeGradeId = buyerProfile.getGradeId();
         // 멱등: 동일 등급 재산정 시에도 grade_updated_at을 갱신한다(no-op 최적화는 과잉·단순 유지).
         buyerProfile.applyGrade(selectedPolicy.getGrade().getId(), GradeSource.AUTO, now);
         log.info("[Grade] AUTO 산정 반영: buyerId={} lifetime={} gradeId={}",
                 buyerId, lifetimeAmount, selectedPolicy.getGrade().getId());
+
+        if (auditContext != null) {
+            // 등급 변경 = USER(buyer) 대상·targetId=buyerId(결정6). 동일 등급이면 diff 빈 맵 → record가 skip(멱등).
+            auditRecorder.record(auditContext, AuditLogAction.UPDATE, PolymorphicTargetType.USER, buyerId,
+                    Map.of("gradeId", beforeGradeId), Map.of("gradeId", buyerProfile.getGradeId()));
+        }
     }
 
     /**

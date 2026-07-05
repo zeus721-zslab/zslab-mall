@@ -1,5 +1,8 @@
 package com.zslab.mall.grade.controller;
 
+import com.zslab.mall.audit.service.AuditContext;
+import com.zslab.mall.common.auth.ActorRoleResolver;
+import com.zslab.mall.common.auth.AdminActorResolver;
 import com.zslab.mall.grade.controller.response.GradeRecalculationResponse;
 import com.zslab.mall.grade.service.GradeRecalculationBatchService;
 import com.zslab.mall.grade.service.GradeRecalculationResult;
@@ -7,6 +10,7 @@ import com.zslab.mall.grade.service.GradeService;
 import com.zslab.mall.user.entity.User;
 import com.zslab.mall.user.exception.UserNotFoundException;
 import com.zslab.mall.user.repository.UserRepository;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -25,12 +29,17 @@ public class AdminGradeController {
     private final GradeRecalculationBatchService gradeRecalculationBatchService;
     private final GradeService gradeService;
     private final UserRepository userRepository;
+    private final AdminActorResolver adminActorResolver;
+    private final ActorRoleResolver actorRoleResolver;
 
     public AdminGradeController(GradeRecalculationBatchService gradeRecalculationBatchService,
-            GradeService gradeService, UserRepository userRepository) {
+            GradeService gradeService, UserRepository userRepository,
+            AdminActorResolver adminActorResolver, ActorRoleResolver actorRoleResolver) {
         this.gradeRecalculationBatchService = gradeRecalculationBatchService;
         this.gradeService = gradeService;
         this.userRepository = userRepository;
+        this.adminActorResolver = adminActorResolver;
+        this.actorRoleResolver = actorRoleResolver;
     }
 
     /**
@@ -48,10 +57,12 @@ public class AdminGradeController {
      * 성공 204(No Content). 미존재 publicId 404({@link UserNotFoundException})·활성 정책 미매칭 500·lock 기간은 무변경 후 204.
      */
     @PostMapping("/api/v1/admin/buyers/{publicId}/grade/recalculate")
-    public ResponseEntity<Void> recalculateOne(@PathVariable String publicId) {
+    public ResponseEntity<Void> recalculateOne(@PathVariable String publicId, HttpServletRequest request) {
         User user = userRepository.findByPublicId(publicId)
                 .orElseThrow(() -> new UserNotFoundException("buyer를 찾을 수 없습니다: publicId=" + publicId));
-        gradeService.recalculate(user.getId());
+        // 운영자 단건 재산정은 감사 컨텍스트 전달(actorId·coarse role·ip/UA 미수집·결정4). 배치(β)는 무-actor라 미배선.
+        AuditContext auditContext = AuditContext.of(adminActorResolver.resolve(request), actorRoleResolver.requireCoarseRole());
+        gradeService.recalculate(user.getId(), auditContext);
         return ResponseEntity.noContent().build();
     }
 }

@@ -1,10 +1,15 @@
 package com.zslab.mall.product.service;
 
+import com.zslab.mall.audit.enums.AuditLogAction;
+import com.zslab.mall.audit.service.AuditContext;
+import com.zslab.mall.audit.service.AuditRecorder;
+import com.zslab.mall.common.enums.PolymorphicTargetType;
 import com.zslab.mall.product.entity.Product;
 import com.zslab.mall.product.enums.ProductStatus;
 import com.zslab.mall.product.exception.ProductInvalidStateException;
 import com.zslab.mall.product.exception.ProductNotFoundException;
 import com.zslab.mall.product.repository.ProductRepository;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -31,16 +36,18 @@ import org.springframework.transaction.annotation.Transactional;
 public class ProductApprovalService {
 
     private final ProductRepository productRepository;
+    private final AuditRecorder auditRecorder;
 
     /**
-     * 상품을 승인한다(PENDING → SALE).
+     * 상품을 승인한다(PENDING → SALE). 실제 전이 시 status 변경을 같은 트랜잭션에서 감사 로그로 적재한다(Track 52 Phase 2).
      *
-     * @param publicId 승인 대상 상품 public_id(prd_)
+     * @param publicId     승인 대상 상품 public_id(prd_)
+     * @param auditContext 감사 행위자 컨텍스트(운영자)
      * @return 승인된 Product
      * @throws ProductNotFoundException     상품 미존재(404)
      * @throws ProductInvalidStateException SALE 전이가 불가한 상태(PENDING 아님)인 경우(422)
      */
-    public Product approve(String publicId) {
+    public Product approve(String publicId, AuditContext auditContext) {
         Product product = productRepository.findByPublicIdForUpdate(publicId)
                 .orElseThrow(() -> new ProductNotFoundException(
                         "상품을 찾을 수 없습니다: publicId=" + publicId));
@@ -50,24 +57,28 @@ public class ProductApprovalService {
             return product;
         }
 
+        ProductStatus before = product.getStatus();
         try {
             product.approve();
         } catch (IllegalStateException exception) {
             throw new ProductInvalidStateException("승인할 수 없는 상품 상태입니다: " + exception.getMessage());
         }
+        auditRecorder.record(auditContext, AuditLogAction.APPROVE, PolymorphicTargetType.PRODUCT, product.getId(),
+                Map.of("status", before.name()), Map.of("status", product.getStatus().name()));
         log.info("[Product] 승인 전이 완료(→SALE): publicId={}", publicId);
         return product;
     }
 
     /**
-     * 상품을 거부한다(PENDING → REJECTED·종료 상태).
+     * 상품을 거부한다(PENDING → REJECTED·종료 상태). 실제 전이 시 status 변경을 같은 트랜잭션에서 감사 로그로 적재한다(Track 52 Phase 2).
      *
-     * @param publicId 거부 대상 상품 public_id(prd_)
+     * @param publicId     거부 대상 상품 public_id(prd_)
+     * @param auditContext 감사 행위자 컨텍스트(운영자)
      * @return 거부된 Product
      * @throws ProductNotFoundException     상품 미존재(404)
      * @throws ProductInvalidStateException REJECTED 전이가 불가한 상태(PENDING 아님)인 경우(422)
      */
-    public Product reject(String publicId) {
+    public Product reject(String publicId, AuditContext auditContext) {
         Product product = productRepository.findByPublicIdForUpdate(publicId)
                 .orElseThrow(() -> new ProductNotFoundException(
                         "상품을 찾을 수 없습니다: publicId=" + publicId));
@@ -77,11 +88,14 @@ public class ProductApprovalService {
             return product;
         }
 
+        ProductStatus before = product.getStatus();
         try {
             product.reject();
         } catch (IllegalStateException exception) {
             throw new ProductInvalidStateException("거부할 수 없는 상품 상태입니다: " + exception.getMessage());
         }
+        auditRecorder.record(auditContext, AuditLogAction.REJECT, PolymorphicTargetType.PRODUCT, product.getId(),
+                Map.of("status", before.name()), Map.of("status", product.getStatus().name()));
         log.info("[Product] 거부 전이 완료(→REJECTED): publicId={}", publicId);
         return product;
     }
