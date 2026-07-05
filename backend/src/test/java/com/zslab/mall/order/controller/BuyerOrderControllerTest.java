@@ -4,6 +4,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -21,9 +22,13 @@ import com.zslab.mall.order.controller.response.CheckoutResponse.PaymentView;
 import com.zslab.mall.order.controller.response.OrderResponse;
 import com.zslab.mall.order.controller.response.PagedResponse;
 import com.zslab.mall.order.controller.response.StatusView;
+import com.zslab.mall.order.entity.OrderItem;
+import com.zslab.mall.order.enums.OrderItemStatus;
+import com.zslab.mall.order.exception.OrderItemInvalidStateException;
 import com.zslab.mall.order.exception.OrderNotFoundException;
 import com.zslab.mall.order.exception.OrderNotPayableException;
 import com.zslab.mall.order.exception.OrderNotPayableReason;
+import com.zslab.mall.order.service.BuyerOrderConfirmService;
 import com.zslab.mall.order.service.BuyerOrderQueryService;
 import com.zslab.mall.payment.enums.PaymentStatus;
 import com.zslab.mall.payment.exception.PaymentInProgressException;
@@ -55,6 +60,8 @@ class BuyerOrderControllerTest {
     private CheckoutService checkoutService;
     @MockitoBean
     private BuyerOrderQueryService buyerOrderQueryService;
+    @MockitoBean
+    private BuyerOrderConfirmService buyerOrderConfirmService;
     @MockitoBean
     private BuyerActorResolver buyerActorResolver;
 
@@ -210,5 +217,32 @@ class BuyerOrderControllerTest {
                         .contentType(MediaType.APPLICATION_JSON).content("{ \"method\": \"CARD\" }"))
                 .andExpect(status().isCreated())
                 .andExpect(header().string("Location", "/api/v1/payments/pay_RETRY00000000000000000AA"));
+    }
+
+    @Test
+    @DisplayName("구매확정: 성공 → 200 + orderItemId·CONFIRMED")
+    void confirm_returns200() throws Exception {
+        OrderItem confirmed = mock(OrderItem.class);
+        when(confirmed.getPublicId()).thenReturn("oit_TEST0000000000000000000AA");
+        when(confirmed.getItemStatus()).thenReturn(OrderItemStatus.CONFIRMED);
+        when(buyerOrderConfirmService.confirmPurchase(anyLong(), anyString(), anyString())).thenReturn(confirmed);
+
+        mockMvc.perform(post("/api/v1/orders/ord_X00000000000000000000000AA/items/oit_TEST0000000000000000000AA/confirm")
+                        .header("X-Buyer-Id", BUYER_ID))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.orderItemId").value("oit_TEST0000000000000000000AA"))
+                .andExpect(jsonPath("$.status").value("CONFIRMED"));
+    }
+
+    @Test
+    @DisplayName("구매확정: 비-DELIVERED 상태 → 422 ORDER_ITEM_INVALID_STATE")
+    void confirm_invalidState_returns422() throws Exception {
+        when(buyerOrderConfirmService.confirmPurchase(anyLong(), anyString(), anyString()))
+                .thenThrow(new OrderItemInvalidStateException("구매확정할 수 없는 주문 품목 상태입니다"));
+
+        mockMvc.perform(post("/api/v1/orders/ord_X00000000000000000000000AA/items/oit_TEST0000000000000000000AA/confirm")
+                        .header("X-Buyer-Id", BUYER_ID))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("ORDER_ITEM_INVALID_STATE"));
     }
 }
