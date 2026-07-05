@@ -8,9 +8,11 @@ import com.zslab.mall.common.exception.MalformedRequestException;
 import com.zslab.mall.order.controller.request.CreateOrderRequest;
 import com.zslab.mall.order.controller.request.RetryPaymentRequest;
 import com.zslab.mall.order.controller.response.CheckoutResponse;
+import com.zslab.mall.order.controller.response.ConfirmPurchaseResponse;
 import com.zslab.mall.order.controller.response.OrderResponse;
 import com.zslab.mall.order.controller.response.OrderSummaryResponse;
 import com.zslab.mall.order.controller.response.PagedResponse;
+import com.zslab.mall.order.service.BuyerOrderConfirmService;
 import com.zslab.mall.order.service.BuyerOrderQueryService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -45,14 +47,17 @@ public class BuyerOrderController {
 
     private final CheckoutService checkoutService;
     private final BuyerOrderQueryService buyerOrderQueryService;
+    private final BuyerOrderConfirmService buyerOrderConfirmService;
     private final BuyerActorResolver buyerActorResolver;
 
     public BuyerOrderController(
             CheckoutService checkoutService,
             BuyerOrderQueryService buyerOrderQueryService,
+            BuyerOrderConfirmService buyerOrderConfirmService,
             BuyerActorResolver buyerActorResolver) {
         this.checkoutService = checkoutService;
         this.buyerOrderQueryService = buyerOrderQueryService;
+        this.buyerOrderConfirmService = buyerOrderConfirmService;
         this.buyerActorResolver = buyerActorResolver;
     }
 
@@ -83,6 +88,17 @@ public class BuyerOrderController {
             HttpServletRequest httpRequest) {
         Long buyerId = buyerActorResolver.resolve(httpRequest);
         return ResponseEntity.ok(buyerOrderQueryService.listOrders(buyerId, page, size));
+    }
+
+    /** 본인 주문 품목 구매확정(Track 47). 배송완료(DELIVERED)→구매확정(CONFIRMED) 전이 후 확정 결과 200. */
+    @PostMapping("/{orderPublicId}/items/{orderItemPublicId}/confirm")
+    public ResponseEntity<ConfirmPurchaseResponse> confirmPurchase(
+            @PathVariable String orderPublicId,
+            @PathVariable String orderItemPublicId,
+            HttpServletRequest httpRequest) {
+        Long buyerId = buyerActorResolver.resolve(httpRequest);
+        return ResponseEntity.ok(ConfirmPurchaseResponse.from(
+                buyerOrderConfirmService.confirmPurchase(buyerId, orderPublicId, orderItemPublicId)));
     }
 
     /** 재결제(§6). 재검증 2종(D-60) 후 신규 Payment 생성·201(Location=payment). */

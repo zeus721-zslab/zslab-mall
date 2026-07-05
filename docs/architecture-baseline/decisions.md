@@ -8442,3 +8442,70 @@ category 테이블이 비어(seed·INSERT 경로 부재) 상품 등록의 catego
 
 ---
 
+## D-132. 구매확정(E6) buyer 수동 확정 경로 신설 (Track 47) [ACTIVE]
+
+작성일: 2026-07-05 · 등급: A급(상태 전이 쓰기·외부 검토 선택·생략) · 선행 관계: Settlement 정산 트리거(CONFIRMED) 상태 확보용 선행
+
+### 목적
+buyer가 배송완료(DELIVERED)된 OrderItem을 구매확정(CONFIRMED)으로 전이하는 수동 쓰기 경로 신설. 직전 정찰에서 CONFIRMED가 enum·상태머신·OrderStatusResolver에만 존재하고 전이 쓰기 경로가 전무(데이터로 CONFIRMED 미생성)함이 실측 확정 → 정산이 소비할 확정 상태를 데이터로 생성하기 위한 선행 트랙.
+
+### §1-A. 결정 옵션·채택/기각 근거
+
+**E1. 트리거 방식** — α 채택
+- α(채택) buyer 수동 확정만: MVP 기본 플로우(buyer가 구매확정 버튼). 소유검증 SoT(SellerDeliveryCompletionController·D-92) 복제로 충족.
+- β(기각) 자동 배치 확정: state-machine.md:174에서 명시적 이연 상태·N일 값 미정. @EnableScheduling 인프라는 이미 가동 중이라 향후 착수 비용 낮음 → 지금 열 필요 없음(기조 4).
+- γ(기각) 둘 다: 자동까지 지금 열 소비처 없음.
+- carry-over: 자동 구매확정(배송 후 N일→CONFIRMED)은 §8 이연 유지.
+
+**E2. 이벤트 발행 범위** — α 채택
+- α(채택) CONFIRMED 전이 + Order.status 재계산까지만: CONFIRMED 전이는 소비처 있음(OrderStatusResolver.java:47-48이 전 항목 CONFIRMED→Order.status=CONFIRMED 파생, 이미 구현) → 죽은 코드 아님.
+- β(기각) 이벤트 발행 + 정산 적재 핸들러 포함(정산 통합 트랙화): E6+Settlement 한 트랙 합침 → S급화·규모 증대.
+- PurchaseConfirmed 이벤트 record·publish·정산 적재는 전부 Settlement 트랙 이월. 순수 이벤트만 발행(소비처 0)은 기조 4 위반이라 배제. 발행 지점은 코드 TODO 주석이 아니라 Settlement 트랙 진입점 카드로 인계(기조 3).
+
+### §2. 결정 라운드 재진입 근거
+- Settlement 착수 정찰 → 판정 B(부분 선행 필요): 정산 트리거(CONFIRMED)·수수료 정책 부재 실측.
+- 사용자 결정 Q1=β(구매확정 기준 정산)·Q2=α(판매자 단일율) → E6 선행 필수 확정.
+- E6 범위 정찰 → 규모 中(전 요소 기존 SoT 1:1 복제) → 이 채팅 추가 트랙으로 진행.
+
+### §3. 배선 실측 (구현 결과)
+
+신설(4):
+- OrderItemInvalidStateException — 구매확정 불가 상태 422(order 도메인 예외)
+- BuyerOrderConfirmService.confirmPurchase(buyerId, orderPublicId, orderItemPublicId) — 소유권 대조→항목 매칭→멱등 no-op→changeStatus(CONFIRMED)→recalculateStatus
+- ConfirmPurchaseResponse(orderItemId·status)
+- BuyerOrderConfirmControllerIntegrationTest 5건
+
+수정(3):
+- GlobalExceptionHandler — CODE_ORDER_ITEM_INVALID_STATE 422 매핑(import·상수·핸들러)
+- BuyerOrderController — POST /api/v1/orders/{orderPublicId}/items/{orderItemPublicId}/confirm + 의존성 주입
+- BuyerOrderControllerTest — @MockitoBean 추가(회귀 방지)+confirm 슬라이스 2건
+
+재사용 SoT(무수정):
+- OrderItem.changeStatus(OrderItem.java:117)·OrderItemStatus.canTransitionTo(DELIVERED→CONFIRMED 이미 합법)
+- OrderService.recalculateStatus(OrderService.java:105)·OrderStatusResolver(Order.status 파생 무수정)
+- 멱등 no-op(DeliveryCompletedHandler 패턴)·소유권 대조(BuyerOrderQueryService.getOrder D-92)·IllegalStateException→422 흡수(OrderShippingService.markDeliveredBySeller 패턴)·BuyerActorResolver 인증
+
+검증: 687 tests·failures 0·--rerun-tasks(캐시 아님)·Track 46(680) 대비 +7·기존 680 전원 통과(회귀 0). 통합 5: T1 401·T2 200(DELIVERED→CONFIRMED·Order CONFIRMED 실 커밋)·T3 404(타 buyer 은닉)·T4 422(SHIPPING)·T5 멱등 200.
+
+### §관습 정합 판정 (예외 신설 근거·중요)
+확정 설계는 "IllegalStateException→422 흡수(markDeliveredBySeller 패턴)"였으나, 그 패턴이 쓰는 DeliveryInvalidStateException을 재사용하면 응답 code가 DELIVERY_INVALID_STATE로 나가 buyer 구매확정 실패에 "배송 상태 위반" 코드가 붙는 오분류가 발생. ClaimInvalidStateException·DeliveryInvalidStateException이 도메인별 422 예외를 각자 두는 선례(GlobalExceptionHandler §422)에 맞춰 order 전용 OrderItemInvalidStateException을 신설. "기존 스타일 유지"의 자연 귀결이며 임의 확장 아님(Claude.ai MCP read 검증 완료: 서비스·예외·핸들러·컨트롤러 4지점 대조).
+
+### §식별키·소유권 결정 (정찰 근거)
+- 확정 대상 식별키 = orderItemPublicId(oit_): OrderItemResponse가 orderItemId를 public_id로 노출. 멀티벤더(order_item.seller_id)라 항목별 확정이 정합. 경로에 orderPublicId도 포함해 주문 소유·항목 소속 동시 해소.
+- 소유권 = order→buyerId 대조(BuyerOrderQueryService.getOrder 패턴). findByPublicIdWithItems로 items 선로딩 후 매칭. 미존재·타인·미소속 전부 404 은닉(§2).
+
+### §진입점 카드
+1. 목적: buyer 수동 구매확정(DELIVERED→CONFIRMED) 쓰기 경로·정산 트리거 상태 확보
+2. 핵심 진입점: BuyerOrderController POST /api/v1/orders/{orderPublicId}/items/{orderItemPublicId}/confirm · BuyerOrderConfirmService.confirmPurchase
+3. 핵심 SoT 메서드: OrderItem.changeStatus(CONFIRMED)·OrderService.recalculateStatus
+4. 영향 범위: order 도메인(service/controller/exception/dto 신설)·GlobalExceptionHandler 422 추가. Order.status 파생은 OrderStatusResolver 기구현 재사용(무수정)
+5. 패턴 재사용 SoT: 소유권 대조(getOrder D-92)·멱등 no-op(DeliveryCompletedHandler)·IllegalStateException→422 흡수(markDeliveredBySeller)·도메인별 422 예외 신설(Claim/Delivery 선례)
+6. 트랩 주의: IllegalStateException 직접 매핑 금지(500 fallback)·delivery 예외 재사용 시 code 오분류
+
+### §8. carry-over
+- **PurchaseConfirmed 이벤트 발행**: Settlement 트랙에서 BuyerOrderConfirmService.confirmPurchase 전이 지점에 publish 추가 + record 신설 + 정산 적재 핸들러를 한 몸으로 배선(소비처와 짝). Read Model(SellerSalesDaily·BuyerPurchaseAggregate) 소비는 PR-03 영역.
+- **자동 구매확정(배송 후 N일→CONFIRMED)**: state-machine.md:174 이연. 착수 시 ExpirePaymentScheduler 패턴 복제(@EnableScheduling 가동 중)·delivered_at 기준 조회(delivery join 신규 쿼리)·N일 값 결정 필요.
+- **판매자 수수료율 정책(Q2=α 단일율)**: Settlement 트랙에서 seller 컬럼 + Flyway 마이그레이션으로 신설. fee 계산 입력값.
+
+---
+
