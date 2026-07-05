@@ -31,6 +31,8 @@ import com.zslab.mall.refund.exception.RefundInvariantViolationException;
 import com.zslab.mall.refund.exception.RefundNotFoundException;
 import com.zslab.mall.seller.exception.SellerUserAlreadyExistsException;
 import com.zslab.mall.settlement.exception.SettlementAlreadyExistsException;
+import com.zslab.mall.settlement.exception.SettlementInvalidStateException;
+import com.zslab.mall.settlement.exception.SettlementNotFoundException;
 import com.zslab.mall.settlement.exception.SettlementPeriodInvalidException;
 import com.zslab.mall.user.exception.EmailAlreadyExistsException;
 import com.zslab.mall.user.exception.UserNotFoundException;
@@ -97,6 +99,8 @@ public class GlobalExceptionHandler {
     private static final String CODE_FORBIDDEN = "FORBIDDEN";
     private static final String CODE_SETTLEMENT_PERIOD_INVALID = "SETTLEMENT_PERIOD_INVALID";
     private static final String CODE_SETTLEMENT_ALREADY_EXISTS = "SETTLEMENT_ALREADY_EXISTS";
+    private static final String CODE_SETTLEMENT_NOT_FOUND = "SETTLEMENT_NOT_FOUND";
+    private static final String CODE_SETTLEMENT_INVALID_STATE = "SETTLEMENT_INVALID_STATE";
     private static final String CODE_INTERNAL_ERROR = "INTERNAL_ERROR";
 
     // ===== 400 =====
@@ -221,6 +225,13 @@ public class GlobalExceptionHandler {
             CartItemNotFoundException exception, HttpServletRequest request) {
         // Track 45: 장바구니 수량변경·selected 토글 시 대상 variant 미담김(404). 타 buyer 소유도 동일 404 은닉.
         return build(HttpStatus.NOT_FOUND, CODE_CART_ITEM_NOT_FOUND, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(SettlementNotFoundException.class)
+    public ResponseEntity<ProblemDetail> handleSettlementNotFound(
+            SettlementNotFoundException exception, HttpServletRequest request) {
+        // Track 49: 정산 전이(confirm·pay) 시 settlementId 미존재(404). 500 fallback으로 새는 트랩 차단.
+        return build(HttpStatus.NOT_FOUND, CODE_SETTLEMENT_NOT_FOUND, exception.getMessage(), request);
     }
 
     // ===== 409 =====
@@ -350,6 +361,14 @@ public class GlobalExceptionHandler {
         // Track 47: 구매확정 불가 상태(OrderItem 비-DELIVERED 등). 500 fallback 차단·422 매핑(DeliveryInvalidStateException 선례).
         log.warn("[Order] 구매확정 상태 위반(422): {}", exception.getMessage());
         return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_ORDER_ITEM_INVALID_STATE, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(SettlementInvalidStateException.class)
+    public ResponseEntity<ProblemDetail> handleSettlementInvalidState(
+            SettlementInvalidStateException exception, HttpServletRequest request) {
+        // Track 49: 정산 전이 불가 상태(순방향 아님·PAID 불가역 등). 500 fallback 차단·422 매핑(OrderItemInvalidStateException 선례).
+        log.warn("[Settlement] 정산 상태 위반(422): {}", exception.getMessage());
+        return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_SETTLEMENT_INVALID_STATE, exception.getMessage(), request);
     }
 
     @ExceptionHandler(EmptyCartCheckoutException.class)
