@@ -1,0 +1,43 @@
+package com.zslab.mall.settlement.controller;
+
+import com.zslab.mall.settlement.controller.request.CreateMonthlySettlementRequest;
+import com.zslab.mall.settlement.controller.response.SettlementBatchResponse;
+import com.zslab.mall.settlement.service.SettlementBatchResult;
+import com.zslab.mall.settlement.service.SettlementCreationService;
+import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RestController;
+
+/**
+ * Admin 액터용 월 정산 배치 REST 컨트롤러(Track 48 P3). 운영자 주도 월 정산 생성 1 endpoint를 노출한다.
+ *
+ * <p>클래스 레벨 base path를 두지 않고 메서드 절대경로를 부여한다({@link com.zslab.mall.category.controller.AdminCategoryController}
+ * 선례). 인가는 SecurityConfig의 {@code /api/v1/admin/**}→{@code hasRole("ADMIN")}가 강제하므로 메서드 @PreAuthorize를
+ * 두지 않는다. HTTP 책임만 가진다: 요청 검증·Service 위임·HTTP 변환. 집계·병합·중복 가드는 {@link SettlementCreationService}
+ * 책임이다. created_by는 미사용(현행 NULL)이므로 adminId를 주입하지 않는다.
+ */
+@RestController
+public class AdminSettlementController {
+
+    private final SettlementCreationService settlementCreationService;
+
+    public AdminSettlementController(SettlementCreationService settlementCreationService) {
+        this.settlementCreationService = settlementCreationService;
+    }
+
+    /**
+     * 운영자 주도 월 정산 배치 생성(Track 48 P3). 성공 201 + 생성 요약. 기간 범위 위반 400·동시 실행 중복 409
+     * ({@link SettlementCreationService}·GlobalExceptionHandler).
+     */
+    @PostMapping("/api/v1/admin/settlements")
+    public ResponseEntity<SettlementBatchResponse> create(
+            @RequestBody @Valid CreateMonthlySettlementRequest request) {
+        SettlementBatchResult result =
+                settlementCreationService.createMonthlySettlements(request.year(), request.month());
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(SettlementBatchResponse.of(request.year(), request.month(), result));
+    }
+}

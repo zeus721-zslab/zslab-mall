@@ -30,6 +30,8 @@ import com.zslab.mall.product.exception.ProductVariantOptionConflictException;
 import com.zslab.mall.refund.exception.RefundInvariantViolationException;
 import com.zslab.mall.refund.exception.RefundNotFoundException;
 import com.zslab.mall.seller.exception.SellerUserAlreadyExistsException;
+import com.zslab.mall.settlement.exception.SettlementAlreadyExistsException;
+import com.zslab.mall.settlement.exception.SettlementPeriodInvalidException;
 import com.zslab.mall.user.exception.EmailAlreadyExistsException;
 import com.zslab.mall.user.exception.UserNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -93,6 +95,8 @@ public class GlobalExceptionHandler {
     private static final String CODE_CART_ITEM_NOT_FOUND = "CART_ITEM_NOT_FOUND";
     private static final String CODE_PRODUCT_VARIANT_OPTION_CONFLICT = "PRODUCT_VARIANT_OPTION_CONFLICT";
     private static final String CODE_FORBIDDEN = "FORBIDDEN";
+    private static final String CODE_SETTLEMENT_PERIOD_INVALID = "SETTLEMENT_PERIOD_INVALID";
+    private static final String CODE_SETTLEMENT_ALREADY_EXISTS = "SETTLEMENT_ALREADY_EXISTS";
     private static final String CODE_INTERNAL_ERROR = "INTERNAL_ERROR";
 
     // ===== 400 =====
@@ -110,6 +114,13 @@ public class GlobalExceptionHandler {
             MalformedRequestException.class, IllegalArgumentException.class})
     public ResponseEntity<ProblemDetail> handleMalformed(Exception exception, HttpServletRequest request) {
         return build(HttpStatus.BAD_REQUEST, CODE_MALFORMED_REQUEST, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(SettlementPeriodInvalidException.class)
+    public ResponseEntity<ProblemDetail> handleSettlementPeriodInvalid(
+            SettlementPeriodInvalidException exception, HttpServletRequest request) {
+        // Track 48 P3: 정산 배치 year/month 범위 위반(월 1~12·연도 2000~2100 밖). 도메인 규칙 검증(Service)·400.
+        return build(HttpStatus.BAD_REQUEST, CODE_SETTLEMENT_PERIOD_INVALID, exception.getMessage(), request);
     }
 
     // ===== 401 =====
@@ -264,6 +275,14 @@ public class GlobalExceptionHandler {
             CategoryDuplicateException exception, HttpServletRequest request) {
         // Track 46: 카테고리 생성 시 형제 스코프 동일 display_name 중복(409·uk_category_dedup_key). saveAndFlush 위반→409 변환.
         return build(HttpStatus.CONFLICT, CODE_CATEGORY_DUPLICATE, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(SettlementAlreadyExistsException.class)
+    public ResponseEntity<ProblemDetail> handleSettlementAlreadyExists(
+            SettlementAlreadyExistsException exception, HttpServletRequest request) {
+        // Track 48 P3: 동일 seller·기간 정산 중복(409·uk_settlement_seller_period). 동시 배치 실행 레이스 백스톱(선확인은 skip).
+        log.warn("[Settlement] 정산 중복(409): {}", exception.getMessage());
+        return build(HttpStatus.CONFLICT, CODE_SETTLEMENT_ALREADY_EXISTS, exception.getMessage(), request);
     }
 
     // ===== 422 =====

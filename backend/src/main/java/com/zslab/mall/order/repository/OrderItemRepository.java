@@ -1,6 +1,8 @@
 package com.zslab.mall.order.repository;
 
 import com.zslab.mall.order.entity.OrderItem;
+import com.zslab.mall.order.enums.OrderItemStatus;
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -29,4 +31,23 @@ public interface OrderItemRepository extends JpaRepository<OrderItem, Long> {
      */
     @Query("SELECT oi.order.id FROM OrderItem oi WHERE oi.id = :id")
     Optional<Long> findOrderIdById(@Param("id") Long id);
+
+    /**
+     * 정산 기간 내 구매확정(CONFIRMED) 품목의 총 매출(total_price 합)을 seller별로 집계한다(Track 48 P2·정산 gross 소스).
+     * 기간 기준은 {@code confirmed_at}이며 경계는 양끝 포함({@code >= periodStart AND <= periodEnd})이다.
+     * {@code confirmed_at IS NULL}(미확정) 행은 범위 비교가 false로 평가돼 자연 제외된다.
+     *
+     * <p>{@code status}는 enum 바인딩 파라미터로 전달한다(@Enumerated(STRING) 정합·JPQL enum 리터럴 ordinal 비교 함정 회피).
+     * 모든 변수는 :status·:periodStart·:periodEnd 바인딩만 사용하며 SQL injection 위험이 없다.
+     */
+    @Query("SELECT oi.sellerId AS sellerId, COALESCE(SUM(oi.totalPrice), 0) AS grossAmount "
+            + "FROM OrderItem oi "
+            + "WHERE oi.itemStatus = :status "
+            + "AND oi.confirmedAt >= :periodStart "
+            + "AND oi.confirmedAt <= :periodEnd "
+            + "GROUP BY oi.sellerId")
+    List<SellerGrossProjection> aggregateGrossBySeller(
+            @Param("status") OrderItemStatus status,
+            @Param("periodStart") LocalDateTime periodStart,
+            @Param("periodEnd") LocalDateTime periodEnd);
 }

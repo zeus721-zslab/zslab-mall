@@ -60,6 +60,10 @@ public class Settlement extends AbstractFullAuditableEntity {
     @Column(name = "fee_amount", nullable = false)
     private Long feeAmount;
 
+    /** 정산 생성 시점 수수료율 스냅샷·basis-point(1000 = 10.00%). 사후 seller 율 변경과 무관하게 정산 재현성 확보. */
+    @Column(name = "commission_rate", nullable = false)
+    private Integer commissionRate;
+
     @Column(name = "refund_amount", nullable = false)
     private Long refundAmount;
 
@@ -84,12 +88,13 @@ public class Settlement extends AbstractFullAuditableEntity {
             LocalDateTime periodEnd,
             Long grossAmount,
             Long feeAmount,
+            Integer commissionRate,
             Long refundAmount) {
         if (sellerId == null || bankAccountId == null || periodStart == null
                 || periodEnd == null || grossAmount == null || feeAmount == null
-                || refundAmount == null) {
+                || commissionRate == null || refundAmount == null) {
             throw new IllegalArgumentException(
-                    "Settlement 필수값 누락(sellerId·bankAccountId·periodStart·periodEnd·grossAmount·feeAmount·refundAmount).");
+                    "Settlement 필수값 누락(sellerId·bankAccountId·periodStart·periodEnd·grossAmount·feeAmount·commissionRate·refundAmount).");
         }
         Settlement settlement = new Settlement();
         settlement.sellerId = sellerId;
@@ -98,6 +103,7 @@ public class Settlement extends AbstractFullAuditableEntity {
         settlement.periodEnd = periodEnd;
         settlement.grossAmount = grossAmount;
         settlement.feeAmount = feeAmount;
+        settlement.commissionRate = commissionRate;
         settlement.refundAmount = refundAmount;
         settlement.netAmount = grossAmount - feeAmount - refundAmount;
         settlement.status = SettlementStatus.PENDING;

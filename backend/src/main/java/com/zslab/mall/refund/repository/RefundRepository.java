@@ -2,6 +2,7 @@ package com.zslab.mall.refund.repository;
 
 import com.zslab.mall.refund.entity.Refund;
 import com.zslab.mall.refund.enums.RefundStatus;
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -60,4 +61,26 @@ public interface RefundRepository extends JpaRepository<Refund, Long> {
     default long sumCompletedByPaymentId(Long paymentId) {
         return sumAmountByPaymentIdAndStatus(paymentId, RefundStatus.COMPLETED);
     }
+
+    /**
+     * 정산 기간 내 완료(COMPLETED) 환불액(amount 합)을 seller별로 집계한다(Track 48 P2·정산 refund 소스). refund에는
+     * seller_id 직접 컬럼이 없으므로 refund→claim→order_item 경로로 seller에 귀속한다. Claim·OrderItem은 Long ID 참조
+     * (@ManyToOne 미적용·aggregate-boundary)이므로 연관 탐색 조인이 불가해 theta-join(FK = id 조건)으로 연결한다.
+     * 기간 기준은 {@code refunded_at}이며 경계는 양끝 포함({@code >= periodStart AND <= periodEnd})이다.
+     *
+     * <p>{@code status}는 enum 바인딩 파라미터로 전달한다(@Enumerated(STRING) 정합·JPQL enum 리터럴 ordinal 비교 함정 회피).
+     * 모든 변수는 :status·:periodStart·:periodEnd 바인딩만 사용하며 SQL injection 위험이 없다.
+     */
+    @Query("SELECT oi.sellerId AS sellerId, COALESCE(SUM(r.amount), 0) AS refundAmount "
+            + "FROM Refund r, Claim c, OrderItem oi "
+            + "WHERE r.claimId = c.id "
+            + "AND c.orderItemId = oi.id "
+            + "AND r.status = :status "
+            + "AND r.refundedAt >= :periodStart "
+            + "AND r.refundedAt <= :periodEnd "
+            + "GROUP BY oi.sellerId")
+    List<SellerRefundProjection> aggregateRefundBySeller(
+            @Param("status") RefundStatus status,
+            @Param("periodStart") LocalDateTime periodStart,
+            @Param("periodEnd") LocalDateTime periodEnd);
 }

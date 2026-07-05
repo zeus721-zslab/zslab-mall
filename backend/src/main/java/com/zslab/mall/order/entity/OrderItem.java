@@ -13,6 +13,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import java.time.LocalDateTime;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -62,6 +63,13 @@ public class OrderItem extends AbstractPublicIdFullAuditableEntity {
     @Enumerated(EnumType.STRING)
     @Column(name = "item_status", nullable = false)
     private OrderItemStatus itemStatus;
+
+    /**
+     * 구매확정(CONFIRMED 전이) 발생 도메인 시각. NULL=미확정. 정산 월 귀속 기준이며 audit {@code updatedAt}
+     * (최종 수정 시각)과 의미가 다르다 — 확정 후 다른 수정이 있어도 확정 시각은 불변이어야 하므로 별도 컬럼으로 보존한다.
+     */
+    @Column(name = "confirmed_at")
+    private LocalDateTime confirmedAt;
 
     @Override
     protected String getPublicIdPrefix() {
@@ -129,5 +137,22 @@ public class OrderItem extends AbstractPublicIdFullAuditableEntity {
      */
     public void markPaid() {
         changeStatus(OrderItemStatus.PAID);
+    }
+
+    /**
+     * 구매확정 시각을 기록한다. 상태 전이({@link #changeStatus})와 분리해 부수효과 혼입을 피하며, 배선(호출)은 P3에서 한다.
+     * 이미 확정 시각이 설정돼 있으면 덮어쓰지 않는다(멱등·재확정 안전).
+     *
+     * @param at 구매확정 발생 시각
+     * @throws IllegalArgumentException at이 null인 경우
+     */
+    public void markConfirmedAt(LocalDateTime at) {
+        if (at == null) {
+            throw new IllegalArgumentException("구매확정 시각은 null일 수 없습니다.");
+        }
+        if (confirmedAt != null) {
+            return;
+        }
+        confirmedAt = at;
     }
 }
