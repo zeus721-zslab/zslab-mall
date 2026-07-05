@@ -28,6 +28,7 @@ import com.zslab.mall.payment.exception.InvalidCallbackException;
 import com.zslab.mall.payment.exception.PaymentAlreadyCompletedException;
 import com.zslab.mall.payment.exception.PaymentInProgressException;
 import com.zslab.mall.payment.exception.PaymentNotFoundException;
+import com.zslab.mall.product.exception.ProductImageNotFoundException;
 import com.zslab.mall.product.exception.ProductInvalidStateException;
 import com.zslab.mall.product.exception.ProductNotFoundException;
 import com.zslab.mall.product.exception.ProductVariantNotFoundException;
@@ -76,6 +77,7 @@ public class GlobalExceptionHandler {
     private static final String CODE_AUTHENTICATION_FAILED = "AUTHENTICATION_FAILED";
     private static final String CODE_ORDER_NOT_FOUND = "ORDER_NOT_FOUND";
     private static final String CODE_PRODUCT_NOT_FOUND = "PRODUCT_NOT_FOUND";
+    private static final String CODE_PRODUCT_IMAGE_NOT_FOUND = "PRODUCT_IMAGE_NOT_FOUND";
     private static final String CODE_IDEMPOTENCY_KEY_IN_PROGRESS = "IDEMPOTENCY_KEY_IN_PROGRESS";
     private static final String CODE_PAYMENT_IN_PROGRESS = "PAYMENT_IN_PROGRESS";
     private static final String CODE_OPTIMISTIC_LOCK_FAILURE = "OPTIMISTIC_LOCK_FAILURE";
@@ -189,6 +191,13 @@ public class GlobalExceptionHandler {
             ProductNotFoundException exception, HttpServletRequest request) {
         // Track 44: 구매자 카탈로그 단건 미존재·비노출(status/판매자상태/삭제) 은닉(404). 존재 여부 노출 회피(§2).
         return build(HttpStatus.NOT_FOUND, CODE_PRODUCT_NOT_FOUND, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(ProductImageNotFoundException.class)
+    public ResponseEntity<ProblemDetail> handleProductImageNotFound(
+            ProductImageNotFoundException exception, HttpServletRequest request) {
+        // Track 59 BL-6: 셀러 이미지 대표지정·삭제 시 대상 미존재(404). 타 판매자 소유도 동일 404 은닉(2-hop·AddressNotFound 선례).
+        return build(HttpStatus.NOT_FOUND, CODE_PRODUCT_IMAGE_NOT_FOUND, exception.getMessage(), request);
     }
 
     @ExceptionHandler(RefundNotFoundException.class)
