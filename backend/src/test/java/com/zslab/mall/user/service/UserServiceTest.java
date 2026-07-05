@@ -18,6 +18,8 @@ import com.zslab.mall.grade.enums.BuyerGradeCode;
 import com.zslab.mall.grade.repository.BuyerGradeRepository;
 import com.zslab.mall.user.controller.request.ChangePasswordRequest;
 import com.zslab.mall.user.controller.request.SignupRequest;
+import com.zslab.mall.user.controller.request.UpdateProfileRequest;
+import com.zslab.mall.user.controller.response.ProfileResponse;
 import com.zslab.mall.user.controller.response.SignupResponse;
 import com.zslab.mall.user.entity.BuyerProfile;
 import com.zslab.mall.user.entity.User;
@@ -209,6 +211,60 @@ class UserServiceTest {
                 .isInstanceOf(IllegalArgumentException.class);
 
         verify(passwordEncoder, never()).matches(any(), any());
+        verify(userRepository, never()).save(any(User.class));
+    }
+
+    @Test
+    @DisplayName("프로필 조회 정상: findById 성공 → publicId·email·name·phone 반환")
+    void getMyProfile_success() {
+        User user = User.create(EMAIL, NAME, PHONE);
+        ReflectionTestUtils.setField(user, "publicId", PUBLIC_ID);
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
+
+        ProfileResponse response = userService.getMyProfile(USER_ID);
+
+        assertThat(response.publicId()).isEqualTo(PUBLIC_ID);
+        assertThat(response.email()).isEqualTo(EMAIL);
+        assertThat(response.name()).isEqualTo(NAME);
+        assertThat(response.phone()).isEqualTo(PHONE);
+    }
+
+    @Test
+    @DisplayName("프로필 조회 대상 부재: findById empty → IllegalStateException")
+    void getMyProfile_notFound_throws() {
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> userService.getMyProfile(USER_ID))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    @DisplayName("프로필 수정 정상: name·phone 교체·email 불변·save·수정 후 응답")
+    void updateMyProfile_success() {
+        User user = User.create(EMAIL, NAME, PHONE);
+        ReflectionTestUtils.setField(user, "publicId", PUBLIC_ID);
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
+
+        ProfileResponse response = userService.updateMyProfile(USER_ID,
+                new UpdateProfileRequest("김철수", "010-0000-1111"));
+
+        assertThat(user.getName()).isEqualTo("김철수");
+        assertThat(user.getPhone()).isEqualTo("010-0000-1111");
+        assertThat(user.getEmail()).isEqualTo(EMAIL); // email은 본 경로에서 불변
+        assertThat(response.name()).isEqualTo("김철수");
+        assertThat(response.phone()).isEqualTo("010-0000-1111");
+        verify(userRepository).save(user);
+    }
+
+    @Test
+    @DisplayName("프로필 수정 대상 부재: findById empty → IllegalStateException·저장 없음")
+    void updateMyProfile_notFound_throws() {
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> userService.updateMyProfile(USER_ID,
+                new UpdateProfileRequest("김철수", "010-0000-1111")))
+                .isInstanceOf(IllegalStateException.class);
+
         verify(userRepository, never()).save(any(User.class));
     }
 }
