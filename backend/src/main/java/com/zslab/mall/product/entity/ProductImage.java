@@ -64,4 +64,19 @@ public class ProductImage extends AbstractSoftDeletableEntity {
         image.main = main;
         return image;
     }
+
+    /** 대표 이미지로 지정한다(Track 59 BL-6·designateMain의 승격 단계·기존 대표 강등 후 호출·UserAddress.markDefault 선례). */
+    public void markMain() {
+        this.main = true;
+    }
+
+    /** 대표 이미지 지정을 해제한다(Track 59 BL-6·demote-then-set의 강등 단계·UserAddress.unmarkDefault 선례). */
+    public void unmarkMain() {
+        this.main = false;
+    }
+
+    /** 정렬 순서를 변경한다(Track 59 BL-6·reorder에서 imageIds 순서대로 0..n-1 재배치). */
+    public void changeDisplayOrder(int displayOrder) {
+        this.displayOrder = displayOrder;
+    }
 }

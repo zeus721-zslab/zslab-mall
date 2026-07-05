@@ -21,6 +21,12 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
     Optional<Product> findByPublicId(String publicId);
 
     /**
+     * 소유권 스코프 상품 단건 조회(Track 59 BL-6·셀러 이미지 관리 진입 가드). id + seller_id 일치 상품만 반환해 타 판매자
+     * 상품 접근을 empty로 은닉한다(404 매핑은 Service). {@code @SQLRestriction}으로 삭제 상품은 자동 제외된다.
+     */
+    Optional<Product> findByIdAndSellerId(Long id, Long sellerId);
+
+    /**
      * 전이 대상 상품을 비관적 쓰기 락(SELECT ... FOR UPDATE)으로 조회한다(Track 50 승인 워크플로). 운영자 승인·거부 전이의
      * 동시 실행을 행 단위로 직렬화해 이중 전이를 차단한다({@code SettlementRepository.findByIdForUpdate}·D-101 house pattern
      * 준용). 승인 진입키가 public_id이므로 Settlement의 단일 락 쿼리 형태를 public_id 기준으로 준용한다(조회→재락 2쿼리 회피).
