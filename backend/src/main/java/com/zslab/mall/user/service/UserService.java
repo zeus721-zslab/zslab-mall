@@ -143,4 +143,18 @@ public class UserService {
         log.info("[User] 프로필 수정 완료 userId={}", userId);
         return new ProfileResponse(user.getPublicId(), user.getEmail(), user.getName(), user.getPhone());
     }
+
+    /**
+     * 본인 회원 탈퇴(BL-5). {@code withdrawn_at}을 마킹한다. 재탈퇴는 멱등(no-op·최초 시각 유지). 탈퇴 후 재로그인은
+     * {@code AuthService}의 {@code withdrawn_at != null} 가드가 차단한다.
+     *
+     * @throws IllegalStateException userId에 해당하는 User가 없는 경우(인증됐으나 데이터 부재·내부 오류·500)
+     */
+    public void withdraw(Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new IllegalStateException("인증된 userId에 해당하는 User가 없습니다: " + userId));
+        user.withdraw();
+        userRepository.save(user);
+        log.info("[User] 회원 탈퇴 완료 userId={}", userId);
+    }
 }
