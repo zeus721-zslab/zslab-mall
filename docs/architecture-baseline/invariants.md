@@ -38,6 +38,8 @@
 | AUTH-2 | RolePermission (role_id, permission_id) 중복 금지 | 권한 매핑 중복 차단 | DB UK | 동일 권한 중복 차단 | — |
 | AUTH-3 | Role.code 값집합 잠금(A분류) | 권한 무결성 | DB ENUM + enum | 역할 코드 임의 추가 차단 | — |
 | AUTH-4 | 권한 회수(HARD delete) 시 AuditLog 기록 | 감사(M-19·D-12) | Service | 회수 이력 보존 | — |
+| AUTH-5 | SUPER_ADMIN 자기 역할 회수 금지(self-revoke) | 자기 강등 락아웃·불가역 실수 방지 | Service | 자기 SUPER_ADMIN 강등 차단 | — |
+| AUTH-6 | 마지막 SUPER_ADMIN 회수 금지 | SUPER_ADMIN 0명 시스템 락아웃 방지 | Service(Role 행 FOR UPDATE 직렬화 + count 판정) | 최소 1 SUPER_ADMIN 보장 | — |
 
 ### 2.3 BuyerGrade
 | # | Rule | Why | Enforcement Point | Impact | Alternative |
