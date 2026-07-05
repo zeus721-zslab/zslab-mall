@@ -50,4 +50,21 @@ public interface OrderItemRepository extends JpaRepository<OrderItem, Long> {
             @Param("status") OrderItemStatus status,
             @Param("periodStart") LocalDateTime periodStart,
             @Param("periodEnd") LocalDateTime periodEnd);
+
+    /**
+     * buyer의 생애 누적 구매액(구매확정 품목 total_price 합)을 집계한다(Track 51 등급 산정 입력·recon-report §R1).
+     * buyer_id는 Order에만 존재하므로 {@code oi.order.buyerId}로 조인 네비게이션한다(OrderItem은 buyer_id 미보유).
+     * 기간 필터 없음(생애 누적)이며 {@code COALESCE(...,0)}로 구매확정 이력이 없는 buyer도 0을 반환한다.
+     *
+     * <p>환불 차감 없음: 환불·취소·반품·교환 품목은 CANCELLED·RETURNED·EXCHANGED(종결)로 전이돼 CONFIRMED와 상호배타이며,
+     * CONFIRMED 이후 클레임은 전건 차단된다(D-88 Q3). 따라서 {@code status = CONFIRMED} 필터가 환불 가치를 원천 배제한다.
+     * {@code status}는 enum 바인딩 파라미터로 전달한다(seller 집계와 동일·ordinal 비교 함정 회피). 모든 변수는 :바인딩이다.
+     */
+    @Query("SELECT COALESCE(SUM(oi.totalPrice), 0) "
+            + "FROM OrderItem oi "
+            + "WHERE oi.order.buyerId = :buyerId "
+            + "AND oi.itemStatus = :status")
+    long sumConfirmedTotalPriceByBuyerId(
+            @Param("buyerId") Long buyerId,
+            @Param("status") OrderItemStatus status);
 }

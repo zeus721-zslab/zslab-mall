@@ -67,4 +67,22 @@ public class BuyerProfile extends AbstractFullAuditableEntity {
         profile.gradeSource = gradeSource;
         return profile;
     }
+
+    /**
+     * 등급 산정 결과를 반영한다(Track 51). {@code gradeId}·{@code gradeSource}·{@code gradeUpdatedAt}을 갱신한다.
+     * grade_locked_until은 본 메서드가 건드리지 않는다(운영자 lock 부여 경로와 책임 분리·D-136).
+     *
+     * @param gradeId     선택된 등급 id
+     * @param gradeSource 산정 출처(AUTO 배치·MANUAL·EVENT)
+     * @param updatedAt   등급 변경 시각
+     * @throws IllegalArgumentException 필수값 누락 시
+     */
+    public void applyGrade(Long gradeId, GradeSource gradeSource, LocalDateTime updatedAt) {
+        if (gradeId == null || gradeSource == null || updatedAt == null) {
+            throw new IllegalArgumentException("BuyerProfile.applyGrade 필수값 누락(gradeId·gradeSource·updatedAt).");
+        }
+        this.gradeId = gradeId;
+        this.gradeSource = gradeSource;
+        this.gradeUpdatedAt = updatedAt;
+    }
 }

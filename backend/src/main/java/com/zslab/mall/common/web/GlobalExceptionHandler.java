@@ -16,6 +16,7 @@ import com.zslab.mall.common.exception.MalformedRequestException;
 import com.zslab.mall.common.exception.UnauthenticatedException;
 import com.zslab.mall.delivery.exception.DeliveryInvalidStateException;
 import com.zslab.mall.delivery.exception.DeliveryNotFoundException;
+import com.zslab.mall.grade.exception.GradePolicyUnavailableException;
 import com.zslab.mall.inventory.exception.InventoryInvariantViolationException;
 import com.zslab.mall.order.exception.OrderItemInvalidStateException;
 import com.zslab.mall.order.exception.OrderNotFoundException;
@@ -103,6 +104,7 @@ public class GlobalExceptionHandler {
     private static final String CODE_SETTLEMENT_ALREADY_EXISTS = "SETTLEMENT_ALREADY_EXISTS";
     private static final String CODE_SETTLEMENT_NOT_FOUND = "SETTLEMENT_NOT_FOUND";
     private static final String CODE_SETTLEMENT_INVALID_STATE = "SETTLEMENT_INVALID_STATE";
+    private static final String CODE_GRADE_POLICY_UNAVAILABLE = "GRADE_POLICY_UNAVAILABLE";
     private static final String CODE_INTERNAL_ERROR = "INTERNAL_ERROR";
 
     // ===== 400 =====
@@ -386,6 +388,16 @@ public class GlobalExceptionHandler {
             EmptyCartCheckoutException exception, HttpServletRequest request) {
         // Track 41 β: 장바구니 결제 시 selected 품목 0개(빈 주문 선가드·ORD-1 도달 전 차단). well-formed 요청·업무 전제 실패(422·클라 교정).
         return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_CART_CHECKOUT_EMPTY, exception.getMessage(), request);
+    }
+
+    // ===== 500 (도메인) =====
+    @ExceptionHandler(GradePolicyUnavailableException.class)
+    public ResponseEntity<ProblemDetail> handleGradePolicyUnavailable(
+            GradePolicyUnavailableException exception, HttpServletRequest request) {
+        // Track 51: AUTO 등급 산정 중 활성 정책 구간 미매칭(시드 [0,MAX] 커버 전제·비활성/손상 = 서버 설정 오류·500).
+        // 무분류 fallback으로 새지 않도록 전용 code로 매핑·운영 진단성 확보(NotFound 404 관례와 구분).
+        log.error("[Grade] 활성 등급 정책 미매칭(500): {}", exception.getMessage());
+        return build(HttpStatus.INTERNAL_SERVER_ERROR, CODE_GRADE_POLICY_UNAVAILABLE, exception.getMessage(), request);
     }
 
     // ===== 500 (fallback) =====
