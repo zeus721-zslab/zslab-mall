@@ -94,6 +94,26 @@ class SignupIntegrationTest {
                         + "JOIN role r ON ur.role_id = r.id "
                         + "WHERE u.email = ? AND r.code = 'BUYER'", Integer.class, NEW_EMAIL);
         assertThat(buyerRoleCount).isEqualTo(1);
+
+        // BuyerProfile 배선(BL-8 회귀 가드): 가입 시 초기 프로필이 SILVER·AUTO로 생성됐는지 확인
+        Integer buyerProfileCount = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM buyer_profile bp "
+                        + "JOIN `user` u ON bp.user_id = u.id "
+                        + "WHERE u.email = ?", Integer.class, NEW_EMAIL);
+        assertThat(buyerProfileCount).isEqualTo(1);
+
+        String gradeCode = jdbc.queryForObject(
+                "SELECT bg.code FROM buyer_profile bp "
+                        + "JOIN `user` u ON bp.user_id = u.id "
+                        + "JOIN buyer_grade bg ON bp.grade_id = bg.id "
+                        + "WHERE u.email = ?", String.class, NEW_EMAIL);
+        assertThat(gradeCode).isEqualTo("SILVER");
+
+        String gradeSource = jdbc.queryForObject(
+                "SELECT bp.grade_source FROM buyer_profile bp "
+                        + "JOIN `user` u ON bp.user_id = u.id "
+                        + "WHERE u.email = ?", String.class, NEW_EMAIL);
+        assertThat(gradeSource).isEqualTo("AUTO");
     }
 
     @Test
@@ -151,6 +171,8 @@ class SignupIntegrationTest {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
                 // LIKE 패턴은 ? 바인딩 값으로 전달(SQL 구조 문자열에 값 concat 금지·injection 없음)
                 jdbc.update("DELETE FROM user_role WHERE user_id IN "
+                        + "(SELECT id FROM `user` WHERE email LIKE ?)", EMAIL_PREFIX + "%");
+                jdbc.update("DELETE FROM buyer_profile WHERE user_id IN "
                         + "(SELECT id FROM `user` WHERE email LIKE ?)", EMAIL_PREFIX + "%");
                 jdbc.update("DELETE FROM `user` WHERE email LIKE ?", EMAIL_PREFIX + "%");
             } finally {

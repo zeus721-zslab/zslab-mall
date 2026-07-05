@@ -5,12 +5,18 @@ import com.zslab.mall.auth.entity.UserRole;
 import com.zslab.mall.auth.enums.RoleCode;
 import com.zslab.mall.auth.repository.RoleRepository;
 import com.zslab.mall.auth.repository.UserRoleRepository;
+import com.zslab.mall.grade.entity.BuyerGrade;
+import com.zslab.mall.grade.enums.BuyerGradeCode;
+import com.zslab.mall.grade.repository.BuyerGradeRepository;
 import com.zslab.mall.user.controller.request.ChangePasswordRequest;
 import com.zslab.mall.user.controller.request.SignupRequest;
 import com.zslab.mall.user.controller.response.SignupResponse;
+import com.zslab.mall.user.entity.BuyerProfile;
 import com.zslab.mall.user.entity.User;
+import com.zslab.mall.user.enums.GradeSource;
 import com.zslab.mall.user.exception.EmailAlreadyExistsException;
 import com.zslab.mall.user.policy.PasswordPolicy;
+import com.zslab.mall.user.repository.BuyerProfileRepository;
 import com.zslab.mall.user.repository.UserRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -20,8 +26,8 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * 회원 Application Service(Track 34). Buyer 셀프가입을 담당한다. 트랜잭션 경계는 메서드 단위다.
  *
- * <p>가입 흐름: 비밀번호 정책 검증 → email 중복 검증 → User 생성·해시 저장 → BUYER role 매핑.
- * role 배선은 seed된 BUYER Role(V11)을 재사용한다. password 평문은 로그에 남기지 않는다(userId·publicId만).
+ * <p>가입 흐름: 비밀번호 정책 검증 → email 중복 검증 → User 생성·해시 저장 → BUYER role 매핑 → 초기 BuyerProfile(SILVER·AUTO) 생성.
+ * role 배선은 seed된 BUYER Role(V11)을, 초기 등급은 seed된 SILVER BuyerGrade(V15)를 재사용한다. password 평문은 로그에 남기지 않는다(userId·publicId만).
  */
 @Slf4j
 @Service
@@ -31,6 +37,8 @@ public class UserService {
     private final UserRepository userRepository;
     private final RoleRepository roleRepository;
     private final UserRoleRepository userRoleRepository;
+    private final BuyerProfileRepository buyerProfileRepository;
+    private final BuyerGradeRepository buyerGradeRepository;
     private final PasswordEncoder passwordEncoder;
     private final PasswordPolicy passwordPolicy;
 
@@ -38,21 +46,25 @@ public class UserService {
             UserRepository userRepository,
             RoleRepository roleRepository,
             UserRoleRepository userRoleRepository,
+            BuyerProfileRepository buyerProfileRepository,
+            BuyerGradeRepository buyerGradeRepository,
             PasswordEncoder passwordEncoder,
             PasswordPolicy passwordPolicy) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.userRoleRepository = userRoleRepository;
+        this.buyerProfileRepository = buyerProfileRepository;
+        this.buyerGradeRepository = buyerGradeRepository;
         this.passwordEncoder = passwordEncoder;
         this.passwordPolicy = passwordPolicy;
     }
 
     /**
-     * Buyer 셀프가입. 성공 시 회원과 BUYER role 매핑을 생성한다.
+     * Buyer 셀프가입. 성공 시 회원·BUYER role 매핑·초기 BuyerProfile(SILVER·AUTO)을 생성한다.
      *
      * @throws IllegalArgumentException 비밀번호 정책 위반 시(PasswordPolicy)
      * @throws EmailAlreadyExistsException 이미 사용 중인 이메일인 경우(409)
-     * @throws IllegalStateException BUYER Role seed가 없는 경우(내부 오류·500)
+     * @throws IllegalStateException BUYER Role seed 또는 SILVER BuyerGrade seed가 없는 경우(내부 오류·500)
      */
     public SignupResponse register(SignupRequest request) {
         passwordPolicy.validate(request.password());
@@ -68,6 +80,10 @@ public class UserService {
         Role buyerRole = roleRepository.findByCode(RoleCode.BUYER)
                 .orElseThrow(() -> new IllegalStateException("BUYER Role seed 누락(V11 마이그레이션 확인 필요)."));
         userRoleRepository.save(UserRole.create(saved.getId(), buyerRole));
+
+        BuyerGrade silver = buyerGradeRepository.findByCode(BuyerGradeCode.SILVER)
+                .orElseThrow(() -> new IllegalStateException("SILVER BuyerGrade seed 누락(V15 마이그레이션 확인 필요)."));
+        buyerProfileRepository.save(BuyerProfile.create(saved, silver.getId(), GradeSource.AUTO));
 
         log.info("[User] 회원가입 완료 userId={} publicId={}", saved.getId(), saved.getPublicId());
         return new SignupResponse(saved.getPublicId());
