@@ -109,4 +109,38 @@ public class Settlement extends AbstractFullAuditableEntity {
         settlement.status = SettlementStatus.PENDING;
         return settlement;
     }
+
+    /**
+     * 정산 금액을 확정한다(PENDING → CONFIRMED·운영자 금액 확정). 전이 합법성은
+     * {@link SettlementStatus#canTransitionTo}로 가드하며 위반 시 {@link IllegalStateException}을 던진다
+     * (Service가 {@code SettlementInvalidStateException}(422)으로 흡수·직접 매핑 금지).
+     *
+     * @throws IllegalStateException 현재 상태에서 CONFIRMED 전이가 불가한 경우
+     */
+    public void markConfirmed() {
+        if (!status.canTransitionTo(SettlementStatus.CONFIRMED)) {
+            throw new IllegalStateException("불법 정산 상태 전이: " + status + " → " + SettlementStatus.CONFIRMED);
+        }
+        this.status = SettlementStatus.CONFIRMED;
+    }
+
+    /**
+     * 지급 완료를 마킹한다(CONFIRMED → PAID·운영자 수동 마킹). 전이 성공 시 지급 시각을 채운다 —
+     * STL-5(status=PAID ⟺ paid_at≠null) 불변식을 본 mutator가 강제한다(PAID 전이만 paid_at 세팅).
+     * 전이 위반 시 {@link IllegalStateException}을 던진다(Service가 422로 흡수).
+     *
+     * @param paidAt 지급 완료 시각(Service가 now() 전달)
+     * @throws IllegalArgumentException paidAt이 null인 경우(STL-5 위반 방지)
+     * @throws IllegalStateException   현재 상태에서 PAID 전이가 불가한 경우
+     */
+    public void markPaid(LocalDateTime paidAt) {
+        if (paidAt == null) {
+            throw new IllegalArgumentException("지급 시각은 null일 수 없습니다.");
+        }
+        if (!status.canTransitionTo(SettlementStatus.PAID)) {
+            throw new IllegalStateException("불법 정산 상태 전이: " + status + " → " + SettlementStatus.PAID);
+        }
+        this.status = SettlementStatus.PAID;
+        this.paidAt = paidAt;
+    }
 }

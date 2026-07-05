@@ -1,8 +1,13 @@
 package com.zslab.mall.settlement.repository;
 
 import com.zslab.mall.settlement.entity.Settlement;
+import jakarta.persistence.LockModeType;
 import java.time.LocalDateTime;
+import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 /**
  * 정산 Repository.
@@ -16,4 +21,13 @@ public interface SettlementRepository extends JpaRepository<Settlement, Long> {
      */
     boolean existsBySellerIdAndPeriodStartAndPeriodEnd(
             Long sellerId, LocalDateTime periodStart, LocalDateTime periodEnd);
+
+    /**
+     * 전이 대상 Settlement를 비관적 쓰기 락(SELECT ... FOR UPDATE)으로 조회한다(Track 49). 상태 전이(confirm·pay)의
+     * 동시 실행을 행 단위로 직렬화해 이중 전이를 차단한다({@code InventoryRepository.findByVariantIdForUpdate}·D-101 house
+     * pattern 준용). 모든 변수는 :id 바인딩이다.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT s FROM Settlement s WHERE s.id = :id")
+    Optional<Settlement> findByIdForUpdate(@Param("id") Long id);
 }
