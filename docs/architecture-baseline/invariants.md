@@ -45,6 +45,7 @@
 | GRD-1 | 활성 GradePolicy는 (grade_id·기간) 단일 | 등급 산정 모호 차단 | Service(effective 기간·is_active·version DESC LIMIT 1) | 등급 평가 결정성 보장 | — |
 | GRD-2 | BuyerGrade.code 값집합 잠금(SILVER/GOLD/PLATINUM) | 등급 무결성 | DB ENUM | 등급 코드 임의 추가 차단 | — |
 | GRD-3 | GradePolicy.min_amount ≤ max_amount | 구간 정합 | DB CHECK / Service | 역전 구간 차단 | — |
+| GRD-4 | 활성 GradePolicy 등급 간 금액 구간 상호배타([min,max) 반개구간·인접 max=다음 min) | 동일 금액 다등급 후보 차단 | 시드 책임(V15·GradePolicySeedOverlapTest 안전망) | 등급 산정 단일 결과 보장 | Service 검증·DB 제약(과잉·기각) |
 
 ### 2.4 Seller
 | # | Rule | Why | Enforcement Point | Impact | Alternative |
@@ -212,4 +213,4 @@
 
 ---
 
-> **커버리지**: 16 Aggregate(§2.1~2.16·Refund는 Claim Aggregate 내 §2.13.1) + Infra/Event 1(§3) + 공통(§4). 도메인별 invariant ≈67건(16 Aggregate 64 + Infra/Event 3) + 공통 4 (PAY-3→PAY-3a·PAY-3b 분리·D-31). State Machine 전이는 state-machine.md(Order·OrderItem·Payment·Claim·Seller 5건 + Refund §8) 한정·본 문서와 구분.
+> **커버리지**: 16 Aggregate(§2.1~2.16·Refund는 Claim Aggregate 내 §2.13.1) + Infra/Event 1(§3) + 공통(§4). 도메인별 invariant ≈68건(16 Aggregate 65 + Infra/Event 3) + 공통 4 (PAY-3→PAY-3a·PAY-3b 분리·D-31). State Machine 전이는 state-machine.md(Order·OrderItem·Payment·Claim·Seller 5건 + Refund §8) 한정·본 문서와 구분.
