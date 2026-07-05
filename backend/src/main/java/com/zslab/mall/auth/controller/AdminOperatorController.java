@@ -1,8 +1,10 @@
 package com.zslab.mall.auth.controller;
 
+import com.zslab.mall.audit.service.AuditContext;
 import com.zslab.mall.auth.controller.request.AdminOperatorProvisioningRequest;
 import com.zslab.mall.auth.controller.response.AdminOperatorProvisioningResponse;
 import com.zslab.mall.auth.service.AdminOperatorProvisioningService;
+import com.zslab.mall.common.auth.ActorRoleResolver;
 import com.zslab.mall.common.auth.AdminActorResolver;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -28,12 +30,15 @@ public class AdminOperatorController {
 
     private final AdminOperatorProvisioningService adminOperatorProvisioningService;
     private final AdminActorResolver adminActorResolver;
+    private final ActorRoleResolver actorRoleResolver;
 
     public AdminOperatorController(
             AdminOperatorProvisioningService adminOperatorProvisioningService,
-            AdminActorResolver adminActorResolver) {
+            AdminActorResolver adminActorResolver,
+            ActorRoleResolver actorRoleResolver) {
         this.adminOperatorProvisioningService = adminOperatorProvisioningService;
         this.adminActorResolver = adminActorResolver;
+        this.actorRoleResolver = actorRoleResolver;
     }
 
     /**
@@ -44,7 +49,8 @@ public class AdminOperatorController {
     public ResponseEntity<AdminOperatorProvisioningResponse> provision(
             @RequestBody @Valid AdminOperatorProvisioningRequest request, HttpServletRequest httpRequest) {
         Long callerUserId = adminActorResolver.resolve(httpRequest);
+        AuditContext auditContext = AuditContext.of(callerUserId, actorRoleResolver.requireCoarseRole());
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(adminOperatorProvisioningService.provision(callerUserId, request));
+                .body(adminOperatorProvisioningService.provision(callerUserId, request, auditContext));
     }
 }
