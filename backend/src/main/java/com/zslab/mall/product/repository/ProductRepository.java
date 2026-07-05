@@ -1,12 +1,14 @@
 package com.zslab.mall.product.repository;
 
 import com.zslab.mall.product.entity.Product;
+import jakarta.persistence.LockModeType;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -17,6 +19,16 @@ import org.springframework.data.repository.query.Param;
 public interface ProductRepository extends JpaRepository<Product, Long> {
 
     Optional<Product> findByPublicId(String publicId);
+
+    /**
+     * 전이 대상 상품을 비관적 쓰기 락(SELECT ... FOR UPDATE)으로 조회한다(Track 50 승인 워크플로). 운영자 승인·거부 전이의
+     * 동시 실행을 행 단위로 직렬화해 이중 전이를 차단한다({@code SettlementRepository.findByIdForUpdate}·D-101 house pattern
+     * 준용). 승인 진입키가 public_id이므로 Settlement의 단일 락 쿼리 형태를 public_id 기준으로 준용한다(조회→재락 2쿼리 회피).
+     * {@code @SQLRestriction(deleted_at IS NULL)}이 자동 적용돼 삭제 상품은 제외된다. 모든 변수는 :publicId 바인딩이다.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT p FROM Product p WHERE p.publicId = :publicId")
+    Optional<Product> findByPublicIdForUpdate(@Param("publicId") String publicId);
 
     /** 여러 상품을 일괄 조회한다(주문 품목 enrich·재검증 배치·N+1 회피). */
     List<Product> findByIdIn(Collection<Long> ids);

@@ -24,6 +24,7 @@ import com.zslab.mall.payment.exception.InvalidCallbackException;
 import com.zslab.mall.payment.exception.PaymentAlreadyCompletedException;
 import com.zslab.mall.payment.exception.PaymentInProgressException;
 import com.zslab.mall.payment.exception.PaymentNotFoundException;
+import com.zslab.mall.product.exception.ProductInvalidStateException;
 import com.zslab.mall.product.exception.ProductNotFoundException;
 import com.zslab.mall.product.exception.ProductVariantNotFoundException;
 import com.zslab.mall.product.exception.ProductVariantOptionConflictException;
@@ -96,6 +97,7 @@ public class GlobalExceptionHandler {
     private static final String CODE_CATEGORY_DUPLICATE = "CATEGORY_DUPLICATE";
     private static final String CODE_CART_ITEM_NOT_FOUND = "CART_ITEM_NOT_FOUND";
     private static final String CODE_PRODUCT_VARIANT_OPTION_CONFLICT = "PRODUCT_VARIANT_OPTION_CONFLICT";
+    private static final String CODE_PRODUCT_INVALID_STATE = "PRODUCT_INVALID_STATE";
     private static final String CODE_FORBIDDEN = "FORBIDDEN";
     private static final String CODE_SETTLEMENT_PERIOD_INVALID = "SETTLEMENT_PERIOD_INVALID";
     private static final String CODE_SETTLEMENT_ALREADY_EXISTS = "SETTLEMENT_ALREADY_EXISTS";
@@ -369,6 +371,14 @@ public class GlobalExceptionHandler {
         // Track 49: 정산 전이 불가 상태(순방향 아님·PAID 불가역 등). 500 fallback 차단·422 매핑(OrderItemInvalidStateException 선례).
         log.warn("[Settlement] 정산 상태 위반(422): {}", exception.getMessage());
         return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_SETTLEMENT_INVALID_STATE, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(ProductInvalidStateException.class)
+    public ResponseEntity<ProblemDetail> handleProductInvalidState(
+            ProductInvalidStateException exception, HttpServletRequest request) {
+        // Track 50: 상품 승인·거부 전이 불가 상태(PENDING 아님). 500 fallback 차단·422 매핑(SettlementInvalidStateException 선례).
+        log.warn("[Product] 상품 상태 위반(422): {}", exception.getMessage());
+        return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_PRODUCT_INVALID_STATE, exception.getMessage(), request);
     }
 
     @ExceptionHandler(EmptyCartCheckoutException.class)
