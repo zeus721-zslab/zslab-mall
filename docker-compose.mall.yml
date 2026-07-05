@@ -5,6 +5,7 @@ services:
       dockerfile: ${BACKEND_DOCKERFILE:-Dockerfile.dev}
     container_name: zslab_mall_backend
     restart: unless-stopped
+    stop_grace_period: 30s
     environment:
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-local}
       DB_HOST: zslab_mariadb
