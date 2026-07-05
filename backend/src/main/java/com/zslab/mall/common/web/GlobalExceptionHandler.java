@@ -5,6 +5,7 @@ import com.zslab.mall.auth.exception.AuthenticationFailedException;
 import com.zslab.mall.auth.exception.SuperAdminRequiredException;
 import com.zslab.mall.cart.exception.CartItemNotFoundException;
 import com.zslab.mall.cart.exception.EmptyCartCheckoutException;
+import com.zslab.mall.category.exception.CategoryDuplicateException;
 import com.zslab.mall.category.exception.CategoryNotFoundException;
 import com.zslab.mall.checkout.exception.CheckoutItemMismatchException;
 import com.zslab.mall.checkout.exception.CheckoutItemNotFoundException;
@@ -86,6 +87,7 @@ public class GlobalExceptionHandler {
     private static final String CODE_SELLER_USER_ALREADY_EXISTS = "SELLER_USER_ALREADY_EXISTS";
     private static final String CODE_ADMIN_OPERATOR_ALREADY_EXISTS = "ADMIN_OPERATOR_ALREADY_EXISTS";
     private static final String CODE_CATEGORY_NOT_FOUND = "CATEGORY_NOT_FOUND";
+    private static final String CODE_CATEGORY_DUPLICATE = "CATEGORY_DUPLICATE";
     private static final String CODE_CART_ITEM_NOT_FOUND = "CART_ITEM_NOT_FOUND";
     private static final String CODE_PRODUCT_VARIANT_OPTION_CONFLICT = "PRODUCT_VARIANT_OPTION_CONFLICT";
     private static final String CODE_FORBIDDEN = "FORBIDDEN";
@@ -253,6 +255,13 @@ public class GlobalExceptionHandler {
             ProductVariantOptionConflictException exception, HttpServletRequest request) {
         // Track 39: 상품 등록 시 동일 옵션 조합 변형 중복(409·uk_product_variant_options). DataIntegrityViolationException→409 변환.
         return build(HttpStatus.CONFLICT, CODE_PRODUCT_VARIANT_OPTION_CONFLICT, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(CategoryDuplicateException.class)
+    public ResponseEntity<ProblemDetail> handleCategoryDuplicate(
+            CategoryDuplicateException exception, HttpServletRequest request) {
+        // Track 46: 카테고리 생성 시 형제 스코프 동일 display_name 중복(409·uk_category_dedup_key). saveAndFlush 위반→409 변환.
+        return build(HttpStatus.CONFLICT, CODE_CATEGORY_DUPLICATE, exception.getMessage(), request);
     }
 
     // ===== 422 =====
