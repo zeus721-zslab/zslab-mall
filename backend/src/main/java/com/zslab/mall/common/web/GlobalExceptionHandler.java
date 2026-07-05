@@ -2,6 +2,9 @@ package com.zslab.mall.common.web;
 
 import com.zslab.mall.auth.exception.AdminOperatorAlreadyExistsException;
 import com.zslab.mall.auth.exception.AuthenticationFailedException;
+import com.zslab.mall.auth.exception.LastSuperAdminRevocationException;
+import com.zslab.mall.auth.exception.RoleAssignmentNotFoundException;
+import com.zslab.mall.auth.exception.SelfRoleRevocationException;
 import com.zslab.mall.auth.exception.SuperAdminRequiredException;
 import com.zslab.mall.cart.exception.CartItemNotFoundException;
 import com.zslab.mall.cart.exception.EmptyCartCheckoutException;
@@ -105,6 +108,8 @@ public class GlobalExceptionHandler {
     private static final String CODE_SETTLEMENT_NOT_FOUND = "SETTLEMENT_NOT_FOUND";
     private static final String CODE_SETTLEMENT_INVALID_STATE = "SETTLEMENT_INVALID_STATE";
     private static final String CODE_GRADE_POLICY_UNAVAILABLE = "GRADE_POLICY_UNAVAILABLE";
+    private static final String CODE_ROLE_ASSIGNMENT_NOT_FOUND = "ROLE_ASSIGNMENT_NOT_FOUND";
+    private static final String CODE_LAST_SUPER_ADMIN = "LAST_SUPER_ADMIN";
     private static final String CODE_INTERNAL_ERROR = "INTERNAL_ERROR";
 
     // ===== 400 =====
@@ -152,6 +157,15 @@ public class GlobalExceptionHandler {
         // Track 38: 운영 관리자 공급은 SUPER_ADMIN 전용. hasRole("ADMIN") 코어스 게이트 통과 후 서비스에서 세분 검증 실패(403).
         // 필터 계층 403(SecurityErrorHandler)과 달리 서비스 계층이 던지는 도메인 403이라 여기서 동일 code=FORBIDDEN으로 매핑한다.
         log.warn("[Auth] SUPER_ADMIN 인가 실패(403): {}", exception.getMessage());
+        return build(HttpStatus.FORBIDDEN, CODE_FORBIDDEN, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(SelfRoleRevocationException.class)
+    public ResponseEntity<ProblemDetail> handleSelfRoleRevocation(
+            SelfRoleRevocationException exception, HttpServletRequest request) {
+        // Track 53: SUPER_ADMIN 자기 강등 차단(403). 권한은 충분하나 자기 대상 회수는 정책상 영구 금지(재시도 무의미)라
+        // SuperAdminRequiredException 선례와 동일하게 서비스 계층 도메인 403(code=FORBIDDEN)으로 매핑한다.
+        log.warn("[Auth] 자기 역할 회수 차단(403): {}", exception.getMessage());
         return build(HttpStatus.FORBIDDEN, CODE_FORBIDDEN, exception.getMessage(), request);
     }
 
@@ -238,6 +252,13 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.NOT_FOUND, CODE_SETTLEMENT_NOT_FOUND, exception.getMessage(), request);
     }
 
+    @ExceptionHandler(RoleAssignmentNotFoundException.class)
+    public ResponseEntity<ProblemDetail> handleRoleAssignmentNotFound(
+            RoleAssignmentNotFoundException exception, HttpServletRequest request) {
+        // Track 53: 권한 회수 delete 0 row(대상 역할 미보유·User 미존재·경합 선삭제 통합 은닉·404). 존재 여부 비노출.
+        return build(HttpStatus.NOT_FOUND, CODE_ROLE_ASSIGNMENT_NOT_FOUND, exception.getMessage(), request);
+    }
+
     // ===== 409 =====
     @ExceptionHandler(IdempotencyKeyInProgressException.class)
     public ResponseEntity<ProblemDetail> handleIdempotencyInProgress(
@@ -276,6 +297,14 @@ public class GlobalExceptionHandler {
             AdminOperatorAlreadyExistsException exception, HttpServletRequest request) {
         // Track 38: 운영 관리자 중복 부여(409·uk_user_role(user_id, role_id) 위반). user_role saveAndFlush 위반→@Transactional 롤백.
         return build(HttpStatus.CONFLICT, CODE_ADMIN_OPERATOR_ALREADY_EXISTS, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(LastSuperAdminRevocationException.class)
+    public ResponseEntity<ProblemDetail> handleLastSuperAdminRevocation(
+            LastSuperAdminRevocationException exception, HttpServletRequest request) {
+        // Track 53: 마지막 SUPER_ADMIN 회수 차단(409). SUPER_ADMIN 0명 시 시스템 락아웃 방지·SUPER_ADMIN 집합 상태와 충돌.
+        log.warn("[Auth] 마지막 SUPER_ADMIN 회수 차단(409): {}", exception.getMessage());
+        return build(HttpStatus.CONFLICT, CODE_LAST_SUPER_ADMIN, exception.getMessage(), request);
     }
 
     @ExceptionHandler(ProductVariantOptionConflictException.class)
