@@ -1,5 +1,8 @@
 package com.zslab.mall.auth.service;
 
+import com.zslab.mall.audit.enums.AuditLogAction;
+import com.zslab.mall.audit.service.AuditContext;
+import com.zslab.mall.audit.service.AuditRecorder;
 import com.zslab.mall.auth.controller.request.AdminOperatorProvisioningRequest;
 import com.zslab.mall.auth.controller.response.AdminOperatorProvisioningResponse;
 import com.zslab.mall.auth.entity.Role;
@@ -9,9 +12,11 @@ import com.zslab.mall.auth.exception.AdminOperatorAlreadyExistsException;
 import com.zslab.mall.auth.exception.SuperAdminRequiredException;
 import com.zslab.mall.auth.repository.RoleRepository;
 import com.zslab.mall.auth.repository.UserRoleRepository;
+import com.zslab.mall.common.enums.PolymorphicTargetType;
 import com.zslab.mall.user.entity.User;
 import com.zslab.mall.user.exception.UserNotFoundException;
 import com.zslab.mall.user.repository.UserRepository;
+import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -39,14 +44,17 @@ public class AdminOperatorProvisioningService {
     private final UserRepository userRepository;
     private final RoleRepository roleRepository;
     private final UserRoleRepository userRoleRepository;
+    private final AuditRecorder auditRecorder;
 
     public AdminOperatorProvisioningService(
             UserRepository userRepository,
             RoleRepository roleRepository,
-            UserRoleRepository userRoleRepository) {
+            UserRoleRepository userRoleRepository,
+            AuditRecorder auditRecorder) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.userRoleRepository = userRoleRepository;
+        this.auditRecorder = auditRecorder;
     }
 
     /**
@@ -54,12 +62,14 @@ public class AdminOperatorProvisioningService {
      *
      * @param callerUserId 요청을 수행한 인증 액터의 userId(SUPER_ADMIN 여부 검증 대상)
      * @param request 대상 회원 userId를 담은 요청
+     * @param auditContext 감사 행위자 컨텍스트(운영자)
      * @throws SuperAdminRequiredException caller가 SUPER_ADMIN이 아닌 경우(403)
      * @throws UserNotFoundException 대상 userId에 해당하는 User가 없는 경우(404)
      * @throws IllegalStateException ADMIN_OPERATOR Role seed가 없는 경우(내부 오류·500)
      * @throws AdminOperatorAlreadyExistsException 대상이 이미 ADMIN_OPERATOR 역할을 보유한 경우(409·uk_user_role 위반)
      */
-    public AdminOperatorProvisioningResponse provision(Long callerUserId, AdminOperatorProvisioningRequest request) {
+    public AdminOperatorProvisioningResponse provision(
+            Long callerUserId, AdminOperatorProvisioningRequest request, AuditContext auditContext) {
         if (!userRoleRepository.existsByUserIdAndRole_Code(callerUserId, RoleCode.SUPER_ADMIN)) {
             log.warn("[AdminOperatorProvisioning] SUPER_ADMIN 아님 차단(403) callerUserId={}", callerUserId);
             throw new SuperAdminRequiredException("SUPER_ADMIN만 운영 관리자를 공급할 수 있습니다.");
@@ -82,6 +92,10 @@ public class AdminOperatorProvisioningService {
                     "이미 운영 관리자 역할을 보유한 사용자입니다: userId=" + request.userId());
         }
 
+        // record는 saveAndFlush 성공 경로에만 둔다(catch 밖). 409 롤백 시 감사도 함께 롤백되나, 롤백된 부여에
+        // 감사가 남지 않도록 성공 경로에서만 호출한다. 부여=생성이라 before={}·after={role}(회수 DELETE의 대칭·D-139).
+        auditRecorder.record(auditContext, AuditLogAction.CREATE, PolymorphicTargetType.USER, target.getId(),
+                Map.of(), Map.of("role", RoleCode.ADMIN_OPERATOR.name()));
         log.info("[AdminOperatorProvisioning] 운영 관리자 공급 완료 targetUserPublicId={} byCallerUserId={}",
                 target.getPublicId(), callerUserId);
         return new AdminOperatorProvisioningResponse(target.getPublicId());

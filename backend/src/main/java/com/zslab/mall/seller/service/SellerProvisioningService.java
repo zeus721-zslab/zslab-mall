@@ -1,8 +1,12 @@
 package com.zslab.mall.seller.service;
 
+import com.zslab.mall.audit.enums.AuditLogAction;
+import com.zslab.mall.audit.service.AuditContext;
+import com.zslab.mall.audit.service.AuditRecorder;
 import com.zslab.mall.auth.entity.Role;
 import com.zslab.mall.auth.enums.RoleCode;
 import com.zslab.mall.auth.repository.RoleRepository;
+import com.zslab.mall.common.enums.PolymorphicTargetType;
 import com.zslab.mall.seller.controller.request.SellerProvisioningRequest;
 import com.zslab.mall.seller.controller.response.SellerProvisioningResponse;
 import com.zslab.mall.seller.entity.Seller;
@@ -13,6 +17,7 @@ import com.zslab.mall.seller.repository.SellerRepository;
 import com.zslab.mall.seller.repository.SellerUserRepository;
 import com.zslab.mall.user.exception.UserNotFoundException;
 import com.zslab.mall.user.repository.UserRepository;
+import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -38,27 +43,32 @@ public class SellerProvisioningService {
     private final SellerUserRepository sellerUserRepository;
     private final RoleRepository roleRepository;
     private final UserRepository userRepository;
+    private final AuditRecorder auditRecorder;
 
     public SellerProvisioningService(
             SellerRepository sellerRepository,
             SellerUserRepository sellerUserRepository,
             RoleRepository roleRepository,
-            UserRepository userRepository) {
+            UserRepository userRepository,
+            AuditRecorder auditRecorder) {
         this.sellerRepository = sellerRepository;
         this.sellerUserRepository = sellerUserRepository;
         this.roleRepository = roleRepository;
         this.userRepository = userRepository;
+        this.auditRecorder = auditRecorder;
     }
 
     /**
      * 판매자 입점 provisioning. 성공 시 seller와 최초 owner seller_user(role=SELLER_OWNER) 매핑을 생성한다.
      *
+     * @param request 입점 정보 요청
+     * @param auditContext 감사 행위자 컨텍스트(운영자)
      * @throws UserNotFoundException ownerUserId에 해당하는 User가 없는 경우(404)
      * @throws IllegalArgumentException 초기 status가 PENDING·ACTIVE가 아닌 경우(400)
      * @throws IllegalStateException SELLER_OWNER Role seed가 없는 경우(내부 오류·500)
      * @throws SellerUserAlreadyExistsException ownerUserId가 이미 다른 판매자에 소속된 경우(409·V12 위반)
      */
-    public SellerProvisioningResponse provision(SellerProvisioningRequest request) {
+    public SellerProvisioningResponse provision(SellerProvisioningRequest request, AuditContext auditContext) {
         if (!userRepository.existsById(request.ownerUserId())) {
             throw new UserNotFoundException("판매자 owner로 지정한 User가 없습니다: userId=" + request.ownerUserId());
         }
@@ -87,6 +97,13 @@ public class SellerProvisioningService {
                     "이미 다른 판매자에 소속된 사용자입니다: userId=" + request.ownerUserId());
         }
 
+        // record는 seller/seller_user 저장이 모두 성공한 경로에만 둔다(catch 밖). 409 롤백 시 감사도 함께 롤백되나,
+        // 롤백된 입점에 감사가 남지 않도록 성공 경로에서만 호출한다. 입점=생성이라 before={}·after=최소셋이다(D-139).
+        // 대상은 입점 생성 본체인 SELLER(targetId=seller.id·해석 A). companyName·businessNo는 최소셋·AUD-2 민감정보 회피로 제외한다.
+        auditRecorder.record(auditContext, AuditLogAction.CREATE, PolymorphicTargetType.SELLER, seller.getId(),
+                Map.of(),
+                Map.of("sellerPublicId", seller.getPublicId(), "status", request.status().name(),
+                        "ownerUserId", request.ownerUserId()));
         log.info("[SellerProvisioning] 입점 완료 sellerPublicId={} ownerUserId={}",
                 seller.getPublicId(), request.ownerUserId());
         return new SellerProvisioningResponse(seller.getPublicId());

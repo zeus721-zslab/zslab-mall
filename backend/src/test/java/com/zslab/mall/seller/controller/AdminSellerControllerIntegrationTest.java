@@ -6,6 +6,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.zslab.mall.common.security.AuthHeaders;
+import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -108,6 +110,16 @@ class AdminSellerControllerIntegrationTest {
         // seller 입점 1건 + owner seller_user(role SELLER_OWNER) 1건이 실제 커밋됐는지 확인(role 배선 핵심 검증)
         assertThat(sellerCountByCompany(NEW_COMPANY)).isEqualTo(1);
         assertThat(ownerMappingCount(NEW_COMPANY, OWNER_USER_ID)).isEqualTo(1);
+
+        // 감사 배선(Track 55·D-139): 입점 성공 시 CREATE/SELLER 감사 1건·target_id=seller.id·diff 최소셋(sellerPublicId·status·ownerUserId).
+        long sellerId = sellerIdByCompany(NEW_COMPANY);
+        Map<String, Object> audit = singleAuditRow("SELLER", sellerId, ADMIN_ID);
+        assertThat(audit.get("action")).isEqualTo("CREATE");
+        assertThat(audit.get("actor_role")).isEqualTo("ADMIN");
+        assertThat((String) audit.get("diff_json"))
+                .contains("sellerPublicId")
+                .contains("status").contains("ACTIVE")
+                .contains("ownerUserId").contains(String.valueOf(OWNER_USER_ID));
     }
 
     @Test
@@ -227,6 +239,8 @@ class AdminSellerControllerIntegrationTest {
         tx.executeWithoutResult(s -> {
             try {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
+                // 감사 배선(Track 55) 잔존 방지: 입점 성공 시 actor=ADMIN_ID 기준 audit_log가 실 커밋되므로 함께 정리(테스트 오염 차단).
+                jdbc.update("DELETE FROM audit_log WHERE actor_user_id = ?", ADMIN_ID);
                 jdbc.update("DELETE FROM seller_user WHERE user_id IN (?, ?, ?)",
                         OWNER_USER_ID, BOUND_USER_ID, NON_ADMIN_USER);
                 jdbc.update("DELETE FROM seller WHERE company_name IN (?, ?, ?, ?, ?, ?)",
@@ -264,6 +278,20 @@ class AdminSellerControllerIntegrationTest {
                         + "WHERE s.company_name = ? AND su.user_id = ? AND r.code = 'SELLER_OWNER'",
                 Integer.class, companyName, userId);
         return count == null ? 0 : count;
+    }
+
+    private long sellerIdByCompany(String companyName) {
+        return jdbc.queryForObject("SELECT id FROM seller WHERE company_name = ?", Long.class, companyName);
+    }
+
+    // audit_log 단건 조회(AuditWiringIntegrationTest 패턴·? 바인딩·SQL injection 없음). 정확히 1건 검증.
+    private Map<String, Object> singleAuditRow(String targetType, long targetId, long actorUserId) {
+        List<Map<String, Object>> rows = jdbc.queryForList(
+                "SELECT action, actor_user_id, actor_role, diff_json FROM audit_log "
+                        + "WHERE target_type = ? AND target_id = ? AND actor_user_id = ?",
+                targetType, targetId, actorUserId);
+        assertThat(rows).hasSize(1);
+        return rows.get(0);
     }
 
     private static String pid(String prefix, String tag) {
