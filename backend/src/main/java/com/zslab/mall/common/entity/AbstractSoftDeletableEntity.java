@@ -44,4 +44,13 @@ public abstract class AbstractSoftDeletableEntity extends AbstractFullAuditableE
 
     @Column(name = "delete_reason", length = 255)
     private String deleteReason;
+
+    /**
+     * 소프트 삭제로 마킹한다(Track 58 BL-4). {@code deleted_at}을 현재 시각으로 채워
+     * {@code @SQLRestriction("deleted_at IS NULL")} 조회에서 자동 제외되게 한다. 실제 행 삭제(@SQLDelete)는
+     * A5 결정에 따라 사용하지 않는다. 삭제 주체는 감사 컬럼 {@code updated_by}(@LastModifiedBy)가 자동 기록한다.
+     */
+    public void markDeleted() {
+        this.deletedAt = LocalDateTime.now();
+    }
 }

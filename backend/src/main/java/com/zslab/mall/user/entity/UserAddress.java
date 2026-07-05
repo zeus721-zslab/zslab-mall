@@ -64,15 +64,18 @@ public class UserAddress extends AbstractSoftDeletableEntity {
     private String addressDetail;
 
     /**
-     * @throws IllegalArgumentException 필수값 누락 시
+     * @throws IllegalArgumentException 필수값 누락 시(user·recipientName·recipientPhone·zonecode·addressRoad)
      */
     public static UserAddress create(
             User user,
             boolean isDefault,
+            String addressLabel,
             String recipientName,
             String recipientPhone,
             String zonecode,
-            String addressRoad) {
+            String addressRoad,
+            String addressJibun,
+            String addressDetail) {
         if (user == null || recipientName == null || recipientPhone == null
                 || zonecode == null || addressRoad == null) {
             throw new IllegalArgumentException(
@@ -81,10 +84,49 @@ public class UserAddress extends AbstractSoftDeletableEntity {
         UserAddress address = new UserAddress();
         address.user = user;
         address.isDefault = isDefault;
+        address.addressLabel = addressLabel;
         address.recipientName = recipientName;
         address.recipientPhone = recipientPhone;
         address.zonecode = zonecode;
         address.addressRoad = addressRoad;
+        address.addressJibun = addressJibun;
+        address.addressDetail = addressDetail;
         return address;
+    }
+
+    /**
+     * 배송지 상세를 교체한다(Track 58 BL-4). user·isDefault는 불변(기본배송지 전환은 markDefault/unmarkDefault 별도 책임).
+     *
+     * @throws IllegalArgumentException 필수값 누락 시(recipientName·recipientPhone·zonecode·addressRoad)
+     */
+    public void updateDetails(
+            String addressLabel,
+            String recipientName,
+            String recipientPhone,
+            String zonecode,
+            String addressRoad,
+            String addressJibun,
+            String addressDetail) {
+        if (recipientName == null || recipientPhone == null || zonecode == null || addressRoad == null) {
+            throw new IllegalArgumentException(
+                    "UserAddress 필수값 누락(recipientName·recipientPhone·zonecode·addressRoad).");
+        }
+        this.addressLabel = addressLabel;
+        this.recipientName = recipientName;
+        this.recipientPhone = recipientPhone;
+        this.zonecode = zonecode;
+        this.addressRoad = addressRoad;
+        this.addressJibun = addressJibun;
+        this.addressDetail = addressDetail;
+    }
+
+    /** 기본 배송지로 지정한다(Track 58 BL-4·setDefault의 승격 단계·기존 기본 강등 후 호출). */
+    public void markDefault() {
+        this.isDefault = true;
+    }
+
+    /** 기본 배송지 지정을 해제한다(Track 58 BL-4·demote-then-set의 강등 단계). */
+    public void unmarkDefault() {
+        this.isDefault = false;
     }
 }

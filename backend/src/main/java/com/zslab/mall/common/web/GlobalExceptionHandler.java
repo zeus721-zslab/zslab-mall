@@ -39,6 +39,7 @@ import com.zslab.mall.settlement.exception.SettlementAlreadyExistsException;
 import com.zslab.mall.settlement.exception.SettlementInvalidStateException;
 import com.zslab.mall.settlement.exception.SettlementNotFoundException;
 import com.zslab.mall.settlement.exception.SettlementPeriodInvalidException;
+import com.zslab.mall.user.exception.AddressNotFoundException;
 import com.zslab.mall.user.exception.EmailAlreadyExistsException;
 import com.zslab.mall.user.exception.UserNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -95,6 +96,7 @@ public class GlobalExceptionHandler {
     private static final String CODE_PAYMENT_NOT_FOUND = "PAYMENT_NOT_FOUND";
     private static final String CODE_EMAIL_ALREADY_EXISTS = "EMAIL_ALREADY_EXISTS";
     private static final String CODE_USER_NOT_FOUND = "USER_NOT_FOUND";
+    private static final String CODE_ADDRESS_NOT_FOUND = "ADDRESS_NOT_FOUND";
     private static final String CODE_SELLER_USER_ALREADY_EXISTS = "SELLER_USER_ALREADY_EXISTS";
     private static final String CODE_ADMIN_OPERATOR_ALREADY_EXISTS = "ADMIN_OPERATOR_ALREADY_EXISTS";
     private static final String CODE_CATEGORY_NOT_FOUND = "CATEGORY_NOT_FOUND";
@@ -243,6 +245,13 @@ public class GlobalExceptionHandler {
             CartItemNotFoundException exception, HttpServletRequest request) {
         // Track 45: 장바구니 수량변경·selected 토글 시 대상 variant 미담김(404). 타 buyer 소유도 동일 404 은닉.
         return build(HttpStatus.NOT_FOUND, CODE_CART_ITEM_NOT_FOUND, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(AddressNotFoundException.class)
+    public ResponseEntity<ProblemDetail> handleAddressNotFound(
+            AddressNotFoundException exception, HttpServletRequest request) {
+        // Track 58 BL-4: 배송지 수정·삭제·기본설정 시 대상 미존재(404). 타 user 소유도 동일 404 은닉(CartItem 선례).
+        return build(HttpStatus.NOT_FOUND, CODE_ADDRESS_NOT_FOUND, exception.getMessage(), request);
     }
 
     @ExceptionHandler(SettlementNotFoundException.class)
