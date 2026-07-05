@@ -68,6 +68,7 @@
 | STL-2 | Settlement.status 전이(PENDING→CONFIRMED→PAID·A분류) | 정산 흐름 정합 | Domain(enum canTransition) | 미확정 정산 지급 차단 | — |
 | STL-3 | bank_account_id = 정산 시점 스냅샷 | 계좌 변경 무관 정합 | Domain | 사후 계좌 변경 영향 차단 | — |
 | STL-4 | 상태·금액 변경 AuditLog 기록 | 감사(D-11) | Service | 정산 분쟁 대응 | — |
+| STL-5 | status=PAID ⟺ paid_at≠null | 회계 상태 일관성(지급 시각 없는 지급 완료 차단) | Domain(markPaid) | 지급 상태·시각 정합 | — |
 
 ### 2.6 Category
 | # | Rule | Why | Enforcement Point | Impact | Alternative |
