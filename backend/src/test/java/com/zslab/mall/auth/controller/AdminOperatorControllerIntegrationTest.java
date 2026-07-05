@@ -6,6 +6,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.zslab.mall.common.security.AuthHeaders;
+import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -105,6 +107,12 @@ class AdminOperatorControllerIntegrationTest {
                 .andExpect(jsonPath("$.userPublicId").exists());
 
         assertThat(adminOperatorMappingCount(TARGET_USER)).isEqualTo(1);
+
+        // 감사 배선(Track 55·D-139): 부여 성공 시 CREATE/USER 감사 1건·diff에 role:ADMIN_OPERATOR(회수 DELETE의 대칭·키-추가).
+        Map<String, Object> audit = singleAuditRow("USER", TARGET_USER, SUPER_ADMIN_CALLER);
+        assertThat(audit.get("action")).isEqualTo("CREATE");
+        assertThat(audit.get("actor_role")).isEqualTo("ADMIN");
+        assertThat((String) audit.get("diff_json")).contains("role").contains("ADMIN_OPERATOR");
     }
 
     @Test
@@ -224,6 +232,8 @@ class AdminOperatorControllerIntegrationTest {
         tx.executeWithoutResult(status -> {
             try {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
+                // 감사 배선(Track 55) 잔존 방지: 부여 성공 시 actor(caller) 기준 audit_log가 실 커밋되므로 함께 정리(테스트 오염 차단).
+                jdbc.update("DELETE FROM audit_log WHERE actor_user_id IN (?, ?)", SUPER_ADMIN_CALLER, OPERATOR_CALLER);
                 jdbc.update("DELETE FROM user_role WHERE user_id IN (?, ?, ?, ?, ?)",
                         SUPER_ADMIN_CALLER, OPERATOR_CALLER, BUYER_CALLER, TARGET_USER, DUP_TARGET);
                 jdbc.update("DELETE FROM `user` WHERE id IN (?, ?, ?, ?, ?)",
@@ -244,6 +254,16 @@ class AdminOperatorControllerIntegrationTest {
                         + "WHERE ur.user_id = ? AND r.code = 'ADMIN_OPERATOR'",
                 Integer.class, userId);
         return count == null ? 0 : count;
+    }
+
+    // audit_log 단건 조회(AuditWiringIntegrationTest 패턴·? 바인딩·SQL injection 없음). 정확히 1건 검증.
+    private Map<String, Object> singleAuditRow(String targetType, long targetId, long actorUserId) {
+        List<Map<String, Object>> rows = jdbc.queryForList(
+                "SELECT action, actor_user_id, actor_role, diff_json FROM audit_log "
+                        + "WHERE target_type = ? AND target_id = ? AND actor_user_id = ?",
+                targetType, targetId, actorUserId);
+        assertThat(rows).hasSize(1);
+        return rows.get(0);
     }
 
     private static String pid(String prefix, String tag) {
