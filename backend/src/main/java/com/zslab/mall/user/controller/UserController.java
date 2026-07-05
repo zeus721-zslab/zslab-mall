@@ -61,4 +61,12 @@ public class UserController {
         Long userId = authenticatedUserResolver.requireUserId();
         return ResponseEntity.ok(userService.updateMyProfile(userId, request));
     }
+
+    /** 본인 회원 탈퇴(BL-5). 인증 필수·withdrawn_at 마킹. 성공·재탈퇴 모두 204(멱등). 탈퇴 후 재로그인은 AuthService 가드가 차단. */
+    @PostMapping("/me/withdraw")
+    public ResponseEntity<Void> withdraw() {
+        Long userId = authenticatedUserResolver.requireUserId();
+        userService.withdraw(userId);
+        return ResponseEntity.noContent().build();
+    }
 }

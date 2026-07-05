@@ -94,4 +94,16 @@ public class User extends AbstractPublicIdSoftDeletableEntity {
         this.name = name;
         this.phone = phone;
     }
+
+    /**
+     * 회원 탈퇴(soft withdraw·BL-5). {@code withdrawn_at}을 현재 시각으로 마킹한다. 이미 탈퇴된 경우 no-op으로
+     * 최초 탈퇴 시각을 유지한다(멱등). 재로그인 차단은 {@code AuthService}의 {@code withdrawn_at != null} 가드가 담당한다.
+     * soft-delete(deleted_at)·비식별화(anonymized_at)는 본 경로에서 건드리지 않는다(별개 축·deletion-policy §3).
+     */
+    public void withdraw() {
+        if (this.withdrawnAt != null) {
+            return;
+        }
+        this.withdrawnAt = LocalDateTime.now();
+    }
 }
