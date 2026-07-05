@@ -1,8 +1,12 @@
 package com.zslab.mall.product.controller;
 
+import com.zslab.mall.audit.service.AuditContext;
+import com.zslab.mall.common.auth.ActorRoleResolver;
+import com.zslab.mall.common.auth.AdminActorResolver;
 import com.zslab.mall.product.controller.response.ProductApprovalResponse;
 import com.zslab.mall.product.entity.Product;
 import com.zslab.mall.product.service.ProductApprovalService;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -21,9 +25,20 @@ import org.springframework.web.bind.annotation.RestController;
 public class AdminProductController {
 
     private final ProductApprovalService productApprovalService;
+    private final AdminActorResolver adminActorResolver;
+    private final ActorRoleResolver actorRoleResolver;
 
-    public AdminProductController(ProductApprovalService productApprovalService) {
+    public AdminProductController(ProductApprovalService productApprovalService,
+            AdminActorResolver adminActorResolver,
+            ActorRoleResolver actorRoleResolver) {
         this.productApprovalService = productApprovalService;
+        this.adminActorResolver = adminActorResolver;
+        this.actorRoleResolver = actorRoleResolver;
+    }
+
+    /** 현재 인증 운영자의 감사 컨텍스트를 조립한다(actorId·coarse role·ip/UA 미수집·결정4). */
+    private AuditContext auditContext(HttpServletRequest request) {
+        return AuditContext.of(adminActorResolver.resolve(request), actorRoleResolver.requireCoarseRole());
     }
 
     /**
@@ -31,8 +46,8 @@ public class AdminProductController {
      * ({@link ProductApprovalService}·GlobalExceptionHandler).
      */
     @PostMapping("/api/v1/admin/products/{publicId}/approve")
-    public ResponseEntity<ProductApprovalResponse> approve(@PathVariable String publicId) {
-        Product product = productApprovalService.approve(publicId);
+    public ResponseEntity<ProductApprovalResponse> approve(@PathVariable String publicId, HttpServletRequest request) {
+        Product product = productApprovalService.approve(publicId, auditContext(request));
         return ResponseEntity.ok(ProductApprovalResponse.from(product));
     }
 
@@ -41,8 +56,8 @@ public class AdminProductController {
      * ({@link ProductApprovalService}·GlobalExceptionHandler).
      */
     @PostMapping("/api/v1/admin/products/{publicId}/reject")
-    public ResponseEntity<ProductApprovalResponse> reject(@PathVariable String publicId) {
-        Product product = productApprovalService.reject(publicId);
+    public ResponseEntity<ProductApprovalResponse> reject(@PathVariable String publicId, HttpServletRequest request) {
+        Product product = productApprovalService.reject(publicId, auditContext(request));
         return ResponseEntity.ok(ProductApprovalResponse.from(product));
     }
 }

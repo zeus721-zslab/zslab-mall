@@ -3,6 +3,7 @@ package com.zslab.mall.grade.service;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.zslab.mall.Batch1DataJpaTestBase;
+import com.zslab.mall.audit.service.AuditRecorder;
 import com.zslab.mall.common.config.AuditingConfig;
 import com.zslab.mall.grade.entity.BuyerGrade;
 import com.zslab.mall.grade.enums.BuyerGradeCode;
@@ -20,6 +21,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Import;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
  * {@link GradeService#recalculate} 통합 테스트(MariaDB Testcontainers·실제 산정 동작). V15 시드 정책(SILVER [0,300000)·
@@ -33,6 +35,10 @@ class GradeServiceTest extends Batch1DataJpaTestBase {
 
     @Autowired
     private GradeService gradeService;
+
+    // 1-인자 recalculate(무-actor 배치 경로)는 감사 미적재라 record 미호출·mock으로 빈만 충족
+    @MockitoBean
+    private AuditRecorder auditRecorder;
 
     @Autowired
     private BuyerProfileRepository buyerProfileRepository;

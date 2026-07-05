@@ -1,5 +1,8 @@
 package com.zslab.mall.settlement.controller;
 
+import com.zslab.mall.audit.service.AuditContext;
+import com.zslab.mall.common.auth.ActorRoleResolver;
+import com.zslab.mall.common.auth.AdminActorResolver;
 import com.zslab.mall.settlement.controller.request.CreateMonthlySettlementRequest;
 import com.zslab.mall.settlement.controller.response.SettlementBatchResponse;
 import com.zslab.mall.settlement.controller.response.SettlementTransitionResponse;
@@ -7,6 +10,7 @@ import com.zslab.mall.settlement.entity.Settlement;
 import com.zslab.mall.settlement.service.SettlementBatchResult;
 import com.zslab.mall.settlement.service.SettlementCreationService;
 import com.zslab.mall.settlement.service.SettlementTransitionService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -31,11 +35,22 @@ public class AdminSettlementController {
 
     private final SettlementCreationService settlementCreationService;
     private final SettlementTransitionService settlementTransitionService;
+    private final AdminActorResolver adminActorResolver;
+    private final ActorRoleResolver actorRoleResolver;
 
     public AdminSettlementController(SettlementCreationService settlementCreationService,
-            SettlementTransitionService settlementTransitionService) {
+            SettlementTransitionService settlementTransitionService,
+            AdminActorResolver adminActorResolver,
+            ActorRoleResolver actorRoleResolver) {
         this.settlementCreationService = settlementCreationService;
         this.settlementTransitionService = settlementTransitionService;
+        this.adminActorResolver = adminActorResolver;
+        this.actorRoleResolver = actorRoleResolver;
+    }
+
+    /** 현재 인증 운영자의 감사 컨텍스트를 조립한다(actorId·coarse role·ip/UA 미수집·결정4). */
+    private AuditContext auditContext(HttpServletRequest request) {
+        return AuditContext.of(adminActorResolver.resolve(request), actorRoleResolver.requireCoarseRole());
     }
 
     /**
@@ -56,8 +71,8 @@ public class AdminSettlementController {
      * ({@link SettlementTransitionService}·GlobalExceptionHandler).
      */
     @PostMapping("/api/v1/admin/settlements/{id}/confirm")
-    public ResponseEntity<SettlementTransitionResponse> confirm(@PathVariable Long id) {
-        Settlement settlement = settlementTransitionService.confirm(id);
+    public ResponseEntity<SettlementTransitionResponse> confirm(@PathVariable Long id, HttpServletRequest request) {
+        Settlement settlement = settlementTransitionService.confirm(id, auditContext(request));
         return ResponseEntity.ok(SettlementTransitionResponse.from(settlement));
     }
 
@@ -66,8 +81,8 @@ public class AdminSettlementController {
      * 전이 위반 422({@link SettlementTransitionService}·GlobalExceptionHandler).
      */
     @PostMapping("/api/v1/admin/settlements/{id}/pay")
-    public ResponseEntity<SettlementTransitionResponse> pay(@PathVariable Long id) {
-        Settlement settlement = settlementTransitionService.pay(id);
+    public ResponseEntity<SettlementTransitionResponse> pay(@PathVariable Long id, HttpServletRequest request) {
+        Settlement settlement = settlementTransitionService.pay(id, auditContext(request));
         return ResponseEntity.ok(SettlementTransitionResponse.from(settlement));
     }
 }

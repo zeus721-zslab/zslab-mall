@@ -1,11 +1,16 @@
 package com.zslab.mall.settlement.service;
 
+import com.zslab.mall.audit.enums.AuditLogAction;
+import com.zslab.mall.audit.service.AuditContext;
+import com.zslab.mall.audit.service.AuditRecorder;
+import com.zslab.mall.common.enums.PolymorphicTargetType;
 import com.zslab.mall.settlement.entity.Settlement;
 import com.zslab.mall.settlement.enums.SettlementStatus;
 import com.zslab.mall.settlement.exception.SettlementInvalidStateException;
 import com.zslab.mall.settlement.exception.SettlementNotFoundException;
 import com.zslab.mall.settlement.repository.SettlementRepository;
 import java.time.LocalDateTime;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -31,16 +36,19 @@ import org.springframework.transaction.annotation.Transactional;
 public class SettlementTransitionService {
 
     private final SettlementRepository settlementRepository;
+    private final AuditRecorder auditRecorder;
 
     /**
-     * 정산 금액을 확정한다(PENDING → CONFIRMED). 이미 CONFIRMED이면 멱등 no-op.
+     * 정산 금액을 확정한다(PENDING → CONFIRMED). 이미 CONFIRMED이면 멱등 no-op(감사 미적재). 실제 전이 시 status 변경을
+     * 같은 트랜잭션에서 감사 로그로 적재한다(STL-4·Track 52 Phase 2).
      *
      * @param settlementId 전이 대상 정산 id
+     * @param auditContext 감사 행위자 컨텍스트(운영자)
      * @return 확정된(또는 이미 확정 상태인) Settlement
      * @throws SettlementNotFoundException     정산 미존재(404)
      * @throws SettlementInvalidStateException CONFIRMED 전이가 불가한 상태(예: PAID)인 경우(422)
      */
-    public Settlement confirm(Long settlementId) {
+    public Settlement confirm(Long settlementId, AuditContext auditContext) {
         Settlement settlement = settlementRepository.findByIdForUpdate(settlementId)
                 .orElseThrow(() -> new SettlementNotFoundException(
                         "정산을 찾을 수 없습니다: settlementId=" + settlementId));
@@ -50,11 +58,14 @@ public class SettlementTransitionService {
             return settlement;
         }
 
+        SettlementStatus before = settlement.getStatus();
         try {
             settlement.markConfirmed();
         } catch (IllegalStateException exception) {
             throw new SettlementInvalidStateException("확정할 수 없는 정산 상태입니다: " + exception.getMessage());
         }
+        auditRecorder.record(auditContext, AuditLogAction.UPDATE, PolymorphicTargetType.SETTLEMENT, settlement.getId(),
+                Map.of("status", before.name()), Map.of("status", settlement.getStatus().name()));
         return settlement;
     }
 
@@ -62,11 +73,12 @@ public class SettlementTransitionService {
      * 지급 완료를 마킹한다(CONFIRMED → PAID·운영자 수동). 이미 PAID이면 멱등 no-op. 전이 시각(paid_at)은 서비스가 now()로 채운다.
      *
      * @param settlementId 전이 대상 정산 id
+     * @param auditContext 감사 행위자 컨텍스트(운영자)
      * @return 지급 완료된(또는 이미 지급 상태인) Settlement
      * @throws SettlementNotFoundException     정산 미존재(404)
      * @throws SettlementInvalidStateException PAID 전이가 불가한 상태(예: PENDING)인 경우(422)
      */
-    public Settlement pay(Long settlementId) {
+    public Settlement pay(Long settlementId, AuditContext auditContext) {
         Settlement settlement = settlementRepository.findByIdForUpdate(settlementId)
                 .orElseThrow(() -> new SettlementNotFoundException(
                         "정산을 찾을 수 없습니다: settlementId=" + settlementId));
@@ -76,11 +88,14 @@ public class SettlementTransitionService {
             return settlement;
         }
 
+        SettlementStatus before = settlement.getStatus();
         try {
             settlement.markPaid(LocalDateTime.now());
         } catch (IllegalStateException exception) {
             throw new SettlementInvalidStateException("지급 처리할 수 없는 정산 상태입니다: " + exception.getMessage());
         }
+        auditRecorder.record(auditContext, AuditLogAction.UPDATE, PolymorphicTargetType.SETTLEMENT, settlement.getId(),
+                Map.of("status", before.name()), Map.of("status", settlement.getStatus().name()));
         return settlement;
     }
 }
