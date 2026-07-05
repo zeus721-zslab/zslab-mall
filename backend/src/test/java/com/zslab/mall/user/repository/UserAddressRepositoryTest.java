@@ -28,7 +28,7 @@ class UserAddressRepositoryTest extends Batch1DataJpaTestBase {
     void save_findById_success() {
         User user = userRepository.saveAndFlush(User.create("addr@example.com", "배송지사용자", "010-1234-5678"));
         UserAddress saved = userAddressRepository.saveAndFlush(
-            UserAddress.create(user, true, "홍길동", "010-9876-5432", "12345", "서울시 강남구 테헤란로 1"));
+            UserAddress.create(user, true, null, "홍길동", "010-9876-5432", "12345", "서울시 강남구 테헤란로 1", null, null));
         entityManager.clear();
 
         Optional<UserAddress> found = userAddressRepository.findById(saved.getId());
@@ -58,7 +58,7 @@ class UserAddressRepositoryTest extends Batch1DataJpaTestBase {
     void findById_afterSoftDelete_returnsEmpty() {
         User user = userRepository.saveAndFlush(User.create("softaddr@example.com", "삭제배송지", "010-5555-5555"));
         UserAddress saved = userAddressRepository.saveAndFlush(
-            UserAddress.create(user, false, "삭제수령인", "010-1111-2222", "99999", "삭제도로명 1"));
+            UserAddress.create(user, false, null, "삭제수령인", "010-1111-2222", "99999", "삭제도로명 1", null, null));
         entityManager.clear();
 
         entityManager.getEntityManager()

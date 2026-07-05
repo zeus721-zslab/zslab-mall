@@ -81,4 +81,17 @@ public class User extends AbstractPublicIdSoftDeletableEntity {
         }
         this.passwordHash = passwordHash;
     }
+
+    /**
+     * 회원 프로필(name·phone)을 교체한다(Track 58 BL-3). email은 로그인 자격증명이라 본 경로에서 변경하지 않는다.
+     *
+     * @throws IllegalArgumentException name·phone 중 null·blank가 있는 경우
+     */
+    public void updateProfile(String name, String phone) {
+        if (name == null || name.isBlank() || phone == null || phone.isBlank()) {
+            throw new IllegalArgumentException("name·phone은 null·blank일 수 없습니다.");
+        }
+        this.name = name;
+        this.phone = phone;
+    }
 }
