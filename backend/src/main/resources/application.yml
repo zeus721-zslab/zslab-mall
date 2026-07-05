@@ -28,6 +28,11 @@ spring:
   jackson:
     # D-49·§15: 응답 null 필드 제외(camelCase는 Jackson 기본). 날짜 UTC Z 포맷은 DTO 필드 @JsonFormat에서 처리.
     default-property-inclusion: non_null
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+
+server:
+  shutdown: graceful
 
 management:
   endpoints:
