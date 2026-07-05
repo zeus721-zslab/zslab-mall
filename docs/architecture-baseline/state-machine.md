@@ -315,3 +315,36 @@ PENDING ──→ COMPLETED (불가역)
 **STL-2 정합**: invariants.md STL-2 "Settlement.status 전이 Domain(enum canTransition)"를 SettlementStatus enum 내부 canTransitionTo() 메서드로 구현 (state-machine §1·§2·§3·§7·§8 동일 패턴).
 
 **Payment·Refund 연동**: Settlement는 별도 정산 주기에 일괄 처리·Payment/Refund 트랜잭션과 분리. Settlement.refund_amount는 정산 주기 내 Refund.COMPLETED 합산 결과·실시간 연동 아님.
+
+## 10. Product.status (A분류 #6)
+
+> 소스: product.enums.ProductStatus(A#6·7값)·invariants.md PRD-6·V1__init.sql product.status·Track 50 승인 워크플로 [확정 2026-07-05].
+> A분류: ENUM 값 집합 코드 레이어 enum 고정. 추가/변경 = Flyway 마이그레이션 + db-schema 갱신.
+
+전이 다이어그램 (평문 들여쓰기):
+
+    PENDING ──→ SALE (운영자 승인)
+    PENDING ──→ REJECTED (운영자 거부·종료)
+
+**값 집합 (7개)** (V1__init.sql product.status): DRAFT·PENDING·APPROVED·REJECTED·SALE·HIDDEN·STOPPED. Track 50 승인 워크플로가 소비하는 전이 대상은 PENDING·SALE·REJECTED 3값이며, 나머지(DRAFT·APPROVED·HIDDEN·STOPPED)는 값 집합에만 존재하고 전이 소비처가 아직 없다.
+
+| 값 | 진입 조건 | 비고 |
+|---|---|---|
+| PENDING | Product 행 생성 시 초기값 (판매자 등록·Track 39/50) | 승인 심사 대기·카탈로그 미노출 |
+| SALE | 운영자 승인 | 공개 판매·카탈로그 노출 대상 (Seller ACTIVE 전제·D-129) |
+| REJECTED | 운영자 거부 | 종료 상태·재심사 없음·카탈로그 미노출 |
+
+**전이 규칙**:
+
+| 전이 | 트리거 | 권한 |
+|---|---|---|
+| PENDING → SALE | 운영자 상품 승인 | ADMIN |
+| PENDING → REJECTED | 운영자 상품 거부 | ADMIN |
+
+**역전·기타 차단**: PENDING 외 상태에서의 전이는 전부 차단(canTransitionTo=false). REJECTED는 종료 상태(재심사 없음). SALE·HIDDEN·STOPPED 등에서의 전이는 소비처가 없어 도입하지 않는다.
+
+**전이 권한**: 운영자(ADMIN)만 수행(SecurityConfig {@code /api/v1/admin/**}). 판매자 자기 전이 권한 없음.
+
+**PRD-6 정합**: invariants.md PRD-6 전이 규칙을 ProductStatus.canTransitionTo() 메서드로 구현 (Settlement §9 canTransitionTo 동일 패턴). 등록 초기=PENDING·SALE 도달=승인 경유(등록 직행 SALE 아님·Track 50).
+
+**확장 지점**: 판매자 상품 수정/재심사 기능 도입 시 REJECTED→PENDING 전이 검토.
