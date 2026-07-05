@@ -26,8 +26,8 @@ import org.testcontainers.utility.DockerImageName;
 /**
  * 구매자 카탈로그 조회 endpoint E2E 통합 테스트(Track 44·실 MariaDB·MockMvc). HTTP → {@code ProductCatalogController} →
  * {@code ProductCatalogService} → Repository 조회 흐름을 실측한다({@code ProductRegistrationControllerIntegrationTest}
- * 픽스처 패턴 정합). 상태 전이 쓰기 경로가 없으므로(등록 시 전부 SALE) HIDDEN·STOPPED·SUSPENDED·TERMINATED·품절·
- * soft-delete 데이터는 JDBC로 직접 시드한다(LT-02 FOREIGN_KEY_CHECKS try-finally).
+ * 픽스처 패턴 정합). 상품 상태는 seed로 직접 주입하므로(등록은 Track 50 이후 PENDING 생성·승인 시 SALE 전이) SALE·HIDDEN·
+ * STOPPED·SUSPENDED·TERMINATED·품절·soft-delete 데이터는 JDBC로 직접 시드한다(LT-02 FOREIGN_KEY_CHECKS try-finally).
  *
  * <p>커버: D1 노출/비노출 제외(HIDDEN·STOPPED·판매자 SUSPENDED/TERMINATED·soft-delete)·카테고리 필터·4정렬·페이징·
  * D2 품절 배지·D3 대표가(basePrice+MIN additional)·DEFAULT sentinel 숨김·단건 200/404·공개(미인증) 접근.

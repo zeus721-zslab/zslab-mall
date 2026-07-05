@@ -18,7 +18,8 @@ import org.hibernate.annotations.SQLRestriction;
 /**
  * 상품(PRD Aggregate Root·SOFT·public_id {@code prd_}). Track 4(D-59)에서 응답 enrich(§11 productId·D-55 previewTitle name)·
  * 재결제 재검증(D-51·D-60 status) 조회 전용으로 신설했다. 등록 INSERT 쓰기는 Track 39 provisioning 경로에서 {@link #create}로
- * 도입한다(seller 주도·status는 SALE 서버 고정). 승인·상태 전이 등 상태 쓰기는 후속 트랙 이연.
+ * 도입한다(seller 주도·status는 PENDING 서버 고정). 운영자 승인 시 SALE, 거부 시 REJECTED로 전이한다
+ * ({@link #approve}·{@link #reject}·Track 50).
  *
  * <p>{@link AbstractPublicIdSoftDeletableEntity} 상속(full audit + soft-delete 3컬럼 + public_id prd_). 생성 전용 {@link #create}
  * 외 setter·상태 전이 도메인 행위를 두지 않는다. {@code @SQLRestriction}은 Hibernate 6.6 HHH-17453 버그로
@@ -60,7 +61,7 @@ public class Product extends AbstractPublicIdSoftDeletableEntity {
     /**
      * 상품 등록 레코드를 생성한다(Track 39 provisioning·seller 주도). NOT NULL 컬럼(sellerId·categoryId·name·basePrice)만
      * null 가드하며, nullable 컬럼(description·thumbnailUrl)은 가드하지 않는다(Seller.create 스타일 정합·형식/필수 검증은
-     * DTO {@code @Valid} 책임). status는 입력받지 않고 {@link ProductStatus#SALE}로 서버 고정한다. public_id는
+     * DTO {@code @Valid} 책임). status는 입력받지 않고 {@link ProductStatus#PENDING}으로 서버 고정한다(운영자 승인 시 SALE 전이·Track 50). public_id는
      * {@code @PrePersist}에서 생성된다.
      *
      * @throws IllegalArgumentException sellerId·categoryId·name·basePrice 중 누락 시
@@ -80,10 +81,37 @@ public class Product extends AbstractPublicIdSoftDeletableEntity {
         product.categoryId = categoryId;
         product.name = name;
         product.description = description;
-        product.status = ProductStatus.SALE;
+        product.status = ProductStatus.PENDING;
         product.basePrice = basePrice;
         product.thumbnailUrl = thumbnailUrl;
         return product;
+    }
+
+    /**
+     * 운영자 승인 전이(PENDING → SALE·Track 50). 전이 합법성은 {@link ProductStatus#canTransitionTo}로 가드하며 위반 시
+     * {@link IllegalStateException}을 던진다(Service가 {@code ProductInvalidStateException}(422)으로 흡수·직접 매핑 금지).
+     * setter 없이 본 mutator 내부에서만 status를 변경한다(캡슐화 유지).
+     *
+     * @throws IllegalStateException 현재 상태에서 SALE 전이가 불가한 경우(PENDING 아님)
+     */
+    public void approve() {
+        if (!status.canTransitionTo(ProductStatus.SALE)) {
+            throw new IllegalStateException("불법 상품 상태 전이: " + status + " → " + ProductStatus.SALE);
+        }
+        this.status = ProductStatus.SALE;
+    }
+
+    /**
+     * 운영자 거부 전이(PENDING → REJECTED·종료 상태·재심사 없음·Track 50). 전이 합법성은 {@link ProductStatus#canTransitionTo}로
+     * 가드하며 위반 시 {@link IllegalStateException}을 던진다(Service가 {@code ProductInvalidStateException}(422)으로 흡수).
+     *
+     * @throws IllegalStateException 현재 상태에서 REJECTED 전이가 불가한 경우(PENDING 아님)
+     */
+    public void reject() {
+        if (!status.canTransitionTo(ProductStatus.REJECTED)) {
+            throw new IllegalStateException("불법 상품 상태 전이: " + status + " → " + ProductStatus.REJECTED);
+        }
+        this.status = ProductStatus.REJECTED;
     }
 
     @Override

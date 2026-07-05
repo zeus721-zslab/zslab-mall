@@ -122,8 +122,8 @@ class ProductRegistrationControllerIntegrationTest {
         assertThat(response.variantPublicIds()).hasSize(2).allSatisfy(id -> assertThat(id).startsWith("var_"));
 
         Long productId = productId(response.productPublicId());
-        // Product 본문(status SALE·seller/category·base_price 서버 결정)
-        assertThat(count("SELECT COUNT(*) FROM product WHERE id=? AND seller_id=? AND category_id=? AND status='SALE' AND base_price=10000",
+        // Product 본문(status PENDING·seller/category·base_price 서버 결정·Track 50 등록 초기 PENDING·승인 시 SALE 전이)
+        assertThat(count("SELECT COUNT(*) FROM product WHERE id=? AND seller_id=? AND category_id=? AND status='PENDING' AND base_price=10000",
                 productId, SELLER_ID, CATEGORY_ID)).isEqualTo(1);
         // 옵션 그래프
         assertThat(count("SELECT COUNT(*) FROM product_option_group WHERE product_id=? AND name='색상'", productId)).isEqualTo(1);
