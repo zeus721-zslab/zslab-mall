@@ -6,14 +6,15 @@ import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.exception.OrderItemInvalidStateException;
 import com.zslab.mall.order.exception.OrderNotFoundException;
 import com.zslab.mall.order.repository.OrderRepository;
+import java.time.LocalDateTime;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Buyer 구매확정 Application Service(Track 47·E6 수동 확정 경로). buyer가 배송완료(DELIVERED)된 OrderItem을
- * 구매확정(CONFIRMED)으로 전이하는 쓰기 경로다. Settlement 정산 트리거 상태(CONFIRMED)를 데이터로 확보하기 위한 선행이며,
- * PurchaseConfirmed 이벤트 발행·정산 적재는 본 트랙 범위 밖(Settlement 트랙 이월)이다.
+ * 구매확정(CONFIRMED)으로 전이하는 쓰기 경로다. 전이 성공 시 confirmed_at(정산 월 귀속 기준·Track 48 P3)을 기록한다.
+ * PurchaseConfirmed 이벤트 발행·정산 적재는 본 트랙 범위 밖(정산 배치가 confirmed_at 기준으로 집계)이다 — 이벤트는 여전히 미발행.
  *
  * <p><b>소유권(D-92·getOrder 패턴 정합)</b>: 소유권 검증은 서비스 진입부에서 한다. Order를 orderPublicId로 조회해
  * buyerId를 대조하고, 대상 OrderItem이 그 주문 소속인지 items에서 orderItemPublicId로 매칭한다. 미존재·타인 주문·미소속 항목을
@@ -73,6 +74,8 @@ public class BuyerOrderConfirmService {
         } catch (IllegalStateException exception) {
             throw new OrderItemInvalidStateException("구매확정할 수 없는 주문 품목 상태입니다: " + exception.getMessage());
         }
+        // 전이 성공 직후 확정 시각 기록(정산 월 귀속 기준·Track 48 P3). markConfirmedAt은 기존값 미덮어쓰기 멱등 가드 보유.
+        target.markConfirmedAt(LocalDateTime.now());
         orderService.recalculateStatus(order.getId());
         return target;
     }

@@ -48,7 +48,7 @@ class SettlementRepositoryTest extends Batch1DataJpaTestBase {
         LocalDateTime start = LocalDateTime.of(2026, 6, 1, 0, 0);
         LocalDateTime end = LocalDateTime.of(2026, 6, 30, 23, 59);
         Settlement saved = settlementRepository.saveAndFlush(
-            Settlement.create(sellerId, bankAccountId, start, end, 1_000_000L, 30_000L, 20_000L));
+            Settlement.create(sellerId, bankAccountId, start, end, 1_000_000L, 30_000L, 1000, 20_000L));
         entityManager.clear();
 
         Optional<Settlement> found = settlementRepository.findById(saved.getId());
@@ -60,6 +60,7 @@ class SettlementRepositoryTest extends Batch1DataJpaTestBase {
         assertThat(found.get().getFeeAmount()).isEqualTo(30_000L);
         assertThat(found.get().getRefundAmount()).isEqualTo(20_000L);
         assertThat(found.get().getNetAmount()).isEqualTo(950_000L);
+        assertThat(found.get().getCommissionRate()).isEqualTo(1000);
         assertThat(found.get().getStatus()).isEqualTo(SettlementStatus.PENDING);
         assertThat(found.get().getPaidAt()).isNull();
         assertThat(found.get().getCreatedAt()).isNotNull();
@@ -75,8 +76,8 @@ class SettlementRepositoryTest extends Batch1DataJpaTestBase {
                 .createNativeQuery(
                     "INSERT INTO settlement "
                     + "(seller_id, bank_account_id, period_start, period_end, gross_amount, fee_amount, "
-                    + "refund_amount, net_amount, status, created_at, updated_at) "
-                    + "VALUES (99999, " + bankAccountId + ", NOW(6), NOW(6), 0, 0, 0, 0, 'PENDING', NOW(6), NOW(6))")
+                    + "commission_rate, refund_amount, net_amount, status, created_at, updated_at) "
+                    + "VALUES (99999, " + bankAccountId + ", NOW(6), NOW(6), 0, 0, 1000, 0, 0, 'PENDING', NOW(6), NOW(6))")
                 .executeUpdate()
         ).isInstanceOf(PersistenceException.class);
     }
@@ -90,8 +91,8 @@ class SettlementRepositoryTest extends Batch1DataJpaTestBase {
                 .createNativeQuery(
                     "INSERT INTO settlement "
                     + "(seller_id, bank_account_id, period_start, period_end, gross_amount, fee_amount, "
-                    + "refund_amount, net_amount, status, created_at, updated_at) "
-                    + "VALUES (" + sellerId + ", 99999, NOW(6), NOW(6), 0, 0, 0, 0, 'PENDING', NOW(6), NOW(6))")
+                    + "commission_rate, refund_amount, net_amount, status, created_at, updated_at) "
+                    + "VALUES (" + sellerId + ", 99999, NOW(6), NOW(6), 0, 0, 1000, 0, 0, 'PENDING', NOW(6), NOW(6))")
                 .executeUpdate()
         ).isInstanceOf(PersistenceException.class);
     }
@@ -106,8 +107,8 @@ class SettlementRepositoryTest extends Batch1DataJpaTestBase {
                 .createNativeQuery(
                     "INSERT INTO settlement "
                     + "(seller_id, bank_account_id, period_start, period_end, gross_amount, fee_amount, "
-                    + "refund_amount, net_amount, status, created_at, updated_at) "
-                    + "VALUES (" + sellerId + ", " + bankAccountId + ", NOW(6), NOW(6), 0, 0, 0, 0, 'INVALID_STATUS', NOW(6), NOW(6))")
+                    + "commission_rate, refund_amount, net_amount, status, created_at, updated_at) "
+                    + "VALUES (" + sellerId + ", " + bankAccountId + ", NOW(6), NOW(6), 0, 0, 1000, 0, 0, 'INVALID_STATUS', NOW(6), NOW(6))")
                 .executeUpdate()
         ).isInstanceOf(PersistenceException.class);
     }

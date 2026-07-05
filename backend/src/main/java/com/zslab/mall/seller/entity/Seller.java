@@ -54,6 +54,10 @@ public class Seller extends AbstractPublicIdSoftDeletableEntity {
     @Column(name = "status", nullable = false)
     private SellerStatus status;
 
+    /** 판매 수수료율·basis-point(1000 = 10.00%). 정산 fee 산정 소스. */
+    @Column(name = "commission_rate", nullable = false)
+    private Integer commissionRate;
+
     /**
      * 판매자 입점 레코드를 생성한다(Track 37 provisioning·관리자 주도). NOT NULL 컬럼(companyName·ceoName·status)만
      * null 가드하며, nullable 컬럼(businessNo·contactEmail·contactPhone)은 가드하지 않는다({@link SellerUser#create}
@@ -78,6 +82,8 @@ public class Seller extends AbstractPublicIdSoftDeletableEntity {
         seller.contactEmail = contactEmail;
         seller.contactPhone = contactPhone;
         seller.status = status;
+        // 입점 기본 수수료율 10.00%(basis-point 1000). create() 시그니처 불변 유지 위해 팩토리 내부 고정(호출부 무영향).
+        seller.commissionRate = 1000;
         return seller;
     }
 
