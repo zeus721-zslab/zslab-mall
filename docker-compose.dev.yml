@@ -1,0 +1,13 @@
+# 로컬 개발 오버라이드 — Dockerfile.dev(bootRun) + 소스·gradle 캐시 마운트.
+# 사용: docker compose -f docker-compose.mall.yml -f docker-compose.dev.yml up
+# 운영(서버)은 docker-compose.mall.yml 단독 사용(이 오버라이드 미적용).
+services:
+  zslab_mall_backend:
+    build:
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ./backend:/app
+      - mall_gradle_cache:/home/gradle/.gradle
+
+volumes:
+  mall_gradle_cache:

@@ -2,7 +2,7 @@ services:
   zslab_mall_backend:
     build:
       context: ./backend
-      dockerfile: ${BACKEND_DOCKERFILE:-Dockerfile.dev}
+      dockerfile: ${BACKEND_DOCKERFILE:-Dockerfile}
     container_name: zslab_mall_backend
     restart: unless-stopped
     stop_grace_period: 30s
@@ -25,8 +25,6 @@ services:
       ADMIN_BOOTSTRAP_PASSWORD: ${ADMIN_BOOTSTRAP_PASSWORD}
       LOG_PATH: ${LOG_PATH:-/app/logs}
     volumes:
-      - ./backend:/app
-      - mall_gradle_cache:/home/gradle/.gradle
       - mall_backend_logs:/app/logs
     networks:
       - zslab_zslab_net
@@ -51,7 +49,6 @@ services:
       - zslab_mall_backend
 
 volumes:
-  mall_gradle_cache:
   mall_backend_logs:
 
 networks:
