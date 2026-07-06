@@ -14,14 +14,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.MariaDBContainer;
-import org.testcontainers.utility.DockerImageName;
+import com.zslab.mall.support.AbstractIntegrationTest;
 
 /**
  * 클레임 이벤트 핸들러 E2E 통합 테스트(Track 9 PR-C·D-90 Q5 β·실 MariaDB·Flyway V1~V5). ClaimService 호출 →
@@ -40,8 +36,7 @@ import org.testcontainers.utility.DockerImageName;
  *
  * <p><b>LT-02</b>: {@code SET FOREIGN_KEY_CHECKS=0}은 try-finally로 {@code =1} 복원과 1:1 짝을 이룬다(ClaimIntegrationTest 정합).
  */
-@SpringBootTest
-class ClaimEventIntegrationTest {
+class ClaimEventIntegrationTest extends AbstractIntegrationTest {
 
     private static final long USER_ID = 9101L;
     private static final long SELLER_ID = 9101L;
@@ -55,21 +50,6 @@ class ClaimEventIntegrationTest {
 
     private static final String ORDER_ITEM_PID = pid("oit_", "EVTOIT");
     private static final String CLAIM_PID = pid("clm_", "EVTCLM");
-
-    static final MariaDBContainer<?> MARIADB;
-
-    static {
-        MARIADB = new MariaDBContainer<>(DockerImageName.parse("mariadb:11.4"));
-        MARIADB.start();
-    }
-
-    @DynamicPropertySource
-    static void datasourceProps(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", MARIADB::getJdbcUrl);
-        registry.add("spring.datasource.username", MARIADB::getUsername);
-        registry.add("spring.datasource.password", MARIADB::getPassword);
-        registry.add("spring.datasource.driver-class-name", MARIADB::getDriverClassName);
-    }
 
     @Autowired
     private ClaimService claimService;

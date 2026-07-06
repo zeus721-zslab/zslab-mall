@@ -14,19 +14,15 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
 import com.zslab.mall.common.security.AuthHeaders;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.MariaDBContainer;
-import org.testcontainers.utility.DockerImageName;
+import com.zslab.mall.support.AbstractIntegrationTest;
 
 /**
  * Seller 교환품 출고 등록 endpoint E2E 통합 테스트(Track 15·D-99·실 MariaDB). HTTP → {@code SellerDeliveryController} →
@@ -40,10 +36,9 @@ import org.testcontainers.utility.DockerImageName;
  * <p><b>HTTP 경유 의무(D-99)</b>: {@code DeliveryService.registerExchangeShipment} primitive를 직접 호출하지 않고 MockMvc로
  * endpoint를 구동한다. X-Seller-Id 헤더 stub은 {@code HeaderSellerActorResolver}가 BIGINT로 해소한다(D-93).
  */
-@SpringBootTest
 @AutoConfigureMockMvc
 @RecordApplicationEvents
-class SellerDeliveryIntegrationTest {
+class SellerDeliveryIntegrationTest extends AbstractIntegrationTest {
 
     private static final long USER_ID = 9415L;
     private static final long SELLER_A = 9415L; // 품목 소유 셀러
@@ -62,21 +57,6 @@ class SellerDeliveryIntegrationTest {
     private static final String CLAIM_PID = pid("clm_", "SDCLM");
     private static final String ORDER_ITEM_PID = pid("oit_", "SDOIT");
     private static final String TRACKING_NO = "CJ-SD-0001";
-
-    static final MariaDBContainer<?> MARIADB;
-
-    static {
-        MARIADB = new MariaDBContainer<>(DockerImageName.parse("mariadb:11.4"));
-        MARIADB.start();
-    }
-
-    @DynamicPropertySource
-    static void datasourceProps(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", MARIADB::getJdbcUrl);
-        registry.add("spring.datasource.username", MARIADB::getUsername);
-        registry.add("spring.datasource.password", MARIADB::getPassword);
-        registry.add("spring.datasource.driver-class-name", MARIADB::getDriverClassName);
-    }
 
     @Autowired
     private MockMvc mockMvc;

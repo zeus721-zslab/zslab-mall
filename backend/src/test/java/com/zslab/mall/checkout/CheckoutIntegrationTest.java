@@ -16,16 +16,12 @@ import org.mockito.Mockito;
 import static org.mockito.ArgumentMatchers.any;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import com.zslab.mall.common.security.AuthHeaders;
+import com.zslab.mall.support.AbstractIntegrationTest;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
-import org.testcontainers.containers.MariaDBContainer;
-import org.testcontainers.utility.DockerImageName;
 import com.zslab.mall.order.service.OrderService;
 
 /**
@@ -35,30 +31,14 @@ import com.zslab.mall.order.service.OrderService;
  * <p>단일 트랜잭션(@Transactional) + {@code SET FOREIGN_KEY_CHECKS=0}으로 상위 그래프(user·category·option_value) 없이
  * seller·product·variant·inventory만 시딩한다(기존 DataJpaTestBase FK 비활성 패턴 준용). 테스트 종료 시 롤백된다.
  */
-@SpringBootTest
 @AutoConfigureMockMvc
 @Transactional
-class CheckoutIntegrationTest {
+class CheckoutIntegrationTest extends AbstractIntegrationTest {
 
     private static final String SELLER_PID = "slr_0000000000000000000000IT01";
     private static final String PRODUCT_PID = "prd_0000000000000000000000IT01";
     private static final String VARIANT_PID = "var_0000000000000000000000IT01";
     private static final long VARIANT_ID = 1000L;
-
-    static final MariaDBContainer<?> MARIADB;
-
-    static {
-        MARIADB = new MariaDBContainer<>(DockerImageName.parse("mariadb:11.4"));
-        MARIADB.start();
-    }
-
-    @DynamicPropertySource
-    static void datasourceProps(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", MARIADB::getJdbcUrl);
-        registry.add("spring.datasource.username", MARIADB::getUsername);
-        registry.add("spring.datasource.password", MARIADB::getPassword);
-        registry.add("spring.datasource.driver-class-name", MARIADB::getDriverClassName);
-    }
 
     @Autowired
     private MockMvc mockMvc;

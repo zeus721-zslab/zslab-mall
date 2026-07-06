@@ -19,19 +19,15 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.MariaDBContainer;
-import org.testcontainers.utility.DockerImageName;
+import com.zslab.mall.support.AbstractIntegrationTest;
 
 /**
  * 상품 등록 endpoint E2E 통합 테스트(Track 39 P6·실 MariaDB). HTTP → {@code ProductRegistrationController} →
@@ -48,9 +44,8 @@ import org.testcontainers.utility.DockerImageName;
  * 동일 옵션 조합은 INV-E(in-memory 400)가 saveVariants 진입 전에 선차단한다. uk 409(saveVariants catch)는 3그룹 non-NULL
  * 보조 방어선으로 남지만 엔드포인트 경로로는 재현되지 않는다(T11에서 3그룹 동일조합이 INV-E 400으로 처리됨을 실증).
  */
-@SpringBootTest
 @AutoConfigureMockMvc
-class ProductRegistrationControllerIntegrationTest {
+class ProductRegistrationControllerIntegrationTest extends AbstractIntegrationTest {
 
     private static final String URL = "/api/v1/seller/products";
 
@@ -59,21 +54,6 @@ class ProductRegistrationControllerIntegrationTest {
     private static final long BUYER_USER_ID = 9542L;   // 비-SELLER role 403 검증용
     private static final long CATEGORY_ID = 9543L;
     private static final long MISSING_CATEGORY_ID = 9599L; // 미seed·404 검증용
-
-    static final MariaDBContainer<?> MARIADB;
-
-    static {
-        MARIADB = new MariaDBContainer<>(DockerImageName.parse("mariadb:11.4"));
-        MARIADB.start();
-    }
-
-    @DynamicPropertySource
-    static void datasourceProps(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", MARIADB::getJdbcUrl);
-        registry.add("spring.datasource.username", MARIADB::getUsername);
-        registry.add("spring.datasource.password", MARIADB::getPassword);
-        registry.add("spring.datasource.driver-class-name", MARIADB::getDriverClassName);
-    }
 
     @Autowired
     private MockMvc mockMvc;

@@ -9,24 +9,20 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zslab.mall.common.security.ActorRole;
 import com.zslab.mall.common.security.TokenPayload;
 import com.zslab.mall.common.security.TokenProvider;
+import com.zslab.mall.support.AbstractIntegrationTest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.MariaDBContainer;
-import org.testcontainers.utility.DockerImageName;
 
 /**
  * 로그인 endpoint E2E 통합 테스트(Track 33·실 MariaDB). HTTP → AuthController → AuthService → DB 흐름을 실 커밋·HTTP
@@ -36,9 +32,8 @@ import org.testcontainers.utility.DockerImageName;
  * <p>시드는 {@link TransactionTemplate} + {@code FOREIGN_KEY_CHECKS=0}(LT-02 try-finally), password_hash는 실
  * {@link PasswordEncoder}(BCrypt) 해싱 값을 주입한다. 로그인 경로는 SecurityConfig permitAll이라 인증 헤더 없이 호출한다.
  */
-@SpringBootTest
 @AutoConfigureMockMvc
-class AuthControllerIntegrationTest {
+class AuthControllerIntegrationTest extends AbstractIntegrationTest {
 
     private static final long USER_ID = 9440L;
     private static final long NULL_PW_USER_ID = 9441L;
@@ -49,21 +44,6 @@ class AuthControllerIntegrationTest {
     private static final String SELLER_EMAIL = "seller-test@zslab.test";
     private static final String PASSWORD = "correct-horse-battery-staple";
     private static final String FAILURE_MESSAGE = "Invalid email or password.";
-
-    static final MariaDBContainer<?> MARIADB;
-
-    static {
-        MARIADB = new MariaDBContainer<>(DockerImageName.parse("mariadb:11.4"));
-        MARIADB.start();
-    }
-
-    @DynamicPropertySource
-    static void datasourceProps(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", MARIADB::getJdbcUrl);
-        registry.add("spring.datasource.username", MARIADB::getUsername);
-        registry.add("spring.datasource.password", MARIADB::getPassword);
-        registry.add("spring.datasource.driver-class-name", MARIADB::getDriverClassName);
-    }
 
     @Autowired
     private MockMvc mockMvc;

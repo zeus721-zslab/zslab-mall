@@ -5,18 +5,16 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.zslab.mall.support.AbstractIntegrationTest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
-import org.testcontainers.containers.MariaDBContainer;
-import org.testcontainers.utility.DockerImageName;
 
 /**
  * prod 프로파일 SecurityFilterChain 스모크 테스트(Track 33 P5·D-116 §8 자격증명 트랙 prod 컨텍스트 로드 동반). 단일
@@ -27,29 +25,18 @@ import org.testcontainers.utility.DockerImageName;
  * 테스트 전용 더미 시크릿을 @DynamicPropertySource로 주입한다(실 운영 값 아님). 컨텍스트 로드에 DB가 필요해 다른 통합
  * 테스트와 동일하게 MariaDBContainer + Flyway로 실 스키마를 띄운다.
  */
-@SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("prod")
-class ProdSecurityContextSmokeTest {
+class ProdSecurityContextSmokeTest extends AbstractIntegrationTest {
 
     // 테스트 전용 더미 — 운영 시크릿 아님. HS256 요건상 32바이트 이상.
     private static final String DUMMY_JWT_SECRET = "prod-smoke-test-dummy-secret-please-ignore-min-32-bytes";
     private static final String PROTECTED_ADMIN_PATH = "/api/v1/admin/__prod_smoke_probe__";
 
-    static final MariaDBContainer<?> MARIADB;
-
-    static {
-        MARIADB = new MariaDBContainer<>(DockerImageName.parse("mariadb:11.4"));
-        MARIADB.start();
-    }
-
     @DynamicPropertySource
     static void props(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", MARIADB::getJdbcUrl);
-        registry.add("spring.datasource.username", MARIADB::getUsername);
-        registry.add("spring.datasource.password", MARIADB::getPassword);
-        registry.add("spring.datasource.driver-class-name", MARIADB::getDriverClassName);
         // prod yml ${JWT_SECRET} 미주입 기동 실패를 테스트 전용 더미로 회피(최고 우선순위로 shadow).
+        // 싱글톤 datasource 4-property는 상위 AbstractIntegrationTest가 주입(@DynamicPropertySource는 계층에서 합쳐짐).
         registry.add("jwt.secret", () -> DUMMY_JWT_SECRET);
     }
 

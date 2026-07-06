@@ -12,15 +12,11 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.MariaDBContainer;
-import org.testcontainers.utility.DockerImageName;
+import com.zslab.mall.support.AbstractIntegrationTest;
 
 /**
  * Admin 상품 승인 endpoint E2E 통합 테스트(Track 50·실 MariaDB). HTTP → {@code AdminProductController} →
@@ -34,9 +30,8 @@ import org.testcontainers.utility.DockerImageName;
  * 앱 커넥션(FK_CHECKS=1)에서 실행되므로 부모 부재 시 FK 검증에 걸린다(Track 49 트랩 재발 방지·coincidental test 금지).
  * 클래스 {@code @Transactional} 없음(실 커밋 구동)·시드/정리는 {@link TransactionTemplate}+FK_CHECKS 토글·검증은 {@link JdbcTemplate}.
  */
-@SpringBootTest
 @AutoConfigureMockMvc
-class AdminProductControllerIntegrationTest {
+class AdminProductControllerIntegrationTest extends AbstractIntegrationTest {
 
     private static final long ADMIN_ID = 9500L;         // JWT 액터(created_by 미사용·DB 행 불요)
     private static final long BUYER_ID = 9501L;         // 비ADMIN 403 확인용
@@ -45,21 +40,6 @@ class AdminProductControllerIntegrationTest {
     private static final long PRODUCT_ID = 9500L;
     private static final String PRODUCT_PID = pid("prd_", "TRK50PRODUCT");
     private static final String MISSING_PID = pid("prd_", "MISSINGNONE");
-
-    static final MariaDBContainer<?> MARIADB;
-
-    static {
-        MARIADB = new MariaDBContainer<>(DockerImageName.parse("mariadb:11.4"));
-        MARIADB.start();
-    }
-
-    @DynamicPropertySource
-    static void datasourceProps(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", MARIADB::getJdbcUrl);
-        registry.add("spring.datasource.username", MARIADB::getUsername);
-        registry.add("spring.datasource.password", MARIADB::getPassword);
-        registry.add("spring.datasource.driver-class-name", MARIADB::getDriverClassName);
-    }
 
     @Autowired
     private MockMvc mockMvc;

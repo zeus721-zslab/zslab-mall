@@ -13,17 +13,13 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.MariaDBContainer;
-import org.testcontainers.utility.DockerImageName;
+import com.zslab.mall.support.AbstractIntegrationTest;
 
 /**
  * Seller 일반 주문 배송 완료 endpoint E2E 통합 테스트(Track 43·M1·M3·실 MariaDB). HTTP → {@code SellerDeliveryCompletionController} →
@@ -39,10 +35,9 @@ import org.testcontainers.utility.DockerImageName;
  * <p><b>트랜잭션</b>: E5 동기 소비·AFTER_COMMIT 알림 핸들러를 실 커밋으로 구동하므로 클래스에 {@code @Transactional}을 두지 않는다.
  * 시드/정리는 {@link TransactionTemplate} + {@code FOREIGN_KEY_CHECKS=0}(LT-02 try-finally), 검증은 {@link JdbcTemplate}·이벤트는 {@link ApplicationEvents}로 한다.
  */
-@SpringBootTest
 @AutoConfigureMockMvc
 @RecordApplicationEvents
-class SellerDeliveryCompletionControllerIntegrationTest {
+class SellerDeliveryCompletionControllerIntegrationTest extends AbstractIntegrationTest {
 
     private static final long USER_ID = 9440L; // 구매자(배송 알림 recipient)
     private static final long SELLER_A = 9440L; // 품목 소유 셀러
@@ -61,21 +56,6 @@ class SellerDeliveryCompletionControllerIntegrationTest {
     private static final String DELIVERY_PID = pid("dlv_", "SDCDLV");
     private static final String TRACKING_NO = "CJ-SDC-0001";
     private static final String MARK_URL = "/api/v1/deliveries/" + DELIVERY_PID + "/mark-delivered";
-
-    static final MariaDBContainer<?> MARIADB;
-
-    static {
-        MARIADB = new MariaDBContainer<>(DockerImageName.parse("mariadb:11.4"));
-        MARIADB.start();
-    }
-
-    @DynamicPropertySource
-    static void datasourceProps(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", MARIADB::getJdbcUrl);
-        registry.add("spring.datasource.username", MARIADB::getUsername);
-        registry.add("spring.datasource.password", MARIADB::getPassword);
-        registry.add("spring.datasource.driver-class-name", MARIADB::getDriverClassName);
-    }
 
     @Autowired
     private MockMvc mockMvc;

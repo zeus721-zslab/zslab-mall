@@ -13,18 +13,14 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.MariaDBContainer;
-import org.testcontainers.utility.DockerImageName;
+import com.zslab.mall.support.AbstractIntegrationTest;
 
 /**
  * 본인 회원 탈퇴 endpoint E2E 통합 테스트(Track 60 BL-5·실 MariaDB). HTTP → UserController → UserService → DB 흐름을
@@ -36,9 +32,8 @@ import org.testcontainers.utility.DockerImageName;
  * BUYER user_role(V11 seed를 code로 조회) 매핑을 갖춘 로그인 가능 유저 1행이다. DB 커밋을 JdbcTemplate 직접 조회로
  * 검증하므로 클래스에 @Transactional을 두지 않는다.
  */
-@SpringBootTest
 @AutoConfigureMockMvc
-class WithdrawControllerIntegrationTest {
+class WithdrawControllerIntegrationTest extends AbstractIntegrationTest {
 
     private static final String URL = "/api/v1/users/me/withdraw";
     private static final String LOGIN_URL = "/api/v1/auth/login";
@@ -47,21 +42,6 @@ class WithdrawControllerIntegrationTest {
     private static final String EMAIL = "withdraw-it@zslab.test";
     private static final String PASSWORD = "correct-horse-battery-staple";
     private static final String FAILURE_MESSAGE = "Invalid email or password.";
-
-    static final MariaDBContainer<?> MARIADB;
-
-    static {
-        MARIADB = new MariaDBContainer<>(DockerImageName.parse("mariadb:11.4"));
-        MARIADB.start();
-    }
-
-    @DynamicPropertySource
-    static void datasourceProps(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", MARIADB::getJdbcUrl);
-        registry.add("spring.datasource.username", MARIADB::getUsername);
-        registry.add("spring.datasource.password", MARIADB::getPassword);
-        registry.add("spring.datasource.driver-class-name", MARIADB::getDriverClassName);
-    }
 
     @Autowired
     private MockMvc mockMvc;

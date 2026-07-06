@@ -15,15 +15,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.MariaDBContainer;
-import org.testcontainers.utility.DockerImageName;
+import com.zslab.mall.support.AbstractIntegrationTest;
 
 /**
  * 발송 어댑터 dispatch E2E 통합 테스트(Track 19·D-86 §후속·실 MariaDB·Flyway). OrderPlaced(E1)를 커밋 트랜잭션에서 발행 →
@@ -43,8 +39,7 @@ import org.testcontainers.utility.DockerImageName;
  *
  * <p><b>LT-02</b>: {@code SET FOREIGN_KEY_CHECKS=0}은 try-finally로 {@code =1} 복원과 1:1 짝을 이룬다.
  */
-@SpringBootTest
-class NotificationDispatchIntegrationTest {
+class NotificationDispatchIntegrationTest extends AbstractIntegrationTest {
 
     private static final long USER_ID = 9319L;
     private static final long ORDER_ID = 9319L;
@@ -54,21 +49,6 @@ class NotificationDispatchIntegrationTest {
     private static final String EVENT_NAME = "OrderPlaced";
     private static final String CHANNEL = "EMAIL";
     private static final String FAIL_REASON = "mock send failure";
-
-    static final MariaDBContainer<?> MARIADB;
-
-    static {
-        MARIADB = new MariaDBContainer<>(DockerImageName.parse("mariadb:11.4"));
-        MARIADB.start();
-    }
-
-    @DynamicPropertySource
-    static void datasourceProps(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", MARIADB::getJdbcUrl);
-        registry.add("spring.datasource.username", MARIADB::getUsername);
-        registry.add("spring.datasource.password", MARIADB::getPassword);
-        registry.add("spring.datasource.driver-class-name", MARIADB::getDriverClassName);
-    }
 
     @MockitoBean
     private NotificationSender notificationSender;

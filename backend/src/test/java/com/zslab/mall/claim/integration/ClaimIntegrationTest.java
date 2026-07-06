@@ -24,18 +24,14 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.event.EventListener;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import com.zslab.mall.common.security.AuthHeaders;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
-import org.testcontainers.containers.MariaDBContainer;
-import org.testcontainers.utility.DockerImageName;
+import com.zslab.mall.support.AbstractIntegrationTest;
 
 /**
  * 클레임 E2E 통합 테스트(실 MariaDB·Flyway V1~V5·CheckoutIntegrationTest 패턴 1:1·Track 9 PR-B Phase 2·D-89).
@@ -51,28 +47,12 @@ import org.testcontainers.utility.DockerImageName;
  * <p><b>이벤트 검증(D-29)</b>: approve/reject의 save→publish 발행은 동기 {@link EventListener} 레코더({@link ClaimEventRecorder})로
  * 포착한다. 승인/거절 endpoint는 Track 10 소관이므로 T7·T8은 Service 직접 호출이다(D-88 Q2·RefundWebhook initiate 패턴 정합).
  */
-@SpringBootTest
 @AutoConfigureMockMvc
 @Transactional
-class ClaimIntegrationTest {
+class ClaimIntegrationTest extends AbstractIntegrationTest {
 
     private static final long BUYER_A = 8001L;
     private static final long BUYER_B = 8002L;
-
-    static final MariaDBContainer<?> MARIADB;
-
-    static {
-        MARIADB = new MariaDBContainer<>(DockerImageName.parse("mariadb:11.4"));
-        MARIADB.start();
-    }
-
-    @DynamicPropertySource
-    static void datasourceProps(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", MARIADB::getJdbcUrl);
-        registry.add("spring.datasource.username", MARIADB::getUsername);
-        registry.add("spring.datasource.password", MARIADB::getPassword);
-        registry.add("spring.datasource.driver-class-name", MARIADB::getDriverClassName);
-    }
 
     @Autowired
     private MockMvc mockMvc;

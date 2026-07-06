@@ -18,11 +18,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
@@ -30,8 +27,7 @@ import com.zslab.mall.common.security.AuthHeaders;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.MariaDBContainer;
-import org.testcontainers.utility.DockerImageName;
+import com.zslab.mall.support.AbstractIntegrationTest;
 
 /**
  * Admin Refund endpoint E2E 통합 테스트(Track 22·D-106·실 MariaDB). HTTP → {@code AdminRefundController} →
@@ -53,10 +49,9 @@ import org.testcontainers.utility.DockerImageName;
  * <p><b>HTTP 경유 의무</b>: primitive를 직접 호출하지 않고 MockMvc로 endpoint를 구동한다. X-Admin-Id 헤더 stub은
  * {@code HeaderAdminActorResolver}가 해소하되 식별자는 사용하지 않는다(D-93 Q3·헤더 존재·형식 검증만).
  */
-@SpringBootTest
 @AutoConfigureMockMvc
 @RecordApplicationEvents
-class AdminRefundControllerIntegrationTest {
+class AdminRefundControllerIntegrationTest extends AbstractIntegrationTest {
 
     private static final long ADMIN = 7201L; // Admin 액터 stub(전체 접근·검증 비대상)
 
@@ -76,21 +71,6 @@ class AdminRefundControllerIntegrationTest {
     private static final String ORDER_ITEM_PID = pid("oit_", "ADROIT");
     private static final String MISSING_CLAIM_PID = pid("clm_", "ADRNON");
     private static final String PG_REFUND_ID = "mock_rfn_track22admin000000001";
-
-    static final MariaDBContainer<?> MARIADB;
-
-    static {
-        MARIADB = new MariaDBContainer<>(DockerImageName.parse("mariadb:11.4"));
-        MARIADB.start();
-    }
-
-    @DynamicPropertySource
-    static void datasourceProps(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", MARIADB::getJdbcUrl);
-        registry.add("spring.datasource.username", MARIADB::getUsername);
-        registry.add("spring.datasource.password", MARIADB::getPassword);
-        registry.add("spring.datasource.driver-class-name", MARIADB::getDriverClassName);
-    }
 
     @MockitoBean
     private PaymentGateway paymentGateway;

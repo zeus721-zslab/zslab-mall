@@ -18,15 +18,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.MariaDBContainer;
-import org.testcontainers.utility.DockerImageName;
+import com.zslab.mall.support.AbstractIntegrationTest;
 
 /**
  * ClaimApproved → Refund 자동 트리거 E2E 통합 테스트(Track 11·D-94·실 MariaDB·Flyway V1~V5). ClaimApproved를 커밋
@@ -45,8 +41,7 @@ import org.testcontainers.utility.DockerImageName;
  * <p><b>PG 게이트웨이</b>: {@link PaymentGateway}를 {@link MockitoBean}으로 대체해 성공/실패를 결정적으로 주입한다. PG 실패는
  * {@code initiate} 내부에서 FAILED로 전이되어(D-67) 핸들러 catch까지 가지 않으므로 I3는 FAILED 행 생성으로 관측한다.
  */
-@SpringBootTest
-class RefundAutoTriggerIntegrationTest {
+class RefundAutoTriggerIntegrationTest extends AbstractIntegrationTest {
 
     private static final long USER_ID = 9201L;
     private static final long SELLER_ID = 9201L;
@@ -63,21 +58,6 @@ class RefundAutoTriggerIntegrationTest {
     private static final String ORDER_ITEM_PID = pid("oit_", "T11OIT");
     private static final String CLAIM_PID = pid("clm_", "T11CLM");
     private static final String PG_REFUND_ID = "mock_rfn_track11auto0000000001";
-
-    static final MariaDBContainer<?> MARIADB;
-
-    static {
-        MARIADB = new MariaDBContainer<>(DockerImageName.parse("mariadb:11.4"));
-        MARIADB.start();
-    }
-
-    @DynamicPropertySource
-    static void datasourceProps(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", MARIADB::getJdbcUrl);
-        registry.add("spring.datasource.username", MARIADB::getUsername);
-        registry.add("spring.datasource.password", MARIADB::getPassword);
-        registry.add("spring.datasource.driver-class-name", MARIADB::getDriverClassName);
-    }
 
     @MockitoBean
     private PaymentGateway paymentGateway;
