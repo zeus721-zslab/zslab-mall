@@ -12,15 +12,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.MariaDBContainer;
-import org.testcontainers.utility.DockerImageName;
+import com.zslab.mall.support.AbstractIntegrationTest;
 
 /**
  * 최초 SUPER_ADMIN 부트스트랩 로직 통합 테스트(Track 38·실 MariaDB). {@link SuperAdminBootstrapRunner}를 테스트가 직접
@@ -31,8 +27,7 @@ import org.testcontainers.utility.DockerImageName;
  * 에서 모든 SUPER_ADMIN 매핑·해당 user를 제거해 상태를 확정한다(컨테이너는 클래스 전용이라 타 테스트에 무영향). Runner의
  * {@code @Transactional}(프록시 경유 startup 경로)을 수동 호출에서도 재현하려 {@link TransactionTemplate}로 감싼다.
  */
-@SpringBootTest
-class SuperAdminBootstrapRunnerIntegrationTest {
+class SuperAdminBootstrapRunnerIntegrationTest extends AbstractIntegrationTest {
 
     private static final long EXISTING_ADMIN_ID = 9701L;
     private static final String CREATE_EMAIL = "bootstrap-it-create@zslab.test";
@@ -41,21 +36,6 @@ class SuperAdminBootstrapRunnerIntegrationTest {
     private static final String EXISTING_PASSWORD = "bootstrap-it-existing-pw-123456";
     private static final String OTHER_EMAIL = "bootstrap-it-other@zslab.test";
     private static final String OTHER_PASSWORD = "bootstrap-it-other-pw-123456";
-
-    static final MariaDBContainer<?> MARIADB;
-
-    static {
-        MARIADB = new MariaDBContainer<>(DockerImageName.parse("mariadb:11.4"));
-        MARIADB.start();
-    }
-
-    @DynamicPropertySource
-    static void datasourceProps(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", MARIADB::getJdbcUrl);
-        registry.add("spring.datasource.username", MARIADB::getUsername);
-        registry.add("spring.datasource.password", MARIADB::getPassword);
-        registry.add("spring.datasource.driver-class-name", MARIADB::getDriverClassName);
-    }
 
     @Autowired
     private UserRepository userRepository;

@@ -13,15 +13,11 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.MariaDBContainer;
-import org.testcontainers.utility.DockerImageName;
+import com.zslab.mall.support.AbstractIntegrationTest;
 
 /**
  * 구매자 카탈로그 조회 endpoint E2E 통합 테스트(Track 44·실 MariaDB·MockMvc). HTTP → {@code ProductCatalogController} →
@@ -32,9 +28,8 @@ import org.testcontainers.utility.DockerImageName;
  * <p>커버: D1 노출/비노출 제외(HIDDEN·STOPPED·판매자 SUSPENDED/TERMINATED·soft-delete)·카테고리 필터·4정렬·페이징·
  * D2 품절 배지·D3 대표가(basePrice+MIN additional)·DEFAULT sentinel 숨김·단건 200/404·공개(미인증) 접근.
  */
-@SpringBootTest
 @AutoConfigureMockMvc
-class ProductCatalogControllerIntegrationTest {
+class ProductCatalogControllerIntegrationTest extends AbstractIntegrationTest {
 
     private static final String URL = "/api/v1/products";
 
@@ -56,21 +51,6 @@ class ProductCatalogControllerIntegrationTest {
     private static final String PID_SUSP = prd("PSUSP");
     private static final String PID_MULTI = prd("PMULTI");
     private static final String PID_SIMPLE = prd("PSIMPLE");
-
-    static final MariaDBContainer<?> MARIADB;
-
-    static {
-        MARIADB = new MariaDBContainer<>(DockerImageName.parse("mariadb:11.4"));
-        MARIADB.start();
-    }
-
-    @DynamicPropertySource
-    static void datasourceProps(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", MARIADB::getJdbcUrl);
-        registry.add("spring.datasource.username", MARIADB::getUsername);
-        registry.add("spring.datasource.password", MARIADB::getPassword);
-        registry.add("spring.datasource.driver-class-name", MARIADB::getDriverClassName);
-    }
 
     @Autowired
     private MockMvc mockMvc;

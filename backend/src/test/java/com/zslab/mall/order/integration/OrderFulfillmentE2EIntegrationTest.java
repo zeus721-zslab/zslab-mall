@@ -11,16 +11,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.MariaDBContainer;
-import org.testcontainers.utility.DockerImageName;
+import com.zslab.mall.support.AbstractIntegrationTest;
 
 /**
  * 주문 이행 E2E 관통 통합 테스트(Track 43·M2·실 MariaDB·Flyway). 결제완료→발송→배송완료를 실 HTTP 4단계 연쇄로 관통 검증한다.
@@ -43,9 +39,8 @@ import org.testcontainers.utility.DockerImageName;
  * 앱이 write하는 모든 행의 FK(order→user·order_item→product/variant/seller·payment→order·delivery→order_item)는 시드된 행으로 해소되므로
  * 앱 커넥션 FK 상태와 무관하게 정합하다(orphan은 product.category_id·variant.option1_value_id뿐이며 재-write 대상이 아님).
  */
-@SpringBootTest
 @AutoConfigureMockMvc
-class OrderFulfillmentE2EIntegrationTest {
+class OrderFulfillmentE2EIntegrationTest extends AbstractIntegrationTest {
 
     private static final long BUYER_ID = 9450L; // JWT subject(BUYER)·order.buyer_id
     private static final long SELLER_ID = 9451L; // 품목 소유 셀러
@@ -64,21 +59,6 @@ class OrderFulfillmentE2EIntegrationTest {
     private static final String VARIANT_PID = pid("var_", "E2EVAR");
     private static final String TRACKING_NO = "CJ-E2E-0001";
     private static final String PG_TID = "tid_track43_e2e_0001";
-
-    static final MariaDBContainer<?> MARIADB;
-
-    static {
-        MARIADB = new MariaDBContainer<>(DockerImageName.parse("mariadb:11.4"));
-        MARIADB.start();
-    }
-
-    @DynamicPropertySource
-    static void datasourceProps(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", MARIADB::getJdbcUrl);
-        registry.add("spring.datasource.username", MARIADB::getUsername);
-        registry.add("spring.datasource.password", MARIADB::getPassword);
-        registry.add("spring.datasource.driver-class-name", MARIADB::getDriverClassName);
-    }
 
     @Autowired
     private MockMvc mockMvc;

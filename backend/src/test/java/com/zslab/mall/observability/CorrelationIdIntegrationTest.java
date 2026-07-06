@@ -14,13 +14,10 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.event.RecordApplicationEvents;
 import com.zslab.mall.common.security.AuthHeaders;
 import org.springframework.test.web.servlet.MockMvc;
@@ -28,8 +25,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.MariaDBContainer;
-import org.testcontainers.utility.DockerImageName;
+import com.zslab.mall.support.AbstractIntegrationTest;
 
 /**
  * Track 16 D-100 Q16 α·종료조건 #2 검증 통합 테스트.
@@ -56,10 +52,9 @@ import org.testcontainers.utility.DockerImageName;
  * 제거하므로 커밋·AFTER_COMMIT이 그 안에서 일어나 핸들러까지 보존된다. eventName은 옵션 4 채택으로 어떤 컴포넌트도
  * MDC에 주입하지 않으므로(TracedEventPublisher 책임 미보유) 본 테스트는 traceId·correlationId 2종만 단언한다.
  */
-@SpringBootTest
 @AutoConfigureMockMvc
 @RecordApplicationEvents
-class CorrelationIdIntegrationTest {
+class CorrelationIdIntegrationTest extends AbstractIntegrationTest {
 
     private static final long USER_ID = 9401L;
     private static final long SELLER_ID = 9401L;
@@ -86,21 +81,6 @@ class CorrelationIdIntegrationTest {
               "method": "CARD"
             }
             """.formatted(PRODUCT_PID, VARIANT_PID);
-
-    static final MariaDBContainer<?> MARIADB;
-
-    static {
-        MARIADB = new MariaDBContainer<>(DockerImageName.parse("mariadb:11.4"));
-        MARIADB.start();
-    }
-
-    @DynamicPropertySource
-    static void datasourceProps(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", MARIADB::getJdbcUrl);
-        registry.add("spring.datasource.username", MARIADB::getUsername);
-        registry.add("spring.datasource.password", MARIADB::getPassword);
-        registry.add("spring.datasource.driver-class-name", MARIADB::getDriverClassName);
-    }
 
     @Autowired
     private MockMvc mockMvc;

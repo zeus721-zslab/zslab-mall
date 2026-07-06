@@ -15,17 +15,13 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.MariaDBContainer;
-import org.testcontainers.utility.DockerImageName;
+import com.zslab.mall.support.AbstractIntegrationTest;
 
 /**
  * Inventory 이벤트 핸들러 E2E 통합 테스트(Track 17 PR-B·D-100 Q8 β·실 MariaDB·Flyway). 이벤트를 커밋 트랜잭션에서 발행해
@@ -37,9 +33,8 @@ import org.testcontainers.utility.DockerImageName;
  * (3) {@link RecordApplicationEvents} 발행 관측 (4) LT-02 try-finally FK_CHECKS 복원 (5) D-91 FK 부모 그래프
  * (user·seller·product·product_variant·inventory·order·order_item·claim) 직접 시드.
  */
-@SpringBootTest
 @RecordApplicationEvents
-class InventoryEventIntegrationTest {
+class InventoryEventIntegrationTest extends AbstractIntegrationTest {
 
     private static final long USER_ID = 9601L;
     private static final long SELLER_ID = 9601L;
@@ -57,21 +52,6 @@ class InventoryEventIntegrationTest {
     private static final String ORDER_PID = pid("ord_", "T17ORD");
     private static final String ORDER_ITEM_PID = pid("oit_", "T17OIT");
     private static final String CLAIM_PID = pid("clm_", "T17CLM");
-
-    static final MariaDBContainer<?> MARIADB;
-
-    static {
-        MARIADB = new MariaDBContainer<>(DockerImageName.parse("mariadb:11.4"));
-        MARIADB.start();
-    }
-
-    @DynamicPropertySource
-    static void datasourceProps(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", MARIADB::getJdbcUrl);
-        registry.add("spring.datasource.username", MARIADB::getUsername);
-        registry.add("spring.datasource.password", MARIADB::getPassword);
-        registry.add("spring.datasource.driver-class-name", MARIADB::getDriverClassName);
-    }
 
     @Autowired
     private ApplicationEventPublisher eventPublisher;

@@ -17,16 +17,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.MariaDBContainer;
-import org.testcontainers.utility.DockerImageName;
+import com.zslab.mall.support.AbstractIntegrationTest;
 
 /**
  * RETURN 클레임 전체 루프 E2E 통합 테스트(Track 14 PR-1·D-98 Q1·Q2·Q4·Q5·실 MariaDB). 요청 → 승인 → 수거 확인 →
@@ -37,9 +33,8 @@ import org.testcontainers.utility.DockerImageName;
  * (ClaimEventIntegrationTest·RefundWebhookIntegrationTest 패턴 1:1). 시드/정리는 {@link TransactionTemplate} +
  * {@code FOREIGN_KEY_CHECKS=0}, 검증은 {@link JdbcTemplate} 직접 조회로 한다.
  */
-@SpringBootTest
 @AutoConfigureMockMvc
-class ClaimReturnIntegrationTest {
+class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
 
     private static final long USER_ID = 9302L;
     private static final long SELLER_ID = 9302L;
@@ -52,21 +47,6 @@ class ClaimReturnIntegrationTest {
     private static final long ITEM_PRICE = 10_000L;
 
     private static final String ORDER_ITEM_PID = pid("oit_", "RTNOIT");
-
-    static final MariaDBContainer<?> MARIADB;
-
-    static {
-        MARIADB = new MariaDBContainer<>(DockerImageName.parse("mariadb:11.4"));
-        MARIADB.start();
-    }
-
-    @DynamicPropertySource
-    static void datasourceProps(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", MARIADB::getJdbcUrl);
-        registry.add("spring.datasource.username", MARIADB::getUsername);
-        registry.add("spring.datasource.password", MARIADB::getPassword);
-        registry.add("spring.datasource.driver-class-name", MARIADB::getDriverClassName);
-    }
 
     @Autowired
     private MockMvc mockMvc;

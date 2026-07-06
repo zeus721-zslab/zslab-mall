@@ -9,19 +9,15 @@ import com.zslab.mall.delivery.enums.DeliveryStatus;
 import com.zslab.mall.delivery.service.DeliveryService;
 import com.zslab.mall.order.exception.OrderNotFoundException;
 import com.zslab.mall.order.service.OrderShippingService;
+import com.zslab.mall.support.AbstractIntegrationTest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.MariaDBContainer;
-import org.testcontainers.utility.DockerImageName;
 
 /**
  * 일반 주문 배송 개시 façade({@code OrderShippingService.prepareShipment}) 배선 검증 E2E 통합 테스트(Track 23·실 MariaDB·Flyway).
@@ -36,8 +32,7 @@ import org.testcontainers.utility.DockerImageName;
  *
  * <p><b>LT-02</b>: {@code SET FOREIGN_KEY_CHECKS=0}은 try-finally로 {@code =1} 복원과 1:1 짝을 이룬다.
  */
-@SpringBootTest
-class OrderShippingServiceIntegrationTest {
+class OrderShippingServiceIntegrationTest extends AbstractIntegrationTest {
 
     private static final long USER_ID = 9423L;
     private static final long SELLER_ID = 9423L;
@@ -50,21 +45,6 @@ class OrderShippingServiceIntegrationTest {
     private static final long DUMMY_FK_ID = 9423L;
     private static final long FULL_AMOUNT = 10_000L;
     private static final String TRACKING_NO = "T23-TRACK-0001";
-
-    static final MariaDBContainer<?> MARIADB;
-
-    static {
-        MARIADB = new MariaDBContainer<>(DockerImageName.parse("mariadb:11.4"));
-        MARIADB.start();
-    }
-
-    @DynamicPropertySource
-    static void datasourceProps(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", MARIADB::getJdbcUrl);
-        registry.add("spring.datasource.username", MARIADB::getUsername);
-        registry.add("spring.datasource.password", MARIADB::getPassword);
-        registry.add("spring.datasource.driver-class-name", MARIADB::getDriverClassName);
-    }
 
     @Autowired
     private OrderShippingService orderShippingService;

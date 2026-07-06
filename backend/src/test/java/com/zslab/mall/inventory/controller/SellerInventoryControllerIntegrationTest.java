@@ -11,19 +11,15 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
 import com.zslab.mall.common.security.AuthHeaders;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.MariaDBContainer;
-import org.testcontainers.utility.DockerImageName;
+import com.zslab.mall.support.AbstractIntegrationTest;
 
 /**
  * Seller Inventory endpoint E2E 통합 테스트(Track 27·D-112·실 MariaDB). HTTP → {@code SellerInventoryController} →
@@ -41,10 +37,9 @@ import org.testcontainers.utility.DockerImageName;
  * <p><b>트랜잭션</b>: wrapper의 @Transactional 커밋을 JdbcTemplate 직접 조회로 검증하므로 클래스에 {@code @Transactional}을
  * 두지 않는다. 시드/정리는 {@link TransactionTemplate} + {@code FOREIGN_KEY_CHECKS=0}(LT-02 try-finally)로 한다.
  */
-@SpringBootTest
 @AutoConfigureMockMvc
 @RecordApplicationEvents
-class SellerInventoryControllerIntegrationTest {
+class SellerInventoryControllerIntegrationTest extends AbstractIntegrationTest {
 
     private static final long USER_ID = 9520L;
     private static final long SELLER_A = 9520L; // 상품 소유 셀러
@@ -71,21 +66,6 @@ class SellerInventoryControllerIntegrationTest {
     private static final String INBOUND_URL = "/api/v1/seller/inventories/" + VARIANT_PID + "/mark-inbound";
     private static final String OUTBOUND_URL = "/api/v1/seller/inventories/" + VARIANT_PID + "/mark-outbound";
     private static final String MISSING_INBOUND_URL = "/api/v1/seller/inventories/" + MISSING_VARIANT_PID + "/mark-inbound";
-
-    static final MariaDBContainer<?> MARIADB;
-
-    static {
-        MARIADB = new MariaDBContainer<>(DockerImageName.parse("mariadb:11.4"));
-        MARIADB.start();
-    }
-
-    @DynamicPropertySource
-    static void datasourceProps(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", MARIADB::getJdbcUrl);
-        registry.add("spring.datasource.username", MARIADB::getUsername);
-        registry.add("spring.datasource.password", MARIADB::getPassword);
-        registry.add("spring.datasource.driver-class-name", MARIADB::getDriverClassName);
-    }
 
     @Autowired
     private MockMvc mockMvc;

@@ -18,17 +18,13 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.MariaDBContainer;
-import org.testcontainers.utility.DockerImageName;
+import com.zslab.mall.support.AbstractIntegrationTest;
 
 /**
  * 배송지 주소록 CRUD endpoint E2E 통합 테스트(Track 58 BL-4·실 MariaDB). HTTP → UserAddressController → UserAddressService → DB.
@@ -37,29 +33,13 @@ import org.testcontainers.utility.DockerImageName;
  * <p>seed는 소유자·타인 user 2행이다. 실 커밋을 JdbcTemplate 직접 조회로 검증하므로 클래스에 @Transactional을 두지 않는다.
  * {@code /api/v1/users/me/**}는 SecurityConfig authenticated(무변경)이며 소유권은 Service가 userId 스코프로 강제한다.
  */
-@SpringBootTest
 @AutoConfigureMockMvc
-class UserAddressControllerIntegrationTest {
+class UserAddressControllerIntegrationTest extends AbstractIntegrationTest {
 
     private static final String URL = "/api/v1/users/me/addresses";
 
     private static final long BUYER_USER_ID = 9680L;
     private static final long OTHER_USER_ID = 9681L; // 소유권 스코프(타 user 접근 404) 검증용
-
-    static final MariaDBContainer<?> MARIADB;
-
-    static {
-        MARIADB = new MariaDBContainer<>(DockerImageName.parse("mariadb:11.4"));
-        MARIADB.start();
-    }
-
-    @DynamicPropertySource
-    static void datasourceProps(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", MARIADB::getJdbcUrl);
-        registry.add("spring.datasource.username", MARIADB::getUsername);
-        registry.add("spring.datasource.password", MARIADB::getPassword);
-        registry.add("spring.datasource.driver-class-name", MARIADB::getDriverClassName);
-    }
 
     @Autowired
     private MockMvc mockMvc;

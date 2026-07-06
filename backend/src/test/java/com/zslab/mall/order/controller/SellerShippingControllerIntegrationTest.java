@@ -12,19 +12,15 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
 import com.zslab.mall.common.security.AuthHeaders;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.MariaDBContainer;
-import org.testcontainers.utility.DockerImageName;
+import com.zslab.mall.support.AbstractIntegrationTest;
 
 /**
  * Seller 일반 주문 배송 개시 endpoint E2E 통합 테스트(Track 23·실 MariaDB). HTTP → {@code SellerShippingController} →
@@ -39,10 +35,9 @@ import org.testcontainers.utility.DockerImageName;
  * 전이 위반 미도달이다. 실재 422는 비-PAID OrderItem의 changeToPreparing(PAID→PREPARING) 위반뿐이므로 T4는 이미 SHIPPING인 품목으로
  * 유발한다(미도달 예외 선제 테스트 금지·기조 4).
  */
-@SpringBootTest
 @AutoConfigureMockMvc
 @RecordApplicationEvents
-class SellerShippingControllerIntegrationTest {
+class SellerShippingControllerIntegrationTest extends AbstractIntegrationTest {
 
     private static final long USER_ID = 9424L;
     private static final long SELLER_A = 9424L; // 품목 소유 셀러
@@ -60,21 +55,6 @@ class SellerShippingControllerIntegrationTest {
     private static final String ORDER_ITEM_PID = pid("oit_", "SSCOIT");
     private static final String TRACKING_NO = "CJ-SSC-0001";
     private static final String PREPARE_URL = "/api/v1/order-items/" + ORDER_ITEM_PID + "/prepare-shipment";
-
-    static final MariaDBContainer<?> MARIADB;
-
-    static {
-        MARIADB = new MariaDBContainer<>(DockerImageName.parse("mariadb:11.4"));
-        MARIADB.start();
-    }
-
-    @DynamicPropertySource
-    static void datasourceProps(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", MARIADB::getJdbcUrl);
-        registry.add("spring.datasource.username", MARIADB::getUsername);
-        registry.add("spring.datasource.password", MARIADB::getPassword);
-        registry.add("spring.datasource.driver-class-name", MARIADB::getDriverClassName);
-    }
 
     @Autowired
     private MockMvc mockMvc;

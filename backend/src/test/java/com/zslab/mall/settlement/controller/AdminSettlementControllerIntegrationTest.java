@@ -15,16 +15,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.MariaDBContainer;
-import org.testcontainers.utility.DockerImageName;
+import com.zslab.mall.support.AbstractIntegrationTest;
 
 /**
  * Admin 월 정산 배치 endpoint E2E 통합 테스트(Track 48 P3·실 MariaDB). HTTP → {@code AdminSettlementController} →
@@ -36,9 +32,8 @@ import org.testcontainers.utility.DockerImageName;
  * + {@code FOREIGN_KEY_CHECKS=0}(try-finally), 검증은 {@link JdbcTemplate}. 시각은 {@code LocalDateTime} 바인딩으로 시드해
  * 서비스 조회 파라미터와 세션TZ 오프셋을 상쇄한다(P2 트랩 대응).
  */
-@SpringBootTest
 @AutoConfigureMockMvc
-class AdminSettlementControllerIntegrationTest {
+class AdminSettlementControllerIntegrationTest extends AbstractIntegrationTest {
 
     private static final long ADMIN_ID = 9480L;         // JWT 액터(created_by 미사용·DB 행 불요)
     private static final long BUYER_ID = 9481L;         // 비ADMIN 403 확인용
@@ -48,21 +43,6 @@ class AdminSettlementControllerIntegrationTest {
     private static final long ITEM_BOUNDARY_ID = 9481L;  // 말일 23:59:59.999999 — periodEnd 경계 포함 검증
     private static final String URL = "/api/v1/admin/settlements";
     private static final String BODY_JUNE = "{\"year\":2026,\"month\":6}";
-
-    static final MariaDBContainer<?> MARIADB;
-
-    static {
-        MARIADB = new MariaDBContainer<>(DockerImageName.parse("mariadb:11.4"));
-        MARIADB.start();
-    }
-
-    @DynamicPropertySource
-    static void datasourceProps(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", MARIADB::getJdbcUrl);
-        registry.add("spring.datasource.username", MARIADB::getUsername);
-        registry.add("spring.datasource.password", MARIADB::getPassword);
-        registry.add("spring.datasource.driver-class-name", MARIADB::getDriverClassName);
-    }
 
     @Autowired
     private MockMvc mockMvc;

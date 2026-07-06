@@ -19,18 +19,14 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import com.zslab.mall.common.security.AuthHeaders;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.MariaDBContainer;
-import org.testcontainers.utility.DockerImageName;
+import com.zslab.mall.support.AbstractIntegrationTest;
 
 /**
  * Track 16 D-100 Q17 α′·종료조건 #6·#7 검증 통합 테스트.
@@ -57,10 +53,9 @@ import org.testcontainers.utility.DockerImageName;
  * <p><b>카운터 delta 단언</b>: MeterRegistry는 컨텍스트 캐싱으로 테스트 간 카운터가 누적되므로 절대값(==1.0) 대신 호출 전후
  * 차이(after-before==1.0)로 단언한다(라이브 트랩 회피·기조 2).
  */
-@SpringBootTest
 @AutoConfigureMockMvc
 @AutoConfigureObservability
-class EventFailedMetricIntegrationTest {
+class EventFailedMetricIntegrationTest extends AbstractIntegrationTest {
 
     private static final long USER_ID = 9402L;
     private static final long SELLER_ID = 9402L;
@@ -89,21 +84,6 @@ class EventFailedMetricIntegrationTest {
               "method": "CARD"
             }
             """.formatted(PRODUCT_PID, VARIANT_PID);
-
-    static final MariaDBContainer<?> MARIADB;
-
-    static {
-        MARIADB = new MariaDBContainer<>(DockerImageName.parse("mariadb:11.4"));
-        MARIADB.start();
-    }
-
-    @DynamicPropertySource
-    static void datasourceProps(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", MARIADB::getJdbcUrl);
-        registry.add("spring.datasource.username", MARIADB::getUsername);
-        registry.add("spring.datasource.password", MARIADB::getPassword);
-        registry.add("spring.datasource.driver-class-name", MARIADB::getDriverClassName);
-    }
 
     @MockitoBean
     private NotificationService notificationService;

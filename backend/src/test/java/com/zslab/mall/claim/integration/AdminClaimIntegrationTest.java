@@ -16,16 +16,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
 import com.zslab.mall.common.security.AuthHeaders;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
-import org.testcontainers.containers.MariaDBContainer;
-import org.testcontainers.utility.DockerImageName;
+import com.zslab.mall.support.AbstractIntegrationTest;
 
 /**
  * Admin Claim endpoint E2E 통합 테스트(β 패턴·D-93·SellerClaimIntegrationTest 1:1). 실 MariaDB·Flyway·MockMvc로
@@ -41,30 +37,14 @@ import org.testcontainers.utility.DockerImageName;
  * (SellerClaimIntegrationTest 패턴 1:1). seller_id는 Admin 검증 비대상이나 FK 부모 그래프 시딩 의무로 채운다(D-91).
  * {@code =0}은 try-finally로 {@code =1} 복원과 짝을 이룬다(LT-02·HikariCP 커넥션 풀 오염 차단).
  */
-@SpringBootTest
 @AutoConfigureMockMvc
 @Transactional
 @RecordApplicationEvents
-class AdminClaimIntegrationTest {
+class AdminClaimIntegrationTest extends AbstractIntegrationTest {
 
     private static final long ADMIN = 7001L; // Admin 액터 stub(전체 접근·검증 비대상)
     private static final long BUYER = 9501L;
     private static final long SELLER = 9001L; // 품목 소유 셀러(FK 부모 그래프·Admin 검증 비대상)
-
-    static final MariaDBContainer<?> MARIADB;
-
-    static {
-        MARIADB = new MariaDBContainer<>(DockerImageName.parse("mariadb:11.4"));
-        MARIADB.start();
-    }
-
-    @DynamicPropertySource
-    static void datasourceProps(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", MARIADB::getJdbcUrl);
-        registry.add("spring.datasource.username", MARIADB::getUsername);
-        registry.add("spring.datasource.password", MARIADB::getPassword);
-        registry.add("spring.datasource.driver-class-name", MARIADB::getDriverClassName);
-    }
 
     @Autowired
     private MockMvc mockMvc;

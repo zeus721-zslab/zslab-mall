@@ -14,15 +14,11 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.MariaDBContainer;
-import org.testcontainers.utility.DockerImageName;
+import com.zslab.mall.support.AbstractIntegrationTest;
 
 /**
  * 권한 회수 endpoint E2E 통합 테스트(Track 53·AUTH-4/5/6·실 MariaDB). HTTP DELETE → {@code AdminUserRoleController} →
@@ -42,9 +38,8 @@ import org.testcontainers.utility.DockerImageName;
  * <p><b>트랜잭션</b>: 커밋 결과를 JdbcTemplate로 검증하므로 클래스에 {@code @Transactional}을 두지 않는다. 시드/정리는
  * {@link TransactionTemplate} + {@code FOREIGN_KEY_CHECKS=0}(try-finally)로 한다. audit_log는 actor_user_id 기준 정리한다.
  */
-@SpringBootTest
 @AutoConfigureMockMvc
-class AdminUserRoleControllerIntegrationTest {
+class AdminUserRoleControllerIntegrationTest extends AbstractIntegrationTest {
 
     private static final long SUPER_A = 9701L;          // caller·SUPER_ADMIN
     private static final long SUPER_B = 9702L;          // 대상·SUPER_ADMIN(성공·self 세팅용)
@@ -56,21 +51,6 @@ class AdminUserRoleControllerIntegrationTest {
     private static final String PID_B = pid("usr_", "T53SAB");
     private static final String PID_PLAIN = pid("usr_", "T53PLN");
     private static final String PID_MISSING = pid("usr_", "T53MISSING"); // 미시드(⑦ 404 통합 은닉)
-
-    static final MariaDBContainer<?> MARIADB;
-
-    static {
-        MARIADB = new MariaDBContainer<>(DockerImageName.parse("mariadb:11.4"));
-        MARIADB.start();
-    }
-
-    @DynamicPropertySource
-    static void datasourceProps(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", MARIADB::getJdbcUrl);
-        registry.add("spring.datasource.username", MARIADB::getUsername);
-        registry.add("spring.datasource.password", MARIADB::getPassword);
-        registry.add("spring.datasource.driver-class-name", MARIADB::getDriverClassName);
-    }
 
     @Autowired
     private MockMvc mockMvc;

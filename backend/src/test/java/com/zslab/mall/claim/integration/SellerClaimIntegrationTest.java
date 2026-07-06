@@ -17,16 +17,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
 import com.zslab.mall.common.security.AuthHeaders;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
-import org.testcontainers.containers.MariaDBContainer;
-import org.testcontainers.utility.DockerImageName;
+import com.zslab.mall.support.AbstractIntegrationTest;
 
 /**
  * Seller Claim endpoint E2E 통합 테스트(β 패턴·D-92·STEP 2 β 결정·WARN-5). 실 MariaDB·Flyway·MockMvc로
@@ -41,11 +37,10 @@ import org.testcontainers.utility.DockerImageName;
  * (ClaimIntegrationTest 패턴 1:1·seedOrderItem만 sellerId 파라미터화). {@code =0}은 try-finally로 {@code =1} 복원과
  * 짝을 이룬다(LT-02·HikariCP 커넥션 풀 오염 차단).
  */
-@SpringBootTest
 @AutoConfigureMockMvc
 @Transactional
 @RecordApplicationEvents
-class SellerClaimIntegrationTest {
+class SellerClaimIntegrationTest extends AbstractIntegrationTest {
 
     private static final long BUYER = 9501L;
     private static final long SELLER_A = 9001L; // 품목 소유 셀러
@@ -53,21 +48,6 @@ class SellerClaimIntegrationTest {
     // Track 36 γ Phase 3: actorId(JWT subject)를 seller_id와 다른 값으로 둔다 — user.id==seller.id 우연일치 은폐 제거.
     private static final long SELLER_A_USER = 9051L; // SELLER_A 소속 user(actorId)
     private static final long SELLER_B_USER = 9052L; // SELLER_B 소속 user(cross-tenant actorId)
-
-    static final MariaDBContainer<?> MARIADB;
-
-    static {
-        MARIADB = new MariaDBContainer<>(DockerImageName.parse("mariadb:11.4"));
-        MARIADB.start();
-    }
-
-    @DynamicPropertySource
-    static void datasourceProps(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", MARIADB::getJdbcUrl);
-        registry.add("spring.datasource.username", MARIADB::getUsername);
-        registry.add("spring.datasource.password", MARIADB::getPassword);
-        registry.add("spring.datasource.driver-class-name", MARIADB::getDriverClassName);
-    }
 
     @Autowired
     private MockMvc mockMvc;

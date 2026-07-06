@@ -12,22 +12,17 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.MariaDBContainer;
-import org.testcontainers.utility.DockerImageName;
+import com.zslab.mall.support.AbstractIntegrationTest;
 
 /**
  * ClaimRejected 스냅샷 원복 E2E 통합 테스트(Track 14 PR-1·D-98 Q7·D-90 Q3 의미 변경·ClaimEventIntegrationTest 패턴 1:1).
  * reject → AFTER_COMMIT {@code ClaimRejectedHandler} → OrderItem *_REQUESTED → {@code claim.previous_order_item_status}
  * 스냅샷 복원을 실 MariaDB 커밋 경로로 검증한다. CANCEL은 고정 PAID가 아닌 스냅샷(PREPARING) 복원으로 의미 변경을 실측한다.
  */
-@SpringBootTest
-class ClaimRejectedRestoreIntegrationTest {
+class ClaimRejectedRestoreIntegrationTest extends AbstractIntegrationTest {
 
     private static final long USER_ID = 9301L;
     private static final long SELLER_ID = 9301L;
@@ -40,21 +35,6 @@ class ClaimRejectedRestoreIntegrationTest {
 
     private static final String ORDER_ITEM_PID = pid("oit_", "RSTOIT");
     private static final String CLAIM_PID = pid("clm_", "RSTCLM");
-
-    static final MariaDBContainer<?> MARIADB;
-
-    static {
-        MARIADB = new MariaDBContainer<>(DockerImageName.parse("mariadb:11.4"));
-        MARIADB.start();
-    }
-
-    @DynamicPropertySource
-    static void datasourceProps(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", MARIADB::getJdbcUrl);
-        registry.add("spring.datasource.username", MARIADB::getUsername);
-        registry.add("spring.datasource.password", MARIADB::getPassword);
-        registry.add("spring.datasource.driver-class-name", MARIADB::getDriverClassName);
-    }
 
     @Autowired
     private ClaimService claimService;

@@ -13,15 +13,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.MariaDBContainer;
-import org.testcontainers.utility.DockerImageName;
+import com.zslab.mall.support.AbstractIntegrationTest;
 
 /**
  * 주문 생성 트랜잭션 롤백 통합 테스트(실 MariaDB·Flyway V1~V5·GAP-TECH-1). buyer_id가 유효한 Order INSERT가 성공하더라도
@@ -33,25 +29,9 @@ import org.testcontainers.utility.DockerImageName;
  * <p><b>트랜잭션</b>: OrderService.createOrder는 자체 {@code @Transactional}이므로 테스트 메서드에 @Transactional을 두지 않는다.
  * 시드/정리는 {@link TransactionTemplate}·검증은 {@link JdbcTemplate}으로 처리한다(RefundWebhookIntegrationTest 패턴 준용).
  */
-@SpringBootTest
-class OrderTransactionRollbackTest {
+class OrderTransactionRollbackTest extends AbstractIntegrationTest {
 
     private static final long BUYER_ID = 9001L;
-
-    static final MariaDBContainer<?> MARIADB;
-
-    static {
-        MARIADB = new MariaDBContainer<>(DockerImageName.parse("mariadb:11.4"));
-        MARIADB.start();
-    }
-
-    @DynamicPropertySource
-    static void datasourceProps(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", MARIADB::getJdbcUrl);
-        registry.add("spring.datasource.username", MARIADB::getUsername);
-        registry.add("spring.datasource.password", MARIADB::getPassword);
-        registry.add("spring.datasource.driver-class-name", MARIADB::getDriverClassName);
-    }
 
     @Autowired
     private OrderService orderService;

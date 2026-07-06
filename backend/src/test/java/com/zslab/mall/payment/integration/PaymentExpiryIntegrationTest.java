@@ -19,17 +19,13 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.MariaDBContainer;
-import org.testcontainers.utility.DockerImageName;
+import com.zslab.mall.support.AbstractIntegrationTest;
 
 /**
  * 결제 자동 만료 E2E 통합 테스트(Track 25·D-08 M-14·실 MariaDB·Flyway). {@link ExpirePaymentService#expireOne}을
@@ -43,10 +39,9 @@ import org.testcontainers.utility.DockerImageName;
  * <p><b>스케줄러 자동 발화 차단</b>: {@code zslab.payment.expiry.enabled=false}로 {@code @Scheduled} 배치를 끄고
  * {@code expireOne}을 직접 호출해 결정론을 확보한다(프로젝트에 test profile 부재).
  */
-@SpringBootTest
 @RecordApplicationEvents
 @TestPropertySource(properties = "zslab.payment.expiry.enabled=false")
-class PaymentExpiryIntegrationTest {
+class PaymentExpiryIntegrationTest extends AbstractIntegrationTest {
 
     private static final Logger log = LoggerFactory.getLogger(PaymentExpiryIntegrationTest.class);
 
@@ -65,21 +60,6 @@ class PaymentExpiryIntegrationTest {
 
     private static final String ORDER_PID = pid("ord_", "T25ORD");
     private static final String ORDER_ITEM_PID = pid("oit_", "T25OIT");
-
-    static final MariaDBContainer<?> MARIADB;
-
-    static {
-        MARIADB = new MariaDBContainer<>(DockerImageName.parse("mariadb:11.4"));
-        MARIADB.start();
-    }
-
-    @DynamicPropertySource
-    static void datasourceProps(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", MARIADB::getJdbcUrl);
-        registry.add("spring.datasource.username", MARIADB::getUsername);
-        registry.add("spring.datasource.password", MARIADB::getPassword);
-        registry.add("spring.datasource.driver-class-name", MARIADB::getDriverClassName);
-    }
 
     @Autowired
     private ExpirePaymentService expirePaymentService;
