@@ -39,3 +39,7 @@ docs/track-*/recon-report.md
 
 # 인수인계 임시 파일
 docs/handover.md
+
+# 배포 SSH 키 (서버·GitHub secret 등록분·로컬 커밋 금지)
+zslab-mall-deploy
+zslab-mall-deploy.pub
