@@ -22,7 +22,7 @@
             type="search"
             placeholder="찾으시는 상품을 검색해 보세요"
             aria-label="상품 검색"
-            class="w-full rounded-full border border-gray-200 bg-surface-section py-3 pl-12 pr-4 text-sm text-gray-900 placeholder-gray-400 transition duration-200 focus:border-gray-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-gray-900"
+            class="w-full rounded-full border border-gray-200 bg-surface-section py-3 pl-12 pr-4 text-sm text-gray-900 placeholder-gray-400 transition duration-200 focus:border-gray-900 focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-gray-900"
           />
         </label>
       </div>
@@ -30,7 +30,7 @@
       <button
         type="button"
         aria-label="장바구니"
-        class="shrink-0 rounded-full p-2 text-ink transition duration-200 hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900"
+        class="shrink-0 rounded-full p-2 text-ink transition duration-200 hover:bg-gray-100 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-gray-900"
       >
         <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
           <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />

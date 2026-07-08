@@ -14,7 +14,7 @@ const formattedPrice = computed(() => `${props.product.displayPrice.toLocaleStri
   <a
     href="#"
     :aria-label="product.name"
-    class="group block rounded-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2"
+    class="group block rounded-card focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2"
   >
     <div class="overflow-hidden rounded-card border border-line bg-white transition duration-normal group-hover:-translate-y-0.5 group-hover:shadow-card-hover">
       <!-- 이미지 영역: 정사각·변경 경계 캡슐화. mainImageUrl 부재 시 회색 placeholder. -->

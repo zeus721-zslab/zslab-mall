@@ -12,6 +12,31 @@
 
 ---
 
+## 현행 트랙 로드맵
+
+최신 넘버링 기준 인덱스. 과거 트랙 본문에 남은 넘버링 표기는 당시 기록으로 보존되며, 현행 순서를 한눈에 파악하도록 본 로드맵을 최신 기준으로 유지한다(새 트랙 박제 시 이 목록도 함께 갱신). append-only 원칙의 가독성 예외로 신설.
+
+완료:
+- FE-01 프론트엔드 스캐폴딩 (Nuxt 4 SSR · 컨테이너 전용)
+- FE-02 gateway 경로 분기 계약 (안 A · 단일 도메인 path-split)
+- FE-03 프론트엔드 기준 컴포넌트·패턴 확립 (공통 레이아웃 셸 + 홈)
+- FE-04 데모 카탈로그 시드 + 나눔고딕 self-host + 실물 렌더 확정
+- FE-05 상품 목록 페이지 + 상태 컴포넌트 promote + DevTools iframe 허용
+- FE-06 구매자 사이트맵 전면 설계
+- FE-07 디자인 파운데이션 (디자인 토큰 + 컴포넌트 전환)
+
+신규·예정:
+- FE-08 Tailwind v4 마이그레이션 (완료)
+- FE-09 Global Layout — Header(sticky·검색바·카테고리·장바구니 뱃지·auth)·Footer·Navigation·auth store·cart store·BUYER 미들웨어 + shadcn-vue 도입
+- FE-10 상품상세 + 장바구니
+- FE-11 체크아웃
+- FE-12 주문
+- FE-13 계정
+- FE-14 클레임
+- Tier2 페이지(BE-추가작업 대응)는 각 머지 후 개별 FE 트랙(FE-15+)
+
+---
+
 ## FE-01: 프론트엔드 스캐폴딩 (Nuxt 4 SSR · 컨테이너 전용)
 
 날짜: 2026-07-08
@@ -418,5 +443,37 @@ spacing: 8px 그리드
 - [Hero CTA·프로모 동작] 시안의 "지금 받기" CTA는 쿠폰 도메인·동작 부재라 이번 미부착. 프로모/쿠폰 트랙에서.
 - [Global Layout] FE-08로 이동(Header 검색바·카테고리 메뉴·장바구니 뱃지·auth·Footer·store·미들웨어).
 - [shadcn-vue·motion-v·Pinia] 실수요 트랙 유지(FE-03 §8).
+
+---
+
+## FE-08: Tailwind v3.4.19 → v4 마이그레이션 (@theme 전면 이전)
+
+날짜: 2026-07-09
+선행: FE-07(디자인 파운데이션) 완료. shadcn-vue(reka-ui) 도입 확정이 v4 전제(정식 v4 지원 라인만 정렬)라, UI킷 도입(FE-09) 전에 엔진 전환을 선행 트랙으로 분리.
+범위: Tailwind 엔진 v3→v4 전환 + FE-07 토큰(theme.extend) → @theme 전면 이전 + 빌드 배선(@nuxtjs/tailwindcss 제거·@tailwindcss/vite) 교체. 신규 기능 0·무회귀 유지가 성공 기준.
+수용기준(달성): 홈/목록 SSR 200·나눔고딕 woff2 200·커스텀 클래스 21종 dev/prod 동일 산출·pnpm build 성공·FE-04/05 무회귀·빌드/콘솔 에러 0.
+
+### §1-A 갈림길·채택/기각 근거
+
+1) v3 유지 vs v4 전환
+- α v3.4.19 유지(+shadcn-vue@2.2 v3 경로) — 기각. v3는 직전 메이저·rolling support로 유지보수만. shadcn-vue 정식 라인이 v4 전제라 v3 도입 시 레거시 CLI + 향후 v4 재전환 이중작업.
+- β v4 전환 — 채택. 데모·포트폴리오라 구형 브라우저 지원 불필요(v4 타겟 Safari16.4+/Chrome111+ 무관). 프론트 화면 2p뿐이라 회귀면이 지금 최소. shadcn-vue(FE-09)와 정렬. 실측: @nuxtjs/tailwindcss 6.14.0이 tailwindcss ~3.4.17 고정·정식 v4 지원 라인 없음 → 전환은 모듈 교체 동반.
+
+2) 토큰 이전 방식
+- α @config로 tailwind.config.ts 유지 — 기각. FE-09 shadcn-vue(CSS변수/:root 기반) 도입 시 @theme/:root 재작업 불가피 → 이중작업.
+- β @theme 전면 이전 — 채택. CSS-first 완성·CSS변수 생성이 shadcn-vue 정렬. codemod가 변환 보조·화면 2p라 회귀면 작음.
+
+3) 빌드 배선
+- @nuxtjs/tailwindcss 제거 → @tailwindcss/vite(Nuxt vite.plugins) 채택. 모듈 정식 라인은 v4 미지원(alpha/7.0.0-beta만)이라 beta 의존 회피. main.css 진입점 @import "tailwindcss"로 전환(v3 모듈 자동주입 대체).
+
+### §2 결정 라운드 재진입 (구현 중 결정·실측)
+- 실측(recon-72): @nuxtjs/tailwindcss 6.14.0 = tailwindcss ~3.4.17 고정. 커스텀 클래스 실사용 21종·소비 컴포넌트 7개. breaking 노출점 outline-none 6·button cursor 3·bare rounded 3·gray-* 7파일·placeholder 1.
+- 구현 중 결정: tailwind.config.ts 완전 제거(v4 auto content-scan·@config 미사용·theme 전량 @theme 이전으로 잔여 역할 0).
+- v4 트랩 대응: (1) @theme --duration-* 는 named duration 유틸 미생성 → @utility duration-fast/normal/slow로 --tw-duration 미러링 복원. (2) outline-none → outline-hidden(의미변경·공식 codemod). (3) Preflight button cursor:pointer 제거 → @layer base 복원. placeholder·bare rounded·gray-*는 회귀 없어 무변경.
+- 검증 실측: 21클래스 dev 생성 CSS + prod 빌드 CSS 패리티(text-price #E11D48·surface-page #FAFAFA·rounded card16/control14/badge6·shadow-card-hover 0 4px 12px rgba(0,0,0,0.08)·duration-normal 180ms 등 정확 일치·불일치 0). 홈/목록 200·pnpm build 성공·FE-04/05 무회귀.
+
+### §8 이월(carry-over)
+- shadcn-vue 도입: FE-09(Global Layout)에서 v4 @theme/:root 위에 reka-ui 기반 도입. FE-07 §8 "토큰 위치 재배선(:root 병행)"은 v4 @theme 확정으로 방향 정리 — shadcn 색 토큰을 @theme 변수와 정합시키는 배선은 FE-09에서.
+- duration 유틸 구조: @utility 미러링이 v4 마이너 업데이트 시 내장 duration 구조 변화에 취약할 수 있음 — 회귀 시 재점검(관찰).
 
 ---
