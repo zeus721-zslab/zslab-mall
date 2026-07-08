@@ -180,3 +180,52 @@
 - [FE 후속 트랙] 목록·상세·검색·카테고리(FE-03 §8 유지)·공용 상태 컴포넌트 promote·shadcn-vue·motion-v·Pinia(실수요 트랙).
 
 ---
+
+## FE-05: 상품 목록 페이지 + 상태 컴포넌트 promote + DevTools iframe 허용
+
+날짜: 2026-07-08
+선행: FE-04(데모 시드·폰트·홈 실물 렌더) 완료. 홈이 상태 4종을 HomeProductGrid 내부에서 처리하며, 공용 상태 컴포넌트는 "두 번째 목록 화면에서 승격"으로 이월된 상태였음(FE-03 §8).
+범위: (1) /products 목록 페이지(offset 무한스크롤·URL 쿼리 동기화·sort 4종), (2) Loading·Error·Empty 상태 컴포넌트를 common/으로 승격(홈 교체 포함), (3) DevTools iframe 허용(gateway nginx X-Frame-Options 완화·인프라 곁처리). 검색·상세·카테고리 페이지는 후속 트랙.
+수용기준(달성): /products 200·상품 렌더 / sort 4종 전환·백엔드 정렬 반영 / URL 쿼리(sort·categoryId) 복원·동기화 / 무한스크롤 offset append 로직(hasNext 종료) / 공용 3종 홈·목록 양쪽 소비 / 홈 렌더 FE-04 대비 무변화 / DevTools 패널 iframe 정상.
+
+### §1-A 갈림길·채택/기각 근거
+
+1) useProducts 처리 (목록은 파라미터화·append 필요)
+- α 목록 전용 useProductList 신규·홈 useProducts 무변경 존치 — 채택. 홈은 단발 useFetch(SSR 캐싱·고정 key), 목록은 append 누적·동적 key·무한스크롤로 성격이 상이하다. 통합 시 분기가 과다해지고, 홈 무변경으로 회귀를 0으로 유지한다.
+- β useProducts 일반화·홈/목록 공용 — 기각. 성격이 다른 두 조회를 한 함수에 담으면 조건 분기가 증식한다.
+
+2) 상태 컴포넌트 promote 입도
+- α LoadingSkeleton·ErrorState·EmptyState 3종 common/ 추출·홈+목록 소비 — 채택. FE-03이 명시 이월한 "2번째 화면 승격" 지점이고, 소비처가 2개로 늘어 승격 조건을 충족한다.
+- β 목록에 상태 마크업 복붙·promote 이연 — 기각. 중복 마크업을 방치한다(기조 4).
+- 설계: LoadingSkeleton은 스켈레톤 카드를 count개 반복만 렌더한다(그리드 wrapper는 호출 측 소유). ErrorState는 emit('retry')로 재조회를 상위에 위임한다(재사용성). 빈/에러 판정식은 부모가 유지한다.
+
+3) URL 쿼리 동기화 범위
+- α sort·categoryId를 useRoute().query와 동기화(공유 URL·뒤로가기 보존)·page는 미반영 — 채택. 정렬·필터는 북마크/공유 대상이다. useRoute는 net-new지만 검색·카테고리 트랙의 재사용 기반이 된다.
+- β 컴포넌트 로컬 상태만 — 기각. 공유 불가·표준 UX 미달.
+
+4) 무한스크롤 방식 (정찰 확정 재확인)
+- offset(page 증가·append·hasNext 종료) 채택 — 백엔드가 offset 페이징만 제공하고(커서 API 없음) PagedResponse.hasNext로 종료를 판정한다. IntersectionObserver는 브라우저 네이티브를 사용한다(외부 라이브러리 미도입·기조 4).
+
+5) DevTools iframe 허용 위치 (별도 정찰 recon-67 D섹션)
+- 완화 위치 = gateway nginx 확정 — 헤더 출처가 nginx mall vhost의 X-Frame-Options DENY(L262)이고, DevTools 자산은 frontend가 서빙해 backend를 미경유한다. 따라서 backend Spring Security 완화는 무효라 후보에서 탈락한다.
+- 처리 = 로컬 gateway conf DENY→SAMEORIGIN(dev 한정) — 채택. 로컬·서버 conf가 별개 물리 파일이라 서버 prod DENY에 무영향이다(파일 분리로 dev/운영이 자연 분리). 형제 도메인 zslab/lms의 SAMEORIGIN 전례를 따른다.
+- nuxt.config devtools:false로 끄기 — 기각. 사용자가 DevTools 사용을 요구했고, 끄기는 기능 제거라 요구를 충족하지 못한다.
+
+### §2 결정 라운드 재진입
+- [실측·MCP 4점 교차검증] useProductList: 초기 page 0은 useAsyncData(SSR 페이로드), items·hasNext는 data 파생 computed(별도 ref를 watch로 채우면 SSR watcher가 재실행되지 않아 빈 목록으로 렌더되는 트랩을 회피), loadMore는 $fetch append, 필터 변경 시 watch(data)로 누적분 리셋. loadMore는 3중 가드(hasNext·loadingMore·pending)를 두고 실패 시 hasNext를 닫아 observer 재요청 루프를 차단한다.
+- [실측] products/index.vue: URL→상태 복원(비허용 sort는 LATEST 폴백·categoryId는 정규식 검증)·watch(sort)로 router.replace 동기화(기존 쿼리 보존·history 미증가)·sentinel은 v-if hasNext(종료 시 제거로 요청 중단)·observer 라이프사이클(watch 재관측·onBeforeUnmount disconnect).
+- [실측] 홈 회귀: HomeProductGrid의 판정식·grid·max-w·SKELETON_COUNT·refresh를 유지하고 공용 3종만 교체 → SSR 카드 2건·반응형·hover·zoom 무변화(순수 리팩터).
+- [실측] 목록 동작: /products 200·sort 4종 렌더 순서 정확(LATEST 후디 먼저·PRICE_ASC 티셔츠 먼저)·?sort=PRICE_ASC 복원·?categoryId=999 EmptyState 실렌더(승격 컴포넌트 동작 확증).
+- [실측·트랩 2건] ① SSR 빈 목록: items를 watch(data)로 채운 초기안이 SSR watcher 미재실행으로 빈 렌더 → data 파생 computed로 교정. ② Nuxt dev 신규파일 미스캔: 실행 중 dev 서버가 신규 컴포넌트/라우트를 미스캔 → docker restart zslab_mall_frontend로 재스캔 해소(파일·config 무변경).
+- [실측·인프라] nginx L262 DENY→SAMEORIGIN(WriteAllText inode 보존·D-148 준수)·nginx -t ok·reload·curl X-Frame-Options SAMEORIGIN·zslab-shop DENY 보존(무회귀)·DevTools 패널 정상.
+- [명명] common/ 컴포넌트는 Nuxt pathPrefix로 CommonLoadingSkeleton·CommonErrorState·CommonEmptyState로 auto-import된다(nuxt.config 무변경).
+
+### §8 이월(carry-over)
+- [무한스크롤 다건 미검증] 시드가 2건(hasNext=false)이라 append 로직 확정까지만 검증했고, 다건 스크롤 실측은 후속이다(시드 증량 또는 상세/검색 트랙에서).
+- [브라우저 전용 미검증] select→router.replace URL 갱신·IntersectionObserver 발화·클라이언트 Loading 스켈레톤은 코드 배선은 확정이나 런타임 브라우저 확인은 미실시.
+- [인프라·서버 이관] DevTools nginx 완화는 로컬 conf 한정. 서버 배포 트랙에서 서버 gateway conf는 prod DENY를 유지한다(dev 완화 미이관 확인).
+- [FE 후속 트랙] 상세·검색·카테고리 페이지(FE-03 §8 유지). categoryId는 목록이 URL로 받으나 카테고리 선택 UI·페이지는 미구현.
+- [공용 컴포넌트 추가 승격] shadcn-vue·motion-v·Pinia는 폼·오버레이·모션 실수요 트랙에서(FE-03 §8 유지).
+- [타입 불일치 경미] FE ProductSummary.categoryId=number(non-null) vs 백엔드 Long(nullable)·현 렌더 무영향(recon A-4).
+
+---
