@@ -3,7 +3,7 @@
 </script>
 
 <template>
-  <div class="flex min-h-screen flex-col bg-white">
+  <div class="flex min-h-screen flex-col bg-surface-page">
     <AppHeader />
     <main class="flex-1">
       <slot />

@@ -30,6 +30,50 @@ export default {
           'sans-serif',
         ],
       },
+      // FE-07 디자인 파운데이션 토큰. 역할 분리: primary=파랑(CTA·링크·브랜드)·price=빨강(가격 전용)·soldout=회색.
+      // 중립색(ink·sub·seller·line)은 기존 gray-900/500/400/200과 동일 hex라 시맨틱 별칭 성격(recon-report-69).
+      colors: {
+        primary: {
+          DEFAULT: '#2563EB',
+          hover: '#1D4ED8',
+        },
+        price: '#E11D48',
+        surface: {
+          page: '#FAFAFA',
+          card: '#FFFFFF',
+          section: '#F5F5F5',
+        },
+        ink: '#111827',
+        sub: '#6B7280',
+        seller: '#9CA3AF',
+        line: '#E5E7EB',
+        // success/warning은 시안에 hex 미지정(역할만 green/amber). 소비처 부재로 관용값(Tailwind green-600·amber-500) 선점.
+        success: '#16A34A',
+        warning: '#F59E0B',
+        soldout: '#6B7280',
+        badge: {
+          'new-bg': '#DBEAFE',
+          'new-ink': '#1D4ED8',
+          'sale-bg': '#FEE2E2',
+          'sale-ink': '#E11D48',
+          'soldout-bg': '#F3F4F6',
+        },
+      },
+      // 기존 기본 radius 유지·시맨틱 키만 추가(card 16·control 14·badge 6).
+      borderRadius: {
+        card: '16px',
+        control: '14px',
+        badge: '6px',
+      },
+      boxShadow: {
+        'card-hover': '0 4px 12px rgba(0, 0, 0, 0.08)',
+      },
+      // 기존 기본 duration 유지·의미 별칭 추가(fast 150·normal 180·slow 250ms).
+      transitionDuration: {
+        fast: '150ms',
+        normal: '180ms',
+        slow: '250ms',
+      },
     },
   },
 } satisfies Config
