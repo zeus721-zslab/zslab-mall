@@ -23,3 +23,9 @@ export interface ProductListResponse {
   totalCount: number
   hasNext: boolean
 }
+
+/**
+ * 구매자 카탈로그 목록 정렬 기준(백엔드 ProductCatalogSort 대응). DB 영속 컬럼이 아닌 조회 파라미터라
+ * 4층위 enum 잠금 대상이 아니며(recon-report-67 B-2), 프론트 단일 소스 유니온으로 매직 문자열을 방지한다.
+ */
+export type ProductSort = 'LATEST' | 'PRICE_ASC' | 'PRICE_DESC' | 'NAME'
