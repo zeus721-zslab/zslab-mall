@@ -141,3 +141,42 @@
 - [서버 배포 트랙·미착수] frontend prod Dockerfile·mall.yml frontend 서비스·sparse-checkout에 frontend/ 포함·서버 gateway 2분기·서버 .env ADMIN_BOOTSTRAP 2값(FE-02 §8 이관 유지).
 
 ---
+
+## FE-04: 데모 카탈로그 시드 + 나눔고딕 self-host + 실물 렌더 확정
+
+날짜: 2026-07-08
+선행: FE-03(레이아웃 셸·홈·ProductCard·SSR 직결) 완료. 홈이 실 API에 연동됐으나 카탈로그가 empty(items 0)라 ProductCard 실물·반응형·hover를 시각 미확인 상태였음(FE-03 §2 DoD 잔여).
+범위: (1) 노출 성립 최소 체인 데모 상품 2건을 dev 부팅 시 멱등 공급하는 백엔드 부트 시드, (2) 나눔고딕 woff2 self-host 3점 주입, (3) 그 결과 홈 카드·반응형·hover·폰트의 실물 렌더 시각 확인.
+수용기준(달성): dev https://zslab-mall.duckdns.org/ → 홈 상품 카드 2건 SSR 렌더 / API /api/v1/products 200·items 2 / 반응형 2·3·4열 / 카드 hover(상승·shadow·이미지 zoom) / NanumGothic computed 적용 / 전체 백엔드 814 테스트 GREEN / 3환경(test·dev·prod) 시드 격리.
+
+### §1-A 갈림길·채택/기각 근거
+
+1) 시드 구현 방식
+- α 부트 Runner(CommandLineRunner + count()==0 멱등 + 도메인 팩토리 경유) — 채택. SuperAdminBootstrapRunner 동형 전례 재사용. 도메인 팩토리 경유로 public_id @PrePersist·불변식·status 고정을 자동 준수. "비었을 때만" 삽입은 부트 훅이 자연(R__ repeatable 전례 없음).
+- β Flyway V17 시드 SQL — 기각. ULID public_id를 SQL로 수동 생성해야 하고, CHAR(30) 고정폭 패딩 리스크·status PENDING 강제와 option 체인을 raw INSERT로 재현하며 불변식을 우회한다. 멱등성도 V 마이그레이션은 1회성이라 "비었을 때만"과 부정합.
+
+2) 폰트 주입 지점 (self-host 확정·배치만 결정)
+- α 글로벌 CSS(main.css @font-face) + tailwind.config.ts(fontFamily.sans) + nuxt.config css[] 등록 — 채택. 표준 Nuxt 관례이고 CSS와 config의 관심사가 분리된다. tailwind.config는 이후 디자인 트랙의 theme 확장에 재사용된다.
+- β nuxt.config 전량 인라인 — 기각. 폰트·테마 커스터마이즈가 config 1파일에 응집돼 이후 확장 시 비대해진다.
+- 폰트 소스: 공식 OFL TTF→woff2 변환. Regular 0.35MB·Bold 0.42MB(합 0.77MB)·글리프 13,297 무손실. 용량이 경미해 서브셋 미적용(원본 배치).
+
+3) 시드 활성 범위 (구현 중 트랩 대응·STEP 1 무플래그 스펙에서 변경)
+- 발견: CatalogDemoSeedRunner가 CommandLineRunner라 @SpringBootTest 기동 시에도 실행돼 싱글톤 공유 테스트 컨테이너에 데모 행을 커밋 → 전역 상태를 오염시킨다. InventoryHistoryRepositoryTest(inventory.variant_id=1 UNIQUE 충돌)·ProductRegistrationControllerIntegrationTest T9(product_option_group·product_variant 전역 count isZero 위반) 2건을 파괴.
+- A 조건부 활성화(@ConditionalOnProperty catalog.demo-seed.enabled) — 채택. 시드가 모든 @SpringBootTest를 오염시키는 구조적 원인을 차단하고, 향후 전역-count/저-ID 테스트 취약성을 제거한다.
+- B 무플래그 유지·깨진 테스트 2개를 시드 관용으로 수정 — 기각. 오염을 방치한 채 증상만 땜질해 향후 재발 취약성이 잔존(기조 4 근본 처치 아님).
+- 무플래그 스펙 이탈 사유: SuperAdminBootstrapRunner의 무플래그 근거(admin 부재 시 로그인 데드락)는 데모 시드에 무해. 데모데이터의 dev 한정이 운영보호·테스트 무오염에 오히려 정합.
+
+### §2 결정 라운드 재진입
+- [실측·MCP 4점 교차검증] Runner: @ConditionalOnProperty(havingValue="true", matchIfMissing 미지정=기본 OFF)·productRepository.count()==0 멱등·@Transactional·도메인 팩토리 경유(Product.create→approve()로 PENDING→SALE·DEFAULT sentinel 옵션·Variant.create SALE·Inventory 재고 100). ProductVariant.create 시그니처 정합 확인.
+- [실측] 3환경 격리 메커니즘: 테스트는 profile=local이라 application-local.yml enabled:true를 로드하므로, build.gradle.kts test 태스크가 systemProperty("catalog.demo-seed.enabled","false")로 상위 우선순위에서 명시 차단(테스트 OFF). dev는 local yml true로 ON. 운영은 prod 프로파일이 local.yml을 미로드하고 프로퍼티가 부재해 기본 OFF. → 데모데이터가 실 DB·공유 테스트 컨테이너에 미유입.
+- [실측] 회귀: ./backend/gradlew.bat test --rerun-tasks → 814/814 GREEN(164 클래스). 파괴됐던 2건(InventoryHistoryRepositoryTest 3/3·ProductRegistrationControllerIntegrationTest 17/17) 통과.
+- [실측] 폰트 적용: Preflight html{font-family:NanumGothic,…} computed 근거 + @font-face 서빙 확인.
+- [FE-03 DoD 잔여 해소] ProductCard 실물 2건·반응형 2/3/4열·hover(상승·shadow·zoom)를 dev에서 시각 확인 완료 — FE-03 §2 "시드 부재로 시각 미확인" 종결.
+
+### §8 이월(carry-over)
+- [서버 배포 트랙·미착수 유지] frontend prod Dockerfile·mall.yml frontend 서비스·sparse-checkout에 frontend/ 포함·서버 gateway 2분기·서버 .env ADMIN_BOOTSTRAP 2값. FE-04는 dev 한정이라 서버 반영 시 시드 활성 정책(운영은 기본 OFF 유지·데모데이터 미유입)을 확인해야 한다.
+- [폰트 서브셋] 현재 원본 woff2(0.77MB)를 배치. 실측 로딩 성능 이슈가 표면화되면 한글 서브셋 도입을 검토(현 단계 불요).
+- [1차 디자인 조정] FE-03 렌더 실물 확보(FE-04)를 기준으로 한 경미한 조정 대기. 본격 디테일은 상세·목록 트랙.
+- [FE 후속 트랙] 목록·상세·검색·카테고리(FE-03 §8 유지)·공용 상태 컴포넌트 promote·shadcn-vue·motion-v·Pinia(실수요 트랙).
+
+---
