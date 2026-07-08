@@ -79,7 +79,7 @@ onBeforeUnmount(() => {
   <div class="py-14 md:py-20">
     <div class="mx-auto max-w-[1240px] px-4 md:px-6">
       <div class="mb-8 flex items-center justify-between gap-4">
-        <h1 class="text-2xl font-bold tracking-tight text-gray-900 md:text-3xl">상품 목록</h1>
+        <h1 class="text-2xl font-medium tracking-tight text-gray-900">상품 목록</h1>
         <select
           v-model="sort"
           aria-label="정렬 기준"

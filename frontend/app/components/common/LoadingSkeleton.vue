@@ -6,7 +6,7 @@ withDefaults(defineProps<{ count?: number }>(), { count: 8 })
 
 <template>
   <div v-for="n in count" :key="n" class="animate-pulse">
-    <div class="aspect-square rounded-lg bg-gray-100"></div>
+    <div class="aspect-square rounded-card bg-gray-100"></div>
     <div class="mt-3 h-4 w-3/4 rounded bg-gray-100"></div>
     <div class="mt-2 h-3 w-1/2 rounded bg-gray-100"></div>
     <div class="mt-3 h-4 w-1/3 rounded bg-gray-100"></div>

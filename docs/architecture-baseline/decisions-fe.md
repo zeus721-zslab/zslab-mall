@@ -354,3 +354,69 @@ Tier 2 — 확장 (BE 선행 필요)
 - [디자인 상세] shadcn-vue·motion-v·Pinia 실수요는 각 구현 트랙(FE-03 §8 유지).
 
 ---
+
+## FE-07: 디자인 파운데이션 (디자인 토큰 + 컴포넌트 전환)
+
+날짜: 2026-07-08
+선행: FE-06(사이트맵) 완료. 근거 = recon-report-69(Tailwind v3.4.19·하드코딩 유채색 0·중립색 토큰 일치) + 시안 4라운드 외부검토 흡수.
+범위: 디자인 언어 확정 및 tailwind theme.extend 토큰화 + 기존 컴포넌트(홈·목록) 토큰 전환. 신규 페이지 없음. 뱃지 데이터 구동·shadcn-vue는 이연.
+넘버링 조정: FE-06 트랙분할이 FE-07=Global Layout였으나 디자인 파운데이션을 선행 삽입 → FE-07=디자인 파운데이션, Global Layout=FE-08, 이하 상품상세+장바구니 FE-09·체크아웃 FE-10·주문 FE-11·계정 FE-12·클레임 FE-13으로 한 칸씩 이동.
+
+### 확정 디자인 토큰 (시안 최종·유실 방지 완전 기록)
+
+컬러
+- surface 3단: page #FAFAFA · card #FFFFFF · section #F5F5F5
+- primary #2563EB · primary-hover #1D4ED8 (CTA·링크·브랜드)
+- price #E11D48 (가격 전용·행동색과 분리)
+- text: ink #111827 · sub #6B7280 · seller #9CA3AF (상품명>판매자 위계)
+- border #E5E7EB
+- 역할 분리: primary=blue · price=red · soldout=gray · success=green · warning=amber
+- 뱃지: new bg #DBEAFE / ink #1D4ED8 · sale bg #FEE2E2 / ink #E11D48 · soldout bg #F3F4F6 / ink #6B7280
+
+타이포
+- 스케일 12·13·14·16·18·20·24 (Tailwind 기본 xs~2xl 매핑)
+- weight: regular 400 · medium 500 · semibold 600 · bold 700
+- 가격 18 / 700 (커머스 최우선 가독) · 섹션 제목 24 / 500 · 서브타이틀 14 · 상품명 14 · 판매자명 12/seller색
+
+radius: card 16 · button·input·cta 14 · badge 6
+shadow: 평상 none(border만) · hover 0 4px 12px rgba(0,0,0,0.08)
+transition 토큰: fast 150 · normal 180 · slow 250 · hover translateY(-2px)·image scale 1.02
+spacing: 8px 그리드
+
+폰트: 나눔고딕 self-host(FE-04) 유지 — 토큰과 독립.
+
+### §1-A 갈림길·채택/기각 근거
+
+1) 디자인 방향 (시안 3안 → 홈 전체 시안 3안)
+- 포인트 컬러 단독 비교(레드/블루/그린) 중 블루 채택 후, 외부검토 "색보다 타이포·여백이 인상 좌우" 수용 → 홈 전체 레이아웃 3안(11번가형·11번가+Shopify·Apple/Vercel형)으로 재비교.
+- 11번가+Shopify형(4열·중간여백) 채택 — FE-03 박제 원칙("11번가 익숙함+Shopify/Vercel 완성도")과 정확 정합. 11번가형(정보밀도 최대) 기각(차별성 희석·클론 인상). Apple/Vercel형(3열·최대여백) 기각(커머스 밀도 부족·목록 허전).
+
+2) 컬러 시스템 (단일 포인트 → 역할 분리)
+- 외부검토 수용: Primary=Blue(행동)·Price=Red(가격)·soldout=Gray·success=Green·warning=Amber로 역할 분리 — 채택. 가격에 Primary를 재사용하면 SaaS처럼 차가워지고, 국내 커머스는 가격이 최우선 가독이라 Red 분리가 자연스럽다. 디자인시스템으로도 semantic 분리가 견고.
+
+3) 토큰 정의 위치 (recon-69 재료 기반)
+- α theme.extend 단독 — 채택. 현 CSS 변수 소비처 0·폰트 토큰 선례가 이미 theme.extend·YAGNI. shadcn-vue 도입은 FE-08 미확정 실수요라 (c) CSS변수 병행 선투자는 추측(기조 4·5).
+- β 지금부터 :root CSS변수 병행 — 기각. 근거(shadcn-vue 확정) 부재.
+- 이월: FE-08 shadcn-vue 채택 시 (c) 병행 재배선 비용 발생 — 그 시점 판단.
+
+4) 뱃지 부착 범위 (데이터 부재)
+- α Badge 스타일 정의만·카드 부착 이연 — 채택. recon-69: ProductSummary에 isNew/onSale/할인 필드 부재(product.ts). 데이터 없는 NEW/세일 뱃지를 전 카드에 하드코딩하면 죽은 마크업(기조 4). 무료배송·품절 등 기존 필드 표현 가능분도 이번 범위(토큰+기존렌더 전환)에서 제외.
+- β 시안대로 정적 뱃지 부착 — 기각. 가짜 뱃지 박제.
+
+5) 호버 강도 (외부검토 4차)
+- 평상 shadow 없음 + hover 0 4px 12px/.08·translateY(-2px)·image 1.02 채택. shadow-md(0 6px 16px/.10)는 카드 다수 정렬 시 튐 → "뜬다"가 아닌 "살아난다" 강도로 절제.
+
+### §2 결정 라운드 재진입
+- [실측·recon-69] Tailwind v3.4.19(@nuxtjs/tailwindcss 6.14.0 transitive)·theme.extend 방식 확정(v4 @theme 아님). tailwind.config theme.extend에 fontFamily.sans(나눔고딕)만 존재·색/radius/shadow 커스텀 전무. main.css는 @font-face 2건뿐(:root·하드코딩색 0). 하드코딩 유채색 0건·중립색(gray-900/500/400)이 토큰 hex와 이미 일치 → 회귀 국소(가격·radius·페이지bg 3점).
+- [구현·검증 실측] 홈·목록 SSR 200(게이트웨이 end-to-end·브라우저 /api 200). Tailwind CSS 실측 전 토큰 정확 컴파일(price→rgb225 29 72=#E11D48·surface-page #FAFAFA·badge-new-bg #DBEAFE·primary #2563EB/hover #1D4ED8·ink/sub/seller/line/soldout·radius card16/control14/badge6·shadow-card-hover 0 4px 12px rgba(0,0,0,0.08)·duration-normal 180ms·hover -translate-y-0.5/scale1.02). 페이지 bg #FAFAFA·가격 빨강 18/700·카드 radius16·border line·히어로 라이트(#DBEAFE·h1 #1D4ED8·CTA primary solid·암색 잔여 클래스 0)·나눔고딕 woff2 200·섹션제목 24/500·FE-04/05 무회귀(카드 2건 SSR·prices 39,900/19,900·양 라우트 200·sort pill 유지)·빌드/콘솔 에러 0.
+- [외부검토 4라운드 흡수 요약] R1 포인트컬러 블루 / R2 역할분리 컬러+홈 전체시안 비교 / R3 간격·타이포위계·호버·Hero CTA·판매자명 연하게·뱃지 제안 / R4 호버 절제·가격 18/700·CTA radius 14 정렬·transition/weight 토큰화.
+- [구현 중 결정] HomeHero 암색→라이트(#DBEAFE) 재설계 시 흰 CTA가 연파랑에 묻힘(대비 1.1) → 역할토큰 일관 위해 primary CTA(A안) 채택. ProductCard border를 line 토큰으로 정합. 섹션 제목을 홈·목록 공통 24/500으로 통일(기존 30/700 폐기). 검색바 pill(rounded-full)은 FE-03 헤더 디자인 요소라 control 14 교체 대상서 제외·유지. success #16A34A·warning #F59E0B 관용값 선점(소비처 0).
+
+### §8 이월(carry-over)
+- [뱃지 데이터] new/sale 뱃지 실구동은 BE DTO 확장(ProductSummary에 isNew/onSale/할인 필드) 선행 → 상품 도메인 BE 트랙. 무료배송·품절 뱃지도 데이터 정합 후 부착.
+- [토큰 위치 재배선] FE-08 shadcn-vue(reka-ui) 채택 시 :root CSS변수 병행((c)) 재배선 — 그 시점 결정. 현재 미설치 확정.
+- [Hero CTA·프로모 동작] 시안의 "지금 받기" CTA는 쿠폰 도메인·동작 부재라 이번 미부착. 프로모/쿠폰 트랙에서.
+- [Global Layout] FE-08로 이동(Header 검색바·카테고리 메뉴·장바구니 뱃지·auth·Footer·store·미들웨어).
+- [shadcn-vue·motion-v·Pinia] 실수요 트랙 유지(FE-03 §8).
+
+---
