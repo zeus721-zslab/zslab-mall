@@ -37,6 +37,7 @@ docs/track-*/handover.md
 # 트랙별 정찰 산출물 (로컬 참조용·트랙 종결 시 처치 판정)
 docs/track-*/recon-report.md
 docs/frontend/recon-report-*.md
+docs/frontend/*review-packet*.md
 
 # 인수인계 임시 파일
 docs/handover.md

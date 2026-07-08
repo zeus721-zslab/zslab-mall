@@ -229,3 +229,128 @@
 - [타입 불일치 경미] FE ProductSummary.categoryId=number(non-null) vs 백엔드 Long(nullable)·현 렌더 무영향(recon A-4).
 
 ---
+
+## FE-06: 구매자 사이트맵 전면 설계
+
+날짜: 2026-07-08
+선행: FE-05 완료. 근거 = recon-report-68(PART 1~4·gitignore 로컬 전용) + 외부 검토 1회(Q1~Q4) 흡수.
+범위: 구매자(쇼핑몰 프론트) 전 페이지 사이트맵 + 페이지별 BE 구성 상태 + BE-추가작업 목록 + FE-07~12 트랙 분할 + 공용 컴포넌트 카탈로그. 구현 없음(설계 트랙). seller/admin 화면은 범위 밖(별도 트랙 재정의).
+박제 근거 성격: 코드 구현이 없는 설계 트랙이므로 "구현·검증 후 박제" 대신 정찰 실측(recon-68 PART1~4)·외부검토 완료를 근거로 한다.
+
+상태 라벨: [완비]=원함+BE완성(FE만 개발) · [부분]=원함+BE일부(FE+BE보강) · [미구성]=원함+BE없음(BE선행 후 FE). 근거=recon-68 PART1 엔드포인트·PART4 DTO 실측.
+
+### 사이트맵
+
+Tier 0 — 완료(구현됨)
+- / 홈 [완비]
+- /products 상품목록 [완비] (무한스크롤·sort 4종·categoryId 필터)
+
+Tier 1 — 구매 퍼널 (전부 [완비]·즉시 구현 가능)
+
+| URL | 기능 | 뒷받침 API | 상태 |
+|---|---|---|---|
+| /products/:id | 상품상세·옵션·수량·담기/구매 | GET /products/{id} | [완비] |
+| /cart | 장바구니(담기·수량·선택·삭제) | /cart* (7) | [완비] · 판매자 묶음=FE 클라이언트 그룹핑(PART4 flat) |
+| /checkout | 체크아웃·주문생성 | POST /cart/checkout (Idempotency-Key) | [완비] |
+| /orders/:id | 주문완료·상세·판매자별 섹션·구매확정·재결제·클레임요청 | GET /orders/{id}·POST …/confirm·…/payments | [완비] · sellers[] 계층 보유(PART4) |
+| /orders | 주문내역 | GET /orders | [완비] |
+| /login | 로그인 | POST /auth/login | [완비] · logout·refresh 없음→BE-H |
+| /signup | 회원가입 | POST /users | [완비] |
+| /mypage | 마이페이지 허브 | GET /users/me | [완비] · 등급/알림 섹션=[미구성] |
+| /mypage/profile | 프로필 수정 | PATCH /users/me | [완비] |
+| /mypage/password | 비번 변경 | PATCH /users/me/password | [완비] |
+| /mypage/addresses | 배송지 관리 | /users/me/addresses* (5) | [완비] |
+| /mypage/withdraw | 탈퇴 | POST /users/me/withdraw | [완비] |
+| /mypage/claims | 클레임 목록 | GET /claims | [완비] |
+| /mypage/claims/:id | 클레임 상세 | GET /claims/{id} | [완비] · 요청은 CANCEL 한정 |
+
+Tier 1 상태 UX (페이지 아닌 상태·전역/컴포넌트로 처리):
+- 결제 실패: /checkout 실패 상태(모달 또는 /checkout/fail)·CheckoutResponse 상태 분기
+- 상품 404: 상세 삭제·판매중지·오URL → 404 상태 렌더
+- 품절: 상세 구매/담기 비활성(soldOut)·목록 품절 뱃지
+- 로그인 만료: 401 → 로그인 리다이렉트 → 원위치 복귀(BUYER 미들웨어·전역)
+- 빈 상태: 장바구니·주문내역·클레임 Empty (common/EmptyState)
+
+Tier 2 — 확장 (BE 선행 필요)
+
+| URL | 기능 | 상태·필요 BE |
+|---|---|---|
+| 카테고리 네비·/categories | 카테고리 탐색/필터 | [미구성] BE-A |
+| /search | 키워드 검색 | [미구성] BE-B |
+| /sellers/:id | 판매자 스토어(상세 판매자명→이동) | [미구성] BE-E |
+| 리뷰(상세 섹션·/mypage/reviews) | 조회·작성·평점 | [미구성] BE-C |
+| /wishlist | 찜 | [미구성] BE-D |
+| /orders/:id 배송추적 | 배송상태·송장 | [미구성] BE-F · PART4: OrderResponse 배송필드 전무 확정 |
+| /mypage/notifications | 알림함 | [미구성] BE-G |
+| /mypage 등급 섹션 | 등급 표시 | [미구성] BE-I · PART4: ProfileResponse 등급필드 전무 확정 |
+
+### BE-추가작업 목록 (우선순위 A > B > E > F > H > C > D > G > I)
+
+- BE-A 카테고리 목록/트리 조회 API — 카테고리 탐색·필터 (필수·검색보다 선행)
+- BE-B 상품 keyword 검색 API — 검색 페이지 (필수)
+- BE-E 공개 Seller 조회 + 상품 by seller API — 판매자 스토어 (멀티벤더 차별성)
+- BE-F 배송추적 조회 API 또는 OrderResponse 확장 — 배송상태·송장 (PART4 필드 부재 확정)
+- BE-H logout(+refresh) — 인증 수명주기 (경량·조기 채택 가능)
+- BE-C Review Aggregate + API(작성·목록·평점) — 리뷰 (포폴 가치·작업량 큼·후순위 존치)
+- BE-D Wishlist Aggregate + API — 위시리스트 (MVP 후순위)
+- BE-G NotificationLog 조회 API — 알림센터 (MVP 후순위)
+- BE-I ProfileResponse 등급 확장 또는 BuyerGrade 조회 API — 마이페이지 등급
+
+판매자별 배송비/무료배송: CartResponse·OrderResponse 모두 배송비 필드 부재(PART4). 멀티벤더 배송비 정책(무료배송·조건·제주 추가)은 BE 설계 선행 필요·BE-A~I와 별개 논점(§8 이월).
+
+### FE 트랙 분할 (외부검토 R2 반영·재편)
+
+- FE-07 Global Layout — Header(sticky·검색바·카테고리 메뉴·장바구니 뱃지·auth)·Footer·Navigation·auth store·cart store·BUYER 미들웨어. 전 페이지 의존이라 선행.
+- FE-08 상품상세 + 장바구니 — /products/:id·/cart(클라이언트 판매자 그룹핑)·품절·404 상태.
+- FE-09 체크아웃 — /checkout(주문 생성·Idempotency·결제 성공/실패 분기).
+- FE-10 주문 — /orders 목록·/orders/:id 상세(판매자별 섹션)·구매확정·재결제.
+- FE-11 계정 — 로그인·가입·마이페이지·프로필·비번·배송지·탈퇴·401 복귀.
+- FE-12 클레임 — 요청(CANCEL)·목록·상세.
+- Tier2 페이지는 각 대응 BE-추가작업 머지 후 개별 FE 트랙(FE-13+).
+
+### 공용 컴포넌트 카탈로그 (common/)
+
+- 기존(FE-05 승격): LoadingSkeleton·ErrorState·EmptyState
+- 신규 등재: Button·Badge·Price
+  - Price: 가격 표현(10,000원·무료·품절)이 전 화면 반복 → <Price :value/> 단일화로 toLocaleString 산개 방지(외부검토 채택·YAGNI 아님).
+- 부가기능(BE 무관·저비용·외부검토 R4 채택): 최근 본 상품(localStorage)·브레드크럼·공유(clipboard). Cart Drawer는 MVP 이후 백로그.
+- Sticky Header: AppHeader 기존 sticky 유지·확정(외부검토 채택).
+
+### §1-A 갈림길·채택/기각 근거
+
+1) 사이트맵 대상 범위
+- α 구매자 전용 우선 — 채택. 구매자 프론트가 홈+목록 2p뿐이라 퍼널 완성이 순서. seller/admin은 별도 트랙 재정의.
+- β 구매자+판매자+관리자 3면 전체 — 기각. 페이지 3배·YAGNI.
+
+2) 정찰 방식
+- 사이트맵 스파인 고정 후 페이지→기능→API 실재 확인 — 채택. API 없는 페이지부터 그리면 역순 사태.
+- inventory-first(백엔드 나열 후 페이지 상상) — 기각.
+
+3) R1 멀티벤더 그룹핑 (DTO 실측 선행)
+- 장바구니: CartResponse flat(PART4) → FE 클라이언트 그룹핑(sellerName). 주문상세: OrderResponse sellers[] 계층 보유(PART4) → 즉시 판매자별 섹션. 추측 대신 DTO 실측 확정(기조 5).
+
+4) 트랙 재편 (외부검토 R2)
+- Global Layout 선행 트랙 분리 + Checkout/Order 분리 — 채택. Header 전 페이지 의존·Checkout/Order 예외처리(Idempotency·결제실패·재결제·구매확정) 과중.
+- 단일 대형 트랙(FE-08 통합) — 기각.
+
+5) Review 존치 (외부검토 R3)
+- 사이트맵 존치·우선순위 최하위 — 채택. 드롭 아닌 후순위·포폴 가치.
+- 제거 — 기각.
+
+6) 부가기능·Price (외부검토 R4)
+- 최근본상품·브레드크럼·공유·Sticky Header·Price 채택 / Cart Drawer 이후 — 채택. 전 화면 반복·저비용이라 Price는 산개 후 통일 비용을 회피(YAGNI 아님).
+
+### §2 결정 라운드 재진입
+- [실측·recon-68 PART1] 구매자 엔드포인트 28개·도메인 커버리지(상품·장바구니·주문·유저·클레임 존재 / 카테고리·검색·리뷰·위시리스트 부재).
+- [실측·recon-68 PART4] CartResponse flat(sellerGroups 없음·배송비 필드 없음)·OrderResponse sellers[] 계층 보유(배송추적 필드 전무)·ProfileResponse 4필드(등급 없음). → 배송추적·등급이 "미확인"에서 "필드 없음(미구성)"으로 확정.
+- [외부검토 흡수] Q1 상태 UX 5종(결제실패·404·품절·401·Empty) 반영 / Q2 판매자별 배송비 이월(BE 설계) / Q3 우선순위 A>B>E>F 반영 / Q4 트랙 재편·Global Layout 선행 반영.
+- [넘버링] 외부검토가 Global Layout을 FE-06으로 제안했으나 FE-06=사이트맵 설계(현 트랙) 점유 → Global Layout=FE-07 배치.
+
+### §8 이월(carry-over)
+- [판매자별 배송비 정책] CartResponse·OrderResponse 배송비 필드 부재(PART4). 멀티벤더 배송비(무료배송·조건·제주 추가) BE 설계 선행·별도 논점.
+- [seller/admin 프론트] 판매자·관리자 화면 사이트맵은 범위 밖·별도 트랙 재정의(구매자 퍼널 완성 후).
+- [Tier2 BE 트랙] BE-A~I는 BE 트랙으로 별도 착수(FE와 교차). 각 머지 후 대응 FE-13+ 트랙.
+- [무한스크롤 다건] FE-05 §8 유지(시드 2건·다건 미검증).
+- [디자인 상세] shadcn-vue·motion-v·Pinia 실수요는 각 구현 트랙(FE-03 §8 유지).
+
+---
