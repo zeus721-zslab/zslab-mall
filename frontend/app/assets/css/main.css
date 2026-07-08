@@ -1,3 +1,57 @@
+@import "tailwindcss";
+
+/* FE-08: FE-07 디자인 토큰을 v4 @theme으로 이전(기존 tailwind.config theme.extend 대체).
+   값은 FE-07 §2 정확값 그대로. 중첩 키는 flat 매핑(surface.page→surface-page·badge.new-bg→badge-new-bg). */
+@theme {
+  --font-sans: 'NanumGothic', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
+    'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+
+  --color-primary: #2563EB;
+  --color-primary-hover: #1D4ED8;
+  --color-price: #E11D48;
+  --color-surface-page: #FAFAFA;
+  --color-surface-card: #FFFFFF;
+  --color-surface-section: #F5F5F5;
+  --color-ink: #111827;
+  --color-sub: #6B7280;
+  --color-seller: #9CA3AF;
+  --color-line: #E5E7EB;
+  --color-success: #16A34A;
+  --color-warning: #F59E0B;
+  --color-soldout: #6B7280;
+  --color-badge-new-bg: #DBEAFE;
+  --color-badge-new-ink: #1D4ED8;
+  --color-badge-sale-bg: #FEE2E2;
+  --color-badge-sale-ink: #E11D48;
+  --color-badge-soldout-bg: #F3F4F6;
+
+  --radius-card: 16px;
+  --radius-control: 14px;
+  --radius-badge: 6px;
+
+  --shadow-card-hover: 0 4px 12px rgba(0, 0, 0, 0.08);
+
+  --duration-fast: 150ms;
+  --duration-normal: 180ms;
+  --duration-slow: 250ms;
+}
+
+/* v4는 --duration-* 테마 네임스페이스로 named duration 유틸을 생성하지 않는다(내장은 duration-<number>만).
+   FE-07 transition 토큰(fast/normal/slow)을 유지하기 위해 @theme 변수를 참조하는 커스텀 유틸을 명시 정의한다.
+   내장 duration-<number> 구조(--tw-duration + transition-duration)를 그대로 미러링해 .transition과 정합. */
+@utility duration-fast {
+  --tw-duration: var(--duration-fast);
+  transition-duration: var(--duration-fast);
+}
+@utility duration-normal {
+  --tw-duration: var(--duration-normal);
+  transition-duration: var(--duration-normal);
+}
+@utility duration-slow {
+  --tw-duration: var(--duration-slow);
+  transition-duration: var(--duration-slow);
+}
+
 /* 나눔고딕 self-host (FE-04). 원본 woff2는 public/fonts/ 에 배치(=/fonts/ 로 정적 서빙).
    전역 적용은 tailwind.config.ts theme.extend.fontFamily.sans('NanumGothic' 우선)가 담당한다.
    font-display: swap — 폰트 로드 전 폴백으로 즉시 렌더(FOIT 회피). */
