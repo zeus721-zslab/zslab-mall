@@ -88,6 +88,56 @@
 - gateway conf 형상은 zslab-mall 레포 밖(gateway 프로젝트, 로컬 C:\Users\pc\projects\gateway\nginx\nginx.conf)·git 미추적. 서버 이관 시 재현 필요(서버는 root 소유·sudo 편집).
 - 서버 배포 트랙: frontend prod Dockerfile·mall.yml frontend 서비스·sparse-checkout에 frontend/ 포함·서버 .env ADMIN_BOOTSTRAP 2값·서버 gateway 2분기.
 - /api/v1/products 401(공개 카탈로그 GET permitAll 예상과 불일치) — 라우팅 무관·backend 별건.
+- [FE-03 실측 보강] §1-A 3 'SSR 직결 zslab_mall_backend' 전제 결함 확정: 임베디드 Tomcat이 언더스코어 호스트명을 Host 검증에서 400 거부(SSR undici 직결 시). 게이트웨이 경유는 nginx Host 재작성으로 무영향이라 FE-02 검증에서 미표면화, FE-03 홈 SSR 최초 실 소비에서 표면화. 조치: backend gateway_net 별칭 mall-backend 부여·SSR base 별칭 교체(코드·nuxt.config·gateway 무변경). 상세 LT-07.
 
 ---
 
+## FE-03: 프론트엔드 기준 컴포넌트·패턴 확립 (공통 레이아웃 셸 + 홈)
+
+날짜: 2026-07-08
+선행: FE-02(gateway path-split·API base 이원화) 완료. 별건 /api/v1/products 401 = FE-65 정찰로 C′(무효 Bearer 동봉) 규명·비결함 종결(LT-06).
+범위: default 레이아웃 셸 + 홈 페이지 + 재사용 기준 컴포넌트/패턴 확립. 홈 상품 섹션은 실 API 연동. 목록·상세·검색·카테고리는 후속 트랙.
+목표 재정의: "홈 화면 구현"이 아니라 "이후 모든 목록성 화면이 올라갈 기준 컴포넌트·패턴(레이아웃·ProductCard·useFetch SSR 패턴·데이터 상태 처리·SEO·반응형)을 1회 확립"한다.
+수용기준(확정·구현 후 달성 갱신): default 레이아웃 적용 / Header·Footer 렌더 / HomeHero 렌더 / HomeProductGrid 실 API(/api/v1/products?sort=LATEST) 연동 / SSR·CSR 정상 / Loading·Empty·Error 처리 / ProductCard 렌더 / useSeoMeta 적용 / 반응형 3폭(모바일 2·md 3·lg 4열) 확인.
+
+### §1-A 갈림길·채택/기각 근거
+
+1) δ 범위
+- A 레이아웃 셸만 — 기각. 가시 결과물 부재로 SSR·fetch·grid 무엇도 실증 못 함("동작하는 벽" 미형성).
+- B 셸 + 홈 페이지 — 채택. 한 화면으로 셸+그리드 완결·이후 화면이 붙을 골격 확정. 외부 검토 수용(목록·상세는 URL 구조·useRoute·SEO·pagination·옵션 렌더·상태 동반으로 별 사이클 규모).
+- C 셸 + 홈 + 목록 + 상세 — 기각. 레이아웃 트랙 범위 초과.
+
+2) 홈 상품 그리드 데이터
+- 가 정적 목데이터 — 기각. API가 이미 존재·검증됨. Mock은 곧 폐기될 죽은 코드(기조 4). Mock의 목적(API 부재 시 seam 확정)이 성립 안 함.
+- 나 실 /api/v1/products 연동 — 채택. 검증된 계약에 실사용처 부여 + SSR/브라우저 base 이원화·gateway·docker network를 홈 단계에서 1회 실검증. 시드 부재로 빈 목록이어도 fetch→렌더 경로 확정으로 후속 목록 트랙 리스크 감소.
+
+3) UI킷·모션·상태관리 도입 시점
+- ㄱ 지금(레이아웃 단계) 도입 — 기각. 셸·홈 골격은 div·nav·Tailwind 유틸로 완성. 예상 소비처(Button·Input·Dialog·Sheet·Dropdown·Toast·Pagination)가 레이아웃 단계에 없음. motion-v는 정적 셸에 소비처 없음. 미사용 의존성(기조 4).
+- ㄴ 이연 유지 — 채택. shadcn-vue·motion-v는 폼·오버레이·모션 실수요 컴포넌트 트랙에서. Pinia도 미착수(관리 상태 없음·useFetch→computed로 충분, Store 삽입 시 API→Store→Component 불필요 계층 증가).
+
+4) 컴포넌트 분리 입도 (외부 검토 반영·일관 원칙: 실 소비처 1개면 구현만·2번째에서 promote)
+- 상태 처리(Loading/Empty/Error): HomeProductGrid 내부 처리 채택. 공용 EmptyState·ErrorState·LoadingSkeleton 추출은 기각(소비처 1개·단일 사례 추상화). 두 번째 목록 화면에서 승격.
+- 이미지 전략: <img loading="lazy"> 채택·ProductCard를 이미지 변경 경계로. Nuxt Image 도입 기각(변경 비용이 Card 1개로 이미 국소화·현 단계 실측 성능 이슈 없음). ProductThumbnail 래퍼도 기각(이중 경계).
+- 홈 섹션 분리: HomeHero + HomeProductGrid 2분리 채택. HomeBanner 별도 분리 기각(현재 풀블리드 배너 1개=Hero. 두 번째 프로모 영역 시 분리).
+
+5) UX 참조안 가감 (국내/해외 커머스 검토 자료에서 FE-03 실소비처 있는 것만 채택)
+- 채택: Sticky Header / 검색창 강조 헤더 레이아웃 / Skeleton Loading(=Loading 상태) / ProductCard hover(상승·shadow·이미지 zoom 1.03, Tailwind transition·hover 유틸만·의존성 0) / Empty State 완성(아이콘+안내문) / Micro-interaction 150~250ms(Tailwind duration) / a11y 기본(aria-label·focus ring) / 디자인 원칙("레이아웃은 11번가풍 익숙함 + 시각 완성도는 Shopify·Vercel풍 여백·타이포").
+- 기각·이연(소비처 부재): 무한스크롤(홈 신상품은 size 8 고정·스크롤 로딩 없음→목록/검색/카테고리 트랙, vueuse useInfiniteScroll) / Cart Drawer·Quick View·찜·최근 본 상품(useStorage)·리뷰·배송·쿠폰 배지(장바구니·상품·인증 도메인 연동 필요) / Breadcrumb(홈 최상위·경로 없음→상세·카테고리) / 다크모드(MVP 후순위) / vueuse·Floating UI(위 기능 도입 시 동반).
+- 목록 페이징 방침: Pagination 배제·무한스크롤 채택(단 구현은 목록 트랙·홈 범위 밖).
+
+### §2 결정 라운드 재진입
+- [실측 완료] API base 결합: 브라우저 base "/api"(NUXT_PUBLIC_API_BASE 미주입 시 composable "/api" 폴백)·SSR apiInternalBase(+"/api" 부가). 양쪽 .../api/v1/products 로 결합. nuxt.config 값 무변경.
+- [실측 완료] 목록 응답 카드 필드: mainImageUrl(nullable·부재 시 ProductCard placeholder 박스)·displayPrice·soldOut·name·sellerName. 봉투 items·page·size·totalCount·hasNext.
+- [실측·트랩] SSR 직결 대상이 언더스코어 컨테이너명(zslab_mall_backend)이면 Tomcat Host 검증 400 → 별칭 mall-backend 로 해소(FE-02 §1-A 3 전제 결함·LT-07). backend·nuxt.config·gateway 무변경.
+- [DoD 달성] 셸·Hero·Header(sticky)·Footer·SEO·SSR·실 API 연동·Empty/Error 처리 실측 확인(게이트웨이 end-to-end 200). ProductCard 실물·반응형 3폭·hover 는 코드 확정·시드 부재로 시각 미확인(상품 시드 시 확인).
+- 박제 시점: 본 항목 구현·검증 완료로 수용기준 "달성" 확정.
+
+### §8 이월(carry-over)
+- [FE 후속 트랙] 목록·상세·검색·카테고리 페이지(URL 구조·useRoute·pagination 대체 무한스크롤·옵션 렌더·Breadcrumb).
+- [공용 컴포넌트 승격] Loading/Empty/Error를 두 번째 목록 화면 등장 시 EmptyState·ErrorState·LoadingSkeleton으로 promote.
+- [UI킷·모션·상태] shadcn-vue(Button·Input·Dialog·Sheet·Dropdown·Toast·Pagination)·motion-v·Pinia — 실수요 컴포넌트 트랙에서.
+- [커머스 UX 기능] 무한스크롤(vueuse useInfiniteScroll)·Cart Drawer·찜·최근 본 상품(useStorage)·상품 카드 배지(쿠폰·BEST·NEW·배송)·Quick View·리뷰 표시·다크모드 — 각 해당 도메인 트랙.
+- [이미지] 실측 성능 이슈 표면화 시 Nuxt Image 도입(ProductCard 국소 교체).
+- [서버 배포 트랙·미착수] frontend prod Dockerfile·mall.yml frontend 서비스·sparse-checkout에 frontend/ 포함·서버 gateway 2분기·서버 .env ADMIN_BOOTSTRAP 2값(FE-02 §8 이관 유지).
+
+---

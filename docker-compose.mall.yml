@@ -27,8 +27,10 @@ services:
     volumes:
       - mall_backend_logs:/app/logs
     networks:
-      - zslab_zslab_net
-      - gateway_net
+      zslab_zslab_net: {}
+      gateway_net:
+        aliases:
+          - mall-backend
 
   # Track 32 Phase 2 — prod 로그 수집 (named volume mall_backend_logs 공유 → zslab_elasticsearch 전송)
   filebeat:

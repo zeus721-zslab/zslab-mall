@@ -16,7 +16,7 @@ services:
     container_name: zslab_mall_frontend
     environment:
       NUXT_PUBLIC_API_BASE: ${NUXT_PUBLIC_API_BASE:-}
-      API_INTERNAL_BASE: ${API_INTERNAL_BASE:-http://zslab_mall_backend:8080}
+      API_INTERNAL_BASE: ${API_INTERNAL_BASE:-http://mall-backend:8080}
     ports:
       - "3000:3000"
     volumes:

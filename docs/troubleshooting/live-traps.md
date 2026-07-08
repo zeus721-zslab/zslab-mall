@@ -215,9 +215,62 @@ AFTER_COMMIT 핸들러의 "item_status == <종결값>이면 skip" 1차 가드가
 
 ---
 
+## LT-06. permitAll 경로도 무효 Bearer 토큰 동봉 시 401 [ACTIVE]
+
+**발견 트랙**: FE-65 정찰 (/api/v1/products 공개 GET 401 규명·Claude Code HTTP 실측)
+**원본 결정**: docs/frontend/recon-report-65.md (로컬)
+
+### 증상
+permitAll 공개 GET 경로라도 요청에 만료·타-환경 Bearer 토큰이 실리면 200이 아니라 401(code=UNAUTHENTICATED, RFC7807)로 응답. 무헤더·비-Bearer는 정상 200.
+
+### 재현
+JwtAuthenticationFilter가 AuthorizationFilter(permitAll 판정)보다 앞에 위치. Bearer 프리픽스가 있으면 permitAll 경로 예외 없이 tokenProvider.verify() 무조건 호출 → 실패 시 AuthenticationException 전파 → ExceptionTranslationFilter가 SecurityErrorHandler로 401 위임.
+
+### 처치
+FE API 클라이언트가 공개 카탈로그 GET에 Authorization 헤더를 부착하지 않도록 조정(인터셉터 공개 엔드포인트 화이트리스트). backend 무변경.
+
+### 후속 영향
+- FE 인증 인터셉터·토큰 부착 로직 구축 시 공개 엔드포인트 화이트리스트 필수.
+- "permitAll인데 401" 관측 시 소스 인가 결함이 아니라 클라이언트 토큰 동봉부터 의심.
+
+### 관련
+- recon-report-65 (로컬)·SecurityConfig(GET /api/v1/products/** permitAll)·JwtAuthenticationFilter(ETF 뒤 배치)
+
+---
+
+## LT-07. 컨테이너명 언더스코어 → 임베디드 Tomcat Host 검증 400 (SSR 직결 시) [RESOLVED]
+
+**발견 트랙**: FE-03 STEP 6 검증 (홈 SSR 최초 실 소비·Claude Code HTTP 실측)
+**원본 결정**: FE-02 §1-A 3 'SSR 직결' 전제 결함 → FE-03에서 별칭 우회
+
+### 증상
+Nuxt SSR(undici 서버 fetch)이 도커 내부 backend로 직결할 때, 대상 호스트명에 언더스코어(_)가 포함되면(예 zslab_mall_backend:8080) Spring 도달 전 임베디드 Tomcat 커넥터가 HTML 400을 반환. 게이트웨이 경유는 nginx가 언더스코어 없는 Host를 전달해 200이라 CI·게이트웨이 테스트로는 미탐지.
+
+### 재현
+- 프론트 컨테이너 → http://zslab_mall_backend:8080/... : 400 (Tomcat HTML, Host 검증 거부)
+- 동일 대상에 Host: localhost / 도메인 지정 : 200
+- undici는 Host가 Fetch 표준 금지 헤더라 override 불가 → 클라이언트 코드로는 교정 불가
+
+### 처치
+backend 서비스에 언더스코어 없는 네트워크 별칭 부여, SSR base를 별칭으로 교체.
+- docker-compose.mall.yml: zslab_mall_backend.networks(map) gateway_net.aliases: [mall-backend]
+- docker-compose.dev.yml: API_INTERNAL_BASE 기본값 http://mall-backend:8080
+- backend 코드·nuxt.config·composable·gateway·nginx 무변경.
+
+### 후속 영향
+- 신규 컨테이너가 SSR·서버간 직결 대상이 되면 호스트명 언더스코어 회피(별칭 부여) 의무.
+- prod frontend 서비스 추가 시 동일 별칭 경로 사용(근본 조치라 재사용).
+- "게이트웨이는 200인데 SSR 직결만 400" 패턴 관측 시 Host 검증(언더스코어)부터 의심.
+
+### 관련
+- FE-02 §1-A 3(SSR 직결 결정)·§2(recreate DNS 재해석 트랩)·FE-03 §2
+
+---
+
 ## 부록. 트랩 추가 절차
 
 1. 라이브 발견 시 즉시 decisions.md D-XX 박제 (단건 처리)
 2. 누적 ≥3건 도달 시점에 본 카탈로그 신설 (D-82 패턴)
 3. 기 신설 후: 신규 트랩은 본 카탈로그 LT-XX 직접 추가·decisions.md 중복 박제 금지
 4. 트랩 해소·무효화 시 [RESOLVED] 라벨 부착·항목 보존 (이력 추적)
+
