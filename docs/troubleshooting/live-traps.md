@@ -267,6 +267,34 @@ backend 서비스에 언더스코어 없는 네트워크 별칭 부여, SSR base
 
 ---
 
+## LT-08. Tailwind v4 마이그레이션 (@theme·유틸·Preflight·배선) [ACTIVE]
+
+**발견 트랙**: FE-08 Tailwind v3.4.19 → v4 마이그레이션 (Claude Code 생성 CSS 실측)
+**원본 결정**: decisions-fe.md FE-08 §2
+
+### 증상
+v3→v4 전환 시 다음 4점이 CI·빌드 성공만으로는 드러나지 않고 생성 CSS 실측·실행 시점에만 표면화.
+
+1. @theme `--duration-*` 변수는 named duration 유틸(duration-fast/normal/slow)을 생성하지 않는다(v4 내장은 duration-<number>만) → FE-07 transition 토큰 무효(전환속도 폴백).
+2. outline-none이 v4에서 의미 변경(v3=투명 2px outline / v4=outline-style:none) → forced-colors 대비 동작 상실.
+3. v4 Preflight는 button에 cursor:pointer를 부여하지 않는다(v3는 부여) → 인터랙티브 버튼 커서가 default.
+4. @nuxtjs/tailwindcss 정식 라인(6.x)은 v4 미지원(tailwindcss ~3.4.x 고정)·v4 지원은 alpha/7.0.0-beta뿐.
+
+### 처치
+1. @utility duration-fast/normal/slow로 `--tw-duration` + transition-duration 미러링(내장 duration-<number> 구조 복제) 복원.
+2. outline-none → outline-hidden(v3 동작 등가·공식 @tailwindcss/upgrade codemod 대응).
+3. @layer base로 `button:not(:disabled), [role="button"]:not(:disabled) { cursor: pointer }` 복원.
+4. v4는 @tailwindcss/vite로 배선(Nuxt vite.plugins)·@nuxtjs/tailwindcss 제거·main.css 진입점 @import "tailwindcss".
+
+### 후속 영향
+- 후속 v4 작업(FE-09 shadcn-vue 등)·v4 마이너 업데이트 시 위 4점 재점검. 특히 @utility duration 미러링은 내장 duration 구조 변화에 취약.
+- named @theme 값이 유틸을 실제 생성하는지 생성 CSS로 실측(dev + prod 빌드 패리티) 의무.
+
+### 관련
+- decisions-fe.md FE-08 §1-A/§2·recon-report-72(로컬)·frontend/app/assets/css/main.css(@theme·@utility·@layer base)
+
+---
+
 ## 부록. 트랩 추가 절차
 
 1. 라이브 발견 시 즉시 decisions.md D-XX 박제 (단건 처리)
