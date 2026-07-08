@@ -9,5 +9,21 @@ services:
       - ./backend:/app
       - mall_gradle_cache:/home/gradle/.gradle
 
+  zslab_mall_frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: zslab_mall_frontend
+    environment:
+      NUXT_PUBLIC_API_BASE: ${NUXT_PUBLIC_API_BASE:-}
+      API_INTERNAL_BASE: ${API_INTERNAL_BASE:-http://zslab_mall_backend:8080}
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    networks:
+      - gateway_net
+
 volumes:
   mall_gradle_cache:
