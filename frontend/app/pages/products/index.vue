@@ -83,7 +83,7 @@ onBeforeUnmount(() => {
         <select
           v-model="sort"
           aria-label="정렬 기준"
-          class="rounded-full border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition duration-200 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900"
+          class="rounded-full border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition duration-200 hover:bg-gray-50 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-gray-900"
         >
           <option v-for="option in PRODUCT_SORT_OPTIONS" :key="option.value" :value="option.value">
             {{ option.label }}

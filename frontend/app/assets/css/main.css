@@ -52,6 +52,15 @@
   transition-duration: var(--duration-slow);
 }
 
+/* v4 Preflight는 v3와 달리 button에 cursor:pointer를 부여하지 않는다(브라우저 기본=default).
+   FE-03/07의 인터랙티브 버튼(hover 상태 보유·장바구니/CTA/재시도)의 클릭 어포던스를 유지하기 위해 v3 동작을 복원한다. */
+@layer base {
+  button:not(:disabled),
+  [role='button']:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
 /* 나눔고딕 self-host (FE-04). 원본 woff2는 public/fonts/ 에 배치(=/fonts/ 로 정적 서빙).
    전역 적용은 tailwind.config.ts theme.extend.fontFamily.sans('NanumGothic' 우선)가 담당한다.
    font-display: swap — 폰트 로드 전 폴백으로 즉시 렌더(FOIT 회피). */

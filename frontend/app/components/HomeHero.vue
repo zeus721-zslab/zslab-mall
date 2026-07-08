@@ -13,7 +13,7 @@
         <p class="mt-5 text-lg text-sub">엄선한 신상품을 시원하게 둘러보세요.</p>
         <button
           type="button"
-          class="mt-8 rounded-control bg-primary px-7 py-3 text-sm font-semibold text-white transition duration-normal hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-badge-new-bg"
+          class="mt-8 rounded-control bg-primary px-7 py-3 text-sm font-semibold text-white transition duration-normal hover:bg-primary-hover focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-badge-new-bg"
         >
           지금 둘러보기
         </button>
