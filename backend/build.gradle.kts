@@ -50,4 +50,8 @@ tasks.test {
     // 생성하게 한다. Runner 로직 자체(멱등·Fail Fast)는 SuperAdminBootstrapRunnerIntegrationTest가 수동 구성 Runner로 분리 검증한다.
     environment("ADMIN_BOOTSTRAP_EMAIL", "bootstrap-superadmin@zslab.test")
     environment("ADMIN_BOOTSTRAP_PASSWORD", "test-only-bootstrap-pw-please-ignore")
+    // FE-04: 데모 카탈로그 시드(CatalogDemoSeedRunner)를 테스트에서 강제 OFF. @SpringBootTest 기동 시 실행돼 싱글톤 공유
+    // 컨테이너에 데모 행을 커밋하면 전역 상태 단언 테스트(inventory.variant_id UNIQUE·product_variant 전역 count)가 깨진다.
+    // 테스트는 profile=local이라 application-local.yml의 enabled:true를 로드하므로, 상위 우선순위 systemProperty로 명시 차단한다.
+    systemProperty("catalog.demo-seed.enabled", "false")
 }

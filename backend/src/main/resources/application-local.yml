@@ -9,3 +9,9 @@ logging:
   level:
     org.hibernate.SQL: DEBUG
     org.hibernate.orm.jdbc.bind: TRACE
+
+# 데모 카탈로그 시드(FE-04·CatalogDemoSeedRunner)는 dev(local)에서만 활성한다.
+# 테스트는 build.gradle.kts가 systemProperty false로 상위 override, 운영(prod)은 미설정→기본 OFF라 데모 데이터가 실 DB·공유 테스트 컨테이너를 오염시키지 않는다.
+catalog:
+  demo-seed:
+    enabled: true
