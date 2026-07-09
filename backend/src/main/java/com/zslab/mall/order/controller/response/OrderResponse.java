@@ -44,6 +44,7 @@ public record OrderResponse(
                 items.add(new OrderItemResponse(
                         item.getPublicId(),
                         product != null ? product.getPublicId() : null,
+                        product != null ? product.getName() : null,
                         variant != null ? variant.getPublicId() : null,
                         item.getQuantity(),
                         item.getUnitPrice(),

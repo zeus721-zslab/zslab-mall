@@ -34,9 +34,9 @@ useSeoMeta({ title: '주문 완료 · zslab-mall' })
       </div>
 
       <div class="mt-8 space-y-2">
-        <!-- FE-12에서 [주문 내역 보기]를 /orders/{orderPublicId} 상세로 교체. 지금은 존재 경로(상품 목록)로 임시 연결(404 방지). -->
+        <!-- 주문번호가 관통됐으면 해당 주문 상세로, 없으면(직접 진입 등) 주문 목록으로 유도. -->
         <Button size="lg" class="w-full" as-child>
-          <NuxtLink to="/products">주문 내역 보기</NuxtLink>
+          <NuxtLink :to="orderPublicId ? `/orders/${orderPublicId}` : '/orders'">주문 내역 보기</NuxtLink>
         </Button>
         <Button size="lg" variant="outline" class="w-full" as-child>
           <NuxtLink to="/">홈으로</NuxtLink>
