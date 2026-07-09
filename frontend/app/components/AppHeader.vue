@@ -1,5 +1,13 @@
 <script setup lang="ts">
-// FE-03 정적 셸 헤더. 검색·장바구니는 형태만이며 동작은 후속 트랙에서 연결한다.
+// FE-09 STEP 3: FE-03 정적 셸을 auth·cart store에 배선. 검색·카테고리는 시각 셸만 유지(동작은 후속 트랙).
+const auth = useAuthStore()
+const cart = useCartStore()
+
+// 로그아웃은 UI 계층에서 auth·cart를 순차 조합한다(store 간 결합은 store 밖에서).
+function handleLogout(): void {
+  auth.logout()
+  cart.clear()
+}
 </script>
 
 <template>
@@ -9,7 +17,7 @@
         zslab-mall
       </NuxtLink>
 
-      <!-- 검색: 형태만·비율 크게 강조 -->
+      <!-- 검색: 형태만·비율 크게 강조 (동작은 후속 트랙) -->
       <div class="flex-1">
         <label class="relative block">
           <span class="sr-only">상품 검색</span>
@@ -27,15 +35,41 @@
         </label>
       </div>
 
+      <!-- 장바구니: 버튼은 항상 표시, 뱃지는 count>0(items.length)일 때만 -->
       <button
         type="button"
         aria-label="장바구니"
-        class="shrink-0 rounded-full p-2 text-ink transition duration-200 hover:bg-gray-100 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-gray-900"
+        class="relative shrink-0 rounded-full p-2 text-ink transition duration-200 hover:bg-gray-100 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-gray-900"
       >
         <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
           <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
         </svg>
+        <span
+          v-if="cart.count > 0"
+          class="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-xs font-semibold text-primary-foreground"
+        >
+          {{ cart.count }}
+        </span>
       </button>
+
+      <!-- 인증 분기: isAuthenticated computed 기준으로만 렌더(로컬 상태 이중화 금지·SSR/클라 쿠키값 일치) -->
+      <Button v-if="auth.isAuthenticated" variant="ghost" size="sm" class="shrink-0" @click="handleLogout">
+        로그아웃
+      </Button>
+      <NuxtLink
+        v-else
+        to="/login"
+        class="shrink-0 text-sm font-medium text-ink transition duration-200 hover:text-primary"
+      >
+        로그인
+      </NuxtLink>
     </div>
+
+    <!-- 카테고리: 레이아웃 자리 확보용 비상호작용 placeholder. FE-10 카탈로그 트랙에서 실배선. -->
+    <nav aria-label="카테고리" class="border-t border-gray-100">
+      <div class="mx-auto flex h-11 max-w-[1240px] items-center px-4 md:px-6">
+        <span class="select-none text-sm text-sub">카테고리</span>
+      </div>
+    </nav>
   </header>
 </template>
