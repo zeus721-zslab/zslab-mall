@@ -5,6 +5,7 @@ import com.zslab.mall.common.util.PublicIdGenerator;
 import com.zslab.mall.order.entity.Order;
 import com.zslab.mall.order.exception.OrderNotFoundException;
 import com.zslab.mall.order.repository.OrderRepository;
+import com.zslab.mall.order.service.OrderAutoCancelService;
 import com.zslab.mall.payment.command.PaymentCallbackCommand;
 import com.zslab.mall.payment.entity.Payment;
 import com.zslab.mall.payment.enums.PaymentMethod;
@@ -51,17 +52,8 @@ public class PaymentService {
     /** payment_attempt_key prefix(D-35). */
     private static final String ATTEMPT_KEY_PREFIX = "pat";
 
-    /** FAILURE 콜백에 failureCode가 없을 때의 기본값. */
+    /** FAILURE 콜백에 failureCode가 없을 때의 기본값(PG 실제 결제 실패). */
     private static final String DEFAULT_FAILURE_CODE = "PG_FAILURE";
-
-    /** CANCEL × PENDING(결제 미완료 취소) 실패 코드(D-34). */
-    private static final String CANCEL_BEFORE_PAYMENT_CODE = "CANCELLED_BEFORE_PAYMENT";
-
-    /**
-     * 정책 만료(자동 배치) 실패 코드(Track 25·D-08 M-14). PG 실패({@link #DEFAULT_FAILURE_CODE})·CANCEL×PENDING
-     * ({@link #CANCEL_BEFORE_PAYMENT_CODE})과 의미를 구분한다. {@link ExpirePaymentService}가 참조하므로 {@code public}으로 공개한다.
-     */
-    public static final String PAYMENT_EXPIRED = "PAYMENT_EXPIRED";
 
     /** FAILURE 콜백 metadata에서 failureCode를 꺼낼 키. */
     private static final String METADATA_FAILURE_CODE_KEY = "failureCode";
@@ -71,18 +63,21 @@ public class PaymentService {
     private final PaymentGateway paymentGateway;
     private final TracedEventPublisher eventPublisher;
     private final RefundRepository refundRepository;
+    private final OrderAutoCancelService orderAutoCancelService;
 
     public PaymentService(
             OrderRepository orderRepository,
             PaymentRepository paymentRepository,
             PaymentGateway paymentGateway,
             TracedEventPublisher eventPublisher,
-            RefundRepository refundRepository) {
+            RefundRepository refundRepository,
+            OrderAutoCancelService orderAutoCancelService) {
         this.orderRepository = orderRepository;
         this.paymentRepository = paymentRepository;
         this.paymentGateway = paymentGateway;
         this.eventPublisher = eventPublisher;
         this.refundRepository = refundRepository;
+        this.orderAutoCancelService = orderAutoCancelService;
     }
 
     /**
@@ -249,7 +244,7 @@ public class PaymentService {
                 payment.complete(command.occurredAt(), command.provider(), command.pgTid());
             }
             case PAID -> log.info("[Payment] SUCCESS 콜백 멱등 NO-OP(이미 PAID): attemptKey={}", command.paymentAttemptKey());
-            case FAILED, CANCELLED -> {
+            case FAILED, CANCELLED, EXPIRED -> {
                 log.warn("[Payment] SUCCESS 콜백 REJECT: 상태={}, attemptKey={}", payment.getStatus(), command.paymentAttemptKey());
                 throw new InvalidCallbackException(
                         "종결 상태에서 SUCCESS 전이는 불가합니다: status=" + payment.getStatus());
@@ -257,26 +252,44 @@ public class PaymentService {
         }
     }
 
-    /** FAILURE 콜백 처리(D-34): PENDING→FAILED / PAID·FAILED·CANCELLED NO-OP. */
+    /**
+     * FAILURE 콜백 처리(D-34·FE-12c 정정): PENDING→PG 실제 결제 실패(Payment FAILED·failure_code 유지) + Order를
+     * PAYMENT_EXPIRED 종료(cancelOne·OrderTerminated 발행) / 종결 상태 NO-OP. FAILED(실제 실패)는 EXPIRED(결제창 이탈·만료)와
+     * 구분되나, Order는 셋 다 동일하게 PAYMENT_EXPIRED로 종료된다.
+     */
     private void handleFailure(Payment payment, PaymentCallbackCommand command) {
         if (payment.getStatus() == PaymentStatus.PENDING) {
-            payment.fail(resolveFailureCode(command), command.occurredAt());
+            payment.fail(resolveFailureCode(command), command.occurredAt());   // PENDING → FAILED (PaymentFailed 미발행)
+            orderAutoCancelService.cancelOne(payment.getOrderId());            // Order PAYMENT_EXPIRED + OrderTerminated 발행
         } else {
             log.info("[Payment] FAILURE 콜백 NO-OP: 상태={}, attemptKey={}", payment.getStatus(), command.paymentAttemptKey());
         }
     }
 
-    /** CANCEL 콜백 처리(D-34): PAID→CANCELLED / PENDING→FAILED(미완료 취소) / FAILED·CANCELLED NO-OP. */
+    /**
+     * CANCEL 콜백 처리(D-34·FE-12c): PAID→CANCELLED(환불 흐름) / PENDING→미결제 종료(결제창 취소·Payment EXPIRED +
+     * Order PAYMENT_EXPIRED) / 종결 상태(FAILED·CANCELLED·EXPIRED) NO-OP.
+     */
     private void handleCancel(Payment payment, PaymentCallbackCommand command) {
         switch (payment.getStatus()) {
             case PAID -> payment.cancel();
-            case PENDING -> payment.fail(CANCEL_BEFORE_PAYMENT_CODE, command.occurredAt());
-            case FAILED, CANCELLED ->
+            case PENDING -> terminateUnpaid(payment);
+            case FAILED, CANCELLED, EXPIRED ->
                     log.info("[Payment] CANCEL 콜백 NO-OP: 상태={}, attemptKey={}", payment.getStatus(), command.paymentAttemptKey());
         }
     }
 
-    /** FAILURE 콜백 metadata에서 failureCode를 꺼낸다. 없으면 기본값. */
+    /**
+     * 미결제 결제를 종료한다(FE-12c 공통 실행체). Payment를 EXPIRED로 종료하고(결제 생명주기 종료·PaymentFailed 미발행)
+     * 주문을 {@link OrderAutoCancelService#cancelOne}으로 PAYMENT_EXPIRED 종료·OrderTerminated 발행에 위임한다
+     * (원칙 3·재고 해제는 OrderTerminated 단일 수렴). cancelOne은 status!=PENDING_PAYMENT면 멱등 skip한다.
+     */
+    private void terminateUnpaid(Payment payment) {
+        payment.expire();
+        orderAutoCancelService.cancelOne(payment.getOrderId());
+    }
+
+    /** FAILURE 콜백 metadata에서 failureCode를 꺼낸다. 없으면 기본값(PG_FAILURE). */
     private String resolveFailureCode(PaymentCallbackCommand command) {
         Map<String, String> metadata = command.metadata();
         if (metadata == null) {

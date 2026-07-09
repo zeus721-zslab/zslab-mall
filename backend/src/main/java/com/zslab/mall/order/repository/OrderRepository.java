@@ -46,6 +46,12 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     Page<Order> findByBuyerIdOrderByOrderedAtDesc(Long buyerId, Pageable pageable);
 
     /**
+     * Buyer 본인 주문 목록에서 특정 status를 제외하고 조회한다(FE-12c·미결제 종료 PAYMENT_EXPIRED 비노출).
+     * 페이지 정합을 위해 DB 레벨에서 제외하며(서비스 필터 시 페이지 카운트 붕괴), 나머지 관습은 {@link #findByBuyerIdOrderByOrderedAtDesc}와 동일하다.
+     */
+    Page<Order> findByBuyerIdAndStatusNotOrderByOrderedAtDesc(Long buyerId, OrderStatus status, Pageable pageable);
+
+    /**
      * 자동취소 대상(status·createdAt≤기준시각) 주문을 배치 상한으로 조회한다(D-153 Phase 1·ExpirePayment 배치 관습 정합).
      * 기준시각(threshold=now-유예)은 스케줄러가 계산해 전달하며 본 메서드는 파라미터만 받는다. items는 fetch join하지 않는다
      * — 취소 처리(OrderAutoCancelService.cancelOne)가 id별 독립 트랜잭션에서 {@link #findByIdWithItems}로 재조회하므로

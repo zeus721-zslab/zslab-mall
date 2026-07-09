@@ -4,7 +4,6 @@ import com.zslab.mall.common.entity.AbstractPublicIdFullAuditableEntity;
 import com.zslab.mall.payment.enums.PaymentMethod;
 import com.zslab.mall.payment.enums.PaymentStatus;
 import com.zslab.mall.payment.event.PaymentCompleted;
-import com.zslab.mall.payment.event.PaymentFailed;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -149,11 +148,13 @@ public class Payment extends AbstractPublicIdFullAuditableEntity {
     }
 
     /**
-     * 결제 실패를 적용한다(PENDING → FAILED). failureCode를 설정하고 {@link PaymentFailed}를 누적한다.
-     * PG 결제 실패뿐 아니라 CANCEL × PENDING(결제 미완료 취소·D-34)과 정책 만료(자동 배치·Track 25 D-08 M-14)도
-     * 본 메서드로 FAILED 전이를 처리한다. 사유는 failureCode로 구분한다(PG_FAILURE·CANCELLED_BEFORE_PAYMENT·PAYMENT_EXPIRED).
+     * PG 실제 결제 실패를 적용한다(PENDING → FAILED·FE-12c 정정). failureCode를 설정한다. FAILED는 재시도 가능한 실제 결제
+     * 실패를 의미하며(EXPIRED=결제창 이탈·만료와 구분), PG 실패 콜백(FAILURE × PENDING·D-34)에서 호출된다.
      *
-     * @param occurredAt 실패 통지 시각(콜백 수신 또는 만료 판정 시각). 이벤트 occurredAt으로 사용한다(D-34).
+     * <p><b>이벤트 미발행(FE-12c·STEP 5-fix-2)</b>: 소비처(InventoryPaymentFailedHandler) 제거로 PaymentFailed 발행을 없앴다.
+     * 재고 해제·주문 종료는 Order 종료 경로(OrderTerminated)가 담당하며, 본 메서드는 결제 상태 전이만 책임진다(원칙 4).
+     *
+     * @param occurredAt 실패 통지 시각(콜백 수신 시각·유효성 검증 대상). 이벤트 미발행이므로 상태에는 반영되지 않는다
      * @throws IllegalStateException PENDING이 아니어서 FAILED 전이가 불가한 경우(PAY-2)
      * @throws IllegalArgumentException failureCode·occurredAt가 null·blank인 경우
      */
@@ -163,7 +164,6 @@ public class Payment extends AbstractPublicIdFullAuditableEntity {
         }
         transitionTo(PaymentStatus.FAILED);
         this.failureCode = failureCode;
-        domainEvents.add(new PaymentFailed(id, orderId, failureCode, occurredAt));
     }
 
     /**
@@ -173,6 +173,18 @@ public class Payment extends AbstractPublicIdFullAuditableEntity {
      */
     public void cancel() {
         transitionTo(PaymentStatus.CANCELLED);
+    }
+
+    /**
+     * 결제 미완 종료를 적용한다(PENDING → EXPIRED·FE-12c). 결제창 이탈·30분 만료·시작 실패로 결제 생명주기를 종료한다.
+     * FAILED(재시도 가능 PG 실패)와 구분되는 종결 상태다. {@link #fail}과 달리 도메인 이벤트를 발행하지 않는다 —
+     * 주문 종료·재고 해제는 Order 종료 경로가 발행하는 OrderTerminated로 수렴하며 Payment는 결제 상태만 종료한다
+     * (원칙 2·4: Payment는 Order 의미를 침범하지 않고 PaymentFailed 결합을 두지 않는다).
+     *
+     * @throws IllegalStateException PENDING이 아니어서 EXPIRED 전이가 불가한 경우(PAY-2)
+     */
+    public void expire() {
+        transitionTo(PaymentStatus.EXPIRED);
     }
 
     /**

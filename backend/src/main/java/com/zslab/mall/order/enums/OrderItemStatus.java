@@ -46,8 +46,7 @@ public enum OrderItemStatus {
      */
     public boolean canTransitionTo(OrderItemStatus next) {
         return switch (this) {
-            // ORDERED → CANCELLED: 결제 전 미결제 자동취소 경로(D-153 Phase 1)
-            case ORDERED -> next == PAID || next == CANCELLED;
+            case ORDERED -> next == PAID;
             case PAID -> next == PREPARING || next == CANCEL_REQUESTED;
             case PREPARING -> next == SHIPPING || next == CANCEL_REQUESTED;
             case SHIPPING -> next == DELIVERED || next == RETURN_REQUESTED;

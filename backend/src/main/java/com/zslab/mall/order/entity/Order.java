@@ -161,6 +161,20 @@ public class Order extends AbstractPublicIdFullAuditableEntity {
     }
 
     /**
+     * 미결제 종료를 적용한다(PENDING_PAYMENT → PAYMENT_EXPIRED·FE-12c). 결제창 이탈·PG오류·30분 만료·시작 실패로
+     * 결제가 완료되지 못한 주문을 종료 상태로 직접 세팅한다. PENDING_PAYMENT와 동일하게 Resolver 파생 대상이 아니라
+     * 직접 세팅되는 값이며(item 집계 무관·OrderItem 무변경), 재고 예약 해제는 호출부가 OrderTerminated 발행으로 위임한다.
+     *
+     * @throws IllegalStateException PENDING_PAYMENT가 아니어서 미결제 종료가 불가한 경우(멱등 가드는 호출부 책임·이중 방어)
+     */
+    public void expirePayment() {
+        if (this.status != OrderStatus.PENDING_PAYMENT) {
+            throw new IllegalStateException("미결제 종료는 PENDING_PAYMENT에서만 가능합니다. 현재 status=" + this.status);
+        }
+        this.status = OrderStatus.PAYMENT_EXPIRED;
+    }
+
+    /**
      * 주문 확정 시각(ordered_at)을 설정한다(D-42 목록 정렬 기준·"주문 확정 시각"). 주문 생성 시점에 1회 설정한다.
      */
     public void markOrdered(LocalDateTime orderedAt) {
