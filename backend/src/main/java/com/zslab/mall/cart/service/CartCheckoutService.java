@@ -23,8 +23,8 @@ import org.springframework.stereotype.Service;
  * 깨뜨린다. selected 조회는 자체 read로 스냅샷을 취하며, 재고 재검증·해소는 CheckoutService가 수행한다.
  *
  * <p><b>빈 주문 선가드(D3)·멱등 인지(Track 66)</b>: selected 품목이 0개면 원칙적으로 {@link EmptyCartCheckoutException}(422)으로
- * 즉시 차단해 OrderService ORD-1(빈 주문 불가) 도달 전 명확한 사유를 반환한다. 단, 주문 성공 시 CartOrderPlacedHandler
- * (OrderPlaced 소비·D-75·D-126)가 이미 cart를 비우므로, 동일 Idempotency-Key 재요청은 selected가 비어 있어도 정상 replay다.
+ * 즉시 차단해 OrderService ORD-1(빈 주문 불가) 도달 전 명확한 사유를 반환한다. 단, 결제 완료 시 CartPaymentCompletedHandler
+ * (PaymentCompleted 소비·D-75·D-126·Track 67)가 cart를 비우므로, 소진 후 동일 Idempotency-Key 재요청은 selected가 비어 있어도 정상 replay다.
  * 따라서 selected가 비었더라도 해당 (buyerId, key)의 멱등 레코드가 존재하면 throw하지 않고 빈 itemCommands로 위임한다
  * — CheckoutService가 캐시 응답/복구를 items 접근 없이 short-circuit 처리해 멱등 계약(replay→cached 200)을 보존한다.
  */
