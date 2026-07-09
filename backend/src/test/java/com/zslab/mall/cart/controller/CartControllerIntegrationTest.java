@@ -39,8 +39,9 @@ class CartControllerIntegrationTest extends AbstractIntegrationTest {
     private static final String URL = "/api/v1/cart/items";
 
     private static final long BUYER_USER_ID = 9640L;   // JWT subject(actorId)·cart_item.user_id
-    private static final long VARIANT_ID = 9641L;       // seed된 product_variant·담기 대상
-    private static final long MISSING_VARIANT_ID = 9699L; // 미seed·404 검증용
+    private static final long VARIANT_ID = 9641L;       // seed된 product_variant 내부 PK(DB 검증용)
+    private static final String VARIANT_PUBLIC_ID = pid("var_", "CRTVAR");  // 외부 대상키(요청·응답)
+    private static final String MISSING_VARIANT_PUBLIC_ID = pid("var_", "CRTMIS"); // 미seed·404 검증용
     private static final long SELLER_ACTOR_ID = 9642L;  // 비-BUYER 403 검증용(필터 선차단·seed 불요)
 
     @Autowired
@@ -69,12 +70,12 @@ class CartControllerIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("신규 담기 → 201 + 담김 상태(userId·variantId·quantity·selected) · cart_item 1행 quantity=2")
+    @DisplayName("신규 담기 → 201 + 담김 상태(userId·variantPublicId·quantity·selected) · cart_item 1행 quantity=2")
     void addItem_new_returns201_persistsRow() throws Exception {
-        add(authHeaders.buyer(BUYER_USER_ID), VARIANT_ID, 2)
+        add(authHeaders.buyer(BUYER_USER_ID), VARIANT_PUBLIC_ID, 2)
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.userId").value((int) BUYER_USER_ID))
-                .andExpect(jsonPath("$.variantId").value((int) VARIANT_ID))
+                .andExpect(jsonPath("$.variantPublicId").value(VARIANT_PUBLIC_ID))
                 .andExpect(jsonPath("$.quantity").value(2))
                 .andExpect(jsonPath("$.selected").value(true));
 
@@ -85,8 +86,8 @@ class CartControllerIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("동일 variant 재담기 → 수량 누적(M1α·별도 row 아님·UNIQUE 유지) · 최종 quantity=5·row 1개")
     void addItem_sameVariantAgain_accumulatesQuantity() throws Exception {
-        add(authHeaders.buyer(BUYER_USER_ID), VARIANT_ID, 2).andExpect(status().isCreated());
-        add(authHeaders.buyer(BUYER_USER_ID), VARIANT_ID, 3)
+        add(authHeaders.buyer(BUYER_USER_ID), VARIANT_PUBLIC_ID, 2).andExpect(status().isCreated());
+        add(authHeaders.buyer(BUYER_USER_ID), VARIANT_PUBLIC_ID, 3)
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.quantity").value(5));
 
@@ -98,7 +99,7 @@ class CartControllerIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("존재하지 않는 variant → 404 PRODUCT_VARIANT_NOT_FOUND · cart_item 미생성")
     void addItem_unknownVariant_returns404() throws Exception {
-        add(authHeaders.buyer(BUYER_USER_ID), MISSING_VARIANT_ID, 1)
+        add(authHeaders.buyer(BUYER_USER_ID), MISSING_VARIANT_PUBLIC_ID, 1)
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("PRODUCT_VARIANT_NOT_FOUND"));
 
@@ -108,7 +109,7 @@ class CartControllerIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("미인증(토큰 없음) → 401 UNAUTHENTICATED")
     void addItem_unauthenticated_returns401() throws Exception {
-        add(new HttpHeaders(), VARIANT_ID, 1)
+        add(new HttpHeaders(), VARIANT_PUBLIC_ID, 1)
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
     }
@@ -116,7 +117,7 @@ class CartControllerIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("비-BUYER role(SELLER 토큰) → 403 FORBIDDEN(SecurityConfig 필터 선차단)")
     void addItem_sellerRole_returns403() throws Exception {
-        add(authHeaders.seller(SELLER_ACTOR_ID), VARIANT_ID, 1)
+        add(authHeaders.seller(SELLER_ACTOR_ID), VARIANT_PUBLIC_ID, 1)
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
     }
@@ -124,7 +125,7 @@ class CartControllerIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("quantity<1(0) → 400 VALIDATION_FAILED(@Min(1)) · cart_item 미생성")
     void addItem_quantityBelowOne_returns400() throws Exception {
-        add(authHeaders.buyer(BUYER_USER_ID), VARIANT_ID, 0)
+        add(authHeaders.buyer(BUYER_USER_ID), VARIANT_PUBLIC_ID, 0)
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
 
@@ -133,9 +134,9 @@ class CartControllerIntegrationTest extends AbstractIntegrationTest {
 
     // ==================== helpers ====================
 
-    private ResultActions add(HttpHeaders headers, Object variantId, Object quantity) throws Exception {
+    private ResultActions add(HttpHeaders headers, Object variantPublicId, Object quantity) throws Exception {
         Map<String, Object> body = new HashMap<>();
-        body.put("variantId", variantId);
+        body.put("variantPublicId", variantPublicId);
         body.put("quantity", quantity);
         return mockMvc.perform(post(URL)
                 .headers(headers)

@@ -14,10 +14,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 
 /**
- * {@link CartItemRepository} @DataJpaTest — CRUD·UK·FK constraint 검증.
+ * {@link CartItemRepository} @DataJpaTest — CRUD·UK·FK constraint·파생 쿼리 검증.
  *
  * <p>product_variant는 Batch-3c 미구현 — nativeQuery seed(FK_CHECKS=0·LT-02 try-finally 복원).
- * user는 nativeQuery seed(public_id 필요).
+ * user는 nativeQuery seed(public_id 필요). cart_item.variant_public_id(V17·NOT NULL)는 담김 시점 스냅샷이라
+ * CartItem.create·native seed 모두 명시 세팅한다.
  */
 class CartItemRepositoryTest extends Batch1DataJpaTestBase {
 
@@ -54,11 +55,12 @@ class CartItemRepositoryTest extends Batch1DataJpaTestBase {
     }
 
     @Test
-    @DisplayName("save+findById 성공: userId·variantId·quantity·selected 확인")
+    @DisplayName("save+findById 성공: userId·variantId·variantPublicId·quantity·selected 확인")
     void save_findById_success() {
         long userId = seedUser("usr_crt01234567890123456789012");
-        long variantId = seedProductVariant("var_crt01234567890123456789012");
-        CartItem saved = cartItemRepository.saveAndFlush(CartItem.create(userId, variantId, 2));
+        String variantPublicId = "var_crt01234567890123456789012";
+        long variantId = seedProductVariant(variantPublicId);
+        CartItem saved = cartItemRepository.saveAndFlush(CartItem.create(userId, variantId, variantPublicId, 2));
         entityManager.clear();
 
         Optional<CartItem> found = cartItemRepository.findById(saved.getId());
@@ -66,6 +68,7 @@ class CartItemRepositoryTest extends Batch1DataJpaTestBase {
         assertThat(found).isPresent();
         assertThat(found.get().getUserId()).isEqualTo(userId);
         assertThat(found.get().getVariantId()).isEqualTo(variantId);
+        assertThat(found.get().getVariantPublicId()).isEqualTo(variantPublicId);
         assertThat(found.get().getQuantity()).isEqualTo(2);
         assertThat(found.get().getSelected()).isTrue();
         assertThat(found.get().getCreatedAt()).isNotNull();
@@ -75,11 +78,12 @@ class CartItemRepositoryTest extends Batch1DataJpaTestBase {
     @DisplayName("UK(user_id, variant_id) 중복 삽입 → DataIntegrityViolationException")
     void insert_duplicateUserVariant_throwsDataIntegrityViolation() {
         long userId = seedUser("usr_crt11234567890123456789012");
-        long variantId = seedProductVariant("var_crt11234567890123456789012");
-        cartItemRepository.saveAndFlush(CartItem.create(userId, variantId, 1));
+        String variantPublicId = "var_crt11234567890123456789012";
+        long variantId = seedProductVariant(variantPublicId);
+        cartItemRepository.saveAndFlush(CartItem.create(userId, variantId, variantPublicId, 1));
 
         assertThatThrownBy(() ->
-            cartItemRepository.saveAndFlush(CartItem.create(userId, variantId, 3))
+            cartItemRepository.saveAndFlush(CartItem.create(userId, variantId, variantPublicId, 3))
         ).isInstanceOf(DataIntegrityViolationException.class);
     }
 
@@ -89,8 +93,8 @@ class CartItemRepositoryTest extends Batch1DataJpaTestBase {
         assertThatThrownBy(() ->
             entityManager.getEntityManager()
                 .createNativeQuery(
-                    "INSERT INTO cart_item (user_id, variant_id, quantity, selected, created_at, updated_at) "
-                    + "VALUES (99999, 99999, 1, 1, NOW(6), NOW(6))")
+                    "INSERT INTO cart_item (user_id, variant_id, variant_public_id, quantity, selected, created_at, updated_at) "
+                    + "VALUES (99999, 99999, 'var_fk0123456789012345678901', 1, 1, NOW(6), NOW(6))")
                 .executeUpdate()
         ).isInstanceOf(PersistenceException.class);
     }
@@ -102,8 +106,8 @@ class CartItemRepositoryTest extends Batch1DataJpaTestBase {
         assertThatThrownBy(() ->
             entityManager.getEntityManager()
                 .createNativeQuery(
-                    "INSERT INTO cart_item (user_id, variant_id, quantity, selected, created_at, updated_at) "
-                    + "VALUES (" + userId + ", 99999, 1, 1, NOW(6), NOW(6))")
+                    "INSERT INTO cart_item (user_id, variant_id, variant_public_id, quantity, selected, created_at, updated_at) "
+                    + "VALUES (" + userId + ", 99999, 'var_fk1123456789012345678901', 1, 1, NOW(6), NOW(6))")
                 .executeUpdate()
         ).isInstanceOf(PersistenceException.class);
     }
@@ -115,12 +119,15 @@ class CartItemRepositoryTest extends Batch1DataJpaTestBase {
     void findByUserIdAndSelectedTrue_returnsOnlySelected() {
         long userId = seedUser(pid("usr_", "SELU1"));
         long otherUserId = seedUser(pid("usr_", "SELU2"));
-        long variantSelected = seedProductVariant(pid("var_", "SELVA"));
-        long variantUnselected = seedProductVariant(pid("var_", "SELVB"));
-        long variantOther = seedProductVariant(pid("var_", "SELVC"));
-        cartItemRepository.saveAndFlush(CartItem.create(userId, variantSelected, 2));    // selected=true(기본)
-        seedCartItemSelected(userId, variantUnselected, 1, false);                        // selected=false
-        cartItemRepository.saveAndFlush(CartItem.create(otherUserId, variantOther, 1));   // 타 user
+        String variantSelectedPid = pid("var_", "SELVA");
+        String variantUnselectedPid = pid("var_", "SELVB");
+        String variantOtherPid = pid("var_", "SELVC");
+        long variantSelected = seedProductVariant(variantSelectedPid);
+        long variantUnselected = seedProductVariant(variantUnselectedPid);
+        long variantOther = seedProductVariant(variantOtherPid);
+        cartItemRepository.saveAndFlush(CartItem.create(userId, variantSelected, variantSelectedPid, 2));   // selected=true(기본)
+        seedCartItemSelected(userId, variantUnselected, variantUnselectedPid, 1, false);                    // selected=false
+        cartItemRepository.saveAndFlush(CartItem.create(otherUserId, variantOther, variantOtherPid, 1));    // 타 user
         entityManager.clear();
 
         List<CartItem> result = cartItemRepository.findByUserIdAndSelectedTrue(userId);
@@ -133,11 +140,13 @@ class CartItemRepositoryTest extends Batch1DataJpaTestBase {
     void deleteByUserIdAndVariantIdIn_scopedDelete() {
         long userId = seedUser(pid("usr_", "DELU1"));
         long otherUserId = seedUser(pid("usr_", "DELU2"));
-        long variantTarget = seedProductVariant(pid("var_", "DELVA"));
-        long variantKeep = seedProductVariant(pid("var_", "DELVB"));
-        cartItemRepository.saveAndFlush(CartItem.create(userId, variantTarget, 1));       // 삭제 대상
-        cartItemRepository.saveAndFlush(CartItem.create(userId, variantKeep, 1));         // 비대상 잔존
-        cartItemRepository.saveAndFlush(CartItem.create(otherUserId, variantTarget, 1));  // 타 user·미삭제
+        String variantTargetPid = pid("var_", "DELVA");
+        String variantKeepPid = pid("var_", "DELVB");
+        long variantTarget = seedProductVariant(variantTargetPid);
+        long variantKeep = seedProductVariant(variantKeepPid);
+        cartItemRepository.saveAndFlush(CartItem.create(userId, variantTarget, variantTargetPid, 1));       // 삭제 대상
+        cartItemRepository.saveAndFlush(CartItem.create(userId, variantKeep, variantKeepPid, 1));           // 비대상 잔존
+        cartItemRepository.saveAndFlush(CartItem.create(otherUserId, variantTarget, variantTargetPid, 1));  // 타 user·미삭제
 
         long deleted = cartItemRepository.deleteByUserIdAndVariantIdIn(userId, List.of(variantTarget));
         entityManager.flush();
@@ -153,22 +162,65 @@ class CartItemRepositoryTest extends Batch1DataJpaTestBase {
     @DisplayName("deleteByUserIdAndVariantIdIn: 대상 부재 → 0 반환")
     void deleteByUserIdAndVariantIdIn_noMatch_returnsZero() {
         long userId = seedUser(pid("usr_", "DELU3"));
-        long variantAbsent = seedProductVariant(pid("var_", "DELVZ"));
+        String variantAbsentPid = pid("var_", "DELVZ");
+        long variantAbsent = seedProductVariant(variantAbsentPid);
 
         long deleted = cartItemRepository.deleteByUserIdAndVariantIdIn(userId, List.of(variantAbsent));
 
         assertThat(deleted).isZero();
     }
 
+    // ===== V17 외부 대상키(variant_public_id) 파생 쿼리 =====
+
+    @Test
+    @DisplayName("findByUserIdAndVariantPublicId: 담김 스냅샷 조회·타 user 제외")
+    void findByUserIdAndVariantPublicId_scopedLookup() {
+        long userId = seedUser(pid("usr_", "PUBF1"));
+        long otherUserId = seedUser(pid("usr_", "PUBF2"));
+        String variantPid = pid("var_", "PUBVA");
+        long variantId = seedProductVariant(variantPid);
+        cartItemRepository.saveAndFlush(CartItem.create(userId, variantId, variantPid, 2));
+        entityManager.clear();
+
+        assertThat(cartItemRepository.findByUserIdAndVariantPublicId(userId, variantPid))
+            .get().extracting(CartItem::getVariantId).isEqualTo(variantId);
+        // 타 user 스코프는 담지 않았으므로 미조회(소유권 자동)
+        assertThat(cartItemRepository.findByUserIdAndVariantPublicId(otherUserId, variantPid)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("deleteByUserIdAndVariantPublicIdIn: 외부 키로 대상 삭제·buyer 스코프·비대상 잔존·반환 행수 1")
+    void deleteByUserIdAndVariantPublicIdIn_scopedDelete() {
+        long userId = seedUser(pid("usr_", "PUBD1"));
+        long otherUserId = seedUser(pid("usr_", "PUBD2"));
+        String variantTargetPid = pid("var_", "PUBVT");
+        String variantKeepPid = pid("var_", "PUBVK");
+        long variantTarget = seedProductVariant(variantTargetPid);
+        long variantKeep = seedProductVariant(variantKeepPid);
+        cartItemRepository.saveAndFlush(CartItem.create(userId, variantTarget, variantTargetPid, 1));       // 삭제 대상
+        cartItemRepository.saveAndFlush(CartItem.create(userId, variantKeep, variantKeepPid, 1));           // 비대상 잔존
+        cartItemRepository.saveAndFlush(CartItem.create(otherUserId, variantTarget, variantTargetPid, 1));  // 타 user·미삭제
+
+        long deleted = cartItemRepository.deleteByUserIdAndVariantPublicIdIn(userId, List.of(variantTargetPid));
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(deleted).isEqualTo(1);
+        assertThat(cartItemRepository.findByUserIdAndVariantPublicId(userId, variantTargetPid)).isEmpty();
+        assertThat(cartItemRepository.findByUserIdAndVariantPublicId(userId, variantKeepPid)).isPresent();
+        assertThat(cartItemRepository.findByUserIdAndVariantPublicId(otherUserId, variantTargetPid)).isPresent();
+    }
+
     /** selected 플래그를 지정해 cart_item을 직접 seed한다(create()는 selected=true 고정이라 false 상태 재현용·positional 바인딩). */
-    private void seedCartItemSelected(long userId, long variantId, int quantity, boolean selected) {
+    private void seedCartItemSelected(long userId, long variantId, String variantPublicId, int quantity, boolean selected) {
         entityManager.getEntityManager().createNativeQuery(
-                "INSERT INTO cart_item (user_id, variant_id, quantity, selected, created_at, updated_at) "
-                + "VALUES (?1, ?2, ?3, ?4, NOW(6), NOW(6))")
+                "INSERT INTO cart_item (user_id, variant_id, variant_public_id, quantity, selected, created_at, updated_at) "
+                + "VALUES (?1, ?2, ?3, ?4, ?5, NOW(6), NOW(6))")
             .setParameter(1, userId)
             .setParameter(2, variantId)
-            .setParameter(3, quantity)
-            .setParameter(4, selected ? 1 : 0)
+            .setParameter(3, variantPublicId)
+            .setParameter(4, quantity)
+            .setParameter(5, selected ? 1 : 0)
             .executeUpdate();
     }
 

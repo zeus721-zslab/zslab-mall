@@ -64,7 +64,8 @@ class CartCheckoutServiceTest {
     @DisplayName("selected 품목 → CartCheckoutCommand(variantId·quantity) 조립·checkout 위임·결과 반환")
     void checkout_selectedItems_assemblesCommandAndDelegates() {
         when(cartItemRepository.findByUserIdAndSelectedTrue(BUYER_ID)).thenReturn(List.of(
-                CartItem.create(BUYER_ID, 201L, 2), CartItem.create(BUYER_ID, 202L, 3)));
+                CartItem.create(BUYER_ID, 201L, "var_chk01234567890123456789012", 2),
+                CartItem.create(BUYER_ID, 202L, "var_chk11234567890123456789012", 3)));
         ArgumentCaptor<CartCheckoutCommand> captor = ArgumentCaptor.forClass(CartCheckoutCommand.class);
         when(checkoutService.checkout(captor.capture())).thenReturn(outcome());
 
