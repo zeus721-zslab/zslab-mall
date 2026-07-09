@@ -1,9 +1,13 @@
 <script setup lang="ts">
 import type { ProductImage, ProductVariant } from '~/types/product'
+import { BUYER_ROLE } from '~/lib/constants/auth'
 
 // 라우트 파라미터(prd_)로 상세를 조회한다. permitAll 공개 카탈로그라 인증 없이 SSR/CSR 모두 조회 가능.
 const route = useRoute()
 const productPublicId = route.params.productPublicId as string
+
+const auth = useAuthStore()
+const cart = useCartStore()
 
 const { data, pending, error, refresh } = useProductDetail(productPublicId)
 
@@ -83,12 +87,45 @@ function incrementQuantity(): void {
   quantity.value += 1
 }
 
+// 담기 진행/결과 상태. adding으로 중복 클릭을 막고, 성공/실패 문구를 버튼 아래에 노출한다.
+const adding = ref<boolean>(false)
+const addSucceeded = ref<boolean>(false)
+const addErrorMessage = ref<string>('')
+
 /**
- * 담기 액션 seam(FE-10a는 배치만). FE-10b에서 배선: 미인증이면 인증 게이트(→/login), 인증이면
- * POST /api/v1/cart/items { variantPublicId: selectedVariantPublicId, quantity }. 이번 트랙은 호출하지 않는다(no-op).
+ * 담기 액션(FE-10b 배선). 미인증·비-BUYER면 클릭 시점 인증 게이트(→/login·복귀 경로 전달). 인증이면
+ * POST /api/v1/cart/items 후 cart store가 재load해 뱃지를 갱신한다. 페이지 이동은 하지 않는다.
  */
-function handleAddToCart(): void {
-  // FE-10b에서 배선(담기 API 호출·인증 게이트·cart store 갱신). 소비처 없는 선작성 금지로 여기서는 no-op.
+async function handleAddToCart(): Promise<void> {
+  if (adding.value) return
+  const variantPublicId = selectedVariantPublicId.value
+  // 담기 가능(variant 확정·미품절)일 때만 버튼이 활성이나, seam 안전을 위해 대상키 부재는 방어한다.
+  if (!variantPublicId) return
+
+  addSucceeded.value = false
+  addErrorMessage.value = ''
+
+  // 인증 게이트: 미인증 또는 비-BUYER면 로그인으로 유도(복귀 경로 전달). 페이지 진입은 막지 않고 클릭 시점에만 건다.
+  if (!auth.isAuthenticated || auth.role !== BUYER_ROLE) {
+    await navigateTo(`/login?redirect=${encodeURIComponent(route.fullPath)}`)
+    return
+  }
+
+  adding.value = true
+  try {
+    await cart.add(variantPublicId, quantity.value)
+    addSucceeded.value = true
+  } catch (error) {
+    // 세션 만료 등으로 서버가 401이면 재로그인 유도, 그 외(403 권한 부족 등)는 안내만 한다.
+    const statusCode = (error as { statusCode?: number }).statusCode
+    if (statusCode === 401) {
+      await navigateTo(`/login?redirect=${encodeURIComponent(route.fullPath)}`)
+      return
+    }
+    addErrorMessage.value = '장바구니에 담지 못했습니다. 잠시 후 다시 시도해 주세요.'
+  } finally {
+    adding.value = false
+  }
 }
 
 useSeoMeta({
@@ -221,16 +258,20 @@ useSeoMeta({
             </div>
           </div>
 
-          <!-- 담기: FE-10a는 seam만(배치·비활성 게이트). 실제 POST /cart/items·인증 게이트는 FE-10b에서 배선. -->
+          <!-- 담기: POST /cart/items·인증 게이트·cart store 갱신(FE-10b 배선). 진행 중·미확정·품절이면 비활성. -->
           <Button
             size="lg"
             class="w-full"
-            :disabled="!canAddToCart"
+            :disabled="!canAddToCart || adding"
             :data-variant-public-id="selectedVariantPublicId ?? undefined"
             @click="handleAddToCart"
           >
-            장바구니 담기
+            {{ adding ? '담는 중…' : '장바구니 담기' }}
           </Button>
+
+          <!-- 담기 결과: 성공 시 뱃지만 갱신(이동 없음)·실패 시 안내 -->
+          <p v-if="addSucceeded" role="status" class="text-sm text-seller">장바구니에 담았습니다.</p>
+          <p v-else-if="addErrorMessage" role="alert" class="text-sm text-soldout">{{ addErrorMessage }}</p>
         </div>
       </div>
     </div>

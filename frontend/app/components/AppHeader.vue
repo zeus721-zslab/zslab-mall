@@ -35,9 +35,9 @@ function handleLogout(): void {
         </label>
       </div>
 
-      <!-- 장바구니: 버튼은 항상 표시, 뱃지는 count>0(items.length)일 때만 -->
-      <button
-        type="button"
+      <!-- 장바구니: 항상 표시, 뱃지는 count>0(items.length)일 때만. /cart로 이동(BUYER 미들웨어가 진입 보호). -->
+      <NuxtLink
+        to="/cart"
         aria-label="장바구니"
         class="relative shrink-0 rounded-full p-2 text-ink transition duration-200 hover:bg-gray-100 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-gray-900"
       >
@@ -50,7 +50,7 @@ function handleLogout(): void {
         >
           {{ cart.count }}
         </span>
-      </button>
+      </NuxtLink>
 
       <!-- 인증 분기: isAuthenticated computed 기준으로만 렌더(로컬 상태 이중화 금지·SSR/클라 쿠키값 일치) -->
       <Button v-if="auth.isAuthenticated" variant="ghost" size="sm" class="shrink-0" @click="handleLogout">
