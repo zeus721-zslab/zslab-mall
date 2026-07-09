@@ -31,7 +31,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 장바구니 담기 Application Service(Track 40·buyer 주도). variant 존재검증 후 (userId, variantId) 단위로 담고,
+ * 장바구니 담기 Application Service(Track 40·buyer 주도). variant 존재검증 후 (userId, variant) 단위로 담고,
  * 동일 variant 재담기는 수량을 누적한다(M1α). 트랜잭션 경계는 메서드 단위다.
  *
  * <p><b>수량 누적·동시삽입(R2)</b>: 순차 재담기(상시·더블클릭 포함)는 pre-check {@code findByUserIdAndVariantId}→
@@ -41,8 +41,8 @@ import org.springframework.transaction.annotation.Transactional;
  * 방식은 flush 실패가 트랜잭션을 rollback-only로 만들어 commit 시 UnexpectedRollbackException이 발생하는 트랩이라 쓰지 않는다.
  * 409를 받은 클라이언트가 재시도하면 pre-check가 잡아 누적으로 수렴한다.
  *
- * <p>variant 존재는 {@code existsById}로만 확인하고(미사용 로드 회피·ProductRegistration 선례), 담기 시점에 재고를
- * 연계하지 않는다(재고 확인·예약은 구매 시점 SoT·Track 40 정찰 §7).
+ * <p>variant 존재·내부 id는 {@code findByPublicId}로 외부키(var_)를 해소해 확인하고(누적·UK 판정은 내부 variantId 기준),
+ * 담기 시점에 재고를 연계하지 않는다(재고 확인·예약은 구매 시점 SoT·Track 40 정찰 §7).
  */
 @Slf4j
 @Service
@@ -60,28 +60,27 @@ public class CartService {
      * 장바구니에 상품 변형을 담는다. 동일 (userId, variantId)가 이미 있으면 수량을 누적(M1α)하고, 없으면 신규 생성한다.
      *
      * @param userId 인증 컨텍스트에서 해소된 buyer 식별자(Controller 주입)
-     * @param request 담기 요청(variantId·quantity)
-     * @return 담긴 최종 상태(userId·variantId·quantity·selected)
-     * @throws ProductVariantNotFoundException variantId에 해당하는 ProductVariant가 없을 때(404·M2α)
+     * @param request 담기 요청(variantPublicId·quantity)
+     * @return 담긴 최종 상태(userId·variantPublicId·quantity·selected)
+     * @throws ProductVariantNotFoundException variantPublicId에 해당하는 ProductVariant가 없을 때(404·M2α)
      * @throws OptimisticLockingFailureException 신규 담기 중 동시삽입 충돌 시(409·클라 재시도 시 누적 수렴)
      */
     public CartItemAddResponse addItem(Long userId, CartItemAddRequest request) {
-        // 1. variant 존재검증(M2α·404). id 확인만 필요하므로 엔티티 로드 없이 existsById(ProductRegistration 선례).
-        if (!productVariantRepository.existsById(request.variantId())) {
-            throw new ProductVariantNotFoundException(
-                    "장바구니 담기 대상 상품 변형이 존재하지 않습니다: variantId=" + request.variantId());
-        }
+        // 1. variant 존재검증(M2α·404). 외부 키(var_)로 조회해 내부 id를 해소한다(enrich 조인·UK 정합은 내부 id 기준 유지).
+        ProductVariant variant = productVariantRepository.findByPublicId(request.variantPublicId())
+                .orElseThrow(() -> new ProductVariantNotFoundException(
+                        "장바구니 담기 대상 상품 변형이 존재하지 않습니다: variantPublicId=" + request.variantPublicId()));
 
-        // 2. M1α 수량 누적: 기존 담김 있으면 누적(동일 TX·dirty checking), 없으면 신규 생성.
-        CartItem cartItem = cartItemRepository.findByUserIdAndVariantId(userId, request.variantId())
+        // 2. M1α 수량 누적: 기존 담김 있으면 누적(동일 TX·dirty checking·UK(user_id, variant_id) 기준), 없으면 신규 생성.
+        CartItem cartItem = cartItemRepository.findByUserIdAndVariantId(userId, variant.getId())
                 .map(existing -> {
                     existing.addQuantity(request.quantity());
                     return existing;
                 })
-                .orElseGet(() -> insertNew(userId, request));
+                .orElseGet(() -> insertNew(userId, variant, request.quantity()));
 
         return new CartItemAddResponse(
-                cartItem.getUserId(), cartItem.getVariantId(), cartItem.getQuantity(), cartItem.getSelected());
+                cartItem.getUserId(), cartItem.getVariantPublicId(), cartItem.getQuantity(), cartItem.getSelected());
     }
 
     /**
@@ -90,14 +89,15 @@ public class CartService {
      *
      * @throws OptimisticLockingFailureException 동시삽입 충돌 시(409)
      */
-    private CartItem insertNew(Long userId, CartItemAddRequest request) {
+    private CartItem insertNew(Long userId, ProductVariant variant, Integer quantity) {
         try {
             // saveAndFlush로 uk_cart_item_user_variant 위반을 트랜잭션 내에서 즉시 표면화한다(house 패턴).
+            // variant_public_id는 담김 시점 스냅샷으로 저장한다(외부 대상키 소유·V17).
             return cartItemRepository.saveAndFlush(
-                    CartItem.create(userId, request.variantId(), request.quantity()));
+                    CartItem.create(userId, variant.getId(), variant.getPublicId(), quantity));
         } catch (DataIntegrityViolationException exception) {
             log.warn("[Cart] 동시 담기 충돌(409·uk_cart_item_user_variant) userId={} variantId={}: {}",
-                    userId, request.variantId(), exception.getMostSpecificCause().getMessage());
+                    userId, variant.getId(), exception.getMostSpecificCause().getMessage());
             throw new OptimisticLockingFailureException(
                     "동시 담기 충돌이 발생했습니다. 다시 시도해 주세요.", exception);
         }
@@ -141,9 +141,9 @@ public class CartService {
      * 장바구니 품목을 buyer 스코프로 물리삭제한다(Track 45). deleteByUserIdAndVariantIdIn 재사용(단건도 배열 1개)이며,
      * userId 스코프라 타 buyer 항목은 삭제되지 않는다(소유권 자동). 대상 부재 시 0행 삭제로 무해하다.
      */
-    public void removeItems(Long userId, List<Long> variantIds) {
-        long deleted = cartItemRepository.deleteByUserIdAndVariantIdIn(userId, variantIds);
-        log.info("[Cart] 장바구니 삭제 userId={} variant_count={} deleted={}", userId, variantIds.size(), deleted);
+    public void removeItems(Long userId, List<String> variantPublicIds) {
+        long deleted = cartItemRepository.deleteByUserIdAndVariantPublicIdIn(userId, variantPublicIds);
+        log.info("[Cart] 장바구니 삭제 userId={} variant_count={} deleted={}", userId, variantPublicIds.size(), deleted);
     }
 
     /**
@@ -152,10 +152,10 @@ public class CartService {
      *
      * @throws CartItemNotFoundException 대상 variant가 buyer 장바구니에 없을 때(404)
      */
-    public void changeQuantity(Long userId, Long variantId, int quantity) {
-        CartItem cartItem = cartItemRepository.findByUserIdAndVariantId(userId, variantId)
+    public void changeQuantity(Long userId, String variantPublicId, int quantity) {
+        CartItem cartItem = cartItemRepository.findByUserIdAndVariantPublicId(userId, variantPublicId)
                 .orElseThrow(() -> new CartItemNotFoundException(
-                        "장바구니에 해당 상품이 담겨 있지 않습니다: variantId=" + variantId));
+                        "장바구니에 해당 상품이 담겨 있지 않습니다: variantPublicId=" + variantPublicId));
         cartItem.changeQuantity(quantity);
     }
 
@@ -164,10 +164,10 @@ public class CartService {
      *
      * @throws CartItemNotFoundException 대상 variant가 buyer 장바구니에 없을 때(404)
      */
-    public void setSelected(Long userId, Long variantId, boolean selected) {
-        CartItem cartItem = cartItemRepository.findByUserIdAndVariantId(userId, variantId)
+    public void setSelected(Long userId, String variantPublicId, boolean selected) {
+        CartItem cartItem = cartItemRepository.findByUserIdAndVariantPublicId(userId, variantPublicId)
                 .orElseThrow(() -> new CartItemNotFoundException(
-                        "장바구니에 해당 상품이 담겨 있지 않습니다: variantId=" + variantId));
+                        "장바구니에 해당 상품이 담겨 있지 않습니다: variantPublicId=" + variantPublicId));
         applySelected(cartItem, selected);
     }
 
@@ -216,8 +216,9 @@ public class CartService {
                 && product.getStatus() == ProductStatus.SALE
                 && seller.getStatus() == SellerStatus.ACTIVE;
 
+        // 외부 대상키는 cart_item 저장 스냅샷(variantPublicId)이라 dangling(variant soft-delete·enrich 누락)이어도 항상 노출된다.
         return new CartItemView(
-                item.getVariantId(), item.getQuantity(), item.getSelected(),
+                item.getVariantPublicId(), item.getQuantity(), item.getSelected(),
                 productName, sellerName, displayPrice, available, purchasable, thumbnailUrl);
     }
 }
