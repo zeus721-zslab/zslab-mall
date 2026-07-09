@@ -80,7 +80,7 @@ class PaymentTest {
     @DisplayName("complete: 종결 상태에서 호출 → IllegalStateException(PAY-2)")
     void complete_fromTerminal_throws() {
         Payment payment = pendingPayment();
-        payment.fail("PG_FAILURE", NOW); // PENDING→FAILED
+        payment.fail("PG_FAILURE"); // PENDING→FAILED
 
         assertThatThrownBy(() -> payment.complete(NOW, PG_PROVIDER, PG_TID))
                 .isInstanceOf(IllegalStateException.class)
@@ -92,7 +92,7 @@ class PaymentTest {
     void fail_transitionsWithoutEvent() {
         Payment payment = pendingPayment();
 
-        payment.fail("CARD_DECLINED", NOW);
+        payment.fail("CARD_DECLINED");
 
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.FAILED);
         assertThat(payment.getFailureCode()).isEqualTo("CARD_DECLINED");
