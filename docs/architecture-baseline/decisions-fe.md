@@ -629,3 +629,34 @@ spacing: 8px 그리드
 - [RESOLVED] FE-10b §8 DEFERRED checkout seam 실배선 → 본 트랙 해소.
 
 ---
+
+## FE-12. 주문 조회 화면 (목록·상세) — FE-12a
+
+### 결정
+구매자 주문 조회 화면을 신설한다. BE 주문 조회 API(GET /api/v1/orders·/api/v1/orders/{orderPublicId})는 기완비라
+순수 FE 배선(+표시용 productName 추가분 D-152). 재결제 배선은 의도적 제외(아래 근거).
+
+### 산출
+- types/order.ts: BE record 미러(OrderSummary·OrderDetail·SellerGroup·OrderItem·StatusView·PagedResponse<T>).
+  배송지는 요청용과 필드 동일해 checkout.ts의 ShippingAddress 재사용.
+- lib/constants/order.ts: OrderStatus 8값 code→한글 라벨 단일 소스(ORDER_STATUS_LABELS·orderStatusLabel 폴백).
+  BE StatusView.label=code(한글 미제공·Code 도메인 미도입 fallback) 보완. CLAUDE.md 4층위 enum 잠금 (4)프론트.
+- composables/useOrders.ts: useOrderList(page,size)·useOrderDetail(id). BUYER 전용 API라 Authorization: Bearer 주입
+  (permitAll useProductDetail 미복제)·API base 이원화(SSR internal/브라우저 상대경로)·useFetch SSR 관통.
+- pages/orders/index.vue: buyer 미들웨어·page 왕복 페이징(hasNext)·상태 배지·orderedAt hydration-safe 파싱.
+- pages/orders/[orderPublicId].vue: buyer 미들웨어·seller 그룹·품목 productName(null→"삭제된 상품")·소계·총액·
+  배송지(null 미표시)·404 존재은닉 안내·401→/login. Pinia setup store 언랩 접근(.value 금지·LT-12).
+- pages/checkout/complete.vue seam: [주문 내역 보기] /products → /orders/{orderPublicId}(부재 시 /orders 폴백).
+
+### 재결제 제외 근거
+재결제(POST /orders/{id}/payments)는 주문 생성/PG 시작 트랜잭션 분리에서 파생된 기술적 복구 경로(INITIATE_FAILED·
+결제 이탈·만료). 무통장/가상계좌 등 실 결제수단 관점에선 "재결제"가 부자연스럽고, 대형몰 다수(결제 선행형)엔 미완 주문
+자체가 없어 재결제 버튼도 없다. 붕 뜬 PENDING_PAYMENT 주문은 재결제로 살리기보다 자동취소로 정리가 정합(FE-12b 이관).
+따라서 상세에 재결제 버튼 미배선.
+
+### 검증 (authed·mutation 0)
+buyer 17건 조회 실측: /orders 200·SSR HTML 한글 라벨(결제완료 7·결제대기 10·API 정합)·상세 productName SSR 관통
+("데모 코튼 티셔츠")·seam href 정확·code→한글 라벨 live. useFetch Bearer SSR 주입 서버측 실동작 확인(curl 원문 바디 포함).
+
+---
+
