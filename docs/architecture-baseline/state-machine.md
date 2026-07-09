@@ -405,3 +405,23 @@ PENDING ──→ COMPLETED (불가역)
 ### 이벤트 — OrderCancelled → OrderTerminated
 
 OrderCancelled를 OrderTerminated로 개명. CANCELLED(Claim 경로)·PAYMENT_EXPIRED(미결제 종료) 양쪽이 발행. 재고 해제는 InventoryOrderTerminatedHandler 단일 구독(AFTER_COMMIT·REQUIRES_NEW·멱등 reserved==0 skip·order_item.variant_id 기반·Order.status 비의존). InventoryPaymentFailedHandler·PaymentFailed 이벤트 제거.
+
+---
+
+## 12. FE-12c-2 갱신 — 결제 시작 상태 가드·미결제 종료 주문 삭제
+
+> 소스: D-155·PaymentService.initiate·ExpiredOrderCleanupService·ExpiredOrderCleanupScheduler [확정 2026-07-10].
+
+### Payment 시작(initiate) 전제 조건
+- initiate는 Order.status==PENDING_PAYMENT일 때만 새 Payment(PENDING) 생성 허용. 그 외 상태 → OrderNotPendingPaymentException(422).
+- 통과: PENDING_PAYMENT(INITIATE_FAILED·만료 PENDING 재시도 포함). 차단: PAYMENT_EXPIRED·PAID 등.
+- 목적: PAYMENT_EXPIRED(삭제 대상) 주문에 결제 자식이 새로 생기는 동시성 창 차단(불변식: PAYMENT_EXPIRED는 새 결제 생성 불가).
+
+### PAYMENT_EXPIRED 주문 종결 처리(삭제)
+- PAYMENT_EXPIRED는 종결 상태. 이후 상태 전이 없음(불변식: 읽기 외 상태 변경·자식 생성 제외).
+- 삭제 배치: updated_at ≤ now-7일 AND 전 order_item reserved==0 AND PENDING payment 부재 → hard delete(payment→snapshot→order_item→order 순차).
+- reserved>0(재고 미해제): OrderTerminated 재발행으로 해제 재시도 → 이번 회차 삭제 이연(다음 배치 재확인). 재고 해제는 OrderTerminated 단일 경로 유지(원칙 3).
+- 삭제 후 주문 행 소멸(구매자 목록엔 이미 FE-12c에서 비노출).
+
+---
+
