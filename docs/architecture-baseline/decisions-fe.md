@@ -28,7 +28,8 @@
 신규·예정:
 - FE-08 Tailwind v4 마이그레이션 (완료)
 - FE-09 Global Layout (완료) — Header 확장(sticky·검색 UI·카테고리 placeholder·장바구니 뱃지·auth 분기)·auth/cart Pinia store·cart SSR 로드 plugin·shadcn-vue(reka-ui) 도입 + v4 토큰 배선. Footer=FE-03 유지(무변경). BUYER 미들웨어·로그인 페이지·검색 동작·카테고리 데이터는 소비처 부재로 이연
-- FE-10 상품상세 + 장바구니
+- FE-10a 상품상세 (완료)
+- FE-10b 장바구니(예정)
 - FE-11 체크아웃
 - FE-12 주문
 - FE-13 계정
@@ -520,5 +521,36 @@ spacing: 8px 그리드
 ### §8 이월(carry-over)
 - [DEFERRED] BUYER 라우트 미들웨어(첫 보호 페이지 트랙) · 로그인 페이지 + authStore.login() 소비(로그인 트랙·login은 준비된 seam) · 검색 동작·검색결과 라우트(검색 트랙) · 카테고리 nav 데이터·라우팅(FE-10) · cart items 요소 전체 타이핑(FE-10).
 - [RESOLVED] FE-07 §8·FE-08 §8 shadcn :root 배선 이월 → 본 트랙 §1-A(1)에서 해소.
+
+---
+
+## FE-10a: 상품 상세 페이지 (GET /products/{productPublicId} 소비)
+
+날짜: 2026-07-09
+선행: FE-09(Global Layout) 완료 + D-149(cart 외부 대상키 variantPublicId 정상화·Track 65) 머지. 정찰 = recon-report-75(§1·§3-1). FE-10을 상세(10a)·장바구니(10b) 2-split한 앞부분.
+범위: 상품 상세 페이지·상세 조회 composable·ProductDetail 타입(+중첩 5)·목록→상세 링크 배선. 옵션/variant 선택→variantPublicId 확보 seam·담기 버튼 배치까지. 담기 API 호출·인증 게이트·/login·BUYER 미들웨어·장바구니 페이지는 FE-10b 이연.
+수용기준(달성): 홈/목록 SSR 200 무회귀·카드→상세 링크 이동·상세 200(이미지 갤러리·옵션/variant 선택·수량·담기 seam)·미존재 id 404 not-found 렌더(500 아님)·hydration mismatch 0·컴파일 에러 0.
+
+### §1-A 갈림길·채택/기각 근거
+1) 분할·순서 (FE-10 착수 결정 라운드)
+- α 채택: 상세(10a) → 장바구니(10b) 2-split. 상세는 permitAll·인증 무의존·variantPublicId 생산자라 선행 리스크 최저·독립 검증 용이. 장바구니가 끌어오는 인증 인프라(미들웨어·게이트·login)를 뒤로 분리해 각 STEP 검증 표면 축소.
+- β 병행 단일 트랙 기각: 인증 인프라와 상세 렌더가 한 STEP에 섞여 회귀면·검증 표면 확대.
+2) 담기 액션 범위 (미사용 선작성 금지)
+- α 채택: 담기 버튼 배치 + variant 선택 결과(variantPublicId)를 seam으로 보유(data-variant-public-id·computed)하되 handleAddToCart는 no-op. 실제 POST /cart/items·인증 게이트는 소비처(BUYER 보호·cart store 갱신)가 생기는 FE-10b에서 배선.
+- β 담기까지 이번 트랙 배선 기각: /login·미들웨어·cart store action 등 인증 인프라 선행 필요 → 소비처 없이 선작성(기조4). auth store login()은 seam으로 준비돼 있어 되돌림 가벼움.
+3) 옵션→variant 매칭 방식
+- 단순상품(optionGroups 빈)=variants[0] 바로 사용(선택 UI 생략). 다중 옵션=그룹별 값 선택·전 그룹 완료 시 variants에서 options(groupName+value) 집합 정확 일치 1건 확정(미완료·불일치 null·안내 문구). 확정 시 salePrice·soldOut 반영. 실측: 데모 시드 2건 모두 단순상품이라 단순 경로만 컨테이너 실측·다중은 DTO 구조 기준 구현(E2E 미실측·§8).
+
+### §2 결정 라운드 재진입·구현 중 결정
+- [실측·recon-75] cart 계약 D-149 반영(대상키 variantPublicId String)·상세 Variant.variantPublicId(var_ String)와 타입 일치 → 상세→담기 브리지 변환 불요(recon-74 §5 블로커 해소). ProductDetailResponse 11필드+중첩 무변경·products GET permitAll 무변동.
+- [구현·검증 실측] useProductDetail=useProducts 패턴 동형(useFetch·API base 이원화·key=product-detail:{id}·404 error). ProductDetail+중첩5 타입 BE DTO 정확 일치(description string|null). 상세 페이지 이미지 main-우선 정렬·부재 placeholder·soldOut 오버레이·가격 variant salePrice fallback·수량 ±·404 분기. ProductCard <a href="#">→NuxtLink. 컨테이너(gateway HTTPS): 홈/목록 200 무회귀·상세 200(단순상품 variant 자동확정·data-variant-public-id=var_)·미존재 id not-found·hydration 0·컴파일 0.
+- [구현 중 결정] useSeoMeta로 상세 동적 title/description 부착(상품별 title). og:image·JSON-LD·canonical·sitemap은 SEO 성숙 백로그로 이연.
+- [트랩·참고] 이미지 실 저장 form: 데모 시드 상세 images 빈 배열이라 placeholder만 실측·실 이미지 렌더 미검증(목록 mainImageUrl은 picsum 절대URL 검증됨·§8). LT-11(auto-import 재기동) 신규 composable/page 적용·dev 재기동 후 실측.
+
+### §8 이월(carry-over)
+- [DEFERRED·FE-10b] 담기 API 배선(POST /cart/items)·인증 게이트(미인증→/login)·/login 페이지(auth store login() 소비)·BUYER 미들웨어(첫 보호 라우트)·장바구니 페이지(GET /cart·수량/선택/삭제·dangling 표기)·cart store items unknown[]→CartItemView[] 승격 + 조작 action.
+- [미확인] 이미지 저장 form(절대/상대): 이미지 있는 시드로 상세 렌더 실측 필요. 다중 옵션 variant 매칭 E2E: 다중 variant 시드 부재로 미실측(로직은 DTO 기준).
+- [백로그] FE SEO 성숙(og:image·JSON-LD Product·canonical·sitemap)·FE 테스트 도입(FE-12/CI). 동적 title/description은 본 트랙 해소.
+- [재이연] FE-09 §8 "카테고리 nav·cart items 타이핑(FE-10)"은 상세서 미소비 → cart 타이핑=FE-10b·카테고리 nav=카탈로그 트랙으로 재이연.
 
 ---
