@@ -1,12 +1,70 @@
 @import "tailwindcss";
 
+/* FE-09: shadcn-vue 시맨틱 토큰(gray baseColor). :root에 런타임 CSS 변수로 정의하고
+   @theme inline이 shadcn 유틸(bg-primary·text-foreground 등)을 이 변수에 배선한다.
+   값은 shadcn gray = Tailwind gray 팔레트 hex로 매핑(task 지정 hex --primary와 포맷 통일).
+   --primary/--primary-foreground는 브랜드 정합(shadcn primary 슬롯 = 브랜드 primary #2563EB).
+   --destructive는 shadcn 기본값(red-500) 유지(가격 토큰과 병합하지 않음).
+   .dark는 정의하지 않는다(구매자몰 다크 미사용). */
+:root {
+  --background: #FFFFFF;
+  --foreground: #030712;
+  --card: #FFFFFF;
+  --card-foreground: #030712;
+  --popover: #FFFFFF;
+  --popover-foreground: #030712;
+  --primary: #2563EB;
+  --primary-foreground: #FFFFFF;
+  --secondary: #F3F4F6;
+  --secondary-foreground: #111827;
+  --muted: #F3F4F6;
+  --muted-foreground: #6B7280;
+  --accent: #F3F4F6;
+  --accent-foreground: #111827;
+  --destructive: #EF4444;
+  --destructive-foreground: #FFFFFF;
+  --border: #E5E7EB;
+  --input: #E5E7EB;
+  --ring: #030712;
+  --radius: 0.625rem;
+}
+
+/* shadcn 유틸을 위 :root 변수에 inline 배선(테마 전환 시 :root만 바꾸면 반영되는 shadcn 표준 구조).
+   --radius-sm/md/lg/xl 파생은 shadcn 표준식. FE-07 브랜드 --radius-card/control/badge와 이름 충돌 없음. */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
 /* FE-08: FE-07 디자인 토큰을 v4 @theme으로 이전(기존 tailwind.config theme.extend 대체).
-   값은 FE-07 §2 정확값 그대로. 중첩 키는 flat 매핑(surface.page→surface-page·badge.new-bg→badge-new-bg). */
+   값은 FE-07 §2 정확값 그대로. 중첩 키는 flat 매핑(surface.page→surface-page·badge.new-bg→badge-new-bg).
+   FE-09: --color-primary는 위 @theme inline(=var(--primary))이 제공하므로 이 블록에서 제거(중복 정의 방지). */
 @theme {
   --font-sans: 'NanumGothic', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
     'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
 
-  --color-primary: #2563EB;
   --color-primary-hover: #1D4ED8;
   --color-price: #E11D48;
   --color-surface-page: #FAFAFA;

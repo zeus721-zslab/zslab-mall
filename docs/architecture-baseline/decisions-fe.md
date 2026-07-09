@@ -27,7 +27,7 @@
 
 신규·예정:
 - FE-08 Tailwind v4 마이그레이션 (완료)
-- FE-09 Global Layout — Header(sticky·검색바·카테고리·장바구니 뱃지·auth)·Footer·Navigation·auth store·cart store·BUYER 미들웨어 + shadcn-vue 도입
+- FE-09 Global Layout (완료) — Header 확장(sticky·검색 UI·카테고리 placeholder·장바구니 뱃지·auth 분기)·auth/cart Pinia store·cart SSR 로드 plugin·shadcn-vue(reka-ui) 도입 + v4 토큰 배선. Footer=FE-03 유지(무변경). BUYER 미들웨어·로그인 페이지·검색 동작·카테고리 데이터는 소비처 부재로 이연
 - FE-10 상품상세 + 장바구니
 - FE-11 체크아웃
 - FE-12 주문
@@ -475,5 +475,50 @@ spacing: 8px 그리드
 ### §8 이월(carry-over)
 - shadcn-vue 도입: FE-09(Global Layout)에서 v4 @theme/:root 위에 reka-ui 기반 도입. FE-07 §8 "토큰 위치 재배선(:root 병행)"은 v4 @theme 확정으로 방향 정리 — shadcn 색 토큰을 @theme 변수와 정합시키는 배선은 FE-09에서.
 - duration 유틸 구조: @utility 미러링이 v4 마이너 업데이트 시 내장 duration 구조 변화에 취약할 수 있음 — 회귀 시 재점검(관찰).
+
+---
+
+## FE-09: Global Layout (Header·Footer·Nav + auth/cart store + shadcn-vue 도입)
+
+날짜: 2026-07-09
+선행: FE-08(Tailwind v4) 완료. BE 로그인/JWT 계약 근거 = recon-report-70(FE 실측).
+범위: Header 확장(sticky·검색 UI·카테고리 placeholder·장바구니 뱃지·auth 분기)·auth/cart Pinia store·cart SSR 로드 plugin·shadcn-vue(reka-ui) 기반 도입 + v4 토큰 배선. Footer=FE-03 유지(무변경). BUYER 미들웨어·로그인 페이지·검색 동작·카테고리 데이터는 소비처 부재로 이연.
+수용기준(달성): 홈/목록 SSR 200·FE-08 무회귀(text-primary #2563EB·21클래스 패리티)·미인증 렌더(로그인 링크·뱃지 미표시)·hydration mismatch 0·컴파일/타입 에러 0·store auto-import 런타임 정상.
+
+### §1-A 갈림길·채택/기각 근거
+
+1) shadcn 토큰 배선
+- γ 채택: shadcn 표준 셋(:root + @theme inline) + FE-07 브랜드 @theme 리터럴 유지, --primary만 브랜드(#2563EB) 정합, destructive/price 분리 유지.
+- α(브랜드 토큰에 shadcn 매핑·병합) 기각: 의미 다른 토큰 억지 병합 꼼수.
+- β(완전 격리) 기각: --color-primary 이름 충돌로 순수 격리 불가.
+- (브랜드까지 :root 통일) 기각: 런타임 오버라이드 소비처 0·YAGNI.
+
+2) 상태 계층
+- α 채택: Pinia setup store 단일 계층(상태·게터·액션·base 이원화 보유).
+- β(store + useAuth/useCart 컴포저블 래퍼) 기각: 래퍼가 store 재노출만 하는 무로직 계층(padding). 추가 로직 필요 시 얹기 가벼우므로 그때 도입.
+
+3) cart 로드 트리거
+- α 채택: callOnce SSR 1회(뱃지 첫 페인트 정확·no-flash·중복 fetch 없음).
+- β(client-only) 기각: 하이드레이션 후 0→N 반짝.
+
+4) 토큰 저장
+- useCookie(non-httpOnly): SSR·클라 양쪽 JS 접근 필요(뱃지·auth 분기 SSR 렌더). role/exp = JWT payload 무라이브러리 base64url 수동 디코드(UI 표시·만료 UX 전용·UTF-8 안전·실패 null). 실인가는 서버 응답이 SoT(디코드로 접근제어 판단 금지).
+- BE 계약 상호 참조: POST /api/v1/auth/login {email,password,role}→{token}·JWT HS256·claim role·exp 1h·Authorization Bearer = recon-report-70(FE 실측) 기록. decisions.md는 D-39(X-Buyer-Id 임시 인증)까지이고 정식 JWT 발급은 D-39 "범위 외(Track 4.5/후속)" 명시 → FE는 recon-70 실측 계약을 SoT로 배선(정식 인증 D-XX 신설 시 상호 참조 갱신).
+
+5) Button 블로커 해결
+- typescript devDependency 설치가 shadcn-vue + Nuxt4 "Failed to resolve extends base type"의 문서상 정식 해결(SFC 타입 리졸버 요구). 버전 도박·설정 우회·스캐폴드 수정·이연 전부 기각 → 공식 Button.vue 무수정 유지.
+
+6) pnpm store 위치
+- storeDir = node_modules 익명 볼륨 내부(/app/node_modules/.pnpm-store): 바인드-마운트(호스트 device)와 익명 볼륨(컨테이너 device) 교차-디바이스 purge 트랩 근본 제거. verifyDepsBeforeRun:false 마스크 기각(증상 은폐).
+
+### §2 결정 라운드 재진입·구현 중 결정
+- /login 링크: NuxtLink 유지(올바른 코드). /login 페이지 부재로 dev SSR "No match found for /login" 경고 1종 발생 → 검증 기준의 명시 예외(로그인 트랙에서 페이지 생성 시 자동 소멸·dev 전용·prod 미출력). <a href> 다운그레이드(우회)는 기각.
+- 검색바 UI-only·카테고리 정적 placeholder: 소비처(검색 라우트·카테고리 데이터) 부재로 동작 미배선(dead handler 금지).
+- logout 조합: store 간 결합은 store 밖에서 — Header 핸들러가 auth.logout() + cart.clear() 순차 호출(UI 계층 조합).
+- [실측·트랩] STEP 2 store를 tsc만으로 검증(소비처 0) → 런타임 auto-import 미스캔 미탐지. STEP 3 Header가 store 소비 시 "useAuthStore is not defined" 500 → dev 재기동으로 unimport 재스캔 해소(LT-11). auto-import 대상(store/plugin) 추가 후 재기동 + 페이지 실측 필수.
+
+### §8 이월(carry-over)
+- [DEFERRED] BUYER 라우트 미들웨어(첫 보호 페이지 트랙) · 로그인 페이지 + authStore.login() 소비(로그인 트랙·login은 준비된 seam) · 검색 동작·검색결과 라우트(검색 트랙) · 카테고리 nav 데이터·라우팅(FE-10) · cart items 요소 전체 타이핑(FE-10).
+- [RESOLVED] FE-07 §8·FE-08 §8 shadcn :root 배선 이월 → 본 트랙 §1-A(1)에서 해소.
 
 ---
