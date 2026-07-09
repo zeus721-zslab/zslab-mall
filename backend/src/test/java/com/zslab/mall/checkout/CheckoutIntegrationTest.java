@@ -142,6 +142,7 @@ class CheckoutIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.sellers[0].sellerId").value(SELLER_PID))
                 .andExpect(jsonPath("$.sellers[0].companyName").value("테스트샵"))
                 .andExpect(jsonPath("$.sellers[0].items[0].productId").value(PRODUCT_PID))
+                .andExpect(jsonPath("$.sellers[0].items[0].productName").value("테스트상품"))
                 .andExpect(jsonPath("$.sellers[0].subtotal").value(20000));
     }
 
