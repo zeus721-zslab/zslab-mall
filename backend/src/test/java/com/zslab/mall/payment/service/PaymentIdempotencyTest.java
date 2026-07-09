@@ -2,18 +2,19 @@ package com.zslab.mall.payment.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.zslab.mall.common.observability.TracedEventPublisher;
+import com.zslab.mall.order.service.OrderAutoCancelService;
 import com.zslab.mall.payment.command.PaymentCallbackCommand;
 import com.zslab.mall.payment.entity.Payment;
 import com.zslab.mall.payment.enums.CallbackType;
 import com.zslab.mall.payment.enums.PaymentMethod;
 import com.zslab.mall.payment.enums.PaymentStatus;
 import com.zslab.mall.payment.event.PaymentCompleted;
-import com.zslab.mall.payment.event.PaymentFailed;
 import com.zslab.mall.payment.gateway.PaymentGateway;
 import com.zslab.mall.payment.repository.PaymentRepository;
 import java.time.LocalDateTime;
@@ -49,6 +50,8 @@ class PaymentIdempotencyTest {
     private PaymentGateway paymentGateway;
     @Mock
     private TracedEventPublisher eventPublisher;
+    @Mock
+    private OrderAutoCancelService orderAutoCancelService;
     @InjectMocks
     private PaymentService paymentService;
 
@@ -78,15 +81,16 @@ class PaymentIdempotencyTest {
     }
 
     @Test
-    @DisplayName("FAILURE 2회 수신: 1회 FAILED 전이·발행, 2회차는 NO-OP(발행 1회뿐)")
+    @DisplayName("FAILURE 2회 수신: 1회 PG 실패(FAILED·Order 종료 위임), 2회차는 NO-OP(cancelOne 1회뿐·FE-12c 정정)")
     void duplicateFailure_isIdempotent() {
         Payment payment = pendingPayment();
         when(paymentRepository.findByPaymentAttemptKey(ATTEMPT_KEY)).thenReturn(Optional.of(payment));
 
-        paymentService.handleCallback(command(CallbackType.FAILURE)); // PENDING→FAILED·발행
-        paymentService.handleCallback(command(CallbackType.FAILURE)); // FAILED·NO-OP
+        paymentService.handleCallback(command(CallbackType.FAILURE)); // PENDING→FAILED·Order 종료 위임
+        paymentService.handleCallback(command(CallbackType.FAILURE)); // FAILED(비PENDING)·NO-OP
 
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.FAILED);
-        verify(eventPublisher, times(1)).publishEvent(any(PaymentFailed.class));
+        verify(orderAutoCancelService, times(1)).cancelOne(ORDER_ID);   // 1회차만 위임(2회차 FAILED는 skip)
+        verify(eventPublisher, never()).publishEvent(any());           // PaymentFailed 미발행
     }
 }

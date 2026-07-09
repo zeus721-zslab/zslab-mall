@@ -3,7 +3,7 @@ package com.zslab.mall.order.integration;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.zslab.mall.order.enums.OrderItemStatus;
-import com.zslab.mall.order.event.OrderCancelled;
+import com.zslab.mall.order.event.OrderTerminated;
 import com.zslab.mall.order.service.OrderAutoCancelService;
 import com.zslab.mall.support.AbstractIntegrationTest;
 import org.junit.jupiter.api.AfterEach;
@@ -19,13 +19,13 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * 미결제 주문 자동취소 E2E 통합 테스트(D-153 Phase 1·실 MariaDB·Flyway). {@link OrderAutoCancelService#cancelOne}을
- * 비-테스트-트랜잭션으로 직접 호출해 CANCELLED 전이와 커밋 후 AFTER_COMMIT {@code InventoryOrderCancelledHandler}
- * 재고 예약 해제까지의 실 커밋 경로를 검증한다({@code PaymentExpiryIntegrationTest} 구조 미러).
+ * 미결제 주문 종료 E2E 통합 테스트(FE-12c·D-153 레벨3·실 MariaDB·Flyway). {@link OrderAutoCancelService#cancelOne}을
+ * 비-테스트-트랜잭션으로 직접 호출해 PAYMENT_EXPIRED 종료(Order.status 직접 세팅·OrderItem 무변경)와 커밋 후 AFTER_COMMIT
+ * {@code InventoryOrderTerminatedHandler} 재고 예약 해제까지의 실 커밋 경로를 검증한다({@code PaymentExpiryIntegrationTest} 구조 미러).
  *
  * <p><b>스케줄러 자동 발화 차단</b>: {@code zslab.order.auto-cancel.enabled=false}로 {@code @Scheduled} 배치를 끄고
  * {@code cancelOne}을 직접 호출해 결정론을 확보한다(프로젝트에 test profile 부재). createdAt 유예 조건은 스케줄러 조회
- * 책임이며 본 테스트는 cancelOne의 status 가드·전이·재고 해제만 검증하므로 order created_at은 NOW로 시드한다(tz 무관).
+ * 책임이며 본 테스트는 cancelOne의 status 가드·종료·재고 해제만 검증하므로 order created_at은 NOW로 시드한다(tz 무관).
  */
 @RecordApplicationEvents
 @TestPropertySource(properties = "zslab.order.auto-cancel.enabled=false")
@@ -68,16 +68,16 @@ class OrderAutoCancelIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("T1 PENDING_PAYMENT → cancelOne → CANCELLED 전이 + AFTER_COMMIT 재고 예약 해제")
-    void pendingOrder_autoCancels_andReleasesReservation() {
+    @DisplayName("T1 PENDING_PAYMENT → cancelOne → PAYMENT_EXPIRED 종료(OrderItem 무변경) + AFTER_COMMIT 재고 예약 해제")
+    void pendingOrder_terminates_andReleasesReservation() {
         seedGraph("PENDING_PAYMENT", OrderItemStatus.ORDERED, QTY);
 
         // cancelOne은 자체 @Transactional — 직접 호출 시 커밋되어 AFTER_COMMIT 핸들러가 동기 발화한다.
         orderAutoCancelService.cancelOne(ORDER_ID);
 
-        assertThat(orderStatus()).isEqualTo("CANCELLED");
-        assertThat(orderItemStatus()).isEqualTo("CANCELLED");
-        assertThat(applicationEvents.stream(OrderCancelled.class).count()).isEqualTo(1);
+        assertThat(orderStatus()).isEqualTo("PAYMENT_EXPIRED");
+        assertThat(orderItemStatus()).isEqualTo("ORDERED");   // OrderItem 무변경(재고 해제는 variant_id 기반)
+        assertThat(applicationEvents.stream(OrderTerminated.class).count()).isEqualTo(1);
         assertThat(reserved()).isZero();
         assertThat(available()).isEqualTo(10);
         assertThat(onHand()).isEqualTo(10);
@@ -85,14 +85,14 @@ class OrderAutoCancelIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     @DisplayName("T2 이미 PAID → cancelOne skip(멱등) → 상태 불변·재고 해제 없음·이벤트 없음")
-    void paidOrder_skipsAutoCancel() {
+    void paidOrder_skipsTermination() {
         seedGraph("PAID", OrderItemStatus.PAID, QTY);
 
         orderAutoCancelService.cancelOne(ORDER_ID);
 
         assertThat(orderStatus()).isEqualTo("PAID");
         assertThat(orderItemStatus()).isEqualTo("PAID");
-        assertThat(applicationEvents.stream(OrderCancelled.class).count()).isZero();
+        assertThat(applicationEvents.stream(OrderTerminated.class).count()).isZero();
         assertThat(reserved()).isEqualTo(QTY);   // 해제되지 않음
     }
 

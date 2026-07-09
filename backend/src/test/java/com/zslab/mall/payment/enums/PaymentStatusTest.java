@@ -10,22 +10,23 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * {@link PaymentStatus} 전이 매트릭스(state-machine.md §1·D-31) 검증. 4×4 전 조합을 오라클과 대조해 분기 100%를 커버한다.
+ * {@link PaymentStatus} 전이 매트릭스(state-machine.md §1·D-31·FE-12c) 검증. 5×5 전 조합을 오라클과 대조해 분기 100%를 커버한다.
  */
 class PaymentStatusTest {
 
     /** 합법 전이 오라클: 각 from의 합법 타깃 집합(없으면 빈 집합). */
     private static Map<PaymentStatus, Set<PaymentStatus>> legalTargets() {
         Map<PaymentStatus, Set<PaymentStatus>> map = new EnumMap<>(PaymentStatus.class);
-        map.put(PaymentStatus.PENDING, EnumSet.of(PaymentStatus.PAID, PaymentStatus.FAILED));
+        map.put(PaymentStatus.PENDING, EnumSet.of(PaymentStatus.PAID, PaymentStatus.FAILED, PaymentStatus.EXPIRED));
         map.put(PaymentStatus.PAID, EnumSet.of(PaymentStatus.CANCELLED));
         map.put(PaymentStatus.FAILED, EnumSet.noneOf(PaymentStatus.class));
         map.put(PaymentStatus.CANCELLED, EnumSet.noneOf(PaymentStatus.class));
+        map.put(PaymentStatus.EXPIRED, EnumSet.noneOf(PaymentStatus.class));
         return map;
     }
 
     @Test
-    @DisplayName("canTransitionTo: 4×4 전 조합이 오라클과 일치")
+    @DisplayName("canTransitionTo: 5×5 전 조합이 오라클과 일치")
     void canTransitionTo_coversFullMatrix() {
         Map<PaymentStatus, Set<PaymentStatus>> oracle = legalTargets();
         for (PaymentStatus from : PaymentStatus.values()) {
@@ -39,10 +40,11 @@ class PaymentStatusTest {
     }
 
     @Test
-    @DisplayName("PENDING → PAID·FAILED 만 허용 (동일·CANCELLED 불가)")
+    @DisplayName("PENDING → PAID·FAILED·EXPIRED 만 허용 (동일·CANCELLED 불가)")
     void pendingTransitions() {
         assertThat(PaymentStatus.PENDING.canTransitionTo(PaymentStatus.PAID)).isTrue();
         assertThat(PaymentStatus.PENDING.canTransitionTo(PaymentStatus.FAILED)).isTrue();
+        assertThat(PaymentStatus.PENDING.canTransitionTo(PaymentStatus.EXPIRED)).isTrue();
         assertThat(PaymentStatus.PENDING.canTransitionTo(PaymentStatus.PENDING)).isFalse();
         assertThat(PaymentStatus.PENDING.canTransitionTo(PaymentStatus.CANCELLED)).isFalse();
     }
@@ -56,9 +58,10 @@ class PaymentStatusTest {
     }
 
     @Test
-    @DisplayName("종결 상태(FAILED·CANCELLED)는 어떤 전이도 불가")
+    @DisplayName("종결 상태(FAILED·CANCELLED·EXPIRED)는 어떤 전이도 불가")
     void terminalStatuses_haveNoOutgoingTransition() {
-        for (PaymentStatus terminal : new PaymentStatus[] {PaymentStatus.FAILED, PaymentStatus.CANCELLED}) {
+        for (PaymentStatus terminal : new PaymentStatus[] {
+                PaymentStatus.FAILED, PaymentStatus.CANCELLED, PaymentStatus.EXPIRED}) {
             for (PaymentStatus to : PaymentStatus.values()) {
                 assertThat(terminal.canTransitionTo(to))
                         .as("종결 %s → %s 은 불가", terminal, to)
@@ -68,8 +71,8 @@ class PaymentStatusTest {
     }
 
     @Test
-    @DisplayName("DDL 정합: 4값 보유")
-    void hasFourValues() {
-        assertThat(PaymentStatus.values()).hasSize(4);
+    @DisplayName("DDL 정합: 5값 보유")
+    void hasFiveValues() {
+        assertThat(PaymentStatus.values()).hasSize(5);
     }
 }

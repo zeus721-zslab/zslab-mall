@@ -11,7 +11,7 @@ import com.zslab.mall.order.entity.Order;
 import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.enums.OrderStatus;
-import com.zslab.mall.order.event.OrderCancelled;
+import com.zslab.mall.order.event.OrderTerminated;
 import com.zslab.mall.order.repository.OrderRepository;
 import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
@@ -23,8 +23,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 /**
- * {@link OrderAutoCancelService} 단위 검증(Mockito·D-153 Phase 1). 정상 자동취소(전 품목 CANCELLED·status CANCELLED·
- * OrderCancelled 발행)와 멱등 skip(PENDING_PAYMENT 아님 → no-op·이벤트 미발행)을 커버한다.
+ * {@link OrderAutoCancelService} 단위 검증(Mockito·FE-12c). 정상 미결제 종료(Order.status=PAYMENT_EXPIRED 직접 세팅·
+ * OrderItem 무변경·OrderTerminated 발행)와 멱등 skip(PENDING_PAYMENT 아님·주문 없음 → no-op·이벤트 미발행)을 커버한다.
  */
 @ExtendWith(MockitoExtension.class)
 class OrderAutoCancelServiceTest {
@@ -33,8 +33,6 @@ class OrderAutoCancelServiceTest {
 
     @Mock
     private OrderRepository orderRepository;
-    @Mock
-    private OrderStatusResolver orderStatusResolver;
     @Mock
     private TracedEventPublisher eventPublisher;
     @InjectMocks
@@ -50,44 +48,40 @@ class OrderAutoCancelServiceTest {
     }
 
     @Test
-    @DisplayName("정상: 전 OrderItem CANCELLED·status CANCELLED·OrderCancelled 발행")
-    void cancelOne_pending_cancelsAndPublishes() {
+    @DisplayName("정상: status PAYMENT_EXPIRED 직접 세팅·OrderItem 무변경·OrderTerminated 발행")
+    void cancelOne_pending_expiresAndPublishes() {
         Order order = pendingOrderWithItems();
-        when(orderRepository.findByIdWithItems(ORDER_ID)).thenReturn(Optional.of(order));
-        when(orderStatusResolver.resolve(any())).thenReturn(OrderStatus.CANCELLED);
+        when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.of(order));
 
         orderAutoCancelService.cancelOne(ORDER_ID);
 
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.PAYMENT_EXPIRED);
+        // OrderItem은 종료 대상 아님 — ORDERED 유지(재고 해제는 OrderTerminated 핸들러가 variant_id로 수행)
         assertThat(order.getItems())
-                .allSatisfy(item -> assertThat(item.getItemStatus()).isEqualTo(OrderItemStatus.CANCELLED));
-        assertThat(order.getStatus()).isEqualTo(OrderStatus.CANCELLED);
-        verify(eventPublisher).publishEvent(any(OrderCancelled.class));
+                .allSatisfy(item -> assertThat(item.getItemStatus()).isEqualTo(OrderItemStatus.ORDERED));
+        verify(eventPublisher).publishEvent(any(OrderTerminated.class));
     }
 
     @Test
-    @DisplayName("멱등 skip: PENDING_PAYMENT 아님 → no-op·이벤트 미발행·Resolver 미호출")
+    @DisplayName("멱등 skip: PENDING_PAYMENT 아님 → no-op·이벤트 미발행")
     void cancelOne_notPending_skips() {
         Order order = pendingOrderWithItems();
         order.applyResolvedStatus(OrderStatus.PAID);   // 조회~트랜잭션 사이 결제 완료된 상황
-        when(orderRepository.findByIdWithItems(ORDER_ID)).thenReturn(Optional.of(order));
+        when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.of(order));
 
         orderAutoCancelService.cancelOne(ORDER_ID);
 
         assertThat(order.getStatus()).isEqualTo(OrderStatus.PAID);
-        assertThat(order.getItems())
-                .allSatisfy(item -> assertThat(item.getItemStatus()).isEqualTo(OrderItemStatus.ORDERED));
         verify(eventPublisher, never()).publishEvent(any());
-        verify(orderStatusResolver, never()).resolve(any());
     }
 
     @Test
     @DisplayName("멱등 skip: 주문 행 없음 → no-op·이벤트 미발행")
     void cancelOne_notFound_skips() {
-        when(orderRepository.findByIdWithItems(ORDER_ID)).thenReturn(Optional.empty());
+        when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.empty());
 
         orderAutoCancelService.cancelOne(ORDER_ID);
 
         verify(eventPublisher, never()).publishEvent(any());
-        verify(orderStatusResolver, never()).resolve(any());
     }
 }

@@ -17,7 +17,7 @@ class OrderItemStatusTest {
     /** QB-11 + Claim 진입 전이 오라클(Track 9 PR-A·D-88): 각 from의 합법 타깃 집합(종결·*_REQUESTED는 빈 집합). */
     private static Map<OrderItemStatus, Set<OrderItemStatus>> legalTargets() {
         Map<OrderItemStatus, Set<OrderItemStatus>> map = new EnumMap<>(OrderItemStatus.class);
-        map.put(OrderItemStatus.ORDERED,           EnumSet.of(OrderItemStatus.PAID, OrderItemStatus.CANCELLED));
+        map.put(OrderItemStatus.ORDERED,           EnumSet.of(OrderItemStatus.PAID));
         map.put(OrderItemStatus.PAID,              EnumSet.of(OrderItemStatus.PREPARING,  OrderItemStatus.CANCEL_REQUESTED));
         map.put(OrderItemStatus.PREPARING,         EnumSet.of(OrderItemStatus.SHIPPING,   OrderItemStatus.CANCEL_REQUESTED));
         map.put(OrderItemStatus.SHIPPING,          EnumSet.of(OrderItemStatus.DELIVERED,  OrderItemStatus.RETURN_REQUESTED));
@@ -77,13 +77,6 @@ class OrderItemStatusTest {
     @DisplayName("DDL 정합: 12값 보유")
     void hasTwelveValues() {
         assertThat(OrderItemStatus.values()).hasSize(12);
-    }
-
-    @Test
-    @DisplayName("ORDERED → CANCELLED 허용(D-153 Phase 1 미결제 자동취소)·ORDERED → PAID도 유지")
-    void ordered_allowsCancelledForAutoCancel() {
-        assertThat(OrderItemStatus.ORDERED.canTransitionTo(OrderItemStatus.CANCELLED)).isTrue();
-        assertThat(OrderItemStatus.ORDERED.canTransitionTo(OrderItemStatus.PAID)).isTrue();
     }
 
     @Test

@@ -9,14 +9,14 @@ import org.junit.jupiter.api.Test;
  * {@link OrderStatus} DDL 정합 검증.
  *
  * <p>OrderStatus는 canTransitionTo를 두지 않는다(ORD-2·Resolver 파생). 따라서 전이 매트릭스 테스트는 생략하고
- * 값 집합(8값) 드리프트만 가드한다.
+ * 값 집합(9값·PAYMENT_EXPIRED 포함·FE-12c) 드리프트만 가드한다.
  */
 class OrderStatusTest {
 
     @Test
-    @DisplayName("DDL 정합: 8값 보유")
-    void hasEightValues() {
-        assertThat(OrderStatus.values()).hasSize(8);
+    @DisplayName("DDL 정합: 9값 보유")
+    void hasNineValues() {
+        assertThat(OrderStatus.values()).hasSize(9);
     }
 
     @Test
@@ -26,6 +26,6 @@ class OrderStatusTest {
                 .extracting(Enum::name)
                 .containsExactlyInAnyOrder(
                         "PENDING_PAYMENT", "PAID", "PREPARING", "SHIPPING",
-                        "DELIVERED", "CONFIRMED", "CANCELLED", "PARTIAL_CANCEL");
+                        "DELIVERED", "CONFIRMED", "CANCELLED", "PARTIAL_CANCEL", "PAYMENT_EXPIRED");
     }
 }

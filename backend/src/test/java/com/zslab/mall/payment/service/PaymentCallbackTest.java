@@ -8,13 +8,13 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.zslab.mall.common.observability.TracedEventPublisher;
+import com.zslab.mall.order.service.OrderAutoCancelService;
 import com.zslab.mall.payment.command.PaymentCallbackCommand;
 import com.zslab.mall.payment.entity.Payment;
 import com.zslab.mall.payment.enums.CallbackType;
 import com.zslab.mall.payment.enums.PaymentMethod;
 import com.zslab.mall.payment.enums.PaymentStatus;
 import com.zslab.mall.payment.event.PaymentCompleted;
-import com.zslab.mall.payment.event.PaymentFailed;
 import com.zslab.mall.payment.exception.InvalidCallbackException;
 import com.zslab.mall.payment.gateway.PaymentGateway;
 import com.zslab.mall.payment.repository.PaymentRepository;
@@ -51,6 +51,8 @@ class PaymentCallbackTest {
     private PaymentGateway paymentGateway;
     @Mock
     private TracedEventPublisher eventPublisher;
+    @Mock
+    private OrderAutoCancelService orderAutoCancelService;
     @InjectMocks
     private PaymentService paymentService;
 
@@ -110,8 +112,8 @@ class PaymentCallbackTest {
     }
 
     @ParameterizedTest
-    @EnumSource(value = PaymentStatus.class, names = {"FAILED", "CANCELLED"})
-    @DisplayName("SUCCESS × 종결(FAILED·CANCELLED) → REJECT(InvalidCallbackException)")
+    @EnumSource(value = PaymentStatus.class, names = {"FAILED", "CANCELLED", "EXPIRED"})
+    @DisplayName("SUCCESS × 종결(FAILED·CANCELLED·EXPIRED) → REJECT(InvalidCallbackException)")
     void success_terminal_rejects(PaymentStatus terminal) {
         Payment payment = paymentInStatus(terminal);
         stubFind(payment);
@@ -124,7 +126,7 @@ class PaymentCallbackTest {
     // ---------- FAILURE ----------
 
     @Test
-    @DisplayName("FAILURE × PENDING → FAILED 전이·PaymentFailed 발행")
+    @DisplayName("FAILURE × PENDING → PG 실제 실패(Payment FAILED·failure_code) + Order 종료 위임·PaymentFailed 미발행(FE-12c 정정)")
     void failure_pending_fails() {
         Payment payment = paymentInStatus(PaymentStatus.PENDING);
         stubFind(payment);
@@ -132,12 +134,14 @@ class PaymentCallbackTest {
         paymentService.handleCallback(command(CallbackType.FAILURE));
 
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.FAILED);
-        verify(eventPublisher).publishEvent(any(PaymentFailed.class));
+        assertThat(payment.getFailureCode()).isEqualTo("PG_FAILURE");   // metadata 미제공 → 기본값
+        verify(orderAutoCancelService).cancelOne(ORDER_ID);   // Order PAYMENT_EXPIRED + OrderTerminated 발행 위임
+        verify(eventPublisher, never()).publishEvent(any());  // PaymentFailed 미발행
     }
 
     @ParameterizedTest
-    @EnumSource(value = PaymentStatus.class, names = {"PAID", "FAILED", "CANCELLED"})
-    @DisplayName("FAILURE × 비PENDING(PAID·FAILED·CANCELLED) → NO-OP·미발행")
+    @EnumSource(value = PaymentStatus.class, names = {"PAID", "FAILED", "CANCELLED", "EXPIRED"})
+    @DisplayName("FAILURE × 비PENDING(PAID·FAILED·CANCELLED·EXPIRED) → NO-OP·미발행")
     void failure_nonPending_noop(PaymentStatus status) {
         Payment payment = paymentInStatus(status);
         stubFind(payment);
@@ -163,21 +167,21 @@ class PaymentCallbackTest {
     }
 
     @Test
-    @DisplayName("CANCEL × PENDING → FAILED 전이(미완료 취소)·PaymentFailed 발행·failureCode 정합")
-    void cancel_pending_fails() {
+    @DisplayName("CANCEL × PENDING → 미결제 종료(결제창 취소·Payment EXPIRED + Order 종료 위임)·PaymentFailed 미발행(FE-12c)")
+    void cancel_pending_terminates() {
         Payment payment = paymentInStatus(PaymentStatus.PENDING);
         stubFind(payment);
 
         paymentService.handleCallback(command(CallbackType.CANCEL));
 
-        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.FAILED);
-        assertThat(payment.getFailureCode()).isEqualTo("CANCELLED_BEFORE_PAYMENT");
-        verify(eventPublisher).publishEvent(any(PaymentFailed.class));
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.EXPIRED);
+        verify(orderAutoCancelService).cancelOne(ORDER_ID);   // Order PAYMENT_EXPIRED + OrderTerminated 발행 위임
+        verify(eventPublisher, never()).publishEvent(any());  // Payment는 이벤트 미발행(expire)
     }
 
     @ParameterizedTest
-    @EnumSource(value = PaymentStatus.class, names = {"FAILED", "CANCELLED"})
-    @DisplayName("CANCEL × 종결(FAILED·CANCELLED) → NO-OP·미발행")
+    @EnumSource(value = PaymentStatus.class, names = {"FAILED", "CANCELLED", "EXPIRED"})
+    @DisplayName("CANCEL × 종결(FAILED·CANCELLED·EXPIRED) → NO-OP·미발행")
     void cancel_terminal_noop(PaymentStatus terminal) {
         Payment payment = paymentInStatus(terminal);
         stubFind(payment);
