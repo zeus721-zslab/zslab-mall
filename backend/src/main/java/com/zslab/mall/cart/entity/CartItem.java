@@ -11,6 +11,8 @@ import lombok.AccessLevel;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /**
  * 장바구니 품목(CRT Aggregate Root·HARD·full audit).
@@ -18,6 +20,10 @@ import lombok.NoArgsConstructor;
  * <p>userId(User Aggregate)·variantId(Product Aggregate)는 외부 — D-01에 따라 Long 필드만(@ManyToOne 금지).
  * UK(user_id, variant_id) DDL 보장·@Table uniqueConstraints 선언 생략(D-85 Q4·DDL 신뢰).
  * deleted_at 없음(HARD 분류) — 물리 삭제.
+ *
+ * <p>variantPublicId(var_·CHAR(30))는 외부 계약 대상키를 cart 라인이 소유하도록 비정규화한 스냅샷이다(V17·recon-74 블로커
+ * 해소). 내부 variantId FK는 enrich 조인·중복 담기 판정(UK)용으로 존치한다(이중 보유). dangling(variant soft-delete)이어도
+ * 스냅샷이 있어 외부 식별자로 조회·삭제가 가능하다.
  */
 @Entity
 @Table(name = "cart_item")
@@ -36,6 +42,11 @@ public class CartItem extends AbstractFullAuditableEntity {
     @Column(name = "variant_id", nullable = false)
     private Long variantId;
 
+    // CHAR(30) 고정폭 컬럼 — @JdbcTypeCode(CHAR) 없으면 Hibernate가 VARCHAR로 매핑해 조회 불일치(LT-01·D-82).
+    @JdbcTypeCode(SqlTypes.CHAR)
+    @Column(name = "variant_public_id", nullable = false, updatable = false)
+    private String variantPublicId;
+
     @Column(name = "quantity", nullable = false)
     private Integer quantity;
 
@@ -45,9 +56,9 @@ public class CartItem extends AbstractFullAuditableEntity {
     /**
      * @throws IllegalArgumentException 필수값 누락 또는 quantity < 1 시
      */
-    public static CartItem create(Long userId, Long variantId, Integer quantity) {
-        if (userId == null || variantId == null || quantity == null) {
-            throw new IllegalArgumentException("CartItem 필수값 누락(userId·variantId·quantity).");
+    public static CartItem create(Long userId, Long variantId, String variantPublicId, Integer quantity) {
+        if (userId == null || variantId == null || variantPublicId == null || quantity == null) {
+            throw new IllegalArgumentException("CartItem 필수값 누락(userId·variantId·variantPublicId·quantity).");
         }
         if (quantity < 1) {
             throw new IllegalArgumentException("CartItem quantity는 1 이상이어야 합니다(CRT-2).");
@@ -55,6 +66,7 @@ public class CartItem extends AbstractFullAuditableEntity {
         CartItem cartItem = new CartItem();
         cartItem.userId = userId;
         cartItem.variantId = variantId;
+        cartItem.variantPublicId = variantPublicId;
         cartItem.quantity = quantity;
         cartItem.selected = true;
         return cartItem;

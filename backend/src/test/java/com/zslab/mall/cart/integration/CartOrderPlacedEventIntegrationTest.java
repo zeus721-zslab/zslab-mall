@@ -177,9 +177,11 @@ class CartOrderPlacedEventIntegrationTest extends AbstractIntegrationTest {
     }
 
     private void seedCartItem(long variantId, boolean selected) {
-        jdbc.update("INSERT INTO cart_item (user_id, variant_id, quantity, selected, created_at, updated_at) "
-                        + "VALUES (?, ?, 1, ?, NOW(6), NOW(6))",
-                USER_ID, variantId, selected ? 1 : 0);
+        // variant_public_id(V17·NOT NULL)는 담김 스냅샷 — 시드한 variant의 실제 public_id와 정합시킨다(무FK 컬럼).
+        String variantPublicId = variantId == ORDERED_VARIANT_ID ? pid("var_", "T41VRA") : pid("var_", "T41VRB");
+        jdbc.update("INSERT INTO cart_item (user_id, variant_id, variant_public_id, quantity, selected, created_at, updated_at) "
+                        + "VALUES (?, ?, ?, 1, ?, NOW(6), NOW(6))",
+                USER_ID, variantId, variantPublicId, selected ? 1 : 0);
     }
 
     private int cartCount(long variantId) {

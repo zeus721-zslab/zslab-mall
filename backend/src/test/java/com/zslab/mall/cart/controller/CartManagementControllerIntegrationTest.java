@@ -53,6 +53,12 @@ class CartManagementControllerIntegrationTest extends AbstractIntegrationTest {
     private static final long VAR_MANUAL = 45303L;    // SALE·재고5·수동품절 → 품절
     private static final long VAR_DANGLING = 45304L;  // deleted_at 마킹 → enrich 누락·purchasable false
 
+    // 외부 대상키(요청·응답·조회 lookup)는 variantPublicId. 각 seed variant의 public_id와 정합(pid tag 동일).
+    private static final String VAR_OK_PID = pid("var_", "CM45V1");
+    private static final String VAR_SOLDOUT_PID = pid("var_", "CM45V2");
+    private static final String VAR_MANUAL_PID = pid("var_", "CM45V3");
+    private static final String VAR_DANGLING_PID = pid("var_", "CM45V4");
+
     @Autowired
     private MockMvc mockMvc;
     @Autowired
@@ -95,7 +101,7 @@ class CartManagementControllerIntegrationTest extends AbstractIntegrationTest {
 
         CartResponse response = objectMapper.readValue(result.getResponse().getContentAsString(), CartResponse.class);
 
-        CartItemView ok = view(response, VAR_OK);
+        CartItemView ok = view(response, VAR_OK_PID);
         assertThat(ok.productName()).isEqualTo("카트상품");
         assertThat(ok.sellerName()).isEqualTo("카트셀러");
         assertThat(ok.displayPrice()).isEqualTo(10500L); // base 10000 + additional 500
@@ -103,11 +109,11 @@ class CartManagementControllerIntegrationTest extends AbstractIntegrationTest {
         assertThat(ok.purchasable()).isTrue();
         assertThat(ok.quantity()).isEqualTo(2);
 
-        assertThat(view(response, VAR_SOLDOUT).purchasable()).isFalse();   // 재고0
-        assertThat(view(response, VAR_MANUAL).purchasable()).isFalse();    // 수동품절
+        assertThat(view(response, VAR_SOLDOUT_PID).purchasable()).isFalse();   // 재고0
+        assertThat(view(response, VAR_MANUAL_PID).purchasable()).isFalse();    // 수동품절
 
-        // dangling: enrich 누락 → 표기 유지·구매불가
-        CartItemView dangling = view(response, VAR_DANGLING);
+        // dangling: enrich 누락 → 표기 유지·구매불가(variantPublicId 스냅샷은 노출)
+        CartItemView dangling = view(response, VAR_DANGLING_PID);
         assertThat(dangling.purchasable()).isFalse();
         assertThat(dangling.productName()).isNull();
         assertThat(dangling.quantityAvailable()).isZero();
@@ -132,7 +138,7 @@ class CartManagementControllerIntegrationTest extends AbstractIntegrationTest {
 
         mockMvc.perform(delete("/api/v1/cart/items").headers(authHeaders.buyer(BUYER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(Map.of("variantIds", List.of(VAR_OK)))))
+                        .content(json(Map.of("variantPublicIds", List.of(VAR_OK_PID)))))
                 .andExpect(status().isOk());
 
         assertThat(count("SELECT COUNT(*) FROM cart_item WHERE user_id=? AND variant_id=?", BUYER_USER_ID, VAR_OK)).isZero();
@@ -147,7 +153,7 @@ class CartManagementControllerIntegrationTest extends AbstractIntegrationTest {
 
         mockMvc.perform(delete("/api/v1/cart/items").headers(authHeaders.buyer(BUYER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(Map.of("variantIds", List.of(VAR_OK, VAR_SOLDOUT)))))
+                        .content(json(Map.of("variantPublicIds", List.of(VAR_OK_PID, VAR_SOLDOUT_PID)))))
                 .andExpect(status().isOk());
 
         assertThat(count("SELECT COUNT(*) FROM cart_item WHERE user_id=?", BUYER_USER_ID)).isZero();
@@ -158,7 +164,7 @@ class CartManagementControllerIntegrationTest extends AbstractIntegrationTest {
     void delete_emptyList_returns400() throws Exception {
         mockMvc.perform(delete("/api/v1/cart/items").headers(authHeaders.buyer(BUYER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(Map.of("variantIds", List.of()))))
+                        .content(json(Map.of("variantPublicIds", List.of()))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
     }
@@ -172,7 +178,7 @@ class CartManagementControllerIntegrationTest extends AbstractIntegrationTest {
 
         mockMvc.perform(patch("/api/v1/cart/items/quantity").headers(authHeaders.buyer(BUYER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(Map.of("variantId", VAR_OK, "quantity", 9))))
+                        .content(json(Map.of("variantPublicId", VAR_OK_PID, "quantity", 9))))
                 .andExpect(status().isOk());
 
         assertThat(count("SELECT quantity FROM cart_item WHERE user_id=? AND variant_id=?", BUYER_USER_ID, VAR_OK)).isEqualTo(9);
@@ -185,7 +191,7 @@ class CartManagementControllerIntegrationTest extends AbstractIntegrationTest {
 
         mockMvc.perform(patch("/api/v1/cart/items/quantity").headers(authHeaders.buyer(BUYER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(Map.of("variantId", VAR_OK, "quantity", 0))))
+                        .content(json(Map.of("variantPublicId", VAR_OK_PID, "quantity", 0))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
 
@@ -197,7 +203,7 @@ class CartManagementControllerIntegrationTest extends AbstractIntegrationTest {
     void changeQuantity_notInCart_returns404() throws Exception {
         mockMvc.perform(patch("/api/v1/cart/items/quantity").headers(authHeaders.buyer(BUYER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(Map.of("variantId", VAR_OK, "quantity", 3))))
+                        .content(json(Map.of("variantPublicId", VAR_OK_PID, "quantity", 3))))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("CART_ITEM_NOT_FOUND"));
     }
@@ -212,7 +218,7 @@ class CartManagementControllerIntegrationTest extends AbstractIntegrationTest {
 
         mockMvc.perform(patch("/api/v1/cart/items/selected").headers(authHeaders.buyer(BUYER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(Map.of("variantId", VAR_OK, "selected", false))))
+                        .content(json(Map.of("variantPublicId", VAR_OK_PID, "selected", false))))
                 .andExpect(status().isOk());
 
         assertThat(count("SELECT selected FROM cart_item WHERE user_id=? AND variant_id=?", BUYER_USER_ID, VAR_OK)).isZero();
@@ -224,7 +230,7 @@ class CartManagementControllerIntegrationTest extends AbstractIntegrationTest {
     void setSelected_notInCart_returns404() throws Exception {
         mockMvc.perform(patch("/api/v1/cart/items/selected").headers(authHeaders.buyer(BUYER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(Map.of("variantId", VAR_OK, "selected", false))))
+                        .content(json(Map.of("variantPublicId", VAR_OK_PID, "selected", false))))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("CART_ITEM_NOT_FOUND"));
     }
@@ -254,14 +260,14 @@ class CartManagementControllerIntegrationTest extends AbstractIntegrationTest {
         // BUYER가 VAR_OK 삭제 시도 → 타인 항목 잔존
         mockMvc.perform(delete("/api/v1/cart/items").headers(authHeaders.buyer(BUYER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(Map.of("variantIds", List.of(VAR_OK)))))
+                        .content(json(Map.of("variantPublicIds", List.of(VAR_OK_PID)))))
                 .andExpect(status().isOk());
         assertThat(count("SELECT COUNT(*) FROM cart_item WHERE user_id=? AND variant_id=?", OTHER_BUYER_ID, VAR_OK)).isEqualTo(1);
 
         // BUYER가 VAR_OK 수량변경 시도 → 본인 장바구니엔 없음 → 404
         mockMvc.perform(patch("/api/v1/cart/items/quantity").headers(authHeaders.buyer(BUYER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(Map.of("variantId", VAR_OK, "quantity", 1))))
+                        .content(json(Map.of("variantPublicId", VAR_OK_PID, "quantity", 1))))
                 .andExpect(status().isNotFound());
         assertThat(count("SELECT quantity FROM cart_item WHERE user_id=? AND variant_id=?", OTHER_BUYER_ID, VAR_OK)).isEqualTo(3);
     }
@@ -286,11 +292,11 @@ class CartManagementControllerIntegrationTest extends AbstractIntegrationTest {
 
     // ==================== helpers ====================
 
-    private static CartItemView view(CartResponse response, long variantId) {
+    private static CartItemView view(CartResponse response, String variantPublicId) {
         return response.items().stream()
-                .filter(item -> item.variantId() == variantId)
+                .filter(item -> variantPublicId.equals(item.variantPublicId()))
                 .findFirst()
-                .orElseThrow(() -> new AssertionError("variantId=" + variantId + " 항목 없음"));
+                .orElseThrow(() -> new AssertionError("variantPublicId=" + variantPublicId + " 항목 없음"));
     }
 
     private String json(Object body) throws Exception {
@@ -348,10 +354,21 @@ class CartManagementControllerIntegrationTest extends AbstractIntegrationTest {
     }
 
     private void seedCartItem(long userId, long variantId, int quantity, boolean selected) {
+        // variant_public_id(V17·NOT NULL)는 담김 스냅샷 — seed된 variant의 실제 public_id와 정합시킨다(무FK 컬럼).
+        String variantPublicId = variantPublicIdOf(variantId);
         tx.executeWithoutResult(s -> jdbc.update(
-                "INSERT INTO cart_item (user_id, variant_id, quantity, selected, created_at, updated_at) "
-                        + "VALUES (?, ?, ?, ?, NOW(6), NOW(6))",
-                userId, variantId, quantity, selected ? 1 : 0));
+                "INSERT INTO cart_item (user_id, variant_id, variant_public_id, quantity, selected, created_at, updated_at) "
+                        + "VALUES (?, ?, ?, ?, ?, NOW(6), NOW(6))",
+                userId, variantId, variantPublicId, quantity, selected ? 1 : 0));
+    }
+
+    /** seed된 variant 내부 id → 그 public_id 스냅샷 매핑(테스트 4종 한정). */
+    private static String variantPublicIdOf(long variantId) {
+        if (variantId == VAR_OK) return VAR_OK_PID;
+        if (variantId == VAR_SOLDOUT) return VAR_SOLDOUT_PID;
+        if (variantId == VAR_MANUAL) return VAR_MANUAL_PID;
+        if (variantId == VAR_DANGLING) return VAR_DANGLING_PID;
+        throw new IllegalArgumentException("매핑되지 않은 variantId=" + variantId);
     }
 
     private void cleanup() {

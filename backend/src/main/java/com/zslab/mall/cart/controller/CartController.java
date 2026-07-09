@@ -28,8 +28,8 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>HTTP 책임만 가진다(D-40): 액터 해소·요청 검증(@Valid)·Service 위임·201 변환. variant 존재검증·수량 누적·409 변환은
  * {@link CartService} 책임이다. cart_item은 public_id·단건 GET 부재라 Location 없이 201+body만 반환한다(ProductRegistrationController 대칭).
  *
- * <p>Track 45에서 조회(GET)·삭제(DELETE)·수량변경/selected 토글(PATCH)을 추가한다. 대상 식별키는 variantId이며(내부 PK 미노출·
- * UK(user_id, variant_id) buyer당 유일), 소유권은 userId 스코프 조회로 자동 성립한다. 인가는 기존 {@code /api/v1/cart/**} 매처가 커버한다.
+ * <p>Track 45에서 조회(GET)·삭제(DELETE)·수량변경/selected 토글(PATCH)을 추가한다. 외부 대상 식별키는 variantPublicId(var_·
+ * 내부 PK 미노출·V17 cart_item 비정규화 스냅샷)이며, 소유권은 userId 스코프 조회로 자동 성립한다. 인가는 기존 {@code /api/v1/cart/**} 매처가 커버한다.
  */
 @RestController
 public class CartController {
@@ -66,7 +66,7 @@ public class CartController {
     public ResponseEntity<Void> removeItems(
             @Valid @RequestBody CartItemDeleteRequest request, HttpServletRequest httpRequest) {
         Long userId = buyerActorResolver.resolve(httpRequest);
-        cartService.removeItems(userId, request.variantIds());
+        cartService.removeItems(userId, request.variantPublicIds());
         return ResponseEntity.ok().build();
     }
 
@@ -75,7 +75,7 @@ public class CartController {
     public ResponseEntity<Void> changeQuantity(
             @Valid @RequestBody CartItemQuantityUpdateRequest request, HttpServletRequest httpRequest) {
         Long userId = buyerActorResolver.resolve(httpRequest);
-        cartService.changeQuantity(userId, request.variantId(), request.quantity());
+        cartService.changeQuantity(userId, request.variantPublicId(), request.quantity());
         return ResponseEntity.ok().build();
     }
 
@@ -84,7 +84,7 @@ public class CartController {
     public ResponseEntity<Void> setSelected(
             @Valid @RequestBody CartItemSelectRequest request, HttpServletRequest httpRequest) {
         Long userId = buyerActorResolver.resolve(httpRequest);
-        cartService.setSelected(userId, request.variantId(), request.selected());
+        cartService.setSelected(userId, request.variantPublicId(), request.selected());
         return ResponseEntity.ok().build();
     }
 
