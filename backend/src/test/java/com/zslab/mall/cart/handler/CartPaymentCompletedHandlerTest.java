@@ -13,8 +13,8 @@ import com.zslab.mall.cart.repository.CartItemRepository;
 import com.zslab.mall.common.observability.EventMetricsRecorder;
 import com.zslab.mall.order.entity.Order;
 import com.zslab.mall.order.entity.OrderItem;
-import com.zslab.mall.order.event.OrderPlaced;
 import com.zslab.mall.order.repository.OrderRepository;
+import com.zslab.mall.payment.event.PaymentCompleted;
 import java.time.LocalDateTime;
 import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
@@ -25,15 +25,17 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 /**
- * {@link CartOrderPlacedHandler} 단위 검증(Mockito·Track 41 Phase 4). findByIdWithItems → buyerId·variantIds 조달·
+ * {@link CartPaymentCompletedHandler} 단위 검증(Mockito·Track 67). findByIdWithItems → buyerId·variantIds 조달·
  * {@code deleteByUserIdAndVariantIdIn} 호출·distinct(Set)·order 미발견 skip·실패 흡수(recordFailed)를 커버한다
- * (InventoryOrderPlacedHandlerTest 대칭·handle() 직접 호출·AFTER_COMMIT 실발화는 통합 테스트 소관).
+ * (InventoryPaymentCompletedHandlerTest 대칭·handle() 직접 호출·AFTER_COMMIT 실발화는 통합 테스트 소관).
  */
 @ExtendWith(MockitoExtension.class)
-class CartOrderPlacedHandlerTest {
+class CartPaymentCompletedHandlerTest {
 
+    private static final Long PAYMENT_ID = 500L;
     private static final Long ORDER_ID = 300L;
     private static final Long BUYER_ID = 77L;
+    private static final Long AMOUNT = 10_000L;
 
     @Mock
     private OrderRepository orderRepository;
@@ -42,14 +44,14 @@ class CartOrderPlacedHandlerTest {
     @Mock
     private EventMetricsRecorder eventMetricsRecorder;
     @InjectMocks
-    private CartOrderPlacedHandler handler;
+    private CartPaymentCompletedHandler handler;
 
-    private OrderPlaced event() {
-        return new OrderPlaced("ord_CART0000000000000000000AA", ORDER_ID, LocalDateTime.of(2026, 7, 5, 10, 0));
+    private PaymentCompleted event() {
+        return new PaymentCompleted(PAYMENT_ID, ORDER_ID, AMOUNT, "pg_tid_T67", LocalDateTime.of(2026, 7, 9, 10, 0));
     }
 
     private Order orderWithVariants(Long... variantIds) {
-        Order order = Order.create(BUYER_ID, "20260705-TEST01", 0L, 0L);
+        Order order = Order.create(BUYER_ID, "20260709-TEST01", 0L, 0L);
         for (Long variantId : variantIds) {
             order.addItem(OrderItem.create(11L, variantId, 21L, 1, 1_000L, 1_000L));
         }
@@ -91,7 +93,7 @@ class CartOrderPlacedHandlerTest {
     }
 
     @Test
-    @DisplayName("삭제 실패: delete throw → catch·recordFailed(OrderPlaced)·예외 흡수(전파 안 됨)")
+    @DisplayName("삭제 실패: delete throw → catch·recordFailed(PaymentCompleted)·예외 흡수(전파 안 됨)")
     void handle_deleteThrows_recordsFailed() {
         when(orderRepository.findByIdWithItems(ORDER_ID)).thenReturn(Optional.of(orderWithVariants(201L)));
         doThrow(new RuntimeException("DB down"))
@@ -99,6 +101,6 @@ class CartOrderPlacedHandlerTest {
 
         handler.handle(event()); // 예외가 밖으로 전파되지 않아야 한다
 
-        verify(eventMetricsRecorder).recordFailed(eq("OrderPlaced"));
+        verify(eventMetricsRecorder).recordFailed(eq("PaymentCompleted"));
     }
 }
