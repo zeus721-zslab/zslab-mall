@@ -295,6 +295,67 @@ v3→v4 전환 시 다음 4점이 CI·빌드 성공만으로는 드러나지 않
 
 ---
 
+## LT-09. pnpm store 교차-디바이스 → verifyDepsBeforeRun purge로 컨테이너 Exited [RESOLVED]
+
+**발견 트랙**: FE-09 STEP 1 shadcn-vue 도입 (컨테이너 재기동 실측)
+**원본 결정**: decisions-fe.md FE-09 §1-A 6
+
+### 증상
+pnpm store가 바인드-마운트(호스트 파일시스템 device)에 위치하면 node_modules(컨테이너 익명 볼륨 device)와 교차-디바이스가 되어 하드링크·무결성 검증이 실패. 재기동 시 pnpm verifyDepsBeforeRun이 node_modules purge를 시도하는데 no-TTY 환경이라 확인 프롬프트에서 컨테이너가 Exited(1). 1회 기동/CI만으로는 미표면화(재기동·deps 변경 시점에만 발현).
+
+### 처치
+storeDir을 node_modules 익명 볼륨 내부로 이동(/app/node_modules/.pnpm-store) → store와 node_modules가 동일 device → 하드링크·검증 정합. 빌드타임 install과 런타임이 같은 파일시스템을 봐 purge 트리거 소멸.
+- 기각: verifyDepsBeforeRun:false 마스크 — 검증 자체를 끄는 증상 은폐라 근본 아님.
+
+### 후속 영향
+- 컨테이너에서 pnpm store 위치 지정 시 익명/named 볼륨 내부에 둘 것. 호스트 바인드-마운트 store 금지.
+- "재기동 후 UNEXPECTED_STORE·REMOVE_MODULES·ELIFECYCLE Exited" 패턴 관측 시 store device 경계부터 의심.
+
+### 관련
+- decisions-fe.md FE-09 §1-A 6·frontend/pnpm-workspace.yaml(storeDir)
+
+---
+
+## LT-10. shadcn-vue + Nuxt4 "Failed to resolve extends base type" (SFC 타입 리졸버) [RESOLVED]
+
+**발견 트랙**: FE-09 STEP 1 Button 스캐폴드 (SSR 컴파일 500 실측)
+**원본 결정**: decisions-fe.md FE-09 §1-A 5
+
+### 증상
+공식 shadcn-vue Button.vue의 `interface Props extends PrimitiveProps`(reka-ui)가 SSR 컴파일 시 "Failed to resolve extends base type"으로 홈 500. 에러 메시지가 원인을 직접 가리키지 않아(외부 타입 extends 미해결) 버전 상호작용 문제로 오진하기 쉬움. 실제 원인은 @vue/compiler-sfc 타입 리졸버가 typescript 부재 시 외부 패키지의 extends된 타입을 해석하지 못함.
+
+### 처치
+typescript를 devDependency로 설치 → SFC 타입 리졸버가 extends 체인을 해석 → Button.vue 무수정으로 컴파일 정상.
+- 기각: reka-ui/vue 버전 도박·build.transpile 우회·Button.vue props 타입 인라인(스캐폴드 수정)·스모크 이연 — 전부 근본 아님.
+
+### 후속 영향
+- shadcn-vue(reka-ui) 컴포넌트를 Nuxt4 SFC에서 쓸 때 typescript devDep 필수(외부 타입 extends 해석 전제).
+- "Failed to resolve extends base type" 관측 시 버전 조정 전에 typescript 설치 여부부터 확인.
+
+### 관련
+- decisions-fe.md FE-09 §1-A 5·frontend/package.json(typescript devDep)·frontend/app/components/ui/button/Button.vue
+
+---
+
+## LT-11. Nuxt auto-import 신규 대상(store/plugin/composable) 미스캔 → "is not defined" [RESOLVED]
+
+**발견 트랙**: FE-09 STEP 3 Header가 store 첫 소비 (SSR 500 실측)
+**원본 결정**: decisions-fe.md FE-09 §2
+
+### 증상
+신규 store/plugin(및 composable)을 파일만 추가하고 dev 서버를 재기동하지 않으면, 부팅 시점에 해당 디렉토리가 비어(.gitkeep) 있던 경우 런타임 unimport 스캔에 미포함 → 소비 컴포넌트 렌더 시 "useXxxStore is not defined" 500. 타입 레지스트리(.nuxt/imports.d.ts)에는 등록돼 tsc는 통과하므로 tsc·타입검사만으로는 런타임 미스캔을 못 잡음. 소비처가 없던 동안(STEP 2)엔 잠복.
+
+### 처치
+auto-import 대상(store·plugin·composable) 추가 후 컨테이너(dev 서버) 재기동으로 unimport 재스캔 → 런타임 주입 정합. 추가 직후 실제 소비 페이지를 HTTP 실측(200·"is not defined" 부재)해 확인.
+
+### 후속 영향
+- auto-import 디렉토리에 신규 파일 추가 시 재기동 + 페이지 실측을 완료 게이트에 포함(tsc GREEN만으로 완료 처리 금지).
+- 부팅 시 비어있던(.gitkeep) 디렉토리에 첫 파일 추가 시 특히 주의(watcher가 신규 등록을 놓칠 수 있음).
+
+### 관련
+- decisions-fe.md FE-09 §2·frontend/app/stores/·frontend/app/plugins/
+
+---
 ## 부록. 트랩 추가 절차
 
 1. 라이브 발견 시 즉시 decisions.md D-XX 박제 (단건 처리)
