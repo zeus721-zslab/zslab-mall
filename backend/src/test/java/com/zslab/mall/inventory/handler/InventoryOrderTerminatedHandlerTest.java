@@ -16,8 +16,8 @@ import com.zslab.mall.inventory.repository.InventoryRepository;
 import com.zslab.mall.inventory.service.InventoryService;
 import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.enums.OrderItemStatus;
+import com.zslab.mall.order.event.OrderTerminated;
 import com.zslab.mall.order.repository.OrderItemRepository;
-import com.zslab.mall.payment.event.PaymentFailed;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -31,14 +31,13 @@ import org.springframework.beans.BeanUtils;
 import org.springframework.test.util.ReflectionTestUtils;
 
 /**
- * {@link InventoryPaymentFailedHandler} 단위 검증(Mockito·D-101 §3·§6·§4 갱신). 정상 해제·잔여 reserved == 0 skip
- * (read-only findByVariantId)·해제 실패(INV-3) 시 catch → recordFailed 흡수를 커버한다.
+ * {@link InventoryOrderTerminatedHandler} 단위 검증(Mockito·FE-12c). 정상 해제·잔여 reserved == 0 skip
+ * (read-only findByVariantId)·해제 실패(INV-3) 시 catch → recordFailed 흡수를 커버한다(구 InventoryOrderCancelledHandlerTest 개명).
  */
 @ExtendWith(MockitoExtension.class)
-class InventoryPaymentFailedHandlerTest {
+class InventoryOrderTerminatedHandlerTest {
 
-    private static final Long ORDER_ID = 100L;
-    private static final Long PAYMENT_ID = 7L;
+    private static final Long ORDER_ID = 700L;
     private static final Long PRODUCT_ID = 11L;
     private static final Long VARIANT_ID = 1L;
     private static final Long SELLER_ID = 21L;
@@ -54,15 +53,16 @@ class InventoryPaymentFailedHandlerTest {
     @Mock
     private EventMetricsRecorder eventMetricsRecorder;
     @InjectMocks
-    private InventoryPaymentFailedHandler handler;
+    private InventoryOrderTerminatedHandler handler;
 
-    private PaymentFailed event() {
-        return new PaymentFailed(PAYMENT_ID, ORDER_ID, "INSUFFICIENT_BALANCE", LocalDateTime.of(2026, 7, 1, 10, 0));
+    private OrderTerminated event() {
+        return new OrderTerminated("ord_AUTOCANCEL00000000000000", ORDER_ID, LocalDateTime.of(2026, 7, 9, 10, 0));
     }
 
     private OrderItem orderItem() {
         OrderItem item = OrderItem.create(PRODUCT_ID, VARIANT_ID, SELLER_ID, QTY, UNIT_PRICE, UNIT_PRICE * QTY);
         ReflectionTestUtils.setField(item, "id", 501L);
+        // 미결제 종료는 OrderItem을 전이시키지 않으므로 종료 후에도 ORDERED 유지(재고 해제는 variant_id 기반)
         ReflectionTestUtils.setField(item, "itemStatus", OrderItemStatus.ORDERED);
         return item;
     }
@@ -102,7 +102,7 @@ class InventoryPaymentFailedHandlerTest {
     }
 
     @Test
-    @DisplayName("해제 초과(INV-3): release throw → catch·recordFailed(PaymentFailed)·예외 흡수")
+    @DisplayName("해제 초과(INV-3): release throw → catch·recordFailed(OrderTerminated)·예외 흡수")
     void handle_releaseThrows_recordsFailed() {
         when(orderItemRepository.findByOrderId(ORDER_ID)).thenReturn(List.of(orderItem()));
         when(inventoryRepository.findByVariantId(VARIANT_ID)).thenReturn(Optional.of(inventory(1)));
@@ -111,6 +111,6 @@ class InventoryPaymentFailedHandlerTest {
 
         handler.handle(event());
 
-        verify(eventMetricsRecorder).recordFailed(eq("PaymentFailed"));
+        verify(eventMetricsRecorder).recordFailed(eq("OrderTerminated"));
     }
 }

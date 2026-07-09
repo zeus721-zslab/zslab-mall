@@ -89,10 +89,21 @@ public class OrderService {
     /**
      * 결제 완료를 반영한다(동기화 규칙 [1]). 모든 OrderItem을 PAID로 전이하고 Order.status=PAID로 갱신한다.
      *
+     * <p><b>늦은 웹훅 차단 불변식(FE-12c)</b>: Order.status가 PENDING_PAYMENT일 때만 결제 완료를 승인한다. 미결제 종료
+     * (PAYMENT_EXPIRED)된 주문에 결제 성공 콜백이 뒤늦게 도착하면 승인을 거부(예외)해 트랜잭션을 롤백한다 —
+     * 이미 재고가 해제·종료된 주문이 PAID로 되살아나 재고가 음수화되는 상태를 원천 차단한다. Order.markPaid의 CANCELLED item
+     * 불법 전이 예외에 앞서 명시적 status 가드로 의도를 드러낸다.
+     *
      * @throws IllegalArgumentException 주문이 없는 경우
+     * @throws IllegalStateException 주문이 PENDING_PAYMENT가 아니어서 결제 승인이 불가한 경우(늦은 웹훅·이미 종료)
      */
     public Order markPaid(Long orderId, LocalDateTime paidAt) {
         Order order = findOrder(orderId);
+        if (order.getStatus() != OrderStatus.PENDING_PAYMENT) {
+            throw new IllegalStateException(
+                    "이미 종료된 주문에는 결제 완료를 반영할 수 없습니다(늦은 웹훅 차단): orderId=" + orderId
+                            + ", status=" + order.getStatus());
+        }
         order.markPaid(paidAt);
         return order;
     }

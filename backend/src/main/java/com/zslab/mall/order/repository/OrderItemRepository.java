@@ -7,6 +7,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -18,6 +19,14 @@ public interface OrderItemRepository extends JpaRepository<OrderItem, Long> {
     List<OrderItem> findByOrderId(Long orderId);
 
     List<OrderItem> findByOrderIdIn(Collection<Long> orderIds);
+
+    /**
+     * 한 주문의 OrderItem을 일괄 물리삭제한다(FE-12c-2·미결제 종료 주문 hard delete 자식 정리). 벌크 DELETE로 1회 실행하며
+     * 삭제 건수를 반환한다. 삭제는 부모 order 삭제에 선행해야 한다(fk_order_item_order RESTRICT). 모든 변수는 :orderId 바인딩이다.
+     */
+    @Modifying
+    @Query("DELETE FROM OrderItem oi WHERE oi.order.id = :orderId")
+    int deleteByOrderId(@Param("orderId") Long orderId);
 
     /**
      * OrderItem을 public_id(oit_)로 조회한다. 외부 요청의 public_id를 BIGINT id로 해소하는 진입점 패턴이다

@@ -14,7 +14,6 @@ import com.zslab.mall.payment.enums.CallbackType;
 import com.zslab.mall.payment.enums.PaymentMethod;
 import com.zslab.mall.payment.enums.PaymentStatus;
 import com.zslab.mall.payment.event.PaymentCompleted;
-import com.zslab.mall.payment.event.PaymentFailed;
 import com.zslab.mall.payment.gateway.PaymentGateway;
 import com.zslab.mall.payment.repository.PaymentRepository;
 import java.time.LocalDateTime;
@@ -82,34 +81,8 @@ class PaymentEventTest {
         assertThat(event.occurredAt()).isEqualTo(OCCURRED_AT);
     }
 
-    @Test
-    @DisplayName("PaymentFailed 페이로드: failureCode는 metadata에서 추출·occurredAt 정합(D-30)")
-    void paymentFailed_payload_fromMetadata() {
-        Payment payment = paymentInStatus(PaymentStatus.PENDING);
-        when(paymentRepository.findByPaymentAttemptKey(ATTEMPT_KEY)).thenReturn(Optional.of(payment));
-
-        paymentService.handleCallback(command(CallbackType.FAILURE, Map.of("failureCode", "INSUFFICIENT_BALANCE")));
-
-        ArgumentCaptor<PaymentFailed> captor = ArgumentCaptor.forClass(PaymentFailed.class);
-        verify(eventPublisher).publishEvent(captor.capture());
-        PaymentFailed event = captor.getValue();
-        assertThat(event.paymentId()).isEqualTo(PAYMENT_ID);
-        assertThat(event.orderId()).isEqualTo(ORDER_ID);
-        assertThat(event.failureCode()).isEqualTo("INSUFFICIENT_BALANCE");
-        assertThat(event.occurredAt()).isEqualTo(OCCURRED_AT);
-    }
-
-    @Test
-    @DisplayName("PaymentFailed: metadata에 failureCode 없으면 기본값(PG_FAILURE)")
-    void paymentFailed_defaultCode() {
-        Payment payment = paymentInStatus(PaymentStatus.PENDING);
-        when(paymentRepository.findByPaymentAttemptKey(ATTEMPT_KEY)).thenReturn(Optional.of(payment));
-
-        paymentService.handleCallback(command(CallbackType.FAILURE, null));
-
-        assertThat(payment.getFailureCode()).isEqualTo("PG_FAILURE");
-        verify(eventPublisher).publishEvent(any(PaymentFailed.class));
-    }
+    // FE-12c: FAILURE 콜백의 PaymentFailed 발행·metadata failureCode 추출 동작 제거됨(미결제 종료=EXPIRED + Order 종료 위임).
+    //         FAILURE × PENDING 신규 동작(EXPIRED·cancelOne 위임·미발행)은 PaymentCallbackTest가 커버한다.
 
     @Test
     @DisplayName("REJECT 예외 시 이벤트 미발행(예외가 pull·publish 이전에 전파·롤백 안전)")

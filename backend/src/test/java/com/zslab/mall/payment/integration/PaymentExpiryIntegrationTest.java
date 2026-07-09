@@ -3,9 +3,9 @@ package com.zslab.mall.payment.integration;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.zslab.mall.order.enums.OrderItemStatus;
+import com.zslab.mall.order.event.OrderTerminated;
 import com.zslab.mall.payment.entity.Payment;
 import com.zslab.mall.payment.enums.PaymentMethod;
-import com.zslab.mall.payment.event.PaymentFailed;
 import com.zslab.mall.payment.repository.PaymentRepository;
 import com.zslab.mall.payment.service.ExpirePaymentService;
 import java.sql.Timestamp;
@@ -28,9 +28,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 import com.zslab.mall.support.AbstractIntegrationTest;
 
 /**
- * 결제 자동 만료 E2E 통합 테스트(Track 25·D-08 M-14·실 MariaDB·Flyway). {@link ExpirePaymentService#expireOne}을
- * 비-테스트-트랜잭션으로 직접 호출해 만료 전이(PENDING→FAILED)와 커밋 후 AFTER_COMMIT
- * {@code InventoryPaymentFailedHandler} 재고 예약 해제까지의 실 커밋 경로를 검증한다.
+ * 결제 자동 만료 E2E 통합 테스트(Track 25·D-08 M-14·FE-12c 재배선·실 MariaDB·Flyway). {@link ExpirePaymentService#expireOne}을
+ * 비-테스트-트랜잭션으로 직접 호출해 만료 종료(Payment PENDING→EXPIRED·Order PENDING_PAYMENT→PAYMENT_EXPIRED)와 커밋 후
+ * AFTER_COMMIT {@code InventoryOrderTerminatedHandler} 재고 예약 해제까지의 실 커밋 경로를 검증한다.
  *
  * <p><b>시드 원칙</b>: expires_at은 LocalDateTime 매핑이라 raw JDBC 시드는 JVM tz와 DB 세션 tz 차이로 값이 shift될 수
  * 있다. 따라서 isExpired 판정이 필요한 케이스(T1·T3)는 JPA 저장(Hibernate LocalDateTime 무변환 왕복)으로,
@@ -86,17 +86,17 @@ class PaymentExpiryIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("T1 만료 PENDING → expireOne → FAILED(PAYMENT_EXPIRED) 전이 + AFTER_COMMIT 재고 예약 해제")
-    void expiredPending_transitionsFailed_andReleasesReservation() {
+    @DisplayName("T1 만료 PENDING → expireOne → Payment EXPIRED·Order PAYMENT_EXPIRED 종료 + AFTER_COMMIT 재고 예약 해제")
+    void expiredPending_terminates_andReleasesReservation() {
         seedGraph(QTY);
         Long paymentId = seedJpaPendingPayment(LocalDateTime.now().minusMinutes(10));
 
         // expireOne은 자체 @Transactional — 직접 호출 시 커밋되어 AFTER_COMMIT 핸들러가 동기 발화한다.
         expirePaymentService.expireOne(paymentId);
 
-        assertThat(paymentStatus(paymentId)).isEqualTo("FAILED");
-        assertThat(failureCode(paymentId)).isEqualTo("PAYMENT_EXPIRED");
-        assertThat(applicationEvents.stream(PaymentFailed.class).count()).isEqualTo(1);
+        assertThat(paymentStatus(paymentId)).isEqualTo("EXPIRED");
+        assertThat(orderStatus()).isEqualTo("PAYMENT_EXPIRED");
+        assertThat(applicationEvents.stream(OrderTerminated.class).count()).isEqualTo(1);
         assertThat(reserved()).isZero();
         assertThat(available()).isEqualTo(10);
         assertThat(onHand()).isEqualTo(10);
@@ -112,7 +112,7 @@ class PaymentExpiryIntegrationTest extends AbstractIntegrationTest {
         expirePaymentService.expireOne(PAID_PAYMENT_ID);
 
         assertThat(paymentStatus(PAID_PAYMENT_ID)).isEqualTo("PAID");
-        assertThat(applicationEvents.stream(PaymentFailed.class).count()).isZero();
+        assertThat(applicationEvents.stream(OrderTerminated.class).count()).isZero();
         assertThat(reserved()).isEqualTo(QTY);   // 해제되지 않음
     }
 
@@ -125,7 +125,7 @@ class PaymentExpiryIntegrationTest extends AbstractIntegrationTest {
         expirePaymentService.expireOne(paymentId);
 
         assertThat(paymentStatus(paymentId)).isEqualTo("PENDING");
-        assertThat(applicationEvents.stream(PaymentFailed.class).count()).isZero();
+        assertThat(applicationEvents.stream(OrderTerminated.class).count()).isZero();
         assertThat(reserved()).isEqualTo(QTY);
     }
 
@@ -248,8 +248,8 @@ class PaymentExpiryIntegrationTest extends AbstractIntegrationTest {
         return jdbc.queryForObject("SELECT status FROM payment WHERE id = ?", String.class, paymentId);
     }
 
-    private String failureCode(long paymentId) {
-        return jdbc.queryForObject("SELECT failure_code FROM payment WHERE id = ?", String.class, paymentId);
+    private String orderStatus() {
+        return jdbc.queryForObject("SELECT status FROM `order` WHERE id = ?", String.class, ORDER_ID);
     }
 
     private int reserved() {

@@ -9,6 +9,7 @@ import java.util.Optional;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -46,4 +47,14 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
      */
     List<Payment> findByStatusAndExpiresAtBeforeOrderByExpiresAtAsc(
             PaymentStatus status, LocalDateTime now, Pageable pageable);
+
+    /**
+     * 한 주문의 모든 payment 행을 물리삭제한다(FE-12c-2·미결제 종료 주문 hard delete 자식 정리). 한 주문에 여러 시도(FAILED·
+     * EXPIRED 등)가 있을 수 있어 벌크 DELETE로 일괄 삭제하며 삭제 건수를 반환한다. 부모 order 삭제에 선행해야 한다
+     * (fk_payment_order RESTRICT). Payment는 Order와 JPA 연관 없이 order_id 외부 참조이므로 컬럼값으로 직접 매칭한다.
+     * 모든 변수는 :orderId 바인딩이다.
+     */
+    @Modifying
+    @Query("DELETE FROM Payment p WHERE p.orderId = :orderId")
+    int deleteByOrderId(@Param("orderId") Long orderId);
 }

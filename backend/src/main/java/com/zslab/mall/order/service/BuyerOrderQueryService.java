@@ -5,6 +5,7 @@ import com.zslab.mall.order.controller.response.OrderSummaryResponse;
 import com.zslab.mall.order.controller.response.PagedResponse;
 import com.zslab.mall.order.entity.Order;
 import com.zslab.mall.order.entity.OrderItem;
+import com.zslab.mall.order.enums.OrderStatus;
 import com.zslab.mall.order.exception.OrderNotFoundException;
 import com.zslab.mall.order.repository.OrderRepository;
 import com.zslab.mall.product.entity.Product;
@@ -63,10 +64,14 @@ public class BuyerOrderQueryService {
                 order, productsByIdFor(items), variantsByIdFor(items), sellersByIdFor(items));
     }
 
-    /** 본인 주문 목록(ordered_at DESC·D-42·D-54). 페이지는 정렬 미노출(서버 고정)·size는 1~100 클램프. */
+    /**
+     * 본인 주문 목록(ordered_at DESC·D-42·D-54). 페이지는 정렬 미노출(서버 고정)·size는 1~100 클램프.
+     * 미결제 종료(PAYMENT_EXPIRED) 주문은 목록에서 제외한다(FE-12c·비노출·DB 레벨 제외로 페이지 정합 유지).
+     */
     public PagedResponse<OrderSummaryResponse> listOrders(Long buyerId, int page, int size) {
         Pageable pageable = PageRequest.of(Math.max(page, 0), clampSize(size));
-        Page<Order> orders = orderRepository.findByBuyerIdOrderByOrderedAtDesc(buyerId, pageable);
+        Page<Order> orders = orderRepository.findByBuyerIdAndStatusNotOrderByOrderedAtDesc(
+                buyerId, OrderStatus.PAYMENT_EXPIRED, pageable);
 
         List<Long> orderIds = orders.getContent().stream().map(Order::getId).toList();
         Map<Long, Order> ordersWithItems = orderIds.isEmpty()

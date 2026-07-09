@@ -84,7 +84,7 @@ ORDERED → PAID → PREPARING → SHIPPING → DELIVERED → CONFIRMED
 | DELIVERED | 배송완료 | Delivery 상태 DELIVERED |
 | CONFIRMED | 구매확정 | 구매자 확정 또는 자동 확정 |
 | CANCEL_REQUESTED | 취소요청 | Claim(CANCEL).REQUESTED |
-| CANCELLED | 취소완료 | Claim(CANCEL).COMPLETED |
+| CANCELLED | 취소완료 | Claim(CANCEL).COMPLETED, 또는 미결제 자동취소(ORDERED→CANCELLED·D-153 Phase 1) |
 | RETURN_REQUESTED | 반품요청 | Claim(RETURN).REQUESTED |
 | RETURNED | 반품완료 | Claim(RETURN).COMPLETED |
 | EXCHANGE_REQUESTED | 교환요청 | Claim(EXCHANGE).REQUESTED |
@@ -96,6 +96,8 @@ ORDERED → PAID → PREPARING → SHIPPING → DELIVERED → CONFIRMED
 > - `EXCHANGE_REQUESTED → EXCHANGED | DELIVERED` — `claim.previous_order_item_status` 스냅샷 복원
 >
 > **D-90 Q3 의미 변경 (Track 14·D-98 Q7)**: 기존 §주석(Track 9 PR-C)은 `CANCEL_REQUESTED → PAID`를 claim-lock release(unlock 목적·과거 상태 복원 아님)로 박제했으나, Track 14 PR-1에서 의미 변경. `claim.previous_order_item_status`(Q11) 컬럼에 Claim 요청 시점 OrderItem 상태를 저장·REJECTED 시 해당 스냅샷으로 복원(type 무관). claim-lock release 단어는 더 이상 의미 부재. PREPARING 직접 복원도 스냅샷 기반으로 지원. canTransitionTo 매트릭스 확장 반영.
+
+> **미결제 자동취소 전이 (D-153 Phase 1·FE-12b)**: `ORDERED → CANCELLED` — 유예(30분) 경과한 PENDING_PAYMENT 주문의 전 품목을 자동취소 배치가 CANCELLED로 전이한다. `OrderItemStatus.canTransitionTo` 매트릭스에 `ORDERED → CANCELLED`를 추가(기존 `ORDERED → PAID`와 병존). 무분별 허용 방지는 호출부(`OrderAutoCancelService`)의 status=PENDING_PAYMENT + item=ORDERED 이중 가드로 한정한다.
 
 ---
 
@@ -139,6 +141,11 @@ ORDERED → PAID → PREPARING → SHIPPING → DELIVERED → CONFIRMED
 
 [5] 모든 OrderItem = CANCELLED
     → Order.status = CANCELLED
+
+[5-b] 미결제 자동취소 (D-153 Phase 1)
+    → 유예 경과 PENDING_PAYMENT 주문의 전 OrderItem = CANCELLED
+    → Order.status = CANCELLED (규칙 [5] 재사용·Resolver 파생)
+    → OrderCancelled 발행 → Inventory 예약 해제(InventoryOrderCancelledHandler)
 
 [6] 일부 OrderItem = CANCELLED
     + 나머지 ∈ {CONFIRMED, RETURNED, EXCHANGED}
@@ -348,3 +355,53 @@ PENDING ──→ COMPLETED (불가역)
 **PRD-6 정합**: invariants.md PRD-6 전이 규칙을 ProductStatus.canTransitionTo() 메서드로 구현 (Settlement §9 canTransitionTo 동일 패턴). 등록 초기=PENDING·SALE 도달=승인 경유(등록 직행 SALE 아님·Track 50).
 
 **확장 지점**: 판매자 상품 수정/재심사 기능 도입 시 REJECTED→PENDING 전이 검토.
+
+---
+
+## 11. FE-12c 갱신 — 미결제 주문 종료 (Order.status·Payment.status)
+
+> 소스: D-154·PaymentService(handleFailure/handleCancel/terminateUnpaid)·Payment(fail/expire)·OrderService.markPaid·OrderAutoCancelService.cancelOne·V18/V19 [확정 2026-07-09].
+> [갱신] FE-12b의 "PENDING_PAYMENT → CANCELLED(미결제 자동취소)" 블록 SUPERSEDED. 미결제 종료는 신규 PAYMENT_EXPIRED로 수렴(CANCELLED는 결제 후 사용자 취소=Claim 경로 전용).
+
+### Order.status — 신규 값 PAYMENT_EXPIRED
+
+전이 (평문 들여쓰기):
+
+    PENDING_PAYMENT ──→ PAYMENT_EXPIRED (미결제 종료·비노출)
+
+| 값 | 진입 조건 | 비고 |
+|---|---|---|
+| PAYMENT_EXPIRED | 결제 미완 종료(결제창 이탈·PG 실패·30분 만료·INITIATE_FAILED) | 구매자 목록 비노출·재고 해제 완료·삭제 대상(FE-12c-2) |
+
+**전이 규칙**:
+
+| 전이 | 트리거 | 방식 |
+|---|---|---|
+| PENDING_PAYMENT → PAYMENT_EXPIRED | OrderAutoCancelService.cancelOne(auto-cancel 배치·PG 실패·결제창 취소·만료) | Order.expirePayment() 직접 세팅(Resolver 미경유·OrderItem 무변경)·멱등(status≠PENDING_PAYMENT skip)·OrderTerminated 발행 |
+
+**직접 세팅 예외(ORD-2)**: PAYMENT_EXPIRED는 PENDING_PAYMENT와 동일하게 Resolver 파생 대상이 아니라 Order가 직접 세팅한다(OrderItem 집계 미경유). OrderItem은 ORDERED 유지(무변경).
+
+**늦은 웹훅 차단 불변식**: 결제 성공(markPaid) 승인은 Order.status==PENDING_PAYMENT일 때만. PAYMENT_EXPIRED 종료 후 지연 SUCCESS 콜백은 거부(IllegalStateException·롤백)해 PAID 부활·재고 음수화 차단.
+
+### Payment.status — 신규 값 EXPIRED
+
+전이 (평문 들여쓰기):
+
+    PENDING ──→ PAID
+    PENDING ──→ FAILED   (PG 실제 결제 실패)
+    PENDING ──→ EXPIRED  (결제창 이탈·30분 만료)
+    PAID    ──→ CANCELLED (환불 흐름·Track 5)
+
+| 값 | 진입 조건 | 비고 |
+|---|---|---|
+| EXPIRED | 결제창 이탈(handleCancel×PENDING)·30분 만료(expireOne) | 종결·이벤트 미발행·Payment.expire() |
+
+**FAILED vs EXPIRED 구분**: FAILED=PG가 실패로 통지한 실제 결제 실패(handleFailure·failure_code 유지). EXPIRED=결제가 성립 못 하고 유효기간 종료(이탈·만료). 실패를 EXPIRED로, 만료를 FAILED로 뭉개지 않는다(원칙 4).
+
+**이벤트 미발행**: EXPIRED·FAILED 모두 재고 해제·주문 종료를 유발하지 않는다. Payment.fail()의 PaymentFailed 발행 제거(소비처 0). 재고 해제·주문 종료는 Order 종료 경로(OrderTerminated)가 단일 담당(원칙 3·4).
+
+**종결**: FAILED·EXPIRED·CANCELLED 전이 불가(canTransitionTo=false).
+
+### 이벤트 — OrderCancelled → OrderTerminated
+
+OrderCancelled를 OrderTerminated로 개명. CANCELLED(Claim 경로)·PAYMENT_EXPIRED(미결제 종료) 양쪽이 발행. 재고 해제는 InventoryOrderTerminatedHandler 단일 구독(AFTER_COMMIT·REQUIRES_NEW·멱등 reserved==0 skip·order_item.variant_id 기반·Order.status 비의존). InventoryPaymentFailedHandler·PaymentFailed 이벤트 제거.

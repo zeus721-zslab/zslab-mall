@@ -32,6 +32,8 @@ class PaymentWebhookIntegrationTest extends AbstractIntegrationTest {
     private static final long ORDER_ID = 8001L;
     private static final long ORDER_ITEM_ID = 8001L;
     private static final long PAYMENT_ID = 8001L;
+    private static final long INVENTORY_ID = 8001L;
+    private static final long VARIANT_ID = 1L;   // 시드 order_item.variant_id와 일치(재고 해제 대상)
     private static final long AMOUNT = 10_000L;
     private static final String ATTEMPT_KEY = "pat_track6_it_0001";
 
@@ -83,6 +85,30 @@ class PaymentWebhookIntegrationTest extends AbstractIntegrationTest {
         assertThat(orderStatus()).isEqualTo("PAID");
     }
 
+    @Test
+    @DisplayName("webhook FAILURE e2e (FE-12c 정정): 콜백→Payment.FAILED(PG_FAILURE)·Order.PAYMENT_EXPIRED·OrderItem 무변경·재고 예약 해제")
+    void webhook_failure_endToEnd() throws Exception {
+        seedInventory(10, 1, 9);   // reserved=1(order_item.quantity=1) → 종료 후 OrderTerminated 소비로 해제 기대
+
+        String body = "{"
+                + "\"provider\": \"MOCK_PG\","
+                + "\"callbackType\": \"FAILURE\","
+                + "\"paymentAttemptKey\": \"" + ATTEMPT_KEY + "\","
+                + "\"occurredAt\": \"2026-06-28T00:00:00\""
+                + "}";
+
+        mockMvc.perform(post("/api/webhooks/payments")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk());
+
+        assertThat(paymentStatus()).isEqualTo("FAILED");                 // PG 실제 결제 실패(EXPIRED와 구분)
+        assertThat(failureCode()).isEqualTo("PG_FAILURE");              // metadata 미제공 → 기본값
+        assertThat(orderStatus()).isEqualTo("PAYMENT_EXPIRED");         // Order는 미결제 종료
+        assertThat(orderItemStatus()).isEqualTo("ORDERED");            // OrderItem 무변경(재고 해제는 variant_id 기반)
+        assertThat(reserved()).isZero();                               // AFTER_COMMIT OrderTerminated → 예약 해제
+    }
+
     /** order(PENDING_PAYMENT)·order_item(ORDERED)·payment(PENDING)을 고정 id로 시드한다(FK 비활성·상위 그래프 생략). */
     private void seed() {
         tx.executeWithoutResult(s -> {
@@ -105,17 +131,37 @@ class PaymentWebhookIntegrationTest extends AbstractIntegrationTest {
         });
     }
 
+    /** 재고 행을 시드한다(FAILURE 테스트 전용·on_hand·reserved·available 지정). 모든 변수 ? 바인딩. */
+    private void seedInventory(int onHand, int reserved, int available) {
+        tx.executeWithoutResult(s -> {
+            jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
+            jdbc.update("INSERT INTO inventory (id, variant_id, quantity_on_hand, quantity_reserved, quantity_available, "
+                            + "created_at, updated_at) VALUES (?, ?, ?, ?, ?, NOW(6), NOW(6))",
+                    INVENTORY_ID, VARIANT_ID, onHand, reserved, available);
+        });
+    }
+
     private void cleanup() {
         tx.executeWithoutResult(s -> {
             jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
             jdbc.update("DELETE FROM payment WHERE id = ?", PAYMENT_ID);
             jdbc.update("DELETE FROM order_item WHERE id = ?", ORDER_ITEM_ID);
             jdbc.update("DELETE FROM `order` WHERE id = ?", ORDER_ID);
+            jdbc.update("DELETE FROM inventory_history WHERE inventory_id = ?", INVENTORY_ID);
+            jdbc.update("DELETE FROM inventory WHERE id = ?", INVENTORY_ID);
         });
     }
 
     private String paymentStatus() {
         return jdbc.queryForObject("SELECT status FROM payment WHERE id = ?", String.class, PAYMENT_ID);
+    }
+
+    private String failureCode() {
+        return jdbc.queryForObject("SELECT failure_code FROM payment WHERE id = ?", String.class, PAYMENT_ID);
+    }
+
+    private int reserved() {
+        return jdbc.queryForObject("SELECT quantity_reserved FROM inventory WHERE variant_id = ?", Integer.class, VARIANT_ID);
     }
 
     private String orderItemStatus() {

@@ -7,8 +7,8 @@ import com.zslab.mall.claim.event.ClaimCompleted;
 import com.zslab.mall.claim.enums.ClaimStatus;
 import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.event.OrderPlaced;
+import com.zslab.mall.order.event.OrderTerminated;
 import com.zslab.mall.payment.event.PaymentCompleted;
-import com.zslab.mall.payment.event.PaymentFailed;
 import java.time.LocalDateTime;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -113,16 +113,16 @@ class InventoryEventIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("T3 PaymentFailed(E3) → 각 OrderItem release → inventory reserved 감소")
-    void paymentFailed_releasesReservation() {
+    @DisplayName("T3 OrderTerminated → 각 OrderItem release → inventory reserved 감소(FE-12c·재고 해제 단일 수렴)")
+    void orderTerminated_releasesReservation() {
         seed(() -> {
             seedCatalog();
             seedInventory(10, QTY, 10 - QTY);
-            seedOrder("PENDING_PAYMENT");
-            seedOrderItem(OrderItemStatus.ORDERED);
+            seedOrder("PAYMENT_EXPIRED");
+            seedOrderItem(OrderItemStatus.ORDERED);   // 미결제 종료는 OrderItem 무변경(ORDERED 유지)
         });
 
-        publishInTx(new PaymentFailed(PAYMENT_ID, ORDER_ID, "INSUFFICIENT_BALANCE", LocalDateTime.now()));
+        publishInTx(new OrderTerminated(ORDER_PID, ORDER_ID, LocalDateTime.now()));
 
         assertThat(reserved()).isZero();
         assertThat(available()).isEqualTo(10);

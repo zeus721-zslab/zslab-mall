@@ -12,11 +12,13 @@ import static org.mockito.Mockito.when;
 import com.zslab.mall.common.observability.TracedEventPublisher;
 import com.zslab.mall.order.entity.Order;
 import com.zslab.mall.order.entity.OrderItem;
+import com.zslab.mall.order.enums.OrderStatus;
 import com.zslab.mall.order.exception.OrderNotFoundException;
 import com.zslab.mall.order.repository.OrderRepository;
 import com.zslab.mall.payment.entity.Payment;
 import com.zslab.mall.payment.enums.PaymentMethod;
 import com.zslab.mall.payment.enums.PaymentStatus;
+import com.zslab.mall.payment.exception.OrderNotPendingPaymentException;
 import com.zslab.mall.payment.exception.PaymentAlreadyCompletedException;
 import com.zslab.mall.payment.exception.PaymentInProgressException;
 import com.zslab.mall.payment.gateway.PaymentGateway;
@@ -150,6 +152,19 @@ class PaymentInitiateTest {
 
         assertThat(result.payment().getStatus()).isEqualTo(PaymentStatus.PENDING);
         verify(paymentRepository).save(any(Payment.class));
+    }
+
+    @Test
+    @DisplayName("initiate: 비-PENDING_PAYMENT(PAYMENT_EXPIRED) 주문 → OrderNotPendingPaymentException(FE-12c-2·삭제 대상 자식 생성 차단)")
+    void initiate_blockedByNonPendingStatus() {
+        Order expired = order(BUYER_ID);
+        ReflectionTestUtils.setField(expired, "status", OrderStatus.PAYMENT_EXPIRED);
+        when(orderRepository.findByPublicId(ORDER_PUBLIC_ID)).thenReturn(Optional.of(expired));
+
+        assertThatThrownBy(() -> paymentService.initiate(ORDER_PUBLIC_ID, BUYER_ID, PaymentMethod.CARD))
+                .isInstanceOf(OrderNotPendingPaymentException.class);
+        // 상태 가드는 PAY-3a·PENDING 조회에 선행하므로 payment 조회·저장에 도달하지 않는다.
+        verify(paymentRepository, never()).save(any());
     }
 
     @Test

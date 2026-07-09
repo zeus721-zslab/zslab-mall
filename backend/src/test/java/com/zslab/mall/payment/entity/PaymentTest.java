@@ -6,7 +6,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.zslab.mall.payment.enums.PaymentMethod;
 import com.zslab.mall.payment.enums.PaymentStatus;
 import com.zslab.mall.payment.event.PaymentCompleted;
-import com.zslab.mall.payment.event.PaymentFailed;
 import java.time.LocalDateTime;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -81,7 +80,7 @@ class PaymentTest {
     @DisplayName("complete: 종결 상태에서 호출 → IllegalStateException(PAY-2)")
     void complete_fromTerminal_throws() {
         Payment payment = pendingPayment();
-        payment.fail("PG_FAILURE", NOW); // PENDING→FAILED
+        payment.fail("PG_FAILURE"); // PENDING→FAILED
 
         assertThatThrownBy(() -> payment.complete(NOW, PG_PROVIDER, PG_TID))
                 .isInstanceOf(IllegalStateException.class)
@@ -89,20 +88,15 @@ class PaymentTest {
     }
 
     @Test
-    @DisplayName("fail: PENDING→FAILED·failureCode 설정·PaymentFailed 누적(페이로드 정합)")
-    void fail_transitionsAndAccumulatesEvent() {
+    @DisplayName("fail: PENDING→FAILED·failureCode 설정·이벤트 미발행(FE-12c·PaymentFailed 제거)")
+    void fail_transitionsWithoutEvent() {
         Payment payment = pendingPayment();
 
-        payment.fail("CARD_DECLINED", NOW);
+        payment.fail("CARD_DECLINED");
 
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.FAILED);
         assertThat(payment.getFailureCode()).isEqualTo("CARD_DECLINED");
-        assertThat(payment.getDomainEvents()).hasSize(1);
-        PaymentFailed event = (PaymentFailed) payment.getDomainEvents().get(0);
-        assertThat(event.paymentId()).isEqualTo(PAYMENT_ID);
-        assertThat(event.orderId()).isEqualTo(ORDER_ID);
-        assertThat(event.failureCode()).isEqualTo("CARD_DECLINED");
-        assertThat(event.occurredAt()).isEqualTo(NOW);
+        assertThat(payment.getDomainEvents()).isEmpty();
     }
 
     @Test
@@ -124,6 +118,28 @@ class PaymentTest {
         Payment payment = pendingPayment();
         assertThatThrownBy(payment::cancel)
                 .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    @DisplayName("expire: PENDING→EXPIRED·이벤트 없음(FE-12c·PaymentFailed 미발행)")
+    void expire_fromPending_noEvent() {
+        Payment payment = pendingPayment();
+
+        payment.expire();
+
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.EXPIRED);
+        assertThat(payment.getDomainEvents()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("expire: 종결 상태에서 호출 → IllegalStateException(PAY-2)")
+    void expire_fromTerminal_throws() {
+        Payment payment = pendingPayment();
+        payment.complete(NOW, PG_PROVIDER, PG_TID); // → PAID
+
+        assertThatThrownBy(payment::expire)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("불법 결제 상태 전이");
     }
 
     @Test
