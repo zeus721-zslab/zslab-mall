@@ -153,14 +153,14 @@ public class Payment extends AbstractPublicIdFullAuditableEntity {
      *
      * <p><b>이벤트 미발행(FE-12c·STEP 5-fix-2)</b>: 소비처(InventoryPaymentFailedHandler) 제거로 PaymentFailed 발행을 없앴다.
      * 재고 해제·주문 종료는 Order 종료 경로(OrderTerminated)가 담당하며, 본 메서드는 결제 상태 전이만 책임진다(원칙 4).
+     * 이벤트를 발행하지 않아 실패 통지 시각을 반영할 상태·필드가 없으므로 occurredAt 파라미터를 받지 않는다(FE-12 재점검 정리).
      *
-     * @param occurredAt 실패 통지 시각(콜백 수신 시각·유효성 검증 대상). 이벤트 미발행이므로 상태에는 반영되지 않는다
      * @throws IllegalStateException PENDING이 아니어서 FAILED 전이가 불가한 경우(PAY-2)
-     * @throws IllegalArgumentException failureCode·occurredAt가 null·blank인 경우
+     * @throws IllegalArgumentException failureCode가 null·blank인 경우
      */
-    public void fail(String failureCode, LocalDateTime occurredAt) {
-        if (failureCode == null || failureCode.isBlank() || occurredAt == null) {
-            throw new IllegalArgumentException("fail: failureCode·occurredAt는 필수입니다.");
+    public void fail(String failureCode) {
+        if (failureCode == null || failureCode.isBlank()) {
+            throw new IllegalArgumentException("fail: failureCode는 필수입니다.");
         }
         transitionTo(PaymentStatus.FAILED);
         this.failureCode = failureCode;

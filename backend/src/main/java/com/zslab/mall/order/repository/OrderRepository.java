@@ -9,6 +9,7 @@ import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -59,4 +60,23 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
      */
     List<Order> findByStatusAndCreatedAtLessThanEqualOrderByCreatedAtAsc(
             OrderStatus status, LocalDateTime threshold, Pageable pageable);
+
+    /**
+     * hard delete 대상(status·updatedAt≤기준시각) 주문을 배치 상한으로 조회한다(FE-12c-2·미결제 종료 주문 가비지 정리).
+     * PAYMENT_EXPIRED 종료 후 재고 해제·유예(GRACE_DAYS) 경과 주문을 삭제 대상으로 선정한다. 기준 시각은 {@code createdAt}이
+     * 아닌 {@code updatedAt}이다 — 미결제 종료(expirePayment)는 status만 세팅하고 이후 PAYMENT_EXPIRED에 updated_at을 바꾸는
+     * 비즈니스 로직이 없어 updated_at이 종료 시각 근사이기 때문이다(FE-12c-2 불변식 2·expired_at 컬럼 미신설). items는 fetch join하지
+     * 않는다 — 삭제 처리(ExpiredOrderCleanupService.cleanupOne)가 id별 독립 트랜잭션에서 재조회하므로(auto-cancel 배치 관습 미러).
+     */
+    List<Order> findByStatusAndUpdatedAtLessThanEqualOrderByUpdatedAtAsc(
+            OrderStatus status, LocalDateTime threshold, Pageable pageable);
+
+    /**
+     * order 행을 id로 물리삭제한다(FE-12c-2·미결제 종료 주문 hard delete 부모 삭제). 자식(payment·snapshot·order_item)을
+     * 벌크 삭제한 뒤 마지막에 호출한다(FK RESTRICT 순서). 자식 삭제 검사를 위해 로드한 managed OrderItem이 부모 삭제 flush
+     * 순서와 충돌하지 않도록 {@code delete(entity)}(em.remove) 대신 벌크 DELETE로 통일한다. 모든 변수는 :orderId 바인딩이다.
+     */
+    @Modifying
+    @Query("DELETE FROM Order o WHERE o.id = :orderId")
+    int deleteByIdBulk(@Param("orderId") Long orderId);
 }

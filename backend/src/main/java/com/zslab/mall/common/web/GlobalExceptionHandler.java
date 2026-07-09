@@ -25,6 +25,7 @@ import com.zslab.mall.order.exception.OrderItemInvalidStateException;
 import com.zslab.mall.order.exception.OrderNotFoundException;
 import com.zslab.mall.order.exception.OrderNotPayableException;
 import com.zslab.mall.payment.exception.InvalidCallbackException;
+import com.zslab.mall.payment.exception.OrderNotPendingPaymentException;
 import com.zslab.mall.payment.exception.PaymentAlreadyCompletedException;
 import com.zslab.mall.payment.exception.PaymentInProgressException;
 import com.zslab.mall.payment.exception.PaymentNotFoundException;
@@ -83,6 +84,7 @@ public class GlobalExceptionHandler {
     private static final String CODE_OPTIMISTIC_LOCK_FAILURE = "OPTIMISTIC_LOCK_FAILURE";
     private static final String CODE_PAYMENT_ALREADY_COMPLETED = "PAYMENT_ALREADY_COMPLETED";
     private static final String CODE_ORDER_NOT_PAYABLE = "ORDER_NOT_PAYABLE";
+    private static final String CODE_ORDER_NOT_PENDING_PAYMENT = "ORDER_NOT_PENDING_PAYMENT";
     private static final String CODE_CHECKOUT_ITEM_MISMATCH = "CHECKOUT_ITEM_MISMATCH";
     private static final String CODE_CART_CHECKOUT_EMPTY = "CART_CHECKOUT_EMPTY";
     private static final String CODE_INVALID_CALLBACK = "INVALID_CALLBACK";
@@ -365,6 +367,15 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ProblemDetail> handleCheckoutItemMismatch(
             CheckoutItemMismatchException exception, HttpServletRequest request) {
         return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_CHECKOUT_ITEM_MISMATCH, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(OrderNotPendingPaymentException.class)
+    public ResponseEntity<ProblemDetail> handleOrderNotPendingPayment(
+            OrderNotPendingPaymentException exception, HttpServletRequest request) {
+        // FE-12c-2: 미결제 종료(PAYMENT_EXPIRED)·완료 등 비-PENDING_PAYMENT 주문의 결제 시작 차단(422).
+        // 상태 위반이므로 PaymentAlreadyCompletedException 선례와 동일 계열(422)로 매핑한다(400 형식오류와 구분).
+        log.warn("[Payment] 결제 시작 불가 주문 상태(422): {}", exception.getMessage());
+        return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_ORDER_NOT_PENDING_PAYMENT, exception.getMessage(), request);
     }
 
     @ExceptionHandler(InvalidCallbackException.class)

@@ -3,6 +3,7 @@ package com.zslab.mall.payment.service;
 import com.zslab.mall.common.observability.TracedEventPublisher;
 import com.zslab.mall.common.util.PublicIdGenerator;
 import com.zslab.mall.order.entity.Order;
+import com.zslab.mall.order.enums.OrderStatus;
 import com.zslab.mall.order.exception.OrderNotFoundException;
 import com.zslab.mall.order.repository.OrderRepository;
 import com.zslab.mall.order.service.OrderAutoCancelService;
@@ -11,6 +12,7 @@ import com.zslab.mall.payment.entity.Payment;
 import com.zslab.mall.payment.enums.PaymentMethod;
 import com.zslab.mall.payment.enums.PaymentStatus;
 import com.zslab.mall.payment.exception.InvalidCallbackException;
+import com.zslab.mall.payment.exception.OrderNotPendingPaymentException;
 import com.zslab.mall.payment.exception.PaymentAlreadyCompletedException;
 import com.zslab.mall.payment.exception.PaymentInProgressException;
 import com.zslab.mall.payment.exception.PaymentNotFoundException;
@@ -105,6 +107,14 @@ public class PaymentService {
                 .orElseThrow(() -> new OrderNotFoundException("주문을 찾을 수 없습니다: " + orderPublicId));
         if (!order.getBuyerId().equals(buyerId)) {
             throw new OrderNotFoundException("주문을 찾을 수 없습니다: " + orderPublicId);
+        }
+
+        // FE-12c-2 근본 가드: 비-PENDING_PAYMENT(미결제 종료 PAYMENT_EXPIRED·완료 등) 주문의 결제 시작 차단.
+        // 삭제 대상(PAYMENT_EXPIRED) 주문에 새 PENDING payment 자식 행이 생기는 동시성 창을 닫는다. INITIATE_FAILED로
+        // PENDING_PAYMENT가 유지된 주문의 재결제(D-32 만료 PENDING 새 시도 포함)는 통과한다.
+        if (order.getStatus() != OrderStatus.PENDING_PAYMENT) {
+            throw new OrderNotPendingPaymentException(
+                    "결제를 시작할 수 없는 주문 상태입니다(PENDING_PAYMENT 아님): status=" + order.getStatus());
         }
         Long orderId = order.getId();
 
@@ -259,7 +269,7 @@ public class PaymentService {
      */
     private void handleFailure(Payment payment, PaymentCallbackCommand command) {
         if (payment.getStatus() == PaymentStatus.PENDING) {
-            payment.fail(resolveFailureCode(command), command.occurredAt());   // PENDING → FAILED (PaymentFailed 미발행)
+            payment.fail(resolveFailureCode(command));   // PENDING → FAILED (PaymentFailed 미발행)
             orderAutoCancelService.cancelOne(payment.getOrderId());            // Order PAYMENT_EXPIRED + OrderTerminated 발행
         } else {
             log.info("[Payment] FAILURE 콜백 NO-OP: 상태={}, attemptKey={}", payment.getStatus(), command.paymentAttemptKey());
