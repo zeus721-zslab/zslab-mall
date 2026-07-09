@@ -2,11 +2,23 @@
 // FE-09 STEP 3: FE-03 정적 셸을 auth·cart store에 배선. 검색·카테고리는 시각 셸만 유지(동작은 후속 트랙).
 const auth = useAuthStore()
 const cart = useCartStore()
+const route = useRoute()
+
+// route.meta.middleware는 단일 문자열 'buyer' 또는 배열로 노출될 수 있어 양쪽 모두 방어적으로 판정한다.
+function isBuyerProtectedRoute(): boolean {
+  const middleware = route.meta.middleware
+  if (Array.isArray(middleware)) return middleware.includes('buyer')
+  return middleware === 'buyer'
+}
 
 // 로그아웃은 UI 계층에서 auth·cart를 순차 조합한다(store 간 결합은 store 밖에서).
-function handleLogout(): void {
+// 미들웨어는 네비게이션 시에만 평가되므로, 머문 페이지가 BUYER 보호 페이지면 홈으로 이탈시켜 재가드한다(공개 페이지는 잔류).
+async function handleLogout(): Promise<void> {
   auth.logout()
   cart.clear()
+  if (isBuyerProtectedRoute()) {
+    await navigateTo('/')
+  }
 }
 </script>
 
