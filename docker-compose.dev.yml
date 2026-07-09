@@ -17,6 +17,8 @@ services:
     environment:
       NUXT_PUBLIC_API_BASE: ${NUXT_PUBLIC_API_BASE:-}
       API_INTERNAL_BASE: ${API_INTERNAL_BASE:-http://mall-backend:8080}
+      NUXT_PUBLIC_DEMO_EMAIL: ${NUXT_PUBLIC_DEMO_EMAIL:-}
+      NUXT_PUBLIC_DEMO_PASSWORD: ${NUXT_PUBLIC_DEMO_PASSWORD:-}
     ports:
       - "3000:3000"
     volumes:

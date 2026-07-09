@@ -1,3 +1,4 @@
+import { BUYER_ROLE } from '~/lib/constants/auth'
 import type { JwtPayload } from '~/types/auth'
 
 /**
@@ -61,10 +62,40 @@ export const useAuthStore = defineStore('auth', () => {
     token.value = response.token
   }
 
+  /**
+   * 회원가입. POST /api/v1/users body { email, name, phone, password }.
+   * SignupResponse{userPublicId}만 반환하고 토큰은 미발급이므로, 성공 후 login(BUYER)을 재호출해 자동 로그인한다.
+   * 가입 자체 실패(RFC7807·이메일 중복 409 등)는 $fetch가 throw하므로 호출부가 처리한다.
+   * 가입은 됐으나 이어진 login이 실패하면 login이 throw하며, 이땐 호출부가 로그인 페이지로 유도한다.
+   */
+  async function signup(email: string, name: string, phone: string, password: string): Promise<void> {
+    const config = useRuntimeConfig()
+    // API base 이원화(login과 동일): SSR은 내부 직결, 브라우저는 동일 Origin 상대경로.
+    const baseUrl = import.meta.server
+      ? `${config.apiInternalBase}/api`
+      : config.public.apiBase || '/api'
+
+    // 가입 실패(RFC7807·이메일 중복 409 등)는 그대로 throw → 호출부가 사유 매핑.
+    await $fetch('/v1/users', {
+      baseURL: baseUrl,
+      method: 'POST',
+      body: { email, name, phone, password },
+    })
+    // 토큰 미발급 응답이므로 자동 로그인을 위해 재로그인(role은 buyer 몰 고정 BUYER).
+    try {
+      await login(email, password, BUYER_ROLE)
+    } catch (loginError) {
+      // 가입은 성공·자동 로그인만 실패 → 플래그로 구분해 호출부가 /login으로 유도하게 한다.
+      const wrapped = new Error('회원가입 후 자동 로그인 실패', { cause: loginError })
+      ;(wrapped as { signupSucceeded?: boolean }).signupSucceeded = true
+      throw wrapped
+    }
+  }
+
   /** 로그아웃. 토큰 쿠키 제거. cart 초기화는 STEP 3 로그아웃 핸들러에서 배선(여기서 store 결합 금지). */
   function logout(): void {
     token.value = null
   }
 
-  return { token, role, exp, expired, isAuthenticated, login, logout }
+  return { token, role, exp, expired, isAuthenticated, login, signup, logout }
 })
