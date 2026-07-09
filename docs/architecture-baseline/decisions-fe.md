@@ -589,3 +589,43 @@ spacing: 8px 그리드
 
 ---
 
+## FE-11: 체크아웃·결제 (모의 PG·주문 생성·webhook 완결·완료 화면)
+
+날짜: 2026-07-09
+선행: FE-10b(장바구니+인증 인프라) 머지 + Track 67(카트 소진 OrderPlaced→PaymentCompleted 이동·D-151) 동일 브랜치 선적재. 정찰 = recon-report-fe-11(FE seam)·recon-report-fe-11-be-event(소진 타이밍)·recon-report-fe-11-cart-timing(BE 결함). BE 계약 = 인수인계 실측(POST /cart/checkout·POST /api/webhooks/payments).
+범위: 3 STEP — (a)체크아웃 폼(배송지 4필수+3선택·결제수단·POST /cart/checkout·Idempotency-Key·Location 캡처) → (b)모의 PG 페이지(/payment/mock·webhook SUCCESS/FAILURE/CANCEL 완결) → (c)완료 화면(/checkout/complete·orderPublicId 표시·cart.load()). cart.vue handleCheckout seam→/checkout 배선. 주문 상세 실조회·우편번호 검색 API·재결제 실배선은 이연.
+수용기준(달성): cart 결제하기→/checkout→201·attemptKey·Location→/payment/mock→webhook 200→/checkout/complete 200(orderPublicId 렌더·cart 0). 무인증 3페이지 302 /login. 결제 전 카트 유지·SUCCESS 후 소진·FAILURE/CANCEL 후 보존(Track 67 E2E). hydration 0·컴파일 0.
+
+### §1-A 갈림길·채택/기각 근거
+1) 결제 완료 처리 방식
+- α 채택: FE 모의 PG 페이지. checkout redirectUrl(https://mock-pg.zslab.local·죽은 도메인)은 미방문·attemptKey만 파싱, FE 내부 /payment/mock에서 webhook POST로 결제 완결. 외부 PG 없이 결제 상태전이 전 구간(SUCCESS/FAILURE/CANCEL) E2E 시연 가능.
+- β 실 PG 연동 기각: 외부 계약·키·콜백 인프라 필요·포트폴리오 범위 초과(YAGNI).
+- γ redirectUrl 실방문 기각: 죽은 도메인이라 불가·mock 도메인 실서빙은 과잉.
+2) 카트 소진 처리
+- α 채택: BE 위임(Track 67 CartPaymentCompletedHandler가 PaymentCompleted AFTER_COMMIT 소진)·FE는 완료화면 cart.load() 재조회만. BE 정찰(recon-fe-11-be-event) 실측 — SUCCESS webhook 소진이 완료화면 진입보다 선행·경합 없음.
+- β FE 로컬 cart.clear() 기각: 서버가 이미 HARD DELETE·로컬 clear는 서버 실상태 미반영. 실패/취소 시 오소진 위험.
+- 이 트랙 착수 중 "결제 전 카트 소진" 결함 발견 → Track 67로 분리 수정(BE)·FE는 그 결과 위에서 cart.load() 정합.
+3) 배송지 입력
+- α 채택: 수기 입력(recipientName·recipientPhone·zonecode·addressRoad 4필수 + addressJibun·addressDetail·deliveryMemo 3선택). 우편번호 검색 API 이연(SEO급 백로그).
+- β 우편번호 검색 연동 기각: 외부 API·소비처 대비 과함(MVP 시연은 수기로 충족).
+4) 완료 페이지 범위
+- α 채택: 최소 "주문 완료"(orderPublicId 표시 + 홈/주문 링크 seam). 주문 상세 실조회 없음.
+- β 주문 상세 렌더 기각: 주문 상세 조회는 FE-12 트랙·소비처 선행 필요(YAGNI).
+5) webhook occurredAt 포맷
+- LocalDateTime(무 timezone)·Z 제거 필수. new Date().toISOString().slice(0,23). checkout expiresAt(Z 포함)과 비대칭 — Z 붙이면 400. LT 등재 후보(§8).
+
+### §2 결정 라운드 재진입·구현 중 결정
+- [실측·recon-fe-11] api base 공통 util 부재 확정(인라인 이원화 복제가 실 스타일)·handleCheckout 단일 seam·buyer 미들웨어 문자열 부착·조작 $fetch throw·Button size lg·CommonErrorState message+@retry. 신규 fetch도 인라인 복제(util 추출은 범위 밖).
+- [실측·recon-fe-11-cart-timing] "결제 전 카트 소진" 결함의 수술 지점: PaymentCompleted(orderId 보유)로 구독 이동이 해법1(형제 InventoryPaymentCompletedHandler 2단계 모델 선례·핸들러 본문 무변경). 보상 복원(해법2)은 PAID후취소 이벤트 미발행(Track 5 이연)으로 트리거 확보 불가·기각. → Track 67·D-151로 구현.
+- [구현·검증 실측] STEP (a) checkout/index.vue(배송지 폼·결제수단·submit·INITIATE_FAILED/422/401 분기·redirectUrl 파싱→/payment/mock·orderPublicId 관통)·useCheckout($fetch.raw Location 캡처·Idempotency-Key crypto.randomUUID). STEP (b) payment/mock.vue(결제 요약·3버튼·sendPaymentCallback webhook)·occurredAt Z제거. STEP (c) checkout/complete.vue(orderPublicId 표시·onMounted cart.load() try/catch 흡수·홈/주문 링크). cart.vue handleCheckout→navigateTo('/checkout')·준비중 문구 제거.
+- [E2E 실측·buyer fe11-t67-test] 3경로 카트 전이: 성공=결제전 1 유지→SUCCESS 200→결제후 0 소진 / 실패=FAILURE 200→1 보존 / 취소=CANCEL 200→1 보존. Track 67 결함 수정 E2E 증명(결제 확정 전 미소진·확정 시에만 소진). complete 200·orderPublicId checkout Location→mock→complete SSR 관통·cart.load() 후 count 0 정합. 무인증 3페이지 302 /login. occurredAt Z제거 3경로 전건 200.
+- [구현 중 결정·트랩] backend dev 컨테이너가 Track 67 구 클래스 기동본이라 초기 E2E서 구 소진 동작(checkout 직후 즉시 0) → docker restart로 신 클래스(CartPaymentCompletedHandler) 로드 후 정상 전이 확인. bootRun 바인드마운트가 신 커밋 자동 재컴파일 안 함(BE 계약/핸들러 변경 머지 후 dev 재기동 필수·LT 기존).
+
+### §8 이월(carry-over)
+- [DEFERRED·FE-12] complete.vue [주문 내역 보기] 링크가 주문 상세 부재로 임시 /products 연결(소스 주석 "FE-12에서 /orders/{orderPublicId}로 교체"). FE-12 주문 상세 트랙에서 실경로 교체 필수 — 미완 seam(잊으면 임시 링크 잔존).
+- [DEFERRED·FE-12] 기존 주문 재결제(next.retryPaymentUrl·INITIATE_FAILED)는 방어 안내만·실배선 이연. 주문 상세/내역 페이지도 FE-12.
+- [LT 후보] webhook occurredAt(LocalDateTime·무 Z) vs checkout expiresAt(Z 포함) 포맷 비대칭 → 3경로 200 실증 완료. live-traps.md 등재 검토(FE-11 실증분).
+- [백로그·유지] 우편번호 검색 API(배송지)·데모 로그인 버튼·FE SEO 성숙·FE 테스트 도입(FE-12/CI).
+- [RESOLVED] FE-10b §8 DEFERRED checkout seam 실배선 → 본 트랙 해소.
+
+---
