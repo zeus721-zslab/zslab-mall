@@ -205,13 +205,14 @@ AFTER_COMMIT 핸들러의 "item_status == <종결값>이면 skip" 1차 가드가
 - 동일 이벤트 소비 AFTER_COMMIT 핸들러 2건 이상 신설 시 순서 종속성 실측 의무
 - `@Order` 강제는 D-100 Q9 γ "AFTER_COMMIT 순서 비보장" 박제 위배·비권장
 - 통합 테스트에서 재발행 멱등 시나리오 실증 의무 (Track 17 T5 SoT)
+- [Track 67·D-151 단서] 동기 소비자를 가진 이벤트에는 "재발행 멱등 실증"이 부적합할 수 있음. PaymentCompleted는 동기 형제 OrderEventHandler.markPaid(@EventListener·동일 TX·ORDERED→PAID 단방향)가 재발행 2회차를 거부→TX 롤백→AFTER_COMMIT 형제 미발화시키므로, AFTER_COMMIT 형제(CartPaymentCompletedHandler 등)의 재발행 멱등은 프로덕션 도달 불가 경로. 이 경우 실 이중발행 통합 테스트는 부적합(동기 형제와 충돌)이며, 멱등 검증은 단위(handle 직접 호출)로 격리하거나 도달 불가면 생략한다. HARD DELETE 상태 무관 멱등 논지 자체는 유지.
 
 ### 검증 방법
-통합 테스트 1건 필수: "동일 이벤트 재발행 시 형제 핸들러 순서 무관 멱등 검증" (History 기반 skip 실증·Track 17 T5 SoT).
+통합 테스트 1건 필수: "동일 이벤트 재발행 시 형제 핸들러 순서 무관 멱등 검증" (History 기반 skip 실증·Track 17 T5 SoT). 단, 동기 소비자를 가진 이벤트(예: PaymentCompleted·D-151)는 재발행이 동기 형제에서 거부되어 AFTER_COMMIT 형제가 미발화하므로 실 재발행 통합 테스트를 적용하지 않는다(단위 격리 또는 생략).
 
 ### 관련
 - 원본: D-101 §6 갱신 (decisions.md ACTIVE)
-- 관련 결정: D-75 (AFTER_COMMIT + REQUIRES_NEW)·D-100 Q9 γ (핸들러 순서 비보장)·D-100 Q1 γ (멱등 패턴 카탈로그·B-2 History 기반 신설 근거)
+- 관련 결정: D-75 (AFTER_COMMIT + REQUIRES_NEW)·D-100 Q9 γ (핸들러 순서 비보장)·D-100 Q1 γ (멱등 패턴 카탈로그·B-2 History 기반 신설 근거)·D-151 (Track 67·PaymentCompleted 동기 형제 markPaid 얽힘·재발행 도달 불가)
 
 ---
 
