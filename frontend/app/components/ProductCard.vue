@@ -10,9 +10,8 @@ const formattedPrice = computed(() => `${props.product.displayPrice.toLocaleStri
 </script>
 
 <template>
-  <!-- 상세 경로는 후속 트랙. 현재는 구조·포커스만 확보(href="#"). -->
-  <a
-    href="#"
+  <NuxtLink
+    :to="`/products/${product.productPublicId}`"
     :aria-label="product.name"
     class="group block rounded-card focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2"
   >
@@ -43,5 +42,5 @@ const formattedPrice = computed(() => `${props.product.displayPrice.toLocaleStri
         <p class="pt-1 text-lg font-bold text-price">{{ formattedPrice }}</p>
       </div>
     </div>
-  </a>
+  </NuxtLink>
 </template>
