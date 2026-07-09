@@ -1,6 +1,8 @@
 package com.zslab.mall.order.repository;
 
 import com.zslab.mall.order.entity.Order;
+import com.zslab.mall.order.enums.OrderStatus;
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -42,4 +44,13 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
 
     /** Buyer 본인 주문 목록(ordered_at DESC·D-42·D-54 페이징). items는 미포함(요약 enrich는 findByIdInWithItems로 별도). */
     Page<Order> findByBuyerIdOrderByOrderedAtDesc(Long buyerId, Pageable pageable);
+
+    /**
+     * 자동취소 대상(status·createdAt≤기준시각) 주문을 배치 상한으로 조회한다(D-153 Phase 1·ExpirePayment 배치 관습 정합).
+     * 기준시각(threshold=now-유예)은 스케줄러가 계산해 전달하며 본 메서드는 파라미터만 받는다. items는 fetch join하지 않는다
+     * — 취소 처리(OrderAutoCancelService.cancelOne)가 id별 독립 트랜잭션에서 {@link #findByIdWithItems}로 재조회하므로
+     * (컬렉션 fetch join + 페이징 in-memory paging 함정 회피·ExpirePaymentScheduler 조회→재조회 패턴 미러).
+     */
+    List<Order> findByStatusAndCreatedAtLessThanEqualOrderByCreatedAtAsc(
+            OrderStatus status, LocalDateTime threshold, Pageable pageable);
 }
