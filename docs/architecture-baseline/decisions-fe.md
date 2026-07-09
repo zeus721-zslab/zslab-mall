@@ -29,7 +29,7 @@
 - FE-08 Tailwind v4 마이그레이션 (완료)
 - FE-09 Global Layout (완료) — Header 확장(sticky·검색 UI·카테고리 placeholder·장바구니 뱃지·auth 분기)·auth/cart Pinia store·cart SSR 로드 plugin·shadcn-vue(reka-ui) 도입 + v4 토큰 배선. Footer=FE-03 유지(무변경). BUYER 미들웨어·로그인 페이지·검색 동작·카테고리 데이터는 소비처 부재로 이연
 - FE-10a 상품상세 (완료)
-- FE-10b 장바구니(예정)
+- FE-10b 장바구니(완료)
 - FE-11 체크아웃
 - FE-12 주문
 - FE-13 계정
@@ -554,3 +554,38 @@ spacing: 8px 그리드
 - [재이연] FE-09 §8 "카테고리 nav·cart items 타이핑(FE-10)"은 상세서 미소비 → cart 타이핑=FE-10b·카테고리 nav=카탈로그 트랙으로 재이연.
 
 ---
+
+## FE-10b: 장바구니 + 인증 인프라 (로그인·BUYER 미들웨어·담기 배선·장바구니 페이지)
+
+날짜: 2026-07-09
+선행: FE-10a(상품상세) 머지 + D-149(cart 대상키 variantPublicId). 정찰 = recon-report-76. FE-10 2-split 뒷부분. 2 구현 프롬프트(P1 로그인+미들웨어+담기 배선 / P2 장바구니 페이지+조작+타입 승격)로 진행·통합 박제.
+범위: /login 페이지·BUYER 미들웨어·상세 담기 액션 실배선·cart store 조작 5종(add P1·quantity/selected/selected-all/remove P2)·CartItemView 타입 승격·장바구니 페이지(/cart)·AppHeader /cart 이동. checkout은 seam(FE-11 이연).
+수용기준(달성): 미인증 /cart→/login?redirect 리다이렉트(미들웨어 SSR)·로그인→담기 201→GET /cart 9필드 렌더·조작 4종 200+재load·합계(selected∧purchasable)·빈 상태·홈/목록/상세/로그인 200 무회귀·hydration 0.
+
+### §1-A 갈림길·채택/기각 근거
+1) STEP 분할·순서
+- α 채택: ① 로그인+미들웨어 → ② 담기 배선 → ③ 장바구니 페이지. ①이 ②③의 인증 게이트·리다이렉트 공통 선결·회귀 표면 0. ③이 cart store 타입 승격(unknown[]→CartItemView[])으로 회귀 표면 최대라 마지막. (실행 P1=①②·P2=③ 2 프롬프트.)
+- β 병행 단일 트랙 기각: 인증 인프라+렌더가 한 STEP에 섞여 회귀면 확대.
+2) role 입력 방식
+- α 채택: /login에 role="BUYER" 고정(hidden·lib/constants/auth BUYER_ROLE 상수)·email·password만. buyer 스토어프론트라 구매자 로그인만 필요·셀러/어드민 별도 콘솔 전제(화면 부재).
+- β role 선택 UI 기각: 소비처 없는 UI(기조4). BE는 role enum @NotNull 대문자 정확 일치(소문자→400·recon-76 §1-2).
+3) 복귀 리다이렉트 관습
+- α 채택: ?redirect=<fullPath> query(미들웨어·담기 게이트·로그인 3곳 공유). navigateTo('/login?redirect='+encodeURIComponent(fullPath))→성공 시 resolveRedirect. 오픈리다이렉트 방어(내부 절대경로만·'//' 차단).
+- β 복귀 없음 기각: 담기하려다 로그인→원래 상세 복귀 흐름 끊김.
+4) 담기 게이트 위치·조작 후 상태
+- 게이트 = 클릭 시점(상세 permitAll이라 진입 안 막음·미인증/비-BUYER 클릭 시 /login 유도). 조작 후 = 전체 재load(GET /cart) — 조작 4종 Void 확정(recon-76 §1-1)이라 유일 정합(낙관 갱신은 displayPrice/purchasable/quantityAvailable enrich 재계산 유실).
+
+### §2 결정 라운드 재진입·구현 중 결정
+- [실측·recon-76] cart 조작 6종·auth login(role enum BUYER/SELLER/ADMIN·200+token·실패 401 통합)·401 UNAUTHENTICATED/403 FORBIDDEN 실측. buyer 셀프가입 POST /api/v1/users(role 자동 BUYER·V11 seed)로 데모 계정 생성(로컬·운영 재현 경로).
+- [구현·검증 실측] login.vue(BUYER 고정·resolveRedirect 오픈리다이렉트 방어·단일 에러·기인증 복귀). buyer.ts(미인증/비-BUYER→/login?redirect·실인가는 서버 SoT). cart store add(P1)+조작 4종(P2·각 재load). 상세 handleAddToCart 게이트(클릭 시점·adding 가드). CartItemView 9필드 타입 승격(count length 파생·뱃지 무회귀). cart.vue(합계 selected∧purchasable·dangling 비활성·삭제만·runMutation 401→로그인·checkout seam). 컨테이너 E2E: 미인증 /cart→302 /login?redirect=/cart·로그인→담기 201→조작 4종 200·합계·빈상태·무회귀·hydration 0.
+- [구현 중 결정] 미들웨어는 P1 소비처 부재로 P2에 신설·부착(담기 게이트는 인라인 판정 독립 동작). 로컬 백엔드 stale(D-149 미반영) → dev 컨테이너 재시작 해소(bootRun이 git pull 미재컴파일). LT-12(Pinia setup store .value 트랩) 발견·수정.
+
+### §8 이월(carry-over)
+- [DEFERRED·FE-11] checkout 버튼 seam→실배선(선택 품목 POST /cart/checkout·주문 생성·Idempotency-Key).
+- [미재현] dangling(purchasable=false) 표기·컨트롤 비활성: 데모 시드 전량 purchasable=true라 코드 경로만·soft-delete 시드 필요 E2E.
+- [백로그] 데모 로그인 버튼(로그인 페이지 데모 buyer 자동 로그인·포트폴리오용·demo@zslab-mall.com·운영 시드 재현). FE SEO 성숙(og:image·JSON-LD·canonical·sitemap). FE 테스트(FE-12/CI).
+- [RESOLVED] FE-09 §8 DEFERRED 소비: BUYER 미들웨어·로그인 페이지·cart items 타이핑 → FE-10b 해소. (검색 동작·카테고리 nav는 각 트랙 유지.)
+- [트랩] LT-12 live-traps.md 신규.
+
+---
+

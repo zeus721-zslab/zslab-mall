@@ -356,6 +356,27 @@ auto-import 대상(store·plugin·composable) 추가 후 컨테이너(dev 서버
 - decisions-fe.md FE-09 §2·frontend/app/stores/·frontend/app/plugins/
 
 ---
+
+## LT-12. Pinia setup store 접근 시 ref 자동 언랩 → `.value` 접근 시 undefined [RESOLVED]
+
+**발견 트랙**: FE-10b P2 cart.vue useAsyncData SSR 렌더 (에러 상태 오렌더 실측)
+**원본 결정**: decisions-fe.md FE-10b §2
+
+### 증상
+Pinia setup store가 반환한 ref(예 `items = ref<CartItemView[]>([])`)를 store 인스턴스로 접근(`cart.items`)하면 자동 언랩돼 이미 배열이다. 컴포저블 관습대로 `cart.items.value.length`로 접근하면 `.value`가 undefined → `.length`에서 TypeError. cart.vue의 useAsyncData 핸들러에서 발생 → SSR이 예외를 잡아 에러 상태를 렌더(GET /cart·load 자체는 성공·payload엔 품목 존재). tsc는 통과 → SSR HTML 실측으로만 진단됨.
+
+### 처치
+setup store 인스턴스 접근 시 `.value` 금지 — `cart.items.length`(언랩된 배열 직접). store 내부(setup 함수 안)에선 `.value` 필요하나, 외부(컴포넌트·페이지)에서 store.prop 접근은 이미 언랩. storeToRefs 구조분해 시에도 언랩된 ref 반환.
+
+### 후속 영향
+- setup store의 ref/computed를 컴포넌트/페이지에서 쓸 때 `store.prop`(언랩)·`store.prop.value`(X) 구분.
+- SSR 데이터 핸들러(useAsyncData/useFetch 콜백)에서 store 접근 시 특히 주의 — 예외가 에러 상태 오렌더로 나타나 원인이 가려짐. tsc 미포착 → SSR HTML 실측 필요.
+
+### 관련
+- decisions-fe.md FE-10b §2·frontend/app/pages/cart.vue·frontend/app/stores/cart.ts
+
+---
+
 ## 부록. 트랩 추가 절차
 
 1. 라이브 발견 시 즉시 decisions.md D-XX 박제 (단건 처리)
