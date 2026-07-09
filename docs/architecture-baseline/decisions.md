@@ -9512,3 +9512,120 @@ productById miss(삭제 상품) 시 productName=null → §15 NON_NULL 직렬화
 
 ---
 
+## D-153. 미결제 주문 종료 아키텍처 — "Inventory는 Order 생명주기를 따른다" (레벨3 목표·Phase 이행)
+
+### §1 결정
+결제 미완(PENDING_PAYMENT) 주문 정리의 목표 아키텍처로 레벨3(주문 종료를 Order가 단일 책임)를 채택한다.
+한 PR 전면 리팩터링이 아니라 각 단계가 항상 정상 동작을 유지하는 4 Phase 하위 트랙으로 이행한다.
+목표 상태:
+- Payment Aggregate = 결제 시도·성공·실패만 책임.
+- Order Aggregate = 주문 생성·종료(자동취소·사용자취소) 책임.
+- Inventory = Payment가 아니라 Order 종료(OrderCancelled)만 구독한다.
+
+### §1-A 채택/기각 근거
+- 레벨3(채택): PG 실패·사용자취소·시간초과를 모두 "Order 종료"로 수렴. 재고 해제 경로를 OrderCancelled 단일로 통일.
+  이벤트 의미가 완전 분리되고(PaymentFailed=실제 결제 실패 / OrderCancelled=주문 종료), 동일 비즈니스 사실을
+  두 이벤트가 표현하는 중복이 사라진다.
+- 레벨1(기각): auto-cancel만 신설하고 InventoryPaymentFailedHandler를 존치. 재고가 PaymentFailed·OrderCancelled
+  양쪽을 구독하는 이중 이벤트 계약을 영구히 남긴다. 멱등 가드(reserved==0 skip)는 증상만 완화할 뿐, 이후 신규 기능마다
+  "PaymentFailed를 구독하나 OrderCancelled를 구독하나"의 판단이 반복된다. 최종 구조로 부적합.
+
+### §2 이 결정이 함께 해소하는 4개 문제 (공통 원인 = "주문 종료는 Order가 책임진다")
+- (1) 자동취소 기준이 Order인가 Payment인가 → Order로 확정(Payment는 결제수단·INITIATE_FAILED처럼 Payment 부재 케이스 존재).
+- (2) Payment.fail()이 상태 변경과 PaymentFailed 발행을 결합 → 종료 전이와 이벤트를 분리.
+- (3) 재고가 Payment·Order 양쪽을 구독 → Order(OrderCancelled) 단일 구독으로 수렴.
+- (4) Payment 만료 스케줄러와 Order 자동취소 스케줄러의 역할 중복 → Order 스케줄러로 일원화·Payment 만료 스케줄러 제거.
+
+### §3 Phase 이행 로드맵 (각 Phase 독립 트랙·완료 시점마다 시스템 정상)
+- Phase 1 (FE-12b): Order Auto Cancel 도입. OrderItem ORDERED→CANCELLED 매트릭스 확장 + Order 자동취소 스케줄러
+  (PENDING_PAYMENT AND createdAt ≤ now-N) + OrderCancelled 이벤트 + InventoryOrderCancelledHandler 신설.
+  기존 Payment 경로(InventoryPaymentFailedHandler·만료 스케줄러) 전부 유지. 이 시점부터 INITIATE_FAILED·결제창 이탈
+  주문이 정리되어 재고 누수(실 결함)가 해소된다. 재고는 잠시 이중 경로이나 멱등 가드로 안전(Phase 2에서 정리).
+- Phase 2 (FE-12c): Inventory를 OrderCancelled만 구독하도록 변경. PaymentFailed→Order 종료 경로를 배선하고
+  InventoryPaymentFailedHandler를 제거. 이 Phase 완료 시 핵심 원칙(재고는 Order만 따름)이 완성된다.
+- Phase 3 (FE-12d): PG Callback 정리. handleFailure·handleCancel(PG 실패·사용자 결제창 취소)이 반드시 Order 종료를
+  거치도록 통일. Payment.fail() 의미를 "실제 결제 실패" 전용으로 축소.
+- Phase 4 (FE-12e): Payment 만료 스케줄러(ExpirePaymentScheduler·ExpirePaymentService) 제거. 역할 소멸분 정리.
+
+### §4 Phase 1(FE-12b) 확정 파라미터
+- 자동취소 대상 = Order.status=PENDING_PAYMENT AND createdAt ≤ now-N.
+- 유예시간 N = 30분. 근거: 결제창 TTL(PENDING_TTL=30분·PaymentService)과 정합. N<30분이면 아직 유효한 결제창의 주문을
+  취소하는 모순. 스케줄러 주기 5분·배치 상한 100은 기존 만료 스케줄러 값 재사용.
+- OrderItem ORDERED→CANCELLED 전이는 canTransitionTo에 추가하되, 무분별 허용 방지를 위해 호출부(자동취소 서비스)에서
+  Order.status=PENDING_PAYMENT 가드로 한정(매트릭스 전수 검토상 Claim·Delivery 흐름과 무교차·부작용 없음).
+- 재고 해제 = OrderCancelled → InventoryOrderCancelledHandler(기존 InventoryPaymentFailedHandler의 AFTER_COMMIT+
+  REQUIRES_NEW+멱등 가드 패턴 복제). OrderCancelled 페이로드는 orderId·시각 최소(QB-13 관습·현 소비처는 Inventory 단독·
+  알림/통계 소비는 YAGNI로 미신설).
+- Payment 종속 정리: Phase 1에서는 손대지 않음(기존 경로 유지). Payment 종료 전이 방식(신규 상태 vs CANCELLED 재사용 vs
+  방치)은 Phase 3에서 확정.
+
+### §5 Phase 1(FE-12b) 구현 실측 (완료)
+- OrderItemStatus.canTransitionTo: ORDERED → PAID | CANCELLED (CANCELLED 1건 추가). 매트릭스 전수 검토상 Claim·Delivery
+  흐름과 무교차·부작용 없음. 호출부 한정은 OrderAutoCancelService가 status=PENDING_PAYMENT + item=ORDERED 이중 가드.
+- OrderRepository.findByStatusAndCreatedAtLessThanEqualOrderByCreatedAtAsc(status, threshold, Pageable): items fetch join
+  미적용 — 컬렉션 fetch join + 페이징의 in-memory paging 함정 회피(ExpirePaymentScheduler 조회→재조회 패턴 미러).
+  cancelOne이 findByIdWithItems로 건별 재조회.
+- OrderAutoCancelService.cancelOne(orderId): 건별 @Transactional·status≠PENDING_PAYMENT 멱등 skip·ORDERED 품목만
+  changeStatus(CANCELLED)·Resolver [5]로 Order.status=CANCELLED 파생·OrderCancelled 발행. Payment 미참조(Phase 경계).
+- OrderCancelled(orderPublicId·orderId·occurredAt): OrderPlaced 미러·최소 페이로드. 소비처 = Inventory 단독.
+- InventoryOrderCancelledHandler: InventoryPaymentFailedHandler 1:1 복제(AFTER_COMMIT+REQUIRES_NEW·멱등 reserved==0 skip·
+  INV-3 가드·실패 격리). 구독만 OrderCancelled.
+- OrderAutoCancelScheduler: @Scheduled fixedDelay 5분·배치 100·GRACE 30분·id별 독립 TX 부분 실패 격리(Error 전파)·
+  킬스위치 zslab.order.auto-cancel.enabled(@ConditionalOnProperty·기본 활성).
+- 검증: 832 GREEN·무회귀. 통합 실측 — PENDING_PAYMENT→cancelOne→Order·OrderItem CANCELLED·reserved 2→0·OrderCancelled 1 /
+  PAID→멱등 skip·재고 불변·이벤트 0. INITIATE_FAILED(Payment 없음) 주문도 동일 경로로 정리됨(재고 누수 실 결함 Phase 1분 해소).
+- 잔여(Phase 2~4): 재고 이중 경로(PaymentFailed·OrderCancelled 병존)는 멱등으로 안전하나 Phase 2에서 단일화. domain-events.md:235
+  이연 항목은 Phase 1로 부분 해소(자동취소 도입)·완전 해소는 Phase 2~4 진행 후.
+
+### §8 carry-over
+- 목표 아키텍처(레벨3)는 본 결정으로 확정. 각 Phase 실측 박제는 해당 트랙 완료 후 별도 D-XX(또는 본 항목 갱신).
+- domain-events.md:235 "미결제 주문 자동 취소 이연" 항목은 Phase 1 완료 시 해소 표기.
+- state-machine.md에 PENDING_PAYMENT→CANCELLED 전이 규칙은 Phase 1에서 추가.
+- Payment.status ENUM은 4값(PENDING·PAID·FAILED·CANCELLED) 유지 중이며 PENDING→CANCELLED는 현재 불법. Phase 3에서
+  Payment 종료 전이 방식 결정 시 재검토(신규 상태는 DDL ENUM 확장·4층위 잠금 비용 수반).
+
+  ---
+
+  ## D-154. 미결제 주문 종료 모델 재설계 — 결제 실패/만료 분리·OrderTerminated 수렴 (FE-12c)
+
+### §1 결정
+D-153 레벨3 이행을 Phase 2·3·4 통합 트랙으로 수행. 미결제 주문 종료를 CANCELLED에서 분리해 신규 Order 상태 PAYMENT_EXPIRED로 종료하고, 재고 해제를 OrderTerminated 단일 이벤트로 수렴한다. Payment는 실제 결제 실패(FAILED)와 결제창 이탈·만료(EXPIRED)를 구분한다.
+
+4대 원칙(문서 박제):
+1. Order는 주문의 생명주기를 책임진다.
+2. Payment는 결제의 생명주기를 책임진다.
+3. Inventory는 주문 종료(OrderTerminated)만 따른다.
+4. Order와 Payment는 각자 상태로 동일한 현실을 표현하되 서로의 의미를 침범하지 않는다.
+
+### §1-A 채택/기각 근거
+- **채택 — 미결제 종료를 PAYMENT_EXPIRED로 분리(CANCELLED에서 제거)**: 결제가 진행되다 멈춘 것(결제 미성립)은 주문을 무른 "취소"와 성격이 다르다. CANCELLED에 사유로 뭉개는 방식(우회)은 성격이 다른 상태를 한 값에 섞으므로 기각. 상태값 자체로 구분(비노출·삭제 대상 판별을 status 단일로).
+- **채택 — Payment 종료를 FAILED(실제 실패)/EXPIRED(이탈·만료) 2분기**: handleFailure(PG FAILURE 콜백=실제 결제 실패)는 Payment FAILED·failure_code 유지. handleCancel(PENDING·결제창 이탈)·expireOne(30분 만료)는 Payment EXPIRED. 실패를 EXPIRED로 뭉개면 Payment가 실패를 만료라고 왜곡(원칙 4 위반). 만료를 FAILED로 재사용해도 의미 왜곡. → 별도 EXPIRED 상태 신설이 정답.
+- **채택 — Order는 3경로 모두 PAYMENT_EXPIRED로 동일 종료**: Payment가 FAILED든 EXPIRED든 주문 관점에선 "결제 기회 종료"로 동일. Order와 Payment가 같은 사실을 각자 렌즈로 표현(원칙 4의 정상 귀결).
+- **채택 — cancel_reason 컬럼 도입 이연**: 미결제 종료를 PAYMENT_EXPIRED로 빼면 CANCELLED에 남는 건 결제 후 사용자 취소(Claim 경로) 단일. 사유로 나눌 대상 없음. 운영자 취소(관리자 기능 미구현) 실존 시 도입(YAGNI).
+- **채택 — 재고 해제 OrderTerminated 단일 구독**: release는 order_item.variant_id만 읽어 Order.status 비의존. OrderCancelled→OrderTerminated 개명해 CANCELLED·PAYMENT_EXPIRED 양쪽이 단일 이벤트로 재고 해제. InventoryPaymentFailedHandler 제거(D-153 Phase 2 목표).
+- **채택 — PaymentFailed 이벤트 제거**: 유일 소비처 InventoryPaymentFailedHandler 제거로 소비처 0. 발행되나 미소비 이벤트는 런타임 죽은 코드. Payment.fail()의 FAILED 전이·failure_code 세팅은 유지(진단), 이벤트 발행만 제거(기조 4).
+- **기각 — handleFailure를 EXPIRED로 통일**: 초기 구현이 PG 실제 실패를 EXPIRED로 뭉갬 → 정정. 원칙 4·검토자 Q4("FAILED 재사용 금지"의 반대편=실패는 FAILED 유지)와 정합하게 FAILED로 복원.
+
+### §2 늦은 웹훅 차단 불변식
+결제 성공 승인은 Order.status==PENDING_PAYMENT일 때만 허용. auto-cancel이 Order를 PAYMENT_EXPIRED로 종료·재고 해제한 뒤 도착하는 지연 SUCCESS 콜백을 차단(이미 종료·재고 해제된 주문의 PAID 부활·재고 음수화 원천 봉쇄). OrderService.markPaid에 명시적 status 가드(IllegalStateException·롤백)·Order.markPaid의 CANCELLED item 불법 전이 예외에 선행.
+
+### §3 배선 실측
+- 마이그레이션: V18(order.status +PAYMENT_EXPIRED·8→9값)·V19(payment.status +EXPIRED·4→5값). V1 무수정·ALTER 값 추가.
+- OrderStatus +PAYMENT_EXPIRED. PaymentStatus +EXPIRED·PENDING→EXPIRED 허용·EXPIRED 종결(전이 불가).
+- Payment.expire()(PENDING→EXPIRED·이벤트 미발행)·Payment.fail()(PENDING→FAILED·failure_code 유지·PaymentFailed 발행 제거).
+- OrderAutoCancelService.cancelOne: Order.expirePayment()로 PAYMENT_EXPIRED 직접 세팅(PENDING_PAYMENT 선례·Resolver 미경유·OrderItem 무변경)·멱등(status!=PENDING_PAYMENT skip)·OrderTerminated 발행.
+- PaymentService: handleFailure=payment.fail(PG_FAILURE)+cancelOne / handleCancel(PENDING)·expireOne=terminateUnpaid(payment.expire()+cancelOne). InventoryPaymentFailedHandler 제거·재고 해제 OrderTerminated 단일 수렴.
+- 이벤트: OrderCancelled→OrderTerminated 개명. InventoryOrderCancelledHandler→InventoryOrderTerminatedHandler(release 로직 무변경). PaymentFailed 클래스 삭제.
+- FE: OrderStatusCode +PAYMENT_EXPIRED·라벨 '미결제 종료'. 구매자 목록 조회 findByBuyerIdAndStatusNot(PAYMENT_EXPIRED)로 DB 레벨 제외.
+- 검증: 833 tests GREEN·회귀 0. FAILURE 웹훅 E2E(Payment FAILED·failure_code PG_FAILURE·Order PAYMENT_EXPIRED·OrderItem ORDERED 무변경·reserved 0) 실 DB·MockMvc.
+
+### §8 carry-over
+- D-153 Phase 2·3·4는 본 D-154로 통합 이행 완료. Phase 로드맵 SUPERSEDED.
+- CANCELLED_BEFORE_PAYMENT failureCode 상수: handleCancel이 payment.expire() 사용으로 소비처 0 → 제거.
+- Order 상태명 PAYMENT_EXPIRED가 handleFailure(실제 실패) 케이스엔 약간 부조화(만료 아닌 실패)이나 Order 관점 "결제 기회 종료"로 수용. 거슬리면 상태명만 별건.
+- FE-12c-2(삭제 배치): PAYMENT_EXPIRED 주문 일 배치 hard delete(자식 order_item·snapshot·payment 순차·idempotency_key dangling 정리·재고 해제 선행·삭제 가능 확인 후). 별건 트랙.
+- PENDING_PAYMENT 라벨 '입금대기' 개명 보류: 무통장입금(VBANK) 미구현·실경로 부재(YAGNI). VBANK 도입 시.
+- 미커버: FAILURE 콜백 실 커밋 E2E는 신규 작성(webhook_failure_endToEnd)·markPaid 불변식은 단위 검증.
+
+---
+
