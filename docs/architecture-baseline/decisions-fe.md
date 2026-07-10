@@ -34,7 +34,7 @@
 - FE-12 주문 (완료) (order-lifecycle: 조회·자동취소·종료 모델·삭제 배치)
 - FE-13 계정 (완료)
 - FE-14 클레임 (완료)
-- FE-15 FE 테스트 (진행중)
+- FE-15 FE 테스트 (완료)
 - Tier2 페이지(BE-추가작업 대응)는 각 머지 후 개별 FE 트랙(FE-15+)
 
 ---
@@ -887,6 +887,7 @@ STEP1~3(Vitest 컴포넌트/단위 + Playwright Browser/SSR Smoke) 위에 GitHub
 - typecheck 스크립트가 'nuxt prepare && vue-tsc -b'라 .nuxt 타입 생성 선행 포함 — CI는 pnpm typecheck 한 줄로 충분(별도 prepare 스텝 불요).
 - install은 --frozen-lockfile(핀 pnpm11·lock 9.0 정합)로 lock 표류 차단.
 - 로컬 검증(정본 컨테이너): pnpm typecheck EXIT0(vue-tsc 에러 0)·pnpm test 6 files/21 tests passed(e2e/smoke.spec.ts 미수집 = vitest exclude 작동). paths 필터·store 캐시·frozen-lockfile 실동작은 PR에서만 검증 가능(로컬 한계).
+- [LT 후보·CI store-dir 우선순위] pnpm-workspace.yaml storeDir가 컨테이너 전용 절대경로(/app/node_modules/.pnpm-store)면 CI 러너(ubuntu-latest)에서 mkdir '/app' EACCES(exit 243). 3라운드 실측 확정: job env npm_config_store_dir(14eb6002)·.npmrc는 storeDir에 우선순위 밀려 실패, install CLI 플래그 --config.store-dir(2a104705)만 오버라이드 성공. setup-node cache:pnpm은 내부 pnpm store path가 /app 참조하므로 제거·actions/cache로 store 직접 캐싱 대체. pnpm-workspace.yaml 무변경(컨테이너 트랩 회피 보존). 컨테이너 절대경로 설정이 CI에서 터지는 일반 패턴(향후 backend CI·풀스택 Browser Smoke CI 재발 주의) → live-traps 등재 검토.
 
 #### §진입점
 1) 목적: PR·main push마다 FE typecheck + vitest 자동 green 게이트(브라우저·backend 무관).
