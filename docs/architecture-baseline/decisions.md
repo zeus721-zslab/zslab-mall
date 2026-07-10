@@ -9710,3 +9710,62 @@ PAYMENT_EXPIRED(미결제 종료) 주문을 유예 경과·재고 해제 완료 
 
 ---
 
+## D-157 프론트 운영 배포 (SSR 컨테이너화 + gateway path-split)
+
+- 트랙 성격: 인프라·운영 프론트 신규 구축 / 등급 S(회귀·장애 위험 상·gateway 수정 포함)
+- 상태: [ACTIVE] 배포 완료·실서빙 검증 GREEN
+- 배경: 운영 https://zslab-mall.duckdns.org 에 프론트 배포 경로 부재. 초기 증상 "CI/CD 미반영"은 오진 — 실체는 gateway 미스라우팅(location / 가 전부 backend 흡수). backend 파이프라인·바이너리는 정상이었음(git in sync·docs 부재는 sparse-checkout 정상·backend 무변경으로 컨테이너 타임스탬프 유지).
+
+### §1-A 결정 옵션·채택/기각
+
+[결정 A] 프론트 prod 컨테이너화
+- α 멀티스테이지(build node:24+pnpm build → runtime node:24-slim+.output) 【채택】
+- β dev 이미지(pnpm dev) 운영 사용 【기각: dev 서버·HMR 전제, 운영 부적합】
+- γ static generate + nginx 정적 서빙 【기각: SSR·routeRules·runtimeConfig 직결 구조 폐기됨. 아키텍처 충돌】
+- 근거: nuxt.config nitro preset 미지정+ssr 유지 → 기본 node-server(.output/server/index.mjs). SSR 특성상 build는 불가피 예외로 dev=prod 대상 밖, 이미지 이원화(${FRONTEND_DOCKERFILE:-Dockerfile})로 흡수.
+
+[결정 2] compose 배치·네트워크 alias
+- α mall.yml 통합 + 서비스명 zslab_mall_frontend 유지·alias 미부여 【채택】
+- β 별도 compose 파일 분리 【기각: deploy.yml이 -f mall.yml 단독 고정. 통합이 스크립트 무변경】
+- 근거·정정: 최초 "mall-backend 패턴 복제해 mall-frontend alias 부여" 초안은 실측 위반으로 철회. dev gateway는 프론트를 서비스명(zslab_mall_frontend)으로, backend도 서비스명(zslab_mall_backend)으로 참조. mall-backend alias는 SSR(NUXT_API_INTERNAL_BASE) 전용이지 gateway용 아님. → 프론트 alias 불필요(YAGNI).
+
+[결정 B] 프론트 운영 healthcheck
+- α dev 미러(healthcheck 없음) 【기각】
+- β 프론트 healthcheck 추가 【채택】
+- 근거: dev 프론트엔 healthcheck 부재하나, deploy.yml --wait 실효성 확보 위해 예외 인정. node:24-slim에 curl 부재 → node 내장 fetch로 SSR 홈 응답 확인(test: node -e fetch(127.0.0.1:3000)). start_period 40s.
+
+[결정 3] NUXT_PUBLIC_API_BASE(브라우저 API base) 주입
+- α 미주입(빈값→코드 fallback /api) 【채택】
+- β /api 명시 주입 / γ 절대 도메인 주입 【기각: 이중관리·dev와 불일치】
+- 근거: auth.ts 실측 — 브라우저는 config.public.apiBase || '/api'. 로컬 .env에 키 부재(dev 현상태) → 빈값이어도 /api. dev=prod로 양쪽 미설정 유지. .env.example의 /api는 문서 규약값일 뿐 실주입 아님.
+
+[결정 4] SSR 내부 직결(NUXT_API_INTERNAL_BASE) 런타임 규약 — FE-03 트랩 prod 차단
+- 채택: nuxt.config runtimeConfig.apiInternalBase default를 'http://mall-backend:8080'(언더스코어 없는 alias) 고정 + 빌드타임 process.env 직접참조 제거. 런타임 override 키는 Nuxt 규약상 NUXT_API_INTERNAL_BASE.
+- 근거: 기존 default가 process.env.API_INTERNAL_BASE로 언더스코어 호스트(zslab_mall_backend)를 빌드타임에 구움 → Tomcat strict Host 400(FE-03 트랩) prod 재현. compose가 넘기던 API_INTERNAL_BASE는 NUXT_ 규약 불일치로 런타임 무시됨. dev는 nuxt dev의 config 재평가로 우연히 가려져 있었음.
+- 실증: prod 이미지를 NUXT_API_INTERNAL_BASE=http://probe-backend:8080로 기동 시 SSR 페치가 probe-backend로 실착(baked default·언더스코어 호스트 미출현). config 병합이 아닌 런타임 실측으로 확인.
+
+[결정 5] gateway path-split
+- 채택: mall vhost location / 단일 블록을 2분기.
+    location /api { set $upstream_mall_api http://zslab_mall_backend:8080; proxy_pass $upstream_mall_api; }
+    location /    { set $upstream_mall_front http://zslab_mall_frontend:3000; proxy_pass $upstream_mall_front; }
+- 근거: dev conf 구조 복제(dev=prod). set 변수 패턴 유지 = 런타임 DNS 재해석(컨테이너 재기동 견딤). nginx prefix 매칭이 /api를 / 보다 우선.
+- 안전 이행(기박제 트랩 준수): 단일 파일 bind-mount라 inode 보존 필수(Python open(w) 금지). 전역 sed는 9개 도메인 전부 덮는 트랩 → 라인 스코핑. truncate-in-place로 inode 불변. nginx -t 통과 후 nginx -s reload.
+
+### §2 결정 라운드 수렴·정정 기록
+- 실측으로 뒤집힌 판단 3건: (1) "frontend 부재" → 실은 gateway 미스라우팅(컨테이너는 정상). (2) "mall-frontend alias 부여" → 서비스명 참조 실측으로 철회. (3) 서버 zslab_frontend(project=zslab)는 별개 스택 — 건드리지 않음(오라우팅 방지).
+- 전 과정 [파일:라인] MCP 실측 인용, 추정 배제.
+
+### §진입점
+1. 목적: 운영 도메인에 SSR 프론트 서빙 + /api 백엔드 분리 라우팅.
+2. 진입점 파일: frontend/Dockerfile(멀티스테이지 전문), docker-compose.mall.yml(zslab_mall_frontend 서비스 블록), frontend/nuxt.config.ts(runtimeConfig.apiInternalBase — 실라인 append 시 확정), gateway <masked>/nginx/nginx.conf(mall vhost, 정렬 후 라인 서버 확인).
+3. 핵심 규약: SSR override 키 NUXT_API_INTERNAL_BASE(Nuxt runtimeConfig 규약). 브라우저 base는 코드 fallback /api. gateway는 서비스명으로 upstream 참조(set 변수).
+4. 영향 범위: 프론트 운영 배포 전체·gateway mall vhost(타 8 vhost 불변 확인).
+5. 패턴 재사용: backend의 ${VAR:-default} dockerfile 이원화 + mall.yml base/dev.yml override 패턴을 프론트에 복제(재사용 2회차).
+6. 트랩 경고: FE-03 언더스코어 Host 400(결정 4로 prod 차단), gateway sed inode/전역치환 트랩(결정 5 이행 준수).
+
+### §8 carry-over
+1. [정책 확정·실행 이월] 운영 카탈로그는 dev 데모 시더(CatalogDemoSeedRunner) 재사용으로 공급. 운영 전용 시더/실카탈로그 등록 안 함(포폴 목적·YAGNI). 활성 방식: catalog.demo-seed.enabled=true 주입(프로파일 NON-LOCAL 유지·프로퍼티만). 현재 미설정이라 운영 상품 0(설계상 정상, 버그 아님). 실행 세부(주입 위치 application-prod.yml vs .env·운영 멱등 실기동 검증)는 별도 트랙 — 다음 트랙 진입점.
+2. [미결·현행 유지] gateway mall vhost에 proxy_set_header 계열 없음(원문에 부재). backend가 헤더 없이 동작 중이라 최소변경 원칙으로 미추가. SSR에서 Host/X-Forwarded 이슈 발생 시 별건 처리.
+3. 서버 .env 프론트 키(NUXT_PUBLIC_DEMO_* 등) 보강 — 사용자 직접 처리 영역.
+
+---
