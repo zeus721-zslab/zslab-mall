@@ -26,7 +26,9 @@ export default defineNuxtConfig({
     componentDir: '~/components/ui',
   },
   runtimeConfig: {
-    apiInternalBase: process.env.API_INTERNAL_BASE || 'http://zslab_mall_backend:8080',
+    // 런타임 주입 키=NUXT_API_INTERNAL_BASE(Nuxt runtimeConfig override 규약). default는 언더스코어 없는 alias 고정
+    // — 빌드타임 process.env 참조를 제거해 prod 이미지에 언더스코어 트랩값(zslab_mall_backend·Tomcat 400)이 구워지던 문제 차단(FE-03).
+    apiInternalBase: 'http://mall-backend:8080',
     public: {
       apiBase: process.env.NUXT_PUBLIC_API_BASE || '',
       // 데모 로그인 버튼용 공개 자격증명(저권한 BUYER·포트폴리오 방문자 편의). 클라가 읽어야 해 public에 둔다.

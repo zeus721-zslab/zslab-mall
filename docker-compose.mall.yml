@@ -32,6 +32,28 @@ services:
         aliases:
           - mall-backend
 
+  zslab_mall_frontend:
+    build:
+      context: ./frontend
+      dockerfile: ${FRONTEND_DOCKERFILE:-Dockerfile}
+    container_name: zslab_mall_frontend
+    restart: unless-stopped
+    healthcheck:
+      # node:24-slim엔 curl 부재 → node 내장 fetch로 SSR 홈 응답 확인
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    environment:
+      NUXT_PUBLIC_API_BASE: ${NUXT_PUBLIC_API_BASE:-}
+      NUXT_API_INTERNAL_BASE: ${NUXT_API_INTERNAL_BASE:-http://mall-backend:8080}
+      NUXT_PUBLIC_DEMO_EMAIL: ${NUXT_PUBLIC_DEMO_EMAIL:-}
+      NUXT_PUBLIC_DEMO_PASSWORD: ${NUXT_PUBLIC_DEMO_PASSWORD:-}
+    networks:
+      # gateway 경유(backend와 동일)·ports 미노출. 서비스명 zslab_mall_frontend으로 gateway가 참조 → alias 미부여
+      - gateway_net
+
   # Track 32 Phase 2 — prod 로그 수집 (named volume mall_backend_logs 공유 → zslab_elasticsearch 전송)
   filebeat:
     image: docker.elastic.co/beats/filebeat:8.13.0
