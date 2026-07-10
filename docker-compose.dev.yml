@@ -5,6 +5,9 @@ services:
   zslab_mall_backend:
     build:
       dockerfile: Dockerfile.dev
+    environment:
+      # KST 통일(JVM TZ) — application.yml hibernate.jdbc.time_zone과 동시 정렬(Track 69)
+      TZ: Asia/Seoul
     volumes:
       - ./backend:/app
       - mall_gradle_cache:/home/gradle/.gradle

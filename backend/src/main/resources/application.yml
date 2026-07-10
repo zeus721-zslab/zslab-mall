@@ -19,8 +19,8 @@ spring:
     properties:
       hibernate:
         jdbc:
-          # 타임존은 앱 레이어(Hibernate)에서 UTC 정규화 — URL serverTimezone 미혼용 (UTC 정책 유지)
-          time_zone: UTC
+          # KST 통일(JVM·jdbc 동시 정렬·Track 69) — URL serverTimezone 미혼용
+          time_zone: Asia/Seoul
   flyway:
     enabled: true
     locations: classpath:db/migration
