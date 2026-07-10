@@ -9666,3 +9666,47 @@ PAYMENT_EXPIRED(미결제 종료) 주문을 유예 경과·재고 해제 완료 
 
 ---
 
+## D-156. 타임존 KST 환경 통일 (Track 69)
+
+### §1 결정
+모든 시각을 KST 벽시계로 저장·연산·표시하도록 환경을 통일한다. JVM TZ와 hibernate.jdbc.time_zone을 동시에 Asia/Seoul로 정렬해 `LocalDateTime`↔`DATETIME(6)` 왕복이 KST 벽시계를 물리 보존하고, 응답은 `KstOffsetSerializer`로 `+09:00` 오프셋을 명시 표기한다. 현재 UTC 저장은 의도한 설계가 아니라 Docker base image 기본 TZ(UTC)의 우연한 결과였으며(명시 TZ 고정 지점 0건), 이를 원래 의도인 KST 정책으로 명문화한다. 전제: 신규 프로젝트·기존 데이터 리셋 가능·단일 KST 서비스·해외/다지역 계획 없음.
+
+### §1-A 채택/기각 근거
+- **채택 — 결정1 β(JVM TZ + jdbc.time_zone 동시 Asia/Seoul)**: 왕복 실험(dev 격리·`TzProbeRunner`·native SQL literal 실측)으로 3케이스 확정. Case β(둘 다 KST)=저장 리터럴 16:36:35(KST 벽시계)·`= UTC_TIMESTAMP()+9h`·roundtrip.equal=true → 벽시계 물리 보존. Case α(JVM만 KST·jdbc UTC 잔존)=저장 07:38(UTC·−9h 밀림·Case C와 물리 동일)이며 roundtrip.equal=true는 Hibernate 자기일관일 뿐 원시 SQL·리포팅·정산은 UTC를 봄 → 왕복 존 불일치 실증. **둘을 반드시 동시 정렬해야 함**이 실측 결론.
+- **기각 — 결정1 α(jdbc.time_zone=UTC 잔존)**: 위 Case α로 저장 오프셋 −9h 밀림 실증. 
+- **기각 — 결정1 γ(time_zone 라인 제거)**: 결과는 KST이나 "UTC 정규화" 명시 계약 소멸·JVM 존 암묵 의존(운영/dev 존 갈림 시 값 갈림). 명시성 하락.
+- **채택 — 결정2 D(KstOffsetSerializer + 필드별 @JsonSerialize)**: 직렬화 수단 실측(`JsonFmtProbeRunner`·프로젝트 실제 ObjectMapper)에서 A(@JsonFormat 오프셋 토큰 XXX)=`Unsupported field: OffsetSeconds` 예외(LocalDateTime 오프셋 필드 부재)로 탈락. B·C·D 적격(출력 동일·시각 무shift·+09:00). D 채택 — 오프셋을 리터럴이 아닌 `ZoneOffset.ofHours(9)` 계산으로 산출·필드 타입 `LocalDateTime` 유지(결정1의 저장 LocalDateTime 유지와 정합). **적용은 필드별 @JsonSerialize로 국한(전역 ObjectMapper 모듈 등록 금지)** — 영향 범위를 응답 DTO로 한정해 내부 직렬화(로그·에러·캐시·멱등 body) 전파 리스크 0. 이것이 주 근거이며 미래 신규 필드 자동화(전역)를 포기하는 YAGNI는 보조 근거.
+- **기각 — 결정2 전역 컨버터**: 내부 직렬화 전파 리스크·`@JsonFormat` 5필드 제거 선행 필요. 안전성 우선으로 기각.
+- **차선 — 결정2 B(@JsonFormat '+09:00' 리터럴)**: 즉시 적격이나 오프셋이 계산 아닌 고정 문자열이라 저장 KST 전제 하에서만 참. **차선 — C(필드 타입 OffsetDateTime)**: 적격이나 DTO 타입 변경 + 매 매핑 지점 변환 삽입으로 침습 최대.
+- **채택 — 결정3 dev DROP DATABASE 리셋**: 구 UTC 저장분과 신규 KST분의 정산 월경계 혼재(±9h 오귀속)가 β 최대 리스크. 재시드 멱등 키가 `productRepository.count()==0`이라 부분 truncate는 재시드 skip·기준 시각 잔존, 또 order_item만 지우면 inventory 예약 재고 미해제(정합 구멍). `DROP DATABASE zslab_mall` + 재기동이 전체 시각 KST 재생성·재고 예약 자동 초기화·공유 컨테이너 안전(DB 단위·`down -v` 아님). 
+- **기각 — 결정3 혼재 보정(α 백필 +9h)**: 데이터 보존 불필요(신규 프로젝트·리셋 가능)한데 복잡·1회성 리스크. **기각 — FK순 truncate**: 재고 예약 재계산·기준 시각 잔존으로 부분·복잡.
+
+### §2 규약 (신규 시각 자동 KST 보장)
+1. **단일 레버**: 모든 도메인 시각은 `LocalDateTime.now()` 단일 경로로 생성한다(현 관례·`Clock`/`Instant`/`ZonedDateTime`/`@CreationTimestamp`/`ZoneId.systemDefault()` 전수 0건). 시각 절대값을 결정하는 유일 변수 = JVM 기본 존. JVM TZ와 `hibernate.jdbc.time_zone`을 항상 동일하게 Asia/Seoul로 정렬한다(둘 중 하나만 바꾸면 §1-A Case α로 깨짐).
+2. **존 이탈 금지**: 신규 코드에서 `Instant`·`OffsetDateTime`·`ZonedDateTime`·`Clock`·`ZoneId.systemDefault()` 도입 금지. 시각 타입은 `LocalDateTime` 유지·명시 오프셋 변환 금지(레버는 JVM 단일). 응답 오프셋 표기는 `KstOffsetSerializer` 경유.
+3. **컬럼 타입**: 신규 시각 컬럼 = `DATETIME(6)`·DEFAULT 미지정(현 관례). `TIMESTAMP` 금지(세션 TZ 변환이 개입해 규약1 전제와 충돌).
+4. **해외/다지역 요구 발생 시 전면 재설계**(저장 UTC + 존 변환 계층). 그 전까지 위 규약 유지.
+
+### §3 배선 실측
+- TZ 정렬: `application.yml:23` `hibernate.jdbc.time_zone: Asia/Seoul`(기존 UTC 교체)·`docker-compose.dev.yml:10` backend `TZ: Asia/Seoul`. 
+- 직렬화: `common/serialization/KstOffsetSerializer.java`(`LocalDateTime.atOffset(+09:00).format(ISO_OFFSET_DATE_TIME)`·UTC 재해석 없음·전역 모듈 미등록). 응답 8필드 `@JsonSerialize(using=KstOffsetSerializer.class)`: `OrderSummaryResponse:22`·`CheckoutResponse.PaymentView:21`·`ClaimSummaryResponse:20`·`ClaimResponse:23,25`·`SettlementTransitionResponse:16`·`SettlementBatchResponse:16,18`(기존 @JsonFormat 'Z' 5필드 제거 + 무애노 3필드 신규 부착).
+- 역직렬화: `common/serialization/KstOffsetDeserializer.java`(`OffsetDateTime.parse(...).toLocalDateTime()`·오프셋 파싱 후 벽시계 복원). `CheckoutResponse.PaymentView.expiresAt`에만 `@JsonDeserialize` 부착 — 체크아웃 멱등 재요청이 캐시 응답 JSON을 되읽는 round-trip 경로만 대상(타 7필드는 역직렬화 경로 없어 불필요).
+- FE: `frontend/app/lib/utils/datetime.ts:4-5` 주석만 갱신(stale 'Z' → '+09:00'). `formatDateTime` 슬라이스 로직 무변경(앞 16자·hydration 안전).
+- 검증: 전체 844 tests GREEN·회귀 0(--rerun-tasks). 응답 라이브 `orderedAt: ...+09:00`(무shift). dev DROP DATABASE 재리셋 후 seller.created_at 저장 리터럴 ≈ `UTC_TIMESTAMP()+9h`(KST 벽시계 정합)·컨테이너 TZ=Asia/Seoul.
+
+### §진입점
+1. **목적**: 전 시각 KST 벽시계 저장 + 응답 +09:00 표기 통일(JVM·jdbc 동시 정렬 레버).
+2. **진입점 파일**: `application.yml:23`(jdbc.time_zone)·`docker-compose.dev.yml:10`(TZ)·`KstOffsetSerializer`/`KstOffsetDeserializer`.
+3. **핵심 SoT 메서드**: `KstOffsetSerializer.serialize`(+09:00 부착)·`KstOffsetDeserializer.deserialize`(벽시계 복원).
+4. **영향 범위**: 응답 시각 8필드·전 도메인 시각 저장·정산 월경계(`SettlementCreationService` period BETWEEN)·만료 스케줄러(fixedDelay·TZ 무관).
+5. **패턴 재사용**: `@JsonSerialize(KstOffsetSerializer)` = 응답 시각 필드 표준(현 8필드 적용·신규 응답 시각 필드는 이 애노테이션 부착이 규약).
+6. **트랩 경고**: (LT 후보) 응답 직렬화만 +09:00로 바꾸고 역직렬화 경로(멱등 round-trip)를 방치하면 기본 LocalDateTime 파서가 오프셋 파싱 실패로 500 — 직렬화/역직렬화 대칭 필수. (§1-A Case α) JVM만 KST·jdbc UTC 잔존 시 저장 −9h 밀림.
+
+### §8 carry-over
+- **운영 배포 미완**(별건 트랙): dev만 반영. 운영은 `docker-compose.mall.yml` backend `environment` 또는 `backend/Dockerfile`에 `TZ=Asia/Seoul` 명시 고정 필요(현재 리포 전체 TZ 명시 0건·base image 우연 UTC). 운영 backend·`zslab_mariadb`·Nuxt SSR 컨테이너 TZ 실측 후 배포. 운영 프론트 Dockerfile/compose는 리포 부재(별도 배포 경로).
+- `periodStart`/`periodEnd`(정산 캘린더 경계)도 +09:00 부착 완료. instant는 보존되나 벽시계 숫자(00:00/23:59)가 표기상 9h 이동 — 현 FE 소비 0(admin 미구현). admin 정산 화면 도입 시 경계 표현 재검토.
+- 무애노 3필드(paidAt·periodStart·periodEnd)는 admin 미구현으로 현재 FE 렌더 소비 0이나 규약 정합 위해 함께 부착.
+- 이번 세션 라이브트랩 후보 3건(backend stale-class·frontend watcher 미인식·직렬화 round-trip 비대칭)은 누적 ≥3 → live-traps.md 마이그레이션 대상(별건).
+
+---
+

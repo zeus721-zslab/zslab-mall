@@ -1,9 +1,10 @@
 package com.zslab.mall.claim.controller.response;
 
-import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.zslab.mall.claim.entity.Claim;
 import com.zslab.mall.claim.enums.ClaimStatus;
 import com.zslab.mall.claim.enums.ClaimType;
+import com.zslab.mall.common.serialization.KstOffsetSerializer;
 import java.time.LocalDateTime;
 
 /**
@@ -16,7 +17,7 @@ public record ClaimSummaryResponse(
         ClaimType claimType,
         ClaimStatus status,
         String reasonCode,
-        @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'")
+        @JsonSerialize(using = KstOffsetSerializer.class)
         LocalDateTime requestedAt) {
 
     /** 영속 Claim으로 목록 항목을 조립한다. */

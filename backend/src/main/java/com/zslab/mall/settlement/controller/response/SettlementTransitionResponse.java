@@ -1,5 +1,7 @@
 package com.zslab.mall.settlement.controller.response;
 
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.zslab.mall.common.serialization.KstOffsetSerializer;
 import com.zslab.mall.settlement.entity.Settlement;
 import com.zslab.mall.settlement.enums.SettlementStatus;
 import java.time.LocalDateTime;
@@ -11,6 +13,7 @@ import java.time.LocalDateTime;
 public record SettlementTransitionResponse(
         Long settlementId,
         SettlementStatus status,
+        @JsonSerialize(using = KstOffsetSerializer.class)
         LocalDateTime paidAt) {
 
     public static SettlementTransitionResponse from(Settlement settlement) {

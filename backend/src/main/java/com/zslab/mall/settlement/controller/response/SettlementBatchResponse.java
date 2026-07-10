@@ -1,5 +1,7 @@
 package com.zslab.mall.settlement.controller.response;
 
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.zslab.mall.common.serialization.KstOffsetSerializer;
 import com.zslab.mall.settlement.service.SettlementBatchResult;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -11,7 +13,9 @@ import java.util.List;
 public record SettlementBatchResponse(
         int year,
         int month,
+        @JsonSerialize(using = KstOffsetSerializer.class)
         LocalDateTime periodStart,
+        @JsonSerialize(using = KstOffsetSerializer.class)
         LocalDateTime periodEnd,
         int createdCount,
         List<SettlementLineResponse> settlements) {

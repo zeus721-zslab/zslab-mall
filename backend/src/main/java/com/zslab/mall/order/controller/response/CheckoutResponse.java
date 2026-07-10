@@ -1,6 +1,9 @@
 package com.zslab.mall.order.controller.response;
 
-import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.zslab.mall.common.serialization.KstOffsetDeserializer;
+import com.zslab.mall.common.serialization.KstOffsetSerializer;
 import com.zslab.mall.payment.entity.Payment;
 import java.time.LocalDateTime;
 
@@ -15,7 +18,8 @@ public record CheckoutResponse(PaymentView payment, NextActions next) {
             String publicId,
             StatusView status,
             String redirectUrl,
-            @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'")
+            @JsonSerialize(using = KstOffsetSerializer.class)
+            @JsonDeserialize(using = KstOffsetDeserializer.class)
             LocalDateTime expiresAt) {
     }
 

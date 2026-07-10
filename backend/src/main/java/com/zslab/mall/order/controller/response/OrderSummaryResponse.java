@@ -1,6 +1,7 @@
 package com.zslab.mall.order.controller.response;
 
-import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.zslab.mall.common.serialization.KstOffsetSerializer;
 import com.zslab.mall.order.entity.Order;
 import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.product.entity.Product;
@@ -18,7 +19,7 @@ public record OrderSummaryResponse(
         int sellerCount,
         long totalPrice,
         StatusView status,
-        @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'")
+        @JsonSerialize(using = KstOffsetSerializer.class)
         LocalDateTime orderedAt) {
 
     /**
