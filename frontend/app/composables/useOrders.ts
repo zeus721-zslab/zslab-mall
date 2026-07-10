@@ -29,6 +29,7 @@ export function useOrderList(page: Ref<number>, size: number = DEFAULT_PAGE_SIZE
 /**
  * 구매자 주문 단건 조회(GET /api/v1/orders/{orderPublicId}). BUYER 전용이라 Bearer 주입. 미존재·타인 주문은 BE가 404
  * (존재 은닉)를 반환하며 useFetch가 error로 노출한다. key는 orderPublicId를 포함해 주문별 캐시를 분리한다.
+ * 주문 상세는 상태 전이(결제·배송·클레임)가 잦아 재방문 시 항상 재검증한다(getCachedData로 stale 캐시 반환 차단).
  */
 export function useOrderDetail(orderPublicId: string) {
   const auth = useAuthStore()
@@ -36,5 +37,6 @@ export function useOrderDetail(orderPublicId: string) {
     key: `order-detail:${orderPublicId}`,
     baseURL: resolveApiBase(),
     headers: { Authorization: `Bearer ${auth.token}` },
+    getCachedData: () => undefined,
   })
 }
