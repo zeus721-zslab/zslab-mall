@@ -28,3 +28,9 @@ coverage
 
 # Nuxt test-utils auto-generated setup marker
 .nuxtrc
+
+# Playwright
+test-results/
+playwright-report/
+/blob-report/
+/playwright/.cache/

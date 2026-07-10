@@ -10,7 +10,8 @@
     "postinstall": "nuxt prepare",
     "typecheck": "nuxt prepare && vue-tsc -b",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@pinia/nuxt": "^0.11.3",
@@ -26,6 +27,7 @@
   },
   "devDependencies": {
     "@nuxt/test-utils": "^4.0.3",
+    "@playwright/test": "^1.61.1",
     "@tailwindcss/vite": "^4.3.2",
     "@types/node": "^24.13.3",
     "@vue/test-utils": "^2.4.11",
