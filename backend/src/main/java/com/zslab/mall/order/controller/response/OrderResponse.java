@@ -48,7 +48,8 @@ public record OrderResponse(
                         variant != null ? variant.getPublicId() : null,
                         item.getQuantity(),
                         item.getUnitPrice(),
-                        item.getTotalPrice()));
+                        item.getTotalPrice(),
+                        StatusView.of(item.getItemStatus())));
                 subtotal += item.getTotalPrice();
             }
             sellers.add(new SellerGroupResponse(

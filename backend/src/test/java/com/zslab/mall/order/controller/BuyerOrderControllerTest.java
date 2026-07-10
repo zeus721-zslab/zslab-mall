@@ -22,8 +22,10 @@ import com.zslab.mall.order.controller.response.CheckoutResponse.PaymentView;
 import com.zslab.mall.order.controller.response.OrderResponse;
 import com.zslab.mall.order.controller.response.PagedResponse;
 import com.zslab.mall.order.controller.response.StatusView;
+import com.zslab.mall.order.entity.Order;
 import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.enums.OrderItemStatus;
+import com.zslab.mall.order.enums.OrderStatus;
 import com.zslab.mall.order.exception.OrderItemInvalidStateException;
 import com.zslab.mall.order.exception.OrderNotFoundException;
 import com.zslab.mall.order.exception.OrderNotPayableException;
@@ -33,6 +35,7 @@ import com.zslab.mall.order.service.BuyerOrderQueryService;
 import com.zslab.mall.payment.enums.PaymentStatus;
 import com.zslab.mall.payment.exception.PaymentInProgressException;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -168,6 +171,35 @@ class BuyerOrderControllerTest {
         mockMvc.perform(get("/api/v1/orders/ord_X00000000000000000000000AA").header("X-Buyer-Id", BUYER_ID))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("ORDER_NOT_FOUND"));
+    }
+
+    @Test
+    @DisplayName("GET 단건: 성공 → 200 + items[].status(code=itemStatus·label 존재)")
+    void getOne_returns200_withItemStatus() throws Exception {
+        // 응답을 fromOrderWithItems로 구성해 item_status → StatusView 매핑을 실제로 태운다(직렬화 경로 포함 검증).
+        OrderItem item = mock(OrderItem.class);
+        when(item.getSellerId()).thenReturn(10L);
+        when(item.getProductId()).thenReturn(20L);
+        when(item.getVariantId()).thenReturn(30L);
+        when(item.getPublicId()).thenReturn("oit_TEST0000000000000000000AA");
+        when(item.getQuantity()).thenReturn(2);
+        when(item.getUnitPrice()).thenReturn(500L);
+        when(item.getTotalPrice()).thenReturn(1000L);
+        when(item.getItemStatus()).thenReturn(OrderItemStatus.SHIPPING);
+
+        Order order = mock(Order.class);
+        when(order.getItems()).thenReturn(List.of(item));
+        when(order.getPublicId()).thenReturn("ord_X00000000000000000000000AA");
+        when(order.getStatus()).thenReturn(OrderStatus.PENDING_PAYMENT);
+        when(order.getTotalPrice()).thenReturn(1000L);
+
+        OrderResponse response = OrderResponse.fromOrderWithItems(order, Map.of(), Map.of(), Map.of());
+        when(buyerOrderQueryService.getOrder(anyString(), anyLong())).thenReturn(response);
+
+        mockMvc.perform(get("/api/v1/orders/ord_X00000000000000000000000AA").header("X-Buyer-Id", BUYER_ID))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sellers[0].items[0].status.code").value("SHIPPING"))
+                .andExpect(jsonPath("$.sellers[0].items[0].status.label").exists());
     }
 
     @Test
