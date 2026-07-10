@@ -863,5 +863,42 @@ STEP1·2(Vitest 컴포넌트/단위) 위에 브라우저 기동 계층 신설. S
 - [백로그·인증 트랙] 인증 세션 주입(프로그래매틱 로그인·쿠키)·시드 상태 제어 후 인증/쓰기 User Journey E2E 확대. secure 쿠키(http 미저장)·CORS(duckdns 한정)·게이트웨이 경유가 전제라 실스택(γ) 토폴로지 필요. 데모 자격증명(login.vue handleDemoLogin·NUXT_PUBLIC_DEMO_* 로컬 구성)의 DB 계정 실재 확인 병행.
 - [백로그·인프라] chromium을 Dockerfile.dev 또는 CI 캐시로 고정(volume 재설치 제거)·preview 정본 경로 CI 실검증.
 
+### §STEP4 — CI (typecheck + vitest) (2026-07-10)
+
+STEP1~3(Vitest 컴포넌트/단위 + Playwright Browser/SSR Smoke) 위에 GitHub Actions 검증 계층 신설. STEP4는 "PR·main push마다 FE 타입·단위 테스트가 자동 검증됨"의 최소 자동화이며, FE-15 마지막 STEP. smoke(브라우저)·backend·DB는 런타임 풀스택 기동 난도가 높아 본 STEP에서 제외하고 별도 이월(외부검토 반영). 기존 CI는 deploy.yml(운영 SSH 배포) 1개뿐이라 테스트 CI는 본 워크플로가 최초. 정찰 = recon-report-fe15-step4.
+
+#### 갈림길·채택/기각
+1) CI 범위 (결정 1)
+- α 채택: frontend typecheck + vitest만. 근거: 두 명령은 backend·DB·브라우저 무의존(정찰 §2 실측)이라 러너에서 즉시 green 재현·저비용 회귀 신호 확보. smoke 파이프라인이 도는 것은 STEP3에서 로컬로 이미 증명 → CI에서의 추가 가치(렌더 회귀 감시) 대비 풀스택 기동 비용이 비대칭(YAGNI·기조4).
+- β 기각(smoke 동시 포함): 정찰 실측상 compose 2파일이 external network(gateway_net·zslab_zslab_net)·외부 소유 MariaDB(zslab_mariadb 서비스 미정의) 전제라 CI 무수정 재사용 불가 + SSR이 API_INTERNAL_BASE 기본값(zslab_mall_backend)이면 Tomcat Host 검증 400. 한 STEP에 묶으면 typecheck/vitest green까지 지연 → 이월.
+- backend 범위 명확화: backend 테스트/빌드 CI는 별도 트랙 예정이며 본 워크플로는 frontend 전용(현재 backend CI 부재 = 미테스트 아님·범위 분리).
+
+2) 트리거 (결정 2)
+- 채택: pull_request→main·push→main, paths [frontend/**, .github/workflows/**]. 근거: FE 변경·CI 정의 변경에만 반응해 무관 커밋(backend 등)에 러너 낭비 회피. PR(머지 전 게이트)+push(main 직접 반영 회귀) 양쪽 포착. deploy.yml 변경 시 1회 초과 구동은 무해로 수용.
+
+3) pnpm 버전 고정·캐시 (결정 3)
+- 채택: frontend/package.json "packageManager":"pnpm@11.10.0"(로컬 corepack 실측·lockfileVersion 9.0 정합). 사유: Corepack 기본 버전 비의존·로컬↔CI pnpm 버전 재현성 확보(외부검토 반영).
+- store 캐시: setup-node cache:'pnpm' + cache-dependency-path:frontend/pnpm-lock.yaml. pnpm store 재사용으로 install 반복 비용 절감(외부검토 반영·구현분·백로그 아님).
+
+#### 구현 실측·트랩
+- 루트 package.json 부재(frontend/만 존재) → pnpm/action-setup@v4에 package_json_file:frontend/package.json 명시해야 핀에서 버전 자동 인식(기본값은 루트 package.json 조회라 미지정 시 "no version" 실패 트랩).
+- 스텝 순서: action-setup(pnpm 설치)을 setup-node(cache:'pnpm')보다 먼저 — cache:pnpm은 pnpm 실행파일 선존재 전제.
+- cache-dependency-path는 defaults.working-directory(frontend)와 무관하게 repo 루트 상대(frontend/pnpm-lock.yaml).
+- typecheck 스크립트가 'nuxt prepare && vue-tsc -b'라 .nuxt 타입 생성 선행 포함 — CI는 pnpm typecheck 한 줄로 충분(별도 prepare 스텝 불요).
+- install은 --frozen-lockfile(핀 pnpm11·lock 9.0 정합)로 lock 표류 차단.
+- 로컬 검증(정본 컨테이너): pnpm typecheck EXIT0(vue-tsc 에러 0)·pnpm test 6 files/21 tests passed(e2e/smoke.spec.ts 미수집 = vitest exclude 작동). paths 필터·store 캐시·frozen-lockfile 실동작은 PR에서만 검증 가능(로컬 한계).
+
+#### §진입점
+1) 목적: PR·main push마다 FE typecheck + vitest 자동 green 게이트(브라우저·backend 무관).
+2) 파일: .github/workflows/frontend-ci.yml(job frontend-check·ubuntu-latest·working-directory frontend).
+3) 스텝: checkout@v4 → pnpm/action-setup@v4(package_json_file:frontend/package.json) → setup-node@v4(node 24·cache pnpm) → install --frozen-lockfile → pnpm typecheck → pnpm test.
+4) 버전 SoT: frontend/package.json packageManager(pnpm@11.10.0) 단일 소스 — action-setup·로컬 corepack 공통 참조.
+5) 트리거: pull_request/push→main + paths(frontend/**·.github/workflows/**).
+
+#### §STEP4 이월(carry-over)
+- [이월·풀스택 Browser Smoke CI] "풀스택 Browser Smoke CI(MariaDB→Backend→시드→Preview→Playwright)" 별도 STEP/트랙. 정찰 근거: (a) compose 2파일 external network·외부 MariaDB 전제라 CI 무수정 재사용 불가 → CI 전용 compose 또는 GHA services(mariadb:11.4) 신설. (b) SSR backend 도달 위해 API_INTERNAL_BASE 언더스코어 없는 주소 주입 필수(기본값 zslab_mall_backend → Tomcat Host 400 트랩). (c) fresh DB fail-fast(ADMIN_BOOTSTRAP_* 필수)·데모 시드 활성(local 프로파일 or catalog.demo-seed.enabled=true)·기동 순서(DB→backend /actuator/health 200→playwright build/preview) 배선. (d) chromium CI install(Linux --with-deps)·@playwright/test 1.61.1 캐시 키.
+- [이월·backend CI] backend 테스트/빌드 CI 별도 트랙(Testcontainers mariadb:11.4는 gradle test 전용·상시 DB 아님).
+- [백로그] Firefox·WebKit 확대·E2E fixture 소유·인증 User Journey E2E(STEP3 이월 승계).
+
 ---
 
