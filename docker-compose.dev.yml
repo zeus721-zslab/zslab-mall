@@ -14,22 +14,12 @@ services:
 
   zslab_mall_frontend:
     build:
-      context: ./frontend
       dockerfile: Dockerfile.dev
-    container_name: zslab_mall_frontend
-    restart: unless-stopped
-    environment:
-      NUXT_PUBLIC_API_BASE: ${NUXT_PUBLIC_API_BASE:-}
-      API_INTERNAL_BASE: ${API_INTERNAL_BASE:-http://mall-backend:8080}
-      NUXT_PUBLIC_DEMO_EMAIL: ${NUXT_PUBLIC_DEMO_EMAIL:-}
-      NUXT_PUBLIC_DEMO_PASSWORD: ${NUXT_PUBLIC_DEMO_PASSWORD:-}
     ports:
       - "3000:3000"
     volumes:
       - ./frontend:/app
       - /app/node_modules
-    networks:
-      - gateway_net
 
 volumes:
   mall_gradle_cache:
