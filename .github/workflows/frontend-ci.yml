@@ -17,10 +17,6 @@ on:
 jobs:
   frontend-check:
     runs-on: ubuntu-latest
-    env:
-      # pnpm-workspace.yaml storeDir(/app…·컨테이너 전용)를 CI 러너 쓰기 가능 경로로 오버라이드.
-      # setup-node의 cache:pnpm(pnpm store path)과 install이 동일 경로를 참조하게 job 전역 주입.
-      npm_config_store_dir: ${{ github.workspace }}/.pnpm-store
     defaults:
       run:
         working-directory: frontend
@@ -39,12 +35,20 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: pnpm
-          # working-directory와 무관하게 repo 루트 상대경로.
-          cache-dependency-path: frontend/pnpm-lock.yaml
 
+      # pnpm store를 러너 쓰기 가능 경로(github.workspace 하위)에 직접 캐싱. setup-node cache:pnpm은
+      # 내부 pnpm store path가 pnpm-workspace.yaml storeDir(/app·컨테이너 전용)를 참조해 EACCES라 제거.
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.pnpm-store
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('frontend/pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-store-${{ runner.os }}-
+
+      # --config.store-dir(CLI·최고 우선순위)로 workspace storeDir(/app) 오버라이드. env·npmrc는 storeDir에 밀림(실측).
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --config.store-dir="${{ github.workspace }}/.pnpm-store"
 
       # typecheck 스크립트가 'nuxt prepare && vue-tsc -b'라 prepare(.nuxt 타입 생성) 선행 포함.
       - name: Typecheck
