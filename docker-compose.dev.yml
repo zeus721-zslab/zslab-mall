@@ -14,6 +14,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile.dev
     container_name: zslab_mall_frontend
+    restart: unless-stopped
     environment:
       NUXT_PUBLIC_API_BASE: ${NUXT_PUBLIC_API_BASE:-}
       API_INTERNAL_BASE: ${API_INTERNAL_BASE:-http://mall-backend:8080}
