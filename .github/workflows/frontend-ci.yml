@@ -24,7 +24,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # action-setup은 setup-node의 cache:pnpm보다 먼저 와야 한다(pnpm 실행파일 선존재 필요).
+      # action-setup은 Install(pnpm 실행)보다 먼저 와야 한다(pnpm 실행파일 선존재 필요).
       # 버전은 frontend/package.json의 packageManager 핀에서 자동 인식(루트 package.json 없음 → 경로 명시).
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
