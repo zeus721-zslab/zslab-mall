@@ -1,0 +1,51 @@
+name: frontend-ci
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/**'
+  push:
+    branches:
+      - main
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/**'
+
+jobs:
+  frontend-check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # action-setup은 setup-node의 cache:pnpm보다 먼저 와야 한다(pnpm 실행파일 선존재 필요).
+      # 버전은 frontend/package.json의 packageManager 핀에서 자동 인식(루트 package.json 없음 → 경로 명시).
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: frontend/package.json
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          # working-directory와 무관하게 repo 루트 상대경로.
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # typecheck 스크립트가 'nuxt prepare && vue-tsc -b'라 prepare(.nuxt 타입 생성) 선행 포함.
+      - name: Typecheck
+        run: pnpm typecheck
+
+      # vitest run — e2e/**는 vitest.config.ts exclude로 미수집(playwright 전용).
+      - name: Unit tests (vitest)
+        run: pnpm test
