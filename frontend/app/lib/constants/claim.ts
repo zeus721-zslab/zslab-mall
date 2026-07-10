@@ -62,6 +62,22 @@ export function isClaimType(value: string): value is ClaimType {
   return value === 'CANCEL' || value === 'RETURN' || value === 'EXCHANGE'
 }
 
+/** 클레임 처리 상태 code(BE ClaimStatus enum 4값). */
+export type ClaimStatus = 'REQUESTED' | 'APPROVED' | 'REJECTED' | 'COMPLETED'
+
+/** 클레임 상태 code→한글 라벨(BE 전이 매트릭스 의미대로). */
+export const CLAIM_STATUS_LABELS: Record<ClaimStatus, string> = {
+  REQUESTED: '요청',
+  APPROVED: '승인',
+  REJECTED: '거절',
+  COMPLETED: '완료',
+}
+
+/** 클레임 상태 라벨 변환. 매핑에 없는 값은 원본 폴백(방어). */
+export function claimStatusLabel(code: string): string {
+  return CLAIM_STATUS_LABELS[code as ClaimStatus] ?? code
+}
+
 /** 클레임 사유 코드(BE ClaimReasonCode enum 10값). */
 export type ClaimReasonCode =
   | 'BUYER_CHANGED_MIND'
