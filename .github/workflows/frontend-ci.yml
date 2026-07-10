@@ -17,6 +17,10 @@ on:
 jobs:
   frontend-check:
     runs-on: ubuntu-latest
+    env:
+      # pnpm-workspace.yaml storeDir(/app…·컨테이너 전용)를 CI 러너 쓰기 가능 경로로 오버라이드.
+      # setup-node의 cache:pnpm(pnpm store path)과 install이 동일 경로를 참조하게 job 전역 주입.
+      npm_config_store_dir: ${{ github.workspace }}/.pnpm-store
     defaults:
       run:
         working-directory: frontend
