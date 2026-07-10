@@ -7,6 +7,7 @@ const menus: { to: string; label: string; description: string }[] = [
   { to: '/mypage/profile', label: '프로필', description: '이름·연락처 확인 및 수정' },
   { to: '/mypage/password', label: '비밀번호 변경', description: '로그인 비밀번호 변경' },
   { to: '/mypage/addresses', label: '배송지 관리', description: '주소록 추가·수정·삭제' },
+  { to: '/claims', label: '취소·반품·교환 내역', description: '클레임 요청 및 진행 상태 확인' },
   { to: '/mypage/withdraw', label: '회원 탈퇴', description: '계정 탈퇴' },
 ]
 

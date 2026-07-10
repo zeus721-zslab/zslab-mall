@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { orderStatusLabel } from '~/lib/constants/order'
+import { claimableTypes, claimTypeLabel, orderItemStatusLabel, type ClaimType } from '~/lib/constants/claim'
+import type { OrderItem } from '~/types/order'
 
 // BUYER 전용 — 미인증/비-BUYER는 buyer 미들웨어가 /login으로 유도한다.
 definePageMeta({ middleware: 'buyer' })
@@ -29,6 +31,13 @@ const errorMessage = computed<string>(() =>
 
 function formatPrice(value: number): string {
   return `${value.toLocaleString('ko-KR')}원`
+}
+
+// 클레임 요청 폼으로 진입(name은 표시용·서버 미전송). 원주문 id는 폼이 query로 받지 않으므로 성공 후 /orders로 유도.
+function goClaim(item: OrderItem, type: ClaimType): void {
+  navigateTo(
+    `/claims/new?orderItem=${item.orderItemId}&type=${type}&name=${encodeURIComponent(item.productName ?? '')}`,
+  )
 }
 
 useSeoMeta({
@@ -75,18 +84,39 @@ useSeoMeta({
               <li
                 v-for="item in seller.items"
                 :key="item.orderItemId"
-                class="flex items-start justify-between gap-4"
+                class="space-y-2"
               >
-                <div class="min-w-0">
-                  <!-- productName은 표시용 enrich. 삭제 상품(null/부재) 시 방어 문구. -->
-                  <p class="truncate text-sm font-medium text-ink">
-                    {{ item.productName ?? '삭제된 상품' }}
-                  </p>
-                  <p class="mt-1 text-xs text-sub">
-                    {{ formatPrice(item.unitPrice) }} · 수량 {{ item.quantity }}
-                  </p>
+                <div class="flex items-start justify-between gap-4">
+                  <div class="min-w-0">
+                    <!-- productName은 표시용 enrich. 삭제 상품(null/부재) 시 방어 문구. -->
+                    <p class="truncate text-sm font-medium text-ink">
+                      {{ item.productName ?? '삭제된 상품' }}
+                    </p>
+                    <p class="mt-1 text-xs text-sub">
+                      {{ formatPrice(item.unitPrice) }} · 수량 {{ item.quantity }}
+                    </p>
+                  </div>
+                  <div class="flex shrink-0 flex-col items-end gap-1">
+                    <span class="text-sm font-medium text-ink">{{ formatPrice(item.totalPrice) }}</span>
+                    <!-- 품목 상태 배지(BE label=code이므로 FE 라벨 매핑). -->
+                    <span class="rounded-badge bg-gray-100 px-2 py-0.5 text-xs font-medium text-sub">
+                      {{ orderItemStatusLabel(item.status.code) }}
+                    </span>
+                  </div>
                 </div>
-                <span class="shrink-0 text-sm font-medium text-ink">{{ formatPrice(item.totalPrice) }}</span>
+
+                <!-- 클레임 진입점: 품목 상태가 허용하는 유형만 노출(claimableTypes 빈 배열이면 미노출). -->
+                <div v-if="claimableTypes(item.status.code).length" class="flex flex-wrap gap-2">
+                  <Button
+                    v-for="type in claimableTypes(item.status.code)"
+                    :key="type"
+                    variant="outline"
+                    size="sm"
+                    @click="goClaim(item, type)"
+                  >
+                    {{ claimTypeLabel(type) }} 요청
+                  </Button>
+                </div>
               </li>
             </ul>
 

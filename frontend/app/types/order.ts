@@ -33,7 +33,7 @@ export interface OrderSummary {
 
 /**
  * 주문 품목(BE OrderItemResponse 대응). 식별자·productName은 삭제 상품 시 NON_NULL로 생략되므로 optional/null 허용.
- * productName은 표시용 enrich 값(public_id 아님).
+ * productName은 표시용 enrich 값(public_id 아님). status는 품목 상태(Track 68 item_status·BE NOT NULL이라 필수).
  */
 export interface OrderItem {
   orderItemId: string
@@ -43,6 +43,7 @@ export interface OrderItem {
   quantity: number
   unitPrice: number
   totalPrice: number
+  status: StatusView
 }
 
 /** seller 단위 그룹(BE SellerGroupResponse 대응). 단일 판매자 주문도 배열 길이 1. */
