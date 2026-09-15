@@ -37,6 +37,7 @@
 - FE-15 FE 테스트 (완료)
 - FE-16 체크아웃 배송지 연동 (완료)
 - FE-17 체크아웃 주문 요약 (완료)
+- FE-18 판매중지·품절 표시와 구매 차단 (완료)
 - Tier2 페이지(BE-추가작업 대응)는 각 머지 후 개별 FE 트랙(FE-15+)
 
 ---
@@ -1027,3 +1028,50 @@ FE-13 §8(:701) 이월 "[버그·백로그] BUYER 페이지에서 로그아웃 �
 - [백로그·FE+BE] 옵션명 표시 트랙: BE 응답 필드 + 장바구니·체크아웃·주문 상세 표시 + 다중 옵션 시드(FE-10a 다중 옵션 매칭 미검증 항목 함께 해소).
 - [백로그] 배송비 정책 트랙 시 SHIPPING_FEE 상수 교체.
 - 주문 완료 페이지 요약: 범위 제외(FE-11 최소 구성 유지).
+
+## FE-18: 판매중지·품절 표시와 구매 차단
+
+날짜: 2026-09-15
+선행: decisions.md D-160(Track 71·BE 판매 상태 전환·상세 허용·담기/주문 422·같은 브랜치·같은 PR). 정찰 = docs/track-71/recon-report.md §4.
+범위: 상품 상세(판매중지·품절 표기·담기 비활성·담기 실패 문구)·장바구니(구매 불가 선택 품목 안내·결제하기 차단). 목록 카드(품절 배지 기존 유지)·체크아웃(FE-17)·결제/주문 화면 무변경.
+수용기준(달성): 판매중지 상세 200 + "판매가 중지된 상품입니다" + 담기 비활성(SSR 포함) / 품절 "품절" + 담기 비활성 / 담기 422 전용 문구 / 장바구니 안내 + 결제하기 비활성 / 체크아웃 FE-17 차단 유지. typecheck 0·vitest 35·E2E 29/29 GREEN.
+
+### §1-A 갈림길·채택/기각 근거
+1) 상세 표기 위치
+- α 채택: 기존 품절 오버레이 배지(soldout 토큰) 재사용·라벨만 교체(판매중지 > 품절 우선·둘 다 해당 시 판매중지만). 중복 표기 없음.
+- β 기각: 버튼 위 별도 표기 영역 추가. 품절 표기와 이중 노출.
+2) 판매 불가 판정
+- α 채택: 페이지 computed(`unavailableLabel`). 분기 2개.
+- β 기각: lib/utils 순수 함수 + 단위 테스트. 분기 대비 과함.
+3) 장바구니 차단 방식
+- α 채택: 안내 문구 + 결제하기 비활성. 구매 불가 품목은 선택 해제 불가·삭제만 가능하므로 삭제를 유도.
+- β 기각: 자동 선택 해제. 서버 selected 상태 변경 부작용·사용자 인지 없이 주문 대상 변경.
+4) 장바구니 판정식
+- α 채택: cart.vue 인라인 `some(selected ∧ !purchasable)`.
+- β 기각: FE-17 `buildCheckoutSummary.hasUnpurchasableSelected` 재사용. 판정식은 같으나 체크아웃 전용 util(합계·수량 계산 포함)에 대한 불필요한 의존.
+5) 목록 품절 배지
+- 기존 유지(변경 없음). 판매중지는 목록에서 숨겨지므로 카드 변경 불요.
+
+### §2 확정 구현 규칙 (file:line)
+- 타입: `frontend/app/types/product.ts:87` `ProductDetail.saleStopped`(BE Track 71 필드).
+- 상세 판정: `pages/products/[productPublicId].vue:76` `unavailableLabel`(saleStopped → '판매가 중지된 상품입니다' / soldOut → '품절' / null) · `:83` `canAddToCart` = variant 확정 ∧ !variant.soldOut ∧ unavailableLabel===null · `:186` 오버레이 `v-if="unavailableLabel"` · `:278` 버튼 `:disabled="!canAddToCart || adding"`.
+- 담기 실패 문구: `:133-134` statusCode 422 ∧ data.code==='CART_ITEM_NOT_PURCHASABLE' → '지금 구매할 수 없는 상품입니다.'(checkout/index.vue의 code 추출 방식 동일). 401·기타 문구 기존 유지.
+- 장바구니: `pages/cart.vue:32` `hasUnpurchasableSelected` · `:35` `checkoutEnabled = some(selected ∧ purchasable) ∧ !hasUnpurchasableSelected` · `:218` 안내 '구매할 수 없는 상품이 포함되어 있습니다. 삭제 후 결제해 주세요.'(role=alert·text-soldout) · `:221` 결제하기 `:disabled="!checkoutEnabled"`. `selectedTotal`(selected ∧ purchasable) 기존 유지.
+
+### §진입점
+1. 목적: 판매중지·품절 상품을 상세에서 명확히 표기하고 담기·결제 진입을 화면 단계에서 차단(서버 422와 이중 방어).
+2. 상세: frontend/app/pages/products/[productPublicId].vue(unavailableLabel·canAddToCart·오버레이·담기 문구).
+3. 장바구니: frontend/app/pages/cart.vue(hasUnpurchasableSelected·checkoutEnabled·안내).
+4. 타입: frontend/app/types/product.ts(saleStopped).
+5. 재사용 자산: 품절 오버레이 배지(soldout 토큰·rounded-badge·bg-badge-soldout-bg)·checkout/index.vue 422 code 추출 패턴.
+6. 전제·트랩: BE D-160 상세 허용·saleStopped 필드 선행 / FE-16 트랩(typecheck 후 frontend 재시작) / 로컬 hosts 127.0.0.1 가드 / 관리자 전환·재고 조정은 PowerShell 헬퍼(.env 읽기·출력 없음).
+
+### §실측·트랩
+- 검증: typecheck 0·vitest 8 files 35 tests(신규 없음)·dev E2E(Playwright·데모 buyer) 29/29 — 판매중지 14(목록 미노출·상세 API/SSR HTML/브라우저 문구·품절 문구 없음·담기 비활성·우회 API 담기 422·disabled 제거 강제 클릭 시 문구 노출·/cart 안내+비활성·/checkout FE-17 차단 유지) / 품절 7(목록 배지·상세 품절·담기 비활성) / 정상 회귀 8(담기 201·/cart·/checkout 정상). pageerror 0.
+- 원복: 후디 SALE·티셔츠 재고 +98·카트(티셔츠1·후디1)·목록 2건 soldOut false.
+- FE-16 트랩 규칙 준수(typecheck → frontend 재시작 → 런타임) → 재발 없음.
+
+### §8 이월(carry-over)
+- [RESOLVED] FE-17 §8 "장바구니 페이지 단계 구매 불가 선택 품목 안내·결제하기 차단" → 본 트랙 해소.
+- [RESOLVED] FE-17 §8 "신규 주문 경로의 상품 판매 상태 검증 부재(BE)" → D-160 해소(판매자 상태는 D-160 §8 이월).
+- [백로그] 관리자 FE 트랙(D-160 §8 참조).
