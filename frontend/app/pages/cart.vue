@@ -27,8 +27,13 @@ const selectedTotal = computed<number>(() =>
     .filter((item) => item.selected && item.purchasable)
     .reduce((sum, item) => sum + item.displayPrice * item.quantity, 0),
 )
+// 구매 불가 선택 품목 존재 여부(FE-18). 서버는 selected 전체를 주문에 넣으므로 1개라도 있으면 결제를 막고 삭제를 유도한다
+// (구매 불가 품목은 선택 해제 불가·삭제만 가능). 판정식은 checkout-summary.hasUnpurchasableSelected와 같으나 1줄 술어라 인라인으로 둔다.
+const hasUnpurchasableSelected = computed<boolean>(() =>
+  items.value.some((item) => item.selected && !item.purchasable),
+)
 const checkoutEnabled = computed<boolean>(() =>
-  items.value.some((item) => item.selected && item.purchasable),
+  items.value.some((item) => item.selected && item.purchasable) && !hasUnpurchasableSelected.value,
 )
 
 function formatPrice(value: number): string {
@@ -208,7 +213,11 @@ useSeoMeta({ title: '장바구니 · zslab-mall', description: 'zslab-mall 장�
             <span class="text-sm text-sub">선택 상품 합계</span>
             <span class="text-xl font-bold text-price">{{ formatPrice(selectedTotal) }}</span>
           </div>
-          <!-- 결제: 선택 품목이 있으면 체크아웃 페이지로 이동 -->
+          <!-- 구매 불가 선택 품목 포함 안내(FE-18): 결제 차단·삭제 유도 -->
+          <p v-if="hasUnpurchasableSelected" role="alert" class="mt-3 text-sm text-soldout">
+            구매할 수 없는 상품이 포함되어 있습니다. 삭제 후 결제해 주세요.
+          </p>
+          <!-- 결제: 선택 품목이 있고 구매 불가 선택 품목이 없으면 체크아웃 페이지로 이동 -->
           <Button size="lg" class="mt-4 w-full" :disabled="!checkoutEnabled" @click="handleCheckout">
             결제하기
           </Button>

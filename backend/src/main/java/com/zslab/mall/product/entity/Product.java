@@ -114,6 +114,32 @@ public class Product extends AbstractPublicIdSoftDeletableEntity {
         this.status = ProductStatus.REJECTED;
     }
 
+    /**
+     * 운영자 판매중지 전이(SALE → STOPPED·Track 71). 전이 합법성은 {@link ProductStatus#canTransitionTo}로 가드하며 위반 시
+     * {@link IllegalStateException}을 던진다(Service가 {@code ProductInvalidStateException}(422)으로 흡수). 같은 상태 재요청도
+     * 전이 불가로 거부한다(승인의 멱등 no-op과 달리 운영자 오조작 감지 목적).
+     *
+     * @throws IllegalStateException 현재 상태에서 STOPPED 전이가 불가한 경우(SALE 아님)
+     */
+    public void stopSale() {
+        if (!status.canTransitionTo(ProductStatus.STOPPED)) {
+            throw new IllegalStateException("불법 상품 상태 전이: " + status + " → " + ProductStatus.STOPPED);
+        }
+        this.status = ProductStatus.STOPPED;
+    }
+
+    /**
+     * 운영자 재판매 전이(STOPPED → SALE·Track 71). 가드·예외 흡수 규칙은 {@link #stopSale()}과 동일하다.
+     *
+     * @throws IllegalStateException 현재 상태에서 SALE 전이가 불가한 경우(STOPPED 아님·PENDING은 {@link #approve()} 경로)
+     */
+    public void resumeSale() {
+        if (status != ProductStatus.STOPPED || !status.canTransitionTo(ProductStatus.SALE)) {
+            throw new IllegalStateException("불법 상품 상태 전이: " + status + " → " + ProductStatus.SALE);
+        }
+        this.status = ProductStatus.SALE;
+    }
+
     @Override
     protected String getPublicIdPrefix() {
         return "prd";

@@ -32,6 +32,7 @@ import com.zslab.mall.payment.service.PaymentService;
 import com.zslab.mall.product.entity.Product;
 import com.zslab.mall.product.entity.ProductVariant;
 import com.zslab.mall.product.enums.ProductStatus;
+import com.zslab.mall.product.enums.ProductVariantStatus;
 import com.zslab.mall.product.repository.ProductRepository;
 import com.zslab.mall.product.repository.ProductVariantRepository;
 import java.time.LocalDateTime;
@@ -51,7 +52,8 @@ import org.springframework.stereotype.Service;
  * <p><b>트랜잭션 경계</b>: 본 서비스는 {@code @Transactional}을 두지 않는다. createOrder·initiate는 각자 자체 트랜잭션이며
  * (D-43·D-28), 멱등성 행 INSERT/UPDATE도 단계별 독립 커밋이다(D-52 1·3·5단계). 부분 실패 시 Order는 PENDING_PAYMENT로 유지된다.
  *
- * <p><b>재검증(D-60)</b>: D-63에 따라 상품 상태·재고 재검증은 <b>재결제 경로에만</b> 적용한다. 신규 주문 경로는 미적용(D-51).
+ * <p><b>재검증(D-60)</b>: D-63에 따라 상품 상태·재고 재검증은 <b>재결제 경로에만</b> 적용했으나(D-51), Track 71부터 신규 주문
+ * 경로에도 판매 상태 검증({@link #assertSellable})과 사전 재고 검증(D-101)을 적용한다.
  */
 @Slf4j
 @Service
@@ -256,13 +258,35 @@ public class CheckoutService {
         return resolvedItems;
     }
 
-    /** D-64 서버 산정(양 해소 경로 공용 tail): unit_price = base_price + additional_price·total = unit × qty·seller = product.seller_id. */
+    /**
+     * D-64 서버 산정(양 해소 경로 공용 tail): unit_price = base_price + additional_price·total = unit × qty·seller = product.seller_id.
+     * Track 71: 산정 전 판매 상태 검증({@link #assertSellable})을 먼저 수행한다 — 양 경로가 Product·ProductVariant 엔티티를 함께
+     * 쥐는 유일한 공통 지점이며 TX1 진입·재고 검증(revalidateInventory)보다 앞이라 판매중지 품목은 재고 조회 없이 즉시 422다.
+     */
     private OrderItemCommand toOrderItemCommand(Product product, ProductVariant variant, int quantity) {
+        assertSellable(product, variant);
         long unitPrice = product.getBasePrice() + variant.getAdditionalPrice();
         long totalPrice = unitPrice * quantity;
         return new OrderItemCommand(
                 product.getId(), variant.getId(), product.getSellerId(),
                 quantity, unitPrice, totalPrice);
+    }
+
+    /**
+     * 신규 주문 판매 상태 검증(Track 71·양 경로 공통). 상품 SALE ∧ variant SALE ∧ 수동품절 아님이어야 한다. 1건이라도 실패하면
+     * {@link OrderNotPayableException}으로 주문 전체를 거부한다(422 ORDER_NOT_PAYABLE·D-66 catch에 포함되어 멱등 키 재시도 허용).
+     * 사유는 기존 2값을 포섭한다: 상품·variant 비-SALE → PRODUCT_NOT_ON_SALE, 수동품절 → OUT_OF_STOCK(재결제 revalidatePayable 정합).
+     * 판매자 상태는 확정 범위 밖이라 보지 않는다.
+     */
+    private void assertSellable(Product product, ProductVariant variant) {
+        if (product.getStatus() != ProductStatus.SALE || variant.getStatus() != ProductVariantStatus.SALE) {
+            throw new OrderNotPayableException(OrderNotPayableReason.PRODUCT_NOT_ON_SALE,
+                    "판매 중이 아닌 상품: productId=" + product.getId() + ", variantId=" + variant.getId());
+        }
+        if (variant.isSoldoutManual()) {
+            throw new OrderNotPayableException(OrderNotPayableReason.OUT_OF_STOCK,
+                    "수동 품절 상품: variantId=" + variant.getId());
+        }
     }
 
     /**

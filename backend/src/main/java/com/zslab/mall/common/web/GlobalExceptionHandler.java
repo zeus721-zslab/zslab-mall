@@ -7,6 +7,7 @@ import com.zslab.mall.auth.exception.RoleAssignmentNotFoundException;
 import com.zslab.mall.auth.exception.SelfRoleRevocationException;
 import com.zslab.mall.auth.exception.SuperAdminRequiredException;
 import com.zslab.mall.cart.exception.CartItemNotFoundException;
+import com.zslab.mall.cart.exception.CartItemNotPurchasableException;
 import com.zslab.mall.cart.exception.EmptyCartCheckoutException;
 import com.zslab.mall.category.exception.CategoryDuplicateException;
 import com.zslab.mall.category.exception.CategoryNotFoundException;
@@ -106,6 +107,7 @@ public class GlobalExceptionHandler {
     private static final String CODE_CATEGORY_NOT_FOUND = "CATEGORY_NOT_FOUND";
     private static final String CODE_CATEGORY_DUPLICATE = "CATEGORY_DUPLICATE";
     private static final String CODE_CART_ITEM_NOT_FOUND = "CART_ITEM_NOT_FOUND";
+    private static final String CODE_CART_ITEM_NOT_PURCHASABLE = "CART_ITEM_NOT_PURCHASABLE";
     private static final String CODE_PRODUCT_VARIANT_OPTION_CONFLICT = "PRODUCT_VARIANT_OPTION_CONFLICT";
     private static final String CODE_PRODUCT_INVALID_STATE = "PRODUCT_INVALID_STATE";
     private static final String CODE_FORBIDDEN = "FORBIDDEN";
@@ -446,6 +448,14 @@ public class GlobalExceptionHandler {
             EmptyCartCheckoutException exception, HttpServletRequest request) {
         // Track 41 β: 장바구니 결제 시 selected 품목 0개(빈 주문 선가드·ORD-1 도달 전 차단). well-formed 요청·업무 전제 실패(422·클라 교정).
         return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_CART_CHECKOUT_EMPTY, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(CartItemNotPurchasableException.class)
+    public ResponseEntity<ProblemDetail> handleCartItemNotPurchasable(
+            CartItemNotPurchasableException exception, HttpServletRequest request) {
+        // Track 71: 담기 대상이 판매중지·품절 등 구매 불가(422·클라 교정 가능[다른 옵션 선택]).
+        log.warn("[Cart] 구매 불가 담기 거부(422): {}", exception.getMessage());
+        return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_CART_ITEM_NOT_PURCHASABLE, exception.getMessage(), request);
     }
 
     // ===== 500 (도메인) =====
