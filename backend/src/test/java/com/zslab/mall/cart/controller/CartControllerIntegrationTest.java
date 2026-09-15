@@ -40,6 +40,7 @@ class CartControllerIntegrationTest extends AbstractIntegrationTest {
 
     private static final long BUYER_USER_ID = 9640L;   // JWT subject(actorId)·cart_item.user_id
     private static final long VARIANT_ID = 9641L;       // seed된 product_variant 내부 PK(DB 검증용)
+    private static final long PRODUCT_ID = 9643L;       // Track 71 구매 가능 선가드용 상위 product(SALE)
     private static final String VARIANT_PUBLIC_ID = pid("var_", "CRTVAR");  // 외부 대상키(요청·응답)
     private static final String MISSING_VARIANT_PUBLIC_ID = pid("var_", "CRTMIS"); // 미seed·404 검증용
     private static final long SELLER_ACTOR_ID = 9642L;  // 비-BUYER 403 검증용(필터 선차단·seed 불요)
@@ -132,6 +133,44 @@ class CartControllerIntegrationTest extends AbstractIntegrationTest {
         assertThat(count("SELECT COUNT(*) FROM cart_item WHERE user_id=?", BUYER_USER_ID)).isZero();
     }
 
+    // ==================== Track 71 구매 불가 담기 거부(422) ====================
+
+    @Test
+    @DisplayName("Track 71: 상품 STOPPED(판매중지) variant 담기 → 422 CART_ITEM_NOT_PURCHASABLE · cart_item 0행")
+    void addItem_productStopped_returns422() throws Exception {
+        updateWithoutFkChecks("UPDATE product SET status='STOPPED' WHERE id=?", PRODUCT_ID);
+
+        add(authHeaders.buyer(BUYER_USER_ID), VARIANT_PUBLIC_ID, 1)
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("CART_ITEM_NOT_PURCHASABLE"));
+
+        assertThat(count("SELECT COUNT(*) FROM cart_item WHERE user_id=?", BUYER_USER_ID)).isZero();
+    }
+
+    @Test
+    @DisplayName("Track 71: 수동품절 variant 담기 → 422 CART_ITEM_NOT_PURCHASABLE")
+    void addItem_soldoutManual_returns422() throws Exception {
+        updateWithoutFkChecks("UPDATE product_variant SET is_soldout_manual=1 WHERE id=?", VARIANT_ID);
+
+        add(authHeaders.buyer(BUYER_USER_ID), VARIANT_PUBLIC_ID, 1)
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("CART_ITEM_NOT_PURCHASABLE"));
+
+        assertThat(count("SELECT COUNT(*) FROM cart_item WHERE user_id=?", BUYER_USER_ID)).isZero();
+    }
+
+    @Test
+    @DisplayName("Track 71: 재고 available 0 variant 담기 → 422 CART_ITEM_NOT_PURCHASABLE")
+    void addItem_outOfStock_returns422() throws Exception {
+        updateWithoutFkChecks("UPDATE inventory SET quantity_on_hand=0, quantity_available=0 WHERE variant_id=?", VARIANT_ID);
+
+        add(authHeaders.buyer(BUYER_USER_ID), VARIANT_PUBLIC_ID, 1)
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("CART_ITEM_NOT_PURCHASABLE"));
+
+        assertThat(count("SELECT COUNT(*) FROM cart_item WHERE user_id=?", BUYER_USER_ID)).isZero();
+    }
+
     // ==================== helpers ====================
 
     private ResultActions add(HttpHeaders headers, Object variantPublicId, Object quantity) throws Exception {
@@ -142,6 +181,18 @@ class CartControllerIntegrationTest extends AbstractIntegrationTest {
                 .headers(headers)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(body)));
+    }
+
+    /** 시드 행은 부모(seller·category·option_value)가 없어 FK_CHECKS=1 UPDATE가 FK 검증에 걸린다(Track 49 트랩) → 토글 후 갱신. */
+    private void updateWithoutFkChecks(String sql, Object... args) {
+        tx.executeWithoutResult(s -> {
+            try {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
+                jdbc.update(sql, args);
+            } finally {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
+            }
+        });
     }
 
     private int count(String sql, Object... args) {
@@ -156,12 +207,18 @@ class CartControllerIntegrationTest extends AbstractIntegrationTest {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
                 jdbc.update("INSERT INTO `user` (id, public_id, created_at, updated_at) VALUES (?, ?, NOW(6), NOW(6))",
                         BUYER_USER_ID, pid("usr_", "CRTUSR"));
-                // product_variant 상위(product·option_value)는 cart_item FK 대상이 아니라 최소 seed(FK_CHECKS=0).
+                // Track 71 담기 선가드가 product(SALE)·inventory(available>0)를 읽으므로 함께 seed한다(option_value·seller는 FK_CHECKS=0 최소).
+                jdbc.update("INSERT INTO product (id, public_id, seller_id, category_id, name, status, base_price, "
+                                + "created_at, updated_at) VALUES (?, ?, 1, 1, '카트담기상품', 'SALE', 10000, NOW(6), NOW(6))",
+                        PRODUCT_ID, pid("prd_", "CRTPRD"));
                 jdbc.update("INSERT INTO product_variant "
                                 + "(id, public_id, product_id, variant_code, additional_price, status, "
                                 + "is_soldout_manual, display_order, option1_value_id, created_at, updated_at) "
-                                + "VALUES (?, ?, 1, 'CRT-VAR-1', 0, 'SALE', 0, 1, 1, NOW(6), NOW(6))",
-                        VARIANT_ID, pid("var_", "CRTVAR"));
+                                + "VALUES (?, ?, ?, 'CRT-VAR-1', 0, 'SALE', 0, 1, 1, NOW(6), NOW(6))",
+                        VARIANT_ID, pid("var_", "CRTVAR"), PRODUCT_ID);
+                jdbc.update("INSERT INTO inventory (id, variant_id, quantity_on_hand, quantity_reserved, quantity_available, "
+                                + "created_at, updated_at) VALUES (?, ?, 10, 0, 10, NOW(6), NOW(6))",
+                        VARIANT_ID, VARIANT_ID);
             } finally {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
             }
@@ -173,7 +230,9 @@ class CartControllerIntegrationTest extends AbstractIntegrationTest {
             try {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
                 jdbc.update("DELETE FROM cart_item WHERE user_id=?", BUYER_USER_ID);
+                jdbc.update("DELETE FROM inventory WHERE variant_id=?", VARIANT_ID);
                 jdbc.update("DELETE FROM product_variant WHERE id=?", VARIANT_ID);
+                jdbc.update("DELETE FROM product WHERE id=?", PRODUCT_ID);
                 jdbc.update("DELETE FROM `user` WHERE id=?", BUYER_USER_ID);
             } finally {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");

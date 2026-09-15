@@ -287,6 +287,94 @@ class CheckoutIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.code").value("IDEMPOTENCY_KEY_IN_PROGRESS"));
     }
 
+    // ==================== Track 71 판매 상태 검증(신규 주문·양 경로) ====================
+
+    private static final String CART_CHECKOUT_BODY = """
+            {
+              "shippingAddress": {
+                "recipientName": "홍길동", "recipientPhone": "010-1234-5678",
+                "zonecode": "06236", "addressRoad": "서울 강남대로 1", "addressDetail": "101호"
+              },
+              "method": "CARD"
+            }
+            """;
+
+    @Test
+    @DisplayName("Track 71 바로 구매: 상품 STOPPED → 422 ORDER_NOT_PAYABLE(PRODUCT_NOT_ON_SALE)·주문 미생성·재고 예약 0")
+    void checkout_directOrder_productStopped_returns422_noOrder() throws Exception {
+        execute("UPDATE product SET status = 'STOPPED' WHERE id = 1000");
+        entityManager.flush();
+        entityManager.clear();
+
+        mockMvc.perform(post("/api/v1/orders").headers(authHeaders.buyer(1))
+                        .contentType(MediaType.APPLICATION_JSON).content(CREATE_BODY))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("ORDER_NOT_PAYABLE"))
+                .andExpect(jsonPath("$.detail").value("PRODUCT_NOT_ON_SALE"));
+
+        Mockito.verify(orderService, Mockito.never()).createOrder(Mockito.any());
+        assertNoOrderAndNoReservation();
+    }
+
+    @Test
+    @DisplayName("Track 71 바로 구매: 수동품절 variant → 422 ORDER_NOT_PAYABLE(OUT_OF_STOCK)·주문 미생성")
+    void checkout_directOrder_soldoutManual_returns422_noOrder() throws Exception {
+        execute("UPDATE product_variant SET is_soldout_manual = 1 WHERE id = " + VARIANT_ID);
+        entityManager.flush();
+        entityManager.clear();
+
+        mockMvc.perform(post("/api/v1/orders").headers(authHeaders.buyer(1))
+                        .contentType(MediaType.APPLICATION_JSON).content(CREATE_BODY))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("ORDER_NOT_PAYABLE"))
+                .andExpect(jsonPath("$.detail").value("OUT_OF_STOCK"));
+
+        Mockito.verify(orderService, Mockito.never()).createOrder(Mockito.any());
+        assertNoOrderAndNoReservation();
+    }
+
+    @Test
+    @DisplayName("Track 71 장바구니 주문: selected 품목의 상품 STOPPED → 422 ORDER_NOT_PAYABLE(PRODUCT_NOT_ON_SALE)·주문 미생성")
+    void checkout_cart_productStopped_returns422_noOrder() throws Exception {
+        execute("INSERT INTO cart_item (user_id, variant_id, variant_public_id, quantity, selected, created_at, updated_at) "
+                + "VALUES (1, " + VARIANT_ID + ", '" + VARIANT_PID + "', 1, 1, NOW(6), NOW(6))");
+        execute("UPDATE product SET status = 'STOPPED' WHERE id = 1000");
+        entityManager.flush();
+        entityManager.clear();
+
+        mockMvc.perform(post("/api/v1/cart/checkout").headers(authHeaders.buyer(1))
+                        .contentType(MediaType.APPLICATION_JSON).content(CART_CHECKOUT_BODY))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("ORDER_NOT_PAYABLE"))
+                .andExpect(jsonPath("$.detail").value("PRODUCT_NOT_ON_SALE"));
+
+        Mockito.verify(orderService, Mockito.never()).createOrder(Mockito.any());
+        assertNoOrderAndNoReservation();
+    }
+
+    @Test
+    @DisplayName("Track 71 장바구니 주문: SALE 상품은 회귀 없이 201")
+    void checkout_cart_saleProduct_returns201() throws Exception {
+        execute("INSERT INTO cart_item (user_id, variant_id, variant_public_id, quantity, selected, created_at, updated_at) "
+                + "VALUES (1, " + VARIANT_ID + ", '" + VARIANT_PID + "', 1, 1, NOW(6), NOW(6))");
+        entityManager.flush();
+        entityManager.clear();
+
+        mockMvc.perform(post("/api/v1/cart/checkout").headers(authHeaders.buyer(1))
+                        .contentType(MediaType.APPLICATION_JSON).content(CART_CHECKOUT_BODY))
+                .andExpect(status().isCreated())
+                .andExpect(header().exists("Location"));
+    }
+
+    private void assertNoOrderAndNoReservation() {
+        Number orderCount = (Number) entityManager
+                .createNativeQuery("SELECT COUNT(*) FROM `order` WHERE buyer_id = 1").getSingleResult();
+        Number reserved = (Number) entityManager
+                .createNativeQuery("SELECT quantity_reserved FROM inventory WHERE variant_id = " + VARIANT_ID).getSingleResult();
+        org.assertj.core.api.Assertions.assertThat(orderCount.longValue()).isZero();
+        org.assertj.core.api.Assertions.assertThat(reserved.intValue()).isZero();
+    }
+
     private String performCheckout(String idempotencyKey) throws Exception {
         var request = post("/api/v1/orders").headers(authHeaders.buyer(1))
                 .contentType(MediaType.APPLICATION_JSON).content(CREATE_BODY);
