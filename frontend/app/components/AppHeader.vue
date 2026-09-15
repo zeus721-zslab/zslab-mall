@@ -1,8 +1,30 @@
 <script setup lang="ts">
-// FE-09 STEP 3: FE-03 정적 셸을 auth·cart store에 배선. 검색·카테고리는 시각 셸만 유지(동작은 후속 트랙).
+// FE-09 STEP 3: FE-03 정적 셸을 auth·cart store에 배선. FE-20: 검색 submit·카테고리 드롭다운 배선.
 const auth = useAuthStore()
 const cart = useCartStore()
 const route = useRoute()
+
+// 검색창(FE-20): submit 시 trim 값으로 /search?keyword= 이동, 빈 값이면 이동하지 않는다.
+// /search 진입·keyword 변경 시 입력창에 URL 값을 반영한다(뒤로가기·직접 진입 정합).
+const searchKeyword = ref<string>(typeof route.query.keyword === 'string' ? route.query.keyword : '')
+watch(
+  () => route.query.keyword,
+  (value) => {
+    searchKeyword.value = typeof value === 'string' ? value : ''
+  },
+)
+
+async function handleSearchSubmit(): Promise<void> {
+  const keyword = searchKeyword.value.trim()
+  if (keyword === '') {
+    return
+  }
+  await navigateTo({ path: '/search', query: { keyword } })
+}
+
+// 카테고리 드롭다운(FE-20): 전체 상품 + 루트 카테고리. 조회 실패·빈 목록이면 "전체 상품"만 남긴다.
+const { data: categories, error: categoriesError } = useCategories()
+const categoryMenuItems = computed(() => (categoriesError.value ? [] : categories.value ?? []))
 
 // 계정 드롭다운 링크 항목(FE-19). 회원 탈퇴는 파괴적 동작이라 헤더 상시 노출 대상에서 제외(/mypage 허브에서만 진입).
 const accountMenuItems: { to: string; label: string }[] = [
@@ -39,8 +61,8 @@ async function handleLogout(): Promise<void> {
         zslab-mall
       </NuxtLink>
 
-      <!-- 검색: 형태만·비율 크게 강조 (동작은 후속 트랙) -->
-      <div class="flex-1">
+      <!-- 검색: submit → /search?keyword=(FE-20). 빈 값은 이동 없음. -->
+      <form class="flex-1" role="search" data-testid="search-form" @submit.prevent="handleSearchSubmit">
         <label class="relative block">
           <span class="sr-only">상품 검색</span>
           <span class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4 text-ink">
@@ -49,13 +71,16 @@ async function handleLogout(): Promise<void> {
             </svg>
           </span>
           <input
+            v-model="searchKeyword"
             type="search"
+            name="keyword"
             placeholder="찾으시는 상품을 검색해 보세요"
             aria-label="상품 검색"
+            data-testid="search-input"
             class="w-full rounded-full border border-gray-200 bg-surface-section py-3 pl-12 pr-4 text-sm text-gray-900 placeholder-gray-400 transition duration-200 focus:border-gray-900 focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-gray-900"
           />
         </label>
-      </div>
+      </form>
 
       <!-- 장바구니: 항상 표시, 뱃지는 count>0(items.length)일 때만. /cart로 이동(BUYER 미들웨어가 진입 보호). -->
       <NuxtLink
@@ -82,7 +107,7 @@ async function handleLogout(): Promise<void> {
             내 계정
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" class="min-w-44">
+        <DropdownMenuContent align="end" class="min-w-44" data-testid="account-menu-content">
           <DropdownMenuItem v-for="item in accountMenuItems" :key="item.to" as-child>
             <NuxtLink :to="item.to" class="w-full cursor-pointer">{{ item.label }}</NuxtLink>
           </DropdownMenuItem>
@@ -101,10 +126,29 @@ async function handleLogout(): Promise<void> {
       </NuxtLink>
     </div>
 
-    <!-- 카테고리: 레이아웃 자리 확보용 비상호작용 placeholder. FE-10 카탈로그 트랙에서 실배선. -->
+    <!-- 카테고리 드롭다운(FE-20): FE-19 dropdown-menu 재사용. 항목 = 전체 상품 / 구분선 / 루트 카테고리(/categories/[id]). -->
     <nav aria-label="카테고리" class="border-t border-gray-100">
       <div class="mx-auto flex h-11 max-w-[1240px] items-center px-4 md:px-6">
-        <span class="select-none text-sm text-sub">카테고리</span>
+        <DropdownMenu>
+          <DropdownMenuTrigger as-child>
+            <Button variant="ghost" size="sm" class="-ml-3" data-testid="category-menu-trigger">
+              카테고리
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" class="min-w-44" data-testid="category-menu-content">
+            <DropdownMenuItem as-child>
+              <NuxtLink to="/products" class="w-full cursor-pointer">전체 상품</NuxtLink>
+            </DropdownMenuItem>
+            <template v-if="categoryMenuItems.length > 0">
+              <DropdownMenuSeparator />
+              <DropdownMenuItem v-for="category in categoryMenuItems" :key="category.categoryId" as-child>
+                <NuxtLink :to="`/categories/${category.categoryId}`" class="w-full cursor-pointer">
+                  {{ category.displayName }}
+                </NuxtLink>
+              </DropdownMenuItem>
+            </template>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </nav>
   </header>

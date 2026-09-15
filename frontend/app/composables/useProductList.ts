@@ -4,8 +4,8 @@ import type { ProductListResponse, ProductSort, ProductSummary } from '~/types/p
 const DEFAULT_PAGE_SIZE = 20
 
 /**
- * 구매자 상품 목록 조회 composable(FE-05·offset 무한스크롤). 홈 전용 {@link useProducts}와 달리 sort·categoryId를
- * 파라미터화하고 page 누적(append)을 지원한다.
+ * 구매자 상품 목록 조회 composable(FE-05·offset 무한스크롤). 홈 전용 {@link useProducts}와 달리 sort·categoryId·keyword를
+ * 파라미터화하고 page 누적(append)을 지원한다. keyword(FE-20·BE Track 72)는 trim 후 빈 값이면 파라미터에서 제외한다.
  *
  * 초기 page 0은 useAsyncData로 조회하고(SSR 페이로드 전송), items·hasNext는 data에서 파생(computed)해 SSR 렌더 시점에
  * 곧바로 반영되게 한다 — items를 별도 watch로 채우면 SSR에서 watcher가 재실행되지 않아 빈 목록으로 렌더되는 문제가 있다.
@@ -15,6 +15,7 @@ const DEFAULT_PAGE_SIZE = 20
 export function useProductList(
   sort: Ref<ProductSort>,
   categoryId: Ref<number | null>,
+  keyword: Ref<string | null> = ref(null),
   size: number = DEFAULT_PAGE_SIZE,
 ) {
   const config = useRuntimeConfig()
@@ -29,19 +30,28 @@ export function useProductList(
   const page = ref(0)
   const loadingMore = ref(false)
 
+  // trim 후 빈 값이면 null(파라미터 미포함). BE도 동일하게 무시하지만 URL·캐시 key를 깨끗이 유지하기 위해 프론트에서 먼저 거른다.
+  const normalizedKeyword = computed<string | null>(() => {
+    const trimmed = keyword.value?.trim() ?? ''
+    return trimmed === '' ? null : trimmed
+  })
+
   function buildQuery(pageNumber: number) {
     const query: Record<string, string | number> = { sort: sort.value, page: pageNumber, size }
     if (categoryId.value !== null) {
       query.categoryId = categoryId.value
     }
+    if (normalizedKeyword.value !== null) {
+      query.keyword = normalizedKeyword.value
+    }
     return query
   }
 
-  // 초기 page 0: SSR 페이로드 전송. key는 sort·categoryId 조합(홈 useProducts의 고정 key와 분리·필터별 캐시 구분).
+  // 초기 page 0: SSR 페이로드 전송. key는 sort·categoryId·keyword 조합(홈 useProducts의 고정 key와 분리·필터별 캐시 구분).
   const { data, pending, error, refresh } = useAsyncData<ProductListResponse>(
-    `product-list:${sort.value}:${categoryId.value ?? 'all'}`,
+    `product-list:${sort.value}:${categoryId.value ?? 'all'}:${normalizedKeyword.value ?? ''}`,
     () => $fetch<ProductListResponse>('/v1/products', { baseURL, query: buildQuery(0) }),
-    { watch: [sort, categoryId] },
+    { watch: [sort, categoryId, normalizedKeyword] },
   )
 
   // 필터변경/새로고침으로 page 0이 refetch되면 누적분을 리셋한다(클라이언트 전용 — SSR 초기엔 누적분이 이미 비어 있음).
