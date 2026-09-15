@@ -1172,3 +1172,28 @@ FE-13 §8(:701) 이월 "[버그·백로그] BUYER 페이지에서 로그아웃 �
 - [백로그] 2차 카테고리 칩 — BE 자식 카테고리 API·데이터·V13 재설계 선행(D-161 §8).
 - [백로그] 헤더 검색 자동완성·최근 검색어 — 범위 밖.
 - [백로그] ProductCard 이미지 onerror 대체 없음(D-161 §8).
+
+## FE-21: 옵션명 표시 — 장바구니·체크아웃 요약·주문 상세
+
+날짜: 2026-09-16
+선행: BE Track 75(D-164·CartItemView.optionLabel·OrderItemResponse.optionLabel) 동일 브랜치(feat/track-75-option-label). 정찰 = docs/track-75/recon-report.md §6·§7.
+범위: types/cart.ts CartItemView·types/order.ts OrderItem에 `optionLabel?: string | null`(선택 필드·NON_NULL 생략 대응·checkout-summary.spec 픽스처 무수정) · pages/cart.vue · components/checkout/OrderItemList.vue · pages/orders/[orderPublicId].vue 각 1줄. store·composable·BE 호출 무변경.
+
+### 결정
+1. 표시 위치: 상품명 `<p>` 바로 아래 회색 작은 글씨(`text-xs text-sub`·truncate)·`data-testid="item-option-label"` 3곳 동일.
+2. 조건부 렌더: `v-if="item.optionLabel"` — 단순상품·기존 주문(NULL·생략)·빈 문자열 모두 미렌더(빈 요소 없음·레이아웃 불변).
+3. 공통 품목 컴포넌트 미신설 — cart.vue·OrderItemList.vue가 같은 마크업을 중복하지만 1줄 추가로 충분·대안 검토 없음(D-164 §8과 별개·YAGNI).
+4. 클레임 신청 링크 query(name)에 옵션명 미동반(범위 밖·D-164 7).
+
+### 테스트
+- test/component/OrderItemList.spec.ts 2 · CartPage.spec.ts 2(useCartStore·useAsyncData mock) · OrderDetailPage.spec.ts 2(useOrderDetail·useRoute mock) — 라벨 있음/없음(null·생략).
+- typecheck 0 · vitest 17 files 71 tests(기존 65 + 신규 6) · Playwright smoke 1 GREEN.
+
+### §실측·트랩
+- dev 실측(컨테이너 내 playwright 임시 스크립트·종료 후 삭제·데모 buyer): 장바구니 옵션 상품 "색상: 블랙 / 사이즈: M"·단순상품 미표시 / 체크아웃 요약 동일 / 장바구니 결제 후 주문 상세 라벨 표시(단순 품목 미표시) / 기존 주문 상세 라벨 0·상품명 다음 형제가 가격 줄(레이아웃 정상) — 4/4 PASS. hydration: cart·checkout·orders 목록 0, 주문 상세 2건은 변경 전(HEAD)에도 동일(기존 이슈·별건).
+- 트랩(실측): 백엔드 dev 컨테이너는 bootRun 상주라 코드 변경이 자동 반영되지 않음 → restart(healthy 110s·Flyway V20 적용) 후 API 응답에 optionLabel 등장. `https://zslab-mall.duckdns.org` 호출 스크립트는 auto-mode 분류기가 운영 배포로 차단 → `http://localhost:3000/api` 프록시 사용. PowerShell 5.1 스크립트의 한글 리터럴은 UTF-8 BOM 필수.
+- 부수: 로컬 dev DB에 판매자 owner 회원(t75-seller@zslab.local)·판매자 T75 옵션샵·상품 prd_01M2K01B3GVZXNMTP8EHA07D85·데모 buyer 주문 1건(ord_01M2K088TGEJ85SDHXCAKT7E67·PENDING_PAYMENT) 생성.
+
+### §8 이월
+- [백로그] 주문 상세 hydration mismatch(기존) 원인 조사.
+- [백로그] 주문 목록 previewTitle·클레임 화면 옵션명 표기.

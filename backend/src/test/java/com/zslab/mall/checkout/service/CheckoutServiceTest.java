@@ -44,6 +44,7 @@ import com.zslab.mall.product.enums.ProductStatus;
 import com.zslab.mall.product.enums.ProductVariantStatus;
 import com.zslab.mall.product.repository.ProductRepository;
 import com.zslab.mall.product.repository.ProductVariantRepository;
+import com.zslab.mall.product.service.OptionLabelResolver;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -76,6 +77,7 @@ class CheckoutServiceTest {
     @Mock private ProductVariantRepository productVariantRepository;
     @Mock private InventoryRepository inventoryRepository;
     @Mock private OrderIdempotencyKeyRepository idempotencyRepository;
+    @Mock private OptionLabelResolver optionLabelResolver;
 
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
@@ -84,7 +86,8 @@ class CheckoutServiceTest {
     @BeforeEach
     void setUp() {
         checkoutService = new CheckoutService(orderService, paymentService, orderRepository,
-                productRepository, productVariantRepository, inventoryRepository, idempotencyRepository, objectMapper);
+                productRepository, productVariantRepository, inventoryRepository, idempotencyRepository, objectMapper,
+                optionLabelResolver);
     }
 
     private CheckoutCommand command(String idempotencyKey) {

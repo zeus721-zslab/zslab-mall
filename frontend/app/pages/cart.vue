@@ -162,6 +162,7 @@ useSeoMeta({ title: '장바구니 · zslab-mall', description: 'zslab-mall 장�
                 <p class="truncate text-sm font-medium text-ink">
                   {{ item.productName ?? '상품 정보 없음' }}
                 </p>
+                <p v-if="item.optionLabel" data-testid="item-option-label" class="truncate text-xs text-sub">{{ item.optionLabel }}</p>
                 <p v-if="item.sellerName" class="truncate text-xs text-seller">{{ item.sellerName }}</p>
                 <!-- 구매 불가(dangling·품절·판매중지): 삭제만 허용 -->
                 <p v-if="!item.purchasable" class="mt-1 text-xs text-soldout">구매 불가 (품절 또는 판매 중지)</p>

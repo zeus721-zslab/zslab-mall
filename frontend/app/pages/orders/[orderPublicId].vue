@@ -92,6 +92,7 @@ useSeoMeta({
                     <p class="truncate text-sm font-medium text-ink">
                       {{ item.productName ?? '삭제된 상품' }}
                     </p>
+                    <p v-if="item.optionLabel" data-testid="item-option-label" class="truncate text-xs text-sub">{{ item.optionLabel }}</p>
                     <p class="mt-1 text-xs text-sub">
                       {{ formatPrice(item.unitPrice) }} · 수량 {{ item.quantity }}
                     </p>

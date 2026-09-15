@@ -17,6 +17,7 @@ import com.zslab.mall.product.enums.ProductVariantStatus;
 import com.zslab.mall.product.exception.ProductVariantNotFoundException;
 import com.zslab.mall.product.repository.ProductRepository;
 import com.zslab.mall.product.repository.ProductVariantRepository;
+import com.zslab.mall.product.service.OptionLabelResolver;
 import com.zslab.mall.seller.entity.Seller;
 import com.zslab.mall.seller.enums.SellerStatus;
 import com.zslab.mall.seller.repository.SellerRepository;
@@ -57,6 +58,7 @@ public class CartService {
     private final ProductRepository productRepository;
     private final InventoryRepository inventoryRepository;
     private final SellerRepository sellerRepository;
+    private final OptionLabelResolver optionLabelResolver;
 
     /**
      * 장바구니에 상품 변형을 담는다. 동일 (userId, variantId)가 이미 있으면 수량을 누적(M1α)하고, 없으면 신규 생성한다.
@@ -159,9 +161,12 @@ public class CartService {
                         .collect(Collectors.toMap(Seller::getId, Function.identity()));
         Map<Long, Inventory> inventoryByVariant = inventoryRepository.findByVariantIdIn(variantIds).stream()
                 .collect(Collectors.toMap(Inventory::getVariantId, Function.identity()));
+        // 현재 옵션명(스냅샷 아님·Track 75)·해소된 variant 전체를 배치 1회로 라벨링.
+        Map<Long, String> optionLabelByVariantId = optionLabelResolver.resolve(variantById.values());
 
         List<CartItemView> views = items.stream()
-                .map(item -> toView(item, variantById, productById, sellerById, inventoryByVariant))
+                .map(item -> toView(item, variantById, productById, sellerById, inventoryByVariant,
+                        optionLabelByVariantId))
                 .toList();
         return new CartResponse(views);
     }
@@ -224,7 +229,8 @@ public class CartService {
             Map<Long, ProductVariant> variantById,
             Map<Long, Product> productById,
             Map<Long, Seller> sellerById,
-            Map<Long, Inventory> inventoryByVariant) {
+            Map<Long, Inventory> inventoryByVariant,
+            Map<Long, String> optionLabelByVariantId) {
         ProductVariant variant = variantById.get(item.getVariantId());
         Product product = variant != null ? productById.get(variant.getProductId()) : null;
         Seller seller = product != null ? sellerById.get(product.getSellerId()) : null;
@@ -248,6 +254,7 @@ public class CartService {
         // 외부 대상키는 cart_item 저장 스냅샷(variantPublicId)이라 dangling(variant soft-delete·enrich 누락)이어도 항상 노출된다.
         return new CartItemView(
                 item.getVariantPublicId(), item.getQuantity(), item.getSelected(),
-                productName, sellerName, displayPrice, available, purchasable, thumbnailUrl);
+                productName, sellerName, displayPrice, available, purchasable, thumbnailUrl,
+                optionLabelByVariantId.get(item.getVariantId()));
     }
 }

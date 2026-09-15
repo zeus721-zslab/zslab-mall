@@ -43,6 +43,8 @@ export interface OrderItem {
   quantity: number
   unitPrice: number
   totalPrice: number
+  /** 주문 시점 옵션 라벨 스냅샷(Track 75·D-164). 단순상품·V20 이전 주문은 NON_NULL로 생략된다. */
+  optionLabel?: string | null
   status: StatusView
 }
 

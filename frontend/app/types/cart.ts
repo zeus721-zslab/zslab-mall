@@ -13,6 +13,8 @@ export interface CartItemView {
   quantityAvailable: number
   purchasable: boolean
   thumbnailUrl: string | null
+  /** 현재 옵션 라벨("색상: 블랙 / 사이즈: M"·Track 75). 단순상품·dangling은 null이며 NON_NULL로 생략된다. */
+  optionLabel?: string | null
 }
 
 /**

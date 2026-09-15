@@ -17,6 +17,7 @@ package com.zslab.mall.cart.controller.response;
  * @param quantityAvailable 가용재고(dangling 시 0)
  * @param purchasable 구매가능 여부(품절 아님 ∧ variant SALE ∧ product SALE ∧ seller ACTIVE ∧ enrich 존재)
  * @param thumbnailUrl 대표 이미지 URL(nullable)
+ * @param optionLabel 현재 옵션 라벨("색상: 블랙 / 사이즈: M"·Track 75·옵션 없는 단순상품·dangling 시 null)
  */
 public record CartItemView(
         String variantPublicId,
@@ -27,5 +28,6 @@ public record CartItemView(
         long displayPrice,
         int quantityAvailable,
         boolean purchasable,
-        String thumbnailUrl) {
+        String thumbnailUrl,
+        String optionLabel) {
 }

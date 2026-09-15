@@ -60,6 +60,13 @@ public class OrderItem extends AbstractPublicIdFullAuditableEntity {
     @Column(name = "total_price", nullable = false)
     private Long totalPrice;
 
+    /**
+     * 주문 시점 옵션 라벨 스냅샷("색상: 블랙 / 사이즈: M"·표시 전용·D-164). 옵션 없는 단순상품·미해소·V20 이전 주문은 NULL이며
+     * 이후 옵션 그룹·값이 수정·삭제돼도 과거 주문 표기는 변하지 않는다.
+     */
+    @Column(name = "option_label", length = 500)
+    private String optionLabel;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "item_status", nullable = false)
     private OrderItemStatus itemStatus;
@@ -88,6 +95,22 @@ public class OrderItem extends AbstractPublicIdFullAuditableEntity {
             int quantity,
             Long unitPrice,
             Long totalPrice) {
+        return create(productId, variantId, sellerId, quantity, unitPrice, totalPrice, null);
+    }
+
+    /**
+     * 옵션 라벨 스냅샷을 포함해 주문 품목을 생성한다(Track 75). optionLabel은 null 허용(옵션 없음·미해소).
+     *
+     * @throws IllegalArgumentException 필수값 누락·수량 1 미만·ORD-5 위반 시
+     */
+    public static OrderItem create(
+            Long productId,
+            Long variantId,
+            Long sellerId,
+            int quantity,
+            Long unitPrice,
+            Long totalPrice,
+            String optionLabel) {
         if (productId == null || variantId == null || sellerId == null
                 || unitPrice == null || totalPrice == null) {
             throw new IllegalArgumentException("OrderItem 필수값 누락(product·variant·seller·unitPrice·totalPrice).");
@@ -106,6 +129,7 @@ public class OrderItem extends AbstractPublicIdFullAuditableEntity {
         item.quantity = quantity;
         item.unitPrice = unitPrice;
         item.totalPrice = totalPrice;
+        item.optionLabel = optionLabel;
         item.itemStatus = OrderItemStatus.ORDERED;
         return item;
     }
