@@ -72,11 +72,18 @@ const selectedVariantPublicId = computed<string | null>(
   () => selectedVariant.value?.variantPublicId ?? null,
 )
 
-// 담기 가능 = variant 확정 ∧ 해당 variant 미품절. 상품 단위 품절(soldOut)도 함께 막는다.
+// 상품 단위 판매 불가 표기(FE-18). 판매중지가 품절보다 우선한다(둘 다 해당 시 판매중지만 표기). 분기 2개라 순수 함수 분리 없이 computed로 둔다.
+const unavailableLabel = computed<string | null>(() => {
+  if (data.value?.saleStopped) return '판매가 중지된 상품입니다'
+  if (data.value?.soldOut) return '품절'
+  return null
+})
+
+// 담기 가능 = variant 확정 ∧ 해당 variant 미품절 ∧ 상품 단위 판매 불가(품절·판매중지) 아님.
 const canAddToCart = computed<boolean>(() => {
   const variant = selectedVariant.value
   if (!variant) return false
-  return !variant.soldOut && !(data.value?.soldOut ?? false)
+  return !variant.soldOut && unavailableLabel.value === null
 })
 
 const quantity = ref<number>(1)
@@ -116,10 +123,15 @@ async function handleAddToCart(): Promise<void> {
     await cart.add(variantPublicId, quantity.value)
     addSucceeded.value = true
   } catch (error) {
-    // 세션 만료 등으로 서버가 401이면 재로그인 유도, 그 외(403 권한 부족 등)는 안내만 한다.
+    // 세션 만료 등으로 서버가 401이면 재로그인 유도, 구매 불가(422·Track 71)는 전용 문구, 그 외(403 권한 부족 등)는 안내만 한다.
     const statusCode = (error as { statusCode?: number }).statusCode
+    const code = (error as { data?: { code?: string } }).data?.code
     if (statusCode === 401) {
       await navigateTo(`/login?redirect=${encodeURIComponent(route.fullPath)}`)
+      return
+    }
+    if (statusCode === 422 && code === 'CART_ITEM_NOT_PURCHASABLE') {
+      addErrorMessage.value = '지금 구매할 수 없는 상품입니다.'
       return
     }
     addErrorMessage.value = '장바구니에 담지 못했습니다. 잠시 후 다시 시도해 주세요.'
@@ -170,8 +182,9 @@ useSeoMeta({
                 <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M6 12h.008v.008H6V12zm18 0a1.5 1.5 0 01-1.5 1.5H3.75A1.5 1.5 0 012.25 12V6A1.5 1.5 0 013.75 4.5h16.5A1.5 1.5 0 0122.5 6v6z" />
               </svg>
             </div>
-            <div v-if="data.soldOut" class="absolute inset-0 flex items-center justify-center bg-white/60">
-              <span class="rounded-badge bg-badge-soldout-bg px-4 py-1.5 text-base font-medium text-soldout">품절</span>
+            <!-- 판매 불가 오버레이(품절 배지 재사용·FE-18 판매중지 라벨 우선) -->
+            <div v-if="unavailableLabel" class="absolute inset-0 flex items-center justify-center bg-white/60">
+              <span class="rounded-badge bg-badge-soldout-bg px-4 py-1.5 text-base font-medium text-soldout">{{ unavailableLabel }}</span>
             </div>
           </div>
 
@@ -258,7 +271,7 @@ useSeoMeta({
             </div>
           </div>
 
-          <!-- 담기: POST /cart/items·인증 게이트·cart store 갱신(FE-10b 배선). 진행 중·미확정·품절이면 비활성. -->
+          <!-- 담기: POST /cart/items·인증 게이트·cart store 갱신(FE-10b 배선). 진행 중·미확정·품절·판매중지면 비활성. -->
           <Button
             size="lg"
             class="w-full"

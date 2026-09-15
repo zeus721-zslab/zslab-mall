@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -40,6 +41,7 @@ import com.zslab.mall.payment.service.PaymentService;
 import com.zslab.mall.product.entity.Product;
 import com.zslab.mall.product.entity.ProductVariant;
 import com.zslab.mall.product.enums.ProductStatus;
+import com.zslab.mall.product.enums.ProductVariantStatus;
 import com.zslab.mall.product.repository.ProductRepository;
 import com.zslab.mall.product.repository.ProductVariantRepository;
 import java.time.LocalDateTime;
@@ -110,18 +112,27 @@ class CheckoutServiceTest {
         return payment;
     }
 
-    /** 신규 주문 생성 시 Product/Variant 해소(가격·sellerId 서버 산정) 스텁. */
+    /** 신규 주문 생성 시 Product/Variant 해소(가격·sellerId 서버 산정) 스텁. 판매 상태는 SALE·수동품절 아님(Track 71 assertSellable 통과). */
     private void stubProductResolution(long basePrice, long additionalPrice, long sellerId) {
+        stubProductResolution(basePrice, additionalPrice, sellerId, ProductStatus.SALE, ProductVariantStatus.SALE, false);
+    }
+
+    /** 판매 상태·수동품절을 지정하는 직접주문(public_id) 해소 스텁(Track 71 판매 상태 검증 분기용). */
+    private void stubProductResolution(long basePrice, long additionalPrice, long sellerId,
+            ProductStatus productStatus, ProductVariantStatus variantStatus, boolean soldoutManual) {
         Product product = org.mockito.Mockito.mock(Product.class);
         when(product.getPublicId()).thenReturn(PRODUCT_PID);
         when(product.getId()).thenReturn(10L);
-        when(product.getBasePrice()).thenReturn(basePrice);
-        when(product.getSellerId()).thenReturn(sellerId);
+        when(product.getStatus()).thenReturn(productStatus);
+        lenient().when(product.getBasePrice()).thenReturn(basePrice);
+        lenient().when(product.getSellerId()).thenReturn(sellerId);
         ProductVariant variant = org.mockito.Mockito.mock(ProductVariant.class);
         when(variant.getPublicId()).thenReturn(VARIANT_PID);
         when(variant.getId()).thenReturn(20L);
         when(variant.getProductId()).thenReturn(10L);
-        when(variant.getAdditionalPrice()).thenReturn(additionalPrice);
+        lenient().when(variant.getStatus()).thenReturn(variantStatus);
+        lenient().when(variant.isSoldoutManual()).thenReturn(soldoutManual);
+        lenient().when(variant.getAdditionalPrice()).thenReturn(additionalPrice);
         when(productRepository.findByPublicIdIn(any())).thenReturn(List.of(product));
         when(productVariantRepository.findByPublicIdIn(any())).thenReturn(List.of(variant));
     }
@@ -330,18 +341,91 @@ class CheckoutServiceTest {
                 PaymentMethod.CARD);
     }
 
-    /** 내부 id 해소(β) 정상 스텁 — variant 20L → product 10L을 findByIdIn 경로로 해소(Phase 1 resolveByInternalId). */
+    /** 내부 id 해소(β) 정상 스텁 — variant 20L → product 10L을 findByIdIn 경로로 해소(Phase 1 resolveByInternalId). 판매 상태 SALE. */
     private void stubInternalResolution(long basePrice, long additionalPrice, long sellerId) {
+        stubInternalResolution(basePrice, additionalPrice, sellerId, ProductStatus.SALE, ProductVariantStatus.SALE, false);
+    }
+
+    /** 판매 상태·수동품절을 지정하는 내부 id 해소 스텁(Track 71 판매 상태 검증 분기용). */
+    private void stubInternalResolution(long basePrice, long additionalPrice, long sellerId,
+            ProductStatus productStatus, ProductVariantStatus variantStatus, boolean soldoutManual) {
         Product product = org.mockito.Mockito.mock(Product.class);
         when(product.getId()).thenReturn(10L);
-        when(product.getBasePrice()).thenReturn(basePrice);
-        when(product.getSellerId()).thenReturn(sellerId);
+        when(product.getStatus()).thenReturn(productStatus);
+        lenient().when(product.getBasePrice()).thenReturn(basePrice);
+        lenient().when(product.getSellerId()).thenReturn(sellerId);
         ProductVariant variant = org.mockito.Mockito.mock(ProductVariant.class);
         when(variant.getId()).thenReturn(20L);
         when(variant.getProductId()).thenReturn(10L);
-        when(variant.getAdditionalPrice()).thenReturn(additionalPrice);
+        lenient().when(variant.getStatus()).thenReturn(variantStatus);
+        lenient().when(variant.isSoldoutManual()).thenReturn(soldoutManual);
+        lenient().when(variant.getAdditionalPrice()).thenReturn(additionalPrice);
         when(productVariantRepository.findByIdIn(any())).thenReturn(List.of(variant));
         when(productRepository.findByIdIn(any())).thenReturn(List.of(product));
+    }
+
+    @Test
+    @DisplayName("checkout(직접주문): 상품 STOPPED → 422 PRODUCT_NOT_ON_SALE·재고 조회·createOrder 미호출(Track 71)")
+    void checkout_directOrder_productStopped_throws422() {
+        stubProductResolution(10_000L, 0L, 99L, ProductStatus.STOPPED, ProductVariantStatus.SALE, false);
+
+        assertThatThrownBy(() -> checkoutService.checkout(command(null)))
+                .isInstanceOf(OrderNotPayableException.class)
+                .extracting(ex -> ((OrderNotPayableException) ex).getReason())
+                .isEqualTo(OrderNotPayableReason.PRODUCT_NOT_ON_SALE);
+        verify(inventoryRepository, never()).findByVariantIdIn(any());
+        verify(orderService, never()).createOrder(any());
+    }
+
+    @Test
+    @DisplayName("checkout(CartCheckoutCommand): 상품 STOPPED → 422 PRODUCT_NOT_ON_SALE·createOrder 미호출(Track 71)")
+    void checkout_cartInternalId_productStopped_throws422() {
+        stubInternalResolution(10_000L, 0L, 99L, ProductStatus.STOPPED, ProductVariantStatus.SALE, false);
+
+        assertThatThrownBy(() -> checkoutService.checkout(cartCommand(20L, 2)))
+                .isInstanceOf(OrderNotPayableException.class)
+                .extracting(ex -> ((OrderNotPayableException) ex).getReason())
+                .isEqualTo(OrderNotPayableReason.PRODUCT_NOT_ON_SALE);
+        verify(orderService, never()).createOrder(any());
+    }
+
+    @Test
+    @DisplayName("checkout(CartCheckoutCommand): variant 비-SALE → 422 PRODUCT_NOT_ON_SALE(Track 71)")
+    void checkout_cartInternalId_variantStopped_throws422() {
+        stubInternalResolution(10_000L, 0L, 99L, ProductStatus.SALE, ProductVariantStatus.STOPPED, false);
+
+        assertThatThrownBy(() -> checkoutService.checkout(cartCommand(20L, 2)))
+                .isInstanceOf(OrderNotPayableException.class)
+                .extracting(ex -> ((OrderNotPayableException) ex).getReason())
+                .isEqualTo(OrderNotPayableReason.PRODUCT_NOT_ON_SALE);
+        verify(orderService, never()).createOrder(any());
+    }
+
+    @Test
+    @DisplayName("checkout(CartCheckoutCommand): 수동품절 → 422 OUT_OF_STOCK·재고 조회 전 차단(Track 71)")
+    void checkout_cartInternalId_soldoutManual_throws422() {
+        stubInternalResolution(10_000L, 0L, 99L, ProductStatus.SALE, ProductVariantStatus.SALE, true);
+
+        assertThatThrownBy(() -> checkoutService.checkout(cartCommand(20L, 2)))
+                .isInstanceOf(OrderNotPayableException.class)
+                .extracting(ex -> ((OrderNotPayableException) ex).getReason())
+                .isEqualTo(OrderNotPayableReason.OUT_OF_STOCK);
+        verify(inventoryRepository, never()).findByVariantIdIn(any());
+        verify(orderService, never()).createOrder(any());
+    }
+
+    @Test
+    @DisplayName("checkout(멱등 키): 판매중지 422 → IN_PROGRESS mark 삭제 후 전파(D-66·동일 키 재시도 허용·Track 71)")
+    void checkout_idempotentKey_productStopped_deletesMark() {
+        when(idempotencyRepository.findByBuyerIdAndIdempotencyKey(BUYER_ID, "K-STOP")).thenReturn(Optional.empty());
+        when(idempotencyRepository.saveAndFlush(any(OrderIdempotencyKey.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        stubProductResolution(10_000L, 0L, 99L, ProductStatus.STOPPED, ProductVariantStatus.SALE, false);
+
+        assertThatThrownBy(() -> checkoutService.checkout(command("K-STOP")))
+                .isInstanceOf(OrderNotPayableException.class);
+        verify(idempotencyRepository).delete(any(OrderIdempotencyKey.class));
+        verify(orderService, never()).createOrder(any());
     }
 
     @Test

@@ -48,6 +48,7 @@ class ProductCatalogControllerIntegrationTest extends AbstractIntegrationTest {
     // 노출 대상 상품(비교 기준) + 상세 대상 public_id
     private static final String PID_VISIBLE = prd("PVISIBLE");
     private static final String PID_HIDDEN = prd("PHIDDEN");
+    private static final String PID_STOPPED = prd("PSTOPPED");
     private static final String PID_SUSP = prd("PSUSP");
     private static final String PID_MULTI = prd("PMULTI");
     private static final String PID_SIMPLE = prd("PSIMPLE");
@@ -186,6 +187,7 @@ class ProductCatalogControllerIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.sellerName").value("액티브셀러"))
                 .andExpect(jsonPath("$.displayPrice").value(10200))
                 .andExpect(jsonPath("$.soldOut").value(false))
+                .andExpect(jsonPath("$.saleStopped").value(false))
                 .andExpect(jsonPath("$.optionGroups.length()").value(1))
                 .andExpect(jsonPath("$.optionGroups[0].name").value("색상"))
                 .andExpect(jsonPath("$.optionGroups[0].values.length()").value(2))
@@ -227,6 +229,17 @@ class ProductCatalogControllerIntegrationTest extends AbstractIntegrationTest {
         mockMvc.perform(get(URL + "/" + PID_HIDDEN))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("PRODUCT_NOT_FOUND"));
+    }
+
+    @Test
+    @DisplayName("T12b 단건 200 — STOPPED(판매중지) 상품은 상세 접속 허용·saleStopped true·soldOut은 재고 기준(Track 71)")
+    void detail_stoppedProduct_returns200_saleStopped() throws Exception {
+        mockMvc.perform(get(URL + "/" + PID_STOPPED))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.productPublicId").value(PID_STOPPED))
+                .andExpect(jsonPath("$.saleStopped").value(true))
+                .andExpect(jsonPath("$.soldOut").value(false))
+                .andExpect(jsonPath("$.status").doesNotExist());
     }
 
     @Test

@@ -15,6 +15,7 @@ import java.util.List;
  * @param sellerName 판매자 상호명(company_name)
  * @param displayPrice 대표가(D3·요약과 동일 계산)
  * @param soldOut 상품 단위 품절 여부(D2)
+ * @param saleStopped 판매중지 여부(Track 71·status=STOPPED). 내부 status 원값은 노출하지 않는다
  * @param images 이미지 목록(display_order 오름차순)
  * @param optionGroups 옵션 그룹 목록(DEFAULT sentinel 제외·display_order 오름차순)
  * @param variants 판매가능 variant 목록
@@ -28,6 +29,7 @@ public record ProductDetailResponse(
         String sellerName,
         long displayPrice,
         boolean soldOut,
+        boolean saleStopped,
         List<Image> images,
         List<OptionGroup> optionGroups,
         List<Variant> variants) {

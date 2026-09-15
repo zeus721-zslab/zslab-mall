@@ -12,6 +12,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -24,7 +25,8 @@ import com.zslab.mall.support.AbstractIntegrationTest;
  * ({@code AdminSettlementControllerIntegrationTest} 패턴 준용).
  *
  * <p><b>커버</b>: T1 승인 200(PENDING→SALE)·T2 거부 200(PENDING→REJECTED)·T3 잘못된 전이 422(SALE→REJECTED)·
- * T4 멱등 approve(이미 SALE)·T5 멱등 reject(이미 REJECTED)·T6 404(미존재)·T7 403(비ADMIN).
+ * T4 멱등 approve(이미 SALE)·T5 멱등 reject(이미 REJECTED)·T6 404(미존재)·T7 403(비ADMIN)·
+ * T8~T13 판매 상태 전환(Track 71): SALE→STOPPED·STOPPED→SALE 200 / PENDING→STOPPED 422 / 같은 상태 422 / 비ADMIN 403 / 허용 외 값 400.
  *
  * <p><b>트랜잭션·트랩 방지</b>: 상품 seed는 FK_CHECKS=0으로 INSERT하되 부모(category·seller)를 실제 완비한다 — 전이 UPDATE는
  * 앱 커넥션(FK_CHECKS=1)에서 실행되므로 부모 부재 시 FK 검증에 걸린다(Track 49 트랩 재발 방지·coincidental test 금지).
@@ -144,6 +146,99 @@ class AdminProductControllerIntegrationTest extends AbstractIntegrationTest {
         assertThat(currentStatus()).isEqualTo("PENDING");  // 인가 차단으로 전이 미발생
     }
 
+    // ==================== Track 71 판매 상태 전환 ====================
+
+    @Test
+    @DisplayName("T8 판매중지: SALE 상품 + ADMIN → 200·status STOPPED(DB 재조회)")
+    void saleStatus_saleToStopped_returns200() throws Exception {
+        seedProduct("SALE");
+
+        mockMvc.perform(post(saleStatusUrl(PRODUCT_PID)).headers(authHeaders.admin(ADMIN_ID))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"STOPPED\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.productPublicId").value(PRODUCT_PID))
+                .andExpect(jsonPath("$.status").value("STOPPED"));
+
+        assertThat(currentStatus()).isEqualTo("STOPPED");
+    }
+
+    @Test
+    @DisplayName("T9 재판매: STOPPED 상품 + ADMIN → 200·status SALE(DB 재조회)")
+    void saleStatus_stoppedToSale_returns200() throws Exception {
+        seedProduct("STOPPED");
+
+        mockMvc.perform(post(saleStatusUrl(PRODUCT_PID)).headers(authHeaders.admin(ADMIN_ID))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"SALE\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("SALE"));
+
+        assertThat(currentStatus()).isEqualTo("SALE");
+    }
+
+    @Test
+    @DisplayName("T10 허용 외 전이: PENDING 상품에 STOPPED 요청 → 422 PRODUCT_INVALID_STATE·status 불변")
+    void saleStatus_pendingToStopped_returns422() throws Exception {
+        seedProduct("PENDING");
+
+        mockMvc.perform(post(saleStatusUrl(PRODUCT_PID)).headers(authHeaders.admin(ADMIN_ID))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"STOPPED\"}"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("PRODUCT_INVALID_STATE"));
+
+        assertThat(currentStatus()).isEqualTo("PENDING");
+    }
+
+    @Test
+    @DisplayName("T10b 허용 외 전이: PENDING 상품에 SALE 요청(재판매 경로) → 422·승인은 approve 전용")
+    void saleStatus_pendingToSale_returns422() throws Exception {
+        seedProduct("PENDING");
+
+        mockMvc.perform(post(saleStatusUrl(PRODUCT_PID)).headers(authHeaders.admin(ADMIN_ID))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"SALE\"}"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("PRODUCT_INVALID_STATE"));
+
+        assertThat(currentStatus()).isEqualTo("PENDING");
+    }
+
+    @Test
+    @DisplayName("T11 같은 상태: SALE 상품에 SALE 요청 → 422 PRODUCT_INVALID_STATE(멱등 no-op 아님)")
+    void saleStatus_sameStatus_returns422() throws Exception {
+        seedProduct("SALE");
+
+        mockMvc.perform(post(saleStatusUrl(PRODUCT_PID)).headers(authHeaders.admin(ADMIN_ID))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"SALE\"}"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("PRODUCT_INVALID_STATE"));
+
+        assertThat(currentStatus()).isEqualTo("SALE");
+    }
+
+    @Test
+    @DisplayName("T12 비ADMIN: BUYER 토큰 판매중지 → 403·status 불변")
+    void saleStatus_nonAdmin_returns403() throws Exception {
+        seedProduct("SALE");
+
+        mockMvc.perform(post(saleStatusUrl(PRODUCT_PID)).headers(authHeaders.buyer(BUYER_ID))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"STOPPED\"}"))
+                .andExpect(status().isForbidden());
+
+        assertThat(currentStatus()).isEqualTo("SALE");
+    }
+
+    @Test
+    @DisplayName("T13 허용 외 status 값: HIDDEN 요청 → 400 VALIDATION_FAILED·status 불변")
+    void saleStatus_invalidValue_returns400() throws Exception {
+        seedProduct("SALE");
+
+        mockMvc.perform(post(saleStatusUrl(PRODUCT_PID)).headers(authHeaders.admin(ADMIN_ID))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"HIDDEN\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+
+        assertThat(currentStatus()).isEqualTo("SALE");
+    }
+
     // ---------- seed·helpers ----------
     // 모든 시드 INSERT는 바인딩 파라미터 + 정적 SQL이다(문자열 concat 없음·SQL injection 위험 없음).
 
@@ -188,6 +283,10 @@ class AdminProductControllerIntegrationTest extends AbstractIntegrationTest {
 
     private static String rejectUrl(String publicId) {
         return "/api/v1/admin/products/" + publicId + "/reject";
+    }
+
+    private static String saleStatusUrl(String publicId) {
+        return "/api/v1/admin/products/" + publicId + "/sale-status";
     }
 
     private static String pid(String prefix, String tag) {

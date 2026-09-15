@@ -6,6 +6,7 @@ import com.zslab.mall.cart.controller.response.CartItemView;
 import com.zslab.mall.cart.controller.response.CartResponse;
 import com.zslab.mall.cart.entity.CartItem;
 import com.zslab.mall.cart.exception.CartItemNotFoundException;
+import com.zslab.mall.cart.exception.CartItemNotPurchasableException;
 import com.zslab.mall.cart.repository.CartItemRepository;
 import com.zslab.mall.inventory.entity.Inventory;
 import com.zslab.mall.inventory.repository.InventoryRepository;
@@ -42,7 +43,8 @@ import org.springframework.transaction.annotation.Transactional;
  * 409를 받은 클라이언트가 재시도하면 pre-check가 잡아 누적으로 수렴한다.
  *
  * <p>variant 존재·내부 id는 {@code findByPublicId}로 외부키(var_)를 해소해 확인하고(누적·UK 판정은 내부 variantId 기준),
- * 담기 시점에 재고를 연계하지 않는다(재고 확인·예약은 구매 시점 SoT·Track 40 정찰 §7).
+ * 담기 시점에는 구매 가능 여부(상품·variant SALE·수동품절·재고&gt;0)만 선가드하고 예약하지 않는다(재고 예약은 구매 시점 SoT·
+ * Track 40 정찰 §7·Track 71 선가드 추가).
  */
 @Slf4j
 @Service
@@ -63,6 +65,7 @@ public class CartService {
      * @param request 담기 요청(variantPublicId·quantity)
      * @return 담긴 최종 상태(userId·variantPublicId·quantity·selected)
      * @throws ProductVariantNotFoundException variantPublicId에 해당하는 ProductVariant가 없을 때(404·M2α)
+     * @throws CartItemNotPurchasableException 구매 불가 variant(상품 판매중지·variant 비-SALE·수동품절·재고 0)일 때(422·Track 71)
      * @throws OptimisticLockingFailureException 신규 담기 중 동시삽입 충돌 시(409·클라 재시도 시 누적 수렴)
      */
     public CartItemAddResponse addItem(Long userId, CartItemAddRequest request) {
@@ -70,6 +73,9 @@ public class CartService {
         ProductVariant variant = productVariantRepository.findByPublicId(request.variantPublicId())
                 .orElseThrow(() -> new ProductVariantNotFoundException(
                         "장바구니 담기 대상 상품 변형이 존재하지 않습니다: variantPublicId=" + request.variantPublicId()));
+
+        // 1-1. Track 71 구매 가능 선가드(422). 재고 예약은 여전히 구매 시점 SoT이며 여기서는 담기 시점 스냅샷만 본다.
+        assertPurchasable(variant);
 
         // 2. M1α 수량 누적: 기존 담김 있으면 누적(동일 TX·dirty checking·UK(user_id, variant_id) 기준), 없으면 신규 생성.
         CartItem cartItem = cartItemRepository.findByUserIdAndVariantId(userId, variant.getId())
@@ -81,6 +87,29 @@ public class CartService {
 
         return new CartItemAddResponse(
                 cartItem.getUserId(), cartItem.getVariantPublicId(), cartItem.getQuantity(), cartItem.getSelected());
+    }
+
+    /**
+     * 담기 시점 구매 가능 판정(Track 71): 상품 SALE ∧ variant SALE ∧ 수동품절 아님 ∧ 재고 available&gt;0. 조회 enrich의
+     * purchasable(판매자 ACTIVE 포함·{@link #toView})과 달리 판매자 상태는 확정 범위 밖이라 보지 않는다. 카탈로그
+     * {@code ProductCatalogService.isPurchasable}는 variant·재고만 보는 private 판정이라 공용화하지 않고 담기 전용으로 둔다.
+     *
+     * @throws CartItemNotPurchasableException 판정 실패 시(422)
+     */
+    private void assertPurchasable(ProductVariant variant) {
+        Product product = productRepository.findById(variant.getProductId()).orElse(null);
+        int available = inventoryRepository.findByVariantId(variant.getId())
+                .map(Inventory::getQuantityAvailable)
+                .orElse(0);
+        boolean purchasable = product != null
+                && product.getStatus() == ProductStatus.SALE
+                && variant.getStatus() == ProductVariantStatus.SALE
+                && !variant.isSoldoutManual()
+                && available > 0;
+        if (!purchasable) {
+            throw new CartItemNotPurchasableException(
+                    "구매할 수 없는 상품입니다(판매중지 또는 품절): variantPublicId=" + variant.getPublicId());
+        }
     }
 
     /**

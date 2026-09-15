@@ -3,6 +3,7 @@ package com.zslab.mall.cart.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -12,9 +13,16 @@ import static org.mockito.Mockito.when;
 import com.zslab.mall.cart.controller.request.CartItemAddRequest;
 import com.zslab.mall.cart.controller.response.CartItemAddResponse;
 import com.zslab.mall.cart.entity.CartItem;
+import com.zslab.mall.cart.exception.CartItemNotPurchasableException;
 import com.zslab.mall.cart.repository.CartItemRepository;
+import com.zslab.mall.inventory.entity.Inventory;
+import com.zslab.mall.inventory.repository.InventoryRepository;
+import com.zslab.mall.product.entity.Product;
 import com.zslab.mall.product.entity.ProductVariant;
+import com.zslab.mall.product.enums.ProductStatus;
+import com.zslab.mall.product.enums.ProductVariantStatus;
 import com.zslab.mall.product.exception.ProductVariantNotFoundException;
+import com.zslab.mall.product.repository.ProductRepository;
 import com.zslab.mall.product.repository.ProductVariantRepository;
 import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
@@ -39,6 +47,7 @@ class CartServiceTest {
 
     private static final long USER_ID = 8801L;
     private static final long VARIANT_ID = 8802L;
+    private static final long PRODUCT_ID = 8803L;
     private static final String VARIANT_PUBLIC_ID = "var_svc01234567890123456789012";
     private static final String MISSING_VARIANT_PUBLIC_ID = "var_missing1234567890123456789";
 
@@ -46,9 +55,36 @@ class CartServiceTest {
     private CartItemRepository cartItemRepository;
     @Mock
     private ProductVariantRepository productVariantRepository;
+    @Mock
+    private ProductRepository productRepository;
+    @Mock
+    private InventoryRepository inventoryRepository;
 
     @InjectMocks
     private CartService cartService;
+
+    /** 구매 가능 variant 스텁(Track 71 assertPurchasable 통과): 상품 SALE·variant SALE·수동품절 아님·가용 재고 available. */
+    private ProductVariant purchasableVariant(ProductStatus productStatus, ProductVariantStatus variantStatus,
+            boolean soldoutManual, int available) {
+        ProductVariant variant = mock(ProductVariant.class);
+        when(variant.getId()).thenReturn(VARIANT_ID);
+        lenient().when(variant.getPublicId()).thenReturn(VARIANT_PUBLIC_ID);
+        when(variant.getProductId()).thenReturn(PRODUCT_ID);
+        lenient().when(variant.getStatus()).thenReturn(variantStatus);
+        lenient().when(variant.isSoldoutManual()).thenReturn(soldoutManual);
+        Product product = mock(Product.class);
+        when(product.getStatus()).thenReturn(productStatus);
+        when(productRepository.findById(PRODUCT_ID)).thenReturn(Optional.of(product));
+        Inventory inventory = mock(Inventory.class);
+        when(inventory.getQuantityAvailable()).thenReturn(available);
+        when(inventoryRepository.findByVariantId(VARIANT_ID)).thenReturn(Optional.of(inventory));
+        when(productVariantRepository.findByPublicId(VARIANT_PUBLIC_ID)).thenReturn(Optional.of(variant));
+        return variant;
+    }
+
+    private ProductVariant purchasableVariant() {
+        return purchasableVariant(ProductStatus.SALE, ProductVariantStatus.SALE, false, 10);
+    }
 
     @Test
     @DisplayName("variant 미존재: findByPublicId empty → ProductVariantNotFoundException·cartItemRepository 미접근")
@@ -65,9 +101,7 @@ class CartServiceTest {
     @DisplayName("동일 variant 재담기: 기존 present → addQuantity 누적·saveAndFlush 미호출(M1α)")
     void addItem_existing_accumulatesWithoutInsert() {
         CartItem existing = CartItem.create(USER_ID, VARIANT_ID, VARIANT_PUBLIC_ID, 2);
-        ProductVariant variant = mock(ProductVariant.class);
-        when(variant.getId()).thenReturn(VARIANT_ID);
-        when(productVariantRepository.findByPublicId(VARIANT_PUBLIC_ID)).thenReturn(Optional.of(variant));
+        purchasableVariant();
         when(cartItemRepository.findByUserIdAndVariantId(USER_ID, VARIANT_ID)).thenReturn(Optional.of(existing));
 
         CartItemAddResponse response = cartService.addItem(USER_ID, new CartItemAddRequest(VARIANT_PUBLIC_ID, 3));
@@ -81,10 +115,7 @@ class CartServiceTest {
     @Test
     @DisplayName("신규 담기: 기존 empty → saveAndFlush로 신규 저장·variantPublicId 스냅샷/quantity/selected 반영")
     void addItem_new_savesViaSaveAndFlush() {
-        ProductVariant variant = mock(ProductVariant.class);
-        when(variant.getId()).thenReturn(VARIANT_ID);
-        when(variant.getPublicId()).thenReturn(VARIANT_PUBLIC_ID);
-        when(productVariantRepository.findByPublicId(VARIANT_PUBLIC_ID)).thenReturn(Optional.of(variant));
+        purchasableVariant();
         when(cartItemRepository.findByUserIdAndVariantId(USER_ID, VARIANT_ID)).thenReturn(Optional.empty());
         when(cartItemRepository.saveAndFlush(any(CartItem.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -100,15 +131,42 @@ class CartServiceTest {
     @Test
     @DisplayName("동시삽입 race: saveAndFlush가 DataIntegrityViolation → OptimisticLockingFailureException(409) rethrow")
     void addItem_concurrentInsert_throwsOptimisticLockingFailure() {
-        ProductVariant variant = mock(ProductVariant.class);
-        when(variant.getId()).thenReturn(VARIANT_ID);
-        when(variant.getPublicId()).thenReturn(VARIANT_PUBLIC_ID);
-        when(productVariantRepository.findByPublicId(VARIANT_PUBLIC_ID)).thenReturn(Optional.of(variant));
+        purchasableVariant();
         when(cartItemRepository.findByUserIdAndVariantId(USER_ID, VARIANT_ID)).thenReturn(Optional.empty());
         when(cartItemRepository.saveAndFlush(any(CartItem.class)))
                 .thenThrow(new DataIntegrityViolationException("uk_cart_item_user_variant"));
 
         assertThatThrownBy(() -> cartService.addItem(USER_ID, new CartItemAddRequest(VARIANT_PUBLIC_ID, 1)))
                 .isInstanceOf(OptimisticLockingFailureException.class);
+    }
+
+    @Test
+    @DisplayName("Track 71 담기 거부: 상품 STOPPED → CartItemNotPurchasableException·cartItemRepository 미접근")
+    void addItem_productStopped_throws422() {
+        purchasableVariant(ProductStatus.STOPPED, ProductVariantStatus.SALE, false, 10);
+
+        assertThatThrownBy(() -> cartService.addItem(USER_ID, new CartItemAddRequest(VARIANT_PUBLIC_ID, 1)))
+                .isInstanceOf(CartItemNotPurchasableException.class);
+        verifyNoInteractions(cartItemRepository);
+    }
+
+    @Test
+    @DisplayName("Track 71 담기 거부: 수동품절 → CartItemNotPurchasableException")
+    void addItem_soldoutManual_throws422() {
+        purchasableVariant(ProductStatus.SALE, ProductVariantStatus.SALE, true, 10);
+
+        assertThatThrownBy(() -> cartService.addItem(USER_ID, new CartItemAddRequest(VARIANT_PUBLIC_ID, 1)))
+                .isInstanceOf(CartItemNotPurchasableException.class);
+        verifyNoInteractions(cartItemRepository);
+    }
+
+    @Test
+    @DisplayName("Track 71 담기 거부: 재고 available 0 → CartItemNotPurchasableException")
+    void addItem_outOfStock_throws422() {
+        purchasableVariant(ProductStatus.SALE, ProductVariantStatus.SALE, false, 0);
+
+        assertThatThrownBy(() -> cartService.addItem(USER_ID, new CartItemAddRequest(VARIANT_PUBLIC_ID, 1)))
+                .isInstanceOf(CartItemNotPurchasableException.class);
+        verifyNoInteractions(cartItemRepository);
     }
 }

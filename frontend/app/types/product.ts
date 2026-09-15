@@ -83,6 +83,8 @@ export interface ProductDetail {
   sellerName: string
   displayPrice: number
   soldOut: boolean
+  /** 판매중지 여부(BE Track 71·status=STOPPED). 상세는 접속 가능하되 담기가 차단된다. */
+  saleStopped: boolean
   images: ProductImage[]
   optionGroups: ProductOptionGroup[]
   variants: ProductVariant[]

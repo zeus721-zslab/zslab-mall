@@ -98,7 +98,8 @@ public class ProductCatalogService {
     public ProductDetailResponse getProduct(String productPublicId) {
         Product product = productRepository.findByPublicId(productPublicId)
                 .orElseThrow(() -> new ProductNotFoundException("상품을 찾을 수 없습니다: " + productPublicId));
-        if (product.getStatus() != ProductStatus.SALE) {
+        // Track 71: 판매중지(STOPPED) 상품은 상세 접속을 허용해 "판매중지"로 표기한다. 그 외 비-SALE은 404 은닉 유지.
+        if (product.getStatus() != ProductStatus.SALE && product.getStatus() != ProductStatus.STOPPED) {
             throw new ProductNotFoundException("상품을 찾을 수 없습니다: " + productPublicId);
         }
         // 판매자 비-ACTIVE·soft-delete(@SQLRestriction으로 empty)는 모두 404 은닉.
@@ -219,6 +220,7 @@ public class ProductCatalogService {
                 seller.getCompanyName(),
                 displayPrice(product, saleVariants),
                 isProductSoldOut(saleVariants, inventoryByVariant),
+                product.getStatus() == ProductStatus.STOPPED,
                 images,
                 optionGroups,
                 variants);

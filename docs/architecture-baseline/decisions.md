@@ -9852,3 +9852,96 @@ D-156(Track 69)은 "JVM 기본 TZ와 hibernate.jdbc.time_zone을 항상 동시�
 - D-156 운영 TZ 고정 이월(decisions.md:9705-9707) → 본 D로 해소.
 - 적용 전 운영에 저장된 시각 데이터는 9시간 어긋난 상태로 잔존(보정 안 함 결정·주문·결제 데이터 없음).
 - frontend 컨테이너 TZ 미설정 유지(향후 서버 측 날짜 연산 도입 시 재검토).
+
+## D-160. 판매중지·품절 구매 방어 + 관리자 판매 상태 전환 (Track 71·FE-18 연계)
+
+날짜: 2026-09-15
+트랙: Track 71
+정찰: docs/track-71/recon-report.md
+FE 연계: decisions-fe.md FE-18 (같은 브랜치·같은 PR)
+
+### 확정 방향
+| 상태 | 목록 | 상세 | 표기 | 담기·구매 |
+|---|---|---|---|---|
+| 판매중지(STOPPED) | 숨김(기존) | 접속 가능(신규) | 판매중지 | 불가(서버 422) |
+| 품절(재고 0·수동품절) | 노출 + 품절 배지(기존) | 접속 가능(기존) | 품절 | 불가(서버 422) |
+| 그 외(DRAFT·PENDING·APPROVED·REJECTED·HIDDEN·판매자 비-ACTIVE·삭제) | 현행 유지(숨김) | 현행 유지(404) | — | 현행 유지 |
+- 주문 요청에 판매 불가 상품이 1개라도 포함되면 주문 전체 거부(422). 장바구니 화면은 판매 불가 선택 품목 안내 + 결제하기 차단(FE-18).
+
+### 정찰 사실(변경 전)
+- 목록: `ProductRepository.findDisplayable` SALE ∧ 판매자 ACTIVE만 노출(기존·변경 없음).
+- 상세: `ProductCatalogService.getProduct`가 비-SALE 전부 404(은닉).
+- 담기: `CartService.addItem`은 variant 존재만 검증(상태·재고·수동품절 미검사).
+- 신규 주문: `CheckoutService.createOrder`는 상품 status 미검증(D-63·재결제 경로만 검증)·재고 부족만 422(D-101).
+- 판매중지 생성 수단 부재: `ProductStatus.STOPPED` 값은 있으나 전이 메서드·API 0건(`canTransitionTo`는 PENDING→SALE/REJECTED만).
+- 기존 주문 후속 경로(결제 완료·배송·클레임·환불·정산)는 Product/Variant 상태를 참조하지 않음 → 신규 검증이 기존 주문에 영향 없음.
+
+### §1-A 갈림길·채택/기각 근거
+1) 판매중지 생성 수단
+- α 채택: 관리자 API + PowerShell 스크립트. 기존 관리자 기능(승인·거부·재고 조정)과 동일하게 API 전용이며, 기조 4(MVP 운영 시나리오의 운영자 기능은 이연하지 않는다)에 따라 전환 수단을 함께 도입.
+- β 기각: 최소 관리자 화면. 관리자 인증·레이아웃 신설이 과함.
+- γ 기각: 백로그. 판매중지 표시 코드가 운영에서 실행되지 않는 죽은 경로가 됨.
+2) 전환 권한
+- α 채택: 관리자만(SecurityConfig `/api/v1/admin/**`).
+- β 기각: 판매자 본인 허용. 판매자 화면 없음.
+3) 허용 전이
+- α 채택: SALE → STOPPED, STOPPED → SALE만 추가. 기존 PENDING → SALE/REJECTED 유지. 같은 상태 재요청은 422(승인의 멱등 no-op과 다르게 운영자 오조작 감지 목적).
+- β 기각: HIDDEN 등 그 외 전이. 소비처 없음.
+4) HTTP 메서드
+- α 채택: `POST /api/v1/admin/products/{publicId}/sale-status` body `{status: SALE|STOPPED}`(기존 `/approve`·`/reject` POST+동사 관습).
+- β 기각: PATCH. 관리자 API 전체에 PATCH 선례 없음.
+5) 상세 허용 범위
+- α 채택: status ∈ {SALE, STOPPED}. 판매자 비-ACTIVE·삭제는 404 유지.
+- β 기각: HIDDEN 포함·비-SALE 전부 허용. "그 외 상태 현행 유지" 확정과 충돌·존재 은닉 원칙 훼손.
+6) 상세 응답 표현
+- α 채택: `saleStopped` boolean(기존 `soldOut` 명명 관습).
+- β 기각: status 원값 노출. 내부 상태 은닉.
+- γ 기각: 빈 variants로 표현. 의미 불명확(품절·판매중지 구분 불가).
+7) 담기 거부
+- α 채택: 구매 가능 판정(상품 SALE ∧ variant SALE ∧ 수동품절 아님 ∧ 재고 available>0) 실패 시 422 `CART_ITEM_NOT_PURCHASABLE`(신규 예외·`CART_ITEM_NOT_FOUND`·`CART_CHECKOUT_EMPTY` 명명 관습). 재고 예약은 여전히 구매 시점 SoT.
+- β 기각: 담기 허용·조회 enrich purchasable=false 표기만. 담긴 뒤 결제 단계에서만 막혀 사용자 혼란.
+8) 주문 생성 거부
+- α 채택: 판매 불가 1개라도 포함 시 주문 전체 422.
+- β 기각: 일부 제외 후 주문. 화면 금액 ≠ 결제 금액(FE-17 확정 5 원칙 위반).
+9) 주문 거부 사유
+- α 채택: 신규 enum 없이 기존 `OrderNotPayableReason` 포섭 — 상품/variant 비-SALE → PRODUCT_NOT_ON_SALE, 수동품절 → OUT_OF_STOCK(재결제 `revalidatePayable`과 정합).
+- β 기각: VARIANT_NOT_ON_SALE 등 enum 추가. FE 문구 분기 소비처 없음.
+10) 검사 위치
+- α 채택: `assertSellable`을 `toOrderItemCommand` 선두에 배치 — 직접주문·장바구니 두 해소 경로가 Product·ProductVariant 엔티티를 함께 쥐는 유일한 공통 지점, TX1 진입 전, `revalidateInventory`보다 먼저(판매중지면 재고 조회 없이 즉시 422).
+- β 기각: `revalidateInventory` 내부 통합. 재고 로더 재사용을 위해 status 로더를 추가해야 해 역할 혼합.
+11) 구매 가능 판정 공용화
+- α 채택: 공용화 안 함. 카탈로그(`isPurchasable`: variant·재고)·조회 enrich(판매자 ACTIVE 포함 5조건)·재결제(수량 비교)·담기(4조건)·주문(3조건)의 조건이 서로 달라 공용 추상화가 과함.
+- β 기각: 공용 Purchasability 유틸. 5개 소비처 조건 차이를 옵션화해야 함.
+
+### §2 결정 라운드 재진입
+없음.
+
+### 구현 요약(file:line)
+- 전이: `backend/src/main/java/com/zslab/mall/product/enums/ProductStatus.java:33-34`(SALE→STOPPED·STOPPED→SALE) · `product/entity/Product.java:124`(stopSale)·`:136`(resumeSale·STOPPED에서만, PENDING→SALE은 approve 전용).
+- 서비스: `product/service/ProductSaleStatusService.java:45`(비관락 findByPublicIdForUpdate·IllegalStateException→ProductInvalidStateException 422)·`:60`(AuditRecorder UPDATE·before/after status).
+- API: `product/controller/request/AdminProductSaleStatusRequest.java:13`(@Pattern `^(SALE|STOPPED)$`·위반 400 VALIDATION_FAILED) · `product/controller/AdminProductController.java:76`(POST /sale-status·응답 ProductApprovalResponse 재사용).
+- 상세: `product/service/ProductCatalogService.java:102`({SALE, STOPPED} 허용)·`:223`(saleStopped 매핑) · `product/controller/response/ProductDetailResponse.java:32`.
+- 담기: `cart/service/CartService.java:78`(선가드 호출)·`:99`(assertPurchasable) · `cart/exception/CartItemNotPurchasableException.java` · `common/web/GlobalExceptionHandler.java:110,453`(422 CART_ITEM_NOT_PURCHASABLE).
+- 주문: `checkout/service/CheckoutService.java:267`(toOrderItemCommand 선두 호출)·`:281`(assertSellable).
+- 스크립트: `scripts/admin-product-status.ps1`(-BaseUrl/-ProductPublicId/-Status/-AdminEmail·Read-Host -AsSecureString·결과 status만 출력·실패 HTTP+code·exit 1).
+
+### 멱등성
+`OrderNotPayableException` 재사용으로 D-66 catch(`CheckoutService.java` idempotentCheckout)에 자동 포함 → 422는 캐시되지 않고 IN_PROGRESS row 삭제·같은 Idempotency-Key 재시도 허용(단위 테스트 `checkout_idempotentKey_productStopped_deletesMark`).
+
+### 검증
+- 전체 테스트 `--rerun-tasks`: 170 files · 870 tests · 0 fail(기존 847 + 신규 23).
+- 관리자 전환 IT 7(SALE→STOPPED·STOPPED→SALE 200 / PENDING→STOPPED·PENDING→SALE·같은 상태 422 / BUYER 403 / HIDDEN 값 400) · 상세 IT(STOPPED 200 saleStopped·status 키 부재·HIDDEN 404 유지) · 담기 단위 3·IT 3 · 주문 단위 5·IT 4(양 경로 422·주문 0·재고 예약 0·SALE 201 회귀).
+- 런타임(로컬 dev·LT-14 클린 재시작): STOPPED 전환 → 목록 2→1·상세 200 saleStopped true·buyer 담기 422 / 품절(admin adjust −available) → 담기 422 → 원복 → 담기 201 / SALE 복원 → 목록 재노출·담기 201·같은 상태 재요청 422.
+- 스크립트: 로직은 비대화 사본으로 실측(STOPPED·SALE OK exit 0·422 exit 1). 대화형 원본 실행은 zslab 확인(STOPPED→SALE OK).
+
+### 트랩
+- bash 인용 오류로 환경변수 값이 도구 출력에 노출될 수 있음(본 트랙 실발생·ADMIN_BOOTSTRAP_PASSWORD 1회·교체 권고) → 자격증명을 쓰는 호출은 PowerShell 래퍼로만 실행, bash에서 echo·인용 조합 금지.
+- 비대화 실행 환경(stdin null)에서 `Read-Host -AsSecureString`이 멈춤 → 대화형 스크립트 실측은 사람이 수행.
+- PowerShell 5.1 + BOM 없는 UTF-8 스크립트에서 한글 출력 깨짐 → 스크립트 출력 문자열은 ASCII.
+- 통합 테스트 시드 행의 UPDATE는 부모(seller·category) 부재 시 FK 검증에 걸림(Track 49 트랩 재발) → FK_CHECKS=0 토글 헬퍼로 갱신.
+
+### §8 이월(carry-over)
+- [백로그·FE] 관리자 FE 트랙(판매 상태 전환 등 관리자 API 소비).
+- [백로그·BE] 판매자 비-ACTIVE 상품의 담기·신규 주문 허용 여부(현재 담기·주문 경로는 판매자 상태 미검사, 목록·상세·조회 enrich만 반영).
+- [백로그] 수동 품절(soldoutManual) 토글 API 부재.
+- D-63(신규 주문 상태 미검증) → 본 D로 판매 상태·수동 품절 검증 도입. 판매자 상태는 위 이월.
