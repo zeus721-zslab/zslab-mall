@@ -9769,3 +9769,36 @@ PAYMENT_EXPIRED(미결제 종료) 주문을 유예 경과·재고 해제 완료 
 3. 서버 .env 프론트 키(NUXT_PUBLIC_DEMO_* 등) 보강 — 사용자 직접 처리 영역.
 
 ---
+
+## D-158. gateway nginx.conf 편집 규약 정정 — inode 보존 기준 명확화 (D-148 정정)
+
+날짜: 2026-09-15
+성격: 표현 정정(단일 파일 bind-mount 편집 규약). 신규 결정 아님 — 기박제 문구가 실측과 어긋난 부분을 바로잡는다.
+
+### 정정 대상 (기존 본문 무수정·인용만)
+- decisions.md:9752 (D-157 §1-A [결정 5] gateway path-split "안전 이행"): "단일 파일 bind-mount라 inode 보존 필수(**Python open(w) 금지**)."
+  → `open(w)`는 실측상 inode를 **유지**하므로(=보존 목적에 안전) "open(w) 금지"는 사실과 반대. 금지 대상은 rename형 쓰기(sed -i 등)이지 open(w)가 아니다.
+- 전수 확인: decisions.md 내 "open(w) 금지" 표현은 위 9752 **1곳뿐**(grep 실측). D-148 본문(9356~9390)은 "sed -i inode 교체 폐기 / cat>file·WriteAllText in-place 보존"으로 이미 정확 — 정정 불요.
+
+### 실측 근거 (STEP 1·python:3.12-alpine 일회용 컨테이너·직전 inode 대비)
+| 편집 방식 | inode | 직전 대비 | inode |
+|---|---|---|---|
+| `echo a > f` (최초 생성) | 9688 | — | 기준 |
+| `sed -i "s/a/b/" f` | 11585 | 9688→11585 | **교체(새 inode)** |
+| `cat new > f` (리다이렉트) | 11585 | 11585→11585 | **유지** |
+| `python open("f","w").write()` | 11585 | 11585→11585 | **유지** |
+| `python os.replace("t","f")` | 13564 | 11585→13564 | **교체(새 inode)** |
+
+판정: sed -i·os.replace = 임시파일 쓴 뒤 rename → inode 교체. cat 리다이렉트·open(w) = 기존 파일 truncate-in-place → inode 유지.
+
+### 확정 규약 (단일 파일 bind-mount = gateway nginx.conf)
+- **허용(inode 동일 덮어쓰기만)**: `cat <임시본> > nginx.conf` · `[System.IO.File]::WriteAllText(경로유지)` · `open(path,"w")`. 모두 기존 inode를 truncate-in-place로 재기록 → 컨테이너가 마운트 시점 inode를 계속 서빙(전파 성립).
+- **금지(임시파일+rename = inode 교체)**: `sed -i` · `os.replace` · rename형으로 저장하는 에디터(원본을 지우고 temp를 rename). 컨테이너가 옛 inode를 계속 서빙 → nginx -t/reload가 옛 config 기준 오탐 PASS·변경 미적용(D-148 §트랩 서버 치명 사례).
+- **금지(내용 소실)**: 원본을 읽으며 **같은 파일**로 리다이렉트(`cat nginx.conf > nginx.conf`·`cmd < nginx.conf > nginx.conf`). 쉘이 리다이렉트 대상을 먼저 truncate해 읽기 전에 내용이 사라진다. 임시본은 반드시 **별도 파일**로 만든 뒤 덮어쓴다.
+- 편집 후: `nginx -t`(문법 검증) → `nginx -s reload`. 로컬 Docker Desktop 단일파일 마운트는 컨테이너측 쓰기 RO라 호스트측 WriteAllText + `docker restart`로 전파(D-148 §트랩).
+
+### §1-A 갈림길
+- 대안 검토 없음(표현 정정 트랙). 실측이 기존 문구를 뒤집었을 뿐 규약 자체(단일 파일 inode 보존)는 D-148에서 확정됨.
+
+### §8 이월(carry-over)
+- D-148 §8-3("CLAUDE-DEV.md/컨텍스트 'gateway_nginx 편집 sed -i 사용' 문구 정정 필요")는 **처리 불요** — 현재 CLAUDE-DEV.md에 sed·gateway·nginx·open( 관련 문구가 전무함을 grep으로 확인(해당 트랩 문구 부재). 별도 정정 대상 없음.
