@@ -957,7 +957,7 @@ STEP1~3(Vitest 컴포넌트/단위 + Playwright Browser/SSR Smoke) 위에 GitHub
 
 ### §실측·트랩
 - 검증: typecheck 0·vitest 7 files 29 tests·SSR HTML 1a(기본 자동입력·6필드 대조 일치)·1b(0건 빈 폼·드롭다운 숨김)·dev E2E 2~7(Playwright·호스트 Chromium→게이트웨이). checkout.submit은 page.route 목킹으로 실주문 0건·실측 데이터(테스트 주소·카트) 사후 정리 완료.
-- [트랩 후보·1회차] typecheck의 nuxt prepare가 bind-mount된 frontend/.nuxt를 재생성 → 실행 중 dev 서버의 #app-manifest 대상 소실 → vite import-analysis 오류. 조치: frontend 컨테이너 재시작. 규칙: dev 실측 중 typecheck(nuxt prepare) 재실행 금지·필요 시 실측 후 실행 + 컨테이너 재시작. 재발 시 live-traps 승격(LT-15 계열). (본 트랙은 typecheck를 E2E 이전에 1회만 실행해 회피·서버 정상 유지.)
+- [트랩 후보·1회차] typecheck의 nuxt prepare가 bind-mount된 frontend/.nuxt를 재생성 → 실행 중 dev 서버의 #app-manifest 대상 소실 → vite import-analysis 오류. 조치: frontend 컨테이너 재시작. 규칙: dev 실측 중 typecheck(nuxt prepare) 재실행 금지·필요 시 실측 후 실행 + 컨테이너 재시작. 재발 시 live-traps 승격(LT-15 계열). (본 트랙 실발생: 구현 단계 typecheck 후 오류 발생 → 컨테이너 재시작으로 복구. 이후 E2E 중 typecheck 미재실행으로 재발 없음.)
 - [가드] 로컬 hosts가 zslab-mall.duckdns.org를 운영 IP로 두는 경우가 있음(자동 모드 운영 도메인 쓰기 차단으로 운영 영향 0). 인증 dev 실측 전 DNS/hosts 127.0.0.1 확인 필수.
 
 ### §8 이월(carry-over)
