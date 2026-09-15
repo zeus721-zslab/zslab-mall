@@ -1119,3 +1119,56 @@ FE-13 §8(:701) 이월 "[버그·백로그] BUYER 페이지에서 로그아웃 �
 ### §8 이월(carry-over)
 - [백로그] `lucide-vue-next` deprecated dep 제거(@lucide/vue로 통일) — 사용처 0.
 - [백로그] /mypage 허브에 주문내역 링크 부재(드롭다운에만 존재).
+
+## FE-20: 검색 결과·카테고리 페이지 + 헤더 카테고리 드롭다운
+
+날짜: 2026-09-16
+선행: BE Track 72(D-161·GET /api/v1/products?keyword= / GET /api/v1/categories) 머지(0db33190) · FE-19 dropdown-menu · FE-05 useProductList. 정찰 = docs/frontend/recon-report-fe20-search-category.md.
+범위: /search?keyword= 신설 · /categories/[id] 신설 · /products 본문을 공용 ProductListView로 승격(정렬 select·1차 카테고리 탭·그리드·4상태·무한스크롤) · 헤더 검색 submit 배선 · 헤더 카테고리 nav placeholder를 드롭다운으로 교체. ProductCard·HomeProductGrid·auth store·BE 무변경.
+수용기준(달성): 헤더 검색 "베이직" → /search?keyword=베이직 결과 1건·입력 유지 / 빈 검색 미이동·/search 직접 진입 안내 / 0건 빈 상태 / 카테고리 드롭다운 전체 상품·데모 이동+닫힘 / /products "전체"·/categories/1 "데모" 활성 / /categories/abc API 미호출 빈 상태·999999 빈 상태 / ?categoryId= 호환 / 그리드 375·640·768·1024·1280 = 2·3·4·5·6열 / 카테고리 12 mock 탭 가로 스크롤 1행 / 계정 메뉴 회귀 없음 / hydration 경고 0. typecheck 0·vitest 65·smoke 1·dev 실측 11/11 GREEN.
+
+**레이아웃은 시안 반복 대상** — 목록 레이아웃(그리드 열·탭·정렬 위치)을 교체할 때는 `components/product/ProductListView.vue`(+SortSelect·CategoryTabs) 한 곳만 바꾸고, 그 결정은 본 FE-20 항목에 append한다(페이지 3개는 껍데기라 무변경).
+
+### §1-A 갈림길·채택/기각 근거
+1) 카테고리 라우트 — D-161 §1-A 6) 참조
+- α 채택: `/categories/[id]` 신설 + 뷰는 ProductListView 공용. `/products?categoryId=` 호환 유지(URL 전용 필터·탭은 /categories로 이동).
+- β 기각: `/products?categoryId=` 단일 라우트. 향후 카테고리 전용 디자인 분리 시 URL 변경 비용.
+2) 검색 라우트 — `/search?keyword=` 신설(D-161). 탭 숨김(검색은 전 카테고리 대상).
+3) 데이터/레이아웃 분리
+- α 채택: 데이터·상태 = composable(useProductList keyword Ref 확장·useCategories 신설), 조립 = ProductListView, 페이지 3개 = props 계산 껍데기. 조각(SortSelect·CategoryTabs) 테스트는 렌더·링크 수준만.
+- β 기각: 페이지별 본문 복제. 레이아웃 교체 시 3곳 동시 수정.
+4) 헤더 카테고리 UI
+- α 채택: FE-19 shadcn dropdown-menu 재사용(트리거 "카테고리"·항목 전체 상품/구분선/루트 목록). FE-19 §1-A 2) 채택 근거(접근성 내장) 동일.
+- β 기각: 메가메뉴(카테고리 패널 상시 노출). 1단 구조·루트 소량에 비용 과다.
+5) 카테고리 데이터 공유 — useAsyncData 고정 key `'categories'`로 헤더·탭이 한 요청을 공유(대안 검토 없음·Nuxt 동일 key dedupe).
+6) 2차 칩 생략 — 자식 카테고리 API·데이터 부재(D-161 §8)라 1단 탭만. 시드 미보강 — 다수 카테고리 레이아웃은 page.route mock 실측으로 대체.
+7) 빈 입력·잘못된 id 처리 — 페이지가 ProductListView를 마운트하지 않아 API 호출 자체를 막는다(/search 빈 keyword → "검색어를 입력하세요", /categories/[id] 비-양의정수 → EmptyState). 존재하지 않는 id는 API 빈 목록 그대로.
+
+### §2 확정 구현 규칙 (file:line)
+- `frontend/app/composables/useProductList.ts:18` 3번째 인자 `keyword: Ref<string|null> = ref(null)` · `:34` normalizedKeyword(trim·빈값 null) · buildQuery·useAsyncData key·watch에 반영. size는 4번째 인자로 이동(호출처 0).
+- `frontend/app/composables/useCategories.ts` useAsyncData key `'categories'`·baseURL 이원화 · `frontend/app/types/category.ts` CategorySummary.
+- `frontend/app/components/product/ProductListView.vue:10` props title·categoryId·keyword·showCategoryTabs(기본 true) · `:33-36` toRef → useProductList · `:80` GRID_CLASS `grid-cols-2 sm:3 md:4 lg:5 xl:6` · 스켈레톤 12 · sort URL replace·IntersectionObserver는 FE-05 그대로 이동.
+- `frontend/app/components/product/SortSelect.vue` defineModel · `frontend/app/lib/constants/product.ts` PRODUCT_SORT_OPTIONS·DEFAULT_PRODUCT_SORT(products/index 인라인 승격).
+- `frontend/app/components/product/CategoryTabs.vue` `data-testid="category-tabs"`·overflow-x-auto·whitespace-nowrap·활성 `aria-current="page"`·조회 실패/빈이면 "전체"만.
+- 페이지: `pages/products/index.vue`(?categoryId 숫자 computed) · `pages/categories/[id].vue`(`/^[1-9]\d*$/`) · `pages/search.vue`(keyword trim·제목 `'{keyword}' 검색 결과`). 미들웨어 없음.
+- `frontend/app/components/AppHeader.vue:9-24` searchKeyword ref + route.query.keyword watch + handleSearchSubmit(`navigateTo({path:'/search', query:{keyword}})`·빈값 return) · `:65` `<form role="search" data-testid="search-form">`·`:79` `data-testid="search-input"` · `:26-27` useCategories→categoryMenuItems · `:134` `category-menu-trigger` · `:138` `category-menu-content` · `:110` `account-menu-content`(계정 메뉴 항목·handleLogout 무수정).
+
+### §진입점
+1. 목적: 상품 탐색 진입점(검색·카테고리)을 열고, 목록 레이아웃을 한 컴포넌트로 모아 시안 반복 교체를 가능하게 함.
+2. 공용 뷰: frontend/app/components/product/ProductListView.vue(+SortSelect·CategoryTabs).
+3. 데이터: frontend/app/composables/useProductList.ts(keyword)·useCategories.ts.
+4. 페이지: frontend/app/pages/{products/index,categories/[id],search}.vue.
+5. 헤더: frontend/app/components/AppHeader.vue(검색 form·카테고리 드롭다운).
+6. 테스트: test/unit/useProductList·useCategories · test/component/ProductListView·CategoryTabs·SearchPage·CategoryPage·AppHeader(12 it).
+
+### §실측·트랩
+- 검증: typecheck 0 · vitest 14 files 65 tests(기존 36 + 신규 23 + AppHeader 6→12) · Playwright smoke 1 · dev 실측 11/11.
+- 트랩(테스트): useAsyncData의 data·error 기본값은 `undefined`(null 아님) → `toBeFalsy`로 단언. 같은 key(sort·categoryId·keyword)는 캐시 재사용으로 $fetch 생략 → it 간 `clearNuxtData()`.
+- 트랩(테스트): 계정·카테고리 드롭다운이 공존하므로 `[data-slot="dropdown-menu-content"]` 조회는 첫 content만 잡는다 → 각 content `data-testid`로 조회.
+- 트랩(실측): 클라이언트 네비 직후 `networkidle`은 fetch 시작 전 즉시 해소될 수 있음 → 카드 locator waitFor로 대기. SSR 페이로드에 categories가 실려 클라이언트 재조회가 없으므로 page.route mock은 `nuxtApp._asyncData.categories.execute()`로 재조회를 강제해야 반영된다.
+- 부수: 데모 계정 로그인·로그아웃만 수행(장바구니·주문 호출 0).
+
+### §8 이월(carry-over)
+- [백로그] 2차 카테고리 칩 — BE 자식 카테고리 API·데이터·V13 재설계 선행(D-161 §8).
+- [백로그] 헤더 검색 자동완성·최근 검색어 — 범위 밖.
+- [백로그] ProductCard 이미지 onerror 대체 없음(D-161 §8).
