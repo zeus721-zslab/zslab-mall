@@ -35,6 +35,7 @@
 - FE-13 계정 (완료)
 - FE-14 클레임 (완료)
 - FE-15 FE 테스트 (완료)
+- FE-16 체크아웃 배송지 연동 (완료)
 - Tier2 페이지(BE-추가작업 대응)는 각 머지 후 개별 FE 트랙(FE-15+)
 
 ---
@@ -902,4 +903,64 @@ STEP1~3(Vitest 컴포넌트/단위 + Playwright Browser/SSR Smoke) 위에 GitHub
 - [백로그] Firefox·WebKit 확대·E2E fixture 소유·인증 User Journey E2E(STEP3 이월 승계).
 
 ---
+
+## FE-15 종결 표기 정정 (2026-09-15)
+
+본문 헤더([진행 중 트랙]·:743)와 로드맵(완료)이 불일치했음. STEP2~4 커밋(5c7828dc·a0049fdd·4676d0f9)과 CI 가동으로 FE-15 종결 확정. 본문 이월 항목(풀스택 Browser Smoke CI·backend CI·Firefox/WebKit 등)은 백로그로 승계.
+
+---
+
+## FE-16: 체크아웃 배송지 연동 (저장 배송지 불러오기·주문 후 저장)
+
+날짜: 2026-09-15
+선행: FE-13(계정·배송지 CRUD)·FE-11(체크아웃) 머지. 신규 BE 없음(기존 /users/me/addresses·/cart/checkout 재사용). 정찰 = recon-report-fe16-address(본문 + 부록·기진행 여부 점검).
+범위: checkout/index.vue에 저장 배송지 불러오기(기본 자동입력·드롭다운·새 주소)·주문 생성 직후 신규 저장·배송지 필드 maxlength. 순수 로직은 lib/utils/address-form.ts로 분리·단위 테스트. mypage/addresses.vue·useAddresses 시그니처·결제/주문 로직 무변경.
+수용기준(달성): 기본 배송지 SSR 자동입력 / 드롭다운·새 주소 전환 / 무변경 시 저장 생략 / 주문 후 신규 저장(isDefault:false) / 저장 실패 격리로 결제 무차단 / maxlength / 로드 실패 안내. typecheck 0·vitest 29·SSR 1a/1b·E2E 2~7 실측 GREEN.
+
+### §1-A 갈림길·채택/기각 근거
+1) 수정한(불러온) 주소의 저장 방식
+- α 채택: POST 신규 추가(createAddress). 불러온 주소를 편집해 저장하면 별도 신규 주소로 남긴다.
+- β 기각: PATCH 원 주소 수정. 체크아웃에서의 수정이 사용자 인지 없이 마이페이지 주소·기본 배송지를 바꿀 위험. 확정 흐름("기존 POST 배송지 API로 저장")과도 불일치.
+2) 기본 배송지 부재 시
+- α 채택: 빈 폼(find(isDefault) 실패 시 무입력·checkout/index.vue:107).
+- β 기각: 목록 첫 항목 자동입력. 목록은 서버 반환 순서 의존·정렬 미보장(addresses.vue 클라 정렬 없음)이라 "첫 항목"이 불안정.
+3) 저장 주소 선택 후 편집
+- α 채택: 자유 편집. 불러온 값을 그대로 고쳐 쓸 수 있어 운영 편의.
+- β 기각: 읽기 전용 + "새 주소" 전환 강제. 단계 증가·이점 없음.
+4) 결제 준비 실패(publicId=null) 시 저장 여부
+- α 채택: 저장. maybeSaveAddress를 publicId 판정보다 먼저 호출(checkout/index.vue:181). 결제 준비 실패일 뿐 배송지 오입력이 아니고 주문은 이미 생성됨.
+- β 기각: 저장 생략.
+5) 목록 로드 실패(401 외)
+- α 채택: 배송지 영역 안내 문구(addressLoadFailed·checkout/index.vue:58,233). 수기 입력·제출은 그대로 허용.
+- β 기각: 무안내(수기 입력만).
+6) 체크아웃 필드 maxlength
+- α 채택: 이번 범위 포함(공유 6필드·checkout/index.vue:259~326). DB VARCHAR 초과 시 서버 실패 예방·account.ts 상수 재사용·저비용.
+- β 기각: 제외(범위 밖).
+7) 목록 로드 방식
+- α 채택: useAsyncData SSR(checkout/index.vue:33). addresses.vue·profile·orders 관습·기본 자동입력이 SSR HTML에 반영.
+- β 기각: lazy·onMounted. 자동입력 지연·관습 이탈.
+
+### §2 확정 구현 규칙 (file:line)
+- 저장 조건: "배송지 저장" 체크박스 기본 체크 + 선택 주소와 무변경이면 저장 생략·체크박스 숨김. showSaveCheckbox = !isUnchanged(...)(checkout/index.vue:65)·maybeSaveAddress 가드(:151).
+- 저장 페이로드: isDefault:false 고정(타입상 필수 필드 → "기본 지정 미요청"의 구현·첫 주소는 서버가 기본 강제)·addressLabel·deliveryMemo 제외·선택 필드 빈값→undefined. buildCreateAddressRequest(lib/utils/address-form.ts).
+- 저장 위치: checkout.submit 성공 직후·publicId 판정 전·goToMockPayment 이전(checkout/index.vue:181). 실패는 try/catch 격리·console.warn만(:149~).
+- 저장 성공 시: 응답 Address를 로컬 목록에 추가 + 해당 주소 "선택+무변경"으로 전환(재제출 중복 저장 방지).
+- deliveryMemo는 주소 선택·교체 시 유지(주문별 값·applyAddress/clearAddressFields 대상 아님).
+
+### §진입점
+1. 목적: 체크아웃에서 저장 배송지 자동입력·드롭다운 선택·주문 후 신규 저장으로 재입력 부담 제거(신규 BE 0).
+2. 페이지: frontend/app/pages/checkout/index.vue(SSR 로드·자동입력·드롭다운·체크박스·저장 배선·maxlength·로드 실패 안내).
+3. 순수 로직: frontend/app/lib/utils/address-form.ts(isUnchanged·buildCreateAddressRequest·CheckoutAddressForm). datetime.ts 선례로 utils 배치.
+4. 테스트: frontend/test/unit/address-form.spec.ts(isUnchanged 5·buildCreateAddressRequest 3).
+5. 재사용 자산: composables/useAddresses.ts(listAddresses·createAddress·시그니처 무변경)·lib/constants/account.ts(공유 6필드 maxlength 상수).
+6. 전제·트랩: LT-12(useAsyncData 콜백 내 store 접근 회피·useAddresses는 setup 최상위 호출)·frontend/.nuxt bind-mount 공유(아래 트랩)·로컬 hosts 127.0.0.1 가드.
+
+### §실측·트랩
+- 검증: typecheck 0·vitest 7 files 29 tests·SSR HTML 1a(기본 자동입력·6필드 대조 일치)·1b(0건 빈 폼·드롭다운 숨김)·dev E2E 2~7(Playwright·호스트 Chromium→게이트웨이). checkout.submit은 page.route 목킹으로 실주문 0건·실측 데이터(테스트 주소·카트) 사후 정리 완료.
+- [트랩 후보·1회차] typecheck의 nuxt prepare가 bind-mount된 frontend/.nuxt를 재생성 → 실행 중 dev 서버의 #app-manifest 대상 소실 → vite import-analysis 오류. 조치: frontend 컨테이너 재시작. 규칙: dev 실측 중 typecheck(nuxt prepare) 재실행 금지·필요 시 실측 후 실행 + 컨테이너 재시작. 재발 시 live-traps 승격(LT-15 계열). (본 트랙 실발생: 구현 단계 typecheck 후 오류 발생 → 컨테이너 재시작으로 복구. 이후 E2E 중 typecheck 미재실행으로 재발 없음.)
+- [가드] 로컬 hosts가 zslab-mall.duckdns.org를 운영 IP로 두는 경우가 있음(자동 모드 운영 도메인 쓰기 차단으로 운영 영향 0). 인증 dev 실측 전 DNS/hosts 127.0.0.1 확인 필수.
+
+### §8 이월(carry-over)
+- [미확인·BE] 기본 배송지 삭제 시 자동 승격 거동·주소 개수 상한. 현 구현은 저장 실패 격리라 결제 무영향.
+- [백로그] 우편번호 검색 API(FE-11·FE-13 이연 승계)·주문 요약·CI 체크아웃 경로 미커버(인증 User Journey E2E 백로그 승계).
 
