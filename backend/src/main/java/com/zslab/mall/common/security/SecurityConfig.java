@@ -58,6 +58,9 @@ public class SecurityConfig {
                         // 구매자 상품 카탈로그(Track 44)는 공개 조회이므로 GET만 permitAll(다른 verb는 신설 없음·anyRequest authenticated)
                         .requestMatchers(HttpMethod.GET, "/api/v1/products/**")
                         .permitAll()
+                        // 공개 카테고리 목록(Track 72)은 공개 taxonomy 조회이므로 GET 단일 경로만 permitAll
+                        .requestMatchers(HttpMethod.GET, "/api/v1/categories")
+                        .permitAll()
                         // 구체 규칙 먼저(claims 세분 — SELLER 3건을 BUYER 광범위 규칙보다 앞·first-match):
                         .requestMatchers(HttpMethod.POST, "/api/v1/claims/*/approve")
                         .hasRole("SELLER")

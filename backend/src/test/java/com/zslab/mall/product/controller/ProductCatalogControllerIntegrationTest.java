@@ -43,7 +43,11 @@ class ProductCatalogControllerIntegrationTest extends AbstractIntegrationTest {
     private static final long CAT_PAGE = 44103L;
     private static final long CAT_SOLDOUT = 44104L;
     private static final long CAT_DETAIL = 44105L;
-    private static final List<Long> CATEGORY_IDS = List.of(CAT_EXCL, CAT_SORT, CAT_PAGE, CAT_SOLDOUT, CAT_DETAIL);
+    private static final long CAT_SEARCH = 44106L;
+    private static final List<Long> CATEGORY_IDS =
+            List.of(CAT_EXCL, CAT_SORT, CAT_PAGE, CAT_SOLDOUT, CAT_DETAIL, CAT_SEARCH);
+    // keyword 최대 길이(ProductCatalogService.MAX_KEYWORD_LENGTH 계약). 초과 시 400.
+    private static final int MAX_KEYWORD_LENGTH = 50;
 
     // 노출 대상 상품(비교 기준) + 상세 대상 public_id
     private static final String PID_VISIBLE = prd("PVISIBLE");
@@ -267,6 +271,117 @@ class ProductCatalogControllerIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
     }
 
+    // ==================== 상품명 keyword 검색(Track 72) ====================
+
+    @Test
+    @DisplayName("T16 keyword 부분일치·대소문자 무구분 — 'ALPHA' → alpha hoodie·Alpha Tee·베타 alpha 셔츠 3건(HIDDEN 제외)")
+    void list_keyword_partialMatch_caseInsensitive() throws Exception {
+        // NAME 정렬도 utf8mb4_unicode_ci라 대소문자 무구분: "alpha h" < "alpha t" → hoodie가 Tee보다 앞.
+        mockMvc.perform(get(URL).param("categoryId", String.valueOf(CAT_SEARCH)).param("keyword", "ALPHA").param("sort", "NAME"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalCount").value(3))
+                .andExpect(jsonPath("$.items.length()").value(3))
+                .andExpect(jsonPath("$.items[0].name").value("alpha hoodie"))
+                .andExpect(jsonPath("$.items[1].name").value("Alpha Tee"))
+                .andExpect(jsonPath("$.items[2].name").value("베타 alpha 셔츠"));
+    }
+
+    @Test
+    @DisplayName("T17 keyword 빈 값·공백만 → 조건 없음(카테고리 노출 6건 = keyword 미지정과 동일)·앞뒤 공백 trim")
+    void list_keyword_blankIgnored() throws Exception {
+        mockMvc.perform(get(URL).param("categoryId", String.valueOf(CAT_SEARCH)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalCount").value(6));
+        mockMvc.perform(get(URL).param("categoryId", String.valueOf(CAT_SEARCH)).param("keyword", ""))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalCount").value(6));
+        mockMvc.perform(get(URL).param("categoryId", String.valueOf(CAT_SEARCH)).param("keyword", "   "))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalCount").value(6));
+        mockMvc.perform(get(URL).param("categoryId", String.valueOf(CAT_SEARCH)).param("keyword", "  hoodie  "))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalCount").value(1))
+                .andExpect(jsonPath("$.items[0].name").value("alpha hoodie"));
+    }
+
+    @Test
+    @DisplayName("T18 keyword 특수문자 리터럴 — '%'·'_'·'\\'는 와일드카드/escape가 아닌 문자 그대로 매칭·미일치는 빈 목록 200")
+    void list_keyword_specialCharsLiteral() throws Exception {
+        // '%' 리터럴: "100% 면" 1건만(와일드카드였다면 카테고리 전체 매칭)
+        mockMvc.perform(get(URL).param("categoryId", String.valueOf(CAT_SEARCH)).param("keyword", "%"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalCount").value(1))
+                .andExpect(jsonPath("$.items[0].name").value("100% 면"));
+        // '_' 리터럴: "a_b 티" 1건만(와일드카드였다면 "alpha hoodie"·"Alpha Tee"의 "a?b"류는 없지만 "a_b"=a+임의1자+b 검증)
+        mockMvc.perform(get(URL).param("categoryId", String.valueOf(CAT_SEARCH)).param("keyword", "a_b"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalCount").value(1))
+                .andExpect(jsonPath("$.items[0].name").value("a_b 티"));
+        // '\' 리터럴: "c\d 백슬래시" 1건(escape 문자 자체가 escape되지 않으면 'd'만 매칭돼 hoodie 등도 포함될 수 있음)
+        mockMvc.perform(get(URL).param("categoryId", String.valueOf(CAT_SEARCH)).param("keyword", "c\\d"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalCount").value(1))
+                .andExpect(jsonPath("$.items[0].name").value("c\\d 백슬래시"));
+        mockMvc.perform(get(URL).param("categoryId", String.valueOf(CAT_SEARCH)).param("keyword", "zzz"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalCount").value(0))
+                .andExpect(jsonPath("$.items.length()").value(0));
+    }
+
+    @Test
+    @DisplayName("T19 keyword 길이 — trim 후 50자는 200·51자는 400 MALFORMED_REQUEST")
+    void list_keyword_lengthLimit() throws Exception {
+        mockMvc.perform(get(URL).param("keyword", "k".repeat(MAX_KEYWORD_LENGTH)))
+                .andExpect(status().isOk());
+        // 앞뒤 공백 포함 52자여도 trim 후 50자면 통과
+        mockMvc.perform(get(URL).param("keyword", " " + "k".repeat(MAX_KEYWORD_LENGTH) + " "))
+                .andExpect(status().isOk());
+        mockMvc.perform(get(URL).param("keyword", "k".repeat(MAX_KEYWORD_LENGTH + 1)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
+    }
+
+    @Test
+    @DisplayName("T20 keyword + categoryId 조합 — '상품'은 CAT_SORT 3건, categoryId 미지정 시 노출 6건으로 확대(비노출 5건 제외)")
+    void list_keyword_withCategoryFilter() throws Exception {
+        mockMvc.perform(get(URL).param("categoryId", String.valueOf(CAT_SORT)).param("keyword", "상품"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalCount").value(3));
+        // CAT_SORT 3 + CAT_EXCL "노출상품" 1 + CAT_DETAIL "멀티옵션상품"·"단순상품" 2 = 6.
+        // "숨김상품"·"중지상품"·"정지셀러상품"·"해지셀러상품"·"삭제상품"은 이름에 '상품'이 있어도 비노출로 제외.
+        mockMvc.perform(get(URL).param("keyword", "상품").param("size", "100"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalCount").value(6))
+                .andExpect(jsonPath("$.items.length()").value(6));
+    }
+
+    @Test
+    @DisplayName("T21 keyword + 페이징 — totalCount·hasNext가 목록 조건과 일치(size=2: page0 2건 hasNext true·page1 1건 false)")
+    void list_keyword_pagingConsistent() throws Exception {
+        mockMvc.perform(get(URL).param("categoryId", String.valueOf(CAT_SEARCH)).param("keyword", "alpha")
+                        .param("size", "2").param("page", "0"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(2))
+                .andExpect(jsonPath("$.totalCount").value(3))
+                .andExpect(jsonPath("$.hasNext").value(true));
+        mockMvc.perform(get(URL).param("categoryId", String.valueOf(CAT_SEARCH)).param("keyword", "alpha")
+                        .param("size", "2").param("page", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.totalCount").value(3))
+                .andExpect(jsonPath("$.hasNext").value(false));
+    }
+
+    @Test
+    @DisplayName("T22 keyword + 노출 조건 유지 — HIDDEN·STOPPED·삭제·판매자 SUSPENDED/TERMINATED는 이름이 일치해도 0건")
+    void list_keyword_keepsDisplayableFilter() throws Exception {
+        for (String keyword : List.of("숨김", "중지", "삭제", "정지셀러", "해지셀러")) {
+            mockMvc.perform(get(URL).param("keyword", keyword))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.totalCount").value(0));
+        }
+    }
+
     // ==================== seed·helpers ====================
 
     private record VariantSpec(
@@ -334,6 +449,23 @@ class ProductCatalogControllerIntegrationTest extends AbstractIntegrationTest {
                                 v("빨강", 200, "SALE", true, 10, 1)));
                 seedProduct(44242L, "PSIMPLE", SELLER_ACTIVE, CAT_DETAIL, "단순상품", "SALE", 8000L, base, null,
                         "DEFAULT", List.of(v("DEFAULT", 0, "SALE", false, 3, 0)));
+
+                // CAT_SEARCH(Track 72 keyword) — 부분일치 3건("Alpha Tee"·"alpha hoodie"·"베타 alpha 셔츠")·특수문자 3건
+                // ("100% 면"·"a_b 티"·"c\d 백슬래시")·HIDDEN 1건("alpha 숨김"). 카테고리 교차 확인은 CAT_SORT("N상품")로 한다.
+                seedProduct(44251L, "PSRCH1", SELLER_ACTIVE, CAT_SEARCH, "Alpha Tee", "SALE", 10000L, base, null,
+                        "색상", List.of(v("검정", 0, "SALE", false, 5, 0)));
+                seedProduct(44252L, "PSRCH2", SELLER_ACTIVE, CAT_SEARCH, "alpha hoodie", "SALE", 10000L, base.plusDays(1), null,
+                        "색상", List.of(v("검정", 0, "SALE", false, 5, 0)));
+                seedProduct(44253L, "PSRCH3", SELLER_ACTIVE, CAT_SEARCH, "베타 alpha 셔츠", "SALE", 10000L, base.plusDays(2), null,
+                        "색상", List.of(v("검정", 0, "SALE", false, 5, 0)));
+                seedProduct(44254L, "PSRCH4", SELLER_ACTIVE, CAT_SEARCH, "100% 면", "SALE", 10000L, base, null,
+                        "색상", List.of(v("검정", 0, "SALE", false, 5, 0)));
+                seedProduct(44255L, "PSRCH5", SELLER_ACTIVE, CAT_SEARCH, "a_b 티", "SALE", 10000L, base, null,
+                        "색상", List.of(v("검정", 0, "SALE", false, 5, 0)));
+                seedProduct(44256L, "PSRCH6", SELLER_ACTIVE, CAT_SEARCH, "alpha 숨김", "HIDDEN", 10000L, base, null,
+                        "색상", List.of(v("검정", 0, "SALE", false, 5, 0)));
+                seedProduct(44257L, "PSRCH7", SELLER_ACTIVE, CAT_SEARCH, "c\\d 백슬래시", "SALE", 10000L, base, null,
+                        "색상", List.of(v("검정", 0, "SALE", false, 5, 0)));
             } finally {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
             }

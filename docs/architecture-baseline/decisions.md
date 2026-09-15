@@ -9945,3 +9945,63 @@ FE 연계: decisions-fe.md FE-18 (같은 브랜치·같은 PR)
 - [백로그·BE] 판매자 비-ACTIVE 상품의 담기·신규 주문 허용 여부(현재 담기·주문 경로는 판매자 상태 미검사, 목록·상세·조회 enrich만 반영).
 - [백로그] 수동 품절(soldoutManual) 토글 API 부재.
 - D-63(신규 주문 상태 미검증) → 본 D로 판매 상태·수동 품절 검증 도입. 판매자 상태는 위 이월.
+
+## D-161. 상품명 keyword 검색 + 공개 카테고리 목록 API (Track 72·FE-20 연계)
+
+날짜: 2026-09-16
+트랙: Track 72
+정찰: docs/frontend/recon-report-fe20-search-category.md
+FE 연계: FE-20 검색 결과·카테고리 페이지·헤더 카테고리 드롭다운(후속 브랜치)
+
+### 확정 방향
+- `GET /api/v1/products`에 `keyword`(선택) 추가 — 상품명 부분일치. trim 후 빈 값이면 조건 없음, 50자 초과 400 MALFORMED_REQUEST. categoryId·sort·page·size와 조합 가능, D-160 노출 조건(SALE ∧ 판매자 ACTIVE) 유지.
+- `GET /api/v1/categories` 신설 — 루트(parent IS NULL) 전체를 `[{categoryId, displayName, sortOrder}]`로 반환(sort_order·id 오름차순·페이징 없음·permitAll GET).
+- FE-20 라우트: `/search?keyword=` 신설·`/categories/[id]` 신설(뷰는 ProductListView 공용·`/products?categoryId=` 호환 유지).
+
+### 정찰 사실(변경 전)
+- 키워드 검색 API·공개 카테고리 조회 API 모두 없음. 카테고리 컨트롤러는 ADMIN 루트 생성(POST)만.
+- ES는 Track 32 로그 수집 전용·product FULLTEXT 인덱스 없음.
+- 데모 시드 카테고리 depth=0, API 생성분 depth=1 → depth로 루트 판별 시 로컬 시드 누락.
+- FE 목록 데이터 훅(useProductList)은 쿼리 조립 한 곳이라 keyword Ref 추가로 확장 가능.
+
+### §1-A 갈림길·채택/기각 근거
+1) 검색 방식
+- α 채택: 상품명 `LIKE '%keyword%'`(JPQL·`ESCAPE '\'`로 %·_·\ 리터럴화). MVP·데이터 규모(수십~수백 건)에 충분하고 추가 인프라 없음.
+- β 기각: FULLTEXT 인덱스. 한글 파서(ngram) 설정·마이그레이션 비용 대비 효익 없음.
+- γ 기각: ES nori. 인덱싱 파이프라인 부재(현 ES는 로그 전용).
+2) keyword 검증 위치
+- α 채택: Service `toLikePattern`에서 trim·길이·escape를 한 곳에 처리, 초과 시 `MalformedRequestException`(400 MALFORMED_REQUEST·sort/page 타입 불일치와 동일 코드). 컨트롤러는 `@RequestParam(required=false)`만.
+- β 기각: `@Validated` + `@Size` 메서드 파라미터 검증. `HandlerMethodValidationException` 핸들러 신설이 필요하고 기존 컨트롤러에 선례 없음.
+3) 루트 카테고리 판별
+- α 채택: `parent IS NULL`. 시드 depth 0/1 불일치를 회피하고 엔티티 Javadoc("parent가 null인 행이 루트")과 정합.
+- β 기각: depth 값 기준. 로컬 데모 시드(depth 0) 누락.
+4) 카테고리 조회 계층
+- α 채택: 읽기 전용 `CategoryCatalogService` 신설(ProductCatalogService 선례). 쓰기 `CategoryService`·Admin API·V13 무수정.
+- β 기각: `CategoryService`에 조회 메서드 추가. 쓰기 트랜잭션 클래스에 읽기 혼합.
+5) 응답 필드명
+- α 채택: `categoryId·displayName·sortOrder`(`CreateCategoryResponse` 계약 재사용). depth·parent는 루트만 반환하므로 미노출.
+- β 기각: `id·name`. 기존 카테고리 DTO 명명과 불일치.
+6) FE-20 라우트
+- α 채택: `/categories/[id]` 신설 — 향후 카테고리 전용 디자인 분리 여지. 뷰는 ProductListView 공용, `/products?categoryId=` 호환 유지.
+- β 기각: `/products?categoryId=` 단일 라우트. 나중에 분리 시 URL 변경 비용.
+- `/search?keyword=` 신설(FE-20에서 구현).
+
+### §2 결정 라운드 재진입
+없음.
+
+### 구현 요약(file:line)
+- keyword: `product/controller/ProductCatalogController.java:40`(`@RequestParam(required=false) String keyword`) · `product/service/ProductCatalogService.java:60`(MAX_KEYWORD_LENGTH 50)·`:82`(toLikePattern 전달)·`:307`(trim·빈값 null·초과 400·`\`→`\\`·`%`→`\%`·`_`→`\_`·양끝 %) · `product/repository/ProductRepository.java:61,76`(목록·countQuery 동일 `(:keywordPattern IS NULL OR p.name LIKE :keywordPattern ESCAPE '\')`).
+- 카테고리: `category/repository/CategoryRepository.java:18`(findByParentIsNullOrderBySortOrderAscIdAsc) · `category/service/CategoryCatalogService.java`(readOnly) · `category/controller/CategoryCatalogController.java:24`(GET /api/v1/categories) · `category/controller/response/CategorySummaryResponse.java` · `common/security/SecurityConfig.java:62`(GET permitAll).
+
+### 트랩
+- HQL 문자열 리터럴에서 `\`는 escape 시퀀스 시작이다 — Java 소스 `"ESCAPE '\\\\'"`(HQL `'\\'` → SQL `'\'`)로 써야 파싱된다(Hibernate 6.6.4 실측). 2-backslash로 쓰면 컨텍스트 기동 실패.
+- `NAME` 정렬·LIKE 모두 utf8mb4_unicode_ci라 대소문자 무구분(`alpha hoodie` < `Alpha Tee`). 테스트 기대값을 이 순서로 고정.
+
+### 검증
+- 전체 `gradlew.bat test --rerun-tasks`: 881 tests · 0 fail(기존 870 + 신규 11).
+- keyword IT 7(T16 부분일치·대소문자 / T17 빈·공백 무시·trim / T18 %·_·\ 리터럴·미일치 빈 목록 / T19 50자 200·51자 400 / T20 categoryId 조합·미지정 확대 / T21 size=2 totalCount·hasNext / T22 HIDDEN·STOPPED·삭제·판매자 비-ACTIVE 제외) · categories IT 4(비인증 200 / 루트만·자식·soft-delete 제외·depth 0/1 무관·필드 3 / sort_order→id 정렬 / 빈 목록).
+
+### §8 이월
+- 2차 카테고리: 자식 생성 API·데이터 없음 + V13 dedup_key 스코프(display_name 전역) 재설계 + fk_category_parent ON UPDATE CASCADE 제거 선행 필요.
+- `product.thumbnail_url`과 ProductImage 대표(is_main) 비동기화(Track 59 결정3 seam) — 목록 mainImageUrl은 thumbnail_url만 반영.
+- 프론트 ProductCard 이미지 onerror 대체 없음(깨진 URL 시 빈 이미지).

@@ -45,17 +45,20 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
     /**
      * 구매자 카탈로그 노출대상 상품을 페이징 조회한다(Track 44·D1). 노출대상 = Product.status=SALE ∧ Seller.status=ACTIVE이며,
      * deleted_at 제외는 {@code @SQLRestriction}이 Product·Seller·ProductVariant 전 엔티티에 자동 적용한다(status만 명시).
-     * categoryId가 null이면 전체, 값이 있으면 해당 카테고리로 필터한다.
+     * categoryId가 null이면 전체, 값이 있으면 해당 카테고리로 필터한다. keywordPattern(Track 72)은 Service가 이미
+     * escape·%감싸기까지 마친 LIKE 패턴이며(null이면 조건 없음), ESCAPE '\'로 %·_·\ 리터럴 매칭을 보장한다.
+     * 목록·countQuery에 동일 조건을 적용해 totalCount·hasNext가 일치한다.
      *
      * <p>정렬(sort)은 요청 파라미터(LATEST·PRICE_ASC·PRICE_DESC·NAME)로 분기한다. PRICE는 대표가(basePrice + 판매가능
      * variant의 MIN(additional_price))로 정렬하며, 판매가능 variant가 없으면 COALESCE 0으로 basePrice만 반영한다.
-     * LATEST(created_at DESC)는 기본이자 동순위 tiebreaker다. 모든 변수는 :categoryId·:sort 바인딩이다(SQL injection 위험 없음).
+     * LATEST(created_at DESC)는 기본이자 동순위 tiebreaker다. 모든 변수는 :categoryId·:keywordPattern·:sort 바인딩이다(SQL injection 위험 없음).
      */
     @Query(value = "SELECT p FROM Product p, com.zslab.mall.seller.entity.Seller s "
             + "WHERE p.sellerId = s.id "
             + "AND p.status = com.zslab.mall.product.enums.ProductStatus.SALE "
             + "AND s.status = com.zslab.mall.seller.enums.SellerStatus.ACTIVE "
             + "AND (:categoryId IS NULL OR p.categoryId = :categoryId) "
+            + "AND (:keywordPattern IS NULL OR p.name LIKE :keywordPattern ESCAPE '\\') "
             + "ORDER BY "
             + "CASE WHEN :sort = 'PRICE_ASC' THEN p.basePrice + "
             + "(SELECT COALESCE(MIN(v.additionalPrice), 0) FROM ProductVariant v "
@@ -69,7 +72,11 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
             + "WHERE p.sellerId = s.id "
             + "AND p.status = com.zslab.mall.product.enums.ProductStatus.SALE "
             + "AND s.status = com.zslab.mall.seller.enums.SellerStatus.ACTIVE "
-            + "AND (:categoryId IS NULL OR p.categoryId = :categoryId)")
+            + "AND (:categoryId IS NULL OR p.categoryId = :categoryId) "
+            + "AND (:keywordPattern IS NULL OR p.name LIKE :keywordPattern ESCAPE '\\')")
     Page<Product> findDisplayable(
-            @Param("categoryId") Long categoryId, @Param("sort") String sort, Pageable pageable);
+            @Param("categoryId") Long categoryId,
+            @Param("keywordPattern") String keywordPattern,
+            @Param("sort") String sort,
+            Pageable pageable);
 }
