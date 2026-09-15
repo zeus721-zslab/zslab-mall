@@ -4,6 +4,16 @@ const auth = useAuthStore()
 const cart = useCartStore()
 const route = useRoute()
 
+// 계정 드롭다운 링크 항목(FE-19). 회원 탈퇴는 파괴적 동작이라 헤더 상시 노출 대상에서 제외(/mypage 허브에서만 진입).
+const accountMenuItems: { to: string; label: string }[] = [
+  { to: '/mypage', label: '마이페이지' },
+  { to: '/orders', label: '주문내역' },
+  { to: '/mypage/profile', label: '회원정보 수정' },
+  { to: '/mypage/password', label: '비밀번호 변경' },
+  { to: '/mypage/addresses', label: '배송지 관리' },
+  { to: '/claims', label: '취소·반품·교환 내역' },
+]
+
 // route.meta.middleware는 단일 문자열 'buyer' 또는 배열로 노출될 수 있어 양쪽 모두 방어적으로 판정한다.
 function isBuyerProtectedRoute(): boolean {
   const middleware = route.meta.middleware
@@ -65,9 +75,23 @@ async function handleLogout(): Promise<void> {
       </NuxtLink>
 
       <!-- 인증 분기: isAuthenticated computed 기준으로만 렌더(로컬 상태 이중화 금지·SSR/클라 쿠키값 일치) -->
-      <Button v-if="auth.isAuthenticated" variant="ghost" size="sm" class="shrink-0" @click="handleLogout">
-        로그아웃
-      </Button>
+      <!-- FE-19 계정 드롭다운: 라벨은 "내 계정" 고정(이름 조회 없음). 링크 항목은 as-child로 NuxtLink에 위임, 선택 시 자동 닫힘. -->
+      <DropdownMenu v-if="auth.isAuthenticated">
+        <DropdownMenuTrigger as-child>
+          <Button variant="ghost" size="sm" class="shrink-0" data-testid="account-menu-trigger">
+            내 계정
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" class="min-w-44">
+          <DropdownMenuItem v-for="item in accountMenuItems" :key="item.to" as-child>
+            <NuxtLink :to="item.to" class="w-full cursor-pointer">{{ item.label }}</NuxtLink>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem class="cursor-pointer" data-testid="account-menu-logout" @select="handleLogout">
+            로그아웃
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
       <NuxtLink
         v-else
         to="/login"

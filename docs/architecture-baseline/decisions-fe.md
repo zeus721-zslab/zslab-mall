@@ -1075,3 +1075,47 @@ FE-13 §8(:701) 이월 "[버그·백로그] BUYER 페이지에서 로그아웃 �
 - [RESOLVED] FE-17 §8 "장바구니 페이지 단계 구매 불가 선택 품목 안내·결제하기 차단" → 본 트랙 해소.
 - [RESOLVED] FE-17 §8 "신규 주문 경로의 상품 판매 상태 검증 부재(BE)" → D-160 해소(판매자 상태는 D-160 §8 이월).
 - [백로그] 관리자 FE 트랙(D-160 §8 참조).
+
+## FE-19: 헤더 계정 드롭다운
+
+날짜: 2026-09-15
+선행: FE-13(마이페이지 5페이지)·FE-12(주문)·FE-14(클레임) 라우트 실존 + 로그아웃 잔류 버그 정정(8f6d4c87). 정찰 = docs/frontend/recon-report-fe19-account-menu.md.
+범위: AppHeader 인증 분기를 "내 계정" 드롭다운으로 교체(링크 6 + 구분선 + 로그아웃). 비인증 헤더·auth store·withdraw.vue·/mypage 허브 무변경.
+수용기준(달성): 비인증 트리거 없음 / 인증 "내 계정" / 열기→마이페이지·주문내역·회원정보 수정·비밀번호 변경·배송지 관리·취소·반품·교환 내역·로그아웃 순 / 회원 탈퇴 부재 / 바깥 클릭·Esc·항목 선택 시 닫힘 / 보호 페이지 로그아웃→'/' 이동·장바구니 초기화·공개 페이지 잔류(기존 로직 보존). typecheck 0·vitest 36·smoke 1·dev 실측 18 GREEN.
+
+### §1-A 갈림길·채택/기각 근거
+1) 트리거 라벨
+- α 채택: "내 계정" 고정. 추가 조회 없음(JWT에 이름 claim 없음·store에 이름 필드 없음).
+- β 기각: /users/me를 store에 연동해 이름 표시. SSR Bearer 주입·401 처리·로그아웃 초기화 비용 대비 라벨 1개 이득.
+2) 드롭다운 구현
+- α 채택: shadcn dropdown-menu(reka-ui 래핑). 바깥 클릭·Esc·포커스·role=menu 접근성 내장. 컨테이너 `pnpm dlx shadcn-vue@2 add dropdown-menu`(CLI 2.8.2).
+- β 기각: 직접 구현. 바깥 클릭·키보드 처리 수기 작성(@vueuse/core 미설치 상태였음).
+3) 아이콘 라이브러리(CLI 산출물이 @radix-icons/vue import → typecheck 실패)
+- α 채택: components.json `iconLibrary: "lucide"` 지정 후 `--overwrite` 재생성. @radix-icons 0건.
+- β 기각: @radix-icons/vue 설치. 아이콘 라이브러리 이중화.
+- γ 기각: 미사용 3파일(CheckboxItem·RadioItem·SubTrigger) 삭제. CLI 산출물 수기 편집.
+4) 회원 탈퇴 항목 — 제외. 파괴적 동작을 헤더 상시 노출 메뉴에 두지 않고 /mypage 허브에서만 진입.
+5) 로그아웃 위치 — 헤더 상시 버튼 → 드롭다운 마지막 항목. `handleLogout`(auth.logout→cart.clear→보호 라우트면 '/') 함수 무수정·호출 지점만 이동.
+
+### §2 확정 구현 규칙 (file:line)
+- `frontend/app/components/AppHeader.vue:8` `accountMenuItems` 6링크 · `:79` `<DropdownMenu v-if="auth.isAuthenticated">` · `:81` 트리거 `data-testid="account-menu-trigger"`(기존 로그아웃 Button 스타일 ghost/sm 유지) · `:86` 항목 `as-child` NuxtLink · `:89` Separator · `:90` 로그아웃 `data-testid="account-menu-logout" @select="handleLogout"` · `:26` handleLogout 무변경.
+- `frontend/components.json` `iconLibrary: "lucide"` 추가 — FE-09 PROGRESS 기록엔 lucide 지정으로 돼 있으나 커밋본(8fc237ae)엔 없었던 불일치 정정.
+- `frontend/package.json` `@vueuse/core ^14.4.0`·`@lucide/vue ^1.46.0` dependency 추가(shadcn dropdown-menu 산출물 요구: reactiveOmit·아이콘). 기존 `lucide-vue-next`(deprecated·app 사용처 0)는 미제거.
+- `frontend/app/components/ui/dropdown-menu/*` 15파일 CLI 산출물 무수정.
+
+### §진입점
+1. 목적: 로그인 사용자의 계정 관련 페이지 진입점을 헤더 한 곳으로 모으고 로그아웃을 그 안으로 이동.
+2. 헤더: frontend/app/components/AppHeader.vue(accountMenuItems·DropdownMenu 배선).
+3. UI 컴포넌트: frontend/app/components/ui/dropdown-menu/(shadcn 산출물, auto-import·prefix '').
+4. 테스트: frontend/test/component/AppHeader.spec.ts 6 it(data-testid 기반·열기=trigger click·조회=document Portal).
+5. 전제·트랩: FE-16 트랩(typecheck 후 frontend 재시작) / 로컬 hosts 127.0.0.1 가드 / CLI 실행 시 components.json iconLibrary 필수.
+
+### §실측·트랩
+- 검증: typecheck 0 · vitest 8 files 36 tests(AppHeader 5→6) · Playwright smoke 1 · dev 실측 18/18(비로그인·로그인·열기·링크 6·탈퇴 부재·바깥 클릭·Esc·6링크 이동+닫힘·/mypage 로그아웃→/·뱃지 2→0·/products 로그아웃 잔류).
+- 트랩: reka-ui@2.10 DropdownMenuTrigger는 `onClick` 토글(pointerdown 아님) → vitest에서 `trigger('click')`로 열림. Portal 콘텐츠는 wrapper 밖 document.body → `document.querySelector` 조회. Portal stub 불필요.
+- 트랩: dev SSR 페이지는 hydration 전 클릭 무시 → 브라우저 실측 시 networkidle 대기 후 클릭.
+- 부수: 데모 계정 장바구니에 실측용 상품 1건 추가됨(원복 안 함).
+
+### §8 이월(carry-over)
+- [백로그] `lucide-vue-next` deprecated dep 제거(@lucide/vue로 통일) — 사용처 0.
+- [백로그] /mypage 허브에 주문내역 링크 부재(드롭다운에만 존재).
