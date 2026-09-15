@@ -72,7 +72,8 @@ public class OrderService {
                     itemCommand.sellerId(),
                     itemCommand.quantity(),
                     itemCommand.unitPrice(),
-                    itemCommand.totalPrice()));
+                    itemCommand.totalPrice(),
+                    itemCommand.optionLabel()));
         }
 
         order.attachSnapshot(toSnapshot(command.shipping()));

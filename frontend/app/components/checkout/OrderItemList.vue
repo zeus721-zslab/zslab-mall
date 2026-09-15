@@ -38,6 +38,7 @@ function formatPrice(value: number): string {
       <div class="flex min-w-0 flex-1 flex-col gap-2">
         <div class="min-w-0">
           <p class="truncate text-sm font-medium text-ink">{{ item.productName ?? '상품 정보 없음' }}</p>
+          <p v-if="item.optionLabel" data-testid="item-option-label" class="truncate text-xs text-sub">{{ item.optionLabel }}</p>
           <p v-if="item.sellerName" class="truncate text-xs text-seller">{{ item.sellerName }}</p>
           <p v-if="!item.purchasable" class="mt-1 text-xs text-soldout">구매 불가 (품절 또는 판매 중지)</p>
         </div>

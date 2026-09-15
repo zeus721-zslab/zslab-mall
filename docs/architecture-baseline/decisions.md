@@ -10077,3 +10077,32 @@ deploy.yml이 `push main` 무필터라 docs만 변경된 머지에도 서버 SSH
 ### §8 이월
 - deploy `concurrency`(연속 머지 시 SSH 동시 실행 방지) 미적용 — 관찰만.
 - filebeat.yml 내용 변경은 compose diff 비감지(재생성 없음) — 필요 시 별건.
+
+## D-164. 옵션명 표시 — order_item 옵션 라벨 스냅샷·OptionLabelResolver 공용 배치 (Track 75)
+
+날짜: 2026-09-16
+트랙: Track 75 (FE-21 옵션명 표시 BE 선행)
+정찰: docs/track-75/recon-report.md
+브랜치: feat/track-75-option-label
+
+### 배경
+장바구니·체크아웃 주문 요약·주문 상세에 "색상: 블랙 / 사이즈: M" 옵션 라벨을 표시한다. 정찰 실측: variant는 option1~3_value_id(Long)만 보유하고 라벨은 그룹·값 2단 조회가 필요·order_item에는 가격 외 스냅샷이 없고 상품명은 read-time enrich·라벨 해소 로직은 ProductCatalogService.variantOptions(private) 1곳뿐·통합 테스트 픽스처는 옵션값 행 없이 variant를 삽입한다.
+
+### 결정
+1. 주문 상세 라벨 출처: α 주문 시점 스냅샷(order_item.option_label) 【채택】 / β 조회 시 현재 옵션 조인 【기각】 — 옵션 그룹·값 수정·삭제 시 과거 주문 표기가 변동. 장바구니·체크아웃 요약은 현재 옵션명(read-time·CartService).
+2. 스냅샷 형태: A 포맷 완료 문자열 1컬럼 VARCHAR(500)·표시 전용 【채택】 / B 구조 저장(JSON·그룹/값 3쌍) 【기각】 — 표기 포맷이 단일 고정이라 FE 포맷 유틸·구조 파싱이 소비처 없음. 길이 = 그룹 50 + 값 100 × 3조 + 구분자 여유.
+3. NULL 정책: 옵션 없음(DEFAULT sentinel)·옵션값/그룹 미해소·V20 이전 주문 모두 NULL(빈 문자열 금지). 라벨은 표시 전용이라 미해소로 주문 생성을 실패시키지 않는다(기존 FK-off 픽스처 30여 파일 보호와 동일 전제). 응답은 NON_NULL로 생략·FE는 값 있을 때만 렌더.
+4. OrderItem.create 6인자 시그니처 유지 + 7인자 오버로드 추가·OrderItemCommand도 6인자 보조 생성자 유지 — 직접 호출 25건(16파일) 무수정. 단일 시그니처 변경 【기각】(테스트 25건 수정 대비 이점 없음).
+5. 라벨 조합 위치: product 도메인 OptionLabelResolver(@Component) 공용 — variant 목록 전체의 값 id 합집합 → 옵션값 findAllById 1회 → 그룹 findAllById 1회(N+1 금지·그룹 id는 LAZY 프록시 식별자 접근만). CheckoutService 양 해소 경로(직접주문·장바구니 결제)와 CartService.getCart가 호출. DEFAULT 상수는 ProductRegistrationService.DEFAULT_OPTION_GROUP_NAME을 package-private로 열어 참조(중복 3곳 정리는 범위 밖·미수행). ProductCatalogService.variantOptions 통합 【이연】.
+6. 데모 시드 미수정 — 시드 멱등 키(product count==0)로 기존 DB에 반영되지 않으며 운영도 동일. 검증용 옵션 상품은 판매자 등록 API(+관리자 승인)로 로컬 dev에 생성.
+7. 클레임 신청 화면(claims/new.vue 상품명 query) 옵션명 동반은 범위 밖.
+
+### 검증
+- 단위: OptionLabelResolverTest 7(1·2·3축 포맷 / DEFAULT null / 미해소 null / 배치 1+1회 / 빈 목록 무조회).
+- 통합: OptionLabelIntegrationTest 6(GET /cart 옵션 라벨·단순상품 생략 / POST /orders 스냅샷 DB·상세 노출 / 단순상품 NULL / POST /cart/checkout 경로 스냅샷 / 주문 후 옵션값·그룹명 UPDATE에도 상세 라벨 유지 / option_label NULL 기존 주문 200·생략).
+- 전체: ./backend/gradlew.bat test --rerun-tasks 894 tests·0 fail(173 classes). CheckoutServiceTest는 생성자 인자 추가(OptionLabelResolver mock)만 수정.
+- 로컬 dev: 백엔드 컨테이너 restart로 Flyway V20 적용(기존 order_item 행 NULL 유지)·판매자 API로 옵션 상품 prd_01M2K01B3GVZXNMTP8EHA07D85 생성·장바구니/체크아웃/신규 주문 상세 라벨 표시·기존 주문 미표시 실측 PASS(FE-21 참조).
+
+### §8 이월
+- ProductCatalogService.variantOptions를 OptionLabelResolver로 통합·DEFAULT 상수 3곳 단일화.
+- 주문 상세 페이지 hydration 경고 2건은 Track 75 이전부터 존재(HEAD 버전으로 되돌려도 동일)·FE 별건.

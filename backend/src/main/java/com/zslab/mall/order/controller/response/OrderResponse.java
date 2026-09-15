@@ -49,6 +49,7 @@ public record OrderResponse(
                         item.getQuantity(),
                         item.getUnitPrice(),
                         item.getTotalPrice(),
+                        item.getOptionLabel(),
                         StatusView.of(item.getItemStatus())));
                 subtotal += item.getTotalPrice();
             }

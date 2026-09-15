@@ -35,6 +35,7 @@ import com.zslab.mall.product.enums.ProductStatus;
 import com.zslab.mall.product.enums.ProductVariantStatus;
 import com.zslab.mall.product.repository.ProductRepository;
 import com.zslab.mall.product.repository.ProductVariantRepository;
+import com.zslab.mall.product.service.OptionLabelResolver;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -71,6 +72,7 @@ public class CheckoutService {
     private final InventoryRepository inventoryRepository;
     private final OrderIdempotencyKeyRepository idempotencyRepository;
     private final ObjectMapper objectMapper;
+    private final OptionLabelResolver optionLabelResolver;
 
     public CheckoutService(
             OrderService orderService,
@@ -80,7 +82,8 @@ public class CheckoutService {
             ProductVariantRepository productVariantRepository,
             InventoryRepository inventoryRepository,
             OrderIdempotencyKeyRepository idempotencyRepository,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            OptionLabelResolver optionLabelResolver) {
         this.orderService = orderService;
         this.paymentService = paymentService;
         this.orderRepository = orderRepository;
@@ -89,6 +92,7 @@ public class CheckoutService {
         this.inventoryRepository = inventoryRepository;
         this.idempotencyRepository = idempotencyRepository;
         this.objectMapper = objectMapper;
+        this.optionLabelResolver = optionLabelResolver;
     }
 
     /**
@@ -206,6 +210,8 @@ public class CheckoutService {
                 .collect(Collectors.toMap(Product::getPublicId, Function.identity()));
         Map<String, ProductVariant> variantByPublicId = productVariantRepository.findByPublicIdIn(variantPublicIds).stream()
                 .collect(Collectors.toMap(ProductVariant::getPublicId, Function.identity()));
+        // 옵션 라벨 스냅샷(D-164)·해소된 variant 전체를 배치 1회로 라벨링(품목별 호출 금지·N+1 회피).
+        Map<Long, String> optionLabelByVariantId = optionLabelResolver.resolve(variantByPublicId.values());
 
         List<OrderItemCommand> resolvedItems = new ArrayList<>();
         for (CheckoutItemCommand item : itemCommands) {
@@ -221,7 +227,8 @@ public class CheckoutService {
                 throw new CheckoutItemMismatchException("변형이 상품에 속하지 않습니다: product="
                         + item.productPublicId() + ", variant=" + item.variantPublicId());
             }
-            resolvedItems.add(toOrderItemCommand(product, variant, item.quantity()));
+            resolvedItems.add(toOrderItemCommand(
+                    product, variant, item.quantity(), optionLabelByVariantId.get(variant.getId())));
         }
         return resolvedItems;
     }
@@ -241,6 +248,7 @@ public class CheckoutService {
                 .map(ProductVariant::getProductId).distinct().toList();
         Map<Long, Product> productById = productRepository.findByIdIn(productIds).stream()
                 .collect(Collectors.toMap(Product::getId, Function.identity()));
+        Map<Long, String> optionLabelByVariantId = optionLabelResolver.resolve(variantById.values());
 
         List<OrderItemCommand> resolvedItems = new ArrayList<>();
         for (CartCheckoutItemCommand item : itemCommands) {
@@ -253,7 +261,8 @@ public class CheckoutService {
                 // 변형은 있으나 상품이 미해소(soft-delete 등) — 직접주문 경로의 상품 미존재와 동일 취급(404·클라 교정).
                 throw new CheckoutItemNotFoundException("상품을 찾을 수 없습니다: productId=" + variant.getProductId());
             }
-            resolvedItems.add(toOrderItemCommand(product, variant, item.quantity()));
+            resolvedItems.add(toOrderItemCommand(
+                    product, variant, item.quantity(), optionLabelByVariantId.get(variant.getId())));
         }
         return resolvedItems;
     }
@@ -262,14 +271,16 @@ public class CheckoutService {
      * D-64 서버 산정(양 해소 경로 공용 tail): unit_price = base_price + additional_price·total = unit × qty·seller = product.seller_id.
      * Track 71: 산정 전 판매 상태 검증({@link #assertSellable})을 먼저 수행한다 — 양 경로가 Product·ProductVariant 엔티티를 함께
      * 쥐는 유일한 공통 지점이며 TX1 진입·재고 검증(revalidateInventory)보다 앞이라 판매중지 품목은 재고 조회 없이 즉시 422다.
+     * Track 75: optionLabel은 호출측이 {@link OptionLabelResolver}로 배치 해소한 주문 시점 스냅샷(옵션 없음·미해소는 null·D-164).
      */
-    private OrderItemCommand toOrderItemCommand(Product product, ProductVariant variant, int quantity) {
+    private OrderItemCommand toOrderItemCommand(
+            Product product, ProductVariant variant, int quantity, String optionLabel) {
         assertSellable(product, variant);
         long unitPrice = product.getBasePrice() + variant.getAdditionalPrice();
         long totalPrice = unitPrice * quantity;
         return new OrderItemCommand(
                 product.getId(), variant.getId(), product.getSellerId(),
-                quantity, unitPrice, totalPrice);
+                quantity, unitPrice, totalPrice, optionLabel);
     }
 
     /**

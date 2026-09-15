@@ -58,7 +58,7 @@ public class ProductRegistrationService {
 
     // 단순상품(옵션 미지정) sentinel(α′). option1_value_id NOT NULL을 충족하기 위해 DEFAULT 1조를 합성한다. 현재 상품 조회
     // API가 없어 어떤 응답에도 노출되지 않으며, 향후 카탈로그 read 도입 시 "DEFAULT" 옵션은 표시 필터 대상이다(정찰 확인).
-    private static final String DEFAULT_OPTION_GROUP_NAME = "DEFAULT";
+    static final String DEFAULT_OPTION_GROUP_NAME = "DEFAULT";
     private static final String DEFAULT_OPTION_VALUE = "DEFAULT";
     private static final String DEFAULT_OPTION_TEMP_KEY = "__default__"; // 요청 내부 임시키(미영속·합성 전용)
     private static final int DEFAULT_DISPLAY_ORDER = 0;
