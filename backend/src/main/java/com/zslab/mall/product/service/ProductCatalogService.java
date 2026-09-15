@@ -2,6 +2,7 @@ package com.zslab.mall.product.service;
 
 import com.zslab.mall.category.entity.Category;
 import com.zslab.mall.category.repository.CategoryRepository;
+import com.zslab.mall.common.exception.MalformedRequestException;
 import com.zslab.mall.inventory.entity.Inventory;
 import com.zslab.mall.inventory.repository.InventoryRepository;
 import com.zslab.mall.order.controller.response.PagedResponse;
@@ -55,6 +56,8 @@ public class ProductCatalogService {
 
     private static final int MAX_PAGE_SIZE = 100;
     private static final int DEFAULT_PAGE_SIZE = 20;
+    // 상품명 검색어 최대 길이(Track 72). product.name VARCHAR(200)보다 짧게 잡아 과도한 패턴을 차단한다.
+    private static final int MAX_KEYWORD_LENGTH = 50;
 
     // 단순상품 합성 sentinel 옵션 그룹명(ProductRegistrationService의 DEFAULT_OPTION_GROUP_NAME과 동일 계약). 카탈로그 노출에서 숨긴다.
     private static final String DEFAULT_OPTION_GROUP_NAME = "DEFAULT";
@@ -68,11 +71,16 @@ public class ProductCatalogService {
     private final SellerRepository sellerRepository;
     private final CategoryRepository categoryRepository;
 
-    /** 노출대상 상품 목록(D1 노출·D2 품절·D3 대표가·페이징·정렬). size는 1~100 클램프(BuyerOrderQueryService 정합). */
+    /**
+     * 노출대상 상품 목록(D1 노출·D2 품절·D3 대표가·페이징·정렬·상품명 keyword). size는 1~100 클램프(BuyerOrderQueryService 정합).
+     *
+     * @throws MalformedRequestException keyword가 trim 후 {@value #MAX_KEYWORD_LENGTH}자를 초과할 때(400)
+     */
     public PagedResponse<ProductSummaryResponse> listProducts(
-            Long categoryId, ProductCatalogSort sort, int page, int size) {
+            Long categoryId, String keyword, ProductCatalogSort sort, int page, int size) {
         Pageable pageable = PageRequest.of(Math.max(page, 0), clampSize(size));
-        Page<Product> products = productRepository.findDisplayable(categoryId, sort.name(), pageable);
+        Page<Product> products = productRepository.findDisplayable(
+                categoryId, toLikePattern(keyword), sort.name(), pageable);
         List<Product> content = products.getContent();
 
         List<Long> productIds = content.stream().map(Product::getId).toList();
@@ -290,6 +298,28 @@ public class ProductCatalogService {
         }
         return categoryRepository.findByIdIn(categoryIds).stream()
                 .collect(Collectors.toMap(Category::getId, Function.identity()));
+    }
+
+    /**
+     * keyword를 상품명 LIKE 패턴으로 정규화한다(Track 72). trim 후 빈 값이면 null(조건 없음), 길이 초과면 400.
+     * LIKE 와일드카드(%·_)와 escape 문자(\)를 {@code \}로 escape해 리터럴 매칭시킨다(Repository 쿼리의 ESCAPE '\' 계약).
+     */
+    private String toLikePattern(String keyword) {
+        if (keyword == null) {
+            return null;
+        }
+        String trimmed = keyword.trim();
+        if (trimmed.isEmpty()) {
+            return null;
+        }
+        if (trimmed.length() > MAX_KEYWORD_LENGTH) {
+            throw new MalformedRequestException("keyword는 최대 " + MAX_KEYWORD_LENGTH + "자입니다.");
+        }
+        String escaped = trimmed
+                .replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_");
+        return "%" + escaped + "%";
     }
 
     private int clampSize(int size) {
