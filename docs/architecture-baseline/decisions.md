@@ -10040,3 +10040,40 @@ BE 빌드·테스트가 어느 워크플로에도 없었다(deploy.yml은 서버
 
 ### §8 이월
 - deploy.yml 경로 필터 부재 — docs만 변경돼도 main push마다 서버 `docker compose --build` 실행. 별건.
+
+### 보충 (2026-09-16·Track 74 시점 append)
+- 필수 체크(branch protection) 등록: α 미등록 【채택】 / β job 단위 paths 필터로 전환 후 등록 【기각】.
+  - α 근거: 1인 저장소·Web UI 머지 시 체크 결과 육안 확인으로 충분.
+  - β 기각: 워크플로 paths 필터는 비대상 PR(docs만 변경 등)에서 run 자체가 생성되지 않아 필수 체크가 Waiting으로 머지 차단됨. 회피하려면 job 단위 필터(paths-filter 액션 등)로 구조 전환 필요 — 비용 대비 효과 작음.
+- 첫 실행 실측: Backend CI 2m 25s (PR #185).
+- §8 이월 "deploy.yml 경로 필터 부재" → D-163으로 해소.
+
+## D-163. Actions 경로 필터 — deploy paths·workflow_dispatch·frontend-ci 축소 (Track 74)
+
+날짜: 2026-09-16
+트랙: Track 74
+정찰: docs/track-74/recon-report.md
+브랜치: chore/track-74-actions-paths
+
+### 배경
+deploy.yml이 `push main` 무필터라 docs만 변경된 머지에도 서버 SSH `docker compose --build`가 실행되고, frontend-ci.yml은 `.github/workflows/**` 감시 + `push main` 병행이라 PR 1건에 2회 실행됐다. 실측: PR #185(backend-ci.yml 신설·BE 무변경)에서 불필요 실행 5m 18s(frontend-ci 2회·deploy 1회).
+
+### 결정
+1. deploy.yml `on.push.paths`
+   - α 배포 대상 5경로 `backend/**`·`frontend/**`·`docker/**`·`docker-compose.mall.yml`·`.github/workflows/deploy.yml` 【채택】 — docker-compose.mall.yml이 빌드·마운트하는 저장소 경로 전부(정찰 §2)와 자기 파일.
+   - β α + 부정 패턴(`!backend/src/test/**`·`!**/*.md` 등) 【기각】 — 누락·순서 실수 위험 대비 테스트 단독 변경 PR이 드물어 절약 효과 작음.
+   - γ `docker/**` 대신 `docker/filebeat/**` 【기각】 — docker/ 하위 신규 마운트 추가 시 누락 위험.
+2. deploy.yml `workflow_dispatch` 추가 — 대안 검토 없음. 수동 배포 수단 0건(서버 .env 변경 반영·필터 누락 복구 불가)을 해소.
+3. frontend-ci.yml `push main` 트리거 제거 【채택】 / 유지 【기각】 — PR run과 동일 내용 재실행·배포 게이트 아님(D-162 β 기각과 동일 논리). 부수: main 브랜치 pnpm store 캐시가 저장되지 않아 PR마다 cold 설치 감수(약 40s).
+4. frontend-ci.yml paths를 `frontend/**`·`.github/workflows/frontend-ci.yml`로 축소 — 대안 검토 없음. deploy.yml·backend-ci.yml 변경은 FE typecheck·vitest와 무관.
+
+### 서버 HEAD 확인 기준 변경 (D-159 "서버 HEAD = origin/main" 대체)
+- 경로 필터로 docs만 머지 시 서버 HEAD가 origin/main보다 뒤처지는 것이 정상. sparse-checkout이라 워킹트리 손실 없음·다음 pull이 fast-forward 흡수.
+- 정합 판정: `git diff --stat <서버HEAD> origin/main -- backend frontend docker docker-compose.mall.yml .github/workflows/deploy.yml` 출력이 비어 있으면 정합.
+
+### 검증
+- 로컬: yaml@2.9.0 파싱 OK — deploy.yml on = push(main·paths 5)+workflow_dispatch·job 1·step 1(무변경), frontend-ci.yml on = pull_request(main·paths 2)만·job 1·step 7(무변경). 실제 트리거 동작은 PR·머지에서 확인.
+
+### §8 이월
+- deploy `concurrency`(연속 머지 시 SSH 동시 실행 방지) 미적용 — 관찰만.
+- filebeat.yml 내용 변경은 compose diff 비감지(재생성 없음) — 필요 시 별건.
