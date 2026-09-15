@@ -24,6 +24,8 @@ services:
       ADMIN_BOOTSTRAP_EMAIL: ${ADMIN_BOOTSTRAP_EMAIL}
       ADMIN_BOOTSTRAP_PASSWORD: ${ADMIN_BOOTSTRAP_PASSWORD}
       LOG_PATH: ${LOG_PATH:-/app/logs}
+      # KST 통일(JVM TZ) — application.yml hibernate.jdbc.time_zone과 동시 정렬 필수(Track 69·70)
+      TZ: Asia/Seoul
     volumes:
       - mall_backend_logs:/app/logs
     networks:
