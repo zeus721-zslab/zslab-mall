@@ -9802,3 +9802,53 @@ PAYMENT_EXPIRED(미결제 종료) 주문을 유예 경과·재고 해제 완료 
 
 ### §8 이월(carry-over)
 - D-148 §8-3("CLAUDE-DEV.md/컨텍스트 'gateway_nginx 편집 sed -i 사용' 문구 정정 필요")는 **처리 불요** — 현재 CLAUDE-DEV.md에 sed·gateway·nginx·open( 관련 문구가 전무함을 grep으로 확인(해당 트랩 문구 부재). 별도 정정 대상 없음.
+
+---
+
+## D-159. 운영 backend TZ(Asia/Seoul) 고정 (Track 70·D-156 이월 해소)
+
+날짜: 2026-09-15
+트랙: Track 70
+정찰: docs/track-70/recon-report.md
+커밋·PR: fix 04aa3343(docker-compose 2파일)·머지 a0eade1d(PR #178)
+
+### 배경
+D-156(Track 69)은 "JVM 기본 TZ와 hibernate.jdbc.time_zone을 항상 동시에 Asia/Seoul로 정렬"을 필수 규약으로 확정했으나(둘 중 하나만 다르면 저장 벽시계가 깨짐·§1-A Case α 실증), TZ 적용이 dev 오버라이드(docker-compose.dev.yml)에만 있었다. 운영(docker-compose.mall.yml 단독)은 JVM 기본 TZ가 base image(eclipse-temurin:21-jre) 기본 UTC이고 jdbc.time_zone만 Asia/Seoul이라 **불일치 상태**였다. D-156 §8 이월 원문:
+> "운영 배포 미완(별건 트랙): dev만 반영. 운영은 docker-compose.mall.yml backend environment 또는 backend/Dockerfile에 TZ=Asia/Seoul 명시 고정 필요… 운영 backend·zslab_mariadb·Nuxt SSR 컨테이너 TZ 실측 후 배포." (decisions.md:9705-9707)
+
+### 운영 실측 (적용 전)
+- 호스트 KST / backend·frontend·DB 컨테이너 UTC / DB time_zone=SYSTEM / 주문·결제 데이터 0건(데모 시드·관리자 계정 수준).
+
+### 영향 범위 (정찰 근거)
+- 값 어긋남(JVM 존 직접 의존): LocalDateTime.now() 40곳·LocalDate.now() 1곳(주문번호 날짜 접두 OrderService:164)·응답 +09:00 표기 8필드·정산 월경계.
+- 기능 무영향: 결제 만료·자동취소(동일 JVM 내 상대 비교라 존 무관 self-consistent·표시값만 위 경유).
+- 무관: 스케줄러(fixedDelay·cron 0)·FE(문자열 슬라이스·new Date 미사용)·DB(DATETIME·세션 TZ 변환 없음).
+
+### §1-A 갈림길·채택/기각
+1) TZ 적용 위치
+- α 채택: docker-compose.mall.yml backend environment. dev 검증 방식과 동일·설정 위치 단일화(dev 오버라이드 중복 제거).
+- β 기각: backend Dockerfile ENV. 이미지·compose 이중 관리.
+- γ 기각: JVM -Duser.timezone. OS 시각과 불일치 여지·설정 위치 증가.
+2) 적용 대상
+- 채택: backend만.
+- 기각: DB time_zone 변경(공유 인프라·DATETIME은 JVM 값 그대로 저장이라 불요).
+- 기각: frontend TZ(날짜 문자열 처리로 무영향).
+3) 기존 운영 데이터 보정
+- α 채택: 보정 안 함. 주문·결제 0건·데모 시드/관리자 계정 수준·상대 순서 유지.
+- β 기각: 일괄 보정. DATETIME 114개 컬럼 운영 쓰기 위험 대비 이득 없음.
+
+### §2 결정 라운드 재진입
+- 없음.
+
+### 검증
+- 로컬: compose config TZ 1회 적용(중복 제거)·dev backend --force-recreate 후 date +0900·printenv TZ=Asia/Seoul·actuator health 200·frontend/filebeat 무변경.
+- 운영(배포 후): HEAD a0eade1(=origin/main·PR #178). backend 배포 시점 재생성·date KST(+0900)·TZ=Asia/Seoul·health UP·로그 오류 없음·frontend UTC 유지.
+
+### 트랩
+- [1회차] Windows에서 bash 리다이렉트 `> nul`이 null 장치가 아니라 실제 파일(backend/nul)을 생성 → 제거. bash에서는 `/dev/null` 사용. 재발 시 CLAUDE-DEV.md 규칙화.
+- dev에서 compose 병합 결과가 동일하면 `up -d`가 재생성하지 않음 → 설정 소싱 경로 검증 시 `--force-recreate` 필요.
+
+### §8 이월(carry-over)
+- D-156 운영 TZ 고정 이월(decisions.md:9705-9707) → 본 D로 해소.
+- 적용 전 운영에 저장된 시각 데이터는 9시간 어긋난 상태로 잔존(보정 안 함 결정·주문·결제 데이터 없음).
+- frontend 컨테이너 TZ 미설정 유지(향후 서버 측 날짜 연산 도입 시 재검토).
