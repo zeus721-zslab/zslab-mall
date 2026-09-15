@@ -36,6 +36,7 @@
 - FE-14 클레임 (완료)
 - FE-15 FE 테스트 (완료)
 - FE-16 체크아웃 배송지 연동 (완료)
+- FE-17 체크아웃 주문 요약 (완료)
 - Tier2 페이지(BE-추가작업 대응)는 각 머지 후 개별 FE 트랙(FE-15+)
 
 ---
@@ -964,3 +965,65 @@ STEP1~3(Vitest 컴포넌트/단위 + Playwright Browser/SSR Smoke) 위에 GitHub
 - [미확인·BE] 기본 배송지 삭제 시 자동 승격 거동·주소 개수 상한. 현 구현은 저장 실패 격리라 결제 무영향.
 - [백로그] 우편번호 검색 API(FE-11·FE-13 이연 승계)·주문 요약·CI 체크아웃 경로 미커버(인증 User Journey E2E 백로그 승계).
 
+
+## FE-13 §8 로그아웃 잔류 버그 해소 정정 (2026-09-15)
+
+FE-13 §8(:701) 이월 "[버그·백로그] BUYER 페이지에서 로그아웃 시 페이지 잔류"는 커밋 8f6d4c87(2026-07-10 `fix(fe): 로그아웃 시 보호 페이지에서만 홈 이동`·AppHeader.vue·origin/main 반영)로 해소됨. 방식 = handleLogout이 현재 라우트가 buyer 보호 페이지일 때만 로그아웃 후 '/' 이동, 공개 페이지는 잔류(recon-report-logout 후보 (b)·isBuyerProtectedRoute). zslab 확인으로 의도된 동작 확정. 당시 decisions-fe.md 기록 누락으로 백로그 정찰(recon-report-backlog)에서 미해소로 분류됐던 것을 정정한다. 본문 :701은 append-only 원칙에 따라 수정하지 않는다.
+
+## FE-17: 체크아웃 주문 요약 (상품 목록·결제 금액)
+
+날짜: 2026-09-15
+선행: FE-16(체크아웃 배송지 연동) 머지. 신규 BE 없음(기존 GET /cart·POST /cart/checkout 재사용). 정찰 = recon-report-fe17-summary.
+범위: checkout/index.vue에 주문 상품 목록(왼쪽·배송지 위)과 결제 금액 요약(오른쪽 결제 영역)·결제 버튼 금액 문구·선택 0개/구매 불가 안내. 순수 로직은 lib/utils/checkout-summary.ts로 분리·단위 테스트. 주문 완료 페이지·cart.vue·결제/주문/배송지 로직 무변경.
+수용기준(달성): 목록(썸네일·상품명·판매자·단가·수량·소계) / 요약(상품 금액·배송비 0원·최종 금액·종류·수량) / 버튼 "N원 결제하기" / 선택 0개 안내+링크+비활성 / 구매 불가 포함 시 결제 차단 / 화면 최종 금액 == /payment/mock amount. typecheck 0·vitest 35·SSR·E2E 1·2·3·5 실측 GREEN.
+
+### §1-A 갈림길·채택/기각 근거
+1) 구매 불가(selected ∧ !purchasable) 선택 품목 처리
+- α 채택: 결제 차단. 목록에 "구매 불가 (품절 또는 판매 중지)" 구분 표시(OrderItemList.vue:20,42)·요약에 삭제 유도 안내+장바구니 링크(PaymentSummary.vue:24)·버튼 비활성(canSubmit·checkout/index.vue:141).
+- β 기각: 요약에서만 제외하고 결제 허용(cart.vue selectedTotal 필터 준용). 서버는 selected 전체를 주문에 포함(CartCheckoutService.java:49)하고 신규 주문 경로는 상품 status 재검증이 없어(D-63) 판매중지+재고 有 상품이 주문될 수 있음 → 화면 금액 ≠ 실제 결제 금액.
+2) 옵션명 표시
+- α 채택: 이번 범위 제외. 다중 옵션 시드 부재로 검증 불가·장바구니/주문 상세에도 없어 체크아웃만 넣으면 화면 간 불일치.
+- β 기각: 체크아웃만 BE 응답 필드 추가 → 별도 트랙(§8).
+3) 배송비 표시
+- α 채택: 0원 상수 표시(SHIPPING_FEE·lib/constants/checkout.ts:5). 서버 계산도 배송비 0(D-61·CheckoutService.java:177). 배송비 정책 트랙에서 교체.
+- β 기각: 미표시. 최종 금액 구성이 불투명.
+4) 구매 조건 동의 체크박스
+- α 채택: 제외(데모·실제 약관 없음).
+- β 기각: 포함.
+5) 선택 0개
+- α 채택: 요약 안내 "선택된 상품이 없습니다" + 장바구니 링크(PaymentSummary.vue:17) + 버튼 비활성(checkout/index.vue:140). 기존 CART_CHECKOUT_EMPTY 422 처리 유지.
+- β 기각: 제출 후 422 안내만. 불필요 요청·안내 지연.
+6) 요약 금액 출처
+- α 채택: FE 계산(cart items·buildCheckoutSummary). 체크아웃 응답에 금액 필드 없음·redirectUrl 쿼리(amount)로만 전달(checkout/index.vue goToMockPayment).
+- β 기각: 응답 기반. 제출 전에는 금액을 알 수 없음.
+7) 금액 포맷
+- α 채택: 로컬 formatPrice 관습 유지(cart.vue·orders·ProductCard 동일 패턴). 최소 변경.
+- β 기각: 공용 util 신설. 무관 파일 6곳 리팩토링 유발.
+
+### §2 확정 구현 규칙 (file:line)
+- 장바구니 재조회: 진입 시 useAsyncData('checkout-cart', cart.load)(checkout/index.vue:23~28·cart.vue 패턴·LT-12 언랩 주석). 렌더는 store cart.items 반응. 로드 실패는 CommonErrorState+재시도(:246).
+- buildCheckoutSummary(lib/utils/checkout-summary.ts:31): 목록 = selected 전체(구매 불가 포함·표시용) / 금액·종류 수·수량 = selected ∧ purchasable / hasUnpurchasableSelected = 둘의 개수 불일치(:37) / finalAmount = productTotal + SHIPPING_FEE(:42).
+- canSubmit(checkout/index.vue:134~142) = 배송지 필수 4 입력 ∧ summary.items.length > 0 ∧ !hasUnpurchasableSelected. 버튼 활성일 때 selected 전체 = purchasable이므로 화면 금액 == 서버 금액.
+- 버튼 문구: `${formatPrice(summary.finalAmount)} 결제하기`(:403)·제출 중 "주문 처리 중…" 유지.
+- 컴포넌트 분리: components/checkout/(common·ui 서브디렉토리 관습·자동 import CheckoutOrderItemList·CheckoutPaymentSummary). 결제 버튼·제출은 페이지 소유.
+- 기존 안내문 "선택하신 장바구니 상품으로 주문을 생성합니다."는 요약 컴포넌트로 대체.
+
+### §진입점
+1. 목적: 결제 전 주문 상품·금액을 화면에서 확인(신규 BE 0).
+2. 페이지: frontend/app/pages/checkout/index.vue(cart 로드·summary·canSubmit·컴포넌트 배치·버튼 문구).
+3. 순수 로직: frontend/app/lib/utils/checkout-summary.ts(buildCheckoutSummary·CheckoutSummary).
+4. 컴포넌트: frontend/app/components/checkout/OrderItemList.vue(목록)·PaymentSummary.vue(금액 요약·안내).
+5. 상수: frontend/app/lib/constants/checkout.ts(SHIPPING_FEE=0).
+6. 테스트: frontend/test/unit/checkout-summary.spec.ts(빈 목록·미선택 제외·합계/수량/종류·배송비 0·구매 불가 포함·구매 불가 미선택 6케이스).
+
+### §실측·트랩
+- 검증: typecheck 0·vitest 8 files 35 tests·SSR HTML(상품명 2종·최종 금액·버튼 문구·FE-16 자동입력 value 포함·에러 오렌더 0)·dev E2E(Playwright·호스트 Chromium→게이트웨이·데모 buyer) 1 목록/종류/수량/합계/배송비/최종/버튼 · 2 실제 체크아웃 → /payment/mock amount == 화면 최종 금액 · 3 선택 0개 안내/링크/비활성 · 5 FE-16 자동입력·무변경 시 저장 없음 PASS. E2E 4(구매 불가) 재현 불가(카탈로그 품절 variant 0건·buyer 권한으로 생성 불가) → 단위 테스트 2케이스로 대체.
+- FE-16 트랩(nuxt prepare가 bind-mount .nuxt 재생성) 규칙 준수: typecheck 후 frontend 컨테이너 재시작 뒤 런타임 검증 → 재발 없음.
+- 로컬 dev 실측 부산물: 미결제 주문 1건 잔존(PENDING_PAYMENT·삭제 API 없음·자동취소 배치 대상). 카트 스냅샷 복원·테스트 주소 삭제 완료.
+
+### §8 이월(carry-over)
+- [백로그·FE] 장바구니 페이지 단계에서 구매 불가 선택 품목 안내·결제하기 차단(현재는 체크아웃에서 차단).
+- [백로그·BE] 신규 주문 경로의 상품 판매 상태 검증 부재(D-63) — 판매중지 상품이 재고 有면 주문 생성 가능. 서버 검증 필요 여부 판단 필요.
+- [백로그·FE+BE] 옵션명 표시 트랙: BE 응답 필드 + 장바구니·체크아웃·주문 상세 표시 + 다중 옵션 시드(FE-10a 다중 옵션 매칭 미검증 항목 함께 해소).
+- [백로그] 배송비 정책 트랙 시 SHIPPING_FEE 상수 교체.
+- 주문 완료 페이지 요약: 범위 제외(FE-11 최소 구성 유지).

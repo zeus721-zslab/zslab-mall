@@ -11,11 +11,26 @@ import {
   ADDRESS_DETAIL_MAX,
 } from '~/lib/constants/account'
 import { isUnchanged, buildCreateAddressRequest, type CheckoutAddressForm } from '~/lib/utils/address-form'
+import { buildCheckoutSummary, type CheckoutSummary } from '~/lib/utils/checkout-summary'
 
 // BUYER 전용 페이지 — 미인증/비-BUYER는 buyer 미들웨어가 /login으로 유도한다(recon §9).
 definePageMeta({ middleware: 'buyer' })
 
 const checkout = useCheckout()
+
+// ── FE-17 주문 요약 ────────────────────────────────────────────────
+// 진입 시 장바구니를 재조회한다(cart.vue 패턴). 렌더는 store의 cart.items(반응)를 읽고, 반환값은 SSR 직렬화·상태 판정용.
+const cart = useCartStore()
+const { error: cartError, refresh: refreshCart } = useAsyncData('checkout-cart', async () => {
+  await cart.load()
+  // setup store 외부 접근은 ref가 자동 언랩된다(LT-12) — cart.items는 이미 배열(.value 아님).
+  return cart.items.length
+})
+const summary = computed<CheckoutSummary>(() => buildCheckoutSummary(cart.items))
+
+function formatPrice(value: number): string {
+  return `${value.toLocaleString('ko-KR')}원`
+}
 
 // 배송지 필수 4 + 선택 3. 우편번호 검색 API는 이연 — zonecode는 수기 입력(FE-11 범위).
 const recipientName = ref<string>('')
@@ -115,13 +130,15 @@ const errorMessage = ref<string>('')
 // 빈 카트(CART_CHECKOUT_EMPTY) 시에만 장바구니로 돌아가는 링크를 노출한다.
 const showCartLink = ref<boolean>(false)
 
-// 필수값 전부 입력됐는지(공백 제거 후 판정). 버튼 활성·제출 가드 공용.
+// 필수값 전부 입력됐는지(공백 제거 후 판정) ∧ 선택 품목 1개 이상 ∧ 선택 중 구매 불가 0개(FE-17·확정 5). 버튼 활성·제출 가드 공용.
 const canSubmit = computed<boolean>(
   () =>
     recipientName.value.trim() !== '' &&
     recipientPhone.value.trim() !== '' &&
     zonecode.value.trim() !== '' &&
-    addressRoad.value.trim() !== '',
+    addressRoad.value.trim() !== '' &&
+    summary.value.items.length > 0 &&
+    !summary.value.hasUnpurchasableSelected,
 )
 
 /**
@@ -223,8 +240,12 @@ useSeoMeta({ title: '주문/결제 · zslab-mall', description: 'zslab-mall 주�
       <h1 class="mb-6 text-2xl font-bold tracking-tight text-ink">주문/결제</h1>
 
       <form class="grid grid-cols-1 gap-8 lg:grid-cols-[1fr_320px]" @submit.prevent="handleSubmit">
-        <!-- 배송지 + 결제수단 -->
+        <!-- 주문 상품 + 배송지 + 결제수단 -->
         <div class="space-y-8">
+          <!-- 주문 상품 목록(FE-17). 로드 실패 시 재시도, 선택 0개면 목록 생략(안내는 결제 영역) -->
+          <CommonErrorState v-if="cartError" message="주문 상품을 불러오지 못했습니다" @retry="refreshCart" />
+          <CheckoutOrderItemList v-else-if="summary.items.length > 0" :items="summary.items" />
+
           <!-- 배송지 -->
           <section class="space-y-4">
             <h2 class="text-lg font-semibold text-ink">배송지</h2>
@@ -367,7 +388,8 @@ useSeoMeta({ title: '주문/결제 · zslab-mall', description: 'zslab-mall 주�
         <!-- 결제 요약 + 제출 -->
         <aside class="h-fit rounded-card border border-line p-5 lg:sticky lg:top-24">
           <h2 class="mb-4 text-lg font-semibold text-ink">결제</h2>
-          <p class="text-sm text-sub">선택하신 장바구니 상품으로 주문을 생성합니다.</p>
+          <!-- 결제 금액 요약(FE-17): 합계·배송비·최종 금액·종류/수량, 선택 0개·구매 불가 포함 안내 -->
+          <CheckoutPaymentSummary :summary="summary" />
 
           <!-- 오류 -->
           <div v-if="errorMessage" class="mt-4">
@@ -378,7 +400,7 @@ useSeoMeta({ title: '주문/결제 · zslab-mall', description: 'zslab-mall 주�
           </div>
 
           <Button type="submit" size="lg" class="mt-4 w-full" :disabled="submitting || !canSubmit">
-            {{ submitting ? '주문 처리 중…' : '결제하기' }}
+            {{ submitting ? '주문 처리 중…' : `${formatPrice(summary.finalAmount)} 결제하기` }}
           </Button>
         </aside>
       </form>
