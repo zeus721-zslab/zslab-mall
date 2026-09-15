@@ -1,0 +1,57 @@
+name: Backend CI
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend-ci.yml'
+  workflow_dispatch:
+
+# 같은 브랜치에 연속 push 시 이전 run 취소(러너 분 절약).
+concurrency:
+  group: backend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # D-156: JVM TZ와 hibernate.jdbc.time_zone(Asia/Seoul)을 동시 정렬해야 시각 저장이 깨지지 않는다.
+      # 러너 기본 UTC면 JdbcTemplate 시드와 Hibernate 조회가 9h 어긋남 → 로컬(Windows KST) 실측 조건을 재현.
+      TZ: Asia/Seoul
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # toolchain 미설정(sourceCompatibility 21)이라 러너 JDK를 그대로 사용. cache: gradle은 의존성·wrapper 캐시만
+      # (빌드 캐시는 커밋되지 않음) → test 태스크가 FROM-CACHE로 스킵되지 않는다.
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      # DB는 Testcontainers(mariadb:11.4)가 러너 Docker로 기동 — 서비스 컨테이너·Secrets 불필요.
+      # 테스트 env(ADMIN_BOOTSTRAP_*)·systemProperty는 build.gradle.kts tasks.test가 주입한다.
+      - name: Test
+        run: ./gradlew test --rerun-tasks --no-daemon
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-reports
+          path: |
+            backend/build/reports/tests/test/
+            backend/build/test-results/test/
+          retention-days: 7

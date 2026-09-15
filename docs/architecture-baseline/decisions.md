@@ -10005,3 +10005,38 @@ FE 연계: FE-20 검색 결과·카테고리 페이지·헤더 카테고리 드�
 - 2차 카테고리: 자식 생성 API·데이터 없음 + V13 dedup_key 스코프(display_name 전역) 재설계 + fk_category_parent ON UPDATE CASCADE 제거 선행 필요.
 - `product.thumbnail_url`과 ProductImage 대표(is_main) 비동기화(Track 59 결정3 seam) — 목록 mainImageUrl은 thumbnail_url만 반영.
 - 프론트 ProductCard 이미지 onerror 대체 없음(깨진 URL 시 빈 이미지).
+
+## D-162. PR 단계 백엔드 테스트 CI (Track 73)
+
+날짜: 2026-09-16
+트랙: Track 73
+정찰: docs/track-73/recon-report.md
+브랜치: chore/track-73-backend-ci
+
+### 배경
+BE 빌드·테스트가 어느 워크플로에도 없었다(deploy.yml은 서버 측 `compose --build`만·frontend-ci.yml은 FE 전용). PR 단계에서 881 tests를 자동 실행하는 `.github/workflows/backend-ci.yml`을 신설한다. DB는 기존 Testcontainers 싱글톤(`support/MariaDbTestContainer.java:18`·mariadb:11.4)이 러너 Docker로 기동하므로 서비스 컨테이너·Secrets 없음.
+
+### §1-A 갈림길·채택/기각
+1) TZ
+- α 채택: job env `TZ=Asia/Seoul`. D-156 §2-1(JVM TZ + hibernate.jdbc.time_zone 동시 KST) 준수·로컬 실측 조건(Windows JVM KST·DB 컨테이너 UTC) 재현. 러너 기본 UTC면 JdbcTemplate 시드(`Timestamp.valueOf`·드라이버 기본 존)와 Hibernate 조회가 9h 어긋남(`PaymentExpiryIntegrationTest.java:175-178` 등 13클래스).
+- β 기각: 테스트 코드 TZ 독립화. 범위 확대(본 트랙 밖).
+2) 캐시
+- α 채택: 의존성 캐시만(`setup-java cache: gradle`) + `--rerun-tasks`. 
+- β 기각: 빌드 캐시 포함. test 태스크가 FROM-CACHE로 스킵돼 "캐시 히트 불인정"(CLAUDE-DEV.md) 원칙 위반.
+3) 트리거
+- α 채택: `pull_request`(paths backend/**·자기 파일) + `workflow_dispatch`.
+- β 기각: `push main` 병행. deploy.yml과 별개 워크플로라 배포 게이트가 아니며 러너 분만 소모.
+
+### 정정
+- `backend/gradlew` 인덱스 모드 100644 → 100755(`git update-index --chmod=+x`·blob 무변경). 러너 Linux 체크아웃에서 `./gradlew` 직접 실행 가능.
+- 브랜치 보호 필수 체크는 리포 설정 미확인(gh 미설치) → 첫 GREEN run 후 Web UI에서 `Backend CI / test` 등록.
+
+### 검증
+- 로컬: yaml@2.9.0 파싱 OK(on 2·steps 4·env TZ·timeout 20)·`git ls-files -s backend/gradlew` 100755·`gradlew.bat test --rerun-tasks` 881 tests 0 fail(1m 8s).
+- CI 실행 검증은 PR에서 수행(본 D 시점 미실행).
+
+### 관찰 대상
+- `ProdSecurityContextSmokeTest`(prod 프로파일): logback 파일 appender `/app/logs`(`logback-spring.xml:7` 기본값) 생성 권한. 러너 실패 시 `LOG_PATH=${{ runner.temp }}/logs` 주입.
+
+### §8 이월
+- deploy.yml 경로 필터 부재 — docs만 변경돼도 main push마다 서버 `docker compose --build` 실행. 별건.
