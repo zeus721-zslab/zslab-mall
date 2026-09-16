@@ -31,6 +31,7 @@ import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.order.repository.OrderRepository;
 import com.zslab.mall.refund.repository.RefundRepository;
+import jakarta.persistence.EntityManager;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -71,6 +72,8 @@ class ClaimServiceTest {
     private TracedEventPublisher eventPublisher;
     @Mock
     private RefundRepository refundRepository;
+    @Mock
+    private EntityManager entityManager;
 
     @InjectMocks
     private ClaimService claimService;
@@ -100,6 +103,7 @@ class ClaimServiceTest {
         Order order = org.mockito.Mockito.mock(Order.class);
         when(order.getBuyerId()).thenReturn(BUYER_ID);
         when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findById(ORDER_ITEM_ID)).thenReturn(Optional.of(orderItem));
         when(claimRepository.existsActiveByOrderItemId(ORDER_ITEM_ID)).thenReturn(false);
         when(claimRepository.save(any(Claim.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -177,6 +181,7 @@ class ClaimServiceTest {
         Order order = org.mockito.Mockito.mock(Order.class);
         when(order.getBuyerId()).thenReturn(BUYER_ID);
         when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findById(ORDER_ITEM_ID)).thenReturn(Optional.of(orderItem));
         when(claimRepository.existsActiveByOrderItemId(ORDER_ITEM_ID)).thenReturn(false);
         when(claimRepository.save(any(Claim.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -198,6 +203,7 @@ class ClaimServiceTest {
         Order order = org.mockito.Mockito.mock(Order.class);
         when(order.getBuyerId()).thenReturn(BUYER_ID);
         when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findById(ORDER_ITEM_ID)).thenReturn(Optional.of(orderItem));
         when(claimRepository.existsActiveByOrderItemId(ORDER_ITEM_ID)).thenReturn(true);
 
         assertThatThrownBy(() -> claimService.request(command(ClaimType.CANCEL)))
@@ -216,6 +222,7 @@ class ClaimServiceTest {
         Order order = org.mockito.Mockito.mock(Order.class);
         when(order.getBuyerId()).thenReturn(BUYER_ID);
         when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findById(ORDER_ITEM_ID)).thenReturn(Optional.of(orderItem));
         when(claimRepository.existsActiveByOrderItemId(ORDER_ITEM_ID)).thenReturn(false);
 
         assertThatThrownBy(() -> claimService.request(command(ClaimType.CANCEL)))
@@ -234,6 +241,7 @@ class ClaimServiceTest {
         Order order = org.mockito.Mockito.mock(Order.class);
         when(order.getBuyerId()).thenReturn(BUYER_ID);
         when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findById(ORDER_ITEM_ID)).thenReturn(Optional.of(orderItem));
         when(claimRepository.existsActiveByOrderItemId(ORDER_ITEM_ID)).thenReturn(false);
         when(claimRepository.save(any(Claim.class))).thenAnswer(invocation -> invocation.getArgument(0));
 

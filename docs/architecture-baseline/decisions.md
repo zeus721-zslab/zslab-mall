@@ -10275,3 +10275,43 @@ deploy.yml이 `push main` 무필터라 docs만 변경된 머지에도 서버 SSH
 - **검증**: cancelOne release 실패 → InventoryInvariantViolationException·PENDING_PAYMENT 유지·재고 불변 → 예약 정합 후 동일 cancelOne 성공(재시도 경로) / cleanup: 같은 variant 타 주문 reserved>0 상태에서 PAYMENT_EXPIRED 삭제·OrderTerminated 재발행 0·reserved 불변(구 T2 "이연+재발행" 대체) / 동시 종료 8스레드(동기 release 포함) 1회 / 전체 ./backend/gradlew.bat test --rerun-tasks 944 tests·0 fail(943 → 944).
 - **변경 파일(보충2)**: main inventory/handler/InventoryOrderTerminatedHandler.java · order/service/ExpiredOrderCleanupService.java · common/observability/ExpiredOrderCleanupMetrics.java / test InventoryOrderTerminatedHandlerTest · OrderAutoCancelIntegrationTest(+T3) · ExpiredOrderCleanupIntegrationTest(T2 대체) · PaymentExpiryIntegrationTest·PaymentWebhookIntegrationTest(주석).
 - **배포 전 확인(추가)**: variant별 `inventory.quantity_reserved` = 살아있는 PENDING_PAYMENT 주문의 order_item.quantity 합계 — 불일치 variant는 관리자 재고 조정(POST inventories/{variant}/adjust)이 아니라 reserved 직접 보정이 필요하므로 zslab 확인 후 1회 SQL 보정(reserved·available 동시 갱신·CHECK ≥0 준수). 불일치 상태로 배포 시 초과분 주문의 만료 release가 INV-3로 실패해 PENDING_PAYMENT에 고착(5분마다 ERROR 로그)된다.
+
+## D-168. 관리자 주문 관리 BE(목록·상세·취소·송장) + 사용자 취소 결함 보강(동시 Claim·정산 이중 차감) (Track 79)
+
+날짜: 2026-09-16
+트랙: Track 79 (관리자 주문 관리 BE·FE는 후속)
+정찰: docs/track-79/recon-report.md
+브랜치: feat/track-79-admin-orders
+
+### 배경
+관리자 주문 목록·상세·취소 API가 0건이었고(`/admin/orders*` FE 7 라우트 placeholder), 사용자 취소는 Claim(CANCEL) 승인형·항목 단위·PAID/PREPARING 한정으로 완성돼 있었다. 정찰에서 사용자 정책 결함 2건(같은 품목 동시 Claim 창·정산이 확정 전 취소 환불을 차감하는 이중 차감)과 확정 결정과의 충돌 3건(3 즉시 완료·5 배송비·8 송장)을 실측했다.
+
+### §1-A 결정
+1. **A 관리자 취소(결제 후)**: α Claim 생성 + approve까지 1 TX·완료는 기존 환불 경로 【채택】 / β Refund 완료 대기 없이 COMPLETED 강제 【기각】 — state-machine §2 "CANCEL COMPLETED = Refund COMPLETED"·PAY-1·환불 실패 시 되돌릴 수 없음 / γ 관리자 "환불 확인" 버튼 【기각】 — 가짜 완료 장치. **결정 3 문구 정정**: "관리자 생성 시 즉시 완료" → "관리자 생성 시 승인(APPROVED)까지 자동·완료는 환불 완료 시". 진입점 `ClaimService.requestByAdmin`(소유 검증 생략·requestedBy=관리자 user id·정책은 사용자와 동일한 `createClaim` 코어 재사용). 다품목은 항목별 Claim·1건 실패 시 전체 롤백(`AdminOrderCancelService`). 항목 미지정 시 CANCEL 전이 가능한 전 항목.
+2. **C 관리자 취소(미결제)**: α audit 기록 【채택】 / β order 컬럼(V23) 【기각】 — Flyway 무변경 / γ Claim 생성 【기각】 — ORDERED→CANCEL_REQUESTED 전이 없음·상태기계 확장. `OrderAutoCancelService.cancelOne` 재사용(조건부 UPDATE + 동기 release·boolean 반환 추가)·사유 코드/메모는 `AuditRecorder`(ORDER·UPDATE·diff status/reasonCode/reasonDetail)·상세 응답 `cancelReasons`가 diff_json을 파싱해 노출. 조건부 전이 0건·이미 종료(CANCELLED/PAYMENT_EXPIRED)는 `OptimisticLockingFailureException`(기존 409 OPTIMISTIC_LOCK_FAILURE) 재사용·신규 ErrorCode 0.
+3. **D 동시 Claim 차단(사용자 결함)**: α 요청 TX 동기화 【채택】 / β UNIQUE 보조 컬럼(V23) 【기각】. `ClaimRequestedHandler`를 `@EventListener` 동기·불법 전이 예외 전파로 전환(Track 78 패턴)·`ClaimService.createClaim`이 품목을 `entityManager.refresh(PESSIMISTIC_WRITE)`로 잠근 뒤 CLM-5·전이 검증. 락을 기다린 두 번째 요청은 최신 item_status(*_REQUESTED)로 전이 불가 → 기존 `ClaimInvalidStateException`(422 CLAIM_STATE_INVALID)·Claim INSERT 없음. **조건**: 동기화는 요청(ClaimRequested) 단계만 — approve/reject/complete 체인은 AFTER_COMMIT 유지(환불 initiate 등 외부 호출 격리). 거절 시 스냅샷 복원(ClaimRejectedHandler) 무변경·회귀 0.
+   - 트랩(확정): `@Lock(PESSIMISTIC_WRITE)` 조회는 SQL `FOR UPDATE`를 실행해도 이미 1차 캐시에 있는 엔티티의 상태를 덮어쓰지 않는다(호출부가 findByPublicId·fetch join으로 선적재). 잠금 + 최신 상태 재적재가 필요하면 `refresh(entity, PESSIMISTIC_WRITE)`를 쓴다. `OrderItemRepository.findByIdForUpdate`는 이 이유로 도입 후 제거.
+4. **B 정산 이중 차감(사용자 결함)**: 기준을 "Claim type(RETURN·EXCHANGE만)"이 아니라 **"gross에 집계된 적이 있는 품목(order_item.confirmed_at IS NOT NULL)"**으로 【채택】 — 정산식 net = gross − refund의 대칭 조건이 "그 품목이 gross에 포함됐는가"이지 type이 아니다(확정 전 RETURN도 gross 미포함·향후 확정 후 반품 전이가 열려도 정합). `RefundRepository.aggregateRefundBySeller`에 조건 1줄 추가·Flyway 무변경. 부수 실측: 현행 상태기계에서 CONFIRMED는 종결이라 확정 품목의 환불은 발생하지 않으므로 refund 차감은 사실상 0 — 이전엔 모든 환불이 이중 차감이었다. EXCHANGED·RETURNED 품목이 gross에도 없는 점(교환 완료 매출 미집계)은 별건 §8.
+5. **E 결정 5 배송비 환불 철회** 【채택】 — shipping_fee 주문 단위·0 고정·배송 묶음 모델 부재. 모델 도입 시 재결정.
+6. **F 관리자 송장**: α 관리자 prepare-shipment 추가 【채택】 — `OrderShippingService.prepareShipmentByAdmin`(셀러 소유 검증만 생략·전이/Delivery 생성/SHIPPING 공유·셀러 경로 무변경)·`POST /api/v1/admin/orders/items/{oit}/prepare-shipment`. 리스트 액션은 실측 전이 3종만(CANCEL·PREPARE_SHIPMENT·MARK_DELIVERED)·단독 PREPARING 전이 없음.
+7. **조회 API**: `GET /api/v1/admin/orders`(status·paymentStatus·deliveryStatus·from/to·keyword 주문번호 정확/주문자 이름·이메일/상품명 부분·sort LATEST|OLDEST·page/size≤100) / `GET /api/v1/admin/orders/{id}`. Specification 페이지(shippingSnapshot fetch 포함) → items fetch join → payment·delivery·claim·user·seller `…In` 배치 5 = 쿼리 8 고정(테스트 단언). 배치 조회 메서드 4 추가(Payment.findByOrderIdInOrderByIdDesc·Claim/Delivery.findByOrderItemIdInOrderByIdDesc·User.findByIdIn). 상세는 사용자 승인형 Claim의 `approvable`(REQUESTED)을 내려 기존 approve/reject 단건 API를 재사용한다.
+   - 트랩(확정): `@OneToOne(mappedBy)` LAZY는 프록시 불가라 Order 로드 시 스냅샷을 주문별 SELECT(N+1)한다. 목록 Specification에 `root.fetch("shippingSnapshot", LEFT)`(count 쿼리 제외)로 차단.
+8. **Mock 환불 완료**: dev 전용 트리거·자동 콜백 없음(RefundWebhookController만) → 관리자 취소 데모는 승인·Refund PENDING까지이며 완료는 `POST /api/webhooks/refunds` 호출 필요. 추가 구현 안 함(가짜 완료 금지).
+
+### 변경 파일
+- main 신규: order/controller/AdminOrderController · order/controller/request/{AdminOrderCancelRequest,AdminOrderSort} · order/controller/response/{AdminOrderSummaryResponse,AdminOrderDetailResponse,AdminOrderCancelResponse} · order/repository/AdminOrderSpecifications · order/service/{AdminOrderQueryService,AdminOrderCancelService}
+- main 수정: claim/service/ClaimService(createClaim 코어·requestByAdmin·EntityManager) · claim/handler/ClaimRequestedHandler(동기) · order/service/OrderAutoCancelService(boolean) · order/service/OrderShippingService(prepareShipmentByAdmin) · order/repository/OrderRepository(JpaSpecificationExecutor) · payment/claim/delivery/user Repository(배치) · refund/repository/RefundRepository(confirmed_at 조건)
+- test 신규: order/integration/AdminOrderIntegrationTest(8) / 수정: ClaimRequestedHandlerTest·ClaimServiceTest·ClaimIntegrationTest(카탈로그 시드)·SellerRefundAggregationTest(+1)·SettlementCreationServiceTest(시드 정정)
+
+### 검증
+- 동시 Claim 8스레드 → 1건 REQUESTED·7건 422 → 승인 후 Refund 1건 / 사용자 4 + 관리자 4 동시 → Claim 1건 / 관리자 부분 취소 → APPROVED·CANCEL_REQUESTED·타 품목 PAID·Refund PENDING(totalPrice) → 환불 웹훅 → COMPLETED·CANCELLED·on_hand +1·history CANCEL / SHIPPING 품목 취소 422 / 미결제 취소 → PAYMENT_EXPIRED·reserved 0·audit·상세 cancelReasons·재취소 409 / 목록 필터·검색·enrich·쿼리 ≤ 8·sort BOGUS 400 / 상세 approvable·delivery·404 / 송장 ADMIN 200·BUYER 403·미인증 401·재등록 422 / 정산 미확정 품목 환불 제외.
+- 전체: ./backend/gradlew.bat test --rerun-tasks 953 tests·0 fail(944 → 953).
+
+### 문서 정정
+- state-machine.md: §1 Payment FAILED(취소·만료는 EXPIRED) · §3 `ORDERED → CANCELLED` SUPERSEDED 명시 + 관리자 취소 경로 · §11 release 동기화·transitionStatus·늦은 웹훅 422.
+
+### §8 이월
+- FE: /admin/orders 목록·상세·취소 다이얼로그·송장 다이얼로그·클레임 목록(cancellations) 배선(BE 계약 = 본 D-168 §7).
+- 관리자 Claim 목록 API(GET /admin/claims·cancellations 페이지용) — 본 트랙은 주문 상세 내 클레임 이력로 갈음.
+- 정산 gross가 EXCHANGED(교환 완료) 품목 매출을 미집계하는 점 — 정산 트랙 재검토.
+- 결정 5 배송비 환불 — 배송비 모델 도입 시.

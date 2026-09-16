@@ -1,5 +1,6 @@
 package com.zslab.mall.claim.handler;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
@@ -22,6 +23,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 /**
  * {@link ClaimRequestedHandler} 단위 검증(ClaimRefundCompletedHandler 패턴·D-90 Q1·D-88 Q6). CANCEL 한정 OrderItem
@@ -78,12 +80,12 @@ class ClaimRequestedHandlerTest {
     }
 
     @Test
-    @DisplayName("onClaimRequested: OrderItem 미발견 → no-op(재계산 없음)")
-    void onClaimRequested_itemNotFound_noOp() {
+    @DisplayName("onClaimRequested: OrderItem 미발견 → IllegalStateException 전파(요청 TX 롤백·Track 79 동기화)")
+    void onClaimRequested_itemNotFound_throws() {
         when(orderItemRepository.findById(ORDER_ITEM_ID)).thenReturn(Optional.empty());
 
-        handler.onClaimRequested(event(ClaimType.CANCEL));
-
+        assertThatThrownBy(() -> handler.onClaimRequested(event(ClaimType.CANCEL)))
+                .isInstanceOf(IllegalStateException.class);
         verify(orderService, never()).recalculateStatus(anyLong());
     }
 
@@ -101,15 +103,15 @@ class ClaimRequestedHandlerTest {
     }
 
     @Test
-    @DisplayName("onClaimRequested: 전이 불가 상태(SHIPPING) → 경고 후 no-op(전이·재계산 없음)")
-    void onClaimRequested_notTransitionable_noOp() {
-        OrderItem orderItem = mock(OrderItem.class);
-        when(orderItem.getItemStatus()).thenReturn(OrderItemStatus.SHIPPING);
+    @DisplayName("onClaimRequested: 전이 불가 상태(SHIPPING) → changeStatus IllegalStateException 전파(흡수 없음·Claim INSERT 롤백)")
+    void onClaimRequested_notTransitionable_propagates() {
+        OrderItem orderItem = OrderItem.create(1L, 1L, 1L, "테스트 상품", 1, 1_000L, 1_000L);
+        ReflectionTestUtils.setField(orderItem, "id", ORDER_ITEM_ID);
+        ReflectionTestUtils.setField(orderItem, "itemStatus", OrderItemStatus.SHIPPING);
         when(orderItemRepository.findById(ORDER_ITEM_ID)).thenReturn(Optional.of(orderItem));
 
-        handler.onClaimRequested(event(ClaimType.CANCEL));
-
-        verify(orderItem, never()).changeStatus(any());
+        assertThatThrownBy(() -> handler.onClaimRequested(event(ClaimType.CANCEL)))
+                .isInstanceOf(IllegalStateException.class);
         verify(orderService, never()).recalculateStatus(anyLong());
     }
 }

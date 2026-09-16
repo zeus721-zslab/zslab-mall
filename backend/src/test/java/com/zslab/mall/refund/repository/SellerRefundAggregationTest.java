@@ -50,15 +50,22 @@ class SellerRefundAggregationTest extends Batch1DataJpaTestBase {
             .createNativeQuery("SELECT LAST_INSERT_ID()").getSingleResult()).longValue();
     }
 
+    /** 구매확정 이력(confirmed_at 설정) 품목 — gross 집계 대상이라 환불 차감 대상이다(Track 79 D-168·B). */
     private long insertOrderItem(long sellerId) {
+        return insertOrderItem(sellerId, true);
+    }
+
+    private long insertOrderItem(long sellerId, boolean confirmed) {
         disableFkChecks();
         Query query = entityManager.getEntityManager().createNativeQuery(
             "INSERT INTO order_item "
             + "(public_id, order_id, product_id, variant_id, seller_id, quantity, unit_price, total_price, "
-            + "item_status, created_at, updated_at, product_name) "
-            + "VALUES (:pid, 1, 1, 1, :seller, 1, 1000, 1000, 'DELIVERED', NOW(6), NOW(6), '테스트 상품')");
+            + "item_status, confirmed_at, created_at, updated_at, product_name) "
+            + "VALUES (:pid, 1, 1, 1, :seller, 1, 1000, 1000, :status, :confirmedAt, NOW(6), NOW(6), '테스트 상품')");
         query.setParameter("pid", String.format("oit_%026d", ++seq));
         query.setParameter("seller", sellerId);
+        query.setParameter("status", confirmed ? "CONFIRMED" : "CANCELLED");
+        query.setParameter("confirmedAt", confirmed ? LocalDateTime.of(2026, 6, 10, 0, 0, 0) : null);
         query.executeUpdate();
         return lastInsertId();
     }
@@ -132,5 +139,26 @@ class SellerRefundAggregationTest extends Batch1DataJpaTestBase {
         assertThat(refundBySeller).hasSize(2);
         assertThat(refundBySeller.get(SELLER_A)).isEqualTo(5_000L);
         assertThat(refundBySeller.get(SELLER_B)).isEqualTo(4_000L);
+    }
+
+    @Test
+    @DisplayName("aggregateRefundBySeller: 확정 전 취소(confirmed_at NULL·CANCELLED) 품목의 COMPLETED 환불은 차감 제외(Track 79 이중 차감 방지)")
+    void aggregateRefundBySeller_excludesUnconfirmedItemRefunds() {
+        long confirmedItem = insertOrderItem(SELLER_A, true);
+        long cancelledItem = insertOrderItem(SELLER_A, false);
+        long cancelledItemB = insertOrderItem(SELLER_B, false);
+        insertRefund(insertClaim(confirmedItem), 3_000L, "COMPLETED", LocalDateTime.of(2026, 6, 15, 12, 0, 0));
+        insertRefund(insertClaim(cancelledItem), 7_000L, "COMPLETED", LocalDateTime.of(2026, 6, 15, 12, 0, 0));
+        insertRefund(insertClaim(cancelledItemB), 4_000L, "COMPLETED", LocalDateTime.of(2026, 6, 15, 12, 0, 0));
+        entityManager.flush();
+        entityManager.clear();
+
+        List<SellerRefundProjection> result = refundRepository.aggregateRefundBySeller(
+            RefundStatus.COMPLETED, PERIOD_START, PERIOD_END);
+
+        Map<Long, Long> refundBySeller = result.stream()
+            .collect(Collectors.toMap(SellerRefundProjection::getSellerId, SellerRefundProjection::getRefundAmount));
+        assertThat(refundBySeller).containsOnlyKeys(SELLER_A);          // seller B는 gross 미포함 품목 환불뿐 → 행 없음
+        assertThat(refundBySeller.get(SELLER_A)).isEqualTo(3_000L);     // 확정 품목 환불만
     }
 }

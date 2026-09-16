@@ -85,13 +85,17 @@ class SettlementCreationServiceTest extends Batch1DataJpaTestBase {
         query.executeUpdate();
     }
 
+    /**
+     * 환불 귀속용 품목. gross에 집계된 적이 있는(confirmed_at 설정·전 기간 확정) 품목만 환불이 차감되므로(Track 79 D-168·B)
+     * confirmed_at을 정산 기간 이전으로 둔다(이번 기간 gross에는 미포함·환불만 차감되는 케이스).
+     */
     private long insertOrderItemForClaim(long sellerId) {
         disableFkChecks();
         Query query = entityManager.getEntityManager().createNativeQuery(
             "INSERT INTO order_item "
             + "(public_id, order_id, product_id, variant_id, seller_id, quantity, unit_price, total_price, "
-            + "item_status, created_at, updated_at, product_name) "
-            + "VALUES (:pid, 1, 1, 1, :seller, 1, 1000, 1000, 'RETURNED', NOW(6), NOW(6), '테스트 상품')");
+            + "item_status, confirmed_at, created_at, updated_at, product_name) "
+            + "VALUES (:pid, 1, 1, 1, :seller, 1, 1000, 1000, 'RETURNED', '2026-05-15 00:00:00', NOW(6), NOW(6), '테스트 상품')");
         query.setParameter("pid", String.format("oit_%026d", ++seq));
         query.setParameter("seller", sellerId);
         query.executeUpdate();

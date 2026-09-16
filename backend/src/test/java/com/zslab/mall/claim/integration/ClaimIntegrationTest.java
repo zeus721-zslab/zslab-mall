@@ -460,12 +460,27 @@ class ClaimIntegrationTest extends AbstractIntegrationTest {
     private void seed(Runnable seedingWork) {
         try {
             execute("SET FOREIGN_KEY_CHECKS = 0");
+            seedCatalog();
             seedingWork.run();
         } finally {
             execute("SET FOREIGN_KEY_CHECKS = 1");
         }
         entityManager.flush();
         entityManager.clear();
+    }
+
+    /**
+     * order_item이 참조하는 seller·product·product_variant(id=1)를 시드한다(Track 79 D-168). 클레임 요청 시 동기 핸들러가 같은
+     * 트랜잭션에서 order_item을 UPDATE하므로(FK 활성 상태) 참조 행이 실재해야 한다. INSERT IGNORE로 테스트 내 재호출을 흡수한다.
+     */
+    private void seedCatalog() {
+        execute("INSERT IGNORE INTO seller (id, public_id, company_name, ceo_name, status, created_at, updated_at) "
+                + "VALUES (1, 'slr_CLAIMIT000000000000000001', '클레임IT셀러', '대표', 'ACTIVE', NOW(6), NOW(6))");
+        execute("INSERT IGNORE INTO product (id, public_id, seller_id, category_id, name, status, base_price, created_at, updated_at) "
+                + "VALUES (1, 'prd_CLAIMIT000000000000000001', 1, 1, '클레임IT상품', 'SALE', 10000, NOW(6), NOW(6))");
+        execute("INSERT IGNORE INTO product_variant (id, public_id, product_id, variant_code, additional_price, status, "
+                + "is_soldout_manual, display_order, option1_value_id, created_at, updated_at) "
+                + "VALUES (1, 'var_CLAIMIT000000000000000001', 1, 'VCLAIMIT', 0, 'SALE', 0, 1, 1, NOW(6), NOW(6))");
     }
 
     // 모든 시드 INSERT는 ?n positional 바인딩 + 정적 SQL이다(문자열 concat 없음·SQL injection 위험 없음).

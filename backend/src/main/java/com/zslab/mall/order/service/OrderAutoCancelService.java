@@ -42,15 +42,16 @@ public class OrderAutoCancelService {
      * DB 레벨에서 닫는다(Track 78 D-167·R3). 이벤트 payload용 public_id는 UPDATE 이후 재조회한다(clearAutomatically 정합).
      *
      * @param orderId 종료 대상 주문 id
+     * @return 전이·발행이 실제로 수행됐으면 true, 영향 행 0(이미 종료·결제 완료·행 없음)으로 무처리면 false(Track 79 관리자 취소 409 판정용)
      */
     @Transactional
-    public void cancelOne(Long orderId) {
+    public boolean cancelOne(Long orderId) {
         int affected = orderRepository.transitionStatus(
                 orderId, OrderStatus.PENDING_PAYMENT, OrderStatus.PAYMENT_EXPIRED, LocalDateTime.now());
         if (affected == 0) {
             // 행 없음·이미 종료·결제 완료(조회~전이 사이 경합 포함) — 조건부 UPDATE가 0건이면 무처리(멱등).
             log.debug("[OrderAutoCancel] cancelOne skip: PENDING_PAYMENT 전이 대상 아님(영향 행 0) orderId={}", orderId);
-            return;
+            return false;
         }
 
         Order order = orderRepository.findById(orderId)
@@ -59,5 +60,6 @@ public class OrderAutoCancelService {
         eventPublisher.publishEvent(new OrderTerminated(order.getPublicId(), order.getId(), LocalDateTime.now()));
 
         log.info("[OrderAutoCancel] cancelOne PAYMENT_EXPIRED 종료 완료 orderId={} publicId={}", orderId, order.getPublicId());
+        return true;
     }
 }
