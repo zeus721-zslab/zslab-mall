@@ -63,7 +63,7 @@ class PaymentInitiateTest {
     /** total_price=AMOUNT(=unit 5,000 × 2)·discount=0·shipping=0·id=ORDER_ID인 실제 Order(amount 재계산 = AMOUNT). */
     private Order order(Long buyerId) {
         Order order = Order.create(buyerId, "20260627-INIT01", 0L, 0L);
-        order.addItem(OrderItem.create(1L, 1L, 1L, 2, 5_000L, 10_000L));
+        order.addItem(OrderItem.create(1L, 1L, 1L, "테스트 상품", 2, 5_000L, 10_000L));
         ReflectionTestUtils.setField(order, "id", ORDER_ID);
         return order;
     }

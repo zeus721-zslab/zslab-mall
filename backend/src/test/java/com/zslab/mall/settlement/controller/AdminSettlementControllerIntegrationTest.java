@@ -156,8 +156,8 @@ class AdminSettlementControllerIntegrationTest extends AbstractIntegrationTest {
     private void insertConfirmedOrderItemViaHibernate(long id, String publicId, long price, LocalDateTime confirmedAt) {
         entityManager.createNativeQuery(
                 "INSERT INTO order_item (id, public_id, order_id, product_id, variant_id, seller_id, quantity, "
-                + "unit_price, total_price, item_status, confirmed_at, created_at, updated_at) "
-                + "VALUES (?1, ?2, 1, 1, 1, ?3, 1, ?4, ?4, 'CONFIRMED', ?5, NOW(6), NOW(6))")
+                + "unit_price, total_price, item_status, confirmed_at, created_at, updated_at, product_name) "
+                + "VALUES (?1, ?2, 1, 1, 1, ?3, 1, ?4, ?4, 'CONFIRMED', ?5, NOW(6), NOW(6), '테스트 상품')")
             .setParameter(1, id)
             .setParameter(2, publicId)
             .setParameter(3, SELLER_ID)

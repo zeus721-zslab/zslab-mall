@@ -188,8 +188,8 @@ class SellerDeliveryCompletionControllerIntegrationTest extends AbstractIntegrat
                                 + "VALUES (?, ?, ?, ?, ?, ?, 0, 0, NOW(6), NOW(6))",
                         ORDER_ID, pid("ord_", "SDCORD"), USER_ID, "ORDSDC" + ORDER_ID, itemStatus, ITEM_PRICE);
                 jdbc.update("INSERT INTO order_item (id, public_id, order_id, product_id, variant_id, seller_id, "
-                                + "quantity, unit_price, total_price, item_status, created_at, updated_at) "
-                                + "VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, NOW(6), NOW(6))",
+                                + "quantity, unit_price, total_price, item_status, created_at, updated_at, product_name) "
+                                + "VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, NOW(6), NOW(6), '테스트 상품')",
                         ORDER_ITEM_ID, pid("oit_", "SDCOIT"), ORDER_ID, PRODUCT_ID, VARIANT_ID, SELLER_A,
                         ITEM_PRICE, ITEM_PRICE, itemStatus);
                 if ("READY".equals(deliveryStatus)) {

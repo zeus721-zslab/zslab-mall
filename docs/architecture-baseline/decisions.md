@@ -10112,3 +10112,58 @@ deploy.yml이 `push main` 무필터라 docs만 변경된 머지에도 서버 SSH
 2. 운영 읽기 확인: GET /api/v1/products 200(기동 = Flyway V20 적용)·데모 계정 /orders(주문 0건)·/cart 렌더 정상·hydration 0. 운영 주문 미생성.
 3. 잔여: 운영 BUYER 회원 1건(usr_01M2K28BQ9S277EWP10WEAA432·스크립트 1차 실행 [3/5] 가입분·판매자 미연결) — 영향 없음·유지.
 4. 운영 관리자 로그인 401: SuperAdminBootstrapRunner가 최초 1회 생성 전용(SUPER_ADMIN 존재 시 env 미참조·갱신 없음)이라 로컬 .env ADMIN_BOOTSTRAP_* 값과 운영 최초 기동 값 불일치로 추정·미확정 → 관리자 FE 운영 사용 시 확인.
+
+## D-165. 관리자 상품 관리 BE — 스키마(V21·V22)·구매 가능 판정 단일화·관리자 CRUD API (Track 76)
+
+날짜: 2026-09-16
+트랙: Track 76 (관리자 상품 관리 BE·FE-25 선행·이미지 업로드는 Track 77)
+정찰: docs/track-76/recon-report.md
+브랜치: feat/track-76-admin-product
+
+### 배경
+관리자 상품 목록·등록·수정·삭제 화면(FE-25)이 요구하는 백엔드가 없었다. 정찰 실측: 관리자 GET 엔드포인트 0건·상품 수정 API/setter 전무·판매기간/공급가/상품 단위 품절 컬럼 없음·구매 가능 판정이 6지점(목록 JPQL·상세·카탈로그 soldOut·담기·조회 enrich·주문·재결제)에 분산·주문 상품명은 read-time enrich(상품명 수정·삭제 시 과거 주문 표기 변동)·이미지 업로드 경로 전무.
+
+### §1-A 결정
+1. **D7 공급가**: α 표시용 컬럼(product.supply_price BIGINT NULL·상품 단위·정산 무관) 【채택】 / β 공급가 기반 정산 전환 【기각】 — 정산은 D-133 판매가×seller.commission_rate(bp)로 확정·데이터 재현성 훼손 / γ 미도입 【기각】 — 목록 열 요구 미충족. variant 단위 공급가는 요구 없음.
+2. **D9 옵션 구조**: α 조합 구조(그룹→값→variant 3슬롯) 유지·variant 추가·메타 수정·soft-delete만 【채택】 / β 단일 목록 재설계 【기각】 — FE 상세·카트·주문·V20 라벨 전부 현 구조 의존 / γ 전면 재등록 【기각】 — order_item FK RESTRICT·cart 스냅샷·옵션 그룹/값에 deleted_at 없음. 신규 variant 옵션은 (optionGroupId·value)로 지정하고 값이 없으면 ProductOptionValue를 생성. 옵션 그룹 구조 변경 API는 두지 않는다.
+3. **등록 기본 PENDING**: 셀러 등록 Service(ProductRegistrationService.registerProduct) 재사용 + 같은 트랜잭션에서 Product.applySaleTerms로 공급가·판매기간 덧씌움 【채택】 / 관리자 등록 즉시 SALE 【기각】 — 승인 감사 경로(approve)와 이중화. 일괄 상태 변경이 PENDING→SALE을 승인 경로로 처리하므로 운영 부담 없음.
+4. **image_type 도입**: product_image.image_type ENUM('GALLERY','DETAIL') DEFAULT 'GALLERY' — 'MAIN' 명명 【기각】(is_main 플래그와 혼동). 4층위 잠금: DB ENUM ✓ / Java ProductImageType ✓ / DTO @Pattern ✓ / FE constants — FE-25로 이월(BE 트랙).
+5. **구매 가능 판정 단일화**: product.policy.ProductPurchasePolicy(static·도메인 정책) 1곳 【채택】 — 판정식 = status=SALE ∧ 판매기간 내(시작 NULL=즉시·종료 NULL=무기한·종료 배타) ∧ ¬삭제 ∧ variant SALE ∧ ¬상품 수동품절 ∧ ¬variant 수동품절 ∧ 가용재고 ≥ 수량. 사유 2값(NOT_ON_SALE·SOLD_OUT)을 호출처가 매핑(주문 PRODUCT_NOT_ON_SALE/OUT_OF_STOCK·장바구니 422·카탈로그 플래그). 목록 JPQL(findDisplayable)은 같은 식을 SQL로 옮김(:now 바인딩). 판매자 ACTIVE는 정책 밖(D-160 §8 이월 유지). D-160 §1-A "공용화 안 함" 번복 — 상품 단위 품절·판매기간 2축이 추가되며 6지점 개별 수정 비용이 공용화 비용을 넘어섬.
+   - 상세 화면: 판매기간 밖 상품은 STOPPED와 동일하게 200 + saleStopped=true(FE 무수정·"판매중지" 라벨 재사용). variant soldOut 표기는 품절 축만(판매 상태 미포함·Track 71 동작 보존).
+   - 재결제 재검증이 variant SALE 여부도 보게 됨(기존 미검사) — 단일 정책의 의도된 강화.
+6. **order_item.product_name 스냅샷(V22)**: NOT NULL·기존 행 product 조인 backfill(soft-delete 포함·FK RESTRICT라 NULL 잔존 없음). OrderItem.create/OrderItemCommand에 productName 필수 인자 추가(D-164 결정4 "6인자 유지" 번복 — NOT NULL 컬럼이라 무값 생성 경로를 남길 수 없음·테스트 25건 일괄 수정). 주문 응답 productName·previewTitle은 스냅샷 사용·product enrich 제거(productPublicId enrich는 유지).
+7. **삭제**: soft-delete(markDeleted·product만·variant/image는 @SQLRestriction 상위 은닉) / 주문 이력(OrderItemRepository.existsByProductId) 있으면 409 PRODUCT_HAS_ORDER_HISTORY + detail에 판매중지 안내. 삭제 상품 조회·복구 없음.
+8. **일괄 변경**: 항목별 독립 트랜잭션(AdminProductBulkService·@Transactional 없음·단건 서비스 호출) + 항상 200 + results[{productPublicId, success, code, message}]·successCount/failureCount 【채택】 / 전체 롤백 【기각】 — 운영자는 실패 행만 재시도. 흡수 예외는 PRODUCT_NOT_FOUND·PRODUCT_INVALID_STATE 2종만(그 외 전파).
+9. **관리자 목록 필터**: Spring Data Specification(프로젝트 첫 사용) 【채택】 / JPQL CASE 분기 【기각】 — 필터 5축(검색·상태·품절·셀러·카테고리) 조합 폭발. 품절 필터 정의 = 정책 isSoldOut과 동일(NOT EXISTS 서브쿼리). 정렬 PRICE는 base_price 기준(카탈로그 대표가와 다름·관리자 표 열 정합).
+10. **검증 에러 필드 단위**: GlobalExceptionHandler.handleValidation에 fieldErrors[{field,message}] 속성 병기(detail 문자열 계약 유지).
+11. **상태 전이 엔드포인트**: 기존 approve/reject/sale-status 유지(scripts/admin-product-status.ps1 호환) — 통합 【기각】. ps1 제거는 FE-25 완료 후 이월.
+12. **이미지 메타 치환(PUT images)**: 목록 순서=display_order·미포함 soft-delete·대표는 GALLERY 1장 이하·thumbnail_url과 is_main 동기화는 하지 않음(Track 59 결정3 유지·기본정보 수정의 thumbnailUrl로 관리).
+
+### 스키마
+- V21: product ADD is_soldout_manual TINYINT(1) NOT NULL DEFAULT 0·supply_price BIGINT NULL·sale_start_at/sale_end_at DATETIME(6) NULL·KEY ix_product_seller_status(seller_id,status) / product_image ADD image_type ENUM DEFAULT 'GALLERY'. deleted_at은 V1에 존재(추가 없음). 판매기간 인덱스 미도입(NULL OR 조건·소량).
+- V22: order_item ADD product_name VARCHAR(200) NULL → UPDATE JOIN product → MODIFY NOT NULL.
+
+### API
+- GET /api/v1/admin/products (keyword·status·soldOut·sellerPublicId·categoryId·sort·page·size) / GET /api/v1/admin/products/{publicId}
+- POST /api/v1/admin/products / PUT /{publicId} / PUT /{publicId}/images / PUT /{publicId}/variants / PATCH /{publicId}/soldout
+- POST /api/v1/admin/products/bulk/status / POST /api/v1/admin/products/bulk/soldout / DELETE /api/v1/admin/products/{publicId}
+- GET /api/v1/admin/sellers (선택 목록·최소 필드)
+- 기존 유지: approve·reject·sale-status·inventories/adjust·GET /api/v1/categories
+
+### 검증
+- 단위: ProductPurchasePolicyTest 8(상태·기간 경계·수동품절·variant·재고·삭제·우선순위).
+- 통합: ProductPurchasePolicyIntegrationTest 7(6지점 회귀·판매기간/수동품절/삭제) · AdminProductManagementControllerIntegrationTest 18(목록 필터/정렬/페이징·쿼리 수 ≤6·상세·셀러 목록·403·등록·검증 fieldErrors·수정·이미지·variant·품절·일괄 2·삭제 204/409·상품명 스냅샷) · V22ProductNameBackfillMigrationTest 1(별도 스키마 V21→시딩→V22 backfill·NOT NULL).
+- 전체: ./backend/gradlew.bat test --rerun-tasks 928 tests·0 fail.
+- 기존 테스트 수정: OrderItem.create/OrderItemCommand productName 인자(25건·16파일)·order_item raw INSERT product_name 컬럼(34건·33파일)·CartServiceTest/CheckoutServiceTest mock에 isWithinSalePeriod·variant SALE stub.
+
+### 트랩
+- uk_product_variant_options는 option2/3 NULL 조합에서 NULL≠NULL이라 발동하지 않는다 → AdminProductVariantService가 in-memory 조합 선검증(등록 INV-E와 동일). 반대로 3슬롯 전부 채워진 조합은 soft-delete된 variant도 UK에 남아 같은 조합 재생성이 409다(운영 대안: 삭제 대신 메타 수정).
+- Mockito mock(Product)은 isWithinSalePeriod가 false를 반환해 정책이 NOT_ON_SALE로 판정한다 — 정책을 거치는 단위 테스트는 stub 필수.
+- 관리자 목록 N+1 테스트는 Hibernate Statistics를 런타임 활성(setStatisticsEnabled)해 컨텍스트 재생성 없이 SQL 수를 센다.
+
+### §8 이월
+- FE-25: frontend/lib/constants에 ProductImageType·AdminProductSort 등 유니온 단일 소스(4층위 4단) / 관리자 화면 4종.
+- Track 77: 이미지 업로드·서빙(UPLOAD_PATH·볼륨·gateway location)·업로드 후 images PUT 연동.
+- scripts/admin-product-status.ps1 제거(FE-25 완료 후).
+- D-160 §8(판매자 비-ACTIVE 담기·주문 허용 여부) 그대로 이월.
+- 상품 단위 판매기간과 별개로 variant 단위 판매기간·공급가는 요구 발생 시.

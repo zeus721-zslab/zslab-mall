@@ -127,6 +127,8 @@ class CheckoutServiceTest {
         when(product.getPublicId()).thenReturn(PRODUCT_PID);
         when(product.getId()).thenReturn(10L);
         when(product.getStatus()).thenReturn(productStatus);
+        // Track 76: ProductPurchasePolicy가 판매기간도 보므로 mock은 기간 내로 고정한다.
+        lenient().when(product.isWithinSalePeriod(any())).thenReturn(true);
         lenient().when(product.getBasePrice()).thenReturn(basePrice);
         lenient().when(product.getSellerId()).thenReturn(sellerId);
         ProductVariant variant = org.mockito.Mockito.mock(ProductVariant.class);
@@ -267,11 +269,13 @@ class CheckoutServiceTest {
     @Test
     @DisplayName("retry: 상품 판매중지 → 422 ORDER_NOT_PAYABLE(PRODUCT_NOT_ON_SALE)")
     void retry_productNotOnSale_throws422() {
-        OrderItem item = OrderItem.create(10L, 20L, 99L, 2, 5_000L, 10_000L);
+        OrderItem item = OrderItem.create(10L, 20L, 99L, "테스트 상품", 2, 5_000L, 10_000L);
         when(orderRepository.findByPublicIdWithItems("ord_1")).thenReturn(Optional.of(order(1L, "ord_1", item)));
         Product product = org.mockito.Mockito.mock(Product.class);
         when(product.getId()).thenReturn(10L);
         when(product.getStatus()).thenReturn(ProductStatus.HIDDEN);
+        // Track 76: ProductPurchasePolicy가 판매기간도 보므로 mock은 기간 내로 고정한다.
+        lenient().when(product.isWithinSalePeriod(any())).thenReturn(true);
         when(productRepository.findByIdIn(any())).thenReturn(List.of(product));
         when(productVariantRepository.findByIdIn(any())).thenReturn(List.of());
         when(inventoryRepository.findByVariantIdIn(any())).thenReturn(List.of());
@@ -286,13 +290,16 @@ class CheckoutServiceTest {
     @Test
     @DisplayName("retry: 재고 부족 → 422 ORDER_NOT_PAYABLE(OUT_OF_STOCK)")
     void retry_outOfStock_throws422() {
-        OrderItem item = OrderItem.create(10L, 20L, 99L, 2, 5_000L, 10_000L);
+        OrderItem item = OrderItem.create(10L, 20L, 99L, "테스트 상품", 2, 5_000L, 10_000L);
         when(orderRepository.findByPublicIdWithItems("ord_1")).thenReturn(Optional.of(order(1L, "ord_1", item)));
         Product product = org.mockito.Mockito.mock(Product.class);
         when(product.getId()).thenReturn(10L);
         when(product.getStatus()).thenReturn(ProductStatus.SALE);
+        // Track 76: ProductPurchasePolicy가 판매기간도 보므로 mock은 기간 내로 고정한다.
+        lenient().when(product.isWithinSalePeriod(any())).thenReturn(true);
         ProductVariant variant = org.mockito.Mockito.mock(ProductVariant.class);
         when(variant.getId()).thenReturn(20L);
+        when(variant.getStatus()).thenReturn(ProductVariantStatus.SALE); // Track 76: 재결제 재검증도 variant SALE을 본다.
         when(variant.isSoldoutManual()).thenReturn(false);
         Inventory inventory = org.mockito.Mockito.mock(Inventory.class);
         when(inventory.getVariantId()).thenReturn(20L);
@@ -310,13 +317,16 @@ class CheckoutServiceTest {
     @Test
     @DisplayName("retry: 재검증 통과 → initiate 재호출·forRetry·Location=payment")
     void retry_happy_initiatesAndReturnsPaymentLocation() {
-        OrderItem item = OrderItem.create(10L, 20L, 99L, 2, 5_000L, 10_000L);
+        OrderItem item = OrderItem.create(10L, 20L, 99L, "테스트 상품", 2, 5_000L, 10_000L);
         when(orderRepository.findByPublicIdWithItems("ord_1")).thenReturn(Optional.of(order(1L, "ord_1", item)));
         Product product = org.mockito.Mockito.mock(Product.class);
         when(product.getId()).thenReturn(10L);
         when(product.getStatus()).thenReturn(ProductStatus.SALE);
+        // Track 76: ProductPurchasePolicy가 판매기간도 보므로 mock은 기간 내로 고정한다.
+        lenient().when(product.isWithinSalePeriod(any())).thenReturn(true);
         ProductVariant variant = org.mockito.Mockito.mock(ProductVariant.class);
         when(variant.getId()).thenReturn(20L);
+        when(variant.getStatus()).thenReturn(ProductVariantStatus.SALE); // Track 76: 재결제 재검증도 variant SALE을 본다.
         when(variant.isSoldoutManual()).thenReturn(false);
         Inventory inventory = org.mockito.Mockito.mock(Inventory.class);
         when(inventory.getVariantId()).thenReturn(20L);
@@ -355,6 +365,8 @@ class CheckoutServiceTest {
         Product product = org.mockito.Mockito.mock(Product.class);
         when(product.getId()).thenReturn(10L);
         when(product.getStatus()).thenReturn(productStatus);
+        // Track 76: ProductPurchasePolicy가 판매기간도 보므로 mock은 기간 내로 고정한다.
+        lenient().when(product.isWithinSalePeriod(any())).thenReturn(true);
         lenient().when(product.getBasePrice()).thenReturn(basePrice);
         lenient().when(product.getSellerId()).thenReturn(sellerId);
         ProductVariant variant = org.mockito.Mockito.mock(ProductVariant.class);

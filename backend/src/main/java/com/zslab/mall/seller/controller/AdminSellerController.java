@@ -5,17 +5,21 @@ import com.zslab.mall.common.auth.ActorRoleResolver;
 import com.zslab.mall.common.auth.AdminActorResolver;
 import com.zslab.mall.seller.controller.request.SellerProvisioningRequest;
 import com.zslab.mall.seller.controller.response.SellerProvisioningResponse;
+import com.zslab.mall.seller.controller.response.SellerSummaryResponse;
 import com.zslab.mall.seller.service.SellerProvisioningService;
+import com.zslab.mall.seller.service.SellerQueryService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Admin 액터용 판매자 provisioning REST 컨트롤러(Track 37). 관리자 주도 판매자 입점 1 endpoint를 노출한다.
+ * Admin 액터용 판매자 REST 컨트롤러(Track 37 입점 + Track 76 선택 목록).
  *
  * <p>클래스 레벨 base path를 두지 않고 메서드 절대경로를 부여한다({@link com.zslab.mall.inventory.controller.AdminInventoryController}
  * 선례·D-105 §2 Q2 옵션 A). 인가는 SecurityConfig의 {@code /api/v1/admin/**}→{@code hasRole("ADMIN")}가 강제한다.
@@ -30,16 +34,25 @@ import org.springframework.web.bind.annotation.RestController;
 public class AdminSellerController {
 
     private final SellerProvisioningService sellerProvisioningService;
+    private final SellerQueryService sellerQueryService;
     private final AdminActorResolver adminActorResolver;
     private final ActorRoleResolver actorRoleResolver;
 
     public AdminSellerController(
             SellerProvisioningService sellerProvisioningService,
+            SellerQueryService sellerQueryService,
             AdminActorResolver adminActorResolver,
             ActorRoleResolver actorRoleResolver) {
         this.sellerProvisioningService = sellerProvisioningService;
+        this.sellerQueryService = sellerQueryService;
         this.adminActorResolver = adminActorResolver;
         this.actorRoleResolver = actorRoleResolver;
+    }
+
+    /** 관리자 셀러 선택 목록(Track 76·상품 등록 폼 드롭다운용·최소 필드·페이징 없음). */
+    @GetMapping("/api/v1/admin/sellers")
+    public ResponseEntity<List<SellerSummaryResponse>> list() {
+        return ResponseEntity.ok(sellerQueryService.listAll());
     }
 
     /**

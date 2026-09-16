@@ -54,7 +54,7 @@ class InventoryOrderPlacedHandlerTest {
     }
 
     private OrderItem orderItem(OrderItemStatus status) {
-        OrderItem item = OrderItem.create(PRODUCT_ID, VARIANT_ID, SELLER_ID, QTY, UNIT_PRICE, UNIT_PRICE * QTY);
+        OrderItem item = OrderItem.create(PRODUCT_ID, VARIANT_ID, SELLER_ID, "테스트 상품", QTY, UNIT_PRICE, UNIT_PRICE * QTY);
         ReflectionTestUtils.setField(item, "id", 501L);
         ReflectionTestUtils.setField(item, "itemStatus", status);
         return item;

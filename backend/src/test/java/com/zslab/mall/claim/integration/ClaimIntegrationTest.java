@@ -484,8 +484,8 @@ class ClaimIntegrationTest extends AbstractIntegrationTest {
     private void seedOrderItem(long id, String publicId, long orderId, OrderItemStatus itemStatus) {
         entityManager.createNativeQuery(
                         "INSERT INTO order_item (id, public_id, order_id, product_id, variant_id, seller_id, "
-                                + "quantity, unit_price, total_price, item_status, created_at, updated_at) "
-                                + "VALUES (?1, ?2, ?3, 1, 1, 1, 1, 10000, 10000, ?4, NOW(6), NOW(6))")
+                                + "quantity, unit_price, total_price, item_status, created_at, updated_at, product_name) "
+                                + "VALUES (?1, ?2, ?3, 1, 1, 1, 1, 10000, 10000, ?4, NOW(6), NOW(6), '테스트 상품')")
                 .setParameter(1, id)
                 .setParameter(2, publicId)
                 .setParameter(3, orderId)

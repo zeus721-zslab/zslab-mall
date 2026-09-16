@@ -53,7 +53,7 @@ class ClaimApprovedHandlerTest {
 
     /** total = unit × quantity(ORD-5) 정합 OrderItem(totalPrice=12000). */
     private OrderItem orderItem() {
-        return OrderItem.create(1L, 1L, 1L, 1, ITEM_TOTAL_PRICE, ITEM_TOTAL_PRICE);
+        return OrderItem.create(1L, 1L, 1L, "테스트 상품", 1, ITEM_TOTAL_PRICE, ITEM_TOTAL_PRICE);
     }
 
     @Test

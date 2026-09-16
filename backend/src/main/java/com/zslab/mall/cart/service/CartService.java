@@ -12,15 +12,15 @@ import com.zslab.mall.inventory.entity.Inventory;
 import com.zslab.mall.inventory.repository.InventoryRepository;
 import com.zslab.mall.product.entity.Product;
 import com.zslab.mall.product.entity.ProductVariant;
-import com.zslab.mall.product.enums.ProductStatus;
-import com.zslab.mall.product.enums.ProductVariantStatus;
 import com.zslab.mall.product.exception.ProductVariantNotFoundException;
+import com.zslab.mall.product.policy.ProductPurchasePolicy;
 import com.zslab.mall.product.repository.ProductRepository;
 import com.zslab.mall.product.repository.ProductVariantRepository;
 import com.zslab.mall.product.service.OptionLabelResolver;
 import com.zslab.mall.seller.entity.Seller;
 import com.zslab.mall.seller.enums.SellerStatus;
 import com.zslab.mall.seller.repository.SellerRepository;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -92,22 +92,16 @@ public class CartService {
     }
 
     /**
-     * 담기 시점 구매 가능 판정(Track 71): 상품 SALE ∧ variant SALE ∧ 수동품절 아님 ∧ 재고 available&gt;0. 조회 enrich의
-     * purchasable(판매자 ACTIVE 포함·{@link #toView})과 달리 판매자 상태는 확정 범위 밖이라 보지 않는다. 카탈로그
-     * {@code ProductCatalogService.isPurchasable}는 variant·재고만 보는 private 판정이라 공용화하지 않고 담기 전용으로 둔다.
+     * 담기 시점 구매 가능 판정(Track 71 → Track 76 {@link ProductPurchasePolicy} 단일화): 상품 판매중(SALE·판매기간 내·미삭제) ∧
+     * variant SALE ∧ 상품·변형 수동품절 아님 ∧ 재고 available&gt;0. 조회 enrich의 purchasable(판매자 ACTIVE 포함·{@link #toView})과
+     * 달리 판매자 상태는 확정 범위 밖(D-160 §8 이월)이라 보지 않는다.
      *
      * @throws CartItemNotPurchasableException 판정 실패 시(422)
      */
     private void assertPurchasable(ProductVariant variant) {
         Product product = productRepository.findById(variant.getProductId()).orElse(null);
-        int available = inventoryRepository.findByVariantId(variant.getId())
-                .map(Inventory::getQuantityAvailable)
-                .orElse(0);
-        boolean purchasable = product != null
-                && product.getStatus() == ProductStatus.SALE
-                && variant.getStatus() == ProductVariantStatus.SALE
-                && !variant.isSoldoutManual()
-                && available > 0;
+        Inventory inventory = inventoryRepository.findByVariantId(variant.getId()).orElse(null);
+        boolean purchasable = ProductPurchasePolicy.isPurchasable(product, variant, inventory, LocalDateTime.now());
         if (!purchasable) {
             throw new CartItemNotPurchasableException(
                     "구매할 수 없는 상품입니다(판매중지 또는 품절): variantPublicId=" + variant.getPublicId());
@@ -164,9 +158,10 @@ public class CartService {
         // 현재 옵션명(스냅샷 아님·Track 75)·해소된 variant 전체를 배치 1회로 라벨링.
         Map<Long, String> optionLabelByVariantId = optionLabelResolver.resolve(variantById.values());
 
+        LocalDateTime now = LocalDateTime.now();
         List<CartItemView> views = items.stream()
                 .map(item -> toView(item, variantById, productById, sellerById, inventoryByVariant,
-                        optionLabelByVariantId))
+                        optionLabelByVariantId, now))
                 .toList();
         return new CartResponse(views);
     }
@@ -221,8 +216,8 @@ public class CartService {
     }
 
     /**
-     * 담김 품목 1건을 enrich 뷰로 변환한다. 단가·품절·구매가능은 variant 단위 실측 공식으로 계산하며, enrich 누락(dangling)은
-     * null/0/purchasable=false로 표기한다. 품절 = isSoldoutManual OR available==0(Inventory 단독 불가·variant 결합).
+     * 담김 품목 1건을 enrich 뷰로 변환한다. 단가는 variant 단위 실측 공식으로, 구매가능은 {@link ProductPurchasePolicy}(Track 76)
+     * ∧ 판매자 ACTIVE로 계산하며, enrich 누락(dangling)은 null/0/purchasable=false로 표기한다.
      */
     private CartItemView toView(
             CartItem item,
@@ -230,7 +225,8 @@ public class CartService {
             Map<Long, Product> productById,
             Map<Long, Seller> sellerById,
             Map<Long, Inventory> inventoryByVariant,
-            Map<Long, String> optionLabelByVariantId) {
+            Map<Long, String> optionLabelByVariantId,
+            LocalDateTime now) {
         ProductVariant variant = variantById.get(item.getVariantId());
         Product product = variant != null ? productById.get(variant.getProductId()) : null;
         Seller seller = product != null ? sellerById.get(product.getSellerId()) : null;
@@ -245,11 +241,8 @@ public class CartService {
                 ? product.getBasePrice() + variant.getAdditionalPrice()
                 : 0L;
 
-        boolean purchasable = variant != null && product != null && seller != null
-                && !variant.isSoldoutManual() && available > 0
-                && variant.getStatus() == ProductVariantStatus.SALE
-                && product.getStatus() == ProductStatus.SALE
-                && seller.getStatus() == SellerStatus.ACTIVE;
+        boolean purchasable = seller != null && seller.getStatus() == SellerStatus.ACTIVE
+                && ProductPurchasePolicy.isPurchasable(product, variant, variant != null ? inventory : null, now);
 
         // 외부 대상키는 cart_item 저장 스냅샷(variantPublicId)이라 dangling(variant soft-delete·enrich 누락)이어도 항상 노출된다.
         return new CartItemView(

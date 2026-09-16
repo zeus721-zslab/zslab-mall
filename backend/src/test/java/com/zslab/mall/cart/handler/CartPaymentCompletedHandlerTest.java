@@ -53,7 +53,7 @@ class CartPaymentCompletedHandlerTest {
     private Order orderWithVariants(Long... variantIds) {
         Order order = Order.create(BUYER_ID, "20260709-TEST01", 0L, 0L);
         for (Long variantId : variantIds) {
-            order.addItem(OrderItem.create(11L, variantId, 21L, 1, 1_000L, 1_000L));
+            order.addItem(OrderItem.create(11L, variantId, 21L, "테스트 상품", 1, 1_000L, 1_000L));
         }
         return order;
     }

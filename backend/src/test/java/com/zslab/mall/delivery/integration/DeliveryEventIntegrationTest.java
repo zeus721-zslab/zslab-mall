@@ -134,8 +134,8 @@ class DeliveryEventIntegrationTest extends AbstractIntegrationTest {
                                 + "VALUES (?, ?, ?, ?, 'PAID', ?, 0, 0, NOW(6), NOW(6))",
                         ORDER_ID, pid("ord_", "T13ORD"), USER_ID, "ORDT13" + ORDER_ID, FULL_AMOUNT);
                 jdbc.update("INSERT INTO order_item (id, public_id, order_id, product_id, variant_id, seller_id, "
-                                + "quantity, unit_price, total_price, item_status, created_at, updated_at) "
-                                + "VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, NOW(6), NOW(6))",
+                                + "quantity, unit_price, total_price, item_status, created_at, updated_at, product_name) "
+                                + "VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, NOW(6), NOW(6), '테스트 상품')",
                         ORDER_ITEM_ID, pid("oit_", "T13OIT"), ORDER_ID, PRODUCT_ID, VARIANT_ID, SELLER_ID,
                         FULL_AMOUNT, FULL_AMOUNT, itemStatus.name());
                 // delivery: SHIPPING 이상이면 tracking_no·shipped_at을 함께 시드(DLV-1·DLV-3 정합).

@@ -31,12 +31,14 @@ import com.zslab.mall.payment.exception.PaymentAlreadyCompletedException;
 import com.zslab.mall.payment.exception.PaymentInProgressException;
 import com.zslab.mall.payment.exception.PaymentNotFoundException;
 import com.zslab.mall.product.exception.ProductImageNotFoundException;
+import com.zslab.mall.product.exception.ProductHasOrderHistoryException;
 import com.zslab.mall.product.exception.ProductInvalidStateException;
 import com.zslab.mall.product.exception.ProductNotFoundException;
 import com.zslab.mall.product.exception.ProductVariantNotFoundException;
 import com.zslab.mall.product.exception.ProductVariantOptionConflictException;
 import com.zslab.mall.refund.exception.RefundInvariantViolationException;
 import com.zslab.mall.refund.exception.RefundNotFoundException;
+import com.zslab.mall.seller.exception.SellerNotFoundException;
 import com.zslab.mall.seller.exception.SellerUserAlreadyExistsException;
 import com.zslab.mall.settlement.exception.SettlementAlreadyExistsException;
 import com.zslab.mall.settlement.exception.SettlementInvalidStateException;
@@ -47,6 +49,8 @@ import com.zslab.mall.user.exception.EmailAlreadyExistsException;
 import com.zslab.mall.user.exception.UserNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import java.net.URI;
+import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
@@ -110,6 +114,8 @@ public class GlobalExceptionHandler {
     private static final String CODE_CART_ITEM_NOT_PURCHASABLE = "CART_ITEM_NOT_PURCHASABLE";
     private static final String CODE_PRODUCT_VARIANT_OPTION_CONFLICT = "PRODUCT_VARIANT_OPTION_CONFLICT";
     private static final String CODE_PRODUCT_INVALID_STATE = "PRODUCT_INVALID_STATE";
+    private static final String CODE_PRODUCT_HAS_ORDER_HISTORY = "PRODUCT_HAS_ORDER_HISTORY";
+    private static final String CODE_SELLER_NOT_FOUND = "SELLER_NOT_FOUND";
     private static final String CODE_FORBIDDEN = "FORBIDDEN";
     private static final String CODE_SETTLEMENT_PERIOD_INVALID = "SETTLEMENT_PERIOD_INVALID";
     private static final String CODE_SETTLEMENT_ALREADY_EXISTS = "SETTLEMENT_ALREADY_EXISTS";
@@ -127,8 +133,16 @@ public class GlobalExceptionHandler {
         String detail = exception.getBindingResult().getFieldErrors().stream()
                 .map(fieldError -> fieldError.getField() + ": " + fieldError.getDefaultMessage())
                 .collect(Collectors.joining(", "));
-        return build(HttpStatus.BAD_REQUEST, CODE_VALIDATION_FAILED,
+        ResponseEntity<ProblemDetail> response = build(HttpStatus.BAD_REQUEST, CODE_VALIDATION_FAILED,
                 detail.isBlank() ? "요청 검증에 실패했습니다." : detail, request);
+        // Track 76: 필드 단위 오류 목록(fieldErrors)을 병기해 FE가 폼 필드별로 표시한다. detail 문자열은 기존 계약대로 유지한다.
+        List<Map<String, String>> fieldErrors = exception.getBindingResult().getFieldErrors().stream()
+                .map(fieldError -> Map.of(
+                        "field", fieldError.getField(),
+                        "message", fieldError.getDefaultMessage() != null ? fieldError.getDefaultMessage() : ""))
+                .toList();
+        response.getBody().setProperty("fieldErrors", fieldErrors);
+        return response;
     }
 
     @ExceptionHandler({HttpMessageNotReadableException.class, MethodArgumentTypeMismatchException.class,
@@ -195,6 +209,13 @@ public class GlobalExceptionHandler {
             ProductNotFoundException exception, HttpServletRequest request) {
         // Track 44: 구매자 카탈로그 단건 미존재·비노출(status/판매자상태/삭제) 은닉(404). 존재 여부 노출 회피(§2).
         return build(HttpStatus.NOT_FOUND, CODE_PRODUCT_NOT_FOUND, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(SellerNotFoundException.class)
+    public ResponseEntity<ProblemDetail> handleSellerNotFound(
+            SellerNotFoundException exception, HttpServletRequest request) {
+        // Track 76: 관리자 상품 등록·목록 필터의 sellerPublicId 미존재(404).
+        return build(HttpStatus.NOT_FOUND, CODE_SELLER_NOT_FOUND, exception.getMessage(), request);
     }
 
     @ExceptionHandler(ProductImageNotFoundException.class)
@@ -282,6 +303,13 @@ public class GlobalExceptionHandler {
     }
 
     // ===== 409 =====
+    @ExceptionHandler(ProductHasOrderHistoryException.class)
+    public ResponseEntity<ProblemDetail> handleProductHasOrderHistory(
+            ProductHasOrderHistoryException exception, HttpServletRequest request) {
+        // Track 76: 주문 이력 있는 상품 삭제 차단(409). detail에 판매중지 대안을 안내한다.
+        return build(HttpStatus.CONFLICT, CODE_PRODUCT_HAS_ORDER_HISTORY, exception.getMessage(), request);
+    }
+
     @ExceptionHandler(IdempotencyKeyInProgressException.class)
     public ResponseEntity<ProblemDetail> handleIdempotencyInProgress(
             IdempotencyKeyInProgressException exception, HttpServletRequest request) {

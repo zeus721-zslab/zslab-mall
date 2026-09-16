@@ -74,9 +74,12 @@ class CartServiceTest {
         lenient().when(variant.isSoldoutManual()).thenReturn(soldoutManual);
         Product product = mock(Product.class);
         when(product.getStatus()).thenReturn(productStatus);
+        // Track 76: ProductPurchasePolicy가 판매기간도 보므로 mock은 기간 내로 고정한다.
+        lenient().when(product.isWithinSalePeriod(any())).thenReturn(true);
         when(productRepository.findById(PRODUCT_ID)).thenReturn(Optional.of(product));
         Inventory inventory = mock(Inventory.class);
-        when(inventory.getQuantityAvailable()).thenReturn(available);
+        // 판매 상태에서 먼저 차단되면 재고는 조회되지 않으므로(정책 단락) lenient.
+        lenient().when(inventory.getQuantityAvailable()).thenReturn(available);
         when(inventoryRepository.findByVariantId(VARIANT_ID)).thenReturn(Optional.of(inventory));
         when(productVariantRepository.findByPublicId(VARIANT_PUBLIC_ID)).thenReturn(Optional.of(variant));
         return variant;

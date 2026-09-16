@@ -50,7 +50,7 @@ class OrderServiceTest {
     }
 
     private CreateOrderCommand commandWithItems(int itemCount) {
-        OrderItemCommand item = new OrderItemCommand(10L, 20L, 30L, 2, 5_000L, 10_000L);
+        OrderItemCommand item = new OrderItemCommand(10L, 20L, 30L, "테스트 상품", 2, 5_000L, 10_000L);
         return new CreateOrderCommand(100L, java.util.Collections.nCopies(itemCount, item), shipping(), 0L, 1_000L);
     }
 
@@ -97,7 +97,7 @@ class OrderServiceTest {
     @DisplayName("markPaid: 조회 후 규칙 [1] 적용 (status PAID)")
     void markPaid_delegates() {
         Order order = Order.create(100L, "20260625-ABCDEF", 0L, 0L);
-        order.addItem(OrderItem.create(10L, 20L, 30L, 1, 5_000L, 5_000L));
+        order.addItem(OrderItem.create(10L, 20L, 30L, "테스트 상품", 1, 5_000L, 5_000L));
         when(orderRepository.findById(1L)).thenReturn(java.util.Optional.of(order));
 
         Order result = orderService.markPaid(1L, LocalDateTime.of(2026, 6, 25, 9, 0));
@@ -111,7 +111,7 @@ class OrderServiceTest {
     @DisplayName("recalculateStatus: Resolver 결과를 Order에 반영")
     void recalculateStatus_appliesResolverResult() {
         Order order = Order.create(100L, "20260625-ABCDEF", 0L, 0L);
-        order.addItem(OrderItem.create(10L, 20L, 30L, 1, 5_000L, 5_000L));
+        order.addItem(OrderItem.create(10L, 20L, 30L, "테스트 상품", 1, 5_000L, 5_000L));
         when(orderRepository.findById(1L)).thenReturn(java.util.Optional.of(order));
         when(orderStatusResolver.resolve(any())).thenReturn(OrderStatus.SHIPPING);
 
@@ -133,7 +133,7 @@ class OrderServiceTest {
     @DisplayName("markPaid: 미결제 종료(PAYMENT_EXPIRED) 주문 → IllegalStateException(늦은 웹훅 차단·FE-12c)·PAID 미전이")
     void markPaid_terminatedOrder_rejects() {
         Order order = Order.create(100L, "20260709-EXPIRE", 0L, 0L);
-        order.addItem(OrderItem.create(10L, 20L, 30L, 1, 5_000L, 5_000L));
+        order.addItem(OrderItem.create(10L, 20L, 30L, "테스트 상품", 1, 5_000L, 5_000L));
         order.expirePayment();   // PENDING_PAYMENT → PAYMENT_EXPIRED (이미 미결제 종료된 주문)
         when(orderRepository.findById(1L)).thenReturn(java.util.Optional.of(order));
 

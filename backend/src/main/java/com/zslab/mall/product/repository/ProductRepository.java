@@ -2,12 +2,14 @@ package com.zslab.mall.product.repository;
 
 import com.zslab.mall.product.entity.Product;
 import jakarta.persistence.LockModeType;
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -16,7 +18,7 @@ import org.springframework.data.repository.query.Param;
  * 상품 Repository(Track 4 read-only·D-59·Track 44 구매자 카탈로그 조회 추가). id·public_id 기준 조회 + 구매자 카탈로그
  * 노출 목록 조회를 제공한다(쓰기·상태 전이는 Track 7 이연).
  */
-public interface ProductRepository extends JpaRepository<Product, Long> {
+public interface ProductRepository extends JpaRepository<Product, Long>, JpaSpecificationExecutor<Product> {
 
     Optional<Product> findByPublicId(String publicId);
 
@@ -43,7 +45,8 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
     List<Product> findByPublicIdIn(Collection<String> publicIds);
 
     /**
-     * 구매자 카탈로그 노출대상 상품을 페이징 조회한다(Track 44·D1). 노출대상 = Product.status=SALE ∧ Seller.status=ACTIVE이며,
+     * 구매자 카탈로그 노출대상 상품을 페이징 조회한다(Track 44·D1). 노출대상 = Product.status=SALE ∧ Seller.status=ACTIVE ∧
+     * 판매기간 내(Track 76·{@code ProductPurchasePolicy.isOnSale}과 동일 식: 시작 NULL=즉시·종료 NULL=무기한·종료 배타)이며,
      * deleted_at 제외는 {@code @SQLRestriction}이 Product·Seller·ProductVariant 전 엔티티에 자동 적용한다(status만 명시).
      * categoryId가 null이면 전체, 값이 있으면 해당 카테고리로 필터한다. keywordPattern(Track 72)은 Service가 이미
      * escape·%감싸기까지 마친 LIKE 패턴이며(null이면 조건 없음), ESCAPE '\'로 %·_·\ 리터럴 매칭을 보장한다.
@@ -51,12 +54,14 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
      *
      * <p>정렬(sort)은 요청 파라미터(LATEST·PRICE_ASC·PRICE_DESC·NAME)로 분기한다. PRICE는 대표가(basePrice + 판매가능
      * variant의 MIN(additional_price))로 정렬하며, 판매가능 variant가 없으면 COALESCE 0으로 basePrice만 반영한다.
-     * LATEST(created_at DESC)는 기본이자 동순위 tiebreaker다. 모든 변수는 :categoryId·:keywordPattern·:sort 바인딩이다(SQL injection 위험 없음).
+     * LATEST(created_at DESC)는 기본이자 동순위 tiebreaker다. 모든 변수는 :now·:categoryId·:keywordPattern·:sort 바인딩이다(SQL injection 위험 없음).
      */
     @Query(value = "SELECT p FROM Product p, com.zslab.mall.seller.entity.Seller s "
             + "WHERE p.sellerId = s.id "
             + "AND p.status = com.zslab.mall.product.enums.ProductStatus.SALE "
             + "AND s.status = com.zslab.mall.seller.enums.SellerStatus.ACTIVE "
+            + "AND (p.saleStartAt IS NULL OR p.saleStartAt <= :now) "
+            + "AND (p.saleEndAt IS NULL OR p.saleEndAt > :now) "
             + "AND (:categoryId IS NULL OR p.categoryId = :categoryId) "
             + "AND (:keywordPattern IS NULL OR p.name LIKE :keywordPattern ESCAPE '\\') "
             + "ORDER BY "
@@ -72,9 +77,12 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
             + "WHERE p.sellerId = s.id "
             + "AND p.status = com.zslab.mall.product.enums.ProductStatus.SALE "
             + "AND s.status = com.zslab.mall.seller.enums.SellerStatus.ACTIVE "
+            + "AND (p.saleStartAt IS NULL OR p.saleStartAt <= :now) "
+            + "AND (p.saleEndAt IS NULL OR p.saleEndAt > :now) "
             + "AND (:categoryId IS NULL OR p.categoryId = :categoryId) "
             + "AND (:keywordPattern IS NULL OR p.name LIKE :keywordPattern ESCAPE '\\')")
     Page<Product> findDisplayable(
+            @Param("now") LocalDateTime now,
             @Param("categoryId") Long categoryId,
             @Param("keywordPattern") String keywordPattern,
             @Param("sort") String sort,

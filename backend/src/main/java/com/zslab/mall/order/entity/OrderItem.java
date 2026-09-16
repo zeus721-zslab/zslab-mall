@@ -51,6 +51,13 @@ public class OrderItem extends AbstractPublicIdFullAuditableEntity {
     @Column(name = "seller_id", nullable = false)
     private Long sellerId;
 
+    /**
+     * 주문 시점 상품명 스냅샷(표시 전용·Track 76·V22). 이후 관리자가 상품명을 수정하거나 상품을 soft-delete해도 과거 주문
+     * 표기는 변하지 않는다(unit_price·option_label과 동일 계약).
+     */
+    @Column(name = "product_name", nullable = false, length = 200)
+    private String productName;
+
     @Column(name = "quantity", nullable = false)
     private int quantity;
 
@@ -92,14 +99,16 @@ public class OrderItem extends AbstractPublicIdFullAuditableEntity {
             Long productId,
             Long variantId,
             Long sellerId,
+            String productName,
             int quantity,
             Long unitPrice,
             Long totalPrice) {
-        return create(productId, variantId, sellerId, quantity, unitPrice, totalPrice, null);
+        return create(productId, variantId, sellerId, productName, quantity, unitPrice, totalPrice, null);
     }
 
     /**
-     * 옵션 라벨 스냅샷을 포함해 주문 품목을 생성한다(Track 75). optionLabel은 null 허용(옵션 없음·미해소).
+     * 옵션 라벨 스냅샷을 포함해 주문 품목을 생성한다(Track 75). optionLabel은 null 허용(옵션 없음·미해소). productName은
+     * 주문 시점 상품명 스냅샷(Track 76·필수).
      *
      * @throws IllegalArgumentException 필수값 누락·수량 1 미만·ORD-5 위반 시
      */
@@ -107,13 +116,14 @@ public class OrderItem extends AbstractPublicIdFullAuditableEntity {
             Long productId,
             Long variantId,
             Long sellerId,
+            String productName,
             int quantity,
             Long unitPrice,
             Long totalPrice,
             String optionLabel) {
-        if (productId == null || variantId == null || sellerId == null
+        if (productId == null || variantId == null || sellerId == null || productName == null
                 || unitPrice == null || totalPrice == null) {
-            throw new IllegalArgumentException("OrderItem 필수값 누락(product·variant·seller·unitPrice·totalPrice).");
+            throw new IllegalArgumentException("OrderItem 필수값 누락(product·variant·seller·productName·unitPrice·totalPrice).");
         }
         if (quantity < 1) {
             throw new IllegalArgumentException("OrderItem 수량은 1 이상이어야 합니다. 입력: " + quantity);
@@ -126,6 +136,7 @@ public class OrderItem extends AbstractPublicIdFullAuditableEntity {
         item.productId = productId;
         item.variantId = variantId;
         item.sellerId = sellerId;
+        item.productName = productName;
         item.quantity = quantity;
         item.unitPrice = unitPrice;
         item.totalPrice = totalPrice;

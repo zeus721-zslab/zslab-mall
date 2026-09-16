@@ -162,8 +162,8 @@ class CartPaymentCompletedEventIntegrationTest extends AbstractIntegrationTest {
                         + "VALUES (?, ?, ?, ?, 'PENDING_PAYMENT', 10000, 0, 0, NOW(6), NOW(6))",
                 ORDER_ID, ORDER_PID, USER_ID, "ORDT67" + ORDER_ID);
         jdbc.update("INSERT INTO order_item (id, public_id, order_id, product_id, variant_id, seller_id, "
-                        + "quantity, unit_price, total_price, item_status, created_at, updated_at) "
-                        + "VALUES (?, ?, ?, ?, ?, ?, 1, 10000, 10000, 'ORDERED', NOW(6), NOW(6))",
+                        + "quantity, unit_price, total_price, item_status, created_at, updated_at, product_name) "
+                        + "VALUES (?, ?, ?, ?, ?, ?, 1, 10000, 10000, 'ORDERED', NOW(6), NOW(6), '테스트 상품')",
                 ORDER_ITEM_ID, ORDER_ITEM_PID, ORDER_ID, PRODUCT_ID, ORDERED_VARIANT_ID, SELLER_ID);
     }
 
