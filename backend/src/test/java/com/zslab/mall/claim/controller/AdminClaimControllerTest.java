@@ -12,11 +12,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.zslab.mall.claim.entity.Claim;
+import com.zslab.mall.claim.enums.ClaimRejectReasonCode;
 import com.zslab.mall.claim.enums.ClaimStatus;
 import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.exception.ClaimInvalidStateException;
 import com.zslab.mall.claim.exception.ClaimNotFoundException;
 import com.zslab.mall.claim.repository.ClaimRepository;
+import com.zslab.mall.claim.service.AdminClaimQueryService;
 import com.zslab.mall.claim.service.ClaimService;
 import com.zslab.mall.common.auth.AdminActorResolver;
 import com.zslab.mall.common.exception.MalformedRequestException;
@@ -31,6 +33,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
@@ -58,6 +61,9 @@ class AdminClaimControllerTest {
 
     @MockitoBean
     private ClaimService claimService;
+
+    @MockitoBean
+    private AdminClaimQueryService adminClaimQueryService;
 
     @MockitoBean
     private ClaimRepository claimRepository;
@@ -167,10 +173,11 @@ class AdminClaimControllerTest {
         when(claimRepository.findByPublicId(CLAIM_PUBLIC_ID)).thenReturn(Optional.of(claim));
         when(orderItemRepository.findById(ORDER_ITEM_ID)).thenReturn(Optional.of(orderItem));
 
-        mockMvc.perform(post("/api/v1/admin/claims/" + CLAIM_PUBLIC_ID + "/reject").header("X-Admin-Id", "1"))
+        mockMvc.perform(post("/api/v1/admin/claims/" + CLAIM_PUBLIC_ID + "/reject").header("X-Admin-Id", "1")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"reasonCode\":\"OUT_OF_POLICY\",\"memo\":\"테스트 거부\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.publicId").value(CLAIM_PUBLIC_ID))
                 .andExpect(jsonPath("$.status").value("REJECTED"));
-        verify(claimService).rejectByAdmin(eq(CLAIM_ID), any());
+        verify(claimService).rejectByAdmin(eq(CLAIM_ID), eq(ClaimRejectReasonCode.OUT_OF_POLICY), eq("테스트 거부"), any());
     }
 }

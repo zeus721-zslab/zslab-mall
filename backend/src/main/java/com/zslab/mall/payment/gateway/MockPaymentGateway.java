@@ -1,6 +1,7 @@
 package com.zslab.mall.payment.gateway;
 
 import com.github.f4b6a3.ulid.UlidCreator;
+import com.zslab.mall.common.observability.TracedEventPublisher;
 import com.zslab.mall.payment.enums.PaymentMethod;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -8,7 +9,8 @@ import org.springframework.stereotype.Component;
 /**
  * Mock PG 구현(Track 3·D-27·Track 5 환불 확장). 실제 외부 PG 호출 없이 결정적 모의 결제창 URL·환불 식별자를 반환한다.
  *
- * <p>결제·환불의 성공·실패·취소는 외부 PG 대신 Webhook Controller로 들어오는 모의 콜백으로 구동한다.
+ * <p>결제의 성공·실패·취소는 외부 PG 대신 Webhook Controller로 들어오는 모의 콜백으로 구동한다. 환불 완료는 Track 80(C4)부터
+ * 서버 내부에서 자동 발생한다({@link MockRefundAccepted} → {@link MockRefundAutoCallbackListener}).
  * 실 PG 도입 시 본 구현만 교체하고 {@link PaymentGateway} 계약은 유지한다.
  */
 @Slf4j
@@ -20,6 +22,12 @@ public class MockPaymentGateway implements PaymentGateway {
 
     /** Mock 환불 식별자 prefix(PG-side id·우리 public_id(rfn_)와 별개). */
     private static final String MOCK_REFUND_ID_PREFIX = "mock_rfn_";
+
+    private final TracedEventPublisher eventPublisher;
+
+    public MockPaymentGateway(TracedEventPublisher eventPublisher) {
+        this.eventPublisher = eventPublisher;
+    }
 
     @Override
     public String provider() {
@@ -44,6 +52,8 @@ public class MockPaymentGateway implements PaymentGateway {
         String pgRefundId = MOCK_REFUND_ID_PREFIX + UlidCreator.getMonotonicUlid();
         log.debug("[MockPaymentGateway] 환불 요청 등록·pg_refund_id 발급: paymentPgTid={}, amount={}, pgRefundId={}",
                 paymentPgTid, amount, pgRefundId);
+        // Track 80 C4: 실 PG 웹훅 대신 호출 TX 커밋 후 완료 콜백을 자동 발생시킨다(MockRefundAutoCallbackListener·AFTER_COMMIT).
+        eventPublisher.publishEvent(new MockRefundAccepted(pgRefundId));
         return new MockRefundResponse(pgRefundId, true, null);
     }
 }

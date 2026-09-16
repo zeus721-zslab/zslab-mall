@@ -10317,3 +10317,54 @@ deploy.yml이 `push main` 무필터라 docs만 변경된 머지에도 서버 SSH
 - 결정 5 배송비 환불 — 배송비 모델 도입 시.
 - **§8 이월(보충·FE-27 정찰 실측 2026-09-16)**: 실 PG 도입 시 결제·환불 웹훅 서명 검증 필수. 현재 `POST /api/webhooks/payments`·`/api/webhooks/refunds`는 SecurityConfig `/api/webhooks/**` permitAll이며 Controller·Request DTO에 서명(HMAC)·타임스탬프·nonce 검증이 없다(MOCK_PG 전제·사용자 FE `payment/mock.vue`가 브라우저에서 직접 호출). 이 상태로 운영에 실 PG를 연결하면 `paymentAttemptKey`/`pgRefundId`를 아는 누구나 결제 완료·환불 완료를 위조해 주문 상태·재고(commitReservation·restoreStock)를 조작할 수 있다. 실 PG 전환 트랙에서 (1) PG 서명 헤더 검증 필터 (2) 모의 결제 페이지·모의 콜백 경로의 `local`·`test` 프로필 게이트 (3) 관리자 "환불 완료 모의"(FE-27 α·미채택) 도입 시 동일 게이트를 함께 처리한다. FE-27 §1-A 참조(decisions-fe.md).
 - **§8 이월(보충·FE-27 보강 2 2026-09-16)**: 실 PG 도입 시 콜백 시각 오프셋 기준 KST 변환 필수 — `PaymentCallbackRequest.occurredAt`은 오프셋 없는 LocalDateTime을 KST 벽시계로 그대로 저장(`payment.paid_at`·`orders.paid_at`)하므로 PG가 UTC·Z·+00:00 등으로 보내면 어댑터에서 Asia/Seoul로 변환한 뒤 넘겨야 한다(모의 콜백은 FE `toKstLocalDateTime`으로 정렬 완료·실왕복 paidAt−orderedAt=0.6s 확인). 기존 −9h 저장 행 보정은 승인 후 별도.
+
+## D-169. 배송 전 취소 흐름 BE — 거부 사유·송장 가드·Mock 환불 자동 완료·SMS 알림·관리자 클레임 목록 (Track 80)
+
+날짜: 2026-09-16
+트랙: Track 80 (BE·관리자 화면은 FE 후속·셀러 화면은 셀러 트랙)
+정찰: docs/track-80/recon-report.md
+브랜치: feat/track-80-cancel-flow
+
+### 배경
+관리자 클레임 목록 API가 0건이었고(FE 취소·반품·교환 3 placeholder), 정찰에서 (1) 취소요청(CANCEL_REQUESTED) 품목에 송장 등록이 통과되는 결함(`CANCEL_REQUESTED → PREPARING`이 스냅샷 원복용으로 합법·발송 후 환불 완료 시 품목 종결 no-op → 환불+발송 동시 발생) (2) Mock PG가 환불 접수만 하고 완료 콜백이 없어 라이브 환불이 PENDING에 영구 잔존(FE 환불 웹훅 호출 0건) (3) 거부 사유 컬럼·거부/요청 알림 부재를 실측했다. 확정 결정 C4 "모의 프로필 한정"은 demo 프로필이 없고 운영이 Mock PG를 쓰는 현실과 충돌했다.
+
+### §1-A 결정
+1. **C4 게이트**: α 프로퍼티 게이트 【기각】 — 소비처 없는 설정·운영에서도 true / **β `@ConditionalOnBean(MockPaymentGateway.class)` 리스너 【채택】** — Mock 게이트웨이 존재 자체가 조건·실 PG 교체 시 Mock 패키지 3종(`MockPaymentGateway`·`MockRefundAccepted`·`MockRefundAutoCallbackListener`) 삭제로 함께 소멸. 즉시 호출은 initiate TX 미커밋(pg_refund_id 미저장)이라 불가 → AFTER_COMMIT 이벤트. **C4 문구 정정**: "모의 프로필 한정" → "Mock PG 빈 존재 시 한정(프로필 무관)". 관리자 버튼 없음 유지. 자동 완료가 요청 스레드에서 동기 수렴하므로 승인 API 응답은 COMPLETED다(의도 동작).
+2. **거부 사유 저장**: **α 신규 `ClaimRejectReasonCode` + `claim.reject_reason_code`(CHECK)·`reject_memo`(≤500) 【채택】** / β 요청 `reason_code` 덮어씀 【기각】 — 요청 사유 이력 소실. 유형 공용 enum이나 ALREADY_SHIPPED는 CANCEL 전용(`isApplicableTo`·도메인 검증 400). 관리자·셀러 reject API는 `@Valid ClaimRejectRequest`(reasonCode @NotNull·memo @Size 500) 필수 body. 4층위: V23 CHECK · `@Enumerated(STRING)` · DTO enum 바인딩(@ValidEnum 미구현·기존 패턴) · FE constants(FE 후속). 품목 원상 복원은 기존 스냅샷 원복 재사용·무변경.
+3. **C5 비동기 정도**: **α 기존 AFTER_COMMIT·REQUIRES_NEW 동기 방식 유지 【채택】** / β `@EnableAsync`+`@Async` 【기각】 — 목적("발송 실패가 취소를 롤백하지 않음")은 이미 충족·Mock 발송기는 지연 0·스레드풀/대기 인프라 과잉. **C5 문구 정정**: "커밋 후 비동기" → "커밋 후 별도 TX(요청 스레드 동기)·실패 비전파". 실 SMS 어댑터 진입 시 β 재검토.
+4. **SMS 공용 발송 구조**: `NotificationSender`(NotificationLog 기반)는 수신번호를 모르므로 채널 전용 계약 `SmsSender.send(phoneNumber, content)`를 신설(도메인 무의존·어느 도메인이든 `smsSender.send(번호, 본문)` 1줄). `MockSmsSender`는 로그만·번호는 공용 `PhoneMasker`(010-****-1234)로 마스킹. NotificationService는 SMS 채널 NotificationLog(channel=SMS)를 적재하고 `dispatch(log, event, sendAction)`로 EMAIL/SMS 발송 호출만 분기(상태 전이·계측 공유). 수신번호 원천 α `User.phone`(없으면 skip+warn) 【채택】 / β 배송 스냅샷 phone 【기각】 — 수신자=구매자 본인. 본문은 주문번호·상품명·처리 결과(거부 시 사유 라벨)만·메모는 싣지 않음. 시점: 요청 접수(ClaimRequested)·거부(ClaimRejected)·CANCEL 완료(ClaimCompleted·기존 EMAIL 로그와 병행). Approved/Completed EMAIL 로그는 무변경.
+5. **C2 가드 위치**: **α `OrderShippingService.changeToPreparing` 진입 전 `refresh(PESSIMISTIC_WRITE)` + `existsActiveByOrderItemId` → `ClaimInvalidStateException`(422 CLAIM_STATE_INVALID 재사용) 【채택】** / β 매트릭스 `CANCEL_REQUESTED → PREPARING` 제거 【기각】 — 스냅샷 원복 전이 공유. 잠금은 `ClaimService.createClaim`과 같은 행 잠금이라 요청 커밋 직전의 stale PAID 발송 경합을 직렬화한다. "발송 후 거부 → 등록"은 UI 흐름(ALREADY_SHIPPED 거부 → PAID 원복 → prepare-shipment)으로 성립·별도 원자 API 없음.
+6. **관리자 목록 검색**: **α `JpaSpecificationExecutor<Claim>` + `AdminClaimSpecifications`(주문번호 정확·구매자 이름/이메일·상품명 부분 → OrderItem/Order/User 서브쿼리) + 배치 enrich 【채택】** / β projection JPQL 【기각】 — 관리자 주문 선례와 이질. 쿼리 실측 7 고정(1행=2행: claim count·page·user in·order_item in·품목→주문 요약 projection·REQUESTED count·refund in). 트랩(확정): Order 엔티티를 `findAllById`로 적재하면 `shippingSnapshot`(OneToOne mappedBy·LAZY 불가)이 주문마다 SELECT(N+1·9쿼리) → `OrderItemRepository.findOrderSummariesByIdIn` 스칼라 projection(`OrderItemOrderProjection`)으로 대체. 인덱스 `ix_claim_type_requested_at`(V23) — 기존 `ix_claim_status`만 있어 유형 탭 + requested_at 정렬이 풀스캔·filesort.
+7. **처리 대기 건수**: **α 목록 응답 `pendingCount`(REQUESTED·유형 탭 필터만 반영·상태/기간/검색 무관) 동봉 【채택】** / β 별도 API + 사이드바 배지 【기각】 — 레이아웃 마운트마다 호출·MVP 소비처는 목록 상단. `AdminClaimListResponse`는 PagedResponse 5필드 + pendingCount(D-54 5필드 한정은 PagedResponse 자체에 적용·별도 응답 타입).
+8. **사용자 노출 포함 사유**: C6 "관리자 화면만"은 화면 범위이며 응답 계약은 추가형이라 사용자 클레임 응답(`ClaimResponse` +rejectReasonCode·rejectMemo·refundStatus / `ClaimSummaryResponse` +rejectReasonCode·refundStatus)·관리자 주문 상세 `ClaimRow`(+3필드)에 함께 실었다 — 거부 사유를 SMS로는 보내면서 화면 조회에서 숨길 이유가 없고, 환불 진행 표기는 자동 완료(C4) 이후 사용자가 "환불이 끝났는가"를 확인하는 유일한 경로다. 기존 필드 무변경·환불 상태는 페이지 배치 1쿼리(목록)·상세 전용 배치(관리자 주문 상세·목록 예산 8 무영향). 사용자 주문 응답에는 클레임 필드가 없어 대상 아님.
+9. **C1 문구 정정**: "PAID·PREPARING(송장 등록 전)" → "PAID(송장 등록 전)" — PREPARING은 prepare-shipment 단일 TX 안 과도 상태로 영속 관측 불가(매트릭스·FE 상수는 무변경).
+
+### 테스트 정책 변경(C4 여파)
+- 실 `MockPaymentGateway` 경로 테스트(`AdminOrderIntegrationTest` T3·`Track80CancelFlowIntegrationTest` T3)는 승인 직후 Refund/Claim COMPLETED·품목 CANCELLED·재고 복구를 단언하고 수동 웹훅 재수신은 RFN-3 멱등(상태·재고 불변)으로 검증한다.
+- 웹훅 순서 자체를 검증하는 `RefundWebhookIntegrationTest`(FAIL·재시도)·`ClaimExchangeIntegrationTest`(배송先/환불後)는 `PaymentGateway`를 MockitoBean으로 대체(접수만·자동 콜백 없음) — 실 PG 시나리오 보존.
+- `RefundAutoTriggerIntegrationTest` I1/I2·`AdminRefundControllerIntegrationTest` T2는 게이트웨이가 MockitoBean이라 PENDING 단언 유지(주석 명시). 확정 결정의 "PENDING 단언 4곳 → COMPLETED" 중 실 게이트웨이 경로 1곳만 COMPLETED로 갱신했다.
+
+### 변경 파일
+- Flyway: V23__add_claim_reject_reason.sql(reject_reason_code CHECK·reject_memo·ix_claim_type_requested_at·rollback 주석)
+- main 신규: claim/enums/ClaimRejectReasonCode · claim/controller/request/{ClaimRejectRequest,AdminClaimSort} · claim/controller/response/{AdminClaimSummaryResponse,AdminClaimListResponse} · claim/repository/AdminClaimSpecifications · claim/service/AdminClaimQueryService · payment/gateway/{MockRefundAccepted,MockRefundAutoCallbackListener} · notification/adapter/{SmsSender,MockSmsSender} · notification/handler/{NotificationClaimRequestedHandler,NotificationClaimRejectedHandler} · common/util/PhoneMasker · order/repository/OrderItemOrderProjection
+- main 수정: claim/entity/Claim(reject 3-arg·필드 2) · claim/service/ClaimService(reject 시그니처·환불 상태 조립) · claim/event/ClaimRejected(+rejectReasonCode) · claim/controller/{AdminClaimController(GET 목록·reject body),SellerClaimController(reject body)} · claim/controller/response/{ClaimResponse,ClaimSummaryResponse} · claim/repository/ClaimRepository(JpaSpecificationExecutor·countBy*) · order/service/OrderShippingService(가드) · order/service/AdminOrderQueryService(ClaimRow 환불 상태) · order/controller/response/AdminOrderDetailResponse(ClaimRow +3) · order/repository/OrderItemRepository(findOrderSummariesByIdIn) · refund/repository/RefundRepository(findByClaimIdInOrderByIdDesc) · payment/gateway/MockPaymentGateway(이벤트 발행) · notification/service/NotificationService(SMS 적재·Requested/Rejected·dispatch 일반화) · notification/template/NotificationTemplateCodes(+2)
+- test 신규: claim/integration/Track80CancelFlowIntegrationTest(7) · claim/entity/ClaimRejectTest(5) · common/util/PhoneMaskerTest(2) · notification/adapter/MockSmsSenderTest(2) · payment/gateway/MockRefundAutoCallbackListenerTest(2) / 수정: reject 호출부 9파일 · AdminOrderIntegrationTest(T3) · RefundWebhookIntegrationTest·ClaimExchangeIntegrationTest(게이트웨이 MockitoBean) · RefundAutoTriggerIntegrationTest·AdminRefundControllerIntegrationTest(주석) · AdminClaimControllerTest(query service mock) · BuyerClaimControllerTest·ClaimServiceTest(응답 필드·spy id)
+
+### 검증
+- 거부: 사유 누락 400(body 없음·reasonCode 없음)·ALREADY_SHIPPED→RETURN 400·정상 200 → reject_reason_code/memo 저장·품목 PAID 원복·거부 SMS SENT(사유 라벨 포함) / V23 호환: 거부 컬럼 없이 삽입한 기존 행 NULL.
+- 발송 가드: 취소요청 품목 관리자 prepare-shipment 422 CLAIM_STATE_INVALID·셀러 서비스 경로 ClaimInvalidStateException·Delivery 0 → ALREADY_SHIPPED 거부 → PAID → 등록 200·SHIPPING.
+- 자동 환불: 승인 → Refund/Claim COMPLETED·품목 CANCELLED·on_hand +1·요청/완료 SMS·사용자 단건/목록·관리자 주문 상세 refundStatus=COMPLETED·중복 웹훅 멱등.
+- SMS: phone NULL → 로그 미적재·클레임 정상 / 발송 예외 → NotificationLog FAILED·클레임 REJECTED·품목 PAID 유지 / Mock 로그 `to=010-****-5678`·원문 미노출.
+- 목록: 유형 탭·상태·정렬·검색(주문번호 정확/구매자 이름/상품명/무관 0건)·기간·from>to 400·enum 400·pendingCount 유형 반영·쿼리 7 고정(1행=2행)·BUYER 403.
+- 전체: ./backend/gradlew.bat test --rerun-tasks 185파일 971 tests·0 fail(953 → 971).
+
+### 문서 정정
+- state-machine.md: §2 거부 사유·SMS 시점 · §3 송장 등록 가드 · §8 Mock PG 자동 완료(Mock 한정).
+
+### §8 이월
+- FE(관리자): admin-menu 취소·반품·교환 3항목 → "취소·반품·교환" 1메뉴(/admin/orders/claims)·유형 탭·상태/기간 필터·검색·pendingCount 상단 표시·거부 다이얼로그(사유 필수·메모)·FE-27 상세 거절을 새 다이얼로그로 교체·`frontend/lib/constants` 거부 사유 유니온(4층위 ④)·e2e reject mock body 갱신.
+- 셀러 화면(클레임 목록·거부 사유 입력)은 셀러 트랙.
+- 실 SMS 어댑터·@Async 인프라·실 PG 웹훅 서명(D-168 §8 이월 유지).
+- 반품·교환(Track 81·82): 목록은 공통 컬럼만 — 수거·교환 배송 진행 표기 컬럼 추가·RETURN/EXCHANGE 완료 SMS·거부 사유 유형별 필터(ALREADY_SHIPPED는 CANCEL 전용).
+- 사용자 FE: 클레임 상세 거부 사유·환불 진행 표기(응답 필드는 본 트랙 완료·화면은 사용자 FE 트랙).
+

@@ -24,6 +24,9 @@ public interface RefundRepository extends JpaRepository<Refund, Long> {
     /** 한 클레임의 환불 행 전체(재시도 = 새 행·RFN-2 추적). */
     List<Refund> findByClaimId(Long claimId);
 
+    /** 관리자 클레임 목록·사용자 응답 배치 enrich(Track 80 D-169·N+1 회피). 클레임별 최신 행이 앞에 오도록 id 내림차순. */
+    List<Refund> findByClaimIdInOrderByIdDesc(Collection<Long> claimIds);
+
     /**
      * 한 클레임에 주어진 status 집합 중 하나인 환불 행이 존재하는지 여부를 반환한다(파생 쿼리).
      *

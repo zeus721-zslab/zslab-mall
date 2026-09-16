@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.zslab.mall.claim.enums.ClaimRejectReasonCode;
 import com.zslab.mall.claim.enums.ClaimStatus;
 import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.event.ClaimApproved;
@@ -442,7 +443,7 @@ class ClaimIntegrationTest extends AbstractIntegrationTest {
                     BUYER_A, "거절 대상");
         });
 
-        claimService.reject(claimId, LocalDateTime.now());
+        claimService.reject(claimId, ClaimRejectReasonCode.OUT_OF_POLICY, null, LocalDateTime.now());
         entityManager.flush();
 
         assertThat(claimStatus(claimId)).isEqualTo("REJECTED");

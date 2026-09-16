@@ -1,24 +1,35 @@
 package com.zslab.mall.claim.controller;
 
+import com.zslab.mall.claim.controller.request.AdminClaimSort;
 import com.zslab.mall.claim.controller.request.ClaimApproveRequest;
+import com.zslab.mall.claim.controller.request.ClaimRejectRequest;
+import com.zslab.mall.claim.controller.response.AdminClaimListResponse;
 import com.zslab.mall.claim.controller.response.ClaimResponse;
 import com.zslab.mall.claim.entity.Claim;
+import com.zslab.mall.claim.enums.ClaimStatus;
+import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.exception.ClaimNotFoundException;
 import com.zslab.mall.claim.repository.ClaimRepository;
+import com.zslab.mall.claim.service.AdminClaimQueryService;
 import com.zslab.mall.claim.service.ClaimService;
 import com.zslab.mall.common.auth.AdminActorResolver;
 import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.repository.OrderItemRepository;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import java.time.LocalDateTime;
+import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Admin 액터용 Claim REST 컨트롤러(Track 10-B·D-93). 승인·거부 2 endpoint를 노출한다(D-93 Q8 α).
+ * Admin 액터용 Claim REST 컨트롤러(Track 10-B·D-93). 승인·거부 2 endpoint를 노출한다(D-93 Q8 α). Track 80(D-169)에서 목록 GET을 추가했다.
  *
  * <p>URL은 {@code /api/v1/admin/claims} prefix를 사용한다(D-93 Q6 γ′). D-40 본문은 명시 prefix 2건
  * ({@code /buyer}·{@code /seller})만 금지하며 {@code /admin}은 명시 부재로, {@link SellerClaimController}의
@@ -34,19 +45,40 @@ import org.springframework.web.bind.annotation.RestController;
 public class AdminClaimController {
 
     private final ClaimService claimService;
+    private final AdminClaimQueryService adminClaimQueryService;
     private final ClaimRepository claimRepository;
     private final OrderItemRepository orderItemRepository;
     private final AdminActorResolver adminActorResolver;
 
     public AdminClaimController(
             ClaimService claimService,
+            AdminClaimQueryService adminClaimQueryService,
             ClaimRepository claimRepository,
             OrderItemRepository orderItemRepository,
             AdminActorResolver adminActorResolver) {
         this.claimService = claimService;
+        this.adminClaimQueryService = adminClaimQueryService;
         this.claimRepository = claimRepository;
         this.orderItemRepository = orderItemRepository;
         this.adminActorResolver = adminActorResolver;
+    }
+
+    /**
+     * 관리자 클레임 목록(Track 80 D-169·C7). 필터: type(유형 탭·null=전체)·status·from/to(requested_at·ISO-8601)·keyword(주문번호 정확·
+     * 구매자 이름/이메일·상품명 부분). 허용 외 enum·sort 값 400, keyword 50자 초과·from&gt;to 400(MALFORMED_REQUEST). 인가는
+     * SecurityConfig {@code /api/v1/admin/**}→hasRole(ADMIN)이 강제한다.
+     */
+    @GetMapping
+    public ResponseEntity<AdminClaimListResponse> list(
+            @RequestParam(required = false) ClaimType type,
+            @RequestParam(required = false) ClaimStatus status,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to,
+            @RequestParam(defaultValue = "LATEST") AdminClaimSort sort,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return ResponseEntity.ok(adminClaimQueryService.listClaims(type, status, keyword, from, to, sort, page, size));
     }
 
     /**
@@ -66,14 +98,19 @@ public class AdminClaimController {
         return toResponse(claimPublicId);
     }
 
-    /** Admin 클레임 거부. 미존재만 404(전체 접근·D-93 Q5). 성공 시 200 + 갱신된 ClaimResponse. */
+    /**
+     * Admin 클레임 거부. 미존재만 404(전체 접근·D-93 Q5). 성공 시 200 + 갱신된 ClaimResponse.
+     *
+     * <p>거부 사유 코드 필수·메모 선택(Track 80 D-169). body 누락·사유 누락 400.
+     */
     @PostMapping("/{claimPublicId}/reject")
-    public ClaimResponse rejectByAdmin(@PathVariable String claimPublicId, HttpServletRequest request) {
+    public ClaimResponse rejectByAdmin(@PathVariable String claimPublicId,
+            @RequestBody @Valid ClaimRejectRequest body, HttpServletRequest request) {
         // X-Admin-Id 존재·형식 검증만 수행한다(전체 접근·식별자 미사용·D-93 Q3). 누락 401·형식 오류 400.
         adminActorResolver.resolve(request);
         Claim claim = claimRepository.findByPublicId(claimPublicId)
                 .orElseThrow(() -> new ClaimNotFoundException("클레임을 찾을 수 없습니다: publicId=" + claimPublicId));
-        claimService.rejectByAdmin(claim.getId(), LocalDateTime.now());
+        claimService.rejectByAdmin(claim.getId(), body.reasonCode(), body.memo(), LocalDateTime.now());
         return toResponse(claimPublicId);
     }
 

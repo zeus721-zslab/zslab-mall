@@ -5,6 +5,7 @@ import com.zslab.mall.claim.controller.response.ClaimResponse;
 import com.zslab.mall.claim.controller.response.ClaimSummaryResponse;
 import com.zslab.mall.claim.entity.Claim;
 import com.zslab.mall.claim.enums.ClaimReasonCode;
+import com.zslab.mall.claim.enums.ClaimRejectReasonCode;
 import com.zslab.mall.claim.enums.ClaimStatus;
 import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.event.ClaimApproved;
@@ -25,11 +26,15 @@ import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.order.repository.OrderRepository;
+import com.zslab.mall.refund.entity.Refund;
 import com.zslab.mall.refund.enums.RefundStatus;
 import com.zslab.mall.refund.repository.RefundRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -224,16 +229,20 @@ public class ClaimService {
      * <p>D-92 횡단 원칙 정합: 도메인 상태 전이 메서드는 actor 식별자가 상태 자체에 포함되지 않는 한
      * actor 비의존 시그니처를 우선한다.
      *
+     * <p>거부 사유 코드는 필수·메모는 선택이다(Track 80 D-169). 사유·유형 부적합(ALREADY_SHIPPED는 CANCEL 전용)·메모 길이는
+     * {@link Claim#reject}가 검증한다(IllegalArgumentException → 400).
+     *
      * @throws ClaimNotFoundException     클레임이 없는 경우
      * @throws ClaimInvalidStateException REQUESTED가 아닌 경우(CLM-4)
+     * @throws IllegalArgumentException   거부 사유 누락·유형 부적합·메모 500자 초과
      */
-    public void reject(Long claimId, LocalDateTime processedAt) {
+    public void reject(Long claimId, ClaimRejectReasonCode reasonCode, String memo, LocalDateTime processedAt) {
         Claim claim = findClaim(claimId);
-        claim.reject(processedAt);
+        claim.reject(reasonCode, memo, processedAt);
         claimRepository.save(claim);
         eventPublisher.publishEvent(new ClaimRejected(
                 claim.getId(), claim.getPublicId(), claim.getOrderItemId(),
-                claim.getType(), claim.getStatus(), LocalDateTime.now()));
+                claim.getType(), claim.getStatus(), claim.getRejectReasonCode(), LocalDateTime.now()));
     }
 
     /**
@@ -261,11 +270,12 @@ public class ClaimService {
      * @throws ClaimNotFoundException     클레임이 없거나 요청 Seller 소유 품목이 아닌 경우
      * @throws ClaimInvalidStateException 상태가 REQUESTED가 아닌 경우(CLM-4)
      */
-    public void rejectBySeller(Long claimId, Long sellerId, LocalDateTime processedAt) {
+    public void rejectBySeller(Long claimId, Long sellerId, ClaimRejectReasonCode reasonCode, String memo,
+            LocalDateTime processedAt) {
         Claim claim = claimRepository.findById(claimId)
                 .orElseThrow(() -> new ClaimNotFoundException("클레임을 찾을 수 없습니다: claimId=" + claimId));
         authorizeSellerAccess(claim, sellerId);
-        reject(claimId, processedAt);
+        reject(claimId, reasonCode, memo, processedAt);
     }
 
     /**
@@ -297,8 +307,8 @@ public class ClaimService {
      * @throws ClaimNotFoundException     클레임이 없는 경우
      * @throws ClaimInvalidStateException 상태가 REQUESTED가 아닌 경우(CLM-4)
      */
-    public void rejectByAdmin(Long claimId, LocalDateTime processedAt) {
-        reject(claimId, processedAt);
+    public void rejectByAdmin(Long claimId, ClaimRejectReasonCode reasonCode, String memo, LocalDateTime processedAt) {
+        reject(claimId, reasonCode, memo, processedAt);
     }
 
     /**
@@ -317,16 +327,29 @@ public class ClaimService {
                 .map(OrderItem::getPublicId)
                 .orElseThrow(() -> new IllegalStateException(
                         "클레임의 주문 품목을 찾을 수 없습니다: orderItemId=" + claim.getOrderItemId()));
-        return ClaimResponse.from(claim, orderItemPublicId);
+        RefundStatus refundStatus = latestRefundStatusByClaimId(List.of(claim.getId())).get(claim.getId());
+        return ClaimResponse.from(claim, orderItemPublicId, refundStatus);
     }
 
-    /** 본인 클레임 목록(requested_by 기준·D-54 페이징). size는 1~100 클램프. */
+    /** 본인 클레임 목록(requested_by 기준·D-54 페이징). size는 1~100 클램프. 환불 상태는 페이지 단위 배치 1쿼리(Track 80). */
     @Transactional(readOnly = true)
     public PagedResponse<ClaimSummaryResponse> listClaims(Long buyerId, int page, int size) {
         Pageable pageable = PageRequest.of(Math.max(page, 0), clampSize(size));
-        Page<ClaimSummaryResponse> claims = claimRepository.findAllByRequestedBy(buyerId, pageable)
-                .map(ClaimSummaryResponse::from);
+        Page<Claim> claimPage = claimRepository.findAllByRequestedBy(buyerId, pageable);
+        Map<Long, RefundStatus> refundStatusByClaimId = latestRefundStatusByClaimId(
+                claimPage.getContent().stream().map(Claim::getId).toList());
+        Page<ClaimSummaryResponse> claims = claimPage
+                .map(claim -> ClaimSummaryResponse.from(claim, refundStatusByClaimId.get(claim.getId())));
         return PagedResponse.from(claims);
+    }
+
+    /** 클레임별 최신 환불 상태(id 내림차순 조회·first-wins). 환불 미생성 클레임은 키가 없다. 빈 입력은 0쿼리. */
+    private Map<Long, RefundStatus> latestRefundStatusByClaimId(List<Long> claimIds) {
+        if (claimIds.isEmpty()) {
+            return Map.of();
+        }
+        return refundRepository.findByClaimIdInOrderByIdDesc(claimIds).stream()
+                .collect(Collectors.toMap(Refund::getClaimId, Refund::getStatus, (latest, older) -> latest));
     }
 
     /**

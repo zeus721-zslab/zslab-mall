@@ -29,6 +29,9 @@ import com.zslab.mall.payment.enums.PaymentStatus;
 import com.zslab.mall.payment.repository.PaymentRepository;
 import com.zslab.mall.seller.entity.Seller;
 import com.zslab.mall.seller.repository.SellerRepository;
+import com.zslab.mall.refund.entity.Refund;
+import com.zslab.mall.refund.enums.RefundStatus;
+import com.zslab.mall.refund.repository.RefundRepository;
 import com.zslab.mall.user.entity.User;
 import com.zslab.mall.user.repository.UserRepository;
 import java.time.LocalDateTime;
@@ -79,6 +82,7 @@ public class AdminOrderQueryService {
     private final UserRepository userRepository;
     private final SellerRepository sellerRepository;
     private final AuditLogRepository auditLogRepository;
+    private final RefundRepository refundRepository;
     private final ObjectMapper objectMapper;
 
     /**
@@ -126,6 +130,11 @@ public class AdminOrderQueryService {
                 .orElseThrow(() -> new OrderNotFoundException("주문을 찾을 수 없습니다: " + orderPublicId));
         Enrichment enrichment = enrich(List.of(order));
         User buyer = enrichment.userById.get(order.getBuyerId());
+        // Track 80 D-169: 상세에서만 클레임별 최신 환불 상태를 1쿼리 배치 조회(목록 쿼리 예산 무영향)
+        List<Long> claimIds = enrichment.claimsByItemId.values().stream().flatMap(List::stream).map(Claim::getId).toList();
+        Map<Long, RefundStatus> refundStatusByClaimId = claimIds.isEmpty() ? Map.of()
+                : refundRepository.findByClaimIdInOrderByIdDesc(claimIds).stream()
+                        .collect(Collectors.toMap(Refund::getClaimId, Refund::getStatus, (latest, older) -> latest));
 
         List<AdminOrderDetailResponse.Item> items = order.getItems().stream()
                 .map(item -> new AdminOrderDetailResponse.Item(
@@ -134,7 +143,7 @@ public class AdminOrderQueryService {
                         sellerName(enrichment.sellerById.get(item.getSellerId())),
                         toDeliveryRow(enrichment.latestDeliveryByItemId.get(item.getId())),
                         enrichment.claimsByItemId.getOrDefault(item.getId(), List.of()).stream()
-                                .map(this::toClaimRow).toList()))
+                                .map(claim -> toClaimRow(claim, refundStatusByClaimId.get(claim.getId()))).toList()))
                 .toList();
         List<AdminOrderDetailResponse.PaymentRow> payments = enrichment.paymentsByOrderId
                 .getOrDefault(order.getId(), List.of()).stream()
@@ -293,10 +302,12 @@ public class AdminOrderQueryService {
                 delivery.getTrackingNo(), delivery.getStatus().name(), delivery.getShippedAt(), delivery.getDeliveredAt());
     }
 
-    private AdminOrderDetailResponse.ClaimRow toClaimRow(Claim claim) {
+    private AdminOrderDetailResponse.ClaimRow toClaimRow(Claim claim, RefundStatus refundStatus) {
         return new AdminOrderDetailResponse.ClaimRow(claim.getPublicId(), claim.getType().name(), claim.getStatus().name(),
                 claim.getReasonCode(), claim.getReasonDetail(), claim.getRequestedBy(), claim.getRequestedAt(),
-                claim.getProcessedAt(), claim.getStatus() == ClaimStatus.REQUESTED);
+                claim.getProcessedAt(), claim.getStatus() == ClaimStatus.REQUESTED,
+                claim.getRejectReasonCode() == null ? null : claim.getRejectReasonCode().name(), claim.getRejectMemo(),
+                refundStatus == null ? null : refundStatus.name());
     }
 
     /** 미결제 관리자 취소 audit(ORDER·UPDATE·diff에 reasonCode 포함)만 취소 사유로 해석한다. 파싱 실패는 warn 후 제외. */

@@ -90,6 +90,7 @@ class RefundAutoTriggerIntegrationTest extends AbstractIntegrationTest {
         publishApproved();
 
         assertThat(refundCount()).isEqualTo(1);
+        // PaymentGateway가 MockitoBean이라 Track 80 C4 자동 완료 콜백(MockRefundAccepted)은 발행되지 않는다 → PENDING 유지
         assertThat(refundStatus()).isEqualTo("PENDING");
         assertThat(refundAmount()).isEqualTo(FULL_AMOUNT);
     }

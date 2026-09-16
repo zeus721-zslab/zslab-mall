@@ -3,6 +3,13 @@ package com.zslab.mall.claim.integration;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.when;
+
+import com.github.f4b6a3.ulid.UlidCreator;
+import com.zslab.mall.payment.gateway.MockRefundResponse;
+import com.zslab.mall.payment.gateway.PaymentGateway;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import com.zslab.mall.claim.controller.request.ClaimRequestCommand;
 import com.zslab.mall.claim.entity.Claim;
@@ -38,9 +45,16 @@ import com.zslab.mall.support.AbstractIntegrationTest;
  * <p><b>트랜잭션</b>: AFTER_COMMIT 핸들러는 실제 커밋 후 동기 실행되므로 클래스에 {@code @Transactional}을 두지 않는다
  * (ClaimReturnIntegrationTest 패턴 1:1). 시드/정리는 {@link TransactionTemplate} + {@code FOREIGN_KEY_CHECKS=0},
  * 검증은 {@link JdbcTemplate} 직접 조회로 한다.
+ *
+ * <p><b>PG 게이트웨이(Track 80 C4)</b>: 실 {@code MockPaymentGateway}는 환불 접수 커밋 후 완료 콜백을 자동 발생시켜 웹훅 순서(FAIL·
+ * 배송先 환불後 등)를 검증할 수 없다. 본 클래스는 웹훅 경로(실 PG 시나리오)를 검증하므로 {@link PaymentGateway}를 {@link MockitoBean}으로
+ * 대체해 pg_refund_id만 발급하고 콜백은 테스트가 직접 POST한다.
  */
 @AutoConfigureMockMvc
 class ClaimExchangeIntegrationTest extends AbstractIntegrationTest {
+
+    @MockitoBean
+    private PaymentGateway paymentGateway;
 
     private static final long USER_ID = 9402L;
     private static final long SELLER_ID = 9402L;
@@ -76,6 +90,9 @@ class ClaimExchangeIntegrationTest extends AbstractIntegrationTest {
     @BeforeEach
     void setUp() {
         tx = new TransactionTemplate(txManager);
+        // 접수만 모사(콜백 자동 발생 없음). 호출마다 고유 pg_refund_id를 발급해 재시도(RFN-2) 시나리오도 구분한다.
+        when(paymentGateway.refund(any(), any())).thenAnswer(invocation -> new MockRefundResponse(
+                "mock_rfn_test_" + UlidCreator.getMonotonicUlid(), true, null));
         cleanup();
     }
 

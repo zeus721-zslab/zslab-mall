@@ -1,19 +1,22 @@
 package com.zslab.mall.claim.repository;
 
 import com.zslab.mall.claim.entity.Claim;
+import com.zslab.mall.claim.enums.ClaimStatus;
+import com.zslab.mall.claim.enums.ClaimType;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 /**
- * 클레임 Repository(JpaRepository 단일·메서드 이름 쿼리 + 활성 존재 검사).
+ * 클레임 Repository(JpaRepository + 관리자 목록 Specification·메서드 이름 쿼리 + 활성 존재 검사).
  */
-public interface ClaimRepository extends JpaRepository<Claim, Long> {
+public interface ClaimRepository extends JpaRepository<Claim, Long>, JpaSpecificationExecutor<Claim> {
 
     Optional<Claim> findByPublicId(String publicId);
 
@@ -34,4 +37,10 @@ public interface ClaimRepository extends JpaRepository<Claim, Long> {
 
     /** 관리자 주문 목록·상세 배치 enrich(Track 79 D-168·N+1 회피). 항목별 최신 행이 앞에 오도록 id 내림차순. */
     List<Claim> findByOrderItemIdInOrderByIdDesc(Collection<Long> orderItemIds);
+
+    /** 관리자 목록 처리 대기 건수(Track 80 D-169·유형 전체). */
+    long countByStatus(ClaimStatus status);
+
+    /** 관리자 목록 처리 대기 건수(Track 80 D-169·유형 탭 반영). */
+    long countByTypeAndStatus(ClaimType type, ClaimStatus status);
 }
