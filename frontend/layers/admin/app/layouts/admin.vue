@@ -28,6 +28,8 @@ const sidebarOpen = ref<boolean>(mdAndUp.value)
           <slot />
         </div>
       </v-main>
+      <!-- 관리자 토스트(FE-25 보강·vue-sonner). 관리자 레이아웃에만 두어 사용자 entry에 포함되지 않는다 -->
+      <AdminToaster />
     </template>
   </v-app>
 </template>

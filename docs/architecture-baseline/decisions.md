@@ -9923,7 +9923,7 @@ FE 연계: decisions-fe.md FE-18 (같은 브랜치·같은 PR)
 - 상세: `product/service/ProductCatalogService.java:102`({SALE, STOPPED} 허용)·`:223`(saleStopped 매핑) · `product/controller/response/ProductDetailResponse.java:32`.
 - 담기: `cart/service/CartService.java:78`(선가드 호출)·`:99`(assertPurchasable) · `cart/exception/CartItemNotPurchasableException.java` · `common/web/GlobalExceptionHandler.java:110,453`(422 CART_ITEM_NOT_PURCHASABLE).
 - 주문: `checkout/service/CheckoutService.java:267`(toOrderItemCommand 선두 호출)·`:281`(assertSellable).
-- 스크립트: `scripts/admin-product-status.ps1`(-BaseUrl/-ProductPublicId/-Status/-AdminEmail·Read-Host -AsSecureString·결과 status만 출력·실패 HTTP+code·exit 1).
+- 스크립트: `scripts/admin-product-status.ps1`(-BaseUrl/-ProductPublicId/-Status/-AdminEmail·Read-Host -AsSecureString·결과 status만 출력·실패 HTTP+code·exit 1). — FE-25(관리자 상품 목록 화면)에서 제거됨·상태 전환은 관리자 화면이 담당.
 
 ### 멱등성
 `OrderNotPayableException` 재사용으로 D-66 catch(`CheckoutService.java` idempotentCheckout)에 자동 포함 → 422는 캐시되지 않고 IN_PROGRESS row 삭제·같은 Idempotency-Key 재시도 허용(단위 테스트 `checkout_idempotentKey_productStopped_deletesMark`).
@@ -10211,3 +10211,7 @@ deploy.yml이 `push main` 무필터라 docs만 변경된 머지에도 서버 SSH
 - 수정: 마운트 대상 `mall_uploads:/app/uploads`·backend env `UPLOAD_PATH: /app/uploads` 고정(.env 치환 제거). UPLOAD_MAX_SIZE는 `${UPLOAD_MAX_SIZE:-10485760}` 유지. application.yml `upload.path` 기본값 /app/uploads 유지·.env.example은 "compose에서 읽지 않음" 안내로 갱신. dev.yml은 해당 패턴 없음.
 - 검증: `docker compose -f docker-compose.mall.yml config` 기본·`UPLOAD_PATH=uploads` 셸 주입 모두 target/UPLOAD_PATH=/app/uploads. 전체 테스트 936·0 fail.
 - 트랩(후보 → 확정): compose 볼륨 마운트 대상·컨테이너 내부 경로에 .env 변수 치환을 쓰지 않는다 — 서버 .env에 같은 키가 이미 다른 의미(상대경로)로 존재할 수 있고, 볼륨 대상 오류는 backend 기동 자체를 막는다. 컨테이너 내부 경로는 compose에 리터럴로 박제한다.
+
+### D-166 보충 — 운영 실측 종결 (2026-09-16·FE-25 시점)
+- gateway nginx `/api` location `client_max_body_size 220m` 적용(외부 스택·zslab 수동) → 운영 관리자 업로드(POST /api/v1/admin/files/images)·서빙(GET /api/v1/files/**) 정상 실측.
+- traversal 요청(`/api/v1/files/products/../../x`)은 Tomcat이 경로 정규화 단계에서 선차단해 400으로 응답한다 — FileStorage 404 은닉은 인코딩 우회 등 컨테이너를 통과한 경우의 2차 방어. 기대값을 "400 또는 404"로 정정(테스트 단언과 동일).

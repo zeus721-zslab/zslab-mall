@@ -22,6 +22,21 @@ function countVuetifySheets(page: Page): Promise<number> {
   )
 }
 
+/** vue-sonner 흔적(FE-25 보강): Toaster DOM 또는 data-sonner 규칙을 가진 스타일 시트 개수 — 관리자 밖에서는 0이어야 한다. */
+function countSonnerTraces(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const dom = document.querySelectorAll('[data-sonner-toaster]').length
+    const sheets = Array.from(document.styleSheets).filter((sheet) => {
+      try {
+        return Array.from(sheet.cssRules).some((rule) => rule instanceof CSSStyleRule && rule.selectorText.includes('data-sonner'))
+      } catch {
+        return false
+      }
+    }).length
+    return dom + sheets
+  })
+}
+
 async function loginAsAdmin(page: Page): Promise<void> {
   await page.goto('/admin/login')
   await page.waitForLoadState('networkidle')
@@ -59,12 +74,14 @@ test.describe('관리자 셸', () => {
     await page.waitForURL(/\/admin$/)
     expect(await page.evaluate(() => (window as unknown as { __fe22cMarker?: number }).__fe22cMarker)).toBe(1)
     expect(await countVuetifySheets(page)).toBeGreaterThan(0)
-    // 관리자 밖 뒤로가기(/admin → 두 단계 뒤 /): 이탈 가드가 전체 새로고침 → 마커 소실·Vuetify 시트 0·폰트·높이 기준선 일치
+    expect(await countSonnerTraces(page)).toBeGreaterThan(0) // 관리자 셸 안에서는 Toaster가 존재
+    // 관리자 밖 뒤로가기(/admin → 두 단계 뒤 /): 이탈 가드가 전체 새로고침 → 마커 소실·Vuetify 시트 0·sonner 흔적 0·폰트·높이 기준선 일치
     await page.evaluate(() => history.go(-2))
     await page.waitForURL((url) => url.pathname === '/')
     await page.waitForLoadState('networkidle')
     expect(await page.evaluate(() => (window as unknown as { __fe22cMarker?: number }).__fe22cMarker)).toBeUndefined()
     expect(await countVuetifySheets(page)).toBe(0)
+    expect(await countSonnerTraces(page)).toBe(0)
     const after = await page.evaluate(() => ({
       font: getComputedStyle(document.documentElement).fontFamily,
       height: document.documentElement.scrollHeight,

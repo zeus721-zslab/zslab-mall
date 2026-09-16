@@ -132,3 +132,57 @@ html,
 .admin-topbar .adm-breadcrumb-muted {
   color: rgba(var(--v-theme-on-surface), 0.7);
 }
+
+/* FE-25 관리자 상품 목록: 표 안 썸네일·품절 표시·일괄 바 */
+.adm-thumb {
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: #f4f4f5;
+  display: block;
+}
+.adm-thumb--placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #a1a1aa;
+}
+.adm-product-name {
+  max-width: 260px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.adm-product-id {
+  font-size: 11px;
+  color: #71717a;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.adm-bulk-bar {
+  position: sticky;
+  top: 64px;
+  z-index: 2;
+}
+.adm-table .v-data-table__td {
+  white-space: nowrap;
+}
+
+/* FE-25 의미 색상 토큰(constants/semantic.ts와 1:1): chip 연한 배경 + 진한 글자. Vuetify 테마 색과 같은 색상군(빨강·주황노랑·녹·파랑). */
+.v-application {
+  --adm-semantic-danger-bg: #fee2e2;
+  --adm-semantic-danger-fg: #b91c1c;
+  --adm-semantic-warning-bg: #fef3c7;
+  --adm-semantic-warning-fg: #b45309;
+  --adm-semantic-success-bg: #dcfce7;
+  --adm-semantic-success-fg: #15803d;
+  --adm-semantic-info-bg: #dbeafe;
+  --adm-semantic-info-fg: #1d4ed8;
+}
+.adm-chip {
+  font-weight: 500;
+}
+.adm-chip--danger { background: var(--adm-semantic-danger-bg) !important; color: var(--adm-semantic-danger-fg) !important; }
+.adm-chip--warning { background: var(--adm-semantic-warning-bg) !important; color: var(--adm-semantic-warning-fg) !important; }
+.adm-chip--success { background: var(--adm-semantic-success-bg) !important; color: var(--adm-semantic-success-fg) !important; }
+.adm-chip--info { background: var(--adm-semantic-info-bg) !important; color: var(--adm-semantic-info-fg) !important; }

@@ -9,7 +9,7 @@ import {
   mdiWalletOutline,
 } from '@mdi/js'
 import { useDisplay } from 'vuetify'
-import { ADMIN_MENU } from '#layers/admin/app/lib/constants/admin-menu'
+import { ADMIN_MENU, resolveActiveMenuPath } from '#layers/admin/app/lib/constants/admin-menu'
 
 // 사이드바(FE-22c Vuetify·FE-22f Argon형). 열림 상태는 레이아웃이 소유(v-model) — 상단바 토글과 공유.
 // 데스크톱(md 이상)은 가장자리 16px 여백의 흰 카드형 고정(admin-sidebar--card), 모바일은 기존 temporary drawer.
@@ -27,9 +27,11 @@ const GROUP_BADGES: Record<string, { icon: string; color: string }> = {
   '통계': { icon: mdiChartBoxOutline, color: 'secondary' },
 }
 
-// 활성 판정은 정확 일치(exact)만 쓴다(prefix 매칭이면 /admin/orders가 /admin/orders/payments에서도 활성돼 두 항목이 동시에 강조됨).
+// 활성 판정은 resolveActiveMenuPath 1건만(FE-25): 정확 일치 우선·하위 경로(/admin/products/prd_…)는 가장 긴 메뉴 경로 1개만 활성.
+// 단순 prefix 매칭이면 /admin/orders가 /admin/orders/payments에서도 활성돼 두 항목이 동시에 강조되므로 쓰지 않는다.
+const activeMenuPath = computed<string | null>(() => resolveActiveMenuPath(route.path))
 function isActive(to: string): boolean {
-  return route.path === to
+  return activeMenuPath.value === to
 }
 </script>
 
