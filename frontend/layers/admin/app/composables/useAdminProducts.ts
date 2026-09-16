@@ -1,13 +1,17 @@
 import type {
   AdminProductBulkResponse,
+  AdminProductCreateResponse,
+  AdminProductDetail,
   AdminProductListResponse,
   AdminProductListQuery,
   AdminProductStatusResponse,
   AdminSellerSummary,
+  ImageUploadResponse,
 } from '#layers/admin/app/types/admin-product'
 import type { CategorySummary } from '~/types/category'
 import type { AdminProductBulkStatusTarget, AdminProductStatusTarget } from '#layers/admin/app/lib/constants/product'
 import { toAdminProductApiParams } from '#layers/admin/app/lib/admin-product-query'
+import type { CreateRequestBody, ImagesRequestBody, UpdateRequestBody, VariantsRequestBody } from '#layers/admin/app/lib/admin-product-form'
 import { useAdminApi } from '#layers/admin/app/composables/useAdminApi'
 
 /**
@@ -61,6 +65,41 @@ export function useAdminProducts() {
     return api<unknown>(productPath(productPublicId), { method: 'DELETE' })
   }
 
+  // ---------- FE-26 등록·수정 ----------
+
+  function detail(productPublicId: string): Promise<AdminProductDetail> {
+    return api<AdminProductDetail>(productPath(productPublicId))
+  }
+
+  function create(body: CreateRequestBody): Promise<AdminProductCreateResponse> {
+    return api<AdminProductCreateResponse>('/v1/admin/products', { method: 'POST', body })
+  }
+
+  function update(productPublicId: string, body: UpdateRequestBody): Promise<AdminProductDetail> {
+    return api<AdminProductDetail>(productPath(productPublicId), { method: 'PUT', body })
+  }
+
+  function replaceImages(productPublicId: string, body: ImagesRequestBody): Promise<AdminProductDetail> {
+    return api<AdminProductDetail>(productPath(productPublicId, '/images'), { method: 'PUT', body })
+  }
+
+  function replaceVariants(productPublicId: string, body: VariantsRequestBody): Promise<AdminProductDetail> {
+    return api<AdminProductDetail>(productPath(productPublicId, '/variants'), { method: 'PUT', body })
+  }
+
+  /** 기존 variant 재고 증감(Track 76 유지 경로·PUT variants는 기존 행 재고를 바꾸지 않는다). */
+  function adjustStock(variantPublicId: string, quantityDelta: number, reason: string): Promise<unknown> {
+    const path: string = `/v1/admin/inventories/${variantPublicId}/adjust`
+    return api<unknown>(path, { method: 'POST', body: { quantityDelta, reason } })
+  }
+
+  /** 이미지 업로드(Track 77·multipart files[]). 항상 200·파일별 결과. 413·400은 throw. */
+  function uploadImages(files: File[]): Promise<ImageUploadResponse> {
+    const formData = new FormData()
+    files.forEach((file) => formData.append('files', file))
+    return api<ImageUploadResponse>('/v1/admin/files/images', { method: 'POST', body: formData })
+  }
+
   function sellers(): Promise<AdminSellerSummary[]> {
     return api<AdminSellerSummary[]>('/v1/admin/sellers')
   }
@@ -69,5 +108,8 @@ export function useAdminProducts() {
     return api<CategorySummary[]>('/v1/categories')
   }
 
-  return { list, setSoldOut, changeStatus, bulkStatus, bulkSoldOut, remove, sellers, categories }
+  return {
+    list, setSoldOut, changeStatus, bulkStatus, bulkSoldOut, remove, sellers, categories,
+    detail, create, update, replaceImages, replaceVariants, adjustStock, uploadImages,
+  }
 }

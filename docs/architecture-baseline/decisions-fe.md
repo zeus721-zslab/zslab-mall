@@ -1410,3 +1410,34 @@ FE-13 §8(:701) 이월 "[버그·백로그] BUYER 페이지에서 로그아웃 �
 - 적용(`admin-product-view.ts` 순수 함수·vitest): 품절 토글 ON=danger / OFF=success · 일괄 = 전부 실패 danger / 일부 실패 warning / 전부 성공은 의도별(품절 ON danger·OFF success·상태 변경 info) · 상태 전환 결과 info(중립) · 삭제 성공 danger · API 실패 danger · 409 안내 다이얼로그 확인 버튼 warning · 목록 품절 chip(수동·재고 표기 유지) danger·재고 있음 success · 상태 chip 판매중 success·판매중지/거부 danger·판매대기 warning·그 외 info.
 - 판정: 토스트 도입 시 사용자 entry JS +123B(Nuxt 컴포넌트 레지스트리의 AdminToaster 이름·청크 참조·sonner 코드 0)는 **수용**.
 - 검증: typecheck 0 · vitest 30 files 132 tests(+토글/일괄 의도/매핑 테이블) · Playwright 12/12(② 초기 chip 클래스 4종 → ON danger 토스트+chip danger → OFF success 토스트+chip success·⑤ 모바일 danger) · 사용자 12장 0px. 스크린샷 `frontend/playwright-report/fe-25/list-chips-desktop.png`·`toast-danger-desktop.png`·`toast-success-desktop.png`·`toast-warning-desktop.png`·`toast-danger-mobile.png`.
+
+## FE-26: 관리자 상품 등록·수정 (2026-09-16)
+배경: FE-25 목록 이후 등록·수정 화면. 정찰: BE 계약 = POST 등록(옵션 tempKey·variant initialStock·이미지 미포함·PENDING 생성) / GET 상세 / PUT 기본정보(셀러 불변) / PUT images(전체 치환·순서=display_order) / PUT variants(기존 메타·신규 options[{groupId,value}]+initialStock·누락 soft-delete·D9 α·옵션 그룹 구조 불변) / 기존 variant 재고는 POST inventories/{var}/adjust / POST files/images(파일별 결과·413) / 400 fieldErrors·409 PRODUCT_VARIANT_OPTION_CONFLICT.
+
+### §1-A 갈림길·채택/기각 근거
+- 드래그 정렬: α **vue-draggable-plus 0.6.1 + sortablejs 1.15.7(MIT·터치 지원·관리자 청크 한정) — 채택** / β 네이티브 HTML5 DnD 자작 — 기각(터치 미지원·드롭 인디케이터·자동 스크롤 자작 비용) / γ 버튼(↑↓)만 — 기각(운영자 편의 요구). 사용자 entry JS +341B(컴포넌트 레지스트리·sortable 코드 0)·CSS 동일.
+- 저장 오케스트레이션: α **클라이언트 순차 호출(등록: POST→PUT images(있을 때)→PUT variants(상태/수동품절이 기본과 다를 때) / 수정: PUT basic→PUT images→PUT variants→adjust(delta별))·한 단계 실패 시 즉시 중단 + 실패 단계 표시 + danger 토스트 — 채택** / β BE 단일 트랜잭션 복합 엔드포인트 신설 — 기각(Track 76 계약 변경·재사용 불가) / γ 병렬 호출 — 기각(순서 의존·부분 실패 해석 불가). `lib/admin-product-save.ts` 순수 함수(API 주입·vitest).
+- 등록 부분 실패: α **POST 성공 후 후속 단계 실패 → 생성된 상품의 수정 화면으로 replace 이동(?partial=1 안내·이탈 경고 없이) → 재시도 — 채택** / β 생성 상품 자동 삭제(롤백) — 기각(주문 이력 없어도 삭제 API 호출 추가·업로드 파일 고아) / γ 등록 화면 잔류·재제출 — 기각(중복 등록).
+- 기존 variant 재고 변경 경로: **adjust API delta(폼 stock − 서버 stock·사유 고정 문구)** — PUT variants가 기존 행 재고를 바꾸지 않는 BE 계약이라 대안 검토 없음. 조합표 재고 입력에 "서버 n → 조정 ±k" 힌트.
+- 판매기간 입력: **네이티브 datetime-local + ":00+09:00" 부착**(KST 고정·BE ISO offset 계약) — Vuetify 3.13 VDateInput은 labs·시각 미지원이라 대안 검토 없음.
+- 미저장 이탈: **onBeforeRouteLeave(confirm) + beforeunload** — 취소 시 라우트 이동 자체가 중단돼 레이아웃 unmount가 없으므로 기존 이탈 리로드 가드(useAdminLeaveGuard)와 충돌 없음. 등록 부분 실패 전환·저장 성공 시 스냅샷 갱신으로 경고 억제.
+- 복귀 URL: **?back=목록 fullPath(/admin/products 프리픽스만 허용·resolveBackPath)** — 오픈 리다이렉트 방지. 대안 검토 없음.
+- 업로드 진행률: **파일별 1요청 순차 + 상태(대기/업로드 중/실패) + indeterminate 바** — useAdminApi($fetch)는 업로드 progress 이벤트가 없고 XHR 우회는 "API는 useAdminApi만" 원칙 위배라 백분율 대신 파일 단위 상태로 대체(대안 검토: XHR 기각).
+- 옵션 조합 재생성: 그룹/값 변경 시 데카르트 곱 재계산·같은 조합의 기존 행 입력 유지·사라진 서버 variant는 removed 표시(soft-delete)·**누락 조합은 신규 행으로 생성**(수정 시 서버에 없던 조합도 새로 만들어짐·"신규" chip 표기). 대안(누락 조합 미생성 옵션) 검토 없음 → 결정 필요 항목으로 보고.
+
+### §2 확정 구현 규칙
+- 모델·순수 함수: `types/admin-product-form.ts` · `lib/admin-product-form.ts`(emptyForm·detailToForm·cartesian·regenerateVariants·validateForm·toCreateRequest·toUpdateRequest·toImagesRequest·toVariantsRequest·stockAdjustments·mapFieldErrors·ensureMainImage·formSnapshot) · `lib/admin-product-save.ts`(saveProduct·SaveStepError) · `lib/admin-image-upload.ts`(precheck·413 문구) · `lib/admin-back-path.ts`.
+- 컴포넌트: `AdminProductForm`(셸·검증·저장·dirty·수정 시 상태 chip/전이 메뉴/수동 품절 즉시 반영) · `AdminProductBasicSection` · `AdminProductImageSection`(갤러리/상세 공용·드롭존·순차 업로드·정렬·대표·삭제·미리보기·실패 재시도) · `AdminProductOptionSection`(단일/옵션 전환 확인·그룹 3·값 칩·조합표·전체 적용·removed 행). 페이지 `new.vue`·`[id].vue`(404 안내·partial 안내). FE-25 목록 "수정"·"상품 등록"에 back query.
+- 검증 규칙: 셀러(등록)·카테고리·상품명(≤200)·판매가≥0·공급가≥0·시작<종료·그룹명/값 중복·그룹 1~3·조합 ≤100·코드 필수·추가금/재고≥0. BE fieldErrors는 `variants[0].variantCode` → `variants.0.variantCode`로 매핑.
+- 검증(실측): vitest 31 files 148 tests(+admin-product-form 16) · typecheck 0 · Playwright 19/19(form 7: 등록 호출 순서·back 복귀 / 수정 4단계+adjust delta / 2단계 실패→partial 전환·재등록 0 / 이탈 confirm / 대표·드래그 정렬→images 본문 / 409 warning / 모바일) · 사용자 12장 0px · 로컬 실데이터 왕복(실 업로드 800×600 png → _thumb 생성·등록 PENDING·수정: 이름·재고 +7 adjust·값 추가로 variant 신규 생성·thumbnail_url이 PUT images 동기화로 _thumb 유지) PASS. 스크린샷 `frontend/playwright-report/fe-26/` new·edit × desktop(1440)·mobile(390) + image-grid-desktop·options-desktop.
+- 트랩: (1) Playwright `toHaveURL(/…products\?page=1$/)`은 현재 URL의 `?back=` 값(디코드됨)에도 매칭 → `^http://host/…$` 앵커 필수. (2) 글로브 `products/prd_*`의 `*`는 `/`를 넘지 않아 `/images` 요청이 다른 route로 새어 나감 → URL predicate 함수 사용. (3) fullPage 캡처는 고정 사이드바 잔상(FE-22b) → 문서 높이 뷰포트 캡처.
+
+### §8 이월
+- 누락 조합 자동 생성 정책(생성/제외 선택) · 업로드 백분율 진행률(XHR 허용 시) · 옵션 그룹 구조 변경(BE 계약 필요) · 이미지 확대 미리보기는 v-img 단일(줌 없음).
+
+### FE-26 보강 — 입력 컴포넌트 전역 defaults 통일 · 신규 조합 제외 (2026-09-16)
+- 입력 스타일 통일: 원인 = `lib/vuetify.ts` defaults가 VTextField·VSelect만 outlined·comfortable로 지정돼 VAutocomplete(셀러)·VTextarea(설명)가 Vuetify 기본(filled)으로 렌더 → 같은 행 높이·모양 불일치. 조치 = `INPUT_DEFAULTS`(outlined·comfortable·rounded lg·primary)를 VTextField·VSelect·VAutocomplete·VCombobox·VTextarea·VFileInput 6종에 동일 적용. hideDetails는 전역 미지정(폼 에러·힌트 영역 필요). 개별 `density="compact"` 잔존은 의도된 예외 3곳(조합표 안 입력·전체 적용 인라인·일괄 바/정렬 select)에 사유 주석. 같은 행 필드 높이 동일(Playwright bbox: 셀러=카테고리·판매가=공급가) · hint/에러는 메시지 영역만 늘리고 필드 높이는 불변.
+- 신규 조합 제외: α **신규 행(서버 미생성) "제외" 체크(기본 포함·제외 시 입력 비활성·흐림·저장 요청 제외·전 행 제외는 검증 에러) — 채택** / β 데카르트 곱 전체 자동 생성 유지 — 기각: BE D-165 트랩(3슬롯 조합은 soft-delete 후 UK에 남아 재생성 409·NULL 슬롯 조합도 삭제 이력 잔존)이라 원치 않는 조합이 한 번 생성되면 되돌릴 수 없음. 기존 행은 제외 체크 미노출(옵션값 삭제로만 soft-delete). 도움말 1줄("한 번 생성된 조합은 삭제 후 다시 만들 수 없습니다"). 등록 응답 variantPublicIds는 포함 행 순서와 1:1 매핑(`includedVariants`).
+- 옵션 그룹 3개 한도: `product_variant.option1~3_value_id` 3슬롯 컬럼 구조(V1·PRD-4) 한도를 그대로 따른 것이며 FE 임의 제한이 아니다.
+- 판정 2건: 사용자 entry JS +341B(컴포넌트 레지스트리·sortable 코드 0) **수용** / 업로드 진행률은 **파일 단위 상태(대기·업로드 중·실패)로 확정**(XHR 우회 없음·useAdminApi 원칙 유지).
+- 검증: typecheck 0 · vitest 31 files 151 tests(+제외 3) · Playwright 21/21(⑧ 필드 높이·variant 클래스 / ⑨ 값 추가→제외→variants 요청 기존 행만·전 행 제외 검증 에러) · 사용자 12장 0px. 스크린샷 `frontend/playwright-report/fe-26/new-desktop.png`·`options-desktop.png` 갱신.

@@ -32,6 +32,9 @@ const ADMIN_LIGHT_THEME = {
   },
 }
 
+/** 입력 계열 공통 기본값(outlined·comfortable·radius 8·primary). */
+const INPUT_DEFAULTS = { variant: 'outlined', density: 'comfortable', rounded: 'lg', color: 'primary' }
+
 /**
  * 전역 컴포넌트 기본값 — 카드는 테두리 없이 그림자(radius 16px·그림자는 admin-vuetify.css .v-card), 버튼 radius 8px(rounded lg),
  * 입력은 outlined·comfortable 통일. 상단바는 밴드 위 투명(레이아웃에서 지정)이라 기본값 없음.
@@ -39,8 +42,14 @@ const ADMIN_LIGHT_THEME = {
 const ADMIN_DEFAULTS = {
   VCard: { flat: true },
   VBtn: { flat: true, rounded: 'lg' },
-  VTextField: { variant: 'outlined', density: 'comfortable', rounded: 'lg', color: 'primary' },
-  VSelect: { variant: 'outlined', density: 'comfortable', rounded: 'lg', color: 'primary' },
+  // 입력 컴포넌트 6종 동일 정책(FE-26 보강): VTextField·VSelect만 지정돼 있어 VAutocomplete·VTextarea가 Vuetify 기본(filled)으로 렌더돼
+  // 같은 행에서 높이·모양이 어긋났다. hideDetails는 전역 미지정(폼은 에러·힌트 영역 필요) — 인라인 바·표에서만 개별 hide-details·compact.
+  VTextField: INPUT_DEFAULTS,
+  VSelect: INPUT_DEFAULTS,
+  VAutocomplete: INPUT_DEFAULTS,
+  VCombobox: INPUT_DEFAULTS,
+  VTextarea: INPUT_DEFAULTS,
+  VFileInput: INPUT_DEFAULTS,
   VList: { density: 'compact' },
   VNavigationDrawer: { elevation: 0 },
   VAlert: { variant: 'tonal', density: 'compact', rounded: 'lg' },

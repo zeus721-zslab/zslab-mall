@@ -186,3 +186,79 @@ html,
 .adm-chip--warning { background: var(--adm-semantic-warning-bg) !important; color: var(--adm-semantic-warning-fg) !important; }
 .adm-chip--success { background: var(--adm-semantic-success-bg) !important; color: var(--adm-semantic-success-fg) !important; }
 .adm-chip--info { background: var(--adm-semantic-info-bg) !important; color: var(--adm-semantic-info-fg) !important; }
+
+/* FE-26 상품 폼: 드롭존·이미지 그리드·조합표 */
+.adm-dropzone {
+  border: 1px dashed #d4d4d8;
+  border-radius: 12px;
+  padding: 20px 16px;
+  text-align: center;
+  cursor: pointer;
+  background: #fafafa;
+  transition: border-color 0.15s, background 0.15s;
+}
+.adm-dropzone:hover,
+.adm-dropzone--over {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+.adm-image-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 12px;
+}
+.adm-image-card {
+  border-radius: 12px;
+  overflow: hidden;
+  background: #f4f4f5;
+  border: 2px solid transparent;
+  display: flex;
+  flex-direction: column;
+}
+.adm-image-card--main {
+  border-color: #f97316;
+}
+.adm-image-card--pending {
+  opacity: 0.85;
+}
+.adm-image-card[data-state="failed"] {
+  border-color: #ef4444;
+}
+.adm-image-card__img {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  display: block;
+  cursor: pointer;
+  touch-action: none;
+}
+.adm-image-card__drag {
+  cursor: grab;
+}
+.adm-image-card__bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 4px;
+  min-height: 30px;
+  background: #fff;
+}
+.sortable-ghost {
+  opacity: 0.4;
+}
+.adm-variant-table .v-field__input {
+  min-height: 34px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+.adm-variant-row--excluded td:not(:last-child) {
+  opacity: 0.45;
+}
+.adm-variant-row--removed {
+  opacity: 0.55;
+  text-decoration: line-through;
+}
+.adm-section-title {
+  font-weight: 700;
+  font-size: 15px;
+}
