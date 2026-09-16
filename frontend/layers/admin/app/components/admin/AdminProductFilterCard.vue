@@ -105,6 +105,7 @@ function submitKeyword(): void {
           <v-btn variant="text" :prepend-icon="mdiRefresh" data-testid="filter-reset" @click="emit('reset')">초기화</v-btn>
           <span v-if="optionsError" class="text-caption text-error">셀러·카테고리 목록을 불러오지 못했습니다.</span>
         </div>
+        <!-- 정렬 select는 버튼 줄 인라인이라 compact(의도된 예외) -->
         <v-select
           :model-value="query.sort"
           :items="ADMIN_PRODUCT_SORT_OPTIONS"

@@ -72,3 +72,78 @@ export interface AdminSellerSummary {
   companyName: string
   status: 'PENDING' | 'ACTIVE' | 'SUSPENDED' | 'TERMINATED'
 }
+
+/** 관리자 상품 상세(BE AdminProductDetailResponse·FE-26 수정 폼 로드). nullable은 NON_NULL 직렬화로 생략 가능 → optional. */
+export interface AdminProductDetail {
+  productPublicId: string
+  name: string
+  description?: string
+  categoryId: number
+  categoryName?: string
+  sellerPublicId?: string
+  sellerName?: string
+  status: AdminProductStatus
+  soldOutManual: boolean
+  basePrice: number
+  supplyPrice?: number
+  thumbnailUrl?: string
+  saleStartAt?: string
+  saleEndAt?: string
+  images: AdminProductDetailImage[]
+  optionGroups: AdminProductDetailOptionGroup[]
+  variants: AdminProductDetailVariant[]
+}
+
+export interface AdminProductDetailImage {
+  imageId: number
+  imageUrl: string
+  imageType: 'GALLERY' | 'DETAIL'
+  displayOrder: number
+  main: boolean
+}
+
+export interface AdminProductDetailOptionGroup {
+  optionGroupId: number
+  name: string
+  displayOrder: number
+  values: { optionValueId: number; value: string; displayOrder: number }[]
+}
+
+export interface AdminProductDetailVariant {
+  variantPublicId: string
+  variantCode: string
+  sellerSku?: string
+  barcode?: string
+  additionalPrice: number
+  status: 'SALE' | 'HIDDEN' | 'STOPPED'
+  soldOutManual: boolean
+  displayOrder: number
+  quantityAvailable: number
+  quantityOnHand: number
+  options: { optionGroupId: number; groupName: string; optionValueId: number; value: string }[]
+}
+
+/** 등록 응답(BE ProductRegistrationResponse). */
+export interface AdminProductCreateResponse {
+  productPublicId: string
+  variantPublicIds: string[]
+}
+
+/** 업로드 응답(BE ImageUploadResponse·Track 77). */
+export interface ImageUploadResponse {
+  results: ImageUploadResultItem[]
+  successCount: number
+  failureCount: number
+}
+
+export interface ImageUploadResultItem {
+  fileName?: string
+  success: boolean
+  url?: string
+  thumbnailUrl?: string
+  width?: number
+  height?: number
+  size?: number
+  code?: string
+  message?: string
+}

@@ -25,8 +25,10 @@
     "nuxt": "^4.4.8",
     "pinia": "^3.0.4",
     "reka-ui": "^2.10.1",
+    "sortablejs": "1.15.7",
     "tailwind-merge": "^3.6.0",
     "vue": "^3.5.39",
+    "vue-draggable-plus": "0.6.1",
     "vue-router": "^5.1.0",
     "vue-sonner": "2.0.9",
     "vuetify": "3.13.4"
@@ -36,6 +38,7 @@
     "@playwright/test": "^1.61.1",
     "@tailwindcss/vite": "^4.3.2",
     "@types/node": "^24.13.3",
+    "@types/sortablejs": "1.15.8",
     "@vue/test-utils": "^2.4.11",
     "happy-dom": "^20.10.6",
     "shadcn-nuxt": "^2.7.4",

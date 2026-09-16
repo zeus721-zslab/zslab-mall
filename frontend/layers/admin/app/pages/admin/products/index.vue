@@ -131,7 +131,8 @@ async function changeStatus(item: AdminProductSummary, target: AdminProductStatu
 }
 
 function edit(item: AdminProductSummary): void {
-  void navigateTo(`/admin/products/${item.productPublicId}`)
+  // FE-26: 현재 목록 URL(필터·페이지)을 back으로 넘겨 저장/취소 후 같은 목록으로 복귀한다.
+  void navigateTo({ path: `/admin/products/${item.productPublicId}`, query: { back: route.fullPath } })
 }
 
 // ---------- 삭제(409 → 판매중지 안내) ----------
@@ -218,7 +219,7 @@ async function runBulk(): Promise<void> {
   <div>
     <AdminPageHeader title="상품 목록" description="상태·품절·판매기간을 관리하고 상품을 등록·수정합니다.">
       <template #actions>
-        <v-btn color="primary" :prepend-icon="mdiPlus" to="/admin/products/new" data-testid="go-create">상품 등록</v-btn>
+        <v-btn color="primary" :prepend-icon="mdiPlus" :to="{ path: '/admin/products/new', query: { back: route.fullPath } }" data-testid="go-create">상품 등록</v-btn>
       </template>
     </AdminPageHeader>
 

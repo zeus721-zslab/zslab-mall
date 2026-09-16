@@ -16,6 +16,7 @@ const soldOut = ref<boolean | null>(null)
 
 <template>
   <v-card class="adm-bulk-bar mb-4" color="primary" variant="tonal" data-testid="admin-bulk-bar">
+    <!-- 일괄 바 인라인 select는 바 높이에 맞춰 compact + hide-details(전역 comfortable의 의도된 예외) -->
     <v-card-text class="d-flex align-center flex-wrap ga-3 py-3">
       <span class="font-weight-medium" data-testid="bulk-count">{{ selectedCount }}개 선택</span>
       <v-select
