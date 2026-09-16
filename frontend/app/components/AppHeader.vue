@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { BUYER_ROLE } from '~/lib/constants/auth'
+
 // FE-09 STEP 3: FE-03 정적 셸을 auth·cart store에 배선. FE-20: 검색 submit·카테고리 드롭다운 배선.
 const auth = useAuthStore()
 const cart = useCartStore()
@@ -100,8 +102,9 @@ async function handleLogout(): Promise<void> {
       </NuxtLink>
 
       <!-- 인증 분기: isAuthenticated computed 기준으로만 렌더(로컬 상태 이중화 금지·SSR/클라 쿠키값 일치) -->
+      <!-- FE-22 D-2: 단일 쿠키 세션이라 ADMIN 토큰도 isAuthenticated=true → BUYER 전용 메뉴는 role=BUYER일 때만 노출한다. -->
       <!-- FE-19 계정 드롭다운: 라벨은 "내 계정" 고정(이름 조회 없음). 링크 항목은 as-child로 NuxtLink에 위임, 선택 시 자동 닫힘. -->
-      <DropdownMenu v-if="auth.isAuthenticated">
+      <DropdownMenu v-if="auth.isAuthenticated && auth.role === BUYER_ROLE">
         <DropdownMenuTrigger as-child>
           <Button variant="ghost" size="sm" class="shrink-0" data-testid="account-menu-trigger">
             내 계정

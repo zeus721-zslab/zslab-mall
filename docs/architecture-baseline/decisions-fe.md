@@ -1197,3 +1197,117 @@ FE-13 §8(:701) 이월 "[버그·백로그] BUYER 페이지에서 로그아웃 �
 ### §8 이월
 - [백로그] 주문 상세 hydration mismatch(기존) 원인 조사.
 - [백로그] 주문 목록 previewTitle·클레임 화면 옵션명 표기.
+
+## FE-22: 관리자 공통 셸 — Nuxt Layer `frontend/layers/admin/`
+
+날짜: 2026-09-16
+선행: 정찰 = docs/frontend/recon-report-fe-22.md(§4 D-1~D-8 추천안 전부 채택·D-9 추가). BE 관리자 API 19개(전부 POST/DELETE·조회 GET 0)라 셸은 BE 무의존.
+범위: 관리자 로그인·가드·레이아웃(사이드바+상단바)·메뉴 상수·플레이스홀더 페이지 22. 사용자 영역(app/)은 D-2 가드 2파일 외 무변경. 메뉴별 화면·BE 조회 API는 후속 트랙.
+수용기준(달성): /admin/** 미인증→/admin/login?redirect= / BUYER 토큰→'/' 차단 / ADMIN 로그인→/admin·사이드바 22항목 이동 / 상단바 /users/me 표시·로그아웃→/admin/login / x-robots-tag noindex. typecheck 0·vitest 20 files 82 tests·smoke 1 GREEN.
+
+### §1-A 갈림길·채택/기각 근거
+1) 관리자 FE 구조
+- α 기각: 별도 Nuxt 앱(frontend-admin/). 컨테이너·CI·Dockerfile·nginx location 추가·shadcn/main.css/auth store 중복. 단일 운영자 편의 기조 위배.
+- β 기각: app/pages/admin/ 폴더. 사용자 영역과 layouts·middleware·components가 한 트리에 섞여 경계 불명·pages 폴더 비대.
+- γ 채택: Nuxt Layer `frontend/layers/admin/`. Nuxt 4.4.8 `layers/*` 자동 등록(@nuxt/kit loadNuxtConfig glob)·`#layers/admin` alias 자동·`.nuxt/tsconfig` include 기존 포함·Dockerfile `COPY . .`·CI `frontend/**` 무수정. 루트 shadcn ui·main.css·auth store 공유. 레이어 등록엔 `layers/admin/nuxt.config.ts` 필수(config 없는 디렉토리는 kit이 skip).
+2) D-1 관리자 로그인 진입 — α 채택: `/admin/login` 레이어 전용 페이지(role=ADMIN 고정·layout:false). 기존 login.vue(BUYER 하드코딩) 무수정. β(기존 /login role 선택)·γ(401 시 ADMIN 재시도) 기각.
+3) D-2 ADMIN 토큰으로 사용자 페이지 진입 — β 채택: AppHeader 계정 드롭다운 `v-if="auth.isAuthenticated && auth.role === BUYER_ROLE"`·cart-load 플러그인 role≠BUYER면 skip(GET /cart 403 로그 제거). 단일 쿠키 세션이라 ADMIN 상태의 사용자 헤더는 "로그인" 링크 노출(클릭 시 login.vue가 인증 상태 판정해 홈 복귀)·허용.
+4) D-3 테스트 위치 — α 채택: `frontend/test/admin/`(기존 test/ 관습·CI 무수정). Playwright는 testDir 'e2e' 고정.
+5) D-4 레이아웃 적용 — α 채택: 페이지마다 `definePageMeta({ layout:'admin', middleware:'admin' })`. 자동 부여 훅 기각(단일 사용 추상화 금지).
+6) D-5 상단바 관리자 표시 — α 채택: `GET /users/me`(name || email). 세분 역할(SUPER_ADMIN/ADMIN_OPERATOR)은 JWT·API 모두 부재라 미표시. `GET /admin/me` 신설은 SUPER_ADMIN 전용 메뉴 트랙에서.
+7) D-6 `lucide-vue-next` 제거 — α 채택: `pnpm remove`(사용처 0·FE-19 §8 백로그 해소). 아이콘은 `@lucide/vue`로 통일(셸은 아이콘 미사용).
+8) D-7 운영 admin 401 — 이월. 원인 후보 1순위 = 최초 기동 시 서버 .env 값 ≠ 현재 값(SuperAdminBootstrapRunner 생성 전용·SUPER_ADMIN 존재 시 skip·값 미갱신). 조사(운영 DB SUPER_ADMIN 회원 email·상태 읽기 1회)와 조치(비밀번호 재설정 경로 부재 → DB BCrypt 갱신 또는 user_role 삭제 후 재기동 재공급)는 zslab 승인 후 별도.
+9) D-8 API 래퍼 — α 채택: 레이어 전용 `useAdminApi`($fetch.create·CSR baseURL·onRequest Bearer·onResponseError 401→logout+/admin/login). 루트 buyer 16곳 복제 코드 리팩토링은 백로그.
+10) D-9 `/admin/**` routeRules — `ssr:false` + `X-Robots-Tag: noindex, nofollow`(레이어 nuxt.config). 관리자 화면은 SEO 불필요·토큰 조작 UI라 CSR 전용. 부수: SSR 셸 HTML만 응답(페이지 콘텐츠는 hydration 후 렌더).
+11) admin 미들웨어 분기 — 미인증은 `/admin/login?redirect=`, 인증+role≠ADMIN은 `/`(비관리자에게 관리자 로그인 폼 미노출). 정찰 §5 초안(둘 다 /admin/login)에서 확정 사양대로 변경.
+12) 레이어 내부 참조 — `#layers/admin/app/...` alias만 사용(`~/`는 루트 app 고정이라 레이어 파일 참조 금지). 루트 공유 자원(`~/lib/constants/auth`·`~/types/user`·auto-import store/Button)은 `~/`.
+
+### §2 확정 구현 규칙 (file:line)
+- `frontend/layers/admin/nuxt.config.ts:4-6` routeRules `/admin/**` ssr:false·X-Robots-Tag.
+- `frontend/layers/admin/app/lib/constants/auth.ts` `ADMIN_ROLE='ADMIN'`·`ADMIN_HOME_PATH='/admin'`·`ADMIN_LOGIN_PATH='/admin/login'`.
+- `frontend/layers/admin/app/middleware/admin.ts:9-17` 미인증→login?redirect / role≠ADMIN→'/'.
+- `frontend/layers/admin/app/composables/useAdminApi.ts:8-24` `$fetch.create({ baseURL: public.apiBase||'/api', onRequest Bearer, onResponseError 401 })`.
+- `frontend/layers/admin/app/pages/admin/login.vue:5` layout:false · `:16-22` resolveRedirect(`/admin/` 하위만 허용·기본 /admin) · `:25-27` ADMIN 인증 시 즉시 복귀 · `:34` `auth.login(email,password,ADMIN_ROLE)`.
+- `frontend/layers/admin/app/lib/constants/admin-menu.ts` ADMIN_MENU 6그룹 22경로(순서 고정) — 사이드바·페이지 파일 1:1.
+- `frontend/layers/admin/app/components/admin/AdminSidebar.vue:6-8` 활성 판정 정확 일치(prefix 매칭 시 상위·하위 동시 강조 방지).
+- `frontend/layers/admin/app/components/admin/AdminTopbar.vue:10-14` useAsyncData('admin-profile', adminApi('/v1/users/me'))·name||email · `:17-20` 로그아웃 = auth.logout()+navigateTo(ADMIN_LOGIN_PATH).
+- `frontend/layers/admin/app/components/admin/AdminPlaceholder.vue` "준비 중입니다"(data-testid admin-placeholder).
+- `frontend/layers/admin/app/layouts/admin.vue` Sidebar + (Topbar + main slot).
+- `frontend/layers/admin/app/pages/admin/**` 22파일 동형(definePageMeta layout/middleware + useSeoMeta + AdminPlaceholder).
+- `frontend/app/components/AppHeader.vue:2` BUYER_ROLE import · `:107` `v-if="auth.isAuthenticated && auth.role === BUYER_ROLE"`.
+- `frontend/app/plugins/cart-load.ts:1·:12-15` role≠BUYER 인증 시 return.
+- `frontend/package.json` `lucide-vue-next` 제거·pnpm-lock.yaml 동기.
+
+### §진입점
+1. 목적: 관리자 화면 공통 셸(로그인·가드·레이아웃·메뉴)을 사용자 앱과 분리된 레이어로 확립. 메뉴별 화면은 BE 조회 API 트랙과 함께 후속.
+2. 레이어: frontend/layers/admin/(nuxt.config.ts 필수·app/ 하위 pages/layouts/middleware/components/composables/lib).
+3. 사용자 영역 접점: AppHeader.vue·plugins/cart-load.ts(D-2 가드만).
+4. 테스트: frontend/test/admin/(admin-middleware 3·useAdminApi 4·cart-load 3) + AppHeader.spec ADMIN 케이스 1.
+5. 전제·트랩: 컨테이너 dev 서버는 layers/ 신설을 감지 못함 → `docker restart zslab_mall_frontend` 필수(404·"No match found for location" 경고). typecheck는 `nuxt prepare`가 `#layers/admin` paths·MiddlewareKey 'admin'·layouts 'admin'을 .nuxt에 생성.
+
+### §실측·트랩
+- 검증: typecheck exit 0 · vitest 20 files 82 tests(기존 71 + admin 10 + AppHeader 1) · Playwright smoke 1 · 컨테이너 headless(playwright 임시 스크립트·삭제): /admin/login 폼 렌더·/admin/orders/refunds 미인증→/admin/login?redirect=/admin/orders/refunds·pageerror 0 · curl: /admin/login 200 + `x-robots-tag: noindex, nofollow`.
+- 트랩: 레이어 디렉토리 추가 후 실행 중 dev 서버(bind mount·usePolling)가 hard restart를 트리거하지 않아 /admin/** 404 → 컨테이너 재시작으로 해소(6s). 정찰의 "addDir → restart" 예측(nuxt/dist/index.mjs:6980-6987)은 컨테이너 환경에서 미발동.
+- 트랩: AppHeader.spec authMock에 role 부재 → D-2 가드로 트리거 미렌더·4건 실패 → authMock에 `role:'BUYER'` 기본값 추가.
+- 로컬 브라우저 수동 확인 항목(미실행·관리자 계정 = 로컬 .env ADMIN_BOOTSTRAP_*): ① /admin/login 로그인 → /admin 대시보드·상단바에 관리자 email(name null) 표시 ② 사이드바 6그룹 22항목 순서·클릭 시 각 "준비 중" 페이지·활성 강조 1개 ③ /admin 직접 진입(미인증) → /admin/login?redirect=/admin → 로그인 후 /admin 복귀 ④ 데모 buyer 로그인 상태에서 /admin → '/' 차단·사용자 헤더 정상 ⑤ 관리자 로그인 상태에서 / 진입 → 헤더 "내 계정" 미노출·콘솔 cart 403 없음 ⑥ 로그아웃 → /admin/login·뒤로가기 시 다시 /admin/login.
+
+### §8 이월(carry-over)
+- [BE] `role=ADMIN` 로그인 통합 테스트 부재(AuthControllerIntegrationTest BUYER 4·SELLER 2) — CI 미호출 경로.
+- [BE] 관리자 조회 API 0건 — 메뉴별 트랙(회원·주문·상품·정산·통계)마다 GET 신설 선행. `GET /admin/me`(세분 role) 포함.
+- [운영] admin 401(D-7) 조사·조치 — zslab 승인 후.
+- [백로그] 루트 buyer composable/store 16곳 baseURL·Bearer 복제 → 공통 래퍼 리팩토링.
+- [백로그] AppHeader ADMIN 상태의 "로그인" 링크 노출(클릭 시 홈 복귀) — 관리자 콘솔 링크로 교체 여부.
+
+### §라이브러리 선정 (FE-22b/22c · 2026-09-16)
+정찰 = docs/frontend/recon-report-fe-22b.md(Nuxt UI 스파이크)·recon-report-fe-22c.md(Vuetify 스파이크). 판정 기준 4개 = 사용자 화면 픽셀 diff 0 / 사용자 영역 수정 0 / 동반 모듈·전역 영향·SPA 누수 / 사용자 entry 번들 증감.
+- α Nuxt UI v4(4.11.1) **기각** — 4기준 중 3 미달(실측): `@import "@nuxt/ui"`를 main.css(Tailwind 루트)에 둬야만 유틸 생성(레이아웃 `<style>` 격리 시 UCard ring/radius 0·버튼 텍스트색 미적용) → ui.css `body{@apply text-default bg-default antialiased}`로 사용자 12장 중 11장 diff(209~871px·상속 텍스트색) · 레이어 `modules`도 kit merger concat으로 앱 전체 등록 · `#__nuxt class="isolate"`·`<style id="nuxt-ui-colors">` 전역 주입 · @nuxt/icon `/api/_nuxt_icon/*`가 routeRules `/api/**` 프록시·운영 nginx `/api/`와 충돌해 401 · 사용자 entry JS +13.1KB gz·CSS +20.5KB gz · reka-ui 2.10.1+2.10.4·@nuxt/kit 4.4.8+4.5.2·tailwind 4.3.2+4.3.3 이중 설치.
+- β shadcn-vue 확장 — 추가 dep 0·일관 스타일이나 data-table·dialog·sheet를 CLI 추가 + @tanstack 별도 dep. 기각(관리자 화면 컴포넌트 폭·개발 속도).
+- γ **Vuetify 3.13.4 채택(D-12 α)** — 사용자 fresh load 12장 0px · 사용자 영역 수정 0 · 사용자 entry CSS 불변(entry.Dp22OyE1.css 동일 해시)·entry JS 82.1→83.4KB gz(+1.3·미들웨어 등록분) · 관리자 청크에만 Vuetify(vuetify-styles 248.9KB raw/30.3KB gz + 컴포넌트 CSS·JS). 누수(SPA 이동 시 vuetify/styles 잔류로 사용자 홈 1465→1173px 붕괴)는 D-15 가드로 차단.
+- 연동 방식: vuetify-nuxt-module(latest 1.0.0-rc.6·kit 4.5.2 병설·modules 전역) 기각 → **수동**: 레이어 `vite.plugins:[vuetify({autoImport:true})]`(빌드타임 변환·layers/admin/nuxt.config.ts:9) + `ensureVuetify`(동적 import·vueApp 1회 설치·lib/vuetify.ts) + `vuetify` 미들웨어(middleware/vuetify.ts). Vuetify latest는 4.2.1이나 3 계열(v3-stable 3.13.4) 고정(D-16).
+- D-13 관리자 컴포넌트 Tailwind 유틸 금지: Vuetify 무레이어 `!important` 유틸(`.rounded-lg`·`.border`·`.text-center`·`.overflow-hidden`·`.text-white`·`.h-screen`)이 Tailwind @layer 유틸을 덮음 → Admin* 컴포넌트·layouts/admin*.vue·login.vue는 Vuetify 컴포넌트·Vuetify 유틸(pa-6·text-h5 등)만 사용.
+- D-14 폰트: vuetify/styles가 `html{font-family:Roboto}`·`.v-application` 강제 → `assets/css/admin-vuetify.css` `html,.v-application{font-family:var(--font-sans)}`(main.css @theme 변수 재사용)를 vuetify/styles 뒤에 로드(lib/vuetify-styles.ts import 순서).
+- 로딩 시점: 보호 페이지 `middleware:['admin','vuetify']`(admin이 먼저 BUYER→'/' 차단·Vuetify 미로드) · `/admin/login`은 `['vuetify']`만(미인증 상태에서 로드·로그인 폼도 Vuetify·관리자 셸 일부). 미들웨어 자체도 `로그인 경로 || ADMIN 세션`일 때만 로드해 순서 의존을 제거(vuetify.ts:12-16).
+- D-15 누수 가드: `lib/admin-leave-guard.ts` `shouldReloadOnLeave(path)`(= /admin 자신·/admin/ 하위 아님) + `useAdminLeaveGuard()`가 layouts/admin.vue·admin-auth.vue의 `onBeforeUnmount`에서 `router.currentRoute.fullPath`가 관리자 밖이면 `window.location.assign(target)`. 관리자 내부 이동(로그아웃→/admin/login·사이드바)은 새로고침 없음(e2e 마커로 실측). 현 셸에 관리자→사용자 링크 0 — 추가 시 `<a href>`/`navigateTo(to,{external:true})` 규칙.
+- 화면: layouts/admin.vue = v-app > AdminSidebar(v-navigation-drawer·md 이상 permanent·모바일 temporary·v-list-group 펼침 초기값=현재 경로 그룹·exact 활성) + AdminTopbar(v-app-bar·nav-icon 토글·/users/me name||email·로그아웃 v-btn) + v-main. AdminPlaceholder = v-card outlined. login.vue = layouts/admin-auth.vue(v-app+v-main) + v-card/v-form/v-text-field/v-alert/v-btn loading — ADMIN 고정·redirect `/admin/` 하위 제한 로직 무수정.
+- 테스트: test/admin 6파일 24건(신규 vuetify-middleware 4·admin-leave-guard 9·ensure-vuetify 1) · e2e/admin-shell.spec.ts 3건(ADMIN_E2E_EMAIL/PASSWORD env 미설정 시 skip) ① 로그인→/admin 셸 렌더 ② 내부 뒤로가기 새로고침 없음(마커 유지) + `history.go(-2)`로 `/` 복귀 시 Vuetify 시트 0·html font·높이 기준선 일치 ③ BUYER→/admin→'/'·시트 0. typecheck 0 · vitest 23 files 96 tests · Playwright 4(smoke 1 + admin 3) GREEN · 사용자 12장 0px.
+- 트랩 4건(실측): (1) `pnpm add`→`pnpm remove`는 lockfile 비가역(transitive 재해석) → 스파이크는 package.json·pnpm-lock.yaml 파일 복사 백업/복원. (2) Git Bash에서 `docker exec … /app/...` 인자는 MSYS 경로 변환(C:/Program Files/Git/app)에 걸림 → `sh -c '…'` 경유. (3) 세션 중 `frontend/nul` 파일 생성(Windows 리다이렉트 부산물) → git status 확인·삭제. (4) Playwright `fullPage:true` 캡처가 뷰포트 리사이즈 직후 폰트 재래스터 레이스(폴백 글리프) → 페이지별 새 컨텍스트 + 문서 높이 뷰포트 고정 + `fullPage:false`.
+- 부수 트랩: `nuxt.hooks.hook('vite:extendConfig', c=>c.plugins.push())`는 vue-tsc TS2540(read-only)·`@nuxt/kit` import는 TS2307(직접 dep 아님)·`import('vuetify/styles')`는 TS2306 → 부수효과 import 전용 모듈(lib/vuetify-styles.ts)을 동적 import. recon-report-fe-22의 변경 파일 "43개"는 42개(7 M + 35 ??)의 오기.
+- 수동 확인 항목(갱신·미실행·관리자 계정 = 로컬 .env ADMIN_BOOTSTRAP_*): ① /admin/login Vuetify 폼 로그인(오류 시 v-alert·로딩 버튼) → /admin ② 데스크톱 사이드바 6그룹 펼침·22항목 이동·활성 1개·현재 그룹 펼침 ③ 모바일 폭(≤959px) drawer 닫힘 시작·상단 메뉴 아이콘 토글·항목 선택 후 오버레이 닫힘 ④ 상단바 관리자 email 표시·로그아웃 → /admin/login(새로고침 없음) ⑤ 주소창 `/` 입력·뒤로가기로 사용자 페이지 복귀 시 사용자 폰트·레이아웃 정상(Vuetify 잔류 0) ⑥ 데모 buyer 상태 /admin → '/'.
+
+### §세션 분리 (FE-22d · 2026-09-16)
+요구: 사용자(auth_token)/관리자(admin_token)/판매자(seller_token·추후) 세션 독립. 로그인 페이지는 자기 role만. 상호 로그인 공존·로그아웃/401은 해당 세션만 제거.
+- STEP 24 BE 판정(read): `AuthService.login`은 요청 role을 `roleAuthorization.isAuthorized(userId, role)`로 검증해 불일치 시 401 ROLE_MISMATCH(AuthService.java:55-58)·토큰은 **요청 role로 발급**(`tokenProvider.issue(userId, role)` :59·JwtTokenProvider.java:96 claim role=요청 role). 판정은 `DbRoleAuthorization`(BUYER=user_role BUYER·ADMIN=user_role∈{SUPER_ADMIN,ADMIN_OPERATOR}·SELLER=seller_user 존재 :40-47). 이메일은 `uk_user_email`(V1__init.sql:42)로 계정 1개·다중 role은 user_role 행으로 허용(같은 계정이 BUYER·ADMIN 토큰을 각각 발급받을 수 있음). → **BE는 불일치를 거절하며 응답 role=요청 role이 보장**되므로 BE 보강 불필요. FE 방어 검증(응답 role≠ADMIN 저장 거절)은 관리자 측만 두고 사용자 login.vue는 무수정(BUYER 요청→BUYER 토큰 외 경로 없음).
+- §1-A 갈림길
+  - α 채택: **역할별 쿠키**(`auth_token` path=/ · `admin_token` path=/admin · 추후 `seller_token` path=/seller). 세션이 물리적으로 독립·로그아웃/401이 자기 쿠키만 제거·path 스코프로 사용자 페이지 document.cookie에 admin_token 미노출(e2e ④ 실측). 셀러 확장 = 같은 패턴(레이어 전용 스토어 + 쿠키명·path·role 상수 3개).
+  - β 기각: 단일 쿠키에 role별 토큰 맵(JSON). 사용자 auth 스토어·쿠키 포맷 변경(사용자 영역 수정·기존 세션 호환 깨짐)·4KB 쿠키 한도에 JWT 3개.
+  - γ 기각: 단일 세션 유지(FE-22 상태). 관리자 로그인이 사용자 세션을 대체·AppHeader/cart 가드 의존·요구사항(공존) 미충족.
+- 구현: `layers/admin/app/stores/adminAuth.ts` `useAdminAuthStore`(setup store·쿠키 `admin_token` `{path:'/admin', sameSite:'lax', secure:true, maxAge:3600}`·JWT role/exp 디코드·`login(email,password)`=role ADMIN 고정 요청 + 응답 role≠ADMIN throw·`logout()`=admin_token만 null). @pinia/nuxt는 루트 stores/만 auto-import(@pinia/nuxt module.mjs:77-78)라 소비처가 `#layers/admin/app/stores/adminAuth` 명시 import. JWT 디코드는 `lib/jwt.ts`에 복제(app/stores/auth.ts 함수가 모듈 비공개·사용자 영역 무수정).
+- 전환(auth_token 참조 0): `middleware/admin.ts`(admin_token 없음·만료 → `/admin/login?redirect=` / role≠ADMIN → `adminAuth.logout()` 후 `/admin/login` / 기존 "인증+role≠ADMIN → '/'" 분기 제거) · `middleware/vuetify.ts`(ADMIN 세션 판정 = adminAuth·로드 조건 `로그인 경로 || 관리자 세션` 유지) · `useAdminApi`(Bearer=admin_token·401 → admin_token만 제거 후 /admin/login) · `login.vue`(adminAuth.login·관리자 세션 있으면 즉시 복귀) · `AdminTopbar` 로그아웃(adminAuth.logout). 사용자 AppHeader·cart-load의 FE-22 D-2 role 가드는 방어용 유지.
+- 테스트: test/admin 7파일 28건(adminAuth-store 4: 쿠키명·path·속성 / ADMIN 저장 / role≠ADMIN 거절 / 로그아웃 격리(admin↔auth_token) · admin-middleware 3 갱신(auth 스토어 미참조 검증 포함) · vuetify-middleware 4 갱신 · useAdminApi 401 격리 검증 추가) · e2e/admin-shell.spec.ts 4건(③ BUYER 세션 /admin → /admin/login·auth_token 유지·admin_token 없음·뒤로가기 시 Vuetify 시트 0 / ④ 관리자 로그인→사용자 데모 로그인→양 쿠키 공존(admin_token path=/admin)·사용자 페이지 document.cookie에 admin_token 미노출·/admin 셸 유지→로그아웃 후 admin_token만 제거·/mypage 진입 가능 / ①② 회귀 0). typecheck 0 · vitest 24 files 100 tests · Playwright 5 GREEN · 사용자 12장 0px(login 페이지 caret 노이즈 ≤8px는 기준선 자체 재현치).
+- 결정 항목: (D-17) BE 보강 불필요 판정 유지 — 향후 SELLER 세션 도입 시에도 동일 엔드포인트·role 요청 방식. (D-18) 사용자 login.vue role 검증은 미추가(불필요·YAGNI) — BE 발급 규칙 변경 시 재검토.
+
+### §디자인 톤 (FE-22e · 2026-09-16)
+대안: (a) Vuetify 기본 Material(Roboto·elevation·대문자 버튼·채움색 활성) — 사용자 몰과 이질·정보 밀도 낮음 / (b) Materio형(어드민 템플릿·컬러 카드·그림자 다층) — 장식 과다·템플릿 의존 / (c) 정보밀도형(Compact 데이터 그리드 우선) — 지금은 데이터 화면 0·과도 / (d) **모던 SaaS(Linear·Vercel류) 채택 — zslab 선택**.
+- 팔레트(lib/vuetify.ts ADMIN_LIGHT_THEME): zinc neutral — background #F4F4F5 / surface #FFFFFF / border #E4E4E7(불투명 `border-opacity:1`) / on-surface #18181B / muted `medium-emphasis-opacity` 0.62 / primary #2563EB(주요 버튼·포커스·링크·아바타만) / error·success·warning·info 지정. 활성 오버레이 `activated-opacity` 0.06·hover 0.04.
+- 깊이·형태(ADMIN_DEFAULTS): VCard flat+border+rounded lg · VBtn flat+rounded lg(대문자·자간 해제는 CSS) · VTextField/VSelect outlined·comfortable·rounded lg · VList compact · VNavigationDrawer elevation 0+border e · VAppBar flat·border b · VAlert tonal·compact. 그림자는 VMenu·VDialog·VSnackbar 기본값만.
+- 타이포(admin-vuetify.css): `--font-sans` 유지·`.v-application` 14px·list/field 14px·버튼 `text-transform:none` `letter-spacing:0`·페이지 제목 text-h6 bold + 설명 muted.
+- 셸: AdminSidebar = 배경색 `background`(페이지와 동일 톤)+우측 border·상단 로고(mdiStorefrontOutline)+서비스명/관리자·그룹은 접지 않고 작은 uppercase muted 라벨(아이콘 14px)+항목 나열·활성 = 기본 오버레이(옅은 회색)+굵기·채움색 없음·항목 32px. 아이콘 매핑은 표시 전용이라 admin-menu.ts가 아닌 사이드바 내부 상수. AdminTopbar = surface·52px·flat+하단 border·좌측 v-breadcrumbs(admin-menu 기준 그룹 › 메뉴·마지막만 medium)·우측 아바타(이니셜) v-menu(이름/이메일·로그아웃 `admin-logout`·트리거 `admin-account-menu`). AdminPageHeader 신설(title·description·actions 슬롯) → AdminPlaceholder(빈 상태 카드: 아이콘 아바타·"준비 중입니다"·보조 문구)에 적용. 레이아웃 콘텐츠 max-width 1200·px-6 py-8. 로그인 = 배경 옅은 회색 위 서비스명/콘솔 라벨 + 단일 카드(안내·폼·primary 버튼).
+- 기능·로직 무변경: 가드·세션·누수 가드·메뉴 구조·라우트 동일. e2e ④는 로그아웃이 아바타 메뉴 안으로 들어가 `admin-account-menu` 클릭 1단계 추가.
+- 검증: typecheck 0 · vitest 24 files 100 tests · Playwright 5 · 사용자 12장 0px. 스크린샷(gitignored·zslab 확인용): `frontend/playwright-report/fe-22e/` — login-{desktop,mobile}·dashboard-{desktop,mobile}·products-{desktop,mobile}·products-desktop-menu(아바타 메뉴)·products-mobile-drawer(모바일 drawer). 데스크톱 1440×900·모바일 390×844.
+
+#### 변경(FE-22f · 2026-09-16): 모던 SaaS → Argon형 톤 재구성 — zslab 선택
+- 근거: 참고 사이트(Creative Tim Argon Dashboard 2·MIT)의 상단 컬러 밴드·카드형 사이드바·그림자 카드 구성을 **스타일만 재현**. CSS·이미지·로고·명칭 미사용(레이어 CSS 자체 작성·보조 색은 Tailwind 팔레트 값). primary #2563EB(브랜드)·폰트 `--font-sans`(D-14) 유지 — 사용자 몰과 정체성 일관.
+- 테마(lib/vuetify.ts): 배경 #F4F4F5 유지 · 보조 색 채도 정리 success #22C55E / info #0EA5E9 / warning #F97316 / error #EF4444 · VCard flat(테두리 제거·radius 16·그림자 `0 20px 27px rgba(0,0,0,.05)`는 admin-vuetify.css `.v-card`) · VBtn rounded lg(8px) · VNavigationDrawer elevation 0.
+- CSS 유틸(admin-vuetify.css·레이어 전용 접두사 adm-): `.adm-grad-{primary,success,info,warning,error}`(310° 그라데이션) · `.adm-band`(v-app 최상단 absolute 300px·z 0) · `.adm-main`(relative z 1) · `.adm-content`(좌측 정렬·max-width 1600·padding 8/24/32) · `.adm-page-header`(흰색·설명 82%).
+- 셸: layouts/admin.vue = 밴드(adm-grad-primary) + AdminSidebar + AdminTopbar + v-main.adm-main > .adm-content(v-container 제거·가운데 몰림 해소). AdminTopbar = `color="transparent" flat theme="dark"` 56px(흰 텍스트·아이콘)·아바타는 surface 배경+primary 이니셜·계정 메뉴 `theme="light"`·`.v-toolbar__append` 우측 12px. AdminSidebar(md↑) = `admin-sidebar--card`(top/left 16px·width 250·height calc(100%-32px)·radius 16·그림자)·레이아웃 예약폭 266(`:width="mdAndUp ? 266 : 250"`)로 콘텐츠와 겹침 없음·모바일은 temporary drawer 250 유지. 그룹 헤더 = 색 다른 28px 배지 아이콘(primary/info/warning/success/error/secondary)+라벨(`.adm-group-header`), 대시보드 항목은 prepend 배지(spacer 4px)로 하위 항목(`.adm-leaf` padding-start 50px)과 텍스트 x 정렬. 활성 = 흰 배경+`0 3px 8px` 그림자+bold·Vuetify 오버레이 제거. AdminPageHeader = 밴드 위 흰색. AdminPlaceholder = 새 카드(그림자·radius 16). 로그인 = admin-auth 레이아웃에도 밴드·상단 서비스명(흰색)·중앙 흰 카드(pt-16).
+- 신규 공통 컴포넌트 1: AdminStatCard(label·value·caption?·icon·color? → `.adm-grad-*` 원형 아바타 아이콘)·사용처 없음(대시보드 트랙용)·vitest 렌더 1건(createVuetify 플러그인 주입).
+- 기능·로직 무변경(가드·세션·누수 가드·메뉴 구조·라우트·e2e 동일). 검증: typecheck 0 · vitest 25 files 101 tests · Playwright 5 · 사용자 12장 0px · 1280/1920 사이드바·아바타 잘림 없음(스크린샷). 스크린샷(gitignored): `frontend/playwright-report/fe-22f/` — login/dashboard/members × desktop(1280)·wide(1920)·mobile(390) + members-{desktop,wide}-menu(아바타 메뉴)·members-mobile-drawer.
+- 변경(FE-22g · 2026-09-16·zslab 요청): 밴드를 연한 톤으로(`.adm-band-soft` #C9DCFB→#E9F0FE·primary를 흰색에 옅게 섞은 그라데이션·`.adm-grad-primary`는 StatCard용으로 유지) + 밴드 위 텍스트 어두운 색 전환(Topbar `theme="dark"` 제거·아바타 primary 배경, 제목 on-surface 92%·설명/브레드크럼/구분자 70%). 대비(밴드 진한 쪽 #C9DCFB 기준): 제목 10.6:1·muted 5.6:1(62%는 4.4:1 미달이라 70%로 상향)·AA 충족. 검증 typecheck 0·vitest 25/101·Playwright 5·사용자 12장 0px. 스크린샷 `frontend/playwright-report/fe-22g/`. 트랩: 실행 중 dev 서버에서 `pnpm typecheck`(nuxt prepare)가 .nuxt/manifest를 재생성해 `#app-manifest` 미해석·vite 오류 오버레이 → 컨테이너 restart로 해소.
+
+### §첫 렌더 (FE-22h · 2026-09-16)
+증상(zslab 보고): /admin/* 진입 시 상단 밴드는 즉시, 콘텐츠 카드는 수 초 뒤 아래에서 올라옴.
+- 실측(컨테이너 headless·dev·/admin/members·rAF 프레임 단위 카드 bbox·v-main padding·drawer transform·app-bar y 기록): 첫 방문 — 페인트된 첫 프레임(352ms)부터 card=(290,144)·padding 56/266·drawer transform 0 고정, 이후 3초간 변화 0 / 재방문(캐시) — 261ms부터 동일·변화 0 / 네트워크 스로틀(1.5Mbps·150ms) — 10,831ms에 첫 페인트·즉시 최종 위치·변화 0. 100ms 폴링(30샘플)도 동일. vuetify-styles(main.css 336KB)·admin-vuetify.css는 `ensureVuetify` await 뒤(206ms)·레이아웃 컴포넌트 CSS(VMain/VNavigationDrawer/VAppBar)는 모듈 평가 시 동기 주입(Vite dev)·Vuetify 자체가 첫 rAF까지 v-main/drawer 트랜지션을 비활성(composables/ssrBoot.js)이라 ② 트랜지션 원인도 배제.
+- 판정: **③ 기타** — headless에서는 위치 이동 재현 0(① CSS 비동기 지연·② 트랜지션 모두 불일치). 후보: (a) Vite dev 최초 로드의 의존성 재최적화("Re-optimizing dependencies"·restart 로그 실측) 시 페이지 재로드로 중간 상태 노출(1회성), (b) 실브라우저에서 모듈 스트리밍(첫 방문 ~230 요청) 중 레이아웃 등록 전 프레임이 그려질 가능성(headless는 마운트~첫 페인트 사이 rAF 미발화로 관측 불가). 어느 쪽이든 "셸을 부분 상태로 그리지 않기"가 공통 대책.
+- 수정(① 방식 적용): `lib/first-paint-gate.ts` `useFirstPaintGate()` — onMounted 후 첫 rAF에 ready → layouts/admin.vue·admin-auth.vue가 `<template v-if="ready">`로 밴드·사이드바·상단바·v-main(콘텐츠)을 **같은 프레임에 렌더**(게이트 전엔 v-app 배경색만). Vuetify JS·styles는 기존대로 vuetify 미들웨어가 렌더 전에 로드(관리자 한정 로딩·누수 가드·세션 분리 무변경). styles 사전 로드(link preload)는 미적용 — 로드 완료 전 화면은 배경색뿐이라 체감 지연을 키우지 않고, 관리자 한정 로딩 원칙상 사용자 entry에 preload를 넣을 수 없음.
+- 검증: 재측정 첫 방문 603ms·재방문 494ms·스로틀 10,831ms 모두 첫 프레임부터 최종 위치·이동 0 / 사이드바 토글 트랜지션 정상(padding-left 266→0 보간 13샘플) / 관리자 내부 이동(/admin→/admin/members) 중 v-app 자식 수 4 고정(빈 프레임 0) / e2e ⑤ "카드가 보이는 60프레임 bbox 동일" 추가 / typecheck 0·vitest 25/101·Playwright 6·사용자 12장 0px.
+- 트랩 후보: 관리자 한정 비동기 Vuetify CSS 로드 구조에서는 레이아웃 등록(drawer/app-bar)·모듈 스트리밍 순서에 따라 첫 렌더 레이아웃 이동이 생길 수 있다 → 셸은 항상 첫 프레임 게이트 뒤에 통째로 렌더한다. 또한 실행 중 dev 서버에서 `pnpm typecheck`(nuxt prepare)는 .nuxt/manifest를 지워 `#app-manifest` 오류를 내므로 typecheck 후 컨테이너 restart 필요(FE-22g 트랩 재확인).
