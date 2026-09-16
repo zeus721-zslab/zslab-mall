@@ -13,7 +13,7 @@ import { useAdminToast } from '#layers/admin/app/composables/useAdminToast'
 
 /**
  * 송장 등록 다이얼로그(FE-27). 대상 품목(PAID·1개면 자동 선택) + 택배사(4값) + 송장번호(≤100). 성공 시 info 토스트(상태 전환은 중립)
- * 후 done, 422(품목 상태 경합)는 warning 토스트 후 stale, 400은 fieldErrors 표시.
+ * 후 done, 422(품목 상태 경합·활성 클레임)는 warning 토스트 후 stale, 400은 fieldErrors 표시.
  */
 const props = defineProps<{
   open: boolean
@@ -65,7 +65,8 @@ async function submit(): Promise<void> {
     if (code === 'VALIDATION_FAILED' || code === 'MALFORMED_REQUEST') {
       const mapped = mapFieldErrors(error)
       errors.value = Object.keys(mapped).length > 0 ? mapped : { trackingNo: toAdminErrorMessage(error) }
-    } else if (code === 'DELIVERY_INVALID_STATE' || code === 'ORDER_NOT_FOUND') {
+    } else if (code === 'DELIVERY_INVALID_STATE' || code === 'ORDER_NOT_FOUND' || code === 'CLAIM_STATE_INVALID') {
+      // CLAIM_STATE_INVALID(FE-28·Track 80 C2): 취소 요청 진행 중 품목은 송장 등록이 막힌다 → 안내 후 상세를 다시 읽는다.
       toast.warning(toAdminErrorMessage(error))
       emit('stale')
     } else {

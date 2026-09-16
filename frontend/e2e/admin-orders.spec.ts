@@ -2,7 +2,8 @@ import { test, expect, type Page } from '@playwright/test'
 
 /**
  * 관리자 주문 목록·상세(FE-27) E2E. 로그인은 데모 버튼(NUXT_ADMIN_DEMO_* 주입 환경·미주입 시 skip), 주문 API는 page.route로 mock해
- * 로컬 DB를 바꾸지 않고 결정적으로 검증한다(목록 렌더·필터→URL→API 파라미터·상세 이동/복귀·부분 취소·미결제 취소 409·송장 등록·클레임 승인).
+ * 로컬 DB를 바꾸지 않고 결정적으로 검증한다(목록 렌더·필터→URL→API 파라미터·상세 이동/복귀·부분 취소·미결제 취소 409·송장 등록·클레임 승인·
+ * FE-28 거부 사유 다이얼로그·송장 422 활성 클레임).
  */
 const PAID_ID = 'ord_E2E0000000000000000000001'
 const UNPAID_ID = 'ord_E2E0000000000000000000002'
@@ -29,7 +30,9 @@ const PAID_DETAIL = {
   totalPrice: 29900, discountAmount: 0, shippingFee: 3000, paymentAmount: 32900,
   payments: [{ paymentId: 'pay_E2E1', method: 'CARD', status: 'PAID', amount: 32900, pgProvider: 'MOCK_PG', paidAt: '2026-09-16T10:05:00', createdAt: '2026-09-16T10:01:00' }],
   items: [
-    { orderItemId: 'oit_E2E0000000000000000000001', productName: 'E2E 티셔츠', optionLabel: 'M', quantity: 1, unitPrice: 19900, totalPrice: 19900, status: 'PAID', sellerName: 'E2E셀러', claims: [] },
+    { orderItemId: 'oit_E2E0000000000000000000001', productName: 'E2E 티셔츠', optionLabel: 'M', quantity: 1, unitPrice: 19900, totalPrice: 19900, status: 'PAID', sellerName: 'E2E셀러',
+      // FE-28: 거부된 취소 클레임(사유·메모) — 거부 사유 표기 검증용·approvable false
+      claims: [{ claimId: 'clm_E2E0000000000000000000009', type: 'CANCEL', status: 'REJECTED', reasonCode: 'BUYER_CHANGED_MIND', requestedAt: '2026-09-15T11:00:00', processedAt: '2026-09-15T12:00:00', approvable: false, rejectReasonCode: 'ALREADY_SHIPPED', rejectMemo: '오전 출고분' }] },
     { orderItemId: 'oit_E2E0000000000000000000002', productName: 'E2E 양말', quantity: 2, unitPrice: 5000, totalPrice: 10000, status: 'PAID', sellerName: 'B셀러',
       claims: [{ claimId: 'clm_E2E0000000000000000000001', type: 'RETURN', status: 'REQUESTED', reasonCode: 'PRODUCT_DEFECT', reasonDetail: '올 풀림', requestedAt: '2026-09-16T11:00:00', approvable: true }] },
   ],
@@ -46,7 +49,7 @@ const UNPAID_DETAIL = {
 
 interface Captured { listQueries: URLSearchParams[]; detailGets: string[]; posts: { url: string; body: string }[] }
 
-async function mockAdminApi(page: Page, options: { cancelStatus?: number } = {}): Promise<Captured> {
+async function mockAdminApi(page: Page, options: { cancelStatus?: number; shipmentStatus?: number } = {}): Promise<Captured> {
   const captured: Captured = { listQueries: [], detailGets: [], posts: [] }
   const problem = (status: number, code: string, detail: string) =>
     ({ status, contentType: 'application/problem+json', json: { code, detail } })
@@ -61,11 +64,18 @@ async function mockAdminApi(page: Page, options: { cancelStatus?: number } = {})
   })
   await page.route((url) => /\/api\/v1\/admin\/orders\/items\/oit_[^/]+\/prepare-shipment$/.test(url.pathname), (route) => {
     captured.posts.push({ url: route.request().url(), body: route.request().postData() ?? '' })
+    // FE-28·Track 80 C2: 취소 요청 진행 중 품목은 422 CLAIM_STATE_INVALID
+    if (options.shipmentStatus === 422) return route.fulfill(problem(422, 'CLAIM_STATE_INVALID', '진행 중인 클레임이 있어 송장을 등록할 수 없습니다.'))
     return route.fulfill({ json: { deliveryPublicId: 'dlv_new', status: 'SHIPPING', carrier: 'CJ', trackingNo: '1234567890' } })
   })
   await page.route((url) => /\/api\/v1\/admin\/claims\/clm_[^/]+\/(approve|reject)$/.test(url.pathname), (route) => {
     captured.posts.push({ url: route.request().url(), body: route.request().postData() ?? '' })
-    return route.fulfill({ json: { publicId: 'clm_E2E0000000000000000000001', orderItemPublicId: 'oit_E2E0000000000000000000002', claimType: 'RETURN', status: 'APPROVED', reasonCode: 'PRODUCT_DEFECT', requestedAt: '2026-09-16T11:00:00+09:00', processedAt: '2026-09-16T12:00:00+09:00' } })
+    const reject = route.request().url().endsWith('/reject')
+    const body = JSON.parse(route.request().postData() ?? '{}') as { reasonCode?: string; memo?: string }
+    // Track 80: 승인 응답은 CANCEL이면 Mock 자동 콜백으로 COMPLETED까지 수렴하지만 RETURN은 APPROVED. 거부는 사유·메모를 그대로 되돌린다.
+    return route.fulfill({ json: reject
+      ? { publicId: 'clm_E2E0000000000000000000001', orderItemPublicId: 'oit_E2E0000000000000000000002', claimType: 'RETURN', status: 'REJECTED', reasonCode: 'PRODUCT_DEFECT', requestedAt: '2026-09-16T11:00:00+09:00', processedAt: '2026-09-16T12:00:00+09:00', rejectReasonCode: body.reasonCode, rejectMemo: body.memo }
+      : { publicId: 'clm_E2E0000000000000000000001', orderItemPublicId: 'oit_E2E0000000000000000000002', claimType: 'RETURN', status: 'APPROVED', reasonCode: 'PRODUCT_DEFECT', requestedAt: '2026-09-16T11:00:00+09:00', processedAt: '2026-09-16T12:00:00+09:00' } })
   })
   await page.route((url) => /\/api\/v1\/admin\/orders\/ord_[^/]+$/.test(url.pathname), (route) => {
     captured.detailGets.push(route.request().url())
@@ -263,5 +273,44 @@ test.describe('관리자 주문 목록·상세(FE-27)', () => {
     const bodyOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
     expect(bodyOverflow).toBe(0)
     await page.screenshot({ path: 'playwright-report/fe-27/list-mobile.png' })
+  })
+
+  test('⑦ FE-28 상세 "거절" → 사유 다이얼로그(반품이라 "이미 발송됨" 없음·사유 필수) → POST reject body{reasonCode,memo} → danger 토스트 → 재조회 / 거부 사유·메모 표기', async ({ page }) => {
+    const captured = await mockAdminApi(page)
+    await loginByDemo(page)
+    await page.goto(`/admin/orders/${PAID_ID}`)
+    // 거부된 취소 클레임 행: 거부 사유·메모 표기
+    await expect(page.getByTestId('claim-reject-reason')).toContainText('거부: 이미 발송됨 — 오전 출고분')
+    await page.getByTestId('claim-reject').click()
+    const dialog = page.getByTestId('admin-claim-reject-dialog')
+    await expect(dialog).toBeVisible()
+    await expect(dialog).toContainText('반품 요청 거부')
+    // 사유 미선택 → 거부 버튼 비활성·요청 0
+    await expect(dialog.getByTestId('reject-dialog-ok')).toBeDisabled()
+    await dialog.getByTestId('reject-reason').click()
+    await expect(page.getByRole('option', { name: '이미 발송됨', exact: true })).toHaveCount(0)
+    await page.getByRole('option', { name: '정책상 불가', exact: true }).click()
+    await dialog.getByTestId('reject-memo').locator('textarea').first().fill(' 기간 경과 ')
+    await dialog.getByTestId('reject-dialog-ok').click()
+    await expect(page.locator('[data-sonner-toast][data-type="error"]')).toContainText('반품 요청을 거절했습니다.')
+    expect(captured.posts[0]!.url).toContain('/admin/claims/clm_E2E0000000000000000000001/reject')
+    expect(JSON.parse(captured.posts[0]!.body)).toEqual({ reasonCode: 'OUT_OF_POLICY', memo: '기간 경과' })
+    await expect(dialog).toBeHidden()
+    expect(captured.detailGets.length).toBeGreaterThanOrEqual(2)
+  })
+
+  test('⑧ FE-28 송장 등록 422 CLAIM_STATE_INVALID(취소 요청 진행 중) → warning 토스트 → 다이얼로그 닫힘·상세 재조회', async ({ page }) => {
+    const captured = await mockAdminApi(page, { shipmentStatus: 422 })
+    await loginByDemo(page)
+    await page.goto(`/admin/orders/${PAID_ID}`)
+    await page.getByTestId('open-shipment').click()
+    const dialog = page.getByTestId('admin-shipment-dialog')
+    await pickOption(page, 'shipment-item', 'E2E 티셔츠 (M) · 수량 1')
+    await pickOption(page, 'shipment-carrier', 'CJ대한통운')
+    await dialog.getByTestId('shipment-tracking-no').locator('input').fill('1234567890')
+    await dialog.getByTestId('shipment-dialog-ok').click()
+    await expect(page.locator('[data-sonner-toast][data-type="warning"]')).toContainText('현재 상태에서 처리할 수 없는 클레임')
+    await expect(dialog).toBeHidden()
+    expect(captured.detailGets.length).toBeGreaterThanOrEqual(2)
   })
 })

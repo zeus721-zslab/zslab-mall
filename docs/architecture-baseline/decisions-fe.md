@@ -1476,3 +1476,30 @@ FE-13 §8(:701) 이월 "[버그·백로그] BUYER 페이지에서 로그아웃 �
 - 운영 영향: 표시가 아니라 **저장값 결함**. 이 수정 이전에 모의 결제로 생성된 운영·로컬 `payment.paid_at`·`orders.paid_at` 행은 −9h로 남는다. `paid_at` 기반 조회·집계·정산은 없음(정산은 confirmedAt 기준·settlement.paid_at은 별개 테이블)이라 기능 영향은 관리자 상세/목록·사용자 주문 상세의 결제일 표시뿐. 기존 행 보정(UPDATE … paid_at = paid_at + 9h·모의 결제 행 한정)은 운영 데이터 보호 규칙상 zslab 승인 후 별도 처리.
 - 배송 chip 중복: 주문상태가 배송 집계와 같은 라벨(배송중·배송완료)일 때 "주문 · 배송" 셀에 같은 chip이 2개 보였다 → `showDeliveryChip(orderStatus, deliveryStatus)` = 배송이 있고 배송상태 라벨 ≠ 주문상태 라벨일 때만 표시(부분취소·배송중처럼 정보가 추가될 때만). 클레임 chip은 그대로. vitest 6 단언.
 - 검증: typecheck 0 · vitest 33 files 178 tests(+4) · Playwright 27/27(1440 표·본문 오버플로 0 유지) · 사용자 12장 0px · 스크린샷 fe-27/list-desktop.png 갱신.
+
+## FE-28: 관리자 취소·반품·교환 목록 · 거부 사유 다이얼로그 · 사용자 거부 사유/환불 표기 (2026-09-16)
+
+정찰 `docs/frontend/recon-report-fe-28.md` · BE 계약 Track 80 D-169(3077de5d) · 브랜치 `feat/fe-28-claims`
+
+### §1-A 갈림길·채택/기각 근거
+1. 유형 탭 URL: α **쿼리 `?type=CANCEL|RETURN|EXCHANGE`(없으면 전체) — 채택** / β 경로 `/claims/cancel` — 기각. `admin-order-query`와 같은 URL 단일 소스(parse/toRouteQuery/toApiParams)로 새로고침·뒤로가기·`?back` 복귀에 탭이 함께 보존되고, 탭 전환은 `applyQuery({type})`(page 초기화)이며 필터 초기화는 탭을 유지한다(탭은 필터가 아님·`hasActiveClaimFilters`도 type 제외).
+2. 거부 사유 라벨 출처: α **FE constants 단일 소스(`~/lib/constants/claim.ts`·BE SMS 문구와 동일 라벨 "이미 발송됨·정책상 불가·구매자 철회·기타") — 채택** / β BE 응답 라벨 — 기각(4층위 ④·BE 재배포 없음). 유형 제약(ALREADY_SHIPPED는 CANCEL만)도 `isClaimRejectReasonApplicable`/`claimRejectReasonCodesFor`로 FE가 걸러 BE 400을 예방하며, 어긋난 경우 다이얼로그가 MALFORMED_REQUEST를 사유 필드 안내로 흡수한다.
+3. 복귀 경로: α **`resolveBackPath` 주문 base에 클레임 목록(`/admin/orders/claims`·쿼리 포함) 추가 허용(`EXTRA_BACK_BASES`) — 채택** / β back 없이 이동 — 기각. 상품 base는 불변(FE-26 회귀 0)·주문 상세는 `ADMIN_ORDERS_PATH` 호출부 무변경.
+4. 처리 대기 건수 표시: α 탭 라벨 배지 — **기각 → β 페이지 헤더 chip 1개("취소 처리 대기 N건"·전체 탭은 "처리 대기 N건"·0건 tonal 중립) — 채택**. 전환 사유: BE `pendingCount`는 현재 요청의 type만 반영하므로 탭마다 숫자를 붙이면 비활성 탭 숫자는 알 수 없는데도 "0"처럼 보이거나 추가 호출(탭 수만큼)이 필요해 오해를 유발한다. 헤더 chip은 "지금 보고 있는 유형의 대기 건수" 의미가 명확하다.
+5. 승인 토스트: α **현행 중립 문구("…요청을 승인했습니다") 유지 + 재조회 — 채택** / β "승인·환불 완료" — 기각. RETURN/EXCHANGE는 승인 시 COMPLETED가 아니므로 유형별 문구 분기는 과잉이며, 취소는 재조회 후 환불 chip("환불 완료")이 결과를 보여준다. e2e mock은 유형별(CANCEL COMPLETED / RETURN APPROVED)로 응답한다.
+- 거부 다이얼로그 소유: FE-27 규칙 그대로 **다이얼로그가 API·토스트·에러 분기를 소유하고 done/stale/cancel만 emit**. 목록·주문 상세가 `AdminClaimRejectDialog`(target {claimId,type,productName}) 1개를 공유하며, 주문 상세의 "거절"은 확인 다이얼로그에서 이 다이얼로그로 전환했다(승인은 `AdminConfirmDialog` + 공용 `approveConfirmMessage` 유지).
+- 환불 표기 우선순위: `claimRefundLabel`은 BE `refundStatus`(PENDING/COMPLETED/FAILED)가 있으면 그 값을 쓰고 없으면 FE-27의 취소 상태 추론(APPROVED=진행 중)으로 폴백 — 기존 helper 테스트 무변경·목록/상세 chip 단일 함수.
+- 송장 422: `AdminShipmentDialog`가 `CLAIM_STATE_INVALID`(활성 클레임 품목·Track 80 C2)를 `DELIVERY_INVALID_STATE`와 같은 warning+stale 경로로 처리(기존 else 분기 danger·다이얼로그 잔류 결함 수정). 에러 문구에 "클레임 진행 중 품목의 송장 등록" 케이스 추가.
+- 사용자 표기: 목록은 상태 배지 아래 무채색 보조 배지(거부 사유·환불 상태·값 있을 때만), 상세는 dl에 거부 사유·거부 메모·환불 상태 행(값 없으면 행 미노출)·타임라인 "거절" 유지. 주문 상세는 클레임 행이 없어 무변경. 사용자 톤(무채색) 유지·픽셀 기준선 화면 미포함.
+
+### §2 확정 구현 규칙
+- 데이터: `app/lib/constants/claim.ts`(+ClaimRejectReasonCode 4값·라벨·CODES·applicable/codesFor·CLAIM_REJECT_MEMO_MAX 500·RefundStatus 3값·라벨) · `app/types/claim.ts`(ClaimSummary +2·ClaimDetail +3) · 관리자 `types/admin-claim.ts`(AdminClaimSummary 20필드·AdminClaimListResponse +pendingCount·AdminClaimRejectBody·AdminClaimListQuery) · `types/admin-order.ts`(AdminOrderClaim·AdminClaimResponse +3) · `lib/constants/admin-order.ts`(+ADMIN_REFUND_STATUS_SEMANTIC) · `lib/admin-claim-query.ts`(parse/toRouteQuery/toApiParams/hasActiveClaimFilters·기간 변환 FE-27 함수 재사용) · `lib/admin-claim-view.ts`(rejectReasonItems·validateRejectForm·refundStatusChip·approveConfirmMessage) · `lib/admin-back-path.ts`(+ADMIN_CLAIMS_PATH·EXTRA_BACK_BASES) · `composables/useAdminClaims.ts`(list) · `useAdminOrders.rejectClaim(id, body)`.
+- 화면: `lib/constants/admin-menu.ts` 주문 관리 하위 취소/반품/교환 3항목 → "취소·반품·교환"(`/admin/orders/claims`) 1항목·placeholder 3파일 삭제 · `pages/admin/orders/claims/index.vue`(URL 단일 소스·requestSequence·pendingQuery 병합·v-tabs 4·헤더 chip·승인 확인/거부 다이얼로그·행→주문 상세 `?back`) · `AdminClaimFilterCard`(검색·요청일 기간·처리 상태·정렬) · `AdminClaimTable`(8컬럼 2줄 병합: 요청·처리 / 유형·상태 / 주문·구매자 / 상품·옵션·수량 / 금액 / 사유·거부 사유 / 환불 chip / 승인·거부 — `availableActions`만 따르며 반품·교환은 표시만) · `AdminClaimRejectDialog`(사유 select 유형별·메모 500 counter·submitting 중복 방지·400 fieldErrors/MALFORMED 사유 안내·422 warning+stale) · `pages/admin/orders/[id].vue`(거절 → 거부 다이얼로그·클레임 행 "거부: 라벨 — 메모") · 사용자 `pages/claims/index.vue`·`[claimPublicId].vue`.
+- 검증(실측): typecheck 0 · vitest 35 files 196 tests(+17: admin-claim-query 8·admin-claim-helpers 9) · Playwright 27 passed·5 skipped(admin-shell ADMIN_E2E 미설정·데모 creds 주입 실행 6/6) — admin-claims 3 신규·admin-orders ⑦⑧ 신규·admin-shell ① 메뉴 단언 · 사용자 12장 0px(fe-27d 대비) · 사용자 entry JS 231,312→231,002B(−310B·placeholder 3라우트 삭제)·entry CSS 해시 동일(Dp22OyE1·31,041B) · 실 BE(로컬 v23) 수동: 취소 요청 2건 → 목록 "취소 처리 대기 2건" → 거부(이미 발송됨+메모) → 사용자 상세 거부 사유·메모 / 승인 → Mock 자동 콜백 → 목록 "환불 완료"·사용자 상세 "환불 완료"·SMS 로그 3건 마스킹(010-****-1234). 스크린샷 `frontend/playwright-report/fe-28/{claims-list-desktop,claims-list-cancel-tab,claims-reject-dialog,manual-admin-list-pending,manual-admin-list-after,manual-buyer-claim-rejected,manual-buyer-claim-completed}.png`.
+- 트랩: (1) **페이지 파일 삭제 후 nuxt dev 라우트 테이블 stale** — 삭제된 `cancellations.vue`를 `virtual:nuxt routes.mjs`가 계속 import해 전 페이지 500(Playwright가 dev 서버를 못 써 build&&preview 폴백 → :3000 EADDRINUSE). 프론트 컨테이너 `docker compose restart`로 해소. (2) 픽셀 비교는 **데이터 의존**(장바구니 품목·헤더 배지 수) — 데모 계정 장바구니가 비어 있으면 cart 2장 SIZE DIFF·mypage 2장 배지 333px. 기준선과 같은 3품목을 API로 복원한 뒤 재캡처해 0px. (3) `/tmp` 경로를 Git Bash에서 docker exec 인자로 넘기면 Windows 경로로 치환됨 → PowerShell로 실행.
+
+### §8 이월
+- 반품·교환 처리 흐름(수거 확인·교환 발송 액션·유형별 진행 컬럼) — Track 81·82. 목록 8컬럼은 공통 컬럼만.
+- 셀러 클레임 화면(목록·거부 사유 입력) — 셀러 트랙.
+- 관리자 클레임 목록 모바일(390) 표 내부 스크롤 허용·컬럼 축약 여부 — 운영 피드백 후.
+- 사용자 클레임 목록/상세 픽셀 기준선 편입 여부(현 12장 미포함).

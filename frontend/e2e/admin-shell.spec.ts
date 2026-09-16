@@ -55,6 +55,10 @@ test.describe('관리자 셸', () => {
     await expect(page.getByTestId('admin-topbar')).toBeVisible()
     await expect(page.getByTestId('admin-placeholder')).toContainText('준비 중입니다')
     expect(await countVuetifySheets(page)).toBeGreaterThan(0)
+    // FE-28: 주문 관리 하위 취소/반품/교환 3항목 → "취소·반품·교환" 1항목
+    await page.getByTestId('admin-sidebar').getByText('주문 관리').click()
+    await expect(page.getByTestId('admin-sidebar').getByRole('link', { name: '취소·반품·교환' })).toHaveCount(1)
+    await expect(page.getByTestId('admin-sidebar').getByRole('link', { name: '교환', exact: true })).toHaveCount(0)
   })
 
   test('② 관리자 내부 뒤로가기는 새로고침 없음·관리자 밖 뒤로가기는 전체 새로고침(Vuetify 시트 0·폰트·높이 원복)', async ({ page }) => {

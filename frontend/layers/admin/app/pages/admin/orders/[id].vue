@@ -4,11 +4,14 @@ import type { AdminOrderClaim, AdminOrderDetail } from '#layers/admin/app/types/
 import { orderStatusLabel } from '~/lib/constants/order'
 import {
   CLAIM_REASON_LABELS,
+  claimRejectReasonLabel,
   claimStatusLabel,
   claimTypeLabel,
   orderItemStatusLabel,
   type ClaimReasonCode,
 } from '~/lib/constants/claim'
+import type { AdminClaimRejectTarget } from '#layers/admin/app/components/admin/AdminClaimRejectDialog.vue'
+import { approveConfirmMessage } from '#layers/admin/app/lib/admin-claim-view'
 import { formatDateTime } from '~/lib/utils/datetime'
 import {
   ADMIN_CLAIM_STATUS_SEMANTIC,
@@ -79,21 +82,15 @@ function closeDialog(refresh: boolean): void {
   if (refresh) void load()
 }
 
-// ---------- 클레임 승인/거절(확인 다이얼로그 → 기존 단건 API) ----------
-type ClaimDecision = { claim: AdminOrderClaim; productName: string; action: 'approve' | 'reject' }
+// ---------- 클레임 승인(확인 다이얼로그) · 거절(사유 다이얼로그·FE-28 공용) → 기존 단건 API ----------
+type ClaimDecision = { claim: AdminOrderClaim; productName: string }
 const claimDecision = ref<ClaimDecision | null>(null)
 const claimBusy = ref(false)
-// 닫힘 애니메이션 동안 제목·버튼이 "거절"로 바뀌지 않도록 마지막 결정 종류를 유지한다(claimDecision은 즉시 null).
-const lastDecisionAction = ref<'approve' | 'reject'>('approve')
-watch(claimDecision, (next) => { if (next) lastDecisionAction.value = next.action })
+const rejectTarget = ref<AdminClaimRejectTarget | null>(null)
 
 const claimDecisionMessage = computed<string>(() => {
   const decision = claimDecision.value
-  if (!decision) return ''
-  const label = `${claimTypeLabel(decision.claim.type)} 요청 (${decision.productName})`
-  return decision.action === 'approve'
-    ? `${label}을(를) 승인합니다.\n취소 요청은 승인 즉시 환불이 진행됩니다.`
-    : `${label}을(를) 거절합니다.\n품목은 요청 전 상태로 돌아갑니다.`
+  return decision ? approveConfirmMessage(decision.claim.type, decision.productName) : ''
 })
 
 async function runClaimDecision(): Promise<void> {
@@ -101,13 +98,8 @@ async function runClaimDecision(): Promise<void> {
   if (!decision || claimBusy.value) return
   claimBusy.value = true
   try {
-    if (decision.action === 'approve') {
-      await ordersApi.approveClaim(decision.claim.claimId)
-      toast.info(`${claimTypeLabel(decision.claim.type)} 요청을 승인했습니다.`) // 상태 전환은 중립
-    } else {
-      await ordersApi.rejectClaim(decision.claim.claimId)
-      toast.danger(`${claimTypeLabel(decision.claim.type)} 요청을 거절했습니다.`) // 거절은 부정적 의미
-    }
+    await ordersApi.approveClaim(decision.claim.claimId)
+    toast.info(`${claimTypeLabel(decision.claim.type)} 요청을 승인했습니다.`) // 상태 전환은 중립(취소는 재조회 시 환불 완료로 보임)
     claimDecision.value = null
     await load()
   } catch (error) {
@@ -121,6 +113,15 @@ async function runClaimDecision(): Promise<void> {
   } finally {
     claimBusy.value = false
   }
+}
+
+function openReject(claim: AdminOrderClaim, productName: string): void {
+  rejectTarget.value = { claimId: claim.claimId, type: claim.type, productName }
+}
+
+function closeReject(refresh: boolean): void {
+  rejectTarget.value = null
+  if (refresh) void load()
 }
 </script>
 
@@ -333,12 +334,15 @@ async function runClaimDecision(): Promise<void> {
                   {{ claimRefundLabel(claim)!.text }}
                 </v-chip>
                 <span>{{ reasonLabel(claim.reasonCode) }}<span v-if="claim.reasonDetail" class="text-medium-emphasis"> — {{ claim.reasonDetail }}</span></span>
+                <span v-if="claim.rejectReasonCode" class="text-error" data-testid="claim-reject-reason">
+                  거부: {{ claimRejectReasonLabel(claim.rejectReasonCode) }}<span v-if="claim.rejectMemo" class="text-medium-emphasis"> — {{ claim.rejectMemo }}</span>
+                </span>
                 <span class="text-medium-emphasis">
                   · 요청 {{ formatDateTime(claim.requestedAt) }}<template v-if="claim.processedAt"> · 처리 {{ formatDateTime(claim.processedAt) }}</template>
                 </span>
                 <template v-if="claim.approvable">
-                  <v-btn size="x-small" color="primary" variant="flat" data-testid="claim-approve" @click="claimDecision = { claim, productName: item.productName, action: 'approve' }">승인</v-btn>
-                  <v-btn size="x-small" color="error" variant="outlined" data-testid="claim-reject" @click="claimDecision = { claim, productName: item.productName, action: 'reject' }">거절</v-btn>
+                  <v-btn size="x-small" color="primary" variant="flat" data-testid="claim-approve" @click="claimDecision = { claim, productName: item.productName }">승인</v-btn>
+                  <v-btn size="x-small" color="error" variant="outlined" data-testid="claim-reject" @click="openReject(claim, item.productName)">거절</v-btn>
                 </template>
               </div>
             </div>
@@ -354,13 +358,13 @@ async function runClaimDecision(): Promise<void> {
     <AdminConfirmDialog
       :open="claimDecision !== null"
       test-id="admin-claim-decision-dialog"
-      :title="lastDecisionAction === 'approve' ? '클레임 승인' : '클레임 거절'"
+      title="클레임 승인"
       :message="claimDecisionMessage"
-      :confirm-label="lastDecisionAction === 'approve' ? '승인' : '거절'"
-      :confirm-color="lastDecisionAction === 'approve' ? 'primary' : 'error'"
+      confirm-label="승인"
       :loading="claimBusy"
       @confirm="runClaimDecision"
       @cancel="claimDecision = null"
     />
+    <AdminClaimRejectDialog :open="rejectTarget !== null" :target="rejectTarget" @done="closeReject(true)" @stale="closeReject(true)" @cancel="closeReject(false)" />
   </div>
 </template>

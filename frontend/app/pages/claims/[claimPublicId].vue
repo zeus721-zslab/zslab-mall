@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import {
   CLAIM_REASON_LABELS,
+  claimRejectReasonLabel,
   claimStatusLabel,
   claimTypeLabel,
+  refundStatusLabel,
   type ClaimStatus,
 } from '~/lib/constants/claim'
 import { formatDateTime } from '~/lib/utils/datetime'
@@ -149,6 +151,19 @@ useSeoMeta({ title: '클레임 상세 · zslab-mall', description: 'zslab-mall �
             <div v-if="data.processedAt" class="flex justify-between gap-4">
               <dt class="text-sub">처리 일시</dt>
               <dd class="text-right text-ink">{{ formatDateTime(data.processedAt) }}</dd>
+            </div>
+            <!-- 거부 사유·메모·환불 상태(FE-28·Track 80 D-169): 값이 있을 때만 행 노출 -->
+            <div v-if="data.rejectReasonCode" class="flex justify-between gap-4">
+              <dt class="text-sub">거부 사유</dt>
+              <dd class="text-right text-ink" data-testid="claim-reject-reason">{{ claimRejectReasonLabel(data.rejectReasonCode) }}</dd>
+            </div>
+            <div v-if="data.rejectMemo" class="flex justify-between gap-4">
+              <dt class="shrink-0 text-sub">거부 메모</dt>
+              <dd class="whitespace-pre-line text-right text-ink" data-testid="claim-reject-memo">{{ data.rejectMemo }}</dd>
+            </div>
+            <div v-if="data.refundStatus" class="flex justify-between gap-4">
+              <dt class="text-sub">환불 상태</dt>
+              <dd class="text-right text-ink" data-testid="claim-refund-status">{{ refundStatusLabel(data.refundStatus) }}</dd>
             </div>
           </dl>
         </section>

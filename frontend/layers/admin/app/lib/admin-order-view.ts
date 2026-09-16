@@ -7,6 +7,7 @@ import type {
   AdminOrderItem,
 } from '#layers/admin/app/types/admin-order'
 import { claimableTypes } from '~/lib/constants/claim'
+import { refundStatusChip } from '#layers/admin/app/lib/admin-claim-view'
 import { orderStatusLabel } from '~/lib/constants/order'
 import {
   ADMIN_DELIVERY_STATUS_LABEL,
@@ -57,10 +58,12 @@ export function sellerNamesLabel(names: (string | null)[]): string {
 }
 
 /**
- * 취소 클레임의 환불 단계 표기(recon-report-fe-27 §4 β). 승인 즉시 환불이 개시되므로 APPROVED=진행 중, COMPLETED=완료.
- * 취소 외 유형·그 외 상태는 표기하지 않는다(null).
+ * 클레임 행 환불 표기. BE refundStatus(FE-28·Track 80)가 있으면 그 값(PENDING/COMPLETED/FAILED)을 그대로 쓰고, 없으면 취소 클레임의
+ * 상태 추론(recon-report-fe-27 §4 β·APPROVED=진행 중·COMPLETED=완료)으로 폴백한다. 취소 외 유형·그 외 상태는 표기하지 않는다(null).
  */
-export function claimRefundLabel(claim: Pick<AdminOrderClaim, 'type' | 'status'>): { text: string; semantic: AdminSemantic } | null {
+export function claimRefundLabel(claim: Pick<AdminOrderClaim, 'type' | 'status' | 'refundStatus'>): { text: string; semantic: AdminSemantic } | null {
+  const fromStatus = refundStatusChip(claim.refundStatus)
+  if (fromStatus) return fromStatus
   if (claim.type !== 'CANCEL') return null
   if (claim.status === 'APPROVED') return { text: '환불 진행 중', semantic: 'warning' }
   if (claim.status === 'COMPLETED') return { text: '환불 완료', semantic: 'success' }

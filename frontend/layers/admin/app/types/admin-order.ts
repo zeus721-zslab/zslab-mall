@@ -1,5 +1,5 @@
 import type { OrderStatusCode } from '~/lib/constants/order'
-import type { ClaimReasonCode, ClaimStatus, ClaimType, OrderItemStatusCode } from '~/lib/constants/claim'
+import type { ClaimReasonCode, ClaimRejectReasonCode, ClaimStatus, ClaimType, OrderItemStatusCode, RefundStatus } from '~/lib/constants/claim'
 import type { PaymentMethod } from '~/types/checkout'
 import type {
   AdminDeliveryCarrier,
@@ -124,6 +124,11 @@ export interface AdminOrderClaim {
   processedAt?: string
   /** 사용자 승인형 Claim(REQUESTED)에 대한 승인/거절 버튼 노출 여부. */
   approvable: boolean
+  /** 거부 사유 코드·메모(FE-28·Track 80 D-169). 거부 전 생략. */
+  rejectReasonCode?: ClaimRejectReasonCode
+  rejectMemo?: string
+  /** 최신 환불 상태(FE-28). 환불 미생성 시 생략. */
+  refundStatus?: RefundStatus
 }
 
 export interface AdminOrderCancelReason {
@@ -172,6 +177,9 @@ export interface AdminClaimResponse {
   reasonDetail?: string
   requestedAt: string
   processedAt?: string
+  rejectReasonCode?: ClaimRejectReasonCode
+  rejectMemo?: string
+  refundStatus?: RefundStatus
 }
 
 /** 목록 화면 상태 = URL query 단일 소스. from/to는 yyyy-MM-dd(날짜만·API 전송 시 시각 부착). */

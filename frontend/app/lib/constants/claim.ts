@@ -138,3 +138,53 @@ export function claimableTypes(itemStatusCode: string): ClaimType[] {
       return []
   }
 }
+
+/** 클레임 거부 사유 코드(BE ClaimRejectReasonCode enum 4값·Track 80 D-169). */
+export type ClaimRejectReasonCode = 'ALREADY_SHIPPED' | 'OUT_OF_POLICY' | 'BUYER_WITHDRAWN' | 'OTHER'
+
+/** 거부 사유 코드→한글 라벨. BE SMS 본문 라벨(ClaimRejectReasonCode.getLabel)과 동일 문구로 맞춘다(사용자 혼란 방지). */
+export const CLAIM_REJECT_REASON_LABELS: Record<ClaimRejectReasonCode, string> = {
+  ALREADY_SHIPPED: '이미 발송됨',
+  OUT_OF_POLICY: '정책상 불가',
+  BUYER_WITHDRAWN: '구매자 철회',
+  OTHER: '기타',
+}
+
+/** 드롭다운 노출용 거부 사유 코드 목록(정의 순서 유지). */
+export const CLAIM_REJECT_REASON_CODES: ClaimRejectReasonCode[] = ['ALREADY_SHIPPED', 'OUT_OF_POLICY', 'BUYER_WITHDRAWN', 'OTHER']
+
+/** 거부 사유 라벨 변환. 매핑에 없는 값은 원본 폴백(방어). */
+export function claimRejectReasonLabel(code: string): string {
+  return CLAIM_REJECT_REASON_LABELS[code as ClaimRejectReasonCode] ?? code
+}
+
+/**
+ * 클레임 유형에서 선택 가능한 거부 사유인지 판정한다. BE Claim.reject 도메인 검증(ALREADY_SHIPPED는 CANCEL 전용·그 외 400)과 1:1.
+ */
+export function isClaimRejectReasonApplicable(code: ClaimRejectReasonCode, claimType: ClaimType): boolean {
+  if (code === 'ALREADY_SHIPPED') return claimType === 'CANCEL'
+  return true
+}
+
+/** 클레임 유형별 거부 사유 드롭다운 목록(정의 순서 유지·유형 부적합 사유 제외). */
+export function claimRejectReasonCodesFor(claimType: ClaimType): ClaimRejectReasonCode[] {
+  return CLAIM_REJECT_REASON_CODES.filter((code) => isClaimRejectReasonApplicable(code, claimType))
+}
+
+/** 거부 메모 최대 길이(BE ClaimRejectRequest @Size·claim.reject_memo VARCHAR(500)). */
+export const CLAIM_REJECT_MEMO_MAX = 500
+
+/** 환불 상태 code(BE RefundStatus enum 3값). 클레임 응답 refundStatus는 환불 미생성 시 null. */
+export type RefundStatus = 'PENDING' | 'COMPLETED' | 'FAILED'
+
+/** 환불 상태 code→한글 라벨(구매자 시점 문구). */
+export const REFUND_STATUS_LABELS: Record<RefundStatus, string> = {
+  PENDING: '환불 진행 중',
+  COMPLETED: '환불 완료',
+  FAILED: '환불 실패',
+}
+
+/** 환불 상태 라벨 변환. 매핑에 없는 값은 원본 폴백(방어). */
+export function refundStatusLabel(code: string): string {
+  return REFUND_STATUS_LABELS[code as RefundStatus] ?? code
+}
