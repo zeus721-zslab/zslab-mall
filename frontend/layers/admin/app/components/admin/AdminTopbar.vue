@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { mdiLogout, mdiMenu } from '@mdi/js'
 import { ADMIN_LOGIN_PATH } from '#layers/admin/app/lib/constants/auth'
-import { ADMIN_MENU } from '#layers/admin/app/lib/constants/admin-menu'
+import { ADMIN_MENU, resolveActiveMenuPath } from '#layers/admin/app/lib/constants/admin-menu'
 import { useAdminAuthStore } from '#layers/admin/app/stores/adminAuth'
 import type { Profile } from '~/types/user'
 
@@ -23,11 +23,12 @@ const displayEmail = computed<string>(() => (profileError.value || !profile.valu
 // 아바타 이니셜: 이름(또는 이메일) 첫 글자. 프로필 미도착 시 빈 아바타.
 const avatarInitial = computed<string>(() => displayName.value.charAt(0).toUpperCase())
 
-// 브레드크럼: 현재 경로가 속한 그룹 › 메뉴. 대시보드(단일 링크)는 1단계. 메뉴 밖 경로는 빈 배열(표시 없음).
+// 브레드크럼: 현재 경로가 속한 그룹 › 메뉴. 대시보드(단일 링크)는 1단계. 하위 경로(/admin/products/prd_…)는 상위 메뉴로 해석(FE-25). 메뉴 밖 경로는 빈 배열.
 const breadcrumbs = computed<string[]>(() => {
+  const activePath = resolveActiveMenuPath(route.path)
   for (const group of ADMIN_MENU) {
-    if (group.to === route.path) return [group.label]
-    const item = group.children?.find((child) => child.to === route.path)
+    if (group.to === activePath) return [group.label]
+    const item = group.children?.find((child) => child.to === activePath)
     if (item) return [group.label, item.label]
   }
   return []

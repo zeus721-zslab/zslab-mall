@@ -1364,3 +1364,49 @@ FE-13 §8(:701) 이월 "[버그·백로그] BUYER 페이지에서 로그아웃 �
 - 신규 기준선 `main-dev` 12장 → 연속 3회 캡처 상호 0px(12/12).
 - `--force-recreate` 1회 더 → 재설치 없이 pnpm 11.10.0·브라우저 3종·기준선 유지 · typecheck 0 · vitest 27/110 · Playwright 7/7 · 픽셀 12장 0px.
 - 트랩 해소: (1) dev/prod 태그 공유로 prod 검증 빌드가 dev 이미지를 덮음(7/10~9/16) → 태그 분리로 해결. (2) 재생성 시 도구 소실 → 이미지 layer로 해결. 잔존 규칙: layers/·auto-import 신설 후 `docker restart` · 실행 중 dev에서 typecheck 후 restart(LT-15 계열) · lock 변경 시 컨테이너 내 `pnpm install`(익명 볼륨은 최초 생성 시만 이미지에서 복사).
+
+## FE-25: 관리자 상품 목록 (2026-09-16)
+배경: Track 76 BE(관리자 상품 CRUD·일괄·판정 단일화)·Track 77(업로드) 완료 후 관리자 첫 실화면. `/admin/products`는 플레이스홀더였고 관리자 조회·변경 UI 관습(표·필터·스낵바·다이얼로그)이 없었다. 정찰: BE 파라미터·응답 필드는 Track 76 그대로(GET keyword/status/soldOut/sellerPublicId/categoryId/sort/page/size·PagedResponse·bulk results)·사용자 영역 포맷 유틸은 datetime만 공용(`~/lib/utils/datetime`·레이어 import 가능)·가격은 컴포넌트 인라인뿐.
+
+### §1-A 갈림길·채택/기각 근거
+- 필터 상태 소유: α **URL query 단일 소스(route.query → 조회·조작은 router.replace) — 채택** / β 컴포넌트 로컬 state + URL 반영 — 기각(새로고침·뒤로가기 시 이중 소스 동기화 버그 여지). 기본값 항목은 URL에서 생략(`admin-product-query.ts` 순수 함수·vitest 9).
+- 검색 확정 시점: α **검색 버튼·Enter 명시 확정 — 채택** / β 디바운스 — 기각(타이핑마다 URL history·API 호출이 흔들리고 운영자는 정확 검색 의도가 큼). 드롭다운은 즉시 확정.
+- 행 변경 갱신: α **응답 후 해당 행 patch + 실패 원복(품절 토글은 판정 값을 재고로 근사·재조회 없음) — 채택** / β 매번 재조회 — 기각(선택·스크롤 소실·왕복 비용).
+- 일괄 결과: α **스낵바 집계 + 실패 있을 때만 상세 다이얼로그 자동 열림 — 채택** / β 항상 다이얼로그 — 기각(전부 성공 시 클릭 1회 낭비). 재조회·선택 해제는 공통.
+- 삭제 409: **안내 다이얼로그 + "판매중지로 전환" 버튼(같은 changeStatus 경로·이미 STOPPED면 안내만)** — 대안 검토 없음(BE detail이 판매중지를 안내하는 계약과 1:1).
+- 상태 전환 메뉴: 3항목 고정 노출·허용 전이(`ADMIN_PRODUCT_ALLOWED_TRANSITIONS`·BE D-165) 외 비활성 — 대안 검토 없음. 호출 경로 분기(PENDING→SALE=approve·REJECTED=reject·그 외 sale-status)는 composable이 담당.
+- 스낵바: **useState 큐 + 레이아웃 v-snackbar 1개** — 대안 검토 없음(페이지마다 인스턴스를 두면 라우트 이동 중 유실).
+- 컴포넌트 위치: `components/admin/` 평탄(AdminProductFilterCard·AdminProductTable·AdminProductBulkBar·AdminConfirmDialog·AdminBulkResultDialog) — `admin/products/` 하위는 Nuxt pathPrefix 이름 합성(AdminProducts+AdminProduct…) 불확실해 기존 평탄 관습 유지.
+- 사이드바/브레드크럼 활성: `resolveActiveMenuPath`(정확 일치 우선·하위 경로는 가장 긴 메뉴·대시보드 prefix 제외) — /admin/products/{id}에서 "상품 목록" 유지·기존 exact 동작 보존(vitest).
+- D-165 §8 4층위 4단: `layers/admin/app/lib/constants/product.ts`에 ProductStatus·AdminProductSort·ProductImageType 유니온 + 라벨/색/옵션 단일 소스.
+
+### §2 확정 구현 규칙
+- 데이터: `types/admin-product.ts` · `composables/useAdminProducts.ts`(list·setSoldOut·changeStatus·bulkStatus·bulkSoldOut·remove·sellers·categories — 전부 useAdminApi) · `useAdminSnackbar.ts` · `lib/admin-product-query.ts` · `lib/admin-error-message.ts`(코드→문구·409 포함·detail 폴백) · `lib/admin-product-view.ts`(품절 표시 분기·일괄 집계) · `lib/format.ts`(원화·판매기간: 상시/즉시/무기한).
+- 화면: `pages/admin/products/index.vue`(AdminPageHeader + 등록 버튼 / 필터 카드 / 선택 시 일괄 바 / v-data-table-server 선택·썸네일(오류 시 대체 아이콘)·상품명+ID·셀러·재고합·상태 chip·품절 chip(수동/재고 구분)·판매가·공급가(참고)·판매기간·수동 품절 스위치·수정/메뉴(전이·삭제) / 로딩·빈 상태 2종·에러+재시도) · `pages/admin/products/[id].vue` 플레이스홀더(FE-26).
+- 표 문구 한글(페이지당·{0}-{1} / {2}). 트랩: nitro 타입드 fetch에 템플릿 리터럴 경로를 주면 TS2321(excessive stack depth) → 경로는 string 함수로 고정·제네릭 명시.
+- 정리: `scripts/admin-product-status.ps1` 삭제(D-165 §8 이월 해소·decisions.md D-160 참조 문구 갱신) · D-166 보충(운영 실측·traversal 400 정정).
+
+### §검증(실측)
+- vitest 29 files 128 tests(+admin-product-query 9·admin-product-helpers 9) · typecheck 0 · Playwright 11(smoke 1 + admin-shell 6 + admin-products 4: 렌더·필터→URL→새로고침 유지·API 파라미터 / 품절 토글 PATCH·스낵바 / 전체 선택→일괄→성공 1/실패 1 스낵바+상세 / 삭제 409 안내·전이 메뉴 비활성·API는 page.route mock) · 사용자 12장 픽셀 0px(main-dev 대비).
+- 로컬 dev 실데이터(backend 재시작으로 Flyway V21·V22 적용·데모 3건): 목록·필터·정렬·상세 라우트·사이드바 활성 확인. 스크린샷(gitignored): `frontend/playwright-report/fe-25/` — products-desktop(1440)·products-mobile(390)·products-filtered-desktop·product-edit-placeholder.
+- 트랩: 로컬 backend 컨테이너가 Track 76 이전 코드로 떠 있으면 관리자 API가 500(NoResourceFound) → `docker restart zslab_mall_backend`. Vuetify v-dialog는 닫힌 다이얼로그 DOM도 유지 → 한 페이지 여러 다이얼로그는 testId prop으로 구분.
+
+### §8 이월
+- FE-26 상품 등록·수정 폼(이미지 업로드 연동·옵션/variant 편집) · 썸네일 컬럼은 외부 URL 로드 실패 시 대체 아이콘만(프록시 없음).
+
+### FE-25 §토스트 — 관리자 알림을 vue-sonner로 교체 (2026-09-16)
+배경: FE-25 1차는 useState 큐 + 레이아웃 v-snackbar 1개(하단·단건)였다. 연속 조작(품절 토글·일괄·삭제)에서 메시지가 덮이고 실패 상세로 이어지는 action이 없었다.
+- §1-A: α **vue-sonner 2.0.9 — 채택**(MIT·ESM·Nuxt peer optional·CSS `vue-sonner/style.css` 별도 import·전역 셀렉터 0(html/body/* 없음·전부 `[data-sonner-*]` 스코프·모바일 @media 600px 내장)·스택·richColors·closeButton·action 내장) / β v-snackbar 커스텀(큐·스택·action 자작) — **기각**: Vuetify snackbar는 단일 인스턴스 전제라 스택·개별 타이머·action을 직접 구현해야 하며 그 코드가 라이브러리보다 큼 / γ vue-toastification — **기각**: Vue 3 정식 릴리스가 next 태그 정체·CSS가 전역 클래스(.Vue-Toastification__*)로 사용자 영역 격리 검증 부담.
+- 관리자 한정 로드: `AdminToaster.vue`(Toaster + style.css + admin-toast.css import)를 admin·admin-auth 레이아웃에만 배치 → vue-sonner JS·CSS는 관리자 레이아웃 청크(VMain.*.css 15,967B)에만 묶이고 사용자 entry CSS는 해시 동일(31,041B)·entry JS는 +123B(Nuxt 컴포넌트 레지스트리의 `AdminToaster` 이름·청크 참조·sonner 코드 문자열 0). Vuetify 동적 로딩(ensureVuetify)과 무관한 정적 import이며 v-app 하위에 렌더돼 충돌 없음.
+- API: `useAdminToast()` success/info 3s·warning/error 5s·`action:{label,onClick}`. 일괄 결과는 `summarizeBulkResult`가 전부 성공 success / 일부 실패 warning / 전부 실패 error로 분기하고, 실패가 있으면 토스트 action "상세 보기"로 BulkResultDialog를 연다(1차의 자동 열림 → 사용자 선택). 메시지·발생 시점은 1차와 동일(표현만 교체). `useAdminSnackbar`·레이아웃 v-snackbar 제거.
+- 톤: `assets/css/admin-toast.css`(폰트 스택 --font-sans·radius 12·연한 그림자·action 버튼 radius 8) — data-sonner 스코프만.
+- 검증: vitest 30 files 130 tests(+useAdminToast 2·집계 분기 error 추가) · Playwright 12/12(products 5: success 우상단 bbox / warning + action → 상세 다이얼로그 / 409 안내 후 500 → error / 모바일 390 상단 전폭 · admin-shell ② 누수 가드에 sonner DOM·시트 0 추가) · 사용자 12장 0px · typecheck 0. 스크린샷 `frontend/playwright-report/fe-25/toast-{success,warning,error}-desktop.png`·`toast-success-mobile.png`.
+- 트랩: 실행 중 dev 서버에서 typecheck(nuxt prepare) 후 재시작 전 Playwright를 돌리면 데모 로그인 status가 비활성으로 보여 관리자 케이스가 전부 skip된다(README 규칙 재확인: typecheck → restart → e2e). Vuetify v-menu 오버레이는 열린 메뉴 1개만 DOM에 있어 행 인덱스 nth로 메뉴 항목을 고르면 안 된다.
+
+### FE-25 §의미 색상 규칙 — 토스트·뱃지 (2026-09-16)
+- 원칙: 색은 "요청 성공 여부"가 아니라 **결과의 의미**로 고른다(부트스트랩 개념). 이후 관리자 화면 공통 적용.
+- 4종 정의(`layers/admin/app/lib/constants/semantic.ts`·단일 소스): **danger**=부정(연한 빨강) / **warning**=경고(연한 노랑) / **success**=긍정(연한 녹) / **info**=중립·기본(연한 파랑). 매핑: Vuetify 색 키(danger→error·나머지 동명·lib/vuetify.ts 테마 #EF4444/#F97316/#22C55E/#0EA5E9와 동일 색상군) · sonner variant(danger→error·richColors 유지) · chip 연한 톤 CSS 토큰 `--adm-semantic-{danger|warning|success|info}-{bg|fg}`(admin-vuetify.css·`.adm-chip--*`).
+- useAdminToast API를 danger·warning·success·info 4종으로 통일(기존 error 제거·호출부 전환·메시지/시점 불변).
+- 적용(`admin-product-view.ts` 순수 함수·vitest): 품절 토글 ON=danger / OFF=success · 일괄 = 전부 실패 danger / 일부 실패 warning / 전부 성공은 의도별(품절 ON danger·OFF success·상태 변경 info) · 상태 전환 결과 info(중립) · 삭제 성공 danger · API 실패 danger · 409 안내 다이얼로그 확인 버튼 warning · 목록 품절 chip(수동·재고 표기 유지) danger·재고 있음 success · 상태 chip 판매중 success·판매중지/거부 danger·판매대기 warning·그 외 info.
+- 판정: 토스트 도입 시 사용자 entry JS +123B(Nuxt 컴포넌트 레지스트리의 AdminToaster 이름·청크 참조·sonner 코드 0)는 **수용**.
+- 검증: typecheck 0 · vitest 30 files 132 tests(+토글/일괄 의도/매핑 테이블) · Playwright 12/12(② 초기 chip 클래스 4종 → ON danger 토스트+chip danger → OFF success 토스트+chip success·⑤ 모바일 danger) · 사용자 12장 0px. 스크린샷 `frontend/playwright-report/fe-25/list-chips-desktop.png`·`toast-danger-desktop.png`·`toast-success-desktop.png`·`toast-warning-desktop.png`·`toast-danger-mobile.png`.

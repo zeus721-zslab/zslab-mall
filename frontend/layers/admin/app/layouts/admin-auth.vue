@@ -19,6 +19,8 @@ const ready = useFirstPaintGate()
           <slot />
         </v-container>
       </v-main>
+      <!-- 관리자 토스트(FE-25 보강): 로그인 화면도 같은 알림 채널을 쓴다 -->
+      <AdminToaster />
     </template>
   </v-app>
 </template>

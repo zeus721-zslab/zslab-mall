@@ -63,3 +63,17 @@ export const ADMIN_MENU: AdminMenuGroup[] = [
     ],
   },
 ]
+
+/**
+ * 현재 경로에 해당하는 메뉴 경로를 찾는다(FE-25). 정확 일치를 우선하고, 없으면 "메뉴 경로 + '/'"로 시작하는 가장 긴 메뉴 경로를 택한다
+ * (예: /admin/products/prd_… → /admin/products 상품 목록·/admin/products/new는 자체 메뉴가 정확 일치라 그대로).
+ * 메뉴 밖 경로는 null. 사이드바 활성·상단바 브레드크럼이 함께 쓴다.
+ */
+export function resolveActiveMenuPath(path: string): string | null {
+  const menuPaths = ADMIN_MENU.flatMap((group) => (group.to ? [group.to] : (group.children ?? []).map((child) => child.to)))
+  if (menuPaths.includes(path)) return path
+  const nested = menuPaths
+    .filter((menuPath) => menuPath !== '/admin' && path.startsWith(`${menuPath}/`))
+    .sort((a, b) => b.length - a.length)
+  return nested[0] ?? null
+}
