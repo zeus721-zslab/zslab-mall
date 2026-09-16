@@ -24,7 +24,7 @@ import com.zslab.mall.support.AbstractIntegrationTest;
  *
  * <p><b>seed</b>: user·seller·product·product_variant 2행·order·order_item·cart_item을 {@code FOREIGN_KEY_CHECKS=0}
  * (LT-02 try-finally)으로 직접 시드한다. 삭제 결과는 JdbcTemplate 조회로 검증하므로 클래스에 {@code @Transactional}을 두지 않는다.
- * 형제 핸들러(Inventory 확정·Notification 적재)도 발화하나 각자 REQUIRES_NEW·실패 흡수라 cart_item 검증에 영향하지 않는다.
+ * 형제 핸들러 중 Inventory 확정은 Track 78 D-167부터 동기·실패 전파라 예약분 inventory를 함께 시드한다(Notification 적재는 REQUIRES_NEW).
  */
 @RecordApplicationEvents
 class CartPaymentCompletedEventIntegrationTest extends AbstractIntegrationTest {
@@ -34,6 +34,7 @@ class CartPaymentCompletedEventIntegrationTest extends AbstractIntegrationTest {
     private static final long PRODUCT_ID = 9670L;
     private static final long ORDERED_VARIANT_ID = 9671L;
     private static final long OTHER_VARIANT_ID = 9672L;
+    private static final long INVENTORY_ID = 9671L;
     private static final long ORDER_ID = 9670L;
     private static final long ORDER_ITEM_ID = 9670L;
     private static final long PAYMENT_ID = 9670L;
@@ -154,6 +155,10 @@ class CartPaymentCompletedEventIntegrationTest extends AbstractIntegrationTest {
                         + "is_soldout_manual, display_order, option1_value_id, created_at, updated_at) "
                         + "VALUES (?, ?, ?, 'VC67B', 0, 'SALE', 0, 2, ?, NOW(6), NOW(6))",
                 OTHER_VARIANT_ID, pid("var_", "T67VRB"), PRODUCT_ID, DUMMY_FK_ID);
+        // Track 78 D-167: PaymentCompleted 동기 재고 확정이 주문 variant의 예약분(reserved=quantity)을 요구한다.
+        jdbc.update("INSERT INTO inventory (id, variant_id, quantity_on_hand, quantity_reserved, quantity_available, "
+                        + "created_at, updated_at) VALUES (?, ?, 10, 1, 9, NOW(6), NOW(6))",
+                INVENTORY_ID, ORDERED_VARIANT_ID);
     }
 
     private void seedOrderWithItem() {
@@ -189,6 +194,8 @@ class CartPaymentCompletedEventIntegrationTest extends AbstractIntegrationTest {
                 jdbc.update("DELETE FROM notification_log WHERE recipient_user_id = ?", USER_ID);
                 jdbc.update("DELETE FROM order_item WHERE id = ?", ORDER_ITEM_ID);
                 jdbc.update("DELETE FROM `order` WHERE id = ?", ORDER_ID);
+                jdbc.update("DELETE FROM inventory_history WHERE inventory_id = ?", INVENTORY_ID);
+                jdbc.update("DELETE FROM inventory WHERE id = ?", INVENTORY_ID);
                 jdbc.update("DELETE FROM product_variant WHERE id IN (?, ?)", ORDERED_VARIANT_ID, OTHER_VARIANT_ID);
                 jdbc.update("DELETE FROM product WHERE id = ?", PRODUCT_ID);
                 jdbc.update("DELETE FROM seller WHERE id = ?", SELLER_ID);

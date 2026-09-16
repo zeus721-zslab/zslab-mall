@@ -10215,3 +10215,62 @@ deploy.yml이 `push main` 무필터라 docs만 변경된 머지에도 서버 SSH
 ### D-166 보충 — 운영 실측 종결 (2026-09-16·FE-25 시점)
 - gateway nginx `/api` location `client_max_body_size 220m` 적용(외부 스택·zslab 수동) → 운영 관리자 업로드(POST /api/v1/admin/files/images)·서빙(GET /api/v1/files/**) 정상 실측.
 - traversal 요청(`/api/v1/files/products/../../x`)은 Tomcat이 경로 정규화 단계에서 선차단해 400으로 응답한다 — FileStorage 404 은닉은 인코딩 우회 등 컨테이너를 통과한 경우의 2차 방어. 기대값을 "400 또는 404"로 정정(테스트 단언과 동일).
+
+## D-167. 재고 정합성 보강 — 결제 완료 차감 동기화·주문 종료 조건부 UPDATE·늦은 승인 422 (Track 78)
+
+날짜: 2026-09-16
+트랙: Track 78 (재고 정합성 보강·예약 모델 D-101 구조 유지)
+정찰: docs/track-78/recon-report.md
+브랜치: fix/track-78-inventory-consistency
+
+### 배경
+트랙 착수 전제("결제 시 조건부 UPDATE 차감·모든 취소 원복 1곳·입금대기 만료 스케줄러·history 주문번호·재고 0 구매불가·늦은 승인")를 정찰로 실측한 결과, 예약(reserve)→확정(commit)→해제(release)/복구(restore) 모델(D-101)·스케줄러 3종·inventory_history·ProductPurchasePolicy가 이미 존재했다. 남은 것은 모델 자체가 아니라 결함 5건(R1 결제 완료 차감 실패 흡수 → PAID인데 미차감 / R2 PAID 상태 PG CANCEL 콜백 공백 / R3 주문 종료 전이 if 가드뿐 → 동시 종료 시 OrderTerminated 2회·타 주문 예약 해제 / R4 예약 누락 시 oversell 창 / R5 동시성 테스트 0)이었다.
+
+### §1-A 결정
+1. **Q1 트랙 목표**: α 예약 모델 유지·결함 보강 【채택】 / β 전제대로 예약 제거·결제 시 `UPDATE stock = stock - qty WHERE stock >= qty` 모델 교체 【기각】 — 예약 모델이 이미 oversell을 사전 차단(CHECK ≥0 + FOR UPDATE)하고, β는 입금대기 30분 동안 재고 확보가 불가해 UX 후퇴·Inventory 5행위·핸들러 4·테스트 20+ 재작성. **전제 결정 1·2("결제 시 조건부 UPDATE 차감"·"원복 1곳") 폐기** — 원복은 release(예약 해제·on_hand 불변)와 restoreStock(실물 복구)이 의미가 달라 1곳 통합이 오히려 오류.
+2. **Q2 R1 결제 완료 차감**: γ 동기 전환 + 예약 누락 fallback(reserve+commit) 【기각】 / β 동기 전환·실패 시 결제 완료 롤백 【채택】 — InventoryPaymentCompletedHandler를 `@TransactionalEventListener(AFTER_COMMIT)+REQUIRES_NEW+실패 흡수`에서 `@EventListener` 동기(발행 TX 공유)·예외 전파로 전환. 차감 실패(INV-3·INV-4·Inventory 미존재)는 Payment PAID·Order PAID 전이까지 함께 롤백되고 웹훅은 422(InventoryInvariantViolationException 기존 매핑). fallback은 "예약 없는 주문이 결제되는" R4 증상을 감추므로 기각 — R4는 별도(§8). 다중 품목은 variant id 오름차순으로 FOR UPDATE 획득(동시 결제 데드락 방지). EventMetricsRecorder 의존 제거(흡수 계측 소비처 소멸).
+3. **Q3 R2 PAID 상태 PG CANCEL 콜백**: α 실 PG 도입 시 이연 【채택】 / β 지금 배선 【기각】 — 기조 4 Mock 경계: Mock PG에서 호출처가 없고 실 어댑터(관리자 콘솔 취소·차지백)에서만 호출되는 경로. 실 PG 트랙 §8로 이월.
+4. **Q4 R3 주문 종료 전이**: β 조건부 UPDATE 【채택】 / α Order @Version 【기각】 — @Version은 markPaid·Resolver 등 모든 저장 경로에 파급. `OrderRepository.transitionStatus(orderId, current, next, now)` = `UPDATE Order SET status=:next, updatedAt=:now WHERE id=:orderId AND status=:current`(`@Modifying(flushAutomatically, clearAutomatically)`). OrderAutoCancelService.cancelOne은 영향 행 1일 때만 재조회 후 OrderTerminated 발행·0이면 debug 로그 후 무처리. 대상은 OrderTerminated를 발행하는 종료 전이(PENDING_PAYMENT→PAYMENT_EXPIRED) 1곳뿐 — 그 외 전이(markPaid·expirePayment 엔티티 메서드·Resolver)는 무변경. updatedAt을 UPDATE에 포함해 ExpiredOrderCleanupScheduler의 updated_at 임계가 전이 시각 기준으로 동작. clearAutomatically로 호출부(PaymentService.handleCallback·ExpirePaymentService)의 Payment 관리 엔티티가 detach되나 flushAutomatically가 선행 dirty를 먼저 flush하고 후속 `save`는 merge로 동작(실측 GREEN).
+5. **Q5 reserve/release history 기록(RESERVE·RELEASE ENUM 추가)**: 불필요 판정 【기각】 — 조건부 UPDATE(결정 4)가 OrderTerminated 1회를 DB 레벨에서 보장하므로 주문 단위 멱등 가드 용도가 소멸. on_hand 변동만 기록하는 M-11 유지·Flyway 변경 0. **전제 결정 4("history에 주문번호")**는 reference_type="order"+reference_id=orderId로 이미 충족(전용 컬럼 불필요).
+6. **Q6 늦은 승인 응답**: β 422 【채택】 / α 500 유지 【기각】 — 실 PG는 non-2xx 재전송을 반복. OrderService.markPaid의 IllegalStateException(PENDING_PAYMENT 아님)을 결제 측 소비 핸들러(payment.handler.OrderEventHandler)가 InvalidCallbackException으로 감싸 기존 REJECT 422(CODE_INVALID_CALLBACK)를 재사용. 주문 도메인은 결제 예외 체계를 참조하지 않는다. 신규 ErrorCode 없음.
+7. **전제 결정 3·5**: 이미 충족(스케줄러 2종 5분 주기·30분 TTL → cancelOne 수렴 / ProductPurchasePolicy available<qty) — 변경 없음.
+
+### 변경 파일
+- main: inventory/handler/InventoryPaymentCompletedHandler.java · order/repository/OrderRepository.java · order/service/OrderAutoCancelService.java · payment/handler/OrderEventHandler.java
+- test 신규: inventory/integration/InventoryConcurrencyIntegrationTest.java(동시 종료 8스레드·동시 예약 8스레드)
+- test 수정: InventoryPaymentCompletedHandlerTest(전파·정렬) · OrderAutoCancelServiceTest(조건부 UPDATE) · OrderEventHandlerTest(+422 변환) · PaymentWebhookIntegrationTest(+차감 실패 롤백·+늦은 웹훅 422·SUCCESS에 예약 시드) · CartPaymentCompletedEventIntegrationTest·NotificationLogIntegrationTest(동기 차감이 예약분을 요구 → inventory 시드 추가)
+
+### 검증
+- 동시 종료: 같은 주문 8스레드 cancelOne → PAYMENT_EXPIRED·OrderTerminated 1회(컨텍스트 임시 리스너 계수)·release 1회·같은 variant 타 주문 reserved 불변(4→2).
+- 동시 예약: 재고 1개 8스레드 reserve(1) → 1건 성공·7건 INV-1·reserved 1·available 0.
+- 차감 실패: reserved=0 주문 SUCCESS 콜백 → 422·Payment PENDING·Order PENDING_PAYMENT·OrderItem ORDERED·history 0.
+- 늦은 웹훅: PAYMENT_EXPIRED 주문 SUCCESS 콜백 → 422·Payment PENDING·재고 불변.
+- 전체: ./backend/gradlew.bat test --rerun-tasks 941 tests·0 fail(936 → 941).
+
+### 회귀 트랩 기록
+- 결제 완료 차감 동기화로 PaymentCompleted를 발행하는 모든 통합 테스트가 주문 variant의 inventory(reserved=quantity) 시드를 요구한다 — 미시드 시 422(Inventory 미존재). Cart 3·Notification 1·Webhook 1 보정.
+
+### §8 이월
+- R2: PAID 상태 PG CANCEL 콜백 → 주문 전 항목 취소·restoreStock 배선(실 PG 도입 시).
+
+### D-167 보충 — R4 주문 생성 예약 동기화·늦은 승인 범위 축소 (2026-09-16)
+- **R4 이월 철회 사유**: 예약 없이 잔존한 PENDING_PAYMENT 주문이 30분 만료로 종료되면 OrderTerminated → release가 실행되는데, InventoryOrderTerminatedHandler의 1차 가드가 variant 합계 reserved==0 기준이라 같은 variant의 **타 주문 예약분을 해제**한다. 그 타 주문은 결제 시 commitReservation INV-3으로 실패하고 R1(동기 차감)로 **정상 결제가 롤백**된다 — R1이 R4를 실사용 결함으로 격상시켰으므로 같은 트랙에서 닫는다.
+- **결정**: InventoryOrderPlacedHandler를 `@EventListener` 동기(OrderService.createOrder TX 공유)·예외 전파로 전환(R1 동일 패턴). 예약 실패(INV-1·Inventory 미존재)는 주문 생성 TX 롤백. variant id 오름차순 정렬·item_status 1차 가드 제거(생성 직후 전부 ORDERED·단일 전달). fallback·history 추가 없음.
+- **응답 매핑**: CheckoutService.createOrder가 InventoryInvariantViolationException을 `OrderNotPayableException(OUT_OF_STOCK)`으로 변환 — 사전 검증(revalidateInventory)과 동일한 422 ORDER_NOT_PAYABLE/OUT_OF_STOCK 재사용·신규 ErrorCode 0. 부수 효과: 멱등 키 경로의 4xx 정리(IN_PROGRESS 행 삭제·재시도 허용)를 자연 공유(미변환 시 IN_PROGRESS 잔존 → 재시도 409 트랩).
+- **늦은 승인 범위 축소**: 정찰 재확인 결과 markPaid의 IllegalStateException은 2종(OrderService 상태 가드 / OrderItem.changeStatus 품목 불법 전이). payment.handler.OrderEventHandler가 선로딩 Order.status != PENDING_PAYMENT를 직접 검사해 InvalidCallbackException(422)을 던지고 markPaid는 backstop으로 유지 — 품목 불법 전이(데이터 이상)는 감싸지 않고 전파(500). D-167 결정 6의 "IllegalStateException 감싸기"를 이 방식으로 대체.
+- **OrderTerminated 발행 지점 재확인**: cancelOne(조건부 UPDATE 적용) 외 ExpiredOrderCleanupService.cleanupOne(:84)이 PAYMENT_EXPIRED 주문의 variant reserved>0 시 OrderTerminated를 **재발행**한다. 상태 전이가 아니라 transitionStatus 비대상이나, variant 합계 판정이라 같은 variant에 타 주문 예약이 있으면 false positive로 재발행 → 타 주문 예약 해제 → 해당 주문 결제 R1 롤백(R3와 같은 부류). 미수정·결정 대기(§8).
+- **검증**: 동시 주문 생성(재고 1·8스레드 checkout) → 주문 1건·7건 OUT_OF_STOCK·reserved 1·available 0 / createOrder 예약 실패 → Order 0건·재고 불변 / 늦은 웹훅 선검사 422·품목 예외 전파 단위. reserve 레벨 동시 예약 테스트는 주문 레벨로 대체(중복). 전체 ./backend/gradlew.bat test --rerun-tasks 943 tests·0 fail(941 → 943). 기존 주문 생성 통합 테스트(Checkout 15·OptionLabel 6·CartCheckout 6·BuyerOrder 14 등) 회귀 0.
+- **변경 파일(보충분)**: main inventory/handler/InventoryOrderPlacedHandler.java · checkout/service/CheckoutService.java · payment/handler/OrderEventHandler.java / test InventoryOrderPlacedHandlerTest · OrderEventHandlerTest · InventoryConcurrencyIntegrationTest.
+- **배포 전 확인**: 운영 DB에 PENDING_PAYMENT 주문 0건 확인 후 배포 — 구 코드에서 예약 없이 생성된 PENDING_PAYMENT 주문이 남아 있으면 배포 후 만료 release가 타 주문 예약을 해제할 수 있다(0건이 아니면 만료(30분) 경과·cancelOne 종료 후 배포).
+- **§8 이월(보충)**: ExpiredOrderCleanupService reserved>0 재발행 경로 — (α) 유지 / (β) 재발행 제거·삭제 이연+계측만 / (γ) (2) 재고 판정 자체 제거(R3·R4 이후 해제 1회가 DB 레벨 보장·해제 실패는 핸들러 warn+메트릭이 기록) → 보충2에서 γ 채택(아래).
+
+### D-167 보충2 — ExpiredOrderCleanup 재발행 제거(γ)·release 동기화 (2026-09-16)
+- **release 동기화**: InventoryOrderTerminatedHandler를 `@TransactionalEventListener(AFTER_COMMIT)+REQUIRES_NEW+실패 흡수+variant 합계 reserved==0 1차 가드`에서 `@EventListener` 동기(OrderAutoCancelService.cancelOne 조건부 UPDATE와 같은 TX)·예외 전파·variant id 오름차순으로 전환(R1·R4 동일 패턴). 해제 실패(INV-3·Inventory 미존재)는 종료 전이까지 롤백 → 주문이 PENDING_PAYMENT로 남아 다음 스케줄 주기(OrderAutoCancel 5분·ExpirePayment 5분)에 재시도된다. 배치는 id별 try/catch 격리(OrderAutoCancelScheduler·ExpirePaymentScheduler 기존)라 1건 실패가 타 건을 막지 않는다. 사유: 재발행 제거 후 해제 재시도 경로가 "전이 롤백 + 스케줄러 재시도" 하나로 수렴해야 하며, 흡수형 AFTER_COMMIT은 해제 실패를 영구 유실(PAYMENT_EXPIRED인데 reserved 잔존)시킨다. 1차 가드는 조건부 UPDATE가 OrderTerminated 1회를 보장하므로 불필요·타 주문 예약과 구분 불가라 제거.
+  - 부수 효과: PG FAILURE/CANCEL(PENDING) 콜백 경로에서 release 실패 시 Payment FAILED/EXPIRED 전이도 함께 롤백·웹훅 422(InventoryInvariantViolationException 매핑) → PG 재전송 시 재시도. R1과 동일 정책.
+- **Cleanup γ 채택**: ExpiredOrderCleanupService (2) "variant reserved>0 → OrderTerminated 재발행 후 이연" 판정을 제거(hasUnreleasedReservation·InventoryRepository·TracedEventPublisher 의존·ExpiredOrderCleanupMetrics REASON_RESERVED_UNRELEASED 상수 제거). 삭제 순서(payment→snapshot→order_item→order)·(0)(1) 가드·GRACE_DAYS/updated_at 임계는 무변경.
+  - α 유지 【기각】: variant 합계 판정은 같은 variant의 살아있는 타 주문 예약을 "미해제"로 오판해 재발행 → 타 주문 예약 해제 → 그 주문 결제가 R1로 롤백(실사용 결함).
+  - β 재발행 제거·삭제 이연+계측 【기각】: 판정 근거(주문 단위 잔여 예약)를 history 없이(Q5 기각) 알 수 없어 인기 variant의 만료 주문이 영구 이연·삭제 불가.
+  - γ 【채택】: R3(조건부 UPDATE 1회 발행)+release 동기화(실패 시 전이 롤백) 이후 PAYMENT_EXPIRED 주문은 정의상 해제가 끝난 주문이라 재고 판정 자체가 무의미.
+- **검증**: cancelOne release 실패 → InventoryInvariantViolationException·PENDING_PAYMENT 유지·재고 불변 → 예약 정합 후 동일 cancelOne 성공(재시도 경로) / cleanup: 같은 variant 타 주문 reserved>0 상태에서 PAYMENT_EXPIRED 삭제·OrderTerminated 재발행 0·reserved 불변(구 T2 "이연+재발행" 대체) / 동시 종료 8스레드(동기 release 포함) 1회 / 전체 ./backend/gradlew.bat test --rerun-tasks 944 tests·0 fail(943 → 944).
+- **변경 파일(보충2)**: main inventory/handler/InventoryOrderTerminatedHandler.java · order/service/ExpiredOrderCleanupService.java · common/observability/ExpiredOrderCleanupMetrics.java / test InventoryOrderTerminatedHandlerTest · OrderAutoCancelIntegrationTest(+T3) · ExpiredOrderCleanupIntegrationTest(T2 대체) · PaymentExpiryIntegrationTest·PaymentWebhookIntegrationTest(주석).
+- **배포 전 확인(추가)**: variant별 `inventory.quantity_reserved` = 살아있는 PENDING_PAYMENT 주문의 order_item.quantity 합계 — 불일치 variant는 관리자 재고 조정(POST inventories/{variant}/adjust)이 아니라 reserved 직접 보정이 필요하므로 zslab 확인 후 1회 SQL 보정(reserved·available 동시 갱신·CHECK ≥0 준수). 불일치 상태로 배포 시 초과분 주문의 만료 release가 INV-3로 실패해 PENDING_PAYMENT에 고착(5분마다 ERROR 로그)된다.

@@ -1,19 +1,14 @@
 package com.zslab.mall.inventory.handler;
 
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.zslab.mall.common.observability.EventMetricsRecorder;
 import com.zslab.mall.inventory.exception.InventoryInvariantViolationException;
 import com.zslab.mall.inventory.service.InventoryService;
 import com.zslab.mall.order.entity.OrderItem;
-import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.event.OrderPlaced;
 import com.zslab.mall.order.repository.OrderItemRepository;
 import java.time.LocalDateTime;
@@ -21,14 +16,15 @@ import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 /**
- * {@link InventoryOrderPlacedHandler} 단위 검증(Mockito·D-101 §3·§6). 정상 예약·item_status != ORDERED skip·
- * 예약 실패(INV-1) 시 catch → recordFailed 흡수를 커버한다.
+ * {@link InventoryOrderPlacedHandler} 단위 검증(Mockito·D-101 §3·Track 78 D-167 보충 동기 전환·R4). 정상 예약·예약 실패(INV-1)
+ * 시 예외 전파(주문 생성 롤백 유도)·variant id 오름차순 처리를 커버한다.
  */
 @ExtendWith(MockitoExtension.class)
 class InventoryOrderPlacedHandlerTest {
@@ -44,53 +40,53 @@ class InventoryOrderPlacedHandlerTest {
     private OrderItemRepository orderItemRepository;
     @Mock
     private InventoryService inventoryService;
-    @Mock
-    private EventMetricsRecorder eventMetricsRecorder;
     @InjectMocks
     private InventoryOrderPlacedHandler handler;
 
     private OrderPlaced event() {
-        return new OrderPlaced("ord_ABC", ORDER_ID, LocalDateTime.of(2026, 7, 1, 10, 0));
+        return new OrderPlaced("ord_TEST", ORDER_ID, LocalDateTime.of(2026, 7, 1, 10, 0));
     }
 
-    private OrderItem orderItem(OrderItemStatus status) {
-        OrderItem item = OrderItem.create(PRODUCT_ID, VARIANT_ID, SELLER_ID, "테스트 상품", QTY, UNIT_PRICE, UNIT_PRICE * QTY);
-        ReflectionTestUtils.setField(item, "id", 501L);
-        ReflectionTestUtils.setField(item, "itemStatus", status);
+    private OrderItem orderItem(Long id, Long variantId) {
+        OrderItem item = OrderItem.create(PRODUCT_ID, variantId, SELLER_ID, "테스트 상품", QTY, UNIT_PRICE, UNIT_PRICE * QTY);
+        ReflectionTestUtils.setField(item, "id", id);
         return item;
     }
 
     @Test
-    @DisplayName("정상: item ORDERED → reserve(variantId, qty) 호출·recordFailed 미호출")
-    void handle_ordered_reserves() {
-        when(orderItemRepository.findByOrderId(ORDER_ID)).thenReturn(List.of(orderItem(OrderItemStatus.ORDERED)));
+    @DisplayName("정상: item ORDERED → reserve(variantId, qty) 호출")
+    void handle_orderedItem_reserves() {
+        when(orderItemRepository.findByOrderId(ORDER_ID)).thenReturn(List.of(orderItem(501L, VARIANT_ID)));
 
         handler.handle(event());
 
         verify(inventoryService).reserve(VARIANT_ID, QTY);
-        verify(eventMetricsRecorder, never()).recordFailed(any());
     }
 
     @Test
-    @DisplayName("skip: item_status != ORDERED(PAID) → reserve 미호출")
-    void handle_notOrdered_skips() {
-        when(orderItemRepository.findByOrderId(ORDER_ID)).thenReturn(List.of(orderItem(OrderItemStatus.PAID)));
-
-        handler.handle(event());
-
-        verify(inventoryService, never()).reserve(anyLong(), anyInt());
-        verify(eventMetricsRecorder, never()).recordFailed(any());
-    }
-
-    @Test
-    @DisplayName("재고 부족(INV-1): reserve throw → catch·recordFailed(OrderPlaced)·예외 흡수")
-    void handle_reserveThrows_recordsFailed() {
-        when(orderItemRepository.findByOrderId(ORDER_ID)).thenReturn(List.of(orderItem(OrderItemStatus.ORDERED)));
+    @DisplayName("재고 부족(INV-1): reserve throw → 흡수하지 않고 예외 전파(주문 생성 롤백·Track 78 R4)")
+    void handle_reserveThrows_propagates() {
+        when(orderItemRepository.findByOrderId(ORDER_ID)).thenReturn(List.of(orderItem(501L, VARIANT_ID)));
         doThrow(new InventoryInvariantViolationException("불법 재고 예약"))
                 .when(inventoryService).reserve(VARIANT_ID, QTY);
 
-        handler.handle(event()); // 예외가 밖으로 전파되지 않아야 한다
+        assertThatThrownBy(() -> handler.handle(event()))
+                .isInstanceOf(InventoryInvariantViolationException.class);
+    }
 
-        verify(eventMetricsRecorder).recordFailed(eq("OrderPlaced"));
+    @Test
+    @DisplayName("다중 품목: 조회 순서와 무관하게 variant id 오름차순으로 reserve(FOR UPDATE 락 순서 고정)")
+    void handle_multipleItems_reservesInVariantIdOrder() {
+        when(orderItemRepository.findByOrderId(ORDER_ID)).thenReturn(List.of(
+                orderItem(502L, 30L),
+                orderItem(503L, 10L),
+                orderItem(504L, 20L)));
+
+        handler.handle(event());
+
+        InOrder inOrder = inOrder(inventoryService);
+        inOrder.verify(inventoryService).reserve(10L, QTY);
+        inOrder.verify(inventoryService).reserve(20L, QTY);
+        inOrder.verify(inventoryService).reserve(30L, QTY);
     }
 }

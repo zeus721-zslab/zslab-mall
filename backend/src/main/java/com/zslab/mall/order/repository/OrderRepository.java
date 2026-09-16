@@ -79,4 +79,19 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     @Modifying
     @Query("DELETE FROM Order o WHERE o.id = :orderId")
     int deleteByIdBulk(@Param("orderId") Long orderId);
+
+    /**
+     * 주문 상태를 조건부로 전이한다(Track 78 D-167·R3). {@code WHERE status = :current}로 동시 전이를 DB 레벨에서 직렬화하며,
+     * 반환 영향 행이 1일 때만 호출부가 후속 이벤트(OrderTerminated)를 발행한다. {@code updatedAt}을 함께 갱신해 updated_at 기반
+     * 스케줄러 임계(ExpiredOrderCleanup)가 전이 시각을 기준으로 동작하게 한다. {@code flushAutomatically}로 호출부 트랜잭션의
+     * 선행 dirty 상태(Payment 전이 등)를 먼저 flush하고, {@code clearAutomatically}로 stale 관리 엔티티를 제거한다(호출부는
+     * 실행 후 필요한 엔티티를 재조회한다). 모든 변수는 :orderId·:current·:next·:now 바인딩이다.
+     */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("UPDATE Order o SET o.status = :next, o.updatedAt = :now WHERE o.id = :orderId AND o.status = :current")
+    int transitionStatus(
+            @Param("orderId") Long orderId,
+            @Param("current") OrderStatus current,
+            @Param("next") OrderStatus next,
+            @Param("now") LocalDateTime now);
 }

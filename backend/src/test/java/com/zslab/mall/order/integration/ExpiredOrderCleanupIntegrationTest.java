@@ -22,11 +22,11 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * 미결제 종료 주문 hard delete E2E 통합 테스트(FE-12c-2·실 MariaDB·Flyway·{@code OrderAutoCancelIntegrationTest} 구조 미러).
- * {@link ExpiredOrderCleanupService#cleanupOne}을 비-테스트-트랜잭션으로 직접 호출해 실 커밋·삭제·FK RESTRICT·AFTER_COMMIT
- * 재발행 경로를 검증한다.
+ * {@link ExpiredOrderCleanupService#cleanupOne}을 비-테스트-트랜잭션으로 직접 호출해 실 커밋·삭제·FK RESTRICT 경로를 검증한다.
  *
- * <p>커버: (1) 삭제 성공(reserved==0·자식 순차 삭제) (2) reserved&gt;0 삭제 이연 + OrderTerminated 재발행 + AFTER_COMMIT 재고 해제
- * (3) status!=PAYMENT_EXPIRED skip (4) PENDING payment 존재 skip (5) 손자(delivery) 존재 → FK RESTRICT → 롤백(부분 삭제 없음).
+ * <p>커버: (1) 삭제 성공(reserved==0·자식 순차 삭제) (2) 같은 variant 타 주문 예약 잔존(reserved&gt;0)에도 재발행 없이 삭제·타 주문
+ * reserved 불변(Track 78 D-167 보충2 γ) (3) status!=PAYMENT_EXPIRED skip (4) PENDING payment 존재 skip (5) 손자(delivery) 존재 →
+ * FK RESTRICT → 롤백(부분 삭제 없음).
  *
  * <p><b>스케줄러 자동 발화 차단</b>: {@code zslab.order.expired-cleanup.enabled=false}로 {@code @Scheduled} 배치를 끄고
  * {@code cleanupOne}을 직접 호출해 결정론을 확보한다(GRACE_DAYS·updatedAt 유예는 스케줄러 조회 책임·본 테스트 범위 밖).
@@ -93,17 +93,18 @@ class ExpiredOrderCleanupIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("T2 PAYMENT_EXPIRED·reserved>0 → 삭제 이연 + OrderTerminated 재발행 + AFTER_COMMIT 재고 해제·order 잔존")
-    void expiredOrder_reservedPositive_defersAndRepublishes() {
+    @DisplayName("T2 PAYMENT_EXPIRED·같은 variant에 타 주문 예약 잔존(reserved>0) → 재발행 없이 삭제·타 주문 reserved 불변(Track 78 γ)")
+    void expiredOrder_otherOrderReservation_deletesWithoutRepublish() {
+        // reserved=QTY는 같은 variant의 살아있는 타 주문 예약분 — 구 (2) 판정이면 재발행·해제해 타 주문 예약을 훼손했다.
         seedGraph("PAYMENT_EXPIRED", OrderItemStatus.ORDERED, QTY);
 
         expiredOrderCleanupService.cleanupOne(ORDER_ID);
 
-        assertThat(orderExists()).isTrue();                 // 이번 회차 삭제 이연
-        assertThat(orderItemCount()).isEqualTo(1);
-        assertThat(applicationEvents.stream(OrderTerminated.class).count()).isEqualTo(1);
-        assertThat(reserved()).isZero();                    // AFTER_COMMIT 핸들러가 예약 해제
-        assertThat(available()).isEqualTo(10);
+        assertThat(orderExists()).isFalse();                // 재고 판정 없이 삭제
+        assertThat(orderItemCount()).isZero();
+        assertThat(applicationEvents.stream(OrderTerminated.class).count()).isZero();   // 재발행 없음
+        assertThat(reserved()).isEqualTo(QTY);              // 타 주문 예약 불변
+        assertThat(available()).isEqualTo(10 - QTY);
     }
 
     @Test

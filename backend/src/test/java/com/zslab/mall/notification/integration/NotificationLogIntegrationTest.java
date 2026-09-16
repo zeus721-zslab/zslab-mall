@@ -52,6 +52,7 @@ class NotificationLogIntegrationTest extends AbstractIntegrationTest {
     private static final long SELLER_ID = 9301L;
     private static final long PRODUCT_ID = 9301L;
     private static final long VARIANT_ID = 9301L;
+    private static final long INVENTORY_ID = 9301L;
     private static final long ORDER_ID = 9301L;
     private static final long ORDER_ITEM_ID = 9301L;
     private static final long PAYMENT_ID = 9301L;
@@ -179,6 +180,10 @@ class NotificationLogIntegrationTest extends AbstractIntegrationTest {
                                 + "status, is_soldout_manual, display_order, option1_value_id, created_at, updated_at) "
                                 + "VALUES (?, ?, ?, 'VCT12', 0, 'SALE', 0, 1, ?, NOW(6), NOW(6))",
                         VARIANT_ID, pid("var_", "T12VAR"), PRODUCT_ID, DUMMY_FK_ID);
+                // Track 78 D-167: PaymentCompleted 동기 재고 확정이 예약분(reserved=quantity)을 요구한다.
+                jdbc.update("INSERT INTO inventory (id, variant_id, quantity_on_hand, quantity_reserved, quantity_available, "
+                                + "created_at, updated_at) VALUES (?, ?, 10, 1, 9, NOW(6), NOW(6))",
+                        INVENTORY_ID, VARIANT_ID);
                 jdbc.update("INSERT INTO `order` (id, public_id, buyer_id, order_no, status, total_price, "
                                 + "discount_amount, shipping_fee, created_at, updated_at) "
                                 + "VALUES (?, ?, ?, ?, ?, ?, 0, 0, NOW(6), NOW(6))",
@@ -224,6 +229,8 @@ class NotificationLogIntegrationTest extends AbstractIntegrationTest {
                 jdbc.update("DELETE FROM payment WHERE id = ?", PAYMENT_ID);
                 jdbc.update("DELETE FROM order_item WHERE id = ?", ORDER_ITEM_ID);
                 jdbc.update("DELETE FROM `order` WHERE id = ?", ORDER_ID);
+                jdbc.update("DELETE FROM inventory_history WHERE inventory_id = ?", INVENTORY_ID);
+                jdbc.update("DELETE FROM inventory WHERE id = ?", INVENTORY_ID);
                 jdbc.update("DELETE FROM product_variant WHERE id = ?", VARIANT_ID);
                 jdbc.update("DELETE FROM product WHERE id = ?", PRODUCT_ID);
                 jdbc.update("DELETE FROM seller WHERE id = ?", SELLER_ID);

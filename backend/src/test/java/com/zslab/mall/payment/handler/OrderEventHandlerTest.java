@@ -11,6 +11,7 @@ import com.zslab.mall.order.entity.Order;
 import com.zslab.mall.order.repository.OrderRepository;
 import com.zslab.mall.order.service.OrderService;
 import com.zslab.mall.payment.event.PaymentCompleted;
+import com.zslab.mall.payment.exception.InvalidCallbackException;
 import java.time.LocalDateTime;
 import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
@@ -63,5 +64,31 @@ class OrderEventHandlerTest {
         assertThatThrownBy(() -> orderEventHandler.onPaymentCompleted(event()))
                 .isInstanceOf(IllegalArgumentException.class);
         verify(orderService, never()).markPaid(eq(ORDER_ID), any());
+    }
+
+    @Test
+    @DisplayName("onPaymentCompleted: 선로딩 Order가 PENDING_PAYMENT 아님(늦은 웹훅·PAYMENT_EXPIRED) → InvalidCallbackException(422 REJECT)·markPaid 미호출")
+    void onPaymentCompleted_lateWebhook_rejectsBeforeMarkPaid() {
+        Order order = Order.create(ORDER_ID, "20260626-AAAAAA", 0L, 0L);
+        order.expirePayment();   // PENDING_PAYMENT → PAYMENT_EXPIRED
+        when(orderRepository.findByIdWithItems(ORDER_ID)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderEventHandler.onPaymentCompleted(event()))
+                .isInstanceOf(InvalidCallbackException.class)
+                .hasMessageContaining("orderId=" + ORDER_ID);
+        verify(orderService, never()).markPaid(eq(ORDER_ID), any());
+    }
+
+    @Test
+    @DisplayName("onPaymentCompleted: PENDING_PAYMENT인데 markPaid IllegalStateException(품목 불법 전이) → 감싸지 않고 그대로 전파")
+    void onPaymentCompleted_itemTransitionFailure_propagatesAsIs() {
+        Order order = Order.create(ORDER_ID, "20260626-AAAAAA", 0L, 0L);
+        when(orderRepository.findByIdWithItems(ORDER_ID)).thenReturn(Optional.of(order));
+        when(orderService.markPaid(ORDER_ID, OCCURRED_AT))
+                .thenThrow(new IllegalStateException("불법 품목 상태 전이: CANCELLED → PAID"));
+
+        assertThatThrownBy(() -> orderEventHandler.onPaymentCompleted(event()))
+                .isInstanceOf(IllegalStateException.class)
+                .isNotInstanceOf(InvalidCallbackException.class);
     }
 }

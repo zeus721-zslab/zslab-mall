@@ -1,37 +1,30 @@
 package com.zslab.mall.inventory.handler;
 
-import com.zslab.mall.common.observability.EventMetricsRecorder;
-import com.zslab.mall.inventory.entity.Inventory;
-import com.zslab.mall.inventory.repository.InventoryRepository;
 import com.zslab.mall.inventory.service.InventoryService;
 import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.event.OrderTerminated;
 import com.zslab.mall.order.repository.OrderItemRepository;
+import java.util.Comparator;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.slf4j.MDC;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Propagation;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.event.TransactionPhase;
-import org.springframework.transaction.event.TransactionalEventListener;
 
 /**
- * OrderTerminated(FE-12c·D-153 레벨3) → Inventory 예약 해제 핸들러(구 InventoryOrderCancelledHandler 개명). {@link OrderTerminated}를
+ * OrderTerminated(FE-12c·D-153 레벨3) → Inventory 예약 해제 핸들러(Track 78 D-167 보충2 동기 전환). {@link OrderTerminated}를
  * 소비해 orderId로 OrderItem을 재조회한 뒤 각 품목의 예약을 {@link InventoryService#release}로 해제한다.
  *
  * <p><b>재고 해제 단일 수렴(원칙 3)</b>: 재고 예약 해제는 본 핸들러(OrderTerminated 단일 구독)로 수렴한다. 결제 실패·만료·결제창
  * 이탈 등 모든 미결제 종료는 Order 종료 경로가 OrderTerminated를 발행하며, Payment 이벤트(PaymentFailed)를 직접 구독하지 않는다.
  *
- * <p><b>실행 시점(D-101 §3·D-75 정합)</b>: {@code @TransactionalEventListener(AFTER_COMMIT)} + {@code REQUIRES_NEW}로
- * 주문 종료 커밋 후 별도 트랜잭션에서 해제한다.
+ * <p><b>실행 시점(Track 78 D-167 보충2)</b>: {@code @EventListener} 동기 소비 — 발행 트랜잭션({@code OrderAutoCancelService.cancelOne}
+ * 조건부 UPDATE)과 같은 TX에서 실행된다. 해제 실패(INV-3·Inventory 미존재)는 예외를 그대로 전파해 주문 종료 전이까지 롤백한다 —
+ * 주문은 PENDING_PAYMENT로 남아 다음 스케줄 주기(OrderAutoCancel·ExpirePayment)에 재시도된다(구 AFTER_COMMIT + REQUIRES_NEW +
+ * 실패 흡수 + ExpiredOrderCleanup 재발행 폐기). 조건부 UPDATE가 OrderTerminated 1회를 보장하므로 variant 합계 reserved==0
+ * 1차 가드(타 주문 예약과 구분 불가)는 두지 않는다.
  *
- * <p><b>이중 방어(D-100 Q1 γ·D-101 §6·§4 갱신)</b>: 1차 핸들러 가드 = {@link InventoryRepository#findByVariantId}
- * read-only 조회로 잔여 reserved == 0이면 skip(멱등), 2차 도메인 가드 = release INV-3(예약 초과 해제) 위반 시
- * InventoryInvariantViolationException throw.
- *
- * <p><b>실패 격리(D-100 Q6 β·Q4 β′)</b>: 해제 실패는 6 표준키 structured log 1줄 + zslab.event.failed 계측 후 흡수한다.
+ * <p><b>락 순서</b>: 다중 품목은 variant id 오름차순으로 {@code SELECT ... FOR UPDATE}를 획득해 동시 종료·주문 간 데드락을 방지한다.
  */
 @Slf4j
 @Component
@@ -39,31 +32,17 @@ import org.springframework.transaction.event.TransactionalEventListener;
 public class InventoryOrderTerminatedHandler {
 
     private final OrderItemRepository orderItemRepository;
-    private final InventoryRepository inventoryRepository;
     private final InventoryService inventoryService;
-    private final EventMetricsRecorder eventMetricsRecorder;
 
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @EventListener
     public void handle(OrderTerminated event) {
-        try {
-            List<OrderItem> items = orderItemRepository.findByOrderId(event.orderId());
-            for (OrderItem item : items) {
-                // 1차 가드(멱등·read-only·§4 갱신 2 예외): variant 잔여 reserved가 0이면 해제할 예약 없음 → skip
-                Inventory inventory = inventoryRepository.findByVariantId(item.getVariantId()).orElse(null);
-                if (inventory == null || inventory.getQuantityReserved() == 0) {
-                    log.info("[Inventory] event=OrderTerminated target_id={} action=skip reason=reserved_zero variant_id={}",
-                            item.getId(), item.getVariantId());
-                    continue;
-                }
-                inventoryService.release(item.getVariantId(), item.getQuantity());
-                log.info("[Inventory] event=OrderTerminated target_id={} action=release variant_id={} qty={}",
-                        item.getId(), item.getVariantId(), item.getQuantity());
-            }
-        } catch (RuntimeException exception) {
-            log.warn("[Inventory] event={} target_type={} target_id={} action=manual_review correlationId={} handler={}",
-                    "OrderTerminated", "ORDER", event.orderId(), MDC.get("correlationId"), this.getClass().getSimpleName(), exception);
-            eventMetricsRecorder.recordFailed(event.getClass().getSimpleName()); // Q4 β′: zslab.event.failed{event}
+        List<OrderItem> items = orderItemRepository.findByOrderId(event.orderId()).stream()
+                .sorted(Comparator.comparing(OrderItem::getVariantId))
+                .toList();
+        for (OrderItem item : items) {
+            inventoryService.release(item.getVariantId(), item.getQuantity());
+            log.info("[Inventory] event=OrderTerminated target_id={} action=release variant_id={} qty={}",
+                    item.getId(), item.getVariantId(), item.getQuantity());
         }
     }
 }
