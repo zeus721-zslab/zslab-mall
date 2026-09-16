@@ -10204,3 +10204,10 @@ deploy.yml이 `push main` 무필터라 docs만 변경된 머지에도 서버 SSH
 - 고아 파일 정리·soft-delete 이미지 물리 삭제.
 - 413 경로 실 컨테이너 검증(로컬 dev curl).
 - FE-25: 업로드 → PUT images 연동·미리보기.
+
+### D-166 보충 — hotfix: 업로드 볼륨 마운트 경로 절대경로 고정 (2026-09-16)
+- 증상: 운영 배포 실패 `invalid volume specification '..._mall_uploads:uploads:rw' — mount path must be absolute`.
+- 원인: docker-compose.mall.yml:35 `mall_uploads:${UPLOAD_PATH:-/app/uploads}`·:28 `UPLOAD_PATH: ${UPLOAD_PATH:-...}`가 서버 .env의 기존 상대값(uploads)으로 치환됨. compose는 .env를 자동 로드하므로 기본값(`:-`)이 무력.
+- 수정: 마운트 대상 `mall_uploads:/app/uploads`·backend env `UPLOAD_PATH: /app/uploads` 고정(.env 치환 제거). UPLOAD_MAX_SIZE는 `${UPLOAD_MAX_SIZE:-10485760}` 유지. application.yml `upload.path` 기본값 /app/uploads 유지·.env.example은 "compose에서 읽지 않음" 안내로 갱신. dev.yml은 해당 패턴 없음.
+- 검증: `docker compose -f docker-compose.mall.yml config` 기본·`UPLOAD_PATH=uploads` 셸 주입 모두 target/UPLOAD_PATH=/app/uploads. 전체 테스트 936·0 fail.
+- 트랩(후보 → 확정): compose 볼륨 마운트 대상·컨테이너 내부 경로에 .env 변수 치환을 쓰지 않는다 — 서버 .env에 같은 키가 이미 다른 의미(상대경로)로 존재할 수 있고, 볼륨 대상 오류는 backend 기동 자체를 막는다. 컨테이너 내부 경로는 compose에 리터럴로 박제한다.
