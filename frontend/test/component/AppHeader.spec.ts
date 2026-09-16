@@ -6,11 +6,12 @@ import AppHeader from '~/components/AppHeader.vue'
 import type { CategorySummary } from '~/types/category'
 
 // AppHeader가 실제 소비하는 최소 인터페이스만 mock한다(store 전체 흉내 금지).
-// auth = { isAuthenticated, logout } / cart = { count, clear } / route.meta.middleware·route.query.keyword /
+// auth = { isAuthenticated, role, logout } / cart = { count, clear } / route.meta.middleware·route.query.keyword /
 // useCategories = { data, error }(FE-20 카테고리 드롭다운).
 // mockNuxtImport는 hoisting되므로 홀더는 vi.hoisted로 먼저 만든다.
 const { authMock, cartMock, navigateToMock, routeMock, useCategoriesMock } = vi.hoisted(() => ({
-  authMock: { isAuthenticated: false, logout: vi.fn() },
+  // role: FE-22 D-2로 BUYER 전용 메뉴가 role=BUYER일 때만 렌더되므로 기본 BUYER로 두고 ADMIN 케이스에서만 바꾼다.
+  authMock: { isAuthenticated: false, role: 'BUYER' as string | null, logout: vi.fn() },
   cartMock: { count: 0, clear: vi.fn() },
   navigateToMock: vi.fn(),
   // it별로 middleware·query를 갈아끼우기 위한 가변 route 홀더.
@@ -69,6 +70,7 @@ async function openCategoryMenu(wrapper: VueWrapper): Promise<HTMLElement | null
 describe('AppHeader', () => {
   beforeEach(() => {
     authMock.isAuthenticated = false
+    authMock.role = 'BUYER'
     authMock.logout.mockReset()
     cartMock.count = 0
     cartMock.clear.mockReset()
@@ -87,6 +89,13 @@ describe('AppHeader', () => {
     expect(wrapper.find('a[href="/login"]').exists()).toBe(true)
     expect(wrapper.find(TRIGGER).exists()).toBe(false)
     expect(wrapper.text()).not.toContain('로그아웃')
+  })
+
+  it('ADMIN 토큰 인증 → BUYER 전용 계정 트리거를 렌더하지 않는다(FE-22 D-2)', async () => {
+    authMock.isAuthenticated = true
+    authMock.role = 'ADMIN'
+    const wrapper = await mountSuspended(AppHeader)
+    expect(wrapper.find(TRIGGER).exists()).toBe(false)
   })
 
   it('인증 → "내 계정" 트리거가 있고 로그인 링크가 없다', async () => {

@@ -1,3 +1,5 @@
+import { BUYER_ROLE } from '~/lib/constants/auth'
+
 /**
  * 앱 진입 시 장바구니를 SSR 1회 로드한다(뱃지 첫 페인트부터 정확·클라이언트 중복 fetch 없음).
  * callOnce: SSR에서 1회 실행 → Pinia state가 클라이언트로 하이드레이션. .client 미사용(SSR 로드가 목적).
@@ -5,7 +7,12 @@
  * store.load()는 STEP 2 그대로(명시 호출부가 throw 처리) 두고, 수동 트리거 계층에서만 흡수한다.
  */
 export default defineNuxtPlugin(async () => {
+  const auth = useAuthStore()
   const cart = useCartStore()
+  // FE-22 D-2: ADMIN 토큰은 BUYER 전용 GET /cart가 403이라 호출 자체를 건너뛴다(store.load는 isAuthenticated만 보므로 여기서 가드).
+  if (auth.isAuthenticated && auth.role !== BUYER_ROLE) {
+    return
+  }
   await callOnce(async () => {
     try {
       await cart.load()

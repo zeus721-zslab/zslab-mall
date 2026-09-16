@@ -10106,3 +10106,9 @@ deploy.yml이 `push main` 무필터라 docs만 변경된 머지에도 서버 SSH
 ### §8 이월
 - ProductCatalogService.variantOptions를 OptionLabelResolver로 통합·DEFAULT 상수 3곳 단일화.
 - 주문 상세 페이지 hydration 경고 2건은 Track 75 이전부터 존재(HEAD 버전으로 되돌려도 동일)·FE 별건.
+
+### D-164 보충 — 운영 확인 종결 (2026-09-16)
+1. 운영 옵션 상품 등록: 생략 【채택】 / 판매자 API 스크립트로 등록 【기각】 — 기능은 통합 테스트(OptionLabelIntegrationTest 6)·로컬 dev 실측(장바구니·체크아웃·주문 상세)으로 검증 완료. 운영 등록은 데모 노출용 선택 사항이며 관리자 FE 도입 이후로 이월. 등록 스크립트(docs/track-75/register-prod-option-product.ps1)는 삭제.
+2. 운영 읽기 확인: GET /api/v1/products 200(기동 = Flyway V20 적용)·데모 계정 /orders(주문 0건)·/cart 렌더 정상·hydration 0. 운영 주문 미생성.
+3. 잔여: 운영 BUYER 회원 1건(usr_01M2K28BQ9S277EWP10WEAA432·스크립트 1차 실행 [3/5] 가입분·판매자 미연결) — 영향 없음·유지.
+4. 운영 관리자 로그인 401: SuperAdminBootstrapRunner가 최초 1회 생성 전용(SUPER_ADMIN 존재 시 env 미참조·갱신 없음)이라 로컬 .env ADMIN_BOOTSTRAP_* 값과 운영 최초 기동 값 불일치로 추정·미확정 → 관리자 FE 운영 사용 시 확인.
