@@ -10,6 +10,9 @@ services:
       - mall_gradle_cache:/home/gradle/.gradle
 
   zslab_mall_frontend:
+    # FE-24: 운영(Dockerfile→zslab-mall-zslab_mall_frontend)과 태그를 분리한다. 태그를 공유하면 prod 검증 빌드가 dev 이미지를
+    # 덮어써 `up -d`(--build 없음)가 prod 런타임(node .output)으로 기동하는 트랩이 재발한다(2026-07-10~09-16 실발생).
+    image: zslab-mall-frontend-dev
     build:
       dockerfile: Dockerfile.dev
     ports:
