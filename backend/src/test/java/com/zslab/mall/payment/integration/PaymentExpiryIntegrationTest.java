@@ -30,7 +30,7 @@ import com.zslab.mall.support.AbstractIntegrationTest;
 /**
  * 결제 자동 만료 E2E 통합 테스트(Track 25·D-08 M-14·FE-12c 재배선·실 MariaDB·Flyway). {@link ExpirePaymentService#expireOne}을
  * 비-테스트-트랜잭션으로 직접 호출해 만료 종료(Payment PENDING→EXPIRED·Order PENDING_PAYMENT→PAYMENT_EXPIRED)와 커밋 후
- * AFTER_COMMIT {@code InventoryOrderTerminatedHandler} 재고 예약 해제까지의 실 커밋 경로를 검증한다.
+ * 같은 트랜잭션의 동기 {@code InventoryOrderTerminatedHandler} 재고 예약 해제까지의 실 커밋 경로를 검증한다(Track 78 보충2).
  *
  * <p><b>시드 원칙</b>: expires_at은 LocalDateTime 매핑이라 raw JDBC 시드는 JVM tz와 DB 세션 tz 차이로 값이 shift될 수
  * 있다. 따라서 isExpired 판정이 필요한 케이스(T1·T3)는 JPA 저장(Hibernate LocalDateTime 무변환 왕복)으로,
@@ -86,12 +86,12 @@ class PaymentExpiryIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("T1 만료 PENDING → expireOne → Payment EXPIRED·Order PAYMENT_EXPIRED 종료 + AFTER_COMMIT 재고 예약 해제")
+    @DisplayName("T1 만료 PENDING → expireOne → Payment EXPIRED·Order PAYMENT_EXPIRED 종료 + 동기 재고 예약 해제")
     void expiredPending_terminates_andReleasesReservation() {
         seedGraph(QTY);
         Long paymentId = seedJpaPendingPayment(LocalDateTime.now().minusMinutes(10));
 
-        // expireOne은 자체 @Transactional — 직접 호출 시 커밋되어 AFTER_COMMIT 핸들러가 동기 발화한다.
+        // expireOne은 자체 @Transactional — 결제 만료·주문 종료·동기 release가 한 TX에서 커밋된다.
         expirePaymentService.expireOne(paymentId);
 
         assertThat(paymentStatus(paymentId)).isEqualTo("EXPIRED");

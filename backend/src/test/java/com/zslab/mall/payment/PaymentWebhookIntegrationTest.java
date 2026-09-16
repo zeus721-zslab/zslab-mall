@@ -67,6 +67,8 @@ class PaymentWebhookIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("webhook SUCCESS e2e (GAP-E2E-2): Order→Payment.PENDING 시딩→콜백→Payment.PAID·OrderItem.PAID·Order.PAID")
     void webhook_success_endToEnd() throws Exception {
+        seedInventory(10, 1, 9);   // reserved=1(order_item.quantity=1) → 동기 commitReservation 기대(Track 78 D-167)
+
         String body = "{"
                 + "\"provider\": \"MOCK_PG\","
                 + "\"callbackType\": \"SUCCESS\","
@@ -83,6 +85,8 @@ class PaymentWebhookIntegrationTest extends AbstractIntegrationTest {
         assertThat(paymentStatus()).isEqualTo("PAID");
         assertThat(orderItemStatus()).isEqualTo("PAID");
         assertThat(orderStatus()).isEqualTo("PAID");
+        assertThat(onHand()).isEqualTo(9);                             // 동기 확정: on_hand·reserved 동시 차감
+        assertThat(reserved()).isZero();
     }
 
     @Test
@@ -106,7 +110,53 @@ class PaymentWebhookIntegrationTest extends AbstractIntegrationTest {
         assertThat(failureCode()).isEqualTo("PG_FAILURE");              // metadata 미제공 → 기본값
         assertThat(orderStatus()).isEqualTo("PAYMENT_EXPIRED");         // Order는 미결제 종료
         assertThat(orderItemStatus()).isEqualTo("ORDERED");            // OrderItem 무변경(재고 해제는 variant_id 기반)
-        assertThat(reserved()).isZero();                               // AFTER_COMMIT OrderTerminated → 예약 해제
+        assertThat(reserved()).isZero();                               // 동기 OrderTerminated → 예약 해제
+    }
+
+    @Test
+    @DisplayName("webhook SUCCESS 차감 실패(Track 78 R1): 예약분 없음(reserved=0) → 422·Payment PENDING·Order PENDING_PAYMENT·OrderItem ORDERED·재고 불변")
+    void webhook_success_commitFails_rollsBackPayment() throws Exception {
+        seedInventory(10, 0, 10);   // 예약 누락 상태 → commitReservation INV-3 위반 → 결제 완료 전체 롤백 기대
+
+        mockMvc.perform(post("/api/webhooks/payments")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(successBody("tid_track78_it_0001")))
+                .andExpect(status().isUnprocessableEntity());
+
+        assertThat(paymentStatus()).isEqualTo("PENDING");            // 동기 차감 실패 → 결제 전이 롤백
+        assertThat(orderItemStatus()).isEqualTo("ORDERED");
+        assertThat(orderStatus()).isEqualTo("PENDING_PAYMENT");
+        assertThat(onHand()).isEqualTo(10);
+        assertThat(reserved()).isZero();
+        assertThat(historyCount()).isZero();
+    }
+
+    @Test
+    @DisplayName("webhook SUCCESS 늦은 승인(Track 78 D-167): Order PAYMENT_EXPIRED → 422(REJECT 정합)·Payment PENDING·재고 불변")
+    void webhook_success_lateAfterExpiry_rejects422() throws Exception {
+        seedInventory(10, 0, 10);   // 이미 종료·예약 해제된 주문
+        tx.executeWithoutResult(s -> jdbc.update("UPDATE `order` SET status = 'PAYMENT_EXPIRED' WHERE id = ?", ORDER_ID));
+
+        mockMvc.perform(post("/api/webhooks/payments")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(successBody("tid_track78_it_0002")))
+                .andExpect(status().isUnprocessableEntity());
+
+        assertThat(paymentStatus()).isEqualTo("PENDING");
+        assertThat(orderStatus()).isEqualTo("PAYMENT_EXPIRED");
+        assertThat(orderItemStatus()).isEqualTo("ORDERED");
+        assertThat(onHand()).isEqualTo(10);
+        assertThat(reserved()).isZero();
+    }
+
+    private String successBody(String pgTid) {
+        return "{"
+                + "\"provider\": \"MOCK_PG\","
+                + "\"callbackType\": \"SUCCESS\","
+                + "\"paymentAttemptKey\": \"" + ATTEMPT_KEY + "\","
+                + "\"pgTid\": \"" + pgTid + "\","
+                + "\"occurredAt\": \"2026-06-28T00:00:00\""
+                + "}";
     }
 
     /** order(PENDING_PAYMENT)·order_item(ORDERED)·payment(PENDING)을 고정 id로 시드한다(FK 비활성·상위 그래프 생략). */
@@ -164,11 +214,19 @@ class PaymentWebhookIntegrationTest extends AbstractIntegrationTest {
         return jdbc.queryForObject("SELECT quantity_reserved FROM inventory WHERE variant_id = ?", Integer.class, VARIANT_ID);
     }
 
+    private int onHand() {
+        return jdbc.queryForObject("SELECT quantity_on_hand FROM inventory WHERE variant_id = ?", Integer.class, VARIANT_ID);
+    }
+
     private String orderItemStatus() {
         return jdbc.queryForObject("SELECT item_status FROM order_item WHERE id = ?", String.class, ORDER_ITEM_ID);
     }
 
     private String orderStatus() {
         return jdbc.queryForObject("SELECT status FROM `order` WHERE id = ?", String.class, ORDER_ID);
+    }
+
+    private int historyCount() {
+        return jdbc.queryForObject("SELECT COUNT(*) FROM inventory_history WHERE inventory_id = ?", Integer.class, INVENTORY_ID);
     }
 }

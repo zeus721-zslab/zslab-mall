@@ -1,7 +1,9 @@
 package com.zslab.mall.order.integration;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.zslab.mall.inventory.exception.InventoryInvariantViolationException;
 import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.event.OrderTerminated;
 import com.zslab.mall.order.service.OrderAutoCancelService;
@@ -20,8 +22,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * 미결제 주문 종료 E2E 통합 테스트(FE-12c·D-153 레벨3·실 MariaDB·Flyway). {@link OrderAutoCancelService#cancelOne}을
- * 비-테스트-트랜잭션으로 직접 호출해 PAYMENT_EXPIRED 종료(Order.status 직접 세팅·OrderItem 무변경)와 커밋 후 AFTER_COMMIT
- * {@code InventoryOrderTerminatedHandler} 재고 예약 해제까지의 실 커밋 경로를 검증한다({@code PaymentExpiryIntegrationTest} 구조 미러).
+ * 비-테스트-트랜잭션으로 직접 호출해 PAYMENT_EXPIRED 종료(조건부 UPDATE·OrderItem 무변경)와 같은 트랜잭션의 동기
+ * {@code InventoryOrderTerminatedHandler} 재고 예약 해제·해제 실패 시 전이 롤백까지의 실 커밋 경로를 검증한다
+ * ({@code PaymentExpiryIntegrationTest} 구조 미러·Track 78 D-167 보충2).
  *
  * <p><b>스케줄러 자동 발화 차단</b>: {@code zslab.order.auto-cancel.enabled=false}로 {@code @Scheduled} 배치를 끄고
  * {@code cancelOne}을 직접 호출해 결정론을 확보한다(프로젝트에 test profile 부재). createdAt 유예 조건은 스케줄러 조회
@@ -68,11 +71,11 @@ class OrderAutoCancelIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("T1 PENDING_PAYMENT → cancelOne → PAYMENT_EXPIRED 종료(OrderItem 무변경) + AFTER_COMMIT 재고 예약 해제")
+    @DisplayName("T1 PENDING_PAYMENT → cancelOne → PAYMENT_EXPIRED 종료(OrderItem 무변경) + 동기 재고 예약 해제")
     void pendingOrder_terminates_andReleasesReservation() {
         seedGraph("PENDING_PAYMENT", OrderItemStatus.ORDERED, QTY);
 
-        // cancelOne은 자체 @Transactional — 직접 호출 시 커밋되어 AFTER_COMMIT 핸들러가 동기 발화한다.
+        // cancelOne은 자체 @Transactional — 조건부 UPDATE·동기 release가 한 TX에서 커밋된다.
         orderAutoCancelService.cancelOne(ORDER_ID);
 
         assertThat(orderStatus()).isEqualTo("PAYMENT_EXPIRED");
@@ -94,6 +97,29 @@ class OrderAutoCancelIntegrationTest extends AbstractIntegrationTest {
         assertThat(orderItemStatus()).isEqualTo("PAID");
         assertThat(applicationEvents.stream(OrderTerminated.class).count()).isZero();
         assertThat(reserved()).isEqualTo(QTY);   // 해제되지 않음
+    }
+
+    @Test
+    @DisplayName("T3 release 실패(예약 없음·INV-3) → 동기 해제 예외 전파·종료 전이 롤백(PENDING_PAYMENT 유지) → 예약 정합 후 재시도 성공(Track 78 보충2)")
+    void releaseFails_rollsBackTermination_thenRetrySucceeds() {
+        seedGraph("PENDING_PAYMENT", OrderItemStatus.ORDERED, 0);   // 예약분 없음 → release INV-3
+
+        assertThatThrownBy(() -> orderAutoCancelService.cancelOne(ORDER_ID))
+                .isInstanceOf(InventoryInvariantViolationException.class);
+
+        assertThat(orderStatus()).isEqualTo("PENDING_PAYMENT");   // 조건부 UPDATE까지 롤백
+        assertThat(reserved()).isZero();
+        assertThat(available()).isEqualTo(10);
+
+        // 다음 스케줄 주기 재시도 모사: 예약 정합(reserved=QTY) 후 동일 cancelOne → 종료·해제 성공
+        tx.executeWithoutResult(s -> jdbc.update(
+                "UPDATE inventory SET quantity_reserved = ?, quantity_available = ? WHERE id = ?", QTY, 10 - QTY, INVENTORY_ID));
+
+        orderAutoCancelService.cancelOne(ORDER_ID);
+
+        assertThat(orderStatus()).isEqualTo("PAYMENT_EXPIRED");
+        assertThat(reserved()).isZero();
+        assertThat(available()).isEqualTo(10);
     }
 
     // ---------- 시드·helpers ----------

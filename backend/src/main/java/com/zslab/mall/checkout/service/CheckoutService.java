@@ -14,6 +14,7 @@ import com.zslab.mall.checkout.exception.CheckoutItemNotFoundException;
 import com.zslab.mall.checkout.exception.IdempotencyKeyInProgressException;
 import com.zslab.mall.checkout.repository.OrderIdempotencyKeyRepository;
 import com.zslab.mall.inventory.entity.Inventory;
+import com.zslab.mall.inventory.exception.InventoryInvariantViolationException;
 import com.zslab.mall.inventory.repository.InventoryRepository;
 import com.zslab.mall.order.command.CreateOrderCommand;
 import com.zslab.mall.order.command.OrderItemCommand;
@@ -182,7 +183,14 @@ public class CheckoutService {
         // D-61: Track 4 시점 discount·shipping = 0
         CreateOrderCommand createCommand = new CreateOrderCommand(
                 command.buyerId(), resolvedItems, command.shipping(), 0L, 0L);
-        return orderService.createOrder(createCommand);
+        try {
+            return orderService.createOrder(createCommand);
+        } catch (InventoryInvariantViolationException reserveFailure) {
+            // Track 78 D-167 보충(R4): 동기 예약 실패(사전 검증~예약 사이 경합 oversell·재고 행 없음)는 주문 TX가 롤백된 뒤
+            // 사전 검증과 동일한 OUT_OF_STOCK(422)로 응답한다(멱등 키 4xx 정리 경로 공유).
+            throw new OrderNotPayableException(OrderNotPayableReason.OUT_OF_STOCK,
+                    "재고 부족(예약 실패): " + reserveFailure.getMessage());
+        }
     }
 
     /**
@@ -306,7 +314,8 @@ public class CheckoutService {
     /**
      * 신규 주문 사전 재고 검증(D-101 §10 α·§4 갱신 read-only 2 예외). variant별 요청 수량 합계가 가용 재고를 초과하면
      * 트랜잭션 진입 전 즉시 OUT_OF_STOCK(422)로 차단한다. read-only {@code findByVariantIdIn}만 사용하며 예약은 하지 않는다
-     * (실 예약은 E1 OrderPlaced 핸들러의 {@code InventoryService.reserve}가 비관락으로 수행·2차 방어).
+     * (실 예약은 E1 OrderPlaced 동기 핸들러의 {@code InventoryService.reserve}가 주문 TX 안에서 비관락으로 수행·2차 방어·
+     * 실패 시 주문 롤백 + 동일 OUT_OF_STOCK·Track 78 D-167 보충).
      */
     private void revalidateInventory(List<OrderItemCommand> items) {
         List<Long> variantIds = items.stream().map(OrderItemCommand::variantId).distinct().toList();

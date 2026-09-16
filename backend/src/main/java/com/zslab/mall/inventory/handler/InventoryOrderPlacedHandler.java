@@ -1,32 +1,26 @@
 package com.zslab.mall.inventory.handler;
 
-import com.zslab.mall.common.observability.EventMetricsRecorder;
 import com.zslab.mall.inventory.service.InventoryService;
 import com.zslab.mall.order.entity.OrderItem;
-import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.event.OrderPlaced;
 import com.zslab.mall.order.repository.OrderItemRepository;
+import java.util.Comparator;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.slf4j.MDC;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Propagation;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.event.TransactionPhase;
-import org.springframework.transaction.event.TransactionalEventListener;
 
 /**
- * OrderPlaced(E1) → Inventory 예약 핸들러(Track 17 PR-B·D-101 §3). {@link OrderPlaced}를 소비해 orderId로 OrderItem을
- * 재조회한 뒤(D-30 사실 통지·payload 무복제) 각 품목에 대해 {@link InventoryService#reserve}로 재고를 예약한다.
+ * OrderPlaced(E1) → Inventory 예약 핸들러(Track 17 D-101 §3·Track 78 D-167 보충 동기 전환·R4). {@link OrderPlaced}를 소비해
+ * orderId로 OrderItem을 재조회한 뒤(D-30 사실 통지·payload 무복제) 각 품목에 대해 {@link InventoryService#reserve}로 재고를 예약한다.
  *
- * <p><b>실행 시점(D-101 §3·D-75)</b>: {@code @TransactionalEventListener(AFTER_COMMIT)} + {@code REQUIRES_NEW}로 주문 커밋 후
- * 별도 트랜잭션에서 예약한다.
+ * <p><b>실행 시점(Track 78 D-167 보충·R4)</b>: {@code @EventListener} 동기 소비 — 발행 트랜잭션({@code OrderService.createOrder})
+ * 안에서 실행된다. 예약 실패(INV-1 oversell·Inventory 미존재)는 예외를 그대로 전파해 주문 생성 자체를 롤백한다 — "예약 없는
+ * PENDING_PAYMENT 주문" 잔존을 원천 차단한다(구 AFTER_COMMIT + REQUIRES_NEW + 실패 흡수 폐기). 주문 생성 직후라 품목은 전부
+ * ORDERED이며 단일 전달이므로 item_status 1차 가드는 두지 않는다({@code InventoryPaymentCompletedHandler} 정합).
  *
- * <p><b>이중 방어(D-100 Q1 γ·D-101 §6)</b>: 1차 핸들러 가드 = OrderItem.item_status != ORDERED면 skip(멱등),
- * 2차 도메인 가드 = reserve INV-1(oversell) 위반 시 InventoryInvariantViolationException throw.
- *
- * <p><b>실패 격리(D-100 Q6 β·Q4 β′)</b>: 예약 실패는 6 표준키 structured log 1줄 + zslab.event.failed 계측 후 흡수한다.
+ * <p><b>락 순서</b>: 다중 품목은 variant id 오름차순으로 {@code SELECT ... FOR UPDATE}를 획득해 동시 주문 간 데드락을 방지한다.
  */
 @Slf4j
 @Component
@@ -35,28 +29,16 @@ public class InventoryOrderPlacedHandler {
 
     private final OrderItemRepository orderItemRepository;
     private final InventoryService inventoryService;
-    private final EventMetricsRecorder eventMetricsRecorder;
 
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @EventListener
     public void handle(OrderPlaced event) {
-        try {
-            List<OrderItem> items = orderItemRepository.findByOrderId(event.orderId());
-            for (OrderItem item : items) {
-                if (item.getItemStatus() != OrderItemStatus.ORDERED) {
-                    // 1차 가드(멱등): 이미 결제/취소 등으로 ORDERED가 아니면 예약 비대상
-                    log.info("[Inventory] event=OrderPlaced target_id={} action=skip reason=item_status={}",
-                            item.getId(), item.getItemStatus());
-                    continue;
-                }
-                inventoryService.reserve(item.getVariantId(), item.getQuantity());
-                log.info("[Inventory] event=OrderPlaced target_id={} action=reserve variant_id={} qty={}",
-                        item.getId(), item.getVariantId(), item.getQuantity());
-            }
-        } catch (RuntimeException exception) {
-            log.warn("[Inventory] event={} target_type={} target_id={} action=manual_review correlationId={} handler={}",
-                    "OrderPlaced", "ORDER", event.orderId(), MDC.get("correlationId"), this.getClass().getSimpleName(), exception);
-            eventMetricsRecorder.recordFailed(event.getClass().getSimpleName()); // Q4 β′: zslab.event.failed{event}
+        List<OrderItem> items = orderItemRepository.findByOrderId(event.orderId()).stream()
+                .sorted(Comparator.comparing(OrderItem::getVariantId))
+                .toList();
+        for (OrderItem item : items) {
+            inventoryService.reserve(item.getVariantId(), item.getQuantity());
+            log.info("[Inventory] event=OrderPlaced target_id={} action=reserve variant_id={} qty={}",
+                    item.getId(), item.getVariantId(), item.getQuantity());
         }
     }
 }
