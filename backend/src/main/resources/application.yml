@@ -70,6 +70,6 @@ admin:
     password: ${ADMIN_BOOTSTRAP_PASSWORD:}
 
 upload:
-  # Track 77 이미지 업로드 저장 루트(컨테이너 내부 절대경로·docker-compose.mall.yml mall_uploads 볼륨과 동일 경로).
+  # Track 77 이미지 업로드 저장 루트(컨테이너 내부 절대경로·docker-compose.mall.yml이 UPLOAD_PATH=/app/uploads로 고정 주입·볼륨 동일 경로).
   # 하위에 products/yyyy/MM/{ULID}.{ext}로 저장하며 GET /api/v1/files/** 가 같은 루트를 서빙한다.
   path: ${UPLOAD_PATH:/app/uploads}
