@@ -1,4 +1,5 @@
 import type { CheckoutRequest, CheckoutResponse } from '~/types/checkout'
+import { toKstLocalDateTime } from '~/lib/utils/datetime'
 
 /** 체크아웃 호출 결과. status(201 신규·200 멱등 캐시)·Location 헤더(신규만 존재)를 응답 본문과 함께 노출한다. */
 export interface CheckoutResult {
@@ -66,7 +67,7 @@ export function useCheckout() {
         callbackType,
         paymentAttemptKey: attemptKey,
         pgTid: callbackType === 'SUCCESS' ? `mocktid_${crypto.randomUUID().slice(0, 12)}` : null,
-        occurredAt: new Date().toISOString().slice(0, 23), // Z 제거(LocalDateTime 정합)
+        occurredAt: toKstLocalDateTime(new Date()), // BE LocalDateTime(KST 벽시계) 정합 — UTC 벽시계를 보내면 paid_at이 9시간 이르게 저장된다
         metadata: callbackType === 'FAILURE' && failureCode ? { failureCode } : null,
       },
     })

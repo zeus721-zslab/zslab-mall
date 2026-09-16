@@ -1,0 +1,267 @@
+import { test, expect, type Page } from '@playwright/test'
+
+/**
+ * 관리자 주문 목록·상세(FE-27) E2E. 로그인은 데모 버튼(NUXT_ADMIN_DEMO_* 주입 환경·미주입 시 skip), 주문 API는 page.route로 mock해
+ * 로컬 DB를 바꾸지 않고 결정적으로 검증한다(목록 렌더·필터→URL→API 파라미터·상세 이동/복귀·부분 취소·미결제 취소 409·송장 등록·클레임 승인).
+ */
+const PAID_ID = 'ord_E2E0000000000000000000001'
+const UNPAID_ID = 'ord_E2E0000000000000000000002'
+
+const SUMMARIES = [
+  {
+    orderId: PAID_ID, orderNo: 'ORD-20260916-0001', orderedAt: '2026-09-16T10:00:00', paidAt: '2026-09-16T10:05:00', status: 'PAID',
+    buyerName: 'E2E구매자', buyerEmail: 'buyer@e2e.invalid', sellerNames: ['E2E셀러', 'B셀러'], productSummary: 'E2E 티셔츠 외 1건', itemCount: 2,
+    paymentAmount: 32900, shippingFee: 3000, paymentMethod: 'CARD', paymentStatus: 'PAID', deliveryStatus: null, claimInProgress: false,
+    actions: ['CANCEL', 'PREPARE_SHIPMENT'],
+  },
+  {
+    orderId: UNPAID_ID, orderNo: 'ORD-20260916-0002', orderedAt: '2026-09-15T09:00:00', status: 'PENDING_PAYMENT',
+    buyerName: 'E2E구매자', buyerEmail: 'buyer@e2e.invalid', sellerNames: ['E2E셀러'], productSummary: 'E2E 모자', itemCount: 1,
+    paymentAmount: 12000, shippingFee: 0, paymentMethod: 'KAKAO', paymentStatus: 'PENDING', deliveryStatus: null, claimInProgress: true,
+    actions: ['CANCEL'],
+  },
+]
+
+const PAID_DETAIL = {
+  orderId: PAID_ID, orderNo: 'ORD-20260916-0001', orderedAt: '2026-09-16T10:00:00', paidAt: '2026-09-16T10:05:00', status: 'PAID',
+  buyer: { userId: 'usr_E2E1', name: 'E2E구매자', email: 'buyer@e2e.invalid' },
+  shippingAddress: { recipientName: '홍길동', recipientPhone: '010-0000-0000', zonecode: '06236', addressRoad: '서울 강남구 테헤란로 1', addressDetail: '101호' },
+  totalPrice: 29900, discountAmount: 0, shippingFee: 3000, paymentAmount: 32900,
+  payments: [{ paymentId: 'pay_E2E1', method: 'CARD', status: 'PAID', amount: 32900, pgProvider: 'MOCK_PG', paidAt: '2026-09-16T10:05:00', createdAt: '2026-09-16T10:01:00' }],
+  items: [
+    { orderItemId: 'oit_E2E0000000000000000000001', productName: 'E2E 티셔츠', optionLabel: 'M', quantity: 1, unitPrice: 19900, totalPrice: 19900, status: 'PAID', sellerName: 'E2E셀러', claims: [] },
+    { orderItemId: 'oit_E2E0000000000000000000002', productName: 'E2E 양말', quantity: 2, unitPrice: 5000, totalPrice: 10000, status: 'PAID', sellerName: 'B셀러',
+      claims: [{ claimId: 'clm_E2E0000000000000000000001', type: 'RETURN', status: 'REQUESTED', reasonCode: 'PRODUCT_DEFECT', reasonDetail: '올 풀림', requestedAt: '2026-09-16T11:00:00', approvable: true }] },
+  ],
+  cancelReasons: [], actions: ['CANCEL', 'PREPARE_SHIPMENT'],
+}
+
+const UNPAID_DETAIL = {
+  orderId: UNPAID_ID, orderNo: 'ORD-20260916-0002', orderedAt: '2026-09-15T09:00:00', status: 'PENDING_PAYMENT',
+  buyer: { userId: 'usr_E2E1', name: 'E2E구매자', email: 'buyer@e2e.invalid' },
+  totalPrice: 12000, discountAmount: 0, shippingFee: 0, paymentAmount: 12000, payments: [],
+  items: [{ orderItemId: 'oit_E2E0000000000000000000003', productName: 'E2E 모자', quantity: 1, unitPrice: 12000, totalPrice: 12000, status: 'ORDERED', sellerName: 'E2E셀러', claims: [] }],
+  cancelReasons: [], actions: ['CANCEL'],
+}
+
+interface Captured { listQueries: URLSearchParams[]; detailGets: string[]; posts: { url: string; body: string }[] }
+
+async function mockAdminApi(page: Page, options: { cancelStatus?: number } = {}): Promise<Captured> {
+  const captured: Captured = { listQueries: [], detailGets: [], posts: [] }
+  const problem = (status: number, code: string, detail: string) =>
+    ({ status, contentType: 'application/problem+json', json: { code, detail } })
+
+  await page.route((url) => /\/api\/v1\/admin\/orders\/ord_[^/]+\/cancel$/.test(url.pathname), (route) => {
+    captured.posts.push({ url: route.request().url(), body: route.request().postData() ?? '' })
+    if (options.cancelStatus === 409) return route.fulfill(problem(409, 'OPTIMISTIC_LOCK_FAILURE', '동시 수정 충돌이 발생했습니다.'))
+    const unpaid = route.request().url().includes(UNPAID_ID)
+    return route.fulfill({ json: unpaid
+      ? { orderId: UNPAID_ID, orderStatus: 'PAYMENT_EXPIRED', claims: [] }
+      : { orderId: PAID_ID, orderStatus: 'PARTIAL_CANCEL', claims: [{ claimId: 'clm_new', orderItemId: 'oit_E2E0000000000000000000001', status: 'APPROVED' }] } })
+  })
+  await page.route((url) => /\/api\/v1\/admin\/orders\/items\/oit_[^/]+\/prepare-shipment$/.test(url.pathname), (route) => {
+    captured.posts.push({ url: route.request().url(), body: route.request().postData() ?? '' })
+    return route.fulfill({ json: { deliveryPublicId: 'dlv_new', status: 'SHIPPING', carrier: 'CJ', trackingNo: '1234567890' } })
+  })
+  await page.route((url) => /\/api\/v1\/admin\/claims\/clm_[^/]+\/(approve|reject)$/.test(url.pathname), (route) => {
+    captured.posts.push({ url: route.request().url(), body: route.request().postData() ?? '' })
+    return route.fulfill({ json: { publicId: 'clm_E2E0000000000000000000001', orderItemPublicId: 'oit_E2E0000000000000000000002', claimType: 'RETURN', status: 'APPROVED', reasonCode: 'PRODUCT_DEFECT', requestedAt: '2026-09-16T11:00:00+09:00', processedAt: '2026-09-16T12:00:00+09:00' } })
+  })
+  await page.route((url) => /\/api\/v1\/admin\/orders\/ord_[^/]+$/.test(url.pathname), (route) => {
+    captured.detailGets.push(route.request().url())
+    return route.fulfill({ json: route.request().url().includes(UNPAID_ID) ? UNPAID_DETAIL : PAID_DETAIL })
+  })
+  await page.route((url) => url.pathname.endsWith('/api/v1/admin/orders'), (route) => {
+    const query = new URL(route.request().url()).searchParams
+    captured.listQueries.push(query)
+    const filtered = query.get('status') ? SUMMARIES.filter((item) => item.status === query.get('status')) : SUMMARIES
+    return route.fulfill({ json: { items: filtered, page: 0, size: 20, totalCount: filtered.length, hasNext: false } })
+  })
+  return captured
+}
+
+async function loginByDemo(page: Page): Promise<void> {
+  await page.goto('/admin/login')
+  await page.waitForLoadState('networkidle')
+  const demoButton = page.getByTestId('admin-demo-login')
+  test.skip((await demoButton.count()) === 0, 'NUXT_ADMIN_DEMO_EMAIL/PASSWORD 미주입 — 데모 버튼 없음')
+  await demoButton.click()
+  await page.waitForURL(/\/admin$/)
+}
+
+/** Vuetify select: 활성화 후 옵션 클릭. */
+async function pickOption(page: Page, testId: string, optionName: string): Promise<void> {
+  await page.getByTestId(testId).click()
+  await page.getByRole('option', { name: optionName, exact: true }).click()
+}
+
+test.describe('관리자 주문 목록·상세(FE-27)', () => {
+  test('① 목록 렌더(행 2·상태/결제 chip·셀러 외 N·결제일 2줄) → 1440px 가로 스크롤 없음 → 상태·기간 필터 URL 반영·새로고침 유지·API 파라미터(T00:00:00/T23:59:59)', async ({ page }) => {
+    const captured = await mockAdminApi(page)
+    await loginByDemo(page)
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/admin/orders')
+    await expect(page.getByTestId('status-chip')).toHaveCount(2)
+    await expect(page.getByTestId('row-paid-at').first()).toHaveText('결제 2026.09.16 10:05')
+    await expect(page.getByTestId('row-paid-at').nth(1)).toHaveText('결제 —')
+    // 9컬럼 병합 목표: 1440에서 표·본문 모두 가로 스크롤 없음
+    const overflow = await page.evaluate(() => {
+      const wrapper = document.querySelector('[data-testid="admin-order-table"] .v-table__wrapper') as HTMLElement
+      return { table: wrapper.scrollWidth - wrapper.clientWidth, body: document.documentElement.scrollWidth - document.documentElement.clientWidth }
+    })
+    await page.screenshot({ path: 'playwright-report/fe-27/list-desktop.png' })
+    expect(overflow).toEqual({ table: 0, body: 0 })
+    await expect(page.getByTestId('status-chip').first()).toHaveText('결제완료')
+    await expect(page.getByTestId('status-chip').first()).toHaveClass(/adm-chip--info/)
+    await expect(page.getByTestId('status-chip').nth(1)).toHaveText('결제대기')
+    await expect(page.getByTestId('payment-status-chip').first()).toHaveClass(/adm-chip--success/)
+    await expect(page.getByTestId('claim-chip')).toHaveCount(1)
+    await expect(page.getByText('E2E셀러 외 1')).toBeVisible()
+    await expect(page.getByTestId('admin-sidebar').getByText('전체 주문')).toBeVisible()
+
+    await pickOption(page, 'filter-status', '결제완료')
+    await expect(page).toHaveURL(/status=PAID/)
+    await expect(page.getByTestId('status-chip')).toHaveCount(1)
+    await page.getByTestId('filter-from').locator('input').fill('2026-09-01')
+    await page.getByTestId('filter-to').locator('input').fill('2026-09-16')
+    await expect(page).toHaveURL(/from=2026-09-01/)
+    await expect(page).toHaveURL(/to=2026-09-16/)
+
+    await page.reload()
+    await expect(page).toHaveURL(/status=PAID/)
+    await expect(page.getByTestId('status-chip')).toHaveCount(1)
+    const last = captured.listQueries.at(-1)
+    expect(last?.get('status')).toBe('PAID')
+    expect(last?.get('sort')).toBe('LATEST')
+    expect(last?.get('from')).toBe('2026-09-01T00:00:00')
+    expect(last?.get('to')).toBe('2026-09-16T23:59:59')
+  })
+
+  test('② 주문번호 클릭 → 상세(?back=목록 URL) → 주문자·배송지·결제·품목 렌더 → 목록으로 복귀 시 필터 URL 유지', async ({ page }) => {
+    await mockAdminApi(page)
+    await loginByDemo(page)
+    await page.goto('/admin/orders?status=PAID')
+    await page.getByTestId('row-order-no').first().click()
+    await expect(page).toHaveURL(/\/admin\/orders\/ord_E2E0000000000000000000001\?back=/)
+    await expect(page.getByTestId('order-status-chip')).toHaveText('결제완료')
+    await expect(page.getByTestId('order-buyer')).toContainText('buyer@e2e.invalid')
+    await expect(page.getByTestId('order-shipping-address')).toContainText('테헤란로')
+    await expect(page.getByTestId('payment-row')).toHaveCount(1)
+    await expect(page.getByTestId('order-item')).toHaveCount(2)
+    await expect(page.getByTestId('claim-approve')).toHaveCount(1)
+    // 브레드크럼은 최장 prefix 메뉴(전체 주문)로 해석
+    await expect(page.getByLabel('현재 위치')).toContainText('전체 주문')
+
+    await page.getByTestId('back-to-list').click()
+    await expect(page).toHaveURL(/^http:\/\/[^/]+\/admin\/orders\?status=PAID$/)
+  })
+
+  test('③ 부분 취소: 품목 체크 해제 1건·사유 선택 → POST cancel body(orderItemPublicIds 1개·reasonCode) → danger 토스트 → 상세 재조회', async ({ page }) => {
+    const captured = await mockAdminApi(page)
+    await loginByDemo(page)
+    await page.goto(`/admin/orders/${PAID_ID}`)
+    await page.getByTestId('open-cancel').click()
+    const dialog = page.getByTestId('admin-order-cancel-dialog')
+    await expect(dialog.getByTestId('cancel-dialog-ok')).toHaveText('2개 품목 취소')
+    // 검증: 사유 없이 제출 → 필드 에러·요청 0
+    await dialog.getByTestId('cancel-dialog-ok').click()
+    await expect(dialog).toContainText('취소 사유를 선택하세요.')
+    expect(captured.posts).toHaveLength(0)
+
+    await dialog.getByTestId('cancel-item-oit_E2E0000000000000000000002').locator('input').click()
+    await expect(dialog.getByTestId('cancel-dialog-ok')).toHaveText('1개 품목 취소')
+    await pickOption(page, 'cancel-reason', '재고 지연')
+    await dialog.getByTestId('cancel-reason-detail').locator('textarea').first().fill('입고 지연으로 관리자 취소')
+    await expect(page.getByRole('listbox')).toHaveCount(0)
+    await page.screenshot({ path: 'playwright-report/fe-27/cancel-dialog-desktop.png' })
+    await dialog.getByTestId('cancel-dialog-ok').click()
+
+    await expect(page.locator('[data-sonner-toast][data-type="error"]')).toContainText('1개 품목의 취소를 승인')
+    const body = JSON.parse(captured.posts[0]!.body)
+    expect(captured.posts[0]!.url).toContain(`/admin/orders/${PAID_ID}/cancel`)
+    expect(body).toEqual({ reasonCode: 'STOCK_DELAY', reasonDetail: '입고 지연으로 관리자 취소', orderItemPublicIds: ['oit_E2E0000000000000000000001'] })
+    await expect(dialog).toBeHidden()
+    expect(captured.detailGets.length).toBeGreaterThanOrEqual(2)
+  })
+
+  test('④ 미결제 취소: 품목 선택 없이 전체 종료 안내·사유 → 409 → warning 문구(이미 종료/결제 완료) → 상세 재조회', async ({ page }) => {
+    const captured = await mockAdminApi(page, { cancelStatus: 409 })
+    await loginByDemo(page)
+    await page.goto(`/admin/orders/${UNPAID_ID}`)
+    await expect(page.getByTestId('order-status-chip')).toHaveText('결제대기')
+    await page.getByTestId('open-cancel').click()
+    const dialog = page.getByTestId('admin-order-cancel-dialog')
+    await expect(dialog.getByTestId('cancel-unpaid-notice')).toBeVisible()
+    await expect(dialog.getByTestId('cancel-items')).toHaveCount(0)
+    await expect(dialog.getByTestId('cancel-dialog-ok')).toHaveText('주문 종료')
+    await pickOption(page, 'cancel-reason', '결제 오류')
+    await dialog.getByTestId('cancel-dialog-ok').click()
+
+    await expect(page.locator('[data-sonner-toast][data-type="warning"]')).toContainText('이미 종료됐거나 결제가 완료된 주문')
+    expect(JSON.parse(captured.posts[0]!.body)).toEqual({ reasonCode: 'PAYMENT_ISSUE' })
+    await expect(dialog).toBeHidden()
+    expect(captured.detailGets.length).toBeGreaterThanOrEqual(2)
+  })
+
+  test('⑤ 목록 행 메뉴 "송장 등록" → 상세 선조회 → 품목 선택·택배사·송장번호 검증 → POST prepare-shipment → info 토스트 → 목록 재조회', async ({ page }) => {
+    const captured = await mockAdminApi(page)
+    await loginByDemo(page)
+    await page.goto('/admin/orders')
+    await expect(page.getByTestId('status-chip')).toHaveCount(2)
+    // 미결제 행(actions CANCEL만)은 상태 변경 메뉴가 없다
+    await expect(page.getByTestId('row-menu')).toHaveCount(1)
+    await page.getByTestId('row-menu').first().click()
+    await page.getByTestId('row-prepare-shipment').click()
+    const dialog = page.getByTestId('admin-shipment-dialog')
+    await expect(dialog).toBeVisible()
+    expect(captured.detailGets).toHaveLength(1)
+
+    // 송장번호 없이 등록 → 필드 에러·요청 0
+    await dialog.getByTestId('shipment-dialog-ok').click()
+    await expect(dialog).toContainText('택배사를 선택하세요.')
+    await expect(dialog).toContainText('송장번호를 입력하세요.')
+    expect(captured.posts).toHaveLength(0)
+
+    await pickOption(page, 'shipment-item', 'E2E 티셔츠 (M) · 수량 1')
+    await pickOption(page, 'shipment-carrier', 'CJ대한통운')
+    await dialog.getByTestId('shipment-tracking-no').locator('input').fill(' 1234567890 ')
+    await expect(page.getByRole('listbox')).toHaveCount(0)
+    await page.screenshot({ path: 'playwright-report/fe-27/shipment-dialog-desktop.png' })
+    const listCallsBefore = captured.listQueries.length
+    await dialog.getByTestId('shipment-dialog-ok').click()
+
+    await expect(page.locator('[data-sonner-toast][data-type="info"]')).toContainText('CJ대한통운 1234567890')
+    expect(captured.posts[0]!.url).toContain('/admin/orders/items/oit_E2E0000000000000000000001/prepare-shipment')
+    expect(JSON.parse(captured.posts[0]!.body)).toEqual({ carrier: 'CJ', trackingNo: '1234567890' })
+    await expect(dialog).toBeHidden()
+    await expect.poll(() => captured.listQueries.length).toBeGreaterThan(listCallsBefore)
+  })
+
+  test('⑥ 상세 approvable 클레임 "승인" → 확인 다이얼로그 → POST claims/{id}/approve → info 토스트 → 상세 재조회 / 목록·상세 스크린샷', async ({ page }) => {
+    const captured = await mockAdminApi(page)
+    await loginByDemo(page)
+    await page.goto(`/admin/orders/${PAID_ID}`)
+    await page.getByTestId('claim-approve').click()
+    const confirm = page.getByTestId('admin-claim-decision-dialog')
+    await expect(confirm).toContainText('반품 요청 (E2E 양말)')
+    await confirm.getByTestId('admin-claim-decision-dialog-ok').click()
+    await expect(page.locator('[data-sonner-toast][data-type="info"]')).toContainText('반품 요청을 승인했습니다.')
+    expect(captured.posts[0]!.url).toContain('/admin/claims/clm_E2E0000000000000000000001/approve')
+    expect(captured.detailGets.length).toBeGreaterThanOrEqual(2)
+    await expect(confirm).toBeHidden()
+    await expect(page.locator('[data-sonner-toast]')).toHaveCount(0, { timeout: 10_000 })
+    // fullPage 캡처는 고정 사이드바 잔상(FE-26 트랩) → 문서 높이로 뷰포트를 맞춘 뒤 캡처
+    const documentHeight = await page.evaluate(() => document.documentElement.scrollHeight)
+    await page.setViewportSize({ width: 1280, height: documentHeight })
+    await page.screenshot({ path: 'playwright-report/fe-27/detail-desktop.png' })
+    await page.setViewportSize({ width: 1280, height: 720 })
+
+    // 모바일: 본문 가로 스크롤 없음(표 내부 스크롤만 허용)
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto('/admin/orders')
+    await expect(page.getByTestId('status-chip')).toHaveCount(2)
+    const bodyOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
+    expect(bodyOverflow).toBe(0)
+    await page.screenshot({ path: 'playwright-report/fe-27/list-mobile.png' })
+  })
+})

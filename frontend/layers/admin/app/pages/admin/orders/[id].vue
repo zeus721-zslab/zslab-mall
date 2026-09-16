@@ -1,0 +1,366 @@
+<script setup lang="ts">
+import { mdiArrowLeft } from '@mdi/js'
+import type { AdminOrderClaim, AdminOrderDetail } from '#layers/admin/app/types/admin-order'
+import { orderStatusLabel } from '~/lib/constants/order'
+import {
+  CLAIM_REASON_LABELS,
+  claimStatusLabel,
+  claimTypeLabel,
+  orderItemStatusLabel,
+  type ClaimReasonCode,
+} from '~/lib/constants/claim'
+import { formatDateTime } from '~/lib/utils/datetime'
+import {
+  ADMIN_CLAIM_STATUS_SEMANTIC,
+  ADMIN_DELIVERY_CARRIER_LABEL,
+  ADMIN_DELIVERY_STATUS_LABEL,
+  ADMIN_DELIVERY_STATUS_SEMANTIC,
+  ADMIN_ORDER_ITEM_STATUS_SEMANTIC,
+  ADMIN_ORDER_STATUS_SEMANTIC,
+  ADMIN_PAYMENT_STATUS_LABEL,
+  ADMIN_PAYMENT_STATUS_SEMANTIC,
+  paymentMethodLabel,
+} from '#layers/admin/app/lib/constants/admin-order'
+import { semanticChipClass } from '#layers/admin/app/lib/constants/semantic'
+import { formatWon } from '#layers/admin/app/lib/format'
+import { claimRefundLabel } from '#layers/admin/app/lib/admin-order-view'
+import { ADMIN_ORDERS_PATH, resolveBackPath } from '#layers/admin/app/lib/admin-back-path'
+import { extractErrorCode, toAdminErrorMessage } from '#layers/admin/app/lib/admin-error-message'
+import { useAdminOrders } from '#layers/admin/app/composables/useAdminOrders'
+import { useAdminToast } from '#layers/admin/app/composables/useAdminToast'
+
+definePageMeta({ layout: 'admin', middleware: ['admin', 'vuetify'] })
+useSeoMeta({ title: '주문 상세 · zslab-mall 관리자' })
+
+// 주문 상세(FE-27). 주문·주문자·배송지·결제·품목(배송·클레임)을 읽기 전용으로 보이고, 취소·송장·배송완료·클레임 승인/거절은
+// 여기서만 실행한다. 모든 변경 후에는 상세를 다시 읽는다(응답 조립 대신 서버 상태 재확인). 미존재(404)는 안내 + 목록 이동.
+const route = useRoute()
+const ordersApi = useAdminOrders()
+const toast = useAdminToast()
+
+const orderPublicId = computed<string>(() => String(route.params.id ?? ''))
+const backPath = computed(() => resolveBackPath(route.query.back, ADMIN_ORDERS_PATH))
+
+const detail = ref<AdminOrderDetail | null>(null)
+const loading = ref(true)
+const notFound = ref(false)
+const loadError = ref<string | null>(null)
+
+async function load(): Promise<void> {
+  loading.value = true
+  notFound.value = false
+  loadError.value = null
+  try {
+    detail.value = await ordersApi.detail(orderPublicId.value)
+  } catch (error) {
+    if (extractErrorCode(error) === 'ORDER_NOT_FOUND') {
+      notFound.value = true
+    } else {
+      loadError.value = toAdminErrorMessage(error)
+    }
+  } finally {
+    loading.value = false
+  }
+}
+onMounted(load)
+
+const isExpired = computed(() => detail.value?.status === 'PAYMENT_EXPIRED')
+
+function reasonLabel(code: string): string {
+  return CLAIM_REASON_LABELS[code as ClaimReasonCode] ?? code
+}
+
+// ---------- 다이얼로그(취소·송장·배송완료) ----------
+type DetailDialog = 'cancel' | 'shipment' | 'delivered'
+const activeDialog = ref<DetailDialog | null>(null)
+
+function closeDialog(refresh: boolean): void {
+  activeDialog.value = null
+  if (refresh) void load()
+}
+
+// ---------- 클레임 승인/거절(확인 다이얼로그 → 기존 단건 API) ----------
+type ClaimDecision = { claim: AdminOrderClaim; productName: string; action: 'approve' | 'reject' }
+const claimDecision = ref<ClaimDecision | null>(null)
+const claimBusy = ref(false)
+// 닫힘 애니메이션 동안 제목·버튼이 "거절"로 바뀌지 않도록 마지막 결정 종류를 유지한다(claimDecision은 즉시 null).
+const lastDecisionAction = ref<'approve' | 'reject'>('approve')
+watch(claimDecision, (next) => { if (next) lastDecisionAction.value = next.action })
+
+const claimDecisionMessage = computed<string>(() => {
+  const decision = claimDecision.value
+  if (!decision) return ''
+  const label = `${claimTypeLabel(decision.claim.type)} 요청 (${decision.productName})`
+  return decision.action === 'approve'
+    ? `${label}을(를) 승인합니다.\n취소 요청은 승인 즉시 환불이 진행됩니다.`
+    : `${label}을(를) 거절합니다.\n품목은 요청 전 상태로 돌아갑니다.`
+})
+
+async function runClaimDecision(): Promise<void> {
+  const decision = claimDecision.value
+  if (!decision || claimBusy.value) return
+  claimBusy.value = true
+  try {
+    if (decision.action === 'approve') {
+      await ordersApi.approveClaim(decision.claim.claimId)
+      toast.info(`${claimTypeLabel(decision.claim.type)} 요청을 승인했습니다.`) // 상태 전환은 중립
+    } else {
+      await ordersApi.rejectClaim(decision.claim.claimId)
+      toast.danger(`${claimTypeLabel(decision.claim.type)} 요청을 거절했습니다.`) // 거절은 부정적 의미
+    }
+    claimDecision.value = null
+    await load()
+  } catch (error) {
+    claimDecision.value = null
+    if (extractErrorCode(error) === 'CLAIM_STATE_INVALID') {
+      toast.warning(toAdminErrorMessage(error))
+      await load()
+    } else {
+      toast.danger(toAdminErrorMessage(error))
+    }
+  } finally {
+    claimBusy.value = false
+  }
+}
+</script>
+
+<template>
+  <div>
+    <AdminPageHeader title="주문 상세" :description="detail?.orderNo ?? orderPublicId">
+      <template #actions>
+        <v-btn variant="text" :prepend-icon="mdiArrowLeft" :to="backPath" data-testid="back-to-list">목록으로</v-btn>
+        <v-btn
+          v-if="detail?.actions.includes('CANCEL')"
+          color="error"
+          variant="flat"
+          data-testid="open-cancel"
+          @click="activeDialog = 'cancel'"
+        >주문 취소</v-btn>
+        <v-btn
+          v-if="detail?.actions.includes('PREPARE_SHIPMENT')"
+          color="primary"
+          variant="outlined"
+          data-testid="open-shipment"
+          @click="activeDialog = 'shipment'"
+        >송장 등록</v-btn>
+        <v-btn
+          v-if="detail?.actions.includes('MARK_DELIVERED')"
+          color="success"
+          variant="outlined"
+          data-testid="open-delivered"
+          @click="activeDialog = 'delivered'"
+        >배송완료 처리</v-btn>
+      </template>
+    </AdminPageHeader>
+
+    <v-card v-if="loading" class="mb-4"><v-card-text><v-skeleton-loader type="article, table" /></v-card-text></v-card>
+
+    <v-card v-else-if="notFound" data-testid="order-not-found">
+      <v-card-text class="d-flex flex-column align-center text-center py-12">
+        <p class="text-subtitle-1 font-weight-medium mb-1">주문을 찾을 수 없습니다</p>
+        <p class="text-body-2 text-medium-emphasis mb-4">존재하지 않는 주문입니다: {{ orderPublicId }}</p>
+        <v-btn color="primary" :to="backPath">목록으로</v-btn>
+      </v-card-text>
+    </v-card>
+
+    <v-alert v-else-if="loadError" type="error" class="mb-4" data-testid="order-load-error">
+      {{ loadError }} <v-btn size="small" variant="outlined" color="error" class="ml-2" @click="load">다시 시도</v-btn>
+    </v-alert>
+
+    <template v-else-if="detail">
+      <!-- 주문 요약 -->
+      <v-card class="mb-4" data-testid="order-summary">
+        <v-card-text class="pa-5">
+          <div class="d-flex align-center flex-wrap ga-3 mb-4">
+            <span class="text-h6 font-weight-bold">{{ detail.orderNo }}</span>
+            <v-chip :class="semanticChipClass(ADMIN_ORDER_STATUS_SEMANTIC[detail.status])" size="small" variant="flat" data-testid="order-status-chip">
+              {{ orderStatusLabel(detail.status) }}
+            </v-chip>
+          </div>
+          <v-row dense>
+            <v-col cols="12" md="3">
+              <div class="text-caption text-medium-emphasis">주문 ID</div>
+              <div class="adm-product-id">{{ detail.orderId }}</div>
+            </v-col>
+            <v-col cols="6" md="3">
+              <div class="text-caption text-medium-emphasis">주문일시</div>
+              <div class="text-body-2">{{ formatDateTime(detail.orderedAt) }}</div>
+            </v-col>
+            <v-col cols="6" md="3">
+              <div class="text-caption text-medium-emphasis">결제일시</div>
+              <div class="text-body-2">{{ detail.paidAt ? formatDateTime(detail.paidAt) : '—' }}</div>
+            </v-col>
+            <v-col cols="12" md="3">
+              <div class="text-caption text-medium-emphasis">결제금액</div>
+              <div class="text-body-1 font-weight-bold">{{ formatWon(detail.paymentAmount) }}</div>
+            </v-col>
+          </v-row>
+
+          <!-- 미결제 종료: 관리자 취소면 audit 사유 병기, 없으면 시스템 종료(만료·PG 실패) -->
+          <v-alert v-if="isExpired" type="warning" variant="tonal" density="compact" class="mt-4" data-testid="expired-notice">
+            <div class="font-weight-medium mb-1">미결제 종료</div>
+            <template v-if="detail.cancelReasons.length > 0">
+              <div v-for="(reason, index) in detail.cancelReasons" :key="index" class="text-body-2" data-testid="cancel-reason">
+                관리자 취소 · {{ reasonLabel(reason.reasonCode) }}<span v-if="reason.reasonDetail"> — {{ reason.reasonDetail }}</span>
+                <span class="text-medium-emphasis"> ({{ reason.actorRole ?? 'ADMIN' }} · {{ formatDateTime(reason.recordedAt) }})</span>
+              </div>
+            </template>
+            <div v-else class="text-body-2">결제창 이탈·결제 실패 또는 미결제 만료로 시스템이 종료한 주문입니다.</div>
+          </v-alert>
+        </v-card-text>
+      </v-card>
+
+      <v-row dense class="mb-1">
+        <!-- 주문자 -->
+        <v-col cols="12" md="6">
+          <v-card class="mb-4 h-100" data-testid="order-buyer">
+            <v-card-title class="text-subtitle-2 font-weight-bold pt-4 px-5">주문자</v-card-title>
+            <v-card-text class="px-5 pb-5">
+              <template v-if="detail.buyer">
+                <div class="text-body-1 font-weight-medium">{{ detail.buyer.name ?? '—' }}</div>
+                <div class="text-body-2">{{ detail.buyer.email ?? '—' }}</div>
+                <div class="adm-product-id mt-1">{{ detail.buyer.userId }}</div>
+              </template>
+              <p v-else class="text-body-2 text-medium-emphasis">주문자 정보가 없습니다(탈퇴 회원).</p>
+            </v-card-text>
+          </v-card>
+        </v-col>
+        <!-- 배송지 -->
+        <v-col cols="12" md="6">
+          <v-card class="mb-4 h-100" data-testid="order-shipping-address">
+            <v-card-title class="text-subtitle-2 font-weight-bold pt-4 px-5">배송지</v-card-title>
+            <v-card-text class="px-5 pb-5">
+              <template v-if="detail.shippingAddress">
+                <div class="text-body-1 font-weight-medium">
+                  {{ detail.shippingAddress.recipientName }} <span class="text-body-2 text-medium-emphasis">{{ detail.shippingAddress.recipientPhone }}</span>
+                </div>
+                <div class="text-body-2">
+                  [{{ detail.shippingAddress.zonecode }}] {{ detail.shippingAddress.addressRoad }}
+                  <span v-if="detail.shippingAddress.addressDetail"> {{ detail.shippingAddress.addressDetail }}</span>
+                </div>
+                <div v-if="detail.shippingAddress.addressJibun" class="text-caption text-medium-emphasis">지번: {{ detail.shippingAddress.addressJibun }}</div>
+                <div v-if="detail.shippingAddress.deliveryMemo" class="text-body-2 mt-1">메모: {{ detail.shippingAddress.deliveryMemo }}</div>
+              </template>
+              <p v-else class="text-body-2 text-medium-emphasis">배송지 스냅샷이 없습니다.</p>
+            </v-card-text>
+          </v-card>
+        </v-col>
+      </v-row>
+
+      <!-- 결제 -->
+      <v-card class="mb-4" data-testid="order-payments">
+        <v-card-title class="text-subtitle-2 font-weight-bold pt-4 px-5">결제</v-card-title>
+        <v-card-text class="px-5 pb-5">
+          <div class="d-flex flex-wrap ga-6 mb-4">
+            <div><div class="text-caption text-medium-emphasis">상품금액</div><div class="text-body-2">{{ formatWon(detail.totalPrice) }}</div></div>
+            <div><div class="text-caption text-medium-emphasis">할인</div><div class="text-body-2">−{{ formatWon(detail.discountAmount) }}</div></div>
+            <div><div class="text-caption text-medium-emphasis">배송비</div><div class="text-body-2">{{ formatWon(detail.shippingFee) }}</div></div>
+            <div><div class="text-caption text-medium-emphasis">결제금액</div><div class="text-body-2 font-weight-bold">{{ formatWon(detail.paymentAmount) }}</div></div>
+          </div>
+          <v-table v-if="detail.payments.length > 0" density="compact" class="adm-table">
+            <thead>
+              <tr><th>결제수단</th><th>상태</th><th class="text-right">금액</th><th>PG</th><th>결제일시</th><th>생성일시</th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="payment in detail.payments" :key="payment.paymentId" data-testid="payment-row">
+                <td>{{ paymentMethodLabel(payment.method) }}</td>
+                <td>
+                  <v-chip :class="semanticChipClass(ADMIN_PAYMENT_STATUS_SEMANTIC[payment.status])" size="small" variant="flat">
+                    {{ ADMIN_PAYMENT_STATUS_LABEL[payment.status] }}
+                  </v-chip>
+                </td>
+                <td class="text-right">{{ formatWon(payment.amount) }}</td>
+                <td>{{ payment.pgProvider ?? '—' }}</td>
+                <td>{{ payment.paidAt ? formatDateTime(payment.paidAt) : '—' }}</td>
+                <td>{{ formatDateTime(payment.createdAt) }}</td>
+              </tr>
+            </tbody>
+          </v-table>
+          <p v-else class="text-body-2 text-medium-emphasis">결제 이력이 없습니다.</p>
+        </v-card-text>
+      </v-card>
+
+      <!-- 품목 -->
+      <v-card class="mb-4" data-testid="order-items">
+        <v-card-title class="text-subtitle-2 font-weight-bold pt-4 px-5">품목 ({{ detail.items.length }})</v-card-title>
+        <v-card-text class="px-5 pb-5">
+          <div v-for="item in detail.items" :key="item.orderItemId" class="adm-order-item py-4" data-testid="order-item">
+            <div class="d-flex align-start justify-space-between flex-wrap ga-3">
+              <div style="min-width: 0">
+                <div class="text-body-1 font-weight-medium">{{ item.productName }}</div>
+                <div class="text-caption text-medium-emphasis">
+                  {{ item.optionLabel ? `${item.optionLabel} · ` : '' }}{{ formatWon(item.unitPrice) }} × {{ item.quantity }} = {{ formatWon(item.totalPrice) }}
+                  · 셀러 {{ item.sellerName ?? '—' }}
+                </div>
+                <div class="adm-product-id">{{ item.orderItemId }}</div>
+              </div>
+              <v-chip :class="semanticChipClass(ADMIN_ORDER_ITEM_STATUS_SEMANTIC[item.status])" size="small" variant="flat" data-testid="item-status-chip">
+                {{ orderItemStatusLabel(item.status) }}
+              </v-chip>
+            </div>
+
+            <!-- 배송 -->
+            <div class="mt-3 text-body-2" data-testid="item-delivery">
+              <span class="text-caption text-medium-emphasis mr-2">배송</span>
+              <template v-if="item.delivery">
+                <v-chip :class="semanticChipClass(ADMIN_DELIVERY_STATUS_SEMANTIC[item.delivery.status])" size="x-small" variant="flat" class="mr-2">
+                  {{ ADMIN_DELIVERY_STATUS_LABEL[item.delivery.status] }}
+                </v-chip>
+                {{ ADMIN_DELIVERY_CARRIER_LABEL[item.delivery.carrier] }} {{ item.delivery.trackingNo }}
+                <span class="text-medium-emphasis">
+                  · 발송 {{ item.delivery.shippedAt ? formatDateTime(item.delivery.shippedAt) : '—' }}
+                  · 도착 {{ item.delivery.deliveredAt ? formatDateTime(item.delivery.deliveredAt) : '—' }}
+                </span>
+              </template>
+              <span v-else class="text-medium-emphasis">없음</span>
+            </div>
+
+            <!-- 클레임 -->
+            <div v-if="item.claims.length > 0" class="mt-2">
+              <div v-for="claim in item.claims" :key="claim.claimId" class="d-flex align-center flex-wrap ga-2 py-1 text-body-2" data-testid="item-claim">
+                <span class="text-caption text-medium-emphasis">클레임</span>
+                <span class="font-weight-medium">{{ claimTypeLabel(claim.type) }}</span>
+                <v-chip :class="semanticChipClass(ADMIN_CLAIM_STATUS_SEMANTIC[claim.status])" size="x-small" variant="flat" data-testid="claim-status-chip">
+                  {{ claimStatusLabel(claim.status) }}
+                </v-chip>
+                <v-chip
+                  v-if="claimRefundLabel(claim)"
+                  :class="semanticChipClass(claimRefundLabel(claim)!.semantic)"
+                  size="x-small"
+                  variant="flat"
+                  data-testid="claim-refund-chip"
+                >
+                  {{ claimRefundLabel(claim)!.text }}
+                </v-chip>
+                <span>{{ reasonLabel(claim.reasonCode) }}<span v-if="claim.reasonDetail" class="text-medium-emphasis"> — {{ claim.reasonDetail }}</span></span>
+                <span class="text-medium-emphasis">
+                  · 요청 {{ formatDateTime(claim.requestedAt) }}<template v-if="claim.processedAt"> · 처리 {{ formatDateTime(claim.processedAt) }}</template>
+                </span>
+                <template v-if="claim.approvable">
+                  <v-btn size="x-small" color="primary" variant="flat" data-testid="claim-approve" @click="claimDecision = { claim, productName: item.productName, action: 'approve' }">승인</v-btn>
+                  <v-btn size="x-small" color="error" variant="outlined" data-testid="claim-reject" @click="claimDecision = { claim, productName: item.productName, action: 'reject' }">거절</v-btn>
+                </template>
+              </div>
+            </div>
+          </div>
+        </v-card-text>
+      </v-card>
+    </template>
+
+    <AdminOrderCancelDialog :open="activeDialog === 'cancel'" :detail="detail" @done="closeDialog(true)" @stale="closeDialog(true)" @cancel="closeDialog(false)" />
+    <AdminShipmentDialog :open="activeDialog === 'shipment'" :detail="detail" @done="closeDialog(true)" @stale="closeDialog(true)" @cancel="closeDialog(false)" />
+    <AdminMarkDeliveredDialog :open="activeDialog === 'delivered'" :detail="detail" @done="closeDialog(true)" @stale="closeDialog(true)" @cancel="closeDialog(false)" />
+
+    <AdminConfirmDialog
+      :open="claimDecision !== null"
+      test-id="admin-claim-decision-dialog"
+      :title="lastDecisionAction === 'approve' ? '클레임 승인' : '클레임 거절'"
+      :message="claimDecisionMessage"
+      :confirm-label="lastDecisionAction === 'approve' ? '승인' : '거절'"
+      :confirm-color="lastDecisionAction === 'approve' ? 'primary' : 'error'"
+      :loading="claimBusy"
+      @confirm="runClaimDecision"
+      @cancel="claimDecision = null"
+    />
+  </div>
+</template>

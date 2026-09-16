@@ -10315,3 +10315,5 @@ deploy.yml이 `push main` 무필터라 docs만 변경된 머지에도 서버 SSH
 - 관리자 Claim 목록 API(GET /admin/claims·cancellations 페이지용) — 본 트랙은 주문 상세 내 클레임 이력로 갈음.
 - 정산 gross가 EXCHANGED(교환 완료) 품목 매출을 미집계하는 점 — 정산 트랙 재검토.
 - 결정 5 배송비 환불 — 배송비 모델 도입 시.
+- **§8 이월(보충·FE-27 정찰 실측 2026-09-16)**: 실 PG 도입 시 결제·환불 웹훅 서명 검증 필수. 현재 `POST /api/webhooks/payments`·`/api/webhooks/refunds`는 SecurityConfig `/api/webhooks/**` permitAll이며 Controller·Request DTO에 서명(HMAC)·타임스탬프·nonce 검증이 없다(MOCK_PG 전제·사용자 FE `payment/mock.vue`가 브라우저에서 직접 호출). 이 상태로 운영에 실 PG를 연결하면 `paymentAttemptKey`/`pgRefundId`를 아는 누구나 결제 완료·환불 완료를 위조해 주문 상태·재고(commitReservation·restoreStock)를 조작할 수 있다. 실 PG 전환 트랙에서 (1) PG 서명 헤더 검증 필터 (2) 모의 결제 페이지·모의 콜백 경로의 `local`·`test` 프로필 게이트 (3) 관리자 "환불 완료 모의"(FE-27 α·미채택) 도입 시 동일 게이트를 함께 처리한다. FE-27 §1-A 참조(decisions-fe.md).
+- **§8 이월(보충·FE-27 보강 2 2026-09-16)**: 실 PG 도입 시 콜백 시각 오프셋 기준 KST 변환 필수 — `PaymentCallbackRequest.occurredAt`은 오프셋 없는 LocalDateTime을 KST 벽시계로 그대로 저장(`payment.paid_at`·`orders.paid_at`)하므로 PG가 UTC·Z·+00:00 등으로 보내면 어댑터에서 Asia/Seoul로 변환한 뒤 넘겨야 한다(모의 콜백은 FE `toKstLocalDateTime`으로 정렬 완료·실왕복 paidAt−orderedAt=0.6s 확인). 기존 −9h 저장 행 보정은 승인 후 별도.
