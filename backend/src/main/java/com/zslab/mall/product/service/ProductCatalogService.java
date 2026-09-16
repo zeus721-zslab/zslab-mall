@@ -17,6 +17,7 @@ import com.zslab.mall.product.entity.ProductVariant;
 import com.zslab.mall.product.enums.ProductStatus;
 import com.zslab.mall.product.enums.ProductVariantStatus;
 import com.zslab.mall.product.exception.ProductNotFoundException;
+import com.zslab.mall.product.policy.ProductPurchasePolicy;
 import com.zslab.mall.product.repository.ProductImageRepository;
 import com.zslab.mall.product.repository.ProductOptionGroupRepository;
 import com.zslab.mall.product.repository.ProductOptionValueRepository;
@@ -25,6 +26,7 @@ import com.zslab.mall.product.repository.ProductVariantRepository;
 import com.zslab.mall.seller.entity.Seller;
 import com.zslab.mall.seller.enums.SellerStatus;
 import com.zslab.mall.seller.repository.SellerRepository;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -44,10 +46,9 @@ import org.springframework.transaction.annotation.Transactional;
  * 구매자 상품 카탈로그 조회 서비스(Track 44·read-only). 목록·단건 조회와 enrich(내부 BIGINT → public_id·companyName·
  * categoryName)를 담당하며, Controller의 Repository 직접 접근(D-43.11)을 피하는 읽기 전용 계층이다.
  *
- * <p><b>노출·품절·대표가 정책 단일화</b>: 노출대상(D1)은 Repository 쿼리(Product.status=SALE ∧ Seller.status=ACTIVE)가,
- * 대표가(D3)·품절(D2)은 본 서비스의 {@link #displayPrice}·{@link #isPurchasable}가 단일 정책으로 계산한다. 품절 판정은
- * "구매가능(purchasable) = status=SALE ∧ 재고 available&gt;0 ∧ 수동품절 아님"의 부정이며, 상품 단위 soldOut은 판매가능
- * variant가 하나도 구매가능하지 않을 때 true다.
+ * <p><b>노출·품절·대표가 정책 단일화</b>: 노출대상(D1)은 Repository 쿼리(Product.status=SALE ∧ Seller.status=ACTIVE ∧ 판매기간 내)가,
+ * 대표가(D3)는 본 서비스의 {@link #displayPrice}가, 품절(D2)은 {@link ProductPurchasePolicy}(Track 76·전 구매 경로 공용)가 계산한다.
+ * 상품 단위 soldOut은 판매가능 variant가 하나도 구매가능하지 않을 때 true다(상품 수동품절이면 전 variant가 구매불가라 자동 true).
  */
 @Service
 @Transactional(readOnly = true)
@@ -79,8 +80,9 @@ public class ProductCatalogService {
     public PagedResponse<ProductSummaryResponse> listProducts(
             Long categoryId, String keyword, ProductCatalogSort sort, int page, int size) {
         Pageable pageable = PageRequest.of(Math.max(page, 0), clampSize(size));
+        LocalDateTime now = LocalDateTime.now();
         Page<Product> products = productRepository.findDisplayable(
-                categoryId, toLikePattern(keyword), sort.name(), pageable);
+                now, categoryId, toLikePattern(keyword), sort.name(), pageable);
         List<Product> content = products.getContent();
 
         List<Long> productIds = content.stream().map(Product::getId).toList();
@@ -102,7 +104,11 @@ public class ProductCatalogService {
         return PagedResponse.from(summaryPage);
     }
 
-    /** 노출대상 단건 상세. 미존재·비노출(status≠SALE·판매자 비-ACTIVE·삭제)은 전부 404로 은닉한다(§2). */
+    /**
+     * 노출대상 단건 상세. 미존재·비노출(status∉{SALE,STOPPED}·판매자 비-ACTIVE·삭제)은 전부 404로 은닉한다(§2).
+     * 판매기간 밖(Track 76)은 STOPPED와 동일하게 상세 접속을 허용하되 {@code saleStopped=true}로 표기해 담기를 차단한다
+     * (사용자 FE 무수정·"판매중지" 라벨 재사용).
+     */
     public ProductDetailResponse getProduct(String productPublicId) {
         Product product = productRepository.findByPublicId(productPublicId)
                 .orElseThrow(() -> new ProductNotFoundException("상품을 찾을 수 없습니다: " + productPublicId));
@@ -133,7 +139,7 @@ public class ProductCatalogService {
         Category category = categoryRepository.findById(product.getCategoryId()).orElse(null);
 
         return toDetail(product, seller, category, saleVariants, inventoryByVariant,
-                allGroups, allValues, groupNameById, valueById);
+                allGroups, allValues, groupNameById, valueById, LocalDateTime.now());
     }
 
     // ==================== 정책 계산(단일화) ====================
@@ -146,18 +152,19 @@ public class ProductCatalogService {
                 .orElse(0L) + product.getBasePrice();
     }
 
-    /** 구매가능 여부 = status=SALE ∧ 수동품절 아님 ∧ 재고 available&gt;0(D2 품절식의 부정). */
-    private boolean isPurchasable(ProductVariant variant, Map<Long, Inventory> inventoryByVariant) {
-        if (variant.getStatus() != ProductVariantStatus.SALE || variant.isSoldoutManual()) {
-            return false;
-        }
-        Inventory inventory = inventoryByVariant.get(variant.getId());
-        return inventory != null && inventory.getQuantityAvailable() > 0;
+    /**
+     * variant 품절 여부의 부정(D2). 품절 축(상품·변형 수동품절·변형 비-SALE·재고 0)만 본다 — 상품 판매 상태(STOPPED·판매기간 밖)는
+     * 상세 화면이 saleStopped로 별도 표기하므로 variant soldOut에 섞지 않는다(Track 71 동작 보존). 실제 구매 가능 여부는
+     * {@link ProductPurchasePolicy}가 담기·주문 시점에 판정한다.
+     */
+    private boolean isPurchasable(Product product, ProductVariant variant, Map<Long, Inventory> inventoryByVariant) {
+        return !ProductPurchasePolicy.isSoldOut(product, variant, inventoryByVariant.get(variant.getId()), 1);
     }
 
     /** 상품 단위 품절 = 판매가능 variant가 하나도 구매가능하지 않음(없어도 품절·D2). */
-    private boolean isProductSoldOut(List<ProductVariant> saleVariants, Map<Long, Inventory> inventoryByVariant) {
-        return saleVariants.stream().noneMatch(variant -> isPurchasable(variant, inventoryByVariant));
+    private boolean isProductSoldOut(
+            Product product, List<ProductVariant> saleVariants, Map<Long, Inventory> inventoryByVariant) {
+        return saleVariants.stream().noneMatch(variant -> isPurchasable(product, variant, inventoryByVariant));
     }
 
     // ==================== 매핑 ====================
@@ -174,7 +181,7 @@ public class ProductCatalogService {
                 product.getName(),
                 product.getThumbnailUrl(),
                 displayPrice(product, saleVariants),
-                isProductSoldOut(saleVariants, inventoryByVariant),
+                isProductSoldOut(product, saleVariants, inventoryByVariant),
                 product.getCategoryId(),
                 category != null ? category.getDisplayName() : null,
                 sellerNameById.get(product.getSellerId()));
@@ -189,7 +196,8 @@ public class ProductCatalogService {
             List<ProductOptionGroup> allGroups,
             List<ProductOptionValue> allValues,
             Map<Long, String> groupNameById,
-            Map<Long, ProductOptionValue> valueById) {
+            Map<Long, ProductOptionValue> valueById,
+            LocalDateTime now) {
 
         List<ProductDetailResponse.Image> images = productImageRepository.findByProductId(product.getId()).stream()
                 .sorted(Comparator.comparingInt(ProductImage::getDisplayOrder))
@@ -215,7 +223,7 @@ public class ProductCatalogService {
                 .map(variant -> new ProductDetailResponse.Variant(
                         variant.getPublicId(),
                         product.getBasePrice() + variant.getAdditionalPrice(),
-                        !isPurchasable(variant, inventoryByVariant),
+                        !isPurchasable(product, variant, inventoryByVariant),
                         variantOptions(variant, groupNameById, valueById)))
                 .toList();
 
@@ -227,8 +235,8 @@ public class ProductCatalogService {
                 category != null ? category.getDisplayName() : null,
                 seller.getCompanyName(),
                 displayPrice(product, saleVariants),
-                isProductSoldOut(saleVariants, inventoryByVariant),
-                product.getStatus() == ProductStatus.STOPPED,
+                isProductSoldOut(product, saleVariants, inventoryByVariant),
+                !ProductPurchasePolicy.isOnSale(product, now),
                 images,
                 optionGroups,
                 variants);

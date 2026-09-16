@@ -13,7 +13,7 @@ import org.junit.jupiter.api.Test;
 class OrderItemTest {
 
     private OrderItem ordered() {
-        return OrderItem.create(10L, 20L, 30L, 2, 5_000L, 10_000L);
+        return OrderItem.create(10L, 20L, 30L, "테스트 상품", 2, 5_000L, 10_000L);
     }
 
     @Test
@@ -32,7 +32,7 @@ class OrderItemTest {
     @Test
     @DisplayName("create: ORD-5 위반(total ≠ unit×qty) → IllegalArgumentException")
     void create_violatesOrd5() {
-        assertThatThrownBy(() -> OrderItem.create(10L, 20L, 30L, 2, 5_000L, 9_999L))
+        assertThatThrownBy(() -> OrderItem.create(10L, 20L, 30L, "테스트 상품", 2, 5_000L, 9_999L))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("ORD-5");
     }
@@ -40,14 +40,14 @@ class OrderItemTest {
     @Test
     @DisplayName("create: 수량 1 미만 → IllegalArgumentException")
     void create_quantityBelowOne() {
-        assertThatThrownBy(() -> OrderItem.create(10L, 20L, 30L, 0, 5_000L, 0L))
+        assertThatThrownBy(() -> OrderItem.create(10L, 20L, 30L, "테스트 상품", 0, 5_000L, 0L))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
     @DisplayName("create: 필수값 null → IllegalArgumentException")
     void create_nullRequired() {
-        assertThatThrownBy(() -> OrderItem.create(null, 20L, 30L, 1, 5_000L, 5_000L))
+        assertThatThrownBy(() -> OrderItem.create(null, 20L, 30L, "테스트 상품", 1, 5_000L, 5_000L))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 

@@ -40,8 +40,8 @@ class OrderAutoCancelServiceTest {
 
     private Order pendingOrderWithItems() {
         Order order = Order.create(100L, "20260709-ABCDEF", 0L, 0L);
-        order.addItem(OrderItem.create(10L, 20L, 30L, 2, 5_000L, 10_000L));
-        order.addItem(OrderItem.create(11L, 21L, 30L, 1, 3_000L, 3_000L));
+        order.addItem(OrderItem.create(10L, 20L, 30L, "테스트 상품", 2, 5_000L, 10_000L));
+        order.addItem(OrderItem.create(11L, 21L, 30L, "테스트 상품", 1, 3_000L, 3_000L));
         ReflectionTestUtils.setField(order, "id", ORDER_ID);
         ReflectionTestUtils.setField(order, "publicId", "ord_AUTOCANCEL00000000000000");
         return order;

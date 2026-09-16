@@ -26,4 +26,10 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
 
     /** 단일 상품의 특정 상태 변형을 조회한다(Track 44 단건 카탈로그·판매가능 variant). */
     List<ProductVariant> findByProductIdAndStatus(Long productId, ProductVariantStatus status);
+
+    /** 상품의 활성(soft-delete 제외) variant 전량(상태 무관·Track 76 관리자 상세·수정용). */
+    List<ProductVariant> findByProductId(Long productId);
+
+    /** 여러 상품의 활성 variant 전량(상태 무관·Track 76 관리자 목록 재고 합계·N+1 회피). */
+    List<ProductVariant> findByProductIdIn(Collection<Long> productIds);
 }

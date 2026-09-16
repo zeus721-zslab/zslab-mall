@@ -70,6 +70,7 @@ public class OrderService {
                     itemCommand.productId(),
                     itemCommand.variantId(),
                     itemCommand.sellerId(),
+                    itemCommand.productName(),
                     itemCommand.quantity(),
                     itemCommand.unitPrice(),
                     itemCommand.totalPrice(),

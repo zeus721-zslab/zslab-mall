@@ -10,6 +10,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import java.time.LocalDateTime;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -52,11 +53,23 @@ public class Product extends AbstractPublicIdSoftDeletableEntity {
     @Column(name = "status", nullable = false)
     private ProductStatus status;
 
+    @Column(name = "is_soldout_manual", nullable = false)
+    private boolean soldoutManual;
+
     @Column(name = "base_price", nullable = false)
     private Long basePrice;
 
+    @Column(name = "supply_price")
+    private Long supplyPrice;
+
     @Column(name = "thumbnail_url", length = 2048)
     private String thumbnailUrl;
+
+    @Column(name = "sale_start_at")
+    private LocalDateTime saleStartAt;
+
+    @Column(name = "sale_end_at")
+    private LocalDateTime saleEndAt;
 
     /**
      * 상품 등록 레코드를 생성한다(Track 39 provisioning·seller 주도). NOT NULL 컬럼(sellerId·categoryId·name·basePrice)만
@@ -82,9 +95,72 @@ public class Product extends AbstractPublicIdSoftDeletableEntity {
         product.name = name;
         product.description = description;
         product.status = ProductStatus.PENDING;
+        product.soldoutManual = false;
         product.basePrice = basePrice;
         product.thumbnailUrl = thumbnailUrl;
         return product;
+    }
+
+    /**
+     * 관리자 기본정보 수정(Track 76). sellerId·status는 본 메서드로 바꾸지 않는다(셀러는 order_item.seller_id 스냅샷과 충돌·
+     * 상태는 전이 mutator 전용). NOT NULL 컬럼(categoryId·name·basePrice)만 null 가드하며 형식 검증은 DTO {@code @Valid} 책임이다.
+     *
+     * @throws IllegalArgumentException 필수값 누락 또는 판매 시작 시각이 종료 시각 이후일 때
+     */
+    public void updateBasicInfo(
+            Long categoryId,
+            String name,
+            String description,
+            Long basePrice,
+            Long supplyPrice,
+            String thumbnailUrl,
+            LocalDateTime saleStartAt,
+            LocalDateTime saleEndAt) {
+        if (categoryId == null || name == null || basePrice == null) {
+            throw new IllegalArgumentException("Product 필수값 누락(categoryId·name·basePrice).");
+        }
+        assertSalePeriod(saleStartAt, saleEndAt);
+        this.categoryId = categoryId;
+        this.name = name;
+        this.description = description;
+        this.basePrice = basePrice;
+        this.supplyPrice = supplyPrice;
+        this.thumbnailUrl = thumbnailUrl;
+        this.saleStartAt = saleStartAt;
+        this.saleEndAt = saleEndAt;
+    }
+
+    /**
+     * 등록 직후 관리자 전용 부가 필드(공급가·판매기간)를 채운다(Track 76·셀러 등록 Service 재사용 후 같은 트랜잭션에서 호출).
+     *
+     * @throws IllegalArgumentException 판매 시작 시각이 종료 시각 이후일 때
+     */
+    public void applySaleTerms(Long supplyPrice, LocalDateTime saleStartAt, LocalDateTime saleEndAt) {
+        assertSalePeriod(saleStartAt, saleEndAt);
+        this.supplyPrice = supplyPrice;
+        this.saleStartAt = saleStartAt;
+        this.saleEndAt = saleEndAt;
+    }
+
+    /** 상품 단위 수동 품절 on/off(Track 76). 같은 값 재설정은 no-op이다. */
+    public void changeSoldoutManual(boolean soldoutManual) {
+        this.soldoutManual = soldoutManual;
+    }
+
+    /**
+     * 판매기간 판정(Track 76·ProductPurchasePolicy가 호출). 시작 NULL=즉시·종료 NULL=무기한이며 종료 시각은 배타다
+     * ({@code start <= now < end}).
+     */
+    public boolean isWithinSalePeriod(LocalDateTime now) {
+        boolean started = saleStartAt == null || !saleStartAt.isAfter(now);
+        boolean notEnded = saleEndAt == null || saleEndAt.isAfter(now);
+        return started && notEnded;
+    }
+
+    private static void assertSalePeriod(LocalDateTime saleStartAt, LocalDateTime saleEndAt) {
+        if (saleStartAt != null && saleEndAt != null && !saleStartAt.isBefore(saleEndAt)) {
+            throw new IllegalArgumentException("판매 시작 시각은 종료 시각보다 앞서야 합니다.");
+        }
     }
 
     /**

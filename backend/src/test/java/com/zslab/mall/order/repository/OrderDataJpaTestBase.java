@@ -27,8 +27,8 @@ abstract class OrderDataJpaTestBase extends AbstractDataJpaTest {
     /** items 2건·snapshot 1건을 포함한 완전한 Order를 구성한다(미영속). */
     protected Order buildFullOrder(String orderNo) {
         Order order = Order.create(1L, orderNo, 0L, 3_000L);
-        order.addItem(OrderItem.create(1L, 1L, 1L, 2, 5_000L, 10_000L));
-        order.addItem(OrderItem.create(2L, 2L, 1L, 1, 3_000L, 3_000L));
+        order.addItem(OrderItem.create(1L, 1L, 1L, "테스트 상품", 2, 5_000L, 10_000L));
+        order.addItem(OrderItem.create(2L, 2L, 1L, "테스트 상품", 1, 3_000L, 3_000L));
         order.attachSnapshot(OrderShippingSnapshot.create(
                 "홍길동", "010-0000-0000", "06236", "서울 강남대로 1", null, "101호", "부재 시 경비실"));
         return order;

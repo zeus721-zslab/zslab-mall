@@ -225,8 +225,8 @@ class AuditWiringIntegrationTest extends AbstractIntegrationTest {
                         orderId, pid("ord_", "AUDO" + orderId), buyerId, "ordno-" + orderId);
                 jdbc.update("INSERT INTO order_item "
                         + "(public_id, order_id, product_id, variant_id, seller_id, quantity, unit_price, total_price, "
-                        + "item_status, created_at, updated_at) "
-                        + "VALUES (?, ?, 1, 1, 1, 1, ?, ?, 'CONFIRMED', NOW(6), NOW(6))",
+                        + "item_status, created_at, updated_at, product_name) "
+                        + "VALUES (?, ?, 1, 1, 1, 1, ?, ?, 'CONFIRMED', NOW(6), NOW(6), '테스트 상품')",
                         pid("oit_", "AUDI" + orderId), orderId, confirmedTotal, confirmedTotal);
             } finally {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");

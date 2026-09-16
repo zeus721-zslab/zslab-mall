@@ -55,8 +55,8 @@ class SellerRefundAggregationTest extends Batch1DataJpaTestBase {
         Query query = entityManager.getEntityManager().createNativeQuery(
             "INSERT INTO order_item "
             + "(public_id, order_id, product_id, variant_id, seller_id, quantity, unit_price, total_price, "
-            + "item_status, created_at, updated_at) "
-            + "VALUES (:pid, 1, 1, 1, :seller, 1, 1000, 1000, 'DELIVERED', NOW(6), NOW(6))");
+            + "item_status, created_at, updated_at, product_name) "
+            + "VALUES (:pid, 1, 1, 1, :seller, 1, 1000, 1000, 'DELIVERED', NOW(6), NOW(6), '테스트 상품')");
         query.setParameter("pid", String.format("oit_%026d", ++seq));
         query.setParameter("seller", sellerId);
         query.executeUpdate();

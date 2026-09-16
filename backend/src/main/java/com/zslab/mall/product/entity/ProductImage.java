@@ -1,8 +1,11 @@
 package com.zslab.mall.product.entity;
 
 import com.zslab.mall.common.entity.AbstractSoftDeletableEntity;
+import com.zslab.mall.product.enums.ProductImageType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -44,6 +47,10 @@ public class ProductImage extends AbstractSoftDeletableEntity {
     @Column(name = "image_url", nullable = false, length = 2048)
     private String imageUrl;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "image_type", nullable = false)
+    private ProductImageType imageType;
+
     @Column(name = "display_order", nullable = false)
     private int displayOrder;
 
@@ -54,15 +61,41 @@ public class ProductImage extends AbstractSoftDeletableEntity {
      * @throws IllegalArgumentException 필수값 누락 시
      */
     public static ProductImage create(Product product, String imageUrl, int displayOrder, boolean main) {
-        if (product == null || imageUrl == null || imageUrl.isBlank()) {
-            throw new IllegalArgumentException("ProductImage 필수값 누락(product·imageUrl).");
+        return create(product, imageUrl, ProductImageType.GALLERY, displayOrder, main);
+    }
+
+    /**
+     * 이미지 유형을 지정해 생성한다(Track 76). 셀러 경로({@link #create(Product, String, int, boolean)})는 GALLERY 고정이다.
+     *
+     * @throws IllegalArgumentException 필수값 누락 시
+     */
+    public static ProductImage create(
+            Product product, String imageUrl, ProductImageType imageType, int displayOrder, boolean main) {
+        if (product == null || imageUrl == null || imageUrl.isBlank() || imageType == null) {
+            throw new IllegalArgumentException("ProductImage 필수값 누락(product·imageUrl·imageType).");
         }
         ProductImage image = new ProductImage();
         image.product = product;
         image.imageUrl = imageUrl;
+        image.imageType = imageType;
         image.displayOrder = displayOrder;
         image.main = main;
         return image;
+    }
+
+    /**
+     * 관리자 이미지 메타 수정(Track 76·URL·유형·순서·대표). 업로드 자체는 Track 77이며 여기서는 메타만 바꾼다.
+     *
+     * @throws IllegalArgumentException imageUrl 공백·imageType null 시
+     */
+    public void updateMeta(String imageUrl, ProductImageType imageType, int displayOrder, boolean main) {
+        if (imageUrl == null || imageUrl.isBlank() || imageType == null) {
+            throw new IllegalArgumentException("ProductImage 필수값 누락(imageUrl·imageType).");
+        }
+        this.imageUrl = imageUrl;
+        this.imageType = imageType;
+        this.displayOrder = displayOrder;
+        this.main = main;
     }
 
     /** 대표 이미지로 지정한다(Track 59 BL-6·designateMain의 승격 단계·기존 대표 강등 후 호출·UserAddress.markDefault 선례). */

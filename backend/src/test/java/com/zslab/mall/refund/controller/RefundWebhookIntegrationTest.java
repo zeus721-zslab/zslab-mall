@@ -156,8 +156,8 @@ class RefundWebhookIntegrationTest extends AbstractIntegrationTest {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
                 jdbc.update("INSERT INTO order_item "
                         + "(id, public_id, order_id, product_id, variant_id, seller_id, quantity, unit_price, total_price, "
-                        + "item_status, created_at, updated_at) "
-                        + "VALUES (?, 'oit_track5_it_0001', ?, 1, 1, 1, 1, ?, ?, 'PAID', NOW(6), NOW(6))",
+                        + "item_status, created_at, updated_at, product_name) "
+                        + "VALUES (?, 'oit_track5_it_0001', ?, 1, 1, 1, 1, ?, ?, 'PAID', NOW(6), NOW(6), '테스트 상품')",
                         ORDER_ITEM_ID, ORDER_ID, paymentAmount, paymentAmount);
                 jdbc.update("INSERT INTO payment "
                         + "(id, public_id, order_id, method, amount, status, pg_provider, pg_tid, payment_attempt_key, "

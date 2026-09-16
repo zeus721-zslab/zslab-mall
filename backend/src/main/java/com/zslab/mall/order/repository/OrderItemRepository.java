@@ -20,6 +20,9 @@ public interface OrderItemRepository extends JpaRepository<OrderItem, Long> {
 
     List<OrderItem> findByOrderIdIn(Collection<Long> orderIds);
 
+    /** 상품에 주문 이력이 있는지(Track 76·관리자 soft-delete 차단 409). 상태 무관·1건이라도 있으면 true. */
+    boolean existsByProductId(Long productId);
+
     /**
      * 한 주문의 OrderItem을 일괄 물리삭제한다(FE-12c-2·미결제 종료 주문 hard delete 자식 정리). 벌크 DELETE로 1회 실행하며
      * 삭제 건수를 반환한다. 삭제는 부모 order 삭제에 선행해야 한다(fk_order_item_order RESTRICT). 모든 변수는 :orderId 바인딩이다.

@@ -78,13 +78,10 @@ public class BuyerOrderQueryService {
                 ? Map.of()
                 : orderRepository.findByIdInWithItems(orderIds).stream()
                         .collect(Collectors.toMap(Order::getId, Function.identity()));
-        List<OrderItem> allItems = ordersWithItems.values().stream()
-                .flatMap(order -> order.getItems().stream()).toList();
-        Map<Long, Product> productById = productsByIdFor(allItems);
 
-        // 페이지 순서(ordered_at DESC) 유지하며 items 로딩본으로 요약 생성.
+        // 페이지 순서(ordered_at DESC) 유지하며 items 로딩본으로 요약 생성(상품명은 order_item 스냅샷·Track 76).
         List<OrderSummaryResponse> summaries = orders.getContent().stream()
-                .map(order -> OrderSummaryResponse.from(ordersWithItems.getOrDefault(order.getId(), order), productById))
+                .map(order -> OrderSummaryResponse.from(ordersWithItems.getOrDefault(order.getId(), order)))
                 .toList();
         Page<OrderSummaryResponse> summaryPage = new PageImpl<>(summaries, pageable, orders.getTotalElements());
         return PagedResponse.from(summaryPage);

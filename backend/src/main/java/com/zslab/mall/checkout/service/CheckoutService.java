@@ -31,8 +31,8 @@ import com.zslab.mall.payment.service.PaymentInitiation;
 import com.zslab.mall.payment.service.PaymentService;
 import com.zslab.mall.product.entity.Product;
 import com.zslab.mall.product.entity.ProductVariant;
-import com.zslab.mall.product.enums.ProductStatus;
-import com.zslab.mall.product.enums.ProductVariantStatus;
+import com.zslab.mall.product.policy.ProductPurchasePolicy;
+import com.zslab.mall.product.policy.PurchaseBlockReason;
 import com.zslab.mall.product.repository.ProductRepository;
 import com.zslab.mall.product.repository.ProductVariantRepository;
 import com.zslab.mall.product.service.OptionLabelResolver;
@@ -275,29 +275,32 @@ public class CheckoutService {
      */
     private OrderItemCommand toOrderItemCommand(
             Product product, ProductVariant variant, int quantity, String optionLabel) {
-        assertSellable(product, variant);
+        assertSellable(product, variant, LocalDateTime.now());
         long unitPrice = product.getBasePrice() + variant.getAdditionalPrice();
         long totalPrice = unitPrice * quantity;
         return new OrderItemCommand(
-                product.getId(), variant.getId(), product.getSellerId(),
+                product.getId(), variant.getId(), product.getSellerId(), product.getName(),
                 quantity, unitPrice, totalPrice, optionLabel);
     }
 
     /**
-     * 신규 주문 판매 상태 검증(Track 71·양 경로 공통). 상품 SALE ∧ variant SALE ∧ 수동품절 아님이어야 한다. 1건이라도 실패하면
-     * {@link OrderNotPayableException}으로 주문 전체를 거부한다(422 ORDER_NOT_PAYABLE·D-66 catch에 포함되어 멱등 키 재시도 허용).
-     * 사유는 기존 2값을 포섭한다: 상품·variant 비-SALE → PRODUCT_NOT_ON_SALE, 수동품절 → OUT_OF_STOCK(재결제 revalidatePayable 정합).
-     * 판매자 상태는 확정 범위 밖이라 보지 않는다.
+     * 신규 주문 판매 상태 검증(Track 71·양 경로 공통·Track 76 {@link ProductPurchasePolicy#saleBlock} 위임). 상품 판매중(SALE·
+     * 판매기간 내) ∧ variant SALE ∧ 상품·변형 수동품절 아님이어야 한다. 1건이라도 실패하면 {@link OrderNotPayableException}으로
+     * 주문 전체를 거부한다(422 ORDER_NOT_PAYABLE·D-66 catch에 포함되어 멱등 키 재시도 허용). 사유 매핑: NOT_ON_SALE →
+     * PRODUCT_NOT_ON_SALE, SOLD_OUT → OUT_OF_STOCK(재결제 revalidatePayable 정합). 재고는 {@link #revalidateInventory}가 배치로
+     * 검증한다. 판매자 상태는 확정 범위 밖(D-160 §8 이월)이라 보지 않는다.
      */
-    private void assertSellable(Product product, ProductVariant variant) {
-        if (product.getStatus() != ProductStatus.SALE || variant.getStatus() != ProductVariantStatus.SALE) {
-            throw new OrderNotPayableException(OrderNotPayableReason.PRODUCT_NOT_ON_SALE,
-                    "판매 중이 아닌 상품: productId=" + product.getId() + ", variantId=" + variant.getId());
-        }
-        if (variant.isSoldoutManual()) {
-            throw new OrderNotPayableException(OrderNotPayableReason.OUT_OF_STOCK,
-                    "수동 품절 상품: variantId=" + variant.getId());
-        }
+    private void assertSellable(Product product, ProductVariant variant, LocalDateTime now) {
+        ProductPurchasePolicy.saleBlock(product, variant, now).ifPresent(reason -> {
+            throw new OrderNotPayableException(toReason(reason),
+                    "구매할 수 없는 상품(" + reason + "): productId=" + product.getId() + ", variantId=" + variant.getId());
+        });
+    }
+
+    private static OrderNotPayableReason toReason(PurchaseBlockReason reason) {
+        return reason == PurchaseBlockReason.NOT_ON_SALE
+                ? OrderNotPayableReason.PRODUCT_NOT_ON_SALE
+                : OrderNotPayableReason.OUT_OF_STOCK;
     }
 
     /**
@@ -344,7 +347,10 @@ public class CheckoutService {
         return CheckoutOutcome.created(response, ORDER_LOCATION_PREFIX + order.getPublicId());
     }
 
-    /** D-60 재검증 2종(재결제 한정·D-63). 상품 판매중지 → PRODUCT_NOT_ON_SALE·수동품절/재고부족 → OUT_OF_STOCK(422). */
+    /**
+     * D-60 재검증(재결제 한정·D-63·Track 76 {@link ProductPurchasePolicy#evaluate} 위임). 상품 비판매(상태·기간·삭제)·variant 비-SALE →
+     * PRODUCT_NOT_ON_SALE, 수동품절·재고부족 → OUT_OF_STOCK(422). 요청 수량은 품목 quantity 기준이다.
+     */
     private void revalidatePayable(Order order) {
         List<OrderItem> items = order.getItems();
         List<Long> productIds = items.stream().map(OrderItem::getProductId).distinct().toList();
@@ -356,20 +362,16 @@ public class CheckoutService {
         Map<Long, Inventory> inventoryByVariantId = inventoryRepository.findByVariantIdIn(variantIds).stream()
                 .collect(Collectors.toMap(Inventory::getVariantId, Function.identity()));
 
+        LocalDateTime now = LocalDateTime.now();
         for (OrderItem item : items) {
             Product product = productById.get(item.getProductId());
-            if (product == null || product.getStatus() != ProductStatus.SALE) {
-                throw new OrderNotPayableException(OrderNotPayableReason.PRODUCT_NOT_ON_SALE,
-                        "판매 중이 아닌 상품: productId=" + item.getProductId());
-            }
             ProductVariant variant = variantById.get(item.getVariantId());
             Inventory inventory = inventoryByVariantId.get(item.getVariantId());
-            boolean soldOutManual = variant != null && variant.isSoldoutManual();
-            boolean lackStock = inventory == null || inventory.getQuantityAvailable() < item.getQuantity();
-            if (soldOutManual || lackStock) {
-                throw new OrderNotPayableException(OrderNotPayableReason.OUT_OF_STOCK,
-                        "재고 부족 또는 품절: variantId=" + item.getVariantId());
-            }
+            ProductPurchasePolicy.evaluate(product, variant, inventory, item.getQuantity(), now).ifPresent(reason -> {
+                throw new OrderNotPayableException(toReason(reason),
+                        "구매할 수 없는 상품(" + reason + "): productId=" + item.getProductId()
+                                + ", variantId=" + item.getVariantId());
+            });
         }
     }
 

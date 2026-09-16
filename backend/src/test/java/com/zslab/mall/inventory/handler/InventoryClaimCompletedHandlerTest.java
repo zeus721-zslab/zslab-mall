@@ -68,7 +68,7 @@ class InventoryClaimCompletedHandlerTest {
     }
 
     private OrderItem orderItem() {
-        OrderItem item = OrderItem.create(PRODUCT_ID, VARIANT_ID, SELLER_ID, QTY, UNIT_PRICE, UNIT_PRICE * QTY);
+        OrderItem item = OrderItem.create(PRODUCT_ID, VARIANT_ID, SELLER_ID, "테스트 상품", QTY, UNIT_PRICE, UNIT_PRICE * QTY);
         ReflectionTestUtils.setField(item, "id", ORDER_ITEM_ID);
         return item;
     }

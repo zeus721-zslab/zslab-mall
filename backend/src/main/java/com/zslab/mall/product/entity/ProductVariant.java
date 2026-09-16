@@ -106,6 +106,32 @@ public class ProductVariant extends AbstractPublicIdSoftDeletableEntity {
         return variant;
     }
 
+    /**
+     * 관리자 변형 메타 수정(Track 76·D9 α). 옵션 조합(option1~3_value_id)·productId는 바꾸지 않는다 — 조합 변경은
+     * 신규 variant 생성 + 기존 soft-delete로 처리한다(order_item FK·cart 스냅샷 보존).
+     *
+     * @throws IllegalArgumentException variantCode·additionalPrice·status 누락 시
+     */
+    public void updateMeta(
+            String variantCode,
+            String sellerSku,
+            String barcode,
+            Long additionalPrice,
+            ProductVariantStatus status,
+            boolean soldoutManual,
+            int displayOrder) {
+        if (variantCode == null || additionalPrice == null || status == null) {
+            throw new IllegalArgumentException("ProductVariant 필수값 누락(variantCode·additionalPrice·status).");
+        }
+        this.variantCode = variantCode;
+        this.sellerSku = sellerSku;
+        this.barcode = barcode;
+        this.additionalPrice = additionalPrice;
+        this.status = status;
+        this.soldoutManual = soldoutManual;
+        this.displayOrder = displayOrder;
+    }
+
     @Override
     protected String getPublicIdPrefix() {
         return "var";

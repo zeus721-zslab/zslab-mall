@@ -180,8 +180,8 @@ class SellerShippingControllerIntegrationTest extends AbstractIntegrationTest {
                                 + "VALUES (?, ?, ?, ?, ?, ?, 0, 0, NOW(6), NOW(6))",
                         ORDER_ID, pid("ord_", "SSCORD"), USER_ID, "ORDSSC" + ORDER_ID, orderStatus, ITEM_PRICE);
                 jdbc.update("INSERT INTO order_item (id, public_id, order_id, product_id, variant_id, seller_id, "
-                                + "quantity, unit_price, total_price, item_status, created_at, updated_at) "
-                                + "VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, NOW(6), NOW(6))",
+                                + "quantity, unit_price, total_price, item_status, created_at, updated_at, product_name) "
+                                + "VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, NOW(6), NOW(6), '테스트 상품')",
                         ORDER_ITEM_ID, ORDER_ITEM_PID, ORDER_ID, PRODUCT_ID, VARIANT_ID, SELLER_A,
                         ITEM_PRICE, ITEM_PRICE, itemStatus);
             } finally {

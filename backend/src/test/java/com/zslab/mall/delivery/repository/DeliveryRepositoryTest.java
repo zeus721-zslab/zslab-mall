@@ -45,8 +45,8 @@ class DeliveryRepositoryTest extends Batch1DataJpaTestBase {
 
             entityManager.getEntityManager().createNativeQuery(
                 "INSERT INTO order_item "
-                + "(public_id, order_id, product_id, variant_id, seller_id, quantity, unit_price, total_price, item_status, created_at, updated_at) "
-                + "VALUES ('" + orderItemPublicId + "', " + orderId + ", 1, 1, 1, 1, 10000, 10000, 'PAID', NOW(6), NOW(6))")
+                + "(public_id, order_id, product_id, variant_id, seller_id, quantity, unit_price, total_price, item_status, created_at, updated_at, product_name) "
+                + "VALUES ('" + orderItemPublicId + "', " + orderId + ", 1, 1, 1, 1, 10000, 10000, 'PAID', NOW(6), NOW(6), '테스트 상품')")
                 .executeUpdate();
             return ((Number) entityManager.getEntityManager()
                 .createNativeQuery("SELECT LAST_INSERT_ID()").getSingleResult()).longValue();
@@ -120,7 +120,7 @@ class DeliveryRepositoryTest extends Batch1DataJpaTestBase {
             entityManager.getEntityManager()
                 .createNativeQuery(
                     "INSERT INTO delivery (public_id, order_item_id, carrier, status, created_at, updated_at) "
-                    + "VALUES ('dlv_21234567890123456789012345', 99999, 'CJ', 'READY', NOW(6), NOW(6))")
+                    + "VALUES ('dlv_21234567890123456789012345', 99999, 'CJ', 'READY', NOW(6), NOW(6), '테스트 상품')")
                 .executeUpdate()
         ).isInstanceOf(PersistenceException.class);
     }

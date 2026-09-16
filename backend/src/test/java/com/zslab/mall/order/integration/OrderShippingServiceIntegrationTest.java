@@ -142,8 +142,8 @@ class OrderShippingServiceIntegrationTest extends AbstractIntegrationTest {
                                 + "VALUES (?, ?, ?, ?, 'PAID', ?, 0, 0, NOW(6), NOW(6))",
                         ORDER_ID, pid("ord_", "T23ORD"), USER_ID, "ORDT23" + ORDER_ID, FULL_AMOUNT);
                 jdbc.update("INSERT INTO order_item (id, public_id, order_id, product_id, variant_id, seller_id, "
-                                + "quantity, unit_price, total_price, item_status, created_at, updated_at) "
-                                + "VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, 'PAID', NOW(6), NOW(6))",
+                                + "quantity, unit_price, total_price, item_status, created_at, updated_at, product_name) "
+                                + "VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, 'PAID', NOW(6), NOW(6), '테스트 상품')",
                         ORDER_ITEM_ID, pid("oit_", "T23OIT"), ORDER_ID, PRODUCT_ID, VARIANT_ID, SELLER_ID,
                         FULL_AMOUNT, FULL_AMOUNT);
             } finally {
