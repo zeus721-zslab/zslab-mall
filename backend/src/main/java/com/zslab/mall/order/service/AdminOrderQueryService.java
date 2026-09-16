@@ -197,7 +197,8 @@ public class AdminOrderQueryService {
                 .toList();
         Payment representative = representativePayment(enrichment.paymentsByOrderId.get(order.getId()));
         return new AdminOrderSummaryResponse(
-                order.getPublicId(), order.getOrderNo(), order.getOrderedAt(), order.getStatus().name(),
+                order.getPublicId(), order.getOrderNo(), order.getOrderedAt(),
+                representative == null ? null : representative.getPaidAt(), order.getStatus().name(),
                 buyer == null ? null : buyer.getName(), buyer == null ? null : buyer.getEmail(),
                 sellerNames, productSummary(items), items.size(),
                 paymentAmount(order), order.getShippingFee(),

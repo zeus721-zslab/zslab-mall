@@ -280,6 +280,7 @@ class AdminOrderIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.items[0].paymentAmount").value(20000))
                 .andExpect(jsonPath("$.items[0].paymentMethod").value("CARD"))
                 .andExpect(jsonPath("$.items[0].paymentStatus").value("PAID"))
+                .andExpect(jsonPath("$.items[0].paidAt").isNotEmpty())
                 .andExpect(jsonPath("$.items[0].claimInProgress").value(false))
                 .andExpect(jsonPath("$.items[0].actions[0]").value("CANCEL"))
                 .andExpect(jsonPath("$.items[0].actions[1]").value("PREPARE_SHIPMENT"));
@@ -292,7 +293,9 @@ class AdminOrderIntegrationTest extends AbstractIntegrationTest {
                         .param("keyword", "트랙79구매자"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(1))
-                .andExpect(jsonPath("$.items[0].orderId").value(ORDER_B_PID));
+                .andExpect(jsonPath("$.items[0].orderId").value(ORDER_B_PID))
+                // 미결제(PENDING 결제 행)는 승인 시각이 없어 paidAt 미노출(NON_NULL)
+                .andExpect(jsonPath("$.items[0].paidAt").doesNotExist());
         mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("deliveryStatus", "SHIPPING"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(1))

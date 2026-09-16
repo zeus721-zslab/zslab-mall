@@ -12,3 +12,15 @@ export function formatDateTime(iso: string): string {
   const [, year, month, day, hour, minute] = matched
   return `${year}.${month}.${day} ${hour}:${minute}`
 }
+
+/** BE(JVM TZ=Asia/Seoul)와 같은 고정 KST 오프셋. KstOffsetSerializer의 +09:00과 1:1. */
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000
+const LOCAL_DATE_TIME_LENGTH = 23 // 'yyyy-MM-ddTHH:mm:ss.SSS'
+
+/**
+ * Date → BE LocalDateTime 문자열(KST 벽시계·오프셋 없음·'yyyy-MM-ddTHH:mm:ss.SSS').
+ * toISOString()은 UTC 벽시계라 Z만 떼면 BE(KST 저장)가 9시간 이른 값으로 저장한다(FE-27 보강 2 결함) → KST로 이동 후 자른다.
+ */
+export function toKstLocalDateTime(date: Date): string {
+  return new Date(date.getTime() + KST_OFFSET_MS).toISOString().slice(0, LOCAL_DATE_TIME_LENGTH)
+}
