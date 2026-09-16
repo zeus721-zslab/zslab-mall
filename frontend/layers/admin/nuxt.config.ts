@@ -11,4 +11,10 @@ export default defineNuxtConfig({
   routeRules: {
     '/admin/**': { ssr: false, headers: { 'X-Robots-Tag': 'noindex, nofollow' } },
   },
+  // FE-23 관리자 데모 로그인 계정. 비공개 키(public 금지)라 서버 라우트(layers/admin/server/routes/_admin-demo)만 읽는다.
+  // 런타임 주입 키 = NUXT_ADMIN_DEMO_EMAIL / NUXT_ADMIN_DEMO_PASSWORD(compose가 ADMIN_BOOTSTRAP_*에서 매핑). 기본 ''=데모 비활성(404·버튼 미표시).
+  runtimeConfig: {
+    adminDemoEmail: '',
+    adminDemoPassword: '',
+  },
 })

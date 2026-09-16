@@ -1311,3 +1311,34 @@ FE-13 §8(:701) 이월 "[버그·백로그] BUYER 페이지에서 로그아웃 �
 - 수정(① 방식 적용): `lib/first-paint-gate.ts` `useFirstPaintGate()` — onMounted 후 첫 rAF에 ready → layouts/admin.vue·admin-auth.vue가 `<template v-if="ready">`로 밴드·사이드바·상단바·v-main(콘텐츠)을 **같은 프레임에 렌더**(게이트 전엔 v-app 배경색만). Vuetify JS·styles는 기존대로 vuetify 미들웨어가 렌더 전에 로드(관리자 한정 로딩·누수 가드·세션 분리 무변경). styles 사전 로드(link preload)는 미적용 — 로드 완료 전 화면은 배경색뿐이라 체감 지연을 키우지 않고, 관리자 한정 로딩 원칙상 사용자 entry에 preload를 넣을 수 없음.
 - 검증: 재측정 첫 방문 603ms·재방문 494ms·스로틀 10,831ms 모두 첫 프레임부터 최종 위치·이동 0 / 사이드바 토글 트랜지션 정상(padding-left 266→0 보간 13샘플) / 관리자 내부 이동(/admin→/admin/members) 중 v-app 자식 수 4 고정(빈 프레임 0) / e2e ⑤ "카드가 보이는 60프레임 bbox 동일" 추가 / typecheck 0·vitest 25/101·Playwright 6·사용자 12장 0px.
 - 트랩 후보: 관리자 한정 비동기 Vuetify CSS 로드 구조에서는 레이아웃 등록(drawer/app-bar)·모듈 스트리밍 순서에 따라 첫 렌더 레이아웃 이동이 생길 수 있다 → 셸은 항상 첫 프레임 게이트 뒤에 통째로 렌더한다. 또한 실행 중 dev 서버에서 `pnpm typecheck`(nuxt prepare)는 .nuxt/manifest를 지워 `#app-manifest` 오류를 내므로 typecheck 후 컨테이너 restart 필요(FE-22g 트랩 재확인).
+
+## FE-23: 관리자 데모 로그인 — /admin/login "관리자 데모 로그인" 버튼 (2026-09-16)
+목적: 포트폴리오 방문자가 자격증명 입력 없이 관리자 콘솔을 둘러보게 한다. **권한 제한 없음(실제 SUPER_ADMIN 계정 그대로) = zslab 결정(포트폴리오 목적)**. 계정 값은 채팅·커밋·로그·번들·응답 어디에도 싣지 않는다.
+
+### §1-A 갈림길·채택/기각 근거
+- α **Nuxt 서버 라우트 대행 — 채택**. 브라우저는 자격증명을 모른 채 `POST /_admin-demo/login`만 호출하고, Nitro가 비공개 runtimeConfig(`adminDemoEmail/adminDemoPassword` ← `NUXT_ADMIN_DEMO_*`)로 BE `/api/v1/auth/login`(role ADMIN)을 대행해 `{ token }`만 돌려준다. 이후 저장·role≠ADMIN 거절·redirect는 기존 스토어 경로(`storeAdminToken`) 재사용. BE 무수정·값 노출 0.
+- β 자격증명 화면 표기(사용자 BUYER 데모처럼 public runtimeConfig) — **기각**: ADMIN 계정 값이 클라이언트 번들·HTML payload에 실린다(사용자 데모는 저권한이라 허용했던 전제가 성립하지 않음).
+- γ BE 데모 전용 엔드포인트(임시 토큰·권한 축소) — **기각**: 권한 제한 없음이 결정이라 BE 신규 엔드포인트·role 분기가 소비처 없는 과잉개발(기조 4). 필요해지면 α의 서버 라우트가 호출 대상만 바꾸면 된다.
+- 표시 boolean: `GET /_admin-demo/status` → `{ enabled }` **채택** / public 플래그 env(`NUXT_PUBLIC_ADMIN_DEMO_ENABLED`) 기각 — env 1개 추가·서버 실제 설정과 표류(이메일만 있고 비번 blank → 버튼 노출·404) 가능.
+- 배치: `layers/admin/server/`(레이어) 채택 — `@nuxt/nitro-server` `scanDirs: layerDirs.map(dirs => dirs.server)` 실측(레이어 server/ 자동 스캔). 관리자 코드는 레이어에 모은다는 FE-22 원칙 유지·루트 `server/` 신설 없음.
+- 경로 `/_admin-demo/*`: 루트 routeRules `/api/**`(backend 프록시)·운영 nginx `location /api/`·레이어 routeRules `/admin/**`(CSR 페이지) 모두 회피, gateway `location /`로 Nitro 도달(게이트웨이 경유 실측 200).
+- env: `.env` 신규 키 없음 — `docker-compose.mall.yml` frontend environment가 backend와 동일한 `${ADMIN_BOOTSTRAP_EMAIL:-}`/`${ADMIN_BOOTSTRAP_PASSWORD:-}`를 `NUXT_ADMIN_DEMO_EMAIL/PASSWORD`로 매핑(값 복제 없음·dev·운영 공통). 미설정 시 `status {enabled:false}`·버튼 미표시·`login` 404.
+
+### §2 확정 구현 규칙 (file:line)
+- `layers/admin/server/lib/admin-demo-login.ts` — Nitro 무의존 코어(`isAdminDemoConfigured`·`loginAsAdminDemo` → `{ok:true, body:{token}} | {ok:false, statusCode:404|401}`). BE 실패 사유는 `console.warn('[admin-demo] …')` 메시지만(자격증명 미포함).
+- `layers/admin/server/routes/_admin-demo/status.get.ts`·`login.post.ts` — 코어 결과를 `createError`로 매핑. BE 호출은 Node 내장 `fetch`(전역 `$fetch`는 임의 문자열 URL에서 nitro 타입드 라우트 추론 TS2321 Excessive stack depth 실측).
+- `layers/admin/nuxt.config.ts` runtimeConfig(비공개) `adminDemoEmail:''`·`adminDemoPassword:''` / `lib/constants/auth.ts` `ADMIN_DEMO_STATUS_PATH`·`ADMIN_DEMO_LOGIN_PATH` / `stores/adminAuth.ts` `loginDemo()` + `storeAdminToken()`(login과 공유) / `pages/admin/login.vue` `attemptLogin()` 공통 흐름·onMounted status 조회·`v-divider` + outlined 보조 버튼(`data-testid="admin-demo-login"`)·실패 문구는 폼과 동일 단일 문구.
+
+### §데모 계정 훼손 경로 (정찰·BE 무변경)
+- `PATCH /api/v1/users/me/password`(anyRequest authenticated → ADMIN 토큰으로 호출 가능) — 변경 시 env 값과 불일치 → 데모 401.
+- `POST /api/v1/users/me/withdraw` — 탈퇴 마킹·재로그인 차단. SuperAdminBootstrapRunner는 "SUPER_ADMIN 보유 회원 존재"면 skip이라 자동 복구 없음(복구 = DB 직접 조치).
+- `DELETE /api/v1/admin/users/{id}/roles/{roleCode}` — self SUPER_ADMIN 회수 403·마지막 SUPER_ADMIN 409로 차단됨.
+- 보호 장치 미추가는 결정(권한 제한 없음). 훼손 시 운영자 수동 복구 전제.
+
+### §운영 401 선행 조건
+- 운영 frontend가 받는 값 = 서버 `.env`의 `ADMIN_BOOTSTRAP_*`(backend와 동일 출처). decisions.md:10114 "운영 관리자 로그인 401(최초 기동 값과 현 .env 불일치 추정·미확정)"이 남아 있으면 운영 데모 버튼은 노출되나 클릭 시 401. 배포 전 운영 계정 비밀번호·서버 .env 정합 확인 필수.
+
+### §검증
+- vitest 27 files 110 tests(+admin-demo-login-server 3: 미설정 404·성공 {token}만·BE 실패 401/로그에 자격증명 없음 · admin-login-page 4: enabled true 버튼·클릭→loginDemo→/admin / false 미표시 / 조회 실패 미표시 / 401 문구 · adminAuth-store +2: 데모 성공 저장·role≠ADMIN 거절) · typecheck 0 · Playwright 7(smoke 1 + admin-shell 6·⑥ 데모 버튼→/admin 셸·admin_token path=/admin·auth_token 없음) · 사용자 12장 0px(동일 컨테이너에서 변경 stash 상태 기준선 재캡처 대비) · 빌드 산출물(.output 전체) 계정 값 문자열 0건·/admin/login HTML에 `adminDemo` 0건 · 런타임: env 미설정 `{enabled:false}`·login 404 / BE 불달 401(본문·stderr에 자격증명 없음).
+- 트랩(실측): (1) 로컬 "dev" 컨테이너는 prod 이미지(CMD `node .output/server/index.mjs`·2026-07-10 빌드)에 bind-mount 상태라 코드 변경 반영 = 컨테이너 내 `pnpm build` + `docker restart`(HMR 없음). (2) `up -d` 재생성 시 컨테이너 로컬 상태 소실 — `corepack enable`·`playwright install chromium`·`install-deps chromium`(node:24-slim은 libglib 부재)·`/tmp` 픽셀 기준선. (3) install-deps 이후 글리프 래스터가 달라져 이전 컨테이너 기준선(final22h) 대비 텍스트 픽셀 diff(6~12K px) — 레이아웃 무관·동일 환경 재기준선으로 0px 확인. 기준선은 컨테이너 밖(스크래치패드)에도 보관할 것.
+- 트랩 후보: 로컬 zslab_mall_frontend 재생성 시 corepack·chromium·install-deps·픽셀 기준선 소실 → 별도 chore에서 정상화(dev 이미지 재빌드).

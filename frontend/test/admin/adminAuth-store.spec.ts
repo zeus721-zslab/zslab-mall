@@ -64,6 +64,22 @@ describe('adminAuth 스토어 (FE-22d 세션 분리)', () => {
     expect(adminAuth.isAuthenticated).toBe(false)
   })
 
+  it('데모 로그인 성공(role=ADMIN) → 서버 라우트 POST(자격증명 없는 본문)·admin_token 저장', async () => {
+    fetchMock.mockResolvedValue({ token: fakeJwt('ADMIN') })
+    const adminAuth = useAdminAuthStore()
+    await adminAuth.loginDemo()
+    expect(fetchMock).toHaveBeenCalledWith('/_admin-demo/login', { method: 'POST' })
+    expect(adminAuth.isAuthenticated).toBe(true)
+    expect(adminAuth.role).toBe('ADMIN')
+  })
+
+  it('데모 로그인 응답 토큰 role≠ADMIN → 저장 거절·throw', async () => {
+    fetchMock.mockResolvedValue({ token: fakeJwt('BUYER') })
+    const adminAuth = useAdminAuthStore()
+    await expect(adminAuth.loginDemo()).rejects.toThrow()
+    expect(adminAuth.token).toBeNull()
+  })
+
   it('로그아웃 격리: admin 로그아웃 시 auth_token 유지, 사용자 로그아웃 시 admin_token 유지', () => {
     const adminAuth = useAdminAuthStore()
     const userAuth = useAuthStore()

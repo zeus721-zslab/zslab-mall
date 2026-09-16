@@ -1,4 +1,4 @@
-import { ADMIN_HOME_PATH, ADMIN_ROLE } from '#layers/admin/app/lib/constants/auth'
+import { ADMIN_DEMO_LOGIN_PATH, ADMIN_HOME_PATH, ADMIN_ROLE } from '#layers/admin/app/lib/constants/auth'
 import { decodeJwtPayload } from '#layers/admin/app/lib/jwt'
 import type { JwtPayload } from '~/types/auth'
 
@@ -28,7 +28,6 @@ export const useAdminAuthStore = defineStore('adminAuth', () => {
 
   /**
    * 관리자 로그인. POST /api/v1/auth/login body { email, password, role: ADMIN } → { token }.
-   * 응답 토큰의 role 클레임이 ADMIN이 아니면 저장하지 않고 throw한다(BE는 요청 role로 발급하므로 방어 검증).
    * /admin/**는 CSR 전용(D-9)이라 브라우저 baseURL만 쓴다. 실패(RFC7807)는 $fetch가 throw하므로 호출부가 처리한다.
    */
   async function login(email: string, password: string): Promise<void> {
@@ -38,10 +37,24 @@ export const useAdminAuthStore = defineStore('adminAuth', () => {
       method: 'POST',
       body: { email, password, role: ADMIN_ROLE },
     })
-    if (decodeJwtPayload(response.token)?.role !== ADMIN_ROLE) {
+    storeAdminToken(response.token)
+  }
+
+  /**
+   * 관리자 데모 로그인(FE-23). Nuxt 서버 라우트가 env 계정으로 BE 로그인을 대행하므로 브라우저는 자격증명을 모른다.
+   * 응답 형태·role 검증·저장은 login과 동일 경로(storeAdminToken)를 탄다. 미설정 404·BE 실패 401은 $fetch가 throw한다.
+   */
+  async function loginDemo(): Promise<void> {
+    const response = await $fetch<{ token: string }>(ADMIN_DEMO_LOGIN_PATH, { method: 'POST' })
+    storeAdminToken(response.token)
+  }
+
+  /** 응답 토큰의 role 클레임이 ADMIN이 아니면 저장하지 않고 throw한다(BE는 요청 role로 발급하므로 방어 검증). */
+  function storeAdminToken(candidate: string): void {
+    if (decodeJwtPayload(candidate)?.role !== ADMIN_ROLE) {
       throw new Error('관리자 토큰이 아닙니다')
     }
-    token.value = response.token
+    token.value = candidate
   }
 
   /** 관리자 로그아웃. admin_token만 제거(사용자 auth_token 유지). */
@@ -49,5 +62,5 @@ export const useAdminAuthStore = defineStore('adminAuth', () => {
     token.value = null
   }
 
-  return { token, role, exp, expired, isAuthenticated, login, logout }
+  return { token, role, exp, expired, isAuthenticated, login, loginDemo, logout }
 })
