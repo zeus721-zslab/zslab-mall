@@ -68,6 +68,11 @@ public interface RefundRepository extends JpaRepository<Refund, Long> {
      * (@ManyToOne 미적용·aggregate-boundary)이므로 연관 탐색 조인이 불가해 theta-join(FK = id 조건)으로 연결한다.
      * 기간 기준은 {@code refunded_at}이며 경계는 양끝 포함({@code >= periodStart AND <= periodEnd})이다.
      *
+     * <p><b>gross 대상 한정(Track 79 D-168·B)</b>: {@code oi.confirmedAt IS NOT NULL} — 매출(gross)에 집계된 적이 있는(구매확정)
+     * 품목의 환불만 차감한다. 확정 전 취소(CANCEL)·반품(RETURN)·교환 차액 환불은 품목이 gross에 포함된 적이 없어 차감하면 이중 차감이다.
+     * 기준을 Claim type이 아니라 "gross 포함 여부(confirmed_at)"로 둔 이유: 정산식 net = gross − refund의 대칭 조건이며, 향후
+     * 확정 후 반품 전이가 열려도 그대로 정합하다.
+     *
      * <p>{@code status}는 enum 바인딩 파라미터로 전달한다(@Enumerated(STRING) 정합·JPQL enum 리터럴 ordinal 비교 함정 회피).
      * 모든 변수는 :status·:periodStart·:periodEnd 바인딩만 사용하며 SQL injection 위험이 없다.
      */
@@ -75,6 +80,7 @@ public interface RefundRepository extends JpaRepository<Refund, Long> {
             + "FROM Refund r, Claim c, OrderItem oi "
             + "WHERE r.claimId = c.id "
             + "AND c.orderItemId = oi.id "
+            + "AND oi.confirmedAt IS NOT NULL "
             + "AND r.status = :status "
             + "AND r.refundedAt >= :periodStart "
             + "AND r.refundedAt <= :periodEnd "

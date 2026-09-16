@@ -1,6 +1,8 @@
 package com.zslab.mall.claim.repository;
 
 import com.zslab.mall.claim.entity.Claim;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -29,4 +31,7 @@ public interface ClaimRepository extends JpaRepository<Claim, Long> {
 
     /** Buyer 본인 클레임 목록(requested_by 기준·D-54 페이징). */
     Page<Claim> findAllByRequestedBy(Long requestedBy, Pageable pageable);
+
+    /** 관리자 주문 목록·상세 배치 enrich(Track 79 D-168·N+1 회피). 항목별 최신 행이 앞에 오도록 id 내림차순. */
+    List<Claim> findByOrderItemIdInOrderByIdDesc(Collection<Long> orderItemIds);
 }

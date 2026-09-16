@@ -4,6 +4,7 @@ import com.zslab.mall.payment.entity.Payment;
 import com.zslab.mall.payment.enums.PaymentStatus;
 import jakarta.persistence.LockModeType;
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Pageable;
@@ -39,6 +40,9 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
 
     /** 운영 조회: 한 주문의 전체 결제 행(최신순). */
     List<Payment> findAllByOrderIdOrderByIdDesc(Long orderId);
+
+    /** 관리자 주문 목록 배치 enrich(Track 79 D-168·N+1 회피). 주문별 최신 행이 앞에 오도록 id 내림차순. */
+    List<Payment> findByOrderIdInOrderByIdDesc(Collection<Long> orderIds);
 
     /**
      * 만료 배치 대상 조회(Track 25·D-08 M-14): status가 주어진 값이고 expires_at이 기준 시각 이전인 행을 만료 임박순으로

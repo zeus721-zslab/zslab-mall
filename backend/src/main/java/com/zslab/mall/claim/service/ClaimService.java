@@ -4,6 +4,7 @@ import com.zslab.mall.claim.controller.request.ClaimRequestCommand;
 import com.zslab.mall.claim.controller.response.ClaimResponse;
 import com.zslab.mall.claim.controller.response.ClaimSummaryResponse;
 import com.zslab.mall.claim.entity.Claim;
+import com.zslab.mall.claim.enums.ClaimReasonCode;
 import com.zslab.mall.claim.enums.ClaimStatus;
 import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.event.ClaimApproved;
@@ -26,6 +27,8 @@ import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.order.repository.OrderRepository;
 import com.zslab.mall.refund.enums.RefundStatus;
 import com.zslab.mall.refund.repository.RefundRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import java.time.LocalDateTime;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -60,6 +63,7 @@ public class ClaimService {
     private final TracedEventPublisher eventPublisher;
     private final DeliveryService deliveryService;
     private final RefundRepository refundRepository;
+    private final EntityManager entityManager;
 
     public ClaimService(
             ClaimRepository claimRepository,
@@ -67,13 +71,15 @@ public class ClaimService {
             OrderRepository orderRepository,
             TracedEventPublisher eventPublisher,
             DeliveryService deliveryService,
-            RefundRepository refundRepository) {
+            RefundRepository refundRepository,
+            EntityManager entityManager) {
         this.claimRepository = claimRepository;
         this.orderItemRepository = orderItemRepository;
         this.orderRepository = orderRepository;
         this.eventPublisher = eventPublisher;
         this.deliveryService = deliveryService;
         this.refundRepository = refundRepository;
+        this.entityManager = entityManager;
     }
 
     /**
@@ -86,12 +92,12 @@ public class ClaimService {
      */
     public Claim request(ClaimRequestCommand command) {
         // (a) OrderItem public_id → id 해소(D-64·D-65). 미존재 시 404.
-        OrderItem orderItem = orderItemRepository.findByPublicId(command.orderItemPublicId())
+        OrderItem resolved = orderItemRepository.findByPublicId(command.orderItemPublicId())
                 .orElseThrow(() -> new ClaimNotFoundException(
                         "주문 품목을 찾을 수 없습니다: " + command.orderItemPublicId()));
 
         // (b)(c) 소유권 검증: order_item → order → buyer_id 2단계 조회(Q8). 불일치 시 404(정보 누출 차단·T3).
-        Long orderId = orderItemRepository.findOrderIdById(orderItem.getId())
+        Long orderId = orderItemRepository.findOrderIdById(resolved.getId())
                 .orElseThrow(() -> new ClaimNotFoundException(
                         "주문 품목을 찾을 수 없습니다: " + command.orderItemPublicId()));
         Order order = orderRepository.findById(orderId)
@@ -101,31 +107,53 @@ public class ClaimService {
             throw new ClaimNotFoundException("주문 품목을 찾을 수 없습니다: " + command.orderItemPublicId());
         }
 
+        return createClaim(resolved.getId(), command.claimType(), command.reasonCode(), command.reasonDetail(),
+                command.buyerId(), command.requestedAt());
+    }
+
+    /**
+     * 클레임 생성 공통 코어(Track 79 D-168·사용자 {@link #request}·관리자 {@link #requestByAdmin} 공유). 품목을
+     * {@code refresh(PESSIMISTIC_WRITE)}로 잠그고 최신 상태로 재적재한 뒤(D·동시 요청 직렬화) CLM-5·type별 요청 전이 가능성을 검증하고
+     * Claim을 저장·{@link ClaimRequested}를 발행한다. 동기 {@code ClaimRequestedHandler}가 같은 TX에서 품목을 *_REQUESTED로 전이하므로,
+     * 락을 기다린 두 번째 요청은 전이 검증에서 422로 거부되고 Claim INSERT는 발생하지 않는다.
+     *
+     * <p><b>refresh인 이유</b>: 호출부(사용자 경로 findByPublicId·관리자 경로 Order fetch join)가 품목 엔티티를 이미 1차 캐시에
+     * 올려둔 뒤라, 잠금 조회({@code SELECT ... FOR UPDATE})만으로는 캐시된 stale 상태가 덮어써지지 않는다. refresh는 잠금과 상태 재적재를
+     * 한 번에 수행해 락 획득 직후의 최신 item_status로 검증하게 한다.
+     *
+     * @throws ClaimInvalidStateException 활성 클레임 중복(CLM-5)·OrderItem 상태가 해당 type 요청 전이 불가인 경우(422)
+     */
+    private Claim createClaim(Long orderItemId, ClaimType claimType, ClaimReasonCode reasonCode, String reasonDetail,
+            Long requestedBy, LocalDateTime requestedAt) {
+        OrderItem orderItem = orderItemRepository.findById(orderItemId)
+                .orElseThrow(() -> new ClaimNotFoundException("주문 품목을 찾을 수 없습니다: orderItemId=" + orderItemId));
+        entityManager.refresh(orderItem, LockModeType.PESSIMISTIC_WRITE);
+
         // (d) CLM-5: 동일 OrderItem 활성 클레임(REQUESTED·APPROVED) 중복 차단(422).
         if (claimRepository.existsActiveByOrderItemId(orderItem.getId())) {
-            throw new ClaimInvalidStateException("이미 진행 중인 클레임이 있습니다(CLM-5): " + command.orderItemPublicId());
+            throw new ClaimInvalidStateException("이미 진행 중인 클레임이 있습니다(CLM-5): orderItemId=" + orderItemId);
         }
 
-        // (e) type별 진입 전이 대상 매핑 후 OrderItem 상태 전이 가능성 검증(D-98 Q4·읽기 검증만·실제 전이는 핸들러 소관).
-        OrderItemStatus targetStatus = switch (command.claimType()) {
+        // (e) type별 진입 전이 대상 매핑 후 OrderItem 상태 전이 가능성 검증(D-98 Q4). 실제 전이는 동기 핸들러가 수행.
+        OrderItemStatus targetStatus = switch (claimType) {
             case CANCEL -> OrderItemStatus.CANCEL_REQUESTED;
             case RETURN -> OrderItemStatus.RETURN_REQUESTED;
             case EXCHANGE -> OrderItemStatus.EXCHANGE_REQUESTED;
         };
         if (!orderItem.getItemStatus().canTransitionTo(targetStatus)) {
             throw new ClaimInvalidStateException(
-                    "현재 주문 품목 상태에서 " + command.claimType() + " 요청이 불가합니다: " + orderItem.getItemStatus());
+                    "현재 주문 품목 상태에서 " + claimType + " 요청이 불가합니다: " + orderItem.getItemStatus());
         }
 
         // (f) Claim 생성·저장 후 이벤트 발행(D-29 save→publish·no flush). public_id·id는 save 시 부여된다.
         //     요청 시점 OrderItem 상태를 스냅샷으로 저장(D-98 Q11·REJECTED 원복용).
         Claim claim = Claim.create(
                 orderItem.getId(),
-                command.claimType(),
-                command.reasonCode().name(),
-                command.reasonDetail(),
-                command.buyerId(),
-                command.requestedAt(),
+                claimType,
+                reasonCode.name(),
+                reasonDetail,
+                requestedBy,
+                requestedAt,
                 orderItem.getItemStatus());
         claimRepository.save(claim);
         eventPublisher.publishEvent(new ClaimRequested(
@@ -136,6 +164,22 @@ public class ClaimService {
                 claim.getStatus(),
                 claim.getRequestedBy(),
                 LocalDateTime.now()));
+        return claim;
+    }
+
+    /**
+     * 관리자 취소 진입점(Track 79 D-168·A). 소유 검증을 생략하고 requestedBy=관리자 user id로 Claim(CANCEL)을 생성한 뒤 같은
+     * 트랜잭션에서 {@link #approve}까지 진행한다(REQUESTED → APPROVED 1 TX). 정책(PAID·PREPARING 한정·항목 단위·CLM-5·사유 코드)은
+     * 사용자 경로와 동일한 {@link #createClaim} 코어를 재사용한다. 이후 환불 initiate → 웹훅 완료 → COMPLETED → 항목 CANCELLED·재고
+     * 복구는 기존 AFTER_COMMIT 경로 그대로다("즉시 완료"가 아니라 "승인까지 자동"·상태기계 §2 CANCEL COMPLETED = Refund COMPLETED 유지).
+     *
+     * @throws ClaimNotFoundException     주문 품목이 없는 경우(404)
+     * @throws ClaimInvalidStateException 활성 클레임 중복(CLM-5)·품목 상태가 CANCEL 요청 전이 불가인 경우(422)
+     */
+    public Claim requestByAdmin(Long orderItemId, ClaimReasonCode reasonCode, String reasonDetail,
+            Long adminUserId, LocalDateTime now) {
+        Claim claim = createClaim(orderItemId, ClaimType.CANCEL, reasonCode, reasonDetail, adminUserId, now);
+        approve(claim.getId(), now, null);
         return claim;
     }
 

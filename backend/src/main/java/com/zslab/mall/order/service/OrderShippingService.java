@@ -72,6 +72,22 @@ public class OrderShippingService {
     }
 
     /**
+     * 관리자 송장 등록(Track 79 D-168·F). 셀러 소유 검증만 생략하고 전이·Delivery 생성·SHIPPING 진입은 {@link #prepareShipment}와
+     * 동일 흐름을 공유한다(셀러 경로 무변경). 인가는 컨트롤러 경로({@code /api/v1/admin/**})가 강제한다.
+     *
+     * @throws OrderNotFoundException       주문 품목 미존재(404)
+     * @throws DeliveryInvalidStateException 품목이 PAID가 아니어서 PREPARING 전이 불가(422)
+     */
+    public Delivery prepareShipmentByAdmin(Long orderItemId, DeliveryCarrier carrier, String trackingNo) {
+        OrderItem orderItem = orderItemRepository.findById(orderItemId)
+                .orElseThrow(() -> new OrderNotFoundException("주문 품목을 찾을 수 없습니다: orderItemId=" + orderItemId));
+        changeToPreparing(orderItem);
+        Delivery delivery = deliveryService.createForOrder(orderItemId, carrier);
+        deliveryService.markShipping(delivery.getId(), trackingNo);
+        return delivery;
+    }
+
+    /**
      * 요청 판매자의 OrderItem 접근 권한을 검증한다(권한 = Service 진입부·D-92). OrderItem 미존재와 소유자 불일치를 모두
      * {@link OrderNotFoundException}(404)으로 통일해 cross-tenant 존재 노출을 회피한다(OrderNotFoundException 계약 정합).
      *
