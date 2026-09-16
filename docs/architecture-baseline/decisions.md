@@ -10167,3 +10167,40 @@ deploy.yml이 `push main` 무필터라 docs만 변경된 머지에도 서버 SSH
 - scripts/admin-product-status.ps1 제거(FE-25 완료 후).
 - D-160 §8(판매자 비-ACTIVE 담기·주문 허용 여부) 그대로 이월.
 - 상품 단위 판매기간과 별개로 variant 단위 판매기간·공급가는 요구 발생 시.
+
+## D-166. 이미지 업로드·서빙 BE — 로컬 디스크 저장·매직 바이트 검증·썸네일·thumbnail_url 동기화 (Track 77)
+
+날짜: 2026-09-16
+트랙: Track 77 (D-165 D8 α 이행·FE-25 선행)
+정찰: docs/track-76/recon-report.md STEP D(업로드 엔드포인트·multipart 설정·정적 서빙·업로드 볼륨 전무)
+브랜치: feat/track-77-image-upload
+
+### §1-A 결정
+1. **썸네일 라이브러리**: JDK ImageIO 단독(jpg·png 읽기/쓰기·Graphics2D 축소) 【채택】 / Thumbnailator 【기각】 — 가로 기준 축소 1종만 필요·의존성 추가 이점 없음. webp는 JDK 미지원이라 읽기 전용 순수 Java 플러그인 `com.twelvemonkeys.imageio:imageio-webp:3.12.0`(BSD-3·Java 8+) 【채택】 / `org.sejda.imageio:webp-imageio`(네이티브 바이너리·읽기/쓰기) 【기각】 — 컨테이너(temurin jre) 네이티브 로딩 위험 대비 webp 쓰기 요구 없음. webp 썸네일은 png로 기록(알파 보존·쓰기 플러그인 불요).
+2. **저장 경로**: `{UPLOAD_PATH}/products/yyyy/MM/{ULID}.{ext}` + 썸네일 `{ULID}_thumb.{thumbExt}` — 원본 파일명 미사용·확장자는 매직 바이트 판정 결과로 고정(클라이언트 확장자·Content-Type 불신). 썸네일 키를 원본 키에서 결정적으로 역산할 수 있어 DB 컬럼 없이 thumbnail_url 동기화가 가능하다. 가로 ≤ 400px이면 확대하지 않고 썸네일 URL=원본 URL(파일 미생성).
+3. **traversal 차단**: FileStorage가 루트 resolve → normalize → startsWith(root) 검사·루트 밖은 미존재와 동일 404 FILE_NOT_FOUND(존재 여부 은닉). Spring PathPattern `{*key}` 캡처.
+4. **서빙 경로**: `GET /api/v1/files/**` permitAll(SecurityConfig GET 한정) + `Cache-Control: max-age=31536000, public, immutable` — ULID 파일명 불변 전제·교체는 새 업로드+URL 교체. 백엔드가 직접 서빙 【채택】 / gateway nginx 정적 location 【기각】 — 프로젝트 밖 스택 수정 의존·볼륨 공유 필요. 응답 URL은 동일 Origin 상대경로(`/api/v1/files/...`)로 product_image.image_url에 그대로 저장(호스트 무관).
+5. **업로드 API**: `POST /api/v1/admin/files/images`(multipart `files`·ADMIN) — 파일별 결과(성공 url·thumbnailUrl·width·height·size / 실패 code: EMPTY_FILE·FILE_TOO_LARGE·UNSUPPORTED_FORMAT·INVALID_IMAGE)·항상 200(Track 76 bulk 정합). 요청 전체 거부: files 누락·21장 초과 400 MALFORMED_REQUEST·컨테이너 한도 초과 413 PAYLOAD_TOO_LARGE(신설). 위조 판정 = 선두 바이트가 jpg/png/webp 매직이 아니면 거절(png 바이트를 .jpg로 올린 경우는 png로 저장·확장자 교정).
+6. **multipart 한도**: max-file-size=${UPLOAD_MAX_SIZE:10485760}·max-request-size=220MB(20장×10MB+오버헤드). .env.example의 기존 UPLOAD_PATH·UPLOAD_MAX_SIZE를 application.yml `upload.path`·multipart로 연결(소비처 0 → 2).
+7. **볼륨**: docker-compose.mall.yml backend에 named volume `mall_uploads:${UPLOAD_PATH:-/app/uploads}` + env UPLOAD_PATH/UPLOAD_MAX_SIZE 추가(deploy.yml 무수정). dev 오버라이드의 `./backend:/app` bind 안에 중첩 마운트되며 호스트 `backend/uploads/`가 빈 디렉터리로 생성될 수 있어 .gitignore 추가.
+8. **thumbnail_url 동기화**: Track 76 PUT images에서 GALLERY 대표(main)가 있으면 `ImageUploadService.thumbnailUrlFor(대표 URL)`로 product.thumbnail_url 갱신(내부 URL은 `_thumb` 존재 시 썸네일·없으면 원본 / 외부 URL은 원본 그대로), 대표 없으면 유지. Track 59 결정3 "독립"을 대표 지정 시점에 한해 연결.
+9. **고아 파일 정리(soft-delete 이미지·미참조 업로드)**: 미구현 【이월】 — 단일 운영자·용량 소량·삭제는 하드 삭제 정책(A5) 검토와 함께.
+
+### API
+- POST /api/v1/admin/files/images (multipart files[]·ADMIN) / GET /api/v1/files/{key} (permitAll·GET)
+
+### 검증
+- 통합: FileUploadServingIntegrationTest 8 — jpg 800x600 썸네일 400x300·Content-Type·Cache-Control / png 300x200 확대 금지·thumbnailUrl=url / webp(1x1 VP8L 고정 픽스처·TwelveMonkeys 디코딩) / 부분 실패(위조 텍스트·빈 파일·10MB+1) / 21장 400·files 누락 400 / BUYER 403·미인증 401·저장 0 / 404·traversal(../·%2e%2e) 400|404·루트 밖 파일 미서빙 / PUT images 대표 → thumbnail_url 동기화(내부·외부·대표 없음).
+- 임시 루트: `upload.path`를 @TempDir로 @DynamicPropertySource 주입(실 경로 오염 없음).
+- 전체: ./backend/gradlew.bat test --rerun-tasks 936 tests·0 fail.
+- 미검증: multipart 컨테이너 한도 413 경로(MockMvc는 서블릿 multipart 파서를 거치지 않음) — 앱 단 FILE_TOO_LARGE로 대체 확인. 운영 gateway `client_max_body_size`는 외부 스택이라 본 트랙 범위 밖(운영 배포 선행 조건).
+
+### 운영 배포 선행 조건
+- gateway nginx `/api` location에 `client_max_body_size 220m`(또는 그 이상) — 미설정 시 nginx 기본 1m으로 413.
+- .env에 UPLOAD_PATH·UPLOAD_MAX_SIZE(기본값 사용 시 생략 가능)·compose 재생성으로 mall_uploads 볼륨 생성.
+- 이미지 URL이 상대경로라 FE는 apiBase(`/api`) 기준으로 그대로 사용(운영 gateway path-split `/api` → backend 정합).
+
+### §8 이월
+- 고아 파일 정리·soft-delete 이미지 물리 삭제.
+- 413 경로 실 컨테이너 검증(로컬 dev curl).
+- FE-25: 업로드 → PUT images 연동·미리보기.

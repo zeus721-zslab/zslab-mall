@@ -54,3 +54,4 @@ frontend/.nuxt/
 frontend/.nitro/
 frontend/.data/
 frontend/dist/
+backend/uploads/

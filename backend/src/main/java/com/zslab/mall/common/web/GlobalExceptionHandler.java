@@ -17,6 +17,7 @@ import com.zslab.mall.checkout.exception.IdempotencyKeyInProgressException;
 import com.zslab.mall.claim.exception.ClaimInvalidStateException;
 import com.zslab.mall.claim.exception.ClaimNotFoundException;
 import com.zslab.mall.common.exception.MalformedRequestException;
+import com.zslab.mall.file.exception.StoredFileNotFoundException;
 import com.zslab.mall.common.exception.UnauthenticatedException;
 import com.zslab.mall.delivery.exception.DeliveryInvalidStateException;
 import com.zslab.mall.delivery.exception.DeliveryNotFoundException;
@@ -63,6 +64,8 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 
 /**
  * 전역 예외 핸들러(§14·D-48). RFC 7807 {@link ProblemDetail} + 커스텀 {@code code}·{@code traceId} 속성으로 일원화한다.
@@ -116,6 +119,8 @@ public class GlobalExceptionHandler {
     private static final String CODE_PRODUCT_INVALID_STATE = "PRODUCT_INVALID_STATE";
     private static final String CODE_PRODUCT_HAS_ORDER_HISTORY = "PRODUCT_HAS_ORDER_HISTORY";
     private static final String CODE_SELLER_NOT_FOUND = "SELLER_NOT_FOUND";
+    private static final String CODE_FILE_NOT_FOUND = "FILE_NOT_FOUND";
+    private static final String CODE_PAYLOAD_TOO_LARGE = "PAYLOAD_TOO_LARGE";
     private static final String CODE_FORBIDDEN = "FORBIDDEN";
     private static final String CODE_SETTLEMENT_PERIOD_INVALID = "SETTLEMENT_PERIOD_INVALID";
     private static final String CODE_SETTLEMENT_ALREADY_EXISTS = "SETTLEMENT_ALREADY_EXISTS";
@@ -146,7 +151,7 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler({HttpMessageNotReadableException.class, MethodArgumentTypeMismatchException.class,
-            MalformedRequestException.class, IllegalArgumentException.class})
+            MalformedRequestException.class, IllegalArgumentException.class, MissingServletRequestPartException.class})
     public ResponseEntity<ProblemDetail> handleMalformed(Exception exception, HttpServletRequest request) {
         return build(HttpStatus.BAD_REQUEST, CODE_MALFORMED_REQUEST, exception.getMessage(), request);
     }
@@ -209,6 +214,13 @@ public class GlobalExceptionHandler {
             ProductNotFoundException exception, HttpServletRequest request) {
         // Track 44: 구매자 카탈로그 단건 미존재·비노출(status/판매자상태/삭제) 은닉(404). 존재 여부 노출 회피(§2).
         return build(HttpStatus.NOT_FOUND, CODE_PRODUCT_NOT_FOUND, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(StoredFileNotFoundException.class)
+    public ResponseEntity<ProblemDetail> handleStoredFileNotFound(
+            StoredFileNotFoundException exception, HttpServletRequest request) {
+        // Track 77: 업로드 파일 서빙 미존재·루트 밖 경로(traversal) 은닉(404).
+        return build(HttpStatus.NOT_FOUND, CODE_FILE_NOT_FOUND, exception.getMessage(), request);
     }
 
     @ExceptionHandler(SellerNotFoundException.class)
@@ -300,6 +312,15 @@ public class GlobalExceptionHandler {
             RoleAssignmentNotFoundException exception, HttpServletRequest request) {
         // Track 53: 권한 회수 delete 0 row(대상 역할 미보유·User 미존재·경합 선삭제 통합 은닉·404). 존재 여부 비노출.
         return build(HttpStatus.NOT_FOUND, CODE_ROLE_ASSIGNMENT_NOT_FOUND, exception.getMessage(), request);
+    }
+
+    // ===== 413 =====
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<ProblemDetail> handleMaxUploadSize(
+            MaxUploadSizeExceededException exception, HttpServletRequest request) {
+        // Track 77: multipart 파일당/요청당 한도 초과(spring.servlet.multipart). 앱 단 파일별 검증 이전에 컨테이너가 거부한다.
+        return build(HttpStatus.PAYLOAD_TOO_LARGE, CODE_PAYLOAD_TOO_LARGE,
+                "업로드 용량 한도를 초과했습니다(파일당 10MB·요청당 20장).", request);
     }
 
     // ===== 409 =====

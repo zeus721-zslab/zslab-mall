@@ -34,6 +34,8 @@ dependencies {
     implementation("org.flywaydb:flyway-mysql")
     implementation("com.github.f4b6a3:ulid-creator:5.2.3")
     implementation("net.logstash.logback:logstash-logback-encoder:8.0")
+    // Track 77: JDK ImageIO는 webp 미지원 → 읽기 전용 순수 Java 플러그인(BSD-3). 썸네일 쓰기는 JDK jpg/png만 사용(webp 썸네일은 png).
+    implementation("com.twelvemonkeys.imageio:imageio-webp:3.12.0")
     compileOnly("org.projectlombok:lombok")
     annotationProcessor("org.projectlombok:lombok")
     testImplementation("org.springframework.boot:spring-boot-starter-test")

@@ -25,6 +25,11 @@ spring:
     enabled: true
     locations: classpath:db/migration
     baseline-on-migrate: false
+  servlet:
+    multipart:
+      # Track 77 이미지 업로드: 파일당 10MB(UPLOAD_MAX_SIZE·매직 바이트 검증은 앱) · 요청당 최대 20장 + 멀티파트 오버헤드 여유 = 210MB.
+      max-file-size: ${UPLOAD_MAX_SIZE:10485760}
+      max-request-size: 220MB
   jackson:
     # D-49·§15: 응답 null 필드 제외(camelCase는 Jackson 기본). 날짜 UTC Z 포맷은 DTO 필드 @JsonFormat에서 처리.
     default-property-inclusion: non_null
@@ -63,3 +68,8 @@ admin:
     # 달리 prod에서도 기본값을 제거하지 않는다(제거 시 admin 존재 환경의 재기동까지 env를 강제하게 됨).
     email: ${ADMIN_BOOTSTRAP_EMAIL:}
     password: ${ADMIN_BOOTSTRAP_PASSWORD:}
+
+upload:
+  # Track 77 이미지 업로드 저장 루트(컨테이너 내부 절대경로·docker-compose.mall.yml mall_uploads 볼륨과 동일 경로).
+  # 하위에 products/yyyy/MM/{ULID}.{ext}로 저장하며 GET /api/v1/files/** 가 같은 루트를 서빙한다.
+  path: ${UPLOAD_PATH:/app/uploads}
