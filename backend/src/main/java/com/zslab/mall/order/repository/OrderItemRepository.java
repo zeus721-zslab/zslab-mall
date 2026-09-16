@@ -45,6 +45,14 @@ public interface OrderItemRepository extends JpaRepository<OrderItem, Long> {
     Optional<Long> findOrderIdById(@Param("id") Long id);
 
     /**
+     * 여러 주문 품목의 소속 주문 요약(id·public_id·주문번호·구매자 id)을 한 번에 조회한다(Track 80 관리자 클레임 목록 배치 enrich·
+     * N+1 회피·Order 엔티티 미적재). 모든 변수는 :ids 바인딩이다.
+     */
+    @Query("SELECT oi.id AS orderItemId, o.id AS orderId, o.publicId AS orderPublicId, o.orderNo AS orderNo, "
+            + "o.buyerId AS buyerId FROM OrderItem oi JOIN oi.order o WHERE oi.id IN :ids")
+    List<OrderItemOrderProjection> findOrderSummariesByIdIn(@Param("ids") Collection<Long> ids);
+
+    /**
      * 정산 기간 내 구매확정(CONFIRMED) 품목의 총 매출(total_price 합)을 seller별로 집계한다(Track 48 P2·정산 gross 소스).
      * 기간 기준은 {@code confirmed_at}이며 경계는 양끝 포함({@code >= periodStart AND <= periodEnd})이다.
      * {@code confirmed_at IS NULL}(미확정) 행은 범위 비교가 false로 평가돼 자연 제외된다.

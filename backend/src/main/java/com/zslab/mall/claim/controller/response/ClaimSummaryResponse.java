@@ -2,15 +2,18 @@ package com.zslab.mall.claim.controller.response;
 
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.zslab.mall.claim.entity.Claim;
+import com.zslab.mall.claim.enums.ClaimRejectReasonCode;
 import com.zslab.mall.claim.enums.ClaimStatus;
 import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.common.serialization.KstOffsetSerializer;
+import com.zslab.mall.refund.enums.RefundStatus;
 import java.time.LocalDateTime;
 
 /**
  * 클레임 목록 항목 경량 응답(D-89 Q10·OrderSummaryResponse 패턴 정합). 페이로드 절감을 위해 필드를 한정한다.
  *
- * <p>reasonDetail·processedAt·orderItemPublicId는 단건 상세(ClaimResponse)에서만 노출한다(목록 N+1 회피).
+ * <p>reasonDetail·processedAt·orderItemPublicId·거부 메모는 단건 상세(ClaimResponse)에서만 노출한다(목록 N+1 회피). 환불 상태는
+ * 페이지 단위 배치 조회(1쿼리)로 채운다.
  */
 public record ClaimSummaryResponse(
         String publicId,
@@ -18,15 +21,19 @@ public record ClaimSummaryResponse(
         ClaimStatus status,
         String reasonCode,
         @JsonSerialize(using = KstOffsetSerializer.class)
-        LocalDateTime requestedAt) {
+        LocalDateTime requestedAt,
+        ClaimRejectReasonCode rejectReasonCode,
+        RefundStatus refundStatus) {
 
-    /** 영속 Claim으로 목록 항목을 조립한다. */
-    public static ClaimSummaryResponse from(Claim claim) {
+    /** 영속 Claim + 최신 환불 상태(없으면 null)로 목록 항목을 조립한다(Track 80 D-169·거부 사유 코드·환불 상태 추가). */
+    public static ClaimSummaryResponse from(Claim claim, RefundStatus refundStatus) {
         return new ClaimSummaryResponse(
                 claim.getPublicId(),
                 claim.getType(),
                 claim.getStatus(),
                 claim.getReasonCode(),
-                claim.getRequestedAt());
+                claim.getRequestedAt(),
+                claim.getRejectReasonCode(),
+                refundStatus);
     }
 }

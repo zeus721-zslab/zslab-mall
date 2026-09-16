@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CLAIM_REASON_LABELS, claimStatusLabel, claimTypeLabel } from '~/lib/constants/claim'
+import { CLAIM_REASON_LABELS, claimRejectReasonLabel, claimStatusLabel, claimTypeLabel, refundStatusLabel } from '~/lib/constants/claim'
 import { formatDateTime } from '~/lib/utils/datetime'
 
 // BUYER 전용 — 미인증/비-BUYER는 buyer 미들웨어가 /login으로 유도한다.
@@ -54,9 +54,18 @@ useSeoMeta({ title: '취소·반품·교환 내역 · zslab-mall', description: 
                     {{ CLAIM_REASON_LABELS[claim.reasonCode] }} · {{ formatDateTime(claim.requestedAt) }}
                   </p>
                 </div>
-                <span class="shrink-0 rounded-badge bg-gray-100 px-3 py-1 text-xs font-medium text-ink">
-                  {{ claimStatusLabel(claim.status) }}
-                </span>
+                <div class="flex shrink-0 flex-col items-end gap-1">
+                  <span class="rounded-badge bg-gray-100 px-3 py-1 text-xs font-medium text-ink">
+                    {{ claimStatusLabel(claim.status) }}
+                  </span>
+                  <!-- 거부 사유·환불 상태(FE-28·Track 80): 값이 있을 때만 무채색 보조 배지 -->
+                  <span v-if="claim.rejectReasonCode" class="rounded-badge border border-line px-2 py-0.5 text-[11px] text-sub" data-testid="claim-reject-reason">
+                    {{ claimRejectReasonLabel(claim.rejectReasonCode) }}
+                  </span>
+                  <span v-if="claim.refundStatus" class="rounded-badge border border-line px-2 py-0.5 text-[11px] text-sub" data-testid="claim-refund-status">
+                    {{ refundStatusLabel(claim.refundStatus) }}
+                  </span>
+                </div>
               </div>
             </NuxtLink>
           </li>

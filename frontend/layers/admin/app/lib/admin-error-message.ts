@@ -11,7 +11,7 @@ const ADMIN_ERROR_MESSAGES: Record<string, string> = {
   ORDER_NOT_FOUND: '주문 또는 주문 품목을 찾을 수 없습니다.',
   CLAIM_NOT_FOUND: '클레임을 찾을 수 없습니다.',
   DELIVERY_NOT_FOUND: '배송 정보를 찾을 수 없습니다.',
-  CLAIM_STATE_INVALID: '현재 상태에서 처리할 수 없는 클레임입니다(취소 불가 품목·진행 중 클레임 중복 등).',
+  CLAIM_STATE_INVALID: '현재 상태에서 처리할 수 없는 클레임입니다(취소 불가 품목·진행 중 클레임 중복·클레임 진행 중 품목의 송장 등록 등).',
   DELIVERY_INVALID_STATE: '현재 배송 상태에서 허용되지 않는 처리입니다(송장 등록은 결제완료 품목, 배송완료는 배송중만).',
   ORDER_ITEM_INVALID_STATE: '현재 품목 상태에서 허용되지 않는 처리입니다.',
   OPTIMISTIC_LOCK_FAILURE: '이미 종료됐거나 결제가 완료된 주문입니다. 최신 상태를 다시 확인하세요.',

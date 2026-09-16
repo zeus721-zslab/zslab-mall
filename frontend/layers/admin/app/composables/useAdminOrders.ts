@@ -8,6 +8,7 @@ import type {
   AdminOrderListResponse,
   AdminShipmentRequest,
 } from '#layers/admin/app/types/admin-order'
+import type { AdminClaimRejectBody } from '#layers/admin/app/types/admin-claim'
 import { toAdminOrderApiParams } from '#layers/admin/app/lib/admin-order-query'
 import { useAdminApi } from '#layers/admin/app/composables/useAdminApi'
 
@@ -51,9 +52,10 @@ export function useAdminOrders() {
     return api<AdminClaimResponse>(path, { method: 'POST' })
   }
 
-  function rejectClaim(claimPublicId: string): Promise<AdminClaimResponse> {
+  /** 거부 body는 사유 코드 필수·메모 선택(FE-28·Track 80 D-169·BE ClaimRejectRequest @Valid). */
+  function rejectClaim(claimPublicId: string, body: AdminClaimRejectBody): Promise<AdminClaimResponse> {
     const path: string = `/v1/admin/claims/${claimPublicId}/reject`
-    return api<AdminClaimResponse>(path, { method: 'POST' })
+    return api<AdminClaimResponse>(path, { method: 'POST', body })
   }
 
   return { list, detail, cancel, prepareShipment, markDelivered, approveClaim, rejectClaim }

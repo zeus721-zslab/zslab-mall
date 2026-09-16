@@ -58,6 +58,8 @@ REQUESTED ──→ APPROVED ──→ COMPLETED
 
 **REJECTED 처리 정책**: 기존 Claim은 REJECTED 상태로 보존 (이력 추적). 재요청 시 새 Claim 행 생성.
 
+> **거부 사유(Track 80 D-169)**: REQUESTED → REJECTED 전이는 거부 사유 코드 필수·메모 선택이다(`claim.reject_reason_code` CHECK·`reject_memo` ≤500·V23·`ClaimRejectReasonCode` ALREADY_SHIPPED|OUT_OF_POLICY|BUYER_WITHDRAWN|OTHER). ALREADY_SHIPPED는 CANCEL 전용(도메인 검증 400). 거부 시 품목은 `previous_order_item_status` 스냅샷으로 원복(§3·기존 ClaimRejectedHandler 무변경). 거부·요청 접수·CANCEL 완료 시점에 구매자 SMS(NotificationLog channel=SMS·AFTER_COMMIT·발송 실패는 전이를 롤백하지 않음).
+
 ---
 
 ## 3. OrderItem.item_status (B분류 — Code 참조, 값 집합 확정)
@@ -98,6 +100,8 @@ ORDERED → PAID → PREPARING → SHIPPING → DELIVERED → CONFIRMED
 > **D-90 Q3 의미 변경 (Track 14·D-98 Q7)**: 기존 §주석(Track 9 PR-C)은 `CANCEL_REQUESTED → PAID`를 claim-lock release(unlock 목적·과거 상태 복원 아님)로 박제했으나, Track 14 PR-1에서 의미 변경. `claim.previous_order_item_status`(Q11) 컬럼에 Claim 요청 시점 OrderItem 상태를 저장·REJECTED 시 해당 스냅샷으로 복원(type 무관). claim-lock release 단어는 더 이상 의미 부재. PREPARING 직접 복원도 스냅샷 기반으로 지원. canTransitionTo 매트릭스 확장 반영.
 
 > **[SUPERSEDED·Track 79 D-168 정정] 미결제 자동취소 전이 (D-153 Phase 1·FE-12b)**: 구 `ORDERED → CANCELLED` 서술은 FE-12c(§11)로 폐기됐고 `OrderItemStatus.canTransitionTo`에는 `ORDERED → PAID`만 존재한다. 미결제 종료는 Order.status만 PAYMENT_EXPIRED로 직접 세팅(조건부 UPDATE)하며 OrderItem은 ORDERED 유지.
+>
+> **송장 등록 가드(Track 80 D-169·C2)**: `PAID → PREPARING`(prepare-shipment·셀러/관리자 공용 `OrderShippingService.changeToPreparing`)은 진입 전 품목을 `refresh(PESSIMISTIC_WRITE)`로 잠그고 활성 클레임(REQUESTED·APPROVED)이 있으면 `ClaimInvalidStateException`(422 CLAIM_STATE_INVALID)으로 차단한다. `CANCEL_REQUESTED → PREPARING` 매트릭스는 스냅샷 원복 전용이라 무변경이며 상태 전이만으로는 막히지 않으므로 클레임 존재를 직접 검사한다. 이미 발송해야 하는 품목은 관리자가 ALREADY_SHIPPED로 거부(→ PAID 원복) 후 송장을 등록한다.
 >
 > **관리자 취소 경로(Track 79 D-168)**: 결제 후 = 관리자 진입점 `ClaimService.requestByAdmin`이 Claim(CANCEL) 생성 + APPROVED까지 1 TX(`PAID|PREPARING → CANCEL_REQUESTED`는 동기 핸들러가 같은 TX에서 전이)·이후 환불·COMPLETED·CANCELLED는 사용자 경로와 동일 / 미결제 = `OrderAutoCancelService.cancelOne` 재사용(§11)·사유는 audit_log(ORDER). 같은 품목 동시 요청은 `refresh(PESSIMISTIC_WRITE)` + 전이 검증으로 1건만 성립(D).
 
@@ -281,6 +285,8 @@ PENDING ──→ COMPLETED (불가역)
 **Payment 연동 (D-05 정합)**: Refund.COMPLETED 후 Payment.status는 환불 누적 금액에 따라 CANCELLED 전이 가능 (PAY-1 invariant·Domain 검증).
 
 **전이 권한**: 자동 (PG 콜백 핸들러). 운영자 수동 보정 권한 없음 — 후속 트랙(D안 RefundAdjustment) 검토 사항.
+
+> **Mock PG 자동 완료(Track 80 D-169·C4·Mock 한정)**: `MockPaymentGateway.refund`가 `MockRefundAccepted(pgRefundId)`를 발행하고, `MockRefundAutoCallbackListener`(`@ConditionalOnBean(MockPaymentGateway)`·AFTER_COMMIT·REQUIRES_NEW)가 initiate 커밋 후 `RefundService.handleCallback(SUCCESS)`를 호출해 PENDING → COMPLETED를 서버 내부에서 발생시킨다. 이후 체인(RefundCompleted → Claim COMPLETED → 품목 CANCELLED·재고 복구)은 기존과 동일하며 요청 스레드에서 동기 수렴한다(승인 응답 재조회 시 이미 COMPLETED). 중복 콜백은 RFN-3 멱등·콜백 실패는 PENDING 유지 + error 로그(운영자 initiate·웹훅 재시도 경로 보존). 실 PG 어댑터 도입 시 Mock 클래스 3종(게이트웨이·이벤트·리스너)을 함께 제거한다 — 프로필·프로퍼티 게이트 없음(demo 프로필 부재·운영도 Mock PG 사용).
 
 ---
 

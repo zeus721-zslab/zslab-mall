@@ -5,6 +5,8 @@ import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.event.ClaimApproved;
 import com.zslab.mall.claim.event.ClaimCompleted;
 import com.zslab.mall.claim.event.ClaimPickedUp;
+import com.zslab.mall.claim.event.ClaimRejected;
+import com.zslab.mall.claim.event.ClaimRequested;
 import com.zslab.mall.claim.repository.ClaimRepository;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
 import com.zslab.mall.common.observability.NotificationDispatchMetricsRecorder;
@@ -13,15 +15,19 @@ import com.zslab.mall.delivery.event.DeliveryCompleted;
 import com.zslab.mall.delivery.event.DeliveryStarted;
 import com.zslab.mall.delivery.repository.DeliveryRepository;
 import com.zslab.mall.notification.adapter.NotificationSender;
+import com.zslab.mall.notification.adapter.SmsSender;
 import com.zslab.mall.notification.entity.NotificationLog;
 import com.zslab.mall.notification.enums.NotificationChannel;
 import com.zslab.mall.notification.repository.NotificationLogRepository;
 import com.zslab.mall.notification.template.NotificationTemplateCodes;
 import com.zslab.mall.order.entity.Order;
+import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.event.OrderPlaced;
 import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.order.repository.OrderRepository;
 import com.zslab.mall.payment.event.PaymentCompleted;
+import com.zslab.mall.user.entity.User;
+import com.zslab.mall.user.repository.UserRepository;
 import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -39,7 +45,8 @@ import org.springframework.stereotype.Service;
  * structured log(warn)만 남긴다. recipient·title·content·templateCode 중 하나라도 산정 불가하면 NULL 적재를
  * 회피하고 skip한다(적재 의미 보존). 예외는 핸들러 상위로 재throw하지 않는다(원 흐름 비차단).
  *
- * <p>channel은 EMAIL 고정이다(실 전송 어댑터 부재·발송 채널 선택은 본 트랙 OUT-OF-SCOPE).
+ * <p>channel은 EMAIL 기본이다. Track 80(D-169)부터 클레임 요청 접수·거부·취소 완료는 SMS 채널로도 적재·발송한다
+ * ({@link SmsSender}·수신번호는 User.phone·없으면 skip+warn·본문은 주문번호·상품명·처리 결과만).
  *
  * <p><b>즉시 발송(Track 19·판단 2 α·save/dispatch 분리)</b>: 적재 직후 {@link NotificationSender}로 발송하고 성공 시 SENT·
  * 실패 시 FAILED로 전이한다({@code dispatch}). 발송 실패는 상위(핸들러)로 재throw하지 않으며(D-95 A2-α)
@@ -58,6 +65,8 @@ public class NotificationService {
     private final ClaimRepository claimRepository;
     private final DeliveryRepository deliveryRepository;
     private final NotificationSender notificationSender;
+    private final SmsSender smsSender;
+    private final UserRepository userRepository;
     private final NotificationDispatchMetricsRecorder notificationDispatchMetricsRecorder;
 
     /**
@@ -132,9 +141,57 @@ public class NotificationService {
                     + " 요청이 완료되었습니다.";
             save(recipientUserId, NotificationTemplateCodes.CLAIM_COMPLETED,
                     PolymorphicTargetType.CLAIM, event.claimId(), "클레임 완료", content, "ClaimCompleted");
+            if (event.claimType() == ClaimType.CANCEL) {
+                // Track 80 D-169: 취소 완료(=환불 완료)는 구매자 SMS 병행. 반품·교환 완료 SMS는 Track 81·82 소관.
+                ClaimSmsContext sms = resolveClaimSmsContext(event.claimId(), "ClaimCompleted");
+                if (sms != null) {
+                    saveSms(sms, NotificationTemplateCodes.CLAIM_COMPLETED, event.claimId(), "취소 완료",
+                            "[zslab-mall] 주문 " + sms.orderNo() + " " + sms.productName()
+                                    + " 취소 및 환불이 완료되었습니다.", "ClaimCompleted");
+                }
+            }
         } catch (RuntimeException exception) {
             // 재조회·적재 실패는 원 흐름(클레임 완료)을 막지 않는다(A2-α·재throw 금지).
             log.warn("[Notification] ClaimCompleted 적재 실패 → 건너뜀: claimId={}", event.claimId(), exception);
+        }
+    }
+
+    /**
+     * ClaimRequested 소비 → 요청 접수 SMS 적재·발송(Track 80 D-169). 수신번호(User.phone) 없으면 skip+warn.
+     */
+    public void recordClaimRequested(ClaimRequested event) {
+        try {
+            ClaimSmsContext sms = resolveClaimSmsContext(event.claimId(), "ClaimRequested");
+            if (sms == null) {
+                return;
+            }
+            String content = "[zslab-mall] 주문 " + sms.orderNo() + " " + sms.productName() + " "
+                    + claimTypeLabel(event.claimType()) + " 요청이 접수되었습니다.";
+            saveSms(sms, NotificationTemplateCodes.CLAIM_REQUESTED, event.claimId(),
+                    claimTypeLabel(event.claimType()) + " 요청 접수", content, "ClaimRequested");
+        } catch (RuntimeException exception) {
+            // 재조회·적재 실패는 원 흐름(클레임 요청)을 막지 않는다(A2-α·재throw 금지).
+            log.warn("[Notification] ClaimRequested 적재 실패 → 건너뜀: claimId={}", event.claimId(), exception);
+        }
+    }
+
+    /**
+     * ClaimRejected 소비 → 거부 SMS 적재·발송(Track 80 D-169). 본문에 거부 사유 라벨을 싣는다(메모는 싣지 않음·개인정보 최소).
+     */
+    public void recordClaimRejected(ClaimRejected event) {
+        try {
+            ClaimSmsContext sms = resolveClaimSmsContext(event.claimId(), "ClaimRejected");
+            if (sms == null) {
+                return;
+            }
+            String reasonLabel = event.rejectReasonCode() == null ? "" : " 사유: " + event.rejectReasonCode().getLabel();
+            String content = "[zslab-mall] 주문 " + sms.orderNo() + " " + sms.productName() + " "
+                    + claimTypeLabel(event.claimType()) + " 요청이 거부되었습니다." + reasonLabel;
+            saveSms(sms, NotificationTemplateCodes.CLAIM_REJECTED, event.claimId(),
+                    claimTypeLabel(event.claimType()) + " 요청 거부", content, "ClaimRejected");
+        } catch (RuntimeException exception) {
+            // 재조회·적재 실패는 원 흐름(클레임 거부)을 막지 않는다(A2-α·재throw 금지).
+            log.warn("[Notification] ClaimRejected 적재 실패 → 건너뜀: claimId={}", event.claimId(), exception);
         }
     }
 
@@ -297,6 +354,53 @@ public class NotificationService {
         };
     }
 
+    /** 클레임 SMS 본문 조립·발송에 필요한 최소 컨텍스트(Track 80 D-169). 수신번호는 로그에 남기지 않는다. */
+    private record ClaimSmsContext(Long recipientUserId, String phoneNumber, String orderNo, String productName) {
+    }
+
+    /**
+     * 클레임 SMS 컨텍스트(구매자 ID·번호·주문번호·상품명)를 산정한다. claim → orderItem → order → user 체인 중 하나라도 미발견이거나
+     * User.phone이 비어 있으면 skip 로그 후 null을 반환한다(NULL 수신번호 적재 회피).
+     */
+    private ClaimSmsContext resolveClaimSmsContext(Long claimId, String eventName) {
+        Claim claim = claimRepository.findById(claimId).orElse(null);
+        if (claim == null) {
+            log.warn("[Notification] {} 소비·클레임 미발견 → SMS 건너뜀: claimId={}", eventName, claimId);
+            return null;
+        }
+        OrderItem orderItem = orderItemRepository.findById(claim.getOrderItemId()).orElse(null);
+        Long orderId = orderItem == null ? null : orderItemRepository.findOrderIdById(orderItem.getId()).orElse(null);
+        if (orderItem == null || orderId == null) {
+            log.warn("[Notification] {} 소비·주문 품목 미발견 → SMS 건너뜀: claimId={} orderItemId={}",
+                    eventName, claimId, claim.getOrderItemId());
+            return null;
+        }
+        Order order = orderRepository.findById(orderId).orElse(null);
+        if (order == null) {
+            log.warn("[Notification] {} 소비·주문 미발견 → SMS 건너뜀: claimId={} orderId={}", eventName, claimId, orderId);
+            return null;
+        }
+        User buyer = userRepository.findById(order.getBuyerId()).orElse(null);
+        if (buyer == null || buyer.getPhone() == null || buyer.getPhone().isBlank()) {
+            log.warn("[Notification] {} 소비·구매자 연락처 없음 → SMS 건너뜀: claimId={} buyerId={}",
+                    eventName, claimId, order.getBuyerId());
+            return null;
+        }
+        return new ClaimSmsContext(buyer.getId(), buyer.getPhone(), order.getOrderNo(), orderItem.getProductName());
+    }
+
+    /** SMS 채널 NotificationLog를 적재하고 {@link SmsSender}로 즉시 발송한다(save/dispatch 분리·EMAIL 경로와 동일 상태 전이). */
+    private void saveSms(ClaimSmsContext sms, String templateCode, Long claimId, String title, String content,
+            String eventName) {
+        NotificationLog notificationLog = NotificationLog.create(
+                sms.recipientUserId(), NotificationChannel.SMS, templateCode, PolymorphicTargetType.CLAIM, claimId,
+                title, content);
+        notificationLogRepository.save(notificationLog);
+        log.info("[Notification] SMS 적재 완료: template={} target_id={} recipient={}", templateCode, claimId,
+                sms.recipientUserId());
+        dispatch(notificationLog, eventName, () -> smsSender.send(sms.phoneNumber(), content));
+    }
+
     private void save(Long recipientUserId, String templateCode, PolymorphicTargetType targetType,
             Long targetId, String title, String content, String eventName) {
         NotificationLog notificationLog = NotificationLog.create(
@@ -304,17 +408,18 @@ public class NotificationService {
         notificationLogRepository.save(notificationLog);
         log.info("[Notification] 적재 완료: template={} target_type={} target_id={} recipient={}",
                 templateCode, targetType, targetId, recipientUserId);
-        dispatch(notificationLog, eventName);
+        dispatch(notificationLog, eventName, () -> notificationSender.send(notificationLog));
     }
 
     /**
      * 적재된 알림을 즉시 발송한다(Track 19·판단 2 α·save/dispatch 분리). 발송 성공 시 SENT, 실패 시 FAILED로 전이하고
      * 발송 실패 카운터를 계측한다. 발송 예외는 상위(핸들러)로 재throw하지 않는다(D-95 A2-α·원 흐름 비차단).
-     * {@code eventName}은 실패 계측 태그({@code zslab.notification.failed{event}})에 사용한다.
+     * {@code eventName}은 실패 계측 태그({@code zslab.notification.failed{event}})에 사용한다. {@code sendAction}은 채널별 발송
+     * 호출(EMAIL: {@link NotificationSender}·SMS: {@link SmsSender})이다.
      */
-    private void dispatch(NotificationLog notificationLog, String eventName) {
+    private void dispatch(NotificationLog notificationLog, String eventName, Runnable sendAction) {
         try {
-            notificationSender.send(notificationLog);
+            sendAction.run();
             notificationLog.markSent(LocalDateTime.now());
             notificationLogRepository.save(notificationLog);
         } catch (RuntimeException exception) {

@@ -1,6 +1,7 @@
 package com.zslab.mall.claim.controller;
 
 import com.zslab.mall.claim.controller.request.ClaimApproveRequest;
+import com.zslab.mall.claim.controller.request.ClaimRejectRequest;
 import com.zslab.mall.claim.controller.response.ClaimResponse;
 import com.zslab.mall.claim.entity.Claim;
 import com.zslab.mall.claim.exception.ClaimNotFoundException;
@@ -10,6 +11,7 @@ import com.zslab.mall.common.auth.SellerActorResolver;
 import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.repository.OrderItemRepository;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import java.time.LocalDateTime;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -63,13 +65,18 @@ public class SellerClaimController {
         return toResponse(claimPublicId);
     }
 
-    /** Seller 클레임 거부. 미존재·권한 위반 모두 404(정보 노출 회피·D-92 Q3). 성공 시 200 + 갱신된 ClaimResponse. */
+    /**
+     * Seller 클레임 거부. 미존재·권한 위반 모두 404(정보 노출 회피·D-92 Q3). 성공 시 200 + 갱신된 ClaimResponse.
+     *
+     * <p>거부 사유 코드 필수·메모 선택(Track 80 D-169). body 누락·사유 누락 400.
+     */
     @PostMapping("/{claimPublicId}/reject")
-    public ClaimResponse rejectBySeller(@PathVariable String claimPublicId, HttpServletRequest request) {
+    public ClaimResponse rejectBySeller(@PathVariable String claimPublicId,
+            @RequestBody @Valid ClaimRejectRequest body, HttpServletRequest request) {
         Long sellerId = sellerActorResolver.resolve(request);
         Claim claim = claimRepository.findByPublicId(claimPublicId)
                 .orElseThrow(() -> new ClaimNotFoundException("클레임을 찾을 수 없습니다: publicId=" + claimPublicId));
-        claimService.rejectBySeller(claim.getId(), sellerId, LocalDateTime.now());
+        claimService.rejectBySeller(claim.getId(), sellerId, body.reasonCode(), body.memo(), LocalDateTime.now());
         return toResponse(claimPublicId);
     }
 

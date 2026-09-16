@@ -5,6 +5,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.zslab.mall.claim.enums.ClaimRejectReasonCode;
 import com.zslab.mall.claim.enums.ClaimStatus;
 import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.event.ClaimApproved;
@@ -20,6 +21,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
 import com.zslab.mall.common.security.AuthHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 import com.zslab.mall.support.AbstractIntegrationTest;
@@ -109,7 +111,8 @@ class SellerClaimIntegrationTest extends AbstractIntegrationTest {
         });
 
         mockMvc.perform(post("/api/v1/claims/" + claimPid + "/reject")
-                        .headers(authHeaders.seller(SELLER_A_USER)))
+                        .headers(authHeaders.seller(SELLER_A_USER))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"reasonCode\":\"OUT_OF_POLICY\",\"memo\":\"테스트 거부\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("REJECTED"));
 

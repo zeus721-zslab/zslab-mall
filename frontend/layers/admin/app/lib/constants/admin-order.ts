@@ -1,6 +1,6 @@
 import type { AdminSemantic } from '#layers/admin/app/lib/constants/semantic'
 import type { OrderStatusCode } from '~/lib/constants/order'
-import type { ClaimStatus, OrderItemStatusCode } from '~/lib/constants/claim'
+import type { ClaimStatus, OrderItemStatusCode, RefundStatus } from '~/lib/constants/claim'
 import type { PaymentMethod } from '~/types/checkout'
 import { PAYMENT_METHODS } from '~/lib/constants/payment'
 
@@ -106,6 +106,13 @@ export const ADMIN_CLAIM_STATUS_SEMANTIC: Record<ClaimStatus, AdminSemantic> = {
   APPROVED: 'info',
   REJECTED: 'danger',
   COMPLETED: 'success',
+}
+
+/** 환불 상태 chip 의미 색상(FE-28·라벨은 사용자 REFUND_STATUS_LABELS). */
+export const ADMIN_REFUND_STATUS_SEMANTIC: Record<RefundStatus, AdminSemantic> = {
+  PENDING: 'warning',
+  COMPLETED: 'success',
+  FAILED: 'danger',
 }
 
 /** 결제수단 code → 사용자 라벨(PAYMENT_METHODS 단일 소스). 매핑에 없는 값은 원본 폴백. */

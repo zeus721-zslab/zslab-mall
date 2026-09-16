@@ -14,6 +14,7 @@ import com.zslab.mall.claim.controller.response.ClaimResponse;
 import com.zslab.mall.claim.controller.response.ClaimSummaryResponse;
 import com.zslab.mall.claim.entity.Claim;
 import com.zslab.mall.claim.enums.ClaimReasonCode;
+import com.zslab.mall.claim.enums.ClaimRejectReasonCode;
 import com.zslab.mall.claim.enums.ClaimStatus;
 import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.event.ClaimApproved;
@@ -306,7 +307,7 @@ class ClaimServiceTest {
         Claim claim = requestedClaim();
         when(claimRepository.findById(1L)).thenReturn(Optional.of(claim));
 
-        claimService.reject(1L, PROCESSED_AT);
+        claimService.reject(1L, ClaimRejectReasonCode.OUT_OF_POLICY, null, PROCESSED_AT);
 
         assertThat(claim.getStatus()).isEqualTo(ClaimStatus.REJECTED);
         assertThat(claim.getProcessedAt()).isEqualTo(PROCESSED_AT);
@@ -321,7 +322,7 @@ class ClaimServiceTest {
     void reject_notFound_throws() {
         when(claimRepository.findById(999L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> claimService.reject(999L, PROCESSED_AT))
+        assertThatThrownBy(() -> claimService.reject(999L, ClaimRejectReasonCode.OUT_OF_POLICY, null, PROCESSED_AT))
                 .isInstanceOf(ClaimNotFoundException.class);
         verify(claimRepository, never()).save(any());
     }
@@ -334,7 +335,7 @@ class ClaimServiceTest {
         claim.markCompleted(PROCESSED_AT); // 시드: APPROVED → COMPLETED
         when(claimRepository.findById(1L)).thenReturn(Optional.of(claim));
 
-        assertThatThrownBy(() -> claimService.reject(1L, PROCESSED_AT))
+        assertThatThrownBy(() -> claimService.reject(1L, ClaimRejectReasonCode.OUT_OF_POLICY, null, PROCESSED_AT))
                 .isInstanceOf(ClaimInvalidStateException.class);
         verify(claimRepository, never()).save(any());
     }
@@ -387,7 +388,7 @@ class ClaimServiceTest {
         Claim claim = requestedClaim();
         when(claimRepository.findById(1L)).thenReturn(Optional.of(claim));
 
-        claimService.rejectByAdmin(1L, PROCESSED_AT);
+        claimService.rejectByAdmin(1L, ClaimRejectReasonCode.OUT_OF_POLICY, null, PROCESSED_AT);
 
         assertThat(claim.getStatus()).isEqualTo(ClaimStatus.REJECTED);
         assertThat(claim.getProcessedAt()).isEqualTo(PROCESSED_AT);
@@ -404,7 +405,7 @@ class ClaimServiceTest {
     void rejectByAdmin_notFound_throws() {
         when(claimRepository.findById(999L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> claimService.rejectByAdmin(999L, PROCESSED_AT))
+        assertThatThrownBy(() -> claimService.rejectByAdmin(999L, ClaimRejectReasonCode.OUT_OF_POLICY, null, PROCESSED_AT))
                 .isInstanceOf(ClaimNotFoundException.class);
         verify(claimRepository, never()).save(any());
     }
@@ -414,7 +415,9 @@ class ClaimServiceTest {
     @Test
     @DisplayName("getClaim: 본인 정상 조회 → ClaimResponse·orderItemPublicId 해소")
     void getClaim_happyPath() {
-        Claim claim = requestedClaim();
+        // 미영속 Claim은 id가 null이라 환불 상태 배치 조회 키(List.of(id))에 실을 수 없으므로 spy로 id를 부여한다(Track 80)
+        Claim claim = org.mockito.Mockito.spy(requestedClaim());
+        org.mockito.Mockito.doReturn(1L).when(claim).getId();
         when(claimRepository.findByPublicId(CLAIM_PUBLIC_ID)).thenReturn(Optional.of(claim));
         OrderItem orderItem = org.mockito.Mockito.mock(OrderItem.class);
         when(orderItem.getPublicId()).thenReturn(ORDER_ITEM_PUBLIC_ID);

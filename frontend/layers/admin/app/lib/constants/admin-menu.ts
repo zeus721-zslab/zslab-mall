@@ -30,9 +30,7 @@ export const ADMIN_MENU: AdminMenuGroup[] = [
     children: [
       { to: '/admin/orders', label: '전체 주문' },
       { to: '/admin/orders/payments', label: '결제 내역' },
-      { to: '/admin/orders/cancellations', label: '취소' },
-      { to: '/admin/orders/returns', label: '반품' },
-      { to: '/admin/orders/exchanges', label: '교환' },
+      { to: '/admin/orders/claims', label: '취소·반품·교환' },
       { to: '/admin/orders/refunds', label: '환불' },
       { to: '/admin/orders/deliveries', label: '배송 관리' },
     ],

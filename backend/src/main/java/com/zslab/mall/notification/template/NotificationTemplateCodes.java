@@ -16,6 +16,8 @@ public final class NotificationTemplateCodes {
     public static final String DELIVERY_STARTED = "TPL_DELIVERY_STARTED";
     public static final String DELIVERY_COMPLETED = "TPL_DELIVERY_COMPLETED";
     public static final String PICKUP_CONFIRMED = "TPL_PICKUP_CONFIRMED";
+    public static final String CLAIM_REQUESTED = "TPL_CLAIM_REQUESTED";
+    public static final String CLAIM_REJECTED = "TPL_CLAIM_REJECTED";
 
     private NotificationTemplateCodes() {
     }

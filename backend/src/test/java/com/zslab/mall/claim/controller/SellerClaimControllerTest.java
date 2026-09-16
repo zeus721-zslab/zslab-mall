@@ -12,6 +12,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.zslab.mall.claim.entity.Claim;
+import com.zslab.mall.claim.enums.ClaimRejectReasonCode;
 import com.zslab.mall.claim.enums.ClaimStatus;
 import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.exception.ClaimInvalidStateException;
@@ -31,6 +32,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
@@ -181,11 +183,12 @@ class SellerClaimControllerTest {
         when(claimRepository.findByPublicId(CLAIM_PUBLIC_ID)).thenReturn(Optional.of(claim));
         when(orderItemRepository.findById(ORDER_ITEM_ID)).thenReturn(Optional.of(orderItem));
 
-        mockMvc.perform(post("/api/v1/claims/" + CLAIM_PUBLIC_ID + "/reject").header("X-Seller-Id", "1"))
+        mockMvc.perform(post("/api/v1/claims/" + CLAIM_PUBLIC_ID + "/reject").header("X-Seller-Id", "1")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"reasonCode\":\"OUT_OF_POLICY\",\"memo\":\"테스트 거부\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.publicId").value(CLAIM_PUBLIC_ID))
                 .andExpect(jsonPath("$.status").value("REJECTED"));
-        verify(claimService).rejectBySeller(eq(CLAIM_ID), eq(SELLER_ID), any());
+        verify(claimService).rejectBySeller(eq(CLAIM_ID), eq(SELLER_ID), eq(ClaimRejectReasonCode.OUT_OF_POLICY), eq("테스트 거부"), any());
     }
 
     @Test
@@ -195,9 +198,10 @@ class SellerClaimControllerTest {
         when(sellerActorResolver.resolve(any())).thenReturn(OTHER_SELLER_ID);
         when(claimRepository.findByPublicId(CLAIM_PUBLIC_ID)).thenReturn(Optional.of(claim));
         doThrow(new ClaimNotFoundException("클레임을 찾을 수 없습니다: claimId=" + CLAIM_ID))
-                .when(claimService).rejectBySeller(eq(CLAIM_ID), eq(OTHER_SELLER_ID), any());
+                .when(claimService).rejectBySeller(eq(CLAIM_ID), eq(OTHER_SELLER_ID), any(), any(), any());
 
-        mockMvc.perform(post("/api/v1/claims/" + CLAIM_PUBLIC_ID + "/reject").header("X-Seller-Id", "2"))
+        mockMvc.perform(post("/api/v1/claims/" + CLAIM_PUBLIC_ID + "/reject").header("X-Seller-Id", "2")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"reasonCode\":\"OUT_OF_POLICY\",\"memo\":\"테스트 거부\"}"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("CLAIM_NOT_FOUND"));
     }

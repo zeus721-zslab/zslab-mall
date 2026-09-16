@@ -3,7 +3,7 @@
  * 라벨·유니온은 lib/constants/claim.ts 단일 소스를 재사용한다(매직 문자열 금지).
  */
 
-import type { ClaimReasonCode, ClaimStatus, ClaimType } from '~/lib/constants/claim'
+import type { ClaimReasonCode, ClaimRejectReasonCode, ClaimStatus, ClaimType, RefundStatus } from '~/lib/constants/claim'
 
 /**
  * 클레임 요청 body(BE ClaimRequestRequest 대응). orderItemPublicId는 oit_ + ULID 26자(서버 정규식 검증),
@@ -43,6 +43,10 @@ export interface ClaimSummary {
   status: ClaimStatus
   reasonCode: ClaimReasonCode
   requestedAt: string
+  /** 거부 사유 코드(FE-28·Track 80 D-169). 거부 전 null. */
+  rejectReasonCode: ClaimRejectReasonCode | null
+  /** 최신 환불 상태(FE-28). 환불 미생성 시 null. */
+  refundStatus: RefundStatus | null
 }
 
 /**
@@ -58,4 +62,9 @@ export interface ClaimDetail {
   reasonDetail: string | null
   requestedAt: string
   processedAt: string | null
+  /** 거부 사유 코드·메모(FE-28·Track 80 D-169). 거부 전 null. */
+  rejectReasonCode: ClaimRejectReasonCode | null
+  rejectMemo: string | null
+  /** 최신 환불 상태(FE-28). 환불 미생성 시 null. */
+  refundStatus: RefundStatus | null
 }

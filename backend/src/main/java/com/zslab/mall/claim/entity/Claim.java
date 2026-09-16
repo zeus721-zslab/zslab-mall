@@ -1,5 +1,6 @@
 package com.zslab.mall.claim.entity;
 
+import com.zslab.mall.claim.enums.ClaimRejectReasonCode;
 import com.zslab.mall.claim.enums.ClaimStatus;
 import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.exception.ClaimInvalidStateException;
@@ -35,6 +36,9 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Claim extends AbstractPublicIdFullAuditableEntity {
 
+    /** 거부 메모 최대 길이(claim.reject_memo VARCHAR(500)·V23). */
+    public static final int REJECT_MEMO_MAX_LENGTH = 500;
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -68,6 +72,15 @@ public class Claim extends AbstractPublicIdFullAuditableEntity {
     /** 교환 클레임 환불 금액(D-115 결정2). 승인 시 확정하며 NULL·0은 차액 없는 교환(=Refund 미경유). */
     @Column(name = "refund_amount")
     private Long refundAmount;
+
+    /** 거부 사유 코드(Track 80 D-169). 거부 시점에만 채워지며 그 외 NULL. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "reject_reason_code", length = 50)
+    private ClaimRejectReasonCode rejectReasonCode;
+
+    /** 거부 메모(선택·500자). */
+    @Column(name = "reject_memo", length = 500)
+    private String rejectMemo;
 
     @Column(name = "picked_up_at")
     private LocalDateTime pickedUpAt;
@@ -193,16 +206,33 @@ public class Claim extends AbstractPublicIdFullAuditableEntity {
     /**
      * 클레임을 거절한다(REQUESTED → REJECTED·CLM-4). 거절 이력은 보존되며 재요청은 새 Claim 행이다(CLM-2).
      *
+     * <p>거부 사유 코드는 필수·메모는 선택이다(Track 80 D-169). {@link ClaimRejectReasonCode#ALREADY_SHIPPED}는 CANCEL 전용이며
+     * 다른 유형에 전달되면 거부하지 않고 400으로 되돌린다.
+     *
+     * @param reasonCode  거부 사유 코드(필수)
+     * @param memo        거부 메모(선택·500자 이하)
      * @param processedAt 거절 처리 시각(시스템 시각)
      * @throws ClaimInvalidStateException REQUESTED가 아니어서 REJECTED 전이가 불가한 경우(CLM-4)
-     * @throws IllegalArgumentException processedAt가 null인 경우
+     * @throws IllegalArgumentException processedAt·reasonCode가 null이거나 사유가 유형에 부적합·메모 500자 초과인 경우
      */
-    public void reject(LocalDateTime processedAt) {
+    public void reject(ClaimRejectReasonCode reasonCode, String memo, LocalDateTime processedAt) {
         if (processedAt == null) {
             throw new IllegalArgumentException("reject: processedAt는 필수입니다.");
         }
+        if (reasonCode == null) {
+            throw new IllegalArgumentException("reject: 거부 사유 코드는 필수입니다.");
+        }
+        if (!reasonCode.isApplicableTo(this.type)) {
+            throw new IllegalArgumentException(
+                    "reject: 거부 사유 " + reasonCode + "은(는) " + this.type + " 클레임에 사용할 수 없습니다.");
+        }
+        if (memo != null && memo.length() > REJECT_MEMO_MAX_LENGTH) {
+            throw new IllegalArgumentException("reject: 거부 메모는 " + REJECT_MEMO_MAX_LENGTH + "자 이하여야 합니다.");
+        }
         transitionTo(ClaimStatus.REJECTED);
         this.processedAt = processedAt;
+        this.rejectReasonCode = reasonCode;
+        this.rejectMemo = memo;
     }
 
     /**

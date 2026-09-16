@@ -179,7 +179,7 @@ class AdminOrderIntegrationTest extends AbstractIntegrationTest {
     // ===== A: 관리자 취소(결제 후·부분) =====
 
     @Test
-    @DisplayName("T3 관리자 부분 취소(A): 품목 1건 지정 → 200·Claim APPROVED·해당 품목 CANCEL_REQUESTED·타 품목 PAID·Refund PENDING(totalPrice) → 환불 웹훅 → COMPLETED·CANCELLED·재고 복구")
+    @DisplayName("T3 관리자 부분 취소(A): 품목 1건 지정 → 200·Claim APPROVED·해당 품목 CANCEL_REQUESTED·타 품목 PAID·Refund 자동 COMPLETED(totalPrice)·CANCELLED·재고 복구·중복 웹훅 멱등")
     void adminPartialCancel_thenRefundWebhook_restoresStock() throws Exception {
         mockMvc.perform(post(URL + "/" + ORDER_A_PID + "/cancel").headers(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -190,7 +190,8 @@ class AdminOrderIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.claims[0].orderItemId").value(ITEM_A1_PID))
                 .andExpect(jsonPath("$.claims[0].status").value("APPROVED"));
 
-        assertThat(itemStatus(ORDER_A_ITEM_1)).isEqualTo("CANCEL_REQUESTED");
+        // Track 80 C4: 승인 → 환불 자동 완료 → 품목 CANCELLED까지 요청 스레드에서 수렴(아래 상세 단언)
+        assertThat(itemStatus(ORDER_A_ITEM_1)).isEqualTo("CANCELLED");
         assertThat(itemStatus(ORDER_A_ITEM_2)).isEqualTo("PAID");
         assertThat(jdbc.queryForObject("SELECT reason_code FROM claim WHERE order_item_id = ?", String.class, ORDER_A_ITEM_1))
                 .isEqualTo("STOCK_DELAY");
@@ -199,22 +200,25 @@ class AdminOrderIntegrationTest extends AbstractIntegrationTest {
         assertThat(refundCountForItem(ORDER_A_ITEM_1)).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT r.amount FROM refund r JOIN claim c ON c.id = r.claim_id WHERE c.order_item_id = ?",
                 Long.class, ORDER_A_ITEM_1)).isEqualTo(ITEM_PRICE);
+        // Track 80 C4: Mock PG 자동 완료 콜백(MockRefundAutoCallbackListener) → Refund COMPLETED → Claim COMPLETED → 품목 CANCELLED·restoreStock
         assertThat(jdbc.queryForObject("SELECT r.status FROM refund r JOIN claim c ON c.id = r.claim_id WHERE c.order_item_id = ?",
-                String.class, ORDER_A_ITEM_1)).isEqualTo("PENDING");
+                String.class, ORDER_A_ITEM_1)).isEqualTo("COMPLETED");
+        assertThat(jdbc.queryForObject("SELECT status FROM claim WHERE order_item_id = ?", String.class, ORDER_A_ITEM_1))
+                .isEqualTo("COMPLETED");
+        assertThat(itemStatus(ORDER_A_ITEM_1)).isEqualTo("CANCELLED");
+        assertThat(onHand(VARIANT_1)).isEqualTo(11);       // 10 + 1 복구
+        assertThat(onHand(VARIANT_2)).isEqualTo(10);       // 타 품목 불변
+        assertThat(historyCount(INVENTORY_1, "CANCEL")).isEqualTo(1);
 
-        // 환불 웹훅(Mock PG는 접수만·완료는 콜백) → Claim COMPLETED → 품목 CANCELLED·restoreStock
+        // 중복 콜백(수동 웹훅 재수신) → RFN-3 멱등 no-op·상태·재고 불변
         String pgRefundId = jdbc.queryForObject(
                 "SELECT r.pg_refund_id FROM refund r JOIN claim c ON c.id = r.claim_id WHERE c.order_item_id = ?",
                 String.class, ORDER_A_ITEM_1);
         mockMvc.perform(post("/api/webhooks/refunds").contentType(MediaType.APPLICATION_JSON)
                         .content("{ \"pgRefundId\": \"" + pgRefundId + "\", \"status\": \"SUCCESS\" }"))
                 .andExpect(status().isOk());
-
-        assertThat(jdbc.queryForObject("SELECT status FROM claim WHERE order_item_id = ?", String.class, ORDER_A_ITEM_1))
-                .isEqualTo("COMPLETED");
         assertThat(itemStatus(ORDER_A_ITEM_1)).isEqualTo("CANCELLED");
-        assertThat(onHand(VARIANT_1)).isEqualTo(11);       // 10 + 1 복구
-        assertThat(onHand(VARIANT_2)).isEqualTo(10);       // 타 품목 불변
+        assertThat(onHand(VARIANT_1)).isEqualTo(11);
         assertThat(historyCount(INVENTORY_1, "CANCEL")).isEqualTo(1);
     }
 

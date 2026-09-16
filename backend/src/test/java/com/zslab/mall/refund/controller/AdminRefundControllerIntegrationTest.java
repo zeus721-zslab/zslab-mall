@@ -129,7 +129,8 @@ class AdminRefundControllerIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.amount").value(10000))
                 .andExpect(jsonPath("$.pgRefundId").value(PG_REFUND_ID));
 
-        // 커밋된 DB 상태 검증(Refund PENDING 1행·amount·pg_refund_id 부여)
+        // 커밋된 DB 상태 검증(Refund PENDING 1행·amount·pg_refund_id 부여). PaymentGateway가 MockitoBean이라 Track 80 C4 자동 완료
+        // 콜백은 발행되지 않는다(실 MockPaymentGateway 경로의 COMPLETED 수렴은 AdminOrderIntegrationTest T3가 검증).
         assertThat(refundCount()).isEqualTo(1);
         assertThat(refundStatus()).isEqualTo("PENDING");
         assertThat(refundAmount()).isEqualTo(FULL_AMOUNT);

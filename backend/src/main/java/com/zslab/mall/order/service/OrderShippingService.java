@@ -1,5 +1,7 @@
 package com.zslab.mall.order.service;
 
+import com.zslab.mall.claim.exception.ClaimInvalidStateException;
+import com.zslab.mall.claim.repository.ClaimRepository;
 import com.zslab.mall.delivery.entity.Delivery;
 import com.zslab.mall.delivery.enums.DeliveryCarrier;
 import com.zslab.mall.delivery.exception.DeliveryInvalidStateException;
@@ -10,6 +12,8 @@ import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.exception.OrderNotFoundException;
 import com.zslab.mall.order.repository.OrderItemRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -39,12 +43,16 @@ public class OrderShippingService {
     private final OrderItemRepository orderItemRepository;
     private final DeliveryRepository deliveryRepository;
     private final DeliveryService deliveryService;
+    private final ClaimRepository claimRepository;
+    private final EntityManager entityManager;
 
     public OrderShippingService(OrderItemRepository orderItemRepository, DeliveryRepository deliveryRepository,
-            DeliveryService deliveryService) {
+            DeliveryService deliveryService, ClaimRepository claimRepository, EntityManager entityManager) {
         this.orderItemRepository = orderItemRepository;
         this.deliveryRepository = deliveryRepository;
         this.deliveryService = deliveryService;
+        this.claimRepository = claimRepository;
+        this.entityManager = entityManager;
     }
 
     /**
@@ -59,6 +67,7 @@ public class OrderShippingService {
      * @return 발송 완료된 Delivery(SHIPPING·claim_id NULL)
      * @throws OrderNotFoundException        OrderItem 미존재 또는 요청 판매자 소유가 아닌 경우(존재 은닉·404)
      * @throws DeliveryInvalidStateException OrderItem이 PAID가 아니어서 PREPARING 전이 불가한 경우(배송 개시 불가·422)
+     * @throws ClaimInvalidStateException    활성 클레임(취소 요청 등)이 있는 품목인 경우(422·Track 80 C2)
      */
     public Delivery prepareShipment(Long sellerId, Long orderItemId, DeliveryCarrier carrier, String trackingNo) {
         OrderItem orderItem = authorize(sellerId, orderItemId);
@@ -77,6 +86,7 @@ public class OrderShippingService {
      *
      * @throws OrderNotFoundException       주문 품목 미존재(404)
      * @throws DeliveryInvalidStateException 품목이 PAID가 아니어서 PREPARING 전이 불가(422)
+     * @throws ClaimInvalidStateException    활성 클레임(취소 요청 등)이 있는 품목인 경우(422·Track 80 C2)
      */
     public Delivery prepareShipmentByAdmin(Long orderItemId, DeliveryCarrier carrier, String trackingNo) {
         OrderItem orderItem = orderItemRepository.findById(orderItemId)
@@ -113,6 +123,14 @@ public class OrderShippingService {
      * trackingNo @NotBlank 보장) 도달 가능한 전이 위반이 없으므로 흡수 대상은 본 전이에 국한한다(handler 내부 예외 오분류 회피).
      */
     private void changeToPreparing(OrderItem orderItem) {
+        // Track 80 D-169(C2): 활성 클레임(REQUESTED·APPROVED) 품목은 송장 등록 차단. CANCEL_REQUESTED→PREPARING이 매트릭스상 합법
+        // (거부 스냅샷 원복용)이라 상태 전이만으로는 막히지 않으므로 클레임 존재를 직접 검사한다. 잠금(refresh PESSIMISTIC_WRITE)은
+        // ClaimService.createClaim과 동일 행 잠금으로, 요청 커밋 직전에 읽은 stale PAID로 발송이 통과하는 경합을 직렬화한다.
+        entityManager.refresh(orderItem, LockModeType.PESSIMISTIC_WRITE);
+        if (claimRepository.existsActiveByOrderItemId(orderItem.getId())) {
+            throw new ClaimInvalidStateException(
+                    "진행 중인 클레임이 있어 송장을 등록할 수 없습니다: orderItemId=" + orderItem.getId());
+        }
         try {
             orderItem.changeStatus(OrderItemStatus.PREPARING);
         } catch (IllegalStateException exception) {

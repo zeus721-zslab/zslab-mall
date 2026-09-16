@@ -8,6 +8,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.zslab.mall.claim.entity.Claim;
+import com.zslab.mall.claim.enums.ClaimRejectReasonCode;
 import com.zslab.mall.claim.enums.ClaimStatus;
 import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.event.ClaimRejected;
@@ -47,7 +48,8 @@ class ClaimRejectedHandlerTest {
     private ClaimRejectedHandler handler;
 
     private ClaimRejected event(ClaimType type) {
-        return new ClaimRejected(CLAIM_ID, "clm_x", ORDER_ITEM_ID, type, ClaimStatus.REJECTED, OCCURRED_AT);
+        return new ClaimRejected(CLAIM_ID, "clm_x", ORDER_ITEM_ID, type, ClaimStatus.REJECTED,
+                ClaimRejectReasonCode.OUT_OF_POLICY, OCCURRED_AT);
     }
 
     /** 스냅샷 원복을 검증하는 테스트용 Claim mock(previousOrderItemStatus만 stub·핸들러는 getType 미사용). */

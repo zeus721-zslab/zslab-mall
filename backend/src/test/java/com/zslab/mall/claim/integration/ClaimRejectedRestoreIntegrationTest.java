@@ -2,6 +2,7 @@ package com.zslab.mall.claim.integration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.zslab.mall.claim.enums.ClaimRejectReasonCode;
 import com.zslab.mall.claim.enums.ClaimStatus;
 import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.service.ClaimService;
@@ -66,7 +67,7 @@ class ClaimRejectedRestoreIntegrationTest extends AbstractIntegrationTest {
             seedClaim(ClaimType.CANCEL, ClaimStatus.REQUESTED, OrderItemStatus.PREPARING);
         });
 
-        claimService.reject(CLAIM_ID, LocalDateTime.now());
+        claimService.reject(CLAIM_ID, ClaimRejectReasonCode.OUT_OF_POLICY, null, LocalDateTime.now());
 
         assertThat(orderItemStatus()).isEqualTo("PREPARING");
         assertThat(claimStatus()).isEqualTo("REJECTED");
@@ -82,7 +83,7 @@ class ClaimRejectedRestoreIntegrationTest extends AbstractIntegrationTest {
             seedClaim(ClaimType.RETURN, ClaimStatus.REQUESTED, OrderItemStatus.DELIVERED);
         });
 
-        claimService.reject(CLAIM_ID, LocalDateTime.now());
+        claimService.reject(CLAIM_ID, ClaimRejectReasonCode.OUT_OF_POLICY, null, LocalDateTime.now());
 
         assertThat(orderItemStatus()).isEqualTo("DELIVERED");
         assertThat(claimStatus()).isEqualTo("REJECTED");
