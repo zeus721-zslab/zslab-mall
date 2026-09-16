@@ -22,6 +22,8 @@ jobs:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
+          # 병렬 이미지 빌드(backend gradle + frontend nuxt) 후 backend 헬스 대기까지 기본 10m을 넘긴 사례(FE-27 배포) → 30m
+          command_timeout: 30m
           script: |
             cd ${{ secrets.DEPLOY_PATH }}
             git pull origin main
