@@ -143,3 +143,20 @@ test.describe('관리자 셸', () => {
     expect(new Set(frames).size).toBe(1)
   })
 })
+
+// ADMIN_E2E_* 자격증명 없이도 돌아야 하므로 위 describe(skip 조건)와 분리한다.
+test.describe('관리자 데모 로그인 (FE-23)', () => {
+  test('⑥ 관리자 데모 로그인 버튼 → /admin 셸 진입 · 사용자 auth_token 미생성(FE-23)', async ({ page, context }) => {
+    await page.goto('/admin/login')
+    await page.waitForLoadState('networkidle')
+    const demoButton = page.getByTestId('admin-demo-login')
+    // 서버 env(NUXT_ADMIN_DEMO_*) 미주입 환경은 버튼이 없으므로 명시 skip(실패 아님)
+    test.skip((await demoButton.count()) === 0, 'NUXT_ADMIN_DEMO_EMAIL/PASSWORD 미주입 — 데모 버튼 없음')
+    await demoButton.click()
+    await page.waitForURL(/\/admin$/)
+    await expect(page.getByTestId('admin-sidebar')).toBeVisible()
+    const cookies = await context.cookies()
+    expect(cookies.find((cookie) => cookie.name === 'admin_token')?.path).toBe('/admin')
+    expect(cookies.some((cookie) => cookie.name === 'auth_token')).toBe(false)
+  })
+})
