@@ -10252,6 +10252,7 @@ deploy.yml이 `push main` 무필터라 docs만 변경된 머지에도 서버 SSH
 
 ### §8 이월
 - R2: PAID 상태 PG CANCEL 콜백 → 주문 전 항목 취소·restoreStock 배선(실 PG 도입 시).
+- 늦은 승인(종료 주문) 거절 시 PG 결제 취소 호출 — 실 PG 도입 시 R2와 함께(현재 422 REJECT만 하고 PG 측 승인 건은 미취소).
 
 ### D-167 보충 — R4 주문 생성 예약 동기화·늦은 승인 범위 축소 (2026-09-16)
 - **R4 이월 철회 사유**: 예약 없이 잔존한 PENDING_PAYMENT 주문이 30분 만료로 종료되면 OrderTerminated → release가 실행되는데, InventoryOrderTerminatedHandler의 1차 가드가 variant 합계 reserved==0 기준이라 같은 variant의 **타 주문 예약분을 해제**한다. 그 타 주문은 결제 시 commitReservation INV-3으로 실패하고 R1(동기 차감)로 **정상 결제가 롤백**된다 — R1이 R4를 실사용 결함으로 격상시켰으므로 같은 트랙에서 닫는다.
