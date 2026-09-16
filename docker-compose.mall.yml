@@ -24,10 +24,15 @@ services:
       ADMIN_BOOTSTRAP_EMAIL: ${ADMIN_BOOTSTRAP_EMAIL}
       ADMIN_BOOTSTRAP_PASSWORD: ${ADMIN_BOOTSTRAP_PASSWORD}
       LOG_PATH: ${LOG_PATH:-/app/logs}
+      # Track 77 이미지 업로드 루트·파일당 한도(바이트). 아래 mall_uploads 볼륨 마운트 경로와 동일해야 한다.
+      UPLOAD_PATH: ${UPLOAD_PATH:-/app/uploads}
+      UPLOAD_MAX_SIZE: ${UPLOAD_MAX_SIZE:-10485760}
       # KST 통일(JVM TZ) — application.yml hibernate.jdbc.time_zone과 동시 정렬 필수(Track 69·70)
       TZ: Asia/Seoul
     volumes:
       - mall_backend_logs:/app/logs
+      # Track 77 업로드 영속 볼륨(named·재생성 안전). dev 오버라이드의 ./backend:/app bind 안에 중첩 마운트된다.
+      - mall_uploads:${UPLOAD_PATH:-/app/uploads}
     networks:
       zslab_zslab_net: {}
       gateway_net:
@@ -79,6 +84,7 @@ services:
 
 volumes:
   mall_backend_logs:
+  mall_uploads:
 
 networks:
   zslab_zslab_net:

@@ -142,6 +142,11 @@ public class Product extends AbstractPublicIdSoftDeletableEntity {
         this.saleEndAt = saleEndAt;
     }
 
+    /** 대표 이미지 썸네일 동기화(Track 77·관리자 이미지 치환에서 GALLERY 대표 지정 시). null 허용(대표 URL 없음). */
+    public void changeThumbnailUrl(String thumbnailUrl) {
+        this.thumbnailUrl = thumbnailUrl;
+    }
+
     /** 상품 단위 수동 품절 on/off(Track 76). 같은 값 재설정은 no-op이다. */
     public void changeSoldoutManual(boolean soldoutManual) {
         this.soldoutManual = soldoutManual;

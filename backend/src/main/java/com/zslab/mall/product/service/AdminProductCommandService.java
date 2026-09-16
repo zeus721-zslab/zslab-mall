@@ -6,6 +6,7 @@ import com.zslab.mall.audit.service.AuditRecorder;
 import com.zslab.mall.category.exception.CategoryNotFoundException;
 import com.zslab.mall.category.repository.CategoryRepository;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
+import com.zslab.mall.file.service.ImageUploadService;
 import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.product.controller.request.AdminProductCreateRequest;
 import com.zslab.mall.product.controller.request.AdminProductImagesRequest;
@@ -58,6 +59,7 @@ public class AdminProductCommandService {
     private final CategoryRepository categoryRepository;
     private final OrderItemRepository orderItemRepository;
     private final ProductRegistrationService productRegistrationService;
+    private final ImageUploadService imageUploadService;
     private final AuditRecorder auditRecorder;
 
     /**
@@ -122,7 +124,9 @@ public class AdminProductCommandService {
 
         Map<Long, ProductImage> existingById = productImageRepository.findByProductId(product.getId()).stream()
                 .collect(Collectors.toMap(ProductImage::getId, Function.identity()));
-        Map<String, Object> before = Map.of("imageCount", existingById.size());
+        Map<String, Object> before = new HashMap<>();
+        before.put("imageCount", existingById.size());
+        before.put("thumbnailUrl", product.getThumbnailUrl());
 
         for (int order = 0; order < request.images().size(); order++) {
             AdminProductImagesRequest.Item item = request.images().get(order);
@@ -140,9 +144,18 @@ public class AdminProductCommandService {
         }
         // 목록에 남지 않은 기존 이미지는 soft-delete(FK RESTRICT·하드 삭제 금지·A5).
         existingById.values().forEach(ProductImage::markDeleted);
+        // Track 77: 대표(GALLERY is_main) 이미지가 있으면 product.thumbnail_url을 그 썸네일 URL로 동기화한다(내부 업로드는 _thumb 역산·
+        // 외부 URL은 원본 그대로). 대표가 없으면 기존 thumbnail_url을 유지한다(Track 59 결정3 "독립"을 대표 지정 시점에 한해 연결).
+        request.images().stream()
+                .filter(AdminProductImagesRequest.Item::main)
+                .findFirst()
+                .ifPresent(mainImage -> product.changeThumbnailUrl(imageUploadService.thumbnailUrlFor(mainImage.imageUrl())));
 
+        Map<String, Object> after = new HashMap<>();
+        after.put("imageCount", request.images().size());
+        after.put("thumbnailUrl", product.getThumbnailUrl());
         auditRecorder.record(auditContext, AuditLogAction.UPDATE, PolymorphicTargetType.PRODUCT, product.getId(),
-                before, Map.of("imageCount", request.images().size()));
+                before, after);
         log.info("[AdminProduct] 이미지 메타 치환 publicId={} count={} deleted={}",
                 publicId, request.images().size(), existingById.size());
     }
