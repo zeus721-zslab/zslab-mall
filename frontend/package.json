@@ -12,7 +12,8 @@
     "typecheck": "nuxt prepare && vue-tsc -b",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "pixel": "node e2e/tools/pixel.mjs"
   },
   "dependencies": {
     "@lucide/vue": "^1.46.0",

@@ -1,8 +1,14 @@
+# 로컬 dev 전용(docker-compose.dev.yml). 운영은 Dockerfile(멀티스테이지)만 사용한다.
+# node:24(non-slim) — Playwright chromium의 apt 의존성(libglib·libnss 등)을 install --with-deps로 넣기 위해 slim을 쓰지 않는다.
 FROM node:24
 WORKDIR /app
+# pnpm 버전은 package.json packageManager(pnpm@11.10.0)를 corepack이 읽어 고정한다(여기에 버전을 중복 기입하지 않음).
 RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install
+# Playwright 브라우저 + OS 의존성. 버전은 lockfile의 @playwright/test(1.61.1)를 pnpm exec가 그대로 사용해 package.json과 자동 일치한다.
+# 이미지 layer에 두어 컨테이너 재생성 시에도 재설치 없이 test:e2e·픽셀 diff가 가능하다(FE-24).
+RUN pnpm exec playwright install --with-deps chromium
 COPY . .
 EXPOSE 3000
 CMD ["pnpm", "dev", "--host", "0.0.0.0"]

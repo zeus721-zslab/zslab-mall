@@ -1342,3 +1342,25 @@ FE-13 §8(:701) 이월 "[버그·백로그] BUYER 페이지에서 로그아웃 �
 - vitest 27 files 110 tests(+admin-demo-login-server 3: 미설정 404·성공 {token}만·BE 실패 401/로그에 자격증명 없음 · admin-login-page 4: enabled true 버튼·클릭→loginDemo→/admin / false 미표시 / 조회 실패 미표시 / 401 문구 · adminAuth-store +2: 데모 성공 저장·role≠ADMIN 거절) · typecheck 0 · Playwright 7(smoke 1 + admin-shell 6·⑥ 데모 버튼→/admin 셸·admin_token path=/admin·auth_token 없음) · 사용자 12장 0px(동일 컨테이너에서 변경 stash 상태 기준선 재캡처 대비) · 빌드 산출물(.output 전체) 계정 값 문자열 0건·/admin/login HTML에 `adminDemo` 0건 · 런타임: env 미설정 `{enabled:false}`·login 404 / BE 불달 401(본문·stderr에 자격증명 없음).
 - 트랩(실측): (1) 로컬 "dev" 컨테이너는 prod 이미지(CMD `node .output/server/index.mjs`·2026-07-10 빌드)에 bind-mount 상태라 코드 변경 반영 = 컨테이너 내 `pnpm build` + `docker restart`(HMR 없음). (2) `up -d` 재생성 시 컨테이너 로컬 상태 소실 — `corepack enable`·`playwright install chromium`·`install-deps chromium`(node:24-slim은 libglib 부재)·`/tmp` 픽셀 기준선. (3) install-deps 이후 글리프 래스터가 달라져 이전 컨테이너 기준선(final22h) 대비 텍스트 픽셀 diff(6~12K px) — 레이아웃 무관·동일 환경 재기준선으로 0px 확인. 기준선은 컨테이너 밖(스크래치패드)에도 보관할 것.
 - 트랩 후보: 로컬 zslab_mall_frontend 재생성 시 corepack·chromium·install-deps·픽셀 기준선 소실 → 별도 chore에서 정상화(dev 이미지 재빌드).
+
+## FE-24: 로컬 frontend 개발 컨테이너 정상화 (2026-09-16)
+배경(정찰 실측·recon-report-fe-dev-container.md): `zslab_mall_frontend`가 prod runtime 이미지(2026-07-10 빌드·node:24-slim·CMD `node .output/server/index.mjs`·NODE_ENV=production)에 dev.yml 오버라이드(bind-mount·3000)만 얹혀 호스트 `frontend/.output`을 서빙 → HMR 없음·변경 반영 = 컨테이너 내 `pnpm build` + restart. 재생성 시 수동 설치한 corepack·chromium·apt 의존성·`/tmp` 픽셀 기준선 소실(FE-23 실발생).
+
+### §1-A 갈림길·채택/기각 근거
+- α **dev 이미지 정상화 — 채택**: `docker-compose.dev.yml` frontend에 `image: zslab-mall-frontend-dev`(prod 태그 `zslab-mall-zslab_mall_frontend`와 분리) + `Dockerfile.dev`에 `pnpm exec playwright install --with-deps chromium`(node:24 non-slim). 운영 파일(mall.yml·Dockerfile·deploy.yml) 무수정 → 운영 영향 0.
+- β prod 이미지에 개발 도구 layer 추가 — **기각**: 운영 런타임 이미지 비대·NODE_ENV=production에 dev 도구 혼입(기조 1·4 위배).
+- γ 공식 Playwright 이미지 베이스 / 검증 사이드카 — **기각**: 공식 이미지 Node 버전이 lockfile·CI(node 24)와 정합하는지 미검증·pnpm corepack 별도. 사이드카는 SSR·reuseExistingServer·baseURL 재설계가 필요해 단일 운영자 구성에 과잉.
+- 결정 5건(정찰 추천안 전부 채택): (1) 이미지 태그 분리 (2) Playwright는 Dockerfile.dev `--with-deps`(버전은 pnpm exec가 lockfile 1.61.1을 그대로 사용·중복 기입 없음, pnpm 버전도 packageManager를 corepack이 읽음) (3) 픽셀 스크립트 커밋 `frontend/e2e/tools/pixel.mjs` + 기준선 gitignored `frontend/playwright-report/pixel-baseline/`(frontend/.gitignore:34 커버·bind-mount라 재생성과 무관) (4) dev-up.ps1은 `--build` 상시 미포함, Dockerfile.dev·package.json·lock 변경 시 수동 `up -d --build`(README·dev-up.ps1 주석) (5) node_modules 익명 볼륨 유지(재생성 시 승계 실측·동일 볼륨 ID).
+
+### §2 확정 구현 규칙
+- `frontend/Dockerfile.dev`: node:24 · corepack enable · pnpm install · `playwright install --with-deps chromium` · CMD `pnpm dev --host 0.0.0.0`. NODE_ENV 미설정(컨테이너 printenv 실측 unset → nuxt dev가 development 적용).
+- `docker-compose.dev.yml:12-17` image 태그 + 이유 주석. mall.yml 불변.
+- `frontend/e2e/tools/pixel.mjs` + `package.json` script `pixel`: `pnpm pixel capture <name>` / `pnpm pixel compare <a> <b>`(상이 픽셀 → `<b>-diff/` 빨강 PNG·exit 1). 캡처 규칙은 FE-22b §3-1 그대로(페이지별 새 컨텍스트·문서 높이 뷰포트 고정·fullPage:false·데모 로그인·DevTools 숨김). pngjs는 `playwright-core/lib/utilsBundle`(exports 키·`.js` 확장자 붙이면 ERR_PACKAGE_PATH_NOT_EXPORTED)에서 재사용.
+- 문서: `frontend/README.md` "로컬 개발 컨테이너" 절(--build 시점·layers 재시작·typecheck 후 재시작·E2E env·픽셀 도구) · `scripts/dev-up.ps1`(git 제외·로컬) 헤더 주석 동기.
+
+### §검증(실측)
+- 빌드 `zslab-mall-frontend-dev` 953MB · prod 태그 `2316e027f7fc`(7/10) 무손상 유지.
+- 재생성 후 Image=dev·CMD `pnpm dev`·NODE_ENV unset·node_modules 볼륨 동일 ID 승계. `/`·`/admin/login`·`/_admin-demo/status` 200. HMR: AppFooter 문구 수정→첫 폴링(2s 내) 반영·원복 즉시 반영.
+- 신규 기준선 `main-dev` 12장 → 연속 3회 캡처 상호 0px(12/12).
+- `--force-recreate` 1회 더 → 재설치 없이 pnpm 11.10.0·브라우저 3종·기준선 유지 · typecheck 0 · vitest 27/110 · Playwright 7/7 · 픽셀 12장 0px.
+- 트랩 해소: (1) dev/prod 태그 공유로 prod 검증 빌드가 dev 이미지를 덮음(7/10~9/16) → 태그 분리로 해결. (2) 재생성 시 도구 소실 → 이미지 layer로 해결. 잔존 규칙: layers/·auto-import 신설 후 `docker restart` · 실행 중 dev에서 typecheck 후 restart(LT-15 계열) · lock 변경 시 컨테이너 내 `pnpm install`(익명 볼륨은 최초 생성 시만 이미지에서 복사).
