@@ -10723,6 +10723,7 @@ deploy.yml이 `push main` 무필터라 docs만 변경된 머지에도 서버 SSH
 - **락 순서 확인(수용)**: `InventoryService.commitExchange`는 교환·원 variant를 id 오름차순으로 `findByVariantIdForUpdate`(`SELECT … FOR UPDATE`) 잠그고 같은 id면 1회 조회·인스턴스 재사용 — 위반 없음.
 - **N+1 확인(수용)**: `OptionLabelResolver.resolve`는 값·그룹 `findAllById` IN 2쿼리(+variant `findByIdIn` 1쿼리)로 클레임·variant 수와 무관한 고정 3쿼리. Hibernate Statistics 실측(교환 클레임 2건·variant 4개): 관리자 주문 상세 1회 13 statements·관리자 클레임 목록 11 — 수정 없음·T13이 예산(20/12)으로 회귀 감지.
 - **기각 — `claim.refund_amount` DROP**: V27 범위 밖·§8 이월 유지.
+- **exchangeCompleted 추가(FE-30-4·등급 B·외부 검토 불필요)**: 구매자 주문 상세 `OrderItemResponse` +`exchangeCompleted`(boolean·추가형). 품목에 EXCHANGE·COMPLETED 클레임이 있으면 true — 관리자 enrich와 같은 `ClaimRepository.findByOrderItemIdInOrderByIdDesc` 주문 단위 1회 배치(품목별 쿼리 없음·기존 판정 재사용). 쿼리 수: 주문 상세 4 → 5(품목 4개·클레임 3건 T14 실측·예산 8). FE는 교환 완료 품목의 교환 버튼을 숨기고 반품 버튼은 유지한다(BE 재교환 422와 병행). 조회 추가형·기존 판정 재사용이라 외부 검토 생략 판정.
 - 테스트 +2(ClaimExchangeIntegrationTest 11 → 13). 전체 `./backend/gradlew.bat test --rerun-tasks`: 193파일 1030 tests·0 fail(1028 → 1030). 로컬 V27 재적용(교환 클레임 0건·롤백 SQL + 이력 v27 삭제 + 재시작) 후 컬럼 4개 확인.
 
 ### §8 이월

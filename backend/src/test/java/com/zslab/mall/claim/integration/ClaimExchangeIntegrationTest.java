@@ -102,6 +102,8 @@ class ClaimExchangeIntegrationTest extends AbstractIntegrationTest {
     /** 관리자 주문 상세·클레임 목록 쿼리 예산(T13·옵션 라벨 배치 조회 3쿼리 포함·N+1 회귀 감지). */
     private static final int ADMIN_DETAIL_QUERY_BUDGET = 20;
     private static final int ADMIN_LIST_QUERY_BUDGET = 12;
+    /** 구매자 주문 상세 쿼리 예산(T14·주문+품목·상품·variant·셀러·교환 완료 클레임 배치 1). */
+    private static final int BUYER_DETAIL_QUERY_BUDGET = 8;
 
     private static final String ORDER_ITEM_PID = pid("oit_", "EXCOIT");
     private static final String VAR_EXCHANGE_PID = pid("var_", "EXCVAR2");
@@ -541,6 +543,44 @@ class ClaimExchangeIntegrationTest extends AbstractIntegrationTest {
         assertThat(listQueries).isLessThanOrEqualTo(ADMIN_LIST_QUERY_BUDGET);
     }
 
+    // ==================== T14 구매자 주문 상세 exchangeCompleted ====================
+
+    @Test
+    @DisplayName("T14 exchangeCompleted: 교환 완료 품목 true / 미교환·교환 진행 중(APPROVED)·교환 거부(REJECTED) 품목 false / 품목 4개·클레임 3건에도 주문 단위 배치 1회(쿼리 수 ≤ 8)")
+    void buyerOrderDetail_exchangeCompletedFlag_batched() throws Exception {
+        Long claimId = runToInspection(true);
+        deliveryService.markDelivered(deliveryService.registerExchangeShipment(claimId, DeliveryCarrier.CJ, "CJ-EXC-OUT14").getId());
+        // 같은 주문에 품목 3개 추가: 진행 중 교환(APPROVED)·거부 교환(REJECTED)·클레임 없음
+        seed(() -> {
+            for (long extra = 1; extra <= 3; extra++) {
+                jdbc.update("INSERT INTO order_item (id, public_id, order_id, product_id, variant_id, seller_id, quantity, unit_price, total_price, "
+                        + "item_status, created_at, updated_at, product_name) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, 'DELIVERED', NOW(6), NOW(6), '추가 품목')",
+                        ORDER_ITEM_ID + extra, pid("oit_", "EXCOIT" + extra), ORDER_ID, PRODUCT_ID, VARIANT_ORIGINAL, SELLER_ID, ITEM_PRICE, ITEM_PRICE);
+            }
+            jdbc.update("INSERT INTO claim (id, public_id, order_item_id, type, reason_code, status, previous_order_item_status, exchange_variant_id, "
+                    + "created_at, updated_at) VALUES (?, ?, ?, 'EXCHANGE', 'PRODUCT_DEFECT', 'APPROVED', 'DELIVERED', ?, NOW(6), NOW(6))",
+                    9495L, pid("clm_", "EXCT14A"), ORDER_ITEM_ID + 1, VARIANT_EXCHANGE);
+            jdbc.update("INSERT INTO claim (id, public_id, order_item_id, type, reason_code, status, previous_order_item_status, exchange_variant_id, "
+                    + "created_at, updated_at) VALUES (?, ?, ?, 'EXCHANGE', 'PRODUCT_DEFECT', 'REJECTED', 'DELIVERED', ?, NOW(6), NOW(6))",
+                    9496L, pid("clm_", "EXCT14R"), ORDER_ITEM_ID + 2, VARIANT_EXCHANGE);
+        });
+
+        Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+        statistics.setStatisticsEnabled(true);
+        statistics.clear();
+        mockMvc.perform(get("/api/v1/orders/" + pid("ord_", "EXCORD")).headers(authHeaders.buyer(USER_ID)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sellers[0].items.length()").value(4))
+                .andExpect(jsonPath("$.sellers[0].items[?(@.orderItemId == '" + ORDER_ITEM_PID + "')].exchangeCompleted").value(true))
+                .andExpect(jsonPath("$.sellers[0].items[?(@.orderItemId == '" + pid("oit_", "EXCOIT1") + "')].exchangeCompleted").value(false))
+                .andExpect(jsonPath("$.sellers[0].items[?(@.orderItemId == '" + pid("oit_", "EXCOIT2") + "')].exchangeCompleted").value(false))
+                .andExpect(jsonPath("$.sellers[0].items[?(@.orderItemId == '" + pid("oit_", "EXCOIT3") + "')].exchangeCompleted").value(false));
+        long queries = statistics.getPrepareStatementCount();
+        statistics.setStatisticsEnabled(false);
+        System.out.println("[T14] buyer order detail queries=" + queries);
+        assertThat(queries).isLessThanOrEqualTo(BUYER_DETAIL_QUERY_BUDGET);
+    }
+
     private void approveWithJitter(Long claimId, CountDownLatch ready, CountDownLatch go, AtomicInteger success,
             AtomicInteger invalidState) {
         try {
@@ -651,7 +691,8 @@ class ClaimExchangeIntegrationTest extends AbstractIntegrationTest {
                 jdbc.update("DELETE FROM refund WHERE claim_id IN (SELECT id FROM claim WHERE order_item_id = ?)", ORDER_ITEM_ID);
                 jdbc.update("DELETE FROM claim WHERE order_item_id = ?", ORDER_ITEM_ID);
                 jdbc.update("DELETE FROM payment WHERE id = ?", PAYMENT_ID);
-                jdbc.update("DELETE FROM order_item WHERE id = ?", ORDER_ITEM_ID);
+                jdbc.update("DELETE FROM claim WHERE order_item_id BETWEEN ? AND ?", ORDER_ITEM_ID, ORDER_ITEM_ID + 3);
+                jdbc.update("DELETE FROM order_item WHERE id BETWEEN ? AND ?", ORDER_ITEM_ID, ORDER_ITEM_ID + 3);
                 jdbc.update("DELETE FROM `order` WHERE id = ?", ORDER_ID);
                 jdbc.update("DELETE FROM inventory_history WHERE inventory_id BETWEEN ? AND ?", VARIANT_ORIGINAL, VARIANT_OTHER_PRODUCT);
                 jdbc.update("DELETE FROM inventory WHERE id BETWEEN ? AND ?", VARIANT_ORIGINAL, VARIANT_OTHER_PRODUCT);
