@@ -20,6 +20,7 @@ import com.zslab.mall.user.exception.EmailAlreadyExistsException;
 import com.zslab.mall.user.policy.PasswordPolicy;
 import com.zslab.mall.user.repository.BuyerProfileRepository;
 import com.zslab.mall.user.repository.UserRepository;
+import java.time.LocalDateTime;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -43,6 +44,7 @@ public class UserService {
     private final BuyerGradeRepository buyerGradeRepository;
     private final PasswordEncoder passwordEncoder;
     private final PasswordPolicy passwordPolicy;
+    private final MemberActivityChecker memberActivityChecker;
 
     public UserService(
             UserRepository userRepository,
@@ -51,7 +53,8 @@ public class UserService {
             BuyerProfileRepository buyerProfileRepository,
             BuyerGradeRepository buyerGradeRepository,
             PasswordEncoder passwordEncoder,
-            PasswordPolicy passwordPolicy) {
+            PasswordPolicy passwordPolicy,
+            MemberActivityChecker memberActivityChecker) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.userRoleRepository = userRoleRepository;
@@ -59,6 +62,7 @@ public class UserService {
         this.buyerGradeRepository = buyerGradeRepository;
         this.passwordEncoder = passwordEncoder;
         this.passwordPolicy = passwordPolicy;
+        this.memberActivityChecker = memberActivityChecker;
     }
 
     /**
@@ -111,6 +115,9 @@ public class UserService {
 
         passwordPolicy.validate(request.newPassword());
         user.assignPasswordHash(passwordEncoder.encode(request.newPassword()));
+        // 변경 이전 발급 토큰(현재 요청 토큰 포함)은 무효가 된다 — FE는 204 후 재로그인(Track 84·응답 계약 204 유지)
+        user.markCredentialsChanged(LocalDateTime.now());
+        user.clearPasswordChangeRequired();
         userRepository.save(user);
 
         log.info("[User] 비밀번호 변경 완료 userId={}", userId);
@@ -145,15 +152,23 @@ public class UserService {
     }
 
     /**
-     * 본인 회원 탈퇴(BL-5). {@code withdrawn_at}을 마킹한다. 재탈퇴는 멱등(no-op·최초 시각 유지). 탈퇴 후 재로그인은
-     * {@code AuthService}의 {@code withdrawn_at != null} 가드가 차단한다.
+     * 본인 회원 탈퇴(BL-5). 진행 중 주문·클레임이 없을 때만 {@code withdrawn_at}을 마킹하고 자격증명 갱신 시각을 찍어 기존 토큰을
+     * 즉시 무효화한다(Track 84). 재탈퇴는 멱등(no-op·최초 시각 유지). 탈퇴 후 재로그인은 {@code AuthService}의
+     * {@code withdrawn_at != null} 가드가 차단한다.
      *
      * @throws IllegalStateException userId에 해당하는 User가 없는 경우(인증됐으나 데이터 부재·내부 오류·500)
+     * @throws com.zslab.mall.user.exception.MemberActivityInProgressException 진행 중 주문·활성 클레임이 있는 경우(409)
      */
     public void withdraw(Long userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalStateException("인증된 userId에 해당하는 User가 없습니다: " + userId));
+        if (user.getWithdrawnAt() != null) {
+            return; // 멱등: 이미 탈퇴한 회원은 가드·갱신 없이 204(기존 계약 유지)
+        }
+        memberActivityChecker.requireNoActivityInProgress(userId);
+        LocalDateTime now = LocalDateTime.now();
         user.withdraw();
+        user.markCredentialsChanged(now);
         userRepository.save(user);
         log.info("[User] 회원 탈퇴 완료 userId={}", userId);
     }

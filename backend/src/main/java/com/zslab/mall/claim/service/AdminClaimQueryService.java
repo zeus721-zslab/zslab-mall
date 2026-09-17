@@ -25,6 +25,7 @@ import com.zslab.mall.refund.entity.Refund;
 import com.zslab.mall.refund.repository.RefundRepository;
 import com.zslab.mall.user.entity.User;
 import com.zslab.mall.user.repository.UserRepository;
+import com.zslab.mall.user.service.AdminMemberQueryService;
 import java.time.LocalDateTime;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -69,11 +70,12 @@ public class AdminClaimQueryService {
     private final DeliveryRepository deliveryRepository;
     private final AttachmentRepository attachmentRepository;
     private final ClaimExchangeService claimExchangeService;
+    private final AdminMemberQueryService adminMemberQueryService;
 
     public AdminClaimQueryService(ClaimRepository claimRepository, OrderItemRepository orderItemRepository,
             UserRepository userRepository, RefundRepository refundRepository, DeliveryRepository deliveryRepository,
             AttachmentRepository attachmentRepository,
-            ClaimExchangeService claimExchangeService) {
+            ClaimExchangeService claimExchangeService, AdminMemberQueryService adminMemberQueryService) {
         this.claimRepository = claimRepository;
         this.orderItemRepository = orderItemRepository;
         this.userRepository = userRepository;
@@ -81,6 +83,7 @@ public class AdminClaimQueryService {
         this.deliveryRepository = deliveryRepository;
         this.attachmentRepository = attachmentRepository;
         this.claimExchangeService = claimExchangeService;
+        this.adminMemberQueryService = adminMemberQueryService;
     }
 
     /**
@@ -89,17 +92,29 @@ public class AdminClaimQueryService {
      * @throws MalformedRequestException keyword가 trim 후 {@value #MAX_KEYWORD_LENGTH}자를 초과하거나 from &gt; to일 때(400)
      */
     public AdminClaimListResponse listClaims(ClaimType type, ClaimStatus status, String keyword,
-            LocalDateTime from, LocalDateTime to, AdminClaimSort sort, int page, int size) {
+            LocalDateTime from, LocalDateTime to, String buyerPublicId, AdminClaimSort sort, int page, int size) {
         if (from != null && to != null && from.isAfter(to)) {
             throw new MalformedRequestException("from은 to보다 늦을 수 없습니다.");
+        }
+        Pageable pageable = PageRequest.of(Math.max(page, 0), clampSize(size), toSort(sort));
+        long pendingCount = type == null
+                ? claimRepository.countByStatus(ClaimStatus.REQUESTED)
+                : claimRepository.countByTypeAndStatus(type, ClaimStatus.REQUESTED);
+        // Track 84: buyerPublicId(usr_)는 BUYER 회원 id로 해소해 order.buyer_id 경로로 정확 필터한다(AdminMemberQueryService 공유). 미존재·비BUYER는 빈 페이지(404 아님).
+        Long buyerId = null;
+        if (buyerPublicId != null && !buyerPublicId.isBlank()) {
+            buyerId = adminMemberQueryService.findBuyerId(buyerPublicId.trim()).orElse(null);
+            if (buyerId == null) {
+                return AdminClaimListResponse.from(PagedResponse.from(Page.empty(pageable)), pendingCount);
+            }
         }
         String trimmedKeyword = normalizeKeyword(keyword);
         Specification<Claim> specification = Specification
                 .where(AdminClaimSpecifications.type(type))
                 .and(AdminClaimSpecifications.status(status))
                 .and(AdminClaimSpecifications.requestedBetween(from, to))
-                .and(AdminClaimSpecifications.keyword(toLikePattern(trimmedKeyword), trimmedKeyword));
-        Pageable pageable = PageRequest.of(Math.max(page, 0), clampSize(size), toSort(sort));
+                .and(AdminClaimSpecifications.keyword(toLikePattern(trimmedKeyword), trimmedKeyword))
+                .and(AdminClaimSpecifications.buyerId(buyerId));
         Page<Claim> claimPage = claimRepository.findAll(specification, pageable);
 
         Enrichment enrichment = enrich(claimPage.getContent());
@@ -107,10 +122,6 @@ public class AdminClaimQueryService {
                 .map(claim -> toSummary(claim, enrichment))
                 .toList();
         Page<AdminClaimSummaryResponse> rowPage = new PageImpl<>(rows, pageable, claimPage.getTotalElements());
-
-        long pendingCount = type == null
-                ? claimRepository.countByStatus(ClaimStatus.REQUESTED)
-                : claimRepository.countByTypeAndStatus(type, ClaimStatus.REQUESTED);
         return AdminClaimListResponse.from(PagedResponse.from(rowPage), pendingCount);
     }
 

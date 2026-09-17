@@ -85,4 +85,23 @@ public class BuyerProfile extends AbstractFullAuditableEntity {
         this.gradeSource = gradeSource;
         this.gradeUpdatedAt = updatedAt;
     }
+
+    /**
+     * 운영자 수동 등급 부여(Track 84). {@code grade_source=MANUAL}·{@code grade_locked_until}까지 AUTO 재산정이 skip된다
+     * ({@code GradeService} lock 가드·D-136).
+     *
+     * @param gradeId     부여 등급 id
+     * @param lockedUntil 등급 고정 만료 시각
+     * @param updatedAt   등급 변경 시각
+     * @throws IllegalArgumentException 필수값 누락 시
+     */
+    public void assignManualGrade(Long gradeId, LocalDateTime lockedUntil, LocalDateTime updatedAt) {
+        if (gradeId == null || lockedUntil == null || updatedAt == null) {
+            throw new IllegalArgumentException("BuyerProfile.assignManualGrade 필수값 누락(gradeId·lockedUntil·updatedAt).");
+        }
+        this.gradeId = gradeId;
+        this.gradeSource = GradeSource.MANUAL;
+        this.gradeLockedUntil = lockedUntil;
+        this.gradeUpdatedAt = updatedAt;
+    }
 }

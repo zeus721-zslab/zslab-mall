@@ -10736,3 +10736,77 @@ deploy.yml이 `push main` 무필터라 docs만 변경된 머지에도 서버 SSH
 - 교환 배송비 0원 정책(결정 12)·`claim.refund_amount` 컬럼 DROP 마이그레이션.
 - 관리자 교환 FE(옵션 라벨·발송/배송완료 액션)·구매자 FE(옵션 선택·안내 문구 "차액" 제거·회수 송장 UI 교환 노출) — 다음 단계.
 - `findBaseDeliveredOutbound`·자동 확정 배치가 `claim_id IS NULL` 등치를 잃어 V24 인덱스(direction,status,claim_id,delivered_at)의 delivered_at 범위 활용이 약해짐 — 배치 지연 관측 시 인덱스 재설계.
+
+## D-178. 관리자 회원 관리 BE — 토큰 즉시 무효화·임시 비밀번호·탈퇴 가드·수동 등급 (Track 84)
+
+날짜: 2026-09-17
+범위: Track 84 BE(FE 제외) · V28 · 관리자 회원 API 6 endpoint · 주문·클레임 목록 buyerPublicId 필터 · SMS 민감 본문 저장 정책
+브랜치: feat/track-84-admin-member
+
+### 배경
+정찰(docs/track-84/recon-report.md·STEP 340)에서 확인한 사실: 회원 상태 컬럼·비밀번호 변경 강제 플래그·비밀번호 재설정 API·운영자 수동 등급 부여 경로가 없고, JWT는 무상태(HS256·1h)라 탈퇴·비밀번호 변경 후에도 기존 토큰이 만료까지 유효했다. 셀프 탈퇴는 `withdrawn_at` 마킹만 하며 진행 중 주문·클레임을 검사하지 않았다. SMS 본문은 `notification_log.content`에 평문 저장되고 `MockSmsSender`가 본문 전문을 로그에 남겼다. 관리자 주문·클레임 목록은 회원 정확 필터가 없었고(keyword 부분일치만), `buyer_purchase_aggregate.last_ordered_at`는 갱신 경로가 없어 "최근 결제일"에 쓸 수 없었다. 관리자 회원 메뉴 4페이지는 FE 플레이스홀더 상태.
+
+### §1-A 결정
+1. **강제 무효화: α `credentials_changed_at` + 요청별 PK 조회 【채택】** / β 1h 만료 수용 【기각】 — 임시 비밀번호 발급·탈퇴 직후에도 기존 세션이 최대 1시간 살아 있어 임시 비밀번호의 목적(기존 세션 차단·본인 재로그인)을 충족하지 못한다.
+   - V28 `user.credentials_changed_at DATETIME(6) NULL`. `TokenPayload` +`issuedAt`(iat·common/security/TokenPayload.java:6, JwtTokenProvider.java:73·iat 누락은 BadCredentials).
+   - 비교 규칙(`AuthenticatedUserStateVerifier.verify`·AuthenticatedUserStateVerifier.java:40-55): 토큰 iat epoch초 < `credentials_changed_at.atZone(systemDefault).toEpochSecond()`면 거부, **같은 초 발급은 유효(최대 1초 중첩 허용)**. JVM TZ·hibernate `jdbc.time_zone` 모두 Asia/Seoul이라 `LocalDateTime` 왕복 항등. soft-delete(`deleted_at`)·탈퇴(`withdrawn_at`) 회원은 iat 무관 거부 — `User`는 `@SQLRestriction`이라 삭제 행을 못 보므로 같은 테이블을 제약 없이 읽는 `@Immutable UserAuthState`(user/entity/UserAuthState.java:23) 읽기 모델을 둔다.
+   - **user 행 미존재는 통과** — 전제 불변식: user 물리 삭제 금지(soft-delete만·FK RESTRICT). 사양의 "미존재 401"은 통합 테스트 다수가 user 행 없는 임의 actorId로 토큰을 발급하는 픽스처 관례(~25클래스) 때문에 완화(§2).
+   - 적용 지점 2곳: `JwtAuthenticationFilter`(JwtAuthenticationFilter.java:70)·필터를 건너뛰는 `ClaimAttachmentAuthorizationService.verifyQuietly`(ClaimAttachmentAuthorizationService.java:112). 거부는 `BadCredentialsException` → 기존 401 UNAUTHENTICATED 경로.
+   - 갱신 시점(`User.markCredentialsChanged`·User.java:122): 셀프 비밀번호 변경(UserService.java:119)·셀프 탈퇴(UserService.java:171)·관리자 탈퇴(AdminMemberCommandService.java:100)·임시 비밀번호 발급(AdminMemberCommandService.java:121). 셀프 비밀번호 변경은 **204 응답 계약 유지**·현재 토큰도 무효 → FE 재로그인(§8).
+   - 비용: 인증 요청당 PK 조회 1회 추가(결정 12).
+2. **수동 등급: α `grade_locked_until` 유지 기한(`grade_source=MANUAL`) 【채택】** / β 기한 없는 MANUAL 제외 【기각】 — `GradeService.recalculate` lock 가드(D-136)를 그대로 쓰면 재산정 로직 무수정이고, 기한 없는 MANUAL은 GradeService에 source 분기를 추가해야 하며 영구 고정 회원이 누적된다. `BuyerProfile.assignManualGrade(gradeId, lockedUntil, updatedAt)`(BuyerProfile.java:98). 기한은 지정일 **23:59:59.999999**(`LOCK_END_OF_DAY = LocalTime.of(23, 59, 59, 999_999_000)`·AdminMemberCommandService.java:46) — `LocalTime.MAX` 【기각】: 나노 999_999_999가 DATETIME(6) 반올림으로 익일 00:00:00이 될 수 있음. `lockedUntil`은 `@Future`(오늘 이후 날짜·400).
+3. **변경 강제: β `password_change_required` 플래그 【채택】** / α 미강제 【기각】 — SMS 평문이 단말에 잔존하므로 임시 비밀번호로 계속 쓰게 두면 안 된다. V28 `TINYINT(1) NOT NULL DEFAULT 0`. 발급 시 `requirePasswordChange`(User.java:130)·본인 변경 시 `clearPasswordChangeRequired`(User.java:135). BE는 `LoginResponse.passwordChangeRequired`(LoginResponse.java:7·AuthService.java:59·추가형)만 내리고 다른 API를 막지 않는다 — 강제 이동은 FE(§8).
+4. **탈퇴 가드: α 셀프·관리자 공통 【채택】** / β 관리자만 【기각】 — 진행 중 주문·클레임을 남기고 탈퇴하는 구멍이 셀프 경로에 그대로 남는다. `MemberActivityChecker.requireNoActivityInProgress(userId)`(MemberActivityChecker.java:45) 단일 지점. 종결 주문 = `CANCELLED·PAYMENT_EXPIRED·CONFIRMED·PARTIAL_CANCEL`(MemberActivityChecker.java:28-29 — PARTIAL_CANCEL은 `OrderStatusResolver` 규칙 [6] "일부 CANCELLED + 나머지 CONFIRMED-like"일 때만 산출되므로 종결·§2) → `OrderRepository.existsByBuyerIdAndStatusNotIn`(OrderRepository.java:30). 활성 클레임 = `REQUESTED·APPROVED`(`existsActiveByOrderItemId`와 동일 기준) → `ClaimRepository.existsActiveByBuyerId`(ClaimRepository.java:81·claim→order_item→order.buyer_id·requested_by 미사용). 위반 시 409 `MEMBER_ACTIVITY_IN_PROGRESS`(GlobalExceptionHandler.java:138). 기존 private 종결 상수(`AdminOrderQueryService`·`AdminOrderCancelService`)는 관리자 액션용이라 무수정·주석으로 출처 명시. 탈퇴 복구 없음. 이미 탈퇴한 회원의 셀프 재탈퇴는 no-op 유지(단 탈퇴 토큰은 결정 1로 401).
+5. **아이디 컬럼: 삭제, 이메일로 대체** — 로그인 ID가 이메일(`uk_user_email`)이라 별도 아이디 개념이 없다(대안 검토 없음). 목록 행·상세는 `publicId·name·email·phone`.
+6. **탈퇴회원: 별도 페이지(`/admin/members/withdrawn`)·API는 `status` 파라미터 공유** — 기존 관리자 메뉴 사양(`admin-menu.ts` 회원 관리 4항목)을 따른다(대안 검토 없음). `GET /api/v1/admin/members?status=ACTIVE|WITHDRAWN`(기본 ACTIVE·`AdminMemberStatusFilter`·`withdrawn_at` NULL 여부).
+7. **최종결제일: `MAX(order.paid_at)` 페이지 id 배치 조회** — `OrderRepository.findLastPaidAtByBuyerIdIn`(OrderRepository.java:38·JPQL GROUP BY·`BuyerLastPaidProjection`). `buyer_purchase_aggregate` 【미사용】 — 갱신 경로(E6 핸들러)가 없어 항상 빈 테이블. `(buyer_id, paid_at)` 인덱스는 §8.
+8. **SMS 민감 본문**: `NotificationService.sendSensitiveSms(recipientUserId, phoneNumber, templateCode, title, content, maskedContent, eventName)`(NotificationService.java:421-433) — **원문 발송 / `notification_log.content`는 마스킹본 저장 / target USER·userId / 발송 결과(SENT·FAILED) 반환**. 템플릿 `TPL_TEMPORARY_PASSWORD`. `MockSmsSender`는 본문 대신 길이만 로깅(MockSmsSender.java:23·기존 클레임 SMS 포함 일괄). 연락처 없음 422 `MEMBER_PHONE_MISSING`. 발송 FAILED면 `TemporaryPasswordDeliveryFailedException` 502 `TEMPORARY_PASSWORD_DELIVERY_FAILED`(GlobalExceptionHandler.java:141)로 **발급 트랜잭션 전체 롤백**(해시·플래그·로그 행 원복·기존 비밀번호 유지). 임시 비밀번호는 SecureRandom 12자·영문 대소문자+숫자·혼동 문자 0/O/1/l/I 제외(TemporaryPasswordGenerator.java:15)·응답 204·평문은 응답·로그·감사 어디에도 없음.
+9. **주문·클레임 `buyerPublicId` 필터**: `GET /api/v1/admin/orders`(AdminOrderController.java:82)·`GET /api/v1/admin/claims`(AdminClaimController.java:79) +`buyerPublicId`(추가형·기존 파라미터 불변). **BUYER role 보유 회원만 해소** — `AdminMemberQueryService.findBuyerId(publicId): Optional<Long>`(AdminMemberQueryService.java:127·`requireBuyer`와 같은 `findByPublicId` + `existsByUserIdAndRole_Code(BUYER)` 판정 공유)를 두 목록 서비스가 주입(AdminOrderQueryService.java:113·AdminClaimQueryService.java:106·순환 의존 없음). 미존재·비BUYER는 빈 페이지(404 아님). 클레임은 `order.buyer_id` 경로(`AdminClaimSpecifications.buyerId`·AdminClaimSpecifications.java:32·`requested_by`는 관리자 취소 생성분이 관리자 id일 수 있어 미사용). `pendingCount`는 전역 유지.
+10. **감사**: 수정·비밀번호 초기화·등급 변경 = `UPDATE USER`(before/after diff) / 관리자 탈퇴 = `DELETE USER`(계정 종료·물리 삭제 아님·diff `withdrawnAt`). 비밀번호 초기화 diff의 `passwordHash`는 기존 `Masker` 민감 필드로 마스킹, `passwordChangeRequired` false→true. 로그인·셀프 탈퇴·셀프 수정은 기존과 같이 감사 미기록.
+11. **phone `@Pattern` 공통 적용**: `^01[016789]-?\d{3,4}-?\d{4}$`(AdminMemberUpdateRequest.java:18)를 관리자 수정·셀프 `UpdateProfileRequest` 양쪽에 적용(SMS 수신처 형식 보장·기존 테스트 값 전부 적합·영향 0).
+12. **쿼리 예산 +1**: 결정 1의 요청당 PK 조회로 Hibernate Statistics 예산 테스트 3곳 갱신(AdminOrderIntegrationTest 8→9·Track80CancelFlowIntegrationTest 9→10·AdminProductManagementControllerIntegrationTest 6→7·주석 명시).
+
+- **대상 범위**: BUYER role 보유 회원만(비대상·미존재 404 통일·`requireBuyer`·AdminMemberQueryService.java:118). SuperAdmin 부트스트랩 계정은 SUPER_ADMIN만 보유해 제외되나, 가입 경로(BUYER) 계정을 ADMIN_OPERATOR로 승격하면 BUYER 목록에 그대로 노출(§8).
+- **탈퇴 회원 상태 충돌**: 탈퇴 회원 수정·재탈퇴·임시 비밀번호 발급은 409 `MEMBER_ALREADY_WITHDRAWN`.
+
+### §2 결정 라운드 재진입
+- 정찰 후 "탈퇴회원 탭(단일 페이지)" 안을 기존 관리자 메뉴 사양(`/admin/members/withdrawn` 별도 페이지)에 맞춰 변경 — API는 `status` 파라미터 하나로 양쪽을 낸다(결정 6).
+- 사전 확인(STEP 341)에서 `OrderStatus` 9값 중 `PARTIAL_CANCEL`이 종결 성격임을 확인(Resolver 규칙 [6]) → 사양의 종결 3값에 추가(결정 4).
+- 사양의 "user 행 미존재 → 401"을 테스트 픽스처 관례(user 행 없는 actorId 토큰 발급 ~25클래스)로 "통과"로 완화·전제 불변식(물리 삭제 금지) 명시(결정 1·§8 전환 이월).
+
+### API 계약 변경(FE 단계 입력)
+- 신규 `AdminMemberController`(`/api/v1/admin/members`·AdminMemberController.java:34): `GET /`(status·keyword 이름/이메일/연락처 부분일치·sort LATEST|OLDEST·page·size → `PagedResponse<AdminMemberSummaryResponse>`: publicId·name·email·phone·gradeCode·createdAt·lastPaidAt·withdrawnAt) / `GET /{publicId}`(`AdminMemberDetailResponse`: +passwordChangeRequired·grade{code,source,lockedUntil}·addresses) / `PATCH /{publicId}`(name·phone → 204·400·409) / `POST /{publicId}/withdraw`(204·409 활동 중·409 탈퇴) / `POST /{publicId}/password-reset`(204·422 연락처·409 탈퇴·502 발송 실패) / `PUT /{publicId}/grade`(gradeCode enum·lockedUntil `@Future` → 204·400·409).
+- `POST /api/v1/auth/login` 응답 +`passwordChangeRequired`(추가형).
+- `PATCH /api/v1/users/me/password` 204 유지 — 성공 후 현재 토큰 무효(다음 요청 401). `POST /api/v1/users/me/withdraw` 진행 중 주문·클레임 시 409 `MEMBER_ACTIVITY_IN_PROGRESS`, 탈퇴 후 같은 토큰 재요청은 401.
+- `PATCH /api/v1/users/me` phone 형식 400 추가(결정 11).
+- `GET /api/v1/admin/orders`·`GET /api/v1/admin/claims` +`buyerPublicId`.
+- 신규 에러 코드: `MEMBER_ACTIVITY_IN_PROGRESS`(409)·`MEMBER_ALREADY_WITHDRAWN`(409)·`MEMBER_PHONE_MISSING`(422)·`TEMPORARY_PASSWORD_DELIVERY_FAILED`(502).
+
+### 변경 파일
+- Flyway 신규: db/migration/V28__add_user_credential_columns.sql(credentials_changed_at·password_change_required·롤백 주석)
+- main 신규: common/security/AuthenticatedUserStateVerifier · user/entity/UserAuthState · user/repository/UserAuthStateRepository·AdminMemberSpecifications · user/service/MemberActivityChecker·TemporaryPasswordGenerator·AdminMemberQueryService·AdminMemberCommandService · user/controller/AdminMemberController · user/controller/request/AdminMemberStatusFilter·AdminMemberSort·AdminMemberUpdateRequest·AdminMemberGradeRequest · user/controller/response/AdminMemberSummaryResponse·AdminMemberDetailResponse · user/exception/MemberActivityInProgressException·MemberAlreadyWithdrawnException·MemberPhoneMissingException·TemporaryPasswordDeliveryFailedException · order/repository/BuyerLastPaidProjection
+- main 수정: user/entity/User·BuyerProfile · user/repository/UserRepository(JpaSpecificationExecutor)·BuyerProfileRepository(findByUserIdIn) · user/service/UserService · user/controller/request/UpdateProfileRequest · common/security/TokenPayload·JwtTokenProvider·JwtAuthenticationFilter·SecurityConfig · attachment/service/ClaimAttachmentAuthorizationService · auth/controller/response/LoginResponse·auth/service/AuthService · common/web/GlobalExceptionHandler · notification/service/NotificationService·template/NotificationTemplateCodes·adapter/MockSmsSender · order/repository/OrderRepository·AdminOrderSpecifications · order/service/AdminOrderQueryService · order/controller/AdminOrderController · claim/repository/ClaimRepository·AdminClaimSpecifications · claim/service/AdminClaimQueryService · claim/controller/AdminClaimController
+- test 신규: user/integration/AdminMemberIntegrationTest(10) · common/security/AuthenticatedUserStateVerifierTest(4) · user/service/TemporaryPasswordGeneratorTest(2) / test 수정: user/integration/WithdrawControllerIntegrationTest(재탈퇴 401·가드 +4) · notification/adapter/MockSmsSenderTest · user/service/UserServiceTest · order/integration/AdminOrderIntegrationTest(buyerPublicId·BUYER 시드·예산) · claim/integration/Track80CancelFlowIntegrationTest(buyerPublicId·타 회원 시드·예산) · product/controller/AdminProductManagementControllerIntegrationTest(예산)
+- FE 변경 없음 · 신규 라이브러리 없음.
+
+### 검증
+- AdminMemberIntegrationTest 10: 목록(ACTIVE 기본·탈퇴/비BUYER 제외·lastPaidAt 값/NULL·gradeCode) / WITHDRAWN·연락처 keyword·페이징·keyword 51자 400 / 상세(등급·배송지·플래그·비BUYER·미존재 404) / 수정(204·감사 UPDATE·탈퇴 409·phone 400) / 관리자 탈퇴(활성 주문 409 → 종결 후 204·credentials_changed_at·감사 DELETE → 재탈퇴 409·기존 토큰 401) / 임시 비밀번호 422·409 / 성공 흐름(SMS 원문 캡처·notification_log 마스킹·감사 평문 없음·백데이트 토큰 401·무관 회원 무영향·임시 비번 로그인 플래그 true → 셀프 변경 204 → 이전 토큰 401·새 로그인 false) / SMS 실패 502·해시 원복·로그 없음·감사 없음 / 수동 등급(MANUAL·23:59:59.999999 DB·EntityManager.clear 후 JPA 재조회·과거 400·enum 400·AUTO 재산정 skip) / 권한(BUYER·SELLER 403·미인증 401).
+- WithdrawControllerIntegrationTest +4: 진행 중 주문 409 / 종결 4종만 204 / 활성 클레임 409 / COMPLETED 클레임만 204·탈퇴 후 토큰 401. AdminOrderIntegrationTest·Track80 T6: buyerPublicId 정확 필터·타 회원 미포함·미존재·비BUYER 빈 페이지·pendingCount 전역.
+- 전체 `./backend/gradlew.bat test --rerun-tasks`: 196파일 1053 tests·0 fail(1033 → 1053).
+- 로컬(backend docker restart·V28 자동 적용 로그·`SHOW COLUMNS` 2개 확인).
+- 외부 검토: A / 지적 7건 중 수용 3건(초 단위 정책 명시·등급 기한 정밀도·buyerPublicId BUYER 해소), 이월 3건(SMS TX 분리·user 미존재 거부·탈퇴 경합), 기각 1건(pendingCount 회원 필터 반영 — 전역 처리 대기 배지 계약 유지).
+
+### 외부 검토 반영 (2026-09-17)
+- **결정 1 보충 — 초 단위 정책 명시**: `AuthenticatedUserStateVerifier` Javadoc에 "epoch 초보다 이전 초 발급 거부·같은 epoch 초 발급 유효(최대 1초 중첩)"와 "전제 불변식: user 물리 삭제 금지"를 명시. 같은 초 통과 케이스는 `AuthenticatedUserStateVerifierTest`에 이미 존재.
+- **결정 2 보충 — 기한 정밀도**: `LocalTime.MAX` → `LocalTime.of(23, 59, 59, 999_999_000)`. 통합 테스트에 DB 직접 조회 + 영속성 컨텍스트 clear 후 JPA 재조회 = 지정일 23:59:59.999999·날짜 유지 단언.
+- **결정 9 보충 — BUYER 해소 공유**: 목록 필터의 publicId 해소를 `UserRepository.findByPublicId` 직접 호출에서 `AdminMemberQueryService.findBuyerId`(BUYER 판정 포함·예외 없는 Optional)로 교체 — 관리자·판매자 계정 publicId로 주문·클레임을 뒤지는 경로 차단. 테스트: 두 목록 픽스처에 BUYER role 시드 + 비BUYER 관리자 publicId → 빈 페이지.
+- 테스트 수 변동 없음(1053·기존 케이스 단언 추가).
+
+### §8 이월
+- **실 SMS 연동 시**: 발송 TX 분리(PENDING 커밋 → 발송 → SENT/FAILED 별도 TX)로 전환하고 "발송 실패 시 기존 비밀번호 유지(전체 롤백)" 정책은 폐기(실 업체는 호출 성공 후 롤백 불가). 업체 SDK·HTTP 클라이언트의 요청 본문 로깅 차단 확인(임시 비밀번호 평문).
+- **탈퇴 경합**: 탈퇴 가드와 체크아웃·클레임 생성이 서로 다른 TX에서 교차하면 가드를 통과한 직후 주문이 생길 수 있음 — 공통 user 행 락 도입은 재고 락 순서(D-172) 설계와 함께.
+- **user 미존재 토큰 거부 전환**: 통합 테스트 픽스처(user 행 없는 actorId)를 보강한 뒤 `AuthenticatedUserStateVerifier`의 "행 없음 통과"를 401로 전환.
+- `(buyer_id, paid_at)` 인덱스(주문 누적 시·현재 `ix_order_buyer_status`만) · 감사 이력(`audit_log` USER 대상) 조회 화면.
+- 운영자로 승격된 가입 계정(BUYER 보유)이 회원 목록에 노출되는 정책(제외 여부·표시 방식).
+- 셀러·관리자 회원 페이지(`/admin/members/sellers`·`/admin/members/admins`) — 셀러 트랙.
+- **FE(Track 84 FE)**: 셀프 비밀번호 변경 성공 시 재로그인 유도(현재 `mypage/password.vue`는 토큰 유지·다음 요청 401), 로그인 응답 `passwordChangeRequired=true`면 비밀번호 변경 화면 강제 이동, 관리자 회원 목록·상세·탈퇴회원 페이지·주문/클레임 목록 `buyerPublicId` 링크.

@@ -45,6 +45,12 @@ public class User extends AbstractPublicIdSoftDeletableEntity {
     @Column(name = "password_hash", length = 60)
     private String passwordHash;
 
+    @Column(name = "credentials_changed_at")
+    private LocalDateTime credentialsChangedAt;
+
+    @Column(name = "password_change_required", nullable = false)
+    private boolean passwordChangeRequired;
+
     @Column(name = "withdrawn_at")
     private LocalDateTime withdrawnAt;
 
@@ -105,5 +111,28 @@ public class User extends AbstractPublicIdSoftDeletableEntity {
             return;
         }
         this.withdrawnAt = LocalDateTime.now();
+    }
+
+    /**
+     * 자격증명 갱신 시각을 마킹한다(Track 84). 이 시각보다 먼저 발급된 JWT는 인증 필터가 거부하므로 비밀번호 변경·임시 비밀번호
+     * 발급·탈퇴 시 기존 세션을 즉시 무효화하는 용도다.
+     *
+     * @throws IllegalArgumentException now가 null인 경우
+     */
+    public void markCredentialsChanged(LocalDateTime now) {
+        if (now == null) {
+            throw new IllegalArgumentException("credentialsChangedAt은 null일 수 없습니다.");
+        }
+        this.credentialsChangedAt = now;
+    }
+
+    /** 비밀번호 변경 강제 플래그를 켠다(임시 비밀번호 발급·Track 84). 로그인 응답으로만 노출되며 BE는 다른 API를 막지 않는다. */
+    public void requirePasswordChange() {
+        this.passwordChangeRequired = true;
+    }
+
+    /** 비밀번호 변경 강제 플래그를 끈다(본인 비밀번호 변경 완료·Track 84). */
+    public void clearPasswordChangeRequired() {
+        this.passwordChangeRequired = false;
     }
 }

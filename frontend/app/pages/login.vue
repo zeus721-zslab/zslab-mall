@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { BUYER_ROLE } from '~/lib/constants/auth'
+import { BUYER_ROLE, LOGIN_NOTICE_PASSWORD_CHANGED, LOGIN_NOTICE_QUERY } from '~/lib/constants/auth'
 
 // 공개 페이지(permitAll 로그인 엔드포인트 소비)라 definePageMeta 미부착. buyer 몰이므로 role은 BUYER 고정(UI 노출 없음).
 const auth = useAuthStore()
 const route = useRoute()
 const config = useRuntimeConfig()
+
+// 비밀번호 변경 완료 후 재로그인 안내(Track 84·mypage/password.vue가 query로 전달).
+const passwordChangedNotice = computed<boolean>(() => route.query[LOGIN_NOTICE_QUERY] === LOGIN_NOTICE_PASSWORD_CHANGED)
 
 const email = ref<string>('')
 const password = ref<string>('')
@@ -79,6 +82,10 @@ useSeoMeta({
   <div class="flex min-h-[70vh] items-center justify-center px-4 py-12">
     <div class="w-full max-w-sm">
       <h1 class="mb-6 text-center text-2xl font-bold tracking-tight text-primary">로그인</h1>
+
+      <p v-if="passwordChangedNotice" role="status" class="mb-4 rounded-card border border-line bg-gray-50 p-3 text-center text-sm text-ink" data-testid="login-password-changed-notice">
+        비밀번호가 변경되었습니다. 다시 로그인해 주세요.
+      </p>
 
       <form class="space-y-4" @submit.prevent="handleSubmit">
         <div class="space-y-1.5">

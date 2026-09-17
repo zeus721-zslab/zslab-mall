@@ -94,7 +94,7 @@ describe('adminAuth 스토어 (FE-22d 세션 분리)', () => {
     userAuth.logout()
     expect(userAuth.token).toBeNull()
     expect(adminAuth.token).not.toBeNull()
-    // 두 스토어가 읽는 쿠키는 각각 admin_token·auth_token 하나뿐이다
-    expect([...cookieRefs.keys()]).toEqual(['admin_token', 'auth_token'])
+    // 관리자 스토어는 admin_token 하나, 사용자 스토어는 auth_token + 비밀번호 변경 강제 상태(password_change_required·Track 84)를 읽는다
+    expect([...cookieRefs.keys()]).toEqual(['admin_token', 'auth_token', 'password_change_required'])
   })
 })

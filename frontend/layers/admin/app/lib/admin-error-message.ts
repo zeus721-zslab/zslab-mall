@@ -20,6 +20,12 @@ const ADMIN_ERROR_MESSAGES: Record<string, string> = {
   FORBIDDEN: '권한이 없습니다.',
   UNAUTHENTICATED: '로그인이 필요합니다.',
   INTERNAL_ERROR: '서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.',
+  // Track 84 관리자 회원 관리
+  USER_NOT_FOUND: '회원을 찾을 수 없습니다.',
+  MEMBER_ACTIVITY_IN_PROGRESS: '진행 중인 주문 또는 클레임이 있어 탈퇴할 수 없습니다.',
+  MEMBER_ALREADY_WITHDRAWN: '이미 탈퇴한 회원입니다.',
+  MEMBER_PHONE_MISSING: '연락처가 없어 임시 비밀번호를 발송할 수 없습니다.',
+  TEMPORARY_PASSWORD_DELIVERY_FAILED: 'SMS 발송에 실패했습니다. 비밀번호는 변경되지 않았습니다.',
 }
 
 const FALLBACK_MESSAGE = '요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.'

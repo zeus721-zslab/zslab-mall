@@ -157,7 +157,8 @@ test.describe('관리자 셸', () => {
       requestAnimationFrame(tick)
       ;(window as unknown as { __cardFrames: string[] }).__cardFrames = frames
     })
-    await page.goto('/admin/members')
+    // Track 84: /admin/members는 실제 목록 화면이 됐으므로 아직 플레이스홀더인 셀러 회원 메뉴로 측정한다.
+    await page.goto('/admin/members/sellers')
     await expect(page.getByTestId('admin-placeholder')).toBeVisible()
     await page.waitForFunction(() => (window as unknown as { __cardFrames: string[] }).__cardFrames.length >= 60)
     const frames = await page.evaluate(() => (window as unknown as { __cardFrames: string[] }).__cardFrames)

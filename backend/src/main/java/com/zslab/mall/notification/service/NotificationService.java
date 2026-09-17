@@ -19,6 +19,7 @@ import com.zslab.mall.notification.adapter.NotificationSender;
 import com.zslab.mall.notification.adapter.SmsSender;
 import com.zslab.mall.notification.entity.NotificationLog;
 import com.zslab.mall.notification.enums.NotificationChannel;
+import com.zslab.mall.notification.enums.NotificationLogStatus;
 import com.zslab.mall.notification.repository.NotificationLogRepository;
 import com.zslab.mall.notification.template.NotificationTemplateCodes;
 import com.zslab.mall.order.entity.Order;
@@ -401,6 +402,31 @@ public class NotificationService {
         log.info("[Notification] SMS 적재 완료: template={} target_id={} recipient={}", templateCode, claimId,
                 sms.recipientUserId());
         dispatch(notificationLog, eventName, () -> smsSender.send(sms.phoneNumber(), content));
+    }
+
+    /**
+     * 민감 본문 SMS(임시 비밀번호 등·Track 84)를 발송한다. 발송은 원문으로 하되 {@code notification_log.content}에는 마스킹본만
+     * 저장한다(DB에 평문 잔존 금지). 회원 대상이라 target은 USER·userId다. 클레임 SMS와 달리 발송 결과를 호출자에게 돌려주므로
+     * 호출자가 FAILED를 예외로 바꿔 자기 트랜잭션을 롤백할 수 있다(발송 실패 시 로그 행도 함께 롤백).
+     *
+     * @param recipientUserId 수신 회원 id
+     * @param phoneNumber     수신 번호(원문·저장 안 함)
+     * @param templateCode    템플릿 코드
+     * @param title           로그 제목
+     * @param content         발송 원문(민감·저장 안 함)
+     * @param maskedContent   저장용 마스킹 본문
+     * @param eventName       실패 계측 태그
+     * @return 발송 후 로그 상태(SENT·FAILED)
+     */
+    public NotificationLogStatus sendSensitiveSms(Long recipientUserId, String phoneNumber, String templateCode, String title,
+            String content, String maskedContent, String eventName) {
+        NotificationLog notificationLog = NotificationLog.create(
+                recipientUserId, NotificationChannel.SMS, templateCode, PolymorphicTargetType.USER, recipientUserId,
+                title, maskedContent);
+        notificationLogRepository.save(notificationLog);
+        log.info("[Notification] 민감 SMS 적재 완료(마스킹 저장): template={} recipient={}", templateCode, recipientUserId);
+        dispatch(notificationLog, eventName, () -> smsSender.send(phoneNumber, content));
+        return notificationLog.getStatus();
     }
 
     private void save(Long recipientUserId, String templateCode, PolymorphicTargetType targetType,

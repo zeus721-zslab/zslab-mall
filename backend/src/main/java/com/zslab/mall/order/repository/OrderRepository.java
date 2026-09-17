@@ -26,6 +26,17 @@ public interface OrderRepository extends JpaRepository<Order, Long>, JpaSpecific
 
     boolean existsByOrderNo(String orderNo);
 
+    /** 구매자에게 종결(statuses) 외 상태의 주문이 있는지(Track 84 탈퇴 가드·진행 중 주문 판정). 파생 쿼리 바인딩. */
+    boolean existsByBuyerIdAndStatusNotIn(Long buyerId, Collection<OrderStatus> statuses);
+
+    /**
+     * 구매자별 결제 완료 최근 시각(MAX(paid_at))·관리자 회원 목록 페이지 배치 enrich(Track 84·N+1 회피). paid_at NULL 주문은 제외.
+     * 모든 변수는 :buyerIds 바인딩만 사용하며 SQL injection 위험이 없다.
+     */
+    @Query("SELECT o.buyerId AS buyerId, MAX(o.paidAt) AS lastPaidAt FROM Order o "
+            + "WHERE o.buyerId IN :buyerIds AND o.paidAt IS NOT NULL GROUP BY o.buyerId")
+    List<BuyerLastPaidProjection> findLastPaidAtByBuyerIdIn(@Param("buyerIds") Collection<Long> buyerIds);
+
     /**
      * Order를 items와 함께 fetch join으로 조회한다(D-33 Lazy 안전망). PaymentCompleted 소비 시
      * markPaid가 items를 순회하므로 동일 트랜잭션에서 선로딩해 LazyInitializationException을 차단한다.

@@ -443,6 +443,22 @@ webhook occurredAt 전송 시 Z 제거: `new Date().toISOString().slice(0,23)` �
 
 ---
 
+## LT-17. backend 소스 변경 후 재기동 누락 — 신규 컨트롤러 미등록·매핑 없는 경로 500(NoResourceFoundException) [ACTIVE]
+**발견 트랙**: 인수인계 1회차(pull 후) + Track 84(STEP 342 재시작 후 컨트롤러 추가·STEP 359 조사)
+**원본 결정**: 세션 트랩(본 카탈로그 직접 등록)·decisions.md D-178 §8 이월(NoResourceFoundException 404 매핑) 관련
+### 증상
+pull 또는 BE 변경 후 신규 API 호출이 500. 로그는 `NoResourceFoundException: No static resource api/v1/admin/members`이고 스택에 컨트롤러·서비스 프레임이 없다(JwtAuthenticationFilter → DispatcherServlet → ResourceHttpRequestHandler). 통합 테스트는 전부 GREEN. 무인증 GET은 401이라 매핑 유무를 구분하지 못하고(보안 매처 선행), 관리자 토큰으로 호출해야 500이 드러난다.
+### 처치
+로컬 backend는 `gradle bootRun` + 소스 볼륨 마운트지만 spring-boot-devtools가 없어 핫리로드가 없다. 기동 시점의 컴포넌트 스캔 결과가 고정되므로 이후 추가된 컨트롤러는 등록되지 않는다. 호스트 `gradlew test`가 공유 `build/classes`에 새 .class를 써 놓아도 실행 중 JVM에는 반영되지 않는다. Playwright는 API를 mock하므로 못 잡는다. → BE 변경·pull·Flyway 적용 후 `docker restart zslab_mall_backend`, 기동 로그에서 `Started ZslabMallApplication`·Flyway `up to date`·ERROR 0 확인 후 **관리자 토큰으로** 신규 API 200 확인(무인증 401은 근거 아님).
+### 후속 영향
+- "통합 테스트 GREEN·로컬만 500·컨트롤러 프레임 없는 스택" 패턴이면 코드가 아니라 실행 프로세스 최신 여부부터 의심(LT-14 stale-class와 동류·원인은 재기동 누락).
+- 매핑 없는 경로가 404가 아닌 500으로 새는 것은 별건(GlobalExceptionHandler NoResourceFoundException 미매핑·D-178 §8 이월). 404로 매핑되면 같은 트랩이 "신규 API 404"로 정직하게 보인다.
+- 기동 대기 폴링 시 `docker logs --tail N`은 TRACE(SQL 바인딩) 로그에 밀려 `Started` 줄을 놓칠 수 있다 → `--since` 또는 전체 로그 grep.
+### 관련
+- LT-14·LT-15(dev 미반영 계열)·backend/Dockerfile.dev(bootRun)·docker-compose.mall.yml zslab_mall_backend·D-178 §8
+
+---
+
 ## 부록. 트랩 추가 절차
 
 1. 라이브 발견 시 즉시 decisions.md D-XX 박제 (단건 처리)

@@ -42,6 +42,11 @@ public final class AdminOrderSpecifications {
         return (root, query, builder) -> status == null ? null : builder.equal(root.get("status"), status);
     }
 
+    /** 특정 구매자의 주문(Track 84 회원 상세 링크). null이면 조건 없음. */
+    public static Specification<Order> buyerId(Long buyerId) {
+        return (root, query, builder) -> buyerId == null ? null : builder.equal(root.get("buyerId"), buyerId);
+    }
+
     /** 주문일시(ordered_at) 범위. from·to 각각 null 허용(포함 경계). */
     public static Specification<Order> orderedBetween(LocalDateTime from, LocalDateTime to) {
         return (root, query, builder) -> {

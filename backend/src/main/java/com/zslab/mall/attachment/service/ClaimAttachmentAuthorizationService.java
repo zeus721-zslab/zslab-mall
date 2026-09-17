@@ -6,6 +6,7 @@ import com.zslab.mall.claim.entity.Claim;
 import com.zslab.mall.claim.repository.ClaimRepository;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
 import com.zslab.mall.common.security.ActorRole;
+import com.zslab.mall.common.security.AuthenticatedUserStateVerifier;
 import com.zslab.mall.common.security.TokenPayload;
 import com.zslab.mall.common.security.TokenProvider;
 import com.zslab.mall.file.service.ImageFormat;
@@ -42,12 +43,14 @@ public class ClaimAttachmentAuthorizationService {
     private final AttachmentRepository attachmentRepository;
     private final ClaimRepository claimRepository;
     private final TokenProvider tokenProvider;
+    private final AuthenticatedUserStateVerifier userStateVerifier;
 
     public ClaimAttachmentAuthorizationService(AttachmentRepository attachmentRepository, ClaimRepository claimRepository,
-            TokenProvider tokenProvider) {
+            TokenProvider tokenProvider, AuthenticatedUserStateVerifier userStateVerifier) {
         this.attachmentRepository = attachmentRepository;
         this.claimRepository = claimRepository;
         this.tokenProvider = tokenProvider;
+        this.userStateVerifier = userStateVerifier;
     }
 
     /**
@@ -105,7 +108,9 @@ public class ClaimAttachmentAuthorizationService {
     /** 무효·만료 토큰은 해당 후보만 버린다(요청 실패 금지·토큰 값은 로그에 남기지 않는다). */
     private Optional<TokenPayload> verifyQuietly(String token) {
         try {
-            return Optional.of(tokenProvider.verify(token));
+            TokenPayload payload = tokenProvider.verify(token);
+            userStateVerifier.verify(payload); // 필터를 건너뛰는 경로라 삭제·탈퇴·갱신 이전 토큰 거부를 여기서도 적용(Track 84)
+            return Optional.of(payload);
         } catch (AuthenticationException exception) {
             log.debug("[ClaimAttachmentAuthz] 후보 토큰 무효: {}", exception.getMessage());
             return Optional.empty();

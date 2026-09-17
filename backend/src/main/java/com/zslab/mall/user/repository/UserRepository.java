@@ -5,8 +5,9 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 
-public interface UserRepository extends JpaRepository<User, Long> {
+public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificationExecutor<User> {
 
     /** 로그인 이메일로 회원 조회. {@code @SQLRestriction("deleted_at IS NULL")}로 소프트삭제 회원은 제외된다. (Track 33) */
     Optional<User> findByEmail(String email);

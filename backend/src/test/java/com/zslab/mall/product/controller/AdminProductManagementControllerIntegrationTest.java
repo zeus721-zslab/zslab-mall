@@ -56,7 +56,7 @@ class AdminProductManagementControllerIntegrationTest extends AbstractIntegratio
     private static final String P4 = pid("prd_", "T76P4STOP");
     private static final String P5 = pid("prd_", "T76P5ORDR");
     private static final String MISSING = pid("prd_", "T76MISSING");
-    private static final int QUERY_BUDGET_FOR_LIST = 6; // 상품 페이지 + count + variant + inventory + seller + category
+    private static final int QUERY_BUDGET_FOR_LIST = 7; // 상품 페이지 + count + variant + inventory + seller + category + 인증 필터 회원 상태 조회 1(Track 84)
 
     @Autowired
     private MockMvc mockMvc;

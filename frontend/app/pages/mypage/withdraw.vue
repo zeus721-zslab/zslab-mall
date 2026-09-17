@@ -26,6 +26,12 @@ async function handleWithdraw(): Promise<void> {
       await navigateTo(`/login?redirect=${encodeURIComponent('/mypage/withdraw')}`)
       return
     }
+    // 409 MEMBER_ACTIVITY_IN_PROGRESS(Track 84·D-178): 진행 중 주문·클레임 보유 → 탈퇴·로그아웃 없이 사유 안내.
+    const code = (withdrawError as { data?: { code?: unknown } }).data?.code
+    if (statusCode === 409 && code === 'MEMBER_ACTIVITY_IN_PROGRESS') {
+      errorMessage.value = '진행 중인 주문 또는 교환·반품이 있어 탈퇴할 수 없습니다.'
+      return
+    }
     errorMessage.value = '탈퇴에 실패했습니다. 잠시 후 다시 시도해 주세요'
   } finally {
     submitting.value = false

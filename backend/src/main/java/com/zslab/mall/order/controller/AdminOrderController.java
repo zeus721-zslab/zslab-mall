@@ -68,7 +68,7 @@ public class AdminOrderController {
     }
 
     /**
-     * 관리자 주문 목록. 필터: status(주문)·paymentStatus·deliveryStatus·from/to(ordered_at·ISO-8601)·keyword(주문번호 정확·주문자
+     * 관리자 주문 목록. 필터: status(주문)·paymentStatus·deliveryStatus·from/to(ordered_at·ISO-8601)·buyerPublicId(회원 정확·Track 84·미존재는 빈 페이지)·keyword(주문번호 정확·주문자
      * 이름/이메일·상품명 부분). 허용 외 enum·sort 값 400, keyword 50자 초과·from&gt;to 400(MALFORMED_REQUEST).
      */
     @GetMapping
@@ -79,11 +79,12 @@ public class AdminOrderController {
             @RequestParam(required = false) DeliveryStatus deliveryStatus,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to,
+            @RequestParam(required = false) String buyerPublicId,
             @RequestParam(defaultValue = "LATEST") AdminOrderSort sort,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         return ResponseEntity.ok(adminOrderQueryService.listOrders(
-                keyword, status, paymentStatus, deliveryStatus, from, to, sort, page, size));
+                keyword, status, paymentStatus, deliveryStatus, from, to, buyerPublicId, sort, page, size));
     }
 
     /** 관리자 주문 상세. 미존재 404. */

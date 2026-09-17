@@ -19,6 +19,7 @@ public class MockSmsSender implements SmsSender {
             throw new IllegalArgumentException("SMS 수신번호는 필수입니다.");
         }
         // Mock: 외부 호출 대신 발송 사실만 로깅하고 성공 반환한다(실 어댑터 진입 시 본 구현만 교체).
-        log.info("[MockSmsSender] 발송 모사: to={} content={}", PhoneMasker.mask(phoneNumber), content);
+        // 본문은 임시 비밀번호 등 민감 정보를 담을 수 있어 길이만 남긴다(Track 84).
+        log.info("[MockSmsSender] 발송 모사: to={} contentLength={}", PhoneMasker.mask(phoneNumber), content == null ? 0 : content.length());
     }
 }
