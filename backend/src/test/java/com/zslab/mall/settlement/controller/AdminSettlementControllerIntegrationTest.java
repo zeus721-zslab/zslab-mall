@@ -9,6 +9,7 @@ import com.zslab.mall.common.security.AuthHeaders;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -100,6 +101,17 @@ class AdminSettlementControllerIntegrationTest extends AbstractIntegrationTest {
     void create_invalidMonth_returns400() throws Exception {
         mockMvc.perform(post(URL).headers(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"year\":2026,\"month\":13}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("SETTLEMENT_PERIOD_INVALID"));
+    }
+
+    @Test
+    @DisplayName("T3b 진행 중 월(오늘 포함) → 400 SETTLEMENT_PERIOD_INVALID(마감 전 생성 차단·D-168 보충)")
+    void create_currentMonth_returns400() throws Exception {
+        YearMonth current = YearMonth.now();
+        mockMvc.perform(post(URL).headers(authHeaders.admin(ADMIN_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"year\":" + current.getYear() + ",\"month\":" + current.getMonthValue() + "}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("SETTLEMENT_PERIOD_INVALID"));
     }
