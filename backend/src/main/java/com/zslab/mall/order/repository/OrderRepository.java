@@ -2,6 +2,7 @@ package com.zslab.mall.order.repository;
 
 import com.zslab.mall.order.entity.Order;
 import com.zslab.mall.order.enums.OrderStatus;
+import com.zslab.mall.payment.enums.PaymentStatus;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
@@ -66,11 +67,24 @@ public interface OrderRepository extends JpaRepository<Order, Long>, JpaSpecific
      * hard delete 대상(status·updatedAt≤기준시각) 주문을 배치 상한으로 조회한다(FE-12c-2·미결제 종료 주문 가비지 정리).
      * PAYMENT_EXPIRED 종료 후 재고 해제·유예(GRACE_DAYS) 경과 주문을 삭제 대상으로 선정한다. 기준 시각은 {@code createdAt}이
      * 아닌 {@code updatedAt}이다 — 미결제 종료(expirePayment)는 status만 세팅하고 이후 PAYMENT_EXPIRED에 updated_at을 바꾸는
-     * 비즈니스 로직이 없어 updated_at이 종료 시각 근사이기 때문이다(FE-12c-2 불변식 2·expired_at 컬럼 미신설). items는 fetch join하지
-     * 않는다 — 삭제 처리(ExpiredOrderCleanupService.cleanupOne)가 id별 독립 트랜잭션에서 재조회하므로(auto-cancel 배치 관습 미러).
+     * 비즈니스 로직이 없어 updated_at이 종료 시각 근사이기 때문이다(FE-12c-2 불변식 2·expired_at 컬럼 미신설). id만 조회한다
+     * — 삭제 처리(ExpiredOrderCleanupService.cleanupOne)가 id별 독립 트랜잭션에서 재조회하므로(auto-cancel 배치 관습 미러).
+     *
+     * <p><b>삭제 불가 주문 제외(D-175·검수 5단계)</b>: cleanupOne이 skip·RESTRICT 실패로 끝날 주문(PENDING 결제 보유·품목에
+     * delivery/claim 손자 보유 — refund는 claim 하위라 claim 제외로 흡수)은 조회 단계에서 NOT EXISTS로 걸러낸다. 걸러내지 않으면
+     * updated_at 오름차순 배치 선두(100건)를 영구히 점유해 뒤의 정상 삭제 대상이 기아에 빠진다. cleanupOne의 가드 (0)(1)은 조회~처리
+     * 사이 변경 대비로 유지한다. 모든 변수는 :status·:pendingPaymentStatus·:threshold 바인딩이다.
      */
-    List<Order> findByStatusAndUpdatedAtLessThanEqualOrderByUpdatedAtAsc(
-            OrderStatus status, LocalDateTime threshold, Pageable pageable);
+    @Query("SELECT o.id FROM Order o WHERE o.status = :status AND o.updatedAt <= :threshold "
+            + "AND NOT EXISTS (SELECT 1 FROM Payment p WHERE p.orderId = o.id AND p.status = :pendingPaymentStatus) "
+            + "AND NOT EXISTS (SELECT 1 FROM Delivery d JOIN OrderItem oi ON oi.id = d.orderItemId WHERE oi.order.id = o.id) "
+            + "AND NOT EXISTS (SELECT 1 FROM Claim c JOIN OrderItem oi2 ON oi2.id = c.orderItemId WHERE oi2.order.id = o.id) "
+            + "ORDER BY o.updatedAt ASC, o.id ASC")
+    List<Long> findExpiredCleanupCandidateIds(
+            @Param("status") OrderStatus status,
+            @Param("pendingPaymentStatus") PaymentStatus pendingPaymentStatus,
+            @Param("threshold") LocalDateTime threshold,
+            Pageable pageable);
 
     /**
      * order 행을 id로 물리삭제한다(FE-12c-2·미결제 종료 주문 hard delete 부모 삭제). 자식(payment·snapshot·order_item)을

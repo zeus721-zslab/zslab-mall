@@ -10583,3 +10583,38 @@ deploy.yml이 `push main` 무필터라 docs만 변경된 머지에도 서버 SSH
 - 계정별 rate limit(gateway nginx `limit_req`·업로드 엔드포인트). multipart 전역 한도 220MB(20장×10MB)는 구매자 경로(5장×5MB)에도 그대로 적용된다 — 구매자 경로 요청 본문 제한은 nginx 경로별 `client_max_body_size` 설정으로.
 - 원본 재인코딩(EXIF 제거·orientation 정규화).
 - 고아 상품 이미지 정리(soft-delete 이미지 물리 삭제·D-166 9).
+
+## D-175. 스케줄러 기아·스레드 풀·늦은 콜백 보강 (검수 5단계·외부 검토 A 반영)
+
+날짜: 2026-09-17
+범위: 검수 5단계(스케줄러 전체 외부 검토) 반영 · FE-12c-2(만료 주문 정리)·D-172(환불 복구)·D-08 M-14(스케줄링) 보강
+브랜치: fix/stage5-scheduler-hardening
+
+### 배경
+검수 5단계 자료(STEP 284·286)에서 확인한 사실: `@Scheduled` 7건이 풀 설정 없이 Spring Boot 기본 1스레드에서 직렬 실행됐다(한 배치 지연이 전체 지연) / 만료 주문 정리 대상 조회가 `status·updated_at`만 보고 100건을 자르므로 cleanupOne에서 skip(PENDING 결제)·RESTRICT 실패(delivery·claim 손자)로 끝날 주문이 정렬 선두를 영구 점유하면 뒤의 정상 삭제 대상이 처리되지 않는 기아 구조였다 / Mock 환불 복구 조회가 `pg_refund_id NULL` PENDING을 포함해 같은 방식으로 id 선두를 점유할 수 있었다 / 결제·환불 콜백 대상 미존재는 각각 422·404로 이미 매핑돼 500 fallback이 없었다 / graceful shutdown은 기설정(server.shutdown=graceful·timeout-per-shutdown-phase 20s·compose stop_grace_period 30s)이었다.
+
+### §1-A 결정
+1. **만료 주문 정리 기아 제외 【채택】**: `OrderRepository.findExpiredCleanupCandidateIds`(JPQL·id만 반환)가 `status=PAYMENT_EXPIRED AND updated_at<=now−7일`에 더해 `NOT EXISTS payment(order_id, status=PENDING)` · `NOT EXISTS delivery JOIN order_item(order_id)` · `NOT EXISTS claim JOIN order_item(order_id)`로 삭제 불가 주문을 조회 단계에서 제외한다(refund는 `claim_id` NOT NULL FK라 claim 제외로 흡수). `cleanupOne`의 가드 (0)(1)은 조회~처리 사이 변경 대비로 유지. 정렬 `updated_at ASC, id ASC`. **V26 불필요**: EXPLAIN(로컬 MariaDB) 결과 서브쿼리 3개는 전부 기존 FK 인덱스(`fk_payment_order`/`idx_payment_expire`·`fk_delivery_order_item`·`fk_claim_order_item`·order_item PK)로 MATERIALIZED 처리되고, 외부 `order` 풀스캔은 구 derived 쿼리와 동일한 기존 조건(status·updated_at 인덱스 부재·일 1회·PAYMENT_EXPIRED 소량)이라 신규 인덱스 근거가 없다.
+2. **Mock PENDING 기아 제외 【채택】**: `RefundRepository.findByStatusAndPgRefundIdIsNotNullAndCreatedAtLessThanEqualOrderByIdAsc`로 교체(구 메서드 삭제). 루프의 `pgRefundId == null → continue`는 방어선으로 유지.
+3. **스케줄링 스레드 풀 분리 【채택】**: `spring.task.scheduling.pool.size=8`(등록 스케줄러 7 이상)·`thread-name-prefix=zslab-sched-`. **동시성 가정 유지 사유**: 각 스케줄러는 배치 조회 TX와 단건 TX가 분리돼 있고 단건 직렬화를 행 락(`FOR UPDATE`·`refresh(PESSIMISTIC_WRITE)`)·조건부 UPDATE·상태 재검증이 담당하므로, 서로 다른 스케줄러가 병렬로 돌아도 D-172 보충·D-173 락 순서 규칙 안에서 교차 교착이 없다(만료 배치는 PENDING_PAYMENT만·정리 배치는 행 락 없음·환불 복구는 Claim 선점). 같은 스케줄러의 자기 중첩은 `fixedDelay`(직전 종료 후 지연)라 발생하지 않는다.
+4. **늦은 콜백 응답 【통과 확인·변경 없음】**: 결제 콜백 attemptKey 미존재는 `InvalidCallbackException`→422+warn(D-48 일원화), 환불 콜백 pgRefundId 미존재는 `RefundNotFoundException`→404 — 둘 다 500 fallback이 없어 코드 변경 없이 회귀 테스트만 추가했다. 정리 배치가 지운 주문의 결제 콜백이 늦게 오면 422(REJECT 정합)로 거절된다.
+5. **보존 정책 【채택·명시】**: 만료 주문 hard delete 시 `audit_log`·`notification_log`·`inventory_history`·`order_idempotency_key`는 삭제하지 않는다. 네 테이블은 order에 FK 없는 논리 참조(`target_id`·`reference_id`·`order_id`)라 삭제를 막지 않으며 append-only 감사·이력이므로 보존한다. 로그에 남는 식별값은 주문 내부 id뿐이고 `order_no`는 없다(audit_log는 status diff·notification_log는 content에 주문 publicId 텍스트) — 삭제 후 주문번호로의 역추적은 불가함을 보고만 하고 컬럼 추가는 하지 않았다(과잉개발 회피·FE-12c-2 불변식). Javadoc(`ExpiredOrderCleanupService`)에 동일 내용 명시.
+6. **graceful shutdown 【통과 확인·변경 없음】**: 기설정 유지(20s ≤ compose stop_grace_period 30s).
+
+### 변경 파일
+- main 수정: order/repository/OrderRepository(findExpiredCleanupCandidateIds 신설·구 derived 삭제) · order/scheduler/ExpiredOrderCleanupScheduler · order/service/ExpiredOrderCleanupService(Javadoc) · refund/repository/RefundRepository · refund/scheduler/MockRefundPendingRecoveryScheduler · resources/application.yml(spring.task.scheduling)
+- test 신규: order/integration/ExpiredOrderCleanupStarvationIntegrationTest(1) · common/config/SchedulingConfigIntegrationTest(1) / test 수정: order/scheduler/ExpiredOrderCleanupSchedulerTest(mock 갱신) · claim/integration/ClaimPipelineIntegrationTest(+T10 Mock PENDING 기아) · payment/PaymentWebhookIntegrationTest(+미존재 attemptKey 422) · refund/controller/RefundWebhookIntegrationTest(+미존재 pgRefundId 404)
+- Flyway 없음 · FE 변경 없음 · ShedLock 미도입.
+
+### 검증
+- 기아: 삭제 불가 만료 주문 120건(delivery 40·claim 40·PENDING 결제 40·updated_at 10일 전) + 정상 5건(9일 전) → 조회 5건만·1회 실행에 정상 5건 삭제·120건 잔존.
+- Mock PENDING: pg_refund_id NULL 120건(id 선두) + 정상 PENDING 1건 → 조회 1건·1회 실행에 정상 건 COMPLETED·NULL 120건 불변.
+- 콜백: 미존재 attemptKey 422·기존 결제 PENDING 불변 / 미존재 pgRefundId 404.
+- 풀: `TaskSchedulingProperties` pool.size 8·prefix `zslab-sched-`·`ThreadPoolTaskScheduler` 빈 동일 값.
+- 전체 `./backend/gradlew.bat test --rerun-tasks`: 192파일 1010 tests·0 fail(1005 → 1010).
+- 외부 검토: A / 지적 7건 중 수용 3건(정리 기아 제외·Mock PENDING 제외·스레드 풀 분리)·부분 수용 2건(보존 정책 명시만·컬럼 미추가 / graceful 기설정 유지·값 미변경)·통과 1건(늦은 콜백 422·404 기존)·이월 1건(다중 인스턴스 ShedLock).
+
+### §8 이월
+- **다중 인스턴스 전환 시 ShedLock 필수**: 현재 compose 단일 컨테이너(replicas 미지정)라 중복 실행이 없고 단건 행 락·조건부 UPDATE가 자연 직렬화한다. 인스턴스를 늘리는 순간 7개 배치가 동시 발화하므로 ShedLock(또는 DB 락 테이블) 도입이 선행 조건이다.
+- 실 PG 늦은 승인 환불(기존·D-167 §8): 정리 배치가 지운 주문의 늦은 SUCCESS 콜백은 422로 거절되며, 실 PG에서 이미 승인된 금액의 자동 환불은 실 어댑터 도입 시 처리.
+- `order` (status, updated_at) 인덱스: PAYMENT_EXPIRED 누적이 커져 일 배치 풀스캔이 측정 가능해지면 그때 V-마이그레이션.

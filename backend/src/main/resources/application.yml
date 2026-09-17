@@ -35,6 +35,13 @@ spring:
     default-property-inclusion: non_null
   lifecycle:
     timeout-per-shutdown-phase: 20s
+  task:
+    scheduling:
+      # D-175·검수 5단계: @Scheduled 7건이 기본 1스레드에서 직렬 실행돼 한 배치 지연이 전체를 막던 구조 → 스케줄러 수 이상(8)로 분리.
+      # 단건 직렬화는 각 서비스의 행 락·조건부 UPDATE가 담당하므로 병렬 실행이 동시성 가정을 바꾸지 않는다.
+      pool:
+        size: 8
+      thread-name-prefix: zslab-sched-
 
 server:
   shutdown: graceful
