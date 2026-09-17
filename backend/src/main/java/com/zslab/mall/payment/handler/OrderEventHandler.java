@@ -22,11 +22,19 @@ import org.springframework.stereotype.Component;
  * 가드는 backstop으로 유지하며, 품목 불법 전이 등 그 외 {@link IllegalStateException}은 감싸지 않고 전파한다(데이터 이상은 500).
  * 주문 도메인은 결제 예외 체계를 참조하지 않는다(변환 책임은 결제 측 소비 핸들러).
  *
+ * <p><b>실행 순서(D-173)</b>: {@code @org.springframework.core.annotation.Order(1)}(엔티티 Order와 이름 충돌로 FQCN)로 재고 차감 핸들러({@code InventoryPaymentCompletedHandler}·2)보다 먼저 실행해
+ * 주문 전이 → 재고 차감 순서를 고정한다. Order 행 X 락은 발행자(PaymentService.lockOrderForApproval)가 이미 잡고 있으며
+ * 본 핸들러의 status 가드는 backstop이다.
+ *
  * <p><b>Lazy 안전망(D-33)</b>: markPaid가 OrderItem을 순회하므로 {@link OrderRepository#findByIdWithItems}로
  * items를 선로딩한 뒤 markPaid를 호출한다. 동일 트랜잭션 영속성 컨텍스트라 markPaid 내부 재조회는 1차 캐시를 적중한다.
  */
 @Component
+@org.springframework.core.annotation.Order(OrderEventHandler.HANDLER_ORDER)
 public class OrderEventHandler {
+
+    /** PaymentCompleted 동기 핸들러 실행 순서(D-173): 주문 전이(1) → 재고 차감(2). */
+    public static final int HANDLER_ORDER = 1;
 
     private final OrderRepository orderRepository;
     private final OrderService orderService;

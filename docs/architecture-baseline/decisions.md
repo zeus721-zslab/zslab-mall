@@ -10510,3 +10510,38 @@ deploy.yml이 `push main` 무필터라 docs만 변경된 머지에도 서버 SSH
 
 ### §8 이월(보충)
 - **Track 82 필수**: 교환 차액 환불 누락 복구(`RefundRecoveryScheduler` 대상 확장 또는 교환 트리거 재설계와 함께).
+
+## D-173. 결제 콜백 Payment 행 직렬화 — 콜백 락 순서 Payment→Order→Inventory 고정 (검수 1단계·외부 검토 A 반영)
+
+날짜: 2026-09-17
+범위: 검수 1단계(Track 78 결제·재고 정합성 외부 검토) 반영
+브랜치: fix/stage1-payment-callback-lock
+
+### 배경
+검수 1단계 자료(STEP 258)와 SQL 로그 실측(STEP 261)에서 결제 콜백 경로의 결함 2건을 확인했다. (1) `PaymentService.handleCallback`이 Payment를 비잠금 `findByPaymentAttemptKey`로 읽고 그 스냅샷으로 분기해, 만료(`ExpirePaymentService.expireOne`·Payment FOR UPDATE)와 경합 시 락 대기 후에도 PENDING 스냅샷 기준으로 승인을 진행할 수 있었다. (2) PaymentCompleted 동기 핸들러 실행 순서가 컨테이너 등록 순(재고 차감 핸들러 → 주문 전이 핸들러)이라 실제 락 획득 순서가 Inventory X(FOR UPDATE) → Payment/Order X(커밋 flush)로, 만료·취소 경로(Order 조건부 UPDATE X → Inventory X)와 역순인 교착 구조였다. 늦은 승인 422 가드(D-167)는 OrderEventHandler에 있어 재고 차감이 먼저 실행된 뒤 롤백되는 순서였다.
+
+### §1-A 결정
+1. **Payment 행 직렬화 【채택】**: `handleCallback`은 비잠금 조회로 행을 찾은 뒤 `entityManager.refresh(payment, PESSIMISTIC_WRITE)`로 잠그고 **잠금 후 상태**로 분기한다. 멱등 no-op(PAID×SUCCESS·종결×FAILURE/CANCEL 200)·REJECT(종결×SUCCESS 422) 규약은 무변경. `@Lock` 조회 대신 refresh를 쓰는 이유는 D-168 트랩(락 조회가 1차 캐시 엔티티를 덮어쓰지 않음)과 RefundService `lockClaimThenRefund` 선례.
+2. **승인 전 Order 락·재확인 【채택】**: SUCCESS×PENDING은 PAY-3a 검사 후 신규 `lockOrderForApproval`(Order `refresh(PESSIMISTIC_WRITE)` → `status != PENDING_PAYMENT`면 `InvalidCallbackException` 422)을 거친 뒤 `payment.complete`한다. 늦은 승인은 재고 차감 전에 거절되며, OrderEventHandler의 기존 가드는 backstop으로 유지.
+3. **핸들러 순서 고정 【채택】**: `OrderEventHandler` `@Order(1)` → `InventoryPaymentCompletedHandler` `@Order(2)`(주문 전이 → 재고 차감). 엔티티 `Order`와 이름 충돌로 FQCN `@org.springframework.core.annotation.Order`. 결과 락 순서 `Payment → Order → Inventory(variant 오름차순)` = 만료·FAILURE/CANCEL 경로와 동일(state-machine.md §8 규칙 추가).
+4. **Track 78 결정과 구현 차이 기록**: D-167 Q6 "늦은 승인 422"는 주문 종료 쪽(cancelOne 조건부 UPDATE)만 DB 레벨로 직렬화했고 승인 쪽은 비잠금 status 검사였다 — 조건부 전이가 한쪽에만 있어 "종료 커밋 이후 승인 커밋" 경합이 열려 있었다(승인 쪽 조건 누락). 본 결정 2가 Order 행 X 락으로 양쪽을 같은 행에서 직렬화한다.
+5. **Q4 판단(만료 스케줄러 vs 성공 콜백)**: 락 후 재확인으로 결과가 "PAID(만료 skip)" 또는 "EXPIRED(콜백 422)" 둘 중 하나로 결정된다. 주문 자동취소(H)는 Payment를 잡지 않지만 Order 조건부 UPDATE와 결정 2의 Order X 락이 같은 행에서 직렬화되므로 동일하게 결정된다.
+6. **멱등 키 IN_PROGRESS 고착 복구 【이월】**: FE(`useCheckout.ts:34`)가 submit()마다 `crypto.randomUUID()`로 새 키를 생성하고 보관·재사용하지 않아(새로고침·재시도·뒤로가기 모두 새 키) 고착 행(IN_PROGRESS + order_id null·5xx 잔존)은 브라우저 자동 재전송 수준에서만 409를 만든다. 사용자 영향이 사실상 없어 "갱신 후 5분 경과 행 조건부 재선점"은 구현하지 않고 §8 이월.
+7. **PG 호출 TX 분리 【이월】**: `PaymentService.initiate`는 payment INSERT 후 같은 TX 안에서 `paymentGateway.requestPayment`를 호출한다. 현 구현은 Mock(외부 I/O 없음)이라 실해가 없고, 실 PG는 요청 등록·응답 대사(timeout 후 상태 조회)·실패 보상까지 함께 설계해야 하므로 실 PG 도입 트랙에서 처리(§8 필수).
+
+### 변경 파일
+- main: payment/service/PaymentService(refresh 락·lockOrderForApproval) · payment/handler/OrderEventHandler(@Order 1) · inventory/handler/InventoryPaymentCompletedHandler(@Order 2) · payment/service/ExpirePaymentService(Javadoc: 구 AFTER_COMMIT 서술 → 동기·락 순서 정정)
+- test 신규: payment/integration/PaymentCallbackConcurrencyIntegrationTest(T1 SUCCESS vs expireOne 동시 10라운드 / T2 SUCCESS vs FAILURE 동시 10라운드 / T3 늦은 승인 422·재고 불변)
+- test 수정: PaymentCallbackTest(+1 늦은 승인 락 순서 InOrder·EntityManager/OrderRepository mock) · PaymentEventTest · PaymentIdempotencyTest(mock·주문 stub)
+- docs: state-machine.md §8 결제 콜백 경로 락 순서 규칙 1곳
+
+### 검증
+- T1·T2: 각 라운드 결과가 둘 중 하나(PAID: on_hand 9·reserved 1·history 1 / 종료: on_hand 10·reserved 1·history 0)·허용 실패는 InvalidCallbackException뿐(교착·락 타임아웃 0)·같은 variant 타 주문 B PENDING_PAYMENT·reserved 1 불변·available = on_hand − reserved.
+- T3: expireOne 후 SUCCESS → 422·Payment EXPIRED·재고 불변.
+- 승자 분포(STEP 267·3회×10라운드·debug 로그·단언 없음): T2 PAID/FAILED 6/4·4/6·6/4. T1은 래치 동시 출발만으로는 EXPIRED 10/10 고정(expireOne FOR UPDATE 1쿼리가 콜백의 비잠금 조회 → refresh보다 항상 선점) → 짝수 라운드 만료 쪽 3ms 지터로 두 인터리빙을 덮어 PAID/EXPIRED 5/5 ×3. 어느 인터리빙에서도 불변식(타 주문 예약·재고 합계) 유지.
+- 기존 결제·재고·만료·체크아웃·클레임 파이프라인 통합 회귀 GREEN. 전체 `./backend/gradlew.bat test --rerun-tasks` 189파일 1000 tests·0 fail(996 → 1000).
+- 외부 검토: A / 지적 7건 중 수용 4건(Payment 행 락·Order 락 재확인·핸들러 순서·경합 테스트)·조건부 1건(멱등 키 고착 복구 — FE 키 재사용 없음으로 미해당)·이월 2건(PG 호출 TX 분리·멱등 키 고착 복구).
+
+### §8 이월
+- **실 PG 도입 필수**: PG 호출 TX 분리(payment INSERT 커밋 → PG 요청 → 결과 반영) + 요청/응답 대사(timeout 시 PG 상태 조회·미확인 시도 정리).
+- 멱등 키 IN_PROGRESS + order_id null 고착 행 정리(5분 경과 조건부 재선점 또는 배치 삭제) — FE가 키를 재사용하게 되는 시점에 함께.

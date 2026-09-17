@@ -9,6 +9,7 @@ import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.event.EventListener;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
 /**
@@ -20,14 +21,20 @@ import org.springframework.stereotype.Component;
  * 예외를 그대로 전파해 결제 완료 자체를 롤백한다 — "PAID인데 재고 미차감" 상태를 원천 차단한다(구 AFTER_COMMIT + 실패 흡수 폐기).
  *
  * <p><b>락 순서</b>: 다중 품목은 variant id 오름차순으로 {@code SELECT ... FOR UPDATE}를 획득해 동시 결제 간 데드락을 방지한다.
+ * 콜백 TX 전체로는 Payment → Order → Inventory 순이며(D-173), 본 핸들러는 {@code @Order(2)}로 주문 전이 핸들러
+ * ({@code OrderEventHandler}·1) 뒤에 실행된다 — Inventory 락을 Order 락보다 먼저 잡던 구 순서(만료·취소 경로와 역순)를 제거한다.
  *
  * <p><b>멱등(D-101 §6 갱신·A′)</b>: 1차 핸들러 가드 없음. 재전달 방어는 PAY-3b UNIQUE(PG 콜백 중복 차단) + Payment PAID 멱등 NO-OP
  * (재발행 없음)로 충족하며, commitReservation INV-3이 backstop이다.
  */
 @Slf4j
 @Component
+@Order(InventoryPaymentCompletedHandler.HANDLER_ORDER)
 @RequiredArgsConstructor
 public class InventoryPaymentCompletedHandler {
+
+    /** PaymentCompleted 동기 핸들러 실행 순서(D-173): 주문 전이(1) → 재고 차감(2). */
+    public static final int HANDLER_ORDER = 2;
 
     private final OrderItemRepository orderItemRepository;
     private final InventoryService inventoryService;

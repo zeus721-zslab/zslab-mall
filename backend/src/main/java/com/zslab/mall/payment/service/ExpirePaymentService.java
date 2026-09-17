@@ -20,8 +20,9 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p><b>Order 종료 위임(FE-12c)</b>: Payment를 EXPIRED로 종료한 뒤 {@link OrderAutoCancelService#cancelOne}으로 주문을
  * PAYMENT_EXPIRED 종료하며, 재고 예약 해제는 cancelOne이 발행하는 OrderTerminated를 {@code InventoryOrderTerminatedHandler}
- * (AFTER_COMMIT + REQUIRES_NEW)가 본 트랜잭션 커밋 후 별도 트랜잭션에서 수행한다(원칙 3·PaymentFailed 결합 제거). 따라서 만료
- * 종료는 반드시 커밋돼야 재고가 해제된다. Payment는 도메인 이벤트를 발행하지 않는다(원칙 4·expire()).
+ * (동기 @EventListener·D-167 보충2)가 같은 트랜잭션에서 수행한다(원칙 3·PaymentFailed 결합 제거). 해제 실패 시 만료 종료까지
+ * 롤백된다. Payment는 도메인 이벤트를 발행하지 않는다(원칙 4·expire()). 행 락 순서는 Payment(FOR UPDATE) → Order(조건부 UPDATE)
+ * → Inventory(FOR UPDATE)로 결제 콜백 경로(D-173)와 같다.
  *
  * <p><b>멱등·다중 인스턴스 방어</b>: {@link PaymentRepository#findByIdForUpdate} 비관적 락으로 행을 잠근 뒤 상태를
  * 재검증한다. 조회~잠금 사이에 콜백으로 PAID/EXPIRED 전이된 경우 {@code status != PENDING} skip, 만료 조건 미충족 시
