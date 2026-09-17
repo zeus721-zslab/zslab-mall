@@ -1,5 +1,6 @@
 package com.zslab.mall.claim.entity;
 
+import com.zslab.mall.claim.enums.ClaimInspectionResult;
 import com.zslab.mall.claim.enums.ClaimRejectReasonCode;
 import com.zslab.mall.claim.enums.ClaimStatus;
 import com.zslab.mall.claim.enums.ClaimType;
@@ -85,6 +86,19 @@ public class Claim extends AbstractPublicIdFullAuditableEntity {
     @Column(name = "picked_up_at")
     private LocalDateTime pickedUpAt;
 
+    /** 반품 검수 시각(Track 81-A D-170). 회수 확인 후 검수 시점에만 채워진다. */
+    @Column(name = "inspected_at")
+    private LocalDateTime inspectedAt;
+
+    /** 반품 검수 결과(PASS|FAIL). 미검수 NULL. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "inspection_result", length = 20)
+    private ClaimInspectionResult inspectionResult;
+
+    /** 검수 PASS 시 재입고 여부(불량품 폐기 = false). FAIL·미검수 NULL. */
+    @Column(name = "restock")
+    private Boolean restock;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "previous_order_item_status", length = 20, nullable = false, updatable = false)
     private OrderItemStatus previousOrderItemStatus;
@@ -168,6 +182,79 @@ public class Claim extends AbstractPublicIdFullAuditableEntity {
             throw new ClaimInvalidStateException("수거 확인은 APPROVED 클레임에서만 가능합니다: " + this.status);
         }
         this.pickedUpAt = pickedUpAt;
+    }
+
+    /**
+     * 반품 검수 합격을 적용한다(Track 81-A D-170·R5). 상태 전이 없이 검수 milestone(inspectedAt·PASS·restock)만 채운다.
+     * 환불 개시는 Service가 {@code ClaimInspectionPassed} 발행으로 트리거한다(수거 확인 시점 환불 → 검수 PASS 시점으로 이동).
+     *
+     * @param restock     재입고 여부(필수)
+     * @param inspectedAt 검수 시각
+     * @throws ClaimInvalidStateException type != RETURN·APPROVED 아님·미회수(pickedUpAt null)·이미 검수됨
+     * @throws IllegalArgumentException   restock·inspectedAt이 null인 경우
+     */
+    public void passInspection(Boolean restock, LocalDateTime inspectedAt) {
+        if (restock == null || inspectedAt == null) {
+            throw new IllegalArgumentException("passInspection: restock·inspectedAt는 필수입니다.");
+        }
+        requireInspectable();
+        this.inspectedAt = inspectedAt;
+        this.inspectionResult = ClaimInspectionResult.PASS;
+        this.restock = restock;
+    }
+
+    /**
+     * 반품 검수 불합격을 적용한다(Track 81-A D-170·R5). 검수 milestone(FAIL)을 채우고 거부 사유와 함께 <b>APPROVED → REJECTED</b>로
+     * 전이한다. 이 전이는 {@link ClaimStatus#canTransitionTo} 매트릭스 밖의 예외이며 RETURN 검수 경로에서만 허용한다(일반 거부는
+     * {@link #reject}·REQUESTED 한정). 품목 원복·재발송은 Service·핸들러 책임이다.
+     *
+     * @param reasonCode  거부 사유 코드(필수·RETURN 적합 사유)
+     * @param memo        거부 메모(선택·500자)
+     * @param inspectedAt 검수 시각(processedAt으로도 기록)
+     * @throws ClaimInvalidStateException type != RETURN·APPROVED 아님·미회수·이미 검수됨
+     * @throws IllegalArgumentException   필수값 누락·사유 부적합·메모 길이 초과
+     */
+    public void failInspection(ClaimRejectReasonCode reasonCode, String memo, LocalDateTime inspectedAt) {
+        if (reasonCode == null || inspectedAt == null) {
+            throw new IllegalArgumentException("failInspection: reasonCode·inspectedAt는 필수입니다.");
+        }
+        if (!reasonCode.isApplicableTo(this.type)) {
+            throw new IllegalArgumentException(
+                    "failInspection: 거부 사유 " + reasonCode + "은(는) " + this.type + " 클레임에 사용할 수 없습니다.");
+        }
+        if (memo != null && memo.length() > REJECT_MEMO_MAX_LENGTH) {
+            throw new IllegalArgumentException("failInspection: 거부 메모는 " + REJECT_MEMO_MAX_LENGTH + "자 이하여야 합니다.");
+        }
+        requireInspectable();
+        this.inspectedAt = inspectedAt;
+        this.inspectionResult = ClaimInspectionResult.FAIL;
+        this.restock = null;
+        // RETURN 검수 불합격 한정 예외 전이(D-170): canTransitionTo를 우회하므로 transitionTo를 쓰지 않는다.
+        this.status = ClaimStatus.REJECTED;
+        this.processedAt = inspectedAt;
+        this.rejectReasonCode = reasonCode;
+        this.rejectMemo = memo;
+    }
+
+    /** 검수 가능 조건: RETURN·APPROVED·회수 확인됨·미검수. */
+    private void requireInspectable() {
+        if (this.type != ClaimType.RETURN) {
+            throw new ClaimInvalidStateException("검수는 RETURN 클레임에서만 가능합니다: type=" + this.type);
+        }
+        if (this.status != ClaimStatus.APPROVED) {
+            throw new ClaimInvalidStateException("검수는 APPROVED 클레임에서만 가능합니다: " + this.status);
+        }
+        if (this.pickedUpAt == null) {
+            throw new ClaimInvalidStateException("회수 확인 전에는 검수할 수 없습니다.");
+        }
+        if (this.inspectionResult != null) {
+            throw new ClaimInvalidStateException("이미 검수된 클레임입니다: " + this.inspectionResult);
+        }
+    }
+
+    /** 검수 PASS 후 재입고 대상인지(RETURN 종결 시 재고 복구 분기·Track 81-A). */
+    public boolean isRestockRequested() {
+        return Boolean.TRUE.equals(restock);
     }
 
     /**

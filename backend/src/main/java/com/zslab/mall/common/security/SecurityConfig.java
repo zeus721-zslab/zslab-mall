@@ -71,6 +71,11 @@ public class SecurityConfig {
                         .hasRole("SELLER")
                         .requestMatchers(HttpMethod.POST, "/api/v1/claims/*/register-exchange-shipment")
                         .hasRole("SELLER")
+                        // Track 81-A: 반품 회수 확인·검수(셀러). 구매자 회수 송장(return-shipment)은 광범위 BUYER 규칙
+                        .requestMatchers(HttpMethod.POST, "/api/v1/claims/*/confirm-pickup")
+                        .hasRole("SELLER")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/claims/*/inspect")
+                        .hasRole("SELLER")
                         // 광범위 규칙:
                         .requestMatchers("/api/v1/orders/**")
                         .hasRole("BUYER")

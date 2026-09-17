@@ -8,6 +8,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.zslab.mall.delivery.enums.DeliveryCarrier;
+import com.zslab.mall.delivery.enums.DeliveryDirection;
 import com.zslab.mall.delivery.event.DeliveryStarted;
 import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.enums.OrderItemStatus;
@@ -42,7 +43,7 @@ class DeliveryStartedHandlerTest {
     private DeliveryStartedHandler handler;
 
     private DeliveryStarted event() {
-        return new DeliveryStarted(DELIVERY_ID, ORDER_ITEM_ID, DeliveryCarrier.CJ, "CJ-TRACK-0001", OCCURRED_AT);
+        return new DeliveryStarted(DELIVERY_ID, ORDER_ITEM_ID, DeliveryCarrier.CJ, "CJ-TRACK-0001", DeliveryDirection.OUTBOUND, null, OCCURRED_AT);
     }
 
     @Test

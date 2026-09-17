@@ -43,10 +43,12 @@ public record AdminOrderDetailResponse(
     /**
      * {@code approvable}은 사용자 승인형 Claim(REQUESTED)에 대해 관리자 승인/거절 버튼 노출 여부(기존 단건 API 재사용).
      * Track 80(D-169) 추가: rejectReasonCode·rejectMemo(거부 전 null)·refundStatus(최신 환불 상태·환불 미생성 시 null).
+     * Track 81-A(D-170) 추가: 반품 회수 송장(returnCarrier·returnTrackingNo)·pickedUpAt·검수 결과(inspectionResult)·재입고(restock).
      */
     public record ClaimRow(String claimId, String type, String status, String reasonCode, String reasonDetail,
             Long requestedBy, LocalDateTime requestedAt, LocalDateTime processedAt, boolean approvable,
-            String rejectReasonCode, String rejectMemo, String refundStatus) {
+            String rejectReasonCode, String rejectMemo, String refundStatus,
+            String returnCarrier, String returnTrackingNo, LocalDateTime pickedUpAt, String inspectionResult, Boolean restock) {
     }
 
     public record CancelReason(String reasonCode, String reasonDetail, Long actorUserId, String actorRole,

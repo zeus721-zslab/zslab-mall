@@ -19,6 +19,7 @@ import com.zslab.mall.claim.handler.ExchangeDeliveryCompletedHandler;
 import com.zslab.mall.claim.service.ClaimService;
 import com.zslab.mall.delivery.entity.Delivery;
 import com.zslab.mall.delivery.enums.DeliveryCarrier;
+import com.zslab.mall.delivery.enums.DeliveryDirection;
 import com.zslab.mall.delivery.event.DeliveryCompleted;
 import com.zslab.mall.delivery.service.DeliveryService;
 import com.zslab.mall.order.enums.OrderItemStatus;
@@ -133,7 +134,7 @@ class ClaimExchangeIntegrationTest extends AbstractIntegrationTest {
 
         // 동일 E5 재소비(핸들러 직접 재호출·@Transactional REQUIRES_NEW 프록시). markCompleted 멱등 가드가 E9 재발행을 차단한다.
         exchangeDeliveryCompletedHandler.handle(
-                new DeliveryCompleted(deliveryId, ORDER_ITEM_ID, LocalDateTime.now(), LocalDateTime.now()));
+                new DeliveryCompleted(deliveryId, ORDER_ITEM_ID, LocalDateTime.now(), DeliveryDirection.OUTBOUND, LocalDateTime.now()));
 
         assertThat(orderItemStatus()).isEqualTo("EXCHANGED");
         assertThat(claimStatus(claimId)).isEqualTo("COMPLETED");

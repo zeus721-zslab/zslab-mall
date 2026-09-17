@@ -3,9 +3,11 @@ package com.zslab.mall.claim.controller.response;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.zslab.mall.claim.entity.Claim;
 import com.zslab.mall.claim.enums.ClaimRejectReasonCode;
+import com.zslab.mall.claim.enums.ClaimInspectionResult;
 import com.zslab.mall.claim.enums.ClaimStatus;
 import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.common.serialization.KstOffsetSerializer;
+import com.zslab.mall.delivery.entity.Delivery;
 import com.zslab.mall.refund.enums.RefundStatus;
 import java.time.LocalDateTime;
 
@@ -16,6 +18,7 @@ import java.time.LocalDateTime;
  * orderItemPublicId는 Claim.orderItemId(BIGINT)를 OrderItem.public_id로 해소해 채운다(enrich·OrderResponse 패턴 정합).
  *
  * <p>Track 80(D-169) 추가 필드: rejectReasonCode·rejectMemo(거부 전 null)·refundStatus(최신 환불 상태·환불 미생성 시 null).
+ * Track 81-A(D-170) 추가 필드: returnShipmentRequired(회수 송장 등록 가능 단계)·returnShipment(회수 Delivery)·pickedUpAt·inspectionResult.
  * 기존 필드는 무변경이다.
  */
 public record ClaimResponse(
@@ -31,15 +34,29 @@ public record ClaimResponse(
         LocalDateTime processedAt,
         ClaimRejectReasonCode rejectReasonCode,
         String rejectMemo,
-        RefundStatus refundStatus) {
+        RefundStatus refundStatus,
+        boolean returnShipmentRequired,
+        ReturnShipmentResponse returnShipment,
+        @JsonSerialize(using = KstOffsetSerializer.class) LocalDateTime pickedUpAt,
+        ClaimInspectionResult inspectionResult) {
 
-    /** 영속 Claim + 해소된 orderItemPublicId로 상세 응답을 조립한다(환불 상태 미조회·요청 직후·전이 직후 응답용). */
+    /** 영속 Claim + 해소된 orderItemPublicId로 상세 응답을 조립한다(환불 상태·회수 송장 미조회·요청 직후·전이 직후 응답용). */
     public static ClaimResponse from(Claim claim, String orderItemPublicId) {
-        return from(claim, orderItemPublicId, null);
+        return from(claim, orderItemPublicId, null, null);
     }
 
-    /** 영속 Claim + 해소된 orderItemPublicId + 최신 환불 상태로 상세 응답을 조립한다. */
+    /** 영속 Claim + 해소된 orderItemPublicId + 최신 환불 상태로 상세 응답을 조립한다(회수 송장 미조회). */
     public static ClaimResponse from(Claim claim, String orderItemPublicId, RefundStatus refundStatus) {
+        return from(claim, orderItemPublicId, refundStatus, null);
+    }
+
+    /**
+     * 영속 Claim + 환불 상태 + 회수 Delivery(Track 81-A)로 상세 응답을 조립한다. {@code returnShipmentRequired}는 구매자가 회수 송장을
+     * 등록해야 하는 단계(RETURN·APPROVED·회수 송장 없음·미회수)인지다.
+     */
+    public static ClaimResponse from(Claim claim, String orderItemPublicId, RefundStatus refundStatus, Delivery returnDelivery) {
+        boolean returnShipmentRequired = claim.getType() == ClaimType.RETURN && claim.getStatus() == ClaimStatus.APPROVED
+                && returnDelivery == null && claim.getPickedUpAt() == null;
         return new ClaimResponse(
                 claim.getPublicId(),
                 orderItemPublicId,
@@ -51,6 +68,10 @@ public record ClaimResponse(
                 claim.getProcessedAt(),
                 claim.getRejectReasonCode(),
                 claim.getRejectMemo(),
-                refundStatus);
+                refundStatus,
+                returnShipmentRequired,
+                returnDelivery == null ? null : ReturnShipmentResponse.from(returnDelivery),
+                claim.getPickedUpAt(),
+                claim.getInspectionResult());
     }
 }

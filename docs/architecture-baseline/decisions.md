@@ -10368,3 +10368,54 @@ deploy.yml이 `push main` 무필터라 docs만 변경된 머지에도 서버 SSH
 - 반품·교환(Track 81·82): 목록은 공통 컬럼만 — 수거·교환 배송 진행 표기 컬럼 추가·RETURN/EXCHANGE 완료 SMS·거부 사유 유형별 필터(ALREADY_SHIPPED는 CANCEL 전용).
 - 사용자 FE: 클레임 상세 거부 사유·환불 진행 표기(응답 필드는 본 트랙 완료·화면은 사용자 FE 트랙).
 
+## D-170. 배송 후 반품 흐름 골격 BE — 요청 조건·회수 송장·회수 확인·검수·재입고·SMS (Track 81-A)
+
+날짜: 2026-09-17
+트랙: Track 81-A (BE 1차·자동 구매확정·사진 첨부는 81-B·FE는 FE-29)
+정찰: docs/track-81/recon-report.md
+브랜치: feat/track-81a-return-flow
+
+### 배경
+반품은 요청→승인→(서비스 전용) 수거 확인→즉시 환불→완료까지만 있었고, 회수 송장·회수 확인 HTTP·검수·재입고 선택·기한·사유 제한이 없었다. 수거 확인이 곧 환불 트리거라 "검수 후 환불"(R5)을 표현할 수 없었고 APPROVED→REJECTED가 상태기계상 불가했다.
+
+### §1-A 결정
+1. **사진 첨부(R2)**: α Track 81 포함 【채택·81-B로 이연】 — 인프라(ImageUploadService·FileStorage·서빙) 존재·신규는 구매자 업로드 API·Attachment 연결·응답 노출. 본 81-A는 사유 3값 제한만.
+2. **기한 기준 시각(R1)**: **α 최신 발송(OUTBOUND) `delivery.delivered_at` 조인 【채택】** / β `order_item.delivered_at` 신설+백필 【기각】 — 같은 사실의 중복 저장·백필 SQL·두 컬럼 정합 유지 비용. 81-B 자동 확정 배치는 V24 `ix_delivery_direction_status_delivered_at`로 delivery만 스캔한다. 요청은 품목 DELIVERED 한정(SHIPPING 중 반품은 배송완료 기준 기한을 셀 수 없어 422·매트릭스 무변경·FE `claimableTypes` SHIPPING→RETURN은 FE-29에서 정리).
+3. **회수 송장 모델(R4)**: **α `delivery.direction`(OUTBOUND|RETURN·V24) + `claim_id` 의미 확장 【채택】** / β claim 컬럼 3개 【기각】. 교환(Track 82) 회수 재사용·배송 관리 화면 노출. 트랩(확정): 회수 Delivery `DeliveryStarted`가 `RETURN_REQUESTED → SHIPPING`(스냅샷 원복용 합법 전이)을 타므로 이벤트에 `direction`·`claimId`를 실어 소비처 6곳(order Started/Completed·notification 2·ExchangeShipmentRefund·ExchangeDeliveryCompleted)이 OUTBOUND만 처리하고, `DeliveryStartedHandler`는 claim 연결 발송(교환품·재발송)도 품목을 바꾸지 않는다.
+4. **검수·불합격(R5)**: **α 상태 4값 유지 + milestone 컬럼(`inspected_at`·`inspection_result` CHECK PASS|FAIL·`restock`·V24) 【채택】** / β ClaimStatus 신규 값 【기각】(A분류 값 집합·FE 라벨/필터 확장). PASS → `ClaimInspectionPassed` → `ClaimInspectionPassedHandler.initiate(totalPrice)`(구 `ClaimPickedUpHandler` 삭제·환불 트리거를 수거 확인에서 검수 PASS로 이동). FAIL → `Claim.failInspection`이 **APPROVED → REJECTED**를 직접 적용(매트릭스 `canTransitionTo`는 false 유지·일반 reject는 REQUESTED 한정)·거부 사유 `INSPECTION_FAILED`(RETURN 전용·V24 CHECK 교체)·재발송 Delivery(OUTBOUND·claim_id·택배사·송장 필수) → `ClaimRejected`(기존 스냅샷 원복 DELIVERED·거부 SMS). 동시 검수는 `refresh(PESSIMISTIC_WRITE)` 직렬화(늦은 쪽 "이미 검수됨" 422).
+5. **재입고(R5)**: **α 검수 body `restock`(PASS 필수)을 Claim에 저장·`InventoryClaimCompletedHandler` RETURN 분기가 true일 때만 restoreStock 【채택】** — false는 재고·history 불변. CANCEL은 무조건 유지.
+6. **자동 구매확정(R7)**: α 스케줄러 【채택·81-B】 — 활성 클레임 품목은 RETURN_REQUESTED라 자연 제외. 본 81-A는 인덱스만.
+7. **반품 사유(R2)**: **α `ClaimReasonCode.isApplicableTo(RETURN)` 3값(단순변심·상품불량·오배송)·BE 422 【채택】** — 거부 사유 패턴 1:1. 신규 요청만(기존 행 무영향).
+- SMS(R8): 요청·거부는 기존 공용, **RETURN 승인**(회수 송장 등록 안내)·**RETURN 완료**(CANCEL 한정 해제·유형 라벨) 추가. 검수 불합격은 `ClaimRejected` 경로로 "사유: 검수 불합격" 발송.
+- 액션·응답: 관리자 목록 `availableActions` RETURN APPROVED = 회수 송장 있고 미회수 CONFIRM_PICKUP / 회수 후 미검수 INSPECT(회수 송장 대기는 빈 목록) + `returnShipment`·`reshipment`·`pickedUpAt`·`inspectionResult`·`restock`(클레임 Delivery 배치 1쿼리·예산 7→8·행 수 무관 고정). 관리자 주문 상세 ClaimRow +5(상세 전용 배치). 사용자 `ClaimResponse` +`returnShipmentRequired`(RETURN·APPROVED·송장 없음·미회수)·`returnShipment`·`pickedUpAt`·`inspectionResult`. 주문 목록/상세 품목 배송은 OUTBOUND만(회수 제외·재발송은 최신 발송으로 표시).
+- 배포 묶음: V24·API 변경(회수 송장·검수 필수)·FE 화면(FE-29)이 한 세트라 81-B·FE-29와 PR 1건으로 배포한다(단독 배포 시 반품 승인 후 구매자가 회수 송장을 등록할 화면이 없어 흐름이 멈춤).
+- 81-B 범위: 자동 구매확정 배치(`zslab.order.auto-confirm.enabled`·delivered_at+7d·DELIVERED만) · 불량 사진 첨부(구매자 업로드·Attachment CLAIM·응답 노출).
+
+### 변경 파일
+- Flyway: V24__return_flow_direction_inspection.sql(delivery.direction·claim 검수 3컬럼·CHECK 2·ix_delivery_direction_status_delivered_at·rollback 주석)
+- main 신규: delivery/enums/DeliveryDirection · claim/enums/ClaimInspectionResult · claim/event/ClaimInspectionPassed · refund/handler/ClaimInspectionPassedHandler · claim/controller/request/{ReturnShipmentRequest,ClaimInspectRequest} · claim/controller/response/ReturnShipmentResponse
+- main 삭제: refund/handler/ClaimPickedUpHandler
+- main 수정: delivery/entity/Delivery(direction·create 3-arg·attachClaim) · delivery/event/{DeliveryStarted(+direction·claimId),DeliveryCompleted(+direction)} · delivery/service/DeliveryService(registerReturnShipment·registerReshipment·completeReturnShipment·교환 가드 방향) · delivery/repository/DeliveryRepository(+4) · claim/entity/Claim(+3필드·passInspection·failInspection·isRestockRequested) · claim/enums/{ClaimReasonCode(isApplicableTo),ClaimRejectReasonCode(+INSPECTION_FAILED)} · claim/service/{ClaimService(validateReturnRequest·registerReturnShipmentByBuyer·confirmPickup RETURN 분기·inspect 3종·getClaim 회수),AdminClaimQueryService(액션·delivery 배치)} · claim/controller/{BuyerClaimController(return-shipment),SellerClaimController·AdminClaimController(confirm-pickup·inspect)} · claim/controller/response/{ClaimResponse,AdminClaimSummaryResponse} · order/handler/{DeliveryStartedHandler,DeliveryCompletedHandler} · notification/handler/{NotificationDeliveryStartedHandler,NotificationDeliveryCompletedHandler} · refund/handler/ExchangeShipmentRefundHandler · claim/handler/ExchangeDeliveryCompletedHandler · inventory/handler/InventoryClaimCompletedHandler(restock) · notification/service/NotificationService(RETURN 승인·완료 SMS·recordRefundFailed 오버로드) · order/service/AdminOrderQueryService(OUTBOUND·ClaimRow +5) · order/controller/response/AdminOrderDetailResponse · order/repository/AdminOrderSpecifications(direction) · common/security/SecurityConfig(SELLER confirm-pickup·inspect)
+- test 신규: claim/entity/ClaimInspectionTest(4) · refund/handler/ClaimInspectionPassedHandlerTest(3) / 재작성: claim/integration/ClaimReturnIntegrationTest(7) / 삭제: refund/handler/ClaimPickedUpHandlerTest / 수정: ClaimIntegrationTest(T13 배송 시드)·Track80CancelFlowIntegrationTest(RETURN 시드·예산 8)·InventoryEventIntegrationTest(restock 시드)·InventoryClaimCompletedHandlerTest(+1)·ClaimServiceTest·ClaimServiceConfirmPickupTest(mock)·DeliveryStartedHandlerTest·DeliveryCompletedHandlerTest·NotificationDeliveryCompletedHandlerTest·ClaimExchangeIntegrationTest(이벤트 인자)
+
+### 검증
+- 요청: 배송완료 1일 201·8일 422·STOCK_DELAY 422·CONFIRMED 422 / 회수 송장: REQUESTED 422·타인 404·200(품목 RETURN_REQUESTED 유지)·중복 422·사용자 응답 returnShipmentRequired·returnShipment / 전 루프 PASS(restock): 검수 선행 422·송장 부재 회수 확인 422·셀러 회수 확인 환불 0·목록 INSPECT·검수 → 환불 자동 COMPLETED·RETURNED·on_hand +1·history RETURN 1·완료 SMS·재검수 422 / PASS(restock=false): 재고·history 불변 / FAIL: 조건부 필수 400·REJECTED·DELIVERED 원복·재발송 OUTBOUND·환불 0·거부 SMS "검수 불합격"·주문 상세 필드 / 동시 검수 4스레드 1건 200·3건 422·환불 1 / 타 셀러 404·BUYER 403·셀러 회수 송장 403.
+- 전체: ./backend/gradlew.bat test --rerun-tasks 186파일 980 tests·0 fail(971 → 980).
+- 트랩(확정): (1) V23 CHECK가 새 enum 값을 막아 500(DataIntegrityViolation) — enum 값 추가는 CHECK 교체 마이그레이션 동반 의무. (2) 클레임 연결 OUTBOUND 발송(재발송)의 `DeliveryStarted`가 동기 핸들러에서 `RETURN_REQUESTED → SHIPPING`을 타 AFTER_COMMIT 원복보다 먼저 품목을 오염 — 이벤트 `claimId`로 skip.
+
+### 문서 정정
+- state-machine.md: §2 반품 단계·예외 전이·거부 사유 INSPECTION_FAILED · §6.1 Delivery.direction · §8 RETURN 연동 순서(검수 PASS 트리거).
+
+### §8 이월
+- 81-B: 자동 구매확정 배치 · 불량 사진 첨부.
+- FE-29: 반품 요청(사유 3값·DELIVERED만·SHIPPING 반품 버튼 제거)·회수 송장 입력·타임라인 6단·관리자 회수 확인/검수 다이얼로그(PASS restock·FAIL 사유/재발송)·목록 액션 CONFIRM_PICKUP/INSPECT·회수/재발송 송장 표시.
+- 교환(Track 82): 회수 Delivery(direction=RETURN)·회수 확인·검수(inspect·restock)는 type 무관 구조 — `requireInspectable`의 RETURN 한정만 EXCHANGE로 확장하면 재사용.
+- 회수 송장 재등록(오입력 정정)·재발송 재등록은 미지원(중복 422) — 운영 피드백 후.
+
+### D-170 보충 — 기한 기준 원 발송 한정·검수 불합격 재요청 차단 (2026-09-17)
+- **기한 기준 시각 = 원 주문 발송만**: `ReturnWindowPolicy.originalDeliveredAt`(direction=OUTBOUND·**claim_id IS NULL**·DELIVERED 최신 `delivered_at`)으로 판정을 1곳에 모았다(`WINDOW_DAYS=7`·`isWithinWindow`). 교환품 발송·검수 불합격 재발송(claim_id NOT NULL)은 제외 — 재발송이 오늘 배송완료돼도 원 발송 8일 경과면 422(T8). 사유: 재발송·교환 발송은 "같은 상품을 다시 보낸 것"이라 새 반품 기한을 열지 않는다(열면 FAIL→재발송→재반품이 무한 반복). 81-B 자동 구매확정 배치도 같은 정책(`ReturnWindowPolicy`)을 재사용한다. 교환 발송 기준 기한 재설정 여부는 Track 82 판단.
+- **V24 인덱스 정정**: `ix_delivery_direction_status_delivered_at`을 (direction, status, **claim_id**, delivered_at)로 — 등치 3개(claim_id IS NULL 포함) 뒤 범위(delivered_at)라 81-B 배치 조건에 그대로 유효. V24 파일 내 수정(신규 마이그레이션 없음·미배포).
+- **FAIL 이력 재요청 차단**: 동일 품목에 `type=RETURN·inspection_result=FAIL` 클레임이 있으면 RETURN 요청 422(`existsByOrderItemIdAndTypeAndInspectionResult`·CLAIM_STATE_INVALID 재사용). CLM-2(거부 후 재요청 허용)의 예외 — 검수 불합격은 상품을 실물로 확인한 판정이라 같은 품목의 재반품은 운영자 판단 영역(관리자 수동 경로는 미도입·필요 시 후속).
+- 검증: T5 FAIL 후 재요청 422 · T8 원 발송 8일/클레임 연결 발송 오늘 → 422·원 발송 1일 → 201 · 전체 --rerun-tasks 186파일 981 tests·0 fail.
+- 변경 파일(보충): main 신규 delivery/service/ReturnWindowPolicy · 수정 DeliveryRepository(claim_id NULL 파생 쿼리)·ClaimRepository(FAIL 이력)·ClaimService(정책 위임·FAIL 가드)·V24(인덱스 컬럼) / test ClaimServiceTest(정책 mock)·ClaimReturnIntegrationTest(+T8·T5 확장).
+

@@ -2,6 +2,7 @@ package com.zslab.mall.claim.controller;
 
 import com.zslab.mall.claim.controller.request.AdminClaimSort;
 import com.zslab.mall.claim.controller.request.ClaimApproveRequest;
+import com.zslab.mall.claim.controller.request.ClaimInspectRequest;
 import com.zslab.mall.claim.controller.request.ClaimRejectRequest;
 import com.zslab.mall.claim.controller.response.AdminClaimListResponse;
 import com.zslab.mall.claim.controller.response.ClaimResponse;
@@ -111,6 +112,33 @@ public class AdminClaimController {
         Claim claim = claimRepository.findByPublicId(claimPublicId)
                 .orElseThrow(() -> new ClaimNotFoundException("클레임을 찾을 수 없습니다: publicId=" + claimPublicId));
         claimService.rejectByAdmin(claim.getId(), body.reasonCode(), body.memo(), LocalDateTime.now());
+        return toResponse(claimPublicId);
+    }
+
+    /**
+     * Admin 반품 회수 확인(Track 81-A D-170). 회수 송장(RETURN Delivery) 선행 필요(부재 422). 미존재 404·APPROVED 아님 422.
+     */
+    @PostMapping("/{claimPublicId}/confirm-pickup")
+    public ClaimResponse confirmPickupByAdmin(@PathVariable String claimPublicId, HttpServletRequest request) {
+        adminActorResolver.resolve(request);
+        Claim claim = claimRepository.findByPublicId(claimPublicId)
+                .orElseThrow(() -> new ClaimNotFoundException("클레임을 찾을 수 없습니다: publicId=" + claimPublicId));
+        claimService.confirmPickupByAdmin(claim.getId(), LocalDateTime.now());
+        return toResponse(claimPublicId);
+    }
+
+    /**
+     * Admin 반품 검수(Track 81-A D-170·R5). PASS{restock} → 환불 개시 / FAIL{rejectReasonCode·memo·reshipCarrier·reshipTrackingNo} → 거부·재발송.
+     * 미존재 404·상태/중복 422·조건부 필수 누락 400.
+     */
+    @PostMapping("/{claimPublicId}/inspect")
+    public ClaimResponse inspectByAdmin(@PathVariable String claimPublicId,
+            @RequestBody @Valid ClaimInspectRequest body, HttpServletRequest request) {
+        adminActorResolver.resolve(request);
+        Claim claim = claimRepository.findByPublicId(claimPublicId)
+                .orElseThrow(() -> new ClaimNotFoundException("클레임을 찾을 수 없습니다: publicId=" + claimPublicId));
+        claimService.inspectByAdmin(claim.getId(), body.result(), body.restock(), body.rejectReasonCode(), body.memo(),
+                body.reshipCarrier(), body.reshipTrackingNo(), LocalDateTime.now());
         return toResponse(claimPublicId);
     }
 

@@ -63,8 +63,24 @@ class InventoryClaimCompletedHandlerTest {
     }
 
     private Claim claim(ClaimType type) {
-        return Claim.create(ORDER_ITEM_ID, type, "BUYER_CHANGED_MIND", "단위", SELLER_ID,
+        Claim claim = Claim.create(ORDER_ITEM_ID, type, "BUYER_CHANGED_MIND", "단위", SELLER_ID,
                 LocalDateTime.of(2026, 7, 1, 9, 0), OrderItemStatus.DELIVERED);
+        if (type == ClaimType.RETURN) {
+            // Track 81-A: RETURN 종결 재고 복구는 검수 PASS·restock=true 전제 — 승인→회수→검수 PASS(restock true)를 도메인 메서드로 재현
+            claim.approve(LocalDateTime.of(2026, 7, 1, 10, 0), null);
+            claim.confirmPickup(LocalDateTime.of(2026, 7, 2, 9, 0));
+            claim.passInspection(true, LocalDateTime.of(2026, 7, 2, 10, 0));
+        }
+        return claim;
+    }
+
+    private Claim returnClaimNoRestock() {
+        Claim claim = Claim.create(ORDER_ITEM_ID, ClaimType.RETURN, "PRODUCT_DEFECT", "단위", SELLER_ID,
+                LocalDateTime.of(2026, 7, 1, 9, 0), OrderItemStatus.DELIVERED);
+        claim.approve(LocalDateTime.of(2026, 7, 1, 10, 0), null);
+        claim.confirmPickup(LocalDateTime.of(2026, 7, 2, 9, 0));
+        claim.passInspection(false, LocalDateTime.of(2026, 7, 2, 10, 0));
+        return claim;
     }
 
     private OrderItem orderItem() {
@@ -91,7 +107,19 @@ class InventoryClaimCompletedHandlerTest {
     }
 
     @Test
-    @DisplayName("RETURN: restoreStock(variantId, qty, RETURN, claim, claimId) 호출")
+    @DisplayName("RETURN·restock=false(불량 폐기): restoreStock 미호출·재고 불변(Track 81-A D-170)")
+    void handle_return_noRestock_skips() {
+        when(inventoryHistoryRepository.existsByReferenceTypeAndReferenceId("claim", CLAIM_ID)).thenReturn(false);
+        when(claimRepository.findById(CLAIM_ID)).thenReturn(Optional.of(returnClaimNoRestock()));
+        when(orderItemRepository.findById(ORDER_ITEM_ID)).thenReturn(Optional.of(orderItem()));
+
+        handler.handle(event(ClaimType.RETURN));
+
+        verify(inventoryService, org.mockito.Mockito.never()).restoreStock(any(), org.mockito.ArgumentMatchers.anyInt(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("RETURN·restock=true: restoreStock(variantId, qty, RETURN, claim, claimId) 호출")
     void handle_return_restoresReturn() {
         stubChain(ClaimType.RETURN);
 

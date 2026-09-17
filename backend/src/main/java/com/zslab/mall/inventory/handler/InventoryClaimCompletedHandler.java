@@ -21,7 +21,8 @@ import org.springframework.transaction.event.TransactionalEventListener;
 /**
  * ClaimCompleted(E9) → Inventory 복구/교환 핸들러(Track 17 PR-B·D-101 §3·§5). {@link ClaimCompleted}를 소비해 claimId로
  * Claim을 재조회하고(D-101 §8 β·record 무복제), orderItemId로 OrderItem을 재조회해 variant_id·quantity를 도출한 뒤 type별로
- * 분기한다: CANCEL·RETURN은 {@link InventoryService#restoreStock}(실물 복구), EXCHANGE는 {@link InventoryService#exchange}
+ * 분기한다: CANCEL은 {@link InventoryService#restoreStock}(실물 복구), RETURN은 검수 재입고(claim.restock=true)일 때만 restoreStock(Track 81-A D-170),
+ * EXCHANGE는 {@link InventoryService#exchange}
  * (회수분 복구 + 교환품 신규 확정·동일 variant 재사용·Claim에 newVariantId 부재·recon §16.10).
  *
  * <p><b>실행 시점(D-101 §3·D-75)</b>: {@code @TransactionalEventListener(AFTER_COMMIT)} + {@code REQUIRES_NEW}로 클레임 종결
@@ -70,8 +71,15 @@ public class InventoryClaimCompletedHandler {
             switch (claim.getType()) {
                 case CANCEL -> inventoryService.restoreStock(
                         variantId, qty, InventoryHistoryChangeType.CANCEL, "claim", event.claimId());
-                case RETURN -> inventoryService.restoreStock(
-                        variantId, qty, InventoryHistoryChangeType.RETURN, "claim", event.claimId());
+                case RETURN -> {
+                    // Track 81-A D-170·R5: 검수 PASS 시 재입고 여부를 검수자가 고른다. 불량 폐기(restock=false)는 재고·history 모두 불변.
+                    if (!claim.isRestockRequested()) {
+                        log.info("[Inventory] event=ClaimCompleted target_id={} action=skip reason=restock_false variant_id={} qty={}",
+                                event.claimId(), variantId, qty);
+                        return;
+                    }
+                    inventoryService.restoreStock(variantId, qty, InventoryHistoryChangeType.RETURN, "claim", event.claimId());
+                }
                 // EXCHANGE: 동일 variant 회수+재발송(Claim newVariantId 부재·recon §16.10)
                 case EXCHANGE -> inventoryService.exchange(variantId, qty, variantId, qty, event.claimId());
             }

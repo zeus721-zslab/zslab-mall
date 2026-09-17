@@ -82,8 +82,8 @@ class Track80CancelFlowIntegrationTest extends AbstractIntegrationTest {
     private static final long ITEM_PRICE = 10_000L;
     private static final String BUYER_PHONE = "010-1111-2222";
     private static final String BUYER_NAME = "트랙80구매자";
-    /** 실측 7 고정: claim count·page + user·order_item·주문 요약 projection·refund 배치 4 + REQUESTED count 1. */
-    private static final int QUERY_BUDGET_FOR_LIST = 7;
+    /** 실측 8 고정: claim count·page + user·order_item·주문 요약 projection·refund·클레임 delivery(Track 81-A) 배치 5 + REQUESTED count 1. */
+    private static final int QUERY_BUDGET_FOR_LIST = 8;
 
     private static final String ORDER_A_PID = pid("ord_", "T80ORDA");
     private static final String ORDER_B_PID = pid("ord_", "T80ORDB");
@@ -145,8 +145,8 @@ class Track80CancelFlowIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(status().isBadRequest());
         assertThat(claimStatus(claimPid)).isEqualTo("REQUESTED");
 
-        // RETURN 클레임(SHIPPING 품목 B)에 ALREADY_SHIPPED → 도메인 검증 400·상태 불변
-        jdbc.update("UPDATE order_item SET item_status = 'SHIPPING' WHERE id = ?", ORDER_B_ITEM);
+        // RETURN 클레임(배송완료 품목 B·Track 81-A 요청 조건: DELIVERED+발송 배송완료 7일 이내)에 ALREADY_SHIPPED → 도메인 검증 400·상태 불변
+        markDeliveredOutbound(ORDER_B_ITEM, 9891L, "T80DLVB1");
         String returnPid = requestClaim(ITEM_B_PID, ClaimType.RETURN, ClaimReasonCode.PRODUCT_DEFECT);
         mockMvc.perform(post(CLAIMS_URL + "/" + returnPid + "/reject").headers(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(ALREADY_SHIPPED_BODY))
@@ -287,7 +287,7 @@ class Track80CancelFlowIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("T6 목록: 유형·상태·기간·검색(주문번호/구매자/상품명)·pendingCount·정렬·쿼리 예산·BUYER 403")
     void list_filtersPendingCountQueryBudgetAndAuth() throws Exception {
         String cancelPid = requestCancel(ITEM_A1_PID);
-        jdbc.update("UPDATE order_item SET item_status = 'SHIPPING' WHERE id = ?", ORDER_B_ITEM);
+        markDeliveredOutbound(ORDER_B_ITEM, 9892L, "T80DLVB2");
         String returnPid = requestClaim(ITEM_B_PID, ClaimType.RETURN, ClaimReasonCode.PRODUCT_DEFECT);
         mockMvc.perform(post(CLAIMS_URL + "/" + returnPid + "/reject").headers(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(REJECT_BODY))
@@ -359,8 +359,8 @@ class Track80CancelFlowIntegrationTest extends AbstractIntegrationTest {
     }
 
     /**
-     * 목록 1회 호출의 SQL 실행 수(Hibernate Statistics·prepared statement 기준). 실측 구성(1행·2행 동일 7):
-     * claim count · claim page · user in · order_item in · 품목→주문 요약 projection · claim REQUESTED count · refund in.
+     * 목록 1회 호출의 SQL 실행 수(Hibernate Statistics·prepared statement 기준). 실측 구성(1행·2행 동일 8):
+     * claim count · claim page · user in · order_item in · 품목→주문 요약 projection · claim REQUESTED count · refund in · delivery in(claim_id·Track 81-A).
      */
     private long countListQueries(int size) throws Exception {
         Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
@@ -375,6 +375,15 @@ class Track80CancelFlowIntegrationTest extends AbstractIntegrationTest {
     }
 
     // ===== helpers =====
+
+    /** 품목을 DELIVERED로 두고 발송(OUTBOUND) 배송완료 Delivery(어제)를 시드한다 — RETURN 요청 조건(Track 81-A). */
+    private void markDeliveredOutbound(long orderItemId, long deliveryId, String tag) {
+        jdbc.update("UPDATE order_item SET item_status = 'DELIVERED' WHERE id = ?", orderItemId);
+        jdbc.update("INSERT INTO delivery (id, public_id, order_item_id, direction, carrier, tracking_no, status, shipped_at, delivered_at, "
+                        + "created_at, updated_at) VALUES (?, ?, ?, 'OUTBOUND', 'CJ', ?, 'DELIVERED', NOW(6) - INTERVAL 2 DAY, "
+                        + "NOW(6) - INTERVAL 1 DAY, NOW(6), NOW(6))",
+                deliveryId, pid("dlv_", tag), orderItemId, "TRK" + tag);
+    }
 
     private String requestCancel(String orderItemPid) {
         return requestClaim(orderItemPid, ClaimType.CANCEL, ClaimReasonCode.BUYER_CHANGED_MIND);

@@ -1,6 +1,7 @@
 package com.zslab.mall.delivery.event;
 
 import java.time.LocalDateTime;
+import com.zslab.mall.delivery.enums.DeliveryDirection;
 
 /**
  * 배송 완료 도메인 이벤트(E5·D-30 사실 통지·QB-13 record 패턴·D-97 Q1). Spring ApplicationEvent로 발행한다.
@@ -16,5 +17,6 @@ public record DeliveryCompleted(
         Long deliveryId,
         Long orderItemId,
         LocalDateTime deliveredAt,
+        DeliveryDirection direction,
         LocalDateTime occurredAt) {
 }

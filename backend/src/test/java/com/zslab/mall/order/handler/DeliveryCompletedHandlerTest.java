@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 
 import com.zslab.mall.delivery.entity.Delivery;
 import com.zslab.mall.delivery.event.DeliveryCompleted;
+import com.zslab.mall.delivery.enums.DeliveryDirection;
 import com.zslab.mall.delivery.repository.DeliveryRepository;
 import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.enums.OrderItemStatus;
@@ -47,7 +48,7 @@ class DeliveryCompletedHandlerTest {
     private DeliveryCompletedHandler handler;
 
     private DeliveryCompleted event() {
-        return new DeliveryCompleted(DELIVERY_ID, ORDER_ITEM_ID, OCCURRED_AT, OCCURRED_AT);
+        return new DeliveryCompleted(DELIVERY_ID, ORDER_ITEM_ID, OCCURRED_AT, DeliveryDirection.OUTBOUND, OCCURRED_AT);
     }
 
     @Test

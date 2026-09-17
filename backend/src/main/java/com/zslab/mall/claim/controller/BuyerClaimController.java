@@ -1,11 +1,14 @@
 package com.zslab.mall.claim.controller;
 
 import com.zslab.mall.claim.controller.request.ClaimRequestRequest;
+import com.zslab.mall.claim.controller.request.ReturnShipmentRequest;
 import com.zslab.mall.claim.controller.response.ClaimResponse;
 import com.zslab.mall.claim.controller.response.ClaimSummaryResponse;
+import com.zslab.mall.claim.controller.response.ReturnShipmentResponse;
 import com.zslab.mall.claim.entity.Claim;
 import com.zslab.mall.claim.service.ClaimService;
 import com.zslab.mall.common.auth.BuyerActorResolver;
+import com.zslab.mall.delivery.entity.Delivery;
 import com.zslab.mall.order.controller.response.PagedResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -39,6 +42,20 @@ public class BuyerClaimController {
     public BuyerClaimController(ClaimService claimService, BuyerActorResolver buyerActorResolver) {
         this.claimService = claimService;
         this.buyerActorResolver = buyerActorResolver;
+    }
+
+    /**
+     * 반품 회수 송장 등록(Track 81-A D-170·R4). 본인·RETURN·APPROVED·회수 전 클레임만. 200 + 회수 Delivery 요약.
+     * 미존재·타인 404·유형/상태/중복 422·형식 400.
+     */
+    @PostMapping("/{claimPublicId}/return-shipment")
+    public ResponseEntity<ReturnShipmentResponse> registerReturnShipment(
+            @PathVariable String claimPublicId,
+            @RequestBody @Valid ReturnShipmentRequest request,
+            HttpServletRequest httpRequest) {
+        Long buyerId = buyerActorResolver.resolve(httpRequest);
+        Delivery delivery = claimService.registerReturnShipmentByBuyer(claimPublicId, buyerId, request.carrier(), request.trackingNo());
+        return ResponseEntity.ok(ReturnShipmentResponse.from(delivery));
     }
 
     /** 클레임 요청(CANCEL 한정·Q6). 신규 생성 201 + Location. requestedAt은 서버 시각으로 채운다. */

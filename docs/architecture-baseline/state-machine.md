@@ -53,12 +53,19 @@ REQUESTED ──→ APPROVED ──→ COMPLETED
 | Claim.type | COMPLETED 조건 |
 |---|---|
 | CANCEL | Refund.status = COMPLETED |
-| RETURN | 수거 확인 + Refund.status = COMPLETED |
+| RETURN | 회수 송장(구매자) → 회수 확인 → 검수 PASS + Refund.status = COMPLETED (Track 81-A D-170) |
 | EXCHANGE | 수거 확인 + 교환품 배송 완료 (별도 Delivery 생성) + (차액 발생 시) Refund.status = COMPLETED (D-115) |
 
 **REJECTED 처리 정책**: 기존 Claim은 REJECTED 상태로 보존 (이력 추적). 재요청 시 새 Claim 행 생성.
 
-> **거부 사유(Track 80 D-169)**: REQUESTED → REJECTED 전이는 거부 사유 코드 필수·메모 선택이다(`claim.reject_reason_code` CHECK·`reject_memo` ≤500·V23·`ClaimRejectReasonCode` ALREADY_SHIPPED|OUT_OF_POLICY|BUYER_WITHDRAWN|OTHER). ALREADY_SHIPPED는 CANCEL 전용(도메인 검증 400). 거부 시 품목은 `previous_order_item_status` 스냅샷으로 원복(§3·기존 ClaimRejectedHandler 무변경). 거부·요청 접수·CANCEL 완료 시점에 구매자 SMS(NotificationLog channel=SMS·AFTER_COMMIT·발송 실패는 전이를 롤백하지 않음).
+> **거부 사유(Track 80 D-169)**: REQUESTED → REJECTED 전이는 거부 사유 코드 필수·메모 선택이다(`claim.reject_reason_code` CHECK·`reject_memo` ≤500·V23·`ClaimRejectReasonCode` ALREADY_SHIPPED|OUT_OF_POLICY|BUYER_WITHDRAWN|OTHER|INSPECTION_FAILED(V24)). ALREADY_SHIPPED는 CANCEL 전용·INSPECTION_FAILED는 RETURN 검수 전용(도메인 검증 400). 거부 시 품목은 `previous_order_item_status` 스냅샷으로 원복(§3·기존 ClaimRejectedHandler 무변경). 거부·요청 접수·CANCEL/RETURN 완료·RETURN 승인 시점에 구매자 SMS(NotificationLog channel=SMS·AFTER_COMMIT·발송 실패는 전이를 롤백하지 않음).
+>
+> **반품 단계(Track 81-A D-170·상태 4값 유지·milestone 컬럼)**:
+> - 요청 조건: 품목 DELIVERED + 사유 `ClaimReasonCode.isApplicableTo(RETURN)`(BUYER_CHANGED_MIND·PRODUCT_DEFECT·WRONG_PRODUCT) + 최신 발송(OUTBOUND) Delivery `delivered_at` + 7일 이내(`ClaimService.RETURN_WINDOW_DAYS`·위반 422 CLAIM_STATE_INVALID). 배송완료 시각 SoT는 delivery(order_item 컬럼 신설 기각). CONFIRMED는 종결이라 요청 불가(기존).
+> - 회수 송장: 구매자 `POST /api/v1/claims/{id}/return-shipment`(APPROVED·회수 전·본인) → `delivery`(direction=RETURN·claim_id·SHIPPING). `DeliveryStarted`는 direction=RETURN·claimId로 발행되며 발송 소비처(품목 SHIPPING 전이·배송 알림·교환 차액)는 OUTBOUND·claim_id NULL만 처리한다.
+> - 회수 확인: 셀러/관리자 `confirm-pickup` = `Claim.pickedUpAt` + 회수 Delivery DELIVERED(부재 422). **환불은 발생하지 않는다**(구 ClaimPickedUpHandler 제거).
+> - 검수: `inspect`{PASS, restock} → `inspected_at`·`inspection_result=PASS`·`restock` 저장 → `ClaimInspectionPassed` → `RefundService.initiate(totalPrice)` → Refund.COMPLETED(Mock 자동) → Claim.COMPLETED → 품목 RETURNED → 재고는 `restock=true`일 때만 `restoreStock(RETURN)`(false는 재고·history 불변). `inspect`{FAIL, rejectReasonCode, memo, reshipCarrier, reshipTrackingNo} → **APPROVED → REJECTED**(아래 예외) + 재발송 Delivery(OUTBOUND·claim_id) + `ClaimRejected`(품목 DELIVERED 원복·거부 SMS). 동시 검수는 `refresh(PESSIMISTIC_WRITE)`로 직렬화(늦은 쪽 422).
+> - **예외 전이 APPROVED → REJECTED**: `ClaimStatus.canTransitionTo` 매트릭스는 무변경(false 유지)이며 `Claim.failInspection`(RETURN·회수됨·미검수)만 상태를 직접 REJECTED로 둔다. 일반 `reject`는 여전히 REQUESTED 한정.
 
 ---
 
@@ -189,6 +196,8 @@ Order.status는 OrderItem 집계 캐시이므로, OrderItem 상태가 변경될 
 
 ### 6.1 Delivery.status (B분류 — DELIVERY_STATUS·Track 13 D-97)
 
+> **Delivery.direction(Track 81-A D-170·V24)**: OUTBOUND(구매자 발송·기본·기존 행 백필) | RETURN(반품 회수). `claim_id`는 교환품 발송·반품 회수·검수 불합격 재발송에 연결된다(방향별 최대 1건). 관리자 주문 목록/상세의 품목 배송은 OUTBOUND만 집계하며(재발송이 최신 발송이 됨) 회수는 클레임 행에서 보인다.
+
 > 소스: decisions.md D-97 [확정 2026-06-30]·DLV-1~3(invariants.md §2.12)·domain-events.md E4·E5·A#12.
 > Track 13에서 본래 §6 이연("Delivery 상태 전이 → 각 도메인 별도 정의")을 영구 해소한다.
 
@@ -279,7 +288,7 @@ PENDING ──→ COMPLETED (불가역)
 | Claim.type | 연동 순서 |
 |---|---|
 | CANCEL | Refund.COMPLETED → Claim.COMPLETED |
-| RETURN | 수거 확인 → Refund.COMPLETED → Claim.COMPLETED |
+| RETURN | 회수 송장 → 회수 확인 → 검수 PASS(`ClaimInspectionPassed`) → Refund.COMPLETED → Claim.COMPLETED (Track 81-A·환불 트리거는 검수 PASS) |
 | EXCHANGE | (차액 발생 시) 교환 출고 시 Refund 생성 → 교환 배송 완료 + Refund.COMPLETED 수렴 → Claim.COMPLETED (D-115) |
 
 **Payment 연동 (D-05 정합)**: Refund.COMPLETED 후 Payment.status는 환불 누적 금액에 따라 CANCELLED 전이 가능 (PAY-1 invariant·Domain 검증).

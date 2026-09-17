@@ -15,6 +15,7 @@ import com.zslab.mall.claim.event.ClaimPickedUp;
 import com.zslab.mall.claim.exception.ClaimInvalidStateException;
 import com.zslab.mall.claim.exception.ClaimNotFoundException;
 import com.zslab.mall.claim.repository.ClaimRepository;
+import com.zslab.mall.delivery.service.DeliveryService;
 import com.zslab.mall.common.observability.TracedEventPublisher;
 import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.enums.OrderItemStatus;
@@ -52,6 +53,8 @@ class ClaimServiceConfirmPickupTest {
     private OrderRepository orderRepository;
     @Mock
     private TracedEventPublisher eventPublisher;
+    @Mock
+    private DeliveryService deliveryService;
     @InjectMocks
     private ClaimService claimService;
 

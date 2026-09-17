@@ -6,6 +6,7 @@ import com.zslab.mall.claim.repository.ClaimRepository;
 import com.zslab.mall.claim.service.ClaimService;
 import com.zslab.mall.delivery.entity.Delivery;
 import com.zslab.mall.delivery.event.DeliveryCompleted;
+import com.zslab.mall.delivery.enums.DeliveryDirection;
 import com.zslab.mall.delivery.repository.DeliveryRepository;
 import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.enums.OrderItemStatus;
@@ -61,6 +62,11 @@ public class ExchangeDeliveryCompletedHandler {
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void handle(DeliveryCompleted event) {
+        if (event.direction() != DeliveryDirection.OUTBOUND) {
+            // 반품 회수(RETURN) Delivery는 발송이 아니다(Track 81-A D-170) — 품목·알림·환불 소비처 비대상
+            log.info("[ExchangeDelivery] DeliveryCompleted direction={} → 배송완료 소비처 비대상·건너뜀: deliveryId={}", event.direction(), event.deliveryId());
+            return;
+        }
         Delivery delivery = deliveryRepository.findById(event.deliveryId()).orElse(null);
         if (delivery == null) {
             log.warn("[ExchangeDelivery] DeliveryCompleted 수신·Delivery 미발견: deliveryId={}", event.deliveryId());

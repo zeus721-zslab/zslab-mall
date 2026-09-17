@@ -1,6 +1,7 @@
 package com.zslab.mall.order.repository;
 
 import com.zslab.mall.delivery.entity.Delivery;
+import com.zslab.mall.delivery.enums.DeliveryDirection;
 import com.zslab.mall.delivery.enums.DeliveryStatus;
 import com.zslab.mall.order.entity.Order;
 import com.zslab.mall.order.entity.OrderItem;
@@ -82,6 +83,7 @@ public final class AdminOrderSpecifications {
             Root<Delivery> delivery = items.from(Delivery.class);
             items.select(item.get("order").get("id"))
                     .where(builder.equal(delivery.get("orderItemId"), item.get("id")),
+                            builder.equal(delivery.get("direction"), DeliveryDirection.OUTBOUND), // 반품 회수 제외(Track 81-A)
                             builder.equal(delivery.get("status"), deliveryStatus));
             return root.get("id").in(items);
         };

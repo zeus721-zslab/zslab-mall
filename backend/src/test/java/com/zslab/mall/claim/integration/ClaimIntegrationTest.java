@@ -162,9 +162,10 @@ class ClaimIntegrationTest extends AbstractIntegrationTest {
             seedOrder(orderId, pid("ord_", "T13ORD"), BUYER_A);
             seedOrderItem(deliveredItemId, deliveredPid, orderId, OrderItemStatus.DELIVERED);
             seedOrderItem(paidItemId, paidPid, orderId, OrderItemStatus.PAID);
+            seedDeliveredOutbound(9901L, pid("dlv_", "T13DLV"), deliveredItemId); // Track 81-A: 반품 기한 판정용 발송 배송완료(어제)
         });
 
-        // 게이트 제거 후 type 무관 진입 허용·DELIVERED는 RETURN_REQUESTED 전이 가능(D-98 Q4·Q7) → 201
+        // 게이트 제거 후 type 무관 진입 허용·DELIVERED는 RETURN_REQUESTED 전이 가능(D-98 Q4·Q7)·배송완료 1일 경과(7일 이내) → 201
         mockMvc.perform(post("/api/v1/claims").headers(authHeaders.buyer(BUYER_A))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(requestBody(deliveredPid, "RETURN", "BUYER_CHANGED_MIND")))
@@ -494,6 +495,19 @@ class ClaimIntegrationTest extends AbstractIntegrationTest {
                 .setParameter(2, publicId)
                 .setParameter(3, buyerId)
                 .setParameter(4, "ORDIT" + id)
+                .executeUpdate();
+    }
+
+    /** 발송(OUTBOUND) 배송완료 Delivery(어제 완료). RETURN 요청 기한(배송완료+7일·Track 81-A) 판정용. */
+    private void seedDeliveredOutbound(long id, String publicId, long orderItemId) {
+        entityManager.createNativeQuery(
+                        "INSERT INTO delivery (id, public_id, order_item_id, direction, carrier, tracking_no, status, shipped_at, "
+                                + "delivered_at, created_at, updated_at) VALUES (?1, ?2, ?3, 'OUTBOUND', 'CJ', ?4, 'DELIVERED', "
+                                + "NOW(6) - INTERVAL 2 DAY, NOW(6) - INTERVAL 1 DAY, NOW(6), NOW(6))")
+                .setParameter(1, id)
+                .setParameter(2, publicId)
+                .setParameter(3, orderItemId)
+                .setParameter(4, "TRK" + publicId)
                 .executeUpdate();
     }
 

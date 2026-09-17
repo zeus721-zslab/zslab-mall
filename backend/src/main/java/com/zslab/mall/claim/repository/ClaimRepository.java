@@ -2,6 +2,7 @@ package com.zslab.mall.claim.repository;
 
 import com.zslab.mall.claim.entity.Claim;
 import com.zslab.mall.claim.enums.ClaimStatus;
+import com.zslab.mall.claim.enums.ClaimInspectionResult;
 import com.zslab.mall.claim.enums.ClaimType;
 import java.util.Collection;
 import java.util.List;
@@ -37,6 +38,9 @@ public interface ClaimRepository extends JpaRepository<Claim, Long>, JpaSpecific
 
     /** 관리자 주문 목록·상세 배치 enrich(Track 79 D-168·N+1 회피). 항목별 최신 행이 앞에 오도록 id 내림차순. */
     List<Claim> findByOrderItemIdInOrderByIdDesc(Collection<Long> orderItemIds);
+
+    /** 동일 품목에 검수 불합격(FAIL) 이력이 있는지(Track 81-A D-170 보충·반품 재요청 차단). 파생 쿼리 바인딩. */
+    boolean existsByOrderItemIdAndTypeAndInspectionResult(Long orderItemId, ClaimType type, ClaimInspectionResult inspectionResult);
 
     /** 관리자 목록 처리 대기 건수(Track 80 D-169·유형 전체). */
     long countByStatus(ClaimStatus status);
