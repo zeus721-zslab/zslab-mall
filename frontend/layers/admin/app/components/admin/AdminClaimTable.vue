@@ -8,13 +8,17 @@ import {
   type ClaimReasonCode,
 } from '~/lib/constants/claim'
 import { formatDateTime } from '~/lib/utils/datetime'
-import { ADMIN_CLAIM_STATUS_SEMANTIC, ADMIN_ORDER_PAGE_SIZES } from '#layers/admin/app/lib/constants/admin-order'
+import {
+  ADMIN_CLAIM_STATUS_SEMANTIC,
+  ADMIN_DELIVERY_CARRIER_LABEL,
+  ADMIN_ORDER_PAGE_SIZES,
+} from '#layers/admin/app/lib/constants/admin-order'
 import { formatWon } from '#layers/admin/app/lib/format'
-import { refundStatusChip } from '#layers/admin/app/lib/admin-claim-view'
+import { inspectionChip, refundStatusChip } from '#layers/admin/app/lib/admin-claim-view'
 import { semanticChipClass } from '#layers/admin/app/lib/constants/semantic'
 
 // 클레임 표(FE-28·v-data-table-server·AdminOrderTable 패턴). 페이지·크기는 부모(URL)가 소유하고 표는 이벤트만 올린다.
-// 행 액션은 BE availableActions(REQUESTED만 APPROVE·REJECT)로만 노출한다 — 반품·교환도 값이 오면 같은 버튼(처리 흐름은 Track 81·82).
+// 행 액션은 BE availableActions로만 노출한다 — REQUESTED는 APPROVE·REJECT, 반품 승인 후는 CONFIRM_PICKUP·INSPECT(FE-29·Track 81-A).
 const props = defineProps<{
   items: AdminClaimSummary[]
   totalCount: number
@@ -30,9 +34,11 @@ const emit = defineEmits<{
   openOrder: [item: AdminClaimSummary]
   approve: [item: AdminClaimSummary]
   reject: [item: AdminClaimSummary]
+  confirmPickup: [item: AdminClaimSummary]
+  inspect: [item: AdminClaimSummary]
 }>()
 
-// 8컬럼: 1440px에서 가로 스크롤이 없도록 요청/처리 일시·유형/상태·주문/구매자·상품/옵션·요청/거부 사유를 2줄 셀로 병합한다(FE-27 compact 규칙).
+// 8컬럼: 1440px에서 가로 스크롤이 없도록 요청/처리 일시·유형/상태·주문/구매자·상품/옵션·요청/거부 사유·환불/회수·검수를 2줄 셀로 병합한다(FE-27 compact 규칙).
 const headers = [
   { title: '요청 · 처리', key: 'dates', sortable: false },
   { title: '유형 · 상태', key: 'typeStatus', sortable: false },
@@ -40,7 +46,7 @@ const headers = [
   { title: '상품', key: 'product', sortable: false },
   { title: '금액', key: 'amount', sortable: false, align: 'end' as const },
   { title: '사유', key: 'reasons', sortable: false },
-  { title: '환불', key: 'refund', sortable: false },
+  { title: '환불 · 회수/검수', key: 'refund', sortable: false },
   { title: '관리', key: 'actions', sortable: false, align: 'end' as const },
 ]
 
@@ -50,6 +56,15 @@ function isPending(item: AdminClaimSummary): boolean {
 
 function reasonLabel(code: string): string {
   return CLAIM_REASON_LABELS[code as ClaimReasonCode] ?? code
+}
+
+/** 회수/검수 2줄째 caption(FE-29): 검수 chip이 있으면 chip, 아니면 회수 확인 일시 → 회수 송장 → 첨부 수 순으로 짧게. */
+function returnCaption(item: AdminClaimSummary): string {
+  const parts: string[] = []
+  if (item.pickedUpAt) parts.push(`회수 확인 ${formatDateTime(item.pickedUpAt).slice(5)}`)
+  else if (item.returnShipment) parts.push(`회수 ${ADMIN_DELIVERY_CARRIER_LABEL[item.returnShipment.carrier]} ${item.returnShipment.trackingNo}`)
+  if (item.attachmentCount > 0) parts.push(`첨부 ${item.attachmentCount}`)
+  return parts.join(' · ')
 }
 </script>
 
@@ -116,16 +131,30 @@ function reasonLabel(code: string): string {
     </template>
 
     <template #[`item.refund`]="{ item }">
-      <v-chip
-        v-if="refundStatusChip(item.refundStatus)"
-        :class="semanticChipClass(refundStatusChip(item.refundStatus)!.semantic)"
-        size="small"
-        variant="flat"
-        data-testid="row-refund-chip"
-      >
-        {{ refundStatusChip(item.refundStatus)!.text }}
-      </v-chip>
-      <span v-else class="text-medium-emphasis">—</span>
+      <div class="d-flex align-center flex-wrap ga-1">
+        <v-chip
+          v-if="refundStatusChip(item.refundStatus)"
+          :class="semanticChipClass(refundStatusChip(item.refundStatus)!.semantic)"
+          size="small"
+          variant="flat"
+          data-testid="row-refund-chip"
+        >
+          {{ refundStatusChip(item.refundStatus)!.text }}
+        </v-chip>
+        <v-chip
+          v-if="inspectionChip(item.inspectionResult, item.restock)"
+          :class="semanticChipClass(inspectionChip(item.inspectionResult, item.restock)!.semantic)"
+          size="small"
+          variant="flat"
+          data-testid="row-inspection-chip"
+        >
+          {{ inspectionChip(item.inspectionResult, item.restock)!.text }}
+        </v-chip>
+        <span v-if="!refundStatusChip(item.refundStatus) && !inspectionChip(item.inspectionResult, item.restock)" class="text-medium-emphasis">—</span>
+      </div>
+      <div v-if="returnCaption(item)" class="text-caption text-medium-emphasis" :title="item.returnShipment?.trackingNo" data-testid="row-return-caption">
+        {{ returnCaption(item) }}
+      </div>
     </template>
 
     <template #[`item.actions`]="{ item }">
@@ -148,6 +177,24 @@ function reasonLabel(code: string): string {
           data-testid="row-reject"
           @click="emit('reject', item)"
         >거부</v-btn>
+        <v-btn
+          v-if="item.availableActions.includes('CONFIRM_PICKUP')"
+          size="x-small"
+          color="secondary"
+          variant="flat"
+          :disabled="isPending(item)"
+          data-testid="row-confirm-pickup"
+          @click="emit('confirmPickup', item)"
+        >회수 확인</v-btn>
+        <v-btn
+          v-if="item.availableActions.includes('INSPECT')"
+          size="x-small"
+          color="primary"
+          variant="flat"
+          :disabled="isPending(item)"
+          data-testid="row-inspect"
+          @click="emit('inspect', item)"
+        >검수</v-btn>
         <span v-if="item.availableActions.length === 0" class="text-caption text-medium-emphasis">—</span>
       </div>
     </template>

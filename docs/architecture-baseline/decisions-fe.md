@@ -1503,3 +1503,36 @@ FE-13 §8(:701) 이월 "[버그·백로그] BUYER 페이지에서 로그아웃 �
 - 셀러 클레임 화면(목록·거부 사유 입력) — 셀러 트랙.
 - 관리자 클레임 목록 모바일(390) 표 내부 스크롤 허용·컬럼 축약 여부 — 운영 피드백 후.
 - 사용자 클레임 목록/상세 픽셀 기준선 편입 여부(현 12장 미포함).
+
+## FE-29: 사용자 반품 요청(사유·사진)·회수 송장·6단 타임라인 · 관리자 회수 확인·검수 다이얼로그·첨부 표기 (2026-09-17)
+
+정찰 `docs/frontend/recon-report-fe-29.md` · BE 계약 Track 81-A D-170(8da3640a)·81-B D-171(f9657ebf) + 본 트랙 BE 추가형 필드 1건 · 브랜치 `feat/fe-29-returns`(PR은 81-A·81-B와 1건)
+
+### §1-A 갈림길·채택/기각 근거
+1. 반품 기한 표시(Q1): α **FE 미판단 — DELIVERED면 버튼 노출·기한 초과는 BE 422 detail 문구로 안내 — 채택** / β 주문 응답에 deliveredAt 추가 — 기각. 기한 SoT는 BE `ReturnWindowPolicy`(원 발송·7일)이며 FE가 복제하면 재발송·교환 발송 제외 규칙까지 따라가야 한다. 422는 detail 부분 일치(`claimRequestErrorMessage`·기한/사유/불합격 이력/미배송완료/CLM-5)로 사용자 문구를 나누고 문구가 바뀌면 일반 422로 폴백한다.
+2. 사용자 재발송 송장(Q2): α 문구만 — 기각 → **β BE `ClaimResponse.reshipment`(검수 불합격 재발송 OUTBOUND Delivery·null 생략) 추가형 필드 — 채택(FE 트랙에 BE 변경 혼입)**. 사유: 요구 3("불합격 시 재발송 송장 표기")을 응답 없이 만족할 수 없고, `getClaim`이 이미 클레임 연결 Delivery를 1쿼리로 읽던 것을 방향별로 나누기만 하면 되어 쿼리 수·Flyway 무변경. 통합 테스트 T3(PASS → 없음)·T5(FAIL → HANJIN/RESHIP-0001)로 박제.
+3. 관리자 주문 상세 재발송 표기(Q3): α **품목 배송 블록(OUTBOUND 최신)에 "재발송" chip(FAIL 반품이 있을 때) + 클레임 행은 회수·검수만 — 채택** / β 클레임 행 송장 중복 표기 — 기각(D-170 "품목 배송 = 최신 발송" 규칙과 이중 표기).
+4. 회수 확인·검수 진입점(Q4): α **목록 전용·주문 상세는 표기만 — 채택** / β 양쪽 — 기각. 상세 클레임 행은 1줄 flex가 이미 포화이고 검수 다이얼로그는 6필드라 목록에서만 연다(승인/거부는 FE-28대로 양쪽 유지).
+5. 사진 업로드 시점(Q5): α **선택 즉시 업로드(`POST /claims/attachments`) → attachmentId 보관 → 요청 body `attachmentIds`(화면 순서) — 채택** / β 제출 시 일괄 — 기각. BE 계약이 2단계이며 파일별 부분 실패를 즉시 보여줄 수 있다. 삭제는 목록 제거만(미연결 첨부 정리는 D-171 §8 이월). 사유를 첨부 불가 사유로 바꾸면 목록을 비운다(BE 400 예방).
+6. 검수 FAIL 사유(Q6): α **RETURN 적합 사유 select(`CLAIM_INSPECTION_FAIL_REASON_CODES`·기본값 INSPECTION_FAILED) — 채택** / β 고정 — 기각(BE가 사유를 받고 SMS 라벨에 실림).
+- **INSPECTION_FAILED 드롭다운 제외**: 거부 사유 상수는 5값(라벨 "검수 불합격")이지만 일반 거부(REQUESTED → REJECTED)에서 이 사유는 BE 400이라 `isClaimRejectReasonApplicable`이 유형 무관 false·`CLAIM_REJECT_REASON_CODES`는 4값 유지. 검수 다이얼로그만 별도 목록을 쓴다(admin-claims e2e ② "반품 거부 목록" 회귀 0).
+- 반품 진입: `claimableTypes` SHIPPING → `[]`(D-170 DELIVERED 한정·매트릭스 주석 정정). 사유 select는 `claimReasonCodesFor(type)`(RETURN 3값). 첨부 섹션은 `isClaimAttachmentAllowed`(RETURN + PRODUCT_DEFECT|WRONG_PRODUCT)일 때만.
+- 사용자 업로드 위젯: admin 드롭존은 Vuetify·`#layers/admin`·MAX 20 결합이라 base 레이어에서 참조 불가(역방향) → `components/claim/AttachmentInput.vue`(hidden file input + 버튼·썸네일 grid·파일별 실패 목록·5장 잔여) 신설, 사전 검증은 `utils/claim-attachment.ts` 순수 함수(형식·10MB·5장). 택배사 상수도 사용자용 `constants/delivery.ts`(4값·admin 상수와 값 동일).
+- 타임라인: `utils/claim-timeline.ts` 순수 함수. 반품 6단(요청→승인→회수 송장→회수 확인→검수→환불 완료)·현재 단계는 status/returnShipment/pickedUpAt/inspectionResult/COMPLETED 조합, 검수 불합격은 "검수 불합격" 5단 종결, 승인 전 거절 2단, 취소·교환 3단 유지. 시각은 BE 값만(요청·회수 송장 shippedAt·회수 확인·종결 processedAt / 승인·검수는 미표기).
+- 관리자 목록: 컬럼 추가 없이 "환불 · 회수/검수" 2줄 병합(환불 chip + 검수 chip / caption "회수 확인 MM.dd HH:mm" 또는 "회수 택배사 송장" · "첨부 N")·회수 확인(secondary)·검수(primary) 버튼(BE `availableActions` CONFIRM_PICKUP|INSPECT). 1440 스크롤 0 유지(e2e ① 재검증).
+- 검수 다이얼로그: `AdminClaimInspectDialog`(결과 radio → PASS 재입고 radio 필수 / FAIL 사유 select·메모 500·재발송 택배사·송장 ≤100 필수)·`validateInspectForm`으로 BE 조건부 필수를 제출 전 적용·400은 fieldErrors 없으면 결과별 대표 필드에 안내·422 warning+stale·PASS info/FAIL danger 토스트. 회수 확인은 `AdminConfirmDialog` + `confirmPickupMessage`.
+
+### §2 확정 구현 규칙
+- BE(추가형): `ClaimResponse +reshipment`(`ReturnShipmentResponse`)·`ClaimService.getClaim` 클레임 Delivery 1쿼리에서 RETURN/OUTBOUND 분리 · 테스트 ClaimReturnIntegrationTest T3/T5·BuyerClaimControllerTest.
+- 데이터: `app/lib/constants/claim.ts`(claimableTypes·RETURN_REASON_CODES·claimReasonCodesFor·CLAIM_ATTACHABLE_REASON_CODES·CLAIM_ATTACHMENT_MAX·isClaimAttachmentAllowed·ClaimRejectReasonCode 5값·CLAIM_INSPECTION_FAIL_REASON_CODES·ClaimInspectionResult+라벨) · `constants/delivery.ts`(신규) · `utils/claim-attachment.ts`·`utils/claim-timeline.ts`·`utils/claim-request-error.ts`(신규) · `types/claim.ts`(ClaimRequestBody.attachmentIds·ClaimAttachmentUploadResponse·ClaimShipment·ReturnShipmentBody·ClaimDetail +6) · `composables/useClaim.ts`(uploadAttachments·registerReturnShipment) · 관리자 `types/admin-claim.ts`(AdminClaimAction 4값·Summary +7·AdminClaimInspectBody)·`types/admin-order.ts`(AdminOrderClaim +7)·`lib/admin-claim-view.ts`(confirmPickupMessage·inspectionChip·inspectFailReasonItems·validateInspectForm)·`useAdminOrders`(confirmPickupClaim·inspectClaim).
+- 화면: 사용자 `components/claim/AttachmentInput.vue`(신규)·`pages/claims/new.vue`·`pages/claims/[claimPublicId].vue`(회수 송장 폼·회수/검수/재발송/첨부 행) · 관리자 `AdminClaimInspectDialog.vue`(신규)·`AdminClaimTable.vue`·`pages/admin/orders/claims/index.vue`·`pages/admin/orders/[id].vue`(회수·검수 chip·첨부 썸네일 40px→v-dialog 확대·"재발송" chip).
+- 검증(실측): BE `--rerun-tasks` 187파일 987 tests 0 fail · typecheck 0 · vitest 36 files 214 tests(+18: claim-return 13·admin-claim-helpers 5·OrderDetailPage 1) · Playwright 36/36(ADMIN_E2E 주입·skip 0·2회 연속: claims 3 신규·admin-claims ①갱신+④신규·admin-orders ⑦ 갱신) · 사용자 12장 0px(fe-28 대비) · 사용자 entry JS 231,002→231,028B(+26)·entry CSS 31,041→31,597B(+556·첨부 grid/썸네일 Tailwind 유틸리티·해시 변경) · 실 BE(로컬 v25·Mock PG/SMS) 수동: A 반품(사진 2)→승인→회수 송장→회수 확인→검수 PASS 재입고→환불 COMPLETED·RETURNED·on_hand +1 / B PAID→송장·배송완료→반품(오배송·사진 1)→승인→회수 송장→회수 확인→검수 FAIL(메모·로젠 재발송)→사용자 상세 "검수 불합격"·메모·재발송 송장·관리자 상세 "재발송" chip·첨부 / SMS 로그 7건 마스킹 / 종료 후 데모 데이터 스냅샷 원복(6지표 일치)·업로드 파일 삭제. 스크린샷 `frontend/playwright-report/fe-29/{claim-new-return-attachments,claim-detail-fail,claims-list-desktop,claims-inspect-dialog,order-detail-return-claim,manual-*}.png`.
+- 번들: entry CSS +556B는 사용자 첨부 위젯·상세 첨부 grid가 새로 쓰는 Tailwind 유틸리티(grid-cols-5·aspect-square·object-cover·bg-white/90 등)가 entry CSS에 합류한 것으로 컴포넌트 JS 증가(+26B)와 별개 — **수용**(사용자 영역 첫 파일 입력·썸네일 UI).
+- 트랩: (1) **nuxt dev 서버가 신규 컴포넌트 파일을 해석하지 못함**(`Failed to resolve component: AdminClaimInspectDialog`·`.nuxt/components.d.ts`엔 등록됨) — 프론트 컨테이너 restart로 해소(FE-28 라우트 stale과 같은 계열). (2) **1440 가로 스크롤 측정이 병렬 워커 부하에서 12px 오탐**(admin-orders ①·웹폰트 적용 전 폴백 폰트 폭) — `document.fonts.ready` 대기 후 측정. (3) e2e 픽스처 ULID는 26자 정확히(25자면 `/claims/new` 정규식에 걸려 "잘못된 접근"). (4) 사용자 페이지 useFetch는 SSR이라 `page.goto`로는 route mock이 안 먹음 — `/login?redirect=`로 클라이언트 내비게이션.
+
+### §8 이월
+- 사용자 반품 요청 화면 기한 표시(남은 일수) — 주문 응답 deliveredAt 추가 시.
+- 반품 422 세부 에러 코드 분리(현재 CLAIM_STATE_INVALID 단일 + detail 문구 부분 일치) — BE 코드 분리 시 `claimRequestErrorMessage` 문자열 매칭 제거.
+- 첨부 삭제 API(업로드 후 제거한 파일은 미연결로 남음) — D-171 미연결 첨부 정리와 함께.
+- 셀러 화면(회수 확인·검수) — 셀러 트랙. 교환(Track 82) 회수·검수 재사용.
+- 사용자 클레임 화면 픽셀 기준선 편입 여부·관리자 목록 모바일 컬럼 축약 — 운영 피드백 후.

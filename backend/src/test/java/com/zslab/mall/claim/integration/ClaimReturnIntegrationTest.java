@@ -269,6 +269,10 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
         assertThat(onHand()).isEqualTo(ON_HAND + 1);
         assertThat(historyCount("RETURN")).isEqualTo(1);
         verify(smsSender).send(eq(BUYER_PHONE), contains("반품 및 환불이 완료되었습니다."));
+        // 사용자 상세(FE-29): PASS는 재발송 없음(null → 필드 생략)
+        mockMvc.perform(get(CLAIMS_URL + "/" + claimPid).headers(authHeaders.buyer(USER_ID)))
+                .andExpect(jsonPath("$.reshipment").doesNotExist())
+                .andExpect(jsonPath("$.inspectionResult").value("PASS"));
 
         // 재검수 422
         mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid + "/inspect").headers(authHeaders.admin(ADMIN_ID))
@@ -324,6 +328,13 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
                 + "AND tracking_no = 'RESHIP-0001'", Integer.class, claimId)).isEqualTo(1);
         assertThat(onHand()).isEqualTo(ON_HAND);
         verify(smsSender).send(eq(BUYER_PHONE), contains("반품 요청이 거부되었습니다. 사유: 검수 불합격"));
+
+        // 사용자 상세(FE-29): 검수 불합격 재발송 송장 노출·회수 송장 유지
+        mockMvc.perform(get(CLAIMS_URL + "/" + claimPid).headers(authHeaders.buyer(USER_ID)))
+                .andExpect(jsonPath("$.reshipment.direction").value("OUTBOUND"))
+                .andExpect(jsonPath("$.reshipment.carrier").value("HANJIN"))
+                .andExpect(jsonPath("$.reshipment.trackingNo").value("RESHIP-0001"))
+                .andExpect(jsonPath("$.returnShipment.trackingNo").value("RTN-TRACK-0001"));
 
         // 관리자 주문 상세 클레임 행: 회수 송장·검수 결과 노출
         mockMvc.perform(get("/api/v1/admin/orders/" + pid("ord_", "RTNORD")).headers(authHeaders.admin(ADMIN_ID)))

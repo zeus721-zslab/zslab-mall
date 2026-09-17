@@ -34,7 +34,15 @@ const PAID_DETAIL = {
       // FE-28: 거부된 취소 클레임(사유·메모) — 거부 사유 표기 검증용·approvable false
       claims: [{ claimId: 'clm_E2E0000000000000000000009', type: 'CANCEL', status: 'REJECTED', reasonCode: 'BUYER_CHANGED_MIND', requestedAt: '2026-09-15T11:00:00', processedAt: '2026-09-15T12:00:00', approvable: false, rejectReasonCode: 'ALREADY_SHIPPED', rejectMemo: '오전 출고분' }] },
     { orderItemId: 'oit_E2E0000000000000000000002', productName: 'E2E 양말', quantity: 2, unitPrice: 5000, totalPrice: 10000, status: 'PAID', sellerName: 'B셀러',
-      claims: [{ claimId: 'clm_E2E0000000000000000000001', type: 'RETURN', status: 'REQUESTED', reasonCode: 'PRODUCT_DEFECT', reasonDetail: '올 풀림', requestedAt: '2026-09-16T11:00:00', approvable: true }] },
+      // FE-29: 품목 배송 = 최신 발송(검수 불합격 재발송)
+      delivery: { deliveryId: 'dlv_E2E2', carrier: 'HANJIN', trackingNo: 'RESHIP-0001', status: 'SHIPPING', shippedAt: '2026-09-12T12:00:00' },
+      claims: [
+        { claimId: 'clm_E2E0000000000000000000001', type: 'RETURN', status: 'REQUESTED', reasonCode: 'PRODUCT_DEFECT', reasonDetail: '올 풀림', requestedAt: '2026-09-16T11:00:00', approvable: true },
+        // FE-29: 검수 불합격 반품(회수 송장·회수 확인·검수 chip·첨부 2·품목 배송 = 재발송)
+        { claimId: 'clm_E2E0000000000000000000002', type: 'RETURN', status: 'REJECTED', reasonCode: 'WRONG_PRODUCT', requestedAt: '2026-09-10T11:00:00', processedAt: '2026-09-12T11:00:00', approvable: false,
+          rejectReasonCode: 'INSPECTION_FAILED', rejectMemo: '사용 흔적', returnCarrier: 'CJ', returnTrackingNo: 'RTN-0002', pickedUpAt: '2026-09-11T09:00:00', inspectionResult: 'FAIL',
+          attachmentUrls: ['/api/v1/files/claims/2026/09/E2E1.png', '/api/v1/files/claims/2026/09/E2E2.png'] },
+      ] },
   ],
   cancelReasons: [], actions: ['CANCEL', 'PREPARE_SHIPMENT'],
 }
@@ -114,7 +122,8 @@ test.describe('관리자 주문 목록·상세(FE-27)', () => {
     await expect(page.getByTestId('status-chip')).toHaveCount(2)
     await expect(page.getByTestId('row-paid-at').first()).toHaveText('결제 2026.09.16 10:05')
     await expect(page.getByTestId('row-paid-at').nth(1)).toHaveText('결제 —')
-    // 9컬럼 병합 목표: 1440에서 표·본문 모두 가로 스크롤 없음
+    // 9컬럼 병합 목표: 1440에서 표·본문 모두 가로 스크롤 없음(웹폰트 적용 전 폴백 폰트 폭으로 측정되지 않도록 fonts.ready 대기·병렬 워커 부하 시 12px 오탐)
+    await page.evaluate(() => document.fonts.ready)
     const overflow = await page.evaluate(() => {
       const wrapper = document.querySelector('[data-testid="admin-order-table"] .v-table__wrapper') as HTMLElement
       return { table: wrapper.scrollWidth - wrapper.clientWidth, body: document.documentElement.scrollWidth - document.documentElement.clientWidth }
@@ -280,7 +289,20 @@ test.describe('관리자 주문 목록·상세(FE-27)', () => {
     await loginByDemo(page)
     await page.goto(`/admin/orders/${PAID_ID}`)
     // 거부된 취소 클레임 행: 거부 사유·메모 표기
-    await expect(page.getByTestId('claim-reject-reason')).toContainText('거부: 이미 발송됨 — 오전 출고분')
+    await expect(page.getByTestId('claim-reject-reason').first()).toContainText('거부: 이미 발송됨 — 오전 출고분')
+    // FE-29: 검수 불합격 반품 행 — 사유 라벨·회수 송장·회수 확인·검수 chip·첨부 썸네일 2(클릭 확대)·품목 배송 "재발송" chip·상세엔 액션 없음
+    await expect(page.getByTestId('claim-reject-reason').nth(1)).toContainText('거부: 검수 불합격 — 사용 흔적')
+    await expect(page.getByTestId('claim-return-shipment')).toContainText('회수 CJ대한통운 RTN-0002')
+    await expect(page.getByTestId('claim-picked-up-at')).toContainText('회수 확인 2026.09.11 09:00')
+    await expect(page.getByTestId('claim-inspection-chip')).toHaveText('검수 불합격')
+    await expect(page.getByTestId('claim-attachment-thumb')).toHaveCount(2)
+    await expect(page.getByTestId('item-reshipment-chip')).toHaveText('재발송')
+    await expect(page.getByTestId('row-inspect')).toHaveCount(0)
+    await page.getByTestId('claim-attachment-thumb').first().click()
+    await expect(page.getByTestId('claim-attachment-preview')).toBeVisible()
+    await page.screenshot({ path: 'playwright-report/fe-29/order-detail-return-claim.png' })
+    await page.getByTestId('claim-attachment-preview').getByRole('button', { name: '닫기' }).click()
+    await expect(page.getByTestId('claim-attachment-preview')).toBeHidden()
     await page.getByTestId('claim-reject').click()
     const dialog = page.getByTestId('admin-claim-reject-dialog')
     await expect(dialog).toBeVisible()

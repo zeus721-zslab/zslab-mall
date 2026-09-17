@@ -8,7 +8,7 @@ import type {
   AdminOrderListResponse,
   AdminShipmentRequest,
 } from '#layers/admin/app/types/admin-order'
-import type { AdminClaimRejectBody } from '#layers/admin/app/types/admin-claim'
+import type { AdminClaimInspectBody, AdminClaimRejectBody } from '#layers/admin/app/types/admin-claim'
 import { toAdminOrderApiParams } from '#layers/admin/app/lib/admin-order-query'
 import { useAdminApi } from '#layers/admin/app/composables/useAdminApi'
 
@@ -58,5 +58,17 @@ export function useAdminOrders() {
     return api<AdminClaimResponse>(path, { method: 'POST', body })
   }
 
-  return { list, detail, cancel, prepareShipment, markDelivered, approveClaim, rejectClaim }
+  /** 반품 회수 확인(FE-29·Track 81-A). body 없음·422(비승인·회수 송장 부재)는 throw. */
+  function confirmPickupClaim(claimPublicId: string): Promise<AdminClaimResponse> {
+    const path: string = `/v1/admin/claims/${claimPublicId}/confirm-pickup`
+    return api<AdminClaimResponse>(path, { method: 'POST' })
+  }
+
+  /** 반품 검수(FE-29·Track 81-A). PASS restock 필수·FAIL 사유·재발송 송장 필수(400)·회수 전/재검수 422는 throw. */
+  function inspectClaim(claimPublicId: string, body: AdminClaimInspectBody): Promise<AdminClaimResponse> {
+    const path: string = `/v1/admin/claims/${claimPublicId}/inspect`
+    return api<AdminClaimResponse>(path, { method: 'POST', body })
+  }
+
+  return { list, detail, cancel, prepareShipment, markDelivered, approveClaim, rejectClaim, confirmPickupClaim, inspectClaim }
 }

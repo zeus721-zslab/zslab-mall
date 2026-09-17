@@ -1,5 +1,5 @@
 import type { OrderStatusCode } from '~/lib/constants/order'
-import type { ClaimReasonCode, ClaimRejectReasonCode, ClaimStatus, ClaimType, OrderItemStatusCode, RefundStatus } from '~/lib/constants/claim'
+import type { ClaimInspectionResult, ClaimReasonCode, ClaimRejectReasonCode, ClaimStatus, ClaimType, OrderItemStatusCode, RefundStatus } from '~/lib/constants/claim'
 import type { PaymentMethod } from '~/types/checkout'
 import type {
   AdminDeliveryCarrier,
@@ -129,6 +129,15 @@ export interface AdminOrderClaim {
   rejectMemo?: string
   /** 최신 환불 상태(FE-28). 환불 미생성 시 생략. */
   refundStatus?: RefundStatus
+  /** 반품 회수 송장(Track 81-A). 구매자 미등록 시 생략. */
+  returnCarrier?: AdminDeliveryCarrier
+  returnTrackingNo?: string
+  pickedUpAt?: string
+  /** 검수 결과(PASS|FAIL)·재입고 여부. 미검수 시 생략. */
+  inspectionResult?: ClaimInspectionResult
+  restock?: boolean
+  /** 반품 사진 URL(순서 보존·Track 81-B). 없으면 빈 목록(구 픽스처 방어로 optional). */
+  attachmentUrls?: string[]
 }
 
 export interface AdminOrderCancelReason {

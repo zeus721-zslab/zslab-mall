@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import {
-  CLAIM_REASON_CODES,
   CLAIM_REASON_LABELS,
   CLAIM_TYPE_LABELS,
+  claimReasonCodesFor,
+  isClaimAttachmentAllowed,
   isClaimType,
   type ClaimReasonCode,
   type ClaimType,
 } from '~/lib/constants/claim'
+import { claimRequestErrorMessage, type ClaimRequestErrorLike } from '~/lib/utils/claim-request-error'
+import type { ClaimAttachedPhoto } from '~/components/claim/AttachmentInput.vue'
 
 // BUYER 전용 — 미인증/비-BUYER는 buyer 미들웨어가 /login으로 유도한다.
 definePageMeta({ middleware: 'buyer' })
@@ -27,7 +30,7 @@ const isValidQuery = ORDER_ITEM_ID_PATTERN.test(orderItemPublicId) && claimType 
 // type별 안내 문구(승인 필요 고지는 공통).
 const TYPE_GUIDANCE: Record<ClaimType, string> = {
   CANCEL: '승인 시 결제가 취소되고 환불됩니다.',
-  RETURN: '승인 후 상품을 수거하고 환불이 진행됩니다.',
+  RETURN: '배송완료 후 7일 이내 요청할 수 있습니다. 승인 후 회수 송장을 등록하면 검수를 거쳐 환불이 진행됩니다.',
   EXCHANGE: '승인 후 상품을 수거하고 교환품을 재배송합니다. 차액이 발생할 수 있습니다.',
 }
 const typeLabel = computed<string>(() => (claimType ? CLAIM_TYPE_LABELS[claimType] : ''))
@@ -35,32 +38,35 @@ const typeGuidance = computed<string>(() => (claimType ? TYPE_GUIDANCE[claimType
 
 const { requestClaim } = useClaim()
 
+// 유형별 사유 목록(반품은 3값·D-170). 반품 사진은 상품불량·오배송에서만(D-171).
+const reasonCodes = computed<ClaimReasonCode[]>(() => (claimType ? claimReasonCodesFor(claimType) : []))
+
 const reasonCode = ref<ClaimReasonCode | ''>('')
 const reasonDetail = ref<string>('')
+const attachments = ref<ClaimAttachedPhoto[]>([])
 const submitting = ref<boolean>(false)
 const submitted = ref<boolean>(false)
 const errorMessage = ref<string>('')
 
-// 실패 응답 코드별 문구 분기(.catch(()=>{}) 금지·타입 구분). BE 실측: 404=미존재/타인, 422=중복·상태불가, 400=형식.
-function handleSubmitError(submitError: { statusCode?: number }): void {
+const attachmentAllowed = computed<boolean>(() => claimType !== null && isClaimAttachmentAllowed(claimType, reasonCode.value))
+
+// 사유를 단순변심 등으로 바꾸면 첨부 목록을 비운다(첨부 불가 사유로 제출 시 BE 400).
+watch(attachmentAllowed, (allowed) => {
+  if (!allowed) attachments.value = []
+})
+
+// 실패 응답 코드별 문구 분기(.catch(()=>{}) 금지·타입 구분). BE 실측: 404=미존재/타인, 422=반품 조건·중복·상태불가(detail로 구분), 400=형식·첨부.
+function handleSubmitError(submitError: ClaimRequestErrorLike): void {
   const statusCode = submitError.statusCode
   if (statusCode === 401) {
     navigateTo(`/login?redirect=${encodeURIComponent(route.fullPath)}`)
-    return
-  }
-  if (statusCode === 422) {
-    errorMessage.value = '이미 진행 중인 클레임이 있거나 현재 상태에서는 요청할 수 없습니다.'
     return
   }
   if (statusCode === 404) {
     errorMessage.value = '대상 주문 품목을 찾을 수 없습니다.'
     return
   }
-  if (statusCode === 400) {
-    errorMessage.value = '요청 정보를 확인하세요.'
-    return
-  }
-  errorMessage.value = '클레임 요청에 실패했습니다. 잠시 후 다시 시도하세요.'
+  errorMessage.value = claimRequestErrorMessage(submitError) ?? '클레임 요청에 실패했습니다. 잠시 후 다시 시도하세요.'
 }
 
 async function handleSubmit(): Promise<void> {
@@ -78,10 +84,14 @@ async function handleSubmit(): Promise<void> {
       reasonCode: reasonCode.value,
       // 빈 문자열이면 undefined로 보내 서버에 저장하지 않는다($fetch가 undefined 키 생략).
       reasonDetail: reasonDetail.value.trim() || undefined,
+      // 첨부는 허용 사유에서만·화면 순서 그대로(BE display_order).
+      attachmentIds: attachmentAllowed.value && attachments.value.length > 0
+        ? attachments.value.map((photo) => photo.attachmentId)
+        : undefined,
     })
     submitted.value = true
   } catch (submitError) {
-    handleSubmitError(submitError as { statusCode?: number })
+    handleSubmitError(submitError as ClaimRequestErrorLike)
   } finally {
     submitting.value = false
   }
@@ -133,7 +143,7 @@ useSeoMeta({ title: '클레임 요청 · zslab-mall', description: 'zslab-mall �
               class="w-full rounded-control border border-line px-4 py-2.5 text-sm text-ink transition duration-normal focus:border-gray-900 focus:outline-hidden focus:ring-1 focus:ring-gray-900"
             >
               <option value="" disabled>사유를 선택하세요</option>
-              <option v-for="code in CLAIM_REASON_CODES" :key="code" :value="code">
+              <option v-for="code in reasonCodes" :key="code" :value="code">
                 {{ CLAIM_REASON_LABELS[code] }}
               </option>
             </select>
@@ -151,6 +161,9 @@ useSeoMeta({ title: '클레임 요청 · zslab-mall', description: 'zslab-mall �
             ></textarea>
             <p class="text-right text-xs text-sub">{{ reasonDetail.length }}/{{ REASON_DETAIL_MAX }}</p>
           </div>
+
+          <!-- 반품 사진(FE-29): 상품불량·오배송 사유에서만 노출·선택·최대 5장 -->
+          <ClaimAttachmentInput v-if="attachmentAllowed" v-model="attachments" :disabled="submitting" />
 
           <p v-if="errorMessage" role="alert" class="text-sm text-soldout">{{ errorMessage }}</p>
 

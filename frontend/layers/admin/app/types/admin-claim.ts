@@ -1,4 +1,6 @@
-import type { ClaimRejectReasonCode, ClaimStatus, ClaimType, RefundStatus } from '~/lib/constants/claim'
+import type { ClaimInspectionResult, ClaimRejectReasonCode, ClaimStatus, ClaimType, RefundStatus } from '~/lib/constants/claim'
+import type { ClaimShipment } from '~/types/claim'
+import type { AdminDeliveryCarrier } from '#layers/admin/app/lib/constants/admin-order'
 import type { AdminOrderSort } from '#layers/admin/app/lib/constants/admin-order'
 
 /**
@@ -6,8 +8,11 @@ import type { AdminOrderSort } from '#layers/admin/app/lib/constants/admin-order
  * 시각 문자열은 +09:00 오프셋 직렬화(KstOffsetSerializer)이며 formatDateTime(앞 16자 슬라이스)으로만 표시한다.
  */
 
-/** 행 액션(BE availableActions 값·REQUESTED만 APPROVE·REJECT). */
-export type AdminClaimAction = 'APPROVE' | 'REJECT'
+/**
+ * 행 액션(BE availableActions 값). REQUESTED는 APPROVE·REJECT, RETURN APPROVED는 회수 송장 있고 미회수면 CONFIRM_PICKUP·회수 후 미검수면
+ * INSPECT(Track 81-A D-170).
+ */
+export type AdminClaimAction = 'APPROVE' | 'REJECT' | 'CONFIRM_PICKUP' | 'INSPECT'
 
 /** 목록 행(BE AdminClaimSummaryResponse). 주문·품목·구매자 미존재 시 해당 필드는 생략된다. */
 export interface AdminClaimSummary {
@@ -31,6 +36,25 @@ export interface AdminClaimSummary {
   rejectMemo?: string
   refundStatus?: RefundStatus
   availableActions: AdminClaimAction[]
+  /** 반품 회수 Delivery(구매자 등록·Track 81-A). 없으면 생략. */
+  returnShipment?: ClaimShipment
+  /** 검수 불합격 재발송 Delivery. 없으면 생략. */
+  reshipment?: ClaimShipment
+  pickedUpAt?: string
+  inspectionResult?: ClaimInspectionResult
+  restock?: boolean
+  /** 반품 사진 첨부 개수(Track 81-B). */
+  attachmentCount: number
+}
+
+/** 검수 요청 body(BE ClaimInspectRequest·Track 81-A). PASS는 restock 필수, FAIL은 rejectReasonCode·reshipCarrier·reshipTrackingNo 필수. */
+export interface AdminClaimInspectBody {
+  result: ClaimInspectionResult
+  restock?: boolean
+  rejectReasonCode?: ClaimRejectReasonCode
+  memo?: string
+  reshipCarrier?: AdminDeliveryCarrier
+  reshipTrackingNo?: string
 }
 
 /** 목록 응답(BE AdminClaimListResponse·PagedResponse 5필드 + pendingCount). pendingCount는 type 필터만 반영한다. */

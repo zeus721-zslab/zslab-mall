@@ -64,3 +64,27 @@ describe('pages/orders/[orderPublicId].vue 옵션 라벨', () => {
     expect(wrapper.find('[data-testid="item-option-label"]').exists()).toBe(false)
   })
 })
+
+// FE-29: 반품 진입 버튼은 DELIVERED만(SHIPPING → RETURN 제거·D-170 배송완료 기준 기한).
+describe('pages/orders/[orderPublicId].vue 클레임 진입 버튼(FE-29)', () => {
+  beforeEach(() => {
+    useOrderDetailMock.mockReset()
+  })
+
+  it('SHIPPING 품목 → 반품 요청 버튼 없음 / DELIVERED 품목 → 반품·교환 요청 버튼', async () => {
+    useOrderDetailMock.mockReturnValue({
+      data: ref(orderWith([
+        orderItem({ orderItemId: 'oit_1', productName: '배송중 상품', status: { code: 'SHIPPING', label: '배송중' } }),
+        orderItem({ orderItemId: 'oit_2', productName: '배송완료 상품', status: { code: 'DELIVERED', label: '배송완료' } }),
+      ])),
+      pending: ref(false),
+      error: ref(null),
+      refresh: vi.fn(),
+    })
+    const wrapper = await mountSuspended(OrderDetailPage)
+    const buttons = wrapper.findAll('button').map((button) => button.text())
+    expect(buttons.filter((text) => text === '반품 요청')).toHaveLength(1)
+    expect(buttons.filter((text) => text === '교환 요청')).toHaveLength(1)
+    expect(buttons.filter((text) => text === '취소 요청')).toHaveLength(0)
+  })
+})

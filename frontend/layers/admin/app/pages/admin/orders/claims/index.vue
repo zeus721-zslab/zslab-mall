@@ -2,6 +2,7 @@
 import { mdiAlertCircleOutline, mdiSwapHorizontal } from '@mdi/js'
 import type { AdminClaimListQuery, AdminClaimSummary } from '#layers/admin/app/types/admin-claim'
 import type { AdminClaimRejectTarget } from '#layers/admin/app/components/admin/AdminClaimRejectDialog.vue'
+import type { AdminClaimInspectTarget } from '#layers/admin/app/components/admin/AdminClaimInspectDialog.vue'
 import { CLAIM_TYPE_LABELS, claimTypeLabel, type ClaimType } from '~/lib/constants/claim'
 import {
   DEFAULT_ADMIN_CLAIM_QUERY,
@@ -9,7 +10,7 @@ import {
   parseAdminClaimQuery,
   toAdminClaimRouteQuery,
 } from '#layers/admin/app/lib/admin-claim-query'
-import { approveConfirmMessage } from '#layers/admin/app/lib/admin-claim-view'
+import { approveConfirmMessage, confirmPickupMessage } from '#layers/admin/app/lib/admin-claim-view'
 import { extractErrorCode, toAdminErrorMessage } from '#layers/admin/app/lib/admin-error-message'
 import { useAdminClaims } from '#layers/admin/app/composables/useAdminClaims'
 import { useAdminOrders } from '#layers/admin/app/composables/useAdminOrders'
@@ -19,7 +20,8 @@ definePageMeta({ layout: 'admin', middleware: ['admin', 'vuetify'] })
 useSeoMeta({ title: '취소·반품·교환 · zslab-mall 관리자' })
 
 // 관리자 클레임 목록(FE-28·Track 80 BE). URL query가 유형 탭·필터·정렬·페이지의 단일 소스: 화면 조작 → router.replace → route.query watch → 조회.
-// 승인은 확인 다이얼로그, 거부는 사유 다이얼로그(주문 상세와 공용). 반품·교환 행은 표시만 하며 액션은 BE availableActions를 그대로 따른다.
+// 승인은 확인 다이얼로그, 거부는 사유 다이얼로그(주문 상세와 공용). 반품 회수 확인(확인 다이얼로그)·검수(검수 다이얼로그)는 목록 전용이며
+// 액션은 BE availableActions를 그대로 따른다(FE-29).
 const route = useRoute()
 const router = useRouter()
 const claimsApi = useAdminClaims()
@@ -143,11 +145,53 @@ function closeReject(refresh: boolean): void {
   rejectTarget.value = null
   if (refresh) void load()
 }
+
+// ---------- 반품 행 액션(FE-29): 회수 확인(확인 다이얼로그) · 검수(검수 다이얼로그) ----------
+const pickupTarget = ref<AdminClaimSummary | null>(null)
+const pickupBusy = ref(false)
+const inspectTarget = ref<AdminClaimInspectTarget | null>(null)
+
+const pickupMessage = computed(() => (pickupTarget.value ? confirmPickupMessage(pickupTarget.value.productName ?? '') : ''))
+
+async function runConfirmPickup(): Promise<void> {
+  const target = pickupTarget.value
+  if (!target || pickupBusy.value) return
+  pickupBusy.value = true
+  pendingIds.value = new Set(pendingIds.value).add(target.claimId)
+  try {
+    await ordersApi.confirmPickupClaim(target.claimId)
+    toast.info('회수를 확인했습니다. 검수를 진행하세요.')
+    pickupTarget.value = null
+    await load()
+  } catch (error) {
+    pickupTarget.value = null
+    if (extractErrorCode(error) === 'CLAIM_STATE_INVALID') {
+      toast.warning(toAdminErrorMessage(error))
+      await load()
+    } else {
+      toast.danger(toAdminErrorMessage(error))
+    }
+  } finally {
+    pickupBusy.value = false
+    const next = new Set(pendingIds.value)
+    next.delete(target.claimId)
+    pendingIds.value = next
+  }
+}
+
+function openInspect(item: AdminClaimSummary): void {
+  inspectTarget.value = { claimId: item.claimId, productName: item.productName ?? '' }
+}
+
+function closeInspect(refresh: boolean): void {
+  inspectTarget.value = null
+  if (refresh) void load()
+}
 </script>
 
 <template>
   <div>
-    <AdminPageHeader title="취소·반품·교환" description="클레임 요청을 유형별로 조회하고 취소 요청을 승인·거부합니다. 반품·교환 처리 흐름은 후속 트랙입니다.">
+    <AdminPageHeader title="취소·반품·교환" description="클레임 요청을 유형별로 조회하고 승인·거부합니다. 반품은 회수 확인 후 검수(합격 환불·불합격 재발송)까지 처리합니다.">
       <template #actions>
         <v-chip
           :color="pendingCount > 0 ? 'warning' : undefined"
@@ -188,6 +232,8 @@ function closeReject(refresh: boolean): void {
         @open-order="openOrder"
         @approve="(item) => (approveTarget = item)"
         @reject="openReject"
+        @confirm-pickup="(item) => (pickupTarget = item)"
+        @inspect="openInspect"
       >
         <template #empty>
           <div class="d-flex flex-column align-center text-center py-10" data-testid="admin-claim-empty">
@@ -224,6 +270,23 @@ function closeReject(refresh: boolean): void {
       @done="closeReject(true)"
       @stale="closeReject(true)"
       @cancel="closeReject(false)"
+    />
+    <AdminConfirmDialog
+      :open="pickupTarget !== null"
+      test-id="admin-claim-pickup-dialog"
+      title="회수 확인"
+      :message="pickupMessage"
+      confirm-label="회수 확인"
+      :loading="pickupBusy"
+      @confirm="runConfirmPickup"
+      @cancel="pickupTarget = null"
+    />
+    <AdminClaimInspectDialog
+      :open="inspectTarget !== null"
+      :target="inspectTarget"
+      @done="closeInspect(true)"
+      @stale="closeInspect(true)"
+      @cancel="closeInspect(false)"
     />
   </div>
 </template>

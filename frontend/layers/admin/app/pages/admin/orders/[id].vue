@@ -11,7 +11,7 @@ import {
   type ClaimReasonCode,
 } from '~/lib/constants/claim'
 import type { AdminClaimRejectTarget } from '#layers/admin/app/components/admin/AdminClaimRejectDialog.vue'
-import { approveConfirmMessage } from '#layers/admin/app/lib/admin-claim-view'
+import { approveConfirmMessage, inspectionChip } from '#layers/admin/app/lib/admin-claim-view'
 import { formatDateTime } from '~/lib/utils/datetime'
 import {
   ADMIN_CLAIM_STATUS_SEMANTIC,
@@ -83,6 +83,14 @@ function closeDialog(refresh: boolean): void {
 }
 
 // ---------- 클레임 승인(확인 다이얼로그) · 거절(사유 다이얼로그·FE-28 공용) → 기존 단건 API ----------
+// 첨부 사진 확대(FE-29·Track 81-B): 클릭한 원본 URL을 v-dialog로 띄운다.
+const previewUrl = ref<string | null>(null)
+
+/** 품목 배송이 검수 불합격 재발송인지(BE는 품목 배송으로 최신 발송(OUTBOUND)을 내리므로 FAIL 반품이 있으면 그 송장이 재발송이다·D-170). */
+function isReshipment(item: AdminOrderDetail['items'][number]): boolean {
+  return item.claims.some((claim) => claim.type === 'RETURN' && claim.inspectionResult === 'FAIL')
+}
+
 type ClaimDecision = { claim: AdminOrderClaim; productName: string }
 const claimDecision = ref<ClaimDecision | null>(null)
 const claimBusy = ref(false)
@@ -307,6 +315,7 @@ function closeReject(refresh: boolean): void {
                 <v-chip :class="semanticChipClass(ADMIN_DELIVERY_STATUS_SEMANTIC[item.delivery.status])" size="x-small" variant="flat" class="mr-2">
                   {{ ADMIN_DELIVERY_STATUS_LABEL[item.delivery.status] }}
                 </v-chip>
+                <v-chip v-if="isReshipment(item)" size="x-small" variant="tonal" class="mr-2" data-testid="item-reshipment-chip">재발송</v-chip>
                 {{ ADMIN_DELIVERY_CARRIER_LABEL[item.delivery.carrier] }} {{ item.delivery.trackingNo }}
                 <span class="text-medium-emphasis">
                   · 발송 {{ item.delivery.shippedAt ? formatDateTime(item.delivery.shippedAt) : '—' }}
@@ -337,6 +346,34 @@ function closeReject(refresh: boolean): void {
                 <span v-if="claim.rejectReasonCode" class="text-error" data-testid="claim-reject-reason">
                   거부: {{ claimRejectReasonLabel(claim.rejectReasonCode) }}<span v-if="claim.rejectMemo" class="text-medium-emphasis"> — {{ claim.rejectMemo }}</span>
                 </span>
+                <!-- 반품 회수·검수(FE-29·Track 81-A): 값이 있을 때만 -->
+                <span v-if="claim.returnCarrier && claim.returnTrackingNo" class="text-medium-emphasis" data-testid="claim-return-shipment">
+                  · 회수 {{ ADMIN_DELIVERY_CARRIER_LABEL[claim.returnCarrier] }} {{ claim.returnTrackingNo }}
+                </span>
+                <span v-if="claim.pickedUpAt" class="text-medium-emphasis" data-testid="claim-picked-up-at">· 회수 확인 {{ formatDateTime(claim.pickedUpAt) }}</span>
+                <v-chip
+                  v-if="inspectionChip(claim.inspectionResult, claim.restock)"
+                  :class="semanticChipClass(inspectionChip(claim.inspectionResult, claim.restock)!.semantic)"
+                  size="x-small"
+                  variant="flat"
+                  data-testid="claim-inspection-chip"
+                >
+                  {{ inspectionChip(claim.inspectionResult, claim.restock)!.text }}
+                </v-chip>
+                <!-- 첨부 사진(Track 81-B): 썸네일·클릭 확대 -->
+                <span v-if="claim.attachmentUrls && claim.attachmentUrls.length > 0" class="d-flex align-center ga-1" data-testid="claim-attachments">
+                  <button
+                    v-for="(url, index) in claim.attachmentUrls"
+                    :key="url"
+                    type="button"
+                    class="adm-claim-thumb"
+                    :title="`첨부 사진 ${index + 1}`"
+                    data-testid="claim-attachment-thumb"
+                    @click="previewUrl = url"
+                  >
+                    <img :src="url" :alt="`첨부 사진 ${index + 1}`">
+                  </button>
+                </span>
                 <span class="text-medium-emphasis">
                   · 요청 {{ formatDateTime(claim.requestedAt) }}<template v-if="claim.processedAt"> · 처리 {{ formatDateTime(claim.processedAt) }}</template>
                 </span>
@@ -366,5 +403,34 @@ function closeReject(refresh: boolean): void {
       @cancel="claimDecision = null"
     />
     <AdminClaimRejectDialog :open="rejectTarget !== null" :target="rejectTarget" @done="closeReject(true)" @stale="closeReject(true)" @cancel="closeReject(false)" />
+
+    <v-dialog :model-value="previewUrl !== null" max-width="720" @update:model-value="(value: boolean) => !value && (previewUrl = null)">
+      <v-card v-if="previewUrl" data-testid="claim-attachment-preview">
+        <v-img :src="previewUrl" max-height="80vh" contain />
+        <v-card-actions class="px-5 pb-4">
+          <v-spacer />
+          <v-btn variant="text" @click="previewUrl = null">닫기</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
+
+<style scoped>
+.adm-claim-thumb {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  border-radius: 4px;
+  overflow: hidden;
+  background: transparent;
+  cursor: zoom-in;
+}
+.adm-claim-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+</style>

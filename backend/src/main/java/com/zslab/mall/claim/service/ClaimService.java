@@ -421,12 +421,21 @@ public class ClaimService {
                 .orElseThrow(() -> new IllegalStateException(
                         "클레임의 주문 품목을 찾을 수 없습니다: orderItemId=" + claim.getOrderItemId()));
         RefundStatus refundStatus = latestRefundStatusByClaimId(List.of(claim.getId())).get(claim.getId());
-        Delivery returnDelivery = claim.getType() == ClaimType.RETURN
-                ? deliveryRepository.findByClaimIdAndDirection(claim.getId(), DeliveryDirection.RETURN).orElse(null)
-                : null;
+        // Track 81-A·FE-29: 클레임 연결 Delivery 1쿼리(id 내림차순) → 회수(RETURN)·검수 불합격 재발송(OUTBOUND) 방향별 최신 1건
+        Delivery returnDelivery = null;
+        Delivery reshipment = null;
+        if (claim.getType() == ClaimType.RETURN) {
+            for (Delivery delivery : deliveryRepository.findByClaimIdInOrderByIdDesc(List.of(claim.getId()))) {
+                if (delivery.getDirection() == DeliveryDirection.RETURN && returnDelivery == null) {
+                    returnDelivery = delivery;
+                } else if (delivery.getDirection() == DeliveryDirection.OUTBOUND && reshipment == null) {
+                    reshipment = delivery;
+                }
+            }
+        }
         // Track 81-B: 첨부 URL 1쿼리(순서 보존·없으면 빈 목록)
         return ClaimResponse.from(claim, orderItemPublicId, refundStatus, returnDelivery,
-                claimAttachmentService.urlsOf(claim.getId()));
+                claimAttachmentService.urlsOf(claim.getId()), reshipment);
     }
 
     /** 본인 클레임 목록(requested_by 기준·D-54 페이징). size는 1~100 클램프. 환불 상태는 페이지 단위 배치 1쿼리(Track 80). */

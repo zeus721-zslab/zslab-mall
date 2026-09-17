@@ -1,8 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import {
   approveConfirmMessage,
+  confirmPickupMessage,
+  inspectFailReasonItems,
+  inspectionChip,
   refundStatusChip,
   rejectReasonItems,
+  validateInspectForm,
   validateRejectForm,
 } from '#layers/admin/app/lib/admin-claim-view'
 import { claimRefundLabel } from '#layers/admin/app/lib/admin-order-view'
@@ -22,7 +26,7 @@ describe('거부 사유 상수(claim.ts)', () => {
   it('4값·라벨은 BE SMS 문구와 동일', () => {
     expect(CLAIM_REJECT_REASON_CODES).toEqual(['ALREADY_SHIPPED', 'OUT_OF_POLICY', 'BUYER_WITHDRAWN', 'OTHER'])
     expect(CLAIM_REJECT_REASON_LABELS).toEqual({
-      ALREADY_SHIPPED: '이미 발송됨', OUT_OF_POLICY: '정책상 불가', BUYER_WITHDRAWN: '구매자 철회', OTHER: '기타',
+      ALREADY_SHIPPED: '이미 발송됨', OUT_OF_POLICY: '정책상 불가', BUYER_WITHDRAWN: '구매자 철회', OTHER: '기타', INSPECTION_FAILED: '검수 불합격',
     })
   })
 
@@ -85,5 +89,39 @@ describe('resolveBackPath 클레임 목록 허용(FE-28)', () => {
   it('상품 base는 클레임 목록을 허용하지 않는다(FE-26 회귀)', () => {
     expect(resolveBackPath(ADMIN_CLAIMS_PATH, ADMIN_PRODUCTS_PATH)).toBe(ADMIN_PRODUCTS_PATH)
     expect(resolveBackPath('/admin/products?status=SALE')).toBe('/admin/products?status=SALE')
+  })
+})
+
+// FE-29: 반품 회수 확인·검수 헬퍼(문구·chip·FAIL 사유 목록·검수 폼 조건부 필수).
+describe('반품 회수·검수 헬퍼(admin-claim-view.ts·FE-29)', () => {
+  it('회수 확인 문구는 환불이 검수 합격 시 진행됨을 알린다', () => {
+    expect(confirmPickupMessage('E2E 양말')).toContain('반품 요청 (E2E 양말)')
+    expect(confirmPickupMessage('E2E 양말')).toContain('검수 합격 시')
+  })
+
+  it('검수 chip: 미검수 null·합격은 재입고/폐기 구분(success)·불합격 danger', () => {
+    expect(inspectionChip(undefined, undefined)).toBeNull()
+    expect(inspectionChip('PASS', true)).toEqual({ text: '검수 합격 · 재입고', semantic: 'success' })
+    expect(inspectionChip('PASS', false)).toEqual({ text: '검수 합격 · 폐기', semantic: 'success' })
+    expect(inspectionChip('FAIL', undefined)).toEqual({ text: '검수 불합격', semantic: 'danger' })
+  })
+
+  it('불합격 사유 목록은 INSPECTION_FAILED 첫 항목·ALREADY_SHIPPED 없음 / 일반 거부 목록에는 INSPECTION_FAILED 없음', () => {
+    const items = inspectFailReasonItems()
+    expect(items[0]).toEqual({ value: 'INSPECTION_FAILED', title: '검수 불합격' })
+    expect(items.map((item) => item.value)).not.toContain('ALREADY_SHIPPED')
+    expect(rejectReasonItems('RETURN').map((item) => item.value)).not.toContain('INSPECTION_FAILED')
+  })
+
+  it('검수 폼: 결과 필수 → PASS는 재입고 필수 → FAIL은 사유·재발송 택배사·송장(≤100) 필수·메모 500', () => {
+    const base = { result: null, restock: null, reasonCode: null, memo: '', reshipCarrier: null, reshipTrackingNo: '' }
+    expect(validateInspectForm(base)).toEqual({ result: '검수 결과를 선택하세요.' })
+    expect(validateInspectForm({ ...base, result: 'PASS' })).toEqual({ restock: '재입고 여부를 선택하세요.' })
+    expect(validateInspectForm({ ...base, result: 'PASS', restock: false })).toEqual({})
+    const fail = validateInspectForm({ ...base, result: 'FAIL' })
+    expect(Object.keys(fail).sort()).toEqual(['reasonCode', 'reshipCarrier', 'reshipTrackingNo'])
+    expect(validateInspectForm({ ...base, result: 'FAIL', reasonCode: 'INSPECTION_FAILED', reshipCarrier: 'CJ', reshipTrackingNo: ' R-1 ' })).toEqual({})
+    expect(validateInspectForm({ ...base, result: 'FAIL', reasonCode: 'INSPECTION_FAILED', reshipCarrier: 'CJ', reshipTrackingNo: 'x'.repeat(101) }).reshipTrackingNo).toContain('100자')
+    expect(validateInspectForm({ ...base, result: 'FAIL', reasonCode: 'INSPECTION_FAILED', memo: 'm'.repeat(501), reshipCarrier: 'CJ', reshipTrackingNo: 'R' }).memo).toContain('500자')
   })
 })
