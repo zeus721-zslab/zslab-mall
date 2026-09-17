@@ -1,6 +1,8 @@
 package com.zslab.mall.order.integration;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.everyItem;
+import static org.hamcrest.Matchers.is;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -83,8 +85,8 @@ class AdminOrderIntegrationTest extends AbstractIntegrationTest {
     private static final long ITEM_PRICE = 10_000L;
     private static final int THREADS = 8;
     private static final long WORKER_TIMEOUT_SECONDS = 30L;
-    /** count·page·items fetch join + payment·delivery·claim·user·seller 배치 5 = 8. */
-    private static final int QUERY_BUDGET_FOR_LIST = 8;
+    /** count·page·items fetch join + payment·delivery·claim·user·seller 배치 5 = 8 + 인증 필터 회원 상태 조회 1(Track 84) = 9. */
+    private static final int QUERY_BUDGET_FOR_LIST = 9;
 
     private static final String ORDER_A_PID = pid("ord_", "T79ORDA");
     private static final String ORDER_B_PID = pid("ord_", "T79ORDB");
@@ -313,6 +315,20 @@ class AdminOrderIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.items[0].orderId").value(ORDER_C_PID));
         mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("sort", "BOGUS"))
                 .andExpect(status().isBadRequest());
+        // Track 84: buyerPublicId 정확 필터 — 해당 회원 주문 3건 전부·타 회원 미포함 / 미존재 publicId는 빈 페이지(404 아님)
+        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("buyerPublicId", pid("usr_", "T79USR")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalCount").value(3))
+                .andExpect(jsonPath("$.items[*].buyerEmail", everyItem(is("t79@example.test"))));
+        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("buyerPublicId", pid("usr_", "T79NONE")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalCount").value(0))
+                .andExpect(jsonPath("$.items.length()").value(0));
+        // 비BUYER(관리자 계정) publicId → BUYER 해소 실패 → 빈 페이지(외부 검토 반영)
+        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("buyerPublicId", pid("usr_", "T79ADM")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalCount").value(0))
+                .andExpect(jsonPath("$.items.length()").value(0));
 
         Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
         statistics.setStatisticsEnabled(true);
@@ -435,6 +451,10 @@ class AdminOrderIntegrationTest extends AbstractIntegrationTest {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
                 jdbc.update("INSERT INTO `user` (id, public_id, email, name, created_at, updated_at) VALUES (?, ?, ?, ?, NOW(6), NOW(6))",
                         USER_ID, pid("usr_", "T79USR"), "t79@example.test", "트랙79구매자");
+                // Track 84: buyerPublicId 필터는 BUYER role 보유 회원만 해소한다 → BUYER 매핑(V11 seed code 조회) + 비BUYER 관리자 계정 행
+                jdbc.update("INSERT INTO user_role (user_id, role_id, created_at) SELECT ?, id, NOW(6) FROM role WHERE code = ?", USER_ID, "BUYER");
+                jdbc.update("INSERT INTO `user` (id, public_id, email, name, created_at, updated_at) VALUES (?, ?, ?, ?, NOW(6), NOW(6))",
+                        ADMIN_ID, pid("usr_", "T79ADM"), "t79-admin@example.test", "트랙79관리자");
                 jdbc.update("INSERT INTO seller (id, public_id, company_name, ceo_name, status, created_at, updated_at) "
                                 + "VALUES (?, ?, '트랙79셀러', '대표', 'ACTIVE', NOW(6), NOW(6))",
                         SELLER_ID, pid("slr_", "T79SLR"));
@@ -526,7 +546,8 @@ class AdminOrderIntegrationTest extends AbstractIntegrationTest {
                 jdbc.update("DELETE FROM product_variant WHERE id IN (?, ?)", VARIANT_1, VARIANT_2);
                 jdbc.update("DELETE FROM product WHERE id = ?", PRODUCT_ID);
                 jdbc.update("DELETE FROM seller WHERE id = ?", SELLER_ID);
-                jdbc.update("DELETE FROM `user` WHERE id = ?", USER_ID);
+                jdbc.update("DELETE FROM user_role WHERE user_id = ?", USER_ID);
+                jdbc.update("DELETE FROM `user` WHERE id IN (?, ?)", USER_ID, ADMIN_ID);
             } finally {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
             }

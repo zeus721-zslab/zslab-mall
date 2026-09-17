@@ -39,9 +39,10 @@ class MockSmsSenderTest {
     }
 
     @Test
-    @DisplayName("send: 수신번호·본문만으로 INFO 로그 1줄·번호는 마스킹(원문 미노출)·예외 없음")
+    @DisplayName("send: 수신번호·본문만으로 INFO 로그 1줄·번호는 마스킹(원문 미노출)·본문은 길이만(Track 84)·예외 없음")
     void send_logsMaskedNumber() {
-        sender.send("010-1234-5678", "[zslab-mall] 주문 ORD1 상품A 취소 요청이 접수되었습니다.");
+        String content = "[zslab-mall] 주문 ORD1 상품A 취소 요청이 접수되었습니다.";
+        sender.send("010-1234-5678", content);
 
         assertThat(appender.list).hasSize(1);
         ILoggingEvent event = appender.list.get(0);
@@ -49,7 +50,8 @@ class MockSmsSenderTest {
         assertThat(event.getFormattedMessage())
                 .contains("[MockSmsSender]")
                 .contains("to=010-****-5678")
-                .contains("취소 요청이 접수되었습니다.")
+                .contains("contentLength=" + content.length())
+                .doesNotContain("취소 요청이 접수되었습니다.")
                 .doesNotContain("010-1234-5678")
                 .doesNotContain("1234-5678");
     }

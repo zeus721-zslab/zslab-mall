@@ -1,6 +1,7 @@
 package com.zslab.mall.user.integration;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -39,6 +40,11 @@ class WithdrawControllerIntegrationTest extends AbstractIntegrationTest {
     private static final String LOGIN_URL = "/api/v1/auth/login";
 
     private static final long WITHDRAW_USER_ID = 9680L;
+    private static final long ORDER_ACTIVE_ID = 96801L;
+    private static final long ORDER_TERMINAL_ID = 96810L;
+    private static final long ORDER_ITEM_ID = 96801L;
+    private static final long CLAIM_ID = 96801L;
+    private static final long DUMMY_FK_ID = 1L; // FK_CHECKS=0 시드·상품/셀러 실존 불요
     private static final String EMAIL = "withdraw-it@zslab.test";
     private static final String PASSWORD = "correct-horse-battery-staple";
     private static final String FAILURE_MESSAGE = "Invalid email or password.";
@@ -80,20 +86,72 @@ class WithdrawControllerIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("(2) 재탈퇴 멱등 → 204 + withdrawn_at 최초 시각 유지(덮어쓰기 없음)")
-    void withdraw_idempotent_keepsFirstTimestamp() throws Exception {
+    @DisplayName("(2) 탈퇴 후 재요청 → 탈퇴 회원 토큰 401(Track 84) + withdrawn_at 최초 시각 유지(덮어쓰기 없음)")
+    void withdraw_thenRetry_returns401_keepsFirstTimestamp() throws Exception {
         mockMvc.perform(post(URL).headers(authHeaders.buyer(WITHDRAW_USER_ID)))
                 .andExpect(status().isNoContent());
         Timestamp first = jdbc.queryForObject(
                 "SELECT withdrawn_at FROM `user` WHERE id=?", Timestamp.class, WITHDRAW_USER_ID);
 
+        // 탈퇴 회원의 토큰은 발급 시점과 무관하게 인증 필터가 거부한다(withdrawn_at != null → 401 UNAUTHENTICATED).
         mockMvc.perform(post(URL).headers(authHeaders.buyer(WITHDRAW_USER_ID)))
-                .andExpect(status().isNoContent());
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
         Timestamp second = jdbc.queryForObject(
                 "SELECT withdrawn_at FROM `user` WHERE id=?", Timestamp.class, WITHDRAW_USER_ID);
 
-        // 재탈퇴는 no-op — 최초 탈퇴 시각을 유지한다(가드 제거 회귀 시 second != first로 실패).
         assertThat(second).isEqualTo(first);
+    }
+
+    @Test
+    @DisplayName("(5) 진행 중 주문(PAID) 보유 → 409 MEMBER_ACTIVITY_IN_PROGRESS·withdrawn_at NULL 유지")
+    void withdraw_withActiveOrder_returns409() throws Exception {
+        seedOrder(ORDER_ACTIVE_ID, "PAID");
+
+        mockMvc.perform(post(URL).headers(authHeaders.buyer(WITHDRAW_USER_ID)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("MEMBER_ACTIVITY_IN_PROGRESS"));
+        assertThat(jdbc.queryForObject("SELECT withdrawn_at FROM `user` WHERE id=?", Timestamp.class, WITHDRAW_USER_ID))
+                .isNull();
+    }
+
+    @Test
+    @DisplayName("(6) 종결 주문만 보유(CONFIRMED·CANCELLED·PARTIAL_CANCEL·PAYMENT_EXPIRED) → 204")
+    void withdraw_withTerminalOrdersOnly_returns204() throws Exception {
+        seedOrder(ORDER_TERMINAL_ID, "CONFIRMED");
+        seedOrder(ORDER_TERMINAL_ID + 1, "CANCELLED");
+        seedOrder(ORDER_TERMINAL_ID + 2, "PARTIAL_CANCEL");
+        seedOrder(ORDER_TERMINAL_ID + 3, "PAYMENT_EXPIRED");
+
+        mockMvc.perform(post(URL).headers(authHeaders.buyer(WITHDRAW_USER_ID)))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    @DisplayName("(7) 종결 주문의 활성 클레임(REQUESTED) 보유 → 409 MEMBER_ACTIVITY_IN_PROGRESS")
+    void withdraw_withActiveClaim_returns409() throws Exception {
+        seedOrder(ORDER_TERMINAL_ID, "CONFIRMED");
+        seedOrderItem(ORDER_ITEM_ID, ORDER_TERMINAL_ID);
+        seedClaim(CLAIM_ID, ORDER_ITEM_ID, "REQUESTED");
+
+        mockMvc.perform(post(URL).headers(authHeaders.buyer(WITHDRAW_USER_ID)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("MEMBER_ACTIVITY_IN_PROGRESS"));
+    }
+
+    @Test
+    @DisplayName("(8) 종결 클레임(COMPLETED)만 보유 → 204·탈퇴 후 프로필 조회는 401(기존 토큰 무효)")
+    void withdraw_withCompletedClaimOnly_returns204_thenTokenRejected() throws Exception {
+        seedOrder(ORDER_TERMINAL_ID, "CONFIRMED");
+        seedOrderItem(ORDER_ITEM_ID, ORDER_TERMINAL_ID);
+        seedClaim(CLAIM_ID, ORDER_ITEM_ID, "COMPLETED");
+        HttpHeaders tokenBeforeWithdraw = authHeaders.buyer(WITHDRAW_USER_ID);
+
+        mockMvc.perform(post(URL).headers(tokenBeforeWithdraw))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(get("/api/v1/users/me").headers(tokenBeforeWithdraw))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
     }
 
     @Test
@@ -144,10 +202,55 @@ class WithdrawControllerIntegrationTest extends AbstractIntegrationTest {
         });
     }
 
+    /** 탈퇴 가드 픽스처(Track 84): 주문·품목·클레임은 FK_CHECKS=0으로 상품·셀러 없이 심는다(가드는 status만 본다). */
+    private void seedOrder(long orderId, String status) {
+        tx.executeWithoutResult(s -> {
+            try {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
+                jdbc.update("INSERT INTO `order` (id, public_id, buyer_id, order_no, status, total_price, discount_amount, "
+                                + "shipping_fee, ordered_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 10000, 0, 0, NOW(6), NOW(6), NOW(6))",
+                        orderId, pid("ord_", "WDR" + orderId), WITHDRAW_USER_ID, "ORDWDR" + orderId, status);
+            } finally {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
+            }
+        });
+    }
+
+    private void seedOrderItem(long orderItemId, long orderId) {
+        tx.executeWithoutResult(s -> {
+            try {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
+                jdbc.update("INSERT INTO order_item (id, public_id, order_id, product_id, variant_id, seller_id, quantity, unit_price, "
+                                + "total_price, item_status, product_name, created_at, updated_at) "
+                                + "VALUES (?, ?, ?, ?, ?, ?, 1, 10000, 10000, 'CONFIRMED', '탈퇴가드상품', NOW(6), NOW(6))",
+                        orderItemId, pid("oit_", "WDR" + orderItemId), orderId, DUMMY_FK_ID, DUMMY_FK_ID, DUMMY_FK_ID);
+            } finally {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
+            }
+        });
+    }
+
+    private void seedClaim(long claimId, long orderItemId, String status) {
+        tx.executeWithoutResult(s -> {
+            try {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
+                jdbc.update("INSERT INTO claim (id, public_id, order_item_id, type, reason_code, status, previous_order_item_status, "
+                                + "requested_by, requested_at, created_at, updated_at) "
+                                + "VALUES (?, ?, ?, 'RETURN', 'BUYER_CHANGED_MIND', ?, 'DELIVERED', ?, NOW(6), NOW(6), NOW(6))",
+                        claimId, pid("clm_", "WDR" + claimId), orderItemId, status, WITHDRAW_USER_ID);
+            } finally {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
+            }
+        });
+    }
+
     private void cleanup() {
         tx.executeWithoutResult(s -> {
             try {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
+                jdbc.update("DELETE FROM claim WHERE id = ?", CLAIM_ID);
+                jdbc.update("DELETE FROM order_item WHERE id = ?", ORDER_ITEM_ID);
+                jdbc.update("DELETE FROM `order` WHERE buyer_id = ?", WITHDRAW_USER_ID);
                 // FK RESTRICT 회귀 방지: 자식(user_role)을 user보다 먼저 삭제.
                 jdbc.update("DELETE FROM user_role WHERE user_id = ?", WITHDRAW_USER_ID);
                 jdbc.update("DELETE FROM `user` WHERE id = ?", WITHDRAW_USER_ID);

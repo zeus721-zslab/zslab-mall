@@ -68,6 +68,8 @@ class UserServiceTest {
     private PasswordEncoder passwordEncoder;
     @Mock
     private PasswordPolicy passwordPolicy;
+    @Mock
+    private MemberActivityChecker memberActivityChecker;
 
     @InjectMocks
     private UserService userService;

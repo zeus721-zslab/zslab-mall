@@ -2,6 +2,8 @@ package com.zslab.mall.claim.integration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hamcrest.Matchers.everyItem;
+import static org.hamcrest.Matchers.is;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
@@ -78,14 +80,18 @@ class Track80CancelFlowIntegrationTest extends AbstractIntegrationTest {
     private static final long ORDER_A_ITEM_2 = 9802L;
     private static final long ORDER_B = 9802L;
     private static final long ORDER_B_ITEM = 9803L;
+    private static final long OTHER_USER_ID = 9809L; // Track 84 buyerPublicId 필터 검증용 타 회원
+    private static final long OTHER_ORDER_ID = 9809L;
+    private static final long OTHER_ORDER_ITEM_ID = 9809L;
+    private static final long OTHER_CLAIM_ID = 9809L;
     private static final long PAYMENT_A = 9801L;
     private static final long PAYMENT_B = 9802L;
     private static final long DUMMY_FK_ID = 9801L;
     private static final long ITEM_PRICE = 10_000L;
     private static final String BUYER_PHONE = "010-1111-2222";
     private static final String BUYER_NAME = "트랙80구매자";
-    /** 실측 8 고정: claim count·page + user·order_item·주문 요약 projection·refund·클레임 delivery(Track 81-A) 배치 5 + REQUESTED count 1. */
-    private static final int QUERY_BUDGET_FOR_LIST = 9;
+    /** 실측: claim count·page + user·order_item·주문 요약 projection·refund·클레임 delivery(Track 81-A) 배치 5 + REQUESTED count 1 + 첨부 count 1 + 인증 필터 회원 상태 조회 1(Track 84) = 10. */
+    private static final int QUERY_BUDGET_FOR_LIST = 10;
 
     private static final String ORDER_A_PID = pid("ord_", "T80ORDA");
     private static final String ORDER_B_PID = pid("ord_", "T80ORDB");
@@ -341,6 +347,25 @@ class Track80CancelFlowIntegrationTest extends AbstractIntegrationTest {
         mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.admin(ADMIN_ID)).param("keyword", "상품B"))
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].claimId").value(returnPid));
+        // Track 84: buyerPublicId 정확 필터(order.buyer_id 경로) — 타 회원 클레임 제외·pendingCount는 전역 유지 / 미존재 publicId 빈 페이지
+        seedOtherBuyerClaim();
+        mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.admin(ADMIN_ID)).param("keyword", "트랙80"))
+                .andExpect(jsonPath("$.totalCount").value(3));
+        mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.admin(ADMIN_ID)).param("buyerPublicId", pid("usr_", "T80USR")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalCount").value(2))
+                .andExpect(jsonPath("$.items[*].buyerName", everyItem(is(BUYER_NAME))))
+                .andExpect(jsonPath("$.pendingCount").value(1));
+        mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.admin(ADMIN_ID)).param("buyerPublicId", pid("usr_", "T80NONE")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalCount").value(0))
+                .andExpect(jsonPath("$.items.length()").value(0))
+                .andExpect(jsonPath("$.pendingCount").value(1));
+        // 비BUYER(관리자 계정) publicId → BUYER 해소 실패 → 빈 페이지(외부 검토 반영)
+        mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.admin(ADMIN_ID)).param("buyerPublicId", pid("usr_", "T80ADM")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalCount").value(0))
+                .andExpect(jsonPath("$.items.length()").value(0));
         mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.admin(ADMIN_ID)).param("keyword", "없는키워드"))
                 .andExpect(jsonPath("$.totalCount").value(0))
                 .andExpect(jsonPath("$.pendingCount").value(1));
@@ -433,6 +458,10 @@ class Track80CancelFlowIntegrationTest extends AbstractIntegrationTest {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
                 jdbc.update("INSERT INTO `user` (id, public_id, email, name, phone, created_at, updated_at) VALUES (?, ?, ?, ?, ?, NOW(6), NOW(6))",
                         USER_ID, pid("usr_", "T80USR"), "t80@example.test", BUYER_NAME, BUYER_PHONE);
+                // Track 84: buyerPublicId 필터는 BUYER role 보유 회원만 해소한다 → BUYER 매핑(V11 seed code 조회) + 비BUYER 관리자 계정 행
+                jdbc.update("INSERT INTO user_role (user_id, role_id, created_at) SELECT ?, id, NOW(6) FROM role WHERE code = ?", USER_ID, "BUYER");
+                jdbc.update("INSERT INTO `user` (id, public_id, email, name, created_at, updated_at) VALUES (?, ?, ?, ?, NOW(6), NOW(6))",
+                        ADMIN_ID, pid("usr_", "T80ADM"), "t80-admin@example.test", "트랙80관리자");
                 jdbc.update("INSERT INTO seller (id, public_id, company_name, ceo_name, status, created_at, updated_at) "
                                 + "VALUES (?, ?, '트랙80셀러', '대표', 'ACTIVE', NOW(6), NOW(6))",
                         SELLER_ID, pid("slr_", "T80SLR"));
@@ -473,6 +502,28 @@ class Track80CancelFlowIntegrationTest extends AbstractIntegrationTest {
                 id, variantId, onHand, reserved, available);
     }
 
+    /** Track 84 buyerPublicId 필터용 타 회원(OTHER_USER_ID) 주문·품목·APPROVED 클레임(pendingCount 무영향) 시드. FK_CHECKS=0. */
+    private void seedOtherBuyerClaim() {
+        tx.executeWithoutResult(s -> {
+            try {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
+                jdbc.update("INSERT INTO `user` (id, public_id, email, name, phone, created_at, updated_at) VALUES (?, ?, ?, ?, ?, NOW(6), NOW(6))",
+                        OTHER_USER_ID, pid("usr_", "T80OTH"), "t80-other@example.test", "트랙80타구매자", BUYER_PHONE);
+                jdbc.update("INSERT INTO user_role (user_id, role_id, created_at) SELECT ?, id, NOW(6) FROM role WHERE code = ?", OTHER_USER_ID, "BUYER");
+                jdbc.update("INSERT INTO `order` (id, public_id, buyer_id, order_no, status, total_price, discount_amount, shipping_fee, "
+                                + "ordered_at, paid_at, created_at, updated_at) VALUES (?, ?, ?, ?, 'PAID', ?, 0, 0, NOW(6), NOW(6), NOW(6), NOW(6))",
+                        OTHER_ORDER_ID, pid("ord_", "T80ORDO"), OTHER_USER_ID, "ORDT80O", ITEM_PRICE);
+                seedOrderItem(OTHER_ORDER_ITEM_ID, pid("oit_", "T80OITO"), OTHER_ORDER_ID, VARIANT_1, "트랙80상품A");
+                jdbc.update("INSERT INTO claim (id, public_id, order_item_id, type, reason_code, status, previous_order_item_status, "
+                                + "requested_by, requested_at, created_at, updated_at) "
+                                + "VALUES (?, ?, ?, 'CANCEL', 'BUYER_CHANGED_MIND', 'APPROVED', 'PAID', ?, NOW(6), NOW(6), NOW(6))",
+                        OTHER_CLAIM_ID, pid("clm_", "T80CLMO"), OTHER_ORDER_ITEM_ID, OTHER_USER_ID);
+            } finally {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
+            }
+        });
+    }
+
     private void seedOrder(long id, String publicId, String orderNo, long totalPrice) {
         jdbc.update("INSERT INTO `order` (id, public_id, buyer_id, order_no, status, total_price, discount_amount, shipping_fee, "
                         + "ordered_at, paid_at, created_at, updated_at) VALUES (?, ?, ?, ?, 'PAID', ?, 0, 0, NOW(6), NOW(6), NOW(6), NOW(6))",
@@ -504,6 +555,10 @@ class Track80CancelFlowIntegrationTest extends AbstractIntegrationTest {
             try {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
                 jdbc.update("DELETE FROM notification_log WHERE recipient_user_id = ?", USER_ID);
+                jdbc.update("DELETE FROM claim WHERE id = ?", OTHER_CLAIM_ID);
+                jdbc.update("DELETE FROM order_item WHERE id = ?", OTHER_ORDER_ITEM_ID);
+                jdbc.update("DELETE FROM `order` WHERE id = ?", OTHER_ORDER_ID);
+                jdbc.update("DELETE FROM `user` WHERE id = ?", OTHER_USER_ID);
                 jdbc.update("DELETE FROM audit_log WHERE target_type = 'ORDER' AND target_id IN (?, ?)", ORDER_A, ORDER_B);
                 jdbc.update("DELETE FROM refund WHERE claim_id IN (SELECT id FROM claim WHERE order_item_id IN (?, ?, ?))",
                         ORDER_A_ITEM_1, ORDER_A_ITEM_2, ORDER_B_ITEM);
@@ -518,7 +573,8 @@ class Track80CancelFlowIntegrationTest extends AbstractIntegrationTest {
                 jdbc.update("DELETE FROM product_variant WHERE id IN (?, ?)", VARIANT_1, VARIANT_2);
                 jdbc.update("DELETE FROM product WHERE id = ?", PRODUCT_ID);
                 jdbc.update("DELETE FROM seller WHERE id = ?", SELLER_ID);
-                jdbc.update("DELETE FROM `user` WHERE id = ?", USER_ID);
+                jdbc.update("DELETE FROM user_role WHERE user_id IN (?, ?)", USER_ID, OTHER_USER_ID);
+                jdbc.update("DELETE FROM `user` WHERE id IN (?, ?)", USER_ID, ADMIN_ID);
             } finally {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
             }
