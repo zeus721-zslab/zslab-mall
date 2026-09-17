@@ -95,27 +95,32 @@ public class InventoryService {
     }
 
     /**
-     * 교환(EXCHANGE)을 처리한다(E9 ClaimCompleted·EXCHANGE 소비 진입점). 회수분은 실물 복구(RETURN)하고, 교환품 신규 발송은
-     * 예약 후 즉시 확정하는 2단계 패턴(α·D-101 §5 갱신)으로 차감(ORDER)한다. commitReservation INV-3 가드를 자연 흡수하며
-     * (선행 reserve가 quantityReserved를 먼저 채움), §7 InventoryHistoryChangeType.ADJUST 명명 충돌을 회피한다(기조 4 정합).
-     * 회수·신규 2 도메인 행위와 InventoryHistory 2행(RETURN·ORDER)을 단일 DB 트랜잭션에서 원자적으로 처리한다
-     * (D-08 [갱신 Track17]·M-12·부분 실패 시 자연 롤백).
+     * 교환 종결 재고 처리(Track 83 D-177 결정 4·8·{@code ClaimExchangeService.completeExchange} 진입점). 승인 시 {@link #reserve}한 교환
+     * 옵션 예약분을 확정(ORDER −qty)하고, 검수 재입고(restock)면 원 옵션을 실물 복구(RETURN +qty)한다. 구 {@code exchange()}(종결 시
+     * reserve+commit 일괄)는 승인 예약과 이중 예약이 되므로 폐기했다. 두 variant 행은 id 오름차순으로 잠가 교착을 피한다(같은 variant면 1행).
+     * History 참조는 "claim"·claimId로 남겨 {@code InventoryClaimCompletedHandler} 멱등 가드가 재처리를 막는다.
      *
-     * @throws InventoryInvariantViolationException 회수·신규 variant의 Inventory가 없거나 도메인 불변조건(INV-1)을 위반할 때
+     * @throws InventoryInvariantViolationException Inventory 미존재·예약분 부족(INV-3)·불변조건 위반
      */
-    public void exchange(Long returnVariantId, int returnQty, Long newVariantId, int newQty, Long claimId) {
-        Inventory returnInventory = inventoryRepository.findByVariantIdForUpdate(returnVariantId)
-                .orElseThrow(() -> new InventoryInvariantViolationException("Inventory 미존재: variantId=" + returnVariantId));
-        returnInventory.restoreStock(returnQty);
-        inventoryHistoryRepository.save(
-                InventoryHistory.create(returnInventory, InventoryHistoryChangeType.RETURN, returnQty, "claim", claimId, null));
+    public void commitExchange(Long exchangeVariantId, Long originalVariantId, int qty, boolean restock, Long claimId) {
+        boolean sameVariant = exchangeVariantId.equals(originalVariantId);
+        Long firstVariantId = sameVariant || exchangeVariantId < originalVariantId ? exchangeVariantId : originalVariantId;
+        Long secondVariantId = firstVariantId.equals(exchangeVariantId) ? originalVariantId : exchangeVariantId;
+        Inventory first = inventoryRepository.findByVariantIdForUpdate(firstVariantId)
+                .orElseThrow(() -> new InventoryInvariantViolationException("Inventory 미존재: variantId=" + firstVariantId));
+        Inventory second = sameVariant ? first : inventoryRepository.findByVariantIdForUpdate(secondVariantId)
+                .orElseThrow(() -> new InventoryInvariantViolationException("Inventory 미존재: variantId=" + secondVariantId));
+        Inventory exchangeInventory = firstVariantId.equals(exchangeVariantId) ? first : second;
+        Inventory originalInventory = sameVariant ? first : (exchangeInventory == first ? second : first);
 
-        Inventory newInventory = inventoryRepository.findByVariantIdForUpdate(newVariantId)
-                .orElseThrow(() -> new InventoryInvariantViolationException("Inventory 미존재: variantId=" + newVariantId));
-        newInventory.reserve(newQty);            // α 1단계: 예약(quantityReserved 선증가)
-        newInventory.commitReservation(newQty);  // α 2단계: 확정(reserved·on_hand 동시 차감)
+        exchangeInventory.commitReservation(qty);
         inventoryHistoryRepository.save(
-                InventoryHistory.create(newInventory, InventoryHistoryChangeType.ORDER, -newQty, "claim", claimId, null));
+                InventoryHistory.create(exchangeInventory, InventoryHistoryChangeType.ORDER, -qty, "claim", claimId, null));
+        if (restock) {
+            originalInventory.restoreStock(qty);
+            inventoryHistoryRepository.save(
+                    InventoryHistory.create(originalInventory, InventoryHistoryChangeType.RETURN, qty, "claim", claimId, null));
+        }
     }
 
     /**

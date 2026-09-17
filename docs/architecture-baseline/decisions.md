@@ -10664,3 +10664,68 @@ deploy.yml이 `push main` 무필터라 docs만 변경된 머지에도 서버 SSH
 - **셀러 첨부 열람**: 셀러 클레임 화면 트랙에서 `claim.order_item_id → order_item.seller_id → seller_user.user_id` 규칙으로 SELLER 허용(현재는 거부·규칙만 박제).
 - **non-httpOnly 토큰 쿠키**: FE가 SSR·클라이언트 양쪽에서 읽어야 해 non-httpOnly 유지. httpOnly 전환은 로그인·SSR 토큰 전달 재설계와 함께.
 - **미연결 첨부 관리자 열람 불가**: 운영 조사 목적으로 필요해지면 별도 관리자 경로에서 판단.
+- **claims 경로 HEAD 요청 401**: `CLAIM_ATTACHMENT_SERVING_MATCHER`가 GET 한정이라 `HEAD /api/v1/files/claims/**`는 필터·anyRequest authenticated를 타 401(운영 검증 실측). 브라우저 `<img>`는 GET만 쓰므로 영향 없음 — HEAD 포함 여부 판단.
+- **운영 Flyway 로그 억제**: `application-prod.yml` root WARN이라 마이그레이션 적용 로그가 남지 않음(V26 운영 검증 시 확인) — `org.flywaydb` INFO 상향 여부 판단.
+
+## D-177. 교환(관리자 처리) BE — 반품 흐름 재사용·같은 가격 옵션·승인 시 재고 예약·DELIVERED 복귀 (Track 83)
+
+날짜: 2026-09-17
+범위: Track 83 BE(FE·셀러 경로 제외) · D-115(교환 차액 환불) 폐기 · D-172 §8 "교환 차액 환불 복구" 종결 · D-170·D-171 기준 시각 보충
+브랜치: feat/track-83-exchange
+
+### 배경
+정찰(docs/track-83/recon-report.md·STEP 308~310)에서 확인한 사실: EXCHANGE 타입·EXCHANGE_REQUESTED/EXCHANGED 상태·교환 발송 API·차액 환불(D-115)이 이미 있었으나 검수 단계 없이 승인→회수→발송으로 바로 갔고, `EXCHANGED`가 종결 상태라 교환 품목은 구매확정·반품·정산 gross에서 영원히 빠졌다. 구매자 FE는 교환 신청 버튼을 이미 노출하며 BE도 기한·FAIL 이력·사유 제한·첨부 규칙 없이 받아들였다(라이브 갭). 재고는 종결 시 `exchange()`가 reserve+commit을 한 번에 했다.
+
+### §1-A 결정
+1. **교환품 배송완료 → order_item DELIVERED 복귀(α) 【채택】** / β EXCHANGED 유지 + `→ CONFIRMED|RETURN_REQUESTED` 전이 추가 【기각】 — 자동 확정·반품·정산 쿼리 3곳을 `IN (DELIVERED, EXCHANGED)`로 넓혀야 하고 전제(타이머 재시작·반품 허용)를 상태 하나로 표현할 이득이 없다. `EXCHANGED` enum 값은 삭제하지 않고 신규 흐름에서 미사용으로 둔다. `ClaimCompletedHandler` EXCHANGE → DELIVERED(기존 전이 `EXCHANGE_REQUESTED → DELIVERED` 재사용).
+2. **저장(γ) 【채택】**: V27 `claim.exchange_variant_id`(요청 옵션)·`original_variant_id`(승인 시 스냅샷)·`exchange_reserved_at`(예약 표식) nullable 3컬럼 + 교환 완료 시 `order_item.variant_id·option_label`을 교환 옵션으로 갱신(`OrderItem.applyExchange`·라벨은 주문과 같은 `OptionLabelResolver`). α claim 컬럼만 【기각】 — 교환 후 반품 재입고가 원 옵션에 잘못 들어감 / β order_item 갱신만 【기각】 — 원 옵션 이력 유실·예약 SoT 없음.
+3. **첨부 【채택】**: 반품과 동일(불량·오배송만·`isPickupBased()` + `ATTACHABLE_RETURN_REASONS`).
+4. **회수품 재고 【채택】**: 검수 `restock` 플래그를 교환에도 적용. 재입고 대상은 `original_variant_id`.
+5. **refundAmount 400·D-115 폐기 【채택】**: 같은 가격 옵션만 교환하므로 차액이 없다. `approve(..., refundAmount)`에 값이 실리면 `MalformedRequestException`(400·셀러 컨트롤러 시그니처 무변경). 삭제: `refund/handler/ExchangeShipmentRefundHandler`·`ClaimService.tryCompleteExchange`·`Claim.refundAmount`/`hasRefundDifference`·`ClaimRefundCompletedHandler` EXCHANGE 수렴 분기(skip warn으로 교체)·`NotificationService.recordRefundFailed(Claim)`·`RefundRepository.existsByClaimIdAndStatus`·`InventoryService.exchange()`. `claim.refund_amount` 컬럼(V9)은 nullable 잔존·미사용(DROP은 별도 마이그레이션 판단). **D-115 폐기.**
+6. **구매확정·반품 기한 기준 【채택】**: `ReturnWindowPolicy.originalDeliveredAt`·자동 확정 배치 쿼리를 "OUTBOUND·DELIVERED·(claim_id NULL OR 연결 클레임 type=EXCHANGE)" 최신으로 변경(`DeliveryRepository.findBaseDeliveredOutbound` JPQL LEFT JOIN Claim). 검수 FAIL 재발송(RETURN 클레임 연결)은 계속 제외(D-170 유지·재반품 무한 루프 차단).
+7. **교환 사유 【채택】**: `ClaimReasonCode.isApplicableTo`를 RETURN·EXCHANGE 공통 3종(단순변심·상품불량·오배송)으로 제한.
+8. **재고 예약 분리 【채택】**: 승인 시 `InventoryService.reserve(교환 variant)` + `claim.markExchangeReserved`(원 variant 스냅샷·멱등) / 완료 시 `commitExchange`(교환 variant `commitReservation` ORDER −qty + restock이면 원 variant `restoreStock` RETURN +qty·variant id 오름차순 잠금) / 검수 FAIL 시 `release` + `clearExchangeReserved`(미예약 no-op·중복 해제 없음). 구 `exchange()`(종결 시 reserve+commit)는 승인 예약과 이중 예약이라 폐기. 대안 검토 없음.
+9. **옵션 규칙 【채택】**: 같은 상품(`variant.product_id == order_item.product_id`)·다른 옵션·같은 판매가(`base_price + additional_price == order_item.unit_price`)·판매 가능(`ProductPurchasePolicy.saleBlock` 통과). 요청 시 검증하고 승인 시 재검증한다(`ClaimExchangeService.validateExchangeOption`).
+10. **재고 부족 승인 422 【채택】**: `Inventory.reserve` INV-1 위반 → 기존 `InventoryInvariantViolationException` 422 매핑·TX 롤백(클레임 REQUESTED 유지). 반품 자동 전환 없음.
+11. **재교환 차단 【채택】**: 같은 order_item에 `EXCHANGE·COMPLETED`가 있으면 교환 요청 422(`existsByOrderItemIdAndTypeAndStatus`). 반품은 허용(교환 후 반품 재입고는 갱신된 order_item.variant_id = 교환 옵션·T9 실측). 검수 FAIL 이력 차단은 유형 무관으로 통일(`existsByOrderItemIdAndInspectionResult`).
+12. **교환 배송비 0원**: 이월(D-170 배송비 정책과 함께).
+13. **D-172 §8 교환 차액 환불 복구 종결**: refundAmount가 항상 NULL이라 복구 경로 자체가 사라짐(결정 5). **종결.**
+
+- **교환 옵션 지정 시점(정찰 확인 결과)**: 기존 신청·승인 계약 어디에도 옵션 필드가 없었다. 구매자가 원하는 옵션을 고르는 행위이므로 **신청 시 지정**(`ClaimRequestRequest.exchangeVariantId`·`var_` @Pattern·EXCHANGE 필수·비교환 지정 400)으로 확정하고 승인은 재검증·예약만 한다. 승인 시 지정 【기각】 — 관리자가 구매자 의사를 대신 정하게 됨.
+- **승인 직렬화**: EXCHANGE 승인은 클레임 행을 `refresh(PESSIMISTIC_WRITE)`로 잠가 동시 승인 중 늦은 쪽이 APPROVED를 보고 422(CLM-4)·예약 1회(T11). 락 순서 Claim → OrderItem(읽기) → Inventory(최후)·D-172 규칙 안.
+- **회수·검수·발송 분기**: 회수 송장 등록·회수 확인 마감·`requireInspectable`·`returnShipmentRequired`·관리자 액션이 `ClaimType.isPickupBased()`(RETURN·EXCHANGE)를 공유. 검수 PASS 핸들러는 클레임 행에서 유형을 읽어 RETURN만 환불 initiate, EXCHANGE는 발송 대기. 교환품 발송(`registerExchangeShipment`)은 APPROVED + 검수 PASS 선행 가드(그 외 422)·기존 OUTBOUND 중복 가드 유지. 배송완료 핸들러는 claim_id·EXCHANGE·APPROVED만 `completeExchange`(REJECTED=FAIL 재발송·COMPLETED=중복 이벤트 skip).
+
+### API 계약 변경(FE 단계 입력)
+- `POST /api/v1/claims` 요청 +`exchangeVariantId`(`var_`·EXCHANGE 필수). 400: 미지정/미존재/비교환 지정·단순변심 첨부. 422: 사유 부적합·미배송완료·기한 초과·FAIL 이력·재교환·같은 상품 아님·같은 옵션·가격 다름·판매 불가.
+- `GET /api/v1/claims/{id}`·`POST /api/v1/claims` 응답 `ClaimResponse` +`exchangeOptionLabel`(EXCHANGE·null 가능). `returnShipmentRequired`가 EXCHANGE APPROVED에도 true → 구매자 회수 송장 등록 UI를 교환에도 노출.
+- `POST /api/v1/admin/claims/{id}/approve` body `refundAmount` → 400 MALFORMED_REQUEST. 재고 부족 → 422 INVENTORY_INVARIANT_VIOLATION. 옵션 부적합 → 422 CLAIM_STATE_INVALID.
+- `GET /api/v1/admin/claims` `AdminClaimSummaryResponse` +`originalOptionLabel`·`exchangeOptionLabel`; `availableActions`에 `REGISTER_EXCHANGE_SHIPMENT`·`MARK_EXCHANGE_DELIVERED` 추가(EXCHANGE APPROVED도 CONFIRM_PICKUP·INSPECT). 교환 발송 Delivery는 기존 `reshipment` 필드로 노출(OUTBOUND 최신).
+- `GET /api/v1/admin/orders/{id}` `ClaimRow` +`originalOptionLabel`·`exchangeOptionLabel`.
+- 기존 `POST /api/v1/admin/claims/{id}/register-exchange-shipment`·`POST /api/v1/admin/deliveries/{id}/mark-delivered` 무변경(가드만 추가). 완료 후 품목 `DELIVERED`(EXCHANGED 미사용).
+
+### 변경 파일
+- main 신규: claim/service/ClaimExchangeService · db/migration/V27__claim_exchange_columns.sql
+- main 수정: claim/entity/Claim · claim/enums/ClaimType(isPickupBased)·ClaimReasonCode · claim/controller/request/ClaimRequestRequest·ClaimRequestCommand · claim/controller/response/ClaimResponse·AdminClaimSummaryResponse · claim/repository/ClaimRepository(+2) · claim/service/ClaimService·AdminClaimQueryService · claim/handler/ClaimCompletedHandler·ClaimRefundCompletedHandler·ExchangeDeliveryCompletedHandler(재작성) · delivery/service/DeliveryService·ReturnWindowPolicy · delivery/repository/DeliveryRepository · inventory/service/InventoryService(commitExchange) · inventory/handler/InventoryClaimCompletedHandler · order/entity/OrderItem(applyExchange) · order/service/AdminOrderQueryService · order/controller/response/AdminOrderDetailResponse · refund/handler/ClaimInspectionPassedHandler · refund/repository/RefundRepository · notification/service/NotificationService
+- main 삭제: refund/handler/ExchangeShipmentRefundHandler
+- test 재작성: claim/integration/ClaimExchangeIntegrationTest(6 → 11) · inventory/service/InventoryServiceExchangeTest(commitExchange 4) / test 수정: ClaimServiceTest·ClaimServiceConfirmPickupTest·ClaimInspectionTest·ClaimRejectTest·BuyerClaimControllerTest·AdminDeliveryControllerIntegrationTest·SellerDeliveryIntegrationTest(시드 PASS·예약·기대 DELIVERED)·InventoryEventIntegrationTest·InventoryClaimCompletedHandlerTest·ClaimInspectionPassedHandlerTest(+1)
+- FE 변경 없음 · 셀러 컨트롤러 무변경 · 신규 라이브러리 없음.
+
+### 검증
+- ClaimExchangeIntegrationTest 11: T1 전체 흐름(요청→승인 reserved 1→회수→검수 PASS→발송→배송완료 → DELIVERED·variant/라벨 "색상: 파랑"·reserved 0·교환 on_hand −1·원 on_hand +1·이력 ORDER/RETURN 1·Refund 0) / T2 옵션 규칙(다른 상품·가격·동일 옵션·판매 중지 422·미지정·미존재·비교환 지정 400) / T3 재고 부족 422·REQUESTED 유지·회복 후 승인·재시도 422·reserved 1 / T4 거부 예약 없음·검수 FAIL release 1회·재발송·DELIVERED 원복·FAIL 재발송 배송완료 비대상 / T5 restock false / T6 발송 가드 3단계·중복 발송 422·중복 이벤트 멱등 / T7 refundAmount 400(API·서비스) / T8 사유·기한·첨부·FAIL 이력 반품 동일 / T9 재교환 422·교환 후 반품 재입고 = 교환 옵션 / T10 타이머 기준(FAIL 재발송 제외·교환 배송완료 채택·+6d skip·+8d 확정)·정산 gross 포함·환불 0 / T11 승인 2건 경합(지터) 1 성공·1 422·reserved 1.
+- 전체 `./backend/gradlew.bat test --rerun-tasks`: 193파일 1028 tests·0 fail(1022 → 1028).
+- 로컬(backend 재시작·V27 자동 적용 로그 확인·gateway curl): 교환 옵션 미지정 400·형식 오류 400·반품에 옵션 지정 400.
+- 외부 검토: A / 지적 4건 중 수용 2건(락 순서 확인·N+1 확인), 이상 없음 1건, 기각 1건(refund_amount DROP 이월 유지) / 미응답 질문 3건 Claude 판정, 스냅샷 컬럼 추가.
+
+### 외부 검토 반영 (2026-09-17)
+- **결정 2 보충 — 원 옵션 라벨 스냅샷**: V27에 `claim.original_option_label VARCHAR(500) NULL`(order_item.option_label 동형) 추가. 승인 시 `markExchangeReserved(originalVariantId, originalOptionLabel, at)`가 `original_variant_id`와 같은 지점에서 `order_item.option_label`을 기록하며 예약 표식이 있으면 덮어쓰지 않는다. 관리자 목록·주문 상세·구매자 상세의 원 옵션 라벨은 스냅샷 우선, NULL(승인 전)이면 original variant로 `OptionLabelResolver` 재조립(`AdminClaimQueryService.originalOptionLabel`). 검증: 승인 후 옵션값 변경·삭제 → 교환 완료 후에도 "색상: 빨강" 유지(T12).
+- **결정 3 보충 — FAIL 이력 차단은 유형 무관**: `existsByOrderItemIdAndInspectionResult(FAIL)`로 반품·교환 재신청을 모두 막는다. 유형을 바꿔 재신청하는 우회(반품 FAIL → 교환, 교환 FAIL → 반품)를 차단하기 위함. 기존 RETURN 한정 메서드는 유지.
+- **승인 행 락은 EXCHANGE만**: EXCHANGE는 재고 예약 부작용이 있어 `refresh(PESSIMISTIC_WRITE)`로 직렬화(늦은 쪽 422·예약 1회). CANCEL·RETURN 승인은 상태 전이뿐이라 CLM-4 `canTransitionTo` 검증(422)으로 충분해 락을 넓히지 않는다.
+- **락 순서 확인(수용)**: `InventoryService.commitExchange`는 교환·원 variant를 id 오름차순으로 `findByVariantIdForUpdate`(`SELECT … FOR UPDATE`) 잠그고 같은 id면 1회 조회·인스턴스 재사용 — 위반 없음.
+- **N+1 확인(수용)**: `OptionLabelResolver.resolve`는 값·그룹 `findAllById` IN 2쿼리(+variant `findByIdIn` 1쿼리)로 클레임·variant 수와 무관한 고정 3쿼리. Hibernate Statistics 실측(교환 클레임 2건·variant 4개): 관리자 주문 상세 1회 13 statements·관리자 클레임 목록 11 — 수정 없음·T13이 예산(20/12)으로 회귀 감지.
+- **기각 — `claim.refund_amount` DROP**: V27 범위 밖·§8 이월 유지.
+- 테스트 +2(ClaimExchangeIntegrationTest 11 → 13). 전체 `./backend/gradlew.bat test --rerun-tasks`: 193파일 1030 tests·0 fail(1028 → 1030). 로컬 V27 재적용(교환 클레임 0건·롤백 SQL + 이력 v27 삭제 + 재시작) 후 컬럼 4개 확인.
+
+### §8 이월
+- 교환 배송비 0원 정책(결정 12)·`claim.refund_amount` 컬럼 DROP 마이그레이션.
+- 관리자 교환 FE(옵션 라벨·발송/배송완료 액션)·구매자 FE(옵션 선택·안내 문구 "차액" 제거·회수 송장 UI 교환 노출) — 다음 단계.
+- `findBaseDeliveredOutbound`·자동 확정 배치가 `claim_id IS NULL` 등치를 잃어 V24 인덱스(direction,status,claim_id,delivered_at)의 delivered_at 범위 활용이 약해짐 — 배치 지연 관측 시 인덱스 재설계.

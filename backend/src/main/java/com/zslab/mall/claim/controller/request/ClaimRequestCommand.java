@@ -19,11 +19,19 @@ public record ClaimRequestCommand(
         String reasonDetail,
         Long buyerId,
         LocalDateTime requestedAt,
-        List<String> attachmentIds) {
+        List<String> attachmentIds,
+        /** 교환 옵션 public id(var_·EXCHANGE 필수·Track 83 D-177). */
+        String exchangeVariantPublicId) {
 
     /** 첨부 없는 요청(Track 81-B 이전 호출부 호환). */
     public ClaimRequestCommand(String orderItemPublicId, ClaimType claimType, ClaimReasonCode reasonCode, String reasonDetail,
             Long buyerId, LocalDateTime requestedAt) {
-        this(orderItemPublicId, claimType, reasonCode, reasonDetail, buyerId, requestedAt, List.of());
+        this(orderItemPublicId, claimType, reasonCode, reasonDetail, buyerId, requestedAt, List.of(), null);
+    }
+
+    /** 첨부 있는 요청(Track 81-B 호출부 호환·교환 옵션 없음). */
+    public ClaimRequestCommand(String orderItemPublicId, ClaimType claimType, ClaimReasonCode reasonCode, String reasonDetail,
+            Long buyerId, LocalDateTime requestedAt, List<String> attachmentIds) {
+        this(orderItemPublicId, claimType, reasonCode, reasonDetail, buyerId, requestedAt, attachmentIds, null);
     }
 }

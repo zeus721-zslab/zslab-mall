@@ -21,7 +21,7 @@ class ClaimInspectionTest {
 
     private static Claim approvedReturn() {
         Claim claim = Claim.create(1L, ClaimType.RETURN, "PRODUCT_DEFECT", null, 10L, NOW, OrderItemStatus.DELIVERED);
-        claim.approve(NOW, null);
+        claim.approve(NOW);
         return claim;
     }
 
@@ -41,7 +41,7 @@ class ClaimInspectionTest {
         assertThatThrownBy(() -> claim.passInspection(true, NOW)).isInstanceOf(ClaimInvalidStateException.class); // 재검수
 
         Claim cancel = Claim.create(1L, ClaimType.CANCEL, "BUYER_CHANGED_MIND", null, 10L, NOW, OrderItemStatus.PAID);
-        cancel.approve(NOW, null);
+        cancel.approve(NOW);
         assertThatThrownBy(() -> cancel.passInspection(true, NOW)).isInstanceOf(ClaimInvalidStateException.class);
     }
 
@@ -79,7 +79,7 @@ class ClaimInspectionTest {
         assertThatThrownBy(() -> claim.failInspection(ClaimRejectReasonCode.INSPECTION_FAILED, null, NOW))
                 .isInstanceOf(ClaimInvalidStateException.class); // 미회수
         Claim cancel = Claim.create(1L, ClaimType.CANCEL, "BUYER_CHANGED_MIND", null, 10L, NOW, OrderItemStatus.PAID);
-        cancel.approve(NOW, null);
+        cancel.approve(NOW);
         assertThatThrownBy(() -> cancel.failInspection(ClaimRejectReasonCode.INSPECTION_FAILED, null, NOW))
                 .isInstanceOf(ClaimInvalidStateException.class);
         assertThat(ClaimStatus.APPROVED.canTransitionTo(ClaimStatus.REJECTED)).isFalse();
@@ -88,7 +88,7 @@ class ClaimInspectionTest {
     }
 
     @Test
-    @DisplayName("ClaimReasonCode.isApplicableTo: RETURN은 단순변심·상품불량·오배송 3값·CANCEL/EXCHANGE는 전부 허용")
+    @DisplayName("ClaimReasonCode.isApplicableTo: RETURN·EXCHANGE는 단순변심·상품불량·오배송 3값(D-177 결정 7)·CANCEL은 전부 허용")
     void requestReasonScope() {
         assertThat(ClaimReasonCode.BUYER_CHANGED_MIND.isApplicableTo(ClaimType.RETURN)).isTrue();
         assertThat(ClaimReasonCode.PRODUCT_DEFECT.isApplicableTo(ClaimType.RETURN)).isTrue();
@@ -96,6 +96,7 @@ class ClaimInspectionTest {
         assertThat(ClaimReasonCode.STOCK_DELAY.isApplicableTo(ClaimType.RETURN)).isFalse();
         assertThat(ClaimReasonCode.OTHER.isApplicableTo(ClaimType.RETURN)).isFalse();
         assertThat(ClaimReasonCode.STOCK_DELAY.isApplicableTo(ClaimType.CANCEL)).isTrue();
-        assertThat(ClaimReasonCode.OTHER.isApplicableTo(ClaimType.EXCHANGE)).isTrue();
+        assertThat(ClaimReasonCode.OTHER.isApplicableTo(ClaimType.EXCHANGE)).isFalse();
+        assertThat(ClaimReasonCode.PRODUCT_DEFECT.isApplicableTo(ClaimType.EXCHANGE)).isTrue();
     }
 }

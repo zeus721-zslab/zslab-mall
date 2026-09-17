@@ -92,7 +92,7 @@ class BuyerClaimControllerTest {
 
     private ClaimResponse claimResponse() {
         return new ClaimResponse(CLAIM_PUBLIC_ID, ORDER_ITEM_PUBLIC_ID, ClaimType.CANCEL, ClaimStatus.REQUESTED,
-                "BUYER_CHANGED_MIND", "단순 변심", REQUESTED_AT, null, null, null, null, false, null, null, null, List.of(), null);
+                "BUYER_CHANGED_MIND", "단순 변심", REQUESTED_AT, null, null, null, null, false, null, null, null, List.of(), null, null, null);
     }
 
     // ===== POST /api/v1/claims =====

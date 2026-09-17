@@ -7,7 +7,6 @@ import com.zslab.mall.claim.repository.ClaimRepository;
 import com.zslab.mall.claim.service.ClaimService;
 import com.zslab.mall.refund.event.RefundCompleted;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
@@ -43,19 +42,8 @@ public class ClaimRefundCompletedHandler {
         Claim claim = claimRepository.findById(event.claimId())
                 .orElseThrow(() -> new IllegalStateException("RefundCompleted 소비·클레임 미발견: claimId=" + event.claimId()));
         if (claim.getType() == ClaimType.EXCHANGE) {
-            // EXCHANGE 차액환불(D-115 결정3): 차액 발생 시 Refund.COMPLETED가 종결 조건(3)이므로 수렴 판정을 시도한다.
-            // 수거 확인·교환 배송 완료가 선행됐으면 여기서 종결하고, 아니면 no-op(배송 완료 이벤트가 마지막 조건을 채움).
-            // 차액 없는 교환(refundAmount==0)은 Refund 미생성 → 본 이벤트가 도착하지 않으므로 hasRefundDifference 가드가 방어한다.
-            if (claim.hasRefundDifference()) {
-                try {
-                    claimService.tryCompleteExchange(claim.getId());
-                } catch (ObjectOptimisticLockingFailureException optimisticLockException) {
-                    // @Version 낙관적 락 충돌(동시 수렴 진입) — 다른 트랜잭션이 이미 종결·재처리 불요(D-115 결정4)
-                    log.info("[Claim] RefundCompleted·tryCompleteExchange 낙관적 락 충돌·skip: claimId={}", event.claimId());
-                }
-            } else {
-                log.info("[Claim] RefundCompleted 수신·type=EXCHANGE·차액 없음 → 본 핸들러 미전이: claimId={}", event.claimId());
-            }
+            // Track 83 D-177: 교환은 환불을 경유하지 않는다(차액 환불 D-115 폐기). 관리자 수동 환불이 붙어도 교환 종결은 배송완료 경로만.
+            log.warn("[Claim] RefundCompleted 수신·type=EXCHANGE → 종결 전이 비대상·skip: claimId={}", event.claimId());
             return;
         }
         if (claim.getStatus() != ClaimStatus.APPROVED) {

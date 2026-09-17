@@ -85,9 +85,18 @@ class ClaimServiceTest {
 
     @Mock
     private ClaimAttachmentService claimAttachmentService;
+    @Mock
+    private ClaimExchangeService claimExchangeService;
 
     @InjectMocks
     private ClaimService claimService;
+
+    @org.junit.jupiter.api.BeforeEach
+    void stubNoExchangeVariant() {
+        // Mockito 기본값이 Long 0L이라 비교환 요청이 Claim.create 검증(exchangeVariantId null 요구)에 걸리지 않도록 null 고정(D-177)
+        org.mockito.Mockito.lenient().when(claimExchangeService.resolveRequestedVariantId(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any())).thenReturn(null);
+    }
 
     private ClaimRequestCommand command(ClaimType claimType) {
         return new ClaimRequestCommand(
@@ -303,7 +312,7 @@ class ClaimServiceTest {
     @DisplayName("approve: 이미 APPROVED 상태에서 재승인 → ClaimInvalidStateException(CLM-4)")
     void approve_alreadyApproved_throws() {
         Claim claim = requestedClaim();
-        claim.approve(PROCESSED_AT, null); // 시드: REQUESTED → APPROVED
+        claim.approve(PROCESSED_AT); // 시드: REQUESTED → APPROVED
         when(claimRepository.findById(1L)).thenReturn(Optional.of(claim));
 
         assertThatThrownBy(() -> claimService.approve(1L, PROCESSED_AT, null))
@@ -343,7 +352,7 @@ class ClaimServiceTest {
     @DisplayName("reject: 종결(COMPLETED) 상태에서 거절 → ClaimInvalidStateException(CLM-4)")
     void reject_completed_throws() {
         Claim claim = requestedClaim();
-        claim.approve(PROCESSED_AT, null); // 시드: REQUESTED → APPROVED
+        claim.approve(PROCESSED_AT); // 시드: REQUESTED → APPROVED
         claim.markCompleted(PROCESSED_AT); // 시드: APPROVED → COMPLETED
         when(claimRepository.findById(1L)).thenReturn(Optional.of(claim));
 
@@ -386,7 +395,7 @@ class ClaimServiceTest {
     @DisplayName("approveByAdmin: 이미 APPROVED 상태 → ClaimInvalidStateException(CLM-4·422)")
     void approveByAdmin_alreadyApproved_throws() {
         Claim claim = requestedClaim();
-        claim.approve(PROCESSED_AT, null); // 시드: REQUESTED → APPROVED
+        claim.approve(PROCESSED_AT); // 시드: REQUESTED → APPROVED
         when(claimRepository.findById(1L)).thenReturn(Optional.of(claim));
 
         assertThatThrownBy(() -> claimService.approveByAdmin(1L, PROCESSED_AT, null))
@@ -517,7 +526,7 @@ class ClaimServiceTest {
     @DisplayName("markCompleted: 이미 COMPLETED → 멱등 NO-OP·save·publish 미호출(CLM-1)")
     void markCompleted_alreadyCompleted_noOp() {
         Claim claim = requestedClaim();
-        claim.approve(PROCESSED_AT, null); // 시드: REQUESTED → APPROVED
+        claim.approve(PROCESSED_AT); // 시드: REQUESTED → APPROVED
         claim.markCompleted(PROCESSED_AT); // 시드: APPROVED → COMPLETED
         when(claimRepository.findById(1L)).thenReturn(Optional.of(claim));
 
@@ -531,7 +540,7 @@ class ClaimServiceTest {
     @DisplayName("markCompleted: APPROVED → COMPLETED 종결·save·ClaimCompleted 발행(D-29 save→publish·D-90 Q4)")
     void markCompleted_approved_transitionsAndPublishes() {
         Claim claim = requestedClaim();
-        claim.approve(PROCESSED_AT, null); // 시드: REQUESTED → APPROVED
+        claim.approve(PROCESSED_AT); // 시드: REQUESTED → APPROVED
         when(claimRepository.findById(1L)).thenReturn(Optional.of(claim));
 
         claimService.markCompleted(1L);

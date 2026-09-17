@@ -15,6 +15,7 @@ import com.zslab.mall.common.enums.PolymorphicTargetType;
 import com.zslab.mall.common.exception.MalformedRequestException;
 import com.zslab.mall.delivery.entity.Delivery;
 import com.zslab.mall.delivery.enums.DeliveryDirection;
+import com.zslab.mall.delivery.enums.DeliveryStatus;
 import com.zslab.mall.delivery.repository.DeliveryRepository;
 import com.zslab.mall.order.controller.response.PagedResponse;
 import com.zslab.mall.order.entity.OrderItem;
@@ -56,6 +57,10 @@ public class AdminClaimQueryService {
     static final String ACTION_REJECT = "REJECT";
     static final String ACTION_CONFIRM_PICKUP = "CONFIRM_PICKUP";
     static final String ACTION_INSPECT = "INSPECT";
+    /** 교환품 발송 등록(EXCHANGE·검수 PASS 후·OUTBOUND 미등록·Track 83 D-177). */
+    static final String ACTION_REGISTER_EXCHANGE_SHIPMENT = "REGISTER_EXCHANGE_SHIPMENT";
+    /** 교환품 배송완료 처리(EXCHANGE·OUTBOUND SHIPPING·reshipment.deliveryId로 mark-delivered·Track 83 D-177). */
+    static final String ACTION_MARK_EXCHANGE_DELIVERED = "MARK_EXCHANGE_DELIVERED";
 
     private final ClaimRepository claimRepository;
     private final OrderItemRepository orderItemRepository;
@@ -63,16 +68,19 @@ public class AdminClaimQueryService {
     private final RefundRepository refundRepository;
     private final DeliveryRepository deliveryRepository;
     private final AttachmentRepository attachmentRepository;
+    private final ClaimExchangeService claimExchangeService;
 
     public AdminClaimQueryService(ClaimRepository claimRepository, OrderItemRepository orderItemRepository,
             UserRepository userRepository, RefundRepository refundRepository, DeliveryRepository deliveryRepository,
-            AttachmentRepository attachmentRepository) {
+            AttachmentRepository attachmentRepository,
+            ClaimExchangeService claimExchangeService) {
         this.claimRepository = claimRepository;
         this.orderItemRepository = orderItemRepository;
         this.userRepository = userRepository;
         this.refundRepository = refundRepository;
         this.deliveryRepository = deliveryRepository;
         this.attachmentRepository = attachmentRepository;
+        this.claimExchangeService = claimExchangeService;
     }
 
     /**
@@ -109,7 +117,7 @@ public class AdminClaimQueryService {
     /** 페이지 내 클레임의 품목·주문 요약·구매자·최신 환불을 배치 조회한다(각 1쿼리·페이지가 비면 0쿼리). */
     private Enrichment enrich(List<Claim> claims) {
         if (claims.isEmpty()) {
-            return new Enrichment(Map.of(), Map.of(), Map.of(), Map.of(), Map.of(), Map.of());
+            return new Enrichment(Map.of(), Map.of(), Map.of(), Map.of(), Map.of(), Map.of(), Map.of());
         }
         Set<Long> itemIds = claims.stream().map(Claim::getOrderItemId).collect(Collectors.toCollection(LinkedHashSet::new));
         List<Long> claimIds = claims.stream().map(Claim::getId).toList();
@@ -132,8 +140,41 @@ public class AdminClaimQueryService {
         Map<Long, Long> attachmentCountByClaimId = attachmentRepository
                 .countByTargetTypeAndTargetIdIn(PolymorphicTargetType.CLAIM, claimIds).stream()
                 .collect(Collectors.toMap(AttachmentCountProjection::getTargetId, AttachmentCountProjection::getAttachmentCount));
+        // Track 83 D-177: 교환 원/교환 옵션 라벨 1쿼리 배치(EXCHANGE 클레임만·원 옵션은 스냅샷 없으면 현재 품목 variant)
+        Set<Long> variantIds = new LinkedHashSet<>();
+        for (Claim claim : claims) {
+            if (claim.getType() == ClaimType.EXCHANGE) {
+                variantIds.add(claim.getExchangeVariantId());
+                OrderItem item = itemById.get(claim.getOrderItemId());
+                Long originalVariantId = originalVariantIdOf(claim, item);
+                if (originalVariantId != null) {
+                    variantIds.add(originalVariantId);
+                }
+            }
+        }
+        variantIds.remove(null);
+        Map<Long, String> optionLabelByVariantId = claimExchangeService.optionLabelsByVariantId(variantIds);
         return new Enrichment(itemById, orderByItemId, userById, latestRefundByClaimId, deliveriesByClaimId,
-                attachmentCountByClaimId);
+                attachmentCountByClaimId, optionLabelByVariantId);
+    }
+
+    /** 교환 원 옵션 라벨: 승인 스냅샷(original_option_label) 우선, 없으면 original variant로 재조립한 라벨(D-177 결정 2 보충). */
+    public static String originalOptionLabel(Claim claim, Long originalVariantId, Map<Long, String> optionLabelByVariantId) {
+        if (claim.getOriginalOptionLabel() != null) {
+            return claim.getOriginalOptionLabel();
+        }
+        return originalVariantId == null ? null : optionLabelByVariantId.get(originalVariantId);
+    }
+
+    /** 교환 원 옵션 variant: 승인 스냅샷(original_variant_id) 우선, 승인 전에는 현재 품목 variant. 비교환·품목 없음은 null. */
+    private static Long originalVariantIdOf(Claim claim, OrderItem item) {
+        if (claim.getType() != ClaimType.EXCHANGE) {
+            return null;
+        }
+        if (claim.getOriginalVariantId() != null) {
+            return claim.getOriginalVariantId();
+        }
+        return item == null ? null : item.getVariantId();
     }
 
     private AdminClaimSummaryResponse toSummary(Claim claim, Enrichment enrichment) {
@@ -143,7 +184,8 @@ public class AdminClaimQueryService {
         Refund latestRefund = enrichment.latestRefundByClaimId().get(claim.getId());
         Delivery returnDelivery = latestByDirection(enrichment.deliveriesByClaimId().get(claim.getId()), DeliveryDirection.RETURN);
         Delivery reshipment = latestByDirection(enrichment.deliveriesByClaimId().get(claim.getId()), DeliveryDirection.OUTBOUND);
-        List<String> actions = availableActions(claim, returnDelivery);
+        List<String> actions = availableActions(claim, returnDelivery, reshipment);
+        Long originalVariantId = originalVariantIdOf(claim, item);
         return new AdminClaimSummaryResponse(
                 claim.getPublicId(),
                 claim.getType(),
@@ -170,23 +212,34 @@ public class AdminClaimQueryService {
                 claim.getPickedUpAt(),
                 claim.getInspectionResult(),
                 claim.getRestock(),
-                enrichment.attachmentCountByClaimId().getOrDefault(claim.getId(), 0L));
+                enrichment.attachmentCountByClaimId().getOrDefault(claim.getId(), 0L),
+                originalOptionLabel(claim, originalVariantId, enrichment.optionLabelByVariantId()),
+                claim.getExchangeVariantId() == null ? null : enrichment.optionLabelByVariantId().get(claim.getExchangeVariantId()));
     }
 
     /**
-     * 단계별 처리 가능 액션(Track 81-A D-170). REQUESTED는 승인·거부, RETURN APPROVED는 회수 송장이 있고 미회수면 CONFIRM_PICKUP·
-     * 회수 확인 후 미검수면 INSPECT. 그 외(완료·거부·회수 송장 대기)는 빈 목록.
+     * 단계별 처리 가능 액션(Track 81-A D-170 / Track 83 D-177). REQUESTED는 승인·거부, RETURN·EXCHANGE APPROVED는 회수 송장이 있고 미회수면
+     * CONFIRM_PICKUP·회수 확인 후 미검수면 INSPECT. EXCHANGE는 검수 PASS 후 OUTBOUND 미등록이면 REGISTER_EXCHANGE_SHIPMENT·발송 중이면
+     * MARK_EXCHANGE_DELIVERED. 그 외(완료·거부·회수 송장 대기)는 빈 목록.
      */
-    static List<String> availableActions(Claim claim, Delivery returnDelivery) {
+    static List<String> availableActions(Claim claim, Delivery returnDelivery, Delivery outboundDelivery) {
         if (claim.getStatus() == ClaimStatus.REQUESTED) {
             return List.of(ACTION_APPROVE, ACTION_REJECT);
         }
-        if (claim.getType() == ClaimType.RETURN && claim.getStatus() == ClaimStatus.APPROVED) {
+        if (claim.getType().isPickupBased() && claim.getStatus() == ClaimStatus.APPROVED) {
             if (claim.getPickedUpAt() == null) {
                 return returnDelivery == null ? List.of() : List.of(ACTION_CONFIRM_PICKUP);
             }
             if (claim.getInspectionResult() == null) {
                 return List.of(ACTION_INSPECT);
+            }
+            if (claim.getType() == ClaimType.EXCHANGE && claim.isInspectionPassed()) {
+                if (outboundDelivery == null) {
+                    return List.of(ACTION_REGISTER_EXCHANGE_SHIPMENT);
+                }
+                if (outboundDelivery.getStatus() == DeliveryStatus.SHIPPING) {
+                    return List.of(ACTION_MARK_EXCHANGE_DELIVERED);
+                }
             }
         }
         return List.of();
@@ -206,7 +259,8 @@ public class AdminClaimQueryService {
             Map<Long, User> userById,
             Map<Long, Refund> latestRefundByClaimId,
             Map<Long, List<Delivery>> deliveriesByClaimId,
-            Map<Long, Long> attachmentCountByClaimId) {
+            Map<Long, Long> attachmentCountByClaimId,
+            Map<Long, String> optionLabelByVariantId) {
     }
 
     private String normalizeKeyword(String keyword) {

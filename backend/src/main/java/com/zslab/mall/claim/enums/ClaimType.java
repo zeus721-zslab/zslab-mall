@@ -12,6 +12,11 @@ public enum ClaimType {
     CANCEL,
     /** 반품: 수거 확인 + Refund.COMPLETED 필요 (본 트랙 미전이). */
     RETURN,
-    /** 교환: 수거 확인 + 교환품 발송 완료 필요 (본 트랙 미전이). */
-    EXCHANGE
+    /** 교환: 수거 확인 + 검수 PASS + 교환품 발송 완료 필요(Track 83 D-177·반품 흐름 재사용). */
+    EXCHANGE;
+
+    /** 회수·검수 단계를 거치는 유형인지(RETURN·EXCHANGE). 회수 송장·회수 확인 마감·검수 가드가 공유한다(D-177). */
+    public boolean isPickupBased() {
+        return this == RETURN || this == EXCHANGE;
+    }
 }

@@ -47,7 +47,8 @@ public class ClaimCompletedHandler {
         OrderItemStatus terminalStatus = switch (event.claimType()) {
             case CANCEL -> OrderItemStatus.CANCELLED;
             case RETURN -> OrderItemStatus.RETURNED;
-            case EXCHANGE -> OrderItemStatus.EXCHANGED;
+            // Track 83 D-177 결정 1(α): 교환품 배송완료 후 품목은 DELIVERED로 복귀(구매확정 타이머 재시작·반품 허용). EXCHANGED 미사용.
+            case EXCHANGE -> OrderItemStatus.DELIVERED;
         };
         if (orderItem.getItemStatus() != requestedStatus) {
             // 멱등/비대상(이미 종결됐거나 요청 상태가 아님) — 안전 차단

@@ -27,18 +27,14 @@ import org.springframework.beans.BeanUtils;
 import org.springframework.test.util.ReflectionTestUtils;
 
 /**
- * {@link InventoryService#exchange} 단위 검증(Mockito·D-101 §5 갱신 α). 회수분 복구(RETURN)·신규분 예약→확정(ORDER)
- * 2단계 패턴과 InventoryHistory 2행 기록·실패 경로를 커버한다.
- *
- * <p><b>"신규 확정 실패" 케이스 부재 사유</b>: α 패턴은 신규분에서 {@code reserve(qty)} 직후 {@code commitReservation(qty)}를
- * 호출한다. reserve 성공은 {@code quantityReserved >= qty}·{@code quantityOnHand >= quantityReserved >= qty}를 보장하므로
- * 직후 commitReservation의 INV-3·INV-4는 도달 불가다. 따라서 실패 케이스는 회수 미존재·신규 미존재·신규 예약(INV-1) 3건으로 구성한다.
+ * {@link InventoryService#commitExchange} 단위 검증(Mockito·Track 83 D-177 결정 4·8). 승인 시 예약된 교환 옵션 확정(ORDER −qty)·
+ * 검수 재입고(restock)면 원 옵션 복구(RETURN +qty)·History 기록·variant 오름차순 잠금·실패 경로를 커버한다.
  */
 @ExtendWith(MockitoExtension.class)
 class InventoryServiceExchangeTest {
 
-    private static final Long RETURN_VARIANT_ID = 1L;
-    private static final Long NEW_VARIANT_ID = 2L;
+    private static final Long ORIGINAL_VARIANT_ID = 1L;
+    private static final Long EXCHANGE_VARIANT_ID = 2L;
     private static final Long CLAIM_ID = 700L;
 
     @Mock
@@ -59,79 +55,77 @@ class InventoryServiceExchangeTest {
     }
 
     @Test
-    @DisplayName("exchange 정상: 회수분 restoreStock(+RETURN)·신규분 reserve→commit(-ORDER)·History 2행")
-    void exchange_success_twoHistoryRows() {
-        Inventory returnInventory = inventory(RETURN_VARIANT_ID, 5, 0, 5);
-        Inventory newInventory = inventory(NEW_VARIANT_ID, 10, 2, 8);
-        when(inventoryRepository.findByVariantIdForUpdate(RETURN_VARIANT_ID)).thenReturn(Optional.of(returnInventory));
-        when(inventoryRepository.findByVariantIdForUpdate(NEW_VARIANT_ID)).thenReturn(Optional.of(newInventory));
+    @DisplayName("commitExchange restock=true: 교환 옵션 commit(reserved·on_hand −qty)·원 옵션 restoreStock(+qty)·History ORDER·RETURN 2행·원 variant(작은 id) 먼저 잠금")
+    void commitExchange_restock_twoHistoryRows() {
+        Inventory original = inventory(ORIGINAL_VARIANT_ID, 5, 0, 5);
+        Inventory exchange = inventory(EXCHANGE_VARIANT_ID, 10, 4, 6); // 승인 시 reserve(4) 반영 상태
+        when(inventoryRepository.findByVariantIdForUpdate(ORIGINAL_VARIANT_ID)).thenReturn(Optional.of(original));
+        when(inventoryRepository.findByVariantIdForUpdate(EXCHANGE_VARIANT_ID)).thenReturn(Optional.of(exchange));
 
-        inventoryService.exchange(RETURN_VARIANT_ID, 3, NEW_VARIANT_ID, 4, CLAIM_ID);
+        inventoryService.commitExchange(EXCHANGE_VARIANT_ID, ORIGINAL_VARIANT_ID, 4, true, CLAIM_ID);
 
-        // 회수분: on_hand 5 → 8
-        assertThat(returnInventory.getQuantityOnHand()).isEqualTo(8);
-        // 신규분: reserve(4)로 reserved 2→6, commit(4)로 on_hand 10→6·reserved 6→2
-        assertThat(newInventory.getQuantityOnHand()).isEqualTo(6);
-        assertThat(newInventory.getQuantityReserved()).isEqualTo(2);
-        assertThat(newInventory.getQuantityAvailable()).isEqualTo(4);
+        assertThat(exchange.getQuantityOnHand()).isEqualTo(6);
+        assertThat(exchange.getQuantityReserved()).isEqualTo(0);
+        assertThat(exchange.getQuantityAvailable()).isEqualTo(6);
+        assertThat(original.getQuantityOnHand()).isEqualTo(9);
+
+        org.mockito.InOrder inOrder = org.mockito.Mockito.inOrder(inventoryRepository);
+        inOrder.verify(inventoryRepository).findByVariantIdForUpdate(ORIGINAL_VARIANT_ID);
+        inOrder.verify(inventoryRepository).findByVariantIdForUpdate(EXCHANGE_VARIANT_ID);
 
         ArgumentCaptor<InventoryHistory> captor = ArgumentCaptor.forClass(InventoryHistory.class);
         verify(inventoryHistoryRepository, times(2)).save(captor.capture());
         List<InventoryHistory> saved = captor.getAllValues();
-        // 1행: 회수 RETURN·delta=+3
-        assertThat(saved.get(0).getChangeType()).isEqualTo(InventoryHistoryChangeType.RETURN);
-        assertThat(saved.get(0).getQuantityDelta()).isEqualTo(3);
+        assertThat(saved.get(0).getChangeType()).isEqualTo(InventoryHistoryChangeType.ORDER);
+        assertThat(saved.get(0).getQuantityDelta()).isEqualTo(-4);
         assertThat(saved.get(0).getReferenceType()).isEqualTo("claim");
         assertThat(saved.get(0).getReferenceId()).isEqualTo(CLAIM_ID);
-        assertThat(saved.get(0).getInventory()).isSameAs(returnInventory);
-        // 2행: 신규 ORDER·delta=-4
-        assertThat(saved.get(1).getChangeType()).isEqualTo(InventoryHistoryChangeType.ORDER);
-        assertThat(saved.get(1).getQuantityDelta()).isEqualTo(-4);
-        assertThat(saved.get(1).getReferenceType()).isEqualTo("claim");
-        assertThat(saved.get(1).getInventory()).isSameAs(newInventory);
+        assertThat(saved.get(0).getInventory()).isSameAs(exchange);
+        assertThat(saved.get(1).getChangeType()).isEqualTo(InventoryHistoryChangeType.RETURN);
+        assertThat(saved.get(1).getQuantityDelta()).isEqualTo(4);
+        assertThat(saved.get(1).getInventory()).isSameAs(original);
     }
 
     @Test
-    @DisplayName("exchange 회수 variant 미존재 → InventoryInvariantViolationException·History 미기록")
-    void exchange_returnVariantNotFound_throws() {
-        when(inventoryRepository.findByVariantIdForUpdate(RETURN_VARIANT_ID)).thenReturn(Optional.empty());
+    @DisplayName("commitExchange restock=false: 교환 옵션 commit만·원 옵션 불변·History ORDER 1행")
+    void commitExchange_noRestock_oneHistoryRow() {
+        Inventory original = inventory(ORIGINAL_VARIANT_ID, 5, 0, 5);
+        Inventory exchange = inventory(EXCHANGE_VARIANT_ID, 10, 4, 6);
+        when(inventoryRepository.findByVariantIdForUpdate(ORIGINAL_VARIANT_ID)).thenReturn(Optional.of(original));
+        when(inventoryRepository.findByVariantIdForUpdate(EXCHANGE_VARIANT_ID)).thenReturn(Optional.of(exchange));
 
-        assertThatThrownBy(() -> inventoryService.exchange(RETURN_VARIANT_ID, 3, NEW_VARIANT_ID, 4, CLAIM_ID))
-                .isInstanceOf(InventoryInvariantViolationException.class)
-                .hasMessageContaining("Inventory 미존재");
+        inventoryService.commitExchange(EXCHANGE_VARIANT_ID, ORIGINAL_VARIANT_ID, 4, false, CLAIM_ID);
+
+        assertThat(exchange.getQuantityOnHand()).isEqualTo(6);
+        assertThat(original.getQuantityOnHand()).isEqualTo(5);
+        ArgumentCaptor<InventoryHistory> captor = ArgumentCaptor.forClass(InventoryHistory.class);
+        verify(inventoryHistoryRepository, times(1)).save(captor.capture());
+        assertThat(captor.getValue().getChangeType()).isEqualTo(InventoryHistoryChangeType.ORDER);
+    }
+
+    @Test
+    @DisplayName("commitExchange 예약 없음(reserved < qty·INV-3) → InventoryInvariantViolationException·History 미기록")
+    void commitExchange_withoutReservation_throws() {
+        Inventory original = inventory(ORIGINAL_VARIANT_ID, 5, 0, 5);
+        Inventory exchange = inventory(EXCHANGE_VARIANT_ID, 10, 0, 10);
+        when(inventoryRepository.findByVariantIdForUpdate(ORIGINAL_VARIANT_ID)).thenReturn(Optional.of(original));
+        when(inventoryRepository.findByVariantIdForUpdate(EXCHANGE_VARIANT_ID)).thenReturn(Optional.of(exchange));
+
+        assertThatThrownBy(() -> inventoryService.commitExchange(EXCHANGE_VARIANT_ID, ORIGINAL_VARIANT_ID, 4, true, CLAIM_ID))
+                .isInstanceOf(InventoryInvariantViolationException.class);
         verify(inventoryHistoryRepository, never()).save(any());
     }
 
     @Test
-    @DisplayName("exchange 신규 variant 미존재 → InventoryInvariantViolationException·RETURN 1행만 기록")
-    void exchange_newVariantNotFound_throwsAfterReturnHistory() {
-        Inventory returnInventory = inventory(RETURN_VARIANT_ID, 5, 0, 5);
-        when(inventoryRepository.findByVariantIdForUpdate(RETURN_VARIANT_ID)).thenReturn(Optional.of(returnInventory));
-        when(inventoryRepository.findByVariantIdForUpdate(NEW_VARIANT_ID)).thenReturn(Optional.empty());
+    @DisplayName("commitExchange 교환 variant 미존재 → InventoryInvariantViolationException·History 미기록")
+    void commitExchange_exchangeVariantNotFound_throws() {
+        Inventory original = inventory(ORIGINAL_VARIANT_ID, 5, 0, 5);
+        when(inventoryRepository.findByVariantIdForUpdate(ORIGINAL_VARIANT_ID)).thenReturn(Optional.of(original));
+        when(inventoryRepository.findByVariantIdForUpdate(EXCHANGE_VARIANT_ID)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> inventoryService.exchange(RETURN_VARIANT_ID, 3, NEW_VARIANT_ID, 4, CLAIM_ID))
+        assertThatThrownBy(() -> inventoryService.commitExchange(EXCHANGE_VARIANT_ID, ORIGINAL_VARIANT_ID, 4, true, CLAIM_ID))
                 .isInstanceOf(InventoryInvariantViolationException.class)
                 .hasMessageContaining("Inventory 미존재");
-        // 회수 RETURN 1행은 저장됨(단일 TX라 실 환경은 롤백·Mockito 단위에선 호출 관찰만)
-        ArgumentCaptor<InventoryHistory> captor = ArgumentCaptor.forClass(InventoryHistory.class);
-        verify(inventoryHistoryRepository, times(1)).save(captor.capture());
-        assertThat(captor.getValue().getChangeType()).isEqualTo(InventoryHistoryChangeType.RETURN);
-    }
-
-    @Test
-    @DisplayName("exchange 신규 예약 실패(available 부족·INV-1) → InventoryInvariantViolationException·ORDER 미기록")
-    void exchange_newReserveViolatesInv1_throws() {
-        Inventory returnInventory = inventory(RETURN_VARIANT_ID, 5, 0, 5);
-        Inventory newInventory = inventory(NEW_VARIANT_ID, 1, 0, 1); // available 1 < 신규 4 → reserve INV-1 위반
-        when(inventoryRepository.findByVariantIdForUpdate(RETURN_VARIANT_ID)).thenReturn(Optional.of(returnInventory));
-        when(inventoryRepository.findByVariantIdForUpdate(NEW_VARIANT_ID)).thenReturn(Optional.of(newInventory));
-
-        assertThatThrownBy(() -> inventoryService.exchange(RETURN_VARIANT_ID, 3, NEW_VARIANT_ID, 4, CLAIM_ID))
-                .isInstanceOf(InventoryInvariantViolationException.class)
-                .hasMessageContaining("불법 재고 예약");
-        // RETURN 1행만·ORDER(delta 음수) 미기록
-        ArgumentCaptor<InventoryHistory> captor = ArgumentCaptor.forClass(InventoryHistory.class);
-        verify(inventoryHistoryRepository, times(1)).save(captor.capture());
-        assertThat(captor.getValue().getChangeType()).isEqualTo(InventoryHistoryChangeType.RETURN);
+        verify(inventoryHistoryRepository, never()).save(any());
     }
 }

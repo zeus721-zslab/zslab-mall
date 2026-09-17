@@ -30,7 +30,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 /**
  * {@link InventoryClaimCompletedHandler} 단위 검증(Mockito·D-101 §3·§5·§6 갱신). CANCEL/RETURN → restoreStock·
- * EXCHANGE → exchange(동일 variant)·History 존재 시 멱등 skip을 커버한다.
+ * EXCHANGE → completeExchange 미경유 방어(IllegalStateException)·History 존재 시 멱등 skip을 커버한다(Track 83 D-177).
  */
 @ExtendWith(MockitoExtension.class)
 class InventoryClaimCompletedHandlerTest {
@@ -61,10 +61,10 @@ class InventoryClaimCompletedHandlerTest {
 
     private Claim claim(ClaimType type) {
         Claim claim = Claim.create(ORDER_ITEM_ID, type, "BUYER_CHANGED_MIND", "단위", SELLER_ID,
-                LocalDateTime.of(2026, 7, 1, 9, 0), OrderItemStatus.DELIVERED);
+                LocalDateTime.of(2026, 7, 1, 9, 0), OrderItemStatus.DELIVERED, type == ClaimType.EXCHANGE ? VARIANT_ID + 1 : null);
         if (type == ClaimType.RETURN) {
             // Track 81-A: RETURN 종결 재고 복구는 검수 PASS·restock=true 전제 — 승인→회수→검수 PASS(restock true)를 도메인 메서드로 재현
-            claim.approve(LocalDateTime.of(2026, 7, 1, 10, 0), null);
+            claim.approve(LocalDateTime.of(2026, 7, 1, 10, 0));
             claim.confirmPickup(LocalDateTime.of(2026, 7, 2, 9, 0));
             claim.passInspection(true, LocalDateTime.of(2026, 7, 2, 10, 0));
         }
@@ -74,7 +74,7 @@ class InventoryClaimCompletedHandlerTest {
     private Claim returnClaimNoRestock() {
         Claim claim = Claim.create(ORDER_ITEM_ID, ClaimType.RETURN, "PRODUCT_DEFECT", "단위", SELLER_ID,
                 LocalDateTime.of(2026, 7, 1, 9, 0), OrderItemStatus.DELIVERED);
-        claim.approve(LocalDateTime.of(2026, 7, 1, 10, 0), null);
+        claim.approve(LocalDateTime.of(2026, 7, 1, 10, 0));
         claim.confirmPickup(LocalDateTime.of(2026, 7, 2, 9, 0));
         claim.passInspection(false, LocalDateTime.of(2026, 7, 2, 10, 0));
         return claim;
@@ -125,13 +125,14 @@ class InventoryClaimCompletedHandlerTest {
     }
 
     @Test
-    @DisplayName("EXCHANGE: exchange(variantId, qty, variantId, qty, claimId) 호출(동일 variant)")
-    void handle_exchange_callsExchange() {
+    @DisplayName("EXCHANGE(Track 83 D-177): 재고는 ClaimExchangeService.completeExchange가 선처리(history 'claim') → 이력 없이 도달하면 데이터 이상·IllegalStateException")
+    void handle_exchange_withoutHistory_throws() {
         stubChain(ClaimType.EXCHANGE);
 
-        handler.handle(event(ClaimType.EXCHANGE));
-
-        verify(inventoryService).exchange(VARIANT_ID, QTY, VARIANT_ID, QTY, CLAIM_ID);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> handler.handle(event(ClaimType.EXCHANGE)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("completeExchange 미경유");
+        verify(inventoryService, never()).commitExchange(anyLong(), anyLong(), anyInt(), org.mockito.ArgumentMatchers.anyBoolean(), anyLong());
     }
 
     @Test
@@ -143,6 +144,6 @@ class InventoryClaimCompletedHandlerTest {
 
         verify(claimRepository, never()).findById(anyLong());
         verify(inventoryService, never()).restoreStock(anyLong(), anyInt(), any(), any(), anyLong());
-        verify(inventoryService, never()).exchange(anyLong(), anyInt(), anyLong(), anyInt(), anyLong());
+        verify(inventoryService, never()).commitExchange(anyLong(), anyLong(), anyInt(), org.mockito.ArgumentMatchers.anyBoolean(), anyLong());
     }
 }
