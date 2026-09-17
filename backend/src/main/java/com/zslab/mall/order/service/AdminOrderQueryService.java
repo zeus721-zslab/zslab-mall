@@ -40,6 +40,7 @@ import com.zslab.mall.refund.enums.RefundStatus;
 import com.zslab.mall.refund.repository.RefundRepository;
 import com.zslab.mall.user.entity.User;
 import com.zslab.mall.user.repository.UserRepository;
+import com.zslab.mall.user.service.AdminMemberQueryService;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -92,6 +93,7 @@ public class AdminOrderQueryService {
     private final AttachmentRepository attachmentRepository;
     private final ClaimExchangeService claimExchangeService;
     private final ObjectMapper objectMapper;
+    private final AdminMemberQueryService adminMemberQueryService;
 
     /**
      * 관리자 주문 목록. keyword는 주문번호 정확일치·주문자 이름/이메일·상품명 부분일치.
@@ -100,9 +102,18 @@ public class AdminOrderQueryService {
      */
     public PagedResponse<AdminOrderSummaryResponse> listOrders(
             String keyword, OrderStatus status, PaymentStatus paymentStatus, DeliveryStatus deliveryStatus,
-            LocalDateTime from, LocalDateTime to, AdminOrderSort sort, int page, int size) {
+            LocalDateTime from, LocalDateTime to, String buyerPublicId, AdminOrderSort sort, int page, int size) {
         if (from != null && to != null && from.isAfter(to)) {
             throw new MalformedRequestException("from은 to보다 늦을 수 없습니다.");
+        }
+        Pageable pageable = PageRequest.of(Math.max(page, 0), clampSize(size), toSort(sort));
+        // Track 84: buyerPublicId(usr_)는 BUYER 회원 id로 해소해 정확 필터한다(AdminMemberQueryService 공유). 미존재·비BUYER는 빈 페이지(404 아님).
+        Long buyerId = null;
+        if (buyerPublicId != null && !buyerPublicId.isBlank()) {
+            buyerId = adminMemberQueryService.findBuyerId(buyerPublicId.trim()).orElse(null);
+            if (buyerId == null) {
+                return PagedResponse.from(Page.empty(pageable));
+            }
         }
         String trimmedKeyword = normalizeKeyword(keyword);
         Specification<Order> specification = Specification
@@ -111,8 +122,8 @@ public class AdminOrderQueryService {
                 .and(AdminOrderSpecifications.status(status))
                 .and(AdminOrderSpecifications.paymentStatus(paymentStatus))
                 .and(AdminOrderSpecifications.deliveryStatus(deliveryStatus))
-                .and(AdminOrderSpecifications.orderedBetween(from, to));
-        Pageable pageable = PageRequest.of(Math.max(page, 0), clampSize(size), toSort(sort));
+                .and(AdminOrderSpecifications.orderedBetween(from, to))
+                .and(AdminOrderSpecifications.buyerId(buyerId));
         Page<Order> orderPage = orderRepository.findAll(specification, pageable);
 
         List<Long> orderIds = orderPage.getContent().stream().map(Order::getId).toList();

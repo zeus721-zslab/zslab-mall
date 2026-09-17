@@ -48,6 +48,10 @@ import com.zslab.mall.settlement.exception.SettlementNotFoundException;
 import com.zslab.mall.settlement.exception.SettlementPeriodInvalidException;
 import com.zslab.mall.user.exception.AddressNotFoundException;
 import com.zslab.mall.user.exception.EmailAlreadyExistsException;
+import com.zslab.mall.user.exception.MemberActivityInProgressException;
+import com.zslab.mall.user.exception.MemberAlreadyWithdrawnException;
+import com.zslab.mall.user.exception.MemberPhoneMissingException;
+import com.zslab.mall.user.exception.TemporaryPasswordDeliveryFailedException;
 import com.zslab.mall.user.exception.UserNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import java.net.URI;
@@ -131,6 +135,10 @@ public class GlobalExceptionHandler {
     private static final String CODE_GRADE_POLICY_UNAVAILABLE = "GRADE_POLICY_UNAVAILABLE";
     private static final String CODE_ROLE_ASSIGNMENT_NOT_FOUND = "ROLE_ASSIGNMENT_NOT_FOUND";
     private static final String CODE_LAST_SUPER_ADMIN = "LAST_SUPER_ADMIN";
+    private static final String CODE_MEMBER_ACTIVITY_IN_PROGRESS = "MEMBER_ACTIVITY_IN_PROGRESS";
+    private static final String CODE_MEMBER_ALREADY_WITHDRAWN = "MEMBER_ALREADY_WITHDRAWN";
+    private static final String CODE_MEMBER_PHONE_MISSING = "MEMBER_PHONE_MISSING";
+    private static final String CODE_TEMPORARY_PASSWORD_DELIVERY_FAILED = "TEMPORARY_PASSWORD_DELIVERY_FAILED";
     private static final String CODE_INTERNAL_ERROR = "INTERNAL_ERROR";
 
     // ===== 400 =====
@@ -402,7 +410,31 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.CONFLICT, CODE_SETTLEMENT_ALREADY_EXISTS, exception.getMessage(), request);
     }
 
+    @ExceptionHandler(MemberActivityInProgressException.class)
+    public ResponseEntity<ProblemDetail> handleMemberActivityInProgress(
+            MemberActivityInProgressException exception, HttpServletRequest request) {
+        // Track 84: 진행 중 주문·활성 클레임 보유 회원 탈퇴 차단(409·셀프·관리자 공통 MemberActivityChecker).
+        log.warn("[Member] 탈퇴 차단(409): {}", exception.getMessage());
+        return build(HttpStatus.CONFLICT, CODE_MEMBER_ACTIVITY_IN_PROGRESS, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(MemberAlreadyWithdrawnException.class)
+    public ResponseEntity<ProblemDetail> handleMemberAlreadyWithdrawn(
+            MemberAlreadyWithdrawnException exception, HttpServletRequest request) {
+        // Track 84: 탈퇴 회원 수정·재탈퇴·임시 비밀번호 발급 차단(409·withdrawn_at 상태 충돌).
+        log.warn("[Member] 탈퇴 회원 처리 차단(409): {}", exception.getMessage());
+        return build(HttpStatus.CONFLICT, CODE_MEMBER_ALREADY_WITHDRAWN, exception.getMessage(), request);
+    }
+
     // ===== 422 =====
+    @ExceptionHandler(MemberPhoneMissingException.class)
+    public ResponseEntity<ProblemDetail> handleMemberPhoneMissing(
+            MemberPhoneMissingException exception, HttpServletRequest request) {
+        // Track 84: 연락처 없는 회원 임시 비밀번호 발급 불가(422·SMS 수신처 부재).
+        log.warn("[Member] 임시 비밀번호 발급 불가·연락처 없음(422): {}", exception.getMessage());
+        return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_MEMBER_PHONE_MISSING, exception.getMessage(), request);
+    }
+
     @ExceptionHandler(PaymentAlreadyCompletedException.class)
     public ResponseEntity<ProblemDetail> handlePaymentAlreadyCompleted(
             PaymentAlreadyCompletedException exception, HttpServletRequest request) {
@@ -525,6 +557,15 @@ public class GlobalExceptionHandler {
         // 무분류 fallback으로 새지 않도록 전용 code로 매핑·운영 진단성 확보(NotFound 404 관례와 구분).
         log.error("[Grade] 활성 등급 정책 미매칭(500): {}", exception.getMessage());
         return build(HttpStatus.INTERNAL_SERVER_ERROR, CODE_GRADE_POLICY_UNAVAILABLE, exception.getMessage(), request);
+    }
+
+    // ===== 502 =====
+    @ExceptionHandler(TemporaryPasswordDeliveryFailedException.class)
+    public ResponseEntity<ProblemDetail> handleTemporaryPasswordDeliveryFailed(
+            TemporaryPasswordDeliveryFailedException exception, HttpServletRequest request) {
+        // Track 84: 임시 비밀번호 SMS 발송 실패(502·외부 채널 오류). 발급 트랜잭션은 롤백돼 기존 비밀번호가 유지된다.
+        log.warn("[Member] 임시 비밀번호 SMS 발송 실패·롤백(502): {}", exception.getMessage());
+        return build(HttpStatus.BAD_GATEWAY, CODE_TEMPORARY_PASSWORD_DELIVERY_FAILED, exception.getMessage(), request);
     }
 
     // ===== 500 (fallback) =====

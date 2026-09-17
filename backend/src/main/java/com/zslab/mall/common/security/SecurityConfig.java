@@ -43,10 +43,10 @@ public class SecurityConfig {
      */
     @Bean
     SecurityFilterChain securityFilterChain(
-            HttpSecurity http, TokenProvider tokenProvider, SecurityErrorHandler securityErrorHandler)
-            throws Exception {
+            HttpSecurity http, TokenProvider tokenProvider, AuthenticatedUserStateVerifier userStateVerifier,
+            SecurityErrorHandler securityErrorHandler) throws Exception {
         JwtAuthenticationFilter jwtAuthenticationFilter =
-                new JwtAuthenticationFilter(tokenProvider, CLAIM_ATTACHMENT_SERVING_MATCHER);
+                new JwtAuthenticationFilter(tokenProvider, userStateVerifier, CLAIM_ATTACHMENT_SERVING_MATCHER);
 
         http.csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))

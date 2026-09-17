@@ -16,7 +16,8 @@ import org.springframework.web.filter.OncePerRequestFilter;
  *
  * <ul>
  *   <li>{@code "Bearer "} 프리픽스 없음(또는 헤더 없음) → 아무것도 하지 않고 체인 통과(익명·permitAll 경로 무영향).
- *   <li>형식 정상 → {@link TokenProvider#verify}로 검증 → {@link JwtAuthenticationToken}으로 감싸 SecurityContext 저장 후 체인 진행.
+ *   <li>형식 정상 → {@link TokenProvider#verify}로 검증 → {@link AuthenticatedUserStateVerifier}로 회원 상태 재확인(Track 84) →
+ *       {@link JwtAuthenticationToken}으로 감싸 SecurityContext 저장 후 체인 진행.
  *   <li>검증 실패({@code BadCredentialsException} 등 AuthenticationException) → 직접 응답을 쓰지 않고 예외를 전파한다.
  * </ul>
  *
@@ -38,10 +39,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private static final String BEARER_PREFIX = "Bearer ";
 
     private final TokenProvider tokenProvider;
+    private final AuthenticatedUserStateVerifier userStateVerifier;
     private final RequestMatcher skipMatcher;
 
-    public JwtAuthenticationFilter(TokenProvider tokenProvider, RequestMatcher skipMatcher) {
+    public JwtAuthenticationFilter(TokenProvider tokenProvider, AuthenticatedUserStateVerifier userStateVerifier,
+            RequestMatcher skipMatcher) {
         this.tokenProvider = tokenProvider;
+        this.userStateVerifier = userStateVerifier;
         this.skipMatcher = skipMatcher;
     }
 
@@ -63,6 +67,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         // verify 실패는 AuthenticationException 전파 → ETF가 authenticationEntryPoint로 401 위임(직접 응답 미작성)
         String token = header.substring(BEARER_PREFIX.length()).trim();
         TokenPayload payload = tokenProvider.verify(token);
+        userStateVerifier.verify(payload); // 삭제·탈퇴·자격증명 갱신 이전 토큰 거부(Track 84·BadCredentials → 동일 401 경로)
         JwtAuthenticationToken authenticated =
                 JwtAuthenticationToken.authenticated(payload.actorId(), payload.role());
         SecurityContext context = SecurityContextHolder.createEmptyContext();

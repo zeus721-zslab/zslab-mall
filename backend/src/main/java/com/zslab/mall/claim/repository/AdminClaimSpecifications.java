@@ -28,6 +28,20 @@ public final class AdminClaimSpecifications {
         return (root, query, builder) -> status == null ? null : builder.equal(root.get("status"), status);
     }
 
+    /** 특정 구매자의 클레임(Track 84·claim → order_item → order.buyer_id 경로·requested_by 미사용). null이면 조건 없음. */
+    public static Specification<Claim> buyerId(Long buyerId) {
+        return (root, query, builder) -> {
+            if (buyerId == null) {
+                return null;
+            }
+            Subquery<Long> items = query.subquery(Long.class);
+            Root<OrderItem> item = items.from(OrderItem.class);
+            items.select(item.get("id"))
+                    .where(builder.equal(item.get("order").get("buyerId"), buyerId));
+            return root.get("orderItemId").in(items);
+        };
+    }
+
     /** 요청일시(requested_at) 범위. from·to 각각 null 허용(포함 경계). */
     public static Specification<Claim> requestedBetween(LocalDateTime from, LocalDateTime to) {
         return (root, query, builder) -> {

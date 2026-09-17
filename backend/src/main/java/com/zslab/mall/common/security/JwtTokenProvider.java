@@ -65,7 +65,12 @@ public class JwtTokenProvider implements TokenProvider {
             if (roleName == null) {
                 throw new BadCredentialsException("role 클레임 누락");
             }
-            return new TokenPayload(actorId, ActorRole.valueOf(roleName));
+            // iat는 자격증명 갱신(credentials_changed_at) 이전 발급 토큰 거부의 기준이라 필수(Track 84). issue()는 항상 심는다.
+            Date issuedAt = claims.getIssuedAt();
+            if (issuedAt == null) {
+                throw new BadCredentialsException("iat 클레임 누락");
+            }
+            return new TokenPayload(actorId, ActorRole.valueOf(roleName), issuedAt.toInstant());
         } catch (JwtException | IllegalArgumentException ex) {
             throw new BadCredentialsException("유효하지 않은 인증 토큰", ex);
         }
