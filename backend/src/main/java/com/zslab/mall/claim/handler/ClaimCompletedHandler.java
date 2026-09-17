@@ -6,19 +6,18 @@ import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.order.service.OrderService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Propagation;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.event.TransactionPhase;
-import org.springframework.transaction.event.TransactionalEventListener;
 
 /**
  * 클레임 종결 이벤트의 OrderItem 종결 핸들러(Track 9 PR-C·D-90 Q4·D-98 Q4). {@link ClaimCompleted}를 받아 클레임 type별
  * 대상 OrderItem을 *_REQUESTED → 종결 상태로 전이하고 Order.status를 재계산한다(state-machine §3 진입: Claim.COMPLETED).
  *
- * <p><b>중첩 AFTER_COMMIT(D-90 Q1·검증 의무)</b>: 발행처 {@code ClaimService.markCompleted}는
- * {@code ClaimRefundCompletedHandler}(AFTER_COMMIT·REQUIRES_NEW) 내부에서 호출된다. 그 REQUIRES_NEW 트랜잭션에서 발행된
- * {@link ClaimCompleted}는 해당 트랜잭션 커밋 후 본 핸들러를 발화한다(AFTER_COMMIT 리스너 내부 신규 트랜잭션 동기화·Spring 표준).
+ * <p><b>실행 시점(D-172·외부 검토 A 동기화)</b>: {@code @EventListener} 동기 소비 — 발행 트랜잭션과 같은 TX에서 실행되며 예외는 그대로
+ * 전파돼 발행 TX(클레임 전이·환불 콜백 등)를 함께 롤백한다(구 AFTER_COMMIT + REQUIRES_NEW + skip 폐기·후속 처리 유실 방지). 대상 행 미발견은
+ * 데이터 불일치라 {@link IllegalStateException}으로 전파하고, 이미 목표 상태인 경우만 멱등 no-op이다.
+ * 발행처 {@code ClaimService.markCompleted}는 환불 콜백 TX({@code ClaimRefundCompletedHandler} 동기) 안에서 호출되므로 Refund COMPLETED·
+ * Claim COMPLETED·품목 종결·재고 복구가 한 트랜잭션으로 묶인다(실패 시 콜백 422 → PG 재전송).
  *
  * <p><b>type 분기·멱등(D-98 Q4)</b>: CANCEL → CANCELLED·RETURN → RETURNED·EXCHANGE → EXCHANGED. 이미 종결 상태이거나
  * 대상 *_REQUESTED 상태가 아니면 no-op이다.
@@ -35,14 +34,11 @@ public class ClaimCompletedHandler {
         this.orderService = orderService;
     }
 
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @EventListener
     public void onClaimCompleted(ClaimCompleted event) {
-        OrderItem orderItem = orderItemRepository.findById(event.orderItemId()).orElse(null);
-        if (orderItem == null) {
-            log.warn("[Claim] ClaimCompleted 소비·주문 품목 미발견: orderItemId={}", event.orderItemId());
-            return;
-        }
+        OrderItem orderItem = orderItemRepository.findById(event.orderItemId())
+                .orElseThrow(() -> new IllegalStateException(
+                        "ClaimCompleted 소비·주문 품목 미발견: orderItemId=" + event.orderItemId()));
         OrderItemStatus requestedStatus = switch (event.claimType()) {
             case CANCEL -> OrderItemStatus.CANCEL_REQUESTED;
             case RETURN -> OrderItemStatus.RETURN_REQUESTED;

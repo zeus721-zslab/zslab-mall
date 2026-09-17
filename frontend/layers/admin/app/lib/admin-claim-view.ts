@@ -1,7 +1,6 @@
 import type { AdminSemantic } from '#layers/admin/app/lib/constants/semantic'
 import { ADMIN_REFUND_STATUS_SEMANTIC } from '#layers/admin/app/lib/constants/admin-order'
 import {
-  CLAIM_INSPECTION_FAIL_REASON_CODES,
   CLAIM_REJECT_MEMO_MAX,
   CLAIM_REJECT_REASON_LABELS,
   claimRejectReasonCodesFor,
@@ -65,23 +64,17 @@ export function inspectionChip(
   return { text: restock ? '검수 합격 · 재입고' : '검수 합격 · 폐기', semantic: 'success' }
 }
 
-/** 검수 불합격 사유 select 항목 — 검수 경로 전용 목록(기본값 INSPECTION_FAILED·일반 거부 목록과 분리). */
-export function inspectFailReasonItems(): { value: ClaimRejectReasonCode; title: string }[] {
-  return CLAIM_INSPECTION_FAIL_REASON_CODES.map((code) => ({ value: code, title: CLAIM_REJECT_REASON_LABELS[code] }))
-}
-
 export interface InspectFormInput {
   result: ClaimInspectionResult | null
   restock: boolean | null
-  reasonCode: ClaimRejectReasonCode | null
   memo: string
   reshipCarrier: AdminDeliveryCarrier | null
   reshipTrackingNo: string
 }
 
 /**
- * 검수 폼 검증(FE-29). BE ClaimInspectRequest 조건부 필수(PASS: restock / FAIL: 사유·재발송 택배사·송장)와 동일 규칙을 제출 전에 적용한다.
- * 송장 규칙은 송장 등록 폼(validateShipmentForm)과 같다(≤100).
+ * 검수 폼 검증(FE-29·D-172). BE ClaimInspectRequest 조건부 필수(PASS: restock / FAIL: 재발송 택배사·송장)와 동일 규칙을 제출 전에 적용한다.
+ * 불합격 사유는 INSPECTION_FAILED 고정이라 입력이 없다. 송장 규칙은 송장 등록 폼(validateShipmentForm)과 같다(≤100).
  */
 export function validateInspectForm(input: InspectFormInput): Record<string, string> {
   const errors: Record<string, string> = {}
@@ -93,7 +86,6 @@ export function validateInspectForm(input: InspectFormInput): Record<string, str
     if (input.restock === null) errors.restock = '재입고 여부를 선택하세요.'
     return errors
   }
-  if (!input.reasonCode) errors.reasonCode = '불합격 사유를 선택하세요.'
   if (input.memo.length > CLAIM_REJECT_MEMO_MAX) errors.memo = `메모는 ${CLAIM_REJECT_MEMO_MAX}자 이하여야 합니다.`
   if (!input.reshipCarrier) errors.reshipCarrier = '재발송 택배사를 선택하세요.'
   const trackingNo = input.reshipTrackingNo.trim()

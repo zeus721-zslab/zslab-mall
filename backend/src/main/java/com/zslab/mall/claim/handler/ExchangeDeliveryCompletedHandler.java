@@ -14,11 +14,8 @@ import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.order.service.OrderService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Propagation;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.event.TransactionPhase;
-import org.springframework.transaction.event.TransactionalEventListener;
 
 /**
  * 교환 배송 완료 이벤트의 Claim·OrderItem 종결 핸들러(D-98 Q5·E5 DeliveryCompleted 비동기 소비).
@@ -35,7 +32,10 @@ import org.springframework.transaction.event.TransactionalEventListener;
  * {@link ClaimService#tryCompleteExchange} 멱등 가드가 자연 차단한다. 차액환불 발생 시에는 Refund.COMPLETED 조건까지
  * 충족돼야 종결하며(D-115 결정3), 미충족이면 no-op 후 환불 완료 이벤트가 마지막 조건을 채운다.
  *
- * <p>{@code @TransactionalEventListener(AFTER_COMMIT)} + {@code @Transactional(REQUIRES_NEW)} — ClaimPickedUpHandler 패턴 1:1.
+ * <p><b>실행 시점(D-172·외부 검토 A 동기화)</b>: {@code @EventListener} 동기 소비 — 발행 트랜잭션과 같은 TX에서 실행되며 예외는 그대로
+ * 전파돼 발행 TX(클레임 전이·환불 콜백 등)를 함께 롤백한다(구 AFTER_COMMIT + REQUIRES_NEW + skip 폐기·후속 처리 유실 방지). 대상 행 미발견은
+ * 데이터 불일치라 {@link IllegalStateException}으로 전파하고, 이미 목표 상태인 경우만 멱등 no-op이다.
+ * 발행처는 {@code DeliveryService.markDelivered} TX(품목 DELIVERED 전이 핸들러와 같은 동기 체인)다.
  */
 @Slf4j
 @Component
@@ -59,8 +59,7 @@ public class ExchangeDeliveryCompletedHandler {
         this.claimService = claimService;
     }
 
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @EventListener
     public void handle(DeliveryCompleted event) {
         if (event.direction() != DeliveryDirection.OUTBOUND) {
             // 반품 회수(RETURN) Delivery는 발송이 아니다(Track 81-A D-170) — 품목·알림·환불 소비처 비대상

@@ -56,6 +56,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 @AutoConfigureMockMvc
 @TestPropertySource(properties = {
         "zslab.order.auto-cancel.enabled=false",
+        "zslab.refund.recovery.enabled=false",
         "zslab.order.expired-cleanup.enabled=false"
 })
 class AdminOrderIntegrationTest extends AbstractIntegrationTest {

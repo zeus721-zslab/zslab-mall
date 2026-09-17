@@ -215,7 +215,7 @@ test.describe('관리자 취소·반품·교환 목록(FE-28)', () => {
     await expect(page.getByTestId('claim-tab-CANCEL')).toHaveAttribute('aria-selected', 'true')
   })
 
-  test('④ FE-29 반품: 회수 확인(확인 다이얼로그 → POST confirm-pickup → info 토스트 → 재조회) / 검수 PASS 재입고 필수 → body{result,restock} / 검수 FAIL 사유 기본 검수 불합격·재발송 송장 필수 → body / 스크린샷', async ({ page }) => {
+  test('④ FE-29 반품: 회수 확인(확인 다이얼로그 → POST confirm-pickup → info 토스트 → 재조회) / 검수 PASS 재입고 필수 → body{result,restock} / 검수 FAIL 사유 검수 불합격 고정·재발송 송장 필수 → body / 스크린샷', async ({ page }) => {
     const captured = await mockClaimsApi(page)
     await loginByDemo(page)
     await page.goto('/admin/orders/claims?type=RETURN')
@@ -252,17 +252,15 @@ test.describe('관리자 취소·반품·교환 목록(FE-28)', () => {
     expect(JSON.parse(captured.posts[postsBefore]!.body)).toEqual({ result: 'PASS', restock: true })
     await expect(dialog).toBeHidden()
 
-    // 검수 FAIL: 사유 기본값 검수 불합격·재발송 택배사/송장 필수 → body
+    // 검수 FAIL: 사유 "검수 불합격" 고정 표기(select 없음·D-172)·재발송 택배사/송장 필수 → body
     await page.getByTestId('row-inspect').click()
     await expect(dialog).toBeVisible()
     await dialog.getByTestId('inspect-result-FAIL').click()
-    await expect(dialog.getByTestId('inspect-reason')).toContainText('검수 불합격')
+    await expect(dialog.getByTestId('inspect-reason')).toContainText('불합격 사유: 검수 불합격')
+    await expect(dialog.locator('.v-select')).toHaveCount(1) // 재발송 택배사만
     await dialog.getByTestId('inspect-dialog-ok').click()
     await expect(dialog.getByTestId('inspect-reship-carrier')).toContainText('재발송 택배사를 선택하세요.')
     await expect(dialog.getByTestId('inspect-reship-tracking-no')).toContainText('재발송 송장번호를 입력하세요.')
-    await dialog.getByTestId('inspect-reason').click()
-    await expect(page.getByRole('option', { name: '이미 발송됨', exact: true })).toHaveCount(0)
-    await page.getByRole('option', { name: '검수 불합격', exact: true }).click()
     await dialog.getByTestId('inspect-memo').locator('textarea').first().fill('사용 흔적')
     await dialog.getByTestId('inspect-reship-carrier').click()
     await page.getByRole('option', { name: '한진택배', exact: true }).click()

@@ -1,6 +1,7 @@
 package com.zslab.mall.claim.handler;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -94,22 +95,22 @@ class ClaimRejectedHandlerTest {
     }
 
     @Test
-    @DisplayName("onClaimRejected: 클레임 미발견 → no-op(재계산 없음)")
-    void onClaimRejected_claimNotFound_noOp() {
+    @DisplayName("onClaimRejected: 클레임 미발견 → IllegalStateException 전파(동기·발행 TX 롤백·D-172)")
+    void onClaimRejected_claimNotFound_throws() {
         when(claimRepository.findById(CLAIM_ID)).thenReturn(Optional.empty());
 
-        handler.onClaimRejected(event(ClaimType.CANCEL));
+        assertThatThrownBy(() -> handler.onClaimRejected(event(ClaimType.CANCEL))).isInstanceOf(IllegalStateException.class);
 
         verify(orderService, never()).recalculateStatus(anyLong());
     }
 
     @Test
-    @DisplayName("onClaimRejected: OrderItem 미발견 → no-op(재계산 없음)")
-    void onClaimRejected_itemNotFound_noOp() {
+    @DisplayName("onClaimRejected: OrderItem 미발견 → IllegalStateException 전파")
+    void onClaimRejected_itemNotFound_throws() {
         when(claimRepository.findById(CLAIM_ID)).thenReturn(Optional.of(mock(Claim.class)));
         when(orderItemRepository.findById(ORDER_ITEM_ID)).thenReturn(Optional.empty());
 
-        handler.onClaimRejected(event(ClaimType.CANCEL));
+        assertThatThrownBy(() -> handler.onClaimRejected(event(ClaimType.CANCEL))).isInstanceOf(IllegalStateException.class);
 
         verify(orderService, never()).recalculateStatus(anyLong());
     }

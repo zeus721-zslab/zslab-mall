@@ -171,11 +171,8 @@ export const CLAIM_REJECT_REASON_LABELS: Record<ClaimRejectReasonCode, string> =
 /** 드롭다운 노출용 거부 사유 코드 목록(정의 순서 유지). INSPECTION_FAILED는 검수 경로 전용이라 일반 거부 목록에서 제외한다. */
 export const CLAIM_REJECT_REASON_CODES: ClaimRejectReasonCode[] = ['ALREADY_SHIPPED', 'OUT_OF_POLICY', 'BUYER_WITHDRAWN', 'OTHER']
 
-/**
- * 검수 불합격(FAIL) 사유 드롭다운 목록(FE-29). BE 검수 경로는 RETURN 적합 사유만 받으며(ALREADY_SHIPPED 제외) INSPECTION_FAILED가 기본값이다.
- * 일반 거부(REQUESTED → REJECTED)에서는 INSPECTION_FAILED가 400이라 {@link CLAIM_REJECT_REASON_CODES}와 분리한다.
- */
-export const CLAIM_INSPECTION_FAIL_REASON_CODES: ClaimRejectReasonCode[] = ['INSPECTION_FAILED', 'OUT_OF_POLICY', 'BUYER_WITHDRAWN', 'OTHER']
+/** 검수 불합격(FAIL) 사유는 INSPECTION_FAILED 고정(D-172 봉인·그 외 BE 400). 일반 거부 목록({@link CLAIM_REJECT_REASON_CODES})과 분리. */
+export const CLAIM_INSPECTION_FAIL_REASON_CODE: ClaimRejectReasonCode = 'INSPECTION_FAILED'
 
 /** 검수 결과 code(BE ClaimInspectionResult 2값·Track 81-A). 미검수는 null. */
 export type ClaimInspectionResult = 'PASS' | 'FAIL'

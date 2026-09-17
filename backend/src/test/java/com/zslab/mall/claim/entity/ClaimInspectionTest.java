@@ -46,13 +46,16 @@ class ClaimInspectionTest {
     }
 
     @Test
-    @DisplayName("failInspection: APPROVED → REJECTED 예외 전이·사유/메모/FAIL 저장 / 사유 누락·부적합(ALREADY_SHIPPED) 400")
+    @DisplayName("failInspection: APPROVED → REJECTED 예외 전이·사유/메모/FAIL 저장 / 사유 누락·INSPECTION_FAILED 외(ALREADY_SHIPPED·OTHER) 400(D-172 봉인)")
     void failInspection_rejectsWithReason() {
         Claim claim = approvedReturn();
         claim.confirmPickup(NOW);
         assertThatThrownBy(() -> claim.failInspection(null, null, NOW)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> claim.failInspection(ClaimRejectReasonCode.ALREADY_SHIPPED, null, NOW))
                 .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> claim.failInspection(ClaimRejectReasonCode.OTHER, "일반 사유로 우회 시도", NOW))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(claim.getStatus()).isEqualTo(ClaimStatus.APPROVED); // 우회 실패 시 상태 불변
 
         claim.failInspection(ClaimRejectReasonCode.INSPECTION_FAILED, "사용 흔적", NOW.plusHours(1));
 
@@ -65,10 +68,20 @@ class ClaimInspectionTest {
     }
 
     @Test
-    @DisplayName("일반 reject는 여전히 APPROVED에서 불가(매트릭스 무변경) / INSPECTION_FAILED는 RETURN 전용")
+    @DisplayName("일반 reject는 여전히 APPROVED에서 불가(매트릭스 무변경) / failInspection 상태 위반(REQUESTED·미회수·CANCEL) 422 / INSPECTION_FAILED는 RETURN 전용")
     void matrixUnchanged_andReasonScope() {
         Claim claim = approvedReturn();
         assertThatThrownBy(() -> claim.reject(ClaimRejectReasonCode.OTHER, null, NOW)).isInstanceOf(ClaimInvalidStateException.class);
+        // D-172 봉인: 상태·유형·회수 조건은 사유가 맞아도 엔티티가 막는다
+        Claim requested = Claim.create(1L, ClaimType.RETURN, "PRODUCT_DEFECT", null, 10L, NOW, OrderItemStatus.DELIVERED);
+        assertThatThrownBy(() -> requested.failInspection(ClaimRejectReasonCode.INSPECTION_FAILED, null, NOW))
+                .isInstanceOf(ClaimInvalidStateException.class);
+        assertThatThrownBy(() -> claim.failInspection(ClaimRejectReasonCode.INSPECTION_FAILED, null, NOW))
+                .isInstanceOf(ClaimInvalidStateException.class); // 미회수
+        Claim cancel = Claim.create(1L, ClaimType.CANCEL, "BUYER_CHANGED_MIND", null, 10L, NOW, OrderItemStatus.PAID);
+        cancel.approve(NOW, null);
+        assertThatThrownBy(() -> cancel.failInspection(ClaimRejectReasonCode.INSPECTION_FAILED, null, NOW))
+                .isInstanceOf(ClaimInvalidStateException.class);
         assertThat(ClaimStatus.APPROVED.canTransitionTo(ClaimStatus.REJECTED)).isFalse();
         assertThat(ClaimRejectReasonCode.INSPECTION_FAILED.isApplicableTo(ClaimType.RETURN)).isTrue();
         assertThat(ClaimRejectReasonCode.INSPECTION_FAILED.isApplicableTo(ClaimType.CANCEL)).isFalse();

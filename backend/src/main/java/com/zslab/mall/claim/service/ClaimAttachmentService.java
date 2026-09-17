@@ -25,7 +25,8 @@ import org.springframework.web.multipart.MultipartFile;
  * 클레임 요청 본문의 attachmentIds로 연결한다. 파일 검증(형식·크기)은 {@link ImageUploadService}를 재사용하고 장수 상한만 본 서비스가 낮춘다.
  *
  * <p><b>소유권·재사용 차단</b>: 요청자가 올린 파일(uploaded_by = buyerId)만 연결할 수 있고, 이미 대상에 연결된 첨부(target_id NOT NULL)는
- * 다시 쓸 수 없다. 미존재·타인·연결됨·중복 id는 모두 400이다(클레임 존재 은닉과 무관한 입력 오류).
+ * 다시 쓸 수 없다. 미존재·타인·연결됨·중복 id는 모두 400이다(클레임 존재 은닉과 무관한 입력 오류). 연결은 {@code target_id IS NULL} 조건부
+ * UPDATE라 동시 재사용도 1건만 성공한다(D-172).
  */
 @Slf4j
 @Service
@@ -100,10 +101,19 @@ public class ClaimAttachmentService {
         return ordered;
     }
 
-    /** 검증된 첨부를 클레임에 순서대로 연결한다. */
-    public void link(List<Attachment> attachments, Long claimId) {
+    /**
+     * 검증된 첨부를 클레임에 순서대로 연결한다(D-172·Q5 조건부 UPDATE). {@link #resolveForLink}가 읽은 시점 이후 다른 요청이 먼저 연결했으면
+     * 영향 행이 0이므로 400을 던져 클레임 생성까지 같은 TX로 롤백한다(같은 첨부로 서로 다른 품목 동시 반품 요청 → 1건만 성공).
+     *
+     * @throws MalformedRequestException 이미 다른 클레임에 연결됐거나 요청자 소유가 아닌 첨부(영향 행 0)
+     */
+    public void link(List<Attachment> attachments, Long claimId, Long buyerId) {
         for (int index = 0; index < attachments.size(); index++) {
-            attachments.get(index).linkTo(claimId, index);
+            Attachment attachment = attachments.get(index);
+            int affected = attachmentRepository.linkIfUnlinked(attachment.getId(), buyerId, claimId, index);
+            if (affected == 0) {
+                throw new MalformedRequestException("이미 다른 클레임에 연결된 첨부입니다: " + attachment.getPublicId());
+            }
         }
     }
 

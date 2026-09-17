@@ -124,19 +124,6 @@ public class Attachment extends AbstractPublicIdSoftDeletableEntity {
         return targetId != null;
     }
 
-    /**
-     * 미연결 첨부를 대상에 연결한다(순서 보존).
-     *
-     * @throws IllegalStateException 이미 연결된 첨부인 경우
-     */
-    public void linkTo(Long targetId, int displayOrder) {
-        if (isLinked()) {
-            throw new IllegalStateException("이미 연결된 첨부입니다: publicId=" + getPublicId());
-        }
-        this.targetId = targetId;
-        this.displayOrder = displayOrder;
-    }
-
     @Override
     protected String getPublicIdPrefix() {
         return "att";

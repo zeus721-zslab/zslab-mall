@@ -4,6 +4,7 @@ import com.zslab.mall.claim.entity.Claim;
 import com.zslab.mall.claim.enums.ClaimStatus;
 import com.zslab.mall.claim.enums.ClaimInspectionResult;
 import com.zslab.mall.claim.enums.ClaimType;
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -32,6 +33,19 @@ public interface ClaimRepository extends JpaRepository<Claim, Long>, JpaSpecific
             + "AND c.status IN (com.zslab.mall.claim.enums.ClaimStatus.REQUESTED, "
             + "com.zslab.mall.claim.enums.ClaimStatus.APPROVED)")
     boolean existsActiveByOrderItemId(@Param("orderItemId") Long orderItemId);
+
+    /**
+     * 환불 누락 클레임(D-172·RefundRecoveryScheduler). 환불이 시작됐어야 하는데 Refund 행이 하나도 없는 클레임 — CANCEL은 승인(processedAt),
+     * RETURN은 검수 PASS(inspectedAt) 후 {@code threshold} 이전. FAILED 행이 있으면 "환불 없음"이 아니라 관리자 재시도 경로라 자연 제외된다.
+     * 모든 변수는 :name 바인딩 사용, SQL injection 위험 없음.
+     */
+    @Query("SELECT c.id FROM Claim c WHERE c.status = com.zslab.mall.claim.enums.ClaimStatus.APPROVED "
+            + "AND NOT EXISTS (SELECT 1 FROM Refund r WHERE r.claimId = c.id) "
+            + "AND ((c.type = com.zslab.mall.claim.enums.ClaimType.CANCEL AND c.processedAt <= :threshold) "
+            + "  OR (c.type = com.zslab.mall.claim.enums.ClaimType.RETURN "
+            + "      AND c.inspectionResult = com.zslab.mall.claim.enums.ClaimInspectionResult.PASS AND c.inspectedAt <= :threshold)) "
+            + "ORDER BY c.id ASC")
+    List<Long> findRefundMissingClaimIds(@Param("threshold") LocalDateTime threshold, Pageable pageable);
 
     /** Buyer 본인 클레임 목록(requested_by 기준·D-54 페이징). */
     Page<Claim> findAllByRequestedBy(Long requestedBy, Pageable pageable);

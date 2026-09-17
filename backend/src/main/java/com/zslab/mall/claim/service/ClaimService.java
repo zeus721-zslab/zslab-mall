@@ -144,7 +144,7 @@ public class ClaimService {
 
         Claim claim = createClaim(resolved.getId(), command.claimType(), command.reasonCode(), command.reasonDetail(),
                 command.buyerId(), command.requestedAt());
-        claimAttachmentService.link(attachments, claim.getId());
+        claimAttachmentService.link(attachments, claim.getId(), command.buyerId());
         return claim;
     }
 
@@ -610,7 +610,7 @@ public class ClaimService {
      *
      * @throws ClaimNotFoundException     클레임이 없는 경우
      * @throws ClaimInvalidStateException type != RETURN·APPROVED 아님·미회수·이미 검수됨·재발송 중복(422)
-     * @throws IllegalArgumentException   PASS인데 restock 누락 / FAIL인데 사유·택배사·송장 누락·사유 부적합(400)
+     * @throws IllegalArgumentException   PASS인데 restock 누락 / FAIL인데 사유·택배사·송장 누락·사유가 INSPECTION_FAILED가 아님(400·D-172)
      */
     public void inspect(Long claimId, ClaimInspectionResult result, Boolean restock, ClaimRejectReasonCode rejectReasonCode,
             String memo, DeliveryCarrier reshipCarrier, String reshipTrackingNo, LocalDateTime inspectedAt) {

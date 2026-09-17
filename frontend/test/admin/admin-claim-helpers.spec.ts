@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest'
 import {
   approveConfirmMessage,
   confirmPickupMessage,
-  inspectFailReasonItems,
   inspectionChip,
   refundStatusChip,
   rejectReasonItems,
@@ -106,22 +105,19 @@ describe('반품 회수·검수 헬퍼(admin-claim-view.ts·FE-29)', () => {
     expect(inspectionChip('FAIL', undefined)).toEqual({ text: '검수 불합격', semantic: 'danger' })
   })
 
-  it('불합격 사유 목록은 INSPECTION_FAILED 첫 항목·ALREADY_SHIPPED 없음 / 일반 거부 목록에는 INSPECTION_FAILED 없음', () => {
-    const items = inspectFailReasonItems()
-    expect(items[0]).toEqual({ value: 'INSPECTION_FAILED', title: '검수 불합격' })
-    expect(items.map((item) => item.value)).not.toContain('ALREADY_SHIPPED')
+  it('일반 거부 목록에는 INSPECTION_FAILED 없음(검수 FAIL 사유는 고정 상수·D-172)', () => {
     expect(rejectReasonItems('RETURN').map((item) => item.value)).not.toContain('INSPECTION_FAILED')
   })
 
-  it('검수 폼: 결과 필수 → PASS는 재입고 필수 → FAIL은 사유·재발송 택배사·송장(≤100) 필수·메모 500', () => {
-    const base = { result: null, restock: null, reasonCode: null, memo: '', reshipCarrier: null, reshipTrackingNo: '' }
+  it('검수 폼: 결과 필수 → PASS는 재입고 필수 → FAIL은 재발송 택배사·송장(≤100) 필수·메모 500(사유 입력 없음)', () => {
+    const base = { result: null, restock: null, memo: '', reshipCarrier: null, reshipTrackingNo: '' }
     expect(validateInspectForm(base)).toEqual({ result: '검수 결과를 선택하세요.' })
     expect(validateInspectForm({ ...base, result: 'PASS' })).toEqual({ restock: '재입고 여부를 선택하세요.' })
     expect(validateInspectForm({ ...base, result: 'PASS', restock: false })).toEqual({})
     const fail = validateInspectForm({ ...base, result: 'FAIL' })
-    expect(Object.keys(fail).sort()).toEqual(['reasonCode', 'reshipCarrier', 'reshipTrackingNo'])
-    expect(validateInspectForm({ ...base, result: 'FAIL', reasonCode: 'INSPECTION_FAILED', reshipCarrier: 'CJ', reshipTrackingNo: ' R-1 ' })).toEqual({})
-    expect(validateInspectForm({ ...base, result: 'FAIL', reasonCode: 'INSPECTION_FAILED', reshipCarrier: 'CJ', reshipTrackingNo: 'x'.repeat(101) }).reshipTrackingNo).toContain('100자')
-    expect(validateInspectForm({ ...base, result: 'FAIL', reasonCode: 'INSPECTION_FAILED', memo: 'm'.repeat(501), reshipCarrier: 'CJ', reshipTrackingNo: 'R' }).memo).toContain('500자')
+    expect(Object.keys(fail).sort()).toEqual(['reshipCarrier', 'reshipTrackingNo'])
+    expect(validateInspectForm({ ...base, result: 'FAIL', reshipCarrier: 'CJ', reshipTrackingNo: ' R-1 ' })).toEqual({})
+    expect(validateInspectForm({ ...base, result: 'FAIL', reshipCarrier: 'CJ', reshipTrackingNo: 'x'.repeat(101) }).reshipTrackingNo).toContain('100자')
+    expect(validateInspectForm({ ...base, result: 'FAIL', memo: 'm'.repeat(501), reshipCarrier: 'CJ', reshipTrackingNo: 'R' }).memo).toContain('500자')
   })
 })

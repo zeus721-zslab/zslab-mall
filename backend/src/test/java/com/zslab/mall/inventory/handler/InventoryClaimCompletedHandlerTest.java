@@ -12,7 +12,6 @@ import com.zslab.mall.claim.enums.ClaimStatus;
 import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.event.ClaimCompleted;
 import com.zslab.mall.claim.repository.ClaimRepository;
-import com.zslab.mall.common.observability.EventMetricsRecorder;
 import com.zslab.mall.inventory.enums.InventoryHistoryChangeType;
 import com.zslab.mall.inventory.repository.InventoryHistoryRepository;
 import com.zslab.mall.inventory.service.InventoryService;
@@ -52,8 +51,6 @@ class InventoryClaimCompletedHandlerTest {
     private InventoryService inventoryService;
     @Mock
     private InventoryHistoryRepository inventoryHistoryRepository;
-    @Mock
-    private EventMetricsRecorder eventMetricsRecorder;
     @InjectMocks
     private InventoryClaimCompletedHandler handler;
 
@@ -103,7 +100,6 @@ class InventoryClaimCompletedHandlerTest {
         handler.handle(event(ClaimType.CANCEL));
 
         verify(inventoryService).restoreStock(VARIANT_ID, QTY, InventoryHistoryChangeType.CANCEL, "claim", CLAIM_ID);
-        verify(eventMetricsRecorder, never()).recordFailed(any());
     }
 
     @Test
@@ -148,6 +144,5 @@ class InventoryClaimCompletedHandlerTest {
         verify(claimRepository, never()).findById(anyLong());
         verify(inventoryService, never()).restoreStock(anyLong(), anyInt(), any(), any(), anyLong());
         verify(inventoryService, never()).exchange(anyLong(), anyInt(), anyLong(), anyInt(), anyLong());
-        verify(eventMetricsRecorder, never()).recordFailed(any());
     }
 }

@@ -8,11 +8,8 @@ import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.order.service.OrderService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Propagation;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.event.TransactionPhase;
-import org.springframework.transaction.event.TransactionalEventListener;
 
 /**
  * 클레임 거절 이벤트의 OrderItem 스냅샷 원복 핸들러(Track 9 PR-C·D-98 Q7·D-90 Q3 의미 변경). {@link ClaimRejected}를 받아
@@ -22,8 +19,10 @@ import org.springframework.transaction.event.TransactionalEventListener;
  * CANCEL_REQUESTED → PAID·PREPARING, RETURN_REQUESTED → SHIPPING·DELIVERED, EXCHANGE_REQUESTED → DELIVERED를 허용하는
  * 신규 전이 매트릭스(D-98 Q7)와 정합한다. D-90 Q3의 PAID 고정 환원(claim-lock release)은 본 결정으로 의미 변경되었다.
  *
- * <p><b>실행 시점·멱등</b>: ClaimRequestedHandler와 동일(AFTER_COMMIT·REQUIRES_NEW). 이미 스냅샷 상태로 복원됐거나
- * 대상 *_REQUESTED 상태가 아니면 no-op이다.
+ * <p><b>실행 시점(D-172·외부 검토 A 동기화)</b>: {@code @EventListener} 동기 소비 — 발행 트랜잭션과 같은 TX에서 실행되며 예외는 그대로
+ * 전파돼 발행 TX(클레임 전이·환불 콜백 등)를 함께 롤백한다(구 AFTER_COMMIT + REQUIRES_NEW + skip 폐기·후속 처리 유실 방지). 대상 행 미발견은
+ * 데이터 불일치라 {@link IllegalStateException}으로 전파하고, 이미 목표 상태인 경우만 멱등 no-op이다.
+ * 검수 불합격(FAIL) 경로는 {@code ClaimService.inspect} TX 안에서 재발송 Delivery 등록과 함께 원복되므로 원복 실패는 검수 요청 실패다.
  */
 @Slf4j
 @Component
@@ -40,19 +39,13 @@ public class ClaimRejectedHandler {
         this.orderService = orderService;
     }
 
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @EventListener
     public void onClaimRejected(ClaimRejected event) {
-        Claim claim = claimRepository.findById(event.claimId()).orElse(null);
-        if (claim == null) {
-            log.warn("[Claim] ClaimRejected 소비·클레임 미발견: claimId={}", event.claimId());
-            return;
-        }
-        OrderItem orderItem = orderItemRepository.findById(event.orderItemId()).orElse(null);
-        if (orderItem == null) {
-            log.warn("[Claim] ClaimRejected 소비·주문 품목 미발견: orderItemId={}", event.orderItemId());
-            return;
-        }
+        Claim claim = claimRepository.findById(event.claimId())
+                .orElseThrow(() -> new IllegalStateException("ClaimRejected 소비·클레임 미발견: claimId=" + event.claimId()));
+        OrderItem orderItem = orderItemRepository.findById(event.orderItemId())
+                .orElseThrow(() -> new IllegalStateException(
+                        "ClaimRejected 소비·주문 품목 미발견: orderItemId=" + event.orderItemId()));
         OrderItemStatus requestedStatus = switch (event.claimType()) {
             case CANCEL -> OrderItemStatus.CANCEL_REQUESTED;
             case RETURN -> OrderItemStatus.RETURN_REQUESTED;

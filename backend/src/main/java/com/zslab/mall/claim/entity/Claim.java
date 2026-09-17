@@ -208,19 +208,23 @@ public class Claim extends AbstractPublicIdFullAuditableEntity {
      * 전이한다. 이 전이는 {@link ClaimStatus#canTransitionTo} 매트릭스 밖의 예외이며 RETURN 검수 경로에서만 허용한다(일반 거부는
      * {@link #reject}·REQUESTED 한정). 품목 원복·재발송은 Service·핸들러 책임이다.
      *
-     * @param reasonCode  거부 사유 코드(필수·RETURN 적합 사유)
+     * <p><b>봉인(D-172·Q1)</b>: 이 예외 전이는 오직 "RETURN·APPROVED·회수 확인 완료·미검수·사유 INSPECTION_FAILED"에서만 열린다. 유형·상태·
+     * 회수·검수 조건은 {@link #requireInspectable}이, 사유는 {@link ClaimRejectReasonCode#INSPECTION_FAILED} 고정 검증이 막는다 — 일반 거부 사유로
+     * APPROVED 클레임을 REJECTED로 보내는 우회 경로를 엔티티 안에서 닫는다.
+     *
+     * @param reasonCode  거부 사유 코드(필수·INSPECTION_FAILED만 허용)
      * @param memo        거부 메모(선택·500자)
      * @param inspectedAt 검수 시각(processedAt으로도 기록)
      * @throws ClaimInvalidStateException type != RETURN·APPROVED 아님·미회수·이미 검수됨
-     * @throws IllegalArgumentException   필수값 누락·사유 부적합·메모 길이 초과
+     * @throws IllegalArgumentException   필수값 누락·사유가 INSPECTION_FAILED가 아님·메모 길이 초과
      */
     public void failInspection(ClaimRejectReasonCode reasonCode, String memo, LocalDateTime inspectedAt) {
         if (reasonCode == null || inspectedAt == null) {
             throw new IllegalArgumentException("failInspection: reasonCode·inspectedAt는 필수입니다.");
         }
-        if (!reasonCode.isApplicableTo(this.type)) {
+        if (reasonCode != ClaimRejectReasonCode.INSPECTION_FAILED) {
             throw new IllegalArgumentException(
-                    "failInspection: 거부 사유 " + reasonCode + "은(는) " + this.type + " 클레임에 사용할 수 없습니다.");
+                    "failInspection: 검수 불합격 사유는 INSPECTION_FAILED만 허용합니다: " + reasonCode);
         }
         if (memo != null && memo.length() > REJECT_MEMO_MAX_LENGTH) {
             throw new IllegalArgumentException("failInspection: 거부 메모는 " + REJECT_MEMO_MAX_LENGTH + "자 이하여야 합니다.");

@@ -10460,3 +10460,42 @@ deploy.yml이 `push main` 무필터라 docs만 변경된 머지에도 서버 SSH
 - 미연결 첨부(target_id NULL·업로드 후 요청 취소/실패) 정리 — 기존 고아 업로드 파일 정리 항목에 합류(배치·보존 기간 동일 결정).
 - 자동 확정 알림(구매자 SMS/알림)·확정 직전 안내 — 운영 피드백 후.
 - FE-29: 반품 요청 화면 사진 업로드 위젯(불량/오배송 시 노출·5장)·상세/관리자 첨부 표시·attachmentCount 칩.
+
+## D-172. 클레임 파이프라인 정합성 보강 — 후속 처리 동기화·환불 멱등·복구 스케줄러·검수 봉인·첨부 조건부 UPDATE (외부 검토 A 반영)
+
+날짜: 2026-09-17
+트랙: Track 81 후속(81-A·81-B·FE-29 PR 1건에 동반)
+검토: 외부 검토 A(약식 자료 review-context.md + 영역별 diff 6) / 지적 5건 중 수용 5건
+브랜치: feat/fe-29-returns
+
+### 배경
+검토 요청서의 전제("AFTER_COMMIT 핸들러가 각자 별도 TX라 부분 실패가 재처리 가능") 자체가 오류였다 — 재처리 주체가 없어 재고 복구·품목 원복이 유실되면 그대로 남았고(Q4·추가 1), 환불 initiate·콜백은 비잠금 exists 게이트라 동시 진입에 2건 생성이 가능했으며(Q2-b·c), 환불 핸들러 실패는 알림만 남기고 복구 경로가 없었다(Q2-a). 검수 불합격 전이는 사유만 RETURN 적합이면 열렸고(Q1), 첨부 연결은 읽은 뒤 UPDATE라 동시 재사용을 막지 못했다(Q5).
+
+### §1-A 결정
+1. **동기화 대상 분류 기준(Q4·추가 1)**: 핸들러가 (a) DB 전이·재고만 다루면 **동기(`@EventListener`)·예외 전파**, (b) PG 등 외부 호출을 포함하면 **커밋 후 유지**(DB TX 안에 외부 호출 금지), (c) 알림은 유지. (a) 5건 전환: ClaimCompletedHandler·ClaimRejectedHandler·ClaimRefundCompletedHandler·InventoryClaimCompletedHandler(try/catch·metrics 흡수 제거)·ExchangeDeliveryCompletedHandler. 대상 행 미발견은 IllegalStateException 전파, 이미 목표 상태만 no-op. 결과: 환불 콜백 1 TX(Refund·Claim·품목·재고)·실패 시 422 → PG 재전송, 검수 FAIL은 요청 실패로 전체 롤백. (b) 유지 3: ClaimApprovedHandler·ClaimInspectionPassedHandler·ExchangeShipmentRefundHandler. payment 패키지(PaymentRefundCompletedHandler)는 범위 밖·미변경.
+2. **환불 시작 유실(Q2-a)**: α 승인 TX에 initiate 동기화 【기각】 — PG 호출이 DB TX 안에 들어가고 PG 지연·장애가 승인 응답을 막는다 / **β 복구 스케줄러 【채택】** — `RefundRecoveryScheduler`(킬스위치 `zslab.refund.recovery.enabled`·10분·100·id별 격리·유예 5분)가 CANCEL 승인·RETURN 검수 PASS 후 Refund 행 0건 클레임에 initiate, `MockRefundPendingRecoveryScheduler`(`@ConditionalOnBean(MockPaymentGateway)`)가 5분 경과 PENDING에 SUCCESS 콜백 재발생. FAILED 보유 클레임은 관리자 재시도 경로(RFN-2)라 제외.
+3. **환불 멱등(Q2-b·c)**: initiate = 클레임 행 `refresh(PESSIMISTIC_WRITE)` → 활성 환불 **잠금 읽기**(`findByClaimIdAndStatusInForUpdate`) → 있으면 기존 행 no-op(응답 규약 유지). 콜백/markCompleted = 환불 행 `refresh(PESSIMISTIC_WRITE)` → 종결이면 이벤트 없이 no-op. 트랩(확정): 클레임 행 락 뒤에도 **비잠금 exists 쿼리는 REPEATABLE READ 스냅샷(TX 첫 읽기)에 묶여** 락 대기 중 커밋된 행을 못 봐 환불 2건이 생겼다 — 잠금 읽기로 교체(T1 실측).
+4. **검수 불합격 봉인(Q1)**: `Claim.failInspection`이 유형 RETURN·APPROVED·회수 확인·미검수(422) + 사유 INSPECTION_FAILED 고정(400)을 전부 검증. FE 검수 다이얼로그는 사유 select를 제거하고 고정 전송(메모에 불합격 근거 안내).
+5. **첨부 동시 재사용(Q5)**: 연결을 `UPDATE attachment SET target_id, display_order WHERE id AND target_id IS NULL AND uploaded_by = :buyer` 조건부 UPDATE(`@Modifying flushAutomatically`)로 바꾸고 영향 행 0이면 400 → 클레임 INSERT까지 같은 TX 롤백(같은 첨부로 다른 품목 동시 요청 → 1건만 성공·T6). `Attachment.linkTo` 삭제.
+- 검토 요청서 배경 전제 오류 기록: "부분 실패 허용·재처리 가능"은 재처리 주체가 없어 성립하지 않았다. D-69·D-75·D-100 Q6의 "각자 별도 트랜잭션·실패 흡수" 서술은 (a) 핸들러에 한해 본 결정으로 폐기.
+- 외부 검토: A / 지적 5건 중 수용 5건 — D-170(검수 전이 봉인·원복 동기화)·D-171(첨부 조건부 UPDATE·자동 확정 무관)·D-172(본 결정) 각각 반영.
+
+### 변경 파일
+- main 신규: refund/scheduler/{RefundRecoveryScheduler,MockRefundPendingRecoveryScheduler} · refund/service/RefundRecoveryService
+- main 수정: claim/handler/{ClaimCompletedHandler,ClaimRejectedHandler,ClaimRefundCompletedHandler,ExchangeDeliveryCompletedHandler} · inventory/handler/InventoryClaimCompletedHandler · refund/service/RefundService(EntityManager·락 게이트·콜백 락) · refund/repository/RefundRepository(+2) · claim/repository/ClaimRepository(환불 누락 JPQL) · claim/entity/Claim(failInspection 봉인) · claim/service/{ClaimService(link 3인자),ClaimAttachmentService(조건부 UPDATE)} · attachment/entity/Attachment(linkTo 삭제) · attachment/repository/AttachmentRepository(linkIfUnlinked)
+- test 신규: claim/integration/ClaimPipelineIntegrationTest(6) / 수정: 핸들러 단위 4(미발견 throws)·InventoryClaimCompletedHandlerTest(metrics 제거)·RefundServiceTest(EntityManager·잠금 게이트)·ClaimInspectionTest(봉인)·ClaimServiceTest(link) · 통합 inventory 시드 4(ClaimExchange·RefundWebhook·AdminDeliveryController·ClaimEvent — 구 흡수 방식에서 재고 행 없이 통과하던 트랩) · 킬스위치 false 6 클래스
+- FE: constants/claim.ts(FAIL 사유 고정 상수)·admin-claim-view.ts·AdminClaimInspectDialog.vue·vitest 2·e2e admin-claims ④
+
+### 검증
+- ClaimPipelineIntegrationTest: T1 동시 initiate 4스레드 환불 1·PG 1회(콜백 재발생 수렴) / T2 동시 SUCCESS 웹훅 4스레드 전부 200·COMPLETED 1·재고 +1·history 1 / T3 inventory 부재 콜백 422·PENDING·APPROVED 유지 → 복구 후 재전송 200 / T4 복구 스케줄러 누락 CANCEL·RETURN PASS initiate·유예 미만 제외·FAILED 제외·Mock PENDING 재발생·재실행 멱등·킬스위치 / T5 사유 OTHER 400·원복 불법 전이 전체 롤백 / T6 첨부 동시 4스레드 201 1건.
+- 전체: ./backend/gradlew.bat test --rerun-tasks 188파일 993 tests·0 fail(987 → 993) · FE typecheck 0 · vitest 36 files 214 · Playwright 36/36(skip 0).
+- 트랩(확정): (1) RR 스냅샷 vs 비잠금 exists(위 3). (2) 통합 테스트 시드 `NOW(6)`(DB 세션 UTC)와 JVM `LocalDateTime.now()`(KST) 혼용 시 분 단위 유예 판정이 9시간 어긋남 — 시각은 JVM 값 바인딩. (3) Mock 자동 콜백(AFTER_COMMIT)이 락 대기 중인 형제 initiate 스레드와 경합하면 PENDING 잔류(흡수) — 복구 스케줄러가 재발생.
+
+### 문서 정정
+- state-machine.md: §2 failInspection 봉인 · §8 동기/커밋 후 구분·복구 스케줄러.
+- decisions-fe.md FE-29: 검수 FAIL 사유 고정 전환 1줄.
+
+### §8 이월
+- 복구 스케줄러 운영 가시성(복구 건수 메트릭·알림) — Observability 트랙.
+- 실 PG 도입 시 MockRefundPendingRecoveryScheduler 제거·PG 웹훅 재전송 정책 확인.
+- 다중 품목 클레임 도입 시 재고 복구 variantId 오름차순 고정(데드락 회피).

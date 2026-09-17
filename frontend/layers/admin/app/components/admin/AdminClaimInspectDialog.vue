@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { CLAIM_REJECT_MEMO_MAX, type ClaimInspectionResult, type ClaimRejectReasonCode } from '~/lib/constants/claim'
+import { CLAIM_INSPECTION_FAIL_REASON_CODE, CLAIM_REJECT_MEMO_MAX, CLAIM_REJECT_REASON_LABELS, type ClaimInspectionResult } from '~/lib/constants/claim'
 import {
   ADMIN_DELIVERY_CARRIER_OPTIONS,
   ADMIN_ORDER_TRACKING_NO_MAX,
   type AdminDeliveryCarrier,
 } from '#layers/admin/app/lib/constants/admin-order'
 import { mapFieldErrors } from '#layers/admin/app/lib/admin-order-view'
-import { inspectFailReasonItems, validateInspectForm } from '#layers/admin/app/lib/admin-claim-view'
+import { validateInspectForm } from '#layers/admin/app/lib/admin-claim-view'
 import { extractErrorCode, toAdminErrorMessage } from '#layers/admin/app/lib/admin-error-message'
 import { useAdminOrders } from '#layers/admin/app/composables/useAdminOrders'
 import { useAdminToast } from '#layers/admin/app/composables/useAdminToast'
@@ -18,7 +18,8 @@ export interface AdminClaimInspectTarget {
 }
 
 /**
- * 반품 검수 다이얼로그(FE-29·Track 81-A D-170). 결과 PASS는 재입고 여부(필수), FAIL은 불합격 사유(기본 검수 불합격)·메모·재발송 택배사·송장(필수).
+ * 반품 검수 다이얼로그(FE-29·Track 81-A D-170·D-172). 결과 PASS는 재입고 여부(필수), FAIL은 사유 "검수 불합격" 고정(입력 없음)·메모(구매자 안내에
+ * 남기는 불합격 근거)·재발송 택배사·송장(필수).
  * 호출·토스트는 다이얼로그가 소유하며 PASS 성공 info(환불 자동 진행)·FAIL 성공 danger 토스트 후 done, 422(회수 전·이미 검수·경합)는 warning 후
  * stale(부모가 다시 읽음), 400은 fieldErrors 표시(AdminClaimRejectDialog 패턴). 처리 중에는 닫기·재제출을 막는다.
  */
@@ -31,7 +32,6 @@ const emit = defineEmits<{ done: []; stale: []; cancel: [] }>()
 const ordersApi = useAdminOrders()
 const toast = useAdminToast()
 
-const DEFAULT_FAIL_REASON: ClaimRejectReasonCode = 'INSPECTION_FAILED'
 const RESULT_OPTIONS: { value: ClaimInspectionResult; label: string }[] = [
   { value: 'PASS', label: '합격 (환불 진행)' },
   { value: 'FAIL', label: '불합격 (재발송)' },
@@ -43,7 +43,6 @@ const RESTOCK_OPTIONS: { value: boolean; label: string }[] = [
 
 const result = ref<ClaimInspectionResult | null>(null)
 const restock = ref<boolean | null>(null)
-const reasonCode = ref<ClaimRejectReasonCode | null>(DEFAULT_FAIL_REASON)
 const memo = ref('')
 const reshipCarrier = ref<AdminDeliveryCarrier | null>(null)
 const reshipTrackingNo = ref('')
@@ -54,12 +53,9 @@ const submitting = ref(false)
 const lastTarget = ref<AdminClaimInspectTarget | null>(null)
 watch(() => props.target, (next) => { if (next) lastTarget.value = next })
 
-const reasonItems = inspectFailReasonItems()
-
 function reset(): void {
   result.value = null
   restock.value = null
-  reasonCode.value = DEFAULT_FAIL_REASON
   memo.value = ''
   reshipCarrier.value = null
   reshipTrackingNo.value = ''
@@ -77,7 +73,7 @@ const confirmDisabled = computed(() => submitting.value || result.value === null
 async function submit(): Promise<void> {
   if (submitting.value || !props.target) return
   const validation = validateInspectForm({
-    result: result.value, restock: restock.value, reasonCode: reasonCode.value, memo: memo.value,
+    result: result.value, restock: restock.value, memo: memo.value,
     reshipCarrier: reshipCarrier.value, reshipTrackingNo: reshipTrackingNo.value,
   })
   errors.value = validation
@@ -91,7 +87,7 @@ async function submit(): Promise<void> {
     } else {
       await ordersApi.inspectClaim(props.target.claimId, {
         result: 'FAIL',
-        rejectReasonCode: reasonCode.value ?? DEFAULT_FAIL_REASON,
+        rejectReasonCode: CLAIM_INSPECTION_FAIL_REASON_CODE,
         memo: memo.value.trim() || undefined,
         reshipCarrier: reshipCarrier.value ?? undefined,
         reshipTrackingNo: reshipTrackingNo.value.trim(),
@@ -158,19 +154,13 @@ async function submit(): Promise<void> {
         </template>
 
         <template v-else-if="result === 'FAIL'">
-          <v-select
-            :model-value="reasonCode"
-            :items="reasonItems"
-            label="불합격 사유"
-            :error-messages="errors.reasonCode ? [errors.reasonCode] : []"
-            :disabled="submitting"
-            class="mb-2"
-            data-testid="inspect-reason"
-            @update:model-value="(value) => { reasonCode = value ?? null; clearError('reasonCode') }"
-          />
+          <p class="text-body-2 mb-2" data-testid="inspect-reason">
+            불합격 사유: <span class="font-weight-medium">{{ CLAIM_REJECT_REASON_LABELS[CLAIM_INSPECTION_FAIL_REASON_CODE] }}</span>
+            <span class="text-medium-emphasis"> — 구매자에게 사유가 안내됩니다. 불합격 근거(사용 흔적·파손 등)는 메모에 남기세요.</span>
+          </p>
           <v-textarea
             v-model="memo"
-            label="메모 (선택)"
+            label="메모 (선택·불합격 근거)"
             rows="2"
             auto-grow
             :maxlength="CLAIM_REJECT_MEMO_MAX"

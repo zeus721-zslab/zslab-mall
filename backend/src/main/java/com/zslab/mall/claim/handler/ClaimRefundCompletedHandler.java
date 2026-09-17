@@ -8,19 +8,18 @@ import com.zslab.mall.claim.service.ClaimService;
 import com.zslab.mall.refund.event.RefundCompleted;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Propagation;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.event.TransactionPhase;
-import org.springframework.transaction.event.TransactionalEventListener;
 
 /**
  * 환불 완료 이벤트의 Claim 종결 소비 핸들러(Track 5·expected-spec §7·D-69). {@link RefundCompleted}를 받아
  * Claim.type=CANCEL이고 APPROVED인 클레임을 COMPLETED로 전이한다.
  *
- * <p><b>실행 시점(D-69·CR-06)</b>: {@code @TransactionalEventListener(phase = AFTER_COMMIT)}로 Refund UPDATE 커밋 후 진입한다.
- * AFTER_COMMIT 시점은 원 트랜잭션이 이미 완료된 상태라 기본 전파(REQUIRES)는 쓰기가 커밋되지 않는다 → {@code REQUIRES_NEW}로
- * 별도 트랜잭션을 명시한다(D-69 "각자 별도 트랜잭션"·D-75). 부분 실패가 허용되며(재처리 가능) 핸들러는 자체 멱등성을 보장한다.
+ * <p><b>실행 시점(D-172·외부 검토 A 동기화)</b>: {@code @EventListener} 동기 소비 — 발행 트랜잭션과 같은 TX에서 실행되며 예외는 그대로
+ * 전파돼 발행 TX(클레임 전이·환불 콜백 등)를 함께 롤백한다(구 AFTER_COMMIT + REQUIRES_NEW + skip 폐기·후속 처리 유실 방지). 대상 행 미발견은
+ * 데이터 불일치라 {@link IllegalStateException}으로 전파하고, 이미 목표 상태인 경우만 멱등 no-op이다.
+ * 발행처는 {@code RefundService.handleCallback}(SUCCESS) TX이며, 본 핸들러가 호출하는 {@code markCompleted}의 {@code ClaimCompleted}도
+ * 같은 TX에서 동기 소비된다(품목 종결·재고 복구). 구 "각자 별도 트랜잭션"(D-69) 방식은 D-172로 폐기.
  *
  * <p><b>type 분기(D-98 Q4·Q2·D-115 결정3)</b>: CANCEL·RETURN은 Refund.COMPLETED 콜백으로 Claim.COMPLETED 전이한다(RETURN은
  * 수거 확인 후 ClaimPickedUpHandler가 환불을 트리거함). EXCHANGE는 차액 발생 시(refundAmount&gt;0) Refund.COMPLETED가
@@ -39,14 +38,10 @@ public class ClaimRefundCompletedHandler {
         this.claimService = claimService;
     }
 
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @EventListener
     public void onRefundCompleted(RefundCompleted event) {
-        Claim claim = claimRepository.findById(event.claimId()).orElse(null);
-        if (claim == null) {
-            log.warn("[Claim] RefundCompleted 소비·클레임 미발견: claimId={}", event.claimId());
-            return;
-        }
+        Claim claim = claimRepository.findById(event.claimId())
+                .orElseThrow(() -> new IllegalStateException("RefundCompleted 소비·클레임 미발견: claimId=" + event.claimId()));
         if (claim.getType() == ClaimType.EXCHANGE) {
             // EXCHANGE 차액환불(D-115 결정3): 차액 발생 시 Refund.COMPLETED가 종결 조건(3)이므로 수렴 판정을 시도한다.
             // 수거 확인·교환 배송 완료가 선행됐으면 여기서 종결하고, 아니면 no-op(배송 완료 이벤트가 마지막 조건을 채움).

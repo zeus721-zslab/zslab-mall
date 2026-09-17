@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   CLAIM_ATTACHMENT_MAX,
-  CLAIM_INSPECTION_FAIL_REASON_CODES,
+  CLAIM_INSPECTION_FAIL_REASON_CODE,
   CLAIM_REJECT_REASON_CODES,
   CLAIM_REJECT_REASON_LABELS,
   RETURN_REASON_CODES,
@@ -44,11 +44,10 @@ describe('claimableTypes / 반품 사유(claim.ts)', () => {
 })
 
 describe('거부 사유 INSPECTION_FAILED(claim.ts)', () => {
-  it('라벨 "검수 불합격"·일반 거부 목록 4값 유지·검수 FAIL 목록은 INSPECTION_FAILED가 첫 항목', () => {
+  it('라벨 "검수 불합격"·일반 거부 목록 4값 유지·검수 FAIL 사유는 INSPECTION_FAILED 고정(D-172)', () => {
     expect(CLAIM_REJECT_REASON_LABELS.INSPECTION_FAILED).toBe('검수 불합격')
     expect(CLAIM_REJECT_REASON_CODES).toEqual(['ALREADY_SHIPPED', 'OUT_OF_POLICY', 'BUYER_WITHDRAWN', 'OTHER'])
-    expect(CLAIM_INSPECTION_FAIL_REASON_CODES[0]).toBe('INSPECTION_FAILED')
-    expect(CLAIM_INSPECTION_FAIL_REASON_CODES).not.toContain('ALREADY_SHIPPED')
+    expect(CLAIM_INSPECTION_FAIL_REASON_CODE).toBe('INSPECTION_FAILED')
   })
 
   it('일반 거부 드롭다운에서 INSPECTION_FAILED는 유형 무관 제외(BE 일반 reject 400)', () => {

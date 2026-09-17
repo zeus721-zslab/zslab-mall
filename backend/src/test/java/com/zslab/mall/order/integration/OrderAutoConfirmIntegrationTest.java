@@ -59,6 +59,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 @TestPropertySource(properties = {
         "zslab.order.auto-confirm.enabled=false",
         "zslab.order.auto-cancel.enabled=false",
+        "zslab.refund.recovery.enabled=false",
         "zslab.order.expired-cleanup.enabled=false"
 })
 class OrderAutoConfirmIntegrationTest extends AbstractIntegrationTest {

@@ -1,6 +1,7 @@
 package com.zslab.mall.claim.handler;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -77,11 +78,11 @@ class ClaimCompletedHandlerTest {
     }
 
     @Test
-    @DisplayName("onClaimCompleted: OrderItem 미발견 → no-op(재계산 없음)")
-    void onClaimCompleted_itemNotFound_noOp() {
+    @DisplayName("onClaimCompleted: OrderItem 미발견 → IllegalStateException 전파(동기·발행 TX 롤백·D-172)")
+    void onClaimCompleted_itemNotFound_throws() {
         when(orderItemRepository.findById(ORDER_ITEM_ID)).thenReturn(Optional.empty());
 
-        handler.onClaimCompleted(event(ClaimType.CANCEL));
+        assertThatThrownBy(() -> handler.onClaimCompleted(event(ClaimType.CANCEL))).isInstanceOf(IllegalStateException.class);
 
         verify(orderService, never()).recalculateStatus(anyLong());
     }

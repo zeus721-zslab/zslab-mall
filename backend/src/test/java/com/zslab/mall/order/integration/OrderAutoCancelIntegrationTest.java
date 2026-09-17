@@ -31,7 +31,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * 책임이며 본 테스트는 cancelOne의 status 가드·종료·재고 해제만 검증하므로 order created_at은 NOW로 시드한다(tz 무관).
  */
 @RecordApplicationEvents
-@TestPropertySource(properties = "zslab.order.auto-cancel.enabled=false")
+@TestPropertySource(properties = {"zslab.order.auto-cancel.enabled=false", "zslab.refund.recovery.enabled=false"})
 class OrderAutoCancelIntegrationTest extends AbstractIntegrationTest {
 
     private static final long USER_ID = 9801L;
