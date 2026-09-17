@@ -10580,6 +10580,6 @@ deploy.yml이 `push main` 무필터라 docs만 변경된 머지에도 서버 SSH
 
 ### §8 이월
 - **인가 파일 서빙(보안 트랙 최우선)**: 클레임 첨부 GET을 본인·관리자·해당 셀러로 한정(signed URL 또는 인증 서빙 + FE `<img>` 토큰 전달).
-- 계정별 rate limit(gateway nginx `limit_req`·업로드 엔드포인트).
+- 계정별 rate limit(gateway nginx `limit_req`·업로드 엔드포인트). multipart 전역 한도 220MB(20장×10MB)는 구매자 경로(5장×5MB)에도 그대로 적용된다 — 구매자 경로 요청 본문 제한은 nginx 경로별 `client_max_body_size` 설정으로.
 - 원본 재인코딩(EXIF 제거·orientation 정규화).
 - 고아 상품 이미지 정리(soft-delete 이미지 물리 삭제·D-166 9).

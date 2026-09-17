@@ -2,8 +2,10 @@
 import { CLAIM_ATTACHMENT_MAX } from '~/lib/constants/claim'
 import {
   CLAIM_ATTACHMENT_ACCEPT_ATTRIBUTE,
+  CLAIM_ATTACHMENT_MAX_MB,
   precheckClaimAttachments,
   uploadItemErrorMessage,
+  uploadRequestErrorMessage,
 } from '~/lib/utils/claim-attachment'
 
 /** 업로드 완료된 첨부(요청 body attachmentIds 순서 = 배열 순서). */
@@ -16,7 +18,7 @@ export interface ClaimAttachedPhoto {
 
 /**
  * 반품 사진 첨부 입력(FE-29·사용자 영역·무채색 톤). 파일 선택 즉시 업로드해 attachmentId를 확보하고(BE 2단계 계약·D-171), 부모는 v-model로
- * 완료 목록만 받는다. 삭제는 목록에서만 제거한다(미연결 첨부 정리는 BE 이월 항목). 사전 검증(형식·10MB·5장)은 순수 함수로 분리했다.
+ * 완료 목록만 받는다. 삭제는 목록에서만 제거한다(미연결 첨부는 BE 정리 배치가 24시간 후 지운다·D-174). 사전 검증(형식·5MB·5장)은 순수 함수로 분리했다.
  */
 const props = defineProps<{
   modelValue: ClaimAttachedPhoto[]
@@ -63,8 +65,7 @@ async function addFiles(files: File[]): Promise<void> {
     if (added.length > 0) emit('update:modelValue', [...props.modelValue, ...added])
   } catch (uploadError) {
     // 413(용량)·400(장수)·401 등 요청 단위 실패: 파일별이 아니라 묶음 실패로 안내한다(.catch(()=>{}) 금지).
-    const statusCode = (uploadError as { statusCode?: number }).statusCode
-    const reason = statusCode === 413 ? '파일당 10MB를 초과합니다.' : '사진 업로드에 실패했습니다. 잠시 후 다시 시도하세요.'
+    const reason = uploadRequestErrorMessage(uploadError)
     failures.value.push(...accepted.map((file) => ({ fileName: file.name, reason })))
   } finally {
     uploading.value = false
@@ -110,7 +111,7 @@ function remove(index: number): void {
     <Button type="button" variant="outline" size="sm" :disabled="disabled || uploading || remaining <= 0" data-testid="claim-attachment-add" @click="openPicker">
       {{ uploading ? '업로드 중…' : remaining <= 0 ? '최대 장수 도달' : '사진 추가' }}
     </Button>
-    <p class="text-xs text-sub">jpg·png·webp · 파일당 10MB · 최대 {{ CLAIM_ATTACHMENT_MAX }}장. 상품 불량·오배송 확인에 사용됩니다.</p>
+    <p class="text-xs text-sub">jpg·png·webp · 파일당 {{ CLAIM_ATTACHMENT_MAX_MB }}MB · 최대 {{ CLAIM_ATTACHMENT_MAX }}장. 상품 불량·오배송 확인에 사용됩니다.</p>
 
     <ul v-if="failures.length > 0" role="alert" class="space-y-0.5 text-xs text-soldout" data-testid="claim-attachment-failures">
       <li v-for="(failure, index) in failures" :key="`${failure.fileName}-${index}`">{{ failure.fileName }}: {{ failure.reason }}</li>
