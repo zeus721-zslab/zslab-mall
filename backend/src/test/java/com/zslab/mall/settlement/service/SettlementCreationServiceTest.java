@@ -9,6 +9,7 @@ import com.zslab.mall.settlement.exception.SettlementPeriodInvalidException;
 import com.zslab.mall.settlement.repository.SettlementRepository;
 import jakarta.persistence.Query;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -193,6 +194,17 @@ class SettlementCreationServiceTest extends Batch1DataJpaTestBase {
         assertThatThrownBy(() -> settlementCreationService.createMonthlySettlements(2026, 0))
             .isInstanceOf(SettlementPeriodInvalidException.class);
         assertThatThrownBy(() -> settlementCreationService.createMonthlySettlements(2026, 13))
+            .isInstanceOf(SettlementPeriodInvalidException.class);
+    }
+
+    @Test
+    @DisplayName("createMonthlySettlements: 진행 중 월(오늘 포함)·다음 달 → SettlementPeriodInvalidException(마감 전 생성 차단·D-168 보충)")
+    void createMonthlySettlements_periodNotClosed_throws() {
+        YearMonth current = YearMonth.now();
+        assertThatThrownBy(() -> settlementCreationService.createMonthlySettlements(current.getYear(), current.getMonthValue()))
+            .isInstanceOf(SettlementPeriodInvalidException.class);
+        YearMonth next = current.plusMonths(1);
+        assertThatThrownBy(() -> settlementCreationService.createMonthlySettlements(next.getYear(), next.getMonthValue()))
             .isInstanceOf(SettlementPeriodInvalidException.class);
     }
 

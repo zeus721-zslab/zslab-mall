@@ -13,6 +13,7 @@ import com.zslab.mall.settlement.entity.Settlement;
 import com.zslab.mall.settlement.exception.SettlementAlreadyExistsException;
 import com.zslab.mall.settlement.exception.SettlementPeriodInvalidException;
 import com.zslab.mall.settlement.repository.SettlementRepository;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.util.ArrayList;
@@ -69,7 +70,7 @@ public class SettlementCreationService {
      * @param year  정산 연도(2000~2100)
      * @param month 정산 월(1~12)
      * @return 요청 기간과 생성된 Settlement 목록
-     * @throws SettlementPeriodInvalidException year/month가 유효 범위 밖인 경우(400)
+     * @throws SettlementPeriodInvalidException year/month가 유효 범위 밖이거나 기간이 아직 마감되지 않은(말일 ≥ 오늘) 경우(400)
      * @throws SettlementAlreadyExistsException 선확인 통과 후 UNIQUE 위반(동시 실행 레이스)인 경우(409)
      */
     public SettlementBatchResult createMonthlySettlements(int year, int month) {
@@ -78,6 +79,12 @@ public class SettlementCreationService {
                     "정산 기간이 유효하지 않습니다. year=" + year + "(2000~2100)·month=" + month + "(1~12).");
         }
         YearMonth yearMonth = YearMonth.of(year, month);
+        // 검수 2단계(D-168 보충): 마감 전(진행 중·미래) 기간은 집계가 확정되지 않았으므로 생성을 거부한다(재집계·조정 기능 없음).
+        // 기준일은 JVM 기본 시간대(운영·로컬 모두 Asia/Seoul)의 오늘이며, 말일이 오늘 이전이어야 마감된 기간이다.
+        if (!yearMonth.atEndOfMonth().isBefore(LocalDate.now())) {
+            throw new SettlementPeriodInvalidException(
+                    "마감되지 않은 정산 기간입니다(진행 중·미래): " + yearMonth + " — 말일이 지난 뒤 생성할 수 있습니다.");
+        }
         LocalDateTime periodStart = yearMonth.atDay(1).atStartOfDay();
         LocalDateTime periodEnd = yearMonth.atEndOfMonth().atTime(23, 59, 59, 999_999_000);
 

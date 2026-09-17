@@ -10318,6 +10318,12 @@ deploy.yml이 `push main` 무필터라 docs만 변경된 머지에도 서버 SSH
 - **§8 이월(보충·FE-27 정찰 실측 2026-09-16)**: 실 PG 도입 시 결제·환불 웹훅 서명 검증 필수. 현재 `POST /api/webhooks/payments`·`/api/webhooks/refunds`는 SecurityConfig `/api/webhooks/**` permitAll이며 Controller·Request DTO에 서명(HMAC)·타임스탬프·nonce 검증이 없다(MOCK_PG 전제·사용자 FE `payment/mock.vue`가 브라우저에서 직접 호출). 이 상태로 운영에 실 PG를 연결하면 `paymentAttemptKey`/`pgRefundId`를 아는 누구나 결제 완료·환불 완료를 위조해 주문 상태·재고(commitReservation·restoreStock)를 조작할 수 있다. 실 PG 전환 트랙에서 (1) PG 서명 헤더 검증 필터 (2) 모의 결제 페이지·모의 콜백 경로의 `local`·`test` 프로필 게이트 (3) 관리자 "환불 완료 모의"(FE-27 α·미채택) 도입 시 동일 게이트를 함께 처리한다. FE-27 §1-A 참조(decisions-fe.md).
 - **§8 이월(보충·FE-27 보강 2 2026-09-16)**: 실 PG 도입 시 콜백 시각 오프셋 기준 KST 변환 필수 — `PaymentCallbackRequest.occurredAt`은 오프셋 없는 LocalDateTime을 KST 벽시계로 그대로 저장(`payment.paid_at`·`orders.paid_at`)하므로 PG가 UTC·Z·+00:00 등으로 보내면 어댑터에서 Asia/Seoul로 변환한 뒤 넘겨야 한다(모의 콜백은 FE `toKstLocalDateTime`으로 정렬 완료·실왕복 paidAt−orderedAt=0.6s 확인). 기존 −9h 저장 행 보정은 승인 후 별도.
 
+### D-168 보충 — 사후 검수 2단계(외부 검토 A) 결과·정산 마감 전 생성 차단 (2026-09-17)
+- **외부 검토(사후 2단계)**: A / 지적 5건 중 기각 1건(정산 확정 이후 환불 재반영·조정 기능 — 재집계·조정 기능은 추가하지 않고 **마감 전 기간 생성 차단**으로 대응)·해소 확인 2건(관리자 결제 후 취소의 환불 initiate 유실은 D-172 `RefundRecoveryScheduler`(CANCEL·RETURN) 복구 대상 / 관리자 미결제 취소 vs 결제 콜백 경합은 D-173 Order 행 X 락으로 422·409 택1)·통과 2건(송장 등록 OrderItem refresh X → 활성 클레임 가드 / 경로 hasRole·셀러 소유 검증 Service 진입부).
+- **정산 기간 검증 추가(STEP 271 수행)**: `SettlementCreationService.createMonthlySettlements`는 year/month 범위만 검사하고 진행 중·미래 월도 생성 가능했다(호출 주체 = 관리자 API 단일·스케줄러 없음). 말일이 오늘(JVM 기본 시간대 Asia/Seoul) 이전이 아니면 기존 `SettlementPeriodInvalidException`(400 SETTLEMENT_PERIOD_INVALID) 재사용으로 거부한다. 재집계·조정·Flyway 없음. 근거: Settlement는 생성 시점 스냅샷이며 조정 경로가 없으므로, 확정 전 gross·refund가 계속 변하는 기간의 생성 자체를 막는 것이 최소 변경이다.
+- 검증: SettlementCreationServiceTest +1(진행 중 월·다음 달 예외) · AdminSettlementControllerIntegrationTest +T3b(진행 중 월 400) · 기존 2026-06 정산 테스트(지난 월) 회귀 0 · 전체 `./backend/gradlew.bat test --rerun-tasks` 189파일 1002 tests·0 fail(1000 → 1002).
+- 변경 파일: settlement/service/SettlementCreationService(기간 마감 가드) / test SettlementCreationServiceTest·AdminSettlementControllerIntegrationTest.
+
 ## D-169. 배송 전 취소 흐름 BE — 거부 사유·송장 가드·Mock 환불 자동 완료·SMS 알림·관리자 클레임 목록 (Track 80)
 
 날짜: 2026-09-16
