@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 주문 단건 응답(§11 seller 그룹화 + #6 shippingAddress 포함). 식별자 전부 public_id·내부 BIGINT 미노출.
@@ -27,6 +28,16 @@ public record OrderResponse(
             Map<Long, Product> productById,
             Map<Long, ProductVariant> variantById,
             Map<Long, Seller> sellerById) {
+        return fromOrderWithItems(order, productById, variantById, sellerById, Set.of());
+    }
+
+    /** {@link #fromOrderWithItems(Order, Map, Map, Map)} + 교환 완료 품목 id 집합(Track 83 D-177 보충·exchangeCompleted). */
+    public static OrderResponse fromOrderWithItems(
+            Order order,
+            Map<Long, Product> productById,
+            Map<Long, ProductVariant> variantById,
+            Map<Long, Seller> sellerById,
+            Set<Long> exchangeCompletedItemIds) {
         // seller_id 단위 그룹화(삽입 순서 보존). 단일 판매자도 배열 길이 1.
         Map<Long, List<OrderItem>> itemsBySeller = new LinkedHashMap<>();
         for (OrderItem item : order.getItems()) {
@@ -50,7 +61,8 @@ public record OrderResponse(
                         item.getUnitPrice(),
                         item.getTotalPrice(),
                         item.getOptionLabel(),
-                        StatusView.of(item.getItemStatus())));
+                        StatusView.of(item.getItemStatus()),
+                        exchangeCompletedItemIds.contains(item.getId())));
                 subtotal += item.getTotalPrice();
             }
             sellers.add(new SellerGroupResponse(

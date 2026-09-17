@@ -35,7 +35,7 @@ import com.zslab.mall.support.AbstractIntegrationTest;
  *
  * <p><b>Track 20 확장(D-104)</b>: 배송 완료 endpoint {@code POST /api/v1/admin/deliveries/{deliveryPublicId}/mark-delivered}
  * 3건(T4 401·T5 200 교환 배송 SHIPPING→DELIVERED + AFTER_COMMIT 체인·T6 404). wrapper {@code markDeliveredByAdmin} → primitive
- * {@code markDelivered} → E5 DeliveryCompleted → {@code ExchangeDeliveryCompletedHandler}(OrderItem EXCHANGED·Claim COMPLETED)까지 실 커밋 구동한다.
+ * {@code markDelivered} → E5 DeliveryCompleted → {@code ExchangeDeliveryCompletedHandler}(OrderItem DELIVERED 복귀·Claim COMPLETED)까지 실 커밋 구동한다.
  *
  * <p><b>트랜잭션</b>: DeliveryStarted 동기 소비·AFTER_COMMIT 알림 핸들러를 실 커밋으로 구동하므로 클래스에 {@code @Transactional}을
  * 두지 않는다. 시드/정리는 {@link TransactionTemplate} + {@code FOREIGN_KEY_CHECKS=0}(LT-02 try-finally), 검증은
@@ -169,7 +169,7 @@ class AdminDeliveryControllerIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("T5 성공: 유효 X-Admin-Id + SHIPPING 교환 배송 → 200·DELIVERED 커밋·OrderItem EXCHANGED·Claim COMPLETED·DeliveryCompleted 1회")
+    @DisplayName("T5 성공: 유효 X-Admin-Id + SHIPPING 교환 배송 → 200·DELIVERED 커밋·OrderItem DELIVERED 복귀·Claim COMPLETED·DeliveryCompleted 1회")
     void markDelivered_validAdmin_shippingExchangeDelivery_returns200_completesChain() throws Exception {
         seed(() -> {
             seedCatalog();
@@ -190,8 +190,8 @@ class AdminDeliveryControllerIntegrationTest extends AbstractIntegrationTest {
 
         // 동기 응답: Delivery SHIPPING → DELIVERED 커밋(재조회로 stale 회피 검증)
         assertThat(deliveryStatus()).isEqualTo("DELIVERED");
-        // AFTER_COMMIT 체인(ExchangeDeliveryCompletedHandler): claim_id SET → OrderItem EXCHANGED·Claim COMPLETED
-        assertThat(orderItemStatus()).isEqualTo("EXCHANGED");
+        // AFTER_COMMIT 체인(ExchangeDeliveryCompletedHandler): claim_id SET → OrderItem DELIVERED 복귀·Claim COMPLETED
+        assertThat(orderItemStatus()).isEqualTo("DELIVERED"); // D-177 결정 1(α): 교환 완료 → DELIVERED 복귀
         assertThat(claimStatus()).isEqualTo("COMPLETED");
         // E5 DeliveryCompleted 발행 1회
         assertThat(events.stream(DeliveryCompleted.class).count()).isEqualTo(1L);
@@ -258,10 +258,19 @@ class AdminDeliveryControllerIntegrationTest extends AbstractIntegrationTest {
 
     /** APPROVED·picked_up_at 설정 클레임 시드(type 파라미터화·SellerDeliveryIntegrationTest seedApprovedClaim 1:1). */
     private void seedApprovedClaim(ClaimType type) {
+        // Track 83 D-177: 교환품 발송 가드(검수 PASS)·종결(예약 확정·옵션 갱신) 전제를 EXCHANGE 시드에 함께 채운다(같은 variant·예약 1).
+        boolean exchange = type == ClaimType.EXCHANGE;
         jdbc.update("INSERT INTO claim (id, public_id, order_item_id, type, reason_code, status, "
-                        + "previous_order_item_status, picked_up_at, created_at, updated_at) "
-                        + "VALUES (?, ?, ?, ?, 'PRODUCT_DEFECT', 'APPROVED', 'DELIVERED', NOW(6), NOW(6), NOW(6))",
-                CLAIM_ID, CLAIM_PID, ORDER_ITEM_ID, type.name());
+                        + "previous_order_item_status, picked_up_at, inspected_at, inspection_result, restock, "
+                        + "exchange_variant_id, original_variant_id, exchange_reserved_at, created_at, updated_at) "
+                        + "VALUES (?, ?, ?, ?, 'PRODUCT_DEFECT', 'APPROVED', 'DELIVERED', NOW(6), ?, ?, ?, ?, ?, ?, NOW(6), NOW(6))",
+                CLAIM_ID, CLAIM_PID, ORDER_ITEM_ID, type.name(),
+                exchange ? java.time.LocalDateTime.now() : null, exchange ? "PASS" : null, exchange ? 1 : null,
+                exchange ? VARIANT_ID : null, exchange ? VARIANT_ID : null, exchange ? java.time.LocalDateTime.now() : null);
+        if (exchange) {
+            jdbc.update("UPDATE inventory SET quantity_reserved = quantity_reserved + 1, quantity_available = quantity_available - 1 "
+                    + "WHERE variant_id = ?", VARIANT_ID);
+        }
     }
 
     /** SHIPPING 교환 배송 시드(claim_id SET·shipped_at NOW(6)·DLV-3 정합·markDelivered 진입 상태·ClaimExchangeIntegrationTest 패턴 1:1). */

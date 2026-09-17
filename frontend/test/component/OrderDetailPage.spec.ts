@@ -87,4 +87,19 @@ describe('pages/orders/[orderPublicId].vue 클레임 진입 버튼(FE-29)', () =
     expect(buttons.filter((text) => text === '교환 요청')).toHaveLength(1)
     expect(buttons.filter((text) => text === '취소 요청')).toHaveLength(0)
   })
+
+  it('교환 완료 품목(exchangeCompleted) → 교환 요청 버튼 숨김·반품 요청 버튼 유지(FE-30-4)', async () => {
+    useOrderDetailMock.mockReturnValue({
+      data: ref(orderWith([
+        orderItem({ orderItemId: 'oit_2', productName: '교환 완료 상품', status: { code: 'DELIVERED', label: '배송완료' }, exchangeCompleted: true }),
+      ])),
+      pending: ref(false),
+      error: ref(null),
+      refresh: vi.fn(),
+    })
+    const wrapper = await mountSuspended(OrderDetailPage)
+    const buttons = wrapper.findAll('button').map((button) => button.text())
+    expect(buttons.filter((text) => text === '반품 요청')).toHaveLength(1)
+    expect(buttons.filter((text) => text === '교환 요청')).toHaveLength(0)
+  })
 })

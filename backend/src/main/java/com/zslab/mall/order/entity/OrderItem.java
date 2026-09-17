@@ -168,6 +168,24 @@ public class OrderItem extends AbstractPublicIdFullAuditableEntity {
     }
 
     /**
+     * 교환 완료 시 품목의 옵션을 교환 옵션으로 바꾼다(Track 83 D-177 결정 2 γ). 같은 상품·같은 가격 옵션만 교환하므로 productId·unitPrice·
+     * totalPrice는 불변이고 variantId·optionLabel만 갱신한다. 원 옵션은 claim.original_variant_id에 남는다.
+     *
+     * @throws IllegalStateException    EXCHANGE_REQUESTED가 아닌 품목
+     * @throws IllegalArgumentException variantId 누락
+     */
+    public void applyExchange(Long exchangeVariantId, String exchangeOptionLabel) {
+        if (exchangeVariantId == null) {
+            throw new IllegalArgumentException("applyExchange: exchangeVariantId는 필수입니다.");
+        }
+        if (itemStatus != OrderItemStatus.EXCHANGE_REQUESTED) {
+            throw new IllegalStateException("교환 옵션 반영은 EXCHANGE_REQUESTED 품목에서만 가능합니다: " + itemStatus);
+        }
+        this.variantId = exchangeVariantId;
+        this.optionLabel = exchangeOptionLabel;
+    }
+
+    /**
      * 결제 완료 처리(ORDERED → PAID). 동기화 규칙 [1]에서 {@link Order#markPaid} 경유로 호출된다.
      */
     public void markPaid() {

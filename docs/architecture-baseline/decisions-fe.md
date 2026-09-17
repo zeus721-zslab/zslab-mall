@@ -1540,3 +1540,24 @@ FE-13 §8(:701) 이월 "[버그·백로그] BUYER 페이지에서 로그아웃 �
 
 ### FE-29 보충 — 업로드 한도·문구 D-174 동기화 (2026-09-17·검수 4단계)
 - 구매자 첨부 사전 검증 파일당 5MB(`CLAIM_ATTACHMENT_MAX_MB` 1곳·`CLAIM_ATTACHMENT_MAX` 5장 유지)·파일별 코드 `IMAGE_TOO_LARGE`(해상도 8,000px 안내·사용자/관리자 공통 문구)·요청 단위 400은 `uploadRequestErrorMessage`(BE detail "연결되지 않은 첨부" 부분 일치 → 미연결 20장 안내·전용 코드 없음). 관리자 드롭존 20장·10MB 무변경. 검증: typecheck 0 · vitest 36 files 215 · Playwright 36/36 · 픽셀 12장 0px(fe-29 대비).
+
+## FE-30: 교환 화면 — 사용자 옵션 선택·7단 타임라인 · 관리자 교환 발송·배송완료·옵션 라벨 (2026-09-17)
+
+정찰 `docs/frontend/recon-report-track83.md` · BE 계약 Track 83 D-177(f68a47ff) + 본 트랙 BE 추가형 필드 1건(exchangeCompleted·cf0a26cc) · 브랜치 `feat/track-83-exchange`.
+
+### §1-A 갈림길·채택/기각 근거
+1. 교환 옵션 후보 소스(Q1): α **주문 상세 → `/claims/new` query에 `product·variant·unitPrice` 추가 + `useProductDetail`(SALE variant만) FE 필터(같은 판매가·품절 제외·현재 옵션 제외) — 채택** / β `/claims/new`에서 주문 재조회 — 기각(주문 pid까지 query 필요·조회 1회 추가) / γ BE "교환 가능 옵션" 엔드포인트 — 기각(커밋된 BE 계약 확대·규칙 보장은 이미 BE 422가 담당). 같은 가격 기준은 BE `ClaimExchangeService.validateExchangeOption`(교환 옵션 현재 판매가 base+additional == order_item.unit_price)과 동일하게 `variant.salePrice === 주문 unitPrice`.
+2. 교환 타임라인(Q2): α 반품 6단 재사용(끝 "교환품 배송") — 기각 → **β 7단(신청→승인→회수→검수→교환품 발송→배송완료→완료) — 채택**. 회수는 회수 송장 등록~회수 확인, 교환품 발송 시각은 `reshipment.shippedAt`, 배송완료는 `reshipment.deliveredAt`, 검수 불합격은 4단 종결.
+3. 관리자 교환 발송 UI 위치(Q3): α **목록 전용(회수 확인·검수와 동일) — 채택** / β 주문 상세에도 추가 — 기각(상세는 표기만·기존 `AdminMarkDeliveredDialog`가 교환 OUTBOUND를 품목 배송으로 받아 배송완료는 무수정 동작).
+4. 교환 완료 품목의 교환 버튼(Q4): α 422 문구만 — 단독 기각 → **β BE `OrderItemResponse.exchangeCompleted`(추가형·D-177 보충)로 버튼 숨김 + 422 문구 매핑 병행 — 채택**. 반품 버튼은 유지.
+
+### §2 확정 구현 규칙
+- 데이터: `constants/claim.ts` `claimableTypes(status, exchangeCompleted)`·`isPickupBasedClaimType`·`claimReasonCodesFor`(RETURN·EXCHANGE 3종)·`isClaimAttachmentAllowed`(RETURN·EXCHANGE + 불량·오배송) / `utils/claim-exchange-options.ts`(`exchangeOptionCandidates`·`variantOptionLabel` — BE OptionLabelResolver와 같은 "그룹: 값 / …" 형식) / `utils/claim-request-error.ts` 교환 422 8종(재교환 "이미 교환한 상품은 다시 교환할 수 없습니다.")·400 교환 옵션 / `utils/claim-timeline.ts` EXCHANGE 7단 / 타입 `ClaimRequestBody.exchangeVariantId`·`ClaimDetail.exchangeOptionLabel·originalOptionLabel`·`OrderItem.exchangeCompleted`.
+- 사용자: `pages/orders/[orderPublicId].vue`(EXCHANGE query 확장·exchangeCompleted 버튼 숨김) · `pages/claims/new.vue`(교환 query 검증·`useProductDetail(pid, { immediate })` 조건부 조회·radio 후보·로딩/실패(재시도)/판매중지/0건 상태·미선택 제출 불가·body `exchangeVariantId`·문구 "같은 가격의 다른 옵션으로만 교환됩니다") · `pages/claims/[claimPublicId].vue`(교환 옵션 행·회수 안내 분기·"교환품 배송 송장") · `composables/useProductDetail.ts` `immediate` 옵션(기본 true·기존 동작 보존).
+- 관리자: 타입 `AdminClaimAction +REGISTER_EXCHANGE_SHIPMENT·MARK_EXCHANGE_DELIVERED`·라벨 2필드 / `lib/constants/admin-claim.ts`(신규·`ADMIN_CLAIM_ACTION_LABEL`) / `AdminClaimTable` 옵션 캡션(`row-exchange-option`)·버튼 2 / `AdminExchangeShipmentDialog`(신규·검수 FAIL 재발송 폼 패턴·400 fieldErrors·422 stale) / `claims/index.vue` 배선·배송완료 `AdminConfirmDialog` → 기존 `markDelivered(reshipment.deliveryPublicId)` / `useAdminOrders +registerExchangeShipment`·승인 주석 정정(refundAmount 폐기) / `admin-claim-view` 승인 문구(교환 재고 예약 안내)·`confirmPickupMessage(type)`·`inspectPassLabel/Toast`·`validateExchangeShipmentForm` / `AdminClaimInspectDialog` target.claimType 분기 / 주문 상세 클레임 행 옵션 라벨. 재고 부족 승인 422는 기존 `toAdminErrorMessage` warning toast(BE detail 그대로).
+- 검증(실측): BE `--rerun-tasks` 193파일 1031 tests 0 fail(1030 → +1 T14) · typecheck 0 · vitest 36 files 221 tests(+6: claim-return 3·admin-claim-helpers 1·OrderDetailPage 1·exchange-options 2 → 반영분) · Playwright 40/40 skip 0(+4: claims ④⑤⑥·admin-claims ⑤·ADMIN_E2E_* 런타임 주입) · 픽셀 생략(baseline 12장 = home·products·product-detail·login·cart·mypage·클레임·관리자 화면 없음·영향 0) · 로컬 브라우저 실측(실 API): 교환 신청(후보 "색상: 화이트 / 사이즈: L" 1건·미선택 제출 불가) → 관리자 승인(재고 예약 안내·reserved 1·스냅샷 "색상: 블랙 / 사이즈: L") → 구매자 회수 송장(교환 안내 문구) → 회수 확인 → 검수 PASS("합격 (교환품 발송 대기)") → 교환품 발송(옵션 표기) → 배송완료 → 구매자 상세 7단 완료·"교환품 배송 송장"·주문 상세 교환 버튼 0·반품 버튼 1·품목 옵션 "색상: 화이트 / 사이즈: L"·DB claim COMPLETED·reserved 0·이력 ORDER −1/RETURN +1.
+- 트랩: (1) Nuxt 4 `useFetch` `error` 초기값은 `undefined` — `!== null` 비교로 차단 판정하면 항상 true. `status === 'error'`로 판정. (2) `immediate: false`면 `pending` 초기값이 버전별로 달라 `status === 'pending'`으로 판정. (3) Playwright `page.goto`는 SSR fetch가 route mock을 거치지 않아 상태를 바꾼 재진입은 별도 테스트(새 컨텍스트·데모 로그인 리다이렉트)로 분리(claims.spec ⑥).
+
+### §8 이월
+- 교환 옵션 후보를 서버가 계산하는 엔드포인트(γ) — FE 필터와 BE 규칙이 어긋나는 사례가 생기면.
+- 관리자 주문 상세의 교환 발송 chip("교환 발송"·현재 `isReshipment`는 RETURN FAIL만).

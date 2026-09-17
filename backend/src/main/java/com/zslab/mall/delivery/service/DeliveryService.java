@@ -1,6 +1,8 @@
 package com.zslab.mall.delivery.service;
 
 import com.zslab.mall.claim.entity.Claim;
+import com.zslab.mall.claim.enums.ClaimType;
+import com.zslab.mall.claim.enums.ClaimStatus;
 import com.zslab.mall.claim.exception.ClaimInvalidStateException;
 import com.zslab.mall.claim.exception.ClaimNotFoundException;
 import com.zslab.mall.claim.repository.ClaimRepository;
@@ -81,7 +83,7 @@ public class DeliveryService {
      * <p>흐름: ClaimApproved(EXCHANGE) → ClaimPickedUp(E11) → 본 메서드 → 배송 완료 시
      * {@code ExchangeDeliveryCompletedHandler}가 OrderItem EXCHANGED·Claim COMPLETED로 종결한다.
      *
-     * @param claimId    교환 클레임 id (EXCHANGE·APPROVED·pickedUpAt != null 가정)
+     * @param claimId    교환 클레임 id (EXCHANGE·APPROVED·검수 PASS 선행·Track 83 D-177 가드)
      * @param carrier    택배사
      * @param trackingNo 운송장번호 (NOT NULL·{@link Delivery#markShipping} 검증)
      * <p>Q11 멱등 가드: 동일 claimId 재호출 시 {@link ClaimInvalidStateException}을 던진다(422). 첫 출고 등록만 보장하며
@@ -99,6 +101,12 @@ public class DeliveryService {
 
         Claim claim = claimRepository.findById(claimId)
                 .orElseThrow(() -> new ClaimNotFoundException("클레임을 찾을 수 없습니다: claimId=" + claimId));
+        // Track 83 D-177: 교환품 발송은 회수·검수 PASS 이후에만(그 외 422). 유형 검증은 아래 attachExchangeDelivery가 맡는다.
+        if (claim.getType() == ClaimType.EXCHANGE
+                && (claim.getStatus() != ClaimStatus.APPROVED || !claim.isInspectionPassed())) {
+            throw new ClaimInvalidStateException("교환품 발송은 검수 합격한 승인 교환에서만 등록할 수 있습니다: status="
+                    + claim.getStatus() + " inspection=" + claim.getInspectionResult());
+        }
 
         Delivery delivery = Delivery.create(claim.getOrderItemId(), carrier);
         deliveryRepository.save(delivery); // delivery.id 발급(attachExchangeDelivery 인자 요건)

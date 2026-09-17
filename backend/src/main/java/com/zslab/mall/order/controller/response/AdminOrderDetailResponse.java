@@ -45,12 +45,13 @@ public record AdminOrderDetailResponse(
      * Track 80(D-169) 추가: rejectReasonCode·rejectMemo(거부 전 null)·refundStatus(최신 환불 상태·환불 미생성 시 null).
      * Track 81-A(D-170) 추가: 반품 회수 송장(returnCarrier·returnTrackingNo)·pickedUpAt·검수 결과(inspectionResult)·재입고(restock).
      * Track 81-B(D-171) 추가: attachmentUrls(반품 사진 URL·순서 보존·없으면 빈 목록).
+     * Track 83(D-177) 추가: originalOptionLabel·exchangeOptionLabel(EXCHANGE 원/교환 옵션 라벨·비교환 null).
      */
     public record ClaimRow(String claimId, String type, String status, String reasonCode, String reasonDetail,
             Long requestedBy, LocalDateTime requestedAt, LocalDateTime processedAt, boolean approvable,
             String rejectReasonCode, String rejectMemo, String refundStatus,
             String returnCarrier, String returnTrackingNo, LocalDateTime pickedUpAt, String inspectionResult, Boolean restock,
-            List<String> attachmentUrls) {
+            List<String> attachmentUrls, String originalOptionLabel, String exchangeOptionLabel) {
     }
 
     public record CancelReason(String reasonCode, String reasonDetail, Long actorUserId, String actorRole,

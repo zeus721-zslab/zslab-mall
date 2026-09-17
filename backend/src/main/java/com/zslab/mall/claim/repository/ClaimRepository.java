@@ -56,6 +56,12 @@ public interface ClaimRepository extends JpaRepository<Claim, Long>, JpaSpecific
     /** 동일 품목에 검수 불합격(FAIL) 이력이 있는지(Track 81-A D-170 보충·반품 재요청 차단). 파생 쿼리 바인딩. */
     boolean existsByOrderItemIdAndTypeAndInspectionResult(Long orderItemId, ClaimType type, ClaimInspectionResult inspectionResult);
 
+    /** 동일 품목에 유형 무관 검수 불합격(FAIL) 이력이 있는지(Track 83 D-177·반품·교환 재요청 차단). 파생 쿼리 바인딩. */
+    boolean existsByOrderItemIdAndInspectionResult(Long orderItemId, ClaimInspectionResult inspectionResult);
+
+    /** 동일 품목에 특정 유형·상태 클레임이 있는지(Track 83 D-177 결정 11·EXCHANGE COMPLETED = 재교환 차단). 파생 쿼리 바인딩. */
+    boolean existsByOrderItemIdAndTypeAndStatus(Long orderItemId, ClaimType type, ClaimStatus status);
+
     /** 관리자 목록 처리 대기 건수(Track 80 D-169·유형 전체). */
     long countByStatus(ClaimStatus status);
 

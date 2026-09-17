@@ -7,8 +7,12 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.zslab.mall.claim.entity.Claim;
+import com.zslab.mall.claim.enums.ClaimType;
+import com.zslab.mall.claim.repository.ClaimRepository;
 import com.zslab.mall.claim.event.ClaimInspectionPassed;
 import com.zslab.mall.notification.service.NotificationService;
+import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.payment.gateway.PaymentGatewayException;
@@ -39,8 +43,18 @@ class ClaimInspectionPassedHandlerTest {
     private OrderItemRepository orderItemRepository;
     @Mock
     private NotificationService notificationService;
+    @Mock
+    private ClaimRepository claimRepository;
     @InjectMocks
     private ClaimInspectionPassedHandler handler;
+
+    @org.junit.jupiter.api.BeforeEach
+    void stubReturnClaim() {
+        // Track 83 D-177: 핸들러가 클레임 유형(RETURN만 환불)을 행에서 판정한다
+        Claim claim = Claim.create(ORDER_ITEM_ID, ClaimType.RETURN, "PRODUCT_DEFECT", null, 1L,
+                LocalDateTime.of(2026, 9, 17, 9, 0), OrderItemStatus.DELIVERED);
+        org.mockito.Mockito.lenient().when(claimRepository.findById(CLAIM_ID)).thenReturn(Optional.of(claim));
+    }
 
     private static ClaimInspectionPassed event() {
         return new ClaimInspectionPassed(CLAIM_ID, "clm_x", ORDER_ITEM_ID, true, LocalDateTime.of(2026, 9, 17, 10, 0));
@@ -48,6 +62,18 @@ class ClaimInspectionPassedHandlerTest {
 
     private static OrderItem orderItem() {
         return OrderItem.create(1L, 1L, 1L, "상품", 1, TOTAL_PRICE, TOTAL_PRICE);
+    }
+
+    @Test
+    @DisplayName("EXCHANGE 검수 PASS → 환불 미개시(교환품 발송 대기·D-177)")
+    void handle_exchange_skipsRefund() {
+        Claim exchange = Claim.create(ORDER_ITEM_ID, ClaimType.EXCHANGE, "PRODUCT_DEFECT", null, 1L,
+                LocalDateTime.of(2026, 9, 17, 9, 0), OrderItemStatus.DELIVERED, 2L);
+        when(claimRepository.findById(CLAIM_ID)).thenReturn(Optional.of(exchange));
+
+        handler.handle(event());
+
+        verify(refundService, org.mockito.Mockito.never()).initiate(org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyLong());
     }
 
     @Test

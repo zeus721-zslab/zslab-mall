@@ -27,11 +27,14 @@ public record ClaimRequestRequest(
         /** 반품 사진 첨부 id(att_·선택·최대 5·Track 81-B). 허용 조건(RETURN·불량/오배송)·소유권은 Service가 검증한다. */
         @Size(max = 5, message = "attachmentIds는 최대 5개입니다.")
         List<@Pattern(regexp = "^att_[0-9A-Z]{26}$", message = "attachmentId 형식이 올바르지 않습니다(att_ + ULID 26자).") String>
-                attachmentIds) {
+                attachmentIds,
+        /** 교환 옵션 variant public id(var_·Track 83 D-177). EXCHANGE 필수·그 외 유형 지정 불가(Service 검증). */
+        @Pattern(regexp = "^var_[0-9A-Z]{26}$", message = "exchangeVariantId 형식이 올바르지 않습니다(var_ + ULID 26자).")
+        String exchangeVariantId) {
 
     /** 헤더 유래 buyerId·서버 시각 requestedAt과 결합해 Service Command로 변환한다(D-41·publicId는 Service에서 해소). */
     public ClaimRequestCommand toCommand(Long buyerId, LocalDateTime requestedAt) {
         return new ClaimRequestCommand(orderItemPublicId, claimType, reasonCode, reasonDetail, buyerId, requestedAt,
-                attachmentIds == null ? List.of() : attachmentIds);
+                attachmentIds == null ? List.of() : attachmentIds, exchangeVariantId);
     }
 }

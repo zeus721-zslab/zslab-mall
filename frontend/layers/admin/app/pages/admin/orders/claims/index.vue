@@ -3,6 +3,7 @@ import { mdiAlertCircleOutline, mdiSwapHorizontal } from '@mdi/js'
 import type { AdminClaimListQuery, AdminClaimSummary } from '#layers/admin/app/types/admin-claim'
 import type { AdminClaimRejectTarget } from '#layers/admin/app/components/admin/AdminClaimRejectDialog.vue'
 import type { AdminClaimInspectTarget } from '#layers/admin/app/components/admin/AdminClaimInspectDialog.vue'
+import type { AdminExchangeShipmentTarget } from '#layers/admin/app/components/admin/AdminExchangeShipmentDialog.vue'
 import { CLAIM_TYPE_LABELS, claimTypeLabel, type ClaimType } from '~/lib/constants/claim'
 import {
   DEFAULT_ADMIN_CLAIM_QUERY,
@@ -151,7 +152,7 @@ const pickupTarget = ref<AdminClaimSummary | null>(null)
 const pickupBusy = ref(false)
 const inspectTarget = ref<AdminClaimInspectTarget | null>(null)
 
-const pickupMessage = computed(() => (pickupTarget.value ? confirmPickupMessage(pickupTarget.value.productName ?? '') : ''))
+const pickupMessage = computed(() => (pickupTarget.value ? confirmPickupMessage(pickupTarget.value.productName ?? '', pickupTarget.value.type) : ''))
 
 async function runConfirmPickup(): Promise<void> {
   const target = pickupTarget.value
@@ -180,12 +181,57 @@ async function runConfirmPickup(): Promise<void> {
 }
 
 function openInspect(item: AdminClaimSummary): void {
-  inspectTarget.value = { claimId: item.claimId, productName: item.productName ?? '' }
+  inspectTarget.value = { claimId: item.claimId, productName: item.productName ?? '', claimType: item.type }
 }
 
 function closeInspect(refresh: boolean): void {
   inspectTarget.value = null
   if (refresh) void load()
+}
+
+// ---------- 교환 행 액션(FE-30·D-177): 교환품 발송(송장 다이얼로그) · 배송완료(확인 다이얼로그 → 기존 markDelivered) ----------
+const exchangeShipmentTarget = ref<AdminExchangeShipmentTarget | null>(null)
+const exchangeDeliveredTarget = ref<AdminClaimSummary | null>(null)
+const exchangeDeliveredBusy = ref(false)
+
+function openExchangeShipment(item: AdminClaimSummary): void {
+  exchangeShipmentTarget.value = { claimId: item.claimId, productName: item.productName ?? '', exchangeOptionLabel: item.exchangeOptionLabel ?? null }
+}
+
+function closeExchangeShipment(refresh: boolean): void {
+  exchangeShipmentTarget.value = null
+  if (refresh) void load()
+}
+
+const exchangeDeliveredMessage = computed(() => exchangeDeliveredTarget.value
+  ? `교환 요청 (${exchangeDeliveredTarget.value.productName ?? ''})의 교환품 배송을 완료 처리합니다.\n완료 시 품목이 교환 옵션으로 바뀌고 배송완료 상태로 돌아갑니다.`
+  : '')
+
+async function runMarkExchangeDelivered(): Promise<void> {
+  const target = exchangeDeliveredTarget.value
+  const deliveryId = target?.reshipment?.deliveryPublicId
+  if (!target || !deliveryId || exchangeDeliveredBusy.value) return
+  exchangeDeliveredBusy.value = true
+  pendingIds.value = new Set(pendingIds.value).add(target.claimId)
+  try {
+    await ordersApi.markDelivered(deliveryId)
+    toast.info('교환품 배송완료 처리했습니다.')
+    exchangeDeliveredTarget.value = null
+    await load()
+  } catch (error) {
+    exchangeDeliveredTarget.value = null
+    if (extractErrorCode(error) === 'CLAIM_STATE_INVALID' || extractErrorCode(error) === 'DELIVERY_INVALID_STATE') {
+      toast.warning(toAdminErrorMessage(error))
+      await load()
+    } else {
+      toast.danger(toAdminErrorMessage(error))
+    }
+  } finally {
+    exchangeDeliveredBusy.value = false
+    const next = new Set(pendingIds.value)
+    next.delete(target.claimId)
+    pendingIds.value = next
+  }
 }
 </script>
 
@@ -234,6 +280,8 @@ function closeInspect(refresh: boolean): void {
         @reject="openReject"
         @confirm-pickup="(item) => (pickupTarget = item)"
         @inspect="openInspect"
+        @register-exchange-shipment="openExchangeShipment"
+        @mark-exchange-delivered="(item) => (exchangeDeliveredTarget = item)"
       >
         <template #empty>
           <div class="d-flex flex-column align-center text-center py-10" data-testid="admin-claim-empty">
@@ -287,6 +335,23 @@ function closeInspect(refresh: boolean): void {
       @done="closeInspect(true)"
       @stale="closeInspect(true)"
       @cancel="closeInspect(false)"
+    />
+    <AdminExchangeShipmentDialog
+      :open="exchangeShipmentTarget !== null"
+      :target="exchangeShipmentTarget"
+      @done="closeExchangeShipment(true)"
+      @stale="closeExchangeShipment(true)"
+      @cancel="closeExchangeShipment(false)"
+    />
+    <AdminConfirmDialog
+      :open="exchangeDeliveredTarget !== null"
+      :loading="exchangeDeliveredBusy"
+      title="교환품 배송완료"
+      :message="exchangeDeliveredMessage"
+      confirm-label="배송완료"
+      data-testid="exchange-delivered-dialog"
+      @confirm="runMarkExchangeDelivered"
+      @cancel="exchangeDeliveredTarget = null"
     />
   </div>
 </template>

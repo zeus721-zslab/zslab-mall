@@ -164,8 +164,8 @@ class InventoryEventIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("T4-EXCHANGE ClaimCompleted(E9·EXCHANGE) → exchange(동일 variant) → on_hand 순증감 상쇄·History RETURN+ORDER 2행")
-    void claimCompleted_exchange_restoresAndReships() {
+    @DisplayName("T4-EXCHANGE(Track 83 D-177) ClaimCompleted(EXCHANGE)가 재고 이력 없이 도달 → completeExchange 미경유 데이터 이상·IllegalStateException·on_hand 불변·History 0")
+    void claimCompleted_exchange_withoutHistory_throws() {
         seed(() -> {
             seedCatalog();
             seedInventory(8, 0, 8);
@@ -174,12 +174,13 @@ class InventoryEventIntegrationTest extends AbstractIntegrationTest {
             seedClaim(ClaimType.EXCHANGE, OrderItemStatus.DELIVERED);
         });
 
-        publishInTx(new ClaimCompleted(CLAIM_ID, CLAIM_PID, ORDER_ITEM_ID, ClaimType.EXCHANGE, ClaimStatus.COMPLETED, LocalDateTime.now()));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> publishInTx(new ClaimCompleted(
+                        CLAIM_ID, CLAIM_PID, ORDER_ITEM_ID, ClaimType.EXCHANGE, ClaimStatus.COMPLETED, LocalDateTime.now())))
+                .isInstanceOf(IllegalStateException.class);
 
-        // 동일 variant 회수(+qty)·재발송(-qty) 상쇄 → on_hand 불변, History 2행
         assertThat(onHand()).isEqualTo(8);
-        assertThat(historyCount("claim", CLAIM_ID, "RETURN")).isEqualTo(1);
-        assertThat(historyCount("claim", CLAIM_ID, "ORDER")).isEqualTo(1);
+        assertThat(historyCount("claim", CLAIM_ID, "RETURN")).isZero();
+        assertThat(historyCount("claim", CLAIM_ID, "ORDER")).isZero();
     }
 
     @Test

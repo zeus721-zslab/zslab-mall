@@ -343,6 +343,9 @@ function closeReject(refresh: boolean): void {
                   {{ claimRefundLabel(claim)!.text }}
                 </v-chip>
                 <span>{{ reasonLabel(claim.reasonCode) }}<span v-if="claim.reasonDetail" class="text-medium-emphasis"> — {{ claim.reasonDetail }}</span></span>
+                <span v-if="claim.type === 'EXCHANGE' && (claim.originalOptionLabel || claim.exchangeOptionLabel)" class="text-medium-emphasis" data-testid="claim-exchange-option">
+                  · 교환 {{ claim.originalOptionLabel ?? '—' }} → {{ claim.exchangeOptionLabel ?? '—' }}
+                </span>
                 <span v-if="claim.rejectReasonCode" class="text-error" data-testid="claim-reject-reason">
                   거부: {{ claimRejectReasonLabel(claim.rejectReasonCode) }}<span v-if="claim.rejectMemo" class="text-medium-emphasis"> — {{ claim.rejectMemo }}</span>
                 </span>

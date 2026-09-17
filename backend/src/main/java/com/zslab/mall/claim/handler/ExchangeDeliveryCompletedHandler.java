@@ -1,41 +1,28 @@
 package com.zslab.mall.claim.handler;
 
 import com.zslab.mall.claim.entity.Claim;
+import com.zslab.mall.claim.enums.ClaimStatus;
 import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.repository.ClaimRepository;
-import com.zslab.mall.claim.service.ClaimService;
+import com.zslab.mall.claim.service.ClaimExchangeService;
 import com.zslab.mall.delivery.entity.Delivery;
 import com.zslab.mall.delivery.event.DeliveryCompleted;
 import com.zslab.mall.delivery.enums.DeliveryDirection;
 import com.zslab.mall.delivery.repository.DeliveryRepository;
-import com.zslab.mall.order.entity.OrderItem;
-import com.zslab.mall.order.enums.OrderItemStatus;
-import com.zslab.mall.order.repository.OrderItemRepository;
-import com.zslab.mall.order.service.OrderService;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
 /**
- * 교환 배송 완료 이벤트의 Claim·OrderItem 종결 핸들러(D-98 Q5·E5 DeliveryCompleted 비동기 소비).
+ * 교환품 배송 완료 이벤트의 종결 핸들러(Track 83 D-177·구 D-98 Q5 재설계). {@link DeliveryCompleted}가 EXCHANGE 클레임에 연결된
+ * OUTBOUND Delivery(교환 발송)에서 왔으면 {@link ClaimExchangeService#completeExchange}에 위임한다 — 예약 확정·회수 재입고·품목 옵션 갱신·
+ * Claim COMPLETED → 품목 DELIVERED 복귀(결정 1 α)가 그 안에서 같은 TX로 처리된다.
  *
- * <p>소비 순서(D-98 Q5 박제): OrderItem → EXCHANGED → Claim COMPLETED. 역순 금지.
+ * <p>이중 가드: {@code delivery.claimId == null}(일반 배송)·{@code claim.type != EXCHANGE}(검수 FAIL 재발송 등)는 비대상 skip.
+ * 멱등: 같은 이벤트 2회 소비는 completeExchange의 COMPLETED no-op이 흡수한다.
  *
- * <p>이중 가드(D-98 Q5·외부 검토 1차 Q3 β 흡수·운영 안전성):
- * <ul>
- *   <li>{@code delivery.claimId != null} — 일반 배송 제외(본 핸들러 비대상)
- *   <li>{@code claim.type == EXCHANGE} — 데이터 손상 방어·log.warn + skip(throw 금지·이벤트 적체 회피)
- * </ul>
- *
- * <p>멱등(외부 검토 2차 R3 흡수): OrderItem 이미 EXCHANGED → 자연 skip·Claim 이미 COMPLETED →
- * {@link ClaimService#tryCompleteExchange} 멱등 가드가 자연 차단한다. 차액환불 발생 시에는 Refund.COMPLETED 조건까지
- * 충족돼야 종결하며(D-115 결정3), 미충족이면 no-op 후 환불 완료 이벤트가 마지막 조건을 채운다.
- *
- * <p><b>실행 시점(D-172·외부 검토 A 동기화)</b>: {@code @EventListener} 동기 소비 — 발행 트랜잭션과 같은 TX에서 실행되며 예외는 그대로
- * 전파돼 발행 TX(클레임 전이·환불 콜백 등)를 함께 롤백한다(구 AFTER_COMMIT + REQUIRES_NEW + skip 폐기·후속 처리 유실 방지). 대상 행 미발견은
- * 데이터 불일치라 {@link IllegalStateException}으로 전파하고, 이미 목표 상태인 경우만 멱등 no-op이다.
- * 발행처는 {@code DeliveryService.markDelivered} TX(품목 DELIVERED 전이 핸들러와 같은 동기 체인)다.
+ * <p><b>실행 시점(D-172)</b>: {@code @EventListener} 동기 소비 — 발행 TX({@code DeliveryService.markDelivered})와 같은 TX에서 실행되며 예외는
+ * 그대로 전파돼 배송 완료 전이까지 롤백한다.
  */
 @Slf4j
 @Component
@@ -43,20 +30,13 @@ public class ExchangeDeliveryCompletedHandler {
 
     private final DeliveryRepository deliveryRepository;
     private final ClaimRepository claimRepository;
-    private final OrderItemRepository orderItemRepository;
-    private final OrderService orderService;
-    private final ClaimService claimService;
+    private final ClaimExchangeService claimExchangeService;
 
-    public ExchangeDeliveryCompletedHandler(DeliveryRepository deliveryRepository,
-            ClaimRepository claimRepository,
-            OrderItemRepository orderItemRepository,
-            OrderService orderService,
-            ClaimService claimService) {
+    public ExchangeDeliveryCompletedHandler(DeliveryRepository deliveryRepository, ClaimRepository claimRepository,
+            ClaimExchangeService claimExchangeService) {
         this.deliveryRepository = deliveryRepository;
         this.claimRepository = claimRepository;
-        this.orderItemRepository = orderItemRepository;
-        this.orderService = orderService;
-        this.claimService = claimService;
+        this.claimExchangeService = claimExchangeService;
     }
 
     @EventListener
@@ -75,47 +55,21 @@ public class ExchangeDeliveryCompletedHandler {
             // 일반 배송 — 본 핸들러 비대상
             return;
         }
-
         Claim claim = claimRepository.findById(delivery.getClaimId()).orElse(null);
         if (claim == null) {
-            log.warn("[ExchangeDelivery] Claim 미발견: claimId={} deliveryId={}",
-                    delivery.getClaimId(), event.deliveryId());
+            log.warn("[ExchangeDelivery] Claim 미발견: claimId={} deliveryId={}", delivery.getClaimId(), event.deliveryId());
             return;
         }
         if (claim.getType() != ClaimType.EXCHANGE) {
-            // 데이터 손상 방어·throw 금지·이벤트 적체 회피(외부 검토 1차 Q3 β 흡수)
-            log.warn("[ExchangeDelivery] type 불일치·skip: claimId={} type={}", claim.getId(), claim.getType());
+            // 검수 FAIL 재발송(RETURN·REJECTED) 등 — 품목은 이미 원복돼 있어 비대상
+            log.info("[ExchangeDelivery] type={} claim 연결 배송 → 교환 종결 비대상·skip: claimId={}", claim.getType(), claim.getId());
             return;
         }
-
-        // 1단계: OrderItem EXCHANGED 전이(D-98 Q5 소비 순서)
-        OrderItem orderItem = orderItemRepository.findById(event.orderItemId()).orElse(null);
-        if (orderItem == null) {
-            log.warn("[ExchangeDelivery] OrderItem 미발견: orderItemId={}", event.orderItemId());
+        if (claim.getStatus() != ClaimStatus.APPROVED) {
+            // REJECTED = 교환 검수 FAIL 재발송(품목 이미 DELIVERED 원복) / COMPLETED = 중복 이벤트 — 둘 다 종결 비대상
+            log.info("[ExchangeDelivery] status={} EXCHANGE claim 연결 배송 → 종결 비대상·skip: claimId={}", claim.getStatus(), claim.getId());
             return;
         }
-        if (orderItem.getItemStatus() == OrderItemStatus.EXCHANGED) {
-            // 멱등(이미 전이됨) — Claim 종결 시도는 계속(markCompleted 멱등 가드가 차단)
-            log.info("[ExchangeDelivery] OrderItem 이미 EXCHANGED → 멱등 skip: orderItemId={}", event.orderItemId());
-        } else if (!orderItem.getItemStatus().canTransitionTo(OrderItemStatus.EXCHANGED)) {
-            log.warn("[ExchangeDelivery] OrderItem 상태={} → EXCHANGED 전이 불가·skip: orderItemId={}",
-                    orderItem.getItemStatus(), event.orderItemId());
-            return;
-        } else {
-            orderItem.changeStatus(OrderItemStatus.EXCHANGED);
-            Long orderId = orderItemRepository.findOrderIdById(orderItem.getId())
-                    .orElseThrow(() -> new IllegalStateException(
-                            "OrderItem의 order_id를 해소할 수 없습니다: orderItemId=" + orderItem.getId()));
-            orderService.recalculateStatus(orderId);
-        }
-
-        // 2단계: Claim 종결 수렴 판정(D-115 결정3·차액환불 조건 포함). 멱등·미수렴 가드는 tryCompleteExchange가 흡수.
-        //         차액 없는 교환은 조건(3) 자동 통과로 기존 동작(즉시 종결)과 동일하다.
-        try {
-            claimService.tryCompleteExchange(claim.getId());
-        } catch (ObjectOptimisticLockingFailureException optimisticLockException) {
-            // @Version 낙관적 락 충돌(동시 수렴 진입) — 다른 트랜잭션이 이미 종결했으므로 재처리 불요(D-115 결정4)
-            log.info("[ExchangeDelivery] tryCompleteExchange 낙관적 락 충돌·skip: claimId={}", claim.getId());
-        }
+        claimExchangeService.completeExchange(claim.getId());
     }
 }

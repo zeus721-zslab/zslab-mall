@@ -18,7 +18,7 @@ class ClaimRejectTest {
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 9, 16, 12, 0);
 
     private static Claim requested(ClaimType type, OrderItemStatus previous) {
-        return Claim.create(1L, type, "BUYER_CHANGED_MIND", null, 10L, NOW, previous);
+        return Claim.create(1L, type, "BUYER_CHANGED_MIND", null, 10L, NOW, previous, type == ClaimType.EXCHANGE ? 2L : null);
     }
 
     @Test
@@ -75,7 +75,7 @@ class ClaimRejectTest {
     @DisplayName("reject: REQUESTED가 아니면 ClaimInvalidStateException(CLM-4)·사유 미저장")
     void reject_illegalTransition() {
         Claim claim = requested(ClaimType.CANCEL, OrderItemStatus.PAID);
-        claim.approve(NOW, null);
+        claim.approve(NOW);
 
         assertThatThrownBy(() -> claim.reject(ClaimRejectReasonCode.OTHER, null, NOW))
                 .isInstanceOf(ClaimInvalidStateException.class);

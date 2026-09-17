@@ -46,6 +46,8 @@ export interface OrderItem {
   /** 주문 시점 옵션 라벨 스냅샷(Track 75·D-164). 단순상품·V20 이전 주문은 NON_NULL로 생략된다. */
   optionLabel?: string | null
   status: StatusView
+  /** 완료된 교환이 있는 품목인지(Track 83 D-177 보충·FE-30-4). true면 교환 요청 버튼을 숨긴다(재교환 BE 422). */
+  exchangeCompleted?: boolean
 }
 
 /** seller 단위 그룹(BE SellerGroupResponse 대응). 단일 판매자 주문도 배열 길이 1. */

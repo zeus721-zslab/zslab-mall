@@ -165,6 +165,13 @@ useSeoMeta({ title: '클레임 상세 · zslab-mall', description: 'zslab-mall �
               <dt class="shrink-0 text-sub">상세 사유</dt>
               <dd class="whitespace-pre-line text-right text-ink">{{ data.reasonDetail }}</dd>
             </div>
+            <!-- 교환 옵션(FE-30·D-177): EXCHANGE만·라벨이 둘 다 없으면 행 숨김 -->
+            <div v-if="data.claimType === 'EXCHANGE' && (data.originalOptionLabel || data.exchangeOptionLabel)" class="flex justify-between gap-4">
+              <dt class="shrink-0 text-sub">교환 옵션</dt>
+              <dd class="text-right text-ink" data-testid="claim-exchange-option">
+                {{ data.originalOptionLabel ?? '—' }} → {{ data.exchangeOptionLabel ?? '—' }}
+              </dd>
+            </div>
             <div class="flex justify-between gap-4">
               <dt class="text-sub">요청 일시</dt>
               <dd class="text-right text-ink">{{ formatDateTime(data.requestedAt) }}</dd>
@@ -189,7 +196,7 @@ useSeoMeta({ title: '클레임 상세 · zslab-mall', description: 'zslab-mall �
               <dd class="text-right text-ink" data-testid="claim-inspection-result">{{ CLAIM_INSPECTION_RESULT_LABELS[data.inspectionResult] }}</dd>
             </div>
             <div v-if="data.reshipment" class="flex justify-between gap-4">
-              <dt class="text-sub">재발송 송장</dt>
+              <dt class="text-sub">{{ data.claimType === 'EXCHANGE' ? '교환품 배송 송장' : '재발송 송장' }}</dt>
               <dd class="text-right text-ink" data-testid="claim-reshipment">
                 {{ deliveryCarrierLabel(data.reshipment.carrier) }} {{ data.reshipment.trackingNo }}
               </dd>
@@ -225,7 +232,11 @@ useSeoMeta({ title: '클레임 상세 · zslab-mall', description: 'zslab-mall �
         <!-- 회수 송장 등록(FE-29): 반품 승인 후 구매자가 직접 등록. 등록되면 BE가 returnShipmentRequired=false로 내려 폼이 사라진다. -->
         <section v-if="data.returnShipmentRequired" class="mt-6 rounded-card border border-line p-5" data-testid="claim-return-shipment-form">
           <h2 class="mb-1 text-base font-semibold text-ink">회수 송장 등록</h2>
-          <p class="mb-4 text-sm text-sub">상품을 발송한 택배사와 송장번호를 등록해 주세요. 판매자가 회수를 확인한 뒤 검수를 진행합니다.</p>
+          <p class="mb-4 text-sm text-sub" data-testid="claim-return-shipment-guide">
+            {{ data.claimType === 'EXCHANGE'
+              ? '교환할 상품을 발송한 택배사와 송장번호를 등록해 주세요. 판매자가 회수를 확인하고 검수한 뒤 교환품을 발송합니다.'
+              : '상품을 발송한 택배사와 송장번호를 등록해 주세요. 판매자가 회수를 확인한 뒤 검수를 진행합니다.' }}
+          </p>
           <form class="space-y-3" @submit.prevent="submitReturnShipment">
             <div class="space-y-1.5">
               <label for="shipmentCarrier" class="block text-sm font-medium text-ink">택배사</label>

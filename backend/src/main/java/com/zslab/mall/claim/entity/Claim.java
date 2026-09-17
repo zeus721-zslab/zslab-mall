@@ -70,10 +70,6 @@ public class Claim extends AbstractPublicIdFullAuditableEntity {
     @Column(name = "processed_at")
     private LocalDateTime processedAt;
 
-    /** 교환 클레임 환불 금액(D-115 결정2). 승인 시 확정하며 NULL·0은 차액 없는 교환(=Refund 미경유). */
-    @Column(name = "refund_amount")
-    private Long refundAmount;
-
     /** 거부 사유 코드(Track 80 D-169). 거부 시점에만 채워지며 그 외 NULL. */
     @Enumerated(EnumType.STRING)
     @Column(name = "reject_reason_code", length = 50)
@@ -99,11 +95,27 @@ public class Claim extends AbstractPublicIdFullAuditableEntity {
     @Column(name = "restock")
     private Boolean restock;
 
+    /** 교환 요청 옵션 variant id(Track 83 D-177·EXCHANGE 한정·요청 시 확정·논리 FK). */
+    @Column(name = "exchange_variant_id")
+    private Long exchangeVariantId;
+
+    /** 승인 시점 order_item.variant_id 스냅샷(D-177). 교환 완료 시 품목 variant가 바뀌므로 회수품 재입고는 이 값을 쓴다. */
+    @Column(name = "original_variant_id")
+    private Long originalVariantId;
+
+    /** 교환 옵션 재고 예약 시각(D-177 결정 8). NULL=예약 없음. reserve/commit/release 멱등 표식. */
+    @Column(name = "exchange_reserved_at")
+    private LocalDateTime exchangeReservedAt;
+
+    /** 승인 시점 order_item.option_label 스냅샷(D-177 결정 2 보충). 원 옵션값 삭제·변경 후에도 원 옵션 표기를 보존한다. */
+    @Column(name = "original_option_label", length = 500)
+    private String originalOptionLabel;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "previous_order_item_status", length = 20, nullable = false, updatable = false)
     private OrderItemStatus previousOrderItemStatus;
 
-    /** JPA 낙관적 락(D-115 결정4). 교환 종결 전이(tryCompleteExchange) 동시 진입 방어. */
+    /** JPA 낙관적 락(D-115 도입·D-177 유지). 교환 종결 전이(completeExchange) 동시 진입 방어. */
     @Version
     @Column(name = "version", nullable = false)
     private Long version;
@@ -133,6 +145,31 @@ public class Claim extends AbstractPublicIdFullAuditableEntity {
             throw new IllegalArgumentException(
                     "Claim 필수값 누락(orderItemId·type·reasonCode·previousOrderItemStatus).");
         }
+        return create(orderItemId, type, reasonCode, reasonDetail, requestedBy, requestedAt, previousOrderItemStatus, null);
+    }
+
+    /**
+     * 교환 옵션을 포함해 클레임을 생성한다(Track 83 D-177). EXCHANGE는 exchangeVariantId가 필수, 그 외 유형은 null이어야 한다.
+     *
+     * @throws IllegalArgumentException 필수값 누락·유형과 exchangeVariantId 불일치
+     */
+    public static Claim create(
+            Long orderItemId,
+            ClaimType type,
+            String reasonCode,
+            String reasonDetail,
+            Long requestedBy,
+            LocalDateTime requestedAt,
+            OrderItemStatus previousOrderItemStatus,
+            Long exchangeVariantId) {
+        if (orderItemId == null || type == null || reasonCode == null || reasonCode.isBlank()
+                || previousOrderItemStatus == null) {
+            throw new IllegalArgumentException(
+                    "Claim 필수값 누락(orderItemId·type·reasonCode·previousOrderItemStatus).");
+        }
+        if ((type == ClaimType.EXCHANGE) != (exchangeVariantId != null)) {
+            throw new IllegalArgumentException("교환 옵션(exchangeVariantId)은 EXCHANGE 클레임에만·반드시 지정합니다: type=" + type);
+        }
         Claim claim = new Claim();
         claim.orderItemId = orderItemId;
         claim.type = type;
@@ -141,6 +178,7 @@ public class Claim extends AbstractPublicIdFullAuditableEntity {
         claim.requestedBy = requestedBy;
         claim.requestedAt = requestedAt;
         claim.previousOrderItemStatus = previousOrderItemStatus;
+        claim.exchangeVariantId = exchangeVariantId;
         claim.status = ClaimStatus.REQUESTED;
         return claim;
     }
@@ -240,10 +278,10 @@ public class Claim extends AbstractPublicIdFullAuditableEntity {
         this.rejectMemo = memo;
     }
 
-    /** 검수 가능 조건: RETURN·APPROVED·회수 확인됨·미검수. */
+    /** 검수 가능 조건: RETURN·EXCHANGE(Track 83 D-177)·APPROVED·회수 확인됨·미검수. */
     private void requireInspectable() {
-        if (this.type != ClaimType.RETURN) {
-            throw new ClaimInvalidStateException("검수는 RETURN 클레임에서만 가능합니다: type=" + this.type);
+        if (!this.type.isPickupBased()) {
+            throw new ClaimInvalidStateException("검수는 RETURN·EXCHANGE 클레임에서만 가능합니다: type=" + this.type);
         }
         if (this.status != ClaimStatus.APPROVED) {
             throw new ClaimInvalidStateException("검수는 APPROVED 클레임에서만 가능합니다: " + this.status);
@@ -256,42 +294,64 @@ public class Claim extends AbstractPublicIdFullAuditableEntity {
         }
     }
 
-    /** 검수 PASS 후 재입고 대상인지(RETURN 종결 시 재고 복구 분기·Track 81-A). */
+    /** 검수 PASS 후 재입고 대상인지(RETURN·EXCHANGE 종결 시 재고 복구 분기·Track 81-A·D-177). */
     public boolean isRestockRequested() {
         return Boolean.TRUE.equals(restock);
+    }
+
+    /** 검수 합격 여부(교환품 발송·종결 선행 조건·D-177). */
+    public boolean isInspectionPassed() {
+        return inspectionResult == ClaimInspectionResult.PASS;
     }
 
     /**
      * 클레임을 승인한다(REQUESTED → APPROVED·CLM-4). {@code processedAt}을 처리 시각으로 채운다.
      *
-     * <p>Buyer 요청 후 Seller/Admin 승인 흐름(Track 10 endpoint)에서 {@code ClaimService.approve}가 호출한다.
+     * <p>Buyer 요청 후 Seller/Admin 승인 흐름(Track 10 endpoint)에서 {@code ClaimService.approve}가 호출한다. 교환 차액 환불
+     * (D-115)은 D-177(같은 가격 옵션만 교환)로 폐기돼 승인 시 금액 확정이 없다.
      *
-     * <p>EXCHANGE 차액환불(D-115 결정2): {@code refundAmount}는 승인 시점에 확정한다. NULL은 차액 없는 교환(=Refund
-     * 미경유·기존 동작)이며, CANCEL·RETURN 등 비교환 클레임은 NULL을 전달한다(환불 금액은 별도 산정 경로 소관).
-     *
-     * @param processedAt  승인 처리 시각(시스템 시각)
-     * @param refundAmount 교환 차액 환불 금액(EXCHANGE 한정·NULL=차액 없음). 비교환은 NULL.
+     * @param processedAt 승인 처리 시각(시스템 시각)
      * @throws ClaimInvalidStateException REQUESTED가 아니어서 APPROVED 전이가 불가한 경우(CLM-4)
-     * @throws IllegalArgumentException processedAt가 null이거나 refundAmount가 음수인 경우
+     * @throws IllegalArgumentException processedAt가 null인 경우
      */
-    public void approve(LocalDateTime processedAt, Long refundAmount) {
+    public void approve(LocalDateTime processedAt) {
         if (processedAt == null) {
             throw new IllegalArgumentException("approve: processedAt는 필수입니다.");
         }
-        if (refundAmount != null && refundAmount < 0) {
-            throw new IllegalArgumentException("approve: refundAmount는 음수일 수 없습니다. 입력: " + refundAmount);
-        }
         transitionTo(ClaimStatus.APPROVED);
         this.processedAt = processedAt;
-        this.refundAmount = refundAmount;
     }
 
     /**
-     * 교환 차액 환불이 발생하는 클레임인지 판정한다(D-115 결정2·결정3). {@code refundAmount > 0}일 때만 true다.
-     * NULL·0은 차액 없는 교환으로 Refund를 경유하지 않는다(기존 동작 100% 보존).
+     * 교환 옵션 재고 예약을 기록한다(Track 83 D-177·승인 TX·Inventory reserve 직후). 원 옵션(variant·라벨) 스냅샷을 함께 남긴다.
+     * 이미 예약돼 있으면 no-op(멱등·재예약 금지 판단은 {@link #isExchangeReserved}로 호출부가 선행).
+     *
+     * @throws ClaimInvalidStateException type != EXCHANGE
+     * @throws IllegalArgumentException   필수값 누락
      */
-    public boolean hasRefundDifference() {
-        return refundAmount != null && refundAmount > 0;
+    public void markExchangeReserved(Long originalVariantId, String originalOptionLabel, LocalDateTime reservedAt) {
+        if (originalVariantId == null || reservedAt == null) {
+            throw new IllegalArgumentException("markExchangeReserved: originalVariantId·reservedAt는 필수입니다.");
+        }
+        if (this.type != ClaimType.EXCHANGE) {
+            throw new ClaimInvalidStateException("교환 재고 예약은 EXCHANGE 클레임에서만 가능합니다: type=" + this.type);
+        }
+        if (this.exchangeReservedAt != null) {
+            return;
+        }
+        this.originalVariantId = originalVariantId;
+        this.originalOptionLabel = originalOptionLabel;
+        this.exchangeReservedAt = reservedAt;
+    }
+
+    /** 교환 옵션 재고 예약을 해제/확정 처리했음을 기록한다(D-177·Inventory release/commit 직후). 미예약이면 no-op(멱등). */
+    public void clearExchangeReserved() {
+        this.exchangeReservedAt = null;
+    }
+
+    /** 교환 옵션 재고가 예약된 상태인지(exchange_reserved_at 보유). */
+    public boolean isExchangeReserved() {
+        return exchangeReservedAt != null;
     }
 
     /**

@@ -48,7 +48,6 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -67,7 +66,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 public class ClaimService {
 
-    /** 사진 첨부를 허용하는 반품 사유(Track 81-B D-171·R2). 단순변심 첨부는 400. */
+    /** 사진 첨부를 허용하는 반품·교환 사유(Track 81-B D-171·R2 / Track 83 D-177 결정 3 동일 규칙). 단순변심 첨부는 400. */
     private static final Set<ClaimReasonCode> ATTACHABLE_RETURN_REASONS =
             Set.of(ClaimReasonCode.PRODUCT_DEFECT, ClaimReasonCode.WRONG_PRODUCT);
 
@@ -83,6 +82,7 @@ public class ClaimService {
     private final DeliveryRepository deliveryRepository;
     private final ReturnWindowPolicy returnWindowPolicy;
     private final ClaimAttachmentService claimAttachmentService;
+    private final ClaimExchangeService claimExchangeService;
     private final EntityManager entityManager;
 
     public ClaimService(
@@ -95,6 +95,7 @@ public class ClaimService {
             DeliveryRepository deliveryRepository,
             ReturnWindowPolicy returnWindowPolicy,
             ClaimAttachmentService claimAttachmentService,
+            ClaimExchangeService claimExchangeService,
             EntityManager entityManager) {
         this.claimRepository = claimRepository;
         this.orderItemRepository = orderItemRepository;
@@ -105,6 +106,7 @@ public class ClaimService {
         this.deliveryRepository = deliveryRepository;
         this.returnWindowPolicy = returnWindowPolicy;
         this.claimAttachmentService = claimAttachmentService;
+        this.claimExchangeService = claimExchangeService;
         this.entityManager = entityManager;
     }
 
@@ -115,16 +117,18 @@ public class ClaimService {
      * @return 생성된 Claim(public_id·id 부여 완료)
      * @throws ClaimNotFoundException     주문 품목이 없거나 소유자가 다른 경우(정보 노출 회피·T3)
      * @throws ClaimInvalidStateException 활성 클레임 중복(CLM-5)·OrderItem 상태가 해당 type 요청 전이 불가인 경우(422)
-     * @throws MalformedRequestException  첨부 허용 조건(RETURN·불량/오배송) 위반·첨부 id 소유권/연결/중복 위반(400)
+     * @throws MalformedRequestException  첨부 허용 조건(RETURN·EXCHANGE·불량/오배송) 위반·첨부 id 소유권/연결/중복 위반·교환 옵션 미지정(400)
      */
     public Claim request(ClaimRequestCommand command) {
-        // (0) 첨부(Track 81-B): RETURN + 불량/오배송에서만 허용. 소유권·미연결 검증은 락 전에(읽기만) 끝낸다.
+        // (0) 첨부(Track 81-B·D-177 결정 3): RETURN·EXCHANGE + 불량/오배송에서만 허용. 소유권·미연결 검증은 락 전에(읽기만) 끝낸다.
         List<String> attachmentIds = command.attachmentIds();
         if (!attachmentIds.isEmpty()
-                && (command.claimType() != ClaimType.RETURN || !ATTACHABLE_RETURN_REASONS.contains(command.reasonCode()))) {
-            throw new MalformedRequestException("사진 첨부는 반품(상품불량·오배송) 요청에서만 허용됩니다.");
+                && (!command.claimType().isPickupBased() || !ATTACHABLE_RETURN_REASONS.contains(command.reasonCode()))) {
+            throw new MalformedRequestException("사진 첨부는 반품·교환(상품불량·오배송) 요청에서만 허용됩니다.");
         }
         List<Attachment> attachments = claimAttachmentService.resolveForLink(command.buyerId(), attachmentIds);
+        // (0-2) 교환 옵션(D-177 결정 9): EXCHANGE는 var_ public id 필수, 그 외 유형은 지정 불가. 존재·소유 검증은 락 뒤 createClaim에서.
+        Long exchangeVariantId = claimExchangeService.resolveRequestedVariantId(command.claimType(), command.exchangeVariantPublicId());
 
         // (a) OrderItem public_id → id 해소(D-64·D-65). 미존재 시 404.
         OrderItem resolved = orderItemRepository.findByPublicId(command.orderItemPublicId())
@@ -143,7 +147,7 @@ public class ClaimService {
         }
 
         Claim claim = createClaim(resolved.getId(), command.claimType(), command.reasonCode(), command.reasonDetail(),
-                command.buyerId(), command.requestedAt());
+                command.buyerId(), command.requestedAt(), exchangeVariantId);
         claimAttachmentService.link(attachments, claim.getId(), command.buyerId());
         return claim;
     }
@@ -161,7 +165,7 @@ public class ClaimService {
      * @throws ClaimInvalidStateException 활성 클레임 중복(CLM-5)·OrderItem 상태가 해당 type 요청 전이 불가인 경우(422)
      */
     private Claim createClaim(Long orderItemId, ClaimType claimType, ClaimReasonCode reasonCode, String reasonDetail,
-            Long requestedBy, LocalDateTime requestedAt) {
+            Long requestedBy, LocalDateTime requestedAt, Long exchangeVariantId) {
         OrderItem orderItem = orderItemRepository.findById(orderItemId)
                 .orElseThrow(() -> new ClaimNotFoundException("주문 품목을 찾을 수 없습니다: orderItemId=" + orderItemId));
         entityManager.refresh(orderItem, LockModeType.PESSIMISTIC_WRITE);
@@ -171,9 +175,13 @@ public class ClaimService {
             throw new ClaimInvalidStateException("이미 진행 중인 클레임이 있습니다(CLM-5): orderItemId=" + orderItemId);
         }
 
-        // (d-2) RETURN 요청 조건(Track 81-A D-170·R1·R2): 사유 3값 한정·품목 DELIVERED·발송 배송완료 후 7일 이내.
-        if (claimType == ClaimType.RETURN) {
-            validateReturnRequest(orderItem, reasonCode, requestedAt);
+        // (d-2) RETURN·EXCHANGE 요청 조건(Track 81-A D-170·R1·R2 / D-177 결정 7·11): 사유 3값 한정·품목 DELIVERED·원 발송 배송완료 후 7일 이내·
+        //       검수 FAIL 이력 차단. EXCHANGE는 재교환 차단·교환 옵션(같은 상품·같은 가격·다른 옵션·판매 가능) 검증을 더한다.
+        if (claimType.isPickupBased()) {
+            validateReturnRequest(orderItem, claimType, reasonCode, requestedAt);
+        }
+        if (claimType == ClaimType.EXCHANGE) {
+            claimExchangeService.validateExchangeRequest(orderItem, exchangeVariantId, requestedAt);
         }
 
         // (e) type별 진입 전이 대상 매핑 후 OrderItem 상태 전이 가능성 검증(D-98 Q4). 실제 전이는 동기 핸들러가 수행.
@@ -196,7 +204,8 @@ public class ClaimService {
                 reasonDetail,
                 requestedBy,
                 requestedAt,
-                orderItem.getItemStatus());
+                orderItem.getItemStatus(),
+                exchangeVariantId);
         claimRepository.save(claim);
         eventPublisher.publishEvent(new ClaimRequested(
                 claim.getId(),
@@ -210,32 +219,33 @@ public class ClaimService {
     }
 
     /**
-     * RETURN 요청 조건 검증(Track 81-A D-170·보충). 사유는 {@link ClaimReasonCode#isApplicableTo}(단순변심·상품불량·오배송), 품목은 DELIVERED
-     * (SHIPPING 중 반품 요청은 매트릭스상 가능하나 배송완료 기준 기한을 셀 수 없어 서비스에서 차단), 기한은 {@link ReturnWindowPolicy}
-     * (원 주문 발송 delivered_at + 7일·재발송·교환 발송 제외), 검수 불합격(FAIL) 이력 품목은 재요청 불가(같은 상품이 이미 불합격 판정을 받았고
-     * 재발송됐으므로 재반품은 운영 판단 영역·CLM-2 재요청 허용의 예외).
+     * RETURN·EXCHANGE 요청 조건 검증(Track 81-A D-170·보충 / Track 83 D-177 동일 적용). 사유는 {@link ClaimReasonCode#isApplicableTo}
+     * (단순변심·상품불량·오배송), 품목은 DELIVERED(SHIPPING 중 요청은 매트릭스상 가능하나 배송완료 기준 기한을 셀 수 없어 서비스에서 차단),
+     * 기한은 {@link ReturnWindowPolicy}(기준 발송 delivered_at + 7일·교환 발송 포함·검수 FAIL 재발송 제외), 검수 불합격(FAIL) 이력 품목은
+     * 유형 무관 재요청 불가(같은 상품이 이미 불합격 판정을 받았고 재발송됐으므로 재요청은 운영 판단 영역·CLM-2 재요청 허용의 예외).
      *
      * @throws ClaimInvalidStateException 사유 부적합·미배송완료·기한 경과·FAIL 이력(422 CLAIM_STATE_INVALID 재사용)
      */
-    private void validateReturnRequest(OrderItem orderItem, ClaimReasonCode reasonCode, LocalDateTime requestedAt) {
-        if (!reasonCode.isApplicableTo(ClaimType.RETURN)) {
-            throw new ClaimInvalidStateException("반품 사유로 사용할 수 없는 코드입니다: " + reasonCode);
+    private void validateReturnRequest(OrderItem orderItem, ClaimType claimType, ClaimReasonCode reasonCode,
+            LocalDateTime requestedAt) {
+        String label = claimType == ClaimType.EXCHANGE ? "교환" : "반품";
+        if (!reasonCode.isApplicableTo(claimType)) {
+            throw new ClaimInvalidStateException(label + " 사유로 사용할 수 없는 코드입니다: " + reasonCode);
         }
         if (orderItem.getItemStatus() != OrderItemStatus.DELIVERED) {
             throw new ClaimInvalidStateException(
-                    "반품은 배송완료 품목만 요청할 수 있습니다: " + orderItem.getItemStatus());
+                    label + "은 배송완료 품목만 요청할 수 있습니다: " + orderItem.getItemStatus());
         }
-        if (claimRepository.existsByOrderItemIdAndTypeAndInspectionResult(
-                orderItem.getId(), ClaimType.RETURN, ClaimInspectionResult.FAIL)) {
+        if (claimRepository.existsByOrderItemIdAndInspectionResult(orderItem.getId(), ClaimInspectionResult.FAIL)) {
             throw new ClaimInvalidStateException(
-                    "검수 불합격 이력이 있는 품목은 반품을 다시 요청할 수 없습니다: orderItemId=" + orderItem.getId());
+                    "검수 불합격 이력이 있는 품목은 " + label + "을 다시 요청할 수 없습니다: orderItemId=" + orderItem.getId());
         }
         LocalDateTime deliveredAt = returnWindowPolicy.originalDeliveredAt(orderItem.getId())
                 .orElseThrow(() -> new ClaimInvalidStateException(
-                        "배송완료 기록이 없어 반품 기한을 판정할 수 없습니다: orderItemId=" + orderItem.getId()));
+                        "배송완료 기록이 없어 " + label + " 기한을 판정할 수 없습니다: orderItemId=" + orderItem.getId()));
         if (!ReturnWindowPolicy.isWithinWindow(deliveredAt, requestedAt)) {
             throw new ClaimInvalidStateException(
-                    "반품 가능 기간(배송완료 후 " + ReturnWindowPolicy.WINDOW_DAYS + "일)이 지났습니다: 배송완료 " + deliveredAt);
+                    label + " 가능 기간(배송완료 후 " + ReturnWindowPolicy.WINDOW_DAYS + "일)이 지났습니다: 배송완료 " + deliveredAt);
         }
     }
 
@@ -250,7 +260,7 @@ public class ClaimService {
      */
     public Claim requestByAdmin(Long orderItemId, ClaimReasonCode reasonCode, String reasonDetail,
             Long adminUserId, LocalDateTime now) {
-        Claim claim = createClaim(orderItemId, ClaimType.CANCEL, reasonCode, reasonDetail, adminUserId, now);
+        Claim claim = createClaim(orderItemId, ClaimType.CANCEL, reasonCode, reasonDetail, adminUserId, now, null);
         approve(claim.getId(), now, null);
         return claim;
     }
@@ -265,21 +275,27 @@ public class ClaimService {
      * <p>D-92 횡단 원칙 정합: 도메인 상태 전이 메서드는 actor 식별자가 상태 자체에 포함되지 않는 한
      * actor 비의존 시그니처를 우선한다.
      *
-     * <p>EXCHANGE 차액환불(D-115 결정2): {@code refundAmount}는 승인 시점에 확정한다. NULL은 차액 없는 교환(기존 동작)이며
-     * 비교환(CANCEL·RETURN)에는 NULL을 전달한다. 비교환에 refundAmount가 실려오면 무시하고 warn 로깅만 남긴다(오사용 가시화).
+     * <p>교환 차액 환불(D-115)은 D-177(같은 가격 옵션만 교환)로 폐기됐다. {@code refundAmount}는 호환 인자로만 남기며 값이 실려오면
+     * 400으로 거절한다(결정 5). EXCHANGE 승인은 클레임 행을 잠가(동시 승인 직렬화·늦은 쪽 422) 교환 옵션을 재검증하고 재고를 예약한다
+     * (결정 8·9·10·락 순서 Claim → OrderItem 읽기 → Inventory 최후).
      *
      * @throws ClaimNotFoundException     클레임이 없는 경우
-     * @throws ClaimInvalidStateException REQUESTED가 아닌 경우(CLM-4)
+     * @throws ClaimInvalidStateException REQUESTED가 아닌 경우(CLM-4)·교환 옵션 부적합(422)
+     * @throws MalformedRequestException  refundAmount가 전달된 경우(400·D-115 폐기)
+     * @throws com.zslab.mall.inventory.exception.InventoryInvariantViolationException 교환 옵션 재고 부족(422)
      */
     public void approve(Long claimId, LocalDateTime processedAt, Long refundAmount) {
-        Claim claim = findClaim(claimId);
-        if (refundAmount != null && claim.getType() != ClaimType.EXCHANGE) {
-            // 비교환 클레임에 차액 환불 금액이 실려온 오사용 — 무시하고 가시화만(도메인은 EXCHANGE만 소비·D-115 결정2)
-            log.warn("[Claim] 비교환(type={}) 승인에 refundAmount={} 전달됨 → 무시: claimId={}",
-                    claim.getType(), refundAmount, claimId);
-            refundAmount = null;
+        if (refundAmount != null) {
+            throw new MalformedRequestException("refundAmount는 더 이상 지원하지 않습니다(교환 차액 환불 폐기·D-177).");
         }
-        claim.approve(processedAt, refundAmount);
+        Claim claim = findClaim(claimId);
+        if (claim.getType() == ClaimType.EXCHANGE) {
+            entityManager.refresh(claim, LockModeType.PESSIMISTIC_WRITE);
+        }
+        claim.approve(processedAt);
+        if (claim.getType() == ClaimType.EXCHANGE) {
+            claimExchangeService.reserveExchangeStock(claim, processedAt);
+        }
         claimRepository.save(claim);
         eventPublisher.publishEvent(new ClaimApproved(
                 claim.getId(), claim.getPublicId(), claim.getOrderItemId(),
@@ -326,11 +342,11 @@ public class ClaimService {
         if (!buyerId.equals(claim.getRequestedBy())) {
             throw new ClaimNotFoundException("클레임을 찾을 수 없습니다: " + claimPublicId);
         }
-        if (claim.getType() != ClaimType.RETURN) {
-            throw new ClaimInvalidStateException("회수 송장은 RETURN 클레임에만 등록할 수 있습니다: type=" + claim.getType());
+        if (!claim.getType().isPickupBased()) {
+            throw new ClaimInvalidStateException("회수 송장은 RETURN·EXCHANGE 클레임에만 등록할 수 있습니다: type=" + claim.getType());
         }
         if (claim.getStatus() != ClaimStatus.APPROVED) {
-            throw new ClaimInvalidStateException("승인된 반품만 회수 송장을 등록할 수 있습니다: " + claim.getStatus());
+            throw new ClaimInvalidStateException("승인된 반품·교환만 회수 송장을 등록할 수 있습니다: " + claim.getStatus());
         }
         if (claim.getPickedUpAt() != null) {
             throw new ClaimInvalidStateException("이미 회수 확인된 반품입니다: claimId=" + claimId);
@@ -424,7 +440,7 @@ public class ClaimService {
         // Track 81-A·FE-29: 클레임 연결 Delivery 1쿼리(id 내림차순) → 회수(RETURN)·검수 불합격 재발송(OUTBOUND) 방향별 최신 1건
         Delivery returnDelivery = null;
         Delivery reshipment = null;
-        if (claim.getType() == ClaimType.RETURN) {
+        if (claim.getType().isPickupBased()) {
             for (Delivery delivery : deliveryRepository.findByClaimIdInOrderByIdDesc(List.of(claim.getId()))) {
                 if (delivery.getDirection() == DeliveryDirection.RETURN && returnDelivery == null) {
                     returnDelivery = delivery;
@@ -433,9 +449,25 @@ public class ClaimService {
                 }
             }
         }
+        // Track 83 D-177: 교환/원 옵션 라벨(EXCHANGE만·배치 1회). 원 옵션은 승인 스냅샷 우선, 없으면(승인 전) 현재 품목 variant로 재조립.
+        String exchangeOptionLabel = null;
+        String originalOptionLabel = null;
+        if (claim.getType() == ClaimType.EXCHANGE) {
+            Long originalVariantId = claim.getOriginalVariantId() != null ? claim.getOriginalVariantId()
+                    : orderItemRepository.findById(claim.getOrderItemId()).map(OrderItem::getVariantId).orElse(null);
+            Set<Long> variantIds = new java.util.LinkedHashSet<>();
+            variantIds.add(claim.getExchangeVariantId());
+            if (originalVariantId != null) {
+                variantIds.add(originalVariantId);
+            }
+            Map<Long, String> labels = claimExchangeService.optionLabelsByVariantId(variantIds);
+            exchangeOptionLabel = labels.get(claim.getExchangeVariantId());
+            originalOptionLabel = claim.getOriginalOptionLabel() != null ? claim.getOriginalOptionLabel()
+                    : (originalVariantId == null ? null : labels.get(originalVariantId));
+        }
         // Track 81-B: 첨부 URL 1쿼리(순서 보존·없으면 빈 목록)
         return ClaimResponse.from(claim, orderItemPublicId, refundStatus, returnDelivery,
-                claimAttachmentService.urlsOf(claim.getId()), reshipment);
+                claimAttachmentService.urlsOf(claim.getId()), reshipment, exchangeOptionLabel, originalOptionLabel);
     }
 
     /** 본인 클레임 목록(requested_by 기준·D-54 페이징). size는 1~100 클램프. 환불 상태는 페이지 단위 배치 1쿼리(Track 80). */
@@ -484,63 +516,6 @@ public class ClaimService {
     }
 
     /**
-     * EXCHANGE 차액환불 종결 수렴 판정(D-115 결정3). 3조건이 모두 충족될 때만 COMPLETED로 전이한다:
-     * (1) 수거 확인(picked_up_at != null) (2) 교환 배송 완료(OrderItem.EXCHANGED) (3) 차액 발생 시 Refund.COMPLETED.
-     * 어느 하나라도 미충족이면 no-op이며, 배송 완료·환불 완료 이벤트가 순서 무관하게 도착해도 마지막 조건 충족 시점에 수렴한다.
-     *
-     * <p>차액 없는 교환({@code hasRefundDifference()==false})은 조건(3)을 자동 통과해 (1)(2)만으로 종결한다(기존 동작 100% 보존).
-     *
-     * <p><b>트랜잭션 전파(REQUIRED·D-115·라이브 트랩 방지)</b>: 호출처 핸들러({@code ExchangeDeliveryCompletedHandler}·
-     * {@code ClaimRefundCompletedHandler})의 REQUIRES_NEW 트랜잭션에 합류해야 같은 트랜잭션에서 전이된 OrderItem.EXCHANGED를
-     * 관측할 수 있다. REQUIRES_NEW로 바꾸면 READ_COMMITTED에서 미커밋 변경을 보지 못해 배송 완료 경로가 영구 미수렴하는
-     * 트랩이 된다 — 전파 방식 변경 금지.
-     *
-     * <p>이미 COMPLETED면 멱등 no-op이다(CLM-1). {@code @Version} 낙관적 락이 동시 수렴 진입을 방어한다(결정4).
-     *
-     * @throws ClaimNotFoundException 클레임이 없는 경우(무결성 위반)
-     * @throws IllegalStateException  Claim이 참조하는 OrderItem이 부재한 경우(무결성 위반)
-     */
-    @Transactional(propagation = Propagation.REQUIRED)
-    public void tryCompleteExchange(Long claimId) {
-        Claim claim = claimRepository.findById(claimId)
-                .orElseThrow(() -> new ClaimNotFoundException("클레임을 찾을 수 없습니다: claimId=" + claimId));
-        if (claim.getStatus() == ClaimStatus.COMPLETED) {
-            log.info("[Claim] tryCompleteExchange 멱등 NO-OP(이미 COMPLETED): claimId={}", claimId);
-            return;
-        }
-        if (claim.getType() != ClaimType.EXCHANGE) {
-            log.warn("[Claim] tryCompleteExchange 비EXCHANGE 호출·skip: claimId={} type={}", claimId, claim.getType());
-            return;
-        }
-        // 조건(1): 수거 확인
-        if (claim.getPickedUpAt() == null) {
-            log.info("[Claim] tryCompleteExchange 미수렴(수거 미확인): claimId={}", claimId);
-            return;
-        }
-        // 조건(2): 교환 배송 완료(OrderItem EXCHANGED)
-        OrderItem orderItem = orderItemRepository.findById(claim.getOrderItemId())
-                .orElseThrow(() -> new IllegalStateException(
-                        "OrderItem 무결성 위반: orderItemId=" + claim.getOrderItemId()));
-        if (orderItem.getItemStatus() != OrderItemStatus.EXCHANGED) {
-            log.info("[Claim] tryCompleteExchange 미수렴(교환 배송 미완료·status={}): claimId={}",
-                    orderItem.getItemStatus(), claimId);
-            return;
-        }
-        // 조건(3): 차액 발생 시 Refund.COMPLETED. 차액 없으면 자동 통과(기존 동작 100% 보존)
-        if (claim.hasRefundDifference()
-                && !refundRepository.existsByClaimIdAndStatus(claimId, RefundStatus.COMPLETED)) {
-            log.info("[Claim] tryCompleteExchange 미수렴(차액 환불 미완료): claimId={}", claimId);
-            return;
-        }
-
-        claim.markCompleted(LocalDateTime.now());
-        claimRepository.save(claim);
-        eventPublisher.publishEvent(new ClaimCompleted(
-                claim.getId(), claim.getPublicId(), claim.getOrderItemId(),
-                claim.getType(), claim.getStatus(), LocalDateTime.now()));
-    }
-
-    /**
      * 클레임 수거 확인 도메인 전이 primitive(D-98 Q1·actor·type 비의존). save 직후 {@link ClaimPickedUp}(E11)을 발행한다(D-29).
      *
      * <p>멱등 no-op: 이미 picked_up_at != null이면 변경 없이 log.info 후 return({@link #markCompleted} 멱등 가드 패턴 1:1).
@@ -559,8 +534,8 @@ public class ClaimService {
             return;
         }
         claim.confirmPickup(pickedUpAt);
-        if (claim.getType() == ClaimType.RETURN) {
-            // Track 81-A D-170: 반품 회수 확인은 구매자 회수 송장(RETURN Delivery)이 선행돼야 하며 그 Delivery를 DELIVERED로 마감한다(부재 422).
+        if (claim.getType().isPickupBased()) {
+            // Track 81-A D-170·D-177: 반품·교환 회수 확인은 구매자 회수 송장(RETURN Delivery)이 선행돼야 하며 그 Delivery를 DELIVERED로 마감한다(부재 422).
             deliveryService.completeReturnShipment(claimId);
         }
         claimRepository.save(claim);
@@ -635,6 +610,8 @@ public class ClaimService {
         claim.failInspection(rejectReasonCode, memo, inspectedAt);
         claimRepository.save(claim);
         deliveryService.registerReshipment(claim, reshipCarrier, reshipTrackingNo);
+        // D-177 결정 8: 교환 검수 FAIL은 종결(REJECTED)이므로 승인 시 예약한 교환 옵션 재고를 되돌린다(Inventory 최후·멱등).
+        claimExchangeService.releaseExchangeReservationIfAny(claim);
         eventPublisher.publishEvent(new ClaimRejected(
                 claim.getId(), claim.getPublicId(), claim.getOrderItemId(),
                 claim.getType(), claim.getStatus(), claim.getRejectReasonCode(), LocalDateTime.now()));

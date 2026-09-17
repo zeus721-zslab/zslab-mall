@@ -27,11 +27,19 @@ public interface DeliveryRepository extends JpaRepository<Delivery, Long> {
     Optional<Delivery> findByClaimIdAndDirection(Long claimId, DeliveryDirection direction);
 
     /**
-     * 품목의 원 주문 발송(OUTBOUND·claim_id NULL) 최신 배송완료 행(Track 81-A·반품 기한·자동 구매확정 기준 시각). 교환품 발송·검수 불합격
-     * 재발송(claim_id NOT NULL)은 기준에서 제외한다. 모든 변수는 메서드 이름 쿼리 바인딩이다(SQL injection 위험 없음).
+     * 품목의 기준 발송 최신 배송완료 행(Track 81-A·반품 기한·자동 구매확정 기준 시각 / Track 83 D-177 결정 6). 원 주문 발송(claim_id NULL)과
+     * 교환품 발송(EXCHANGE 클레임 연결)을 포함하고 검수 불합격 재발송(RETURN 클레임 연결)은 제외한다. 모든 변수는 :name 바인딩 사용,
+     * SQL injection 위험 없음.
      */
-    Optional<Delivery> findFirstByOrderItemIdAndDirectionAndStatusAndClaimIdIsNullOrderByDeliveredAtDesc(
-            Long orderItemId, DeliveryDirection direction, DeliveryStatus status);
+    @Query("SELECT d FROM Delivery d LEFT JOIN Claim c ON c.id = d.claimId "
+            + "WHERE d.orderItemId = :orderItemId AND d.direction = :direction AND d.status = :status "
+            + "AND (d.claimId IS NULL OR c.type = com.zslab.mall.claim.enums.ClaimType.EXCHANGE) "
+            + "ORDER BY d.deliveredAt DESC, d.id DESC")
+    List<Delivery> findBaseDeliveredOutbound(
+            @Param("orderItemId") Long orderItemId,
+            @Param("direction") DeliveryDirection direction,
+            @Param("status") DeliveryStatus status,
+            Pageable pageable);
 
     /**
      * 자동 구매확정 후보 품목 id(Track 81-B D-171). 원 주문 발송(OUTBOUND·claim_id NULL) 배송완료가 {@code threshold} 이전이고 품목이
@@ -39,7 +47,9 @@ public interface DeliveryRepository extends JpaRepository<Delivery, Long> {
      * 서비스가 행 락 후 {@code ReturnWindowPolicy}로 재확인한다. 모든 변수는 :name 바인딩 사용, SQL injection 위험 없음.
      */
     @Query("SELECT DISTINCT d.orderItemId FROM Delivery d JOIN OrderItem oi ON oi.id = d.orderItemId "
-            + "WHERE d.direction = :direction AND d.status = :status AND d.claimId IS NULL "
+            + "LEFT JOIN Claim c ON c.id = d.claimId "
+            + "WHERE d.direction = :direction AND d.status = :status "
+            + "AND (d.claimId IS NULL OR c.type = com.zslab.mall.claim.enums.ClaimType.EXCHANGE) "
             + "AND d.deliveredAt <= :threshold AND oi.itemStatus = :itemStatus ORDER BY d.orderItemId ASC")
     List<Long> findAutoConfirmCandidateOrderItemIds(
             @Param("direction") DeliveryDirection direction,

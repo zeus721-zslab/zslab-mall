@@ -233,10 +233,19 @@ class SellerDeliveryIntegrationTest extends AbstractIntegrationTest {
 
     /** APPROVED·picked_up_at 설정 클레임 시드(type 파라미터화·ClaimExchangeIntegrationTest seedApprovedReturnClaim 1:1 + picked_up_at). */
     private void seedApprovedClaim(ClaimType type) {
+        // Track 83 D-177: 교환품 발송 가드(검수 PASS)·종결(예약 확정·옵션 갱신) 전제를 EXCHANGE 시드에 함께 채운다(같은 variant·예약 1).
+        boolean exchange = type == ClaimType.EXCHANGE;
         jdbc.update("INSERT INTO claim (id, public_id, order_item_id, type, reason_code, status, "
-                        + "previous_order_item_status, picked_up_at, created_at, updated_at) "
-                        + "VALUES (?, ?, ?, ?, 'PRODUCT_DEFECT', 'APPROVED', 'DELIVERED', NOW(6), NOW(6), NOW(6))",
-                CLAIM_ID, CLAIM_PID, ORDER_ITEM_ID, type.name());
+                        + "previous_order_item_status, picked_up_at, inspected_at, inspection_result, restock, "
+                        + "exchange_variant_id, original_variant_id, exchange_reserved_at, created_at, updated_at) "
+                        + "VALUES (?, ?, ?, ?, 'PRODUCT_DEFECT', 'APPROVED', 'DELIVERED', NOW(6), ?, ?, ?, ?, ?, ?, NOW(6), NOW(6))",
+                CLAIM_ID, CLAIM_PID, ORDER_ITEM_ID, type.name(),
+                exchange ? java.time.LocalDateTime.now() : null, exchange ? "PASS" : null, exchange ? 1 : null,
+                exchange ? VARIANT_ID : null, exchange ? VARIANT_ID : null, exchange ? java.time.LocalDateTime.now() : null);
+        if (exchange) {
+            jdbc.update("UPDATE inventory SET quantity_reserved = quantity_reserved + 1, quantity_available = quantity_available - 1 "
+                    + "WHERE variant_id = ?", VARIANT_ID);
+        }
     }
 
     // resolver 해소용 seller_user 실 매핑 시드(actorId≠seller_id·FK_CHECKS=0라 user/seller 행 부재 허용·role_id=SELLER_OWNER seed).

@@ -6,6 +6,7 @@ import com.zslab.mall.delivery.enums.DeliveryStatus;
 import com.zslab.mall.delivery.repository.DeliveryRepository;
 import java.time.LocalDateTime;
 import java.util.Optional;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
 
 /**
@@ -26,11 +27,15 @@ public class ReturnWindowPolicy {
         this.deliveryRepository = deliveryRepository;
     }
 
-    /** 품목의 원 발송 배송완료 시각. 배송완료 기록이 없으면 empty. */
+    /**
+     * 품목의 기준 발송 배송완료 시각(원 주문 발송 또는 교환품 발송 중 최신·Track 83 D-177 결정 6·검수 FAIL 재발송 제외). 배송완료 기록이
+     * 없으면 empty. 교환품 배송완료가 있으면 그 시각부터 반품 기한·자동 구매확정 타이머가 다시 시작된다.
+     */
     public Optional<LocalDateTime> originalDeliveredAt(Long orderItemId) {
         return deliveryRepository
-                .findFirstByOrderItemIdAndDirectionAndStatusAndClaimIdIsNullOrderByDeliveredAtDesc(
-                        orderItemId, DeliveryDirection.OUTBOUND, DeliveryStatus.DELIVERED)
+                .findBaseDeliveredOutbound(orderItemId, DeliveryDirection.OUTBOUND, DeliveryStatus.DELIVERED, PageRequest.of(0, 1))
+                .stream()
+                .findFirst()
                 .map(Delivery::getDeliveredAt);
     }
 

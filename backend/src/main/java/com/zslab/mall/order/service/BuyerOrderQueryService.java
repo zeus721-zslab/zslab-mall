@@ -3,6 +3,10 @@ package com.zslab.mall.order.service;
 import com.zslab.mall.order.controller.response.OrderResponse;
 import com.zslab.mall.order.controller.response.OrderSummaryResponse;
 import com.zslab.mall.order.controller.response.PagedResponse;
+import com.zslab.mall.claim.entity.Claim;
+import com.zslab.mall.claim.enums.ClaimStatus;
+import com.zslab.mall.claim.enums.ClaimType;
+import com.zslab.mall.claim.repository.ClaimRepository;
 import com.zslab.mall.order.entity.Order;
 import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.enums.OrderStatus;
@@ -16,6 +20,7 @@ import com.zslab.mall.seller.entity.Seller;
 import com.zslab.mall.seller.repository.SellerRepository;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.data.domain.Page;
@@ -40,16 +45,19 @@ public class BuyerOrderQueryService {
     private final ProductRepository productRepository;
     private final ProductVariantRepository productVariantRepository;
     private final SellerRepository sellerRepository;
+    private final ClaimRepository claimRepository;
 
     public BuyerOrderQueryService(
             OrderRepository orderRepository,
             ProductRepository productRepository,
             ProductVariantRepository productVariantRepository,
-            SellerRepository sellerRepository) {
+            SellerRepository sellerRepository,
+            ClaimRepository claimRepository) {
         this.orderRepository = orderRepository;
         this.productRepository = productRepository;
         this.productVariantRepository = productVariantRepository;
         this.sellerRepository = sellerRepository;
+        this.claimRepository = claimRepository;
     }
 
     /** 본인 주문 단건(§11 seller 그룹화 + #6 배송지). 미존재·타인 주문 모두 404(정보 노출 회피·§2). */
@@ -61,7 +69,22 @@ public class BuyerOrderQueryService {
         }
         List<OrderItem> items = order.getItems();
         return OrderResponse.fromOrderWithItems(
-                order, productsByIdFor(items), variantsByIdFor(items), sellersByIdFor(items));
+                order, productsByIdFor(items), variantsByIdFor(items), sellersByIdFor(items), exchangeCompletedItemIdsFor(items));
+    }
+
+    /**
+     * 완료된 교환(EXCHANGE·COMPLETED)이 있는 품목 id 집합(Track 83 D-177 보충·FE-30-4). 주문 단위 1회 배치 조회(관리자 enrich와 같은
+     * {@code findByOrderItemIdInOrderByIdDesc} 재사용·품목별 개별 쿼리 없음). 품목이 없으면 조회 없이 빈 집합.
+     */
+    private Set<Long> exchangeCompletedItemIdsFor(List<OrderItem> items) {
+        if (items.isEmpty()) {
+            return Set.of();
+        }
+        List<Long> itemIds = items.stream().map(OrderItem::getId).toList();
+        return claimRepository.findByOrderItemIdInOrderByIdDesc(itemIds).stream()
+                .filter(claim -> claim.getType() == ClaimType.EXCHANGE && claim.getStatus() == ClaimStatus.COMPLETED)
+                .map(Claim::getOrderItemId)
+                .collect(Collectors.toSet());
     }
 
     /**

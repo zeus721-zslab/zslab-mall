@@ -43,7 +43,11 @@ public record ClaimResponse(
         @JsonSerialize(using = KstOffsetSerializer.class) LocalDateTime pickedUpAt,
         ClaimInspectionResult inspectionResult,
         List<String> attachmentUrls,
-        ReturnShipmentResponse reshipment) {
+        ReturnShipmentResponse reshipment,
+        /** 교환 요청 옵션 라벨(EXCHANGE·Track 83 D-177·미해소 null). 비교환은 null. */
+        String exchangeOptionLabel,
+        /** 교환 전 원 옵션 라벨(EXCHANGE·승인 스냅샷 우선·없으면 재조립·D-177 결정 2 보충). 비교환은 null. */
+        String originalOptionLabel) {
 
     /** 영속 Claim + 해소된 orderItemPublicId로 상세 응답을 조립한다(환불 상태·회수 송장·첨부 미조회·전이 직후 응답용). */
     public static ClaimResponse from(Claim claim, String orderItemPublicId) {
@@ -66,7 +70,14 @@ public record ClaimResponse(
      */
     public static ClaimResponse from(Claim claim, String orderItemPublicId, RefundStatus refundStatus, Delivery returnDelivery,
             List<String> attachmentUrls, Delivery reshipment) {
-        boolean returnShipmentRequired = claim.getType() == ClaimType.RETURN && claim.getStatus() == ClaimStatus.APPROVED
+        return from(claim, orderItemPublicId, refundStatus, returnDelivery, attachmentUrls, reshipment, null, null);
+    }
+
+    /** {@link #from(Claim, String, RefundStatus, Delivery, List, Delivery)} + 교환/원 옵션 라벨(Track 83 D-177). */
+    public static ClaimResponse from(Claim claim, String orderItemPublicId, RefundStatus refundStatus, Delivery returnDelivery,
+            List<String> attachmentUrls, Delivery reshipment, String exchangeOptionLabel, String originalOptionLabel) {
+        // 회수 송장 등록 단계는 반품·교환 공통(D-177): APPROVED·회수 송장 없음·미회수
+        boolean returnShipmentRequired = claim.getType().isPickupBased() && claim.getStatus() == ClaimStatus.APPROVED
                 && returnDelivery == null && claim.getPickedUpAt() == null;
         return new ClaimResponse(
                 claim.getPublicId(),
@@ -85,6 +96,8 @@ public record ClaimResponse(
                 claim.getPickedUpAt(),
                 claim.getInspectionResult(),
                 attachmentUrls,
-                reshipment == null ? null : ReturnShipmentResponse.from(reshipment));
+                reshipment == null ? null : ReturnShipmentResponse.from(reshipment),
+                exchangeOptionLabel,
+                originalOptionLabel);
     }
 }

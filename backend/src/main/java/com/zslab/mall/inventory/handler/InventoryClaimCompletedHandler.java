@@ -69,8 +69,10 @@ public class InventoryClaimCompletedHandler {
                 }
                 inventoryService.restoreStock(variantId, qty, InventoryHistoryChangeType.RETURN, "claim", event.claimId());
             }
-            // EXCHANGE: 동일 variant 회수+재발송(Claim newVariantId 부재·recon §16.10)
-            case EXCHANGE -> inventoryService.exchange(variantId, qty, variantId, qty, event.claimId());
+            // EXCHANGE(Track 83 D-177): 예약 확정·회수 재입고는 ClaimCompleted 발행 직전 ClaimExchangeService.completeExchange가
+            // 같은 TX에서 끝내며(commitExchange·history "claim" 기록) 1차 가드가 본 핸들러를 자연 skip한다. 여기 도달은 이력 없는 데이터 이상.
+            case EXCHANGE -> throw new IllegalStateException(
+                    "EXCHANGE 종결 재고 이력이 없습니다(completeExchange 미경유): claimId=" + event.claimId());
         }
         log.info("[Inventory] event=ClaimCompleted target_id={} action={} variant_id={} qty={}",
                 event.claimId(), claim.getType(), variantId, qty);

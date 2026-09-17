@@ -8,7 +8,10 @@ import com.zslab.mall.audit.entity.AuditLog;
 import com.zslab.mall.audit.repository.AuditLogRepository;
 import com.zslab.mall.claim.entity.Claim;
 import com.zslab.mall.claim.enums.ClaimStatus;
+import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.repository.ClaimRepository;
+import com.zslab.mall.claim.service.AdminClaimQueryService;
+import com.zslab.mall.claim.service.ClaimExchangeService;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
 import com.zslab.mall.common.exception.MalformedRequestException;
 import com.zslab.mall.delivery.entity.Delivery;
@@ -87,6 +90,7 @@ public class AdminOrderQueryService {
     private final AuditLogRepository auditLogRepository;
     private final RefundRepository refundRepository;
     private final AttachmentRepository attachmentRepository;
+    private final ClaimExchangeService claimExchangeService;
     private final ObjectMapper objectMapper;
 
     /**
@@ -151,6 +155,10 @@ public class AdminOrderQueryService {
                         .collect(Collectors.groupingBy(Attachment::getTargetId,
                                 Collectors.mapping(Attachment::getFilePath, Collectors.toList())));
 
+        // Track 83 D-177: 교환 원/교환 옵션 라벨 1쿼리 배치(EXCHANGE 클레임만)
+        Map<Long, String> optionLabelByVariantId = claimExchangeService.optionLabelsByVariantId(
+                exchangeVariantIds(order.getItems(), enrichment.claimsByItemId));
+
         List<AdminOrderDetailResponse.Item> items = order.getItems().stream()
                 .map(item -> new AdminOrderDetailResponse.Item(
                         item.getPublicId(), item.getProductName(), item.getOptionLabel(), item.getQuantity(),
@@ -160,7 +168,8 @@ public class AdminOrderQueryService {
                         enrichment.claimsByItemId.getOrDefault(item.getId(), List.of()).stream()
                                 .map(claim -> toClaimRow(claim, refundStatusByClaimId.get(claim.getId()),
                                         returnDeliveryByClaimId.get(claim.getId()),
-                                        attachmentUrlsByClaimId.getOrDefault(claim.getId(), List.of()))).toList()))
+                                        attachmentUrlsByClaimId.getOrDefault(claim.getId(), List.of()),
+                                        item, optionLabelByVariantId)).toList()))
                 .toList();
         List<AdminOrderDetailResponse.PaymentRow> payments = enrichment.paymentsByOrderId
                 .getOrDefault(order.getId(), List.of()).stream()
@@ -321,8 +330,25 @@ public class AdminOrderQueryService {
                 delivery.getTrackingNo(), delivery.getStatus().name(), delivery.getShippedAt(), delivery.getDeliveredAt());
     }
 
+    /** 주문 품목들의 EXCHANGE 클레임이 참조하는 원/교환 variant id 집합(승인 전 원 옵션은 현재 품목 variant). */
+    private static Set<Long> exchangeVariantIds(List<OrderItem> items, Map<Long, List<Claim>> claimsByItemId) {
+        Set<Long> variantIds = new LinkedHashSet<>();
+        for (OrderItem item : items) {
+            for (Claim claim : claimsByItemId.getOrDefault(item.getId(), List.of())) {
+                if (claim.getType() == ClaimType.EXCHANGE) {
+                    variantIds.add(claim.getExchangeVariantId());
+                    variantIds.add(claim.getOriginalVariantId() != null ? claim.getOriginalVariantId() : item.getVariantId());
+                }
+            }
+        }
+        variantIds.remove(null);
+        return variantIds;
+    }
+
     private AdminOrderDetailResponse.ClaimRow toClaimRow(Claim claim, RefundStatus refundStatus, Delivery returnDelivery,
-            List<String> attachmentUrls) {
+            List<String> attachmentUrls, OrderItem item, Map<Long, String> optionLabelByVariantId) {
+        Long originalVariantId = claim.getType() != ClaimType.EXCHANGE ? null
+                : (claim.getOriginalVariantId() != null ? claim.getOriginalVariantId() : item.getVariantId());
         return new AdminOrderDetailResponse.ClaimRow(claim.getPublicId(), claim.getType().name(), claim.getStatus().name(),
                 claim.getReasonCode(), claim.getReasonDetail(), claim.getRequestedBy(), claim.getRequestedAt(),
                 claim.getProcessedAt(), claim.getStatus() == ClaimStatus.REQUESTED,
@@ -333,7 +359,9 @@ public class AdminOrderQueryService {
                 claim.getPickedUpAt(),
                 claim.getInspectionResult() == null ? null : claim.getInspectionResult().name(),
                 claim.getRestock(),
-                attachmentUrls);
+                attachmentUrls,
+                AdminClaimQueryService.originalOptionLabel(claim, originalVariantId, optionLabelByVariantId),
+                claim.getExchangeVariantId() == null ? null : optionLabelByVariantId.get(claim.getExchangeVariantId()));
     }
 
     /** 미결제 관리자 취소 audit(ORDER·UPDATE·diff에 reasonCode 포함)만 취소 사유로 해석한다. 파싱 실패는 warn 후 제외. */

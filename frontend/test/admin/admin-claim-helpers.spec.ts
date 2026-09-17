@@ -2,12 +2,16 @@ import { describe, it, expect } from 'vitest'
 import {
   approveConfirmMessage,
   confirmPickupMessage,
+  inspectPassLabel,
+  inspectPassToast,
   inspectionChip,
   refundStatusChip,
   rejectReasonItems,
+  validateExchangeShipmentForm,
   validateInspectForm,
   validateRejectForm,
 } from '#layers/admin/app/lib/admin-claim-view'
+import { ADMIN_CLAIM_ACTION_LABEL } from '#layers/admin/app/lib/constants/admin-claim'
 import { claimRefundLabel } from '#layers/admin/app/lib/admin-order-view'
 import { ADMIN_CLAIMS_PATH, ADMIN_ORDERS_PATH, ADMIN_PRODUCTS_PATH, resolveBackPath } from '#layers/admin/app/lib/admin-back-path'
 import { ADMIN_REFUND_STATUS_SEMANTIC } from '#layers/admin/app/lib/constants/admin-order'
@@ -63,9 +67,23 @@ describe('admin-claim-view', () => {
     expect(refundStatusChip('FAILED')).toEqual({ text: '환불 실패', semantic: 'danger' })
   })
 
-  it('approveConfirmMessage: 취소만 환불 안내 문구', () => {
+  it('approveConfirmMessage: 취소만 환불 안내 문구·교환은 재고 예약 안내(FE-30)', () => {
     expect(approveConfirmMessage('CANCEL', '상품A')).toContain('승인 즉시 환불이 진행됩니다.')
     expect(approveConfirmMessage('RETURN', '상품A')).not.toContain('환불')
+    expect(approveConfirmMessage('EXCHANGE', '상품A')).toContain('교환 옵션 재고가 예약')
+  })
+
+  it('교환 문구·액션(FE-30): 회수 확인/검수 합격 문구 유형 분기·액션 라벨 6종·교환 발송 폼 검증', () => {
+    expect(confirmPickupMessage('상품A')).toContain('환불은 검수 합격 시')
+    expect(confirmPickupMessage('상품A', 'EXCHANGE')).toContain('교환품 발송은 검수 합격 후')
+    expect(inspectPassLabel('RETURN')).toBe('합격 (환불 진행)')
+    expect(inspectPassLabel('EXCHANGE')).toBe('합격 (교환품 발송 대기)')
+    expect(inspectPassToast('EXCHANGE')).toContain('교환품 발송을 등록')
+    expect(Object.keys(ADMIN_CLAIM_ACTION_LABEL)).toEqual(['APPROVE', 'REJECT', 'CONFIRM_PICKUP', 'INSPECT', 'REGISTER_EXCHANGE_SHIPMENT', 'MARK_EXCHANGE_DELIVERED'])
+    expect(ADMIN_CLAIM_ACTION_LABEL.REGISTER_EXCHANGE_SHIPMENT).toBe('교환품 발송')
+    expect(validateExchangeShipmentForm({ carrier: null, trackingNo: '' })).toEqual({ carrier: '택배사를 선택하세요.', trackingNo: '송장번호를 입력하세요.' })
+    expect(validateExchangeShipmentForm({ carrier: 'CJ', trackingNo: 'X'.repeat(101) }).trackingNo).toContain('100자')
+    expect(validateExchangeShipmentForm({ carrier: 'CJ', trackingNo: ' 1234 ' })).toEqual({})
   })
 
   it('claimRefundLabel: refundStatus 우선·없으면 취소 상태 추론 폴백(FE-27 회귀)', () => {

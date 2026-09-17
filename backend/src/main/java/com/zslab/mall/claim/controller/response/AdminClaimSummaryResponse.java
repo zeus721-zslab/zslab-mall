@@ -35,6 +35,8 @@ import java.util.List;
  * @param inspectionResult 검수 결과(PASS|FAIL·미검수 null)
  * @param restock          검수 PASS 재입고 여부
  * @param attachmentCount  반품 사진 첨부 개수(Track 81-B·목록은 개수만·상세 URL은 사용자/주문 상세)
+ * @param originalOptionLabel 교환 전 원 옵션 라벨(EXCHANGE·Track 83 D-177·비교환 null)
+ * @param exchangeOptionLabel 교환 요청 옵션 라벨(EXCHANGE·Track 83 D-177·비교환 null)
  */
 public record AdminClaimSummaryResponse(
         String claimId,
@@ -62,5 +64,7 @@ public record AdminClaimSummaryResponse(
         @JsonSerialize(using = KstOffsetSerializer.class) LocalDateTime pickedUpAt,
         ClaimInspectionResult inspectionResult,
         Boolean restock,
-        long attachmentCount) {
+        long attachmentCount,
+        String originalOptionLabel,
+        String exchangeOptionLabel) {
 }

@@ -124,25 +124,31 @@ export const CLAIM_REASON_CODES: ClaimReasonCode[] = [
  * BE OrderItemStatus.canTransitionTo(Claim 진입 전이·D-88)와 정합하되, 반품은 서비스 규칙(D-170·배송완료 기준 기한)상
  * DELIVERED만 허용하므로 SHIPPING → RETURN은 노출하지 않는다(FE-29):
  *   PAID·PREPARING → CANCEL(배송 전 취소) / DELIVERED → RETURN·EXCHANGE(수령 후 반품·교환). 그 외 상태는 요청 불가([] → 버튼 미노출).
+ * 교환 완료 품목(exchangeCompleted·FE-30-4·D-177)은 DELIVERED로 돌아오지만 재교환이 422라 EXCHANGE를 뺀다(반품은 유지).
  */
-export function claimableTypes(itemStatusCode: string): ClaimType[] {
+export function claimableTypes(itemStatusCode: string, exchangeCompleted: boolean = false): ClaimType[] {
   switch (itemStatusCode) {
     case 'PAID':
     case 'PREPARING':
       return ['CANCEL']
     case 'DELIVERED':
-      return ['RETURN', 'EXCHANGE']
+      return exchangeCompleted ? ['RETURN'] : ['RETURN', 'EXCHANGE']
     default:
       return []
   }
 }
 
+/** 회수·검수 단계를 거치는 유형(RETURN·EXCHANGE·BE ClaimType.isPickupBased·D-177). 사유 제한·첨부·회수 송장 폼이 공유한다. */
+export function isPickupBasedClaimType(claimType: ClaimType): boolean {
+  return claimType === 'RETURN' || claimType === 'EXCHANGE'
+}
+
 /** 반품 요청 사유(BE ClaimReasonCode.isApplicableTo(RETURN) 3값·D-170). 그 외 사유로 반품 요청 시 BE 422. */
 export const RETURN_REASON_CODES: ClaimReasonCode[] = ['BUYER_CHANGED_MIND', 'PRODUCT_DEFECT', 'WRONG_PRODUCT']
 
-/** 클레임 유형별 요청 사유 드롭다운 목록(정의 순서 유지). RETURN만 3값으로 제한되고 CANCEL·EXCHANGE는 전량이다. */
+/** 클레임 유형별 요청 사유 드롭다운 목록(정의 순서 유지). RETURN·EXCHANGE는 3값(D-177 결정 7)·CANCEL은 전량이다. */
 export function claimReasonCodesFor(claimType: ClaimType): ClaimReasonCode[] {
-  return claimType === 'RETURN' ? RETURN_REASON_CODES : CLAIM_REASON_CODES
+  return isPickupBasedClaimType(claimType) ? RETURN_REASON_CODES : CLAIM_REASON_CODES
 }
 
 /** 사진 첨부를 허용하는 반품 사유(BE ClaimService.ATTACHABLE_RETURN_REASONS·D-171). */
@@ -151,9 +157,9 @@ export const CLAIM_ATTACHABLE_REASON_CODES: ClaimReasonCode[] = ['PRODUCT_DEFECT
 /** 반품 사진 첨부 상한(BE ClaimAttachmentService.MAX_ATTACHMENTS·ClaimRequestRequest @Size). */
 export const CLAIM_ATTACHMENT_MAX = 5
 
-/** 사진 첨부 허용 여부 — 반품 + 상품불량·오배송에서만 true(그 외 첨부 시 BE 400). */
+/** 사진 첨부 허용 여부 — 반품·교환 + 상품불량·오배송에서만 true(그 외 첨부 시 BE 400·D-177 결정 3). */
 export function isClaimAttachmentAllowed(claimType: ClaimType, reasonCode: ClaimReasonCode | ''): boolean {
-  return claimType === 'RETURN' && reasonCode !== '' && CLAIM_ATTACHABLE_REASON_CODES.includes(reasonCode)
+  return isPickupBasedClaimType(claimType) && reasonCode !== '' && CLAIM_ATTACHABLE_REASON_CODES.includes(reasonCode)
 }
 
 /** 클레임 거부 사유 코드(BE ClaimRejectReasonCode enum 5값·Track 80 D-169 + Track 81-A INSPECTION_FAILED). */
