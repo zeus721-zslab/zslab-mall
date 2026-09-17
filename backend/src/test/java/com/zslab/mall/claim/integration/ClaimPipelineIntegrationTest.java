@@ -262,6 +262,100 @@ class ClaimPipelineIntegrationTest extends AbstractIntegrationTest {
         assertThat(refundCount(pendingMock)).isEqualTo(1);
     }
 
+    // ===== 락 순서 통일(D-172 보충·외부 검토 2차) =====
+
+    @Test
+    @DisplayName("T7 교차 경합 반복 10회: 동일 클레임 initiate(복구 경로 2스레드) + SUCCESS 콜백(2스레드) 동시 → 교착 예외 0·환불 1·완료 1·재고 복구 1 / 락 대기 측정")
+    void crossContention_initiateVersusCallback_noDeadlock() throws Exception {
+        final int rounds = 10;
+        List<Long> waits = new ArrayList<>();
+        List<String> lockFailures = new ArrayList<>();
+        for (int round = 0; round < rounds; round++) {
+            resetClaimRound();
+            List<Callable<String>> workers = new ArrayList<>();
+            for (int i = 0; i < 2; i++) {
+                workers.add(() -> timed(waits, () -> { refundRecoveryService.recoverMissingRefund(CLAIM_ID); return "INITIATE"; }));
+            }
+            for (int i = 0; i < 2; i++) {
+                workers.add(() -> timed(waits, () -> {
+                    // initiate가 pg_refund_id를 부여할 때까지 짧게 재시도한 뒤 SUCCESS 콜백(환불 미존재면 RefundNotFound → 재시도)
+                    for (int attempt = 0; attempt < 50; attempt++) {
+                        String pgRefundId = jdbc.query("SELECT pg_refund_id FROM refund WHERE claim_id = ? AND pg_refund_id IS NOT NULL",
+                                (rs, n) -> rs.getString(1), CLAIM_ID).stream().findFirst().orElse(null);
+                        if (pgRefundId != null) {
+                            refundService.handleCallback(pgRefundId, RefundCallbackStatus.SUCCESS, null);
+                            return "CALLBACK";
+                        }
+                        Thread.sleep(20);
+                    }
+                    return "CALLBACK_SKIPPED";
+                }));
+            }
+            List<String> results = runConcurrently(workers);
+            results.stream().filter(r -> r.contains("Lock") || r.contains("Deadlock")).forEach(lockFailures::add);
+            // Mock 자동 콜백(AFTER_COMMIT)이 아직 수렴하지 않았으면 콜백 재발생으로 수렴시킨다(복구 스케줄러 역할)
+            String pgRefundId = jdbc.queryForObject("SELECT pg_refund_id FROM refund WHERE claim_id = ?", String.class, CLAIM_ID);
+            refundService.handleCallback(pgRefundId, RefundCallbackStatus.SUCCESS, null);
+
+            assertThat(refundCount(CLAIM_ID)).as("round %d refund", round).isEqualTo(1);
+            assertThat(refundStatus(CLAIM_ID)).isEqualTo("COMPLETED");
+            assertThat(claimStatus(CLAIM_ID)).isEqualTo("COMPLETED");
+            assertThat(itemStatus(ITEM_A)).isEqualTo("CANCELLED");
+            assertThat(onHand()).as("round %d on_hand", round).isEqualTo(ON_HAND + 1);
+            assertThat(historyCount()).as("round %d history", round).isEqualTo(1);
+        }
+        assertThat(lockFailures).as("교착·락 획득 실패 예외").isEmpty();
+        long max = waits.stream().mapToLong(Long::longValue).max().orElse(0);
+        double avg = waits.stream().mapToLong(Long::longValue).average().orElse(0);
+        System.out.printf("[LockWait] rounds=%d calls=%d max=%dms avg=%.1fms (innodb_lock_wait_timeout=50s)%n", rounds, waits.size(), max, avg);
+        assertThat(max).isLessThan(5_000L); // 기본 락 타임아웃 50s 대비 10배 이상 여유
+    }
+
+    @Test
+    @DisplayName("T8 전액 환불 콜백 → Refund COMPLETED·Claim COMPLETED·Payment CANCELLED가 같은 TX / Payment 전이 불가(PENDING 결제) → 422·전부 롤백")
+    void fullRefundCallback_cancelsPaymentInSameTx_andRollsBackOnPaymentFailure() throws Exception {
+        seed(() -> {
+            seedOrderItem(ITEM_A, "CANCEL_REQUESTED");
+            seedClaim(CLAIM_ID, ITEM_A, "CANCEL", "APPROVED", "PAID", LocalDateTime.now().minusMinutes(1));
+            seedRefund(REFUND_ID, CLAIM_ID, "PENDING", PG_REFUND_ID, 0);
+            jdbc.update("UPDATE payment SET amount = ?, status = 'PENDING' WHERE id = ?", ITEM_PRICE, PAYMENT_ID); // 전액 = 환불액·비PAID
+        });
+
+        mockMvc.perform(post("/api/webhooks/refunds").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"pgRefundId\":\"" + PG_REFUND_ID + "\",\"status\":\"SUCCESS\"}"))
+                .andExpect(status().isUnprocessableEntity());
+        assertThat(refundStatus(CLAIM_ID)).isEqualTo("PENDING");
+        assertThat(claimStatus(CLAIM_ID)).isEqualTo("APPROVED");
+        assertThat(itemStatus(ITEM_A)).isEqualTo("CANCEL_REQUESTED");
+        assertThat(onHand()).isEqualTo(ON_HAND);
+        assertThat(paymentStatus()).isEqualTo("PENDING");
+
+        jdbc.update("UPDATE payment SET status = 'PAID' WHERE id = ?", PAYMENT_ID);
+        mockMvc.perform(post("/api/webhooks/refunds").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"pgRefundId\":\"" + PG_REFUND_ID + "\",\"status\":\"SUCCESS\"}"))
+                .andExpect(status().isOk());
+        assertThat(refundStatus(CLAIM_ID)).isEqualTo("COMPLETED");
+        assertThat(claimStatus(CLAIM_ID)).isEqualTo("COMPLETED");
+        assertThat(paymentStatus()).isEqualTo("CANCELLED"); // 동기 PaymentRefundCompletedHandler·같은 TX
+    }
+
+    @Test
+    @DisplayName("T9 부분 환불 콜백(결제액 > 환불액) → Refund·Claim COMPLETED·Payment는 PAID 유지(D-71 규칙 기존대로)")
+    void partialRefundCallback_keepsPaymentPaid() throws Exception {
+        seed(() -> {
+            seedOrderItem(ITEM_A, "CANCEL_REQUESTED");
+            seedClaim(CLAIM_ID, ITEM_A, "CANCEL", "APPROVED", "PAID", LocalDateTime.now().minusMinutes(1));
+            seedRefund(REFUND_ID, CLAIM_ID, "PENDING", PG_REFUND_ID, 0); // 결제액 ITEM_PRICE*10 > 환불 ITEM_PRICE
+        });
+
+        mockMvc.perform(post("/api/webhooks/refunds").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"pgRefundId\":\"" + PG_REFUND_ID + "\",\"status\":\"SUCCESS\"}"))
+                .andExpect(status().isOk());
+        assertThat(refundStatus(CLAIM_ID)).isEqualTo("COMPLETED");
+        assertThat(claimStatus(CLAIM_ID)).isEqualTo("COMPLETED");
+        assertThat(paymentStatus()).isEqualTo("PAID");
+    }
+
     // ===== 검수 FAIL 봉인(Q1) =====
 
     @Test
@@ -335,6 +429,35 @@ class ClaimPipelineIntegrationTest extends AbstractIntegrationTest {
     }
 
     // ---------- helpers ----------
+
+    /** T7 라운드 초기화: 클레임·환불·재고 이력을 지우고 CANCEL_REQUESTED 품목 + APPROVED 클레임(환불 없음) + 재고 ON_HAND로 되돌린다. */
+    private void resetClaimRound() {
+        seed(() -> {
+            jdbc.update("DELETE FROM refund WHERE claim_id = ?", CLAIM_ID);
+            jdbc.update("DELETE FROM claim WHERE id = ?", CLAIM_ID);
+            jdbc.update("DELETE FROM inventory_history WHERE inventory_id = ?", VARIANT_ID);
+            jdbc.update("DELETE FROM order_item WHERE id = ?", ITEM_A);
+            jdbc.update("UPDATE inventory SET quantity_on_hand = ?, quantity_available = ? WHERE id = ?", ON_HAND, ON_HAND, VARIANT_ID);
+            seedOrderItem(ITEM_A, "CANCEL_REQUESTED");
+            seedClaim(CLAIM_ID, ITEM_A, "CANCEL", "APPROVED", "PAID", LocalDateTime.now().minusMinutes(1));
+        });
+    }
+
+    /** 서비스 호출 소요 시간(락 대기 포함)을 기록하고 결과를 돌려준다. 예외는 runConcurrently가 클래스명으로 치환한다. */
+    private static String timed(List<Long> waits, Callable<String> work) throws Exception {
+        long started = System.nanoTime();
+        try {
+            return work.call();
+        } finally {
+            synchronized (waits) {
+                waits.add((System.nanoTime() - started) / 1_000_000);
+            }
+        }
+    }
+
+    private String paymentStatus() {
+        return jdbc.queryForObject("SELECT status FROM payment WHERE id = ?", String.class, PAYMENT_ID);
+    }
 
     private List<String> runConcurrently(List<Callable<String>> workers) throws Exception {
         ExecutorService pool = Executors.newFixedThreadPool(workers.size());

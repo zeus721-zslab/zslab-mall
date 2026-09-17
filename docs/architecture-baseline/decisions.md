@@ -10499,3 +10499,14 @@ deploy.yml이 `push main` 무필터라 docs만 변경된 머지에도 서버 SSH
 - 복구 스케줄러 운영 가시성(복구 건수 메트릭·알림) — Observability 트랙.
 - 실 PG 도입 시 MockRefundPendingRecoveryScheduler 제거·PG 웹훅 재전송 정책 확인.
 - 다중 품목 클레임 도입 시 재고 복구 variantId 오름차순 고정(데드락 회피).
+
+### D-172 보충 — 환불 경로 락 순서 통일·PaymentRefundCompletedHandler 동기화·교환 환불 복구 이월 (2026-09-17·외부 검토 2차)
+- **락 순서 통일(α 콜백 선Claim 채택)**: 환불 경로 행 락은 `Claim → Refund → Payment → OrderItem/Order → Inventory`로 고정한다. 콜백(`handleCallback`/`markCompleted`)은 비잠금 환불 조회로 claimId를 얻고 `lockClaimThenRefund`(Claim refresh X → Refund refresh X) 후 Payment `FOR UPDATE`. 근거: STEP 252 전수에서 유일한 위반이 콜백(Refund·Payment 선점 → Claim UPDATE 후행)이었고, initiate(Claim 선점 → Refund FOR UPDATE)와 교착해 T1에서 Mock 콜백 PENDING 잔류로 실측됐다. β(initiate를 Refund 선점으로 바꾸기)는 기각 — 클레임 상태(CLM-3) 검증이 Claim 락 뒤에 와야 하고 복구 스케줄러·자동 핸들러가 Claim 단위로 진입한다. 교차 교착 판단(1줄씩): 결제 콜백은 PAID 전 결제라 같은 Payment 행 공유 불가·Inventory 최후 → 없음 / 만료 배치는 PENDING_PAYMENT만 → 없음 / 클레임 요청·자동 확정·송장 가드는 OrderItem만 잡고 Claim은 신규 INSERT → 없음 / 검수 PASS는 Claim X 커밋 후 별도 TX initiate → 없음. Claim 없는 환불은 없음(`refund.claim_id` NOT NULL FK).
+- **PaymentRefundCompletedHandler 분류 오류 정정·동기화**: D-172 본문의 "payment 패키지·범위 밖·미변경"은 오분류였다 — DB 전이(Payment CANCELLED)만 다루므로 (a). `@EventListener` 동기로 전환해 환불 콜백 1 TX = Refund COMPLETED + Claim COMPLETED + 품목 종결 + 재고 복구 + Payment CANCELLED. Payment 행은 markCompleted가 이미 FOR UPDATE로 잡고 있어 추가 대기 없음. 전이 불가(비PAID)는 신규 `PaymentInvalidStateException` → 422 `PAYMENT_INVALID_STATE`로 콜백 롤백(IllegalStateException 500 fallback 차단·OrderShippingService 선례). `markCancelled` 규칙(전액 일치·CANCELLED 멱등·부분환불 no-op·D-71)은 무변경.
+- **교환 차액 환불 복구 이월**: `ExchangeShipmentRefundHandler` 유실은 `RefundRecoveryScheduler` 대상(CANCEL·RETURN)이 아니다. 이월 사유: 교환 차액 환불의 진입점(교환 출고 `DeliveryStarted`)은 셀러 경로에서만 발생하고 관리자 화면에 노출돼 있지 않으며(FE 미구현), Track 82 교환 재설계(회수·검수 재사용·차액 정책)에서 트리거 자체가 바뀔 수 있어 지금 복구 쿼리를 박제하면 재작업이 된다. 현 경로: NotificationLog 운영 알림 + `initiateByAdmin` 수동. → §8 **Track 82 필수**.
+- 검증(실측): ClaimPipelineIntegrationTest +T7(교차 경합 10라운드·initiate 2 + 콜백 2 동시 → 교착 0·환불 1·완료 1·재고 복구 1·락 대기 40회 max 59ms·avg 36.3ms·`innodb_lock_wait_timeout` 50s 대비 여유) +T8(전액 환불: 비PAID 결제 422·전부 롤백 → PAID 복구 후 200·Payment CANCELLED 같은 TX) +T9(부분 환불 PAID 유지). 전체 --rerun-tasks 188파일 996 tests·0 fail(993 → 996).
+- 변경 파일: refund/service/RefundService(lockClaimThenRefund·콜백 2경로) · payment/handler/PaymentRefundCompletedHandler(동기) · payment/service/PaymentService(markCancelled 422 흡수) · payment/exception/PaymentInvalidStateException(신규) · common/web/GlobalExceptionHandler(+1) / test RefundServiceTest(claim stub)·ClaimPipelineIntegrationTest(+3).
+- 외부 검토 2차: A / 지적 4건 중 수용 3건(락 순서·Payment 핸들러 동기화·교차 경합 테스트)·이월 1건(교환 환불 복구 → Track 82 필수).
+
+### §8 이월(보충)
+- **Track 82 필수**: 교환 차액 환불 누락 복구(`RefundRecoveryScheduler` 대상 확장 또는 교환 트리거 재설계와 함께).

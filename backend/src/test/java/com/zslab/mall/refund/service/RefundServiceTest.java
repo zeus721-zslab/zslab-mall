@@ -192,6 +192,7 @@ class RefundServiceTest {
         Refund refund = pendingRefund();
         ReflectionTestUtils.setField(refund, "status", RefundStatus.COMPLETED);
         when(refundRepository.findByPgRefundId(PG_REFUND_ID)).thenReturn(Optional.of(refund));
+        when(claimRepository.findById(CLAIM_ID)).thenReturn(Optional.of(claim(ClaimStatus.APPROVED))); // D-172 보충: Claim → Refund 락 순서
 
         assertThatThrownBy(() -> refundService.markCompleted(PG_REFUND_ID))
                 .isInstanceOf(RefundIdempotentNoOpException.class);
@@ -203,6 +204,7 @@ class RefundServiceTest {
     void markCompleted_payOnePostCheckExceeded_blocked() {
         Refund refund = pendingRefund();
         when(refundRepository.findByPgRefundId(PG_REFUND_ID)).thenReturn(Optional.of(refund));
+        when(claimRepository.findById(CLAIM_ID)).thenReturn(Optional.of(claim(ClaimStatus.APPROVED))); // D-172 보충: Claim → Refund 락 순서
         when(paymentRepository.findByIdForUpdate(PAYMENT_ID)).thenReturn(Optional.of(paidPayment(PAYMENT_AMOUNT)));
         when(refundRepository.sumCompletedByPaymentId(PAYMENT_ID)).thenReturn(5_000L); // 5000 + 6000 > 10000
 
@@ -216,6 +218,7 @@ class RefundServiceTest {
     void markCompleted_refundedAt_systemClock() {
         Refund refund = pendingRefund();
         when(refundRepository.findByPgRefundId(PG_REFUND_ID)).thenReturn(Optional.of(refund));
+        when(claimRepository.findById(CLAIM_ID)).thenReturn(Optional.of(claim(ClaimStatus.APPROVED))); // D-172 보충: Claim → Refund 락 순서
         when(paymentRepository.findByIdForUpdate(PAYMENT_ID)).thenReturn(Optional.of(paidPayment(PAYMENT_AMOUNT)));
         when(refundRepository.sumCompletedByPaymentId(PAYMENT_ID)).thenReturn(0L);
         when(refundRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
@@ -233,6 +236,7 @@ class RefundServiceTest {
     void markCompleted_success_completesAndPublishes() {
         Refund refund = pendingRefund();
         when(refundRepository.findByPgRefundId(PG_REFUND_ID)).thenReturn(Optional.of(refund));
+        when(claimRepository.findById(CLAIM_ID)).thenReturn(Optional.of(claim(ClaimStatus.APPROVED))); // D-172 보충: Claim → Refund 락 순서
         when(paymentRepository.findByIdForUpdate(PAYMENT_ID)).thenReturn(Optional.of(paidPayment(PAYMENT_AMOUNT)));
         when(refundRepository.sumCompletedByPaymentId(PAYMENT_ID)).thenReturn(0L);
         when(refundRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));

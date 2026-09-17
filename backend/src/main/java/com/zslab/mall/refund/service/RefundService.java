@@ -36,8 +36,8 @@ import org.springframework.transaction.annotation.Transactional;
  * 콜백 수신만 {@code RefundWebhookController}가 위임한다.
  *
  * <p><b>이벤트(D-29·D-69)</b>: markCompleted는 도메인 메서드 → pull → save → 동기 publish 순서다(save→publish·flush 없음).
- * 소비 핸들러(ClaimRefundCompletedHandler)는 D-172부터 {@code @EventListener} 동기 소비라 Claim 종결·품목 종결·재고 복구가 같은 TX에 묶인다
- * (PaymentRefundCompletedHandler·알림은 AFTER_COMMIT 유지).
+ * 소비 핸들러(ClaimRefundCompletedHandler·PaymentRefundCompletedHandler)는 D-172부터 {@code @EventListener} 동기 소비라 Claim 종결·품목 종결·
+ * 재고 복구·Payment CANCELLED가 같은 TX에 묶인다(알림은 AFTER_COMMIT 유지). 행 락 순서는 {@link #lockClaimThenRefund} 참조.
  *
  * <p><b>교차 Aggregate 해소</b>: {@link #initiate}는 Claim → OrderItem → Order → PAID Payment 그래프로 결제 행을 해소한다
  * (PAY-3a로 주문당 PAID ≤1). PAY-1 누적 검증은 initiate(사전)·markCompleted(사후·D-68 비관적 락)에서 2회 수행한다(Q5).
@@ -184,15 +184,16 @@ public class RefundService {
         }
         Refund refund = refundRepository.findByPgRefundId(pgRefundId)
                 .orElseThrow(() -> new RefundNotFoundException("환불 행을 찾을 수 없습니다: pgRefundId=" + pgRefundId));
-        // D-172: 환불 행 락 후 상태 재확인 — 동시 SUCCESS 콜백 N건 중 1건만 COMPLETED 전이·이벤트 발행(나머지는 종결 상태를 보고 no-op)
-        entityManager.refresh(refund, LockModeType.PESSIMISTIC_WRITE);
+        // D-172 보충(락 순서 Claim → Refund → Payment): 동시 SUCCESS 콜백 N건 중 1건만 COMPLETED 전이·이벤트 발행(나머지는 종결 no-op)
+        lockClaimThenRefund(refund);
 
         // RFN-3: 이미 COMPLETED면 멱등 no-op 시그널(직접 호출 경로·webhook은 handleCallback에서 선검사)
         if (refund.getStatus() == RefundStatus.COMPLETED) {
             throw new RefundIdempotentNoOpException("이미 완료된 환불 콜백입니다(RFN-3): pgRefundId=" + pgRefundId);
         }
 
-        // PAY-1 사후 재검증(D-68): Payment 행 비관적 락으로 동시 환불 직렬화 후 누적 한도 재확인
+        // PAY-1 사후 재검증(D-68): Payment 행 비관적 락(순서 3번째)으로 동시 환불 직렬화 후 누적 한도 재확인. 이후 동기 체인
+        // (Claim COMPLETED·품목·재고·Payment CANCELLED)은 이미 잡은 Claim·Payment 락 위에서 OrderItem → Order → Inventory 순으로 진행된다.
         Payment payment = paymentRepository.findByIdForUpdate(refund.getPaymentId())
                 .orElseThrow(() -> new IllegalStateException(
                         "환불 대상 결제를 찾을 수 없습니다: paymentId=" + refund.getPaymentId()));
@@ -243,8 +244,8 @@ public class RefundService {
         }
         Refund refund = refundRepository.findByPgRefundId(pgRefundId)
                 .orElseThrow(() -> new RefundNotFoundException("환불 행을 찾을 수 없습니다: pgRefundId=" + pgRefundId));
-        // D-172: 환불 행 락 후 종결 여부 재확인(동시 콜백 직렬화·이미 종결이면 이벤트 없이 no-op)
-        entityManager.refresh(refund, LockModeType.PESSIMISTIC_WRITE);
+        // D-172 보충: 비잠금 조회로 claimId를 얻은 뒤 Claim → Refund 순으로 잠그고 종결 여부를 재확인한다(initiate와 같은 순서·교착 제거).
+        lockClaimThenRefund(refund);
 
         switch (status) {
             case SUCCESS -> {
@@ -262,6 +263,19 @@ public class RefundService {
                 markFailed(refund.getId(), failureReason);
             }
         }
+    }
+
+    /**
+     * 환불 경로 공통 락 순서(D-172 보충·외부 검토 2차): <b>Claim → Refund → Payment → OrderItem/Order → Inventory</b>. 콜백 경로가 Refund를
+     * 먼저 잡고 Claim을 나중에(markCompleted UPDATE) 잡으면 Claim을 먼저 잡는 initiate(복구 스케줄러·자동 핸들러)와 교착한다(T1 실측·PENDING 잔류).
+     * refresh인 이유: 호출부가 1차 캐시에 올린 stale 엔티티를 잠금과 함께 최신으로 재적재한다(Track 79 트랩). 같은 TX에서 두 번 호출돼도 이미
+     * 보유한 락이라 무해하다.
+     */
+    private void lockClaimThenRefund(Refund refund) {
+        Claim claim = claimRepository.findById(refund.getClaimId())
+                .orElseThrow(() -> new IllegalStateException("환불의 클레임 미존재: claimId=" + refund.getClaimId()));
+        entityManager.refresh(claim, LockModeType.PESSIMISTIC_WRITE);
+        entityManager.refresh(refund, LockModeType.PESSIMISTIC_WRITE);
     }
 
     /** 운영 조회: 한 클레임의 전체 환불 행(재시도 = 새 행·RFN-2 추적). */
