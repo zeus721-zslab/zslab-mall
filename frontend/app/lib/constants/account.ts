@@ -19,3 +19,5 @@ export const ZONECODE_MAX = 10
 export const ADDRESS_ROAD_MAX = 200
 export const ADDRESS_JIBUN_MAX = 200
 export const ADDRESS_DETAIL_MAX = 200
+// 휴대폰 형식 — SoT: UpdateProfileRequest @Pattern(AdminMemberUpdateRequest.PHONE_PATTERN·Track 84·D-178). 국내 휴대폰·하이픈 선택.
+export const PHONE_PATTERN = /^01[016789]-?\d{3,4}-?\d{4}$/

@@ -4,3 +4,16 @@
  * ※ ActorRole은 인메모리 인증용이라 4층위 ENUM 잠금 대상이 아니다(ActorRole.java Javadoc).
  */
 export const BUYER_ROLE = 'BUYER'
+
+/**
+ * 비밀번호 변경 강제 상태 쿠키(Track 84·D-178). 로그인 응답 passwordChangeRequired=true(임시 비밀번호 로그인)면 '1'을 저장하고
+ * 전역 미들웨어가 비밀번호 변경 페이지로 보낸다. auth_token과 같은 옵션(non-httpOnly·path /)이며 로그아웃·변경 완료 시 지운다.
+ */
+export const PASSWORD_CHANGE_REQUIRED_COOKIE = 'password_change_required'
+/** 강제 이동 대상(비밀번호 변경 페이지)·이동 사유 query(안내 문구 표시). */
+export const PASSWORD_CHANGE_PATH = '/mypage/password'
+export const PASSWORD_CHANGE_REASON_QUERY = 'reason'
+export const PASSWORD_CHANGE_REASON_TEMPORARY = 'temporary'
+/** 변경 완료 후 로그인 페이지 안내 query. */
+export const LOGIN_NOTICE_QUERY = 'notice'
+export const LOGIN_NOTICE_PASSWORD_CHANGED = 'password-changed'

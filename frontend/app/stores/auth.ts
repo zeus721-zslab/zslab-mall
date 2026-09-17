@@ -1,4 +1,4 @@
-import { BUYER_ROLE } from '~/lib/constants/auth'
+import { BUYER_ROLE, PASSWORD_CHANGE_REQUIRED_COOKIE } from '~/lib/constants/auth'
 import type { JwtPayload } from '~/types/auth'
 
 /**
@@ -32,6 +32,14 @@ export const useAuthStore = defineStore('auth', () => {
     secure: true,
     maxAge: 3600,
   })
+  // 비밀번호 변경 강제 상태(Track 84·D-178·임시 비밀번호 로그인). auth_token과 같은 옵션·수명이며 전역 미들웨어가 읽는다.
+  const passwordChangeRequiredCookie = useCookie<boolean | null>(PASSWORD_CHANGE_REQUIRED_COOKIE, {
+    path: '/',
+    sameSite: 'lax',
+    secure: true,
+    maxAge: 3600,
+  })
+  const passwordChangeRequired = computed<boolean>(() => passwordChangeRequiredCookie.value === true)
 
   const payload = computed<JwtPayload | null>(() =>
     token.value ? decodeJwtPayload(token.value) : null,
@@ -54,12 +62,14 @@ export const useAuthStore = defineStore('auth', () => {
       ? `${config.apiInternalBase}/api`
       : config.public.apiBase || '/api'
 
-    const response = await $fetch<{ token: string }>('/v1/auth/login', {
+    const response = await $fetch<{ token: string; passwordChangeRequired?: boolean }>('/v1/auth/login', {
       baseURL: baseUrl,
       method: 'POST',
       body: { email, password, role },
     })
     token.value = response.token
+    // 임시 비밀번호 로그인이면 변경 강제 상태를 켠다(Track 84·D-178). 필드가 없는 응답은 false로 본다.
+    passwordChangeRequiredCookie.value = response.passwordChangeRequired === true ? true : null
   }
 
   /**
@@ -95,7 +105,13 @@ export const useAuthStore = defineStore('auth', () => {
   /** 로그아웃. 토큰 쿠키 제거. cart 초기화는 STEP 3 로그아웃 핸들러에서 배선(여기서 store 결합 금지). */
   function logout(): void {
     token.value = null
+    passwordChangeRequiredCookie.value = null
   }
 
-  return { token, role, exp, expired, isAuthenticated, login, signup, logout }
+  /** 본인 비밀번호 변경 완료 시 강제 상태 해제(Track 84). 토큰은 BE가 무효화하므로 호출부가 이어서 logout한다. */
+  function clearPasswordChangeRequired(): void {
+    passwordChangeRequiredCookie.value = null
+  }
+
+  return { token, role, exp, expired, isAuthenticated, passwordChangeRequired, login, signup, logout, clearPasswordChangeRequired }
 })

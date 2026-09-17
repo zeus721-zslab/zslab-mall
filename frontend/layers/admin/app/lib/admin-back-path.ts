@@ -5,13 +5,24 @@
 export const ADMIN_PRODUCTS_PATH = '/admin/products'
 export const ADMIN_ORDERS_PATH = '/admin/orders'
 export const ADMIN_CLAIMS_PATH = '/admin/orders/claims'
+export const ADMIN_MEMBERS_PATH = '/admin/members'
+export const ADMIN_MEMBERS_WITHDRAWN_PATH = '/admin/members/withdrawn'
 
 /**
  * 허용 base 외 추가 진입 목록(FE-28): 주문 상세는 주문 목록·클레임 목록 양쪽에서 진입하므로 back이 클레임 목록(쿼리 포함)이면 그대로
- * 복귀한다. 그 외 화면(상품 등)은 기존처럼 base만 허용한다.
+ * 복귀한다. 회원 상세(Track 84)는 일반회원·탈퇴회원 목록 양쪽에서 진입한다. 그 외 화면(상품 등)은 기존처럼 base만 허용한다.
  */
 const EXTRA_BACK_BASES: Record<string, string[]> = {
   [ADMIN_ORDERS_PATH]: [ADMIN_CLAIMS_PATH],
+  [ADMIN_MEMBERS_PATH]: [ADMIN_MEMBERS_WITHDRAWN_PATH],
+}
+
+/**
+ * 허용 prefix(Track 84): 주문 상세는 회원 상세(/admin/members/usr_…?tab=…)에서도 진입하므로 그 하위 경로 전체를 back으로 허용한다.
+ * base 정확·"base?" 매칭이 아닌 "prefix/" 매칭이라 별도 표로 둔다.
+ */
+const EXTRA_BACK_PREFIXES: Record<string, string[]> = {
+  [ADMIN_ORDERS_PATH]: [`${ADMIN_MEMBERS_PATH}/`],
 }
 
 function matchesBase(value: string, base: string): boolean {
@@ -23,5 +34,6 @@ export function resolveBackPath(back: unknown, base: string = ADMIN_PRODUCTS_PAT
   if (typeof value !== 'string') return base
   if (matchesBase(value, base)) return value
   if ((EXTRA_BACK_BASES[base] ?? []).some((extra) => matchesBase(value, extra))) return value
+  if ((EXTRA_BACK_PREFIXES[base] ?? []).some((prefix) => value.startsWith(prefix))) return value
   return base
 }

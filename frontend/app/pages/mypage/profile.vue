@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { NAME_MAX, PHONE_MAX } from '~/lib/constants/account'
+import { NAME_MAX, PHONE_MAX, PHONE_PATTERN } from '~/lib/constants/account'
 import type { UpdateProfileRequest } from '~/types/user'
 
 // BUYER 전용 — 미인증/비-BUYER는 buyer 미들웨어가 /login으로 유도한다.
@@ -37,9 +37,14 @@ watchEffect(() => {
 
 async function handleSubmit(): Promise<void> {
   if (submitting.value) return
-  submitting.value = true
   errorMessage.value = ''
   successMessage.value = ''
+  // 휴대폰 형식(BE @Pattern 미러·Track 84)은 서버 왕복 전 클라에서 즉시 안내(400 단일 문구보다 사유가 분명).
+  if (!PHONE_PATTERN.test(phone.value.trim())) {
+    errorMessage.value = '휴대폰 번호 형식이 올바르지 않습니다 (예: 010-1234-5678)'
+    return
+  }
+  submitting.value = true
   try {
     const request: UpdateProfileRequest = { name: name.value, phone: phone.value }
     data.value = await updateProfile(request)
