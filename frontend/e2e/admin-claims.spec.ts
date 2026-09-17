@@ -11,6 +11,9 @@ const RETURN_CLAIM = 'clm_E2E0000000000000000000102'
 const DONE_CLAIM = 'clm_E2E0000000000000000000103'
 const PICKUP_CLAIM = 'clm_E2E0000000000000000000104'
 const INSPECT_CLAIM = 'clm_E2E0000000000000000000105'
+const EXCHANGE_SHIP_CLAIM = 'clm_E2E0000000000000000000106'
+const EXCHANGE_DELIVER_CLAIM = 'clm_E2E0000000000000000000107'
+const EXCHANGE_DELIVERY_ID = 'dlv_E2E7'
 const RETURN_SHIPMENT = { deliveryPublicId: 'dlv_E2E4', direction: 'RETURN', carrier: 'CJ', trackingNo: 'RTN-0004', status: 'SHIPPING', shippedAt: '2026-09-16T12:00:00+09:00', deliveredAt: null }
 
 const CLAIMS = [
@@ -75,7 +78,7 @@ async function mockClaimsApi(page: Page): Promise<Captured> {
     const type = query.get('type')
     const status = query.get('status')
     const keyword = query.get('keyword')
-    let items = CLAIMS
+    let items = type === 'EXCHANGE' ? EXCHANGE_CLAIMS : CLAIMS
     if (type) items = items.filter((item) => item.type === type)
     if (status) items = items.filter((item) => item.status === status)
     if (keyword) items = items.filter((item) => item.productName.includes(keyword) || item.orderNo === keyword)
@@ -84,8 +87,38 @@ async function mockClaimsApi(page: Page): Promise<Captured> {
     return route.fulfill({ json: { items, page: 0, size: 20, totalCount: items.length, hasNext: false, pendingCount } })
   })
   await page.route((url) => /\/api\/v1\/admin\/orders\/ord_[^/]+$/.test(url.pathname), (route) => route.fulfill({ json: ORDER_DETAIL }))
+  // FE-30: 교환품 발송 등록·배송완료
+  await page.route((url) => /\/api\/v1\/admin\/claims\/clm_[^/]+\/register-exchange-shipment$/.test(url.pathname), (route) => {
+    captured.posts.push({ url: route.request().url(), body: route.request().postData() ?? '' })
+    return route.fulfill({ json: { deliveryPublicId: 'dlv_E2E6', status: 'SHIPPING', carrier: 'CJ', trackingNo: 'EXC-0006' } })
+  })
+  await page.route((url) => /\/api\/v1\/admin\/deliveries\/dlv_[^/]+\/mark-delivered$/.test(url.pathname), (route) => {
+    captured.posts.push({ url: route.request().url(), body: route.request().postData() ?? '' })
+    return route.fulfill({ json: { deliveryPublicId: EXCHANGE_DELIVERY_ID, status: 'DELIVERED', carrier: 'HANJIN', trackingNo: 'EXC-0007' } })
+  })
   return captured
 }
+
+// FE-30 교환 행(교환 탭에서만 합류·전체 탭 행 수 단언 보존): 검수 합격 → 발송 대기 / 발송 중 → 배송완료 대기
+const EXCHANGE_CLAIMS = [
+  {
+    claimId: EXCHANGE_SHIP_CLAIM, type: 'EXCHANGE', status: 'APPROVED', requestedAt: '2026-09-12T10:00:00+09:00', processedAt: '2026-09-12T11:00:00+09:00',
+    orderId: ORDER_ID, orderItemId: 'oit_E2E0000000000000000000002', orderNo: 'ORD-20260916-0001', buyerName: 'E2E구매자', buyerEmail: 'buyer@e2e.invalid',
+    productName: 'E2E 교환대기 양말', optionLabel: '색상: 빨강', quantity: 1, amount: 5000, reasonCode: 'PRODUCT_DEFECT',
+    availableActions: ['REGISTER_EXCHANGE_SHIPMENT'], returnShipment: { ...RETURN_SHIPMENT, status: 'DELIVERED', deliveredAt: '2026-09-14T09:00:00+09:00' },
+    pickedUpAt: '2026-09-14T09:00:00+09:00', inspectionResult: 'PASS', restock: true, attachmentCount: 0,
+    originalOptionLabel: '색상: 빨강', exchangeOptionLabel: '색상: 파랑',
+  },
+  {
+    claimId: EXCHANGE_DELIVER_CLAIM, type: 'EXCHANGE', status: 'APPROVED', requestedAt: '2026-09-11T10:00:00+09:00', processedAt: '2026-09-11T11:00:00+09:00',
+    orderId: ORDER_ID, orderItemId: 'oit_E2E0000000000000000000002', orderNo: 'ORD-20260916-0001', buyerName: 'E2E구매자', buyerEmail: 'buyer@e2e.invalid',
+    productName: 'E2E 교환배송중 양말', optionLabel: '색상: 빨강', quantity: 1, amount: 5000, reasonCode: 'WRONG_PRODUCT',
+    availableActions: ['MARK_EXCHANGE_DELIVERED'], returnShipment: { ...RETURN_SHIPMENT, status: 'DELIVERED', deliveredAt: '2026-09-13T09:00:00+09:00' },
+    reshipment: { deliveryPublicId: EXCHANGE_DELIVERY_ID, direction: 'OUTBOUND', carrier: 'HANJIN', trackingNo: 'EXC-0007', status: 'SHIPPING', shippedAt: '2026-09-14T10:00:00+09:00', deliveredAt: null },
+    pickedUpAt: '2026-09-13T09:00:00+09:00', inspectionResult: 'PASS', restock: false, attachmentCount: 0,
+    originalOptionLabel: '색상: 빨강', exchangeOptionLabel: '색상: 파랑',
+  },
+]
 
 async function loginByDemo(page: Page): Promise<void> {
   await page.goto('/admin/login')
@@ -272,5 +305,43 @@ test.describe('관리자 취소·반품·교환 목록(FE-28)', () => {
       result: 'FAIL', rejectReasonCode: 'INSPECTION_FAILED', memo: '사용 흔적', reshipCarrier: 'HANJIN', reshipTrackingNo: 'RESHIP-0001',
     })
     await expect(dialog).toBeHidden()
+  })
+
+  test('⑤ FE-30 교환: 교환 탭 → 옵션 라벨(빨강 → 파랑)·"교환품 발송"·"배송완료" 버튼 → 발송 다이얼로그(택배사·송장 필수) → POST register-exchange-shipment body → info 토스트 / 배송완료 확인 → POST mark-delivered(reshipment.deliveryPublicId) → info 토스트 / 스크린샷', async ({ page }) => {
+    const captured = await mockClaimsApi(page)
+    await loginByDemo(page)
+    await page.goto('/admin/orders/claims?type=EXCHANGE')
+    await expect(page.getByTestId('row-status-chip')).toHaveCount(2)
+    await expect(page.getByTestId('row-exchange-option')).toHaveCount(2)
+    await expect(page.getByTestId('row-exchange-option').first()).toContainText('색상: 빨강 → 색상: 파랑')
+    await expect(page.getByTestId('row-register-exchange-shipment')).toHaveCount(1)
+    await expect(page.getByTestId('row-mark-exchange-delivered')).toHaveCount(1)
+    await page.screenshot({ path: 'playwright-report/fe-30/admin-claims-exchange.png', fullPage: true })
+
+    // 교환품 발송: 빈 제출 불가 → 택배사·송장 → POST body
+    await page.getByTestId('row-register-exchange-shipment').click()
+    const dialog = page.getByTestId('admin-exchange-shipment-dialog')
+    await expect(dialog).toBeVisible()
+    await expect(dialog.getByTestId('exchange-shipment-option')).toHaveText('색상: 파랑')
+    await expect(dialog.getByTestId('exchange-shipment-ok')).toBeDisabled()
+    await dialog.getByTestId('exchange-shipment-carrier').click()
+    await page.getByRole('option', { name: 'CJ대한통운' }).click()
+    await dialog.getByTestId('exchange-shipment-tracking-no').locator('input').fill('EXC-0006')
+    const postsBefore = captured.posts.length
+    await dialog.getByTestId('exchange-shipment-ok').click()
+    await expect(page.locator('[data-sonner-toast][data-type="info"]').filter({ hasText: '교환품 발송을 등록했습니다' })).toBeVisible()
+    expect(captured.posts[postsBefore]!.url).toContain(`/admin/claims/${EXCHANGE_SHIP_CLAIM}/register-exchange-shipment`)
+    expect(JSON.parse(captured.posts[postsBefore]!.body)).toEqual({ carrier: 'CJ', trackingNo: 'EXC-0006' })
+    await expect(dialog).toBeHidden()
+
+    // 배송완료: 확인 다이얼로그 → 기존 mark-delivered(reshipment.deliveryPublicId)
+    await page.getByTestId('row-mark-exchange-delivered').click()
+    const confirm = page.getByTestId('exchange-delivered-dialog')
+    await expect(confirm).toBeVisible()
+    await expect(confirm).toContainText('교환 옵션으로 바뀌고')
+    const deliveredBefore = captured.posts.length
+    await confirm.getByRole('button', { name: '배송완료' }).click()
+    await expect(page.locator('[data-sonner-toast][data-type="info"]').filter({ hasText: '교환품 배송완료 처리' })).toBeVisible()
+    expect(captured.posts[deliveredBefore]!.url).toContain(`/admin/deliveries/${EXCHANGE_DELIVERY_ID}/mark-delivered`)
   })
 })

@@ -22,8 +22,10 @@ export interface ClaimRequestBody {
   claimType: ClaimType
   reasonCode: ClaimReasonCode
   reasonDetail?: string
-  /** 반품 사진 첨부 id(att_·최대 5·FE-29). 반품 + 상품불량/오배송에서만 보낸다(그 외 BE 400). */
+  /** 반품·교환 사진 첨부 id(att_·최대 5·FE-29·FE-30). 상품불량/오배송에서만 보낸다(그 외 BE 400). */
   attachmentIds?: string[]
+  /** 교환 옵션 variant public id(var_·FE-30·D-177). EXCHANGE에서만 보낸다(필수·그 외 유형 지정 시 BE 400). */
+  exchangeVariantId?: string
 }
 
 /** 반품 사진 업로드 응답(BE ClaimAttachmentUploadResponse·FE-29). 파일별 부분 실패이며 성공 항목만 attachmentId를 가진다. */
@@ -121,6 +123,10 @@ export interface ClaimDetail {
   inspectionResult?: ClaimInspectionResult | null
   /** 반품 사진 URL(순서 보존·없으면 빈 목록·Track 81-B). */
   attachmentUrls: string[]
-  /** 검수 불합격 재발송 배송(OUTBOUND·없으면 생략/null·FE-29). */
+  /** 검수 불합격 재발송 또는 교환품 발송 배송(OUTBOUND·없으면 생략/null·FE-29·FE-30). */
   reshipment?: ClaimShipment | null
+  /** 교환 요청 옵션 라벨(EXCHANGE·FE-30·D-177·미해소 null). */
+  exchangeOptionLabel?: string | null
+  /** 교환 전 원 옵션 라벨(EXCHANGE·승인 스냅샷 우선·FE-30·D-177). */
+  originalOptionLabel?: string | null
 }

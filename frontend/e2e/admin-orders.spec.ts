@@ -42,6 +42,10 @@ const PAID_DETAIL = {
         { claimId: 'clm_E2E0000000000000000000002', type: 'RETURN', status: 'REJECTED', reasonCode: 'WRONG_PRODUCT', requestedAt: '2026-09-10T11:00:00', processedAt: '2026-09-12T11:00:00', approvable: false,
           rejectReasonCode: 'INSPECTION_FAILED', rejectMemo: '사용 흔적', returnCarrier: 'CJ', returnTrackingNo: 'RTN-0002', pickedUpAt: '2026-09-11T09:00:00', inspectionResult: 'FAIL',
           attachmentUrls: ['/api/v1/files/claims/2026/09/E2E1.png', '/api/v1/files/claims/2026/09/E2E2.png'] },
+        // FE-30: 교환 완료(원 옵션 → 교환 옵션 라벨)
+        { claimId: 'clm_E2E0000000000000000000003', type: 'EXCHANGE', status: 'COMPLETED', reasonCode: 'PRODUCT_DEFECT', requestedAt: '2026-09-01T11:00:00', processedAt: '2026-09-05T11:00:00', approvable: false,
+          returnCarrier: 'CJ', returnTrackingNo: 'RTN-0003', pickedUpAt: '2026-09-03T09:00:00', inspectionResult: 'PASS', restock: true, attachmentUrls: [],
+          originalOptionLabel: '색상: 빨강', exchangeOptionLabel: '색상: 파랑' },
       ] },
   ],
   cancelReasons: [], actions: ['CANCEL', 'PREPARE_SHIPMENT'],
@@ -292,9 +296,11 @@ test.describe('관리자 주문 목록·상세(FE-27)', () => {
     await expect(page.getByTestId('claim-reject-reason').first()).toContainText('거부: 이미 발송됨 — 오전 출고분')
     // FE-29: 검수 불합격 반품 행 — 사유 라벨·회수 송장·회수 확인·검수 chip·첨부 썸네일 2(클릭 확대)·품목 배송 "재발송" chip·상세엔 액션 없음
     await expect(page.getByTestId('claim-reject-reason').nth(1)).toContainText('거부: 검수 불합격 — 사용 흔적')
-    await expect(page.getByTestId('claim-return-shipment')).toContainText('회수 CJ대한통운 RTN-0002')
-    await expect(page.getByTestId('claim-picked-up-at')).toContainText('회수 확인 2026.09.11 09:00')
-    await expect(page.getByTestId('claim-inspection-chip')).toHaveText('검수 불합격')
+    await expect(page.getByTestId('claim-return-shipment').first()).toContainText('회수 CJ대한통운 RTN-0002')
+    await expect(page.getByTestId('claim-picked-up-at').first()).toContainText('회수 확인 2026.09.11 09:00')
+    await expect(page.getByTestId('claim-inspection-chip').first()).toHaveText('검수 불합격')
+    await expect(page.getByTestId('claim-exchange-option')).toHaveCount(1) // FE-30: 교환 클레임만 옵션 라벨
+    await expect(page.getByTestId('claim-exchange-option')).toContainText('교환 색상: 빨강 → 색상: 파랑')
     await expect(page.getByTestId('claim-attachment-thumb')).toHaveCount(2)
     await expect(page.getByTestId('item-reshipment-chip')).toHaveText('재발송')
     await expect(page.getByTestId('row-inspect')).toHaveCount(0)

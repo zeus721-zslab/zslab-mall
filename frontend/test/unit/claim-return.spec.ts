@@ -11,6 +11,7 @@ import {
   isClaimAttachmentAllowed,
   isClaimRejectReasonApplicable,
 } from '~/lib/constants/claim'
+import { exchangeOptionCandidates, variantOptionLabel } from '~/lib/utils/claim-exchange-options'
 import { claimTimeline } from '~/lib/utils/claim-timeline'
 import { CLAIM_ATTACHMENT_MAX_BYTES, precheckClaimAttachments, uploadItemErrorMessage, uploadRequestErrorMessage } from '~/lib/utils/claim-attachment'
 import { claimRequestErrorMessage } from '~/lib/utils/claim-request-error'
@@ -18,27 +19,30 @@ import type { ClaimDetail } from '~/types/claim'
 
 // FE-29: 반품 요청 조건(사유 3값·DELIVERED만·첨부 허용 사유)·거부 사유 5값(INSPECTION_FAILED 일반 거부 제외)·타임라인·업로드 검증·422 문구.
 describe('claimableTypes / 반품 사유(claim.ts)', () => {
-  it('SHIPPING은 반품 버튼 없음·DELIVERED만 RETURN·EXCHANGE(D-170 DELIVERED 한정)', () => {
+  it('SHIPPING은 반품 버튼 없음·DELIVERED만 RETURN·EXCHANGE(D-170 DELIVERED 한정) / 교환 완료 품목은 RETURN만(FE-30-4)', () => {
     expect(claimableTypes('SHIPPING')).toEqual([])
     expect(claimableTypes('DELIVERED')).toEqual(['RETURN', 'EXCHANGE'])
+    expect(claimableTypes('DELIVERED', true)).toEqual(['RETURN'])
     expect(claimableTypes('PAID')).toEqual(['CANCEL'])
+    expect(claimableTypes('PAID', true)).toEqual(['CANCEL'])
     expect(claimableTypes('CONFIRMED')).toEqual([])
   })
 
-  it('반품 사유는 3값·취소/교환은 전량(BE ClaimReasonCode.isApplicableTo 1:1)', () => {
+  it('반품·교환 사유는 3값·취소는 전량(BE ClaimReasonCode.isApplicableTo 1:1·D-177 결정 7)', () => {
     expect(claimReasonCodesFor('RETURN')).toEqual(['BUYER_CHANGED_MIND', 'PRODUCT_DEFECT', 'WRONG_PRODUCT'])
     expect(claimReasonCodesFor('RETURN')).toBe(RETURN_REASON_CODES)
+    expect(claimReasonCodesFor('EXCHANGE')).toBe(RETURN_REASON_CODES)
     expect(claimReasonCodesFor('CANCEL')).toHaveLength(10)
-    expect(claimReasonCodesFor('EXCHANGE')).toHaveLength(10)
   })
 
-  it('사진 첨부는 반품 + 상품불량/오배송에서만(D-171·그 외 BE 400)', () => {
+  it('사진 첨부는 반품·교환 + 상품불량/오배송에서만(D-171·D-177 결정 3·그 외 BE 400)', () => {
     expect(isClaimAttachmentAllowed('RETURN', 'PRODUCT_DEFECT')).toBe(true)
     expect(isClaimAttachmentAllowed('RETURN', 'WRONG_PRODUCT')).toBe(true)
     expect(isClaimAttachmentAllowed('RETURN', 'BUYER_CHANGED_MIND')).toBe(false)
     expect(isClaimAttachmentAllowed('RETURN', '')).toBe(false)
     expect(isClaimAttachmentAllowed('CANCEL', 'PRODUCT_DEFECT')).toBe(false)
-    expect(isClaimAttachmentAllowed('EXCHANGE', 'PRODUCT_DEFECT')).toBe(false)
+    expect(isClaimAttachmentAllowed('EXCHANGE', 'PRODUCT_DEFECT')).toBe(true)
+    expect(isClaimAttachmentAllowed('EXCHANGE', 'BUYER_CHANGED_MIND')).toBe(false)
     expect(CLAIM_ATTACHMENT_MAX).toBe(5)
   })
 })
@@ -91,9 +95,51 @@ describe('claimTimeline(claim-timeline.ts)', () => {
     expect(labels(returnDetail({ status: 'REJECTED', rejectReasonCode: 'OUT_OF_POLICY' }))).toEqual(['요청:done', '거절:current'])
   })
 
-  it('취소·교환은 기존 3단 유지', () => {
+  it('취소는 기존 3단 유지', () => {
     expect(labels(returnDetail({ claimType: 'CANCEL', status: 'APPROVED' }))).toEqual(['요청:done', '승인:current', '완료:upcoming'])
-    expect(labels(returnDetail({ claimType: 'EXCHANGE', status: 'COMPLETED' }))).toEqual(['요청:done', '승인:done', '완료:current'])
+  })
+
+  it('교환 7단(FE-30-2): 신청/승인/회수/검수/교환품 발송/배송완료/완료 단계 판정·시각은 pickedUpAt·reshipment shippedAt/deliveredAt·processedAt', () => {
+    const exchange = (overrides: Partial<ClaimDetail>) => returnDetail({ claimType: 'EXCHANGE', ...overrides })
+    const outbound = { ...shipment, deliveryPublicId: 'dlv_2', direction: 'OUTBOUND' as const, trackingNo: 'X1', shippedAt: '2026-09-14T10:00:00+09:00' }
+    expect(labels(exchange({ status: 'REQUESTED' }))).toEqual(['신청:current', '승인:upcoming', '회수:upcoming', '검수:upcoming', '교환품 발송:upcoming', '배송완료:upcoming', '완료:upcoming'])
+    expect(labels(exchange({ status: 'APPROVED' }))[1]).toBe('승인:current')
+    expect(labels(exchange({ status: 'APPROVED', returnShipment: shipment }))[2]).toBe('회수:current')
+    expect(labels(exchange({ status: 'APPROVED', returnShipment: shipment, pickedUpAt: '2026-09-12T10:00:00+09:00' }))[3]).toBe('검수:current')
+    expect(labels(exchange({ status: 'APPROVED', returnShipment: shipment, pickedUpAt: '2026-09-12T10:00:00+09:00', inspectionResult: 'PASS' }))[4]).toBe('교환품 발송:current')
+    const shipping = exchange({ status: 'APPROVED', returnShipment: shipment, pickedUpAt: '2026-09-12T10:00:00+09:00', inspectionResult: 'PASS', reshipment: outbound })
+    expect(labels(shipping)[5]).toBe('배송완료:current')
+    expect(claimTimeline(shipping).map((step) => step.at)).toEqual([shipping.requestedAt, null, '2026-09-12T10:00:00+09:00', null, '2026-09-14T10:00:00+09:00', null, null])
+    const done = exchange({ status: 'COMPLETED', returnShipment: shipment, pickedUpAt: '2026-09-12T10:00:00+09:00', inspectionResult: 'PASS', reshipment: { ...outbound, status: 'DELIVERED', deliveredAt: '2026-09-15T10:00:00+09:00' }, processedAt: '2026-09-15T10:00:00+09:00' })
+    expect(labels(done)).toEqual(['신청:done', '승인:done', '회수:done', '검수:done', '교환품 발송:done', '배송완료:done', '완료:current'])
+    expect(claimTimeline(done)[5]!.at).toBe('2026-09-15T10:00:00+09:00')
+    // 검수 불합격은 4단 종결·승인 전 거절은 2단
+    expect(labels(exchange({ status: 'REJECTED', inspectionResult: 'FAIL', returnShipment: shipment, pickedUpAt: '2026-09-12T10:00:00+09:00', processedAt: '2026-09-13T10:00:00+09:00' })))
+      .toEqual(['신청:done', '승인:done', '회수:done', '검수 불합격:current'])
+    expect(labels(exchange({ status: 'REJECTED', rejectReasonCode: 'OUT_OF_POLICY' }))).toEqual(['신청:done', '거절:current'])
+  })
+})
+
+describe('exchangeOptionCandidates(claim-exchange-options.ts)', () => {
+  const variants = [
+    { variantPublicId: 'var_A', salePrice: 10000, soldOut: false, options: [{ groupName: '색상', value: '빨강' }] },
+    { variantPublicId: 'var_B', salePrice: 10000, soldOut: false, options: [{ groupName: '색상', value: '파랑' }] },
+    { variantPublicId: 'var_C', salePrice: 10500, soldOut: false, options: [{ groupName: '색상', value: '노랑' }] },
+    { variantPublicId: 'var_D', salePrice: 10000, soldOut: true, options: [{ groupName: '색상', value: '검정' }] },
+    { variantPublicId: 'var_E', salePrice: 10000, soldOut: false, options: [] },
+  ]
+
+  it('같은 가격만·품절 제외·현재 옵션 제외·라벨은 "그룹: 값"(옵션 없으면 기본 옵션)', () => {
+    const candidates = exchangeOptionCandidates(variants, 'var_A', 10000)
+    expect(candidates.map((candidate) => candidate.variantPublicId)).toEqual(['var_B', 'var_E'])
+    expect(candidates[0]!.label).toBe('색상: 파랑')
+    expect(candidates[1]!.label).toBe('기본 옵션')
+    expect(variantOptionLabel({ options: [{ groupName: '색상', value: '빨강' }, { groupName: '사이즈', value: 'L' }] })).toBe('색상: 빨강 / 사이즈: L')
+  })
+
+  it('후보 0건: 단가가 맞는 다른 옵션이 없거나 전부 품절', () => {
+    expect(exchangeOptionCandidates(variants, 'var_A', 9000)).toEqual([])
+    expect(exchangeOptionCandidates([variants[0]!, variants[3]!], 'var_A', 10000)).toEqual([])
   })
 })
 
@@ -143,6 +189,18 @@ describe('claimRequestErrorMessage(claim-request-error.ts)', () => {
     expect(claimRequestErrorMessage({ statusCode: 422, data: { detail: '검수 불합격 이력이 있는 품목은 반품을 다시 요청할 수 없습니다' } })).toContain('검수 불합격')
     expect(claimRequestErrorMessage({ statusCode: 422, data: { detail: '반품은 배송완료 품목만 요청할 수 있습니다: SHIPPING' } })).toContain('배송완료된 상품만')
     expect(claimRequestErrorMessage({ statusCode: 422, data: { detail: '현재 주문 품목 상태에서 CANCEL 요청이 불가합니다' } })).toBe('현재 상태에서는 요청할 수 없습니다.')
+  })
+
+  it('교환 422 문구(FE-30): 기한·사유·재교환·같은 상품/가격/옵션·판매 중지·FAIL 이력 / 400 교환 옵션', () => {
+    expect(claimRequestErrorMessage({ statusCode: 422, data: { detail: '교환 가능 기간(배송완료 후 7일)이 지났습니다' } })).toContain('교환 가능 기간')
+    expect(claimRequestErrorMessage({ statusCode: 422, data: { detail: '교환 사유로 사용할 수 없는 코드입니다: OTHER' } })).toContain('교환을 요청할 수 없습니다')
+    expect(claimRequestErrorMessage({ statusCode: 422, data: { detail: '이미 교환이 완료된 품목은 다시 교환할 수 없습니다(반품은 가능)' } })).toBe('이미 교환한 상품은 다시 교환할 수 없습니다.')
+    expect(claimRequestErrorMessage({ statusCode: 422, data: { detail: '같은 상품의 옵션으로만 교환할 수 있습니다' } })).toContain('같은 상품')
+    expect(claimRequestErrorMessage({ statusCode: 422, data: { detail: '같은 가격의 옵션으로만 교환할 수 있습니다: 주문 단가=10000' } })).toContain('같은 가격')
+    expect(claimRequestErrorMessage({ statusCode: 422, data: { detail: '같은 옵션으로는 교환할 수 없습니다: variantId=1' } })).toContain('같은 옵션')
+    expect(claimRequestErrorMessage({ statusCode: 422, data: { detail: '판매 중이 아닌 옵션으로는 교환할 수 없습니다(NOT_ON_SALE)' } })).toContain('판매 중이 아닌')
+    expect(claimRequestErrorMessage({ statusCode: 422, data: { detail: '검수 불합격 이력이 있는 품목은 교환을 다시 요청할 수 없습니다' } })).toContain('반품·교환')
+    expect(claimRequestErrorMessage({ statusCode: 400, data: { detail: '교환 요청은 교환 옵션(exchangeVariantId)이 필수입니다.' } })).toContain('교환 옵션')
   })
 
   it('400은 첨부 문구 구분·401/404는 null(호출부 처리)', () => {

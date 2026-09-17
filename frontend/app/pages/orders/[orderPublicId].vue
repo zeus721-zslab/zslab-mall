@@ -34,10 +34,13 @@ function formatPrice(value: number): string {
 }
 
 // 클레임 요청 폼으로 진입(name은 표시용·서버 미전송). 원주문 id는 폼이 query로 받지 않으므로 성공 후 /orders로 유도.
+// 교환(FE-30-1 α)은 옵션 후보 조회·필터용으로 상품/변형 public id·주문 단가를 함께 넘긴다(규칙 보장은 BE).
 function goClaim(item: OrderItem, type: ClaimType): void {
-  navigateTo(
-    `/claims/new?orderItem=${item.orderItemId}&type=${type}&name=${encodeURIComponent(item.productName ?? '')}`,
-  )
+  const base = `/claims/new?orderItem=${item.orderItemId}&type=${type}&name=${encodeURIComponent(item.productName ?? '')}`
+  const exchangeQuery = type === 'EXCHANGE'
+    ? `&product=${item.productId ?? ''}&variant=${item.variantId ?? ''}&unitPrice=${item.unitPrice}`
+    : ''
+  navigateTo(base + exchangeQuery)
 }
 
 useSeoMeta({
@@ -107,9 +110,9 @@ useSeoMeta({
                 </div>
 
                 <!-- 클레임 진입점: 품목 상태가 허용하는 유형만 노출(claimableTypes 빈 배열이면 미노출). -->
-                <div v-if="claimableTypes(item.status.code).length" class="flex flex-wrap gap-2">
+                <div v-if="claimableTypes(item.status.code, item.exchangeCompleted ?? false).length" class="flex flex-wrap gap-2">
                   <Button
-                    v-for="type in claimableTypes(item.status.code)"
+                    v-for="type in claimableTypes(item.status.code, item.exchangeCompleted ?? false)"
                     :key="type"
                     variant="outline"
                     size="sm"

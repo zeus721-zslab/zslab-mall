@@ -41,17 +41,44 @@ export function refundStatusChip(refundStatus: RefundStatus | undefined): { text
   return { text: refundStatusLabel(refundStatus), semantic: ADMIN_REFUND_STATUS_SEMANTIC[refundStatus] }
 }
 
-/** 승인 확인 다이얼로그 문구(주문 상세·목록 공유). 취소는 승인 즉시 환불이 진행됨을 알린다. */
+/** 승인 확인 다이얼로그 문구(주문 상세·목록 공유). 취소는 승인 즉시 환불, 교환은 교환 옵션 재고 예약(부족 시 422)을 알린다(FE-30·D-177). */
 export function approveConfirmMessage(claimType: ClaimType, productName: string): string {
   const label = `${claimTypeLabel(claimType)} 요청 (${productName})`
-  return claimType === 'CANCEL'
-    ? `${label}을(를) 승인합니다.\n취소 요청은 승인 즉시 환불이 진행됩니다.`
-    : `${label}을(를) 승인합니다.`
+  if (claimType === 'CANCEL') return `${label}을(를) 승인합니다.\n취소 요청은 승인 즉시 환불이 진행됩니다.`
+  if (claimType === 'EXCHANGE') return `${label}을(를) 승인합니다.\n승인 시 교환 옵션 재고가 예약되며, 재고가 부족하면 승인되지 않습니다.`
+  return `${label}을(를) 승인합니다.`
 }
 
-/** 회수 확인 다이얼로그 문구(FE-29). 회수 확인은 환불을 일으키지 않고 검수 단계로만 넘긴다(D-170). */
-export function confirmPickupMessage(productName: string): string {
+/** 회수 확인 다이얼로그 문구(FE-29·FE-30). 회수 확인은 환불·발송을 일으키지 않고 검수 단계로만 넘긴다(D-170·D-177). */
+export function confirmPickupMessage(productName: string, claimType: ClaimType = 'RETURN'): string {
+  if (claimType === 'EXCHANGE') {
+    return `교환 요청 (${productName})의 회수를 확인합니다.\n회수 확인 후 검수를 진행할 수 있으며, 교환품 발송은 검수 합격 후 등록합니다.`
+  }
   return `반품 요청 (${productName})의 회수를 확인합니다.\n회수 확인 후 검수를 진행할 수 있으며, 환불은 검수 합격 시 진행됩니다.`
+}
+
+/** 검수 다이얼로그의 합격 의미(FE-30): 반품은 환불 자동 진행, 교환은 교환품 발송 대기. */
+export function inspectPassLabel(claimType: ClaimType): string {
+  return claimType === 'EXCHANGE' ? '합격 (교환품 발송 대기)' : '합격 (환불 진행)'
+}
+
+export function inspectPassToast(claimType: ClaimType): string {
+  return claimType === 'EXCHANGE' ? '검수 합격 처리했습니다. 교환품 발송을 등록하세요.' : '검수 합격 처리했습니다. 환불이 진행됩니다.'
+}
+
+export interface ExchangeShipmentFormInput {
+  carrier: AdminDeliveryCarrier | null
+  trackingNo: string
+}
+
+/** 교환품 발송 폼 검증(FE-30). 송장 규칙은 검수 FAIL 재발송·품목 발송 폼과 같다(택배사 필수·송장 1~100자). */
+export function validateExchangeShipmentForm(input: ExchangeShipmentFormInput): Record<string, string> {
+  const errors: Record<string, string> = {}
+  if (!input.carrier) errors.carrier = '택배사를 선택하세요.'
+  const trackingNo = input.trackingNo.trim()
+  if (trackingNo === '') errors.trackingNo = '송장번호를 입력하세요.'
+  else if (trackingNo.length > ADMIN_ORDER_TRACKING_NO_MAX) errors.trackingNo = `송장번호는 ${ADMIN_ORDER_TRACKING_NO_MAX}자 이하여야 합니다.`
+  return errors
 }
 
 /** 검수 결과 chip(미검수 null). 합격은 재입고 여부를 함께 표기한다. */

@@ -136,6 +136,9 @@ export interface AdminOrderClaim {
   /** 검수 결과(PASS|FAIL)·재입고 여부. 미검수 시 생략. */
   inspectionResult?: ClaimInspectionResult
   restock?: boolean
+  /** 교환 전/후 옵션 라벨(EXCHANGE·FE-30·D-177). 비교환·미해소면 생략. */
+  originalOptionLabel?: string
+  exchangeOptionLabel?: string
   /** 반품 사진 URL(순서 보존·Track 81-B). 없으면 빈 목록(구 픽스처 방어로 optional). */
   attachmentUrls?: string[]
 }

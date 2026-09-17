@@ -9,10 +9,16 @@ import type { AdminOrderSort } from '#layers/admin/app/lib/constants/admin-order
  */
 
 /**
- * 행 액션(BE availableActions 값). REQUESTED는 APPROVE·REJECT, RETURN APPROVED는 회수 송장 있고 미회수면 CONFIRM_PICKUP·회수 후 미검수면
- * INSPECT(Track 81-A D-170).
+ * 행 액션(BE availableActions 값). REQUESTED는 APPROVE·REJECT, RETURN·EXCHANGE APPROVED는 회수 송장 있고 미회수면 CONFIRM_PICKUP·회수 후 미검수면
+ * INSPECT(Track 81-A D-170). EXCHANGE는 검수 합격 후 OUTBOUND 미등록이면 REGISTER_EXCHANGE_SHIPMENT·배송중이면 MARK_EXCHANGE_DELIVERED(FE-30·D-177).
  */
-export type AdminClaimAction = 'APPROVE' | 'REJECT' | 'CONFIRM_PICKUP' | 'INSPECT'
+export type AdminClaimAction =
+  | 'APPROVE'
+  | 'REJECT'
+  | 'CONFIRM_PICKUP'
+  | 'INSPECT'
+  | 'REGISTER_EXCHANGE_SHIPMENT'
+  | 'MARK_EXCHANGE_DELIVERED'
 
 /** 목록 행(BE AdminClaimSummaryResponse). 주문·품목·구매자 미존재 시 해당 필드는 생략된다. */
 export interface AdminClaimSummary {
@@ -38,11 +44,15 @@ export interface AdminClaimSummary {
   availableActions: AdminClaimAction[]
   /** 반품 회수 Delivery(구매자 등록·Track 81-A). 없으면 생략. */
   returnShipment?: ClaimShipment
-  /** 검수 불합격 재발송 Delivery. 없으면 생략. */
+  /** 검수 불합격 재발송 또는 교환품 발송 Delivery(OUTBOUND 최신). 없으면 생략. */
   reshipment?: ClaimShipment
   pickedUpAt?: string
   inspectionResult?: ClaimInspectionResult
   restock?: boolean
+  /** 교환 전 원 옵션 라벨(EXCHANGE·승인 스냅샷 우선·FE-30·D-177). 비교환·미해소면 생략. */
+  originalOptionLabel?: string
+  /** 교환 요청 옵션 라벨(EXCHANGE·FE-30·D-177). 비교환·미해소면 생략. */
+  exchangeOptionLabel?: string
   /** 반품 사진 첨부 개수(Track 81-B). */
   attachmentCount: number
 }

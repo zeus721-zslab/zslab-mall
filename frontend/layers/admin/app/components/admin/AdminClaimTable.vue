@@ -16,6 +16,7 @@ import {
 import { formatWon } from '#layers/admin/app/lib/format'
 import { inspectionChip, refundStatusChip } from '#layers/admin/app/lib/admin-claim-view'
 import { semanticChipClass } from '#layers/admin/app/lib/constants/semantic'
+import { ADMIN_CLAIM_ACTION_LABEL } from '#layers/admin/app/lib/constants/admin-claim'
 
 // 클레임 표(FE-28·v-data-table-server·AdminOrderTable 패턴). 페이지·크기는 부모(URL)가 소유하고 표는 이벤트만 올린다.
 // 행 액션은 BE availableActions로만 노출한다 — REQUESTED는 APPROVE·REJECT, 반품 승인 후는 CONFIRM_PICKUP·INSPECT(FE-29·Track 81-A).
@@ -36,6 +37,8 @@ const emit = defineEmits<{
   reject: [item: AdminClaimSummary]
   confirmPickup: [item: AdminClaimSummary]
   inspect: [item: AdminClaimSummary]
+  registerExchangeShipment: [item: AdminClaimSummary]
+  markExchangeDelivered: [item: AdminClaimSummary]
 }>()
 
 // 8컬럼: 1440px에서 가로 스크롤이 없도록 요청/처리 일시·유형/상태·주문/구매자·상품/옵션·요청/거부 사유·환불/회수·검수를 2줄 셀로 병합한다(FE-27 compact 규칙).
@@ -117,6 +120,9 @@ function returnCaption(item: AdminClaimSummary): string {
     <template #[`item.product`]="{ item }">
       <div class="adm-product-name" :title="item.productName">{{ item.productName ?? '—' }}</div>
       <div class="text-caption text-medium-emphasis">{{ item.optionLabel ? `${item.optionLabel} · ` : '' }}수량 {{ item.quantity }}</div>
+      <div v-if="item.type === 'EXCHANGE' && (item.originalOptionLabel || item.exchangeOptionLabel)" class="text-caption text-medium-emphasis" data-testid="row-exchange-option">
+        교환 {{ item.originalOptionLabel ?? '—' }} → {{ item.exchangeOptionLabel ?? '—' }}
+      </div>
     </template>
 
     <template #[`item.amount`]="{ item }">
@@ -195,6 +201,24 @@ function returnCaption(item: AdminClaimSummary): string {
           data-testid="row-inspect"
           @click="emit('inspect', item)"
         >검수</v-btn>
+        <v-btn
+          v-if="item.availableActions.includes('REGISTER_EXCHANGE_SHIPMENT')"
+          size="x-small"
+          color="primary"
+          variant="flat"
+          :disabled="isPending(item)"
+          data-testid="row-register-exchange-shipment"
+          @click="emit('registerExchangeShipment', item)"
+        >{{ ADMIN_CLAIM_ACTION_LABEL.REGISTER_EXCHANGE_SHIPMENT }}</v-btn>
+        <v-btn
+          v-if="item.availableActions.includes('MARK_EXCHANGE_DELIVERED')"
+          size="x-small"
+          color="secondary"
+          variant="flat"
+          :disabled="isPending(item)"
+          data-testid="row-mark-exchange-delivered"
+          @click="emit('markExchangeDelivered', item)"
+        >{{ ADMIN_CLAIM_ACTION_LABEL.MARK_EXCHANGE_DELIVERED }}</v-btn>
         <span v-if="item.availableActions.length === 0" class="text-caption text-medium-emphasis">—</span>
       </div>
     </template>

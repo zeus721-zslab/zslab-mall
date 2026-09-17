@@ -46,7 +46,7 @@ export function useAdminOrders() {
     return api<AdminDeliveryResponse>(path, { method: 'POST' })
   }
 
-  /** 승인 body는 EXCHANGE 차액용(선택)이라 FE-27은 보내지 않는다(BE required=false). */
+  /** 승인은 body 없이 호출한다(교환 차액 refundAmount는 D-177로 폐기·값을 보내면 BE 400). */
   function approveClaim(claimPublicId: string): Promise<AdminClaimResponse> {
     const path: string = `/v1/admin/claims/${claimPublicId}/approve`
     return api<AdminClaimResponse>(path, { method: 'POST' })
@@ -65,10 +65,16 @@ export function useAdminOrders() {
   }
 
   /** 반품 검수(FE-29·Track 81-A). PASS restock 필수·FAIL 사유·재발송 송장 필수(400)·회수 전/재검수 422는 throw. */
+  /** 교환품 발송 등록(FE-30·Track 83 D-177). 검수 합격한 교환만 200·그 외 422(CLAIM_STATE_INVALID)는 throw. 응답은 Delivery 관점. */
+  function registerExchangeShipment(claimPublicId: string, body: AdminShipmentRequest): Promise<AdminDeliveryResponse> {
+    const path: string = `/v1/admin/claims/${claimPublicId}/register-exchange-shipment`
+    return api<AdminDeliveryResponse>(path, { method: 'POST', body })
+  }
+
   function inspectClaim(claimPublicId: string, body: AdminClaimInspectBody): Promise<AdminClaimResponse> {
     const path: string = `/v1/admin/claims/${claimPublicId}/inspect`
     return api<AdminClaimResponse>(path, { method: 'POST', body })
   }
 
-  return { list, detail, cancel, prepareShipment, markDelivered, approveClaim, rejectClaim, confirmPickupClaim, inspectClaim }
+  return { list, detail, cancel, prepareShipment, markDelivered, approveClaim, rejectClaim, confirmPickupClaim, inspectClaim, registerExchangeShipment }
 }

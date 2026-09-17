@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { CLAIM_INSPECTION_FAIL_REASON_CODE, CLAIM_REJECT_MEMO_MAX, CLAIM_REJECT_REASON_LABELS, type ClaimInspectionResult } from '~/lib/constants/claim'
+import { CLAIM_INSPECTION_FAIL_REASON_CODE, CLAIM_REJECT_MEMO_MAX, CLAIM_REJECT_REASON_LABELS, type ClaimInspectionResult, type ClaimType } from '~/lib/constants/claim'
 import {
   ADMIN_DELIVERY_CARRIER_OPTIONS,
   ADMIN_ORDER_TRACKING_NO_MAX,
   type AdminDeliveryCarrier,
 } from '#layers/admin/app/lib/constants/admin-order'
 import { mapFieldErrors } from '#layers/admin/app/lib/admin-order-view'
-import { validateInspectForm } from '#layers/admin/app/lib/admin-claim-view'
+import { inspectPassLabel, inspectPassToast, validateInspectForm } from '#layers/admin/app/lib/admin-claim-view'
 import { extractErrorCode, toAdminErrorMessage } from '#layers/admin/app/lib/admin-error-message'
 import { useAdminOrders } from '#layers/admin/app/composables/useAdminOrders'
 import { useAdminToast } from '#layers/admin/app/composables/useAdminToast'
@@ -15,6 +15,8 @@ import { useAdminToast } from '#layers/admin/app/composables/useAdminToast'
 export interface AdminClaimInspectTarget {
   claimId: string
   productName: string
+  /** 유형별 합격 의미 분기(반품 환불 / 교환 발송 대기·FE-30). 미지정은 반품. */
+  claimType?: ClaimType
 }
 
 /**
@@ -32,10 +34,10 @@ const emit = defineEmits<{ done: []; stale: []; cancel: [] }>()
 const ordersApi = useAdminOrders()
 const toast = useAdminToast()
 
-const RESULT_OPTIONS: { value: ClaimInspectionResult; label: string }[] = [
-  { value: 'PASS', label: '합격 (환불 진행)' },
+const RESULT_OPTIONS = computed<{ value: ClaimInspectionResult; label: string }[]>(() => [
+  { value: 'PASS', label: inspectPassLabel(claimType.value) },
   { value: 'FAIL', label: '불합격 (재발송)' },
-]
+])
 const RESTOCK_OPTIONS: { value: boolean; label: string }[] = [
   { value: true, label: '재입고' },
   { value: false, label: '폐기 (재고 미복구)' },
@@ -52,6 +54,7 @@ const submitting = ref(false)
 // 닫힘 애니메이션 동안 상품명이 사라지지 않도록 마지막 대상을 유지한다(target은 즉시 null).
 const lastTarget = ref<AdminClaimInspectTarget | null>(null)
 watch(() => props.target, (next) => { if (next) lastTarget.value = next })
+const claimType = computed<ClaimType>(() => lastTarget.value?.claimType ?? 'RETURN')
 
 function reset(): void {
   result.value = null
@@ -83,7 +86,7 @@ async function submit(): Promise<void> {
   try {
     if (result.value === 'PASS') {
       await ordersApi.inspectClaim(props.target.claimId, { result: 'PASS', restock: restock.value ?? false })
-      toast.info('검수 합격 처리했습니다. 환불이 진행됩니다.')
+      toast.info(inspectPassToast(claimType.value))
     } else {
       await ordersApi.inspectClaim(props.target.claimId, {
         result: 'FAIL',
@@ -122,7 +125,8 @@ async function submit(): Promise<void> {
       <v-card-title class="text-subtitle-1 font-weight-bold pt-5 px-5">반품 검수</v-card-title>
       <v-card-text class="px-5">
         <p class="text-body-2 mb-3">
-          <span class="font-weight-medium">{{ lastTarget?.productName }}</span> 회수품을 검수합니다. 합격은 환불이 자동 진행되고, 불합격은 상품을 구매자에게 재발송합니다.
+          <span class="font-weight-medium">{{ lastTarget?.productName }}</span> 회수품을 검수합니다.
+          {{ claimType === 'EXCHANGE' ? '합격은 교환품 발송 대기로 넘어가고' : '합격은 환불이 자동 진행되고' }}, 불합격은 상품을 구매자에게 재발송합니다.
         </p>
 
         <v-radio-group
