@@ -3,6 +3,7 @@ package com.zslab.mall.claim.service;
 import com.zslab.mall.claim.controller.request.ClaimRequestCommand;
 import com.zslab.mall.claim.controller.response.ClaimResponse;
 import com.zslab.mall.claim.controller.response.ClaimSummaryResponse;
+import com.zslab.mall.attachment.entity.Attachment;
 import com.zslab.mall.claim.entity.Claim;
 import com.zslab.mall.claim.enums.ClaimInspectionResult;
 import com.zslab.mall.claim.enums.ClaimReasonCode;
@@ -18,6 +19,7 @@ import com.zslab.mall.claim.event.ClaimRequested;
 import com.zslab.mall.claim.exception.ClaimInvalidStateException;
 import com.zslab.mall.claim.exception.ClaimNotFoundException;
 import com.zslab.mall.claim.repository.ClaimRepository;
+import com.zslab.mall.common.exception.MalformedRequestException;
 import com.zslab.mall.common.observability.TracedEventPublisher;
 import com.zslab.mall.delivery.entity.Delivery;
 import com.zslab.mall.delivery.enums.DeliveryCarrier;
@@ -39,6 +41,7 @@ import jakarta.persistence.LockModeType;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -64,6 +67,10 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 public class ClaimService {
 
+    /** 사진 첨부를 허용하는 반품 사유(Track 81-B D-171·R2). 단순변심 첨부는 400. */
+    private static final Set<ClaimReasonCode> ATTACHABLE_RETURN_REASONS =
+            Set.of(ClaimReasonCode.PRODUCT_DEFECT, ClaimReasonCode.WRONG_PRODUCT);
+
     private static final int MAX_PAGE_SIZE = 100;
     private static final int DEFAULT_PAGE_SIZE = 20;
 
@@ -75,6 +82,7 @@ public class ClaimService {
     private final RefundRepository refundRepository;
     private final DeliveryRepository deliveryRepository;
     private final ReturnWindowPolicy returnWindowPolicy;
+    private final ClaimAttachmentService claimAttachmentService;
     private final EntityManager entityManager;
 
     public ClaimService(
@@ -86,6 +94,7 @@ public class ClaimService {
             RefundRepository refundRepository,
             DeliveryRepository deliveryRepository,
             ReturnWindowPolicy returnWindowPolicy,
+            ClaimAttachmentService claimAttachmentService,
             EntityManager entityManager) {
         this.claimRepository = claimRepository;
         this.orderItemRepository = orderItemRepository;
@@ -95,6 +104,7 @@ public class ClaimService {
         this.refundRepository = refundRepository;
         this.deliveryRepository = deliveryRepository;
         this.returnWindowPolicy = returnWindowPolicy;
+        this.claimAttachmentService = claimAttachmentService;
         this.entityManager = entityManager;
     }
 
@@ -105,8 +115,17 @@ public class ClaimService {
      * @return 생성된 Claim(public_id·id 부여 완료)
      * @throws ClaimNotFoundException     주문 품목이 없거나 소유자가 다른 경우(정보 노출 회피·T3)
      * @throws ClaimInvalidStateException 활성 클레임 중복(CLM-5)·OrderItem 상태가 해당 type 요청 전이 불가인 경우(422)
+     * @throws MalformedRequestException  첨부 허용 조건(RETURN·불량/오배송) 위반·첨부 id 소유권/연결/중복 위반(400)
      */
     public Claim request(ClaimRequestCommand command) {
+        // (0) 첨부(Track 81-B): RETURN + 불량/오배송에서만 허용. 소유권·미연결 검증은 락 전에(읽기만) 끝낸다.
+        List<String> attachmentIds = command.attachmentIds();
+        if (!attachmentIds.isEmpty()
+                && (command.claimType() != ClaimType.RETURN || !ATTACHABLE_RETURN_REASONS.contains(command.reasonCode()))) {
+            throw new MalformedRequestException("사진 첨부는 반품(상품불량·오배송) 요청에서만 허용됩니다.");
+        }
+        List<Attachment> attachments = claimAttachmentService.resolveForLink(command.buyerId(), attachmentIds);
+
         // (a) OrderItem public_id → id 해소(D-64·D-65). 미존재 시 404.
         OrderItem resolved = orderItemRepository.findByPublicId(command.orderItemPublicId())
                 .orElseThrow(() -> new ClaimNotFoundException(
@@ -123,8 +142,10 @@ public class ClaimService {
             throw new ClaimNotFoundException("주문 품목을 찾을 수 없습니다: " + command.orderItemPublicId());
         }
 
-        return createClaim(resolved.getId(), command.claimType(), command.reasonCode(), command.reasonDetail(),
+        Claim claim = createClaim(resolved.getId(), command.claimType(), command.reasonCode(), command.reasonDetail(),
                 command.buyerId(), command.requestedAt());
+        claimAttachmentService.link(attachments, claim.getId());
+        return claim;
     }
 
     /**
@@ -403,7 +424,9 @@ public class ClaimService {
         Delivery returnDelivery = claim.getType() == ClaimType.RETURN
                 ? deliveryRepository.findByClaimIdAndDirection(claim.getId(), DeliveryDirection.RETURN).orElse(null)
                 : null;
-        return ClaimResponse.from(claim, orderItemPublicId, refundStatus, returnDelivery);
+        // Track 81-B: 첨부 URL 1쿼리(순서 보존·없으면 빈 목록)
+        return ClaimResponse.from(claim, orderItemPublicId, refundStatus, returnDelivery,
+                claimAttachmentService.urlsOf(claim.getId()));
     }
 
     /** 본인 클레임 목록(requested_by 기준·D-54 페이징). size는 1~100 클램프. 환불 상태는 페이지 단위 배치 1쿼리(Track 80). */

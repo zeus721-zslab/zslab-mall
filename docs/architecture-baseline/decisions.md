@@ -10419,3 +10419,44 @@ deploy.yml이 `push main` 무필터라 docs만 변경된 머지에도 서버 SSH
 - 검증: T5 FAIL 후 재요청 422 · T8 원 발송 8일/클레임 연결 발송 오늘 → 422·원 발송 1일 → 201 · 전체 --rerun-tasks 186파일 981 tests·0 fail.
 - 변경 파일(보충): main 신규 delivery/service/ReturnWindowPolicy · 수정 DeliveryRepository(claim_id NULL 파생 쿼리)·ClaimRepository(FAIL 이력)·ClaimService(정책 위임·FAIL 가드)·V24(인덱스 컬럼) / test ClaimServiceTest(정책 mock)·ClaimReturnIntegrationTest(+T8·T5 확장).
 
+
+## D-171. 자동 구매확정 배치·반품 사진 첨부 BE (Track 81-B)
+
+날짜: 2026-09-17
+트랙: Track 81-B (BE 2차·81-A 후속·FE는 FE-29)
+정찰: docs/track-81/recon-report.md §4 Q1·Q6 + STEP 221 확인
+브랜치: feat/track-81b-return-extras (81-A·FE-29와 PR 1건)
+
+### 배경
+81-A가 반품 기한을 "배송완료 후 7일"로 잠갔지만 구매확정이 수동뿐이라 미확정 품목은 사실상 무기한 반품 대기였고 정산 gross(confirmed_at)도 열리지 않았다. 불량·오배송 반품은 사진 첨부(R2)를 전제하지만 attachment 테이블만 있고 구매자 업로드·연결·노출이 없었다.
+
+### §1-A 결정
+1. **확정 경합 처리**: **α 품목 행 락(`refresh(PESSIMISTIC_WRITE)`) 후 DELIVERED·활성 클레임 없음·`ReturnWindowPolicy` 기한 경과 3중 재확인 【채택】** / β 조건부 UPDATE 1문 【기각】(Order.status 재계산·confirmed_at 기록이 같은 TX에 필요·수동 확정 코어와 분기). 반품 요청(`ClaimService.createClaim`)도 같은 행을 잠그고 DELIVERED를 검증하므로 먼저 락을 얻은 쪽만 성공한다 — 늦은 자동 확정은 RETURN_REQUESTED를 보고 skip(debug), 늦은 반품 요청은 CONFIRMED를 보고 422(T4 경합 검증·정확히 1건). 후보 조회(`findAutoConfirmCandidateOrderItemIds`·V24 인덱스 (direction,status,claim_id,delivered_at) 범위 + order_item 조인)는 활성 클레임을 보지 않고 서비스가 거른다(2중 가드·배치 조회와 확정은 다른 TX).
+2. **수동·자동 공용 코어**: `BuyerOrderConfirmService.confirmItem(target, orderId)`(DELIVERED→CONFIRMED·`markConfirmedAt`·`recalculateStatus`)로 추출 — 소유권·멱등은 호출부. 이벤트는 여전히 미발행(정산은 confirmed_at 집계·T3 자동+수동 gross 합산 동일).
+3. **킬스위치·주기**: `zslab.order.auto-confirm.enabled`(matchIfMissing·auto-cancel 정합)·fixedDelay 1시간·BATCH 100·id별 try/catch(Exception만). 통합 테스트는 컨텍스트에서 끄고 스케줄러를 직접 생성해 호출(T2 빈 부재 확인).
+4. **첨부 소유권**: **α V25 `attachment.uploaded_by` + `target_id` NULL 허용(미연결 = target_type CLAIM·target_id NULL) 【채택】** / β Flyway 없이 `(USER, buyerId)` 임시 타깃 후 `(CLAIM, claimId)` 재지정 【기각】(업로더가 연결 후 소실·USER 타깃 의미 중복). `created_by`는 `AuditorAwareImpl`이 항상 empty라 감사 컬럼으로 대체 불가. 연결 검증: 요청자 업로드(uploaded_by=buyerId)·미연결·중복 id 없음·존재 — 위반은 모두 400(타인 파일은 미존재와 같은 메시지로 은닉). 기존 `findByTargetTypeAndTargetId(type, id)` 등치 조회는 NULL 행을 대상으로 오인하지 않음(실측·AuditLog/NotificationLog는 별도 테이블).
+5. **사유 한정**: RETURN + PRODUCT_DEFECT|WRONG_PRODUCT에서만 `attachmentIds` 허용(`ClaimService.ATTACHABLE_RETURN_REASONS`). 단순변심·CANCEL/EXCHANGE에 첨부 시 400 — 첨부 검증은 품목 락 전(읽기만)이라 상태 422보다 앞선다.
+6. **사진 선택 입력**: 불량·오배송이라도 첨부 없는 요청은 201(강제 시 FE-29 전 기존 사용자 흐름·관리자 경로 차단). 장수 상한 5(`ClaimAttachmentService.MAX_ATTACHMENTS`·업로드 요청·연결 목록 동일)·형식/크기/디코딩은 `ImageUploadService` 재사용(`upload(files, directory)` 오버로드·`claims/yyyy/MM/{ULID}.{ext}`·썸네일 동일).
+- 업로드 API: `POST /api/v1/claims/attachments`(multipart files·BUYER·기존 `/api/v1/claims/**` 규칙·SecurityConfig 무변경) → 파일별 결과 + `attachmentId`(att_). 요청 본문 `attachmentIds` 순서 = `display_order`.
+- 응답: 사용자 `ClaimResponse.attachmentUrls`(요청 직후·상세·순서 보존·없으면 빈 목록) / 관리자 목록 `attachmentCount`(GROUP BY 1쿼리 배치·예산 8→9·행 수 무관 고정) / 관리자 주문 상세 ClaimRow `attachmentUrls`(상세 전용 배치 1쿼리·목록 예산 무영향).
+- 파일 URL: `/api/v1/files/claims/…/{ULID}.{ext}` — ULID 키라 추측 불가하나 서빙은 permitAll(인가 없음). 인증 파일 서빙은 이월(§8).
+
+### 변경 파일
+- Flyway: V25__attachment_uploaded_by_unlinked.sql(uploaded_by·target_id NULL·rollback 주석)
+- main 신규: order/scheduler/OrderAutoConfirmScheduler · order/service/OrderAutoConfirmService · claim/service/ClaimAttachmentService · claim/controller/response/ClaimAttachmentUploadResponse · attachment/repository/AttachmentCountProjection
+- main 수정: order/service/BuyerOrderConfirmService(confirmItem 추출) · delivery/repository/DeliveryRepository(후보 JPQL) · attachment/entity/Attachment(targetId nullable·uploadedBy·createUnlinked·linkTo) · attachment/repository/AttachmentRepository(+4) · file/service/ImageUploadService(directory 오버로드) · claim/controller/request/{ClaimRequestRequest,ClaimRequestCommand}(attachmentIds) · claim/service/{ClaimService(첨부 조건·resolve→link·getClaim URL),AdminClaimQueryService(첨부 개수 배치)} · claim/controller/BuyerClaimController(attachments) · claim/controller/response/{ClaimResponse,AdminClaimSummaryResponse} · order/service/AdminOrderQueryService(ClaimRow URL 배치) · order/controller/response/AdminOrderDetailResponse
+- test 신규: order/integration/OrderAutoConfirmIntegrationTest(4) / 수정: ClaimReturnIntegrationTest(+T9·T10·upload.path TempDir·auto-confirm off)·Track80CancelFlowIntegrationTest(예산 9·auto-confirm off)·ClaimServiceTest·ClaimServiceConfirmPickupTest·BuyerClaimControllerTest(mock)
+
+### 검증
+- 자동 확정: 원 발송 8일 경과 CONFIRMED·confirmed_at·주문 CONFIRMED / 3일·활성 클레임(후보 포함·서비스 skip)·재발송 8일(원 발송 3일)·6일 제외 / 재실행 멱등 / 킬스위치 빈 부재·1건 실패 격리 / 자동+수동 gross 3× 합산·buyer 누적 / 경합 자동 확정(기준 시각 +2일) vs 반품 요청 동시 → 1건.
+- 첨부: 업로드 2장(미연결·uploaded_by) → 불량 요청 [2,1] 순서 연결·응답·상세·관리자 목록 개수·주문 상세 URL·공개 서빙 200·재사용 400 / 단순변심·CANCEL·타인·미존재·중복 400·6장 400·SELLER 403·첨부 없는 불량 201.
+- 전체: ./backend/gradlew.bat test --rerun-tasks 187파일 987 tests·0 fail(981 → 987).
+
+### 문서 정정
+- state-machine.md: §3 CONFIRMED 행(자동 확정 조건)·§6 이연 해소·§2 반품 요청 조건(원 발송·첨부 조건).
+
+### §8 이월
+- 인증 파일 서빙(`GET /api/v1/files/**` permitAll → 클레임 사진은 본인·셀러·관리자 한정) — 상품 이미지 공개 서빙과 분리 필요.
+- 미연결 첨부(target_id NULL·업로드 후 요청 취소/실패) 정리 — 기존 고아 업로드 파일 정리 항목에 합류(배치·보존 기간 동일 결정).
+- 자동 확정 알림(구매자 SMS/알림)·확정 직전 안내 — 운영 피드백 후.
+- FE-29: 반품 요청 화면 사진 업로드 위젯(불량/오배송 시 노출·5장)·상세/관리자 첨부 표시·attachmentCount 칩.

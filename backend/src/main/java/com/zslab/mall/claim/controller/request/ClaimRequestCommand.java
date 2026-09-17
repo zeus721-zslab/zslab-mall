@@ -3,6 +3,7 @@ package com.zslab.mall.claim.controller.request;
 import com.zslab.mall.claim.enums.ClaimReasonCode;
 import com.zslab.mall.claim.enums.ClaimType;
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 클레임 요청 입력(Service 계층 Command·ClaimService.request 단일 진입).
@@ -17,5 +18,12 @@ public record ClaimRequestCommand(
         ClaimReasonCode reasonCode,
         String reasonDetail,
         Long buyerId,
-        LocalDateTime requestedAt) {
+        LocalDateTime requestedAt,
+        List<String> attachmentIds) {
+
+    /** 첨부 없는 요청(Track 81-B 이전 호출부 호환). */
+    public ClaimRequestCommand(String orderItemPublicId, ClaimType claimType, ClaimReasonCode reasonCode, String reasonDetail,
+            Long buyerId, LocalDateTime requestedAt) {
+        this(orderItemPublicId, claimType, reasonCode, reasonDetail, buyerId, requestedAt, List.of());
+    }
 }

@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -20,6 +21,12 @@ import com.zslab.mall.common.security.AuthHeaders;
 import com.zslab.mall.notification.adapter.SmsSender;
 import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.support.AbstractIntegrationTest;
+import java.awt.Color;
+import java.awt.Graphics2D;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -33,10 +40,16 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import javax.imageio.ImageIO;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.web.servlet.request.MockMultipartHttpServletRequestBuilder;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -56,7 +69,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 @AutoConfigureMockMvc
 @TestPropertySource(properties = {
         "zslab.order.auto-cancel.enabled=false",
-        "zslab.order.expired-cleanup.enabled=false"
+        "zslab.order.expired-cleanup.enabled=false",
+        "zslab.order.auto-confirm.enabled=false"
 })
 class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
 
@@ -85,6 +99,17 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
     private static final String ADMIN_CLAIMS_URL = "/api/v1/admin/claims";
     private static final String RETURN_SHIPMENT_BODY = "{\"carrier\":\"CJ\",\"trackingNo\":\"RTN-TRACK-0001\"}";
     private static final String INSPECT_PASS_RESTOCK = "{\"result\":\"PASS\",\"restock\":true}";
+    private static final String ATTACHMENTS_URL = CLAIMS_URL + "/attachments";
+    private static final String ATT_PID_UNKNOWN = "att_" + ("RTNATTX" + "00000000000000000000000000").substring(0, 26);
+
+    /** 반품 사진 저장 루트(Track 81-B). upload.path를 임시 디렉터리로 돌려 실 업로드 볼륨을 건드리지 않는다. */
+    @TempDir
+    static Path uploadRoot;
+
+    @DynamicPropertySource
+    static void uploadPath(DynamicPropertyRegistry registry) {
+        registry.add("upload.path", () -> uploadRoot.toString());
+    }
     private static final String INSPECT_PASS_NO_RESTOCK = "{\"result\":\"PASS\",\"restock\":false}";
     private static final String INSPECT_FAIL = "{\"result\":\"FAIL\",\"rejectReasonCode\":\"INSPECTION_FAILED\",\"memo\":\"사용 흔적\","
             + "\"reshipCarrier\":\"HANJIN\",\"reshipTrackingNo\":\"RESHIP-0001\"}";
@@ -395,6 +420,101 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT picked_up_at FROM claim WHERE id = ?", LocalDateTime.class, claimId)).isNull();
     }
 
+    // ===== 반품 사진 첨부(Track 81-B D-171) =====
+
+    @Test
+    @DisplayName("T9 첨부: 업로드 2장(미연결·uploaded_by) → 불량 사유 요청에 [2,1] 순서 연결·응답 attachmentUrls → 상세·관리자 목록 개수·주문 상세 URL → 재사용 400")
+    void attachments_uploadLinkAndExpose() throws Exception {
+        String first = uploadOne(USER_ID, "defect-1.png");
+        String second = uploadOne(USER_ID, "defect-2.png");
+        assertThat(jdbc.queryForObject("SELECT target_id FROM attachment WHERE public_id = ?", Long.class, first)).isNull();
+        assertThat(jdbc.queryForObject("SELECT uploaded_by FROM attachment WHERE public_id = ?", Long.class, first)).isEqualTo(USER_ID);
+        String secondUrl = jdbc.queryForObject("SELECT file_path FROM attachment WHERE public_id = ?", String.class, second);
+        assertThat(secondUrl).startsWith("/api/v1/files/claims/");
+
+        mockMvc.perform(post(CLAIMS_URL).headers(authHeaders.buyer(USER_ID)).contentType(MediaType.APPLICATION_JSON)
+                        .content(requestBody("RETURN", "PRODUCT_DEFECT", second, first)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.attachmentUrls.length()").value(2))
+                .andExpect(jsonPath("$.attachmentUrls[0]").value(secondUrl));
+        Long claimId = jdbc.queryForObject("SELECT id FROM claim WHERE order_item_id = ?", Long.class, ORDER_ITEM_ID);
+        assertThat(jdbc.queryForObject("SELECT display_order FROM attachment WHERE public_id = ?", Integer.class, second)).isZero();
+        assertThat(jdbc.queryForObject("SELECT display_order FROM attachment WHERE public_id = ?", Integer.class, first)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT target_id FROM attachment WHERE public_id = ?", Long.class, first)).isEqualTo(claimId);
+
+        mockMvc.perform(get(CLAIMS_URL + "/" + claimPid(claimId)).headers(authHeaders.buyer(USER_ID)))
+                .andExpect(jsonPath("$.attachmentUrls.length()").value(2))
+                .andExpect(jsonPath("$.attachmentUrls[0]").value(secondUrl));
+        mockMvc.perform(get(ADMIN_CLAIMS_URL).headers(authHeaders.admin(ADMIN_ID)).param("type", "RETURN"))
+                .andExpect(jsonPath("$.items[0].attachmentCount").value(2));
+        mockMvc.perform(get("/api/v1/admin/orders/" + pid("ord_", "RTNORD")).headers(authHeaders.admin(ADMIN_ID)))
+                .andExpect(jsonPath("$.items[0].claims[0].attachmentUrls.length()").value(2))
+                .andExpect(jsonPath("$.items[0].claims[0].attachmentUrls[0]").value(secondUrl));
+        mockMvc.perform(get(secondUrl)).andExpect(status().isOk()); // 공개 서빙(ULID 키·인가 없음·이월)
+
+        // 이미 연결된 첨부 재사용 → 400(첨부 검증이 품목 상태 검증보다 앞)
+        mockMvc.perform(post(CLAIMS_URL).headers(authHeaders.buyer(USER_ID)).contentType(MediaType.APPLICATION_JSON)
+                        .content(requestBody("RETURN", "PRODUCT_DEFECT", first)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
+    }
+
+    @Test
+    @DisplayName("T10 첨부 400/403: 단순변심 첨부·CANCEL 첨부·타인 파일·미존재·중복 id·6장 업로드 → 400 / SELLER 업로드 403 / 첨부 없는 불량 요청 201")
+    void attachments_rejections() throws Exception {
+        String mine = uploadOne(USER_ID, "mine.png");
+        String others = uploadOne(OTHER_USER_ID, "others.png");
+
+        for (String body : List.of(
+                requestBody("RETURN", "BUYER_CHANGED_MIND", mine),
+                requestBody("CANCEL", "PRODUCT_DEFECT", mine),
+                requestBody("RETURN", "WRONG_PRODUCT", others),
+                requestBody("RETURN", "WRONG_PRODUCT", ATT_PID_UNKNOWN),
+                requestBody("RETURN", "WRONG_PRODUCT", mine, mine))) {
+            mockMvc.perform(post(CLAIMS_URL).headers(authHeaders.buyer(USER_ID)).contentType(MediaType.APPLICATION_JSON).content(body))
+                    .andExpect(status().isBadRequest());
+        }
+        assertThat(claimCount()).isZero();
+        assertThat(jdbc.queryForObject("SELECT target_id FROM attachment WHERE public_id = ?", Long.class, mine)).isNull();
+
+        MockMultipartHttpServletRequestBuilder tooMany = multipart(ATTACHMENTS_URL);
+        for (int i = 0; i < 6; i++) {
+            tooMany.file(new MockMultipartFile("files", "f" + i + ".png", "image/png", png()));
+        }
+        mockMvc.perform(tooMany.headers(authHeaders.buyer(USER_ID))).andExpect(status().isBadRequest());
+        mockMvc.perform(multipart(ATTACHMENTS_URL).file(new MockMultipartFile("files", "s.png", "image/png", png()))
+                        .headers(authHeaders.seller(SELLER_USER_ID)))
+                .andExpect(status().isForbidden());
+
+        // 사진은 선택 입력: 첨부 없는 불량 반품은 그대로 201
+        mockMvc.perform(post(CLAIMS_URL).headers(authHeaders.buyer(USER_ID)).contentType(MediaType.APPLICATION_JSON)
+                        .content(requestBody("RETURN", "PRODUCT_DEFECT")))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.attachmentUrls.length()").value(0));
+    }
+
+    /** 구매자 사진 1장 업로드 → attachmentId(att_). */
+    private String uploadOne(long userId, String fileName) throws Exception {
+        String body = mockMvc.perform(multipart(ATTACHMENTS_URL).file(new MockMultipartFile("files", fileName, "image/png", png()))
+                        .headers(authHeaders.buyer(userId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.successCount").value(1))
+                .andReturn().getResponse().getContentAsString();
+        return com.fasterxml.jackson.databind.json.JsonMapper.builder().build().readTree(body)
+                .get("results").get(0).get("attachmentId").asText();
+    }
+
+    private static byte[] png() throws IOException {
+        BufferedImage image = new BufferedImage(8, 8, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D graphics = image.createGraphics();
+        graphics.setColor(Color.ORANGE);
+        graphics.fillRect(0, 0, 8, 8);
+        graphics.dispose();
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        ImageIO.write(image, "png", output);
+        return output.toByteArray();
+    }
+
     // ---------- 흐름 헬퍼 ----------
 
     private Long requestReturn() {
@@ -424,6 +544,12 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
 
     private String requestBody(String type, String reasonCode) {
         return "{\"orderItemPublicId\":\"" + ORDER_ITEM_PID + "\",\"claimType\":\"" + type + "\",\"reasonCode\":\"" + reasonCode + "\"}";
+    }
+
+    private String requestBody(String type, String reasonCode, String... attachmentIds) {
+        String ids = String.join(",", java.util.Arrays.stream(attachmentIds).map(id -> "\"" + id + "\"").toList());
+        return "{\"orderItemPublicId\":\"" + ORDER_ITEM_PID + "\",\"claimType\":\"" + type + "\",\"reasonCode\":\"" + reasonCode
+                + "\",\"attachmentIds\":[" + ids + "]}";
     }
 
     // ---------- seed·helpers ----------
@@ -506,6 +632,7 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
             try {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
                 jdbc.update("DELETE FROM notification_log WHERE recipient_user_id = ?", USER_ID);
+                jdbc.update("DELETE FROM attachment WHERE uploaded_by IN (?, ?)", USER_ID, OTHER_USER_ID);
                 jdbc.update("DELETE FROM refund WHERE claim_id IN (SELECT id FROM claim WHERE order_item_id = ?)", ORDER_ITEM_ID);
                 jdbc.update("DELETE FROM delivery WHERE order_item_id = ?", ORDER_ITEM_ID);
                 jdbc.update("DELETE FROM claim WHERE order_item_id = ?", ORDER_ITEM_ID);

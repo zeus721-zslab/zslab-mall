@@ -10,6 +10,7 @@ import com.zslab.mall.common.serialization.KstOffsetSerializer;
 import com.zslab.mall.delivery.entity.Delivery;
 import com.zslab.mall.refund.enums.RefundStatus;
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 클레임 단건 상세 응답(D-89 Q7·OrderResponse 패턴 정합). 식별자는 전부 public_id·내부 BIGINT 미노출.
@@ -19,6 +20,7 @@ import java.time.LocalDateTime;
  *
  * <p>Track 80(D-169) 추가 필드: rejectReasonCode·rejectMemo(거부 전 null)·refundStatus(최신 환불 상태·환불 미생성 시 null).
  * Track 81-A(D-170) 추가 필드: returnShipmentRequired(회수 송장 등록 가능 단계)·returnShipment(회수 Delivery)·pickedUpAt·inspectionResult.
+ * Track 81-B(D-171) 추가 필드: attachmentUrls(반품 사진 URL·순서 보존·없으면 빈 목록).
  * 기존 필드는 무변경이다.
  */
 public record ClaimResponse(
@@ -38,23 +40,30 @@ public record ClaimResponse(
         boolean returnShipmentRequired,
         ReturnShipmentResponse returnShipment,
         @JsonSerialize(using = KstOffsetSerializer.class) LocalDateTime pickedUpAt,
-        ClaimInspectionResult inspectionResult) {
+        ClaimInspectionResult inspectionResult,
+        List<String> attachmentUrls) {
 
-    /** 영속 Claim + 해소된 orderItemPublicId로 상세 응답을 조립한다(환불 상태·회수 송장 미조회·요청 직후·전이 직후 응답용). */
+    /** 영속 Claim + 해소된 orderItemPublicId로 상세 응답을 조립한다(환불 상태·회수 송장·첨부 미조회·전이 직후 응답용). */
     public static ClaimResponse from(Claim claim, String orderItemPublicId) {
-        return from(claim, orderItemPublicId, null, null);
+        return from(claim, orderItemPublicId, null, null, List.of());
+    }
+
+    /** 요청 직후 응답(Track 81-B): 환불 상태·회수 송장 없이 첨부 URL만 싣는다. */
+    public static ClaimResponse from(Claim claim, String orderItemPublicId, List<String> attachmentUrls) {
+        return from(claim, orderItemPublicId, null, null, attachmentUrls);
     }
 
     /** 영속 Claim + 해소된 orderItemPublicId + 최신 환불 상태로 상세 응답을 조립한다(회수 송장 미조회). */
     public static ClaimResponse from(Claim claim, String orderItemPublicId, RefundStatus refundStatus) {
-        return from(claim, orderItemPublicId, refundStatus, null);
+        return from(claim, orderItemPublicId, refundStatus, null, List.of());
     }
 
     /**
      * 영속 Claim + 환불 상태 + 회수 Delivery(Track 81-A)로 상세 응답을 조립한다. {@code returnShipmentRequired}는 구매자가 회수 송장을
      * 등록해야 하는 단계(RETURN·APPROVED·회수 송장 없음·미회수)인지다.
      */
-    public static ClaimResponse from(Claim claim, String orderItemPublicId, RefundStatus refundStatus, Delivery returnDelivery) {
+    public static ClaimResponse from(Claim claim, String orderItemPublicId, RefundStatus refundStatus, Delivery returnDelivery,
+            List<String> attachmentUrls) {
         boolean returnShipmentRequired = claim.getType() == ClaimType.RETURN && claim.getStatus() == ClaimStatus.APPROVED
                 && returnDelivery == null && claim.getPickedUpAt() == null;
         return new ClaimResponse(
@@ -72,6 +81,7 @@ public record ClaimResponse(
                 returnShipmentRequired,
                 returnDelivery == null ? null : ReturnShipmentResponse.from(returnDelivery),
                 claim.getPickedUpAt(),
-                claim.getInspectionResult());
+                claim.getInspectionResult(),
+                attachmentUrls);
     }
 }

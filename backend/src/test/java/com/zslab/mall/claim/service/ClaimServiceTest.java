@@ -83,6 +83,9 @@ class ClaimServiceTest {
     @Mock
     private EntityManager entityManager;
 
+    @Mock
+    private ClaimAttachmentService claimAttachmentService;
+
     @InjectMocks
     private ClaimService claimService;
 

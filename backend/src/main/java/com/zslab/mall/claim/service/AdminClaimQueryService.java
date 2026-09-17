@@ -1,5 +1,7 @@
 package com.zslab.mall.claim.service;
 
+import com.zslab.mall.attachment.repository.AttachmentCountProjection;
+import com.zslab.mall.attachment.repository.AttachmentRepository;
 import com.zslab.mall.claim.controller.request.AdminClaimSort;
 import com.zslab.mall.claim.controller.response.AdminClaimListResponse;
 import com.zslab.mall.claim.controller.response.AdminClaimSummaryResponse;
@@ -9,6 +11,7 @@ import com.zslab.mall.claim.enums.ClaimStatus;
 import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.repository.AdminClaimSpecifications;
 import com.zslab.mall.claim.repository.ClaimRepository;
+import com.zslab.mall.common.enums.PolymorphicTargetType;
 import com.zslab.mall.common.exception.MalformedRequestException;
 import com.zslab.mall.delivery.entity.Delivery;
 import com.zslab.mall.delivery.enums.DeliveryDirection;
@@ -39,7 +42,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 관리자 클레임 목록 조회(Track 80 D-169·{@code AdminOrderQueryService} 패턴). Specification으로 페이지를 잡은 뒤 품목·주문·구매자·환불을
- * 배치 조회해 행을 조립한다(N+1 회피·쿼리 수 고정: count·page·품목·품목→주문 요약·구매자·환불·클레임 Delivery·대기건수 = 8·Track 81-A +1).
+ * 배치 조회해 행을 조립한다(N+1 회피·쿼리 수 고정: count·page·품목·품목→주문 요약·구매자·환불·클레임 Delivery·첨부 개수·대기건수 = 9·
+ * Track 81-A +1·Track 81-B +1).
  */
 @Service
 @Transactional(readOnly = true)
@@ -58,14 +62,17 @@ public class AdminClaimQueryService {
     private final UserRepository userRepository;
     private final RefundRepository refundRepository;
     private final DeliveryRepository deliveryRepository;
+    private final AttachmentRepository attachmentRepository;
 
     public AdminClaimQueryService(ClaimRepository claimRepository, OrderItemRepository orderItemRepository,
-            UserRepository userRepository, RefundRepository refundRepository, DeliveryRepository deliveryRepository) {
+            UserRepository userRepository, RefundRepository refundRepository, DeliveryRepository deliveryRepository,
+            AttachmentRepository attachmentRepository) {
         this.claimRepository = claimRepository;
         this.orderItemRepository = orderItemRepository;
         this.userRepository = userRepository;
         this.refundRepository = refundRepository;
         this.deliveryRepository = deliveryRepository;
+        this.attachmentRepository = attachmentRepository;
     }
 
     /**
@@ -102,7 +109,7 @@ public class AdminClaimQueryService {
     /** 페이지 내 클레임의 품목·주문 요약·구매자·최신 환불을 배치 조회한다(각 1쿼리·페이지가 비면 0쿼리). */
     private Enrichment enrich(List<Claim> claims) {
         if (claims.isEmpty()) {
-            return new Enrichment(Map.of(), Map.of(), Map.of(), Map.of(), Map.of());
+            return new Enrichment(Map.of(), Map.of(), Map.of(), Map.of(), Map.of(), Map.of());
         }
         Set<Long> itemIds = claims.stream().map(Claim::getOrderItemId).collect(Collectors.toCollection(LinkedHashSet::new));
         List<Long> claimIds = claims.stream().map(Claim::getId).toList();
@@ -121,7 +128,12 @@ public class AdminClaimQueryService {
         // Track 81-A: 클레임 연결 Delivery(회수 RETURN·재발송/교환 OUTBOUND) 1쿼리 배치 — 방향별 최신 1건
         Map<Long, List<Delivery>> deliveriesByClaimId = deliveryRepository.findByClaimIdInOrderByIdDesc(claimIds).stream()
                 .collect(Collectors.groupingBy(Delivery::getClaimId));
-        return new Enrichment(itemById, orderByItemId, userById, latestRefundByClaimId, deliveriesByClaimId);
+        // Track 81-B: 반품 사진 첨부 개수 1쿼리 배치(GROUP BY·목록은 개수만)
+        Map<Long, Long> attachmentCountByClaimId = attachmentRepository
+                .countByTargetTypeAndTargetIdIn(PolymorphicTargetType.CLAIM, claimIds).stream()
+                .collect(Collectors.toMap(AttachmentCountProjection::getTargetId, AttachmentCountProjection::getAttachmentCount));
+        return new Enrichment(itemById, orderByItemId, userById, latestRefundByClaimId, deliveriesByClaimId,
+                attachmentCountByClaimId);
     }
 
     private AdminClaimSummaryResponse toSummary(Claim claim, Enrichment enrichment) {
@@ -157,7 +169,8 @@ public class AdminClaimQueryService {
                 reshipment == null ? null : ReturnShipmentResponse.from(reshipment),
                 claim.getPickedUpAt(),
                 claim.getInspectionResult(),
-                claim.getRestock());
+                claim.getRestock(),
+                enrichment.attachmentCountByClaimId().getOrDefault(claim.getId(), 0L));
     }
 
     /**
@@ -192,7 +205,8 @@ public class AdminClaimQueryService {
             Map<Long, OrderItemOrderProjection> orderByItemId,
             Map<Long, User> userById,
             Map<Long, Refund> latestRefundByClaimId,
-            Map<Long, List<Delivery>> deliveriesByClaimId) {
+            Map<Long, List<Delivery>> deliveriesByClaimId,
+            Map<Long, Long> attachmentCountByClaimId) {
     }
 
     private String normalizeKeyword(String keyword) {

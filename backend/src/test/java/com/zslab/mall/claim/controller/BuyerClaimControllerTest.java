@@ -19,6 +19,7 @@ import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.controller.response.ClaimResponse;
 import com.zslab.mall.claim.exception.ClaimInvalidStateException;
 import com.zslab.mall.claim.exception.ClaimNotFoundException;
+import com.zslab.mall.claim.service.ClaimAttachmentService;
 import com.zslab.mall.claim.service.ClaimService;
 import com.zslab.mall.common.auth.BuyerActorResolver;
 import com.zslab.mall.common.exception.MalformedRequestException;
@@ -65,6 +66,9 @@ class BuyerClaimControllerTest {
     private ClaimService claimService;
 
     @MockitoBean
+    private ClaimAttachmentService claimAttachmentService;
+
+    @MockitoBean
     private BuyerActorResolver buyerActorResolver;
 
     @BeforeEach
@@ -88,7 +92,7 @@ class BuyerClaimControllerTest {
 
     private ClaimResponse claimResponse() {
         return new ClaimResponse(CLAIM_PUBLIC_ID, ORDER_ITEM_PUBLIC_ID, ClaimType.CANCEL, ClaimStatus.REQUESTED,
-                "BUYER_CHANGED_MIND", "단순 변심", REQUESTED_AT, null, null, null, null, false, null, null, null);
+                "BUYER_CHANGED_MIND", "단순 변심", REQUESTED_AT, null, null, null, null, false, null, null, null, List.of());
     }
 
     // ===== POST /api/v1/claims =====

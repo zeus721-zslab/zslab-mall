@@ -59,7 +59,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 @AutoConfigureMockMvc
 @TestPropertySource(properties = {
         "zslab.order.auto-cancel.enabled=false",
-        "zslab.order.expired-cleanup.enabled=false"
+        "zslab.order.expired-cleanup.enabled=false",
+        "zslab.order.auto-confirm.enabled=false"
 })
 class Track80CancelFlowIntegrationTest extends AbstractIntegrationTest {
 
@@ -83,7 +84,7 @@ class Track80CancelFlowIntegrationTest extends AbstractIntegrationTest {
     private static final String BUYER_PHONE = "010-1111-2222";
     private static final String BUYER_NAME = "트랙80구매자";
     /** 실측 8 고정: claim count·page + user·order_item·주문 요약 projection·refund·클레임 delivery(Track 81-A) 배치 5 + REQUESTED count 1. */
-    private static final int QUERY_BUDGET_FOR_LIST = 8;
+    private static final int QUERY_BUDGET_FOR_LIST = 9;
 
     private static final String ORDER_A_PID = pid("ord_", "T80ORDA");
     private static final String ORDER_B_PID = pid("ord_", "T80ORDB");
@@ -359,8 +360,9 @@ class Track80CancelFlowIntegrationTest extends AbstractIntegrationTest {
     }
 
     /**
-     * 목록 1회 호출의 SQL 실행 수(Hibernate Statistics·prepared statement 기준). 실측 구성(1행·2행 동일 8):
-     * claim count · claim page · user in · order_item in · 품목→주문 요약 projection · claim REQUESTED count · refund in · delivery in(claim_id·Track 81-A).
+     * 목록 1회 호출의 SQL 실행 수(Hibernate Statistics·prepared statement 기준). 실측 구성(1행·2행 동일 9):
+     * claim count · claim page · user in · order_item in · 품목→주문 요약 projection · claim REQUESTED count · refund in · delivery in(claim_id·Track 81-A)
+     * · attachment count group by(Track 81-B).
      */
     private long countListQueries(int size) throws Exception {
         Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();

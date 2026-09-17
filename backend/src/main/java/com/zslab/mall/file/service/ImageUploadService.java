@@ -59,6 +59,15 @@ public class ImageUploadService {
      * @throws MalformedRequestException 파일 없음·{@value #MAX_FILES_PER_REQUEST}장 초과(400)
      */
     public ImageUploadResponse upload(List<MultipartFile> files) {
+        return upload(files, PRODUCT_DIRECTORY);
+    }
+
+    /**
+     * 저장 디렉터리를 지정해 업로드한다(Track 81-B·클레임 첨부 {@code claims/yyyy/MM/}). 검증·썸네일·응답은 {@link #upload(List)}와 동일하다.
+     *
+     * @throws MalformedRequestException 파일 없음·{@value #MAX_FILES_PER_REQUEST}장 초과(400)
+     */
+    public ImageUploadResponse upload(List<MultipartFile> files, String directory) {
         if (files == null || files.isEmpty()) {
             throw new MalformedRequestException("업로드할 파일이 없습니다(files).");
         }
@@ -67,7 +76,7 @@ public class ImageUploadService {
         }
         List<ImageUploadResponse.Item> results = new ArrayList<>();
         for (MultipartFile file : files) {
-            results.add(uploadOne(file));
+            results.add(uploadOne(file, directory));
         }
         ImageUploadResponse response = ImageUploadResponse.of(results);
         log.info("[ImageUpload] 업로드 완료 requested={} success={} failure={}",
@@ -97,7 +106,7 @@ public class ImageUploadService {
         return fileStorage.exists(thumbnailKey) ? URL_PREFIX + thumbnailKey : imageUrl;
     }
 
-    private ImageUploadResponse.Item uploadOne(MultipartFile file) {
+    private ImageUploadResponse.Item uploadOne(MultipartFile file, String directory) {
         String fileName = file.getOriginalFilename();
         if (file.isEmpty()) {
             return ImageUploadResponse.Item.failure(fileName, CODE_EMPTY_FILE, "빈 파일입니다.");
@@ -124,7 +133,7 @@ public class ImageUploadService {
             return ImageUploadResponse.Item.failure(fileName, CODE_INVALID_IMAGE, "이미지를 디코딩할 수 없습니다.");
         }
 
-        String base = PRODUCT_DIRECTORY + "/" + LocalDate.now().format(MONTH_DIRECTORY) + "/" + UlidCreator.getUlid().toString();
+        String base = directory + "/" + LocalDate.now().format(MONTH_DIRECTORY) + "/" + UlidCreator.getUlid().toString();
         String originalKey = base + "." + format.extension();
         fileStorage.store(originalKey, content);
         String url = URL_PREFIX + originalKey;

@@ -55,6 +55,9 @@ class ClaimServiceConfirmPickupTest {
     private TracedEventPublisher eventPublisher;
     @Mock
     private DeliveryService deliveryService;
+    @Mock
+    private ClaimAttachmentService claimAttachmentService;
+
     @InjectMocks
     private ClaimService claimService;
 

@@ -61,7 +61,7 @@ REQUESTED ──→ APPROVED ──→ COMPLETED
 > **거부 사유(Track 80 D-169)**: REQUESTED → REJECTED 전이는 거부 사유 코드 필수·메모 선택이다(`claim.reject_reason_code` CHECK·`reject_memo` ≤500·V23·`ClaimRejectReasonCode` ALREADY_SHIPPED|OUT_OF_POLICY|BUYER_WITHDRAWN|OTHER|INSPECTION_FAILED(V24)). ALREADY_SHIPPED는 CANCEL 전용·INSPECTION_FAILED는 RETURN 검수 전용(도메인 검증 400). 거부 시 품목은 `previous_order_item_status` 스냅샷으로 원복(§3·기존 ClaimRejectedHandler 무변경). 거부·요청 접수·CANCEL/RETURN 완료·RETURN 승인 시점에 구매자 SMS(NotificationLog channel=SMS·AFTER_COMMIT·발송 실패는 전이를 롤백하지 않음).
 >
 > **반품 단계(Track 81-A D-170·상태 4값 유지·milestone 컬럼)**:
-> - 요청 조건: 품목 DELIVERED + 사유 `ClaimReasonCode.isApplicableTo(RETURN)`(BUYER_CHANGED_MIND·PRODUCT_DEFECT·WRONG_PRODUCT) + 최신 발송(OUTBOUND) Delivery `delivered_at` + 7일 이내(`ClaimService.RETURN_WINDOW_DAYS`·위반 422 CLAIM_STATE_INVALID). 배송완료 시각 SoT는 delivery(order_item 컬럼 신설 기각). CONFIRMED는 종결이라 요청 불가(기존).
+> - 요청 조건: 품목 DELIVERED + 사유 `ClaimReasonCode.isApplicableTo(RETURN)`(BUYER_CHANGED_MIND·PRODUCT_DEFECT·WRONG_PRODUCT) + 원 주문 발송(OUTBOUND·claim_id NULL) Delivery `delivered_at` + 7일 이내(`ReturnWindowPolicy`·위반 422 CLAIM_STATE_INVALID). 배송완료 시각 SoT는 delivery(order_item 컬럼 신설 기각). CONFIRMED는 종결이라 요청 불가(기존). 사진 첨부(Track 81-B D-171): RETURN + PRODUCT_DEFECT|WRONG_PRODUCT에서만 `attachmentIds`(att_·최대 5·요청자 업로드·미연결) 허용, 그 외 400.
 > - 회수 송장: 구매자 `POST /api/v1/claims/{id}/return-shipment`(APPROVED·회수 전·본인) → `delivery`(direction=RETURN·claim_id·SHIPPING). `DeliveryStarted`는 direction=RETURN·claimId로 발행되며 발송 소비처(품목 SHIPPING 전이·배송 알림·교환 차액)는 OUTBOUND·claim_id NULL만 처리한다.
 > - 회수 확인: 셀러/관리자 `confirm-pickup` = `Claim.pickedUpAt` + 회수 Delivery DELIVERED(부재 422). **환불은 발생하지 않는다**(구 ClaimPickedUpHandler 제거).
 > - 검수: `inspect`{PASS, restock} → `inspected_at`·`inspection_result=PASS`·`restock` 저장 → `ClaimInspectionPassed` → `RefundService.initiate(totalPrice)` → Refund.COMPLETED(Mock 자동) → Claim.COMPLETED → 품목 RETURNED → 재고는 `restock=true`일 때만 `restoreStock(RETURN)`(false는 재고·history 불변). `inspect`{FAIL, rejectReasonCode, memo, reshipCarrier, reshipTrackingNo} → **APPROVED → REJECTED**(아래 예외) + 재발송 Delivery(OUTBOUND·claim_id) + `ClaimRejected`(품목 DELIVERED 원복·거부 SMS). 동시 검수는 `refresh(PESSIMISTIC_WRITE)`로 직렬화(늦은 쪽 422).
@@ -91,7 +91,7 @@ ORDERED → PAID → PREPARING → SHIPPING → DELIVERED → CONFIRMED
 | PREPARING | 준비중 | 판매자 출고 준비 시작 |
 | SHIPPING | 배송중 | Delivery 등록 + SHIPPING |
 | DELIVERED | 배송완료 | Delivery 상태 DELIVERED |
-| CONFIRMED | 구매확정 | 구매자 확정 또는 자동 확정 |
+| CONFIRMED | 구매확정 | 구매자 확정 또는 자동 확정(Track 81-B D-171: 원 주문 발송 `delivered_at`+7일 경과·DELIVERED·활성 클레임 없음 — `OrderAutoConfirmScheduler` 1시간 주기·`zslab.order.auto-confirm.enabled` 킬스위치·품목 행 락 후 3중 재확인·수동 확정과 같은 코어 `BuyerOrderConfirmService.confirmItem`) |
 | CANCEL_REQUESTED | 취소요청 | Claim(CANCEL).REQUESTED |
 | CANCELLED | 취소완료 | Claim(CANCEL).COMPLETED만. [정정 Track 79 D-168] 미결제 종료는 OrderItem 무변경(ORDERED 유지)·Order.PAYMENT_EXPIRED(§11)이며 `ORDERED → CANCELLED` 전이는 코드에 없다 |
 | RETURN_REQUESTED | 반품요청 | Claim(RETURN).REQUESTED |
@@ -191,7 +191,7 @@ Order.status는 OrderItem 집계 캐시이므로, OrderItem 상태가 변경될 
 ## 6. 외부 이연
 
 - **Delivery 상태 전이** → §6.1로 정의 완료 (Track 13·D-97·이연 해소)
-- **자동 구매확정 타이머** (배송 후 N일 → CONFIRMED) → 구현 단계
+- **자동 구매확정 타이머** (배송 후 N일 → CONFIRMED) → 구현 완료(Track 81-B D-171·§3 CONFIRMED 행·`ReturnWindowPolicy` 7일)
 - **재고 복구 시점** (CANCELLED/RETURNED 후) → PR-02 inventory-policy.md
 
 ### 6.1 Delivery.status (B분류 — DELIVERY_STATUS·Track 13 D-97)

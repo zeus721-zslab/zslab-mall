@@ -2,6 +2,8 @@ package com.zslab.mall.order.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.zslab.mall.attachment.entity.Attachment;
+import com.zslab.mall.attachment.repository.AttachmentRepository;
 import com.zslab.mall.audit.entity.AuditLog;
 import com.zslab.mall.audit.repository.AuditLogRepository;
 import com.zslab.mall.claim.entity.Claim;
@@ -84,6 +86,7 @@ public class AdminOrderQueryService {
     private final SellerRepository sellerRepository;
     private final AuditLogRepository auditLogRepository;
     private final RefundRepository refundRepository;
+    private final AttachmentRepository attachmentRepository;
     private final ObjectMapper objectMapper;
 
     /**
@@ -141,6 +144,12 @@ public class AdminOrderQueryService {
                 : deliveryRepository.findByClaimIdInOrderByIdDesc(claimIds).stream()
                         .filter(delivery -> delivery.getDirection() == DeliveryDirection.RETURN)
                         .collect(Collectors.toMap(Delivery::getClaimId, Function.identity(), (latest, older) -> latest));
+        // Track 81-B D-171: 클레임별 반품 사진 URL 1쿼리 배치(상세 전용·순서 보존)
+        Map<Long, List<String>> attachmentUrlsByClaimId = claimIds.isEmpty() ? Map.of()
+                : attachmentRepository.findByTargetTypeAndTargetIdInOrderByTargetIdAscDisplayOrderAsc(
+                        PolymorphicTargetType.CLAIM, claimIds).stream()
+                        .collect(Collectors.groupingBy(Attachment::getTargetId,
+                                Collectors.mapping(Attachment::getFilePath, Collectors.toList())));
 
         List<AdminOrderDetailResponse.Item> items = order.getItems().stream()
                 .map(item -> new AdminOrderDetailResponse.Item(
@@ -150,7 +159,8 @@ public class AdminOrderQueryService {
                         toDeliveryRow(enrichment.latestDeliveryByItemId.get(item.getId())),
                         enrichment.claimsByItemId.getOrDefault(item.getId(), List.of()).stream()
                                 .map(claim -> toClaimRow(claim, refundStatusByClaimId.get(claim.getId()),
-                                        returnDeliveryByClaimId.get(claim.getId()))).toList()))
+                                        returnDeliveryByClaimId.get(claim.getId()),
+                                        attachmentUrlsByClaimId.getOrDefault(claim.getId(), List.of()))).toList()))
                 .toList();
         List<AdminOrderDetailResponse.PaymentRow> payments = enrichment.paymentsByOrderId
                 .getOrDefault(order.getId(), List.of()).stream()
@@ -311,7 +321,8 @@ public class AdminOrderQueryService {
                 delivery.getTrackingNo(), delivery.getStatus().name(), delivery.getShippedAt(), delivery.getDeliveredAt());
     }
 
-    private AdminOrderDetailResponse.ClaimRow toClaimRow(Claim claim, RefundStatus refundStatus, Delivery returnDelivery) {
+    private AdminOrderDetailResponse.ClaimRow toClaimRow(Claim claim, RefundStatus refundStatus, Delivery returnDelivery,
+            List<String> attachmentUrls) {
         return new AdminOrderDetailResponse.ClaimRow(claim.getPublicId(), claim.getType().name(), claim.getStatus().name(),
                 claim.getReasonCode(), claim.getReasonDetail(), claim.getRequestedBy(), claim.getRequestedAt(),
                 claim.getProcessedAt(), claim.getStatus() == ClaimStatus.REQUESTED,
@@ -321,7 +332,8 @@ public class AdminOrderQueryService {
                 returnDelivery == null ? null : returnDelivery.getTrackingNo(),
                 claim.getPickedUpAt(),
                 claim.getInspectionResult() == null ? null : claim.getInspectionResult().name(),
-                claim.getRestock());
+                claim.getRestock(),
+                attachmentUrls);
     }
 
     /** 미결제 관리자 취소 audit(ORDER·UPDATE·diff에 reasonCode 포함)만 취소 사유로 해석한다. 파싱 실패는 warn 후 제외. */

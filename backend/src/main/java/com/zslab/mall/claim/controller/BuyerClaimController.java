@@ -2,10 +2,12 @@ package com.zslab.mall.claim.controller;
 
 import com.zslab.mall.claim.controller.request.ClaimRequestRequest;
 import com.zslab.mall.claim.controller.request.ReturnShipmentRequest;
+import com.zslab.mall.claim.controller.response.ClaimAttachmentUploadResponse;
 import com.zslab.mall.claim.controller.response.ClaimResponse;
 import com.zslab.mall.claim.controller.response.ClaimSummaryResponse;
 import com.zslab.mall.claim.controller.response.ReturnShipmentResponse;
 import com.zslab.mall.claim.entity.Claim;
+import com.zslab.mall.claim.service.ClaimAttachmentService;
 import com.zslab.mall.claim.service.ClaimService;
 import com.zslab.mall.common.auth.BuyerActorResolver;
 import com.zslab.mall.delivery.entity.Delivery;
@@ -14,6 +16,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.net.URI;
 import java.time.LocalDateTime;
+import java.util.List;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -21,7 +24,9 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 /**
  * Buyer 클레임 REST 컨트롤러(D-40·URL 액터 중립 /api/v1/claims). 요청·단건·목록 3 엔드포인트를 노출한다(D-89 Q4).
@@ -37,10 +42,13 @@ import org.springframework.web.bind.annotation.RestController;
 public class BuyerClaimController {
 
     private final ClaimService claimService;
+    private final ClaimAttachmentService claimAttachmentService;
     private final BuyerActorResolver buyerActorResolver;
 
-    public BuyerClaimController(ClaimService claimService, BuyerActorResolver buyerActorResolver) {
+    public BuyerClaimController(ClaimService claimService, ClaimAttachmentService claimAttachmentService,
+            BuyerActorResolver buyerActorResolver) {
         this.claimService = claimService;
+        this.claimAttachmentService = claimAttachmentService;
         this.buyerActorResolver = buyerActorResolver;
     }
 
@@ -58,13 +66,25 @@ public class BuyerClaimController {
         return ResponseEntity.ok(ReturnShipmentResponse.from(delivery));
     }
 
+    /**
+     * 반품 사진 업로드(Track 81-B). multipart 필드명 {@code files}(다중·jpg/png/webp·파일당 10MB·최대 5장). 항상 200·파일별 결과이며
+     * 성공 항목의 attachmentId를 클레임 요청 본문 attachmentIds에 넘긴다. 인가는 SecurityConfig {@code /api/v1/claims/**}→BUYER.
+     */
+    @PostMapping(value = "/attachments", consumes = "multipart/form-data")
+    public ResponseEntity<ClaimAttachmentUploadResponse> uploadAttachments(
+            @RequestPart("files") List<MultipartFile> files, HttpServletRequest httpRequest) {
+        Long buyerId = buyerActorResolver.resolve(httpRequest);
+        return ResponseEntity.ok(claimAttachmentService.upload(buyerId, files));
+    }
+
     /** 클레임 요청(CANCEL 한정·Q6). 신규 생성 201 + Location. requestedAt은 서버 시각으로 채운다. */
     @PostMapping
     public ResponseEntity<ClaimResponse> request(
             @RequestBody @Valid ClaimRequestRequest request, HttpServletRequest httpRequest) {
         Long buyerId = buyerActorResolver.resolve(httpRequest);
         Claim claim = claimService.request(request.toCommand(buyerId, LocalDateTime.now()));
-        ClaimResponse response = ClaimResponse.from(claim, request.orderItemPublicId());
+        ClaimResponse response = ClaimResponse.from(claim, request.orderItemPublicId(),
+                claimAttachmentService.urlsOf(claim.getId()));
         return ResponseEntity.created(URI.create("/api/v1/claims/" + claim.getPublicId())).body(response);
     }
 

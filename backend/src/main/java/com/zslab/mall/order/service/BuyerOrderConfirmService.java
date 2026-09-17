@@ -69,6 +69,17 @@ public class BuyerOrderConfirmService {
             return target;
         }
 
+        confirmItem(target, order.getId());
+        return target;
+    }
+
+    /**
+     * 구매확정 코어(Track 81-B D-171·수동 {@link #confirmPurchase}·자동 {@code OrderAutoConfirmService} 공용). 소유권·멱등 판정은 호출부
+     * 책임이며 본 메서드는 DELIVERED→CONFIRMED 전이·confirmed_at 기록·Order.status 재계산만 수행한다(정산 귀속 기준 동일).
+     *
+     * @throws OrderItemInvalidStateException OrderItem이 DELIVERED가 아니어서 CONFIRMED 전이 불가한 경우(422)
+     */
+    public void confirmItem(OrderItem target, Long orderId) {
         try {
             target.changeStatus(OrderItemStatus.CONFIRMED);
         } catch (IllegalStateException exception) {
@@ -76,7 +87,6 @@ public class BuyerOrderConfirmService {
         }
         // 전이 성공 직후 확정 시각 기록(정산 월 귀속 기준·Track 48 P3). markConfirmedAt은 기존값 미덮어쓰기 멱등 가드 보유.
         target.markConfirmedAt(LocalDateTime.now());
-        orderService.recalculateStatus(order.getId());
-        return target;
+        orderService.recalculateStatus(orderId);
     }
 }
