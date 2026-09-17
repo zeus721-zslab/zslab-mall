@@ -462,7 +462,10 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
         mockMvc.perform(get("/api/v1/admin/orders/" + pid("ord_", "RTNORD")).headers(authHeaders.admin(ADMIN_ID)))
                 .andExpect(jsonPath("$.items[0].claims[0].attachmentUrls.length()").value(2))
                 .andExpect(jsonPath("$.items[0].claims[0].attachmentUrls[0]").value(secondUrl));
-        mockMvc.perform(get(secondUrl)).andExpect(status().isOk()); // 공개 서빙(ULID 키·인가 없음·이월)
+        // D-176 인가 서빙: 익명 404·클레임 소유 구매자 200·ADMIN 200(연결 첨부)
+        mockMvc.perform(get(secondUrl)).andExpect(status().isNotFound());
+        mockMvc.perform(get(secondUrl).headers(authHeaders.buyer(USER_ID))).andExpect(status().isOk());
+        mockMvc.perform(get(secondUrl).headers(authHeaders.admin(ADMIN_ID))).andExpect(status().isOk());
 
         // 이미 연결된 첨부 재사용 → 400(첨부 검증이 품목 상태 검증보다 앞)
         mockMvc.perform(post(CLAIMS_URL).headers(authHeaders.buyer(USER_ID)).contentType(MediaType.APPLICATION_JSON)

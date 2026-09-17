@@ -10618,3 +10618,49 @@ deploy.yml이 `push main` 무필터라 docs만 변경된 머지에도 서버 SSH
 - **다중 인스턴스 전환 시 ShedLock 필수**: 현재 compose 단일 컨테이너(replicas 미지정)라 중복 실행이 없고 단건 행 락·조건부 UPDATE가 자연 직렬화한다. 인스턴스를 늘리는 순간 7개 배치가 동시 발화하므로 ShedLock(또는 DB 락 테이블) 도입이 선행 조건이다.
 - 실 PG 늦은 승인 환불(기존·D-167 §8): 정리 배치가 지운 주문의 늦은 SUCCESS 콜백은 422로 거절되며, 실 PG에서 이미 승인된 금액의 자동 환불은 실 어댑터 도입 시 처리.
 - `order` (status, updated_at) 인덱스: PAYMENT_EXPIRED 누적이 커져 일 배치 풀스캔이 측정 가능해지면 그때 V-마이그레이션.
+
+## D-176. 클레임 첨부 인가 서빙 (Track 82·A-1 인증 서빙 + 쿠키 fallback)
+
+날짜: 2026-09-17
+범위: Track 82(첨부 파일 인가 서빙) · D-174 §8 "인가 파일 서빙(보안 트랙 최우선)" 이월 해소 · D-171(반품 사진 첨부)·D-166(파일 서빙) 보강
+브랜치: feat/track-82-attachment-authz
+
+### 배경
+정찰(docs/track-82/recon-report.md·STEP 292~294)에서 확인한 사실: `GET /api/v1/files/**`가 permitAll이라 클레임 첨부(반품 사진)는 URL 보유자 전원이 열람 가능했다(D-174는 캐시 금지만 즉시 조치). BE 인증은 `Authorization: Bearer`만 인식하고 FE 표시 3곳(구매자 클레임 상세·관리자 주문 상세·업로드 미리보기)은 전부 `<img :src>` 직접 로딩이라 헤더를 실을 수 없다. 앱과 API는 같은 origin(gateway 단일 도메인)이고 FE는 토큰을 `auth_token`·`admin_token` 쿠키(path `/`)에 보관하므로 `<img>` 요청에 쿠키가 자동 첨부된다. 셀러는 클레임 조회 GET·FE 셀러 앱 모두 미구현. `attachment.file_path`에는 인덱스가 없어 요청 키→행 조회가 살아있는 전 행 스캔이었다.
+
+### §1-A 결정
+1. **서빙 방식 A-1: 인증 서빙 + 쿠키 fallback 【채택】** / A-2 인증 서빙 + FE fetch·blob 【기각】 — 컴포넌트 3곳 전환·objectURL 관리·SSR 이점 상실(HTML에 img 불가)·픽셀 재기준 / B signed URL 【기각】 — 서명 키 관리·만료 전 URL 유출 시 열람·장시간 열어 둔 페이지의 이미지 깨짐(만료)·응답 3곳 서명 부착.
+   - 쿠키는 `GET /api/v1/files/claims/**` 한 경로에서만 인식한다(`RequestTokenCandidates`). 그 외 모든 경로·메서드는 `JwtAuthenticationFilter`가 Bearer만 인식(CSRF 표면 확장 없음·테스트로 쿠키만 보낸 POST 401 확인).
+   - 후보 평가 순서 Bearer → admin_token → auth_token. 후보별 독립 판정, 하나라도 허가되면 허용. 무효·만료 토큰은 해당 후보만 무시(요청 실패 금지). 이를 위해 `JwtAuthenticationFilter.shouldNotFilter`가 이 경로를 건너뛰어 무효 Bearer가 401을 내지 않는다.
+2. **열람 규칙 【채택】**: 연결된 첨부(target_id NOT NULL) = 클레임 소유 구매자(BUYER·uploaded_by 본인. 연결이 `uploaded_by = 요청자` 조건부 UPDATE로만 일어나 uploaded_by가 곧 클레임 요청자) 또는 ADMIN / 미연결 첨부 = 업로더(BUYER) 본인만(ADMIN도 불가) / SELLER = 거부 / `_thumb` 키는 원본 첨부 행 규칙을 따른다(썸네일 확장자는 원본 형식을 특정하지 못해 thumbExt를 쓰는 형식의 원본 URL 전부를 IN 후보로 조회).
+3. **거부 응답 404 통일 【채택】**: 익명·권한 없음·첨부 행 없음·파일 없음 모두 `FILE_NOT_FOUND` 404(401/403 금지·존재 여부 비노출). 거부 로그는 debug(key·attachment public_id·후보 수만·토큰 값 미기록).
+4. **products 공개 유지 【채택】**: SecurityConfig에 `GET /api/v1/files/claims/**` permitAll 매처를 `files/**` 앞에 별도로 두고(필터 단계 401/403 없음·최종 판정은 인가 서비스) 컨트롤러는 단일 유지 + `claims/` 접두사 분기(`serveClaimAttachment`).
+5. **응답 헤더 【채택】**: `claims/`는 200·404 모두 `Cache-Control: no-store, private`(D-174 유지). 404는 GlobalExceptionHandler 경로라 컨트롤러가 서블릿 응답에 헤더를 먼저 쓴다(Spring Security 기본 Cache-Control은 기존 헤더를 덮어쓰지 않음·200은 같은 헤더를 재사용해 중복 방지).
+6. **DB file_path 값·DTO·FE 무변경 【채택】**: 인가 서비스가 요청 키를 `ImageUploadService.URL_PREFIX + key`로 재조립해 file_path 등치 검색.
+7. **V26 file_path 인덱스 【채택】** / 풀스캔 수용(이미지 GET당 O(N)·누적 시 지연) 【기각】 / URL에 public_id 포함(결정 6 위반·DB·DTO·FE 변경) 【기각】. `file_path`는 varchar(2048) utf8mb4(8,192 bytes)로 InnoDB 키 상한 3,072 bytes를 넘어 prefix `file_path(255)`(실제 값 ~50자). 배포 시 Flyway V26 자동 적용 — 운영 첨부 0건이라 잠금 영향 무시 가능.
+
+### 변경 파일
+- main 신규: attachment/service/ClaimAttachmentAuthorizationService · common/security/RequestTokenCandidates · db/migration/V26__attachment_file_path_index.sql
+- main 수정: file/controller/FileServingController(claims 분기·인가 호출·404 헤더) · common/security/JwtAuthenticationFilter(shouldNotFilter) · common/security/SecurityConfig(claims 매처) · attachment/repository/AttachmentRepository(findByFilePathIn) · file/service/ImageUploadService(URL_PREFIX public)
+- test 신규: file/ClaimAttachmentServingIntegrationTest(8) / test 수정: file/UploadHardeningIntegrationTest(servingCacheHeaders 익명 404 추가) · claim/integration/ClaimReturnIntegrationTest(T9 익명 200 → 익명 404·소유자 200·ADMIN 200)
+- FE 변경 없음 · 신규 라이브러리 없음.
+
+### 검증
+- EXPLAIN(로컬 zslab_mariadb): V26 전 `WHERE file_path=? AND deleted_at IS NULL` → key=ix_attachment_deleted_at(살아있는 전 행 스캔) / V26 후(임시 1,000행 TX 삽입·롤백) → 등치 key=ix_attachment_file_path key_len=1022 rows=1 · IN(2) type=range rows=2.
+- BE 통합: 익명 404·타 구매자 404·소유자 Bearer/auth_token 200·ADMIN 연결 200·미연결 404·업로더 미연결 200·셀러 404·무효 admin_token+유효 auth_token 200·무효 Bearer+유효 쿠키 200·_thumb 동일·고아 파일/파일 없음 404·200/404 Cache-Control `no-store, private` 단일·쿠키만 POST claims/attachments 401·products 익명 200 immutable.
+- 전체 `./backend/gradlew.bat test --rerun-tasks`: 193파일 1018 tests·0 fail(1010 → 1018).
+- 로컬 실측(backend 재시작·gateway 경유 curl): 원본·썸네일 익명 404 / Bearer 200 / auth_token 쿠키 200 / 무효 Bearer+쿠키 200 / 쿠키만 POST 401. 브라우저(컨테이너 Playwright chromium): 구매자 클레임 상세 `<img>` 200·naturalWidth 500, SSR HTML에 img src 포함(서버는 JSON만 조회·이미지는 브라우저 GET), 관리자 주문 상세 썸네일·v-img 미리보기 200, 익명 new Image() 실패.
+- FE: vitest 36 files 215 · Playwright 36/36(skip 0) · 픽셀 생략(FE 무변경).
+- 외부 검토: A / 지적 7건 중 수용 4건(연결 첨부 판정 기준 claim.requested_by·매처 공유·_thumb 후보 1건 검증·경계 테스트 보강(인코딩 경로 포함))·기각 3건(CSRF 추가 방어 — SameSite=Lax 쿠키는 cross-site `<img>`에 미전송·GET 읽기 전용 / 404 side-channel — 응답 시간 차이는 인덱스 조회 1~2회 수준·존재 비노출 정책 유지 / prefix 인덱스 — 실제 값 ~50자에 prefix 255라 등치 탐색 손실 없음).
+
+### 외부 검토 반영 (2026-09-17)
+- **결정 2 판정 기준 명시**: 연결 첨부(target_id NOT NULL)는 `ClaimRepository.findById(target_id)` 후 `claim.requested_by == 주체`(BUYER) 또는 ADMIN. uploaded_by는 연결 첨부 판정에 쓰지 않는다(연결 경로가 바뀌어도 소유 기준은 클레임 요청자). 첨부 행의 target_type≠CLAIM·대상 클레임 없음은 거부(404). 미연결은 기존대로 uploaded_by 본인만. 정찰 결과 target_id를 설정하는 main 경로는 `ClaimAttachmentService.upload→createUnlinked(NULL)`·`link→linkIfUnlinked(조건부 UPDATE)` 2곳뿐(Attachment.create 호출처 0).
+- **매처 공유**: `SecurityConfig.CLAIM_ATTACHMENT_SERVING_MATCHER`(`AntPathRequestMatcher` GET `/api/v1/files/claims/**`·Security 6.4.2)를 permitAll 규칙과 `JwtAuthenticationFilter.shouldNotFilter`(생성자 주입)가 같은 객체로 공유. raw `getRequestURI` 비교 제거. 컨트롤러 `{*key}` PathVariable도 디코딩 경로라 세 지점 기준 일치 — `/api/v1/files/%63laims/...` + 무효 Bearer + 요청자 쿠키 → 정상 경로와 동일 200(MockMvc `get(URI)` raw 경로·gateway curl 동일).
+- **후보 1건 검증**: `_thumb` 원본 후보 조회가 정확히 1행이 아니면 거부(0·2행 이상 debug 로그). 지원하지 않는 썸네일 확장자는 후보 0으로 조회 없이 거부.
+- 테스트 +4(ClaimAttachmentServingIntegrationTest 8→12): uploaded_by≠requested_by(업로더 404·요청자 200)·대상 클레임 없음 404·_thumb 후보 2건 404·미지원 확장자 404·타인 유효 Bearer+요청자 쿠키 200·admin_token+업로더 쿠키(미연결) 200·인코딩 경로·POST claims 쿠키만 401. 전체 `--rerun-tasks` 193파일 1022 tests·0 fail(1018 → 1022).
+- 운영 로깅: `application-prod.yml` `com.zslab.mall=INFO`라 인가 서비스 debug 로그는 운영 미출력(설정 변경 없음).
+
+### §8 이월
+- **셀러 첨부 열람**: 셀러 클레임 화면 트랙에서 `claim.order_item_id → order_item.seller_id → seller_user.user_id` 규칙으로 SELLER 허용(현재는 거부·규칙만 박제).
+- **non-httpOnly 토큰 쿠키**: FE가 SSR·클라이언트 양쪽에서 읽어야 해 non-httpOnly 유지. httpOnly 전환은 로그인·SSR 토큰 전달 재설계와 함께.
+- **미연결 첨부 관리자 열람 불가**: 운영 조사 목적으로 필요해지면 별도 관리자 경로에서 판단.

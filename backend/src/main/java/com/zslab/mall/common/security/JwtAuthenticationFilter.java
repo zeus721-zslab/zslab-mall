@@ -8,6 +8,7 @@ import java.io.IOException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
@@ -26,15 +27,27 @@ import org.springframework.web.filter.OncePerRequestFilter;
  *
  * <p>Spring Bean이 아니라 {@link SecurityConfig}가 직접 생성해 SecurityFilterChain에 등록한다(@Component 시 서블릿
  * 필터로 이중 등록되는 트랩 회피). JWT는 필터가 직접 인증하므로 AuthenticationManager·Provider가 없다.
+ *
+ * <p><b>예외 경로</b>: {@code skipMatcher}({@link SecurityConfig#CLAIM_ATTACHMENT_SERVING_MATCHER}·클레임 첨부 인가 서빙·Track 82 D-176)에
+ * 걸리는 요청은 본 필터를 건너뛴다. 그 경로는 무효·만료 Bearer가 있어도 401로 요청을 끊지 않고 쿠키 후보까지 독립 평가해야 하므로(후보
+ * 하나라도 허가되면 열람·전부 거부면 404) 인증·인가를 {@link com.zslab.mall.attachment.service.ClaimAttachmentAuthorizationService}가 전담한다.
+ * permitAll 규칙과 같은 매처 객체를 공유해 범위가 어긋나지 않는다.
  */
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private static final String BEARER_PREFIX = "Bearer ";
 
     private final TokenProvider tokenProvider;
+    private final RequestMatcher skipMatcher;
 
-    public JwtAuthenticationFilter(TokenProvider tokenProvider) {
+    public JwtAuthenticationFilter(TokenProvider tokenProvider, RequestMatcher skipMatcher) {
         this.tokenProvider = tokenProvider;
+        this.skipMatcher = skipMatcher;
+    }
+
+    @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        return skipMatcher.matches(request);
     }
 
     @Override

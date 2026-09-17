@@ -32,6 +32,12 @@ public interface AttachmentRepository extends JpaRepository<Attachment, Long> {
     /** 클레임 첨부 연결용 일괄 조회(Track 81-B D-171). 소유권·미연결 검증은 서비스가 한다. */
     List<Attachment> findByPublicIdIn(Collection<String> publicIds);
 
+    /**
+     * 서빙 URL(file_path 저장값과 동일 문자열)로 첨부를 조회한다(Track 82 D-176·인가 서빙). 썸네일 키는 원본 후보가 여러 형식일 수 있어
+     * IN으로 받는다. ix_attachment_file_path(prefix 255·V26) 탐색이며 소프트삭제 필터가 자동 적용된다.
+     */
+    List<Attachment> findByFilePathIn(Collection<String> filePaths);
+
     /** 사용자별 미연결 첨부 수(D-174 보유 상한 판정·ix_attachment_target(target_type, target_id IS NULL) 탐색). */
     long countByTargetTypeAndTargetIdIsNullAndUploadedBy(PolymorphicTargetType targetType, Long uploadedBy);
 
