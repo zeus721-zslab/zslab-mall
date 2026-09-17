@@ -81,7 +81,7 @@ class SellerProductImageControllerIntegrationTest extends AbstractIntegrationTes
     @Test
     @DisplayName("T1 최초 이미지 등록(main=false) → 201 + displayOrder=0·is_main=0")
     void add_firstImage_returns201_displayOrderZero() throws Exception {
-        ProductImageResponse image = add(sellerAAuth(), PRODUCT_A_ID, "https://cdn/a.jpg", false);
+        ProductImageResponse image = add(sellerAAuth(), PRODUCT_A_ID, "/api/v1/files/products/2026/09/cdn-a.jpg", false);
 
         assertThat(image.displayOrder()).isZero();
         assertThat(image.main()).isFalse();
@@ -92,7 +92,7 @@ class SellerProductImageControllerIntegrationTest extends AbstractIntegrationTes
     @Test
     @DisplayName("T2 main=true 등록 → is_main=1 + product.thumbnail_url 무동기화(독립·결정3)")
     void add_mainTrue_setsMain_doesNotSyncThumbnail() throws Exception {
-        ProductImageResponse image = add(sellerAAuth(), PRODUCT_A_ID, "https://cdn/main.jpg", true);
+        ProductImageResponse image = add(sellerAAuth(), PRODUCT_A_ID, "/api/v1/files/products/2026/09/cdn-main.jpg", true);
 
         assertThat(image.main()).isTrue();
         assertThat(count("SELECT COUNT(*) FROM product_image WHERE id=? AND is_main=1", image.id())).isEqualTo(1);
@@ -103,9 +103,9 @@ class SellerProductImageControllerIntegrationTest extends AbstractIntegrationTes
     @Test
     @DisplayName("T3 기존 N개 있을 때 append → displayOrder=N 순차 증가(0·1·2)")
     void add_appendsAtEnd_incrementingDisplayOrder() throws Exception {
-        ProductImageResponse first = add(sellerAAuth(), PRODUCT_A_ID, "https://cdn/1.jpg", false);
-        ProductImageResponse second = add(sellerAAuth(), PRODUCT_A_ID, "https://cdn/2.jpg", false);
-        ProductImageResponse third = add(sellerAAuth(), PRODUCT_A_ID, "https://cdn/3.jpg", false);
+        ProductImageResponse first = add(sellerAAuth(), PRODUCT_A_ID, "/api/v1/files/products/2026/09/cdn-1.jpg", false);
+        ProductImageResponse second = add(sellerAAuth(), PRODUCT_A_ID, "/api/v1/files/products/2026/09/cdn-2.jpg", false);
+        ProductImageResponse third = add(sellerAAuth(), PRODUCT_A_ID, "/api/v1/files/products/2026/09/cdn-3.jpg", false);
 
         assertThat(first.displayOrder()).isZero();
         assertThat(second.displayOrder()).isEqualTo(1);
@@ -117,9 +117,9 @@ class SellerProductImageControllerIntegrationTest extends AbstractIntegrationTes
     @Test
     @DisplayName("T4 이미지 3개 순차 대표 지정 → 항상 활성 대표 정확히 1개·직전 대표 강등(단일성 실검증)")
     void designateMain_sequential_keepsExactlyOneMain() throws Exception {
-        Long img1 = add(sellerAAuth(), PRODUCT_A_ID, "https://cdn/1.jpg", false).id();
-        Long img2 = add(sellerAAuth(), PRODUCT_A_ID, "https://cdn/2.jpg", false).id();
-        Long img3 = add(sellerAAuth(), PRODUCT_A_ID, "https://cdn/3.jpg", false).id();
+        Long img1 = add(sellerAAuth(), PRODUCT_A_ID, "/api/v1/files/products/2026/09/cdn-1.jpg", false).id();
+        Long img2 = add(sellerAAuth(), PRODUCT_A_ID, "/api/v1/files/products/2026/09/cdn-2.jpg", false).id();
+        Long img3 = add(sellerAAuth(), PRODUCT_A_ID, "/api/v1/files/products/2026/09/cdn-3.jpg", false).id();
 
         designateMain(sellerAAuth(), PRODUCT_A_ID, img1).andExpect(status().isOk());
         assertThat(mainCount(PRODUCT_A_ID)).isEqualTo(1);
@@ -139,7 +139,7 @@ class SellerProductImageControllerIntegrationTest extends AbstractIntegrationTes
     @Test
     @DisplayName("T5 이미 대표인 이미지 재지정 → 200·멱등(여전히 대표 1개)")
     void designateMain_alreadyMain_isIdempotent() throws Exception {
-        Long img1 = add(sellerAAuth(), PRODUCT_A_ID, "https://cdn/1.jpg", false).id();
+        Long img1 = add(sellerAAuth(), PRODUCT_A_ID, "/api/v1/files/products/2026/09/cdn-1.jpg", false).id();
 
         designateMain(sellerAAuth(), PRODUCT_A_ID, img1).andExpect(status().isOk());
         designateMain(sellerAAuth(), PRODUCT_A_ID, img1).andExpect(status().isOk());
@@ -153,9 +153,9 @@ class SellerProductImageControllerIntegrationTest extends AbstractIntegrationTes
     @Test
     @DisplayName("T6 reorder → imageIds 순서대로 display_order 0..n-1 재배치")
     void reorder_reassignsDisplayOrder() throws Exception {
-        seedImage(7101L, PRODUCT_A_ID, "https://cdn/1.jpg", 0, false);
-        seedImage(7102L, PRODUCT_A_ID, "https://cdn/2.jpg", 1, false);
-        seedImage(7103L, PRODUCT_A_ID, "https://cdn/3.jpg", 2, false);
+        seedImage(7101L, PRODUCT_A_ID, "/api/v1/files/products/2026/09/cdn-1.jpg", 0, false);
+        seedImage(7102L, PRODUCT_A_ID, "/api/v1/files/products/2026/09/cdn-2.jpg", 1, false);
+        seedImage(7103L, PRODUCT_A_ID, "/api/v1/files/products/2026/09/cdn-3.jpg", 2, false);
 
         reorder(sellerAAuth(), PRODUCT_A_ID, List.of(7103L, 7101L, 7102L)).andExpect(status().isOk());
 
@@ -167,9 +167,9 @@ class SellerProductImageControllerIntegrationTest extends AbstractIntegrationTes
     @Test
     @DisplayName("T7 reorder imageIds 불일치(누락·과잉·중복) → 400 MALFORMED_REQUEST")
     void reorder_idsMismatch_returns400() throws Exception {
-        seedImage(7201L, PRODUCT_A_ID, "https://cdn/1.jpg", 0, false);
-        seedImage(7202L, PRODUCT_A_ID, "https://cdn/2.jpg", 1, false);
-        seedImage(7203L, PRODUCT_A_ID, "https://cdn/3.jpg", 2, false);
+        seedImage(7201L, PRODUCT_A_ID, "/api/v1/files/products/2026/09/cdn-1.jpg", 0, false);
+        seedImage(7202L, PRODUCT_A_ID, "/api/v1/files/products/2026/09/cdn-2.jpg", 1, false);
+        seedImage(7203L, PRODUCT_A_ID, "/api/v1/files/products/2026/09/cdn-3.jpg", 2, false);
 
         reorder(sellerAAuth(), PRODUCT_A_ID, List.of(7201L, 7202L)) // 누락
                 .andExpect(status().isBadRequest())
@@ -185,8 +185,8 @@ class SellerProductImageControllerIntegrationTest extends AbstractIntegrationTes
     @Test
     @DisplayName("T8 삭제 → 204 + deleted_at 마킹·활성 조회 제외(@SQLRestriction)")
     void delete_softDeletes_excludedFromActive() throws Exception {
-        Long img1 = add(sellerAAuth(), PRODUCT_A_ID, "https://cdn/1.jpg", false).id();
-        Long img2 = add(sellerAAuth(), PRODUCT_A_ID, "https://cdn/2.jpg", false).id();
+        Long img1 = add(sellerAAuth(), PRODUCT_A_ID, "/api/v1/files/products/2026/09/cdn-1.jpg", false).id();
+        Long img2 = add(sellerAAuth(), PRODUCT_A_ID, "/api/v1/files/products/2026/09/cdn-2.jpg", false).id();
 
         mockMvc.perform(delete(base(PRODUCT_A_ID) + "/" + img1).headers(sellerAAuth()))
                 .andExpect(status().isNoContent());
@@ -204,7 +204,7 @@ class SellerProductImageControllerIntegrationTest extends AbstractIntegrationTes
     void add_crossTenantProduct_returns404() throws Exception {
         mockMvc.perform(post(base(PRODUCT_A_ID)).headers(sellerBAuth()) // B가 A의 상품에
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new AddProductImageRequest("https://cdn/x.jpg", false))))
+                        .content(objectMapper.writeValueAsString(new AddProductImageRequest("/api/v1/files/products/2026/09/cdn-x.jpg", false))))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("PRODUCT_NOT_FOUND"));
     }
@@ -212,7 +212,7 @@ class SellerProductImageControllerIntegrationTest extends AbstractIntegrationTes
     @Test
     @DisplayName("T10 타 판매자 이미지 대표지정·삭제 시도 → 404 PRODUCT_IMAGE_NOT_FOUND(2-hop image 스코프)")
     void mutateCrossTenantImage_returns404() throws Exception {
-        seedImage(7301L, PRODUCT_A_ID, "https://cdn/a.jpg", 0, false); // A 소유 이미지
+        seedImage(7301L, PRODUCT_A_ID, "/api/v1/files/products/2026/09/cdn-a.jpg", 0, false); // A 소유 이미지
 
         designateMain(sellerBAuth(), PRODUCT_A_ID, 7301L)
                 .andExpect(status().isNotFound())
@@ -240,7 +240,7 @@ class SellerProductImageControllerIntegrationTest extends AbstractIntegrationTes
     void add_unauthenticated_returns401() throws Exception {
         mockMvc.perform(post(base(PRODUCT_A_ID))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new AddProductImageRequest("https://cdn/x.jpg", false))))
+                        .content(objectMapper.writeValueAsString(new AddProductImageRequest("/api/v1/files/products/2026/09/cdn-x.jpg", false))))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
     }
@@ -250,7 +250,7 @@ class SellerProductImageControllerIntegrationTest extends AbstractIntegrationTes
     void add_buyerRole_returns403() throws Exception {
         mockMvc.perform(post(base(PRODUCT_A_ID)).headers(authHeaders.buyer(BUYER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new AddProductImageRequest("https://cdn/x.jpg", false))))
+                        .content(objectMapper.writeValueAsString(new AddProductImageRequest("/api/v1/files/products/2026/09/cdn-x.jpg", false))))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
     }

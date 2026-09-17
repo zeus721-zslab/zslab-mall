@@ -1,5 +1,6 @@
 package com.zslab.mall.product.service;
 
+import com.zslab.mall.file.service.ImageUploadService;
 import com.zslab.mall.product.controller.request.AddProductImageRequest;
 import com.zslab.mall.product.controller.request.ReorderProductImagesRequest;
 import com.zslab.mall.product.controller.response.ProductImageResponse;
@@ -46,8 +47,10 @@ public class SellerProductImageService {
      * 등록 직후 대표로 지정하고 기존 대표를 강등한다.
      *
      * @throws ProductNotFoundException 상품이 없거나 요청 판매자 소유가 아닌 경우(404)
+     * @throws com.zslab.mall.common.exception.MalformedRequestException imageUrl이 서버 발급 상품 이미지 경로가 아닌 경우(400·D-174)
      */
     public ProductImageResponse add(Long sellerId, Long productId, AddProductImageRequest request) {
+        ImageUploadService.requireServerIssuedProductUrl(request.imageUrl());
         Product product = requireOwnedProduct(sellerId, productId);
         int displayOrder = (int) productImageRepository.countByProductId(productId);
         ProductImage image = productImageRepository.save(

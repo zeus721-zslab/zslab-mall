@@ -277,32 +277,32 @@ class AdminProductManagementControllerIntegrationTest extends AbstractIntegratio
     void replaceImages() throws Exception {
         long keepImageId = jdbc.queryForObject(
                 "SELECT id FROM product_image WHERE product_id = 76001 AND image_type = 'DETAIL'", Long.class);
-        String body = "{\"images\":[{\"imageId\":null,\"imageUrl\":\"https://img/new\",\"imageType\":\"GALLERY\",\"main\":true},"
-                + "{\"imageId\":" + keepImageId + ",\"imageUrl\":\"https://img/detail2\",\"imageType\":\"DETAIL\",\"main\":false}]}";
+        String body = "{\"images\":[{\"imageId\":null,\"imageUrl\":\"/api/v1/files/products/2026/09/new.jpg\",\"imageType\":\"GALLERY\",\"main\":true},"
+                + "{\"imageId\":" + keepImageId + ",\"imageUrl\":\"/api/v1/files/products/2026/09/detail2.jpg\",\"imageType\":\"DETAIL\",\"main\":false}]}";
         mockMvc.perform(put(URL + "/" + P1 + "/images").headers(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.images.length()").value(2))
-                .andExpect(jsonPath("$.images[0].imageUrl").value("https://img/new"))
+                .andExpect(jsonPath("$.images[0].imageUrl").value("/api/v1/files/products/2026/09/new.jpg"))
                 .andExpect(jsonPath("$.images[0].main").value(true))
                 .andExpect(jsonPath("$.images[1].imageId").value(keepImageId))
                 .andExpect(jsonPath("$.images[1].displayOrder").value(1));
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM product_image WHERE product_id = 76001 AND deleted_at IS NOT NULL",
                 Long.class)).isEqualTo(1L);
 
-        String twoMains = "{\"images\":[{\"imageUrl\":\"https://a\",\"imageType\":\"GALLERY\",\"main\":true},"
-                + "{\"imageUrl\":\"https://b\",\"imageType\":\"GALLERY\",\"main\":true}]}";
+        String twoMains = "{\"images\":[{\"imageUrl\":\"/api/v1/files/products/2026/09/a.jpg\",\"imageType\":\"GALLERY\",\"main\":true},"
+                + "{\"imageUrl\":\"/api/v1/files/products/2026/09/b.jpg\",\"imageType\":\"GALLERY\",\"main\":true}]}";
         mockMvc.perform(put(URL + "/" + P1 + "/images").headers(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(twoMains))
                 .andExpect(status().isBadRequest());
-        String foreignImage = "{\"images\":[{\"imageId\":" + keepImageId + ",\"imageUrl\":\"https://a\",\"imageType\":\"DETAIL\",\"main\":false}]}";
+        String foreignImage = "{\"images\":[{\"imageId\":" + keepImageId + ",\"imageUrl\":\"/api/v1/files/products/2026/09/a.jpg\",\"imageType\":\"DETAIL\",\"main\":false}]}";
         mockMvc.perform(put(URL + "/" + P2 + "/images").headers(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(foreignImage))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("PRODUCT_IMAGE_NOT_FOUND"));
         mockMvc.perform(put(URL + "/" + P1 + "/images").headers(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"images\":[{\"imageUrl\":\"https://a\",\"imageType\":\"BOGUS\",\"main\":false}]}"))
+                        .content("{\"images\":[{\"imageUrl\":\"/api/v1/files/products/2026/09/a.jpg\",\"imageType\":\"BOGUS\",\"main\":false}]}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
     }
@@ -551,7 +551,7 @@ class AdminProductManagementControllerIntegrationTest extends AbstractIntegratio
 
     private static String createBody(String sellerPublicId, String name) {
         return "{\"sellerPublicId\":\"" + sellerPublicId + "\",\"categoryId\":" + CATEGORY_1 + ",\"name\":\"" + name + "\","
-                + "\"description\":\"설명\",\"basePrice\":10000,\"supplyPrice\":7000,\"thumbnailUrl\":\"https://img/new\","
+                + "\"description\":\"설명\",\"basePrice\":10000,\"supplyPrice\":7000,\"thumbnailUrl\":\"/api/v1/files/products/2026/09/new.jpg\","
                 + "\"saleStartAt\":\"2026-10-01T00:00:00+00:00\",\"saleEndAt\":null,\"optionGroups\":[],"
                 + "\"variants\":[{\"variantCode\":\"SKU-NEW\",\"additionalPrice\":0,\"displayOrder\":0,\"initialStock\":10,\"optionKeys\":[]}]}";
     }

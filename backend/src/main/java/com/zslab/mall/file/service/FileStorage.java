@@ -39,6 +39,20 @@ public class FileStorage {
         }
     }
 
+    /**
+     * 상대 키 파일을 삭제한다(D-174 미연결 첨부 정리). 미존재는 false, 루트 밖 키·IO 실패는 warn 로그 후 false(예외 없음·재시도 없음).
+     */
+    public boolean delete(String relativeKey) {
+        try {
+            return Files.deleteIfExists(resolveOrThrow(relativeKey));
+        } catch (StoredFileNotFoundException exception) {
+            return false;
+        } catch (IOException exception) {
+            log.warn("[FileStorage] 파일 삭제 실패(고아 파일로 잔존): key={} — {}", relativeKey, exception.getMessage());
+            return false;
+        }
+    }
+
     /** 상대 키 파일 존재 여부(루트 밖 키는 false·예외 없음). */
     public boolean exists(String relativeKey) {
         try {

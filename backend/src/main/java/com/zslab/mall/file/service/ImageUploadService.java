@@ -13,15 +13,19 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Iterator;
 import java.util.Optional;
 import javax.imageio.ImageIO;
+import javax.imageio.ImageReader;
+import javax.imageio.stream.ImageInputStream;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 /**
- * 관리자 이미지 업로드 서비스(Track 77·D-166). 파일별로 (1) 크기 (2) 매직 바이트 형식 (3) 디코딩 가능 여부를 검증한 뒤
+ * 관리자 이미지 업로드 서비스(Track 77·D-166). 파일별로 (1) 크기 (2) 매직 바이트 형식 (3) 헤더 해상도 상한(D-174·전체 디코딩 전)
+ * (4) 디코딩 가능 여부를 검증한 뒤
  * {@code products/yyyy/MM/{ULID}.{ext}}로 저장하고 썸네일을 생성한다. 파일 하나의 실패가 다른 파일을 막지 않도록 항목별 결과로
  * 반환한다(Track 76 bulk 정합). 장수 초과·빈 요청은 요청 전체 거부(400).
  *
@@ -34,9 +38,14 @@ import org.springframework.web.multipart.MultipartFile;
 public class ImageUploadService {
 
     static final int MAX_FILES_PER_REQUEST = 20;
+    /** 해상도 상한(D-174·픽셀 폭탄 차단): 한 변 8,000px 이하 AND 총 픽셀 40,000,000 이하. 헤더 판독 값으로 디코딩 전에 검사한다. */
+    static final int MAX_IMAGE_SIDE_PX = 8_000;
+    static final long MAX_IMAGE_PIXELS = 40_000_000L;
     static final int THUMBNAIL_WIDTH = 400;
     static final String URL_PREFIX = "/api/v1/files/";
     private static final String PRODUCT_DIRECTORY = "products";
+    /** 상품 이미지로 등록 가능한 서버 발급 URL 접두사(D-174·외부 URL·임의 경로 차단). */
+    public static final String PRODUCT_URL_PREFIX = URL_PREFIX + PRODUCT_DIRECTORY + "/";
     private static final String THUMBNAIL_SUFFIX = "_thumb";
     private static final DateTimeFormatter MONTH_DIRECTORY = DateTimeFormatter.ofPattern("yyyy/MM");
 
@@ -44,39 +53,42 @@ public class ImageUploadService {
     private static final String CODE_FILE_TOO_LARGE = "FILE_TOO_LARGE";
     private static final String CODE_UNSUPPORTED_FORMAT = "UNSUPPORTED_FORMAT";
     private static final String CODE_INVALID_IMAGE = "INVALID_IMAGE";
+    private static final String CODE_IMAGE_TOO_LARGE = "IMAGE_TOO_LARGE";
 
     private final FileStorage fileStorage;
-    private final long maxFileSize;
+    /** 관리자 상품 이미지 기본 한도(요청당 20장·파일당 multipart max-file-size). 구매자 첨부는 호출부가 별도 한도를 넘긴다(D-174). */
+    private final UploadLimits defaultLimits;
 
     public ImageUploadService(FileStorage fileStorage, @Value("${spring.servlet.multipart.max-file-size}") long maxFileSize) {
         this.fileStorage = fileStorage;
-        this.maxFileSize = maxFileSize;
+        this.defaultLimits = new UploadLimits(MAX_FILES_PER_REQUEST, maxFileSize);
     }
 
     /**
-     * 파일 목록을 업로드한다.
+     * 파일 목록을 업로드한다(관리자 상품 이미지·기본 한도).
      *
      * @throws MalformedRequestException 파일 없음·{@value #MAX_FILES_PER_REQUEST}장 초과(400)
      */
     public ImageUploadResponse upload(List<MultipartFile> files) {
-        return upload(files, PRODUCT_DIRECTORY);
+        return upload(files, PRODUCT_DIRECTORY, defaultLimits);
     }
 
     /**
-     * 저장 디렉터리를 지정해 업로드한다(Track 81-B·클레임 첨부 {@code claims/yyyy/MM/}). 검증·썸네일·응답은 {@link #upload(List)}와 동일하다.
+     * 저장 디렉터리·한도를 지정해 업로드한다(Track 81-B·클레임 첨부 {@code claims/yyyy/MM/}·D-174 경로별 한도). 형식·해상도·썸네일·응답은
+     * {@link #upload(List)}와 동일하다.
      *
-     * @throws MalformedRequestException 파일 없음·{@value #MAX_FILES_PER_REQUEST}장 초과(400)
+     * @throws MalformedRequestException 파일 없음·{@code limits.maxFiles()}장 초과(400)
      */
-    public ImageUploadResponse upload(List<MultipartFile> files, String directory) {
+    public ImageUploadResponse upload(List<MultipartFile> files, String directory, UploadLimits limits) {
         if (files == null || files.isEmpty()) {
             throw new MalformedRequestException("업로드할 파일이 없습니다(files).");
         }
-        if (files.size() > MAX_FILES_PER_REQUEST) {
-            throw new MalformedRequestException("요청당 최대 " + MAX_FILES_PER_REQUEST + "장까지 업로드할 수 있습니다.");
+        if (files.size() > limits.maxFiles()) {
+            throw new MalformedRequestException("요청당 최대 " + limits.maxFiles() + "장까지 업로드할 수 있습니다.");
         }
         List<ImageUploadResponse.Item> results = new ArrayList<>();
         for (MultipartFile file : files) {
-            results.add(uploadOne(file, directory));
+            results.add(uploadOne(file, directory, limits.maxFileSize()));
         }
         ImageUploadResponse response = ImageUploadResponse.of(results);
         log.info("[ImageUpload] 업로드 완료 requested={} success={} failure={}",
@@ -106,7 +118,40 @@ public class ImageUploadService {
         return fileStorage.exists(thumbnailKey) ? URL_PREFIX + thumbnailKey : imageUrl;
     }
 
-    private ImageUploadResponse.Item uploadOne(MultipartFile file, String directory) {
+    /**
+     * 상품 이미지 URL이 본 서버가 발급한 상품 업로드 경로({@value #PRODUCT_URL_PREFIX} 접두사)인지 검증한다(D-174). 셀러·관리자 상품
+     * 이미지 등록은 업로드 API 결과 URL만 받는다 — 외부 URL·클레임 첨부 경로·임의 경로는 400.
+     *
+     * @throws MalformedRequestException 서버 발급 상품 이미지 경로가 아닐 때(400)
+     */
+    public static void requireServerIssuedProductUrl(String imageUrl) {
+        if (imageUrl == null || !imageUrl.startsWith(PRODUCT_URL_PREFIX) || imageUrl.contains("..")) {
+            throw new MalformedRequestException(
+                    "imageUrl은 업로드 API가 발급한 상품 이미지 경로(" + PRODUCT_URL_PREFIX + "...)만 허용합니다.");
+        }
+    }
+
+    /**
+     * 업로드 URL의 원본·썸네일 파일을 삭제한다(D-174 미연결 첨부 정리·행 삭제 커밋 후 호출). 내부 업로드 URL이 아니면 no-op.
+     * 삭제 실패는 {@link FileStorage#delete}가 warn만 남긴다(재시도 없음·고아 파일 이월 합류).
+     *
+     * @return 원본 파일이 실제로 삭제됐으면 true
+     */
+    public boolean deleteByUrl(String imageUrl) {
+        if (imageUrl == null || !imageUrl.startsWith(URL_PREFIX)) {
+            return false;
+        }
+        String key = imageUrl.substring(URL_PREFIX.length());
+        boolean deleted = fileStorage.delete(key);
+        int dot = key.lastIndexOf('.');
+        if (dot >= 0) {
+            ImageFormat.fromExtension(key.substring(dot + 1))
+                    .ifPresent(format -> fileStorage.delete(key.substring(0, dot) + THUMBNAIL_SUFFIX + "." + format.thumbnailExtension()));
+        }
+        return deleted;
+    }
+
+    private ImageUploadResponse.Item uploadOne(MultipartFile file, String directory, long maxFileSize) {
         String fileName = file.getOriginalFilename();
         if (file.isEmpty()) {
             return ImageUploadResponse.Item.failure(fileName, CODE_EMPTY_FILE, "빈 파일입니다.");
@@ -128,6 +173,19 @@ public class ImageUploadService {
                     "jpg·png·webp만 허용합니다(매직 바이트 불일치).");
         }
         ImageFormat format = detected.get();
+        // D-174: 전체 디코딩 전에 헤더 해상도만 읽어 픽셀 폭탄(작은 파일·거대 해상도)을 차단한다. 헤더를 읽을 수 없으면 기존대로 거부.
+        Optional<int[]> dimensions = readDimensions(content);
+        if (dimensions.isEmpty()) {
+            return ImageUploadResponse.Item.failure(fileName, CODE_INVALID_IMAGE, "이미지 헤더를 읽을 수 없습니다.");
+        }
+        int headerWidth = dimensions.get()[0];
+        int headerHeight = dimensions.get()[1];
+        if (headerWidth > MAX_IMAGE_SIDE_PX || headerHeight > MAX_IMAGE_SIDE_PX
+                || (long) headerWidth * headerHeight > MAX_IMAGE_PIXELS) {
+            return ImageUploadResponse.Item.failure(fileName, CODE_IMAGE_TOO_LARGE,
+                    "이미지 해상도가 상한을 초과합니다(한 변 " + MAX_IMAGE_SIDE_PX + "px·총 " + MAX_IMAGE_PIXELS + "px 이하): "
+                            + headerWidth + "x" + headerHeight);
+        }
         BufferedImage image = decode(content);
         if (image == null) {
             return ImageUploadResponse.Item.failure(fileName, CODE_INVALID_IMAGE, "이미지를 디코딩할 수 없습니다.");
@@ -147,6 +205,30 @@ public class ImageUploadService {
         log.info("[ImageUpload] 저장 key={} {}x{} size={} thumb={}", originalKey, image.getWidth(), image.getHeight(),
                 content.length, !thumbnailUrl.equals(url));
         return ImageUploadResponse.Item.success(fileName, url, thumbnailUrl, image.getWidth(), image.getHeight(), content.length);
+    }
+
+    /** 헤더만 판독해 [width, height]를 돌려준다(픽셀 데이터 미디코딩). reader가 없거나 헤더 파손이면 empty. */
+    private static Optional<int[]> readDimensions(byte[] content) {
+        try (ImageInputStream input = ImageIO.createImageInputStream(new ByteArrayInputStream(content))) {
+            if (input == null) {
+                return Optional.empty();
+            }
+            Iterator<ImageReader> readers = ImageIO.getImageReaders(input);
+            if (!readers.hasNext()) {
+                return Optional.empty();
+            }
+            ImageReader reader = readers.next();
+            try {
+                reader.setInput(input, true, true);
+                return Optional.of(new int[] {reader.getWidth(0), reader.getHeight(0)});
+            } finally {
+                reader.dispose();
+            }
+        } catch (IOException | RuntimeException exception) {
+            // 헤더 파손·reader 내부 오류는 "읽을 수 없는 이미지"로 취급해 파일별 실패로 돌린다(요청 전체 실패 아님).
+            log.warn("[ImageUpload] 헤더 판독 실패: {}", exception.getMessage());
+            return Optional.empty();
+        }
     }
 
     private static BufferedImage decode(byte[] content) {
