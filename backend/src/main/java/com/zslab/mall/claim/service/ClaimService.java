@@ -3,23 +3,30 @@ package com.zslab.mall.claim.service;
 import com.zslab.mall.claim.controller.request.ClaimRequestCommand;
 import com.zslab.mall.claim.controller.response.ClaimResponse;
 import com.zslab.mall.claim.controller.response.ClaimSummaryResponse;
+import com.zslab.mall.attachment.entity.Attachment;
 import com.zslab.mall.claim.entity.Claim;
+import com.zslab.mall.claim.enums.ClaimInspectionResult;
 import com.zslab.mall.claim.enums.ClaimReasonCode;
 import com.zslab.mall.claim.enums.ClaimRejectReasonCode;
 import com.zslab.mall.claim.enums.ClaimStatus;
 import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.event.ClaimApproved;
 import com.zslab.mall.claim.event.ClaimCompleted;
+import com.zslab.mall.claim.event.ClaimInspectionPassed;
 import com.zslab.mall.claim.event.ClaimPickedUp;
 import com.zslab.mall.claim.event.ClaimRejected;
 import com.zslab.mall.claim.event.ClaimRequested;
 import com.zslab.mall.claim.exception.ClaimInvalidStateException;
 import com.zslab.mall.claim.exception.ClaimNotFoundException;
 import com.zslab.mall.claim.repository.ClaimRepository;
+import com.zslab.mall.common.exception.MalformedRequestException;
 import com.zslab.mall.common.observability.TracedEventPublisher;
 import com.zslab.mall.delivery.entity.Delivery;
 import com.zslab.mall.delivery.enums.DeliveryCarrier;
+import com.zslab.mall.delivery.enums.DeliveryDirection;
+import com.zslab.mall.delivery.repository.DeliveryRepository;
 import com.zslab.mall.delivery.service.DeliveryService;
+import com.zslab.mall.delivery.service.ReturnWindowPolicy;
 import com.zslab.mall.order.controller.response.PagedResponse;
 import com.zslab.mall.order.entity.Order;
 import com.zslab.mall.order.entity.OrderItem;
@@ -34,6 +41,7 @@ import jakarta.persistence.LockModeType;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -59,6 +67,10 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 public class ClaimService {
 
+    /** 사진 첨부를 허용하는 반품 사유(Track 81-B D-171·R2). 단순변심 첨부는 400. */
+    private static final Set<ClaimReasonCode> ATTACHABLE_RETURN_REASONS =
+            Set.of(ClaimReasonCode.PRODUCT_DEFECT, ClaimReasonCode.WRONG_PRODUCT);
+
     private static final int MAX_PAGE_SIZE = 100;
     private static final int DEFAULT_PAGE_SIZE = 20;
 
@@ -68,6 +80,9 @@ public class ClaimService {
     private final TracedEventPublisher eventPublisher;
     private final DeliveryService deliveryService;
     private final RefundRepository refundRepository;
+    private final DeliveryRepository deliveryRepository;
+    private final ReturnWindowPolicy returnWindowPolicy;
+    private final ClaimAttachmentService claimAttachmentService;
     private final EntityManager entityManager;
 
     public ClaimService(
@@ -77,6 +92,9 @@ public class ClaimService {
             TracedEventPublisher eventPublisher,
             DeliveryService deliveryService,
             RefundRepository refundRepository,
+            DeliveryRepository deliveryRepository,
+            ReturnWindowPolicy returnWindowPolicy,
+            ClaimAttachmentService claimAttachmentService,
             EntityManager entityManager) {
         this.claimRepository = claimRepository;
         this.orderItemRepository = orderItemRepository;
@@ -84,6 +102,9 @@ public class ClaimService {
         this.eventPublisher = eventPublisher;
         this.deliveryService = deliveryService;
         this.refundRepository = refundRepository;
+        this.deliveryRepository = deliveryRepository;
+        this.returnWindowPolicy = returnWindowPolicy;
+        this.claimAttachmentService = claimAttachmentService;
         this.entityManager = entityManager;
     }
 
@@ -94,8 +115,17 @@ public class ClaimService {
      * @return 생성된 Claim(public_id·id 부여 완료)
      * @throws ClaimNotFoundException     주문 품목이 없거나 소유자가 다른 경우(정보 노출 회피·T3)
      * @throws ClaimInvalidStateException 활성 클레임 중복(CLM-5)·OrderItem 상태가 해당 type 요청 전이 불가인 경우(422)
+     * @throws MalformedRequestException  첨부 허용 조건(RETURN·불량/오배송) 위반·첨부 id 소유권/연결/중복 위반(400)
      */
     public Claim request(ClaimRequestCommand command) {
+        // (0) 첨부(Track 81-B): RETURN + 불량/오배송에서만 허용. 소유권·미연결 검증은 락 전에(읽기만) 끝낸다.
+        List<String> attachmentIds = command.attachmentIds();
+        if (!attachmentIds.isEmpty()
+                && (command.claimType() != ClaimType.RETURN || !ATTACHABLE_RETURN_REASONS.contains(command.reasonCode()))) {
+            throw new MalformedRequestException("사진 첨부는 반품(상품불량·오배송) 요청에서만 허용됩니다.");
+        }
+        List<Attachment> attachments = claimAttachmentService.resolveForLink(command.buyerId(), attachmentIds);
+
         // (a) OrderItem public_id → id 해소(D-64·D-65). 미존재 시 404.
         OrderItem resolved = orderItemRepository.findByPublicId(command.orderItemPublicId())
                 .orElseThrow(() -> new ClaimNotFoundException(
@@ -112,8 +142,10 @@ public class ClaimService {
             throw new ClaimNotFoundException("주문 품목을 찾을 수 없습니다: " + command.orderItemPublicId());
         }
 
-        return createClaim(resolved.getId(), command.claimType(), command.reasonCode(), command.reasonDetail(),
+        Claim claim = createClaim(resolved.getId(), command.claimType(), command.reasonCode(), command.reasonDetail(),
                 command.buyerId(), command.requestedAt());
+        claimAttachmentService.link(attachments, claim.getId(), command.buyerId());
+        return claim;
     }
 
     /**
@@ -137,6 +169,11 @@ public class ClaimService {
         // (d) CLM-5: 동일 OrderItem 활성 클레임(REQUESTED·APPROVED) 중복 차단(422).
         if (claimRepository.existsActiveByOrderItemId(orderItem.getId())) {
             throw new ClaimInvalidStateException("이미 진행 중인 클레임이 있습니다(CLM-5): orderItemId=" + orderItemId);
+        }
+
+        // (d-2) RETURN 요청 조건(Track 81-A D-170·R1·R2): 사유 3값 한정·품목 DELIVERED·발송 배송완료 후 7일 이내.
+        if (claimType == ClaimType.RETURN) {
+            validateReturnRequest(orderItem, reasonCode, requestedAt);
         }
 
         // (e) type별 진입 전이 대상 매핑 후 OrderItem 상태 전이 가능성 검증(D-98 Q4). 실제 전이는 동기 핸들러가 수행.
@@ -170,6 +207,36 @@ public class ClaimService {
                 claim.getRequestedBy(),
                 LocalDateTime.now()));
         return claim;
+    }
+
+    /**
+     * RETURN 요청 조건 검증(Track 81-A D-170·보충). 사유는 {@link ClaimReasonCode#isApplicableTo}(단순변심·상품불량·오배송), 품목은 DELIVERED
+     * (SHIPPING 중 반품 요청은 매트릭스상 가능하나 배송완료 기준 기한을 셀 수 없어 서비스에서 차단), 기한은 {@link ReturnWindowPolicy}
+     * (원 주문 발송 delivered_at + 7일·재발송·교환 발송 제외), 검수 불합격(FAIL) 이력 품목은 재요청 불가(같은 상품이 이미 불합격 판정을 받았고
+     * 재발송됐으므로 재반품은 운영 판단 영역·CLM-2 재요청 허용의 예외).
+     *
+     * @throws ClaimInvalidStateException 사유 부적합·미배송완료·기한 경과·FAIL 이력(422 CLAIM_STATE_INVALID 재사용)
+     */
+    private void validateReturnRequest(OrderItem orderItem, ClaimReasonCode reasonCode, LocalDateTime requestedAt) {
+        if (!reasonCode.isApplicableTo(ClaimType.RETURN)) {
+            throw new ClaimInvalidStateException("반품 사유로 사용할 수 없는 코드입니다: " + reasonCode);
+        }
+        if (orderItem.getItemStatus() != OrderItemStatus.DELIVERED) {
+            throw new ClaimInvalidStateException(
+                    "반품은 배송완료 품목만 요청할 수 있습니다: " + orderItem.getItemStatus());
+        }
+        if (claimRepository.existsByOrderItemIdAndTypeAndInspectionResult(
+                orderItem.getId(), ClaimType.RETURN, ClaimInspectionResult.FAIL)) {
+            throw new ClaimInvalidStateException(
+                    "검수 불합격 이력이 있는 품목은 반품을 다시 요청할 수 없습니다: orderItemId=" + orderItem.getId());
+        }
+        LocalDateTime deliveredAt = returnWindowPolicy.originalDeliveredAt(orderItem.getId())
+                .orElseThrow(() -> new ClaimInvalidStateException(
+                        "배송완료 기록이 없어 반품 기한을 판정할 수 없습니다: orderItemId=" + orderItem.getId()));
+        if (!ReturnWindowPolicy.isWithinWindow(deliveredAt, requestedAt)) {
+            throw new ClaimInvalidStateException(
+                    "반품 가능 기간(배송완료 후 " + ReturnWindowPolicy.WINDOW_DAYS + "일)이 지났습니다: 배송완료 " + deliveredAt);
+        }
     }
 
     /**
@@ -243,6 +310,32 @@ public class ClaimService {
         eventPublisher.publishEvent(new ClaimRejected(
                 claim.getId(), claim.getPublicId(), claim.getOrderItemId(),
                 claim.getType(), claim.getStatus(), claim.getRejectReasonCode(), LocalDateTime.now()));
+    }
+
+    /**
+     * 구매자 반품 회수 송장 등록(Track 81-A D-170·R4). 본인이 요청한 RETURN·APPROVED·회수 확인 전 클레임에만 허용한다.
+     * 소유 위반·미존재는 404(정보 노출 회피·Q8), 유형·상태 위반은 422. Delivery 생성·SHIPPING·이벤트는 {@link DeliveryService#registerReturnShipment}.
+     *
+     * @throws ClaimNotFoundException     클레임이 없거나 요청자가 아닌 경우
+     * @throws ClaimInvalidStateException type != RETURN·APPROVED 아님·이미 회수 확인됨·회수 송장 중복(422)
+     */
+    public Delivery registerReturnShipmentByBuyer(String claimPublicId, Long buyerId, DeliveryCarrier carrier, String trackingNo) {
+        Claim claim = claimRepository.findByPublicId(claimPublicId)
+                .orElseThrow(() -> new ClaimNotFoundException("클레임을 찾을 수 없습니다: " + claimPublicId));
+        Long claimId = claim.getId();
+        if (!buyerId.equals(claim.getRequestedBy())) {
+            throw new ClaimNotFoundException("클레임을 찾을 수 없습니다: " + claimPublicId);
+        }
+        if (claim.getType() != ClaimType.RETURN) {
+            throw new ClaimInvalidStateException("회수 송장은 RETURN 클레임에만 등록할 수 있습니다: type=" + claim.getType());
+        }
+        if (claim.getStatus() != ClaimStatus.APPROVED) {
+            throw new ClaimInvalidStateException("승인된 반품만 회수 송장을 등록할 수 있습니다: " + claim.getStatus());
+        }
+        if (claim.getPickedUpAt() != null) {
+            throw new ClaimInvalidStateException("이미 회수 확인된 반품입니다: claimId=" + claimId);
+        }
+        return deliveryService.registerReturnShipment(claim, carrier, trackingNo);
     }
 
     /**
@@ -328,7 +421,21 @@ public class ClaimService {
                 .orElseThrow(() -> new IllegalStateException(
                         "클레임의 주문 품목을 찾을 수 없습니다: orderItemId=" + claim.getOrderItemId()));
         RefundStatus refundStatus = latestRefundStatusByClaimId(List.of(claim.getId())).get(claim.getId());
-        return ClaimResponse.from(claim, orderItemPublicId, refundStatus);
+        // Track 81-A·FE-29: 클레임 연결 Delivery 1쿼리(id 내림차순) → 회수(RETURN)·검수 불합격 재발송(OUTBOUND) 방향별 최신 1건
+        Delivery returnDelivery = null;
+        Delivery reshipment = null;
+        if (claim.getType() == ClaimType.RETURN) {
+            for (Delivery delivery : deliveryRepository.findByClaimIdInOrderByIdDesc(List.of(claim.getId()))) {
+                if (delivery.getDirection() == DeliveryDirection.RETURN && returnDelivery == null) {
+                    returnDelivery = delivery;
+                } else if (delivery.getDirection() == DeliveryDirection.OUTBOUND && reshipment == null) {
+                    reshipment = delivery;
+                }
+            }
+        }
+        // Track 81-B: 첨부 URL 1쿼리(순서 보존·없으면 빈 목록)
+        return ClaimResponse.from(claim, orderItemPublicId, refundStatus, returnDelivery,
+                claimAttachmentService.urlsOf(claim.getId()), reshipment);
     }
 
     /** 본인 클레임 목록(requested_by 기준·D-54 페이징). size는 1~100 클램프. 환불 상태는 페이지 단위 배치 1쿼리(Track 80). */
@@ -452,6 +559,10 @@ public class ClaimService {
             return;
         }
         claim.confirmPickup(pickedUpAt);
+        if (claim.getType() == ClaimType.RETURN) {
+            // Track 81-A D-170: 반품 회수 확인은 구매자 회수 송장(RETURN Delivery)이 선행돼야 하며 그 Delivery를 DELIVERED로 마감한다(부재 422).
+            deliveryService.completeReturnShipment(claimId);
+        }
         claimRepository.save(claim);
         eventPublisher.publishEvent(new ClaimPickedUp(
                 claim.getId(), claim.getPublicId(), claim.getOrderItemId(),
@@ -485,6 +596,66 @@ public class ClaimService {
      */
     public void confirmPickupByAdmin(Long claimId, LocalDateTime pickedUpAt) {
         confirmPickup(claimId, pickedUpAt);
+    }
+
+    /**
+     * 반품 검수 primitive(Track 81-A D-170·R5·actor 비의존). 클레임 행을 {@code refresh(PESSIMISTIC_WRITE)}로 잠가 동시 검수를 직렬화한
+     * 뒤(늦은 쪽은 "이미 검수됨" 422) PASS/FAIL을 적용한다.
+     * <ul>
+     *   <li>PASS: {@link Claim#passInspection}(restock 필수) → {@link ClaimInspectionPassed} 발행 → 환불 개시(핸들러)</li>
+     *   <li>FAIL: {@link Claim#failInspection}(거부 사유 필수·APPROVED → REJECTED 예외 전이) → 재발송 Delivery(OUTBOUND·택배사·송장 필수)
+     *       → {@link ClaimRejected} 발행 → 품목 스냅샷 원복(DELIVERED)·거부 SMS(기존 경로)</li>
+     * </ul>
+     * 외부 HTTP 진입점 직접 호출 금지. 외부 액터 호출은 wrapper(inspectBySeller 등) 경유 의무.
+     *
+     * @throws ClaimNotFoundException     클레임이 없는 경우
+     * @throws ClaimInvalidStateException type != RETURN·APPROVED 아님·미회수·이미 검수됨·재발송 중복(422)
+     * @throws IllegalArgumentException   PASS인데 restock 누락 / FAIL인데 사유·택배사·송장 누락·사유가 INSPECTION_FAILED가 아님(400·D-172)
+     */
+    public void inspect(Long claimId, ClaimInspectionResult result, Boolean restock, ClaimRejectReasonCode rejectReasonCode,
+            String memo, DeliveryCarrier reshipCarrier, String reshipTrackingNo, LocalDateTime inspectedAt) {
+        if (result == null) {
+            throw new IllegalArgumentException("inspect: 검수 결과는 필수입니다.");
+        }
+        Claim claim = findClaim(claimId);
+        entityManager.refresh(claim, LockModeType.PESSIMISTIC_WRITE);
+        if (result == ClaimInspectionResult.PASS) {
+            if (restock == null) {
+                throw new IllegalArgumentException("inspect: PASS는 재입고 여부(restock)가 필수입니다.");
+            }
+            claim.passInspection(restock, inspectedAt);
+            claimRepository.save(claim);
+            eventPublisher.publishEvent(new ClaimInspectionPassed(
+                    claim.getId(), claim.getPublicId(), claim.getOrderItemId(), restock, LocalDateTime.now()));
+            return;
+        }
+        if (reshipCarrier == null || reshipTrackingNo == null || reshipTrackingNo.isBlank()) {
+            throw new IllegalArgumentException("inspect: FAIL은 재발송 택배사·송장번호가 필수입니다.");
+        }
+        claim.failInspection(rejectReasonCode, memo, inspectedAt);
+        claimRepository.save(claim);
+        deliveryService.registerReshipment(claim, reshipCarrier, reshipTrackingNo);
+        eventPublisher.publishEvent(new ClaimRejected(
+                claim.getId(), claim.getPublicId(), claim.getOrderItemId(),
+                claim.getType(), claim.getStatus(), claim.getRejectReasonCode(), LocalDateTime.now()));
+    }
+
+    /**
+     * Seller 액터의 반품 검수 진입점(Track 81-A). 조회 → 권한 검증(품목 소유·위반 404) → {@link #inspect} primitive.
+     */
+    public void inspectBySeller(Long claimId, Long sellerId, ClaimInspectionResult result, Boolean restock,
+            ClaimRejectReasonCode rejectReasonCode, String memo, DeliveryCarrier reshipCarrier, String reshipTrackingNo,
+            LocalDateTime inspectedAt) {
+        Claim claim = findClaim(claimId);
+        authorizeSellerAccess(claim, sellerId);
+        inspect(claimId, result, restock, rejectReasonCode, memo, reshipCarrier, reshipTrackingNo, inspectedAt);
+    }
+
+    /** Admin 액터의 반품 검수 진입점(Track 81-A·전체 접근·미존재만 404). */
+    public void inspectByAdmin(Long claimId, ClaimInspectionResult result, Boolean restock,
+            ClaimRejectReasonCode rejectReasonCode, String memo, DeliveryCarrier reshipCarrier, String reshipTrackingNo,
+            LocalDateTime inspectedAt) {
+        inspect(claimId, result, restock, rejectReasonCode, memo, reshipCarrier, reshipTrackingNo, inspectedAt);
     }
 
     /**

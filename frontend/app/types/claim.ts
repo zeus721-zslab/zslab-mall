@@ -3,7 +3,15 @@
  * 라벨·유니온은 lib/constants/claim.ts 단일 소스를 재사용한다(매직 문자열 금지).
  */
 
-import type { ClaimReasonCode, ClaimRejectReasonCode, ClaimStatus, ClaimType, RefundStatus } from '~/lib/constants/claim'
+import type {
+  ClaimInspectionResult,
+  ClaimReasonCode,
+  ClaimRejectReasonCode,
+  ClaimStatus,
+  ClaimType,
+  RefundStatus,
+} from '~/lib/constants/claim'
+import type { DeliveryCarrier, DeliveryDirection, DeliveryStatus } from '~/lib/constants/delivery'
 
 /**
  * 클레임 요청 body(BE ClaimRequestRequest 대응). orderItemPublicId는 oit_ + ULID 26자(서버 정규식 검증),
@@ -14,6 +22,42 @@ export interface ClaimRequestBody {
   claimType: ClaimType
   reasonCode: ClaimReasonCode
   reasonDetail?: string
+  /** 반품 사진 첨부 id(att_·최대 5·FE-29). 반품 + 상품불량/오배송에서만 보낸다(그 외 BE 400). */
+  attachmentIds?: string[]
+}
+
+/** 반품 사진 업로드 응답(BE ClaimAttachmentUploadResponse·FE-29). 파일별 부분 실패이며 성공 항목만 attachmentId를 가진다. */
+export interface ClaimAttachmentUploadResponse {
+  results: ClaimAttachmentUploadItem[]
+  successCount: number
+  failureCount: number
+}
+
+export interface ClaimAttachmentUploadItem {
+  fileName?: string
+  success: boolean
+  attachmentId?: string
+  url?: string
+  thumbnailUrl?: string
+  code?: string
+  message?: string
+}
+
+/** 클레임 연결 배송 요약(BE ReturnShipmentResponse·Track 81-A). 회수(RETURN)·검수 불합격 재발송(OUTBOUND) 공용. */
+export interface ClaimShipment {
+  deliveryPublicId: string
+  direction: DeliveryDirection
+  carrier: DeliveryCarrier
+  trackingNo: string
+  status: DeliveryStatus
+  shippedAt: string | null
+  deliveredAt: string | null
+}
+
+/** 회수 송장 등록 body(BE ReturnShipmentRequest·FE-29). */
+export interface ReturnShipmentBody {
+  carrier: DeliveryCarrier
+  trackingNo: string
 }
 
 /**
@@ -67,4 +111,16 @@ export interface ClaimDetail {
   rejectMemo: string | null
   /** 최신 환불 상태(FE-28). 환불 미생성 시 null. */
   refundStatus: RefundStatus | null
+  /** 구매자가 회수 송장을 등록해야 하는 단계인지(RETURN·APPROVED·송장 없음·미회수·Track 81-A). */
+  returnShipmentRequired: boolean
+  /** 회수 송장(구매자 등록·없으면 생략/null). */
+  returnShipment?: ClaimShipment | null
+  /** 회수 확인 시각(RETURN·EXCHANGE·없으면 생략/null). */
+  pickedUpAt?: string | null
+  /** 검수 결과(PASS|FAIL·미검수 생략/null). */
+  inspectionResult?: ClaimInspectionResult | null
+  /** 반품 사진 URL(순서 보존·없으면 빈 목록·Track 81-B). */
+  attachmentUrls: string[]
+  /** 검수 불합격 재발송 배송(OUTBOUND·없으면 생략/null·FE-29). */
+  reshipment?: ClaimShipment | null
 }

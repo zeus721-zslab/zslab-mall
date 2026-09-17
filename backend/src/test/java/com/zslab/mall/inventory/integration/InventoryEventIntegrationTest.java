@@ -258,10 +258,13 @@ class InventoryEventIntegrationTest extends AbstractIntegrationTest {
     }
 
     private void seedClaim(ClaimType type, OrderItemStatus previousStatus) {
+        // Track 81-A: RETURN 종결 재고 복구는 검수 PASS·restock=1 전제(회수·검수 milestone 함께 시드)
         jdbc.update("INSERT INTO claim (id, public_id, order_item_id, type, reason_code, reason_detail, status, "
-                        + "previous_order_item_status, requested_by, requested_at, created_at, updated_at) "
-                        + "VALUES (?, ?, ?, ?, 'BUYER_CHANGED_MIND', '통합', 'COMPLETED', ?, ?, NOW(6), NOW(6), NOW(6))",
-                CLAIM_ID, CLAIM_PID, ORDER_ITEM_ID, type.name(), previousStatus.name(), USER_ID);
+                        + "previous_order_item_status, requested_by, requested_at, picked_up_at, inspected_at, inspection_result, restock, "
+                        + "created_at, updated_at) "
+                        + "VALUES (?, ?, ?, ?, 'BUYER_CHANGED_MIND', '통합', 'COMPLETED', ?, ?, NOW(6), NOW(6), NOW(6), ?, ?, NOW(6), NOW(6))",
+                CLAIM_ID, CLAIM_PID, ORDER_ITEM_ID, type.name(), previousStatus.name(), USER_ID,
+                type == ClaimType.RETURN ? "PASS" : null, type == ClaimType.RETURN ? 1 : null);
     }
 
     private void cleanup() {

@@ -3,12 +3,15 @@ import { test, expect, type Page } from '@playwright/test'
 /**
  * 관리자 취소·반품·교환 목록(FE-28) E2E. 로그인은 데모 버튼(NUXT_ADMIN_DEMO_* 주입 환경·미주입 시 skip), 클레임·주문 API는 page.route로
  * mock해 로컬 DB를 바꾸지 않고 결정적으로 검증한다(메뉴 1항목·탭→URL→API type·처리 대기 chip·필터·승인·거부 사유 필수/유형 제한·
- * 주문번호→상세→복귀·1440 가로 스크롤 0).
+ * 주문번호→상세→복귀·1440 가로 스크롤 0). FE-29: 반품 승인 행의 회수 확인·검수(PASS 재입고 / FAIL 사유·재발송 송장) 액션·회수/검수 표기.
  */
 const ORDER_ID = 'ord_E2E0000000000000000000001'
 const CANCEL_CLAIM = 'clm_E2E0000000000000000000101'
 const RETURN_CLAIM = 'clm_E2E0000000000000000000102'
 const DONE_CLAIM = 'clm_E2E0000000000000000000103'
+const PICKUP_CLAIM = 'clm_E2E0000000000000000000104'
+const INSPECT_CLAIM = 'clm_E2E0000000000000000000105'
+const RETURN_SHIPMENT = { deliveryPublicId: 'dlv_E2E4', direction: 'RETURN', carrier: 'CJ', trackingNo: 'RTN-0004', status: 'SHIPPING', shippedAt: '2026-09-16T12:00:00+09:00', deliveredAt: null }
 
 const CLAIMS = [
   {
@@ -29,6 +32,21 @@ const CLAIMS = [
     productName: 'E2E 티셔츠', optionLabel: 'M', quantity: 1, amount: 19900, reasonCode: 'DUPLICATE_ORDER', refundStatus: 'COMPLETED',
     availableActions: [],
   },
+  // FE-29: 반품 승인 + 회수 송장 등록(회수 확인 대기·첨부 2)
+  {
+    claimId: PICKUP_CLAIM, type: 'RETURN', status: 'APPROVED', requestedAt: '2026-09-14T10:00:00+09:00', processedAt: '2026-09-14T11:00:00+09:00',
+    orderId: ORDER_ID, orderItemId: 'oit_E2E0000000000000000000002', orderNo: 'ORD-20260916-0001', buyerName: 'E2E구매자', buyerEmail: 'buyer@e2e.invalid',
+    productName: 'E2E 회수대기 양말', quantity: 1, amount: 5000, reasonCode: 'PRODUCT_DEFECT',
+    availableActions: ['CONFIRM_PICKUP'], returnShipment: RETURN_SHIPMENT, attachmentCount: 2,
+  },
+  // FE-29: 반품 승인 + 회수 확인(검수 대기)
+  {
+    claimId: INSPECT_CLAIM, type: 'RETURN', status: 'APPROVED', requestedAt: '2026-09-13T10:00:00+09:00', processedAt: '2026-09-13T11:00:00+09:00',
+    orderId: ORDER_ID, orderItemId: 'oit_E2E0000000000000000000002', orderNo: 'ORD-20260916-0001', buyerName: 'E2E구매자', buyerEmail: 'buyer@e2e.invalid',
+    productName: 'E2E 검수대기 양말', quantity: 1, amount: 5000, reasonCode: 'WRONG_PRODUCT',
+    availableActions: ['INSPECT'], returnShipment: { ...RETURN_SHIPMENT, status: 'DELIVERED', deliveredAt: '2026-09-15T09:00:00+09:00' },
+    pickedUpAt: '2026-09-15T09:00:00+09:00', attachmentCount: 0,
+  },
 ]
 
 const ORDER_DETAIL = {
@@ -46,6 +64,10 @@ async function mockClaimsApi(page: Page): Promise<Captured> {
   await page.route((url) => /\/api\/v1\/admin\/claims\/clm_[^/]+\/(approve|reject)$/.test(url.pathname), (route) => {
     captured.posts.push({ url: route.request().url(), body: route.request().postData() ?? '' })
     return route.fulfill({ json: { publicId: CANCEL_CLAIM, orderItemPublicId: 'oit_E2E0000000000000000000001', claimType: 'CANCEL', status: 'COMPLETED', reasonCode: 'BUYER_CHANGED_MIND', requestedAt: '2026-09-16T11:00:00+09:00', processedAt: '2026-09-16T12:00:00+09:00', refundStatus: 'COMPLETED' } })
+  })
+  await page.route((url) => /\/api\/v1\/admin\/claims\/clm_[^/]+\/(confirm-pickup|inspect)$/.test(url.pathname), (route) => {
+    captured.posts.push({ url: route.request().url(), body: route.request().postData() ?? '' })
+    return route.fulfill({ json: { publicId: PICKUP_CLAIM, orderItemPublicId: 'oit_E2E0000000000000000000002', claimType: 'RETURN', status: 'APPROVED', reasonCode: 'PRODUCT_DEFECT', requestedAt: '2026-09-14T10:00:00+09:00', processedAt: '2026-09-14T11:00:00+09:00', returnShipmentRequired: false, attachmentUrls: [] } })
   })
   await page.route((url) => url.pathname.endsWith('/api/v1/admin/claims'), (route) => {
     const query = new URL(route.request().url()).searchParams
@@ -88,22 +110,28 @@ test.describe('관리자 취소·반품·교환 목록(FE-28)', () => {
     await page.waitForURL(/\/admin\/orders\/claims$/)
     await expect(page.getByTestId('admin-topbar')).toContainText('취소·반품·교환')
 
-    await expect(page.getByTestId('row-status-chip')).toHaveCount(3)
+    await expect(page.getByTestId('row-status-chip')).toHaveCount(5)
     await expect(page.getByTestId('row-refund-chip')).toHaveCount(1)
     await expect(page.getByTestId('row-refund-chip')).toHaveText('환불 완료')
     await expect(page.getByTestId('claim-pending-chip')).toHaveText('처리 대기 2건')
     await expect(page.getByTestId('row-approve')).toHaveCount(2)
+    // FE-29: 회수/검수 caption(회수 송장 + 첨부 수 / 회수 확인 일시)·액션 버튼
+    await expect(page.getByTestId('row-return-caption').nth(0)).toHaveText('회수 CJ대한통운 RTN-0004 · 첨부 2')
+    await expect(page.getByTestId('row-return-caption').nth(1)).toContainText('회수 확인 09.15 09:00')
+    await expect(page.getByTestId('row-confirm-pickup')).toHaveCount(1)
+    await expect(page.getByTestId('row-inspect')).toHaveCount(1)
     const overflow = await page.evaluate(() => {
       const wrapper = document.querySelector('[data-testid="admin-claim-table"] .v-table__wrapper') as HTMLElement
       return { table: wrapper.scrollWidth - wrapper.clientWidth, body: document.documentElement.scrollWidth - document.documentElement.clientWidth }
     })
     expect(overflow).toEqual({ table: 0, body: 0 })
-    await page.screenshot({ path: 'playwright-report/fe-28/claims-list-desktop.png' })
+    await page.screenshot({ path: 'playwright-report/fe-29/claims-list-desktop.png' })
 
     // 탭 취소 → URL·API type·대기 건수 탭 기준
     await page.getByTestId('claim-tab-CANCEL').click()
     await page.waitForURL(/type=CANCEL/)
     await expect(page.getByTestId('row-status-chip')).toHaveCount(2)
+    await expect(page.getByTestId('row-return-caption')).toHaveCount(0)
     await expect(page.getByTestId('claim-pending-chip')).toHaveText('취소 처리 대기 1건')
     expect(captured.listQueries.at(-1)!.get('type')).toBe('CANCEL')
     await page.reload()
@@ -185,5 +213,64 @@ test.describe('관리자 취소·반품·교환 목록(FE-28)', () => {
     await page.getByTestId('back-to-list').click()
     await page.waitForURL(/\/admin\/orders\/claims\?type=CANCEL&status=REQUESTED$/)
     await expect(page.getByTestId('claim-tab-CANCEL')).toHaveAttribute('aria-selected', 'true')
+  })
+
+  test('④ FE-29 반품: 회수 확인(확인 다이얼로그 → POST confirm-pickup → info 토스트 → 재조회) / 검수 PASS 재입고 필수 → body{result,restock} / 검수 FAIL 사유 검수 불합격 고정·재발송 송장 필수 → body / 스크린샷', async ({ page }) => {
+    const captured = await mockClaimsApi(page)
+    await loginByDemo(page)
+    await page.goto('/admin/orders/claims?type=RETURN')
+    await expect(page.getByTestId('row-confirm-pickup')).toHaveCount(1)
+    const listCallsBefore = captured.listQueries.length
+
+    // 회수 확인
+    await page.getByTestId('row-confirm-pickup').click()
+    const pickup = page.getByTestId('admin-claim-pickup-dialog')
+    await expect(pickup).toContainText('반품 요청 (E2E 회수대기 양말)')
+    await expect(pickup).toContainText('검수 합격 시')
+    await pickup.getByTestId('admin-claim-pickup-dialog-ok').click()
+    await expect(page.locator('[data-sonner-toast][data-type="info"]').filter({ hasText: '회수를 확인했습니다' })).toBeVisible()
+    expect(captured.posts.at(-1)!.url).toContain(`/admin/claims/${PICKUP_CLAIM}/confirm-pickup`)
+    await expect(pickup).toBeHidden()
+    await expect.poll(() => captured.listQueries.length).toBeGreaterThan(listCallsBefore)
+
+    // 검수 PASS: 결과 선택 전 확인 비활성 → PASS → 재입고 미선택 오류 → 재입고 → body
+    await page.getByTestId('row-inspect').click()
+    const dialog = page.getByTestId('admin-claim-inspect-dialog')
+    await expect(dialog).toBeVisible()
+    await expect(dialog).toContainText('E2E 검수대기 양말')
+    await expect(dialog.getByTestId('inspect-dialog-ok')).toBeDisabled()
+    await dialog.getByTestId('inspect-result-PASS').click()
+    await expect(dialog.getByTestId('inspect-restock')).toBeVisible()
+    await dialog.getByTestId('inspect-dialog-ok').click()
+    await expect(dialog.getByTestId('inspect-restock')).toContainText('재입고 여부를 선택하세요.')
+    await dialog.getByTestId('inspect-restock-true').click()
+    await page.screenshot({ path: 'playwright-report/fe-29/claims-inspect-dialog.png' })
+    let postsBefore = captured.posts.length
+    await dialog.getByTestId('inspect-dialog-ok').click()
+    await expect(page.locator('[data-sonner-toast][data-type="info"]').filter({ hasText: '검수 합격' })).toBeVisible()
+    expect(captured.posts[postsBefore]!.url).toContain(`/admin/claims/${INSPECT_CLAIM}/inspect`)
+    expect(JSON.parse(captured.posts[postsBefore]!.body)).toEqual({ result: 'PASS', restock: true })
+    await expect(dialog).toBeHidden()
+
+    // 검수 FAIL: 사유 "검수 불합격" 고정 표기(select 없음·D-172)·재발송 택배사/송장 필수 → body
+    await page.getByTestId('row-inspect').click()
+    await expect(dialog).toBeVisible()
+    await dialog.getByTestId('inspect-result-FAIL').click()
+    await expect(dialog.getByTestId('inspect-reason')).toContainText('불합격 사유: 검수 불합격')
+    await expect(dialog.locator('.v-select')).toHaveCount(1) // 재발송 택배사만
+    await dialog.getByTestId('inspect-dialog-ok').click()
+    await expect(dialog.getByTestId('inspect-reship-carrier')).toContainText('재발송 택배사를 선택하세요.')
+    await expect(dialog.getByTestId('inspect-reship-tracking-no')).toContainText('재발송 송장번호를 입력하세요.')
+    await dialog.getByTestId('inspect-memo').locator('textarea').first().fill('사용 흔적')
+    await dialog.getByTestId('inspect-reship-carrier').click()
+    await page.getByRole('option', { name: '한진택배', exact: true }).click()
+    await dialog.getByTestId('inspect-reship-tracking-no').locator('input').fill('RESHIP-0001')
+    postsBefore = captured.posts.length
+    await dialog.getByTestId('inspect-dialog-ok').click()
+    await expect(page.locator('[data-sonner-toast][data-type="error"]').filter({ hasText: '검수 불합격' })).toBeVisible()
+    expect(JSON.parse(captured.posts[postsBefore]!.body)).toEqual({
+      result: 'FAIL', rejectReasonCode: 'INSPECTION_FAILED', memo: '사용 흔적', reshipCarrier: 'HANJIN', reshipTrackingNo: 'RESHIP-0001',
+    })
+    await expect(dialog).toBeHidden()
   })
 })

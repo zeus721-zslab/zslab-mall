@@ -1,6 +1,7 @@
 package com.zslab.mall.delivery.event;
 
 import com.zslab.mall.delivery.enums.DeliveryCarrier;
+import com.zslab.mall.delivery.enums.DeliveryDirection;
 import java.time.LocalDateTime;
 
 /**
@@ -18,5 +19,7 @@ public record DeliveryStarted(
         Long orderItemId,
         DeliveryCarrier carrier,
         String trackingNo,
+        DeliveryDirection direction,
+        Long claimId,
         LocalDateTime occurredAt) {
 }

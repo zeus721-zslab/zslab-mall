@@ -1,5 +1,6 @@
 package com.zslab.mall.claim.handler;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -84,11 +85,11 @@ class ClaimRefundCompletedHandlerTest {
     }
 
     @Test
-    @DisplayName("onRefundCompleted: 클레임 미발견 → skip")
-    void claimNotFound_skips() {
+    @DisplayName("onRefundCompleted: 클레임 미발견 → IllegalStateException 전파(동기·콜백 TX 롤백·D-172)")
+    void claimNotFound_throws() {
         when(claimRepository.findById(CLAIM_ID)).thenReturn(Optional.empty());
 
-        handler.onRefundCompleted(event());
+        assertThatThrownBy(() -> handler.onRefundCompleted(event())).isInstanceOf(IllegalStateException.class);
 
         verify(claimService, never()).markCompleted(anyLong());
     }

@@ -1,13 +1,21 @@
 <script setup lang="ts">
 import {
+  CLAIM_INSPECTION_RESULT_LABELS,
   CLAIM_REASON_LABELS,
   claimRejectReasonLabel,
   claimStatusLabel,
   claimTypeLabel,
   refundStatusLabel,
-  type ClaimStatus,
 } from '~/lib/constants/claim'
+import {
+  DELIVERY_CARRIER_CODES,
+  DELIVERY_CARRIER_LABELS,
+  DELIVERY_TRACKING_NO_MAX,
+  deliveryCarrierLabel,
+  type DeliveryCarrier,
+} from '~/lib/constants/delivery'
 import { formatDateTime } from '~/lib/utils/datetime'
+import { claimTimeline, type TimelineStep, type TimelineStepState } from '~/lib/utils/claim-timeline'
 
 // BUYER 전용 — 미인증/비-BUYER는 buyer 미들웨어가 /login으로 유도한다.
 definePageMeta({ middleware: 'buyer' })
@@ -35,40 +43,53 @@ const errorMessage = computed<string>(() =>
     : '클레임을 불러오지 못했습니다',
 )
 
-type StepState = 'done' | 'current' | 'upcoming'
-interface TimelineStep {
-  label: string
-  state: StepState
-  at: string | null
+// 진행 타임라인(FE-29·순수 함수 분리): 취소·교환 3단, 반품 6단(검수 불합격은 5단 종결).
+const timeline = computed<TimelineStep[]>(() => (data.value ? claimTimeline(data.value) : []))
+
+// 회수 송장 폼(반품 승인 후·송장 미등록·미회수일 때만·BE returnShipmentRequired).
+const { registerReturnShipment } = useClaim()
+const shipmentCarrier = ref<DeliveryCarrier | ''>('')
+const shipmentTrackingNo = ref<string>('')
+const shipmentSubmitting = ref<boolean>(false)
+const shipmentError = ref<string>('')
+
+async function submitReturnShipment(): Promise<void> {
+  if (shipmentSubmitting.value) return
+  const trackingNo = shipmentTrackingNo.value.trim()
+  if (!shipmentCarrier.value) {
+    shipmentError.value = '택배사를 선택하세요.'
+    return
+  }
+  if (trackingNo === '' || trackingNo.length > DELIVERY_TRACKING_NO_MAX) {
+    shipmentError.value = `송장번호를 ${DELIVERY_TRACKING_NO_MAX}자 이내로 입력하세요.`
+    return
+  }
+  shipmentSubmitting.value = true
+  shipmentError.value = ''
+  try {
+    await registerReturnShipment(claimPublicId, { carrier: shipmentCarrier.value, trackingNo })
+    await refresh()
+  } catch (submitError) {
+    // 422(이미 등록·상태 경합)는 재조회로 최신 상태를 보여주고, 그 외는 타입별 문구(.catch(()=>{}) 금지).
+    const statusCode = (submitError as { statusCode?: number }).statusCode
+    if (statusCode === 401) {
+      navigateTo(`/login?redirect=${encodeURIComponent(`/claims/${claimPublicId}`)}`)
+      return
+    }
+    if (statusCode === 422) {
+      shipmentError.value = '이미 등록되었거나 현재 상태에서는 회수 송장을 등록할 수 없습니다.'
+      await refresh()
+    } else if (statusCode === 400) {
+      shipmentError.value = '택배사와 송장번호를 확인하세요.'
+    } else {
+      shipmentError.value = '회수 송장 등록에 실패했습니다. 잠시 후 다시 시도하세요.'
+    }
+  } finally {
+    shipmentSubmitting.value = false
+  }
 }
 
-/**
- * 진행 타임라인(ClaimStatus 4값 기준). 정상 경로는 요청→승인→완료, REJECTED는 요청→거절로 종결한다.
- * processedAt은 전이마다 덮어써지므로(BE Claim.approve/markCompleted/reject) 현재 스텝의 처리 시각으로만 표기한다.
- * 중간 done 스텝은 개별 전이 시각 데이터가 없어 시각을 표기하지 않는다(추정 금지).
- */
-const timeline = computed<TimelineStep[]>(() => {
-  const detail = data.value
-  if (!detail) return []
-
-  if (detail.status === 'REJECTED') {
-    return [
-      { label: '요청', state: 'done', at: detail.requestedAt },
-      { label: '거절', state: 'current', at: detail.processedAt },
-    ]
-  }
-
-  const order: ClaimStatus[] = ['REQUESTED', 'APPROVED', 'COMPLETED']
-  const labels = ['요청', '승인', '완료']
-  const currentIndex = order.indexOf(detail.status)
-  return order.map((_, index) => ({
-    label: labels[index] as string,
-    state: index < currentIndex ? 'done' : index === currentIndex ? 'current' : 'upcoming',
-    at: index === 0 ? detail.requestedAt : index === currentIndex ? detail.processedAt : null,
-  }))
-})
-
-function stepCircleClass(state: StepState): string {
+function stepCircleClass(state: TimelineStepState): string {
   if (state === 'current') return 'bg-primary text-white ring-2 ring-primary ring-offset-2'
   if (state === 'done') return 'bg-primary text-white'
   return 'bg-gray-100 text-sub'
@@ -152,6 +173,27 @@ useSeoMeta({ title: '클레임 상세 · zslab-mall', description: 'zslab-mall �
               <dt class="text-sub">처리 일시</dt>
               <dd class="text-right text-ink">{{ formatDateTime(data.processedAt) }}</dd>
             </div>
+            <!-- 반품 회수·검수·재발송(FE-29·Track 81-A): 값이 있을 때만 행 노출 -->
+            <div v-if="data.returnShipment" class="flex justify-between gap-4">
+              <dt class="text-sub">회수 송장</dt>
+              <dd class="text-right text-ink" data-testid="claim-return-shipment">
+                {{ deliveryCarrierLabel(data.returnShipment.carrier) }} {{ data.returnShipment.trackingNo }}
+              </dd>
+            </div>
+            <div v-if="data.pickedUpAt" class="flex justify-between gap-4">
+              <dt class="text-sub">회수 확인</dt>
+              <dd class="text-right text-ink" data-testid="claim-picked-up-at">{{ formatDateTime(data.pickedUpAt) }}</dd>
+            </div>
+            <div v-if="data.inspectionResult" class="flex justify-between gap-4">
+              <dt class="text-sub">검수 결과</dt>
+              <dd class="text-right text-ink" data-testid="claim-inspection-result">{{ CLAIM_INSPECTION_RESULT_LABELS[data.inspectionResult] }}</dd>
+            </div>
+            <div v-if="data.reshipment" class="flex justify-between gap-4">
+              <dt class="text-sub">재발송 송장</dt>
+              <dd class="text-right text-ink" data-testid="claim-reshipment">
+                {{ deliveryCarrierLabel(data.reshipment.carrier) }} {{ data.reshipment.trackingNo }}
+              </dd>
+            </div>
             <!-- 거부 사유·메모·환불 상태(FE-28·Track 80 D-169): 값이 있을 때만 행 노출 -->
             <div v-if="data.rejectReasonCode" class="flex justify-between gap-4">
               <dt class="text-sub">거부 사유</dt>
@@ -166,6 +208,54 @@ useSeoMeta({ title: '클레임 상세 · zslab-mall', description: 'zslab-mall �
               <dd class="text-right text-ink" data-testid="claim-refund-status">{{ refundStatusLabel(data.refundStatus) }}</dd>
             </div>
           </dl>
+
+          <!-- 첨부 사진(FE-29·Track 81-B): 순서 보존·클릭 시 원본 -->
+          <div v-if="data.attachmentUrls && data.attachmentUrls.length > 0" class="mt-4">
+            <p class="mb-2 text-sm text-sub">첨부 사진</p>
+            <ul class="grid grid-cols-5 gap-2" data-testid="claim-attachments">
+              <li v-for="(url, index) in data.attachmentUrls" :key="url" class="aspect-square overflow-hidden rounded-control border border-line">
+                <a :href="url" target="_blank" rel="noopener">
+                  <img :src="url" :alt="`첨부 사진 ${index + 1}`" class="h-full w-full object-cover">
+                </a>
+              </li>
+            </ul>
+          </div>
+        </section>
+
+        <!-- 회수 송장 등록(FE-29): 반품 승인 후 구매자가 직접 등록. 등록되면 BE가 returnShipmentRequired=false로 내려 폼이 사라진다. -->
+        <section v-if="data.returnShipmentRequired" class="mt-6 rounded-card border border-line p-5" data-testid="claim-return-shipment-form">
+          <h2 class="mb-1 text-base font-semibold text-ink">회수 송장 등록</h2>
+          <p class="mb-4 text-sm text-sub">상품을 발송한 택배사와 송장번호를 등록해 주세요. 판매자가 회수를 확인한 뒤 검수를 진행합니다.</p>
+          <form class="space-y-3" @submit.prevent="submitReturnShipment">
+            <div class="space-y-1.5">
+              <label for="shipmentCarrier" class="block text-sm font-medium text-ink">택배사</label>
+              <select
+                id="shipmentCarrier"
+                v-model="shipmentCarrier"
+                required
+                class="w-full rounded-control border border-line px-4 py-2.5 text-sm text-ink transition duration-normal focus:border-gray-900 focus:outline-hidden focus:ring-1 focus:ring-gray-900"
+              >
+                <option value="" disabled>택배사를 선택하세요</option>
+                <option v-for="code in DELIVERY_CARRIER_CODES" :key="code" :value="code">{{ DELIVERY_CARRIER_LABELS[code] }}</option>
+              </select>
+            </div>
+            <div class="space-y-1.5">
+              <label for="shipmentTrackingNo" class="block text-sm font-medium text-ink">송장번호</label>
+              <input
+                id="shipmentTrackingNo"
+                v-model="shipmentTrackingNo"
+                type="text"
+                :maxlength="DELIVERY_TRACKING_NO_MAX"
+                required
+                class="w-full rounded-control border border-line px-4 py-2.5 text-sm text-ink transition duration-normal placeholder-gray-400 focus:border-gray-900 focus:outline-hidden focus:ring-1 focus:ring-gray-900"
+                placeholder="송장번호"
+              >
+            </div>
+            <p v-if="shipmentError" role="alert" class="text-sm text-soldout" data-testid="claim-return-shipment-error">{{ shipmentError }}</p>
+            <Button type="submit" size="lg" class="w-full" :disabled="shipmentSubmitting" data-testid="claim-return-shipment-submit">
+              {{ shipmentSubmitting ? '등록 중…' : '회수 송장 등록' }}
+            </Button>
+          </form>
         </section>
 
         <!-- 목록으로 -->

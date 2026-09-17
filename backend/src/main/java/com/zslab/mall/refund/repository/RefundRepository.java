@@ -2,12 +2,15 @@ package com.zslab.mall.refund.repository;
 
 import com.zslab.mall.refund.entity.Refund;
 import com.zslab.mall.refund.enums.RefundStatus;
+import jakarta.persistence.LockModeType;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -23,6 +26,18 @@ public interface RefundRepository extends JpaRepository<Refund, Long> {
 
     /** 한 클레임의 환불 행 전체(재시도 = 새 행·RFN-2 추적). */
     List<Refund> findByClaimId(Long claimId);
+
+    /**
+     * 활성(PENDING·COMPLETED) 환불 행을 잠금 조회한다(D-172 initiate 멱등 게이트). 잠금 읽기(SELECT ... FOR UPDATE)는 REPEATABLE READ
+     * 스냅샷을 쓰지 않고 최신 커밋을 읽으므로, 클레임 행 락을 기다린 두 번째 initiate가 첫 번째가 만든 행을 반드시 본다(비잠금 exists 쿼리는
+     * 트랜잭션 첫 읽기 시점 스냅샷에 묶여 못 보는 트랩). 모든 변수는 :name 바인딩 사용, SQL injection 위험 없음.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT r FROM Refund r WHERE r.claimId = :claimId AND r.status IN :statuses ORDER BY r.id ASC")
+    List<Refund> findByClaimIdAndStatusInForUpdate(@Param("claimId") Long claimId, @Param("statuses") Collection<RefundStatus> statuses);
+
+    /** Mock 완료 콜백 누락 복구(D-172): 생성 후 threshold 이전인 PENDING 환불(id 오름차순). pg_refund_id 없는 행은 호출부가 제외. */
+    List<Refund> findByStatusAndCreatedAtLessThanEqualOrderByIdAsc(RefundStatus status, LocalDateTime threshold, Pageable pageable);
 
     /** 관리자 클레임 목록·사용자 응답 배치 enrich(Track 80 D-169·N+1 회피). 클레임별 최신 행이 앞에 오도록 id 내림차순. */
     List<Refund> findByClaimIdInOrderByIdDesc(Collection<Long> claimIds);

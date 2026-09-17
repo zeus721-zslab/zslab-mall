@@ -15,6 +15,7 @@ import com.zslab.mall.payment.exception.InvalidCallbackException;
 import com.zslab.mall.payment.exception.OrderNotPendingPaymentException;
 import com.zslab.mall.payment.exception.PaymentAlreadyCompletedException;
 import com.zslab.mall.payment.exception.PaymentInProgressException;
+import com.zslab.mall.payment.exception.PaymentInvalidStateException;
 import com.zslab.mall.payment.exception.PaymentNotFoundException;
 import com.zslab.mall.payment.gateway.PaymentGateway;
 import com.zslab.mall.payment.repository.PaymentRepository;
@@ -214,7 +215,12 @@ public class PaymentService {
                     paymentId, totalRefunded, payment.getAmount());
             return;
         }
-        payment.cancel(); // PAID → CANCELLED (PAY-2·canTransitionTo 강제)
+        try {
+            payment.cancel(); // PAID → CANCELLED (PAY-2·canTransitionTo 강제)
+        } catch (IllegalStateException exception) {
+            // D-172 보충: 환불 콜백 동기 체인에서 전이 불가(비PAID)는 422로 콜백을 롤백한다(500 fallback 금지).
+            throw new PaymentInvalidStateException("결제를 취소 상태로 전이할 수 없습니다: " + exception.getMessage());
+        }
         paymentRepository.save(payment);
     }
 

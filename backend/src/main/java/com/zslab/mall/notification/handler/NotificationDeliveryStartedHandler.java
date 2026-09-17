@@ -1,6 +1,7 @@
 package com.zslab.mall.notification.handler;
 
 import com.zslab.mall.delivery.event.DeliveryStarted;
+import com.zslab.mall.delivery.enums.DeliveryDirection;
 import com.zslab.mall.common.observability.EventMetricsRecorder;
 import com.zslab.mall.notification.service.NotificationService;
 import lombok.RequiredArgsConstructor;
@@ -35,6 +36,11 @@ public class NotificationDeliveryStartedHandler {
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void handle(DeliveryStarted event) {
+        if (event.direction() != DeliveryDirection.OUTBOUND) {
+            // 반품 회수(RETURN) Delivery는 발송이 아니다(Track 81-A D-170) — 품목·알림·환불 소비처 비대상
+            log.info("[Notification] DeliveryStarted direction={} → 발송 소비처 비대상·건너뜀: deliveryId={}", event.direction(), event.deliveryId());
+            return;
+        }
         try {
             notificationService.recordDeliveryStarted(event);
         } catch (RuntimeException exception) {

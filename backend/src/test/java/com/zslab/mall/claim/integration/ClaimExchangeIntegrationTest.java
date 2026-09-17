@@ -19,6 +19,7 @@ import com.zslab.mall.claim.handler.ExchangeDeliveryCompletedHandler;
 import com.zslab.mall.claim.service.ClaimService;
 import com.zslab.mall.delivery.entity.Delivery;
 import com.zslab.mall.delivery.enums.DeliveryCarrier;
+import com.zslab.mall.delivery.enums.DeliveryDirection;
 import com.zslab.mall.delivery.event.DeliveryCompleted;
 import com.zslab.mall.delivery.service.DeliveryService;
 import com.zslab.mall.order.enums.OrderItemStatus;
@@ -133,7 +134,7 @@ class ClaimExchangeIntegrationTest extends AbstractIntegrationTest {
 
         // 동일 E5 재소비(핸들러 직접 재호출·@Transactional REQUIRES_NEW 프록시). markCompleted 멱등 가드가 E9 재발행을 차단한다.
         exchangeDeliveryCompletedHandler.handle(
-                new DeliveryCompleted(deliveryId, ORDER_ITEM_ID, LocalDateTime.now(), LocalDateTime.now()));
+                new DeliveryCompleted(deliveryId, ORDER_ITEM_ID, LocalDateTime.now(), DeliveryDirection.OUTBOUND, LocalDateTime.now()));
 
         assertThat(orderItemStatus()).isEqualTo("EXCHANGED");
         assertThat(claimStatus(claimId)).isEqualTo("COMPLETED");
@@ -300,6 +301,9 @@ class ClaimExchangeIntegrationTest extends AbstractIntegrationTest {
                         + "is_soldout_manual, display_order, option1_value_id, created_at, updated_at) "
                         + "VALUES (?, ?, ?, 'VCEXC', 0, 'SALE', 0, 1, ?, NOW(6), NOW(6))",
                 VARIANT_ID, pid("var_", "EXCVAR"), PRODUCT_ID, DUMMY_FK_ID);
+        // D-172: 재고 복구 핸들러가 동기·예외 전파로 바뀌어 종결 경로에 inventory 행이 필요하다(부재 시 InventoryInvariantViolation → 롤백)
+        jdbc.update("INSERT INTO inventory (id, variant_id, quantity_on_hand, quantity_reserved, quantity_available, created_at, updated_at) "
+                        + "VALUES (?, ?, 10, 0, 10, NOW(6), NOW(6))", VARIANT_ID, VARIANT_ID);
     }
 
     private void seedOrder(String status) {
@@ -353,6 +357,8 @@ class ClaimExchangeIntegrationTest extends AbstractIntegrationTest {
                 jdbc.update("DELETE FROM payment WHERE id = ?", PAYMENT_ID);
                 jdbc.update("DELETE FROM order_item WHERE id = ?", ORDER_ITEM_ID);
                 jdbc.update("DELETE FROM `order` WHERE id = ?", ORDER_ID);
+                jdbc.update("DELETE FROM inventory_history WHERE inventory_id = ?", VARIANT_ID);
+                jdbc.update("DELETE FROM inventory WHERE id = ?", VARIANT_ID);
                 jdbc.update("DELETE FROM product_variant WHERE id = ?", VARIANT_ID);
                 jdbc.update("DELETE FROM product WHERE id = ?", PRODUCT_ID);
                 jdbc.update("DELETE FROM seller WHERE id = ?", SELLER_ID);

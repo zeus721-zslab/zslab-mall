@@ -30,6 +30,7 @@ import com.zslab.mall.refund.exception.RefundInvariantViolationException;
 import com.zslab.mall.refund.repository.RefundRepository;
 import java.time.LocalDateTime;
 import java.util.Optional;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -68,6 +69,9 @@ class RefundServiceTest {
     private PaymentGateway paymentGateway;
     @Mock
     private TracedEventPublisher eventPublisher;
+    @Mock
+    private EntityManager entityManager;
+
     @InjectMocks
     private RefundService refundService;
 
@@ -139,17 +143,18 @@ class RefundServiceTest {
     }
 
     @Test
-    @DisplayName("initiate: 활성 Refund(PENDING) 존재 → 멱등 no-op·기존 행 반환·save 미호출(D-94 Q6)")
+    @DisplayName("initiate: 클레임 행 락 후 활성 Refund(PENDING) 존재 → 멱등 no-op·기존 행 반환·save 미호출(D-94 Q6·D-172)")
     void initiate_activeRefundExists_idempotentNoOp() {
         Refund existing = pendingRefund();
-        when(refundRepository.existsActiveByClaimId(CLAIM_ID)).thenReturn(true);
-        when(refundRepository.findByClaimId(CLAIM_ID)).thenReturn(java.util.List.of(existing));
+        Claim claim = claim(ClaimStatus.APPROVED);
+        when(claimRepository.findById(CLAIM_ID)).thenReturn(Optional.of(claim));
+        when(refundRepository.findByClaimIdAndStatusInForUpdate(org.mockito.ArgumentMatchers.eq(CLAIM_ID), any())).thenReturn(java.util.List.of(existing));
 
         Refund result = refundService.initiate(CLAIM_ID, REFUND_AMOUNT);
 
         assertThat(result).isSameAs(existing);
         verify(refundRepository, never()).save(any());
-        verify(claimRepository, never()).findById(any());
+        verify(entityManager).refresh(claim, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE); // 게이트 전 행 락
     }
 
     @Test
@@ -187,6 +192,7 @@ class RefundServiceTest {
         Refund refund = pendingRefund();
         ReflectionTestUtils.setField(refund, "status", RefundStatus.COMPLETED);
         when(refundRepository.findByPgRefundId(PG_REFUND_ID)).thenReturn(Optional.of(refund));
+        when(claimRepository.findById(CLAIM_ID)).thenReturn(Optional.of(claim(ClaimStatus.APPROVED))); // D-172 보충: Claim → Refund 락 순서
 
         assertThatThrownBy(() -> refundService.markCompleted(PG_REFUND_ID))
                 .isInstanceOf(RefundIdempotentNoOpException.class);
@@ -198,6 +204,7 @@ class RefundServiceTest {
     void markCompleted_payOnePostCheckExceeded_blocked() {
         Refund refund = pendingRefund();
         when(refundRepository.findByPgRefundId(PG_REFUND_ID)).thenReturn(Optional.of(refund));
+        when(claimRepository.findById(CLAIM_ID)).thenReturn(Optional.of(claim(ClaimStatus.APPROVED))); // D-172 보충: Claim → Refund 락 순서
         when(paymentRepository.findByIdForUpdate(PAYMENT_ID)).thenReturn(Optional.of(paidPayment(PAYMENT_AMOUNT)));
         when(refundRepository.sumCompletedByPaymentId(PAYMENT_ID)).thenReturn(5_000L); // 5000 + 6000 > 10000
 
@@ -211,6 +218,7 @@ class RefundServiceTest {
     void markCompleted_refundedAt_systemClock() {
         Refund refund = pendingRefund();
         when(refundRepository.findByPgRefundId(PG_REFUND_ID)).thenReturn(Optional.of(refund));
+        when(claimRepository.findById(CLAIM_ID)).thenReturn(Optional.of(claim(ClaimStatus.APPROVED))); // D-172 보충: Claim → Refund 락 순서
         when(paymentRepository.findByIdForUpdate(PAYMENT_ID)).thenReturn(Optional.of(paidPayment(PAYMENT_AMOUNT)));
         when(refundRepository.sumCompletedByPaymentId(PAYMENT_ID)).thenReturn(0L);
         when(refundRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
@@ -228,6 +236,7 @@ class RefundServiceTest {
     void markCompleted_success_completesAndPublishes() {
         Refund refund = pendingRefund();
         when(refundRepository.findByPgRefundId(PG_REFUND_ID)).thenReturn(Optional.of(refund));
+        when(claimRepository.findById(CLAIM_ID)).thenReturn(Optional.of(claim(ClaimStatus.APPROVED))); // D-172 보충: Claim → Refund 락 순서
         when(paymentRepository.findByIdForUpdate(PAYMENT_ID)).thenReturn(Optional.of(paidPayment(PAYMENT_AMOUNT)));
         when(refundRepository.sumCompletedByPaymentId(PAYMENT_ID)).thenReturn(0L);
         when(refundRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));

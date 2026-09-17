@@ -2,6 +2,7 @@ package com.zslab.mall.order.handler;
 
 import com.zslab.mall.delivery.entity.Delivery;
 import com.zslab.mall.delivery.event.DeliveryCompleted;
+import com.zslab.mall.delivery.enums.DeliveryDirection;
 import com.zslab.mall.delivery.repository.DeliveryRepository;
 import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.enums.OrderItemStatus;
@@ -38,6 +39,11 @@ public class DeliveryCompletedHandler {
 
     @EventListener
     public void onDeliveryCompleted(DeliveryCompleted event) {
+        if (event.direction() != DeliveryDirection.OUTBOUND) {
+            // 반품 회수(RETURN) Delivery는 발송이 아니다(Track 81-A D-170) — 품목·알림·환불 소비처 비대상
+            log.info("[Delivery] DeliveryCompleted direction={} → 배송완료 소비처 비대상·건너뜀: deliveryId={}", event.direction(), event.deliveryId());
+            return;
+        }
         // D-98 Q5·교환 배송은 claim/handler/ExchangeDeliveryCompletedHandler가 종결 처리·본 핸들러 미전이
         Delivery delivery = deliveryRepository.findById(event.deliveryId()).orElse(null);
         if (delivery != null && delivery.getClaimId() != null) {

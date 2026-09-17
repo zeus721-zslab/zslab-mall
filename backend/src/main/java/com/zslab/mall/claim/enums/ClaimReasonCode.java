@@ -29,5 +29,16 @@ public enum ClaimReasonCode {
     /** 배송 지연. */
     DELIVERY_DELAY,
     /** 기타. */
-    OTHER
+    OTHER;
+
+    /**
+     * 해당 클레임 유형의 요청 사유로 쓸 수 있는지 판정한다(Track 81-A D-170·R2). RETURN은 단순변심·상품불량·오배송 3값만 허용하며
+     * CANCEL·EXCHANGE는 제한이 없다(기존 동작 보존).
+     */
+    public boolean isApplicableTo(ClaimType claimType) {
+        if (claimType != ClaimType.RETURN) {
+            return true;
+        }
+        return this == BUYER_CHANGED_MIND || this == PRODUCT_DEFECT || this == WRONG_PRODUCT;
+    }
 }

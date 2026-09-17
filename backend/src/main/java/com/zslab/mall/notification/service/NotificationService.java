@@ -4,6 +4,7 @@ import com.zslab.mall.claim.entity.Claim;
 import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.event.ClaimApproved;
 import com.zslab.mall.claim.event.ClaimCompleted;
+import com.zslab.mall.claim.event.ClaimInspectionPassed;
 import com.zslab.mall.claim.event.ClaimPickedUp;
 import com.zslab.mall.claim.event.ClaimRejected;
 import com.zslab.mall.claim.event.ClaimRequested;
@@ -121,6 +122,15 @@ public class NotificationService {
                     + " 요청이 승인되었습니다.";
             save(recipientUserId, NotificationTemplateCodes.CLAIM_APPROVED,
                     PolymorphicTargetType.CLAIM, event.claimId(), "클레임 승인", content, "ClaimApproved");
+            if (event.claimType() == ClaimType.RETURN) {
+                // Track 81-A D-170·R8: 반품 승인은 구매자가 회수 송장을 등록해야 하므로 SMS로 안내한다(취소 승인은 즉시 환불이라 완료 SMS로 갈음).
+                ClaimSmsContext sms = resolveClaimSmsContext(event.claimId(), "ClaimApproved");
+                if (sms != null) {
+                    saveSms(sms, NotificationTemplateCodes.CLAIM_APPROVED, event.claimId(), "반품 승인",
+                            "[zslab-mall] 주문 " + sms.orderNo() + " " + sms.productName()
+                                    + " 반품 요청이 승인되었습니다. 상품을 보내신 뒤 회수 송장번호를 등록해 주세요.", "ClaimApproved");
+                }
+            }
         } catch (RuntimeException exception) {
             // 재조회·적재 실패는 원 흐름(클레임 승인)을 막지 않는다(A2-α·재throw 금지).
             log.warn("[Notification] ClaimApproved 적재 실패 → 건너뜀: claimId={}", event.claimId(), exception);
@@ -141,13 +151,14 @@ public class NotificationService {
                     + " 요청이 완료되었습니다.";
             save(recipientUserId, NotificationTemplateCodes.CLAIM_COMPLETED,
                     PolymorphicTargetType.CLAIM, event.claimId(), "클레임 완료", content, "ClaimCompleted");
-            if (event.claimType() == ClaimType.CANCEL) {
-                // Track 80 D-169: 취소 완료(=환불 완료)는 구매자 SMS 병행. 반품·교환 완료 SMS는 Track 81·82 소관.
+            if (event.claimType() == ClaimType.CANCEL || event.claimType() == ClaimType.RETURN) {
+                // Track 80 D-169·Track 81-A D-170: 취소·반품 완료(=환불 완료)는 구매자 SMS 병행. 교환 완료 SMS는 Track 82 소관.
                 ClaimSmsContext sms = resolveClaimSmsContext(event.claimId(), "ClaimCompleted");
                 if (sms != null) {
-                    saveSms(sms, NotificationTemplateCodes.CLAIM_COMPLETED, event.claimId(), "취소 완료",
+                    String typeLabel = claimTypeLabel(event.claimType());
+                    saveSms(sms, NotificationTemplateCodes.CLAIM_COMPLETED, event.claimId(), typeLabel + " 완료",
                             "[zslab-mall] 주문 " + sms.orderNo() + " " + sms.productName()
-                                    + " 취소 및 환불이 완료되었습니다.", "ClaimCompleted");
+                                    + " " + typeLabel + " 및 환불이 완료되었습니다.", "ClaimCompleted");
                 }
             }
         } catch (RuntimeException exception) {
@@ -210,10 +221,10 @@ public class NotificationService {
     }
 
     /**
-     * D-98 Q2: RETURN 수거 확인 후 환불 자동 트리거({@code ClaimPickedUpHandler}) 실패 시 운영 알림을 적재한다.
-     * {@code ClaimApproved} 경로와 동일한 환불 실패 적재 패턴(D-96 Q3)을 {@link ClaimPickedUp}에 1:1 재사용한다.
+     * Track 81-A D-170: RETURN 검수 합격 후 환불 자동 트리거({@code ClaimInspectionPassedHandler}) 실패 시 운영 알림을 적재한다
+     * (구 수거 확인 시점 트리거 D-98 Q2를 대체·D-96 Q3 패턴 1:1).
      */
-    public void recordRefundFailed(ClaimPickedUp event) {
+    public void recordRefundFailed(ClaimInspectionPassed event) {
         recordRefundFailed(event.claimId(), event.claimPublicId());
     }
 

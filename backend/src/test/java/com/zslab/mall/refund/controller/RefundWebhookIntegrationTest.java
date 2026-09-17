@@ -51,6 +51,7 @@ class RefundWebhookIntegrationTest extends AbstractIntegrationTest {
     private static final long ORDER_ITEM_ID = 9001L;
     private static final long PAYMENT_ID = 9001L;
     private static final long CLAIM_ID = 9001L;
+    private static final long VARIANT_ID = 9001L;
     private static final long FULL_AMOUNT = 10_000L;
 
     @Autowired
@@ -174,8 +175,12 @@ class RefundWebhookIntegrationTest extends AbstractIntegrationTest {
                 jdbc.update("INSERT INTO order_item "
                         + "(id, public_id, order_id, product_id, variant_id, seller_id, quantity, unit_price, total_price, "
                         + "item_status, created_at, updated_at, product_name) "
-                        + "VALUES (?, 'oit_track5_it_0001', ?, 1, 1, 1, 1, ?, ?, 'PAID', NOW(6), NOW(6), '테스트 상품')",
-                        ORDER_ITEM_ID, ORDER_ID, paymentAmount, paymentAmount);
+                        + "VALUES (?, 'oit_track5_it_0001', ?, 1, ?, 1, 1, ?, ?, 'PAID', NOW(6), NOW(6), '테스트 상품')",
+                        ORDER_ITEM_ID, ORDER_ID, VARIANT_ID, paymentAmount, paymentAmount);
+        // D-172: 재고 복구 핸들러가 동기·예외 전파로 바뀌어 종결 경로에 inventory 행이 필요하다(부재 시 InventoryInvariantViolation → 롤백)
+        jdbc.update("INSERT INTO inventory (id, variant_id, quantity_on_hand, quantity_reserved, quantity_available, created_at, updated_at) "
+                        + "VALUES (?, ?, 10, 0, 10, NOW(6), NOW(6))", VARIANT_ID, VARIANT_ID);
+
                 jdbc.update("INSERT INTO payment "
                         + "(id, public_id, order_id, method, amount, status, pg_provider, pg_tid, payment_attempt_key, "
                         + "paid_at, created_at, updated_at) "
@@ -200,6 +205,8 @@ class RefundWebhookIntegrationTest extends AbstractIntegrationTest {
                 jdbc.update("DELETE FROM claim WHERE id = ?", CLAIM_ID);
                 jdbc.update("DELETE FROM payment WHERE id = ?", PAYMENT_ID);
                 jdbc.update("DELETE FROM order_item WHERE id = ?", ORDER_ITEM_ID);
+                jdbc.update("DELETE FROM inventory_history WHERE inventory_id = ?", VARIANT_ID);
+                jdbc.update("DELETE FROM inventory WHERE id = ?", VARIANT_ID);
             } finally {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
             }

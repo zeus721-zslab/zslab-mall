@@ -2,6 +2,8 @@ package com.zslab.mall.order.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.zslab.mall.attachment.entity.Attachment;
+import com.zslab.mall.attachment.repository.AttachmentRepository;
 import com.zslab.mall.audit.entity.AuditLog;
 import com.zslab.mall.audit.repository.AuditLogRepository;
 import com.zslab.mall.claim.entity.Claim;
@@ -10,6 +12,7 @@ import com.zslab.mall.claim.repository.ClaimRepository;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
 import com.zslab.mall.common.exception.MalformedRequestException;
 import com.zslab.mall.delivery.entity.Delivery;
+import com.zslab.mall.delivery.enums.DeliveryDirection;
 import com.zslab.mall.delivery.enums.DeliveryStatus;
 import com.zslab.mall.delivery.repository.DeliveryRepository;
 import com.zslab.mall.order.controller.request.AdminOrderSort;
@@ -83,6 +86,7 @@ public class AdminOrderQueryService {
     private final SellerRepository sellerRepository;
     private final AuditLogRepository auditLogRepository;
     private final RefundRepository refundRepository;
+    private final AttachmentRepository attachmentRepository;
     private final ObjectMapper objectMapper;
 
     /**
@@ -135,6 +139,17 @@ public class AdminOrderQueryService {
         Map<Long, RefundStatus> refundStatusByClaimId = claimIds.isEmpty() ? Map.of()
                 : refundRepository.findByClaimIdInOrderByIdDesc(claimIds).stream()
                         .collect(Collectors.toMap(Refund::getClaimId, Refund::getStatus, (latest, older) -> latest));
+        // Track 81-A D-170: 클레임별 회수(RETURN) Delivery 1쿼리 배치(상세 전용·목록 예산 무영향)
+        Map<Long, Delivery> returnDeliveryByClaimId = claimIds.isEmpty() ? Map.of()
+                : deliveryRepository.findByClaimIdInOrderByIdDesc(claimIds).stream()
+                        .filter(delivery -> delivery.getDirection() == DeliveryDirection.RETURN)
+                        .collect(Collectors.toMap(Delivery::getClaimId, Function.identity(), (latest, older) -> latest));
+        // Track 81-B D-171: 클레임별 반품 사진 URL 1쿼리 배치(상세 전용·순서 보존)
+        Map<Long, List<String>> attachmentUrlsByClaimId = claimIds.isEmpty() ? Map.of()
+                : attachmentRepository.findByTargetTypeAndTargetIdInOrderByTargetIdAscDisplayOrderAsc(
+                        PolymorphicTargetType.CLAIM, claimIds).stream()
+                        .collect(Collectors.groupingBy(Attachment::getTargetId,
+                                Collectors.mapping(Attachment::getFilePath, Collectors.toList())));
 
         List<AdminOrderDetailResponse.Item> items = order.getItems().stream()
                 .map(item -> new AdminOrderDetailResponse.Item(
@@ -143,7 +158,9 @@ public class AdminOrderQueryService {
                         sellerName(enrichment.sellerById.get(item.getSellerId())),
                         toDeliveryRow(enrichment.latestDeliveryByItemId.get(item.getId())),
                         enrichment.claimsByItemId.getOrDefault(item.getId(), List.of()).stream()
-                                .map(claim -> toClaimRow(claim, refundStatusByClaimId.get(claim.getId()))).toList()))
+                                .map(claim -> toClaimRow(claim, refundStatusByClaimId.get(claim.getId()),
+                                        returnDeliveryByClaimId.get(claim.getId()),
+                                        attachmentUrlsByClaimId.getOrDefault(claim.getId(), List.of()))).toList()))
                 .toList();
         List<AdminOrderDetailResponse.PaymentRow> payments = enrichment.paymentsByOrderId
                 .getOrDefault(order.getId(), List.of()).stream()
@@ -175,7 +192,9 @@ public class AdminOrderQueryService {
 
         Map<Long, List<Payment>> paymentsByOrderId = paymentRepository.findByOrderIdInOrderByIdDesc(orderIds).stream()
                 .collect(Collectors.groupingBy(Payment::getOrderId));
-        Map<Long, Delivery> latestDeliveryByItemId = deliveryRepository.findByOrderItemIdInOrderByIdDesc(itemIds).stream()
+        // Track 81-A: 품목 배송 상태는 발송(OUTBOUND) Delivery만 — 반품 회수(RETURN) Delivery는 클레임 행에서 따로 보인다
+        Map<Long, Delivery> latestDeliveryByItemId = deliveryRepository
+                .findByOrderItemIdInAndDirectionOrderByIdDesc(itemIds, DeliveryDirection.OUTBOUND).stream()
                 .collect(Collectors.toMap(Delivery::getOrderItemId, Function.identity(), (latest, older) -> latest));
         Map<Long, List<Claim>> claimsByItemId = claimRepository.findByOrderItemIdInOrderByIdDesc(itemIds).stream()
                 .collect(Collectors.groupingBy(Claim::getOrderItemId));
@@ -302,12 +321,19 @@ public class AdminOrderQueryService {
                 delivery.getTrackingNo(), delivery.getStatus().name(), delivery.getShippedAt(), delivery.getDeliveredAt());
     }
 
-    private AdminOrderDetailResponse.ClaimRow toClaimRow(Claim claim, RefundStatus refundStatus) {
+    private AdminOrderDetailResponse.ClaimRow toClaimRow(Claim claim, RefundStatus refundStatus, Delivery returnDelivery,
+            List<String> attachmentUrls) {
         return new AdminOrderDetailResponse.ClaimRow(claim.getPublicId(), claim.getType().name(), claim.getStatus().name(),
                 claim.getReasonCode(), claim.getReasonDetail(), claim.getRequestedBy(), claim.getRequestedAt(),
                 claim.getProcessedAt(), claim.getStatus() == ClaimStatus.REQUESTED,
                 claim.getRejectReasonCode() == null ? null : claim.getRejectReasonCode().name(), claim.getRejectMemo(),
-                refundStatus == null ? null : refundStatus.name());
+                refundStatus == null ? null : refundStatus.name(),
+                returnDelivery == null ? null : returnDelivery.getCarrier().name(),
+                returnDelivery == null ? null : returnDelivery.getTrackingNo(),
+                claim.getPickedUpAt(),
+                claim.getInspectionResult() == null ? null : claim.getInspectionResult().name(),
+                claim.getRestock(),
+                attachmentUrls);
     }
 
     /** 미결제 관리자 취소 audit(ORDER·UPDATE·diff에 reasonCode 포함)만 취소 사유로 해석한다. 파싱 실패는 warn 후 제외. */

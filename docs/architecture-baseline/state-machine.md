@@ -53,12 +53,19 @@ REQUESTED ──→ APPROVED ──→ COMPLETED
 | Claim.type | COMPLETED 조건 |
 |---|---|
 | CANCEL | Refund.status = COMPLETED |
-| RETURN | 수거 확인 + Refund.status = COMPLETED |
+| RETURN | 회수 송장(구매자) → 회수 확인 → 검수 PASS + Refund.status = COMPLETED (Track 81-A D-170) |
 | EXCHANGE | 수거 확인 + 교환품 배송 완료 (별도 Delivery 생성) + (차액 발생 시) Refund.status = COMPLETED (D-115) |
 
 **REJECTED 처리 정책**: 기존 Claim은 REJECTED 상태로 보존 (이력 추적). 재요청 시 새 Claim 행 생성.
 
-> **거부 사유(Track 80 D-169)**: REQUESTED → REJECTED 전이는 거부 사유 코드 필수·메모 선택이다(`claim.reject_reason_code` CHECK·`reject_memo` ≤500·V23·`ClaimRejectReasonCode` ALREADY_SHIPPED|OUT_OF_POLICY|BUYER_WITHDRAWN|OTHER). ALREADY_SHIPPED는 CANCEL 전용(도메인 검증 400). 거부 시 품목은 `previous_order_item_status` 스냅샷으로 원복(§3·기존 ClaimRejectedHandler 무변경). 거부·요청 접수·CANCEL 완료 시점에 구매자 SMS(NotificationLog channel=SMS·AFTER_COMMIT·발송 실패는 전이를 롤백하지 않음).
+> **거부 사유(Track 80 D-169)**: REQUESTED → REJECTED 전이는 거부 사유 코드 필수·메모 선택이다(`claim.reject_reason_code` CHECK·`reject_memo` ≤500·V23·`ClaimRejectReasonCode` ALREADY_SHIPPED|OUT_OF_POLICY|BUYER_WITHDRAWN|OTHER|INSPECTION_FAILED(V24)). ALREADY_SHIPPED는 CANCEL 전용·INSPECTION_FAILED는 RETURN 검수 전용(도메인 검증 400). 거부 시 품목은 `previous_order_item_status` 스냅샷으로 원복(§3·기존 ClaimRejectedHandler 무변경). 거부·요청 접수·CANCEL/RETURN 완료·RETURN 승인 시점에 구매자 SMS(NotificationLog channel=SMS·AFTER_COMMIT·발송 실패는 전이를 롤백하지 않음).
+>
+> **반품 단계(Track 81-A D-170·상태 4값 유지·milestone 컬럼)**:
+> - 요청 조건: 품목 DELIVERED + 사유 `ClaimReasonCode.isApplicableTo(RETURN)`(BUYER_CHANGED_MIND·PRODUCT_DEFECT·WRONG_PRODUCT) + 원 주문 발송(OUTBOUND·claim_id NULL) Delivery `delivered_at` + 7일 이내(`ReturnWindowPolicy`·위반 422 CLAIM_STATE_INVALID). 배송완료 시각 SoT는 delivery(order_item 컬럼 신설 기각). CONFIRMED는 종결이라 요청 불가(기존). 사진 첨부(Track 81-B D-171): RETURN + PRODUCT_DEFECT|WRONG_PRODUCT에서만 `attachmentIds`(att_·최대 5·요청자 업로드·미연결) 허용, 그 외 400.
+> - 회수 송장: 구매자 `POST /api/v1/claims/{id}/return-shipment`(APPROVED·회수 전·본인) → `delivery`(direction=RETURN·claim_id·SHIPPING). `DeliveryStarted`는 direction=RETURN·claimId로 발행되며 발송 소비처(품목 SHIPPING 전이·배송 알림·교환 차액)는 OUTBOUND·claim_id NULL만 처리한다.
+> - 회수 확인: 셀러/관리자 `confirm-pickup` = `Claim.pickedUpAt` + 회수 Delivery DELIVERED(부재 422). **환불은 발생하지 않는다**(구 ClaimPickedUpHandler 제거).
+> - 검수: `inspect`{PASS, restock} → `inspected_at`·`inspection_result=PASS`·`restock` 저장 → `ClaimInspectionPassed` → `RefundService.initiate(totalPrice)` → Refund.COMPLETED(Mock 자동) → Claim.COMPLETED → 품목 RETURNED → 재고는 `restock=true`일 때만 `restoreStock(RETURN)`(false는 재고·history 불변). `inspect`{FAIL, rejectReasonCode, memo, reshipCarrier, reshipTrackingNo} → **APPROVED → REJECTED**(아래 예외) + 재발송 Delivery(OUTBOUND·claim_id) + `ClaimRejected`(품목 DELIVERED 원복·거부 SMS). 동시 검수는 `refresh(PESSIMISTIC_WRITE)`로 직렬화(늦은 쪽 422). **failInspection 봉인(D-172)**: APPROVED → REJECTED 예외 전이는 엔티티가 "RETURN·APPROVED·회수 확인 완료·미검수·사유 INSPECTION_FAILED 고정"을 전부 검증할 때만 열린다(사유가 다르면 400·상태 위반은 422·일반 사유로 우회 불가).
+> - **예외 전이 APPROVED → REJECTED**: `ClaimStatus.canTransitionTo` 매트릭스는 무변경(false 유지)이며 `Claim.failInspection`(RETURN·회수됨·미검수)만 상태를 직접 REJECTED로 둔다. 일반 `reject`는 여전히 REQUESTED 한정.
 
 ---
 
@@ -84,7 +91,7 @@ ORDERED → PAID → PREPARING → SHIPPING → DELIVERED → CONFIRMED
 | PREPARING | 준비중 | 판매자 출고 준비 시작 |
 | SHIPPING | 배송중 | Delivery 등록 + SHIPPING |
 | DELIVERED | 배송완료 | Delivery 상태 DELIVERED |
-| CONFIRMED | 구매확정 | 구매자 확정 또는 자동 확정 |
+| CONFIRMED | 구매확정 | 구매자 확정 또는 자동 확정(Track 81-B D-171: 원 주문 발송 `delivered_at`+7일 경과·DELIVERED·활성 클레임 없음 — `OrderAutoConfirmScheduler` 1시간 주기·`zslab.order.auto-confirm.enabled` 킬스위치·품목 행 락 후 3중 재확인·수동 확정과 같은 코어 `BuyerOrderConfirmService.confirmItem`) |
 | CANCEL_REQUESTED | 취소요청 | Claim(CANCEL).REQUESTED |
 | CANCELLED | 취소완료 | Claim(CANCEL).COMPLETED만. [정정 Track 79 D-168] 미결제 종료는 OrderItem 무변경(ORDERED 유지)·Order.PAYMENT_EXPIRED(§11)이며 `ORDERED → CANCELLED` 전이는 코드에 없다 |
 | RETURN_REQUESTED | 반품요청 | Claim(RETURN).REQUESTED |
@@ -184,10 +191,12 @@ Order.status는 OrderItem 집계 캐시이므로, OrderItem 상태가 변경될 
 ## 6. 외부 이연
 
 - **Delivery 상태 전이** → §6.1로 정의 완료 (Track 13·D-97·이연 해소)
-- **자동 구매확정 타이머** (배송 후 N일 → CONFIRMED) → 구현 단계
+- **자동 구매확정 타이머** (배송 후 N일 → CONFIRMED) → 구현 완료(Track 81-B D-171·§3 CONFIRMED 행·`ReturnWindowPolicy` 7일)
 - **재고 복구 시점** (CANCELLED/RETURNED 후) → PR-02 inventory-policy.md
 
 ### 6.1 Delivery.status (B분류 — DELIVERY_STATUS·Track 13 D-97)
+
+> **Delivery.direction(Track 81-A D-170·V24)**: OUTBOUND(구매자 발송·기본·기존 행 백필) | RETURN(반품 회수). `claim_id`는 교환품 발송·반품 회수·검수 불합격 재발송에 연결된다(방향별 최대 1건). 관리자 주문 목록/상세의 품목 배송은 OUTBOUND만 집계하며(재발송이 최신 발송이 됨) 회수는 클레임 행에서 보인다.
 
 > 소스: decisions.md D-97 [확정 2026-06-30]·DLV-1~3(invariants.md §2.12)·domain-events.md E4·E5·A#12.
 > Track 13에서 본래 §6 이연("Delivery 상태 전이 → 각 도메인 별도 정의")을 영구 해소한다.
@@ -279,13 +288,19 @@ PENDING ──→ COMPLETED (불가역)
 | Claim.type | 연동 순서 |
 |---|---|
 | CANCEL | Refund.COMPLETED → Claim.COMPLETED |
-| RETURN | 수거 확인 → Refund.COMPLETED → Claim.COMPLETED |
+| RETURN | 회수 송장 → 회수 확인 → 검수 PASS(`ClaimInspectionPassed`) → Refund.COMPLETED → Claim.COMPLETED (Track 81-A·환불 트리거는 검수 PASS) |
 | EXCHANGE | (차액 발생 시) 교환 출고 시 Refund 생성 → 교환 배송 완료 + Refund.COMPLETED 수렴 → Claim.COMPLETED (D-115) |
 
 **Payment 연동 (D-05 정합)**: Refund.COMPLETED 후 Payment.status는 환불 누적 금액에 따라 CANCELLED 전이 가능 (PAY-1 invariant·Domain 검증).
 
 **전이 권한**: 자동 (PG 콜백 핸들러). 운영자 수동 보정 권한 없음 — 후속 트랙(D안 RefundAdjustment) 검토 사항.
 
+> **클레임 파이프라인 동기/커밋 후 구분(D-172·외부 검토 A)**: DB 전이·재고만 다루는 후속 처리는 발행 TX에서 **동기(`@EventListener`)** 소비하고 예외를 전파한다 — `ClaimCompletedHandler`(품목 종결)·`ClaimRejectedHandler`(스냅샷 원복)·`ClaimRefundCompletedHandler`(Refund COMPLETED → Claim COMPLETED)·`InventoryClaimCompletedHandler`(재고 복구·`restock=false` skip)·`ExchangeDeliveryCompletedHandler`. 따라서 환불 콜백 1 TX = Refund COMPLETED + Claim COMPLETED + 품목 종결 + 재고 복구이며 실패 시 422로 응답해 PG가 재전송한다. 검수 FAIL은 `inspect` TX 안에서 재발송 Delivery·품목 원복까지 함께 롤백된다. **커밋 후(AFTER_COMMIT·REQUIRES_NEW) 유지**: PG 호출을 포함하는 환불 initiate 핸들러 3종(`ClaimApprovedHandler`·`ClaimInspectionPassedHandler`·`ExchangeShipmentRefundHandler`)·`MockRefundAutoCallbackListener`·알림 핸들러. `PaymentRefundCompletedHandler`(Payment CANCELLED·DB만)는 D-172 보충에서 동기로 정정 — 환불 콜백 1 TX에 Payment 취소까지 포함되며 전이 불가(비PAID)는 422 `PAYMENT_INVALID_STATE`로 콜백 롤백. 환불 initiate는 클레임 행 락 + 활성 환불 **잠금 읽기** 게이트(REPEATABLE READ 스냅샷 트랩 회피)로, 콜백은 환불 행 락 + 종결 재확인으로 멱등이다.
+>
+> **환불 경로 행 락 순서 규칙(D-172 보충·외부 검토 2차·단일 명시)**: `Claim → Refund → Payment → OrderItem/Order → Inventory`. initiate(`RefundService.initiate`)는 Claim `refresh(PESSIMISTIC_WRITE)` → Refund `FOR UPDATE`(claim_id) 게이트 순, 콜백(`handleCallback`/`markCompleted`)은 비잠금 환불 조회로 claimId를 얻은 뒤 `lockClaimThenRefund`(Claim → Refund) → Payment `FOR UPDATE` → 동기 체인(품목·주문·재고·Payment CANCELLED) 순으로 잡는다. 콜백이 Refund를 먼저 잡던 구 순서는 Claim을 먼저 잡는 initiate(복구 스케줄러·자동 핸들러)와 교착했다(실측). 환불 외 경로(결제 콜백·만료·클레임 요청·자동 확정·검수)는 Claim 행 X 락을 선점하지 않거나 Inventory를 마지막에 잡아 교차 교착이 없다. 환불 경로에 새 락을 추가할 때는 이 순서를 지킨다.
+>
+> **환불 복구 스케줄러(D-172)**: `RefundRecoveryScheduler`(`zslab.refund.recovery.enabled`·10분·배치 100·id별 격리) — CANCEL 승인 또는 RETURN 검수 PASS 후 5분이 지나도 Refund 행이 없는 클레임에 initiate(FAILED 보유 클레임은 관리자 재시도 경로라 제외). `MockRefundPendingRecoveryScheduler`(Mock PG 한정) — 생성 후 5분 경과한 PENDING(pg_refund_id 보유)에 SUCCESS 콜백 재발생.
+>
 > **Mock PG 자동 완료(Track 80 D-169·C4·Mock 한정)**: `MockPaymentGateway.refund`가 `MockRefundAccepted(pgRefundId)`를 발행하고, `MockRefundAutoCallbackListener`(`@ConditionalOnBean(MockPaymentGateway)`·AFTER_COMMIT·REQUIRES_NEW)가 initiate 커밋 후 `RefundService.handleCallback(SUCCESS)`를 호출해 PENDING → COMPLETED를 서버 내부에서 발생시킨다. 이후 체인(RefundCompleted → Claim COMPLETED → 품목 CANCELLED·재고 복구)은 기존과 동일하며 요청 스레드에서 동기 수렴한다(승인 응답 재조회 시 이미 COMPLETED). 중복 콜백은 RFN-3 멱등·콜백 실패는 PENDING 유지 + error 로그(운영자 initiate·웹훅 재시도 경로 보존). 실 PG 어댑터 도입 시 Mock 클래스 3종(게이트웨이·이벤트·리스너)을 함께 제거한다 — 프로필·프로퍼티 게이트 없음(demo 프로필 부재·운영도 Mock PG 사용).
 
 ---

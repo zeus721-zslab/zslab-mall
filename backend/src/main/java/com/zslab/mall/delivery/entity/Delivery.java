@@ -2,6 +2,7 @@ package com.zslab.mall.delivery.entity;
 
 import com.zslab.mall.common.entity.AbstractPublicIdFullAuditableEntity;
 import com.zslab.mall.delivery.enums.DeliveryCarrier;
+import com.zslab.mall.delivery.enums.DeliveryDirection;
 import com.zslab.mall.delivery.enums.DeliveryStatus;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -39,6 +40,11 @@ public class Delivery extends AbstractPublicIdFullAuditableEntity {
     @Column(name = "order_item_id", nullable = false, updatable = false)
     private Long orderItemId;
 
+    /** 배송 방향(Track 81-A D-170). OUTBOUND=발송(기본)·RETURN=반품 회수. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "direction", nullable = false, updatable = false)
+    private DeliveryDirection direction;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "carrier", nullable = false)
     private DeliveryCarrier carrier;
@@ -58,7 +64,7 @@ public class Delivery extends AbstractPublicIdFullAuditableEntity {
     private LocalDateTime deliveredAt;
 
     /**
-     * 교환품 Delivery 참조 (D-98 Q13). 일반 주문 Delivery는 NULL, EXCHANGE 교환품 Delivery는 NOT NULL.
+     * 클레임 Delivery 참조 (D-98 Q13·D-170 확장). 일반 주문 Delivery는 NULL, 교환품 발송·반품 회수(RETURN)·검수 불합격 재발송은 NOT NULL.
      * Aggregate 외부 ID 참조(D-01) — JPA 연관(@ManyToOne) 미사용.
      */
     @Column(name = "claim_id")
@@ -73,12 +79,22 @@ public class Delivery extends AbstractPublicIdFullAuditableEntity {
      * @throws IllegalArgumentException 필수값 누락 시
      */
     public static Delivery create(Long orderItemId, DeliveryCarrier carrier) {
-        if (orderItemId == null || carrier == null) {
-            throw new IllegalArgumentException("Delivery 필수값 누락(orderItemId·carrier).");
+        return create(orderItemId, carrier, DeliveryDirection.OUTBOUND);
+    }
+
+    /**
+     * 방향을 지정해 생성한다(Track 81-A). 반품 회수는 {@link DeliveryDirection#RETURN}.
+     *
+     * @throws IllegalArgumentException 필수값 누락 시
+     */
+    public static Delivery create(Long orderItemId, DeliveryCarrier carrier, DeliveryDirection direction) {
+        if (orderItemId == null || carrier == null || direction == null) {
+            throw new IllegalArgumentException("Delivery 필수값 누락(orderItemId·carrier·direction).");
         }
         Delivery delivery = new Delivery();
         delivery.orderItemId = orderItemId;
         delivery.carrier = carrier;
+        delivery.direction = direction;
         delivery.status = DeliveryStatus.READY;
         return delivery;
     }
@@ -90,8 +106,17 @@ public class Delivery extends AbstractPublicIdFullAuditableEntity {
      * @throws IllegalArgumentException claimId가 null인 경우
      */
     public void attachExchangeClaim(Long claimId) {
+        attachClaim(claimId);
+    }
+
+    /**
+     * 클레임 연결(Track 81-A D-170·반품 회수·검수 불합격 재발송). 단순 setter이며 클레임 유형·품목 불변식 검증은 호출처 책임이다.
+     *
+     * @throws IllegalArgumentException claimId가 null인 경우
+     */
+    public void attachClaim(Long claimId) {
         if (claimId == null) {
-            throw new IllegalArgumentException("attachExchangeClaim: claimId는 필수입니다.");
+            throw new IllegalArgumentException("attachClaim: claimId는 필수입니다.");
         }
         this.claimId = claimId;
     }

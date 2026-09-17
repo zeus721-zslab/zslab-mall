@@ -1,6 +1,7 @@
 package com.zslab.mall.order.handler;
 
 import com.zslab.mall.delivery.event.DeliveryStarted;
+import com.zslab.mall.delivery.enums.DeliveryDirection;
 import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.repository.OrderItemRepository;
@@ -34,6 +35,16 @@ public class DeliveryStartedHandler {
 
     @EventListener
     public void onDeliveryStarted(DeliveryStarted event) {
+        if (event.direction() != DeliveryDirection.OUTBOUND) {
+            // 반품 회수(RETURN) Delivery는 발송이 아니다(Track 81-A D-170) — 품목·알림·환불 소비처 비대상
+            log.info("[Delivery] DeliveryStarted direction={} → 발송 소비처 비대상·건너뜀: deliveryId={}", event.direction(), event.deliveryId());
+            return;
+        }
+        if (event.claimId() != null) {
+            // 클레임 연결 발송(교환품·검수 불합격 재발송·Track 81-A)은 품목 상태를 바꾸지 않는다 — RETURN_REQUESTED→SHIPPING(스냅샷 원복용 합법 전이) 오염 방지
+            log.info("[Delivery] DeliveryStarted claim_id={} → 품목 전이 비대상·건너뜀: deliveryId={}", event.claimId(), event.deliveryId());
+            return;
+        }
         OrderItem orderItem = orderItemRepository.findById(event.orderItemId()).orElse(null);
         if (orderItem == null) {
             log.warn("[Delivery] DeliveryStarted 소비·주문 품목 미발견: orderItemId={}", event.orderItemId());

@@ -1,5 +1,13 @@
 import type { PagedResponse } from '~/types/order'
-import type { ClaimDetail, ClaimRequestBody, ClaimResponse, ClaimSummary } from '~/types/claim'
+import type {
+  ClaimAttachmentUploadResponse,
+  ClaimDetail,
+  ClaimRequestBody,
+  ClaimResponse,
+  ClaimShipment,
+  ClaimSummary,
+  ReturnShipmentBody,
+} from '~/types/claim'
 
 /** 목록 기본 페이지 크기(BE BuyerClaimController list 기본 size=20 정합). */
 const DEFAULT_PAGE_SIZE = 20
@@ -72,5 +80,30 @@ export function useClaim() {
     return { claimPublicId }
   }
 
-  return { requestClaim }
+  /**
+   * 반품 사진 업로드(POST /api/v1/claims/attachments·multipart files[]·FE-29). 항상 200·파일별 결과(부분 실패)이며 5장 초과·files 누락 400,
+   * 413(용량)은 throw해 호출부가 처리한다. 브라우저 전용(File 객체).
+   */
+  function uploadAttachments(files: File[]): Promise<ClaimAttachmentUploadResponse> {
+    const formData = new FormData()
+    for (const file of files) formData.append('files', file)
+    return $fetch<ClaimAttachmentUploadResponse>('/v1/claims/attachments', {
+      baseURL: config.public.apiBase || '/api',
+      method: 'POST',
+      headers: { Authorization: `Bearer ${auth.token}` },
+      body: formData,
+    })
+  }
+
+  /** 회수 송장 등록(POST /api/v1/claims/{id}/return-shipment·FE-29). 404·422·400은 throw. */
+  function registerReturnShipment(claimPublicId: string, body: ReturnShipmentBody): Promise<ClaimShipment> {
+    return $fetch<ClaimShipment>(`/v1/claims/${claimPublicId}/return-shipment`, {
+      baseURL: resolveApiBase(),
+      method: 'POST',
+      headers: { Authorization: `Bearer ${auth.token}` },
+      body,
+    })
+  }
+
+  return { requestClaim, uploadAttachments, registerReturnShipment }
 }

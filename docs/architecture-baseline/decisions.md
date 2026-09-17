@@ -10368,3 +10368,145 @@ deploy.yml이 `push main` 무필터라 docs만 변경된 머지에도 서버 SSH
 - 반품·교환(Track 81·82): 목록은 공통 컬럼만 — 수거·교환 배송 진행 표기 컬럼 추가·RETURN/EXCHANGE 완료 SMS·거부 사유 유형별 필터(ALREADY_SHIPPED는 CANCEL 전용).
 - 사용자 FE: 클레임 상세 거부 사유·환불 진행 표기(응답 필드는 본 트랙 완료·화면은 사용자 FE 트랙).
 
+## D-170. 배송 후 반품 흐름 골격 BE — 요청 조건·회수 송장·회수 확인·검수·재입고·SMS (Track 81-A)
+
+날짜: 2026-09-17
+트랙: Track 81-A (BE 1차·자동 구매확정·사진 첨부는 81-B·FE는 FE-29)
+정찰: docs/track-81/recon-report.md
+브랜치: feat/track-81a-return-flow
+
+### 배경
+반품은 요청→승인→(서비스 전용) 수거 확인→즉시 환불→완료까지만 있었고, 회수 송장·회수 확인 HTTP·검수·재입고 선택·기한·사유 제한이 없었다. 수거 확인이 곧 환불 트리거라 "검수 후 환불"(R5)을 표현할 수 없었고 APPROVED→REJECTED가 상태기계상 불가했다.
+
+### §1-A 결정
+1. **사진 첨부(R2)**: α Track 81 포함 【채택·81-B로 이연】 — 인프라(ImageUploadService·FileStorage·서빙) 존재·신규는 구매자 업로드 API·Attachment 연결·응답 노출. 본 81-A는 사유 3값 제한만.
+2. **기한 기준 시각(R1)**: **α 최신 발송(OUTBOUND) `delivery.delivered_at` 조인 【채택】** / β `order_item.delivered_at` 신설+백필 【기각】 — 같은 사실의 중복 저장·백필 SQL·두 컬럼 정합 유지 비용. 81-B 자동 확정 배치는 V24 `ix_delivery_direction_status_delivered_at`로 delivery만 스캔한다. 요청은 품목 DELIVERED 한정(SHIPPING 중 반품은 배송완료 기준 기한을 셀 수 없어 422·매트릭스 무변경·FE `claimableTypes` SHIPPING→RETURN은 FE-29에서 정리).
+3. **회수 송장 모델(R4)**: **α `delivery.direction`(OUTBOUND|RETURN·V24) + `claim_id` 의미 확장 【채택】** / β claim 컬럼 3개 【기각】. 교환(Track 82) 회수 재사용·배송 관리 화면 노출. 트랩(확정): 회수 Delivery `DeliveryStarted`가 `RETURN_REQUESTED → SHIPPING`(스냅샷 원복용 합법 전이)을 타므로 이벤트에 `direction`·`claimId`를 실어 소비처 6곳(order Started/Completed·notification 2·ExchangeShipmentRefund·ExchangeDeliveryCompleted)이 OUTBOUND만 처리하고, `DeliveryStartedHandler`는 claim 연결 발송(교환품·재발송)도 품목을 바꾸지 않는다.
+4. **검수·불합격(R5)**: **α 상태 4값 유지 + milestone 컬럼(`inspected_at`·`inspection_result` CHECK PASS|FAIL·`restock`·V24) 【채택】** / β ClaimStatus 신규 값 【기각】(A분류 값 집합·FE 라벨/필터 확장). PASS → `ClaimInspectionPassed` → `ClaimInspectionPassedHandler.initiate(totalPrice)`(구 `ClaimPickedUpHandler` 삭제·환불 트리거를 수거 확인에서 검수 PASS로 이동). FAIL → `Claim.failInspection`이 **APPROVED → REJECTED**를 직접 적용(매트릭스 `canTransitionTo`는 false 유지·일반 reject는 REQUESTED 한정)·거부 사유 `INSPECTION_FAILED`(RETURN 전용·V24 CHECK 교체)·재발송 Delivery(OUTBOUND·claim_id·택배사·송장 필수) → `ClaimRejected`(기존 스냅샷 원복 DELIVERED·거부 SMS). 동시 검수는 `refresh(PESSIMISTIC_WRITE)` 직렬화(늦은 쪽 "이미 검수됨" 422).
+5. **재입고(R5)**: **α 검수 body `restock`(PASS 필수)을 Claim에 저장·`InventoryClaimCompletedHandler` RETURN 분기가 true일 때만 restoreStock 【채택】** — false는 재고·history 불변. CANCEL은 무조건 유지.
+6. **자동 구매확정(R7)**: α 스케줄러 【채택·81-B】 — 활성 클레임 품목은 RETURN_REQUESTED라 자연 제외. 본 81-A는 인덱스만.
+7. **반품 사유(R2)**: **α `ClaimReasonCode.isApplicableTo(RETURN)` 3값(단순변심·상품불량·오배송)·BE 422 【채택】** — 거부 사유 패턴 1:1. 신규 요청만(기존 행 무영향).
+- SMS(R8): 요청·거부는 기존 공용, **RETURN 승인**(회수 송장 등록 안내)·**RETURN 완료**(CANCEL 한정 해제·유형 라벨) 추가. 검수 불합격은 `ClaimRejected` 경로로 "사유: 검수 불합격" 발송.
+- 액션·응답: 관리자 목록 `availableActions` RETURN APPROVED = 회수 송장 있고 미회수 CONFIRM_PICKUP / 회수 후 미검수 INSPECT(회수 송장 대기는 빈 목록) + `returnShipment`·`reshipment`·`pickedUpAt`·`inspectionResult`·`restock`(클레임 Delivery 배치 1쿼리·예산 7→8·행 수 무관 고정). 관리자 주문 상세 ClaimRow +5(상세 전용 배치). 사용자 `ClaimResponse` +`returnShipmentRequired`(RETURN·APPROVED·송장 없음·미회수)·`returnShipment`·`pickedUpAt`·`inspectionResult`. 주문 목록/상세 품목 배송은 OUTBOUND만(회수 제외·재발송은 최신 발송으로 표시).
+- 배포 묶음: V24·API 변경(회수 송장·검수 필수)·FE 화면(FE-29)이 한 세트라 81-B·FE-29와 PR 1건으로 배포한다(단독 배포 시 반품 승인 후 구매자가 회수 송장을 등록할 화면이 없어 흐름이 멈춤).
+- 81-B 범위: 자동 구매확정 배치(`zslab.order.auto-confirm.enabled`·delivered_at+7d·DELIVERED만) · 불량 사진 첨부(구매자 업로드·Attachment CLAIM·응답 노출).
+
+### 변경 파일
+- Flyway: V24__return_flow_direction_inspection.sql(delivery.direction·claim 검수 3컬럼·CHECK 2·ix_delivery_direction_status_delivered_at·rollback 주석)
+- main 신규: delivery/enums/DeliveryDirection · claim/enums/ClaimInspectionResult · claim/event/ClaimInspectionPassed · refund/handler/ClaimInspectionPassedHandler · claim/controller/request/{ReturnShipmentRequest,ClaimInspectRequest} · claim/controller/response/ReturnShipmentResponse
+- main 삭제: refund/handler/ClaimPickedUpHandler
+- main 수정: delivery/entity/Delivery(direction·create 3-arg·attachClaim) · delivery/event/{DeliveryStarted(+direction·claimId),DeliveryCompleted(+direction)} · delivery/service/DeliveryService(registerReturnShipment·registerReshipment·completeReturnShipment·교환 가드 방향) · delivery/repository/DeliveryRepository(+4) · claim/entity/Claim(+3필드·passInspection·failInspection·isRestockRequested) · claim/enums/{ClaimReasonCode(isApplicableTo),ClaimRejectReasonCode(+INSPECTION_FAILED)} · claim/service/{ClaimService(validateReturnRequest·registerReturnShipmentByBuyer·confirmPickup RETURN 분기·inspect 3종·getClaim 회수),AdminClaimQueryService(액션·delivery 배치)} · claim/controller/{BuyerClaimController(return-shipment),SellerClaimController·AdminClaimController(confirm-pickup·inspect)} · claim/controller/response/{ClaimResponse,AdminClaimSummaryResponse} · order/handler/{DeliveryStartedHandler,DeliveryCompletedHandler} · notification/handler/{NotificationDeliveryStartedHandler,NotificationDeliveryCompletedHandler} · refund/handler/ExchangeShipmentRefundHandler · claim/handler/ExchangeDeliveryCompletedHandler · inventory/handler/InventoryClaimCompletedHandler(restock) · notification/service/NotificationService(RETURN 승인·완료 SMS·recordRefundFailed 오버로드) · order/service/AdminOrderQueryService(OUTBOUND·ClaimRow +5) · order/controller/response/AdminOrderDetailResponse · order/repository/AdminOrderSpecifications(direction) · common/security/SecurityConfig(SELLER confirm-pickup·inspect)
+- test 신규: claim/entity/ClaimInspectionTest(4) · refund/handler/ClaimInspectionPassedHandlerTest(3) / 재작성: claim/integration/ClaimReturnIntegrationTest(7) / 삭제: refund/handler/ClaimPickedUpHandlerTest / 수정: ClaimIntegrationTest(T13 배송 시드)·Track80CancelFlowIntegrationTest(RETURN 시드·예산 8)·InventoryEventIntegrationTest(restock 시드)·InventoryClaimCompletedHandlerTest(+1)·ClaimServiceTest·ClaimServiceConfirmPickupTest(mock)·DeliveryStartedHandlerTest·DeliveryCompletedHandlerTest·NotificationDeliveryCompletedHandlerTest·ClaimExchangeIntegrationTest(이벤트 인자)
+
+### 검증
+- 요청: 배송완료 1일 201·8일 422·STOCK_DELAY 422·CONFIRMED 422 / 회수 송장: REQUESTED 422·타인 404·200(품목 RETURN_REQUESTED 유지)·중복 422·사용자 응답 returnShipmentRequired·returnShipment / 전 루프 PASS(restock): 검수 선행 422·송장 부재 회수 확인 422·셀러 회수 확인 환불 0·목록 INSPECT·검수 → 환불 자동 COMPLETED·RETURNED·on_hand +1·history RETURN 1·완료 SMS·재검수 422 / PASS(restock=false): 재고·history 불변 / FAIL: 조건부 필수 400·REJECTED·DELIVERED 원복·재발송 OUTBOUND·환불 0·거부 SMS "검수 불합격"·주문 상세 필드 / 동시 검수 4스레드 1건 200·3건 422·환불 1 / 타 셀러 404·BUYER 403·셀러 회수 송장 403.
+- 전체: ./backend/gradlew.bat test --rerun-tasks 186파일 980 tests·0 fail(971 → 980).
+- 트랩(확정): (1) V23 CHECK가 새 enum 값을 막아 500(DataIntegrityViolation) — enum 값 추가는 CHECK 교체 마이그레이션 동반 의무. (2) 클레임 연결 OUTBOUND 발송(재발송)의 `DeliveryStarted`가 동기 핸들러에서 `RETURN_REQUESTED → SHIPPING`을 타 AFTER_COMMIT 원복보다 먼저 품목을 오염 — 이벤트 `claimId`로 skip.
+
+### 문서 정정
+- state-machine.md: §2 반품 단계·예외 전이·거부 사유 INSPECTION_FAILED · §6.1 Delivery.direction · §8 RETURN 연동 순서(검수 PASS 트리거).
+
+### §8 이월
+- 81-B: 자동 구매확정 배치 · 불량 사진 첨부.
+- FE-29: 반품 요청(사유 3값·DELIVERED만·SHIPPING 반품 버튼 제거)·회수 송장 입력·타임라인 6단·관리자 회수 확인/검수 다이얼로그(PASS restock·FAIL 사유/재발송)·목록 액션 CONFIRM_PICKUP/INSPECT·회수/재발송 송장 표시.
+- 교환(Track 82): 회수 Delivery(direction=RETURN)·회수 확인·검수(inspect·restock)는 type 무관 구조 — `requireInspectable`의 RETURN 한정만 EXCHANGE로 확장하면 재사용.
+- 회수 송장 재등록(오입력 정정)·재발송 재등록은 미지원(중복 422) — 운영 피드백 후.
+
+### D-170 보충 — 기한 기준 원 발송 한정·검수 불합격 재요청 차단 (2026-09-17)
+- **기한 기준 시각 = 원 주문 발송만**: `ReturnWindowPolicy.originalDeliveredAt`(direction=OUTBOUND·**claim_id IS NULL**·DELIVERED 최신 `delivered_at`)으로 판정을 1곳에 모았다(`WINDOW_DAYS=7`·`isWithinWindow`). 교환품 발송·검수 불합격 재발송(claim_id NOT NULL)은 제외 — 재발송이 오늘 배송완료돼도 원 발송 8일 경과면 422(T8). 사유: 재발송·교환 발송은 "같은 상품을 다시 보낸 것"이라 새 반품 기한을 열지 않는다(열면 FAIL→재발송→재반품이 무한 반복). 81-B 자동 구매확정 배치도 같은 정책(`ReturnWindowPolicy`)을 재사용한다. 교환 발송 기준 기한 재설정 여부는 Track 82 판단.
+- **V24 인덱스 정정**: `ix_delivery_direction_status_delivered_at`을 (direction, status, **claim_id**, delivered_at)로 — 등치 3개(claim_id IS NULL 포함) 뒤 범위(delivered_at)라 81-B 배치 조건에 그대로 유효. V24 파일 내 수정(신규 마이그레이션 없음·미배포).
+- **FAIL 이력 재요청 차단**: 동일 품목에 `type=RETURN·inspection_result=FAIL` 클레임이 있으면 RETURN 요청 422(`existsByOrderItemIdAndTypeAndInspectionResult`·CLAIM_STATE_INVALID 재사용). CLM-2(거부 후 재요청 허용)의 예외 — 검수 불합격은 상품을 실물로 확인한 판정이라 같은 품목의 재반품은 운영자 판단 영역(관리자 수동 경로는 미도입·필요 시 후속).
+- 검증: T5 FAIL 후 재요청 422 · T8 원 발송 8일/클레임 연결 발송 오늘 → 422·원 발송 1일 → 201 · 전체 --rerun-tasks 186파일 981 tests·0 fail.
+- 변경 파일(보충): main 신규 delivery/service/ReturnWindowPolicy · 수정 DeliveryRepository(claim_id NULL 파생 쿼리)·ClaimRepository(FAIL 이력)·ClaimService(정책 위임·FAIL 가드)·V24(인덱스 컬럼) / test ClaimServiceTest(정책 mock)·ClaimReturnIntegrationTest(+T8·T5 확장).
+
+
+## D-171. 자동 구매확정 배치·반품 사진 첨부 BE (Track 81-B)
+
+날짜: 2026-09-17
+트랙: Track 81-B (BE 2차·81-A 후속·FE는 FE-29)
+정찰: docs/track-81/recon-report.md §4 Q1·Q6 + STEP 221 확인
+브랜치: feat/track-81b-return-extras (81-A·FE-29와 PR 1건)
+
+### 배경
+81-A가 반품 기한을 "배송완료 후 7일"로 잠갔지만 구매확정이 수동뿐이라 미확정 품목은 사실상 무기한 반품 대기였고 정산 gross(confirmed_at)도 열리지 않았다. 불량·오배송 반품은 사진 첨부(R2)를 전제하지만 attachment 테이블만 있고 구매자 업로드·연결·노출이 없었다.
+
+### §1-A 결정
+1. **확정 경합 처리**: **α 품목 행 락(`refresh(PESSIMISTIC_WRITE)`) 후 DELIVERED·활성 클레임 없음·`ReturnWindowPolicy` 기한 경과 3중 재확인 【채택】** / β 조건부 UPDATE 1문 【기각】(Order.status 재계산·confirmed_at 기록이 같은 TX에 필요·수동 확정 코어와 분기). 반품 요청(`ClaimService.createClaim`)도 같은 행을 잠그고 DELIVERED를 검증하므로 먼저 락을 얻은 쪽만 성공한다 — 늦은 자동 확정은 RETURN_REQUESTED를 보고 skip(debug), 늦은 반품 요청은 CONFIRMED를 보고 422(T4 경합 검증·정확히 1건). 후보 조회(`findAutoConfirmCandidateOrderItemIds`·V24 인덱스 (direction,status,claim_id,delivered_at) 범위 + order_item 조인)는 활성 클레임을 보지 않고 서비스가 거른다(2중 가드·배치 조회와 확정은 다른 TX).
+2. **수동·자동 공용 코어**: `BuyerOrderConfirmService.confirmItem(target, orderId)`(DELIVERED→CONFIRMED·`markConfirmedAt`·`recalculateStatus`)로 추출 — 소유권·멱등은 호출부. 이벤트는 여전히 미발행(정산은 confirmed_at 집계·T3 자동+수동 gross 합산 동일).
+3. **킬스위치·주기**: `zslab.order.auto-confirm.enabled`(matchIfMissing·auto-cancel 정합)·fixedDelay 1시간·BATCH 100·id별 try/catch(Exception만). 통합 테스트는 컨텍스트에서 끄고 스케줄러를 직접 생성해 호출(T2 빈 부재 확인).
+4. **첨부 소유권**: **α V25 `attachment.uploaded_by` + `target_id` NULL 허용(미연결 = target_type CLAIM·target_id NULL) 【채택】** / β Flyway 없이 `(USER, buyerId)` 임시 타깃 후 `(CLAIM, claimId)` 재지정 【기각】(업로더가 연결 후 소실·USER 타깃 의미 중복). `created_by`는 `AuditorAwareImpl`이 항상 empty라 감사 컬럼으로 대체 불가. 연결 검증: 요청자 업로드(uploaded_by=buyerId)·미연결·중복 id 없음·존재 — 위반은 모두 400(타인 파일은 미존재와 같은 메시지로 은닉). 기존 `findByTargetTypeAndTargetId(type, id)` 등치 조회는 NULL 행을 대상으로 오인하지 않음(실측·AuditLog/NotificationLog는 별도 테이블).
+5. **사유 한정**: RETURN + PRODUCT_DEFECT|WRONG_PRODUCT에서만 `attachmentIds` 허용(`ClaimService.ATTACHABLE_RETURN_REASONS`). 단순변심·CANCEL/EXCHANGE에 첨부 시 400 — 첨부 검증은 품목 락 전(읽기만)이라 상태 422보다 앞선다.
+6. **사진 선택 입력**: 불량·오배송이라도 첨부 없는 요청은 201(강제 시 FE-29 전 기존 사용자 흐름·관리자 경로 차단). 장수 상한 5(`ClaimAttachmentService.MAX_ATTACHMENTS`·업로드 요청·연결 목록 동일)·형식/크기/디코딩은 `ImageUploadService` 재사용(`upload(files, directory)` 오버로드·`claims/yyyy/MM/{ULID}.{ext}`·썸네일 동일).
+- 업로드 API: `POST /api/v1/claims/attachments`(multipart files·BUYER·기존 `/api/v1/claims/**` 규칙·SecurityConfig 무변경) → 파일별 결과 + `attachmentId`(att_). 요청 본문 `attachmentIds` 순서 = `display_order`.
+- 응답: 사용자 `ClaimResponse.attachmentUrls`(요청 직후·상세·순서 보존·없으면 빈 목록) / 관리자 목록 `attachmentCount`(GROUP BY 1쿼리 배치·예산 8→9·행 수 무관 고정) / 관리자 주문 상세 ClaimRow `attachmentUrls`(상세 전용 배치 1쿼리·목록 예산 무영향).
+- 파일 URL: `/api/v1/files/claims/…/{ULID}.{ext}` — ULID 키라 추측 불가하나 서빙은 permitAll(인가 없음). 인증 파일 서빙은 이월(§8).
+
+### 변경 파일
+- Flyway: V25__attachment_uploaded_by_unlinked.sql(uploaded_by·target_id NULL·rollback 주석)
+- main 신규: order/scheduler/OrderAutoConfirmScheduler · order/service/OrderAutoConfirmService · claim/service/ClaimAttachmentService · claim/controller/response/ClaimAttachmentUploadResponse · attachment/repository/AttachmentCountProjection
+- main 수정: order/service/BuyerOrderConfirmService(confirmItem 추출) · delivery/repository/DeliveryRepository(후보 JPQL) · attachment/entity/Attachment(targetId nullable·uploadedBy·createUnlinked·linkTo) · attachment/repository/AttachmentRepository(+4) · file/service/ImageUploadService(directory 오버로드) · claim/controller/request/{ClaimRequestRequest,ClaimRequestCommand}(attachmentIds) · claim/service/{ClaimService(첨부 조건·resolve→link·getClaim URL),AdminClaimQueryService(첨부 개수 배치)} · claim/controller/BuyerClaimController(attachments) · claim/controller/response/{ClaimResponse,AdminClaimSummaryResponse} · order/service/AdminOrderQueryService(ClaimRow URL 배치) · order/controller/response/AdminOrderDetailResponse
+- test 신규: order/integration/OrderAutoConfirmIntegrationTest(4) / 수정: ClaimReturnIntegrationTest(+T9·T10·upload.path TempDir·auto-confirm off)·Track80CancelFlowIntegrationTest(예산 9·auto-confirm off)·ClaimServiceTest·ClaimServiceConfirmPickupTest·BuyerClaimControllerTest(mock)
+
+### 검증
+- 자동 확정: 원 발송 8일 경과 CONFIRMED·confirmed_at·주문 CONFIRMED / 3일·활성 클레임(후보 포함·서비스 skip)·재발송 8일(원 발송 3일)·6일 제외 / 재실행 멱등 / 킬스위치 빈 부재·1건 실패 격리 / 자동+수동 gross 3× 합산·buyer 누적 / 경합 자동 확정(기준 시각 +2일) vs 반품 요청 동시 → 1건.
+- 첨부: 업로드 2장(미연결·uploaded_by) → 불량 요청 [2,1] 순서 연결·응답·상세·관리자 목록 개수·주문 상세 URL·공개 서빙 200·재사용 400 / 단순변심·CANCEL·타인·미존재·중복 400·6장 400·SELLER 403·첨부 없는 불량 201.
+- 전체: ./backend/gradlew.bat test --rerun-tasks 187파일 987 tests·0 fail(981 → 987).
+
+### 문서 정정
+- state-machine.md: §3 CONFIRMED 행(자동 확정 조건)·§6 이연 해소·§2 반품 요청 조건(원 발송·첨부 조건).
+
+### §8 이월
+- 인증 파일 서빙(`GET /api/v1/files/**` permitAll → 클레임 사진은 본인·셀러·관리자 한정) — 상품 이미지 공개 서빙과 분리 필요.
+- 미연결 첨부(target_id NULL·업로드 후 요청 취소/실패) 정리 — 기존 고아 업로드 파일 정리 항목에 합류(배치·보존 기간 동일 결정).
+- 자동 확정 알림(구매자 SMS/알림)·확정 직전 안내 — 운영 피드백 후.
+- FE-29: 반품 요청 화면 사진 업로드 위젯(불량/오배송 시 노출·5장)·상세/관리자 첨부 표시·attachmentCount 칩.
+
+## D-172. 클레임 파이프라인 정합성 보강 — 후속 처리 동기화·환불 멱등·복구 스케줄러·검수 봉인·첨부 조건부 UPDATE (외부 검토 A 반영)
+
+날짜: 2026-09-17
+트랙: Track 81 후속(81-A·81-B·FE-29 PR 1건에 동반)
+검토: 외부 검토 A(약식 자료 review-context.md + 영역별 diff 6) / 지적 5건 중 수용 5건
+브랜치: feat/fe-29-returns
+
+### 배경
+검토 요청서의 전제("AFTER_COMMIT 핸들러가 각자 별도 TX라 부분 실패가 재처리 가능") 자체가 오류였다 — 재처리 주체가 없어 재고 복구·품목 원복이 유실되면 그대로 남았고(Q4·추가 1), 환불 initiate·콜백은 비잠금 exists 게이트라 동시 진입에 2건 생성이 가능했으며(Q2-b·c), 환불 핸들러 실패는 알림만 남기고 복구 경로가 없었다(Q2-a). 검수 불합격 전이는 사유만 RETURN 적합이면 열렸고(Q1), 첨부 연결은 읽은 뒤 UPDATE라 동시 재사용을 막지 못했다(Q5).
+
+### §1-A 결정
+1. **동기화 대상 분류 기준(Q4·추가 1)**: 핸들러가 (a) DB 전이·재고만 다루면 **동기(`@EventListener`)·예외 전파**, (b) PG 등 외부 호출을 포함하면 **커밋 후 유지**(DB TX 안에 외부 호출 금지), (c) 알림은 유지. (a) 5건 전환: ClaimCompletedHandler·ClaimRejectedHandler·ClaimRefundCompletedHandler·InventoryClaimCompletedHandler(try/catch·metrics 흡수 제거)·ExchangeDeliveryCompletedHandler. 대상 행 미발견은 IllegalStateException 전파, 이미 목표 상태만 no-op. 결과: 환불 콜백 1 TX(Refund·Claim·품목·재고)·실패 시 422 → PG 재전송, 검수 FAIL은 요청 실패로 전체 롤백. (b) 유지 3: ClaimApprovedHandler·ClaimInspectionPassedHandler·ExchangeShipmentRefundHandler. payment 패키지(PaymentRefundCompletedHandler)는 범위 밖·미변경.
+2. **환불 시작 유실(Q2-a)**: α 승인 TX에 initiate 동기화 【기각】 — PG 호출이 DB TX 안에 들어가고 PG 지연·장애가 승인 응답을 막는다 / **β 복구 스케줄러 【채택】** — `RefundRecoveryScheduler`(킬스위치 `zslab.refund.recovery.enabled`·10분·100·id별 격리·유예 5분)가 CANCEL 승인·RETURN 검수 PASS 후 Refund 행 0건 클레임에 initiate, `MockRefundPendingRecoveryScheduler`(`@ConditionalOnBean(MockPaymentGateway)`)가 5분 경과 PENDING에 SUCCESS 콜백 재발생. FAILED 보유 클레임은 관리자 재시도 경로(RFN-2)라 제외.
+3. **환불 멱등(Q2-b·c)**: initiate = 클레임 행 `refresh(PESSIMISTIC_WRITE)` → 활성 환불 **잠금 읽기**(`findByClaimIdAndStatusInForUpdate`) → 있으면 기존 행 no-op(응답 규약 유지). 콜백/markCompleted = 환불 행 `refresh(PESSIMISTIC_WRITE)` → 종결이면 이벤트 없이 no-op. 트랩(확정): 클레임 행 락 뒤에도 **비잠금 exists 쿼리는 REPEATABLE READ 스냅샷(TX 첫 읽기)에 묶여** 락 대기 중 커밋된 행을 못 봐 환불 2건이 생겼다 — 잠금 읽기로 교체(T1 실측).
+4. **검수 불합격 봉인(Q1)**: `Claim.failInspection`이 유형 RETURN·APPROVED·회수 확인·미검수(422) + 사유 INSPECTION_FAILED 고정(400)을 전부 검증. FE 검수 다이얼로그는 사유 select를 제거하고 고정 전송(메모에 불합격 근거 안내).
+5. **첨부 동시 재사용(Q5)**: 연결을 `UPDATE attachment SET target_id, display_order WHERE id AND target_id IS NULL AND uploaded_by = :buyer` 조건부 UPDATE(`@Modifying flushAutomatically`)로 바꾸고 영향 행 0이면 400 → 클레임 INSERT까지 같은 TX 롤백(같은 첨부로 다른 품목 동시 요청 → 1건만 성공·T6). `Attachment.linkTo` 삭제.
+- 검토 요청서 배경 전제 오류 기록: "부분 실패 허용·재처리 가능"은 재처리 주체가 없어 성립하지 않았다. D-69·D-75·D-100 Q6의 "각자 별도 트랜잭션·실패 흡수" 서술은 (a) 핸들러에 한해 본 결정으로 폐기.
+- 외부 검토: A / 지적 5건 중 수용 5건 — D-170(검수 전이 봉인·원복 동기화)·D-171(첨부 조건부 UPDATE·자동 확정 무관)·D-172(본 결정) 각각 반영.
+
+### 변경 파일
+- main 신규: refund/scheduler/{RefundRecoveryScheduler,MockRefundPendingRecoveryScheduler} · refund/service/RefundRecoveryService
+- main 수정: claim/handler/{ClaimCompletedHandler,ClaimRejectedHandler,ClaimRefundCompletedHandler,ExchangeDeliveryCompletedHandler} · inventory/handler/InventoryClaimCompletedHandler · refund/service/RefundService(EntityManager·락 게이트·콜백 락) · refund/repository/RefundRepository(+2) · claim/repository/ClaimRepository(환불 누락 JPQL) · claim/entity/Claim(failInspection 봉인) · claim/service/{ClaimService(link 3인자),ClaimAttachmentService(조건부 UPDATE)} · attachment/entity/Attachment(linkTo 삭제) · attachment/repository/AttachmentRepository(linkIfUnlinked)
+- test 신규: claim/integration/ClaimPipelineIntegrationTest(6) / 수정: 핸들러 단위 4(미발견 throws)·InventoryClaimCompletedHandlerTest(metrics 제거)·RefundServiceTest(EntityManager·잠금 게이트)·ClaimInspectionTest(봉인)·ClaimServiceTest(link) · 통합 inventory 시드 4(ClaimExchange·RefundWebhook·AdminDeliveryController·ClaimEvent — 구 흡수 방식에서 재고 행 없이 통과하던 트랩) · 킬스위치 false 6 클래스
+- FE: constants/claim.ts(FAIL 사유 고정 상수)·admin-claim-view.ts·AdminClaimInspectDialog.vue·vitest 2·e2e admin-claims ④
+
+### 검증
+- ClaimPipelineIntegrationTest: T1 동시 initiate 4스레드 환불 1·PG 1회(콜백 재발생 수렴) / T2 동시 SUCCESS 웹훅 4스레드 전부 200·COMPLETED 1·재고 +1·history 1 / T3 inventory 부재 콜백 422·PENDING·APPROVED 유지 → 복구 후 재전송 200 / T4 복구 스케줄러 누락 CANCEL·RETURN PASS initiate·유예 미만 제외·FAILED 제외·Mock PENDING 재발생·재실행 멱등·킬스위치 / T5 사유 OTHER 400·원복 불법 전이 전체 롤백 / T6 첨부 동시 4스레드 201 1건.
+- 전체: ./backend/gradlew.bat test --rerun-tasks 188파일 993 tests·0 fail(987 → 993) · FE typecheck 0 · vitest 36 files 214 · Playwright 36/36(skip 0).
+- 트랩(확정): (1) RR 스냅샷 vs 비잠금 exists(위 3). (2) 통합 테스트 시드 `NOW(6)`(DB 세션 UTC)와 JVM `LocalDateTime.now()`(KST) 혼용 시 분 단위 유예 판정이 9시간 어긋남 — 시각은 JVM 값 바인딩. (3) Mock 자동 콜백(AFTER_COMMIT)이 락 대기 중인 형제 initiate 스레드와 경합하면 PENDING 잔류(흡수) — 복구 스케줄러가 재발생.
+
+### 문서 정정
+- state-machine.md: §2 failInspection 봉인 · §8 동기/커밋 후 구분·복구 스케줄러.
+- decisions-fe.md FE-29: 검수 FAIL 사유 고정 전환 1줄.
+
+### §8 이월
+- 복구 스케줄러 운영 가시성(복구 건수 메트릭·알림) — Observability 트랙.
+- 실 PG 도입 시 MockRefundPendingRecoveryScheduler 제거·PG 웹훅 재전송 정책 확인.
+- 다중 품목 클레임 도입 시 재고 복구 variantId 오름차순 고정(데드락 회피).
+
+### D-172 보충 — 환불 경로 락 순서 통일·PaymentRefundCompletedHandler 동기화·교환 환불 복구 이월 (2026-09-17·외부 검토 2차)
+- **락 순서 통일(α 콜백 선Claim 채택)**: 환불 경로 행 락은 `Claim → Refund → Payment → OrderItem/Order → Inventory`로 고정한다. 콜백(`handleCallback`/`markCompleted`)은 비잠금 환불 조회로 claimId를 얻고 `lockClaimThenRefund`(Claim refresh X → Refund refresh X) 후 Payment `FOR UPDATE`. 근거: STEP 252 전수에서 유일한 위반이 콜백(Refund·Payment 선점 → Claim UPDATE 후행)이었고, initiate(Claim 선점 → Refund FOR UPDATE)와 교착해 T1에서 Mock 콜백 PENDING 잔류로 실측됐다. β(initiate를 Refund 선점으로 바꾸기)는 기각 — 클레임 상태(CLM-3) 검증이 Claim 락 뒤에 와야 하고 복구 스케줄러·자동 핸들러가 Claim 단위로 진입한다. 교차 교착 판단(1줄씩): 결제 콜백은 PAID 전 결제라 같은 Payment 행 공유 불가·Inventory 최후 → 없음 / 만료 배치는 PENDING_PAYMENT만 → 없음 / 클레임 요청·자동 확정·송장 가드는 OrderItem만 잡고 Claim은 신규 INSERT → 없음 / 검수 PASS는 Claim X 커밋 후 별도 TX initiate → 없음. Claim 없는 환불은 없음(`refund.claim_id` NOT NULL FK).
+- **PaymentRefundCompletedHandler 분류 오류 정정·동기화**: D-172 본문의 "payment 패키지·범위 밖·미변경"은 오분류였다 — DB 전이(Payment CANCELLED)만 다루므로 (a). `@EventListener` 동기로 전환해 환불 콜백 1 TX = Refund COMPLETED + Claim COMPLETED + 품목 종결 + 재고 복구 + Payment CANCELLED. Payment 행은 markCompleted가 이미 FOR UPDATE로 잡고 있어 추가 대기 없음. 전이 불가(비PAID)는 신규 `PaymentInvalidStateException` → 422 `PAYMENT_INVALID_STATE`로 콜백 롤백(IllegalStateException 500 fallback 차단·OrderShippingService 선례). `markCancelled` 규칙(전액 일치·CANCELLED 멱등·부분환불 no-op·D-71)은 무변경.
+- **교환 차액 환불 복구 이월**: `ExchangeShipmentRefundHandler` 유실은 `RefundRecoveryScheduler` 대상(CANCEL·RETURN)이 아니다. 이월 사유: 교환 차액 환불의 진입점(교환 출고 `DeliveryStarted`)은 셀러 경로에서만 발생하고 관리자 화면에 노출돼 있지 않으며(FE 미구현), Track 82 교환 재설계(회수·검수 재사용·차액 정책)에서 트리거 자체가 바뀔 수 있어 지금 복구 쿼리를 박제하면 재작업이 된다. 현 경로: NotificationLog 운영 알림 + `initiateByAdmin` 수동. → §8 **Track 82 필수**.
+- 검증(실측): ClaimPipelineIntegrationTest +T7(교차 경합 10라운드·initiate 2 + 콜백 2 동시 → 교착 0·환불 1·완료 1·재고 복구 1·락 대기 40회 max 59ms·avg 36.3ms·`innodb_lock_wait_timeout` 50s 대비 여유) +T8(전액 환불: 비PAID 결제 422·전부 롤백 → PAID 복구 후 200·Payment CANCELLED 같은 TX) +T9(부분 환불 PAID 유지). 전체 --rerun-tasks 188파일 996 tests·0 fail(993 → 996).
+- 변경 파일: refund/service/RefundService(lockClaimThenRefund·콜백 2경로) · payment/handler/PaymentRefundCompletedHandler(동기) · payment/service/PaymentService(markCancelled 422 흡수) · payment/exception/PaymentInvalidStateException(신규) · common/web/GlobalExceptionHandler(+1) / test RefundServiceTest(claim stub)·ClaimPipelineIntegrationTest(+3).
+- 외부 검토 2차: A / 지적 4건 중 수용 3건(락 순서·Payment 핸들러 동기화·교차 경합 테스트)·이월 1건(교환 환불 복구 → Track 82 필수).
+
+### §8 이월(보충)
+- **Track 82 필수**: 교환 차액 환불 누락 복구(`RefundRecoveryScheduler` 대상 확장 또는 교환 트리거 재설계와 함께).

@@ -2,6 +2,7 @@ package com.zslab.mall.claim.controller.response;
 
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.zslab.mall.claim.enums.ClaimRejectReasonCode;
+import com.zslab.mall.claim.enums.ClaimInspectionResult;
 import com.zslab.mall.claim.enums.ClaimStatus;
 import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.common.serialization.KstOffsetSerializer;
@@ -27,7 +28,13 @@ import java.util.List;
  * @param rejectReasonCode 거부 사유 코드(거부 전 null)
  * @param rejectMemo       거부 메모(거부 전 null)
  * @param refundStatus     최신 환불 상태(환불 미생성 시 null)
- * @param availableActions 처리 가능 액션(REQUESTED: APPROVE·REJECT / 그 외 빈 목록)
+ * @param availableActions 처리 가능 액션(REQUESTED: APPROVE·REJECT / RETURN APPROVED: 회수 송장 있고 미회수 CONFIRM_PICKUP·회수 후 미검수 INSPECT)
+ * @param returnShipment   반품 회수 Delivery(구매자 등록·없으면 null·Track 81-A)
+ * @param reshipment       검수 불합격 재발송 Delivery(없으면 null)
+ * @param pickedUpAt       회수 확인 시각(RETURN·EXCHANGE)
+ * @param inspectionResult 검수 결과(PASS|FAIL·미검수 null)
+ * @param restock          검수 PASS 재입고 여부
+ * @param attachmentCount  반품 사진 첨부 개수(Track 81-B·목록은 개수만·상세 URL은 사용자/주문 상세)
  */
 public record AdminClaimSummaryResponse(
         String claimId,
@@ -49,5 +56,11 @@ public record AdminClaimSummaryResponse(
         ClaimRejectReasonCode rejectReasonCode,
         String rejectMemo,
         RefundStatus refundStatus,
-        List<String> availableActions) {
+        List<String> availableActions,
+        ReturnShipmentResponse returnShipment,
+        ReturnShipmentResponse reshipment,
+        @JsonSerialize(using = KstOffsetSerializer.class) LocalDateTime pickedUpAt,
+        ClaimInspectionResult inspectionResult,
+        Boolean restock,
+        long attachmentCount) {
 }

@@ -5,6 +5,7 @@ import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.repository.ClaimRepository;
 import com.zslab.mall.delivery.entity.Delivery;
 import com.zslab.mall.delivery.event.DeliveryStarted;
+import com.zslab.mall.delivery.enums.DeliveryDirection;
 import com.zslab.mall.delivery.repository.DeliveryRepository;
 import com.zslab.mall.notification.service.NotificationService;
 import com.zslab.mall.refund.service.RefundService;
@@ -49,6 +50,11 @@ public class ExchangeShipmentRefundHandler {
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void handle(DeliveryStarted event) {
+        if (event.direction() != DeliveryDirection.OUTBOUND) {
+            // 반품 회수(RETURN) Delivery는 발송이 아니다(Track 81-A D-170) — 품목·알림·환불 소비처 비대상
+            log.info("[Refund] DeliveryStarted direction={} → 발송 소비처 비대상·건너뜀: deliveryId={}", event.direction(), event.deliveryId());
+            return;
+        }
         Delivery delivery = deliveryRepository.findById(event.deliveryId()).orElse(null);
         if (delivery == null) {
             log.warn("[Refund] DeliveryStarted 수신·Delivery 미발견 → 차액 환불 건너뜀: deliveryId={}", event.deliveryId());

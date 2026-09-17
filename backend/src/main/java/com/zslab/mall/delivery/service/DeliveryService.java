@@ -7,6 +7,7 @@ import com.zslab.mall.claim.repository.ClaimRepository;
 import com.zslab.mall.common.observability.TracedEventPublisher;
 import com.zslab.mall.delivery.entity.Delivery;
 import com.zslab.mall.delivery.enums.DeliveryCarrier;
+import com.zslab.mall.delivery.enums.DeliveryDirection;
 import com.zslab.mall.delivery.event.DeliveryCompleted;
 import com.zslab.mall.delivery.event.DeliveryStarted;
 import com.zslab.mall.delivery.repository.DeliveryRepository;
@@ -53,7 +54,7 @@ public class DeliveryService {
         deliveryRepository.save(delivery);
         eventPublisher.publishEvent(new DeliveryStarted(
                 delivery.getId(), delivery.getOrderItemId(), delivery.getCarrier(),
-                delivery.getTrackingNo(), LocalDateTime.now()));
+                delivery.getTrackingNo(), delivery.getDirection(), delivery.getClaimId(), LocalDateTime.now()));
     }
 
     /**
@@ -68,7 +69,8 @@ public class DeliveryService {
         delivery.markDelivered(LocalDateTime.now());
         deliveryRepository.save(delivery);
         eventPublisher.publishEvent(new DeliveryCompleted(
-                delivery.getId(), delivery.getOrderItemId(), delivery.getDeliveredAt(), LocalDateTime.now()));
+                delivery.getId(), delivery.getOrderItemId(), delivery.getDeliveredAt(), delivery.getDirection(),
+                LocalDateTime.now()));
     }
 
     /**
@@ -91,7 +93,7 @@ public class DeliveryService {
      * @throws IllegalStateException      markShipping 검증 위반(trackingNo·shippedAt null)
      */
     public Delivery registerExchangeShipment(Long claimId, DeliveryCarrier carrier, String trackingNo) {
-        deliveryRepository.findByClaimId(claimId).ifPresent(existing -> {
+        deliveryRepository.findByClaimIdAndDirection(claimId, DeliveryDirection.OUTBOUND).ifPresent(existing -> {
             throw new ClaimInvalidStateException("교환 배송이 이미 등록되었습니다: claimId=" + claimId);
         });
 
@@ -110,7 +112,71 @@ public class DeliveryService {
 
         eventPublisher.publishEvent(new DeliveryStarted(
                 delivery.getId(), delivery.getOrderItemId(), delivery.getCarrier(),
-                delivery.getTrackingNo(), LocalDateTime.now()));
+                delivery.getTrackingNo(), delivery.getDirection(), delivery.getClaimId(), LocalDateTime.now()));
+        return delivery;
+    }
+
+    /**
+     * 반품 회수 송장 등록(Track 81-A D-170·R4). 구매자가 반품 상품을 보낸 택배사·송장번호를 회수 Delivery(direction=RETURN·claim_id)로
+     * 저장하고 바로 SHIPPING으로 둔다(회수 확인 시 DELIVERED). 발송 이벤트({@link DeliveryStarted})는 direction=RETURN으로 발행하며
+     * 발송 소비처(품목 SHIPPING 전이·배송 알림·교환 차액 환불)는 OUTBOUND만 처리하므로 품목 상태에 영향이 없다.
+     *
+     * <p>클레임 유형·상태·소유 검증은 호출처({@code ClaimService.registerReturnShipmentByBuyer}) 책임이다.
+     *
+     * @throws ClaimInvalidStateException 같은 클레임에 회수 Delivery가 이미 있는 경우(422·재등록은 후속 트랙)
+     * @throws IllegalStateException      markShipping 검증 위반(trackingNo 공백)
+     */
+    public Delivery registerReturnShipment(Claim claim, DeliveryCarrier carrier, String trackingNo) {
+        deliveryRepository.findByClaimIdAndDirection(claim.getId(), DeliveryDirection.RETURN).ifPresent(existing -> {
+            throw new ClaimInvalidStateException("회수 송장이 이미 등록되었습니다: claimId=" + claim.getId());
+        });
+        Delivery delivery = Delivery.create(claim.getOrderItemId(), carrier, DeliveryDirection.RETURN);
+        delivery.attachClaim(claim.getId());
+        delivery.markShipping(trackingNo, LocalDateTime.now());
+        deliveryRepository.save(delivery);
+        eventPublisher.publishEvent(new DeliveryStarted(
+                delivery.getId(), delivery.getOrderItemId(), delivery.getCarrier(),
+                delivery.getTrackingNo(), delivery.getDirection(), delivery.getClaimId(), LocalDateTime.now()));
+        return delivery;
+    }
+
+    /**
+     * 검수 불합격 재발송 등록(Track 81-A D-170·R5). 반품 상품을 구매자에게 되돌려 보내는 OUTBOUND Delivery를 클레임에 연결해 SHIPPING으로
+     * 둔다. 품목은 이미 DELIVERED로 원복되므로 발송 핸들러의 SHIPPING 전이는 불법 전이로 건너뛴다(교환 발송과 같은 경로).
+     *
+     * @throws ClaimInvalidStateException 같은 클레임에 OUTBOUND Delivery가 이미 있는 경우(422)
+     */
+    public Delivery registerReshipment(Claim claim, DeliveryCarrier carrier, String trackingNo) {
+        deliveryRepository.findByClaimIdAndDirection(claim.getId(), DeliveryDirection.OUTBOUND).ifPresent(existing -> {
+            throw new ClaimInvalidStateException("재발송 배송이 이미 등록되었습니다: claimId=" + claim.getId());
+        });
+        Delivery delivery = Delivery.create(claim.getOrderItemId(), carrier, DeliveryDirection.OUTBOUND);
+        delivery.attachClaim(claim.getId());
+        delivery.markShipping(trackingNo, LocalDateTime.now());
+        deliveryRepository.save(delivery);
+        eventPublisher.publishEvent(new DeliveryStarted(
+                delivery.getId(), delivery.getOrderItemId(), delivery.getCarrier(),
+                delivery.getTrackingNo(), delivery.getDirection(), delivery.getClaimId(), LocalDateTime.now()));
+        return delivery;
+    }
+
+    /**
+     * 반품 회수 확인 시 회수 Delivery를 DELIVERED로 마감한다(Track 81-A). 회수 Delivery가 없으면 422(구매자 회수 송장 등록 선행).
+     * {@link DeliveryCompleted}는 direction=RETURN으로 발행되어 품목 DELIVERED 전이·교환 종결·배송 알림 소비처가 건너뛴다.
+     *
+     * @return 마감된 회수 Delivery
+     * @throws ClaimInvalidStateException 회수 Delivery 부재
+     * @throws IllegalStateException      이미 DELIVERED 등 불법 전이(Delivery.markDelivered 위임)
+     */
+    public Delivery completeReturnShipment(Long claimId) {
+        Delivery delivery = deliveryRepository.findByClaimIdAndDirection(claimId, DeliveryDirection.RETURN)
+                .orElseThrow(() -> new ClaimInvalidStateException(
+                        "회수 송장이 등록되지 않아 회수 확인할 수 없습니다: claimId=" + claimId));
+        delivery.markDelivered(LocalDateTime.now());
+        deliveryRepository.save(delivery);
+        eventPublisher.publishEvent(new DeliveryCompleted(
+                delivery.getId(), delivery.getOrderItemId(), delivery.getDeliveredAt(), delivery.getDirection(),
+                LocalDateTime.now()));
         return delivery;
     }
 

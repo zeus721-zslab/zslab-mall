@@ -30,6 +30,7 @@ import com.zslab.mall.payment.exception.InvalidCallbackException;
 import com.zslab.mall.payment.exception.OrderNotPendingPaymentException;
 import com.zslab.mall.payment.exception.PaymentAlreadyCompletedException;
 import com.zslab.mall.payment.exception.PaymentInProgressException;
+import com.zslab.mall.payment.exception.PaymentInvalidStateException;
 import com.zslab.mall.payment.exception.PaymentNotFoundException;
 import com.zslab.mall.product.exception.ProductImageNotFoundException;
 import com.zslab.mall.product.exception.ProductHasOrderHistoryException;
@@ -106,6 +107,7 @@ public class GlobalExceptionHandler {
     private static final String CODE_DELIVERY_INVALID_STATE = "DELIVERY_INVALID_STATE";
     private static final String CODE_ORDER_ITEM_INVALID_STATE = "ORDER_ITEM_INVALID_STATE";
     private static final String CODE_PAYMENT_NOT_FOUND = "PAYMENT_NOT_FOUND";
+    private static final String CODE_PAYMENT_INVALID_STATE = "PAYMENT_INVALID_STATE";
     private static final String CODE_EMAIL_ALREADY_EXISTS = "EMAIL_ALREADY_EXISTS";
     private static final String CODE_USER_NOT_FOUND = "USER_NOT_FOUND";
     private static final String CODE_ADDRESS_NOT_FOUND = "ADDRESS_NOT_FOUND";
@@ -458,6 +460,14 @@ public class GlobalExceptionHandler {
         // Track 17 D-101 §2·§6: INV-1·INV-3·INV-4 위반(422). 도메인 불변조건 위반·ClaimInvalidStateException 선례 정합.
         log.warn("[Inventory] 불변조건 위반(422): {}", exception.getMessage());
         return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_INVENTORY_INVARIANT_VIOLATION, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(PaymentInvalidStateException.class)
+    public ResponseEntity<ProblemDetail> handlePaymentInvalidState(
+            PaymentInvalidStateException exception, HttpServletRequest request) {
+        // D-172 보충: 환불 완료 콜백 동기 체인의 결제 취소 전이 불가(비PAID 등). 500 fallback 차단·422 매핑(DeliveryInvalidStateException 선례).
+        log.warn("[Payment] 결제 상태 전이 위반(422): {}", exception.getMessage());
+        return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_PAYMENT_INVALID_STATE, exception.getMessage(), request);
     }
 
     @ExceptionHandler(DeliveryInvalidStateException.class)

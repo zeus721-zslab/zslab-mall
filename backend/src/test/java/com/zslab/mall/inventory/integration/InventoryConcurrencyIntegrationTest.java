@@ -54,7 +54,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  *
  * <p><b>스케줄러 자동 발화 차단</b>: {@code OrderAutoCancelIntegrationTest}와 동일하게 자동취소 배치를 끈다.
  */
-@TestPropertySource(properties = "zslab.order.auto-cancel.enabled=false")
+@TestPropertySource(properties = {"zslab.order.auto-cancel.enabled=false", "zslab.refund.recovery.enabled=false"})
 class InventoryConcurrencyIntegrationTest extends AbstractIntegrationTest {
 
     private static final long USER_ID = 9781L;

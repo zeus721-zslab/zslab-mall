@@ -24,6 +24,9 @@ import com.zslab.mall.claim.event.ClaimRequested;
 import com.zslab.mall.claim.exception.ClaimInvalidStateException;
 import com.zslab.mall.claim.exception.ClaimNotFoundException;
 import com.zslab.mall.claim.repository.ClaimRepository;
+import com.zslab.mall.delivery.entity.Delivery;
+import com.zslab.mall.delivery.repository.DeliveryRepository;
+import com.zslab.mall.delivery.service.ReturnWindowPolicy;
 import com.zslab.mall.common.observability.TracedEventPublisher;
 import com.zslab.mall.order.controller.response.PagedResponse;
 import com.zslab.mall.order.entity.Order;
@@ -74,7 +77,14 @@ class ClaimServiceTest {
     @Mock
     private RefundRepository refundRepository;
     @Mock
+    private DeliveryRepository deliveryRepository;
+    @Mock
+    private ReturnWindowPolicy returnWindowPolicy;
+    @Mock
     private EntityManager entityManager;
+
+    @Mock
+    private ClaimAttachmentService claimAttachmentService;
 
     @InjectMocks
     private ClaimService claimService;
@@ -185,6 +195,8 @@ class ClaimServiceTest {
         when(orderItemRepository.findById(ORDER_ITEM_ID)).thenReturn(Optional.of(orderItem));
         when(claimRepository.existsActiveByOrderItemId(ORDER_ITEM_ID)).thenReturn(false);
         when(claimRepository.save(any(Claim.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        // Track 81-A: 반품 기한은 원 발송(OUTBOUND·claim_id NULL·DELIVERED) delivered_at + 7일(ReturnWindowPolicy) — 요청 3일 전 배송완료로 스텁
+        when(returnWindowPolicy.originalDeliveredAt(ORDER_ITEM_ID)).thenReturn(Optional.of(REQUESTED_AT.minusDays(3)));
 
         Claim result = claimService.request(command(ClaimType.RETURN));
 

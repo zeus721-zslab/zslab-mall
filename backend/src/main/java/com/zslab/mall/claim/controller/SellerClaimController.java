@@ -1,6 +1,7 @@
 package com.zslab.mall.claim.controller;
 
 import com.zslab.mall.claim.controller.request.ClaimApproveRequest;
+import com.zslab.mall.claim.controller.request.ClaimInspectRequest;
 import com.zslab.mall.claim.controller.request.ClaimRejectRequest;
 import com.zslab.mall.claim.controller.response.ClaimResponse;
 import com.zslab.mall.claim.entity.Claim;
@@ -77,6 +78,32 @@ public class SellerClaimController {
         Claim claim = claimRepository.findByPublicId(claimPublicId)
                 .orElseThrow(() -> new ClaimNotFoundException("클레임을 찾을 수 없습니다: publicId=" + claimPublicId));
         claimService.rejectBySeller(claim.getId(), sellerId, body.reasonCode(), body.memo(), LocalDateTime.now());
+        return toResponse(claimPublicId);
+    }
+
+    /**
+     * Seller 반품 회수 확인(Track 81-A D-170). 미존재·권한 위반 404·회수 송장 부재/APPROVED 아님 422.
+     */
+    @PostMapping("/{claimPublicId}/confirm-pickup")
+    public ClaimResponse confirmPickupBySeller(@PathVariable String claimPublicId, HttpServletRequest request) {
+        Long sellerId = sellerActorResolver.resolve(request);
+        Claim claim = claimRepository.findByPublicId(claimPublicId)
+                .orElseThrow(() -> new ClaimNotFoundException("클레임을 찾을 수 없습니다: publicId=" + claimPublicId));
+        claimService.confirmPickupBySeller(claim.getId(), sellerId, LocalDateTime.now());
+        return toResponse(claimPublicId);
+    }
+
+    /**
+     * Seller 반품 검수(Track 81-A D-170·R5). 본인 품목 한정(위반 404). PASS{restock} / FAIL{rejectReasonCode·memo·reshipCarrier·reshipTrackingNo}.
+     */
+    @PostMapping("/{claimPublicId}/inspect")
+    public ClaimResponse inspectBySeller(@PathVariable String claimPublicId,
+            @RequestBody @Valid ClaimInspectRequest body, HttpServletRequest request) {
+        Long sellerId = sellerActorResolver.resolve(request);
+        Claim claim = claimRepository.findByPublicId(claimPublicId)
+                .orElseThrow(() -> new ClaimNotFoundException("클레임을 찾을 수 없습니다: publicId=" + claimPublicId));
+        claimService.inspectBySeller(claim.getId(), sellerId, body.result(), body.restock(), body.rejectReasonCode(), body.memo(),
+                body.reshipCarrier(), body.reshipTrackingNo(), LocalDateTime.now());
         return toResponse(claimPublicId);
     }
 

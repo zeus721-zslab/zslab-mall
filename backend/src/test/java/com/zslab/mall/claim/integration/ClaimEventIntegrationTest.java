@@ -169,6 +169,9 @@ class ClaimEventIntegrationTest extends AbstractIntegrationTest {
                         + "is_soldout_manual, display_order, option1_value_id, created_at, updated_at) "
                         + "VALUES (?, ?, ?, 'VCEVT', 0, 'SALE', 0, 1, ?, NOW(6), NOW(6))",
                 VARIANT_ID, pid("var_", "EVTVAR"), PRODUCT_ID, DUMMY_FK_ID);
+        // D-172: 재고 복구 핸들러가 동기·예외 전파로 바뀌어 종결 경로에 inventory 행이 필요하다(부재 시 InventoryInvariantViolation → 롤백)
+        jdbc.update("INSERT INTO inventory (id, variant_id, quantity_on_hand, quantity_reserved, quantity_available, created_at, updated_at) "
+                        + "VALUES (?, ?, 10, 0, 10, NOW(6), NOW(6))", VARIANT_ID, VARIANT_ID);
     }
 
     private void seedOrder(String status) {
@@ -199,6 +202,8 @@ class ClaimEventIntegrationTest extends AbstractIntegrationTest {
                 jdbc.update("DELETE FROM claim WHERE order_item_id = ?", ORDER_ITEM_ID);
                 jdbc.update("DELETE FROM order_item WHERE id = ?", ORDER_ITEM_ID);
                 jdbc.update("DELETE FROM `order` WHERE id = ?", ORDER_ID);
+                jdbc.update("DELETE FROM inventory_history WHERE inventory_id = ?", VARIANT_ID);
+                jdbc.update("DELETE FROM inventory WHERE id = ?", VARIANT_ID);
                 jdbc.update("DELETE FROM product_variant WHERE id = ?", VARIANT_ID);
                 jdbc.update("DELETE FROM product WHERE id = ?", PRODUCT_ID);
                 jdbc.update("DELETE FROM seller WHERE id = ?", SELLER_ID);

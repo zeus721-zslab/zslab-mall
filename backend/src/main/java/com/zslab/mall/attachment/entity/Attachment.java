@@ -41,7 +41,8 @@ public class Attachment extends AbstractPublicIdSoftDeletableEntity {
     @Column(name = "target_type", nullable = false, length = 50)
     private PolymorphicTargetType targetType;
 
-    @Column(name = "target_id", nullable = false)
+    /** 대상 id. NULL이면 업로드만 되고 아직 대상에 연결되지 않은 첨부(Track 81-B D-171·V25). */
+    @Column(name = "target_id")
     private Long targetId;
 
     @Column(name = "file_name", nullable = false, length = 200)
@@ -58,6 +59,10 @@ public class Attachment extends AbstractPublicIdSoftDeletableEntity {
 
     @Column(name = "display_order", nullable = false)
     private int displayOrder;
+
+    /** 업로더 user id(D-171·소유권 검증 기준). created_by는 AuditorAware 미구현으로 NULL이라 별도 기록한다. */
+    @Column(name = "uploaded_by")
+    private Long uploadedBy;
 
     /**
      * @throws IllegalArgumentException 필수값 누락 시
@@ -84,6 +89,39 @@ public class Attachment extends AbstractPublicIdSoftDeletableEntity {
         attachment.fileSize = fileSize;
         attachment.displayOrder = displayOrder;
         return attachment;
+    }
+
+    /**
+     * 대상 미연결 첨부를 생성한다(Track 81-B D-171·구매자 업로드 시점). {@link #linkTo}로 대상에 연결하기 전까지 target_id는 NULL이다.
+     *
+     * @throws IllegalArgumentException 필수값 누락 시
+     */
+    public static Attachment createUnlinked(
+            PolymorphicTargetType targetType,
+            Long uploadedBy,
+            String fileName,
+            String filePath,
+            String mimeType,
+            Long fileSize) {
+        if (targetType == null || uploadedBy == null || fileName == null || fileName.isBlank()
+                || filePath == null || filePath.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Attachment 필수값 누락(targetType·uploadedBy·fileName·filePath).");
+        }
+        Attachment attachment = new Attachment();
+        attachment.targetType = targetType;
+        attachment.uploadedBy = uploadedBy;
+        attachment.fileName = fileName;
+        attachment.filePath = filePath;
+        attachment.mimeType = mimeType;
+        attachment.fileSize = fileSize;
+        attachment.displayOrder = 0;
+        return attachment;
+    }
+
+    /** 대상에 연결됐는지(target_id 보유). */
+    public boolean isLinked() {
+        return targetId != null;
     }
 
     @Override
