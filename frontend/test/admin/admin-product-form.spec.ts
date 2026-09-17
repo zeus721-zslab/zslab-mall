@@ -264,6 +264,7 @@ describe('업로드 사전 검증·메시지', () => {
     expect(uploadRequestFailureMessage({ statusCode: 413, data: null })).toContain('용량 초과')
     expect(uploadRequestFailureMessage({ status: 400, data: { code: 'MALFORMED_REQUEST' } })).toContain('장수 초과')
     expect(uploadItemFailureMessage('UNSUPPORTED_FORMAT', 'x')).toContain('형식 불일치')
+    expect(uploadItemFailureMessage('IMAGE_TOO_LARGE', 'x')).toBe('이미지 해상도가 너무 큽니다. 한 변 8,000px 이하로 줄여 주세요.')
     expect(uploadItemFailureMessage(undefined, undefined)).toContain('실패')
   })
 })

@@ -8,6 +8,7 @@ import com.zslab.mall.common.exception.MalformedRequestException;
 import com.zslab.mall.file.controller.response.ImageUploadResponse;
 import com.zslab.mall.file.service.ImageFormat;
 import com.zslab.mall.file.service.ImageUploadService;
+import com.zslab.mall.file.service.UploadLimits;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -35,6 +36,11 @@ public class ClaimAttachmentService {
 
     /** 클레임 1건당(=업로드 요청 1회당) 사진 상한. */
     public static final int MAX_ATTACHMENTS = 5;
+    /** 구매자 첨부 파일당 상한 5MB(D-174·관리자 상품 이미지 10MB와 분리). */
+    static final long MAX_ATTACHMENT_FILE_SIZE = 5L * 1024 * 1024;
+    /** 사용자별 미연결 첨부 보유 상한(D-174·기존 미연결 + 이번 요청 장수가 초과하면 400). */
+    static final int MAX_UNLINKED_PER_USER = 20;
+    private static final UploadLimits ATTACHMENT_LIMITS = new UploadLimits(MAX_ATTACHMENTS, MAX_ATTACHMENT_FILE_SIZE);
 
     private static final String CLAIM_DIRECTORY = "claims";
 
@@ -49,13 +55,19 @@ public class ClaimAttachmentService {
     /**
      * 구매자 사진 업로드. 성공 파일마다 미연결 Attachment(CLAIM·target_id NULL·uploaded_by)를 저장한다.
      *
-     * @throws MalformedRequestException 파일 없음·{@value #MAX_ATTACHMENTS}장 초과(400)
+     * @throws MalformedRequestException 파일 없음·{@value #MAX_ATTACHMENTS}장 초과·미연결 보유 {@value #MAX_UNLINKED_PER_USER}개 초과(400)
      */
     public ClaimAttachmentUploadResponse upload(Long buyerId, List<MultipartFile> files) {
         if (files != null && files.size() > MAX_ATTACHMENTS) {
             throw new MalformedRequestException("반품 사진은 최대 " + MAX_ATTACHMENTS + "장까지 첨부할 수 있습니다.");
         }
-        ImageUploadResponse uploaded = imageUploadService.upload(files, CLAIM_DIRECTORY);
+        long unlinked = attachmentRepository.countByTargetTypeAndTargetIdIsNullAndUploadedBy(PolymorphicTargetType.CLAIM, buyerId);
+        if (files != null && unlinked + files.size() > MAX_UNLINKED_PER_USER) {
+            // D-174: 연결하지 않은 업로드를 무제한 쌓는 디스크 소모를 막는다. 미연결 첨부는 24시간 후 정리 배치가 지운다.
+            throw new MalformedRequestException("연결되지 않은 첨부가 너무 많습니다(최대 " + MAX_UNLINKED_PER_USER
+                    + "개·현재 " + unlinked + "개). 클레임 요청에 연결하거나 24시간 후 다시 시도해 주세요.");
+        }
+        ImageUploadResponse uploaded = imageUploadService.upload(files, CLAIM_DIRECTORY, ATTACHMENT_LIMITS);
         List<ClaimAttachmentUploadResponse.Item> results = new ArrayList<>();
         for (ImageUploadResponse.Item item : uploaded.results()) {
             if (!item.success()) {

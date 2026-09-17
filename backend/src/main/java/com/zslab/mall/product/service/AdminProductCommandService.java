@@ -117,6 +117,7 @@ public class AdminProductCommandService {
      * @throws ProductNotFoundException 상품 미존재(404)
      * @throws ProductImageNotFoundException imageId가 이 상품의 활성 이미지가 아닐 때(404)
      * @throws IllegalArgumentException 대표 2장 이상·DETAIL 대표 지정(400)
+     * @throws com.zslab.mall.common.exception.MalformedRequestException 신규·변경 imageUrl이 서버 발급 상품 이미지 경로가 아닌 경우(400·D-174)
      */
     public void replaceImages(String publicId, AdminProductImagesRequest request, AuditContext auditContext) {
         Product product = findForUpdate(publicId);
@@ -132,6 +133,7 @@ public class AdminProductCommandService {
             AdminProductImagesRequest.Item item = request.images().get(order);
             ProductImageType imageType = ProductImageType.valueOf(item.imageType());
             if (item.imageId() == null) {
+                ImageUploadService.requireServerIssuedProductUrl(item.imageUrl());
                 productImageRepository.save(ProductImage.create(product, item.imageUrl(), imageType, order, item.main()));
                 continue;
             }
@@ -139,6 +141,10 @@ public class AdminProductCommandService {
             if (existing == null) {
                 throw new ProductImageNotFoundException(
                         "상품 이미지를 찾을 수 없습니다: productPublicId=" + publicId + ", imageId=" + item.imageId());
+            }
+            // D-174: 기존 행의 URL을 그대로 되돌려 보내는 편집(데모 시드 등 외부 URL 잔존 데이터)은 통과, URL을 바꾸는 경우만 서버 발급 경로 강제.
+            if (!item.imageUrl().equals(existing.getImageUrl())) {
+                ImageUploadService.requireServerIssuedProductUrl(item.imageUrl());
             }
             existing.updateMeta(item.imageUrl(), imageType, order, item.main());
         }

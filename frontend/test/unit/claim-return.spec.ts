@@ -12,7 +12,7 @@ import {
   isClaimRejectReasonApplicable,
 } from '~/lib/constants/claim'
 import { claimTimeline } from '~/lib/utils/claim-timeline'
-import { precheckClaimAttachments, uploadItemErrorMessage } from '~/lib/utils/claim-attachment'
+import { CLAIM_ATTACHMENT_MAX_BYTES, precheckClaimAttachments, uploadItemErrorMessage, uploadRequestErrorMessage } from '~/lib/utils/claim-attachment'
 import { claimRequestErrorMessage } from '~/lib/utils/claim-request-error'
 import type { ClaimDetail } from '~/types/claim'
 
@@ -104,22 +104,35 @@ describe('precheckClaimAttachments(claim-attachment.ts)', () => {
     return blob
   }
 
-  it('형식·10MB·5장(현재 + 추가) 제한', () => {
+  it('형식·5MB(경계 포함 통과·+1 거절·D-174)·5장(현재 + 추가) 제한', () => {
+    expect(CLAIM_ATTACHMENT_MAX_BYTES).toBe(5 * 1024 * 1024)
     const { accepted, rejected } = precheckClaimAttachments([
-      file('a.png', 'image/png', 100), file('b.gif', 'image/gif', 100), file('c.jpg', 'image/jpeg', 10 * 1024 * 1024 + 1),
+      file('a.png', 'image/png', 100), file('b.gif', 'image/gif', 100), file('c.jpg', 'image/jpeg', CLAIM_ATTACHMENT_MAX_BYTES + 1),
+      file('edge.jpg', 'image/jpeg', CLAIM_ATTACHMENT_MAX_BYTES),
     ], 0)
-    expect(accepted.map((entry) => entry.name)).toEqual(['a.png'])
-    expect(rejected.map((entry) => entry.reason)).toEqual(['jpg·png·webp만 첨부할 수 있습니다.', '파일당 10MB를 초과합니다.'])
+    expect(accepted.map((entry) => entry.name)).toEqual(['a.png', 'edge.jpg'])
+    expect(rejected.map((entry) => entry.reason)).toEqual(['jpg·png·webp만 첨부할 수 있습니다.', '파일당 5MB를 초과합니다.'])
 
     const over = precheckClaimAttachments([file('d.png', 'image/png', 1), file('e.png', 'image/png', 1)], 4)
     expect(over.accepted).toHaveLength(1)
     expect(over.rejected[0]!.reason).toContain('최대 5장')
   })
 
-  it('서버 파일별 실패 코드 → 문구', () => {
+  it('서버 파일별 실패 코드 → 문구(IMAGE_TOO_LARGE 해상도 안내·D-174)', () => {
     expect(uploadItemErrorMessage({ success: false, code: 'UNSUPPORTED_FORMAT' })).toContain('jpg·png·webp')
+    expect(uploadItemErrorMessage({ success: false, code: 'FILE_TOO_LARGE' })).toBe('파일당 5MB를 초과합니다.')
+    expect(uploadItemErrorMessage({ success: false, code: 'IMAGE_TOO_LARGE' })).toBe('이미지 해상도가 너무 큽니다. 한 변 8,000px 이하로 줄여 주세요.')
     expect(uploadItemErrorMessage({ success: false, message: '서버 문구' })).toBe('서버 문구')
     expect(uploadItemErrorMessage({ success: false })).toBe('업로드에 실패했습니다.')
+  })
+
+  it('요청 단위 실패 문구: 413 → 5MB / 400 미연결 상한(detail 부분 일치) → 20장 안내 / 400 그 외 → 장수 안내 / 기타 → 일반', () => {
+    expect(uploadRequestErrorMessage({ statusCode: 413 })).toBe('파일당 5MB를 초과합니다.')
+    expect(uploadRequestErrorMessage({ statusCode: 400, data: { code: 'MALFORMED_REQUEST', detail: '연결되지 않은 첨부가 너무 많습니다(최대 20개·현재 20개).' } }))
+      .toContain('최대 20장')
+    expect(uploadRequestErrorMessage({ statusCode: 400, data: { code: 'MALFORMED_REQUEST', detail: '반품 사진은 최대 5장까지 첨부할 수 있습니다.' } }))
+      .toContain('최대 5장')
+    expect(uploadRequestErrorMessage(new Error('network'))).toContain('잠시 후')
   })
 })
 

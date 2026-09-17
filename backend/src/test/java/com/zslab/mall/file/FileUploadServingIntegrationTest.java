@@ -22,6 +22,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.List;
 import javax.imageio.ImageIO;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -213,7 +214,7 @@ class FileUploadServingIntegrationTest extends AbstractIntegrationTest {
     // ==================== 썸네일 동기화 ====================
 
     @Test
-    @DisplayName("PUT images 대표 지정: 업로드 이미지 대표 → thumbnail_url=썸네일 URL / 외부 URL 대표 → 원본 그대로 / 대표 없음 → 유지")
+    @DisplayName("PUT images 대표 지정: 업로드 이미지 대표 → thumbnail_url=썸네일 URL / 외부 URL·클레임 경로·traversal 신규 → 400(D-174)·thumbnail 불변 / 대표 없음 → 유지")
     void replaceImages_syncsThumbnailUrl() throws Exception {
         seedProduct();
         JsonNode item = upload(file("main.jpg", "image/jpeg", image(1000, 500, "jpg"))).get("results").get(0);
@@ -223,11 +224,15 @@ class FileUploadServingIntegrationTest extends AbstractIntegrationTest {
         putImages("{\"images\":[{\"imageUrl\":\"" + url + "\",\"imageType\":\"GALLERY\",\"main\":true}]}");
         assertThat(currentThumbnailUrl()).isEqualTo(thumbnailUrl);
 
-        putImages("{\"images\":[{\"imageUrl\":\"https://picsum.photos/seed/x/600/600\",\"imageType\":\"GALLERY\",\"main\":true}]}");
-        assertThat(currentThumbnailUrl()).isEqualTo("https://picsum.photos/seed/x/600/600");
+        for (String rejected : List.of("https://picsum.photos/seed/x/600/600", "/api/v1/files/claims/2026/09/x.jpg",
+                "/api/v1/files/products/../claims/x.jpg", "/etc/passwd")) {
+            putImagesExpecting("{\"images\":[{\"imageUrl\":\"" + rejected + "\",\"imageType\":\"GALLERY\",\"main\":true}]}",
+                    status().isBadRequest());
+            assertThat(currentThumbnailUrl()).as("거부된 URL은 thumbnail 무변경: " + rejected).isEqualTo(thumbnailUrl);
+        }
 
         putImages("{\"images\":[{\"imageUrl\":\"" + url + "\",\"imageType\":\"DETAIL\",\"main\":false}]}");
-        assertThat(currentThumbnailUrl()).as("대표 없음 → 유지").isEqualTo("https://picsum.photos/seed/x/600/600");
+        assertThat(currentThumbnailUrl()).as("대표 없음 → 유지").isEqualTo(thumbnailUrl);
     }
 
     // ==================== helpers ====================
@@ -242,9 +247,13 @@ class FileUploadServingIntegrationTest extends AbstractIntegrationTest {
     }
 
     private void putImages(String body) throws Exception {
+        putImagesExpecting(body, status().isOk());
+    }
+
+    private void putImagesExpecting(String body, org.springframework.test.web.servlet.ResultMatcher expected) throws Exception {
         mockMvc.perform(put("/api/v1/admin/products/" + PRODUCT_PID + "/images").headers(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(body))
-                .andExpect(status().isOk());
+                .andExpect(expected);
     }
 
     private String currentThumbnailUrl() {

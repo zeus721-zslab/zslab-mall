@@ -1,8 +1,9 @@
 import type { ImageUploadResponse } from '#layers/admin/app/types/admin-product'
 import { MAX_IMAGES } from '#layers/admin/app/lib/admin-product-form'
 
-/** 업로드 클라이언트 사전 검증·에러 메시지(FE-26·순수 함수). BE 정책(D-166): jpg·png·webp / 파일당 10MB / 요청당 20장. */
+/** 업로드 클라이언트 사전 검증·에러 메시지(FE-26·순수 함수). BE 정책(D-166·D-174): jpg·png·webp / 파일당 10MB / 요청당 20장 / 한 변 8,000px. */
 export const MAX_IMAGE_BYTES = 10 * 1024 * 1024
+const MAX_IMAGE_SIDE_PX = 8000
 export const ACCEPTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp']
 export const ACCEPT_ATTRIBUTE = 'image/jpeg,image/png,image/webp'
 
@@ -38,6 +39,7 @@ const UPLOAD_ITEM_MESSAGES: Record<string, string> = {
   FILE_TOO_LARGE: '파일당 10MB를 초과합니다.',
   UNSUPPORTED_FORMAT: 'jpg·png·webp만 업로드할 수 있습니다(형식 불일치).',
   INVALID_IMAGE: '이미지를 읽을 수 없습니다.',
+  IMAGE_TOO_LARGE: `이미지 해상도가 너무 큽니다. 한 변 ${MAX_IMAGE_SIDE_PX.toLocaleString('ko-KR')}px 이하로 줄여 주세요.`,
 }
 
 /** 파일별 실패 항목 code → 문구. */

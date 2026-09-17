@@ -10545,3 +10545,41 @@ deploy.yml이 `push main` 무필터라 docs만 변경된 머지에도 서버 SSH
 ### §8 이월
 - **실 PG 도입 필수**: PG 호출 TX 분리(payment INSERT 커밋 → PG 요청 → 결과 반영) + 요청/응답 대사(timeout 시 PG 상태 조회·미확인 시도 정리).
 - 멱등 키 IN_PROGRESS + order_id null 고착 행 정리(5분 경과 조건부 재선점 또는 배치 삭제) — FE가 키를 재사용하게 되는 시점에 함께.
+
+## D-174. 업로드 자원 고갈 방지·첨부 캐시·미연결 정리·상품 이미지 URL 한정 (검수 4단계·외부 검토 A 반영)
+
+날짜: 2026-09-17
+범위: 검수 4단계(파일 업로드·서빙 외부 검토) 반영 · D-166(Track 77)·D-171(Track 81-B) 보강
+브랜치: fix/stage4-upload-hardening
+
+### 배경
+검수 4단계 자료(STEP 273·275)에서 확인한 사실: 업로드 검증이 크기 → 매직 바이트 → `ImageIO.read` 전체 디코딩 순이라 작은 파일·거대 해상도(픽셀 폭탄)가 디코딩 메모리를 소모할 수 있었다 / 구매자 클레임 첨부가 관리자 상품 이미지와 같은 파일당 10MB 한도를 공유하고 미연결 업로드 개수 상한이 없었다 / 클레임 첨부(개인 사진)도 상품 이미지와 같은 `public, immutable` 1년 캐시로 서빙됐다 / 미연결 Attachment 행·파일 정리가 없어 영구 잔존했다 / 셀러·관리자 상품 이미지 `imageUrl`이 `@NotBlank @Size`만이라 외부 URL·임의 경로가 등록됐다(FE는 업로드 결과 URL만 넣고 `<img src>`로만 소비·서버 측 fetch 없음).
+
+### §1-A 결정
+1. **픽셀 상한(해상도 헤더 선검사) 【채택】**: `ImageUploadService.readDimensions`가 `ImageIO.getImageReaders` → `reader.getWidth/getHeight(0)`로 헤더만 읽고(픽셀 미디코딩), 한 변 8,000px 이하 AND 총 픽셀 40,000,000 이하를 넘으면 파일별 실패 `IMAGE_TOO_LARGE`(요청 200·기존 파일별 결과 체계). 헤더를 읽을 수 없으면 기존대로 `INVALID_IMAGE`. `uploadOne` 단일 경로라 관리자 상품 이미지·구매자 첨부(셀러 파일 업로드 엔드포인트는 없음) 공통. 상한 근거: 8,000px = 일반 카메라 최대급(기존 400px 썸네일·상세 표시에 충분), 40MP = 8,000×5,000 ≈ ARGB 160MB 디코딩 상한(JVM 힙 여유 내).
+2. **구매자 첨부 한도 분리 【채택】**: `UploadLimits(maxFiles, maxFileSize)` 레코드로 경로별 한도를 호출부가 지정. 관리자 기본 (20장, multipart max-file-size 10MB) 유지·클레임 첨부 (5장, 5MB). 사용자별 미연결 첨부 보유 상한 20(`countByTargetTypeAndTargetIdIsNullAndUploadedBy` + 요청 장수 > 20 → 400 MALFORMED_REQUEST·타 사용자 무영향).
+3. **클레임 첨부 캐시 금지(즉시 조치) 【채택】 / 인가 파일 서빙 【이월】**: `FileServingController`가 키 접두사 `claims/`면 `Cache-Control: no-store, private`(상품 이미지는 기존 `max-age=31536000, public, immutable` 유지). nosniff는 Spring Security 기본 헤더가 서빙 응답에도 붙는 것을 테스트로 확인해 별도 명시하지 않았다. 인가 서빙(URL 보유자 전원 열람 → 본인·관리자·해당 셀러 한정)은 서빙 컨트롤러·FE `<img>` 인증 전달·signed URL 설계가 필요해 보안 트랙 최우선으로 이월(§8).
+4. **미연결 첨부 정리 24h 【채택】**: `AttachmentCleanupScheduler`(`zslab.attachment.cleanup.enabled` matchIfMissing·1시간 fixedDelay·배치 100·id별 try/catch) → `AttachmentCleanupService.cleanupOne`(품목당 독립 TX: findById → 연결됨 skip → `deleteIfUnlinked` 조건부 DELETE `WHERE id=? AND target_id IS NULL` → 영향 1이면 file_path 반환) → 커밋 후 `ImageUploadService.deleteByUrl`(원본+썸네일·`FileStorage.delete` deleteIfExists·IO 실패 warn·재시도 없음 → 파일만 남는 경우는 D-166 9 고아 파일 이월 합류). 대상 `target_type=CLAIM AND target_id IS NULL AND created_at < now−24h`. 소프트삭제 엔티티지만 어떤 대상에도 속하지 않은 행이라 하드 삭제. **V26 인덱스 불필요**: 기존 `ix_attachment_target(target_type, target_id)`가 `target_id IS NULL` 탐색을 지원하고 행 수가 소량(구매자 업로드·24h 회전)이라 created_at 필터는 인덱스 후 스캔으로 충분 — Flyway 없음.
+5. **상품 이미지 URL 서버 발급 경로 한정 【채택】**: `ImageUploadService.requireServerIssuedProductUrl` — `/api/v1/files/products/` 접두사 AND `..` 미포함만 허용, 그 외 400 MALFORMED_REQUEST. 셀러 `SellerProductImageService.add` 진입 시·관리자 `AdminProductCommandService.replaceImages`의 신규 항목(imageId null) 항상 + 기존 항목은 저장 URL과 다를 때만. **기존 데이터·데모 시드(`CatalogDemoSeedRunner` picsum 외부 URL 2건) 보정 없음** — 관리자 편집이 기존 URL을 그대로 되돌려 보내면 통과하므로 잔존 데이터 편집이 막히지 않는다(보고만). `thumbnailUrlFor`의 외부 URL 원본 반환 분기는 잔존 데이터용으로 유지.
+
+### 변경 파일
+- main 신규: file/service/UploadLimits · attachment/service/AttachmentCleanupService · attachment/scheduler/AttachmentCleanupScheduler
+- main 수정: file/service/ImageUploadService(readDimensions·UploadLimits·deleteByUrl·requireServerIssuedProductUrl) · file/service/FileStorage(delete) · file/controller/FileServingController(cacheControlOf) · claim/service/ClaimAttachmentService(5MB·미연결 20) · attachment/repository/AttachmentRepository(+3) · product/service/SellerProductImageService · product/service/AdminProductCommandService
+- test 신규: file/UploadHardeningIntegrationTest(5) / test 수정: FileUploadServingIntegrationTest(외부 URL·클레임 경로·traversal 400) · SellerProductImageControllerIntegrationTest·AdminProductManagementControllerIntegrationTest(서버 발급 경로로 픽스처 치환)
+- docs: infra/05-ssl-domain.md(`/api` location client_max_body_size 220m·운영 값 정정) — `docs/infra/`는 .gitignore(로컬 전용)라 커밋에 포함되지 않음(로컬 사본만 정정).
+- FE 변경 없음(관리자 FE는 업로드 결과 URL만 전송·수동 URL 입력 없음 → typecheck/vitest/Playwright 미실행).
+
+### 검증
+- 픽셀 폭탄: IHDR만 있는 수십 바이트 PNG 20000×20000·8001×100·8000×5001 → IMAGE_TOO_LARGE·저장 0·4파일 14ms / 6000×6000 헤더 통과 → 디코딩 실패 INVALID_IMAGE / 구매자 경로 동일.
+- 첨부 한도: 6장 400 · 5MB+1 FILE_TOO_LARGE(같은 파일 관리자는 UNSUPPORTED_FORMAT=10MB 유지) · 미연결 20 보유 후 1장 400·타 사용자 정상.
+- 캐시: claims/ `no-store, private` · products/ `max-age=31536000, public, immutable` · 둘 다 `X-Content-Type-Options: nosniff`.
+- 정리 배치: 25h 미연결 행·원본·썸네일 삭제 / 연결 25h·미연결 1h 보존 / 연결 후 조건부 DELETE 0 / 재실행 멱등 / 킬스위치 false 빈 부재.
+- imageUrl: 외부 URL·클레임 경로·`..`·절대경로 400·thumbnail 불변 / 서버 발급 경로 정상.
+- 전체 `./backend/gradlew.bat test --rerun-tasks` 190파일 1005 tests·0 fail(1000 → 1005).
+- 외부 검토: A / 지적 7건 중 수용 4건(픽셀 상한·구매자 한도 분리·미연결 정리·imageUrl 한정)·부분 수용 2건(캐시 금지만 즉시·인가 서빙 이월 / nginx 문서 정정만·rate limit 이월)·통과 확인 1건(traversal·매직 바이트·확장자 고정).
+
+### §8 이월
+- **인가 파일 서빙(보안 트랙 최우선)**: 클레임 첨부 GET을 본인·관리자·해당 셀러로 한정(signed URL 또는 인증 서빙 + FE `<img>` 토큰 전달).
+- 계정별 rate limit(gateway nginx `limit_req`·업로드 엔드포인트). multipart 전역 한도 220MB(20장×10MB)는 구매자 경로(5장×5MB)에도 그대로 적용된다 — 구매자 경로 요청 본문 제한은 nginx 경로별 `client_max_body_size` 설정으로.
+- 원본 재인코딩(EXIF 제거·orientation 정규화).
+- 고아 상품 이미지 정리(soft-delete 이미지 물리 삭제·D-166 9).
