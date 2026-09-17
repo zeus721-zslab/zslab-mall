@@ -3,6 +3,9 @@ package com.zslab.mall.payment.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.same;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -18,6 +21,11 @@ import com.zslab.mall.payment.event.PaymentCompleted;
 import com.zslab.mall.payment.exception.InvalidCallbackException;
 import com.zslab.mall.payment.gateway.PaymentGateway;
 import com.zslab.mall.payment.repository.PaymentRepository;
+import com.zslab.mall.order.entity.Order;
+import com.zslab.mall.order.enums.OrderStatus;
+import com.zslab.mall.order.repository.OrderRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.Optional;
@@ -26,6 +34,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -53,6 +62,10 @@ class PaymentCallbackTest {
     private TracedEventPublisher eventPublisher;
     @Mock
     private OrderAutoCancelService orderAutoCancelService;
+    @Mock
+    private OrderRepository orderRepository;
+    @Mock
+    private EntityManager entityManager;
     @InjectMocks
     private PaymentService paymentService;
 
@@ -62,6 +75,14 @@ class PaymentCallbackTest {
         ReflectionTestUtils.setField(payment, "id", PAYMENT_ID);
         ReflectionTestUtils.setField(payment, "status", status);
         return payment;
+    }
+
+
+    /** D-173: SUCCESS 승인 전 Order 행 락 재확인용 PENDING_PAYMENT 주문(생성 직후 상태). */
+    private Order pendingOrder() {
+        Order order = Order.create(1L, "20260917-ABCDEF", 0L, 0L);
+        ReflectionTestUtils.setField(order, "id", ORDER_ID);
+        return order;
     }
 
     private PaymentCallbackCommand command(CallbackType type) {
@@ -80,6 +101,7 @@ class PaymentCallbackTest {
         Payment payment = paymentInStatus(PaymentStatus.PENDING);
         stubFind(payment);
         when(paymentRepository.existsByOrderIdAndStatus(ORDER_ID, PaymentStatus.PAID)).thenReturn(false);
+        when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.of(pendingOrder()));
 
         paymentService.handleCallback(command(CallbackType.SUCCESS));
 
@@ -96,6 +118,25 @@ class PaymentCallbackTest {
 
         assertThatThrownBy(() -> paymentService.handleCallback(command(CallbackType.SUCCESS)))
                 .isInstanceOf(InvalidCallbackException.class);
+        verify(eventPublisher, never()).publishEvent(any());
+    }
+
+    @Test
+    @DisplayName("SUCCESS × PENDING + 주문 비PENDING_PAYMENT(락 후 재확인·늦은 승인) → InvalidCallbackException·Payment PENDING 유지·미발행(D-173)")
+    void success_pending_orderAlreadyTerminated_rejectsBeforeComplete() {
+        Payment payment = paymentInStatus(PaymentStatus.PENDING);
+        stubFind(payment);
+        when(paymentRepository.existsByOrderIdAndStatus(ORDER_ID, PaymentStatus.PAID)).thenReturn(false);
+        Order expiredOrder = pendingOrder();
+        ReflectionTestUtils.setField(expiredOrder, "status", OrderStatus.PAYMENT_EXPIRED);
+        when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.of(expiredOrder));
+
+        assertThatThrownBy(() -> paymentService.handleCallback(command(CallbackType.SUCCESS)))
+                .isInstanceOf(InvalidCallbackException.class);
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PENDING);
+        InOrder lockOrder = inOrder(entityManager);
+        lockOrder.verify(entityManager).refresh(same(payment), eq(LockModeType.PESSIMISTIC_WRITE));
+        lockOrder.verify(entityManager).refresh(same(expiredOrder), eq(LockModeType.PESSIMISTIC_WRITE));
         verify(eventPublisher, never()).publishEvent(any());
     }
 

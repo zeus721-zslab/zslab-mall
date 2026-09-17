@@ -17,6 +17,9 @@ import com.zslab.mall.payment.enums.PaymentStatus;
 import com.zslab.mall.payment.event.PaymentCompleted;
 import com.zslab.mall.payment.gateway.PaymentGateway;
 import com.zslab.mall.payment.repository.PaymentRepository;
+import com.zslab.mall.order.entity.Order;
+import com.zslab.mall.order.repository.OrderRepository;
+import jakarta.persistence.EntityManager;
 import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.Optional;
@@ -52,6 +55,10 @@ class PaymentIdempotencyTest {
     private TracedEventPublisher eventPublisher;
     @Mock
     private OrderAutoCancelService orderAutoCancelService;
+    @Mock
+    private OrderRepository orderRepository;
+    @Mock
+    private EntityManager entityManager;
     @InjectMocks
     private PaymentService paymentService;
 
@@ -59,6 +66,14 @@ class PaymentIdempotencyTest {
         Payment payment = Payment.create(ORDER_ID, PaymentMethod.CARD, AMOUNT, ATTEMPT_KEY, OCCURRED_AT.plusMinutes(30));
         ReflectionTestUtils.setField(payment, "id", 7L);
         return payment;
+    }
+
+
+    /** D-173: SUCCESS 승인 전 Order 행 락 재확인용 PENDING_PAYMENT 주문(생성 직후 상태). */
+    private Order pendingOrder() {
+        Order order = Order.create(1L, "20260917-ABCDEF", 0L, 0L);
+        ReflectionTestUtils.setField(order, "id", ORDER_ID);
+        return order;
     }
 
     private PaymentCallbackCommand command(CallbackType type) {
@@ -72,6 +87,7 @@ class PaymentIdempotencyTest {
         // 동일 행을 두 콜백 모두에 반환(attempt_key 1차 키 식별)
         when(paymentRepository.findByPaymentAttemptKey(ATTEMPT_KEY)).thenReturn(Optional.of(payment));
         when(paymentRepository.existsByOrderIdAndStatus(ORDER_ID, PaymentStatus.PAID)).thenReturn(false);
+        when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.of(pendingOrder()));
 
         paymentService.handleCallback(command(CallbackType.SUCCESS)); // PENDING→PAID·발행
         paymentService.handleCallback(command(CallbackType.SUCCESS)); // PAID·NO-OP

@@ -20,6 +20,8 @@ import com.zslab.mall.payment.exception.PaymentNotFoundException;
 import com.zslab.mall.payment.gateway.PaymentGateway;
 import com.zslab.mall.payment.repository.PaymentRepository;
 import com.zslab.mall.refund.repository.RefundRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -67,6 +69,7 @@ public class PaymentService {
     private final TracedEventPublisher eventPublisher;
     private final RefundRepository refundRepository;
     private final OrderAutoCancelService orderAutoCancelService;
+    private final EntityManager entityManager;
 
     public PaymentService(
             OrderRepository orderRepository,
@@ -74,13 +77,15 @@ public class PaymentService {
             PaymentGateway paymentGateway,
             TracedEventPublisher eventPublisher,
             RefundRepository refundRepository,
-            OrderAutoCancelService orderAutoCancelService) {
+            OrderAutoCancelService orderAutoCancelService,
+            EntityManager entityManager) {
         this.orderRepository = orderRepository;
         this.paymentRepository = paymentRepository;
         this.paymentGateway = paymentGateway;
         this.eventPublisher = eventPublisher;
         this.refundRepository = refundRepository;
         this.orderAutoCancelService = orderAutoCancelService;
+        this.entityManager = entityManager;
     }
 
     /**
@@ -153,7 +158,12 @@ public class PaymentService {
     /**
      * PG 콜백을 처리한다(D-34 매트릭스). 결제 행은 paymentAttemptKey로 식별한다(D-35).
      *
-     * @throws InvalidCallbackException 행 미발견·REJECT 조합·PAY-3a 위반 anomaly(Controller가 HTTP 422로 응답)
+     * <p><b>행 락 순서(D-173)</b>: Payment {@code refresh(PESSIMISTIC_WRITE)} → (SUCCESS) Order {@code refresh(PESSIMISTIC_WRITE)}
+     * → 동기 핸들러(Order 전이 → Inventory FOR UPDATE) 순으로 잡는다. 비잠금 조회 스냅샷은 락 대기 중 만료·타 콜백으로 바뀔 수
+     * 있어 잠금 후 최신 상태로 분기한다. 만료(ExpirePaymentService)·실패·취소 경로(cancelOne 조건부 UPDATE)와 같은
+     * Payment → Order → Inventory 순서다.
+     *
+     * @throws InvalidCallbackException 행 미발견·REJECT 조합·PAY-3a 위반·늦은 승인 anomaly(Controller가 HTTP 422로 응답)
      */
     public void handleCallback(PaymentCallbackCommand command) {
         if (command == null || command.callbackType() == null
@@ -164,6 +174,8 @@ public class PaymentService {
         Payment payment = paymentRepository.findByPaymentAttemptKey(command.paymentAttemptKey())
                 .orElseThrow(() -> new InvalidCallbackException(
                         "결제 행을 찾을 수 없습니다: attemptKey=" + command.paymentAttemptKey()));
+        // D-173: 행 락 + 최신 상태 재적재(@Lock 조회는 1차 캐시 엔티티를 덮어쓰지 않으므로 refresh·D-168 트랩).
+        entityManager.refresh(payment, LockModeType.PESSIMISTIC_WRITE);
 
         switch (command.callbackType()) {
             case SUCCESS -> handleSuccess(payment, command);
@@ -257,6 +269,7 @@ public class PaymentService {
                     throw new InvalidCallbackException(
                             "이미 결제 완료된 주문의 지연 SUCCESS 콜백입니다: orderId=" + payment.getOrderId());
                 }
+                lockOrderForApproval(payment.getOrderId(), command.paymentAttemptKey());
                 payment.complete(command.occurredAt(), command.provider(), command.pgTid());
             }
             case PAID -> log.info("[Payment] SUCCESS 콜백 멱등 NO-OP(이미 PAID): attemptKey={}", command.paymentAttemptKey());
@@ -265,6 +278,23 @@ public class PaymentService {
                 throw new InvalidCallbackException(
                         "종결 상태에서 SUCCESS 전이는 불가합니다: status=" + payment.getStatus());
             }
+        }
+    }
+
+    /**
+     * 승인 전 Order 행을 잠그고 PENDING_PAYMENT를 재확인한다(D-173). 주문 종료(만료·취소)와 결제 승인이 같은 Order 행 X 락으로
+     * 직렬화되며, 락 대기 후 이미 종료된 주문(늦은 승인)은 재고 차감 전에 422로 거절한다 — 종료로 해제된 예약분(타 주문 예약분)을
+     * 차감하는 경합을 원천 차단한다. 잠근 엔티티는 1차 캐시에 남아 후속 OrderEventHandler.markPaid가 같은 인스턴스로 전이한다.
+     */
+    private void lockOrderForApproval(Long orderId, String attemptKey) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new InvalidCallbackException("결제 대상 주문을 찾을 수 없습니다: orderId=" + orderId));
+        entityManager.refresh(order, LockModeType.PESSIMISTIC_WRITE);
+        if (order.getStatus() != OrderStatus.PENDING_PAYMENT) {
+            log.warn("[Payment] SUCCESS 콜백 늦은 승인 REJECT: orderId={}, orderStatus={}, attemptKey={}",
+                    orderId, order.getStatus(), attemptKey);
+            throw new InvalidCallbackException(
+                    "결제 승인 불가 상태의 주문입니다(늦은 콜백): orderId=" + orderId + ", status=" + order.getStatus());
         }
     }
 
