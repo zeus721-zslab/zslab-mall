@@ -164,7 +164,7 @@ class UploadHardeningIntegrationTest extends AbstractIntegrationTest {
     // ==================== STEP 278 캐시 헤더 ====================
 
     @Test
-    @DisplayName("서빙 캐시: 클레임 첨부 URL → Cache-Control no-store+private / 상품 이미지 → public immutable 유지 / 둘 다 X-Content-Type-Options nosniff")
+    @DisplayName("서빙 캐시: 클레임 첨부 URL → 업로더 200·익명 404(D-176) 모두 Cache-Control no-store+private / 상품 이미지 → 익명 200 public immutable 유지 / 둘 다 X-Content-Type-Options nosniff")
     void servingCacheHeaders_byPathPrefix() throws Exception {
         String claimUrl = upload(CLAIM_UPLOAD_URL, authHeaders.buyer(BUYER_ID), file("photo.png", png(10, 10)))
                 .get("results").get(0).get("url").asText();
@@ -173,11 +173,17 @@ class UploadHardeningIntegrationTest extends AbstractIntegrationTest {
                 .get("results").get(0).get("url").asText();
         assertThat(productUrl).startsWith("/api/v1/files/products/");
 
-        String claimCache = mockMvc.perform(get(claimUrl))
+        String claimCache = mockMvc.perform(get(claimUrl).headers(authHeaders.buyer(BUYER_ID)))
                 .andExpect(status().isOk())
                 .andExpect(header().string("X-Content-Type-Options", "nosniff"))
                 .andReturn().getResponse().getHeader("Cache-Control");
         assertThat(claimCache).contains("no-store").contains("private").doesNotContain("public");
+        // D-176: 실제 업로드 흐름으로 만든 미연결 첨부도 익명이면 404(존재 비노출)·캐시 금지 유지
+        String anonymousClaimCache = mockMvc.perform(get(claimUrl))
+                .andExpect(status().isNotFound())
+                .andExpect(header().string("X-Content-Type-Options", "nosniff"))
+                .andReturn().getResponse().getHeader("Cache-Control");
+        assertThat(anonymousClaimCache).contains("no-store").contains("private").doesNotContain("public");
 
         mockMvc.perform(get(productUrl))
                 .andExpect(status().isOk())

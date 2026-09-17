@@ -6,6 +6,8 @@ import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
 
@@ -28,6 +30,13 @@ import org.springframework.security.web.access.intercept.AuthorizationFilter;
 public class SecurityConfig {
 
     /**
+     * 클레임 첨부 인가 서빙 경로(Track 82 D-176) 단일 매처. permitAll 규칙과 {@link JwtAuthenticationFilter#shouldNotFilter}가 같은 객체를
+     * 공유해 "필터 건너뜀 = permitAll" 범위가 어긋나지 않는다. 디코딩된 servletPath+pathInfo 기준이라 인코딩 경로도 동일하게 판정된다.
+     */
+    public static final RequestMatcher CLAIM_ATTACHMENT_SERVING_MATCHER =
+            AntPathRequestMatcher.antMatcher(HttpMethod.GET, "/api/v1/files/claims/**");
+
+    /**
      * 단일 SecurityFilterChain — JWT 인증 파이프라인 + 경로별 hasRole 강제 인가(전 프로파일 동일).
      *
      * @throws Exception HttpSecurity 빌드 예외
@@ -36,7 +45,8 @@ public class SecurityConfig {
     SecurityFilterChain securityFilterChain(
             HttpSecurity http, TokenProvider tokenProvider, SecurityErrorHandler securityErrorHandler)
             throws Exception {
-        JwtAuthenticationFilter jwtAuthenticationFilter = new JwtAuthenticationFilter(tokenProvider);
+        JwtAuthenticationFilter jwtAuthenticationFilter =
+                new JwtAuthenticationFilter(tokenProvider, CLAIM_ATTACHMENT_SERVING_MATCHER);
 
         http.csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -60,6 +70,10 @@ public class SecurityConfig {
                         .permitAll()
                         // 공개 카테고리 목록(Track 72)은 공개 taxonomy 조회이므로 GET 단일 경로만 permitAll
                         .requestMatchers(HttpMethod.GET, "/api/v1/categories")
+                        .permitAll()
+                        // 클레임 첨부 서빙(Track 82 D-176)은 필터 단계에서 401/403을 내지 않는다 — JwtAuthenticationFilter가 이 경로를
+                        // 건너뛰고 ClaimAttachmentAuthorizationService가 Bearer·쿠키 후보를 독립 판정해 거부는 404로 통일한다.
+                        .requestMatchers(CLAIM_ATTACHMENT_SERVING_MATCHER)
                         .permitAll()
                         // 업로드 이미지 서빙(Track 77)은 상품 이미지 공개 조회이므로 GET만 permitAll(업로드는 /api/v1/admin/** ADMIN)
                         .requestMatchers(HttpMethod.GET, "/api/v1/files/**")

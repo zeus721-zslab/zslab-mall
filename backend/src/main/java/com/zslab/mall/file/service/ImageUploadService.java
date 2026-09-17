@@ -42,7 +42,8 @@ public class ImageUploadService {
     static final int MAX_IMAGE_SIDE_PX = 8_000;
     static final long MAX_IMAGE_PIXELS = 40_000_000L;
     static final int THUMBNAIL_WIDTH = 400;
-    static final String URL_PREFIX = "/api/v1/files/";
+    /** 업로드 파일 서빙 URL 접두사(저장 키 앞에 붙어 file_path·응답 URL이 된다). 첨부 인가 서빙(D-176)이 요청 키에서 file_path를 재조립할 때 재사용한다. */
+    public static final String URL_PREFIX = "/api/v1/files/";
     private static final String PRODUCT_DIRECTORY = "products";
     /** 상품 이미지로 등록 가능한 서버 발급 URL 접두사(D-174·외부 URL·임의 경로 차단). */
     public static final String PRODUCT_URL_PREFIX = URL_PREFIX + PRODUCT_DIRECTORY + "/";
