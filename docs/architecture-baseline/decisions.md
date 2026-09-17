@@ -10538,6 +10538,7 @@ deploy.yml이 `push main` 무필터라 docs만 변경된 머지에도 서버 SSH
 ### 검증
 - T1·T2: 각 라운드 결과가 둘 중 하나(PAID: on_hand 9·reserved 1·history 1 / 종료: on_hand 10·reserved 1·history 0)·허용 실패는 InvalidCallbackException뿐(교착·락 타임아웃 0)·같은 variant 타 주문 B PENDING_PAYMENT·reserved 1 불변·available = on_hand − reserved.
 - T3: expireOne 후 SUCCESS → 422·Payment EXPIRED·재고 불변.
+- 승자 분포(STEP 267·3회×10라운드·debug 로그·단언 없음): T2 PAID/FAILED 6/4·4/6·6/4. T1은 래치 동시 출발만으로는 EXPIRED 10/10 고정(expireOne FOR UPDATE 1쿼리가 콜백의 비잠금 조회 → refresh보다 항상 선점) → 짝수 라운드 만료 쪽 3ms 지터로 두 인터리빙을 덮어 PAID/EXPIRED 5/5 ×3. 어느 인터리빙에서도 불변식(타 주문 예약·재고 합계) 유지.
 - 기존 결제·재고·만료·체크아웃·클레임 파이프라인 통합 회귀 GREEN. 전체 `./backend/gradlew.bat test --rerun-tasks` 189파일 1000 tests·0 fail(996 → 1000).
 - 외부 검토: A / 지적 7건 중 수용 4건(Payment 행 락·Order 락 재확인·핸들러 순서·경합 테스트)·조건부 1건(멱등 키 고착 복구 — FE 키 재사용 없음으로 미해당)·이월 2건(PG 호출 TX 분리·멱등 키 고착 복구).
 

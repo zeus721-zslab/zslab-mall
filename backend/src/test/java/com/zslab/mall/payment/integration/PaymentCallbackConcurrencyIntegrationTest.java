@@ -25,6 +25,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
@@ -48,6 +50,8 @@ import org.springframework.transaction.support.TransactionTemplate;
         "zslab.refund.recovery.enabled=false"})
 class PaymentCallbackConcurrencyIntegrationTest extends AbstractIntegrationTest {
 
+    private static final Logger log = LoggerFactory.getLogger(PaymentCallbackConcurrencyIntegrationTest.class);
+
     private static final long USER_ID = 9791L;
     private static final long SELLER_ID = 9791L;
     private static final long PRODUCT_ID = 9791L;
@@ -68,6 +72,11 @@ class PaymentCallbackConcurrencyIntegrationTest extends AbstractIntegrationTest 
     private static final int RESERVED_A_PLUS_B = 2;
     private static final int RESERVED_B_ONLY = 1;
     private static final long WORKER_TIMEOUT_SECONDS = 30L;
+    /**
+     * T1 지터(STEP 267): 래치 동시 출발만으로는 expireOne(FOR UPDATE 1쿼리)이 콜백(비잠금 조회 → refresh 락)보다 항상 먼저 잠가
+     * 분포가 한쪽(EXPIRED 10/10)으로 고정된다. 짝수 라운드에 만료 쪽을 수 ms 늦춰 두 인터리빙(콜백 선점·만료 선점)을 모두 덮는다.
+     */
+    private static final long EXPIRE_JITTER_MS = 3L;
 
     @Autowired
     private PaymentService paymentService;
@@ -100,10 +109,17 @@ class PaymentCallbackConcurrencyIntegrationTest extends AbstractIntegrationTest 
             cleanup();
             seedGraph(LocalDateTime.now().minusMinutes(1));   // 이미 만료된 PENDING 결제
             String pgTid = "tid_d173_t1_" + round;
+            boolean delayExpire = round % 2 == 0;
 
             List<Throwable> failures = runConcurrently(List.of(
                     () -> { paymentService.handleCallback(successCommand(pgTid)); return null; },
-                    () -> { expirePaymentService.expireOne(PAYMENT_ID); return null; }));
+                    () -> {
+                        if (delayExpire) {
+                            Thread.sleep(EXPIRE_JITTER_MS);
+                        }
+                        expirePaymentService.expireOne(PAYMENT_ID);
+                        return null;
+                    }));
 
             // 허용 실패 = 늦은 승인 422(InvalidCallbackException)뿐. 교착·락 타임아웃·불변식 예외는 실패.
             assertThat(failures).allMatch(InvalidCallbackException.class::isInstance);
@@ -121,11 +137,15 @@ class PaymentCallbackConcurrencyIntegrationTest extends AbstractIntegrationTest 
             assertCommonInvariants();
         }
         assertThat(paidRounds + expiredRounds).isEqualTo(ROUNDS);
+        // 승자 분포는 비결정적이라 단언하지 않고 debug 로그로만 남긴다(STEP 267 분포 확인용).
+        log.debug("[D173] T1 SUCCESS vs expireOne 분포: PAID={} EXPIRED={} (rounds={})", paidRounds, expiredRounds, ROUNDS);
     }
 
     @Test
     @DisplayName("T2 SUCCESS vs FAILURE 콜백 동시 10라운드: Payment 최종 상태 1개(PAID/FAILED)·재고 처리 1회·타 주문 B 예약 불변")
     void successCallback_vsFailureCallback_resolvesToOneOutcome() throws Exception {
+        int paidRounds = 0;
+        int failedRounds = 0;
         for (int round = 1; round <= ROUNDS; round++) {
             cleanup();
             seedGraph(LocalDateTime.now().plusMinutes(30));   // 미만료 PENDING
@@ -138,15 +158,18 @@ class PaymentCallbackConcurrencyIntegrationTest extends AbstractIntegrationTest 
             assertThat(failures).allMatch(InvalidCallbackException.class::isInstance);
 
             if ("PAID".equals(paymentStatus())) {
+                paidRounds++;
                 assertThat(failures).isEmpty();          // 후행 FAILURE는 비PENDING NO-OP(200)
                 assertPaidOutcome();
             } else {
+                failedRounds++;
                 assertThat(paymentStatus()).isEqualTo("FAILED");
                 assertThat(failures).hasSize(1);          // 후행 SUCCESS × FAILED REJECT
                 assertTerminatedOutcome();
             }
             assertCommonInvariants();
         }
+        log.debug("[D173] T2 SUCCESS vs FAILURE 분포: PAID={} FAILED={} (rounds={})", paidRounds, failedRounds, ROUNDS);
     }
 
     @Test
