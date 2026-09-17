@@ -1,9 +1,9 @@
 package com.zslab.mall.order.scheduler;
 
-import com.zslab.mall.order.entity.Order;
 import com.zslab.mall.order.enums.OrderStatus;
 import com.zslab.mall.order.repository.OrderRepository;
 import com.zslab.mall.order.service.ExpiredOrderCleanupService;
+import com.zslab.mall.payment.enums.PaymentStatus;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -18,6 +18,7 @@ import org.springframework.stereotype.Component;
  * 유예(GRACE_DAYS) 경과한 미결제 종료(PAYMENT_EXPIRED) 주문을 주기적으로 hard delete하는 배치 스케줄러(FE-12c-2·
  * OrderAutoCancelScheduler 원형 복제). 트랜잭션을 갖지 않으며 오케스트레이션만 담당한다 — 삭제 후보를 한 배치
  * (최대 {@link #BATCH_SIZE}건) 조회한 뒤 id별로 {@link ExpiredOrderCleanupService#cleanupOne}(각자 독립 트랜잭션)을 호출한다.
+ * 삭제 불가 주문(PENDING 결제·delivery/claim 손자)은 조회 쿼리가 제외한다(D-175·배치 선두 점유 기아 방지).
  *
  * <p><b>부분 실패 격리</b>: id 단위 try/catch로 한 건 실패가 배치 전체를 중단시키지 않는다(로그 후 다음 건 진행).
  * {@link Exception}만 흡수하고 {@link Error}(OOM 등)는 흡수하지 않아 JVM 치명 오류는 그대로 전파된다.
@@ -53,12 +54,8 @@ public class ExpiredOrderCleanupScheduler {
         String schedulerRunId = UUID.randomUUID().toString();
         LocalDateTime threshold = LocalDateTime.now().minusDays(GRACE_DAYS);
 
-        List<Long> targetIds = orderRepository
-                .findByStatusAndUpdatedAtLessThanEqualOrderByUpdatedAtAsc(
-                        OrderStatus.PAYMENT_EXPIRED, threshold, PageRequest.of(0, BATCH_SIZE))
-                .stream()
-                .map(Order::getId)
-                .toList();
+        List<Long> targetIds = orderRepository.findExpiredCleanupCandidateIds(
+                OrderStatus.PAYMENT_EXPIRED, PaymentStatus.PENDING, threshold, PageRequest.of(0, BATCH_SIZE));
 
         if (targetIds.isEmpty()) {
             log.debug("[ExpiredCleanup] schedulerRunId={} 삭제 대상 없음", schedulerRunId);

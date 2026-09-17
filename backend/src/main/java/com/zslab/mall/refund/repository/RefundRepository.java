@@ -36,8 +36,12 @@ public interface RefundRepository extends JpaRepository<Refund, Long> {
     @Query("SELECT r FROM Refund r WHERE r.claimId = :claimId AND r.status IN :statuses ORDER BY r.id ASC")
     List<Refund> findByClaimIdAndStatusInForUpdate(@Param("claimId") Long claimId, @Param("statuses") Collection<RefundStatus> statuses);
 
-    /** Mock 완료 콜백 누락 복구(D-172): 생성 후 threshold 이전인 PENDING 환불(id 오름차순). pg_refund_id 없는 행은 호출부가 제외. */
-    List<Refund> findByStatusAndCreatedAtLessThanEqualOrderByIdAsc(RefundStatus status, LocalDateTime threshold, Pageable pageable);
+    /**
+     * Mock 완료 콜백 누락 복구(D-172): 생성 후 threshold 이전인 PENDING 환불(id 오름차순). pg_refund_id NULL 행(PG 요청 등록 전·initiate
+     * 예외 잔존)은 콜백 키가 없어 재발생 불가하므로 조회에서 제외한다(D-175·id 오름차순 배치 선두 점유 기아 방지).
+     */
+    List<Refund> findByStatusAndPgRefundIdIsNotNullAndCreatedAtLessThanEqualOrderByIdAsc(
+            RefundStatus status, LocalDateTime threshold, Pageable pageable);
 
     /** 관리자 클레임 목록·사용자 응답 배치 enrich(Track 80 D-169·N+1 회피). 클레임별 최신 행이 앞에 오도록 id 내림차순. */
     List<Refund> findByClaimIdInOrderByIdDesc(Collection<Long> claimIds);

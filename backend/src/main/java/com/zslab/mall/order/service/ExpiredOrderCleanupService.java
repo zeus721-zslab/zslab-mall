@@ -30,6 +30,13 @@ import org.springframework.transaction.annotation.Transactional;
  *   <li>(1) PENDING payment 부재. 존재 시 skip(결제 진행 가능성·삭제 위험).</li>
  * </ol>
  *
+ * <p><b>보존 정책(D-175·검수 5단계 Q1)</b>: audit_log·notification_log·inventory_history·order_idempotency_key는 삭제하지 않는다.
+ * 네 테이블은 order에 FK 없는 논리 참조(target_id·reference_id·order_id)라 삭제를 막지 않으며, append-only 감사·이력이므로 주문 행이
+ * 사라져도 보존한다(주문 내부 id만 남고 order_no는 없음 — audit_log는 status diff, notification_log는 content에 주문 publicId 텍스트).
+ *
+ * <p><b>조회 단계 제외(D-175)</b>: 삭제 불가 주문(PENDING 결제·delivery/claim 손자)은 {@code OrderRepository.findExpiredCleanupCandidateIds}가
+ * NOT EXISTS로 미리 걸러 배치 선두 점유 기아를 막는다. 아래 가드 (0)(1)은 조회~처리 사이 변경 대비로 유지한다.
+ *
  * <p><b>재고 판정 없음(Track 78 D-167 보충2·γ)</b>: 구 (2) "variant reserved &gt; 0이면 OrderTerminated 재발행 후 이연"은 폐기했다.
  * 예약 해제는 종료 전이(OrderAutoCancelService.cancelOne 조건부 UPDATE)와 같은 트랜잭션에서 1회 실행되고 실패 시 전이가
  * 롤백되므로, PAYMENT_EXPIRED 주문은 해제가 이미 끝난 주문이다. variant 합계 reserved는 같은 variant의 살아있는 타 주문 예약과

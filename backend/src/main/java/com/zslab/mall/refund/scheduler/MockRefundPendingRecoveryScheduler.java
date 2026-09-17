@@ -21,7 +21,7 @@ import org.springframework.stereotype.Component;
  * 환불에 SUCCESS 콜백을 다시 일으킨다. 실 PG는 자체 웹훅 재전송이 있으므로 {@link MockPaymentGateway} 빈이 있을 때만 등록된다
  * ({@code @ConditionalOnBean}·MockRefundAutoCallbackListener와 동일 조건). 킬스위치는 환불 누락 복구와 같은 {@code zslab.refund.recovery.enabled}.
  *
- * <p><b>대상·유예</b>: 생성 후 {@value RefundRecoveryScheduler#GRACE_MINUTES}분 경과한 PENDING(pg_refund_id 보유) — FAILED는 제외.
+ * <p><b>대상·유예</b>: 생성 후 {@value RefundRecoveryScheduler#GRACE_MINUTES}분 경과한 PENDING(pg_refund_id 보유·NULL은 조회 제외·D-175) — FAILED는 제외.
  * 중복 콜백은 {@code RefundService.handleCallback}의 환불 행 락 + 종결 no-op이 흡수한다.
  */
 @Slf4j
@@ -40,7 +40,7 @@ public class MockRefundPendingRecoveryScheduler {
     public void replayBatch() {
         String schedulerRunId = UUID.randomUUID().toString();
         LocalDateTime threshold = LocalDateTime.now().minusMinutes(RefundRecoveryScheduler.GRACE_MINUTES);
-        List<Refund> pending = refundRepository.findByStatusAndCreatedAtLessThanEqualOrderByIdAsc(
+        List<Refund> pending = refundRepository.findByStatusAndPgRefundIdIsNotNullAndCreatedAtLessThanEqualOrderByIdAsc(
                 RefundStatus.PENDING, threshold, PageRequest.of(0, RefundRecoveryScheduler.BATCH_SIZE));
         if (pending.isEmpty()) {
             log.debug("[RefundRecovery] schedulerRunId={} Mock PENDING 대상 없음", schedulerRunId);
@@ -50,7 +50,7 @@ public class MockRefundPendingRecoveryScheduler {
         int failed = 0;
         for (Refund refund : pending) {
             if (refund.getPgRefundId() == null) {
-                // PG 요청 등록 전 상태(initiate 진행 중 또는 예외 직전) — 콜백 키가 없어 재발생 불가·다음 배치에서 재판정
+                // 조회가 NOT NULL로 거르지만(D-175) 조회~처리 사이 변경 대비 방어선으로 유지 — 콜백 키가 없어 재발생 불가
                 continue;
             }
             try {

@@ -13,7 +13,9 @@ import com.zslab.mall.claim.repository.ClaimRepository;
 import com.zslab.mall.common.security.AuthHeaders;
 import com.zslab.mall.notification.adapter.SmsSender;
 import com.zslab.mall.payment.gateway.MockPaymentGateway;
+import com.zslab.mall.refund.entity.Refund;
 import com.zslab.mall.refund.enums.RefundCallbackStatus;
+import com.zslab.mall.refund.enums.RefundStatus;
 import com.zslab.mall.refund.repository.RefundRepository;
 import com.zslab.mall.refund.scheduler.MockRefundPendingRecoveryScheduler;
 import com.zslab.mall.refund.scheduler.RefundRecoveryScheduler;
@@ -34,6 +36,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.context.ApplicationContext;
 import org.springframework.http.MediaType;
@@ -260,6 +263,37 @@ class ClaimPipelineIntegrationTest extends AbstractIntegrationTest {
         mockScheduler.replayBatch();
         assertThat(refundCount(missingCancel)).isEqualTo(1);
         assertThat(refundCount(pendingMock)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("T10 Mock PENDING 기아(D-175): pg_refund_id NULL PENDING 120건(id 선두) + 정상 PENDING 1건 → 1회 실행에 정상 건 COMPLETED·NULL 건은 조회 제외")
+    void mockPendingRecovery_skipsNullPgRefundIdAtQueryLevel() {
+        MockRefundPendingRecoveryScheduler mockScheduler = new MockRefundPendingRecoveryScheduler(refundRepository, refundRecoveryService);
+        long nullHolderClaim = CLAIM_ID + 50;   // NULL 환불 120건을 매단 더미 클레임(환불 보유라 누락 복구 대상 아님)
+        long pendingMock = CLAIM_ID + 51;       // PENDING 10분 전(pg id 보유) → 재발생 대상
+        int nullPendingCount = 120;
+        long nullRefundBase = REFUND_ID + 100;  // id 오름차순 선두를 점유하도록 정상 건보다 작은 id
+        long pendingRefundId = nullRefundBase + nullPendingCount;
+        seed(() -> {
+            seedOrderItem(ITEM_A, "CANCEL_REQUESTED");
+            seedClaim(nullHolderClaim, ITEM_A, "CANCEL", "APPROVED", "PAID", LocalDateTime.now().minusMinutes(10));
+            for (int index = 0; index < nullPendingCount; index++) {
+                seedRefund(nullRefundBase + index, nullHolderClaim, "PENDING", null, 10);
+            }
+            seedClaim(pendingMock, ITEM_A, "CANCEL", "APPROVED", "PAID", LocalDateTime.now().minusMinutes(10));
+            seedRefund(pendingRefundId, pendingMock, "PENDING", PG_REFUND_ID, 10);
+        });
+        assertThat(refundRepository.findByStatusAndPgRefundIdIsNotNullAndCreatedAtLessThanEqualOrderByIdAsc(
+                RefundStatus.PENDING, LocalDateTime.now(), PageRequest.of(0, 100)))
+                .extracting(Refund::getId).containsExactly(pendingRefundId);
+
+        mockScheduler.replayBatch();
+
+        assertThat(refundStatus(pendingMock)).isEqualTo("COMPLETED");
+        assertThat(claimStatus(pendingMock)).isEqualTo("COMPLETED");
+        Integer nullStillPending = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM refund WHERE claim_id = ? AND status = 'PENDING' AND pg_refund_id IS NULL", Integer.class, nullHolderClaim);
+        assertThat(nullStillPending).isEqualTo(nullPendingCount);
     }
 
     // ===== 락 순서 통일(D-172 보충·외부 검토 2차) =====

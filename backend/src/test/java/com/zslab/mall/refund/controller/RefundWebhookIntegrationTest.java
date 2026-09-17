@@ -157,6 +157,17 @@ class RefundWebhookIntegrationTest extends AbstractIntegrationTest {
         assertThat(paymentStatus()).isEqualTo("CANCELLED"); // Payment 핸들러는 type 무관·Σ==amount 시 취소
     }
 
+    @Test
+    @DisplayName("webhook 미존재 pgRefundId(삭제·미등록 환불 콜백·D-175): 404(RefundNotFound 기존 매핑)·500 fallback 없음")
+    void webhook_unknownPgRefundId_notFound404() throws Exception {
+        String body = "{ \"pgRefundId\": \"mock_rfn_stage5_unknown\", \"status\": \"SUCCESS\" }";
+
+        mockMvc.perform(post("/api/webhooks/refunds")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isNotFound());
+    }
+
     // ---------- helpers ----------
 
     private void postWebhook(String pgRefundId, String status) throws Exception {

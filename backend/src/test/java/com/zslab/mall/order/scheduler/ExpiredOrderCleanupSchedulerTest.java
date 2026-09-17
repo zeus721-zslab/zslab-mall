@@ -6,15 +6,14 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.zslab.mall.order.entity.Order;
 import com.zslab.mall.order.enums.OrderStatus;
 import com.zslab.mall.order.repository.OrderRepository;
 import com.zslab.mall.order.service.ExpiredOrderCleanupService;
+import com.zslab.mall.payment.enums.PaymentStatus;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
@@ -40,22 +39,16 @@ class ExpiredOrderCleanupSchedulerTest {
     @InjectMocks
     private ExpiredOrderCleanupScheduler scheduler;
 
-    private Order orderWithId(long id) {
-        Order order = mock(Order.class);
-        when(order.getId()).thenReturn(id);
-        return order;
-    }
-
-    private void givenCleanupCandidates(Order... orders) {
-        when(orderRepository.findByStatusAndUpdatedAtLessThanEqualOrderByUpdatedAtAsc(
-                eq(OrderStatus.PAYMENT_EXPIRED), any(LocalDateTime.class), any(Pageable.class)))
-                .thenReturn(List.of(orders));
+    private void givenCleanupCandidates(Long... orderIds) {
+        when(orderRepository.findExpiredCleanupCandidateIds(
+                eq(OrderStatus.PAYMENT_EXPIRED), eq(PaymentStatus.PENDING), any(LocalDateTime.class), any(Pageable.class)))
+                .thenReturn(List.of(orderIds));
     }
 
     @Test
     @DisplayName("정상: 삭제 후보 3건 → cleanupOne 3회 호출")
     void cleanupBatch_allSucceed() {
-        givenCleanupCandidates(orderWithId(1L), orderWithId(2L), orderWithId(3L));
+        givenCleanupCandidates(1L, 2L, 3L);
 
         scheduler.cleanupBatch();
 
@@ -67,7 +60,7 @@ class ExpiredOrderCleanupSchedulerTest {
     @Test
     @DisplayName("부분 실패 격리: 2번째 RuntimeException(RESTRICT 등) → 1·2·3 모두 호출·예외 미전파")
     void cleanupBatch_partialFailure_isolatesAndContinues() {
-        givenCleanupCandidates(orderWithId(1L), orderWithId(2L), orderWithId(3L));
+        givenCleanupCandidates(1L, 2L, 3L);
         doThrow(new RuntimeException("삭제 실패 모의")).when(expiredOrderCleanupService).cleanupOne(2L);
 
         assertThatCode(() -> scheduler.cleanupBatch()).doesNotThrowAnyException();
@@ -80,7 +73,7 @@ class ExpiredOrderCleanupSchedulerTest {
     @Test
     @DisplayName("Error 미흡수: 1번째 Error → cleanupBatch 전파·후속 건 미호출")
     void cleanupBatch_errorNotAbsorbed_propagates() {
-        givenCleanupCandidates(orderWithId(1L), orderWithId(2L), orderWithId(3L));
+        givenCleanupCandidates(1L, 2L, 3L);
         doThrow(new Error("치명 오류 모의")).when(expiredOrderCleanupService).cleanupOne(1L);
 
         assertThatThrownBy(() -> scheduler.cleanupBatch()).isInstanceOf(Error.class);
@@ -93,9 +86,7 @@ class ExpiredOrderCleanupSchedulerTest {
     @Test
     @DisplayName("삭제 대상 없음: 빈 배치 → cleanupOne 미호출")
     void cleanupBatch_noCandidates_noop() {
-        when(orderRepository.findByStatusAndUpdatedAtLessThanEqualOrderByUpdatedAtAsc(
-                eq(OrderStatus.PAYMENT_EXPIRED), any(LocalDateTime.class), any(Pageable.class)))
-                .thenReturn(List.of());
+        givenCleanupCandidates();
 
         scheduler.cleanupBatch();
 

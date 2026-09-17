@@ -149,6 +149,19 @@ class PaymentWebhookIntegrationTest extends AbstractIntegrationTest {
         assertThat(reserved()).isZero();
     }
 
+    @Test
+    @DisplayName("webhook 미존재 attemptKey(늦은·삭제된 결제 콜백·D-175): 422(REJECT 정합)·500 fallback 없음·기존 결제 불변")
+    void webhook_unknownAttemptKey_rejects422() throws Exception {
+        String body = successBody("tid_stage5_it_0001").replace(ATTEMPT_KEY, "pat_stage5_unknown_0001");
+
+        mockMvc.perform(post("/api/webhooks/payments")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isUnprocessableEntity());
+
+        assertThat(paymentStatus()).isEqualTo("PENDING");
+    }
+
     private String successBody(String pgTid) {
         return "{"
                 + "\"provider\": \"MOCK_PG\","
