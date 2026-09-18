@@ -11130,3 +11130,36 @@ deploy.yml이 `push main` 무필터라 docs만 변경된 머지에도 서버 SSH
 
 ### §8 이월
 - 카테고리 `commission_rate` DB CHECK(D-179 이월 유지) · 2차 카테고리(V13 dedup_key·FK ON UPDATE CASCADE 재설계 선행) · 카테고리 병합·이동 · 노출 여부 컬럼(소비처 없음).
+
+## D-186. 운영자 관리 API (Track 89-E)
+
+날짜: 2026-09-18
+범위: Track 89-E BE · `GET /api/v1/admin/admin-operators`(목록) · `GET /api/v1/admin/me` · `POST /api/v1/admin/admin-operators` 요청 식별자 전환 · `DELETE /api/v1/admin/users/{userPublicId}/roles/{roleCode}` 사유 본문 · `AdminOperatorQueryService`·`AdminOperatorSpecifications`·`UserRoleRepository.findWithRoleByUserIdIn`
+브랜치: feat/admin-operators
+정찰: docs/track-89/recon-report.md(gitignore·로컬) §2-2·§8-2·§8-3
+
+### 배경
+`/admin/members/admins`가 플레이스홀더였다. 운영자 프로비저닝(Track 38)·역할 회수(Track 53) API는 있으나 목록 조회가 없고, 프로비저닝 요청이 내부 `userId`(BIGINT)를 받아 publicId만 아는 화면에서 호출할 수 없었다. 착수 전 실측: user_role SUPER_ADMIN 1(부트스트랩·name NULL·BUYER 없음)·BUYER 15·ADMIN_OPERATOR 0·복수 역할 계정 0 · user 16(탈퇴 1·soft-delete 0) · seller_user 4(각 BUYER 1역할·ADMIN 없음) · SELLER_* 3 RoleCode는 user_role에 미사용(셀러 판정은 seller_user 테이블·`DbRoleAuthorization`) · `last_login` 컬럼 없음.
+
+### §1-A 결정
+1. **역할 부여 식별자 α `userPublicId`(usr_) 【채택】 / β 내부 `userId` 유지 【기각: FE가 내부 ID를 알 수 없음·회원 목록·회수 API·전 컨트롤러가 publicId】** — 전환 대상은 `AdminOperatorProvisioningRequest.userId` 1곳뿐(회수 DELETE는 이미 publicId 경로·응답도 publicId). 서비스는 `findByPublicId`로 해소하고 미존재·soft-delete는 기존 404 `USER_NOT_FOUND` 유지. 기존 `AdminOperatorControllerIntegrationTest` 6건은 body 식별자만 교체(의도 불변).
+2. **운영자 목록 모수 = user_role에 SUPER_ADMIN 또는 ADMIN_OPERATOR 보유 회원** — `DbRoleAuthorization.ADMIN_CODES`(관리자 로그인 자격 판정)와 같은 집합이라 "관리자 화면에 들어올 수 있는 계정"과 1:1. 탈퇴(withdrawn_at)는 `AdminMemberStatusFilter` 재사용(기본 ACTIVE·WITHDRAWN 선택)·soft-delete는 `@SQLRestriction` 자동 제외. **일반회원 겸직 = BUYER role 보유**(`hasBuyerRole`) — 회원 목록 모수가 BUYER role 서브쿼리라 "회원 목록에도 나오는 계정"과 정확히 일치. 구매 이력 기준 【기각: 회원 목록 노출과 불일치】. 회원 목록은 현행 유지(승격 계정 양쪽 노출·제외하면 회원 상세의 주문·클레임 경로가 끊김·정찰 §8-3). `roles`는 ADMIN 계열만 담고 역할 필터는 `AdminOperatorRoleFilter` 2값 enum(BUYER·SELLER_* 로 회원을 뒤지는 경로 차단·오값 400). 정렬 가입일 desc 고정(sort 파라미터 없음·현재 1건)·PagedResponse·keyword 이름·이메일 50자. N+1: 페이지 userIds → `findWithRoleByUserIdIn`(JOIN FETCH) 1쿼리 배치.
+3. **목록 조회 권한 = 코어스 ADMIN 전체(ADMIN_OPERATOR 포함)·부여·회수만 SUPER_ADMIN** — 기존 관리자 조회 API 전부가 코어스 게이트 기준이고 SUPER_ADMIN 세분 검증은 "변경" 2건(`AdminOperatorProvisioningService:73`·`RoleRevocationService:183`)뿐. 조회를 SUPER_ADMIN 전용으로 올리면 유일한 예외가 되고 "비SUPER_ADMIN이 화면을 보고 변경 버튼만 비활성" 전제가 무너진다. 응답이 이름·이메일·역할 수준이라 회원 목록보다 민감하지 않다. 권한 검증 3종(SuperAdminRequired 403·SelfRoleRevocation 403·LastSuperAdminRevocation 409)은 코드·순서 무수정.
+4. **`GET /api/v1/admin/me` 신설·auth 패키지 `AdminMeController`** — JWT는 `sub=내부 userId`·`role=coarse ADMIN`만 담아 FE가 SUPER_ADMIN 여부·자기 publicId를 알 수 없다(회원 목록·운영자 목록은 publicId만 내림). 운영자 리소스 하위(`/admin-operators/me`) 【기각: 앞으로 어느 관리자 화면에서든 "현재 관리자가 누구인가"가 필요·리소스 하위면 호출이 어색】. 응답 `{userPublicId, name, email, roles(전체), superAdmin}`. 컨트롤러는 액터 식별·역할 조회가 auth 도메인 책임이라 `AdminOperatorController`와 같은 패키지에 두고 `AdminOperatorQueryService.me`를 공유한다(user 패키지 【기각: BUYER 회원 관리 도메인】·common 【기각: 도메인 조회를 담지 않음】). 실인가는 여전히 명령 서비스가 강제(응답은 화면 비활성 판정 전용).
+5. **사유 정책 = 회수만 필수(부여 없음)** — 회수는 대상이 운영 업무를 못 하게 되는 조치라 맥락이 필요하고, 부여는 되돌릴 수 있어 감사(CREATE/USER·role diff)로 충분하다(89-A~C는 금액·데이터 변경에 사유 요구). 회수는 DELETE + `@RequestBody AdminRoleRevocationRequest(reason @NotBlank @Size 200)`(`CartController.removeItems` 선례)·감사 after `{reason}`(before `{role}` 불변·회수=키 삭제+사유 추가). 부여·회수 대칭(둘 다 사유) 【기각: 부여 사유는 "누가 언제 무엇을"이 감사에 이미 있어 형식적 입력이 됨】. 구현 중 비대칭이 어색한 지점 없음(다이얼로그가 각각 별개·공용 코드 없음).
+6. **감사 이력** — 부여 CREATE/USER·회수 DELETE/USER는 Track 38·53에 이미 있어 추가하지 않음(회수 diff에 reason만 추가). 목록·/me 조회는 감사 없음(읽기).
+7. **SUPER_ADMIN 부여는 범위 외** — 프로비저닝 API는 기존 회원에 ADMIN_OPERATOR만 부여(신규 계정·비밀번호 발급 없음·SUPER_ADMIN은 부트스트랩 1회 생성만). SUPER_ADMIN 부여를 열면 새 권한 분기(A 검토 대상)라 이번에 만들지 않는다 → §8 이월. Track 84 임시 비밀번호(BUYER 대상·SMS 발송·평문 미노출)는 운영자 프로비저닝과 무관 → "임시 비밀번호 1회 표시" 요건 해당 없음.
+
+### 변경 파일
+- BE 신규: `auth/controller/AdminMeController` · `auth/controller/request/AdminOperatorRoleFilter`·`AdminRoleRevocationRequest` · `auth/controller/response/AdminOperatorSummaryResponse`·`AdminMeResponse` · `auth/service/AdminOperatorQueryService` · `auth/repository/AdminOperatorSpecifications`
+- BE 수정: `AdminOperatorProvisioningRequest`(userId→userPublicId) · `AdminOperatorProvisioningService`(findByPublicId) · `AdminOperatorController`(+GET 목록) · `AdminUserRoleController`(+@RequestBody 사유) · `RoleRevocationService`(+reason·감사 after) · `UserRoleRepository`(+findWithRoleByUserIdIn)
+- 테스트: `AdminOperatorListIntegrationTest` 신규 5건(① ADMIN_OPERATOR 200/BUYER 403 ② 모수·탈퇴 제외·역할 배열 ③ 겸직 ④ role/status/keyword 필터·오값 400 ⑤ /me superAdmin true/false·403) · `AdminOperatorControllerIntegrationTest` 6건 식별자만 교체 · `AdminUserRoleControllerIntegrationTest` 9건 사유 본문 추가 + ⑤ 감사 reason 단언 + ⑩ 사유 blank 400 신규
+
+### 검증
+- `./gradlew.bat test --rerun-tasks` 1141/0 fail/0 error/0 skip(1135 → +6·OOM 없음). auth 패키지 51건 GREEN·권한 경계 회귀(비SUPER 403·자기 SUPER_ADMIN 회수 403·마지막 SUPER_ADMIN 409·자기 ADMIN_OPERATOR 회수 허용 ⑧) 전부 기존 케이스 그대로 통과.
+- 로컬 라이브(LT-17·docker restart·Started 79s·Flyway 31 validated·ERROR 0·ADMIN 토큰): `/admin/me` `{userPublicId,email,roles:[SUPER_ADMIN],superAdmin:true}`(name NULL 키 생략) · 목록 1건 키 `{userPublicId,email,roles,hasBuyerRole,createdAt}`·totalCount 1 · 무인증 401 · `role=BUYER` 400 · `status=WITHDRAWN` 0건. **부여·회수 실행 0건**(user_role SUPER_ADMIN 1·BUYER 15 불변·audit_log USER 0).
+- 외부 검토: 등급 B / **생략 가능 판단** — 권한 검증 3종의 코드·위치 무수정, 식별자 교체·사유 추가·읽기 API 2개 추가뿐. 새 권한 분기 없음(목록·/me는 코어스 게이트만·§1-A 3).
+
+### §8 이월
+- **SUPER_ADMIN 부여 API 부재 — 회수 후 재부여 경로 없음**: SUPER_ADMIN 2명 이상일 때 1명을 회수하면 화면·API로는 되돌릴 수 없다(부트스트랩은 SUPER_ADMIN 0명일 때만 생성). 현재 1명이라 발화 불가하나 알려진 구멍. 화면 회수 확인 문구에 명시(FE-39).
+- 운영자 마지막 로그인 시각(컬럼 없음) · 목록 정렬 파라미터(1건) · 데모용 운영자 계정(ADMIN_OPERATOR 0·화면 1행).
