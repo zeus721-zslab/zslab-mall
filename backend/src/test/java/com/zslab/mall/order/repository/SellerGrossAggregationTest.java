@@ -51,8 +51,8 @@ class SellerGrossAggregationTest extends Batch1DataJpaTestBase {
         Query query = entityManager.getEntityManager().createNativeQuery(
             "INSERT INTO order_item "
             + "(public_id, order_id, product_id, variant_id, seller_id, quantity, unit_price, total_price, "
-            + "item_status, confirmed_at, created_at, updated_at, product_name) "
-            + "VALUES (:pid, 1, 1, 1, :seller, 1, :total, :total, :status, :confirmedAt, NOW(6), NOW(6), '테스트 상품')");
+            + "item_status, confirmed_at, created_at, updated_at, product_name, commission_rate) "
+            + "VALUES (:pid, 1, 1, 1, :seller, 1, :total, :total, :status, :confirmedAt, NOW(6), NOW(6), '테스트 상품', 1000)");
         query.setParameter("pid", String.format("oit_%026d", ++seq));
         query.setParameter("seller", sellerId);
         query.setParameter("total", totalPrice);
@@ -67,8 +67,8 @@ class SellerGrossAggregationTest extends Batch1DataJpaTestBase {
         Query query = entityManager.getEntityManager().createNativeQuery(
             "INSERT INTO order_item "
             + "(public_id, order_id, product_id, variant_id, seller_id, quantity, unit_price, total_price, "
-            + "item_status, created_at, updated_at, product_name) "
-            + "VALUES (:pid, 1, 1, 1, :seller, 1, :total, :total, :status, NOW(6), NOW(6), '테스트 상품')");
+            + "item_status, created_at, updated_at, product_name, commission_rate) "
+            + "VALUES (:pid, 1, 1, 1, :seller, 1, :total, :total, :status, NOW(6), NOW(6), '테스트 상품', 1000)");
         query.setParameter("pid", String.format("oit_%026d", ++seq));
         query.setParameter("seller", sellerId);
         query.setParameter("total", totalPrice);

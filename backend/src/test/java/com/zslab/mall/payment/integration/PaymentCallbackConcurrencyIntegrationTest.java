@@ -292,8 +292,8 @@ class PaymentCallbackConcurrencyIntegrationTest extends AbstractIntegrationTest 
                         + "VALUES (?, ?, ?, ?, 'PENDING_PAYMENT', ?, 0, 0, NOW(6), NOW(6), NOW(6))",
                 orderId, pid("ord_", "D173ORD" + tag), USER_ID, "ORDD173" + orderId, AMOUNT);
         jdbc.update("INSERT INTO order_item (id, public_id, order_id, product_id, variant_id, seller_id, "
-                        + "quantity, unit_price, total_price, item_status, created_at, updated_at, product_name) "
-                        + "VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, 'ORDERED', NOW(6), NOW(6), 'D173 상품')",
+                        + "quantity, unit_price, total_price, item_status, created_at, updated_at, product_name, commission_rate) "
+                        + "VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, 'ORDERED', NOW(6), NOW(6), 'D173 상품', 1000)",
                 orderItemId, pid("oit_", "D173OIT" + tag), orderId, PRODUCT_ID, VARIANT_ID, SELLER_ID, AMOUNT, AMOUNT);
     }
 

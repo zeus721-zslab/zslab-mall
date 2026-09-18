@@ -160,8 +160,8 @@ class BuyerOrderConfirmControllerIntegrationTest extends AbstractIntegrationTest
                                 + "VALUES (?, ?, ?, ?, ?, ?, 0, 0, NOW(6), NOW(6))",
                         ORDER_ID, ORDER_PID, BUYER_USER, "ORDBOC" + ORDER_ID, itemStatus, ITEM_PRICE);
                 jdbc.update("INSERT INTO order_item (id, public_id, order_id, product_id, variant_id, seller_id, "
-                                + "quantity, unit_price, total_price, item_status, created_at, updated_at, product_name) "
-                                + "VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, NOW(6), NOW(6), '테스트 상품')",
+                                + "quantity, unit_price, total_price, item_status, created_at, updated_at, product_name, commission_rate) "
+                                + "VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, NOW(6), NOW(6), '테스트 상품', 1000)",
                         ORDER_ITEM_ID, ITEM_PID, ORDER_ID, PRODUCT_ID, VARIANT_ID, SELLER_ID,
                         ITEM_PRICE, ITEM_PRICE, itemStatus);
             } finally {

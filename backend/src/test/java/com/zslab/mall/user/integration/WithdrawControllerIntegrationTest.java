@@ -221,8 +221,8 @@ class WithdrawControllerIntegrationTest extends AbstractIntegrationTest {
             try {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
                 jdbc.update("INSERT INTO order_item (id, public_id, order_id, product_id, variant_id, seller_id, quantity, unit_price, "
-                                + "total_price, item_status, product_name, created_at, updated_at) "
-                                + "VALUES (?, ?, ?, ?, ?, ?, 1, 10000, 10000, 'CONFIRMED', '탈퇴가드상품', NOW(6), NOW(6))",
+                                + "total_price, item_status, product_name, created_at, updated_at, commission_rate) "
+                                + "VALUES (?, ?, ?, ?, ?, ?, 1, 10000, 10000, 'CONFIRMED', '탈퇴가드상품', NOW(6), NOW(6), 1000)",
                         orderItemId, pid("oit_", "WDR" + orderItemId), orderId, DUMMY_FK_ID, DUMMY_FK_ID, DUMMY_FK_ID);
             } finally {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");

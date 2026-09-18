@@ -105,7 +105,7 @@ class ClaimRequestedHandlerTest {
     @Test
     @DisplayName("onClaimRequested: 전이 불가 상태(SHIPPING) → changeStatus IllegalStateException 전파(흡수 없음·Claim INSERT 롤백)")
     void onClaimRequested_notTransitionable_propagates() {
-        OrderItem orderItem = OrderItem.create(1L, 1L, 1L, "테스트 상품", 1, 1_000L, 1_000L);
+        OrderItem orderItem = OrderItem.create(1L, 1L, 1L, "테스트 상품", 1, 1_000L, 1_000L, 1000);
         ReflectionTestUtils.setField(orderItem, "id", ORDER_ITEM_ID);
         ReflectionTestUtils.setField(orderItem, "itemStatus", OrderItemStatus.SHIPPING);
         when(orderItemRepository.findById(ORDER_ITEM_ID)).thenReturn(Optional.of(orderItem));

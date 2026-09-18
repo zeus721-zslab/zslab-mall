@@ -45,8 +45,8 @@ class DeliveryRepositoryTest extends Batch1DataJpaTestBase {
 
             entityManager.getEntityManager().createNativeQuery(
                 "INSERT INTO order_item "
-                + "(public_id, order_id, product_id, variant_id, seller_id, quantity, unit_price, total_price, item_status, created_at, updated_at, product_name) "
-                + "VALUES ('" + orderItemPublicId + "', " + orderId + ", 1, 1, 1, 1, 10000, 10000, 'PAID', NOW(6), NOW(6), '테스트 상품')")
+                + "(public_id, order_id, product_id, variant_id, seller_id, quantity, unit_price, total_price, item_status, created_at, updated_at, product_name, commission_rate) "
+                + "VALUES ('" + orderItemPublicId + "', " + orderId + ", 1, 1, 1, 1, 10000, 10000, 'PAID', NOW(6), NOW(6), '테스트 상품', 1000)")
                 .executeUpdate();
             return ((Number) entityManager.getEntityManager()
                 .createNativeQuery("SELECT LAST_INSERT_ID()").getSingleResult()).longValue();

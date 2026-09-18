@@ -532,8 +532,8 @@ class Track80CancelFlowIntegrationTest extends AbstractIntegrationTest {
 
     private void seedOrderItem(long id, String publicId, long orderId, long variantId, String productName) {
         jdbc.update("INSERT INTO order_item (id, public_id, order_id, product_id, variant_id, seller_id, quantity, unit_price, "
-                        + "total_price, item_status, created_at, updated_at, product_name) "
-                        + "VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, 'PAID', NOW(6), NOW(6), ?)",
+                        + "total_price, item_status, created_at, updated_at, product_name, commission_rate) "
+                        + "VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, 'PAID', NOW(6), NOW(6), ?, 1000)",
                 id, publicId, orderId, PRODUCT_ID, variantId, SELLER_ID, ITEM_PRICE, ITEM_PRICE, productName);
     }
 

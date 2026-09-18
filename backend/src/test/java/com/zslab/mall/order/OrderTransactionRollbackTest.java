@@ -60,8 +60,8 @@ class OrderTransactionRollbackTest extends AbstractIntegrationTest {
         CreateOrderCommand command = new CreateOrderCommand(
                 BUYER_ID,
                 List.of(
-                        new OrderItemCommand(99991L, 99991L, 1L, "테스트 상품", 1, 5000L, 5000L),
-                        new OrderItemCommand(99992L, 99992L, 1L, "테스트 상품", 2, 3000L, 6000L)),
+                        new OrderItemCommand(99991L, 99991L, 1L, "테스트 상품", 1, 5000L, 5000L, 1000),
+                        new OrderItemCommand(99992L, 99992L, 1L, "테스트 상품", 2, 3000L, 6000L, 1000)),
                 new ShippingAddressCommand(
                         "홍길동", "010-1234-5678", "06236", "서울 강남대로 1", null, "101호", null),
                 0L, 0L);

@@ -7,6 +7,7 @@ import com.zslab.mall.Batch1DataJpaTestBase;
 import com.zslab.mall.settlement.entity.Settlement;
 import com.zslab.mall.settlement.enums.SettlementStatus;
 import jakarta.persistence.PersistenceException;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
@@ -41,26 +42,26 @@ class SettlementRepositoryTest extends Batch1DataJpaTestBase {
     }
 
     @Test
-    @DisplayName("save+findById 성공: sellerId·bankAccountId·netAmount 계산·status PENDING 확인")
+    @DisplayName("save+findById 성공: sellerId·netAmount 계산·status PENDING·계좌/헤더율 NULL·지급예정일(Track 85 V29) 확인")
     void save_findById_success() {
         long sellerId = seedSeller("slr_01234567890123456789012345");
-        long bankAccountId = seedSellerBankAccount(sellerId);
         LocalDateTime start = LocalDateTime.of(2026, 6, 1, 0, 0);
         LocalDateTime end = LocalDateTime.of(2026, 6, 30, 23, 59);
         Settlement saved = settlementRepository.saveAndFlush(
-            Settlement.create(sellerId, bankAccountId, start, end, 1_000_000L, 30_000L, 1000, 20_000L));
+            Settlement.create(sellerId, start, end, 1_000_000L, 30_000L, 20_000L, LocalDate.of(2026, 7, 20)));
         entityManager.clear();
 
         Optional<Settlement> found = settlementRepository.findById(saved.getId());
 
         assertThat(found).isPresent();
         assertThat(found.get().getSellerId()).isEqualTo(sellerId);
-        assertThat(found.get().getBankAccountId()).isEqualTo(bankAccountId);
+        assertThat(found.get().getBankAccountId()).isNull();
         assertThat(found.get().getGrossAmount()).isEqualTo(1_000_000L);
         assertThat(found.get().getFeeAmount()).isEqualTo(30_000L);
         assertThat(found.get().getRefundAmount()).isEqualTo(20_000L);
         assertThat(found.get().getNetAmount()).isEqualTo(950_000L);
-        assertThat(found.get().getCommissionRate()).isEqualTo(1000);
+        assertThat(found.get().getCommissionRate()).isNull();
+        assertThat(found.get().getScheduledPayDate()).isEqualTo(LocalDate.of(2026, 7, 20));
         assertThat(found.get().getStatus()).isEqualTo(SettlementStatus.PENDING);
         assertThat(found.get().getPaidAt()).isNull();
         assertThat(found.get().getCreatedAt()).isNotNull();

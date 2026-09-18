@@ -48,7 +48,7 @@ class InventoryOrderPlacedHandlerTest {
     }
 
     private OrderItem orderItem(Long id, Long variantId) {
-        OrderItem item = OrderItem.create(PRODUCT_ID, variantId, SELLER_ID, "테스트 상품", QTY, UNIT_PRICE, UNIT_PRICE * QTY);
+        OrderItem item = OrderItem.create(PRODUCT_ID, variantId, SELLER_ID, "테스트 상품", QTY, UNIT_PRICE, UNIT_PRICE * QTY, 1000);
         ReflectionTestUtils.setField(item, "id", id);
         return item;
     }

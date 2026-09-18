@@ -49,7 +49,7 @@ class InventoryOrderTerminatedHandlerTest {
 
     /** 미결제 종료는 OrderItem을 전이시키지 않으므로 종료 후에도 ORDERED 유지(재고 해제는 variant_id 기반). */
     private OrderItem orderItem(Long id, Long variantId) {
-        OrderItem item = OrderItem.create(PRODUCT_ID, variantId, SELLER_ID, "테스트 상품", QTY, UNIT_PRICE, UNIT_PRICE * QTY);
+        OrderItem item = OrderItem.create(PRODUCT_ID, variantId, SELLER_ID, "테스트 상품", QTY, UNIT_PRICE, UNIT_PRICE * QTY, 1000);
         ReflectionTestUtils.setField(item, "id", id);
         return item;
     }
