@@ -7,6 +7,7 @@ import com.zslab.mall.inventory.entity.Inventory;
 import com.zslab.mall.inventory.repository.InventoryRepository;
 import com.zslab.mall.order.controller.response.PagedResponse;
 import com.zslab.mall.product.controller.request.AdminProductSort;
+import com.zslab.mall.product.controller.request.AdminProductStockFilter;
 import com.zslab.mall.product.controller.response.AdminProductDetailResponse;
 import com.zslab.mall.product.controller.response.AdminProductSummaryResponse;
 import com.zslab.mall.product.entity.Product;
@@ -76,7 +77,7 @@ public class AdminProductQueryService {
      */
     public PagedResponse<AdminProductSummaryResponse> listProducts(
             String keyword, ProductStatus status, Boolean soldOut, String sellerPublicId, Long categoryId,
-            AdminProductSort sort, int page, int size) {
+            AdminProductStockFilter stockFilter, AdminProductSort sort, int page, int size) {
         Long sellerId = resolveSellerId(sellerPublicId);
         String trimmedKeyword = normalizeKeyword(keyword);
         Specification<Product> specification = Specification
@@ -84,7 +85,8 @@ public class AdminProductQueryService {
                 .and(AdminProductSpecifications.status(status))
                 .and(AdminProductSpecifications.soldOut(soldOut))
                 .and(AdminProductSpecifications.sellerId(sellerId))
-                .and(AdminProductSpecifications.categoryId(categoryId));
+                .and(AdminProductSpecifications.categoryId(categoryId))
+                .and(AdminProductSpecifications.stockFilter(stockFilter));
         Pageable pageable = PageRequest.of(Math.max(page, 0), clampSize(size), toSort(sort));
         Page<Product> products = productRepository.findAll(specification, pageable);
         List<Product> content = products.getContent();

@@ -16,6 +16,7 @@ import com.zslab.mall.claim.service.ClaimService;
 import com.zslab.mall.common.auth.AdminActorResolver;
 import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.repository.OrderItemRepository;
+import com.zslab.mall.refund.enums.RefundStatus;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.time.LocalDateTime;
@@ -65,7 +66,7 @@ public class AdminClaimController {
     }
 
     /**
-     * 관리자 클레임 목록(Track 80 D-169·C7). 필터: type(유형 탭·null=전체)·status·from/to(requested_at·ISO-8601)·buyerPublicId(회원 정확·Track 84·미존재는 빈 페이지)·keyword(주문번호 정확·
+     * 관리자 클레임 목록(Track 80 D-169·C7). 필터: type(유형 탭·null=전체)·status·refundStatus(최신 환불 상태·Track 89-A)·from/to(requested_at·ISO-8601)·buyerPublicId(회원 정확·Track 84·미존재는 빈 페이지)·keyword(주문번호 정확·
      * 구매자 이름/이메일·상품명 부분). 허용 외 enum·sort 값 400, keyword 50자 초과·from&gt;to 400(MALFORMED_REQUEST). 인가는
      * SecurityConfig {@code /api/v1/admin/**}→hasRole(ADMIN)이 강제한다.
      */
@@ -73,6 +74,7 @@ public class AdminClaimController {
     public ResponseEntity<AdminClaimListResponse> list(
             @RequestParam(required = false) ClaimType type,
             @RequestParam(required = false) ClaimStatus status,
+            @RequestParam(required = false) RefundStatus refundStatus,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to,
@@ -80,7 +82,7 @@ public class AdminClaimController {
             @RequestParam(defaultValue = "LATEST") AdminClaimSort sort,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(adminClaimQueryService.listClaims(type, status, keyword, from, to, buyerPublicId, sort, page, size));
+        return ResponseEntity.ok(adminClaimQueryService.listClaims(type, status, refundStatus, keyword, from, to, buyerPublicId, sort, page, size));
     }
 
     /**

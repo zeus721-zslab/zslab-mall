@@ -186,7 +186,8 @@ public class AdminOrderQueryService {
                 .getOrDefault(order.getId(), List.of()).stream()
                 .map(payment -> new AdminOrderDetailResponse.PaymentRow(
                         payment.getPublicId(), payment.getMethod().name(), payment.getStatus().name(),
-                        payment.getAmount(), payment.getPgProvider(), payment.getPaidAt(), payment.getCreatedAt()))
+                        payment.getAmount(), payment.getPgProvider(), payment.getPgTid(), payment.getFailureCode(),
+                        payment.getPaidAt(), payment.getCreatedAt()))
                 .toList();
 
         return new AdminOrderDetailResponse(

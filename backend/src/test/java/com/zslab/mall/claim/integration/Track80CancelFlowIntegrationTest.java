@@ -385,6 +385,55 @@ class Track80CancelFlowIntegrationTest extends AbstractIntegrationTest {
         assertThat(twoRowQueries).isEqualTo(QUERY_BUDGET_FOR_LIST);
     }
 
+    @Test
+    @DisplayName("T7 환불 축(Track 89-A): refundStatus 필터는 최신 환불 상태 기준·INITIATE_REFUND는 APPROVED+환불 없음/FAILED에만·허용 외 값 400")
+    void list_refundStatusFilter_andInitiateRefundAction() throws Exception {
+        // A1: 승인 → 자동 환불 COMPLETED(T3와 동일 경로) / A2: 요청 후 승인 상태만 DB로 세팅(자동 환불 유실 시뮬레이션)
+        String completedPid = requestCancel(ITEM_A1_PID);
+        mockMvc.perform(post(CLAIMS_URL + "/" + completedPid + "/approve").headers(authHeaders.admin(ADMIN_ID)))
+                .andExpect(status().isOk());
+        String lostPid = requestCancel(ITEM_A2_PID);
+        jdbc.update("UPDATE claim SET status = 'APPROVED', processed_at = NOW(6) WHERE public_id = ?", lostPid);
+
+        mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.admin(ADMIN_ID)).param("refundStatus", "COMPLETED"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalCount").value(1))
+                .andExpect(jsonPath("$.items[0].claimId").value(completedPid))
+                .andExpect(jsonPath("$.items[0].availableActions").isEmpty());
+        mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.admin(ADMIN_ID)).param("refundStatus", "FAILED"))
+                .andExpect(jsonPath("$.totalCount").value(0));
+        mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.admin(ADMIN_ID)).param("status", "APPROVED"))
+                .andExpect(jsonPath("$.totalCount").value(1))
+                .andExpect(jsonPath("$.items[0].claimId").value(lostPid))
+                .andExpect(jsonPath("$.items[0].refundStatus").doesNotExist())
+                .andExpect(jsonPath("$.items[0].availableActions[0]").value("INITIATE_REFUND"));
+
+        // FAILED 환불이 최신이면 여전히 개시 가능·FAILED 필터에 잡힘
+        long lostClaimId = jdbc.queryForObject("SELECT id FROM claim WHERE public_id = ?", Long.class, lostPid);
+        seedRefundRow(9811L, lostClaimId, "FAILED");
+        mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.admin(ADMIN_ID)).param("refundStatus", "FAILED"))
+                .andExpect(jsonPath("$.totalCount").value(1))
+                .andExpect(jsonPath("$.items[0].claimId").value(lostPid))
+                .andExpect(jsonPath("$.items[0].availableActions[0]").value("INITIATE_REFUND"));
+        // 그 뒤 PENDING 환불이 생기면(최신) 개시 불가·PENDING 필터로 이동·FAILED 필터에서 제외
+        seedRefundRow(9812L, lostClaimId, "PENDING");
+        mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.admin(ADMIN_ID)).param("refundStatus", "PENDING"))
+                .andExpect(jsonPath("$.totalCount").value(1))
+                .andExpect(jsonPath("$.items[0].claimId").value(lostPid))
+                .andExpect(jsonPath("$.items[0].availableActions").isEmpty());
+        mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.admin(ADMIN_ID)).param("refundStatus", "FAILED"))
+                .andExpect(jsonPath("$.totalCount").value(0));
+        mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.admin(ADMIN_ID)).param("refundStatus", "DONE"))
+                .andExpect(status().isBadRequest());
+    }
+
+    /** 클레임에 환불 행 1건을 직접 적재한다(주문 A 결제·id 오름차순 = 최신). */
+    private void seedRefundRow(long refundId, long claimId, String status) {
+        jdbc.update("INSERT INTO refund (id, public_id, claim_id, payment_id, amount, status, pg_refund_id, created_at, updated_at) "
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?, NOW(6), NOW(6))",
+                refundId, pid("rfd_", "T80RFD" + refundId), claimId, PAYMENT_A, ITEM_PRICE, status, "T80-PG-" + refundId);
+    }
+
     /**
      * 목록 1회 호출의 SQL 실행 수(Hibernate Statistics·prepared statement 기준). 실측 구성(1행·2행 동일 9):
      * claim count · claim page · user in · order_item in · 품목→주문 요약 projection · claim REQUESTED count · refund in · delivery in(claim_id·Track 81-A)

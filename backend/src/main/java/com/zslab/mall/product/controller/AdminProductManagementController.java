@@ -10,6 +10,7 @@ import com.zslab.mall.product.controller.request.AdminProductCreateRequest;
 import com.zslab.mall.product.controller.request.AdminProductImagesRequest;
 import com.zslab.mall.product.controller.request.AdminProductSoldOutRequest;
 import com.zslab.mall.product.controller.request.AdminProductSort;
+import com.zslab.mall.product.controller.request.AdminProductStockFilter;
 import com.zslab.mall.product.controller.request.AdminProductUpdateRequest;
 import com.zslab.mall.product.controller.request.AdminProductVariantsRequest;
 import com.zslab.mall.product.controller.response.AdminProductBulkResponse;
@@ -75,8 +76,9 @@ public class AdminProductManagementController {
     // ==================== 조회 ====================
 
     /**
-     * 관리자 상품 목록(PagedResponse). keyword=상품명 부분일치 또는 public_id 정확일치·status·soldOut·sellerPublicId·categoryId 필터·
-     * sort(LATEST 기본)·page/size(1~100). sellerPublicId 미존재 404·keyword 50자 초과 400.
+     * 관리자 상품 목록(PagedResponse). keyword=상품명 부분일치 또는 public_id 정확일치·status·soldOut·sellerPublicId·categoryId·
+     * stockFilter(LOW/OUT/IN_STOCK·Track 89-A) 필터·sort(LATEST 기본)·page/size(1~100). sellerPublicId 미존재 404·keyword 50자 초과·
+     * stockFilter 허용 외 값 400.
      */
     @GetMapping("/api/v1/admin/products")
     public ResponseEntity<PagedResponse<AdminProductSummaryResponse>> list(
@@ -85,11 +87,12 @@ public class AdminProductManagementController {
             @RequestParam(required = false) Boolean soldOut,
             @RequestParam(required = false) String sellerPublicId,
             @RequestParam(required = false) Long categoryId,
+            @RequestParam(required = false) AdminProductStockFilter stockFilter,
             @RequestParam(defaultValue = "LATEST") AdminProductSort sort,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         return ResponseEntity.ok(adminProductQueryService.listProducts(
-                keyword, status, soldOut, sellerPublicId, categoryId, sort, page, size));
+                keyword, status, soldOut, sellerPublicId, categoryId, stockFilter, sort, page, size));
     }
 
     /** 수정 화면용 상세(이미지·옵션·variant·재고 포함·내부 id 노출). 미존재·삭제 404. */

@@ -28,8 +28,9 @@ public record AdminOrderDetailResponse(
     public record Buyer(String userId, String name, String email) {
     }
 
+    /** pgTid·failureCode는 PG 대사·실패 원인 확인용(Track 89-A·결제 내역 화면을 주문 상세로 흡수). */
     public record PaymentRow(String paymentId, String method, String status, long amount, String pgProvider,
-            LocalDateTime paidAt, LocalDateTime createdAt) {
+            String pgTid, String failureCode, LocalDateTime paidAt, LocalDateTime createdAt) {
     }
 
     public record Item(String orderItemId, String productName, String optionLabel, int quantity, long unitPrice,

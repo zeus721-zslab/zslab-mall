@@ -127,6 +127,40 @@ class AdminProductManagementControllerIntegrationTest extends AbstractIntegratio
     }
 
     @Test
+    @DisplayName("목록 재고 필터(Track 89-A): 경계 0/1/5/6·variant 단위·수동품절(상품·variant) 제외·허용 외 값 400")
+    void list_stockFilter() throws Exception {
+        // 시드 재배치: P1=1(LOW 하한)·P2=0(OUT)·P3=6(IN_STOCK 하한)·P4=5(상품 수동품절)·P5=5(LOW 상한)+수동품절 variant 0
+        setAvailable(76001L * 100, 1);
+        setAvailable(76003L * 100, 6);
+        seedExtraVariant(76005L, "T76P5V1", 0, true);
+
+        expectStockFilter("LOW", 2, P1, P5);
+        expectStockFilter("OUT", 1, P2);
+        expectStockFilter("IN_STOCK", 1, P3);
+
+        // P5의 수동품절 variant를 해제하면 OUT에 포함(가용재고 0)·LOW는 유지(다른 variant 5)·IN_STOCK 불변
+        jdbc.update("UPDATE product_variant SET is_soldout_manual = 0 WHERE public_id = ?", pid("var_", "T76P5V1"));
+        expectStockFilter("OUT", 2, P2, P5);
+        expectStockFilter("LOW", 2, P1, P5);
+        expectStockFilter("IN_STOCK", 1, P3);
+
+        // 경계 이동: P1 1→0 은 LOW 이탈·OUT 진입, P3 6→5 는 IN_STOCK 이탈·LOW 진입
+        setAvailable(76001L * 100, 0);
+        setAvailable(76003L * 100, 5);
+        expectStockFilter("LOW", 2, P3, P5);
+        expectStockFilter("OUT", 3, P1, P2, P5);
+        expectStockFilter("IN_STOCK", 0);
+
+        // 상품 수동품절(P4·재고 5)은 세 값 어디에도 없음 — 해제하면 LOW 진입
+        jdbc.update("UPDATE product SET is_soldout_manual = 0 WHERE public_id = ?", P4);
+        expectStockFilter("LOW", 3, P3, P4, P5);
+
+        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("stockFilter", "BOGUS"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
+    }
+
+    @Test
     @DisplayName("목록 정렬·페이징: PRICE_ASC 첫 행 P2(1000)·NAME·size=2 hasNext true·잘못된 sort 400")
     void list_sortAndPaging() throws Exception {
         mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("sort", "PRICE_ASC"))
@@ -510,6 +544,31 @@ class AdminProductManagementControllerIntegrationTest extends AbstractIntegratio
                 variantId, pid("var_", variantTag), productId, "SKU-" + variantTag, valueId);
         jdbc.update("INSERT INTO inventory (id, variant_id, quantity_on_hand, quantity_reserved, quantity_available, created_at, updated_at) "
                 + "VALUES (?, ?, ?, 0, ?, NOW(6), NOW(6))", variantId, variantId, available, available);
+    }
+
+    private void setAvailable(long variantId, int available) {
+        jdbc.update("UPDATE inventory SET quantity_on_hand = ?, quantity_available = ? WHERE variant_id = ?",
+                available, available, variantId);
+    }
+
+    /** 기존 상품에 variant 1건 추가(옵션값은 시드 '검정' 재사용·variant id = productId*100+1). */
+    private void seedExtraVariant(long productId, String variantTag, int available, boolean soldoutManual) {
+        long variantId = productId * 100 + 1;
+        jdbc.update("INSERT INTO product_variant (id, public_id, product_id, variant_code, additional_price, status, "
+                        + "is_soldout_manual, display_order, option1_value_id, created_at, updated_at) "
+                        + "VALUES (?, ?, ?, ?, 0, 'SALE', ?, 1, ?, NOW(6), NOW(6))",
+                variantId, pid("var_", variantTag), productId, "SKU-" + variantTag, soldoutManual ? 1 : 0, productId * 10 + 1);
+        jdbc.update("INSERT INTO inventory (id, variant_id, quantity_on_hand, quantity_reserved, quantity_available, created_at, updated_at) "
+                + "VALUES (?, ?, ?, 0, ?, NOW(6), NOW(6))", variantId, variantId, available, available);
+    }
+
+    private void expectStockFilter(String stockFilter, int totalCount, String... expectedPublicIds) throws Exception {
+        ResultActions actions = mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("stockFilter", stockFilter))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalCount").value(totalCount));
+        for (String publicId : expectedPublicIds) {
+            actions.andExpect(jsonPath("$.items[?(@.productPublicId == '" + publicId + "')]").exists());
+        }
     }
 
     private void cleanup() {
