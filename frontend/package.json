@@ -20,6 +20,7 @@
     "@mdi/js": "7.4.47",
     "@pinia/nuxt": "^0.11.3",
     "@vueuse/core": "^14.4.0",
+    "apexcharts": "^7.4.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "nuxt": "^4.4.8",
@@ -31,6 +32,7 @@
     "vue-draggable-plus": "0.6.1",
     "vue-router": "^5.1.0",
     "vue-sonner": "2.0.9",
+    "vue3-apexcharts": "^1.11.1",
     "vuetify": "3.13.4"
   },
   "devDependencies": {

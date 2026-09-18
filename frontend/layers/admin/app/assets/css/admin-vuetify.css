@@ -178,6 +178,9 @@ html,
   --adm-semantic-success-fg: #15803d;
   --adm-semantic-info-bg: #dbeafe;
   --adm-semantic-info-fg: #1d4ed8;
+  /* FE-33 대시보드: 0·비교 불가 배지(회색) */
+  --adm-semantic-neutral-bg: #f4f4f5;
+  --adm-semantic-neutral-fg: #52525b;
 }
 .adm-chip {
   font-weight: 500;
@@ -186,6 +189,7 @@ html,
 .adm-chip--warning { background: var(--adm-semantic-warning-bg) !important; color: var(--adm-semantic-warning-fg) !important; }
 .adm-chip--success { background: var(--adm-semantic-success-bg) !important; color: var(--adm-semantic-success-fg) !important; }
 .adm-chip--info { background: var(--adm-semantic-info-bg) !important; color: var(--adm-semantic-info-fg) !important; }
+.adm-chip--neutral { background: var(--adm-semantic-neutral-bg) !important; color: var(--adm-semantic-neutral-fg) !important; }
 
 /* FE-26 상품 폼: 드롭존·이미지 그리드·조합표 */
 .adm-dropzone {
@@ -276,4 +280,17 @@ html,
 .adm-table--compact.v-table > .v-table__wrapper > table > tbody > tr > td,
 .adm-table--compact.v-table > .v-table__wrapper > table > thead > tr > th {
   padding: 0 12px;
+}
+
+/* FE-33 대시보드: 처리 대기 칸·리스트 행 */
+.adm-dashboard-pending {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+}
+.adm-dashboard-pending--link:hover .v-card {
+  box-shadow: 0 20px 27px 0 rgba(0, 0, 0, 0.1);
+}
+.adm-dashboard-list .v-list-item--link:hover {
+  background: var(--adm-semantic-neutral-bg);
 }
