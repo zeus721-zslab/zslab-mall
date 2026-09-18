@@ -1793,3 +1793,25 @@ BE 계약 Track 89-C D-185(목록 `{defaultCommissionRate, items[]}`·PUT 전체
 
 ### §8 이월
 - 등록 다이얼로그에서 율 동시 입력(생성 API에 commissionRate 추가 필요·D-185 §5) · 드래그 정렬 · 2차 카테고리 칩(기존 백로그).
+
+## FE-39: 관리자 운영자 관리 화면 (2026-09-18)
+
+BE 계약 Track 89-E D-186(목록 `GET /admin/admin-operators`·`GET /admin/me`·부여 `userPublicId`·회수 DELETE+사유 본문이 SoT·본 항목에서 재기술하지 않음) · 브랜치 `feat/admin-operators`(BE·FE 동일 브랜치·미커밋) · 정찰 `docs/track-89/recon-report.md` §2-2 · 외부 검토 B / 생략 가능 판단(D-186).
+
+### §1-A 갈림길·채택/기각 근거
+1. 화면 구성: `AdminMemberListView.vue` 계열의 URL query 단일 소스 목록(역할 select·상태 select·검색어·페이지 → `router.replace` → `route.query` watch → 조회). 테이블 = 이름(+"나" chip) / 이메일 / 역할 배지(복수·슈퍼 warning·운영 info) + "일반회원 겸직" chip(outlined) / 상태(활성·탈퇴) / 가입일 / (탈퇴 필터 시 탈퇴일) / 관리("역할 회수"). 헤더 액션 "신규 운영자 등록". 회원 목록처럼 페이지를 활성·탈퇴로 나누는 안 【기각: 1건 규모·한 화면 select가 충분】.
+2. **권한별 비활성 정책 = `GET /admin/me`의 `superAdmin`·`userPublicId`만 근거**(JWT는 coarse ADMIN·내부 id라 판정 불가·D-186 §4). 등록 버튼·행 회수 버튼은 `provisionBlockedReason`·`revokeBlockedReason`(null=활성)으로 비활성 + 감싸는 span 툴팁(FE-37·38 패턴): me 로드 실패 → 전부 비활성("불러오지 못해")·목록 열람은 유지 / 비SUPER_ADMIN → "슈퍼 관리자만 …" / **자기 행은 역할과 무관하게 비활성**("자기 자신의 역할은 회수할 수 없습니다"). BE는 자기 ADMIN_OPERATOR 회수를 허용(Track 53 ⑧)하지만 화면은 더 보수적으로 막는다(실수 방지·필요하면 다른 SUPER_ADMIN이 회수). 실인가는 BE 403/409가 SoT.
+3. **마지막 SUPER_ADMIN 사전 비활성 = 목록이 완전할 때만**(`superAdminCountInList`: 검색어 없음·역할 필터 전체 또는 SUPER_ADMIN·첫 페이지·hasNext false → SUPER_ADMIN 행 수, 아니면 null). 인원 ≤1이면 회수 다이얼로그의 SUPER_ADMIN 선택지를 비활성 + 사유 문구, 모르면(null) 서버 409 `LAST_SUPER_ADMIN`을 토스트로. 탈퇴 SUPER_ADMIN은 BE 인원수에 포함되지만 ACTIVE 목록에 없어 화면이 더 보수적(비활성 쪽)으로 판정할 수 있다 — 허용 방향 오판은 없음. 인원수 API 추가 【기각: 요청 범위 밖·현재 1명】.
+4. 회수 다이얼로그(`AdminOperatorRevokeDialog`): 대상 행의 ADMIN 계열 역할 라디오(선택 가능한 첫 역할 기본 선택) + 확인 문구 + 사유 textarea(필수·200·비면 확인 비활성). **확인 문구 최종안** — SUPER_ADMIN: "{이름 (이메일)}의 슈퍼 관리자 역할을 회수합니다. / 회수 즉시 운영자 등록·역할 회수 권한을 잃습니다. 슈퍼 관리자 역할은 화면에서 다시 부여할 수 없으므로(부여 API 없음) 되돌리려면 DB 작업이 필요합니다. / (남은 역할 있으면) 남은 역할(운영 관리자)은 유지됩니다." · ADMIN_OPERATOR: "…의 운영 관리자 역할을 회수합니다. / (남은 역할 없으면) 회수 즉시 관리자 화면에 로그인할 수 없습니다. 필요하면 운영자 등록에서 다시 부여할 수 있습니다. / (있으면) 남은 역할(슈퍼 관리자)은 유지되어 관리자 화면 접근은 계속 가능합니다." 403(SUPER_ADMIN 아님·자기 SUPER_ADMIN)은 code가 공용 FORBIDDEN이라 `toOperatorErrorMessage`가 서버 detail(구체 사유)을 우선 표시 · 409 LAST_SUPER_ADMIN·404 ROLE_ASSIGNMENT_NOT_FOUND는 코드 문구 → 토스트 후 재조회.
+5. 등록 다이얼로그(`AdminOperatorProvisionDialog`): 프로비저닝 API가 기존 회원 승격만이라(D-186 §7) 회원 목록 API(keyword·ACTIVE·size 10) 검색 → 결과 리스트 선택 → 확인 문구 → POST(사유 없음). **임시 비밀번호 표시 없음**(발급 자체가 없음·앞 프롬프트 지시 무효화 확정). 409 ADMIN_OPERATOR_ALREADY_EXISTS는 토스트 후 다이얼로그 유지(다른 회원 선택 가능). 이미 운영자인 회원을 검색 결과에서 제외하는 안 【기각: 교차 조회 필요·서버 409로 충분】.
+6. 트랩: (1) Vuetify `v-radio` 루트의 data-testid 클릭·`input.check({force})`로는 선택이 바뀌지 않음 → `label` 클릭 (2) `v-textarea`는 textarea 2개(auto-grow sizer) → `.first()`(FE-27 선례) (3) Playwright 전체 실행을 BE `--rerun-tasks`와 동시에 돌리면 첫 로드 플레이크 7건 → BE 종료 후 재실행 64/64.
+
+### §2 확정 구현 규칙
+- `lib/constants/admin-operator.ts`(`AdminOperatorRole` 2값·라벨·semantic·역할/상태 옵션·키워드 50·사유 200·회원 검색 10) / `types/admin-operator.ts`(`AdminOperatorSummary` roles 배열+hasBuyerRole·`AdminMe`·ListQuery·요청 2종) / `lib/admin-operator-query.ts`(parse·route·api·hasActiveFilters) / `lib/admin-operator-view.ts`(`operatorRoleChip`·`operatorDisplayName`·`isSelf`·`superAdminCountInList`·`provisionBlockedReason`·`revokeBlockedReason`·`roleRevokeBlockedReason`·`revokeConfirmMessage`·`toOperatorErrorMessage`) / `composables/useAdminOperators.ts`(list·me·provision POST·revoke DELETE+body) / `lib/admin-error-message.ts` +`ADMIN_OPERATOR_ALREADY_EXISTS`·`ROLE_ASSIGNMENT_NOT_FOUND`·`LAST_SUPER_ADMIN`.
+- 컴포넌트: `AdminOperatorTable` · `AdminOperatorRevokeDialog` · `AdminOperatorProvisionDialog` · 페이지 `members/admins.vue`(플레이스홀더 교체·`/admin/me`는 onMounted 1회).
+- 테스트: vitest `admin-operator-helpers`(14: URL 매핑 4·배지/표시명/self 3·비활성 판정 2·인원 계수/마지막 SUPER_ADMIN 2·확인 문구/오류 문구 3) · Playwright `admin-operators ①`(2행·배지·겸직·나 chip → 자기 행 비활성 툴팁 → 타 행 회수 다이얼로그(SUPER_ADMIN 2명이라 선택 가능·재부여 불가 문구·역할 전환 시 문구·사유 비면 비활성) → 역할 필터 URL/API → 등록 다이얼로그(검색 파라미터·선택·확인 문구) → POST/DELETE 0).
+- 검증(실측·컨테이너 pnpm): typecheck 0 · vitest 48 files 347(333 → +14) · Playwright 1회차 57/64(7건 첫 로드 플레이크·BE 전체 테스트 동시 실행) → 2회차 64/64(63 → +1) · 픽셀 track89c vs track89e 12장 diff 0 · 라이브 화면(playwright-report/step455-admin 5장·실 BE·일회성 step455-live.mjs): 1행(이름 "—"·admin@zslab-mall.local·슈퍼 관리자 배지·겸직 chip 0·"나" chip 1·활성·회수 비활성 툴팁 "자기 자신의 역할은 회수할 수 없습니다.")·등록 버튼 활성 → 등록 다이얼로그 회원 검색 "@" 10건·demo 선택 → "demo 회원에게 운영 관리자 역할을 부여합니다."·확인 활성 → 닫기 · 탈퇴 필터 빈 상태 · 모바일 390px 목록 · **POST/DELETE 0건**(user_role·audit_log 불변).
+- 신규 의존성: 없음.
+
+### §8 이월
+- SUPER_ADMIN 부여 UI(BE API 부재·D-186 §8 선행) · 운영자 상세(마지막 로그인 등 볼 데이터 없음) · 데모용 운영자 계정 시드(화면 1행·D-186 §8).
