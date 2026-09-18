@@ -1695,3 +1695,34 @@ BE 계약 Track 87 D-181(`GET /api/v1/admin/stats/sales`·`/breakdown`·`/breakd
 - 드릴다운 상위 이름의 새로고침 유지(BE breakdown 응답에 parentName 추가 시).
 - 통계 주문·회원·상품 3페이지는 여전히 플레이스홀더 — `AdminPeriodPicker`·`AdminSalesBreakdownTable` 재사용 가능.
 - 비교 계열 확장(매출·환불 점선 토글)은 요구 시.
+
+## FE-35: 주문·클레임 / 회원 통계 화면 (2026-09-18)
+
+BE 계약 Track 88 D-182(`GET /api/v1/admin/stats/orders`·`/members`·"API 계약" 절이 SoT·본 항목에서 재기술하지 않음) · 브랜치 `feat/order-member-stats`(BE·FE 동일 브랜치·미커밋) · 정찰 `docs/track-88/recon-report.md` §6(FE) · 외부 검토 C / 생략.
+
+### §1-A 갈림길·채택/기각 근거
+1. 퍼널 시각화: **α 가로 막대 4단(폭 = 결제 대비 도달률) + 단계별 건수·도달률·직전 대비 이탈률 병기 【채택】** / β apexcharts 가로 bar 【기각: 이탈률·건수 병기가 툴팁에 갇히고 4행이라 차트 이점 없음】 / γ 단계형(사다리꼴) 【기각: 신규 SVG·의존성 없이 구현 비용만】. 비율은 FE 순수 함수 `funnelStages`(BE는 건수만·D-182). 취소·반품은 단계가 아니라 이탈 사유라 카드 우상단 칩으로 분리. 코호트 안내 1줄 고정(`funnel-notice`).
+2. 비교 계열 표시 범위: **α 클레임률·환불률 2계열 + 비교는 환불률만 점선 【채택】**(FE-34 α와 동일·과밀 방지) / β 비교 2계열 【기각】. `compareRefundRateSeries`가 후행 0 → null(FE-34 `compareNetSeries` 규칙 그대로·중간 0 유지). 툴팁 x 라벨에 건수·환불액 병기.
+3. 가입 추이 이중 축: **α 혼합 차트(신규 가입 column + 활성 누적 line·y축 2개 opposite) 【채택】** / β 2계열 line 【기각: 혼합 가능 확인】. 혼합은 AdminChart 래퍼 수정 없이 `AdminChartSeries`에 `type?: 'line' | 'column' | 'area'` 1필드 추가(정찰 §6-1 예고·기존 호출부 영향 0)로 성립 — apexcharts는 chart.type 'line' + 계열별 type으로 혼합을 그린다. `yaxis[]`의 `seriesName`을 계열명과 맞춰 축을 대응시킨다.
+4. 사유 미매핑 원문 표기: `claimReasonLabel(code)` = `CLAIM_REASON_LABELS[code] ?? code`(단일 소스 claim.ts·BE reason_code 무제약 VARCHAR·D-182 §1-A 9). 유형도 같은 방식.
+5. 탈퇴 카드 색 반전: `memberSummaryCards`가 탈퇴만 `inverse`(FE-34 `salesChangeTone` 재사용) — 증가 빨강·감소 녹색. 클레임 요약 4장(건수·클레임률·환불액·환불률)은 전부 inverse.
+6. AdminChart·AdminPeriodPicker 확장 범위: AdminChart `type`에 `'donut'`·`series`에 `number[]` 유니온 2줄(도넛 라벨은 options.labels) · AdminPeriodPicker `unit?`·`compare?` optional + 미전달 시 v-select `v-if` 숨김(탭 2·3은 둘 다 노출하므로 현재 숨김 사용처 없음·확장만). **회귀 확인**: 확장 직후 typecheck 0·vitest 292(변경 전 기준선 그대로)·E2E admin-dashboard·admin-sales-stats 2/2 GREEN → 다음 단계 진행. 최종 전체 E2E 58/58·대시보드·매출 통계 스크린샷 육안 확인(탭 행 추가 외 동일).
+7. 통계 3탭 이동: 좌측 메뉴에 통계 4항목이 이미 있으나 화면 안에서 오가는 UI가 없어 `AdminStatsTabs`(v-tabs `:to`·매출/주문·클레임/회원·미구현 "상품" 제외)를 3페이지 헤더 아래에 둔다. sales.vue는 이 1줄(+빈 줄)만 수정.
+8. 클레임 요약 카드 4장 추가(요청 목록 외): D-182가 비교 기간을 "추이·요약 카드"에 적용하고 compareClaimSummary를 내리므로 소비처를 두었다(비교 선택 시 증감 배지). 없으면 compare 선택이 추이 점선 하나에만 영향을 줘 어색하다.
+9. URL 동기화: 탭 2·3 공통 `admin-stats-period-query.ts`(preset|from|to|unit|compare·축 없음)로 분리하고 기간 계산·역전 판정은 매출 헬퍼 재사용(`resolvePeriod` 위임). 페이지 흐름(pendingQuery·sequence·requestKey watch)은 sales.vue와 동일.
+10. 트랩: E2E 퍼널 단계 locator를 `[data-testid^="funnel-stage-"]`로 잡으면 하위 `funnel-stage-count/reach/drop`까지 15개가 잡힌다 → `[data-testid$="Items"]` 접미 조건으로 4단계만 선택. 픽셀 1회차 login-desktop 5px diff는 재캡처 0(글리프 레이스·FE-22b 트랩).
+
+### §2 확정 구현 규칙
+- `types/admin-order-stats.ts`·`types/admin-member-stats.ts`(D-182 1:1·비교·leadTime 구간·topBuyers 식별 필드 optional) / `lib/admin-stats-period-query.ts` / `lib/admin-order-stats-view.ts`(정규화·funnelStages·formatHours 24h 경계 "N일 M시간"·leadTimeCards "데이터 없음"·claimSummaryCards·claimTrendChart·분포 라벨·donutChart 합 0 empty) / `lib/admin-member-stats-view.ts`(정규화·카드 6·signupTrendChart 혼합 이중 축·gradeRows·buyerSplitView·topBuyerRows null → "—") / `composables/useAdminOrderStats.ts`·`useAdminMemberStats.ts`.
+- 컴포넌트: `AdminStatsTabs` · `AdminStatsSummaryCards`(공용·icons/colors 맵·testid 접두) · `AdminOrderFunnel`(`funnel-stage-{key}`·`funnel-cancelled/returned`·`funnel-empty`) · `AdminLeadTimeCards`(`lead-time-card-{key}`·`lead-time-median`) · `AdminDonutCard`(도넛 + 기본 표·슬롯으로 표 대체·`chartCols`·`{testid}-empty/-row/-notice`) · `AdminBuyerSplitCard`(가로 누적 막대 + 2분할) · `AdminTopBuyersTable`(행 클릭 → `/admin/members/{publicId}?back=`·`top-buyers-row(-navigable)`) · 페이지 `stats/orders.vue`·`stats/members.vue`(플레이스홀더 제거).
+- 빈 상태: 차트 축만 + "데이터 없음" 캡션·표 "데이터 없음"·도넛 합 0이면 빈 문구·소요시간 표본 0 "데이터 없음"·퍼널 결제 0 "데이터 없음". 등급 분포는 3등급 고정 행(한 종류뿐이어도 도넛 1조각·표 3행).
+- 테스트: vitest `test/admin/admin-order-member-stats-helpers.spec.ts`(17·URL 매핑·퍼널 도달/이탈·formatHours 경계·소요시간 카드·클레임 카드 톤·후행 0→null·추이 계열·정규화·사유 미매핑 원문·도넛 empty·탈퇴 반전·분리·상위 회원·혼합 차트 이중 축) · Playwright `e2e/admin-order-member-stats.spec.ts`(2·① 주문: 퍼널 4단·소요 3·요약 4·추이 SVG·분포 2·단위/비교 URL·역전 요청 0·탭 → 회원 / ② 회원: 카드 6·차트·등급 3행·분리·상위 표·탭 → 매출).
+- 검증(실측): typecheck 0 · vitest 44 files 309(292 → +17) · Playwright 58/58 skip 0(56 → +2·1회차 3건 실패 = 컨테이너 재시작 직후 첫 로드 9s 타임아웃·FE-33/34 트랩 동일·2회차 58/58) · 라이브 응답 키 집합(orders 최상위 6·funnel 6·leadTime 3·metric 3·claimSummary 6·trend 7·type/reason 3 · members 최상위 7·summary 6·signup 4·grade 5·split 4·top 5)이 D-182 계약과 정확히 일치·누출 0 · 실화면 스크린샷(주문·회원·매출·대시보드) 확인.
+- 픽셀: track87 vs track88 12장 diff 0(login-desktop 1회차 5px → 재캡처 0).
+- 신규 의존성: 없음.
+- 데이터 빈약 지점(데모): 등급 분포 전원 SILVER(도넛 1조각·골드/플래티넘 0행) · 재구매율 100%·1회 구매자 0(분리 막대 단색) · 가입 추이 2월 13명 후 산발 1명 · 결제 실패/만료 없음(범위 밖). 등급 재산정은 머지 후 별도 STEP.
+
+### §8 이월
+- compareSignupTrend는 응답에 있으나 차트에 그리지 않음(혼합 차트에 점선 추가 시 과밀·요구 시).
+- 퍼널 "진행 중"(미도달·미종결) 건수 표기·소요시간 분포(히스토그램)·클레임 셀러/상품 축.
+- AdminPeriodPicker unit/compare 숨김 사용처 없음(확장만) — 탭별 축소 요구 시 사용.
