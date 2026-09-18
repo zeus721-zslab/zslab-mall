@@ -10,13 +10,14 @@ import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 /**
- * 배송 Repository.
+ * 배송 Repository. {@link JpaSpecificationExecutor}는 관리자 배송 목록(Track 89-B·{@code AdminDeliverySpecifications}) 전용이다.
  */
-public interface DeliveryRepository extends JpaRepository<Delivery, Long> {
+public interface DeliveryRepository extends JpaRepository<Delivery, Long>, JpaSpecificationExecutor<Delivery> {
 
     Optional<Delivery> findByPublicId(String publicId);
 
