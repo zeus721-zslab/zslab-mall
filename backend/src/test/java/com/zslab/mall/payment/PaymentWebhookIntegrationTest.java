@@ -184,8 +184,8 @@ class PaymentWebhookIntegrationTest extends AbstractIntegrationTest {
                     ORDER_ID, AMOUNT);
             jdbc.update("INSERT INTO order_item "
                     + "(id, public_id, order_id, product_id, variant_id, seller_id, quantity, unit_price, total_price, "
-                    + "item_status, created_at, updated_at, product_name) "
-                    + "VALUES (?, 'oit_track6_it_0001', ?, 1, 1, 1, 1, ?, ?, 'ORDERED', NOW(6), NOW(6), '테스트 상품')",
+                    + "item_status, created_at, updated_at, product_name, commission_rate) "
+                    + "VALUES (?, 'oit_track6_it_0001', ?, 1, 1, 1, 1, ?, ?, 'ORDERED', NOW(6), NOW(6), '테스트 상품', 1000)",
                     ORDER_ITEM_ID, ORDER_ID, AMOUNT, AMOUNT);
             jdbc.update("INSERT INTO payment "
                     + "(id, public_id, order_id, method, amount, status, payment_attempt_key, created_at, updated_at) "

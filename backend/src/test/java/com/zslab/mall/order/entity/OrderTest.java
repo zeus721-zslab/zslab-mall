@@ -21,7 +21,7 @@ class OrderTest {
     }
 
     private OrderItem newItem(long unitPrice, int quantity) {
-        return OrderItem.create(10L, 20L, 30L, "테스트 상품", quantity, unitPrice, unitPrice * quantity);
+        return OrderItem.create(10L, 20L, 30L, "테스트 상품", quantity, unitPrice, unitPrice * quantity, 1000);
     }
 
     @Test

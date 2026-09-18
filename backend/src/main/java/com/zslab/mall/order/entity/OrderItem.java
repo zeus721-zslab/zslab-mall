@@ -2,6 +2,7 @@ package com.zslab.mall.order.entity;
 
 import com.zslab.mall.common.entity.AbstractPublicIdFullAuditableEntity;
 import com.zslab.mall.order.enums.OrderItemStatus;
+import com.zslab.mall.settlement.service.CommissionRateResolver;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -68,6 +69,13 @@ public class OrderItem extends AbstractPublicIdFullAuditableEntity {
     private Long totalPrice;
 
     /**
+     * 주문 시점 적용 수수료율 스냅샷·basis-point(Track 85·V30). 체크아웃이 {@code CommissionRateResolver}(셀러 개별율 → 카테고리율 →
+     * 플랫폼 기본율) 판정값을 박제하며 정산은 이 값만 쓴다(사후 율 변경 무영향).
+     */
+    @Column(name = "commission_rate", nullable = false, updatable = false)
+    private Integer commissionRate;
+
+    /**
      * 주문 시점 옵션 라벨 스냅샷("색상: 블랙 / 사이즈: M"·표시 전용·D-164). 옵션 없는 단순상품·미해소·V20 이전 주문은 NULL이며
      * 이후 옵션 그룹·값이 수정·삭제돼도 과거 주문 표기는 변하지 않는다.
      */
@@ -91,24 +99,7 @@ public class OrderItem extends AbstractPublicIdFullAuditableEntity {
     }
 
     /**
-     * 주문 품목을 생성한다. 초기 상태는 {@link OrderItemStatus#ORDERED}이며 ORD-5(total = unit × quantity)를 검증한다.
-     *
-     * @throws IllegalArgumentException 필수값 누락·수량 1 미만·ORD-5 위반 시
-     */
-    public static OrderItem create(
-            Long productId,
-            Long variantId,
-            Long sellerId,
-            String productName,
-            int quantity,
-            Long unitPrice,
-            Long totalPrice) {
-        return create(productId, variantId, sellerId, productName, quantity, unitPrice, totalPrice, null);
-    }
-
-    /**
-     * 옵션 라벨 스냅샷을 포함해 주문 품목을 생성한다(Track 75). optionLabel은 null 허용(옵션 없음·미해소). productName은
-     * 주문 시점 상품명 스냅샷(Track 76·필수).
+     * 주문 품목을 생성한다(옵션 라벨 없음). 초기 상태는 {@link OrderItemStatus#ORDERED}이며 ORD-5(total = unit × quantity)를 검증한다.
      *
      * @throws IllegalArgumentException 필수값 누락·수량 1 미만·ORD-5 위반 시
      */
@@ -120,14 +111,35 @@ public class OrderItem extends AbstractPublicIdFullAuditableEntity {
             int quantity,
             Long unitPrice,
             Long totalPrice,
+            Integer commissionRate) {
+        return create(productId, variantId, sellerId, productName, quantity, unitPrice, totalPrice, commissionRate, null);
+    }
+
+    /**
+     * 옵션 라벨 스냅샷을 포함해 주문 품목을 생성한다(Track 75). optionLabel은 null 허용(옵션 없음·미해소). productName은
+     * 주문 시점 상품명 스냅샷(Track 76·필수). commissionRate는 주문 시점 수수료율 스냅샷(Track 85·필수).
+     *
+     * @throws IllegalArgumentException 필수값 누락·수량 1 미만·ORD-5 위반·수수료율 범위(0~10000 bp) 위반 시
+     */
+    public static OrderItem create(
+            Long productId,
+            Long variantId,
+            Long sellerId,
+            String productName,
+            int quantity,
+            Long unitPrice,
+            Long totalPrice,
+            Integer commissionRate,
             String optionLabel) {
         if (productId == null || variantId == null || sellerId == null || productName == null
-                || unitPrice == null || totalPrice == null) {
-            throw new IllegalArgumentException("OrderItem 필수값 누락(product·variant·seller·productName·unitPrice·totalPrice).");
+                || unitPrice == null || totalPrice == null || commissionRate == null) {
+            throw new IllegalArgumentException(
+                    "OrderItem 필수값 누락(product·variant·seller·productName·unitPrice·totalPrice·commissionRate).");
         }
         if (quantity < 1) {
             throw new IllegalArgumentException("OrderItem 수량은 1 이상이어야 합니다. 입력: " + quantity);
         }
+        CommissionRateResolver.requireInRange(commissionRate, "OrderItem.commissionRate");
         if (totalPrice != unitPrice * quantity) {
             throw new IllegalArgumentException(
                     "ORD-5 위반: total_price(" + totalPrice + ") ≠ unit_price(" + unitPrice + ") × quantity(" + quantity + ").");
@@ -140,6 +152,7 @@ public class OrderItem extends AbstractPublicIdFullAuditableEntity {
         item.quantity = quantity;
         item.unitPrice = unitPrice;
         item.totalPrice = totalPrice;
+        item.commissionRate = commissionRate;
         item.optionLabel = optionLabel;
         item.itemStatus = OrderItemStatus.ORDERED;
         return item;

@@ -118,8 +118,8 @@ class ExpiredOrderCleanupStarvationIntegrationTest extends AbstractIntegrationTe
                         + "created_at, updated_at) VALUES (?, ?, ?, ?, 'PAYMENT_EXPIRED', 20000, 0, 0, NOW(6) - INTERVAL ? DAY, NOW(6) - INTERVAL ? DAY)",
                 id, pid("ord_", "S5ORD" + id), id, "ORDS5" + id, ageDays, ageDays);
         jdbc.update("INSERT INTO order_item (id, public_id, order_id, product_id, variant_id, seller_id, quantity, unit_price, "
-                        + "total_price, item_status, created_at, updated_at, product_name) "
-                        + "VALUES (?, ?, ?, ?, ?, ?, 2, 10000, 20000, 'ORDERED', NOW(6), NOW(6), '기아 테스트 상품')",
+                        + "total_price, item_status, created_at, updated_at, product_name, commission_rate) "
+                        + "VALUES (?, ?, ?, ?, ?, ?, 2, 10000, 20000, 'ORDERED', NOW(6), NOW(6), '기아 테스트 상품', 1000)",
                 id, pid("oit_", "S5OIT" + id), id, id, id, id);
     }
 

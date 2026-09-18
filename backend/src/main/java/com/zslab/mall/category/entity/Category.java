@@ -48,6 +48,10 @@ public class Category extends AbstractSoftDeletableEntity {
     @Column(name = "sort_order", nullable = false)
     private int sortOrder;
 
+    /** 카테고리 기본 수수료율·basis-point(1000 = 10.00%). NULL=미설정(플랫폼 기본율)·셀러 개별율이 없을 때 적용(Track 85·V30). 편집 경로 이월. */
+    @Column(name = "commission_rate")
+    private Integer commissionRate;
+
     /**
      * parent가 null이면 루트 카테고리를 생성한다.
      *

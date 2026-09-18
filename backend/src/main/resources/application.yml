@@ -80,3 +80,9 @@ upload:
   # Track 77 이미지 업로드 저장 루트(컨테이너 내부 절대경로·docker-compose.mall.yml이 UPLOAD_PATH=/app/uploads로 고정 주입·볼륨 동일 경로).
   # 하위에 products/yyyy/MM/{ULID}.{ext}로 저장하며 GET /api/v1/files/** 가 같은 루트를 서빙한다.
   path: ${UPLOAD_PATH:/app/uploads}
+
+settlement:
+  # Track 85 정산 설정. default-commission-rate = 플랫폼 기본 수수료율(basis-point·1000=10.00%)·셀러 개별율·카테고리율이 모두 없을 때
+  # 적용(CommissionRateResolver). V30 백필 상수 1000과 같아야 한다. payout-offset-days = 지급예정일 = 정산 기간 말일 + N일.
+  default-commission-rate: ${SETTLEMENT_DEFAULT_COMMISSION_RATE:1000}
+  payout-offset-days: ${SETTLEMENT_PAYOUT_OFFSET_DAYS:20}

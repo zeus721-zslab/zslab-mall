@@ -27,10 +27,17 @@ import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.event.OrderPlaced;
 import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.order.repository.OrderRepository;
+import com.zslab.mall.auth.enums.RoleCode;
 import com.zslab.mall.payment.event.PaymentCompleted;
+import com.zslab.mall.seller.entity.Seller;
+import com.zslab.mall.seller.repository.SellerRepository;
+import com.zslab.mall.seller.repository.SellerUserRepository;
+import com.zslab.mall.settlement.event.SettlementConfirmed;
 import com.zslab.mall.user.entity.User;
 import com.zslab.mall.user.repository.UserRepository;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -49,6 +56,7 @@ import org.springframework.stereotype.Service;
  *
  * <p>channel은 EMAIL 기본이다. Track 80(D-169)부터 클레임 요청 접수·거부·취소 완료는 SMS 채널로도 적재·발송한다
  * ({@link SmsSender}·수신번호는 User.phone·없으면 skip+warn·본문은 주문번호·상품명·처리 결과만).
+ * Track 85 정산 정상처리는 셀러 SMS(수신처 seller.contact_phone → SELLER_OWNER 구성원 user.phone → 없으면 skip+warn)다.
  *
  * <p><b>즉시 발송(Track 19·판단 2 α·save/dispatch 분리)</b>: 적재 직후 {@link NotificationSender}로 발송하고 성공 시 SENT·
  * 실패 시 FAILED로 전이한다({@code dispatch}). 발송 실패는 상위(핸들러)로 재throw하지 않으며(D-95 A2-α)
@@ -69,6 +77,8 @@ public class NotificationService {
     private final NotificationSender notificationSender;
     private final SmsSender smsSender;
     private final UserRepository userRepository;
+    private final SellerRepository sellerRepository;
+    private final SellerUserRepository sellerUserRepository;
     private final NotificationDispatchMetricsRecorder notificationDispatchMetricsRecorder;
 
     /**
@@ -402,6 +412,61 @@ public class NotificationService {
         log.info("[Notification] SMS 적재 완료: template={} target_id={} recipient={}", templateCode, claimId,
                 sms.recipientUserId());
         dispatch(notificationLog, eventName, () -> smsSender.send(sms.phoneNumber(), content));
+    }
+
+    /** 정산 SMS 수신처(수신 회원 id는 OWNER fallback일 때만·seller.contact_phone이면 null). */
+    private record SellerSmsRecipient(Long recipientUserId, String phoneNumber) {
+    }
+
+    private static final DateTimeFormatter SETTLEMENT_PERIOD_FORMAT = DateTimeFormatter.ofPattern("yyyy년 M월");
+    private static final DateTimeFormatter SETTLEMENT_PAY_DATE_FORMAT = DateTimeFormatter.ofPattern("M월 d일");
+
+    /**
+     * SettlementConfirmed 소비 → 정산 정상처리 셀러 SMS 적재·발송(Track 85). 수신처는 seller.contact_phone → SELLER_OWNER 구성원
+     * user.phone(첫 건) 순이며 둘 다 없으면 skip+warn. 본문은 정산 월·정산액·지급예정일만(계좌·품목 미포함). target은 SETTLEMENT·settlementId.
+     */
+    public void recordSettlementConfirmed(SettlementConfirmed event) {
+        try {
+            SellerSmsRecipient recipient = resolveSellerSmsRecipient(event.sellerId(), event.settlementId());
+            if (recipient == null) {
+                return;
+            }
+            String content = "[zslab-mall] " + event.periodStart().format(SETTLEMENT_PERIOD_FORMAT) + " 정산이 확정되었습니다. 정산금액 "
+                    + String.format("%,d", event.netAmount()) + "원, 지급예정일 "
+                    + event.scheduledPayDate().format(SETTLEMENT_PAY_DATE_FORMAT) + ".";
+            NotificationLog notificationLog = NotificationLog.create(
+                    recipient.recipientUserId(), NotificationChannel.SMS, NotificationTemplateCodes.SETTLEMENT_CONFIRMED,
+                    PolymorphicTargetType.SETTLEMENT, event.settlementId(), "정산 확정", content);
+            notificationLogRepository.save(notificationLog);
+            log.info("[Notification] SMS 적재 완료: template={} target_id={} recipient={}",
+                    NotificationTemplateCodes.SETTLEMENT_CONFIRMED, event.settlementId(), recipient.recipientUserId());
+            dispatch(notificationLog, "SettlementConfirmed", () -> smsSender.send(recipient.phoneNumber(), content));
+        } catch (RuntimeException exception) {
+            // 재조회·적재 실패는 원 흐름(정산 정상처리)을 막지 않는다(A2-α·재throw 금지).
+            log.warn("[Notification] SettlementConfirmed 적재 실패 → 건너뜀: settlementId={}", event.settlementId(), exception);
+        }
+    }
+
+    /** 셀러 SMS 수신처 3단 fallback: seller.contact_phone → SELLER_OWNER 구성원 user.phone → null(skip+warn). */
+    private SellerSmsRecipient resolveSellerSmsRecipient(Long sellerId, Long settlementId) {
+        Seller seller = sellerRepository.findById(sellerId).orElse(null);
+        if (seller == null) {
+            log.warn("[Notification] SettlementConfirmed 소비·셀러 미발견 → SMS 건너뜀: settlementId={} sellerId={}", settlementId, sellerId);
+            return null;
+        }
+        if (seller.getContactPhone() != null && !seller.getContactPhone().isBlank()) {
+            return new SellerSmsRecipient(null, seller.getContactPhone());
+        }
+        List<Long> ownerUserIds = sellerUserRepository.findUserIdsBySellerIdAndRoleCode(sellerId, RoleCode.SELLER_OWNER);
+        for (Long ownerUserId : ownerUserIds) {
+            User owner = userRepository.findById(ownerUserId).orElse(null);
+            if (owner != null && owner.getPhone() != null && !owner.getPhone().isBlank()) {
+                return new SellerSmsRecipient(owner.getId(), owner.getPhone());
+            }
+        }
+        log.warn("[Notification] SettlementConfirmed 소비·셀러 연락처 없음(contact_phone·OWNER phone) → SMS 건너뜀: settlementId={} sellerId={}",
+                settlementId, sellerId);
+        return null;
     }
 
     /**

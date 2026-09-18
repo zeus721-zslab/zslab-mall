@@ -43,7 +43,9 @@ import com.zslab.mall.refund.exception.RefundNotFoundException;
 import com.zslab.mall.seller.exception.SellerNotFoundException;
 import com.zslab.mall.seller.exception.SellerUserAlreadyExistsException;
 import com.zslab.mall.settlement.exception.SettlementAlreadyExistsException;
+import com.zslab.mall.settlement.exception.SettlementBankAccountMissingException;
 import com.zslab.mall.settlement.exception.SettlementInvalidStateException;
+import com.zslab.mall.settlement.exception.SettlementNegativeNetException;
 import com.zslab.mall.settlement.exception.SettlementNotFoundException;
 import com.zslab.mall.settlement.exception.SettlementPeriodInvalidException;
 import com.zslab.mall.user.exception.AddressNotFoundException;
@@ -70,6 +72,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
 
 /**
@@ -132,6 +135,8 @@ public class GlobalExceptionHandler {
     private static final String CODE_SETTLEMENT_ALREADY_EXISTS = "SETTLEMENT_ALREADY_EXISTS";
     private static final String CODE_SETTLEMENT_NOT_FOUND = "SETTLEMENT_NOT_FOUND";
     private static final String CODE_SETTLEMENT_INVALID_STATE = "SETTLEMENT_INVALID_STATE";
+    private static final String CODE_SETTLEMENT_NET_NEGATIVE = "SETTLEMENT_NET_NEGATIVE";
+    private static final String CODE_SETTLEMENT_BANK_ACCOUNT_MISSING = "SETTLEMENT_BANK_ACCOUNT_MISSING";
     private static final String CODE_GRADE_POLICY_UNAVAILABLE = "GRADE_POLICY_UNAVAILABLE";
     private static final String CODE_ROLE_ASSIGNMENT_NOT_FOUND = "ROLE_ASSIGNMENT_NOT_FOUND";
     private static final String CODE_LAST_SUPER_ADMIN = "LAST_SUPER_ADMIN";
@@ -160,8 +165,10 @@ public class GlobalExceptionHandler {
         return response;
     }
 
+    // Track 85: 필수 쿼리 파라미터 누락(MissingServletRequestParameterException·예: 정산 목록 year/month)도 400 MALFORMED_REQUEST.
     @ExceptionHandler({HttpMessageNotReadableException.class, MethodArgumentTypeMismatchException.class,
-            MalformedRequestException.class, IllegalArgumentException.class, MissingServletRequestPartException.class})
+            MalformedRequestException.class, IllegalArgumentException.class, MissingServletRequestPartException.class,
+            MissingServletRequestParameterException.class})
     public ResponseEntity<ProblemDetail> handleMalformed(Exception exception, HttpServletRequest request) {
         return build(HttpStatus.BAD_REQUEST, CODE_MALFORMED_REQUEST, exception.getMessage(), request);
     }
@@ -524,6 +531,22 @@ public class GlobalExceptionHandler {
         // Track 49: 정산 전이 불가 상태(순방향 아님·PAID 불가역 등). 500 fallback 차단·422 매핑(OrderItemInvalidStateException 선례).
         log.warn("[Settlement] 정산 상태 위반(422): {}", exception.getMessage());
         return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_SETTLEMENT_INVALID_STATE, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(SettlementNegativeNetException.class)
+    public ResponseEntity<ProblemDetail> handleSettlementNegativeNet(
+            SettlementNegativeNetException exception, HttpServletRequest request) {
+        // Track 85: net 음수 정산 지급 차단(차감 이월 정책 미도입·422). 정상처리(CONFIRMED)는 허용·지급만 차단.
+        log.warn("[Settlement] 음수 정산 지급 차단(422): {}", exception.getMessage());
+        return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_SETTLEMENT_NET_NEGATIVE, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(SettlementBankAccountMissingException.class)
+    public ResponseEntity<ProblemDetail> handleSettlementBankAccountMissing(
+            SettlementBankAccountMissingException exception, HttpServletRequest request) {
+        // Track 85: 지급 시점 주 정산계좌 부재(422). 계좌는 생성 조건이 아니라 지급 조건.
+        log.warn("[Settlement] 주 정산계좌 부재 지급 차단(422): {}", exception.getMessage());
+        return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_SETTLEMENT_BANK_ACCOUNT_MISSING, exception.getMessage(), request);
     }
 
     @ExceptionHandler(ProductInvalidStateException.class)

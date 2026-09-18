@@ -1,10 +1,16 @@
 package com.zslab.mall.settlement.repository;
 
 import com.zslab.mall.settlement.entity.Settlement;
+import com.zslab.mall.settlement.enums.SettlementStatus;
 import jakarta.persistence.LockModeType;
 import java.time.LocalDateTime;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -12,7 +18,7 @@ import org.springframework.data.repository.query.Param;
 /**
  * 정산 Repository.
  */
-public interface SettlementRepository extends JpaRepository<Settlement, Long> {
+public interface SettlementRepository extends JpaRepository<Settlement, Long>, JpaSpecificationExecutor<Settlement> {
 
     /**
      * 같은 seller·정산 기간의 Settlement가 이미 존재하는지 여부(파생 쿼리·Track 48 P2). P1에서 신설한
@@ -30,4 +36,21 @@ public interface SettlementRepository extends JpaRepository<Settlement, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT s FROM Settlement s WHERE s.id = :id")
     Optional<Settlement> findByIdForUpdate(@Param("id") Long id);
+
+    /** 해당 월(기간 정확 일치) 상태별 건수·금액 합(Track 85 관리자 목록 합계). 모든 변수는 :periodStart·:periodEnd 바인딩이다. */
+    @Query("SELECT s.status AS status, COUNT(s) AS settlementCount, COALESCE(SUM(s.grossAmount), 0) AS grossAmount, "
+            + "COALESCE(SUM(s.feeAmount), 0) AS feeAmount, COALESCE(SUM(s.refundAmount), 0) AS refundAmount, "
+            + "COALESCE(SUM(s.netAmount), 0) AS netAmount FROM Settlement s "
+            + "WHERE s.periodStart = :periodStart AND s.periodEnd = :periodEnd GROUP BY s.status")
+    List<SettlementStatusTotalProjection> sumByStatusForPeriod(
+            @Param("periodStart") LocalDateTime periodStart, @Param("periodEnd") LocalDateTime periodEnd);
+
+    /** 셀러 월별 이력(관리자·최신 기간순은 Pageable 정렬). */
+    Page<Settlement> findBySellerId(Long sellerId, Pageable pageable);
+
+    /** 셀러 공개 목록(CONFIRMED·PAID만·Track 85). */
+    Page<Settlement> findBySellerIdAndStatusIn(Long sellerId, Collection<SettlementStatus> statuses, Pageable pageable);
+
+    /** 셀러 공개 단건(본인·CONFIRMED·PAID만·그 외 empty → 404 통일). */
+    Optional<Settlement> findByIdAndSellerIdAndStatusIn(Long id, Long sellerId, Collection<SettlementStatus> statuses);
 }

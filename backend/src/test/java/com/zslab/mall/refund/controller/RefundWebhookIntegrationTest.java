@@ -185,8 +185,8 @@ class RefundWebhookIntegrationTest extends AbstractIntegrationTest {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
                 jdbc.update("INSERT INTO order_item "
                         + "(id, public_id, order_id, product_id, variant_id, seller_id, quantity, unit_price, total_price, "
-                        + "item_status, created_at, updated_at, product_name) "
-                        + "VALUES (?, 'oit_track5_it_0001', ?, 1, ?, 1, 1, ?, ?, 'PAID', NOW(6), NOW(6), '테스트 상품')",
+                        + "item_status, created_at, updated_at, product_name, commission_rate) "
+                        + "VALUES (?, 'oit_track5_it_0001', ?, 1, ?, 1, 1, ?, ?, 'PAID', NOW(6), NOW(6), '테스트 상품', 1000)",
                         ORDER_ITEM_ID, ORDER_ID, VARIANT_ID, paymentAmount, paymentAmount);
         // D-172: 재고 복구 핸들러가 동기·예외 전파로 바뀌어 종결 경로에 inventory 행이 필요하다(부재 시 InventoryInvariantViolation → 롤백)
         jdbc.update("INSERT INTO inventory (id, variant_id, quantity_on_hand, quantity_reserved, quantity_available, created_at, updated_at) "

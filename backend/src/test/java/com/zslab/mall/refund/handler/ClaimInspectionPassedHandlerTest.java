@@ -61,7 +61,7 @@ class ClaimInspectionPassedHandlerTest {
     }
 
     private static OrderItem orderItem() {
-        return OrderItem.create(1L, 1L, 1L, "상품", 1, TOTAL_PRICE, TOTAL_PRICE);
+        return OrderItem.create(1L, 1L, 1L, "상품", 1, TOTAL_PRICE, TOTAL_PRICE, 1000);
     }
 
     @Test

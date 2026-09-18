@@ -20,6 +20,8 @@ public final class NotificationTemplateCodes {
     public static final String CLAIM_REJECTED = "TPL_CLAIM_REJECTED";
     /** 관리자 임시 비밀번호 SMS(Track 84·본문은 마스킹 저장). */
     public static final String TEMPORARY_PASSWORD = "TPL_TEMPORARY_PASSWORD";
+    /** 정산 정상처리 셀러 SMS(Track 85). */
+    public static final String SETTLEMENT_CONFIRMED = "TPL_SETTLEMENT_CONFIRMED";
 
     private NotificationTemplateCodes() {
     }

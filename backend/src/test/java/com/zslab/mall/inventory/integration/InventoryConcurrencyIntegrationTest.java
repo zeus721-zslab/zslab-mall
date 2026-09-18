@@ -177,7 +177,7 @@ class InventoryConcurrencyIntegrationTest extends AbstractIntegrationTest {
 
         assertThatThrownBy(() -> orderService.createOrder(new CreateOrderCommand(
                 USER_ID,
-                List.of(new OrderItemCommand(PRODUCT_ID, VARIANT_ID, SELLER_ID, "T78상품", 1, 10000L, 10000L)),
+                List.of(new OrderItemCommand(PRODUCT_ID, VARIANT_ID, SELLER_ID, "T78상품", 1, 10000L, 10000L, 1000)),
                 shipping(), 0L, 0L)))
                 .isInstanceOf(InventoryInvariantViolationException.class);
 
@@ -264,8 +264,8 @@ class InventoryConcurrencyIntegrationTest extends AbstractIntegrationTest {
                         + "VALUES (?, ?, ?, ?, 'PENDING_PAYMENT', 20000, 0, 0, NOW(6), NOW(6))",
                 orderId, pid("ord_", "T78ORD" + tag), USER_ID, "ORDT78" + orderId);
         jdbc.update("INSERT INTO order_item (id, public_id, order_id, product_id, variant_id, seller_id, "
-                        + "quantity, unit_price, total_price, item_status, created_at, updated_at, product_name) "
-                        + "VALUES (?, ?, ?, ?, ?, ?, ?, 10000, 20000, 'ORDERED', NOW(6), NOW(6), '테스트 상품')",
+                        + "quantity, unit_price, total_price, item_status, created_at, updated_at, product_name, commission_rate) "
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?, 10000, 20000, 'ORDERED', NOW(6), NOW(6), '테스트 상품', 1000)",
                 orderItemId, pid("oit_", "T78OIT" + tag), orderId, PRODUCT_ID, VARIANT_ID, SELLER_ID, QTY_PER_ORDER);
     }
 

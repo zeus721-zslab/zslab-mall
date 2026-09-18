@@ -72,6 +72,27 @@ public interface OrderItemRepository extends JpaRepository<OrderItem, Long> {
             @Param("periodEnd") LocalDateTime periodEnd);
 
     /**
+     * 정산 기간 내 구매확정(CONFIRMED) 품목을 스냅샷 소스로 조회한다(Track 85·settlement_item SALE). 기간 기준·경계는
+     * {@link #aggregateGrossBySeller}와 동일(confirmed_at 양끝 포함)이며 sellerId가 null이면 전 셀러, 아니면 해당 셀러만(재생성).
+     * 주문 public_id는 {@code oi.order} 조인 네비게이션으로 얻는다(OrderItem은 order getter 미노출·엔티티 미적재).
+     * 모든 변수는 :status·:periodStart·:periodEnd·:sellerId 바인딩만 사용하며 SQL injection 위험이 없다.
+     */
+    @Query("SELECT oi.id AS orderItemId, oi.sellerId AS sellerId, o.publicId AS orderPublicId, "
+            + "oi.productName AS productName, oi.optionLabel AS optionLabel, oi.quantity AS quantity, "
+            + "oi.totalPrice AS amount, oi.commissionRate AS commissionRate, oi.confirmedAt AS confirmedAt "
+            + "FROM OrderItem oi JOIN oi.order o "
+            + "WHERE oi.itemStatus = :status "
+            + "AND oi.confirmedAt >= :periodStart "
+            + "AND oi.confirmedAt <= :periodEnd "
+            + "AND (:sellerId IS NULL OR oi.sellerId = :sellerId) "
+            + "ORDER BY oi.sellerId, oi.confirmedAt, oi.id")
+    List<SettlementSaleSourceProjection> findSettlementSaleSources(
+            @Param("status") OrderItemStatus status,
+            @Param("periodStart") LocalDateTime periodStart,
+            @Param("periodEnd") LocalDateTime periodEnd,
+            @Param("sellerId") Long sellerId);
+
+    /**
      * buyer의 생애 누적 구매액(구매확정 품목 total_price 합)을 집계한다(Track 51 등급 산정 입력·recon-report §R1).
      * buyer_id는 Order에만 존재하므로 {@code oi.order.buyerId}로 조인 네비게이션한다(OrderItem은 buyer_id 미보유).
      * 기간 필터 없음(생애 누적)이며 {@code COALESCE(...,0)}로 구매확정 이력이 없는 buyer도 0을 반환한다.

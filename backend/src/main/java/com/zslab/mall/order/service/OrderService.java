@@ -74,6 +74,7 @@ public class OrderService {
                     itemCommand.quantity(),
                     itemCommand.unitPrice(),
                     itemCommand.totalPrice(),
+                    itemCommand.commissionRate(),
                     itemCommand.optionLabel()));
         }
 

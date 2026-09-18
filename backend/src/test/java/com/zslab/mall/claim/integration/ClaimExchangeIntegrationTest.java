@@ -444,6 +444,15 @@ class ClaimExchangeIntegrationTest extends AbstractIntegrationTest {
         assertThat(gross).containsEntry(SELLER_ID, ITEM_PRICE);
         assertThat(refundRepository.aggregateRefundBySeller(RefundStatus.COMPLETED, confirmedAt.minusMinutes(1), confirmedAt.plusMinutes(1)))
                 .noneMatch(row -> row.getSellerId().equals(SELLER_ID));
+        // Track 85 품목 스냅샷 소스: 교환 복귀 후 확정된 품목이 원가·교환 옵션 라벨로 SALE 소스에 포함된다
+        assertThat(orderItemRepository.findSettlementSaleSources(OrderItemStatus.CONFIRMED,
+                        confirmedAt.minusMinutes(1), confirmedAt.plusMinutes(1), SELLER_ID))
+                .singleElement()
+                .satisfies(source -> {
+                    assertThat(source.getOrderItemId()).isEqualTo(ORDER_ITEM_ID);
+                    assertThat(source.getAmount()).isEqualTo(ITEM_PRICE);
+                    assertThat(source.getCommissionRate()).isEqualTo(1000);
+                });
     }
 
     // ==================== T11 승인 동시성 ====================
@@ -554,7 +563,7 @@ class ClaimExchangeIntegrationTest extends AbstractIntegrationTest {
         seed(() -> {
             for (long extra = 1; extra <= 3; extra++) {
                 jdbc.update("INSERT INTO order_item (id, public_id, order_id, product_id, variant_id, seller_id, quantity, unit_price, total_price, "
-                        + "item_status, created_at, updated_at, product_name) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, 'DELIVERED', NOW(6), NOW(6), '추가 품목')",
+                        + "item_status, created_at, updated_at, product_name, commission_rate) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, 'DELIVERED', NOW(6), NOW(6), '추가 품목', 1000)",
                         ORDER_ITEM_ID + extra, pid("oit_", "EXCOIT" + extra), ORDER_ID, PRODUCT_ID, VARIANT_ORIGINAL, SELLER_ID, ITEM_PRICE, ITEM_PRICE);
             }
             jdbc.update("INSERT INTO claim (id, public_id, order_item_id, type, reason_code, status, previous_order_item_status, exchange_variant_id, "
@@ -664,7 +673,7 @@ class ClaimExchangeIntegrationTest extends AbstractIntegrationTest {
 
     private void seedOrderItem() {
         jdbc.update("INSERT INTO order_item (id, public_id, order_id, product_id, variant_id, seller_id, quantity, unit_price, total_price, "
-                + "item_status, option_label, created_at, updated_at, product_name) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, 'DELIVERED', '색상: 빨강', NOW(6), NOW(6), '테스트 상품')",
+                + "item_status, option_label, created_at, updated_at, product_name, commission_rate) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, 'DELIVERED', '색상: 빨강', NOW(6), NOW(6), '테스트 상품', 1000)",
                 ORDER_ITEM_ID, ORDER_ITEM_PID, ORDER_ID, PRODUCT_ID, VARIANT_ORIGINAL, SELLER_ID, ITEM_PRICE, ITEM_PRICE);
     }
 

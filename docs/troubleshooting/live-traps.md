@@ -459,6 +459,36 @@ pull 또는 BE 변경 후 신규 API 호출이 500. 로그는 `NoResourceFoundEx
 
 ---
 
+## LT-18. Gradle 데몬이 외부 도구(Python·sed)로 쓴 소스 변경을 놓침 — stale class로 테스트 실행·신규 테스트만 실패 [ACTIVE]
+**발견 트랙**: Track 85(STEP 376 재개·외부 검토 반영 검증)
+**원본 결정**: 세션 트랩(본 카탈로그 직접 등록)·decisions.md D-179 외부 검토 반영 관련
+### 증상
+`gradlew test --rerun-tasks`가 BUILD FAILED인데 실패는 **방금 추가한 신규 테스트만**이고 메시지는 "Expecting code to raise a throwable"·"collection size was 0"처럼 새 코드가 아예 없는 것처럼 보인다. `build/classes/java/main/.../OrderItem.class` mtime이 소스 수정(09:36)보다 이른 02:01 그대로였고, 같은 빌드에서 다른 변경 클래스(CommissionRateResolver.class)는 09:39로 갱신됐다. `--rerun-tasks`를 붙여도 재현된다. 소스 수정을 Python `write_text`·`sed -i`(파일 교체 방식)로 한 직후 발생.
+### 처치
+`gradlew --stop`으로 데몬 종료 후 `gradlew clean test`. 데몬의 파일 시스템 감시(VFS) 상태가 외부 도구의 파일 교체를 놓쳐 incremental compile 입력이 stale로 남은 것으로 판단(데몬 재시작 후 전량 재컴파일로 정합). clean 직후 첫 `compileTestJava`가 "cannot find symbol"로 한 번 더 실패할 수 있으나 재실행하면 통과한다(같은 원인).
+### 후속 영향
+- "신규 테스트만 실패·기존 GREEN·소스는 맞음" 패턴이면 class mtime을 소스 mtime과 대조(`ls --time-style=full-iso build/classes/...`). LT-14(named volume UP-TO-DATE 오판)·LT-17(재기동 누락)과 같은 stale 계열이나 이 건은 **호스트 데몬**이 원인.
+- 외부 도구로 다수 파일을 일괄 수정한 뒤 검증 게이트를 돌릴 때는 `gradlew --stop` 후 실행을 기본으로 한다.
+### 관련
+- LT-14·LT-17·D-179 외부 검토 반영·PROGRESS STEP 376
+
+---
+
+## LT-19. settlement_item.order_public_id CHAR(30) 스냅샷 컬럼 — 엔티티 @JdbcTypeCode(SqlTypes.CHAR) 누락 시 Hibernate validate 실패 [ACTIVE]
+**발견 트랙**: Track 85(STEP 367 V29 로컬 적용·재시작)
+**원본 결정**: decisions.md D-179 결정 5(settlement_item 스냅샷)·LT-01 동류
+### 증상
+V29로 `settlement_item.order_public_id CHAR(30)`을 추가하고 엔티티에 `@Column(length = 30)`만 선언하면 `spring.jpa.hibernate.ddl-auto=validate`(application.yml:17) 기동이 schema-validation(컬럼 타입 CHAR≠VARCHAR)으로 실패한다(STEP 367 로컬 재시작에서 발견). LT-01은 abstract 상속 `public_id` 식별자 컬럼에 대한 것이었으나, **다른 테이블의 public_id를 복사한 스냅샷 컬럼**(abstract 미상속·FK 아님·표시용)도 CHAR(N)이면 동일하게 걸린다.
+### 처치
+엔티티 필드에 `@JdbcTypeCode(SqlTypes.CHAR)`(settlement/entity/SettlementItem.java:56) 추가 후 재시작. 신규 CHAR(N) 컬럼은 용도(식별자·스냅샷·코드값)와 무관하게 전부 대상이다.
+### 후속 영향
+- 이후 `*_public_id` 스냅샷 컬럼을 추가할 때 원본과 같은 CHAR(30) + `@JdbcTypeCode(SqlTypes.CHAR)` 쌍으로 간다(LT-01 "abstract 미상속 케이스 동일 처치 의무"의 스냅샷 컬럼 사례).
+- 컴파일·단위 테스트로는 잡히지 않고 validate 프로파일 기동에서만 드러난다 → 신규 CHAR 컬럼 마이그레이션 후 로컬 `docker restart` 기동 로그 확인(LT-17 절차와 동일).
+### 관련
+- LT-01·LT-17·D-179 결정 5·V29__settlement_items_and_payout.sql
+
+---
+
 ## 부록. 트랩 추가 절차
 
 1. 라이브 발견 시 즉시 decisions.md D-XX 박제 (단건 처리)

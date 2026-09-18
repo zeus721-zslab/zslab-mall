@@ -45,8 +45,11 @@ import com.zslab.mall.product.enums.ProductVariantStatus;
 import com.zslab.mall.product.repository.ProductRepository;
 import com.zslab.mall.product.repository.ProductVariantRepository;
 import com.zslab.mall.product.service.OptionLabelResolver;
+import com.zslab.mall.settlement.service.CommissionRateResolver;
+import com.zslab.mall.settlement.service.CommissionRateResolver.CommissionRateKey;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -78,6 +81,7 @@ class CheckoutServiceTest {
     @Mock private InventoryRepository inventoryRepository;
     @Mock private OrderIdempotencyKeyRepository idempotencyRepository;
     @Mock private OptionLabelResolver optionLabelResolver;
+    @Mock private CommissionRateResolver commissionRateResolver;
 
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
@@ -87,7 +91,7 @@ class CheckoutServiceTest {
     void setUp() {
         checkoutService = new CheckoutService(orderService, paymentService, orderRepository,
                 productRepository, productVariantRepository, inventoryRepository, idempotencyRepository, objectMapper,
-                optionLabelResolver);
+                optionLabelResolver, commissionRateResolver);
     }
 
     private CheckoutCommand command(String idempotencyKey) {
@@ -131,6 +135,10 @@ class CheckoutServiceTest {
         lenient().when(product.isWithinSalePeriod(any())).thenReturn(true);
         lenient().when(product.getBasePrice()).thenReturn(basePrice);
         lenient().when(product.getSellerId()).thenReturn(sellerId);
+        lenient().when(product.getCategoryId()).thenReturn(7L);
+        // Track 85: 주문 시점 수수료율은 Resolver 배치 판정값(셀러 99·카테고리 7 → 1500bp)을 그대로 스냅샷한다
+        lenient().when(commissionRateResolver.resolveAll(any()))
+                .thenReturn(Map.of(new CommissionRateKey(sellerId, 7L), 1500));
         ProductVariant variant = org.mockito.Mockito.mock(ProductVariant.class);
         when(variant.getPublicId()).thenReturn(VARIANT_PID);
         when(variant.getId()).thenReturn(20L);
@@ -172,6 +180,7 @@ class CheckoutServiceTest {
         assertThat(created.items().get(0).unitPrice()).isEqualTo(10_000L);
         assertThat(created.items().get(0).totalPrice()).isEqualTo(20_000L);
         assertThat(created.items().get(0).sellerId()).isEqualTo(99L);
+        assertThat(created.items().get(0).commissionRate()).isEqualTo(1500);
         assertThat(created.discountAmount()).isZero();
         assertThat(created.shippingFee()).isZero();
     }
@@ -269,7 +278,7 @@ class CheckoutServiceTest {
     @Test
     @DisplayName("retry: 상품 판매중지 → 422 ORDER_NOT_PAYABLE(PRODUCT_NOT_ON_SALE)")
     void retry_productNotOnSale_throws422() {
-        OrderItem item = OrderItem.create(10L, 20L, 99L, "테스트 상품", 2, 5_000L, 10_000L);
+        OrderItem item = OrderItem.create(10L, 20L, 99L, "테스트 상품", 2, 5_000L, 10_000L, 1000);
         when(orderRepository.findByPublicIdWithItems("ord_1")).thenReturn(Optional.of(order(1L, "ord_1", item)));
         Product product = org.mockito.Mockito.mock(Product.class);
         when(product.getId()).thenReturn(10L);
@@ -290,7 +299,7 @@ class CheckoutServiceTest {
     @Test
     @DisplayName("retry: 재고 부족 → 422 ORDER_NOT_PAYABLE(OUT_OF_STOCK)")
     void retry_outOfStock_throws422() {
-        OrderItem item = OrderItem.create(10L, 20L, 99L, "테스트 상품", 2, 5_000L, 10_000L);
+        OrderItem item = OrderItem.create(10L, 20L, 99L, "테스트 상품", 2, 5_000L, 10_000L, 1000);
         when(orderRepository.findByPublicIdWithItems("ord_1")).thenReturn(Optional.of(order(1L, "ord_1", item)));
         Product product = org.mockito.Mockito.mock(Product.class);
         when(product.getId()).thenReturn(10L);
@@ -317,7 +326,7 @@ class CheckoutServiceTest {
     @Test
     @DisplayName("retry: 재검증 통과 → initiate 재호출·forRetry·Location=payment")
     void retry_happy_initiatesAndReturnsPaymentLocation() {
-        OrderItem item = OrderItem.create(10L, 20L, 99L, "테스트 상품", 2, 5_000L, 10_000L);
+        OrderItem item = OrderItem.create(10L, 20L, 99L, "테스트 상품", 2, 5_000L, 10_000L, 1000);
         when(orderRepository.findByPublicIdWithItems("ord_1")).thenReturn(Optional.of(order(1L, "ord_1", item)));
         Product product = org.mockito.Mockito.mock(Product.class);
         when(product.getId()).thenReturn(10L);
@@ -369,6 +378,10 @@ class CheckoutServiceTest {
         lenient().when(product.isWithinSalePeriod(any())).thenReturn(true);
         lenient().when(product.getBasePrice()).thenReturn(basePrice);
         lenient().when(product.getSellerId()).thenReturn(sellerId);
+        lenient().when(product.getCategoryId()).thenReturn(7L);
+        // Track 85: 주문 시점 수수료율은 Resolver 배치 판정값(셀러 99·카테고리 7 → 1500bp)을 그대로 스냅샷한다
+        lenient().when(commissionRateResolver.resolveAll(any()))
+                .thenReturn(Map.of(new CommissionRateKey(sellerId, 7L), 1500));
         ProductVariant variant = org.mockito.Mockito.mock(ProductVariant.class);
         when(variant.getId()).thenReturn(20L);
         when(variant.getProductId()).thenReturn(10L);

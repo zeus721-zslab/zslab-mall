@@ -481,8 +481,8 @@ class AdminProductManagementControllerIntegrationTest extends AbstractIntegratio
                                 + "ordered_at, created_at, updated_at) VALUES (?, ?, ?, 'T76-ORDER-1', 'PAID', 30000, 0, 0, NOW(6), NOW(6), NOW(6))",
                         ORDER_ID, pid("ord_", "T76ORDER1"), BUYER_ID);
                 jdbc.update("INSERT INTO order_item (id, public_id, order_id, product_id, variant_id, seller_id, product_name, quantity, "
-                                + "unit_price, total_price, item_status, created_at, updated_at) "
-                                + "VALUES (?, ?, ?, 76005, 7600500, ?, '주문된상품', 1, 30000, 30000, 'PAID', NOW(6), NOW(6))",
+                                + "unit_price, total_price, item_status, created_at, updated_at, commission_rate) "
+                                + "VALUES (?, ?, ?, 76005, 7600500, ?, '주문된상품', 1, 30000, 30000, 'PAID', NOW(6), NOW(6), 1000)",
                         ORDER_ID, pid("oit_", "T76ITEM1"), ORDER_ID, SELLER_2);
             } finally {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
