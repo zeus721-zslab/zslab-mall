@@ -7,6 +7,9 @@ const ADMIN_ERROR_MESSAGES: Record<string, string> = {
   PRODUCT_HAS_ORDER_HISTORY: '주문 이력이 있는 상품은 삭제할 수 없습니다. 판매중지로 전환하세요.',
   SELLER_NOT_FOUND: '셀러를 찾을 수 없습니다.',
   CATEGORY_NOT_FOUND: '카테고리를 찾을 수 없습니다.',
+  // FE-38 관리자 카테고리 관리(Track 89-C)
+  CATEGORY_DUPLICATE: '같은 이름의 카테고리가 이미 있습니다.',
+  CATEGORY_HAS_PRODUCTS: '연결된 상품이 있는 카테고리는 삭제할 수 없습니다.',
   // FE-27 관리자 주문·클레임·배송
   ORDER_NOT_FOUND: '주문 또는 주문 품목을 찾을 수 없습니다.',
   CLAIM_NOT_FOUND: '클레임을 찾을 수 없습니다.',

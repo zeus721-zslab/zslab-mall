@@ -1770,3 +1770,26 @@ BE 계약 Track 89-B D-184(`scope`·keyword 3종·발송일 기간·상세·송�
 
 ### §8 이월
 - 클레임 목록 클레임 id 딥링크(현재 주문번호+유형 근사) · 배송 목록 정렬 인덱스(D-184 §8) · 구분 열의 회수 chip + 클레임 chip 이중 표기는 정보 중복이나 클레임 정보 부재 시 방향만 남도록 의도(단일 chip으로 합칠지 사용 후 판단).
+
+## FE-38: 관리자 카테고리 관리 화면 (2026-09-18)
+
+BE 계약 Track 89-C D-185(목록 `{defaultCommissionRate, items[]}`·PUT 전체 치환·삭제 상품 0건 가드·PATCH /order 전체 배열이 SoT·본 항목에서 재기술하지 않음) · 브랜치 `feat/admin-categories`(BE·FE 동일 브랜치·미커밋) · 정찰 `docs/track-89/recon-report.md` §2-6·§5 · 외부 검토 B / 생략 확정(D-185).
+
+### §1-A 갈림길·채택/기각 근거
+1. 화면 구성: 6건 규모라 `AdminMemberListView.vue` 계열의 단순 목록(필터·페이징 없음·`v-data-table` + `hide-default-footer`). URL query 단일 소스 패턴 【기각: 필터·페이지가 없어 URL에 실을 상태가 없음】. 테이블 6컬럼 = 순서(번호 + 위/아래 버튼) / 카테고리명 / 수수료율 / 상품 수 / 등록일 / 관리(수정·삭제). 헤더 액션 "카테고리 등록"(기존 생성 API·이름만·sortOrder=목록 건수).
+2. **율 표기 = 화면 %·내부 bp(1000 ↔ 10%)**: 표시는 `formatPercent`(불필요한 소수 0 제거·5.25%), 입력은 `parsePercentInput`(빈 값=미설정·0~100·소수 2자리=bp 정수 정밀도·범위 밖은 입력 단계에서 차단). **미설정은 "미설정 (기본율 10% 적용)"으로 기본율을 병기**하고 다이얼로그 hint에도 같은 값을 보여준다 — 기본율은 응답 `defaultCommissionRate`만 소비(FE 상수 없음·환경변수 유래라 복제 불가·D-185 §7). 응답 non_null 정책으로 NULL 율은 키가 생략되므로 타입은 `commissionRate?: number | null`.
+3. 편집 다이얼로그(`AdminCategoryEditDialog`·등록/편집 겸용): 편집은 이름·수수료율만(순서는 표의 위/아래 버튼·`sortOrder`는 현재 값 그대로 전송). **경고 문구 3문장(`COMMISSION_RATE_CHANGE_WARNING` 상수·D-185 §3 조사 결론) 항상 노출**, 율이 원값과 달라지면 alert가 info→warning으로 바뀌고 사유가 필수(라벨 "변경 사유 (필수)"·비면 확인 비활성). 400 fieldErrors 필드 표시 · MALFORMED_REQUEST(BE 사유 필수 판정)는 사유 필드 · 409 CATEGORY_DUPLICATE는 이름 필드 · 404는 stale. 사유를 항상 필수로 두는 안 【기각: D-185 §4 필드별 정책과 1:1】.
+4. **삭제 비활성 정책**: `canDeleteCategory`(productCount === 0)만 활성, 아니면 비활성 + 감싸는 span 툴팁 "연결된 상품 N건"(FE-37 패턴·비활성 버튼은 이벤트를 받지 않음). 활성 행은 `AdminConfirmDialog`(제목 "카테고리 삭제"·드롭다운·카탈로그 즉시 제외·동일 이름 재등록 가능 안내·confirm error). 409/404는 warning 토스트 후 재조회(그 사이 상품이 연결된 경합).
+5. 정렬 UI = 위/아래 버튼(경계·요청 중 비활성) → `moveCategory`(순수 함수·인접 교환한 전체 id 배열) → `PATCH /order` → 재조회. 드래그 【기각: 라이브러리 필요】. 400(그 사이 목록 변경)은 warning 후 재조회.
+6. 상품 수 클릭 → `/admin/products?categoryId=N`(상품 목록 `categoryId` 필터가 이미 있음·`admin-product-query.ts`) · 0건은 비링크.
+7. 트랩: (1) 로컬 `frontend/node_modules`는 7월 stale → vitest·typecheck·Playwright·픽셀 전부 `docker exec zslab_mall_frontend pnpm …` (2) 컨테이너 `pnpm typecheck`(nuxt prepare)가 dev 서버 `.nuxt`를 덮어 `#app-manifest` 해석 실패 → 로그인 페이지 데모 버튼 미노출 → E2E skip. `docker restart zslab_mall_frontend`로 해소(89-A 신규 파일 재시작 트랩과 별개) (3) Vuetify 툴팁 내용은 활성화 시 지연 렌더라 `nth` 인덱스가 행과 어긋남 → `filter({ hasText })`.
+
+### §2 확정 구현 규칙
+- `lib/constants/admin-category.ts`(이름·사유 200·bp/% 계수·범위 0~10000 bp·소수 2자리·경고 3문장) / `types/admin-category.ts` / `lib/admin-category-view.ts`(`formatPercent`·`formatCommissionRate`·`toPercentInput`·`parsePercentInput`·`commissionRateChanged`·`canDeleteCategory`·`deleteBlockedReason`·`moveCategory`·`toProductListPath`) / `composables/useAdminCategories.ts`(list·create POST·update PUT·remove DELETE·reorder PATCH) / `lib/admin-error-message.ts` +`CATEGORY_DUPLICATE`·`CATEGORY_HAS_PRODUCTS`.
+- 컴포넌트: `AdminCategoryTable` · `AdminCategoryEditDialog` · 페이지 `products/categories.vue`(플레이스홀더 교체) · 삭제 확인은 공용 `AdminConfirmDialog`.
+- 테스트: vitest `admin-category-helpers`(10) · Playwright `admin-categories ①`(3행·율 표기·기본율 병기 → 아래로 이동 PATCH [2,1,3] → 수정 다이얼로그(값·경고 3문장·율 변경 시 확인 비활성·사유 필수 라벨) → 삭제 비활성 툴팁 7건·활성 행 확인 다이얼로그 → PUT/DELETE/POST 0).
+- 검증(실측·컨테이너 pnpm): typecheck 0 · vitest 47 files 333(323 → +10) · Playwright 1회차 54/63(4건 각 스펙 ① 첫 로드 플레이크·5 skip ADMIN_E2E 미주입) → 2회차 ADMIN_E2E 주입 62/63(settlements ⑥ 30s 타임아웃·무관 스펙) + settlements 단독 6/6 → 63 전건(62 → +1) · 픽셀 track89b vs track89c 12장 diff 0(1회차) · 라이브 화면(playwright-report/step449-admin 5장·실 BE·일회성 step449-live.mjs): 6행·상품 수 7/5/5/5/7/5·율 6행 전부 "미설정 (기본율 10% 적용)"·순서 1~6·첫 행 위/끝 행 아래 비활성·삭제 6행 전부 비활성·툴팁 "연결된 상품 7건"·수정 다이얼로그(데모·율 빈 값·경고 3문장·확인 활성) → 율 5 입력 시 확인 비활성·등록 다이얼로그 노출·상품 수 클릭 → `/admin/products?categoryId=1` · **PUT/DELETE/PATCH/POST 0건**(데모 데이터 보존).
+- 신규 의존성: 없음.
+
+### §8 이월
+- 등록 다이얼로그에서 율 동시 입력(생성 API에 commissionRate 추가 필요·D-185 §5) · 드래그 정렬 · 2차 카테고리 칩(기존 백로그).

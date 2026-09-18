@@ -10,6 +10,7 @@ import com.zslab.mall.cart.exception.CartItemNotFoundException;
 import com.zslab.mall.cart.exception.CartItemNotPurchasableException;
 import com.zslab.mall.cart.exception.EmptyCartCheckoutException;
 import com.zslab.mall.category.exception.CategoryDuplicateException;
+import com.zslab.mall.category.exception.CategoryHasProductsException;
 import com.zslab.mall.category.exception.CategoryNotFoundException;
 import com.zslab.mall.checkout.exception.CheckoutItemMismatchException;
 import com.zslab.mall.checkout.exception.CheckoutItemNotFoundException;
@@ -124,6 +125,7 @@ public class GlobalExceptionHandler {
     private static final String CODE_ADMIN_OPERATOR_ALREADY_EXISTS = "ADMIN_OPERATOR_ALREADY_EXISTS";
     private static final String CODE_CATEGORY_NOT_FOUND = "CATEGORY_NOT_FOUND";
     private static final String CODE_CATEGORY_DUPLICATE = "CATEGORY_DUPLICATE";
+    private static final String CODE_CATEGORY_HAS_PRODUCTS = "CATEGORY_HAS_PRODUCTS";
     private static final String CODE_CART_ITEM_NOT_FOUND = "CART_ITEM_NOT_FOUND";
     private static final String CODE_CART_ITEM_NOT_PURCHASABLE = "CART_ITEM_NOT_PURCHASABLE";
     private static final String CODE_PRODUCT_VARIANT_OPTION_CONFLICT = "PRODUCT_VARIANT_OPTION_CONFLICT";
@@ -409,6 +411,14 @@ public class GlobalExceptionHandler {
             CategoryDuplicateException exception, HttpServletRequest request) {
         // Track 46: 카테고리 생성 시 형제 스코프 동일 display_name 중복(409·uk_category_dedup_key). saveAndFlush 위반→409 변환.
         return build(HttpStatus.CONFLICT, CODE_CATEGORY_DUPLICATE, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(CategoryHasProductsException.class)
+    public ResponseEntity<ProblemDetail> handleCategoryHasProducts(
+            CategoryHasProductsException exception, HttpServletRequest request) {
+        // Track 89-C: 활성 상품이 연결된 카테고리 soft-delete 차단(409). FK RESTRICT는 하드 삭제만 막으므로 서비스 가드 결과를 변환한다.
+        log.warn("[Category] 상품 연결 카테고리 삭제 차단(409): {}", exception.getMessage());
+        return build(HttpStatus.CONFLICT, CODE_CATEGORY_HAS_PRODUCTS, exception.getMessage(), request);
     }
 
     @ExceptionHandler(DeliveryTrackingNoConflictException.class)

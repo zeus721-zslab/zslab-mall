@@ -11097,3 +11097,36 @@ deploy.yml이 `push main` 무필터라 docs만 변경된 머지에도 서버 SSH
 ### §8 이월
 - **배송 목록 정렬 인덱스**(`shipped_at` 또는 `(direction, claim_id, shipped_at)`): 데이터 증가 시 다른 인덱스 항목과 묶어 판단.
 - 클레임 목록 `claimPublicId` 필터(배송 화면 클레임 배지가 현재는 주문번호 정확 검색+유형으로 이동) · 외부 택배 추적 seam(D-160 §8) · 일괄 송장 등록.
+
+## D-185. 카테고리 관리 API (Track 89-C)
+
+날짜: 2026-09-18
+범위: Track 89-C BE · `GET /api/v1/admin/categories` · `PUT /api/v1/admin/categories/{id}` · `DELETE /api/v1/admin/categories/{id}` · `PATCH /api/v1/admin/categories/order` · `Category.update`·`changeSortOrder` · `ProductRepository.countActiveByCategoryIds`·`countByCategoryId`
+브랜치: feat/admin-categories
+정찰: docs/track-89/recon-report.md(gitignore·로컬) §2-6·§8-6·§8-7
+
+### 배경
+`/admin/products/categories`가 플레이스홀더였고 `AdminCategoryController`는 루트 생성 1 endpoint뿐(목록·수정·삭제·정렬 전무). D-179 이월 "카테고리 수수료율 편집 화면"을 함께 닫는다 — 수수료율 3단 판정(셀러 → 카테고리 → 기본율)의 카테고리 단계가 V30 컬럼(`category.commission_rate`·bp·NULL=미설정)으로만 존재하고 편집 수단이 없었다. 착수 전 실측: 카테고리 6행 전부 `commission_rate NULL`·CHECK 없음 · 셀러 5행 전부 NULL · `order_item.commission_rate` 180행 전부 1000 · 정산 PENDING 3/CONFIRMED 3/PAID 12 · 카테고리별 활성 상품 7/5/5/5/7/5(상품 0건 카테고리 없음) · `sort_order` 컬럼 있음(Flyway 불요).
+
+### §1-A 결정
+1. **삭제 정책 α 연결 상품 0건일 때만 soft-delete 【채택】 / β 상품을 기본 카테고리로 이관 후 삭제 【기각: 이관 규칙이 임의적】 / γ 물리 삭제 【기각: `fk_product_category ON DELETE RESTRICT`·이력 보존】** — soft-delete는 FK RESTRICT를 우회하므로 Service가 `ProductRepository.countByCategoryId`(활성 상품·`@SQLRestriction`)로 직접 가드하고 1건 이상이면 409 `CATEGORY_HAS_PRODUCTS`(메시지에 `productCount=N`). 삭제 사유 없음(상품 삭제 선례 정합·DELETE body 없음)·감사 DELETE(before 3필드+deleted false / after deleted true). 삭제 후 공개 목록 `GET /v1/categories`·상품 등록 드롭다운·카탈로그 탭은 `@SQLRestriction`이 자동 제외(소비처 2곳·코드 무변경). 복구 API가 없어 `includeDeleted`는 두지 않는다(YAGNI).
+2. **수정 API = `PUT` 전체 치환(3필드 필수·commissionRate null=미설정 환원) α 【채택】 / β `PATCH` 부분 수정 【기각】 / γ PATCH + `clearCommissionRate` 플래그 【기각: 필드 하나가 늘어 어색】** — Jackson record는 "필드 생략"과 "null 명시"를 구분하지 못해 β로는 commissionRate를 미설정(NULL)으로 되돌릴 수 없다(현재 6건 전부 NULL이라 "율을 걷어내고 기본율로 돌리기"는 실 운영 시나리오·JsonNullable 의존성 없음·Optional 필드 금지). FE 편집 다이얼로그가 어차피 전 필드를 보내므로 부분 수정의 실익이 없고, 전체 치환이면 verb는 PUT이 정확하다(PATCH로 두면 후행 독자가 부분 수정으로 오해). 무변경 판정·사유 조건·감사 skip은 서비스 diff. 응답 204(화면은 목록 재조회). 상세 API 생략(6건·목록 행으로 충분).
+3. **수수료율 변경의 적용 시점과 기존 정산 무영향(STEP 445-2 전수 조사)** — 율 참조는 **체크아웃 1곳**(`CheckoutService.resolveItems` → `CommissionRateResolver.resolveAll` → `OrderItem.commissionRate` 스냅샷·NOT NULL). 정산 생성·PENDING 재생성은 `SettlementCreationService.collectSources`가 `oi.commissionRate` 프로젝션(`OrderItemRepository.findSettlementSaleSources`·`RefundRepository.findSettlementRefundSources`)만 읽고 category를 조인하지 않는다. `Category.commissionRate`를 읽는 코드는 `CommissionRateResolver.resolveOne`뿐. ⇒ 변경 이후 **체크아웃되는 신규 주문부터** 적용·기존 주문(미확정 포함)·생성된 정산(전 상태)·재생성 무영향. 셀러 개별율이 있으면 카테고리율보다 우선. IT T8이 이를 박제(6월 정산 fee 1000bp → 율 2000 변경 → resolver 2000 / settlement·order_item·재생성 settlement_item 전부 1000 불변).
+4. **사유·감사 정책 = 필드별** — commissionRate가 실제로 바뀔 때만 사유 필수(서비스 diff 판정·공백이면 400 `MALFORMED_REQUEST`), displayName·sortOrder만 바뀌면 불필요(금액 무관). 감사는 3필드 중 하나라도 바뀌면 UPDATE·CATEGORY·before/after 3필드(+reason·`LinkedHashMap`으로 null 허용)·값 무변경이면 skip(89-A·89-B 규약). 전체 통일 【기각: 필드별이 어색하지 않고 FE는 율이 원값과 달라질 때만 사유 칸을 필수로 바꾸면 됨】. 일괄 정렬은 노출 순서만 바꾸므로 사유·감사 없음.
+5. **율 범위 검증 = 앱 3중** — DTO `@Min/@Max`가 `CommissionRateResolver.MIN/MAX_COMMISSION_RATE`(0~10000 bp·inclusive) 상수를 직접 참조(400 VALIDATION_FAILED·fieldErrors) + 도메인 `Category.update`가 `requireInRange` 재검증(OrderItem 선례) + FE 입력 단계 0~100%·소수 2자리. DB CHECK 미추가(D-179 이월 유지·Flyway 등급 상승 회피). 범위 밖 값이 저장되면 그 카테고리 상품의 체크아웃이 판정 단계에서 차단되므로 유입 경로를 전수 조사: 생성 API는 commissionRate를 받지 않음(IT T6: 본문에 실어도 무시·NULL) · `CatalogDemoSeedRunner`는 `Category.create`(율 없음) · V30은 NULL 컬럼 추가만 · 운영 SQL 직접 수정 외 경로 없음. 생성 API에 율을 추가하지 않은 이유: 화면 "신규 등록"은 기존 생성 API 재사용 범위이고, 율은 등록 후 편집으로 설정.
+6. **정렬 = `PATCH /order` 전체 배열(index=sortOrder)** — `sort_order` 컬럼·정렬 쿼리가 있어 Flyway 없이 처리. 활성 루트 전체 id 집합과 `equals` 비교해 누락·중복·미존재 전부 400 `MALFORMED_REQUEST`(부분 배열은 나머지 순서를 정의할 수 없음). 단건 sortOrder patch 【기각: 동순위·틈이 생겨 화면 위/아래 이동과 1:1이 아님】.
+7. **목록 응답에 `defaultCommissionRate` 메타 동봉** — 기본율 출처는 `application.yml settlement.default-commission-rate` ← env `SETTLEMENT_DEFAULT_COMMISSION_RATE`(compose 화이트리스트)로 환경마다 다를 수 있어 FE 상수로 복제하면 어긋난다. `CommissionRateResolver.getDefaultCommissionRate()`(기동 시 범위 검증된 값)를 그대로 싣는다. 응답 형태 `{defaultCommissionRate, items[]}`(페이징 없음·상품 수는 `countActiveByCategoryIds` GROUP BY 1쿼리·0건은 호출측 보정).
+8. **PUT 전환의 기존 코드·테스트 영향 없음** — 생성 API·`AdminCategoryControllerIntegrationTest` 6건·`CategoryCatalogControllerIntegrationTest` 4건 무수정 GREEN. `CategoryService` 생성자 의존 2개 추가(ProductRepository·AuditRecorder)는 직접 생성하는 테스트가 없어 영향 0.
+
+### 변경 파일
+- BE 신규: `category/controller/request/UpdateCategoryRequest`·`ReorderCategoriesRequest` · `category/controller/response/AdminCategorySummaryResponse`·`AdminCategoryListResponse` · `category/service/AdminCategoryQueryService` · `category/exception/CategoryHasProductsException` · `product/repository/CategoryProductCountProjection`
+- BE 수정: `Category`(update·changeSortOrder) · `CategoryService`(update·delete·reorder·의존 2개) · `AdminCategoryController`(+list·update·delete·reorder·기존 create 무변경) · `ProductRepository`(countActiveByCategoryIds·countByCategoryId) · `GlobalExceptionHandler`(409 1건)
+- 테스트: `AdminCategoryManagementControllerIntegrationTest` 신규 9건(T1 401/403/200 · T2 상품 수/정렬/삭제 제외/NULL 키 생략 · T3 3필드+감사 1+무변경 skip+null 환원 · T4 사유 정책 · T5 경계 0/10000 OK·-1/10001 400·중복 409·404 · T6 생성 율 무시 · T7 삭제 0건 204/1건 409 productCount/404·공개 목록 제외 · T8 정산 무영향 · T9 정렬 스왑/누락/중복/미존재/빈 배열/원복)
+
+### 검증
+- `./gradlew.bat test --rerun-tasks` 1135/0 fail/0 error/0 skip(1126 → +9·OOM 없음). 기존 카테고리·카탈로그 테스트 10건 무수정 GREEN.
+- 로컬 라이브(LT-17·docker restart·Started 79s·ERROR 0·ADMIN 토큰): 목록 6건·상품 수 7/5/5/5/7/5(정찰 실측 일치)·`defaultCommissionRate` 1000·응답 키 {categoryId,displayName,sortOrder,productCount,createdAt}(NULL 율 키 생략·누출 0) · 무인증 401 · PUT 10001/-1 → 400 VALIDATION_FAILED field commissionRate · 율 변경+사유 공백 400 MALFORMED_REQUEST · 미존재 404 · DELETE id 1 → 409 productCount=7 · PATCH order 누락 400 · 공개 목록 6. **수정·삭제·정렬 실행 0건**(DB category 6행 updated_at·commission_rate·deleted_at 불변·audit_log CATEGORY 0).
+- 외부 검토: 등급 B / 회신으로 **생략 확정** — 율 참조 체크아웃 1곳·정산은 스냅샷만 경유(T8 박제).
+
+### §8 이월
+- 카테고리 `commission_rate` DB CHECK(D-179 이월 유지) · 2차 카테고리(V13 dedup_key·FK ON UPDATE CASCADE 재설계 선행) · 카테고리 병합·이동 · 노출 여부 컬럼(소비처 없음).
