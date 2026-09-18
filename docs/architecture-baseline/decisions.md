@@ -10929,3 +10929,50 @@ deploy.yml이 `push main` 무필터라 docs만 변경된 머지에도 서버 SSH
 - 집계 테이블 이관(규모 증가 시·`seller_sales_daily` 재설계 또는 폐기 판단)·refund/claim/user 시각 인덱스.
 - 재고 임박 임계값 설정 키 승격·전일 동기 대비(현재 전일·전월 전체 비교).
 - **FE(Track 86 FE)**: `/admin` 대시보드 화면(AdminStatCard 재사용·차트 라이브러리 미설치 — 선택은 FE 트랙 결정).
+
+## D-181. 매출 통계 API (Track 87)
+
+날짜: 2026-09-18
+범위: Track 87 BE(FE 제외) · `GET /api/v1/admin/stats/sales` · `/breakdown` · `/breakdown.csv`
+브랜치: feat/sales-stats
+정찰: docs/track-87/recon-report.md(gitignore·로컬)
+
+### 배경
+관리자 통계 "매출" 탭이 플레이스홀더뿐이라 기간을 임의 지정하고 단위(일/주/월)·비교 기간·분해 축(카테고리/셀러/상품)을 바꿔 보는 조회 API를 신설한다. 매출 정의는 대시보드 D-180을 그대로 재사용하고, 정찰에서 order_item에 seller_id·product_id·product_name 스냅샷은 있으나 카테고리 스냅샷은 없음(recon §1)·데이터 범위 2026-03~09·분해 행 수 상품 34·셀러 5·카테고리 6(recon §4·§5)을 실측했다.
+
+### §1-A 결정
+1. **매출·환불·순매출 정의 = D-180 재사용** — 매출 `SUM(order.total_price) WHERE paid_at ∈ [start, end)`·환불 `SUM(refund.amount) WHERE status = COMPLETED AND refunded_at ∈ 기간`·순매출 = 차. 취소·반품 품목은 상태로 제외하지 않고 환불로 상쇄한다(D-180 §1-A 7). 기간 귀속도 매출 paid_at·환불 refunded_at 각각.
+2. **기간 = 날짜(from·to·종료일 포함) → KST 반구간** `[from 00:00, to 익일 00:00)`. 요청은 `LocalDate`(ISO.DATE)로 받고 서비스 `StatsPeriod`가 바꾼다. from>to는 400 MALFORMED_REQUEST(관리자 주문 목록 관례). **기간 상한 없음** — 현 규모(결제 주문 148·80일)에서 일 단위 장기 조회도 ms 단위. 대시보드 서비스의 경계 코드는 공유하지 않고 규칙만 같게 둔다(회귀 방지).
+3. **집계 단위 DAY / WEEK / MONTH·주는 ISO-8601(월요일 시작·주 기준 연도)** — 대시보드의 `FUNCTION('DATE_FORMAT', paid_at, :pattern)` GROUP BY에 패턴만 `%Y-%m-%d`·`%x-%v`·`%Y-%m`으로 바인딩한다(네이티브 0 유지·MariaDB 10.11 `%x-%v` 실측: 2025-12-29~2026-01-04 = "2026-01"). 응답 `bucketKey`는 일 `yyyy-MM-dd`·주 `yyyy-'W'ww`·월 `yyyy-MM`, `bucketLabel`은 주만 주 시작일(월요일 yyyy-MM-dd)로 바꿔 노출한다. Java 키는 `IsoFields`로 만들어 DB와 같은 규칙이며 빈 구간은 0으로 채워 구간 수를 고정한다(부분 주·부분 월 포함).
+4. **비교 기간 NONE / PREVIOUS / YEAR_AGO·null 규약** — PREVIOUS = 조회 일수만큼 직전(비교 end = 현재 start)·YEAR_AGO = 1년 전 같은 날짜 구간. BE는 비교 값을 그대로 내리고 증감률은 계산하지 않는다(D-180과 동일). **비교 기간에 결제 주문·완료 환불이 모두 0건이면 `compareSummary`·`compareTrend`를 null(전역 NON_NULL이라 생략)로 내려 0과 구분한다**(로컬 데이터가 2026-03부터라 전년 동기는 항상 없음·FE "—" 표기 근거). `compareTrend`는 비교 시작일부터 현재 `trend`와 같은 개수의 구간을 만들어 인덱스로 대응시킨다(구간 수가 다르면 뒤를 0으로 채우거나 자른다 — 주·월 단위 부분 구간 정렬은 FE 점선 중첩 용도로 충분).
+5. **분해 축 CATEGORY / SELLER / PRODUCT·카테고리 귀속 α 현행 경유 【채택】 / β `order_item.category_id` 스냅샷 【기각·이월】** — order_item에 카테고리 스냅샷이 없어 `OrderItem, Product WHERE oi.productId = p.id GROUP BY p.categoryId`로 경유한다. 관리자 상품 기본정보 수정(`AdminProductCommandService.update`)이 categoryId를 치환하므로 **상품 카테고리 변경 시 과거 주문의 카테고리 귀속이 새 카테고리로 옮겨진다**(Repository·enum·응답 Javadoc 명시). β는 V32 마이그레이션·백필·체크아웃 박제가 필요하고 통계는 표시용이라 이월(수수료율 V30처럼 정산에 쓰이면 그때 스냅샷). 주문 이력 상품은 삭제 차단이라 Product @SQLRestriction 누락은 없다. SELLER·PRODUCT는 `order_item.seller_id`·`product_id` 스냅샷, 상품명은 `MAX(oi.productName)` 주문 시점 스냅샷 우선(현재 상품명 변경 무영향·T6 검증). 옵션(variant) 단위 분해는 범위 밖.
+6. **축별 환불 미분해** — 분해 테이블은 매출 기준만(revenue·share·orderCount·quantity·compareRevenue). 환불을 축별로 나누려면 `refund→claim→order_item(→product)` theta-join 3~4단이 축마다 붙는데 요약 refund·순매출로 운영 판단이 되므로 넣지 않는다(YAGNI). 필요 시 같은 Repository에 축별 환불 쿼리 추가로 확장 가능.
+7. **분해 행 집합 = 현재 기간에 존재하는 키만·매출 내림차순 고정·전량(페이징 없음)** — 비교 기간에만 있는 키는 행을 만들지 않고, 현재 키가 비교 기간에 없으면 `compareRevenue` null(생략). 최대 행 상품 34·셀러 5·카테고리 6이라 `PagedResponse` 불필요·클라이언트 정렬은 FE 책임. `share`는 `totalRevenue`(기간 전체 결제완료 매출·order.total_price 합) 대비 % 소수 2자리(전체 0이면 0)이며 드릴다운에서도 분모는 전체다. `key`는 CATEGORY = categoryId 문자열(공개 taxonomy 식별자·CategorySummaryResponse.categoryId), SELLER/PRODUCT = public_id(soft-delete로 미존재면 null). 이름은 CATEGORY/SELLER 현행 행(미존재 null → FE 대체 표기).
+8. **드릴다운 = 단일 분해 API + `parentKey`** — CATEGORY+parentKey(categoryId) → 그 카테고리의 상품별, SELLER+parentKey(seller public_id) → 그 셀러의 상품별. PRODUCT+parentKey는 400·CATEGORY parentKey 비숫자 400·미존재 parentKey는 빈 rows(관리자 주문 목록 미존재 buyerPublicId 관례). `drillable`은 최상위 CATEGORY·SELLER 행만 true.
+9. **객단가·주문당 품목수** — `avgOrderValue = revenue / orderCount`(원·반올림·0건 0), `avgItemsPerOrder = itemQuantity / orderCount`(수량 합 기준·소수 2자리·0건 0). itemQuantity는 결제완료 주문 품목 `SUM(quantity)`(실측 1.46 vs 라인 수 1.18 — 수량 합이 "품목수" 직관에 맞음).
+10. **CSV α BE `text/csv` 엔드포인트 【채택】 / β FE Blob 생성 【기각】** — β는 화면에 로드된 행에 종속돼 페이징 도입 시 조용히 틀리고, α는 인증 경로(Bearer)가 API와 일관된다. `GET …/breakdown.csv`(파라미터·행 집합은 breakdown과 동일·Spring 6 PathPattern 리터럴 세그먼트라 `/breakdown`과 충돌 없음) → `ResponseEntity<byte[]>`·`Content-Type: text/csv;charset=UTF-8`·**UTF-8 BOM 선두**(엑셀 한글)·`Content-Disposition: attachment; filename="<ASCII>"; filename*=UTF-8''<한글 percent-encoding>`·RFC 4180(CRLF·콤마/따옴표/개행 값은 따옴표·내부 따옴표 2배)·한글 헤더 7열·금액 콤마 없음. byte[]인 이유: 행 수가 축 키 수(수십)라 StreamingResponseBody 불필요·Content-Length 확정(`SalesBreakdownCsvWriter` Javadoc).
+11. **패키지 `com.zslab.mall.stats`·전용 Repository** — D-180 §1-A 9 구조 그대로: `AdminSalesStatsRepository extends Repository<Order, Long>`(JPQL 10·Projection 3)·`AdminSalesStatsQueryService`(readOnly)·`AdminSalesStatsQueryController`(@PreAuthorize 없음·SecurityConfig 일괄)·`SalesBreakdownCsvWriter`. enum 3(StatsUnit·StatsCompare·StatsAxis)은 요청 파라미터 전용(DB 컬럼 아님·4층위 잠금 대상 아님)이며 허용 외 값은 MethodArgumentTypeMismatchException→400. 기존 도메인 코드 수정 0·Flyway 없음.
+
+### API 계약(FE 단계 입력)
+- `GET /api/v1/admin/stats/sales?from=yyyy-MM-dd&to=yyyy-MM-dd&unit=DAY|WEEK|MONTH(기본 DAY)&compare=NONE|PREVIOUS|YEAR_AGO(기본 NONE)` → `{summary{revenue, refund, netRevenue, orderCount, itemQuantity, avgOrderValue, avgItemsPerOrder}, compareSummary?(동일·없으면 생략), trend[{bucketKey, bucketLabel, revenue, refund, netRevenue, orderCount}], compareTrend?[동일·trend와 같은 길이·없으면 생략]}`.
+- `GET /api/v1/admin/stats/sales/breakdown?from&to&compare&axis=CATEGORY|SELLER|PRODUCT&parentKey?` → `{axis, parentKey?, totalRevenue, rows[{key?, name?, revenue, share, orderCount, quantity, compareRevenue?, drillable}]}`(매출 내림차순·전량).
+- `GET /api/v1/admin/stats/sales/breakdown.csv?…(breakdown과 동일)` → `text/csv;charset=UTF-8`·BOM·attachment(`sales-breakdown-{axis}-{from}_{to}.csv` / `매출통계_{축}_{from}_{to}.csv`)·헤더 `키,이름,매출,비중(%),주문수,수량,비교기간 매출`.
+- 금액 원 단위 정수·share % 소수 2자리·avgItemsPerOrder 소수 2자리. 400: from>to·허용 외 enum·날짜 형식·필수 누락·PRODUCT+parentKey·CATEGORY parentKey 비숫자.
+
+### 변경 파일
+- main 신규(stats 패키지 16): enums 3(StatsUnit·StatsCompare·StatsAxis) · controller/AdminSalesStatsQueryController · controller/response 5(AdminSalesStatsResponse·SalesSummaryResponse·SalesTrendBucketResponse·AdminSalesBreakdownResponse·SalesBreakdownRowResponse) · repository/AdminSalesStatsRepository + Projection 3(SalesTotals·SalesBucket·SalesAxis) · service/StatsPeriod·AdminSalesStatsQueryService·SalesBreakdownCsvWriter.
+- main 수정: 없음 · Flyway 없음 · FE 변경 없음 · 신규 라이브러리 없음.
+- test 신규: stats/controller/AdminSalesStatsQueryControllerIntegrationTest(10).
+
+### 검증
+- AdminSalesStatsQueryControllerIntegrationTest 10(다른 테스트가 쓰지 않는 고정 과거 기간 2019-12~2020-01에 시드해 격리·정확값 검증): T1 인가 401/403/200 ×3 엔드포인트 · T2 요약·경계(from 00:00:00 포함·to 익일 00:00:00 제외·미결제 제외·COMPLETED만 차감·FAILED 미차감·객단가 15,000·주문당 1.67) · T3 DAY 7/WEEK 2/MONTH 2 구간·키 형식·빈 구간 0 · T4 주 라벨 월요일·수요일 시작 조회도 그 주 월요일·연도 경계 2019-12-30 = 2020-W01 · T5 PREVIOUS 값·compareTrend 7개 인덱스 대응·YEAR_AGO/NONE 생략 · T6 3축 금액·비중·주문수·수량·정렬·compareRevenue(없는 키 생략)·drillable·상품명 스냅샷(현재명 변경 무영향) · T7 드릴다운 CATEGORY→상품·SELLER→상품·미존재 parentKey 빈 rows·PRODUCT+parentKey 400·비숫자 400 · T8 400 8종 · T9 CSV Content-Type·Content-Disposition(filename+filename*)·BOM·한글 헤더·콤마 상품명 이스케이프·CRLF · T10 대사.
+- **대사(T10)**: 최근 6개월 `unit=MONTH` 추이 6구간의 revenue·refund·netRevenue·orderCount가 대시보드 `monthlyRevenue`와 전부 일치, 이번 달 요약 revenue·refund·orderCount가 대시보드 `summary.thisMonth`와 일치(이번 달 시드 12,345 반영 상태·전역 데이터라 항등).
+- 전체 `./backend/gradlew.bat test --rerun-tasks`: 1102 tests·0 fail·skip 0(1092 → 1102).
+- 로컬 라이브(LT-17): docker restart zslab_mall_backend·Started 85s·Flyway up to date·ERROR 0 · ADMIN 토큰 GET /stats/sales(MONTH+PREVIOUS 200·0.27s·7~9월 3구간+비교 4~6월 3구간)·WEEK+YEAR_AGO(2026-W36~W38·라벨 월요일·compare 생략)·/breakdown CATEGORY+PREVIOUS(6행·share 합 100)·SELLER·parentKey=5 드릴다운 200·/breakdown.csv PRODUCT 200(text/csv;charset=UTF-8·Content-Disposition filename+filename*·BOM·20행·UTF-8 디코드 정상) · 무인증 401·from>to 400·unit=HOUR 400·PRODUCT+parentKey 400.
+- 라이브에서만 발견된 트랩: record의 `isEmpty()` 판정 메서드가 Jackson getter 패턴으로 잡혀 응답에 `"empty": false`가 새었다(통합 테스트는 키 집합을 검사하지 않아 통과) → `hasNoData()`로 개명 + T2에 summary 필드 집합 단언 추가. 규칙: record 응답의 boolean 판정 메서드는 `isXxx`/`getXxx` 이름을 피한다.
+- 외부 검토: 등급 B / 생략 — 대시보드 대사 테스트로 대체.
+
+### §8 이월
+- `order_item.category_id` 스냅샷(V32·백필·체크아웃 박제) — 카테고리 변경 빈도가 높아지거나 정산에 카테고리 집계가 필요해질 때.
+- 축별 환불 분해·옵션(variant) 단위 분해·기간 상한(일 단위 장기 조회 행 수)·집계 테이블 이관(D-180 §8과 동일 시점).
+- **FE(Track 87 FE)**: `/admin/stats/sales` 화면(기간 프리셋·단위 토글·비교 점선·축 탭·클라이언트 정렬 테이블·CSV 다운로드는 `$fetch responseType blob` + createObjectURL — Bearer라 직링크 불가).

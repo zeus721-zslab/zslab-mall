@@ -1662,3 +1662,36 @@ BE 계약 Track 86 D-180(`GET /api/v1/admin/dashboard` 단일 응답·"API 계�
 - 배송 대기 링크의 품목/주문 단위 불일치(주문 목록에 품목 상태 필터 도입 시 정합).
 - 통계 4페이지(매출·주문·회원·상품)는 여전히 플레이스홀더 — 대시보드 차트 빌더 재사용 가능.
 - vue3-apexcharts formatter 소실 트랩은 상위 버전 수정 시 `remountKey` 제거 검토.
+
+## FE-34: 매출 통계 화면 (2026-09-18)
+
+BE 계약 Track 87 D-181(`GET /api/v1/admin/stats/sales`·`/breakdown`·`/breakdown.csv`·"API 계약" 절이 SoT·본 항목에서 재기술하지 않음) · 브랜치 `feat/sales-stats`(BE·FE 동일 브랜치·미커밋) · 정찰 `docs/track-87/recon-report.md` §6(FE) · 외부 검토 C / 생략.
+
+### §1-A 갈림길·채택/기각 근거
+1. 비교 계열 표시: **α 순매출 1계열만 점선 중첩 【채택】** / β 매출·환불·순매출 3계열 전부 점선 【기각: 6계열 과밀·색 구분 불가】 / γ 비교를 별도 차트로 분리 【기각: 같은 축에서 겹쳐 봐야 하는 비교 목적 훼손】. 현재 3계열(매출 #2563EB·환불 #F97316·순매출 #22C55E) + 비교 순매출 회색(#94A3B8) `stroke.dashArray [0,0,0,5]`·매출·환불 비교값은 툴팁 x 라벨에 병기(`salesTrendChart`·admin-sales-stats-view.ts). AdminChart 래퍼는 수정 없음(옵션 passthrough·remountKey) — `AdminChartSeries.data`만 `(number | null)[]`로 넓혀 선 끊김을 허용(1줄·기존 호출부 영향 0).
+2. compareTrend 후행 0 → null: BE는 compareTrend를 trend 길이에 맞춰 뒤를 0으로 채우거나 절단한다(D-181 §1-A 4). 비교 구간이 실제로 더 적을 때 끝이 0으로 급락해 보이므로 **후행** 0 구간(revenue·refund·orderCount 모두 0)만 null로 바꿔 선을 끊는다(`compareNetSeries`). 중간 0은 실제 0이라 유지·환불만 있는 구간(순매출 음수)도 데이터로 유지. apexcharts line은 null에서 선을 끊는다(연결 금지 실측).
+3. 환불 카드 색 반전: 증감 톤은 FE-33 `changeTone`을 쓰되 환불만 `inverse`로 up↔down을 바꿔 "환불 증가 = 빨강·감소 = 녹색"(`salesChangeTone`). flat(0·비교 불가)은 회색 그대로. 나머지 5장(매출·순매출·주문수·객단가·주문당 품목수)은 증가 녹색.
+4. 비교 없음 표기: BE가 비교 기간 0건이면 compareSummary·compareTrend 키를 생략(전역 NON_NULL) → 타입은 optional·`normalizeSalesStats`가 `?? null`로 고정. compare≠NONE인데 null이면 안내 alert("비교 기간에 결제·환불 데이터가 없어 증감률을 표시하지 않습니다")·배지 "—"·회색. compareRevenue(행)도 같은 규약(생략 → null → "—").
+5. CSV: **BE `/breakdown.csv` blob 다운로드** — Bearer 헤더가 필요해 `<a href>` 직링크 불가. `useAdminApi().raw(…, { responseType: 'blob' })` → Content-Disposition `filename*=UTF-8''` 우선·`filename` 폴백·둘 다 없으면 `sales-breakdown.csv`(`csvFileNameFrom`) → `URL.createObjectURL` → 임시 a 클릭 → **지연 revoke(10초·클릭 직후 동기 revoke는 브라우저가 다운로드를 시작하기 전에 URL을 무효화할 수 있음)**. 다운로드 중 버튼 disabled+spinner·성공/실패 토스트. 파라미터는 breakdown과 동일(현재 축·드릴다운·비교 반영).
+6. 카테고리 귀속 안내: 카테고리 탭에서만 "상품의 현재 카테고리 기준으로 집계됩니다. 상품의 카테고리를 변경하면 과거 주문의 귀속도 함께 바뀝니다."(`CATEGORY_AXIS_NOTICE`·D-181 §1-A 5 α 채택 사유).
+7. URL 단일 소스(`preset|from|to|unit|compare|axis|parent`·admin-order-query 패턴): 프리셋(7d·30d·3m·ytd)은 **오늘 기준으로 매번 계산**하므로 URL에는 preset만 두고 custom일 때만 from·to를 싣는다(어제 공유한 "최근 7일" 링크가 오늘 기준으로 열림). 기본값 생략·허용 외 값 정규화·custom인데 날짜 누락이면 기본 프리셋(30d). 요약·추이(statsKey)와 분해(breakdownKey)를 별도 watch로 두어 축·드릴다운 변경 시 breakdown만 재조회.
+8. 기간 검증: from>to·custom 미입력이면 요청을 보내지 않고 피커 인라인 메시지(BE 400 의존 금지). 트랩 — 피커가 반대쪽 날짜를 props에서 읽어 함께 emit하면 router.replace 반영 전 연속 입력 시 stale 값이 새 값을 덮는다(E2E 실측) → 피커는 바뀐 키만 emit·프리셋→custom 전환 시 반대쪽 날짜 보충은 페이지 `applyQuery`가 현재 표시 기간으로 한다.
+9. 분해 테이블 정렬: 기존 관리자 표는 전부 `v-data-table-server`+`sortable:false`(서버 정렬)라 **첫 클라이언트 정렬 선례**. Vuetify `v-data-table` 내장 정렬 대신 `v-table` + 헤더 클릭 + 순수 함수 `sortBreakdownRows`(null=비교 불가는 방향 무관 맨 뒤·동률 매출 DESC·이름 가나다) — null-last 규칙을 vitest로 고정하기 위함. 기본 매출 DESC(BE 순서와 동일). 비중은 셀 안 `v-progress-linear`.
+10. 드릴다운: drillable 행 클릭 → `parent`(key) URL 반영 → 상품 목록·브레드크럼("전체 › {축} · {이름} — 상품별") + "전체로". 상위 이름은 클릭 시 메모리에만 두어 새로고침 후엔 key로 표기(BE 응답에 parent 이름 없음·추가 조회는 YAGNI). key null(soft-delete) 행은 drillable false.
+11. x축 라벨: yyyy-MM-dd(일·주 시작일)는 연도를 떼 MM-DD(`axisLabel`) — 30일·7일 조회에서 라벨 겹침 실측. 툴팁은 전체 bucketLabel. 월은 yyyy-MM 그대로.
+12. 트랩 — Playwright Chromium은 blob: URL 다운로드의 `suggestedFilename()`을 "download"로 보고한다(앱의 `a.download`는 한글 파일명·스크래치 E2E로 실측). E2E는 다운로드 이벤트 발생 + 토스트의 파일명(Content-Disposition 추출값)으로 단언한다.
+
+### §2 확정 구현 규칙
+- `lib/constants/admin-sales-stats.ts`(유니온 3·프리셋·라벨·삭제 대체 표기·카테고리 안내) / `types/admin-sales-stats.ts`(D-181 1:1·비교 필드 optional) / `lib/admin-sales-stats-query.ts`(URL·프리셋·API 파라미터·역전 판정) / `lib/admin-sales-stats-view.ts`(정규화·카드 6·톤 반전·차트·후행 0·분해 행·정렬·CSV 파일명·축 라벨) / `composables/useAdminSalesStats.ts`(sales·breakdown·breakdownCsv).
+- 컴포넌트: `AdminPeriodPicker`(재사용 가능·프리셋 토글+date 2+단위+비교·testid `period-*`) · `AdminSalesSummaryCards`(6장·`sales-card-{key}`·배지 `sales-card-rate`) · `AdminSalesBreakdownTable`(`breakdown-sort-{key}`·`breakdown-row(-drillable)`·`breakdown-empty`) · 페이지 `pages/admin/stats/sales.vue`(조립·상태·URL·CSV·AdminPlaceholder 제거).
+- 삭제 행 표기: name null → "(삭제된 카테고리/셀러/상품)"(parentKey 있으면 상품)·이탤릭·회색.
+- 반응형: 카드 `cols=12 sm=6 lg=4`, 피커 프리셋 `lg=5`·날짜 `6/3/2`·단위 `lg=1`·비교 `lg=2`, 표는 v-table 래퍼 가로 스크롤·숫자 셀 nowrap.
+- 테스트: vitest `test/admin/admin-sales-stats-helpers.spec.ts`(16·프리셋/월말·URL parse/toRoute·PRODUCT parentKey 제거·톤 반전·카드·normalize·후행 0→null·차트 계열/dashArray/축 라벨·분해 행·정렬 null-last·CSV 파일명) · Playwright `e2e/admin-sales-stats.spec.ts`(1·데모 로그인 → 진입(카드 6·"—"·차트 SVG·카테고리 안내) → 7일+주+직전(URL·비교 열 2) → 셀러 축 → 드릴다운(parentKey·브레드크럼) → 전체로 → 시작일 직접 입력(custom) → 역전(요청 0·CSV disabled) → 해소 → CSV 다운로드 이벤트+토스트 파일명·실 BE).
+- 검증(실측): typecheck 0 · vitest 43 files 292(276 → +16) · Playwright 56/56 skip 0(55 → +1·1회차 3건 실패=컨테이너 재시작 직후 Vite 최초 컴파일(FE-33 트랩 동일)·2회차 settlements ⑥ 30s 타임아웃 1건(무관 파일·단독 재실행 6/6)·3회차 56/56) · 라이브 응답 키 집합(sales top 4·summary 7·trend 6·breakdown top 3·row 8)이 D-181 계약과 정확히 일치·누출 필드 0 · 데모 8/21~9/9 결제 0 구간은 0 기준선 평탄선으로 표시(직전 비교 점선이 그 위를 지남·급락 없음) · 실화면 desktop/mobile 스크린샷 확인 · 사용자 홈 HTML apexcharts 참조 0.
+- 픽셀: track86 vs track87 12장 diff 0(관리자 화면이라 사용자 기준선 추가 대상 아님).
+- 신규 의존성: 없음.
+
+### §8 이월
+- 드릴다운 상위 이름의 새로고침 유지(BE breakdown 응답에 parentName 추가 시).
+- 통계 주문·회원·상품 3페이지는 여전히 플레이스홀더 — `AdminPeriodPicker`·`AdminSalesBreakdownTable` 재사용 가능.
+- 비교 계열 확장(매출·환불 점선 토글)은 요구 시.
