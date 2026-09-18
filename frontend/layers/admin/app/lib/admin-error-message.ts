@@ -31,6 +31,10 @@ const ADMIN_ERROR_MESSAGES: Record<string, string> = {
   MEMBER_ALREADY_WITHDRAWN: '이미 탈퇴한 회원입니다.',
   MEMBER_PHONE_MISSING: '연락처가 없어 임시 비밀번호를 발송할 수 없습니다.',
   TEMPORARY_PASSWORD_DELIVERY_FAILED: 'SMS 발송에 실패했습니다. 비밀번호는 변경되지 않았습니다.',
+  // FE-39 관리자 운영자 관리(Track 89-E). 도메인 403(SUPER_ADMIN 아님·자기 SUPER_ADMIN 회수)은 code=FORBIDDEN이라 서버 detail을 쓴다(admin-operator-view).
+  ADMIN_OPERATOR_ALREADY_EXISTS: '이미 운영 관리자 역할을 보유한 회원입니다.',
+  ROLE_ASSIGNMENT_NOT_FOUND: '회수할 역할이 없습니다(회원 미존재 또는 이미 회수됨).',
+  LAST_SUPER_ADMIN: '마지막 슈퍼 관리자는 회수할 수 없습니다(시스템 잠금 방지).',
   // Track 85 관리자 정산(D-179). PERIOD_INVALID는 연·월 범위 위반과 미마감 월이 같은 코드라 둘을 함께 안내한다.
   SETTLEMENT_NOT_FOUND: '정산을 찾을 수 없습니다.',
   SETTLEMENT_PERIOD_INVALID: '정산 기간이 올바르지 않습니다. 연·월 범위를 확인하고, 아직 마감되지 않은 월은 생성할 수 없습니다.',
