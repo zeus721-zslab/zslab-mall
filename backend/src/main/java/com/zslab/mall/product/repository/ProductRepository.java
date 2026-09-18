@@ -87,4 +87,15 @@ public interface ProductRepository extends JpaRepository<Product, Long>, JpaSpec
             @Param("keywordPattern") String keywordPattern,
             @Param("sort") String sort,
             Pageable pageable);
+
+    /**
+     * 카테고리별 활성 상품 수를 배치 1쿼리로 집계한다(Track 89-C 관리자 카테고리 목록·N+1 회피). 삭제 상품은 {@code @SQLRestriction}이
+     * 자동 제외하므로 결과는 "활성 상품 수"다. 상품 0건 카테고리는 결과에 없다(호출측이 0으로 보정). 모든 변수는 :categoryIds 바인딩(SQL injection 위험 없음).
+     */
+    @Query("SELECT p.categoryId AS categoryId, COUNT(p) AS productCount FROM Product p "
+            + "WHERE p.categoryId IN :categoryIds GROUP BY p.categoryId")
+    List<CategoryProductCountProjection> countActiveByCategoryIds(@Param("categoryIds") Collection<Long> categoryIds);
+
+    /** 카테고리에 연결된 활성 상품 수(Track 89-C 삭제 가드·삭제 상품은 @SQLRestriction 자동 제외). */
+    long countByCategoryId(Long categoryId);
 }
