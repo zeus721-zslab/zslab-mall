@@ -12,7 +12,9 @@ const ADMIN_ERROR_MESSAGES: Record<string, string> = {
   CLAIM_NOT_FOUND: '클레임을 찾을 수 없습니다.',
   DELIVERY_NOT_FOUND: '배송 정보를 찾을 수 없습니다.',
   CLAIM_STATE_INVALID: '현재 상태에서 처리할 수 없는 클레임입니다(취소 불가 품목·진행 중 클레임 중복·클레임 진행 중 품목의 송장 등록 등).',
-  DELIVERY_INVALID_STATE: '현재 배송 상태에서 허용되지 않는 처리입니다(송장 등록은 결제완료 품목, 배송완료는 배송중만).',
+  DELIVERY_INVALID_STATE: '현재 배송 상태에서 허용되지 않는 처리입니다(송장 등록은 결제완료 품목, 배송완료·송장 수정은 배송중만).',
+  // FE-37 관리자 배송 관리(Track 89-B)
+  DELIVERY_TRACKING_NO_CONFLICT: '다른 배송이 이미 사용 중인 송장번호입니다.',
   ORDER_ITEM_INVALID_STATE: '현재 품목 상태에서 허용되지 않는 처리입니다.',
   OPTIMISTIC_LOCK_FAILURE: '이미 종료됐거나 결제가 완료된 주문입니다. 최신 상태를 다시 확인하세요.',
   VALIDATION_FAILED: '입력값을 확인해 주세요.',
