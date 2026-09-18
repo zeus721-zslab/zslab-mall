@@ -144,6 +144,24 @@ public class Delivery extends AbstractPublicIdFullAuditableEntity {
     }
 
     /**
+     * 송장 정정(Track 89-B D-184). 잘못 입력된 택배사·송장번호를 바로잡는다 — 상태·shippedAt은 바꾸지 않는다(전이 아님).
+     * SHIPPING에서만 허용한다: READY는 송장이 아직 없고({@link #markShipping}이 최초 설정), DELIVERED는 종결 상태로 반품 기한·
+     * 자동 구매확정이 이미 그 행을 기준으로 계산됐기 때문이다.
+     *
+     * @throws IllegalStateException SHIPPING이 아니거나 carrier·trackingNo 누락 시
+     */
+    public void correctTracking(DeliveryCarrier carrier, String trackingNo) {
+        if (status != DeliveryStatus.SHIPPING) {
+            throw new IllegalStateException("송장 정정은 배송중(SHIPPING)에서만 가능합니다: status=" + status);
+        }
+        if (carrier == null || trackingNo == null || trackingNo.isBlank()) {
+            throw new IllegalStateException("correctTracking: carrier·trackingNo는 필수입니다.");
+        }
+        this.carrier = carrier;
+        this.trackingNo = trackingNo;
+    }
+
+    /**
      * 배송 완료 처리(SHIPPING → DELIVERED·D-97 Q2·WARN-7). 전이 합법성 검증 후 DLV-3(shipped_at ≤ delivered_at·
      * invariants §2.12)를 강제한다. 이벤트 발행은 {@code DeliveryService} 책임이다(D-29 save→publish).
      *

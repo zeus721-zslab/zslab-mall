@@ -1,24 +1,42 @@
 package com.zslab.mall.delivery.controller;
 
+import com.zslab.mall.audit.service.AuditContext;
 import com.zslab.mall.claim.entity.Claim;
 import com.zslab.mall.claim.exception.ClaimNotFoundException;
 import com.zslab.mall.claim.repository.ClaimRepository;
+import com.zslab.mall.common.auth.ActorRoleResolver;
 import com.zslab.mall.common.auth.AdminActorResolver;
+import com.zslab.mall.delivery.controller.request.AdminDeliveryScope;
+import com.zslab.mall.delivery.controller.request.AdminDeliverySort;
+import com.zslab.mall.delivery.controller.request.AdminDeliveryTrackingCorrectionRequest;
 import com.zslab.mall.delivery.controller.request.RegisterExchangeShipmentRequest;
+import com.zslab.mall.delivery.controller.response.AdminDeliveryDetailResponse;
+import com.zslab.mall.delivery.controller.response.AdminDeliverySummaryResponse;
 import com.zslab.mall.delivery.controller.response.RegisterExchangeShipmentResponse;
 import com.zslab.mall.delivery.entity.Delivery;
+import com.zslab.mall.delivery.enums.DeliveryCarrier;
+import com.zslab.mall.delivery.enums.DeliveryStatus;
 import com.zslab.mall.delivery.exception.DeliveryNotFoundException;
 import com.zslab.mall.delivery.repository.DeliveryRepository;
+import com.zslab.mall.delivery.service.AdminDeliveryCommandService;
+import com.zslab.mall.delivery.service.AdminDeliveryQueryService;
 import com.zslab.mall.delivery.service.DeliveryService;
+import com.zslab.mall.order.controller.response.PagedResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import java.time.LocalDateTime;
+import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Admin 액터용 Delivery REST 컨트롤러(Track 18·Track 20·D-102·D-104). 교환품 출고 등록·배송 완료 2 endpoint를 노출한다.
+ * Admin 액터용 Delivery REST 컨트롤러(Track 18·Track 20·D-102·D-104). 교환품 출고 등록·배송 완료 2 endpoint에 Track 89-B(D-184)에서
+ * 배송 목록·상세·송장 정정 3 endpoint를 추가했다.
  *
  * <p>클래스 레벨 base path를 두지 않고 메서드별 절대경로를 부여한다(D-104 §3 옵션 A). 단일 컨트롤러가 서로 다른 두 리소스 축을
  * 노출하기 때문이다:
@@ -26,6 +44,7 @@ import org.springframework.web.bind.annotation.RestController;
  *   <li>{@code POST /api/v1/admin/claims/{claimPublicId}/register-exchange-shipment} — {@link SellerDeliveryController}
  *       URL {@code /api/v1/claims/{claimPublicId}/register-exchange-shipment}과 1:1 대칭·액터축만 admin 치환(D-102 §3 보존).</li>
  *   <li>{@code POST /api/v1/admin/deliveries/{deliveryPublicId}/mark-delivered} — 배송 완료 primitive의 Admin wrapper(D-104).</li>
+ *   <li>{@code GET /api/v1/admin/deliveries}·{@code GET .../{deliveryPublicId}}·{@code PATCH .../{deliveryPublicId}/tracking} — Track 89-B.</li>
  * </ul>
  * Admin 식별은 {@code X-Admin-Id} 헤더 stub이다(D-93·{@link AdminActorResolver}).
  *
@@ -37,19 +56,70 @@ import org.springframework.web.bind.annotation.RestController;
 public class AdminDeliveryController {
 
     private final DeliveryService deliveryService;
+    private final AdminDeliveryQueryService adminDeliveryQueryService;
+    private final AdminDeliveryCommandService adminDeliveryCommandService;
     private final ClaimRepository claimRepository;
     private final DeliveryRepository deliveryRepository;
     private final AdminActorResolver adminActorResolver;
+    private final ActorRoleResolver actorRoleResolver;
 
     public AdminDeliveryController(
             DeliveryService deliveryService,
+            AdminDeliveryQueryService adminDeliveryQueryService,
+            AdminDeliveryCommandService adminDeliveryCommandService,
             ClaimRepository claimRepository,
             DeliveryRepository deliveryRepository,
-            AdminActorResolver adminActorResolver) {
+            AdminActorResolver adminActorResolver,
+            ActorRoleResolver actorRoleResolver) {
         this.deliveryService = deliveryService;
+        this.adminDeliveryQueryService = adminDeliveryQueryService;
+        this.adminDeliveryCommandService = adminDeliveryCommandService;
         this.claimRepository = claimRepository;
         this.deliveryRepository = deliveryRepository;
         this.adminActorResolver = adminActorResolver;
+        this.actorRoleResolver = actorRoleResolver;
+    }
+
+    /**
+     * 관리자 배송 목록(Track 89-B D-184). 배송 행 단위. 필터: scope(ORIGINAL 기본·CLAIM_OUTBOUND·RETURN·ALL)·status·carrier·
+     * keyword(송장번호 정확·주문번호 정확·수령인명 부분)·from/to(발송일 shipped_at·ISO-8601). 허용 외 enum·sort 값 400,
+     * keyword 50자 초과·from&gt;to 400(MALFORMED_REQUEST). 인가는 SecurityConfig {@code /api/v1/admin/**}→hasRole(ADMIN)이 강제한다.
+     */
+    @GetMapping("/api/v1/admin/deliveries")
+    public PagedResponse<AdminDeliverySummaryResponse> list(
+            @RequestParam(defaultValue = "ORIGINAL") AdminDeliveryScope scope,
+            @RequestParam(required = false) DeliveryStatus status,
+            @RequestParam(required = false) DeliveryCarrier carrier,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to,
+            @RequestParam(defaultValue = "LATEST") AdminDeliverySort sort,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return adminDeliveryQueryService.listDeliveries(scope, status, carrier, keyword, from, to, sort, page, size);
+    }
+
+    /** 관리자 배송 상세(Track 89-B D-184). 미존재 deliveryPublicId → 404. */
+    @GetMapping("/api/v1/admin/deliveries/{deliveryPublicId}")
+    public AdminDeliveryDetailResponse get(@PathVariable String deliveryPublicId) {
+        return adminDeliveryQueryService.getDelivery(deliveryPublicId);
+    }
+
+    /**
+     * 관리자 송장 정정(Track 89-B D-184). SHIPPING에서만 허용(그 외 422 DELIVERY_INVALID_STATE)·타 배송과 송장번호 중복 409·
+     * 사유 누락/200자 초과·carrier 누락 400. 상태는 바꾸지 않으며 값이 바뀐 경우에만 감사 로그를 남긴다. 미존재 404.
+     */
+    @PatchMapping("/api/v1/admin/deliveries/{deliveryPublicId}/tracking")
+    public RegisterExchangeShipmentResponse correctTracking(
+            @PathVariable String deliveryPublicId,
+            @Valid @RequestBody AdminDeliveryTrackingCorrectionRequest request,
+            HttpServletRequest httpRequest) {
+        AuditContext auditContext = AuditContext.of(
+                adminActorResolver.resolve(httpRequest), actorRoleResolver.requireCoarseRole());
+        // 서비스는 @Transactional 종료 후 정정 반영 Delivery를 반환한다. 스칼라만 읽으므로 OSIV off에서도 재조회 불요.
+        Delivery corrected = adminDeliveryCommandService.correctTracking(
+                deliveryPublicId, request.carrier(), request.trackingNo(), request.reason(), auditContext);
+        return RegisterExchangeShipmentResponse.from(corrected);
     }
 
     /**
