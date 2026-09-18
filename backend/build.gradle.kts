@@ -56,4 +56,7 @@ tasks.test {
     // 컨테이너에 데모 행을 커밋하면 전역 상태 단언 테스트(inventory.variant_id UNIQUE·product_variant 전역 count)가 깨진다.
     // 테스트는 profile=local이라 application-local.yml의 enabled:true를 로드하므로, 상위 우선순위 systemProperty로 명시 차단한다.
     systemProperty("catalog.demo-seed.enabled", "false")
+    // Track 88: 전체 스위트(1114 tests·@SpringBootTest 컨텍스트 캐시 누적)가 Gradle 기본 테스트 워커 힙(512m)에서
+    // OutOfMemoryError(Java heap space) → DB 소켓·컨텍스트 로드 연쇄 실패(41건)를 냈다. 테스트 JVM 힙을 명시한다.
+    maxHeapSize = "2g"
 }
