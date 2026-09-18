@@ -46,7 +46,11 @@ class AdminOperatorControllerIntegrationTest extends AbstractIntegrationTest {
     private static final long BUYER_CALLER = 9603L;        // BUYER 토큰(필터 게이트 거부·② 403)
     private static final long TARGET_USER = 9610L;         // 부여 대상(미보유 user)
     private static final long DUP_TARGET = 9611L;          // 이미 ADMIN_OPERATOR 보유(⑤⑥)
-    private static final long MISSING_TARGET = 9699L;      // 미시드 user(④ 404)
+
+    // 요청 식별자는 public_id(usr_)다(Track 89-E 전환·D-186 §1-A). 시드 user의 public_id와 1:1.
+    private static final String PID_TARGET = pid("usr_", "T38TGT");
+    private static final String PID_DUP = pid("usr_", "T38DUP");
+    private static final String PID_MISSING = pid("usr_", "T38MISSING"); // 미시드 user(④ 404)
 
     @Autowired
     private MockMvc mockMvc;
@@ -82,7 +86,7 @@ class AdminOperatorControllerIntegrationTest extends AbstractIntegrationTest {
         mockMvc.perform(post(URL)
                         .headers(authHeaders.admin(SUPER_ADMIN_CALLER))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body(TARGET_USER)))
+                        .content(body(PID_TARGET)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.userPublicId").exists());
 
@@ -102,7 +106,7 @@ class AdminOperatorControllerIntegrationTest extends AbstractIntegrationTest {
         mockMvc.perform(post(URL)
                         .headers(authHeaders.buyer(BUYER_CALLER))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body(TARGET_USER)))
+                        .content(body(PID_TARGET)))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
 
@@ -122,7 +126,7 @@ class AdminOperatorControllerIntegrationTest extends AbstractIntegrationTest {
         mockMvc.perform(post(URL)
                         .headers(authHeaders.admin(OPERATOR_CALLER))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body(TARGET_USER)))
+                        .content(body(PID_TARGET)))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
 
@@ -130,7 +134,7 @@ class AdminOperatorControllerIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("④ 대상 미존재: 미시드 userId → 404 USER_NOT_FOUND")
+    @DisplayName("④ 대상 미존재: 미시드 userPublicId → 404 USER_NOT_FOUND")
     void provision_unknownTarget_returns404() throws Exception {
         seed(() -> {
             seedUser(SUPER_ADMIN_CALLER, "T38SAC");
@@ -140,7 +144,7 @@ class AdminOperatorControllerIntegrationTest extends AbstractIntegrationTest {
         mockMvc.perform(post(URL)
                         .headers(authHeaders.admin(SUPER_ADMIN_CALLER))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body(MISSING_TARGET)))
+                        .content(body(PID_MISSING)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("USER_NOT_FOUND"));
     }
@@ -158,7 +162,7 @@ class AdminOperatorControllerIntegrationTest extends AbstractIntegrationTest {
         mockMvc.perform(post(URL)
                         .headers(authHeaders.admin(SUPER_ADMIN_CALLER))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body(DUP_TARGET)))
+                        .content(body(PID_DUP)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("ADMIN_OPERATOR_ALREADY_EXISTS"));
     }
@@ -176,7 +180,7 @@ class AdminOperatorControllerIntegrationTest extends AbstractIntegrationTest {
         mockMvc.perform(post(URL)
                         .headers(authHeaders.admin(SUPER_ADMIN_CALLER))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body(DUP_TARGET)))
+                        .content(body(PID_DUP)))
                 .andExpect(status().isConflict());
 
         // 실패한 saveAndFlush가 롤백돼 중복 행이 남지 않는다(정확히 기존 1건 유지).
@@ -224,8 +228,8 @@ class AdminOperatorControllerIntegrationTest extends AbstractIntegrationTest {
         });
     }
 
-    private String body(long userId) {
-        return "{\"userId\":" + userId + "}";
+    private String body(String userPublicId) {
+        return "{\"userPublicId\":\"" + userPublicId + "\"}";
     }
 
     private int adminOperatorMappingCount(long userId) {

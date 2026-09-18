@@ -1,14 +1,17 @@
 package com.zslab.mall.auth.controller;
 
 import com.zslab.mall.audit.service.AuditContext;
+import com.zslab.mall.auth.controller.request.AdminRoleRevocationRequest;
 import com.zslab.mall.auth.enums.RoleCode;
 import com.zslab.mall.auth.service.RoleRevocationService;
 import com.zslab.mall.common.auth.ActorRoleResolver;
 import com.zslab.mall.common.auth.AdminActorResolver;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -38,15 +41,16 @@ public class AdminUserRoleController {
     }
 
     /**
-     * SUPER_ADMIN 주도 권한 회수(Track 53). 성공 204(No Content). SUPER_ADMIN 아님·자기 SUPER_ADMIN 회수 403·
-     * 미보유 404·마지막 SUPER_ADMIN 409·roleCode 오값 400({@link RoleRevocationService}·GlobalExceptionHandler).
+     * SUPER_ADMIN 주도 권한 회수(Track 53). 사유 필수 본문(Track 89-E). 성공 204(No Content). SUPER_ADMIN 아님·자기 SUPER_ADMIN
+     * 회수 403·미보유 404·마지막 SUPER_ADMIN 409·roleCode 오값·사유 누락 400({@link RoleRevocationService}·GlobalExceptionHandler).
      */
     @DeleteMapping("/api/v1/admin/users/{userPublicId}/roles/{roleCode}")
     public ResponseEntity<Void> revoke(
-            @PathVariable String userPublicId, @PathVariable RoleCode roleCode, HttpServletRequest request) {
+            @PathVariable String userPublicId, @PathVariable RoleCode roleCode,
+            @RequestBody @Valid AdminRoleRevocationRequest body, HttpServletRequest request) {
         Long callerUserId = adminActorResolver.resolve(request);
         AuditContext auditContext = AuditContext.of(callerUserId, actorRoleResolver.requireCoarseRole());
-        roleRevocationService.revoke(callerUserId, userPublicId, roleCode, auditContext);
+        roleRevocationService.revoke(callerUserId, userPublicId, roleCode, body.reason(), auditContext);
         return ResponseEntity.noContent().build();
     }
 }

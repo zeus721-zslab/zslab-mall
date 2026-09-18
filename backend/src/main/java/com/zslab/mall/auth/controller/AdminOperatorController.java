@@ -2,20 +2,28 @@ package com.zslab.mall.auth.controller;
 
 import com.zslab.mall.audit.service.AuditContext;
 import com.zslab.mall.auth.controller.request.AdminOperatorProvisioningRequest;
+import com.zslab.mall.auth.controller.request.AdminOperatorRoleFilter;
 import com.zslab.mall.auth.controller.response.AdminOperatorProvisioningResponse;
+import com.zslab.mall.auth.controller.response.AdminOperatorSummaryResponse;
 import com.zslab.mall.auth.service.AdminOperatorProvisioningService;
+import com.zslab.mall.auth.service.AdminOperatorQueryService;
 import com.zslab.mall.common.auth.ActorRoleResolver;
 import com.zslab.mall.common.auth.AdminActorResolver;
+import com.zslab.mall.order.controller.response.PagedResponse;
+import com.zslab.mall.user.controller.request.AdminMemberStatusFilter;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 운영 관리자(ADMIN_OPERATOR) 공급 REST 컨트롤러(Track 38·SUPER_ADMIN 주도). 운영 중 관리자 계정 공급 1 endpoint를 노출한다.
+ * 운영 관리자(ADMIN_OPERATOR) 공급 REST 컨트롤러(Track 38·SUPER_ADMIN 주도). 운영 중 관리자 계정 공급 endpoint와 운영자 목록
+ * 조회(Track 89-E·코어스 ADMIN 전체 열람)를 노출한다.
  *
  * <p>클래스 레벨 base path를 두지 않고 메서드 절대경로를 부여한다({@link com.zslab.mall.seller.controller.AdminSellerController}·
  * D-105 §2 Q2 옵션 A 선례). 1차 인가는 SecurityConfig {@code /api/v1/admin/**}→{@code hasRole("ADMIN")}(코어스 게이트)가
@@ -29,16 +37,30 @@ import org.springframework.web.bind.annotation.RestController;
 public class AdminOperatorController {
 
     private final AdminOperatorProvisioningService adminOperatorProvisioningService;
+    private final AdminOperatorQueryService adminOperatorQueryService;
     private final AdminActorResolver adminActorResolver;
     private final ActorRoleResolver actorRoleResolver;
 
     public AdminOperatorController(
             AdminOperatorProvisioningService adminOperatorProvisioningService,
+            AdminOperatorQueryService adminOperatorQueryService,
             AdminActorResolver adminActorResolver,
             ActorRoleResolver actorRoleResolver) {
         this.adminOperatorProvisioningService = adminOperatorProvisioningService;
+        this.adminOperatorQueryService = adminOperatorQueryService;
         this.adminActorResolver = adminActorResolver;
         this.actorRoleResolver = actorRoleResolver;
+    }
+
+    /** 운영자 목록(Track 89-E). role 생략 시 ADMIN 계열 전체·status 기본 ACTIVE·keyword(이름·이메일 부분일치)·가입일 desc. 허용 외 enum 400. */
+    @GetMapping("/api/v1/admin/admin-operators")
+    public ResponseEntity<PagedResponse<AdminOperatorSummaryResponse>> list(
+            @RequestParam(required = false) AdminOperatorRoleFilter role,
+            @RequestParam(defaultValue = "ACTIVE") AdminMemberStatusFilter status,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return ResponseEntity.ok(adminOperatorQueryService.listOperators(role, status, keyword, page, size));
     }
 
     /**

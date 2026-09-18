@@ -61,10 +61,10 @@ public class AdminOperatorProvisioningService {
      * 대상 회원에 ADMIN_OPERATOR 역할을 부여한다. 성공 시 대상 회원의 public_id를 반환한다.
      *
      * @param callerUserId 요청을 수행한 인증 액터의 userId(SUPER_ADMIN 여부 검증 대상)
-     * @param request 대상 회원 userId를 담은 요청
+     * @param request 대상 회원 userPublicId(usr_)를 담은 요청
      * @param auditContext 감사 행위자 컨텍스트(운영자)
      * @throws SuperAdminRequiredException caller가 SUPER_ADMIN이 아닌 경우(403)
-     * @throws UserNotFoundException 대상 userId에 해당하는 User가 없는 경우(404)
+     * @throws UserNotFoundException 대상 userPublicId에 해당하는 User가 없는 경우(404·soft-delete 포함)
      * @throws IllegalStateException ADMIN_OPERATOR Role seed가 없는 경우(내부 오류·500)
      * @throws AdminOperatorAlreadyExistsException 대상이 이미 ADMIN_OPERATOR 역할을 보유한 경우(409·uk_user_role 위반)
      */
@@ -75,9 +75,9 @@ public class AdminOperatorProvisioningService {
             throw new SuperAdminRequiredException("SUPER_ADMIN만 운영 관리자를 공급할 수 있습니다.");
         }
 
-        User target = userRepository.findById(request.userId())
+        User target = userRepository.findByPublicId(request.userPublicId())
                 .orElseThrow(() -> new UserNotFoundException(
-                        "운영 관리자로 지정한 User가 없습니다: userId=" + request.userId()));
+                        "운영 관리자로 지정한 User가 없습니다: userPublicId=" + request.userPublicId()));
 
         Role operatorRole = roleRepository.findByCode(RoleCode.ADMIN_OPERATOR)
                 .orElseThrow(() -> new IllegalStateException("ADMIN_OPERATOR Role seed 누락(V11 마이그레이션 확인 필요)."));
@@ -87,9 +87,9 @@ public class AdminOperatorProvisioningService {
             // 409로 변환하며, @Transactional 경계에서 롤백한다.
             userRoleRepository.saveAndFlush(UserRole.create(target.getId(), operatorRole));
         } catch (DataIntegrityViolationException exception) {
-            log.warn("[AdminOperatorProvisioning] 중복 부여 차단(409) targetUserId={}", request.userId());
+            log.warn("[AdminOperatorProvisioning] 중복 부여 차단(409) targetUserPublicId={}", request.userPublicId());
             throw new AdminOperatorAlreadyExistsException(
-                    "이미 운영 관리자 역할을 보유한 사용자입니다: userId=" + request.userId());
+                    "이미 운영 관리자 역할을 보유한 사용자입니다: userPublicId=" + request.userPublicId());
         }
 
         // record는 saveAndFlush 성공 경로에만 둔다(catch 밖). 409 롤백 시 감사도 함께 롤백되나, 롤백된 부여에

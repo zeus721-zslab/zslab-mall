@@ -3,6 +3,7 @@ package com.zslab.mall.auth.repository;
 import com.zslab.mall.auth.entity.UserRole;
 import com.zslab.mall.auth.enums.RoleCode;
 import java.util.Collection;
+import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -46,4 +47,11 @@ public interface UserRoleRepository extends JpaRepository<UserRole, Long> {
     @Modifying
     @Query("DELETE FROM UserRole ur WHERE ur.userId = :userId AND ur.role.code = :code")
     int deleteByUserIdAndRoleCode(Long userId, RoleCode code);
+
+    /**
+     * userIds가 보유한 역할 매핑 전량을 Role과 함께 조회한다(Track 89-E 운영자 목록·페이지 id 배치 enrich). role LAZY 접근이
+     * 행마다 SELECT를 내지 않도록 JOIN FETCH로 고정한다(N+1 방지). 호출자는 빈 컬렉션을 넘기지 않는다.
+     */
+    @Query("SELECT ur FROM UserRole ur JOIN FETCH ur.role WHERE ur.userId IN :userIds")
+    List<UserRole> findWithRoleByUserIdIn(Collection<Long> userIds);
 }

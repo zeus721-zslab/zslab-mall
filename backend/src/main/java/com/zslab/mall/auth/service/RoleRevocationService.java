@@ -40,8 +40,8 @@ import org.springframework.transaction.annotation.Transactional;
  * uk_role_code 단일 행이라 동시 회수가 동일 행에서 직렬화된다.
  *
  * <p><b>회수·감사</b>: find→delete TOCTOU를 없애기 위해 조회 없이 {@code deleteByUserIdAndRoleCode} 단일 delete로
- * 수행한다. 0 row는 미보유(404)로, 1 row는 감사 적재로 이어진다. before diff는 회수한 roleCode만 담고 after는 빈 맵으로
- * 두어 DiffBuilder가 role 키 삭제를 diff로 잡게 한다(ProductApprovalService 감사 배선 선례 정합).
+ * 수행한다. 0 row는 미보유(404)로, 1 row는 감사 적재로 이어진다. before diff는 회수한 roleCode만 담고 after는 사유만 담아
+ * DiffBuilder가 role 키 삭제·reason 키 추가를 diff로 잡게 한다(ProductApprovalService 감사 배선 선례·89-A 사유 규약 정합).
  */
 @Slf4j
 @Service
@@ -70,13 +70,15 @@ public class RoleRevocationService {
      * @param callerUserId        요청을 수행한 인증 액터의 userId(SUPER_ADMIN 여부 검증 대상)
      * @param targetUserPublicId  회수 대상 회원의 public_id(usr_)
      * @param roleCode            회수할 역할 코드
+     * @param reason              회수 사유(감사 after에 기록·컨트롤러가 @NotBlank 검증)
      * @param auditContext        감사 행위자 컨텍스트(운영자)
      * @throws SuperAdminRequiredException       caller가 SUPER_ADMIN이 아닌 경우(403)
      * @throws SelfRoleRevocationException       SUPER_ADMIN이 자기 자신의 SUPER_ADMIN 역할을 회수하려는 경우(403)
      * @throws LastSuperAdminRevocationException  마지막 SUPER_ADMIN 역할을 회수하려는 경우(409)
      * @throws RoleAssignmentNotFoundException   대상 미존재·역할 미보유·경합 선삭제로 삭제 행이 없는 경우(404)
      */
-    public void revoke(Long callerUserId, String targetUserPublicId, RoleCode roleCode, AuditContext auditContext) {
+    public void revoke(Long callerUserId, String targetUserPublicId, RoleCode roleCode, String reason,
+            AuditContext auditContext) {
         if (!userRoleRepository.existsByUserIdAndRole_Code(callerUserId, RoleCode.SUPER_ADMIN)) {
             log.warn("[RoleRevocation] SUPER_ADMIN 아님 차단(403) callerUserId={}", callerUserId);
             throw new SuperAdminRequiredException("SUPER_ADMIN만 권한을 회수할 수 있습니다.");
@@ -108,7 +110,7 @@ public class RoleRevocationService {
         }
 
         auditRecorder.record(auditContext, AuditLogAction.DELETE, PolymorphicTargetType.USER, targetUserId,
-                Map.of("role", roleCode.name()), Map.of());
+                Map.of("role", roleCode.name()), Map.of("reason", reason));
         log.info("[RoleRevocation] 권한 회수 완료 targetUserPublicId={} roleCode={} byCallerUserId={}",
                 targetUserPublicId, roleCode, callerUserId);
     }

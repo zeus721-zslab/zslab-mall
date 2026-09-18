@@ -14,6 +14,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -51,6 +52,8 @@ class AdminUserRoleControllerIntegrationTest extends AbstractIntegrationTest {
     private static final String PID_B = pid("usr_", "T53SAB");
     private static final String PID_PLAIN = pid("usr_", "T53PLN");
     private static final String PID_MISSING = pid("usr_", "T53MISSING"); // 미시드(⑦ 404 통합 은닉)
+    /** 회수 사유 본문(Track 89-E 필수). 기존 케이스는 식별자·의도 불변, 사유만 추가한다. */
+    private static final String REASON_BODY = "{\"reason\":\"T53 통합 테스트 회수\"}";
 
     @Autowired
     private MockMvc mockMvc;
@@ -82,7 +85,8 @@ class AdminUserRoleControllerIntegrationTest extends AbstractIntegrationTest {
             seedUserRole(SUPER_A, "SUPER_ADMIN");
         });
 
-        mockMvc.perform(delete(url(PID_A, "SUPER_ADMIN")).headers(authHeaders.buyer(BUYER_CALLER)))
+        mockMvc.perform(delete(url(PID_A, "SUPER_ADMIN")).headers(authHeaders.buyer(BUYER_CALLER))
+                        .contentType(MediaType.APPLICATION_JSON).content(REASON_BODY))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
 
@@ -99,7 +103,8 @@ class AdminUserRoleControllerIntegrationTest extends AbstractIntegrationTest {
             seedUserRole(SUPER_B, "SUPER_ADMIN");
         });
 
-        mockMvc.perform(delete(url(PID_B, "SUPER_ADMIN")).headers(authHeaders.admin(OPERATOR_CALLER)))
+        mockMvc.perform(delete(url(PID_B, "SUPER_ADMIN")).headers(authHeaders.admin(OPERATOR_CALLER))
+                        .contentType(MediaType.APPLICATION_JSON).content(REASON_BODY))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
 
@@ -116,7 +121,8 @@ class AdminUserRoleControllerIntegrationTest extends AbstractIntegrationTest {
             seedUserRole(SUPER_B, "SUPER_ADMIN"); // 2명 → last 방어 아닌 self 방어가 발화함을 격리
         });
 
-        mockMvc.perform(delete(url(PID_A, "SUPER_ADMIN")).headers(authHeaders.admin(SUPER_A)))
+        mockMvc.perform(delete(url(PID_A, "SUPER_ADMIN")).headers(authHeaders.admin(SUPER_A))
+                        .contentType(MediaType.APPLICATION_JSON).content(REASON_BODY))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
 
@@ -133,7 +139,8 @@ class AdminUserRoleControllerIntegrationTest extends AbstractIntegrationTest {
             seedUserRole(SUPER_B, "ADMIN_OPERATOR"); // 대상은 SUPER_ADMIN 미보유·count<=1 가드가 선발화
         });
 
-        mockMvc.perform(delete(url(PID_B, "SUPER_ADMIN")).headers(authHeaders.admin(SUPER_A)))
+        mockMvc.perform(delete(url(PID_B, "SUPER_ADMIN")).headers(authHeaders.admin(SUPER_A))
+                        .contentType(MediaType.APPLICATION_JSON).content(REASON_BODY))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("LAST_SUPER_ADMIN"));
 
@@ -150,7 +157,8 @@ class AdminUserRoleControllerIntegrationTest extends AbstractIntegrationTest {
             seedUserRole(SUPER_B, "SUPER_ADMIN");
         });
 
-        mockMvc.perform(delete(url(PID_B, "SUPER_ADMIN")).headers(authHeaders.admin(SUPER_A)))
+        mockMvc.perform(delete(url(PID_B, "SUPER_ADMIN")).headers(authHeaders.admin(SUPER_A))
+                        .contentType(MediaType.APPLICATION_JSON).content(REASON_BODY))
                 .andExpect(status().isNoContent());
 
         assertThat(roleMappingCount(SUPER_B, "SUPER_ADMIN")).isZero();
@@ -163,7 +171,9 @@ class AdminUserRoleControllerIntegrationTest extends AbstractIntegrationTest {
         // before-only 엔트리가 남아 diff가 비지 않으므로 감사 적재가 skip되지 않음을 방증한다(AUTH-4·row 존재 자체가 non-skip 증거).
         assertThat((String) row.get("diff_json"))
                 .contains("role")
-                .contains("\"before\":\"SUPER_ADMIN\"");
+                .contains("\"before\":\"SUPER_ADMIN\"")
+                .contains("reason")
+                .contains("T53 통합 테스트 회수"); // 사유는 after에만 실린다(Track 89-E)
     }
 
     @Test
@@ -175,7 +185,8 @@ class AdminUserRoleControllerIntegrationTest extends AbstractIntegrationTest {
             seedUser(PLAIN_TARGET, PID_PLAIN); // 역할 미보유
         });
 
-        mockMvc.perform(delete(url(PID_PLAIN, "ADMIN_OPERATOR")).headers(authHeaders.admin(SUPER_A)))
+        mockMvc.perform(delete(url(PID_PLAIN, "ADMIN_OPERATOR")).headers(authHeaders.admin(SUPER_A))
+                        .contentType(MediaType.APPLICATION_JSON).content(REASON_BODY))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("ROLE_ASSIGNMENT_NOT_FOUND"));
     }
@@ -188,7 +199,8 @@ class AdminUserRoleControllerIntegrationTest extends AbstractIntegrationTest {
             seedUserRole(SUPER_A, "SUPER_ADMIN");
         });
 
-        mockMvc.perform(delete(url(PID_MISSING, "ADMIN_OPERATOR")).headers(authHeaders.admin(SUPER_A)))
+        mockMvc.perform(delete(url(PID_MISSING, "ADMIN_OPERATOR")).headers(authHeaders.admin(SUPER_A))
+                        .contentType(MediaType.APPLICATION_JSON).content(REASON_BODY))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("ROLE_ASSIGNMENT_NOT_FOUND"));
     }
@@ -202,7 +214,8 @@ class AdminUserRoleControllerIntegrationTest extends AbstractIntegrationTest {
             seedUserRole(SUPER_A, "ADMIN_OPERATOR"); // caller가 자기 ADMIN_OPERATOR 보유
         });
 
-        mockMvc.perform(delete(url(PID_A, "ADMIN_OPERATOR")).headers(authHeaders.admin(SUPER_A)))
+        mockMvc.perform(delete(url(PID_A, "ADMIN_OPERATOR")).headers(authHeaders.admin(SUPER_A))
+                        .contentType(MediaType.APPLICATION_JSON).content(REASON_BODY))
                 .andExpect(status().isNoContent());
 
         assertThat(roleMappingCount(SUPER_A, "ADMIN_OPERATOR")).isZero();
@@ -213,9 +226,28 @@ class AdminUserRoleControllerIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("⑨ roleCode 오값: 미정의 enum 경로 → 400 MALFORMED_REQUEST(PathVariable 바인딩 실패)")
     void revoke_invalidRoleCode_returns400() throws Exception {
         // 필터 게이트(hasRole ADMIN)만 통과하면 PathVariable enum 변환 실패가 컨트롤러 진입 전 400으로 처리된다(시드 불요).
-        mockMvc.perform(delete(url(PID_A, "BOGUS_ROLE")).headers(authHeaders.admin(SUPER_A)))
+        mockMvc.perform(delete(url(PID_A, "BOGUS_ROLE")).headers(authHeaders.admin(SUPER_A))
+                        .contentType(MediaType.APPLICATION_JSON).content(REASON_BODY))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
+    }
+
+    @Test
+    @DisplayName("⑩ 사유 누락: reason blank → 400 VALIDATION_FAILED·미회수(Track 89-E 회수 사유 필수)")
+    void revoke_blankReason_returns400() throws Exception {
+        seed(() -> {
+            seedUser(SUPER_A, PID_A);
+            seedUserRole(SUPER_A, "SUPER_ADMIN");
+            seedUser(SUPER_B, PID_B);
+            seedUserRole(SUPER_B, "SUPER_ADMIN");
+        });
+
+        mockMvc.perform(delete(url(PID_B, "SUPER_ADMIN")).headers(authHeaders.admin(SUPER_A))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\" \"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+
+        assertThat(roleMappingCount(SUPER_B, "SUPER_ADMIN")).isEqualTo(1);
     }
 
     // ---------- helpers (AdminOperatorControllerIntegrationTest 패턴·? positional 바인딩·SQL injection 없음) ----------
