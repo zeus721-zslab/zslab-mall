@@ -191,6 +191,8 @@ async function downloadCsv(): Promise<void> {
       </template>
     </AdminPageHeader>
 
+    <AdminStatsTabs />
+
     <AdminPeriodPicker
       :preset="query.preset"
       :from="period?.from ?? query.from"

@@ -98,8 +98,8 @@ function baseOptions(categories: string[]): ApexOptions {
   }
 }
 
-/** 축 차트 계열(apexcharts 전역 ApexAxisChartSeries는 ambient라 레이어 타입으로 고정). null은 선 끊김(FE-34 비교 계열 후행 구간). */
-export type AdminChartSeries = { name: string; data: (number | null)[] }[]
+/** 축 차트 계열(apexcharts 전역 ApexAxisChartSeries는 ambient라 레이어 타입으로 고정). null은 선 끊김(FE-34 비교 계열 후행 구간). type은 혼합 차트(막대+선·FE-35 가입 추이)의 계열별 유형·미지정이면 차트 type을 따른다. */
+export type AdminChartSeries = { name: string; type?: 'line' | 'column' | 'area'; data: (number | null)[] }[]
 
 export interface ChartSpec {
   series: AdminChartSeries

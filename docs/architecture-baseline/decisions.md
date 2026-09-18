@@ -10976,3 +10976,54 @@ deploy.yml이 `push main` 무필터라 docs만 변경된 머지에도 서버 SSH
 - `order_item.category_id` 스냅샷(V32·백필·체크아웃 박제) — 카테고리 변경 빈도가 높아지거나 정산에 카테고리 집계가 필요해질 때.
 - 축별 환불 분해·옵션(variant) 단위 분해·기간 상한(일 단위 장기 조회 행 수)·집계 테이블 이관(D-180 §8과 동일 시점).
 - **FE(Track 87 FE)**: `/admin/stats/sales` 화면(기간 프리셋·단위 토글·비교 점선·축 탭·클라이언트 정렬 테이블·CSV 다운로드는 `$fetch responseType blob` + createObjectURL — Bearer라 직링크 불가).
+- (D-182 append) 구간 키 생성 private static 로직(bucketCount·buckets·mondayOf·pattern·TrendBucket)은 Track 88에서 `stats.service.StatsBuckets`로 추출했다(동작 무변경·본 트랙 통합 테스트 10/10 GREEN으로 확인).
+
+## D-182. 주문·클레임 / 회원 통계 API (Track 88)
+
+날짜: 2026-09-18
+범위: Track 88 BE(FE 제외) · `GET /api/v1/admin/stats/orders` · `GET /api/v1/admin/stats/members`
+브랜치: feat/order-member-stats
+정찰: docs/track-88/recon-report.md(gitignore·로컬)
+
+### 배경
+관리자 통계 "주문"·"회원" 탭이 플레이스홀더뿐이라 탭 1(매출·D-181)의 기간·비교·집계 단위 규약을 재사용하는 조회 API 2종을 신설한다. 정찰에서 주문 상태 변경 이력 테이블이 없고 단계 시각은 milestone 컬럼(order.paid_at·delivery.shipped_at/delivered_at·order_item.confirmed_at·claim.requested_at/processed_at)뿐임(recon §1), claim은 order_item 단위·refund↔claim 1:1·reason_code는 DB 무제약 VARCHAR(§3), 주문 시점 등급 스냅샷 없음·buyer_purchase_aggregate 0행 미사용(§4), MariaDB MEDIAN() OVER()는 실재하나 JPQL 경로 검증 불가(§5)를 실측했다.
+
+### §1-A 결정
+1. **기간·비교 기간·집계 단위 = D-181 재사용** — `StatsPeriod`(KST 반구간·from>to 400)·`StatsUnit`·`StatsCompare`·비교 null 규약(비교 기간 데이터 0건이면 필드 생략) 그대로. **비교 기간은 추이·요약 카드에만 적용**하고 퍼널·소요시간·분포·구매자 분리·상위 회원에는 비교 필드를 두지 않는다(비교 의미가 약하고 응답 2배 비용만 추가).
+2. **StatsBuckets 추출(동작 무변경)** — D-181 서비스의 private static 구간 키 로직(DAY/WEEK/MONTH 키·라벨·개수)을 `stats.service.StatsBuckets`로 옮겨 3개 서비스가 공유한다. 기존 도메인 코드 수정 0 원칙의 예외이며 매출 통계 통합 테스트 10/10 GREEN으로 무변경을 확인했다(D-181 append). 대안 복붙 3벌 【기각: 키 규칙 드리프트】.
+3. **퍼널 = 결제 코호트·품목 단위** — 기간 내 paid_at 주문의 order_item을 코호트로 잡고 발송(원 발송 delivery.shipped_at)·배송완료(delivered_at)·구매확정(confirmed_at) 도달을 `IS NOT NULL`로 센다(도달 시각이 기간 밖이어도 도달). 취소·반품 이탈은 item_status CANCELLED·RETURNED, 교환은 이탈이 아니다(교환 완료 시 DELIVERED 복귀·EXCHANGED 미사용). 건수만 내리고 도달률·이탈률은 FE 계산(D-180/181 일관). 주문 단위 퍼널 【기각: 다품목 주문의 "배송완료" 정의 모호】·현재 상태 분포로 축소 【기각: 코호트로 산출 가능】. PREPARING 단계는 1TX 전이라 영속 상태가 아니므로 제외.
+4. **원 발송 delivery 필터 = `direction = OUTBOUND AND claim_id IS NULL`** — 반품 회수(RETURN)·교환품/재발송(claim_id NOT NULL)을 제외한다(V24 "원 주문 발송" 정의·자동 구매확정과 동일). 실측 품목당 1행.
+5. **소요시간 = 종결 시각 기준 기간 귀속** — 결제→발송은 shipped_at, 발송→배송완료는 delivered_at, 클레임은 processed_at이 기간에 속하는 건을 표본으로 삼는다(퍼널의 결제 코호트와 다름·최근 기간이 "빠른 건만" 남는 편향 방지). **클레임은 "요청→종결"(COMPLETED·REJECTED)** — approve/complete/reject/failInspection이 같은 processed_at을 덮어써 승인 시각이 소실되므로 "요청→승인"은 산출하지 않는다(approved_at 컬럼 신설은 백필 불가·이월). 역전·NULL 쌍은 제외하고 건수를 warn 로그로 남긴다(실측 역전 0·방어).
+6. **중앙값·평균 α 서비스 계산 【채택】 / β MariaDB `MEDIAN() OVER()` 【기각: JPQL 경로(FUNCTION은 OVER 미부착·TIMESTAMPDIFF 키워드 인자) 검증 불가】 / γ 네이티브 쿼리 【기각: 네이티브 0건 관례 이탈】** — Repository는 `(startAt, endAt)` 시각 쌍 Projection만 내리고 `LeadTimeCalculator`가 초 단위 Duration으로 평균·중앙값(짝수 표본은 가운데 두 값 평균)·건수를 계산한다. 현 규모(발송 157·클레임 종결 19)에서 부하 무의미·순수 함수라 테스트 용이. 표본 0이면 해당 구간 null.
+7. **클레임률 = 기간 내 클레임 요청 건수 ÷ 기간 내 결제 품목 라인 수** — claim이 order_item 단위(재요청 시 건수 > 품목 수)라 분모·분자 모두 품목이 자연 단위. 분자 requested_at·분모 paid_at 귀속이 다른 것은 매출/환불(paid_at/refunded_at)과 같은 관례. 주문 단위 【기각: 다품목 주문 귀속 모호】·코호트 EXISTS 【기각: 퍼널과 중복】.
+8. **환불률 = 금액 기준 주 지표(COMPLETED 환불액 ÷ 매출·D-180 정의)·건수는 부가 필드(refundCount)** — 매출·환불 분모 쿼리는 D-181 정의를 그대로 쓰되 `AdminOrderStatsRepository`에 별도로 둔다(매출 통계 Repository 수정 금지·회귀 방지).
+9. **클레임 분해 = 유형·사유(reason_code)만** — 기간 내 요청 기준 GROUP BY·건수 내림차순·share % 소수 2자리. reason_code는 DB 무제약 VARCHAR라 enum 외 값도 원문 그대로 내린다(FE 라벨 매핑·미매핑 원문 표기·T6 검증). 셀러·상품 축 【범위 밖·이월】.
+10. **결제 실패·만료 지표 α 제외 【채택】 / β payment.updated_at 근사 카드 【기각: 같은 사유】** — 전이 시각 컬럼이 없고(updated_at 근사는 종결 상태라 타당하나) PAYMENT_EXPIRED 주문·payment가 `ExpiredOrderCleanupScheduler`(기본 활성·7일 유예)에 hard delete돼 **지표가 조용히 축소**된다(최근 7일 창 밖 항상 0). 삭제 전 집계 보존은 통계 트랙 범위 밖·이월.
+11. **누적 회원수 = 활성 누적(가입 누계 − 탈퇴 누계)·신규 가입은 별도 계열** — 기간 시작 시점 기준값(created_at < start − withdrawn_at < start·BUYER role·`AdminMemberSpecifications.buyerRole`과 같은 user_role 서브쿼리) + 구간별 (가입 − 탈퇴) 서비스 누적(윈도우 함수 없음). summary.activeTotal은 기간 종료 시점 값이라 추이 마지막 구간과 같다(T8). 가입 누적(탈퇴 포함) 【기각: 운영 의미는 현재 회원 수】. User @SQLRestriction(deleted_at)으로 soft-delete 회원은 모든 집계에서 빠진다(회원 목록과 동일).
+12. **재구매율 = 기간 내 2회 이상 결제한 구매자 ÷ 기간 내 결제 구매자** — 구매자별 `GROUP BY buyerId` 1쿼리(매출 내림차순)에서 재구매율·1회/재구매자 매출 분리·상위 회원 20을 함께 산출한다. "기간 이전 구매 이력 보유 비율" 【기각: 요청 지표 "1회 vs 재구매 매출 비중"과 한 쿼리가 되는 α 우선】.
+13. **등급별 매출 기여 = 현재 등급(buyer_profile.grade_id) 경유** — 주문 시점 등급 스냅샷이 없어 등급 재산정 시 과거 매출의 등급 귀속이 바뀐다(응답·Repository Javadoc 명시·D-181 카테고리 α와 동형). 스냅샷(order.buyer_grade_code) 도입은 이월. 인원은 활성(미탈퇴) 회원·3등급 전부 내린다(0건 포함·enum 순서). revenueShare 분모는 3등급 매출 합. `buyer_purchase_aggregate`는 0행·미사용 read model이라 쓰지 않는다.
+14. **상위 회원 20 표기 = 관리자 회원 목록과 동일(name·email 원문·null 그대로)** — `UserRepository.findByIdIn` enrich(대시보드 선례)·soft-delete 회원은 publicId·name·email null. userPublicId는 회원 상세 링크용.
+15. **엔드포인트 2개·탭당 단일 응답·CSV 미포함** — `/admin/stats/orders`·`/admin/stats/members`(FE 라우트 1:1). 축·드릴다운이 없어 재요청 분기가 없고 D-180 단일 응답 선례를 따른다. Repository 2(`AdminOrderStatsRepository`·`AdminMemberStatsRepository`·Repository<Order, Long> 마커·JPQL 14+9·네이티브 0)·Service 2(readOnly)·Controller 2(@PreAuthorize 없음·SecurityConfig 일괄). 비율 공용 계산 `StatsRatio`(응답 record 팩토리·서비스 공유). record 판정 메서드는 `hasNoData()`(is/get 금지·Track 87 누출 선례).
+
+### API 계약(FE 단계 입력)
+- `GET /api/v1/admin/stats/orders?from=yyyy-MM-dd&to=yyyy-MM-dd&unit=DAY|WEEK|MONTH(기본 DAY)&compare=NONE|PREVIOUS|YEAR_AGO(기본 NONE)` → `{funnel{paidItems, shippedItems, deliveredItems, confirmedItems, cancelledItems, returnedItems}, leadTime{paidToShipped?, shippedToDelivered?, claimRequestedToClosed?: {avgHours, medianHours, count}(표본 0이면 생략)}, claimSummary{claimCount, claimRate, refundAmount, refundRate, refundCount, paidItemCount}, compareClaimSummary?(동일·없으면 생략), claimTrend[{bucketKey, bucketLabel, claimCount, claimRate, refundAmount, refundRate, refundCount}], compareClaimTrend?[동일·claimTrend와 같은 길이], claimByType[{type, count, share}], claimByReason[{reasonCode, count, share}]}`.
+- `GET /api/v1/admin/stats/members?from&to&unit&compare` → `{summary{newCount, withdrawnCount, activeTotal, repurchaseRate, buyerCount, repeatBuyerCount}, compareSummary?, signupTrend[{bucketKey, bucketLabel, newCount, activeCumulative}], compareSignupTrend?, gradeDistribution[3]{gradeCode, memberCount, share, revenue, revenueShare}, buyerSplit{firstTimeBuyerCount, firstTimeRevenue, repeatBuyerCount, repeatRevenue}, topBuyers[≤20]{userPublicId?, name?, email?, orderCount, revenue}}`.
+- bucketKey·bucketLabel·비교 null 규약은 D-181과 동일. 비율은 % 소수 2자리 double·분모 0이면 0. 소요시간은 시간 단위 소수 2자리. 금액 원 단위 정수. 400: from>to·허용 외 enum·날짜 형식·필수 누락.
+
+### 변경 파일
+- main 신규(stats 패키지 33): service/StatsBuckets · service/LeadTimeCalculator · service/AdminOrderStatsQueryService · service/AdminMemberStatsQueryService · controller/AdminOrderStatsQueryController · controller/AdminMemberStatsQueryController · controller/response 15(AdminOrderStatsResponse·OrderFunnelResponse·OrderLeadTimeResponse·LeadTimeMetricResponse·ClaimSummaryResponse·ClaimTrendBucketResponse·ClaimTypeShareResponse·ClaimReasonShareResponse·AdminMemberStatsResponse·MemberSummaryResponse·SignupTrendBucketResponse·GradeDistributionResponse·BuyerSplitResponse·TopBuyerResponse·StatsRatio) · repository/AdminOrderStatsRepository · repository/AdminMemberStatsRepository · repository Projection 10(StatsBucketProjection·StatsCountBucketProjection·OrderFunnelProjection·TimePairProjection·RefundTotalsProjection·ClaimTypeCountProjection·ClaimReasonCountProjection·GradeCountProjection·GradeRevenueProjection·BuyerOrdersProjection).
+- main 수정 1: service/AdminSalesStatsQueryService(구간 키 로직을 StatsBuckets 호출로 치환·−67/+7·동작 무변경). 그 외 기존 코드 수정 0 · Flyway 없음 · FE 변경 없음 · 신규 라이브러리 없음.
+- test 신규: stats/controller/AdminOrderMemberStatsQueryControllerIntegrationTest(12).
+
+### 검증
+- AdminOrderMemberStatsQueryControllerIntegrationTest 12(고정 과거 기간 2018-01 시드 격리·정확값): T1 인가 401/403/200 ×2 · T2 퍼널 정합(코호트 5·발송 3·배송 3·확정 1·취소 1·반품 1·각 단계 ≤ 앞 단계·경계 01-15 00:00) · T3 코호트 귀속(기간 밖 배송완료 포함·직전 결제는 코호트 밖·발송 도달은 포함) · T4 소요시간(짝수 표본 중앙값 36.0·홀수 24.0·종결 시각 기준·역전 제외·표본 0 null) · T5 클레임률 80%·환불률 38.64%·건수 2·일/주 추이 · T6 유형·사유 분포 합계·share≈100·정렬·enum 외 reason_code 원문 · T7 주문 비교(요약·추이만·YEAR_AGO/NONE 생략·최상위 키 집합) · T8 회원 신규/탈퇴/활성 누적(기준값 2→종료 3·role 없는 가입자 제외·경계) · T9 재구매율 50%·1회/재구매 매출 분리·상위 회원 정렬·이름/이메일 원문 · T10 등급 분포 3고정·인원 JDBC 대사·매출·share≈100 · T11 회원 비교(요약·추이만·키 집합) · T12 400 5종 ×2.
+- **응답 키 집합 단언**: 최상위(orders 8/6·members 7/5)·funnel 6·leadTime 3·metric 3·claimSummary 6·trend 7·byType/byReason 3·summary 6·signupTrend 4·grade 5·buyerSplit 4·topBuyer 5 — 계약 외 필드 누출 0(Track 87 `empty` 누출 재발 방지).
+- **퍼널 합계 정합(외부 검토 B 대체)**: T2·T3가 각 단계 ⊆ 앞 단계·취소+반품 ≤ 코호트·코호트 밖 도달 미포함을 고정.
+- 매출 통계 회귀: StatsBuckets 추출 직후 AdminSalesStatsQueryControllerIntegrationTest 10/10 GREEN.
+- 전체 `./backend/gradlew.bat test --rerun-tasks`: 1114 tests·0 fail·skip 0(1102 → 1114). 1회차는 user·settlement 패키지 41건 실패 — 원인 테스트 JVM `OutOfMemoryError: Java heap space`(tasks.test maxHeapSize 미지정·기본 512m·컨텍스트 캐시 누적) 후 DB 소켓·컨텍스트 로드 연쇄 실패·stats 22건은 통과. 2회차 재실행 1114 GREEN(플레이크·힙 상향은 빌드 설정 변경이라 사용자 결정 이월).
+- 로컬 라이브(LT-17): docker restart zslab_mall_backend·Started 120s·ERROR 0 · ADMIN 토큰 GET /stats/orders(MONTH+PREVIOUS 200·0.58s·퍼널 174/157/149/132·취소 8·반품 6·소요 결제→발송 40.14h/중앙값 36h·클레임 22·환불 14건 760,500·유형 3·사유 5 — 정찰 실측과 전부 일치·비교 기간 데이터 없어 compare 생략)·GET /stats/members(200·0.08s·활성 14·구매자 11 전원 재구매·등급 SILVER 14 100%·상위 11행·compareSummary 존재) · 최상위 키 집합 계약과 일치·누출 0 · 무인증 401·from>to 400·unit=HOUR 400.
+- 외부 검토: 등급 B / 생략 — 퍼널 합계 정합 테스트로 대체.
+
+### §8 이월
+- 결제 실패·만료 지표(cleanup 삭제 전 일별 카운트 보존 또는 payment 실패/만료 시각 컬럼) · 클레임 승인 시각 보존(`claim.approved_at`·백필 불가) · 주문 시점 등급 스냅샷(order.buyer_grade_code·백필=현행) · 클레임 셀러/상품 축 분해 · 반품 세부 소요(요청→회수→검수→완료·picked_up_at/inspected_at) · 집계 테이블 이관(D-180 §8과 동일 시점).
+- **FE(Track 88 FE)**: `/admin/stats/orders`·`/admin/stats/members` 화면(AdminPeriodPicker unit/compare optional화·AdminChart 도넛 type/series 확장·퍼널 가로 막대·탭별 소형 표·CSV 없음).

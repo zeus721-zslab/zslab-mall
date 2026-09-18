@@ -22,8 +22,10 @@ defineProps<{
   /** 화면에 보여줄 실제 구간(프리셋이면 부모가 계산해 넘김·custom이면 입력값). */
   from: string | null
   to: string | null
-  unit: StatsUnit
-  compare: StatsCompare
+  /** 미전달이면 단위 선택을 숨긴다(FE-35 탭별 노출 제어). */
+  unit?: StatsUnit
+  /** 미전달이면 비교 선택을 숨긴다. */
+  compare?: StatsCompare
   inverted: boolean
 }>()
 
@@ -80,10 +82,10 @@ function applyDate(key: 'from' | 'to', value: string | null): void {
             @update:model-value="(value) => applyDate('to', value)"
           />
         </v-col>
-        <v-col cols="6" md="3" lg="1">
+        <v-col v-if="unit !== undefined" cols="6" md="3" lg="1">
           <v-select :model-value="unit" :items="unitItems" label="단위" hide-details density="compact" data-testid="period-unit" @update:model-value="(value: StatsUnit) => emit('apply', { unit: value })" />
         </v-col>
-        <v-col cols="6" md="3" lg="2">
+        <v-col v-if="compare !== undefined" cols="6" md="3" lg="2">
           <v-select :model-value="compare" :items="compareItems" label="비교" hide-details density="compact" data-testid="period-compare" @update:model-value="(value: StatsCompare) => emit('apply', { compare: value })" />
         </v-col>
       </v-row>

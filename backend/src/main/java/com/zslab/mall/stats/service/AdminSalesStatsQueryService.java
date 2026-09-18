@@ -20,12 +20,7 @@ import com.zslab.mall.stats.repository.AdminSalesStatsRepository;
 import com.zslab.mall.stats.repository.SalesAxisProjection;
 import com.zslab.mall.stats.repository.SalesBucketProjection;
 import com.zslab.mall.stats.repository.SalesTotalsProjection;
-import java.time.DayOfWeek;
 import java.time.LocalDate;
-import java.time.YearMonth;
-import java.time.temporal.ChronoUnit;
-import java.time.temporal.IsoFields;
-import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -41,8 +36,7 @@ import org.springframework.util.StringUtils;
  * 관리자 매출 통계 조회(Track 87·D-181·{@code AdminDashboardQueryService} 패턴). 기간·비교 기간 계산(KST 반구간)·구간 키 생성·빈 구간 0 채움·
  * 이름 배치 enrich·응답 조립을 담당하며 집계는 {@link AdminSalesStatsRepository}가 수행한다.
  *
- * <p>구간 키: 일 {@code yyyy-MM-dd}·월 {@code yyyy-MM}은 DB DATE_FORMAT 결과와 같고, 주는 DB {@code %x-%v}("2026-38"·ISO 월요일 시작)를
- * 응답 키 {@code yyyy-'W'ww}("2026-W38")·라벨 주 시작일(월요일)로 바꾼다. Java 쪽 주 키는 {@link IsoFields}로 만들어 DB와 같은 규칙이다.
+ * <p>구간 키 생성은 {@link StatsBuckets}(Track 88 D-182에서 동작 무변경으로 추출·주문·회원 통계와 공유).
  * 비교 추이는 비교 기간 시작일부터 현재 추이와 같은 개수의 구간을 만들어 인덱스로 대응시킨다(구간 수가 다르면 뒤를 0으로 채우거나 자른다).
  */
 @Service
@@ -50,11 +44,6 @@ import org.springframework.util.StringUtils;
 @RequiredArgsConstructor
 public class AdminSalesStatsQueryService {
 
-    private static final String DAY_PATTERN = "%Y-%m-%d";
-    /** ISO-8601 주(월요일 시작·주 기준 연도). {@code %X-%V}(일요일 시작)는 쓰지 않는다. */
-    private static final String WEEK_PATTERN = "%x-%v";
-    private static final String MONTH_PATTERN = "%Y-%m";
-    private static final int DAYS_PER_WEEK = 7;
     private static final double SHARE_SCALE = 100.0;
     private static final double PERCENT = 100.0;
 
@@ -62,10 +51,6 @@ public class AdminSalesStatsQueryService {
     private final CategoryRepository categoryRepository;
     private final SellerRepository sellerRepository;
     private final ProductRepository productRepository;
-
-    /** 추이 구간 1개(dbKey = DATE_FORMAT 결과·key = 응답 키·label = 표기). */
-    private record TrendBucket(String dbKey, String key, String label) {
-    }
 
     /** 축 행의 응답 key·이름(enrich 결과). */
     private record AxisLabel(String key, String name) {
@@ -78,7 +63,7 @@ public class AdminSalesStatsQueryService {
      */
     public AdminSalesStatsResponse getSales(LocalDate from, LocalDate to, StatsUnit unit, StatsCompare compare) {
         StatsPeriod period = StatsPeriod.of(from, to);
-        List<TrendBucket> buckets = buckets(period.from(), unit, bucketCount(period, unit));
+        List<StatsBuckets.Bucket> buckets = StatsBuckets.of(period.from(), unit, StatsBuckets.count(period, unit));
         SalesSummaryResponse summary = summary(period);
         List<SalesTrendBucketResponse> trend = trend(period, unit, buckets);
 
@@ -87,7 +72,7 @@ public class AdminSalesStatsQueryService {
         if (compareSummary == null || compareSummary.hasNoData()) {
             return new AdminSalesStatsResponse(summary, null, trend, null);
         }
-        List<TrendBucket> compareBuckets = buckets(comparePeriod.from(), unit, buckets.size());
+        List<StatsBuckets.Bucket> compareBuckets = StatsBuckets.of(comparePeriod.from(), unit, buckets.size());
         return new AdminSalesStatsResponse(summary, compareSummary, trend, trend(comparePeriod, unit, compareBuckets));
     }
 
@@ -141,66 +126,20 @@ public class AdminSalesStatsQueryService {
     }
 
     /** 매출은 paid_at·환불은 refunded_at 구간이라 각각 집계 후 dbKey로 합친다. 구간에 없는 키는 0. */
-    private List<SalesTrendBucketResponse> trend(StatsPeriod period, StatsUnit unit, List<TrendBucket> buckets) {
-        String pattern = pattern(unit);
+    private List<SalesTrendBucketResponse> trend(StatsPeriod period, StatsUnit unit, List<StatsBuckets.Bucket> buckets) {
+        String pattern = StatsBuckets.pattern(unit);
         Map<String, SalesBucketProjection> sales = byBucket(
                 statsRepository.sumSalesByBucket(pattern, period.start(), period.end()));
         Map<String, SalesBucketProjection> refunds = byBucket(
                 statsRepository.sumRefundByBucket(pattern, RefundStatus.COMPLETED, period.start(), period.end()));
         List<SalesTrendBucketResponse> rows = new ArrayList<>(buckets.size());
-        for (TrendBucket bucket : buckets) {
+        for (StatsBuckets.Bucket bucket : buckets) {
             SalesBucketProjection sale = sales.get(bucket.dbKey());
             SalesBucketProjection refund = refunds.get(bucket.dbKey());
             rows.add(SalesTrendBucketResponse.of(bucket.key(), bucket.label(), amountOf(sale), amountOf(refund),
                     countOf(sale)));
         }
         return rows;
-    }
-
-    /** 조회 기간이 걸치는 구간 수(주·월은 부분 구간 포함). */
-    private static int bucketCount(StatsPeriod period, StatsUnit unit) {
-        return switch (unit) {
-            case DAY -> (int) period.dayCount();
-            case WEEK -> (int) (ChronoUnit.DAYS.between(mondayOf(period.from()), mondayOf(period.to())) / DAYS_PER_WEEK) + 1;
-            case MONTH -> (int) ChronoUnit.MONTHS.between(YearMonth.from(period.from()), YearMonth.from(period.to())) + 1;
-        };
-    }
-
-    /** from이 속한 구간부터 count개. 주는 from이 속한 ISO 주의 월요일부터 7일씩. */
-    private static List<TrendBucket> buckets(LocalDate from, StatsUnit unit, int count) {
-        List<TrendBucket> buckets = new ArrayList<>(count);
-        for (int offset = 0; offset < count; offset++) {
-            buckets.add(switch (unit) {
-                case DAY -> {
-                    String day = from.plusDays(offset).toString();
-                    yield new TrendBucket(day, day, day);
-                }
-                case WEEK -> {
-                    LocalDate monday = mondayOf(from).plusWeeks(offset);
-                    int weekYear = monday.get(IsoFields.WEEK_BASED_YEAR);
-                    int week = monday.get(IsoFields.WEEK_OF_WEEK_BASED_YEAR);
-                    yield new TrendBucket(String.format("%d-%02d", weekYear, week),
-                            String.format("%d-W%02d", weekYear, week), monday.toString());
-                }
-                case MONTH -> {
-                    String month = YearMonth.from(from).plusMonths(offset).toString();
-                    yield new TrendBucket(month, month, month);
-                }
-            });
-        }
-        return buckets;
-    }
-
-    private static LocalDate mondayOf(LocalDate date) {
-        return date.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
-    }
-
-    private static String pattern(StatsUnit unit) {
-        return switch (unit) {
-            case DAY -> DAY_PATTERN;
-            case WEEK -> WEEK_PATTERN;
-            case MONTH -> MONTH_PATTERN;
-        };
     }
 
     /**
