@@ -355,6 +355,8 @@ class AdminOrderIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.paymentAmount").value(20000))
                 .andExpect(jsonPath("$.payments.length()").value(1))
                 .andExpect(jsonPath("$.payments[0].status").value("PAID"))
+                .andExpect(jsonPath("$.payments[0].pgTid").value("tid_track79_a")) // Track 89-A: PG 대사용 pgTid·failureCode 노출
+                .andExpect(jsonPath("$.payments[0].failureCode").doesNotExist())
                 .andExpect(jsonPath("$.items.length()").value(2))
                 .andExpect(jsonPath("$.items[?(@.orderItemId == '" + ITEM_A2_PID + "')].status").value("CANCEL_REQUESTED"))
                 .andExpect(jsonPath("$.items[?(@.orderItemId == '" + ITEM_A2_PID + "')].claims[0].status").value("REQUESTED"))

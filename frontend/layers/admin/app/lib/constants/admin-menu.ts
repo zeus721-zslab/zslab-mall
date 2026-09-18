@@ -29,9 +29,7 @@ export const ADMIN_MENU: AdminMenuGroup[] = [
     label: '주문 관리',
     children: [
       { to: '/admin/orders', label: '전체 주문' },
-      { to: '/admin/orders/payments', label: '결제 내역' },
       { to: '/admin/orders/claims', label: '취소·반품·교환' },
-      { to: '/admin/orders/refunds', label: '환불' },
       { to: '/admin/orders/deliveries', label: '배송 관리' },
     ],
   },
@@ -41,7 +39,6 @@ export const ADMIN_MENU: AdminMenuGroup[] = [
       { to: '/admin/products', label: '상품 목록' },
       { to: '/admin/products/new', label: '상품 등록' },
       { to: '/admin/products/categories', label: '카테고리' },
-      { to: '/admin/products/inventory', label: '재고' },
     ],
   },
   {
@@ -57,7 +54,6 @@ export const ADMIN_MENU: AdminMenuGroup[] = [
       { to: '/admin/stats/sales', label: '매출' },
       { to: '/admin/stats/orders', label: '주문' },
       { to: '/admin/stats/members', label: '회원' },
-      { to: '/admin/stats/products', label: '상품' },
     ],
   },
 ]

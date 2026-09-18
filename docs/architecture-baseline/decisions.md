@@ -11027,3 +11027,37 @@ deploy.yml이 `push main` 무필터라 docs만 변경된 머지에도 서버 SSH
 ### §8 이월
 - 결제 실패·만료 지표(cleanup 삭제 전 일별 카운트 보존 또는 payment 실패/만료 시각 컬럼) · 클레임 승인 시각 보존(`claim.approved_at`·백필 불가) · 주문 시점 등급 스냅샷(order.buyer_grade_code·백필=현행) · 클레임 셀러/상품 축 분해 · 반품 세부 소요(요청→회수→검수→완료·picked_up_at/inspected_at) · 집계 테이블 이관(D-180 §8과 동일 시점).
 - **FE(Track 88 FE)**: `/admin/stats/orders`·`/admin/stats/members` 화면(AdminPeriodPicker unit/compare optional화·AdminChart 도넛 type/series 확장·퍼널 가로 막대·탭별 소형 표·CSV 없음).
+
+## D-183. 관리자 메뉴 정리와 기능 흡수 (Track 89-A)
+
+날짜: 2026-09-18
+범위: Track 89-A BE+FE · 메뉴 4종 제거(`/admin/products/inventory`·`/admin/stats/products`·`/admin/orders/payments`·`/admin/orders/refunds`) · `GET /api/v1/admin/products?stockFilter` · `GET /api/v1/admin/claims?refundStatus` + `availableActions INITIATE_REFUND` · `POST /api/v1/admin/payments/{id}/mark-cancelled` body(reason) · 주문 상세 `payments[].pgTid/failureCode`
+브랜치: feat/admin-menu-cleanup
+정찰: docs/track-89/recon-report.md(gitignore·로컬) §3(중복 판정)·§4(제거 영향)
+
+### 배경
+관리자 메뉴에 플레이스홀더만 있는 화면 8종 중 정찰(Track 89)에서 중복이 크거나 대체 경로가 명확한 4종을 제거하고 기능을 기존 화면에 흡수한다. 실측: 결제 151건 = 주문 151건 1:1(재시도 결제 0)·주문 목록 `paymentStatus` 필터·상세 `payments[]`가 이미 결제 축을 커버, 환불 14건 전부 COMPLETED(MOCK_PG 즉시 완료)·클레임 행이 `refundStatus`를 이미 노출, 매출 통계 PRODUCT 축·드릴다운이 상품 통계를 대체, 재고 조정 API는 상품 폼이 소비 중이고 `InventoryHistory` 조회 화면은 이월. 두 fallback 명령(D-113 mark-cancelled·D-106 initiate-refund)은 FE 진입점이 0이었다.
+
+### §1-A 결정
+1. **결제·환불 전용 화면 α 제거·기존 화면 흡수 【채택】 / β 별도 목록 화면 신설 【기각】** — 결제는 주문 상세 결제 표에 `pgTid`·`failureCode` 컬럼과 PAID 행 "취소 처리"(mark-cancelled) 액션을 붙이고, 환불은 클레임 목록에 `refundStatus` 필터와 행 액션 "환불 개시"(initiate-refund)를 붙인다. 기각 사유: 결제는 주문과 1:1이라 별도 축이 없고, 환불은 데모·MOCK_PG에서 상태 필터가 무의미(전부 COMPLETED)해 독립 화면 실익이 낮다. 실 PG 전환 시 재평가(§8).
+2. **재고 화면 α 상품 목록 필터로 흡수 【채택】 / β 전용 화면 【기각: 조정 이력 조회가 이월이라 볼 내용 부족·`adjust`는 상품 폼이 이미 소비】** — `stockFilter=LOW|OUT|IN_STOCK`(미지정=전체) 1축 추가. 대시보드 "재고 임박" 타일을 `/admin/products?stockFilter=LOW`로 연결(기존 `to:null`).
+3. **재고 필터 정의 = variant 단위·대시보드 `countLowStock`와 동일 기준** — 상품 수동품절·variant 수동품절은 판매 의도가 없어 **세 값 모두에서 제외**(수동 품절 상품은 OUT에도 안 잡힘·품절 축은 기존 `soldOut` 필터가 담당·variant SALE 여부도 대시보드처럼 보지 않음). LOW = 가용재고 [1,5]인 variant 1개 이상 · OUT = 가용재고 0인 variant 1개 이상 · IN_STOCK = 가용재고 ≥6인 variant 보유 ∧ ≤5인 variant 없음. 상품 합계(`stockTotal`) 기준 【기각: 옵션 10/3/0인 상품이 합계 13으로 IN_STOCK이 돼 대시보드 타일(variant 1건)과 어긋남】. 타일은 variant 건수·목록은 상품 건수라 숫자는 다를 수 있음을 Javadoc·FE 주석에 명시(배송 대기 타일 "근사"와 동형).
+4. **임계값 상수 공유 = `inventory.policy.LowStockThreshold`(MIN 1·MAX 5) 신설·대시보드 서비스의 private 상수 삭제 후 참조** — product·dashboard 양쪽이 이미 inventory 엔티티에 의존하므로 재고 개념의 소유 패키지에 두면 product → dashboard 역방향 의존이 생기지 않는다. "값이 같다"는 주석으로 각자 정의 【기각: 한쪽만 바뀌면 타일 링크가 조용히 어긋남】.
+5. **mark-cancelled에 사유 필수(`AdminPaymentMarkCancelledRequest.reason` @NotBlank @Size 200) + 감사 기록** — 주문 상세가 유일한 진입점이 되면서 "왜 수동 보정했는가"를 남길 곳이 필요해졌다(D-139·`AdminOrderCancelService` ORDER 감사 선례). `AdminPaymentCommandService` 신설: publicId 해소 → `PaymentService.markCancelledByAdmin`(전액 환불 가드·멱등 NO-OP 불변) → **상태가 실제로 바뀐 경우에만** `audit_log`(UPDATE·PAYMENT·before status·after status+reason). NO-OP는 감사 0행(변경 없음). `PaymentService`에 AuditRecorder 주입 【기각: 코어 서비스 생성자 확장·단위 테스트 영향】. 사유 없는 확인 다이얼로그 【기각: BE에 남지 않는 입력은 과잉 UI】.
+6. **INITIATE_REFUND 노출 조건 = APPROVED ∧ (CANCEL ∨ RETURN 검수 PASS) ∧ 최신 환불 없음 또는 FAILED** — 자동 환불이 붙었어야 할 시점(`ClaimApprovedHandler`·`ClaimInspectionPassedHandler`) 이후 유실·실패에만 노출한다. 활성 환불(PENDING·COMPLETED)이 있으면 `initiate`가 멱등 no-op이라 노출하지 않는다. EXCHANGE 차액 환불은 트리거 재설계 이월(D-172 보충)이라 제외. 다이얼로그 기본 금액 = 품목 결제금액(`AdminClaimSummaryResponse.amount`·자동 환불이 쓰는 `orderItem.totalPrice`와 동일)·수정 가능(1 이상·한도 초과는 BE 422).
+7. **`refundStatus` 필터 = 최신 환불(클레임별 `max(refund.id)`) 상태 기준** — 목록 행 `refundStatus`와 같은 정의라 표시와 필터가 어긋나지 않는다. 환불이 없는 클레임은 어느 값에도 걸리지 않는다("환불 없음" 값은 두지 않음·INITIATE_REFUND 액션이 그 집합을 드러냄).
+8. **제거한 4경로 직접 접근** — `/admin/stats/products`는 Nuxt 404 페이지, `/admin/orders/payments`·`/admin/orders/refunds`·`/admin/products/inventory`는 `[id].vue` 동적 라우트에 흡수돼 "주문(상품)을 찾을 수 없습니다" 404 카드로 떨어진다(BE 404). 별도 처리 없음(사양·CSR 전용이라 HTTP 상태는 200).
+
+### 변경 파일
+- BE 신규: `inventory/policy/LowStockThreshold` · `product/controller/request/AdminProductStockFilter` · `payment/controller/request/AdminPaymentMarkCancelledRequest` · `payment/service/AdminPaymentCommandService`
+- BE 수정: `AdminProductSpecifications.stockFilter`(+`variantsWithAvailable` 서브쿼리) · `AdminProductQueryService.listProducts`·`AdminProductManagementController.list`(stockFilter) · `AdminDashboardQueryService`(상수 참조) · `AdminClaimSpecifications.refundStatus` · `AdminClaimQueryService`(refundStatus·`ACTION_INITIATE_REFUND`·`availableActions` 4인자·`refundInitiatable`) · `AdminClaimController.list`(refundStatus) · `AdminPaymentController`(body·AuditContext·Command 서비스 위임) · `AdminOrderDetailResponse.PaymentRow`(+pgTid·failureCode)·`AdminOrderQueryService` 매핑
+- 테스트: `AdminProductManagementControllerIntegrationTest.list_stockFilter`(경계 0/1/5/6·variant 단위·수동품절 상품/variant 제외·BOGUS 400) · `AdminPaymentControllerIntegrationTest` T4-2(사유 공백 400·감사 1행 reason·NO-OP 감사 불변)+기존 호출 body · `Track80CancelFlowIntegrationTest` T7(COMPLETED/FAILED/PENDING 필터·APPROVED 유실 → INITIATE_REFUND·FAILED 유지·PENDING 생기면 소멸·DONE 400) · `AdminOrderIntegrationTest` pgTid 단언
+
+### 검증
+- `./gradlew.bat test --rerun-tasks` 1117/0 fail/0 error/0 skip(1114 → +3·OOM 없음).
+- 로컬 라이브(LT-17·docker restart·Started 79s·Flyway up to date·ERROR 0·ADMIN 토큰): stockFilter LOW 1(FE-26 실측 상품 옵션 10/3/0)·OUT 1(동일 상품)·IN_STOCK 33·합 34 = 전체·BOGUS 400 · 대시보드 lowStock 1(정합) · claims refundStatus COMPLETED 14/PENDING 0/FAILED 0·DONE 400 · INITIATE_REFUND 노출 0(데모 22건 전부 환불 완료) · 주문 상세 `pgTid` mock_tid_… · mark-cancelled 사유 공백 400(상태 불변). mark-cancelled·initiate-refund 실행은 0건(데모 데이터 보존).
+- 외부 검토: 등급 C / 생략.
+
+### §8 이월
+- 결제·환불 독립 목록 화면: 실 PG 전환(재시도 결제·PENDING/FAILED 환불 실재) 후 재평가 · `InventoryHistory` 조회 화면 · EXCHANGE 차액 환불의 수동 개시 노출(D-172 보충·Track 82 재설계 후) · 대시보드 재고 임박(variant 건수)과 상품 목록 LOW(상품 건수) 수치 불일치는 근사로 수용(품목 단위 재고 화면 도입 시 해소).
+- Track 89-B~E(배송 관리·카테고리·셀러·운영자)는 정찰 §7 분할안 그대로 후속.

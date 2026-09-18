@@ -28,7 +28,7 @@ const PAID_DETAIL = {
   buyer: { userId: 'usr_E2E1', name: 'E2E구매자', email: 'buyer@e2e.invalid' },
   shippingAddress: { recipientName: '홍길동', recipientPhone: '010-0000-0000', zonecode: '06236', addressRoad: '서울 강남구 테헤란로 1', addressDetail: '101호' },
   totalPrice: 29900, discountAmount: 0, shippingFee: 3000, paymentAmount: 32900,
-  payments: [{ paymentId: 'pay_E2E1', method: 'CARD', status: 'PAID', amount: 32900, pgProvider: 'MOCK_PG', paidAt: '2026-09-16T10:05:00', createdAt: '2026-09-16T10:01:00' }],
+  payments: [{ paymentId: 'pay_E2E1', method: 'CARD', status: 'PAID', amount: 32900, pgProvider: 'MOCK_PG', pgTid: 'MOCK-TID-0001', paidAt: '2026-09-16T10:05:00', createdAt: '2026-09-16T10:01:00' }],
   items: [
     { orderItemId: 'oit_E2E0000000000000000000001', productName: 'E2E 티셔츠', optionLabel: 'M', quantity: 1, unitPrice: 19900, totalPrice: 19900, status: 'PAID', sellerName: 'E2E셀러',
       // FE-28: 거부된 취소 클레임(사유·메모) — 거부 사유 표기 검증용·approvable false
@@ -340,5 +340,27 @@ test.describe('관리자 주문 목록·상세(FE-27)', () => {
     await expect(page.locator('[data-sonner-toast][data-type="warning"]')).toContainText('현재 상태에서 처리할 수 없는 클레임')
     await expect(dialog).toBeHidden()
     expect(captured.detailGets.length).toBeGreaterThanOrEqual(2)
+  })
+
+  test('⑨ FE-36(Track 89-A) 상세 결제 표: PG 거래번호·실패코드 컬럼 → PAID 행 "취소 처리" → 다이얼로그(금액·사유 필수) 노출까지만(실행 안 함) → 닫기', async ({ page }) => {
+    const captured = await mockAdminApi(page)
+    await loginByDemo(page)
+    await page.goto(`/admin/orders/${PAID_ID}`)
+    await expect(page.getByTestId('payment-row')).toHaveCount(1)
+    await expect(page.getByTestId('payment-pg-tid')).toHaveText('MOCK-TID-0001')
+    await expect(page.getByTestId('payment-failure-code')).toHaveText('—')
+
+    const postsBefore = captured.posts.length
+    await page.getByTestId('payment-cancel').click()
+    const dialog = page.getByTestId('admin-payment-cancel-dialog')
+    await expect(dialog).toBeVisible()
+    await expect(dialog.getByTestId('payment-cancel-amount')).toHaveText('32,900원')
+    await expect(dialog.getByTestId('payment-cancel-dialog-ok')).toBeDisabled() // 사유 필수
+    await dialog.getByTestId('payment-cancel-reason').locator('textarea').first().fill('콜백 유실 보정')
+    await expect(dialog.getByTestId('payment-cancel-dialog-ok')).toBeEnabled()
+    // 실제 취소 처리는 데이터를 바꾸므로 여기서는 노출까지만 확인하고 닫는다
+    await dialog.getByTestId('payment-cancel-dialog-close').click()
+    await expect(dialog).toBeHidden()
+    expect(captured.posts.length).toBe(postsBefore)
   })
 })

@@ -4,6 +4,8 @@ import com.zslab.mall.claim.entity.Claim;
 import com.zslab.mall.claim.enums.ClaimStatus;
 import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.order.entity.OrderItem;
+import com.zslab.mall.refund.entity.Refund;
+import com.zslab.mall.refund.enums.RefundStatus;
 import com.zslab.mall.user.entity.User;
 import jakarta.persistence.criteria.Root;
 import jakarta.persistence.criteria.Subquery;
@@ -39,6 +41,29 @@ public final class AdminClaimSpecifications {
             items.select(item.get("id"))
                     .where(builder.equal(item.get("order").get("buyerId"), buyerId));
             return root.get("orderItemId").in(items);
+        };
+    }
+
+    /**
+     * 최신 환불 상태(Track 89-A). 목록 행의 refundStatus(클레임별 id 최대 Refund 행의 status)와 같은 기준으로, 그 최신 환불이 주어진
+     * status인 클레임만 남긴다. 환불이 없는 클레임은 어느 값에도 걸리지 않는다. null이면 조건 없음.
+     */
+    public static Specification<Claim> refundStatus(RefundStatus refundStatus) {
+        return (root, query, builder) -> {
+            if (refundStatus == null) {
+                return null;
+            }
+            Subquery<Long> latestRefundId = query.subquery(Long.class);
+            Root<Refund> anyRefund = latestRefundId.from(Refund.class);
+            latestRefundId.select(builder.max(anyRefund.get("id")))
+                    .where(builder.equal(anyRefund.get("claimId"), root.get("id")));
+
+            Subquery<Long> matching = query.subquery(Long.class);
+            Root<Refund> refund = matching.from(Refund.class);
+            matching.select(refund.get("claimId"))
+                    .where(builder.equal(refund.get("id"), latestRefundId),
+                            builder.equal(refund.get("status"), refundStatus));
+            return root.get("id").in(matching);
         };
     }
 

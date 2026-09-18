@@ -120,6 +120,12 @@ const EXCHANGE_CLAIMS = [
   },
 ]
 
+/** Vuetify select: 활성화 후 옵션 클릭(admin-orders.spec 동일). */
+async function pickOption(page: Page, testId: string, optionName: string): Promise<void> {
+  await page.getByTestId(testId).click()
+  await page.getByRole('option', { name: optionName, exact: true }).click()
+}
+
 async function loginByDemo(page: Page): Promise<void> {
   await page.goto('/admin/login')
   await page.waitForLoadState('networkidle')
@@ -343,5 +349,46 @@ test.describe('관리자 취소·반품·교환 목록(FE-28)', () => {
     await confirm.getByRole('button', { name: '배송완료' }).click()
     await expect(page.locator('[data-sonner-toast][data-type="info"]').filter({ hasText: '교환품 배송완료 처리' })).toBeVisible()
     expect(captured.posts[deliveredBefore]!.url).toContain(`/admin/deliveries/${EXCHANGE_DELIVERY_ID}/mark-delivered`)
+  })
+
+  test('⑥ FE-36(Track 89-A) 환불 축: 환불 상태 필터 → URL·API refundStatus / INITIATE_REFUND 행 "환불 개시" → 다이얼로그(품목 금액·금액 입력·개시 버튼) 노출까지만(실행 안 함) → 닫기', async ({ page }) => {
+    const captured = await mockClaimsApi(page)
+    // 자동 환불이 FAILED로 끝난 승인 취소 1건(BE availableActions INITIATE_REFUND)을 목록에 얹는다. 나중 등록 route가 우선한다.
+    const LOST_CLAIM = 'clm_E2E0000000000000000000108'
+    const lostRow = {
+      claimId: LOST_CLAIM, type: 'CANCEL', status: 'APPROVED', requestedAt: '2026-09-12T10:00:00+09:00', processedAt: '2026-09-12T10:30:00+09:00',
+      orderId: ORDER_ID, orderItemId: 'oit_E2E0000000000000000000001', orderNo: 'ORD-20260916-0001', buyerName: 'E2E구매자', buyerEmail: 'buyer@e2e.invalid',
+      productName: 'E2E 티셔츠', optionLabel: 'M', quantity: 1, amount: 19900, reasonCode: 'BUYER_CHANGED_MIND', refundStatus: 'FAILED',
+      availableActions: ['INITIATE_REFUND'],
+    }
+    await page.route((url) => url.pathname.endsWith('/api/v1/admin/claims'), (route) => {
+      const query = new URL(route.request().url()).searchParams
+      captured.listQueries.push(query)
+      const refundStatus = query.get('refundStatus')
+      const all = [lostRow, ...CLAIMS]
+      const items = refundStatus ? all.filter((item) => 'refundStatus' in item && item.refundStatus === refundStatus) : all
+      return route.fulfill({ json: { items, page: 0, size: 20, totalCount: items.length, hasNext: false, pendingCount: 2 } })
+    })
+    await loginByDemo(page)
+    await page.goto('/admin/orders/claims')
+    await expect(page.getByTestId('row-initiate-refund')).toHaveCount(1)
+
+    await pickOption(page, 'filter-refund-status', '환불 실패')
+    await expect(page).toHaveURL(/refundStatus=FAILED/)
+    expect(captured.listQueries.at(-1)!.get('refundStatus')).toBe('FAILED')
+    await expect(page.getByTestId('row-initiate-refund')).toHaveCount(1)
+
+    const postsBefore = captured.posts.length
+    await page.getByTestId('row-initiate-refund').click()
+    const dialog = page.getByTestId('admin-refund-initiate-dialog')
+    await expect(dialog).toBeVisible()
+    await expect(dialog).toContainText('취소 환불 개시')
+    await expect(dialog.getByTestId('refund-initiate-item-amount')).toHaveText('19,900원')
+    await expect(dialog.getByTestId('refund-initiate-amount').locator('input')).toHaveValue('19900')
+    await expect(dialog.getByTestId('refund-initiate-dialog-ok')).toBeEnabled()
+    // 실제 환불 개시는 데이터를 바꾸므로 여기서는 노출까지만 확인하고 닫는다
+    await dialog.getByTestId('refund-initiate-dialog-close').click()
+    await expect(dialog).toBeHidden()
+    expect(captured.posts.length).toBe(postsBefore)
   })
 })

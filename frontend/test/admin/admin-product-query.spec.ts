@@ -15,14 +15,14 @@ describe('parseAdminProductQuery', () => {
 
   it('전체 query 파싱·trim·타입 변환', () => {
     expect(parseAdminProductQuery({
-      keyword: ' 티셔츠 ', status: 'STOPPED', soldOut: 'true', sellerPublicId: 'slr_1', categoryId: '7', sort: 'NAME', page: '2', size: '50',
+      keyword: ' 티셔츠 ', status: 'STOPPED', soldOut: 'true', sellerPublicId: 'slr_1', categoryId: '7', stockFilter: 'LOW', sort: 'NAME', page: '2', size: '50',
     })).toEqual({
-      keyword: '티셔츠', status: 'STOPPED', soldOut: true, sellerPublicId: 'slr_1', categoryId: 7, sort: 'NAME', page: 2, size: 50,
+      keyword: '티셔츠', status: 'STOPPED', soldOut: true, sellerPublicId: 'slr_1', categoryId: 7, stockFilter: 'LOW', sort: 'NAME', page: 2, size: 50,
     })
   })
 
-  it('잘못된 값은 기본값으로 정규화(미지의 status·sort·음수 page·허용 외 size·NaN categoryId·soldOut=maybe)', () => {
-    expect(parseAdminProductQuery({ status: 'BOGUS', sort: 'RANDOM', page: '-1', size: '33', categoryId: 'abc', soldOut: 'maybe' }))
+  it('잘못된 값은 기본값으로 정규화(미지의 status·sort·stockFilter·음수 page·허용 외 size·NaN categoryId·soldOut=maybe)', () => {
+    expect(parseAdminProductQuery({ status: 'BOGUS', sort: 'RANDOM', page: '-1', size: '33', categoryId: 'abc', soldOut: 'maybe', stockFilter: 'MANY' }))
       .toEqual(DEFAULT_ADMIN_PRODUCT_QUERY)
   })
 
@@ -37,9 +37,9 @@ describe('toAdminProductRouteQuery', () => {
   })
 
   it('비기본값만 문자열로 직렬화·왕복 시 동일', () => {
-    const state = { ...DEFAULT_ADMIN_PRODUCT_QUERY, keyword: 'x', soldOut: false, categoryId: 3, sort: 'PRICE_ASC' as const, page: 1, size: 100 }
+    const state = { ...DEFAULT_ADMIN_PRODUCT_QUERY, keyword: 'x', soldOut: false, categoryId: 3, stockFilter: 'OUT' as const, sort: 'PRICE_ASC' as const, page: 1, size: 100 }
     const query = toAdminProductRouteQuery(state)
-    expect(query).toEqual({ keyword: 'x', soldOut: 'false', categoryId: '3', sort: 'PRICE_ASC', page: '1', size: '100' })
+    expect(query).toEqual({ keyword: 'x', soldOut: 'false', categoryId: '3', stockFilter: 'OUT', sort: 'PRICE_ASC', page: '1', size: '100' })
     expect(parseAdminProductQuery(query)).toEqual(state)
   })
 })
@@ -50,8 +50,8 @@ describe('toAdminProductApiParams', () => {
   })
 
   it('필터가 있으면 BE 파라미터명 그대로(soldOut boolean·categoryId number)', () => {
-    expect(toAdminProductApiParams({ ...DEFAULT_ADMIN_PRODUCT_QUERY, keyword: ' prd_1 ', status: 'SALE', soldOut: true, sellerPublicId: 's', categoryId: 2 }))
-      .toEqual({ sort: 'LATEST', page: 0, size: 20, keyword: 'prd_1', status: 'SALE', soldOut: true, sellerPublicId: 's', categoryId: 2 })
+    expect(toAdminProductApiParams({ ...DEFAULT_ADMIN_PRODUCT_QUERY, keyword: ' prd_1 ', status: 'SALE', soldOut: true, sellerPublicId: 's', categoryId: 2, stockFilter: 'IN_STOCK' }))
+      .toEqual({ sort: 'LATEST', page: 0, size: 20, keyword: 'prd_1', status: 'SALE', soldOut: true, sellerPublicId: 's', categoryId: 2, stockFilter: 'IN_STOCK' })
   })
 })
 
@@ -60,5 +60,6 @@ describe('hasActiveFilters', () => {
     expect(hasActiveFilters({ ...DEFAULT_ADMIN_PRODUCT_QUERY, sort: 'NAME', page: 3 })).toBe(false)
     expect(hasActiveFilters({ ...DEFAULT_ADMIN_PRODUCT_QUERY, keyword: 'a' })).toBe(true)
     expect(hasActiveFilters({ ...DEFAULT_ADMIN_PRODUCT_QUERY, soldOut: false })).toBe(true)
+    expect(hasActiveFilters({ ...DEFAULT_ADMIN_PRODUCT_QUERY, stockFilter: 'LOW' })).toBe(true)
   })
 })

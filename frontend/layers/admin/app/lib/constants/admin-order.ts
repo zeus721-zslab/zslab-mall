@@ -115,6 +115,9 @@ export const ADMIN_REFUND_STATUS_SEMANTIC: Record<RefundStatus, AdminSemantic> =
   FAILED: 'danger',
 }
 
+/** 수동 결제 취소 사유 최대 길이(BE AdminPaymentMarkCancelledRequest @Size(max=200)·Track 89-A). */
+export const ADMIN_PAYMENT_CANCEL_REASON_MAX = 200
+
 /** 결제수단 code → 사용자 라벨(PAYMENT_METHODS 단일 소스). 매핑에 없는 값은 원본 폴백. */
 export function paymentMethodLabel(code: string): string {
   const found = PAYMENT_METHODS.find((option) => option.value === (code as PaymentMethod))

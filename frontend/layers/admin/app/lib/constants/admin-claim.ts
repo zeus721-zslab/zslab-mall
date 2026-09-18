@@ -11,4 +11,5 @@ export const ADMIN_CLAIM_ACTION_LABEL: Record<AdminClaimAction, string> = {
   INSPECT: '검수',
   REGISTER_EXCHANGE_SHIPMENT: '교환품 발송',
   MARK_EXCHANGE_DELIVERED: '배송완료',
+  INITIATE_REFUND: '환불 개시',
 }

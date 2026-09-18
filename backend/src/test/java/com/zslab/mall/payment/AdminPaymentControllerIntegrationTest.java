@@ -11,6 +11,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import com.zslab.mall.common.security.AuthHeaders;
 import org.springframework.test.web.servlet.MockMvc;
@@ -100,7 +101,7 @@ class AdminPaymentControllerIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("T3 실패: 미존재 paymentPublicId → 404 PAYMENT_NOT_FOUND")
     void markCancelled_unknownPaymentPublicId_returns404() throws Exception {
         // 시드 없음(payment 미존재). resolve 통과 후 findByPublicId 실패 → PaymentNotFoundException 404.
-        mockMvc.perform(post(endpoint(MISSING_PAYMENT_PID)).headers(authHeaders.admin(ADMIN)))
+        mockMvc.perform(post(endpoint(MISSING_PAYMENT_PID)).headers(authHeaders.admin(ADMIN)).contentType(MediaType.APPLICATION_JSON).content(REASON_BODY))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("PAYMENT_NOT_FOUND"));
     }
@@ -111,7 +112,7 @@ class AdminPaymentControllerIntegrationTest extends AbstractIntegrationTest {
         seedPayment("PAID");
         seedRefund("COMPLETED", FULL_AMOUNT);
 
-        mockMvc.perform(post(endpoint(PAYMENT_PID)).headers(authHeaders.admin(ADMIN)))
+        mockMvc.perform(post(endpoint(PAYMENT_PID)).headers(authHeaders.admin(ADMIN)).contentType(MediaType.APPLICATION_JSON).content(REASON_BODY))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.paymentPublicId").value(PAYMENT_PID))
                 .andExpect(jsonPath("$.status").value("CANCELLED"));
@@ -121,11 +122,40 @@ class AdminPaymentControllerIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("T4-2 사유·감사(Track 89-A): 사유 누락 400 VALIDATION_FAILED·전이 성공 시 audit_log PAYMENT UPDATE 1행(reason 포함)·NO-OP는 감사 0행")
+    void markCancelled_reasonValidationAndAudit() throws Exception {
+        seedPayment("PAID");
+        seedRefund("COMPLETED", FULL_AMOUNT);
+
+        mockMvc.perform(post(endpoint(PAYMENT_PID)).headers(authHeaders.admin(ADMIN))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\" \"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.fieldErrors[0].field").value("reason"));
+        assertThat(paymentStatus()).isEqualTo("PAID");
+        assertThat(auditCount()).isZero();
+
+        mockMvc.perform(post(endpoint(PAYMENT_PID)).headers(authHeaders.admin(ADMIN))
+                        .contentType(MediaType.APPLICATION_JSON).content(REASON_BODY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
+        assertThat(auditCount()).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT diff_json FROM audit_log WHERE target_type = 'PAYMENT' AND target_id = ?",
+                String.class, PAYMENT_ID)).contains("CANCELLED").contains("핸들러 유실 보정");
+
+        // 이미 CANCELLED 재호출은 NO-OP → 감사 행 증가 없음
+        mockMvc.perform(post(endpoint(PAYMENT_PID)).headers(authHeaders.admin(ADMIN))
+                        .contentType(MediaType.APPLICATION_JSON).content(REASON_BODY))
+                .andExpect(status().isOk());
+        assertThat(auditCount()).isEqualTo(1);
+    }
+
+    @Test
     @DisplayName("T5 멱등: 이미 CANCELLED → 200 NO-OP·status=CANCELLED 유지(L198 가드)")
     void markCancelled_alreadyCancelled_returns200_idempotent() throws Exception {
         seedPayment("CANCELLED");
 
-        mockMvc.perform(post(endpoint(PAYMENT_PID)).headers(authHeaders.admin(ADMIN)))
+        mockMvc.perform(post(endpoint(PAYMENT_PID)).headers(authHeaders.admin(ADMIN)).contentType(MediaType.APPLICATION_JSON).content(REASON_BODY))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("CANCELLED"));
 
@@ -138,7 +168,7 @@ class AdminPaymentControllerIntegrationTest extends AbstractIntegrationTest {
         seedPayment("PAID");
         seedRefund("COMPLETED", PARTIAL_AMOUNT);
 
-        mockMvc.perform(post(endpoint(PAYMENT_PID)).headers(authHeaders.admin(ADMIN)))
+        mockMvc.perform(post(endpoint(PAYMENT_PID)).headers(authHeaders.admin(ADMIN)).contentType(MediaType.APPLICATION_JSON).content(REASON_BODY))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("PAID"));
 
@@ -148,6 +178,14 @@ class AdminPaymentControllerIntegrationTest extends AbstractIntegrationTest {
     // ---------- seed·helpers (AdminRefundControllerIntegrationTest 스켈레톤·payment+refund 최소 시드) ----------
 
     // 모든 시드 INSERT는 ? positional 바인딩 + 정적 SQL이다(status·amount 포함 전 변수 바인딩·문자열 concat 없음·SQL injection 위험 없음).
+
+    private static final String REASON_BODY = "{\"reason\":\"핸들러 유실 보정\"}";
+
+    private long auditCount() {
+        Long count = jdbc.queryForObject("SELECT COUNT(*) FROM audit_log WHERE target_type = 'PAYMENT' AND target_id = ?",
+                Long.class, PAYMENT_ID);
+        return count == null ? 0 : count;
+    }
 
     private static String endpoint(String paymentPublicId) {
         return "/api/v1/admin/payments/" + paymentPublicId + "/mark-cancelled";
@@ -190,6 +228,7 @@ class AdminPaymentControllerIntegrationTest extends AbstractIntegrationTest {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
                 jdbc.update("DELETE FROM refund WHERE payment_id = ?", PAYMENT_ID);
                 jdbc.update("DELETE FROM payment WHERE id = ?", PAYMENT_ID);
+                jdbc.update("DELETE FROM audit_log WHERE target_type = 'PAYMENT' AND target_id = ?", PAYMENT_ID);
             } finally {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
             }

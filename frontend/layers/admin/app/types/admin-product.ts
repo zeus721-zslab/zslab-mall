@@ -1,4 +1,4 @@
-import type { AdminProductSort, AdminProductStatus } from '#layers/admin/app/lib/constants/product'
+import type { AdminProductSort, AdminProductStatus, AdminProductStockFilter } from '#layers/admin/app/lib/constants/product'
 
 /** 관리자 상품 목록 행(BE AdminProductSummaryResponse 대응·Track 76). nullable 필드는 BE NON_NULL 직렬화로 생략될 수 있어 optional. */
 export interface AdminProductSummary {
@@ -38,6 +38,7 @@ export interface AdminProductListQuery {
   soldOut: boolean | null
   sellerPublicId: string | null
   categoryId: number | null
+  stockFilter: AdminProductStockFilter | null
   sort: AdminProductSort
   page: number
   size: number

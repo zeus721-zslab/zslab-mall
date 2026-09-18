@@ -1,6 +1,6 @@
 import type { LocationQuery, LocationQueryRaw } from 'vue-router'
 import type { AdminClaimApiParams, AdminClaimListQuery } from '#layers/admin/app/types/admin-claim'
-import { CLAIM_STATUS_LABELS, isClaimType, type ClaimStatus } from '~/lib/constants/claim'
+import { CLAIM_STATUS_LABELS, REFUND_STATUS_LABELS, isClaimType, type ClaimStatus, type RefundStatus } from '~/lib/constants/claim'
 import {
   ADMIN_ORDER_KEYWORD_MAX,
   ADMIN_ORDER_PAGE_SIZES,
@@ -20,6 +20,7 @@ import { normalizeDateOnly, toPeriodEnd, toPeriodStart } from '#layers/admin/app
 export const DEFAULT_ADMIN_CLAIM_QUERY: AdminClaimListQuery = {
   type: null,
   status: null,
+  refundStatus: null,
   keyword: '',
   from: null,
   to: null,
@@ -37,6 +38,10 @@ function isClaimStatus(value: string): value is ClaimStatus {
   return value in CLAIM_STATUS_LABELS
 }
 
+function isRefundStatus(value: string): value is RefundStatus {
+  return value in REFUND_STATUS_LABELS
+}
+
 function isSort(value: string): value is AdminOrderSort {
   return ADMIN_ORDER_SORT_OPTIONS.some((option) => option.value === value)
 }
@@ -45,12 +50,14 @@ function isSort(value: string): value is AdminOrderSort {
 export function parseAdminClaimQuery(query: LocationQuery): AdminClaimListQuery {
   const type = first(query.type)
   const status = first(query.status)
+  const refundStatus = first(query.refundStatus)
   const sort = first(query.sort)
   const page = Number(first(query.page))
   const size = Number(first(query.size))
   return {
     type: type && isClaimType(type) ? type : null,
     status: status && isClaimStatus(status) ? status : null,
+    refundStatus: refundStatus && isRefundStatus(refundStatus) ? refundStatus : null,
     keyword: (first(query.keyword)?.trim() ?? '').slice(0, ADMIN_ORDER_KEYWORD_MAX),
     from: normalizeDateOnly(first(query.from)),
     to: normalizeDateOnly(first(query.to)),
@@ -65,6 +72,7 @@ export function toAdminClaimRouteQuery(state: AdminClaimListQuery): LocationQuer
   const query: LocationQueryRaw = {}
   if (state.type) query.type = state.type
   if (state.status) query.status = state.status
+  if (state.refundStatus) query.refundStatus = state.refundStatus
   if (state.keyword.trim() !== '') query.keyword = state.keyword.trim()
   if (state.from) query.from = state.from
   if (state.to) query.to = state.to
@@ -79,6 +87,7 @@ export function toAdminClaimApiParams(state: AdminClaimListQuery): AdminClaimApi
   const params: AdminClaimApiParams = { sort: state.sort, page: state.page, size: state.size }
   if (state.type) params.type = state.type
   if (state.status) params.status = state.status
+  if (state.refundStatus) params.refundStatus = state.refundStatus
   const keyword = state.keyword.trim()
   if (keyword !== '') params.keyword = keyword
   if (state.from) params.from = toPeriodStart(state.from)
@@ -86,7 +95,7 @@ export function toAdminClaimApiParams(state: AdminClaimListQuery): AdminClaimApi
   return params
 }
 
-/** 필터(상태·기간·검색)가 하나라도 걸려 있는지 — 빈 상태 문구 분기용. 유형 탭은 필터로 치지 않는다. */
+/** 필터(상태·환불 상태·기간·검색)가 하나라도 걸려 있는지 — 빈 상태 문구 분기용. 유형 탭은 필터로 치지 않는다. */
 export function hasActiveClaimFilters(state: AdminClaimListQuery): boolean {
-  return state.status !== null || state.keyword.trim() !== '' || state.from !== null || state.to !== null
+  return state.status !== null || state.refundStatus !== null || state.keyword.trim() !== '' || state.from !== null || state.to !== null
 }

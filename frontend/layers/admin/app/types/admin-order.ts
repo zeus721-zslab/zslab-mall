@@ -87,8 +87,21 @@ export interface AdminOrderPayment {
   status: AdminPaymentStatus
   amount: number
   pgProvider?: string
+  /** PG 거래번호·실패코드(Track 89-A·PG 대사용). 없으면 생략. */
+  pgTid?: string
+  failureCode?: string
   paidAt?: string
   createdAt: string
+}
+
+/** 수동 결제 취소 요청·응답(BE AdminPaymentController mark-cancelled·Track 89-A). NO-OP면 status가 바뀌지 않은 채 200. */
+export interface AdminPaymentCancelRequest {
+  reason: string
+}
+
+export interface AdminPaymentCancelResponse {
+  paymentPublicId: string
+  status: AdminPaymentStatus
 }
 
 export interface AdminOrderItem {

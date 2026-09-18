@@ -6,9 +6,11 @@ import type {
   AdminOrderDetail,
   AdminOrderListQuery,
   AdminOrderListResponse,
+  AdminPaymentCancelRequest,
+  AdminPaymentCancelResponse,
   AdminShipmentRequest,
 } from '#layers/admin/app/types/admin-order'
-import type { AdminClaimInspectBody, AdminClaimRejectBody } from '#layers/admin/app/types/admin-claim'
+import type { AdminClaimInspectBody, AdminClaimRejectBody, AdminRefundInitiateBody, AdminRefundInitiateResponse } from '#layers/admin/app/types/admin-claim'
 import { toAdminOrderApiParams } from '#layers/admin/app/lib/admin-order-query'
 import { useAdminApi } from '#layers/admin/app/composables/useAdminApi'
 
@@ -76,5 +78,20 @@ export function useAdminOrders() {
     return api<AdminClaimResponse>(path, { method: 'POST', body })
   }
 
-  return { list, detail, cancel, prepareShipment, markDelivered, approveClaim, rejectClaim, confirmPickupClaim, inspectClaim, registerExchangeShipment }
+  /** 수동 결제 취소(FE-36·Track 89-A·D-113 fallback). 전액 환불 미완료·이미 CANCELLED는 200 NO-OP(응답 status로 판별). */
+  function markPaymentCancelled(paymentPublicId: string, body: AdminPaymentCancelRequest): Promise<AdminPaymentCancelResponse> {
+    const path: string = `/v1/admin/payments/${paymentPublicId}/mark-cancelled`
+    return api<AdminPaymentCancelResponse>(path, { method: 'POST', body })
+  }
+
+  /** 수동 환불 개시(FE-36·Track 89-A·D-106 fallback). 비승인 422(CLAIM_STATE_INVALID)·한도 초과 422(REFUND_INVARIANT_VIOLATION)는 throw. */
+  function initiateRefund(claimPublicId: string, body: AdminRefundInitiateBody): Promise<AdminRefundInitiateResponse> {
+    const path: string = `/v1/admin/claims/${claimPublicId}/initiate-refund`
+    return api<AdminRefundInitiateResponse>(path, { method: 'POST', body })
+  }
+
+  return {
+    list, detail, cancel, prepareShipment, markDelivered, approveClaim, rejectClaim, confirmPickupClaim, inspectClaim,
+    registerExchangeShipment, markPaymentCancelled, initiateRefund,
+  }
 }

@@ -22,6 +22,7 @@ import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.repository.OrderItemOrderProjection;
 import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.refund.entity.Refund;
+import com.zslab.mall.refund.enums.RefundStatus;
 import com.zslab.mall.refund.repository.RefundRepository;
 import com.zslab.mall.user.entity.User;
 import com.zslab.mall.user.repository.UserRepository;
@@ -62,6 +63,12 @@ public class AdminClaimQueryService {
     static final String ACTION_REGISTER_EXCHANGE_SHIPMENT = "REGISTER_EXCHANGE_SHIPMENT";
     /** 교환품 배송완료 처리(EXCHANGE·OUTBOUND SHIPPING·reshipment.deliveryId로 mark-delivered·Track 83 D-177). */
     static final String ACTION_MARK_EXCHANGE_DELIVERED = "MARK_EXCHANGE_DELIVERED";
+    /**
+     * 수동 환불 개시(Track 89-A·D-106 fallback 진입점). 자동 환불(CANCEL 승인·RETURN 검수 PASS 핸들러)이 유실됐거나 FAILED로 끝난
+     * APPROVED 클레임에만 노출한다 — 활성 환불(PENDING·COMPLETED)이 있으면 initiate가 멱등 no-op이라 노출하지 않는다.
+     * EXCHANGE 차액 환불은 트리거 재설계 이월(D-172 보충)이라 제외한다.
+     */
+    static final String ACTION_INITIATE_REFUND = "INITIATE_REFUND";
 
     private final ClaimRepository claimRepository;
     private final OrderItemRepository orderItemRepository;
@@ -87,11 +94,12 @@ public class AdminClaimQueryService {
     }
 
     /**
-     * 관리자 클레임 목록. keyword는 주문번호 정확일치·구매자 이름/이메일·상품명 부분일치. pendingCount는 유형 필터만 반영한다.
+     * 관리자 클레임 목록. keyword는 주문번호 정확일치·구매자 이름/이메일·상품명 부분일치. refundStatus는 최신 환불 상태(Track 89-A).
+     * pendingCount는 유형 필터만 반영한다.
      *
      * @throws MalformedRequestException keyword가 trim 후 {@value #MAX_KEYWORD_LENGTH}자를 초과하거나 from &gt; to일 때(400)
      */
-    public AdminClaimListResponse listClaims(ClaimType type, ClaimStatus status, String keyword,
+    public AdminClaimListResponse listClaims(ClaimType type, ClaimStatus status, RefundStatus refundStatus, String keyword,
             LocalDateTime from, LocalDateTime to, String buyerPublicId, AdminClaimSort sort, int page, int size) {
         if (from != null && to != null && from.isAfter(to)) {
             throw new MalformedRequestException("from은 to보다 늦을 수 없습니다.");
@@ -112,6 +120,7 @@ public class AdminClaimQueryService {
         Specification<Claim> specification = Specification
                 .where(AdminClaimSpecifications.type(type))
                 .and(AdminClaimSpecifications.status(status))
+                .and(AdminClaimSpecifications.refundStatus(refundStatus))
                 .and(AdminClaimSpecifications.requestedBetween(from, to))
                 .and(AdminClaimSpecifications.keyword(toLikePattern(trimmedKeyword), trimmedKeyword))
                 .and(AdminClaimSpecifications.buyerId(buyerId));
@@ -195,7 +204,7 @@ public class AdminClaimQueryService {
         Refund latestRefund = enrichment.latestRefundByClaimId().get(claim.getId());
         Delivery returnDelivery = latestByDirection(enrichment.deliveriesByClaimId().get(claim.getId()), DeliveryDirection.RETURN);
         Delivery reshipment = latestByDirection(enrichment.deliveriesByClaimId().get(claim.getId()), DeliveryDirection.OUTBOUND);
-        List<String> actions = availableActions(claim, returnDelivery, reshipment);
+        List<String> actions = availableActions(claim, returnDelivery, reshipment, latestRefund);
         Long originalVariantId = originalVariantIdOf(claim, item);
         return new AdminClaimSummaryResponse(
                 claim.getPublicId(),
@@ -231,9 +240,10 @@ public class AdminClaimQueryService {
     /**
      * 단계별 처리 가능 액션(Track 81-A D-170 / Track 83 D-177). REQUESTED는 승인·거부, RETURN·EXCHANGE APPROVED는 회수 송장이 있고 미회수면
      * CONFIRM_PICKUP·회수 확인 후 미검수면 INSPECT. EXCHANGE는 검수 PASS 후 OUTBOUND 미등록이면 REGISTER_EXCHANGE_SHIPMENT·발송 중이면
-     * MARK_EXCHANGE_DELIVERED. 그 외(완료·거부·회수 송장 대기)는 빈 목록.
+     * MARK_EXCHANGE_DELIVERED. 그 외(완료·거부·회수 송장 대기)는 빈 목록. INITIATE_REFUND(Track 89-A)는 자동 환불이 붙었어야 할 시점
+     * (CANCEL APPROVED / RETURN 검수 PASS) 이후 최신 환불이 없거나 FAILED일 때만 추가된다({@link #ACTION_INITIATE_REFUND}).
      */
-    static List<String> availableActions(Claim claim, Delivery returnDelivery, Delivery outboundDelivery) {
+    static List<String> availableActions(Claim claim, Delivery returnDelivery, Delivery outboundDelivery, Refund latestRefund) {
         if (claim.getStatus() == ClaimStatus.REQUESTED) {
             return List.of(ACTION_APPROVE, ACTION_REJECT);
         }
@@ -253,7 +263,21 @@ public class AdminClaimQueryService {
                 }
             }
         }
+        if (refundInitiatable(claim, latestRefund)) {
+            return List.of(ACTION_INITIATE_REFUND);
+        }
         return List.of();
+    }
+
+    /** CANCEL APPROVED 또는 RETURN APPROVED+검수 PASS이고 최신 환불이 없거나 FAILED(활성 환불 없음). */
+    private static boolean refundInitiatable(Claim claim, Refund latestRefund) {
+        if (claim.getStatus() != ClaimStatus.APPROVED) {
+            return false;
+        }
+        boolean refundDue = claim.getType() == ClaimType.CANCEL
+                || (claim.getType() == ClaimType.RETURN && claim.isInspectionPassed());
+        boolean noActiveRefund = latestRefund == null || latestRefund.getStatus() == RefundStatus.FAILED;
+        return refundDue && noActiveRefund;
     }
 
     private static Delivery latestByDirection(List<Delivery> deliveries, DeliveryDirection direction) {

@@ -188,4 +188,25 @@ test.describe('관리자 상품 목록(FE-25)', () => {
     await page.waitForTimeout(700) // 토스트 진입·다이얼로그 퇴장 애니메이션 완료 후 캡처
     await page.screenshot({ path: 'playwright-report/fe-25/toast-danger-mobile.png' })
   })
+
+  test('⑥ 재고 필터(Track 89-A): select 적용 시 URL·API stockFilter 전달 → 대시보드 "재고 임박" 타일 클릭 시 stockFilter=LOW로 진입', async ({ page }) => {
+    const captured = await mockAdminApi(page)
+    await loginByDemo(page)
+    await page.goto('/admin/products')
+    await expect(page.getByTestId('status-chip')).toHaveCount(2)
+
+    await page.getByTestId('filter-stock').click()
+    await page.getByRole('option', { name: '재고 0', exact: true }).click()
+    await expect(page).toHaveURL(/stockFilter=OUT/)
+    expect(captured.listQueries.at(-1)?.get('stockFilter')).toBe('OUT')
+
+    // 대시보드 타일(실 BE dashboard 응답)은 카운트와 무관하게 링크가 있어야 하고, 클릭하면 상품 목록 LOW 필터가 URL·select에 반영된다
+    await page.goto('/admin')
+    const tile = page.getByTestId('dashboard-pending-lowStock')
+    await expect(tile).toHaveAttribute('href', '/admin/products?stockFilter=LOW')
+    await tile.click()
+    await expect(page).toHaveURL(/\/admin\/products\?stockFilter=LOW$/)
+    await expect(page.getByTestId('filter-stock')).toContainText('재고 임박(1~5)')
+    expect(captured.listQueries.at(-1)?.get('stockFilter')).toBe('LOW')
+  })
 })

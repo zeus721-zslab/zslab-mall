@@ -74,6 +74,15 @@ export const ADMIN_PRODUCT_SOLD_OUT_OPTIONS: { value: boolean; title: string }[]
   { value: false, title: '재고 있음' },
 ]
 
+/** 재고 필터(BE AdminProductStockFilter·Track 89-A). LOW는 대시보드 "재고 임박"(가용재고 1~5)과 같은 기준·수동품절 제외. */
+export type AdminProductStockFilter = 'LOW' | 'OUT' | 'IN_STOCK'
+
+export const ADMIN_PRODUCT_STOCK_FILTER_OPTIONS: { value: AdminProductStockFilter; title: string }[] = [
+  { value: 'LOW', title: '재고 임박(1~5)' },
+  { value: 'OUT', title: '재고 0' },
+  { value: 'IN_STOCK', title: '재고 여유(6 이상)' },
+]
+
 /** BE AdminProductSort(PRICE는 base_price 기준). */
 export type AdminProductSort = 'LATEST' | 'NAME' | 'PRICE_ASC' | 'PRICE_DESC'
 

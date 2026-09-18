@@ -19,6 +19,7 @@ import com.zslab.mall.dashboard.repository.DashboardRecentOrderProjection;
 import com.zslab.mall.dashboard.repository.DashboardSalesProjection;
 import com.zslab.mall.dashboard.repository.DashboardTopProductProjection;
 import com.zslab.mall.dashboard.repository.DashboardTopSellerProjection;
+import com.zslab.mall.inventory.policy.LowStockThreshold;
 import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.product.entity.Product;
 import com.zslab.mall.product.repository.ProductRepository;
@@ -59,8 +60,6 @@ public class AdminDashboardQueryService {
     private static final int DAILY_TREND_DAYS = 30;
     private static final int RECENT_LIMIT = 5;
     private static final int TOP_LIMIT = 5;
-    private static final int LOW_STOCK_MIN = 1;
-    private static final int LOW_STOCK_MAX = 5;
     private static final String MONTH_BUCKET_PATTERN = "%Y-%m";
     private static final String DAY_BUCKET_PATTERN = "%Y-%m-%d";
     private static final DateTimeFormatter MONTH_KEY = DateTimeFormatter.ofPattern("yyyy-MM");
@@ -106,7 +105,7 @@ public class AdminDashboardQueryService {
                 dashboardRepository.countSettlementsByStatus(SettlementStatus.PENDING),
                 dashboardRepository.countClaimsByStatus(ClaimStatus.REQUESTED),
                 dashboardRepository.countOrderItemsByStatus(OrderItemStatus.PAID),
-                dashboardRepository.countLowStock(LOW_STOCK_MIN, LOW_STOCK_MAX));
+                dashboardRepository.countLowStock(LowStockThreshold.MIN, LowStockThreshold.MAX));
     }
 
     /** 최근 6개월(당월 포함)·빈 달 0. 매출은 paid_at·환불은 refunded_at 구간이라 각각 집계 후 월 키로 합친다. */
