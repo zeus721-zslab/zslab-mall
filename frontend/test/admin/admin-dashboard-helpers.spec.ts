@@ -53,12 +53,12 @@ describe('증감률', () => {
 })
 
 describe('처리 대기', () => {
-  it('4칸 순서·링크: 정산·클레임·배송은 목록 필터로, 재고 임박은 링크 없음', () => {
+  it('4칸 순서·링크: 정산·클레임·배송·재고 임박 전부 목록 필터로', () => {
     expect(PENDING_TILES.map((tile) => tile.key)).toEqual(['settlementPending', 'claimRequested', 'deliveryReady', 'lowStock'])
     expect(PENDING_TILES[0]!.to).toBe('/admin/settlements?status=PENDING')
     expect(PENDING_TILES[1]!.to).toBe('/admin/orders/claims?status=REQUESTED')
     expect(PENDING_TILES[2]!.to).toBe('/admin/orders?status=PAID')
-    expect(PENDING_TILES[3]!.to).toBeNull()
+    expect(PENDING_TILES[3]!.to).toBe('/admin/products?stockFilter=LOW')
   })
 
   it('톤: 0건 회색, 1건 이상은 정산·클레임·배송 노랑·재고 임박 빨강', () => {

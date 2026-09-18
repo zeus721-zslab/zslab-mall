@@ -39,6 +39,7 @@ const emit = defineEmits<{
   inspect: [item: AdminClaimSummary]
   registerExchangeShipment: [item: AdminClaimSummary]
   markExchangeDelivered: [item: AdminClaimSummary]
+  initiateRefund: [item: AdminClaimSummary]
 }>()
 
 // 8컬럼: 1440px에서 가로 스크롤이 없도록 요청/처리 일시·유형/상태·주문/구매자·상품/옵션·요청/거부 사유·환불/회수·검수를 2줄 셀로 병합한다(FE-27 compact 규칙).
@@ -219,6 +220,15 @@ function returnCaption(item: AdminClaimSummary): string {
           data-testid="row-mark-exchange-delivered"
           @click="emit('markExchangeDelivered', item)"
         >{{ ADMIN_CLAIM_ACTION_LABEL.MARK_EXCHANGE_DELIVERED }}</v-btn>
+        <v-btn
+          v-if="item.availableActions.includes('INITIATE_REFUND')"
+          size="x-small"
+          color="primary"
+          variant="outlined"
+          :disabled="isPending(item)"
+          data-testid="row-initiate-refund"
+          @click="emit('initiateRefund', item)"
+        >{{ ADMIN_CLAIM_ACTION_LABEL.INITIATE_REFUND }}</v-btn>
         <span v-if="item.availableActions.length === 0" class="text-caption text-medium-emphasis">—</span>
       </div>
     </template>

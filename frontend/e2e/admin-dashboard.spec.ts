@@ -32,12 +32,12 @@ test.describe('관리자 대시보드 (FE-33)', () => {
       expect(text.trim()).toMatch(/^([+-]?\d+\.\d%|—)$/)
     }
 
-    // 처리 대기 4칸: 링크 3(정산·클레임·배송)·재고 임박은 링크 없음
+    // 처리 대기 4칸: 링크 4(정산·클레임·배송·재고 임박=상품 목록 stockFilter=LOW·Track 89-A)
     await expect(page.getByTestId('dashboard-pending-count')).toHaveCount(4)
     await expect(page.getByTestId('dashboard-pending-settlementPending')).toHaveAttribute('href', '/admin/settlements?status=PENDING')
     await expect(page.getByTestId('dashboard-pending-claimRequested')).toHaveAttribute('href', '/admin/orders/claims?status=REQUESTED')
     await expect(page.getByTestId('dashboard-pending-deliveryReady')).toHaveAttribute('href', '/admin/orders?status=PAID')
-    await expect(page.getByTestId('dashboard-pending-lowStock')).not.toHaveAttribute('href', /.+/)
+    await expect(page.getByTestId('dashboard-pending-lowStock')).toHaveAttribute('href', '/admin/products?stockFilter=LOW')
 
     // 차트 2: apexcharts SVG가 카드 안에 그려진다(데이터 0이어도 축은 렌더)
     await expect(page.getByTestId('dashboard-chart-monthly').locator('svg.apexcharts-svg')).toBeVisible()

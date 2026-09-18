@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { mdiMagnify, mdiRefresh } from '@mdi/js'
 import type { AdminClaimListQuery } from '#layers/admin/app/types/admin-claim'
-import { CLAIM_STATUS_LABELS, type ClaimStatus } from '~/lib/constants/claim'
+import { CLAIM_STATUS_LABELS, REFUND_STATUS_LABELS, type ClaimStatus, type RefundStatus } from '~/lib/constants/claim'
 import { ADMIN_ORDER_KEYWORD_MAX, ADMIN_ORDER_SORT_OPTIONS } from '#layers/admin/app/lib/constants/admin-order'
 import { isPeriodInverted, normalizeDateOnly } from '#layers/admin/app/lib/admin-order-query'
 
@@ -20,6 +20,7 @@ const keywordInput = ref<string>(props.query.keyword)
 watch(() => props.query.keyword, (next) => { keywordInput.value = next })
 
 const statusItems = (Object.keys(CLAIM_STATUS_LABELS) as ClaimStatus[]).map((value) => ({ value, title: CLAIM_STATUS_LABELS[value] }))
+const refundStatusItems = (Object.keys(REFUND_STATUS_LABELS) as RefundStatus[]).map((value) => ({ value, title: REFUND_STATUS_LABELS[value] }))
 
 const periodInverted = computed(() => isPeriodInverted(props.query))
 
@@ -37,7 +38,7 @@ function applyDate(key: 'from' | 'to', value: string | null): void {
   <v-card class="mb-4" data-testid="admin-claim-filters">
     <v-card-text class="pa-4">
       <v-row dense align="center">
-        <v-col cols="12" md="5">
+        <v-col cols="12" md="4">
           <v-text-field
             v-model="keywordInput"
             label="주문번호 · 구매자 · 상품명"
@@ -71,7 +72,7 @@ function applyDate(key: 'from' | 'to', value: string | null): void {
             @update:model-value="(value) => applyDate('to', value)"
           />
         </v-col>
-        <v-col cols="12" md="3">
+        <v-col cols="6" md="2">
           <v-select
             :model-value="query.status"
             :items="statusItems"
@@ -80,6 +81,17 @@ function applyDate(key: 'from' | 'to', value: string | null): void {
             clearable
             data-testid="filter-status"
             @update:model-value="(value) => emit('apply', { status: value ?? null })"
+          />
+        </v-col>
+        <v-col cols="6" md="2">
+          <v-select
+            :model-value="query.refundStatus"
+            :items="refundStatusItems"
+            label="환불 상태"
+            hide-details
+            clearable
+            data-testid="filter-refund-status"
+            @update:model-value="(value) => emit('apply', { refundStatus: value ?? null })"
           />
         </v-col>
       </v-row>

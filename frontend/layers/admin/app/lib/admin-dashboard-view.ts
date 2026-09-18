@@ -1,6 +1,6 @@
 import type { ApexOptions } from 'apexcharts'
 import type { AdminDashboardDailyOrders, AdminDashboardMonthlyRevenue, AdminDashboardPending } from '#layers/admin/app/types/admin-dashboard'
-import { ADMIN_CLAIMS_PATH, ADMIN_ORDERS_PATH, ADMIN_SETTLEMENTS_PATH } from '#layers/admin/app/lib/admin-back-path'
+import { ADMIN_CLAIMS_PATH, ADMIN_ORDERS_PATH, ADMIN_PRODUCTS_PATH, ADMIN_SETTLEMENTS_PATH } from '#layers/admin/app/lib/admin-back-path'
 import { formatWon } from '#layers/admin/app/lib/format'
 
 /**
@@ -55,13 +55,13 @@ export interface PendingTile {
 
 /**
  * 처리 대기 4칸 정의. 정산·클레임은 목록의 status 필터, 배송 대기는 주문 목록 status=PAID(BE는 품목 PAID 건수·주문 목록은 주문 단위라 근사).
- * 재고 임박은 재고 화면이 플레이스홀더이고 상품 목록에 재고 필터가 없어 링크 없음.
+ * 재고 임박은 상품 목록 stockFilter=LOW(Track 89-A·BE는 variant 건수·목록은 상품 단위라 근사).
  */
 export const PENDING_TILES: PendingTile[] = [
   { key: 'settlementPending', label: '정산 대기', to: `${ADMIN_SETTLEMENTS_PATH}?status=PENDING`, alertTone: 'warning' },
   { key: 'claimRequested', label: '클레임 요청', to: `${ADMIN_CLAIMS_PATH}?status=REQUESTED`, alertTone: 'warning' },
   { key: 'deliveryReady', label: '배송 대기', to: `${ADMIN_ORDERS_PATH}?status=PAID`, alertTone: 'warning' },
-  { key: 'lowStock', label: '재고 임박', to: null, alertTone: 'danger' },
+  { key: 'lowStock', label: '재고 임박', to: `${ADMIN_PRODUCTS_PATH}?stockFilter=LOW`, alertTone: 'danger' },
 ]
 
 /** 0건은 회색(neutral), 1건 이상은 칸별 주의 톤. */

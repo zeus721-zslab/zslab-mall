@@ -6,10 +6,11 @@ import {
   ADMIN_PRODUCT_SOLD_OUT_OPTIONS,
   ADMIN_PRODUCT_SORT_OPTIONS,
   ADMIN_PRODUCT_STATUS_OPTIONS,
+  ADMIN_PRODUCT_STOCK_FILTER_OPTIONS,
 } from '#layers/admin/app/lib/constants/product'
 
 // 필터 카드(FE-25). 검색어는 로컬 입력값을 두고 검색 버튼·Enter로만 확정한다(타이핑마다 URL·API가 흔들리지 않게).
-// 드롭다운(상태·품절·셀러·카테고리·정렬)은 선택 즉시 확정. 모든 확정은 emit('apply')로 부모(URL 단일 소스)에 넘긴다.
+// 드롭다운(상태·품절·셀러·카테고리·재고·정렬)은 선택 즉시 확정. 모든 확정은 emit('apply')로 부모(URL 단일 소스)에 넘긴다.
 const props = defineProps<{
   query: AdminProductListQuery
   sellers: AdminSellerSummary[]
@@ -96,6 +97,17 @@ function submitKeyword(): void {
             clearable
             data-testid="filter-category"
             @update:model-value="(value) => emit('apply', { categoryId: value ?? null })"
+          />
+        </v-col>
+        <v-col cols="6" md="2">
+          <v-select
+            :model-value="query.stockFilter"
+            :items="ADMIN_PRODUCT_STOCK_FILTER_OPTIONS"
+            label="재고"
+            hide-details
+            clearable
+            data-testid="filter-stock"
+            @update:model-value="(value) => emit('apply', { stockFilter: value ?? null })"
           />
         </v-col>
       </v-row>

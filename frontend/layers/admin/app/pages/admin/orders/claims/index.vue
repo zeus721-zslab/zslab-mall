@@ -2,6 +2,7 @@
 import { mdiAlertCircleOutline, mdiSwapHorizontal } from '@mdi/js'
 import type { AdminClaimListQuery, AdminClaimSummary } from '#layers/admin/app/types/admin-claim'
 import type { AdminClaimRejectTarget } from '#layers/admin/app/components/admin/AdminClaimRejectDialog.vue'
+import type { AdminRefundInitiateTarget } from '#layers/admin/app/components/admin/AdminRefundInitiateDialog.vue'
 import type { AdminClaimInspectTarget } from '#layers/admin/app/components/admin/AdminClaimInspectDialog.vue'
 import type { AdminExchangeShipmentTarget } from '#layers/admin/app/components/admin/AdminExchangeShipmentDialog.vue'
 import { CLAIM_TYPE_LABELS, claimTypeLabel, type ClaimType } from '~/lib/constants/claim'
@@ -189,6 +190,18 @@ function closeInspect(refresh: boolean): void {
   if (refresh) void load()
 }
 
+// ---------- 수동 환불 개시(FE-36·Track 89-A): BE availableActions INITIATE_REFUND(승인 후 환불 없음·실패)에만 노출 ----------
+const refundInitiateTarget = ref<AdminRefundInitiateTarget | null>(null)
+
+function openInitiateRefund(item: AdminClaimSummary): void {
+  refundInitiateTarget.value = { claimId: item.claimId, type: item.type, productName: item.productName ?? '', amount: item.amount ?? null }
+}
+
+function closeInitiateRefund(refresh: boolean): void {
+  refundInitiateTarget.value = null
+  if (refresh) void load()
+}
+
 // ---------- 교환 행 액션(FE-30·D-177): 교환품 발송(송장 다이얼로그) · 배송완료(확인 다이얼로그 → 기존 markDelivered) ----------
 const exchangeShipmentTarget = ref<AdminExchangeShipmentTarget | null>(null)
 const exchangeDeliveredTarget = ref<AdminClaimSummary | null>(null)
@@ -282,6 +295,7 @@ async function runMarkExchangeDelivered(): Promise<void> {
         @inspect="openInspect"
         @register-exchange-shipment="openExchangeShipment"
         @mark-exchange-delivered="(item) => (exchangeDeliveredTarget = item)"
+        @initiate-refund="openInitiateRefund"
       >
         <template #empty>
           <div class="d-flex flex-column align-center text-center py-10" data-testid="admin-claim-empty">
@@ -318,6 +332,13 @@ async function runMarkExchangeDelivered(): Promise<void> {
       @done="closeReject(true)"
       @stale="closeReject(true)"
       @cancel="closeReject(false)"
+    />
+    <AdminRefundInitiateDialog
+      :open="refundInitiateTarget !== null"
+      :target="refundInitiateTarget"
+      @done="closeInitiateRefund(true)"
+      @stale="closeInitiateRefund(true)"
+      @cancel="closeInitiateRefund(false)"
     />
     <AdminConfirmDialog
       :open="pickupTarget !== null"

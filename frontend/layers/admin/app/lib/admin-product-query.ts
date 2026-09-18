@@ -4,10 +4,12 @@ import {
   ADMIN_PRODUCT_PAGE_SIZES,
   ADMIN_PRODUCT_SORT_OPTIONS,
   ADMIN_PRODUCT_STATUS_LABEL,
+  ADMIN_PRODUCT_STOCK_FILTER_OPTIONS,
   DEFAULT_ADMIN_PRODUCT_PAGE_SIZE,
   DEFAULT_ADMIN_PRODUCT_SORT,
   type AdminProductSort,
   type AdminProductStatus,
+  type AdminProductStockFilter,
 } from '#layers/admin/app/lib/constants/product'
 
 /**
@@ -21,6 +23,7 @@ export const DEFAULT_ADMIN_PRODUCT_QUERY: AdminProductListQuery = {
   soldOut: null,
   sellerPublicId: null,
   categoryId: null,
+  stockFilter: null,
   sort: DEFAULT_ADMIN_PRODUCT_SORT,
   page: 0,
   size: DEFAULT_ADMIN_PRODUCT_PAGE_SIZE,
@@ -35,6 +38,10 @@ function isStatus(value: string): value is AdminProductStatus {
   return value in ADMIN_PRODUCT_STATUS_LABEL
 }
 
+function isStockFilter(value: string): value is AdminProductStockFilter {
+  return ADMIN_PRODUCT_STOCK_FILTER_OPTIONS.some((option) => option.value === value)
+}
+
 function isSort(value: string): value is AdminProductSort {
   return ADMIN_PRODUCT_SORT_OPTIONS.some((option) => option.value === value)
 }
@@ -44,6 +51,7 @@ export function parseAdminProductQuery(query: LocationQuery): AdminProductListQu
   const status = first(query.status)
   const soldOut = first(query.soldOut)
   const categoryId = Number(first(query.categoryId))
+  const stockFilter = first(query.stockFilter)
   const sort = first(query.sort)
   const page = Number(first(query.page))
   const size = Number(first(query.size))
@@ -53,6 +61,7 @@ export function parseAdminProductQuery(query: LocationQuery): AdminProductListQu
     soldOut: soldOut === 'true' ? true : soldOut === 'false' ? false : null,
     sellerPublicId: first(query.sellerPublicId),
     categoryId: Number.isInteger(categoryId) && categoryId > 0 ? categoryId : null,
+    stockFilter: stockFilter && isStockFilter(stockFilter) ? stockFilter : null,
     sort: sort && isSort(sort) ? sort : DEFAULT_ADMIN_PRODUCT_SORT,
     page: Number.isInteger(page) && page > 0 ? page : 0,
     size: ADMIN_PRODUCT_PAGE_SIZES.includes(size) ? size : DEFAULT_ADMIN_PRODUCT_PAGE_SIZE,
@@ -67,6 +76,7 @@ export function toAdminProductRouteQuery(state: AdminProductListQuery): Location
   if (state.soldOut !== null) query.soldOut = String(state.soldOut)
   if (state.sellerPublicId) query.sellerPublicId = state.sellerPublicId
   if (state.categoryId !== null) query.categoryId = String(state.categoryId)
+  if (state.stockFilter) query.stockFilter = state.stockFilter
   if (state.sort !== DEFAULT_ADMIN_PRODUCT_SORT) query.sort = state.sort
   if (state.page > 0) query.page = String(state.page)
   if (state.size !== DEFAULT_ADMIN_PRODUCT_PAGE_SIZE) query.size = String(state.size)
@@ -82,16 +92,18 @@ export function toAdminProductApiParams(state: AdminProductListQuery): AdminProd
   if (state.soldOut !== null) params.soldOut = state.soldOut
   if (state.sellerPublicId) params.sellerPublicId = state.sellerPublicId
   if (state.categoryId !== null) params.categoryId = state.categoryId
+  if (state.stockFilter) params.stockFilter = state.stockFilter
   return params
 }
 
-/** 필터(검색·상태·품절·셀러·카테고리)가 하나라도 걸려 있는지 — 빈 상태 문구("결과 없음" vs "상품 없음") 분기용. */
+/** 필터(검색·상태·품절·셀러·카테고리·재고)가 하나라도 걸려 있는지 — 빈 상태 문구("결과 없음" vs "상품 없음") 분기용. */
 export function hasActiveFilters(state: AdminProductListQuery): boolean {
   return (
     state.keyword.trim() !== '' ||
     state.status !== null ||
     state.soldOut !== null ||
     state.sellerPublicId !== null ||
-    state.categoryId !== null
+    state.categoryId !== null ||
+    state.stockFilter !== null
   )
 }

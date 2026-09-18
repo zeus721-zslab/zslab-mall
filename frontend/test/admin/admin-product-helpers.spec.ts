@@ -56,7 +56,7 @@ describe('resolveActiveMenuPath', () => {
     expect(resolveActiveMenuPath('/admin/products')).toBe('/admin/products')
     expect(resolveActiveMenuPath('/admin/products/new')).toBe('/admin/products/new')
     expect(resolveActiveMenuPath('/admin/products/prd_01ABC')).toBe('/admin/products')
-    expect(resolveActiveMenuPath('/admin/orders/payments')).toBe('/admin/orders/payments')
+    expect(resolveActiveMenuPath('/admin/orders/claims')).toBe('/admin/orders/claims')
     expect(resolveActiveMenuPath('/admin/unknown')).toBeNull()
     expect(resolveActiveMenuPath('/admin')).toBe('/admin')
   })

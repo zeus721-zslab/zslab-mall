@@ -15,15 +15,15 @@ describe('parseAdminClaimQuery', () => {
 
   it('전체 query 파싱·trim·타입 변환', () => {
     expect(parseAdminClaimQuery({
-      type: 'CANCEL', status: 'REQUESTED', keyword: ' ORD-1 ', from: '2026-09-01', to: '2026-09-16', sort: 'OLDEST', page: '2', size: '50',
+      type: 'CANCEL', status: 'REQUESTED', refundStatus: 'FAILED', keyword: ' ORD-1 ', from: '2026-09-01', to: '2026-09-16', sort: 'OLDEST', page: '2', size: '50',
     })).toEqual({
-      type: 'CANCEL', status: 'REQUESTED', keyword: 'ORD-1', from: '2026-09-01', to: '2026-09-16', sort: 'OLDEST', page: 2, size: 50,
+      type: 'CANCEL', status: 'REQUESTED', refundStatus: 'FAILED', keyword: 'ORD-1', from: '2026-09-01', to: '2026-09-16', sort: 'OLDEST', page: 2, size: 50,
     })
   })
 
-  it('잘못된 값은 기본값으로 정규화(미지의 type·status·sort·날짜 형식·음수 page·허용 외 size)', () => {
+  it('잘못된 값은 기본값으로 정규화(미지의 type·status·refundStatus·sort·날짜 형식·음수 page·허용 외 size)', () => {
     expect(parseAdminClaimQuery({
-      type: 'REFUND', status: 'BOGUS', from: '20260901', to: '2026-9-1', sort: 'RANDOM', page: '-1', size: '33',
+      type: 'REFUND', status: 'BOGUS', refundStatus: 'DONE', from: '20260901', to: '2026-9-1', sort: 'RANDOM', page: '-1', size: '33',
     })).toEqual(DEFAULT_ADMIN_CLAIM_QUERY)
   })
 
@@ -36,8 +36,8 @@ describe('parseAdminClaimQuery', () => {
 describe('toAdminClaimRouteQuery', () => {
   it('기본값 항목은 생략·유형 탭은 type으로', () => {
     expect(toAdminClaimRouteQuery(DEFAULT_ADMIN_CLAIM_QUERY)).toEqual({})
-    expect(toAdminClaimRouteQuery({ ...DEFAULT_ADMIN_CLAIM_QUERY, type: 'CANCEL', status: 'REQUESTED', page: 1, size: 50, sort: 'OLDEST', keyword: ' x ' }))
-      .toEqual({ type: 'CANCEL', status: 'REQUESTED', keyword: 'x', page: '1', size: '50', sort: 'OLDEST' })
+    expect(toAdminClaimRouteQuery({ ...DEFAULT_ADMIN_CLAIM_QUERY, type: 'CANCEL', status: 'REQUESTED', refundStatus: 'PENDING', page: 1, size: 50, sort: 'OLDEST', keyword: ' x ' }))
+      .toEqual({ type: 'CANCEL', status: 'REQUESTED', refundStatus: 'PENDING', keyword: 'x', page: '1', size: '50', sort: 'OLDEST' })
   })
 
   it('parse ↔ toRouteQuery 왕복 보존', () => {
@@ -49,15 +49,16 @@ describe('toAdminClaimRouteQuery', () => {
 describe('toAdminClaimApiParams', () => {
   it('sort·page·size는 항상, 나머지는 값 있을 때만·기간은 T00:00:00/T23:59:59 부착', () => {
     expect(toAdminClaimApiParams(DEFAULT_ADMIN_CLAIM_QUERY)).toEqual({ sort: 'LATEST', page: 0, size: 20 })
-    expect(toAdminClaimApiParams({ ...DEFAULT_ADMIN_CLAIM_QUERY, type: 'CANCEL', status: 'REJECTED', keyword: 'ORD-1', from: '2026-09-01', to: '2026-09-16' }))
-      .toEqual({ sort: 'LATEST', page: 0, size: 20, type: 'CANCEL', status: 'REJECTED', keyword: 'ORD-1', from: '2026-09-01T00:00:00', to: '2026-09-16T23:59:59' })
+    expect(toAdminClaimApiParams({ ...DEFAULT_ADMIN_CLAIM_QUERY, type: 'CANCEL', status: 'REJECTED', refundStatus: 'COMPLETED', keyword: 'ORD-1', from: '2026-09-01', to: '2026-09-16' }))
+      .toEqual({ sort: 'LATEST', page: 0, size: 20, type: 'CANCEL', status: 'REJECTED', refundStatus: 'COMPLETED', keyword: 'ORD-1', from: '2026-09-01T00:00:00', to: '2026-09-16T23:59:59' })
   })
 })
 
 describe('hasActiveClaimFilters', () => {
-  it('유형 탭은 필터로 치지 않고 상태·기간·검색만 본다', () => {
+  it('유형 탭은 필터로 치지 않고 상태·환불 상태·기간·검색만 본다', () => {
     expect(hasActiveClaimFilters({ ...DEFAULT_ADMIN_CLAIM_QUERY, type: 'CANCEL' })).toBe(false)
     expect(hasActiveClaimFilters({ ...DEFAULT_ADMIN_CLAIM_QUERY, status: 'REQUESTED' })).toBe(true)
+    expect(hasActiveClaimFilters({ ...DEFAULT_ADMIN_CLAIM_QUERY, refundStatus: 'FAILED' })).toBe(true)
     expect(hasActiveClaimFilters({ ...DEFAULT_ADMIN_CLAIM_QUERY, keyword: 'x' })).toBe(true)
     expect(hasActiveClaimFilters({ ...DEFAULT_ADMIN_CLAIM_QUERY, to: '2026-09-16' })).toBe(true)
   })

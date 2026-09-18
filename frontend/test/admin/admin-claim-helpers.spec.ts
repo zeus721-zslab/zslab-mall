@@ -73,13 +73,14 @@ describe('admin-claim-view', () => {
     expect(approveConfirmMessage('EXCHANGE', '상품A')).toContain('교환 옵션 재고가 예약')
   })
 
-  it('교환 문구·액션(FE-30): 회수 확인/검수 합격 문구 유형 분기·액션 라벨 6종·교환 발송 폼 검증', () => {
+  it('교환 문구·액션(FE-30): 회수 확인/검수 합격 문구 유형 분기·액션 라벨 7종(환불 개시 포함)·교환 발송 폼 검증', () => {
     expect(confirmPickupMessage('상품A')).toContain('환불은 검수 합격 시')
     expect(confirmPickupMessage('상품A', 'EXCHANGE')).toContain('교환품 발송은 검수 합격 후')
     expect(inspectPassLabel('RETURN')).toBe('합격 (환불 진행)')
     expect(inspectPassLabel('EXCHANGE')).toBe('합격 (교환품 발송 대기)')
     expect(inspectPassToast('EXCHANGE')).toContain('교환품 발송을 등록')
-    expect(Object.keys(ADMIN_CLAIM_ACTION_LABEL)).toEqual(['APPROVE', 'REJECT', 'CONFIRM_PICKUP', 'INSPECT', 'REGISTER_EXCHANGE_SHIPMENT', 'MARK_EXCHANGE_DELIVERED'])
+    expect(Object.keys(ADMIN_CLAIM_ACTION_LABEL)).toEqual(['APPROVE', 'REJECT', 'CONFIRM_PICKUP', 'INSPECT', 'REGISTER_EXCHANGE_SHIPMENT', 'MARK_EXCHANGE_DELIVERED', 'INITIATE_REFUND'])
+    expect(ADMIN_CLAIM_ACTION_LABEL.INITIATE_REFUND).toBe('환불 개시') // Track 89-A
     expect(ADMIN_CLAIM_ACTION_LABEL.REGISTER_EXCHANGE_SHIPMENT).toBe('교환품 발송')
     expect(validateExchangeShipmentForm({ carrier: null, trackingNo: '' })).toEqual({ carrier: '택배사를 선택하세요.', trackingNo: '송장번호를 입력하세요.' })
     expect(validateExchangeShipmentForm({ carrier: 'CJ', trackingNo: 'X'.repeat(101) }).trackingNo).toContain('100자')

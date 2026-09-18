@@ -19,6 +19,7 @@ export type AdminClaimAction =
   | 'INSPECT'
   | 'REGISTER_EXCHANGE_SHIPMENT'
   | 'MARK_EXCHANGE_DELIVERED'
+  | 'INITIATE_REFUND'
 
 /** 목록 행(BE AdminClaimSummaryResponse). 주문·품목·구매자 미존재 시 해당 필드는 생략된다. */
 export interface AdminClaimSummary {
@@ -87,12 +88,27 @@ export interface AdminClaimRejectBody {
 export interface AdminClaimListQuery {
   type: ClaimType | null
   status: ClaimStatus | null
+  /** 최신 환불 상태 필터(Track 89-A·환불 없는 클레임은 어느 값에도 안 걸림). */
+  refundStatus: RefundStatus | null
   keyword: string
   from: string | null
   to: string | null
   sort: AdminOrderSort
   page: number
   size: number
+}
+
+/** 수동 환불 개시 요청·응답(BE AdminRefundController initiate-refund·Track 89-A). */
+export interface AdminRefundInitiateBody {
+  amount: number
+}
+
+export interface AdminRefundInitiateResponse {
+  refundPublicId: string
+  claimPublicId: string
+  status: RefundStatus
+  amount: number
+  pgRefundId?: string
 }
 
 /** BE GET /admin/claims 쿼리 파라미터(null·빈 값은 제외). */

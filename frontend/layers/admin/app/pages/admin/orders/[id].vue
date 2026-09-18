@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { mdiArrowLeft } from '@mdi/js'
-import type { AdminOrderClaim, AdminOrderDetail } from '#layers/admin/app/types/admin-order'
+import type { AdminOrderClaim, AdminOrderDetail, AdminOrderPayment } from '#layers/admin/app/types/admin-order'
 import { orderStatusLabel } from '~/lib/constants/order'
 import {
   CLAIM_REASON_LABELS,
@@ -79,6 +79,14 @@ const activeDialog = ref<DetailDialog | null>(null)
 
 function closeDialog(refresh: boolean): void {
   activeDialog.value = null
+  if (refresh) void load()
+}
+
+// ---------- 수동 결제 취소(FE-36·Track 89-A): PAID 결제 행에만 노출 — BE 전이는 PAID→CANCELLED뿐(그 외 NO-OP·404) ----------
+const paymentCancelTarget = ref<AdminOrderPayment | null>(null)
+
+function closePaymentCancel(refresh: boolean): void {
+  paymentCancelTarget.value = null
   if (refresh) void load()
 }
 
@@ -268,7 +276,7 @@ function closeReject(refresh: boolean): void {
           </div>
           <v-table v-if="detail.payments.length > 0" density="compact" class="adm-table">
             <thead>
-              <tr><th>결제수단</th><th>상태</th><th class="text-right">금액</th><th>PG</th><th>결제일시</th><th>생성일시</th></tr>
+              <tr><th>결제수단</th><th>상태</th><th class="text-right">금액</th><th>PG</th><th>PG 거래번호</th><th>실패코드</th><th>결제일시</th><th>생성일시</th><th class="text-right">관리</th></tr>
             </thead>
             <tbody>
               <tr v-for="payment in detail.payments" :key="payment.paymentId" data-testid="payment-row">
@@ -280,8 +288,21 @@ function closeReject(refresh: boolean): void {
                 </td>
                 <td class="text-right">{{ formatWon(payment.amount) }}</td>
                 <td>{{ payment.pgProvider ?? '—' }}</td>
+                <td data-testid="payment-pg-tid">{{ payment.pgTid ?? '—' }}</td>
+                <td data-testid="payment-failure-code">{{ payment.failureCode ?? '—' }}</td>
                 <td>{{ payment.paidAt ? formatDateTime(payment.paidAt) : '—' }}</td>
                 <td>{{ formatDateTime(payment.createdAt) }}</td>
+                <td class="text-right">
+                  <v-btn
+                    v-if="payment.status === 'PAID'"
+                    size="small"
+                    variant="outlined"
+                    color="error"
+                    data-testid="payment-cancel"
+                    @click="paymentCancelTarget = payment"
+                  >취소 처리</v-btn>
+                  <span v-else class="text-caption text-medium-emphasis">—</span>
+                </td>
               </tr>
             </tbody>
           </v-table>
@@ -394,6 +415,7 @@ function closeReject(refresh: boolean): void {
     <AdminOrderCancelDialog :open="activeDialog === 'cancel'" :detail="detail" @done="closeDialog(true)" @stale="closeDialog(true)" @cancel="closeDialog(false)" />
     <AdminShipmentDialog :open="activeDialog === 'shipment'" :detail="detail" @done="closeDialog(true)" @stale="closeDialog(true)" @cancel="closeDialog(false)" />
     <AdminMarkDeliveredDialog :open="activeDialog === 'delivered'" :detail="detail" @done="closeDialog(true)" @stale="closeDialog(true)" @cancel="closeDialog(false)" />
+    <AdminPaymentCancelDialog :open="paymentCancelTarget !== null" :payment="paymentCancelTarget" @done="closePaymentCancel(true)" @cancel="closePaymentCancel(false)" />
 
     <AdminConfirmDialog
       :open="claimDecision !== null"
