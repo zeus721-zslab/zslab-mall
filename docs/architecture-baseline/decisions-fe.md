@@ -1747,3 +1747,26 @@ BE 계약 Track 89-A D-183(`stockFilter`·`refundStatus`·`INITIATE_REFUND`·mar
 ### §8 이월
 - 결제·환불 독립 화면(실 PG 전환 후)·재고 이력 화면·남은 플레이스홀더 4(Track 89-B~E) — D-183 §8과 동일.
 - 제거 경로 3건이 `[id]` 동적 라우트로 흡수돼 "찾을 수 없음" 카드로 보이는 것은 사양대로 방치(전용 404로 바꾸려면 `[id].vue`에서 접두 검사 필요).
+
+## FE-37: 관리자 배송 관리 화면 (2026-09-18)
+
+BE 계약 Track 89-B D-184(`scope`·keyword 3종·발송일 기간·상세·송장 정정 SHIPPING만·409 중복이 SoT·본 항목에서 재기술하지 않음) · 브랜치 `feat/admin-deliveries`(BE·FE 동일 브랜치·미커밋) · 정찰 `docs/track-89/recon-report.md` §2-5·§5 · 외부 검토 B / 판단 후 보고(생략 권고·D-184).
+
+### §1-A 갈림길·채택/기각 근거
+1. 화면 구성: `orders/index.vue` 복제(URL query 단일 소스·`pendingQuery` 병합·requestSequence 경합 방어·FilterCard·Table·행 다이얼로그). 필터 카드 = 검색어(placeholder "송장번호·주문번호는 정확히, 수령인명은 일부") · 발송일 시작/종료 · **조회 범위 select(`filter-scope`·4값·기본 원 발송·clearable 아님)** · 배송상태 · 택배사 · 정렬(발송 최신순/오래된순). 방향·클레임 연계를 select 2개로 두는 안 【기각: BE 단일 축과 1:1이 아니고 항상-빈 조합이 생김】.
+2. 테이블 8컬럼(주문번호 / 상품 / 수령인 / 구분 / 상태 / 택배사 / 송장번호 / 발송·완료 2줄): 주문번호 클릭 → `/admin/orders/{ord_}?back=`(FE-26 패턴) · 구분 열 = 회수 chip(RETURN·warning) + 클레임 chip(방향×유형 라벨 "교환품 발송/재발송/반품 회수/교환 회수"·warning·클릭 → 클레임 목록) · 원 발송은 chip 없이 "원 발송" 텍스트 · 송장번호 옆 복사 버튼(클립보드·실패 시 warning 토스트) · 행 클릭 → 상세 다이얼로그. 행 액션 메뉴(송장 등록·배송완료) 【기각: 주문 목록 행 액션과 중복·이번 범위는 조회+송장 정정】.
+3. 클레임 배지 이동 = `/admin/orders/claims?keyword=<주문번호>&type=<유형>` — 클레임 목록에 클레임 id 필터가 없어 주문번호 정확 검색+유형으로 좁힌다(BE 무변경·D-184 §8 이월). `toClaimListPath` 순수 함수로 고정.
+4. 배지 색: 배송 상태는 기존 `ADMIN_DELIVERY_STATUS_SEMANTIC` 재사용(SHIPPING=info 파랑·DELIVERED=success 녹색·READY=info — 관리자 의미색 4종에 회색이 없어 신규 상수 없이 유지) · 회수·클레임 연계 = warning(노랑 계열). 신규 상수는 `lib/constants/admin-delivery.ts`(scope·direction·클레임 배지 라벨·정렬·사유 200·정정 허용 상태)만.
+5. 상세 다이얼로그(`AdminDeliveryDetailDialog`·읽기 전용): 배송(ID·구분·택배사·송장+복사·발송/완료일) / 배송지(수령인·연락처·주소·메모·마스킹 없음) / 주문·품목(주문번호 링크·상품(옵션)·수량·품목 상태) / 클레임(유형·상태 chip·ID). "송장 수정" 버튼은 `canCorrectTracking(status)`(SHIPPING만) 아니면 **비활성 + 감싸는 span 툴팁**에 사유("배송완료된 배송은…" / "배송중 상태에서만…"). 비활성 버튼은 이벤트를 받지 않아 툴팁은 wrapper에 건다.
+6. 송장 수정 다이얼로그(`AdminDeliveryTrackingDialog`·AdminPaymentCancelDialog 패턴): 택배사 select·송장번호(현재 값 기본·≤100)·사유 textarea 필수(비면 확인 비활성·200자). 성공 info 토스트 후 done(상세 닫고 목록 재조회) · 400 fieldErrors 필드 표시 · **409 DELIVERY_TRACKING_NO_CONFLICT는 송장번호 필드 에러로 표시(다이얼로그 유지·재입력)** · 422/404는 warning 후 stale(재조회). 별도 확인 다이얼로그 【기각: 사유 필수 폼 자체가 확인 단계·89-A 동일】.
+7. 트랩: 신규 페이지·컴포넌트 추가는 dev 서버 재시작 필요(89-A 동일) → `docker restart zslab_mall_frontend` 후 E2E.
+
+### §2 확정 구현 규칙
+- `lib/constants/admin-delivery.ts` / `types/admin-delivery.ts`(`AdminDeliverySummary`·`AdminDeliveryDetail extends Summary`·`AdminDeliveryTrackingCorrectionRequest`·`AdminDeliveryListQuery`) / `lib/admin-delivery-query.ts`(parse/route/api/hasActiveFilters·scope 기본값 URL 생략·`hasActiveFilters`는 scope≠ORIGINAL도 필터로 봄·기간 헬퍼는 admin-order-query 재사용) / `lib/admin-delivery-view.ts`(`deliveryClaimChip`·`canCorrectTracking`·`trackingCorrectionBlockedReason`·`toClaimListPath`) / `composables/useAdminDeliveries.ts`(list·detail·correctTracking PATCH) / `lib/admin-error-message.ts` +`DELIVERY_TRACKING_NO_CONFLICT`·`DELIVERY_INVALID_STATE` 문구에 송장 수정 병기.
+- 컴포넌트: `AdminDeliveryFilterCard` · `AdminDeliveryTable` · `AdminDeliveryDetailDialog` · `AdminDeliveryTrackingDialog` · 페이지 `orders/deliveries.vue`(플레이스홀더 교체).
+- 테스트: vitest `admin-delivery-query`(8)·`admin-delivery-helpers`(6) · Playwright `admin-deliveries ①`(진입 원 발송 2행·chip 색 → scope RETURN URL·API·회수/반품 배지 → 전체 3행 → 행 클릭 상세(배송지·주문·송장) → 송장 수정 다이얼로그(현재 값 기본·사유 비면 비활성) → DELIVERED 행 비활성 툴팁 → PATCH 0).
+- 검증(실측): typecheck 0 · vitest 46 files 323(309 → +14) · Playwright 62/62 skip 0(61 → +1·1회차 5건 첫 로드 플레이크(BE 전체 테스트 동시 실행 부하)·2회차 GREEN) · 픽셀 track89a vs track89b 12장 diff 0(1·2회차 로그인 화면 25px/8px가 desktop/mobile 번갈아 나타나 캡처 노이즈로 판정·3회차 12장 0·로그인 화면 무수정) · 라이브 화면(playwright-report/step443-admin 5장·실 BE): 조회 범위 157/4/10/171·배송중 8·송장 정확 검색 1·배송중 행 상세 → 송장 수정 활성 → 다이얼로그 현재 값(로젠택배·DEMO00001158)·사유 비면 "수정" 비활성·회수 행 비활성·PATCH 0.
+- 신규 의존성: 없음.
+
+### §8 이월
+- 클레임 목록 클레임 id 딥링크(현재 주문번호+유형 근사) · 배송 목록 정렬 인덱스(D-184 §8) · 구분 열의 회수 chip + 클레임 chip 이중 표기는 정보 중복이나 클레임 정보 부재 시 방향만 남도록 의도(단일 chip으로 합칠지 사용 후 판단).

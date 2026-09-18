@@ -11061,3 +11061,39 @@ deploy.yml이 `push main` 무필터라 docs만 변경된 머지에도 서버 SSH
 ### §8 이월
 - 결제·환불 독립 목록 화면: 실 PG 전환(재시도 결제·PENDING/FAILED 환불 실재) 후 재평가 · `InventoryHistory` 조회 화면 · EXCHANGE 차액 환불의 수동 개시 노출(D-172 보충·Track 82 재설계 후) · 대시보드 재고 임박(variant 건수)과 상품 목록 LOW(상품 건수) 수치 불일치는 근사로 수용(품목 단위 재고 화면 도입 시 해소).
 - Track 89-B~E(배송 관리·카테고리·셀러·운영자)는 정찰 §7 분할안 그대로 후속.
+
+## D-184. 관리자 배송 목록·송장 정정 API (Track 89-B)
+
+날짜: 2026-09-18
+범위: Track 89-B BE · `GET /api/v1/admin/deliveries` · `GET /api/v1/admin/deliveries/{dlv_}` · `PATCH /api/v1/admin/deliveries/{dlv_}/tracking` · `Delivery.correctTracking` · `DeliveryRepository extends JpaSpecificationExecutor` · `OrderShippingSnapshotRepository.findProjectionsByOrderIdIn`
+브랜치: feat/admin-deliveries
+정찰: docs/track-89/recon-report.md(gitignore·로컬) §2-5·§3·§8-5
+
+### 배경
+`/admin/orders/deliveries`가 플레이스홀더였고 배송 목록 조회 API가 전무했다. 주문 목록 `deliveryStatus` 필터는 원 발송(OUTBOUND·claim NULL)만 주문 단위로 커버한다. 실측 171건 = `OUTBOUND·claim NULL` 157 / `OUTBOUND·EXCHANGE` 4(교환품 발송) / `RETURN·RETURN` 6(반품 회수) / `RETURN·EXCHANGE` 4(교환 회수) · `tracking_no`·`shipped_at` NULL 0 · READY는 prepare-shipment 단일 트랜잭션 안에서 SHIPPING으로 바뀌어 영속 행으로 남지 않음 · `uk_delivery_tracking_no` UNIQUE.
+
+### §1-A 결정
+1. **조회 단위 α delivery 행 【채택】 / β 주문 단위 【기각】** — 송장번호 검색·반품/교환 회수·교환품 발송 조회가 순증이며 주문 1건에 품목·방향별 배송이 여러 건이다. β는 주문 목록과 중복.
+2. **방향·클레임 연계 필터 = 단일 축 `scope` α 【채택】 / `direction` + `claimLinked` 2축 β 【기각】** — `ORIGINAL`(기본·OUTBOUND ∧ claim NULL) / `CLAIM_OUTBOUND`(OUTBOUND ∧ claim NOT NULL·교환품 발송·검수 불합격 재발송) / `RETURN` / `ALL`. 근거: RETURN은 `registerReturnShipment` 경로만 생성해 **항상 claim 연계**라 `claimLinked`는 OUTBOUND 안에서만 의미가 있고, 2축이면 `RETURN ∧ claimLinked=false` 같은 항상-빈 조합이 생긴다. α는 실데이터 4조합과 1:1이고 기본값이 교환품 발송을 포함하지 않는다("RETURN·교환은 필터로 전환"). 응답 행은 `direction`·`claimId`·`claimType`을 그대로 실어 자기 설명적이다.
+3. **keyword = 송장번호 정확 ∨ 주문번호 정확 ∨ 수령인명 부분(`order_shipping_snapshot.recipient_name`)** — 주문·클레임 목록 관례(주문번호 정확·이름 부분)와 정합. 수령인은 배송지 스냅샷 기준(주문자 아님). trim 후 50자 초과 400·LIKE 이스케이프 `\`.
+4. **기간 기준 = `shipped_at`(발송일)** — 배송 행의 유일한 업무 시각이고 영속 행 전부 non-null이며 목록 "발송일" 컬럼과 정합. `created_at`은 발송과 같은 트랜잭션이라 정보량이 같고, `delivered_at`은 SHIPPING 행을 제외시킨다. 정렬은 LATEST(shippedAt DESC, id DESC)·OLDEST 2종만.
+5. **Specification 실행 경로 = `DeliveryRepository`에 `JpaSpecificationExecutor<Delivery>` 상속 1줄 추가** — 기존 메서드·동작 무변경. 같은 엔티티의 두 번째 Repository 신설 【기각: 선례 없음·Claim/Order/Product와 관례 불일치】. 관리자 조회는 `AdminDeliverySpecifications`·`AdminDeliveryQueryService`로 분리(`DeliveryService` 무수정).
+6. **배송지 스냅샷 enrich = `OrderShippingSnapshotProjection`(주문 id 키 + 7필드 스칼라 projection)** — 스냅샷 엔티티는 order getter를 노출하지 않아 주문 id 키를 얻을 수 없고, Order 쪽 OneToOne(mappedBy)은 LAZY가 안 돼 주문마다 SELECT가 난다. 상세 응답의 배송지는 관리자 주문 상세와 같이 **마스킹 없음**.
+7. **송장 정정 허용 상태 = SHIPPING만** — READY는 송장이 아직 없고(`markShipping`이 최초 설정·영속 행도 없음), DELIVERED는 종결 상태(`canTransitionTo` 전부 false)로 반품 기한·자동 구매확정(D-170·D-171)이 이미 그 행을 기준으로 계산됐다. `Delivery.correctTracking(carrier, trackingNo)`는 값만 바꾸고 상태·`shippedAt`은 불변(전이 아님·이벤트 없음). 불가 시 422 `DELIVERY_INVALID_STATE`(기존 코드 재사용).
+8. **송장 중복 사전 검사 → 409 `DELIVERY_TRACKING_NO_CONFLICT`** — `uk_delivery_tracking_no` 위반이 500으로 새는 트랩 차단. `count(trackingNo = ? AND id <> self)`로 **자기 행의 기존 번호 재저장은 충돌이 아니다**(택배사만 정정 가능). 신규 `DeliveryTrackingNoConflictException` + GlobalExceptionHandler 1건.
+9. **감사 = UPDATE·DELIVERY·before{carrier,trackingNo}·after{carrier,trackingNo,reason}·값이 실제로 바뀐 경우에만** — reason은 after에만 실려 AuditRecorder diff가 비지 않으므로 서비스가 직접 변경 여부를 가드한다(89-A mark-cancelled "무변경 감사 0행" 규약 동일). 사유 `@NotBlank @Size(max=200)`(Delivery 컬럼 없음·감사에만).
+10. **하지 않은 것** — 상태 강제 전이·일괄 송장 등록·배송 삭제(범위 밖). 배송 목록 정렬 인덱스(`shipped_at`)는 171건 filesort로 충분해 Flyway 추가 없이 이월(§8).
+
+### 변경 파일
+- BE 신규: `delivery/controller/request/AdminDeliveryScope`·`AdminDeliverySort`·`AdminDeliveryTrackingCorrectionRequest` · `delivery/controller/response/AdminDeliverySummaryResponse`·`AdminDeliveryDetailResponse` · `delivery/repository/AdminDeliverySpecifications` · `delivery/service/AdminDeliveryQueryService`·`AdminDeliveryCommandService` · `delivery/exception/DeliveryTrackingNoConflictException` · `order/repository/OrderShippingSnapshotProjection`
+- BE 수정: `DeliveryRepository`(JpaSpecificationExecutor 상속 1줄) · `Delivery.correctTracking` · `AdminDeliveryController`(+list·get·correctTracking·기존 2 endpoint 무변경) · `OrderShippingSnapshotRepository.findProjectionsByOrderIdIn` · `GlobalExceptionHandler`(409 1건)
+- 테스트: `AdminDeliveryQueryControllerIntegrationTest` 신규 9건(401/403/200 · scope 4종 2/1/1/4 · keyword 3종+송장 부분 미매칭 · status/carrier/발송일 경계/정렬 · 400 4종 · 상세 200/404 · 정정 200+감사 1+상태 불변 · 422/400/404 · 중복 409 · 자기 번호 200 · 무변경 감사 0)
+
+### 검증
+- Q1 선행: `JpaSpecificationExecutor` 상속 후 `*Delivery*` 10클래스 45건 rerun GREEN → `./gradlew.bat test --rerun-tasks` 1126/0 fail/0 error/0 skip(1117 → +9·OOM 없음). `DeliveryService`·`DeliveryRepository` 조회 메서드 무수정.
+- 로컬 라이브(LT-17·docker restart·Started 78s·ERROR 0·ADMIN 토큰): scope ORIGINAL 157 / CLAIM_OUTBOUND 4 / RETURN 10 / ALL 171(기본값=157) · SHIPPING 8·DELIVERED 163 · 택배사 CJ 45/HANJIN 48/POST 39/LOGEN 39 · keyword 송장 정확 1·송장 부분 0·주문번호 1·수령인 부분 11 · 발송일 2026-09-17 3 · from>to 400·BOGUS 400·무인증 401·미존재 404 · 목록 응답 키 13개 = DTO(계약 외 누출 0) · PATCH 사유 공백 400(상태 불변). **송장 정정 실행 0건**(데모 데이터 보존).
+- 외부 검토: 등급 B / 판단 후 보고 — 송장 정정은 상태 판정 1개(SHIPPING)·중복 검사·감사로 단순하고 상태 전이가 없어 **생략 권고**.
+
+### §8 이월
+- **배송 목록 정렬 인덱스**(`shipped_at` 또는 `(direction, claim_id, shipped_at)`): 데이터 증가 시 다른 인덱스 항목과 묶어 판단.
+- 클레임 목록 `claimPublicId` 필터(배송 화면 클레임 배지가 현재는 주문번호 정확 검색+유형으로 이동) · 외부 택배 추적 seam(D-160 §8) · 일괄 송장 등록.
