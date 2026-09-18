@@ -7,6 +7,8 @@ export const ADMIN_ORDERS_PATH = '/admin/orders'
 export const ADMIN_CLAIMS_PATH = '/admin/orders/claims'
 export const ADMIN_MEMBERS_PATH = '/admin/members'
 export const ADMIN_MEMBERS_WITHDRAWN_PATH = '/admin/members/withdrawn'
+export const ADMIN_SETTLEMENTS_PATH = '/admin/settlements'
+export const ADMIN_SETTLEMENTS_SELLERS_PATH = '/admin/settlements/sellers'
 
 /**
  * 허용 base 외 추가 진입 목록(FE-28): 주문 상세는 주문 목록·클레임 목록 양쪽에서 진입하므로 back이 클레임 목록(쿼리 포함)이면 그대로
@@ -15,6 +17,8 @@ export const ADMIN_MEMBERS_WITHDRAWN_PATH = '/admin/members/withdrawn'
 const EXTRA_BACK_BASES: Record<string, string[]> = {
   [ADMIN_ORDERS_PATH]: [ADMIN_CLAIMS_PATH],
   [ADMIN_MEMBERS_PATH]: [ADMIN_MEMBERS_WITHDRAWN_PATH],
+  // 정산 상세(Track 85)는 정산 내역·셀러별 정산 양쪽에서 진입한다.
+  [ADMIN_SETTLEMENTS_PATH]: [ADMIN_SETTLEMENTS_SELLERS_PATH],
 }
 
 /**
@@ -22,7 +26,8 @@ const EXTRA_BACK_BASES: Record<string, string[]> = {
  * base 정확·"base?" 매칭이 아닌 "prefix/" 매칭이라 별도 표로 둔다.
  */
 const EXTRA_BACK_PREFIXES: Record<string, string[]> = {
-  [ADMIN_ORDERS_PATH]: [`${ADMIN_MEMBERS_PATH}/`],
+  // 주문 상세는 정산 상세 품목(/admin/settlements/{id}?tab=…·Track 85)에서도 진입한다.
+  [ADMIN_ORDERS_PATH]: [`${ADMIN_MEMBERS_PATH}/`, `${ADMIN_SETTLEMENTS_PATH}/`],
 }
 
 function matchesBase(value: string, base: string): boolean {
