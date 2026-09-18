@@ -26,6 +26,13 @@ const ADMIN_ERROR_MESSAGES: Record<string, string> = {
   MEMBER_ALREADY_WITHDRAWN: '이미 탈퇴한 회원입니다.',
   MEMBER_PHONE_MISSING: '연락처가 없어 임시 비밀번호를 발송할 수 없습니다.',
   TEMPORARY_PASSWORD_DELIVERY_FAILED: 'SMS 발송에 실패했습니다. 비밀번호는 변경되지 않았습니다.',
+  // Track 85 관리자 정산(D-179). PERIOD_INVALID는 연·월 범위 위반과 미마감 월이 같은 코드라 둘을 함께 안내한다.
+  SETTLEMENT_NOT_FOUND: '정산을 찾을 수 없습니다.',
+  SETTLEMENT_PERIOD_INVALID: '정산 기간이 올바르지 않습니다. 연·월 범위를 확인하고, 아직 마감되지 않은 월은 생성할 수 없습니다.',
+  SETTLEMENT_ALREADY_EXISTS: '같은 기간의 정산이 이미 생성되고 있습니다. 잠시 후 목록을 새로고침하세요.',
+  SETTLEMENT_INVALID_STATE: '현재 정산 상태에서 허용되지 않는 처리입니다(정상처리·재생성은 대기, 지급완료는 확정 상태만).',
+  SETTLEMENT_NET_NEGATIVE: '지급액이 음수인 정산은 지급할 수 없습니다(차감 이월 필요).',
+  SETTLEMENT_BANK_ACCOUNT_MISSING: '셀러의 주 정산계좌가 없어 지급할 수 없습니다.',
 }
 
 const FALLBACK_MESSAGE = '요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.'
