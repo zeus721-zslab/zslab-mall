@@ -21,6 +21,7 @@ services:
       DB_USERNAME: ${DB_USERNAME}
       DB_PASSWORD: ${DB_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS:-3600000}
       ADMIN_BOOTSTRAP_EMAIL: ${ADMIN_BOOTSTRAP_EMAIL}
       ADMIN_BOOTSTRAP_PASSWORD: ${ADMIN_BOOTSTRAP_PASSWORD}
       LOG_PATH: ${LOG_PATH:-/app/logs}
@@ -28,6 +29,9 @@ services:
       # 치환돼 "mount path must be absolute"로 배포 실패한 이력·D-166 보충). 아래 mall_uploads 마운트 경로와 동일해야 한다.
       UPLOAD_PATH: /app/uploads
       UPLOAD_MAX_SIZE: ${UPLOAD_MAX_SIZE:-10485760}
+      # Track 85 정산 설정(D-179). 기본값은 application.yml과 동일(1000 bp / 20일) — compose 화이트리스트에 없으면 .env 값이 전달되지 않는다.
+      SETTLEMENT_DEFAULT_COMMISSION_RATE: ${SETTLEMENT_DEFAULT_COMMISSION_RATE:-1000}
+      SETTLEMENT_PAYOUT_OFFSET_DAYS: ${SETTLEMENT_PAYOUT_OFFSET_DAYS:-20}
       # KST 통일(JVM TZ) — application.yml hibernate.jdbc.time_zone과 동시 정렬 필수(Track 69·70)
       TZ: Asia/Seoul
     volumes:
