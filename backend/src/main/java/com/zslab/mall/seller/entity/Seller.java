@@ -54,8 +54,11 @@ public class Seller extends AbstractPublicIdSoftDeletableEntity {
     @Column(name = "status", nullable = false)
     private SellerStatus status;
 
-    /** 판매 수수료율·basis-point(1000 = 10.00%). 정산 fee 산정 소스. */
-    @Column(name = "commission_rate", nullable = false)
+    /**
+     * 셀러 개별 계약 수수료율·basis-point(1000 = 10.00%). NULL=개별 계약 없음(카테고리율 → 플랫폼 기본율·Track 85·V30).
+     * 판정은 {@code CommissionRateResolver}가 하며 정산은 주문 시점 order_item 스냅샷만 쓴다. 편집 경로 이월.
+     */
+    @Column(name = "commission_rate")
     private Integer commissionRate;
 
     /**
@@ -82,8 +85,7 @@ public class Seller extends AbstractPublicIdSoftDeletableEntity {
         seller.contactEmail = contactEmail;
         seller.contactPhone = contactPhone;
         seller.status = status;
-        // 입점 기본 수수료율 10.00%(basis-point 1000). create() 시그니처 불변 유지 위해 팩토리 내부 고정(호출부 무영향).
-        seller.commissionRate = 1000;
+        // 입점 시 개별 계약율 없음(NULL) → 카테고리/플랫폼 기본율 적용(Track 85·V30). 개별율 편집 경로는 이월.
         return seller;
     }
 

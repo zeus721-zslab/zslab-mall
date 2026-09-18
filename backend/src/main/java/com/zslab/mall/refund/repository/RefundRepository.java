@@ -103,4 +103,27 @@ public interface RefundRepository extends JpaRepository<Refund, Long> {
             @Param("status") RefundStatus status,
             @Param("periodStart") LocalDateTime periodStart,
             @Param("periodEnd") LocalDateTime periodEnd);
+
+    /**
+     * 정산 기간 내 완료(COMPLETED) 환불을 스냅샷 소스로 조회한다(Track 85·settlement_item REFUND). 조인 경로·기간 기준·
+     * D-168 가드({@code oi.confirmedAt IS NOT NULL})는 {@link #aggregateRefundBySeller}와 동일하며 sellerId가 null이면 전 셀러,
+     * 아니면 해당 셀러만(재생성). 모든 변수는 :status·:periodStart·:periodEnd·:sellerId 바인딩만 사용하며 SQL injection 위험이 없다.
+     */
+    @Query("SELECT r.id AS refundId, r.amount AS amount, r.refundedAt AS refundedAt, oi.id AS orderItemId, "
+            + "oi.sellerId AS sellerId, o.publicId AS orderPublicId, oi.productName AS productName, "
+            + "oi.optionLabel AS optionLabel, oi.quantity AS quantity, oi.commissionRate AS commissionRate "
+            + "FROM Refund r, Claim c, OrderItem oi JOIN oi.order o "
+            + "WHERE r.claimId = c.id "
+            + "AND c.orderItemId = oi.id "
+            + "AND oi.confirmedAt IS NOT NULL "
+            + "AND r.status = :status "
+            + "AND r.refundedAt >= :periodStart "
+            + "AND r.refundedAt <= :periodEnd "
+            + "AND (:sellerId IS NULL OR oi.sellerId = :sellerId) "
+            + "ORDER BY oi.sellerId, r.refundedAt, r.id")
+    List<SettlementRefundSourceProjection> findSettlementRefundSources(
+            @Param("status") RefundStatus status,
+            @Param("periodStart") LocalDateTime periodStart,
+            @Param("periodEnd") LocalDateTime periodEnd,
+            @Param("sellerId") Long sellerId);
 }

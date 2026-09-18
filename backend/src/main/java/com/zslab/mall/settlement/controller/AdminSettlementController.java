@@ -4,11 +4,14 @@ import com.zslab.mall.audit.service.AuditContext;
 import com.zslab.mall.common.auth.ActorRoleResolver;
 import com.zslab.mall.common.auth.AdminActorResolver;
 import com.zslab.mall.settlement.controller.request.CreateMonthlySettlementRequest;
+import com.zslab.mall.settlement.controller.request.RegenerateSettlementRequest;
 import com.zslab.mall.settlement.controller.response.SettlementBatchResponse;
+import com.zslab.mall.settlement.controller.response.SettlementRegenerateResponse;
 import com.zslab.mall.settlement.controller.response.SettlementTransitionResponse;
 import com.zslab.mall.settlement.entity.Settlement;
 import com.zslab.mall.settlement.service.SettlementBatchResult;
 import com.zslab.mall.settlement.service.SettlementCreationService;
+import com.zslab.mall.settlement.service.SettlementRegenerateResult;
 import com.zslab.mall.settlement.service.SettlementTransitionService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -29,6 +32,9 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <p><b>전이(Track 49)</b>: 월 배치 생성 외에 정산 상태 전이(confirm·pay) 2 endpoint를 노출한다. 전이 로직·비관적 락·멱등은
  * {@link SettlementTransitionService} 책임이며 컨트롤러는 경로변수 위임·HTTP 변환(200)만 한다.
+ *
+ * <p><b>Track 85</b>: 생성·재생성·전이 전부 감사 컨텍스트(운영자)를 넘긴다. 재생성(regenerate)은 PENDING 한정·사유 필수.
+ * 조회 API는 {@code AdminSettlementQueryController}가 담당한다.
  */
 @RestController
 public class AdminSettlementController {
@@ -59,11 +65,23 @@ public class AdminSettlementController {
      */
     @PostMapping("/api/v1/admin/settlements")
     public ResponseEntity<SettlementBatchResponse> create(
-            @RequestBody @Valid CreateMonthlySettlementRequest request) {
-        SettlementBatchResult result =
-                settlementCreationService.createMonthlySettlements(request.year(), request.month());
+            @RequestBody @Valid CreateMonthlySettlementRequest request, HttpServletRequest httpRequest) {
+        SettlementBatchResult result = settlementCreationService.createMonthlySettlements(
+                request.year(), request.month(), auditContext(httpRequest));
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(SettlementBatchResponse.of(request.year(), request.month(), result));
+    }
+
+    /**
+     * PENDING 정산 재생성(Track 85·검수 문제 대응). 품목·헤더 삭제 후 같은 seller·기간 재집계. 성공 200 + 새 정산 요약(대상 없으면
+     * deletedOnly). 미존재 404·PENDING 아님 422·사유 누락 400.
+     */
+    @PostMapping("/api/v1/admin/settlements/{id}/regenerate")
+    public ResponseEntity<SettlementRegenerateResponse> regenerate(@PathVariable Long id,
+            @RequestBody @Valid RegenerateSettlementRequest request, HttpServletRequest httpRequest) {
+        SettlementRegenerateResult result =
+                settlementCreationService.regenerate(id, request.reason().trim(), auditContext(httpRequest));
+        return ResponseEntity.ok(SettlementRegenerateResponse.from(result));
     }
 
     /**

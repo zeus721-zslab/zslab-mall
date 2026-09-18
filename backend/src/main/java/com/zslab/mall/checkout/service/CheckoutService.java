@@ -37,11 +37,16 @@ import com.zslab.mall.product.policy.PurchaseBlockReason;
 import com.zslab.mall.product.repository.ProductRepository;
 import com.zslab.mall.product.repository.ProductVariantRepository;
 import com.zslab.mall.product.service.OptionLabelResolver;
+import com.zslab.mall.settlement.service.CommissionRateResolver;
+import com.zslab.mall.settlement.service.CommissionRateResolver.CommissionRateKey;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
@@ -74,6 +79,7 @@ public class CheckoutService {
     private final OrderIdempotencyKeyRepository idempotencyRepository;
     private final ObjectMapper objectMapper;
     private final OptionLabelResolver optionLabelResolver;
+    private final CommissionRateResolver commissionRateResolver;
 
     public CheckoutService(
             OrderService orderService,
@@ -84,7 +90,8 @@ public class CheckoutService {
             InventoryRepository inventoryRepository,
             OrderIdempotencyKeyRepository idempotencyRepository,
             ObjectMapper objectMapper,
-            OptionLabelResolver optionLabelResolver) {
+            OptionLabelResolver optionLabelResolver,
+            CommissionRateResolver commissionRateResolver) {
         this.orderService = orderService;
         this.paymentService = paymentService;
         this.orderRepository = orderRepository;
@@ -94,6 +101,7 @@ public class CheckoutService {
         this.idempotencyRepository = idempotencyRepository;
         this.objectMapper = objectMapper;
         this.optionLabelResolver = optionLabelResolver;
+        this.commissionRateResolver = commissionRateResolver;
     }
 
     /**
@@ -220,6 +228,7 @@ public class CheckoutService {
                 .collect(Collectors.toMap(ProductVariant::getPublicId, Function.identity()));
         // 옵션 라벨 스냅샷(D-164)·해소된 variant 전체를 배치 1회로 라벨링(품목별 호출 금지·N+1 회피).
         Map<Long, String> optionLabelByVariantId = optionLabelResolver.resolve(variantByPublicId.values());
+        Map<CommissionRateKey, Integer> commissionRateByKey = resolveCommissionRates(productByPublicId.values());
 
         List<OrderItemCommand> resolvedItems = new ArrayList<>();
         for (CheckoutItemCommand item : itemCommands) {
@@ -236,7 +245,8 @@ public class CheckoutService {
                         + item.productPublicId() + ", variant=" + item.variantPublicId());
             }
             resolvedItems.add(toOrderItemCommand(
-                    product, variant, item.quantity(), optionLabelByVariantId.get(variant.getId())));
+                    product, variant, item.quantity(), optionLabelByVariantId.get(variant.getId()),
+                    commissionRateByKey.get(commissionRateKey(product))));
         }
         return resolvedItems;
     }
@@ -257,6 +267,7 @@ public class CheckoutService {
         Map<Long, Product> productById = productRepository.findByIdIn(productIds).stream()
                 .collect(Collectors.toMap(Product::getId, Function.identity()));
         Map<Long, String> optionLabelByVariantId = optionLabelResolver.resolve(variantById.values());
+        Map<CommissionRateKey, Integer> commissionRateByKey = resolveCommissionRates(productById.values());
 
         List<OrderItemCommand> resolvedItems = new ArrayList<>();
         for (CartCheckoutItemCommand item : itemCommands) {
@@ -270,9 +281,23 @@ public class CheckoutService {
                 throw new CheckoutItemNotFoundException("상품을 찾을 수 없습니다: productId=" + variant.getProductId());
             }
             resolvedItems.add(toOrderItemCommand(
-                    product, variant, item.quantity(), optionLabelByVariantId.get(variant.getId())));
+                    product, variant, item.quantity(), optionLabelByVariantId.get(variant.getId()),
+                    commissionRateByKey.get(commissionRateKey(product))));
         }
         return resolvedItems;
+    }
+
+    /** 주문 시점 수수료율 판정(Track 85): 해소된 상품의 (셀러·카테고리) 조합을 배치 1회로 판정한다(품목별 호출 금지·N+1 회피). */
+    private Map<CommissionRateKey, Integer> resolveCommissionRates(Collection<Product> products) {
+        Set<CommissionRateKey> keys = new LinkedHashSet<>();
+        for (Product product : products) {
+            keys.add(commissionRateKey(product));
+        }
+        return commissionRateResolver.resolveAll(keys);
+    }
+
+    private static CommissionRateKey commissionRateKey(Product product) {
+        return new CommissionRateKey(product.getSellerId(), product.getCategoryId());
     }
 
     /**
@@ -280,15 +305,16 @@ public class CheckoutService {
      * Track 71: 산정 전 판매 상태 검증({@link #assertSellable})을 먼저 수행한다 — 양 경로가 Product·ProductVariant 엔티티를 함께
      * 쥐는 유일한 공통 지점이며 TX1 진입·재고 검증(revalidateInventory)보다 앞이라 판매중지 품목은 재고 조회 없이 즉시 422다.
      * Track 75: optionLabel은 호출측이 {@link OptionLabelResolver}로 배치 해소한 주문 시점 스냅샷(옵션 없음·미해소는 null·D-164).
+     * Track 85: commissionRate는 호출측이 {@link CommissionRateResolver}로 배치 판정한 주문 시점 수수료율 스냅샷.
      */
     private OrderItemCommand toOrderItemCommand(
-            Product product, ProductVariant variant, int quantity, String optionLabel) {
+            Product product, ProductVariant variant, int quantity, String optionLabel, Integer commissionRate) {
         assertSellable(product, variant, LocalDateTime.now());
         long unitPrice = product.getBasePrice() + variant.getAdditionalPrice();
         long totalPrice = unitPrice * quantity;
         return new OrderItemCommand(
                 product.getId(), variant.getId(), product.getSellerId(), product.getName(),
-                quantity, unitPrice, totalPrice, optionLabel);
+                quantity, unitPrice, totalPrice, commissionRate, optionLabel);
     }
 
     /**
