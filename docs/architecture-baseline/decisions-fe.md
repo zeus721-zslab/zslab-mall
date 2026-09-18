@@ -1595,3 +1595,41 @@ FE-13 §8(:701) 이월 "[버그·백로그] BUYER 페이지에서 로그아웃 �
 - 로그인 이외 경로의 강제 상태 동기화 — 다른 기기에서 비밀번호 변경을 마쳐도 이 기기의 `password_change_required` 쿠키는 남아 로그아웃(또는 만료 1h)까지 변경 페이지로 보낸다. BE 401(토큰 무효)로 로그인 페이지에 도달하면 해소되나 명시적 동기화는 없음.
 - `NoResourceFoundException` 404 매핑(기존 BE 이월·D-178 §8) — 미매핑 경로가 500으로 새는 현상을 관리자 토큰 호출로 재현 확인.
 - 외부 검토: C(PR 등급 A·BE는 D-178에서 수행) / 해당 없음.
+
+## FE-32: 관리자 정산 화면(정산 내역·상세·액션 3종·셀러별 정산) (2026-09-18)
+
+정찰 `docs/frontend/recon-report-track85-admin-settlement.md` · BE 계약 Track 85 D-179(2a085b29·"API 계약 변경" 절이 SoT·본 항목에서 재기술하지 않음·재생성 응답은 본 항목 §2에서 정정) · 브랜치 `feat/track-85-fe-settlement`.
+
+### §1-A 갈림길·채택/기각 근거
+1. 월 파라미터: α year·month도 기본값이면 URL에서 생략(기존 목록 관례) 【기각】 — 기본값(지난달·`defaultSettlementMonth`·admin-settlement-query.ts:25)이 시간에 따라 바뀌어 공유·북마크 URL이 다음 달에 다른 월을 가리킨다 / **β year·month는 URL에 항상 기록(`toAdminSettlementRouteQuery`·:75), 미지정 진입(메뉴 클릭)은 `router.replace`로 고정(index.vue:61-67) 【채택】**. 그 외 status·keyword·page·size는 기본값이면 생략. 반쪽 기간(year만·month만)·선택지 밖 연도(`settlementYearOptions`·:46·올해부터 과거 3년)·범위 밖 월은 둘 다 기본값(`parseAdminSettlementQuery`·:56). 초기화는 월 유지·상태/검색어/페이지만(`resetQuery`·index.vue:78·월은 필터가 아니라 조회 축·`hasActiveFilters`·:94).
+2. 기간 400: BE가 연·월 범위 위반과 미마감 월을 같은 코드 `SETTLEMENT_PERIOD_INVALID`로 내리고 detail만 다르다(D-179 결정 15 검증) → 코드→문구 표 원칙(FE-25) 유지·**안내 문구 1개로 통합**(admin-error-message.ts:32 "연·월 범위를 확인하고, 아직 마감되지 않은 월은 생성할 수 없습니다"). detail 노출 분기 【기각】(서버 문구 의존).
+3. 지급완료 버튼: **CONFIRMED에서만 노출**하고 지급 불가면 disabled + 캡션([id].vue:234·:239 `settlement-pay-blocked`), 사유 판정은 BE pay 검사 순서와 동일하게 **음수 → 계좌**(`payBlockedReason`·admin-settlement-view.ts:59·`canPay`·:51). PENDING은 정상처리·재생성(`canConfirm`·:43·`canRegenerate`·:47), PAID는 액션 없이 안내 문구(:235 `settlement-paid-notice`). 상태별 버튼을 항상 렌더하고 disabled만 바꾸는 안 【기각】 — 3상태 직진이라 무의미한 버튼이 최대 2개 남는다.
+4. 재생성 결과 이동(`onRegenerated`·[id].vue:114): 성공 → **새 정산 id로 `replace` 이동(back query 유지)** 후 상세 재조회 — 이전 id는 삭제돼 뒤로가기로 돌아오면 404이므로 push 【기각】 / `deletedOnly`(재집계 대상 없음) → back 경로(목록)로 이동 + info 토스트. 사유 다이얼로그 `AdminSettlementRegenerateDialog`(1~200자·`validateRegenerateReason`·admin-settlement-view.ts:69·빈 값 버튼 disabled) — 422 `SETTLEMENT_INVALID_STATE`는 warning + stale(부모 재조회·AdminSettlementRegenerateDialog.vue:48·AdminClaimRejectDialog 패턴).
+5. 품목 주문번호: 정산 품목 스냅샷에 orderNo가 없고 `orderPublicId`만 있다(D-179·SettlementItemResponse) → **`orderPublicId`를 링크 텍스트로 쓰고 `/admin/orders/{orderPublicId}?back=<상세 fullPath>`로 이동**(AdminSettlementItemTable.vue:69·`openOrder`·[id].vue:194). 주문 상세 back 허용 prefix에 `/admin/settlements/` 추가(admin-back-path.ts:30·`EXTRA_BACK_PREFIXES`), 정산 상세 base는 정산 내역 + 셀러별 정산(쿼리 포함) 허용(:21·`EXTRA_BACK_BASES`). 기존 상품/주문/클레임/회원 동작 불변.
+6. 셀러별 정산의 셀러 선택: α 셀러 검색 API 신설 요청 【기각】(BE 무변경 트랙) / **β 상품 등록 폼과 같은 `GET /admin/sellers`(페이징 없음·`useAdminSettlements.sellers`·useAdminSettlements.ts:47)를 `v-autocomplete`로 상호 검색 【채택】** → 선택은 URL `?seller=slr_…`(sellers.vue:59 `applyQuery`)·이력은 `listBySeller(sellerPublicId, page, size)`(:42·`GET /admin/sellers/{slr_}/settlements`). 미선택 안내·`SELLER_NOT_FOUND` 404 안내·빈 상태 분기(sellers.vue:78 `load`).
+7. 계좌 표시([id].vue 정산계좌 카드): BE `bankAccount.snapshot`으로 **"지급 시점 계좌(스냅샷)" vs "현재 주 정산계좌"** 라벨 chip 구분(`bankAccountSourceLabel`·admin-settlement-view.ts:85·D-179 결정 7 STL-3 의미 변경 반영), 계좌 없음은 안내 문구(`settlement-bank-missing`). 계좌번호는 BE가 끝 4자리만 내리므로 `formatBankAccount`(:79 "004 ···1234 (홍길동)").
+8. 수수료율: BE basis-point 정수(1000 = 10.00%)를 **퍼센트로 표시**(`formatCommissionRate`·:28·`COMMISSION_RATE_BASIS_POINT_DIVISOR`·admin-settlement.ts:48·불필요한 소수 제거 "10%"·"12.5%"·"12.34%"). 환불 품목 수수료는 BE가 0으로 내리므로 그대로 "0원".
+9. 규칙의 위치: 상태 라벨·기간/날짜 포맷·음수 판정·액션 활성·지급 차단 사유·사유 검증·계좌 표시를 **`lib/admin-settlement-view.ts` 순수 함수**로 모아 vitest로 고정하고 컴포넌트는 표시·배선만(admin-member-view 패턴). 상수는 `lib/constants/admin-settlement.ts`(status 3·itemType 2·라벨·semantic·페이지 크기·keyword 50·reason 200·연도 span 3) 단일 소스(4층위 enum 잠금 (4)).
+
+- 목록 표(`AdminSettlementTable`·AdminSettlementTable.vue:14): 월별 목록(mode monthly·첫 컬럼 셀러 상호+기간 캡션·판매건수·계좌 등록/미등록 chip)과 셀러별 이력(mode seller·첫 컬럼 기간)이 같은 BE 행(AdminSettlementSummaryResponse)을 쓰므로 컬럼만 mode로 바꾼 읽기 전용 표. 지급액 음수는 `text-error` 강조(`row-net`). 합계 카드 `AdminSettlementTotals`(StatCard 4·지급액 캡션에 대기/확정/지급 건수·BE totals는 필터 무관·월 전체).
+- 정산 생성(index.vue:103 `runCreate`): `AdminConfirmDialog`("{월} 정산을 생성합니다…") → `POST /admin/settlements {year, month}` → createdCount로 success/info 토스트 → 목록 재조회. 400 `SETTLEMENT_PERIOD_INVALID`·409 `SETTLEMENT_ALREADY_EXISTS`는 warning(409는 재조회).
+- 전이([id].vue:86 `runTransition`): 정상처리 다이얼로그에 "셀러에게 공개되고 SMS가 발송" 명시·지급완료 다이얼로그에 계좌 표시. 422 3코드(INVALID_STATE·NET_NEGATIVE·BANK_ACCOUNT_MISSING)는 warning + 상세 재조회(조회~처리 사이 경합).
+- 품목 탭: `?tab=SALE|REFUND`·`?page=`·`?size=`(`applyItemQuery`·[id].vue:149·back 보존)·탭 라벨에 건수(saleItemCount·refundItemCount)·늦은 응답 폐기.
+- 에러 문구(admin-error-message.ts:30-35) 6코드: `SETTLEMENT_NOT_FOUND`·`SETTLEMENT_PERIOD_INVALID`·`SETTLEMENT_ALREADY_EXISTS`·`SETTLEMENT_INVALID_STATE`·`SETTLEMENT_NET_NEGATIVE`·`SETTLEMENT_BANK_ACCOUNT_MISSING`. 상세 404는 에러 화면(`settlement-not-found`·"재생성으로 삭제된 정산" 안내) + "목록으로".
+
+### §2 확정 구현 규칙
+- `lib/constants/admin-settlement.ts` / `types/admin-settlement.ts`(D-179 응답 1:1·nullable optional·periodStart/paidAt/occurredAt은 KST 오프셋 ISO → `formatDateTime`·scheduledPayDate는 LocalDate → `formatDateOnly`) / `lib/admin-settlement-query.ts` / `lib/admin-settlement-view.ts` / `composables/useAdminSettlements.ts`(list·get·listItems·listBySeller·sellers·create·confirm·pay·regenerate) / `AdminSettlementTable`·`AdminSettlementTotals`·`AdminSettlementItemTable`·`AdminSettlementRegenerateDialog` / `pages/admin/settlements/index.vue`·`[id].vue`·`sellers.vue`(플레이스홀더 2 교체·상세 신설). BE·`admin-menu.ts` 무변경.
+- 테스트: vitest `test/admin/admin-settlement-query.spec.ts`(9·지난달 기본·연도 선택지·파싱·정규화·반쪽 기간·route·api·필터 판정)·`admin-settlement-helpers.spec.ts`(11·기간/날짜/수수료율 포맷·상태 라벨·계좌 표시·액션 활성·지급 차단 사유 우선순위·사유 검증·에러 6코드·back-path 정산/주문 prefix) / Playwright `e2e/admin-settlements.spec.ts`(6: ① 목록·지난달 URL 고정·합계·음수 강조·월/상태/검색/초기화 ② 에러 재시도·생성 409·성공 body·재조회 ③ 상세·REFUND 탭 파라미터·수수료율 %·주문 링크 back·목록 복귀 ④ confirm·pay 스냅샷 계좌·regenerate 사유 필수·새 id 이동 ⑤ 음수/계좌 미등록 비활성·deletedOnly 목록 이동·404 ⑥ 셀러별 선택·URL·이력·상세 back·미존재 404). `admin-shell.spec` 플레이스홀더 단언은 `/admin`·`/admin/members/sellers`라 갱신 불필요.
+- 검증(실측): typecheck 0 · vitest 41 files 264 tests(244 → +20) · Playwright 54/54 skip 0(48 → +6·ADMIN_E2E_* 런타임 주입) · 픽셀 track84 vs track85 12장 diff 0(0.000%) · 로컬 실 API: 관리자 토큰으로 `GET /api/v1/admin/settlements?year=2026&month=6/7/8` 200(Track 85 BE 기동 확인·LT-17).
+- 트랩(후보): (1) 신규 페이지 `[id].vue`가 dev 라우트 테이블에 미등록 → "Page not found: /admin/settlements/9103" → `docker restart zslab_mall_frontend`(LT-17의 FE판·FE-31 트랩 (1)과 동일 유형 2회차). (2) 재시작 직후 전체 Playwright 1차에서 admin-orders·products·product-form ①(각 파일 첫 테스트) 11.0s 타임아웃(Vite 최초 컴파일) → 전체 재실행 54/54(FE-31 트랩 (3)에 이어 2회차 → 누적 ≥2·LT 승격 후보).
+
+### §2 결정 라운드 재진입
+- 사전 확인(STEP 382)에서 D-179 "API 계약 변경" 절의 재생성 응답 `SettlementRegenerateResponse{deletedOnly, settlement}`가 실제 구현(flat 7필드 `deletedSettlementId·deletedOnly·settlementId·grossAmount·feeAmount·refundAmount·netAmount`·backend SettlementRegenerateResponse.java)과 다름을 확인 → **코드 기준으로 타입 작성**(types/admin-settlement.ts `AdminSettlementRegenerateResponse`)·BE 무수정·D-179 해당 줄 정정(2026-09-18)으로 종결.
+- 로컬에 시연 데이터 없음(구매확정 order_item 0·settlement 0·주계좌 0) → 실화면 확인은 목록 200(빈 응답)까지, 행·상세·액션 검증은 mock e2e로 한정.
+
+### §8 이월
+- 시연용 데이터 준비(구매확정 주문·과거 월 정산·셀러 주계좌) 후 실화면 확인(행·상세·confirm/pay/regenerate 실 API).
+- 상품 등록 화면 공급가 hint 문구(`AdminProductBasicSection.vue:78` "정산은 셀러 수수료율 기준으로 계산되며…")가 3단 판정(셀러 → 카테고리 → 기본율)과 어긋남 — 문구 갱신(admin-product-form.spec 문구 단언 확인).
+- 셀러 정산 화면(셀러 트랙·BE 셀러 API 3종은 D-179에서 완료), 셀러·카테고리 수수료율 편집 화면(BE 편집 API와 함께).
+- 정산 목록 CSV 내려받기(필요 시).
+- 외부 검토: C(BE 계약 무변경) / 해당 없음.

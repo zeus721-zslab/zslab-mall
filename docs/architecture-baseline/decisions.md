@@ -10847,7 +10847,8 @@ deploy.yml이 `push main` 무필터라 docs만 변경된 머지에도 서버 SSH
 - 외부 검토 자료 part 01~02(V29·V30·엔티티·생성 서비스) 미전달로 검토 결과에 "확인 필요" 다수 → Claude.ai가 MCP로 소스를 직접 읽어 판정(수용 3·문제 없음 6·기각 1).
 
 ### API 계약 변경(FE 단계 입력)
-- 신규 `POST /api/v1/admin/settlements/{id}/regenerate`(body `reason` 필수·200 `SettlementRegenerateResponse{deletedOnly, settlement}`·404·422 PENDING 아님·400).
+- 신규 `POST /api/v1/admin/settlements/{id}/regenerate`(body `reason` 필수·200 `SettlementRegenerateResponse` flat 7필드 `{deletedSettlementId, deletedOnly, settlementId, grossAmount, feeAmount, refundAmount, netAmount}`(deletedOnly=true면 settlementId 이하 생략)·404·422 PENDING 아님·400).
+  (2026-09-18 정정: 최초 기재는 중첩 구조 `{deletedOnly, settlement}`였으나 구현은 flat — FE-32 확인)
 - 신규 `GET /api/v1/admin/settlements`(year·month 필수·status·keyword·page·size → `AdminSettlementListResponse` = PagedResponse 5필드 + `totals{grossAmount, feeAmount, refundAmount, netAmount, pendingCount, confirmedCount, paidCount}`) / `GET /{id}`(`AdminSettlementDetailResponse`: seller 연락처 마스킹·bankAccount 스냅샷/현재·끝4자리·품목 건수) / `GET /{id}/items?type=SALE|REFUND`(`PagedResponse<SettlementItemResponse>`) / `GET /api/v1/admin/sellers/{sellerPublicId}/settlements`(404 미존재).
 - 신규 셀러 `GET /api/v1/seller/settlements` / `/{id}` / `/{id}/items`(CONFIRMED·PAID·본인만·그 외 404·BUYER 403·미매핑 401).
 - `POST /api/v1/admin/settlements/{id}/pay`: 422 `SETTLEMENT_NET_NEGATIVE`·422 `SETTLEMENT_BANK_ACCOUNT_MISSING` 추가. `POST /api/v1/admin/settlements` 응답 `SettlementLineResponse` commissionRate 제거·settlementId·scheduledPayDate 추가.
