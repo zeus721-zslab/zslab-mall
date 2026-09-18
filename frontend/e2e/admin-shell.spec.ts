@@ -49,11 +49,12 @@ async function loginAsAdmin(page: Page): Promise<void> {
 test.describe('관리자 셸', () => {
   test.skip(!ADMIN_EMAIL || !ADMIN_PASSWORD, 'ADMIN_E2E_EMAIL / ADMIN_E2E_PASSWORD 미설정')
 
-  test('① 관리자 로그인 → /admin 셸(사이드바·상단바·플레이스홀더) 렌더', async ({ page }) => {
+  test('① 관리자 로그인 → /admin 셸(사이드바·상단바·대시보드) 렌더', async ({ page }) => {
     await loginAsAdmin(page)
     await expect(page.getByTestId('admin-sidebar')).toBeVisible()
     await expect(page.getByTestId('admin-topbar')).toBeVisible()
-    await expect(page.getByTestId('admin-placeholder')).toContainText('준비 중입니다')
+    // FE-33: /admin은 플레이스홀더가 아니라 대시보드 화면이다(상세 검증은 admin-dashboard.spec)
+    await expect(page.getByTestId('admin-dashboard')).toBeVisible()
     expect(await countVuetifySheets(page)).toBeGreaterThan(0)
     // FE-28: 주문 관리 하위 취소/반품/교환 3항목 → "취소·반품·교환" 1항목
     await page.getByTestId('admin-sidebar').getByText('주문 관리').click()
