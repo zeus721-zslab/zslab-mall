@@ -1726,3 +1726,24 @@ BE 계약 Track 88 D-182(`GET /api/v1/admin/stats/orders`·`/members`·"API 계�
 - compareSignupTrend는 응답에 있으나 차트에 그리지 않음(혼합 차트에 점선 추가 시 과밀·요구 시).
 - 퍼널 "진행 중"(미도달·미종결) 건수 표기·소요시간 분포(히스토그램)·클레임 셀러/상품 축.
 - AdminPeriodPicker unit/compare 숨김 사용처 없음(확장만) — 탭별 축소 요구 시 사용.
+
+## FE-36: 관리자 메뉴 정리·기능 흡수 화면 (2026-09-18)
+
+BE 계약 Track 89-A D-183(`stockFilter`·`refundStatus`·`INITIATE_REFUND`·mark-cancelled body·`payments[].pgTid/failureCode`가 SoT·본 항목에서 재기술하지 않음) · 브랜치 `feat/admin-menu-cleanup`(BE·FE 동일 브랜치·미커밋) · 정찰 `docs/track-89/recon-report.md` §4·§5 · 외부 검토 C / 생략.
+
+### §1-A 갈림길·채택/기각 근거
+1. 메뉴 제거 범위: `ADMIN_MENU`(`lib/constants/admin-menu.ts`)에서 결제 내역·환불·재고·통계 상품 4항목 삭제 + 페이지 4파일 삭제(`orders/payments.vue`·`orders/refunds.vue`·`products/inventory.vue`·`stats/products.vue`). 상위 그룹은 비지 않는다(주문 3·상품 3·통계 3). 정찰이 "vitest 영향 0"이라 했으나 `admin-product-helpers.spec.ts`의 `resolveActiveMenuPath('/admin/orders/payments')` 케이스가 제거 항목에 기대고 있어 `/admin/orders/claims`로 교체(정찰 오판 정정). E2E·pixel 단언은 영향 0. 남은 플레이스홀더 4(셀러·관리자·배송 관리·카테고리)는 후속 트랙.
+2. 흡수 경로: **재고 → 상품 목록 필터 카드 "재고" select**(`filter-stock`·`ADMIN_PRODUCT_STOCK_FILTER_OPTIONS` 3값·행 끝 추가라 md 2 wrap) + URL query `stockFilter`(parse/route/api/hasActiveFilters) + 대시보드 "재고 임박" 타일 `to: /admin/products?stockFilter=LOW`(E2E "링크 없음" 단언 반전). **결제 → 주문 상세 결제 표**에 PG 거래번호·실패코드 컬럼과 PAID 행 "취소 처리" 버튼(`payment-cancel`·BE 전이는 PAID→CANCELLED뿐이라 PAID에만). **환불 → 클레임 목록** 필터 카드 "환불 상태" select(`filter-refund-status`·라벨은 사용자 `REFUND_STATUS_LABELS`·검색어 md 5→4·처리 상태 md 3→2로 한 줄 유지) + 행 액션 "환불 개시"(`row-initiate-refund`·BE `availableActions` INITIATE_REFUND에만 노출·"행 액션은 BE availableActions로만" 원칙 유지).
+3. 신규 액션 확인 다이얼로그 정책(AdminClaimRejectDialog 패턴 1:1·호출·토스트는 다이얼로그 소유·부모는 done 시 재조회): **`AdminPaymentCancelDialog`** — 금액 표시·사유 textarea 필수(비면 확인 비활성·200자)·응답 status가 PAID 그대로면 warning "전액 환불이 완료된 결제만 취소 처리됩니다"(BE NO-OP 200을 사용자에게 드러냄)·CANCELLED면 danger 토스트·400은 필드 표시. **`AdminRefundInitiateDialog`** — 품목 금액 표시 + 환불 금액 number 입력(기본 = 품목 금액·1 이상 정수만 확인 활성)·응답 FAILED면 warning·그 외 info "N원 환불을 개시했습니다"·422(CLAIM_STATE_INVALID·REFUND_INVARIANT_VIOLATION)는 warning 후 stale(부모 재조회)·400/MALFORMED는 금액 필드에 표시. 두 액션 모두 E2E는 다이얼로그 노출까지만 검증하고 POST 0건을 단언한다(실행 시 데이터 변경).
+4. 트랩: 페이지 파일 삭제·신규 컴포넌트 추가는 dev 서버가 반영하지 못한다(Vite "Failed to load url payments.vue"·새 다이얼로그 미렌더) → `docker restart zslab_mall_frontend`. Vuetify `v-textarea`는 `locator('textarea').first()`(sizer 포함 2개).
+
+### §2 확정 구현 규칙
+- `lib/constants/product.ts` `AdminProductStockFilter`·옵션 3 / `lib/constants/admin-order.ts` `ADMIN_PAYMENT_CANCEL_REASON_MAX` / `lib/constants/admin-claim.ts` 액션 라벨 +`INITIATE_REFUND: '환불 개시'` / `types/admin-product.ts`·`admin-order.ts`(`AdminOrderPayment.pgTid/failureCode`·`AdminPaymentCancelRequest/Response`)·`admin-claim.ts`(`AdminClaimAction` +INITIATE_REFUND·`AdminClaimListQuery.refundStatus`·`AdminRefundInitiateBody/Response`) / `lib/admin-product-query.ts`·`admin-claim-query.ts`(refundStatus 정규화·직렬화·API·활성 필터) / `lib/admin-dashboard-view.ts` lowStock 타일 링크 / `composables/useAdminOrders.ts` +`markPaymentCancelled`·`initiateRefund`.
+- 컴포넌트: `AdminProductFilterCard`(재고 select) · `AdminClaimFilterCard`(환불 상태 select) · `AdminClaimTable`(initiateRefund emit·버튼) · `AdminPaymentCancelDialog`(신규) · `AdminRefundInitiateDialog`(신규) · 페이지 `orders/[id].vue`(컬럼 2·관리 열·다이얼로그 배선) · `orders/claims/index.vue`(다이얼로그 배선).
+- 테스트: vitest `admin-product-query`·`admin-claim-query`(refundStatus)·`admin-claim-helpers`(라벨 7종)·`admin-dashboard-helpers`(타일 링크)·`admin-product-helpers`(메뉴 케이스 교체) · Playwright `admin-products ⑥`(재고 select → URL·API·타일 클릭 → LOW) · `admin-orders ⑨`(pgTid·실패코드·취소 처리 다이얼로그 노출·사유 필수·POST 0) · `admin-claims ⑥`(환불 상태 필터 → URL·API·환불 개시 다이얼로그 금액·POST 0) · `admin-dashboard` 단언 반전.
+- 검증(실측): typecheck 0 · vitest 44 files 309(기존 케이스 갱신·건수 불변) · Playwright 61/61 skip 0(58 → +3·1회차 3건 첫 로드 플레이크·2회차 GREEN) · 픽셀 track88 vs track89a 12장 diff 0 · 라이브 화면: 사이드바 17링크(제거 4 없음)·타일 "재고 임박 1건" 클릭 → 목록 1행·select "재고 임박(1~5)"·주문 상세 결제 표 컬럼·다이얼로그 금액 98,000원·클레임 환불 완료 필터 14행.
+- 신규 의존성: 없음.
+
+### §8 이월
+- 결제·환불 독립 화면(실 PG 전환 후)·재고 이력 화면·남은 플레이스홀더 4(Track 89-B~E) — D-183 §8과 동일.
+- 제거 경로 3건이 `[id]` 동적 라우트로 흡수돼 "찾을 수 없음" 카드로 보이는 것은 사양대로 방치(전용 404로 바꾸려면 `[id].vue`에서 접두 검사 필요).
