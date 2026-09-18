@@ -1633,3 +1633,32 @@ FE-13 §8(:701) 이월 "[버그·백로그] BUYER 페이지에서 로그아웃 �
 - 셀러 정산 화면(셀러 트랙·BE 셀러 API 3종은 D-179에서 완료), 셀러·카테고리 수수료율 편집 화면(BE 편집 API와 함께).
 - 정산 목록 CSV 내려받기(필요 시).
 - 외부 검토: C(BE 계약 무변경) / 해당 없음.
+
+## FE-33: 관리자 대시보드 화면 (2026-09-18)
+
+BE 계약 Track 86 D-180(`GET /api/v1/admin/dashboard` 단일 응답·"API 계약" 절이 SoT·본 항목에서 재기술하지 않음) · 브랜치 `feat/admin-dashboard`(BE·FE 동일 브랜치·미커밋) · 정찰 `docs/track-86/recon-report.md` §5(FE) · 외부 검토 C / 생략.
+
+### §1-A 갈림길·채택/기각 근거
+1. 차트 라이브러리: **α apexcharts(vue3-apexcharts 1.11.1 + apexcharts 7.4.0) 【채택】** / β Vuetify `VSparkline` 【기각: 축·툴팁·범례 없음】 / γ chart.js(vue-chartjs) 【기각: SSR 래핑·툴팁 포맷 수작업】 / δ SVG 자작 【기각: 유지비】. 관리자 레이어 한정 로딩 — `AdminChart.vue`(AdminChart.vue:18)가 `defineAsyncComponent(() => import('vue3-apexcharts'))`로 클라이언트에서만 동적 import하고 `<ClientOnly>`로 감싼다(D-12 α 원칙·사용자 홈 HTML에 apexcharts 참조 0 실측). 페이지는 `AdminChart`만 쓰고 vue3-apexcharts를 직접 import하지 않는다.
+2. 증감률 FE 계산: `changeRate(current, previous)`(admin-dashboard-view.ts:19) = (현재 − 비교) / 비교 × 100. **비교값 0(또는 음수·비정상)은 null → "—"**(`CHANGE_RATE_UNAVAILABLE`)로 Infinity·NaN을 만들지 않는다. 표기 `+17.4%`·`-18.8%`·`0.0%`(소수 1자리). 톤은 up 녹색(`adm-chip--success`)·down 빨강(`danger`)·0/비교 불가 회색(신규 `adm-chip--neutral`·admin-vuetify.css `--adm-semantic-neutral-*` 토큰).
+3. 요약 카드 배지 위치: α 카드 위에 절대 배치(AdminStatCard 무수정) 【기각: 캡션 2줄 시 겹침 실측】 / **β `AdminStatCard`에 기본 슬롯 추가(캡션 아래 한 줄·미사용 시 렌더 없음·AdminStatCard.vue:21) 【채택】**. 매출 카드 캡션은 "환불 N원 · 순매출 N원", 캡션 없는 카드는 NBSP(AdminSettlementTotals 선례)·카드 `h-100`으로 행 높이 정렬.
+4. 처리 대기 링크 연결 범위(`PENDING_TILES`·admin-dashboard-view.ts:60): 정산 대기 → `/admin/settlements?status=PENDING` · 클레임 요청 → `/admin/orders/claims?status=REQUESTED` · 배송 대기 → `/admin/orders?status=PAID`(BE는 품목 PAID 건수·주문 목록은 주문 단위라 **근사**) · **재고 임박 → 링크 없음**(재고 화면 플레이스홀더·상품 목록에 재고 필터 없음·카운트만). 톤은 0건 회색·1건 이상 정산/클레임/배송 노랑·재고 임박 빨강(`pendingChipClass`).
+5. 하단 리스트 행 이동: 최근 주문 → `/admin/orders/{orderPublicId}?back=/admin` · 상위 상품 → `/admin/products/{productPublicId}?back=/admin`(둘 다 `resolveBackPath`에 `ADMIN_DASHBOARD_PATH` 허용 추가·admin-back-path.ts:5·:20-21) · **최근 클레임 → 클레임 상세 화면이 없어 `/admin/orders/claims?keyword={orderNo}`(주문번호 정확일치 검색·BE AdminClaimSpecifications.keyword)** · **상위 셀러 → 셀러 상세가 없어 `/admin/settlements/sellers?seller={sellerPublicId}`(셀러별 정산 이력)**. "전체 보기"는 각 목록 기본 경로.
+6. 로딩·에러·빈 상태: `useFetch` 대신 기존 목록 페이지와 같은 `load()` + requestSequence 경합 가드(index.vue:33)·`toAdminErrorMessage` + 다시 시도. 빈 상태는 리스트 "데이터 없음"·차트는 BE가 6/30개 0 채움을 보장하므로 축만 그려지고 카드 우상단에 "데이터 없음" 캡션(`isAllZero`).
+7. 트랩 — vue3-apexcharts 1.11 `updateOptions` 경로가 options를 JSON 깊은 복사(`copyData`)해 **formatter 함수가 사라진다**(최초 `init`은 `extend`로 함수 보존). 최초 렌더(빈 데이터) 후 응답 도착 시 y축이 원 포맷을 잃는 현상 실측 → `AdminChart`가 options 변경 시 `remountKey`를 올려 항상 init 경로로 다시 그린다(AdminChart.vue:26·애니메이션 옵션 off라 비용 없음).
+8. 트랩 — `<component :is="'NuxtLink'">` 문자열은 전역 등록이 아니라 `<nuxtlink>` 원소로 렌더돼 href 없음 → `resolveComponent('NuxtLink')`로 실제 컴포넌트를 넘긴다(AdminDashboardPending.vue:22).
+
+### §2 확정 구현 규칙
+- `types/admin-dashboard.ts`(D-180 응답 1:1·nullable optional) / `composables/useAdminDashboard.ts`(`useAdminApi` 경유 GET 1개) / `lib/admin-dashboard-view.ts`(증감률·톤·PENDING_TILES·차트 옵션 빌더 `monthlyRevenueChart`(매출·환불 2계열 막대·y축/툴팁 `formatWon`)·`dailyOrdersChart`(area·"N건")·`AdminChartSeries` 레이어 타입).
+- 컴포넌트: `AdminDashboardSummaryCards`(6장·`dashboard-card-{today|thisMonth}-{revenue|orders|members}`) · `AdminDashboardPending`(4칸) · `AdminDashboardListCard`(generic T·헤더 전체 보기·행 슬롯·행별 to) · `AdminChart`. 페이지 `pages/admin/index.vue`는 조립·상태만(AdminPlaceholder 제거).
+- 반응형: 카드 `cols=12 sm=6 lg=4`, 처리 대기 `cols=6 md=3`(칩 flex-wrap), 차트 `lg=7/5`(좁은 폭 세로 스택), 리스트 `md=6`.
+- 테스트: vitest `test/admin/admin-dashboard-helpers.spec.ts`(12·증감률/0 나눗셈/표기/톤·처리 대기 링크/톤·차트 라벨/포맷/빈 판정·formatWon·대시보드 back 허용) · Playwright `e2e/admin-dashboard.spec.ts`(1·데모 로그인 → /admin → 카드 6·배지 형식·처리 대기 href 3+없음 1·apexcharts SVG 2·리스트 4·실 BE) · `admin-shell.spec ①` 플레이스홀더 단언 → `admin-dashboard` 가시성으로 교체.
+- 검증(실측): typecheck 0 · vitest 42 files 276(264 → +12) · Playwright 55/55 skip 0(54 → +1·ADMIN_E2E_* 주입·1회차 9건 실패=컨테이너 재시작 직후 Vite 최초 컴파일 + `#app-manifest` pre-transform 에러(typecheck의 `nuxt prepare`가 dev `.nuxt` 재생성) → 재시작 후 2회차 전부 GREEN) · 실화면 desktop/mobile 스크린샷 확인(데모 시드 데이터: 이번 달 1,501,500원·pending 3/2/8/1·6개월 막대·30일 area).
+- 픽셀 기준선: track85 vs track86 12장 중 8장 diff 0, home/products 4장 SIZE DIFF → FE 변경을 stash한 상태로 재캡처(track86-nofe) vs track86 **12장 diff 0** = 차이는 데모 시드(STEP 392 상품 33)에 의한 데이터 변화이며 코드 영향 0. **대시보드는 관리자 화면이라 기준선(사용자 6페이지) 추가 대상 아님**·다음 트랙부터 사용자 기준선은 track86(데모 시드 반영본)과 비교.
+- 신규 의존성: `apexcharts ^7.4.0`·`vue3-apexcharts ^1.11.1`(package.json·pnpm-lock +30·컨테이너 pnpm add).
+
+### §8 이월
+- 재고 임박 칸 링크(재고 화면 구현 또는 상품 목록 재고 필터 후) · 클레임 상세 화면(현재 목록 검색으로 대체) · 셀러 상세 화면(현재 셀러별 정산으로 대체).
+- 배송 대기 링크의 품목/주문 단위 불일치(주문 목록에 품목 상태 필터 도입 시 정합).
+- 통계 4페이지(매출·주문·회원·상품)는 여전히 플레이스홀더 — 대시보드 차트 빌더 재사용 가능.
+- vue3-apexcharts formatter 소실 트랩은 상위 버전 수정 시 `remountKey` 제거 검토.

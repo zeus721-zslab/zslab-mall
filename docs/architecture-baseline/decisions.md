@@ -10886,3 +10886,46 @@ deploy.yml이 `push main` 무필터라 docs만 변경된 머지에도 서버 SSH
 - 알림 이벤트 실패 지표 기록 경로(현재 `notification_log` FAILED + WARN만·메트릭 없음).
 - 셀러 FE(셀러 트랙)·셀러 계좌 등록 API·AES 암호화(SLR-2).
 - **FE(Track 85 FE)**: 관리자 정산 목록·상세·품목·재생성(사유 입력)·지급 422 메시지(net 음수·계좌 없음)·셀러 이력 페이지.
+
+## D-180. 관리자 대시보드 실시간 집계 (Track 86)
+
+날짜: 2026-09-18
+범위: Track 86 BE(FE 제외) · V31 · `GET /api/v1/admin/dashboard` 단일 조회
+브랜치: feat/admin-dashboard
+정찰: docs/track-86/recon-report.md(gitignore·로컬)
+
+### 배경
+관리자 `/admin` 대시보드가 플레이스홀더뿐이라 요약(오늘·이번 달 매출·주문·신규회원)·처리 대기·추이·최근·상위 지표를 한 번에 내리는 조회 API를 신설한다. 정찰에서 `seller_sales_daily`는 write 경로가 0인 미사용 read model(SellerSalesDailyRepository 주입처·`create()` 호출처 없음·recon §1)임을 확인했고, 운영 규모(주문 145건 수준)에서는 실시간 쿼리가 ms 단위라 집계 테이블·캐시가 필요 없다.
+
+### §1-A 결정
+1. **집계 방식: α 실시간 쿼리 【채택】 / β 일별 집계 테이블+배치 【기각】 / γ 캐시 【기각】** — β는 현 데이터 규모에서 불필요하고 `seller_sales_daily`가 미사용 read model이라 재활용 대상도 아니다(집계 테이블 이관은 규모 증가 시 재검토). γ는 단일 인스턴스에서 갱신 무효화 복잡도만 더한다. 요청마다 `AdminDashboardRepository` JPQL 12종을 실행한다(dashboard/repository/AdminDashboardRepository.java).
+2. **매출 = `SUM(order.total_price) WHERE paid_at ∈ 기간`** — 결제완료 여부는 `paid_at IS NOT NULL`로 판정한다(`Order.markPaid` 1곳만 세팅·취소 후 불변·PAYMENT_EXPIRED는 NULL). `total_price`는 품목 합(상품가)이며 정산 gross(`order_item.total_price`)와 같은 축이다. `discount_amount`·`shipping_fee` 합은 같은 쿼리에서 집계하되 응답에 노출하지 않는다(`DashboardSalesProjection`·Javadoc에 의도 명시).
+3. **환불 = `SUM(refund.amount) WHERE status = COMPLETED AND refunded_at ∈ 기간`, 순매출 = 매출 − 환불** — 정산의 D-168 가드(`oi.confirmedAt IS NOT NULL`)는 구매확정 gross의 이중 차감 방지용이라 결제완료 기준 매출에는 적용하지 않는다(확정 전 취소 환불도 결제완료 매출에 포함돼 있어 차감 대상). 기간 귀속은 매출 paid_at·환불 refunded_at으로 각각 잡는다(정산과 같은 방식).
+4. **신규회원 = BUYER role 보유 `user.created_at ∈ 기간`, 탈퇴자 포함** — 가입 시점의 사실을 세는 지표이며 `withdrawn_at`은 무관하다. role 판정은 `AdminMemberSpecifications.buyerRole`과 같은 `user_role` 서브쿼리(`ur.role.code = :role`)로 셀러 owner·관리자 계정을 제외한다.
+5. **처리 대기 4종 판정** — 정산 `settlement.status = PENDING` / 클레임 `claim.status = REQUESTED`(Track 80 관리자 목록 "처리 대기" 정의 재사용·APPROVED는 진행 중이라 제외) / 배송 대기 `order_item.item_status = PAID`(송장 등록이 PAID→PREPARING→SHIPPING을 1TX로 전이해 PREPARING·delivery READY는 영속 상태로 남지 않음·OrderShippingService) / 재고 임박 `inventory.quantity_available BETWEEN 1 AND 5` ∧ variant·product `is_soldout_manual = false`(수동 품절은 판매 의도 없음·0은 품절이지 임박 아님). 임계 1~5는 서비스 상수 `LOW_STOCK_MIN/MAX`(설정 키 없음·요구 시 승격).
+6. **기간 경계 KST 반구간 `[start, end)`** — 오늘 = 00:00 ~ 익일 00:00, 이번 달 = 1일 00:00 ~ 익월 1일 00:00, 비교값은 전일 전체·전월 전체(동기 대비 아님·단순화). 경계는 서비스가 `LocalDate.now()`(JVM TZ Asia/Seoul)로 계산해 `LocalDateTime` 파라미터로 바인딩한다. 월별·일별 구간은 JPQL `FUNCTION('DATE_FORMAT', paid_at, :pattern)` GROUP BY(저장값이 KST 벽시계·hibernate.jdbc.time_zone Asia/Seoul이라 구간 문자열도 KST) 1회 호출이며, 빈 달·빈 날은 서비스가 0으로 채워 6개·30개 고정 길이로 내린다. 증감률은 BE가 계산하지 않고 현재값·비교값만 내린다(FE 표기).
+7. **상위 셀러·상품: 품목 상태로 제외하지 않음** — 정산 산출(`SettlementCreationService.collectSources`)도 취소·반품 품목을 상태 필터로 걸러내지 않고 "매출 품목 합 − COMPLETED 환불 합"으로 상쇄하므로, 대시보드도 같은 구조를 결제완료 기준으로 옮겨 `order_item.total_price` 합만 집계하고 환불은 summary.refund에서 별도 차감한다(AdminDashboardRepository.findTopSellers Javadoc). 상품명은 주문 시점 스냅샷(`MAX(oi.productName)`)·public_id는 `ProductRepository.findByIdIn` enrich.
+8. **단일 엔드포인트 `GET /api/v1/admin/dashboard`(파라미터 없음)** / α 섹션별 분리 【기각】 — 현 규모에서 응답 시간 합산이 무시 가능하고 FE 로딩 상태가 단순해진다. 인가는 SecurityConfig `/api/v1/admin/**` 일괄(관리자 공통 노출·역할 분화 없음·@PreAuthorize 미사용).
+9. **신규 `com.zslab.mall.dashboard` 패키지·전용 Repository** — `AdminDashboardRepository extends Repository<Order, Long>`(CRUD 미노출 마커·JPQL은 Order·OrderItem·Refund·User·Claim·Settlement·Inventory 대상)에 집계 쿼리를 모아 도메인 Repository를 오염시키지 않는다. 이름 enrich는 기존 `UserRepository/SellerRepository/ProductRepository.findByIdIn`만 사용. 네이티브 쿼리 0(기존 관례)·인터페이스 Projection 6.
+10. **V31 `order(paid_at)` 인덱스 선제 추가** — 대시보드 쿼리 8종 중 6종의 범위 조건이며 추가형(컬럼·데이터 변경 없음). refund·claim·user 시각 인덱스는 집계 테이블 이관 시점까지 보류.
+
+### API 계약(FE 단계 입력)
+- `GET /api/v1/admin/dashboard` → `AdminDashboardResponse{summary{today, previousDay, thisMonth, previousMonth: {revenue, refund, netRevenue, orderCount, newMemberCount}}, pending{settlementPending, claimRequested, deliveryReady, lowStock}, monthlyRevenue[6]{yearMonth "yyyy-MM", revenue, refund, netRevenue, orderCount}, dailyOrders[30]{date "yyyy-MM-dd", orderCount, revenue}, recentOrders[≤5]{orderPublicId, orderNo, buyerName, totalPrice, paidAt, status}, recentClaims[≤5]{claimPublicId, type, status, orderNo, requestedAt}, topSellers[≤5]{sellerPublicId, sellerName, revenue, orderItemCount}, topProducts[≤5]{productPublicId, productName, revenue, quantity}}`.
+- 시각은 KST 오프셋 ISO(`@JsonSerialize(KstOffsetSerializer)`)·금액 원 단위 정수. buyerName은 관리자 주문 목록과 같은 `user.name` 원문(마스킹 정책 없음·비식별화 시 null).
+
+### 변경 파일
+- Flyway 신규: db/migration/V31__add_order_paid_at_index.sql(`ADD KEY ix_order_paid_at (paid_at)`·rollback 주석).
+- main 신규(dashboard 패키지): controller/AdminDashboardQueryController · controller/response 10 record(AdminDashboardResponse·DashboardSummaryResponse·DashboardPeriodMetrics·DashboardPendingResponse·DashboardMonthlyRevenueResponse·DashboardDailyOrdersResponse·DashboardRecentOrderResponse·DashboardRecentClaimResponse·DashboardTopSellerResponse·DashboardTopProductResponse) · repository/AdminDashboardRepository + Projection 6 · service/AdminDashboardQueryService.
+- main 수정: 없음. FE 변경 없음 · 신규 라이브러리 없음.
+- test 신규: dashboard/controller/AdminDashboardQueryControllerIntegrationTest(8).
+
+### 검증
+- AdminDashboardQueryControllerIntegrationTest 8(시드 전·후 응답 차분으로 전역 집계의 잔여 행 영향 차단): T1 401/403/200 · T2 요약(오늘 00:00 정각 포함·어제 23:59:59 제외·PENDING_PAYMENT 제외·환불 COMPLETED만·PENDING/FAILED 미차감·BUYER role만) · T3 처리 대기 4종 · T4 월 6·일 30 고정·빈 구간 0·29일 전 포함·31일 전 제외 · T5 최근 주문/클레임 정렬·orderNo·buyerName · T6 상위 셀러/상품 정렬·금액·수량 · T7 정산 대사 · T8 V31 인덱스 존재.
+- **정산 대사(T7)**: 정산 gross(CONFIRMED·confirmed_at 귀속·`aggregateGrossBySeller`)와 대시보드 매출(paid_at 귀속)은 기준이 달라 항등이 아니다. 시드는 확정 품목의 confirmed_at을 결제 시각과 같게 두어 "대시보드 월 매출 = 정산 gross + 그 달 결제 미확정 품목 합" 등식으로 박제했다(전월: 미확정 품목이 없으면 일치·이번 달: PAID 품목이 있어 정산 gross < 대시보드).
+- 전체 `./backend/gradlew.bat test --rerun-tasks`: 1092 tests·0 fail·skip 0(1084 → 1092).
+- 외부 검토: 등급 B / 생략 — 정산 대사 테스트로 대체.
+
+### §8 이월
+- 집계 테이블 이관(규모 증가 시·`seller_sales_daily` 재설계 또는 폐기 판단)·refund/claim/user 시각 인덱스.
+- 재고 임박 임계값 설정 키 승격·전일 동기 대비(현재 전일·전월 전체 비교).
+- **FE(Track 86 FE)**: `/admin` 대시보드 화면(AdminStatCard 재사용·차트 라이브러리 미설치 — 선택은 FE 트랙 결정).
