@@ -401,12 +401,10 @@ def step_master(api: ApiClient, conn, state: dict, admin_token: str) -> None:
         seller_public_id = body["sellerPublicId"]
         seller_id = query_one(conn, "SELECT id FROM seller WHERE public_id = %s", (seller_public_id,))["id"]
         bank_code, account_number, holder = seller["bank"]
-        now = datetime.now()
-        # seller_bank_account 등록 API 없음 → 직접 INSERT. 모든 값은 %s 바인딩, SQL injection 위험 없음
-        execute(conn, "INSERT INTO seller_bank_account (seller_id, bank_code, account_number, account_holder, is_primary, "
-                      "verified_at, status, created_at, created_by, updated_at, updated_by) "
-                      "VALUES (%s, %s, %s, %s, 1, %s, 'VERIFIED', %s, NULL, %s, NULL)",
-                (seller_id, bank_code, account_number, holder, now, now, now))
+        # Track 89-F: 계좌번호는 앱 Converter가 AES 암호화해 저장하므로 raw INSERT(평문) 대신 등록 API를 쓴다 — 평문 행은 이후 조회에서
+        # strict 복호 예외가 난다. 첫 계좌는 자동 주 계좌·VERIFIED(D-188). 응답에는 끝 4자리만 오며 실값은 로그에 남기지 않는다.
+        api.json("POST", f"/api/v1/admin/sellers/{seller_public_id}/bank-accounts", admin_token, json={
+            "bankCode": bank_code, "accountNumber": account_number, "accountHolder": holder})
         sellers.append({"key": seller["key"], "email": email, "password": password, "publicId": seller_public_id,
                         "id": seller_id, "companyName": seller["companyName"]})
     state["sellers"] = sellers
@@ -971,7 +969,7 @@ def print_dry_run(state: dict) -> None:
     log.info("[dry-run] 호출 엔드포인트: POST /users, /admin/sellers, /admin/categories, /admin/files/images, /admin/products(+images/approve), "
              "/orders, /api/webhooks/payments, /admin/orders/items/{oit}/prepare-shipment, /admin/deliveries/{dlv}/mark-delivered, "
              "/orders/{ord}/items/{oit}/confirm, /claims(+approve/return-shipment/confirm-pickup/inspect/register-exchange-shipment), "
-             "/admin/settlements(+confirm/pay) · SQL: seller_bank_account INSERT · 시각 UPDATE · settlement.paid_at UPDATE")
+             "/admin/settlements(+confirm/pay) · /admin/sellers/{slr}/bank-accounts(Track 89-F) · SQL: 시각 UPDATE · settlement.paid_at UPDATE")
     log.info("[dry-run] state 파일: %s (존재: %s)", STATE_PATH, STATE_PATH.exists())
 
 
