@@ -9,7 +9,7 @@ const RATE_LIMIT_ROUTE_KEY = 'admin-demo-login'
  * 관리자 데모 로그인 대행(FE-23). 비공개 runtimeConfig(NUXT_ADMIN_DEMO_EMAIL/PASSWORD)로 BE 로그인(role ADMIN)을
  * 서버에서 수행하고 기존 로그인 응답 형태({ token })만 반환한다. 미설정 404 · BE 실패 401(일반 문구).
  * 권한 제한 없음(실제 관리자 계정 그대로)은 zslab 결정(포트폴리오 목적·decisions-fe.md FE-23).
- * 인증 없이 실제 ADMIN JWT를 발급하는 경로라 IP별 rate limit(60초 10회) 초과 시 429 + Retry-After(본문에 사유·자격증명 힌트 없음).
+ * 인증 없이 실제 ADMIN JWT를 발급하는 경로라 rate limit(60초 30회·현 구성에서 키가 gateway 컨테이너 IP라 라우트별 전역 버킷·FE-43b) 초과 시 429 + Retry-After(본문에 사유·자격증명 힌트 없음).
  */
 export default defineEventHandler(async (event): Promise<AdminDemoLoginResponse> => {
   // 단일 gateway_nginx 경유 전제 — 소켓 remoteAddress(= gateway가 맺은 연결의 IP)를 쓴다. X-Forwarded-For는 클라이언트가 위조할 수 있고

@@ -1940,3 +1940,4 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 ### §8 이월
 - 다중 인스턴스(수평 확장) 전환 시 rate limit 저장소 Redis 이관 · gateway_nginx의 `X-Forwarded-For` 전달 여부 운영 실측(미전달이면 `'unknown'` 단일 버킷으로 전체 차단 위험) · 데모 버튼 SSR 조회 전환(UX·`onMounted` flicker) · `NUXT_SELLER_DEMO_*` 소비처(Track 90-A).
 - 운영 실측 후속(FE-43a·2026-09-19): 클라이언트 위조 X-Forwarded-For로 rate limit 우회 확인(nginx $proxy_add_x_forwarded_for가 위조값 뒤에 실 IP를 append·`getRequestIP(event, { xForwardedFor: true })`는 첫 값을 읽어 매 요청 새 버킷) → 양 라우트 `getRequestIP(event)` 소켓 IP로 교정(단일 gateway 전제·다단 구성 시 재검토·`unknown` 폴백 유지) · 회귀 `test/server/demo-rate-limit-client-ip.spec.ts` 4 · 실측: 컨테이너 내부·gateway_nginx HTTPS 경유 모두 위조 XFF 회전 11회차 429 유지 · vitest 378.
+- 운영 후속(FE-43b·2026-09-19): 키가 gateway_nginx 컨테이너 IP(소켓 remoteAddress)라 클라이언트별이 아닌 라우트별 전역 버킷으로 동작(남용 억제 목적엔 부합) → 동시 방문자 고려해 한도 60s/10회 → **60s/30회** 조정(`RATE_LIMIT_MAX_ATTEMPTS`·테스트 문구·경계는 상수 참조) · 클라이언트별 제한은 nginx `X-Real-IP` 참조 전환으로 이월(getRequestIP 방식 불변).

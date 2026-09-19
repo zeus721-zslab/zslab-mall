@@ -35,7 +35,7 @@ describe('demo rate limit 클라이언트 IP 해소(FE-43a·XFF 불신)', () => 
     expect([...keys][0]).toBe(`demo-login:${GATEWAY_IP}`)
   })
 
-  it('위조 XFF를 바꿔가며 호출해도 remoteAddress 기준으로 누적돼 11회차부터 거절', () => {
+  it(`위조 XFF를 바꿔가며 호출해도 remoteAddress 기준으로 누적돼 ${RATE_LIMIT_MAX_ATTEMPTS + 1}회차부터 거절`, () => {
     for (let attempt = 0; attempt < RATE_LIMIT_MAX_ATTEMPTS; attempt++) {
       const key = bucketKey('demo-login-xff', GATEWAY_IP, `198.51.100.${attempt}`)
       expect(consume(key, T0 + attempt).allowed).toBe(true)
