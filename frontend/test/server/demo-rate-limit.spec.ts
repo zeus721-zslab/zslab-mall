@@ -4,11 +4,12 @@ import { consume, RATE_LIMIT_MAX_ATTEMPTS, RATE_LIMIT_WINDOW_MS } from '~~/serve
 // 저장소가 모듈 스코프 Map이라 테스트 간 상태가 공유된다 → 테스트마다 고유 키를 써서 격리한다(reset 헬퍼 미도입).
 const T0 = 1_000_000
 
-describe('demo-rate-limit 코어(고정 윈도우 60s·키당 10회)', () => {
-  it('10회 통과 → 11회차 거절·Retry-After는 남은 윈도우(초·올림)', () => {
+// 한도·윈도우는 상수만 참조한다(값 조정 시 테스트 문구·경계가 어긋나 재발하지 않도록·FE-43b).
+describe(`demo-rate-limit 코어(고정 윈도우 ${RATE_LIMIT_WINDOW_MS / 1000}s·키당 ${RATE_LIMIT_MAX_ATTEMPTS}회)`, () => {
+  it(`${RATE_LIMIT_MAX_ATTEMPTS}회 통과 → ${RATE_LIMIT_MAX_ATTEMPTS + 1}회차 거절·Retry-After는 남은 윈도우(초·올림)`, () => {
     const key = 'demo-login:10.0.0.1'
     for (let attempt = 1; attempt <= RATE_LIMIT_MAX_ATTEMPTS; attempt++) {
-      expect(consume(key, T0 + attempt * 100)).toEqual({ allowed: true, retryAfterSec: 0 })
+      expect(consume(key, T0 + attempt * 10)).toEqual({ allowed: true, retryAfterSec: 0 })
     }
     const denied = consume(key, T0 + 1_500)
     expect(denied.allowed).toBe(false)
@@ -22,7 +23,7 @@ describe('demo-rate-limit 코어(고정 윈도우 60s·키당 10회)', () => {
     for (let attempt = 0; attempt < RATE_LIMIT_MAX_ATTEMPTS; attempt++) consume(key, T0)
     expect(consume(key, T0 + RATE_LIMIT_WINDOW_MS - 1).allowed).toBe(false)
     expect(consume(key, T0 + RATE_LIMIT_WINDOW_MS)).toEqual({ allowed: true, retryAfterSec: 0 })
-    // 새 윈도우에서도 다시 10회까지만 허용된다.
+    // 새 윈도우에서도 다시 RATE_LIMIT_MAX_ATTEMPTS회까지만 허용된다.
     for (let attempt = 1; attempt < RATE_LIMIT_MAX_ATTEMPTS; attempt++) consume(key, T0 + RATE_LIMIT_WINDOW_MS + attempt)
     expect(consume(key, T0 + RATE_LIMIT_WINDOW_MS + 100).allowed).toBe(false)
   })
