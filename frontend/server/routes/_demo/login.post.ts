@@ -10,7 +10,7 @@ const RATE_LIMIT_ROUTE_KEY = 'demo-login'
  * 서버에서 수행하므로 자격증명이 클라이언트 번들·public runtimeConfig에 실리지 않는다. 응답은 스토어 login과 동일한
  * BE 계약({ token, passwordChangeRequired })이라 임시 비밀번호 강제 변경(Track 84)도 같은 경로로 처리된다.
  * 미설정 404 · BE 실패 401(일반 문구) — _admin-demo와 동일 규약.
- * 인증 없이 JWT를 발급하는 경로라 IP별 rate limit(60초 10회) 초과 시 429 + Retry-After(본문에 사유·자격증명 힌트 없음).
+ * 인증 없이 JWT를 발급하는 경로라 rate limit(60초 30회·현 구성에서 키가 gateway 컨테이너 IP라 라우트별 전역 버킷·FE-43b) 초과 시 429 + Retry-After(본문에 사유·자격증명 힌트 없음).
  */
 export default defineEventHandler(async (event) => {
   // 단일 gateway_nginx 경유 전제 — 소켓 remoteAddress(= gateway가 맺은 연결의 IP)를 쓴다. X-Forwarded-For는 클라이언트가 위조할 수 있고
