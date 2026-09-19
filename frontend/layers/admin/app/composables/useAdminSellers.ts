@@ -1,4 +1,8 @@
 import type {
+  AdminSellerBankAccountPrimaryRequest,
+  AdminSellerBankAccountRegisterRequest,
+  AdminSellerBankAccountRow,
+  AdminSellerBankAccountUpdateRequest,
   AdminSellerDetail,
   AdminSellerListQuery,
   AdminSellerListResponse,
@@ -49,5 +53,22 @@ export function useAdminSellers() {
     return api<{ sellerPublicId: string }>('/v1/admin/sellers', { method: 'POST', body })
   }
 
-  return { list, countPending, get, changeStatus, update, provision }
+  // ---------- 정산계좌(FE-41·D-188) ----------
+
+  /** 등록 201 → 계좌 행(끝 4자리). 호출부는 상세를 다시 읽는다(주 계좌·경고 갱신). */
+  function registerBankAccount(sellerPublicId: string, body: AdminSellerBankAccountRegisterRequest): Promise<AdminSellerBankAccountRow> {
+    return api<AdminSellerBankAccountRow>(sellerPath(sellerPublicId, '/bank-accounts'), { method: 'POST', body })
+  }
+
+  /** 수정 204(정산 참조 행 409 SELLER_BANK_ACCOUNT_REFERENCED) → 호출부가 상세를 다시 읽는다. */
+  function updateBankAccount(sellerPublicId: string, bankAccountId: number, body: AdminSellerBankAccountUpdateRequest): Promise<void> {
+    return api<void>(sellerPath(sellerPublicId, `/bank-accounts/${bankAccountId}`), { method: 'PUT', body })
+  }
+
+  /** 주 계좌 전환 204(이미 주 계좌 422 SELLER_BANK_ACCOUNT_INVALID_STATE) → 호출부가 상세를 다시 읽는다. */
+  function changePrimaryBankAccount(sellerPublicId: string, bankAccountId: number, body: AdminSellerBankAccountPrimaryRequest): Promise<void> {
+    return api<void>(sellerPath(sellerPublicId, `/bank-accounts/${bankAccountId}/primary`), { method: 'PATCH', body })
+  }
+
+  return { list, countPending, get, changeStatus, update, provision, registerBankAccount, updateBankAccount, changePrimaryBankAccount }
 }

@@ -1,4 +1,8 @@
-import type { AdminSellerStatus, AdminSellerTerminationBlockCode } from '#layers/admin/app/lib/constants/admin-seller'
+import type {
+  AdminSellerBankAccountStatus,
+  AdminSellerStatus,
+  AdminSellerTerminationBlockCode,
+} from '#layers/admin/app/lib/constants/admin-seller'
 import type { AdminProductStatus } from '#layers/admin/app/lib/constants/product'
 import type { AdminSettlementStatus } from '#layers/admin/app/lib/constants/admin-settlement'
 
@@ -39,14 +43,25 @@ export interface AdminSellerMember {
   withdrawnAt?: string
 }
 
-/** 현재 주 정산계좌(끝 4자리만). */
+/** 현재 주 정산계좌(끝 4자리만·BE AdminSellerDetailResponse.BankAccount). 전체 계좌번호는 어떤 응답에도 없다. */
 export interface AdminSellerBankAccount {
   id: number
   bankCode: string
   accountHolder: string
   accountNumberSuffix: string
-  status: 'PENDING' | 'VERIFIED' | 'REJECTED'
+  status: AdminSellerBankAccountStatus
   verifiedAt?: string
+}
+
+/**
+ * 계좌 목록 행(FE-41·BE AdminSellerBankAccountResponse·D-188). 등록순. referencedBySettlement = 정산이 지급 계좌로 참조(외부 검토 Q6 미리보기·
+ * BE 수정 409와 같은 판정) → 수정 불가.
+ */
+export interface AdminSellerBankAccountRow extends AdminSellerBankAccount {
+  isPrimary: boolean
+  referencedBySettlement: boolean
+  createdAt: string
+  updatedAt: string
 }
 
 export interface AdminSellerSettlementTotal {
@@ -81,6 +96,8 @@ export interface AdminSellerDetail {
   updatedAt: string
   members: AdminSellerMember[]
   primaryBankAccount?: AdminSellerBankAccount
+  /** 계좌 전부(등록순·FE-41). 없으면 빈 배열. */
+  bankAccounts: AdminSellerBankAccountRow[]
   productCount: number
   productCountByStatus: Partial<Record<AdminProductStatus, number>>
   orderCount: number
@@ -122,6 +139,23 @@ export interface AdminSellerUpdateRequest {
   contactPhone: string | null
   commissionRate: number | null
   reason: string | null
+}
+
+/** POST /admin/sellers/{slr_}/bank-accounts 본문(BE AdminSellerBankAccountRegisterRequest·최초 등록은 사유 없음). */
+export interface AdminSellerBankAccountRegisterRequest {
+  bankCode: string
+  accountNumber: string
+  accountHolder: string
+}
+
+/** PUT /admin/sellers/{slr_}/bank-accounts/{id} 본문(전체 필드·사유 필수·정산 참조 행은 409). */
+export interface AdminSellerBankAccountUpdateRequest extends AdminSellerBankAccountRegisterRequest {
+  reason: string
+}
+
+/** PATCH /admin/sellers/{slr_}/bank-accounts/{id}/primary 본문(사유 필수). */
+export interface AdminSellerBankAccountPrimaryRequest {
+  reason: string
 }
 
 /** POST /admin/sellers 본문(BE SellerProvisioningRequest·owner는 회원 public_id). */
