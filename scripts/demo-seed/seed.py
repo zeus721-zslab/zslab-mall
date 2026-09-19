@@ -391,15 +391,18 @@ def step_master(api: ApiClient, conn, state: dict, admin_token: str) -> None:
     for index, seller in enumerate(SELLERS, start=1):
         email = f"seller{index:02d}@{DEMO_EMAIL_DOMAIN}"
         password = random_password()
-        api.json("POST", "/api/v1/users", json={"email": email, "name": seller["ceoName"], "phone": f"010-3000-{index:04d}", "password": password})
-        # ownerUserId는 내부 Long id(SellerProvisioningRequest:19) — API 미노출이라 DB 조회. %s 바인딩·injection 위험 없음
-        owner_id = query_one(conn, "SELECT id FROM `user` WHERE email = %s", (email,))["id"]
+        signup = api.json("POST", "/api/v1/users", json={"email": email, "name": seller["ceoName"], "phone": f"010-3000-{index:04d}", "password": password})
+        # Track 89-D: 입점 요청 키는 ownerUserPublicId(usr_·SellerProvisioningRequest) — 가입 응답 userPublicId를 그대로 쓴다(DB 조회 불요)
         body = api.json("POST", "/api/v1/admin/sellers", admin_token, json={
             "companyName": seller["companyName"], "businessNo": seller["businessNo"], "ceoName": seller["ceoName"],
             "contactEmail": seller["contactEmail"], "contactPhone": seller["contactPhone"], "status": "ACTIVE",
-            "ownerUserId": owner_id})
+            "ownerUserPublicId": signup["userPublicId"]})
         seller_public_id = body["sellerPublicId"]
         seller_id = query_one(conn, "SELECT id FROM seller WHERE public_id = %s", (seller_public_id,))["id"]
+        # 구성원 검증(Track 90-A-2b): 요청 키가 API와 어긋나면 Jackson이 미지 필드를 무시해 409 없이 구성원 0 셀러가 조용히 생성된다 → 여기서 즉시 중단.
+        member_count = query_one(conn, "SELECT COUNT(*) AS c FROM seller_user WHERE seller_id = %s", (seller_id,))["c"]
+        if member_count == 0:
+            raise SeedError(f"셀러 {seller['companyName']}({seller_public_id}) 구성원 0명 — 입점 요청 owner 키가 API에서 무시됐을 가능성(ownerUserPublicId 확인)")
         bank_code, account_number, holder = seller["bank"]
         # Track 89-F: 계좌번호는 앱 Converter가 AES 암호화해 저장하므로 raw INSERT(평문) 대신 등록 API를 쓴다 — 평문 행은 이후 조회에서
         # strict 복호 예외가 난다. 첫 계좌는 자동 주 계좌·VERIFIED(D-188). 응답에는 끝 4자리만 오며 실값은 로그에 남기지 않는다.
