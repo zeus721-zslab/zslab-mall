@@ -21,6 +21,11 @@ jwt:
   # 운영: 시크릿 하드코딩·기본값 금지 — JWT_SECRET env 미주입 시 기동 실패(의도적 fail-fast). base yml 더미 override. HS256 최소 32바이트.
   secret: ${JWT_SECRET}
 
+bank-account:
+  # 운영: 계좌 암호화 키 기본값 금지 — BANK_ACCOUNT_ENCRYPTION_KEY env 미주입 시 기동 실패(JWT 동형 fail-fast·Track 89-F D-188).
+  # 키 분실 시 저장된 계좌번호를 영구히 복호화할 수 없다. 반드시 별도 백업 후 주입(.env.example 주석 참조).
+  encryption-key: ${BANK_ACCOUNT_ENCRYPTION_KEY}
+
 # 데모 카탈로그 시드(FE-04·CatalogDemoSeedRunner) 운영 활성 — 포폴 데모 상품 노출용(D-157 §8-1 정책).
 # 멱등(productRepository.count()==0)이라 재기동 안전·최초 1회만 데모 공급. 실카탈로그 운영 아님.
 catalog:

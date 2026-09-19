@@ -32,6 +32,9 @@ services:
       # Track 85 정산 설정(D-179). 기본값은 application.yml과 동일(1000 bp / 20일) — compose 화이트리스트에 없으면 .env 값이 전달되지 않는다.
       SETTLEMENT_DEFAULT_COMMISSION_RATE: ${SETTLEMENT_DEFAULT_COMMISSION_RATE:-1000}
       SETTLEMENT_PAYOUT_OFFSET_DAYS: ${SETTLEMENT_PAYOUT_OFFSET_DAYS:-20}
+      # Track 89-F 셀러 정산계좌 AES 키(D-188·JWT_SECRET 동형). compose는 .env 값을 그대로 전달하므로(미설정이면 빈 문자열) 로컬·운영 모두
+      # .env에 반드시 설정한다 — 빈 값이면 BankAccountEncryptionConfig가 기동을 중단한다(fail-fast). 분실 시 복호 불가(.env.example 주석).
+      BANK_ACCOUNT_ENCRYPTION_KEY: ${BANK_ACCOUNT_ENCRYPTION_KEY}
       # KST 통일(JVM TZ) — application.yml hibernate.jdbc.time_zone과 동시 정렬 필수(Track 69·70)
       TZ: Asia/Seoul
     volumes:

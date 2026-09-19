@@ -31,6 +31,9 @@ class ProdSecurityContextSmokeTest extends AbstractIntegrationTest {
 
     // 테스트 전용 더미 — 운영 시크릿 아님. HS256 요건상 32바이트 이상.
     private static final String DUMMY_JWT_SECRET = "prod-smoke-test-dummy-secret-please-ignore-min-32-bytes";
+    // Track 89-F: prod yml ${BANK_ACCOUNT_ENCRYPTION_KEY}도 기본값이 없어(JWT 동형 fail-fast) 테스트 전용 더미 키(Base64 32바이트)를 주입한다.
+    // 미주입 시 컨텍스트 로드 실패는 ProdBankAccountKeyFailFastTest가 별도로 고정한다.
+    private static final String DUMMY_BANK_ACCOUNT_KEY = "cHJvZC1zbW9rZS10ZXN0LWR1bW15LWJhbmsta2V5MzI=";
     private static final String PROTECTED_ADMIN_PATH = "/api/v1/admin/__prod_smoke_probe__";
 
     @DynamicPropertySource
@@ -38,6 +41,7 @@ class ProdSecurityContextSmokeTest extends AbstractIntegrationTest {
         // prod yml ${JWT_SECRET} 미주입 기동 실패를 테스트 전용 더미로 회피(최고 우선순위로 shadow).
         // 싱글톤 datasource 4-property는 상위 AbstractIntegrationTest가 주입(@DynamicPropertySource는 계층에서 합쳐짐).
         registry.add("jwt.secret", () -> DUMMY_JWT_SECRET);
+        registry.add("bank-account.encryption-key", () -> DUMMY_BANK_ACCOUNT_KEY);
     }
 
     @Autowired
