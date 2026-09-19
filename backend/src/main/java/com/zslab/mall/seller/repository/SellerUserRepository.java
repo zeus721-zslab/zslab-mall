@@ -18,6 +18,20 @@ public interface SellerUserRepository extends JpaRepository<SellerUser, Long> {
     /** 셀러 소속 구성원 전량(Track 89-D 관리자 셀러 상세). seller 컬럼 경로 파생 쿼리. */
     List<SellerUser> findBySellerId(Long sellerId);
 
+    /** user가 소속된 구성원 행(Track 89-G). user_id 단독 UNIQUE(V12)로 최대 1건 — 추가 전 "이미 소속" 선검사(같은 셀러·타 셀러 구분)용. */
+    Optional<SellerUser> findByUserId(Long userId);
+
+    /** 특정 셀러의 특정 구성원 행(Track 89-G 제거·역할 변경 대상 해소). 타 셀러 소속이면 empty → 404(존재 은닉). */
+    Optional<SellerUser> findBySellerIdAndUserId(Long sellerId, Long userId);
+
+    /**
+     * 셀러의 활성 구성원 수(역할 무관·Track 89-G STEP 498 회원 상세 lastActiveMember). 활성 = user 행 존재 ∧ soft-delete 아님 ∧ 미탈퇴.
+     * userId는 논리참조(D-01)라 theta-join(su.userId = u.id)한다. 모든 변수는 :sellerId 바인딩이다.
+     */
+    @Query("SELECT COUNT(su) FROM SellerUser su, User u WHERE su.seller.id = :sellerId AND su.userId = u.id "
+            + "AND u.deletedAt IS NULL AND u.withdrawnAt IS NULL")
+    long countActiveBySellerId(@Param("sellerId") Long sellerId);
+
     /**
      * userId에 매핑된 seller.id를 해소한다. user_id 단독 UNIQUE(V12·Track 36 γ)로 최대 1건 보장 → Optional.
      * SellerActorResolver가 user.id→seller.id 단건 해소에 사용한다(passthrough 결함 교정·Phase 2).

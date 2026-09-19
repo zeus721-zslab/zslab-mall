@@ -40,9 +40,11 @@ public record AdminSellerDetailResponse(
 
     /**
      * 소속 구성원. seller_user 행은 탈퇴·삭제 후에도 유지되므로(D-23 B-d6) 탈퇴 회원은 {@code withdrawnAt}으로, soft-delete 회원은
-     * user 필드 전부 null({@code userPublicId} 포함)로 표기한다.
+     * user 필드 전부 null({@code userPublicId} 포함)로 표기한다. {@code joinedAt}은 구성원 등록 시각(seller_user.created_at·Track 89-G).
+     * 구성원 추가 API(201)의 응답 본문으로도 쓰인다.
      */
-    public record Member(String userPublicId, String email, String name, RoleCode roleCode, LocalDateTime withdrawnAt) {
+    public record Member(String userPublicId, String email, String name, RoleCode roleCode, LocalDateTime withdrawnAt,
+            LocalDateTime joinedAt) {
     }
 
     /** 현재 주 정산계좌(끝 4자리·{@code SettlementBankAccountResponse} 마스킹 규칙). 없으면 null. */

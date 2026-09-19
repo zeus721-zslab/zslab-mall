@@ -57,4 +57,16 @@ public class SellerUser extends AbstractFullAuditableEntity {
         sellerUser.roleId = roleId;
         return sellerUser;
     }
+
+    /**
+     * 판매자 내 역할을 교체한다(Track 89-G). 같은 역할 재요청 판정·마지막 OWNER 강등 가드는 Application Service 책임이다.
+     *
+     * @throws IllegalArgumentException roleId가 null인 경우
+     */
+    public void changeRole(Long roleId) {
+        if (roleId == null) {
+            throw new IllegalArgumentException("roleId는 null일 수 없습니다.");
+        }
+        this.roleId = roleId;
+    }
 }
