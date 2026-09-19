@@ -14,6 +14,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
@@ -27,6 +28,11 @@ import org.springframework.test.web.servlet.MockMvc;
  */
 @AutoConfigureMockMvc
 @ActiveProfiles("prod")
+// STEP 485(CI 실패 원인): prod logback-spring.xml의 JSON_FILE appender가 ${LOG_PATH:/app/logs}를 연다. CI 러너(Linux)는 /app을 만들 수 없어
+// Logback 설정 오류로 컨텍스트가 죽는다(종전엔 앞선 비-prod 컨텍스트가 로깅을 먼저 초기화해 우연히 통과·ProdBankAccountKeyFailFastTest의
+// 실패 cleanUp이 초기화 마커를 지운 뒤로는 재초기화). 로깅 초기화(EnvironmentPreparedEvent)보다 먼저 환경에 실리는 인라인 테스트 속성으로
+// LOG_PATH를 임시 디렉터리에 고정한다(@DynamicPropertySource는 그 시점에 아직 없음·OS env보다 우선).
+@TestPropertySource(properties = "LOG_PATH=${java.io.tmpdir}/zslab-prod-smoke-logs")
 class ProdSecurityContextSmokeTest extends AbstractIntegrationTest {
 
     // 테스트 전용 더미 — 운영 시크릿 아님. HS256 요건상 32바이트 이상.

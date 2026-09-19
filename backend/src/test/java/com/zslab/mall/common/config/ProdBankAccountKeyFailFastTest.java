@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.zslab.mall.ZslabMallApplication;
 import com.zslab.mall.support.MariaDbTestContainer;
+import java.nio.file.Path;
 import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -19,10 +20,18 @@ import org.springframework.context.ConfigurableApplicationContext;
  *
  * <p>실 컨텍스트를 {@link SpringApplicationBuilder}로 직접 띄운다(캐시 밖·프로파일 prod·싱글톤 MariaDB·JWT는 테스트 더미). 서블릿 컨테이너는
  * 띄우지 않는다({@code WebApplicationType.NONE}·빈 생성 실패만 확인하면 충분).
+ *
+ * <p><b>LOG_PATH 트랩(STEP 485·CI 실패 원인)</b>: prod 프로파일의 logback-spring.xml은 {@code ${LOG_PATH:/app/logs}}에 JSON 파일 appender를 연다.
+ * CI 러너(Linux)는 {@code /app}을 만들 수 없어 Logback 설정 오류가 키 검증보다 먼저 컨텍스트를 죽이고(로컬 Windows는 C 드라이브 루트의 app/logs 디렉터리가
+ * 생성돼 통과), 실패한 SpringApplication의 cleanUp이 로깅 시스템 초기화 마커를 지워 뒤이은 prod 컨텍스트(ProdSecurityContextSmokeTest)도
+ * 같은 오류로 실패한다. 테스트는 LOG_PATH를 임시 디렉터리로 주입해 환경 의존을 없앤다 — 검증 대상(키 fail-fast)은 그대로다.
+ * {@code @TempDir}는 쓰지 않는다: 실패한 컨텍스트가 Logback 파일 핸들을 닫지 않아 Windows에서 정리 단계가 "Failed to close extension context"로
+ * 실패한다 → java.io.tmpdir 아래 고정 디렉터리(ProdSecurityContextSmokeTest와 같은 방식).
  */
 class ProdBankAccountKeyFailFastTest {
 
     private static final String DUMMY_JWT_SECRET = "prod-failfast-test-dummy-secret-please-ignore-32b";
+    private static final Path LOG_DIR = Path.of(System.getProperty("java.io.tmpdir"), "zslab-prod-failfast-logs");
 
     @Test
     @DisplayName("prod: BANK_ACCOUNT_ENCRYPTION_KEY 미주입 → placeholder 해석 실패로 기동 중단")
@@ -45,7 +54,7 @@ class ProdBankAccountKeyFailFastTest {
                 .hasStackTraceContaining("32바이트").hasStackTraceContaining("현재 16바이트");
     }
 
-    private static void run(Map<String, String> extraProperties) {
+    private void run(Map<String, String> extraProperties) {
         SpringApplicationBuilder builder = new SpringApplicationBuilder(ZslabMallApplication.class)
                 .web(WebApplicationType.NONE)
                 .profiles("prod")
@@ -57,7 +66,8 @@ class ProdBankAccountKeyFailFastTest {
                         "jwt.secret=" + DUMMY_JWT_SECRET,
                         "catalog.demo-seed.enabled=false");
         extraProperties.forEach((key, value) -> builder.properties(key + "=" + value));
-        try (ConfigurableApplicationContext context = builder.run()) {
+        // LOG_PATH는 커맨드라인 인자(최고 우선순위)로 넣는다 — builder.properties(기본 속성)는 OS env LOG_PATH에 밀려 로컬 재현이 어긋난다.
+        try (ConfigurableApplicationContext context = builder.run("--LOG_PATH=" + LOG_DIR.toAbsolutePath())) {
             assertThat(context.isActive()).as("키 없이 prod 컨텍스트가 떠서는 안 된다").isFalse();
         }
     }
