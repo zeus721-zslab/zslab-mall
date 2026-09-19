@@ -48,6 +48,7 @@ import com.zslab.mall.seller.exception.SellerBankAccountInvalidStateException;
 import com.zslab.mall.seller.exception.SellerBankAccountNotFoundException;
 import com.zslab.mall.seller.exception.SellerBankAccountReferencedException;
 import com.zslab.mall.seller.exception.SellerInvalidStateException;
+import com.zslab.mall.seller.exception.SellerSuspendedException;
 import com.zslab.mall.seller.exception.SellerLastOwnerException;
 import com.zslab.mall.seller.exception.SellerMemberInvalidStateException;
 import com.zslab.mall.seller.exception.SellerMemberNotFoundException;
@@ -150,6 +151,7 @@ public class GlobalExceptionHandler {
     private static final String CODE_SELLER_MEMBER_NOT_FOUND = "SELLER_MEMBER_NOT_FOUND";
     private static final String CODE_SELLER_LAST_OWNER = "SELLER_LAST_OWNER";
     private static final String CODE_SELLER_MEMBER_INVALID_STATE = "SELLER_MEMBER_INVALID_STATE";
+    private static final String CODE_SELLER_SUSPENDED = "SELLER_SUSPENDED";
     private static final String CODE_FILE_NOT_FOUND = "FILE_NOT_FOUND";
     private static final String CODE_PAYLOAD_TOO_LARGE = "PAYLOAD_TOO_LARGE";
     private static final String CODE_FORBIDDEN = "FORBIDDEN";
@@ -233,6 +235,15 @@ public class GlobalExceptionHandler {
         // SuperAdminRequiredException 선례와 동일하게 서비스 계층 도메인 403(code=FORBIDDEN)으로 매핑한다.
         log.warn("[Auth] 자기 역할 회수 차단(403): {}", exception.getMessage());
         return build(HttpStatus.FORBIDDEN, CODE_FORBIDDEN, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(SellerSuspendedException.class)
+    public ResponseEntity<ProblemDetail> handleSellerSuspended(
+            SellerSuspendedException exception, HttpServletRequest request) {
+        // Track 90-A: 정지(SUSPENDED) 셀러의 쓰기 요청. SUSPENDED는 유효한 세션 상태이며 해당 행위만 금지되므로, 인증 실패(401)가
+        // 아니라 인가 거부(403)로 응답한다. 전용 코드로 FORBIDDEN 범용 코드와 구분해 FE가 정지 안내를 분기할 수 있게 한다.
+        log.warn("[Seller] 정지 셀러 쓰기 차단(403): {}", exception.getMessage());
+        return build(HttpStatus.FORBIDDEN, CODE_SELLER_SUSPENDED, exception.getMessage(), request);
     }
 
     // ===== 404 =====

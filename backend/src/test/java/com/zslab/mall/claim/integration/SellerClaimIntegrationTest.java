@@ -66,7 +66,10 @@ class SellerClaimIntegrationTest extends AbstractIntegrationTest {
     @BeforeEach
     void seedSellerUsers() {
         // resolver가 user.id→seller.id를 seller_user로 해소하므로 실 매핑을 시드한다(모든 테스트 공통·I4 미시드 케이스 포함).
+        // Track 90-A 상태 가드가 seller.status를 조인하므로 ACTIVE seller 행도 함께 심는다(행 부재 = 401 fail-closed).
         seed(() -> {
+            seedSeller(SELLER_A, pid("slr_", "SCISLA"));
+            seedSeller(SELLER_B, pid("slr_", "SCISLB"));
             seedSellerUser(SELLER_A_USER, SELLER_A);
             seedSellerUser(SELLER_B_USER, SELLER_B);
         });
@@ -212,6 +215,15 @@ class SellerClaimIntegrationTest extends AbstractIntegrationTest {
                 .setParameter(5, reasonDetail)
                 .setParameter(6, status.name())
                 .setParameter(7, requestedBy)
+                .executeUpdate();
+    }
+
+    private void seedSeller(long sellerId, String publicId) {
+        entityManager.createNativeQuery(
+                        "INSERT INTO seller (id, public_id, company_name, ceo_name, status, created_at, updated_at) "
+                                + "VALUES (?1, ?2, '클레임셀러', '대표', 'ACTIVE', NOW(6), NOW(6))")
+                .setParameter(1, sellerId)
+                .setParameter(2, publicId)
                 .executeUpdate();
     }
 

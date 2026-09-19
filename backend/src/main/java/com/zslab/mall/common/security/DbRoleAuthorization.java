@@ -3,6 +3,7 @@ package com.zslab.mall.common.security;
 import com.zslab.mall.auth.enums.RoleCode;
 import com.zslab.mall.auth.repository.UserRoleRepository;
 import com.zslab.mall.seller.repository.SellerUserRepository;
+import com.zslab.mall.seller.service.SellerAccessPolicy;
 import java.util.EnumSet;
 import java.util.Set;
 import org.springframework.stereotype.Component;
@@ -14,7 +15,9 @@ import org.springframework.stereotype.Component;
  * <ul>
  *   <li>BUYER  → user_role에 (userId, code=BUYER) 존재</li>
  *   <li>ADMIN  → user_role에 (userId, code∈{SUPER_ADMIN, ADMIN_OPERATOR}) 존재</li>
- *   <li>SELLER → seller_user에 userId 행 존재(seller 내 role 종류 무관)</li>
+ *   <li>SELLER → seller_user에 userId 행 존재(seller 내 role 종류 무관) ∧ 그 seller가 세션 허용 상태
+ *       ({@link SellerAccessPolicy#sessionAllowedStatuses()}·ACTIVE·SUSPENDED). PENDING·TERMINATED 셀러 소속은 거부하며
+ *       외부 응답은 다른 사유와 같은 401(ROLE_MISMATCH 로그)로 통합된다(Track 90-A·D-187 §8).</li>
  * </ul>
  *
  * <p>coarse 액터 3종({@link ActorRole})→세분 {@link RoleCode} 집합 매핑은 소비처가 여기 하나뿐이라 enum이 아닌 이 구현체
@@ -42,7 +45,9 @@ public class DbRoleAuthorization implements RoleAuthorization {
         return switch (role) {
             case BUYER -> userRoleRepository.existsByUserIdAndRole_Code(actorId, RoleCode.BUYER);
             case ADMIN -> userRoleRepository.existsByUserIdAndRole_CodeIn(actorId, ADMIN_CODES);
-            case SELLER -> sellerUserRepository.existsByUserId(actorId);
+            // Track 90-A: 상태 조건은 SellerAccessPolicy 단일점. 발급 후 상태 변경은 SellerActorResolver가 매 요청 재판정한다.
+            case SELLER -> sellerUserRepository.existsByUserIdAndSeller_StatusIn(
+                    actorId, SellerAccessPolicy.sessionAllowedStatuses());
         };
     }
 }
