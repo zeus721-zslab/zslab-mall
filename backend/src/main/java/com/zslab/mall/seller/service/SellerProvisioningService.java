@@ -12,9 +12,11 @@ import com.zslab.mall.seller.controller.response.SellerProvisioningResponse;
 import com.zslab.mall.seller.entity.Seller;
 import com.zslab.mall.seller.entity.SellerUser;
 import com.zslab.mall.seller.enums.SellerStatus;
+import com.zslab.mall.seller.exception.SellerBusinessNoDuplicateException;
 import com.zslab.mall.seller.exception.SellerUserAlreadyExistsException;
 import com.zslab.mall.seller.repository.SellerRepository;
 import com.zslab.mall.seller.repository.SellerUserRepository;
+import com.zslab.mall.user.entity.User;
 import com.zslab.mall.user.exception.UserNotFoundException;
 import com.zslab.mall.user.repository.UserRepository;
 import java.util.Map;
@@ -63,17 +65,25 @@ public class SellerProvisioningService {
      *
      * @param request 입점 정보 요청
      * @param auditContext 감사 행위자 컨텍스트(운영자)
-     * @throws UserNotFoundException ownerUserId에 해당하는 User가 없는 경우(404)
+     * @throws UserNotFoundException ownerUserPublicId에 해당하는 User가 없거나 soft-delete인 경우(404)
      * @throws IllegalArgumentException 초기 status가 PENDING·ACTIVE가 아닌 경우(400)
      * @throws IllegalStateException SELLER_OWNER Role seed가 없는 경우(내부 오류·500)
-     * @throws SellerUserAlreadyExistsException ownerUserId가 이미 다른 판매자에 소속된 경우(409·V12 위반)
+     * @throws SellerBusinessNoDuplicateException businessNo가 이미 등록된 경우(409·SLR-1·Track 89-D)
+     * @throws SellerUserAlreadyExistsException owner가 이미 다른 판매자에 소속된 경우(409·V12 위반)
      */
     public SellerProvisioningResponse provision(SellerProvisioningRequest request, AuditContext auditContext) {
-        if (!userRepository.existsById(request.ownerUserId())) {
-            throw new UserNotFoundException("판매자 owner로 지정한 User가 없습니다: userId=" + request.ownerUserId());
-        }
+        // Track 89-D: 요청 식별자는 회원 public_id(usr_). 미존재·soft-delete(@SQLRestriction) 모두 404 USER_NOT_FOUND.
+        Long ownerUserId = userRepository.findByPublicId(request.ownerUserPublicId())
+                .map(User::getId)
+                .orElseThrow(() -> new UserNotFoundException(
+                        "판매자 owner로 지정한 User가 없습니다: userPublicId=" + request.ownerUserPublicId()));
 
         validateInitialStatus(request.status());
+        // Track 89-D: 사업자번호 중복은 seller_user saveAndFlush에서 같은 DataIntegrityViolation으로 섞여 409
+        // SELLER_USER_ALREADY_EXISTS로 오분류되던 것을 선검사로 분리한다(선검사 통과 후 레이스는 아래 catch가 UK 이름으로 구분).
+        if (request.businessNo() != null && sellerRepository.existsByBusinessNo(request.businessNo())) {
+            throw new SellerBusinessNoDuplicateException("이미 등록된 사업자번호입니다: " + request.businessNo());
+        }
 
         Role ownerRole = roleRepository.findByCode(RoleCode.SELLER_OWNER)
                 .orElseThrow(() -> new IllegalStateException("SELLER_OWNER Role seed 누락(V11 마이그레이션 확인 필요)."));
@@ -89,12 +99,17 @@ public class SellerProvisioningService {
         try {
             // saveAndFlush로 uk_seller_user_user_id(V12) 위반을 트랜잭션 내에서 즉시 표면화한다. 위반 시 아래 catch가
             // 409로 변환하며, 던진 예외가 @Transactional 경계를 넘어 seller INSERT까지 원자적으로 롤백한다.
-            sellerUserRepository.saveAndFlush(SellerUser.create(seller, request.ownerUserId(), ownerRole.getId()));
+            sellerUserRepository.saveAndFlush(SellerUser.create(seller, ownerUserId, ownerRole.getId()));
         } catch (DataIntegrityViolationException exception) {
+            // seller INSERT도 이 flush에서 함께 나가므로 uk_seller_business_no 위반(선검사 통과 후 레이스)이 여기로 섞여 들어온다.
+            if (SellerConstraintViolations.isBusinessNoDuplicate(exception)) {
+                log.warn("[SellerProvisioning] 사업자번호 중복 차단(409·레이스) businessNo={}", request.businessNo());
+                throw new SellerBusinessNoDuplicateException("이미 등록된 사업자번호입니다: " + request.businessNo());
+            }
             log.warn("[SellerProvisioning] 중복 소속 차단(409) ownerUserId={} rolledBackSellerPublicId={}",
-                    request.ownerUserId(), seller.getPublicId());
+                    ownerUserId, seller.getPublicId());
             throw new SellerUserAlreadyExistsException(
-                    "이미 다른 판매자에 소속된 사용자입니다: userId=" + request.ownerUserId());
+                    "이미 다른 판매자에 소속된 사용자입니다: userPublicId=" + request.ownerUserPublicId());
         }
 
         // record는 seller/seller_user 저장이 모두 성공한 경로에만 둔다(catch 밖). 409 롤백 시 감사도 함께 롤백되나,
@@ -103,9 +118,9 @@ public class SellerProvisioningService {
         auditRecorder.record(auditContext, AuditLogAction.CREATE, PolymorphicTargetType.SELLER, seller.getId(),
                 Map.of(),
                 Map.of("sellerPublicId", seller.getPublicId(), "status", request.status().name(),
-                        "ownerUserId", request.ownerUserId()));
+                        "ownerUserId", ownerUserId));
         log.info("[SellerProvisioning] 입점 완료 sellerPublicId={} ownerUserId={}",
-                seller.getPublicId(), request.ownerUserId());
+                seller.getPublicId(), ownerUserId);
         return new SellerProvisioningResponse(seller.getPublicId());
     }
 

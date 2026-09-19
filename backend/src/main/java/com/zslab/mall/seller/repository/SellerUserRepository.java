@@ -15,6 +15,9 @@ public interface SellerUserRepository extends JpaRepository<SellerUser, Long> {
      */
     boolean existsByUserId(Long userId);
 
+    /** 셀러 소속 구성원 전량(Track 89-D 관리자 셀러 상세). seller 컬럼 경로 파생 쿼리. */
+    List<SellerUser> findBySellerId(Long sellerId);
+
     /**
      * userId에 매핑된 seller.id를 해소한다. user_id 단독 UNIQUE(V12·Track 36 γ)로 최대 1건 보장 → Optional.
      * SellerActorResolver가 user.id→seller.id 단건 해소에 사용한다(passthrough 결함 교정·Phase 2).

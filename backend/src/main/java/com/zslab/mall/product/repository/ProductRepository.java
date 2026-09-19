@@ -98,4 +98,12 @@ public interface ProductRepository extends JpaRepository<Product, Long>, JpaSpec
 
     /** 카테고리에 연결된 활성 상품 수(Track 89-C 삭제 가드·삭제 상품은 @SQLRestriction 자동 제외). */
     long countByCategoryId(Long categoryId);
+
+    /**
+     * 셀러별·상태별 활성 상품 수를 배치 1쿼리로 집계한다(Track 89-D 관리자 셀러 목록·상세·N+1 회피). 삭제 상품은
+     * {@code @SQLRestriction}이 자동 제외한다. 상품 0건 셀러·상태는 결과에 없다(호출측이 0으로 보정). 모든 변수는 :sellerIds 바인딩이다.
+     */
+    @Query("SELECT p.sellerId AS sellerId, p.status AS status, COUNT(p) AS productCount FROM Product p "
+            + "WHERE p.sellerId IN :sellerIds GROUP BY p.sellerId, p.status")
+    List<SellerProductCountProjection> countActiveBySellerIdsGroupByStatus(@Param("sellerIds") Collection<Long> sellerIds);
 }

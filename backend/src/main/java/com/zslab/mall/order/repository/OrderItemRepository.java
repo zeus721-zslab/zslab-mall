@@ -2,6 +2,7 @@ package com.zslab.mall.order.repository;
 
 import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.enums.OrderItemStatus;
+import com.zslab.mall.order.enums.OrderStatus;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
@@ -108,4 +109,33 @@ public interface OrderItemRepository extends JpaRepository<OrderItem, Long> {
     long sumConfirmedTotalPriceByBuyerId(
             @Param("buyerId") Long buyerId,
             @Param("status") OrderItemStatus status);
+
+    /**
+     * 셀러의 진행 중 품목 수(Track 89-D 종료 가드 G2·D-187). 진행 중 = 품목 상태가 종결 4종(CONFIRMED·CANCELLED·RETURNED·EXCHANGED)이
+     * 아니면서 주문이 미결제 종료(PAYMENT_EXPIRED)·취소(CANCELLED)도 아닌 것. <b>주문 상태 조인이 필수</b>다 — 결제 만료 주문의 품목은
+     * {@code item_status=ORDERED}로 남아(품목 전이 없음·정찰 실측) 품목 상태만 보면 만료 주문이 진행 중으로 잡힌다.
+     * PENDING_PAYMENT(미결제·만료 전)는 결제될 수 있어 진행 중으로 센다. 모든 변수는 :sellerId·:terminalItemStatuses·:closedOrderStatuses 바인딩이다.
+     */
+    @Query("SELECT COUNT(oi) FROM OrderItem oi JOIN oi.order o "
+            + "WHERE oi.sellerId = :sellerId "
+            + "AND oi.itemStatus NOT IN :terminalItemStatuses "
+            + "AND o.status NOT IN :closedOrderStatuses")
+    long countInProgressBySellerId(
+            @Param("sellerId") Long sellerId,
+            @Param("terminalItemStatuses") Collection<OrderItemStatus> terminalItemStatuses,
+            @Param("closedOrderStatuses") Collection<OrderStatus> closedOrderStatuses);
+
+    /**
+     * 셀러 누적 거래 요약(Track 89-D 관리자 셀러 상세): 주문 수 = 미결제(PENDING_PAYMENT)·미결제 종료(PAYMENT_EXPIRED)를 제외한
+     * 결제 이력 있는 주문의 DISTINCT 수, 누적 매출 = 구매확정(CONFIRMED) 품목 total_price 합(정산 gross와 같은 기준·
+     * {@link #aggregateGrossBySeller} 정합). 모든 변수는 :sellerId·:excludedOrderStatuses·:confirmedStatus 바인딩이다.
+     */
+    @Query("SELECT COUNT(DISTINCT o.id) AS orderCount, "
+            + "COALESCE(SUM(CASE WHEN oi.itemStatus = :confirmedStatus THEN oi.totalPrice ELSE 0 END), 0) AS confirmedAmount "
+            + "FROM OrderItem oi JOIN oi.order o "
+            + "WHERE oi.sellerId = :sellerId AND o.status NOT IN :excludedOrderStatuses")
+    SellerSalesSummaryProjection summarizeSalesBySellerId(
+            @Param("sellerId") Long sellerId,
+            @Param("excludedOrderStatuses") Collection<OrderStatus> excludedOrderStatuses,
+            @Param("confirmedStatus") OrderItemStatus confirmedStatus);
 }

@@ -53,4 +53,14 @@ public interface SettlementRepository extends JpaRepository<Settlement, Long>, J
 
     /** 셀러 공개 단건(본인·CONFIRMED·PAID만·그 외 empty → 404 통일). */
     Optional<Settlement> findByIdAndSellerIdAndStatusIn(Long id, Long sellerId, Collection<SettlementStatus> statuses);
+
+    /** 셀러의 특정 상태 정산 건수(Track 89-D 종료 가드 G1·미지급 = PENDING·CONFIRMED). 파생 쿼리 바인딩. */
+    long countBySellerIdAndStatusIn(Long sellerId, Collection<SettlementStatus> statuses);
+
+    /** 셀러 정산 상태별 건수·금액 합(Track 89-D 관리자 셀러 상세·전 기간). 모든 변수는 :sellerId 바인딩이다. */
+    @Query("SELECT s.status AS status, COUNT(s) AS settlementCount, COALESCE(SUM(s.grossAmount), 0) AS grossAmount, "
+            + "COALESCE(SUM(s.feeAmount), 0) AS feeAmount, COALESCE(SUM(s.refundAmount), 0) AS refundAmount, "
+            + "COALESCE(SUM(s.netAmount), 0) AS netAmount FROM Settlement s "
+            + "WHERE s.sellerId = :sellerId GROUP BY s.status")
+    List<SettlementStatusTotalProjection> sumByStatusForSeller(@Param("sellerId") Long sellerId);
 }

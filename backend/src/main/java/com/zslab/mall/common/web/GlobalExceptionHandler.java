@@ -42,6 +42,9 @@ import com.zslab.mall.product.exception.ProductVariantNotFoundException;
 import com.zslab.mall.product.exception.ProductVariantOptionConflictException;
 import com.zslab.mall.refund.exception.RefundInvariantViolationException;
 import com.zslab.mall.refund.exception.RefundNotFoundException;
+import com.zslab.mall.seller.exception.SellerActivityInProgressException;
+import com.zslab.mall.seller.exception.SellerBusinessNoDuplicateException;
+import com.zslab.mall.seller.exception.SellerInvalidStateException;
 import com.zslab.mall.seller.exception.SellerNotFoundException;
 import com.zslab.mall.seller.exception.SellerUserAlreadyExistsException;
 import com.zslab.mall.settlement.exception.SettlementAlreadyExistsException;
@@ -132,6 +135,9 @@ public class GlobalExceptionHandler {
     private static final String CODE_PRODUCT_INVALID_STATE = "PRODUCT_INVALID_STATE";
     private static final String CODE_PRODUCT_HAS_ORDER_HISTORY = "PRODUCT_HAS_ORDER_HISTORY";
     private static final String CODE_SELLER_NOT_FOUND = "SELLER_NOT_FOUND";
+    private static final String CODE_SELLER_INVALID_STATE = "SELLER_INVALID_STATE";
+    private static final String CODE_SELLER_ACTIVITY_IN_PROGRESS = "SELLER_ACTIVITY_IN_PROGRESS";
+    private static final String CODE_SELLER_BUSINESS_NO_DUPLICATE = "SELLER_BUSINESS_NO_DUPLICATE";
     private static final String CODE_FILE_NOT_FOUND = "FILE_NOT_FOUND";
     private static final String CODE_PAYLOAD_TOO_LARGE = "PAYLOAD_TOO_LARGE";
     private static final String CODE_FORBIDDEN = "FORBIDDEN";
@@ -437,6 +443,28 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.CONFLICT, CODE_SETTLEMENT_ALREADY_EXISTS, exception.getMessage(), request);
     }
 
+    @ExceptionHandler(SellerActivityInProgressException.class)
+    public ResponseEntity<ProblemDetail> handleSellerActivityInProgress(
+            SellerActivityInProgressException exception, HttpServletRequest request) {
+        // Track 89-D: 미지급 정산·진행 중 품목·활성 클레임 보유 판매자 종료 차단(409). 어느 가드에 몇 건인지 blocks[{code,count}]로 병기한다.
+        log.warn("[Seller] 종료 차단(409): {}", exception.getMessage());
+        ResponseEntity<ProblemDetail> response =
+                build(HttpStatus.CONFLICT, CODE_SELLER_ACTIVITY_IN_PROGRESS, exception.getMessage(), request);
+        List<Map<String, Object>> blocks = exception.getBlocks().stream()
+                .map(block -> Map.<String, Object>of("code", block.code().name(), "count", block.count()))
+                .toList();
+        response.getBody().setProperty("blocks", blocks);
+        return response;
+    }
+
+    @ExceptionHandler(SellerBusinessNoDuplicateException.class)
+    public ResponseEntity<ProblemDetail> handleSellerBusinessNoDuplicate(
+            SellerBusinessNoDuplicateException exception, HttpServletRequest request) {
+        // Track 89-D: 입점·정보 수정 시 사업자번호 중복(409·uk_seller_business_no·SLR-1). 선검사 + flush 위반 변환.
+        log.warn("[Seller] 사업자번호 중복(409): {}", exception.getMessage());
+        return build(HttpStatus.CONFLICT, CODE_SELLER_BUSINESS_NO_DUPLICATE, exception.getMessage(), request);
+    }
+
     @ExceptionHandler(MemberActivityInProgressException.class)
     public ResponseEntity<ProblemDetail> handleMemberActivityInProgress(
             MemberActivityInProgressException exception, HttpServletRequest request) {
@@ -567,6 +595,14 @@ public class GlobalExceptionHandler {
         // Track 85: 지급 시점 주 정산계좌 부재(422). 계좌는 생성 조건이 아니라 지급 조건.
         log.warn("[Settlement] 주 정산계좌 부재 지급 차단(422): {}", exception.getMessage());
         return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_SETTLEMENT_BANK_ACCOUNT_MISSING, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(SellerInvalidStateException.class)
+    public ResponseEntity<ProblemDetail> handleSellerInvalidState(
+            SellerInvalidStateException exception, HttpServletRequest request) {
+        // Track 89-D: 판매자 상태 위반(불법 전이·같은 상태 재요청·비-ACTIVE 판매자 상품 등록) 422(ProductInvalidStateException 선례).
+        log.warn("[Seller] 판매자 상태 위반(422): {}", exception.getMessage());
+        return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_SELLER_INVALID_STATE, exception.getMessage(), request);
     }
 
     @ExceptionHandler(ProductInvalidStateException.class)
