@@ -1,7 +1,8 @@
 import { test, expect, type Page } from '@playwright/test'
+import { loginAs } from './helpers/login'
 
 /**
- * 관리자 정산(Track 85 FE) E2E. 로그인은 데모 버튼(NUXT_ADMIN_DEMO_* 주입 환경·미주입 시 skip), 정산·셀러 API는 page.route로 mock해 로컬 DB를
+ * 관리자 정산(Track 85 FE) E2E. 로그인은 공용 헬퍼 loginAs(ADMIN_E2E_* 주입·미주입 시 skip), 정산·셀러 API는 page.route로 mock해 로컬 DB를
  * 바꾸지 않고 결정적으로 검증한다(목록 렌더·월 변경→URL→API 파라미터·합계·빈 상태·에러 재시도 / 생성 성공·409 / 상세 렌더·탭 전환·주문 링크 /
  * 정상처리·지급완료·재생성 성공 / 계좌 미등록·음수 비활성·삭제만 / 셀러별 이력).
  */
@@ -134,15 +135,6 @@ async function mockSettlementApi(page: Page, options: { listStatus?: number; cre
   return captured
 }
 
-async function loginByDemo(page: Page): Promise<void> {
-  await page.goto('/admin/login')
-  await page.waitForLoadState('networkidle')
-  const demoButton = page.getByTestId('admin-demo-login')
-  test.skip((await demoButton.count()) === 0, 'NUXT_ADMIN_DEMO_EMAIL/PASSWORD 미주입 — 데모 버튼 없음')
-  await demoButton.click()
-  await page.waitForURL(/\/admin$/)
-}
-
 async function gotoPath(page: Page, path: string): Promise<void> {
   // /admin/** 은 CSR 전용이라 사이드바 이동 대신 goto 후 API 응답을 기다린다.
   await page.goto(path)
@@ -154,7 +146,7 @@ const JUNE = '/admin/settlements?year=2026&month=6'
 test.describe('관리자 정산(Track 85)', () => {
   test('① 목록 렌더(합계·음수 강조·계좌 chip)·기본 월은 지난달 URL·월 변경 → URL·API 파라미터·상태 필터·검색 빈 상태·초기화', async ({ page }) => {
     const captured = await mockSettlementApi(page)
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
     await gotoPath(page, '/admin/settlements')
     // 기본 월(지난달)이 URL에 실린다
     const now = new Date()
@@ -197,7 +189,7 @@ test.describe('관리자 정산(Track 85)', () => {
 
   test('② 목록 에러 → 다시 시도로 복구 / 정산 생성 409 → 문구 토스트 / 생성 성공 → POST body·성공 토스트·재조회', async ({ page }) => {
     const captured = await mockSettlementApi(page, { listStatus: 500, createStatus: 409 })
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
     await gotoPath(page, JUNE)
     await expect(page.getByTestId('admin-settlement-error')).toBeVisible()
     captured.listFail = false
@@ -221,7 +213,7 @@ test.describe('관리자 정산(Track 85)', () => {
 
   test('③ 상세 렌더(헤더·연락처·현재 계좌) → 환불 탭(type REFUND·URL tab·수수료 0) → 판매 탭 수수료율 % → 주문번호 클릭 → 주문 상세(back=정산 상세) → 목록 back 복귀', async ({ page }) => {
     const captured = await mockSettlementApi(page)
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
     await gotoPath(page, JUNE)
     await page.getByTestId('row-open').first().click()
     await page.waitForURL((url) => url.pathname === `/admin/settlements/${STL_PENDING}`)
@@ -259,7 +251,7 @@ test.describe('관리자 정산(Track 85)', () => {
 
   test('④ 정상처리 → POST confirm·확정 상태·지급완료 버튼 / 지급완료 → POST pay·지급일·스냅샷 계좌·액션 없음 / 재생성 → 사유 필수·POST body·새 정산으로 이동', async ({ page }) => {
     const captured = await mockSettlementApi(page)
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
     await gotoPath(page, `/admin/settlements/${STL_PENDING}`)
     await page.getByTestId('action-confirm').click()
     await expect(page.getByTestId('settlement-confirm-dialog')).toContainText('SMS가 발송')
@@ -296,7 +288,7 @@ test.describe('관리자 정산(Track 85)', () => {
 
   test('⑤ 지급액 음수 → 지급 비활성 + 사유 / 계좌 미등록 → 비활성 + 안내 / 재생성 삭제만 → 목록 이동 / 미존재 → 404 화면', async ({ page }) => {
     await mockSettlementApi(page, { regenerateDeletedOnly: true })
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
     await gotoPath(page, `/admin/settlements/${STL_NEGATIVE}`)
     await expect(page.getByTestId('action-pay')).toBeDisabled()
     await expect(page.getByTestId('settlement-pay-blocked')).toContainText('음수')
@@ -320,7 +312,7 @@ test.describe('관리자 정산(Track 85)', () => {
 
   test('⑥ 셀러별 정산: 미선택 안내 → 셀러 선택 → URL seller·이력 API·기간 컬럼·지급일 → 상세(back=셀러별) → 복귀 / 미존재 셀러 404 안내', async ({ page }) => {
     const captured = await mockSettlementApi(page)
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
     await gotoPath(page, '/admin/settlements/sellers')
     await expect(page.getByTestId('seller-unselected')).toBeVisible()
     await page.getByTestId('seller-select').click()

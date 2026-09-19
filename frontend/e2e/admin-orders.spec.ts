@@ -1,7 +1,8 @@
 import { test, expect, type Page } from '@playwright/test'
+import { loginAs } from './helpers/login'
 
 /**
- * 관리자 주문 목록·상세(FE-27) E2E. 로그인은 데모 버튼(NUXT_ADMIN_DEMO_* 주입 환경·미주입 시 skip), 주문 API는 page.route로 mock해
+ * 관리자 주문 목록·상세(FE-27) E2E. 로그인은 공용 헬퍼 loginAs(ADMIN_E2E_* 주입·미주입 시 skip), 주문 API는 page.route로 mock해
  * 로컬 DB를 바꾸지 않고 결정적으로 검증한다(목록 렌더·필터→URL→API 파라미터·상세 이동/복귀·부분 취소·미결제 취소 409·송장 등록·클레임 승인·
  * FE-28 거부 사유 다이얼로그·송장 422 활성 클레임).
  */
@@ -102,15 +103,6 @@ async function mockAdminApi(page: Page, options: { cancelStatus?: number; shipme
   return captured
 }
 
-async function loginByDemo(page: Page): Promise<void> {
-  await page.goto('/admin/login')
-  await page.waitForLoadState('networkidle')
-  const demoButton = page.getByTestId('admin-demo-login')
-  test.skip((await demoButton.count()) === 0, 'NUXT_ADMIN_DEMO_EMAIL/PASSWORD 미주입 — 데모 버튼 없음')
-  await demoButton.click()
-  await page.waitForURL(/\/admin$/)
-}
-
 /** Vuetify select: 활성화 후 옵션 클릭. */
 async function pickOption(page: Page, testId: string, optionName: string): Promise<void> {
   await page.getByTestId(testId).click()
@@ -120,7 +112,7 @@ async function pickOption(page: Page, testId: string, optionName: string): Promi
 test.describe('관리자 주문 목록·상세(FE-27)', () => {
   test('① 목록 렌더(행 2·상태/결제 chip·셀러 외 N·결제일 2줄) → 1440px 가로 스크롤 없음 → 상태·기간 필터 URL 반영·새로고침 유지·API 파라미터(T00:00:00/T23:59:59)', async ({ page }) => {
     const captured = await mockAdminApi(page)
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
     await page.setViewportSize({ width: 1440, height: 900 })
     await page.goto('/admin/orders')
     await expect(page.getByTestId('status-chip')).toHaveCount(2)
@@ -162,7 +154,7 @@ test.describe('관리자 주문 목록·상세(FE-27)', () => {
 
   test('② 주문번호 클릭 → 상세(?back=목록 URL) → 주문자·배송지·결제·품목 렌더 → 목록으로 복귀 시 필터 URL 유지', async ({ page }) => {
     await mockAdminApi(page)
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
     await page.goto('/admin/orders?status=PAID')
     await page.getByTestId('row-order-no').first().click()
     await expect(page).toHaveURL(/\/admin\/orders\/ord_E2E0000000000000000000001\?back=/)
@@ -181,7 +173,7 @@ test.describe('관리자 주문 목록·상세(FE-27)', () => {
 
   test('③ 부분 취소: 품목 체크 해제 1건·사유 선택 → POST cancel body(orderItemPublicIds 1개·reasonCode) → danger 토스트 → 상세 재조회', async ({ page }) => {
     const captured = await mockAdminApi(page)
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
     await page.goto(`/admin/orders/${PAID_ID}`)
     await page.getByTestId('open-cancel').click()
     const dialog = page.getByTestId('admin-order-cancel-dialog')
@@ -209,7 +201,7 @@ test.describe('관리자 주문 목록·상세(FE-27)', () => {
 
   test('④ 미결제 취소: 품목 선택 없이 전체 종료 안내·사유 → 409 → warning 문구(이미 종료/결제 완료) → 상세 재조회', async ({ page }) => {
     const captured = await mockAdminApi(page, { cancelStatus: 409 })
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
     await page.goto(`/admin/orders/${UNPAID_ID}`)
     await expect(page.getByTestId('order-status-chip')).toHaveText('결제대기')
     await page.getByTestId('open-cancel').click()
@@ -228,7 +220,7 @@ test.describe('관리자 주문 목록·상세(FE-27)', () => {
 
   test('⑤ 목록 행 메뉴 "송장 등록" → 상세 선조회 → 품목 선택·택배사·송장번호 검증 → POST prepare-shipment → info 토스트 → 목록 재조회', async ({ page }) => {
     const captured = await mockAdminApi(page)
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
     await page.goto('/admin/orders')
     await expect(page.getByTestId('status-chip')).toHaveCount(2)
     // 미결제 행(actions CANCEL만)은 상태 변경 메뉴가 없다
@@ -262,7 +254,7 @@ test.describe('관리자 주문 목록·상세(FE-27)', () => {
 
   test('⑥ 상세 approvable 클레임 "승인" → 확인 다이얼로그 → POST claims/{id}/approve → info 토스트 → 상세 재조회 / 목록·상세 스크린샷', async ({ page }) => {
     const captured = await mockAdminApi(page)
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
     await page.goto(`/admin/orders/${PAID_ID}`)
     await page.getByTestId('claim-approve').click()
     const confirm = page.getByTestId('admin-claim-decision-dialog')
@@ -290,7 +282,7 @@ test.describe('관리자 주문 목록·상세(FE-27)', () => {
 
   test('⑦ FE-28 상세 "거절" → 사유 다이얼로그(반품이라 "이미 발송됨" 없음·사유 필수) → POST reject body{reasonCode,memo} → danger 토스트 → 재조회 / 거부 사유·메모 표기', async ({ page }) => {
     const captured = await mockAdminApi(page)
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
     await page.goto(`/admin/orders/${PAID_ID}`)
     // 거부된 취소 클레임 행: 거부 사유·메모 표기
     await expect(page.getByTestId('claim-reject-reason').first()).toContainText('거부: 이미 발송됨 — 오전 출고분')
@@ -329,7 +321,7 @@ test.describe('관리자 주문 목록·상세(FE-27)', () => {
 
   test('⑧ FE-28 송장 등록 422 CLAIM_STATE_INVALID(취소 요청 진행 중) → warning 토스트 → 다이얼로그 닫힘·상세 재조회', async ({ page }) => {
     const captured = await mockAdminApi(page, { shipmentStatus: 422 })
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
     await page.goto(`/admin/orders/${PAID_ID}`)
     await page.getByTestId('open-shipment').click()
     const dialog = page.getByTestId('admin-shipment-dialog')
@@ -344,7 +336,7 @@ test.describe('관리자 주문 목록·상세(FE-27)', () => {
 
   test('⑨ FE-36(Track 89-A) 상세 결제 표: PG 거래번호·실패코드 컬럼 → PAID 행 "취소 처리" → 다이얼로그(금액·사유 필수) 노출까지만(실행 안 함) → 닫기', async ({ page }) => {
     const captured = await mockAdminApi(page)
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
     await page.goto(`/admin/orders/${PAID_ID}`)
     await expect(page.getByTestId('payment-row')).toHaveCount(1)
     await expect(page.getByTestId('payment-pg-tid')).toHaveText('MOCK-TID-0001')

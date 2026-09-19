@@ -1,8 +1,9 @@
 import { test, expect, type Page } from '@playwright/test'
+import { loginAs } from './helpers/login'
 
 /**
  * 관리자 셸(FE-22c Vuetify) 스모크. 관리자 자격증명은 env(ADMIN_E2E_EMAIL/ADMIN_E2E_PASSWORD)로만 받고 미설정 시 skip한다.
- * 컨테이너 dev 서버(:3000) 기준. ①·② 는 관리자 계정, ③ 은 데모 buyer(로그인 페이지 버튼) 사용.
+ * 컨테이너 dev 서버(:3000) 기준. ①·② 는 관리자 계정(폼 로그인), ③·④ 의 구매자 세션은 공용 헬퍼 loginAs(BUYER_E2E_*)로 심는다.
  */
 const ADMIN_EMAIL = process.env.ADMIN_E2E_EMAIL
 const ADMIN_PASSWORD = process.env.ADMIN_E2E_PASSWORD
@@ -96,10 +97,10 @@ test.describe('관리자 셸', () => {
   })
 
   test('③ BUYER 세션으로 /admin 접근 → /admin/login 도착·auth_token 유지·뒤로가기 시 Vuetify 시트 0', async ({ page, context }) => {
-    await page.goto('/login')
+    await loginAs(page, 'BUYER')
+    // 뒤로가기 검증을 위해 사용자 페이지를 히스토리에 먼저 둔다
+    await page.goto('/')
     await page.waitForLoadState('networkidle')
-    await page.getByRole('button', { name: '데모 계정으로 둘러보기' }).click()
-    await page.waitForURL((url) => !url.pathname.startsWith('/login'))
     await page.goto('/admin')
     await page.waitForURL(/\/admin\/login/)
     await page.waitForLoadState('networkidle')
@@ -117,10 +118,9 @@ test.describe('관리자 셸', () => {
   test('④ 동시 세션: 관리자 로그인 → 사용자 로그인 → 양쪽 유지 → 관리자 로그아웃 후 사용자 세션 유지·사용자 페이지에 admin_token 미노출', async ({ page, context }) => {
     await loginAsAdmin(page)
     // 사용자 로그인(동일 브라우저·전체 로드)
-    await page.goto('/login')
+    await loginAs(page, 'BUYER')
+    await page.goto('/')
     await page.waitForLoadState('networkidle')
-    await page.getByRole('button', { name: '데모 계정으로 둘러보기' }).click()
-    await page.waitForURL((url) => !url.pathname.startsWith('/login'))
     const both = await context.cookies()
     expect(both.find((cookie) => cookie.name === 'admin_token')?.path).toBe('/admin')
     expect(both.some((cookie) => cookie.name === 'auth_token')).toBe(true)
@@ -144,6 +144,12 @@ test.describe('관리자 셸', () => {
 
   test('⑤ 첫 렌더 카드 위치 고정: 카드가 보이는 모든 프레임에서 bbox 동일(이동 0px)', async ({ page }) => {
     await loginAsAdmin(page)
+    // 승인 대기 배너(FE-40)는 의도된 기능이며 이 테스트의 측정 대상이 아니다. 배너 유무가 아니라 레이아웃 이동 없음을 보는 테스트이므로
+    // 무관 변수를 통제한다(FE-22h 목적 유지): 로컬 DB에 PENDING 셀러가 있으면 배너가 API 응답 후 필터 카드 위에 삽입돼 bbox가 바뀐다.
+    await page.route(
+      (url) => url.pathname.endsWith('/api/v1/admin/sellers/page') && url.searchParams.get('status') === 'PENDING',
+      (route) => route.fulfill({ json: { items: [], page: 0, size: 1, totalCount: 0, hasNext: false } }),
+    )
     // 페이지 로드 전에 rAF 기록기를 심어 카드가 나타난 뒤 60프레임 동안 위치를 수집한다(FE-22h 첫 페인트 게이트 검증)
     await page.addInitScript(() => {
       const frames: string[] = []

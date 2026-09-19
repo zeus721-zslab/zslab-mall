@@ -2011,3 +2011,38 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 - seed 멱등성(현재 fresh DB 전용·master 가드 409 즉시 중단) — 재실행 가능한 `firstOrCreate` 전환은 별도 트랙.
 - Jackson `FAIL_ON_UNKNOWN_PROPERTIES` 전역 활성화 — 미지 필드를 400으로 거부하면 같은 유형의 무증상 실패를 API 계층에서 차단하지만 기존 클라이언트·테스트 회귀 범위가 커 별도 트랙.
 - 운영 데모 계정 생성·운영 `.env` `NUXT_SELLER_DEMO_*` 추가(별도 세션·운영엔 Track 75 잔여 BUYER 계정 존재 가능성 실측 선행).
+
+## FE-46: E2E 로그인 헬퍼 전환·레이아웃 테스트 데이터 통제 (2026-09-20)
+
+배경: E2E 부채 2건(정찰 `docs/frontend/recon-report-e2e-debt.md`). ① `admin-shell.spec ⑤`(첫 렌더 카드 위치·FE-22h)가 로컬 DB의 PENDING 셀러 1건(seller 6·89-G 라이브 검증 잔재) 때문에 항상 실패 — main 상태 3/3 실패 실측. 셀러 목록의 승인 대기 배너(FE-40 결정 8)가 API 응답 후 필터 카드 위에 삽입돼 bbox가 144→208로 이동(첫 프레임 +84~173ms). ② E2E 73건이 데모 로그인 경로를 63회(관리자 53·구매자 9·셀러 1) 사용해 FE-43b rate limit(라우트별 60s/30회)과 충돌 → 기본 워커(16코어=8)로는 429 타임아웃, 매번 `--workers=2`를 지정해야 했다.
+
+결정:
+- **공용 로그인 헬퍼 `frontend/e2e/helpers/login.ts` `loginAs(page, role)`** — `POST /api/v1/auth/login`(BE 직접)으로 받은 JWT를 역할별 세션 쿠키에 `addCookies`(BUYER `auth_token`@`/` · ADMIN `admin_token`@`/admin` · SELLER `seller_token`@`/seller` · secure·lax·쿠키명은 각 스토어와 일치). BE 로그인에는 rate limit이 없어(backend `429` 미구현) 충돌이 구조적으로 사라진다. 자격증명은 `ADMIN_E2E_*`·`SELLER_E2E_*`·**`BUYER_E2E_*`(신설·`.env.example` 동기)** env로만 받고 미설정 시 skip.
+- **13개 admin spec의 `loginByDemo` 6줄 복제 제거** → `loginAs(page, 'ADMIN')` + 명시 `goto`. claims·admin-shell ③④·seller-shell ⑥의 구매자 데모 클릭도 `loginAs(page, 'BUYER')`. 데모 버튼 사용처는 **데모 자체를 검증하는 2건(admin-shell ⑥·seller-shell ⑤)만** 남김. admin-shell ①②④⑤·seller-shell ③④의 폼 로그인은 유지(rate limit 무관·① 이 폼 흐름 검증).
+- **구매자 데모 e2e 신설**(`password-change.spec.ts` "구매자 데모 로그인 (FE-43)" ③: 버튼 표시 → 클릭 → `POST /_demo/login` 200 → 홈 → `auth_token`@`/` 생성·`admin_token`/`seller_token` 미생성). FE-43 이후 구매자 데모 전용 케이스가 0건이던 검증 공백 해소.
+- **admin-shell ⑤는 `status=PENDING&size=1` 조회를 `page.route`로 `totalCount:0` 고정**. 승인 대기 배너는 의도된 기능이자 이 테스트의 무관 변수이며, 측정 대상은 배너 유무가 아니라 셸 첫 페인트의 레이아웃 이동 없음(FE-22h 목적 유지). mock 시 2/2 pass 실측(정찰).
+- **`playwright.config.ts` `workers`는 기본값(논리 코어 50%) 유지**. 헤더 주석("Smoke 1개 전용")을 현황으로 갱신하고 "데모 라우트 rate limit이 있으니 데모 검증 케이스를 늘릴 때는 워커 수 고려" 1줄 명시.
+- **`toHaveURL` 직후 `captured.listQueries.at(-1)`를 읽던 레이스 3곳(admin-claims ⑥ refundStatus · admin-products ⑥ stockFilter OUT/LOW)을 `expect.poll`로 전환**(admin-claims ①의 기존 관례). `at(-1)` 읽기 25곳 중 나머지 22곳은 응답 의존 DOM 단언 뒤라 무수정.
+
+### §1-A 갈림길·채택/기각 근거
+1. **⑤ 처치 = A 배너 영역 고정 높이 【기각】 / B 배너 렌더 후를 기준선으로 【기각】 / C `status=PENDING` 조회 mock 【채택】 / C' 로컬 DB seller 6 정리 【기각】 / D 측정 대상을 정적 첫 카드로 변경 【기각】** — A는 테스트를 위해 제품 UI(승인 대기 0건일 때 64px 빈 공간)를 바꾸고 FE-40 UX와 상충. B는 기록기가 `addInitScript`(문서 로드 시점)라 재작성이 필요한 데다 첫 페인트 창을 측정에서 빼 FE-22h가 잡으려던 구간을 놓친다. C'는 PENDING 셀러가 다시 생기면(입점 등록 "승인 대기"·CI·타 PC) 재발. D는 측정 대상이 이미 3회 이동(플레이스홀더 소멸)했고 새 대상 위에 조건부 요소가 생기면 같은 결함. C는 spec 4줄·`admin-sellers.spec`과 같은 mock 관례·첫 페인트 창 측정 유지.
+2. **로그인 전환 = β-1 API 직접 호출 헬퍼 【채택】 / β-2 β-1 + setup project·storageState 【기각】 / β-3 config `workers:2` 고정만 【기각】** — β-2는 로그인 API 호출을 역할당 1회로 줄이지만 쿠키 부재를 단언하는 5건(admin-shell ③④⑥·seller-shell ⑤⑥)에 컨텍스트 예외가 필요해 config·projects 재편 범위가 커진다(β-1이 선행 단계이므로 필요 시 후속). β-3은 원인(데모 로그인 63회)을 두고 증상만 덮으며 실행 시간도 3.6분에 고정. β-1은 헬퍼 1개 + 호출부 교체로 부채 2가 해소되고 로그인당 1.6~1.9s → 0.06~0.37s.
+3. **구매자 데모 케이스 위치 = password-change.spec 【채택】 / smoke.spec 【기각】** — smoke는 헤더에 "인증 흐름은 범위 밖"(FE-15 STEP3)을 명시. 구매자 spec 중 `/login` 페이지를 다루는 곳은 password-change뿐.
+
+### §2 확정 구현 규칙
+- 세션은 `loginAs`가 쿠키로 심는다. **헬퍼는 페이지 이동을 하지 않으므로 호출 뒤 반드시 대상 경로로 `goto`**(데모 리다이렉트로 `/admin`에 도착하던 전제에 기댄 admin-dashboard ①·admin-claims ①은 `goto('/admin')` 추가). 구매자 SSR 페이지에 `page.route` mock을 적용하려면 `e2e/helpers/navigation.ts` `gotoClientSide`(Nuxt 라우터 `vueApp.$nuxt.$router.push`)로 클라이언트 내비게이션한다(홈을 먼저 열어 hydration 확보).
+- `captured.*Queries.at(-1)`는 응답 의존 DOM 단언 뒤 또는 `expect.poll`로만 읽는다.
+- 데모 버튼은 데모 검증 케이스 3건(admin-shell ⑥·seller-shell ⑤·password-change ③)에서만 클릭한다. 새 spec은 `loginAs`.
+- 트랩: (1) **쿠키를 먼저 심으면 `/login`이 SSR 단계에서 `navigateTo(redirect)`로 리다이렉트**해 대상 페이지가 SSR 렌더(useFetch가 컨테이너→BE)되고 `page.route` mock이 적용되지 않는다 → `gotoClientSide` 헬퍼로 우회(claims.spec 6곳). (2) **`toHaveURL`은 내비게이션만 보장하고 API 도착은 보장하지 않는다** — `--workers=2`가 가려주던 레이스가 기본 워커 8에서 간헐 노출(4회 중 1회). (3) **컨테이너 재시작 직후 최초 1회 전량 실행은 콜드 로드(Vite dev 첫 컴파일)로 각 spec ①의 첫 `toHaveCount`(5s)가 0으로 다수 실패**(2세션 모두 재현·7~10건) → 2회차부터 정상. (4) 헬퍼 도입 후에도 `secure:true` 쿠키는 `http://localhost`에서 저장·전송됨(Chromium 보안 문맥 취급·실측).
+- 검증(실측·컨테이너 pnpm): typecheck 0 · vitest 64 files 428 불변 · Playwright 전량 **74/74(73 + 구매자 데모 1) · 기본 워커 8 · 1.2분**(기준선 정찰: `--workers=2` 3.6분 · 71/73) · `--workers=2` 비교 74/74 2.6분 · 429 0건 · 레이스 전환 후 재시작 → 콜드 1회 → **웜 3회 연속 74/74**. 제품 코드(app·layers) 무변경.
+- 신규 의존성: 없음.
+
+### 외부 검토
+- **C 생략** — 테스트·config·env·README 전용·제품 코드 무변경.
+
+### §8 이월
+- 컨테이너 재시작 직후 콜드 로드 실패(워밍업 goto 1회 또는 각 spec ① 첫 로드 expect timeout 상향).
+- admin-settlements ① `networkidle` 30s 플레이크(STEP 557 기록·이번 4회 실행에선 미발생).
+- 로컬 DB seller 6 PENDING 잔재(89-G 라이브 검증) 정리.
+- CI에 Playwright 미포함(FE-15 STEP4 이월분·정찰에서 재확인·러너 4 vCPU=워커 2).
+- storageState(setup project·로그인 API 역할당 1회) — β-2·필요 시 β-1 위에 후속.

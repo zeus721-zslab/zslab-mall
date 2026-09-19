@@ -1,7 +1,8 @@
 import { test, expect, type Page } from '@playwright/test'
+import { loginAs } from './helpers/login'
 
 /**
- * 관리자 회원 관리(Track 84 FE) E2E. 로그인은 데모 버튼(NUXT_ADMIN_DEMO_* 주입 환경·미주입 시 skip), 회원·주문·클레임 API는 page.route로
+ * 관리자 회원 관리(Track 84 FE) E2E. 로그인은 공용 헬퍼 loginAs(ADMIN_E2E_* 주입·미주입 시 skip), 회원·주문·클레임 API는 page.route로
  * mock해 로컬 DB를 바꾸지 않고 결정적으로 검증한다(목록 렌더·검색→URL→API 파라미터·빈 상태·에러 재시도·탈퇴회원 탈퇴일 컬럼·상세·탭 파라미터·
  * 수정·등급 변경·탈퇴 409·임시 비밀번호 204/502·탈퇴 회원 액션 비활성).
  */
@@ -103,15 +104,6 @@ async function mockMemberApi(page: Page, options: { listStatus?: number; withdra
   return captured
 }
 
-async function loginByDemo(page: Page): Promise<void> {
-  await page.goto('/admin/login')
-  await page.waitForLoadState('networkidle')
-  const demoButton = page.getByTestId('admin-demo-login')
-  test.skip((await demoButton.count()) === 0, 'NUXT_ADMIN_DEMO_EMAIL/PASSWORD 미주입 — 데모 버튼 없음')
-  await demoButton.click()
-  await page.waitForURL(/\/admin$/)
-}
-
 async function gotoMembers(page: Page, path = '/admin/members'): Promise<void> {
   // /admin/** 은 CSR 전용이라 사이드바 이동 대신 goto 후 목록 API 응답을 기다린다.
   await page.goto(path)
@@ -121,7 +113,7 @@ async function gotoMembers(page: Page, path = '/admin/members'): Promise<void> {
 test.describe('관리자 회원 관리(Track 84)', () => {
   test('① 목록 렌더(번호 역순·최종구매일 -)·검색 → URL·API 파라미터(status ACTIVE·keyword)·빈 상태 문구·초기화', async ({ page }) => {
     const captured = await mockMemberApi(page)
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
     await gotoMembers(page)
     await expect(page.getByTestId('admin-member-table')).toBeVisible()
     await expect(page.getByTestId('row-name')).toHaveCount(2)
@@ -145,7 +137,7 @@ test.describe('관리자 회원 관리(Track 84)', () => {
 
   test('② 목록 에러 → 다시 시도로 복구 / 탈퇴회원 목록은 status WITHDRAWN·탈퇴일 컬럼', async ({ page }) => {
     const captured = await mockMemberApi(page, { listStatus: 500 })
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
     await gotoMembers(page)
     await expect(page.getByTestId('admin-member-error')).toBeVisible()
     captured.listFail = false
@@ -160,7 +152,7 @@ test.describe('관리자 회원 관리(Track 84)', () => {
 
   test('③ 상세 렌더(정보·등급·배송지) → 탭 전환 요청 파라미터(buyerPublicId·type)·URL tab·교환 빈 상태 → 주문번호 클릭 → 주문 상세(back=회원 상세)', async ({ page }) => {
     const captured = await mockMemberApi(page)
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
     await gotoMembers(page)
     await page.getByTestId('row-open').first().click()
     await page.waitForURL((url) => url.pathname === `/admin/members/${MEMBER_A}`)
@@ -192,7 +184,7 @@ test.describe('관리자 회원 관리(Track 84)', () => {
 
   test('④ 정보 수정(형식 오류 → 저장 안 됨·정상 → PATCH body·재조회) / 등급 변경(PUT body·과거 날짜 오류)', async ({ page }) => {
     const captured = await mockMemberApi(page)
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
     await gotoMembers(page, `/admin/members/${MEMBER_A}`)
     await expect(page.getByTestId('member-name')).toHaveText('E2E회원A')
 
@@ -225,7 +217,7 @@ test.describe('관리자 회원 관리(Track 84)', () => {
 
   test('⑤ 탈퇴 409 → 문구 토스트·상세 유지 / 임시 비밀번호 발급 204 → 성공 토스트 / 502 → 실패 문구', async ({ page }) => {
     await mockMemberApi(page, { withdrawStatus: 409, resetStatus: 502 })
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
     await gotoMembers(page, `/admin/members/${MEMBER_A}`)
     await page.getByTestId('action-withdraw').click()
     // STEP 498: 셀러 소속 경고(마지막 활성 구성원 → 2줄·강조)·확인 버튼은 활성(차단 아님)
@@ -251,7 +243,7 @@ test.describe('관리자 회원 관리(Track 84)', () => {
 
   test('⑥ 탈퇴 회원 상세 → 안내 + 액션 4종 비활성 / 연락처 없는 회원 → 발급 버튼 비활성 + 안내·변경 필요 chip / 미존재 → 404 화면·목록 이동', async ({ page }) => {
     await mockMemberApi(page)
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
     await gotoMembers(page, `/admin/members/${MEMBER_W}?back=${encodeURIComponent('/admin/members/withdrawn')}`)
     await expect(page.getByTestId('member-withdrawn-notice')).toBeVisible()
     for (const action of ['action-edit', 'action-withdraw', 'action-reset-password', 'action-grade']) {

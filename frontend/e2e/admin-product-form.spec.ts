@@ -1,7 +1,8 @@
 import { test, expect, type Page } from '@playwright/test'
+import { loginAs } from './helpers/login'
 
 /**
- * 관리자 상품 등록·수정(FE-26) E2E. 데모 로그인 + 상품/업로드 API page.route mock(로컬 DB 무변경·결정적).
+ * 관리자 상품 등록·수정(FE-26) E2E. 공용 헬퍼 loginAs(ADMIN_E2E_* 주입·미주입 시 skip) + 상품/업로드 API page.route mock(로컬 DB 무변경·결정적).
  * ① 등록(기본·이미지 업로드 mock·옵션 조합) → 호출 순서·목록 복귀(query 보존) ② 수정 로드·변경·저장 ③ 등록 2단계 실패 → 수정 화면 전환·안내
  * ④ 미저장 이탈 경고 ⑤ 이미지 정렬(드래그)·대표 변경 ⑥ 409 조합 안내.
  */
@@ -65,21 +66,12 @@ async function mockApi(page: Page, options: { failImages?: boolean; variantsConf
   return captured
 }
 
-async function loginByDemo(page: Page): Promise<void> {
-  await page.goto('/admin/login')
-  await page.waitForLoadState('networkidle')
-  const demoButton = page.getByTestId('admin-demo-login')
-  test.skip((await demoButton.count()) === 0, 'NUXT_ADMIN_DEMO_EMAIL/PASSWORD 미주입 — 데모 버튼 없음')
-  await demoButton.click()
-  await page.waitForURL(/\/admin$/)
-}
-
 const PNG_1X1 = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64')
 
 test.describe('관리자 상품 등록·수정(FE-26)', () => {
   test('① 등록: 기본정보·이미지 업로드(mock)·옵션 2값 조합 → POST→PUT images→PUT variants 순서·목록 복귀(back query 보존)', async ({ page }) => {
     const captured = await mockApi(page)
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
     await page.goto('/admin/products/new?back=%2Fadmin%2Fproducts%3Fstatus%3DSALE')
     await expect(page.getByTestId('section-basic')).toBeVisible()
 
@@ -123,7 +115,7 @@ test.describe('관리자 상품 등록·수정(FE-26)', () => {
 
   test('② 수정: 상세 로드(셀러 읽기 전용·조합 1행·이미지 2장) → 이름·재고 변경 → PUT basic→images→variants→adjust(delta +4)', async ({ page }) => {
     const captured = await mockApi(page)
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
     await page.goto(`/admin/products/${DETAIL.productPublicId}?back=%2Fadmin%2Fproducts%3Fpage%3D1`)
     await expect(page.getByTestId('field-seller-readonly').locator('input')).toHaveValue('E2E셀러')
     await expect(page.getByTestId('status-chip')).toHaveText('판매중')
@@ -146,7 +138,7 @@ test.describe('관리자 상품 등록·수정(FE-26)', () => {
 
   test('③ 등록 2단계(images) 실패 → danger 토스트·수정 화면으로 전환(partial 안내)·재등록 없음', async ({ page }) => {
     const captured = await mockApi(page, { failImages: true })
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
     await page.goto('/admin/products/new')
     await page.getByTestId('field-seller').click()
     await page.getByRole('option', { name: 'E2E셀러' }).click()
@@ -165,7 +157,7 @@ test.describe('관리자 상품 등록·수정(FE-26)', () => {
 
   test('④ 미저장 이탈 경고: 변경 후 목록으로 → confirm 취소 시 잔류·확인 시 이동 / 변경 없으면 경고 없음', async ({ page }) => {
     await mockApi(page)
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
     await page.goto(`/admin/products/${DETAIL.productPublicId}`)
     await expect(page.getByTestId('field-name').locator('input')).toHaveValue('E2E 옵션 상품')
     await page.getByTestId('field-name').locator('input').fill('바뀜')
@@ -182,7 +174,7 @@ test.describe('관리자 상품 등록·수정(FE-26)', () => {
 
   test('⑤ 이미지: 대표 변경(별) → 두 번째가 대표·첫 번째 해제 / 드래그 정렬 → 순서 반전 → 저장 images 본문 순서', async ({ page }) => {
     const captured = await mockApi(page)
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
     await page.goto(`/admin/products/${DETAIL.productPublicId}`)
     const cards = page.getByTestId('image-section-GALLERY').getByTestId('image-card')
     await expect(cards).toHaveCount(2)
@@ -209,7 +201,7 @@ test.describe('관리자 상품 등록·수정(FE-26)', () => {
 
   test('⑥ 수정 저장 시 variants 409 조합 중복 → warning 토스트 "삭제된 조합은 다시 만들 수 없습니다" + 실패 단계 표시·화면 잔류', async ({ page }) => {
     await mockApi(page, { variantsConflict: true })
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
     await page.goto(`/admin/products/${DETAIL.productPublicId}`)
     await expect(page.getByTestId('variant-row')).toHaveCount(1)
     const values = page.getByTestId('option-group-values').locator('input')
@@ -223,7 +215,7 @@ test.describe('관리자 상품 등록·수정(FE-26)', () => {
 
   test('⑧ 입력 컴포넌트 통일: 같은 행 필드 높이 동일(셀러 autocomplete=카테고리 select·판매가=공급가)·textarea도 outlined', async ({ page }) => {
     await mockApi(page)
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
     await page.goto('/admin/products/new')
     await expect(page.getByTestId('field-seller')).toBeVisible()
     const field = (testId: string) => page.getByTestId(testId).locator('.v-field').first()
@@ -243,7 +235,7 @@ test.describe('관리자 상품 등록·수정(FE-26)', () => {
 
   test('⑨ 수정: 값 추가 → 신규 조합 "제외" 체크 → 저장 variants 요청에 미포함(기존 행만)·전 행 제외 시 등록 검증 에러', async ({ page }) => {
     const captured = await mockApi(page)
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
     await page.goto(`/admin/products/${DETAIL.productPublicId}`)
     await expect(page.getByTestId('variant-row')).toHaveCount(1)
     await expect(page.getByTestId('variant-exclude')).toHaveCount(0) // 기존 행에는 제외 체크 없음
@@ -273,7 +265,7 @@ test.describe('관리자 상품 등록·수정(FE-26)', () => {
   test('⑦ 모바일(390): 등록 화면 렌더·드롭존·조합표 가로 스크롤', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
     await mockApi(page)
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
     await page.goto('/admin/products/new')
     await expect(page.getByTestId('dropzone-GALLERY')).toBeVisible()
     await page.waitForTimeout(400)

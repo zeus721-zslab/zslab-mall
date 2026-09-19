@@ -1,8 +1,9 @@
 import { test, expect, type Page } from '@playwright/test'
+import { loginAs } from './helpers/login'
 
 /**
  * 셀러 셸(Track 90-A·Vuetify 자체 인스턴스) 스모크. 셀러 자격증명은 env(SELLER_E2E_EMAIL/SELLER_E2E_PASSWORD)로만 받고 미설정 시 해당 케이스만 skip한다.
- * 컨테이너 dev 서버(:3000) 기준. ①·②·⑥은 자격증명 불필요, ③·④는 셀러 계정, ⑤는 데모 라우트(env NUXT_SELLER_DEMO_*), ⑥은 데모 buyer 사용.
+ * 컨테이너 dev 서버(:3000) 기준. ①·②는 자격증명 불필요, ③·④는 셀러 계정(폼 로그인), ⑤는 데모 라우트(env NUXT_SELLER_DEMO_*), ⑥의 구매자 세션은 공용 헬퍼 loginAs(BUYER_E2E_*)로 심는다.
  */
 const SELLER_EMAIL = process.env.SELLER_E2E_EMAIL
 const SELLER_PASSWORD = process.env.SELLER_E2E_PASSWORD
@@ -121,12 +122,10 @@ test.describe('셀러 데모 로그인', () => {
 
 test.describe('셀러 셸 — 세션 격리', () => {
   test('⑥ BUYER 세션으로 /seller 접근 → /seller/login 도착·auth_token 유지·seller_token 없음·뒤로가기 시 Vuetify 시트 0', async ({ page, context }) => {
-    await page.goto('/login')
+    await loginAs(page, 'BUYER')
+    // 뒤로가기 검증을 위해 사용자 페이지를 히스토리에 먼저 둔다
+    await page.goto('/')
     await page.waitForLoadState('networkidle')
-    const buyerDemoButton = page.getByRole('button', { name: '데모 계정으로 둘러보기' })
-    test.skip((await buyerDemoButton.count()) === 0, 'NUXT_BUYER_DEMO_EMAIL/PASSWORD 미주입 — 구매자 데모 버튼 없음')
-    await buyerDemoButton.click()
-    await page.waitForURL((url) => !url.pathname.startsWith('/login'))
     await page.goto('/seller')
     await page.waitForURL(/\/seller\/login/)
     await page.waitForLoadState('networkidle')

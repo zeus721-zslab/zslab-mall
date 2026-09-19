@@ -1,26 +1,18 @@
 import { test, expect, type Page } from '@playwright/test'
+import { loginAs } from './helpers/login'
 
 /**
- * 관리자 매출 통계(FE-34) 스모크. 로그인은 데모 버튼(NUXT_ADMIN_DEMO_* 주입 환경·미주입 시 skip), 통계 API는 실 BE(D-181)를 호출한다.
+ * 관리자 매출 통계(FE-34) 스모크. 로그인은 공용 헬퍼 loginAs(ADMIN_E2E_* 주입·미주입 시 skip), 통계 API는 실 BE(D-181)를 호출한다.
  * 진입(기본 30일·카테고리) → 기간 프리셋·단위·비교 변경(URL 반영) → 축 전환(셀러) → 드릴다운(상품·브레드크럼) → 복귀 → 기간 역전 검증.
  * CSV는 blob 다운로드 이벤트를 잡아 파일명만 확인한다. 데이터 유무와 무관하게 성립하는 단언만 둔다.
  */
-async function loginByDemo(page: Page): Promise<void> {
-  await page.goto('/admin/login')
-  await page.waitForLoadState('networkidle')
-  const demoButton = page.getByTestId('admin-demo-login')
-  test.skip((await demoButton.count()) === 0, 'NUXT_ADMIN_DEMO_EMAIL/PASSWORD 미주입 — 데모 버튼 없음')
-  await demoButton.click()
-  await page.waitForURL(/\/admin$/)
-}
-
 function waitForStats(page: Page, path: string, predicate: (url: string) => boolean = () => true) {
   return page.waitForResponse((response) => response.url().includes(path) && predicate(response.url()) && response.status() === 200)
 }
 
 test.describe('관리자 매출 통계 (FE-34)', () => {
   test('① 진입 → 기간·단위·비교 변경 → 축 전환 → 드릴다운 → 복귀 → 역전 검증 → CSV', async ({ page }) => {
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
 
     const firstSales = waitForStats(page, '/api/v1/admin/stats/sales?')
     const firstBreakdown = waitForStats(page, '/api/v1/admin/stats/sales/breakdown?')

@@ -1,7 +1,8 @@
 import { test, expect, type Page } from '@playwright/test'
+import { loginAs } from './helpers/login'
 
 /**
- * 관리자 취소·반품·교환 목록(FE-28) E2E. 로그인은 데모 버튼(NUXT_ADMIN_DEMO_* 주입 환경·미주입 시 skip), 클레임·주문 API는 page.route로
+ * 관리자 취소·반품·교환 목록(FE-28) E2E. 로그인은 공용 헬퍼 loginAs(ADMIN_E2E_* 주입·미주입 시 skip), 클레임·주문 API는 page.route로
  * mock해 로컬 DB를 바꾸지 않고 결정적으로 검증한다(메뉴 1항목·탭→URL→API type·처리 대기 chip·필터·승인·거부 사유 필수/유형 제한·
  * 주문번호→상세→복귀·1440 가로 스크롤 0). FE-29: 반품 승인 행의 회수 확인·검수(PASS 재입고 / FAIL 사유·재발송 송장) 액션·회수/검수 표기.
  */
@@ -126,19 +127,11 @@ async function pickOption(page: Page, testId: string, optionName: string): Promi
   await page.getByRole('option', { name: optionName, exact: true }).click()
 }
 
-async function loginByDemo(page: Page): Promise<void> {
-  await page.goto('/admin/login')
-  await page.waitForLoadState('networkidle')
-  const demoButton = page.getByTestId('admin-demo-login')
-  test.skip((await demoButton.count()) === 0, 'NUXT_ADMIN_DEMO_EMAIL/PASSWORD 미주입 — 데모 버튼 없음')
-  await demoButton.click()
-  await page.waitForURL(/\/admin$/)
-}
-
 test.describe('관리자 취소·반품·교환 목록(FE-28)', () => {
   test('① 사이드바 메뉴 1항목 → 목록 렌더(행 3·유형/상태/환불 chip·처리 대기 2건) → 1440px 가로 스크롤 없음 → 탭 취소 → ?type=CANCEL·API type·대기 1건·새로고침 유지 / 스크린샷', async ({ page }) => {
     const captured = await mockClaimsApi(page)
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
+    await page.goto('/admin')
     await page.setViewportSize({ width: 1440, height: 900 })
     // 메뉴: "취소·반품·교환" 1항목·구 3항목 없음
     await page.getByTestId('admin-sidebar').getByText('주문 관리').click()
@@ -196,7 +189,7 @@ test.describe('관리자 취소·반품·교환 목록(FE-28)', () => {
 
   test('② 승인(확인 다이얼로그 → POST approve → info 토스트 → 재조회) / 거부: 취소 탭은 "이미 발송됨" 있음·반품은 없음·사유 필수 → POST reject body → danger 토스트 / 스크린샷', async ({ page }) => {
     const captured = await mockClaimsApi(page)
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
     await page.goto('/admin/orders/claims')
     await expect(page.getByTestId('row-approve')).toHaveCount(2)
     const listCallsBefore = captured.listQueries.length
@@ -242,7 +235,7 @@ test.describe('관리자 취소·반품·교환 목록(FE-28)', () => {
 
   test('③ 주문번호 클릭 → 주문 상세(?back=클레임 목록 URL) → "목록으로" 복귀 시 탭·필터 유지', async ({ page }) => {
     await mockClaimsApi(page)
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
     await page.goto('/admin/orders/claims?type=CANCEL&status=REQUESTED')
     await expect(page.getByTestId('row-order-no')).toHaveCount(1)
     await page.getByTestId('row-order-no').first().click()
@@ -256,7 +249,7 @@ test.describe('관리자 취소·반품·교환 목록(FE-28)', () => {
 
   test('④ FE-29 반품: 회수 확인(확인 다이얼로그 → POST confirm-pickup → info 토스트 → 재조회) / 검수 PASS 재입고 필수 → body{result,restock} / 검수 FAIL 사유 검수 불합격 고정·재발송 송장 필수 → body / 스크린샷', async ({ page }) => {
     const captured = await mockClaimsApi(page)
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
     await page.goto('/admin/orders/claims?type=RETURN')
     await expect(page.getByTestId('row-confirm-pickup')).toHaveCount(1)
     const listCallsBefore = captured.listQueries.length
@@ -315,7 +308,7 @@ test.describe('관리자 취소·반품·교환 목록(FE-28)', () => {
 
   test('⑤ FE-30 교환: 교환 탭 → 옵션 라벨(빨강 → 파랑)·"교환품 발송"·"배송완료" 버튼 → 발송 다이얼로그(택배사·송장 필수) → POST register-exchange-shipment body → info 토스트 / 배송완료 확인 → POST mark-delivered(reshipment.deliveryPublicId) → info 토스트 / 스크린샷', async ({ page }) => {
     const captured = await mockClaimsApi(page)
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
     await page.goto('/admin/orders/claims?type=EXCHANGE')
     await expect(page.getByTestId('row-status-chip')).toHaveCount(2)
     await expect(page.getByTestId('row-exchange-option')).toHaveCount(2)
@@ -369,13 +362,14 @@ test.describe('관리자 취소·반품·교환 목록(FE-28)', () => {
       const items = refundStatus ? all.filter((item) => 'refundStatus' in item && item.refundStatus === refundStatus) : all
       return route.fulfill({ json: { items, page: 0, size: 20, totalCount: items.length, hasNext: false, pendingCount: 2 } })
     })
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
     await page.goto('/admin/orders/claims')
     await expect(page.getByTestId('row-initiate-refund')).toHaveCount(1)
 
     await pickOption(page, 'filter-refund-status', '환불 실패')
     await expect(page).toHaveURL(/refundStatus=FAILED/)
-    expect(captured.listQueries.at(-1)!.get('refundStatus')).toBe('FAILED')
+    // toHaveURL은 내비게이션만 보장하고 API 도착은 보장하지 않는다 → 목록 호출이 기록될 때까지 poll
+    await expect.poll(() => captured.listQueries.at(-1)!.get('refundStatus')).toBe('FAILED')
     await expect(page.getByTestId('row-initiate-refund')).toHaveCount(1)
 
     const postsBefore = captured.posts.length

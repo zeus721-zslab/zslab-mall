@@ -1,7 +1,8 @@
 import { test, expect, type Page } from '@playwright/test'
+import { loginAs } from './helpers/login'
 
 /**
- * 관리자 배송 관리(FE-37·Track 89-B) E2E 스모크. 로그인은 데모 버튼(NUXT_ADMIN_DEMO_* 주입 환경·미주입 시 skip), 배송 API는 page.route로
+ * 관리자 배송 관리(FE-37·Track 89-B) E2E 스모크. 로그인은 공용 헬퍼 loginAs(ADMIN_E2E_* 주입·미주입 시 skip), 배송 API는 page.route로
  * mock해 로컬 DB를 바꾸지 않고 결정적으로 검증한다(진입 → 조회 범위 필터 → URL·API 파라미터 → 행 클릭 상세 → 송장 수정 다이얼로그 노출까지.
  * PATCH는 호출하지 않는다).
  */
@@ -44,15 +45,6 @@ async function mockAdminApi(page: Page): Promise<Captured> {
   return captured
 }
 
-async function loginByDemo(page: Page): Promise<void> {
-  await page.goto('/admin/login')
-  await page.waitForLoadState('networkidle')
-  const demoButton = page.getByTestId('admin-demo-login')
-  test.skip((await demoButton.count()) === 0, 'NUXT_ADMIN_DEMO_EMAIL/PASSWORD 미주입 — 데모 버튼 없음')
-  await demoButton.click()
-  await page.waitForURL(/\/admin$/)
-}
-
 /** Vuetify select: 활성화 후 옵션 클릭. */
 async function pickOption(page: Page, testId: string, optionName: string): Promise<void> {
   await page.getByTestId(testId).click()
@@ -62,7 +54,7 @@ async function pickOption(page: Page, testId: string, optionName: string): Promi
 test.describe('관리자 배송 관리(FE-37)', () => {
   test('① 진입(원 발송 2행·상태 chip) → 조회 범위 RETURN 필터(URL·API scope·회수/반품 배지) → 전체 → 행 클릭 상세 → 송장 수정 다이얼로그 노출(DELIVERED는 비활성·PATCH 0)', async ({ page }) => {
     const captured = await mockAdminApi(page)
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
     await page.setViewportSize({ width: 1440, height: 900 })
     await page.goto('/admin/orders/deliveries')
 

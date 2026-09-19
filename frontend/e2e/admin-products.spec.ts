@@ -1,7 +1,8 @@
 import { test, expect, type Page } from '@playwright/test'
+import { loginAs } from './helpers/login'
 
 /**
- * 관리자 상품 목록(FE-25) E2E. 로그인은 데모 버튼(NUXT_ADMIN_DEMO_* 주입 환경·미주입 시 skip), 상품 API는 page.route로 mock해
+ * 관리자 상품 목록(FE-25) E2E. 로그인은 공용 헬퍼 loginAs(ADMIN_E2E_* 주입·미주입 시 skip), 상품 API는 page.route로 mock해
  * 로컬 DB를 바꾸지 않고 결정적으로 검증한다(목록 렌더·필터→URL→새로고침 유지·품절 토글·일괄 결과·삭제 409 안내).
  */
 const ITEMS = [
@@ -58,19 +59,10 @@ async function mockAdminApi(page: Page, options: { deleteStatus?: number } = {})
   return captured
 }
 
-async function loginByDemo(page: Page): Promise<void> {
-  await page.goto('/admin/login')
-  await page.waitForLoadState('networkidle')
-  const demoButton = page.getByTestId('admin-demo-login')
-  test.skip((await demoButton.count()) === 0, 'NUXT_ADMIN_DEMO_EMAIL/PASSWORD 미주입 — 데모 버튼 없음')
-  await demoButton.click()
-  await page.waitForURL(/\/admin$/)
-}
-
 test.describe('관리자 상품 목록(FE-25)', () => {
   test('① 목록 렌더(행 2·상태 chip·품절 표시·판매기간) → 상태 필터 적용 시 URL 반영·새로고침 후 필터 유지·API 파라미터 전달', async ({ page }) => {
     const captured = await mockAdminApi(page)
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
     await page.goto('/admin/products')
     await expect(page.getByTestId('status-chip')).toHaveCount(2)
     await expect(page.getByTestId('soldout-chip').nth(1)).toHaveText('품절(재고)')
@@ -91,7 +83,7 @@ test.describe('관리자 상품 목록(FE-25)', () => {
 
   test('② 수동 품절 토글 ON → danger 토스트·chip danger / OFF → success 토스트·chip success (PATCH soldout 호출)', async ({ page }) => {
     const captured = await mockAdminApi(page)
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
     await page.goto('/admin/products')
     await expect(page.getByTestId('status-chip')).toHaveCount(2)
     // 초기 chip 의미 색: 판매중=success·판매대기=warning / 재고 있음=success·품절(재고)=danger
@@ -126,7 +118,7 @@ test.describe('관리자 상품 목록(FE-25)', () => {
 
   test('③ 전체 선택 → 일괄 상태 적용 → 확인 → 스낵바 성공 1/실패 1 + 결과 다이얼로그 실패 사유', async ({ page }) => {
     const captured = await mockAdminApi(page)
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
     await page.goto('/admin/products')
     await expect(page.getByTestId('status-chip')).toHaveCount(2)
     await page.getByTestId('admin-product-table').locator('thead input[type="checkbox"]').click({ force: true })
@@ -147,7 +139,7 @@ test.describe('관리자 상품 목록(FE-25)', () => {
 
   test('④ 삭제 → 409 PRODUCT_HAS_ORDER_HISTORY → 안내 다이얼로그 + "판매중지로 전환" 버튼 / 허용되지 않는 전이 메뉴 비활성 / 500 → error 토스트', async ({ page }) => {
     await mockAdminApi(page, { deleteStatus: 409 })
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
     await page.goto('/admin/products')
     await expect(page.getByTestId('status-chip')).toHaveCount(2)
     await page.getByTestId('row-menu').first().click()
@@ -177,7 +169,7 @@ test.describe('관리자 상품 목록(FE-25)', () => {
   test('⑤ 모바일(390): 토스트가 상단 전폭으로 표시된다', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
     await mockAdminApi(page)
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
     await page.goto('/admin/products')
     await expect(page.getByTestId('status-chip')).toHaveCount(2)
     await page.getByTestId('soldout-toggle').first().locator('input').click({ force: true })
@@ -191,14 +183,15 @@ test.describe('관리자 상품 목록(FE-25)', () => {
 
   test('⑥ 재고 필터(Track 89-A): select 적용 시 URL·API stockFilter 전달 → 대시보드 "재고 임박" 타일 클릭 시 stockFilter=LOW로 진입', async ({ page }) => {
     const captured = await mockAdminApi(page)
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
     await page.goto('/admin/products')
     await expect(page.getByTestId('status-chip')).toHaveCount(2)
 
     await page.getByTestId('filter-stock').click()
     await page.getByRole('option', { name: '재고 0', exact: true }).click()
     await expect(page).toHaveURL(/stockFilter=OUT/)
-    expect(captured.listQueries.at(-1)?.get('stockFilter')).toBe('OUT')
+    // toHaveURL은 내비게이션만 보장하고 API 도착은 보장하지 않는다 → 목록 호출이 기록될 때까지 poll
+    await expect.poll(() => captured.listQueries.at(-1)?.get('stockFilter')).toBe('OUT')
 
     // 대시보드 타일(실 BE dashboard 응답)은 카운트와 무관하게 링크가 있어야 하고, 클릭하면 상품 목록 LOW 필터가 URL·select에 반영된다
     await page.goto('/admin')
@@ -207,6 +200,6 @@ test.describe('관리자 상품 목록(FE-25)', () => {
     await tile.click()
     await expect(page).toHaveURL(/\/admin\/products\?stockFilter=LOW$/)
     await expect(page.getByTestId('filter-stock')).toContainText('재고 임박(1~5)')
-    expect(captured.listQueries.at(-1)?.get('stockFilter')).toBe('LOW')
+    await expect.poll(() => captured.listQueries.at(-1)?.get('stockFilter')).toBe('LOW')
   })
 })

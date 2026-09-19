@@ -1,25 +1,17 @@
 import { test, expect, type Page } from '@playwright/test'
+import { loginAs } from './helpers/login'
 
 /**
- * 관리자 주문·클레임 통계 / 회원 통계(FE-35) 스모크. 로그인은 데모 버튼(NUXT_ADMIN_DEMO_* 주입 환경·미주입 시 skip), 통계 API는 실 BE(D-182)를 호출한다.
+ * 관리자 주문·클레임 통계 / 회원 통계(FE-35) 스모크. 로그인은 공용 헬퍼 loginAs(ADMIN_E2E_* 주입·미주입 시 skip), 통계 API는 실 BE(D-182)를 호출한다.
  * 데이터 유무와 무관하게 성립하는 단언만 둔다(퍼널 4단계·소요시간 카드 3·차트 SVG·분포 카드·요약 카드 6·등급 3행·상위 회원 표). 탭 간 이동 1케이스 포함.
  */
-async function loginByDemo(page: Page): Promise<void> {
-  await page.goto('/admin/login')
-  await page.waitForLoadState('networkidle')
-  const demoButton = page.getByTestId('admin-demo-login')
-  test.skip((await demoButton.count()) === 0, 'NUXT_ADMIN_DEMO_EMAIL/PASSWORD 미주입 — 데모 버튼 없음')
-  await demoButton.click()
-  await page.waitForURL(/\/admin$/)
-}
-
 function waitForStats(page: Page, path: string, predicate: (url: string) => boolean = () => true) {
   return page.waitForResponse((response) => response.url().includes(path) && predicate(response.url()) && response.status() === 200)
 }
 
 test.describe('관리자 주문·클레임 / 회원 통계 (FE-35)', () => {
   test('① 주문·클레임 통계: 진입 → 퍼널·소요시간·추이·분포 렌더 → 단위·비교 변경(URL) → 역전 검증 → 탭으로 회원 통계 이동', async ({ page }) => {
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
 
     const first = waitForStats(page, '/api/v1/admin/stats/orders?')
     await page.goto('/admin/stats/orders')
@@ -81,7 +73,7 @@ test.describe('관리자 주문·클레임 / 회원 통계 (FE-35)', () => {
   })
 
   test('② 회원 통계: 진입 → 요약 카드 6·가입 추이 차트·등급 3행·분리·상위 회원 표 → 탭으로 매출 통계 이동', async ({ page }) => {
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
 
     const first = waitForStats(page, '/api/v1/admin/stats/members?')
     await page.goto('/admin/stats/members')
