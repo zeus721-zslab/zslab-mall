@@ -45,9 +45,13 @@ import com.zslab.mall.product.enums.ProductVariantStatus;
 import com.zslab.mall.product.repository.ProductRepository;
 import com.zslab.mall.product.repository.ProductVariantRepository;
 import com.zslab.mall.product.service.OptionLabelResolver;
+import com.zslab.mall.seller.entity.Seller;
+import com.zslab.mall.seller.enums.SellerStatus;
+import com.zslab.mall.seller.repository.SellerRepository;
 import com.zslab.mall.settlement.service.CommissionRateResolver;
 import com.zslab.mall.settlement.service.CommissionRateResolver.CommissionRateKey;
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -58,6 +62,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 import org.springframework.test.util.ReflectionTestUtils;
 
 /**
@@ -82,6 +88,7 @@ class CheckoutServiceTest {
     @Mock private OrderIdempotencyKeyRepository idempotencyRepository;
     @Mock private OptionLabelResolver optionLabelResolver;
     @Mock private CommissionRateResolver commissionRateResolver;
+    @Mock private SellerRepository sellerRepository;
 
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
@@ -91,7 +98,22 @@ class CheckoutServiceTest {
     void setUp() {
         checkoutService = new CheckoutService(orderService, paymentService, orderRepository,
                 productRepository, productVariantRepository, inventoryRepository, idempotencyRepository, objectMapper,
-                optionLabelResolver, commissionRateResolver);
+                optionLabelResolver, commissionRateResolver, sellerRepository);
+        // Track 89-D: 기본 스텁은 요청된 판매자 전부 ACTIVE(판매자 선검사 통과). 비-ACTIVE 분기는 개별 테스트가 덮어쓴다.
+        stubSellers(SellerStatus.ACTIVE);
+    }
+
+    /** 판매자 ACTIVE 선검사(Track 89-D) 스텁 — findByIdIn으로 요청된 id마다 지정 status의 Seller mock을 돌려준다. */
+    @SuppressWarnings("unchecked")
+    private void stubSellers(SellerStatus status) {
+        // when(mock.call(any()))는 재스텁 시 이전 Answer를 null 인자로 실행하므로 doAnswer 형식을 쓴다.
+        lenient().doAnswer(invocation ->
+                ((Collection<Long>) invocation.getArgument(0)).stream().map(id -> {
+                    Seller seller = org.mockito.Mockito.mock(Seller.class);
+                    lenient().when(seller.getId()).thenReturn(id);
+                    lenient().when(seller.getStatus()).thenReturn(status);
+                    return seller;
+                }).toList()).when(sellerRepository).findByIdIn(any());
     }
 
     private CheckoutCommand command(String idempotencyKey) {
@@ -297,6 +319,28 @@ class CheckoutServiceTest {
     }
 
     @Test
+    @DisplayName("retry: 판매자 PENDING(비-ACTIVE) → 422 ORDER_NOT_PAYABLE(PRODUCT_NOT_ON_SALE)·initiate 미호출(Track 89-D)")
+    void retry_sellerNotActive_throws422() {
+        OrderItem item = OrderItem.create(10L, 20L, 99L, "테스트 상품", 2, 5_000L, 10_000L, 1000);
+        when(orderRepository.findByPublicIdWithItems("ord_1")).thenReturn(Optional.of(order(1L, "ord_1", item)));
+        Product product = org.mockito.Mockito.mock(Product.class);
+        when(product.getId()).thenReturn(10L);
+        lenient().when(product.getSellerId()).thenReturn(99L);
+        lenient().when(product.getStatus()).thenReturn(ProductStatus.SALE);
+        lenient().when(product.isWithinSalePeriod(any())).thenReturn(true);
+        when(productRepository.findByIdIn(any())).thenReturn(List.of(product));
+        when(productVariantRepository.findByIdIn(any())).thenReturn(List.of());
+        when(inventoryRepository.findByVariantIdIn(any())).thenReturn(List.of());
+        stubSellers(SellerStatus.PENDING);
+
+        assertThatThrownBy(() -> checkoutService.retryPayment("ord_1", BUYER_ID, PaymentMethod.CARD))
+                .isInstanceOf(OrderNotPayableException.class)
+                .extracting(ex -> ((OrderNotPayableException) ex).getReason())
+                .isEqualTo(OrderNotPayableReason.PRODUCT_NOT_ON_SALE);
+        verify(paymentService, never()).initiate(anyString(), any(), any());
+    }
+
+    @Test
     @DisplayName("retry: 재고 부족 → 422 ORDER_NOT_PAYABLE(OUT_OF_STOCK)")
     void retry_outOfStock_throws422() {
         OrderItem item = OrderItem.create(10L, 20L, 99L, "테스트 상품", 2, 5_000L, 10_000L, 1000);
@@ -406,6 +450,52 @@ class CheckoutServiceTest {
     }
 
     @Test
+    @DisplayName("checkout(직접주문): 판매자 SUSPENDED → 422 PRODUCT_NOT_ON_SALE·재고 조회·createOrder 미호출(Track 89-D)")
+    // 판매자 선검사가 판매 상태·재고 스텁보다 먼저 차단해 기존 픽스처 스텁이 미사용이 되므로 이 케이스만 lenient.
+    @MockitoSettings(strictness = Strictness.LENIENT)
+    void checkout_directOrder_sellerSuspended_throws422() {
+        stubProductResolution(10_000L, 0L, 99L, ProductStatus.SALE, ProductVariantStatus.SALE, false);
+        stubSellers(SellerStatus.SUSPENDED);
+
+        assertThatThrownBy(() -> checkoutService.checkout(command(null)))
+                .isInstanceOf(OrderNotPayableException.class)
+                .extracting(ex -> ((OrderNotPayableException) ex).getReason())
+                .isEqualTo(OrderNotPayableReason.PRODUCT_NOT_ON_SALE);
+        verify(inventoryRepository, never()).findByVariantIdIn(any());
+        verify(orderService, never()).createOrder(any());
+    }
+
+    @Test
+    @DisplayName("checkout(CartCheckoutCommand): 판매자 TERMINATED(담은 뒤 종료) → 422 PRODUCT_NOT_ON_SALE·createOrder 미호출(Track 89-D)")
+    // 판매자 선검사가 판매 상태·재고 스텁보다 먼저 차단해 기존 픽스처 스텁이 미사용이 되므로 이 케이스만 lenient.
+    @MockitoSettings(strictness = Strictness.LENIENT)
+    void checkout_cartInternalId_sellerTerminated_throws422() {
+        stubInternalResolution(10_000L, 0L, 99L);
+        stubSellers(SellerStatus.TERMINATED);
+
+        assertThatThrownBy(() -> checkoutService.checkout(cartCommand(20L, 2)))
+                .isInstanceOf(OrderNotPayableException.class)
+                .extracting(ex -> ((OrderNotPayableException) ex).getReason())
+                .isEqualTo(OrderNotPayableReason.PRODUCT_NOT_ON_SALE);
+        verify(orderService, never()).createOrder(any());
+    }
+
+    @Test
+    @DisplayName("checkout(직접주문): 판매자 soft-delete(findByIdIn 미해소) → 422 PRODUCT_NOT_ON_SALE(Track 89-D·fail-closed)")
+    // 판매자 선검사가 판매 상태·재고 스텁보다 먼저 차단해 기존 픽스처 스텁이 미사용이 되므로 이 케이스만 lenient.
+    @MockitoSettings(strictness = Strictness.LENIENT)
+    void checkout_directOrder_sellerMissing_throws422() {
+        stubProductResolution(10_000L, 0L, 99L, ProductStatus.SALE, ProductVariantStatus.SALE, false);
+        lenient().doReturn(List.of()).when(sellerRepository).findByIdIn(any());
+
+        assertThatThrownBy(() -> checkoutService.checkout(command(null)))
+                .isInstanceOf(OrderNotPayableException.class)
+                .extracting(ex -> ((OrderNotPayableException) ex).getReason())
+                .isEqualTo(OrderNotPayableReason.PRODUCT_NOT_ON_SALE);
+        verify(orderService, never()).createOrder(any());
+    }
+
+    @Test
     @DisplayName("checkout(CartCheckoutCommand): 상품 STOPPED → 422 PRODUCT_NOT_ON_SALE·createOrder 미호출(Track 71)")
     void checkout_cartInternalId_productStopped_throws422() {
         stubInternalResolution(10_000L, 0L, 99L, ProductStatus.STOPPED, ProductVariantStatus.SALE, false);
@@ -451,6 +541,22 @@ class CheckoutServiceTest {
         stubProductResolution(10_000L, 0L, 99L, ProductStatus.STOPPED, ProductVariantStatus.SALE, false);
 
         assertThatThrownBy(() -> checkoutService.checkout(command("K-STOP")))
+                .isInstanceOf(OrderNotPayableException.class);
+        verify(idempotencyRepository).delete(any(OrderIdempotencyKey.class));
+        verify(orderService, never()).createOrder(any());
+    }
+
+    @Test
+    @DisplayName("checkout(멱등 키): 판매자 SUSPENDED 422 → IN_PROGRESS mark 삭제 후 전파(D-66 catch 포함·동일 키 재시도 허용·외부 검토 지적 4)")
+    @MockitoSettings(strictness = Strictness.LENIENT)
+    void checkout_idempotentKey_sellerSuspended_deletesMark() {
+        when(idempotencyRepository.findByBuyerIdAndIdempotencyKey(BUYER_ID, "K-SELLER")).thenReturn(Optional.empty());
+        when(idempotencyRepository.saveAndFlush(any(OrderIdempotencyKey.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        stubProductResolution(10_000L, 0L, 99L, ProductStatus.SALE, ProductVariantStatus.SALE, false);
+        stubSellers(SellerStatus.SUSPENDED);
+
+        assertThatThrownBy(() -> checkoutService.checkout(command("K-SELLER")))
                 .isInstanceOf(OrderNotPayableException.class);
         verify(idempotencyRepository).delete(any(OrderIdempotencyKey.class));
         verify(orderService, never()).createOrder(any());

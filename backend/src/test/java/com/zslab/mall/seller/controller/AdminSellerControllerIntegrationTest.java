@@ -43,8 +43,12 @@ class AdminSellerControllerIntegrationTest extends AbstractIntegrationTest {
     private static final long NON_ADMIN_USER = 8802L;   // BUYER 토큰 subject(인가 거부 403)
     private static final long OWNER_USER_ID = 8810L;    // 성공 케이스 owner(미소속 user)
     private static final long BOUND_USER_ID = 8811L;    // 기존 seller에 소속된 user(V12·롤백)
-    private static final long MISSING_USER_ID = 8899L;  // 미시드 user(404)
     private static final long EXISTING_SELLER_ID = 8820L; // BOUND_USER가 소속된 기존 seller
+    // Track 89-D: 입점 요청 식별자는 회원 public_id(usr_). 시드 pid 규칙(pid("usr_", tag))과 동일하게 조립한다.
+    private static final String OWNER_USER_PID = pid("usr_", "T37OWN");
+    private static final String BOUND_USER_PID = pid("usr_", "T37BND");
+    private static final String MISSING_USER_PID = pid("usr_", "T37MIS");
+    private static final String EXISTING_BUSINESS_NO = "899-89-00001"; // ⑦ 사업자번호 중복 시드
 
     private static final String NEW_COMPANY = "트랙37신규셀러";      // ① 생성 대상
     private static final String FORBIDDEN_COMPANY = "트랙37금지셀러";  // ② 403·미생성
@@ -52,6 +56,7 @@ class AdminSellerControllerIntegrationTest extends AbstractIntegrationTest {
     private static final String SUSPENDED_COMPANY = "트랙37정지셀러"; // ⑤ 400·미생성
     private static final String ROLLBACK_COMPANY = "트랙37롤백셀러";  // ⑥ 롤백 검증 대상
     private static final String EXISTING_COMPANY = "트랙37기존셀러";  // 기존 seller seed
+    private static final String DUP_BUSINESS_COMPANY = "트랙37사업자중복셀러"; // ⑦ 409·미생성
 
     @Autowired
     private MockMvc mockMvc;
@@ -83,7 +88,7 @@ class AdminSellerControllerIntegrationTest extends AbstractIntegrationTest {
         mockMvc.perform(post(URL)
                         .headers(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(provisionBody(NEW_COMPANY, OWNER_USER_ID, "ACTIVE")))
+                        .content(provisionBody(NEW_COMPANY, OWNER_USER_PID, "ACTIVE")))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.sellerPublicId").exists());
 
@@ -109,7 +114,7 @@ class AdminSellerControllerIntegrationTest extends AbstractIntegrationTest {
         mockMvc.perform(post(URL)
                         .headers(authHeaders.buyer(NON_ADMIN_USER))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(provisionBody(FORBIDDEN_COMPANY, OWNER_USER_ID, "ACTIVE")))
+                        .content(provisionBody(FORBIDDEN_COMPANY, OWNER_USER_PID, "ACTIVE")))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
 
@@ -117,12 +122,12 @@ class AdminSellerControllerIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("③ owner 미존재: 미시드 ownerUserId → 404 USER_NOT_FOUND·seller 미생성(seller INSERT 이전 단락)")
+    @DisplayName("③ owner 미존재: 미시드 ownerUserPublicId → 404 USER_NOT_FOUND·seller 미생성(seller INSERT 이전 단락·Track 89-D publicId 전환)")
     void provision_unknownOwner_returns404() throws Exception {
         mockMvc.perform(post(URL)
                         .headers(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(provisionBody(NEW_COMPANY, MISSING_USER_ID, "ACTIVE")))
+                        .content(provisionBody(NEW_COMPANY, MISSING_USER_PID, "ACTIVE")))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("USER_NOT_FOUND"));
 
@@ -130,7 +135,7 @@ class AdminSellerControllerIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("④ 중복 소속(V12): 이미 다른 seller에 소속된 userId → 409 SELLER_USER_ALREADY_EXISTS")
+    @DisplayName("④ 중복 소속(V12): 이미 다른 seller에 소속된 userPublicId → 409 SELLER_USER_ALREADY_EXISTS")
     void provision_userAlreadyBound_returns409() throws Exception {
         seed(() -> {
             seedUser(BOUND_USER_ID, "T37BND");
@@ -141,7 +146,7 @@ class AdminSellerControllerIntegrationTest extends AbstractIntegrationTest {
         mockMvc.perform(post(URL)
                         .headers(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(provisionBody(DUP_COMPANY, BOUND_USER_ID, "ACTIVE")))
+                        .content(provisionBody(DUP_COMPANY, BOUND_USER_PID, "ACTIVE")))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("SELLER_USER_ALREADY_EXISTS"));
     }
@@ -155,7 +160,7 @@ class AdminSellerControllerIntegrationTest extends AbstractIntegrationTest {
         mockMvc.perform(post(URL)
                         .headers(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(provisionBody(SUSPENDED_COMPANY, OWNER_USER_ID, "SUSPENDED")))
+                        .content(provisionBody(SUSPENDED_COMPANY, OWNER_USER_PID, "SUSPENDED")))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
 
@@ -175,11 +180,31 @@ class AdminSellerControllerIntegrationTest extends AbstractIntegrationTest {
         mockMvc.perform(post(URL)
                         .headers(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(provisionBody(ROLLBACK_COMPANY, BOUND_USER_ID, "ACTIVE")))
+                        .content(provisionBody(ROLLBACK_COMPANY, BOUND_USER_PID, "ACTIVE")))
                 .andExpect(status().isConflict());
 
         // 핵심: seller INSERT가 롤백돼 ROLLBACK_COMPANY seller가 잔존하지 않는다(@Transactional 제거 시 이 단언이 실패 = 진짜 원자성 테스트).
         assertThat(sellerCountByCompany(ROLLBACK_COMPANY)).isZero();
+    }
+
+    @Test
+    @DisplayName("⑦ 사업자번호 중복(SLR-1·Track 89-D): 기존 seller와 같은 businessNo → 409 SELLER_BUSINESS_NO_DUPLICATE·seller 미생성")
+    void provision_duplicateBusinessNo_returns409() throws Exception {
+        seed(() -> {
+            seedUser(OWNER_USER_ID, "T37OWN");
+            seedSeller(EXISTING_SELLER_ID, EXISTING_COMPANY, "T37EXS");
+            jdbc.update("UPDATE seller SET business_no = ? WHERE id = ?", EXISTING_BUSINESS_NO, EXISTING_SELLER_ID);
+        });
+
+        // 종전에는 seller_user saveAndFlush의 DataIntegrityViolation과 섞여 SELLER_USER_ALREADY_EXISTS로 오분류되던 경로(정찰 §6-1).
+        mockMvc.perform(post(URL)
+                        .headers(authHeaders.admin(ADMIN_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(provisionBody(DUP_BUSINESS_COMPANY, EXISTING_BUSINESS_NO, OWNER_USER_PID, "ACTIVE")))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("SELLER_BUSINESS_NO_DUPLICATE"));
+
+        assertThat(sellerCountByCompany(DUP_BUSINESS_COMPANY)).isZero();
     }
 
     // ---------- seed·helpers (AdminInventoryControllerIntegrationTest 패턴·? positional 바인딩·SQL injection 없음) ----------
@@ -223,8 +248,9 @@ class AdminSellerControllerIntegrationTest extends AbstractIntegrationTest {
                 jdbc.update("DELETE FROM audit_log WHERE actor_user_id = ?", ADMIN_ID);
                 jdbc.update("DELETE FROM seller_user WHERE user_id IN (?, ?, ?)",
                         OWNER_USER_ID, BOUND_USER_ID, NON_ADMIN_USER);
-                jdbc.update("DELETE FROM seller WHERE company_name IN (?, ?, ?, ?, ?, ?)",
-                        NEW_COMPANY, FORBIDDEN_COMPANY, DUP_COMPANY, SUSPENDED_COMPANY, ROLLBACK_COMPANY, EXISTING_COMPANY);
+                jdbc.update("DELETE FROM seller WHERE company_name IN (?, ?, ?, ?, ?, ?, ?)",
+                        NEW_COMPANY, FORBIDDEN_COMPANY, DUP_COMPANY, SUSPENDED_COMPANY, ROLLBACK_COMPANY, EXISTING_COMPANY,
+                        DUP_BUSINESS_COMPANY);
                 jdbc.update("DELETE FROM `user` WHERE id IN (?, ?)", OWNER_USER_ID, BOUND_USER_ID);
             } finally {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
@@ -232,15 +258,19 @@ class AdminSellerControllerIntegrationTest extends AbstractIntegrationTest {
         });
     }
 
-    private String provisionBody(String companyName, long ownerUserId, String status) {
+    private String provisionBody(String companyName, String ownerUserPublicId, String status) {
+        return provisionBody(companyName, null, ownerUserPublicId, status);
+    }
+
+    private String provisionBody(String companyName, String businessNo, String ownerUserPublicId, String status) {
         return "{"
                 + "\"companyName\":\"" + companyName + "\","
-                + "\"businessNo\":null,"
+                + "\"businessNo\":" + (businessNo == null ? "null" : "\"" + businessNo + "\"") + ","
                 + "\"ceoName\":\"대표\","
                 + "\"contactEmail\":null,"
                 + "\"contactPhone\":null,"
                 + "\"status\":\"" + status + "\","
-                + "\"ownerUserId\":" + ownerUserId
+                + "\"ownerUserPublicId\":\"" + ownerUserPublicId + "\""
                 + "}";
     }
 

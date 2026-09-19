@@ -21,6 +21,8 @@ import com.zslab.mall.product.exception.ProductNotFoundException;
 import com.zslab.mall.product.repository.ProductImageRepository;
 import com.zslab.mall.product.repository.ProductRepository;
 import com.zslab.mall.seller.entity.Seller;
+import com.zslab.mall.seller.enums.SellerStatus;
+import com.zslab.mall.seller.exception.SellerInvalidStateException;
 import com.zslab.mall.seller.exception.SellerNotFoundException;
 import com.zslab.mall.seller.repository.SellerRepository;
 import java.time.LocalDateTime;
@@ -66,11 +68,17 @@ public class AdminProductCommandService {
      * 관리자 상품 등록. 셀러 지정 + 셀러 등록 Service 재사용(PENDING) + 공급가·판매기간 적용.
      *
      * @throws SellerNotFoundException sellerPublicId 미존재(404)
+     * @throws SellerInvalidStateException 셀러가 ACTIVE가 아닐 때(422·Track 89-D — 비활성 셀러에 상품을 붙이는 운영자 오조작 차단)
      * @throws IllegalArgumentException 판매 시작 ≥ 종료(400)
      */
     public ProductRegistrationResponse create(AdminProductCreateRequest request, AuditContext auditContext) {
         Seller seller = sellerRepository.findByPublicId(request.sellerPublicId())
                 .orElseThrow(() -> new SellerNotFoundException("셀러를 찾을 수 없습니다: " + request.sellerPublicId()));
+        if (seller.getStatus() != SellerStatus.ACTIVE) {
+            throw new SellerInvalidStateException(
+                    "활성(ACTIVE) 셀러에만 상품을 등록할 수 있습니다: sellerPublicId=" + request.sellerPublicId()
+                            + " status=" + seller.getStatus());
+        }
         ProductRegistrationResponse registered =
                 productRegistrationService.registerProduct(seller.getId(), request.toRegistrationRequest());
         Product product = productRepository.findByPublicId(registered.productPublicId())

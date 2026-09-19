@@ -24,6 +24,9 @@ import com.zslab.mall.product.enums.ProductVariantStatus;
 import com.zslab.mall.product.exception.ProductVariantNotFoundException;
 import com.zslab.mall.product.repository.ProductRepository;
 import com.zslab.mall.product.repository.ProductVariantRepository;
+import com.zslab.mall.seller.entity.Seller;
+import com.zslab.mall.seller.enums.SellerStatus;
+import com.zslab.mall.seller.repository.SellerRepository;
 import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -59,9 +62,20 @@ class CartServiceTest {
     private ProductRepository productRepository;
     @Mock
     private InventoryRepository inventoryRepository;
+    @Mock
+    private SellerRepository sellerRepository;
 
     @InjectMocks
     private CartService cartService;
+
+    private static final long SELLER_ID = 7701L;
+
+    /** 판매자 ACTIVE 선검사(Track 89-D) 스텁 — 지정 status의 Seller mock을 findById로 돌려준다. */
+    private void stubSeller(SellerStatus status) {
+        Seller seller = mock(Seller.class);
+        lenient().when(seller.getStatus()).thenReturn(status);
+        lenient().when(sellerRepository.findById(SELLER_ID)).thenReturn(Optional.of(seller));
+    }
 
     /** 구매 가능 variant 스텁(Track 71 assertPurchasable 통과): 상품 SALE·variant SALE·수동품절 아님·가용 재고 available. */
     private ProductVariant purchasableVariant(ProductStatus productStatus, ProductVariantStatus variantStatus,
@@ -76,6 +90,9 @@ class CartServiceTest {
         when(product.getStatus()).thenReturn(productStatus);
         // Track 76: ProductPurchasePolicy가 판매기간도 보므로 mock은 기간 내로 고정한다.
         lenient().when(product.isWithinSalePeriod(any())).thenReturn(true);
+        // Track 89-D: 판매자 ACTIVE 선검사 통과 스텁(비-ACTIVE 분기는 별도 픽스처).
+        when(product.getSellerId()).thenReturn(SELLER_ID);
+        stubSeller(SellerStatus.ACTIVE);
         when(productRepository.findById(PRODUCT_ID)).thenReturn(Optional.of(product));
         Inventory inventory = mock(Inventory.class);
         // 판매 상태에서 먼저 차단되면 재고는 조회되지 않으므로(정책 단락) lenient.
@@ -147,6 +164,41 @@ class CartServiceTest {
     @DisplayName("Track 71 담기 거부: 상품 STOPPED → CartItemNotPurchasableException·cartItemRepository 미접근")
     void addItem_productStopped_throws422() {
         purchasableVariant(ProductStatus.STOPPED, ProductVariantStatus.SALE, false, 10);
+
+        assertThatThrownBy(() -> cartService.addItem(USER_ID, new CartItemAddRequest(VARIANT_PUBLIC_ID, 1)))
+                .isInstanceOf(CartItemNotPurchasableException.class);
+        verifyNoInteractions(cartItemRepository);
+    }
+
+    @Test
+    @DisplayName("Track 89-D 담기 거부: 판매자 SUSPENDED → CartItemNotPurchasableException·재고 조회 전 차단·cartItemRepository 미접근")
+    void addItem_sellerSuspended_throws422() {
+        ProductVariant variant = mock(ProductVariant.class);
+        lenient().when(variant.getPublicId()).thenReturn(VARIANT_PUBLIC_ID);
+        when(variant.getProductId()).thenReturn(PRODUCT_ID);
+        Product product = mock(Product.class);
+        when(product.getSellerId()).thenReturn(SELLER_ID);
+        when(productRepository.findById(PRODUCT_ID)).thenReturn(Optional.of(product));
+        when(productVariantRepository.findByPublicId(VARIANT_PUBLIC_ID)).thenReturn(Optional.of(variant));
+        stubSeller(SellerStatus.SUSPENDED);
+
+        assertThatThrownBy(() -> cartService.addItem(USER_ID, new CartItemAddRequest(VARIANT_PUBLIC_ID, 1)))
+                .isInstanceOf(CartItemNotPurchasableException.class);
+        verifyNoInteractions(inventoryRepository);
+        verifyNoInteractions(cartItemRepository);
+    }
+
+    @Test
+    @DisplayName("Track 89-D 담기 거부: 판매자 미해소(soft-delete) → CartItemNotPurchasableException(fail-closed)")
+    void addItem_sellerMissing_throws422() {
+        ProductVariant variant = mock(ProductVariant.class);
+        lenient().when(variant.getPublicId()).thenReturn(VARIANT_PUBLIC_ID);
+        when(variant.getProductId()).thenReturn(PRODUCT_ID);
+        Product product = mock(Product.class);
+        when(product.getSellerId()).thenReturn(SELLER_ID);
+        when(productRepository.findById(PRODUCT_ID)).thenReturn(Optional.of(product));
+        when(productVariantRepository.findByPublicId(VARIANT_PUBLIC_ID)).thenReturn(Optional.of(variant));
+        when(sellerRepository.findById(SELLER_ID)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> cartService.addItem(USER_ID, new CartItemAddRequest(VARIANT_PUBLIC_ID, 1)))
                 .isInstanceOf(CartItemNotPurchasableException.class);

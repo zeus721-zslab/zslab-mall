@@ -35,6 +35,11 @@ const ADMIN_ERROR_MESSAGES: Record<string, string> = {
   ADMIN_OPERATOR_ALREADY_EXISTS: '이미 운영 관리자 역할을 보유한 회원입니다.',
   ROLE_ASSIGNMENT_NOT_FOUND: '회수할 역할이 없습니다(회원 미존재 또는 이미 회수됨).',
   LAST_SUPER_ADMIN: '마지막 슈퍼 관리자는 회수할 수 없습니다(시스템 잠금 방지).',
+  // FE-40 관리자 셀러 관리(Track 89-D·D-187). SELLER_ACTIVITY_IN_PROGRESS는 응답 blocks로 건수를 조립한다(admin-seller-view.toSellerErrorMessage).
+  SELLER_INVALID_STATE: '현재 셀러 상태에서 허용되지 않는 처리입니다.',
+  SELLER_ACTIVITY_IN_PROGRESS: '미지급 정산·진행 중 주문·처리 중 클레임이 있어 종료할 수 없습니다.',
+  SELLER_BUSINESS_NO_DUPLICATE: '이미 등록된 사업자번호입니다.',
+  SELLER_USER_ALREADY_EXISTS: '이미 다른 셀러에 소속된 회원입니다.',
   // Track 85 관리자 정산(D-179). PERIOD_INVALID는 연·월 범위 위반과 미마감 월이 같은 코드라 둘을 함께 안내한다.
   SETTLEMENT_NOT_FOUND: '정산을 찾을 수 없습니다.',
   SETTLEMENT_PERIOD_INVALID: '정산 기간이 올바르지 않습니다. 연·월 범위를 확인하고, 아직 마감되지 않은 월은 생성할 수 없습니다.',

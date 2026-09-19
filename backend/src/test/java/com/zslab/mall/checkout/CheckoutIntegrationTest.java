@@ -353,6 +353,69 @@ class CheckoutIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("Track 89-D 직접주문: 판매자 SUSPENDED → 422 ORDER_NOT_PAYABLE(PRODUCT_NOT_ON_SALE)·주문·예약 미생성(상품 SALE 유지)")
+    void checkout_direct_sellerSuspended_returns422_noOrder() throws Exception {
+        execute("UPDATE seller SET status = 'SUSPENDED' WHERE id = 1000");
+        entityManager.flush();
+        entityManager.clear();
+
+        mockMvc.perform(post("/api/v1/orders").headers(authHeaders.buyer(1))
+                        .contentType(MediaType.APPLICATION_JSON).content(CREATE_BODY))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("ORDER_NOT_PAYABLE"))
+                .andExpect(jsonPath("$.detail").value("PRODUCT_NOT_ON_SALE"));
+
+        Mockito.verify(orderService, Mockito.never()).createOrder(Mockito.any());
+        assertNoOrderAndNoReservation();
+    }
+
+    @Test
+    @DisplayName("Track 89-D 장바구니 주문: 담은 뒤 판매자 SUSPENDED → 체크아웃 422 PRODUCT_NOT_ON_SALE·주문 미생성 / PENDING·TERMINATED도 422")
+    void checkout_cart_sellerSuspendedAfterAdd_returns422_noOrder() throws Exception {
+        execute("INSERT INTO cart_item (user_id, variant_id, variant_public_id, quantity, selected, created_at, updated_at) "
+                + "VALUES (1, " + VARIANT_ID + ", '" + VARIANT_PID + "', 1, 1, NOW(6), NOW(6))");
+        for (String status : new String[] {"SUSPENDED", "PENDING", "TERMINATED"}) {
+            execute("UPDATE seller SET status = '" + status + "' WHERE id = 1000");
+            entityManager.flush();
+            entityManager.clear();
+
+            mockMvc.perform(post("/api/v1/cart/checkout").headers(authHeaders.buyer(1))
+                            .contentType(MediaType.APPLICATION_JSON).content(CART_CHECKOUT_BODY))
+                    .andExpect(status().isUnprocessableEntity())
+                    .andExpect(jsonPath("$.code").value("ORDER_NOT_PAYABLE"))
+                    .andExpect(jsonPath("$.detail").value("PRODUCT_NOT_ON_SALE"));
+        }
+
+        Mockito.verify(orderService, Mockito.never()).createOrder(Mockito.any());
+        assertNoOrderAndNoReservation();
+    }
+
+    @Test
+    @DisplayName("Track 89-D 재결제: 주문 후 판매자 TERMINATED + 직전 결제 FAILED → 422 PRODUCT_NOT_ON_SALE / ACTIVE 복귀 → 201")
+    void retry_sellerTerminated_returns422_thenActiveReturns201() throws Exception {
+        String orderPublicId = performCheckout(null);
+        execute("UPDATE payment SET status = 'FAILED' WHERE order_id = "
+                + "(SELECT id FROM `order` WHERE public_id = '" + orderPublicId + "')");
+        execute("UPDATE seller SET status = 'TERMINATED' WHERE id = 1000");
+        entityManager.flush();
+        entityManager.clear();
+
+        mockMvc.perform(post("/api/v1/orders/" + orderPublicId + "/payments").headers(authHeaders.buyer(1))
+                        .contentType(MediaType.APPLICATION_JSON).content("{ \"method\": \"CARD\" }"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("ORDER_NOT_PAYABLE"))
+                .andExpect(jsonPath("$.detail").value("PRODUCT_NOT_ON_SALE"));
+
+        // 회귀: 판매자 ACTIVE(테스트 데이터 원복·실제 TERMINATED는 불가역)면 재결제 201
+        execute("UPDATE seller SET status = 'ACTIVE' WHERE id = 1000");
+        entityManager.flush();
+        entityManager.clear();
+        mockMvc.perform(post("/api/v1/orders/" + orderPublicId + "/payments").headers(authHeaders.buyer(1))
+                        .contentType(MediaType.APPLICATION_JSON).content("{ \"method\": \"CARD\" }"))
+                .andExpect(status().isCreated());
+    }
+
+    @Test
     @DisplayName("Track 71 장바구니 주문: SALE 상품은 회귀 없이 201")
     void checkout_cart_saleProduct_returns201() throws Exception {
         execute("INSERT INTO cart_item (user_id, variant_id, variant_public_id, quantity, selected, created_at, updated_at) "

@@ -79,4 +79,14 @@ public interface ClaimRepository extends JpaRepository<Claim, Long>, JpaSpecific
             + "AND c.status IN (com.zslab.mall.claim.enums.ClaimStatus.REQUESTED, "
             + "com.zslab.mall.claim.enums.ClaimStatus.APPROVED)")
     boolean existsActiveByBuyerId(@Param("buyerId") Long buyerId);
+
+    /**
+     * 셀러 품목에 걸린 활성 클레임(REQUESTED·APPROVED) 수(Track 89-D 종료 가드 G3·D-187). 활성 기준은
+     * {@link #existsActiveByOrderItemId}와 동일하며 claim → order_item.seller_id 경로로 센다. 모든 변수는 :sellerId 바인딩이다.
+     */
+    @Query("SELECT COUNT(c) FROM Claim c, OrderItem oi "
+            + "WHERE oi.id = c.orderItemId AND oi.sellerId = :sellerId "
+            + "AND c.status IN (com.zslab.mall.claim.enums.ClaimStatus.REQUESTED, "
+            + "com.zslab.mall.claim.enums.ClaimStatus.APPROVED)")
+    long countActiveBySellerId(@Param("sellerId") Long sellerId);
 }

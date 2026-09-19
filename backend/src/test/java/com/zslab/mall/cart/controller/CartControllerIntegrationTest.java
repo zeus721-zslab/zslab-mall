@@ -41,6 +41,7 @@ class CartControllerIntegrationTest extends AbstractIntegrationTest {
     private static final long BUYER_USER_ID = 9640L;   // JWT subject(actorId)·cart_item.user_id
     private static final long VARIANT_ID = 9641L;       // seed된 product_variant 내부 PK(DB 검증용)
     private static final long PRODUCT_ID = 9643L;       // Track 71 구매 가능 선가드용 상위 product(SALE)
+    private static final long SELLER_ID = 9644L;        // Track 89-D 판매자 ACTIVE 선가드용 seller(ACTIVE)
     private static final String VARIANT_PUBLIC_ID = pid("var_", "CRTVAR");  // 외부 대상키(요청·응답)
     private static final String MISSING_VARIANT_PUBLIC_ID = pid("var_", "CRTMIS"); // 미seed·404 검증용
     private static final long SELLER_ACTOR_ID = 9642L;  // 비-BUYER 403 검증용(필터 선차단·seed 불요)
@@ -148,6 +149,38 @@ class CartControllerIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("Track 89-D: 판매자 SUSPENDED variant 담기 → 422 CART_ITEM_NOT_PURCHASABLE · cart_item 0행 (상품 SALE·재고 있어도 차단)")
+    void addItem_sellerSuspended_returns422() throws Exception {
+        updateWithoutFkChecks("UPDATE seller SET status='SUSPENDED' WHERE id=?", SELLER_ID);
+
+        add(authHeaders.buyer(BUYER_USER_ID), VARIANT_PUBLIC_ID, 1)
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("CART_ITEM_NOT_PURCHASABLE"));
+
+        assertThat(count("SELECT COUNT(*) FROM cart_item WHERE user_id=?", BUYER_USER_ID)).isZero();
+    }
+
+    @Test
+    @DisplayName("Track 89-D: 판매자 PENDING·TERMINATED variant 담기 → 422 / ACTIVE 복귀 → 201(회귀)")
+    void addItem_sellerPendingOrTerminated_returns422_activeReturns201() throws Exception {
+        updateWithoutFkChecks("UPDATE seller SET status='PENDING' WHERE id=?", SELLER_ID);
+        add(authHeaders.buyer(BUYER_USER_ID), VARIANT_PUBLIC_ID, 1)
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("CART_ITEM_NOT_PURCHASABLE"));
+
+        updateWithoutFkChecks("UPDATE seller SET status='TERMINATED' WHERE id=?", SELLER_ID);
+        add(authHeaders.buyer(BUYER_USER_ID), VARIANT_PUBLIC_ID, 1)
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("CART_ITEM_NOT_PURCHASABLE"));
+        assertThat(count("SELECT COUNT(*) FROM cart_item WHERE user_id=?", BUYER_USER_ID)).isZero();
+
+        updateWithoutFkChecks("UPDATE seller SET status='ACTIVE' WHERE id=?", SELLER_ID);
+        add(authHeaders.buyer(BUYER_USER_ID), VARIANT_PUBLIC_ID, 1)
+                .andExpect(status().isCreated());
+        assertThat(count("SELECT COUNT(*) FROM cart_item WHERE user_id=?", BUYER_USER_ID)).isEqualTo(1);
+    }
+
+    @Test
     @DisplayName("Track 71: 수동품절 variant 담기 → 422 CART_ITEM_NOT_PURCHASABLE")
     void addItem_soldoutManual_returns422() throws Exception {
         updateWithoutFkChecks("UPDATE product_variant SET is_soldout_manual=1 WHERE id=?", VARIANT_ID);
@@ -207,10 +240,13 @@ class CartControllerIntegrationTest extends AbstractIntegrationTest {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
                 jdbc.update("INSERT INTO `user` (id, public_id, created_at, updated_at) VALUES (?, ?, NOW(6), NOW(6))",
                         BUYER_USER_ID, pid("usr_", "CRTUSR"));
-                // Track 71 담기 선가드가 product(SALE)·inventory(available>0)를 읽으므로 함께 seed한다(option_value·seller는 FK_CHECKS=0 최소).
+                // Track 71 담기 선가드가 product(SALE)·inventory(available>0)를, Track 89-D 선가드가 seller(ACTIVE)를 읽으므로 함께 seed한다.
+                jdbc.update("INSERT INTO seller (id, public_id, company_name, ceo_name, status, created_at, updated_at) "
+                                + "VALUES (?, ?, '카트담기셀러', '대표', 'ACTIVE', NOW(6), NOW(6))",
+                        SELLER_ID, pid("slr_", "CRTSLR"));
                 jdbc.update("INSERT INTO product (id, public_id, seller_id, category_id, name, status, base_price, "
-                                + "created_at, updated_at) VALUES (?, ?, 1, 1, '카트담기상품', 'SALE', 10000, NOW(6), NOW(6))",
-                        PRODUCT_ID, pid("prd_", "CRTPRD"));
+                                + "created_at, updated_at) VALUES (?, ?, ?, 1, '카트담기상품', 'SALE', 10000, NOW(6), NOW(6))",
+                        PRODUCT_ID, pid("prd_", "CRTPRD"), SELLER_ID);
                 jdbc.update("INSERT INTO product_variant "
                                 + "(id, public_id, product_id, variant_code, additional_price, status, "
                                 + "is_soldout_manual, display_order, option1_value_id, created_at, updated_at) "
@@ -233,6 +269,7 @@ class CartControllerIntegrationTest extends AbstractIntegrationTest {
                 jdbc.update("DELETE FROM inventory WHERE variant_id=?", VARIANT_ID);
                 jdbc.update("DELETE FROM product_variant WHERE id=?", VARIANT_ID);
                 jdbc.update("DELETE FROM product WHERE id=?", PRODUCT_ID);
+                jdbc.update("DELETE FROM seller WHERE id=?", SELLER_ID);
                 jdbc.update("DELETE FROM `user` WHERE id=?", BUYER_USER_ID);
             } finally {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");

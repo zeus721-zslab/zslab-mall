@@ -1,0 +1,53 @@
+import type {
+  AdminSellerDetail,
+  AdminSellerListQuery,
+  AdminSellerListResponse,
+  AdminSellerProvisionRequest,
+  AdminSellerStatusChangeRequest,
+  AdminSellerUpdateRequest,
+} from '#layers/admin/app/types/admin-seller'
+import { toAdminSellerApiParams } from '#layers/admin/app/lib/admin-seller-query'
+import { useAdminApi } from '#layers/admin/app/composables/useAdminApi'
+
+/**
+ * 관리자 셀러 관리 API 호출 모음(FE-40·D-187 BE·useAdminMembers 패턴). 전부 useAdminApi(admin_token Bearer·401 처리) 경유이며
+ * 상태(로딩·에러)는 호출부가 소유한다. 기존 드롭다운용 전량 목록(GET /admin/sellers)은 useAdminProducts·useAdminSettlements가 계속 쓴다.
+ */
+export function useAdminSellers() {
+  const api = useAdminApi()
+
+  // 템플릿 리터럴 경로는 nitro 타입드 라우트 추론이 과도해(TS2321) string으로 고정한다(useAdminMembers 선례).
+  function sellerPath(sellerPublicId: string, suffix = ''): string {
+    return `/v1/admin/sellers/${sellerPublicId}${suffix}`
+  }
+
+  function list(query: AdminSellerListQuery): Promise<AdminSellerListResponse> {
+    return api<AdminSellerListResponse>('/v1/admin/sellers/page', { query: toAdminSellerApiParams(query) })
+  }
+
+  /** 승인 대기 건수(목록 상단 안내용·size 1로 totalCount만 읽는다). */
+  function countPending(): Promise<number> {
+    return api<AdminSellerListResponse>('/v1/admin/sellers/page', { query: { status: 'PENDING', page: 0, size: 1 } })
+      .then((response) => response.totalCount)
+  }
+
+  function get(sellerPublicId: string): Promise<AdminSellerDetail> {
+    return api<AdminSellerDetail>(sellerPath(sellerPublicId))
+  }
+
+  /** 전이 응답은 전이 후 상세(terminable 등 갱신 반영)라 화면이 재조회 없이 바로 쓴다. */
+  function changeStatus(sellerPublicId: string, body: AdminSellerStatusChangeRequest): Promise<AdminSellerDetail> {
+    return api<AdminSellerDetail>(sellerPath(sellerPublicId, '/status'), { method: 'PATCH', body })
+  }
+
+  /** 204 → 호출부가 상세를 다시 읽는다. */
+  function update(sellerPublicId: string, body: AdminSellerUpdateRequest): Promise<void> {
+    return api<void>(sellerPath(sellerPublicId), { method: 'PUT', body })
+  }
+
+  function provision(body: AdminSellerProvisionRequest): Promise<{ sellerPublicId: string }> {
+    return api<{ sellerPublicId: string }>('/v1/admin/sellers', { method: 'POST', body })
+  }
+
+  return { list, countPending, get, changeStatus, update, provision }
+}

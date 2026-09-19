@@ -148,7 +148,7 @@ test.describe('관리자 셸', () => {
     await page.addInitScript(() => {
       const frames: string[] = []
       const tick = () => {
-        const card = document.querySelector('[data-testid="admin-placeholder"]')
+        const card = document.querySelector('[data-testid="admin-seller-filters"]')
         if (card) {
           const box = card.getBoundingClientRect()
           frames.push(`${Math.round(box.x)},${Math.round(box.y)}`)
@@ -158,9 +158,10 @@ test.describe('관리자 셸', () => {
       requestAnimationFrame(tick)
       ;(window as unknown as { __cardFrames: string[] }).__cardFrames = frames
     })
-    // Track 84: /admin/members는 실제 목록 화면이 됐으므로 아직 플레이스홀더인 셀러 회원 메뉴로 측정한다.
+    // Track 84: /admin/members는 실제 목록 화면이 됐고 FE-40에서 셀러 화면도 구현돼 플레이스홀더가 없다 → 셀러 목록의 필터 카드(목록 로딩과 무관하게
+    // 위치가 고정되는 첫 카드)로 측정한다.
     await page.goto('/admin/members/sellers')
-    await expect(page.getByTestId('admin-placeholder')).toBeVisible()
+    await expect(page.getByTestId('admin-seller-filters')).toBeVisible()
     await page.waitForFunction(() => (window as unknown as { __cardFrames: string[] }).__cardFrames.length >= 60)
     const frames = await page.evaluate(() => (window as unknown as { __cardFrames: string[] }).__cardFrames)
     expect(new Set(frames).size).toBe(1)
