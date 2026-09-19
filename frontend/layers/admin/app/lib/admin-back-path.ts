@@ -8,6 +8,7 @@ export const ADMIN_ORDERS_PATH = '/admin/orders'
 export const ADMIN_CLAIMS_PATH = '/admin/orders/claims'
 export const ADMIN_MEMBERS_PATH = '/admin/members'
 export const ADMIN_MEMBERS_WITHDRAWN_PATH = '/admin/members/withdrawn'
+export const ADMIN_SELLERS_PATH = '/admin/members/sellers'
 export const ADMIN_SETTLEMENTS_PATH = '/admin/settlements'
 export const ADMIN_SETTLEMENTS_SELLERS_PATH = '/admin/settlements/sellers'
 
@@ -31,6 +32,8 @@ const EXTRA_BACK_BASES: Record<string, string[]> = {
 const EXTRA_BACK_PREFIXES: Record<string, string[]> = {
   // 주문 상세는 정산 상세 품목(/admin/settlements/{id}?tab=…·Track 85)에서도 진입한다.
   [ADMIN_ORDERS_PATH]: [`${ADMIN_MEMBERS_PATH}/`, `${ADMIN_SETTLEMENTS_PATH}/`],
+  // 회원 상세는 셀러 상세 구성원(/admin/members/sellers/slr_…·FE-40)에서도 진입한다.
+  [ADMIN_MEMBERS_PATH]: [`${ADMIN_SELLERS_PATH}/`],
 }
 
 function matchesBase(value: string, base: string): boolean {

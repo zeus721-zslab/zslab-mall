@@ -1,4 +1,5 @@
 import type { AdminProductSort, AdminProductStatus, AdminProductStockFilter } from '#layers/admin/app/lib/constants/product'
+import type { AdminSellerStatus } from '#layers/admin/app/lib/constants/admin-seller'
 
 /** 관리자 상품 목록 행(BE AdminProductSummaryResponse 대응·Track 76). nullable 필드는 BE NON_NULL 직렬화로 생략될 수 있어 optional. */
 export interface AdminProductSummary {
@@ -67,11 +68,11 @@ export interface AdminProductStatusResponse {
   status: AdminProductStatus
 }
 
-/** 셀러 선택 목록 항목(BE SellerSummaryResponse). */
+/** 셀러 선택 목록 항목(BE SellerSummaryResponse). status는 FE-40 셀러 상태 상수(4층위 잠금 단일 소스)를 쓴다. */
 export interface AdminSellerSummary {
   sellerPublicId: string
   companyName: string
-  status: 'PENDING' | 'ACTIVE' | 'SUSPENDED' | 'TERMINATED'
+  status: AdminSellerStatus
 }
 
 /** 관리자 상품 상세(BE AdminProductDetailResponse·FE-26 수정 폼 로드). nullable은 NON_NULL 직렬화로 생략 가능 → optional. */
