@@ -1983,3 +1983,31 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 - SUSPENDED e2e(로컬 DB 셀러 상태 변경 필요·vitest만 보유).
 - admin-shell ⑤ 데이터 의존 결함(PENDING 셀러 배너) / Playwright 워커 수·rate limit 충돌(config `workers` 고정 여부) → 별도 트랙.
 - 데모 계정 `seller@zslab-mall.com` 생성·데모 e2e 200 단언 교체(90-A-2b) · 셀러 `me` 조회 API 부재로 상단바에 소속 셀러명·역할 미표시(90-B).
+
+## FE-45: 셀러 데모 계정 생성·seed 입점 호출 정정 (Track 90-A) (2026-09-20)
+
+배경: `seller@zslab-mall.com`은 `.env`(`NUXT_SELLER_DEMO_*`)에 키만 있고 DB에 없어 FE-44 데모 버튼이 401로 끝났다(정찰 실측). 같은 정찰에서 `scripts/demo-seed/seed.py` 입점 호출이 `ownerUserId`를 보내는데 API(Track 89-D)는 `ownerUserPublicId`로 바뀌어 있고, Jackson `FAIL_ON_UNKNOWN_PROPERTIES` 미설정(Spring Boot 기본 false)이라 **409가 아닌 무증상 실패**(미지 필드 무시 → 구성원 0명 셀러가 조용히 생성)임을 발견했다.
+
+결정:
+- **seed.py 입점 호출 `ownerUserId` → `ownerUserPublicId`**, 값은 가입 응답(`SignupResponse.userPublicId`)을 직접 사용(user id DB 조회 제거).
+- **입점 직후 구성원 검증**: `seller_user` COUNT가 0이면 `SeedError`로 즉시 중단(메시지에 "owner 키가 API에서 무시됐을 가능성" 1줄). 키가 다시 어긋나도 무증상이 아니라 여기서 잡힌다.
+- **셀러 데모 계정 신설**(기존 셀러 구성원 추가가 아님): 회원 `usr_01M2X6T65DE2C6RCA638V2C2AE`(데모 셀러) → 입점 `slr_01M2X6XBT41JPYZ4ZMKF4YC3AN`(데모 셀러샵·ACTIVE·`ownerUserPublicId`로 OWNER 동시 생성). 데모 사용자가 시드 셀러(데모 리빙샵 등)의 실제 데모 데이터를 건드리지 않도록 격리한다. 로컬만 생성·운영은 별도 세션(PROGRESS STEP 565 절차 메모).
+- **e2e ⑤ 401 → 200·홈 진입 단언 교체**(`seller-shell.spec.ts`·`seller_token` path=/seller 생성·`auth_token` 미생성 포함).
+
+### §1-A 갈림길·채택/기각 근거
+1. **seed 수정 범위 = α 키 치환만 【기각】 / β 치환 + publicId 직접 사용 + 구성원 검증 【채택】** — α는 무증상 실패 재발 방지가 없다(다음 계약 변경 때 같은 방식으로 조용히 어긋난다). β는 가입 응답을 그대로 써 DB 왕복 1회를 없애고, 검증 1회(COUNT)로 fresh 실행에서 즉시 드러나게 한다.
+2. **데모 계정 소속 = α 신규 입점 【채택】 / β 기존 셀러(데모 상점 1·시드 셀러 3~5)에 구성원 추가 【기각】** — β는 데모 사용자의 조작(90-B 이후 주문·상품·정산 쓰기)이 시드 데이터를 오염시킨다. 신규 셀러는 상품·주문 0에서 시작하며 데모 시나리오는 90-B 이후 별도로 채운다.
+
+### §2 확정 구현 규칙
+- seed의 입점 요청 키는 `SellerProvisioningRequest`를 SoT로 하며, 요청 후 `seller_user` COUNT 검증을 반드시 유지한다(멱등성·가드는 현행 유지·개선 범위 밖).
+- 데모 계정 값(이메일·비밀번호)은 `.env`에서 메모리로만 전달·출력 금지(FE-43 §2 동일).
+- 트랩: (1) **Nuxt dev 서버의 `/api/**` 프록시가 스크립트발 연속 POST에 200/400을 교대 응답한다**(같은 요청 4회 → 200·400·200·400·브라우저 경로는 Playwright 전량 정상). 스크립트로 API를 호출할 때는 **컨테이너 내부 `mall-backend:8080` 직결**(`docker exec zslab_mall_frontend node …`·env로 값 전달)로 수행할 것. 게이트웨이 HTTPS는 자체 서명이라 검증 해제가 필요해 사용하지 않는다.
+- 검증(실측): `py_compile` 통과(seed 실행은 fresh DB 전용이라 미실행) · 계정: 상세 ACTIVE·members `[SELLER_OWNER]`·DB seller 7/seller_user 1행·role SELLER 로그인 200(`passwordChangeRequired` false)·`GET /seller/settlements` 200 · typecheck 0 · vitest 64 files 428 불변 · Playwright `--workers=2` 72/73(⑤ 셀러 데모 200·홈 진입 pass·admin-shell ⑤ 기존 결함) · 라이브 스크린샷 `playwright-report/step566-seller` 6장.
+
+### 외부 검토
+- 등급 C — 생략(FE 전용·BE 계약 무변경).
+
+### §8 이월
+- seed 멱등성(현재 fresh DB 전용·master 가드 409 즉시 중단) — 재실행 가능한 `firstOrCreate` 전환은 별도 트랙.
+- Jackson `FAIL_ON_UNKNOWN_PROPERTIES` 전역 활성화 — 미지 필드를 400으로 거부하면 같은 유형의 무증상 실패를 API 계층에서 차단하지만 기존 클라이언트·테스트 회귀 범위가 커 별도 트랙.
+- 운영 데모 계정 생성·운영 `.env` `NUXT_SELLER_DEMO_*` 추가(별도 세션·운영엔 Track 75 잔여 BUYER 계정 존재 가능성 실측 선행).

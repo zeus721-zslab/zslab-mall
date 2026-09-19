@@ -99,7 +99,7 @@ test.describe('셀러 셸 — 셀러 계정', () => {
 })
 
 test.describe('셀러 데모 로그인', () => {
-  test('⑤ 데모 버튼 표시 → 클릭 → 401(계정 미생성) → 단일 오류 문구·세션 미생성', async ({ page, context }) => {
+  test('⑤ 셀러 데모 로그인 버튼 → 200 → /seller 셸 진입 · seller_token path=/seller · auth_token 미생성', async ({ page, context }) => {
     await page.goto('/seller/login')
     await page.waitForLoadState('networkidle')
     const demoButton = page.getByTestId('seller-demo-login')
@@ -109,11 +109,13 @@ test.describe('셀러 데모 로그인', () => {
       page.waitForResponse((candidate) => candidate.url().includes('/_seller-demo/login') && candidate.request().method() === 'POST'),
       demoButton.click(),
     ])
-    // seller@zslab-mall.com 계정 생성(90-A-2b) 후 200·홈 진입 단언으로 교체할 것. 분기 단언은 어느 쪽도 검증하지 못한다.
-    expect(response.status()).toBe(401)
-    await expect(page.getByTestId('seller-login-error')).toHaveText('이메일 또는 비밀번호를 확인하세요')
-    expect(page.url()).toMatch(/\/seller\/login$/)
-    expect((await context.cookies()).some((cookie) => cookie.name === 'seller_token')).toBe(false)
+    expect(response.status()).toBe(200)
+    await page.waitForURL(/\/seller$/)
+    await expect(page.getByTestId('seller-sidebar')).toBeVisible()
+    await expect(page.getByTestId('seller-dashboard')).toBeVisible()
+    const cookies = await context.cookies()
+    expect(cookies.find((cookie) => cookie.name === 'seller_token')?.path).toBe('/seller')
+    expect(cookies.some((cookie) => cookie.name === 'auth_token')).toBe(false)
   })
 })
 
