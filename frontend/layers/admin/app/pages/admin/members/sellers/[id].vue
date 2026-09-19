@@ -29,9 +29,9 @@ definePageMeta({ layout: 'admin', middleware: ['admin', 'vuetify'] })
 useSeoMeta({ title: '셀러 상세 · zslab-mall 관리자' })
 
 /**
- * 셀러 상세(FE-40·Track 89-D D-187·회원 상세 패턴·별도 라우트). 기본 정보·구성원(탈퇴 표기·로그인 가능 0명 경고)·주 계좌(끝 4자리·미등록 경고)·
- * 집계(상태별 상품·주문·구매확정 매출·정산 상태별)와 상태 전이 버튼(현재 상태에서 가능한 목표만·종료는 terminable=false면 비활성 + 차단 사유 툴팁)·
- * 정보 수정을 담당한다. 전이 응답(200)은 전이 후 상세라 재조회 없이 즉시 반영하고, 수정(204)은 다시 읽는다.
+ * 셀러 상세(FE-40·Track 89-D D-187·회원 상세 패턴·별도 라우트). 기본 정보·구성원(탈퇴 표기·로그인 가능 0명 경고)·정산계좌(FE-41·목록·끝 4자리·등록/수정/
+ * 주 계좌 전환은 AdminSellerBankAccountCard)·집계(상태별 상품·주문·구매확정 매출·정산 상태별)와 상태 전이 버튼(현재 상태에서 가능한 목표만·종료는
+ * terminable=false면 비활성 + 차단 사유 툴팁)·정보 수정을 담당한다. 전이 응답(200)은 전이 후 상세라 재조회 없이 즉시 반영하고, 수정(204)·계좌 변경은 다시 읽는다.
  */
 const route = useRoute()
 const sellersApi = useAdminSellers()
@@ -130,7 +130,7 @@ function onEditDone(): void {
         로그인 가능한 구성원이 없습니다(구성원 {{ detail.members.length }}명 중 활성 0명). 셀러 계정으로 주문·송장·클레임을 처리할 사람이 없습니다.
       </v-alert>
       <v-alert v-if="detail.warnings.primaryBankAccountMissing && detail.status !== 'TERMINATED'" type="warning" variant="tonal" density="compact" :icon="mdiAlertOutline" class="mb-4" data-testid="seller-no-bank-account">
-        주 정산계좌가 등록되지 않았습니다. 정산은 생성되지만 지급 처리가 차단됩니다(계좌 등록은 별도 트랙).
+        주 정산계좌가 등록되지 않았습니다. 정산은 생성되지만 지급 처리가 차단됩니다. 아래 정산계좌 카드에서 계좌를 등록하세요.
       </v-alert>
 
       <!-- 기본 정보 + 액션 -->
@@ -179,9 +179,12 @@ function onEditDone(): void {
         </v-card-text>
       </v-card>
 
+      <!-- 정산계좌(FE-41): 목록·등록·수정·주 계좌 전환. 변경 성공 시 상세 재조회(주 계좌·경고 갱신). -->
+      <AdminSellerBankAccountCard :detail="detail" @changed="load" />
+
       <v-row dense class="mb-1">
         <!-- 구성원 -->
-        <v-col cols="12" md="7">
+        <v-col cols="12">
           <v-card class="mb-4 h-100" data-testid="seller-members">
             <v-card-title class="text-subtitle-2 font-weight-bold pt-4 px-5">구성원 ({{ detail.members.length }})</v-card-title>
             <v-card-text class="px-5 pb-5">
@@ -204,20 +207,6 @@ function onEditDone(): void {
                 </tbody>
               </v-table>
               <p v-else class="text-body-2 text-medium-emphasis" data-testid="seller-members-empty">소속 구성원이 없습니다.</p>
-            </v-card-text>
-          </v-card>
-        </v-col>
-        <!-- 계좌 -->
-        <v-col cols="12" md="5">
-          <v-card class="mb-4 h-100" data-testid="seller-bank-account">
-            <v-card-title class="text-subtitle-2 font-weight-bold pt-4 px-5">주 정산계좌</v-card-title>
-            <v-card-text class="px-5 pb-5">
-              <template v-if="detail.primaryBankAccount">
-                <div class="text-body-1 font-weight-medium" data-testid="seller-bank-number">{{ detail.primaryBankAccount.bankCode }} ····{{ detail.primaryBankAccount.accountNumberSuffix }}</div>
-                <div class="text-body-2">예금주: {{ detail.primaryBankAccount.accountHolder }}</div>
-                <div class="text-body-2">인증: {{ detail.primaryBankAccount.status }}<span v-if="detail.primaryBankAccount.verifiedAt"> ({{ formatDateTime(detail.primaryBankAccount.verifiedAt) }})</span></div>
-              </template>
-              <p v-else class="text-body-2 text-warning" data-testid="seller-bank-missing">미등록 — 정산 지급이 차단됩니다.</p>
             </v-card-text>
           </v-card>
         </v-col>

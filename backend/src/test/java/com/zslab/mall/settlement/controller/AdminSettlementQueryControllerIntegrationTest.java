@@ -5,6 +5,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.zslab.mall.common.crypto.AesGcmTextEncryptor;
 import com.zslab.mall.common.security.AuthHeaders;
 import com.zslab.mall.support.AbstractIntegrationTest;
 import java.time.LocalDateTime;
@@ -56,6 +57,9 @@ class AdminSettlementQueryControllerIntegrationTest extends AbstractIntegrationT
     private JdbcTemplate jdbc;
     @Autowired
     private PlatformTransactionManager txManager;
+    // Track 89-F: 계좌번호 컬럼은 v1: 암호문(Converter strict) → 시드도 암호화해 INSERT한다
+    @Autowired
+    private AesGcmTextEncryptor bankAccountEncryptor;
 
     private TransactionTemplate tx;
 
@@ -232,12 +236,12 @@ class AdminSettlementQueryControllerIntegrationTest extends AbstractIntegrationT
                 jdbc.update("INSERT INTO seller (id, public_id, company_name, ceo_name, status, commission_rate, created_at, "
                         + "updated_at) VALUES (?, ?, '정산셀러B%_', '대표', 'ACTIVE', NULL, NOW(6), NOW(6))", SELLER_B, SELLER_B_PID);
                 jdbc.update("INSERT INTO seller_bank_account (id, seller_id, bank_code, account_number, account_holder, "
-                        + "is_primary, status, created_at, updated_at) VALUES (?, ?, '004', '1234567890-4321', '대표A', 1, "
-                        + "'VERIFIED', NOW(6), NOW(6))", SELLER_A_ACCOUNT, SELLER_A);
+                        + "is_primary, status, created_at, updated_at) VALUES (?, ?, '004', ?, '대표A', 1, "
+                        + "'VERIFIED', NOW(6), NOW(6))", SELLER_A_ACCOUNT, SELLER_A, bankAccountEncryptor.encrypt("1234567890-4321"));
                 // 5월 지급 당시 계좌(현재는 주 계좌 아님) — 스냅샷 우선 검증
                 jdbc.update("INSERT INTO seller_bank_account (id, seller_id, bank_code, account_number, account_holder, "
-                        + "is_primary, status, created_at, updated_at) VALUES (?, ?, '088', '000-9999', '대표A', 0, "
-                        + "'VERIFIED', NOW(6), NOW(6))", SELLER_A_OLD_ACCOUNT, SELLER_A);
+                        + "is_primary, status, created_at, updated_at) VALUES (?, ?, '088', ?, '대표A', 0, "
+                        + "'VERIFIED', NOW(6), NOW(6))", SELLER_A_OLD_ACCOUNT, SELLER_A, bankAccountEncryptor.encrypt("000-9999"));
                 insertSettlement(STL_A_JUNE, SELLER_A, JUNE_START, JUNE_END, 15000, 1500, 3000, "PENDING", null, null);
                 insertSettlement(STL_A_MAY, SELLER_A, MAY_START, MAY_END, 20000, 2000, 0, "PAID", SELLER_A_OLD_ACCOUNT,
                         LocalDateTime.of(2026, 6, 20, 10, 0));

@@ -5,6 +5,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.zslab.mall.common.crypto.AesGcmTextEncryptor;
 import com.zslab.mall.common.security.AuthHeaders;
 import com.zslab.mall.support.AbstractIntegrationTest;
 import java.time.LocalDateTime;
@@ -48,6 +49,9 @@ class SellerSettlementControllerIntegrationTest extends AbstractIntegrationTest 
     private JdbcTemplate jdbc;
     @Autowired
     private PlatformTransactionManager txManager;
+    // Track 89-F: 계좌번호 컬럼은 v1: 암호문(Converter strict) → 시드도 암호화해 INSERT한다
+    @Autowired
+    private AesGcmTextEncryptor bankAccountEncryptor;
 
     private TransactionTemplate tx;
 
@@ -139,8 +143,8 @@ class SellerSettlementControllerIntegrationTest extends AbstractIntegrationTest 
                 jdbc.update("INSERT INTO seller_user (user_id, seller_id, role_id, created_at, updated_at) "
                         + "SELECT ?, ?, id, NOW(6), NOW(6) FROM role WHERE code = 'SELLER_OWNER'", SELLER_A_USER, SELLER_A);
                 jdbc.update("INSERT INTO seller_bank_account (id, seller_id, bank_code, account_number, account_holder, "
-                        + "is_primary, status, created_at, updated_at) VALUES (?, ?, '004', '1234567890-4321', '대표', 1, "
-                        + "'VERIFIED', NOW(6), NOW(6))", SELLER_A_ACCOUNT, SELLER_A);
+                        + "is_primary, status, created_at, updated_at) VALUES (?, ?, '004', ?, '대표', 1, "
+                        + "'VERIFIED', NOW(6), NOW(6))", SELLER_A_ACCOUNT, SELLER_A, bankAccountEncryptor.encrypt("1234567890-4321"));
                 insertSettlement(STL_A_JUNE_CONFIRMED, SELLER_A, 2026, 6, "CONFIRMED", null);
                 insertSettlement(STL_A_MAY_PENDING, SELLER_A, 2026, 5, "PENDING", null);
                 insertSettlement(STL_A_APR_PAID, SELLER_A, 2026, 4, "PAID", SELLER_A_ACCOUNT);

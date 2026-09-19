@@ -676,7 +676,7 @@ REQUESTED → APPROVED → COMPLETED
 | B-d1 | 법정 보관 흐름 구조 | WithdrawnSeller 신설·WithdrawnUser 패턴 준용 | CREATE TABLE |
 | B-d2 | WithdrawnSeller 컬럼 셋 | original_seller_id·terminate_reason·legal_retention_until·anonymized_at + audit 4 | CREATE TABLE |
 | B-d3 | Seller 비식별화 대상 컬럼 | company_name·ceo_name·contact_email·contact_phone 전건 NULL | NOT NULL→NULL ALTER (company_name·ceo_name) |
-| B-d4 | account_number 비식별화 처리 | 암호화 키 폐기 (NOT NULL 유지·복호화 불가) | 없음 |
+| B-d4 | account_number 비식별화 처리 | ~~암호화 키 폐기~~ → **암호문 톰스톤 덮어쓰기** (NOT NULL 유지·복호화 불가·2026-09-18 D-188 정정: 전역 단일 키라 셀러별 키 폐기 불가) | 없음 |
 | B-d5 | account_holder NULL 허용 | NOT NULL 유지 (B-d4 정합) | 없음 |
 | B-d6 | SellerUser 처리 | 행 유지 (감사 추적성·SOFT 상속) | 없음 |
 | B-d7 | Settlement 처리 | 비식별화 대상 아님·seller_id 유지 확정 | 없음 |
@@ -691,13 +691,13 @@ Seller TERMINATED 진입
   → 법정 보관 기간 유지
   → 배치 → anonymized_at 마킹·비식별화
            (company_name·ceo_name·contact_email·contact_phone·business_no NULL
-            + SellerBankAccount.account_number 암호화 키 폐기)
+            + SellerBankAccount.account_number 암호문 톰스톤 덮어쓰기(D-188 정정·원문 '암호화 키 폐기'))
   → 재등록 허용 (D-22 정합·business_no UK 슬롯 해제)
 ```
 
 - **company_name·ceo_name**: V1 NOT NULL → V2에서 NULL 허용(비식별화 대상). 활성 판매자 등록 시 필수값은 Service 검증으로 강제(User.email/name/phone 패턴 동일).
 - **contact_email·contact_phone**: V1에서 이미 NULL → DDL 변경 없음·배치 비식별화 대상.
-- **account_number**: NULL 처리 대신 **암호화 키 폐기**로 비식별화. 컬럼·NOT NULL 유지·복호화 불가 → Settlement.bank_account_id 스냅샷(STL-3) 정합 보존.
+- **account_number**: NULL 처리 대신 **암호문 톰스톤 덮어쓰기**로 비식별화(D-188 정정 — 원문 "암호화 키 폐기"는 셀러별 키를 전제하나 Track 89-F가 전역 단일 키(`BANK_ACCOUNT_ENCRYPTION_KEY`)를 채택해 한 셀러의 키만 폐기할 수 없다. 대신 비식별화 배치가 해당 행의 암호문을 복호 불가 톰스톤(예: `v0:` 접두사 + 난수)으로 덮어쓴다). 컬럼·NOT NULL 유지·복호화 불가 → Settlement.bank_account_id 스냅샷(STL-3) 정합 보존은 동일하게 만족.
 - **Settlement**: 직접 비식별화 대상 아님. seller_id는 논리참조로 유지(식별자 보존·정합성).
 - **SellerUser**: 행 유지(감사 추적성·Seller(SOFT) 상속).
 
@@ -11218,3 +11218,68 @@ deploy.yml이 `push main` 무필터라 docs만 변경된 머지에도 서버 SSH
 - **[미해결] 멱등 키 IN_PROGRESS+order_id 재시도 경로의 상태 재검증 부재**(셀러·상품 공통·Track 71부터): `completeWithInitiate` 재호출 전 `revalidatePayable` 적용 검토.
 - **[미해결] 구조화 로그 `seller_inactive`**: 셀러 차단과 상품 차단을 로그·메트릭에서 구분(현재 예외 메시지 "판매자 비활성"으로만 구분).
 - **[미해결] `DataIntegrityViolationException` catch 9곳의 원인 미구분**(이번 트랙 밖): 운영자 부여·담기·카테고리 생성/수정·멱등키 선점·만료 주문 정리·변형 옵션 2·정산 생성. 각 지점의 위반 가능 제약이 1개라 현재는 실해 없음. 공통 판별 유틸(constraint 이름 → 예외) 도입 시 함께 정리.
+
+## D-188. 셀러 정산계좌 암호화와 관리 API (Track 89-F)
+
+날짜: 2026-09-18
+범위: Track 89-F BE · V32(주 계좌 UNIQUE·FK RESTRICT)·V33(계좌번호 AES 백필·Java) · `AesGcmTextEncryptor`·`BankAccountEncryptionConfig`·`AccountNumberEncryptionConverter` · `POST /api/v1/admin/sellers/{slr_}/bank-accounts`·`PUT …/{id}`·`PATCH …/{id}/primary` · 셀러 상세 `bankAccounts` · `.env.example`·compose 키 · docs/track-89f/ops-checklist.md · D-23 B-d4 정정 · seed.py API 전환
+브랜치: feat/seller-bank-account
+정찰: docs/track-89f/recon-report.md(gitignore·로컬)
+
+### 배경 — 정찰 결론
+셀러 정산계좌는 쓰기 API가 0건이라 3행 전부 시드 raw INSERT로 들어왔고, 계좌번호는 평문(SLR-2 위반·V1 COMMENT·엔티티 Javadoc 모두 "AES @Converter 이연"), `is_primary` UNIQUE는 없었다(D-179 §8 이월). 지급은 주 계좌를 필수로 하므로(D-179 결정 7) 계좌 없는 셀러(로컬 1·2)는 정산이 CONFIRMED에서 영구 정체된다. 계좌를 읽는 곳은 7지점이나 실값을 읽는 곳은 끝 4자리 2곳(정산 상세·셀러 상세)뿐이고 **계좌번호를 조건으로 조회하는 코드는 0건**이었다. 셀러 2의 유일 owner가 탈퇴 회원이라 셀러 본인 등록만으로는 해결되지 않는다.
+
+### §1-A 결정
+1. **암호화 방식 α JPA AttributeConverter 【채택】 / β 서비스 레이어 명시 암복호화 【기각: α 대비 이점 없음·신규 읽기 경로가 decrypt를 빠뜨리면 암호문이 화면에 노출】 / γ DB AES 함수 【기각: 키가 SQL 파라미터로 DB 프로세스·로그에 유출·앱 Converter 형식과 불일치】** — 복호화 지점이 엔티티 getter 2곳으로 수렴돼 있어 투명 변환이면 읽기 코드 무변경이고 후행 트랙(Track 90)이 새 경로를 만들어도 누락이 없다. 계좌번호 조건 조회가 0건이라 α의 유일한 비용(등호·LIKE·정렬·중복검출 불가)이 실제로 발생하지 않는다. `SellerBankAccount.accountNumber`에 `@Convert(converter = AccountNumberEncryptionConverter.class)`(autoApply=false·seller/converter). Spring Boot가 Hibernate BEAN_CONTAINER에 SpringBeanContainer를 등록하므로 Converter 생성자 주입이 동작한다.
+2. **알고리즘·저장 형식 = AES-256-GCM·랜덤 IV 12바이트·태그 128비트·`v1:` + Base64(IV‖ciphertext‖tag)** — GCM은 기밀성+무결성(키 불일치·변조 시 예외·조용한 오복호 없음). 접두사는 (a) 백필 멱등 (b) 키 로테이션 출구(v2 병행 복호) (c) 평문 잔존 감지. 14자 입력 → 59자·30자 → 약 80자로 VARCHAR(255) 유지·DDL 무변경. 신규 의존성 없음(JDK Cipher). `AesGcmTextEncryptor`(common/crypto).
+3. **키 = `BANK_ACCOUNT_ENCRYPTION_KEY`·raw 32바이트 Base64 44자 · JWT 동형 fail-fast** — 문자열 키(UTF-8 바이트)가 아니라 Base64를 택한 이유: AES 키는 정확히 32바이트 균일 난수여야 하는데 문자열은 charset·길이가 모호하고 엔트로피가 낮다. base application.yml은 로컬 더미 기본값, application-prod.yml은 `${BANK_ACCOUNT_ENCRYPTION_KEY}` 기본값 없음 → prod 미주입 시 기동 실패. 값이 있어도 공백·Base64 아님·32바이트 아님이면 `BankAccountEncryptionConfig.createEncryptor`가 원인별 메시지(env 이름 명시·키 값 미포함)로 기동 중단. 4곳 동기화: application.yml·application-prod.yml·docker-compose.mall.yml(화이트리스트·`${BANK_ACCOUNT_ENCRYPTION_KEY}`·JWT_SECRET 동형)·.env.example(분실 경고·별도 백업·환경 간 키 상이 주의·생성 명령 PowerShell/bash). compose는 .env 값을 빈 문자열로라도 전달하므로 로컬 컨테이너 기동에도 키가 필요하다(더미는 bootRun·테스트 전용).
+4. **무접두사(평문) 읽기 = strict 예외 + seed.py API 전환** / tolerant(WARN·평문 통과) 【기각: SLR-2 위반이 조용히 지나감】 — V33 이후 평문이 남는 경로는 raw SQL뿐이며 그것은 위반 신호다. `seed.py` step_master의 계좌 raw INSERT를 `POST /admin/sellers/{slr}/bank-accounts`로 전환.
+5. **백필 α Flyway JavaMigration을 Spring 빈으로 등록 【채택】 / β SQL 백필 【기각: 키를 SQL이 모름·AES_ENCRYPT는 앱 형식과 불일치】 / γ 수동 스크립트·CommandLineRunner 【기각: 이력 없음·재현·멱등 보장 어려움·러너는 헬스체크가 완료를 기다리지 않아 백필 중 요청 유입】** — Boot 3.4.1 `FlywayAutoConfiguration`이 `JavaMigration` 빈을 주입(javap 실측). `seller/migration/V33__Encrypt_seller_bank_account_numbers`(@Component·`db.migration` 밖 — locations 안에 두면 classpath 스캔이 no-arg 생성자로 인스턴스화 시도해 실패). `NOT LIKE 'v1:%'` 행만 암호화(멱등)·DML만이라 Flyway 트랜잭션 원자(실패 시 평문 유지·repair 후 재기동)·로그는 건수·id만. **테스트 트랩 2**: (a) `@DataJpaTest` 슬라이스는 @Configuration을 로드하지 않아 Hibernate가 Converter 생성자 주입에 실패 → 전 슬라이스 기동 실패 (b) 싱글톤 컨테이너를 @SpringBootTest가 V33까지 올린 뒤 슬라이스가 V33 빈 없이 validate하면 "applied but not resolved" 실행 순서 flake → `AbstractDataJpaTest`에 `BankAccountEncryptionConfig`·Converter·V33 빈 @Import.
+6. **끝 4자리 = 복호 후 절단(별도 평문 컬럼 없음)** — 필요한 화면은 상세 2종뿐·목록은 등록 여부만(id 경로). `SellerBankAccount.accountNumberSuffix()` 도메인 메서드(신규 응답용·기존 2곳은 무변경).
+7. **is_primary 단일 = DB UNIQUE(generated 컬럼) + 서비스 둘 다** — MariaDB 부분 유니크 미지원 → V32 `primary_seller_id BIGINT AS (IF(is_primary = 1, seller_id, NULL)) STORED` + `uk_seller_bank_account_primary`(V13·V29 선례). **FK RESTRICT 선행 트랩**: generated 식이 참조하는 seller_id에 ON UPDATE CASCADE FK가 있으면 MariaDB가 거부(V13:16·V29:12 실측) → `fk_seller_bank_account_seller`를 ON UPDATE RESTRICT로 재생성(seller.id AUTO_INCREMENT·갱신 경로 없음·ON DELETE는 원래 RESTRICT·셀러 삭제 동작 동일). 전 문장 `IF [NOT] EXISTS`로 멱등(③ UNIQUE 실패 후 중복 정리 → repair → 재실행 안전·마이그레이션 테스트가 이 경로를 검증). 서비스: 셀러 행 비관락(`findByPublicIdForUpdate`) 안에서 **벌크 JPQL `demotePrimary`(flushAutomatically·clearAutomatically 없음) → 대상 `markPrimary()`** 순서 — 두 엔티티를 함께 바꾸면 Hibernate flush 순서가 보장되지 않아 promote가 먼저 나가면 UNIQUE 위반.
+8. **정산 참조 행 불변(409)·미참조 행만 in-place 수정** / 항상 새 행 【기각: 오기 정정 시나리오에 과함】 / in-place 무조건 【기각: 지급 이력 변조】 — **참조 판정 = `settlement.bank_account_id = 계좌 id`인 정산이 1건이라도 존재**(`SettlementRepository.existsByBankAccountId`·상태 무관). bank_account_id는 `markPaid`에서만 설정되므로 실질적으로 PAID 스냅샷 행이며, 그 행을 고치면 정산 상세가 `findById(bankAccountId)`로 현재 값을 보여줘 이력이 변조된다 → 409 `SELLER_BANK_ACCOUNT_REFERENCED`·운영자는 새 계좌 등록 후 주 계좌 전환. PENDING·CONFIRMED는 bank_account_id NULL·지급 시점 재조회라 수정이 반영된다(D-179 결정 7). 삭제 API 없음(FK RESTRICT·ARCHIVE·YAGNI).
+9. **관리자 등록 = VERIFIED·verifiedAt=now / 지급 시 status 검사 무변경** — 운영자가 셀러와 확인한 계좌를 넣는 경로(실명인증 연동 없음·이월). 지급은 is_primary만 본다(D-179 정합). 첫 계좌는 자동 주 계좌(지급 가능 상태로 즉시 진입), 이후 계좌는 비주계좌.
+10. **사유 정책 = 최초 등록 감사만 / 계좌 전환·수정은 사유 필수**(89-E 비대칭 선례·지급처 변경 = 자금 흐름 변경). 감사 대상 `SETTLEMENT_BANK_ACCOUNT`(기존 enum·사용 0건) · CREATE/UPDATE · diff `accountNumber` 키는 `Masker`가 자동 마스킹·`accountNumberSuffix` 병기·전환은 `previousPrimaryBankAccountIds`. 무변경 감사 skip(89-A~D 규약). 이미 주 계좌 전환 재요청 422 `SELLER_BANK_ACCOUNT_INVALID_STATE`(같은 상태 재요청 관습)·타 셀러 계좌 404 `SELLER_BANK_ACCOUNT_NOT_FOUND`(존재 은닉).
+11. **D-23 B-d4 "암호화 키 폐기" → "암호문 톰스톤 덮어쓰기" 정정** — 원문은 셀러별 키를 전제하나 전역 단일 키라 한 셀러의 키만 폐기할 수 없다. 봉투 암호화(행별 DEK) 【기각: 과잉】. 비식별화 배치(미구현·D-23 후속)가 해당 행 암호문을 복호 불가 톰스톤으로 덮어쓰면 NOT NULL·FK·정산 스냅샷 정합은 동일하게 만족.
+12. **`AdminSellerBankAccountController` 신설**(AdminSellerController 137줄이나 도메인 분리) · 응답 `AdminSellerBankAccountResponse`(id·bankCode·accountHolder·accountNumberSuffix·isPrimary·status·verifiedAt·createdAt·updatedAt) — 전체 계좌번호는 어떤 응답에도 없음. POST 201·PUT/PATCH 204(FE는 상세 재조회·89-D 선례). **셀러 상세에 `bankAccounts`(등록순) 추가** — 주 계좌 전환·수정 대상을 고르려면 목록이 필요하며 별도 GET보다 상세 확장이 작다(additive·`primaryBankAccount`는 그 목록에서 필터·쿼리 1회 감소).
+13. **운영 반영 = docs/track-89f/ops-checklist.md P0~P8(이번 트랙은 문서화까지·실행은 머지 후 별도)** — 핵심: P1 키 생성 → **별도 백업** → 서버 .env 주입이 P3(머지)보다 먼저(prod fail-fast라 순서 위반 시 구 컨테이너 교체 후 기동 실패·서비스 다운) · P2 사전 점검(중복 주 계좌 0·평문 잔존·길이) · V32 실패 시 중복 정리 → history 실패 행 삭제(repair) → 재기동 · V33 실패 시 평문 유지·재기동 멱등 · 코드만 롤백하면 지급·목록 정상·상세 끝 4자리만 Base64 꼬리 오표시 · 데이터 롤백은 키 보관 전제.
+14. **DTO 검증** — accountNumber `^[0-9-]+$`·6~30자(암호문이 VARCHAR(255) 안에 들도록 상한)·bankCode 20·accountHolder 50(컬럼 SoT)·reason 200. 서비스는 trim 후 저장.
+
+### 변경 파일
+- Flyway: db/migration/V32__seller_bank_account_primary_unique.sql(롤백 주석) · seller/migration/V33__Encrypt_seller_bank_account_numbers(Java·Spring 빈)
+- main 신규: common/crypto/AesGcmTextEncryptor · common/config/BankAccountEncryptionConfig · seller/converter/AccountNumberEncryptionConverter · seller/controller/AdminSellerBankAccountController · seller/controller/request/AdminSellerBankAccountRegisterRequest·AdminSellerBankAccountUpdateRequest·AdminSellerBankAccountPrimaryRequest · seller/controller/response/AdminSellerBankAccountResponse · seller/service/AdminSellerBankAccountCommandService · seller/exception/SellerBankAccountNotFoundException·SellerBankAccountReferencedException·SellerBankAccountInvalidStateException
+- main 수정: seller/entity/SellerBankAccount(@Convert·accountNumberSuffix·markVerified·update·markPrimary) · seller/repository/SellerBankAccountRepository(+findAllBySellerId·findByIdAndSellerId·existsBySellerId·demotePrimary) · settlement/repository/SettlementRepository(+existsByBankAccountId) · seller/service/AdminSellerQueryService(bankAccounts) · seller/controller/response/AdminSellerDetailResponse(bankAccounts) · common/web/GlobalExceptionHandler(404/409/422 3종) · resources/application.yml·application-prod.yml
+- 인프라·문서: .env.example · docker-compose.mall.yml · docs/track-89f/ops-checklist.md(신규·tracked) · scripts/demo-seed/seed.py·README.md · decisions.md D-23 B-d4 3곳 정정
+- test 신규: common/crypto/AesGcmTextEncryptorTest(5) · common/config/BankAccountEncryptionConfigTest(3) · seller/migration/V32V33SellerBankAccountMigrationTest(3: 제약+백필·V33 멱등·UNIQUE 실패→repair 복구→제약 동작) · seller/controller/AdminSellerBankAccountControllerIntegrationTest(5: T1 권한 401/403/201·T2 등록 첫 계좌 primary·VERIFIED·끝4자리·컬럼 v1:·감사 마스킹·404/400·T3 수정 참조 409/미참조 204/무변경/사유 400/타 셀러 404·T4 전환 demote→promote·UNIQUE 1건·감사·422·원복·T5 회귀 암호화 계좌 지급 200·정산 상세 스냅샷 끝4자리·셀러 상세·전체 번호 미노출)
+- test 수정: support/AbstractDataJpaTest(@Import 3종) · seller/repository/SellerBankAccountRepositoryTest(+3: 투명성·UNIQUE·strict) · 계좌 시드 암호문 전환 3파일(AdminSettlementQueryControllerIntegrationTest·SellerSettlementControllerIntegrationTest·AdminSellerManagementControllerIntegrationTest — 엔티티를 로드하는 픽스처만; id 경로만 타는 7파일은 평문 시드 유지)
+- 신규 라이브러리 없음 · FE 변경 없음(FE-41 후속).
+
+### 검증
+- 단위: AesGcmTextEncryptorTest 5(왕복·랜덤 IV·strict 무접두사/다른 버전/null/Base64 오류/길이·다른 키·변조·키 32바이트) · BankAccountEncryptionConfigTest 3(정상·공백·Base64 아님/16바이트 메시지) · ProdBankAccountKeyFailFastTest 3(SpringApplicationBuilder prod 프로파일: env 미주입 placeholder 실패·빈 값 "비어 있습니다"·16바이트 "현재 16바이트" — 컨텍스트가 뜨지 않음·2초).
+- 마이그레이션: V32V33SellerBankAccountMigrationTest 3(V31 평문 3행 → V33: FK UPDATE_RULE RESTRICT·DELETE RESTRICT 유지·STORED GENERATED·primary_seller_id [1,2,NULL]·UNIQUE·전 행 v1:·복호 원문 일치·이력 33 success / V33 멱등: 재실행 시 암호문 불변·새 평문만 암호화·0건 no-op / UNIQUE 위반 데이터로 V32 실패(success 0·평문 유지) → 중복 정리 → repair → 재실행 성공 → 2번째 주 계좌 INSERT 거부·비주계좌 무제한).
+- IT: AdminSellerBankAccountControllerIntegrationTest 5 · SellerBankAccountRepositoryTest 6(+투명성·UNIQUE·strict 로드 예외) · 기존 정산·셀러·감사 IT 무수정 GREEN(계좌 시드 3파일 암호문 전환만). 첫 전체 실행에서 ProdSecurityContextSmokeTest 3건이 컨텍스트 로드 실패 = prod fail-fast 실증(테스트 더미 키 주입으로 해소).
+- 전체 `./gradlew.bat test --rerun-tasks`: 216파일 1196 tests·0 fail·0 error·0 skip(1174 → +22).
+- 로컬 라이브(compose up -d 재생성·Started 82s·ERROR 0): Flyway 31→33 · `[V33] 계좌번호 암호화 백필 완료: 3건` · DB 3행 전부 `v1:`·59자·평문 0·FK RESTRICT·UNIQUE·generated 3/4/5 · ADMIN 토큰: 셀러 상세 끝 4자리·bankAccounts·전체 번호 키 없음 / PAID 정산 상세 스냅샷 끝 4자리 / 등록 201(자동 주 계좌·VERIFIED·컬럼 v1:·감사 CREATE `accountNumber` 마스킹) / 형식 400 / 참조 행 수정 409 / 이미 주 계좌 422 / 무인증 401.
+- 외부 검토: 등급 A / 진행 예정(BE+FE 완료 시점).
+
+### §8 이월
+- **셀러 본인 계좌 등록·셀러 FE(Track 90)** — `AdminSellerBankAccountCommandService`는 sellerId 기준·액터 무관이라 셀러 컨트롤러(`/api/v1/seller/bank-accounts`·SellerActorResolver)에서 재사용. 셀러 등록 시 status PENDING → 관리자 확인 흐름은 그때 결정.
+- **계좌 실명인증 연동**(status 자동 VERIFIED·외부 연동 없음·Mock seam 소비처 없음).
+- **키 로테이션 도구** — `v1:` 접두사로 출구 확보(v2 키 추가·접두사 분기 복호·재암호화 배치). 지금 미구현.
+- **비식별화 배치**(D-23 후속) — B-d4 톰스톤(`v0:` + 난수) 덮어쓰기·Converter의 톰스톤 처리(응답 null) 포함.
+- **계좌 삭제 API**(요구 없음·FK RESTRICT·ARCHIVE) · **동일 계좌 중복 검출**(HMAC blind index·요구 없음).
+- `findPrimaryBankAccountIds` "2건 이상 WARN"(SettlementTransitionService)은 V32 이후 도달 불가 방어 코드 — 유지(언급만).
+- seed.py step_master의 입점 요청이 89-D 이전 필드(`ownerUserId`)를 써 현 API(`ownerUserPublicId`)와 불일치(이번 트랙 밖·계좌 API 전환만 수행).
+- 외부 검토: 등급 A / 진행 예정(BE+FE 완료 시점).
+
+### 외부 검토 반영 (2026-09-19)
+- **외부 검토: 등급 A / 지적 22건 중 수용 3건(지적 1·13·18) + Q6 자체 수용, 기각 2건(지적 16·19), 확인 완료 1건(지적 2 감사 마스킹), 나머지 PASS.**
+- **지적 1 수용 — FK 테스트 보강**: `V32V33SellerBankAccountMigrationTest.seedSellers`가 `SET FOREIGN_KEY_CHECKS = 0`을 남겨 이후 FK 단언이 무력화되던 것을 `=1`로 바꾸고(seller는 FK 부모가 없어 끌 이유가 없음·계좌 INSERT는 실제 부모를 참조), FK 실동작 테스트 1건 추가 — V31(CASCADE)에서는 `UPDATE seller SET id=10`이 계좌 `seller_id`로 전파됨을 먼저 실증한 뒤 V32 이후 같은 갱신이 `DataIntegrityViolationException`으로 거부(ON UPDATE RESTRICT)·계좌 있는 셀러 DELETE 거부(ON DELETE RESTRICT·무변경)·미존재 seller_id INSERT 거부. 운영에서는 seller.id가 AUTO_INCREMENT라 갱신 경로가 없음을 주석에 명시(규칙 전환 실증 목적의 갱신). 기존 3건 그대로 GREEN(4/4).
+- **Q6 수용(검토자 미회신·자체 판정) — 정산 참조 플래그 `referencedBySettlement`**: 89-D가 종료 가능 여부를 `terminable`/`terminationBlocks` 미리보기로 내려 화면이 비활성 처리하게 했는데 계좌 수정만 409를 받아야 아는 것은 일관성이 없다. `AdminSellerBankAccountResponse.referencedBySettlement`(boolean) 추가 — 판정은 수정 409와 **같은 기준**(settlement.bank_account_id = 계좌 id인 정산 1건 이상·상태 무관): 상세 목록은 `SettlementRepository.findReferencedBankAccountIds(ids)` 배치 1쿼리(`DISTINCT s.bankAccountId … IN`), 등록 응답은 `existsByBankAccountId` 1회(신규 행이라 항상 false·의미 통일). FE `canEditBankAccount(row)` = `!referencedBySettlement` → 수정 버튼 비활성 + 툴팁 "정산 지급에 사용된 계좌입니다. 새 계좌를 등록한 뒤 주 계좌로 전환하세요."(전이 버튼 span 툴팁 패턴)·서버 409 처리는 유지(조회~요청 사이 변화). **미리보기 = 실제 검증**: IT T3가 상세 플래그(참조 행 true·미참조 false)를 먼저 읽고 같은 행에 PUT → 409/204가 플래그와 일치함을 단언, T5가 pay 후 스냅샷된 계좌의 플래그 true·타 계좌 false 단언. 라이브(읽기): 셀러 3·4·5 계좌 각 PAID 정산 4건 참조 → true, 셀러 1 가짜 계좌 참조 0 → false·DB `COUNT(settlement.bank_account_id)`와 일치.
+- **지적 13 수용 — FE 안내 문구 계좌 단위화**: 종전 `hasPaidSettlement`(셀러 전체 정산 기준)를 `hasReferencedBankAccount(rows)`(행 플래그 기준)로 교체하고 문구를 "정산 지급에 사용된 계좌는 수정할 수 없습니다. 수정이 필요하면 새 계좌를 등록한 뒤 주 계좌로 전환하세요."로 확정. Q6 행 툴팁과 병존(툴팁 = 행 단위 이유·카드 하단 = 셀러에 참조 계좌가 하나라도 있을 때 안내). 409 토스트 문구도 같은 문장으로 통일.
+- **지적 18 수용 — ops-checklist 복구 절차**: P5·P6의 실패 행 제거를 **1순위 `flyway repair`**(CLI·Gradle 플러그인 — 현 프로젝트에 없어 별도 설치 전제) / **2순위 수동 `DELETE … WHERE version = 'NN' AND success = 0`**(CLI 없을 때만·`success = 0` 조건 명시·실행 전 SELECT로 대상 1행 확인)으로 재배치하고, 성공 행을 지우면 이력이 깨져 validate 실패·재적용으로 스키마가 손상될 수 있다는 경고 1줄 추가.
+- **지적 2 확인 완료 — 감사 로그 평문 없음(PASS)**: `AuditRecorder.record`가 `diff → mask` 순서·diff 최상위 키가 필드명·`Masker.SENSITIVE_FIELDS`에 `accountNumber` 등록·서비스 `snapshot()` 키 일치 → `diff_json`에 평문 도달 경로 없음. 기존 IT T2·T3가 `***MASKED***` 포함·전체 번호 미포함을 이미 단언하고 있었고, 이번에 `diff_json`을 JSON 파싱해 `accountNumber` 값이 정확히 `***MASKED***`(등록 CREATE·수정 UPDATE 모두)·`accountNumberSuffix.after`가 끝 4자리임을 추가 단언.
+- **지적 16 기각 — V33 테스트 connection close**: `SingleConnectionDataSource(url, user, pw, true)`의 4번째 인자 `suppressClose=true`라 반환 커넥션의 `close()`는 no-op이며 `@AfterEach dropSchema`의 `destroy()`가 실제 해제를 담당한다. 리소스 누수 아님.
+- **지적 19 기각 — 구버전 write path**: 89-F 이전에는 계좌 쓰기 API가 0건(정찰 실측)이고 3행은 시드 raw INSERT였다. 구버전으로 코드만 롤백해도 평문을 새로 쓸 경로가 없다(ops-checklist 롤백 절 기술 유지).
+- 검증: `./gradlew.bat test --rerun-tasks` 216파일 1197 tests·0 fail(1196 → +1) · typecheck 0 · vitest 363(+1) · Playwright 61 passed + admin-shell 5(ADMIN_E2E 주입 시 6/6·미주입 시 env skip) = 66/66 · 픽셀 track89d 대비 login-mobile 8px(기존)·login-desktop 5px 1회 → 재캡처 0(캡처 노이즈) · 라이브 재기동 Flyway up to date·ERROR 0·플래그 대조·쓰기 0.
+- 재검토 필요 여부: 설계 변경 없음(응답 필드 1개 추가·같은 판정 기준·FE 비활성 정책은 89-D 선례 정합) → 재검토 불필요 판단(최종 판단은 운영자).

@@ -44,6 +44,9 @@ import com.zslab.mall.refund.exception.RefundInvariantViolationException;
 import com.zslab.mall.refund.exception.RefundNotFoundException;
 import com.zslab.mall.seller.exception.SellerActivityInProgressException;
 import com.zslab.mall.seller.exception.SellerBusinessNoDuplicateException;
+import com.zslab.mall.seller.exception.SellerBankAccountInvalidStateException;
+import com.zslab.mall.seller.exception.SellerBankAccountNotFoundException;
+import com.zslab.mall.seller.exception.SellerBankAccountReferencedException;
 import com.zslab.mall.seller.exception.SellerInvalidStateException;
 import com.zslab.mall.seller.exception.SellerNotFoundException;
 import com.zslab.mall.seller.exception.SellerUserAlreadyExistsException;
@@ -138,6 +141,9 @@ public class GlobalExceptionHandler {
     private static final String CODE_SELLER_INVALID_STATE = "SELLER_INVALID_STATE";
     private static final String CODE_SELLER_ACTIVITY_IN_PROGRESS = "SELLER_ACTIVITY_IN_PROGRESS";
     private static final String CODE_SELLER_BUSINESS_NO_DUPLICATE = "SELLER_BUSINESS_NO_DUPLICATE";
+    private static final String CODE_SELLER_BANK_ACCOUNT_NOT_FOUND = "SELLER_BANK_ACCOUNT_NOT_FOUND";
+    private static final String CODE_SELLER_BANK_ACCOUNT_REFERENCED = "SELLER_BANK_ACCOUNT_REFERENCED";
+    private static final String CODE_SELLER_BANK_ACCOUNT_INVALID_STATE = "SELLER_BANK_ACCOUNT_INVALID_STATE";
     private static final String CODE_FILE_NOT_FOUND = "FILE_NOT_FOUND";
     private static final String CODE_PAYLOAD_TOO_LARGE = "PAYLOAD_TOO_LARGE";
     private static final String CODE_FORBIDDEN = "FORBIDDEN";
@@ -603,6 +609,30 @@ public class GlobalExceptionHandler {
         // Track 89-D: 판매자 상태 위반(불법 전이·같은 상태 재요청·비-ACTIVE 판매자 상품 등록) 422(ProductInvalidStateException 선례).
         log.warn("[Seller] 판매자 상태 위반(422): {}", exception.getMessage());
         return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_SELLER_INVALID_STATE, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(SellerBankAccountNotFoundException.class)
+    public ResponseEntity<ProblemDetail> handleSellerBankAccountNotFound(
+            SellerBankAccountNotFoundException exception, HttpServletRequest request) {
+        // Track 89-F: 정산계좌 미존재·타 셀러 소속(존재 은닉) 404.
+        log.warn("[SellerBankAccount] 계좌 미존재(404): {}", exception.getMessage());
+        return build(HttpStatus.NOT_FOUND, CODE_SELLER_BANK_ACCOUNT_NOT_FOUND, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(SellerBankAccountReferencedException.class)
+    public ResponseEntity<ProblemDetail> handleSellerBankAccountReferenced(
+            SellerBankAccountReferencedException exception, HttpServletRequest request) {
+        // Track 89-F: 정산 지급 스냅샷이 참조하는 계좌 행 수정 차단(409·이력 변조 방지·D-188).
+        log.warn("[SellerBankAccount] 정산 참조 행 수정 차단(409): {}", exception.getMessage());
+        return build(HttpStatus.CONFLICT, CODE_SELLER_BANK_ACCOUNT_REFERENCED, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(SellerBankAccountInvalidStateException.class)
+    public ResponseEntity<ProblemDetail> handleSellerBankAccountInvalidState(
+            SellerBankAccountInvalidStateException exception, HttpServletRequest request) {
+        // Track 89-F: 이미 주 계좌인 행의 전환 재요청(422·같은 상태 재요청 관습).
+        log.warn("[SellerBankAccount] 계좌 상태 위반(422): {}", exception.getMessage());
+        return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_SELLER_BANK_ACCOUNT_INVALID_STATE, exception.getMessage(), request);
     }
 
     @ExceptionHandler(ProductInvalidStateException.class)

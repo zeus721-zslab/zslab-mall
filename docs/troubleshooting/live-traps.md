@@ -489,6 +489,24 @@ V29로 `settlement_item.order_public_id CHAR(30)`을 추가하고 엔티티에 `
 
 ---
 
+## LT-20. prod 프로파일 테스트가 기본 로그 경로(/app/logs)에 의존 — CI(Linux)에서만 컨텍스트 로드 실패·로컬 Windows는 통과 [ACTIVE]
+**발견 트랙**: Track 89-F(STEP 485 CI 실패 조사·PR feat/seller-bank-account Backend CI run 35422012794)
+**원본 결정**: 세션 트랩(본 카탈로그 직접 등록)·decisions.md D-188 결정 3(키 fail-fast 테스트)
+### 증상
+로컬 `gradlew test --rerun-tasks`는 1197/0 GREEN인데 GitHub Actions에서만 `ProdBankAccountKeyFailFastTest` 2건(blank·16바이트)·`ProdSecurityContextSmokeTest` 3건이 실패. 스택은 키 검증이 아니라 `Logback configuration error detected: ERROR in RollingFileAppender[JSON_FILE] - Failed to create parent directories for [/app/logs/zslab-mall.json]`. 같은 파일을 쓰는 첫 케이스(missingKey)는 통과.
+### 원인
+`logback-spring.xml` prod 프로파일의 `JSON_FILE` appender가 `${LOG_PATH:/app/logs}`를 연다. CI 러너(Linux)는 `/app`을 만들 수 없어 로깅 초기화(EnvironmentPreparedEvent)가 키 검증보다 먼저 컨텍스트를 죽인다. 로컬 Windows는 `/app/logs`가 `C:\app\logs`로 생성돼 통과. **종전 CI에서 스모크가 통과한 것은 우연** — 앞선 비-prod 컨텍스트가 로깅을 먼저 초기화해 `LogbackLoggingSystem`이 "이미 초기화" 상태였고 prod 재설정이 스킵됐다. 실패하는 prod SpringApplication(fail-fast 테스트)이 추가되자 그 cleanUp이 초기화 마커를 제거 → 이후 prod 컨텍스트가 prod 로깅을 실제로 재초기화하며 드러났다(첫 케이스만 마커가 남아 통과 = 5/6 실패).
+### 처치
+테스트가 로그 경로를 임시 디렉터리로 지정한다. `ProdBankAccountKeyFailFastTest`는 `builder.run("--LOG_PATH=" + ${java.io.tmpdir}/zslab-prod-failfast-logs)`(커맨드라인 인자 = 최고 우선순위·OS env `LOG_PATH`보다 우선), `ProdSecurityContextSmokeTest`는 `@TestPropertySource(properties = "LOG_PATH=${java.io.tmpdir}/zslab-prod-smoke-logs")`. **`@DynamicPropertySource`는 무효** — 로깅 초기화 시점에 아직 환경에 실리지 않는다(실측). `@TempDir`도 부적합 — 실패한 컨텍스트가 Logback 파일 핸들을 닫지 않아 Windows에서 정리 단계가 "Failed to close extension context"로 실패한다. 소스·CI 워크플로 무변경. 로컬 재현: `LOG_PATH='C:\Windows\notepad.exe\logs' gradlew test --no-daemon --tests "*Prod*"`(생성 불가 경로) → 수정 전 6/6 실패·후 6/6 통과·전체 1197/0.
+### 후속 영향
+- prod 프로파일로 컨텍스트를 띄우는 테스트를 추가할 때는 `LOG_PATH`를 인라인 속성/커맨드라인 인자로 임시 경로에 고정한다(`@DynamicPropertySource` 금지·`@TempDir` 금지). 기존 스모크 테스트가 통과한다고 로깅 경로 문제가 없다고 판단하지 말 것(초기화 순서 의존).
+- 로컬 Windows 통과 ≠ CI 통과: 절대경로 기본값(`/app/…`)은 Windows에서 드라이브 루트에 조용히 생성된다(`C:\app\logs` 산물 존재). CI 재현은 생성 불가 경로를 env로 주입해 흉내 낸다.
+- 실패하는 SpringApplication을 여러 번 띄우는 테스트는 로깅 시스템 마커를 지워 뒤 컨텍스트의 로깅을 재초기화시킨다 — 다른 prod 테스트의 통과 여부를 바꿀 수 있다.
+### 관련
+- D-188 결정 3·ProdBankAccountKeyFailFastTest·ProdSecurityContextSmokeTest·logback-spring.xml:15-38·PROGRESS STEP 485·486
+
+---
+
 ## 부록. 트랩 추가 절차
 
 1. 라이브 발견 시 즉시 decisions.md D-XX 박제 (단건 처리)

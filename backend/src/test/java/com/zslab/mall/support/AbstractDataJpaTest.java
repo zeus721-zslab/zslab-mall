@@ -1,6 +1,9 @@
 package com.zslab.mall.support;
 
 import com.zslab.mall.common.config.AuditingConfig;
+import com.zslab.mall.common.config.BankAccountEncryptionConfig;
+import com.zslab.mall.seller.converter.AccountNumberEncryptionConverter;
+import com.zslab.mall.seller.migration.V33__Encrypt_seller_bank_account_numbers;
 import org.junit.jupiter.api.AfterEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
@@ -16,10 +19,17 @@ import org.springframework.test.context.DynamicPropertySource;
  * <p>{@link MariaDbTestContainer#INSTANCE} 싱글톤 컨테이너를 {@code @DynamicPropertySource}로 주입하고,
  * {@link AutoConfigureTestDatabase.Replace#NONE}으로 임베디드 치환을 막아 실 MariaDB 스키마(Flyway 적용)에 대해 매핑을 검증한다.
  * {@code @DataJpaTest}는 JPA Auditing을 켜지 않으므로 {@link AuditingConfig}를 명시 import해 created_at·updated_at을 주입한다.
+ *
+ * <p>Track 89-F(D-188) 계좌 암호화 빈 3종도 명시 import한다 — (1) {@link AccountNumberEncryptionConverter}는 {@code @Convert}로
+ * 엔티티에 묶여 있어 Hibernate가 EntityManagerFactory 부팅 시 SpringBeanContainer로 생성자 주입 인스턴스화를 시도하므로, 슬라이스에
+ * {@link BankAccountEncryptionConfig}(키 → 암복호기)가 없으면 계좌 테스트가 아니어도 전 슬라이스가 기동 실패한다. (2) V33 Java
+ * 마이그레이션은 Spring 빈으로만 Flyway에 등록되는데, 싱글톤 컨테이너를 {@code @SpringBootTest}가 먼저 V33까지 올린 뒤 슬라이스가
+ * V33 없이 Flyway validate를 돌리면 "applied but not resolved" 로 실패한다(실행 순서 의존 flake) → 슬라이스도 같은 빈을 등록한다.
  */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Import(AuditingConfig.class)
+@Import({AuditingConfig.class, BankAccountEncryptionConfig.class, AccountNumberEncryptionConverter.class,
+        V33__Encrypt_seller_bank_account_numbers.class})
 public abstract class AbstractDataJpaTest {
 
     @DynamicPropertySource

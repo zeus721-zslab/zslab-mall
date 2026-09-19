@@ -81,6 +81,12 @@ upload:
   # 하위에 products/yyyy/MM/{ULID}.{ext}로 저장하며 GET /api/v1/files/** 가 같은 루트를 서빙한다.
   path: ${UPLOAD_PATH:/app/uploads}
 
+bank-account:
+  # Track 89-F 셀러 정산계좌 AES-256-GCM 키(D-188·SLR-2). raw 32바이트를 Base64로 인코딩한 44자. 로컬 개발용 더미 — 운영은
+  # BANK_ACCOUNT_ENCRYPTION_KEY env 주입 필수(application-prod.yml에서 기본값 제거·미주입 시 기동 실패). 형식 오류도 기동 실패(BankAccountEncryptionConfig).
+  # 더미 키로 암호화된 로컬 데이터는 운영 키로 읽을 수 없다(환경 간 dump 이동 불가). 생성 명령은 .env.example 참조.
+  encryption-key: ${BANK_ACCOUNT_ENCRYPTION_KEY:bG9jYWwtZGV2LWR1bW15LWJhbmstYWNjb3VudC1rZXk=}
+
 settlement:
   # Track 85 정산 설정. default-commission-rate = 플랫폼 기본 수수료율(basis-point·1000=10.00%)·셀러 개별율·카테고리율이 모두 없을 때
   # 적용(CommissionRateResolver). V30 백필 상수 1000과 같아야 한다. payout-offset-days = 지급예정일 = 정산 기간 말일 + N일.

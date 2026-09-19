@@ -30,7 +30,7 @@ python scripts/demo-seed/seed.py --step verify             # 검증만
   `orders`는 주문 단위로 저장돼 중단 시 이어서 실행된다. `timeshift`는 `time_shifted=true`면 재실행 거부(이중 보정 방지).
 
 ## 단계
-1. `master` — 카테고리(기존 '데모' 활용 + 5) · 구매자 10·셀러 owner 3 가입 · 관리자 입점(ACTIVE) · `seller_bank_account` INSERT(API 없음) · PIL 이미지 생성→업로드→상품 30 등록·이미지 연결·승인
+1. `master` — 카테고리(기존 '데모' 활용 + 5) · 구매자 10·셀러 owner 3 가입 · 관리자 입점(ACTIVE) · 계좌 등록 API `POST /api/v1/admin/sellers/{slr}/bank-accounts`(Track 89-F·계좌번호 AES 암호화 저장·raw INSERT 금지) · PIL 이미지 생성→업로드→상품 30 등록·이미지 연결·승인
 2. `orders` — 주문 생성 → Mock 웹훅 SUCCESS(`occurredAt`=목표 결제시각) → ADMIN 송장·배송완료 → BUYER 구매확정 / 클레임(취소·반품·교환) 완결 · 9월 진행분(결제완료 8·배송중 8·배송완료 9·진행 클레임 3)
 3. `timeshift` — 데모 마커 행만 시각 UPDATE(order·payment·order_item·delivery·claim·refund + 마스터 행) · order_no 날짜부 갱신 · 순서 불변식 검증
 4. `settlement` — 3~8월 정산 생성 → 3~7월 확정 → 3~6월 지급 → 지급 paid_at = 지급예정일 +0~3일(SQL)

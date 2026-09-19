@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.zslab.mall.common.crypto.AesGcmTextEncryptor;
 import com.zslab.mall.common.security.AuthHeaders;
 import com.zslab.mall.support.AbstractIntegrationTest;
 import java.sql.Timestamp;
@@ -104,6 +105,9 @@ class AdminSellerManagementControllerIntegrationTest extends AbstractIntegration
     private JdbcTemplate jdbc;
     @Autowired
     private PlatformTransactionManager txManager;
+    // Track 89-F: 계좌번호 컬럼은 v1: 암호문(Converter strict) → 시드도 암호화해 INSERT한다
+    @Autowired
+    private AesGcmTextEncryptor bankAccountEncryptor;
     @Autowired
     private ObjectMapper objectMapper;
 
@@ -665,8 +669,8 @@ class AdminSellerManagementControllerIntegrationTest extends AbstractIntegration
 
                 jdbc.update("INSERT INTO seller_bank_account (id, seller_id, bank_code, account_number, account_holder, "
                         + "is_primary, status, verified_at, created_at, updated_at) "
-                        + "VALUES (?, ?, 'KB', '1234567890123456', '대표A', 1, 'VERIFIED', NOW(6), NOW(6), NOW(6))",
-                        BANK_ACCOUNT_A, S_ACTIVE);
+                        + "VALUES (?, ?, 'KB', ?, '대표A', 1, 'VERIFIED', NOW(6), NOW(6), NOW(6))",
+                        BANK_ACCOUNT_A, S_ACTIVE, bankAccountEncryptor.encrypt("1234567890123456"));
 
                 jdbc.update("INSERT INTO category (id, display_name, depth, sort_order, created_at, updated_at) "
                         + "VALUES (?, '89D카테고리', 1, 0, NOW(6), NOW(6))", CATEGORY_ID);

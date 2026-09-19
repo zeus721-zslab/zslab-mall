@@ -14,6 +14,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
@@ -27,10 +28,18 @@ import org.springframework.test.web.servlet.MockMvc;
  */
 @AutoConfigureMockMvc
 @ActiveProfiles("prod")
+// STEP 485(CI 실패 원인): prod logback-spring.xml의 JSON_FILE appender가 ${LOG_PATH:/app/logs}를 연다. CI 러너(Linux)는 /app을 만들 수 없어
+// Logback 설정 오류로 컨텍스트가 죽는다(종전엔 앞선 비-prod 컨텍스트가 로깅을 먼저 초기화해 우연히 통과·ProdBankAccountKeyFailFastTest의
+// 실패 cleanUp이 초기화 마커를 지운 뒤로는 재초기화). 로깅 초기화(EnvironmentPreparedEvent)보다 먼저 환경에 실리는 인라인 테스트 속성으로
+// LOG_PATH를 임시 디렉터리에 고정한다(@DynamicPropertySource는 그 시점에 아직 없음·OS env보다 우선).
+@TestPropertySource(properties = "LOG_PATH=${java.io.tmpdir}/zslab-prod-smoke-logs")
 class ProdSecurityContextSmokeTest extends AbstractIntegrationTest {
 
     // 테스트 전용 더미 — 운영 시크릿 아님. HS256 요건상 32바이트 이상.
     private static final String DUMMY_JWT_SECRET = "prod-smoke-test-dummy-secret-please-ignore-min-32-bytes";
+    // Track 89-F: prod yml ${BANK_ACCOUNT_ENCRYPTION_KEY}도 기본값이 없어(JWT 동형 fail-fast) 테스트 전용 더미 키(Base64 32바이트)를 주입한다.
+    // 미주입 시 컨텍스트 로드 실패는 ProdBankAccountKeyFailFastTest가 별도로 고정한다.
+    private static final String DUMMY_BANK_ACCOUNT_KEY = "cHJvZC1zbW9rZS10ZXN0LWR1bW15LWJhbmsta2V5MzI=";
     private static final String PROTECTED_ADMIN_PATH = "/api/v1/admin/__prod_smoke_probe__";
 
     @DynamicPropertySource
@@ -38,6 +47,7 @@ class ProdSecurityContextSmokeTest extends AbstractIntegrationTest {
         // prod yml ${JWT_SECRET} 미주입 기동 실패를 테스트 전용 더미로 회피(최고 우선순위로 shadow).
         // 싱글톤 datasource 4-property는 상위 AbstractIntegrationTest가 주입(@DynamicPropertySource는 계층에서 합쳐짐).
         registry.add("jwt.secret", () -> DUMMY_JWT_SECRET);
+        registry.add("bank-account.encryption-key", () -> DUMMY_BANK_ACCOUNT_KEY);
     }
 
     @Autowired
