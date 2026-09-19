@@ -63,4 +63,17 @@ public interface SettlementRepository extends JpaRepository<Settlement, Long>, J
             + "COALESCE(SUM(s.netAmount), 0) AS netAmount FROM Settlement s "
             + "WHERE s.sellerId = :sellerId GROUP BY s.status")
     List<SettlementStatusTotalProjection> sumByStatusForSeller(@Param("sellerId") Long sellerId);
+
+    /**
+     * 정산이 이 계좌 행을 지급 스냅샷으로 참조하는지(Track 89-F·D-188 계좌 수정 409 판정). 상태 무관 — bank_account_id는 markPaid에서만
+     * 설정되므로 실질적으로 PAID 정산이지만, 판정 기준은 "settlement 행이 이 id를 가리키는가"다. 파생 쿼리 바인딩.
+     */
+    boolean existsByBankAccountId(Long bankAccountId);
+
+    /**
+     * 정산이 지급 계좌로 참조하는 계좌 id 집합(Track 89-F 외부 검토 Q6·상세 계좌 목록 미리보기·배치 1회). {@link #existsByBankAccountId}와
+     * 같은 기준(상태 무관·bank_account_id 일치)이라 미리보기 = 수정 409 판정이다. 모든 변수는 :bankAccountIds 바인딩이다.
+     */
+    @Query("SELECT DISTINCT s.bankAccountId FROM Settlement s WHERE s.bankAccountId IN :bankAccountIds")
+    List<Long> findReferencedBankAccountIds(@Param("bankAccountIds") Collection<Long> bankAccountIds);
 }

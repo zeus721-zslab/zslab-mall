@@ -12,6 +12,7 @@ import com.zslab.mall.order.repository.SellerSalesSummaryProjection;
 import com.zslab.mall.product.enums.ProductStatus;
 import com.zslab.mall.product.repository.ProductRepository;
 import com.zslab.mall.product.repository.SellerProductCountProjection;
+import com.zslab.mall.seller.controller.response.AdminSellerBankAccountResponse;
 import com.zslab.mall.seller.controller.response.AdminSellerDetailResponse;
 import com.zslab.mall.seller.controller.response.AdminSellerSummaryResponse;
 import com.zslab.mall.seller.entity.Seller;
@@ -135,9 +136,17 @@ public class AdminSellerQueryService {
         Long sellerId = seller.getId();
         Map<ProductStatus, Long> productCountByStatus =
                 productCountsBySeller(List.of(sellerId)).getOrDefault(sellerId, new EnumMap<>(ProductStatus.class));
-        List<SellerBankAccount> primaryAccounts = sellerBankAccountRepository.findPrimaryBankAccounts(sellerId);
+        List<SellerBankAccount> allAccounts = sellerBankAccountRepository.findAllBySellerId(sellerId);
+        // 주 계좌는 목록에서 고른다(SLR-3·V32 UNIQUE로 최대 1건·방어적으로 첫 건). 별도 쿼리를 없애 상세 1회 조회로 충분하다.
+        List<SellerBankAccount> primaryAccounts = allAccounts.stream().filter(SellerBankAccount::isPrimary).toList();
         AdminSellerDetailResponse.BankAccount primaryBankAccount =
                 primaryAccounts.isEmpty() ? null : toBankAccount(primaryAccounts.get(0));
+        // 정산 참조 여부(수정 가능 미리보기·외부 검토 Q6): existsByBankAccountId와 같은 기준을 배치 1쿼리로. 미리보기 = 수정 409 판정.
+        Set<Long> referencedIds = allAccounts.isEmpty() ? Set.of() : new HashSet<>(settlementRepository.findReferencedBankAccountIds(
+                allAccounts.stream().map(SellerBankAccount::getId).toList()));
+        List<AdminSellerBankAccountResponse> bankAccounts = allAccounts.stream()
+                .map(account -> AdminSellerBankAccountResponse.of(account, referencedIds.contains(account.getId())))
+                .toList();
         SellerSalesSummaryProjection sales = orderItemRepository.summarizeSalesBySellerId(
                 sellerId, UNPAID_ORDER_STATUSES, OrderItemStatus.CONFIRMED);
         List<AdminSellerDetailResponse.SettlementTotal> settlements =
@@ -152,7 +161,7 @@ public class AdminSellerQueryService {
                 seller.getPublicId(), seller.getCompanyName(), seller.getBusinessNo(), seller.getCeoName(),
                 seller.getContactEmail(), seller.getContactPhone(), seller.getStatus(), seller.getCommissionRate(),
                 seller.getCreatedAt(), seller.getUpdatedAt(),
-                members(sellerId), primaryBankAccount,
+                members(sellerId), primaryBankAccount, bankAccounts,
                 total(productCountByStatus), productCountByStatus,
                 sales.getOrderCount(), sales.getConfirmedAmount(),
                 settlements,
