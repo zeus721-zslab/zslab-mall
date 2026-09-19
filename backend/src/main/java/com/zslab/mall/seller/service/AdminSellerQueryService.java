@@ -217,7 +217,8 @@ public class AdminSellerQueryService {
                             user == null ? null : user.getEmail(),
                             user == null ? null : user.getName(),
                             roleCodeById.get(sellerUser.getRoleId()),
-                            user == null ? null : user.getWithdrawnAt());
+                            user == null ? null : user.getWithdrawnAt(),
+                            sellerUser.getCreatedAt());
                 })
                 .toList();
     }

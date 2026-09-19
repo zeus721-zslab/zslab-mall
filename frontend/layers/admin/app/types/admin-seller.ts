@@ -1,5 +1,6 @@
 import type {
   AdminSellerBankAccountStatus,
+  AdminSellerMemberRole,
   AdminSellerStatus,
   AdminSellerTerminationBlockCode,
 } from '#layers/admin/app/lib/constants/admin-seller'
@@ -34,13 +35,42 @@ export interface AdminSellerListResponse {
   hasNext: boolean
 }
 
-/** 소속 구성원(seller_user). 탈퇴 회원은 withdrawnAt, soft-delete 회원은 user 필드 전부 생략(userPublicId 포함). */
+/**
+ * 소속 구성원(seller_user·BE AdminSellerDetailResponse.Member). 탈퇴 회원은 withdrawnAt, soft-delete 회원은 user 필드 전부 생략(userPublicId 포함).
+ * joinedAt = 구성원 등록 시각(FE-42·D-189). 추가 API(POST 201)의 응답도 같은 형태다.
+ */
 export interface AdminSellerMember {
   userPublicId?: string
   email?: string
   name?: string
-  roleCode?: 'SELLER_OWNER' | 'SELLER_MANAGER' | 'SELLER_STAFF'
+  roleCode?: AdminSellerMemberRole
   withdrawnAt?: string
+  joinedAt: string
+}
+
+/** POST /admin/sellers/{slr_}/members 신규 계정 정보(BE AdminSellerMemberNewUserRequest·셀프 가입과 같은 필드·phone은 임시 비밀번호 SMS 수신처). */
+export interface AdminSellerMemberNewUser {
+  email: string
+  name: string
+  phone: string
+}
+
+/** POST /admin/sellers/{slr_}/members 본문(BE AdminSellerMemberAddRequest·userPublicId XOR newUser·사유 없음). */
+export interface AdminSellerMemberAddRequest {
+  userPublicId?: string
+  newUser?: AdminSellerMemberNewUser
+  role: AdminSellerMemberRole
+}
+
+/** DELETE /admin/sellers/{slr_}/members/{usr_} 본문(사유 필수). */
+export interface AdminSellerMemberRemoveRequest {
+  reason: string
+}
+
+/** PATCH /admin/sellers/{slr_}/members/{usr_}/role 본문(사유 필수·같은 역할 422). */
+export interface AdminSellerMemberRoleChangeRequest {
+  role: AdminSellerMemberRole
+  reason: string
 }
 
 /** 현재 주 정산계좌(끝 4자리만·BE AdminSellerDetailResponse.BankAccount). 전체 계좌번호는 어떤 응답에도 없다. */
@@ -158,7 +188,7 @@ export interface AdminSellerBankAccountPrimaryRequest {
   reason: string
 }
 
-/** POST /admin/sellers 본문(BE SellerProvisioningRequest·owner는 회원 public_id). */
+/** POST /admin/sellers 본문(BE SellerProvisioningRequest·owner는 회원 public_id·null이면 구성원 없이 입점·FE-42 D-189). */
 export interface AdminSellerProvisionRequest {
   companyName: string
   businessNo: string | null
@@ -166,5 +196,5 @@ export interface AdminSellerProvisionRequest {
   contactEmail: string | null
   contactPhone: string | null
   status: 'ACTIVE' | 'PENDING'
-  ownerUserPublicId: string
+  ownerUserPublicId: string | null
 }

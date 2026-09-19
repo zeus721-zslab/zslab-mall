@@ -158,3 +158,60 @@ export const SELLER_BANK_ACCOUNT_PRIMARY_CHANGE_NOTICE = [
   '아직 지급되지 않은 정산(지급 대기·확정)도 지급 시점의 주 계좌인 이 계좌로 지급됩니다.',
   '이미 지급완료된 정산은 지급 당시 계좌가 기록되어 있어 영향이 없습니다.',
 ] as const
+
+// ---------- 구성원(FE-42·Track 89-G D-189) ----------
+
+/** BE RoleCode 중 셀러 구성원 역할 3값(seller_user.role_id → role.code·V11 시드). 4층위 (4)프론트 단일 소스. */
+export type AdminSellerMemberRole = 'SELLER_OWNER' | 'SELLER_MANAGER' | 'SELLER_STAFF'
+
+export const ADMIN_SELLER_MEMBER_ROLES: AdminSellerMemberRole[] = ['SELLER_OWNER', 'SELLER_MANAGER', 'SELLER_STAFF']
+
+export const ADMIN_SELLER_MEMBER_ROLE_LABEL: Record<AdminSellerMemberRole, string> = {
+  SELLER_OWNER: '대표',
+  SELLER_MANAGER: '매니저',
+  SELLER_STAFF: '담당자',
+}
+
+/** 역할 배지 톤: 대표 info(정산 SMS 대체 수신처·가드 대상) / 매니저·담당자 neutral. */
+export const ADMIN_SELLER_MEMBER_ROLE_TONE: Record<AdminSellerMemberRole, AdminSellerStatusTone> = {
+  SELLER_OWNER: 'info',
+  SELLER_MANAGER: 'neutral',
+  SELLER_STAFF: 'neutral',
+}
+
+export const ADMIN_SELLER_MEMBER_ROLE_OPTIONS: { value: AdminSellerMemberRole; title: string }[] =
+  ADMIN_SELLER_MEMBER_ROLES.map((value) => ({ value, title: ADMIN_SELLER_MEMBER_ROLE_LABEL[value] }))
+
+/** BE AdminSellerMemberNewUserRequest @Size·@Pattern과 동일(User 컬럼 SoT·이메일 정규식은 SignupRequest와 동일). 휴대폰 형식은 BE에 없고 FE만 ADMIN_MEMBER_PHONE_PATTERN으로 더 엄격(SMS 수신처·admin-seller-member-view). */
+export const ADMIN_SELLER_MEMBER_EMAIL_MAX = 254
+export const ADMIN_SELLER_MEMBER_NAME_MAX = 50
+export const ADMIN_SELLER_MEMBER_PHONE_MAX = 20
+export const ADMIN_SELLER_MEMBER_EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
+
+/**
+ * 역할이 권한에 영향을 주지 않는다는 안내(D-189 §1-A 2: 역할은 데이터만 유지·권한 분기 없음·셀러 API 16개 전부 셀러 단위 판정). 운영자가 "담당자로
+ * 주면 제한될 것"이라 오해하지 않도록 추가·역할 변경 다이얼로그 모두에 표시한다.
+ */
+export const SELLER_MEMBER_ROLE_NOTICE = [
+  '역할은 구분·표시용입니다. 현재 모든 구성원이 같은 셀러 기능(상품·송장·클레임·정산 조회)을 사용하며, 역할에 따라 제한되지 않습니다.',
+  '대표(OWNER)는 셀러 연락처가 없을 때 정산 안내 SMS의 대체 수신처가 되며, 마지막 활성 대표는 제거·강등할 수 없습니다.',
+] as const
+
+/** 새 계정 생성 경로 안내(D-189 §1-A 3: BUYER 겸직 기본·임시 비밀번호 SMS·변경 강제·SMS 실패 시 전체 롤백). */
+export const SELLER_MEMBER_NEW_USER_NOTICE = [
+  '입력한 이메일로 새 회원 계정이 만들어지고, 일반 회원(구매자) 자격도 함께 부여됩니다. 이 계정은 회원 목록에도 표시됩니다.',
+  '임시 비밀번호는 입력한 휴대폰으로 SMS 발송됩니다. 화면에는 표시되지 않으며, 첫 로그인 후 비밀번호를 변경해야 합니다.',
+  'SMS 발송에 실패하면 계정은 만들어지지 않습니다(계정·구성원 등록이 함께 취소됩니다).',
+] as const
+
+/** 구성원 제거 확인 안내(D-189 §1-A 1: 리졸버 매 요청 조회 → 즉시 차단·BUYER 세션·계정 유지). */
+export const SELLER_MEMBER_REMOVE_NOTICE = [
+  '제거 즉시 이 계정의 셀러 로그인과 셀러 기능 접근이 차단됩니다(이미 로그인한 세션도 다음 요청부터 차단).',
+  '일반 회원(구매자) 계정·주문 이력은 그대로 유지되며, 필요하면 다시 구성원으로 추가할 수 있습니다.',
+] as const
+
+/** 마지막 활성 대표 제거·강등 불가 툴팁(BE 409 SELLER_LAST_OWNER와 같은 판정·D-189 §1-A 2). */
+export const SELLER_MEMBER_LAST_OWNER_TOOLTIP = '마지막 활성 대표(OWNER)는 제거·강등할 수 없습니다. 다른 구성원을 대표로 먼저 추가하거나 지정하세요.'
+
+/** 구성원 0명이 정상 상태임을 알리는 안내(셀러 1이 실제로 구성원 0으로 운영 중·관리자 주도 흐름은 구성원을 읽지 않음). */
+export const SELLER_MEMBERS_EMPTY_NOTE = '구성원이 없어도 셀러는 정상 운영됩니다(상품·주문·정산은 관리자가 대신 처리). 셀러가 직접 로그인해 처리하려면 구성원을 추가하세요.'

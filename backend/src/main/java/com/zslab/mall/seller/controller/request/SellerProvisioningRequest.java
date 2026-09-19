@@ -23,5 +23,6 @@ public record SellerProvisioningRequest(
         @Size(max = 20) String contactPhone, // nullable — SoT: Seller.contactPhone @Column(length=20)
         @NotNull SellerStatus status,
         // Track 89-D: 내부 userId(BIGINT) → 회원 public_id(usr_)로 전환(FE는 publicId만 안다·D-186 운영자 부여 선례)
-        @NotBlank String ownerUserPublicId) {
+        // Track 89-G: 선택 — null이면 구성원 0으로 입점(회사 먼저 등록·구성원은 이후 추가). 값이 있으면 그 회원을 SELLER_OWNER로 연결.
+        String ownerUserPublicId) {
 }

@@ -12,6 +12,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zslab.mall.common.security.ActorRole;
 import com.zslab.mall.common.security.AuthHeaders;
 import com.zslab.mall.notification.adapter.SmsSender;
@@ -23,6 +25,7 @@ import java.nio.charset.StandardCharsets;
 import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
@@ -64,6 +67,9 @@ class AdminMemberIntegrationTest extends AbstractIntegrationTest {
     private static final long NON_BUYER = 9844L; // BUYER role 없음(판매자 계정 상정)
     private static final long BUYER_C = 9845L;  // 무관 회원(토큰 영향 없음 검증)
     private static final long ORDER_A_PAID = 98411L;
+    private static final long SELLER_S1 = 98461L; // (11) 활성 2명
+    private static final long SELLER_S2 = 98462L; // (11) 탈퇴 구성원만
+    private static final long SELLER_S3 = 98463L; // (11) soft-delete 셀러
     private static final long ORDER_A_ACTIVE = 98412L;
     private static final long ADDRESS_A = 98410L;
 
@@ -78,6 +84,8 @@ class AdminMemberIntegrationTest extends AbstractIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
+    @Autowired
+    private ObjectMapper objectMapper;
     @Autowired
     private AuthHeaders authHeaders;
     @Autowired
@@ -370,6 +378,83 @@ class AdminMemberIntegrationTest extends AbstractIntegrationTest {
         mockMvc.perform(get(URL)).andExpect(status().isUnauthorized());
     }
 
+
+    // ---------- 셀러 소속(Track 89-G STEP 498·D-189) ----------
+
+    @Test
+    @DisplayName("(11) 상세 sellerMembership: 활성 2명 중 1명 false → 유일 활성 true / 탈퇴 구성원은 필드 있음·false / 미소속·soft-delete 셀러는 키 없음 / 목록엔 키 없음 / 키 집합")
+    void detailSellerMembership() throws Exception {
+        // 셀러 S1: BUYER_A(OWNER·활성) + BUYER_C(STAFF·활성) / 셀러 S2: BUYER_B(OWNER·탈퇴)만 / 셀러 S3(soft-delete): BUYER_NO_PHONE(STAFF)
+        tx.executeWithoutResult(s -> {
+            try {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
+                seedSeller(SELLER_S1, "T84셀러S1", null);
+                seedSeller(SELLER_S2, "T84셀러S2", null);
+                seedSeller(SELLER_S3, "T84셀러S3", Timestamp.valueOf("2026-09-01 00:00:00"));
+                seedSellerUser(SELLER_S1, BUYER_A, "SELLER_OWNER");
+                seedSellerUser(SELLER_S1, BUYER_C, "SELLER_STAFF");
+                seedSellerUser(SELLER_S2, BUYER_B, "SELLER_OWNER");
+                seedSellerUser(SELLER_S3, BUYER_NO_PHONE, "SELLER_STAFF");
+            } finally {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
+            }
+        });
+
+        // 활성 2명 중 1명 → false·상호·역할
+        String body = mockMvc.perform(get(URL + "/" + BUYER_A_PID).headers(authHeaders.admin(ADMIN_ID)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sellerMembership.sellerPublicId").value(pid("slr_", "T84S1")))
+                .andExpect(jsonPath("$.sellerMembership.companyName").value("T84셀러S1"))
+                .andExpect(jsonPath("$.sellerMembership.roleCode").value("SELLER_OWNER"))
+                .andExpect(jsonPath("$.sellerMembership.lastActiveMember").value(false))
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        JsonNode detail = objectMapper.readTree(body);
+        assertThat(fieldNames(detail)).containsExactlyInAnyOrder(
+                "publicId", "name", "email", "phone", "createdAt", "passwordChangeRequired", "grade", "addresses", "sellerMembership");
+        assertThat(fieldNames(detail.get("sellerMembership"))).containsExactlyInAnyOrder("sellerPublicId", "companyName", "roleCode", "lastActiveMember");
+
+        // 다른 활성 구성원(BUYER_C)이 탈퇴 → BUYER_A가 유일 활성 → true(역할 무관·STAFF가 빠져도 판정에 반영)
+        jdbc.update("UPDATE `user` SET withdrawn_at = NOW(6) WHERE id = ?", BUYER_C);
+        mockMvc.perform(get(URL + "/" + BUYER_A_PID).headers(authHeaders.admin(ADMIN_ID)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sellerMembership.lastActiveMember").value(true));
+        // 탈퇴한 구성원(BUYER_C·BUYER_B): 소속 필드는 있고(행 유지·D-187 §1-A 11) lastActiveMember false
+        mockMvc.perform(get(URL + "/" + pid("usr_", "T84BUYC")).headers(authHeaders.admin(ADMIN_ID)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sellerMembership.roleCode").value("SELLER_STAFF"))
+                .andExpect(jsonPath("$.sellerMembership.lastActiveMember").value(false));
+        mockMvc.perform(get(URL + "/" + BUYER_B_PID).headers(authHeaders.admin(ADMIN_ID)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sellerMembership.companyName").value("T84셀러S2"))
+                .andExpect(jsonPath("$.sellerMembership.lastActiveMember").value(false));
+        // 미소속·soft-delete 셀러 구성원 → 키 없음
+        mockMvc.perform(get(URL + "/" + NO_PHONE_PID).headers(authHeaders.admin(ADMIN_ID)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sellerMembership").doesNotExist());
+        // 목록엔 싣지 않는다
+        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[*].sellerMembership").doesNotExist());
+        // 탈퇴는 여전히 차단하지 않는다(확정 4): 유일 활성 구성원 BUYER_A 탈퇴 → 204(진행 중 주문 없음·ORDER_A_PAID는 CONFIRMED)
+        mockMvc.perform(post(URL + "/" + BUYER_A_PID + "/withdraw").headers(authHeaders.admin(ADMIN_ID)))
+                .andExpect(status().isNoContent());
+    }
+
+    private static List<String> fieldNames(JsonNode node) {
+        List<String> names = new ArrayList<>();
+        node.fieldNames().forEachRemaining(names::add);
+        return names;
+    }
+
+    private void seedSeller(long id, String companyName, Timestamp deletedAt) {
+        jdbc.update("INSERT INTO seller (id, public_id, company_name, ceo_name, status, deleted_at, created_at, updated_at) "
+                + "VALUES (?, ?, ?, '대표', 'ACTIVE', ?, NOW(6), NOW(6))", id, pid("slr_", "T84S" + (id - SELLER_S1 + 1)), companyName, deletedAt);
+    }
+
+    private void seedSellerUser(long sellerId, long userId, String roleCode) {
+        jdbc.update("INSERT INTO seller_user (user_id, seller_id, role_id, created_at, updated_at) "
+                + "SELECT ?, ?, id, NOW(6), NOW(6) FROM role WHERE code = ?", userId, sellerId, roleCode);
+    }
     // ---------- seed·helpers (? positional 바인딩·정적 SQL·SQL injection 없음) ----------
 
     private void seed() {
@@ -421,6 +506,8 @@ class AdminMemberIntegrationTest extends AbstractIntegrationTest {
         tx.executeWithoutResult(s -> {
             try {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
+                jdbc.update("DELETE FROM seller_user WHERE seller_id IN (?, ?, ?)", SELLER_S1, SELLER_S2, SELLER_S3);
+                jdbc.update("DELETE FROM seller WHERE id IN (?, ?, ?)", SELLER_S1, SELLER_S2, SELLER_S3);
                 List<Long> ids = List.of(BUYER_A, BUYER_B, BUYER_NO_PHONE, NON_BUYER, BUYER_C);
                 for (Long id : ids) {
                     jdbc.update("DELETE FROM audit_log WHERE target_type = 'USER' AND target_id = ?", id);

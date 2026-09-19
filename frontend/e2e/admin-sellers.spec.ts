@@ -5,6 +5,7 @@ import { test, expect, type Page } from '@playwright/test'
  * mock해 로컬 DB를 바꾸지 않고 결정적으로 검증한다(목록 → 승인 대기 배너·배지 → 상세(차단 사유·종료 비활성 툴팁·구성원 0 경고) → 정지 다이얼로그(사유 필수)
  * → 수정 다이얼로그(율 경고) → 입점 다이얼로그(검색·선택·폼)까지. PATCH·PUT·POST는 호출하지 않는다). ②(FE-41)는 정산계좌 카드(목록·끝 4자리·주 계좌 배지)
  * → 등록 다이얼로그(첫 계좌 안내 없음·계좌번호 검증) → 수정 다이얼로그(기존 번호 미표시·사유 필수) → 주 계좌 전환 다이얼로그(안내 3문장·주 계좌 행은 비활성)까지.
+ * ③(FE-42)은 구성원 카드(역할 배지·마지막 활성 대표 비활성 툴팁·탈퇴 OWNER 제외) → 추가 다이얼로그 2경로(검색·새 계정 안내) → 역할 변경·제거 다이얼로그(사유 필수)까지.
  */
 const SELLER_A = 'slr_E2E0000000000000000000SA1'
 const SELLER_P = 'slr_E2E0000000000000000000SP2'
@@ -15,7 +16,7 @@ const ROWS = [
 const DETAIL_A = {
   sellerPublicId: SELLER_A, companyName: 'E2E리빙샵', businessNo: '101-81-00001', ceoName: '김리빙', contactEmail: 'a@e2e.invalid', contactPhone: '02-1000-0001',
   status: 'ACTIVE', commissionRate: 1200, createdAt: '2026-09-10T10:00:00', updatedAt: '2026-09-10T10:00:00',
-  members: [{ userPublicId: 'usr_E2E0000000000000000000OW1', email: 'owner@e2e.invalid', name: '오너', roleCode: 'SELLER_OWNER', withdrawnAt: '2026-09-18T00:26:27' }],
+  members: [{ userPublicId: 'usr_E2E0000000000000000000OW1', email: 'owner@e2e.invalid', name: '오너', roleCode: 'SELLER_OWNER', withdrawnAt: '2026-09-18T00:26:27', joinedAt: '2026-09-10T10:00:00' }],
   primaryBankAccount: { id: 1, bankCode: 'KB', accountHolder: '김리빙', accountNumberSuffix: '0001', status: 'VERIFIED', verifiedAt: '2026-02-11T10:00:00' },
   bankAccounts: [
     { id: 1, bankCode: 'KB', accountHolder: '김리빙', accountNumberSuffix: '0001', status: 'VERIFIED', verifiedAt: '2026-02-11T10:00:00', isPrimary: true, referencedBySettlement: true, createdAt: '2026-02-11T10:00:00', updatedAt: '2026-02-11T10:00:00' },
@@ -143,19 +144,26 @@ test.describe('관리자 셀러 관리(FE-40)', () => {
     await editDialog.getByTestId('seller-edit-cancel').click()
     await expect(editDialog).toBeHidden()
 
-    // 목록 복귀 → 입점 다이얼로그: 회원 검색 → 선택 → 사업자 폼 노출·상호 비면 확인 비활성 → 닫기
+    // 목록 복귀 → 입점 다이얼로그(FE-42 순서 교체): 사업자 폼이 먼저·상호/대표자만 채우면 owner 없이도 확인 활성 → 대표 계정 검색·선택은 선택 사항 → 닫기
     await page.getByTestId('seller-back').click()
     await page.waitForURL(/\/admin\/members\/sellers(\?|$)/)
     await page.getByTestId('seller-provision-open').click()
     const provisionDialog = page.getByTestId('admin-seller-provision-dialog')
     await expect(provisionDialog).toBeVisible()
+    await expect(provisionDialog.getByTestId('seller-provision-company')).toBeVisible()
+    await expect(provisionDialog.getByTestId('seller-provision-owner-hint')).toContainText('비워 두면 구성원 없이 등록')
+    await expect(provisionDialog.getByTestId('seller-provision-ok')).toBeDisabled()
+    await provisionDialog.getByTestId('seller-provision-company').locator('input').fill('E2E신규샵')
+    await provisionDialog.getByTestId('seller-provision-ceo').locator('input').fill('김신규')
+    await expect(provisionDialog.getByTestId('seller-provision-ok')).toBeEnabled()
     await provisionDialog.getByTestId('seller-provision-keyword').locator('input').fill('E2E')
     await provisionDialog.getByTestId('seller-provision-search').click()
     await expect(provisionDialog.getByTestId('seller-provision-result')).toHaveCount(1)
     await provisionDialog.getByTestId('seller-provision-result').click()
     await expect(provisionDialog.getByTestId('seller-provision-owner')).toContainText('E2E회원')
-    await expect(provisionDialog.getByTestId('seller-provision-company')).toBeVisible()
-    await expect(provisionDialog.getByTestId('seller-provision-ok')).toBeDisabled()
+    await expect(provisionDialog.getByTestId('seller-provision-ok')).toBeEnabled()
+    await provisionDialog.getByTestId('seller-provision-owner-change').click()
+    await expect(provisionDialog.getByTestId('seller-provision-keyword')).toBeVisible()
     await provisionDialog.getByTestId('seller-provision-close').click()
     await expect(provisionDialog).toBeHidden()
 
@@ -231,6 +239,106 @@ test.describe('관리자 셀러 관리(FE-40)', () => {
 
     // 화면 어디에도 전체 계좌번호(예: 하이픈 포함 10자 이상 숫자열)가 없다
     await expect(page.locator('body')).not.toContainText(/\d{3}-\d{3}-\d{6}/)
+    expect(captured.writes).toEqual([])
+  })
+
+  test('③ 구성원 카드(FE-42): 역할 배지·등록일·탈퇴 회색 → 마지막 활성 대표 제거·강등 비활성 툴팁(탈퇴 OWNER는 세지 않음) → 추가 다이얼로그 2경로(검색·새 계정 안내·역할 안내) → 역할 변경(현재 역할 제외·사유 필수) → 제거 다이얼로그(즉시 차단 안내·사유 필수) (POST·DELETE·PATCH 0)', async ({ page }) => {
+    const captured = await mockSellerApi(page)
+    // 활성 OWNER 1 + 탈퇴 OWNER 1 + 활성 MANAGER 1 — 마지막 활성 대표 경계. 나중에 등록한 route가 먼저 매칭된다.
+    const DETAIL_M = {
+      ...DETAIL_A,
+      members: [
+        { userPublicId: 'usr_E2E0000000000000000000OW1', email: 'owner@e2e.invalid', name: '오너', roleCode: 'SELLER_OWNER', joinedAt: '2026-09-10T10:00:00' },
+        { userPublicId: 'usr_E2E0000000000000000000OW2', email: 'prev@e2e.invalid', name: '전대표', roleCode: 'SELLER_OWNER', withdrawnAt: '2026-09-18T00:26:27', joinedAt: '2026-09-01T10:00:00' },
+        { userPublicId: 'usr_E2E0000000000000000000MG3', email: 'mgr@e2e.invalid', name: '매니저', roleCode: 'SELLER_MANAGER', joinedAt: '2026-09-12T10:00:00' },
+      ],
+    }
+    await page.route((url) => new RegExp(`/api/v1/admin/sellers/${SELLER_A}$`).test(url.pathname), (route) => route.fulfill({ json: DETAIL_M }))
+    await page.route((url) => /\/api\/v1\/admin\/sellers\/[^/]+\/members(\/|$)/.test(url.pathname), (route) => {
+      captured.writes.push(`${route.request().method()} ${route.request().url()}`)
+      return route.fulfill({ status: 204 })
+    })
+    await loginByDemo(page)
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto(`/admin/members/sellers/${SELLER_A}`)
+    await page.waitForLoadState('networkidle')
+
+    // 목록: 3행·역할 배지·상태·등록일·로그인 가능 경고 없음(활성 2)
+    const rows = page.getByTestId('seller-member-row')
+    await expect(rows).toHaveCount(3)
+    await expect(rows.nth(0).getByTestId('seller-member-role')).toHaveText('대표')
+    await expect(rows.nth(1).getByTestId('seller-member-withdrawn')).toContainText('탈퇴')
+    await expect(rows.nth(2).getByTestId('seller-member-role')).toHaveText('매니저')
+    await expect(rows.nth(0).getByTestId('seller-member-joined')).toContainText('2026')
+    await expect(page.getByTestId('seller-no-login-member')).toHaveCount(0)
+    await expect(page.getByTestId('seller-members')).toContainText('활성 2명')
+
+    // 마지막 활성 대표(오너): 제거·역할 변경 비활성 + 툴팁 / 탈퇴 OWNER: 제거 활성·역할 변경 비활성 / 매니저: 둘 다 활성
+    await expect(rows.nth(0).getByTestId('seller-member-remove')).toBeDisabled()
+    await expect(rows.nth(0).getByTestId('seller-member-change-role')).toBeDisabled()
+    await rows.nth(0).getByTestId('seller-member-remove-wrapper').hover()
+    await expect(page.getByTestId('seller-member-remove-blocked').first()).toContainText('마지막 활성 대표(OWNER)는 제거·강등할 수 없습니다')
+    await expect(rows.nth(1).getByTestId('seller-member-remove')).toBeEnabled()
+    await expect(rows.nth(1).getByTestId('seller-member-change-role')).toBeDisabled()
+    await expect(rows.nth(2).getByTestId('seller-member-remove')).toBeEnabled()
+    await expect(rows.nth(2).getByTestId('seller-member-change-role')).toBeEnabled()
+
+    // 추가 다이얼로그: 경로 1 기존 회원 검색 → 선택 → 역할 안내 / 경로 2 새 계정 → 안내 3문장·필수 입력 전 확인 비활성 → 닫기
+    await page.getByTestId('seller-member-add').click()
+    const addDialog = page.getByTestId('admin-seller-member-add-dialog')
+    await expect(addDialog).toBeVisible()
+    await expect(addDialog.getByTestId('seller-member-add-ok')).toBeDisabled()
+    await addDialog.getByTestId('seller-member-keyword').locator('input').fill('E2E')
+    await addDialog.getByTestId('seller-member-search').click()
+    await expect(addDialog.getByTestId('seller-member-result')).toHaveCount(1)
+    await addDialog.getByTestId('seller-member-result').click()
+    await expect(addDialog.getByTestId('seller-member-selected')).toContainText('E2E회원')
+    await expect(addDialog.getByTestId('seller-member-add-ok')).toBeEnabled()
+    await expect(addDialog.getByTestId('seller-member-role-notice')).toContainText('역할에 따라 제한되지 않습니다')
+    await addDialog.getByTestId('seller-member-add-tab-new').click()
+    await expect(addDialog.getByTestId('seller-member-new-notice')).toContainText('일반 회원(구매자) 자격도 함께 부여됩니다')
+    await expect(addDialog.getByTestId('seller-member-new-notice')).toContainText('임시 비밀번호는 입력한 휴대폰으로 SMS 발송됩니다')
+    await expect(addDialog.getByTestId('seller-member-new-notice')).toContainText('SMS 발송에 실패하면 계정은 만들어지지 않습니다')
+    await expect(addDialog.getByTestId('seller-member-add-ok')).toBeDisabled()
+    await addDialog.getByTestId('seller-member-new-email').locator('input').fill('new@e2e.invalid')
+    await addDialog.getByTestId('seller-member-new-name').locator('input').fill('신규대표')
+    await addDialog.getByTestId('seller-member-new-phone').locator('input').fill('010-9999-0000')
+    await expect(addDialog.getByTestId('seller-member-add-ok')).toBeEnabled()
+    await addDialog.getByTestId('seller-member-add-cancel').click()
+    await expect(addDialog).toBeHidden()
+
+    // 역할 변경 다이얼로그(매니저): 현재 역할 표시·현재 역할은 선택지에 없음·사유 없으면 확인 비활성 → 취소
+    await rows.nth(2).getByTestId('seller-member-change-role').click()
+    const roleDialog = page.getByTestId('admin-seller-member-role-dialog')
+    await expect(roleDialog).toBeVisible()
+    await expect(roleDialog.getByTestId('seller-member-role-headline')).toContainText('현재 역할: 매니저')
+    await expect(roleDialog.getByTestId('seller-member-role-ok')).toBeDisabled()
+    await roleDialog.getByTestId('seller-member-role-select').click()
+    await expect(page.getByRole('option', { name: '매니저' })).toHaveCount(0)
+    await page.getByRole('option', { name: '담당자' }).click()
+    await expect(roleDialog.getByTestId('seller-member-role-ok')).toBeDisabled()
+    await roleDialog.getByTestId('seller-member-role-reason').locator('textarea').first().fill('직급 조정')
+    await expect(roleDialog.getByTestId('seller-member-role-ok')).toBeEnabled()
+    await roleDialog.getByTestId('seller-member-role-cancel').click()
+    await expect(roleDialog).toBeHidden()
+
+    // 제거 다이얼로그(매니저): 즉시 차단·구매자 계정 유지 안내·사유 필수 → 취소 / 탈퇴 OWNER 행은 정리 문구
+    await rows.nth(2).getByTestId('seller-member-remove').click()
+    const removeDialog = page.getByTestId('admin-seller-member-remove-dialog')
+    await expect(removeDialog).toBeVisible()
+    await expect(removeDialog.getByTestId('seller-member-remove-headline')).toContainText('매니저(매니저) 구성원을 제거합니다')
+    await expect(removeDialog.getByTestId('seller-member-remove-notice')).toContainText('제거 즉시 이 계정의 셀러 로그인과 셀러 기능 접근이 차단됩니다')
+    await expect(removeDialog.getByTestId('seller-member-remove-notice')).toContainText('일반 회원(구매자) 계정·주문 이력은 그대로 유지')
+    await expect(removeDialog.getByTestId('seller-member-remove-ok')).toBeDisabled()
+    await removeDialog.getByTestId('seller-member-remove-reason').locator('textarea').first().fill('퇴사')
+    await expect(removeDialog.getByTestId('seller-member-remove-ok')).toBeEnabled()
+    await removeDialog.getByTestId('seller-member-remove-cancel').click()
+    await expect(removeDialog).toBeHidden()
+    await rows.nth(1).getByTestId('seller-member-remove').click()
+    await expect(removeDialog.getByTestId('seller-member-remove-withdrawn-notice')).toContainText('탈퇴한 회원의 구성원 행을 정리합니다')
+    await removeDialog.getByTestId('seller-member-remove-cancel').click()
+    await expect(removeDialog).toBeHidden()
+
     expect(captured.writes).toEqual([])
   })
 })

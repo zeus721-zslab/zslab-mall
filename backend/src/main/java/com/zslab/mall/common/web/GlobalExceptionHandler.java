@@ -48,6 +48,9 @@ import com.zslab.mall.seller.exception.SellerBankAccountInvalidStateException;
 import com.zslab.mall.seller.exception.SellerBankAccountNotFoundException;
 import com.zslab.mall.seller.exception.SellerBankAccountReferencedException;
 import com.zslab.mall.seller.exception.SellerInvalidStateException;
+import com.zslab.mall.seller.exception.SellerLastOwnerException;
+import com.zslab.mall.seller.exception.SellerMemberInvalidStateException;
+import com.zslab.mall.seller.exception.SellerMemberNotFoundException;
 import com.zslab.mall.seller.exception.SellerNotFoundException;
 import com.zslab.mall.seller.exception.SellerUserAlreadyExistsException;
 import com.zslab.mall.settlement.exception.SettlementAlreadyExistsException;
@@ -144,6 +147,9 @@ public class GlobalExceptionHandler {
     private static final String CODE_SELLER_BANK_ACCOUNT_NOT_FOUND = "SELLER_BANK_ACCOUNT_NOT_FOUND";
     private static final String CODE_SELLER_BANK_ACCOUNT_REFERENCED = "SELLER_BANK_ACCOUNT_REFERENCED";
     private static final String CODE_SELLER_BANK_ACCOUNT_INVALID_STATE = "SELLER_BANK_ACCOUNT_INVALID_STATE";
+    private static final String CODE_SELLER_MEMBER_NOT_FOUND = "SELLER_MEMBER_NOT_FOUND";
+    private static final String CODE_SELLER_LAST_OWNER = "SELLER_LAST_OWNER";
+    private static final String CODE_SELLER_MEMBER_INVALID_STATE = "SELLER_MEMBER_INVALID_STATE";
     private static final String CODE_FILE_NOT_FOUND = "FILE_NOT_FOUND";
     private static final String CODE_PAYLOAD_TOO_LARGE = "PAYLOAD_TOO_LARGE";
     private static final String CODE_FORBIDDEN = "FORBIDDEN";
@@ -633,6 +639,30 @@ public class GlobalExceptionHandler {
         // Track 89-F: 이미 주 계좌인 행의 전환 재요청(422·같은 상태 재요청 관습).
         log.warn("[SellerBankAccount] 계좌 상태 위반(422): {}", exception.getMessage());
         return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_SELLER_BANK_ACCOUNT_INVALID_STATE, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(SellerMemberNotFoundException.class)
+    public ResponseEntity<ProblemDetail> handleSellerMemberNotFound(
+            SellerMemberNotFoundException exception, HttpServletRequest request) {
+        // Track 89-G: 셀러 구성원 아님(타 셀러 소속 은닉) 404.
+        log.warn("[SellerMember] 구성원 미존재(404): {}", exception.getMessage());
+        return build(HttpStatus.NOT_FOUND, CODE_SELLER_MEMBER_NOT_FOUND, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(SellerLastOwnerException.class)
+    public ResponseEntity<ProblemDetail> handleSellerLastOwner(
+            SellerLastOwnerException exception, HttpServletRequest request) {
+        // Track 89-G: 마지막 활성 SELLER_OWNER 제거·강등 차단(409·LAST_SUPER_ADMIN 동형).
+        log.warn("[SellerMember] 마지막 OWNER 차단(409): {}", exception.getMessage());
+        return build(HttpStatus.CONFLICT, CODE_SELLER_LAST_OWNER, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(SellerMemberInvalidStateException.class)
+    public ResponseEntity<ProblemDetail> handleSellerMemberInvalidState(
+            SellerMemberInvalidStateException exception, HttpServletRequest request) {
+        // Track 89-G: 같은 역할 재요청(422·같은 상태 재요청 관습).
+        log.warn("[SellerMember] 구성원 상태 위반(422): {}", exception.getMessage());
+        return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_SELLER_MEMBER_INVALID_STATE, exception.getMessage(), request);
     }
 
     @ExceptionHandler(ProductInvalidStateException.class)

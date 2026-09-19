@@ -57,6 +57,7 @@ class AdminSellerControllerIntegrationTest extends AbstractIntegrationTest {
     private static final String ROLLBACK_COMPANY = "트랙37롤백셀러";  // ⑥ 롤백 검증 대상
     private static final String EXISTING_COMPANY = "트랙37기존셀러";  // 기존 seller seed
     private static final String DUP_BUSINESS_COMPANY = "트랙37사업자중복셀러"; // ⑦ 409·미생성
+    private static final String NO_OWNER_COMPANY = "트랙37무소속셀러"; // ⑧ owner 없이 201(Track 89-G)
 
     @Autowired
     private MockMvc mockMvc;
@@ -207,6 +208,26 @@ class AdminSellerControllerIntegrationTest extends AbstractIntegrationTest {
         assertThat(sellerCountByCompany(DUP_BUSINESS_COMPANY)).isZero();
     }
 
+    @Test
+    @DisplayName("⑧ owner 없이 입점(Track 89-G·D-189): ownerUserPublicId null → 201·seller 1건·seller_user 0건·감사 diff에 ownerUserId 없음")
+    void provision_withoutOwner_returns201_withoutMembership() throws Exception {
+        mockMvc.perform(post(URL)
+                        .headers(authHeaders.admin(ADMIN_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(provisionBody(NO_OWNER_COMPANY, null, null, "PENDING")))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.sellerPublicId").exists());
+
+        assertThat(sellerCountByCompany(NO_OWNER_COMPANY)).isEqualTo(1);
+        long sellerId = sellerIdByCompany(NO_OWNER_COMPANY);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM seller_user WHERE seller_id = ?", Integer.class, sellerId)).isZero();
+        Map<String, Object> audit = singleAuditRow("SELLER", sellerId, ADMIN_ID);
+        assertThat(audit.get("action")).isEqualTo("CREATE");
+        assertThat((String) audit.get("diff_json"))
+                .contains("sellerPublicId").contains("PENDING")
+                .doesNotContain("ownerUserId");
+    }
+
     // ---------- seed·helpers (AdminInventoryControllerIntegrationTest 패턴·? positional 바인딩·SQL injection 없음) ----------
 
     private void seed(Runnable seedingWork) {
@@ -248,9 +269,9 @@ class AdminSellerControllerIntegrationTest extends AbstractIntegrationTest {
                 jdbc.update("DELETE FROM audit_log WHERE actor_user_id = ?", ADMIN_ID);
                 jdbc.update("DELETE FROM seller_user WHERE user_id IN (?, ?, ?)",
                         OWNER_USER_ID, BOUND_USER_ID, NON_ADMIN_USER);
-                jdbc.update("DELETE FROM seller WHERE company_name IN (?, ?, ?, ?, ?, ?, ?)",
+                jdbc.update("DELETE FROM seller WHERE company_name IN (?, ?, ?, ?, ?, ?, ?, ?)",
                         NEW_COMPANY, FORBIDDEN_COMPANY, DUP_COMPANY, SUSPENDED_COMPANY, ROLLBACK_COMPANY, EXISTING_COMPANY,
-                        DUP_BUSINESS_COMPANY);
+                        DUP_BUSINESS_COMPANY, NO_OWNER_COMPANY);
                 jdbc.update("DELETE FROM `user` WHERE id IN (?, ?)", OWNER_USER_ID, BOUND_USER_ID);
             } finally {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
@@ -270,7 +291,7 @@ class AdminSellerControllerIntegrationTest extends AbstractIntegrationTest {
                 + "\"contactEmail\":null,"
                 + "\"contactPhone\":null,"
                 + "\"status\":\"" + status + "\","
-                + "\"ownerUserPublicId\":\"" + ownerUserPublicId + "\""
+                + "\"ownerUserPublicId\":" + (ownerUserPublicId == null ? "null" : "\"" + ownerUserPublicId + "\"")
                 + "}";
     }
 

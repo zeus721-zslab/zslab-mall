@@ -9,6 +9,7 @@ import {
   todayDateOnly,
   validateGradeForm,
   validateMemberForm,
+  withdrawSellerWarning,
 } from '#layers/admin/app/lib/admin-member-view'
 import { toAdminErrorMessage } from '#layers/admin/app/lib/admin-error-message'
 import {
@@ -68,6 +69,19 @@ describe('라벨·판정·탭 매핑', () => {
     expect(canResetPassword({ phone: ' ' })).toBe(false)
     expect(canResetPassword({})).toBe(false)
     expect(canResetPassword({ phone: '010-1234-5678', withdrawnAt: '2026-09-01T00:00:00' })).toBe(false)
+  })
+
+  it('withdrawSellerWarning(STEP 498): 미소속 null / 소속이면 상호·역할 1줄 / lastActiveMember면 2줄 + 강조 / roleCode 없으면 "구성원"', () => {
+    expect(withdrawSellerWarning({})).toBeNull()
+    const one = withdrawSellerWarning({ sellerMembership: { sellerPublicId: 'slr_1', companyName: '데모 리빙샵', roleCode: 'SELLER_OWNER', lastActiveMember: false } })
+    expect(one).toEqual({ emphasis: false, lines: ['이 회원은 데모 리빙샵 셀러의 구성원(대표)입니다. 탈퇴해도 셀러 소속은 유지되지만 로그인할 수 없게 됩니다.'] })
+    const last = withdrawSellerWarning({ sellerMembership: { sellerPublicId: 'slr_1', companyName: '데모 리빙샵', roleCode: 'SELLER_STAFF', lastActiveMember: true } })
+    expect(last?.emphasis).toBe(true)
+    expect(last?.lines).toEqual([
+      '이 회원은 데모 리빙샵 셀러의 구성원(담당자)입니다. 탈퇴해도 셀러 소속은 유지되지만 로그인할 수 없게 됩니다.',
+      '탈퇴하면 이 셀러에 로그인할 수 있는 구성원이 없어집니다.',
+    ])
+    expect(withdrawSellerWarning({ sellerMembership: { sellerPublicId: 'slr_1', companyName: 'X', lastActiveMember: false } })?.lines[0]).toContain('셀러의 구성원입니다')
   })
 
   it('tabClaimType: orders → null·취소/반품/교환 → ClaimType', () => {

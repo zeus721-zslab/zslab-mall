@@ -9,6 +9,7 @@ import {
   type AdminBuyerGradeCode,
   type AdminMemberActivityTab,
 } from '#layers/admin/app/lib/constants/admin-member'
+import { ADMIN_SELLER_MEMBER_ROLE_LABEL } from '#layers/admin/app/lib/constants/admin-seller'
 
 /**
  * 관리자 회원 상세 표시·검증 순수 함수(Track 84 FE·admin-order-view 패턴). 컴포넌트는 표시·배선만, 규칙은 여기서 vitest로 고정한다.
@@ -92,4 +93,17 @@ export function tabClaimType(tab: AdminMemberActivityTab): ClaimType | null {
     case 'exchange': return 'EXCHANGE'
     default: return null
   }
+}
+
+/**
+ * 탈퇴 다이얼로그 셀러 소속 경고(STEP 498·D-189 확정 4: 차단 없이 경고만). 소속이 없으면 null. lastActiveMember면 두 번째 문장을 더하고 화면이 강조한다.
+ * 역할 라벨은 셀러 구성원 상수(대표/매니저/담당자)를 쓰고 roleCode가 없으면 "구성원"만.
+ */
+export function withdrawSellerWarning(detail: Pick<AdminMemberDetail, 'sellerMembership'>): { lines: string[]; emphasis: boolean } | null {
+  const membership = detail.sellerMembership
+  if (!membership) return null
+  const role = membership.roleCode ? `구성원(${ADMIN_SELLER_MEMBER_ROLE_LABEL[membership.roleCode]})` : '구성원'
+  const lines = [`이 회원은 ${membership.companyName} 셀러의 ${role}입니다. 탈퇴해도 셀러 소속은 유지되지만 로그인할 수 없게 됩니다.`]
+  if (membership.lastActiveMember) lines.push('탈퇴하면 이 셀러에 로그인할 수 있는 구성원이 없어집니다.')
+  return { lines, emphasis: membership.lastActiveMember }
 }
