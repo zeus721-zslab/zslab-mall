@@ -93,19 +93,31 @@ public class CartService {
 
     /**
      * 담기 시점 구매 가능 판정(Track 71 → Track 76 {@link ProductPurchasePolicy} 단일화): 상품 판매중(SALE·판매기간 내·미삭제) ∧
-     * variant SALE ∧ 상품·변형 수동품절 아님 ∧ 재고 available&gt;0. 조회 enrich의 purchasable(판매자 ACTIVE 포함·{@link #toView})과
-     * 달리 판매자 상태는 확정 범위 밖(D-160 §8 이월)이라 보지 않는다.
+     * variant SALE ∧ 상품·변형 수동품절 아님 ∧ 재고 available&gt;0. 판매자 ACTIVE는 Track 89-D(D-187·D-160 §8 이월 해소)에서
+     * 정책 바깥의 선검사로 추가했다 — 정책 시그니처는 그대로 두고 조회 enrich의 purchasable({@link #toView})과 같은 조건을 담기에도
+     * 적용한다. 판매자가 비-ACTIVE면 상품 판매 여부와 무관하게 같은 422다(FE 문구 "판매중지 또는 품절" 재사용·별도 코드 없음).
      *
      * @throws CartItemNotPurchasableException 판정 실패 시(422)
      */
     private void assertPurchasable(ProductVariant variant) {
         Product product = productRepository.findById(variant.getProductId()).orElse(null);
+        if (product != null && !isSellerActive(product.getSellerId())) {
+            throw new CartItemNotPurchasableException(
+                    "구매할 수 없는 상품입니다(판매자 비활성): variantPublicId=" + variant.getPublicId());
+        }
         Inventory inventory = inventoryRepository.findByVariantId(variant.getId()).orElse(null);
         boolean purchasable = ProductPurchasePolicy.isPurchasable(product, variant, inventory, LocalDateTime.now());
         if (!purchasable) {
             throw new CartItemNotPurchasableException(
                     "구매할 수 없는 상품입니다(판매중지 또는 품절): variantPublicId=" + variant.getPublicId());
         }
+    }
+
+    /** 판매자 ACTIVE 선검사(Track 89-D). soft-delete 판매자는 @SQLRestriction으로 empty → 비활성으로 본다. */
+    private boolean isSellerActive(Long sellerId) {
+        return sellerRepository.findById(sellerId)
+                .map(seller -> seller.getStatus() == SellerStatus.ACTIVE)
+                .orElse(false);
     }
 
     /**

@@ -37,6 +37,9 @@ import com.zslab.mall.product.policy.PurchaseBlockReason;
 import com.zslab.mall.product.repository.ProductRepository;
 import com.zslab.mall.product.repository.ProductVariantRepository;
 import com.zslab.mall.product.service.OptionLabelResolver;
+import com.zslab.mall.seller.entity.Seller;
+import com.zslab.mall.seller.enums.SellerStatus;
+import com.zslab.mall.seller.repository.SellerRepository;
 import com.zslab.mall.settlement.service.CommissionRateResolver;
 import com.zslab.mall.settlement.service.CommissionRateResolver.CommissionRateKey;
 import java.time.LocalDateTime;
@@ -80,6 +83,7 @@ public class CheckoutService {
     private final ObjectMapper objectMapper;
     private final OptionLabelResolver optionLabelResolver;
     private final CommissionRateResolver commissionRateResolver;
+    private final SellerRepository sellerRepository;
 
     public CheckoutService(
             OrderService orderService,
@@ -91,7 +95,8 @@ public class CheckoutService {
             OrderIdempotencyKeyRepository idempotencyRepository,
             ObjectMapper objectMapper,
             OptionLabelResolver optionLabelResolver,
-            CommissionRateResolver commissionRateResolver) {
+            CommissionRateResolver commissionRateResolver,
+            SellerRepository sellerRepository) {
         this.orderService = orderService;
         this.paymentService = paymentService;
         this.orderRepository = orderRepository;
@@ -102,6 +107,7 @@ public class CheckoutService {
         this.objectMapper = objectMapper;
         this.optionLabelResolver = optionLabelResolver;
         this.commissionRateResolver = commissionRateResolver;
+        this.sellerRepository = sellerRepository;
     }
 
     /**
@@ -226,6 +232,8 @@ public class CheckoutService {
                 .collect(Collectors.toMap(Product::getPublicId, Function.identity()));
         Map<String, ProductVariant> variantByPublicId = productVariantRepository.findByPublicIdIn(variantPublicIds).stream()
                 .collect(Collectors.toMap(ProductVariant::getPublicId, Function.identity()));
+        // Track 89-D: 판매자 ACTIVE 선검사(해소된 상품 전체·배치 1회). 판매 상태 검증(assertSellable)보다 앞이다.
+        assertSellersActive(productByPublicId.values());
         // 옵션 라벨 스냅샷(D-164)·해소된 variant 전체를 배치 1회로 라벨링(품목별 호출 금지·N+1 회피).
         Map<Long, String> optionLabelByVariantId = optionLabelResolver.resolve(variantByPublicId.values());
         Map<CommissionRateKey, Integer> commissionRateByKey = resolveCommissionRates(productByPublicId.values());
@@ -266,6 +274,8 @@ public class CheckoutService {
                 .map(ProductVariant::getProductId).distinct().toList();
         Map<Long, Product> productById = productRepository.findByIdIn(productIds).stream()
                 .collect(Collectors.toMap(Product::getId, Function.identity()));
+        // Track 89-D: 판매자 ACTIVE 선검사 — 담긴 뒤 판매자가 정지된 품목은 여기서 걸린다(조회 enrich purchasable=false와 정합).
+        assertSellersActive(productById.values());
         Map<Long, String> optionLabelByVariantId = optionLabelResolver.resolve(variantById.values());
         Map<CommissionRateKey, Integer> commissionRateByKey = resolveCommissionRates(productById.values());
 
@@ -318,11 +328,36 @@ public class CheckoutService {
     }
 
     /**
+     * 판매자 ACTIVE 선검사(Track 89-D·D-187·D-160 §8 이월 해소). 해소된 상품의 판매자를 배치 1회({@code findByIdIn})로 조회해
+     * 비-ACTIVE(PENDING·SUSPENDED·TERMINATED·soft-delete) 판매자 상품이 1건이라도 있으면 {@link OrderNotPayableException}
+     * PRODUCT_NOT_ON_SALE로 주문 전체를 거부한다 — 판매자가 판매할 수 없는 상태는 구매자 관점에서 "판매 상태 아님"과 같고 FE 분기
+     * 소비처가 없어 사유 enum을 늘리지 않는다. {@link ProductPurchasePolicy} 시그니처는 바꾸지 않는다(정책 바깥 선검사).
+     * 신규 주문 양 경로·재결제 재검증이 함께 쓴다.
+     */
+    private void assertSellersActive(Collection<Product> products) {
+        List<Long> sellerIds = products.stream().map(Product::getSellerId).distinct().toList();
+        if (sellerIds.isEmpty()) {
+            return;
+        }
+        Set<Long> activeSellerIds = sellerRepository.findByIdIn(sellerIds).stream()
+                .filter(seller -> seller.getStatus() == SellerStatus.ACTIVE)
+                .map(Seller::getId)
+                .collect(Collectors.toSet());
+        for (Product product : products) {
+            if (!activeSellerIds.contains(product.getSellerId())) {
+                throw new OrderNotPayableException(OrderNotPayableReason.PRODUCT_NOT_ON_SALE,
+                        "구매할 수 없는 상품(판매자 비활성): productId=" + product.getId()
+                                + ", sellerId=" + product.getSellerId());
+            }
+        }
+    }
+
+    /**
      * 신규 주문 판매 상태 검증(Track 71·양 경로 공통·Track 76 {@link ProductPurchasePolicy#saleBlock} 위임). 상품 판매중(SALE·
      * 판매기간 내) ∧ variant SALE ∧ 상품·변형 수동품절 아님이어야 한다. 1건이라도 실패하면 {@link OrderNotPayableException}으로
      * 주문 전체를 거부한다(422 ORDER_NOT_PAYABLE·D-66 catch에 포함되어 멱등 키 재시도 허용). 사유 매핑: NOT_ON_SALE →
      * PRODUCT_NOT_ON_SALE, SOLD_OUT → OUT_OF_STOCK(재결제 revalidatePayable 정합). 재고는 {@link #revalidateInventory}가 배치로
-     * 검증한다. 판매자 상태는 확정 범위 밖(D-160 §8 이월)이라 보지 않는다.
+     * 검증한다. 판매자 상태는 {@link #assertSellersActive}가 먼저 본다(Track 89-D).
      */
     private void assertSellable(Product product, ProductVariant variant, LocalDateTime now) {
         ProductPurchasePolicy.saleBlock(product, variant, now).ifPresent(reason -> {
@@ -396,6 +431,8 @@ public class CheckoutService {
                 .collect(Collectors.toMap(ProductVariant::getId, Function.identity()));
         Map<Long, Inventory> inventoryByVariantId = inventoryRepository.findByVariantIdIn(variantIds).stream()
                 .collect(Collectors.toMap(Inventory::getVariantId, Function.identity()));
+        // Track 89-D: 재결제도 판매자 ACTIVE 선검사(신규 주문 경로 정합). 미해소 상품(soft-delete)은 아래 정책이 NOT_ON_SALE로 잡는다.
+        assertSellersActive(productById.values());
 
         LocalDateTime now = LocalDateTime.now();
         for (OrderItem item : items) {
