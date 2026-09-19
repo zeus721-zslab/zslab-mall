@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test'
 
 /**
- * 사용자 반품 화면(FE-29) E2E. 로그인은 데모 버튼(NUXT_PUBLIC_DEMO_* 주입 환경·미주입 시 skip)이며 `/login?redirect=`로 클라이언트 내비게이션해
+ * 사용자 반품 화면(FE-29) E2E. 로그인은 데모 버튼(NUXT_BUYER_DEMO_* 주입 환경·미주입 시 skip)이며 `/login?redirect=`로 클라이언트 내비게이션해
  * 이후 useFetch가 브라우저에서 실행되도록 한다(SSR fetch는 page.route를 거치지 않음). 주문·클레임 API는 page.route로 mock해 로컬 DB를 바꾸지 않는다.
  */
 const ORDER_ID = 'ord_E2E00000000000000000000201'
@@ -91,7 +91,7 @@ async function loginByDemo(page: Page, redirect: string): Promise<void> {
   await page.goto(`/login?redirect=${encodeURIComponent(redirect)}`)
   await page.waitForLoadState('networkidle')
   const demoButton = page.getByRole('button', { name: '데모 계정으로 둘러보기' })
-  test.skip((await demoButton.count()) === 0, 'NUXT_PUBLIC_DEMO_EMAIL/PASSWORD 미주입 — 데모 버튼 없음')
+  test.skip((await demoButton.count()) === 0, 'NUXT_BUYER_DEMO_EMAIL/PASSWORD 미주입 — 데모 버튼 없음')
   await demoButton.click()
   await page.waitForURL((url) => url.pathname === redirect.split('?')[0])
 }

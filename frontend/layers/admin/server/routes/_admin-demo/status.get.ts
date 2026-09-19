@@ -1,4 +1,4 @@
-import { isAdminDemoConfigured } from '../../lib/admin-demo-login'
+import { isDemoConfigured } from '~~/server/lib/demo-login'
 
 /**
  * 관리자 데모 로그인 활성 여부(FE-23). /admin/login이 마운트 시 1회 조회해 버튼 표시를 결정한다.
@@ -7,5 +7,5 @@ import { isAdminDemoConfigured } from '../../lib/admin-demo-login'
  */
 export default defineEventHandler((event) => {
   const config = useRuntimeConfig(event)
-  return { enabled: isAdminDemoConfigured(config) }
+  return { enabled: isDemoConfigured({ email: config.adminDemoEmail, password: config.adminDemoPassword }) }
 })

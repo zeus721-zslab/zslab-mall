@@ -1908,3 +1908,34 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 - **기각 3건**: 지적 2(`activeOwnerCount` 미사용) — vitest가 BE의 "활성 OWNER" 집합 정의를 코드로 고정하는 용도(경계 6케이스)이며 제거하면 그 정의가 코드에서 사라짐 / 지적 3(`member !== target` 중복 조건) — DB UK(user_id 단독) 전제에서 publicId 비교가 안전장치이고 제거해도 얻는 것이 없음 / 지적 13(잘못된 role 문자열 런타임 방어) — 검토자도 "TS 타입 책임 범위를 넘어가며 현재는 문제로 볼 필요 없음"으로 결론.
 - 검증: typecheck 0 · vitest 369(불변) · Playwright 62 passed + admin-shell 5 env skip = 67(1회차 재시작 직후 첫 로드 플레이크 6 → 2회차 전체 62/62) · 픽셀 track89g2 vs track89g3 12/12 diff 0 · BE 변경 없음.
 - 재검토 필요 여부: 설계 변경 없음(주석 2·오류 배치 1·문구 1) → 재검토 불필요 판단(최종 판단은 운영자).
+
+## FE-43: 데모 로그인 서버 라우트 전환 (구매자·공통 코어화) (2026-09-19)
+
+배경: 구매자 데모 로그인 자격증명(`NUXT_PUBLIC_DEMO_EMAIL/PASSWORD`)이 `runtimeConfig.public`에 있어 클라이언트 번들·SSR payload에 평문으로 실렸다(개발자 도구 실측). 관리자 데모(FE-23)는 이미 서버 라우트(`/_admin-demo/*`)가 비공개 runtimeConfig로 BE 로그인을 대행하는 방식이었으므로, 구매자도 같은 방식으로 전환하고 코어를 공통화한다.
+
+결정:
+- **공통 코어 `frontend/server/lib/demo-login.ts`**(Nitro 무의존·vitest 직접 검증): `layers/admin/server/lib/admin-demo-login.ts`를 이동·일반화. `DemoCredentials { email, password }`·`loginAsDemo(credentials, role, apiInternalBase, fetcher)`·`role: 'BUYER' | 'ADMIN' | 'SELLER'` 인자화·`fetchBackendLogin`(Node fetch·비-2xx throw) 라우트 공용. 미설정 404·BE 실패 401 단일 응답·실패 사유 은닉·자격증명 미반환 원칙은 FE-23 그대로.
+- **구매자 라우트 `/_demo/login`(POST·`{ token, passwordChangeRequired }`)·`/_demo/status`(GET·`{ enabled }`)** 신설. `runtimeConfig.public.demoEmail/demoPassword` **삭제** → 비공개 `buyerDemoEmail/buyerDemoPassword`(기본 ''=비활성). `stores/auth.ts` `loginDemo()`는 `login()`과 같은 `storeLoginResponse`로 토큰·`password_change_required` 쿠키를 저장하고, `/login`은 `onMounted` status 조회로 `demoEnabled`일 때만 버튼(`data-testid="demo-login"`)을 렌더한다(`/admin/login`과 동형). 관리자 라우트 응답은 `AdminDemoLoginResponse { token }`으로 반환 타입을 고정해 `{ token }`만 투과(BE 필드 추가 시 실수 방지).
+- **env 키 개명**: `NUXT_PUBLIC_DEMO_*` → `NUXT_BUYER_DEMO_*`(compose `zslab_mall_frontend.environment` 동기 치환), `NUXT_PUBLIC_SELLER_*` → `NUXT_SELLER_DEMO_*`(개명만·소비처는 Track 90-A). `.env.example` 주석을 "서버 라우트 전용·비공개 runtimeConfig·`NUXT_PUBLIC_` 접두사 금지"로 교체.
+- **rate limit `frontend/server/lib/demo-rate-limit.ts`**: 고정 윈도우 60초/키당 10회(슬라이딩 아님)·모듈 스코프 Map·만료 엔트리는 접근 시 정리(타이머 없음). 키 = `${라우트식별자}:${ip}`(`demo-login:` / `admin-demo-login:`·라우트별 독립 카운터)·IP는 `getRequestIP(event, { xForwardedFor: true })`(gateway_nginx 경유 전제·미확보 시 `'unknown'` 단일 버킷)·초과 시 429 + `Retry-After`(남은 윈도우 초·h3 typed header라 number)·본문에 사유·자격증명 힌트 없음. `status.get.ts`(boolean만)에는 미적용.
+
+### §1-A 갈림길·채택/기각 근거
+1. **rate limit 위치 = α 애플리케이션 메모리(Nitro 라우트 내 순수 함수) 【채택】 / β gateway nginx `limit_req` 【기각】** — β는 nginx.conf 단일 파일 수동 편집·inode 트랩(D-148)으로 재현성·테스트성이 열위이고 외부 스택이라 이 저장소의 vitest·Playwright로 검증할 수 없다. α는 단일 인스턴스 전제(다중 인스턴스 전환 시 Redis 이관·§8)이며 데모 라우트 2개에 한정된 저부담 가드로 충분.
+2. 그 외 항목(코어 추출·라우트 신설·public 키 제거·status 조회 기반 버튼 노출)은 대안 검토 없음 — FE-23 선례를 구매자에 1:1 확장.
+
+### §2 확정 구현 규칙
+- 데모 자격증명은 **비공개 runtimeConfig에만** 둔다(`public` 금지). 브라우저 코드(store·page)는 `/_demo/*`·`/_admin-demo/*` 경로 상수만 알고 값은 모른다(`lib/constants/auth.ts` `DEMO_STATUS_PATH`/`DEMO_LOGIN_PATH`).
+- 서버 라우트는 코어(`demo-login.ts`·`demo-rate-limit.ts`) 결과를 `createError`로 매핑만 하는 얇은 어댑터. 테스트는 코어 단위(`test/admin/admin-demo-login-server.spec.ts` 4·`test/server/demo-rate-limit.spec.ts` 4).
+- 번들 미노출 검증 절차: `.env` 값은 PowerShell 메모리 내 비교로만 다루고 **건수만** 기록(값·키 라인 출력 금지). 양성 대조(`.env` 내 1건) 후 prod `.output` 전 파일·`.nuxt`·dev SSR HTML·dev 변환 모듈(pages/login.vue·stores/auth.ts·constants/auth.ts·entry) 검색.
+- 검증(실측·컨테이너 pnpm): typecheck 0 · vitest 52 files 374(369 → +5) · 라이브(실 BE): `/login` 데모 버튼 → `GET /_demo/status 200 {enabled}` → `POST /_demo/login 200 {token,passwordChangeRequired}` → `/` 복귀·`auth_token` JWT 쿠키 · `/admin/login` 데모 → `/admin`·`admin_token` · `/_admin-demo/login` 응답 키 `[token]`만(불변) · 같은 IP 연속 호출 10회 200 → 11회차부터 429(구매자·관리자 라우트 각각 독립)·`Retry-After` 56/58 · `/_demo/status` 12회 연속 200(미적용) · **번들 미노출**: `.output` 1,218파일 0건·`.nuxt` 0건·dev SSR HTML 0건·dev 모듈 0건(비밀번호·이메일 모두) · 컨테이너 healthy.
+- 트랩: (1) 컨테이너 `pnpm typecheck`·`pnpm build`(nuxt prepare)가 dev `.nuxt`를 덮어 dev 서버가 깨짐 → 매번 `docker restart zslab_mall_frontend` (2) h3 typed header `Retry-After`는 number — `String()` 래핑 시 TS2345 (3) dev 변환 모듈 경로는 `/_nuxt/app/app/...`(컨테이너 root `/app` + srcDir `app/`) (4) `.env` 편집은 Edit 도구(사전 Read 필수→값 노출) 대신 메모리 내 문자열 치환(줄 시작 키명만·개행 그대로·출력 없음).
+- 신규 의존성: 없음.
+
+### 외부 검토 반영 (2026-09-19)
+- **외부 검토: 등급 A / 지적 7건 중 수용 1·부분 수용 1·기각 5.**
+- **수용 — `/_demo/login`·`/_admin-demo/login` rate limit 부재**(관리자 데모가 인증 없이 실제 ADMIN JWT를 무제한 발급) → 위 결정 4항·§1-A 1.
+- **부분 수용 — 관리자 응답 타입 명시**: `AdminDemoLoginResponse { token }` 추가·라우트 반환 타입 명시. projection 코드는 현행 유지.
+- **기각 5건**: 404·401 분기(미설정 노출) — `/status`가 이미 `enabled`를 공개하므로 추가 정보 없음 / role 문자열 — `DemoRole` union + 라우트 literal + BE `ROLE_MISMATCH` 3중 방어로 충분 / `onMounted` flicker — 보안 무관·관리자 로그인과 동일 패턴(SSR 조회 전환은 §8 UX 이월) / JSON `{ token }` 응답 — 기존 non-httpOnly 쿠키 설계 그대로이며 별도 이월 등록분 / 구키(`NUXT_PUBLIC_DEMO_*`) 잔존 — `.env` 개명 완료·신규 코드에 영향 없음(docs 내 옛 키명 언급은 이력).
+
+### §8 이월
+- 다중 인스턴스(수평 확장) 전환 시 rate limit 저장소 Redis 이관 · gateway_nginx의 `X-Forwarded-For` 전달 여부 운영 실측(미전달이면 `'unknown'` 단일 버킷으로 전체 차단 위험) · 데모 버튼 SSR 조회 전환(UX·`onMounted` flicker) · `NUXT_SELLER_DEMO_*` 소비처(Track 90-A).

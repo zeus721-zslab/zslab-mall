@@ -1,10 +1,9 @@
 <script setup lang="ts">
-import { BUYER_ROLE, LOGIN_NOTICE_PASSWORD_CHANGED, LOGIN_NOTICE_QUERY } from '~/lib/constants/auth'
+import { BUYER_ROLE, DEMO_STATUS_PATH, LOGIN_NOTICE_PASSWORD_CHANGED, LOGIN_NOTICE_QUERY } from '~/lib/constants/auth'
 
 // 공개 페이지(permitAll 로그인 엔드포인트 소비)라 definePageMeta 미부착. buyer 몰이므로 role은 BUYER 고정(UI 노출 없음).
 const auth = useAuthStore()
 const route = useRoute()
-const config = useRuntimeConfig()
 
 // 비밀번호 변경 완료 후 재로그인 안내(Track 84·mypage/password.vue가 query로 전달).
 const passwordChangedNotice = computed<boolean>(() => route.query[LOGIN_NOTICE_QUERY] === LOGIN_NOTICE_PASSWORD_CHANGED)
@@ -46,23 +45,27 @@ async function handleSubmit(): Promise<void> {
   }
 }
 
+// 데모 버튼(FE-43)은 서버 라우트가 env 계정을 갖고 있을 때만 노출한다(값은 받지 않고 boolean만). 조회 실패는 미노출로 처리한다.
+const demoEnabled = ref<boolean>(false)
+onMounted(async () => {
+  try {
+    const status = await $fetch<{ enabled: boolean }>(DEMO_STATUS_PATH)
+    demoEnabled.value = status.enabled
+  } catch (error) {
+    console.warn('[demo] status check failed', error)
+  }
+})
+
 /**
- * 데모 로그인. runtimeConfig.public의 공개 데모 자격증명(저권한 BUYER)으로 로그인해 포트폴리오 방문자가
- * 1클릭으로 둘러보게 한다. submitting을 handleSubmit과 공유해 이중클릭·중복 요청을 막는다.
- * 값 미주입 시(런타임 env 누락) 빈 자격증명 login 호출을 막고 단일 안내만 표시한다.
+ * 데모 로그인(FE-43). 서버 라우트가 비공개 env 계정(저권한 BUYER)으로 BE 로그인을 대행해 포트폴리오 방문자가
+ * 1클릭으로 둘러보게 한다. 브라우저는 자격증명을 모른다. submitting을 handleSubmit과 공유해 이중클릭·중복 요청을 막는다.
  */
 async function handleDemoLogin(): Promise<void> {
   if (submitting.value) return
-  const demoEmail = config.public.demoEmail
-  const demoPassword = config.public.demoPassword
-  if (!demoEmail || !demoPassword) {
-    errorMessage.value = '데모 계정이 설정되지 않았습니다'
-    return
-  }
   submitting.value = true
   errorMessage.value = ''
   try {
-    await auth.login(demoEmail, demoPassword, BUYER_ROLE)
+    await auth.loginDemo()
     await navigateTo(resolveRedirect())
   } catch {
     // 로그인 실패 사유 은닉 원칙(handleSubmit과 동일 단일 문구).
@@ -123,10 +126,12 @@ useSeoMeta({
       </form>
 
       <Button
+        v-if="demoEnabled"
         type="button"
         variant="outline"
         size="lg"
         class="mt-3 w-full"
+        data-testid="demo-login"
         :disabled="submitting"
         @click="handleDemoLogin"
       >

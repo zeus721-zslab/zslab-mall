@@ -29,11 +29,12 @@ export default defineNuxtConfig({
     // 런타임 주입 키=NUXT_API_INTERNAL_BASE(Nuxt runtimeConfig override 규약). default는 언더스코어 없는 alias 고정
     // — 빌드타임 process.env 참조를 제거해 prod 이미지에 언더스코어 트랩값(zslab_mall_backend·Tomcat 400)이 구워지던 문제 차단(FE-03).
     apiInternalBase: 'http://mall-backend:8080',
+    // FE-43 구매자 데모 로그인 계정. 비공개 키(public 금지)라 서버 라우트(server/routes/_demo)만 읽는다.
+    // 런타임 주입 키 = NUXT_BUYER_DEMO_EMAIL / NUXT_BUYER_DEMO_PASSWORD. 기본 ''=데모 비활성(404·버튼 미표시).
+    buyerDemoEmail: '',
+    buyerDemoPassword: '',
     public: {
       apiBase: process.env.NUXT_PUBLIC_API_BASE || '',
-      // 데모 로그인 버튼용 공개 자격증명(저권한 BUYER·포트폴리오 방문자 편의). 클라가 읽어야 해 public에 둔다.
-      demoEmail: process.env.NUXT_PUBLIC_DEMO_EMAIL || '',
-      demoPassword: process.env.NUXT_PUBLIC_DEMO_PASSWORD || '',
     },
   },
   vite: {
