@@ -13,8 +13,10 @@ const RATE_LIMIT_ROUTE_KEY = 'demo-login'
  * 인증 없이 JWT를 발급하는 경로라 IP별 rate limit(60초 10회) 초과 시 429 + Retry-After(본문에 사유·자격증명 힌트 없음).
  */
 export default defineEventHandler(async (event) => {
-  // gateway_nginx 경유라 X-Forwarded-For가 실 클라이언트 IP. 미확보(직접 접근·헤더 부재)면 'unknown' 단일 버킷.
-  const clientIp = getRequestIP(event, { xForwardedFor: true }) ?? 'unknown'
+  // 단일 gateway_nginx 경유 전제 — 소켓 remoteAddress(= gateway가 맺은 연결의 IP)를 쓴다. X-Forwarded-For는 클라이언트가 위조할 수 있고
+  // nginx $proxy_add_x_forwarded_for가 위조값 뒤에 실 IP를 append하므로 첫 값을 읽는 xForwardedFor 옵션은 매 요청 새 버킷을 만들어 무력화됐다(FE-43 운영 실측).
+  // 게이트웨이 다단 구성(앞단 LB 등)으로 바뀌면 신뢰 프록시 홉 수 기반 해소로 재검토. 미확보 시 'unknown' 단일 버킷.
+  const clientIp = getRequestIP(event) ?? 'unknown'
   const decision = consume(`${RATE_LIMIT_ROUTE_KEY}:${clientIp}`, Date.now())
   if (!decision.allowed) {
     setResponseHeader(event, 'Retry-After', decision.retryAfterSec)
