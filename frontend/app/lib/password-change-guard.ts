@@ -16,7 +16,8 @@ const ALLOWED_PATHS = new Set<string>([PASSWORD_CHANGE_PATH, '/login'])
 /** 리다이렉트 대상 경로(query 포함) 또는 null(통과). */
 export function resolvePasswordChangeRedirect(input: PasswordChangeGuardInput): string | null {
   if (!input.required || !input.authenticated) return null
-  if (input.path.startsWith('/admin')) return null
+  // 관리자(/admin·admin_token)·셀러(/seller·seller_token) 영역은 세션이 독립이므로 buyer 세션 상태가 셀러 영역을 간섭하면 안 된다(Track 90-A D-4).
+  if (input.path.startsWith('/admin') || input.path.startsWith('/seller')) return null
   if (ALLOWED_PATHS.has(input.path)) return null
   return `${PASSWORD_CHANGE_PATH}?${PASSWORD_CHANGE_REASON_QUERY}=${PASSWORD_CHANGE_REASON_TEMPORARY}`
 }

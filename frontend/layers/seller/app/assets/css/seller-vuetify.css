@@ -1,0 +1,115 @@
+/* vuetify/styles가 html·.v-application에 Roboto를 강제하므로 사용자와 동일 폰트 스택(main.css @theme --font-sans)으로 되돌린다(관리자 D-14 동형).
+   vuetify/styles 뒤에 로드돼야 하며(vuetify-styles.ts import 순서) 셀러 진입 시에만 로드된다. */
+html,
+.v-application {
+  font-family: var(--font-sans);
+}
+
+/* 셀러 셸 톤 보정(Track 90-A) — 색·형태는 lib/vuetify.ts theme/defaults가 담당하고, 여기엔 props로 못 바꾸는 값(16px radius·그림자·밴드)만 둔다.
+   접두사 slr-는 셀러 레이어 전용(관리자 adm-·사용자 Tailwind와 무관). 셀러 컴포넌트 파일에서 Tailwind 유틸은 쓰지 않는다(관리자 D-13 동형). */
+
+/* 타이포: 본문 14px·Material 대문자·자간 제거 */
+.v-application {
+  font-size: 14px;
+}
+.v-btn {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 500;
+}
+.v-list-item-title,
+.v-field__input {
+  font-size: 14px;
+}
+
+/* 카드: 무테두리·radius 16·넓게 퍼지는 연한 그림자 */
+.v-card {
+  border-radius: 16px;
+  box-shadow: 0 20px 27px 0 rgba(0, 0, 0, 0.05);
+}
+
+/* 상단 밴드 색: primary(teal)를 흰색에 옅게 섞은 연한 청록 — 밝은 쪽 → 약간 진한 쪽. 밴드 위 텍스트는 어두운 색. */
+.slr-band-soft {
+  background-image: linear-gradient(310deg, #C5EBE6 0%, #E8F7F5 100%);
+}
+
+/* 상단 컬러 밴드: v-app 최상단에 절대 배치(투명 상단바·페이지 헤더 뒤), 콘텐츠(v-main)는 그 위로 */
+.slr-band {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 300px;
+  z-index: 0;
+}
+.slr-main {
+  position: relative;
+  z-index: 1;
+}
+/* 콘텐츠: 좌측 정렬·넓은 최대폭·좌우 여백 24px */
+.slr-content {
+  max-width: 1600px;
+  margin-left: 0;
+  padding: 8px 24px 32px;
+}
+/* 밴드 위 텍스트: 제목 진한 회색(92%), 설명·브레드크럼 muted(70%) */
+.slr-page-header {
+  color: rgba(var(--v-theme-on-surface), var(--v-high-emphasis-opacity));
+}
+.slr-page-header .slr-page-header__description {
+  color: rgba(var(--v-theme-on-surface), 0.7);
+}
+
+/* 상단바: 투명·어두운 텍스트·우측 아바타 여백 */
+.seller-topbar .v-toolbar__append {
+  margin-inline-end: 12px;
+}
+.seller-topbar .v-breadcrumbs-divider,
+.seller-topbar .slr-breadcrumb-muted {
+  color: rgba(var(--v-theme-on-surface), 0.7);
+}
+
+/* 사이드바(데스크톱): 가장자리 16px 여백의 흰 카드형 */
+.seller-sidebar--card {
+  top: 16px !important;
+  left: 16px !important;
+  width: 250px !important; /* 레이아웃 예약폭(266)에서 좌측 여백 16을 뺀 카드 실폭 */
+  height: calc(100% - 32px) !important;
+  border-radius: 16px;
+  box-shadow: 0 20px 27px 0 rgba(0, 0, 0, 0.05);
+  border: 0 !important;
+}
+/* 사이드바 항목: 그룹 헤더(아이콘 배지+라벨)와 하위 항목 텍스트를 같은 x에 정렬(배지 28px + 간격 10px) */
+.seller-sidebar .v-list--nav .v-list-item,
+.seller-sidebar .slr-group-header {
+  padding-inline: 12px;
+}
+.seller-sidebar .v-list--nav .v-list-item {
+  min-height: 34px;
+  margin-bottom: 2px;
+}
+.seller-sidebar .slr-group-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 38px;
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(var(--v-theme-on-surface), var(--v-medium-emphasis-opacity));
+}
+.seller-sidebar .v-list--nav .v-list-item.slr-leaf {
+  padding-inline-start: 50px;
+}
+.seller-sidebar .v-list-item__prepend > .v-list-item__spacer {
+  width: 4px;
+}
+/* 활성 항목: 흰 배경 + 약한 그림자 + 굵은 글씨(Vuetify 기본 오버레이·색 틴트 제거) */
+.seller-sidebar .v-list-item--active {
+  background: #fff;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.08);
+}
+.seller-sidebar .v-list-item--active > .v-list-item__overlay {
+  opacity: 0;
+}
+.seller-sidebar .v-list-item--active .v-list-item-title {
+  font-weight: 700;
+}

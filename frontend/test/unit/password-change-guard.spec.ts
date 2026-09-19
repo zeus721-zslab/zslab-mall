@@ -14,10 +14,13 @@ describe('resolvePasswordChangeRedirect', () => {
     expect(resolvePasswordChangeRedirect({ path: '/products/prd_1', authenticated: true, required: true })).toBe(REDIRECT)
   })
 
-  it('변경 페이지·로그인 페이지·관리자 영역은 통과', () => {
+  it('변경 페이지·로그인 페이지·관리자 영역·셀러 영역은 통과', () => {
     expect(resolvePasswordChangeRedirect({ path: '/mypage/password', authenticated: true, required: true })).toBeNull()
     expect(resolvePasswordChangeRedirect({ path: '/login', authenticated: true, required: true })).toBeNull()
     expect(resolvePasswordChangeRedirect({ path: '/admin/orders', authenticated: true, required: true })).toBeNull()
+    // Track 90-A D-4: 셀러 세션(seller_token)은 독립이라 buyer 임시 비밀번호 상태가 /seller/** 진입(로그인 포함)을 막으면 안 된다
+    expect(resolvePasswordChangeRedirect({ path: '/seller/login', authenticated: true, required: true })).toBeNull()
+    expect(resolvePasswordChangeRedirect({ path: '/seller', authenticated: true, required: true })).toBeNull()
   })
 
   it('강제 상태 없음 또는 미로그인 → 통과', () => {
