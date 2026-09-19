@@ -69,6 +69,9 @@ services:
       # FE-23 관리자 데모 로그인: backend와 동일한 .env ADMIN_BOOTSTRAP_* 를 재사용(값 복제 없음). 비공개 runtimeConfig(서버 라우트 전용)로만 소비되며 미설정 시 데모 비활성.
       NUXT_ADMIN_DEMO_EMAIL: ${ADMIN_BOOTSTRAP_EMAIL:-}
       NUXT_ADMIN_DEMO_PASSWORD: ${ADMIN_BOOTSTRAP_PASSWORD:-}
+      # Track 90-A 셀러 데모 로그인: 비공개 runtimeConfig(서버 라우트 /_seller-demo/* 전용)로만 소비되며 미설정 시 데모 비활성.
+      NUXT_SELLER_DEMO_EMAIL: ${NUXT_SELLER_DEMO_EMAIL:-}
+      NUXT_SELLER_DEMO_PASSWORD: ${NUXT_SELLER_DEMO_PASSWORD:-}
     networks:
       # gateway 경유(backend와 동일)·ports 미노출. 서비스명 zslab_mall_frontend으로 gateway가 참조 → alias 미부여
       - gateway_net

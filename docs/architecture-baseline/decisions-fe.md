@@ -1941,3 +1941,45 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 - 다중 인스턴스(수평 확장) 전환 시 rate limit 저장소 Redis 이관 · gateway_nginx의 `X-Forwarded-For` 전달 여부 운영 실측(미전달이면 `'unknown'` 단일 버킷으로 전체 차단 위험) · 데모 버튼 SSR 조회 전환(UX·`onMounted` flicker) · `NUXT_SELLER_DEMO_*` 소비처(Track 90-A).
 - 운영 실측 후속(FE-43a·2026-09-19): 클라이언트 위조 X-Forwarded-For로 rate limit 우회 확인(nginx $proxy_add_x_forwarded_for가 위조값 뒤에 실 IP를 append·`getRequestIP(event, { xForwardedFor: true })`는 첫 값을 읽어 매 요청 새 버킷) → 양 라우트 `getRequestIP(event)` 소켓 IP로 교정(단일 gateway 전제·다단 구성 시 재검토·`unknown` 폴백 유지) · 회귀 `test/server/demo-rate-limit-client-ip.spec.ts` 4 · 실측: 컨테이너 내부·gateway_nginx HTTPS 경유 모두 위조 XFF 회전 11회차 429 유지 · vitest 378.
 - 운영 후속(FE-43b·2026-09-19): 키가 gateway_nginx 컨테이너 IP(소켓 remoteAddress)라 클라이언트별이 아닌 라우트별 전역 버킷으로 동작(남용 억제 목적엔 부합) → 동시 방문자 고려해 한도 60s/10회 → **60s/30회** 조정(`RATE_LIMIT_MAX_ATTEMPTS`·테스트 문구·경계는 상수 참조) · 클라이언트별 제한은 nginx `X-Real-IP` 참조 전환으로 이월(getRequestIP 방식 불변).
+
+## FE-44: 셀러 패널 레이어 골격·독립 인증 (Track 90-A) (2026-09-20)
+
+배경: 관리자(FE-22·`layers/admin`·`admin_token`)·구매자(루트 `app/`·`auth_token`)에 이어 셀러 패널을 신설한다. 세 역할은 같은 회원 계정이 각각 다른 role 토큰을 받을 수 있으므로(STEP 505 실측) 세션이 독립이어야 하고, 최우선 요구는 **관리자 레이어 무영향**(관리자 Playwright·픽셀 전량 그대로 통과)이다. 화면 기능(주문·상품·정산)은 90-B 이후이며 이 트랙은 골격·인증까지만.
+
+결정:
+- **`frontend/layers/seller` 신설**(`nuxt.config.ts` 필수·`/seller/**` ssr:false + `X-Robots-Tag: noindex, nofollow`·비공개 `sellerDemoEmail/Password`). UI 스택은 **Vuetify(관리자 스타일 확장)**·자체 `createVuetify` 인스턴스·자체 테마 **primary teal `#0D9488`**(밴드 연한 청록)·설치 플래그 `__sellerVuetifyInstalled`.
+- **세션 `seller_token` path=`/seller`·maxAge 3600**(`stores/sellerAuth.ts`·명시 import). 응답 role≠SELLER 저장 거절. `auth_token`(path `/`)·`admin_token`(path `/admin`)과 **3중 세션 공존**(path 스코프·로그아웃 상호 무간섭).
+- **`/seller/login` + 셀러 데모** `/_seller-demo/login`(POST·`{ token, passwordChangeRequired }`)·`/_seller-demo/status`(GET). 공용 코어 `server/lib/demo-login.ts`를 role `SELLER`로 재사용·rate limit 키 `seller-demo-login`(라우트별 독립 버킷)·status는 미적용. 실패는 단일 문구(사유 은닉·상태 차단 D-190 포함).
+- **BE 응답 분기(`useSellerApi`·D-190)**: 401(만료·무효·PENDING/TERMINATED·소속 없음) → `seller_token`만 제거 후 `/seller/login` / **403 `SELLER_SUSPENDED` → 세션 유지 + 레이아웃 상단 정지 안내 배너**(`sellerAuth.suspended`·조회는 계속 가능) / 그 외 403·4xx·5xx는 호출부로 throw.
+- **`passwordChangeRequired` 구매자형 강제(D-3)**: `seller_password_change_required` 쿠키(path `/seller`) → `seller` 미들웨어가 `/seller/settings/password` 외 진입을 차단. 이번 트랙은 안내 placeholder(로그아웃 탈출구 + 구매자 `/mypage/password` 새 탭 링크 — 같은 회원의 user 단위 플래그라 구매자 경로 변경으로 해소됨)만 두고 실제 폼은 90-D.
+- **사용자 영역 수정은 `app/lib/password-change-guard.ts` 1줄(D-4)**: `/admin` 예외 → `/admin`·`/seller` 예외(buyer 임시 비밀번호 상태가 독립 세션인 셀러 영역을 막지 않도록).
+- 메뉴(대시보드/주문·배송·클레임/상품·재고/통계 매출·주문클레임·상품/정산/설정)는 `lib/constants/seller-menu.ts` 단일 소스. 화면이 없는 항목은 `to` 없이 비활성 렌더·라우트 미생성.
+
+### §1-A 갈림길·채택/기각 근거
+1. **UI 스택 = α Vuetify(관리자 동형) 【채택】 / β Tailwind+shadcn(구매자 동형) 【기각】** — 관리자 콘솔과 같은 운영 화면이라 스타일·컴포넌트 구조를 동형으로 유지한다. β는 `app/components/ui`가 2개뿐이라 테이블·다이얼로그·폼을 신규로 만들며 결국 Vuetify 룩앤필을 흉내 내게 된다.
+2. **코드 공유 = α 복제(≈165줄·admin 무수정) 【채택】 / β 공용 레이어 즉시 승격 【기각】** — 두 번째 소비처 단계에서 추상화하면 쓰지 않을 구조를 만든다(과잉개발 회피). 승격은 세 번째 소비처 또는 복제본 괴리 시 판단(§8).
+3. **vite-plugin-vuetify 등록 = α 셀러 config 중복 등록 【채택】 / β 관리자 등록에 암묵 의존 【기각】** — 플러그인 체인은 앱당 1개라 admin 등록만으로도 동작하지만, 관리자 변경 시 원인 불명으로 파손된다. 중복 등록은 `importPlugin`만 2개(styles 옵션 미지정)·`generateImports` 멱등(첫 플러그인이 `_resolveComponent` 선언을 지운 뒤라 두 번째 매치 0)으로 무해.
+4. e2e 데모 테스트 단언: 계정 미생성 상태(90-A-2b 이전)에서는 **401·단일 문구 고정**(외부 검토 지적 반영 — 응답 코드 분기 단언은 계정이 사라져도 통과해 검증력 0). 계정 생성 후 200·홈 진입 단언으로 교체.
+
+### §2 확정 구현 규칙 (격리 원칙)
+- **`layers/seller` → `layers/admin` import 0건** — `test/seller/no-admin-import.spec.ts`(import·동적 import·require·CSS @import 구문 스캔·주석 언급 제외)가 CI `pnpm test`에서 강제한다(recon §10-4 β·ESLint 미도입).
+- **`layers/admin` 무수정** — `git diff --name-only main -- frontend/layers/admin` 0 실측. PR 리뷰 시 동일 명령으로 확인.
+- 공유는 **빌드타임 vite-plugin-vuetify(autoImport transform·앱 전역)뿐**. 런타임 공유 없음(Vuetify 인스턴스·테마·미들웨어·가드 전부 셀러 자체).
+- 컴포넌트·유틸은 재사용이 아니라 **복제**. 접두사 `Seller*`(components·전역 auto-import 충돌 회피)/`useSeller*`(composables)/`seller-*`(named 미들웨어·레이아웃 파일명 = 이름이라 admin `vuetify`·`admin`과 겹치지 않게 `seller-vuetify`·`seller`)/CSS `slr-`·`.seller-*`.
+- **leave guard 필수**(`lib/seller-leave-guard.ts`·레이아웃 2종 부착) — 셀러 밖(사용자·관리자)으로 SPA 이동 시 전체 새로고침. 없으면 seller→admin 이동에서 관리자 `ensureVuetify`가 자기 플래그 부재로 두 번째 인스턴스를 설치해 **두 테마가 한 문서에서 섞인다**(recon §10-3). 페이지는 반드시 `definePageMeta({ layout: 'seller' | 'seller-auth', middleware: [...] })` 명시(누락 시 `default.vue`가 감싸는 트랩).
+- 트랩: (1) **실행 중 dev 서버 위에서 `pnpm typecheck`(nuxt prepare)를 돌리면 `.nuxt` 재생성으로 `#app-manifest` 미해석 오버레이 → 페이지 파손. e2e 전 `docker restart zslab_mall_frontend` 필수**(FE-43 트랩 1과 동일 원인·증상 상이). (2) **Playwright 기본 워커 8(16코어)로 전량 실행 시 관리자 데모 로그인이 FE-43b rate limit(라우트별 60s/30회)에 걸려 `/admin` 도착 타임아웃 9~20건 → `pnpm test:e2e --workers=2`로 분당 30회 이내 유지**(이전 트랙의 65/65는 rate limit 도입 전 결과).
+- 검증(실측·컨테이너 pnpm): typecheck 0 · vitest 64 files **428**(378 → +50·`test/seller/` 11파일) · Playwright 73건(67 + 셀러 6·ADMIN_E2E·SELLER_E2E 주입·skip 0) **72/73** — admin-shell ⑤는 기존 결함(main 상태 stash 복원 후 3/3 동일 실패 실측·로컬 DB PENDING 셀러 배너가 API 응답 후 필터 카드를 밀어 bbox 2종·데이터 의존) · **관리자·사용자 픽셀 12장 diff 0**(변경 전 `track90a-pre` 대비) · `layers/admin` diff 0 · 라이브(seller01·실 BE): `seller_token@/seller`만 생성·`/_seller-demo/status {enabled:true}`·`POST /_seller-demo/login` 401(계정 미생성·예정)·SSR HTML 자격증명 0 · 셀러 스크린샷 기준선 `playwright-report/step552-seller` 10장·`step555-seller` 1장.
+- 신규 의존성: 없음. compose `NUXT_SELLER_DEMO_EMAIL/PASSWORD` 추가·`.env.example` 동기화.
+
+### 외부 검토 반영 (2026-09-20)
+- **외부 검토: 등급 A / 2라운드.**
+- **R1(인증 경계·세션): blocker 0** · 질문 1·4·5 통과 · 확인 요청 2건 중 1건 실제 결함으로 반영 — 임시 비밀번호 dead-end(placeholder라 상태 해소 불가·패널에 갇힘) → 로그아웃 버튼(탈출구)·구매자 `/mypage/password` 새 탭 링크·안내 문구. 추가 지적 — SUSPENDED 배너는 `markSuspended()` 호출까지만 검증 → `test/seller/seller-layout.spec.ts`(배너 미표시/표시·문구·반응형 전환 3건) 추가. 쓰기 실패 호출부 처리는 현재 셀러 화면 쓰기 호출부 0건이라 §8 이월.
+- **R2(레이어 격리·Vuetify): blocker 0** · L1~L3는 증거 제시 누락으로 판정, 수정 없음.
+
+### §8 이월
+- **90-B 이후 각 쓰기 호출부가 403(SELLER_SUSPENDED 포함)을 toast/문구로 표시할 것 — 배너에만 의존 금지**(호출부가 삼키면 배너만 남는다).
+- 셀러 비밀번호 변경 폼(90-D 설정·`PATCH /users/me/password`는 SELLER 토큰으로 호출 가능) → placeholder 교체.
+- 공용 레이어 승격 판단(세 번째 소비처 또는 admin·seller 복제본 괴리 발생 시).
+- SUSPENDED e2e(로컬 DB 셀러 상태 변경 필요·vitest만 보유).
+- admin-shell ⑤ 데이터 의존 결함(PENDING 셀러 배너) / Playwright 워커 수·rate limit 충돌(config `workers` 고정 여부) → 별도 트랙.
+- 데모 계정 `seller@zslab-mall.com` 생성·데모 e2e 200 단언 교체(90-A-2b) · 셀러 `me` 조회 API 부재로 상단바에 소속 셀러명·역할 미표시(90-B).
