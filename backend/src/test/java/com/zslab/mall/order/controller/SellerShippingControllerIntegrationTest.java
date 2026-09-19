@@ -165,9 +165,6 @@ class SellerShippingControllerIntegrationTest extends AbstractIntegrationTest {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
                 jdbc.update("INSERT INTO `user` (id, public_id, created_at, updated_at) VALUES (?, ?, NOW(6), NOW(6))",
                         USER_ID, pid("usr_", "SSCUSR"));
-                jdbc.update("INSERT INTO seller (id, public_id, company_name, ceo_name, status, created_at, updated_at) "
-                                + "VALUES (?, ?, '트랙23셀러', '대표', 'ACTIVE', NOW(6), NOW(6))",
-                        SELLER_A, pid("slr_", "SSCSLR"));
                 jdbc.update("INSERT INTO product (id, public_id, seller_id, category_id, name, status, base_price, "
                                 + "created_at, updated_at) VALUES (?, ?, ?, ?, '트랙23상품', 'SALE', 10000, NOW(6), NOW(6))",
                         PRODUCT_ID, pid("prd_", "SSCPRD"), SELLER_A, DUMMY_FK_ID);
@@ -190,11 +187,18 @@ class SellerShippingControllerIntegrationTest extends AbstractIntegrationTest {
         });
     }
 
-    // resolver 해소용 seller_user 실 매핑 시드(actorId≠seller_id·FK_CHECKS=0라 user/seller 행 부재 허용·role_id=SELLER_OWNER seed).
+    // resolver 해소용 seller_user 실 매핑 + seller 행 시드(actorId≠seller_id·role_id=SELLER_OWNER seed). Track 90-A 상태 가드가
+    // seller.status를 조인하므로 SELLER_A·SELLER_B 모두 ACTIVE seller 행이 있어야 resolver를 통과한다(행 부재 = 401 fail-closed).
     private void seedSellerUsers() {
         tx.executeWithoutResult(s -> {
             try {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
+                jdbc.update("INSERT INTO seller (id, public_id, company_name, ceo_name, status, created_at, updated_at) "
+                                + "VALUES (?, ?, '트랙23셀러', '대표', 'ACTIVE', NOW(6), NOW(6))",
+                        SELLER_A, pid("slr_", "SSCSLR"));
+                jdbc.update("INSERT INTO seller (id, public_id, company_name, ceo_name, status, created_at, updated_at) "
+                                + "VALUES (?, ?, '트랙23셀러B', '대표', 'ACTIVE', NOW(6), NOW(6))",
+                        SELLER_B, pid("slr_", "SSCSLB"));
                 jdbc.update("INSERT INTO seller_user (user_id, seller_id, role_id, created_at, updated_at) "
                                 + "SELECT ?, ?, id, NOW(6), NOW(6) FROM role WHERE code = 'SELLER_OWNER'",
                         SELLER_A_USER, SELLER_A);
@@ -218,7 +222,7 @@ class SellerShippingControllerIntegrationTest extends AbstractIntegrationTest {
                 jdbc.update("DELETE FROM `order` WHERE id = ?", ORDER_ID);
                 jdbc.update("DELETE FROM product_variant WHERE id = ?", VARIANT_ID);
                 jdbc.update("DELETE FROM product WHERE id = ?", PRODUCT_ID);
-                jdbc.update("DELETE FROM seller WHERE id = ?", SELLER_A);
+                jdbc.update("DELETE FROM seller WHERE id IN (?, ?)", SELLER_A, SELLER_B);
                 jdbc.update("DELETE FROM `user` WHERE id = ?", USER_ID);
             } finally {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");

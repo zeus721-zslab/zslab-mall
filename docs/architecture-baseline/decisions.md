@@ -11341,3 +11341,44 @@ deploy.yml이 `push main` 무필터라 docs만 변경된 머지에도 서버 SSH
 - **[의도된 제약] 활성 OWNER 생성 후 구성원 0명으로 되돌릴 수 없는 비대칭**: 구성원 0명 셀러(셀러 1)는 허용하지만 활성 OWNER가 한 번 생기면 마지막 활성 OWNER 가드 때문에 API로는 0명으로 돌아갈 수 없다(다른 OWNER로 교체만 가능). `LastSuperAdminRevocation`(D-186 §8)과 같은 성격 — 운영자가 실수로 대표 없는 셀러를 만드는 것을 막는 쪽을 택했다. 0명으로 되돌릴 실 요구가 생기면 "OWNER를 MANAGER로 강등 후 제거" 허용 여부를 그때 결정.
 - **[미해결] 회원 탈퇴와 마지막 OWNER 가드의 경쟁 창**: 탈퇴는 셀러 락을 잡지 않아 가드 판정~커밋 사이에 다른 OWNER가 탈퇴할 수 있다(수십 ms·단일 운영자). 셀러 락 공통 규약(D-187 §8)과 함께 재검토.
 - **외부 검토 R2(2026-09-19): 등급 A / 지적 7건 중 수용 3(FE 주석 2·SMS 실패 오류 배치 1)·기각 3·자체 점검 1 — BE 변경 없음.** BE·FE 검증 대조 결과 이메일·이름 일치, 휴대폰만 FE가 의도적으로 엄격(SMS 수신처). 상세는 decisions-fe.md FE-42 "외부 검토 R2 반영".
+
+## D-190. 셀러 상태 기반 접근 차단 (D-187 §8 이월 종결 · Track 90-A BE)
+
+날짜: 2026-09-19
+브랜치: feat/track-90a-seller-status-guard
+정찰: docs/frontend/recon-report-track90a.md §3·§11(gitignore·로컬)
+
+### 배경
+셀러 상태기계(D-187·PENDING/ACTIVE/SUSPENDED/TERMINATED)는 존재했으나 인증·API 접근에 반영되는 지점이 0건이었다(정찰 전수 확인: `SellerStatus` 소비처는 카탈로그·담기·주문·관리자 명령뿐·`common/security`·`common/auth`·`auth/` 참조 0). 로그인은 `seller_user` 행 존재만, 셀러 API는 `findSellerIdByUserId`(FK 컬럼만)로 해소돼 PENDING·SUSPENDED·TERMINATED 셀러의 구성원이 로그인·API 전부 가능했다. 셀러 FE 패널 구축(Track 90-A) 전제로 닫는다.
+
+### 결정
+- **세션 허용 = ACTIVE·SUSPENDED / 쓰기 허용 = ACTIVE만.**
+- **PENDING·TERMINATED → 로그인·API 모두 401.** 로그인은 기존 ROLE_MISMATCH와 같은 401 단일 문구(사유 은닉·계정 열거 방지·`AuthService` 통합 예외), API는 매핑 부재와 같은 `UnauthenticatedException`(401 UNAUTHENTICATED). 인증 자체가 무효인 상태로 본다.
+- **SUSPENDED + 쓰기 메서드(GET·HEAD 외) → 403 `SELLER_SUSPENDED`**(`SellerSuspendedException`·GlobalExceptionHandler 전용 코드). SUSPENDED는 유효한 세션 상태이며 해당 행위만 금지되므로 인증 실패(401)가 아니라 인가 거부(403)다 — 행위자가 누구인가가 아니라 인증/인가 구분이 근거. detail은 상수 문구(내부 식별자 미포함·IT 고정).
+- **차단 지점 2곳**: `DbRoleAuthorization`(로그인·`existsByUserIdAndSeller_StatusIn`·seller 조인) + `HeaderSellerActorResolver`(API·`findMembershipByUserId` projection·seller 명시 조인·부재/soft-delete는 fail-closed 401). 셀러 엔드포인트 17개(8 컨트롤러)가 전부 resolver를 첫 줄에서 호출하므로 SecurityConfig·컨트롤러·서비스 무수정.
+- **정책 단일점 `seller/service/SellerAccessPolicy`** — `isSessionAllowed`·`isWriteAllowed`는 default 없는 switch expression(`SellerStatus.canTransitionTo`·`DbRoleAuthorization` 동형)으로 상태 추가 시 컴파일 에러를 강제한다. 로그인 IN 조건용 목록은 `sessionAllowedStatuses()`가 `values()` 필터로 switch에서 파생(상수 집합 없음).
+- 상태기계(`SellerStatus.canTransitionTo`·`Seller.changeStatus`)는 무수정.
+
+### §1-A 대안 검토
+1. **차단 지점** — α 로그인만 【기각: 발급된 토큰이 만료(1h)까지 생존해 정지·종료 직후 API가 열려 있음】 / **β 로그인 + 리졸버 【채택】** / γ JWT 필터(`AuthenticatedUserStateVerifier` 동형) 【기각: 비-셀러 경로 포함 전 요청에 셀러 상태 조회가 붙음·verifier 책임 확장】.
+2. **쓰기 판정** — **α HTTP 메서드(GET·HEAD = 조회, 그 외 = 쓰기) 【채택: resolver 시그니처에 이미 `HttpServletRequest`가 있어 17개 엔드포인트에 자동 적용·신설 엔드포인트도 규칙만 지키면 무설정】** / β 엔드포인트별 권한 테이블 【기각: 현 규모(셀러 GET 3·쓰기 15)에 과함·소비처 없는 추상화】.
+3. **SUSPENDED 조회** — α 차단 【기각: 정지 셀러가 정지 사유·정산을 확인할 경로가 없어짐】 / **β 허용 【채택】**.
+
+### API 규칙 (외부 검토 R1 권고 · 신규)
+셀러 엔드포인트에 **POST 조회 API를 만들지 않는다.** 쓰기 판정이 HTTP 메서드 기준이므로 조회를 POST로 열면 SUSPENDED 셀러의 조회가 403으로 막힌다(또는 반대로 예외 처리를 늘리게 된다). SUSPENDED 조회는 GET·HEAD로만 제공한다. 검색·필터가 복잡해도 query string으로 푼다.
+
+### 테스트
+- 단위 `HeaderSellerActorResolverTest` 14: ACTIVE·SUSPENDED × 6메서드 / PENDING·TERMINATED × GET+POST(isSessionAllowed가 메서드보다 먼저 차단·전수 반복 불필요) / 매핑 부재·principal 부재 401.
+- 통합 `SellerStatusGuardIntegrationTest` 12(실 MariaDB): 상태 4종 × {로그인 / GET settlements / POST mark-inbound}. ACTIVE 쓰기 = 200·on_hand +5·inventory_history INBOUND 1행 / SUSPENDED 쓰기 = 403 SELLER_SUSPENDED·detail 고정 문구·on_hand 무변경·**history 0행**(차단이 트랜잭션 진입 전임을 고정) / PENDING·TERMINATED = 401·무변경. API 요청은 `AuthHeaders` 직접 발급 토큰이라 "발급 후 상태 변경" 시나리오와 동형.
+- 다중 소속(허용+차단 혼재)은 `uk_seller_user_user_id`(V12)로 행 자체가 생성 불가 → 케이스 미성립(쿼리는 IN 조건이라 의미상 "하나라도 허용이면 통과" 유지).
+- 회귀: 1차 전체 실행 1235 중 9 fail — 전부 기존 픽스처가 FK_CHECKS=0으로 seller 행 없이 `seller_user`만 시드한 케이스(cross-tenant SELLER_B·"미존재")로, 운영에서는 `fk_seller_user_seller`(RESTRICT)상 존재 불가. 5 픽스처(`SellerClaim`·`SellerDelivery`·`SellerInventoryController`·`SellerDeliveryCompletionController`·`SellerShippingController` IT)의 `seedSellerUsers`에 ACTIVE seller 행 시드 이동·cleanup `IN` — 단언·의도 불변·main 무수정.
+- `./gradlew.bat test --rerun-tasks`: 219파일 1235 tests·0 fail·0 error·0 skip(기존 1209 + 신규 26).
+
+### 외부 검토 (등급 A · 2라운드 · 2026-09-19)
+- **R1(인증 경계)**: 지적 6건 중 **수용 2** — ① `SellerAccessPolicy` EnumSet 상수 → exhaustive switch(상태 추가 시 컴파일 강제·IN 목록은 switch 파생) ② 403 근거 문구를 "셀러 본인이라 은닉 불필요"에서 "유효한 세션·해당 행위만 금지 → 401 아닌 403"으로 교체(SellerSuspendedException·HeaderSellerActorResolver·GlobalExceptionHandler) · **기각 4** — 메서드 기반 판정 대체·상태 캐싱·토큰 폐기 장치·기타(치명·높음 0).
+- **R2(예외·테스트)**: 지적 6건 중 **수용 2** — ① 단위 테스트 범위 문구를 실제(ACTIVE·SUSPENDED 6메서드 / PENDING·TERMINATED GET+POST)와 일치·의도 명시 ② `SELLER_SUSPENDED` detail 회귀 단언(handler가 `getMessage()`를 그대로 내보내는 구조라 고정 문구 일치로 식별자 유입 차단) · **기각 4** — 매트릭스 확장·SellerAccessPolicyTest 신설(중복)·픽스처 되돌리기·기타. 후속 자체 보강: inventory_history 0행/1행 대조 단언.
+- 회귀 방어 7종(가드 제거·정책 반전·switch default 추가·리졸버 조인 제거·403↔401 뒤바꿈·detail 식별자 유입·픽스처 회귀) 전부 테스트가 차단함을 확인.
+
+### §8 이월
+- 다중 소속 지원(uk_seller_user_user_id 해제) 시 `existsByUserIdAndSeller_StatusIn`의 IN 조건 실동작·`findMembershipByUserId` Optional(단건 가정) 재검토 — 현재는 구조상 미성립.
+- 셀러 FE(Track 90-A-2): `SELLER_SUSPENDED` 403 → 정지 안내 화면 분기 · 401 → seller_token 제거·`/seller/login`.

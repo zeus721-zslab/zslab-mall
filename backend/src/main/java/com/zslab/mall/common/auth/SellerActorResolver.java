@@ -15,7 +15,9 @@ public interface SellerActorResolver {
      *
      * @param request 현재 HTTP 요청
      * @return Seller 액터 식별자(BIGINT)
-     * @throws com.zslab.mall.common.exception.UnauthenticatedException 인증된 액터가 없는 경우(401·SecurityContext 기반·Track 31 Phase 3)
+     * @throws com.zslab.mall.common.exception.UnauthenticatedException 인증된 액터가 없거나 소속 셀러가 세션 허용 상태가 아닌 경우
+     *         (401·SecurityContext 기반·Track 31 Phase 3·Track 90-A 상태 가드)
+     * @throws com.zslab.mall.seller.exception.SellerSuspendedException 정지(SUSPENDED) 셀러의 쓰기 요청(403·Track 90-A)
      */
     Long resolve(HttpServletRequest request);
 }
