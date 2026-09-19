@@ -22,6 +22,8 @@ const DETAIL_A = {
   passwordChangeRequired: false,
   grade: { code: 'SILVER', source: 'AUTO' },
   addresses: [{ id: 1, isDefault: true, addressLabel: '집', recipientName: '수령인A', recipientPhone: '010-1111-2222', zonecode: '06236', addressRoad: '서울 강남구 테헤란로 1', addressDetail: '101호' }],
+  // STEP 498: 셀러 구성원(마지막 활성) → 탈퇴 다이얼로그 경고 2줄·강조. 확인은 그대로 활성(차단 아님).
+  sellerMembership: { sellerPublicId: 'slr_E2E0000000000000000000SA1', companyName: 'E2E리빙샵', roleCode: 'SELLER_OWNER', lastActiveMember: true },
 }
 const DETAIL_B_NO_PHONE = { publicId: MEMBER_B, name: 'E2E회원B', email: 'b@e2e.invalid', createdAt: '2026-09-01T09:00:00', passwordChangeRequired: true, grade: { code: 'GOLD', source: 'MANUAL', lockedUntil: '2026-10-01T23:59:59' }, addresses: [] }
 const DETAIL_W = { ...DETAIL_A, publicId: MEMBER_W, name: 'E2E탈퇴회원', email: 'w@e2e.invalid', withdrawnAt: '2026-09-05T08:00:00' }
@@ -226,6 +228,12 @@ test.describe('관리자 회원 관리(Track 84)', () => {
     await loginByDemo(page)
     await gotoMembers(page, `/admin/members/${MEMBER_A}`)
     await page.getByTestId('action-withdraw').click()
+    // STEP 498: 셀러 소속 경고(마지막 활성 구성원 → 2줄·강조)·확인 버튼은 활성(차단 아님)
+    const withdrawWarning = page.getByTestId('member-withdraw-dialog-warning')
+    await expect(withdrawWarning).toContainText('이 회원은 E2E리빙샵 셀러의 구성원(대표)입니다. 탈퇴해도 셀러 소속은 유지되지만 로그인할 수 없게 됩니다.')
+    await expect(withdrawWarning).toContainText('탈퇴하면 이 셀러에 로그인할 수 있는 구성원이 없어집니다.')
+    await expect(withdrawWarning.locator('p.font-weight-bold')).toHaveText('탈퇴하면 이 셀러에 로그인할 수 있는 구성원이 없어집니다.')
+    await expect(page.getByTestId('member-withdraw-dialog-ok')).toBeEnabled()
     await page.getByTestId('member-withdraw-dialog-ok').click()
     await expect(page.getByText('진행 중인 주문 또는 클레임이 있어 탈퇴할 수 없습니다.')).toBeVisible()
     await expect(page).toHaveURL(new RegExp(`/admin/members/${MEMBER_A}`))

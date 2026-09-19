@@ -19,10 +19,10 @@ import { useAdminSellers } from '#layers/admin/app/composables/useAdminSellers'
 import { useAdminToast } from '#layers/admin/app/composables/useAdminToast'
 
 /**
- * 셀러 입점 등록 다이얼로그(FE-40·BE Track 37 provisioning + D-187 §1-A 9 publicId 전환). 1단계 회원 검색(AdminOperatorProvisionDialog 패턴·회원 목록
- * API keyword·활성 BUYER) → owner 선택 → 2단계 사업자 정보 입력 → POST. 초기 상태는 즉시 활성 또는 승인 대기(BE 허용 2값).
+ * 셀러 입점 등록 다이얼로그(FE-40·BE Track 37 provisioning + D-187 §1-A 9 publicId 전환 + FE-42 D-189 owner 선택화). 1단계 사업자 정보 입력 →
+ * 2단계 대표 계정 선택(선택 사항·AdminOperatorProvisionDialog 패턴·회원 목록 API keyword·활성 BUYER·비우면 구성원 없이 입점) → POST. 초기 상태는 즉시 활성 또는 승인 대기(BE 허용 2값).
  * 409 SELLER_BUSINESS_NO_DUPLICATE는 사업자번호 필드 오류("이미 등록된 사업자번호입니다."), 409 SELLER_USER_ALREADY_EXISTS(이미 다른 셀러 소속)는
- * 토스트 후 1단계로 되돌린다. 호출·토스트는 다이얼로그가 소유하고 부모는 done 시 목록을 다시 읽는다.
+ * 토스트 후 owner 지정을 해제한다. 호출·토스트는 다이얼로그가 소유하고 부모는 done 시 목록을 다시 읽는다.
  */
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ done: [sellerPublicId: string]; cancel: [] }>()
@@ -93,8 +93,9 @@ function ownerLabel(member: AdminMemberSummary): string {
   return member.name ?? member.email ?? member.publicId
 }
 
+// FE-42: owner는 선택 사항 — 상호·대표자만 채우면 등록 가능(구성원은 상세에서 추가).
 const confirmDisabled = computed(() =>
-  submitting.value || owner.value === null || form.companyName.trim() === '' || form.ceoName.trim() === '',
+  submitting.value || form.companyName.trim() === '' || form.ceoName.trim() === '',
 )
 
 function blankToNull(value: string): string | null {
@@ -103,7 +104,7 @@ function blankToNull(value: string): string | null {
 }
 
 async function submit(): Promise<void> {
-  if (submitting.value || !owner.value) return
+  if (submitting.value) return
   const localErrors: Record<string, string> = {}
   if (form.companyName.trim() === '') localErrors.companyName = '상호명을 입력하세요.'
   if (form.ceoName.trim() === '') localErrors.ceoName = '대표자명을 입력하세요.'
@@ -120,9 +121,9 @@ async function submit(): Promise<void> {
       contactEmail: blankToNull(form.contactEmail),
       contactPhone: blankToNull(form.contactPhone),
       status: form.status,
-      ownerUserPublicId: owner.value.publicId,
+      ownerUserPublicId: owner.value?.publicId ?? null,
     })
-    toast.success(`${form.companyName.trim()} 셀러를 등록했습니다(${form.status === 'ACTIVE' ? '활성' : '승인 대기'}).`)
+    toast.success(`${form.companyName.trim()} 셀러를 등록했습니다(${form.status === 'ACTIVE' ? '활성' : '승인 대기'}${owner.value ? '' : '·구성원 없음'}).`)
     emit('done', created.sellerPublicId)
   } catch (error) {
     const code = extractErrorCode(error)
@@ -132,7 +133,7 @@ async function submit(): Promise<void> {
     } else if (code === 'SELLER_BUSINESS_NO_DUPLICATE') {
       errors.value = { businessNo: toAdminErrorMessage(error) }
     } else if (code === 'SELLER_USER_ALREADY_EXISTS' || code === 'USER_NOT_FOUND') {
-      // owner 문제는 회원 선택을 다시 하도록 1단계로 되돌린다(입력한 사업자 정보는 유지).
+      // owner 문제는 회원을 다시 고르도록 지정을 해제한다(입력한 사업자 정보는 유지).
       toast.warning(toAdminErrorMessage(error))
       owner.value = null
     } else {
@@ -149,8 +150,37 @@ async function submit(): Promise<void> {
     <v-card data-testid="admin-seller-provision-dialog">
       <v-card-title class="text-subtitle-1 font-weight-bold pt-5 px-5">셀러 입점 등록</v-card-title>
       <v-card-text class="px-5">
-        <!-- 1단계: owner 회원 검색 -->
-        <p class="text-body-2 mb-2"><span class="font-weight-medium">1. 대표 계정(owner) 선택</span> — 기존 회원 중 한 명을 고릅니다. 한 회원은 한 셀러에만 소속될 수 있습니다.</p>
+        <!-- 1단계: 사업자 정보(FE-42: 회사 정보 먼저) -->
+        <p class="text-body-2 mb-2"><span class="font-weight-medium">1. 사업자 정보</span></p>
+        <v-row dense>
+          <v-col cols="12" md="7">
+            <v-text-field v-model="form.companyName" label="상호명 *" :maxlength="ADMIN_SELLER_COMPANY_NAME_MAX" :error-messages="errors.companyName ? [errors.companyName] : []" :disabled="submitting" autofocus data-testid="seller-provision-company" @update:model-value="clearError('companyName')" />
+          </v-col>
+          <v-col cols="12" md="5">
+            <v-text-field v-model="form.ceoName" label="대표자명 *" :maxlength="ADMIN_SELLER_CEO_NAME_MAX" :error-messages="errors.ceoName ? [errors.ceoName] : []" :disabled="submitting" data-testid="seller-provision-ceo" @update:model-value="clearError('ceoName')" />
+          </v-col>
+          <v-col cols="12" md="5">
+            <v-text-field v-model="form.businessNo" label="사업자등록번호" placeholder="예: 123-45-67890" :maxlength="ADMIN_SELLER_BUSINESS_NO_MAX" :error-messages="errors.businessNo ? [errors.businessNo] : []" :disabled="submitting" data-testid="seller-provision-business-no" @update:model-value="clearError('businessNo')" />
+          </v-col>
+          <v-col cols="12" md="7">
+            <v-text-field v-model="form.contactEmail" label="담당자 이메일" type="email" :maxlength="ADMIN_SELLER_CONTACT_EMAIL_MAX" :error-messages="errors.contactEmail ? [errors.contactEmail] : []" :disabled="submitting" data-testid="seller-provision-email" @update:model-value="clearError('contactEmail')" />
+          </v-col>
+          <v-col cols="12" md="5">
+            <v-text-field v-model="form.contactPhone" label="담당자 연락처" :maxlength="ADMIN_SELLER_CONTACT_PHONE_MAX" :error-messages="errors.contactPhone ? [errors.contactPhone] : []" :disabled="submitting" data-testid="seller-provision-phone" @update:model-value="clearError('contactPhone')" />
+          </v-col>
+          <v-col cols="12" md="7">
+            <v-select v-model="form.status" :items="ADMIN_SELLER_INITIAL_STATUS_OPTIONS" label="초기 상태" :disabled="submitting" data-testid="seller-provision-status" />
+          </v-col>
+        </v-row>
+        <p class="text-caption text-medium-emphasis mb-4" data-testid="seller-provision-hint">
+          승인 대기로 등록하면 상세 화면에서 활성화(입점 승인)할 때까지 상품이 노출되지 않습니다. 수수료율·정산계좌는 등록 후 상세에서 설정합니다.
+        </p>
+
+        <!-- 2단계: 대표 계정(선택·FE-42 D-189 owner 선택화) -->
+        <p class="text-body-2 mb-1"><span class="font-weight-medium">2. 대표 계정(owner) 선택</span> <span class="text-medium-emphasis">— 선택 사항</span></p>
+        <p class="text-caption text-medium-emphasis mb-2" data-testid="seller-provision-owner-hint">
+          비워 두면 구성원 없이 등록되며, 등록 후 상세의 구성원 카드에서 기존 회원을 추가하거나 새 계정을 만들어 연결할 수 있습니다. 지정하면 그 회원이 대표(OWNER)로 연결됩니다(한 회원은 한 셀러에만 소속).
+        </p>
         <template v-if="owner === null">
           <v-text-field
             v-model="keyword"
@@ -175,42 +205,14 @@ async function submit(): Promise<void> {
               <v-list-item-subtitle>{{ member.phone ?? '연락처 없음' }}</v-list-item-subtitle>
             </v-list-item>
           </v-list>
-          <p v-else-if="searched" class="text-body-2 text-medium-emphasis mt-3" data-testid="seller-provision-empty">조건에 맞는 활성 회원이 없습니다.</p>
+          <p v-else-if="searched" class="text-body-2 text-medium-emphasis mt-3" data-testid="seller-provision-empty">조건에 맞는 활성 회원이 없습니다. 비워 두고 등록한 뒤 구성원 카드에서 새 계정을 만들 수 있습니다.</p>
         </template>
-        <v-alert v-else type="success" variant="tonal" density="compact" class="mb-3" data-testid="seller-provision-owner">
+        <v-alert v-else type="success" variant="tonal" density="compact" class="mb-1" data-testid="seller-provision-owner">
           <div class="d-flex align-center justify-space-between flex-wrap ga-2">
             <span>대표 계정: <span class="font-weight-medium">{{ ownerLabel(owner) }}</span> <span class="text-medium-emphasis">{{ owner.email ?? '' }}</span></span>
-            <v-btn size="x-small" variant="text" :disabled="submitting" data-testid="seller-provision-owner-change" @click="owner = null">다시 선택</v-btn>
+            <v-btn size="x-small" variant="text" :disabled="submitting" data-testid="seller-provision-owner-change" @click="owner = null">지정 해제</v-btn>
           </div>
         </v-alert>
-
-        <!-- 2단계: 사업자 정보 -->
-        <template v-if="owner !== null">
-          <p class="text-body-2 mb-2 mt-2"><span class="font-weight-medium">2. 사업자 정보</span></p>
-          <v-row dense>
-            <v-col cols="12" md="7">
-              <v-text-field v-model="form.companyName" label="상호명 *" :maxlength="ADMIN_SELLER_COMPANY_NAME_MAX" :error-messages="errors.companyName ? [errors.companyName] : []" :disabled="submitting" autofocus data-testid="seller-provision-company" @update:model-value="clearError('companyName')" />
-            </v-col>
-            <v-col cols="12" md="5">
-              <v-text-field v-model="form.ceoName" label="대표자명 *" :maxlength="ADMIN_SELLER_CEO_NAME_MAX" :error-messages="errors.ceoName ? [errors.ceoName] : []" :disabled="submitting" data-testid="seller-provision-ceo" @update:model-value="clearError('ceoName')" />
-            </v-col>
-            <v-col cols="12" md="5">
-              <v-text-field v-model="form.businessNo" label="사업자등록번호" placeholder="예: 123-45-67890" :maxlength="ADMIN_SELLER_BUSINESS_NO_MAX" :error-messages="errors.businessNo ? [errors.businessNo] : []" :disabled="submitting" data-testid="seller-provision-business-no" @update:model-value="clearError('businessNo')" />
-            </v-col>
-            <v-col cols="12" md="7">
-              <v-text-field v-model="form.contactEmail" label="담당자 이메일" type="email" :maxlength="ADMIN_SELLER_CONTACT_EMAIL_MAX" :error-messages="errors.contactEmail ? [errors.contactEmail] : []" :disabled="submitting" data-testid="seller-provision-email" @update:model-value="clearError('contactEmail')" />
-            </v-col>
-            <v-col cols="12" md="5">
-              <v-text-field v-model="form.contactPhone" label="담당자 연락처" :maxlength="ADMIN_SELLER_CONTACT_PHONE_MAX" :error-messages="errors.contactPhone ? [errors.contactPhone] : []" :disabled="submitting" data-testid="seller-provision-phone" @update:model-value="clearError('contactPhone')" />
-            </v-col>
-            <v-col cols="12" md="7">
-              <v-select v-model="form.status" :items="ADMIN_SELLER_INITIAL_STATUS_OPTIONS" label="초기 상태" :disabled="submitting" data-testid="seller-provision-status" />
-            </v-col>
-          </v-row>
-          <p class="text-caption text-medium-emphasis mb-0" data-testid="seller-provision-hint">
-            승인 대기로 등록하면 상세 화면에서 활성화(입점 승인)할 때까지 상품이 노출되지 않습니다. 수수료율·정산계좌는 등록 후 상세에서 설정합니다.
-          </p>
-        </template>
       </v-card-text>
       <v-card-actions class="px-5 pb-4">
         <v-spacer />

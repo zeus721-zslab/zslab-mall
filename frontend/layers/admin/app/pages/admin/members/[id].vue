@@ -13,7 +13,7 @@ import {
   DEFAULT_ADMIN_MEMBER_PAGE_SIZE,
   type AdminMemberActivityTab,
 } from '#layers/admin/app/lib/constants/admin-member'
-import { canResetPassword, gradeLabel, gradeSourceLabel, isWithdrawn, tabClaimType } from '#layers/admin/app/lib/admin-member-view'
+import { canResetPassword, gradeLabel, gradeSourceLabel, isWithdrawn, tabClaimType, withdrawSellerWarning } from '#layers/admin/app/lib/admin-member-view'
 import { ADMIN_MEMBERS_PATH, ADMIN_MEMBERS_WITHDRAWN_PATH, resolveBackPath } from '#layers/admin/app/lib/admin-back-path'
 import { extractErrorCode, toAdminErrorMessage } from '#layers/admin/app/lib/admin-error-message'
 import { useAdminMembers } from '#layers/admin/app/composables/useAdminMembers'
@@ -57,6 +57,8 @@ async function load(): Promise<void> {
 onMounted(load)
 
 const withdrawn = computed(() => (detail.value ? isWithdrawn(detail.value) : false))
+// STEP 498: 셀러 구성원이면 탈퇴 다이얼로그에 경고(차단 아님·확정 4). lastActiveMember면 강조 + 한 줄 추가.
+const sellerWarning = computed(() => (detail.value ? withdrawSellerWarning(detail.value) : null))
 const resetAllowed = computed(() => (detail.value ? canResetPassword(detail.value) : false))
 
 // ---------- 액션 다이얼로그 ----------
@@ -325,6 +327,8 @@ function openOrder(row: AdminMemberActivityRow): void {
       confirm-label="탈퇴 처리"
       confirm-color="error"
       :loading="actionBusy"
+      :warning-lines="sellerWarning?.lines"
+      :warning-emphasis="sellerWarning?.emphasis"
       test-id="member-withdraw-dialog"
       @confirm="runWithdraw"
       @cancel="activeDialog = null"

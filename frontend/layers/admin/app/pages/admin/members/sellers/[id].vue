@@ -11,7 +11,6 @@ import {
   availableTransitions,
   formatTerminationBlocks,
   loginableMemberCount,
-  memberDisplayName,
   sellerStatusChipClass,
   sellerStatusLabel,
   terminateBlockedReason,
@@ -29,7 +28,7 @@ definePageMeta({ layout: 'admin', middleware: ['admin', 'vuetify'] })
 useSeoMeta({ title: '셀러 상세 · zslab-mall 관리자' })
 
 /**
- * 셀러 상세(FE-40·Track 89-D D-187·회원 상세 패턴·별도 라우트). 기본 정보·구성원(탈퇴 표기·로그인 가능 0명 경고)·정산계좌(FE-41·목록·끝 4자리·등록/수정/
+ * 셀러 상세(FE-40·Track 89-D D-187·회원 상세 패턴·별도 라우트). 기본 정보·구성원(FE-42·추가/제거/역할 변경은 AdminSellerMemberCard·로그인 가능 0명 경고)·정산계좌(FE-41·목록·끝 4자리·등록/수정/
  * 주 계좌 전환은 AdminSellerBankAccountCard)·집계(상태별 상품·주문·구매확정 매출·정산 상태별)와 상태 전이 버튼(현재 상태에서 가능한 목표만·종료는
  * terminable=false면 비활성 + 차단 사유 툴팁)·정보 수정을 담당한다. 전이 응답(200)은 전이 후 상세라 재조회 없이 즉시 반영하고, 수정(204)·계좌 변경은 다시 읽는다.
  */
@@ -127,7 +126,7 @@ function onEditDone(): void {
         종료된 셀러입니다. 상태를 되돌릴 수 없으며 상품은 카탈로그에 노출되지 않습니다. 남은 확정 매출의 정산은 계속 생성됩니다.
       </v-alert>
       <v-alert v-if="detail.status !== 'TERMINATED' && loginableMembers === 0" type="warning" variant="tonal" density="compact" :icon="mdiAlertOutline" class="mb-4" data-testid="seller-no-login-member">
-        로그인 가능한 구성원이 없습니다(구성원 {{ detail.members.length }}명 중 활성 0명). 셀러 계정으로 주문·송장·클레임을 처리할 사람이 없습니다.
+        로그인 가능한 구성원이 없습니다(구성원 {{ detail.members.length }}명 중 활성 0명). 셀러 계정으로 주문·송장·클레임을 처리할 사람이 없습니다. 아래 구성원 카드에서 추가할 수 있습니다.
       </v-alert>
       <v-alert v-if="detail.warnings.primaryBankAccountMissing && detail.status !== 'TERMINATED'" type="warning" variant="tonal" density="compact" :icon="mdiAlertOutline" class="mb-4" data-testid="seller-no-bank-account">
         주 정산계좌가 등록되지 않았습니다. 정산은 생성되지만 지급 처리가 차단됩니다. 아래 정산계좌 카드에서 계좌를 등록하세요.
@@ -182,35 +181,8 @@ function onEditDone(): void {
       <!-- 정산계좌(FE-41): 목록·등록·수정·주 계좌 전환. 변경 성공 시 상세 재조회(주 계좌·경고 갱신). -->
       <AdminSellerBankAccountCard :detail="detail" @changed="load" />
 
-      <v-row dense class="mb-1">
-        <!-- 구성원 -->
-        <v-col cols="12">
-          <v-card class="mb-4 h-100" data-testid="seller-members">
-            <v-card-title class="text-subtitle-2 font-weight-bold pt-4 px-5">구성원 ({{ detail.members.length }})</v-card-title>
-            <v-card-text class="px-5 pb-5">
-              <v-table v-if="detail.members.length > 0" density="compact" class="adm-table">
-                <thead><tr><th>이름</th><th>이메일</th><th>역할</th><th>상태</th></tr></thead>
-                <tbody>
-                  <tr v-for="(member, index) in detail.members" :key="member.userPublicId ?? index" data-testid="seller-member-row">
-                    <td>
-                      <NuxtLink v-if="member.userPublicId" :to="{ path: `/admin/members/${member.userPublicId}`, query: { back: route.fullPath } }" class="text-primary text-decoration-none" data-testid="seller-member-name">{{ memberDisplayName(member) }}</NuxtLink>
-                      <span v-else class="text-medium-emphasis" data-testid="seller-member-name">{{ memberDisplayName(member) }}</span>
-                    </td>
-                    <td>{{ member.email ?? '—' }}</td>
-                    <td>{{ member.roleCode ?? '—' }}</td>
-                    <td>
-                      <span v-if="member.withdrawnAt" class="text-medium-emphasis" data-testid="seller-member-withdrawn">탈퇴 ({{ formatDateTime(member.withdrawnAt) }})</span>
-                      <span v-else-if="!member.userPublicId" class="text-medium-emphasis">삭제됨</span>
-                      <span v-else data-testid="seller-member-active">활성</span>
-                    </td>
-                  </tr>
-                </tbody>
-              </v-table>
-              <p v-else class="text-body-2 text-medium-emphasis" data-testid="seller-members-empty">소속 구성원이 없습니다.</p>
-            </v-card-text>
-          </v-card>
-        </v-col>
-      </v-row>
+      <!-- 구성원(FE-42): 목록·추가(기존 회원/새 계정)·제거·역할 변경. 변경 성공 시 상세 재조회(로그인 가능 구성원 경고·가드 갱신). -->
+      <AdminSellerMemberCard :detail="detail" @changed="load" />
 
       <!-- 집계 -->
       <v-row dense>

@@ -44,6 +44,11 @@ const ADMIN_ERROR_MESSAGES: Record<string, string> = {
   SELLER_BANK_ACCOUNT_NOT_FOUND: '정산계좌를 찾을 수 없습니다. 화면을 새로 고칩니다.',
   SELLER_BANK_ACCOUNT_REFERENCED: '정산 지급에 사용된 계좌는 수정할 수 없습니다. 새 계좌를 등록한 뒤 주 계좌로 전환하세요.',
   SELLER_BANK_ACCOUNT_INVALID_STATE: '이미 주 정산계좌입니다.',
+  // FE-42 셀러 구성원(Track 89-G·D-189). 구성원 다이얼로그는 admin-seller-member-view.toSellerMemberErrorMessage가 맥락 문구로 덮는다.
+  SELLER_MEMBER_NOT_FOUND: '셀러 구성원을 찾을 수 없습니다.',
+  SELLER_LAST_OWNER: '마지막 활성 대표(OWNER)는 제거·강등할 수 없습니다.',
+  SELLER_MEMBER_INVALID_STATE: '이미 같은 역할입니다.',
+  EMAIL_ALREADY_EXISTS: '이미 사용 중인 이메일입니다.',
   // Track 85 관리자 정산(D-179). PERIOD_INVALID는 연·월 범위 위반과 미마감 월이 같은 코드라 둘을 함께 안내한다.
   SETTLEMENT_NOT_FOUND: '정산을 찾을 수 없습니다.',
   SETTLEMENT_PERIOD_INVALID: '정산 기간이 올바르지 않습니다. 연·월 범위를 확인하고, 아직 마감되지 않은 월은 생성할 수 없습니다.',

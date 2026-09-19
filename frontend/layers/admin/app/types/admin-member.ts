@@ -1,4 +1,5 @@
 import type { AdminBuyerGradeCode, AdminGradeSource, AdminMemberSort } from '#layers/admin/app/lib/constants/admin-member'
+import type { AdminSellerMemberRole } from '#layers/admin/app/lib/constants/admin-seller'
 
 /**
  * 관리자 회원 API 타입(Track 84 FE·D-178 BE 계약 1:1). nullable 필드는 BE NON_NULL 직렬화로 생략될 수 있어 optional.
@@ -58,6 +59,19 @@ export interface AdminMemberDetail {
   passwordChangeRequired: boolean
   grade?: AdminMemberGrade
   addresses: AdminMemberAddress[]
+  /** 셀러 구성원일 때만(STEP 498·D-189). 탈퇴 다이얼로그 경고용이며 탈퇴를 차단하지 않는다. */
+  sellerMembership?: AdminMemberSellerMembership
+}
+
+/**
+ * 셀러 소속(BE AdminMemberDetailResponse.SellerMembership). lastActiveMember = 이 회원이 해당 셀러의 마지막 활성 구성원(역할 무관·탈퇴하면 로그인할 수
+ * 있는 사람이 없어짐). 구성원 제거 가드의 "마지막 활성 OWNER"와는 다른 개념.
+ */
+export interface AdminMemberSellerMembership {
+  sellerPublicId: string
+  companyName: string
+  roleCode?: AdminSellerMemberRole
+  lastActiveMember: boolean
 }
 
 /** PATCH /admin/members/{publicId} body. */
