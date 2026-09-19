@@ -1,7 +1,8 @@
 import { test, expect, type Page } from '@playwright/test'
+import { loginAs } from './helpers/login'
 
 /**
- * 관리자 운영자 관리(FE-39·Track 89-E) E2E 스모크. 로그인은 데모 버튼(NUXT_ADMIN_DEMO_* 주입 환경·미주입 시 skip), /admin/me·운영자 목록·회원 검색은
+ * 관리자 운영자 관리(FE-39·Track 89-E) E2E 스모크. 로그인은 공용 헬퍼 loginAs(ADMIN_E2E_* 주입·미주입 시 skip), /admin/me·운영자 목록·회원 검색은
  * page.route로 mock해 로컬 DB를 바꾸지 않고 결정적으로 검증한다(진입 → 역할 배지·겸직 chip·나 chip → 자기 행 회수 비활성 툴팁 → 타 행 회수 다이얼로그
  * (마지막 SUPER_ADMIN 선택지 비활성·사유 비면 확인 비활성) → 등록 다이얼로그(회원 검색 → 선택 → 확인 문구)까지. POST·DELETE는 호출하지 않는다).
  */
@@ -43,19 +44,10 @@ async function mockOperatorApi(page: Page): Promise<Captured> {
   return captured
 }
 
-async function loginByDemo(page: Page): Promise<void> {
-  await page.goto('/admin/login')
-  await page.waitForLoadState('networkidle')
-  const demoButton = page.getByTestId('admin-demo-login')
-  test.skip((await demoButton.count()) === 0, 'NUXT_ADMIN_DEMO_EMAIL/PASSWORD 미주입 — 데모 버튼 없음')
-  await demoButton.click()
-  await page.waitForURL(/\/admin$/)
-}
-
 test.describe('관리자 운영자 관리(FE-39)', () => {
   test('① 진입(2행·역할 배지·겸직·나 chip) → 자기 행 회수 비활성 툴팁 → 타 행 회수 다이얼로그(선택지·사유 필수·문구) → 역할 필터 → 등록 다이얼로그(검색·선택·문구) (POST·DELETE 0)', async ({ page }) => {
     const captured = await mockOperatorApi(page)
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
     await page.setViewportSize({ width: 1440, height: 900 })
     await page.goto('/admin/members/admins')
 

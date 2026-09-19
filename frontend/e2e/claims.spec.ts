@@ -1,7 +1,9 @@
 import { test, expect, type Page } from '@playwright/test'
+import { loginAs } from './helpers/login'
+import { gotoClientSide } from './helpers/navigation'
 
 /**
- * 사용자 반품 화면(FE-29) E2E. 로그인은 데모 버튼(NUXT_BUYER_DEMO_* 주입 환경·미주입 시 skip)이며 `/login?redirect=`로 클라이언트 내비게이션해
+ * 사용자 반품 화면(FE-29) E2E. 로그인은 공용 헬퍼 loginAs(BUYER_E2E_* 주입·미주입 시 skip)이며 gotoClientSide로 클라이언트 내비게이션해
  * 이후 useFetch가 브라우저에서 실행되도록 한다(SSR fetch는 page.route를 거치지 않음). 주문·클레임 API는 page.route로 mock해 로컬 DB를 바꾸지 않는다.
  */
 const ORDER_ID = 'ord_E2E00000000000000000000201'
@@ -87,19 +89,11 @@ async function mockApis(page: Page, detail: Record<string, unknown>): Promise<Ca
   return captured
 }
 
-async function loginByDemo(page: Page, redirect: string): Promise<void> {
-  await page.goto(`/login?redirect=${encodeURIComponent(redirect)}`)
-  await page.waitForLoadState('networkidle')
-  const demoButton = page.getByRole('button', { name: '데모 계정으로 둘러보기' })
-  test.skip((await demoButton.count()) === 0, 'NUXT_BUYER_DEMO_EMAIL/PASSWORD 미주입 — 데모 버튼 없음')
-  await demoButton.click()
-  await page.waitForURL((url) => url.pathname === redirect.split('?')[0])
-}
-
 test.describe('사용자 반품 요청·회수·검수(FE-29)', () => {
   test('① 주문 상세: 배송중 품목 반품 버튼 없음·배송완료만 → 반품 요청 사유 3값 → 불량 선택 시 첨부 섹션·2장 업로드(순서) → 제출 body attachmentIds / 단순변심으로 바꾸면 첨부 해제 / 스크린샷', async ({ page }) => {
     const captured = await mockApis(page, claimDetail({}))
-    await loginByDemo(page, `/orders/${ORDER_ID}`)
+    await loginAs(page, 'BUYER')
+    await gotoClientSide(page, `/orders/${ORDER_ID}`)
     await expect(page.getByText('E2E 배송완료 양말')).toBeVisible()
     await expect(page.getByRole('button', { name: '반품 요청' })).toHaveCount(2) // 배송완료 + 교환 완료(반품만) 품목
     await expect(page.getByRole('button', { name: '교환 요청' })).toHaveCount(1)
@@ -140,7 +134,8 @@ test.describe('사용자 반품 요청·회수·검수(FE-29)', () => {
 
   test('② 클레임 상세(승인·회수 송장 대기): 6단 타임라인·첨부 사진 → 택배사·송장 등록 → POST body → 재조회로 폼 사라짐·회수 송장 표기', async ({ page }) => {
     const captured = await mockApis(page, claimDetail({}))
-    await loginByDemo(page, `/claims/${CLAIM_ID}`)
+    await loginAs(page, 'BUYER')
+    await gotoClientSide(page, `/claims/${CLAIM_ID}`)
     const steps = page.locator('ol li')
     await expect(steps).toHaveCount(6)
     await expect(steps.nth(1)).toContainText('승인')
@@ -169,7 +164,8 @@ test.describe('사용자 반품 요청·회수·검수(FE-29)', () => {
       reshipment: { deliveryPublicId: 'dlv_E2E2', direction: 'OUTBOUND', carrier: 'HANJIN', trackingNo: 'RESHIP-0001', status: 'SHIPPING', shippedAt: '2026-09-17T10:00:00+09:00', deliveredAt: null },
       processedAt: '2026-09-17T10:00:00+09:00',
     }))
-    await loginByDemo(page, `/claims/${CLAIM_ID}`)
+    await loginAs(page, 'BUYER')
+    await gotoClientSide(page, `/claims/${CLAIM_ID}`)
     const steps = page.locator('ol li')
     await expect(steps).toHaveCount(5)
     await expect(steps.nth(4)).toContainText('검수 불합격')
@@ -184,7 +180,8 @@ test.describe('사용자 반품 요청·회수·검수(FE-29)', () => {
 
   test('④ 교환(FE-30): 교환 완료 품목은 교환 버튼 없음·반품만 → 교환 요청 사유 3값·옵션 후보(같은 가격·품절 제외·현재 제외) 1건·미선택 제출 불가 → 불량 첨부 → body exchangeVariantId', async ({ page }) => {
     const captured = await mockApis(page, claimDetail({}))
-    await loginByDemo(page, `/orders/${ORDER_ID}`)
+    await loginAs(page, 'BUYER')
+    await gotoClientSide(page, `/orders/${ORDER_ID}`)
     await expect(page.getByText('E2E 교환완료 모자')).toBeVisible()
     await expect(page.getByRole('button', { name: '교환 요청' })).toHaveCount(1) // 교환 완료 품목은 숨김
     await expect(page.getByRole('button', { name: '반품 요청' })).toHaveCount(2)
@@ -220,7 +217,8 @@ test.describe('사용자 반품 요청·회수·검수(FE-29)', () => {
 
   test('⑤ 교환 클레임 상세(FE-30·승인·회수 송장 대기): 7단 타임라인·교환 옵션 행·교환 회수 안내 / 스크린샷', async ({ page }) => {
     await mockApis(page, claimDetail({ claimType: 'EXCHANGE', originalOptionLabel: '색상: 빨강', exchangeOptionLabel: '색상: 파랑' }))
-    await loginByDemo(page, `/claims/${CLAIM_ID}`)
+    await loginAs(page, 'BUYER')
+    await gotoClientSide(page, `/claims/${CLAIM_ID}`)
     const steps = page.locator('ol li')
     await expect(steps).toHaveCount(7)
     await expect(steps.nth(0)).toContainText('신청')
@@ -240,7 +238,8 @@ test.describe('사용자 반품 요청·회수·검수(FE-29)', () => {
       reshipment: { deliveryPublicId: 'dlv_E2E3', direction: 'OUTBOUND', carrier: 'HANJIN', trackingNo: 'EXC-0001', status: 'DELIVERED', shippedAt: '2026-09-17T10:00:00+09:00', deliveredAt: '2026-09-18T10:00:00+09:00' },
       processedAt: '2026-09-18T10:00:00+09:00',
     }))
-    await loginByDemo(page, `/claims/${CLAIM_ID}`)
+    await loginAs(page, 'BUYER')
+    await gotoClientSide(page, `/claims/${CLAIM_ID}`)
     await expect(page.locator('ol li')).toHaveCount(7)
     await expect(page.locator('ol li').nth(6)).toContainText('완료')
     await expect(page.getByTestId('claim-reshipment')).toContainText('한진택배 EXC-0001')

@@ -1,7 +1,9 @@
 import { defineConfig, devices } from '@playwright/test'
 
 /**
- * Browser/SSR Smoke 전용 설정(FE-15 STEP3). E2E(인증·click→API·쓰기)가 아니라 goto→SSR 렌더 assert만 수행한다.
+ * Playwright 설정. FE-15 STEP3의 Browser/SSR Smoke(smoke.spec) 1개로 시작해 지금은 관리자(admin-*)·셀러(seller-shell)·구매자(claims·password-change) E2E까지
+ * e2e/ 전체가 이 설정으로 돈다. 세션은 e2e/helpers/login.ts(BE 로그인 API → 쿠키)로 심고 쓰기 API는 각 spec이 page.route로 mock한다.
+ * 역할별 자격증명은 ADMIN_E2E_*·SELLER_E2E_*·BUYER_E2E_* env로 주입한다(미설정 케이스는 skip).
  *
  * 토폴로지: SSR은 frontend 컨테이너 내부에서 실행돼야 backend(mall-backend:8080·host 미노출)에 도달한다.
  * - 로컬: 이미 구동 중인 컨테이너 dev 서버(:3000)를 reuseExistingServer로 재사용한다(webServer.command 미실행).
@@ -9,7 +11,8 @@ import { defineConfig, devices } from '@playwright/test'
  */
 export default defineConfig({
   testDir: 'e2e',
-  // Smoke 1개라 병렬·재시도는 최소. CI에서만 실패 시 1회 재시도.
+  // 파일 단위 병렬(파일 안은 직렬). CI에서만 실패 시 1회 재시도.
+  // workers는 기본값(논리 코어 50%). 데모 로그인 라우트는 rate limit(60s/30회)이 있으므로 데모 검증 케이스를 늘릴 때는 워커 수를 고려할 것.
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,

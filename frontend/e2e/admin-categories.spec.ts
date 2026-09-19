@@ -1,7 +1,8 @@
 import { test, expect, type Page } from '@playwright/test'
+import { loginAs } from './helpers/login'
 
 /**
- * 관리자 카테고리 관리(FE-38·Track 89-C) E2E 스모크. 로그인은 데모 버튼(NUXT_ADMIN_DEMO_* 주입 환경·미주입 시 skip), 카테고리 API는 page.route로
+ * 관리자 카테고리 관리(FE-38·Track 89-C) E2E 스모크. 로그인은 공용 헬퍼 loginAs(ADMIN_E2E_* 주입·미주입 시 skip), 카테고리 API는 page.route로
  * mock해 로컬 DB를 바꾸지 않고 결정적으로 검증한다(진입 → 율 표기·기본율 병기 → 순서 이동(PATCH /order 본문) → 수정 다이얼로그(율 변경 시 사유 필수·
  * 경고 3문장) → 삭제 비활성 툴팁·활성 행 확인 다이얼로그 노출까지. PUT·DELETE는 호출하지 않는다).
  */
@@ -37,19 +38,10 @@ async function mockAdminApi(page: Page): Promise<Captured> {
   return captured
 }
 
-async function loginByDemo(page: Page): Promise<void> {
-  await page.goto('/admin/login')
-  await page.waitForLoadState('networkidle')
-  const demoButton = page.getByTestId('admin-demo-login')
-  test.skip((await demoButton.count()) === 0, 'NUXT_ADMIN_DEMO_EMAIL/PASSWORD 미주입 — 데모 버튼 없음')
-  await demoButton.click()
-  await page.waitForURL(/\/admin$/)
-}
-
 test.describe('관리자 카테고리 관리(FE-38)', () => {
   test('① 진입(3행·율 표기·기본율 병기) → 아래로 이동(PATCH /order 전체 배열) → 수정 다이얼로그(율 변경 시 사유 필수·경고 3문장) → 삭제 비활성 툴팁·활성 행 확인 다이얼로그(PUT·DELETE 0)', async ({ page }) => {
     const captured = await mockAdminApi(page)
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
     await page.setViewportSize({ width: 1440, height: 900 })
     await page.goto('/admin/products/categories')
 

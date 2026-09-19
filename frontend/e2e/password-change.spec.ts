@@ -74,3 +74,26 @@ test.describe('구매자 비밀번호 변경 강제(Track 84)', () => {
     expect(new URL(page.url()).pathname).toBe('/products')
   })
 })
+
+// 구매자 데모 로그인(FE-43) 자체를 검증하는 유일한 E2E — 다른 spec은 공용 헬퍼 loginAs(helpers/login.ts)로 세션을 심는다(데모 라우트 rate limit 회피).
+// 관리자 admin-shell ⑥·셀러 seller-shell ⑤와 동형. 로그인 API mock 없이 실 데모 라우트를 탄다.
+test.describe('구매자 데모 로그인 (FE-43)', () => {
+  test('③ 데모 버튼 표시 → 클릭 → POST /_demo/login 200 → 홈 진입 · auth_token 생성 · admin_token/seller_token 미생성', async ({ page, context }) => {
+    await page.goto('/login')
+    await page.waitForLoadState('networkidle')
+    const demoButton = page.getByTestId('demo-login')
+    // 서버 env(NUXT_BUYER_DEMO_*) 미주입 환경은 버튼이 없으므로 명시 skip(실패 아님)
+    test.skip((await demoButton.count()) === 0, 'NUXT_BUYER_DEMO_EMAIL/PASSWORD 미주입 — 데모 버튼 없음')
+    await expect(demoButton).toBeVisible()
+    const [response] = await Promise.all([
+      page.waitForResponse((candidate) => candidate.url().includes('/_demo/login') && candidate.request().method() === 'POST'),
+      demoButton.click(),
+    ])
+    expect(response.status()).toBe(200)
+    await page.waitForURL((url) => url.pathname === '/')
+    const cookies = await context.cookies()
+    expect(cookies.find((cookie) => cookie.name === 'auth_token')?.path).toBe('/')
+    expect(cookies.some((cookie) => cookie.name === 'admin_token')).toBe(false)
+    expect(cookies.some((cookie) => cookie.name === 'seller_token')).toBe(false)
+  })
+})

@@ -1,7 +1,8 @@
 import { test, expect, type Page } from '@playwright/test'
+import { loginAs } from './helpers/login'
 
 /**
- * 관리자 셀러 관리(FE-40·Track 89-D) E2E 스모크. 로그인은 데모 버튼(NUXT_ADMIN_DEMO_* 주입 환경·미주입 시 skip), 목록·상세·회원 검색은 page.route로
+ * 관리자 셀러 관리(FE-40·Track 89-D) E2E 스모크. 로그인은 공용 헬퍼 loginAs(ADMIN_E2E_* 주입·미주입 시 skip), 목록·상세·회원 검색은 page.route로
  * mock해 로컬 DB를 바꾸지 않고 결정적으로 검증한다(목록 → 승인 대기 배너·배지 → 상세(차단 사유·종료 비활성 툴팁·구성원 0 경고) → 정지 다이얼로그(사유 필수)
  * → 수정 다이얼로그(율 경고) → 입점 다이얼로그(검색·선택·폼)까지. PATCH·PUT·POST는 호출하지 않는다). ②(FE-41)는 정산계좌 카드(목록·끝 4자리·주 계좌 배지)
  * → 등록 다이얼로그(첫 계좌 안내 없음·계좌번호 검증) → 수정 다이얼로그(기존 번호 미표시·사유 필수) → 주 계좌 전환 다이얼로그(안내 3문장·주 계좌 행은 비활성)까지.
@@ -72,19 +73,10 @@ async function mockSellerApi(page: Page): Promise<Captured> {
   return captured
 }
 
-async function loginByDemo(page: Page): Promise<void> {
-  await page.goto('/admin/login')
-  await page.waitForLoadState('networkidle')
-  const demoButton = page.getByTestId('admin-demo-login')
-  test.skip((await demoButton.count()) === 0, 'NUXT_ADMIN_DEMO_EMAIL/PASSWORD 미주입 — 데모 버튼 없음')
-  await demoButton.click()
-  await page.waitForURL(/\/admin$/)
-}
-
 test.describe('관리자 셀러 관리(FE-40)', () => {
   test('① 목록(배지·승인 대기 배너·프리셋) → 상세(차단 사유·종료 비활성 툴팁·구성원 0 경고) → 정지 다이얼로그(사유 필수) → 수정 다이얼로그(율 경고) → 입점 다이얼로그(검색·선택·폼) (PATCH·PUT·POST 0)', async ({ page }) => {
     const captured = await mockSellerApi(page)
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
     await page.setViewportSize({ width: 1440, height: 900 })
     await page.goto('/admin/members/sellers')
 
@@ -172,7 +164,7 @@ test.describe('관리자 셀러 관리(FE-40)', () => {
 
   test('② 정산계좌 카드(FE-41): 목록 2행·끝 4자리·주 계좌 배지 → 등록 다이얼로그(검증) → 수정 다이얼로그(번호 미표시·사유 필수) → 주 계좌 전환 다이얼로그(안내·비활성) (POST·PUT·PATCH 0)', async ({ page }) => {
     const captured = await mockSellerApi(page)
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
     await page.goto(`/admin/members/sellers/${SELLER_A}`)
     await page.waitForLoadState('networkidle')
 
@@ -258,7 +250,7 @@ test.describe('관리자 셀러 관리(FE-40)', () => {
       captured.writes.push(`${route.request().method()} ${route.request().url()}`)
       return route.fulfill({ status: 204 })
     })
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
     await page.setViewportSize({ width: 1440, height: 900 })
     await page.goto(`/admin/members/sellers/${SELLER_A}`)
     await page.waitForLoadState('networkidle')

@@ -1,22 +1,15 @@
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect } from '@playwright/test'
+import { loginAs } from './helpers/login'
 
 /**
- * 관리자 대시보드(FE-33) 스모크. 로그인은 데모 버튼(NUXT_ADMIN_DEMO_* 주입 환경·미주입 시 skip), 대시보드 API는 실 BE(D-180)를 호출해
+ * 관리자 대시보드(FE-33) 스모크. 로그인은 공용 헬퍼 loginAs(ADMIN_E2E_* 주입·미주입 시 skip), 대시보드 API는 실 BE(D-180)를 호출해
  * 요약 카드 6·처리 대기 4·차트 2(apexcharts SVG)·리스트 4가 렌더되는지 확인한다. 데이터 유무와 무관하게 성립하는 단언만 둔다.
  */
-async function loginByDemo(page: Page): Promise<void> {
-  await page.goto('/admin/login')
-  await page.waitForLoadState('networkidle')
-  const demoButton = page.getByTestId('admin-demo-login')
-  test.skip((await demoButton.count()) === 0, 'NUXT_ADMIN_DEMO_EMAIL/PASSWORD 미주입 — 데모 버튼 없음')
-  await demoButton.click()
-  await page.waitForURL(/\/admin$/)
-}
-
 test.describe('관리자 대시보드 (FE-33)', () => {
   test('① 로그인 → /admin: 요약 카드 6·증감 배지·처리 대기 4·차트 2·리스트 4 렌더', async ({ page }) => {
     const dashboardResponse = page.waitForResponse((response) => response.url().includes('/api/v1/admin/dashboard') && response.status() === 200)
-    await loginByDemo(page)
+    await loginAs(page, 'ADMIN')
+    await page.goto('/admin')
     await dashboardResponse
 
     await expect(page.getByTestId('admin-dashboard')).toBeVisible()
