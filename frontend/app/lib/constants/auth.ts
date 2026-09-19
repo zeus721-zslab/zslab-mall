@@ -17,3 +17,10 @@ export const PASSWORD_CHANGE_REASON_TEMPORARY = 'temporary'
 /** 변경 완료 후 로그인 페이지 안내 query. */
 export const LOGIN_NOTICE_QUERY = 'notice'
 export const LOGIN_NOTICE_PASSWORD_CHANGED = 'password-changed'
+
+/**
+ * 구매자 데모 로그인 서버 라우트(FE-43·server/routes/_demo). /api/**(backend 프록시) 밖 경로.
+ * status(GET) = { enabled } 버튼 표시 여부 · login(POST) = { token, passwordChangeRequired }. 자격증명은 서버 비공개 runtimeConfig에만 있다.
+ */
+export const DEMO_STATUS_PATH = '/_demo/status'
+export const DEMO_LOGIN_PATH = '/_demo/login'

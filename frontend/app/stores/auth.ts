@@ -1,5 +1,11 @@
-import { BUYER_ROLE, PASSWORD_CHANGE_REQUIRED_COOKIE } from '~/lib/constants/auth'
+import { BUYER_ROLE, DEMO_LOGIN_PATH, PASSWORD_CHANGE_REQUIRED_COOKIE } from '~/lib/constants/auth'
 import type { JwtPayload } from '~/types/auth'
+
+/** BE 로그인 응답 계약(/api/v1/auth/login → LoginResponse). 서버 라우트 데모 대행(/_demo/login)도 같은 형태를 돌려준다. */
+interface LoginResponse {
+  token: string
+  passwordChangeRequired?: boolean
+}
 
 /**
  * JWT payload를 라이브러리 없이 base64url 수동 디코드한다(UI 표시·만료 UX 전용).
@@ -62,13 +68,26 @@ export const useAuthStore = defineStore('auth', () => {
       ? `${config.apiInternalBase}/api`
       : config.public.apiBase || '/api'
 
-    const response = await $fetch<{ token: string; passwordChangeRequired?: boolean }>('/v1/auth/login', {
+    const response = await $fetch<LoginResponse>('/v1/auth/login', {
       baseURL: baseUrl,
       method: 'POST',
       body: { email, password, role },
     })
+    storeLoginResponse(response)
+  }
+
+  /**
+   * 구매자 데모 로그인(FE-43). Nuxt 서버 라우트가 비공개 env 계정으로 BE 로그인(BUYER)을 대행하므로 브라우저는 자격증명을 모른다.
+   * 응답 형태·쿠키 저장은 login과 동일 경로(storeLoginResponse)를 탄다. 미설정 404·BE 실패 401은 $fetch가 throw한다.
+   */
+  async function loginDemo(): Promise<void> {
+    const response = await $fetch<LoginResponse>(DEMO_LOGIN_PATH, { method: 'POST' })
+    storeLoginResponse(response)
+  }
+
+  /** 로그인 응답 반영(login·loginDemo 공용). 토큰 저장 + 임시 비밀번호 로그인이면 변경 강제 상태를 켠다(Track 84·D-178). 필드가 없는 응답은 false로 본다. */
+  function storeLoginResponse(response: LoginResponse): void {
     token.value = response.token
-    // 임시 비밀번호 로그인이면 변경 강제 상태를 켠다(Track 84·D-178). 필드가 없는 응답은 false로 본다.
     passwordChangeRequiredCookie.value = response.passwordChangeRequired === true ? true : null
   }
 
@@ -113,5 +132,5 @@ export const useAuthStore = defineStore('auth', () => {
     passwordChangeRequiredCookie.value = null
   }
 
-  return { token, role, exp, expired, isAuthenticated, passwordChangeRequired, login, signup, logout, clearPasswordChangeRequired }
+  return { token, role, exp, expired, isAuthenticated, passwordChangeRequired, login, loginDemo, signup, logout, clearPasswordChangeRequired }
 })
