@@ -447,7 +447,11 @@ public class NotificationService {
         }
     }
 
-    /** 셀러 SMS 수신처 3단 fallback: seller.contact_phone → SELLER_OWNER 구성원 user.phone → null(skip+warn). */
+    /**
+     * 셀러 SMS 수신처 3단 fallback: seller.contact_phone → SELLER_OWNER 구성원 user.phone → null(skip+warn).
+     * 탈퇴한 OWNER는 건너뛴다(Track 89-G — seller_user 행은 탈퇴 후에도 남으므로 withdrawn_at으로 걸러야 탈퇴자 번호로 발송되지 않는다).
+     * 활성 OWNER가 0명이면 종전대로 skip+warn.
+     */
     private SellerSmsRecipient resolveSellerSmsRecipient(Long sellerId, Long settlementId) {
         Seller seller = sellerRepository.findById(sellerId).orElse(null);
         if (seller == null) {
@@ -460,7 +464,7 @@ public class NotificationService {
         List<Long> ownerUserIds = sellerUserRepository.findUserIdsBySellerIdAndRoleCode(sellerId, RoleCode.SELLER_OWNER);
         for (Long ownerUserId : ownerUserIds) {
             User owner = userRepository.findById(ownerUserId).orElse(null);
-            if (owner != null && owner.getPhone() != null && !owner.getPhone().isBlank()) {
+            if (owner != null && owner.getWithdrawnAt() == null && owner.getPhone() != null && !owner.getPhone().isBlank()) {
                 return new SellerSmsRecipient(owner.getId(), owner.getPhone());
             }
         }

@@ -1,6 +1,8 @@
 package com.zslab.mall.user.service;
 
+import com.zslab.mall.auth.entity.Role;
 import com.zslab.mall.auth.enums.RoleCode;
+import com.zslab.mall.auth.repository.RoleRepository;
 import com.zslab.mall.auth.repository.UserRoleRepository;
 import com.zslab.mall.common.exception.MalformedRequestException;
 import com.zslab.mall.grade.entity.BuyerGrade;
@@ -9,6 +11,10 @@ import com.zslab.mall.grade.repository.BuyerGradeRepository;
 import com.zslab.mall.order.controller.response.PagedResponse;
 import com.zslab.mall.order.repository.BuyerLastPaidProjection;
 import com.zslab.mall.order.repository.OrderRepository;
+import com.zslab.mall.seller.entity.Seller;
+import com.zslab.mall.seller.entity.SellerUser;
+import com.zslab.mall.seller.repository.SellerRepository;
+import com.zslab.mall.seller.repository.SellerUserRepository;
 import com.zslab.mall.user.controller.request.AdminMemberSort;
 import com.zslab.mall.user.controller.request.AdminMemberStatusFilter;
 import com.zslab.mall.user.controller.response.AdminMemberDetailResponse;
@@ -51,16 +57,23 @@ public class AdminMemberQueryService {
     private final BuyerGradeRepository buyerGradeRepository;
     private final OrderRepository orderRepository;
     private final UserAddressService userAddressService;
+    private final SellerUserRepository sellerUserRepository;
+    private final SellerRepository sellerRepository;
+    private final RoleRepository roleRepository;
 
     public AdminMemberQueryService(UserRepository userRepository, UserRoleRepository userRoleRepository,
             BuyerProfileRepository buyerProfileRepository, BuyerGradeRepository buyerGradeRepository,
-            OrderRepository orderRepository, UserAddressService userAddressService) {
+            OrderRepository orderRepository, UserAddressService userAddressService,
+            SellerUserRepository sellerUserRepository, SellerRepository sellerRepository, RoleRepository roleRepository) {
         this.userRepository = userRepository;
         this.userRoleRepository = userRoleRepository;
         this.buyerProfileRepository = buyerProfileRepository;
         this.buyerGradeRepository = buyerGradeRepository;
         this.orderRepository = orderRepository;
         this.userAddressService = userAddressService;
+        this.sellerUserRepository = sellerUserRepository;
+        this.sellerRepository = sellerRepository;
+        this.roleRepository = roleRepository;
     }
 
     /**
@@ -107,7 +120,29 @@ public class AdminMemberQueryService {
                         profile.getGradeSource(), profile.getGradeLockedUntil());
         return new AdminMemberDetailResponse(
                 user.getPublicId(), user.getName(), user.getEmail(), user.getPhone(), user.getCreatedAt(),
-                user.getWithdrawnAt(), user.isPasswordChangeRequired(), grade, userAddressService.list(user.getId()));
+                user.getWithdrawnAt(), user.isPasswordChangeRequired(), grade, userAddressService.list(user.getId()),
+                sellerMembership(user));
+    }
+
+    /**
+     * 셀러 소속(Track 89-G STEP 498·D-189). seller_user는 user_id 단독 UK라 최대 1건({@code findByUserId} 1쿼리). soft-delete 셀러는
+     * {@code SellerRepository.findById}가 걸러 null. lastActiveMember는 역할 무관 활성 구성원 수로 판정한다 — 셀러 로그인은 seller_user
+     * 행 존재만으로 결정되고 역할은 권한에 관여하지 않으므로(D-189 §1-A 2) "탈퇴하면 로그인할 수 있는 사람이 없어지는가"는 이 회원이 활성이고
+     * 그 외 활성 구성원이 0명인가와 같다. 회원이 이미 탈퇴했으면 false. 상세 1건당 고정 4쿼리(소속·셀러·역할·활성 수)이며 목록엔 싣지 않는다.
+     */
+    private AdminMemberDetailResponse.SellerMembership sellerMembership(User user) {
+        SellerUser sellerUser = sellerUserRepository.findByUserId(user.getId()).orElse(null);
+        if (sellerUser == null) {
+            return null;
+        }
+        Seller seller = sellerRepository.findById(sellerUser.getSeller().getId()).orElse(null);
+        if (seller == null) {
+            return null;
+        }
+        RoleCode roleCode = roleRepository.findById(sellerUser.getRoleId()).map(Role::getCode).orElse(null);
+        boolean lastActiveMember = user.getWithdrawnAt() == null
+                && sellerUserRepository.countActiveBySellerId(seller.getId()) == 1;
+        return new AdminMemberDetailResponse.SellerMembership(seller.getPublicId(), seller.getCompanyName(), roleCode, lastActiveMember);
     }
 
     /**

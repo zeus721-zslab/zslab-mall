@@ -42,6 +42,9 @@ class SettlementConfirmSmsIntegrationTest extends AbstractIntegrationTest {
     private static final long STL_ID = 9485L;
     private static final String CONTACT_PHONE = "010-8500-0001";
     private static final String OWNER_PHONE = "010-8500-0002";
+    // Track 89-G: 탈퇴 OWNER 구성원(ADMIN_ID·OWNER_USER_ID와 다른 id — 같은 id를 탈퇴시키면 관리자 토큰까지 401이 된다)
+    private static final long WITHDRAWN_OWNER_USER_ID = 9486L;
+    private static final String WITHDRAWN_OWNER_PHONE = "010-8500-0003";
     private static final String EXPECTED_BODY = "[zslab-mall] 2026년 6월 정산이 확정되었습니다. 정산금액 13,500원, 지급예정일 7월 20일.";
     private static final String URL = "/api/v1/admin/settlements/" + STL_ID + "/confirm";
 
@@ -126,7 +129,55 @@ class SettlementConfirmSmsIntegrationTest extends AbstractIntegrationTest {
         assertThat((String) log.get("failed_reason")).contains("SMS 게이트웨이 장애");
     }
 
+    @Test
+    @DisplayName("SMS5 탈퇴 OWNER(먼저 조회됨·phone 있음)는 건너뛰고 활성 OWNER phone으로 발송·recipient=활성 OWNER(Track 89-G)")
+    void confirm_skipsWithdrawnOwner() throws Exception {
+        seedWithdrawnOwnerFirst(WITHDRAWN_OWNER_PHONE, OWNER_PHONE);
+
+        mockMvc.perform(post(URL).headers(authHeaders.admin(ADMIN_ID))).andExpect(status().isOk());
+
+        verify(smsSender).send(eq(OWNER_PHONE), eq(EXPECTED_BODY));
+        verify(smsSender, never()).send(eq(WITHDRAWN_OWNER_PHONE), any());
+        assertThat(notificationLog().get("recipient_user_id")).isEqualTo(OWNER_USER_ID);
+    }
+
+    @Test
+    @DisplayName("SMS6 phone 있는 OWNER가 탈퇴자뿐 → 발송 없음·로그 없음·CONFIRMED 유지(활성 OWNER 0명 = 기존 skip 동작 불변·Track 89-G)")
+    void confirm_skipsWhenOnlyWithdrawnOwnerHasPhone() throws Exception {
+        seedWithdrawnOwnerFirst(WITHDRAWN_OWNER_PHONE, null);
+
+        mockMvc.perform(post(URL).headers(authHeaders.admin(ADMIN_ID))).andExpect(status().isOk());
+
+        verify(smsSender, never()).send(any(), any());
+        assertThat(jdbc.queryForObject("SELECT status FROM settlement WHERE id = ?", String.class, STL_ID)).isEqualTo("CONFIRMED");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM notification_log WHERE target_type = 'SETTLEMENT' AND target_id = ?",
+                Integer.class, STL_ID)).isZero();
+    }
+
     // ---------- seed·helpers(바인딩 파라미터·정적 SQL·SQL injection 위험 없음) ----------
+
+    /**
+     * 기본 시드(contact_phone 없음) 위에 탈퇴 OWNER 구성원을 <b>첫 seller_user 행</b>으로 끼워 넣는다(기존 OWNER 행을 지우고 뒤에 다시 INSERT).
+     * fallback이 su.id 순으로 순회하므로 탈퇴자가 먼저 조회되는 경계를 만든다. seller_user 행은 탈퇴 후에도 남는 실제 데이터 형태다.
+     */
+    private void seedWithdrawnOwnerFirst(String withdrawnOwnerPhone, String activeOwnerPhone) {
+        seed(null, activeOwnerPhone);
+        tx.executeWithoutResult(s -> {
+            try {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
+                jdbc.update("DELETE FROM seller_user WHERE user_id IN (?, ?)", OWNER_USER_ID, WITHDRAWN_OWNER_USER_ID);
+                jdbc.update("INSERT INTO `user` (id, public_id, email, name, phone, withdrawn_at, created_at, updated_at) "
+                        + "VALUES (?, ?, ?, '전대표', ?, NOW(6), NOW(6), NOW(6))",
+                        WITHDRAWN_OWNER_USER_ID, "usr_STL85SMSWITHDRAWN00000000", "stl85withdrawn@example.com", withdrawnOwnerPhone);
+                jdbc.update("INSERT INTO seller_user (user_id, seller_id, role_id, created_at, updated_at) "
+                        + "SELECT ?, ?, id, NOW(6), NOW(6) FROM role WHERE code = 'SELLER_OWNER'", WITHDRAWN_OWNER_USER_ID, SELLER_ID);
+                jdbc.update("INSERT INTO seller_user (user_id, seller_id, role_id, created_at, updated_at) "
+                        + "SELECT ?, ?, id, NOW(6), NOW(6) FROM role WHERE code = 'SELLER_OWNER'", OWNER_USER_ID, SELLER_ID);
+            } finally {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
+            }
+        });
+    }
 
     private Map<String, Object> notificationLog() {
         return jdbc.queryForMap("SELECT status, template_code, recipient_user_id, content, failed_reason FROM notification_log "
@@ -164,8 +215,8 @@ class SettlementConfirmSmsIntegrationTest extends AbstractIntegrationTest {
                 jdbc.update("DELETE FROM notification_log WHERE target_type = 'SETTLEMENT' AND target_id = ?", STL_ID);
                 jdbc.update("DELETE FROM audit_log WHERE target_type = 'SETTLEMENT' AND target_id = ?", STL_ID);
                 jdbc.update("DELETE FROM settlement WHERE id = ?", STL_ID);
-                jdbc.update("DELETE FROM seller_user WHERE user_id = ?", OWNER_USER_ID);
-                jdbc.update("DELETE FROM `user` WHERE id = ?", OWNER_USER_ID);
+                jdbc.update("DELETE FROM seller_user WHERE user_id IN (?, ?)", OWNER_USER_ID, WITHDRAWN_OWNER_USER_ID);
+                jdbc.update("DELETE FROM `user` WHERE id IN (?, ?)", OWNER_USER_ID, WITHDRAWN_OWNER_USER_ID);
                 jdbc.update("DELETE FROM seller WHERE id = ?", SELLER_ID);
             } finally {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");

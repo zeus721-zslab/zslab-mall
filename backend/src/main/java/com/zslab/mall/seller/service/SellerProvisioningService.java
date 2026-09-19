@@ -19,6 +19,7 @@ import com.zslab.mall.seller.repository.SellerUserRepository;
 import com.zslab.mall.user.entity.User;
 import com.zslab.mall.user.exception.UserNotFoundException;
 import com.zslab.mall.user.repository.UserRepository;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -61,11 +62,12 @@ public class SellerProvisioningService {
     }
 
     /**
-     * 판매자 입점 provisioning. 성공 시 seller와 최초 owner seller_user(role=SELLER_OWNER) 매핑을 생성한다.
+     * 판매자 입점 provisioning. 성공 시 seller를 생성하고, owner가 지정됐으면 최초 owner seller_user(role=SELLER_OWNER) 매핑을 함께 생성한다.
+     * owner가 없으면 구성원 0으로 입점한다(Track 89-G·회사 먼저 등록·구성원은 이후 추가 API로 — 셀러 1이 그 형태로 정상 운영 중).
      *
      * @param request 입점 정보 요청
      * @param auditContext 감사 행위자 컨텍스트(운영자)
-     * @throws UserNotFoundException ownerUserPublicId에 해당하는 User가 없거나 soft-delete인 경우(404)
+     * @throws UserNotFoundException ownerUserPublicId가 지정됐는데 해당 User가 없거나 soft-delete인 경우(404)
      * @throws IllegalArgumentException 초기 status가 PENDING·ACTIVE가 아닌 경우(400)
      * @throws IllegalStateException SELLER_OWNER Role seed가 없는 경우(내부 오류·500)
      * @throws SellerBusinessNoDuplicateException businessNo가 이미 등록된 경우(409·SLR-1·Track 89-D)
@@ -73,10 +75,12 @@ public class SellerProvisioningService {
      */
     public SellerProvisioningResponse provision(SellerProvisioningRequest request, AuditContext auditContext) {
         // Track 89-D: 요청 식별자는 회원 public_id(usr_). 미존재·soft-delete(@SQLRestriction) 모두 404 USER_NOT_FOUND.
-        Long ownerUserId = userRepository.findByPublicId(request.ownerUserPublicId())
-                .map(User::getId)
-                .orElseThrow(() -> new UserNotFoundException(
-                        "판매자 owner로 지정한 User가 없습니다: userPublicId=" + request.ownerUserPublicId()));
+        // Track 89-G: owner는 선택(null → 구성원 없이 입점).
+        Long ownerUserId = request.ownerUserPublicId() == null ? null
+                : userRepository.findByPublicId(request.ownerUserPublicId())
+                        .map(User::getId)
+                        .orElseThrow(() -> new UserNotFoundException(
+                                "판매자 owner로 지정한 User가 없습니다: userPublicId=" + request.ownerUserPublicId()));
 
         validateInitialStatus(request.status());
         // Track 89-D: 사업자번호 중복은 seller_user saveAndFlush에서 같은 DataIntegrityViolation으로 섞여 409
@@ -85,7 +89,7 @@ public class SellerProvisioningService {
             throw new SellerBusinessNoDuplicateException("이미 등록된 사업자번호입니다: " + request.businessNo());
         }
 
-        Role ownerRole = roleRepository.findByCode(RoleCode.SELLER_OWNER)
+        Role ownerRole = ownerUserId == null ? null : roleRepository.findByCode(RoleCode.SELLER_OWNER)
                 .orElseThrow(() -> new IllegalStateException("SELLER_OWNER Role seed 누락(V11 마이그레이션 확인 필요)."));
 
         Seller seller = sellerRepository.save(Seller.create(
@@ -97,9 +101,14 @@ public class SellerProvisioningService {
                 request.status()));
 
         try {
-            // saveAndFlush로 uk_seller_user_user_id(V12) 위반을 트랜잭션 내에서 즉시 표면화한다. 위반 시 아래 catch가
-            // 409로 변환하며, 던진 예외가 @Transactional 경계를 넘어 seller INSERT까지 원자적으로 롤백한다.
-            sellerUserRepository.saveAndFlush(SellerUser.create(seller, ownerUserId, ownerRole.getId()));
+            if (ownerUserId != null) {
+                // saveAndFlush로 uk_seller_user_user_id(V12) 위반을 트랜잭션 내에서 즉시 표면화한다. 위반 시 아래 catch가
+                // 409로 변환하며, 던진 예외가 @Transactional 경계를 넘어 seller INSERT까지 원자적으로 롤백한다.
+                sellerUserRepository.saveAndFlush(SellerUser.create(seller, ownerUserId, ownerRole.getId()));
+            } else {
+                // owner가 없으면 seller_user flush가 없으므로 seller INSERT를 직접 flush해 사업자번호 레이스를 같은 catch에서 잡는다.
+                sellerRepository.flush();
+            }
         } catch (DataIntegrityViolationException exception) {
             // seller INSERT도 이 flush에서 함께 나가므로 uk_seller_business_no 위반(선검사 통과 후 레이스)이 여기로 섞여 들어온다.
             if (SellerConstraintViolations.isBusinessNoDuplicate(exception)) {
@@ -115,10 +124,14 @@ public class SellerProvisioningService {
         // record는 seller/seller_user 저장이 모두 성공한 경로에만 둔다(catch 밖). 409 롤백 시 감사도 함께 롤백되나,
         // 롤백된 입점에 감사가 남지 않도록 성공 경로에서만 호출한다. 입점=생성이라 before={}·after=최소셋이다(D-139).
         // 대상은 입점 생성 본체인 SELLER(targetId=seller.id·해석 A). companyName·businessNo는 최소셋·AUD-2 민감정보 회피로 제외한다.
+        Map<String, Object> after = new LinkedHashMap<>();
+        after.put("sellerPublicId", seller.getPublicId());
+        after.put("status", request.status().name());
+        if (ownerUserId != null) {
+            after.put("ownerUserId", ownerUserId);
+        }
         auditRecorder.record(auditContext, AuditLogAction.CREATE, PolymorphicTargetType.SELLER, seller.getId(),
-                Map.of(),
-                Map.of("sellerPublicId", seller.getPublicId(), "status", request.status().name(),
-                        "ownerUserId", ownerUserId));
+                Map.of(), after);
         log.info("[SellerProvisioning] 입점 완료 sellerPublicId={} ownerUserId={}",
                 seller.getPublicId(), ownerUserId);
         return new SellerProvisioningResponse(seller.getPublicId());
