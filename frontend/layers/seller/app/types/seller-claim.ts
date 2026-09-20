@@ -1,4 +1,4 @@
-import type { ClaimStatus, ClaimType, RefundStatus } from '~/lib/constants/claim'
+import type { ClaimRejectReasonCode, ClaimStatus, ClaimType, RefundStatus } from '~/lib/constants/claim'
 import type { SellerDeliveryStatus } from '#layers/seller/app/lib/constants/seller-order'
 
 /**
@@ -31,8 +31,10 @@ export interface SellerClaimAttachment {
   url: string
 }
 
-/** 상세(BE SellerClaimDetailResponse = 목록 행 + attachments + exchangeDeliveryStatus). */
+/** 상세(BE SellerClaimDetailResponse = 목록 행 + rejectReasonCode + attachments + exchangeDeliveryStatus). 거부 메모는 없다. */
 export interface SellerClaimDetail extends SellerClaimSummary {
+  /** 거부 사유 코드(거부 전 생략·코드만·메모 없음). */
+  rejectReasonCode?: ClaimRejectReasonCode
   attachments: SellerClaimAttachment[]
   /** 교환품 발송 최신 배송 상태(EXCHANGE·미발송이면 생략). */
   exchangeDeliveryStatus?: SellerDeliveryStatus

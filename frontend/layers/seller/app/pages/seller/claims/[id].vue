@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { mdiArrowLeft, mdiCheckCircle, mdiCircleOutline, mdiProgressClock } from '@mdi/js'
 import type { SellerClaimDetail } from '#layers/seller/app/types/seller-claim'
-import { claimStatusLabel, claimTypeLabel, refundStatusLabel } from '~/lib/constants/claim'
+import { claimRejectReasonLabel, claimStatusLabel, claimTypeLabel, refundStatusLabel } from '~/lib/constants/claim'
 import { formatDateTime } from '~/lib/utils/datetime'
 import { SELLER_CLAIM_STATUS_SEMANTIC, SELLER_DELIVERY_STATUS_LABEL, SELLER_DELIVERY_STATUS_SEMANTIC } from '#layers/seller/app/lib/constants/seller-order'
 import { semanticChipClass } from '#layers/seller/app/lib/constants/semantic'
@@ -110,6 +110,10 @@ const previewUrl = ref<string | null>(null)
                 <v-col cols="12">
                   <div class="text-caption text-medium-emphasis">상세 사유</div>
                   <div class="text-body-2 slr-claim-reason-detail" data-testid="claim-detail-reason-detail">{{ detail.reasonDetail ?? '—' }}</div>
+                </v-col>
+                <v-col v-if="detail.rejectReasonCode" cols="12">
+                  <div class="text-caption text-medium-emphasis">거부 사유</div>
+                  <div class="text-body-2" data-testid="claim-detail-reject-reason">{{ claimRejectReasonLabel(detail.rejectReasonCode) }}</div>
                 </v-col>
                 <v-col v-if="detail.type === 'EXCHANGE'" cols="12">
                   <div class="text-caption text-medium-emphasis">교환품 배송</div>

@@ -97,8 +97,8 @@ class SellerClaimQueryControllerIntegrationTest extends AbstractIntegrationTest 
     /** 목록 행 키 화이트리스트 — 필드가 늘면 여기와 SellerClaimSummaryResponse를 함께 바꿔야 한다. */
     private static final Set<String> SUMMARY_KEYS = Set.of("claimId", "type", "status", "requestedAt", "processedAt", "orderNo",
             "productName", "optionLabel", "reasonCode", "reasonDetail", "refundStatus", "attachmentCount");
-    /** 상세 키 화이트리스트(목록 행 + attachments + exchangeDeliveryStatus). */
-    private static final Set<String> DETAIL_KEYS = union(SUMMARY_KEYS, Set.of("attachments", "exchangeDeliveryStatus"));
+    /** 상세 키 화이트리스트(목록 행 + rejectReasonCode + attachments + exchangeDeliveryStatus). 거부 메모(rejectMemo)는 상세에도 없다. */
+    private static final Set<String> DETAIL_KEYS = union(SUMMARY_KEYS, Set.of("rejectReasonCode", "attachments", "exchangeDeliveryStatus"));
     private static final Set<String> ATTACHMENT_KEYS = Set.of("attachmentId", "url");
     /** 품목 행 클레임 요약(SellerOrderItemClaimResponse). */
     private static final Set<String> ITEM_CLAIM_KEYS = Set.of("claimId", "type", "status", "requestedAt");
@@ -246,7 +246,7 @@ class SellerClaimQueryControllerIntegrationTest extends AbstractIntegrationTest 
     }
 
     @Test
-    @DisplayName("T5 상세: C1 첨부 2건{attachmentId,url}(순서·fileName 없음)·키 화이트리스트 · C4 exchangeDeliveryStatus SHIPPING·refundStatus만(금액 없음) · C3 rejectMemo 없음")
+    @DisplayName("T5 상세: C1 첨부 2건{attachmentId,url}(순서·fileName 없음)·키 화이트리스트 · C4 exchangeDeliveryStatus SHIPPING·refundStatus만(금액 없음) · C3 rejectReasonCode 코드만·rejectMemo 없음")
     void detail_ownClaim() throws Exception {
         String c1 = mockMvc.perform(get(LIST_URL + "/" + CLAIM_C1_PID).headers(authHeaders.seller(USER_A)))
                 .andExpect(status().isOk())
@@ -266,6 +266,7 @@ class SellerClaimQueryControllerIntegrationTest extends AbstractIntegrationTest 
         c1Keys.remove("processedAt");
         c1Keys.remove("optionLabel");
         c1Keys.remove("refundStatus");
+        c1Keys.remove("rejectReasonCode");
         c1Keys.remove("exchangeDeliveryStatus");
         assertThat(keysOf(c1Node)).containsExactlyInAnyOrderElementsOf(c1Keys);
         assertThat(keysOf(c1Node)).doesNotContainAnyElementsOf(FORBIDDEN_KEYS);
@@ -284,12 +285,17 @@ class SellerClaimQueryControllerIntegrationTest extends AbstractIntegrationTest 
         assertThat(keysOf(objectMapper.readTree(c4))).doesNotContainAnyElementsOf(FORBIDDEN_KEYS);
         assertThat(c4).doesNotContain(String.valueOf(ITEM_PRICE));
 
+        // REJECTED: 거부 사유 코드만 노출·거부 메모(관리자 기록)는 없음. 목록 행에는 코드도 없다(T2 SUMMARY_KEYS).
         String c3 = mockMvc.perform(get(LIST_URL + "/" + CLAIM_C3_PID).headers(authHeaders.seller(USER_A)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("REJECTED"))
                 .andExpect(jsonPath("$.processedAt").exists())
+                .andExpect(jsonPath("$.rejectReasonCode").value("OUT_OF_POLICY"))
+                .andExpect(jsonPath("$.rejectMemo").doesNotExist())
                 .andReturn().getResponse().getContentAsString();
-        assertThat(c3).doesNotContain(REJECT_MEMO_C3).doesNotContain("rejectMemo").doesNotContain("rejectReasonCode");
+        assertThat(c3).doesNotContain(REJECT_MEMO_C3).doesNotContain("rejectMemo");
+        assertThat(keysOf(objectMapper.readTree(c3))).doesNotContainAnyElementsOf(FORBIDDEN_KEYS);
+        assertThat(c1).doesNotContain("rejectReasonCode"); // 거부 전 null → NON_NULL 생략
     }
 
     @Test
