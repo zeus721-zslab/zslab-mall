@@ -615,6 +615,20 @@ prod·dev compose가 `container_name`과 이미지 태그(`zslab-mall-zslab_mall
 
 ---
 
+## LT-28. 회수(RETURN) Delivery가 먼저 DELIVERED가 되면 관리자 confirm-pickup이 `IllegalStateException` → GEH catch-all 500·검수 영구 차단 [ACTIVE]
+**발견 트랙**: Track 92(STEP 711 부수 관찰)·Track 92-a(정찰 C-10 실측)
+**원본 결정**: D-197 §8
+### 증상
+구매자 회수 송장 등록으로 생긴 RETURN·SHIPPING Delivery를 confirm-pickup 이전에 누군가 DELIVERED로 마감하면(가드 도입 전 셀러·관리자 mark-delivered·또는 데이터 보정), 이후 관리자 `POST /api/v1/admin/claims/{id}/confirm-pickup`은 **500 INTERNAL_ERROR**를 돌려주고 `picked_up_at`은 NULL로 남는다. inspect는 "회수 확인 전에는 검수할 수 없습니다" 422로 영구 차단된다.
+### 원인
+`ClaimService.confirmPickup` → `DeliveryService.completeReturnShipment` → `Delivery.markDelivered`가 DELIVERED→DELIVERED 불법 전이로 `IllegalStateException`을 던지고, GEH에 전용 매핑이 없어 `Exception` catch-all 500으로 샌다(TX 롤백). 회수 Delivery 재등록은 RETURN 중복 가드 422, Delivery 상태를 되돌리는 API는 없어 운영 데이터 보정(delivery.status·delivered_at 원복)만 가능하다.
+### 처치
+D-197로 셀러 claim 연결 마감·관리자 RETURN 마감을 422로 막아 정상 API로는 도달하지 않는다. confirm-pickup 측의 `IllegalStateException` 흡수(422)·GEH 매핑은 범위 밖으로 이월(D-197 §8). 과거 데이터에서 재현되면 delivery 행 원복 후 confirm-pickup 재시도.
+### 관련
+- D-197 배경·§8 · docs/track-92a/recon-report-delivery.md C-10 · PROGRESS STEP 711·719 · `SellerDeliveryCompletionControllerIntegrationTest` T6 · `AdminDeliveryControllerIntegrationTest` T7
+
+---
+
 ## 부록. 트랩 추가 절차
 
 1. 라이브 발견 시 즉시 decisions.md D-XX 박제 (단건 처리)
