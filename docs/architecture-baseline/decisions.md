@@ -11481,3 +11481,83 @@ deploy.yml이 `push main` 무필터라 docs만 변경된 머지에도 서버 SSH
 - 비교 기간(전 기간 대비 증감) — 관리자는 전일·전월 고정 4묶음, 셀러는 단일 기간. FE 요구 시 같은 파라미터로 2회 호출 또는 서버 비교 기간 추가.
 - 재고 임박 칸 링크 목적지(셀러 상품/재고 화면) — 90-B 밖(recon §7).
 - FE(90-B-3)·통계 화면용 집계(90-E)는 별도.
+
+---
+
+## D-193. 셀러 상품·재고 조회 API + 셀러 이미지 업로드 소유권 (Track 90-C-1)
+
+날짜: 2026-09-20
+브랜치: feat/track-90c-seller-products
+정찰: docs/track-90/recon-report-90c.md(gitignore·로컬) A~F·설계 걸림돌
+
+### 배경
+셀러에게 상품 목록·상세·재고 조회가 전무했다(등록 `POST /seller/products`와 이미지 4종만 존재). 이미지 업로드는 관리자 전용(`POST /admin/files/images`)이라 셀러가 이미지를 등록할 방법 자체가 없었다. 셀러 이미지 4종은 내부 PK(Long) 경로라 public_id 체계의 셀러 화면과 식별자가 갈린다.
+
+### 결정
+- **신설 4**: `GET /api/v1/seller/products` · `GET /api/v1/seller/products/{productPublicId}` · `GET /api/v1/seller/inventories` · `POST /api/v1/seller/files/images`. 전부 `SellerActorResolver` 첫 줄(D-190·GET은 SUSPENDED 통과·업로드 POST는 403 `SELLER_SUSPENDED`).
+- **식별자는 public_id(`prd_`/`var_`)로 통일.** 기존 셀러 이미지 4종(내부 PK Long 경로)은 무수정·FE 미사용.
+- **소유권**: `SellerProductSpecifications.sellerId`를 항상 AND, 재고는 variant↔product theta-join으로 `p.sellerId` 강제. 타 셀러·미존재·삭제는 전부 404 은닉(403 아님).
+- **노출 차단**: 셀러 응답에서 `supplyPrice`·`sellerPublicId`·`sellerName`·내부 PK 제외. `FORBIDDEN_KEYS`를 관리자 DTO(`AdminProduct*Response`)에서 재귀 자동 도출(90-B D-191·D-192 패턴 재사용).
+- **업로드 소유권**: 셀러 업로드는 `products/sellers/{sellerId}/yyyy/MM/{ULID}.{ext}`에 저장(`ImageUploadService.uploadForSeller`)하고, 셀러 이미지·썸네일 등록 시 `requireSellerOwnedProductUrl` = 서버 발급 접두 + 본인 셀러 접두 + `fileStorage.exists(key)`(재검토 반영·본인 네임스페이스 안의 미업로드 URL 400). 관리자 업로드 경로(`products/yyyy/MM/`)·`requireServerIssuedProductUrl`(static)은 무수정.
+- **기존 URL 되돌리기 편집은 검증 면제** — 운영 40건(공용 경로·관리자가 붙인 이미지)이 셀러 편집으로 깨지지 않도록. URL을 바꾸는 행·신규 행만 검증.
+- 외부 검토: A / 5라운드 + 재검토 1회 / 수용 항목은 D-194와 합산 기재.
+
+### §1-A 갈림길·채택/기각 근거
+1. **식별자 — α 기존 이미지 4종 재사용(내부 PK) 【기각: 한 화면에 식별자 2체계】 / β 이미지 4종에 public_id 병행 추가 【기각: 유지 비용 중복】 / γ 관리자 구조 복제(치환형 PUT 신설·기존 4종 유지·미사용) 【채택】** — 식별자 통일 + FE가 관리자 저장 오케스트레이션을 그대로 복제 가능 + 기존 테스트 14건 무변경.
+2. **재고 범위 — α 목록만 【채택】 / β 목록 + 입출고 이력 조회 【기각】** — `inventory_history`에 `inventory_id` FK 외 인덱스가 없어 β는 Flyway가 딸려온다. 이력 화면 이월.
+3. **업로드 소유권 — α 업로드 발급 레코드 테이블 신설(DB로 소유 증명) 【기각】 / β 저장 경로에 sellerId 삽입 + 등록 시 접두·존재 검증 【채택】** — 스키마 변경 0으로 같은 경계를 얻는다. α는 파일 1건당 행 1건과 정리 배치까지 딸려오며, 현 규모에서 이득이 비용을 넘지 않는다. 경로 방식의 한계(네임스페이스까지만 보장)는 `exists` 검증으로 보완.
+
+### §2 확정 구현 규칙
+- 목록 필터·정렬은 관리자 스펙 복제(`SellerProductSpecifications`)·재고 목록은 `SellerInventoryRepository` JPQL theta-join(`SellerInventoryQueryService`). 상세는 `AdminProductDetailResponse` 구조를 셀러 DTO로 축소.
+- 업로드 IT(`SellerFileUploadIntegrationTest`)는 `upload.path`를 `@TempDir`로 덮어써 실 경로를 오염시키지 않는다. 등록·이미지 IT도 실업로드가 필요해진 뒤(재검토 반영) 같은 패턴.
+- 테스트: `SellerProductQueryControllerIntegrationTest`·`SellerInventoryQueryControllerIntegrationTest`·`SellerFileUploadIntegrationTest`(인가·D-190·소유권 404·FORBIDDEN_KEYS·저장 경로 정규식).
+
+### §8 이월
+- 재고 이력 조회 API(`inventory_history` 인덱스 추가 필요·Flyway 동반).
+- 상품 이미지 고아 파일 정리(soft-delete 시 물리 파일 미삭제).
+
+---
+
+## D-194. 셀러 상품 변경 API (Track 90-C-2)
+
+날짜: 2026-09-20
+브랜치: feat/track-90c-seller-products
+정찰: docs/track-90/recon-report-90c.md(gitignore·로컬)
+
+### 배경
+셀러가 자기 상품을 고칠 수단이 없었다(등록만 가능). 관리자 `AdminProductCommandService`는 공급가·판매기간·승인 상태까지 다루고 목록 미포함 variant를 soft-delete하는 등 셀러에게 열 수 없는 동작이 섞여 있어 그대로 재사용할 수 없다.
+
+### 결정
+- **신설 3**: `PUT /api/v1/seller/products/{productPublicId}`(기본정보) · `/images`(이미지 치환) · `/variants`(variant 치환). `SellerProductCommandService` 별도(관리자 서비스 무수정).
+- **즉시 반영(관리자 승인 경유 없음).** 판매중(SALE) 상품의 기본가 변경 허용 — 주문은 `order_item` 스냅샷(`unit_price`·`total_price`·`commission_rate`)이라 과거 주문·정산·환불 불변(실 checkout IT `SellerPriceChangeSnapshotIntegrationTest`로 증명·장바구니는 재계산).
+- **셀러 수정 가능**: categoryId·name·description·basePrice·이미지·variant 메타(variantCode·sellerSku·additionalPrice·status·displayOrder). **불가**: supplyPrice·판매기간·상품 status·sellerId.
+- `Product.updateBasicInfo`는 전체 치환 시그니처라 셀러가 못 바꾸는 4필드에 현재 값을 재전달해 보존(누락 시 null 소실 — 회귀 테스트 T5로 고정).
+- **variant 삭제 없음.** 비활성화는 `status=HIDDEN`. 요청 목록에 없는 기존 variant는 건드리지 않는다(관리자 PUT은 soft-delete — 의도된 차이·Javadoc 명시).
+- **옵션 그룹·값 구조 불변.** 신규 variant는 기존 옵션값 조합으로만 생성(없는 값·그룹 누락 400)·`initialStock`은 신규 행만.
+- **조합 중복은 soft-delete 포함 조회(`findOptionCombinationsIncludingDeleted` native)로 1·2·3슬롯 전부 409 통일** — `@SQLRestriction` 우회. MariaDB NULL distinct로 1·2슬롯은 UK가 잡지 못해 슬롯별로 비대칭이던 것을 제거.
+- `DataIntegrityViolationException`은 constraint가 `uk_product_variant_options`일 때만 409로 변환, 나머지는 재throw(HTTP로는 DTO `@Valid`가 선차단해 재throw 분기는 코드 검토로만 확인).
+- 요청 내 `variantPublicId` 중복은 400.
+- **썸네일 동기화**: 대표(main) 있으면 대표, 미지정이면 첫 GALLERY, GALLERY 0장이면 null(soft-delete된 이미지를 썸네일이 계속 가리키는 상태 제거). `thumbnailUrlFor`로 `_thumb` 파일 존재 시 썸네일 URL.
+- 셀러 조작 감사 로그는 남기지 않는다(셀러 감사 이월).
+- 외부 검토: A / 5라운드(r1a·r1b·r2a·r2b1~3·r2c) + 재검토 1회(rv1) / 지적 21건 중 수용 12·기각 9. 수용분: 업로드 셀러 귀속(D-193)·soft-delete 조합 409 통일·썸네일 동기화·예외 범위 축소·variantPublicId 중복 400·thumbnailUrl 귀속(등록 `registerProductForSeller` 진입점 분리·관리자 `registerProduct` 무변경)·저장 파일 존재 검증·가격 변경 스냅샷 IT·FE 4건(FE-48).
+
+### §1-A 갈림길·채택/기각 근거
+1. **승인 흐름 — α 저장 즉시 반영 【채택(임시)】 / β 관리자 승인 대기 상태 경유 【기각(이월)】** — 원론은 β가 맞으나 상품 상태기계 전이 추가 + 관리자 화면 신설로 트랙이 두 배가 된다.
+2. **variant 수정 — α 관리자 `replaceVariants` 재사용(목록 미포함 soft-delete) 【기각: "옵션 삭제 금지" 결정과 정면 충돌】 / β 셀러 전용(updateMeta + 신규 추가·삭제 없음) 【채택】.**
+3. **조합 중복 정책 — α soft-delete 조합 재사용 허용(1·2슬롯 현행 유지) 【기각】 / β fail-closed 통일 【채택】** — 같은 API가 옵션 개수에 따라 다르게 동작하는 것이 더 나쁘다.
+4. **관리자 서비스 — α 재사용·공통화 【기각】 / β 복제 【채택】** — 삭제 정책·감사·권한이 갈려 합치면 분기가 늘어난다. FE-44 격리 원칙과 동형. 공통 정책 validator 추출은 이월.
+
+### §2 확정 구현 규칙
+- 소유 확인은 `findByPublicIdForUpdate`(비관적 락) + sellerId 비교·불일치는 404 은닉. 3 API 전부 `SellerActorResolver` 첫 줄(D-190·SUSPENDED 403).
+- 테스트: `SellerProductCommandControllerIntegrationTest`(T1~T11·인가·D-190·404 은닉·기본정보 보존·이미지 400/404/200·variant 메타/신규/409/400) + `SellerPriceChangeSnapshotIntegrationTest`(HTTP checkout 후 기본가·추가금 변경 → 기존 주문 불변·새 주문 반영·인상 후 결제 금액 불변) + `ProductRegistrationControllerIntegrationTest` T16a~f(thumbnailUrl 타 셀러 400·본인 실업로드 201·null 201·관리자 공용 경로 201·미업로드 400·소형 원본 URL 201).
+- 검증(최종): `./gradlew.bat test --rerun-tasks` 228파일 **1315 tests·0 fail·0 error·0 skip**(90-B 종료 1269 → +46). Flyway 무변경·신규 의존성 없음.
+- 트랩(테스트): T8에 실업로드 200 단계를 끼워 넣을 때 기존 imageId를 목록에서 빼면 soft-delete되어 다음 단계 404 — 치환형 API의 IT는 단계마다 유지할 행을 전부 실어야 한다.
+
+### §8 이월
+- 셀러 상품 승인 흐름(§1-A 1 α의 임시성 해소).
+- 옵션 그룹·값 구조 수정 API.
+- 셀러 조작 감사 로그.
+- 상품 이미지·variant 공통 정책 validator 추출(관리자↔셀러 drift 방지).
+- 관리자 `replaceImages`도 대표 미지정 시 썸네일 stale(D-194와 동일 결함·관리자 측 미수정).
+- 장바구니 표시가 ≠ checkout 계산가 고지(90-C가 만든 문제는 아니나 셀러 가격 변경으로 노출 빈도 상승).
+- `ClaimExchangeService`의 교환 옵션 동가 가드가 현재가를 참조 — 셀러 가격 변경 시 동일 상품 타 옵션 교환이 차단될 수 있음(금액 계산 아님·정산·환불은 스냅샷).

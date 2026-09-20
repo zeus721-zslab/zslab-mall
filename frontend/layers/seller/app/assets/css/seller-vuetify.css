@@ -163,6 +163,22 @@ html,
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
+/* 상품 목록 썸네일(관리자 adm-thumb 복제·90-C-3). 로드 실패·없음은 placeholder 아이콘. */
+.slr-thumb {
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: rgba(var(--v-theme-on-surface), 0.04);
+  display: block;
+}
+.slr-thumb--placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(var(--v-theme-on-surface), var(--v-medium-emphasis-opacity));
+}
+
 /* 대시보드: 처리 대기 칸·리스트 행(관리자 adm-dashboard-* 복제). */
 .slr-dashboard-pending {
   display: block;
@@ -174,4 +190,75 @@ html,
 }
 .slr-dashboard-list .v-list-item--link:hover {
   background: var(--slr-semantic-neutral-bg);
+}
+
+/* 상품 등록·수정 폼(90-C-4·관리자 adm-dropzone·adm-image-card·adm-variant-table 복제). 색은 테마 토큰으로 두어 셀러 팔레트를 따른다. */
+.slr-section-title {
+  font-weight: 700;
+  font-size: 15px;
+}
+.slr-dropzone {
+  border: 1px dashed rgba(var(--v-theme-on-surface), 0.24);
+  border-radius: 12px;
+  padding: 20px 16px;
+  text-align: center;
+  cursor: pointer;
+  background: rgba(var(--v-theme-on-surface), 0.02);
+}
+.slr-dropzone:hover,
+.slr-dropzone--over {
+  border-color: rgb(var(--v-theme-primary));
+  background: rgba(var(--v-theme-primary), 0.06);
+}
+.slr-image-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 12px;
+}
+.slr-image-card {
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgba(var(--v-theme-on-surface), 0.04);
+  border: 2px solid transparent;
+  display: flex;
+  flex-direction: column;
+}
+.slr-image-card--main {
+  border-color: rgb(var(--v-theme-warning));
+}
+.slr-image-card--pending {
+  opacity: 0.85;
+}
+.slr-image-card[data-state="failed"] {
+  border-color: rgb(var(--v-theme-error));
+}
+.slr-image-card__img {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  display: block;
+  cursor: pointer;
+  touch-action: none;
+}
+.slr-image-card__drag {
+  cursor: grab;
+}
+.slr-image-card__bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 4px;
+  min-height: 30px;
+  background: rgb(var(--v-theme-surface));
+}
+.slr-variant-table .v-field__input {
+  min-height: 34px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+.slr-variant-row--excluded td:not(:last-child) {
+  opacity: 0.45;
+}
+.slr-variant-row--hidden td:not(:last-child) {
+  opacity: 0.6;
 }

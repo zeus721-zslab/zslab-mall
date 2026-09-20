@@ -2081,3 +2081,38 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 - 재고 임박 칸 링크(셀러 상품/재고 화면·90-C).
 - 환불 추이(일별 refund 버킷)·비교 기간(전 기간 대비 증감) — D-192 §8·FE 요구 시.
 - 셀러 비밀번호 변경 폼(90-D 설정)·공용 레이어 승격 판단(FE-44 §8 유지).
+
+## FE-48: 셀러 상품·재고 화면 (Track 90-C-3·90-C-4) (2026-09-20)
+
+배경: D-193·D-194로 셀러 상품 조회·변경 API가 생겼다. 셀러 셸(FE-44)에 상품 목록·재고·등록·수정 4화면을 붙이고 사이드바 비활성 7 중 상품·재고 2종을 활성화한다. 브랜치는 `feat/track-90c-seller-products`에 BE 커밋 위로 FE 커밋을 쌓는다(FE-47과 같은 완결 단위 전략).
+
+결정:
+- **신설**: `/seller/products`(목록) · `/seller/products/inventory`(재고) · `/seller/products/new`(등록) · `/seller/products/[id]`(수정). `seller-menu.ts` 상품·재고 활성(비활성 5 잔존: 클레임·통계 3·설정).
+- **격리 유지**: `layers/admin` import 0건(`test/seller/no-admin-import.spec.ts`)·무수정, 컴포넌트 복제(`SellerProduct{FilterCard,Table,Form,BasicSection,ImageSection,OptionSection}`·`SellerInventory{FilterCard,Table,AdjustDialog}`), 관리자 픽셀 12장 diff 0.
+- **저장 오케스트레이션**(`lib/seller-product-save.ts`): 등록 = create → images / 수정 = basic → images → variants, `changedSections`로 바뀐 섹션만 호출. 실패 시 `SellerSaveStepError`로 실패 단계·완료 단계·생성 상품 id를 전달하고 즉시 중단(뒤 단계 미호출·failure 원본 객체 보존).
+- **등록 후 이미지 실패 시 수정 화면 `?partial=1`로 전환**(중복 등록 방지·경고 배너). 저장 성공 시 `partial` 쿼리를 `router.replace`로 제거(검토 반영 — 잔존 시 재진입마다 경고).
+- **수정 화면은 옵션 그룹·값 편집 UI를 렌더하지 않음**(구조 잠금·D-194). 기존 variant 재고는 읽기 전용 + 재고 화면 링크, 아직 없는 조합만 "추가" 체크로 신규 행(initialStock은 신규 행만 전송·기존 행은 0·`[]`). `HIDDEN` 토글 = 비활성화(삭제 없음).
+- **dirty 판정은 저장 payload 의미 기준으로 통일** — `formSnapshot` = `sectionSnapshots` + create 요청 직렬화(localId 제거). 이탈 경고·섹션 저장 양쪽이 같은 기준을 써 "공백만 바꿈·제외 행 입력·표시 전용 status"는 dirty가 아니다(검토 반영).
+- **기본가·추가금·초기재고에 0 이상 정수 검증**(`isNonNegativeInteger`·BE Long/int 계약·`step="1"`).
+- 재고 조정 다이얼로그는 입고/출고(delta·사유)만(셀러 `adjust` API 부재). 목록·재고 화면은 URL query 단일 소스(FE-47 관례).
+- 외부 검토: A / FE 3라운드(r2b1·r2b2·r2b3) / 지적 중 수용 4(partial 잔존·정수 검증·dirty 기준·테스트 보강).
+
+### §1-A 갈림길·채택/기각 근거
+- **이미지 부착 — α 기존 셀러 이미지 4종 API 사용 【기각】 / β 치환형 PUT 사용 【채택】**(D-193 §1-A 1 γ와 동일 근거·식별자 통일·관리자 저장 오케스트레이션 복제).
+- **재고 편집 — α 폼에서 delta 조정(관리자 방식) 【기각】 / β 읽기 전용 + 재고 화면 분리 【채택】** — 셀러에겐 `adjust` API가 없고 입출고만 있다(BE 계약 종속·대안 없음에 가까움).
+
+### §2 확정 구현 규칙·트랩
+- 이미지 업로드는 `POST /seller/files/images` 결과의 `thumbnailUrl || url`을 등록 thumbnailUrl로 보낸다 — 둘 다 실제 저장 키라 BE `exists` 검증(D-193)을 통과한다(소형 이미지는 썸네일 미생성 → 원본 URL). 실패 파일은 `pending` 목록에만 남고 `form.images`에 들어가지 않는다.
+- 숫자 입력은 전부 `toNumber`(Number 변환·빈값 null) 경유 — 문자열이 폼에 유입되지 않는다.
+- **CSS 주석 안에 슬래시 포함 문자열(`adm-image-*/adm-variant-*`)을 쓰면 주석이 조기 종료** → tailwind 파싱 오류로 셀러 화면 전체 파손. typecheck·vitest는 CSS를 보지 않아 미검출·Playwright 대량 실패로만 드러남 → LT-21. 대량 e2e 실패 시 `docker logs zslab_mall_frontend` 먼저.
+- Playwright 재시작 직후 1차 콜드 실행은 버림(FE-46·FE-47 동일)·admin ① 케이스는 3차까지 필요할 수 있음. `locator('header')` strict-mode 위반 → `.slr-page-header`.
+- 검증(실측·컨테이너 pnpm): typecheck 0 · vitest 79파일 **518**(FE-47 468 → +50) · Playwright **91/91**(콜드 81 → 88 → 91) · 관리자 픽셀 12장 diff 0(`track90b3c` 대비) · `layers/admin` diff 0 · no-admin-import 통과.
+- 신규 의존성: 없음(vue-draggable-plus는 관리자와 동일 기존 의존).
+
+### 외부 검토
+- **등급 A · FE 3라운드(r2b1·r2b2·r2b3)** — 수용 4: partial 쿼리 잔존 제거·정수 검증·dirty 기준 통일·테스트 보강(vitest 9·Playwright 2). 기각분은 BE 계약(옵션 구조 잠금·재고 읽기 전용)에서 파생된 설계라 FE 단독 변경 불가.
+
+### §8 이월
+- 옵션 그룹·값 편집 UI(D-194 §8 구조 수정 API 이후).
+- 재고 이력 화면(D-193 §8).
+- 승인 대기 상태 표시(D-194 §1-A 1 β 도입 시).

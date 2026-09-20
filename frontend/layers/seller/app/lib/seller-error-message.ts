@@ -22,6 +22,13 @@ const SELLER_ERROR_MESSAGES: Record<string, string> = {
   DELIVERY_TRACKING_NO_CONFLICT: '다른 배송이 이미 사용 중인 송장번호입니다.',
   // 정산(Track 85)
   SETTLEMENT_NOT_FOUND: '정산을 찾을 수 없습니다(확정 전 정산은 조회되지 않습니다).',
+  // 상품·재고(Track 90-C·GlobalExceptionHandler 코드명 1:1)
+  PRODUCT_NOT_FOUND: '상품을 찾을 수 없습니다(내 상품이 아니거나 삭제됨).',
+  PRODUCT_VARIANT_NOT_FOUND: '상품 옵션(변형)을 찾을 수 없습니다(내 상품이 아니거나 삭제됨).',
+  CATEGORY_NOT_FOUND: '카테고리를 찾을 수 없습니다.',
+  PRODUCT_VARIANT_OPTION_CONFLICT: '같은 옵션 조합의 변형이 이미 있습니다.',
+  PRODUCT_IMAGE_NOT_FOUND: '상품 이미지를 찾을 수 없습니다.',
+  INVENTORY_INVARIANT_VIOLATION: '재고 수량이 맞지 않습니다(출고량이 보유·가용 재고를 초과하거나 재고 행이 없음).',
 }
 
 /** 코드가 없거나 미지일 때 HTTP 상태별 폴백. */

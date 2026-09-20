@@ -507,6 +507,56 @@ V29로 `settlement_item.order_public_id CHAR(30)`을 추가하고 엔티티에 `
 
 ---
 
+## LT-21. CSS 주석 안 슬래시 포함 문자열이 주석을 조기 종료 — tailwind 파싱 오류로 화면 전체 파손·typecheck·vitest 미검출 [ACTIVE]
+**발견 트랙**: Track 90-C-4(STEP 639·셀러 상품 폼 Playwright 1차 35·2차 27 fail)
+**원본 결정**: decisions-fe.md FE-48 §2
+### 증상
+셀러 레이어 전 페이지가 렌더되지 않고 Playwright만 대량 실패(27~35 fail). `pnpm typecheck` 0·vitest 전부 GREEN이라 코드 결함으로 보이지 않는다. `docker logs zslab_mall_frontend`에 tailwind/postcss 파싱 오류.
+### 원인
+`seller-vuetify.css`의 블록 주석 본문에 `adm-image-*/adm-variant-*`처럼 `*/`가 포함된 문자열을 써 주석이 그 자리에서 닫혔다. 뒤따르는 텍스트가 CSS로 해석돼 파일 전체가 실패한다. typecheck는 CSS를 보지 않고 vitest는 `mountSuspended`가 스타일시트를 처리하지 않아 둘 다 통과한다.
+### 처치
+주석 본문의 `*/` 패턴 제거(`adm-image-… · adm-variant-…`로 치환). 규칙: CSS 주석에 글로브·경로 표기(`*/`)를 쓰지 않는다. e2e가 원인 불명으로 대량 실패하면 코드 디버깅 전에 `docker logs zslab_mall_frontend` 먼저 확인한다.
+### 후속 영향
+- CSS 변경은 typecheck·vitest가 잡지 못하는 영역 — Playwright(또는 dev 서버 로그)가 유일한 검증. CSS만 바꾼 커밋도 e2e 1회는 돈다.
+### 관련
+- FE-48 §2·PROGRESS STEP 639
+
+---
+
+## LT-22. 로컬 backend 컨테이너는 `gradle bootRun` 상주 — 브랜치 BE 변경이 반영되지 않아 신규 셀러 API가 404 [ACTIVE]
+**발견 트랙**: Track 90-B-3(대시보드 "서버 오류"·FE-47 §2)·Track 90-C 매 단계 사전 조치로 고정(STEP 615~)
+**원본 결정**: decisions-fe.md FE-47 §2
+### 증상
+브랜치에서 BE 컨트롤러를 새로 만들고 FE를 붙였는데 로컬 화면이 404(셀러 API)·"서버 오류"를 표시한다. BE IT는 전부 GREEN.
+### 원인
+`Dockerfile.dev`의 backend 컨테이너는 `gradle bootRun`으로 기동 시점 클래스를 상주시키며 소스 변경을 다시 컴파일하지 않는다. BE+FE를 한 브랜치에 쌓는 전략(FE-47·FE-48)에서 BE 커밋 직후 FE 실측을 하면 항상 걸린다.
+### 처치
+BE 변경 후 FE 실측·Playwright 전에 `docker restart zslab_mall_backend`(헬스 ~2분). Track 90-C부터 각 단계 지시의 "사전" 항목으로 고정.
+### 후속 영향
+- Playwright 콜드 로드 트랩(FE-46)과 겹친다 — 재시작 직후 1차 실행은 버리고 2·3차로 판정.
+- `pnpm typecheck`(nuxt prepare)는 frontend 컨테이너의 `#app-manifest`를 깨뜨리므로(FE 트랩 후보·962행) typecheck 후에도 frontend 재시작.
+### 관련
+- FE-47 §2·FE-48 §2·PROGRESS STEP 615·649
+
+---
+
+## LT-23. 커밋 메시지·명령 문자열의 슬래시 경로·대괄호 표기가 PowerShell 안전 훅의 Remove-Item 오인을 유발 [ACTIVE]
+**발견 트랙**: Track 90-C(STEP 613·626·650 동형 3회)
+**원본 결정**: PROGRESS STEP 650(세션 트랩·본 카탈로그 직접 등록)
+### 증상
+`git commit -m`·`Remove-Item` 등 도구 호출이 훅에 차단된다. 메시지 내용은 정상이고 파일 변경도 없다. 차단 시점의 명령 텍스트에 `/seller:`·`/{productPublicId}/images`·`91/91`·`0·[]` 같은 표기가 들어 있다.
+### 원인
+PowerShell 안전 훅이 명령 문자열 전체를 스캔해 슬래시로 시작하는 경로·대괄호 글로브를 파괴적 삭제 인자로 오인한다. 커밋 메시지 본문도 명령 텍스트에 포함되므로 API 경로·분수 표기가 트랩이 된다. 같은 호출에 `Remove-Item`(임시 파일 정리)이 섞이면 확률이 더 오른다.
+### 처치
+커밋 메시지에서 슬래시 경로는 괄호·단어 표기로 치환(`PUT seller products images`·`91건 중 91`·`0과 빈 배열`), 대괄호는 쓰지 않는다. 커밋과 임시 파일 삭제는 별도 호출로 분리하고 메시지는 `-F` 파일 또는 heredoc으로 넘긴다. 반복 지시 항목: "커밋 메시지에 슬래시 경로 표기 금지".
+### 후속 영향
+- 훅 차단은 "사용자 거부"와 구분되지 않으므로 같은 명령을 그대로 재시도하지 않고 표기부터 바꾼다.
+- 리뷰 패킷·문서에는 슬래시 경로를 그대로 써도 된다(파일 내용은 스캔 대상이 아님) — 명령 텍스트만 해당.
+### 관련
+- PROGRESS STEP 613·626·650
+
+---
+
 ## 부록. 트랩 추가 절차
 
 1. 라이브 발견 시 즉시 decisions.md D-XX 박제 (단건 처리)

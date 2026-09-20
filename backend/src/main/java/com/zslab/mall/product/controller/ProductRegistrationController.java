@@ -38,7 +38,7 @@ public class ProductRegistrationController {
 
     /**
      * Seller 주도 상품 등록(Track 39). 성공 201 + product/variant public_id. 미인증 401·비-SELLER 403(SecurityConfig 필터)·
-     * Bean Validation 위반 400·INV-A~D·R5-3 위반 400·categoryId 미존재 404·옵션 조합 중복 409({@link ProductRegistrationService}·
+     * Bean Validation 위반 400·INV-A~D·R5-3 위반 400·thumbnailUrl 본인 발급 경로 아님 400·categoryId 미존재 404·옵션 조합 중복 409({@link ProductRegistrationService}·
      * GlobalExceptionHandler). Product·OptionGroup·OptionValue·Variant·초기 재고를 단일 트랜잭션에 원자 생성한다.
      */
     @PostMapping("/api/v1/seller/products")
@@ -47,6 +47,6 @@ public class ProductRegistrationController {
             HttpServletRequest httpRequest) {
         Long sellerId = sellerActorResolver.resolve(httpRequest);
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(productRegistrationService.registerProduct(sellerId, request));
+                .body(productRegistrationService.registerProductForSeller(sellerId, request));
     }
 }

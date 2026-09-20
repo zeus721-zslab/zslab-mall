@@ -47,6 +47,8 @@ public class ImageUploadService {
     private static final String PRODUCT_DIRECTORY = "products";
     /** 상품 이미지로 등록 가능한 서버 발급 URL 접두사(D-174·외부 URL·임의 경로 차단). */
     public static final String PRODUCT_URL_PREFIX = URL_PREFIX + PRODUCT_DIRECTORY + "/";
+    /** 셀러 업로드 하위 디렉터리(Track 90-C 검토 반영): {@code products/sellers/{sellerId}/yyyy/MM/} — 파일이 발급받은 셀러에게 귀속된다. */
+    static final String SELLER_SUBDIRECTORY = "sellers";
     private static final String THUMBNAIL_SUFFIX = "_thumb";
     private static final DateTimeFormatter MONTH_DIRECTORY = DateTimeFormatter.ofPattern("yyyy/MM");
 
@@ -72,6 +74,22 @@ public class ImageUploadService {
      */
     public ImageUploadResponse upload(List<MultipartFile> files) {
         return upload(files, PRODUCT_DIRECTORY, defaultLimits);
+    }
+
+    /**
+     * 셀러 상품 이미지를 업로드한다(Track 90-C 검토 반영·셀러 귀속). 저장 경로는 {@code products/sellers/{sellerId}/yyyy/MM/{ULID}.{ext}}로
+     * 관리자 경로({@code products/yyyy/MM/}) 아래 셀러별 하위 디렉터리에 두며, 셀러 이미지 등록은 {@link #requireSellerOwnedProductUrl}로
+     * 발급 셀러와 등록 셀러의 일치를 강제한다. 형식·해상도·썸네일·한도는 관리자 업로드와 같다.
+     *
+     * @throws MalformedRequestException 파일 없음·{@value #MAX_FILES_PER_REQUEST}장 초과(400)
+     */
+    public ImageUploadResponse uploadForSeller(List<MultipartFile> files, Long sellerId) {
+        return upload(files, sellerProductDirectory(sellerId), defaultLimits);
+    }
+
+    /** 셀러 업로드 저장 디렉터리·URL 접두 판정의 단일 소스({@code products/sellers/{sellerId}}). */
+    static String sellerProductDirectory(Long sellerId) {
+        return PRODUCT_DIRECTORY + "/" + SELLER_SUBDIRECTORY + "/" + sellerId;
     }
 
     /**
@@ -150,6 +168,28 @@ public class ImageUploadService {
                     .ifPresent(format -> fileStorage.delete(key.substring(0, dot) + THUMBNAIL_SUFFIX + "." + format.thumbnailExtension()));
         }
         return deleted;
+    }
+
+    /**
+     * 셀러 상품 이미지 URL이 본 서버가 <b>해당 셀러에게</b> 발급한 경로({@code /api/v1/files/products/sellers/{sellerId}/...})이고 <b>실제로
+     * 저장된 파일</b>인지 검증한다(Track 90-C 검토 반영). 서버 발급 접두 검증({@link #requireServerIssuedProductUrl})에 더해 경로의 셀러 id가
+     * 등록 셀러와 같아야 하고, 접두를 뗀 저장 키가 {@link FileStorage#exists}여야 한다 — 타 셀러가 발급받은 URL·관리자 경로
+     * ({@code products/yyyy/MM/})·본인 네임스페이스 안의 미업로드 URL의 신규 등록은 400. 원본 URL과 썸네일 URL({@code _thumb}) 모두 실제 저장
+     * 키이므로 어느 쪽을 보내도 통과한다(소형 이미지는 썸네일 미생성이라 원본 URL이 온다). 기존 행의 URL을 그대로 되돌리는 편집(관리자가
+     * 붙인 이미지 보존)은 호출부가 이 검증을 건너뛴다. 저장소 조회가 필요해 인스턴스 메서드다(관리자용 static 검증은 무변경).
+     *
+     * @throws MalformedRequestException 해당 셀러에게 발급된 상품 이미지 경로가 아니거나 저장 파일이 없을 때(400)
+     */
+    public void requireSellerOwnedProductUrl(String imageUrl, Long sellerId) {
+        requireServerIssuedProductUrl(imageUrl);
+        String sellerPrefix = URL_PREFIX + sellerProductDirectory(sellerId) + "/";
+        if (!imageUrl.startsWith(sellerPrefix)) {
+            throw new MalformedRequestException(
+                    "imageUrl은 본인이 업로드 API로 발급받은 상품 이미지 경로(" + sellerPrefix + "...)만 허용합니다.");
+        }
+        if (!fileStorage.exists(imageUrl.substring(URL_PREFIX.length()))) {
+            throw new MalformedRequestException("imageUrl에 해당하는 업로드 파일이 없습니다: " + imageUrl);
+        }
     }
 
     private ImageUploadResponse.Item uploadOne(MultipartFile file, String directory, long maxFileSize) {
