@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { mdiAlertCircleOutline, mdiPackageVariantClosed } from '@mdi/js'
+import { mdiAlertCircleOutline, mdiPackageVariantClosed, mdiPlus } from '@mdi/js'
 import type { SellerProductSummary, SellerProductListQuery } from '#layers/seller/app/types/seller-product'
 import type { CategorySummary } from '~/types/category'
 import {
@@ -9,13 +9,14 @@ import {
   toSellerProductRouteQuery,
 } from '#layers/seller/app/lib/seller-product-query'
 import { toSellerErrorMessage } from '#layers/seller/app/lib/seller-error-message'
+import { SELLER_PRODUCTS_PATH } from '#layers/seller/app/lib/seller-back-path'
 import { useSellerProducts } from '#layers/seller/app/composables/useSellerProducts'
 
 definePageMeta({ layout: 'seller', middleware: ['seller', 'seller-vuetify'] })
 useSeoMeta({ title: '상품 · zslab-mall 셀러' })
 
 // 셀러 상품 목록(Track 90-C-3·90-C-1 API·주문 화면 골격 복제). URL query가 필터·정렬·페이지의 단일 소스: 화면 조작 → router.replace → route.query watch → 조회.
-// 등록·수정 화면은 90-C-4(수정 버튼은 표에서 비활성). 재고는 별도 화면(/seller/products/inventory).
+// 등록·수정은 90-C-4 폼 화면(new·[id])으로 이동하며 현재 목록 URL을 back으로 넘겨 같은 목록으로 복귀한다. 재고는 별도 화면(/seller/products/inventory).
 const route = useRoute()
 const router = useRouter()
 const productsApi = useSellerProducts()
@@ -67,11 +68,24 @@ function resetQuery(): void {
 }
 
 const filtersActive = computed(() => hasActiveProductFilters(query.value))
+
+function openNew(): void {
+  void navigateTo({ path: `${SELLER_PRODUCTS_PATH}/new`, query: { back: route.fullPath } })
+}
+
+function openEdit(item: SellerProductSummary): void {
+  // 현재 목록 URL(필터·페이지)을 back으로 넘겨 수정 화면에서 같은 목록으로 복귀한다.
+  void navigateTo({ path: `${SELLER_PRODUCTS_PATH}/${item.productPublicId}`, query: { back: route.fullPath } })
+}
 </script>
 
 <template>
   <div data-testid="seller-products">
-    <SellerPageHeader title="상품" description="내 상품을 조회합니다. 재고 수량과 입출고는 재고 화면에서, 승인·판매중지는 관리자가 처리합니다." />
+    <SellerPageHeader title="상품" description="내 상품을 조회합니다. 재고 수량과 입출고는 재고 화면에서, 승인·판매중지는 관리자가 처리합니다.">
+      <template #actions>
+        <v-btn color="primary" :prepend-icon="mdiPlus" data-testid="product-new" @click="openNew">상품 등록</v-btn>
+      </template>
+    </SellerPageHeader>
 
     <SellerProductFilterCard :query="query" :categories="categories" @apply="applyQuery" @reset="resetQuery" />
 
@@ -91,6 +105,7 @@ const filtersActive = computed(() => hasActiveProductFilters(query.value))
         :loading="loading"
         @update:page="(page) => applyQuery({ page }, false)"
         @update:size="(size) => applyQuery({ size })"
+        @edit="openEdit"
       >
         <template #empty>
           <div class="d-flex flex-column align-center text-center py-10" data-testid="seller-product-empty">
@@ -104,7 +119,8 @@ const filtersActive = computed(() => hasActiveProductFilters(query.value))
             </template>
             <template v-else>
               <p class="text-subtitle-2 font-weight-medium mb-1">등록된 상품이 없습니다</p>
-              <p class="text-body-2 text-medium-emphasis">상품 등록 화면은 준비 중입니다.</p>
+              <p class="text-body-2 text-medium-emphasis mb-3">첫 상품을 등록해 보세요. 승인 후 판매 화면에 노출됩니다.</p>
+              <v-btn size="small" color="primary" variant="flat" :prepend-icon="mdiPlus" data-testid="product-new-empty" @click="openNew">상품 등록</v-btn>
             </template>
           </div>
         </template>

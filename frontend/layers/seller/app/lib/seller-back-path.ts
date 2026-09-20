@@ -6,6 +6,8 @@ export const SELLER_DASHBOARD_PATH = '/seller'
 export const SELLER_ORDERS_PATH = '/seller/orders'
 export const SELLER_DELIVERIES_PATH = '/seller/deliveries'
 export const SELLER_SETTLEMENTS_PATH = '/seller/settlements'
+export const SELLER_PRODUCTS_PATH = '/seller/products'
+export const SELLER_INVENTORY_PATH = '/seller/products/inventory'
 
 /** 허용 base 외 추가 진입 목록: 품목 상세는 대시보드(최근 주문)·배송 목록에서도 진입한다. */
 const EXTRA_BACK_BASES: Record<string, string[]> = {

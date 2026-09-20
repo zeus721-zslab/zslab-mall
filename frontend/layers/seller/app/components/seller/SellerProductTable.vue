@@ -11,7 +11,7 @@ import { formatWon } from '#layers/seller/app/lib/format'
 import { semanticChipClass } from '#layers/seller/app/lib/constants/semantic'
 
 // 상품 표(Track 90-C-3·v-data-table-server·관리자 AdminProductTable 복제·셀러/공급가/판매기간/품절 컬럼 없음). 페이지·크기는 부모(URL)가 소유하고
-// 표는 이벤트만 올린다. 정렬은 필터 카드의 정렬 select가 담당하므로 컬럼 정렬은 끈다. 수정 버튼은 수정 화면(90-C-4)까지 비활성으로만 둔다.
+// 표는 이벤트만 올린다. 정렬은 필터 카드의 정렬 select가 담당하므로 컬럼 정렬은 끈다. 수정 버튼은 부모가 수정 화면(90-C-4)으로 이동시킨다.
 defineProps<{
   items: SellerProductSummary[]
   totalCount: number
@@ -23,6 +23,7 @@ defineProps<{
 const emit = defineEmits<{
   'update:page': [page: number]
   'update:size': [size: number]
+  edit: [item: SellerProductSummary]
 }>()
 
 const headers = [
@@ -109,10 +110,9 @@ function markBroken(productPublicId: string): void {
           :icon="mdiPencilOutline"
           size="small"
           variant="text"
-          disabled
-          :aria-label="`${item.name} 수정(준비 중)`"
-          title="수정 화면은 준비 중입니다"
+          :aria-label="`${item.name} 수정`"
           data-testid="row-edit"
+          @click="emit('edit', item)"
         />
       </div>
     </template>

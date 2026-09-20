@@ -141,3 +141,26 @@ export interface SellerInventoryAdjustResponse {
 
 /** BE GET 쿼리 파라미터(null·빈 값은 제외). */
 export type SellerProductApiParams = Record<string, string | number>
+
+/** 등록 응답(BE ProductRegistrationResponse). variantPublicIds는 요청 variants 순서와 1:1. */
+export interface SellerProductRegistrationResponse {
+  productPublicId: string
+  variantPublicIds: string[]
+}
+
+/** 이미지 업로드 응답(BE ImageUploadResponse·항상 200·파일별 결과). 실패 항목은 code·message를 담고 url 계열은 null. */
+export interface SellerImageUploadResponse {
+  results: {
+    fileName: string
+    success: boolean
+    url?: string
+    thumbnailUrl?: string
+    width?: number
+    height?: number
+    size?: number
+    code?: string
+    message?: string
+  }[]
+  successCount: number
+  failureCount: number
+}
