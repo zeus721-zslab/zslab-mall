@@ -1,0 +1,13 @@
+/* Track 90-B-3: vue-sonner 토스트를 셀러 카드 톤에 맞춘다(폰트 스택·radius 12·연한 그림자·관리자 admin-toast.css 복제). 셀렉터는 전부 data-sonner 스코프라 다른 영역 무영향. */
+[data-sonner-toaster] {
+  font-family: var(--font-sans);
+  --border-radius: 12px;
+}
+[data-sonner-toast] {
+  box-shadow: 0 12px 24px 0 rgba(0, 0, 0, 0.08);
+  font-size: 14px;
+}
+[data-sonner-toast] [data-button] {
+  font-weight: 600;
+  border-radius: 8px;
+}

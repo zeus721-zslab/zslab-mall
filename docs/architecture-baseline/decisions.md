@@ -11432,3 +11432,52 @@ deploy.yml이 `push main` 무필터라 docs만 변경된 머지에도 서버 SSH
 - 품목 응답에 클레임 정보 포함(90-D 셀러 클레임 화면과 함께·현재는 `itemStatus`로 요청 상태만 드러남).
 - 데모 셀러 7(`seller@zslab-mall.com`)은 상품·품목·정산 0 — 90-B 화면·E2E·라이브 검증은 실데이터 셀러(3~5·구성원 1명씩)로.
 - 대시보드 집계(90-B-2·정찰 §1-3 조건 추가 8·재작성 3)·FE(90-B-3).
+
+## D-192. 셀러 대시보드 집계 API (Track 90-B-2)
+
+날짜: 2026-09-20
+브랜치: feat/track-90b2-seller-dashboard
+정찰: docs/track-90b/recon-report.md(gitignore·로컬) §1-3·§5
+
+### 배경
+셀러 패널 첫 화면의 요약 지표. 관리자 대시보드(`AdminDashboardRepository`·D-180) 13쿼리 중 셀러 조건 추가로 되는 것 8 / 재작성 3(`Order` 루트 `sumSales`·`sumSalesByBucket`·`findRecentPaidOrders` — `order.total_price`에 타 셀러 몫·배송비·할인 포함) / 제외 2(신규 회원·상위 셀러 — 셀러 무관). 로컬 실측 혼합 셀러 주문 20/151(13%)이라 주문 축 합산은 셀러에게 잘못된 매출을 보여주고 발견도 늦다.
+
+### 결정
+- **셀러 전용 리포지토리 신설**(`SellerDashboardRepository`·`Repository<OrderItem, Long>` 마커·9메서드). 관리자 리포지토리에 sellerId 인자를 주입하지 않는다 — D-191 배송 결정과 동일 원칙(데이터 정의는 공유 = projection 3종 재사용, 로직은 복제 = 관리자 무수정). 서비스·컨트롤러·응답 DTO 8종도 `SellerDashboard*`로 별도.
+- **매출·환불은 `order_item` 축.** revenue = 결제완료(`order.paid_at`) 주문의 자기 품목 `total_price` 합. 환불은 `Refund → Claim → OrderItem` 2단 theta-join·`COMPLETED`·`refunded_at` 기준(환불 행이 클레임 = 품목 단위라 자기 품목 클레임의 환불만 잡힌다).
+- **orderCount = COUNT(DISTINCT order)** — 자기 품목이 포함된 주문 수. 카드 라벨이 "주문 건수"이므로 품목 행 수를 넣으면 말과 숫자가 어긋난다. `/seller/order-items`의 totalCount(품목 행 수)와 다르다는 점은 컨트롤러·리포지토리 Javadoc에 명시. 일별 추이도 같은 정의.
+- **기간 = `from`/`to` LocalDate**(KST 일·양끝 포함·내부 반구간 `[from 00:00, to+1 00:00)`)·기본 최근 30일(오늘 포함)·최대 92일·응답에 적용 기간 `period{from,to}` 에코. 92일 초과·from>to는 400 MALFORMED_REQUEST.
+- 기간 적용은 요약·일별 추이·상위 상품. 처리 대기 4종(배송 대기 PAID 품목·클레임 REQUESTED·재고 임박·정산 PENDING)과 최근 목록 2종(품목 5·클레임 5)은 기간 무관 실시간.
+- **미결제·만료 제외는 `paid_at` 축만** — `PAYMENT_EXPIRED`는 `PENDING_PAYMENT`에서만 전이되어 `paid_at`이 항상 null(`Order.java:170-174`). `status NOT IN(…)` 조인은 중복이라 넣지 않고 두 상태 제외를 테스트로 단언.
+- 추이는 `dailyTrend[{date, orderCount, revenue}]` 단일 배열에서 차트 2종(매출·주문 건수) 파생·빈 날 0 채움. 환불 추이는 미도입.
+- 최근 주문은 축약 전용 DTO `SellerDashboardRecentOrderItemResponse`(orderItemId·orderNo·productName·optionLabel·quantity·totalPrice·itemStatus·paidAt) — 품목 목록 DTO를 재사용하면 수령인·배송 enrich 4쿼리가 대시보드에 붙는다. 상세 링크는 `/seller/order-items/{id}`.
+- 정산 예정은 **건수만**(PENDING count·금액 아님·D-191 ε와 동일·`SettlementRepository.countBySellerIdAndStatusIn` 재사용).
+- 재고 임박은 `product.seller_id` 조건 + `LowStockThreshold`(1~5·수동 품절 제외) 재사용.
+- 신설 엔드포인트 1: `GET /api/v1/seller/dashboard?from=&to=`(`/api/v1/seller/**`·SecurityConfig 무수정·`SellerActorResolver` 첫 줄·GET이라 SUSPENDED 통과·PENDING·TERMINATED 401). 기존 파일 수정 0·신규 14파일(main 13·test 1).
+
+### §1-A 갈림길·채택/기각 근거
+1. **주문 건수 — α COUNT DISTINCT order 【채택】 / β 품목 행 수 【기각: 카드 라벨 "주문 건수"와 숫자가 어긋남·D-191 품목 단위는 목록 행의 정의이지 건수 라벨의 정의가 아님】.**
+2. **기간 — α from/to 파라미터 【채택】 / β 관리자식 고정 4묶음(오늘·전일·이번 달·전월) 【기각: 셀러에게 부족·FE가 기간을 고를 수 없음】.**
+3. **미결제 제외 — α paid_at 축만 【채택】 / β status NOT IN 중복 조건 병기 【기각: 왜 둘 다 있는지 혼란·실측상 paid_at null로 이미 제외】.**
+4. **리포지토리 — α 관리자 리포지토리에 sellerId 인자 주입 【기각: 관리자 변경이 셀러를 깨뜨리고 루트(Order vs OrderItem) 자체가 다름】 / β 셀러 전용 신설 + projection 재사용 【채택】.**
+
+### §2 확정 구현 규칙
+- 쿼리 수 = 요약 2(매출·환불) + 대기 4(PAID 품목·클레임·재고 임박·정산 PENDING) + 일별 버킷 1 + 최근 품목 1 + 최근 클레임 1 + 상위 상품 1 + 상품 public_id 배치 1(상위 상품이 비면 0) = 고정 11·N+1 없음 — `SellerDashboardQueryService` Javadoc 명시.
+- **응답 키 화이트리스트는 섹션별 정확 일치**(최상위 7·period 2·summary 4·pending 4·dailyTrend 3·recentOrderItems 8(NON_NULL이라 optionLabel 생략 시 7)·recentClaims 5·topProducts 4) + `FORBIDDEN_KEYS` = `AdminDashboardResponse` record 재귀 도출 − 셀러 허용 키 ∪ 수동 19키(buyer·buyerId·buyerName·buyerEmail·requestedBy·sellerId·sellerName·sellerPublicId·topSellers·newMemberCount·monthlyRevenue·previousDay·previousMonth·discountAmount·shippingFee·orderPublicId·orderId·reasonDetail·attachmentUrls). `recentClaims`는 5키 고정으로 구매자(requestedBy)·사유·첨부 부재를 잠근다.
+- **시드에 구매자명('대시구매자')·클레임 사유('대시사유상세')·타 셀러 상품명/품목 id를 심어 응답 본문 미포함을 값으로 단언** — 키 이름을 바꿔 우회해도 잡힌다.
+- 혼합 주문 금액 단언: 한 주문에 A·B 품목이 섞인 상태에서 A.revenue = A 품목 합·B.revenue = B 품목 합(원 단위)·**A+B ≠ order.total_price**(DB 실측·배송비·할인이 주문 축이라 의도적으로 다름)·orderCount는 A 품목 2행 → 1. 환불도 혼합 케이스에서 A/B 대칭 금액 단언(PENDING 환불·타 셀러 환불 제외).
+- 신규 인덱스 불요 — 전 쿼리가 기존 `ix_order_item_seller_status`·`ix_settlement_seller_status`·`ix_order_paid_at` 범위. Flyway 무변경.
+- 트랩(테스트): `uk_settlement_seller_period` — 같은 셀러의 정산 2건은 기간을 달리해야 한다(A PENDING 2월·A CONFIRMED 1월).
+- 시각 직렬화는 `KstOffsetSerializer`(paidAt·requestedAt)·`period`는 LocalDate "yyyy-MM-dd"(D-191 §2 관례·90-B-3 FE는 admin 파서 복제 금지).
+- 테스트: `SellerDashboardQueryControllerIntegrationTest`(11: 인가·혼합 매출/상위 상품·혼합 환불·미결제/만료 제외 + 최근 품목 정렬·기간 경계 6종·빈 셀러·대기 4종 + 최근 클레임·화이트리스트·SUSPENDED 200·PENDING/TERMINATED 401). 시드 시각 2026-03 고정·기간 명시라 실행일 독립(기본 기간 검사만 오늘 기준).
+- 검증: `./gradlew.bat test --rerun-tasks` 223파일 **1269 tests·0 fail·0 error·0 skip**(1258 → +11). 혼합 주문 실측 — A 30,000 · B 15,000 · A+B(45,000) ≠ total_price(47,000).
+- 신규 의존성: 없음.
+
+### 외부 검토 (등급 B · 생략 · 2026-09-20)
+- D-191에서 노출 경계 원칙(전용 DTO·화이트리스트·FORBIDDEN_KEYS 자동 도출)이 A 2라운드로 확립됐고 이번은 그 관례를 따른 조회 전용 추가. 유일한 위험 지점(혼합 주문 금액)은 원 단위 금액 단언으로 증명.
+
+### §8 이월
+- 환불 추이(일별 refund 버킷) — FE 90-B-3에서 순매출 차트가 필요해지면 `sumRefundByBucket` 셀러판 1쿼리 추가.
+- 비교 기간(전 기간 대비 증감) — 관리자는 전일·전월 고정 4묶음, 셀러는 단일 기간. FE 요구 시 같은 파라미터로 2회 호출 또는 서버 비교 기간 추가.
+- 재고 임박 칸 링크 목적지(셀러 상품/재고 화면) — 90-B 밖(recon §7).
+- FE(90-B-3)·통계 화면용 집계(90-E)는 별도.

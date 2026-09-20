@@ -13,13 +13,15 @@ const { sellerAuthMock } = await vi.hoisted(async () => {
 })
 vi.mock('#layers/seller/app/stores/sellerAuth', () => ({ useSellerAuthStore: () => sellerAuthMock }))
 vi.mock('#layers/seller/app/lib/seller-leave-guard', () => ({ useSellerLeaveGuard: () => {} }))
+// GET /seller/me 로드(90-B-3)는 useSellerMe.spec이 검증한다 — 여기서는 네트워크 없이 무동작 mock.
+vi.mock('#layers/seller/app/composables/useSellerMe', () => ({ useSellerMe: () => ({ me: { value: null }, error: { value: false }, load: vi.fn(), clear: vi.fn() }) }))
 
 const SUSPENDED_NOTICE = '정지 상태의 셀러입니다. 조회는 가능하지만 주문·상품·정산 등 변경 작업은 처리되지 않습니다.'
 
 async function mountLayout() {
   const wrapper = await mountSuspended(SellerLayout, {
     slots: { default: () => '페이지 콘텐츠' },
-    global: { plugins: [createVuetify()], stubs: { SellerSidebar: true, SellerTopbar: true } },
+    global: { plugins: [createVuetify()], stubs: { SellerSidebar: true, SellerTopbar: true, SellerToaster: true } },
   })
   // useSellerFirstPaintGate: 첫 requestAnimationFrame 이후 셸 렌더
   await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))

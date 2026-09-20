@@ -1,0 +1,25 @@
+/**
+ * 셀러 화면 경로 단일 소스 + 목록 복귀 경로(Track 90-B-3·관리자 admin-back-path 복제). ?back= 값은 지정한 목록 경로(쿼리 포함) 또는
+ * 허용 추가 진입 목록만 통과하고 그 외는 그 목록 기본 경로로 — 오픈 리다이렉트·타 화면 이동 방지.
+ */
+export const SELLER_DASHBOARD_PATH = '/seller'
+export const SELLER_ORDERS_PATH = '/seller/orders'
+export const SELLER_DELIVERIES_PATH = '/seller/deliveries'
+export const SELLER_SETTLEMENTS_PATH = '/seller/settlements'
+
+/** 허용 base 외 추가 진입 목록: 품목 상세는 대시보드(최근 주문)·배송 목록에서도 진입한다. */
+const EXTRA_BACK_BASES: Record<string, string[]> = {
+  [SELLER_ORDERS_PATH]: [SELLER_DASHBOARD_PATH, SELLER_DELIVERIES_PATH],
+}
+
+function matchesBase(value: string, base: string): boolean {
+  return value === base || value.startsWith(`${base}?`)
+}
+
+export function resolveBackPath(back: unknown, base: string): string {
+  const value = Array.isArray(back) ? back[0] : back
+  if (typeof value !== 'string') return base
+  if (matchesBase(value, base)) return value
+  if ((EXTRA_BACK_BASES[base] ?? []).some((extra) => matchesBase(value, extra))) return value
+  return base
+}
