@@ -41,7 +41,7 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>클래스 레벨 base path를 두지 않고 메서드별 절대경로를 부여한다(D-104 §3 옵션 A). 단일 컨트롤러가 서로 다른 두 리소스 축을
  * 노출하기 때문이다:
  * <ul>
- *   <li>{@code POST /api/v1/admin/claims/{claimPublicId}/register-exchange-shipment} — {@link SellerDeliveryController}
+ *   <li>{@code POST /api/v1/admin/claims/{claimPublicId}/register-exchange-shipment} — {@code SellerDeliveryController}(Track 92 제거)
  *       URL {@code /api/v1/claims/{claimPublicId}/register-exchange-shipment}과 1:1 대칭·액터축만 admin 치환(D-102 §3 보존).</li>
  *   <li>{@code POST /api/v1/admin/deliveries/{deliveryPublicId}/mark-delivered} — 배송 완료 primitive의 Admin wrapper(D-104).</li>
  *   <li>{@code GET /api/v1/admin/deliveries}·{@code GET .../{deliveryPublicId}}·{@code PATCH .../{deliveryPublicId}/tracking} — Track 89-B.</li>

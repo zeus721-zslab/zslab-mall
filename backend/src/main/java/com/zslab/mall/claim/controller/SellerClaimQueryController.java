@@ -17,8 +17,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 셀러 클레임 조회 REST 컨트롤러(Track 90-D-1·조회 전용). 처리(승인·거부·회수·검수·교환 출고)는 기존 {@link SellerClaimController}
- * ({@code /api/v1/claims/**})가 담당하며 본 클래스는 상태 전이 endpoint를 두지 않는다. URL prefix {@code /api/v1/seller/**}는
+ * 셀러 클레임 조회 REST 컨트롤러(Track 90-D-1·조회 전용). 처리(승인·거부·회수·검수·교환 출고)는 관리자 전용이며
+ * ({@code SellerClaimController}는 Track 92에서 제거) 본 클래스는 상태 전이 endpoint를 두지 않는다. URL prefix {@code /api/v1/seller/**}는
  * SecurityConfig가 hasRole(SELLER)로 강제하고, 셀러 식별·상태 가드(D-190·GET이라 SUSPENDED 통과)는 {@link SellerActorResolver}가 한다.
  */
 @RestController

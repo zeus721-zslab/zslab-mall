@@ -268,7 +268,7 @@ public class ClaimService {
     /**
      * Claim 승인 도메인 전이 primitive. save 직후 {@link ClaimApproved}를 발행한다(D-29).
      *
-     * <p>외부 HTTP 진입점 직접 호출 금지. 외부 액터(Seller/Admin) 호출은 wrapper 메서드(approveBySeller 등) 경유 의무.
+     * <p>외부 HTTP 진입점 직접 호출 금지. 외부 액터(Admin) 호출은 wrapper 메서드(approveByAdmin) 경유 의무(셀러 wrapper는 Track 92에서 제거).
      * 본 primitive는 권한 검증 미수행·도메인 상태 전이 단독 책임이다. 직접 호출은 도메인 내부 호출 또는 통합 테스트
      * 순수 상태 전이 검증에 한정한다.
      *
@@ -305,7 +305,7 @@ public class ClaimService {
     /**
      * Claim 거부 도메인 전이 primitive. save 직후 {@link ClaimRejected}를 발행한다(D-29·CLM-2 이력 보존).
      *
-     * <p>외부 HTTP 진입점 직접 호출 금지. 외부 액터(Seller/Admin) 호출은 wrapper 메서드(rejectBySeller 등) 경유 의무.
+     * <p>외부 HTTP 진입점 직접 호출 금지. 외부 액터(Admin) 호출은 wrapper 메서드(rejectByAdmin) 경유 의무(셀러 wrapper는 Track 92에서 제거).
      * 본 primitive는 권한 검증 미수행·도메인 상태 전이 단독 책임이다. 직접 호출은 도메인 내부 호출 또는 통합 테스트
      * 순수 상태 전이 검증에 한정한다.
      *
@@ -355,43 +355,10 @@ public class ClaimService {
     }
 
     /**
-     * Seller 액터의 Claim 승인 진입점(Track 10·D-92 Q3-sub a‴).
-     *
-     * <p>처리 순서: 조회 → 권한 검증 → 도메인 전이. 권한 위반은 404({@link ClaimNotFoundException})로 응답하여
-     * cross-tenant 정보 노출을 회피한다. 권한 검증 후 {@link #approve} primitive에 위임한다(클래스 단위 단일 트랜잭션).
-     *
-     * @throws ClaimNotFoundException     클레임이 없거나 요청 Seller 소유 품목이 아닌 경우
-     * @throws ClaimInvalidStateException 상태가 REQUESTED가 아닌 경우(CLM-4)
-     */
-    public void approveBySeller(Long claimId, Long sellerId, LocalDateTime processedAt, Long refundAmount) {
-        Claim claim = claimRepository.findById(claimId)
-                .orElseThrow(() -> new ClaimNotFoundException("클레임을 찾을 수 없습니다: claimId=" + claimId));
-        authorizeSellerAccess(claim, sellerId);
-        approve(claimId, processedAt, refundAmount);
-    }
-
-    /**
-     * Seller 액터의 Claim 거부 진입점(Track 10·D-92 Q3-sub a‴).
-     *
-     * <p>처리 순서: 조회 → 권한 검증 → 도메인 전이. 권한 위반은 404({@link ClaimNotFoundException})로 응답하여
-     * cross-tenant 정보 노출을 회피한다. 권한 검증 후 {@link #reject} primitive에 위임한다(클래스 단위 단일 트랜잭션).
-     *
-     * @throws ClaimNotFoundException     클레임이 없거나 요청 Seller 소유 품목이 아닌 경우
-     * @throws ClaimInvalidStateException 상태가 REQUESTED가 아닌 경우(CLM-4)
-     */
-    public void rejectBySeller(Long claimId, Long sellerId, ClaimRejectReasonCode reasonCode, String memo,
-            LocalDateTime processedAt) {
-        Claim claim = claimRepository.findById(claimId)
-                .orElseThrow(() -> new ClaimNotFoundException("클레임을 찾을 수 없습니다: claimId=" + claimId));
-        authorizeSellerAccess(claim, sellerId);
-        reject(claimId, reasonCode, memo, processedAt);
-    }
-
-    /**
      * Admin 액터의 Claim 승인 진입점(Track 10-B·D-93 Q3·Q5·전체 접근).
      *
-     * <p>Admin은 전체 Claim 접근 권한을 가지므로 권한 검증 단락이 부재한다(D-93 Q3·stub 단계 한정). Seller wrapper의
-     * {@link #authorizeSellerAccess}에 대응하는 cross-tenant 검증이 없으며 Claim 미존재만 404다. {@link #approve}
+     * <p>Admin은 전체 Claim 접근 권한을 가지므로 권한 검증 단락이 부재한다(D-93 Q3·stub 단계 한정). cross-tenant 검증
+     * 없이 Claim 미존재만 404다(셀러 wrapper·authorizeSellerAccess는 Track 92에서 제거). {@link #approve}
      * primitive에 위임한다(클래스 단위 단일 트랜잭션).
      *
      * <p>D-92 횡단 원칙 재사용 1회차(D-93): 액터별 권한 차이는 wrapper 진입점에서 캡슐화하고 primitive는 actor
@@ -521,7 +488,7 @@ public class ClaimService {
      * <p>멱등 no-op: 이미 picked_up_at != null이면 변경 없이 log.info 후 return({@link #markCompleted} 멱등 가드 패턴 1:1).
      * 합법 상태 전이(status == APPROVED 가드)는 {@link Claim#confirmPickup}이 수행한다.
      *
-     * <p>외부 HTTP 진입점 직접 호출 금지. 외부 액터(Seller/Admin) 호출은 wrapper(confirmPickupBySeller 등) 경유 의무.
+     * <p>외부 HTTP 진입점 직접 호출 금지. 외부 액터(Admin) 호출은 wrapper(confirmPickupByAdmin) 경유 의무(셀러 wrapper는 Track 92에서 제거).
      *
      * @throws ClaimNotFoundException     클레임이 없는 경우
      * @throws ClaimInvalidStateException APPROVED가 아닌 경우(CLM-4)
@@ -545,22 +512,6 @@ public class ClaimService {
     }
 
     /**
-     * Seller 액터의 Claim 수거 확인 진입점(D-98 Q9·D-92 횡단 원칙 재사용 2회차).
-     *
-     * <p>처리 순서: 조회 → 권한 검증 → 도메인 전이. 권한 위반은 404({@link ClaimNotFoundException})로 응답하여
-     * cross-tenant 정보 노출을 회피한다. 권한 검증 후 {@link #confirmPickup} primitive에 위임한다.
-     *
-     * @throws ClaimNotFoundException     클레임이 없거나 요청 Seller 소유 품목이 아닌 경우
-     * @throws ClaimInvalidStateException APPROVED가 아닌 경우(CLM-4)
-     */
-    public void confirmPickupBySeller(Long claimId, Long sellerId, LocalDateTime pickedUpAt) {
-        Claim claim = claimRepository.findById(claimId)
-                .orElseThrow(() -> new ClaimNotFoundException("클레임을 찾을 수 없습니다: claimId=" + claimId));
-        authorizeSellerAccess(claim, sellerId);
-        confirmPickup(claimId, pickedUpAt);
-    }
-
-    /**
      * Admin 액터의 Claim 수거 확인 진입점(D-98 Q9·D-92 횡단 원칙 재사용 2회차).
      *
      * <p>Admin은 전체 Claim 접근 권한을 가지므로 권한 검증 단락이 부재한다(D-93 Q3). Claim 미존재만 404다.
@@ -581,7 +532,7 @@ public class ClaimService {
      *   <li>FAIL: {@link Claim#failInspection}(거부 사유 필수·APPROVED → REJECTED 예외 전이) → 재발송 Delivery(OUTBOUND·택배사·송장 필수)
      *       → {@link ClaimRejected} 발행 → 품목 스냅샷 원복(DELIVERED)·거부 SMS(기존 경로)</li>
      * </ul>
-     * 외부 HTTP 진입점 직접 호출 금지. 외부 액터 호출은 wrapper(inspectBySeller 등) 경유 의무.
+     * 외부 HTTP 진입점 직접 호출 금지. 외부 액터(Admin) 호출은 wrapper(inspectByAdmin) 경유 의무(셀러 wrapper는 Track 92에서 제거).
      *
      * @throws ClaimNotFoundException     클레임이 없는 경우
      * @throws ClaimInvalidStateException type != RETURN·APPROVED 아님·미회수·이미 검수됨·재발송 중복(422)
@@ -617,59 +568,11 @@ public class ClaimService {
                 claim.getType(), claim.getStatus(), claim.getRejectReasonCode(), LocalDateTime.now()));
     }
 
-    /**
-     * Seller 액터의 반품 검수 진입점(Track 81-A). 조회 → 권한 검증(품목 소유·위반 404) → {@link #inspect} primitive.
-     */
-    public void inspectBySeller(Long claimId, Long sellerId, ClaimInspectionResult result, Boolean restock,
-            ClaimRejectReasonCode rejectReasonCode, String memo, DeliveryCarrier reshipCarrier, String reshipTrackingNo,
-            LocalDateTime inspectedAt) {
-        Claim claim = findClaim(claimId);
-        authorizeSellerAccess(claim, sellerId);
-        inspect(claimId, result, restock, rejectReasonCode, memo, reshipCarrier, reshipTrackingNo, inspectedAt);
-    }
-
     /** Admin 액터의 반품 검수 진입점(Track 81-A·전체 접근·미존재만 404). */
     public void inspectByAdmin(Long claimId, ClaimInspectionResult result, Boolean restock,
             ClaimRejectReasonCode rejectReasonCode, String memo, DeliveryCarrier reshipCarrier, String reshipTrackingNo,
             LocalDateTime inspectedAt) {
         inspect(claimId, result, restock, rejectReasonCode, memo, reshipCarrier, reshipTrackingNo, inspectedAt);
-    }
-
-    /**
-     * Seller 액터의 EXCHANGE 출고 등록 진입점(D-99 Q9 γ·D-92 횡단 원칙 재사용 3회차).
-     *
-     * <p>처리 순서: 조회 → 권한 검증 → primitive 위임. {@link #authorizeSellerAccess} 1:1 재사용 후
-     * {@link DeliveryService#registerExchangeShipment} primitive에 위임한다. 권한 위반은 404({@link ClaimNotFoundException})로
-     * 응답하여 cross-tenant 정보 노출을 회피한다. 이중 호출 멱등 가드는 primitive 진입부 책임이다(D-99 Q11).
-     *
-     * @return 생성된 Delivery(SHIPPING·claim_id 연결 완료)
-     * @throws ClaimNotFoundException     클레임이 없거나 요청 Seller 소유 품목이 아닌 경우
-     * @throws ClaimInvalidStateException type != EXCHANGE·orderItemId 불일치·이중 호출(DeliveryService 위임)
-     */
-    public Delivery registerExchangeShipmentBySeller(
-            Long claimId, Long sellerId, DeliveryCarrier carrier, String trackingNo) {
-        Claim claim = claimRepository.findById(claimId)
-                .orElseThrow(() -> new ClaimNotFoundException("클레임을 찾을 수 없습니다: claimId=" + claimId));
-        authorizeSellerAccess(claim, sellerId);
-        return deliveryService.registerExchangeShipment(claimId, carrier, trackingNo);
-    }
-
-    /**
-     * Seller 액터의 Claim 접근 권한을 검증한다(D-92 Q3 실패 우선순위 최선두: 권한 → 상태 → 전이).
-     *
-     * <p>{@link OrderItem#getSellerId()}와 요청 sellerId가 불일치하면 {@link ClaimNotFoundException}을 던진다
-     * (cross-tenant 정보 노출 회피·404 매핑). Claim이 참조하는 OrderItem 부재는 데이터 무결성 위반이므로 500이다.
-     *
-     * @throws ClaimNotFoundException 요청 Seller 소유 품목이 아닌 경우(권한 위반 은닉)
-     * @throws IllegalStateException  Claim이 참조하는 OrderItem이 부재한 경우(무결성 위반)
-     */
-    private void authorizeSellerAccess(Claim claim, Long sellerId) {
-        OrderItem orderItem = orderItemRepository.findById(claim.getOrderItemId())
-                .orElseThrow(() -> new IllegalStateException(
-                        "OrderItem 무결성 위반: orderItemId=" + claim.getOrderItemId()));
-        if (!orderItem.getSellerId().equals(sellerId)) {
-            throw new ClaimNotFoundException("클레임을 찾을 수 없습니다: claimId=" + claim.getId());
-        }
     }
 
     private Claim findClaim(Long claimId) {

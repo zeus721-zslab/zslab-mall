@@ -15,8 +15,8 @@ import org.springframework.security.web.access.intercept.AuthorizationFilter;
  * Spring Security 인가 설정(Track 31 Phase 3·Track 33 P5 Stub→JWT 단일 체인). JWT 인증 파이프라인(필터 → 검증 →
  * SecurityContext)이 채운 액터 권한(ROLE_BUYER/SELLER/ADMIN)으로 경로별 hasRole 인가를 강제한다.
  *
- * <p><b>인가 규칙(matcher 순서 = 구체 먼저·first-match)</b>: claims의 SELLER 3건(approve/reject/register-exchange-shipment)을
- * BUYER 광범위 규칙보다 앞에 둔다. permitAll(webhooks·actuator·error·auth) 외 나머지는 {@code authenticated()}로 fail-closed다.
+ * <p><b>인가 규칙(matcher 순서 = 구체 먼저·first-match)</b>: {@code /api/v1/claims/**}는 BUYER 광범위 규칙만 둔다(셀러 처리
+ * endpoint·SELLER 매처는 Track 92에서 제거). permitAll(webhooks·actuator·error·auth) 외 나머지는 {@code authenticated()}로 fail-closed다.
  *
  * <p><b>인증/인가 오류 본문</b>: 필터 계층 401/403은 {@link SecurityErrorHandler}가 GlobalExceptionHandler와 동일한
  * ProblemDetail(code·traceId) 포맷으로 응답해 {@code $.code} 계약을 유지한다(미인증→401 UNAUTHENTICATED·권한부족→403 FORBIDDEN).
@@ -78,18 +78,6 @@ public class SecurityConfig {
                         // 업로드 이미지 서빙(Track 77)은 상품 이미지 공개 조회이므로 GET만 permitAll(업로드는 /api/v1/admin/** ADMIN)
                         .requestMatchers(HttpMethod.GET, "/api/v1/files/**")
                         .permitAll()
-                        // 구체 규칙 먼저(claims 세분 — SELLER 3건을 BUYER 광범위 규칙보다 앞·first-match):
-                        .requestMatchers(HttpMethod.POST, "/api/v1/claims/*/approve")
-                        .hasRole("SELLER")
-                        .requestMatchers(HttpMethod.POST, "/api/v1/claims/*/reject")
-                        .hasRole("SELLER")
-                        .requestMatchers(HttpMethod.POST, "/api/v1/claims/*/register-exchange-shipment")
-                        .hasRole("SELLER")
-                        // Track 81-A: 반품 회수 확인·검수(셀러). 구매자 회수 송장(return-shipment)은 광범위 BUYER 규칙
-                        .requestMatchers(HttpMethod.POST, "/api/v1/claims/*/confirm-pickup")
-                        .hasRole("SELLER")
-                        .requestMatchers(HttpMethod.POST, "/api/v1/claims/*/inspect")
-                        .hasRole("SELLER")
                         // 광범위 규칙:
                         .requestMatchers("/api/v1/orders/**")
                         .hasRole("BUYER")
