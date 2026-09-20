@@ -7,7 +7,7 @@ import {
   parseSellerOrderQuery,
   toSellerOrderRouteQuery,
 } from '#layers/seller/app/lib/seller-order-query'
-import { SELLER_ORDERS_PATH } from '#layers/seller/app/lib/seller-back-path'
+import { SELLER_CLAIMS_PATH, SELLER_ORDERS_PATH } from '#layers/seller/app/lib/seller-back-path'
 import { toSellerErrorMessage } from '#layers/seller/app/lib/seller-error-message'
 import { useSellerOrders } from '#layers/seller/app/composables/useSellerOrders'
 
@@ -70,6 +70,12 @@ function open(item: SellerOrderItemSummary): void {
   void navigateTo({ path: `${SELLER_ORDERS_PATH}/${item.orderItemId}`, query: { back: route.fullPath } })
 }
 
+/** 클레임 칩(Track 90-D-1) → 최신 클레임 상세. back은 이 목록(클레임 상세가 주문 목록 복귀를 허용). */
+function openClaim(item: SellerOrderItemSummary): void {
+  if (!item.claim) return
+  void navigateTo({ path: `${SELLER_CLAIMS_PATH}/${item.claim.claimId}`, query: { back: route.fullPath } })
+}
+
 // ---------- 출고 다이얼로그 ----------
 const shipmentItem = ref<SellerOrderItemSummary | null>(null)
 const pendingIds = computed<Set<string>>(() => (shipmentItem.value ? new Set([shipmentItem.value.orderItemId]) : new Set()))
@@ -109,6 +115,7 @@ function closeShipment(refresh: boolean): void {
         @update:size="(size) => applyQuery({ size })"
         @open="open"
         @prepare-shipment="openShipment"
+        @open-claim="openClaim"
       >
         <template #empty>
           <div class="d-flex flex-column align-center text-center py-10" data-testid="seller-order-empty">

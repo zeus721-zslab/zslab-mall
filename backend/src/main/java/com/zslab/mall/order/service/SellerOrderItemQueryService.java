@@ -1,10 +1,13 @@
 package com.zslab.mall.order.service;
 
+import com.zslab.mall.claim.entity.Claim;
+import com.zslab.mall.claim.repository.ClaimRepository;
 import com.zslab.mall.common.exception.MalformedRequestException;
 import com.zslab.mall.delivery.entity.Delivery;
 import com.zslab.mall.delivery.enums.DeliveryDirection;
 import com.zslab.mall.delivery.repository.DeliveryRepository;
 import com.zslab.mall.order.controller.response.PagedResponse;
+import com.zslab.mall.order.controller.response.SellerOrderItemClaimResponse;
 import com.zslab.mall.order.controller.response.SellerOrderItemDeliveryResponse;
 import com.zslab.mall.order.controller.response.SellerOrderItemDetailResponse;
 import com.zslab.mall.order.controller.response.SellerOrderItemSummaryResponse;
@@ -19,6 +22,7 @@ import com.zslab.mall.order.repository.OrderShippingSnapshotRepository;
 import com.zslab.mall.order.repository.SellerOrderItemOrderProjection;
 import com.zslab.mall.order.repository.SellerOrderItemSpecifications;
 import java.time.LocalDateTime;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -38,7 +42,7 @@ import org.springframework.transaction.annotation.Transactional;
  * 셀러 품목 조회(Track 90-B-1·read-only). 셀러의 "주문" 단위는 자기 품목 행이다 — 출고(prepare-shipment)·배송·정산·D-187 종료 가드가
  * 전부 품목 축이고 한 주문에 여러 셀러 품목이 섞이므로(로컬 실측 13%) 주문 단위로 잡으면 타 셀러 품목·주문 총액이 함께 실린다.
  * 관리자 {@code AdminOrderQueryService}(Order 루트·주문 전체 기준 조립)는 재사용하지 않고, Specification 페이지 → 주문 축 projection·
- * 원 발송 배송·배송지 스냅샷 배치 enrich로 행을 조립한다(count 1 + page 1 + 배치 4 = 6·N+1 없음).
+ * 원 발송 배송·배송지 스냅샷·클레임 배치 enrich로 행을 조립한다(count 1 + page 1 + 배치 5 = 7·N+1 없음·Track 90-D-1 클레임 +1).
  *
  * <p>미결제 주문(PENDING_PAYMENT·PAYMENT_EXPIRED)의 품목은 목록·상세 모두 제외한다 — 셀러에게 아직 처리 대상이 아니고, 만료 주문의
  * 품목은 ORDERED로 영구 잔류해 품목 상태만으로는 걸러지지 않는다. 타 셀러 품목·미존재는 모두 404(존재 은닉·셀러 쓰기 API 관례).
@@ -52,10 +56,15 @@ public class SellerOrderItemQueryService {
     private static final int MAX_KEYWORD_LENGTH = 50;
     /** 셀러 화면에서 제외하는 미결제 주문 상태(summarizeSalesBySellerId의 제외 집합과 같은 기준). */
     static final Set<OrderStatus> UNPAID_ORDER_STATUSES = Set.of(OrderStatus.PENDING_PAYMENT, OrderStatus.PAYMENT_EXPIRED);
+    /** 품목의 대표 클레임 = 요청일 최신 1건, 동률(또는 요청일 없음)은 id 내림차순(Track 90-D-1 α). */
+    private static final Comparator<Claim> LATEST_CLAIM = Comparator
+            .comparing(Claim::getRequestedAt, Comparator.nullsFirst(Comparator.naturalOrder()))
+            .thenComparing(Claim::getId);
 
     private final OrderItemRepository orderItemRepository;
     private final DeliveryRepository deliveryRepository;
     private final OrderShippingSnapshotRepository orderShippingSnapshotRepository;
+    private final ClaimRepository claimRepository;
 
     /**
      * 셀러 품목 목록. keyword는 상품명 부분일치·주문번호 정확일치. 기간은 결제일(order.paid_at) 기준. 정렬은 결제일 최신순 고정.
@@ -81,7 +90,9 @@ public class SellerOrderItemQueryService {
         List<SellerOrderItemSummaryResponse> rows = itemPage.getContent().stream()
                 .map(item -> SellerOrderItemSummaryResponse.of(item, enrichment.orderByItemId().get(item.getId()),
                         enrichment.recipientName(item.getId()),
-                        SellerOrderItemDeliveryResponse.from(enrichment.latestDeliveryByItemId().get(item.getId()))))
+                        SellerOrderItemDeliveryResponse.from(enrichment.latestDeliveryByItemId().get(item.getId())),
+                        SellerOrderItemClaimResponse.from(enrichment.latestClaim(item.getId())),
+                        enrichment.claimCount(item.getId())))
                 .toList();
         return PagedResponse.from(new PageImpl<>(rows, pageable, itemPage.getTotalElements()));
     }
@@ -100,13 +111,15 @@ public class SellerOrderItemQueryService {
         Enrichment enrichment = enrich(List.of(item));
         return SellerOrderItemDetailResponse.of(item, enrichment.orderByItemId().get(item.getId()),
                 SellerOrderItemDeliveryResponse.from(enrichment.latestDeliveryByItemId().get(item.getId())),
-                enrichment.snapshotByOrderId().get(enrichment.orderIdByItemId().get(item.getId())));
+                enrichment.snapshotByOrderId().get(enrichment.orderIdByItemId().get(item.getId())),
+                SellerOrderItemClaimResponse.from(enrichment.latestClaim(item.getId())),
+                enrichment.claimCount(item.getId()));
     }
 
-    /** 페이지 내 품목의 주문 축 값·주문 id·원 발송 최신 배송·배송지 스냅샷을 배치 조회한다(각 1쿼리·페이지가 비면 0쿼리). */
+    /** 페이지 내 품목의 주문 축 값·주문 id·원 발송 최신 배송·배송지 스냅샷·클레임을 배치 조회한다(각 1쿼리·페이지가 비면 0쿼리). */
     private Enrichment enrich(List<OrderItem> items) {
         if (items.isEmpty()) {
-            return new Enrichment(Map.of(), Map.of(), Map.of(), Map.of());
+            return new Enrichment(Map.of(), Map.of(), Map.of(), Map.of(), Map.of());
         }
         List<Long> itemIds = items.stream().map(OrderItem::getId).toList();
         Map<Long, SellerOrderItemOrderProjection> orderByItemId = orderItemRepository.findSellerOrderSummariesByIdIn(itemIds)
@@ -122,18 +135,30 @@ public class SellerOrderItemQueryService {
         Map<Long, Delivery> latestDeliveryByItemId = deliveryRepository
                 .findByOrderItemIdInAndDirectionOrderByIdDesc(itemIds, DeliveryDirection.OUTBOUND).stream()
                 .collect(Collectors.toMap(Delivery::getOrderItemId, Function.identity(), (latest, older) -> latest));
-        return new Enrichment(orderByItemId, orderIdByItemId, snapshotByOrderId, latestDeliveryByItemId);
+        // Track 90-D-1: 품목별 클레임 전체(1:N) 1쿼리 — 최신 1건·건수는 Enrichment가 파생
+        Map<Long, List<Claim>> claimsByItemId = claimRepository.findByOrderItemIdInOrderByIdDesc(itemIds).stream()
+                .collect(Collectors.groupingBy(Claim::getOrderItemId));
+        return new Enrichment(orderByItemId, orderIdByItemId, snapshotByOrderId, latestDeliveryByItemId, claimsByItemId);
     }
 
     private record Enrichment(
             Map<Long, SellerOrderItemOrderProjection> orderByItemId,
             Map<Long, Long> orderIdByItemId,
             Map<Long, OrderShippingSnapshotProjection> snapshotByOrderId,
-            Map<Long, Delivery> latestDeliveryByItemId) {
+            Map<Long, Delivery> latestDeliveryByItemId,
+            Map<Long, List<Claim>> claimsByItemId) {
 
         String recipientName(Long itemId) {
             OrderShippingSnapshotProjection snapshot = snapshotByOrderId.get(orderIdByItemId.get(itemId));
             return snapshot == null ? null : snapshot.getRecipientName();
+        }
+
+        Claim latestClaim(Long itemId) {
+            return claimsByItemId.getOrDefault(itemId, List.of()).stream().max(LATEST_CLAIM).orElse(null);
+        }
+
+        long claimCount(Long itemId) {
+            return claimsByItemId.getOrDefault(itemId, List.of()).size();
         }
     }
 

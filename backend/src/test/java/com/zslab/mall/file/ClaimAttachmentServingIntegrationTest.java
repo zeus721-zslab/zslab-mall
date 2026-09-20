@@ -41,9 +41,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 /**
  * 클레임 첨부 인가 서빙 통합 테스트(Track 82 D-176·실 MariaDB·임시 업로드 루트). claim(요청자 OWNER)·attachment 행·파일을 직접 심고
  * GET /api/v1/files/claims/** 를 Bearer·admin_token·auth_token 후보별로 호출해 열람 규칙(연결: claim.requested_by·ADMIN / 미연결: 업로더만 /
- * 셀러 거부 / _thumb 동일·후보 정확히 1건)과 거부 404 통일·캐시 금지 헤더·쿠키 비인식 경계(그 외 경로·메서드)·인코딩 경로를 검증한다.
+ * 셀러는 품목 소유 셀러만(Track 90-D-1·소속 없음·타 셀러 거부) / _thumb 동일·후보 정확히 1건)과 거부 404 통일·캐시 금지 헤더·쿠키 비인식 경계(그 외 경로·메서드)·인코딩 경로를 검증한다.
  * 연결 첨부의 uploaded_by는 클레임 요청자와 다른 UPLOADER_ID로 심어 판정 기준이 claim.requested_by임을 드러낸다(외부 검토 반영).
- * claim 시드는 order_item FK 때문에 FOREIGN_KEY_CHECKS=0 TX에서 하고 try-finally로 =1 복원한다.
+ * claim·order_item 시드는 FK 때문에 FOREIGN_KEY_CHECKS=0 TX에서 하고 try-finally로 =1 복원한다. 품목 ORDER_ITEM_ID는 셀러 A 소유이며 셀러 B는 타 셀러다.
  */
 @AutoConfigureMockMvc
 class ClaimAttachmentServingIntegrationTest extends AbstractIntegrationTest {
@@ -53,6 +53,12 @@ class ClaimAttachmentServingIntegrationTest extends AbstractIntegrationTest {
     private static final long ADMIN_ID = 82103L;
     /** 연결 첨부를 올린 사람(≠ 클레임 요청자). 연결 첨부 판정에 uploaded_by가 쓰이지 않음을 검증한다. */
     private static final long UPLOADER_ID = 82104L;
+    /** 품목 소유 셀러 A의 구성원 user·seller(Track 90-D-1). */
+    private static final long SELLER_A_USER_ID = 82105L;
+    private static final long SELLER_A_ID = 82100L;
+    /** 타 셀러 B의 구성원 user·seller. */
+    private static final long SELLER_B_USER_ID = 82106L;
+    private static final long SELLER_B_ID = 82101L;
     private static final long CLAIM_ID = 82100L;
     private static final long ORDER_ITEM_ID = 82100L;
     private static final long LINKED_ATTACHMENT_ID = 82101L;
@@ -96,6 +102,7 @@ class ClaimAttachmentServingIntegrationTest extends AbstractIntegrationTest {
         tx = new TransactionTemplate(txManager);
         cleanup();
         seedClaim();
+        seedSellers();
         seedAttachment(LINKED_ATTACHMENT_ID, UPLOADER_ID, CLAIM_ID, FILES_URL + LINKED_KEY);
         seedAttachment(UNLINKED_ATTACHMENT_ID, OWNER_ID, null, FILES_URL + UNLINKED_KEY);
         writeStoredFile(LINKED_KEY);
@@ -148,11 +155,91 @@ class ClaimAttachmentServingIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("셀러 JWT(같은 user id라도 SELLER role) → 연결·미연결 모두 404")
-    void seller_rejected() throws Exception {
+    @DisplayName("셀러 본인(품목 seller_id 소속·Track 90-D-1): 연결 첨부 Bearer → 200 / _thumb → 200 / 미연결 → 404(어떤 클레임에도 속하지 않음)")
+    void seller_owningItem_allowedForLinkedOnly() throws Exception {
+        expectOk(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(SELLER_A_USER_ID)));
+        expectOk(get(FILES_URL + LINKED_THUMB_KEY).headers(authHeaders.seller(SELLER_A_USER_ID)));
+        expectNotFound(get(FILES_URL + UNLINKED_KEY).headers(authHeaders.seller(SELLER_A_USER_ID)));
+    }
+
+    @Test
+    @DisplayName("셀러 소속·상태 fail-closed(외부 검토 r1·Q1): seller soft-delete → 404 / TERMINATED·PENDING → 404 / SUSPENDED → 200(조회 허용·D-190) / seller_user 행 제거 → 404 / 품목 seller_id 변경 → 404")
+    void seller_membershipAndStatus_failClosed() throws Exception {
+        // seller soft-delete: findMembershipByUserId가 seller를 조인(@SQLRestriction deleted_at IS NULL)하므로 empty → 거부
+        jdbc.update("UPDATE seller SET deleted_at = NOW(6) WHERE id = ?", SELLER_A_ID);
+        expectNotFound(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(SELLER_A_USER_ID)));
+        jdbc.update("UPDATE seller SET deleted_at = NULL WHERE id = ?", SELLER_A_ID);
+        expectOk(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(SELLER_A_USER_ID)));
+        // 세션 불허 상태(SellerAccessPolicy.isSessionAllowed=false)
+        for (String status : new String[] {"TERMINATED", "PENDING"}) {
+            jdbc.update("UPDATE seller SET status = ? WHERE id = ?", status, SELLER_A_ID);
+            expectNotFound(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(SELLER_A_USER_ID)));
+        }
+        // SUSPENDED는 조회 세션이 유효(정지 셀러는 조회만 가능) → 열람 허용
+        jdbc.update("UPDATE seller SET status = 'SUSPENDED' WHERE id = ?", SELLER_A_ID);
+        expectOk(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(SELLER_A_USER_ID)));
+        jdbc.update("UPDATE seller SET status = 'ACTIVE' WHERE id = ?", SELLER_A_ID);
+        // 구성원 관계 제거(seller_user에는 deleted_at이 없어 물리 삭제가 곧 탈퇴)
+        jdbc.update("DELETE FROM seller_user WHERE user_id = ?", SELLER_A_USER_ID);
+        expectNotFound(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(SELLER_A_USER_ID)));
+        jdbc.update("INSERT INTO seller_user (user_id, seller_id, role_id, created_at, updated_at) "
+                + "SELECT ?, ?, id, NOW(6), NOW(6) FROM role WHERE code = 'SELLER_OWNER'", SELLER_A_USER_ID, SELLER_A_ID);
+        expectOk(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(SELLER_A_USER_ID)));
+        // 품목이 다른 셀러 소유로 바뀌면(order_item에는 soft-delete가 없다) 소유 셀러였던 A도 거부
+        tx.executeWithoutResult(status -> {
+            jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
+            try {
+                jdbc.update("UPDATE order_item SET seller_id = ? WHERE id = ?", SELLER_B_ID, ORDER_ITEM_ID);
+            } finally {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
+            }
+        });
+        expectNotFound(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(SELLER_A_USER_ID)));
+        expectOk(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(SELLER_B_USER_ID)));
+    }
+
+    @Test
+    @DisplayName("첨부 soft-delete(외부 검토 r1·Q1): deleted_at 설정 시 구매자 소유자·ADMIN·소유 셀러 모두 404(@SQLRestriction으로 행 자체가 조회되지 않음) · claim에는 soft-delete 컬럼이 없어 대상 아님")
+    void softDeletedAttachment_rejectedForAllRoles() throws Exception {
+        jdbc.update("UPDATE attachment SET deleted_at = NOW(6) WHERE id = ?", LINKED_ATTACHMENT_ID);
+        expectNotFound(get(FILES_URL + LINKED_KEY).headers(authHeaders.buyer(OWNER_ID)));
+        expectNotFound(get(FILES_URL + LINKED_KEY).headers(authHeaders.admin(ADMIN_ID)));
+        expectNotFound(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(SELLER_A_USER_ID)));
+        expectNotFound(get(FILES_URL + LINKED_THUMB_KEY).headers(authHeaders.admin(ADMIN_ID)));
+        jdbc.update("UPDATE attachment SET deleted_at = NULL WHERE id = ?", LINKED_ATTACHMENT_ID);
+        expectOk(get(FILES_URL + LINKED_KEY).headers(authHeaders.admin(ADMIN_ID)));
+    }
+
+    @Test
+    @DisplayName("회원 상태(외부 검토 r1·Q1·AuthenticatedUserStateVerifier): 탈퇴(withdrawn_at)·삭제(deleted_at) 셀러 user → 404 / credentials_changed_at 이후 발급 토큰만 유효(이전 발급 → 404) / 탈퇴한 구매자 소유자 → 404")
+    void userState_rejectedOnAttachmentPath() throws Exception {
+        expectOk(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(SELLER_A_USER_ID)));
+        jdbc.update("UPDATE `user` SET withdrawn_at = NOW(6) WHERE id = ?", SELLER_A_USER_ID);
+        expectNotFound(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(SELLER_A_USER_ID)));
+        jdbc.update("UPDATE `user` SET withdrawn_at = NULL, deleted_at = NOW(6) WHERE id = ?", SELLER_A_USER_ID);
+        expectNotFound(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(SELLER_A_USER_ID)));
+        jdbc.update("UPDATE `user` SET deleted_at = NULL WHERE id = ?", SELLER_A_USER_ID);
+        // 자격증명 갱신: 갱신 시각보다 iat가 앞선 토큰은 거부 — 필터를 건너뛰는 첨부 경로도 verifyQuietly가 같은 검증을 적용.
+        // DB 세션 NOW()와 JVM(Asia/Seoul) 벽시계가 다를 수 있어 경계는 고정 시각(먼 미래·먼 과거)으로 둔다.
+        jdbc.update("UPDATE `user` SET credentials_changed_at = '2099-01-01 00:00:00' WHERE id = ?", SELLER_A_USER_ID);
+        expectNotFound(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(SELLER_A_USER_ID)));
+        jdbc.update("UPDATE `user` SET credentials_changed_at = '2000-01-01 00:00:00' WHERE id = ?", SELLER_A_USER_ID);
+        expectOk(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(SELLER_A_USER_ID)));
+        // 구매자 소유자(요청자)도 같은 검증을 탄다 — user 행을 만들어 탈퇴 처리
+        jdbc.update("INSERT INTO `user` (id, public_id, withdrawn_at, created_at, updated_at) VALUES (?, ?, NOW(6), NOW(6), NOW(6))",
+                OWNER_ID, "usr_" + ("T82OWNER" + "00000000000000000000000000").substring(0, 26));
+        expectNotFound(get(FILES_URL + LINKED_KEY).headers(authHeaders.buyer(OWNER_ID)));
+        expectNotFound(get(FILES_URL + LINKED_KEY).cookie(authCookie(OWNER_ID, ActorRole.BUYER)));
+    }
+
+    @Test
+    @DisplayName("셀러 거부: 타 셀러 구성원 → 연결·미연결 404 / 소속 없는 SELLER JWT(클레임 요청자와 같은 user id라도) → 404 / 타 셀러 쿠키 → 404")
+    void seller_otherOrUnaffiliated_rejected() throws Exception {
+        expectNotFound(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(SELLER_B_USER_ID)));
+        expectNotFound(get(FILES_URL + UNLINKED_KEY).headers(authHeaders.seller(SELLER_B_USER_ID)));
         expectNotFound(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(OWNER_ID)));
         expectNotFound(get(FILES_URL + UNLINKED_KEY).headers(authHeaders.seller(OWNER_ID)));
-        expectNotFound(get(FILES_URL + LINKED_KEY).cookie(authCookie(OWNER_ID, ActorRole.SELLER)));
+        expectNotFound(get(FILES_URL + LINKED_KEY).cookie(authCookie(SELLER_B_USER_ID, ActorRole.SELLER)));
     }
 
     @Test
@@ -279,6 +366,34 @@ class ClaimAttachmentServingIntegrationTest extends AbstractIntegrationTest {
         });
     }
 
+    /** 셀러 A(품목 소유)·셀러 B(타 셀러) + 구성원 + 품목 행. 품목은 claim.order_item_id와 같은 id로 seller_id=셀러 A. */
+    private void seedSellers() {
+        tx.executeWithoutResult(status -> {
+            jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
+            try {
+                seedSellerWithOwner(SELLER_A_USER_ID, SELLER_A_ID, "T82USA", "T82SLA");
+                seedSellerWithOwner(SELLER_B_USER_ID, SELLER_B_ID, "T82USB", "T82SLB");
+                jdbc.update("INSERT INTO order_item (id, public_id, order_id, product_id, variant_id, seller_id, quantity, unit_price, "
+                                + "total_price, item_status, created_at, updated_at, product_name, commission_rate) "
+                                + "VALUES (?, ?, ?, ?, ?, ?, 1, 1000, 1000, 'RETURN_REQUESTED', NOW(6), NOW(6), 'T82', 1000)",
+                        ORDER_ITEM_ID, "oit_" + ("T82OIT" + ORDER_ITEM_ID + "00000000000000000000000000").substring(0, 26),
+                        ORDER_ITEM_ID, ORDER_ITEM_ID, ORDER_ITEM_ID, SELLER_A_ID);
+            } finally {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
+            }
+        });
+    }
+
+    private void seedSellerWithOwner(long userId, long sellerId, String userTag, String sellerTag) {
+        jdbc.update("INSERT INTO `user` (id, public_id, created_at, updated_at) VALUES (?, ?, NOW(6), NOW(6))",
+                userId, "usr_" + (userTag + "00000000000000000000000000").substring(0, 26));
+        jdbc.update("INSERT INTO seller (id, public_id, company_name, ceo_name, status, created_at, updated_at) "
+                + "VALUES (?, ?, ?, '대표', 'ACTIVE', NOW(6), NOW(6))", sellerId,
+                "slr_" + (sellerTag + "00000000000000000000000000").substring(0, 26), sellerTag);
+        jdbc.update("INSERT INTO seller_user (user_id, seller_id, role_id, created_at, updated_at) "
+                + "SELECT ?, ?, id, NOW(6), NOW(6) FROM role WHERE code = 'SELLER_OWNER'", userId, sellerId);
+    }
+
     private void seedAttachment(long id, long uploadedBy, Long targetId, String filePath) {
         LocalDateTime now = LocalDateTime.now();
         jdbc.update("INSERT INTO attachment (id, public_id, target_type, target_id, file_name, file_path, mime_type, file_size, "
@@ -304,5 +419,16 @@ class ClaimAttachmentServingIntegrationTest extends AbstractIntegrationTest {
     private void cleanup() {
         jdbc.update("DELETE FROM attachment WHERE uploaded_by IN (?, ?, ?)", OWNER_ID, OTHER_BUYER_ID, UPLOADER_ID);
         jdbc.update("DELETE FROM claim WHERE id = ?", CLAIM_ID);
+        tx.executeWithoutResult(status -> {
+            jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
+            try {
+                jdbc.update("DELETE FROM order_item WHERE id = ?", ORDER_ITEM_ID);
+                jdbc.update("DELETE FROM seller_user WHERE user_id IN (?, ?)", SELLER_A_USER_ID, SELLER_B_USER_ID);
+                jdbc.update("DELETE FROM seller WHERE id IN (?, ?)", SELLER_A_ID, SELLER_B_ID);
+                jdbc.update("DELETE FROM `user` WHERE id IN (?, ?, ?)", SELLER_A_USER_ID, SELLER_B_USER_ID, OWNER_ID);
+            } finally {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
+            }
+        });
     }
 }

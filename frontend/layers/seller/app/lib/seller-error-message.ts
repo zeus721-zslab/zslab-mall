@@ -20,6 +20,8 @@ const SELLER_ERROR_MESSAGES: Record<string, string> = {
   DELIVERY_NOT_FOUND: '배송을 찾을 수 없습니다(내 배송이 아니거나 삭제됨).',
   DELIVERY_INVALID_STATE: '현재 배송 상태에서 허용되지 않는 처리입니다(배송완료·송장 정정은 배송중만).',
   DELIVERY_TRACKING_NO_CONFLICT: '다른 배송이 이미 사용 중인 송장번호입니다.',
+  // 클레임 조회(Track 90-D-1)
+  CLAIM_NOT_FOUND: '클레임을 찾을 수 없습니다(내 품목의 클레임이 아니거나 삭제됨).',
   // 정산(Track 85)
   SETTLEMENT_NOT_FOUND: '정산을 찾을 수 없습니다(확정 전 정산은 조회되지 않습니다).',
   // 상품·재고(Track 90-C·GlobalExceptionHandler 코드명 1:1)

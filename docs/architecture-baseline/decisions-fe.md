@@ -2116,3 +2116,30 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 - 옵션 그룹·값 편집 UI(D-194 §8 구조 수정 API 이후).
 - 재고 이력 화면(D-193 §8).
 - 승인 대기 상태 표시(D-194 §1-A 1 β 도입 시).
+
+## FE-49: 셀러 클레임 목록·상세·첨부 열람 화면 (Track 90-D-1) (2026-09-20)
+
+배경: D-195로 셀러 클레임 조회 API와 첨부 열람 SELLER 인가가 생겼다. 셀러 셸(FE-44)에 클레임 2화면을 붙이고 사이드바 비활성 5 중 클레임을 활성화한다(잔여 4: 통계 3·설정). 처리 UI는 만들지 않는다(관리자 전용).
+
+결정:
+- **신설**: `/seller/claims`(목록·URL query 단일 소스·`SellerClaimFilterCard`·`SellerClaimTable`·액션 컬럼 없음) · `/seller/claims/[id]`(상세·사유·상세 사유·거부 사유 코드·환불 상태·교환품 배송 상태·읽기 전용 진행 타임라인 `claimTimeline`·첨부 썸네일·확대 다이얼로그·404 안내). `useSellerClaims`는 `list`·`detail` 2개만 노출(vitest로 키 집합 고정).
+- **첨부 blob 로더** `useSellerAttachmentImage`: `fetch(url, Authorization Bearer, cache no-store)` → `URL.createObjectURL` → `img src`. URL 변경·늦은 응답·스코프 소멸 시 `revokeObjectURL`. 404·403은 "열람 권한이 없거나 삭제된 사진"(상태 코드를 구분해 문구화하지 않음)·그 외 "불러오지 못함"·클릭 재시도.
+- **object URL 소유권은 `SellerClaimAttachmentImage`(컴포저블)에만**: `variant='thumb'|'preview'`. 부모(상세 페이지)는 확대 대상 `attachmentId`만 보관하고 다이얼로그 안에서 `variant="preview"`를 다시 렌더한다. 부모는 URL 문자열을 들지도 revoke하지도 않는다.
+- **주문 품목 클레임 칩**: 목록 행·품목 상세에 대표 클레임 `유형 상태`(2건 이상이면 ` · N건`) → `/seller/claims/{id}`(back=목록 또는 품목 상세·`seller-back-path`에 클레임 복귀 규칙 추가).
+- 공용 `~/lib/constants/claim`(유형·상태·사유·거부 사유·환불 라벨)만 사용·`layers/admin` import 0·무수정(관리자 픽셀 12장 diff 0).
+- 외부 검토: **등급 A · r4 · 수용 2(blob 소유권 통일·`useSellerClaims` 표면 고정) · 기각 1**(404/403 플레이스홀더 문구 — 이미 상태 코드를 합쳐 표기).
+
+### §1-A 갈림길·채택/기각 근거
+- **확대 다이얼로그 blob 소유권 — α 부모가 attachmentId만 보관·다이얼로그에서 이미지 컴포넌트 재렌더 【채택】 / β 부모가 자식의 object URL을 보관하고 닫을 때 revoke 【기각: 자식 컴포저블도 revoke하므로 이중 revoke·타이밍에 따라 썸네일이 깨짐】 / γ 확대 시 별도 fetch로 새 blob 【기각: 같은 이미지 중복 요청·수명 관리 지점 2개】.** preview 재렌더는 fetch 1회가 더 발생하지만(`no-store`) 수명 관리가 컴포넌트 1곳으로 닫힌다.
+- **첨부 표시 방식 — `<img :src>` 직접 로딩(구매자·관리자 관례) 【기각: seller_token path=/seller라 이미지 요청에 쿠키가 실리지 않음】 / fetch+blob 【채택】**(D-195 §1-A 1).
+
+### §2 확정 구현 규칙·트랩
+- `v-btn :to`는 link role로 렌더된다 — e2e에서 `getByRole('button')`이 아니라 `getByRole('link')`.
+- 새 페이지 디렉토리(`pages/seller/claims/`) 추가·typecheck(`nuxt prepare`) 후에는 dev 컨테이너 재시작(LT-15·기존 트랩) — 재시작 전 404 페이지·`dev.json` 매니페스트 404 console.error.
+- 검증(실측·컨테이너 pnpm): typecheck 0 · vitest 81파일 **532**(FE-48 518 → +14) · Playwright 웜 **93/94**(콜드 81~83 → 웜) · 사용자 픽셀 12장 diff 0(`track90b3c` 대비) · `layers/admin` diff 0 · no-admin-import 통과 · 셀러 스크린샷 `playwright-report/step676-seller`·`step679-claim-attachment`.
+- 신규 의존성: 없음.
+
+### §8 이월
+- **seller-dashboard ② spec**(데모 셀러 데이터 0 기대·실 API)이 `NUXT_SELLER_DEMO_EMAIL`=seller02(실데이터)와 불일치해 웜 93/94의 잔여 1건으로 남는다. 하드코딩 기대값을 API 대조로 교정 — 90-D-2에서 처리.
+- 대시보드 최근 클레임·처리 대기 클레임 칸 링크(FE-47 이월).
+- 회수 송장 표시(D-195 §8).
