@@ -11382,3 +11382,53 @@ deploy.yml이 `push main` 무필터라 docs만 변경된 머지에도 서버 SSH
 ### §8 이월
 - 다중 소속 지원(uk_seller_user_user_id 해제) 시 `existsByUserIdAndSeller_StatusIn`의 IN 조건 실동작·`findMembershipByUserId` Optional(단건 가정) 재검토 — 현재는 구조상 미성립.
 - 셀러 FE(Track 90-A-2): `SELLER_SUSPENDED` 403 → 정지 안내 화면 분기 · 401 → seller_token 제거·`/seller/login`.
+
+## D-191. 셀러 조회 API 신설 — 주문 품목·배송·셀러 정보 (Track 90-B-1)
+
+날짜: 2026-09-20
+브랜치: feat/track-90b1-seller-query-api
+정찰: docs/track-90b/recon-report.md(gitignore·로컬) §1·§2·§3·§5-2·§6
+
+### 배경
+셀러 role GET은 정산 3개(`SellerSettlementController`)뿐이라 셀러가 자기 주문·배송을 볼 방법이 없었다(recon-track90a §7). 관리자 주문 조회(`AdminOrderQueryService`)는 `Order` 루트·주문 전체 기준 조립이라 구매자 이름·이메일·타 셀러 품목·주문 총액·결제 상세(pgTid·failureCode)·취소 사유 액터·관리자 actions가 실리고, 로컬 실측 주문 151건 중 셀러 2명 혼합 20건(13%)이라 그대로 재사용할 수 없다. 배송(`AdminDeliveryQueryService`)은 Delivery 행 = 품목 단위라 셀러 조건 1개로 범위가 정확히 잡힌다(정찰 §1-2).
+
+### 결정
+- **셀러가 보는 단위 = `order_item` 행**(주문이 아님). 출고(prepare-shipment)·배송 완료·정산 품목·D-187 종료 가드·D-190 쓰기 가드가 전부 품목 축이라 화면 단위를 주문으로 잡으면 동작과 어긋난다. 주문번호·주문/결제 시각은 참조 표시용으로만 싣는다(`SellerOrderItemOrderProjection` — 구매자 id·총액 없음).
+- **응답 DTO는 관리자·공용과 별도 신설** — `SellerMeResponse`·`SellerOrderItemSummaryResponse`·`SellerOrderItemDetailResponse`·`SellerOrderItemDeliveryResponse`·`SellerDeliverySummaryResponse`·`SellerDeliveryTrackingCorrectionResponse`(송장 정정도 공용 `RegisterExchangeShipmentResponse` 미재사용). 재사용하면 상대 DTO에 필드가 늘 때 셀러에게 조용히 샌다.
+- **배송지는 마스킹 없이 전체 노출**(출고 라벨에 수령인명·연락처·주소·메모 전부 필요·셀러는 이미 물건을 보내는 주체), **구매자(주문자) 이름·이메일은 차단** — 수령인 정보만.
+- **미결제(PENDING_PAYMENT)·만료(PAYMENT_EXPIRED) 주문의 품목은 목록 제외·상세 404** — 셀러에게 아직 처리 대상이 아니고, 만료 주문 품목이 `ORDERED`로 영구 잔류하는 기존 문제(D-187 §1-A 3) 때문에 품목 상태만으로는 걸러지지 않아 주문 상태 조인이 필수다(`SellerOrderItemSpecifications.orderStatusNotIn`).
+- **배송은 관리자 `AdminDeliverySpecifications`·`AdminDeliveryScope`·`AdminDeliverySort` 재사용, 서비스·컨트롤러는 셀러용 복제**(`SellerDeliveryQueryService`·`SellerDeliveryCommandService`·`SellerDeliveryManagementController`). 데이터 정의는 두 벌이 어긋나면 안 되고, 로직은 관리자 변경이 셀러를 깨뜨리면 안 된다(관리자 서비스·컨트롤러 무수정).
+- **범위 제한 = `SellerDeliverySpecifications.ownedBySeller`(`orderItemId IN (SELECT id FROM OrderItem WHERE sellerId = :s)`)를 where 최선두**에 두고 관리자 필터 5종은 전부 and 결합. 품목은 `sellerId` 등치가 최선두.
+- **타 셀러 리소스는 404(존재 은닉)** — 품목 상세·송장 정정 모두 미존재와 같은 `*_NOT_FOUND`. 송장 정정 판정 순서 = 소유 → 상태(SHIPPING 외 422) → 충돌(타 배송 송장번호 409) → 감사(값 변경 시만·actor_role SELLER).
+- **`GET /seller/me`** = 셀러 public_id·상호·상태·내 역할 + **정산 예정 건수만**(PENDING count·금액 아님) + **계좌 등록 여부 boolean**(주 계좌 id projection만 읽어 AES 복호 없음). SUSPENDED도 GET이라 통과(정지 배너 근거).
+- **기간·정렬 = 결제일(`order.paid_at`) 최신순 고정, sort 파라미터 미도입**(관리자는 ordered_at·sort enum). 필터 = status(품목)·from/to(paid_at)·keyword(상품명 부분·주문번호 정확).
+- 신설 엔드포인트 6: `GET /api/v1/seller/me` · `GET /api/v1/seller/order-items`·`/{oit}` · `GET /api/v1/seller/deliveries` · `PATCH /api/v1/seller/deliveries/{dlv}/tracking`. 전부 `/api/v1/seller/**`(SecurityConfig 매처 무수정)·`SellerActorResolver` 첫 줄 호출(D-190 규칙: 조회 GET·쓰기 PATCH).
+- 기존 파일 수정 = `OrderItemRepository`(`JpaSpecificationExecutor` 상속 + `findSellerOrderSummariesByIdIn` projection)·`HeaderSellerActorResolver` Javadoc 2줄. 그 외 신규 18파일(main 15·test 3).
+
+### §1-A 갈림길·채택/기각 근거
+1. **셀러 주문 단위 — α 주문 전체 【기각: 혼합 주문에서 타 셀러 몫 포함 총액·타 셀러 품목·주문자 노출·`Order.status`는 전 품목 파생】 / β 자기 품목 행 【채택】 / γ 주문 그룹 + 자기 품목 필터 【기각: 셀러 관점 총액·상태 재정의 규칙이 코드에 없고 `OrderStatusResolver`는 주문 전체용】.**
+2. **배송 구현 — α 관리자 서비스에 sellerId 인자 주입(공용화) 【기각: 관리자 변경이 셀러를 깨뜨리고 관리자 무수정 원칙 위반】 / β 셀러용 복제 + Specifications·enum 재사용 【채택】** — 차이는 `ownedBySeller` 1조건과 응답 필드 취사뿐.
+3. **정산 PENDING 노출 — α 목록 노출 【기각: 확정 전 금액이 확정처럼 보임·D-179 결정 11 "CONFIRMED·PAID·본인만" 위반】 / β 건수만(`/me`) 【채택】.**
+4. **미결제 주문 품목 — 포함 【기각: 만료 주문 품목 ORDERED 영구 잔류로 "처리 대기"가 쌓임】 / 제외(404) 【채택·`summarizeSalesBySellerId` 제외 집합과 같은 기준】.**
+
+### §2 확정 구현 규칙
+- **노출 금지 키 `FORBIDDEN_KEYS`는 관리자 주문 응답 DTO 2종(`AdminOrderSummaryResponse`·`AdminOrderDetailResponse`)의 record 컴포넌트에서 셀러 허용 키를 뺀 집합으로 자동 도출**(중첩 record·`List<record>` 재귀·실측 55키: pgTid·failureCode·userId·email·requestedBy·attachmentUrls…) **+ 수동 목록(정찰 §2-3) 합집합**. 관리자에 민감 필드가 추가되면 셀러 허용 집합에 없는 한 셀러 테스트가 먼저 깨진다(`SellerOrderItemQueryControllerIntegrationTest`).
+- **응답 키 화이트리스트를 테스트로 고정**(me 6·품목 목록 12·상세 12·배송 행 6·배송지 7·배송 목록 15·정정 4). NON_NULL 직렬화라 null 필드는 생략 → "부분집합 + 값 있는 키 정확 일치"로 단언. **중첩 객체(delivery·shippingAddress)도 목록·상세 양쪽에서 고정** — 같은 DTO를 쓰므로 한쪽만 검증하면 비대칭 누출 경로가 된다. 중첩 delivery의 `status`(배송)는 최상위 금지 키 `status`(주문)와 동명이라 금지 키 단언은 최상위에만 건다.
+- **`@Valid` 본문 검증이 상태 가드(resolver)보다 먼저 실행되므로 malformed 요청은 셀러 상태와 무관하게 400**(SUSPENDED도 403이 아닌 400). 쓰기 차단·DB 불변은 400·403 두 경로 모두에서 보장(IT 단언·`HeaderSellerActorResolver` Javadoc 계약).
+- 셀러 품목 조회 쿼리 수 = count 1 + page 1 + 배치 4(주문 축 projection·주문 id projection·배송지 스냅샷·원 발송 최신 배송) = 6·N+1 없음. 배송 목록 = 관리자와 같은 6. `/me` = 5.
+- **시각 직렬화는 `KstOffsetSerializer`(89-B·Track 85 관례)로 통일. 관리자 주문 응답(`AdminOrderSummaryResponse`·`AdminOrderDetailResponse`)은 오프셋 없는 `LocalDateTime`이라 형식이 다르다 — 90-B-3 FE 구현 시 admin-order-view 파서를 그대로 복제하면 안 된다.**
+- 셀러 주문 축 projection(`SellerOrderItemOrderProjection`)에 구매자 id·총액을 넣지 않는다(기존 `OrderItemOrderProjection`은 buyerId 포함이라 배송지 키 해소에만 쓴다).
+- 테스트: `SellerMeControllerIntegrationTest`(6)·`SellerOrderItemQueryControllerIntegrationTest`(9: 인가·혼합 주문 A/B 대칭·필터 3종·400 3종·상세 배송지·소유권 404 4종·SUSPENDED 200·PENDING/TERMINATED 401)·`SellerDeliveryManagementControllerIntegrationTest`(8: 인가·scope × 셀러 경계·화이트리스트·keyword 3축 경계·정정 200+감사·거부 5종·SUSPENDED 200/403/400·401). 시드는 TransactionTemplate + FK_CHECKS=0·? 바인딩.
+- 검증: `./gradlew.bat test --rerun-tasks` 222파일 **1258 tests·0 fail·0 error·0 skip**(1235 → +23). 관리자 IT 무수정 GREEN.
+- 신규 의존성: 없음.
+
+### 외부 검토 (등급 A · 2라운드 · 2026-09-20)
+- **r1(노출 경계·`zslab-review/track-90b1/r1`): 치명·높음 0** — 노출 경계·소유권·미결제 제외·N+1 통과. **수용 1**: 상세 delivery 중첩 whitelist(목록과 동일 수준·NON_NULL 제외 사유·비대칭 누출 주석). **부분 수용 1**: `FORBIDDEN_KEYS` 자동 도출(수동 목록은 합집합으로 유지). **기각 2**: reflection 기반 DTO 계약 테스트 신설(테스트와 DTO를 함께 고치면 통과·방어 안 됨) / SQL count 테스트 신설.
+- **r2(배송·쓰기·me·`r2`): 치명·높음 0** — 배송 경계·서브쿼리 유지·정정 순서·SUSPENDED 가드·`/me` 통과. **수용 2**: 송장 정정 응답 전용 DTO 분리 / keyword 3축(송장·주문번호·수령인명) 셀러 경계 IT. **계약 명시 1**: malformed PATCH 400(위 §2). **기각 2**: resolver를 `@Valid` 앞으로 이동(얻는 것 없이 D-190 구조 변경) / 송장번호 충돌 409 은닉(운송사 발급 공개 식별자이며 중복 금지는 도메인 불변식·`uk_delivery_tracking_no`).
+
+### §8 이월
+- 셀러 전용 scope/sort enum 분리 — 관리자 `AdminDeliveryScope`가 관리자 전용 의미를 갖게 되는 시점(현재 4값 전부 셀러 의미 있음·안전).
+- SQL count 검증(페이지 조회가 커질 때·현재 쿼리 수는 Javadoc 명시).
+- 품목 응답에 클레임 정보 포함(90-D 셀러 클레임 화면과 함께·현재는 `itemStatus`로 요청 상태만 드러남).
+- 데모 셀러 7(`seller@zslab-mall.com`)은 상품·품목·정산 0 — 90-B 화면·E2E·라이브 검증은 실데이터 셀러(3~5·구성원 1명씩)로.
+- 대시보드 집계(90-B-2·정찰 §1-3 조건 추가 8·재작성 3)·FE(90-B-3).

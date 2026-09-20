@@ -25,6 +25,8 @@ import org.springframework.stereotype.Component;
  *   <li>SUSPENDED + 쓰기 메서드(GET·HEAD 외) → 403 {@link SellerSuspendedException}. SUSPENDED는 유효한 세션 상태이며 해당 행위만
  *       금지되므로 인증 실패(401)가 아니라 인가 거부(403)로 응답한다(조회는 허용·정지 사유 확인 경로 보장).</li>
  * </ul>
+ * <b>계약(Track 90-B-1 외부 검토 r2)</b>: 요청 본문 검증({@code @Valid})은 컨트롤러 인자 해소 단계라 이 상태 가드보다 먼저 실행된다. 따라서
+ * malformed 요청은 셀러 상태와 무관하게 400이 되고(SUSPENDED도 403이 아닌 400), 쓰기 차단·DB 불변은 400·403 두 경로 모두에서 보장된다.
  * {@code resolve(HttpServletRequest)}의 request 인자는 쓰기 메서드 판정에만 쓴다. 자격증명 형식 오류는 상위
  * {@code JwtAuthenticationFilter}가 401로 선처리하므로 본 resolver의 400 경로는 없다.
  */
