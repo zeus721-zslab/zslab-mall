@@ -6,6 +6,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -25,6 +26,9 @@ import org.springframework.stereotype.Component;
  *
  * <p>단일 SecurityFilterChain(전 프로파일)에서 JWT 필터가 전파한 인증 실패와 AuthorizationFilter의 인가 거부를 각각
  * authenticationEntryPoint(401)·accessDeniedHandler(403)로 위임받아 응답한다.
+ *
+ * <p>응답은 MVC 메시지 컨버터를 거치지 않고 {@code getWriter()}로 직접 쓰므로 charset을 지정하지 않으면 컨테이너 기본
+ * ISO-8859-1로 인코딩돼 한글 detail이 '?'로 치환된다(Track 91). 이를 막기 위해 getWriter() 호출 전에 UTF-8을 고정한다.
  */
 @Component
 public class SecurityErrorHandler implements AuthenticationEntryPoint, AccessDeniedHandler {
@@ -65,6 +69,8 @@ public class SecurityErrorHandler implements AuthenticationEntryPoint, AccessDen
         problemDetail.setProperty("traceId", MDC.get(TraceIdFilter.TRACE_ID));
         response.setStatus(status.value());
         response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
+        // getWriter() 호출 후의 setCharacterEncoding은 무효라 반드시 앞에 둔다(클래스 Javadoc 참조).
+        response.setCharacterEncoding(StandardCharsets.UTF_8.name());
         objectMapper.writeValue(response.getWriter(), problemDetail);
     }
 
