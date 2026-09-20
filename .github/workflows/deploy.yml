@@ -22,9 +22,13 @@ jobs:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
-          # 병렬 이미지 빌드(backend gradle + frontend nuxt) 후 backend 헬스 대기까지 기본 10m을 넘긴 사례(FE-27 배포) → 30m
+          # 이미지 빌드(backend gradle + frontend nuxt·순차) 후 backend 헬스 대기까지 기본 10m을 넘긴 사례(FE-27 배포·당시 병렬) → 30m
           command_timeout: 30m
           script: |
             cd ${{ secrets.DEPLOY_PATH }}
             git pull origin main
-            docker compose -f docker-compose.mall.yml up -d --build --wait --wait-timeout 180
+            # 호스트 메모리 제약(총 7.5Gi·available 약 2.4Gi)으로 순차 빌드 — backend gradle과 frontend nuxt(피크 약 3.6GiB)를 병렬로 빌드하면 FE 빌드가 OOM(exit 134).
+            # compose build는 서비스 1개씩 호출해 병렬화를 피한다(--parallel 미사용). filebeat는 이미지 pull 전용이라 build 대상이 아니다.
+            docker compose -f docker-compose.mall.yml build zslab_mall_backend
+            docker compose -f docker-compose.mall.yml build zslab_mall_frontend
+            docker compose -f docker-compose.mall.yml up -d --wait --wait-timeout 180
