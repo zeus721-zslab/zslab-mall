@@ -49,10 +49,13 @@ describe('seller-delivery-view', () => {
     expect(deliveryClaimChip({ direction: 'OUTBOUND', claimType: 'EXCHANGE' })).toEqual({ text: '교환품 발송', semantic: 'warning' })
   })
 
-  it('행 액션: SHIPPING 원 발송만 배송완료·송장 정정 · 회수(RETURN)는 송장 정정만 · DELIVERED/READY는 없음', () => {
+  it('행 액션: SHIPPING 원 발송만 배송완료·송장 정정 · 회수(RETURN)·교환품 발송(claimType)은 송장 정정만 · DELIVERED/READY는 없음', () => {
     expect(canMarkDelivered({ status: 'SHIPPING', direction: 'OUTBOUND' })).toBe(true)
     expect(canMarkDelivered({ status: 'SHIPPING', direction: 'RETURN' })).toBe(false)
     expect(canMarkDelivered({ status: 'DELIVERED', direction: 'OUTBOUND' })).toBe(false)
+    // Track 92-a D-197: 교환품 발송(OUTBOUND·claimType)은 BE가 422로 막으므로 버튼도 내지 않는다(송장 정정은 그대로).
+    expect(canMarkDelivered({ status: 'SHIPPING', direction: 'OUTBOUND', claimType: 'EXCHANGE' })).toBe(false)
+    expect(hasRowActions({ status: 'SHIPPING', direction: 'OUTBOUND', claimType: 'EXCHANGE' })).toBe(true)
     expect(canCorrectTracking('SHIPPING')).toBe(true)
     expect(canCorrectTracking('READY')).toBe(false)
     expect(hasRowActions({ status: 'SHIPPING', direction: 'RETURN' })).toBe(true)
@@ -60,6 +63,11 @@ describe('seller-delivery-view', () => {
     expect(trackingCorrectionBlockedReason('DELIVERED')).toContain('배송완료된 배송')
     expect(trackingCorrectionBlockedReason('READY')).toContain('배송중 상태에서만')
     expect(trackingCorrectionBlockedReason('SHIPPING')).toBeNull()
+  })
+
+  it('클레임 연결 OUTBOUND(검수 FAIL 재발송·claimType RETURN)도 배송완료 미노출', () => {
+    // 클레임 유형이면 종류와 무관하게 숨긴다 — BE 가드는 claim_id 기준·FE 판정은 claimType 기준이므로 두 값이 함께 오는 계약을 테스트로 고정(외부 검토 r2).
+    expect(canMarkDelivered({ status: 'SHIPPING', direction: 'OUTBOUND', claimType: 'RETURN' })).toBe(false)
   })
 
   it('validateTrackingCorrectionForm: 택배사·송장(≤100)·사유(≤200) 필수', () => {

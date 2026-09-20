@@ -30,7 +30,10 @@ import com.zslab.mall.support.AbstractIntegrationTest;
  * 본 테스트는 claim_id NULL 일반 배송의 HTTP markDelivered를 처음으로 커버한다(DeliveryCompletedHandler 일반 경로·OrderItem SHIPPING→DELIVERED).
  *
  * <p><b>커버</b>: T1 401(무인증)·T2 200(소유 셀러·SHIPPING→DELIVERED·E5·OrderItem/Order DELIVERED)·T3 404(cross-tenant 존재 은닉)·
- * T4 422(비-SHIPPING READY 배송·M4).
+ * T4 422(비-SHIPPING READY 배송·M4)·T5 422(교환 OUTBOUND claim 연결·Track 92-a D-197)·T6 422(RETURN 회수 claim 연결·D-197).
+ *
+ * <p><b>claim 연결 배송(Track 92-a D-197)</b>: 셀러 mark-delivered는 claim_id NULL 일반 배송만 허용한다. 교환품·회수 배송을 셀러가 마감하면
+ * 클레임 종결(Claim COMPLETED)·회수 확인 경로 차단이 일어나므로 소유 셀러라도 422 DELIVERY_INVALID_STATE로 거부하고 Claim·Delivery 무변경·이벤트 0을 고정한다.
  *
  * <p><b>트랜잭션</b>: E5 동기 소비·AFTER_COMMIT 알림 핸들러를 실 커밋으로 구동하므로 클래스에 {@code @Transactional}을 두지 않는다.
  * 시드/정리는 {@link TransactionTemplate} + {@code FOREIGN_KEY_CHECKS=0}(LT-02 try-finally), 검증은 {@link JdbcTemplate}·이벤트는 {@link ApplicationEvents}로 한다.
@@ -50,10 +53,12 @@ class SellerDeliveryCompletionControllerIntegrationTest extends AbstractIntegrat
     private static final long ORDER_ID = 9440L;
     private static final long ORDER_ITEM_ID = 9440L;
     private static final long DELIVERY_ID = 9440L;
+    private static final long CLAIM_ID = 9440L;
     private static final long DUMMY_FK_ID = 9440L;
     private static final long ITEM_PRICE = 10_000L;
 
     private static final String DELIVERY_PID = pid("dlv_", "SDCDLV");
+    private static final String CLAIM_PID = pid("clm_", "SDCCLM");
     private static final String TRACKING_NO = "CJ-SDC-0001";
     private static final String MARK_URL = "/api/v1/deliveries/" + DELIVERY_PID + "/mark-delivered";
 
@@ -142,6 +147,43 @@ class SellerDeliveryCompletionControllerIntegrationTest extends AbstractIntegrat
         assertThat(events.stream(DeliveryCompleted.class).count()).isZero();
     }
 
+    @Test
+    @DisplayName("T5 교환 OUTBOUND claim 연결: 소유 셀러 → 422 DELIVERY_INVALID_STATE·Delivery SHIPPING·Claim APPROVED·OrderItem EXCHANGE_REQUESTED 무변경·DeliveryCompleted 0")
+    void markDelivered_exchangeOutboundClaimDelivery_returns422() throws Exception {
+        // 관리자 register-exchange-shipment 직후 상태(APPROVED·검수 PASS·예약 1·SHIPPING 교환품). 가드 부재 시 ExchangeDeliveryCompletedHandler →
+        // completeExchange가 Claim COMPLETED·품목 DELIVERED 복귀까지 진행한다(Track 92-a 정찰 B-6) — 그 경로가 셀러에게 닫혔음을 고정한다.
+        seedGraph("SHIPPING", "EXCHANGE_REQUESTED", "DELIVERED");
+        seedClaim("EXCHANGE");
+        seedClaimDelivery("OUTBOUND");
+
+        mockMvc.perform(post(MARK_URL).headers(authHeaders.seller(SELLER_A_USER)))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("DELIVERY_INVALID_STATE"));
+
+        assertThat(deliveryStatus()).isEqualTo("SHIPPING");
+        assertThat(claimStatus()).isEqualTo("APPROVED");
+        assertThat(itemStatus()).isEqualTo("EXCHANGE_REQUESTED");
+        assertThat(events.stream(DeliveryCompleted.class).count()).isZero();
+    }
+
+    @Test
+    @DisplayName("T6 RETURN 회수 claim 연결: 소유 셀러 → 422 DELIVERY_INVALID_STATE·Delivery SHIPPING 유지·Claim APPROVED·DeliveryCompleted 0")
+    void markDelivered_returnClaimDelivery_returns422() throws Exception {
+        // 구매자 회수 송장 등록 직후 상태(RETURN·SHIPPING·picked_up_at NULL). 셀러가 선마감하면 관리자 confirm-pickup이 영구 차단되므로(정찰 C-10) 닫는다.
+        seedGraph("SHIPPING", "RETURN_REQUESTED", "DELIVERED");
+        seedClaim("RETURN");
+        seedClaimDelivery("RETURN");
+
+        mockMvc.perform(post(MARK_URL).headers(authHeaders.seller(SELLER_A_USER)))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("DELIVERY_INVALID_STATE"));
+
+        assertThat(deliveryStatus()).isEqualTo("SHIPPING");
+        assertThat(claimStatus()).isEqualTo("APPROVED");
+        assertThat(itemStatus()).isEqualTo("RETURN_REQUESTED");
+        assertThat(events.stream(DeliveryCompleted.class).count()).isZero();
+    }
+
     // ---------- seed·helpers (SellerShippingControllerIntegrationTest 패턴 1:1) ----------
 
     // 모든 시드 INSERT는 ? positional 바인딩 + 정적 SQL이다(문자열 concat 없음·SQL injection 위험 없음).
@@ -175,6 +217,11 @@ class SellerDeliveryCompletionControllerIntegrationTest extends AbstractIntegrat
      * READY이면 미발송 상태(tracking_no·shipped_at NULL)로 둔다(비-SHIPPING 422 유발).
      */
     private void seedGraph(String deliveryStatus, String itemStatus) {
+        seedGraph(deliveryStatus, itemStatus, itemStatus);
+    }
+
+    /** claim 케이스는 품목이 *_REQUESTED라 Order.status(집계·enum 상이)를 따로 받는다(Track 92-a). */
+    private void seedGraph(String deliveryStatus, String itemStatus, String orderStatus) {
         tx.executeWithoutResult(s -> {
             try {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
@@ -190,7 +237,7 @@ class SellerDeliveryCompletionControllerIntegrationTest extends AbstractIntegrat
                 jdbc.update("INSERT INTO `order` (id, public_id, buyer_id, order_no, status, total_price, "
                                 + "discount_amount, shipping_fee, created_at, updated_at) "
                                 + "VALUES (?, ?, ?, ?, ?, ?, 0, 0, NOW(6), NOW(6))",
-                        ORDER_ID, pid("ord_", "SDCORD"), USER_ID, "ORDSDC" + ORDER_ID, itemStatus, ITEM_PRICE);
+                        ORDER_ID, pid("ord_", "SDCORD"), USER_ID, "ORDSDC" + ORDER_ID, orderStatus, ITEM_PRICE);
                 jdbc.update("INSERT INTO order_item (id, public_id, order_id, product_id, variant_id, seller_id, "
                                 + "quantity, unit_price, total_price, item_status, created_at, updated_at, product_name, commission_rate) "
                                 + "VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, NOW(6), NOW(6), '테스트 상품', 1000)",
@@ -211,6 +258,38 @@ class SellerDeliveryCompletionControllerIntegrationTest extends AbstractIntegrat
         });
     }
 
+    /**
+     * APPROVED 클레임 시드(Track 92-a·AdminDeliveryControllerIntegrationTest.seedApprovedClaim 1:1). EXCHANGE는 교환품 발송 후 상태
+     * (검수 PASS·같은 variant 예약 1·picked_up_at 설정), RETURN은 회수 송장 등록 직후 상태(picked_up_at NULL·미검수).
+     */
+    private void seedClaim(String type) {
+        boolean exchange = "EXCHANGE".equals(type);
+        tx.executeWithoutResult(s -> {
+            try {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
+                jdbc.update("INSERT INTO inventory (id, variant_id, quantity_on_hand, quantity_reserved, quantity_available, "
+                                + "created_at, updated_at) VALUES (?, ?, 10, ?, ?, NOW(6), NOW(6))",
+                        VARIANT_ID, VARIANT_ID, exchange ? 1 : 0, exchange ? 9 : 10);
+                jdbc.update("INSERT INTO claim (id, public_id, order_item_id, type, reason_code, status, "
+                                + "previous_order_item_status, picked_up_at, inspected_at, inspection_result, restock, "
+                                + "exchange_variant_id, original_variant_id, exchange_reserved_at, created_at, updated_at) "
+                                + "VALUES (?, ?, ?, ?, 'PRODUCT_DEFECT', 'APPROVED', 'DELIVERED', ?, ?, ?, ?, ?, ?, ?, NOW(6), NOW(6))",
+                        CLAIM_ID, CLAIM_PID, ORDER_ITEM_ID, type,
+                        exchange ? java.time.LocalDateTime.now() : null, exchange ? java.time.LocalDateTime.now() : null,
+                        exchange ? "PASS" : null, exchange ? 1 : null,
+                        exchange ? VARIANT_ID : null, exchange ? VARIANT_ID : null, exchange ? java.time.LocalDateTime.now() : null);
+            } finally {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
+            }
+        });
+    }
+
+    /** seedGraph가 넣은 SHIPPING 배송을 claim 연결 배송으로 바꾼다(direction OUTBOUND=교환품 발송·RETURN=회수·claim_id SET). */
+    private void seedClaimDelivery(String direction) {
+        tx.executeWithoutResult(s -> jdbc.update(
+                "UPDATE delivery SET direction = ?, claim_id = ? WHERE id = ?", direction, CLAIM_ID, DELIVERY_ID));
+    }
+
     private void cleanup() {
         tx.executeWithoutResult(s -> {
             try {
@@ -218,6 +297,9 @@ class SellerDeliveryCompletionControllerIntegrationTest extends AbstractIntegrat
                 jdbc.update("DELETE FROM seller_user WHERE user_id IN (?, ?)", SELLER_A_USER, SELLER_B_USER);
                 jdbc.update("DELETE FROM notification_log WHERE recipient_user_id = ?", USER_ID);
                 jdbc.update("DELETE FROM delivery WHERE order_item_id = ?", ORDER_ITEM_ID);
+                jdbc.update("DELETE FROM claim WHERE id = ?", CLAIM_ID);
+                jdbc.update("DELETE FROM inventory_history WHERE inventory_id = ?", VARIANT_ID);
+                jdbc.update("DELETE FROM inventory WHERE id = ?", VARIANT_ID);
                 jdbc.update("DELETE FROM order_item WHERE id = ?", ORDER_ITEM_ID);
                 jdbc.update("DELETE FROM `order` WHERE id = ?", ORDER_ID);
                 jdbc.update("DELETE FROM product_variant WHERE id = ?", VARIANT_ID);
@@ -240,6 +322,10 @@ class SellerDeliveryCompletionControllerIntegrationTest extends AbstractIntegrat
 
     private String orderStatus() {
         return jdbc.queryForObject("SELECT status FROM `order` WHERE id = ?", String.class, ORDER_ID);
+    }
+
+    private String claimStatus() {
+        return jdbc.queryForObject("SELECT status FROM claim WHERE id = ?", String.class, CLAIM_ID);
     }
 
     private static String pid(String prefix, String tag) {

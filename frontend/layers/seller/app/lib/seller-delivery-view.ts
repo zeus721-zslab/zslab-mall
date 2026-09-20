@@ -28,13 +28,13 @@ export function canCorrectTracking(status: SellerDeliveryStatus): boolean {
   return SELLER_DELIVERY_ACTIONABLE_STATUSES.includes(status)
 }
 
-/** 배송완료 처리 가능 여부(BE markDeliveredBySeller·원 발송 SHIPPING만·회수(RETURN)는 관리자 클레임 흐름). */
-export function canMarkDelivered(item: Pick<SellerDeliverySummary, 'status' | 'direction'>): boolean {
-  return item.direction === 'OUTBOUND' && SELLER_DELIVERY_ACTIONABLE_STATUSES.includes(item.status)
+/** 배송완료 처리 가능 여부(BE markDeliveredBySeller·원 발송 SHIPPING만·클레임 연결 배송(교환품·재발송·회수)은 관리자 클레임 흐름·D-197). */
+export function canMarkDelivered(item: Pick<SellerDeliverySummary, 'status' | 'direction' | 'claimType'>): boolean {
+  return item.direction === 'OUTBOUND' && !item.claimType && SELLER_DELIVERY_ACTIONABLE_STATUSES.includes(item.status)
 }
 
 /** 행 액션 메뉴 노출 여부(배송완료 또는 송장 정정 중 하나라도 가능). */
-export function hasRowActions(item: Pick<SellerDeliverySummary, 'status' | 'direction'>): boolean {
+export function hasRowActions(item: Pick<SellerDeliverySummary, 'status' | 'direction' | 'claimType'>): boolean {
   return canMarkDelivered(item) || canCorrectTracking(item.status)
 }
 

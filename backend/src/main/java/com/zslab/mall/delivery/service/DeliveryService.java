@@ -12,6 +12,7 @@ import com.zslab.mall.delivery.enums.DeliveryCarrier;
 import com.zslab.mall.delivery.enums.DeliveryDirection;
 import com.zslab.mall.delivery.event.DeliveryCompleted;
 import com.zslab.mall.delivery.event.DeliveryStarted;
+import com.zslab.mall.delivery.exception.DeliveryInvalidStateException;
 import com.zslab.mall.delivery.repository.DeliveryRepository;
 import java.time.LocalDateTime;
 import lombok.extern.slf4j.Slf4j;
@@ -222,9 +223,18 @@ public class DeliveryService {
      * D-92 primitive actor 비의존 원칙·D-93 AdminActorResolver seam 재사용 6회차·
      * primitive markDelivered 1:1 위임·actor 파라미터 비수신.
      * D-102 §5 wrapper 패턴 2회차·D-104 §후속.
+     * 회수(RETURN) 배송의 완료는 관리자 confirm-pickup({@link #completeReturnShipment}) 단일 경로다 — 직접 마감은 422(Track 92-a D-197).
+     *
+     * @throws DeliveryInvalidStateException direction이 RETURN인 회수 배송(422)
      */
     @Transactional
     public void markDeliveredByAdmin(Long deliveryId) {
+        deliveryRepository.findById(deliveryId)
+                .filter(delivery -> delivery.getDirection() == DeliveryDirection.RETURN)
+                .ifPresent(delivery -> {
+                    throw new DeliveryInvalidStateException(
+                            "회수 배송은 클레임 회수 확인(confirm-pickup)으로만 완료됩니다: deliveryId=" + deliveryId);
+                });
         markDelivered(deliveryId);
     }
 }

@@ -11644,3 +11644,39 @@ D-195에서 "셀러는 클레임 조회만, 처리는 관리자"를 확정했으
   - 판단(α·범위 유지): mark-delivered는 셀러가 클레임을 판정하는 행위가 아니라 자기 배송을 완료 처리하는 배송 도메인 행위이고 클레임 종결은 그 이벤트의 후속 효과다. Track 92가 제거한 승인·반려·검수는 무력화되지 않는다. 교환품 배송 완료를 셀러 정당 행위로 볼지가 미결정이라 가드를 먼저 넣으면 교환 완료를 아무도 찍지 못하는 상태가 될 수 있어 본 트랙에서 가드를 추가하지 않는다.
   - Track 92-a에서 결정할 것: 교환품 배송 완료를 셀러 정당 행위로 확정할지, claim 연결 배송을 셀러에게 막을지 / 막는다면 관리자 대체 경로가 존재하는지 선확인 필수(없으면 교환 완료 불가 상태가 됨) / RETURN 회수 Delivery의 셀러 마감 차단 여부 / 두 매핑의 집합 고정 테스트 포함 여부.
 - `GlobalExceptionHandler` `Exception` catch-all이 `NoResourceFoundException`(경로 부재)을 500으로 만드는 문제(LT-27) — 별건.
+
+## D-197. claim 연결 배송의 셀러·관리자 마감 차단 (Track 92-a)
+
+날짜: 2026-09-21
+브랜치: fix/track-92a-claim-delivery-guard
+정찰: docs/track-92a/recon-report-delivery.md(로컬·STEP 717~722)
+
+### 배경
+셀러 `POST /api/v1/deliveries/{dlv}/mark-delivered`와 관리자 `POST /api/v1/admin/deliveries/{dlv}/mark-delivered`가 같은 primitive(`DeliveryService.markDelivered`)를 공유하고 어느 층에도 direction·claim_id 가드가 없었다. 그래서 셀러가 소유 검증만 통과하면 (1) 관리자가 등록한 교환품 Delivery(OUTBOUND·claim_id)를 마감해 `ExchangeDeliveryCompletedHandler → completeExchange`로 Claim APPROVED→COMPLETED(예약 확정·재입고·품목 옵션 갱신·DELIVERED 복귀)를 일으킬 수 있었고, (2) 구매자가 등록한 회수 Delivery(RETURN)를 선마감하면 관리자 confirm-pickup이 불법 전이(IllegalStateException)로 막혀 검수가 영구 차단됐다(LT-28). 이는 결정된 기능이 아니라 primitive 공유로 샌 경로다 — D-177은 "Track 83 BE(FE·셀러 경로 제외)", D-128은 claim_id NULL 일반 배송만 검증, FE-47은 "배송완료는 원 발송만"으로 박제돼 있었으나 셀러 FE `canMarkDelivered`는 claimType을 보지 않아 교환품 행에도 버튼이 나갔다. D-196 §8 이월분.
+
+### 결정
+- **셀러 가드 — claim_id 연결 배송 전부 차단**: `OrderShippingService.markDeliveredBySeller`에서 `authorizeDelivery` 직후·primitive 호출 전 `delivery.getClaimId() != null → DeliveryInvalidStateException`(422). 교환품 발송·검수 FAIL 재발송·회수 모두 관리자 클레임 흐름으로 일원화.
+- **관리자 가드 — RETURN direction 차단**: `DeliveryService.markDeliveredByAdmin`에서 `direction == RETURN → DeliveryInvalidStateException`(422). 회수 완료는 confirm-pickup(`completeReturnShipment`) 단일 경로. 교환 OUTBOUND의 관리자 마감은 정당 행위라 무변경(AdminDeliveryControllerIntegrationTest T5 유지).
+- 예외는 기존 `DeliveryInvalidStateException`(DELIVERY_INVALID_STATE·GEH 매핑 기존) 재사용 — 새 예외·코드·GEH 수정 없음. 셀러 FE는 `SellerMarkDeliveredDialog`의 DELIVERY_INVALID_STATE 분기(warning 토스트·stale 재조회)가 그대로 받는다.
+- **셀러 FE 정합 1행**: `seller-delivery-view.ts canMarkDelivered`에 `!item.claimType` 추가 → scope 교환·재발송 행의 "배송완료 처리" 메뉴 소멸(송장 정정은 유지). 주문 화면은 `useSellerOrders.markDelivered`·`seller-order-view.canMarkDelivered` 호출처가 0(FE-47 "배송완료는 배송 화면")이라 변경 없음 — 정찰의 "주문 화면 노출" 판단은 헬퍼만 보고 내린 오판으로 정정.
+- 일반 배송(claim_id NULL) 셀러 마감(D-128)·관리자 교환품 마감(D-177)·primitive·핸들러·상태기계 무변경.
+
+### §1-A 갈림길·채택/기각 근거
+1. **(a) 전부 허용(현상 유지) 【기각】**: 셀러가 mark-delivered 하나로 클레임을 종결시키는 것은 D-196 "셀러는 조회만·처리는 관리자"와 모순이고, 회수 선마감 시 confirm-pickup 500·검수 영구 차단·API 복구 수단 없음(데이터 보정만)이라 사고 경로가 남는다.
+2. **(b) 교환 OUTBOUND만 허용·RETURN 차단 【기각】**: 회수 차단만으로 사고 경로는 막히지만 셀러의 교환 종결 경로가 남아 D-196과 부분 충돌하며, "교환품은 되고 재발송·회수는 안 된다"를 가를 도메인 근거가 없다(둘 다 claim 연결 OUTBOUND).
+3. **(c) 전부 차단 + 관리자 RETURN 차단 【채택】**: D-196·D-177·D-128·FE-47 전부와 정합. 관리자 대체 경로(`AdminDeliveryController.markDelivered` + 관리자 FE 클레임 목록 교환 행 "배송완료")가 존재함을 정찰 A-1·A-2로 선확인했으므로 기능 불가 상태 없음. 셀러 기능 손실 = 교환·재발송 행 배송완료 메뉴(관리자 화면으로 이관).
+4. **가드 위치 = 서비스 actor wrapper 【채택】** / 도메인 `Delivery.markDelivered` 【기각: actor 비의존 primitive(D-97 Q2)를 confirm-pickup·관리자 마감이 공유하므로 direction 가드를 넣으면 정상 흐름이 깨짐】 / 컨트롤러 【기각: HTTP 책임만(D-40 β′)】. 선례 `changeToPreparing` 활성 클레임 422·`SellerDeliveryCommandService` SHIPPING 가드.
+
+### 단언 유효성 선증명(STEP 723·727)
+가드 없는 코드에 셀러 T5(교환 OUTBOUND)·T6(RETURN) 422 단언을 먼저 작성 → **RED `Status expected:<422> but was:<200>`** → T5를 임시로 200·Delivery DELIVERED·**Claim COMPLETED**·OrderItem DELIVERED·DeliveryCompleted 1로 바꿔 단독 실행 **PASS**(셀러 마감이 교환 종결까지 진행함을 실증) → 최종형 복원 → 가드 후 6/6 GREEN. 관리자 T7(RETURN 422)은 `DeliveryService.java`만 stash → **RED 200** → pop 후 GREEN.
+
+### §2 확정 구현 규칙
+- 테스트(기존 클래스에 추가·신설 0): `SellerDeliveryCompletionControllerIntegrationTest` T5(교환 OUTBOUND 422·Claim APPROVED·품목 EXCHANGE_REQUESTED·이벤트 0)·T6(RETURN 422·SHIPPING 유지) + seedClaim/seedClaimDelivery/claimStatus 헬퍼·seedGraph 3인자(Order.status 분리) · `AdminDeliveryControllerIntegrationTest` T7(RETURN 422) + seedShippingReturnDelivery · vitest `seller-delivery-helpers.spec` 교환품 행 canMarkDelivered false·hasRowActions true.
+- 검증(최종): `./gradlew.bat test --rerun-tasks` 229파일 **1318 tests·0 fail·0 error·0 skip**(1315 + 3) · typecheck 0 · vitest 81파일 532 · Playwright 웜 93/94(seller-dashboard ② 환경 의존 기존 건) · 픽셀 track92a 12장 track90b3c 대비 diff 0 · layers/admin diff 0.
+- 시드 트랩: `order.status`는 `OrderStatus` enum이라 품목 `*_REQUESTED`를 그대로 넣으면 `Data truncated` — claim 케이스는 Order.status를 DELIVERED로 따로 넣는다.
+- 정찰 정정: 정찰 §E-15(a)의 "주문 화면에도 교환품 배송완료 노출"은 오판 — `useSellerOrders.markDelivered`·`seller-order-view.canMarkDelivered` 호출처 0 실측(FE-47대로 배송완료는 배송 화면 전용). 헬퍼만 남아 있고 화면 경로가 없다.
+- 외부 검토: **등급 A** / 2라운드(r1 가드 경계·r2 회귀·테스트 유효성) / r1 지적 0 · r2 보강 1건 수용(FE canMarkDelivered claimType RETURN+OUTBOUND 케이스 vitest 고정 — BE는 claim_id·FE는 claimType 기준이라 두 값이 함께 오는 계약을 테스트로 잠금) / blocker 0 / 재검토 불필요.
+
+### §8 이월
+- confirm-pickup이 이미 DELIVERED인 회수 Delivery를 만나면 `IllegalStateException`이 GEH catch-all 500으로 새는 결함(LT-28) — 본 트랙 범위 밖. 가드 도입 후 정상 API로는 도달 불가하나 데이터 보정·과거 데이터에서는 재현 가능.
+- SELLER 역할의 prefix 밖 쓰기 2건(`/api/v1/order-items/**`·`/api/v1/deliveries/**`) 매핑 집합 고정 테스트 포함 여부(D-196 §8) — 미결정 유지.

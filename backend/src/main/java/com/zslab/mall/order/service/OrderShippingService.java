@@ -147,15 +147,22 @@ public class OrderShippingService {
      * {@link Delivery#getOrderItemId()} → OrderItem → {@link OrderItem#getSellerId()} 1-hop으로 해소한다. 배송 미존재와 타 셀러
      * 소유를 모두 {@link DeliveryNotFoundException}(404)으로 통일해 cross-tenant 존재 노출을 회피한다.
      *
+     * <p><b>클레임 연결 배송 제외(Track 92-a D-197)</b>: claim_id가 연결된 배송(교환품 발송·재발송·회수)의 완료 처리는 관리자 권한이다
+     * (D-177 셀러 경로 제외·FE-47 배송완료는 원 발송만). 셀러 마감이 교환 종결·회수 확인 경로를 대신 밟지 않도록 422로 거부한다.
+     *
      * @param sellerId   요청 판매자 식별자(권한 대조)
      * @param deliveryId 배송 완료 대상 Delivery id
      * @throws DeliveryNotFoundException     배송 미존재 또는 요청 판매자 소유가 아닌 경우(존재 은닉·404)
-     * @throws DeliveryInvalidStateException 배송이 SHIPPING이 아니어서 DELIVERED 전이 불가한 경우(배송 완료 불가·422)
+     * @throws DeliveryInvalidStateException 배송이 SHIPPING이 아니어서 DELIVERED 전이 불가한 경우(배송 완료 불가·422)·클레임 연결 배송(422)
      */
     public void markDeliveredBySeller(Long sellerId, Long deliveryId) {
         Delivery delivery = deliveryRepository.findById(deliveryId)
                 .orElseThrow(() -> new DeliveryNotFoundException("배송을 찾을 수 없습니다: deliveryId=" + deliveryId));
         authorizeDelivery(sellerId, delivery);
+        if (delivery.getClaimId() != null) {
+            throw new DeliveryInvalidStateException(
+                    "클레임 연결 배송의 완료 처리는 관리자만 할 수 있습니다: deliveryId=" + deliveryId + " claimId=" + delivery.getClaimId());
+        }
         try {
             deliveryService.markDelivered(deliveryId);
         } catch (IllegalStateException exception) {
