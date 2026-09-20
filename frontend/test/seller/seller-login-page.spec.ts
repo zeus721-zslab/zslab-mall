@@ -5,12 +5,14 @@ import { flushPromises } from '@vue/test-utils'
 import SellerLoginPage from '#layers/seller/app/pages/seller/login.vue'
 
 // 셀러 로그인 페이지(관리자 admin-login-page 동형): GET /_seller-demo/status { enabled }에 따라 데모 버튼 유무가 갈리고, 실패는 단일 문구(사유 은닉).
-const { sellerAuthMock, navigateToMock } = vi.hoisted(() => ({
+const { sellerAuthMock, navigateToMock, routeMock } = vi.hoisted(() => ({
   sellerAuthMock: { isAuthenticated: false, login: vi.fn(), loginDemo: vi.fn() },
   navigateToMock: vi.fn(),
+  routeMock: { query: {} as Record<string, string> },
 }))
 vi.mock('#layers/seller/app/stores/sellerAuth', () => ({ useSellerAuthStore: () => sellerAuthMock }))
 mockNuxtImport('navigateTo', () => navigateToMock)
+mockNuxtImport('useRoute', () => () => routeMock)
 mockNuxtImport('definePageMeta', () => () => {})
 
 const fetchMock = vi.fn()
@@ -27,6 +29,7 @@ describe('셀러 로그인 페이지', () => {
     sellerAuthMock.login.mockReset()
     sellerAuthMock.loginDemo.mockReset()
     navigateToMock.mockReset()
+    routeMock.query = {}
     vi.stubGlobal('$fetch', fetchMock)
   })
 
@@ -82,5 +85,15 @@ describe('셀러 로그인 페이지', () => {
     await flushPromises()
     expect(wrapper.text()).toContain('이메일 또는 비밀번호를 확인하세요')
     expect(navigateToMock).not.toHaveBeenCalled()
+  })
+
+  it('notice=password-changed query → 변경 완료 안내 표시 · 없으면 미표시(FE-50)', async () => {
+    fetchMock.mockResolvedValue({ enabled: false })
+    routeMock.query = { notice: 'password-changed' }
+    const wrapper = await mountPage()
+    expect(wrapper.find('[data-testid="seller-login-password-changed-notice"]').text()).toContain('비밀번호가 변경되었습니다')
+    routeMock.query = {}
+    const plain = await mountPage()
+    expect(plain.find('[data-testid="seller-login-password-changed-notice"]').exists()).toBe(false)
   })
 })

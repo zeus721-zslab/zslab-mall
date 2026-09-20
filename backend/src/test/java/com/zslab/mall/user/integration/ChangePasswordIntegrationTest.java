@@ -26,6 +26,7 @@ import com.zslab.mall.support.AbstractIntegrationTest;
  * 정상(204)은 DB hash가 새 비번으로 교체됨을, 미인증은 401(SecurityConfig fail-closed), 현재 비번 불일치는 400을 확인한다.
  *
  * <p>인증은 실 {@link TokenProvider}로 발급한 JWT(role 무관·anyRequest authenticated)를 Bearer로 전달한다.
+ * (4)는 SELLER 토큰으로도 같은 계약이 성립함을 박제한다 — 셀러 센터 비밀번호 변경 폼(Track 90-D-2·FE-50)이 이 endpoint를 재사용한다.
  * 시드는 {@link TransactionTemplate} + {@code FOREIGN_KEY_CHECKS=0}(LT-02 try-finally)·password_hash는 실 BCrypt 해싱이다.
  */
 @AutoConfigureMockMvc
@@ -92,6 +93,20 @@ class ChangePasswordIntegrationTest extends AbstractIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(changeBody("wrong-password", NEW_PASSWORD)))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("(4) SELLER 토큰+현재 비번 일치 → 204·DB hash 교체(셀러 센터 폼 계약·Track 90-D-2)")
+    void sellerToken_returns204_andRehashes() throws Exception {
+        mockMvc.perform(patch("/api/v1/users/me/password")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenProvider.issue(USER_ID, ActorRole.SELLER))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(changeBody(CURRENT_PASSWORD, NEW_PASSWORD)))
+                .andExpect(status().isNoContent());
+
+        String newHash = jdbc.queryForObject(
+                "SELECT password_hash FROM `user` WHERE id = ?", String.class, USER_ID);
+        assertThat(passwordEncoder.matches(NEW_PASSWORD, newHash)).isTrue();
     }
 
     // ---------- seed·helpers (AuthControllerIntegrationTest 패턴·? positional 바인딩·SQL injection 없음) ----------

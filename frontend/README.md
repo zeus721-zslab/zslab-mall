@@ -87,6 +87,7 @@ frontend 컨테이너 `zslab_mall_frontend`는 dev 전용 이미지 `zslab-mall-
 - 실행 중 dev 서버에서 `pnpm typecheck`(nuxt prepare)를 돌리면 `.nuxt` 재생성으로 `#app-manifest` 오류가 날 수 있다 → typecheck 후 컨테이너 restart.
 - Playwright: `pnpm test:e2e`(e2e/ 전체 — smoke·관리자 admin-*·셀러 seller-shell·구매자 claims·password-change). 세션은 `e2e/helpers/login.ts`가 BE 로그인 API로 심으며,
   역할별 자격증명 `ADMIN_E2E_EMAIL`/`ADMIN_E2E_PASSWORD`·`SELLER_E2E_EMAIL`/`SELLER_E2E_PASSWORD`·`BUYER_E2E_EMAIL`/`BUYER_E2E_PASSWORD`를 `docker exec -e`로 넘길 때만 해당 케이스가 실행된다(미설정 skip).
+  셀러 비밀번호 변경(seller-password)은 실제로 비밀번호를 바꿨다가 원복하므로 전용 계정 `SELLER_PASSWORD_E2E_EMAIL`/`SELLER_PASSWORD_E2E_PASSWORD`(SELLER_E2E_*·데모 계정과 다른 계정)로만 실행된다.
   데모 로그인 버튼 자체 검증(admin-shell ⑥·seller-shell ⑤·password-change ③)은 컨테이너의 `NUXT_*_DEMO_*`만 있으면 된다. 브라우저·OS 의존성은 이미지에 포함.
 - 사용자 화면 픽셀 회귀(`e2e/tools/pixel.mjs`): `pnpm pixel capture <name>` → `playwright-report/pixel-baseline/<name>/`(gitignored) 12장 저장,
   `pnpm pixel compare <base> <name>` → 상이 픽셀 수 출력·차이가 있으면 `<name>-diff/`에 빨강 마킹 PNG, exit 1. 기준선은 변경 전(또는 main) 상태에서 1회 캡처해 둔다.
