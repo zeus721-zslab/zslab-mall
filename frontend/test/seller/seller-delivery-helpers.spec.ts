@@ -65,6 +65,11 @@ describe('seller-delivery-view', () => {
     expect(trackingCorrectionBlockedReason('SHIPPING')).toBeNull()
   })
 
+  it('클레임 연결 OUTBOUND(검수 FAIL 재발송·claimType RETURN)도 배송완료 미노출', () => {
+    // 클레임 유형이면 종류와 무관하게 숨긴다 — BE 가드는 claim_id 기준·FE 판정은 claimType 기준이므로 두 값이 함께 오는 계약을 테스트로 고정(외부 검토 r2).
+    expect(canMarkDelivered({ status: 'SHIPPING', direction: 'OUTBOUND', claimType: 'RETURN' })).toBe(false)
+  })
+
   it('validateTrackingCorrectionForm: 택배사·송장(≤100)·사유(≤200) 필수', () => {
     expect(validateTrackingCorrectionForm({ carrier: null, trackingNo: '', reason: '' })).toEqual({
       carrier: '택배사를 선택하세요.', trackingNo: '송장번호를 입력하세요.', reason: '사유를 입력하세요.',

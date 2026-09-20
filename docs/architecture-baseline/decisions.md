@@ -11674,7 +11674,8 @@ D-195에서 "셀러는 클레임 조회만, 처리는 관리자"를 확정했으
 - 테스트(기존 클래스에 추가·신설 0): `SellerDeliveryCompletionControllerIntegrationTest` T5(교환 OUTBOUND 422·Claim APPROVED·품목 EXCHANGE_REQUESTED·이벤트 0)·T6(RETURN 422·SHIPPING 유지) + seedClaim/seedClaimDelivery/claimStatus 헬퍼·seedGraph 3인자(Order.status 분리) · `AdminDeliveryControllerIntegrationTest` T7(RETURN 422) + seedShippingReturnDelivery · vitest `seller-delivery-helpers.spec` 교환품 행 canMarkDelivered false·hasRowActions true.
 - 검증(최종): `./gradlew.bat test --rerun-tasks` 229파일 **1318 tests·0 fail·0 error·0 skip**(1315 + 3) · typecheck 0 · vitest 81파일 532 · Playwright 웜 93/94(seller-dashboard ② 환경 의존 기존 건) · 픽셀 track92a 12장 track90b3c 대비 diff 0 · layers/admin diff 0.
 - 시드 트랩: `order.status`는 `OrderStatus` enum이라 품목 `*_REQUESTED`를 그대로 넣으면 `Data truncated` — claim 케이스는 Order.status를 DELIVERED로 따로 넣는다.
-- 외부 검토: **등급 A** / 결과는 검토 후 append.
+- 정찰 정정: 정찰 §E-15(a)의 "주문 화면에도 교환품 배송완료 노출"은 오판 — `useSellerOrders.markDelivered`·`seller-order-view.canMarkDelivered` 호출처 0 실측(FE-47대로 배송완료는 배송 화면 전용). 헬퍼만 남아 있고 화면 경로가 없다.
+- 외부 검토: **등급 A** / 2라운드(r1 가드 경계·r2 회귀·테스트 유효성) / r1 지적 0 · r2 보강 1건 수용(FE canMarkDelivered claimType RETURN+OUTBOUND 케이스 vitest 고정 — BE는 claim_id·FE는 claimType 기준이라 두 값이 함께 오는 계약을 테스트로 잠금) / blocker 0 / 재검토 불필요.
 
 ### §8 이월
 - confirm-pickup이 이미 DELIVERED인 회수 Delivery를 만나면 `IllegalStateException`이 GEH catch-all 500으로 새는 결함(LT-28) — 본 트랙 범위 밖. 가드 도입 후 정상 API로는 도달 불가하나 데이터 보정·과거 데이터에서는 재현 가능.
