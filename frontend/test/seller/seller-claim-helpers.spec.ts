@@ -1,5 +1,7 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
+import { mockNuxtImport } from '@nuxt/test-utils/runtime'
 import type { LocationQuery } from 'vue-router'
+import { useSellerClaims } from '#layers/seller/app/composables/useSellerClaims'
 import {
   DEFAULT_SELLER_CLAIM_QUERY,
   hasActiveClaimFilters,
@@ -12,9 +14,16 @@ import { claimChipLabel } from '#layers/seller/app/lib/seller-order-view'
 import { resolveBackPath, SELLER_CLAIMS_PATH, SELLER_ORDERS_PATH } from '#layers/seller/app/lib/seller-back-path'
 
 /**
- * 셀러 클레임 순수 함수(Track 90-D-1): URL query ↔ 상태 ↔ BE 파라미터 매핑, 표시 헬퍼(사유 라벨·타임라인·클레임 칩), 클레임 상세 복귀 경로.
- * 처리 액션 관련 헬퍼는 존재하지 않는다(조회 전용).
+ * 셀러 클레임 순수 함수(Track 90-D-1): URL query ↔ 상태 ↔ BE 파라미터 매핑, 표시 헬퍼(사유 라벨·타임라인·클레임 칩), 클레임 상세 복귀 경로,
+ * API 표면(useSellerClaims는 조회 2개만). 처리 액션 관련 헬퍼는 존재하지 않는다(조회 전용).
  */
+mockNuxtImport('useSellerApi', () => () => vi.fn())
+
+describe('useSellerClaims 표면(조회 전용)', () => {
+  it('노출 키는 정확히 list·detail — 처리(approve·reject·inspect 등) 호출 함수가 생기면 이 단언이 먼저 깨진다(외부 검토 r4)', () => {
+    expect(Object.keys(useSellerClaims()).sort()).toEqual(['detail', 'list'])
+  })
+})
 describe('seller-claim-query', () => {
   it('parse: 기본값 · 유효 type/status/기간/page/size · 미지의 값은 기본값 · keyword 50자 절단', () => {
     expect(parseSellerClaimQuery({})).toEqual(DEFAULT_SELLER_CLAIM_QUERY)

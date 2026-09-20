@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { defineComponent, h, ref } from 'vue'
 import { mountSuspended } from '@nuxt/test-utils/runtime'
 import { createVuetify } from 'vuetify'
 import { flushPromises } from '@vue/test-utils'
@@ -10,7 +11,8 @@ import type { SellerOrderItemSummary } from '#layers/seller/app/types/seller-ord
 
 /**
  * 셀러 클레임 컴포넌트(Track 90-D-1): 표(유형 링크·상태/환불 칩·첨부 개수·처리 버튼 부재·페이지 0-base), 첨부 blob 로더(fetch Bearer → object URL →
- * 언마운트 revoke·404 플레이스홀더·늦은 응답 폐기), 품목 표 클레임 칩(openClaim). 실 네트워크 없음(fetch·store mock).
+ * 언마운트 revoke·404 플레이스홀더·늦은 응답 폐기), 확대(preview variant·부모는 attachmentId만 보관·개폐 반복 시 revoke 수 = create 수·잔존 0),
+ * 품목 표 클레임 칩(openClaim). 실 네트워크 없음(fetch·store mock).
  */
 const { sellerAuthMock } = vi.hoisted(() => ({ sellerAuthMock: { token: 'seller-jwt', logout: vi.fn(), markSuspended: vi.fn() } }))
 vi.mock('#layers/seller/app/stores/sellerAuth', () => ({ useSellerAuthStore: () => sellerAuthMock }))
@@ -83,7 +85,7 @@ describe('SellerClaimAttachmentImage(blob 로더)', () => {
     return { ok: true, status: 200, blob: () => Promise.resolve(new Blob(['png'])) } as unknown as Response
   }
 
-  it('성공: Bearer 헤더로 fetch → object URL을 img src로 · 클릭 → open(objectUrl) · 언마운트 시 revokeObjectURL', async () => {
+  it('성공: Bearer 헤더로 fetch → object URL을 img src로 · 클릭 → open(페이로드 없음·URL을 부모에 넘기지 않음) · 언마운트 시 revokeObjectURL', async () => {
     fetchMock.mockResolvedValue(okResponse())
     const wrapper = await mountSuspended(SellerClaimAttachmentImage, {
       props: { url: '/api/v1/files/claims/2026/09/A.png', index: 0 },
@@ -101,7 +103,7 @@ describe('SellerClaimAttachmentImage(blob 로더)', () => {
     expect(body().querySelector('[data-testid="claim-attachment-loading"]')).toBeNull()
 
     body().querySelector<HTMLButtonElement>('[data-testid="claim-attachment-thumb"]')?.click()
-    expect(wrapper.emitted('open')?.[0]).toEqual(['blob:mock-1'])
+    expect(wrapper.emitted('open')?.[0]).toEqual([])
 
     wrapper.unmount()
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:mock-1')
@@ -144,6 +146,50 @@ describe('SellerClaimAttachmentImage(blob 로더)', () => {
     await flushPromises()
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:mock-1')
     expect(body().querySelector('[data-testid="claim-attachment-thumb"] img')?.getAttribute('src')).toBe('blob:mock-2')
+  })
+})
+
+describe('SellerClaimAttachmentImage(preview variant·개폐 반복)', () => {
+  const createObjectURL = vi.fn<(blob: Blob) => string>()
+  const revokeObjectURL = vi.fn<(url: string) => void>()
+  const fetchMock = vi.fn<typeof fetch>()
+
+  beforeEach(() => {
+    document.body.innerHTML = ''
+    createObjectURL.mockReset().mockImplementation(() => `blob:preview-${createObjectURL.mock.calls.length}`)
+    revokeObjectURL.mockReset()
+    fetchMock.mockReset().mockImplementation(() => Promise.resolve({ ok: true, status: 200, blob: () => Promise.resolve(new Blob(['png'])) } as unknown as Response))
+    vi.stubGlobal('fetch', fetchMock)
+    Object.assign(URL, { createObjectURL, revokeObjectURL })
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('preview: 원본 img(blob src)·클릭 버튼 없음 · 확대 다이얼로그 개폐 3회 → createObjectURL 3 = revokeObjectURL 3 · 닫힌 뒤 잔존 URL 0', async () => {
+    // 확대 다이얼로그를 대신하는 하네스: open이면 preview variant를 렌더, 닫으면 언마운트(부모는 URL을 들지 않는다)
+    const open = ref(false)
+    const Harness = defineComponent({
+      setup: () => () => (open.value ? h(SellerClaimAttachmentImage, { url: '/api/v1/files/claims/2026/09/P.png', index: 0, variant: 'preview' }) : h('div')),
+    })
+    await mountSuspended(Harness, { global: { plugins: [createVuetify()] }, attachTo: document.body })
+    for (let cycle = 1; cycle <= 3; cycle++) {
+      open.value = true
+      await flushPromises()
+      const img = body().querySelector<HTMLImageElement>('[data-testid="claim-attachment-preview-image"] img')
+      expect(img?.getAttribute('src')).toBe(`blob:preview-${cycle}`)
+      expect(body().querySelector('[data-testid="claim-attachment-thumb"]')).toBeNull()
+      open.value = false
+      await flushPromises()
+      expect(revokeObjectURL).toHaveBeenLastCalledWith(`blob:preview-${cycle}`)
+    }
+    expect(createObjectURL).toHaveBeenCalledTimes(3)
+    expect(revokeObjectURL).toHaveBeenCalledTimes(3)
+    const created = createObjectURL.mock.results.map((result) => result.value as string)
+    const revoked = revokeObjectURL.mock.calls.map(([url]) => url)
+    expect(created.filter((url) => !revoked.includes(url))).toEqual([]) // 잔존 object URL 없음
+    expect(body().querySelector('[data-testid="claim-attachment-preview-image"]')).toBeNull()
   })
 })
 

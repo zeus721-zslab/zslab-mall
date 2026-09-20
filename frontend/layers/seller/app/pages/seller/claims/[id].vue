@@ -57,7 +57,14 @@ function timelineColor(step: ClaimTimelineStep): string {
 }
 
 // ---------- 첨부 확대 ----------
-const previewUrl = ref<string | null>(null)
+// 부모는 어떤 첨부를 확대할지(attachmentId)만 보관한다. object URL은 SellerClaimAttachmentImage(컴포저블)가 소유·해제하므로
+// 여기서 URL 문자열을 들거나 revokeObjectURL을 호출하지 않는다(이중 revoke·누수 방지·외부 검토 r4 반영).
+const previewAttachmentId = ref<string | null>(null)
+const previewAttachment = computed(() => {
+  if (!detail.value || previewAttachmentId.value === null) return null
+  const index = detail.value.attachments.findIndex((attachment) => attachment.attachmentId === previewAttachmentId.value)
+  return index < 0 ? null : { index, attachment: detail.value.attachments[index]! }
+})
 </script>
 
 <template>
@@ -167,7 +174,7 @@ const previewUrl = ref<string | null>(null)
               :key="attachment.attachmentId"
               :url="attachment.url"
               :index="index"
-              @open="(objectUrl) => (previewUrl = objectUrl)"
+              @open="previewAttachmentId = attachment.attachmentId"
             />
           </div>
           <p v-else class="text-body-2 text-medium-emphasis mb-0" data-testid="claim-detail-no-attachments">첨부된 사진이 없습니다. 반품 요청 중 상품 불량·오배송 사유에서만 구매자가 사진을 첨부합니다.</p>
@@ -175,13 +182,13 @@ const previewUrl = ref<string | null>(null)
       </v-card>
     </template>
 
-    <v-dialog :model-value="previewUrl !== null" max-width="900" @update:model-value="(open) => { if (!open) previewUrl = null }">
-      <v-card v-if="previewUrl" data-testid="claim-attachment-preview">
+    <v-dialog :model-value="previewAttachment !== null" max-width="900" @update:model-value="(open) => { if (!open) previewAttachmentId = null }">
+      <v-card v-if="previewAttachment" data-testid="claim-attachment-preview">
         <v-card-text class="pa-2">
-          <img :src="previewUrl" alt="첨부 사진 확대" class="slr-claim-preview">
+          <SellerClaimAttachmentImage :url="previewAttachment.attachment.url" :index="previewAttachment.index" variant="preview" />
         </v-card-text>
         <v-card-actions class="justify-end">
-          <v-btn variant="text" @click="previewUrl = null">닫기</v-btn>
+          <v-btn variant="text" @click="previewAttachmentId = null">닫기</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
