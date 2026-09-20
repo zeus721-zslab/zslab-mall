@@ -2046,3 +2046,38 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 - 로컬 DB seller 6 PENDING 잔재(89-G 라이브 검증) 정리.
 - CI에 Playwright 미포함(FE-15 STEP4 이월분·정찰에서 재확인·러너 4 vCPU=워커 2).
 - storageState(setup project·로그인 API 역할당 1회) — β-2·필요 시 β-1 위에 후속.
+
+## FE-47: 셀러 첫 실화면 4종 — 대시보드·주문·배송·정산 (Track 90-B-3) (2026-09-20)
+
+배경: 90-A(FE-44)에서 만든 셀러 셸(레이어·독립 인증·Vuetify 자체 인스턴스)에 첫 실화면을 붙인다. 소비 API는 D-191(`GET /seller/me`·주문 품목·배송·송장 정정)·D-192(대시보드)·기존 정산 3종(Track 85)·기존 쓰기 2종(prepare-shipment·mark-delivered). 브랜치는 `feat/track-90b2-seller-dashboard`를 계속 써 BE 커밋(D-191·D-192) 위에 FE 커밋을 쌓아 "셀러가 첫 화면을 쓸 수 있다"는 완결 단위로 PR 1개에 묶는다.
+
+결정:
+- **공통 기반** — `lib/seller-error-message.ts`(ProblemDetail 코드 우선 → HTTP 상태 폴백 401/403/404/409/422 → 서버 detail → 일반 문구)·`useSellerToast`+`SellerToaster`(vue-sonner·관리자 복제·seller 레이아웃에만 배치)·의미 색상 `constants/semantic.ts`+`slr-chip`/`slr-grad` 토큰·`useSellerMe`(`useState('seller-me')` 공유·레이아웃이 1회 로드)를 셸에서 소비해 상단바에 상호·상태 chip·역할을 표시하고, `status=SUSPENDED`면 진입 시점에 `markSuspended()`로 배너를 켠다(FE-44 이월 "진입 시 자기 상태를 볼 경로").
+- **403 SELLER_SUSPENDED는 쓰기 3종 다이얼로그(출고·배송완료·송장 정정)가 각각 danger 토스트로 직접 표시**(배너는 `useSellerApi`가 병행). FE-44 §8 이월분 종결 — 배너에만 의존하면 어느 동작이 막혔는지 알 수 없다. 분기는 공통: SUSPENDED → danger 토스트 + cancel / 422·404 상태 경합 → warning + stale(목록 재조회) / 409 송장 중복 → 송장번호 필드 오류(다이얼로그 유지) / 400 → fieldErrors.
+- **대시보드(`/seller`)** — 요약 4(매출·환불·순매출·주문 건수) 캡션에 품목 축과 "내 품목이 포함된 주문 수(품목 수와 다를 수 있음)"를 명시. D-192의 `orderCount`(COUNT DISTINCT order)와 주문 목록 `totalCount`(품목 행)가 다르기 때문. 처리 대기 4 중 배송 대기만 `/seller/orders?status=PAID` 링크(품목 목록이 품목 단위라 정확)·클레임(90-D)·재고(90-C)·정산 예정(PENDING 404)은 링크 없이 힌트 문구. 차트 2종은 `dailyTrend` 단일 배열에서 파생(`SellerChart`·apexcharts 동적 import). 최근 클레임은 상세 화면이 없어 링크하지 않음(90-D). 기간은 로컬 상태(프리셋 7/30/90 + 직접 입력·92일 클라이언트 검증·BE 400 예방).
+- **주문(`/seller/orders`·`/[id]`)** — 품목 행 단위 목록(URL query 단일 소스: status·paid_at 기간·keyword·page·size·정렬은 결제일 최신순 고정)·상세에 배송지 전체(마스킹 없음·출고 라벨용)와 원 발송 배송 상태·출고 다이얼로그(택배사 4값·송장 ≤100·PAID 행/상세 양쪽 진입).
+- **배송(`/seller/deliveries`)** — 출고는 주문 화면, 배송완료·송장 정정은 배송 화면. 출고 대상(PAID 품목)은 Delivery 행이 없어 배송 목록에 나오지 않으므로 **양쪽 화면에 진입점 안내**(배송 상단 info alert → 주문 `?status=PAID` 링크 / 품목 상세 배송 카드 → 배송 화면 링크). 상세 다이얼로그 없음(셀러 배송 상세 API 부재·행에 필요한 정보가 다 있음)·행 메뉴는 SHIPPING만(배송완료는 원 발송만·송장 정정은 회수도 가능).
+- **정산(`/seller/settlements`·`/[id]`)** — 관리자 `AdminSettlementTable`·`AdminSettlementItemTable`을 `Seller*`로 복제(import 금지)·읽기 전용(액션 없음). PENDING은 BE가 404로 숨기므로 목록에 없는 게 정상이며, `GET /seller/me.pendingSettlementCount`로 "확정 전 정산 N건 = 대시보드 정산 예정과 같은 건수"를 안내 문구로 설명. 상세 404는 "아직 확정되지 않은 정산" 안내.
+- **배송 표는 1280px 오버플로를 피해 택배사를 송장 셀 캡션으로 병합(8컬럼)**. 주문 표 7컬럼·정산 표 9컬럼.
+- 메뉴(`seller-menu.ts`) 4종 활성(대시보드·주문·배송·정산)·비활성 7(클레임·상품·재고·통계 3·설정). 신규 43파일(layers/seller 40·e2e 4·test 8·수정 8)·`layers/admin` 무수정.
+
+### §1-A 갈림길·채택/기각 근거
+- 대안 검토 없음 — 화면 구성은 D-191·D-192의 계약과 FE-44 격리 원칙(복제·접두사·import 0)에서 파생. 갈림길은 배송 표 컬럼 병합뿐이며(9컬럼 유지 → 1280px 가로 스크롤·관리 컬럼 화면 밖 / 택배사 캡션 병합 【채택】) 가로 스크롤 대비 명백한 우위.
+
+### §2 확정 구현 규칙·트랩
+- **로컬 backend는 `gradle bootRun` 상주(Dockerfile.dev)라 브랜치의 BE 변경이 반영되지 않는다** → 셀러 API 404(대시보드 "서버 오류" 표시)로 나타남. `docker restart zslab_mall_backend`(헬스 ~2분)로 해소. BE+FE를 한 브랜치에 쌓는 전략에서 반복될 트랩.
+- **픽셀 기준선은 재시작 직후 캡처를 기준으로 삼는다.** e2e 직후 warm 상태 캡처 2회는 login·products 네이티브 컨트롤(검색 input 테두리·정렬 select 글리프) AA 노이즈 25~317px(≤0.02%)가 섞였고, 이번 변경과 무관함을 stash 복원 후 diff 0·사용자 페이지 CSS 누수 프로브(vuetify/sonner/slr 시트 0) 0으로 확인 → `docker restart` 직후 재캡처 `track90b3c` 12장 diff 0.
+- v-dialog(VOverlay) vitest는 `window.visualViewport` stub 필요(`vi.stubGlobal`)·`v-textarea auto-grow`는 높이 계산용 textarea가 하나 더 렌더돼 Playwright는 `.first()`.
+- 시각 파싱 주의 — 셀러 응답은 `KstOffsetSerializer`(오프셋 포함), 관리자 주문 응답은 오프셋 없는 `LocalDateTime`(D-191 §2). 표시는 공용 `formatDateTime`(앞 16자 정규식)이라 두 형식 모두 안전하나 파서를 새로 쓸 때 관리자 것을 복제하면 안 된다. `period`·`scheduledPayDate`는 LocalDate(yyyy-MM-dd).
+- Playwright 재시작 직후 1차 실행은 콜드 로드 5s expect 타임아웃(기존 트랩·FE-46)으로 13 fail → 2·3차 82/82. e2e는 seller01(실계정·`SELLER_E2E_*`=seed-state.json 값·비밀번호 비출력) 로그인 + API `page.route` mock(`e2e/helpers/seller-mock.ts`)·데모 셀러 빈 상태 1건만 실 API.
+- 검증(실측·컨테이너 pnpm): typecheck 0 · vitest 72파일 **468**(428 → +40·test/seller +8) · Playwright 82/82(기본 워커 8·1.3분·3역할 env 주입·skip 0) · 사용자 픽셀 12장 diff 0 · `layers/admin` diff 0(`git diff --name-only main -- frontend/layers/admin`) · no-admin-import 통과 · 셀러 기준선 `playwright-report/step611-seller` 12장 신규(4화면+품목 상세+정산 상세 × desktop/mobile·seller01 실데이터·pageerror 0).
+- 신규 의존성: 없음.
+
+### 외부 검토
+- **등급 C → 생략.** FE 전용·BE 계약 무변경(D-191·D-192 A/B 검토 완료)·격리 원칙은 스캔 테스트·admin diff 0으로 기계 검증.
+
+### §8 이월
+- 클레임 상세 화면(90-D) — 대시보드 최근 클레임·처리 대기 클레임 칸 링크.
+- 재고 임박 칸 링크(셀러 상품/재고 화면·90-C).
+- 환불 추이(일별 refund 버킷)·비교 기간(전 기간 대비 증감) — D-192 §8·FE 요구 시.
+- 셀러 비밀번호 변경 폼(90-D 설정)·공용 레이어 승격 판단(FE-44 §8 유지).

@@ -3,15 +3,23 @@ import { mdiLogout, mdiMenu } from '@mdi/js'
 import { SELLER_LOGIN_PATH } from '#layers/seller/app/lib/constants/auth'
 import { SELLER_MENU, resolveActiveSellerMenuPath } from '#layers/seller/app/lib/constants/seller-menu'
 import { useSellerAuthStore } from '#layers/seller/app/stores/sellerAuth'
+import { useSellerMe } from '#layers/seller/app/composables/useSellerMe'
+import { SELLER_ROLE_LABEL, SELLER_STATUS_LABEL, SELLER_STATUS_SEMANTIC } from '#layers/seller/app/lib/constants/seller-me'
+import { semanticChipClass } from '#layers/seller/app/lib/constants/semantic'
 import type { Profile } from '~/types/user'
 
-// 셀러 상단바(Track 90-A·관리자 AdminTopbar 동형): 좌측 브레드크럼(seller-menu 기준 그룹 › 메뉴), 우측 아바타 메뉴(이름/이메일·로그아웃).
-// 셀러 식별은 GET /users/me(publicId·email·name)만 쓴다(anyRequest().authenticated()라 SELLER 토큰으로 호출 가능). 소속 셀러명·내 역할은
-// 셀러 `me` 조회 API 부재(recon §7)로 미표시 — 90-B 이후.
+// 셀러 상단바(Track 90-A·관리자 AdminTopbar 동형): 좌측 브레드크럼(seller-menu 기준 그룹 › 메뉴), 우측 상호·상태 chip + 아바타 메뉴(이름/이메일·역할·로그아웃).
+// 계정 식별은 GET /users/me(publicId·email·name)·소속 셀러(상호·상태·역할)는 GET /seller/me(D-191·레이아웃이 로드한 useSellerMe 공유 상태).
 const emit = defineEmits<{ toggleSidebar: [] }>()
 const sellerAuth = useSellerAuthStore()
 const sellerApi = useSellerApi()
 const route = useRoute()
+const { me: sellerMe } = useSellerMe()
+
+const companyName = computed<string>(() => sellerMe.value?.companyName ?? '')
+const statusLabel = computed<string>(() => (sellerMe.value ? SELLER_STATUS_LABEL[sellerMe.value.status] : ''))
+const statusChipClass = computed<string>(() => (sellerMe.value ? semanticChipClass(SELLER_STATUS_SEMANTIC[sellerMe.value.status]) : ''))
+const roleLabel = computed<string>(() => (sellerMe.value ? SELLER_ROLE_LABEL[sellerMe.value.roleCode] : ''))
 
 // 조회 실패(401은 useSellerApi가 로그인으로 보냄·그 외)는 상단바 표시만 비우고 셸 렌더는 계속한다.
 const { data: profile, error: profileError } = useAsyncData<Profile>('seller-profile', () => sellerApi<Profile>('/v1/users/me'))
@@ -52,6 +60,11 @@ async function handleLogout(): Promise<void> {
       </template>
     </v-breadcrumbs>
     <template #append>
+      <!-- 소속 셀러 상호·상태(GET /seller/me). 미도착·실패 시 비운다. 정지(SUSPENDED)는 danger chip이며 레이아웃 배너가 상세 안내를 맡는다. -->
+      <div v-if="companyName" class="d-flex align-center ga-2 mr-2" data-testid="seller-company">
+        <span class="text-body-2 font-weight-medium d-none d-sm-inline" data-testid="seller-company-name">{{ companyName }}</span>
+        <v-chip :class="statusChipClass" size="x-small" variant="flat" data-testid="seller-status-chip">{{ statusLabel }}</v-chip>
+      </div>
       <v-menu>
         <template #activator="{ props: activatorProps }">
           <v-btn v-bind="activatorProps" icon variant="text" size="small" aria-label="계정 메뉴" data-testid="seller-account-menu">
@@ -62,7 +75,8 @@ async function handleLogout(): Promise<void> {
         </template>
         <v-list min-width="220" data-testid="seller-account-menu-content">
           <v-list-item v-if="displayName" :title="displayName" :subtitle="displayEmail || undefined" data-testid="seller-display-name" />
-          <v-divider v-if="displayName" class="my-1" />
+          <v-list-item v-if="companyName" :title="companyName" :subtitle="roleLabel || undefined" data-testid="seller-membership" />
+          <v-divider v-if="displayName || companyName" class="my-1" />
           <v-list-item :prepend-icon="mdiLogout" title="로그아웃" data-testid="seller-logout" @click="handleLogout" />
         </v-list>
       </v-menu>

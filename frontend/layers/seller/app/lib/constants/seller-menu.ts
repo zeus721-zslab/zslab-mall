@@ -1,6 +1,6 @@
 /**
  * 셀러 사이드바 메뉴 단일 소스(Track 90-A). 순서는 확정 사양 고정(대시보드 → 주문 → 상품 → 통계 → 정산 → 설정).
- * `to`가 있는 항목만 pages/seller/** 와 1:1이며, 화면이 아직 없는 항목(90-B 이후)은 `to` 없이 비활성으로 표시한다 — 라우트를 미리 만들지 않는다.
+ * `to`가 있는 항목만 pages/seller/** 와 1:1이며(90-B-3: 대시보드·주문·배송·정산), 화면이 아직 없는 항목(클레임 90-D·상품·재고 90-C·통계 90-E·설정)은 `to` 없이 비활성으로 표시한다 — 라우트를 미리 만들지 않는다.
  */
 export interface SellerMenuItem {
   label: string
@@ -19,7 +19,7 @@ export const SELLER_MENU: SellerMenuGroup[] = [
   { label: '대시보드', to: '/seller' },
   {
     label: '주문',
-    children: [{ label: '주문' }, { label: '배송' }, { label: '클레임' }],
+    children: [{ label: '주문', to: '/seller/orders' }, { label: '배송', to: '/seller/deliveries' }, { label: '클레임' }],
   },
   {
     label: '상품',
@@ -29,7 +29,7 @@ export const SELLER_MENU: SellerMenuGroup[] = [
     label: '통계',
     children: [{ label: '매출' }, { label: '주문·클레임' }, { label: '상품' }],
   },
-  { label: '정산' },
+  { label: '정산', to: '/seller/settlements' },
   { label: '설정' },
 ]
 

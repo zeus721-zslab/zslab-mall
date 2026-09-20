@@ -113,3 +113,65 @@ html,
 .seller-sidebar .v-list-item--active .v-list-item-title {
   font-weight: 700;
 }
+
+/* Track 90-B-3 의미 색상 토큰(constants/semantic.ts와 1:1): chip 연한 배경 + 진한 글자(관리자 adm-chip 복제·접두사 slr-). */
+.v-application {
+  --slr-semantic-danger-bg: #fee2e2;
+  --slr-semantic-danger-fg: #b91c1c;
+  --slr-semantic-warning-bg: #fef3c7;
+  --slr-semantic-warning-fg: #b45309;
+  --slr-semantic-success-bg: #dcfce7;
+  --slr-semantic-success-fg: #15803d;
+  --slr-semantic-info-bg: #dbeafe;
+  --slr-semantic-info-fg: #1d4ed8;
+  --slr-semantic-neutral-bg: #f4f4f5;
+  --slr-semantic-neutral-fg: #52525b;
+}
+.slr-chip {
+  font-weight: 500;
+}
+.slr-chip--danger { background: var(--slr-semantic-danger-bg) !important; color: var(--slr-semantic-danger-fg) !important; }
+.slr-chip--warning { background: var(--slr-semantic-warning-bg) !important; color: var(--slr-semantic-warning-fg) !important; }
+.slr-chip--success { background: var(--slr-semantic-success-bg) !important; color: var(--slr-semantic-success-fg) !important; }
+.slr-chip--info { background: var(--slr-semantic-info-bg) !important; color: var(--slr-semantic-info-fg) !important; }
+.slr-chip--neutral { background: var(--slr-semantic-neutral-bg) !important; color: var(--slr-semantic-neutral-fg) !important; }
+
+/* 통계 카드 우측 그라데이션 원형 아이콘(관리자 adm-grad-* 복제·primary는 셀러 teal). */
+.slr-grad-primary { background-image: linear-gradient(310deg, #0F766E 0%, #2DD4BF 100%); }
+.slr-grad-success { background-image: linear-gradient(310deg, #16A34A 0%, #4ADE80 100%); }
+.slr-grad-info { background-image: linear-gradient(310deg, #0284C7 0%, #38BDF8 100%); }
+.slr-grad-warning { background-image: linear-gradient(310deg, #EA580C 0%, #FB923C 100%); }
+.slr-grad-error { background-image: linear-gradient(310deg, #DC2626 0%, #F87171 100%); }
+
+/* 표: 셀 줄바꿈 금지·compact 패딩(관리자 adm-table 복제). 상품명 말줄임·public id 모노스페이스. */
+.slr-table .v-data-table__td {
+  white-space: nowrap;
+}
+.slr-table--compact.v-table > .v-table__wrapper > table > tbody > tr > td,
+.slr-table--compact.v-table > .v-table__wrapper > table > thead > tr > th {
+  padding: 0 12px;
+}
+.slr-product-name {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.slr-product-id {
+  font-size: 12px;
+  color: rgba(var(--v-theme-on-surface), var(--v-medium-emphasis-opacity));
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* 대시보드: 처리 대기 칸·리스트 행(관리자 adm-dashboard-* 복제). */
+.slr-dashboard-pending {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+}
+.slr-dashboard-pending--link:hover .v-card {
+  box-shadow: 0 20px 27px 0 rgba(0, 0, 0, 0.1);
+}
+.slr-dashboard-list .v-list-item--link:hover {
+  background: var(--slr-semantic-neutral-bg);
+}
