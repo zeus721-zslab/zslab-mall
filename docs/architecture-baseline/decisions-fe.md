@@ -2140,6 +2140,37 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 - 신규 의존성: 없음.
 
 ### §8 이월
-- **seller-dashboard ② spec**(데모 셀러 데이터 0 기대·실 API)이 `NUXT_SELLER_DEMO_EMAIL`=seller02(실데이터)와 불일치해 웜 93/94의 잔여 1건으로 남는다. 하드코딩 기대값을 API 대조로 교정 — 90-D-2에서 처리.
+- ~~**seller-dashboard ② spec**(데모 셀러 데이터 0 기대·실 API)이 `NUXT_SELLER_DEMO_EMAIL`=seller02(실데이터)와 불일치해 웜 93/94의 잔여 1건으로 남는다. 하드코딩 기대값을 API 대조로 교정 — 90-D-2에서 처리.~~ → **FE-50에서 해소**(waitForResponse 응답 대조).
 - 대시보드 최근 클레임·처리 대기 클레임 칸 링크(FE-47 이월).
 - 회수 송장 표시(D-195 §8).
+
+## FE-50: 셀러 비밀번호 변경 폼·seller-dashboard ② spec 교정 (Track 90-D-2) (2026-09-21)
+
+배경: FE-44 placeholder(`/seller/settings/password`·구매자 페이지 링크 안내)를 실제 폼으로 교체한다. 정찰(recon-report-password) 실측: BE `PATCH /api/v1/users/me/password`는 `anyRequest().authenticated()`(role 불문)라 SELLER 토큰으로 이미 호출 가능하고(셀러 상단바가 같은 원리로 `/v1/users/me`를 호출 중), 토큰 무효화는 user 단위(`credentials_changed_at`·AuthenticatedUserStateVerifier)라 같은 계정의 BUYER 세션도 함께 끊긴다. 관리자 자기 비밀번호 변경 화면은 없다(복제 참조 = 구매자 `mypage/password.vue` + 셀러 Vuetify 폼 관례). 등급 C·BE 무변경.
+
+결정:
+- **BE 무변경·기존 계약 재사용**: 페이지가 `useSellerApi()`로 `PATCH /v1/users/me/password { currentPassword, newPassword }` 직접 호출(단일 사용처라 composable 미신설). 계약 박제 = `ChangePasswordIntegrationTest (4)` SELLER 토큰 204(BE 테스트 1건 추가·main 코드 0).
+- **폼**(`pages/seller/settings/password.vue`): 현재/새/확인 3필드 · 클라 검증은 순수 함수 `lib/seller-password-form.ts`(길이 8~72 = `~/lib/constants/account` PASSWORD_MIN/MAX 미러·확인 일치·현재 비번 필수·trim 없음) · `errors: Record` → `v-text-field :error-messages` · submitting 중 재제출 무시(SellerInventoryAdjustDialog 관례).
+- **사전 안내 1줄**(폼 상단 info alert): "모든 기기의 셀러 로그인과 같은 계정의 구매자 로그인이 함께 로그아웃" — BE 무효화가 user 단위인 사실을 사용자에게 미리 알린다. 임시 비밀번호 세션(`passwordChangeRequired`)이면 warning alert 추가.
+- **성공(204)**: `sellerAuth.logout()`(seller_token·강제 상태 쿠키 제거) → `/seller/login?notice=password-changed` → 로그인 페이지 success alert(`SELLER_LOGIN_NOTICE_*` 상수·구매자 `LOGIN_NOTICE_*` 동형).
+- **에러 분기**: 400 `MALFORMED_REQUEST`(현재 비번 불일치·BE 사유 은닉) → 현재 비밀번호 필드 "현재 비밀번호가 일치하지 않습니다." / 400 `VALIDATION_FAILED` → `mapFieldErrors` 필드별(없으면 새 비밀번호 필드에 공통 문구) / 그 외 → danger 토스트(`toSellerErrorMessage`). 401은 useSellerApi가 로그인으로 보낸다.
+- **사이드바**: 마지막 항목 `{ label: '비밀번호 변경', to: '/seller/settings/password' }` 단일 링크(비활성 "설정" 대체). 계좌 화면이 들어오는 90-D-3에서 "설정" 그룹(children)으로 승격. 비활성 항목 통계 3만 남음(spec 4곳 4→3 동반 수정).
+- **정지(SUSPENDED) 셀러**: 비밀번호 변경은 셀러 도메인 밖(`/api/v1/seller/**` 아님)이라 D-190 차단을 받지 않는다 — 현행 유지(계정 보안 행위·BE 무변경).
+- **seller-dashboard ② spec 교정**: "데이터 0" 하드코딩 8건 제거 → 데모 버튼 클릭 전 `waitForResponse('/api/v1/seller/dashboard')` 등록 → 응답 JSON으로 요약 4(`seller-stat-card-value` = formatWon/formatCount 재현 문자열)·대기 4·목록 3(길이 0이면 `-empty`·아니면 `-row` 수)·차트(`dailyTrend` 전부 0일 때만 `-empty`) 대조. 데모 계정(seller02·실데이터)·seller01/03 모두 데이터가 있어 계정 교체로는 풀 수 없었다(정찰 §D-12).
+- **비밀번호 변경 E2E 전용 계정**: `SELLER_PASSWORD_E2E_EMAIL/PASSWORD`(신설 env·미설정 skip·`.env.example`·README 동기). SELLER_E2E_*(loginAs·병렬 spec 공유)나 데모 계정으로 바꾸면 변경 즉시 그 계정의 모든 토큰이 무효라 다른 워커 세션이 끊긴다. ①은 `finally`에서 "새 비밀번호로 로그인되면 원래로 되돌린다"(단언 실패·타임아웃 중단에도 원복). 로컬 실행은 seller03.
+
+### §1-A 갈림길·채택/기각 근거
+- **성공 후 세션 — α `sellerAuth.logout()` → 로그인 페이지 안내 【채택】 / β 세션 유지·안내만 【기각: 변경 시점에 BE가 요청 토큰까지 무효화해 다음 API가 401로 끊긴다 — "갑작스런 401" UX·구매자 D-178 선례와도 불일치】**.
+- **400 표시 — 구매자형 단일 문구 【기각: 셀러 폼 관례(필드 단위 `error-messages`)와 어긋나고 fieldErrors를 버림】 / 코드별 필드 분기 【채택】**. `seller-error-message.ts`의 MALFORMED_REQUEST 일반 문구("잘못된 요청입니다")는 현재 비번 불일치 안내로 부적합해 페이지에서 전용 문구를 쓴다.
+- **사이드바 — "설정" 그룹(children 1) 【기각: 현재 유스케이스에 항목 1개·YAGNI】 / 단일 링크 "비밀번호 변경" 【채택】**.
+
+### §2 확정 구현 규칙·트랩
+- Vuetify `v-text-field`의 `data-testid`·`class`·`id`(attrs)는 루트 `.v-input`에 붙고(`filterInputAttrs`), `id` prop은 input 요소에 간다 → e2e는 `page.fill('#seller-…')`·오류 문구는 `getByTestId(...)` toContainText(루트가 messages 영역 포함).
+- **픽셀 캡처 트랩**: Playwright 전량 실행 직후(dev 서버 웜 상태) 캡처는 코드 무변경 사용자 화면에서도 login 25/74px·products ~300px 노이즈가 났다(stash로 main 상태 캡처 = track92a 대비 0 확인). **재시작 직후 캡처**하면 0 — 픽셀 diff는 컨테이너 재시작 후 캡처를 기준으로 판정한다.
+- 검증(실측·컨테이너): gradlew --rerun-tasks 229파일 **1319·0 fail**(1318 + 1) · typecheck 0 · vitest 82파일 **545**(533 + 12) · no-admin-import 통과 · Playwright 4쌍 env 96건 콜드 85 → 웜 **96/96**(seller-dashboard ② 포함·seller03 원복 로그인 200) · 사용자 픽셀 12장 diff 0(재시작 직후 `track90d2c` vs main 상태 `track90d2-main` = `track92a`) · `layers/admin` diff 0.
+- 신규 의존성: 없음.
+
+### §8 이월
+- **D-189 Javadoc 불일치**: `AdminMemberProvisioningService.java:38-39` "구매자 FE의 비밀번호 변경 화면이 유일한 변경 경로"는 본 트랙 후 사실과 다르다(셀러 폼 추가). BUYER 동시 부여 결정 자체(회원 목록·탈퇴·재발급이 BUYER 기준)는 유효 — 문구 수정은 별건.
+- 90-D-3: 계좌 화면 + 사이드바 "설정" 그룹 승격(비밀번호 변경·계좌).
+- 대시보드 최근 클레임·처리 대기 클레임 칸 링크(FE-47 이월)·회수 송장 표시(D-195 §8) — FE-49 §8 그대로.

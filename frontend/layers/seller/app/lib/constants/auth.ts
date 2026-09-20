@@ -10,9 +10,16 @@ export const SELLER_LOGIN_PATH = '/seller/login'
 
 /**
  * 셀러 비밀번호 변경 경로(D-3 구매자형 강제). 임시 비밀번호 세션은 미들웨어가 이 경로로만 보낸다.
- * 실제 변경 화면은 90-D 설정에서 만들며 이번 트랙은 안내(placeholder)만 둔다.
+ * 변경 폼은 Track 90-D-2(FE-50)에서 제공한다(BE PATCH /api/v1/users/me/password 재사용).
  */
 export const SELLER_PASSWORD_CHANGE_PATH = '/seller/settings/password'
+
+/**
+ * 셀러 로그인 페이지 안내 query(구매자 app/lib/constants/auth LOGIN_NOTICE_* 동형). 비밀번호 변경 204 후 BE가 기존 토큰을 무효화하므로
+ * 폼이 logout → 이 query로 로그인 페이지에 보내 재로그인을 안내한다(FE-50).
+ */
+export const SELLER_LOGIN_NOTICE_QUERY = 'notice'
+export const SELLER_LOGIN_NOTICE_PASSWORD_CHANGED = 'password-changed'
 
 /**
  * 셀러 비밀번호 변경 강제 상태 쿠키(D-3). 로그인 응답 passwordChangeRequired=true(임시 비밀번호 로그인)면 저장하고 seller 미들웨어가 판정한다.

@@ -32,7 +32,7 @@ const displayEmail = computed<string>(() => (profileError.value || !profile.valu
 // 아바타 이니셜: 이름(또는 이메일) 첫 글자. 프로필 미도착 시 빈 아바타.
 const avatarInitial = computed<string>(() => displayName.value.charAt(0).toUpperCase())
 
-// 브레드크럼: 현재 경로가 속한 그룹 › 메뉴. 대시보드(단일 링크)는 1단계. 메뉴 밖 경로(비밀번호 변경 안내 등)는 빈 배열.
+// 브레드크럼: 현재 경로가 속한 그룹 › 메뉴. 대시보드(단일 링크)는 1단계. 메뉴 밖 경로(로그인 등)는 빈 배열.
 const breadcrumbs = computed<string[]>(() => {
   const activePath = resolveActiveSellerMenuPath(route.path)
   for (const group of SELLER_MENU) {

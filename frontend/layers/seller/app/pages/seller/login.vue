@@ -1,5 +1,10 @@
 <script setup lang="ts">
-import { SELLER_DEMO_STATUS_PATH, SELLER_HOME_PATH } from '#layers/seller/app/lib/constants/auth'
+import {
+  SELLER_DEMO_STATUS_PATH,
+  SELLER_HOME_PATH,
+  SELLER_LOGIN_NOTICE_PASSWORD_CHANGED,
+  SELLER_LOGIN_NOTICE_QUERY,
+} from '#layers/seller/app/lib/constants/auth'
 import { useSellerAuthStore } from '#layers/seller/app/stores/sellerAuth'
 
 // 셀러 로그인(Track 90-A·관리자 admin/login.vue 동형·seller_token 세션). 공개 페이지라 seller 미들웨어 미부착·seller-vuetify 미들웨어만(미인증 상태에서 Vuetify 로드).
@@ -7,6 +12,9 @@ definePageMeta({ layout: 'seller-auth', middleware: ['seller-vuetify'] })
 
 const sellerAuth = useSellerAuthStore()
 const route = useRoute()
+
+// 비밀번호 변경 완료 후 재로그인 안내(FE-50·settings/password.vue가 query로 전달·구매자 login.vue 동형).
+const passwordChangedNotice = computed<boolean>(() => route.query[SELLER_LOGIN_NOTICE_QUERY] === SELLER_LOGIN_NOTICE_PASSWORD_CHANGED)
 
 const email = ref<string>('')
 const password = ref<string>('')
@@ -75,6 +83,9 @@ useSeoMeta({ title: '셀러 로그인 · zslab-mall', robots: 'noindex, nofollow
         <div class="slr-page-header__description text-body-2">셀러 센터</div>
       </div>
       <v-card class="pa-6">
+        <v-alert v-if="passwordChangedNotice" type="success" variant="tonal" density="compact" class="mb-4" role="status" data-testid="seller-login-password-changed-notice">
+          비밀번호가 변경되었습니다. 새 비밀번호로 다시 로그인해 주세요.
+        </v-alert>
         <p class="text-body-2 text-medium-emphasis mb-5">셀러 구성원 계정으로 로그인하세요.</p>
         <v-form @submit.prevent="handleSubmit">
           <v-text-field id="seller-email" v-model="email" label="이메일" type="email" autocomplete="username" required />
