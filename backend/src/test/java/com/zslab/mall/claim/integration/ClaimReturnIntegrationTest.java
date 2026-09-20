@@ -421,6 +421,7 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON).content(INSPECT_PASS_RESTOCK))
                 .andExpect(status().isForbidden());
         // BUYER 토큰의 /api/v1/claims/{id}/inspect는 경로 부재(NoResourceFoundException → GEH catch-all 500·LT-27)라 인가 단언 대상이 아니다.
+        // 매핑 부재는 ClaimProcessingMappingAbsenceTest가 감시한다(제거된 처리 매핑·경로 변경·역할 무관 부활 → RED).
         mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/return-shipment").headers(authHeaders.seller(SELLER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(RETURN_SHIPMENT_BODY))
                 .andExpect(status().isForbidden());
