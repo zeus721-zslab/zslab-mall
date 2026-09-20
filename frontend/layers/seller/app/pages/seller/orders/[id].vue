@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { mdiArrowLeft, mdiTruckDeliveryOutline } from '@mdi/js'
 import type { SellerOrderItemDetail } from '#layers/seller/app/types/seller-order'
-import { orderItemStatusLabel } from '~/lib/constants/claim'
+import { claimStatusLabel, claimTypeLabel, orderItemStatusLabel } from '~/lib/constants/claim'
 import { formatDateTime } from '~/lib/utils/datetime'
 import {
+  SELLER_CLAIM_STATUS_SEMANTIC,
   SELLER_DELIVERY_CARRIER_LABEL,
   SELLER_DELIVERY_STATUS_LABEL,
   SELLER_DELIVERY_STATUS_SEMANTIC,
@@ -11,7 +12,7 @@ import {
 } from '#layers/seller/app/lib/constants/seller-order'
 import { semanticChipClass } from '#layers/seller/app/lib/constants/semantic'
 import { canPrepareShipment } from '#layers/seller/app/lib/seller-order-view'
-import { SELLER_DELIVERIES_PATH, SELLER_ORDERS_PATH, resolveBackPath } from '#layers/seller/app/lib/seller-back-path'
+import { SELLER_CLAIMS_PATH, SELLER_DELIVERIES_PATH, SELLER_ORDERS_PATH, resolveBackPath } from '#layers/seller/app/lib/seller-back-path'
 import { extractErrorCode, toSellerErrorMessage } from '#layers/seller/app/lib/seller-error-message'
 import { formatWon } from '#layers/seller/app/lib/format'
 import { useSellerOrders } from '#layers/seller/app/composables/useSellerOrders'
@@ -21,6 +22,7 @@ useSeoMeta({ title: '주문 품목 상세 · zslab-mall 셀러' })
 
 // 셀러 품목 상세(Track 90-B-3·D-191). 품목 정보 + 배송지 스냅샷(마스킹 없음·출고 라벨용·수령인 정보만) + 원 발송 배송 상태. 구매자 계정 정보·주문 총액은
 // BE가 싣지 않는다. 출고(PAID)는 여기서도 가능하고 배송완료·송장 정정은 배송 화면으로 안내한다. 미존재·타 셀러·미결제(404)는 안내 + 목록 이동.
+// 클레임(Track 90-D-1): 최신 1건 칩(+건수) → 클레임 상세(조회 전용·back은 이 상세).
 const route = useRoute()
 const ordersApi = useSellerOrders()
 
@@ -53,6 +55,9 @@ onMounted(load)
 const shipmentOpen = ref(false)
 const shippable = computed(() => (detail.value ? canPrepareShipment(detail.value) : false))
 const deliveriesLink = computed(() => (detail.value ? `${SELLER_DELIVERIES_PATH}?keyword=${encodeURIComponent(detail.value.orderNo)}` : SELLER_DELIVERIES_PATH))
+const claimLink = computed(() => (detail.value?.claim
+  ? { path: `${SELLER_CLAIMS_PATH}/${detail.value.claim.claimId}`, query: { back: route.fullPath } }
+  : null))
 
 function closeShipment(refresh: boolean): void {
   shipmentOpen.value = false
@@ -104,6 +109,24 @@ function closeShipment(refresh: boolean): void {
                 <v-col cols="6"><div class="text-caption text-medium-emphasis">결제일시</div><div class="text-body-2" data-testid="order-detail-paid-at">{{ detail.paidAt ? formatDateTime(detail.paidAt) : '—' }}</div></v-col>
                 <v-col cols="6"><div class="text-caption text-medium-emphasis">수량 × 단가</div><div class="text-body-2">{{ detail.quantity }} × {{ formatWon(detail.unitPrice) }}</div></v-col>
                 <v-col cols="6"><div class="text-caption text-medium-emphasis">품목 금액</div><div class="text-body-2 font-weight-bold" data-testid="order-detail-total">{{ formatWon(detail.totalPrice) }}</div></v-col>
+                <v-col cols="12">
+                  <div class="text-caption text-medium-emphasis">클레임</div>
+                  <div v-if="detail.claim && claimLink" class="d-flex align-center flex-wrap ga-2">
+                    <v-chip
+                      :class="semanticChipClass(SELLER_CLAIM_STATUS_SEMANTIC[detail.claim.status])"
+                      size="small"
+                      variant="flat"
+                      :to="claimLink"
+                      data-testid="order-detail-claim-chip"
+                    >
+                      {{ claimTypeLabel(detail.claim.type) }} {{ claimStatusLabel(detail.claim.status) }}
+                    </v-chip>
+                    <span class="text-caption text-medium-emphasis" data-testid="order-detail-claim-count">
+                      {{ detail.claimCount > 1 ? `총 ${detail.claimCount}건 · 최신 요청 ${formatDateTime(detail.claim.requestedAt)}` : `요청 ${formatDateTime(detail.claim.requestedAt)}` }}
+                    </span>
+                  </div>
+                  <div v-else class="text-body-2 text-medium-emphasis" data-testid="order-detail-no-claim">없음</div>
+                </v-col>
               </v-row>
             </v-card-text>
           </v-card>

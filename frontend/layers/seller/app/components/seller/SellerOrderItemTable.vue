@@ -4,18 +4,20 @@ import type { SellerOrderItemSummary } from '#layers/seller/app/types/seller-ord
 import { orderItemStatusLabel } from '~/lib/constants/claim'
 import { formatDateTime } from '~/lib/utils/datetime'
 import {
+  SELLER_CLAIM_STATUS_SEMANTIC,
   SELLER_DELIVERY_CARRIER_LABEL,
   SELLER_DELIVERY_STATUS_LABEL,
   SELLER_DELIVERY_STATUS_SEMANTIC,
   SELLER_ORDER_ITEM_STATUS_SEMANTIC,
   SELLER_ORDER_PAGE_SIZES,
 } from '#layers/seller/app/lib/constants/seller-order'
-import { canPrepareShipment } from '#layers/seller/app/lib/seller-order-view'
+import { canPrepareShipment, claimChipLabel } from '#layers/seller/app/lib/seller-order-view'
 import { formatWon } from '#layers/seller/app/lib/format'
 import { semanticChipClass } from '#layers/seller/app/lib/constants/semantic'
 
 // 품목 표(Track 90-B-3·v-data-table-server·관리자 AdminOrderTable 복제). 행 = 자기 품목(D-191). 페이지·크기는 부모(URL)가 소유하고 표는 이벤트만 올린다.
 // 출고 버튼은 PAID 품목에만 노출(canPrepareShipment)·부모가 다이얼로그를 연다. 배송완료는 배송 화면(진입점 분리·D-191 §5-2).
+// 클레임 칩(Track 90-D-1)은 최신 1건 유형·상태(+2건 이상이면 건수)이며 클릭 시 부모가 클레임 상세로 보낸다(조회 전용·처리 없음).
 const props = defineProps<{
   items: SellerOrderItemSummary[]
   totalCount: number
@@ -30,6 +32,7 @@ const emit = defineEmits<{
   'update:size': [size: number]
   open: [item: SellerOrderItemSummary]
   prepareShipment: [item: SellerOrderItemSummary]
+  openClaim: [item: SellerOrderItemSummary]
 }>()
 
 // 7컬럼: 1440px에서 가로 스크롤이 없도록 주문/결제 일시·상품/옵션·금액/수량을 2줄 셀로 병합한다.
@@ -110,6 +113,17 @@ function isPending(item: SellerOrderItemSummary): boolean {
           data-testid="delivery-status-chip"
         >
           {{ SELLER_DELIVERY_STATUS_LABEL[item.delivery.status] }}
+        </v-chip>
+        <v-chip
+          v-if="item.claim"
+          :class="semanticChipClass(SELLER_CLAIM_STATUS_SEMANTIC[item.claim.status])"
+          size="small"
+          variant="flat"
+          :title="`클레임 상세 보기 (${item.claim.claimId})`"
+          data-testid="claim-chip"
+          @click.stop="emit('openClaim', item)"
+        >
+          {{ claimChipLabel(item) }}
         </v-chip>
       </div>
     </template>

@@ -8,10 +8,17 @@ export const SELLER_DELIVERIES_PATH = '/seller/deliveries'
 export const SELLER_SETTLEMENTS_PATH = '/seller/settlements'
 export const SELLER_PRODUCTS_PATH = '/seller/products'
 export const SELLER_INVENTORY_PATH = '/seller/products/inventory'
+export const SELLER_CLAIMS_PATH = '/seller/claims'
 
-/** 허용 base 외 추가 진입 목록: 품목 상세는 대시보드(최근 주문)·배송 목록에서도 진입한다. */
+/** 허용 base 외 추가 진입 목록: 품목 상세는 대시보드(최근 주문)·배송 목록에서도, 클레임 상세는 주문 목록(클레임 칩)에서도 진입한다. */
 const EXTRA_BACK_BASES: Record<string, string[]> = {
   [SELLER_ORDERS_PATH]: [SELLER_DASHBOARD_PATH, SELLER_DELIVERIES_PATH],
+  [SELLER_CLAIMS_PATH]: [SELLER_ORDERS_PATH],
+}
+
+/** 상세 화면에서의 진입(경로 세그먼트 뒤가 열린 형태): 클레임 상세는 품목 상세(/seller/orders/{oit}·클레임 칩)로 복귀할 수 있다(Track 90-D-1). */
+const EXTRA_BACK_DETAIL_PREFIXES: Record<string, string[]> = {
+  [SELLER_CLAIMS_PATH]: [`${SELLER_ORDERS_PATH}/`],
 }
 
 function matchesBase(value: string, base: string): boolean {
@@ -23,5 +30,6 @@ export function resolveBackPath(back: unknown, base: string): string {
   if (typeof value !== 'string') return base
   if (matchesBase(value, base)) return value
   if ((EXTRA_BACK_BASES[base] ?? []).some((extra) => matchesBase(value, extra))) return value
+  if ((EXTRA_BACK_DETAIL_PREFIXES[base] ?? []).some((prefix) => value.startsWith(prefix))) return value
   return base
 }

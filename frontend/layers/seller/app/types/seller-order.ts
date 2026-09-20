@@ -1,4 +1,4 @@
-import type { OrderItemStatusCode } from '~/lib/constants/claim'
+import type { ClaimStatus, ClaimType, OrderItemStatusCode } from '~/lib/constants/claim'
 import type { SellerDeliveryCarrier, SellerDeliveryStatus } from '#layers/seller/app/lib/constants/seller-order'
 
 /**
@@ -17,7 +17,15 @@ export interface SellerOrderItemDelivery {
   deliveredAt?: string
 }
 
-/** 목록 행(BE SellerOrderItemSummaryResponse·12필드). 주문 축은 번호·시각뿐(구매자·총액 없음). */
+/** 품목의 요청일 최신 클레임 요약(BE SellerOrderItemClaimResponse·Track 90-D-1). 클레임 없는 품목은 생략. */
+export interface SellerOrderItemClaim {
+  claimId: string
+  type: ClaimType
+  status: ClaimStatus
+  requestedAt: string
+}
+
+/** 목록 행(BE SellerOrderItemSummaryResponse·14필드). 주문 축은 번호·시각뿐(구매자·총액 없음). claim:order_item = 1:N이라 최신 1건 + 건수. */
 export interface SellerOrderItemSummary {
   orderItemId: string
   orderNo: string
@@ -32,6 +40,9 @@ export interface SellerOrderItemSummary {
   /** 배송지 수령인명(주문자 아님). */
   recipientName?: string
   delivery?: SellerOrderItemDelivery
+  claim?: SellerOrderItemClaim
+  /** 품목의 클레임 총 건수(거부·종결 이력 포함·0이면 클레임 없음). */
+  claimCount: number
 }
 
 /** 배송지 스냅샷(BE ShippingAddressResponse·마스킹 없음·출고 라벨용). */

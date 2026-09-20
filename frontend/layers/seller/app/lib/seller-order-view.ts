@@ -1,4 +1,5 @@
 import type { SellerOrderItemSummary } from '#layers/seller/app/types/seller-order'
+import { claimStatusLabel, claimTypeLabel } from '~/lib/constants/claim'
 import { SELLER_SHIPPABLE_ITEM_STATUSES, SELLER_TRACKING_NO_MAX } from '#layers/seller/app/lib/constants/seller-order'
 
 /**
@@ -35,4 +36,11 @@ export function validateShipmentForm(input: ShipmentFormInput): Record<string, s
 export function itemLabel(item: Pick<SellerOrderItemSummary, 'productName' | 'optionLabel' | 'quantity'>): string {
   const option = item.optionLabel ? ` (${item.optionLabel})` : ''
   return `${item.productName}${option} · ${item.quantity}개`
+}
+
+/** 품목 행 클레임 칩 라벨: "반품 요청" 형태(유형 + 상태). 2건 이상이면 " · N건"을 붙여 이력이 더 있음을 알린다(Track 90-D-1). */
+export function claimChipLabel(item: Pick<SellerOrderItemSummary, 'claim' | 'claimCount'>): string | null {
+  if (!item.claim) return null
+  const base = `${claimTypeLabel(item.claim.type)} ${claimStatusLabel(item.claim.status)}`
+  return item.claimCount > 1 ? `${base} · ${item.claimCount}건` : base
 }
