@@ -2,7 +2,9 @@ package com.zslab.mall.product.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -136,11 +138,18 @@ class SellerProductQueryControllerIntegrationTest extends AbstractIntegrationTes
     }
 
     @Test
-    @DisplayName("T1 인가: 비인증 401 · 구매자 403 · 셀러 200(목록·상세)")
+    @DisplayName("T1 인가: 비인증 401 · 구매자 403 · 셀러 200(목록·상세) · 필터 응답 charset=UTF-8·한글 detail 원문")
     void authorization() throws Exception {
-        mockMvc.perform(get(LIST_URL)).andExpect(status().isUnauthorized());
+        // Track 91: 필터 계층(SecurityErrorHandler) 직접 응답은 charset 미지정 시 ISO-8859-1로 쓰여 한글이 '?'가 됐다 → 헤더·detail 원문 단언
+        mockMvc.perform(get(LIST_URL)).andExpect(status().isUnauthorized())
+                .andExpect(header().string("Content-Type", containsString("charset=UTF-8")))
+                .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"))
+                .andExpect(jsonPath("$.detail").value("인증이 필요합니다."));
         mockMvc.perform(get(LIST_URL + "/" + P1_PID)).andExpect(status().isUnauthorized());
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.buyer(BUYER_ID))).andExpect(status().isForbidden());
+        mockMvc.perform(get(LIST_URL).headers(authHeaders.buyer(BUYER_ID))).andExpect(status().isForbidden())
+                .andExpect(header().string("Content-Type", containsString("charset=UTF-8")))
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"))
+                .andExpect(jsonPath("$.detail").value("접근 권한이 없습니다."));
         mockMvc.perform(get(LIST_URL + "/" + P1_PID).headers(authHeaders.buyer(BUYER_ID))).andExpect(status().isForbidden());
         mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A))).andExpect(status().isOk());
         mockMvc.perform(get(LIST_URL + "/" + P1_PID).headers(authHeaders.seller(USER_A))).andExpect(status().isOk());
@@ -319,8 +328,10 @@ class SellerProductQueryControllerIntegrationTest extends AbstractIntegrationTes
     void detail_hiddenAs404() throws Exception {
         mockMvc.perform(get(LIST_URL + "/" + PB_PID).headers(authHeaders.seller(USER_A)))
                 .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("PRODUCT_NOT_FOUND"));
+        // Track 91 대조군: GlobalExceptionHandler 경유 404의 한글 detail은 MVC 컨버터가 UTF-8로 쓴다(회귀 방어)
         mockMvc.perform(get(LIST_URL + "/" + MISSING_PID).headers(authHeaders.seller(USER_A)))
-                .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("PRODUCT_NOT_FOUND"));
+                .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("PRODUCT_NOT_FOUND"))
+                .andExpect(jsonPath("$.detail").value("상품을 찾을 수 없습니다: publicId=" + MISSING_PID));
         mockMvc.perform(get(LIST_URL + "/" + P4_PID).headers(authHeaders.seller(USER_A)))
                 .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("PRODUCT_NOT_FOUND"));
         mockMvc.perform(get(LIST_URL + "/" + PB_PID).headers(authHeaders.seller(USER_B)))
