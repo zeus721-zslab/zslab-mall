@@ -54,6 +54,13 @@ class ProductRegistrationControllerIntegrationTest extends AbstractIntegrationTe
     private static final long BUYER_USER_ID = 9542L;   // 비-SELLER role 403 검증용
     private static final long CATEGORY_ID = 9543L;
     private static final long MISSING_CATEGORY_ID = 9599L; // 미seed·404 검증용
+    private static final long ADMIN_USER_ID = 9544L;       // 관리자 등록 경로 회귀 방어용(user 행 불필요·JWT subject만)
+    private static final String SELLER_PUBLIC_ID = pid("slr_", "PRGSLR");
+    private static final String ADMIN_URL = "/api/v1/admin/products";
+    // Track 90-C 검토 반영: thumbnailUrl은 본인(SELLER_ID) 발급 경로만 허용·타 셀러·공용(관리자) 경로는 400.
+    private static final String OWN_THUMBNAIL_URL = "/api/v1/files/products/sellers/9540/2026/09/01J8PRGOWN0000000000000000.jpg";
+    private static final String OTHER_SELLER_THUMBNAIL_URL = "/api/v1/files/products/sellers/9549/2026/09/01J8PRGOTHER00000000000000.jpg";
+    private static final String SHARED_PATH_THUMBNAIL_URL = "/api/v1/files/products/2026/09/01J8PRGSHARED0000000000000.jpg";
 
     @Autowired
     private MockMvc mockMvc;
@@ -304,6 +311,50 @@ class ProductRegistrationControllerIntegrationTest extends AbstractIntegrationTe
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
     }
 
+    // ==================== thumbnailUrl 셀러 귀속(Track 90-C 검토 반영) ====================
+
+    @Test
+    @DisplayName("T16a 셀러 등록에 타 셀러 발급 thumbnailUrl → 400 MALFORMED_REQUEST + 상품 미생성")
+    void register_otherSellerThumbnail_returns400() throws Exception {
+        expectBadRequest(withThumbnail(OTHER_SELLER_THUMBNAIL_URL));
+        assertThat(count("SELECT COUNT(*) FROM product WHERE seller_id=?", SELLER_ID)).isZero();
+    }
+
+    @Test
+    @DisplayName("T16b 셀러 등록에 본인 발급 thumbnailUrl → 201 + thumbnail_url 저장")
+    void register_ownThumbnail_returns201() throws Exception {
+        MvcResult result = register(sellerAuth(), withThumbnail(OWN_THUMBNAIL_URL)).andExpect(status().isCreated()).andReturn();
+        Long productId = productId(extract(result).productPublicId());
+        assertThat(count("SELECT COUNT(*) FROM product WHERE id=? AND thumbnail_url=?", productId, OWN_THUMBNAIL_URL)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("T16c 셀러 등록에 thumbnailUrl null → 201(검증 생략)")
+    void register_nullThumbnail_returns201() throws Exception {
+        MvcResult result = register(sellerAuth(), product(List.of(), List.of(variant("NULL-THUMB", 0, 0, 1))))
+                .andExpect(status().isCreated()).andReturn();
+        Long productId = productId(extract(result).productPublicId());
+        assertThat(count("SELECT COUNT(*) FROM product WHERE id=? AND thumbnail_url IS NULL", productId)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("T16d 관리자 등록에 공용 경로 thumbnailUrl → 201(관리자 경로는 셀러 귀속 검증 미적용·회귀 방어)")
+    void adminCreate_sharedPathThumbnail_returns201() throws Exception {
+        String body = "{\"sellerPublicId\":\"" + SELLER_PUBLIC_ID + "\",\"categoryId\":" + CATEGORY_ID + ",\"name\":\"관리자등록\","
+                + "\"description\":null,\"basePrice\":10000,\"supplyPrice\":7000,\"thumbnailUrl\":\"" + SHARED_PATH_THUMBNAIL_URL + "\","
+                + "\"saleStartAt\":null,\"saleEndAt\":null,\"optionGroups\":[],"
+                + "\"variants\":[{\"variantCode\":\"ADM-1\",\"additionalPrice\":0,\"displayOrder\":0,\"initialStock\":1,\"optionKeys\":[]}]}";
+        MvcResult result = mockMvc.perform(post(ADMIN_URL)
+                        .headers(authHeaders.admin(ADMIN_USER_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated())
+                .andReturn();
+        Long productId = productId(extract(result).productPublicId());
+        assertThat(count("SELECT COUNT(*) FROM product WHERE id=? AND seller_id=? AND thumbnail_url=?",
+                productId, SELLER_ID, SHARED_PATH_THUMBNAIL_URL)).isEqualTo(1);
+    }
+
     // ==================== seed·helpers ====================
 
     private HttpHeaders sellerAuth() {
@@ -350,6 +401,10 @@ class ProductRegistrationControllerIntegrationTest extends AbstractIntegrationTe
         return req(CATEGORY_ID, groups, variants);
     }
 
+    private ProductRegistrationRequest withThumbnail(String thumbnailUrl) {
+        return new ProductRegistrationRequest(CATEGORY_ID, "테스트상품", null, 10000L, thumbnailUrl, List.of(), List.of(variant("THUMB-1", 0, 0, 1)));
+    }
+
     private Long productId(String publicId) {
         return jdbc.queryForObject("SELECT id FROM product WHERE public_id=?", Long.class, publicId);
     }
@@ -383,7 +438,7 @@ class ProductRegistrationControllerIntegrationTest extends AbstractIntegrationTe
                         SELLER_USER_ID, pid("usr_", "PRGUSR"));
                 jdbc.update("INSERT INTO seller (id, public_id, company_name, ceo_name, status, created_at, updated_at) "
                                 + "VALUES (?, ?, '등록테스트셀러', '대표', 'ACTIVE', NOW(6), NOW(6))",
-                        SELLER_ID, pid("slr_", "PRGSLR"));
+                        SELLER_ID, SELLER_PUBLIC_ID);
                 jdbc.update("INSERT INTO seller_user (user_id, seller_id, role_id, created_at, updated_at) "
                                 + "SELECT ?, ?, id, NOW(6), NOW(6) FROM role WHERE code = 'SELLER_OWNER'",
                         SELLER_USER_ID, SELLER_ID);
@@ -409,6 +464,7 @@ class ProductRegistrationControllerIntegrationTest extends AbstractIntegrationTe
                 jdbc.update("DELETE FROM product_option_value WHERE option_group_id IN "
                         + "(SELECT id FROM product_option_group WHERE product_id IN (SELECT id FROM product WHERE seller_id=?))", SELLER_ID);
                 jdbc.update("DELETE FROM product_option_group WHERE product_id IN (SELECT id FROM product WHERE seller_id=?)", SELLER_ID);
+                jdbc.update("DELETE FROM audit_log WHERE target_type='PRODUCT' AND target_id IN (SELECT id FROM product WHERE seller_id=?)", SELLER_ID);
                 jdbc.update("DELETE FROM product WHERE seller_id=?", SELLER_ID);
                 jdbc.update("DELETE FROM seller_user WHERE user_id=?", SELLER_USER_ID);
                 jdbc.update("DELETE FROM seller WHERE id=?", SELLER_ID);

@@ -2,6 +2,7 @@ package com.zslab.mall.product.service;
 
 import com.zslab.mall.category.exception.CategoryNotFoundException;
 import com.zslab.mall.category.repository.CategoryRepository;
+import com.zslab.mall.file.service.ImageUploadService;
 import com.zslab.mall.inventory.service.InventoryService;
 import com.zslab.mall.product.controller.request.ProductOptionGroupRequest;
 import com.zslab.mall.product.controller.request.ProductOptionValueRequest;
@@ -69,6 +70,21 @@ public class ProductRegistrationService {
     private final ProductOptionValueRepository productOptionValueRepository;
     private final ProductVariantRepository productVariantRepository;
     private final InventoryService inventoryService;
+
+    /**
+     * 셀러 주도 상품 등록(Track 90-C 검토 반영). {@code thumbnailUrl}이 있으면 본인에게 서버가 발급한 업로드 경로인지 먼저 검증하고
+     * {@link #registerProduct}에 위임한다. 관리자 등록({@code AdminProductCommandService.create})은 공용 {@code products/yyyy/MM/}
+     * 경로를 쓰므로 {@link #registerProduct}를 그대로 호출해 이 검증을 타지 않는다 — 인자 분기 대신 셀러 전용 진입점을 분리해
+     * 관리자 호출부·기존 등록 흐름을 한 줄도 바꾸지 않는 쪽(회귀 위험 최소)을 택했다.
+     *
+     * @throws com.zslab.mall.common.exception.MalformedRequestException thumbnailUrl이 본인 발급 상품 이미지 경로가 아닐 때(400)
+     */
+    public ProductRegistrationResponse registerProductForSeller(Long sellerId, ProductRegistrationRequest request) {
+        if (request.thumbnailUrl() != null) {
+            ImageUploadService.requireSellerOwnedProductUrl(request.thumbnailUrl(), sellerId);
+        }
+        return registerProduct(sellerId, request);
+    }
 
     /**
      * 상품을 등록한다. 성공 시 Product·OptionGroup·OptionValue·ProductVariant·초기 재고를 원자 생성하고 생성된 식별자를 반환한다.
