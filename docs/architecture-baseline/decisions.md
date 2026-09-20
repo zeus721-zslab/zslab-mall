@@ -11561,3 +11561,46 @@ deploy.yml이 `push main` 무필터라 docs만 변경된 머지에도 서버 SSH
 - 관리자 `replaceImages`도 대표 미지정 시 썸네일 stale(D-194와 동일 결함·관리자 측 미수정).
 - 장바구니 표시가 ≠ checkout 계산가 고지(90-C가 만든 문제는 아니나 셀러 가격 변경으로 노출 빈도 상승).
 - `ClaimExchangeService`의 교환 옵션 동가 가드가 현재가를 참조 — 셀러 가격 변경 시 동일 상품 타 옵션 교환이 차단될 수 있음(금액 계산 아님·정산·환불은 스냅샷).
+
+## D-195. 셀러 클레임 조회·첨부 열람 (Track 90-D-1)
+
+날짜: 2026-09-20
+브랜치: feat/track-90d-seller-claims
+정찰: docs/track-90d/recon-report-claims.md(gitignore·로컬)
+
+### 배경
+셀러 패널에 클레임 화면이 없어 자기 품목에 걸린 취소·반품·교환을 관리자에게 물어야 했다(D-191 §8 이월·FE-47 이월). 처리(승인·거부·회수·검수·교환 출고)는 관리자 전용으로 유지하고 **조회만** 연다. 기존 셀러 처리 endpoint 5건(`/api/v1/claims/*/approve·reject·confirm-pickup·inspect·register-exchange-shipment`·SELLER 인가)은 본 트랙에서 손대지 않는다(Track 92 이월).
+
+### 결정
+- **신설 API 3**: `GET /api/v1/seller/claims`(type·status·keyword·from·to·page·size) · `GET /api/v1/seller/claims/{clm}` · 첨부 서빙 `GET /api/v1/files/claims/**`의 SELLER 인가 분기. SecurityConfig 무수정(`/api/v1/seller/**` 단일 매처·D-191 관례).
+- **조회 격리**: `SellerClaimSpecifications.ownedBySeller`(`claim.order_item_id IN (order_item WHERE seller_id = :s)`)를 목록·상세 모든 Specification에 **AND로 결합**(순서가 아니라 AND 결합이 범위 보장). 유형·상태·기간은 관리자 Specification 재사용, keyword는 셀러용(주문번호 정확·상품명 부분·**구매자 축 없음**·LIKE 이스케이프). 정렬 요청일 최신순 고정. 타 셀러·미존재 404 `CLAIM_NOT_FOUND`(detail은 publicId만).
+- **첨부 인가 SELLER 분기**(`ClaimAttachmentAuthorizationService.isOwningSeller`): 연결 첨부만, `claim.order_item_id → order_item.seller_id`가 요청 user의 `seller_user` 소속(`findMembershipByUserId`·seller JOIN·soft-delete 제외)·세션 허용 상태(ACTIVE·SUSPENDED·`SellerAccessPolicy.isSessionAllowed`)와 일치할 때만. 저장 키에 sellerId가 없으므로 경로 문자열이 아니라 **DB 경로 판정**(D-176 §8 이월 종결). BUYER·ADMIN 판정식 무변경(bd8d039f 대조). 거부·미존재 404 통일 유지.
+- **노출 표**: 노출 = claimId·type·status·reasonCode·**reasonDetail**·orderNo·productName·optionLabel·requestedAt·processedAt·**refundStatus(상태만)**·attachmentCount·(상세) `attachments{attachmentId,url}`·`exchangeDeliveryStatus`·**rejectReasonCode(코드만·상세만)**. 차단 = buyerName·buyerEmail·orderId·availableActions·**rejectMemo**·환불 **금액** 일체·타 셀러 품목·`attachment.fileName`(구매자 기기 원본 파일명)·회수 송장. 관리자 DTO 재사용 금지·셀러 record 2종(`SellerClaimSummaryResponse` 12키·`SellerClaimDetailResponse`)·`FORBIDDEN_KEYS`(관리자 클레임 행·`AdminOrderDetailResponse.ClaimRow`·구매자 `ClaimResponse` 리플렉션 ∪ 수동 17)로 IT 고정(D-193 방식).
+- **주문 품목 응답**(`SellerOrderItemSummary/DetailResponse`)에 대표 클레임 1건 `claim{claimId,type,status,requestedAt}` + `claimCount`. claim:order_item = 1:N(거부·종결 후 재청구는 새 행)이라 **대표 = requestedAt 최신 1건·동률 또는 null은 id 내림차순**(`LATEST_CLAIM` Comparator·null은 사실상 제외). 배치 1쿼리(`findByOrderItemIdInOrderByIdDesc`).
+- 쿼리 예산(Hibernate Statistics 실측): 셀러 클레임 목록 **7**(액터 해소 1 + count·page 2 + 배치 4) · 품목 목록 **8**(배치 5·클레임 +1). size 100·복수 클레임 품목에서도 고정.
+- 셀러 조작 감사 로그 없음(90-C와 동일). Flyway 무변경·신규 의존성 없음.
+- 외부 검토: **등급 A · 6라운드(r1·r2a·r2b·r3a·r3b·r4) · 지적 12건 중 수용 9·기각 3 · blocker 0 · 재검토 불필요**(국소 수정·테스트 재현 통과). 수용분: r1 정보 부족 4건 자체 확정(soft-delete seller_user·order_item / soft-delete claim·attachment / 탈퇴·삭제 user·credentials_changed_at / BUYER·ADMIN 판정식 대조 — 전부 안전·회귀 IT 박제) · 혼합 주문 주문번호 keyword · LIKE literal 3종 · 400/404 detail 비민감 · 대표 클레임 tie-breaker 2건 · size 100 쿼리 예산 · "최선두" 주석 교체 · FE blob 소유권 통일(FE-49) · `useSellerClaims` 표면 고정.
+
+### §1-A 갈림길·채택/기각 근거
+1. **첨부 열람 전달 — α fetch + Authorization Bearer → object URL(blob) 【채택】 / β 셀러 토큰 쿠키 path를 `/seller`에서 전 경로로 확대해 `<img src>` 유지 【기각: 셀러 토큰을 구매자·관리자 페이지 요청에까지 노출·Track 90-A 세션 격리 번복】 / γ 첨부 비노출(개수만) 【기각: 불량·오배송 사유의 사진 없이는 셀러 조회 목적이 소멸】.** `seller_token` 쿠키가 path=/seller라 `/api/v1/files/...` 이미지 요청에 실리지 않고 `RequestTokenCandidates`도 읽지 않는다.
+2. **상세 GET의 원본 — 대안 검토 없음.** 관리자에는 클레임 상세 GET이 없고(목록 행 + 주문 상세 ClaimRow) 셀러 DTO가 원본이다. 갈림길이 아니라 계약 부재에서 온 확정.
+
+### 외부 검토 기각 근거
+- **타 셀러 404 타이밍 누설**: 조회 횟수 차이가 드러나려면 먼저 유효한 ULID 첨부 키·클레임 id를 알아야 하며(열거 불가), 응답 본문·헤더는 동일 — 기각.
+- **attachment polymorphic FK 부재**: `target_type·target_id` 논리 참조는 D-176 기존 설계. 본 트랙은 인가 분기만 추가 — 기각.
+- **enum 직렬화 메타 규칙 테스트**: 기대값이 이미 scalar 문자열로 IT에 고정돼 있어 label 필드가 섞이면 그 단언이 먼저 깨진다 — 기각. whitelist 자동 도출 확장·claim 배치 window function 재설계도 같은 라운드에서 기각.
+
+### §2 확정 구현 규칙
+- 테스트: `SellerClaimQueryControllerIntegrationTest` 12(인가·혼합 주문 스코프·화이트리스트·FORBIDDEN_KEYS·필터·400/404 detail·상세 첨부·타 셀러 404·1:N 요약·tie-breaker·쿼리 예산 2) · `ClaimAttachmentServingIntegrationTest` 16(셀러 본인 200·타 셀러/소속 없음 404·소속·상태 fail-closed·첨부 soft-delete·회원 상태) · `SellerOrderItemQueryControllerIntegrationTest` 화이트리스트 claim·claimCount.
+- 검증(최종): `./gradlew.bat test --rerun-tasks` 229파일 **1331 tests·0 fail·0 error·0 skip**(90-C 종료 1315 → +16).
+- 라이브: buyer04 반품(PRODUCT_DEFECT)·사진 2장(`clm_01M2Z8PSRPZABFCDXX30T2J3RJ`·로컬 DB 존치) → seller02 목록·상세·썸네일 blob·확대 200 / seller01 404 / 익명 404 / 응답 금지 문자열 0.
+- 트랩(테스트): `credentials_changed_at` 경계를 DB `NOW()` 상대값으로 두면 DB 세션 TZ와 JVM(Asia/Seoul) 벽시계 차이로 흔들림 → 고정 시각('2099-01-01'·'2000-01-01')으로 둔다(LT-24).
+
+### §8 이월
+- **unbounded enrichment**: 품목별 클레임은 쿼리 1이지만 페이지 내 품목의 **전체 클레임 이력**을 읽어 대표 1건·건수를 파생한다. 품목당 이력이 커지면 재설계(대표 1건 + count 집계) 검토.
+- **"N+1 없음은 승인, 대용량 성능 보장은 미승인"** — 서브쿼리 count·IN 절의 실행 계획·인덱스는 미점검.
+- **Claim에 soft-delete 도입 시** 대표 선정(`LATEST_CLAIM`)과 `claimCount`에 동일 제외 조건을 함께 걸어야 한다(현재 claim은 soft-delete 컬럼 없음).
+- **whitelist 자동 도출의 한계**: 관리자·구매자 DTO에서 빼는 방식이라 **셀러 DTO에만 새로 생긴 민감 필드**는 못 잡는다 — `MANUAL_FORBIDDEN_KEYS`로 방어 중.
+- 회수 송장(RETURN Delivery) 셀러 노출 — 90-D-1 범위 밖.
+- 셀러 처리 endpoint 5건의 SELLER 인가 존치 → Track 92.
+- 대시보드 최근 클레임·처리 대기 칸 링크(FE-47 이월 유지).

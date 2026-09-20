@@ -557,6 +557,22 @@ PowerShell 안전 훅이 명령 문자열 전체를 스캔해 슬래시로 시�
 
 ---
 
+## LT-24. DB `NOW()`와 JVM 벽시계 차이로 `credentials_changed_at` 경계 테스트가 흔들림 — 고정 시각 사용 [ACTIVE]
+**발견 트랙**: Track 90-D-1(STEP 683·외부 검토 r1 반영)
+**원본 결정**: D-195 §2 트랩
+### 증상
+`UPDATE user SET credentials_changed_at = DATE_ADD(NOW(6), INTERVAL 1 HOUR)`로 "갱신 이전 발급 토큰 거부"를 만들려 했는데 방금 발급한 토큰이 200으로 통과한다(기대 404). 같은 테스트의 withdrawn_at·deleted_at 케이스는 정상.
+### 원인
+`AuthenticatedUserStateVerifier`는 저장값을 JVM `ZoneId.systemDefault()`(Asia/Seoul) 벽시계로 epoch 초 변환해 토큰 iat와 비교한다. DB 세션 `NOW()`는 컨테이너 TZ(UTC)라 "+1시간"이 KST 기준으로는 8시간 전이 되어 iat가 더 늦다. 시드가 쓰는 `NOW(6)`는 다른 컬럼(created_at 등)에서는 문제되지 않지만 **JVM 시각과 대소 비교되는 컬럼**에서만 드러난다.
+### 처치
+경계값을 DB 상대 시각이 아니라 고정 시각으로 둔다 — 거부 케이스 `'2099-01-01 00:00:00'`, 허용 케이스 `'2000-01-01 00:00:00'`. JVM 시각과 비교되는 컬럼(`credentials_changed_at`·만료·기한류)을 시드할 때는 `NOW()` 산술을 쓰지 않는다.
+### 후속 영향
+- 반품 기한(`ReturnWindowPolicy`)·자동 확정처럼 JVM `LocalDateTime.now()`와 비교하는 시각 시드도 같은 규칙(기존 IT는 고정 문자열 사용 중).
+### 관련
+- PROGRESS STEP 683 · `ClaimAttachmentServingIntegrationTest.userState_rejectedOnAttachmentPath`
+
+---
+
 ## 부록. 트랩 추가 절차
 
 1. 라이브 발견 시 즉시 decisions.md D-XX 박제 (단건 처리)
