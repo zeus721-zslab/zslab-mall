@@ -37,6 +37,9 @@ import com.zslab.mall.support.AbstractIntegrationTest;
  * 3건(T4 401·T5 200 교환 배송 SHIPPING→DELIVERED + AFTER_COMMIT 체인·T6 404). wrapper {@code markDeliveredByAdmin} → primitive
  * {@code markDelivered} → E5 DeliveryCompleted → {@code ExchangeDeliveryCompletedHandler}(OrderItem DELIVERED 복귀·Claim COMPLETED)까지 실 커밋 구동한다.
  *
+ * <p><b>Track 92-a(D-197)</b>: T7 회수(RETURN) 배송은 관리자 mark-delivered로도 마감할 수 없다(422·confirm-pickup 단일 경로). 교환 OUTBOUND 마감은
+ * T5 그대로 허용된다.
+ *
  * <p><b>트랜잭션</b>: DeliveryStarted 동기 소비·AFTER_COMMIT 알림 핸들러를 실 커밋으로 구동하므로 클래스에 {@code @Transactional}을
  * 두지 않는다. 시드/정리는 {@link TransactionTemplate} + {@code FOREIGN_KEY_CHECKS=0}(LT-02 try-finally), 검증은
  * {@link JdbcTemplate} 직접 조회·이벤트는 {@link ApplicationEvents}로 한다.
@@ -198,6 +201,29 @@ class AdminDeliveryControllerIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("T7 실패: RETURN 회수 배송(SHIPPING) → 422 DELIVERY_INVALID_STATE·Delivery SHIPPING·Claim APPROVED 무변경·DeliveryCompleted 0")
+    void markDelivered_returnDelivery_returns422_unchanged() throws Exception {
+        // Track 92-a D-197: 회수 완료는 confirm-pickup(completeReturnShipment)만. 직접 마감을 허용하면 이후 confirm-pickup이 불법 전이로 막힌다.
+        seed(() -> {
+            seedCatalog();
+            seedOrder("DELIVERED");
+            seedOrderItem(OrderItemStatus.RETURN_REQUESTED);
+            seedApprovedClaim(ClaimType.RETURN);
+            seedShippingReturnDelivery();
+        });
+
+        mockMvc.perform(post("/api/v1/admin/deliveries/" + DELIVERY_PID + "/mark-delivered")
+                        .headers(authHeaders.admin(ADMIN)))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("DELIVERY_INVALID_STATE"));
+
+        assertThat(deliveryStatus()).isEqualTo("SHIPPING");
+        assertThat(claimStatus()).isEqualTo("APPROVED");
+        assertThat(orderItemStatus()).isEqualTo("RETURN_REQUESTED");
+        assertThat(events.stream(DeliveryCompleted.class).count()).isZero();
+    }
+
+    @Test
     @DisplayName("T6 실패: 미존재 deliveryPublicId → 404 DELIVERY_NOT_FOUND·DeliveryCompleted 0")
     void markDelivered_unknownDeliveryPublicId_returns404() throws Exception {
         mockMvc.perform(post("/api/v1/admin/deliveries/" + pid("dlv_", "ADNONE") + "/mark-delivered")
@@ -278,6 +304,14 @@ class AdminDeliveryControllerIntegrationTest extends AbstractIntegrationTest {
         jdbc.update("INSERT INTO delivery (id, public_id, order_item_id, carrier, tracking_no, status, "
                         + "shipped_at, claim_id, created_at, updated_at) "
                         + "VALUES (?, ?, ?, 'CJ', ?, 'SHIPPING', NOW(6), ?, NOW(6), NOW(6))",
+                DELIVERY_ID, DELIVERY_PID, ORDER_ITEM_ID, TRACKING_NO, CLAIM_ID);
+    }
+
+    /** SHIPPING 회수 배송 시드(direction RETURN·claim_id SET·구매자 회수 송장 등록 직후 상태·Track 92-a T7). */
+    private void seedShippingReturnDelivery() {
+        jdbc.update("INSERT INTO delivery (id, public_id, order_item_id, carrier, tracking_no, status, direction, "
+                        + "shipped_at, claim_id, created_at, updated_at) "
+                        + "VALUES (?, ?, ?, 'CJ', ?, 'SHIPPING', 'RETURN', NOW(6), ?, NOW(6), NOW(6))",
                 DELIVERY_ID, DELIVERY_PID, ORDER_ITEM_ID, TRACKING_NO, CLAIM_ID);
     }
 
