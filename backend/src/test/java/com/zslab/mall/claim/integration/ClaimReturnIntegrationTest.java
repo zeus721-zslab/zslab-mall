@@ -80,8 +80,6 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
     private static final long OTHER_USER_ID = 9303L;
     private static final long SELLER_ID = 9302L;
     private static final long SELLER_USER_ID = 9304L;
-    private static final long OTHER_SELLER_ID = 9305L;
-    private static final long OTHER_SELLER_USER_ID = 9306L;
     private static final long PRODUCT_ID = 9302L;
     private static final long VARIANT_ID = 9302L;
     private static final long INVENTORY_ID = 9302L;
@@ -234,7 +232,7 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
     // ===== 회수 확인·검수 PASS(R5) =====
 
     @Test
-    @DisplayName("T3 전 루프 PASS(restock): 회수 확인 전 검수 422 → 회수 송장 없이 확인 422 → 송장 → 셀러 회수 확인(환불 0) → 검수 PASS → 환불 자동 완료·RETURNED·재고 +1·완료 SMS")
+    @DisplayName("T3 전 루프 PASS(restock): 회수 확인 전 검수 422 → 회수 송장 없이 확인 422 → 송장 → 관리자 회수 확인(환불 0) → 검수 PASS → 환불 자동 완료·RETURNED·재고 +1·완료 SMS")
     void fullLoop_passWithRestock() throws Exception {
         Long claimId = approvedReturn();
         String claimPid = claimPid(claimId);
@@ -246,7 +244,7 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(status().isUnprocessableEntity()); // 회수 송장 부재
 
         registerReturnShipment(claimPid);
-        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/confirm-pickup").headers(authHeaders.seller(SELLER_USER_ID)))
+        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid + "/confirm-pickup").headers(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.pickedUpAt").exists());
         assertThat(refundCount(claimId)).isZero(); // 수거 확인만으로 환불 발생하지 않음(Track 81-A 트리거 이동)
@@ -258,7 +256,7 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.items[0].availableActions[0]").value("INSPECT"))
                 .andExpect(jsonPath("$.items[0].returnShipment.trackingNo").value("RTN-TRACK-0001"));
 
-        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/inspect").headers(authHeaders.seller(SELLER_USER_ID))
+        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid + "/inspect").headers(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(INSPECT_PASS_RESTOCK))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.inspectionResult").value("PASS"))
@@ -411,20 +409,19 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("T7 권한: 타 셀러 회수 확인·검수 404 / BUYER 검수 403 / 셀러 회수 송장 403")
+    @DisplayName("T7 권한: 소유 셀러 회수 확인·검수 403(Track 92 셀러 처리 endpoint 제거) / 셀러 회수 송장 403")
     void authorization_sellerScopeAndRoles() throws Exception {
         Long claimId = approvedReturn();
         String claimPid = claimPid(claimId);
         registerReturnShipment(claimPid);
 
-        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/confirm-pickup").headers(authHeaders.seller(OTHER_SELLER_USER_ID)))
-                .andExpect(status().isNotFound());
-        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/inspect").headers(authHeaders.seller(OTHER_SELLER_USER_ID))
-                        .contentType(MediaType.APPLICATION_JSON).content(INSPECT_PASS_RESTOCK))
-                .andExpect(status().isNotFound());
-        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/inspect").headers(authHeaders.buyer(USER_ID))
+        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/confirm-pickup").headers(authHeaders.seller(SELLER_USER_ID)))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/inspect").headers(authHeaders.seller(SELLER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(INSPECT_PASS_RESTOCK))
                 .andExpect(status().isForbidden());
+        // BUYER 토큰의 /api/v1/claims/{id}/inspect는 경로 부재(NoResourceFoundException → GEH catch-all 500·LT-27)라 인가 단언 대상이 아니다.
+        // 매핑 부재는 ClaimProcessingMappingAbsenceTest가 감시한다(제거된 처리 매핑·경로 변경·역할 무관 부활 → RED).
         mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/return-shipment").headers(authHeaders.seller(SELLER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(RETURN_SHIPMENT_BODY))
                 .andExpect(status().isForbidden());
@@ -590,11 +587,7 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
         jdbc.update("INSERT INTO seller (id, public_id, company_name, ceo_name, status, created_at, updated_at) "
                         + "VALUES (?, ?, '통합셀러', '대표', 'ACTIVE', NOW(6), NOW(6))",
                 SELLER_ID, pid("slr_", "RTNSLR"));
-        jdbc.update("INSERT INTO seller (id, public_id, company_name, ceo_name, status, created_at, updated_at) "
-                        + "VALUES (?, ?, '타셀러', '대표', 'ACTIVE', NOW(6), NOW(6))",
-                OTHER_SELLER_ID, pid("slr_", "RTNSLR2"));
         seedSellerUser(SELLER_USER_ID, SELLER_ID);
-        seedSellerUser(OTHER_SELLER_USER_ID, OTHER_SELLER_ID);
         jdbc.update("INSERT INTO product (id, public_id, seller_id, category_id, name, status, base_price, created_at, updated_at) "
                         + "VALUES (?, ?, ?, ?, '통합상품', 'SALE', 10000, NOW(6), NOW(6))",
                 PRODUCT_ID, pid("prd_", "RTNPRD"), SELLER_ID, DUMMY_FK_ID);
@@ -658,8 +651,8 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
                 jdbc.update("DELETE FROM `order` WHERE id = ?", ORDER_ID);
                 jdbc.update("DELETE FROM product_variant WHERE id = ?", VARIANT_ID);
                 jdbc.update("DELETE FROM product WHERE id = ?", PRODUCT_ID);
-                jdbc.update("DELETE FROM seller_user WHERE user_id IN (?, ?)", SELLER_USER_ID, OTHER_SELLER_USER_ID);
-                jdbc.update("DELETE FROM seller WHERE id IN (?, ?)", SELLER_ID, OTHER_SELLER_ID);
+                jdbc.update("DELETE FROM seller_user WHERE user_id = ?", SELLER_USER_ID);
+                jdbc.update("DELETE FROM seller WHERE id = ?", SELLER_ID);
                 jdbc.update("DELETE FROM `user` WHERE id IN (?, ?)", USER_ID, OTHER_USER_ID);
             } finally {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");

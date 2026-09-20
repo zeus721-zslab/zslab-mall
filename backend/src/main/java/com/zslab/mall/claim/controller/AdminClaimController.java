@@ -34,13 +34,13 @@ import org.springframework.web.bind.annotation.RestController;
  * Admin 액터용 Claim REST 컨트롤러(Track 10-B·D-93). 승인·거부 2 endpoint를 노출한다(D-93 Q8 α). Track 80(D-169)에서 목록 GET을 추가했다.
  *
  * <p>URL은 {@code /api/v1/admin/claims} prefix를 사용한다(D-93 Q6 γ′). D-40 본문은 명시 prefix 2건
- * ({@code /buyer}·{@code /seller})만 금지하며 {@code /admin}은 명시 부재로, {@link SellerClaimController}의
+ * ({@code /buyer}·{@code /seller})만 금지하며 {@code /admin}은 명시 부재로, {@code SellerClaimController}(Track 92 제거)의
  * {@code /api/v1/claims} base path와 라우팅 충돌을 회피한다(WARN-1 해소·SellerClaimController 무변경). Admin 식별은
  * {@code X-Admin-Id} 헤더 stub이다(D-93 Q1 α·{@link AdminActorResolver}).
  *
  * <p>HTTP 책임만 가진다(D-40 β′): 액터 해소·publicId→id 해소·Service 위임·응답 조립만 수행한다. Admin은 전체 접근이므로
  * 권한 검증 단락이 부재하며(D-93 Q3·Q5) Claim 미존재만 404다. approve/reject primitive는 void이므로 전이 후 재조회로
- * 응답을 조립한다({@link SellerClaimController#toResponse 패턴 1:1}·ClaimResponse 재사용·D-93 Q7 α).
+ * 응답을 조립한다({@code SellerClaimController#toResponse}(Track 92 제거) 패턴 1:1·ClaimResponse 재사용·D-93 Q7 α).
  */
 @RestController
 @RequestMapping("/api/v1/admin/claims")
@@ -147,7 +147,7 @@ public class AdminClaimController {
 
     /**
      * 전이 후 Claim을 재조회해 응답을 조립한다. approve/reject primitive가 void이므로 갱신 상태 반영을 위해 re-fetch한다.
-     * orderItemPublicId는 OrderItem.id → public_id로 해소한다({@link SellerClaimController#toResponse} 패턴 1:1).
+     * orderItemPublicId는 OrderItem.id → public_id로 해소한다({@code SellerClaimController#toResponse}(Track 92 제거) 패턴 1:1).
      */
     private ClaimResponse toResponse(String claimPublicId) {
         Claim refreshed = claimRepository.findByPublicId(claimPublicId)

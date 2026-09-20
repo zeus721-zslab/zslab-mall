@@ -573,6 +573,48 @@ PowerShell 안전 훅이 명령 문자열 전체를 스캔해 슬래시로 시�
 
 ---
 
+## LT-25. 로컬에서 prod compose `up -d`가 같은 container_name의 dev 컨테이너를 교체 — 복원은 dev 오버레이 `up -d --build` [ACTIVE]
+**발견 트랙**: FE 빌드 OOM 대응(STEP 698)
+**원본 결정**: PROGRESS STEP 698
+### 증상
+배포 순서 재현(`BACKEND_DOCKERFILE=Dockerfile FRONTEND_DOCKERFILE=Dockerfile` + `compose -f docker-compose.mall.yml build/up -d`) 뒤 로컬 dev 환경(bootRun 볼륨 마운트·frontend-dev)이 사라지고 prod 이미지 컨테이너가 같은 이름(`zslab_mall_backend`·`zslab_mall_frontend`)으로 떠 있다.
+### 원인
+prod·dev compose가 `container_name`과 이미지 태그(`zslab-mall-zslab_mall_backend` 등)를 공유한다. `up -d`는 같은 이름의 기존 컨테이너를 새 정의로 재생성하므로 dev 오버레이 없이 실행하면 dev 컨테이너가 교체된다.
+### 처치
+로컬에서 prod 순서를 재현한 뒤에는 반드시 `docker compose -f docker-compose.mall.yml -f docker-compose.dev.yml up -d --build`로 dev 오버레이를 다시 올린다(`--build` 없이는 prod 이미지가 그대로 재사용됨). 검증 중 생긴 이전 이미지는 빌드 캐시 교체라 dangling 정리 대상은 없다.
+### 관련
+- PROGRESS STEP 698
+
+---
+
+## LT-26. `git push`를 다른 명령과 묶으면 PowerShell 안전 훅에 차단 — 단독 실행 [ACTIVE]
+**발견 트랙**: Track 90-D-1(STEP 691)·FE 빌드 OOM(STEP 695·699)
+**원본 결정**: PROGRESS STEP 691
+### 증상
+`python …; git push -u origin <branch>`처럼 다른 명령과 한 줄로 묶은 push가 훅에 차단되어 실행되지 않는다. 같은 push를 단독으로 다시 실행하면 통과한다.
+### 원인
+안전 훅이 명령 문자열 전체를 검사하며 push가 다른 명령(경로·스크립트 실행)과 결합된 형태를 위험 조합으로 판정한다(LT-23의 슬래시·대괄호 오인과 같은 계열).
+### 처치
+`git push`(및 `-u origin <branch>`)는 항상 단독 명령으로 실행한다. 사전 확인(status·diff·테스트)은 별도 호출로 끝낸 뒤 push만 따로 보낸다.
+### 관련
+- LT-23 · PROGRESS STEP 691·695·699
+
+---
+
+## LT-27. 제거된 경로의 `NoResourceFoundException`이 GEH `Exception` catch-all에 잡혀 404가 아닌 500 — 경로 제거 시 403 단언 사용 [ACTIVE]
+**발견 트랙**: Track 92(STEP 700 예측·STEP 703 실측)
+**원본 결정**: D-196 §1-A 2
+### 증상
+셀러 처리 endpoint를 제거한 뒤 BUYER 토큰으로 `POST /api/v1/claims/{id}/inspect`를 보내면 404가 아니라 **500 INTERNAL_ERROR**가 온다(`ClaimReturnIntegrationTest` T7 기존 "BUYER 검수 403" 단언이 500으로 RED).
+### 원인
+`/api/v1/claims/**`는 hasRole(BUYER)라 BUYER 토큰은 필터를 통과해 DispatcherServlet까지 간다. 매핑이 없으면 Spring 6.1+ `ResourceHttpRequestHandler`가 `NoResourceFoundException`을 던지는데, `GlobalExceptionHandler`는 `ResponseEntityExceptionHandler`를 상속하지 않고 `@ExceptionHandler(Exception.class)` catch-all이 이를 먼저 잡아 500으로 매핑한다. 인가에 걸리는 액터(SELLER·ADMIN)는 필터 단계 403이라 영향이 없다.
+### 처치
+경로를 제거한 뒤의 "부재" 단언은 404가 아니라 **인가 필터 단계에서 결정되는 403**(해당 경로 규칙에 없는 역할의 토큰)으로 둔다. 필터를 통과하는 역할의 토큰으로 부재를 단언하지 않는다. catch-all에 `NoResourceFoundException` 404 매핑을 추가하는 GEH 수정은 별건으로 이월(D-196 §8).
+### 관련
+- D-196 §1-A 2·§8 · PROGRESS STEP 700·703 · `SellerClaimIntegrationTest` R1~R4 · `SellerDeliveryIntegrationTest` R5
+
+---
+
 ## 부록. 트랩 추가 절차
 
 1. 라이브 발견 시 즉시 decisions.md D-XX 박제 (단건 처리)

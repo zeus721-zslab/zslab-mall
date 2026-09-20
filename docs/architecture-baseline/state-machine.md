@@ -44,8 +44,8 @@ REQUESTED ──→ APPROVED ──→ COMPLETED
 | 상태 | 진입 조건 | 비고 |
 |---|---|---|
 | REQUESTED | 구매자 취소/반품/교환 요청 | — |
-| APPROVED | 관리자/판매자 승인 | — |
-| REJECTED | 관리자/판매자 거절 | 재요청 = 새 Claim 행 생성 |
+| APPROVED | 관리자 승인 (판매자 처리 endpoint는 Track 92 D-196에서 제거·셀러는 조회만) | — |
+| REJECTED | 관리자 거절 (판매자 처리 endpoint는 Track 92 D-196에서 제거) | 재요청 = 새 Claim 행 생성 |
 | COMPLETED | 환불/수거/교환발송 완료 | 불가역 |
 
 **Claim.type별 COMPLETED 진입 조건**:
@@ -63,7 +63,7 @@ REQUESTED ──→ APPROVED ──→ COMPLETED
 > **반품 단계(Track 81-A D-170·상태 4값 유지·milestone 컬럼)**:
 > - 요청 조건: 품목 DELIVERED + 사유 `ClaimReasonCode.isApplicableTo(RETURN)`(BUYER_CHANGED_MIND·PRODUCT_DEFECT·WRONG_PRODUCT) + 원 주문 발송(OUTBOUND·claim_id NULL) Delivery `delivered_at` + 7일 이내(`ReturnWindowPolicy`·위반 422 CLAIM_STATE_INVALID). 배송완료 시각 SoT는 delivery(order_item 컬럼 신설 기각). CONFIRMED는 종결이라 요청 불가(기존). 사진 첨부(Track 81-B D-171): RETURN + PRODUCT_DEFECT|WRONG_PRODUCT에서만 `attachmentIds`(att_·최대 5·요청자 업로드·미연결) 허용, 그 외 400.
 > - 회수 송장: 구매자 `POST /api/v1/claims/{id}/return-shipment`(APPROVED·회수 전·본인) → `delivery`(direction=RETURN·claim_id·SHIPPING). `DeliveryStarted`는 direction=RETURN·claimId로 발행되며 발송 소비처(품목 SHIPPING 전이·배송 알림·교환 차액)는 OUTBOUND·claim_id NULL만 처리한다.
-> - 회수 확인: 셀러/관리자 `confirm-pickup` = `Claim.pickedUpAt` + 회수 Delivery DELIVERED(부재 422). **환불은 발생하지 않는다**(구 ClaimPickedUpHandler 제거).
+> - 회수 확인: 관리자 `confirm-pickup`(셀러 경로는 Track 92 제거) = `Claim.pickedUpAt` + 회수 Delivery DELIVERED(부재 422). **환불은 발생하지 않는다**(구 ClaimPickedUpHandler 제거).
 > - 검수: `inspect`{PASS, restock} → `inspected_at`·`inspection_result=PASS`·`restock` 저장 → `ClaimInspectionPassed` → `RefundService.initiate(totalPrice)` → Refund.COMPLETED(Mock 자동) → Claim.COMPLETED → 품목 RETURNED → 재고는 `restock=true`일 때만 `restoreStock(RETURN)`(false는 재고·history 불변). `inspect`{FAIL, rejectReasonCode, memo, reshipCarrier, reshipTrackingNo} → **APPROVED → REJECTED**(아래 예외) + 재발송 Delivery(OUTBOUND·claim_id) + `ClaimRejected`(품목 DELIVERED 원복·거부 SMS). 동시 검수는 `refresh(PESSIMISTIC_WRITE)`로 직렬화(늦은 쪽 422). **failInspection 봉인(D-172)**: APPROVED → REJECTED 예외 전이는 엔티티가 "RETURN·APPROVED·회수 확인 완료·미검수·사유 INSPECTION_FAILED 고정"을 전부 검증할 때만 열린다(사유가 다르면 400·상태 위반은 422·일반 사유로 우회 불가).
 > - **예외 전이 APPROVED → REJECTED**: `ClaimStatus.canTransitionTo` 매트릭스는 무변경(false 유지)이며 `Claim.failInspection`(RETURN·회수됨·미검수)만 상태를 직접 REJECTED로 둔다. 일반 `reject`는 여전히 REQUESTED 한정.
 
