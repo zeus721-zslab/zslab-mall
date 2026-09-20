@@ -163,6 +163,22 @@ html,
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
+/* 상품 목록 썸네일(관리자 adm-thumb 복제·90-C-3). 로드 실패·없음은 placeholder 아이콘. */
+.slr-thumb {
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: rgba(var(--v-theme-on-surface), 0.04);
+  display: block;
+}
+.slr-thumb--placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(var(--v-theme-on-surface), var(--v-medium-emphasis-opacity));
+}
+
 /* 대시보드: 처리 대기 칸·리스트 행(관리자 adm-dashboard-* 복제). */
 .slr-dashboard-pending {
   display: block;

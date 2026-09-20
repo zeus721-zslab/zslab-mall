@@ -1,6 +1,7 @@
 /**
  * 셀러 사이드바 메뉴 단일 소스(Track 90-A). 순서는 확정 사양 고정(대시보드 → 주문 → 상품 → 통계 → 정산 → 설정).
- * `to`가 있는 항목만 pages/seller/** 와 1:1이며(90-B-3: 대시보드·주문·배송·정산), 화면이 아직 없는 항목(클레임 90-D·상품·재고 90-C·통계 90-E·설정)은 `to` 없이 비활성으로 표시한다 — 라우트를 미리 만들지 않는다.
+ * `to`가 있는 항목만 pages/seller/** 와 1:1이며(90-B-3: 대시보드·주문·배송·정산 / 90-C-3: 상품·재고), 화면이 아직 없는 항목(클레임 90-D·통계 90-E·설정)은 `to` 없이 비활성으로 표시한다 — 라우트를 미리 만들지 않는다.
+ * 재고(/seller/products/inventory)는 상품(/seller/products)의 하위 경로지만 resolveActiveSellerMenuPath가 정확 일치를 우선하므로 재고만 활성된다.
  */
 export interface SellerMenuItem {
   label: string
@@ -23,7 +24,7 @@ export const SELLER_MENU: SellerMenuGroup[] = [
   },
   {
     label: '상품',
-    children: [{ label: '상품' }, { label: '재고' }],
+    children: [{ label: '상품', to: '/seller/products' }, { label: '재고', to: '/seller/products/inventory' }],
   },
   {
     label: '통계',
