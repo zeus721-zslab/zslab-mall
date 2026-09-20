@@ -44,7 +44,8 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * 셀러 클레임 조회(Track 90-D-1·{@link AdminClaimQueryService} 복제·셀러 범위 한정·조회 전용). 관리자 서비스에 sellerId 인자를 넣어
  * 공용화하지 않고 셀러용을 따로 둔다(관리자 무수정 원칙). 유형·상태·기간 Specification은 관리자 것을 재사용하고
- * {@link SellerClaimSpecifications#ownedBySeller}로 범위만 제한한다. 정렬은 요청일 최신순 고정(sort 파라미터 없음·셀러 품목 목록 관례).
+ * {@link SellerClaimSpecifications#ownedBySeller}(seller ownership predicate)를 목록·상세 모든 Specification에 반드시 AND로 결합한다(순서가
+ * 아니라 AND 결합이 범위 보장이다). 정렬은 요청일 최신순 고정(sort 파라미터 없음·셀러 품목 목록 관례).
  * 쿼리 수 = count 1 + page 1 + 배치 4(품목·주문 축·최신 환불·첨부 개수) = 6·N+1 없음.
  */
 @Service

@@ -7,8 +7,9 @@ import jakarta.persistence.criteria.Subquery;
 import org.springframework.data.jpa.domain.Specification;
 
 /**
- * 셀러 클레임 목록 필터(Track 90-D-1). 범위 제한 {@link #ownedBySeller}는 where 최선두에 두고 유형·상태·기간은
- * {@link AdminClaimSpecifications}를 그대로 쓴다. 검색만 셀러용으로 따로 둔다 — 관리자 검색은 구매자 이름·이메일 축을 포함하므로
+ * 셀러 클레임 목록 필터(Track 90-D-1). 셀러 클레임 조회 Specification에는 seller ownership predicate({@link #ownedBySeller})가
+ * 반드시 AND로 결합되어야 한다 — 조합 순서는 보안 보장이 아니며, 다른 조건이 OR로 붙으면 범위 제한이 무력화된다(외부 검토 r2a 반영).
+ * 유형·상태·기간은 {@link AdminClaimSpecifications}를 그대로 쓴다. 검색만 셀러용으로 따로 둔다 — 관리자 검색은 구매자 이름·이메일 축을 포함하므로
  * 셀러에게 재사용하면 구매자 정보로 필터링하는 경로가 된다(JPQL 파라미터 바인딩·SQL injection 위험 없음).
  */
 public final class SellerClaimSpecifications {

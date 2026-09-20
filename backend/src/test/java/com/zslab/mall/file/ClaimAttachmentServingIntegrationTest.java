@@ -163,6 +163,76 @@ class ClaimAttachmentServingIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("셀러 소속·상태 fail-closed(외부 검토 r1·Q1): seller soft-delete → 404 / TERMINATED·PENDING → 404 / SUSPENDED → 200(조회 허용·D-190) / seller_user 행 제거 → 404 / 품목 seller_id 변경 → 404")
+    void seller_membershipAndStatus_failClosed() throws Exception {
+        // seller soft-delete: findMembershipByUserId가 seller를 조인(@SQLRestriction deleted_at IS NULL)하므로 empty → 거부
+        jdbc.update("UPDATE seller SET deleted_at = NOW(6) WHERE id = ?", SELLER_A_ID);
+        expectNotFound(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(SELLER_A_USER_ID)));
+        jdbc.update("UPDATE seller SET deleted_at = NULL WHERE id = ?", SELLER_A_ID);
+        expectOk(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(SELLER_A_USER_ID)));
+        // 세션 불허 상태(SellerAccessPolicy.isSessionAllowed=false)
+        for (String status : new String[] {"TERMINATED", "PENDING"}) {
+            jdbc.update("UPDATE seller SET status = ? WHERE id = ?", status, SELLER_A_ID);
+            expectNotFound(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(SELLER_A_USER_ID)));
+        }
+        // SUSPENDED는 조회 세션이 유효(정지 셀러는 조회만 가능) → 열람 허용
+        jdbc.update("UPDATE seller SET status = 'SUSPENDED' WHERE id = ?", SELLER_A_ID);
+        expectOk(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(SELLER_A_USER_ID)));
+        jdbc.update("UPDATE seller SET status = 'ACTIVE' WHERE id = ?", SELLER_A_ID);
+        // 구성원 관계 제거(seller_user에는 deleted_at이 없어 물리 삭제가 곧 탈퇴)
+        jdbc.update("DELETE FROM seller_user WHERE user_id = ?", SELLER_A_USER_ID);
+        expectNotFound(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(SELLER_A_USER_ID)));
+        jdbc.update("INSERT INTO seller_user (user_id, seller_id, role_id, created_at, updated_at) "
+                + "SELECT ?, ?, id, NOW(6), NOW(6) FROM role WHERE code = 'SELLER_OWNER'", SELLER_A_USER_ID, SELLER_A_ID);
+        expectOk(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(SELLER_A_USER_ID)));
+        // 품목이 다른 셀러 소유로 바뀌면(order_item에는 soft-delete가 없다) 소유 셀러였던 A도 거부
+        tx.executeWithoutResult(status -> {
+            jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
+            try {
+                jdbc.update("UPDATE order_item SET seller_id = ? WHERE id = ?", SELLER_B_ID, ORDER_ITEM_ID);
+            } finally {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
+            }
+        });
+        expectNotFound(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(SELLER_A_USER_ID)));
+        expectOk(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(SELLER_B_USER_ID)));
+    }
+
+    @Test
+    @DisplayName("첨부 soft-delete(외부 검토 r1·Q1): deleted_at 설정 시 구매자 소유자·ADMIN·소유 셀러 모두 404(@SQLRestriction으로 행 자체가 조회되지 않음) · claim에는 soft-delete 컬럼이 없어 대상 아님")
+    void softDeletedAttachment_rejectedForAllRoles() throws Exception {
+        jdbc.update("UPDATE attachment SET deleted_at = NOW(6) WHERE id = ?", LINKED_ATTACHMENT_ID);
+        expectNotFound(get(FILES_URL + LINKED_KEY).headers(authHeaders.buyer(OWNER_ID)));
+        expectNotFound(get(FILES_URL + LINKED_KEY).headers(authHeaders.admin(ADMIN_ID)));
+        expectNotFound(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(SELLER_A_USER_ID)));
+        expectNotFound(get(FILES_URL + LINKED_THUMB_KEY).headers(authHeaders.admin(ADMIN_ID)));
+        jdbc.update("UPDATE attachment SET deleted_at = NULL WHERE id = ?", LINKED_ATTACHMENT_ID);
+        expectOk(get(FILES_URL + LINKED_KEY).headers(authHeaders.admin(ADMIN_ID)));
+    }
+
+    @Test
+    @DisplayName("회원 상태(외부 검토 r1·Q1·AuthenticatedUserStateVerifier): 탈퇴(withdrawn_at)·삭제(deleted_at) 셀러 user → 404 / credentials_changed_at 이후 발급 토큰만 유효(이전 발급 → 404) / 탈퇴한 구매자 소유자 → 404")
+    void userState_rejectedOnAttachmentPath() throws Exception {
+        expectOk(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(SELLER_A_USER_ID)));
+        jdbc.update("UPDATE `user` SET withdrawn_at = NOW(6) WHERE id = ?", SELLER_A_USER_ID);
+        expectNotFound(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(SELLER_A_USER_ID)));
+        jdbc.update("UPDATE `user` SET withdrawn_at = NULL, deleted_at = NOW(6) WHERE id = ?", SELLER_A_USER_ID);
+        expectNotFound(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(SELLER_A_USER_ID)));
+        jdbc.update("UPDATE `user` SET deleted_at = NULL WHERE id = ?", SELLER_A_USER_ID);
+        // 자격증명 갱신: 갱신 시각보다 iat가 앞선 토큰은 거부 — 필터를 건너뛰는 첨부 경로도 verifyQuietly가 같은 검증을 적용.
+        // DB 세션 NOW()와 JVM(Asia/Seoul) 벽시계가 다를 수 있어 경계는 고정 시각(먼 미래·먼 과거)으로 둔다.
+        jdbc.update("UPDATE `user` SET credentials_changed_at = '2099-01-01 00:00:00' WHERE id = ?", SELLER_A_USER_ID);
+        expectNotFound(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(SELLER_A_USER_ID)));
+        jdbc.update("UPDATE `user` SET credentials_changed_at = '2000-01-01 00:00:00' WHERE id = ?", SELLER_A_USER_ID);
+        expectOk(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(SELLER_A_USER_ID)));
+        // 구매자 소유자(요청자)도 같은 검증을 탄다 — user 행을 만들어 탈퇴 처리
+        jdbc.update("INSERT INTO `user` (id, public_id, withdrawn_at, created_at, updated_at) VALUES (?, ?, NOW(6), NOW(6), NOW(6))",
+                OWNER_ID, "usr_" + ("T82OWNER" + "00000000000000000000000000").substring(0, 26));
+        expectNotFound(get(FILES_URL + LINKED_KEY).headers(authHeaders.buyer(OWNER_ID)));
+        expectNotFound(get(FILES_URL + LINKED_KEY).cookie(authCookie(OWNER_ID, ActorRole.BUYER)));
+    }
+
+    @Test
     @DisplayName("셀러 거부: 타 셀러 구성원 → 연결·미연결 404 / 소속 없는 SELLER JWT(클레임 요청자와 같은 user id라도) → 404 / 타 셀러 쿠키 → 404")
     void seller_otherOrUnaffiliated_rejected() throws Exception {
         expectNotFound(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(SELLER_B_USER_ID)));
@@ -355,7 +425,7 @@ class ClaimAttachmentServingIntegrationTest extends AbstractIntegrationTest {
                 jdbc.update("DELETE FROM order_item WHERE id = ?", ORDER_ITEM_ID);
                 jdbc.update("DELETE FROM seller_user WHERE user_id IN (?, ?)", SELLER_A_USER_ID, SELLER_B_USER_ID);
                 jdbc.update("DELETE FROM seller WHERE id IN (?, ?)", SELLER_A_ID, SELLER_B_ID);
-                jdbc.update("DELETE FROM `user` WHERE id IN (?, ?)", SELLER_A_USER_ID, SELLER_B_USER_ID);
+                jdbc.update("DELETE FROM `user` WHERE id IN (?, ?, ?)", SELLER_A_USER_ID, SELLER_B_USER_ID, OWNER_ID);
             } finally {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
             }

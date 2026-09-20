@@ -72,6 +72,21 @@ class SellerClaimQueryControllerIntegrationTest extends AbstractIntegrationTest 
     private static final long REFUND_C4 = 9850L;
     private static final long PAYMENT_ID = 9850L;
     private static final long ITEM_PRICE = 15_000L;
+    /** 테스트별 추가 시드(LIKE literal·tie-breaker·쿼리 예산). cleanup이 범위로 지운다. */
+    private static final long EXTRA_ITEM_FROM = 9853L;
+    private static final long EXTRA_ITEM_TO = 9869L;
+    private static final long EXTRA_CLAIM_FROM = 9854L;
+    private static final long EXTRA_CLAIM_TO = 9899L;
+    private static final long ITEM_PERCENT = 9853L;
+    private static final long ITEM_UNDERSCORE = 9854L;
+    private static final long ITEM_BACKSLASH = 9855L;
+    private static final long ITEM_PLAIN = 9856L;
+    private static final long CLAIM_PERCENT = 9854L;
+    private static final long CLAIM_UNDERSCORE = 9855L;
+    private static final long CLAIM_BACKSLASH = 9856L;
+    private static final long CLAIM_PLAIN = 9857L;
+    private static final long CLAIM_TIE_NULL = 9858L;
+    private static final long CLAIM_TIE_SAME = 9859L;
 
     private static final String ORDER_M_NO = "ORDSCLM9850";
     private static final String ORDER_N_NO = "ORDSCLN9851";
@@ -214,7 +229,7 @@ class SellerClaimQueryControllerIntegrationTest extends AbstractIntegrationTest 
         mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("keyword", "단독"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(2));
-        // 타 셀러 상품명으로 검색해도 그 셀러의 클레임은 잡히지 않는다(범위 조건이 최선두)
+        // 타 셀러 상품명으로 검색해도 그 셀러의 클레임은 잡히지 않는다(ownership predicate가 AND로 결합)
         mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("keyword", "혼합상품B"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(0));
@@ -232,17 +247,27 @@ class SellerClaimQueryControllerIntegrationTest extends AbstractIntegrationTest 
     @Test
     @DisplayName("T4 400: 허용 외 type · 허용 외 status · keyword 51자 · from>to")
     void list_badRequest() throws Exception {
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("type", "REFUND"))
-                .andExpect(status().isBadRequest());
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("status", "DONE"))
-                .andExpect(status().isBadRequest());
+        // detail은 호출자 입력·형식 안내만 담고 시드 데이터(구매자·사유·메모·상품명·파일명·클레임 id)를 되비추지 않는다(외부 검토 r2a 반영)
+        String typeDetail = mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("type", "REFUND"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"))
+                .andReturn().getResponse().getContentAsString();
+        String statusDetail = mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("status", "DONE"))
+                .andExpect(status().isBadRequest())
+                .andReturn().getResponse().getContentAsString();
         mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("keyword", KEYWORD_LIMIT_EXCEEDED))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"))
+                .andExpect(jsonPath("$.detail").value("keyword는 최대 50자입니다."));
         mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A))
                         .param("from", "2026-06-01T00:00:00").param("to", "2026-05-01T00:00:00"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"))
+                .andExpect(jsonPath("$.detail").value("from은 to보다 늦을 수 없습니다."));
+        for (String body : List.of(typeDetail, statusDetail)) {
+            assertThat(body).doesNotContain(BUYER_NAME).doesNotContain("buyer@").doesNotContain(REASON_DETAIL_C1)
+                    .doesNotContain(REJECT_MEMO_C3).doesNotContain(BUYER_FILE_NAME).doesNotContain("혼합상품").doesNotContain("clm_");
+        }
     }
 
     @Test
@@ -301,15 +326,125 @@ class SellerClaimQueryControllerIntegrationTest extends AbstractIntegrationTest 
     @Test
     @DisplayName("T6 소유권 경계: 타 셀러 클레임 404(403 아님·CLAIM_NOT_FOUND) · 미존재 404 · 소유 셀러는 200")
     void detail_ownershipBoundary() throws Exception {
+        // 404 detail은 요청한 publicId만 되비추고(존재 여부·소유 셀러·구매자 등 다른 값 없음) 타 셀러·미존재가 같은 문구다
         mockMvc.perform(get(LIST_URL + "/" + CLAIM_C2_PID).headers(authHeaders.seller(USER_A)))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.code").value("CLAIM_NOT_FOUND"));
+                .andExpect(jsonPath("$.code").value("CLAIM_NOT_FOUND"))
+                .andExpect(jsonPath("$.detail").value("클레임을 찾을 수 없습니다: publicId=" + CLAIM_C2_PID));
         mockMvc.perform(get(LIST_URL + "/" + MISSING_PID).headers(authHeaders.seller(USER_A)))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.code").value("CLAIM_NOT_FOUND"));
+                .andExpect(jsonPath("$.code").value("CLAIM_NOT_FOUND"))
+                .andExpect(jsonPath("$.detail").value("클레임을 찾을 수 없습니다: publicId=" + MISSING_PID));
         mockMvc.perform(get(LIST_URL + "/" + CLAIM_C2_PID).headers(authHeaders.seller(USER_B)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.claimId").value(CLAIM_C2_PID));
+    }
+
+    @Test
+    @DisplayName("T3b 혼합 주문 주문번호 keyword: 같은 주문 M의 번호로 검색해도 셀러 A는 C1만·셀러 B는 C2만(totalCount 1)")
+    void list_keywordOrderNoOnMixedOrder_isSellerScoped() throws Exception {
+        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("keyword", ORDER_M_NO))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalCount").value(1))
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].claimId").value(CLAIM_C1_PID));
+        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_B)).param("keyword", ORDER_M_NO))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalCount").value(1))
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].claimId").value(CLAIM_C2_PID));
+    }
+
+    @Test
+    @DisplayName("T3c LIKE literal: keyword 퍼센트·언더스코어·백슬래시는 와일드카드가 아니라 문자로 매칭 — 해당 문자를 포함한 상품명 1건만·미포함 상품(plain)은 제외")
+    void list_keywordLikeLiterals() throws Exception {
+        seedExtra(() -> {
+            seedOrderItem(ITEM_PERCENT, pid("oit_", "SCLPCT"), ORDER_N, SELLER_A, "할인 50% 상품", "CANCEL_REQUESTED");
+            seedOrderItem(ITEM_UNDERSCORE, pid("oit_", "SCLUND"), ORDER_N, SELLER_A, "under_score 상품", "CANCEL_REQUESTED");
+            seedOrderItem(ITEM_BACKSLASH, pid("oit_", "SCLBSL"), ORDER_N, SELLER_A, "back\\slash 상품", "CANCEL_REQUESTED");
+            seedOrderItem(ITEM_PLAIN, pid("oit_", "SCLPLN"), ORDER_N, SELLER_A, "plain 상품", "CANCEL_REQUESTED");
+            seedClaim(CLAIM_PERCENT, pid("clm_", "SCLCPCT"), ITEM_PERCENT, "CANCEL", "BUYER_CHANGED_MIND", null, "REQUESTED", "PAID",
+                    "2026-07-01 10:00:00", null, null, null, null);
+            seedClaim(CLAIM_UNDERSCORE, pid("clm_", "SCLCUND"), ITEM_UNDERSCORE, "CANCEL", "BUYER_CHANGED_MIND", null, "REQUESTED", "PAID",
+                    "2026-07-02 10:00:00", null, null, null, null);
+            seedClaim(CLAIM_BACKSLASH, pid("clm_", "SCLCBSL"), ITEM_BACKSLASH, "CANCEL", "BUYER_CHANGED_MIND", null, "REQUESTED", "PAID",
+                    "2026-07-03 10:00:00", null, null, null, null);
+            seedClaim(CLAIM_PLAIN, pid("clm_", "SCLCPLN"), ITEM_PLAIN, "CANCEL", "BUYER_CHANGED_MIND", null, "REQUESTED", "PAID",
+                    "2026-07-04 10:00:00", null, null, null, null);
+        });
+        // 셀러 A 전체 = 기존 3 + 추가 4 = 7 (와일드카드로 해석되면 아래 검색이 전부 7건이 된다)
+        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalCount").value(7));
+        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("keyword", "%"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalCount").value(1))
+                .andExpect(jsonPath("$.items[0].productName").value("할인 50% 상품"));
+        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("keyword", "_"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalCount").value(1))
+                .andExpect(jsonPath("$.items[0].productName").value("under_score 상품"));
+        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("keyword", "\\"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalCount").value(1))
+                .andExpect(jsonPath("$.items[0].productName").value("back\\slash 상품"));
+        // 문자 조합도 literal: "50%"는 percent 상품만, "r_s"는 underscore 상품만(와일드카드면 다른 상품도 잡힌다)
+        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("keyword", "50%"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalCount").value(1));
+        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("keyword", "r_s"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalCount").value(1))
+                .andExpect(jsonPath("$.items[0].productName").value("under_score 상품"));
+    }
+
+    @Test
+    @DisplayName("T7b 대표 클레임 tie-breaker(외부 검토 r3a): ② requestedAt null 행(id 최대)이 있어도 non-null C1 선택·claimCount 2 → ① 같은 requestedAt이면 큰 id 선택·claimCount 3")
+    void orderItem_latestClaimTieBreaker() throws Exception {
+        // ② requested_at NULL(관리자 생성 등)·id는 가장 큼 → 요청일이 있는 C1이 대표
+        seedExtra(() -> seedClaim(CLAIM_TIE_NULL, pid("clm_", "SCLCTNL"), ITEM_A1, "RETURN", "PRODUCT_DEFECT", null, "REJECTED", "DELIVERED",
+                null, "2026-05-03 10:00:00", "OUT_OF_POLICY", null, null));
+        mockMvc.perform(get(ORDER_ITEMS_URL + "/" + ITEM_A1_PID).headers(authHeaders.seller(USER_A)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.claim.claimId").value(CLAIM_C1_PID))
+                .andExpect(jsonPath("$.claimCount").value(2));
+        // ① C1과 같은 requested_at·더 큰 id → 큰 id가 대표(목록·상세 동일)
+        String tieSamePid = pid("clm_", "SCLCTSM");
+        seedExtra(() -> seedClaim(CLAIM_TIE_SAME, tieSamePid, ITEM_A1, "RETURN", "PRODUCT_DEFECT", null, "REJECTED", "DELIVERED",
+                "2026-05-01 10:00:00", "2026-05-02 10:00:00", "OUT_OF_POLICY", null, null));
+        mockMvc.perform(get(ORDER_ITEMS_URL + "/" + ITEM_A1_PID).headers(authHeaders.seller(USER_A)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.claim.claimId").value(tieSamePid))
+                .andExpect(jsonPath("$.claimCount").value(3));
+        mockMvc.perform(get(ORDER_ITEMS_URL).headers(authHeaders.seller(USER_A)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[1].orderItemId").value(ITEM_A1_PID))
+                .andExpect(jsonPath("$.items[1].claim.claimId").value(tieSamePid))
+                .andExpect(jsonPath("$.items[1].claimCount").value(3));
+    }
+
+    @Test
+    @DisplayName("T8b 쿼리 예산 size=100(외부 검토 r3b): 복수 클레임 품목 여러 개(A1 3건·A2 2건·추가 품목 4개 × 2~3건)에서도 클레임 목록 7·품목 목록 8 고정(행 수·행당 클레임 수와 무관)")
+    void queryBudget_size100_manyClaimsPerItem() throws Exception {
+        seedExtra(() -> {
+            long claimId = 9860L;
+            for (int index = 0; index < 4; index++) {
+                long itemId = 9860L + index;
+                seedOrderItem(itemId, pid("oit_", "SCLQB" + index), ORDER_N, SELLER_A, "예산상품" + index, "CANCEL_REQUESTED");
+                for (int repeat = 0; repeat < 2 + index % 2; repeat++) {
+                    seedClaim(claimId, pid("clm_", "SCLQB" + index + "N" + repeat), itemId, "CANCEL", "BUYER_CHANGED_MIND", null,
+                            repeat == 0 ? "REQUESTED" : "REJECTED", "PAID", "2026-08-0" + (1 + repeat) + " 10:00:00", null, null, null, null);
+                    claimId++;
+                }
+            }
+            seedClaim(CLAIM_TIE_NULL, pid("clm_", "SCLCTNL"), ITEM_A1, "RETURN", "PRODUCT_DEFECT", null, "REJECTED", "DELIVERED",
+                    "2026-04-20 10:00:00", "2026-04-21 10:00:00", "OUT_OF_POLICY", null, null);
+            seedClaim(CLAIM_TIE_SAME, pid("clm_", "SCLCTSM"), ITEM_A1, "RETURN", "PRODUCT_DEFECT", null, "REJECTED", "DELIVERED",
+                    "2026-04-25 10:00:00", "2026-04-26 10:00:00", "OUT_OF_POLICY", null, null);
+        });
+        // 셀러 A 클레임 = 기존 3 + A1 추가 2 + 예산 품목 4개(2+3+2+3=10) = 15 / 품목 = 기존 2 + 4 = 6
+        assertThat(countQueries(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("size", "100"), 15)).isEqualTo(7);
+        assertThat(countQueries(get(ORDER_ITEMS_URL).headers(authHeaders.seller(USER_A)).param("size", "100"), 6)).isEqualTo(8);
     }
 
     @Test
@@ -411,6 +546,18 @@ class SellerClaimQueryControllerIntegrationTest extends AbstractIntegrationTest 
         });
     }
 
+    /** 테스트 본문에서 추가 시드(FK 체크 해제 TX). cleanup이 EXTRA 범위를 지운다. */
+    private void seedExtra(Runnable seeds) {
+        tx.executeWithoutResult(s -> {
+            try {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
+                seeds.run();
+            } finally {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
+            }
+        });
+    }
+
     private void seedSellerWithOwner(long userId, long sellerId, String userTag, String sellerTag, String companyName) {
         jdbc.update("INSERT INTO `user` (id, public_id, created_at, updated_at) VALUES (?, ?, NOW(6), NOW(6))",
                 userId, pid("usr_", userTag));
@@ -458,8 +605,10 @@ class SellerClaimQueryControllerIntegrationTest extends AbstractIntegrationTest 
                 jdbc.update("DELETE FROM refund WHERE id = ?", REFUND_C4);
                 jdbc.update("DELETE FROM delivery WHERE id = ?", DELIVERY_EXCHANGE);
                 jdbc.update("DELETE FROM attachment WHERE id IN (?, ?)", ATTACHMENT_1, ATTACHMENT_2);
-                jdbc.update("DELETE FROM claim WHERE id IN (?, ?, ?, ?)", CLAIM_C1, CLAIM_C2, CLAIM_C3, CLAIM_C4);
-                jdbc.update("DELETE FROM order_item WHERE id IN (?, ?, ?)", ITEM_A1, ITEM_B1, ITEM_A2);
+                jdbc.update("DELETE FROM claim WHERE id IN (?, ?, ?, ?) OR id BETWEEN ? AND ?", CLAIM_C1, CLAIM_C2, CLAIM_C3, CLAIM_C4,
+                        EXTRA_CLAIM_FROM, EXTRA_CLAIM_TO);
+                jdbc.update("DELETE FROM order_item WHERE id IN (?, ?, ?) OR id BETWEEN ? AND ?", ITEM_A1, ITEM_B1, ITEM_A2,
+                        EXTRA_ITEM_FROM, EXTRA_ITEM_TO);
                 jdbc.update("DELETE FROM order_shipping_snapshot WHERE order_id IN (?, ?)", ORDER_M, ORDER_N);
                 jdbc.update("DELETE FROM `order` WHERE id IN (?, ?)", ORDER_M, ORDER_N);
                 jdbc.update("DELETE FROM product_variant WHERE id = ?", VARIANT_ID);
