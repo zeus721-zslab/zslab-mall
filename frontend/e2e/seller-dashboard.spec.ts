@@ -4,7 +4,7 @@ import { mockSellerMe } from './helpers/seller-mock'
 
 /**
  * 셀러 대시보드(Track 90-B-3·D-192) E2E. ①은 loginAs(SELLER·SELLER_E2E_* 주입·미주입 시 skip) + 대시보드 API mock(결정적 값), ②는 데모 셀러(env NUXT_SELLER_DEMO_*·
- * 데이터 0·실 API)로 빈 상태만 확인한다(D-191 §8: 데모 셀러 7은 상품·품목·정산 0).
+ * 실 API)로 응답과 화면을 대조한다(FE-50: 데모 계정은 실데이터라 "데이터 0" 하드코딩 대신 waitForResponse 응답 기준·admin-dashboard ① 동형).
  */
 const DAILY = Array.from({ length: 30 }, (_, index) => {
   const date = new Date(2026, 7, 22 + index)
@@ -38,6 +38,26 @@ async function mockDashboard(page: Page): Promise<URLSearchParams[]> {
     return route.fulfill({ json: { ...DASHBOARD, period: { from, to } } })
   })
   return queries
+}
+
+/** ②가 대조하는 응답 필드(BE SellerDashboardResponse 중 화면 값으로 쓰이는 부분만). */
+interface DemoDashboardResponse {
+  summary: { revenue: number; refund: number; netRevenue: number; orderCount: number }
+  pending: { deliveryReady: number; claimRequested: number; lowStock: number; settlementPending: number }
+  dailyTrend: { date: string; orderCount: number; revenue: number }[]
+  recentOrderItems: unknown[]
+  recentClaims: unknown[]
+  topProducts: unknown[]
+}
+
+/** 화면 포맷 재현(layers/seller/app/lib/format formatWon·formatCount와 동일 식). */
+const won = (value: number): string => `${value.toLocaleString('ko-KR')}원`
+const count = (value: number): string => `${value.toLocaleString('ko-KR')}건`
+
+/** 목록 카드(SellerDashboardListCard): 응답 길이 0이면 `-empty`만, 아니면 `-row` 수 = 길이·`-empty` 없음. */
+async function expectListMatches(page: Page, testId: string, length: number): Promise<void> {
+  await expect(page.getByTestId(`${testId}-row`)).toHaveCount(length)
+  await expect(page.getByTestId(`${testId}-empty`)).toHaveCount(length === 0 ? 1 : 0)
 }
 
 test.describe('셀러 대시보드(90-B-3)', () => {
@@ -101,20 +121,39 @@ test.describe('셀러 대시보드(90-B-3)', () => {
     expect(toValue).toBe(queries[1]!.get('to'))
   })
 
-  test('② 데모 셀러(데이터 0·실 API) → 요약 0원·대기 0건·최근 목록 빈 상태·차트 데이터 없음', async ({ page }) => {
+  test('② 데모 셀러(실 API) → 응답 대조: 요약 4·대기 4 값 일치 · 최근 목록 3 행 수 또는 빈 상태 · 차트 빈 상태 = dailyTrend 전부 0', async ({ page }) => {
     await page.goto('/seller/login')
     await page.waitForLoadState('networkidle')
     const demoButton = page.getByTestId('seller-demo-login')
     test.skip((await demoButton.count()) === 0, 'NUXT_SELLER_DEMO_EMAIL/PASSWORD 미주입 — 데모 버튼 없음')
+    // 대시보드 응답은 데모 로그인 직후 /seller 진입에서 발생하므로 클릭 전에 대기를 등록한다(seller-shell ⑤·admin-dashboard ① 동형)
+    const dashboardResponse = page.waitForResponse((response) => response.url().includes('/api/v1/seller/dashboard') && response.status() === 200)
     await demoButton.click()
     await page.waitForURL(/\/seller$/)
-    await expect(page.getByTestId('dashboard-card-revenue')).toContainText('0원')
-    await expect(page.getByTestId('dashboard-card-orderCount')).toContainText('0건')
-    await expect(page.getByTestId('dashboard-pending').getByTestId('dashboard-pending-count')).toHaveText(['0건', '0건', '0건', '0건'])
-    await expect(page.getByTestId('dashboard-recent-order-items-empty')).toBeVisible()
-    await expect(page.getByTestId('dashboard-recent-claims-empty')).toBeVisible()
-    await expect(page.getByTestId('dashboard-top-products-empty')).toBeVisible()
-    await expect(page.getByTestId('dashboard-chart-revenue-empty')).toHaveText('데이터 없음')
+    const dashboard = (await (await dashboardResponse).json()) as DemoDashboardResponse
+
+    // 요약 4: 카드 값 = 응답 숫자를 화면과 같은 포맷(formatWon·formatCount)으로 변환한 문자열과 정확 일치
+    const summary = page.getByTestId('dashboard-summary')
+    await expect(summary.getByTestId('dashboard-card-revenue').getByTestId('seller-stat-card-value')).toHaveText(won(dashboard.summary.revenue))
+    await expect(summary.getByTestId('dashboard-card-refund').getByTestId('seller-stat-card-value')).toHaveText(won(dashboard.summary.refund))
+    await expect(summary.getByTestId('dashboard-card-netRevenue').getByTestId('seller-stat-card-value')).toHaveText(won(dashboard.summary.netRevenue))
+    await expect(summary.getByTestId('dashboard-card-orderCount').getByTestId('seller-stat-card-value')).toHaveText(count(dashboard.summary.orderCount))
+
+    // 대기 4: 순서 = 배송 대기 · 클레임 · 재고 임박 · 정산 예정(SellerDashboardPending 타일 순서)
+    const { deliveryReady, claimRequested, lowStock, settlementPending } = dashboard.pending
+    await expect(page.getByTestId('dashboard-pending').getByTestId('dashboard-pending-count')).toHaveText([deliveryReady, claimRequested, lowStock, settlementPending].map(count))
+
+    // 최근 목록 3: 응답 배열 길이 = 행 수, 0이면 빈 상태 문구
+    await expectListMatches(page, 'dashboard-recent-order-items', dashboard.recentOrderItems.length)
+    await expectListMatches(page, 'dashboard-recent-claims', dashboard.recentClaims.length)
+    await expectListMatches(page, 'dashboard-top-products', dashboard.topProducts.length)
+
+    // 차트 2: dailyTrend가 전부 0일 때만 "데이터 없음"(isAllZero) · SVG는 항상 렌더
+    const revenueAllZero = dashboard.dailyTrend.every((row) => row.revenue === 0)
+    const orderCountAllZero = dashboard.dailyTrend.every((row) => row.orderCount === 0)
+    await expect(page.getByTestId('dashboard-chart-revenue-empty')).toHaveCount(revenueAllZero ? 1 : 0)
+    await expect(page.getByTestId('dashboard-chart-orders-empty')).toHaveCount(orderCountAllZero ? 1 : 0)
+    await expect(page.getByTestId('dashboard-chart-revenue').locator('svg.apexcharts-svg')).toBeVisible()
     await expect(page.getByTestId('dashboard-error')).toHaveCount(0)
   })
 })
