@@ -14,6 +14,7 @@ useSeoMeta({ title: '상품 수정 · zslab-mall 셀러' })
 // 상품 수정(Track 90-C-4·관리자 [id].vue 복제). 상세(90-C-1 GET)를 폼으로 변환해 띄운다. 타 셀러·미존재(404)는 안내 + 목록 이동.
 // ?partial=1은 등록 후속(이미지) 단계 실패에서 넘어온 경우(안내 표시). 저장 성공 후에는 상세를 재조회해 폼을 새로 만든다(서버 값 반영·신규 variant id 확보).
 const route = useRoute()
+const router = useRouter()
 const productsApi = useSellerProducts()
 const toast = useSellerToast()
 const productPublicId = computed<string>(() => String(route.params.id ?? ''))
@@ -52,8 +53,14 @@ async function load(): Promise<void> {
 }
 onMounted(load)
 
-function onSaved(): void {
-  void load()
+async function onSaved(): Promise<void> {
+  // 검토 반영 ⑥: 저장 성공 후에는 partial 경고가 더 이상 맞지 않으므로 쿼리에서 지운 뒤(재조회 URL 정리) 상세를 다시 읽는다.
+  if (partial.value) {
+    const query = { ...route.query }
+    delete query.partial
+    await router.replace({ query })
+  }
+  await load()
 }
 
 function onNotFound(): void {

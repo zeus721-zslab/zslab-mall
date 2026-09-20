@@ -210,7 +210,7 @@ function rowError(variant: SellerFormVariant, field: string): string | undefined
             </td>
             <td><v-text-field v-model="variant.variantCode" density="compact" hide-details="auto" :maxlength="VARIANT_CODE_MAX" :error-messages="rowError(variant, 'variantCode')" data-testid="variant-code" /></td>
             <td><v-text-field v-model="variant.sellerSku" density="compact" hide-details="auto" :maxlength="SELLER_SKU_MAX" :error-messages="rowError(variant, 'sellerSku')" data-testid="variant-sku" /></td>
-            <td><v-text-field :model-value="variant.additionalPrice" type="number" min="0" density="compact" hide-details="auto" :error-messages="rowError(variant, 'additionalPrice')" data-testid="variant-additional" @update:model-value="(value) => (variant.additionalPrice = toNumber(value, 0))" /></td>
+            <td><v-text-field :model-value="variant.additionalPrice" type="number" min="0" step="1" density="compact" hide-details="auto" :error-messages="rowError(variant, 'additionalPrice')" data-testid="variant-additional" @update:model-value="(value) => (variant.additionalPrice = toNumber(value, 0))" /></td>
             <td class="text-body-2" data-testid="variant-stock-readonly">
               <template v-if="variant.stockOnServer">
                 보유 {{ variant.stockOnServer.onHand }} · 예약 {{ variant.stockOnServer.reserved }} · <strong>가용 {{ variant.stockOnServer.available }}</strong>
@@ -238,8 +238,8 @@ function rowError(variant: SellerFormVariant, field: string): string | undefined
             </td>
             <td><v-text-field v-model="variant.variantCode" density="compact" hide-details="auto" :maxlength="VARIANT_CODE_MAX" :disabled="variant.excluded" :error-messages="rowError(variant, 'variantCode')" data-testid="variant-code" /></td>
             <td><v-text-field v-model="variant.sellerSku" density="compact" hide-details="auto" :maxlength="SELLER_SKU_MAX" :disabled="variant.excluded" :error-messages="rowError(variant, 'sellerSku')" data-testid="variant-sku" /></td>
-            <td><v-text-field :model-value="variant.additionalPrice" type="number" min="0" density="compact" hide-details="auto" :disabled="variant.excluded" :error-messages="rowError(variant, 'additionalPrice')" data-testid="variant-additional" @update:model-value="(value) => (variant.additionalPrice = toNumber(value, 0))" /></td>
-            <td><v-text-field :model-value="variant.initialStock" type="number" min="0" density="compact" hide-details="auto" :disabled="variant.excluded" :error-messages="rowError(variant, 'initialStock')" data-testid="variant-initial-stock" @update:model-value="(value) => (variant.initialStock = toNumber(value, 0))" /></td>
+            <td><v-text-field :model-value="variant.additionalPrice" type="number" min="0" step="1" density="compact" hide-details="auto" :disabled="variant.excluded" :error-messages="rowError(variant, 'additionalPrice')" data-testid="variant-additional" @update:model-value="(value) => (variant.additionalPrice = toNumber(value, 0))" /></td>
+            <td><v-text-field :model-value="variant.initialStock" type="number" min="0" step="1" density="compact" hide-details="auto" :disabled="variant.excluded" :error-messages="rowError(variant, 'initialStock')" data-testid="variant-initial-stock" @update:model-value="(value) => (variant.initialStock = toNumber(value, 0))" /></td>
             <template v-if="locked">
               <td /><td />
               <td><v-checkbox :model-value="!variant.excluded" density="compact" hide-details :aria-label="`${variantLabel(variant, form.optionGroups)} 추가`" data-testid="variant-add" @update:model-value="(value) => setAdded(variant, Boolean(value))" /></td>

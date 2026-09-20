@@ -200,13 +200,18 @@ export function includedVariants(form: SellerProductForm): SellerFormVariant[] {
 
 // ---------- 검증 ----------
 
+/** BE Long/int 계약(기본가·추가금·초기 재고): 0 이상 정수만 통과(소수·NaN·음수 거부·검토 반영 ⑦·UI step만으로는 막지 못한다). */
+export function isNonNegativeInteger(value: number): boolean {
+  return Number.isInteger(value) && value >= 0
+}
+
 export function validateSellerProductForm(form: SellerProductForm, mode: SellerProductFormMode): SellerProductFormErrors {
   const errors: SellerProductFormErrors = {}
   if (form.categoryId === null) errors.categoryId = '카테고리를 선택하세요.'
   if (form.name.trim() === '') errors.name = '상품명을 입력하세요.'
   else if (form.name.trim().length > PRODUCT_NAME_MAX) errors.name = `상품명은 ${PRODUCT_NAME_MAX}자 이내입니다.`
   if (form.basePrice === null || Number.isNaN(form.basePrice)) errors.basePrice = '기본가를 입력하세요.'
-  else if (form.basePrice < 0) errors.basePrice = '기본가는 0 이상이어야 합니다.'
+  else if (!isNonNegativeInteger(form.basePrice)) errors.basePrice = '기본가는 0 이상의 정수여야 합니다.'
 
   if (form.hasOptions) {
     if (form.optionGroups.length === 0) errors.optionGroups = '옵션 그룹을 1개 이상 추가하세요.'
@@ -241,9 +246,9 @@ export function validateSellerProductForm(form: SellerProductForm, mode: SellerP
     if (variant.variantCode.trim() === '') errors[`variants.${index}.variantCode`] = '코드를 입력하세요.'
     else if (variant.variantCode.trim().length > VARIANT_CODE_MAX) errors[`variants.${index}.variantCode`] = `코드는 ${VARIANT_CODE_MAX}자 이내입니다.`
     if (variant.sellerSku.trim().length > SELLER_SKU_MAX) errors[`variants.${index}.sellerSku`] = `SKU는 ${SELLER_SKU_MAX}자 이내입니다.`
-    if (variant.additionalPrice < 0 || Number.isNaN(variant.additionalPrice)) errors[`variants.${index}.additionalPrice`] = '추가금은 0 이상.'
-    if (variant.variantPublicId === null && (variant.initialStock < 0 || Number.isNaN(variant.initialStock))) {
-      errors[`variants.${index}.initialStock`] = '초기 재고는 0 이상.'
+    if (!isNonNegativeInteger(variant.additionalPrice)) errors[`variants.${index}.additionalPrice`] = '추가금은 0 이상의 정수.'
+    if (variant.variantPublicId === null && !isNonNegativeInteger(variant.initialStock)) {
+      errors[`variants.${index}.initialStock`] = '초기 재고는 0 이상의 정수.'
     }
   })
   return errors
@@ -407,9 +412,18 @@ function stripLocalIds(value: unknown): unknown {
   return value
 }
 
-/** 폼 스냅샷(이탈 경고 dirty 비교용). 로컬 키를 제외한 값만 비교한다. */
+/**
+ * 폼 스냅샷(이탈 경고 dirty 비교용·검토 반영 ⑧). {@link sectionSnapshots}와 같은 "저장 payload 의미" 기준으로 정규화한다 — 저장에 실리는
+ * 값(trim·공백→null·제외 행 제거)만 비교하므로 공백 편집·제외된 신규 행 입력처럼 저장 결과가 같은 변경은 dirty가 아니다. 서버 표시 전용
+ * 필드(status·soldoutManual·stockOnServer)는 폼이 바꾸지 못하므로 비교에 넣지 않는다.
+ */
 export function formSnapshot(form: SellerProductForm): string {
-  return JSON.stringify(stripLocalIds(form))
+  return JSON.stringify(stripLocalIds({
+    productPublicId: form.productPublicId,
+    ...sectionSnapshots(form),
+    // 등록 모드에서 옵션 구조·초기 재고 편집은 등록 payload에만 실리므로 별도 포함한다(수정 모드는 구조 잠금이라 변화 없음).
+    create: toSellerCreateRequest(form),
+  }))
 }
 
 export interface SectionSnapshots {

@@ -53,6 +53,7 @@ function toNumber(value: string | number | null): number | null {
             label="기본가(원) *"
             type="number"
             min="0"
+            step="1"
             inputmode="numeric"
             hint="옵션 추가금은 조합표에서 따로 입력합니다. 판매중 상품도 즉시 반영됩니다(이미 결제된 주문 금액은 변하지 않음)."
             persistent-hint
