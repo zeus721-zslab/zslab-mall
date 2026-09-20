@@ -9,6 +9,8 @@ import com.zslab.mall.claim.enums.ClaimRejectReasonCode;
 import com.zslab.mall.claim.enums.ClaimStatus;
 import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.event.ClaimApproved;
+import com.zslab.mall.claim.event.ClaimInspectionPassed;
+import com.zslab.mall.claim.event.ClaimPickedUp;
 import com.zslab.mall.claim.event.ClaimRejected;
 import com.zslab.mall.order.enums.OrderItemStatus;
 import jakarta.persistence.EntityManager;
@@ -27,12 +29,13 @@ import org.springframework.transaction.annotation.Transactional;
 import com.zslab.mall.support.AbstractIntegrationTest;
 
 /**
- * Seller Claim endpoint E2E 통합 테스트(β 패턴·D-92·STEP 2 β 결정·WARN-5). 실 MariaDB·Flyway·MockMvc로
- * HTTP → {@code SellerClaimController} → {@code ClaimService} → DB 흐름의 권한 검증·도메인 박제·이벤트 발행을 검증한다.
+ * 셀러 클레임 처리 endpoint 제거 반전 통합 테스트(Track 92·D-196). "셀러는 조회만·처리는 관리자"가 확정이므로
+ * {@code POST /api/v1/claims/{id}/approve · /reject · /confirm-pickup · /inspect}는 셀러 토큰으로 403(SecurityConfig BUYER
+ * 광범위 규칙)이어야 하며, 인가·endpoint가 되살아나면 200/422로 RED가 난다(STEP 701에서 매처 복원으로 RED 재현 확인).
  *
- * <p><b>책임 경계(WARN-5)</b>: endpoint 권한(cross-tenant 404)·상태 박제(APPROVED/REJECTED)·이벤트 발행
- * (@RecordApplicationEvents)까지만 보장한다. ClaimApproved/Rejected 소비·AFTER_COMMIT 핸들러의 OrderItem 전이는
- * ClaimEventIntegrationTest 책임이며 본 테스트는 검증하지 않는다(@Transactional 롤백이라 AFTER_COMMIT 미발화).
+ * <p><b>단언 경계</b>: 403·클레임 상태 유지·milestone 컬럼 NULL 유지·이벤트 0건까지만 본다. 관리자 처리 정상 경로는
+ * AdminClaimIntegrationTest·ClaimReturnIntegrationTest 책임이다. 404 단언은 채택하지 않는다(경로 부재 NoResourceFoundException이
+ * GlobalExceptionHandler catch-all에 걸려 500이 될 수 있음).
  *
  * <p><b>트랜잭션·시드(β)</b>: 단일 트랜잭션(@Transactional)으로 종료 시 롤백한다. order_item은 product/variant/seller
  * FK 상위 그래프를 요구하므로(V1__init.sql) {@code SET FOREIGN_KEY_CHECKS=0}으로 order·order_item·claim만 시딩한다
@@ -46,10 +49,8 @@ class SellerClaimIntegrationTest extends AbstractIntegrationTest {
 
     private static final long BUYER = 9501L;
     private static final long SELLER_A = 9001L; // 품목 소유 셀러
-    private static final long SELLER_B = 9002L; // 타 셀러(cross-tenant)
     // Track 36 γ Phase 3: actorId(JWT subject)를 seller_id와 다른 값으로 둔다 — user.id==seller.id 우연일치 은폐 제거.
     private static final long SELLER_A_USER = 9051L; // SELLER_A 소속 user(actorId)
-    private static final long SELLER_B_USER = 9052L; // SELLER_B 소속 user(cross-tenant actorId)
 
     @Autowired
     private MockMvc mockMvc;
@@ -65,98 +66,105 @@ class SellerClaimIntegrationTest extends AbstractIntegrationTest {
 
     @BeforeEach
     void seedSellerUsers() {
-        // resolver가 user.id→seller.id를 seller_user로 해소하므로 실 매핑을 시드한다(모든 테스트 공통·I4 미시드 케이스 포함).
-        // Track 90-A 상태 가드가 seller.status를 조인하므로 ACTIVE seller 행도 함께 심는다(행 부재 = 401 fail-closed).
+        // 소유 셀러의 실 매핑(seller_user·ACTIVE seller)을 시드해 403이 "소유 셀러라도 차단"임을 보장한다(행 부재 401과 구분).
         seed(() -> {
             seedSeller(SELLER_A, pid("slr_", "SCISLA"));
-            seedSeller(SELLER_B, pid("slr_", "SCISLB"));
             seedSellerUser(SELLER_A_USER, SELLER_A);
-            seedSellerUser(SELLER_B_USER, SELLER_B);
         });
     }
 
-    // ===== I1·I2: 승인·거부 성공 =====
+    // ===== R1~R4: 셀러 처리 endpoint 제거 반전(Track 92) — 인가가 되살아나면 200으로 RED =====
 
     @Test
-    @DisplayName("I1 승인: 소유 셀러 → 200·APPROVED 박제·ClaimApproved 1회 발행")
-    void approve_ownerSeller_returns200_publishesApproved() throws Exception {
-        long orderId = 9601L;
-        long orderItemId = 9602L;
-        long claimId = 9603L;
-        String claimPid = pid("clm_", "I1");
+    @DisplayName("R1 승인: 소유 셀러 토큰 → 403 FORBIDDEN·REQUESTED 유지·ClaimApproved 0건(Track 92 셀러 처리 endpoint 제거)")
+    void approve_ownerSellerToken_returns403_noTransition() throws Exception {
+        long orderId = 9631L;
+        long orderItemId = 9632L;
+        long claimId = 9633L;
+        String claimPid = pid("clm_", "R1");
         seed(() -> {
-            seedOrder(orderId, pid("ord_", "I1ORD"), BUYER);
-            seedOrderItem(orderItemId, pid("oit_", "I1OIT"), orderId, SELLER_A, OrderItemStatus.PAID);
-            seedClaim(claimId, claimPid, orderItemId, ClaimType.CANCEL, ClaimStatus.REQUESTED, BUYER, "승인 대상");
+            seedOrder(orderId, pid("ord_", "R1ORD"), BUYER);
+            seedOrderItem(orderItemId, pid("oit_", "R1OIT"), orderId, SELLER_A, OrderItemStatus.PAID);
+            seedClaim(claimId, claimPid, orderItemId, ClaimType.CANCEL, ClaimStatus.REQUESTED, BUYER, "셀러 승인 차단");
         });
 
         mockMvc.perform(post("/api/v1/claims/" + claimPid + "/approve")
                         .headers(authHeaders.seller(SELLER_A_USER)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.publicId").value(claimPid))
-                .andExpect(jsonPath("$.status").value("APPROVED"));
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
 
-        assertThat(claimStatus(claimId)).isEqualTo("APPROVED");
-        assertThat(events.stream(ClaimApproved.class).count()).isEqualTo(1L);
+        assertThat(claimStatus(claimId)).isEqualTo("REQUESTED");
+        assertThat(events.stream(ClaimApproved.class).count()).isZero();
     }
 
     @Test
-    @DisplayName("I2 거부: 소유 셀러 → 200·REJECTED 박제·ClaimRejected 1회 발행")
-    void reject_ownerSeller_returns200_publishesRejected() throws Exception {
-        long orderId = 9611L;
-        long orderItemId = 9612L;
-        long claimId = 9613L;
-        String claimPid = pid("clm_", "I2");
+    @DisplayName("R2 거부: 소유 셀러 토큰 → 403 FORBIDDEN·REQUESTED 유지·ClaimRejected 0건(Track 92)")
+    void reject_ownerSellerToken_returns403_noTransition() throws Exception {
+        long orderId = 9641L;
+        long orderItemId = 9642L;
+        long claimId = 9643L;
+        String claimPid = pid("clm_", "R2");
         seed(() -> {
-            seedOrder(orderId, pid("ord_", "I2ORD"), BUYER);
-            seedOrderItem(orderItemId, pid("oit_", "I2OIT"), orderId, SELLER_A, OrderItemStatus.PAID);
-            seedClaim(claimId, claimPid, orderItemId, ClaimType.CANCEL, ClaimStatus.REQUESTED, BUYER, "거부 대상");
+            seedOrder(orderId, pid("ord_", "R2ORD"), BUYER);
+            seedOrderItem(orderItemId, pid("oit_", "R2OIT"), orderId, SELLER_A, OrderItemStatus.PAID);
+            seedClaim(claimId, claimPid, orderItemId, ClaimType.CANCEL, ClaimStatus.REQUESTED, BUYER, "셀러 거부 차단");
         });
 
         mockMvc.perform(post("/api/v1/claims/" + claimPid + "/reject")
                         .headers(authHeaders.seller(SELLER_A_USER))
-                        .contentType(MediaType.APPLICATION_JSON).content("{\"reasonCode\":\"OUT_OF_POLICY\",\"memo\":\"테스트 거부\"}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("REJECTED"));
-
-        assertThat(claimStatus(claimId)).isEqualTo("REJECTED");
-        assertThat(events.stream(ClaimRejected.class).count()).isEqualTo(1L);
-    }
-
-    // ===== I3·I4: 권한·미존재 =====
-
-    @Test
-    @DisplayName("I3 승인: 타 셀러 cross-tenant → 404·전이 없음·이벤트 0건(정보 노출 회피·D-92 Q3)")
-    void approve_crossTenant_returns404_noEvent() throws Exception {
-        long orderId = 9621L;
-        long orderItemId = 9622L;
-        long claimId = 9623L;
-        String claimPid = pid("clm_", "I3");
-        seed(() -> {
-            seedOrder(orderId, pid("ord_", "I3ORD"), BUYER);
-            seedOrderItem(orderItemId, pid("oit_", "I3OIT"), orderId, SELLER_A, OrderItemStatus.PAID);
-            seedClaim(claimId, claimPid, orderItemId, ClaimType.CANCEL, ClaimStatus.REQUESTED, BUYER, "타 셀러 접근");
-        });
-
-        mockMvc.perform(post("/api/v1/claims/" + claimPid + "/approve")
-                        .headers(authHeaders.seller(SELLER_B_USER)))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.code").value("CLAIM_NOT_FOUND"));
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"reasonCode\":\"OUT_OF_POLICY\",\"memo\":\"차단 확인\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
 
         assertThat(claimStatus(claimId)).isEqualTo("REQUESTED");
-        assertThat(events.stream(ClaimApproved.class).count()).isZero();
         assertThat(events.stream(ClaimRejected.class).count()).isZero();
     }
 
     @Test
-    @DisplayName("I4 승인: 미존재 claimPublicId → 404·이벤트 0건")
-    void approve_unknownPublicId_returns404() throws Exception {
-        mockMvc.perform(post("/api/v1/claims/" + pid("clm_", "I4NONE") + "/approve")
-                        .headers(authHeaders.seller(SELLER_A_USER)))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.code").value("CLAIM_NOT_FOUND"));
+    @DisplayName("R3 회수 확인: 소유 셀러 토큰 → 403 FORBIDDEN·picked_up_at NULL 유지·ClaimPickedUp 0건(Track 92)")
+    void confirmPickup_ownerSellerToken_returns403_noTransition() throws Exception {
+        long orderId = 9651L;
+        long orderItemId = 9652L;
+        long claimId = 9653L;
+        String claimPid = pid("clm_", "R3");
+        seed(() -> {
+            seedOrder(orderId, pid("ord_", "R3ORD"), BUYER);
+            seedOrderItem(orderItemId, pid("oit_", "R3OIT"), orderId, SELLER_A, OrderItemStatus.RETURN_REQUESTED);
+            seedClaim(claimId, claimPid, orderItemId, ClaimType.RETURN, ClaimStatus.APPROVED, BUYER, "셀러 회수 확인 차단");
+        });
 
-        assertThat(events.stream(ClaimApproved.class).count()).isZero();
+        mockMvc.perform(post("/api/v1/claims/" + claimPid + "/confirm-pickup")
+                        .headers(authHeaders.seller(SELLER_A_USER)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+        assertThat(claimStatus(claimId)).isEqualTo("APPROVED");
+        assertThat(claimColumn(claimId, "picked_up_at")).isNull();
+        assertThat(events.stream(ClaimPickedUp.class).count()).isZero();
+    }
+
+    @Test
+    @DisplayName("R4 검수: 소유 셀러 토큰 → 403 FORBIDDEN·inspected_at NULL 유지·ClaimInspectionPassed 0건(Track 92)")
+    void inspect_ownerSellerToken_returns403_noTransition() throws Exception {
+        long orderId = 9661L;
+        long orderItemId = 9662L;
+        long claimId = 9663L;
+        String claimPid = pid("clm_", "R4");
+        seed(() -> {
+            seedOrder(orderId, pid("ord_", "R4ORD"), BUYER);
+            seedOrderItem(orderItemId, pid("oit_", "R4OIT"), orderId, SELLER_A, OrderItemStatus.RETURN_REQUESTED);
+            seedClaim(claimId, claimPid, orderItemId, ClaimType.RETURN, ClaimStatus.APPROVED, BUYER, "셀러 검수 차단");
+        });
+
+        mockMvc.perform(post("/api/v1/claims/" + claimPid + "/inspect")
+                        .headers(authHeaders.seller(SELLER_A_USER))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"result\":\"PASS\",\"restock\":true}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+        assertThat(claimStatus(claimId)).isEqualTo("APPROVED");
+        assertThat(claimColumn(claimId, "inspected_at")).isNull();
+        assertThat(events.stream(ClaimInspectionPassed.class).count()).isZero();
     }
 
     // ===== 시드·검증 헬퍼(ClaimIntegrationTest 패턴 1:1·seedOrderItem만 sellerId 파라미터화) =====
@@ -238,6 +246,12 @@ class SellerClaimIntegrationTest extends AbstractIntegrationTest {
 
     private void execute(String sql) {
         entityManager.createNativeQuery(sql).executeUpdate();
+    }
+
+    /** claim 단일 컬럼 조회(picked_up_at·inspected_at NULL 유지 확인용). 컬럼명은 테스트 상수 리터럴만 전달한다(SQL injection 위험 없음). */
+    private Object claimColumn(long claimId, String column) {
+        return entityManager.createNativeQuery("SELECT " + column + " FROM claim WHERE id = ?1")
+                .setParameter(1, claimId).getSingleResult();
     }
 
     private String claimStatus(long claimId) {

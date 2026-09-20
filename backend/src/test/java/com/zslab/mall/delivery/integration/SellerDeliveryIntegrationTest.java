@@ -25,16 +25,14 @@ import org.springframework.transaction.support.TransactionTemplate;
 import com.zslab.mall.support.AbstractIntegrationTest;
 
 /**
- * Seller 교환품 출고 등록 endpoint E2E 통합 테스트(Track 15·D-99·실 MariaDB). HTTP → {@code SellerDeliveryController} →
- * {@code ClaimService.registerExchangeShipmentBySeller} → {@code DeliveryService.registerExchangeShipment} → DB 흐름의
- * 권한 검증(Q9·Q10)·Aggregate 불변식(D-98 Q13)·Q11 이중 호출 멱등 가드를 실 커밋·HTTP 경유로 실측한다(라이브 트랩 차단).
+ * 셀러 교환품 출고 endpoint 제거 반전 통합 테스트(Track 92·D-196·실 MariaDB). "셀러는 조회만·처리는 관리자"가 확정이므로
+ * {@code POST /api/v1/claims/{id}/register-exchange-shipment}는 셀러 토큰으로 403(SecurityConfig BUYER 광범위 규칙)이어야 하며,
+ * 인가·endpoint가 되살아나면 200으로 RED가 난다(STEP 701에서 매처 복원으로 RED 재현 확인). 관리자 정상 경로는
+ * AdminDeliveryControllerIntegrationTest 책임이다.
  *
- * <p><b>트랜잭션</b>: DeliveryStarted 동기 소비·AFTER_COMMIT 알림 핸들러를 실제 커밋으로 구동하므로 클래스에 {@code @Transactional}을
- * 두지 않는다(ClaimReturnIntegrationTest·ClaimExchangeIntegrationTest 패턴 1:1). 시드/정리는 {@link TransactionTemplate} +
- * {@code FOREIGN_KEY_CHECKS=0}(LT-02 try-finally), 검증은 {@link JdbcTemplate} 직접 조회·이벤트는 {@link ApplicationEvents}로 한다.
- *
- * <p><b>HTTP 경유 의무(D-99)</b>: {@code DeliveryService.registerExchangeShipment} primitive를 직접 호출하지 않고 MockMvc로
- * endpoint를 구동한다. X-Seller-Id 헤더 stub은 {@code HeaderSellerActorResolver}가 BIGINT로 해소한다(D-93).
+ * <p><b>트랜잭션</b>: 클래스에 {@code @Transactional}을 두지 않고 시드/정리는 {@link TransactionTemplate} +
+ * {@code FOREIGN_KEY_CHECKS=0}(LT-02 try-finally), 검증은 {@link JdbcTemplate} 직접 조회·이벤트는 {@link ApplicationEvents}로 한다
+ * (ClaimReturnIntegrationTest·ClaimExchangeIntegrationTest 패턴 1:1).
  */
 @AutoConfigureMockMvc
 @RecordApplicationEvents
@@ -42,10 +40,8 @@ class SellerDeliveryIntegrationTest extends AbstractIntegrationTest {
 
     private static final long USER_ID = 9415L;
     private static final long SELLER_A = 9415L; // 품목 소유 셀러
-    private static final long SELLER_B = 9416L; // 타 셀러(cross-tenant)
     // Track 36 γ Phase 3: actorId(JWT subject)를 seller_id와 다른 값으로 둔다 — user.id==seller.id 우연일치 은폐 제거.
     private static final long SELLER_A_USER = 9417L; // SELLER_A 소속 user(actorId)
-    private static final long SELLER_B_USER = 9418L; // SELLER_B 소속 user(cross-tenant actorId)
     private static final long PRODUCT_ID = 9415L;
     private static final long VARIANT_ID = 9415L;
     private static final long ORDER_ID = 9415L;
@@ -84,9 +80,11 @@ class SellerDeliveryIntegrationTest extends AbstractIntegrationTest {
         cleanup();
     }
 
+    // ===== R5: 셀러 교환품 출고 endpoint 제거 반전(Track 92) — 인가가 되살아나면 200으로 RED =====
+
     @Test
-    @DisplayName("T1 정상 등록: 소유 셀러 → 200·SHIPPING Delivery 커밋·claim_id 연결·DeliveryStarted 1회")
-    void register_ownerSeller_returns200_persistsShippingDelivery() throws Exception {
+    @DisplayName("R5 교환품 출고: 소유 셀러 토큰 → 403 FORBIDDEN·Delivery 미생성·DeliveryStarted 0건(Track 92 셀러 처리 endpoint 제거)")
+    void register_ownerSellerToken_returns403_noDelivery() throws Exception {
         seed(() -> {
             seedCatalog();
             seedOrder("DELIVERED");
@@ -98,92 +96,11 @@ class SellerDeliveryIntegrationTest extends AbstractIntegrationTest {
                         .headers(authHeaders.seller(SELLER_A_USER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("CJ", TRACKING_NO)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.deliveryPublicId").exists())
-                .andExpect(jsonPath("$.status").value("SHIPPING"))
-                .andExpect(jsonPath("$.carrier").value("CJ"))
-                .andExpect(jsonPath("$.trackingNo").value(TRACKING_NO));
-
-        assertThat(deliveryCount()).isEqualTo(1);
-        assertThat(deliveryStatus()).isEqualTo("SHIPPING");
-        assertThat(deliveryClaimId()).isEqualTo(CLAIM_ID);
-        assertThat(deliveryCarrier()).isEqualTo("CJ");
-        assertThat(deliveryTrackingNo()).isEqualTo(TRACKING_NO);
-        assertThat(events.stream(DeliveryStarted.class).count()).isEqualTo(1L);
-    }
-
-    @Test
-    @DisplayName("T2 cross-tenant: 타 셀러 → 404 CLAIM_NOT_FOUND·Delivery 미생성·이벤트 0(정보 노출 회피·D-99 Q9·Q10)")
-    void register_crossTenant_returns404_noDelivery() throws Exception {
-        seed(() -> {
-            seedCatalog();
-            seedOrder("DELIVERED");
-            seedOrderItem(OrderItemStatus.EXCHANGE_REQUESTED);
-            seedApprovedClaim(ClaimType.EXCHANGE);
-        });
-
-        mockMvc.perform(post("/api/v1/claims/" + CLAIM_PID + "/register-exchange-shipment")
-                        .headers(authHeaders.seller(SELLER_B_USER))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(body("CJ", TRACKING_NO)))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.code").value("CLAIM_NOT_FOUND"));
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
 
         assertThat(deliveryCount()).isZero();
         assertThat(events.stream(DeliveryStarted.class).count()).isZero();
-    }
-
-    @Test
-    @DisplayName("T3 type 불일치: RETURN 클레임 → 422 CLAIM_STATE_INVALID·Delivery 롤백(D-98 Q13·D-99 Q10)")
-    void register_returnTypeClaim_returns422_noDelivery() throws Exception {
-        seed(() -> {
-            seedCatalog();
-            seedOrder("DELIVERED");
-            seedOrderItem(OrderItemStatus.RETURN_REQUESTED);
-            seedApprovedClaim(ClaimType.RETURN);
-        });
-
-        mockMvc.perform(post("/api/v1/claims/" + CLAIM_PID + "/register-exchange-shipment")
-                        .headers(authHeaders.seller(SELLER_A_USER))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(body("CJ", TRACKING_NO)))
-                .andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.code").value("CLAIM_STATE_INVALID"));
-
-        // Delivery.create·save 후 Claim.attachExchangeDelivery type 검증 throw → 단일 트랜잭션 롤백으로 행 미잔존.
-        assertThat(deliveryCount()).isZero();
-        assertThat(events.stream(DeliveryStarted.class).count()).isZero();
-    }
-
-    @Test
-    @DisplayName("T4 Q11 멱등 회귀: 동일 claimId 재호출 → 422·Delivery 추가 생성 없음·기존 행 불변·DeliveryStarted 1회")
-    void register_duplicateCall_returns422_noAdditionalDelivery() throws Exception {
-        seed(() -> {
-            seedCatalog();
-            seedOrder("DELIVERED");
-            seedOrderItem(OrderItemStatus.EXCHANGE_REQUESTED);
-            seedApprovedClaim(ClaimType.EXCHANGE);
-        });
-
-        // 1차: 정상 등록(Delivery claim_id 연결 커밋)
-        mockMvc.perform(post("/api/v1/claims/" + CLAIM_PID + "/register-exchange-shipment")
-                        .headers(authHeaders.seller(SELLER_A_USER))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(body("CJ", TRACKING_NO)))
-                .andExpect(status().isOk());
-
-        // 2차: 동일 claimId·다른 carrier/trackingNo 재호출 → Q11 가드 throw
-        mockMvc.perform(post("/api/v1/claims/" + CLAIM_PID + "/register-exchange-shipment")
-                        .headers(authHeaders.seller(SELLER_A_USER))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(body("HANJIN", "HJ-SD-9999")))
-                .andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.code").value("CLAIM_STATE_INVALID"));
-
-        assertThat(deliveryCount()).isEqualTo(1);
-        assertThat(deliveryCarrier()).isEqualTo("CJ");
-        assertThat(deliveryTrackingNo()).isEqualTo(TRACKING_NO);
-        assertThat(events.stream(DeliveryStarted.class).count()).isEqualTo(1L);
     }
 
     // ---------- seed·helpers (ClaimExchangeIntegrationTest 패턴 1:1·claim 시드만 type 파라미터화) ----------
@@ -246,7 +163,7 @@ class SellerDeliveryIntegrationTest extends AbstractIntegrationTest {
     }
 
     // resolver 해소용 seller_user 실 매핑 + seller 행 시드(actorId≠seller_id·role_id=SELLER_OWNER seed). Track 90-A 상태 가드가
-    // seller.status를 조인하므로 SELLER_A·SELLER_B 모두 ACTIVE seller 행이 있어야 resolver를 통과한다(행 부재 = 401 fail-closed).
+    // seller.status를 조인하므로 ACTIVE seller 행이 있어야 resolver를 통과한다(행 부재 = 401 fail-closed) — 403이 "소유 셀러라도 차단"임을 보장.
     private void seedSellerUsers() {
         tx.executeWithoutResult(s -> {
             try {
@@ -254,15 +171,9 @@ class SellerDeliveryIntegrationTest extends AbstractIntegrationTest {
                 jdbc.update("INSERT INTO seller (id, public_id, company_name, ceo_name, status, created_at, updated_at) "
                                 + "VALUES (?, ?, '통합셀러', '대표', 'ACTIVE', NOW(6), NOW(6))",
                         SELLER_A, pid("slr_", "SDSLR"));
-                jdbc.update("INSERT INTO seller (id, public_id, company_name, ceo_name, status, created_at, updated_at) "
-                                + "VALUES (?, ?, '통합셀러B', '대표', 'ACTIVE', NOW(6), NOW(6))",
-                        SELLER_B, pid("slr_", "SDSLRB"));
                 jdbc.update("INSERT INTO seller_user (user_id, seller_id, role_id, created_at, updated_at) "
                                 + "SELECT ?, ?, id, NOW(6), NOW(6) FROM role WHERE code = 'SELLER_OWNER'",
                         SELLER_A_USER, SELLER_A);
-                jdbc.update("INSERT INTO seller_user (user_id, seller_id, role_id, created_at, updated_at) "
-                                + "SELECT ?, ?, id, NOW(6), NOW(6) FROM role WHERE code = 'SELLER_OWNER'",
-                        SELLER_B_USER, SELLER_B);
             } finally {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
             }
@@ -273,7 +184,7 @@ class SellerDeliveryIntegrationTest extends AbstractIntegrationTest {
         tx.executeWithoutResult(s -> {
             try {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
-                jdbc.update("DELETE FROM seller_user WHERE user_id IN (?, ?)", SELLER_A_USER, SELLER_B_USER);
+                jdbc.update("DELETE FROM seller_user WHERE user_id = ?", SELLER_A_USER);
                 jdbc.update("DELETE FROM notification_log WHERE recipient_user_id = ?", USER_ID);
                 jdbc.update("DELETE FROM delivery WHERE order_item_id = ?", ORDER_ITEM_ID);
                 jdbc.update("DELETE FROM refund WHERE claim_id IN (SELECT id FROM claim WHERE order_item_id = ?)",
@@ -283,7 +194,7 @@ class SellerDeliveryIntegrationTest extends AbstractIntegrationTest {
                 jdbc.update("DELETE FROM `order` WHERE id = ?", ORDER_ID);
                 jdbc.update("DELETE FROM product_variant WHERE id = ?", VARIANT_ID);
                 jdbc.update("DELETE FROM product WHERE id = ?", PRODUCT_ID);
-                jdbc.update("DELETE FROM seller WHERE id IN (?, ?)", SELLER_A, SELLER_B);
+                jdbc.update("DELETE FROM seller WHERE id = ?", SELLER_A);
                 jdbc.update("DELETE FROM `user` WHERE id = ?", USER_ID);
             } finally {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
@@ -299,23 +210,6 @@ class SellerDeliveryIntegrationTest extends AbstractIntegrationTest {
         Integer count = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM delivery WHERE order_item_id = ?", Integer.class, ORDER_ITEM_ID);
         return count == null ? 0 : count;
-    }
-
-    private String deliveryStatus() {
-        return jdbc.queryForObject("SELECT status FROM delivery WHERE order_item_id = ?", String.class, ORDER_ITEM_ID);
-    }
-
-    private Long deliveryClaimId() {
-        return jdbc.queryForObject("SELECT claim_id FROM delivery WHERE order_item_id = ?", Long.class, ORDER_ITEM_ID);
-    }
-
-    private String deliveryCarrier() {
-        return jdbc.queryForObject("SELECT carrier FROM delivery WHERE order_item_id = ?", String.class, ORDER_ITEM_ID);
-    }
-
-    private String deliveryTrackingNo() {
-        return jdbc.queryForObject(
-                "SELECT tracking_no FROM delivery WHERE order_item_id = ?", String.class, ORDER_ITEM_ID);
     }
 
     private static String pid(String prefix, String tag) {

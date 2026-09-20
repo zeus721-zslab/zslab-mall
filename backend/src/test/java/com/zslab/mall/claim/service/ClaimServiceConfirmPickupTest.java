@@ -3,7 +3,6 @@ package com.zslab.mall.claim.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -17,7 +16,6 @@ import com.zslab.mall.claim.exception.ClaimNotFoundException;
 import com.zslab.mall.claim.repository.ClaimRepository;
 import com.zslab.mall.delivery.service.DeliveryService;
 import com.zslab.mall.common.observability.TracedEventPublisher;
-import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.order.repository.OrderRepository;
@@ -32,15 +30,14 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 /**
- * {@link ClaimService} 수거 확인(confirmPickup·D-98 Q1·Q9) 단위 검증. primitive 정상/멱등/미발견/비APPROVED·Seller/Admin
- * wrapper 권한 경계를 mock 경계에서 검증한다.
+ * {@link ClaimService} 수거 확인(confirmPickup·D-98 Q1·Q9) 단위 검증. primitive 정상/멱등/미발견/비APPROVED·Admin
+ * wrapper 위임을 mock 경계에서 검증한다(Seller wrapper는 Track 92에서 제거).
  */
 @ExtendWith(MockitoExtension.class)
 class ClaimServiceConfirmPickupTest {
 
     private static final Long CLAIM_ID = 1L;
     private static final Long ORDER_ITEM_ID = 10L;
-    private static final Long SELLER_ID = 200L;
     private static final LocalDateTime REQUESTED_AT = LocalDateTime.of(2026, 6, 29, 9, 0);
     private static final LocalDateTime PROCESSED_AT = LocalDateTime.of(2026, 6, 29, 10, 0);
     private static final LocalDateTime PICKED_UP_AT = LocalDateTime.of(2026, 6, 29, 11, 0);
@@ -122,37 +119,7 @@ class ClaimServiceConfirmPickupTest {
     }
 
     @Test
-    @DisplayName("confirmPickupBySeller: 소유 판매자 → primitive 위임·발행")
-    void confirmPickupBySeller_authorized_delegates() {
-        Claim claim = approvedReturnClaim();
-        when(claimRepository.findById(CLAIM_ID)).thenReturn(Optional.of(claim));
-        when(claimRepository.save(any(Claim.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        OrderItem orderItem = mock(OrderItem.class);
-        when(orderItem.getSellerId()).thenReturn(SELLER_ID);
-        when(orderItemRepository.findById(ORDER_ITEM_ID)).thenReturn(Optional.of(orderItem));
-
-        claimService.confirmPickupBySeller(CLAIM_ID, SELLER_ID, PICKED_UP_AT);
-
-        assertThat(claim.getPickedUpAt()).isEqualTo(PICKED_UP_AT);
-        verify(eventPublisher).publishEvent(any(ClaimPickedUp.class));
-    }
-
-    @Test
-    @DisplayName("confirmPickupBySeller: 타 판매자 → ClaimNotFoundException(404 은닉)·발행 없음")
-    void confirmPickupBySeller_otherSeller_throws() {
-        Claim claim = approvedReturnClaim();
-        when(claimRepository.findById(CLAIM_ID)).thenReturn(Optional.of(claim));
-        OrderItem orderItem = mock(OrderItem.class);
-        when(orderItem.getSellerId()).thenReturn(999L);
-        when(orderItemRepository.findById(ORDER_ITEM_ID)).thenReturn(Optional.of(orderItem));
-
-        assertThatThrownBy(() -> claimService.confirmPickupBySeller(CLAIM_ID, SELLER_ID, PICKED_UP_AT))
-                .isInstanceOf(ClaimNotFoundException.class);
-        verify(eventPublisher, never()).publishEvent(any());
-    }
-
-    @Test
-    @DisplayName("confirmPickupByAdmin: 권한 검증 없이 primitive 위임·발행·authorizeSellerAccess 미진입")
+    @DisplayName("confirmPickupByAdmin: 권한 검증 없이 primitive 위임·발행·orderItemRepository 미진입")
     void confirmPickupByAdmin_delegates() {
         Claim claim = approvedReturnClaim();
         when(claimRepository.findById(CLAIM_ID)).thenReturn(Optional.of(claim));
