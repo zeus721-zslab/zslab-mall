@@ -109,7 +109,7 @@ public class SellerProductCommandService {
      * @throws ProductNotFoundException 미존재·삭제·타 셀러 상품(404)
      * @throws ProductImageNotFoundException imageId가 이 상품의 활성 이미지가 아닐 때(404)
      * @throws IllegalArgumentException 대표 2장 이상·DETAIL 대표 지정(400)
-     * @throws MalformedRequestException 신규·변경 imageUrl이 본 셀러에게 발급된 상품 이미지 경로가 아닌 경우(400·D-174·검토 반영)
+     * @throws MalformedRequestException 신규·변경 imageUrl이 본 셀러에게 발급된 상품 이미지 경로가 아니거나 저장 파일이 없는 경우(400·D-174·검토 반영)
      */
     public void replaceImages(Long sellerId, String productPublicId, SellerProductImagesRequest request) {
         Product product = findOwnedForUpdate(sellerId, productPublicId);
@@ -121,7 +121,7 @@ public class SellerProductCommandService {
             SellerProductImagesRequest.Item item = request.images().get(order);
             ProductImageType imageType = ProductImageType.valueOf(item.imageType());
             if (item.imageId() == null) {
-                ImageUploadService.requireSellerOwnedProductUrl(item.imageUrl(), sellerId);
+                imageUploadService.requireSellerOwnedProductUrl(item.imageUrl(), sellerId);
                 productImageRepository.save(ProductImage.create(product, item.imageUrl(), imageType, order, item.main()));
                 continue;
             }
@@ -132,7 +132,7 @@ public class SellerProductCommandService {
             }
             // D-174: 기존 행의 URL을 그대로 되돌려 보내는 편집은 통과(관리자가 붙인 이미지 보존), URL을 바꾸는 경우만 본 셀러 발급 경로 강제.
             if (!item.imageUrl().equals(existing.getImageUrl())) {
-                ImageUploadService.requireSellerOwnedProductUrl(item.imageUrl(), sellerId);
+                imageUploadService.requireSellerOwnedProductUrl(item.imageUrl(), sellerId);
             }
             existing.updateMeta(item.imageUrl(), imageType, order, item.main());
         }

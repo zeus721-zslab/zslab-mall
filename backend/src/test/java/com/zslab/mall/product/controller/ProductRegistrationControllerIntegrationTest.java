@@ -1,10 +1,12 @@
 package com.zslab.mall.product.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zslab.mall.common.security.AuthHeaders;
 import com.zslab.mall.product.controller.request.ProductOptionGroupRequest;
@@ -12,16 +14,27 @@ import com.zslab.mall.product.controller.request.ProductOptionValueRequest;
 import com.zslab.mall.product.controller.request.ProductRegistrationRequest;
 import com.zslab.mall.product.controller.request.ProductVariantRequest;
 import com.zslab.mall.product.controller.response.ProductRegistrationResponse;
+import java.awt.Color;
+import java.awt.Graphics2D;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.nio.file.Path;
 import java.util.List;
+import javax.imageio.ImageIO;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
@@ -57,10 +70,20 @@ class ProductRegistrationControllerIntegrationTest extends AbstractIntegrationTe
     private static final long ADMIN_USER_ID = 9544L;       // 관리자 등록 경로 회귀 방어용(user 행 불필요·JWT subject만)
     private static final String SELLER_PUBLIC_ID = pid("slr_", "PRGSLR");
     private static final String ADMIN_URL = "/api/v1/admin/products";
-    // Track 90-C 검토 반영: thumbnailUrl은 본인(SELLER_ID) 발급 경로만 허용·타 셀러·공용(관리자) 경로는 400.
-    private static final String OWN_THUMBNAIL_URL = "/api/v1/files/products/sellers/9540/2026/09/01J8PRGOWN0000000000000000.jpg";
+    // Track 90-C 검토 반영: thumbnailUrl은 본인(SELLER_ID) 발급 경로 + 실제 저장 파일만 허용·타 셀러·공용(관리자) 경로·본인 접두 미업로드는 400.
+    private static final String UPLOAD_URL = "/api/v1/seller/files/images";
+    private static final String NOT_UPLOADED_THUMBNAIL_URL = "/api/v1/files/products/sellers/9540/2026/09/01J8PRGOWN0000000000000000.jpg";
     private static final String OTHER_SELLER_THUMBNAIL_URL = "/api/v1/files/products/sellers/9549/2026/09/01J8PRGOTHER00000000000000.jpg";
     private static final String SHARED_PATH_THUMBNAIL_URL = "/api/v1/files/products/2026/09/01J8PRGSHARED0000000000000.jpg";
+
+    // 재검토 반영: thumbnailUrl은 실제 저장 파일이어야 하므로 셀러 업로드 API로 실파일을 올린다. upload.path를 @TempDir로 덮어써 실 경로를 오염시키지 않는다.
+    @TempDir
+    static Path uploadRoot;
+
+    @DynamicPropertySource
+    static void uploadPath(DynamicPropertyRegistry registry) {
+        registry.add("upload.path", () -> uploadRoot.toString());
+    }
 
     @Autowired
     private MockMvc mockMvc;
@@ -321,11 +344,33 @@ class ProductRegistrationControllerIntegrationTest extends AbstractIntegrationTe
     }
 
     @Test
-    @DisplayName("T16b 셀러 등록에 본인 발급 thumbnailUrl → 201 + thumbnail_url 저장")
+    @DisplayName("T16b 셀러 등록에 본인이 실제 업로드한 thumbnailUrl(대형 이미지·_thumb 파일) → 201 + thumbnail_url 저장")
     void register_ownThumbnail_returns201() throws Exception {
-        MvcResult result = register(sellerAuth(), withThumbnail(OWN_THUMBNAIL_URL)).andExpect(status().isCreated()).andReturn();
+        // FE는 업로드 응답의 thumbnailUrl || imageUrl을 보낸다 — 가로 400px 초과 이미지는 _thumb 파일이 생성돼 썸네일 URL이 온다.
+        JsonNode uploaded = uploadAsSeller(800, 600);
+        String thumbnailUrl = uploaded.get("thumbnailUrl").asText();
+        assertThat(thumbnailUrl).isNotEqualTo(uploaded.get("url").asText()).endsWith("_thumb.png");
+        MvcResult result = register(sellerAuth(), withThumbnail(thumbnailUrl)).andExpect(status().isCreated()).andReturn();
         Long productId = productId(extract(result).productPublicId());
-        assertThat(count("SELECT COUNT(*) FROM product WHERE id=? AND thumbnail_url=?", productId, OWN_THUMBNAIL_URL)).isEqualTo(1);
+        assertThat(count("SELECT COUNT(*) FROM product WHERE id=? AND thumbnail_url=?", productId, thumbnailUrl)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("T16e 셀러 등록에 본인 접두이지만 업로드된 적 없는 thumbnailUrl → 400 MALFORMED_REQUEST + 상품 미생성")
+    void register_notUploadedThumbnail_returns400() throws Exception {
+        expectBadRequest(withThumbnail(NOT_UPLOADED_THUMBNAIL_URL));
+        assertThat(count("SELECT COUNT(*) FROM product WHERE seller_id=?", SELLER_ID)).isZero();
+    }
+
+    @Test
+    @DisplayName("T16f 썸네일이 생성되지 않는 소형 이미지(10x10) 업로드 → 원본 URL을 thumbnailUrl로 등록 → 201")
+    void register_smallImageOriginalUrlAsThumbnail_returns201() throws Exception {
+        JsonNode uploaded = uploadAsSeller(10, 10);
+        String originalUrl = uploaded.get("url").asText();
+        assertThat(uploaded.get("thumbnailUrl").asText()).isEqualTo(originalUrl); // 축소 불요 → 썸네일 파일 미생성·원본 URL 반환
+        MvcResult result = register(sellerAuth(), withThumbnail(originalUrl)).andExpect(status().isCreated()).andReturn();
+        Long productId = productId(extract(result).productPublicId());
+        assertThat(count("SELECT COUNT(*) FROM product WHERE id=? AND thumbnail_url=?", productId, originalUrl)).isEqualTo(1);
     }
 
     @Test
@@ -403,6 +448,29 @@ class ProductRegistrationControllerIntegrationTest extends AbstractIntegrationTe
 
     private ProductRegistrationRequest withThumbnail(String thumbnailUrl) {
         return new ProductRegistrationRequest(CATEGORY_ID, "테스트상품", null, 10000L, thumbnailUrl, List.of(), List.of(variant("THUMB-1", 0, 0, 1)));
+    }
+
+    /** 본 셀러로 png를 실제 업로드해 결과 항목(url·thumbnailUrl)을 돌려준다(products/sellers/{SELLER_ID}/… 저장 파일 존재). */
+    private JsonNode uploadAsSeller(int width, int height) throws Exception {
+        MockMultipartFile file = new MockMultipartFile("files", "photo.png", "image/png", png(width, height));
+        String body = mockMvc.perform(multipart(UPLOAD_URL).file(file).headers(sellerAuth()))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        JsonNode item = objectMapper.readTree(body).get("results").get(0);
+        assertThat(item.get("success").asBoolean()).isTrue();
+        assertThat(item.get("url").asText()).startsWith("/api/v1/files/products/sellers/" + SELLER_ID + "/");
+        return item;
+    }
+
+    private static byte[] png(int width, int height) throws IOException {
+        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D graphics = image.createGraphics();
+        graphics.setColor(Color.ORANGE);
+        graphics.fillRect(0, 0, width, height);
+        graphics.dispose();
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        ImageIO.write(image, "png", output);
+        return output.toByteArray();
     }
 
     private Long productId(String publicId) {

@@ -2,6 +2,7 @@ package com.zslab.mall.product.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.contains;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -19,23 +20,34 @@ import com.zslab.mall.product.repository.ProductRepository;
 import com.zslab.mall.product.repository.ProductVariantRepository;
 import com.zslab.mall.seller.enums.SellerStatus;
 import com.zslab.mall.support.AbstractIntegrationTest;
+import java.awt.Color;
+import java.awt.Graphics2D;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.RecordComponent;
+import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import javax.imageio.ImageIO;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.ResultMatcher;
@@ -96,8 +108,9 @@ class SellerProductCommandControllerIntegrationTest extends AbstractIntegrationT
     private static final String THUMBNAIL_URL = "/api/v1/files/products/2026/09/spc-thumb.jpg";
     private static final String I1_URL = "/api/v1/files/products/2026/09/spc-1.jpg";
     private static final String I2_URL = "/api/v1/files/products/2026/09/spc-2.jpg";
-    /** 셀러 A에게 발급된 업로드 경로(products/sellers/{sellerId}/…·검토 반영 ①). 신규·URL 변경은 이 접두만 통과한다. */
-    private static final String NEW_IMAGE_URL = "/api/v1/files/products/sellers/" + SELLER_A + "/2026/09/spc-new.jpg";
+    /** 셀러 A 접두(products/sellers/{sellerId}/…)이지만 업로드된 적 없는 URL — 재검토 반영: 접두가 맞아도 저장 파일이 없으면 400. */
+    private static final String NOT_UPLOADED_IMAGE_URL = "/api/v1/files/products/sellers/" + SELLER_A + "/2026/09/spc-new.jpg";
+    private static final String UPLOAD_URL = "/api/v1/seller/files/images";
     /** 셀러 B에게 발급된 경로·관리자 경로(products/yyyy/MM) — 셀러 A의 신규 등록은 400. */
     private static final String OTHER_SELLER_IMAGE_URL = "/api/v1/files/products/sellers/" + SELLER_B + "/2026/09/spc-b-new.jpg";
     private static final String ADMIN_PATH_IMAGE_URL = "/api/v1/files/products/2026/09/spc-admin-new.jpg";
@@ -130,6 +143,15 @@ class SellerProductCommandControllerIntegrationTest extends AbstractIntegrationT
             "saleEndAt", "sellerId", "id", "productId", "variantId");
     /** 금지 키 = (관리자 상품 응답 DTO 2종 선언 필드(중첩 포함) − 셀러 허용 키) ∪ 수동 목록(90-B-1·90-C-1 패턴). */
     private static final Set<String> FORBIDDEN_KEYS = forbiddenKeys();
+
+    // 재검토 반영: 신규 이미지 URL은 실제 저장 파일이어야 하므로 셀러 업로드 API로 실파일을 올린다. upload.path를 @TempDir로 덮어써 실 경로를 오염시키지 않는다.
+    @TempDir
+    static Path uploadRoot;
+
+    @DynamicPropertySource
+    static void uploadPath(DynamicPropertyRegistry registry) {
+        registry.add("upload.path", () -> uploadRoot.toString());
+    }
 
     @Autowired
     private MockMvc mockMvc;
@@ -274,18 +296,20 @@ class SellerProductCommandControllerIntegrationTest extends AbstractIntegrationT
     // ==================== 2. 이미지 ====================
 
     @Test
-    @DisplayName("T7 이미지 치환 200: [I2→GALLERY 대표 order0, 신규 order1] → 미포함 I1 soft-delete·I2 메타 갱신·신규 행·thumbnail_url 대표 URL 동기화(썸네일 파일 없으면 원본)")
+    @DisplayName("T7 이미지 치환 200: [I2→GALLERY 대표 order0, 실제 업로드한 신규 order1] → 미포함 I1 soft-delete·I2 메타 갱신·신규 행·thumbnail_url 대표 URL 동기화(썸네일 파일 없으면 원본)")
     void replaceImages_replacesAndSyncsThumbnail() throws Exception {
+        // 재검토 반영 회귀: 신규 URL은 셀러 A가 실제 업로드해 발급받은 URL(저장 파일 존재)이어야 200.
+        String uploadedUrl = uploadAsSellerA(10, 10);
         String body = "{\"images\":["
                 + "{\"imageId\":" + IMAGE_I2 + ",\"imageUrl\":\"" + I2_URL + "\",\"imageType\":\"GALLERY\",\"main\":true},"
-                + "{\"imageUrl\":\"" + NEW_IMAGE_URL + "\",\"imageType\":\"DETAIL\",\"main\":false}]}";
+                + "{\"imageUrl\":\"" + uploadedUrl + "\",\"imageType\":\"DETAIL\",\"main\":false}]}";
         putAs(USER_A, BASE_URL + "/" + P1_PID + "/images", body, status().isOk())
                 .andExpect(jsonPath("$.images.length()").value(2))
                 .andExpect(jsonPath("$.images[0].imageId").value(IMAGE_I2))
                 .andExpect(jsonPath("$.images[0].imageType").value("GALLERY"))
                 .andExpect(jsonPath("$.images[0].main").value(true))
                 .andExpect(jsonPath("$.images[0].displayOrder").value(0))
-                .andExpect(jsonPath("$.images[1].imageUrl").value(NEW_IMAGE_URL))
+                .andExpect(jsonPath("$.images[1].imageUrl").value(uploadedUrl))
                 .andExpect(jsonPath("$.images[1].imageType").value("DETAIL"))
                 .andExpect(jsonPath("$.images[1].displayOrder").value(1))
                 .andExpect(jsonPath("$.thumbnailUrl").value(I2_URL));
@@ -297,17 +321,23 @@ class SellerProductCommandControllerIntegrationTest extends AbstractIntegrationT
         assertThat(String.valueOf(i2.get("is_main"))).isIn("1", "true"); // TINYINT(1)은 드라이버가 Boolean으로 매핑한다
         assertThat(i2.get("deleted_at")).isNull();
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM product_image WHERE product_id = ? AND image_url = ? AND deleted_at IS NULL",
-                Integer.class, PRODUCT_P1, NEW_IMAGE_URL)).isEqualTo(1);
+                Integer.class, PRODUCT_P1, uploadedUrl)).isEqualTo(1);
         // 썸네일 파일이 없는 URL은 thumbnailUrlFor가 원본을 돌려준다(D-174 동기화 규칙·업로드 파일 존재 시 _thumb).
         assertThat(jdbc.queryForObject("SELECT thumbnail_url FROM product WHERE id = ?", String.class, PRODUCT_P1)).isEqualTo(I2_URL);
     }
 
     @Test
-    @DisplayName("T8 이미지 400·404: 외부 URL·타 셀러 발급 URL·관리자 경로 URL 신규 400 · 대표 2장 400 · DETAIL 대표 400 · 타 상품 imageId 404 · 관리자 발급 기존 URL 보존 편집 200 · 대표 없으면 첫 GALLERY 썸네일 · 실패 시 DB 불변")
+    @DisplayName("T8 이미지 400·404: 외부 URL·타 셀러 발급 URL·관리자 경로 URL·본인 접두 미업로드 URL 신규 400 · 대표 2장 400 · DETAIL 대표 400 · 타 상품 imageId 404 · 관리자 발급 기존 URL 보존 편집 200 · 실제 업로드 URL(원본·썸네일) 200 · 대표 없으면 첫 GALLERY 썸네일 · 실패 시 DB 불변")
     void replaceImages_rejections() throws Exception {
         String url = BASE_URL + "/" + P1_PID + "/images";
         String keepI1 = "{\"imageId\":" + IMAGE_I1 + ",\"imageUrl\":\"" + I1_URL + "\",\"imageType\":\"GALLERY\",\"main\":true}";
         putAs(USER_A, url, "{\"images\":[" + keepI1 + ",{\"imageUrl\":\"https://external/x.jpg\",\"imageType\":\"GALLERY\",\"main\":false}]}",
+                status().isBadRequest()).andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
+        // 재검토 반영: 본인 접두(products/sellers/A/)라도 업로드된 적 없는 URL은 저장 파일 부재로 400.
+        putAs(USER_A, url, "{\"images\":[" + keepI1 + ",{\"imageUrl\":\"" + NOT_UPLOADED_IMAGE_URL + "\",\"imageType\":\"GALLERY\",\"main\":false}]}",
+                status().isBadRequest()).andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
+        // 기존 행의 URL을 본인 접두 미업로드 URL로 교체하는 편집도 400.
+        putAs(USER_A, url, "{\"images\":[{\"imageId\":" + IMAGE_I1 + ",\"imageUrl\":\"" + NOT_UPLOADED_IMAGE_URL + "\",\"imageType\":\"GALLERY\",\"main\":true}]}",
                 status().isBadRequest()).andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
         // ① 셀러 귀속: 타 셀러(B)에게 발급된 경로·관리자 경로(products/yyyy/MM)는 서버 발급이라도 셀러 A의 신규 등록 400.
         putAs(USER_A, url, "{\"images\":[" + keepI1 + ",{\"imageUrl\":\"" + OTHER_SELLER_IMAGE_URL + "\",\"imageType\":\"GALLERY\",\"main\":false}]}",
@@ -328,12 +358,27 @@ class SellerProductCommandControllerIntegrationTest extends AbstractIntegrationT
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM product_image WHERE product_id = ? AND deleted_at IS NULL", Integer.class, PRODUCT_P1))
                 .isEqualTo(2);
 
-        // ① 관리자가 등록한 기존 이미지(관리자 경로 URL·I1)를 URL 변경 없이 보존 편집 → 200(검증 생략 분기 유지)
+        // 재검토 반영 회귀: 실제 업로드한 URL은 원본(소형·썸네일 미생성)·썸네일(_thumb·대형) 어느 쪽을 보내도 저장 파일이 있으므로 200.
+        String uploadedOriginal = uploadAsSellerA(10, 10);
+        String uploadedThumbnail = uploadThumbnailAsSellerA(800, 600);
+        assertThat(uploadedThumbnail).endsWith("_thumb.png");
+        String keepI2 = "{\"imageId\":" + IMAGE_I2 + ",\"imageUrl\":\"" + I2_URL + "\",\"imageType\":\"DETAIL\",\"main\":false}";
+        putAs(USER_A, url, "{\"images\":[" + keepI1 + "," + keepI2 + ",{\"imageUrl\":\"" + uploadedOriginal + "\",\"imageType\":\"GALLERY\",\"main\":false},"
+                + "{\"imageUrl\":\"" + uploadedThumbnail + "\",\"imageType\":\"DETAIL\",\"main\":false}]}", status().isOk())
+                .andExpect(jsonPath("$.images.length()").value(4));
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM product_image WHERE product_id = ? AND deleted_at IS NULL AND image_url IN (?, ?)",
+                Integer.class, PRODUCT_P1, uploadedOriginal, uploadedThumbnail)).isEqualTo(2);
+
+        // ① 관리자가 등록한 기존 이미지(관리자 경로 URL·I1·저장 파일 없음)를 URL 변경 없이 보존 편집 → 200(검증 생략 분기 유지·운영 기존 행 보호).
+        //    앞 단계에서 추가된 업로드 행 2개는 목록에서 빠져 soft-delete된다.
         // ③ 대표 없이 치환 → 요청의 첫 GALLERY(I1)가 썸네일(썸네일 파일 없으면 원본 URL).
         putAs(USER_A, url, "{\"images\":[{\"imageId\":" + IMAGE_I2 + ",\"imageUrl\":\"" + I2_URL + "\",\"imageType\":\"DETAIL\",\"main\":false},"
                 + "{\"imageId\":" + IMAGE_I1 + ",\"imageUrl\":\"" + I1_URL + "\",\"imageType\":\"GALLERY\",\"main\":false}]}",
                 status().isOk()).andExpect(jsonPath("$.thumbnailUrl").value(I1_URL));
         assertThat(jdbc.queryForObject("SELECT thumbnail_url FROM product WHERE id = ?", String.class, PRODUCT_P1)).isEqualTo(I1_URL);
+        // I2도 관리자 경로 URL(저장 파일 없음)이지만 되돌려 보낸 편집이라 통과했음을 활성 행으로 확인.
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM product_image WHERE product_id = ? AND deleted_at IS NULL AND image_url IN (?, ?)",
+                Integer.class, PRODUCT_P1, I1_URL, I2_URL)).isEqualTo(2);
         // ③ GALLERY 0장(DETAIL만) → 썸네일 null.
         putAs(USER_A, url, "{\"images\":[{\"imageId\":" + IMAGE_I2 + ",\"imageUrl\":\"" + I2_URL + "\",\"imageType\":\"DETAIL\",\"main\":false}]}",
                 status().isOk()).andExpect(jsonPath("$.thumbnailUrl").doesNotExist());
@@ -444,6 +489,37 @@ class SellerProductCommandControllerIntegrationTest extends AbstractIntegrationT
             throws Exception {
         return mockMvc.perform(put(url).headers(authHeaders.seller(userId)).contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(expected);
+    }
+
+    /** 셀러 A로 png를 실제 업로드해 발급 원본 URL을 돌려준다(products/sellers/A/… 저장 파일 존재). */
+    private String uploadAsSellerA(int width, int height) throws Exception {
+        return uploadResultAsSellerA(width, height).get("url").asText();
+    }
+
+    /** 셀러 A로 png를 실제 업로드해 발급 썸네일 URL을 돌려준다(가로 400px 초과면 _thumb 파일·이하면 원본 URL). */
+    private String uploadThumbnailAsSellerA(int width, int height) throws Exception {
+        return uploadResultAsSellerA(width, height).get("thumbnailUrl").asText();
+    }
+
+    private JsonNode uploadResultAsSellerA(int width, int height) throws Exception {
+        MockMultipartFile file = new MockMultipartFile("files", "photo.png", "image/png", png(width, height));
+        String body = mockMvc.perform(multipart(UPLOAD_URL).file(file).headers(authHeaders.seller(USER_A)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        JsonNode item = objectMapper.readTree(body).get("results").get(0);
+        assertThat(item.get("success").asBoolean()).isTrue();
+        return item;
+    }
+
+    private static byte[] png(int width, int height) throws IOException {
+        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D graphics = image.createGraphics();
+        graphics.setColor(Color.ORANGE);
+        graphics.fillRect(0, 0, width, height);
+        graphics.dispose();
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        ImageIO.write(image, "png", output);
+        return output.toByteArray();
     }
 
     private static String bodyFor(String url) {

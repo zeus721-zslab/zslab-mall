@@ -70,18 +70,19 @@ public class ProductRegistrationService {
     private final ProductOptionValueRepository productOptionValueRepository;
     private final ProductVariantRepository productVariantRepository;
     private final InventoryService inventoryService;
+    private final ImageUploadService imageUploadService; // 셀러 thumbnailUrl 귀속·저장 파일 존재 검증(FileStorage만 의존·순환 없음)
 
     /**
-     * 셀러 주도 상품 등록(Track 90-C 검토 반영). {@code thumbnailUrl}이 있으면 본인에게 서버가 발급한 업로드 경로인지 먼저 검증하고
+     * 셀러 주도 상품 등록(Track 90-C 검토 반영). {@code thumbnailUrl}이 있으면 본인에게 서버가 발급한 업로드 경로이며 실제 저장된 파일인지 먼저 검증하고
      * {@link #registerProduct}에 위임한다. 관리자 등록({@code AdminProductCommandService.create})은 공용 {@code products/yyyy/MM/}
      * 경로를 쓰므로 {@link #registerProduct}를 그대로 호출해 이 검증을 타지 않는다 — 인자 분기 대신 셀러 전용 진입점을 분리해
      * 관리자 호출부·기존 등록 흐름을 한 줄도 바꾸지 않는 쪽(회귀 위험 최소)을 택했다.
      *
-     * @throws com.zslab.mall.common.exception.MalformedRequestException thumbnailUrl이 본인 발급 상품 이미지 경로가 아닐 때(400)
+     * @throws com.zslab.mall.common.exception.MalformedRequestException thumbnailUrl이 본인 발급 상품 이미지 경로가 아니거나 저장 파일이 없을 때(400)
      */
     public ProductRegistrationResponse registerProductForSeller(Long sellerId, ProductRegistrationRequest request) {
         if (request.thumbnailUrl() != null) {
-            ImageUploadService.requireSellerOwnedProductUrl(request.thumbnailUrl(), sellerId);
+            imageUploadService.requireSellerOwnedProductUrl(request.thumbnailUrl(), sellerId);
         }
         return registerProduct(sellerId, request);
     }
