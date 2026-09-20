@@ -11,6 +11,10 @@ import com.zslab.mall.common.security.TokenPayload;
 import com.zslab.mall.common.security.TokenProvider;
 import com.zslab.mall.file.service.ImageFormat;
 import com.zslab.mall.file.service.ImageUploadService;
+import com.zslab.mall.order.repository.OrderItemRepository;
+import com.zslab.mall.seller.repository.SellerMembershipProjection;
+import com.zslab.mall.seller.repository.SellerUserRepository;
+import com.zslab.mall.seller.service.SellerAccessPolicy;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -29,7 +33,9 @@ import org.springframework.transaction.annotation.Transactional;
  *   <li>연결된 첨부(target_id NOT NULL): 대상 클레임을 조회해 {@code claim.requested_by == 주체}(BUYER)이거나 ADMIN. 클레임이 없으면 거부.
  *       uploaded_by는 연결 첨부 판정에 쓰지 않는다(외부 검토 반영·연결 경로가 바뀌어도 소유 기준은 클레임 요청자).</li>
  *   <li>미연결 첨부(target_id NULL): 업로더 본인(BUYER·uploaded_by)만. ADMIN도 불가(아직 어떤 클레임에도 속하지 않은 개인 사진).</li>
- *   <li>SELLER: 거부. 셀러 클레임 화면 트랙에서 claim→order_item.seller_id→seller_user 규칙으로 허용 예정(D-176 이월).</li>
+ *   <li>SELLER(Track 90-D-1·D-176 §8 이월 종결): 연결 첨부만, {@code claim.order_item_id → order_item.seller_id}가 요청 user의 셀러
+ *       소속({@code seller_user}·세션 허용 상태)과 일치할 때. 저장 키에는 sellerId가 없으므로 경로 문자열이 아니라 DB 경로로만 판정한다.
+ *       미연결 첨부는 어떤 클레임에도 속하지 않아 셀러 불가.</li>
  *   <li>썸네일({@code _thumb}) 키는 원본 첨부 행의 규칙을 그대로 따른다. 후보 조회 결과는 정확히 1행이어야 하며 0·2행 이상은 거부.</li>
  * </ul>
  */
@@ -42,13 +48,18 @@ public class ClaimAttachmentAuthorizationService {
 
     private final AttachmentRepository attachmentRepository;
     private final ClaimRepository claimRepository;
+    private final OrderItemRepository orderItemRepository;
+    private final SellerUserRepository sellerUserRepository;
     private final TokenProvider tokenProvider;
     private final AuthenticatedUserStateVerifier userStateVerifier;
 
     public ClaimAttachmentAuthorizationService(AttachmentRepository attachmentRepository, ClaimRepository claimRepository,
+            OrderItemRepository orderItemRepository, SellerUserRepository sellerUserRepository,
             TokenProvider tokenProvider, AuthenticatedUserStateVerifier userStateVerifier) {
         this.attachmentRepository = attachmentRepository;
         this.claimRepository = claimRepository;
+        this.orderItemRepository = orderItemRepository;
+        this.sellerUserRepository = sellerUserRepository;
         this.tokenProvider = tokenProvider;
         this.userStateVerifier = userStateVerifier;
     }
@@ -75,19 +86,19 @@ public class ClaimAttachmentAuthorizationService {
                     attachment.getPublicId(), attachment.getTargetType());
             return false;
         }
-        Long claimOwnerId = null;
+        Claim claim = null;
         if (attachment.isLinked()) {
-            Optional<Claim> claim = claimRepository.findById(attachment.getTargetId());
-            if (claim.isEmpty()) {
+            Optional<Claim> target = claimRepository.findById(attachment.getTargetId());
+            if (target.isEmpty()) {
                 log.debug("[ClaimAttachmentAuthz] 대상 클레임 없음 key={} attachmentId={} claimId={}", relativeKey,
                         attachment.getPublicId(), attachment.getTargetId());
                 return false;
             }
-            claimOwnerId = claim.get().getRequestedBy();
+            claim = target.get();
         }
         for (String token : candidateTokens) {
             Optional<TokenPayload> payload = verifyQuietly(token);
-            if (payload.isPresent() && isAllowed(attachment, claimOwnerId, payload.get())) {
+            if (payload.isPresent() && isAllowed(attachment, claim, payload.get())) {
                 return true;
             }
         }
@@ -96,13 +107,31 @@ public class ClaimAttachmentAuthorizationService {
         return false;
     }
 
-    /** @param claimOwnerId 연결 첨부의 클레임 요청자(claim.requested_by). 미연결이면 null */
-    private static boolean isAllowed(Attachment attachment, Long claimOwnerId, TokenPayload payload) {
+    /** @param claim 연결 첨부의 대상 클레임(소유 기준 requested_by·셀러 기준 order_item_id). 미연결이면 null */
+    private boolean isAllowed(Attachment attachment, Claim claim, TokenPayload payload) {
         boolean buyer = payload.role() == ActorRole.BUYER;
         if (!attachment.isLinked()) {
             return buyer && payload.actorId().equals(attachment.getUploadedBy());
         }
-        return (buyer && payload.actorId().equals(claimOwnerId)) || payload.role() == ActorRole.ADMIN;
+        if ((buyer && payload.actorId().equals(claim.getRequestedBy())) || payload.role() == ActorRole.ADMIN) {
+            return true;
+        }
+        return payload.role() == ActorRole.SELLER && isOwningSeller(claim, payload.actorId());
+    }
+
+    /**
+     * 셀러 후보 판정(Track 90-D-1): user → seller_user 소속(세션 허용 상태·{@code HeaderSellerActorResolver}와 같은 조회·상태 기준) →
+     * 그 seller.id가 클레임 품목의 seller_id와 같을 때만 허용. 소속 없음·PENDING/TERMINATED·품목 부재·타 셀러는 전부 false(호출부 404).
+     */
+    private boolean isOwningSeller(Claim claim, Long userId) {
+        Optional<SellerMembershipProjection> membership = sellerUserRepository.findMembershipByUserId(userId);
+        if (membership.isEmpty() || !SellerAccessPolicy.isSessionAllowed(membership.get().getStatus())) {
+            return false;
+        }
+        Long sellerId = membership.get().getSellerId();
+        return orderItemRepository.findById(claim.getOrderItemId())
+                .map(item -> item.getSellerId().equals(sellerId))
+                .orElse(false);
     }
 
     /** 무효·만료 토큰은 해당 후보만 버린다(요청 실패 금지·토큰 값은 로그에 남기지 않는다). */

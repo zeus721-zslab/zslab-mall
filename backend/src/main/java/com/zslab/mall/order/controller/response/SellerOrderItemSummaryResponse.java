@@ -15,6 +15,8 @@ import java.time.LocalDateTime;
  * @param orderNo       주문번호(참조 표시용·주문 축 필드는 번호·시각뿐)
  * @param recipientName 배송지 수령인명(주문자가 아니라 배송지 스냅샷)
  * @param delivery      원 발송 최신 배송(송장 미등록이면 null)
+ * @param claim         요청일 최신 클레임 요약(없으면 null·Track 90-D-1)
+ * @param claimCount    품목의 클레임 총 건수(거부·종결 이력 포함)
  */
 public record SellerOrderItemSummaryResponse(
         String orderItemId,
@@ -28,15 +30,17 @@ public record SellerOrderItemSummaryResponse(
         long totalPrice,
         OrderItemStatus itemStatus,
         String recipientName,
-        SellerOrderItemDeliveryResponse delivery) {
+        SellerOrderItemDeliveryResponse delivery,
+        SellerOrderItemClaimResponse claim,
+        long claimCount) {
 
     public static SellerOrderItemSummaryResponse of(OrderItem item, SellerOrderItemOrderProjection order, String recipientName,
-            SellerOrderItemDeliveryResponse delivery) {
+            SellerOrderItemDeliveryResponse delivery, SellerOrderItemClaimResponse claim, long claimCount) {
         return new SellerOrderItemSummaryResponse(item.getPublicId(),
                 order == null ? null : order.getOrderNo(),
                 order == null ? null : order.getOrderedAt(),
                 order == null ? null : order.getPaidAt(),
                 item.getProductName(), item.getOptionLabel(), item.getQuantity(), item.getUnitPrice(), item.getTotalPrice(),
-                item.getItemStatus(), recipientName, delivery);
+                item.getItemStatus(), recipientName, delivery, claim, claimCount);
     }
 }
