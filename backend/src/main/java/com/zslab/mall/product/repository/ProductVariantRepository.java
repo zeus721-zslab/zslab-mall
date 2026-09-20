@@ -6,6 +6,8 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 /**
  * 상품 변형 Repository(Track 4 read-only·D-59·Track 44 카탈로그 조회 추가). id·public_id·상품 스코프 조회를 제공한다
@@ -32,4 +34,13 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
 
     /** 여러 상품의 활성 variant 전량(상태 무관·Track 76 관리자 목록 재고 합계·N+1 회피). */
     List<ProductVariant> findByProductIdIn(Collection<Long> productIds);
+
+    /**
+     * 상품의 variant 옵션 조합을 <b>soft-delete된 행까지 포함</b>해 조회한다(Track 90-C 검토 반영·셀러 variant 추가의 조합 중복 선검증).
+     * 엔티티 {@code @SQLRestriction(deleted_at IS NULL)}을 우회해야 하므로 native query를 쓴다.
+     * 모든 변수는 :productId 바인딩 사용, SQL injection 위험 없음.
+     */
+    @Query(value = "SELECT option1_value_id AS option1ValueId, option2_value_id AS option2ValueId, option3_value_id AS option3ValueId "
+            + "FROM product_variant WHERE product_id = :productId", nativeQuery = true)
+    List<VariantOptionCombinationProjection> findOptionCombinationsIncludingDeleted(@Param("productId") Long productId);
 }

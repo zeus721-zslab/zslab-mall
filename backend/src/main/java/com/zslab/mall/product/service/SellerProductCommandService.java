@@ -2,6 +2,7 @@ package com.zslab.mall.product.service;
 
 import com.zslab.mall.category.exception.CategoryNotFoundException;
 import com.zslab.mall.category.repository.CategoryRepository;
+import com.zslab.mall.common.exception.MalformedRequestException;
 import com.zslab.mall.file.service.ImageUploadService;
 import com.zslab.mall.inventory.service.InventoryService;
 import com.zslab.mall.product.controller.request.SellerProductImagesRequest;
@@ -23,6 +24,7 @@ import com.zslab.mall.product.repository.ProductOptionGroupRepository;
 import com.zslab.mall.product.repository.ProductOptionValueRepository;
 import com.zslab.mall.product.repository.ProductRepository;
 import com.zslab.mall.product.repository.ProductVariantRepository;
+import com.zslab.mall.product.repository.VariantOptionCombinationProjection;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -49,14 +51,23 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p><b>관리자 variant 치환과의 차이</b>: 관리자 PUT은 목록에 없는 기존 variant를 soft-delete하지만, 셀러 PUT은 <b>목록에 없는 기존 variant를
  * 건드리지 않는다</b>(삭제 없음·비활성화는 status=HIDDEN). 옵션 그룹·값 구조도 바꾸지 않아 신규 variant는 기존 옵션값 조합으로만 만든다
- * (없는 옵션값은 400). 조합 중복은 활성 variant 기준 in-memory 선검증(409) + flush 시점 UK 409 변환의 이중 방어이며, soft-delete된 variant와의
- * 충돌은 3슬롯이 전부 채워진 조합에서만 UK가 발동한다(option2/3 NULL은 MariaDB NULL distinct·관리자 트랩과 동일).
+ * (없는 옵션값은 400). 조합 중복은 <b>soft-delete된 variant까지 포함한</b> in-memory 선검증(409·{@code findOptionCombinationsIncludingDeleted})
+ * + flush 시점 {@code uk_product_variant_options} 위반 409 변환의 이중 방어다 — 1·2·3슬롯 어느 상품이든 삭제된 조합의 재생성은 같은 409로 거부된다
+ * (UK는 option2/3 NULL 조합에서 발동하지 않으므로 앱 선검증이 주 방어선·관리자 서비스의 "3슬롯에서만" 한계와 다름). UK 외 무결성 위반은 변환하지 않고
+ * 그대로 전파한다.
+ *
+ * <p>이미지 URL은 <b>본 셀러에게 발급된</b> 업로드 경로만 신규 등록·URL 변경을 허용한다({@code requireSellerOwnedProductUrl}·검토 반영). 기존 행의
+ * URL을 그대로 되돌리는 편집은 검증을 건너뛰어 관리자가 붙인 이미지의 보존 편집이 깨지지 않는다. 대표(GALLERY main) 미지정 시 첫 GALLERY를
+ * 썸네일로 동기화하고 GALLERY가 없으면 썸네일을 비운다.
  */
 @Slf4j
 @Service
 @Transactional
 @RequiredArgsConstructor
 public class SellerProductCommandService {
+
+    /** 옵션 조합 UK 이름(V1). DataIntegrityViolation 중 이 제약 위반만 409로 변환한다. */
+    static final String OPTION_COMBINATION_CONSTRAINT = "uk_product_variant_options";
 
     private final ProductRepository productRepository;
     private final ProductImageRepository productImageRepository;
@@ -93,12 +104,12 @@ public class SellerProductCommandService {
 
     /**
      * 이미지 메타 전체 치환(관리자 replaceImages 복제). 목록 순서=display_order, 미포함 기존 이미지 soft-delete, 대표는 GALLERY 1장 이하.
-     * 대표가 있으면 product.thumbnail_url을 그 썸네일 URL로 동기화하고, 없으면 기존 thumbnail_url을 유지한다.
+     * 썸네일은 대표가 있으면 대표, 없으면 요청의 첫 GALLERY로 동기화하고 GALLERY가 없으면 null로 비운다(검토 반영).
      *
      * @throws ProductNotFoundException 미존재·삭제·타 셀러 상품(404)
      * @throws ProductImageNotFoundException imageId가 이 상품의 활성 이미지가 아닐 때(404)
      * @throws IllegalArgumentException 대표 2장 이상·DETAIL 대표 지정(400)
-     * @throws com.zslab.mall.common.exception.MalformedRequestException 신규·변경 imageUrl이 서버 발급 상품 이미지 경로가 아닌 경우(400·D-174)
+     * @throws MalformedRequestException 신규·변경 imageUrl이 본 셀러에게 발급된 상품 이미지 경로가 아닌 경우(400·D-174·검토 반영)
      */
     public void replaceImages(Long sellerId, String productPublicId, SellerProductImagesRequest request) {
         Product product = findOwnedForUpdate(sellerId, productPublicId);
@@ -110,7 +121,7 @@ public class SellerProductCommandService {
             SellerProductImagesRequest.Item item = request.images().get(order);
             ProductImageType imageType = ProductImageType.valueOf(item.imageType());
             if (item.imageId() == null) {
-                ImageUploadService.requireServerIssuedProductUrl(item.imageUrl());
+                ImageUploadService.requireSellerOwnedProductUrl(item.imageUrl(), sellerId);
                 productImageRepository.save(ProductImage.create(product, item.imageUrl(), imageType, order, item.main()));
                 continue;
             }
@@ -119,18 +130,24 @@ public class SellerProductCommandService {
                 throw new ProductImageNotFoundException(
                         "상품 이미지를 찾을 수 없습니다: productPublicId=" + productPublicId + ", imageId=" + item.imageId());
             }
-            // D-174: 기존 행의 URL을 그대로 되돌려 보내는 편집은 통과, URL을 바꾸는 경우만 서버 발급 경로 강제.
+            // D-174: 기존 행의 URL을 그대로 되돌려 보내는 편집은 통과(관리자가 붙인 이미지 보존), URL을 바꾸는 경우만 본 셀러 발급 경로 강제.
             if (!item.imageUrl().equals(existing.getImageUrl())) {
-                ImageUploadService.requireServerIssuedProductUrl(item.imageUrl());
+                ImageUploadService.requireSellerOwnedProductUrl(item.imageUrl(), sellerId);
             }
             existing.updateMeta(item.imageUrl(), imageType, order, item.main());
         }
         // 목록에 남지 않은 기존 이미지는 soft-delete(FK RESTRICT·하드 삭제 금지).
         existingById.values().forEach(ProductImage::markDeleted);
-        request.images().stream()
+        // 썸네일 동기화(검토 반영): 대표가 있으면 대표, 없으면 요청의 첫 GALLERY, GALLERY가 없으면 null(썸네일 없음).
+        String thumbnailSource = request.images().stream()
                 .filter(SellerProductImagesRequest.Item::main)
                 .findFirst()
-                .ifPresent(mainImage -> product.changeThumbnailUrl(imageUploadService.thumbnailUrlFor(mainImage.imageUrl())));
+                .or(() -> request.images().stream()
+                        .filter(item -> ProductImageType.GALLERY.name().equals(item.imageType()))
+                        .findFirst())
+                .map(SellerProductImagesRequest.Item::imageUrl)
+                .orElse(null);
+        product.changeThumbnailUrl(thumbnailSource == null ? null : imageUploadService.thumbnailUrlFor(thumbnailSource));
         log.info("[SellerProduct] 이미지 메타 치환 sellerId={} productPublicId={} count={} deleted={}",
                 sellerId, productPublicId, request.images().size(), existingById.size());
     }
@@ -141,11 +158,13 @@ public class SellerProductCommandService {
      *
      * @throws ProductNotFoundException 미존재·삭제·타 셀러 상품(404)
      * @throws ProductVariantNotFoundException variantPublicId가 이 상품의 활성 variant가 아닐 때(404)
+     * @throws MalformedRequestException 요청 내 variantPublicId 중복(400)
      * @throws IllegalArgumentException 옵션 그룹 불일치·옵션값 미존재·단순상품 옵션 지정·그룹 누락/중복(400)
-     * @throws ProductVariantOptionConflictException 동일 옵션 조합 중복(409)
+     * @throws ProductVariantOptionConflictException 동일 옵션 조합 중복(soft-delete된 조합 포함·409)
      */
     public void replaceVariants(Long sellerId, String productPublicId, SellerProductVariantsRequest request) {
         Product product = findOwnedForUpdate(sellerId, productPublicId);
+        rejectDuplicatePublicIds(request);
 
         List<ProductOptionGroup> groups = productOptionGroupRepository.findByProductId(product.getId()).stream()
                 .sorted(Comparator.comparingInt(ProductOptionGroup::getDisplayOrder).thenComparing(ProductOptionGroup::getId))
@@ -154,12 +173,11 @@ public class SellerProductCommandService {
                 && ProductRegistrationService.DEFAULT_OPTION_GROUP_NAME.equals(groups.get(0).getName());
         Map<Long, List<ProductOptionValue>> valuesByGroupId = loadValuesByGroupId(groups);
 
-        List<ProductVariant> existingVariants = productVariantRepository.findByProductId(product.getId());
-        Map<String, ProductVariant> existingByPublicId = existingVariants.stream()
+        Map<String, ProductVariant> existingByPublicId = productVariantRepository.findByProductId(product.getId()).stream()
                 .collect(Collectors.toMap(ProductVariant::getPublicId, Function.identity()));
-        // 조합 중복 기준 집합 = 활성 variant 전체(목록 밖 variant도 살아 있으므로 포함) — uk는 option2/3 NULL 조합에서 발동하지 않는다.
+        // 조합 중복 기준 집합 = soft-delete 포함 전체 variant(uk는 option2/3 NULL 조합에서 발동하지 않으므로 앱 선검증이 주 방어선).
         Set<List<Long>> combinations = new HashSet<>();
-        for (ProductVariant existing : existingVariants) {
+        for (VariantOptionCombinationProjection existing : productVariantRepository.findOptionCombinationsIncludingDeleted(product.getId())) {
             combinations.add(Arrays.asList(existing.getOption1ValueId(), existing.getOption2ValueId(), existing.getOption3ValueId()));
         }
 
@@ -194,15 +212,31 @@ public class SellerProductCommandService {
             // 명시적 flush로 uk_product_variant_options(soft-delete된 3슬롯 조합 포함) 위반을 트랜잭션 내에서 표면화한다.
             productVariantRepository.flush();
         } catch (DataIntegrityViolationException exception) {
-            log.warn("[SellerProduct] 옵션 조합 중복 차단(409·uk_product_variant_options) productPublicId={}: {}",
-                    productPublicId, exception.getMostSpecificCause().getMessage());
-            throw new ProductVariantOptionConflictException("동일 옵션 조합의 상품 변형이 이미 존재합니다(uk_product_variant_options).");
+            // 옵션 조합 UK 위반만 409로 변환하고 그 외 무결성 위반(다른 제약·NOT NULL 등)은 은닉하지 않고 그대로 전파한다(검토 반영).
+            String cause = exception.getMostSpecificCause().getMessage();
+            if (cause == null || !cause.contains(OPTION_COMBINATION_CONSTRAINT)) {
+                throw exception;
+            }
+            log.warn("[SellerProduct] 옵션 조합 중복 차단(409·{}) productPublicId={}: {}", OPTION_COMBINATION_CONSTRAINT, productPublicId, cause);
+            throw new ProductVariantOptionConflictException("동일 옵션 조합의 상품 변형이 이미 존재합니다(" + OPTION_COMBINATION_CONSTRAINT + ").");
         }
         log.info("[SellerProduct] variant 수정 sellerId={} productPublicId={} updated={} created={}",
                 sellerId, productPublicId, updatedCount, createdCount);
     }
 
     // ==================== helpers ====================
+
+    /**
+     * @throws MalformedRequestException 요청 내 같은 variantPublicId가 2회 이상 나올 때(400·같은 행을 두 번 수정하려는 잘못된 요청)
+     */
+    private static void rejectDuplicatePublicIds(SellerProductVariantsRequest request) {
+        Set<String> seen = new HashSet<>();
+        for (SellerProductVariantsRequest.Item item : request.variants()) {
+            if (item.variantPublicId() != null && !seen.add(item.variantPublicId())) {
+                throw new MalformedRequestException("요청에 같은 variantPublicId가 중복됩니다: " + item.variantPublicId());
+            }
+        }
+    }
 
     /**
      * @throws ProductNotFoundException 미존재·삭제·타 셀러 상품(404·존재 은닉)
