@@ -81,15 +81,18 @@ class SellerOrderItemQueryControllerIntegrationTest extends AbstractIntegrationT
 
     /** 목록 행 키 화이트리스트 — 필드가 늘면 여기와 SellerOrderItemSummaryResponse를 함께 바꿔야 한다. */
     private static final Set<String> SUMMARY_KEYS = Set.of("orderItemId", "orderNo", "orderedAt", "paidAt", "productName",
-            "optionLabel", "quantity", "unitPrice", "totalPrice", "itemStatus", "recipientName", "delivery");
+            "optionLabel", "quantity", "unitPrice", "totalPrice", "itemStatus", "recipientName", "delivery", "claim", "claimCount");
     /** 상세 키 화이트리스트(목록 행 − recipientName + shippingAddress). */
     private static final Set<String> DETAIL_KEYS = Set.of("orderItemId", "orderNo", "orderedAt", "paidAt", "productName",
-            "optionLabel", "quantity", "unitPrice", "totalPrice", "itemStatus", "delivery", "shippingAddress");
+            "optionLabel", "quantity", "unitPrice", "totalPrice", "itemStatus", "delivery", "shippingAddress", "claim", "claimCount");
     private static final Set<String> DELIVERY_KEYS = Set.of("deliveryId", "carrier", "trackingNo", "status", "shippedAt", "deliveredAt");
+    /** 품목 행 클레임 요약(Track 90-D-1·최신 1건·SellerOrderItemClaimResponse). 시드에 클레임이 없어 이 테스트에서는 생략되고 claimCount 0만 나온다. */
+    private static final Set<String> CLAIM_KEYS = Set.of("claimId", "type", "status", "requestedAt");
     private static final Set<String> SHIPPING_ADDRESS_KEYS = Set.of("recipientName", "recipientPhone", "zonecode", "addressRoad",
             "addressJibun", "addressDetail", "deliveryMemo");
     /** 셀러 응답이 어느 층위에서든 가질 수 있는 키 전체(관리자 필드에서 뺄 허용 집합). */
-    private static final Set<String> SELLER_ALLOWED_KEYS = union(SUMMARY_KEYS, DETAIL_KEYS, DELIVERY_KEYS, SHIPPING_ADDRESS_KEYS);
+    private static final Set<String> SELLER_ALLOWED_KEYS = union(SUMMARY_KEYS, DETAIL_KEYS, DELIVERY_KEYS, SHIPPING_ADDRESS_KEYS,
+            CLAIM_KEYS);
     /** 정찰 §2-3 전수 목록(수동). 자동 도출분과 합집합으로 쓰며, 관리자 DTO에서 사라져도 여기 항목은 남는다. */
     private static final Set<String> MANUAL_FORBIDDEN_KEYS = Set.of("buyer", "buyerName", "buyerEmail", "sellerNames", "sellerName",
             "totalPriceOfOrder", "discountAmount", "shippingFee", "paymentAmount", "payments", "paymentMethod", "paymentStatus",
@@ -162,7 +165,9 @@ class SellerOrderItemQueryControllerIntegrationTest extends AbstractIntegrationT
         }
         Set<String> a2Keys = new LinkedHashSet<>(SUMMARY_KEYS);
         a2Keys.remove("optionLabel");
+        a2Keys.remove("claim"); // 클레임 없는 품목은 claim 생략·claimCount 0(Track 90-D-1)
         assertThat(keysOf(items.get(0))).containsExactlyInAnyOrderElementsOf(a2Keys);
+        assertThat(items.get(0).get("claimCount").asLong()).isZero();
         Set<String> a2DeliveryKeys = new LinkedHashSet<>(DELIVERY_KEYS);
         a2DeliveryKeys.remove("deliveredAt");
         assertThat(keysOf(items.get(0).get("delivery"))).containsExactlyInAnyOrderElementsOf(a2DeliveryKeys);
@@ -233,7 +238,9 @@ class SellerOrderItemQueryControllerIntegrationTest extends AbstractIntegrationT
         JsonNode node = objectMapper.readTree(body);
         Set<String> a2DetailKeys = new LinkedHashSet<>(DETAIL_KEYS);
         a2DetailKeys.remove("optionLabel");
+        a2DetailKeys.remove("claim"); // 클레임 없는 품목은 claim 생략·claimCount 0(Track 90-D-1)
         assertThat(keysOf(node)).containsExactlyInAnyOrderElementsOf(a2DetailKeys);
+        assertThat(node.get("claimCount").asLong()).isZero();
         assertThat(keysOf(node)).doesNotContainAnyElementsOf(FORBIDDEN_KEYS);
         // 중첩 delivery도 목록(T2)과 같은 수준으로 고정한다 — 목록·상세가 같은 SellerOrderItemDeliveryResponse를 쓰므로 한쪽만 검증하면
         // 다른 쪽이 비대칭 누출 경로가 된다. deliveredAt은 D1이 SHIPPING이라 null → NON_NULL 직렬화로 생략되어 기대 집합에서 뺀다.

@@ -59,12 +59,12 @@ test.describe('셀러 셸 — 셀러 계정', () => {
     await expect(page.getByTestId('seller-sidebar')).toBeVisible()
     await expect(page.getByTestId('seller-topbar')).toBeVisible()
     await expect(page.getByTestId('seller-dashboard')).toBeVisible()
-    // 메뉴 6그룹: 대시보드·주문·배송·정산(90-B-3)·상품·재고(90-C-3) 활성 링크, 미구현 항목(클레임·통계 3·설정)은 비활성(라우트 없음)
+    // 메뉴 6그룹: 대시보드·주문·배송·정산(90-B-3)·상품·재고(90-C-3)·클레임(90-D-1) 활성 링크, 미구현 항목(통계 3·설정)은 비활성(라우트 없음)
     const sidebar = page.getByTestId('seller-sidebar')
     for (const label of ['주문', '상품', '통계', '정산', '설정']) {
       await expect(sidebar.getByText(label, { exact: true }).first()).toBeVisible()
     }
-    await expect(sidebar.locator('.v-list-item--disabled')).toHaveCount(5)
+    await expect(sidebar.locator('.v-list-item--disabled')).toHaveCount(4)
     const cookies = await context.cookies()
     expect(cookies.find((cookie) => cookie.name === 'seller_token')?.path).toBe('/seller')
     expect(cookies.some((cookie) => cookie.name === 'auth_token')).toBe(false)
