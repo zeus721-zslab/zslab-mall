@@ -7,6 +7,7 @@ import { SUSPENDED_PROBLEM, mockSellerMe, pagedResponse, pickOption } from './he
  * ① 등록: 옵션 2그룹(색상 2×사이즈 1=2조합 + 제외 1)·variant 3행 중 2 저장·이미지 1장 업로드 → POST body → PUT images → 승인 안내 → 목록에 PENDING 노출
  * ② 수정: 상품명·가격 변경 → PUT 기본정보만(이미지·variants 미호출) → 재조회 반영 / 옵션 그룹 편집 UI 잠금 / 기존 variant 재고 입력 없음 / HIDDEN 토글 → PUT variants
  * ③ 403 SUSPENDED: PUT 기본정보 403 → danger 토스트 + 배너 + 저장 중단(후속 PUT 미호출·화면 유지).
+ * ④ 일부 조합만 존재하는 상품에서 신규 조합 추가 저장(검토 반영) ⑤ partial=1 진입 후 저장 성공 → 쿼리 제거·경고 소거(검토 반영 ⑥).
  */
 const PRODUCT_ID = 'prd_E2E0000000000000000000001'
 const NEW_PRODUCT_ID = 'prd_E2E0000000000000000000099'
@@ -35,10 +36,11 @@ interface Captured {
   listQueries: URLSearchParams[]
 }
 
-async function mockSellerProductApis(page: Page, options: { updateStatus?: number } = {}): Promise<Captured> {
+async function mockSellerProductApis(page: Page, options: { updateStatus?: number; partialCombos?: boolean } = {}): Promise<Captured> {
   const captured: Captured = { creates: [], updates: [], images: [], variants: [], uploads: 0, listQueries: [] }
   const listItems: Record<string, unknown>[] = [{ productPublicId: PRODUCT_ID, name: DETAIL.name, categoryId: 11, categoryName: '주방', status: 'SALE', basePrice: 32000, variantCount: 2, createdAt: DETAIL.createdAt, updatedAt: DETAIL.updatedAt }]
-  let detail: Record<string, unknown> = { ...DETAIL }
+  // partialCombos: 옵션값은 블랙·화이트 2개인데 variant는 블랙만 존재 → 수정 폼에 "추가 가능" 신규 행(화이트)이 노출된다.
+  let detail: Record<string, unknown> = options.partialCombos ? { ...DETAIL, variants: [DETAIL.variants[0]] } : { ...DETAIL }
   await mockSellerMe(page)
   await page.route((url) => url.pathname.endsWith('/api/v1/categories'), (route) => route.fulfill({ json: CATEGORIES }))
   await page.route((url) => url.pathname.endsWith('/api/v1/seller/files/images'), (route) => {
@@ -50,9 +52,16 @@ async function mockSellerProductApis(page: Page, options: { updateStatus?: numbe
     return route.fulfill({ json: detail })
   })
   await page.route((url) => /\/api\/v1\/seller\/products\/prd_[^/]+\/variants$/.test(url.pathname), (route) => {
-    const body = route.request().postDataJSON() as { variants: { variantPublicId: string | null; status: string }[] }
+    const body = route.request().postDataJSON() as { variants: { variantPublicId: string | null; variantCode: string; status: string; initialStock: number; options: { optionGroupId: number; value: string }[] }[] }
     captured.variants.push({ url: route.request().url(), body })
-    detail = { ...detail, variants: (detail.variants as typeof DETAIL.variants).map((variant) => ({ ...variant, status: body.variants.find((row) => row.variantPublicId === variant.variantPublicId)?.status ?? variant.status })) }
+    const existing = (detail.variants as typeof DETAIL.variants).map((variant) => ({ ...variant, status: body.variants.find((row) => row.variantPublicId === variant.variantPublicId)?.status ?? variant.status }))
+    // 신규 행(variantPublicId null)은 서버가 생성한 것처럼 id를 부여해 상세에 반영한다(BE PUT variants 계약).
+    const created = body.variants.filter((row) => row.variantPublicId === null).map((row, index) => ({
+      variantPublicId: `var_E2E_NEW${index}`, variantCode: row.variantCode, additionalPrice: 0, status: row.status, soldoutManual: false, displayOrder: existing.length + index,
+      options: row.options.map((option) => ({ optionGroupId: option.optionGroupId, optionValueId: option.value === '화이트' ? 12 : 11, value: option.value })),
+      quantityOnHand: row.initialStock, quantityReserved: 0, quantityAvailable: row.initialStock,
+    }))
+    detail = { ...detail, variants: [...existing, ...created] }
     return route.fulfill({ json: detail })
   })
   await page.route((url) => /\/api\/v1\/seller\/products\/prd_[^/]+$/.test(url.pathname), (route) => {
@@ -216,5 +225,50 @@ test.describe('셀러 상품 등록·수정 폼(90-C-4)', () => {
     expect(captured.variants).toHaveLength(0)
     await expect(page).toHaveURL(new RegExp(`/seller/products/${PRODUCT_ID}`))
     await expect(page.getByTestId('field-name').locator('input')).toHaveValue('E2E 정지 테스트')
+  })
+
+  test('④ 일부 조합만 존재하는 상품: 신규 조합(화이트) "추가" 체크 + 초기재고 → PUT variants(기존 메타 + 신규 options·initialStock) → 재조회 후 기존 행 2개', async ({ page }) => {
+    const captured = await mockSellerProductApis(page, { partialCombos: true })
+    await loginAs(page, 'SELLER')
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto(`/seller/products/${PRODUCT_ID}`)
+    await expect(page.getByTestId('seller-product-form')).toBeVisible()
+    await expect(page.locator('[data-testid="variant-row"][data-kind="existing"]')).toHaveCount(1)
+    const addable = page.locator('[data-testid="variant-row"][data-kind="new"]')
+    await expect(addable).toHaveCount(1)
+    await expect(addable).toContainText('화이트')
+    // 추가 체크 전에는 저장 대상이 아니다(입력 비활성)
+    await expect(addable.getByTestId('variant-initial-stock').locator('input')).toBeDisabled()
+    await addable.getByTestId('variant-add').locator('input').click({ force: true })
+    await expect(addable.getByTestId('variant-code').locator('input')).toHaveValue('화이트')
+    await addable.getByTestId('variant-initial-stock').locator('input').fill('7')
+    await page.getByTestId('form-save').click()
+    await expect(page.getByTestId('seller-toaster')).toContainText('상품을 저장했습니다.')
+    await expect.poll(() => captured.variants.length).toBe(1)
+    const body = captured.variants[0]?.body as { variants: { variantPublicId: string | null; variantCode: string; initialStock: number; options: { optionGroupId: number; value: string }[] }[] }
+    expect(body.variants.map((row) => [row.variantPublicId, row.variantCode, row.initialStock, row.options])).toEqual([
+      ['var_E2E1', 'BLK', 0, []],
+      [null, '화이트', 7, [{ optionGroupId: 1, value: '화이트' }]],
+    ])
+    expect(captured.updates).toHaveLength(0)
+    // 재조회 반영: 신규 행이 기존 행이 되고 추가 가능 행은 없다
+    await expect(page.locator('[data-testid="variant-row"][data-kind="existing"]')).toHaveCount(2)
+    await expect(page.locator('[data-testid="variant-row"][data-kind="new"]')).toHaveCount(0)
+    await expect(page.locator('[data-testid="variant-row"][data-kind="existing"]').nth(1).getByTestId('variant-stock-readonly')).toContainText('가용 7')
+  })
+
+  test('⑤ partial=1 진입 → 경고 표시 → 저장 성공 → partial 쿼리 제거·경고 사라짐', async ({ page }) => {
+    await mockSellerProductApis(page)
+    await loginAs(page, 'SELLER')
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto(`/seller/products/${PRODUCT_ID}?back=%2Fseller%2Fproducts&partial=1`)
+    await expect(page.getByTestId('partial-alert')).toBeVisible()
+    await fill(page, 'field-name', 'E2E partial 후 저장')
+    await page.getByTestId('form-save').click()
+    await expect(page.getByTestId('seller-toaster')).toContainText('상품을 저장했습니다.')
+    await expect(page).not.toHaveURL(/partial=1/)
+    await expect(page).toHaveURL(/back=/)
+    await expect(page.getByTestId('partial-alert')).toHaveCount(0)
+    await expect(page.getByTestId('field-name').locator('input')).toHaveValue('E2E partial 후 저장')
   })
 })

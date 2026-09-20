@@ -75,6 +75,7 @@ class SellerProductCommandControllerIntegrationTest extends AbstractIntegrationT
     private static final long VALUE_BLACK = 9750L;
     private static final long VALUE_RED = 9751L;
     private static final long VALUE_BLUE = 9752L;
+    private static final long VALUE_GREEN = 9757L;
     private static final long VALUE_BLACK3 = 9753L;
     private static final long VALUE_RED3 = 9754L;
     private static final long VALUE_S3 = 9755L;
@@ -84,6 +85,7 @@ class SellerProductCommandControllerIntegrationTest extends AbstractIntegrationT
     private static final long VARIANT_VA3 = 9752L;
     private static final long VARIANT_VD = 9753L;
     private static final long VARIANT_VPB = 9754L;
+    private static final long VARIANT_VA4 = 9755L;
     private static final long IMAGE_I1 = 9750L;
     private static final long IMAGE_I2 = 9751L;
     private static final long IMAGE_IB = 9752L;
@@ -94,7 +96,11 @@ class SellerProductCommandControllerIntegrationTest extends AbstractIntegrationT
     private static final String THUMBNAIL_URL = "/api/v1/files/products/2026/09/spc-thumb.jpg";
     private static final String I1_URL = "/api/v1/files/products/2026/09/spc-1.jpg";
     private static final String I2_URL = "/api/v1/files/products/2026/09/spc-2.jpg";
-    private static final String NEW_IMAGE_URL = "/api/v1/files/products/2026/09/spc-new.jpg";
+    /** 셀러 A에게 발급된 업로드 경로(products/sellers/{sellerId}/…·검토 반영 ①). 신규·URL 변경은 이 접두만 통과한다. */
+    private static final String NEW_IMAGE_URL = "/api/v1/files/products/sellers/" + SELLER_A + "/2026/09/spc-new.jpg";
+    /** 셀러 B에게 발급된 경로·관리자 경로(products/yyyy/MM) — 셀러 A의 신규 등록은 400. */
+    private static final String OTHER_SELLER_IMAGE_URL = "/api/v1/files/products/sellers/" + SELLER_B + "/2026/09/spc-b-new.jpg";
+    private static final String ADMIN_PATH_IMAGE_URL = "/api/v1/files/products/2026/09/spc-admin-new.jpg";
 
     private static final String P1_PID = pid("prd_", "SPCP1");
     private static final String P3_PID = pid("prd_", "SPCP3");
@@ -105,6 +111,7 @@ class SellerProductCommandControllerIntegrationTest extends AbstractIntegrationT
     private static final String VA3_PID = pid("var_", "SPCVA3");
     private static final String VD_PID = pid("var_", "SPCVD");
     private static final String VPB_PID = pid("var_", "SPCVPB");
+    private static final String VA4_PID = pid("var_", "SPCVA4");
 
     private static final String VALID_UPDATE_BODY = "{\"categoryId\":" + CATEGORY_2
             + ",\"name\":\"수정상품\",\"description\":\"수정 설명\",\"basePrice\":12000}";
@@ -296,11 +303,19 @@ class SellerProductCommandControllerIntegrationTest extends AbstractIntegrationT
     }
 
     @Test
-    @DisplayName("T8 이미지 400·404: 서버 미발급 URL 신규 400 · 대표 2장 400 · DETAIL 대표 400 · 타 상품 imageId 404 · 대표 없으면 thumbnail_url 유지 · 실패 시 DB 불변")
+    @DisplayName("T8 이미지 400·404: 외부 URL·타 셀러 발급 URL·관리자 경로 URL 신규 400 · 대표 2장 400 · DETAIL 대표 400 · 타 상품 imageId 404 · 관리자 발급 기존 URL 보존 편집 200 · 대표 없으면 첫 GALLERY 썸네일 · 실패 시 DB 불변")
     void replaceImages_rejections() throws Exception {
         String url = BASE_URL + "/" + P1_PID + "/images";
         String keepI1 = "{\"imageId\":" + IMAGE_I1 + ",\"imageUrl\":\"" + I1_URL + "\",\"imageType\":\"GALLERY\",\"main\":true}";
         putAs(USER_A, url, "{\"images\":[" + keepI1 + ",{\"imageUrl\":\"https://external/x.jpg\",\"imageType\":\"GALLERY\",\"main\":false}]}",
+                status().isBadRequest()).andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
+        // ① 셀러 귀속: 타 셀러(B)에게 발급된 경로·관리자 경로(products/yyyy/MM)는 서버 발급이라도 셀러 A의 신규 등록 400.
+        putAs(USER_A, url, "{\"images\":[" + keepI1 + ",{\"imageUrl\":\"" + OTHER_SELLER_IMAGE_URL + "\",\"imageType\":\"GALLERY\",\"main\":false}]}",
+                status().isBadRequest()).andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
+        putAs(USER_A, url, "{\"images\":[" + keepI1 + ",{\"imageUrl\":\"" + ADMIN_PATH_IMAGE_URL + "\",\"imageType\":\"GALLERY\",\"main\":false}]}",
+                status().isBadRequest()).andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
+        // 기존 행의 URL 변경도 본 셀러 발급 경로만(타 셀러 경로로 교체 400).
+        putAs(USER_A, url, "{\"images\":[{\"imageId\":" + IMAGE_I1 + ",\"imageUrl\":\"" + OTHER_SELLER_IMAGE_URL + "\",\"imageType\":\"GALLERY\",\"main\":true}]}",
                 status().isBadRequest()).andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
         putAs(USER_A, url, "{\"images\":[" + keepI1 + ",{\"imageId\":" + IMAGE_I2 + ",\"imageUrl\":\"" + I2_URL
                 + "\",\"imageType\":\"GALLERY\",\"main\":true}]}", status().isBadRequest())
@@ -313,10 +328,16 @@ class SellerProductCommandControllerIntegrationTest extends AbstractIntegrationT
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM product_image WHERE product_id = ? AND deleted_at IS NULL", Integer.class, PRODUCT_P1))
                 .isEqualTo(2);
 
-        // 대표 없이 치환 → thumbnail_url은 기존 값 유지.
-        putAs(USER_A, url, "{\"images\":[{\"imageId\":" + IMAGE_I1 + ",\"imageUrl\":\"" + I1_URL + "\",\"imageType\":\"GALLERY\",\"main\":false}]}",
-                status().isOk()).andExpect(jsonPath("$.thumbnailUrl").value(THUMBNAIL_URL));
-        assertThat(jdbc.queryForObject("SELECT thumbnail_url FROM product WHERE id = ?", String.class, PRODUCT_P1)).isEqualTo(THUMBNAIL_URL);
+        // ① 관리자가 등록한 기존 이미지(관리자 경로 URL·I1)를 URL 변경 없이 보존 편집 → 200(검증 생략 분기 유지)
+        // ③ 대표 없이 치환 → 요청의 첫 GALLERY(I1)가 썸네일(썸네일 파일 없으면 원본 URL).
+        putAs(USER_A, url, "{\"images\":[{\"imageId\":" + IMAGE_I2 + ",\"imageUrl\":\"" + I2_URL + "\",\"imageType\":\"DETAIL\",\"main\":false},"
+                + "{\"imageId\":" + IMAGE_I1 + ",\"imageUrl\":\"" + I1_URL + "\",\"imageType\":\"GALLERY\",\"main\":false}]}",
+                status().isOk()).andExpect(jsonPath("$.thumbnailUrl").value(I1_URL));
+        assertThat(jdbc.queryForObject("SELECT thumbnail_url FROM product WHERE id = ?", String.class, PRODUCT_P1)).isEqualTo(I1_URL);
+        // ③ GALLERY 0장(DETAIL만) → 썸네일 null.
+        putAs(USER_A, url, "{\"images\":[{\"imageId\":" + IMAGE_I2 + ",\"imageUrl\":\"" + I2_URL + "\",\"imageType\":\"DETAIL\",\"main\":false}]}",
+                status().isOk()).andExpect(jsonPath("$.thumbnailUrl").doesNotExist());
+        assertThat(jdbc.queryForObject("SELECT thumbnail_url FROM product WHERE id = ?", String.class, PRODUCT_P1)).isNull();
     }
 
     // ==================== 3. variant ====================
@@ -375,11 +396,11 @@ class SellerProductCommandControllerIntegrationTest extends AbstractIntegrationT
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM inventory_history h JOIN inventory i ON h.inventory_id = i.id "
                 + "WHERE i.variant_id = ? AND h.change_type = 'INBOUND' AND h.quantity_delta = 3", Integer.class, createdId)).isEqualTo(1);
         // 옵션값은 새로 만들지 않는다(옵션 구조 불변).
-        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM product_option_value WHERE option_group_id = ?", Integer.class, GROUP_COLOR)).isEqualTo(3);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM product_option_value WHERE option_group_id = ?", Integer.class, GROUP_COLOR)).isEqualTo(4);
     }
 
     @Test
-    @DisplayName("T11 variant 409·400: 활성 조합(검정) 중복 409 · soft-delete된 3슬롯 조합 재등록 UK 409 · 미존재 옵션값 400 · 그룹 누락 400 · 실패 시 variant·재고 무생성")
+    @DisplayName("T11 variant 409·400: 활성 조합(검정) 중복 409 · soft-delete된 1슬롯(P1 초록)·3슬롯(P3) 조합 재등록 모두 409 · 미존재 옵션값 400 · 그룹 누락 400 · variantPublicId 중복 400 · UK 외 제약(variant_code 51자·NOT NULL) 위반은 409 아님 · 실패 시 variant·재고 무생성")
     void replaceVariants_conflictsAndInvalidOptions() throws Exception {
         String p1Url = BASE_URL + "/" + P1_PID + "/variants";
         putAs(USER_A, p1Url, "{\"variants\":[" + variantItem(null, "VC-DUP", null, 0, "SALE", 5, 1,
@@ -390,9 +411,21 @@ class SellerProductCommandControllerIntegrationTest extends AbstractIntegrationT
                 .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
         putAs(USER_A, p1Url, "{\"variants\":[" + variantItem(null, "VC-NOOPT", null, 0, "SALE", 5, 1, "[]") + "]}", status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
-        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM product_variant WHERE product_id = ?", Integer.class, PRODUCT_P1)).isEqualTo(2);
+        // ② 1슬롯 상품 P1의 soft-delete된 조합(초록·VA4)은 UK가 발동하지 않지만(option2/3 NULL) 삭제 포함 선검증이 409로 막는다.
+        putAs(USER_A, p1Url, "{\"variants\":[" + variantItem(null, "VC-GRN", null, 0, "SALE", 5, 1,
+                "[{\"optionGroupId\":" + GROUP_COLOR + ",\"value\":\"초록\"}]") + "]}", status().isConflict())
+                .andExpect(jsonPath("$.code").value("PRODUCT_VARIANT_OPTION_CONFLICT"));
+        // ⑤ 요청 내 variantPublicId 중복 → 400 MALFORMED_REQUEST(어느 행도 수정되지 않음).
+        putAs(USER_A, p1Url, "{\"variants\":[" + variantItem(VA1_PID, "VC-DUP1", null, 0, "SALE", 0, 0, null) + ","
+                + variantItem(VA1_PID, "VC-DUP2", null, 0, "HIDDEN", 1, 0, null) + "]}", status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
+        assertThat(jdbc.queryForObject("SELECT variant_code FROM product_variant WHERE id = ?", String.class, VARIANT_VA1)).isEqualTo("VC-BLK");
+        // ④ UK 외 제약 위반(variant_code 51자·VARCHAR(50) 초과·Bean Validation @Size는 50이라 400)은 409로 위장되지 않는다.
+        putAs(USER_A, p1Url, "{\"variants\":[" + variantItem(VA1_PID, "V".repeat(51), null, 0, "SALE", 0, 0, null) + "]}", status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM product_variant WHERE product_id = ? AND deleted_at IS NULL", Integer.class, PRODUCT_P1)).isEqualTo(2);
 
-        // P3(3그룹): soft-delete된 VD(빨강,S,면)와 같은 조합은 in-memory(활성 기준)를 통과하지만 uk_product_variant_options가 막는다 → 409.
+        // P3(3그룹): soft-delete된 VD(빨강,S,면)와 같은 조합 → 삭제 포함 선검증 409(UK와 동일 결과).
         String p3Url = BASE_URL + "/" + P3_PID + "/variants";
         putAs(USER_A, p3Url, "{\"variants\":[" + variantItem(null, "VC-RSC", null, 0, "SALE", 5, 1,
                 "[{\"optionGroupId\":" + GROUP_COLOR3 + ",\"value\":\"빨강\"},{\"optionGroupId\":" + GROUP_SIZE3 + ",\"value\":\"S\"},"
@@ -482,10 +515,14 @@ class SellerProductCommandControllerIntegrationTest extends AbstractIntegrationT
                 seedOptionValue(VALUE_BLACK, GROUP_COLOR, "검정", 0);
                 seedOptionValue(VALUE_RED, GROUP_COLOR, "빨강", 1);
                 seedOptionValue(VALUE_BLUE, GROUP_COLOR, "파랑", 2);
+                seedOptionValue(VALUE_GREEN, GROUP_COLOR, "초록", 3);
                 seedVariant(VARIANT_VA1, VA1_PID, PRODUCT_P1, "VC-BLK", "SKU-BLK", 0, VALUE_BLACK, null, null, null);
                 seedVariant(VARIANT_VA2, VA2_PID, PRODUCT_P1, "VC-RED", "SKU-RED", 1, VALUE_RED, null, null, null);
+                // VA4(초록)는 soft-delete — 1슬롯 조합 재생성 409 검증용(UK는 option2/3 NULL이라 발동하지 않음).
+                seedVariant(VARIANT_VA4, VA4_PID, PRODUCT_P1, "VC-GRN-DEL", null, 3, VALUE_GREEN, null, null, "2026-03-03 09:00:00");
                 seedInventory(VARIANT_VA1, 10);
                 seedInventory(VARIANT_VA2, 5);
+                seedInventory(VARIANT_VA4, 0);
                 seedImage(IMAGE_I1, PRODUCT_P1, I1_URL, "GALLERY", 0, true);
                 seedImage(IMAGE_I2, PRODUCT_P1, I2_URL, "DETAIL", 1, false);
                 jdbc.update("INSERT INTO order_item (id, public_id, order_id, product_id, variant_id, seller_id, product_name, quantity, "

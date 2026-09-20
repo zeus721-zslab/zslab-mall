@@ -138,8 +138,8 @@ describe('validateSellerProductForm', () => {
     expect(invalid['optionGroups.1.name']).toBe('그룹명이 중복됩니다.')
     expect(invalid['optionGroups.0.values']).toContain('중복')
     expect(invalid['variants.0.variantCode']).toBe('코드를 입력하세요.')
-    expect(invalid['variants.0.initialStock']).toBe('초기 재고는 0 이상.')
-    expect(invalid['variants.1.additionalPrice']).toBe('추가금은 0 이상.')
+    expect(invalid['variants.0.initialStock']).toBe('초기 재고는 0 이상의 정수.')
+    expect(invalid['variants.1.additionalPrice']).toBe('추가금은 0 이상의 정수.')
 
     const four = optionForm()
     four.optionGroups = [...four.optionGroups, { localId: 'g3', optionGroupId: null, name: 'a', values: [{ localId: 'x', optionValueId: null, value: '1' }] },

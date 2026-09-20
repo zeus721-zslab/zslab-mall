@@ -43,7 +43,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * 셀러 이미지 업로드 통합 테스트(Track 90-C-1·실 MariaDB·임시 업로드 루트). 관리자 업로드와 동일 서비스를 쓰므로 형식·썸네일 검증은
- * {@link FileUploadServingIntegrationTest}에 맡기고, 여기서는 셀러 경로의 인가·D-190 상태 가드(POST=쓰기)·저장 경로(products/)·
+ * {@link FileUploadServingIntegrationTest}에 맡기고, 여기서는 셀러 경로의 인가·D-190 상태 가드(POST=쓰기)·저장 경로(products/sellers/{sellerId}/·셀러 귀속)·
  * 파일별 결과 계약만 확인한다. {@code upload.path}를 @TempDir로 덮어써 실제 업로드 경로를 오염시키지 않는다.
  */
 @AutoConfigureMockMvc
@@ -89,7 +89,7 @@ class SellerFileUploadIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("T1 ACTIVE 셀러 png 800x600 업로드 → 200·success·products/yyyy/MM/{ULID}.png·썸네일 URL·파일 2개 저장·공개 서빙 200")
+    @DisplayName("T1 ACTIVE 셀러 png 800x600 업로드 → 200·success·products/sellers/{sellerId}/yyyy/MM/{ULID}.png(셀러 귀속)·썸네일 URL·파일 2개 저장·공개 서빙 200")
     void upload_activeSeller_storesUnderProducts() throws Exception {
         JsonNode response = upload(authHeadersOfSeller(), file("photo.png", "image/png", image(800, 600, "png")));
         assertThat(response.get("successCount").asInt()).isEqualTo(1);
@@ -98,7 +98,8 @@ class SellerFileUploadIntegrationTest extends AbstractIntegrationTest {
         assertThat(item.get("success").asBoolean()).isTrue();
         assertThat(item.get("fileName").asText()).isEqualTo("photo.png");
         String url = item.get("url").asText();
-        assertThat(url).matches("/api/v1/files/products/\\d{4}/\\d{2}/[0-9A-Z]{26}\\.png");
+        // 검토 반영 ①: 셀러 업로드는 products/sellers/{sellerId}/ 하위에 저장돼 발급 셀러에게 귀속된다(관리자 경로 products/yyyy/MM과 분리).
+        assertThat(url).matches("/api/v1/files/products/sellers/" + SELLER_A + "/\\d{4}/\\d{2}/[0-9A-Z]{26}\\.png");
         assertThat(item.get("thumbnailUrl").asText()).isEqualTo(url.replace(".png", "_thumb.png"));
         assertThat(countStoredFiles()).isEqualTo(2);
 
