@@ -11634,8 +11634,13 @@ D-195에서 "셀러는 클레임 조회만, 처리는 관리자"를 확정했으
 - 테스트: `SellerClaimIntegrationTest` R1~R4(approve·reject·confirm-pickup·inspect 403) · `SellerDeliveryIntegrationTest` R5(register-exchange-shipment 403) · `ClaimReturnIntegrationTest` T3 정상 경로 admin 치환(관리자 confirm-pickup 200 커버 보강)·T7 소유 셀러 403 2건(BUYER inspect 단언은 경로 부재 500 트랩이라 제거) · `ClaimServiceConfirmPickupTest` 셀러 2건 삭제 · `SellerWriteMappingRegistryTest` 1 신규.
 - 검증(최종): `./gradlew.bat test --rerun-tasks` 228파일 **1314 tests·0 fail·0 error·0 skip**(1331 − 23 삭제 + 6 신규) · typecheck 0 · vitest 81파일 532 · Playwright 웜 93/94(seller-dashboard ② 환경 의존 기존 건) · 픽셀 12장 diff 0 · layers/admin diff 0 · FE 코드 무변경.
 - 댕글링 Javadoc `{@link SellerClaimController}`·`{@link SellerDeliveryController}` 6곳은 `{@code …}(Track 92 제거)`로 정정(javadoc 태스크는 없으나 깨진 링크 방치 금지).
-- 외부 검토: **등급 A** / 결과는 검토 후 append.
+- 외부 검토: **등급 A** / 2라운드(r1 인가 경계·r2 반전 단언) / 지적 5건 중 수용 3·기각 2 / blocker 0 / r1 정보 부족 2건은 STEP 711 실측으로 자체 확정(claims 매핑 전수·prefix 밖 SELLER 쓰기 2건) / 수용분은 `ClaimProcessingMappingAbsenceTest` 신설(`/api/v1/claims/**` 쓰기 매핑 = 구매자 3건 정확 일치)로 제거 매핑의 경로 변경·역할 무관 부활 감지 / 기각 = 삭제된 슬라이스의 입력 검증 축 복원(폐기된 계약).
 
 ### §8 이월
-- SELLER 역할의 `/api/v1/seller/**` prefix 밖 쓰기(`SellerShippingController`·`SellerDeliveryCompletionController`)를 집합 고정 테스트에 포함할지 — 별도 결정.
+- **Track 92-a(등급 A) 범위 확대 — prefix 밖 SELLER 쓰기 2건 실측(STEP 711)**:
+  1. `POST /api/v1/order-items/{oit}/prepare-shipment` (SellerShippingController:48) — 품목 PAID→PREPARING. 활성 클레임 있으면 422(OrderShippingService:130). Claim 무변경
+  2. `POST /api/v1/deliveries/{dlv}/mark-delivered` (SellerDeliveryCompletionController:46) — **Claim 상태 변경 경로 있음**. markDeliveredBySeller:155 → DeliveryService.markDelivered:68(direction·claim_id 가드 없음) → DeliveryCompleted(OUTBOUND) → ExchangeDeliveryCompletedHandler → ClaimExchangeService.completeExchange:145 → Claim APPROVED→COMPLETED(예약 확정·재입고·옵션 갱신·품목 DELIVERED 복귀). 재현: 관리자가 register-exchange-shipment로 만든 교환품 Delivery(SHIPPING·claim_id 연결)를 소유 셀러가 mark-delivered → 200 + 클레임 종결. 기존 IT T2는 claim_id NULL 일반 배송만 검증
+  3. 부수 관찰: 같은 경로로 RETURN 회수 Delivery도 DELIVERED 마감 가능 → 이후 관리자 confirm-pickup의 completeReturnShipment:179가 IllegalStateException(claim.status 무변경이나 회수 확인 흐름이 막힘)
+  - 판단(α·범위 유지): mark-delivered는 셀러가 클레임을 판정하는 행위가 아니라 자기 배송을 완료 처리하는 배송 도메인 행위이고 클레임 종결은 그 이벤트의 후속 효과다. Track 92가 제거한 승인·반려·검수는 무력화되지 않는다. 교환품 배송 완료를 셀러 정당 행위로 볼지가 미결정이라 가드를 먼저 넣으면 교환 완료를 아무도 찍지 못하는 상태가 될 수 있어 본 트랙에서 가드를 추가하지 않는다.
+  - Track 92-a에서 결정할 것: 교환품 배송 완료를 셀러 정당 행위로 확정할지, claim 연결 배송을 셀러에게 막을지 / 막는다면 관리자 대체 경로가 존재하는지 선확인 필수(없으면 교환 완료 불가 상태가 됨) / RETURN 회수 Delivery의 셀러 마감 차단 여부 / 두 매핑의 집합 고정 테스트 포함 여부.
 - `GlobalExceptionHandler` `Exception` catch-all이 `NoResourceFoundException`(경로 부재)을 500으로 만드는 문제(LT-27) — 별건.
