@@ -54,7 +54,7 @@ describe('SellerProductTable · SellerInventoryTable', () => {
     document.body.innerHTML = ''
   })
 
-  it('상품 표: 상태 칩 라벨·의미 색·기본가·등록일(KST 오프셋 → 분 단위)·수정 버튼 비활성 · 페이지 이벤트 0-base', async () => {
+  it('상품 표: 상태 칩 라벨·의미 색·기본가·등록일(KST 오프셋 → 분 단위)·수정 버튼 → edit 이벤트 · 페이지 이벤트 0-base', async () => {
     const wrapper = await mountSuspended(SellerProductTable, {
       props: { items: PRODUCTS, totalCount: 2, page: 0, size: 20, loading: false },
       global: { plugins: [createVuetify()] },
@@ -70,7 +70,9 @@ describe('SellerProductTable · SellerInventoryTable', () => {
     expect(body().querySelector('[data-testid="row-created-at"]')?.textContent).toBe('2026.09.17 17:29')
     const editButtons = body().querySelectorAll<HTMLButtonElement>('[data-testid="row-edit"]')
     expect(editButtons).toHaveLength(2)
-    expect(editButtons[0]?.disabled).toBe(true)
+    expect(editButtons[0]?.disabled).toBe(false)
+    editButtons[1]?.click()
+    expect(wrapper.emitted('edit')?.[0]).toEqual([PRODUCTS[1]])
     // 썸네일 없는 행은 placeholder
     expect(body().querySelectorAll('.slr-thumb--placeholder')).toHaveLength(1)
 

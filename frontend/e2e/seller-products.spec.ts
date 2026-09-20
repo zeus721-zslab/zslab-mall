@@ -48,7 +48,7 @@ async function mockSellerProducts(page: Page, items = PRODUCTS): Promise<Capture
 }
 
 test.describe('셀러 상품 목록 화면(90-C-3)', () => {
-  test('① 목록 로드(20행·칩·가격·등록일·수정 비활성) → 상태 필터 SALE(URL·API) → 카테고리 필터 → 2페이지 이동 → 초기화', async ({ page }) => {
+  test('① 목록 로드(20행·칩·가격·등록일·수정 버튼) → 상태 필터 SALE(URL·API) → 카테고리 필터 → 2페이지 이동 → 초기화', async ({ page }) => {
     const captured = await mockSellerProducts(page)
     await loginAs(page, 'SELLER')
     await page.setViewportSize({ width: 1440, height: 900 })
@@ -61,7 +61,7 @@ test.describe('셀러 상품 목록 화면(90-C-3)', () => {
     await expect(page.getByTestId('status-chip').nth(1)).toHaveText('승인대기')
     await expect(page.getByTestId('row-base-price').first()).toHaveText('32,000원')
     await expect(page.getByTestId('row-created-at').first()).toHaveText('2026.09.17 17:29') // KST 오프셋 ISO → formatDateTime
-    await expect(page.getByTestId('row-edit').first()).toBeDisabled() // 수정 화면은 90-C-4
+    await expect(page.getByTestId('row-edit').first()).toBeEnabled() // 수정 화면(90-C-4)으로 이동
     expect(captured.listQueries[0]?.get('page')).toBe('0')
     expect(captured.listQueries[0]?.get('sort')).toBe('LATEST')
     expect(captured.listQueries[0]?.has('status')).toBe(false)
