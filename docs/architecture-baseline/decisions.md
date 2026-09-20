@@ -11604,3 +11604,38 @@ deploy.yml이 `push main` 무필터라 docs만 변경된 머지에도 서버 SSH
 - 회수 송장(RETURN Delivery) 셀러 노출 — 90-D-1 범위 밖.
 - 셀러 처리 endpoint 5건의 SELLER 인가 존치 → Track 92.
 - 대시보드 최근 클레임·처리 대기 칸 링크(FE-47 이월 유지).
+
+## D-196. 셀러 클레임 처리 endpoint 제거 (Track 92)
+
+날짜: 2026-09-21
+브랜치: fix/track-92-seller-claim-authz
+정찰: STEP 700(PROGRESS·읽기 전용 실측)
+
+### 배경
+D-195에서 "셀러는 클레임 조회만, 처리는 관리자"를 확정했으나 BE에는 셀러 처리 endpoint 5건(`SellerClaimController`의 approve·reject·confirm-pickup·inspect + `SellerDeliveryController`의 register-exchange-shipment·`/api/v1/claims/{id}/…`)이 살아 있고 SecurityConfig가 SELLER 인가를 통과시켰다(90-D-1 정찰 §결정 필요 #1·D-195 §8 이월). 셀러 FE는 호출하지 않지만 셀러 토큰만 있으면 직접 승인·반려·검수·교환 출고가 가능한 실제 인가 구멍이다.
+
+### 결정
+- **endpoint 5건·컨트롤러 클래스 2개 제거**(`SellerClaimController`·`SellerDeliveryController` 삭제·잔존 메서드 0). 조회는 `SellerClaimQueryController`(`/api/v1/seller/claims`) 무접촉.
+- **서비스 wrapper 제거**: `ClaimService.approveBySeller·rejectBySeller·confirmPickupBySeller·inspectBySeller·registerExchangeShipmentBySeller` + private `authorizeSellerAccess`(셀러 전용·호출처 0). primitive(approve·reject·confirmPickup·inspect)·Admin wrapper·`DeliveryService.registerExchangeShipment`는 무변경. 요청 DTO 5종(`ClaimApproveRequest`·`ClaimRejectRequest`·`ClaimInspectRequest`·`RegisterExchangeShipmentRequest/Response`)은 Admin 컨트롤러 공용이라 존치.
+- **SecurityConfig SELLER 매처 5건 제거** → `/api/v1/claims/**`는 BUYER 광범위 규칙만 남아 셀러·관리자 토큰은 403.
+- 제거 전 **관리자 동등 기능 5/5 존재 확인**: `AdminClaimController` approve·reject·confirm-pickup·inspect + `AdminDeliveryController` register-exchange-shipment(관리자 FE `useAdminOrders.ts`가 5건 모두 호출). 없는 기능이 있었다면 중단 조건이었다.
+- **셀러 쓰기 매핑 집합 고정 테스트 신설**(`SellerWriteMappingRegistryTest`): `RequestMappingHandlerMapping`에서 `/api/v1/seller/**`의 POST·PUT·PATCH·DELETE를 수집해 실측 허용 목록 12건(상품 등록·수정 3·이미지 4·재고 입출고 2·파일 업로드·송장 정정)과 정확히 일치를 단언. 셀러 쓰기가 늘거나 줄면 RED → 의도적 변경(목록 갱신·D-XX)인지 검토를 강제한다. 범위는 지시대로 `/api/v1/seller/**` prefix이며 SELLER 역할의 prefix 밖 쓰기(`/api/v1/order-items/**`·`/api/v1/deliveries/**`)는 별도 결정.
+- 상태기계 전이 로직 무변경 — 셀러 행위자 기술만 정정(state-machine.md APPROVED/REJECTED/회수 확인).
+
+### §1-A 갈림길·채택/기각 근거
+1. **α endpoint 자체 제거 【채택】** / **β 인가 애너테이션·매처만 제거 【기각: 경로·핸들러가 남으면 매처 한 줄로 인가가 되살아날 여지·죽은 코드 존치】** / **γ 존치 【기각: 셀러 토큰으로 승인·반려·검수가 가능한 실제 인가 구멍·D-195 확정과 모순】**.
+2. **반전 단언 값 — 403 【채택】 / 404 【기각】**: 매처 제거 후 `/api/v1/claims/**`는 hasRole(BUYER)라 셀러 토큰은 필터 단계 403으로 결정적. 404는 BUYER 토큰이 통과한 뒤 경로 부재 `NoResourceFoundException`이 `GlobalExceptionHandler`의 `Exception` catch-all에 잡혀 **500**이 되므로(LT-27·실측) 채택하지 않는다. GEH catch-all 수정은 별건.
+3. **@WebMvcTest 슬라이스 13건(SellerClaimControllerTest 8·SellerDeliveryControllerTest 5) — 삭제 【채택】**: 제거되는 클래스를 대상으로 하므로 반전이 불가. 반전 단언은 IT로 모으고 400/401 매트릭스는 AdminClaimControllerTest·AdminDeliveryControllerIntegrationTest가 관리자 경로에서 동등하게 덮는다.
+
+### 단언 유효성 선증명(STEP 701)
+컨트롤러·서비스는 그대로 두고 SecurityConfig 매처 5건만 제거 → 반전 IT R1~R5(소유 셀러 토큰 403·상태 유지·milestone NULL·이벤트 0·Delivery 0) **5/5 GREEN** → git stash로 매처 복원 → 같은 IT **5/5 RED**(approve·reject·register-exchange-shipment = 200 전이 발생, confirm-pickup·inspect = 422 = 인가 통과 후 도메인 가드·핸들러 도달) → stash pop 후 GREEN 재확인. 인가가 되살아나면 RED가 나는 단언임을 실측했다.
+
+### §2 확정 구현 규칙
+- 테스트: `SellerClaimIntegrationTest` R1~R4(approve·reject·confirm-pickup·inspect 403) · `SellerDeliveryIntegrationTest` R5(register-exchange-shipment 403) · `ClaimReturnIntegrationTest` T3 정상 경로 admin 치환(관리자 confirm-pickup 200 커버 보강)·T7 소유 셀러 403 2건(BUYER inspect 단언은 경로 부재 500 트랩이라 제거) · `ClaimServiceConfirmPickupTest` 셀러 2건 삭제 · `SellerWriteMappingRegistryTest` 1 신규.
+- 검증(최종): `./gradlew.bat test --rerun-tasks` 228파일 **1314 tests·0 fail·0 error·0 skip**(1331 − 23 삭제 + 6 신규) · typecheck 0 · vitest 81파일 532 · Playwright 웜 93/94(seller-dashboard ② 환경 의존 기존 건) · 픽셀 12장 diff 0 · layers/admin diff 0 · FE 코드 무변경.
+- 댕글링 Javadoc `{@link SellerClaimController}`·`{@link SellerDeliveryController}` 6곳은 `{@code …}(Track 92 제거)`로 정정(javadoc 태스크는 없으나 깨진 링크 방치 금지).
+- 외부 검토: **등급 A** / 결과는 검토 후 append.
+
+### §8 이월
+- SELLER 역할의 `/api/v1/seller/**` prefix 밖 쓰기(`SellerShippingController`·`SellerDeliveryCompletionController`)를 집합 고정 테스트에 포함할지 — 별도 결정.
+- `GlobalExceptionHandler` `Exception` catch-all이 `NoResourceFoundException`(경로 부재)을 500으로 만드는 문제(LT-27) — 별건.
