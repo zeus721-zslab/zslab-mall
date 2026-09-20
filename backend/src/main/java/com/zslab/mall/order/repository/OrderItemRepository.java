@@ -8,6 +8,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -15,7 +16,7 @@ import org.springframework.data.repository.query.Param;
 /**
  * 주문 품목 Repository(QB-5 JpaRepository 단일·메서드 이름 쿼리 + 경량 projection).
  */
-public interface OrderItemRepository extends JpaRepository<OrderItem, Long> {
+public interface OrderItemRepository extends JpaRepository<OrderItem, Long>, JpaSpecificationExecutor<OrderItem> {
 
     List<OrderItem> findByOrderId(Long orderId);
 
@@ -52,6 +53,14 @@ public interface OrderItemRepository extends JpaRepository<OrderItem, Long> {
     @Query("SELECT oi.id AS orderItemId, o.id AS orderId, o.publicId AS orderPublicId, o.orderNo AS orderNo, "
             + "o.buyerId AS buyerId FROM OrderItem oi JOIN oi.order o WHERE oi.id IN :ids")
     List<OrderItemOrderProjection> findOrderSummariesByIdIn(@Param("ids") Collection<Long> ids);
+
+    /**
+     * 셀러 품목 목록·상세의 주문 축 표시값(주문번호·주문일시·결제일시)을 한 번에 조회한다(Track 90-B-1·N+1 회피·Order 엔티티 미적재).
+     * 구매자 id·주문 총액 등 셀러 노출 금지 필드는 projection에 넣지 않는다. 모든 변수는 :ids 바인딩이다.
+     */
+    @Query("SELECT oi.id AS orderItemId, o.orderNo AS orderNo, o.orderedAt AS orderedAt, o.paidAt AS paidAt "
+            + "FROM OrderItem oi JOIN oi.order o WHERE oi.id IN :ids")
+    List<SellerOrderItemOrderProjection> findSellerOrderSummariesByIdIn(@Param("ids") Collection<Long> ids);
 
     /**
      * 정산 기간 내 구매확정(CONFIRMED) 품목의 총 매출(total_price 합)을 seller별로 집계한다(Track 48 P2·정산 gross 소스).
