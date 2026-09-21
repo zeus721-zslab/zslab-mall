@@ -28,9 +28,13 @@ public record AdminOrderDetailResponse(
     public record Buyer(String userId, String name, String email) {
     }
 
-    /** pgTid·failureCode는 PG 대사·실패 원인 확인용(Track 89-A·결제 내역 화면을 주문 상세로 흡수). */
+    /**
+     * pgTid·failureCode는 PG 대사·실패 원인 확인용(Track 89-A·결제 내역 화면을 주문 상세로 흡수).
+     * refundedAmount는 이 결제에 대한 COMPLETED 환불 합(Track 96-1 D-202·C-12): PAID인데 refundedAmount == amount면 Refund→Payment CANCELLED
+     * 자동 전이(D-113)가 유실된 상태라 화면이 경고·수동 취소 버튼을 조건부로 노출한다. 환불이 없으면 0.
+     */
     public record PaymentRow(String paymentId, String method, String status, long amount, String pgProvider,
-            String pgTid, String failureCode, LocalDateTime paidAt, LocalDateTime createdAt) {
+            String pgTid, String failureCode, LocalDateTime paidAt, LocalDateTime createdAt, long refundedAmount) {
     }
 
     public record Item(String orderItemId, String productName, String optionLabel, int quantity, long unitPrice,
