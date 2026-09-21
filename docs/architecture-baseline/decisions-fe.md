@@ -2327,3 +2327,27 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 
 ### §8 이월
 - 관리자 영역 강제 변경(adminAuth 플래그·관리자 비밀번호 페이지)은 D-204 §8.
+
+## FE-56: 관리자 클레임 목록 "필요 액션" 필터 + 대시보드 클레임 처리 대기 타일(C-02) (Track 96-4) (2026-09-22)
+
+배경: Track 96 정찰 C-02(관리자가 후속 처리 대기 클레임을 눈으로 탐색). BE는 D-205(`GET /admin/claims?action=`·`pending.claimFollowup`). 목록 화면은 URL query 단일 소스(FE-28)라 필터 1개·타일 1개 추가로 끝난다.
+
+결정:
+- **타입** `AdminClaimActionFilter = Exclude<AdminClaimAction, 'APPROVE' | 'REJECT'> | 'FOLLOWUP'`(BE enum 1:1) · `AdminClaimListQuery.action: AdminClaimActionFilter | null`.
+- **상수** `ADMIN_CLAIM_ACTION_FILTER_OPTIONS`(`lib/constants/admin-claim.ts`): "후속 처리 전체"(FOLLOWUP) + 5종 — **라벨은 행 액션 버튼 문구 `ADMIN_CLAIM_ACTION_LABEL`을 그대로 재사용**(필터와 버튼이 같은 말) · 순서 = 처리 흐름 순 · `isAdminClaimActionFilter` 가드.
+- **URL ↔ 상태 ↔ API**(`admin-claim-query.ts`): parse는 허용 외 값(APPROVE·REJECT·소문자·미지 값)을 null로 정규화(전체 조회·BE 400 예방) · toRoute/toApi는 값 있을 때만 `action` · `hasActiveClaimFilters`에 포함(빈 상태 문구 분기). `resetQuery`는 기존대로 type·size만 보존 → action 해제.
+- **FilterCard** `data-testid="filter-action"` v-select(clearable·`cols=6 md=2`) — 기존 12칸이 차 있어 md에서 2줄째로 wrap(레이아웃 재배치 없음).
+- **대시보드 타일** `PENDING_TILES[6] = claimFollowup`("클레임 처리 대기" → `/admin/orders/claims?action=FOLLOWUP`·warning·0건도 "0건"). 7칸 = 기존 `cols=6 md=3` 유지(데스크톱 4+3·모바일 2열 마지막 1칸). 아이콘 `mdiClipboardCheckOutline`. 타일 링크 → 목록이 `?action=FOLLOWUP`을 parse해 select에 "후속 처리 전체" 표시.
+
+### §1-A 갈림길·채택/기각 근거
+- **필터를 탭(유형 탭 옆 "처리 필요" 탭)으로 【기각: 탭은 type 소유·유형과 직교하는 축】 / select 【채택】**.
+- **허용 외 URL 값을 400으로 노출 【기각: 기존 status·refundStatus와 같이 기본값 정규화가 관례】 / null 정규화 【채택】**.
+- **FilterCard 12칸 재배치(keyword md=3 등) 【기각: 픽셀·기존 e2e 스크린샷 변동 최소화】 / wrap 허용 【채택】**.
+
+### §2 확정 구현 규칙·트랩
+- 변경: admin 7(`types/admin-claim.ts`·`types/admin-dashboard.ts`·`lib/constants/admin-claim.ts`·`lib/admin-claim-query.ts`·`lib/admin-dashboard-view.ts`·`components/admin/AdminClaimFilterCard.vue`·`components/admin/AdminDashboardPending.vue`) · vitest 3(`admin-claim-query.spec.ts` 기존 4 케이스 action 포함 + 허용 값 케이스 1 · `admin-dashboard-helpers.spec.ts` 7칸·톤 · `admin-claim-filter-card.spec.ts` 신규 2) · e2e 2(`admin-claims.spec.ts` ① mock에 action 필터 + 회수 확인 → `action=CONFIRM_PICKUP`·행 1·새로고침 유지 → 후속 처리 전체 2행 → 초기화 해제 / `admin-dashboard.spec.ts` ① 7칸·href·"N건" 정규식·**테스트 마지막에** 타일 클릭 → `?action=FOLLOWUP`·select 표시).
+- 트랩: (1) Vuetify clearable 해제는 `.v-field__clearable .v-icon` 클릭(래퍼 div 클릭은 무반응) (2) e2e에서 타일 클릭 → `goBack()` 뒤 리스트 단언을 두면 재렌더 경합으로 빈 상태 단언이 실패 → 페이지 이동 단언은 테스트 끝에.
+- 검증: typecheck 0 · vitest 98파일 **646**(643 + 3) · no-admin-import 통과 · Playwright 콜드 100/104(admin-categories ① 콜드 트랩·admin-dashboard ① goBack 경합 → 수정) → 웜 **102/104**(2 skip = seller-password env) · 픽셀 12장 track96-4 track96-3 대비 **diff 0**(관리자 화면은 기준 12장 미포함).
+
+### §8 이월
+- 필터 조합 상호 배타 안내(D-205 §8) · 셀러 진행 단계 필터 없음(D6).
