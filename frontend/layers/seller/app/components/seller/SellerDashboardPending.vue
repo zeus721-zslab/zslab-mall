@@ -4,8 +4,8 @@ import type { SellerDashboardPending } from '#layers/seller/app/types/seller-das
 import { PENDING_TILES, pendingChipClass, type PendingKey } from '#layers/seller/app/lib/seller-dashboard-view'
 
 /**
- * 처리 대기 4칸(Track 90-B-3·관리자 AdminDashboardPending 복제). 링크가 있는 칸(배송 대기 → 품목 목록 status=PAID)만 이동하고 나머지는 카운트 +
- * 힌트 문구만 보인다. 톤은 0건 회색·1건 이상 주의이며 판정은 lib/seller-dashboard-view.ts.
+ * 처리 대기 4칸(Track 90-B-3·관리자 AdminDashboardPending 복제). 4칸 전부 해당 화면으로 이동한다(Track 96-1 C-14). 톤은 0건 회색·1건 이상
+ * 주의이며 판정은 lib/seller-dashboard-view.ts.
  */
 const props = defineProps<{
   pending: SellerDashboardPending | null
@@ -30,10 +30,9 @@ function countOf(key: PendingKey): number {
   <v-row dense class="mb-4" data-testid="dashboard-pending">
     <v-col v-for="tile in PENDING_TILES" :key="tile.key" cols="6" md="3">
       <component
-        :is="tile.to ? NuxtLink : 'div'"
-        :to="tile.to ?? undefined"
-        class="slr-dashboard-pending h-100"
-        :class="{ 'slr-dashboard-pending--link': tile.to }"
+        :is="NuxtLink"
+        :to="tile.to"
+        class="slr-dashboard-pending slr-dashboard-pending--link h-100"
         :data-testid="`dashboard-pending-${tile.key}`"
       >
         <v-card class="h-100">

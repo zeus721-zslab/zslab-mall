@@ -2,6 +2,7 @@
 import { mdiContentCopy } from '@mdi/js'
 import type { AdminDeliverySummary } from '#layers/admin/app/types/admin-delivery'
 import { formatDateTime } from '~/lib/utils/datetime'
+import { elapsedChip, type ElapsedChip } from '~/lib/utils/elapsed-days'
 import {
   ADMIN_DELIVERY_CARRIER_LABEL,
   ADMIN_DELIVERY_STATUS_LABEL,
@@ -32,6 +33,11 @@ const emit = defineEmits<{
 }>()
 
 // 8컬럼: 1440px에서 가로 스크롤이 없도록 발송일·배송완료일을 2줄 셀로 병합한다.
+/** 경과 N일(C-15): 배송중(SHIPPING) 행만 발송일 기준으로 표시한다. */
+function shippingElapsed(item: AdminDeliverySummary): ElapsedChip | null {
+  return item.status === 'SHIPPING' ? elapsedChip(item.shippedAt) : null
+}
+
 const headers = [
   { title: '주문번호', key: 'orderNo', sortable: false },
   { title: '상품', key: 'productName', sortable: false },
@@ -139,6 +145,9 @@ const headers = [
     <template #[`item.dates`]="{ item }">
       <div class="text-body-2" data-testid="row-shipped-at">{{ item.shippedAt ? formatDateTime(item.shippedAt) : '—' }}</div>
       <div class="text-caption text-medium-emphasis" data-testid="row-delivered-at">완료 {{ item.deliveredAt ? formatDateTime(item.deliveredAt) : '—' }}</div>
+      <v-chip v-if="shippingElapsed(item)" :class="`adm-chip adm-chip--${shippingElapsed(item)!.tone}`" size="x-small" variant="flat" class="mt-1" data-testid="row-elapsed">
+        {{ shippingElapsed(item)!.text }}
+      </v-chip>
     </template>
 
     <template #no-data>

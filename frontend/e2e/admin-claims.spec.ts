@@ -151,7 +151,8 @@ test.describe('관리자 취소·반품·교환 목록(FE-28)', () => {
     await expect(page.getByTestId('row-return-caption').nth(0)).toHaveText('회수 CJ대한통운 RTN-0004 · 첨부 2')
     await expect(page.getByTestId('row-return-caption').nth(1)).toContainText('회수 확인 09.15 09:00')
     await expect(page.getByTestId('row-confirm-pickup')).toHaveCount(1)
-    await expect(page.getByTestId('row-inspect')).toHaveCount(1)
+    await expect(page.getByTestId('row-inspect')).toHaveCount(2) // C-10: 회수 확인 전 행에도 검수 진입(outlined)
+    await expect(page.getByTestId('row-elapsed')).toHaveCount(4) // C-15: 진행 중(REQUESTED 2·APPROVED 2) 행만 경과 N일·COMPLETED 제외
     const overflow = await page.evaluate(() => {
       const wrapper = document.querySelector('[data-testid="admin-claim-table"] .v-table__wrapper') as HTMLElement
       return { table: wrapper.scrollWidth - wrapper.clientWidth, body: document.documentElement.scrollWidth - document.documentElement.clientWidth }
@@ -254,6 +255,24 @@ test.describe('관리자 취소·반품·교환 목록(FE-28)', () => {
     await expect(page.getByTestId('row-confirm-pickup')).toHaveCount(1)
     const listCallsBefore = captured.listQueries.length
 
+    // C-10(Track 96-1): 회수 확인 전 행의 검수 진입 → 체크 전 확인 비활성 → 체크 + PASS 재입고 → confirm-pickup → inspect 순차 POST
+    await page.getByTestId('row-inspect').first().click()
+    const combined = page.getByTestId('admin-claim-inspect-dialog')
+    await expect(combined.getByTestId('inspect-pickup-check')).toBeVisible()
+    await combined.getByTestId('inspect-result-PASS').click()
+    await combined.getByTestId('inspect-restock-true').click()
+    await expect(combined.getByTestId('inspect-dialog-ok')).toBeDisabled()
+    await combined.getByTestId('inspect-pickup-check').click()
+    await expect(combined.getByTestId('inspect-dialog-ok')).toBeEnabled()
+    const combinedPostsBefore = captured.posts.length
+    await combined.getByTestId('inspect-dialog-ok').click()
+    await expect(combined).toBeHidden()
+    expect(captured.posts.slice(combinedPostsBefore).map((post) => post.url.split('/admin/claims/')[1])).toEqual([`${PICKUP_CLAIM}/confirm-pickup`, `${PICKUP_CLAIM}/inspect`])
+    // 합격 토스트가 사라진 뒤 진행(아래 단독 검수 PASS 토스트 단언이 strict mode로 2개를 잡지 않도록)
+    const combinedToast = page.locator('[data-sonner-toast][data-type="info"]').filter({ hasText: '검수 합격' })
+    await expect(combinedToast).toBeVisible()
+    await expect(combinedToast).toBeHidden({ timeout: 10_000 })
+
     // 회수 확인
     await page.getByTestId('row-confirm-pickup').click()
     const pickup = page.getByTestId('admin-claim-pickup-dialog')
@@ -265,8 +284,8 @@ test.describe('관리자 취소·반품·교환 목록(FE-28)', () => {
     await expect(pickup).toBeHidden()
     await expect.poll(() => captured.listQueries.length).toBeGreaterThan(listCallsBefore)
 
-    // 검수 PASS: 결과 선택 전 확인 비활성 → PASS → 재입고 미선택 오류 → 재입고 → body
-    await page.getByTestId('row-inspect').click()
+    // 검수 PASS: 결과 선택 전 확인 비활성 → PASS → 재입고 미선택 오류 → 재입고 → body(회수 확인된 행 = 두 번째 검수 버튼)
+    await page.getByTestId('row-inspect').last().click()
     const dialog = page.getByTestId('admin-claim-inspect-dialog')
     await expect(dialog).toBeVisible()
     await expect(dialog).toContainText('E2E 검수대기 양말')
@@ -285,7 +304,7 @@ test.describe('관리자 취소·반품·교환 목록(FE-28)', () => {
     await expect(dialog).toBeHidden()
 
     // 검수 FAIL: 사유 "검수 불합격" 고정 표기(select 없음·D-172)·재발송 택배사/송장 필수 → body
-    await page.getByTestId('row-inspect').click()
+    await page.getByTestId('row-inspect').last().click()
     await expect(dialog).toBeVisible()
     await dialog.getByTestId('inspect-result-FAIL').click()
     await expect(dialog.getByTestId('inspect-reason')).toContainText('불합격 사유: 검수 불합격')

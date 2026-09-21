@@ -98,6 +98,13 @@ test.describe('사용자 반품 요청·회수·검수(FE-29)', () => {
     await expect(page.getByRole('button', { name: '반품 요청' })).toHaveCount(2) // 배송완료 + 교환 완료(반품만) 품목
     await expect(page.getByRole('button', { name: '교환 요청' })).toHaveCount(1)
     await expect(page.getByRole('button', { name: '취소 요청' })).toHaveCount(0)
+    // C-06·C-16(Track 96-1): 배송완료 품목 2개에 구매확정 버튼·자동 확정 안내(7일) — 렌더만(실행 안 함·데모 데이터 불변)
+    await expect(page.getByTestId('item-confirm-purchase')).toHaveCount(2)
+    await expect(page.getByTestId('item-auto-confirm-guide').first()).toHaveText('배송완료 7일 후 자동 구매확정됩니다.')
+    await page.getByTestId('item-confirm-purchase').first().click()
+    await expect(page.getByTestId('item-confirm-warning')).toHaveText('확정 후에는 반품·교환을 신청할 수 없습니다.')
+    await page.getByTestId('item-confirm-cancel').click()
+    await expect(page.getByTestId('item-confirm-panel')).toHaveCount(0)
 
     await page.getByRole('button', { name: '반품 요청' }).first().click()
     await page.waitForURL(/\/claims\/new\?/)
@@ -140,6 +147,7 @@ test.describe('사용자 반품 요청·회수·검수(FE-29)', () => {
     await expect(steps).toHaveCount(6)
     await expect(steps.nth(1)).toContainText('승인')
     await expect(steps.nth(5)).toContainText('환불 완료')
+    await expect(page.getByTestId('claim-stage-guide')).toContainText('회수 송장을 등록해 주세요') // C-16 단계 안내
     await expect(page.getByTestId('claim-attachments').locator('img')).toHaveCount(1)
     const form = page.getByTestId('claim-return-shipment-form')
     await expect(form).toBeVisible()

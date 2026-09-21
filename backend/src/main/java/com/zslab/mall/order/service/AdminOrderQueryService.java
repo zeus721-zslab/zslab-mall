@@ -182,12 +182,14 @@ public class AdminOrderQueryService {
                                         attachmentUrlsByClaimId.getOrDefault(claim.getId(), List.of()),
                                         item, optionLabelByVariantId)).toList()))
                 .toList();
+        // Track 96-1 D-202: 결제별 COMPLETED 환불 합(상세 전용·결제 행 수만큼 1쿼리·Payment CANCELLED 유실 판별용)
         List<AdminOrderDetailResponse.PaymentRow> payments = enrichment.paymentsByOrderId
                 .getOrDefault(order.getId(), List.of()).stream()
                 .map(payment -> new AdminOrderDetailResponse.PaymentRow(
                         payment.getPublicId(), payment.getMethod().name(), payment.getStatus().name(),
                         payment.getAmount(), payment.getPgProvider(), payment.getPgTid(), payment.getFailureCode(),
-                        payment.getPaidAt(), payment.getCreatedAt()))
+                        payment.getPaidAt(), payment.getCreatedAt(),
+                        refundRepository.sumCompletedByPaymentId(payment.getId())))
                 .toList();
 
         return new AdminOrderDetailResponse(

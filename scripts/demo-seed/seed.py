@@ -554,10 +554,9 @@ class OrderRunner:
         attempt_key = redirect_url.split("attemptKey=")[1].split("&")[0]
         ordered_at = plan.ordered_at
         paid_at = ordered_at + timedelta(minutes=self.rng.randint(1, 3))
-        # 결제 승인 = Mock 웹훅 SUCCESS. occurredAt이 payment.paid_at·order.paid_at이 된다(PaymentService:273)
-        self.api.json("POST", "/api/webhooks/payments", json={
-            "provider": "MOCK_PG", "callbackType": "SUCCESS", "paymentAttemptKey": attempt_key,
-            "pgTid": f"mock_tid_{attempt_key[-8:]}", "occurredAt": iso(paid_at), "metadata": {}})
+        # 결제 승인 = 구매자 본인 mock 콜백 SUCCESS(Track 93 D-198·Track 96-1 A7). /api/webhooks/**는 운영 gateway가 외부 차단(LT-29)이라
+        # 쓰지 않는다. paid_at은 서버 시각(now)으로 기록되며 목표 결제시각은 timeshift 단계의 SQL UPDATE(shift_order)가 덮어쓴다.
+        self.api.json("POST", "/api/v1/payments/mock-callback", token, json={"attemptKey": attempt_key, "callbackType": "SUCCESS"})
         latest = self.api.json("GET", "/api/v1/orders?page=0&size=1", token)["items"][0]
         order_public_id = latest["orderId"]
         detail_body = self.api.json("GET", f"/api/v1/orders/{order_public_id}", token)
@@ -970,7 +969,7 @@ def print_dry_run(state: dict) -> None:
     log.info("[dry-run] 주문 월별 %s (합 %d) · 완결 클레임 %d · 진행 클레임 %d", by_month, len(plans), len(COMPLETED_CLAIMS), len(IN_PROGRESS_CLAIMS))
     log.info("[dry-run] 정산 월 %s · 확정 %s · 지급 %s", SETTLEMENT_MONTHS, SETTLEMENT_CONFIRMED_MONTHS, SETTLEMENT_PAID_MONTHS)
     log.info("[dry-run] 호출 엔드포인트: POST /users, /admin/sellers, /admin/categories, /admin/files/images, /admin/products(+images/approve), "
-             "/orders, /api/webhooks/payments, /admin/orders/items/{oit}/prepare-shipment, /admin/deliveries/{dlv}/mark-delivered, "
+             "/orders, /payments/mock-callback, /admin/orders/items/{oit}/prepare-shipment, /admin/deliveries/{dlv}/mark-delivered, "
              "/orders/{ord}/items/{oit}/confirm, /claims(+approve/return-shipment/confirm-pickup/inspect/register-exchange-shipment), "
              "/admin/settlements(+confirm/pay) · /admin/sellers/{slr}/bank-accounts(Track 89-F) · SQL: 시각 UPDATE · settlement.paid_at UPDATE")
     log.info("[dry-run] state 파일: %s (존재: %s)", STATE_PATH, STATE_PATH.exists())

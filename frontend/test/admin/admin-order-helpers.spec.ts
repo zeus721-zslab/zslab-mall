@@ -5,6 +5,7 @@ import {
   cancellableItems,
   claimRefundLabel,
   deliverableItems,
+  isPaymentCancelLost,
   isUnpaidOrder,
   mapFieldErrors,
   sellerNamesLabel,
@@ -147,5 +148,16 @@ describe('상수 정합(4층위 4단)', () => {
     expect(ADMIN_DELIVERY_CARRIER_OPTIONS.map((option) => option.value)).toEqual(['CJ', 'HANJIN', 'POST', 'LOGEN'])
     expect(paymentMethodLabel('KAKAO')).toBe('카카오페이')
     expect(paymentMethodLabel('UNKNOWN')).toBe('UNKNOWN')
+  })
+})
+
+// Track 96-1(FE-53·C-12): Payment CANCELLED 자동 전이 유실 판정 = BE markCancelled 전액 가드(D-71)와 같은 조건.
+describe('isPaymentCancelLost(C-12)', () => {
+  it('PAID + 전액 환불 완료만 true · 부분 환불·미환불·이미 CANCELLED·0원은 false', () => {
+    expect(isPaymentCancelLost({ status: 'PAID', amount: 32900, refundedAmount: 32900 })).toBe(true)
+    expect(isPaymentCancelLost({ status: 'PAID', amount: 32900, refundedAmount: 10000 })).toBe(false)
+    expect(isPaymentCancelLost({ status: 'PAID', amount: 32900, refundedAmount: 0 })).toBe(false)
+    expect(isPaymentCancelLost({ status: 'CANCELLED', amount: 32900, refundedAmount: 32900 })).toBe(false)
+    expect(isPaymentCancelLost({ status: 'PAID', amount: 0, refundedAmount: 0 })).toBe(false)
   })
 })

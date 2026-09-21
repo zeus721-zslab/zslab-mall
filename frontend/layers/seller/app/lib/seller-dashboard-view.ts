@@ -1,6 +1,12 @@
 import type { ApexOptions } from 'apexcharts'
 import type { SellerDashboardDailyTrend, SellerDashboardPending, SellerDashboardPeriod } from '#layers/seller/app/types/seller-dashboard'
-import { SELLER_DELIVERIES_PATH, SELLER_ORDERS_PATH } from '#layers/seller/app/lib/seller-back-path'
+import {
+  SELLER_CLAIMS_PATH,
+  SELLER_DELIVERIES_PATH,
+  SELLER_INVENTORY_PATH,
+  SELLER_ORDERS_PATH,
+  SELLER_SETTLEMENTS_PATH,
+} from '#layers/seller/app/lib/seller-back-path'
 import { formatWon } from '#layers/seller/app/lib/format'
 
 /**
@@ -80,23 +86,23 @@ export type PendingKey = keyof SellerDashboardPending
 export interface PendingTile {
   key: PendingKey
   label: string
-  /** 이동 가능한 셀러 목록 경로(필터 포함). 연결할 화면이 없으면 null(카운트만). */
-  to: string | null
+  /** 이동할 셀러 화면 경로(필터 포함). */
+  to: string
   alertTone: 'warning' | 'danger'
   /** 칸 아래 한 줄 설명(진입점·의미). */
   hint: string
 }
 
 /**
- * 처리 대기 4칸. 배송 대기(PAID 품목)는 품목 목록 status=PAID로 정확히 연결된다(셀러 목록이 품목 행 단위·D-191). 클레임은 상세 화면이 없어(90-D)
- * 링크 없음. 재고 임박은 상품/재고 화면이 없어(90-C) 링크 없음. 정산 예정은 PENDING 건수이며 셀러 정산 목록에는 확정 전 정산이 나오지 않으므로
- * 목록 링크 대신 설명만 둔다(D-191 ε).
+ * 처리 대기 4칸(Track 96-1 FE-53·C-14). 배송 대기(PAID 품목)는 품목 목록 status=PAID로, 클레임 요청은 클레임 목록 status=REQUESTED로 정확히
+ * 연결된다. 재고 임박은 재고 화면에 임박 필터가 없어 화면 진입만 연결한다. 정산 예정은 PENDING 건수이며 셀러 정산 목록에는 확정 전 정산이
+ * 나오지 않지만(D-191 ε) 정산 화면 상단이 같은 건수를 안내하므로 화면 진입을 연결한다.
  */
 export const PENDING_TILES: PendingTile[] = [
   { key: 'deliveryReady', label: '배송 대기', to: `${SELLER_ORDERS_PATH}?status=PAID`, alertTone: 'warning', hint: '결제완료 품목 · 주문 화면에서 출고' },
-  { key: 'claimRequested', label: '클레임 요청', to: null, alertTone: 'warning', hint: '클레임 화면은 준비 중' },
-  { key: 'lowStock', label: '재고 임박', to: null, alertTone: 'danger', hint: '가용 재고 1~5 · 재고 화면은 준비 중' },
-  { key: 'settlementPending', label: '정산 예정', to: null, alertTone: 'warning', hint: '확정 전 정산 건수 · 확정 후 정산 화면에 표시' },
+  { key: 'claimRequested', label: '클레임 요청', to: `${SELLER_CLAIMS_PATH}?status=REQUESTED`, alertTone: 'warning', hint: '요청 상태 클레임 · 처리는 관리자가 진행' },
+  { key: 'lowStock', label: '재고 임박', to: SELLER_INVENTORY_PATH, alertTone: 'danger', hint: '가용 재고 1~5 · 재고 화면에서 입고' },
+  { key: 'settlementPending', label: '정산 예정', to: SELLER_SETTLEMENTS_PATH, alertTone: 'warning', hint: '확정 전 정산 건수 · 확정 후 정산 화면에 표시' },
 ]
 
 /** 0건은 회색(neutral), 1건 이상은 칸별 주의 톤. */

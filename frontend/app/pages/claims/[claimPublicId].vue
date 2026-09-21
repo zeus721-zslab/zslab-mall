@@ -15,7 +15,7 @@ import {
   type DeliveryCarrier,
 } from '~/lib/constants/delivery'
 import { formatDateTime } from '~/lib/utils/datetime'
-import { claimTimeline, type TimelineStep, type TimelineStepState } from '~/lib/utils/claim-timeline'
+import { claimStageGuide, claimTimeline, type TimelineStep, type TimelineStepState } from '~/lib/utils/claim-timeline'
 
 // BUYER 전용 — 미인증/비-BUYER는 buyer 미들웨어가 /login으로 유도한다.
 definePageMeta({ middleware: 'buyer' })
@@ -45,6 +45,8 @@ const errorMessage = computed<string>(() =>
 
 // 진행 타임라인(FE-29·순수 함수 분리): 취소·교환 3단, 반품 6단(검수 불합격은 5단 종결).
 const timeline = computed<TimelineStep[]>(() => (data.value ? claimTimeline(data.value) : []))
+// 현재 단계 안내 1줄(FE-53·C-16): 무엇을 기다리는지·구매자가 할 일. 소요 기간은 시스템이 보장하지 않아 적지 않는다.
+const stageGuide = computed<string>(() => (data.value ? claimStageGuide(data.value) : ''))
 
 // 회수 송장 폼(반품 승인 후·송장 미등록·미회수일 때만·BE returnShipmentRequired).
 const { registerReturnShipment } = useClaim()
@@ -151,6 +153,7 @@ useSeoMeta({ title: '클레임 상세 · zslab-mall', description: 'zslab-mall �
               ></span>
             </template>
           </ol>
+          <p class="mt-4 text-sm text-ink" data-testid="claim-stage-guide">{{ stageGuide }}</p>
         </section>
 
         <!-- 클레임 정보 -->

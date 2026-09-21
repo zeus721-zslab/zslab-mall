@@ -223,6 +223,13 @@ class AdminOrderIntegrationTest extends AbstractIntegrationTest {
         assertThat(itemStatus(ORDER_A_ITEM_1)).isEqualTo("CANCELLED");
         assertThat(onHand(VARIANT_1)).isEqualTo(11);
         assertThat(historyCount(INVENTORY_1, "CANCEL")).isEqualTo(1);
+
+        // Track 96-1 D-202: 부분 환불(10000/20000) → 상세 결제 행 refundedAmount = 환불 합·status PAID 유지(D-71 전액 가드)
+        mockMvc.perform(get(URL + "/" + ORDER_A_PID).headers(authHeaders.admin(ADMIN_ID)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.payments[0].status").value("PAID"))
+                .andExpect(jsonPath("$.payments[0].amount").value(20000))
+                .andExpect(jsonPath("$.payments[0].refundedAmount").value(ITEM_PRICE));
     }
 
     @Test
@@ -357,6 +364,7 @@ class AdminOrderIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.payments[0].status").value("PAID"))
                 .andExpect(jsonPath("$.payments[0].pgTid").value("tid_track79_a")) // Track 89-A: PG 대사용 pgTid·failureCode 노출
                 .andExpect(jsonPath("$.payments[0].failureCode").doesNotExist())
+                .andExpect(jsonPath("$.payments[0].refundedAmount").value(0)) // Track 96-1 D-202: 환불 없음 → 0
                 .andExpect(jsonPath("$.items.length()").value(2))
                 .andExpect(jsonPath("$.items[?(@.orderItemId == '" + ITEM_A2_PID + "')].status").value("CANCEL_REQUESTED"))
                 .andExpect(jsonPath("$.items[?(@.orderItemId == '" + ITEM_A2_PID + "')].claims[0].status").value("REQUESTED"))

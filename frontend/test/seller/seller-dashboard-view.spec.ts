@@ -52,10 +52,12 @@ describe('처리 대기', () => {
   it('배송 대기만 품목 목록(status=PAID) 링크 · 클레임·재고·정산은 링크 없음(화면 부재·PENDING 404) · 힌트 문구', () => {
     const byKey = Object.fromEntries(PENDING_TILES.map((tile) => [tile.key, tile]))
     expect(byKey.deliveryReady?.to).toBe('/seller/orders?status=PAID')
-    expect(byKey.claimRequested?.to).toBeNull()
-    expect(byKey.lowStock?.to).toBeNull()
-    expect(byKey.settlementPending?.to).toBeNull()
+    // Track 96-1 C-14: 4칸 전부 링크·"준비 중" 문구 없음
+    expect(byKey.claimRequested?.to).toBe('/seller/claims?status=REQUESTED')
+    expect(byKey.lowStock?.to).toBe('/seller/products/inventory')
+    expect(byKey.settlementPending?.to).toBe('/seller/settlements')
     expect(byKey.settlementPending?.hint).toContain('확정 전 정산 건수')
+    expect(PENDING_TILES.some((tile) => tile.hint.includes('준비 중'))).toBe(false)
     expect(PENDING_TILES.map((tile) => tile.key)).toEqual(['deliveryReady', 'claimRequested', 'lowStock', 'settlementPending'])
   })
 

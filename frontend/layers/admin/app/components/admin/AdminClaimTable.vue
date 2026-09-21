@@ -8,6 +8,7 @@ import {
   type ClaimReasonCode,
 } from '~/lib/constants/claim'
 import { formatDateTime } from '~/lib/utils/datetime'
+import { elapsedChip, type ElapsedChip } from '~/lib/utils/elapsed-days'
 import {
   ADMIN_CLAIM_STATUS_SEMANTIC,
   ADMIN_DELIVERY_CARRIER_LABEL,
@@ -43,6 +44,11 @@ const emit = defineEmits<{
 }>()
 
 // 8컬럼: 1440px에서 가로 스크롤이 없도록 요청/처리 일시·유형/상태·주문/구매자·상품/옵션·요청/거부 사유·환불/회수·검수를 2줄 셀로 병합한다(FE-27 compact 규칙).
+/** 경과 N일(C-15): 진행 중(REQUESTED·APPROVED) 행만 요청일 기준으로 표시한다. 종결 행은 방치 대상이 아니다. */
+function pendingElapsed(item: AdminClaimSummary): ElapsedChip | null {
+  return item.status === 'REQUESTED' || item.status === 'APPROVED' ? elapsedChip(item.requestedAt) : null
+}
+
 const headers = [
   { title: '요청 · 처리', key: 'dates', sortable: false },
   { title: '유형 · 상태', key: 'typeStatus', sortable: false },
@@ -94,6 +100,9 @@ function returnCaption(item: AdminClaimSummary): string {
     <template #[`item.dates`]="{ item }">
       <div class="text-body-2" data-testid="row-requested-at">{{ formatDateTime(item.requestedAt) }}</div>
       <div class="text-caption text-medium-emphasis">처리 {{ item.processedAt ? formatDateTime(item.processedAt) : '—' }}</div>
+      <v-chip v-if="pendingElapsed(item)" :class="`adm-chip adm-chip--${pendingElapsed(item)!.tone}`" size="x-small" variant="flat" class="mt-1" data-testid="row-elapsed">
+        {{ pendingElapsed(item)!.text }}
+      </v-chip>
     </template>
 
     <template #[`item.typeStatus`]="{ item }">
@@ -193,11 +202,12 @@ function returnCaption(item: AdminClaimSummary): string {
           data-testid="row-confirm-pickup"
           @click="emit('confirmPickup', item)"
         >회수 확인</v-btn>
+        <!-- 회수 확인 전(CONFIRM_PICKUP)에도 검수 진입을 열어 다이얼로그에서 회수 확인 → 검수를 한 번에 처리한다(Track 96-1 C-10). -->
         <v-btn
-          v-if="item.availableActions.includes('INSPECT')"
+          v-if="item.availableActions.includes('INSPECT') || item.availableActions.includes('CONFIRM_PICKUP')"
           size="x-small"
           color="primary"
-          variant="flat"
+          :variant="item.availableActions.includes('INSPECT') ? 'flat' : 'outlined'"
           :disabled="isPending(item)"
           data-testid="row-inspect"
           @click="emit('inspect', item)"

@@ -111,3 +111,51 @@ export function claimTimeline(detail: TimelineSource): TimelineStep[] {
     currentIndex === 2 ? detail.processedAt : null,
   ])
 }
+
+// ---------- 단계 안내 문구(Track 96-1 FE-53·C-16) ----------
+
+/** 반품 단계별 안내(RETURN_LABELS 인덱스 순). 무엇을 기다리는지·구매자가 할 일만 적고 소요 기간은 적지 않는다(시스템이 보장하지 않음). */
+const RETURN_GUIDES: readonly string[] = [
+  '판매자의 승인을 기다리고 있습니다.',
+  '반품이 승인되었습니다. 상품을 택배로 발송한 뒤 아래에서 회수 송장을 등록해 주세요.',
+  '회수 송장이 등록되었습니다. 판매자의 회수 확인을 기다리고 있습니다.',
+  '회수가 확인되었습니다. 검수 결과를 기다리고 있습니다.',
+  '검수가 완료되어 환불을 진행하고 있습니다.',
+  '반품과 환불이 완료되었습니다.',
+]
+
+/** 교환 단계별 안내(EXCHANGE_LABELS 인덱스 순). */
+const EXCHANGE_GUIDES: readonly string[] = [
+  '판매자의 승인을 기다리고 있습니다.',
+  '교환이 승인되었습니다. 상품을 택배로 발송한 뒤 아래에서 회수 송장을 등록해 주세요.',
+  '회수 송장이 등록되었습니다. 판매자의 회수 확인을 기다리고 있습니다.',
+  '회수가 확인되었습니다. 검수 결과를 기다리고 있습니다.',
+  '검수가 완료되었습니다. 교환품 발송을 기다리고 있습니다.',
+  '교환품이 발송되었습니다. 배송이 완료되면 교환이 끝납니다.',
+  '교환이 완료되었습니다.',
+]
+
+/** 취소 상태별 안내. */
+const CANCEL_GUIDES: Record<ClaimStatus, string> = {
+  REQUESTED: '판매자의 승인을 기다리고 있습니다.',
+  APPROVED: '취소가 승인되어 환불을 진행하고 있습니다.',
+  COMPLETED: '취소와 환불이 완료되었습니다.',
+  REJECTED: '취소 요청이 거절되었습니다.',
+}
+
+/** 현재 단계 1줄 안내. 타임라인과 같은 단계 판정을 쓴다. */
+export function claimStageGuide(detail: TimelineSource): string {
+  if (detail.claimType === 'EXCHANGE') {
+    if (detail.status === 'REJECTED') {
+      return detail.inspectionResult === 'FAIL' ? '검수 결과 교환이 거절되어 상품을 다시 보내드립니다.' : '교환 요청이 거절되었습니다.'
+    }
+    return EXCHANGE_GUIDES[exchangeStageIndex(detail)] ?? ''
+  }
+  if (detail.claimType === 'RETURN') {
+    if (detail.status === 'REJECTED') {
+      return detail.inspectionResult === 'FAIL' ? '검수 결과 반품이 거절되어 상품을 다시 보내드립니다.' : '반품 요청이 거절되었습니다.'
+    }
+    return RETURN_GUIDES[returnStageIndex(detail)] ?? ''
+  }
+  return CANCEL_GUIDES[detail.status]
+}

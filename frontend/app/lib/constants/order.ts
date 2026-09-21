@@ -33,3 +33,17 @@ export const ORDER_STATUS_LABELS: Record<OrderStatusCode, string> = {
 export function orderStatusLabel(code: string): string {
   return ORDER_STATUS_LABELS[code as OrderStatusCode] ?? code
 }
+
+/**
+ * 주문 상세 안내 문구의 기간 값(Track 96-1 FE-53·C-16). 시스템이 실제로 보장하는 기간만 문구로 쓰며 값은 BE 설정과 일치해야 한다
+ * (BE 변경 시 함께 갱신).
+ * - AUTO_CONFIRM_DAYS: backend delivery/service/ReturnWindowPolicy.java:22 WINDOW_DAYS = 7 (order/scheduler/OrderAutoConfirmScheduler.java:53 사용)
+ * - PAYMENT_EXPIRE_MINUTES: backend payment/service/PaymentService.java:57 PENDING_TTL = 30분 (order/scheduler/OrderAutoCancelScheduler.java:42 GRACE_MINUTES 동일)
+ */
+export const AUTO_CONFIRM_DAYS = 7
+export const PAYMENT_EXPIRE_MINUTES = 30
+
+/** 배송완료 품목 아래 안내(구매확정 버튼 옆). */
+export const AUTO_CONFIRM_GUIDE = `배송완료 ${AUTO_CONFIRM_DAYS}일 후 자동 구매확정됩니다.`
+/** 결제 대기 주문 헤더 아래 안내. */
+export const PAYMENT_EXPIRE_GUIDE = `${PAYMENT_EXPIRE_MINUTES}분 내 결제되지 않으면 주문이 자동 취소됩니다.`

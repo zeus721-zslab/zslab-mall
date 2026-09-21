@@ -3,6 +3,7 @@ import { mdiOpenInNew, mdiTruckDeliveryOutline } from '@mdi/js'
 import type { SellerOrderItemSummary } from '#layers/seller/app/types/seller-order'
 import { orderItemStatusLabel } from '~/lib/constants/claim'
 import { formatDateTime } from '~/lib/utils/datetime'
+import { elapsedChip, type ElapsedChip } from '~/lib/utils/elapsed-days'
 import {
   SELLER_CLAIM_STATUS_SEMANTIC,
   SELLER_DELIVERY_CARRIER_LABEL,
@@ -46,6 +47,11 @@ const headers = [
   { title: '관리', key: 'actions', sortable: false, align: 'end' as const },
 ]
 
+/** 경과 N일(C-15): 출고 대기(PAID) 품목만 결제일 기준으로 표시한다. */
+function pendingElapsed(item: SellerOrderItemSummary): ElapsedChip | null {
+  return item.itemStatus === 'PAID' ? elapsedChip(item.paidAt) : null
+}
+
 function isPending(item: SellerOrderItemSummary): boolean {
   return props.pendingIds.has(item.orderItemId)
 }
@@ -83,6 +89,9 @@ function isPending(item: SellerOrderItemSummary): boolean {
     <template #[`item.dates`]="{ item }">
       <div class="text-body-2" data-testid="row-paid-at">{{ item.paidAt ? formatDateTime(item.paidAt) : '—' }}</div>
       <div class="text-caption text-medium-emphasis" data-testid="row-ordered-at">주문 {{ formatDateTime(item.orderedAt) }}</div>
+      <v-chip v-if="pendingElapsed(item)" :class="`slr-chip slr-chip--${pendingElapsed(item)!.tone}`" size="x-small" variant="flat" class="mt-1" data-testid="row-elapsed">
+        {{ pendingElapsed(item)!.text }}
+      </v-chip>
     </template>
 
     <template #[`item.product`]="{ item }">
