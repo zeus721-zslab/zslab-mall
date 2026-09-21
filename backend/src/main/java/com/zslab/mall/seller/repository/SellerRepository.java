@@ -26,6 +26,14 @@ public interface SellerRepository extends JpaRepository<Seller, Long>, JpaSpecif
     @Query("SELECT s FROM Seller s WHERE s.publicId = :publicId")
     Optional<Seller> findByPublicIdForUpdate(@Param("publicId") String publicId);
 
+    /**
+     * 셀러 본인 API용 비관적 락 조회(Track 90-D-3·D-199). {@code SellerActorResolver}가 sellerId(BIGINT)를 주므로 publicId 변환 없이
+     * {@link #findByPublicIdForUpdate}와 같은 락 의미로 계좌 등록을 직렬화한다. 모든 변수는 :id 바인딩이다.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT s FROM Seller s WHERE s.id = :id")
+    Optional<Seller> findByIdForUpdate(@Param("id") Long id);
+
     /** 사업자번호 중복 선검사(Track 89-D·uk_seller_business_no·soft-delete 행은 @SQLRestriction으로 제외되나 UK는 남아 있음). */
     boolean existsByBusinessNo(String businessNo);
 

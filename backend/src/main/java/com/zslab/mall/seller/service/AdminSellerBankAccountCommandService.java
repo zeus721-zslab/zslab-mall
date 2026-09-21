@@ -33,7 +33,9 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>계좌번호는 엔티티 Converter가 암호화하므로 서비스는 평문만 다룬다. 감사 diff에는 {@code accountNumber} 키로 실어 {@code Masker}가
  * 자동 마스킹하고(감사 로그에 계좌 실값 없음), 사람이 읽을 끝 4자리는 {@code accountNumberSuffix}로 병기한다. 로그에도 실값을 남기지 않는다.
  *
- * <p>서비스 시그니처는 액터 무관(sellerId 기준)이라 Track 90 셀러 본인 등록이 같은 서비스를 셀러 컨트롤러에서 재사용할 수 있다(D-188 §8).
+ * <p>관리자 명령은 {@code sellerPublicId}(경로 변수) 기준이고, 셀러 본인 등록(Track 90-D-3·D-199)은 {@code SellerActorResolver}가 주는
+ * {@code sellerId} 기준 {@link #register(Long, String, String, String, AuditContext)} 오버로드를 쓴다. 두 진입점은 셀러 행 락 획득 방식만
+ * 다르고 등록 규칙(첫 계좌 자동 주 계좌·VERIFIED·감사 CREATE)은 {@link #registerLocked}로 공유한다 — 액터에 따라 규칙이 갈리지 않는다.
  */
 @Service
 @Transactional
@@ -67,18 +69,40 @@ public class AdminSellerBankAccountCommandService {
     public AdminSellerBankAccountResponse register(
             String sellerPublicId, AdminSellerBankAccountRegisterRequest request, AuditContext auditContext) {
         Seller seller = requireSellerForUpdate(sellerPublicId);
+        SellerBankAccount account = registerLocked(
+                seller, request.bankCode(), request.accountNumber(), request.accountHolder(), auditContext);
+        // 방금 INSERT한 행이라 참조 정산이 없다. 미리보기와 같은 기준(existsByBankAccountId)으로 판정해 응답 필드 의미를 통일한다.
+        return AdminSellerBankAccountResponse.of(account, settlementRepository.existsByBankAccountId(account.getId()));
+    }
+
+    /**
+     * 셀러 본인 계좌 등록(Track 90-D-3·D-199). 규칙은 관리자 등록과 동일(첫 계좌 자동 주 계좌·VERIFIED·감사 CREATE). 셀러 존재·상태는
+     * 호출 전 {@code SellerActorResolver}가 보장하므로 여기서의 미존재는 인증 통과 직후 삭제된 경합이며 404로 닫는다. SELLER_OWNER 판정은
+     * 호출자({@code SellerBankAccountService})가 먼저 수행한다.
+     *
+     * @throws SellerNotFoundException 셀러 미존재(404)
+     */
+    public SellerBankAccount register(
+            Long sellerId, String bankCode, String accountNumber, String accountHolder, AuditContext auditContext) {
+        Seller seller = sellerRepository.findByIdForUpdate(sellerId)
+                .orElseThrow(() -> new SellerNotFoundException("셀러를 찾을 수 없습니다: sellerId=" + sellerId));
+        return registerLocked(seller, bankCode, accountNumber, accountHolder, auditContext);
+    }
+
+    /** 등록 공통 본문 — 호출자가 셀러 행 락을 이미 잡은 상태여야 한다(첫 계좌 판정과 INSERT 사이 경합 방지). */
+    private SellerBankAccount registerLocked(
+            Seller seller, String bankCode, String accountNumber, String accountHolder, AuditContext auditContext) {
         boolean first = !sellerBankAccountRepository.existsBySellerId(seller.getId());
         SellerBankAccount account = SellerBankAccount.create(
-                seller, request.bankCode().trim(), request.accountNumber().trim(), request.accountHolder().trim(), first);
+                seller, bankCode.trim(), accountNumber.trim(), accountHolder.trim(), first);
         account.markVerified(LocalDateTime.now());
         sellerBankAccountRepository.saveAndFlush(account);
 
         auditRecorder.record(auditContext, AuditLogAction.CREATE, PolymorphicTargetType.SETTLEMENT_BANK_ACCOUNT, account.getId(),
                 Map.of(), snapshot(account));
-        log.info("[AdminSellerBankAccount] 등록 sellerPublicId={} bankAccountId={} primary={} byActor={}",
-                sellerPublicId, account.getId(), first, auditContext.actorUserId());
-        // 방금 INSERT한 행이라 참조 정산이 없다. 미리보기와 같은 기준(existsByBankAccountId)으로 판정해 응답 필드 의미를 통일한다.
-        return AdminSellerBankAccountResponse.of(account, settlementRepository.existsByBankAccountId(account.getId()));
+        log.info("[AdminSellerBankAccount] 등록 sellerPublicId={} bankAccountId={} primary={} byActor={} actorRole={}",
+                seller.getPublicId(), account.getId(), first, auditContext.actorUserId(), auditContext.actorRole());
+        return account;
     }
 
     /**
