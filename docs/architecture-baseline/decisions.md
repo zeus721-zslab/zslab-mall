@@ -11824,3 +11824,22 @@ gateway nginx가 2026-09-18부터 `location ^~ /api/webhooks { return 404; }`로
 - 트랩: 유형 분포 동률 정렬 `c.type ASC`는 DB ENUM 선언 순(CANCEL·RETURN·EXCHANGE)이지 문자열 순이 아니다(관리자 동일·IT T5에 박제).
 - IT `SellerOrderStatsQueryControllerIntegrationTest` 11(T1 401/403/200 · T2 혼합 주문 격리·퍼널 4/3/2(부분 출고·미출고·회수/교환 재발송 제외)·B 1/1/1·빈 셀러 0·주문 총액 미노출 · T3 소요시간 홀수 3표본 중앙값 24/평균 32·짝수 2표본 72·기간 밖 종결 제외·타 셀러 미혼입 · T4 클레임률 75%·환불률 35.71%(분모 자기 품목 매출 42,000)·DAY/WEEK/MONTH·구간 귀속 · T5 유형/사유/상품별(public_id·스냅샷 이름) · T6 비교 PREVIOUS/YEAR_AGO 0 생략/NONE · T7 365/366·from>to·형식·unit/compare 400·미결제 제외 · T8 키 화이트리스트 + 관리자 전용 키(confirmedItems·cancelledItems·returnedItems·claimRequestedToClosed) 금지 · T9 SUSPENDED 200 · T10 PENDING/TERMINATED 401).
 - 검증(실측): gradlew --rerun-tasks 233파일 **1366·0 fail·0 error·0 skip**(1355 + 11) · 단독 11/11(T5 ENUM 순 교정 1회) · 관리자 주문/회원 IT 12·셀러 매출 IT 12·레지스트리 1 무회귀.
+
+### 90-E-3 상품 통계 API (2026-09-21 · 같은 브랜치 5da006a8 위 · 관리자 대응 API 없음)
+
+정의 확정표(STEP 816·`GET /api/v1/seller/stats/products?from&to`·365일·비교/버킷 없음):
+- 판매 상위(상품): `aggregateByProductInSeller` 재사용(order_item.seller_id·paid_at·매출 DESC·동률 productId ASC) 상위 10·revenue/orderCount(DISTINCT)/quantity·이름 = product_name 스냅샷·삭제 상품은 key null(행 유지).
+- 판매 하위(상품): 같은 집합(판매 1건 이상)의 역순(매출 ASC·동률 productId DESC) 하위 10 — 판매 0은 미판매로 분리.
+- 미판매(상품): product.seller_id·status = SALE(다른 상태 제외)·@SQLRestriction 삭제 제외·기간 내 paid_at 품목 0(NOT EXISTS)·이름 = 현행 product.name·basePrice·id ASC.
+- 재고 회전(**상품 단위 합산** — 상위/하위/미판매 표와 단위 일치·옵션별 상세는 셀러 재고 화면이 이미 제공): 대상 SALE 상품 · 입고 = inventory_history INBOUND quantity_delta 합(created_at ∈ 기간·inventory→variant→product 3홉·product.seller_id 선필터) · 판매 = 기간 결제 order_item quantity 합(결정 9 α·상위 집계 재사용) · 현재 가용 = Σ inventory.quantity_available(삭제 안 된 variant·현재 시점) · 소진 예상일 = **ceil(가용 × 기간일수 ÷ 판매)**(정수 일·올림)·판매 0 → null("판매 없음"·0 나누기 없음)·가용 0 → 0 · 정렬 소진 예상 ASC(null 뒤·동률 public_id).
+- 현재 품절 옵션 수(옵션): product.seller_id·product SALE·variant SALE·삭제 제외·inventory.quantity_available = 0(soldout_manual 무관·**현재 시점·기간 무관**) + 분모 표기용 판매 중 옵션 수.
+- 충돌 구조 없음. 쿼리 7 고정(판매 1·미판매 1·SALE 상품 1·입고 1·현재 가용 1·품절 1·public_id 배치 1)·N+1 없음.
+
+EXPLAIN(로컬 읽기·seller 4·30일): 입고 합 = product PRIMARY index scan 34행(seller_id/deleted_at Using where·소규모라 옵티마이저가 ix_product_seller_status 대신 PK 순회) → product_variant uk_product_variant_options ref → inventory uk_inventory_variant eq_ref → inventory_history fk_inventory_history_inventory ref(**전체 스캔 없음**·inventory_history 266행·seller 4 INBOUND 30) · 현재 가용 합 = 같은 3홉 · 미판매 NOT EXISTS = product PK scan + DEPENDENT SUBQUERY order_item fk_order_item_product ref 2 → order PK eq_ref. Flyway 무변경.
+
+구현: `SellerStatsRepository` 17 → 22쿼리(findUnsoldProducts·findProductsByStatus·sumInboundByProduct·sumAvailableByProduct·countSoldOutOptions) + projection 2 · `SellerProductStatsQueryService`(RANK_LIMIT 10·`depletionDays` = Math.ceilDiv) · 컨트롤러 1 · response 4 record(`SellerProductStatsResponse{periodDays, topProducts, bottomProducts, unsoldProducts, stockTurnover[{…, depletionDays?}], soldOutOptionCount, saleOptionCount}`). 관리자 파일 수정 0.
+- IT `SellerProductStatsQueryControllerIntegrationTest` 11(T1 401/403/200 · T2 격리(A 상위 3·B 상위 1·입고 7 B만·C 전부 빈·타 셀러 상품 0) · T3 상위 DESC/하위 역순·동률 id·판매 0 미포함 · T4 미판매 SALE만·STOPPED 제외·PENDING_PAYMENT 미반영·2월 전환 · T5 재고 회전 PA2 0일→PA 52→PA5 93→PA3 판매 없음·ADJUST/기간 밖 입고 제외·2월 280일 · T6 품절 2/5·HIDDEN 옵션·STOPPED 상품 제외·기간 무관 · T7 양끝 포함·365/366·from>to·형식·필수 누락 400 · T8 키 화이트리스트(원가·on_hand·reserved 미노출) · T9 SUSPENDED 200 · T10 PENDING/TERMINATED 401).
+- 검증(실측): gradlew --rerun-tasks 234파일 **1377·0 fail·0 error·0 skip**(1366 + 11) · 단독 11/11 첫 실행 GREEN.
+
+### §8 이월(90-E 전체)
+- inventory_history `created_at`·refund `refunded_at` 인덱스 후보(현 규모 무시·D-180 §8 그대로) · 통계 집계 테이블 이관 시 `seller_sales_daily` 폐기 판단.
