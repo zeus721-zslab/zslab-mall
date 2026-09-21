@@ -31,20 +31,20 @@ const errorMessage = ref<string>('')
 // 실패/취소 종결 안내(성공은 완료 화면으로 이동해 표시 안 함).
 const resultMessage = ref<string>('')
 
-async function pay(callbackType: 'SUCCESS' | 'FAILURE' | 'CANCEL', failureCode?: string): Promise<void> {
+async function pay(callbackType: 'SUCCESS' | 'FAILURE' | 'CANCEL'): Promise<void> {
   if (submitting.value) return
   submitting.value = true
   errorMessage.value = ''
 
   try {
-    await checkout.sendPaymentCallback({ attemptKey, callbackType, failureCode })
+    await checkout.sendPaymentCallback({ attemptKey, callbackType })
     if (callbackType === 'SUCCESS') {
       await navigateTo(`/checkout/complete?orderPublicId=${encodeURIComponent(orderPublicId)}`)
       return
     }
     resultMessage.value = callbackType === 'FAILURE' ? '결제에 실패했습니다.' : '결제를 취소했습니다.'
   } catch {
-    // webhook 4xx/5xx: 재시도 가능하도록 submitting 해제 후 안내.
+    // mock 콜백 4xx/5xx: 재시도 가능하도록 submitting 해제 후 안내.
     errorMessage.value = '결제 처리 중 문제가 발생했습니다. 다시 시도해 주세요.'
   } finally {
     submitting.value = false
@@ -99,7 +99,7 @@ useSeoMeta({ title: '모의 결제 · zslab-mall' })
             variant="outline"
             class="w-full"
             :disabled="submitting"
-            @click="pay('FAILURE', 'USER_TEST_FAIL')"
+            @click="pay('FAILURE')"
           >
             결제 실패
           </Button>

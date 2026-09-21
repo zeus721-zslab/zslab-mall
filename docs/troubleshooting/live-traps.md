@@ -629,6 +629,20 @@ D-197로 셀러 claim 연결 마감·관리자 RETURN 마감을 422로 막아 �
 
 ---
 
+## LT-29. gateway가 `/api/webhooks`를 404로 막고 있어 브라우저 직접 호출 구조는 운영에서만 죽는다 [ACTIVE]
+**발견 트랙**: Track 93(운영 결제 404 정찰·docs/track-93/recon-report-webhook.md)
+**원본 결정**: D-198
+### 증상
+운영 https://zslab-mall.duckdns.org 에서 mock 결제 페이지의 결제 성공/실패/취소 버튼이 전부 "결제 처리 중 문제가 발생했습니다"로 실패. DevTools에는 `POST /api/webhooks/payments` **404**. 로컬(hosts 127.0.0.1·로컬 gateway)에서는 같은 코드가 정상 동작해 코드 결함으로 오인하기 쉽다.
+### 원인
+운영 gateway nginx 서버블록에 2026-09-18 추가된 `location ^~ /api/webhooks { return 404; }`(무인증 PG 웹훅 경로 외부 차단). 로컬 `~/gateway/nginx/nginx.conf`에는 이 블록이 없어 dev=prod가 깨진 상태였고, 브라우저가 PG용 무인증 경로를 직접 부르던 FE 구조가 차단 규칙과 충돌했다. 앱 매핑·context-path·FE URL 생성은 로컬·운영 동일(정찰 §1~4 배제).
+### 처치
+D-198: 브라우저는 인가된 `POST /api/v1/payments/mock-callback`(BUYER Bearer·본인 주문)만 부른다. gateway 404 규칙은 유지(실 PG 전환 Track 94에서 서명·IP 화이트리스트와 함께 해제). `/api/webhooks/**` 아래에 브라우저가 부를 endpoint를 다시 두지 말 것 — 운영에서만 404가 난다. 운영 gateway 규칙 변경은 `docs/infra/05-ssl-domain.md` 스냅샷에 즉시 반영해 로컬·운영 차이를 문서로 남긴다.
+### 관련
+- D-198 배경·§1-A 3 · docs/track-93/recon-report-webhook.md §D · `MockPaymentCallbackIntegrationTest` · `e2e/mock-payment.spec.ts`(webhook 0회 단언)
+
+---
+
 ## 부록. 트랩 추가 절차
 
 1. 라이브 발견 시 즉시 decisions.md D-XX 박제 (단건 처리)

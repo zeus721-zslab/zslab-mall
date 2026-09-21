@@ -17,6 +17,7 @@ import com.zslab.mall.payment.exception.PaymentAlreadyCompletedException;
 import com.zslab.mall.payment.exception.PaymentInProgressException;
 import com.zslab.mall.payment.exception.PaymentInvalidStateException;
 import com.zslab.mall.payment.exception.PaymentNotFoundException;
+import com.zslab.mall.payment.exception.PaymentPgTidConflictException;
 import com.zslab.mall.payment.gateway.PaymentGateway;
 import com.zslab.mall.payment.repository.PaymentRepository;
 import com.zslab.mall.refund.repository.RefundRepository;
@@ -29,6 +30,7 @@ import java.util.Map;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -62,6 +64,9 @@ public class PaymentService {
 
     /** FAILURE 콜백 metadata에서 failureCode를 꺼낼 키. */
     private static final String METADATA_FAILURE_CODE_KEY = "failureCode";
+
+    /** (pg_provider, pg_tid) 유니크 제약명(V3·PAY-3b·D-31). flush 예외 메시지에서 이 제약만 409로 판별한다. */
+    private static final String PG_TID_CONSTRAINT = "uk_payment_provider_pg_tid";
 
     private final OrderRepository orderRepository;
     private final PaymentRepository paymentRepository;
@@ -186,7 +191,28 @@ public class PaymentService {
         // D-29: pull → save(flush) → 동기 발행. 상태 무변경(NO-OP) 시 events 비어 있고 save는 dirty 없음.
         List<Object> events = payment.pullDomainEvents();
         paymentRepository.save(payment);
+        flushPaymentOrRejectPgTidConflict(command);
         events.forEach(eventPublisher::publishEvent);
+    }
+
+    /**
+     * 결제 행을 명시적으로 flush해 uk_payment_provider_pg_tid 위반을 트랜잭션 안에서 표면화한다(Track 93 D-198). 커밋 시점까지 미루면
+     * 예외가 @Transactional 경계 밖에서 터져 500으로 새므로(RED 실측), 해당 제약만 409로 변환하고 그 외 무결성 위반은 은닉하지 않고 그대로
+     * 전파한다(90-C {@code SellerProductCommandService} 선례). NO-OP(dirty 없음)는 flush가 무작업이다.
+     */
+    private void flushPaymentOrRejectPgTidConflict(PaymentCallbackCommand command) {
+        try {
+            paymentRepository.flush();
+        } catch (DataIntegrityViolationException exception) {
+            String cause = exception.getMostSpecificCause().getMessage();
+            if (cause == null || !cause.contains(PG_TID_CONSTRAINT)) {
+                throw exception;
+            }
+            log.warn("[Payment] 콜백 pgTid 충돌 차단(409·{}) attemptKey={} provider={} pgTid={}: {}",
+                    PG_TID_CONSTRAINT, command.paymentAttemptKey(), command.provider(), command.pgTid(), cause);
+            throw new PaymentPgTidConflictException(
+                    "이미 다른 결제에 기록된 PG 거래 ID입니다(" + PG_TID_CONSTRAINT + "): pgTid=" + command.pgTid());
+        }
     }
 
     /** 운영 조회: 한 주문의 전체 결제 행(최신순·D-32 운영 화면). */
@@ -313,12 +339,20 @@ public class PaymentService {
     }
 
     /**
-     * CANCEL 콜백 처리(D-34·FE-12c): PAID→CANCELLED(환불 흐름) / PENDING→미결제 종료(결제창 취소·Payment EXPIRED +
+     * CANCEL 콜백 처리(D-34·FE-12c·D-198 정정): PAID→REJECT(422) / PENDING→미결제 종료(결제창 취소·Payment EXPIRED +
      * Order PAYMENT_EXPIRED) / 종결 상태(FAILED·CANCELLED·EXPIRED) NO-OP.
+     *
+     * <p><b>PAID REJECT(Track 93 D-198)</b>: PAID→CANCELLED는 환불 완료(Refund COMPLETED·{@code PaymentRefundCompletedHandler}·D-71)와
+     * 관리자 수동 보정({@link #markCancelledByAdmin})만의 전이다. 콜백이 이를 우회하면 환불 행 없이 결제만 CANCELLED가 되어 이후 클레임 환불이
+     * PAID 행을 찾지 못하고(RefundService) 되돌릴 경로도 없다. 웹훅·mock 경로 공통으로 여기서 거부한다.
      */
     private void handleCancel(Payment payment, PaymentCallbackCommand command) {
         switch (payment.getStatus()) {
-            case PAID -> payment.cancel();
+            case PAID -> {
+                log.warn("[Payment] CANCEL 콜백 REJECT(PAID·환불 우회 차단): attemptKey={}", command.paymentAttemptKey());
+                throw new InvalidCallbackException(
+                        "결제 완료 상태의 취소 콜백은 허용되지 않습니다(환불 흐름으로 처리): attemptKey=" + command.paymentAttemptKey());
+            }
             case PENDING -> terminateUnpaid(payment);
             case FAILED, CANCELLED, EXPIRED ->
                     log.info("[Payment] CANCEL 콜백 NO-OP: 상태={}, attemptKey={}", payment.getStatus(), command.paymentAttemptKey());

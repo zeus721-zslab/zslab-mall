@@ -1,5 +1,4 @@
 import type { CheckoutRequest, CheckoutResponse } from '~/types/checkout'
-import { toKstLocalDateTime } from '~/lib/utils/datetime'
 
 /** 체크아웃 호출 결과. status(201 신규·200 멱등 캐시)·Location 헤더(신규만 존재)를 응답 본문과 함께 노출한다. */
 export interface CheckoutResult {
@@ -44,32 +43,25 @@ export function useCheckout() {
   }
 
   /**
-   * 모의 PG webhook 콜백 전송(POST /api/webhooks/payments·permitAll·Bearer 불요). SUCCESS/FAILURE/CANCEL을
-   * 서버에 통지한다. occurredAt은 timezone 없는 LocalDateTime이라 Z를 제거한다(slice(0,23) — Z 포함 시 400).
-   * pgTid는 SUCCESS에만 생성값, metadata는 FAILURE + failureCode일 때만 { failureCode }. 실패(4xx/5xx)는 throw해
-   * 호출부(try/catch)가 처리하고, 200은 void 반환한다.
+   * 모의 결제 콜백 전송(POST /api/v1/payments/mock-callback·BUYER Bearer·Track 93 D-198). 무인증 webhook(/api/webhooks/payments)은
+   * gateway가 외부 차단하므로 브라우저는 인가된 mock endpoint로 SUCCESS/FAILURE/CANCEL을 통지한다. attemptKey·callbackType만 보내며
+   * provider·pgTid·occurredAt은 서버가 생성한다. 실패(4xx/5xx)는 throw해 호출부(try/catch)가 처리하고, 200은 void 반환한다.
    */
   async function sendPaymentCallback(params: {
     attemptKey: string
     callbackType: 'SUCCESS' | 'FAILURE' | 'CANCEL'
-    failureCode?: string
   }): Promise<void> {
     // API base 이원화(submit과 동일): SSR 내부 직결, 브라우저 동일 Origin 상대경로.
     const baseURL = import.meta.server
       ? `${config.apiInternalBase}/api`
       : config.public.apiBase || '/api'
 
-    const { attemptKey, callbackType, failureCode } = params
-    await $fetch(`${baseURL}/webhooks/payments`, {
+    const { attemptKey, callbackType } = params
+    await $fetch('/v1/payments/mock-callback', {
+      baseURL,
       method: 'POST',
-      body: {
-        provider: 'MOCK_PG',
-        callbackType,
-        paymentAttemptKey: attemptKey,
-        pgTid: callbackType === 'SUCCESS' ? `mocktid_${crypto.randomUUID().slice(0, 12)}` : null,
-        occurredAt: toKstLocalDateTime(new Date()), // BE LocalDateTime(KST 벽시계) 정합 — UTC 벽시계를 보내면 paid_at이 9시간 이르게 저장된다
-        metadata: callbackType === 'FAILURE' && failureCode ? { failureCode } : null,
-      },
+      headers: { Authorization: `Bearer ${auth.token}` },
+      body: { attemptKey, callbackType },
     })
   }
 
