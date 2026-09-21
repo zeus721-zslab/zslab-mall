@@ -82,12 +82,15 @@ import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /**
  * 전역 예외 핸들러(§14·D-48). RFC 7807 {@link ProblemDetail} + 커스텀 {@code code}·{@code traceId} 속성으로 일원화한다.
@@ -104,6 +107,9 @@ public class GlobalExceptionHandler {
 
     private static final String CODE_VALIDATION_FAILED = "VALIDATION_FAILED";
     private static final String CODE_MALFORMED_REQUEST = "MALFORMED_REQUEST";
+    private static final String CODE_RESOURCE_NOT_FOUND = "RESOURCE_NOT_FOUND";
+    private static final String CODE_METHOD_NOT_ALLOWED = "METHOD_NOT_ALLOWED";
+    private static final String CODE_UNSUPPORTED_MEDIA_TYPE = "UNSUPPORTED_MEDIA_TYPE";
     private static final String CODE_UNAUTHENTICATED = "UNAUTHENTICATED";
     private static final String CODE_AUTHENTICATION_FAILED = "AUTHENTICATION_FAILED";
     private static final String CODE_ORDER_NOT_FOUND = "ORDER_NOT_FOUND";
@@ -737,6 +743,31 @@ public class GlobalExceptionHandler {
         // Track 84: 임시 비밀번호 SMS 발송 실패(502·외부 채널 오류). 발급 트랜잭션은 롤백돼 기존 비밀번호가 유지된다.
         log.warn("[Member] 임시 비밀번호 SMS 발송 실패·롤백(502): {}", exception.getMessage());
         return build(HttpStatus.BAD_GATEWAY, CODE_TEMPORARY_PASSWORD_DELIVERY_FAILED, exception.getMessage(), request);
+    }
+
+    // ===== Spring MVC 표준 예외(Track 95 D-201·LT-27) =====
+    // 매핑 부재·미지원 메서드·미지원 Content-Type은 Exception catch-all로 500 INTERNAL_ERROR + ERROR 스택이 되던 트랩. 공개(permitAll) 경로에서는
+    // 무인증으로 재현된다. detail은 요청 경로·내부 메시지를 노출하지 않는 고정 문구, 로그는 4xx 관례(warn·스택 없음).
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ProblemDetail> handleNoResourceFound(
+            NoResourceFoundException exception, HttpServletRequest request) {
+        log.warn("[Web] 매핑 부재(404): {} {}", request.getMethod(), request.getRequestURI());
+        return build(HttpStatus.NOT_FOUND, CODE_RESOURCE_NOT_FOUND, "요청한 리소스를 찾을 수 없습니다.", request);
+    }
+
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ProblemDetail> handleMethodNotSupported(
+            HttpRequestMethodNotSupportedException exception, HttpServletRequest request) {
+        log.warn("[Web] 미지원 메서드(405): {} {}", request.getMethod(), request.getRequestURI());
+        return build(HttpStatus.METHOD_NOT_ALLOWED, CODE_METHOD_NOT_ALLOWED, "지원하지 않는 HTTP 메서드입니다.", request);
+    }
+
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<ProblemDetail> handleMediaTypeNotSupported(
+            HttpMediaTypeNotSupportedException exception, HttpServletRequest request) {
+        log.warn("[Web] 미지원 Content-Type(415): {} {} contentType={}", request.getMethod(), request.getRequestURI(),
+                exception.getContentType());
+        return build(HttpStatus.UNSUPPORTED_MEDIA_TYPE, CODE_UNSUPPORTED_MEDIA_TYPE, "지원하지 않는 Content-Type입니다.", request);
     }
 
     // ===== 500 (fallback) =====

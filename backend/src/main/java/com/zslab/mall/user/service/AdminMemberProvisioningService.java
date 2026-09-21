@@ -35,8 +35,9 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>셀프 가입({@link UserService#register})과 같은 결과물(User·BUYER role·BuyerProfile SILVER·AUTO)을 만들되 비밀번호만 임시 발급으로
  * 대체한다: 해시 저장 → 변경 강제 플래그 → 감사 CREATE USER → SMS 발송(같은 TX·Track 84 {@code resetPassword} 동형). 발송 FAILED면 예외로
- * 전체(계정·역할·프로필·호출자 트랜잭션)를 롤백한다. BUYER를 함께 부여하는 이유: 회원 목록·상세·탈퇴·임시 비밀번호 재발급이 전부 BUYER 회원
- * 기준이고 구매자 FE의 비밀번호 변경 화면이 유일한 변경 경로라, BUYER 없이 만들면 그 계정은 어디서도 관리·변경할 수 없다(D-189).
+ * 전체(계정·역할·프로필·호출자 트랜잭션)를 롤백한다. BUYER를 함께 부여하는 이유: 관리자 회원 목록·상세·탈퇴·임시 비밀번호 재발급이 전부 BUYER
+ * 회원 기준이라, BUYER 없이 만들면 그 계정은 관리자 화면 어디서도 관리·재발급할 수 없다(D-189). 본인 비밀번호 변경은 role 무관
+ * {@code PATCH /api/v1/users/me/password}로 구매자 마이페이지·셀러 설정 화면(FE-50) 양쪽에서 가능하다(D-201 Javadoc 교정).
  * 임시 비밀번호 평문은 SMS 원문에만 쓰고 응답·로그·감사 어디에도 남기지 않는다.
  */
 @Slf4j
