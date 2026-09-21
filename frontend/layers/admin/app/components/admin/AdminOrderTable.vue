@@ -3,6 +3,7 @@ import { mdiDotsVertical, mdiOpenInNew } from '@mdi/js'
 import type { AdminOrderSummary } from '#layers/admin/app/types/admin-order'
 import { orderStatusLabel } from '~/lib/constants/order'
 import { formatDateTime } from '~/lib/utils/datetime'
+import { elapsedChip, type ElapsedChip } from '~/lib/utils/elapsed-days'
 import {
   ADMIN_DELIVERY_STATUS_LABEL,
   ADMIN_DELIVERY_STATUS_SEMANTIC,
@@ -49,6 +50,11 @@ const headers = [
   { title: '관리', key: 'actions', sortable: false, align: 'end' as const },
 ]
 
+/** 경과 N일(C-15): 출고 대기(PAID·PREPARING) 주문만 결제일 기준으로 표시한다. */
+function pendingElapsed(item: AdminOrderSummary): ElapsedChip | null {
+  return item.status === 'PAID' || item.status === 'PREPARING' ? elapsedChip(item.paidAt) : null
+}
+
 function isPending(item: AdminOrderSummary): boolean {
   return props.pendingIds.has(item.orderId)
 }
@@ -90,6 +96,9 @@ function hasRowMenu(item: AdminOrderSummary): boolean {
     <template #[`item.dates`]="{ item }">
       <div class="text-body-2" data-testid="row-ordered-at">{{ formatDateTime(item.orderedAt) }}</div>
       <div class="text-caption text-medium-emphasis" data-testid="row-paid-at">결제 {{ item.paidAt ? formatDateTime(item.paidAt) : '—' }}</div>
+      <v-chip v-if="pendingElapsed(item)" :class="`adm-chip adm-chip--${pendingElapsed(item)!.tone}`" size="x-small" variant="flat" class="mt-1" data-testid="row-elapsed">
+        {{ pendingElapsed(item)!.text }}
+      </v-chip>
     </template>
 
     <template #[`item.buyer`]="{ item }">

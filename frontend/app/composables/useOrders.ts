@@ -1,4 +1,4 @@
-import type { OrderDetail, OrderSummary, PagedResponse } from '~/types/order'
+import type { ConfirmPurchaseResponse, OrderDetail, OrderSummary, PagedResponse } from '~/types/order'
 
 /** 목록 기본 페이지 크기(BE BuyerOrderController list 기본 size=20 정합). */
 const DEFAULT_PAGE_SIZE = 20
@@ -39,4 +39,22 @@ export function useOrderDetail(orderPublicId: string) {
     headers: { Authorization: `Bearer ${auth.token}` },
     getCachedData: () => undefined,
   })
+}
+
+/**
+ * 구매자 주문 품목 구매확정(POST /api/v1/orders/{orderPublicId}/items/{orderItemPublicId}/confirm·BUYER 전용·Track 96-1 FE-53).
+ * useClaim.registerReturnShipment 패턴: 404(타인·미존재)·422(DELIVERED 아님)·401은 throw해 호출부가 타입별로 처리한다.
+ */
+export function useOrderActions() {
+  const auth = useAuthStore()
+
+  function confirmPurchase(orderPublicId: string, orderItemPublicId: string): Promise<ConfirmPurchaseResponse> {
+    return $fetch<ConfirmPurchaseResponse>(`/v1/orders/${orderPublicId}/items/${orderItemPublicId}/confirm`, {
+      baseURL: resolveApiBase(),
+      method: 'POST',
+      headers: { Authorization: `Bearer ${auth.token}` },
+    })
+  }
+
+  return { confirmPurchase }
 }

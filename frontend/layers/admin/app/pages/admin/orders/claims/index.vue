@@ -182,7 +182,13 @@ async function runConfirmPickup(): Promise<void> {
 }
 
 function openInspect(item: AdminClaimSummary): void {
-  inspectTarget.value = { claimId: item.claimId, productName: item.productName ?? '', claimType: item.type }
+  inspectTarget.value = {
+    claimId: item.claimId,
+    productName: item.productName ?? '',
+    claimType: item.type,
+    // 회수 확인 전 진입(C-10): 다이얼로그가 회수 확인 → 검수 순차 호출
+    pickupRequired: item.availableActions.includes('CONFIRM_PICKUP'),
+  }
 }
 
 function closeInspect(refresh: boolean): void {

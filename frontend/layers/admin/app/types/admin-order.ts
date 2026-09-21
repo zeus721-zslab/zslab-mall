@@ -92,6 +92,8 @@ export interface AdminOrderPayment {
   failureCode?: string
   paidAt?: string
   createdAt: string
+  /** 이 결제의 COMPLETED 환불 합(Track 96-1 D-202). PAID인데 amount와 같으면 Payment CANCELLED 자동 전이 유실(C-12 경고·수동 취소 조건). */
+  refundedAmount: number
 }
 
 /** 수동 결제 취소 요청·응답(BE AdminPaymentController mark-cancelled·Track 89-A). NO-OP면 status가 바뀌지 않은 채 200. */

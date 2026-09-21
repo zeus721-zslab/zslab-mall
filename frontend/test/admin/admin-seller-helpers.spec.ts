@@ -12,6 +12,7 @@ import {
   formatTerminationBlocks,
   loginableMemberCount,
   memberDisplayName,
+  sellerOnboardingChecklist,
   sellerStatusChipClass,
   sellerStatusLabel,
   terminateBlockedReason,
@@ -123,5 +124,29 @@ describe('admin-seller-view', () => {
     expect(parsePercentInput('5.25')).toEqual({ ok: true, basisPoints: 525 })
     expect(parsePercentInput('')).toEqual({ ok: true, basisPoints: null })
     expect(parsePercentInput('101').ok).toBe(false)
+  })
+})
+
+// Track 96-1(FE-53·C-17): 온보딩 체크리스트 4항목 판정은 상세 응답 기존 필드만 사용·미충족 항목의 이동 대상.
+describe('sellerOnboardingChecklist(C-17)', () => {
+  const member: AdminSellerMember = { userPublicId: 'usr_1', email: 'a@b.c', name: '홍길동', roleCode: 'SELLER_OWNER', joinedAt: '2026-09-18T10:00:00' }
+
+  it('전부 충족: ACTIVE·주 계좌 있음·로그인 가능 구성원 1·판매중 1 → done 4', () => {
+    const items = sellerOnboardingChecklist(detail({ members: [member], warnings: { primaryBankAccountMissing: false, saleProductCount: 1 } }))
+    expect(items.map((item) => item.key)).toEqual(['active', 'bankAccount', 'member', 'product'])
+    expect(items.every((item) => item.done)).toBe(true)
+  })
+
+  it('미충족 판정·이동 대상: PENDING → info 카드 · 계좌 없음 → 계좌 카드 · 탈퇴 구성원만 → 구성원 카드 · 판매중 0 → 상품 목록(셀러 필터) 경로', () => {
+    const items = sellerOnboardingChecklist(detail({
+      status: 'PENDING', members: [{ ...member, withdrawnAt: '2026-09-19T10:00:00' }],
+      warnings: { primaryBankAccountMissing: true, saleProductCount: 0 },
+    }))
+    expect(items.map((item) => item.done)).toEqual([false, false, false, false])
+    expect(items[0]?.target).toEqual({ kind: 'card', testId: 'seller-info' })
+    expect(items[1]?.target).toEqual({ kind: 'card', testId: 'seller-bank-account' })
+    expect(items[2]?.target).toEqual({ kind: 'card', testId: 'seller-members' })
+    expect(items[3]?.target).toEqual({ kind: 'route', to: toSellerProductListPath('slr_A') })
+    expect(items.filter((item) => !item.done).every((item) => item.hint.length > 0)).toBe(true)
   })
 })

@@ -17,6 +17,8 @@ export interface AdminClaimInspectTarget {
   productName: string
   /** 유형별 합격 의미 분기(반품 환불 / 교환 발송 대기·FE-30). 미지정은 반품. */
   claimType?: ClaimType
+  /** 아직 회수 확인 전(CONFIRM_PICKUP 가능)이면 true — "회수 확인 후 검수" 체크를 요구하고 confirm-pickup → inspect 순차 호출(Track 96-1 FE-53·C-10). */
+  pickupRequired?: boolean
 }
 
 /**
@@ -24,6 +26,9 @@ export interface AdminClaimInspectTarget {
  * 남기는 불합격 근거)·재발송 택배사·송장(필수).
  * 호출·토스트는 다이얼로그가 소유하며 PASS 성공 info(환불 자동 진행)·FAIL 성공 danger 토스트 후 done, 422(회수 전·이미 검수·경합)는 warning 후
  * stale(부모가 다시 읽음), 400은 fieldErrors 표시(AdminClaimRejectDialog 패턴). 처리 중에는 닫기·재제출을 막는다.
+ *
+ * <p>회수 확인 전 진입(pickupRequired·C-10): 체크 후 confirm-pickup을 먼저 호출하고 성공하면 inspect를 이어 호출한다. confirm-pickup 실패는 검수를
+ * 시작하지 않는다. confirm-pickup 성공·inspect 실패는 "회수 확인은 반영됨"을 구분해 알리고 stale로 닫아 부모가 최신 행(INSPECT만 가능)을 다시 읽게 한다.
  */
 const props = defineProps<{
   open: boolean
@@ -50,11 +55,15 @@ const reshipCarrier = ref<AdminDeliveryCarrier | null>(null)
 const reshipTrackingNo = ref('')
 const errors = ref<Record<string, string>>({})
 const submitting = ref(false)
+// 회수 확인 후 검수(C-10): 체크 여부·이번 제출에서 confirm-pickup이 성공했는지(inspect 실패 안내 구분용).
+const pickupChecked = ref(false)
+const pickupApplied = ref(false)
 
 // 닫힘 애니메이션 동안 상품명이 사라지지 않도록 마지막 대상을 유지한다(target은 즉시 null).
 const lastTarget = ref<AdminClaimInspectTarget | null>(null)
 watch(() => props.target, (next) => { if (next) lastTarget.value = next })
 const claimType = computed<ClaimType>(() => lastTarget.value?.claimType ?? 'RETURN')
+const pickupRequired = computed<boolean>(() => lastTarget.value?.pickupRequired ?? false)
 
 function reset(): void {
   result.value = null
@@ -64,6 +73,8 @@ function reset(): void {
   reshipTrackingNo.value = ''
   errors.value = {}
   submitting.value = false
+  pickupChecked.value = false
+  pickupApplied.value = false
 }
 watch(() => props.open, (open) => { if (open) reset() })
 
@@ -71,7 +82,24 @@ function clearError(field: string): void {
   errors.value = { ...errors.value, [field]: '' }
 }
 
-const confirmDisabled = computed(() => submitting.value || result.value === null)
+const confirmDisabled = computed(() => submitting.value || result.value === null || (pickupRequired.value && !pickupChecked.value))
+
+/** 회수 확인 선행 호출. 실패 시 false(검수 미시작)·에러 처리는 기존 회수 확인 버튼과 같다. */
+async function applyPickup(claimId: string): Promise<boolean> {
+  try {
+    await ordersApi.confirmPickupClaim(claimId)
+    pickupApplied.value = true
+    return true
+  } catch (error) {
+    if (extractErrorCode(error) === 'CLAIM_STATE_INVALID') {
+      toast.warning(toAdminErrorMessage(error))
+      emit('stale')
+    } else {
+      toast.danger(toAdminErrorMessage(error))
+    }
+    return false
+  }
+}
 
 async function submit(): Promise<void> {
   if (submitting.value || !props.target) return
@@ -84,6 +112,7 @@ async function submit(): Promise<void> {
 
   submitting.value = true
   try {
+    if (pickupRequired.value && !(await applyPickup(props.target.claimId))) return
     if (result.value === 'PASS') {
       await ordersApi.inspectClaim(props.target.claimId, { result: 'PASS', restock: restock.value ?? false })
       toast.info(inspectPassToast(claimType.value))
@@ -99,6 +128,12 @@ async function submit(): Promise<void> {
     }
     emit('done')
   } catch (error) {
+    // 회수 확인이 이미 반영된 뒤 검수만 실패한 경우: 구분해 알리고 부모가 최신 행을 다시 읽는다(회수 확인은 유지·검수는 목록에서 재시도).
+    if (pickupApplied.value) {
+      toast.warning(`회수 확인은 반영되었습니다. 검수는 처리되지 않았습니다: ${toAdminErrorMessage(error)}`)
+      emit('stale')
+      return
+    }
     const code = extractErrorCode(error)
     if (code === 'VALIDATION_FAILED' || code === 'MALFORMED_REQUEST') {
       // 조건부 필수(BE IllegalArgumentException → 400)는 fieldErrors가 없으므로 결과별 대표 필드에 안내한다.
@@ -128,6 +163,17 @@ async function submit(): Promise<void> {
           <span class="font-weight-medium">{{ lastTarget?.productName }}</span> 회수품을 검수합니다.
           {{ claimType === 'EXCHANGE' ? '합격은 교환품 발송 대기로 넘어가고' : '합격은 환불이 자동 진행되고' }}, 불합격은 상품을 구매자에게 재발송합니다.
         </p>
+        <v-checkbox
+          v-if="pickupRequired"
+          v-model="pickupChecked"
+          label="회수 확인 후 검수 (회수품 도착을 확인했습니다)"
+          hint="아직 회수 확인 전입니다. 체크하면 회수 확인을 먼저 처리한 뒤 검수합니다."
+          persistent-hint
+          density="compact"
+          :disabled="submitting"
+          class="mb-2"
+          data-testid="inspect-pickup-check"
+        />
 
         <v-radio-group
           :model-value="result"

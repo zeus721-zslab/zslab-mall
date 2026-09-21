@@ -3,6 +3,7 @@ import { mdiOpenInNew, mdiPaperclip } from '@mdi/js'
 import type { SellerClaimSummary } from '#layers/seller/app/types/seller-claim'
 import { claimStatusLabel, claimTypeLabel, refundStatusLabel } from '~/lib/constants/claim'
 import { formatDateTime } from '~/lib/utils/datetime'
+import { elapsedChip, type ElapsedChip } from '~/lib/utils/elapsed-days'
 import { SELLER_CLAIM_PAGE_SIZES } from '#layers/seller/app/lib/constants/seller-claim'
 import { SELLER_CLAIM_STATUS_SEMANTIC } from '#layers/seller/app/lib/constants/seller-order'
 import { semanticChipClass } from '#layers/seller/app/lib/constants/semantic'
@@ -25,6 +26,11 @@ const emit = defineEmits<{
 }>()
 
 // 6컬럼: 1440px에서 가로 스크롤이 없도록 요청/처리 일시·상품/옵션·상태/환불을 2줄 셀로 병합한다.
+/** 경과 N일(C-15): 진행 중(REQUESTED·APPROVED) 행만 요청일 기준으로 표시한다. */
+function pendingElapsed(item: SellerClaimSummary): ElapsedChip | null {
+  return item.status === 'REQUESTED' || item.status === 'APPROVED' ? elapsedChip(item.requestedAt) : null
+}
+
 const headers = [
   { title: '유형', key: 'type', sortable: false },
   { title: '요청 · 처리', key: 'dates', sortable: false },
@@ -68,6 +74,9 @@ const headers = [
     <template #[`item.dates`]="{ item }">
       <div class="text-body-2" data-testid="row-requested-at">{{ formatDateTime(item.requestedAt) }}</div>
       <div class="text-caption text-medium-emphasis" data-testid="row-processed-at">처리 {{ item.processedAt ? formatDateTime(item.processedAt) : '—' }}</div>
+      <v-chip v-if="pendingElapsed(item)" :class="`slr-chip slr-chip--${pendingElapsed(item)!.tone}`" size="x-small" variant="flat" class="mt-1" data-testid="row-elapsed">
+        {{ pendingElapsed(item)!.text }}
+      </v-chip>
     </template>
 
     <template #[`item.orderNo`]="{ item }">

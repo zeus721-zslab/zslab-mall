@@ -2,6 +2,7 @@
 import { mdiContentCopy, mdiDotsVertical } from '@mdi/js'
 import type { SellerDeliverySummary } from '#layers/seller/app/types/seller-delivery'
 import { formatDateTime } from '~/lib/utils/datetime'
+import { elapsedChip, type ElapsedChip } from '~/lib/utils/elapsed-days'
 import {
   SELLER_DELIVERY_CARRIER_LABEL,
   SELLER_DELIVERY_STATUS_LABEL,
@@ -43,6 +44,11 @@ const headers = [
   { title: '발송 · 완료', key: 'dates', sortable: false },
   { title: '관리', key: 'actions', sortable: false, align: 'end' as const },
 ]
+
+/** 경과 N일(C-15): 배송중(SHIPPING) 행만 발송일 기준으로 표시한다. */
+function shippingElapsed(item: SellerDeliverySummary): ElapsedChip | null {
+  return item.status === 'SHIPPING' ? elapsedChip(item.shippedAt) : null
+}
 
 function isPending(item: SellerDeliverySummary): boolean {
   return props.pendingIds.has(item.deliveryId)
@@ -119,6 +125,9 @@ function isPending(item: SellerDeliverySummary): boolean {
     <template #[`item.dates`]="{ item }">
       <div class="text-body-2" data-testid="row-shipped-at">{{ item.shippedAt ? formatDateTime(item.shippedAt) : '—' }}</div>
       <div class="text-caption text-medium-emphasis" data-testid="row-delivered-at">완료 {{ item.deliveredAt ? formatDateTime(item.deliveredAt) : '—' }}</div>
+      <v-chip v-if="shippingElapsed(item)" :class="`slr-chip slr-chip--${shippingElapsed(item)!.tone}`" size="x-small" variant="flat" class="mt-1" data-testid="row-elapsed">
+        {{ shippingElapsed(item)!.text }}
+      </v-chip>
     </template>
 
     <template #[`item.actions`]="{ item }">

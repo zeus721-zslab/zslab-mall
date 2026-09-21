@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { mdiAlertOutline, mdiArrowLeft, mdiOpenInNew } from '@mdi/js'
+import { mdiAlertOutline, mdiArrowLeft, mdiCheckCircle, mdiCircleOutline, mdiOpenInNew } from '@mdi/js'
 import type { AdminSellerDetail } from '#layers/admin/app/types/admin-seller'
 import {
   ADMIN_SELLER_TRANSITION_LABEL,
@@ -11,6 +11,8 @@ import {
   availableTransitions,
   formatTerminationBlocks,
   loginableMemberCount,
+  sellerOnboardingChecklist,
+  type SellerOnboardingItem,
   sellerStatusChipClass,
   sellerStatusLabel,
   terminateBlockedReason,
@@ -65,6 +67,15 @@ onMounted(load)
 const transitions = computed(() => (detail.value ? availableTransitions(detail.value.status) : []))
 const terminateBlocked = computed(() => (detail.value ? terminateBlockedReason(detail.value) : null))
 const loginableMembers = computed(() => (detail.value ? loginableMemberCount(detail.value.members) : 0))
+// 온보딩 체크리스트(C-17): 종료 셀러는 입점 절차 대상이 아니라 숨긴다. 미충족 항목 클릭 = 같은 화면 카드로 스크롤 또는 상품 목록 이동.
+const onboarding = computed<SellerOnboardingItem[]>(() => (detail.value && detail.value.status !== 'TERMINATED' ? sellerOnboardingChecklist(detail.value) : []))
+function goOnboardingTarget(item: SellerOnboardingItem): void {
+  if (item.target.kind === 'route') {
+    void navigateTo(item.target.to)
+    return
+  }
+  document.querySelector(`[data-testid="${item.target.testId}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
 const productRows = computed(() => {
   const counts = detail.value?.productCountByStatus ?? {}
   return (Object.keys(counts) as AdminProductStatus[])
@@ -131,6 +142,23 @@ function onEditDone(): void {
       <v-alert v-if="detail.warnings.primaryBankAccountMissing && detail.status !== 'TERMINATED'" type="warning" variant="tonal" density="compact" :icon="mdiAlertOutline" class="mb-4" data-testid="seller-no-bank-account">
         주 정산계좌가 등록되지 않았습니다. 정산은 생성되지만 지급 처리가 차단됩니다. 아래 정산계좌 카드에서 계좌를 등록하세요.
       </v-alert>
+
+      <!-- 온보딩 체크리스트(C-17) -->
+      <v-card v-if="onboarding.length" class="mb-4" data-testid="seller-onboarding">
+        <v-card-title class="text-subtitle-2 font-weight-bold pt-4 px-5">입점 온보딩 체크리스트</v-card-title>
+        <v-card-text class="px-5 pb-4">
+          <ul class="pl-0" style="list-style: none">
+            <li v-for="item in onboarding" :key="item.key" class="d-flex align-center flex-wrap ga-2 py-1" :data-testid="`seller-onboarding-${item.key}`" :data-done="item.done">
+              <v-icon :icon="item.done ? mdiCheckCircle : mdiCircleOutline" :color="item.done ? 'success' : 'warning'" size="small" />
+              <span class="text-body-2" :class="{ 'text-medium-emphasis': item.done }">{{ item.label }}</span>
+              <template v-if="!item.done">
+                <span class="text-caption text-medium-emphasis">{{ item.hint }}</span>
+                <v-btn size="x-small" variant="text" color="primary" :data-testid="`seller-onboarding-${item.key}-go`" @click="goOnboardingTarget(item)">이동</v-btn>
+              </template>
+            </li>
+          </ul>
+        </v-card-text>
+      </v-card>
 
       <!-- 기본 정보 + 액션 -->
       <v-card class="mb-4" data-testid="seller-info">

@@ -29,7 +29,8 @@ const PAID_DETAIL = {
   buyer: { userId: 'usr_E2E1', name: 'E2E구매자', email: 'buyer@e2e.invalid' },
   shippingAddress: { recipientName: '홍길동', recipientPhone: '010-0000-0000', zonecode: '06236', addressRoad: '서울 강남구 테헤란로 1', addressDetail: '101호' },
   totalPrice: 29900, discountAmount: 0, shippingFee: 3000, paymentAmount: 32900,
-  payments: [{ paymentId: 'pay_E2E1', method: 'CARD', status: 'PAID', amount: 32900, pgProvider: 'MOCK_PG', pgTid: 'MOCK-TID-0001', paidAt: '2026-09-16T10:05:00', createdAt: '2026-09-16T10:01:00' }],
+  // refundedAmount = amount(전액 환불 완료·PAID 잔존) → C-12 경고 배지·수동 취소 버튼 노출 조건(FE-53)
+  payments: [{ paymentId: 'pay_E2E1', method: 'CARD', status: 'PAID', amount: 32900, pgProvider: 'MOCK_PG', pgTid: 'MOCK-TID-0001', paidAt: '2026-09-16T10:05:00', createdAt: '2026-09-16T10:01:00', refundedAmount: 32900 }],
   items: [
     { orderItemId: 'oit_E2E0000000000000000000001', productName: 'E2E 티셔츠', optionLabel: 'M', quantity: 1, unitPrice: 19900, totalPrice: 19900, status: 'PAID', sellerName: 'E2E셀러',
       // FE-28: 거부된 취소 클레임(사유·메모) — 거부 사유 표기 검증용·approvable false
@@ -334,13 +335,14 @@ test.describe('관리자 주문 목록·상세(FE-27)', () => {
     expect(captured.detailGets.length).toBeGreaterThanOrEqual(2)
   })
 
-  test('⑨ FE-36(Track 89-A) 상세 결제 표: PG 거래번호·실패코드 컬럼 → PAID 행 "취소 처리" → 다이얼로그(금액·사유 필수) 노출까지만(실행 안 함) → 닫기', async ({ page }) => {
+  test('⑨ FE-36(Track 89-A) 상세 결제 표: PG 거래번호·실패코드 컬럼 → 전액 환불·PAID 잔존 행 경고 배지(C-12) + "취소 처리" → 다이얼로그(금액·사유 필수) 노출까지만(실행 안 함) → 닫기', async ({ page }) => {
     const captured = await mockAdminApi(page)
     await loginAs(page, 'ADMIN')
     await page.goto(`/admin/orders/${PAID_ID}`)
     await expect(page.getByTestId('payment-row')).toHaveCount(1)
     await expect(page.getByTestId('payment-pg-tid')).toHaveText('MOCK-TID-0001')
     await expect(page.getByTestId('payment-failure-code')).toHaveText('—')
+    await expect(page.getByTestId('payment-cancel-lost')).toHaveText('환불 전액 완료·취소 미반영')
 
     const postsBefore = captured.posts.length
     await page.getByTestId('payment-cancel').click()

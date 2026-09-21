@@ -5,6 +5,7 @@ import type {
   AdminOrderClaim,
   AdminOrderDetail,
   AdminOrderItem,
+  AdminOrderPayment,
 } from '#layers/admin/app/types/admin-order'
 import { claimableTypes } from '~/lib/constants/claim'
 import { refundStatusChip } from '#layers/admin/app/lib/admin-claim-view'
@@ -68,6 +69,14 @@ export function claimRefundLabel(claim: Pick<AdminOrderClaim, 'type' | 'status' 
   if (claim.status === 'APPROVED') return { text: '환불 진행 중', semantic: 'warning' }
   if (claim.status === 'COMPLETED') return { text: '환불 완료', semantic: 'success' }
   return null
+}
+
+/**
+ * Payment CANCELLED 자동 전이 유실 판정(Track 96-1 FE-53·C-12): 전액 환불이 완료됐는데 결제가 아직 PAID면 D-113 fallback(수동 취소) 대상이다.
+ * BE markCancelled 가드(전액 일치 시에만 전이)와 같은 조건이라 버튼은 이 경우에만 노출한다.
+ */
+export function isPaymentCancelLost(payment: Pick<AdminOrderPayment, 'status' | 'amount' | 'refundedAmount'>): boolean {
+  return payment.status === 'PAID' && payment.amount > 0 && payment.refundedAmount === payment.amount
 }
 
 export interface CancelFormInput {

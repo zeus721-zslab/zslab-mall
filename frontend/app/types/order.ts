@@ -58,6 +58,12 @@ export interface SellerGroup {
   subtotal: number
 }
 
+/** 구매확정 응답(BE ConfirmPurchaseResponse 대응·Track 96-1 FE-53). status는 전이 후 품목 상태 code(CONFIRMED). */
+export interface ConfirmPurchaseResponse {
+  orderItemId: string
+  status: string
+}
+
 /**
  * 주문 단건(BE OrderResponse 대응). shippingAddress는 스냅샷 부재 시 null. 배송지는 요청용과 필드가 동일해
  * checkout.ts의 ShippingAddress를 재사용한다.

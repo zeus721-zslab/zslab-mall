@@ -80,12 +80,15 @@ test.describe('셀러 대시보드(90-B-3)', () => {
     await expect(summary.getByTestId('dashboard-card-orderCount')).toContainText('6건')
     await expect(summary.getByTestId('dashboard-card-orderCount')).toContainText('품목 수와 다를 수 있음')
 
-    // 대기 4: 배송 대기만 링크(품목 목록 status=PAID), 나머지 카운트·힌트
+    // 대기 4: 4칸 전부 해당 화면 링크(Track 96-1 C-14)·"준비 중" 문구 없음
     const pending = page.getByTestId('dashboard-pending')
     await expect(pending.getByTestId('dashboard-pending-count')).toHaveText(['2건', '0건', '1건', '1건'])
     await expect(page.getByTestId('dashboard-pending-deliveryReady')).toHaveAttribute('href', '/seller/orders?status=PAID')
-    expect(await page.getByTestId('dashboard-pending-settlementPending').evaluate((el) => el.tagName)).toBe('DIV')
+    await expect(page.getByTestId('dashboard-pending-claimRequested')).toHaveAttribute('href', '/seller/claims?status=REQUESTED')
+    await expect(page.getByTestId('dashboard-pending-lowStock')).toHaveAttribute('href', '/seller/products/inventory')
+    await expect(page.getByTestId('dashboard-pending-settlementPending')).toHaveAttribute('href', '/seller/settlements')
     await expect(page.getByTestId('dashboard-pending-settlementPending')).toContainText('확정 전 정산 건수')
+    await expect(pending).not.toContainText('준비 중')
 
     // 차트 2(apexcharts svg)
     await expect(page.getByTestId('dashboard-chart-revenue').locator('svg.apexcharts-svg')).toBeVisible()

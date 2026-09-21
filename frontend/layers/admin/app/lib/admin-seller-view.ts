@@ -52,6 +52,33 @@ export function loginableMemberCount(members: AdminSellerMember[]): number {
   return members.filter((member) => member.userPublicId !== undefined && member.withdrawnAt === undefined).length
 }
 
+/** 온보딩 체크 항목(Track 96-1 FE-53·C-17). 미충족이면 card(같은 화면 카드로 스크롤) 또는 route(다른 화면)로 이동한다. */
+export interface SellerOnboardingItem {
+  key: 'active' | 'bankAccount' | 'member' | 'product'
+  label: string
+  done: boolean
+  /** 미충족일 때 안내 1줄. */
+  hint: string
+  target: { kind: 'card'; testId: string } | { kind: 'route'; to: string }
+}
+
+/**
+ * 입점 온보딩 4항목(ACTIVE·주 계좌·로그인 가능 구성원·판매중 상품 ≥1). 판정은 상세 응답 기존 필드만 쓴다(status·warnings·members·
+ * warnings.saleProductCount). 순서 = 실제 입점 절차 순서.
+ */
+export function sellerOnboardingChecklist(detail: AdminSellerDetail): SellerOnboardingItem[] {
+  return [
+    { key: 'active', label: '셀러 상태 ACTIVE', done: detail.status === 'ACTIVE', hint: '기본 정보 카드에서 상태를 전이하세요.',
+      target: { kind: 'card', testId: 'seller-info' } },
+    { key: 'bankAccount', label: '주 정산계좌 등록', done: !detail.warnings.primaryBankAccountMissing, hint: '정산계좌 카드에서 계좌를 등록하세요.',
+      target: { kind: 'card', testId: 'seller-bank-account' } },
+    { key: 'member', label: '로그인 가능한 구성원', done: loginableMemberCount(detail.members) > 0, hint: '구성원 카드에서 기존 회원을 추가하세요.',
+      target: { kind: 'card', testId: 'seller-members' } },
+    { key: 'product', label: '판매중 상품 1개 이상', done: detail.warnings.saleProductCount > 0, hint: '상품 목록에서 셀러 상품을 승인(판매중)하세요.',
+      target: { kind: 'route', to: toSellerProductListPath(detail.sellerPublicId) } },
+  ]
+}
+
 /** 구성원 표시명: 이름 → 이메일 → (삭제된 회원). */
 export function memberDisplayName(member: AdminSellerMember): string {
   return member.name ?? member.email ?? (member.userPublicId ? member.userPublicId : '삭제된 회원')

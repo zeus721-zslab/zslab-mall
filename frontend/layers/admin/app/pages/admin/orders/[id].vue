@@ -26,7 +26,7 @@ import {
 } from '#layers/admin/app/lib/constants/admin-order'
 import { semanticChipClass } from '#layers/admin/app/lib/constants/semantic'
 import { formatWon } from '#layers/admin/app/lib/format'
-import { claimRefundLabel } from '#layers/admin/app/lib/admin-order-view'
+import { claimRefundLabel, isPaymentCancelLost } from '#layers/admin/app/lib/admin-order-view'
 import { ADMIN_ORDERS_PATH, resolveBackPath } from '#layers/admin/app/lib/admin-back-path'
 import { extractErrorCode, toAdminErrorMessage } from '#layers/admin/app/lib/admin-error-message'
 import { useAdminOrders } from '#layers/admin/app/composables/useAdminOrders'
@@ -285,6 +285,10 @@ function closeReject(refresh: boolean): void {
                   <v-chip :class="semanticChipClass(ADMIN_PAYMENT_STATUS_SEMANTIC[payment.status])" size="small" variant="flat">
                     {{ ADMIN_PAYMENT_STATUS_LABEL[payment.status] }}
                   </v-chip>
+                  <!-- C-12: 전액 환불 완료인데 PAID 잔존 = 자동 취소 전이 유실 → 경고 배지·수동 취소 버튼 조건부 -->
+                  <v-chip v-if="isPaymentCancelLost(payment)" :class="semanticChipClass('warning')" size="x-small" variant="flat" class="ml-1" data-testid="payment-cancel-lost">
+                    환불 전액 완료·취소 미반영
+                  </v-chip>
                 </td>
                 <td class="text-right">{{ formatWon(payment.amount) }}</td>
                 <td>{{ payment.pgProvider ?? '—' }}</td>
@@ -294,7 +298,7 @@ function closeReject(refresh: boolean): void {
                 <td>{{ formatDateTime(payment.createdAt) }}</td>
                 <td class="text-right">
                   <v-btn
-                    v-if="payment.status === 'PAID'"
+                    v-if="isPaymentCancelLost(payment)"
                     size="small"
                     variant="outlined"
                     color="error"

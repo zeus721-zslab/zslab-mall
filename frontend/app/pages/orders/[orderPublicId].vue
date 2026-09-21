@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { orderStatusLabel } from '~/lib/constants/order'
+import { AUTO_CONFIRM_GUIDE, PAYMENT_EXPIRE_GUIDE, orderStatusLabel } from '~/lib/constants/order'
 import { claimableTypes, claimTypeLabel, orderItemStatusLabel, type ClaimType } from '~/lib/constants/claim'
 import type { OrderItem } from '~/types/order'
 
@@ -43,6 +43,45 @@ function goClaim(item: OrderItem, type: ClaimType): void {
   navigateTo(base + exchangeQuery)
 }
 
+// 구매확정(FE-53·C-06): DELIVERED 품목만. 확인 패널(인라인·구매자 앱은 다이얼로그·토스트 인프라 부재)에서 반품·교환 불가 경고 후 호출한다.
+// 성공·실패 안내도 같은 품목 아래 인라인. 제출 중에는 버튼을 잠가 중복 호출을 막는다.
+const { confirmPurchase } = useOrderActions()
+const confirmTargetId = ref<string | null>(null)
+const confirming = ref<boolean>(false)
+const confirmNotice = ref<{ orderItemId: string; tone: 'success' | 'error'; text: string } | null>(null)
+
+function openConfirm(item: OrderItem): void {
+  confirmNotice.value = null
+  confirmTargetId.value = item.orderItemId
+}
+
+async function submitConfirm(item: OrderItem): Promise<void> {
+  if (confirming.value) return
+  confirming.value = true
+  try {
+    await confirmPurchase(orderPublicId, item.orderItemId)
+    confirmNotice.value = { orderItemId: item.orderItemId, tone: 'success', text: '구매확정이 완료되었습니다.' }
+    confirmTargetId.value = null
+    await refresh()
+  } catch (submitError) {
+    // 401은 로그인 유도, 그 외(422 상태 불일치·404 등)는 서버 detail 우선 표시 후 재조회로 최신 상태 반영(.catch(()=>{}) 금지).
+    const failure = submitError as { statusCode?: number; data?: { detail?: string } }
+    if (failure.statusCode === 401) {
+      navigateTo(`/login?redirect=${encodeURIComponent(`/orders/${orderPublicId}`)}`)
+      return
+    }
+    confirmNotice.value = {
+      orderItemId: item.orderItemId,
+      tone: 'error',
+      text: failure.data?.detail ?? '구매확정에 실패했습니다. 잠시 후 다시 시도하세요.',
+    }
+    confirmTargetId.value = null
+    await refresh()
+  } finally {
+    confirming.value = false
+  }
+}
+
 useSeoMeta({
   title: () => (data.value ? `주문 ${data.value.orderId} · zslab-mall` : '주문 상세 · zslab-mall'),
   description: 'zslab-mall 주문 상세',
@@ -73,6 +112,10 @@ useSeoMeta({
             {{ orderStatusLabel(data.status.code) }}
           </span>
         </div>
+        <!-- 결제 대기 안내(FE-53·C-16): 값은 lib/constants/order.ts PAYMENT_EXPIRE_MINUTES(BE 설정과 일치). -->
+        <p v-if="data.status.code === 'PENDING_PAYMENT'" class="-mt-3 mb-6 text-sm text-sub" data-testid="order-payment-expire-guide">
+          {{ PAYMENT_EXPIRE_GUIDE }}
+        </p>
 
         <!-- seller 그룹별 품목 -->
         <section class="space-y-4">
@@ -109,8 +152,17 @@ useSeoMeta({
                   </div>
                 </div>
 
-                <!-- 클레임 진입점: 품목 상태가 허용하는 유형만 노출(claimableTypes 빈 배열이면 미노출). -->
-                <div v-if="claimableTypes(item.status.code, item.exchangeCompleted ?? false).length" class="flex flex-wrap gap-2">
+                <!-- 클레임 진입점: 품목 상태가 허용하는 유형만 노출(claimableTypes 빈 배열이면 미노출). 배송완료 품목은 구매확정 버튼(C-06)도 함께. -->
+                <div v-if="claimableTypes(item.status.code, item.exchangeCompleted ?? false).length || item.status.code === 'DELIVERED'" class="flex flex-wrap gap-2">
+                  <Button
+                    v-if="item.status.code === 'DELIVERED'"
+                    size="sm"
+                    :disabled="confirming"
+                    data-testid="item-confirm-purchase"
+                    @click="openConfirm(item)"
+                  >
+                    구매확정
+                  </Button>
                   <Button
                     v-for="type in claimableTypes(item.status.code, item.exchangeCompleted ?? false)"
                     :key="type"
@@ -121,6 +173,27 @@ useSeoMeta({
                     {{ claimTypeLabel(type) }} 요청
                   </Button>
                 </div>
+                <!-- 배송완료 안내(FE-53·C-16): 값은 lib/constants/order.ts AUTO_CONFIRM_DAYS(BE 설정과 일치). -->
+                <p v-if="item.status.code === 'DELIVERED'" class="text-xs text-sub" data-testid="item-auto-confirm-guide">{{ AUTO_CONFIRM_GUIDE }}</p>
+
+                <!-- 구매확정 확인 패널(FE-53·C-06): 확정 후 반품·교환 신청 불가 경고 필수. -->
+                <div v-if="confirmTargetId === item.orderItemId" class="rounded-card border border-line bg-gray-50 p-4" data-testid="item-confirm-panel">
+                  <p class="text-sm font-medium text-ink">이 품목을 구매확정할까요?</p>
+                  <p class="mt-1 text-sm text-soldout" data-testid="item-confirm-warning">확정 후에는 반품·교환을 신청할 수 없습니다.</p>
+                  <div class="mt-3 flex gap-2">
+                    <Button size="sm" :disabled="confirming" data-testid="item-confirm-submit" @click="submitConfirm(item)">
+                      {{ confirming ? '확정 중…' : '확정' }}
+                    </Button>
+                    <Button variant="outline" size="sm" :disabled="confirming" data-testid="item-confirm-cancel" @click="confirmTargetId = null">취소</Button>
+                  </div>
+                </div>
+                <p
+                  v-if="confirmNotice && confirmNotice.orderItemId === item.orderItemId"
+                  role="status"
+                  class="text-sm"
+                  :class="confirmNotice.tone === 'error' ? 'text-soldout' : 'text-primary'"
+                  data-testid="item-confirm-notice"
+                >{{ confirmNotice.text }}</p>
               </li>
             </ul>
 
