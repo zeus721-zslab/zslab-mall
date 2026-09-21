@@ -34,6 +34,7 @@ import com.zslab.mall.payment.exception.PaymentAlreadyCompletedException;
 import com.zslab.mall.payment.exception.PaymentInProgressException;
 import com.zslab.mall.payment.exception.PaymentInvalidStateException;
 import com.zslab.mall.payment.exception.PaymentNotFoundException;
+import com.zslab.mall.payment.exception.PaymentPgTidConflictException;
 import com.zslab.mall.product.exception.ProductImageNotFoundException;
 import com.zslab.mall.product.exception.ProductHasOrderHistoryException;
 import com.zslab.mall.product.exception.ProductInvalidStateException;
@@ -116,6 +117,7 @@ public class GlobalExceptionHandler {
     private static final String CODE_CHECKOUT_ITEM_MISMATCH = "CHECKOUT_ITEM_MISMATCH";
     private static final String CODE_CART_CHECKOUT_EMPTY = "CART_CHECKOUT_EMPTY";
     private static final String CODE_INVALID_CALLBACK = "INVALID_CALLBACK";
+    private static final String CODE_PAYMENT_PG_TID_CONFLICT = "PAYMENT_PG_TID_CONFLICT";
     private static final String CODE_REFUND_NOT_FOUND = "REFUND_NOT_FOUND";
     private static final String CODE_REFUND_INVARIANT_VIOLATION = "REFUND_INVARIANT_VIOLATION";
     private static final String CODE_CLAIM_NOT_FOUND = "CLAIM_NOT_FOUND";
@@ -546,6 +548,14 @@ public class GlobalExceptionHandler {
             InvalidCallbackException exception, HttpServletRequest request) {
         log.warn("[PaymentWebhook] 콜백 거부(422): {}", exception.getMessage());
         return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_INVALID_CALLBACK, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(PaymentPgTidConflictException.class)
+    public ResponseEntity<ProblemDetail> handlePaymentPgTidConflict(
+            PaymentPgTidConflictException exception, HttpServletRequest request) {
+        // Track 93 D-198: 콜백 pgTid가 다른 결제 행과 충돌(409·uk_payment_provider_pg_tid). 500 fallback으로 새던 트랩 차단.
+        log.warn("[PaymentWebhook] pgTid 충돌(409): {}", exception.getMessage());
+        return build(HttpStatus.CONFLICT, CODE_PAYMENT_PG_TID_CONFLICT, exception.getMessage(), request);
     }
 
     @ExceptionHandler(RefundInvariantViolationException.class)
