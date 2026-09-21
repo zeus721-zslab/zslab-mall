@@ -11,6 +11,8 @@ defineProps<{
   description: string
   rows: SellerProductRankRowView[]
   testid: string
+  /** 빈 상태 문구(기본 "데이터 없음"·하위 표는 상위 포함 안내). */
+  emptyText?: string
 }>()
 
 const emit = defineEmits<{
@@ -39,7 +41,7 @@ function onRowClick(row: SellerProductRankRowView): void {
         </thead>
         <tbody>
           <tr v-if="rows.length === 0">
-            <td colspan="5" class="text-center text-medium-emphasis py-4" :data-testid="`${testid}-empty`">데이터 없음</td>
+            <td colspan="5" class="text-center text-medium-emphasis py-4" :data-testid="`${testid}-empty`">{{ emptyText ?? '데이터 없음' }}</td>
           </tr>
           <tr
             v-for="(row, index) in rows"

@@ -76,6 +76,9 @@ class SellerProductStatsQueryControllerIntegrationTest extends AbstractIntegrati
     private static final long ITEM_A4 = ID_BASE + 4;
     private static final long ITEM_A5 = ID_BASE + 5;
     private static final long ITEM_A6 = ID_BASE + 6;
+    private static final long EXTRA_BASE = ID_BASE + 10;
+    private static final int EXTRA_MAX = 30;
+    private int extraSeeded = 0;
     private static final long HISTORY_BASE = ID_BASE;
     private static final int HISTORY_COUNT = 6;
     private static final long DUMMY_FK_ID = ID_BASE;
@@ -161,7 +164,7 @@ class SellerProductStatsQueryControllerIntegrationTest extends AbstractIntegrati
     }
 
     @Test
-    @DisplayName("T3 상위·하위: 상위 = 매출 DESC·동률 id ASC(PA 30,000 → PA2 → PA5) · 하위 = 역순(PA5 → PA2 → PA) · 판매 0(PA3)은 어느 쪽에도 없음 · 스냅샷 이름·public_id")
+    @DisplayName("T3 상위·하위: 상위 = 매출 DESC·동률 id ASC(PA 30,000 → PA2 → PA5) · 판매 상품 3 ≤ 10이라 하위 빈 목록 · 판매 0(PA3)은 어느 쪽에도 없음 · 스냅샷 이름·public_id")
     void topAndBottom() throws Exception {
         JsonNode march = fetch(USER_A, MARCH);
         JsonNode top = march.get("topProducts");
@@ -175,13 +178,48 @@ class SellerProductStatsQueryControllerIntegrationTest extends AbstractIntegrati
         assertThat(top.get(2).get("productKey").asText()).isEqualTo(PRODUCT_A5_PID);
         assertThat(top.get(2).get("revenue").asLong()).isEqualTo(PRODUCT_A5_MARCH_REVENUE);
 
-        JsonNode bottom = march.get("bottomProducts");
-        assertThat(bottom).hasSize(3);
-        assertThat(bottom.get(0).get("productKey").asText()).isEqualTo(PRODUCT_A5_PID);
-        assertThat(bottom.get(1).get("productKey").asText()).isEqualTo(PRODUCT_A2_PID);
-        assertThat(bottom.get(2).get("productKey").asText()).isEqualTo(PRODUCT_A_PID);
+        assertThat(march.get("bottomProducts")).isEmpty();
         assertThat(march.get("topProducts").toString()).doesNotContain(PRODUCT_A3_PID);
-        assertThat(march.get("bottomProducts").toString()).doesNotContain(PRODUCT_A3_PID);
+    }
+
+    @Test
+    @DisplayName("T11 하위 = 상위 10 제외: 판매 상품 5(하위 0) · 15(상위 10·하위 5·교집합 0·11번째 이후 역순) · 25(하위 10·교집합 0·최하위부터)")
+    void bottomExcludesTop() throws Exception {
+        seedExtraSoldProducts(2);
+        JsonNode five = fetch(USER_A, MARCH);
+        assertThat(five.get("topProducts")).hasSize(5);
+        assertThat(five.get("bottomProducts")).isEmpty();
+
+        seedExtraSoldProducts(10);
+        JsonNode fifteen = fetch(USER_A, MARCH);
+        assertThat(fifteen.get("topProducts")).hasSize(10);
+        assertThat(fifteen.get("bottomProducts")).hasSize(5);
+        assertNoOverlapAndAscending(fifteen);
+        // 15건 매출 DESC: PA 30,000 · 추가 12,000~6,000(7) · PA2·PA5 5,000(id 순) = 상위 10 / 나머지 추가 5,000·4,000·3,000·2,000·1,000 → 하위는 역순이라 최하위 1,000이 첫 행
+        assertThat(fifteen.get("bottomProducts").get(0).get("revenue").asLong()).isEqualTo(1_000L);
+
+        seedExtraSoldProducts(10);
+        JsonNode twentyFive = fetch(USER_A, MARCH);
+        assertThat(twentyFive.get("topProducts")).hasSize(10);
+        assertThat(twentyFive.get("bottomProducts")).hasSize(10);
+        assertNoOverlapAndAscending(twentyFive);
+    }
+
+    /** 상위·하위 교집합 0 · 하위는 매출 오름차순 · 하위 최고 매출 < 상위 최저 매출. */
+    private static void assertNoOverlapAndAscending(JsonNode response) {
+        Set<String> topKeys = new LinkedHashSet<>();
+        response.get("topProducts").forEach(row -> topKeys.add(row.get("productKey").asText()));
+        long previous = -1;
+        for (JsonNode row : response.get("bottomProducts")) {
+            assertThat(topKeys).doesNotContain(row.get("productKey").asText());
+            assertThat(row.get("revenue").asLong()).isGreaterThanOrEqualTo(previous);
+            previous = row.get("revenue").asLong();
+        }
+        long topMin = Long.MAX_VALUE;
+        for (JsonNode row : response.get("topProducts")) {
+            topMin = Math.min(topMin, row.get("revenue").asLong());
+        }
+        assertThat(previous).isLessThanOrEqualTo(topMin);
     }
 
     @Test
@@ -359,6 +397,29 @@ class SellerProductStatsQueryControllerIntegrationTest extends AbstractIntegrati
         });
     }
 
+    /**
+     * 셀러 A 판매 상품을 count개 추가한다(호출 누적·상품 id EXTRA_BASE+n·매출 1,000 × (n+1)·3월 결제 주문 1건에 품목 n). 상위/하위 분리 검증용.
+     */
+    private void seedExtraSoldProducts(int count) {
+        tx.executeWithoutResult(s -> {
+            try {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
+                if (extraSeeded == 0) {
+                    seedOrder(EXTRA_BASE, "SPSORE", "PAID", 0, "2026-03-15 09:00:00");
+                }
+                for (int index = 0; index < count; index++) {
+                    int n = extraSeeded + index;
+                    long productId = EXTRA_BASE + n;
+                    seedProduct(productId, pid("prd_", "SPSPX" + n + "Q"), SELLER_A, "추가상품" + n, "SALE");
+                    seedOrderItem(EXTRA_BASE + n, "SPSX" + n + "Q", EXTRA_BASE, SELLER_A, productId, DUMMY_FK_ID, "추가상품" + n, 1, 1_000L * (n + 1));
+                }
+                extraSeeded += count;
+            } finally {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
+            }
+        });
+    }
+
     private void seedSellerWithOwner(long userId, long sellerId, String userTag, String sellerTag, String companyName, SellerStatus status) {
         jdbc.update("INSERT INTO `user` (id, public_id, created_at, updated_at) VALUES (?, ?, NOW(6), NOW(6))", userId, pid("usr_", userTag));
         jdbc.update("INSERT INTO seller (id, public_id, company_name, ceo_name, status, created_at, updated_at) "
@@ -405,6 +466,10 @@ class SellerProductStatsQueryControllerIntegrationTest extends AbstractIntegrati
             try {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
                 jdbc.update("DELETE FROM inventory_history WHERE id BETWEEN ? AND ?", HISTORY_BASE, HISTORY_BASE + HISTORY_COUNT - 1);
+                jdbc.update("DELETE FROM order_item WHERE id BETWEEN ? AND ?", EXTRA_BASE, EXTRA_BASE + EXTRA_MAX);
+                jdbc.update("DELETE FROM `order` WHERE id = ?", EXTRA_BASE);
+                jdbc.update("DELETE FROM product WHERE id BETWEEN ? AND ?", EXTRA_BASE, EXTRA_BASE + EXTRA_MAX);
+                extraSeeded = 0;
                 jdbc.update("DELETE FROM order_item WHERE id BETWEEN ? AND ?", ITEM_A1, ITEM_A6);
                 jdbc.update("DELETE FROM `order` WHERE id BETWEEN ? AND ?", ORDER_M, ORDER_X);
                 jdbc.update("DELETE FROM inventory WHERE id BETWEEN ? AND ?", VARIANT_A1, VARIANT_LAST);

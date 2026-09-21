@@ -25,10 +25,7 @@ function statsResponse(overrides: Partial<SellerProductStatsResponse> = {}): Sel
       { productKey: 'prd_A', productName: '통계상품A', revenue: 30_000, orderCount: 2, quantity: 3 },
       { productName: '삭제상품', revenue: 1_000, orderCount: 1, quantity: 1 },
     ],
-    bottomProducts: [
-      { productName: '삭제상품', revenue: 1_000, orderCount: 1, quantity: 1 },
-      { productKey: 'prd_A', productName: '통계상품A', revenue: 30_000, orderCount: 2, quantity: 3 },
-    ],
+    bottomProducts: [{ productKey: 'prd_B2', productName: '통계상품B2', revenue: 500, orderCount: 1, quantity: 1 }],
     unsoldProducts: [{ productKey: 'prd_A3', productName: '통계상품A3', basePrice: 10_000 }],
     stockTurnover: [
       { productKey: 'prd_A2', productName: '통계상품A2', inboundQuantity: 0, soldQuantity: 1, availableQuantity: 0, depletionDays: 0 },
@@ -80,7 +77,7 @@ describe('셀러 상품 통계 페이지', () => {
     expect(wrapper.find('[data-testid="soldout-card-link"]').text()).toContain('현재 시점(기간과 무관)')
     expect(wrapper.findAll('[data-testid="product-top-row-linkable"]')).toHaveLength(1)
     expect(wrapper.findAll('[data-testid="product-top-row"]')).toHaveLength(1)
-    expect(wrapper.findAll('[data-testid="product-bottom-name"]').map((node) => node.text())).toEqual(['삭제상품', '통계상품A'])
+    expect(wrapper.findAll('[data-testid="product-bottom-name"]').map((node) => node.text())).toEqual(['통계상품B2'])
     expect(wrapper.findAll('[data-testid="product-unsold-row"]')).toHaveLength(1)
     expect(wrapper.findAll('[data-testid="product-turnover-depletion"]').map((node) => node.text())).toEqual(['재고 없음', '52일', '판매 없음'])
     expect(wrapper.find('[data-testid="product-turnover-period"]').text()).toContain('30일 기준')
@@ -99,12 +96,13 @@ describe('셀러 상품 통계 페이지', () => {
     expect(callsTo(PRODUCTS_PATH)[0]?.[1]).toEqual({ params: { from: '2026-03-01', to: '2026-03-31' } })
   })
 
-  it('빈 상태: 표 4 빈 배열·품절 0/0 → 각 빈 문구 + 전체 빈 안내 · 품절 캡션 "판매 중 옵션 없음"', async () => {
+  it('빈 상태: 표 4 빈 배열·품절 0/0 → 각 빈 문구(하위는 "상위 표에 포함" 안내) + 전체 빈 안내 · 품절 캡션 "판매 중 옵션 없음"', async () => {
     apiMock.mockImplementation(() => Promise.resolve(statsResponse({ topProducts: [], bottomProducts: [], unsoldProducts: [], stockTurnover: [], soldOutOptionCount: 0, saleOptionCount: 0 })))
     const wrapper = await mountPage()
     expect(wrapper.find('[data-testid="products-all-empty"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="product-top-empty"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="product-bottom-empty"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="product-bottom-empty"]').text()).toBe('판매 상품이 모두 상위 표에 포함되어 있습니다')
+    expect(wrapper.find('[data-testid="product-top-empty"]').text()).toBe('데이터 없음')
     expect(wrapper.find('[data-testid="product-unsold-empty"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="product-turnover-empty"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="soldout-card-link"]').text()).toContain('판매 중 옵션 없음')

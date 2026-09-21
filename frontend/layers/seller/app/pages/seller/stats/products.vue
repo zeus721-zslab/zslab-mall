@@ -89,6 +89,8 @@ const turnover = computed(() => stockTurnoverRows(stats.value?.stockTurnover ?? 
 const soldOutText = computed(() => soldOutCaption(stats.value))
 const allEmpty = computed(() => isProductStatsEmpty(stats.value))
 const periodDays = computed(() => stats.value?.periodDays ?? null)
+/** 판매 상품이 10 이하면 하위 표는 비어 있다(BE가 상위 10을 제외·D-200 보정). */
+const BOTTOM_EMPTY_TEXT = '판매 상품이 모두 상위 표에 포함되어 있습니다'
 
 /** 상품 행 → 셀러 상품 상세(back=현재 통계 URL·resolveBackPath 허용 목록 SELLER_STATS_PRODUCTS_PATH). */
 function openProduct(key: string | null): void {
@@ -153,7 +155,7 @@ function openProduct(key: string | null): void {
         <SellerProductRankTable title="판매 상위" description="기간 내 결제 완료 내 품목 매출 기준 상위 10개(주문 시점 상품명)." :rows="topRows" testid="product-top" @open="(row) => openProduct(row.key)" />
       </v-col>
       <v-col cols="12" lg="6">
-        <SellerProductRankTable title="판매 하위" description="기간 내 판매가 1건 이상인 상품 중 매출 하위 10개(판매 0은 아래 미판매 표)." :rows="bottomRows" testid="product-bottom" @open="(row) => openProduct(row.key)" />
+        <SellerProductRankTable title="판매 하위" description="상위 10에 들지 않은 판매 상품(판매 1건 이상) 중 매출 하위 10개(판매 0은 아래 미판매 표)." :rows="bottomRows" testid="product-bottom" :empty-text="BOTTOM_EMPTY_TEXT" @open="(row) => openProduct(row.key)" />
       </v-col>
     </v-row>
 

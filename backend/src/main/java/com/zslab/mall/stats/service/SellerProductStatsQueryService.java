@@ -63,10 +63,11 @@ public class SellerProductStatsQueryService {
                         row.getOrderCount(), row.getQuantity()))
                 .toList();
         List<SellerProductRankResponse> top = ranked.stream().limit(RANK_LIMIT).toList();
-        // 하위 = 판매 1건 이상 상품을 역순(매출 ASC·동률 productId DESC)으로 — 판매 0 상품은 미판매로 분리한다
-        List<SellerProductRankResponse> reversed = new ArrayList<>(ranked);
-        Collections.reverse(reversed);
-        List<SellerProductRankResponse> bottom = reversed.stream().limit(RANK_LIMIT).toList();
+        // 하위 = 상위 10에 들지 않은 나머지(11번째 이후)를 역순(매출 ASC·동률 productId DESC)으로 최대 10 — 상위와 교집합 0.
+        // 판매 0 상품은 미판매로 분리한다. 판매 상품이 10 이하면 하위는 빈 목록(FE 안내 문구).
+        List<SellerProductRankResponse> rest = new ArrayList<>(ranked.subList(Math.min(RANK_LIMIT, ranked.size()), ranked.size()));
+        Collections.reverse(rest);
+        List<SellerProductRankResponse> bottom = rest.stream().limit(RANK_LIMIT).toList();
 
         List<SellerUnsoldProductResponse> unsold = sellerStatsRepository
                 .findUnsoldProducts(sellerId, ProductStatus.SALE, period.start(), period.end()).stream()

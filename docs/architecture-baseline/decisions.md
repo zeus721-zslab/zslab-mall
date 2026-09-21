@@ -11829,7 +11829,7 @@ gateway nginx가 2026-09-18부터 `location ^~ /api/webhooks { return 404; }`로
 
 정의 확정표(STEP 816·`GET /api/v1/seller/stats/products?from&to`·365일·비교/버킷 없음):
 - 판매 상위(상품): `aggregateByProductInSeller` 재사용(order_item.seller_id·paid_at·매출 DESC·동률 productId ASC) 상위 10·revenue/orderCount(DISTINCT)/quantity·이름 = product_name 스냅샷·삭제 상품은 key null(행 유지).
-- 판매 하위(상품): 같은 집합(판매 1건 이상)의 역순(매출 ASC·동률 productId DESC) 하위 10 — 판매 0은 미판매로 분리.
+- 판매 하위(상품): **상위 10에 들지 않은 나머지(11번째 이후)**를 역순(매출 ASC·동률 productId DESC)으로 최대 10 — 상위와 교집합 0·판매 상품이 10 이하면 빈 목록(FE "판매 상품이 모두 상위 표에 포함되어 있습니다")·판매 0은 미판매로 분리. (보정 2026-09-21: 최초 구현은 같은 집합의 역순이라 판매 상품 ≤ 20이면 상위와 겹쳐 같은 상품이 두 표에 나왔다 → 집계 1회 조회·subList로 분리·쿼리 추가 없음. IT T11 5/15/25건 교집합 0.)
 - 미판매(상품): product.seller_id·status = SALE(다른 상태 제외)·@SQLRestriction 삭제 제외·기간 내 paid_at 품목 0(NOT EXISTS)·이름 = 현행 product.name·basePrice·id ASC.
 - 재고 회전(**상품 단위 합산** — 상위/하위/미판매 표와 단위 일치·옵션별 상세는 셀러 재고 화면이 이미 제공): 대상 SALE 상품 · 입고 = inventory_history INBOUND quantity_delta 합(created_at ∈ 기간·inventory→variant→product 3홉·product.seller_id 선필터) · 판매 = 기간 결제 order_item quantity 합(결정 9 α·상위 집계 재사용) · 현재 가용 = Σ inventory.quantity_available(삭제 안 된 variant·현재 시점) · 소진 예상일 = **ceil(가용 × 기간일수 ÷ 판매)**(정수 일·올림)·판매 0 → null("판매 없음"·0 나누기 없음)·가용 0 → 0 · 정렬 소진 예상 ASC(null 뒤·동률 public_id).
 - 현재 품절 옵션 수(옵션): product.seller_id·product SALE·variant SALE·삭제 제외·inventory.quantity_available = 0(soldout_manual 무관·**현재 시점·기간 무관**) + 분모 표기용 판매 중 옵션 수.
