@@ -25,7 +25,7 @@ const BREAKDOWN_URL = /\/api\/v1\/seller\/stats\/sales\/breakdown\?/
 const EXPORT_URL = /\/api\/v1\/seller\/stats\/sales\/export\?/
 
 test.describe('셀러 매출 통계(90-E-1)', () => {
-  test('데모 셀러 → 사이드바 통계 매출 활성(주문·클레임·상품 비활성) · 요약 6 = 응답 · 차트 · 분해 행 = 응답 · 정산 링크 · 축 전환(옵션 → breakdown axis=OPTION·URL) · CSV export 200 text/csv', async ({ page }) => {
+  test('데모 셀러 → 사이드바 통계 매출 활성(상품 비활성) · 요약 6 = 응답 · 차트 · 분해 행 = 응답 · 정산 링크 · 축 전환(옵션 → breakdown axis=OPTION·URL) · CSV export 200 text/csv', async ({ page }) => {
     await page.goto('/seller/login')
     await page.waitForLoadState('networkidle')
     const demoButton = page.getByTestId('seller-demo-login')
@@ -34,10 +34,10 @@ test.describe('셀러 매출 통계(90-E-1)', () => {
     await page.waitForURL(/\/seller$/)
     await page.setViewportSize({ width: 1440, height: 900 })
 
-    // 사이드바: 통계 그룹 매출만 링크·나머지 2개 비활성 → 클릭으로 진입
+    // 사이드바: 통계 그룹 매출·주문클레임 링크·상품 비활성 → 매출 클릭으로 진입
     const sidebar = page.getByTestId('seller-sidebar')
     await expect(sidebar.locator('a[href="/seller/stats/sales"]')).toHaveCount(1)
-    await expect(sidebar.locator('.v-list-item--disabled')).toHaveCount(2)
+    await expect(sidebar.locator('.v-list-item--disabled')).toHaveCount(1)
     const statsResponse = page.waitForResponse((response) => STATS_URL.test(response.url()) && response.status() === 200)
     const breakdownResponse = page.waitForResponse((response) => BREAKDOWN_URL.test(response.url()) && response.status() === 200)
     await sidebar.locator('a[href="/seller/stats/sales"]').click()
@@ -48,7 +48,7 @@ test.describe('셀러 매출 통계(90-E-1)', () => {
 
     // 통계 탭: 매출 선택·나머지 비활성
     await expect(page.getByTestId('seller-stats-tab-/seller/stats/sales')).toHaveClass(/v-tab--selected/)
-    await expect(page.getByTestId('seller-stats-tabs').locator('.v-tab--disabled, .v-btn--disabled')).toHaveCount(2)
+    await expect(page.getByTestId('seller-stats-tabs').locator('.v-tab--disabled, .v-btn--disabled')).toHaveCount(1)
 
     // 요약 6: 카드 값 = 응답 숫자를 화면 포맷으로 변환한 문자열과 정확 일치(셀러 파라미터 없이 리졸버가 식별한 셀러의 값)
     const summary = page.getByTestId('sales-summary')

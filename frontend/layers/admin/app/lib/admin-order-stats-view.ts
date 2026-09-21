@@ -9,10 +9,26 @@ import type {
   AdminOrderLeadTime,
   AdminOrderStatsResponse,
 } from '#layers/admin/app/types/admin-order-stats'
-import { CLAIM_REASON_LABELS, CLAIM_TYPE_LABELS, type ClaimReasonCode, type ClaimType } from '~/lib/constants/claim'
 import { changeChipClass, changeRate, formatChangeRate, type AdminChartSeries } from '#layers/admin/app/lib/admin-dashboard-view'
 import { salesChangeTone, axisLabel, formatCount } from '#layers/admin/app/lib/admin-sales-stats-view'
 import { formatWon } from '#layers/admin/app/lib/format'
+import { compareRefundRateSeries, formatHours, formatPercent, formatRate, isZeroClaimBucket, LEAD_TIME_EMPTY, percentOf } from '~/lib/stats-view'
+
+// 소요시간 포맷·비율 표기·후행 0 절단·분포 라벨/행은 셀러 주문클레임 통계와 공용이라 app/lib/stats-view.ts로 이동(FE-52 90-E-2)·기존 이름 re-export
+export {
+  formatRate,
+  formatPercent,
+  formatHours,
+  LEAD_TIME_EMPTY,
+  isZeroClaimBucket,
+  compareRefundRateSeries,
+  isClaimTrendEmpty,
+  claimTypeLabel,
+  claimReasonLabel,
+  claimTypeRows,
+  claimReasonRows,
+} from '~/lib/stats-view'
+export type { DistributionRowView } from '~/lib/stats-view'
 
 /**
  * 주문·클레임 통계 표시 규칙 순수 함수(FE-35·admin-sales-stats-view 패턴). 응답 정규화·퍼널 도달률/이탈률·소요시간 포맷(24h 경계)·
@@ -75,10 +91,6 @@ export interface FunnelStageView {
 const PERCENT = 100
 const RATE_FRACTION_DIGITS = 1
 
-function percent(numerator: number, denominator: number): number {
-  return denominator === 0 ? 0 : (numerator / denominator) * PERCENT
-}
-
 /** 4단계 도달률(결제 대비)·이탈률(직전 대비). 비율은 FE 계산(D-182·BE는 건수만). */
 export function funnelStages(funnel: AdminOrderFunnel | null): FunnelStageView[] {
   return FUNNEL_STAGES.map((stage, index) => {
@@ -89,32 +101,13 @@ export function funnelStages(funnel: AdminOrderFunnel | null): FunnelStageView[]
       key: stage.key,
       label: stage.label,
       count,
-      reachRate: index === 0 && first > 0 ? PERCENT : percent(count, first),
-      dropRate: previous === null || previous === 0 ? null : percent(previous - count, previous),
+      reachRate: index === 0 && first > 0 ? PERCENT : percentOf(count, first),
+      dropRate: previous === null || previous === 0 ? null : percentOf(previous - count, previous),
     }
   })
 }
 
-export function formatRate(rate: number | null): string {
-  return rate === null ? '—' : `${rate.toFixed(RATE_FRACTION_DIGITS)}%`
-}
-
 // ---------- 소요시간 ----------
-
-const HOURS_PER_DAY = 24
-const HOURS_FRACTION_DIGITS = 1
-
-/** 24h 미만은 "N.N시간", 이상은 "N일 M시간"(시간은 반올림·24시간 올림 시 일 증가). */
-export function formatHours(hours: number): string {
-  if (hours < HOURS_PER_DAY) return `${hours.toFixed(HOURS_FRACTION_DIGITS)}시간`
-  let days = Math.floor(hours / HOURS_PER_DAY)
-  let remainder = Math.round(hours - days * HOURS_PER_DAY)
-  if (remainder === HOURS_PER_DAY) {
-    days += 1
-    remainder = 0
-  }
-  return remainder === 0 ? `${days}일` : `${days}일 ${remainder}시간`
-}
 
 export type LeadTimeKey = keyof NormalizedOrderStats['leadTime']
 
@@ -133,8 +126,6 @@ export interface LeadTimeCardView {
   caption: string
   empty: boolean
 }
-
-export const LEAD_TIME_EMPTY = '데이터 없음'
 
 export function leadTimeCards(leadTime: NormalizedOrderStats['leadTime'] | null): LeadTimeCardView[] {
   return (Object.keys(LEAD_TIME_LABELS) as LeadTimeKey[]).map((key) => {
@@ -162,10 +153,6 @@ export interface StatsSummaryCardView {
   compareValue: string | null
   rateText: string
   rateClass: string
-}
-
-export function formatPercent(value: number): string {
-  return `${value.toFixed(2)}%`
 }
 
 /** 클레임 요약 4장(건수·클레임률·환불액·환불률·전부 증가가 부정이라 톤 반전). 비교 없으면 배지 "—". */
@@ -201,22 +188,6 @@ const DASH_SOLID = 0
 const DASH_COMPARE = 5
 const LINE_WIDTH = 2
 const MAX_X_TICKS = 12
-
-export function isZeroClaimBucket(bucket: AdminClaimTrendBucket): boolean {
-  return bucket.claimCount === 0 && bucket.refundAmount === 0 && bucket.refundCount === 0
-}
-
-/** 비교 환불률 계열. BE가 뒤를 0으로 채우므로 후행 0 구간만 null로 끊는다(FE-34 compareNetSeries와 동일 규칙). */
-export function compareRefundRateSeries(compareTrend: AdminClaimTrendBucket[] | null, length: number): (number | null)[] | null {
-  if (compareTrend === null) return null
-  const trimmed = compareTrend.slice(0, length)
-  const values: (number | null)[] = trimmed.map((bucket) => bucket.refundRate)
-  for (let index = trimmed.length - 1; index >= 0 && isZeroClaimBucket(trimmed[index]!); index--) {
-    values[index] = null
-  }
-  while (values.length < length) values.push(null)
-  return values
-}
 
 export interface OrderChartSpec {
   series: AdminChartSeries
@@ -270,36 +241,7 @@ export function claimTrendChart(trend: AdminClaimTrendBucket[], compareTrend: Ad
   }
 }
 
-export function isClaimTrendEmpty(trend: AdminClaimTrendBucket[]): boolean {
-  return trend.every(isZeroClaimBucket)
-}
-
 // ---------- 분포 ----------
-
-export interface DistributionRowView {
-  key: string
-  label: string
-  count: number
-  share: number
-}
-
-/** 유형 라벨(단일 소스 claim.ts). */
-export function claimTypeLabel(type: ClaimType): string {
-  return CLAIM_TYPE_LABELS[type] ?? type
-}
-
-/** 사유 라벨. BE reason_code는 무제약 VARCHAR라 enum 밖 값은 원문 그대로 표기한다(D-182). */
-export function claimReasonLabel(code: string): string {
-  return CLAIM_REASON_LABELS[code as ClaimReasonCode] ?? code
-}
-
-export function claimTypeRows(rows: AdminClaimTypeShare[]): DistributionRowView[] {
-  return rows.map((row) => ({ key: row.type, label: claimTypeLabel(row.type), count: row.count, share: row.share }))
-}
-
-export function claimReasonRows(rows: AdminClaimReasonShare[]): DistributionRowView[] {
-  return rows.map((row) => ({ key: row.reasonCode, label: claimReasonLabel(row.reasonCode), count: row.count, share: row.share }))
-}
 
 // ---------- 도넛 ----------
 

@@ -1,9 +1,10 @@
 import type { StatsCompare } from '~/lib/constants/stats'
-import type { SalesStatsResponse, SalesSummary, SalesTrendBucket } from '~/types/stats'
+import { CLAIM_REASON_LABELS, CLAIM_TYPE_LABELS, type ClaimReasonCode, type ClaimType } from '~/lib/constants/claim'
+import type { ClaimReasonShare, ClaimTrendBucket, ClaimTypeShare, SalesStatsResponse, SalesSummary, SalesTrendBucket } from '~/types/stats'
 
 /**
- * 통계 표시 규칙 순수 함수 공용(Track 90-E-1·FE-52·관리자 admin-dashboard-view·admin-sales-stats-view에서 동작 무변경으로 이동·관리자는
- * re-export). 증감률·톤, 응답 정규화, 비교 추이 후행 0 절단, x축 라벨, 분해 행 정렬, CSV 파일명 추출처럼 레이어 CSS·색·라우트에 묶이지 않는
+ * 통계 표시 규칙 순수 함수 공용(Track 90-E-1·FE-52·90-E-2·관리자 admin-dashboard-view·admin-sales-stats-view·admin-order-stats-view에서 동작
+ * 무변경으로 이동·관리자는 re-export). 증감률·톤, 응답 정규화, 비교 추이 후행 0 절단, x축 라벨, 분해 행 정렬, CSV 파일명 추출처럼 레이어 CSS·색·라우트에 묶이지 않는
  * 것만 둔다. 배지 CSS 클래스(adm-chip/slr-chip)·차트 색·카드 정의는 각 레이어가 가진다.
  */
 
@@ -153,4 +154,84 @@ export function csvFileNameFrom(contentDisposition: string | null): string {
   }
   const plain = /filename="([^"]+)"/i.exec(contentDisposition) ?? /filename=([^;]+)/i.exec(contentDisposition)
   return plain?.[1]?.trim() || CSV_DEFAULT_NAME
+}
+
+// ---------- 주문·클레임(90-E-2·관리자 admin-order-stats-view에서 이동) ----------
+
+const PERCENT_FRACTION_DIGITS = 2
+const HOURS_PER_DAY = 24
+const HOURS_FRACTION_DIGITS = 1
+
+/** 도달률·이탈률 표기(소수 1자리·null은 "—"). */
+export function formatRate(rate: number | null): string {
+  return rate === null ? '—' : `${rate.toFixed(RATE_FRACTION_DIGITS)}%`
+}
+
+/** 비율 표기(소수 2자리·클레임률·환불률·비중). */
+export function formatPercent(value: number): string {
+  return `${value.toFixed(PERCENT_FRACTION_DIGITS)}%`
+}
+
+/** 24h 미만은 "N.N시간", 이상은 "N일 M시간"(시간은 반올림·24시간 올림 시 일 증가). */
+export function formatHours(hours: number): string {
+  if (hours < HOURS_PER_DAY) return `${hours.toFixed(HOURS_FRACTION_DIGITS)}시간`
+  let days = Math.floor(hours / HOURS_PER_DAY)
+  let remainder = Math.round(hours - days * HOURS_PER_DAY)
+  if (remainder === HOURS_PER_DAY) {
+    days += 1
+    remainder = 0
+  }
+  return remainder === 0 ? `${days}일` : `${days}일 ${remainder}시간`
+}
+
+export const LEAD_TIME_EMPTY = '데이터 없음'
+
+/** 분자/분모 × 100(분모 0이면 0). 퍼널 도달률·이탈률용. */
+export function percentOf(numerator: number, denominator: number): number {
+  return denominator === 0 ? 0 : (numerator / denominator) * 100
+}
+
+export function isZeroClaimBucket(bucket: ClaimTrendBucket): boolean {
+  return bucket.claimCount === 0 && bucket.refundAmount === 0 && bucket.refundCount === 0
+}
+
+/** 비교 환불률 계열. BE가 뒤를 0으로 채우므로 후행 0 구간만 null로 끊는다(compareNetSeries와 동일 규칙). */
+export function compareRefundRateSeries(compareTrend: ClaimTrendBucket[] | null, length: number): (number | null)[] | null {
+  if (compareTrend === null) return null
+  const trimmed = compareTrend.slice(0, length)
+  const values: (number | null)[] = trimmed.map((bucket) => bucket.refundRate)
+  for (let index = trimmed.length - 1; index >= 0 && isZeroClaimBucket(trimmed[index]!); index--) {
+    values[index] = null
+  }
+  while (values.length < length) values.push(null)
+  return values
+}
+
+export function isClaimTrendEmpty(trend: ClaimTrendBucket[]): boolean {
+  return trend.every(isZeroClaimBucket)
+}
+
+export interface DistributionRowView {
+  key: string
+  label: string
+  count: number
+  share: number
+}
+
+/** 유형 라벨(단일 소스 claim.ts). */
+export function claimTypeLabel(type: ClaimType): string {
+  return CLAIM_TYPE_LABELS[type] ?? type
+}
+
+/** 사유 라벨. BE reason_code는 무제약 VARCHAR라 enum 밖 값은 원문 그대로 표기한다(D-182). */
+export function claimReasonLabel(code: string): string {
+  return CLAIM_REASON_LABELS[code as ClaimReasonCode] ?? code
+}
+
+export function claimTypeRows(rows: ClaimTypeShare[]): DistributionRowView[] {
+  return rows.map((row) => ({ key: row.type, label: claimTypeLabel(row.type), count: row.count, share: row.share }))
+}
+
+export function claimReasonRows(rows: ClaimReasonShare[]): DistributionRowView[] {
+  return rows.map((row) => ({ key: row.reasonCode, label: claimReasonLabel(row.reasonCode), count: row.count, share: row.share }))
 }

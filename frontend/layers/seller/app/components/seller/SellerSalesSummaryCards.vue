@@ -50,8 +50,8 @@ const compareLabel = computed(() => (props.compare === 'NONE' ? '비교 없음' 
           :label="card.label"
           :value="card.value"
           :caption="card.compareValue ? `비교 기간 ${card.compareValue}` : EMPTY_CAPTION"
-          :icon="ICONS[card.key]"
-          :color="COLORS[card.key]"
+          :icon="ICONS[card.key as SellerSalesSummaryKey]"
+          :color="COLORS[card.key as SellerSalesSummaryKey]"
           class="h-100"
         >
           <v-chip :class="card.rateClass" size="x-small" variant="flat" :title="compareLabel" data-testid="sales-card-rate">{{ card.rateText }}</v-chip>

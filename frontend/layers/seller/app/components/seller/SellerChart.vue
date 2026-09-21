@@ -12,8 +12,9 @@ import { defineAsyncComponent } from 'vue'
  * 그래서 options가 바뀌면 key를 올려 컴포넌트를 다시 마운트시켜 항상 init 경로(함수 보존)로 그린다(애니메이션은 옵션에서 꺼 두어 비용 없음).
  */
 const props = defineProps<{
-  type: 'bar' | 'area' | 'line'
-  series: SellerChartSeries
+  type: 'bar' | 'area' | 'line' | 'donut'
+  /** 도넛은 number[](관리자 AdminChart 동일). */
+  series: SellerChartSeries | number[]
   options: ApexOptions
   height?: number
 }>()

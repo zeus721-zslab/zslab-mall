@@ -49,8 +49,9 @@ export const SELLER_SALES_SUMMARY_CARDS: SellerSalesSummaryCardSpec[] = [
   { key: 'itemQuantity', label: '판매수량', format: (value) => formatCount(value, '개'), inverse: false },
 ]
 
-export interface SellerSalesSummaryCardView {
-  key: SellerSalesSummaryKey
+/** 요약 카드 뷰(매출·클레임 공용·key는 카드별 문자열). */
+export interface SellerStatsSummaryCardView {
+  key: string
   label: string
   value: string
   compareValue: string | null
@@ -59,7 +60,7 @@ export interface SellerSalesSummaryCardView {
 }
 
 /** 카드 뷰 6장. 비교 없음(compareSummary null)이면 배지 "—"·회색·비교값 없음. */
-export function sellerSalesSummaryCards(summary: SellerSalesSummary | null, compareSummary: SellerSalesSummary | null): SellerSalesSummaryCardView[] {
+export function sellerSalesSummaryCards(summary: SellerSalesSummary | null, compareSummary: SellerSalesSummary | null): SellerStatsSummaryCardView[] {
   return SELLER_SALES_SUMMARY_CARDS.map((card) => {
     const current = summary ? summary[card.key] : null
     const previous = compareSummary ? compareSummary[card.key] : null

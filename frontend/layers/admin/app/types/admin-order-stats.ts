@@ -1,5 +1,3 @@
-import type { ClaimType } from '~/lib/constants/claim'
-
 /**
  * 관리자 주문·클레임 통계 API 타입(FE-35·D-182 `GET /api/v1/admin/stats/orders` 응답 1:1·backend stats/controller/response 실측).
  * BE는 전역 NON_NULL 직렬화라 compareClaimSummary·compareClaimTrend·leadTime 각 구간(표본 0)은 값이 null이면 <b>키 자체가 생략</b>된다
@@ -17,50 +15,21 @@ export interface AdminOrderFunnel {
   returnedItems: number
 }
 
-export interface AdminLeadTimeMetric {
-  avgHours: number
-  medianHours: number
-  count: number
-}
+// 소요시간·클레임 요약·추이·분포 타입은 셀러 주문클레임 통계와 같은 BE record라 app/types/stats.ts로 이동(FE-52 90-E-2)·기존 이름으로 re-export
+export type {
+  LeadTimeMetric as AdminLeadTimeMetric,
+  ClaimSummary as AdminClaimSummary,
+  ClaimTrendBucket as AdminClaimTrendBucket,
+  ClaimTypeShare as AdminClaimTypeShare,
+  ClaimReasonShare as AdminClaimReasonShare,
+} from '~/types/stats'
+import type { LeadTimeMetric as AdminLeadTimeMetric, ClaimSummary as AdminClaimSummary, ClaimTrendBucket as AdminClaimTrendBucket, ClaimTypeShare as AdminClaimTypeShare, ClaimReasonShare as AdminClaimReasonShare } from '~/types/stats'
 
 /** 각 구간은 표본 0이면 생략(null). */
 export interface AdminOrderLeadTime {
   paidToShipped?: AdminLeadTimeMetric | null
   shippedToDelivered?: AdminLeadTimeMetric | null
   claimRequestedToClosed?: AdminLeadTimeMetric | null
-}
-
-export interface AdminClaimSummary {
-  claimCount: number
-  claimRate: number
-  refundAmount: number
-  refundRate: number
-  refundCount: number
-  paidItemCount: number
-}
-
-/** bucketKey·bucketLabel 규약은 매출 추이와 같다(주는 주 시작일 라벨). */
-export interface AdminClaimTrendBucket {
-  bucketKey: string
-  bucketLabel: string
-  claimCount: number
-  claimRate: number
-  refundAmount: number
-  refundRate: number
-  refundCount: number
-}
-
-export interface AdminClaimTypeShare {
-  type: ClaimType
-  count: number
-  share: number
-}
-
-/** reasonCode는 DB 무제약 VARCHAR라 enum 외 값도 원문으로 온다(FE 라벨 매핑·미매핑 원문 표기). */
-export interface AdminClaimReasonShare {
-  reasonCode: string
-  count: number
-  share: number
 }
 
 export interface AdminOrderStatsResponse {
