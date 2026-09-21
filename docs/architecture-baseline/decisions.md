@@ -11770,3 +11770,42 @@ gateway nginx가 2026-09-18부터 `location ^~ /api/webhooks { return 404; }`로
 ### §8 이월
 - 동일 계좌 중복 검출(HMAC blind index·D-188 §8) · 계좌 실명인증 연동 · 계좌 삭제 API — D-188 §8 그대로.
 - `AdminSellerQueryService.toBankAccount`의 끝 4자리 substring이 엔티티 `accountNumberSuffix()`와 중복 구현(동작 동일·정리만 이월).
+
+## D-200. 셀러 통계 3탭 설계 결정 · 매출 통계 API (Track 90-E · 90-E-1)
+
+날짜: 2026-09-21
+브랜치: feat/track-90e-seller-stats(90-E-2·3 계속 적재)
+정찰: docs/track-90e/recon-report.md(로컬·STEP 792~796)
+
+### 배경
+셀러 사이드바 "통계" 그룹(매출·주문클레임·상품)이 placeholder였다. 정찰 실측: (1) 관리자 매출 요약·추이는 `Order` 루트 `order.total_price` 합(`AdminSalesStatsRepository.sumSales·sumSalesByBucket`)이라 혼합 주문(로컬 20/149)에서 타 셀러 몫·배송비·할인이 섞이고, D-192 §1-A 4가 관리자 리포지토리 sellerId 주입을 이미 기각 (2) 수수료율은 `order_item.commission_rate`(bp) 스냅샷·정산은 CONFIRMED·confirmed_at·월 단위(`SettlementCreationService`)라 paid_at 축 통계와 항등 불가 (3) 옵션 축 없음(variant_id·option_label 스냅샷은 존재) (4) 품절 진입 이벤트 기록 없음(`inventory_history`는 델타만) (5) 관리자 기간 상한 없음·셀러 대시보드 92일 (6) `StatsPeriod·StatsBuckets·LeadTimeCalculator`는 package-private (7) 통계 FE는 전부 layers/admin(no-admin-import).
+
+### 결정(90-E 전체 1~7)
+1. **BE = 셀러 전용 `SellerStatsRepository`(`Repository<OrderItem, Long>` 마커·order_item 루트) 신설.** 관리자 헬퍼(`StatsPeriod`·`StatsBuckets`·`LeadTimeCalculator`)는 셀러 서비스를 같은 패키지(`stats.service`)에 두어 가시성 변경 없이 재사용. 관리자 `aggregateByProductInSeller`(이미 order_item.seller_id 필터)만 그대로 재사용. 관리자 통계 BE 파일 무수정.
+2. **수수료·정산예정액 열 제외** → 요약 영역에 "정산 내역 보기" 링크(`/seller/settlements`)만.
+3. **매출·주문수·객단가 정의 = 셀러 대시보드(D-192)**: 매출 = 결제완료(paid_at) 주문의 자기 품목 `total_price` 합 · 주문수 = COUNT(DISTINCT order) · 객단가 = 매출/주문수 · 판매수량 = 자기 품목 quantity 합 · 환불 = COMPLETED·refunded_at·Refund→Claim→OrderItem 2단 조인.
+4. **옵션 축 = `order_item.variant_id` 그룹 · 이름 = "상품명 / 옵션라벨" 스냅샷**(단순상품 `(옵션 없음)`) · key = variant public_id. 카테고리 축은 관리자와 같은 product.category_id 현행 경유(D-181 안내 문구 재사용).
+5. **기간 상한 365일**(초과·from>to 400 MALFORMED_REQUEST) · 셀러 식별은 리졸버만(요청 파라미터로 셀러 지정 불가) · GET이라 SUSPENDED 조회 허용(D-190).
+6. **FE: 상수·순수 함수만 app/lib 공용 이동 + admin re-export · 컴포넌트는 셀러 레이어 복제**(FE-52).
+7. (90-E-2·3용 선결정) 주문클레임 분모 α(셀러 품목 매출) · 미판매 = SALE 상태만 · 품절 발생 횟수 → "현재 품절 옵션 수" 대체 · 재고 회전 판매 소스 = 결제 order_item 수량.
+
+### 90-E-1 API 계약
+- `GET /api/v1/seller/stats/sales?from&to&unit=DAY|WEEK|MONTH&compare=NONE|PREVIOUS|YEAR_AGO` → `SellerSalesStatsResponse{summary, compareSummary?, trend[], compareTrend?}`(요약·추이 record는 관리자 `SalesSummaryResponse`·`SalesTrendBucketResponse` 재사용·비교 null 규약 D-181 동일).
+- `GET /api/v1/seller/stats/sales/breakdown?from&to&compare&axis=PRODUCT|OPTION|CATEGORY` → `SellerSalesBreakdownResponse{axis, totalRevenue, rows[{key?, name?, revenue, share, orderCount, quantity, compareRevenue?}]}`(드릴다운·parentKey·drillable 없음).
+- `GET /api/v1/seller/stats/sales/export?…(breakdown과 동일)` → `text/csv;charset=UTF-8`·BOM·`Content-Disposition filename+filename*`(관리자 D-181 α 관례·`SellerSalesBreakdownCsvWriter` 별도·열 7 동일).
+
+### §1-A 갈림길·채택/기각 근거
+- **리포지토리 — α 관리자 리포지토리에 sellerId 인자 주입 【기각: 주문 루트라 order.total_price(타 셀러 몫·배송비·할인) 혼입·주문클레임 12쿼리 중 8은 조인 추가·재작성이라 관리자 쿼리 형태가 바뀜·D-192 정합】 / β 셀러 전용 신설 + 헬퍼·projection 공유 【채택】**.
+- **수수료 열 — α 예상치(Σ floor(total_price×rate/10000)·결제 기준) 【기각】 / β 정산 행 읽기(월 단위·배치 후만) 【기각】 / γ 정산 산식(CONFIRMED·confirmed_at) 통계 기간 재현 【기각】 / δ 열 제외 + 정산 내역 링크 【채택】** — α·γ는 정산과 항등 불가(축·상태·환불 차감·경계 5지점)라 셀러 혼선·민원 위험, β는 월 경계 밖 기간에 표기 불가. 정산 금액의 SoT는 정산 화면 하나로 둔다.
+- **기간 상한 — 92일(대시보드 통일) 【기각: ytd·연간 추이 불가】 / 무제한(관리자 동일) 【기각: 셀러 조건 쿼리라도 연 단위 초과 범위는 불필요】 / 365일 【채택】**.
+- **품절 발생 횟수 — 산출 불가(이벤트 기록 없음) → 현재 품절 옵션 수 대체 【채택】 / 지표 제거 【기각: 재고 탭에 품절 현황 자체는 유용】 / inventory_history 델타 누적 0 도달 카운트 【기각: 예약 미기록·ADJUST 혼재로 부정확】**.
+- **옵션 이름 — 스냅샷(option_label) 【채택】 / 현행 variant 조회 【기각: 옵션 수정·삭제 시 과거 집계 표기 변동】**.
+
+### §2 확정 구현 규칙(90-E-1)
+- 신규 main 8: `stats/enums/SellerStatsAxis` · `stats/repository/SellerStatsRepository`(sumSales·sumRefund·sumSalesByBucket·sumRefundByBucket·aggregateByOption·aggregateByCategory·JPQL·:바인딩만) + projection 2(`SellerSalesTotalsProjection`·`SellerSalesOptionProjection`) · `stats/service/SellerSalesStatsQueryService`(MAX_PERIOD_DAYS=365·`AdminSalesStatsQueryService` 흐름 복제) · `SellerSalesBreakdownCsvWriter` · `stats/controller/SellerSalesStatsQueryController` · response 3 record. 관리자 파일 수정 0 · Flyway 0 · `SellerWriteMappingRegistryTest` 무영향(GET만).
+- IT `SellerSalesStatsQueryControllerIntegrationTest` 12(T1 3 endpoint 401/403/200 · T2 혼합 주문 격리(A+B ≠ order.total_price·타 셀러 상품·품목 0·빈 셀러 0) · T3 `/seller/dashboard` 같은 기간 요약 항등 · T4 경계(양끝 포함·365 OK/366 400·from>to·형식·축 SELLER·unit HOUR 400) · T5 비교 PREVIOUS/YEAR_AGO/NONE/데이터 0 생략 · T6 DAY 31/WEEK ISO 6/MONTH 1 · T7 축 3종(스냅샷 이름·public_id·비중·옵션 "상품명 / 라벨"·(옵션 없음)·카테고리 현행명·타 셀러 미합산) · T8 CSV(헤더·BOM·filename*·행 2) · T9 키 화이트리스트 + 관리자 전용 키(parentKey·drillable) 금지 · T10 SUSPENDED 200 · T11 PENDING/TERMINATED 401).
+- 검증(실측): gradlew --rerun-tasks 232파일 **1355·0 fail·0 error·0 skip**(1343 + 12) · 단독 12/12 첫 실행 GREEN. 관리자 매출 IT 10·주문/회원 IT 12·셀러 대시보드 IT 11·레지스트리 1 무회귀.
+
+### §8 이월
+- 90-E-2 주문클레임 탭(퍼널·소요시간·클레임률/환불률·사유·클레임 상품별) · 90-E-3 상품 탭(상위/하위·미판매·재고 회전·현재 품절 옵션 수) — 결정 7 적용.
+- refund `refunded_at`·inventory_history `created_at` 인덱스(현 규모 무시·D-180 §8) · `seller_sales_daily` 미사용 read model 폐기 판단(D-180 §8).
