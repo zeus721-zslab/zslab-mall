@@ -2246,3 +2246,33 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 - 테스트: vitest `seller-product-stats-helpers.spec` 5 · `seller-stats-products-page.spec` 5(진입 from·to만·단위/비교 없음·카드·표 4 / 기간 오류·custom / 빈 상태 / 에러·재시도 / 행 이동 3종) · Playwright `seller-stats-products.spec` 1(seller02 실 API·품절 카드·상위/하위·미판매·재고 회전 소진 표기 = 응답·프리셋 7일 재요청).
 - 검증(실측·컨테이너): typecheck EXIT 0 · vitest 91파일 **609**(599 + 10) · no-admin-import 통과 · 재시작 → Playwright 3역할 env 103건: 콜드 100/1 fail(admin-categories ① 콜드 트랩·기존)/2 skip → 웜 **101/103**(2 skip = seller-password env) · 재시작 직후 픽셀 track90e3 12장 track90e2 대비 **diff 0** · 수동 스크린샷 6장 playwright-report/step821-manual(관리자 통계 3탭 + 셀러 통계 3탭·pageerror 0·console error 0) · layers/admin diff 0(90-E-3).
 - 트랩: 컨테이너에서 test/seller 전량을 단독 실행 시 "Hook timed out 10000ms" 1회(콜드 transform 부하·재실행·전량 vitest에서는 재현 없음).
+
+## FE-53: 운영 편의 소규모 개선 묶음 — C-14·16·06·10·12·15·17 (Track 96-1) (2026-09-21)
+
+배경: Track 96 정찰(`docs/track-96/recon-report-ops.md` §7)의 개선 후보 중 "소 비용·B/C 등급" 7건을 한 PR로 묶었다. 원칙: BE는 조회 응답 필드 추가만(상태 전이·쓰기·Flyway 무변경·C-12 1필드 = D-202) · 결정 외 기능 추가 없음 · 운영 데이터를 바꾸는 E2E 실행 없음.
+
+결정(항목별):
+- **C-14 셀러 대시보드 타일**: `PENDING_TILES` 4칸 전부 링크(클레임 `/seller/claims?status=REQUESTED` · 재고 `/seller/products/inventory` · 정산 `/seller/settlements`)·"준비 중" 문구 삭제. `PendingTile.to`는 `string`(null 분기·`div` 폴백 제거).
+- **C-16 사용자 상태 안내**: `claim-timeline.ts`에 `claimStageGuide()`(타임라인과 같은 단계 판정·유형별 1줄: 무엇을 기다리는지·구매자가 할 일) → 클레임 상세 타임라인 아래 `claim-stage-guide`. 주문 상세: DELIVERED 품목 아래 `AUTO_CONFIRM_GUIDE`("배송완료 7일 후 자동 구매확정됩니다.") · PENDING_PAYMENT 헤더 아래 `PAYMENT_EXPIRE_GUIDE`("30분 내 결제되지 않으면 주문이 자동 취소됩니다."). **문구 원칙: 시스템이 실제로 보장하는 기간만**(BE 설정값 = `ReturnWindowPolicy.WINDOW_DAYS=7`·`PaymentService.PENDING_TTL=30분`) — "검수 1~2일" 같은 소요 추정은 넣지 않는다(vitest가 `N일` 패턴 부재를 단언). 값은 `lib/constants/order.ts` 한 곳(`AUTO_CONFIRM_DAYS`·`PAYMENT_EXPIRE_MINUTES`) + 주석에 BE file:line.
+- **C-06 구매확정 버튼**: 주문 상세 DELIVERED 품목에 "구매확정" → **인라인 확인 패널**(경고 "확정 후에는 반품·교환을 신청할 수 없습니다.") → `useOrderActions().confirmPurchase`(POST `/v1/orders/{ord}/items/{oit}/confirm`) → 성공: 재조회 + 인라인 성공 안내 / 실패: 서버 `detail` 우선 인라인 안내 + 재조회(401은 로그인 유도) / `confirming` 플래그로 중복 제출 차단.
+- **C-10 회수 확인 + 검수**: `AdminClaimTable` 검수 버튼을 `CONFIRM_PICKUP` 행에도 노출(outlined) · `AdminClaimInspectDialog` `target.pickupRequired`면 체크박스 "회수 확인 후 검수" 필수 → `confirm-pickup` → `inspect` 순차. confirm-pickup 실패 = 검수 미시작(기존 회수 확인 버튼과 같은 분기). confirm-pickup 성공·inspect 실패 = warning "회수 확인은 반영되었습니다. 검수는 처리되지 않았습니다: …" + `stale`(부모 재조회·행은 INSPECT만 남음). 기존 회수 확인 단독 버튼 유지.
+- **C-12 결제 유실 경고**: `isPaymentCancelLost(payment)` = `PAID && amount > 0 && refundedAmount === amount`(BE `markCancelled` D-71 전액 가드와 같은 조건). 충족 시 결제 행에 warning 배지 "환불 전액 완료·취소 미반영" + "취소 처리" 버튼(**조건부 노출**·기존 PAID 상시 노출 제거). `refundedAmount`는 D-202 신규 응답 필드.
+- **C-15 경과 일수**: 공용 `app/lib/utils/elapsed-days.ts`(`elapsedDays`·`elapsedTone`·`elapsedChip`·임계 `ELAPSED_WARNING_DAYS=3`·`ELAPSED_DANGER_DAYS=7` 한 곳). 관리자·셀러 6표에 `row-elapsed` chip: 클레임 = 진행 중(REQUESTED·APPROVED)만 requestedAt · 출고 대기 = 관리자 주문 PAID·PREPARING(paidAt) / 셀러 품목 PAID(paidAt) · 배송중 = SHIPPING(shippedAt). 톤은 각 레이어 chip 클래스 접미(`adm-chip--`/`slr-chip--` warning·danger·neutral).
+- **C-17 셀러 온보딩 체크리스트**: `sellerOnboardingChecklist(detail)` 4항목(ACTIVE·주 계좌·로그인 가능 구성원·판매중 상품 ≥1) — 기존 응답 필드만(`status`·`warnings.primaryBankAccountMissing`·`members`·`warnings.saleProductCount`) → 관리자 셀러 상세 최상단 카드(`seller-onboarding-{key}` `data-done`). 미충족 항목 "이동" = 같은 화면 카드 scrollIntoView(`seller-info`·`seller-bank-account`·`seller-members`) 또는 상품 목록(셀러 필터) 라우트. TERMINATED는 숨김.
+
+### §1-A 갈림길·채택/기각 근거(대안이 있던 항목만)
+- **C-06 확인 UI — 인라인 패널 【채택】 / `window.confirm`(addresses.vue 선례) 【기각: 경고 문구 스타일·테스트 불가】 / 모달·토스트 컴포넌트 신설 【기각: 구매자 앱에 다이얼로그·토스트 인프라 없음(claims/new 인라인 성공 상태 선례)·1회 사용 추상화】**. 성공·실패 피드백도 같은 이유로 인라인 안내(role=status).
+- **C-10 부분 실패 후 — 같은 다이얼로그에서 inspect만 재시도 【기각: 부모 목록이 stale 상태로 남아 회수 확인 버튼이 계속 보임】 / stale로 닫고 목록 재조회 【채택】**.
+- **C-12 판별 — FE 추론(claims[].refundStatus COMPLETED 존재) 【기각: 금액 없음·부분 환불과 전액 구분 불가】 / BE 결제별 환불 합 1필드 【채택·D-202】**.
+- **C-15 위치 — 별도 컬럼 【기각: 6표 헤더·너비 회귀】 / 기존 날짜 셀 아래 chip 【채택】**.
+- **C-17 판정 — BE warnings 확장 【기각: 4항목 전부 기존 필드로 판별 가능】 / FE 순수 함수 【채택】**.
+
+### §2 확정 구현 규칙·트랩
+- vitest: `test/unit/ops-quick-wins.spec.ts` 7(단계 안내 반품·거절/교환/취소·기간 문구 부재·상수 정합·경과 일수·임계·chip) · `test/component/OrderDetailPage.spec.ts` +5(버튼 노출·PENDING 안내·패널 경고→확정→재조회·중복 차단·422 detail) · `test/admin/admin-claim-inspect-dialog.spec.ts` 4(체크 없음 = inspect만 · 체크 전 비활성→순차 호출 순서 · confirm-pickup 422 → stale·inspect 0 · 성공·실패 구분 안내) · `admin-seller-helpers.spec` +2(C-17) · `admin-order-helpers.spec` +1(C-12) · `seller-dashboard-view.spec` 갱신(C-14). 트랩: `mockResolvedValueOnce` 뒤에 `mockImplementationOnce`를 쌓으면 앞의 Once가 먼저 소비돼 호출 순서 배열이 비어 보인다(한 가지만 쓴다).
+- Playwright(렌더·mock API만·데모 데이터 불변): `admin-claims` ③ row-inspect 2·row-elapsed 4 / ④ C-10 순차 POST 2건(mock) + 합격 토스트 소멸 대기(뒤 단언 strict mode 충돌 방지) · `admin-sellers` ① 온보딩 4항목 data-done · `admin-orders` ⑨ 경고 배지(fixture `refundedAmount`) · `seller-dashboard` ① 4칸 href·"준비 중" 부재 · `claims` ① 구매확정 버튼 2·안내·패널 경고·취소 / ② 단계 안내.
+- 검증(실측·컨테이너): BE `gradlew.bat test --rerun-tasks` 235파일 **1384·0 fail**(IT 단언 추가만) · typecheck 0 · vitest 93파일 **628**(609 + 19) · no-admin-import 통과 · 재시작 → Playwright 3역할 env 103건 콜드 **101/103**(2 skip = seller-password env) → 웜 1차 100/1 fail(④ 토스트 strict mode·spec 보정) → admin-claims 3회 6/6 → 웜 전량 **101/103** · 재시작 직후 픽셀 track96-1 12장 track95b 대비 login-mobile 8px(0.002%·track95 동일 노이즈) → 재캡처 track96-1b **diff 0**(구매자 픽셀 6페이지는 본 변경 범위 밖).
+- 신규 의존성: 없음.
+
+### §8 이월
+- C-05(구매자 송장 노출)·C-01(관리자 승인 대기 타일)·C-03(정산 월 배치) 등 정찰 §7의 나머지 후보는 별 트랙.
+- 재고 임박 타일은 재고 화면에 임박 필터가 없어 화면 진입만 연결 — 필터 추가 시 `?lowStock=1`류로 좁힌다.

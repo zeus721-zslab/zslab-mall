@@ -11884,3 +11884,29 @@ EXPLAIN(로컬 읽기·seller 4·30일): 입고 합 = product PRIMARY index scan
 - `DeliveryService.markDelivered`·`markShipping` 배송 미존재 `IllegalArgumentException` → 400 MALFORMED_REQUEST(관찰). 호출자가 컨트롤러에서 publicId로 먼저 조회해 404를 내므로 실제 도달 경로는 없다 — `DeliveryNotFoundException`으로 바꿀지는 별건.
 - `HttpMediaTypeNotAcceptableException`(406)·`ServletRequestBindingException`(400)·`HandlerMethodValidationException`(400): 현재 도달 경로 없음. 도달 경로가 생기면 같은 패턴으로 추가.
 - 컨트롤러 "전이 후 재조회 실패" `IllegalStateException` 4곳은 진짜 불변식 위반 → 500 유지(변경 대상 아님).
+
+## D-202. 관리자 주문 상세 결제 행 `refundedAmount` 추가 — Payment CANCELLED 유실 판별 (Track 96-1)
+
+날짜: 2026-09-21
+브랜치: feat/track-96-1-ops-quick-wins
+정찰: docs/track-96/recon-report-ops.md(§1.2 수동 결제 취소 마킹 · §6 Payment CANCELLED 유실 · §7 C-12)
+
+### 배경
+`Refund COMPLETED → Payment CANCELLED` 자동 전이(D-113 `PaymentRefundCompletedHandler`)가 유실되면 전액 환불 완료 결제가 PAID로 잔존한다. 보정 경로(관리자 수동 `mark-cancelled`·D-113)는 있으나 화면은 PAID 행 전부에 "취소 처리" 버튼을 상시 노출하고 유실 여부는 알려주지 않는다(정찰 §1.2 발견성 N). `AdminOrderDetailResponse.PaymentRow`에는 결제별 환불 합이 없고 `ClaimRow.refundStatus`는 금액이 없어 FE만으로는 부분 환불과 전액 환불을 구분할 수 없다(STEP 857 실측).
+
+### 결정
+1. **`PaymentRow.refundedAmount`(long) 추가** = 해당 결제의 COMPLETED 환불 합. `RefundRepository.sumCompletedByPaymentId`(PAY-1 검증용 기존 쿼리·enum 바인딩) 재사용·결제 행 수만큼 1쿼리(상세 전용·목록 쿼리 예산 무영향·주문당 결제 1~2행). 환불 없음 = 0.
+2. **판별은 FE**: `status == PAID && amount > 0 && refundedAmount == amount` → 경고 배지 + 수동 취소 버튼 조건부 노출(FE-53 C-12). 조건은 `PaymentService.markCancelled`의 D-71 전액 가드(`totalRefunded != amount → NO-OP`)와 동일하므로 버튼이 보이는 경우에만 호출이 의미가 있다.
+3. 상태 전이·쓰기 로직·Flyway·스케줄러 무변경. 유실 자동 보정(스케줄러)은 이번 범위 밖(정찰 §5.2 후보 유지).
+
+### §1-A 갈림길
+- **BE에서 boolean `cancelLost` 계산 【기각: 판정 규칙을 두 곳(BE 응답·BE 가드)에 두게 됨·금액 자체가 관리자 대사에 유용】 / 금액 합만 내려주고 FE 판정 【채택】**.
+- **환불 합을 claim 배치 조회에 끼워 넣기 【기각: refund는 payment_id 축·claim 축과 다름】 / 결제별 기존 쿼리 재사용 【채택: 상세 전용·행 1~2】**.
+
+### §2 확정 구현 규칙
+- main 2파일: `AdminOrderDetailResponse.PaymentRow`(+`refundedAmount`·Javadoc) · `AdminOrderQueryService.getDetail`(결제 행 매핑에 `refundRepository.sumCompletedByPaymentId(payment.getId())`).
+- test: `AdminOrderIntegrationTest` T7 `payments[0].refundedAmount == 0` · T3 부분 취소 후 상세 재조회 `status PAID`·`amount 20000`·`refundedAmount 10000`(부분 환불 → PAID 유지 = D-71 가드 실측).
+- 검증: `./gradlew.bat test --rerun-tasks` 235파일 **1384·0 fail·0 error·0 skip**(단언 추가만·테스트 수 불변).
+
+### §8 이월
+- 유실 탐지의 대시보드 카운트·스케줄러 보정(정찰 §5.2 마지막 행)은 별 트랙.
