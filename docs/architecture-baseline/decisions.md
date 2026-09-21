@@ -11680,3 +11680,46 @@ D-195에서 "셀러는 클레임 조회만, 처리는 관리자"를 확정했으
 ### §8 이월
 - confirm-pickup이 이미 DELIVERED인 회수 Delivery를 만나면 `IllegalStateException`이 GEH catch-all 500으로 새는 결함(LT-28) — 본 트랙 범위 밖. 가드 도입 후 정상 API로는 도달 불가하나 데이터 보정·과거 데이터에서는 재현 가능.
 - SELLER 역할의 prefix 밖 쓰기 2건(`/api/v1/order-items/**`·`/api/v1/deliveries/**`) 매핑 집합 고정 테스트 포함 여부(D-196 §8) — 미결정 유지.
+---
+
+## D-198. mock 결제 인가 endpoint · 콜백 계약 교정 (Track 93)
+
+날짜: 2026-09-21
+브랜치: fix/track-93-mock-payment-authz
+정찰: docs/track-93/recon-report-webhook.md(로컬·STEP 748~750)
+
+### 배경
+gateway nginx가 2026-09-18부터 `location ^~ /api/webhooks { return 404; }`로 PG 웹훅 경로를 외부 차단했다(실 PG 미연동 상태에서 permitAll·CSRF disable·서명·IP 검증 없는 `POST /api/webhooks/payments`를 인터넷에 열어두지 않기 위함). 그런데 브라우저 mock 결제 페이지(`payment/mock.vue` → `useCheckout.sendPaymentCallback`)가 바로 그 경로를 직접 호출하는 구조라 운영 결제 흐름이 404로 멈췄다(정찰 §D-13). 차단 자체는 옳고, 잘못된 것은 "PG가 부를 무인증 경로를 구매자 브라우저가 부르는" 구조다. 정찰이 함께 드러낸 계약 결함: CANCEL×PAID가 환불 행 없이 결제만 CANCELLED로 만들어 이후 클레임 환불이 PAID 행을 못 찾고(RefundService `IllegalStateException`) 되돌릴 API도 없음(§B-9), pgTid 길이 초과·`uk_payment_provider_pg_tid` 중복이 GEH catch-all 500으로 샘(§C-11).
+
+### 결정
+- **mock 결제 인가 endpoint 신설**: `POST /api/v1/payments/mock-callback`(BUYER Bearer·SecurityConfig POST 단일 경로 `hasRole("BUYER")`). 요청은 `attemptKey`·`callbackType`만이며 provider(`PaymentGateway.provider()`)·pgTid(SUCCESS만 `mocktid_`+ULID)·occurredAt(서버 now)은 서버가 만든다(FE 입력 금지). 인가 = attemptKey→Payment→Order의 buyer_id == 토큰 principal, 미존재·타인 모두 `PaymentNotFoundException` 404 은닉(initiate §2·D-42 동형). 처리는 `PaymentService.handleCallback` 재사용(`MockPaymentCallbackService`가 Command를 조립해 위임·로직 중복 0).
+- **전 프로필 허용**: prod 포함. 포폴 데모 결제(D-157 §8-1)를 프로필 게이트가 아니라 인가(본인 주문 한정)로 막는다 — 구매자가 자기 주문을 mock으로 PAID 하는 것은 실 PG 전환 전까지 의도된 데모 동작.
+- **CANCEL×PAID 봉쇄(422)**: `PaymentService.handleCancel` PAID 분기를 `InvalidCallbackException`으로 교체(웹훅·mock 공통 위치). PAID→CANCELLED는 환불 완료(`PaymentRefundCompletedHandler`·D-71)·관리자 수동 보정(`markCancelledByAdmin`·D-113)만의 전이. D-34 매트릭스 "CANCEL×PAID→CANCELLED(200·Track 5 환불 진입)"은 본 결정으로 정정.
+- **pgTid 500 교정**: `PaymentCallbackRequest.pgTid @Size(max=100)`(400 VALIDATION_FAILED) + `handleCallback` save 직후 명시 flush에서 `uk_payment_provider_pg_tid` 위반만 `PaymentPgTidConflictException`(409 PAYMENT_PG_TID_CONFLICT)으로 변환·그 외 무결성 위반은 재throw(90-C `SellerProductCommandService` 선례). 커밋 시점까지 미루면 예외가 `@Transactional` 밖에서 터져 잡을 수 없다.
+- **존치**: `PaymentWebhookController`(`/api/webhooks/payments`)·SecurityConfig permitAll·gateway 404 규칙은 그대로(실 PG 자리). FE `useCheckout.sendPaymentCallback`은 새 endpoint + Bearer, `mock.vue`는 호출부만(FAILURE failureCode 인자 제거·서버 기본 PG_FAILURE).
+
+### §1-A 갈림길·채택/기각 근거
+1. **M-1 인가된 mock endpoint(BE+FE) 【채택】**: 구멍을 제거한다. 체크아웃 응답에 이미 구매자 JWT·attemptKey가 있어 서명 없이 본인 확인이 성립(정찰 §D-15). 웹훅 컨트롤러는 실 PG 자리로 존치.
+2. **M-2 Nitro 서버 라우트 프록시(FE만) 【기각】**: gateway를 우회해 `mall-backend:8080/api/webhooks/payments`를 내부 직결하면 코드 변경은 최소지만 무인증 구멍이 `/_mock-callback`으로 이동할 뿐이다(기조 4·2). Nitro에는 구매자 JWT 검증 수단이 없다.
+3. **gateway 차단 해제 【기각】**: 정찰 위험도 1(attemptKey만 알면 무인증 PAID·강제 종료)·2(CANCEL×PAID)를 다시 인터넷에 여는 것. 실 PG 전환(Track 94) 전에는 해제 근거 없음.
+4. **식별자 = attemptKey 단일 【채택】** / orderPublicId·paymentPublicId 【기각: 웹훅 계약(D-35)과 같은 키를 쓰면 handleCallback을 그대로 재사용·FE도 이미 attemptKey를 보유】.
+5. **프로필 게이트(local·test 한정) 【기각】**: 포폴 데모가 운영에서 결제까지 진행돼야 하고(D-157), 인가가 타인 주문 조작을 막으므로 게이트는 실 PG 도입 시점의 과제(§8).
+
+### 단언 유효성 선증명(STEP 751)
+가드 전 코드에 `PaymentWebhookIntegrationTest` 3건을 먼저 작성·실행: CANCEL×PAID → **RED 200**(기대 422·PAID→CANCELLED 전이는 `PaymentCallbackTest` 기존 단언으로 확정·환불 행 0) / pgTid 101자 → **RED 500** / pgTid 중복 → **RED 500** → 구현 후 GREEN. `PaymentCallbackTest cancel_paid_cancels`는 `cancel_paid_rejects`(REJECT·PAID 유지)로 교체.
+
+### §2 확정 구현 규칙
+- 신규: `MockPaymentCallbackRequest`·`MockPaymentCallbackService`·`MockPaymentCallbackController`·`PaymentPgTidConflictException`(+GEH 409) · `MockPaymentCallbackIntegrationTest` 7건(본인 200·타인 404·무인증 401·미존재 404·CANCEL×PAID 422·SUCCESS 2회 멱등(history 1·알림 1·pgTid 불변)·400) · vitest `useCheckout-mock-callback.spec`(경로·Bearer·body 2키·서버 생성 필드 부재·throw) · Playwright `mock-payment.spec`(성공 → mock-callback 1회·webhook 0회·complete 이동 / 422 → alert·재시도).
+- 검증(최종): `./gradlew.bat test --rerun-tasks` 230파일 **1329 tests·0 fail·0 error·0 skip**(1319 + 10) · typecheck 0 · vitest 83파일 548 · Playwright 웜 96/96(seller-password 2 skip·전용 계정 env 미주입) · 픽셀 track93 12장 main 상태 재캡처(track93-main) 대비 diff 0(track90d2c 대비 cart·mypage 차이는 구매자 실데이터 노이즈) · layers/admin diff 0.
+- 트랩: vitest에서 `useRuntimeConfig`를 `mockNuxtImport`로 갈아끼우면 Nuxt 앱 초기화(`app.baseURL`)가 깨져 전 케이스가 skip된다 — 실 runtimeConfig(apiBase 미설정 → '/api' fallback)를 그대로 쓴다.
+- 언급만: `lib/utils/datetime.ts toKstLocalDateTime`은 본 트랙으로 호출처 0(단위 테스트만 남음). 삭제는 하지 않았다.
+- `docs/infra/05-ssl-domain.md`(gitignored·로컬) 스냅샷에 `location ^~ /api/webhooks { return 404; }` 블록 반영. 로컬 gateway conf에는 이 블록이 없고 직접 proxy_pass 형태(운영과 상이).
+
+### §8 이월 — Track 94(실 PG 전환) 범위
+- PG 서명 검증 필터(raw body 캐싱·HMAC·타임스탬프 창·nonce) — `/api/webhooks/**` 한정·SecurityConfig 매처 공유 패턴. 서블릿 필터 계층이 관례(정찰 §E-17)이나 `ContentCachingRequestWrapper` 선례 없음.
+- provider 화이트리스트(`PaymentGateway.provider()`와 일치 강제)·provider `@Size(max=50)`·occurredAt 허용 범위.
+- 금액 대조(PG 승인액 vs `payment.amount` 불일치 → 422).
+- `/api/webhooks/refunds` 동형 적용(현재 mock 환불은 서버 내부 자동 콜백이라 gateway 차단으로 깨지는 흐름 없음).
+- gateway PG 발신 IP 화이트리스트 + `return 404` 해제(zslab 수동).
+- mock 결제 페이지·`/api/v1/payments/mock-callback`의 `local`·`test` 프로필 게이트 또는 제거.
+- IT: 무서명 401·서명 위조 401·nonce 재사용·provider 불일치·금액 불일치.
