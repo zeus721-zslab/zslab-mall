@@ -196,14 +196,15 @@ class PaymentCallbackTest {
     // ---------- CANCEL ----------
 
     @Test
-    @DisplayName("CANCEL × PAID → CANCELLED 전이·미발행(본 트랙 이벤트 없음)")
-    void cancel_paid_cancels() {
+    @DisplayName("CANCEL × PAID → REJECT(InvalidCallbackException·환불 우회 차단·Track 93 D-198)·PAID 유지·미발행")
+    void cancel_paid_rejects() {
         Payment payment = paymentInStatus(PaymentStatus.PAID);
         stubFind(payment);
 
-        paymentService.handleCallback(command(CallbackType.CANCEL));
+        assertThatThrownBy(() -> paymentService.handleCallback(command(CallbackType.CANCEL)))
+                .isInstanceOf(InvalidCallbackException.class);
 
-        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.CANCELLED);
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PAID);
         verify(eventPublisher, never()).publishEvent(any());
     }
 

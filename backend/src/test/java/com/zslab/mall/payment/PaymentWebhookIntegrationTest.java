@@ -36,6 +36,10 @@ class PaymentWebhookIntegrationTest extends AbstractIntegrationTest {
     private static final long VARIANT_ID = 1L;   // 시드 order_item.variant_id와 일치(재고 해제 대상)
     private static final long AMOUNT = 10_000L;
     private static final String ATTEMPT_KEY = "pat_track6_it_0001";
+    /** pgTid 중복(409) 재현용 타 주문 PAID 결제 행. */
+    private static final long OTHER_PAYMENT_ID = 8002L;
+    /** payment.pg_tid VARCHAR(100)(V1). */
+    private static final int PG_TID_MAX_LENGTH = 100;
 
     @Autowired
     private MockMvc mockMvc;
@@ -162,6 +166,64 @@ class PaymentWebhookIntegrationTest extends AbstractIntegrationTest {
         assertThat(paymentStatus()).isEqualTo("PENDING");
     }
 
+    @Test
+    @DisplayName("webhook CANCEL×PAID(Track 93): 422 REJECT·Payment PAID 유지·Order PAID 유지·환불 행 없음(환불 우회 봉쇄)")
+    void webhook_cancelOnPaid_rejects422() throws Exception {
+        tx.executeWithoutResult(s -> {
+            jdbc.update("UPDATE payment SET status = 'PAID', pg_provider = 'MOCK_PG', pg_tid = 'tid_track93_paid', "
+                    + "paid_at = NOW(6) WHERE id = ?", PAYMENT_ID);
+            jdbc.update("UPDATE `order` SET status = 'PAID' WHERE id = ?", ORDER_ID);
+        });
+
+        String body = "{"
+                + "\"provider\": \"MOCK_PG\","
+                + "\"callbackType\": \"CANCEL\","
+                + "\"paymentAttemptKey\": \"" + ATTEMPT_KEY + "\","
+                + "\"occurredAt\": \"2026-06-28T00:00:00\""
+                + "}";
+
+        mockMvc.perform(post("/api/webhooks/payments")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isUnprocessableEntity());
+
+        assertThat(paymentStatus()).isEqualTo("PAID");
+        assertThat(orderStatus()).isEqualTo("PAID");
+        assertThat(refundCount()).isZero();
+    }
+
+    @Test
+    @DisplayName("webhook pgTid 길이 초과(101자·VARCHAR(100)·Track 93): 400 VALIDATION_FAILED·Payment PENDING 유지(500 아님)")
+    void webhook_pgTidTooLong_rejects400() throws Exception {
+        seedInventory(10, 1, 9);
+
+        mockMvc.perform(post("/api/webhooks/payments")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(successBody("t".repeat(PG_TID_MAX_LENGTH + 1))))
+                .andExpect(status().isBadRequest());
+
+        assertThat(paymentStatus()).isEqualTo("PENDING");
+        assertThat(reserved()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("webhook pgTid 중복(uk_payment_provider_pg_tid·Track 93): 409·Payment PENDING·Order PENDING_PAYMENT·재고 불변(500 아님)")
+    void webhook_pgTidDuplicate_rejects409() throws Exception {
+        seedInventory(10, 1, 9);
+        seedOtherPaidPayment("tid_track93_dup");
+
+        mockMvc.perform(post("/api/webhooks/payments")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(successBody("tid_track93_dup")))
+                .andExpect(status().isConflict());
+
+        assertThat(paymentStatus()).isEqualTo("PENDING");
+        assertThat(orderStatus()).isEqualTo("PENDING_PAYMENT");
+        assertThat(orderItemStatus()).isEqualTo("ORDERED");
+        assertThat(onHand()).isEqualTo(10);
+        assertThat(reserved()).isEqualTo(1);
+    }
+
     private String successBody(String pgTid) {
         return "{"
                 + "\"provider\": \"MOCK_PG\","
@@ -204,10 +266,23 @@ class PaymentWebhookIntegrationTest extends AbstractIntegrationTest {
         });
     }
 
+    /** 타 주문(id 8002)의 PAID 결제 행을 같은 (pg_provider, pg_tid)로 시드한다 — uk_payment_provider_pg_tid 충돌 재현용. 모든 변수 ? 바인딩. */
+    private void seedOtherPaidPayment(String pgTid) {
+        tx.executeWithoutResult(s -> {
+            jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
+            jdbc.update("INSERT INTO payment "
+                    + "(id, public_id, order_id, method, amount, status, payment_attempt_key, pg_provider, pg_tid, paid_at, "
+                    + "created_at, updated_at) "
+                    + "VALUES (?, 'pay_track93_it_0002', ?, 'CARD', ?, 'PAID', 'pat_track93_it_0002', 'MOCK_PG', ?, NOW(6), "
+                    + "NOW(6), NOW(6))",
+                    OTHER_PAYMENT_ID, OTHER_PAYMENT_ID, AMOUNT, pgTid);
+        });
+    }
+
     private void cleanup() {
         tx.executeWithoutResult(s -> {
             jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
-            jdbc.update("DELETE FROM payment WHERE id = ?", PAYMENT_ID);
+            jdbc.update("DELETE FROM payment WHERE id IN (?, ?)", PAYMENT_ID, OTHER_PAYMENT_ID);
             jdbc.update("DELETE FROM order_item WHERE id = ?", ORDER_ITEM_ID);
             jdbc.update("DELETE FROM `order` WHERE id = ?", ORDER_ID);
             jdbc.update("DELETE FROM inventory_history WHERE inventory_id = ?", INVENTORY_ID);
@@ -237,6 +312,10 @@ class PaymentWebhookIntegrationTest extends AbstractIntegrationTest {
 
     private String orderStatus() {
         return jdbc.queryForObject("SELECT status FROM `order` WHERE id = ?", String.class, ORDER_ID);
+    }
+
+    private int refundCount() {
+        return jdbc.queryForObject("SELECT COUNT(*) FROM refund WHERE payment_id = ?", Integer.class, PAYMENT_ID);
     }
 
     private int historyCount() {
