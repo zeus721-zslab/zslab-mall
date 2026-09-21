@@ -11910,3 +11910,32 @@ EXPLAIN(로컬 읽기·seller 4·30일): 입고 합 = product PRIMARY index scan
 
 ### §8 이월
 - 유실 탐지의 대시보드 카운트·스케줄러 보정(정찰 §5.2 마지막 행)은 별 트랙.
+
+## D-203. 구매자 주문 상세 품목 배송 정보(원 발송 송장) + 관리자 대시보드 승인 대기 카운트 2종 (Track 96-2)
+
+날짜: 2026-09-21
+브랜치: feat/track-96-2-tracking-approval-tiles
+정찰: docs/track-96/recon-report-ops.md(§1 A3 송장 미노출 · A5 승인 대기 타일 없음 · §7 C-05·C-01)
+
+### 배경
+구매자 주문 상세(`OrderItemResponse`)에 배송 정보가 없어 "어디쯤 왔나" 문의가 운영자에게 왔고(A3), 관리자 대시보드 처리 대기에 상품·셀러 승인 대기가 없어 셀러 등록 상품(PENDING)은 목록 필터로만 발견됐다(A5). 둘 다 조회 응답·조회 쿼리 추가만으로 해소된다(상태 전이·쓰기·Flyway·SecurityConfig 무변경).
+
+### 결정
+1. **C-05 `OrderItemResponse.delivery`**(`OrderItemDeliveryResponse`: carrier·trackingNo·status·shippedAt·deliveredAt · 미발송 null·NON_NULL 생략) 추가. **원 발송 식별 = `direction = OUTBOUND AND claim_id IS NULL` 중 id 최신 1건**. 교환품 발송·검수 불합격 재발송(claim_id 연결)은 클레임 상세 `ClaimResponse.reshipment`가 이미 담당하고(무변경), 반품 회수(RETURN)는 품목 배송이 아니다. `deliveryId`는 구매자 조작이 없어 미노출.
+2. **N+1 회피**: `BuyerOrderQueryService.originalDeliveryByItemIdFor` — 기존 `DeliveryRepository.findByOrderItemIdInAndDirectionOrderByIdDesc(itemIds, OUTBOUND)` 주문 단위 1쿼리 재사용 → 메모리에서 `claimId == null` 필터·`toMap` 첫 등장(최신) 유지. 신규 쿼리 없음. 인가는 기존 `getOrder` 본인 검증(타인·미존재 404) 그대로.
+3. **C-01 `DashboardPendingResponse.productPending`·`sellerPending`** 추가. 카운트 정의: `Product.status = PENDING`·`Seller.status = PENDING`(각 엔티티 `@SQLRestriction(deleted_at IS NULL)`로 삭제분 자동 제외) — 관리자 상품·셀러 목록의 `status=PENDING` 필터와 조건이 같아 타일 링크 건수와 목록 건수가 일치한다. `AdminDashboardRepository`에 JPQL COUNT 2개(`:바인딩`만).
+
+### §1-A 갈림길
+- **원 발송 = 셀러 품목 조회와 같은 "OUTBOUND 최신"(claim 연결 포함) 【기각: 교환품 송장이 원 송장을 덮어써 클레임 상세와 중복·원 발송 이력 소실】 / OUTBOUND ∧ claim_id NULL 【채택: 자동 구매확정 기준(`findBaseDeliveredOutbound`)과 달리 EXCHANGE도 제외 — 구매자 화면은 "이 품목이 처음 온 송장"만 보이면 되고 교환은 클레임 상세】**.
+- **배송 정보용 신규 JPQL(`claimId IS NULL` 조건) 【기각: 기존 배치 쿼리로 충분·행 수 품목당 1~3】 / 기존 배치 쿼리 + 메모리 필터 【채택】**.
+- **상품 승인 대기를 셀러 ACTIVE 조건과 결합 【기각: 목록 필터와 어긋나 타일 건수 ≠ 목록 건수】 / status만 【채택】**.
+
+### §2 확정 구현 규칙
+- main 7파일: `OrderItemDeliveryResponse`(신규) · `OrderItemResponse`(+delivery) · `OrderResponse.fromOrderWithItems`(6인자 오버로드·4인자는 `Map.of()` 위임) · `BuyerOrderQueryService`(+`DeliveryRepository`·배치 필터) · `AdminDashboardRepository`(+COUNT 2) · `DashboardPendingResponse`(+2) · `AdminDashboardQueryService.pending()`.
+- test: `BuyerOrderDeliveryQueryIntegrationTest`(신규 3: T1 구 원 발송·교환 OUTBOUND·RETURN 제외 → 최신 원 발송 HANJIN·DELIVERED·발송일·배송완료일 / T2 부분 발송 미발송 품목 `delivery` 부재 / T3 타 buyer 404) · `AdminDashboardQueryControllerIntegrationTest` T3에 PENDING 상품·셀러 각 1 + `deleted_at` 있는 PENDING 각 1 → delta 1·1.
+- 검증: `./gradlew.bat test --rerun-tasks` 236파일 **1387·0 fail·0 error·0 skip**(1384 + 3).
+- 트랩: `KstOffsetSerializer`는 정각 초를 `.000` 없이 내려준다(`2026-09-10T09:00:00+09:00`) — jsonPath 단언에 밀리초를 쓰지 않는다.
+
+### §8 이월
+- 택배사 외부 추적 링크·외부 API 연동은 결정 범위 외(정찰 비권장 목록 유지).
+- 승인 대기 건수의 셀러 대시보드 대응(셀러 자신의 PENDING 상품 수)은 요구 시 별 트랙.
