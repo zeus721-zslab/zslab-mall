@@ -297,7 +297,7 @@ test.describe('관리자 셀러 관리(FE-40)', () => {
     await expect(addDialog.getByTestId('seller-member-role-notice')).toContainText('역할에 따라 제한되지 않습니다')
     await addDialog.getByTestId('seller-member-add-tab-new').click()
     await expect(addDialog.getByTestId('seller-member-new-notice')).toContainText('일반 회원(구매자) 자격도 함께 부여됩니다')
-    await expect(addDialog.getByTestId('seller-member-new-notice')).toContainText('임시 비밀번호는 입력한 휴대폰으로 SMS 발송됩니다')
+    await expect(addDialog.getByTestId('seller-member-new-notice')).toContainText('임시 비밀번호는 생성 직후 화면에 1회만 표시됩니다')
     await expect(addDialog.getByTestId('seller-member-new-notice')).toContainText('SMS 발송에 실패하면 계정은 만들어지지 않습니다')
     await expect(addDialog.getByTestId('seller-member-add-ok')).toBeDisabled()
     await addDialog.getByTestId('seller-member-new-email').locator('input').fill('new@e2e.invalid')
@@ -340,5 +340,56 @@ test.describe('관리자 셀러 관리(FE-40)', () => {
     await expect(removeDialog).toBeHidden()
 
     expect(captured.writes).toEqual([])
+  })
+
+  test('④ 구성원 추가 — 새 계정 생성 201(temporaryPassword) → 결과 다이얼로그(평문·안내) → 닫기 확인 → 추가 다이얼로그 닫힘·상세 재조회·평문 없음 / 토스트에 평문 없음 (FE-55·D-204)', async ({ page }) => {
+    const TEMP_PASSWORD = 'E2eMockPw2345'
+    const captured = await mockSellerApi(page)
+    const DETAIL_M = { ...DETAIL_A, members: [] }
+    let detailReads = 0
+    await page.route((url) => new RegExp(`/api/v1/admin/sellers/${SELLER_A}$`).test(url.pathname), (route) => {
+      detailReads += 1
+      return route.fulfill({ json: DETAIL_M })
+    })
+    await page.route((url) => /\/api\/v1\/admin\/sellers\/[^/]+\/members$/.test(url.pathname), (route) => {
+      captured.writes.push(`${route.request().method()} ${route.request().url()}`)
+      return route.fulfill({
+        status: 201,
+        headers: { 'Cache-Control': 'no-store', Pragma: 'no-cache' },
+        json: { userPublicId: 'usr_new', email: 'new@e2e.invalid', name: '신규대표', roleCode: 'SELLER_STAFF', joinedAt: '2026-09-21T10:00:00', temporaryPassword: TEMP_PASSWORD },
+      })
+    })
+    await loginAs(page, 'ADMIN')
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto(`/admin/members/sellers/${SELLER_A}`)
+    await page.waitForLoadState('networkidle')
+    const readsBefore = detailReads
+
+    await page.getByTestId('seller-member-add').click()
+    const addDialog = page.getByTestId('admin-seller-member-add-dialog')
+    await addDialog.getByTestId('seller-member-add-tab-new').click()
+    await addDialog.getByTestId('seller-member-new-email').locator('input').fill('new@e2e.invalid')
+    await addDialog.getByTestId('seller-member-new-name').locator('input').fill('신규대표')
+    await addDialog.getByTestId('seller-member-new-phone').locator('input').fill('010-9999-0000')
+    await addDialog.getByTestId('seller-member-add-ok').click()
+
+    const result = page.getByTestId('seller-member-password-result')
+    await expect(result).toBeVisible()
+    await expect(result.getByTestId('seller-member-password-result-value')).toHaveText(TEMP_PASSWORD)
+    await expect(result.getByTestId('seller-member-password-result-recipient')).toContainText('신규대표(new@e2e.invalid)')
+    await expect(result.getByTestId('seller-member-password-result-notice')).toContainText('첫 로그인 시 비밀번호 변경이 강제됩니다')
+    await expect(page.getByTestId('admin-toaster')).not.toContainText(TEMP_PASSWORD)
+    expect(captured.writes).toHaveLength(1)
+    expect(captured.writes[0]).toMatch(/^POST .*\/api\/v1\/admin\/sellers\/[^/]+\/members$/)
+    // 결과 창이 열린 동안 추가 다이얼로그는 아직 닫히지 않는다(done은 닫기 확인 뒤)
+    await expect(addDialog).toBeVisible()
+    expect(detailReads).toBe(readsBefore)
+
+    await result.getByTestId('seller-member-password-result-close').click()
+    await result.getByTestId('seller-member-password-result-close-ok').click()
+    await expect(result).toBeHidden()
+    await expect(addDialog).toBeHidden()
+    await expect.poll(() => detailReads).toBeGreaterThan(readsBefore)
+    await expect(page.locator('body')).not.toContainText(TEMP_PASSWORD)
   })
 })

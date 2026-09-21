@@ -9,12 +9,15 @@ import com.zslab.mall.user.controller.request.AdminMemberSort;
 import com.zslab.mall.user.controller.request.AdminMemberStatusFilter;
 import com.zslab.mall.user.controller.request.AdminMemberUpdateRequest;
 import com.zslab.mall.user.controller.response.AdminMemberDetailResponse;
+import com.zslab.mall.user.controller.response.TemporaryPasswordResponse;
 import com.zslab.mall.user.controller.response.AdminMemberSummaryResponse;
 import com.zslab.mall.user.service.AdminMemberCommandService;
 import com.zslab.mall.user.service.AdminMemberQueryService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.CacheControl;
+import org.springframework.http.HttpHeaders;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -33,6 +36,9 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/v1/admin/members")
 public class AdminMemberController {
+
+    /** HTTP/1.0 캐시 호환 — no-store와 함께 평문 응답 캐시를 막는다(D-204). */
+    public static final String PRAGMA_NO_CACHE = "no-cache";
 
     private final AdminMemberQueryService adminMemberQueryService;
     private final AdminMemberCommandService adminMemberCommandService;
@@ -84,11 +90,17 @@ public class AdminMemberController {
         return ResponseEntity.noContent().build();
     }
 
-    /** 임시 비밀번호 발급·SMS 발송. 성공 204(평문 미노출)·연락처 없음 422·탈퇴 회원 409·발송 실패 502(롤백). */
+    /**
+     * 임시 비밀번호 발급·SMS 발송. 성공 200 + 평문 1회(D-204·관리자 화면 표시)·관리자 역할 보유 422·연락처 없음 422·탈퇴 회원 409·
+     * 발송 실패 502(롤백). 평문 응답은 브라우저·중간 캐시에 남지 않도록 no-store를 명시한다(Spring Security 기본값에 의존하지 않음).
+     */
     @PostMapping("/{publicId}/password-reset")
-    public ResponseEntity<Void> resetPassword(@PathVariable String publicId, HttpServletRequest request) {
-        adminMemberCommandService.resetPassword(publicId, auditContext(request));
-        return ResponseEntity.noContent().build();
+    public ResponseEntity<TemporaryPasswordResponse> resetPassword(@PathVariable String publicId, HttpServletRequest request) {
+        TemporaryPasswordResponse response = adminMemberCommandService.resetPassword(publicId, auditContext(request));
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .header(HttpHeaders.PRAGMA, PRAGMA_NO_CACHE)
+                .body(response);
     }
 
     /** 수동 등급 변경(MANUAL·lockedUntil 필수·오늘 이후). 성공 204·검증 실패 400·탈퇴 회원 409. */

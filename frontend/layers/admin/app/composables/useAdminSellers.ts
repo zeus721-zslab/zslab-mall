@@ -8,6 +8,7 @@ import type {
   AdminSellerListResponse,
   AdminSellerMember,
   AdminSellerMemberAddRequest,
+  AdminSellerMemberAddResponse,
   AdminSellerMemberRemoveRequest,
   AdminSellerMemberRoleChangeRequest,
   AdminSellerProvisionRequest,
@@ -77,8 +78,8 @@ export function useAdminSellers() {
   // ---------- 구성원(FE-42·D-189) ----------
 
   /** 추가 201 → 구성원 행(joinedAt 포함). 호출부는 상세를 다시 읽는다(로그인 가능 구성원 경고·가드 판정 갱신). */
-  function addMember(sellerPublicId: string, body: AdminSellerMemberAddRequest): Promise<AdminSellerMember> {
-    return api<AdminSellerMember>(sellerPath(sellerPublicId, '/members'), { method: 'POST', body })
+  function addMember(sellerPublicId: string, body: AdminSellerMemberAddRequest): Promise<AdminSellerMemberAddResponse> {
+    return api<AdminSellerMemberAddResponse>(sellerPath(sellerPublicId, '/members'), { method: 'POST', body })
   }
 
   /** 제거 204(사유 본문·마지막 활성 OWNER 409 SELLER_LAST_OWNER) → 호출부가 상세를 다시 읽는다. */

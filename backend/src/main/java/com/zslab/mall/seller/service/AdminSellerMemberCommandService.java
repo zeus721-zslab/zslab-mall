@@ -9,6 +9,7 @@ import com.zslab.mall.auth.repository.RoleRepository;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
 import com.zslab.mall.seller.controller.request.AdminSellerMemberAddRequest;
 import com.zslab.mall.seller.controller.response.AdminSellerDetailResponse;
+import com.zslab.mall.seller.controller.response.AdminSellerMemberAddResponse;
 import com.zslab.mall.seller.entity.Seller;
 import com.zslab.mall.seller.entity.SellerUser;
 import com.zslab.mall.seller.exception.SellerLastOwnerException;
@@ -23,6 +24,7 @@ import com.zslab.mall.user.exception.MemberAlreadyWithdrawnException;
 import com.zslab.mall.user.exception.UserNotFoundException;
 import com.zslab.mall.user.repository.UserRepository;
 import com.zslab.mall.user.service.AdminMemberProvisionCommand;
+import com.zslab.mall.user.service.AdminMemberProvisionResult;
 import com.zslab.mall.user.service.AdminMemberProvisioningService;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -84,15 +86,17 @@ public class AdminSellerMemberCommandService {
      * @throws com.zslab.mall.user.exception.EmailAlreadyExistsException 신규 이메일 중복(409)
      * @throws com.zslab.mall.user.exception.TemporaryPasswordDeliveryFailedException 신규 SMS 발송 실패(502·전체 롤백)
      */
-    public AdminSellerDetailResponse.Member add(String sellerPublicId, AdminSellerMemberAddRequest request,
+    public AdminSellerMemberAddResponse add(String sellerPublicId, AdminSellerMemberAddRequest request,
             AuditContext auditContext) {
         Seller seller = requireSellerForUpdate(sellerPublicId);
         Role role = requireRole(RoleCode.valueOf(request.role()));
         boolean newUserCreated = request.newUser() != null;
-        User user = newUserCreated
+        // 신규 계정이면 임시 비밀번호 평문을 응답(관리자 화면 1회 표시·D-204)에만 싣는다. 기존 회원 연결은 null.
+        AdminMemberProvisionResult provisioned = newUserCreated
                 ? adminMemberProvisioningService.provision(new AdminMemberProvisionCommand(
                         request.newUser().email(), request.newUser().name(), request.newUser().phone()), auditContext)
-                : requireActiveUser(request.userPublicId());
+                : null;
+        User user = newUserCreated ? provisioned.user() : requireActiveUser(request.userPublicId());
         assertNotMember(seller, user);
 
         // 선검사 통과 후 레이스는 uk_seller_user_user_id 위반으로 DataIntegrityViolation → GlobalExceptionHandler 기본 경로(입점 catch 미복제).
@@ -105,7 +109,8 @@ public class AdminSellerMemberCommandService {
         auditRecorder.record(auditContext, AuditLogAction.CREATE, PolymorphicTargetType.SELLER, seller.getId(), Map.of(), after);
         log.info("[AdminSellerMember] 추가 sellerPublicId={} userId={} role={} newUser={} byActor={}",
                 sellerPublicId, user.getId(), role.getCode(), newUserCreated, auditContext.actorUserId());
-        return toMember(sellerUser, user, role.getCode());
+        return AdminSellerMemberAddResponse.of(toMember(sellerUser, user, role.getCode()),
+                newUserCreated ? provisioned.temporaryPassword() : null);
     }
 
     /**

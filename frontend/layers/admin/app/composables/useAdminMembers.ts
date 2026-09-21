@@ -3,6 +3,7 @@ import type {
   AdminMemberGradeRequest,
   AdminMemberListQuery,
   AdminMemberListResponse,
+  AdminMemberTemporaryPasswordResponse,
   AdminMemberUpdateRequest,
 } from '#layers/admin/app/types/admin-member'
 import type { AdminOrderListResponse } from '#layers/admin/app/types/admin-order'
@@ -41,8 +42,9 @@ export function useAdminMembers() {
     return api<void>(memberPath(publicId, '/withdraw'), { method: 'POST' })
   }
 
-  function resetPassword(publicId: string): Promise<void> {
-    return api<void>(memberPath(publicId, '/password-reset'), { method: 'POST' })
+  /** 임시 비밀번호 발급(D-204·200 + 평문 1회). 호출부는 결과 다이얼로그에만 표시하고 토스트·스토어에 넣지 않는다. */
+  function resetPassword(publicId: string): Promise<AdminMemberTemporaryPasswordResponse> {
+    return api<AdminMemberTemporaryPasswordResponse>(memberPath(publicId, '/password-reset'), { method: 'POST' })
   }
 
   function changeGrade(publicId: string, body: AdminMemberGradeRequest): Promise<void> {

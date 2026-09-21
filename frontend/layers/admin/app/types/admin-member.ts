@@ -81,6 +81,11 @@ export interface AdminMemberUpdateRequest {
 }
 
 /** PUT /admin/members/{publicId}/grade body. lockedUntil은 yyyy-MM-dd(오늘 이후). */
+/** POST /admin/members/{usr_}/password-reset 응답(BE TemporaryPasswordResponse·D-204). 평문은 결과 다이얼로그에만 쓰고 저장하지 않는다. */
+export interface AdminMemberTemporaryPasswordResponse {
+  temporaryPassword: string
+}
+
 export interface AdminMemberGradeRequest {
   gradeCode: AdminBuyerGradeCode
   lockedUntil: string

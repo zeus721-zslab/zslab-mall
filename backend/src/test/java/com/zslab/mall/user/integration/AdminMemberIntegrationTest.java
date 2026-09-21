@@ -4,11 +4,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -34,6 +36,11 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -49,12 +56,14 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * 관리자 회원 관리 API 통합 테스트(Track 84·실 MariaDB·HTTP 경유). 목록(상태·검색·lastPaidAt·등급)·상세·수정·탈퇴(가드)·임시 비밀번호
- * (SMS 마스킹 저장·감사 평문 없음·토큰 무효화·로그인 플래그·발송 실패 롤백)·수동 등급(AUTO 재산정 skip)·권한·404를 커버한다.
+ * (응답 1회 표시·SMS 마스킹 저장·감사·로그 평문 없음·토큰 무효화·로그인 플래그·발송 실패 롤백·관리자 역할 차단·D-204)·수동 등급(AUTO 재산정
+ * skip)·권한·404를 커버한다. {@link OutputCaptureExtension}으로 요청 처리 중 전체 로그에 평문이 없음을 단언한다.
  *
  * <p>{@link SmsSender}는 MockitoBean으로 대체해 발송 본문 캡처(임시 비밀번호 추출)·발송 실패 주입에 쓴다. 토큰 무효화 검증은
  * iat가 초 단위라 "발급 → 즉시 무효화"가 같은 초에 걸리면 판정이 흔들리므로, 5초 전 iat로 서명한 백데이트 토큰을 직접 만든다.
  */
 @AutoConfigureMockMvc
+@ExtendWith(OutputCaptureExtension.class)
 class AdminMemberIntegrationTest extends AbstractIntegrationTest {
 
     private static final String URL = "/api/v1/admin/members";
@@ -66,6 +75,7 @@ class AdminMemberIntegrationTest extends AbstractIntegrationTest {
     private static final long BUYER_NO_PHONE = 9843L;
     private static final long NON_BUYER = 9844L; // BUYER role 없음(판매자 계정 상정)
     private static final long BUYER_C = 9845L;  // 무관 회원(토큰 영향 없음 검증)
+    private static final long BUYER_ADMIN = 9846L; // BUYER + ADMIN_OPERATOR 겸직(임시 비밀번호 발급 차단 검증·D-204)
     private static final long ORDER_A_PAID = 98411L;
     private static final long SELLER_S1 = 98461L; // (11) 활성 2명
     private static final long SELLER_S2 = 98462L; // (11) 탈퇴 구성원만
@@ -77,6 +87,7 @@ class AdminMemberIntegrationTest extends AbstractIntegrationTest {
     private static final String BUYER_B_PID = pid("usr_", "T84BUYB");
     private static final String NO_PHONE_PID = pid("usr_", "T84NOPH");
     private static final String NON_BUYER_PID = pid("usr_", "T84NONB");
+    private static final String BUYER_ADMIN_PID = pid("usr_", "T84BADM");
     private static final String BUYER_A_EMAIL = "t84-buyer-a@zslab.test";
     private static final String BUYER_A_PASSWORD = "original-password-1";
     private static final int BACKDATE_MILLIS = 5_000;
@@ -125,7 +136,7 @@ class AdminMemberIntegrationTest extends AbstractIntegrationTest {
     void list_default_active() throws Exception {
         mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("keyword", "t84-"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.totalCount").value(3))
+                .andExpect(jsonPath("$.totalCount").value(4)) // A·NO_PHONE·C·ADMIN 겸직(BUYER role 보유라 목록 포함)
                 .andExpect(jsonPath("$.items[?(@.publicId == '" + BUYER_A_PID + "')].gradeCode").value("SILVER"))
                 .andExpect(jsonPath("$.items[?(@.publicId == '" + BUYER_A_PID + "')].lastPaidAt").exists())
                 .andExpect(jsonPath("$.items[?(@.publicId == '" + NO_PHONE_PID + "')].lastPaidAt").isEmpty())
@@ -237,24 +248,55 @@ class AdminMemberIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.code").value("MEMBER_ALREADY_WITHDRAWN"));
     }
 
+    @ParameterizedTest(name = "(6-2) 관리자 역할 {0} 보유 회원 → 422")
+    @ValueSource(strings = {"ADMIN_OPERATOR", "SUPER_ADMIN"})
+    @DisplayName("(6-2) 임시 비밀번호 가드(D-204): 관리자 역할(ADMIN_OPERATOR·SUPER_ADMIN 각각) 보유 회원 → 422 MEMBER_ADMIN_ROLE_ASSIGNED·해시·플래그 불변·감사 0·SMS 0")
+    void resetPassword_adminRoleHolder_rejected(String adminRoleCode) throws Exception {
+        // seed는 ADMIN_OPERATOR 겸직 — SUPER_ADMIN 케이스는 역할 행을 바꿔 판정 집합(ADMIN_ROLE_CODES) 2종을 각각 실측한다(외부 검토 R1 Q7).
+        jdbc.update("DELETE FROM user_role WHERE user_id = ? AND role_id IN (SELECT id FROM role WHERE code IN ('ADMIN_OPERATOR', 'SUPER_ADMIN'))", BUYER_ADMIN);
+        jdbc.update("INSERT INTO user_role (user_id, role_id, created_at) SELECT ?, id, NOW(6) FROM role WHERE code = ?", BUYER_ADMIN, adminRoleCode);
+        String hashBefore = jdbc.queryForObject("SELECT password_hash FROM `user` WHERE id = ?", String.class, BUYER_ADMIN);
+
+        mockMvc.perform(post(URL + "/" + BUYER_ADMIN_PID + "/password-reset").headers(authHeaders.admin(ADMIN_ID)))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("MEMBER_ADMIN_ROLE_ASSIGNED"));
+
+        Map<String, Object> row = jdbc.queryForMap(
+                "SELECT password_hash, credentials_changed_at, password_change_required FROM `user` WHERE id = ?", BUYER_ADMIN);
+        assertThat(row.get("password_hash")).isEqualTo(hashBefore);
+        assertThat(row.get("credentials_changed_at")).isNull();
+        assertThat(row.get("password_change_required")).isEqualTo(false);
+        assertThat(auditActions(BUYER_ADMIN)).isEmpty();
+        verify(smsSender, never()).send(anyString(), anyString());
+    }
+
     @Test
-    @DisplayName("(7) 임시 비밀번호 성공: 204·SMS 원문 발송·notification_log 마스킹·감사 평문 없음·이전 토큰 401·무관 회원 무영향·"
-            + "임시 비번 로그인 passwordChangeRequired true → 셀프 변경 204 → 새 로그인 false·변경 이전 토큰 401")
-    void resetPassword_success_flow() throws Exception {
+    @DisplayName("(7) 임시 비밀번호 성공(D-204): 200 + 평문 1회·no-store·SMS 원문 = 응답 평문·notification_log 마스킹·감사 displayedToActor·"
+            + "감사·로그 평문 없음·이전 토큰 401·무관 회원 무영향·응답 평문 로그인 passwordChangeRequired true·이전 비밀번호 401 → "
+            + "셀프 변경 204 → 새 로그인 false·변경 이전 토큰 401")
+    void resetPassword_success_flow(CapturedOutput output) throws Exception {
         String tokenBeforeReset = backdatedToken(BUYER_A, ActorRole.BUYER);
         String unrelatedToken = backdatedToken(BUYER_C, ActorRole.BUYER);
         mockMvc.perform(get("/api/v1/users/me").header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenBeforeReset))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(post(URL + "/" + BUYER_A_PID + "/password-reset").headers(authHeaders.admin(ADMIN_ID)))
-                .andExpect(status().isNoContent());
+        // D-204: 관리자 화면 1회 표시 — 응답 200 + 평문(D-178 §8 "응답 204·평문 없음" 대체·SMS 병행 유지)
+        String resetJson = mockMvc.perform(post(URL + "/" + BUYER_A_PID + "/password-reset").headers(authHeaders.admin(ADMIN_ID)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.temporaryPassword").isString())
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+                .andExpect(header().string(HttpHeaders.PRAGMA, "no-cache"))
+                .andReturn().getResponse().getContentAsString();
+        String displayedPassword = objectMapper.readTree(resetJson).path("temporaryPassword").asText();
+        assertThat(displayedPassword).hasSize(12).doesNotContainPattern("[0O1lI]");
 
         ArgumentCaptor<String> content = ArgumentCaptor.forClass(String.class);
         verify(smsSender).send(org.mockito.ArgumentMatchers.eq("010-8484-0001"), content.capture());
         String temporaryPassword = extractTemporaryPassword(content.getValue());
-        assertThat(temporaryPassword).hasSize(12).doesNotContainPattern("[0O1lI]");
+        assertThat(temporaryPassword).isEqualTo(displayedPassword); // SMS 병행 유지(결정 3)·같은 평문
 
-        // DB 로그는 마스킹본만·응답/감사/로그 어디에도 평문 없음
+        // 평문은 응답 본문에만(D-204) — notification_log는 마스킹본·감사·서버 로그 어디에도 없음(D-178 §8 "응답에도 없음"을 대체)
+        assertThat(output.getAll()).doesNotContain(temporaryPassword);
         String storedContent = jdbc.queryForObject(
                 "SELECT content FROM notification_log WHERE target_type = 'USER' AND target_id = ? AND template_code = 'TPL_TEMPORARY_PASSWORD'",
                 String.class, BUYER_A);
@@ -265,6 +307,7 @@ class AdminMemberIntegrationTest extends AbstractIntegrationTest {
         assertThat(auditActions(BUYER_A)).containsExactly("UPDATE");
         String diff = auditDiffs(BUYER_A).get(0);
         assertThat(diff).contains("\"passwordHash\"").contains("\"passwordChangeRequired\"").doesNotContain(temporaryPassword);
+        assertThat(objectMapper.readTree(diff).path("displayedToActor").path("after").asBoolean()).isTrue();
         String storedHash = jdbc.queryForObject("SELECT password_hash FROM `user` WHERE id = ?", String.class, BUYER_A);
         assertThat(diff).doesNotContain(storedHash);
         assertThat(passwordEncoder.matches(temporaryPassword, storedHash)).isTrue();
@@ -276,9 +319,12 @@ class AdminMemberIntegrationTest extends AbstractIntegrationTest {
         mockMvc.perform(get("/api/v1/users/me").header(HttpHeaders.AUTHORIZATION, "Bearer " + unrelatedToken))
                 .andExpect(status().isOk());
 
-        // 임시 비밀번호 로그인 → 플래그 true·새 토큰으로 프로필 200
+        // 이전 비밀번호 401 · 응답 평문 로그인 → 플래그 true·새 토큰으로 프로필 200
+        mockMvc.perform(post(LOGIN_URL).contentType(MediaType.APPLICATION_JSON)
+                        .content(loginBody(BUYER_A_EMAIL, BUYER_A_PASSWORD)))
+                .andExpect(status().isUnauthorized());
         String loginJson = mockMvc.perform(post(LOGIN_URL).contentType(MediaType.APPLICATION_JSON)
-                        .content(loginBody(BUYER_A_EMAIL, temporaryPassword)))
+                        .content(loginBody(BUYER_A_EMAIL, displayedPassword)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.passwordChangeRequired").value(true))
                 .andReturn().getResponse().getContentAsString();
@@ -300,6 +346,7 @@ class AdminMemberIntegrationTest extends AbstractIntegrationTest {
                         .content(loginBody(BUYER_A_EMAIL, "brand-new-password-9")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.passwordChangeRequired").value(false));
+        assertThat(output.getAll()).doesNotContain(temporaryPassword); // 로그인·변경 로그에도 평문 없음
     }
 
     @Test
@@ -466,6 +513,8 @@ class AdminMemberIntegrationTest extends AbstractIntegrationTest {
                 seedUser(BUYER_NO_PHONE, NO_PHONE_PID, "t84-nophone@zslab.test", "무연락처", null, "pw-n-0000000", false, true);
                 seedUser(NON_BUYER, NON_BUYER_PID, "t84-nonbuyer@zslab.test", "판매자계정", "010-7777-8888", "pw-s-0000000", false, false);
                 seedUser(BUYER_C, pid("usr_", "T84BUYC"), "t84-buyer-c@zslab.test", "구매자C", "010-5555-6666", "pw-c-0000000", false, true);
+                seedUser(BUYER_ADMIN, BUYER_ADMIN_PID, "t84-buyer-admin@zslab.test", "운영자겸직", "010-9999-0000", "pw-a-0000000", false, true);
+                jdbc.update("INSERT INTO user_role (user_id, role_id, created_at) SELECT ?, id, NOW(6) FROM role WHERE code = 'ADMIN_OPERATOR'", BUYER_ADMIN);
                 jdbc.update("INSERT INTO user_address (id, user_id, is_default, recipient_name, recipient_phone, zonecode, address_road, "
                                 + "created_at, updated_at) VALUES (?, ?, 1, '수령인A', '010-1234-5678', '06236', '서울 강남구 테헤란로 1', NOW(6), NOW(6))",
                         ADDRESS_A, BUYER_A);
@@ -508,7 +557,7 @@ class AdminMemberIntegrationTest extends AbstractIntegrationTest {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
                 jdbc.update("DELETE FROM seller_user WHERE seller_id IN (?, ?, ?)", SELLER_S1, SELLER_S2, SELLER_S3);
                 jdbc.update("DELETE FROM seller WHERE id IN (?, ?, ?)", SELLER_S1, SELLER_S2, SELLER_S3);
-                List<Long> ids = List.of(BUYER_A, BUYER_B, BUYER_NO_PHONE, NON_BUYER, BUYER_C);
+                List<Long> ids = List.of(BUYER_A, BUYER_B, BUYER_NO_PHONE, NON_BUYER, BUYER_C, BUYER_ADMIN);
                 for (Long id : ids) {
                     jdbc.update("DELETE FROM audit_log WHERE target_type = 'USER' AND target_id = ?", id);
                     jdbc.update("DELETE FROM notification_log WHERE target_type = 'USER' AND target_id = ?", id);

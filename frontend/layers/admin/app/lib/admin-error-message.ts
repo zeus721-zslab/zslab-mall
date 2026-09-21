@@ -30,6 +30,7 @@ const ADMIN_ERROR_MESSAGES: Record<string, string> = {
   MEMBER_ACTIVITY_IN_PROGRESS: '진행 중인 주문 또는 클레임이 있어 탈퇴할 수 없습니다.',
   MEMBER_ALREADY_WITHDRAWN: '이미 탈퇴한 회원입니다.',
   MEMBER_PHONE_MISSING: '연락처가 없어 임시 비밀번호를 발송할 수 없습니다.',
+  MEMBER_ADMIN_ROLE_ASSIGNED: '관리자 권한을 보유한 회원에게는 임시 비밀번호를 발급할 수 없습니다. 관리자 권한 해제 후 재발급하세요.',
   TEMPORARY_PASSWORD_DELIVERY_FAILED: 'SMS 발송에 실패했습니다. 비밀번호는 변경되지 않았습니다.',
   // FE-39 관리자 운영자 관리(Track 89-E). 도메인 403(SUPER_ADMIN 아님·자기 SUPER_ADMIN 회수)은 code=FORBIDDEN이라 서버 detail을 쓴다(admin-operator-view).
   ADMIN_OPERATOR_ALREADY_EXISTS: '이미 운영 관리자 역할을 보유한 회원입니다.',

@@ -48,6 +48,11 @@ export interface AdminSellerMember {
   joinedAt: string
 }
 
+/** POST /admin/sellers/{slr_}/members 201 응답(BE AdminSellerMemberAddResponse·D-204). 신규 계정 생성 시에만 temporaryPassword(기존 회원 연결은 생략). */
+export interface AdminSellerMemberAddResponse extends AdminSellerMember {
+  temporaryPassword?: string
+}
+
 /** POST /admin/sellers/{slr_}/members 신규 계정 정보(BE AdminSellerMemberNewUserRequest·셀프 가입과 같은 필드·phone은 임시 비밀번호 SMS 수신처). */
 export interface AdminSellerMemberNewUser {
   email: string

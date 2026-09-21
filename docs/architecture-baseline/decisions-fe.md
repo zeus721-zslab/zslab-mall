@@ -2298,3 +2298,32 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 
 ### §8 이월
 - 주문 목록(`/orders`) 카드에는 송장 미표시 — 상세만. 요구 시 `OrderSummaryResponse` 확장 별 트랙.
+
+## FE-55: 임시 비밀번호 1회 표시 결과 다이얼로그(C-07 b) — 회원 재발급·셀러 구성원 신규 계정 공용 (Track 96-3) (2026-09-21)
+
+배경: Track 96 정찰 A1(임시 비밀번호 Mock SMS로 전달 불가)·C-07 b. BE는 D-204(P1 200 + `temporaryPassword` · P2 201 `AdminSellerMemberAddResponse.temporaryPassword` nullable · no-store). 평문은 결과 다이얼로그 DOM과 복사 버튼 외 어디로도 흐르지 않는다(토스트·console·스토어·useState 금지).
+
+결정:
+- **공용 컴포넌트 `layers/admin/app/components/admin/AdminTemporaryPasswordDialog.vue`**: props `open`·`temporaryPassword: string | null`·`recipientLabel?`·`testId?` · emit `closed`만. 평문은 `<code>`(monospace·`user-select: all`)·복사 버튼(`navigator.clipboard.writeText` → 성공 "임시 비밀번호를 복사했습니다." / 실패 "복사하지 못했습니다. 화면의 비밀번호를 직접 옮겨 적어 주세요." 인라인·`console.warn`에는 오류 이름만) · 안내 `TEMPORARY_PASSWORD_DIALOG_NOTICE`(`constants/admin-member.ts`) 2줄 · **닫기 2단**(닫기 → 경고 alert "닫으면 다시 볼 수 없습니다…" + "계속 보기"/"닫기") · `persistent`(바깥 클릭·ESC 불가) · `open`이 false가 되면 복사 안내·확인 단계 소거. **부모 규약: `closed`에서 값을 null로 지운다**(컴포넌트는 값을 소유하지 않는다).
+- **P1 회원 상세(`members/[id].vue`)**: `activeDialog` 값에 `'reset-result'` 추가·`temporaryPassword` 로컬 ref. 확인 다이얼로그(문구 "화면에 1회 표시하고 … SMS도 발송") → `resetPassword` → `temporaryPassword` 세팅·결과 다이얼로그(`test-id="member-reset-result"`)·성공 토스트 **제거** → `load()`. `closeResetResult`가 null + 닫기. 422 `MEMBER_ADMIN_ROLE_ASSIGNED` 문구 추가(warning 토스트 + 재조회).
+- **P2 구성원 추가 다이얼로그(`AdminSellerMemberAddDialog.vue`)**: `issuedPassword` 로컬 ref. 신규 계정 201에 `temporaryPassword`가 있으면 성공 토스트(평문 없음·"임시 비밀번호를 확인해 전달해 주세요") → 결과 다이얼로그(`seller-member-password-result`·형제 루트) → 닫기 확인 뒤 `closeIssuedPassword`가 null + `emit('done')`(부모 재조회·추가 다이얼로그 닫힘). 기존 회원 연결(키 없음)은 즉시 done(무변경). 결과 창이 열린 동안 제출 버튼 disabled·`reset()`이 `issuedPassword`도 비운다.
+- **문구**: `SELLER_MEMBER_NEW_USER_NOTICE` 2번째 줄 "임시 비밀번호는 생성 직후 화면에 1회만 표시됩니다(창을 닫으면 다시 볼 수 없음). 입력한 휴대폰으로 SMS도 발송됩니다. 첫 로그인 후 비밀번호를 변경해야 합니다."(FE-42 "화면에는 표시되지 않으며" 대체).
+- **타입·API**: `types/admin-member.ts` `AdminMemberTemporaryPasswordResponse` · `useAdminMembers.resetPassword(): Promise<AdminMemberTemporaryPasswordResponse>` · `types/admin-seller.ts` `AdminSellerMemberAddResponse extends AdminSellerMember { temporaryPassword?: string }` · `useAdminSellers.addMember(): Promise<AdminSellerMemberAddResponse>`.
+
+### §1-A 갈림길·채택/기각 근거
+- **결과를 `AdminConfirmDialog` 확장(slot) 【기각: 확인 전용 컴포넌트에 표시·복사·2단 닫기 상태가 섞임】 / 전용 공용 다이얼로그 【채택】**.
+- **평문을 컴포넌트가 소유(prop 1회 수신 후 내부 ref) 【기각: 닫힘 뒤 잔존 여부를 부모가 보장할 수 없음】 / 부모 소유 + closed에서 null 【채택】** — 두 부모 모두 로컬 ref.
+- **P2 done 즉시 emit + 결과 창을 부모(카드)가 띄움 【기각: 카드·상세 2곳에 평문 상태가 생김】 / 다이얼로그 내부에서 결과 창 → 닫힌 뒤 done 【채택】**.
+- **닫기 1단 【기각: 실수 닫힘 = 재발급 강제(세션 재차 종료)】 / 2단 + persistent 【채택】**.
+
+### §2 확정 구현 규칙·트랩
+- 변경: admin 9(`AdminTemporaryPasswordDialog.vue` 신규 · `AdminSellerMemberAddDialog.vue` · `pages/admin/members/[id].vue` · `composables/useAdminMembers.ts`·`useAdminSellers.ts` · `types/admin-member.ts`·`admin-seller.ts` · `lib/constants/admin-member.ts`·`admin-seller.ts` · `lib/admin-error-message.ts`) · vitest 2 신규(`test/admin/admin-temporary-password-dialog.spec.ts` 3 · `admin-seller-member-add-dialog.spec.ts` 2) · e2e 2(`admin-members.spec.ts` ⑤ 200 mock·결과 창·복사 readText·토스트 무평문·2단 닫기·body 무평문 / `admin-sellers.spec.ts` ③ 문구·④ 신규 201 mock → 결과 창 → done 순서·상세 재조회 카운트).
+- 트랩: vitest에서 `vi.stubGlobal('navigator', {...navigator, clipboard})`를 `createVuetify()` 마운트 **전에** 걸면 `navigator.userAgent` 소실로 vuetify display가 throw(이전 spec의 unstub 누락이 다음 spec까지 오염) → 마운트 뒤 스텁 + `afterEach(unstubAllGlobals)`. 컨테이너에서 `pnpm typecheck`(nuxt prepare) 후에는 dev 서버가 새 컴포넌트를 못 찾아 E2E가 "element not found"로 실패 → E2E 전 컨테이너 재시작(기존 트랩 재확인).
+- 검증: typecheck 0 · vitest 96파일 **639**(634 + 5) · no-admin-import 통과 · Playwright 콜드 101/104(admin-sellers ① 콜드 트랩 1) → 웜 **102/104**(101 + 1 신규 ④·2 skip = seller-password env) · 픽셀 12장 track96-3 track96-2 대비 **diff 0**(관리자 다이얼로그는 기준 12장에 미포함).
+
+### 외부 검토 반영(R2 Q6·Q7)
+- **P2 fail-closed**: 신규 계정 모드(`mode === 'new'`)에서 201 응답에 `temporaryPassword`가 없거나 빈 문자열이면 성공 토스트·결과 다이얼로그 없이 `toast.danger("… 계정은 생성되었지만 임시 비밀번호를 받지 못했습니다. 회원 상세에서 재발급해 주세요.")` → `emit('done')`(목록 갱신·계정은 이미 존재). 기존 회원 연결(`existing`)은 평문 부재가 정상이라 무변경. vitest RED 선증명: 적용 전 성공 토스트 1회 호출 → 적용 후 GREEN.
+- vitest 추가: `admin-seller-member-add-dialog.spec.ts` +2(키 없음·빈 문자열) · `admin-member-detail-reset.spec.ts` 신규 2(P1 페이지 — 모든 토스트 호출 인자에 평문 없음·성공 토스트 0 / 닫기 → 다른 값 재발급 → 이전 평문 DOM 부재 → 닫으면 둘 다 부재). 페이지 spec 트랩: `useRoute`/`useRouter`를 `mockNuxtImport`로 바꾸면 Nuxt 초기화(`router.beforeEach`)가 깨진다 → `mountSuspended(..., { route: '/admin/members/usr_A' })`로 실제 라우터 사용.
+
+### §8 이월
+- 관리자 영역 강제 변경(adminAuth 플래그·관리자 비밀번호 페이지)은 D-204 §8.

@@ -11939,3 +11939,64 @@ EXPLAIN(로컬 읽기·seller 4·30일): 입고 합 = product PRIMARY index scan
 ### §8 이월
 - 택배사 외부 추적 링크·외부 API 연동은 결정 범위 외(정찰 비권장 목록 유지).
 - 승인 대기 건수의 셀러 대시보드 대응(셀러 자신의 PENDING 상품 수)은 요구 시 별 트랙.
+
+## D-204. 임시 비밀번호 관리자 화면 1회 표시(C-07 b) — 응답 평문·no-store·관리자 역할 차단·감사 표시 플래그 (Track 96-3)
+
+날짜: 2026-09-21
+브랜치: feat/track-96-3-temp-password-display
+정찰: docs/track-96/recon-report-temp-password.md(STEP 877~881) · 배경 정찰 docs/track-96/recon-report-ops.md §1 A1 · §7 C-07
+등급: A(보안·평문 노출 정책 개정)
+
+### 배경
+임시 비밀번호(구매자 재발급 P1·셀러 구성원 신규 계정 P2)는 SMS로만 전달되는데 SMS 어댑터가 Mock이라 실제로 아무에게도 전달되지 않았다(A1·`MockSmsSender`는 길이만 로그). 비밀번호 분실 회원은 셀프 복구 수단도 없어 사실상 복구 불가였다. 정찰 이상 징후: **X1** 96 정찰 A1의 "운영자 신규 계정" 경로는 존재하지 않는다(운영자 프로비저닝은 기존 회원 role 부여만·D-186 §7) → 평문 발급 경로는 2개뿐 · **X2** 관리자 영역은 변경 강제가 없다(`adminAuth`가 `passwordChangeRequired`를 읽지 않고 관리자 비밀번호 변경 페이지도 없음·ADMIN_OPERATOR는 BUYER 겸직이라 회원 상세에서 재발급 가능) · **X3** SUPER_ADMIN(부트스트랩)은 BUYER 없음·phone null이라 재발급 경로 0 · **X4** 유효기간·발급 횟수 제한·발급 시각 필드 없음. 외부 어댑터 도입 전까지 관리자 화면에 1회 표시(C-07 b)로 전달 경로를 만든다.
+
+### 결정
+1. **P1 `POST /api/v1/admin/members/{usr_}/password-reset` 204 → 200 + `TemporaryPasswordResponse{temporaryPassword}`**(`toString` 마스킹). 서비스 `resetPassword`가 응답 record를 반환한다. **P2 `POST /api/v1/admin/sellers/{slr_}/members` 201 응답을 `AdminSellerMemberAddResponse`**(구성원 행 키 + `temporaryPassword` nullable·신규 계정 생성 시에만 값·기존 회원 연결은 NON_NULL 생략·`toString` 마스킹)로 교체. 셀러 상세 구성원 목록(`Member`)은 무변경이라 평문 필드가 목록에 실리지 않는다. `AdminMemberProvisioningService.provision`은 `AdminMemberProvisionResult(user, temporaryPassword)`(`toString` 마스킹)를 반환한다.
+2. **두 응답 모두 `Cache-Control: no-store` + `Pragma: no-cache`를 컨트롤러가 명시**(`ResponseEntity.cacheControl(CacheControl.noStore())`·`AdminMemberController.PRAGMA_NO_CACHE`). Spring Security 기본 헤더에 의존하지 않는다(기본 헤더는 기존 헤더를 덮어쓰지 않아 명시값이 유지됨·D-176 실측). IT가 헤더를 단언한다.
+3. **SMS 발송 유지**: `sendSensitiveSms` 같은 TX·FAILED → 502 전체 롤백(D-178 §8) 그대로. Mock에서는 항상 SENT라 화면 표시가 유일한 실전달 경로이며, 실 어댑터 도입 시 자동으로 SMS 병행이 된다. notification_log는 여전히 `****` 마스킹본.
+4. **유효기간 없음(현행)**: 강제 변경 플래그(`password_change_required`)와 재발급 시 해시 덮어쓰기(이전 값 즉시 무효)만으로 수명을 관리한다. 컬럼·Flyway·로그인 분기 추가 없음.
+5. **P1 대상이 관리자 역할(SUPER_ADMIN·ADMIN_OPERATOR) 보유 회원이면 422 `MEMBER_ADMIN_ROLE_ASSIGNED`**(`MemberAdminRoleAssignedException`·`AdminMemberCommandService.ADMIN_ROLE_CODES`·`UserRoleRepository.existsByUserIdAndRole_CodeIn`). 행위자가 SUPER_ADMIN이어도 예외 없음. 메시지: "관리자 권한 해제 후 재발급". 판정은 탈퇴 검사 뒤·연락처 검사 앞(행 불변·감사 0·SMS 0).
+6. **FE 공용 결과 다이얼로그** `AdminTemporaryPasswordDialog`(admin 레이어): 평문 monospace `<code>`·복사 버튼(성공/실패 인라인 안내)·안내 "이 창을 닫으면 다시 볼 수 없습니다 / 첫 로그인 시 비밀번호 변경이 강제됩니다"·닫기 2단(닫기 → 경고 + 계속 보기/닫기)·persistent(바깥 클릭·ESC 불가)·닫힐 때 로컬 상태 소거. 부모는 `closed`에서 값을 null로 지운다. P1: 확인 다이얼로그 → 호출 → 결과 다이얼로그(성공 토스트 없음). P2: 성공 토스트(평문 없음) → 결과 다이얼로그 → 닫힌 뒤 `emit('done')`(부모 재조회). 상세는 FE-55.
+7. **감사 after에 `displayedToActor: true`**(P1 UPDATE USER·P2 CREATE USER·평문 아님) · **`Masker` 민감 키에 `temporaryPassword` 추가**(정상 경로는 키 자체를 넣지 않으며 실수 방어).
+8. **라이브 E2E 없음**: Playwright는 mock 응답(`admin-members.spec ⑤`·`admin-sellers.spec ④` 신규)으로 화면 흐름만 검증. 응답 계약·로그인 가능·로그 무평문은 IT가 검증한다.
+
+### 정책 대체
+- **D-178 §8 "응답 204·평문은 응답·로그·감사 어디에도 없음" → "평문은 발급 응답 본문(관리자 화면 1회 표시)과 SMS 원문에만 있고 로그·감사·notification_log·FE 영속 상태·토스트·console에는 없음"으로 대체.** D-189 §1-A 3 "응답에 password 키 없음"(IT T7-1)도 같은 정책으로 대체. FE-42 안내 문구 "화면에는 표시되지 않으며" 폐기(FE-55).
+- AUD-2(감사 로그 민감정보 마스킹)는 유지 — 감사에는 여전히 평문이 없다.
+
+### 누수 위험 대응표(정찰 N1~N9)
+| # | 위험 | 대응 |
+|---|---|---|
+| N1 | 응답 본문 → 브라우저·프록시·gateway 캐시 | **대응**: no-store·Pragma 명시(결정 2)·IT 단언. gateway(nginx) access log는 본문 미기록이 기본이나 설정은 프로젝트 밖 → **운영자 확인 이월** |
+| N2 | 감사 diff에 평문 | **대응**: 키를 넣지 않음 + `Masker` 방어 등록(결정 7)·IT `doesNotContain(평문)` |
+| N3 | DTO toString → 서버 로그·Filebeat·ES | **대응**: 3 record `toString` 마스킹·IT `OutputCaptureExtension`으로 요청 처리 중 전체 로그에 평문 부재 단언(P1·P2·로그인·변경까지) |
+| N4 | 토스트 노출 | **대응**: P1 성공 토스트 제거·P2 토스트는 평문 없음(vitest·E2E 단언) |
+| N5 | FE 상태 잔존 | **대응**: 페이지/다이얼로그 로컬 ref만·closed에서 null·DOM 부재 단언 |
+| N6 | 클립보드 잔존 | **수용**: 운영자 편의(전달 경로)·OS 클립보드는 제어 밖 — 안내 문구로 "안전한 경로로 전달" |
+| N7 | 관리자가 사용자 비밀번호를 앎 + X2·X4 | **대응**: 관리자 역할 보유 회원 차단(결정 5) · 강제 변경 플래그·`displayedToActor` 감사로 행위 추적. 유효기간은 **수용**(결정 4) |
+| N8 | Playwright trace/HAR | **대응**: 라이브 E2E 없음·mock 평문은 가짜 값 |
+| N9 | 실 어댑터 도입 후 "발송 실패 → 롤백 → 표시도 없음" | **수용**: D-178 §8 정책 유지·실 어댑터 트랙에서 TX 분리와 함께 재검토(기존 이월 항목) |
+
+### §1-A 갈림길
+- **전달 방식 (a) 응답 본문 1회 【채택】 / (c) 서버 저장(암호화·TTL) + 조회 API 【기각: 저장 자체가 새 누수면·재조회 가능해져 "1회" 보장 불가】 / P2 `Member` record에 nullable 필드 【기각: 셀러 상세 구성원 목록까지 키가 퍼짐 → 추가 응답 전용 record】**.
+- **유효기간 (a) 없음 【채택: 강제 변경 플래그 + 재발급 시 즉시 무효로 충분·컬럼·Flyway·로그인 분기 회피(과잉개발)】 / (b) 발급 시각 + 만료 검사 【기각】**.
+- **X2 대응 = 관리자 역할 보유 대상 차단 【채택】 / 관리자 비밀번호 변경 페이지·adminAuth 강제 신설 【기각: 별도 트랙 규모·현재 운영자는 SUPER_ADMIN 1 + 겸직 승격뿐】**. 운영자 복구 절차는 §운영 절차.
+- **SMS 병행 유지 【채택: Mock 기간 무해·실 어댑터 시 자동 병행·notification_log 이력 연속】 / 표시 시 미발송 【기각】**.
+- **P1 성공 토스트 유지 【기각: 결과 창과 중복·평문 미포함이어도 토스트 경로에 값이 흐를 여지 제거】 / 제거 【채택】**.
+
+### §2 확정 구현 규칙
+- BE main 10: `TemporaryPasswordResponse`(신규) · `MemberAdminRoleAssignedException`(신규) · `AdminMemberProvisionResult`(신규) · `AdminSellerMemberAddResponse`(신규) · `AdminMemberCommandService`(+`UserRoleRepository`·가드·반환·감사 플래그) · `AdminMemberController`(200·헤더·`PRAGMA_NO_CACHE`) · `AdminMemberProvisioningService`(반환·감사 플래그) · `AdminSellerMemberCommandService`(결과 record) · `AdminSellerMemberController`(헤더) · `GlobalExceptionHandler`(422 `MEMBER_ADMIN_ROLE_ASSIGNED`) · `Masker`(+1 키).
+- IT: `AdminMemberIntegrationTest` (6-2) 신규(BUYER+ADMIN_OPERATOR 겸직 seed → 422·해시·플래그·감사·SMS 불변) · (7) 반전(200·평문 12자·SMS 원문 = 응답 평문·no-store·Pragma·`displayedToActor`·이전 비밀번호 401·응답 평문 로그인 true·`CapturedOutput` 전체 로그 무평문) · (1) totalCount 3→4(겸직 seed 포함) · `AdminSellerMemberControllerIntegrationTest` T2(기존 회원 `temporaryPassword` 부재·헤더) · T7-1 반전(응답 평문·SMS 동일·감사 무평문·응답 평문으로 SELLER 로그인 200·플래그 true·로그 무평문).
+- **RED 선증명**: 가드 적용 전 (6-2) 422 기대 → **실측 204** · (7) 200 기대 → **실측 204** → 적용 후 GREEN.
+- 검증: `./gradlew.bat test --rerun-tasks` 236파일 **1388·0 fail·0 error·0 skip**(1387 + 1).
+- 트랩: Jackson `default-property-inclusion: non_null`이라 P2 기존 회원 연결 응답에서 `temporaryPassword` 키 자체가 생략된다(`jsonPath(...).doesNotExist()`로 단언·FE 타입은 optional).
+
+- **응답 계약(외부 검토 R1 Q3 확인)**: 평문 응답은 서비스 트랜잭션(`@Transactional` 클래스·`resetPassword`/`add`) 커밋 뒤에만 컨트롤러가 조립한다 — 커밋 실패·SMS 실패(502)·감사 적재 실패는 예외로 전파돼 본문 없는 오류 응답이 된다. 트랜잭션을 컨트롤러로 올리거나 `REQUIRES_NEW`로 분리하지 않는다(분리하면 "커밋된 해시 ≠ 표시된 평문" 창이 생긴다).
+
+### 운영 절차(화면 밖)
+- **운영자(ADMIN_OPERATOR 겸직 회원) 비밀번호 분실 복구**: 관리자 목록에서 역할 회수(`DELETE /admin/users/{usr_}/roles/ADMIN_OPERATOR`·사유) → 회원 상세 "임시 비밀번호 발급" → 평문 전달 → 본인이 구매자 화면(`/mypage/password`·강제 이동)에서 변경 → 관리자 목록에서 재부여. SUPER_ADMIN(X3)은 이 절차가 없다 — DB 직접 갱신뿐(별도 결정 필요·§8).
+
+### §8 이월
+- SUPER_ADMIN 비밀번호 분실 복구 경로(X3) · 관리자 영역 변경 강제(X2 근본 대응) · 임시 비밀번호 유효기간(X4) · gateway 캐시/로그 설정 확인(N1) · 실 SMS 어댑터 도입 시 TX 분리(D-178 §8 이월 유지).
+- **운영 확인 항목(배포 후·서버 읽기 전용 점검)**: 운영 `logging.level`(com.zslab.mall INFO·root WARN)·gateway access log 형식(응답 본문 미기록)·응답 본문 로깅 필터 부재 확인 — gateway 캐시 확인과 함께 1회 점검하고 결과를 PROGRESS에 남긴다.
+- 외부 검토: A / 2라운드(R1 BE·R2 FE) / major 1(R2 Q6 — P2 신규 계정인데 응답에 평문이 없거나 빈 문자열이면 성공 토스트만 내고 전달 불가 상태가 됨 → fail-closed 분기: danger 토스트 "계정은 생성되었지만 임시 비밀번호를 받지 못했습니다. 회원 상세에서 재발급해 주세요" + done) 수용 · minor 2 부분 수용(가드 IT를 SUPER_ADMIN·ADMIN_OPERATOR 2종 파라미터로 / P2 평문 누락 vitest 2 / P1 페이지 토스트 인자 무평문·재발급(다른 값) 시 이전 평문 DOM 부재 vitest 2) · 기각 4(역할 부여 경합 직렬화 — 부여 API가 SUPER_ADMIN 전용·같은 TX 내 판정 후 해시 저장까지 ms 단위·실질 위협 없음 / P2 생성 직후 역할 부여 후 P1 시나리오 — 별개 요청 2건이며 P1 가드가 그대로 차단 / P2 후속 저장(seller_user saveAndFlush 409) 실패 IT — 기존 T4·T7-2가 롤백을 단언 / 라우트 이탈 테스트 — 로컬 ref는 컴포넌트 언마운트로 소멸) · PASS 7 · 재검토 생략(국소 수정·테스트 재현).

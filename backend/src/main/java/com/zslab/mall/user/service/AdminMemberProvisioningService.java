@@ -38,7 +38,8 @@ import org.springframework.transaction.annotation.Transactional;
  * 전체(계정·역할·프로필·호출자 트랜잭션)를 롤백한다. BUYER를 함께 부여하는 이유: 관리자 회원 목록·상세·탈퇴·임시 비밀번호 재발급이 전부 BUYER
  * 회원 기준이라, BUYER 없이 만들면 그 계정은 관리자 화면 어디서도 관리·재발급할 수 없다(D-189). 본인 비밀번호 변경은 role 무관
  * {@code PATCH /api/v1/users/me/password}로 구매자 마이페이지·셀러 설정 화면(FE-50) 양쪽에서 가능하다(D-201 Javadoc 교정).
- * 임시 비밀번호 평문은 SMS 원문에만 쓰고 응답·로그·감사 어디에도 남기지 않는다.
+ * 임시 비밀번호 평문은 SMS 원문과 반환값(호출자가 관리자 화면 1회 표시용 응답에만 싣는다·D-204)에만 쓰고 로그·감사·notification_log에는
+ * 남기지 않는다.
  */
 @Slf4j
 @Service
@@ -49,6 +50,8 @@ public class AdminMemberProvisioningService {
     private static final String TEMPORARY_PASSWORD_SMS = "[zslab-mall] 임시 비밀번호: %s 로그인 후 비밀번호를 변경해 주세요.";
     private static final String TEMPORARY_PASSWORD_MASK = "****";
     private static final String TEMPORARY_PASSWORD_EVENT = "TemporaryPassword";
+    /** 감사 after에 "평문이 관리자 화면에 표시됐다"는 사실만 남기는 키(D-204·평문 아님). */
+    private static final String AUDIT_DISPLAYED_TO_ACTOR = "displayedToActor";
 
     private final UserRepository userRepository;
     private final RoleRepository roleRepository;
@@ -89,12 +92,12 @@ public class AdminMemberProvisioningService {
      *
      * @param command      이메일·이름·휴대폰(형식 검증은 호출측 DTO)
      * @param auditContext 감사 행위자(운영자)
-     * @return 생성된 회원(호출자가 역할 연결 등에 사용)
+     * @return 생성된 회원(호출자가 역할 연결 등에 사용) + 화면 표시용 임시 비밀번호 평문(D-204)
      * @throws EmailAlreadyExistsException 이메일 중복(409·셀프 가입과 같은 검증·탈퇴 회원 이메일 포함)
      * @throws TemporaryPasswordDeliveryFailedException SMS 발송 실패(502·롤백)
      * @throws IllegalStateException BUYER Role 또는 SILVER BuyerGrade seed가 없는 경우(내부 오류·500)
      */
-    public User provision(AdminMemberProvisionCommand command, AuditContext auditContext) {
+    public AdminMemberProvisionResult provision(AdminMemberProvisionCommand command, AuditContext auditContext) {
         String email = command.email().trim();
         if (userRepository.existsByEmail(email)) {
             throw new EmailAlreadyExistsException("이미 사용 중인 이메일");
@@ -114,11 +117,11 @@ public class AdminMemberProvisioningService {
                 .orElseThrow(() -> new IllegalStateException("SILVER BuyerGrade seed 누락(V15 마이그레이션 확인 필요)."));
         buyerProfileRepository.save(BuyerProfile.create(saved, silver.getId(), GradeSource.AUTO));
 
-        // 생성 감사는 최소셋(publicId·role·변경 강제 플래그). 이메일·이름·휴대폰은 AUD-2 민감정보 회피로 제외한다.
+        // 생성 감사는 최소셋(publicId·role·변경 강제 플래그·화면 표시 사실). 이메일·이름·휴대폰은 AUD-2 민감정보 회피로 제외한다.
         auditRecorder.record(auditContext, AuditLogAction.CREATE, PolymorphicTargetType.USER, saved.getId(),
                 Map.of(),
                 Map.of("userPublicId", saved.getPublicId(), "role", RoleCode.BUYER.name(),
-                        "passwordChangeRequired", true));
+                        "passwordChangeRequired", true, AUDIT_DISPLAYED_TO_ACTOR, true));
 
         NotificationLogStatus status = notificationService.sendSensitiveSms(
                 saved.getId(), saved.getPhone(), NotificationTemplateCodes.TEMPORARY_PASSWORD, "임시 비밀번호",
@@ -128,8 +131,8 @@ public class AdminMemberProvisioningService {
             throw new TemporaryPasswordDeliveryFailedException(
                     "임시 비밀번호 SMS 발송에 실패했습니다: userPublicId=" + saved.getPublicId());
         }
-        log.info("[AdminMemberProvisioning] 계정 생성·임시 비밀번호 발급 userId={} publicId={} byActor={}",
+        log.info("[AdminMemberProvisioning] 계정 생성·임시 비밀번호 발급·화면 표시 userId={} publicId={} byActor={}",
                 saved.getId(), saved.getPublicId(), auditContext.actorUserId());
-        return saved;
+        return new AdminMemberProvisionResult(saved, temporaryPassword);
     }
 }

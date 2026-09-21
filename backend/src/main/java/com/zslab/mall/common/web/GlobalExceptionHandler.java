@@ -65,6 +65,7 @@ import com.zslab.mall.settlement.exception.SettlementPeriodInvalidException;
 import com.zslab.mall.user.exception.AddressNotFoundException;
 import com.zslab.mall.user.exception.EmailAlreadyExistsException;
 import com.zslab.mall.user.exception.MemberActivityInProgressException;
+import com.zslab.mall.user.exception.MemberAdminRoleAssignedException;
 import com.zslab.mall.user.exception.MemberAlreadyWithdrawnException;
 import com.zslab.mall.user.exception.MemberPhoneMissingException;
 import com.zslab.mall.user.exception.TemporaryPasswordDeliveryFailedException;
@@ -177,6 +178,7 @@ public class GlobalExceptionHandler {
     private static final String CODE_MEMBER_ACTIVITY_IN_PROGRESS = "MEMBER_ACTIVITY_IN_PROGRESS";
     private static final String CODE_MEMBER_ALREADY_WITHDRAWN = "MEMBER_ALREADY_WITHDRAWN";
     private static final String CODE_MEMBER_PHONE_MISSING = "MEMBER_PHONE_MISSING";
+    private static final String CODE_MEMBER_ADMIN_ROLE_ASSIGNED = "MEMBER_ADMIN_ROLE_ASSIGNED";
     private static final String CODE_TEMPORARY_PASSWORD_DELIVERY_FAILED = "TEMPORARY_PASSWORD_DELIVERY_FAILED";
     private static final String CODE_INTERNAL_ERROR = "INTERNAL_ERROR";
 
@@ -530,6 +532,14 @@ public class GlobalExceptionHandler {
         // Track 84: 연락처 없는 회원 임시 비밀번호 발급 불가(422·SMS 수신처 부재).
         log.warn("[Member] 임시 비밀번호 발급 불가·연락처 없음(422): {}", exception.getMessage());
         return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_MEMBER_PHONE_MISSING, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(MemberAdminRoleAssignedException.class)
+    public ResponseEntity<ProblemDetail> handleMemberAdminRoleAssigned(
+            MemberAdminRoleAssignedException exception, HttpServletRequest request) {
+        // D-204: 관리자 역할 보유 회원 임시 비밀번호 발급 차단(422·관리자 영역 변경 강제 부재·권한 해제 후 재발급).
+        log.warn("[Member] 임시 비밀번호 발급 불가·관리자 역할 보유(422): {}", exception.getMessage());
+        return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_MEMBER_ADMIN_ROLE_ASSIGNED, exception.getMessage(), request);
     }
 
     @ExceptionHandler(PaymentAlreadyCompletedException.class)
