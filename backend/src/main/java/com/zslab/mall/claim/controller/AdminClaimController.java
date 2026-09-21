@@ -1,5 +1,6 @@
 package com.zslab.mall.claim.controller;
 
+import com.zslab.mall.claim.controller.request.AdminClaimActionFilter;
 import com.zslab.mall.claim.controller.request.AdminClaimSort;
 import com.zslab.mall.claim.controller.request.ClaimApproveRequest;
 import com.zslab.mall.claim.controller.request.ClaimInspectRequest;
@@ -75,6 +76,7 @@ public class AdminClaimController {
             @RequestParam(required = false) ClaimType type,
             @RequestParam(required = false) ClaimStatus status,
             @RequestParam(required = false) RefundStatus refundStatus,
+            @RequestParam(required = false) AdminClaimActionFilter action,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to,
@@ -82,7 +84,7 @@ public class AdminClaimController {
             @RequestParam(defaultValue = "LATEST") AdminClaimSort sort,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(adminClaimQueryService.listClaims(type, status, refundStatus, keyword, from, to, buyerPublicId, sort, page, size));
+        return ResponseEntity.ok(adminClaimQueryService.listClaims(type, status, refundStatus, action, keyword, from, to, buyerPublicId, sort, page, size));
     }
 
     /**

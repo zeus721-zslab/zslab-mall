@@ -2,6 +2,7 @@ package com.zslab.mall.claim.service;
 
 import com.zslab.mall.attachment.repository.AttachmentCountProjection;
 import com.zslab.mall.attachment.repository.AttachmentRepository;
+import com.zslab.mall.claim.controller.request.AdminClaimActionFilter;
 import com.zslab.mall.claim.controller.request.AdminClaimSort;
 import com.zslab.mall.claim.controller.response.AdminClaimListResponse;
 import com.zslab.mall.claim.controller.response.AdminClaimSummaryResponse;
@@ -95,12 +96,13 @@ public class AdminClaimQueryService {
 
     /**
      * 관리자 클레임 목록. keyword는 주문번호 정확일치·구매자 이름/이메일·상품명 부분일치. refundStatus는 최신 환불 상태(Track 89-A).
-     * pendingCount는 유형 필터만 반영한다.
+     * action은 필요 액션(Track 96-4 D-205·{@link #availableActions}와 같은 조건·다른 필터와 AND). pendingCount는 유형 필터만 반영한다.
      *
      * @throws MalformedRequestException keyword가 trim 후 {@value #MAX_KEYWORD_LENGTH}자를 초과하거나 from &gt; to일 때(400)
      */
-    public AdminClaimListResponse listClaims(ClaimType type, ClaimStatus status, RefundStatus refundStatus, String keyword,
-            LocalDateTime from, LocalDateTime to, String buyerPublicId, AdminClaimSort sort, int page, int size) {
+    public AdminClaimListResponse listClaims(ClaimType type, ClaimStatus status, RefundStatus refundStatus,
+            AdminClaimActionFilter action, String keyword, LocalDateTime from, LocalDateTime to, String buyerPublicId,
+            AdminClaimSort sort, int page, int size) {
         if (from != null && to != null && from.isAfter(to)) {
             throw new MalformedRequestException("from은 to보다 늦을 수 없습니다.");
         }
@@ -121,6 +123,7 @@ public class AdminClaimQueryService {
                 .where(AdminClaimSpecifications.type(type))
                 .and(AdminClaimSpecifications.status(status))
                 .and(AdminClaimSpecifications.refundStatus(refundStatus))
+                .and(AdminClaimSpecifications.action(action))
                 .and(AdminClaimSpecifications.requestedBetween(from, to))
                 .and(AdminClaimSpecifications.keyword(toLikePattern(trimmedKeyword), trimmedKeyword))
                 .and(AdminClaimSpecifications.buyerId(buyerId));

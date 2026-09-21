@@ -199,7 +199,7 @@ class AdminDashboardQueryControllerIntegrationTest extends AbstractIntegrationTe
 
     @Test
     @DisplayName("T3 처리 대기: 정산 PENDING 1·클레임 REQUESTED 1·배송 대기(PAID 품목) 3·재고 임박(1~5·수동 품절 제외) 1"
-            + "·상품 승인 대기 1(삭제 제외)·셀러 승인 대기 1(삭제 제외)")
+            + "·상품 승인 대기 1(삭제 제외)·셀러 승인 대기 1(삭제 제외)·클레임 처리 대기 0(RETURN APPROVED 회수 송장 대기는 비대상)")
     void pending() throws Exception {
         JsonNode before = fetch();
         seed();
@@ -215,6 +215,8 @@ class AdminDashboardQueryControllerIntegrationTest extends AbstractIntegrationTe
         // Track 96-2 D-203: PENDING 2건 중 deleted_at 있는 1건 제외(@SQLRestriction) · SALE·ACTIVE는 미집계
         assertThat(delta(before, after, "pending", "productPending")).isEqualTo(1);
         assertThat(delta(before, after, "pending", "sellerPending")).isEqualTo(1);
+        // Track 96-4 D-205: RETURN APPROVED는 회수 송장 없음(구매자 대기)이라 후속 액션 0 · CANCEL REQUESTED는 FOLLOWUP 비대상(매트릭스는 AdminClaimActionFilterIntegrationTest)
+        assertThat(delta(before, after, "pending", "claimFollowup")).isZero();
     }
 
     @Test
