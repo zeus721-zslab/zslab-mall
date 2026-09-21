@@ -3,9 +3,10 @@ import { mdiMagnify, mdiRefresh } from '@mdi/js'
 import type { AdminClaimListQuery } from '#layers/admin/app/types/admin-claim'
 import { CLAIM_STATUS_LABELS, REFUND_STATUS_LABELS, type ClaimStatus, type RefundStatus } from '~/lib/constants/claim'
 import { ADMIN_ORDER_KEYWORD_MAX, ADMIN_ORDER_SORT_OPTIONS } from '#layers/admin/app/lib/constants/admin-order'
+import { ADMIN_CLAIM_ACTION_FILTER_OPTIONS } from '#layers/admin/app/lib/constants/admin-claim'
 import { isPeriodInverted, normalizeDateOnly } from '#layers/admin/app/lib/admin-order-query'
 
-// 클레임 필터 카드(FE-28·AdminOrderFilterCard 패턴). 유형은 탭(부모)이 소유하므로 여기서는 검색·요청일 기간·상태·정렬만 다룬다.
+// 클레임 필터 카드(FE-28·AdminOrderFilterCard 패턴). 유형은 탭(부모)이 소유하므로 여기서는 검색·요청일 기간·상태·환불 상태·필요 액션(FE-56)·정렬만 다룬다.
 // 검색어는 로컬 입력값을 두고 검색 버튼·Enter로만 확정, 기간·드롭다운은 변경 즉시 확정. 모든 확정은 emit('apply')로 부모(URL 단일 소스)에 넘긴다.
 const props = defineProps<{
   query: AdminClaimListQuery
@@ -92,6 +93,17 @@ function applyDate(key: 'from' | 'to', value: string | null): void {
             clearable
             data-testid="filter-refund-status"
             @update:model-value="(value) => emit('apply', { refundStatus: value ?? null })"
+          />
+        </v-col>
+        <v-col cols="6" md="2">
+          <v-select
+            :model-value="query.action"
+            :items="ADMIN_CLAIM_ACTION_FILTER_OPTIONS"
+            label="필요 액션"
+            hide-details
+            clearable
+            data-testid="filter-action"
+            @update:model-value="(value) => emit('apply', { action: value ?? null })"
           />
         </v-col>
       </v-row>

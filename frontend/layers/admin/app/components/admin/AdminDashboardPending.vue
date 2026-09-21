@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { mdiAlertOutline, mdiClipboardTextClockOutline, mdiPackageVariantClosed, mdiStoreClockOutline, mdiTagArrowDownOutline, mdiWalletOutline } from '@mdi/js'
+import { mdiAlertOutline, mdiClipboardCheckOutline, mdiClipboardTextClockOutline, mdiPackageVariantClosed, mdiStoreClockOutline, mdiTagArrowDownOutline, mdiWalletOutline } from '@mdi/js'
 import type { AdminDashboardPending } from '#layers/admin/app/types/admin-dashboard'
 import { PENDING_TILES, pendingChipClass, type PendingKey } from '#layers/admin/app/lib/admin-dashboard-view'
 
 /**
- * 처리 대기 6칸(FE-33 4칸 + Track 96-2 FE-54 상품·셀러 승인 대기 2칸). 링크가 있는 칸은 해당 관리자 목록(필터 포함)으로 이동하고,
+ * 처리 대기 7칸(FE-33 4칸 + Track 96-2 FE-54 상품·셀러 승인 대기 2칸 + Track 96-4 FE-56 클레임 처리 대기 1칸·md 4+3). 링크가 있는 칸은 해당 관리자 목록(필터 포함)으로 이동하고,
  * 없는 칸은 카운트만 보인다. 톤은 0건 회색·1건 이상 주의(재고만 빨강)이며 판정은 lib/admin-dashboard-view.ts.
  */
 const props = defineProps<{
@@ -18,6 +18,7 @@ const ICONS: Record<PendingKey, string> = {
   lowStock: mdiAlertOutline,
   productPending: mdiTagArrowDownOutline,
   sellerPending: mdiStoreClockOutline,
+  claimFollowup: mdiClipboardCheckOutline,
 }
 
 // 문자열 'NuxtLink'는 전역 등록 컴포넌트가 아니라 <nuxtlink> 원소로 렌더된다 → resolveComponent로 실제 컴포넌트를 넘긴다.

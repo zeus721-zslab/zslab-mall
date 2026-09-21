@@ -21,6 +21,12 @@ export type AdminClaimAction =
   | 'MARK_EXCHANGE_DELIVERED'
   | 'INITIATE_REFUND'
 
+/**
+ * 목록 "필요 액션" 필터 값(BE AdminClaimActionFilter·Track 96-4 D-205·FE-56). FOLLOWUP은 후속 처리 5종 합집합(대시보드 클레임 처리 대기
+ * 타일과 같은 조건). APPROVE·REJECT는 status=REQUESTED 필터가 담당하므로 없다.
+ */
+export type AdminClaimActionFilter = Exclude<AdminClaimAction, 'APPROVE' | 'REJECT'> | 'FOLLOWUP'
+
 /** 목록 행(BE AdminClaimSummaryResponse). 주문·품목·구매자 미존재 시 해당 필드는 생략된다. */
 export interface AdminClaimSummary {
   claimId: string
@@ -90,6 +96,8 @@ export interface AdminClaimListQuery {
   status: ClaimStatus | null
   /** 최신 환불 상태 필터(Track 89-A·환불 없는 클레임은 어느 값에도 안 걸림). */
   refundStatus: RefundStatus | null
+  /** 필요 액션 필터(Track 96-4·null=전체). 허용 외 URL 값은 null로 정규화한다. */
+  action: AdminClaimActionFilter | null
   keyword: string
   from: string | null
   to: string | null

@@ -12000,3 +12000,49 @@ EXPLAIN(로컬 읽기·seller 4·30일): 입고 합 = product PRIMARY index scan
 - SUPER_ADMIN 비밀번호 분실 복구 경로(X3) · 관리자 영역 변경 강제(X2 근본 대응) · 임시 비밀번호 유효기간(X4) · gateway 캐시/로그 설정 확인(N1) · 실 SMS 어댑터 도입 시 TX 분리(D-178 §8 이월 유지).
 - **운영 확인 항목(배포 후·서버 읽기 전용 점검)**: 운영 `logging.level`(com.zslab.mall INFO·root WARN)·gateway access log 형식(응답 본문 미기록)·응답 본문 로깅 필터 부재 확인 — gateway 캐시 확인과 함께 1회 점검하고 결과를 PROGRESS에 남긴다.
 - 외부 검토: A / 2라운드(R1 BE·R2 FE) / major 1(R2 Q6 — P2 신규 계정인데 응답에 평문이 없거나 빈 문자열이면 성공 토스트만 내고 전달 불가 상태가 됨 → fail-closed 분기: danger 토스트 "계정은 생성되었지만 임시 비밀번호를 받지 못했습니다. 회원 상세에서 재발급해 주세요" + done) 수용 · minor 2 부분 수용(가드 IT를 SUPER_ADMIN·ADMIN_OPERATOR 2종 파라미터로 / P2 평문 누락 vitest 2 / P1 페이지 토스트 인자 무평문·재발급(다른 값) 시 이전 평문 DOM 부재 vitest 2) · 기각 4(역할 부여 경합 직렬화 — 부여 API가 SUPER_ADMIN 전용·같은 TX 내 판정 후 해시 저장까지 ms 단위·실질 위협 없음 / P2 생성 직후 역할 부여 후 P1 시나리오 — 별개 요청 2건이며 P1 가드가 그대로 차단 / P2 후속 저장(seller_user saveAndFlush 409) 실패 IT — 기존 T4·T7-2가 롤백을 단언 / 라우트 이탈 테스트 — 로컬 ref는 컴포넌트 언마운트로 소멸) · PASS 7 · 재검토 생략(국소 수정·테스트 재현).
+
+## D-205. 관리자 클레임 목록 "필요 액션" 필터 + 대시보드 클레임 처리 대기 타일(C-02) (Track 96-4)
+
+날짜: 2026-09-22
+브랜치: feat/track-96-4-claim-action-filter
+정찰: docs/track-96/recon-report-claim-actions.md(§1 액션별 조건표 · §2 α/β/γ 실현성 · §3-4 EXPLAIN · §5 결정 D1~D7)
+
+### 배경
+관리자가 "지금 처리해야 할 클레임"(회수 확인·검수·교환품 발송·배송완료·환불 개시)을 찾으려면 APPROVED 필터 뒤 행별 액션 버튼을 눈으로 훑어야 했다(recon-report-ops.md C-02). `availableActions`는 목록 행 조립 시 Java로 계산되는데(`AdminClaimQueryService.availableActions`), 정찰 결과 7종 전부 DB 컬럼(claim 6컬럼·delivery claim_id/direction/status·refund MAX(id).status)만으로 판정 가능해 쿼리 조건으로 재표현할 수 있었다. 조회 조건·카운트 추가만이며 쓰기·상태 전이·Flyway·availableActions 계산 로직은 무변경.
+
+### 결정
+1. **D1 α — Specification 재표현**: `AdminClaimSpecifications.action(AdminClaimActionFilter)`. 액션별 술어 5개(`confirmPickup`·`inspect`·`registerExchangeShipment`·`markExchangeDelivered`·`initiateRefund`)를 `availableActions`의 early return 순서(배타 조건)까지 그대로 옮긴다. 기존 `refundStatus` Spec 패턴(서브쿼리 2단·`:바인딩`·enum 상수 비교).
+2. **D2·D3 파라미터**: `GET /admin/claims?action=` — `FOLLOWUP | CONFIRM_PICKUP | INSPECT | REGISTER_EXCHANGE_SHIPMENT | MARK_EXCHANGE_DELIVERED | INITIATE_REFUND`(enum `AdminClaimActionFilter`·`AdminClaimSort` 선례). FOLLOWUP = 5종 OR. APPROVE·REJECT는 기존 `status=REQUESTED`가 담당하므로 없음 → 그 외 값은 Spring 변환 실패 **400**. 다른 필터(type·status·refundStatus·keyword·기간·buyer)와 AND.
+3. **D4 최신 행 기준 = MAX(id)**: 방향별 최신 Delivery(`latestDeliveryId`)·최신 Refund(`latestRefundId`)는 `SELECT MAX(id) … WHERE claim_id = c.id [AND direction = ?]` 서브쿼리. 존재 판정은 `MAX(id) IS [NOT] NULL`, 상태 판정은 `c.id IN (SELECT claimId FROM Delivery d WHERE d.id = MAX(id) AND d.status = SHIPPING)` — Java `latestByDirection`(id DESC 첫 행)·`latestRefundByClaimId`(id DESC first-wins)와 동치.
+4. **D5 대시보드 타일**: `DashboardPendingResponse.claimFollowup` = `claimRepository.count(AdminClaimSpecifications.action(FOLLOWUP))`. `AdminDashboardQueryService`에 `ClaimRepository`를 주입해 **목록과 같은 Specification 객체를 재사용**한다(별도 JPQL COUNT 금지) → 타일 건수 = 목록 `action=FOLLOWUP` totalCount가 정의상 일치. 링크 `/admin/orders/claims?action=FOLLOWUP`.
+5. **D6 셀러 무변경**(셀러 응답은 처리 액션 미포함·처리 권한 없음) · **D7 목록 상단 처리 대기 칩(REQUESTED 건수) 유지**.
+
+### 조건표(Java ↔ Spec·PB = type IN (RETURN, EXCHANGE))
+| 액션 | Java(`availableActions`) | Spec |
+|---|---|---|
+| CONFIRM_PICKUP | PB ∧ APPROVED ∧ pickedUpAt null ∧ returnDelivery ≠ null(:250-252) | PB ∧ status=APPROVED ∧ picked_up_at IS NULL ∧ MAX(delivery.id: RETURN) IS NOT NULL |
+| INSPECT | PB ∧ APPROVED ∧ pickedUpAt ≠ null ∧ inspectionResult null(:254-255) | PB ∧ APPROVED ∧ picked_up_at IS NOT NULL ∧ inspection_result IS NULL |
+| REGISTER_EXCHANGE_SHIPMENT | EXCHANGE ∧ APPROVED ∧ pickedUpAt ≠ null ∧ PASS ∧ outbound null(:257-259) | type=EXCHANGE ∧ APPROVED ∧ picked_up_at IS NOT NULL ∧ inspection_result=PASS ∧ MAX(delivery.id: OUTBOUND) IS NULL |
+| MARK_EXCHANGE_DELIVERED | … ∧ outbound.status == SHIPPING(:261-262) | … ∧ c.id IN (delivery.claimId WHERE id = MAX(OUTBOUND id) ∧ status=SHIPPING) |
+| INITIATE_REFUND | APPROVED ∧ (CANCEL ∨ (RETURN ∧ PASS)) ∧ (latestRefund null ∨ FAILED)(:273-281) — RETURN은 :250-256 early return 때문에 picked_up_at NOT NULL일 때만 도달 | APPROVED ∧ (type=CANCEL ∨ (type=RETURN ∧ picked_up_at IS NOT NULL ∧ inspection_result=PASS)) ∧ (MAX(refund.id) IS NULL ∨ c.id IN (refund.claimId WHERE id = MAX(id) ∧ status=FAILED)) |
+- 배타: EXCHANGE ∧ PASS ∧ OUTBOUND DELIVERED(핸들러 유실)·APPROVED ∧ 활성 환불(PENDING·COMPLETED)·REJECTED·COMPLETED·회수 송장 없는 APPROVED(구매자 대기)는 양쪽 모두 비대상.
+- **동치 강제**: `AdminClaimActionFilterIntegrationTest` 매트릭스(25행·M1)가 (a) 행별 `availableActions` 하드코딩 기대 (b) `action=X` 결과 집합 == action 없이 조회한 행 중 X 보유 행 집합 (c) FOLLOWUP == 5종 합집합 (d) 대시보드 `claimFollowup` delta == FOLLOWUP 건수를 한 픽스처로 단언한다 — **`availableActions` 규칙을 바꾸면 Spec을 같이 고치지 않는 한 이 테스트가 깨진다**(Javadoc에 상호 참조).
+
+### §1-A 갈림길
+- **β Java 계산 후 메모리 페이징 【기각: 활성 클레임 전량 enrich(6배치)·페이징 2갈래·대시보드가 도메인 enrich 재사용】 / γ 저장 파생 컬럼 【기각: 전이 경로 11+(요청·승인·거부·회수 송장·회수 확인·검수·교환 발송·배송완료·재발송·환불 생성/실패/완료·COMPLETED 핸들러)에서 Claim 갱신 = Aggregate 침범·누락 시 조용히 어긋남·Flyway·백필】 / α Spec 재표현 【채택】**.
+- **존재·상태 판정을 EXISTS로 【기각: `delivery.claim_id`에 DB UNIQUE가 없어(V7 "UNIQUE 금지"·서비스 가드뿐) 방향별 2행이 생기면 `EXISTS(status=SHIPPING)`이 Java(최신 1행)와 어긋남 — 매트릭스 M10·M11이 이 경계】 / MAX(id) 서브쿼리 【채택】**.
+- **타일 2칸(반품·교환 / 환불 개시) 【기각: INITIATE_REFUND는 CANCEL에도 걸려 명칭이 어긋나고 8칸 레이아웃 근거 부족】 / 액션별 5칸 【기각: 11칸 과잉】 / 합계 1칸 "클레임 처리 대기" 【채택: 7칸 = md 4+3】**.
+- **대시보드 카운트를 별도 JPQL로 【기각: Spec·JPQL·Java 3곳 유지】 / `claimRepository.count(같은 Spec)` 【채택】**.
+
+### §2 확정 구현 규칙
+- main 6: `AdminClaimActionFilter`(신규·controller.request) · `AdminClaimSpecifications`(+action·술어 5·헬퍼 4) · `AdminClaimQueryService.listClaims`(+action) · `AdminClaimController`(+@RequestParam action) · `DashboardPendingResponse`(+claimFollowup) · `AdminDashboardQueryService`(+ClaimRepository·pending()).
+- test 2: `AdminClaimActionFilterIntegrationTest`(신규·M1 매트릭스 25행 / M2 허용 외 값 APPROVE·REJECT·FOO 400 · FOLLOWUP+type=EXCHANGE 6행 · FOLLOWUP+status=REQUESTED 0 · INITIATE_REFUND+refundStatus=FAILED 2 · size=2 totalCount 유지·hasNext) · `AdminDashboardQueryControllerIntegrationTest` T3 +claimFollowup delta 0(RETURN APPROVED 회수 송장 없음 = 비대상).
+- **RED 선증명**: 구현 전 M1 = 행별 availableActions 기대 25/25 일치 후 `action=CONFIRM_PICKUP` 필터 무시로 전체 25행 반환 실패 · M2 = `expected:<400> but was:<200>` → 구현 후 GREEN.
+- 생성 SQL(local show-sql·count): `… where c1_0.status=? and c1_0.type in (?,?) and c1_0.picked_up_at is null and (select max(d1_0.id) from delivery d1_0 where d1_0.claim_id=c1_0.id and d1_0.direction=?) is not null or … c1_0.id in ((select d3_0.claim_id from delivery d3_0 where d3_0.id=(select max(d4_0.id) …) and d3_0.status=?)) or … ((select max(r1_0.id) from refund …) is null or c1_0.id in ((select r2_0.claim_id from refund r2_0 where r2_0.id=(select max(r3_0.id) …) and r2_0.status=?)))`.
+- **EXPLAIN(로컬 MariaDB 10.11·claim 23행)**: PRIMARY `c1_0` type=ref key=`ix_claim_status`(const APPROVED·모든 OR 분기가 status=APPROVED라 옵티마이저가 묶음) rows=1 "Using index condition; Using where; Using filesort" · delivery 서브쿼리 4 = `fk_delivery_claim` ref / `ix_delivery_direction_status_delivered_at` / PRIMARY eq_ref · refund 서브쿼리 3 = `fk_refund_claim` ref / PRIMARY eq_ref → 추가 인덱스 불필요(활성 클레임은 항상 소수). 쿼리 수 불변(QUERY_BUDGET_FOR_LIST=10).
+- 검증: `./gradlew.bat test --rerun-tasks` 237파일 **1391·0 fail·0 error·0 skip**(1389 + 2) · 라이브(재시작 후) `action=FOLLOWUP` 200 · `action=APPROVE` 400 · dashboard `pending.claimFollowup` 0(로컬 APPROVED RETURN 1건 = 회수 송장 없음·Java 규칙 정합).
+- 트랩: Hibernate native 시드에서 `setParameter(n, null)`은 타입 추론 실패 위험 → 빈 문자열 + `NULLIF(?, '')`로 회피. MockMvc `.param("size", …)` 중복 지정 시 첫 값이 바인딩된다(헬퍼에서 조건부 부착).
+
+### §8 이월
+- 필터 조합의 상호 배타(`status=REQUESTED & action=FOLLOWUP` = 공집합)는 FE에서 막지 않는다(빈 결과·기존 필터 UX와 동일). 필요 시 FE-56 §8.
+- 셀러 화면 "진행 단계" 필터(D6 b)는 요구 시 별 트랙(C-16 claimStageGuide 중복 검토).

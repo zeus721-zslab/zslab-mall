@@ -32,6 +32,8 @@ export interface AdminDashboardPending {
   /** 상품 승인 대기(product PENDING)·셀러 승인 대기(seller PENDING)(Track 96-2 D-203·FE-54). */
   productPending: number
   sellerPending: number
+  /** 클레임 처리 대기 = 관리자 후속 액션 보유 건수(목록 action=FOLLOWUP과 동일 조건)(Track 96-4 D-205·FE-56). */
+  claimFollowup: number
 }
 
 /** yearMonth "yyyy-MM". */

@@ -1,12 +1,20 @@
 package com.zslab.mall.claim.repository;
 
+import com.zslab.mall.claim.controller.request.AdminClaimActionFilter;
 import com.zslab.mall.claim.entity.Claim;
+import com.zslab.mall.claim.enums.ClaimInspectionResult;
 import com.zslab.mall.claim.enums.ClaimStatus;
 import com.zslab.mall.claim.enums.ClaimType;
+import com.zslab.mall.delivery.entity.Delivery;
+import com.zslab.mall.delivery.enums.DeliveryDirection;
+import com.zslab.mall.delivery.enums.DeliveryStatus;
 import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.refund.entity.Refund;
 import com.zslab.mall.refund.enums.RefundStatus;
 import com.zslab.mall.user.entity.User;
+import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.CriteriaQuery;
+import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import jakarta.persistence.criteria.Subquery;
 import java.time.LocalDateTime;
@@ -106,5 +114,120 @@ public final class AdminClaimSpecifications {
 
             return root.get("orderItemId").in(items);
         };
+    }
+
+    /**
+     * 필요 액션(Track 96-4 D-205). {@code AdminClaimQueryService.availableActions}의 후속 처리 5종을 같은 조건으로 재표현한다 —
+     * 규칙이 바뀌면 양쪽을 함께 고쳐야 하며 {@code AdminClaimActionFilterIntegrationTest} 매트릭스가 동치를 강제한다.
+     * 방향별 최신 Delivery·최신 Refund는 Java와 같이 id 최대 행(MAX(id) 서브쿼리·D4)이다. FOLLOWUP은 5종 OR. null이면 조건 없음.
+     */
+    public static Specification<Claim> action(AdminClaimActionFilter action) {
+        return (root, query, builder) -> {
+            if (action == null) {
+                return null;
+            }
+            return switch (action) {
+                case FOLLOWUP -> builder.or(
+                        confirmPickup(root, query, builder),
+                        inspect(root, builder),
+                        registerExchangeShipment(root, query, builder),
+                        markExchangeDelivered(root, query, builder),
+                        initiateRefund(root, query, builder));
+                case CONFIRM_PICKUP -> confirmPickup(root, query, builder);
+                case INSPECT -> inspect(root, builder);
+                case REGISTER_EXCHANGE_SHIPMENT -> registerExchangeShipment(root, query, builder);
+                case MARK_EXCHANGE_DELIVERED -> markExchangeDelivered(root, query, builder);
+                case INITIATE_REFUND -> initiateRefund(root, query, builder);
+            };
+        };
+    }
+
+    /** RETURN·EXCHANGE APPROVED + 미회수 + 회수(RETURN) Delivery 있음 ↔ availableActions:250-252. */
+    private static Predicate confirmPickup(Root<Claim> root, CriteriaQuery<?> query, CriteriaBuilder builder) {
+        return builder.and(
+                approvedPickupBased(root, builder),
+                builder.isNull(root.get("pickedUpAt")),
+                builder.isNotNull(latestDeliveryId(root, query, builder, DeliveryDirection.RETURN)));
+    }
+
+    /** RETURN·EXCHANGE APPROVED + 회수 후 + 미검수 ↔ availableActions:254-255. */
+    private static Predicate inspect(Root<Claim> root, CriteriaBuilder builder) {
+        return builder.and(
+                approvedPickupBased(root, builder),
+                builder.isNotNull(root.get("pickedUpAt")),
+                builder.isNull(root.get("inspectionResult")));
+    }
+
+    /** EXCHANGE APPROVED + 회수 후 + 검수 PASS + 교환품(OUTBOUND) Delivery 없음 ↔ availableActions:257-259. */
+    private static Predicate registerExchangeShipment(Root<Claim> root, CriteriaQuery<?> query, CriteriaBuilder builder) {
+        return builder.and(
+                approvedExchangePassed(root, builder),
+                builder.isNull(latestDeliveryId(root, query, builder, DeliveryDirection.OUTBOUND)));
+    }
+
+    /** EXCHANGE APPROVED + 회수 후 + 검수 PASS + 최신 OUTBOUND Delivery가 SHIPPING ↔ availableActions:261-262. */
+    private static Predicate markExchangeDelivered(Root<Claim> root, CriteriaQuery<?> query, CriteriaBuilder builder) {
+        Subquery<Long> shippingClaims = query.subquery(Long.class);
+        Root<Delivery> delivery = shippingClaims.from(Delivery.class);
+        shippingClaims.select(delivery.get("claimId"))
+                .where(builder.equal(delivery.get("id"), latestDeliveryId(root, query, builder, DeliveryDirection.OUTBOUND)),
+                        builder.equal(delivery.get("status"), DeliveryStatus.SHIPPING));
+        return builder.and(approvedExchangePassed(root, builder), root.get("id").in(shippingClaims));
+    }
+
+    /**
+     * APPROVED + (CANCEL 또는 RETURN 회수 후 검수 PASS) + 최신 환불 없음/FAILED ↔ refundInitiatable:273-281. RETURN의 회수(picked_up_at)
+     * 조건은 availableActions:250-256 early return과 같은 배타 조건이다.
+     */
+    private static Predicate initiateRefund(Root<Claim> root, CriteriaQuery<?> query, CriteriaBuilder builder) {
+        Predicate refundDue = builder.or(
+                builder.equal(root.get("type"), ClaimType.CANCEL),
+                builder.and(
+                        builder.equal(root.get("type"), ClaimType.RETURN),
+                        builder.isNotNull(root.get("pickedUpAt")),
+                        builder.equal(root.get("inspectionResult"), ClaimInspectionResult.PASS)));
+        Subquery<Long> failedClaims = query.subquery(Long.class);
+        Root<Refund> refund = failedClaims.from(Refund.class);
+        failedClaims.select(refund.get("claimId"))
+                .where(builder.equal(refund.get("id"), latestRefundId(root, query, builder)),
+                        builder.equal(refund.get("status"), RefundStatus.FAILED));
+        Predicate noActiveRefund = builder.or(
+                builder.isNull(latestRefundId(root, query, builder)),
+                root.get("id").in(failedClaims));
+        return builder.and(builder.equal(root.get("status"), ClaimStatus.APPROVED), refundDue, noActiveRefund);
+    }
+
+    private static Predicate approvedPickupBased(Root<Claim> root, CriteriaBuilder builder) {
+        return builder.and(
+                builder.equal(root.get("status"), ClaimStatus.APPROVED),
+                root.get("type").in(ClaimType.RETURN, ClaimType.EXCHANGE));
+    }
+
+    private static Predicate approvedExchangePassed(Root<Claim> root, CriteriaBuilder builder) {
+        return builder.and(
+                builder.equal(root.get("status"), ClaimStatus.APPROVED),
+                builder.equal(root.get("type"), ClaimType.EXCHANGE),
+                builder.isNotNull(root.get("pickedUpAt")),
+                builder.equal(root.get("inspectionResult"), ClaimInspectionResult.PASS));
+    }
+
+    /** 클레임에 연결된 방향별 최신 Delivery id(MAX(id)·없으면 NULL) — AdminClaimQueryService.latestByDirection과 같은 기준. */
+    private static Subquery<Long> latestDeliveryId(Root<Claim> root, CriteriaQuery<?> query, CriteriaBuilder builder,
+            DeliveryDirection direction) {
+        Subquery<Long> latest = query.subquery(Long.class);
+        Root<Delivery> delivery = latest.from(Delivery.class);
+        latest.select(builder.max(delivery.get("id")))
+                .where(builder.equal(delivery.get("claimId"), root.get("id")),
+                        builder.equal(delivery.get("direction"), direction));
+        return latest;
+    }
+
+    /** 클레임의 최신 Refund id(MAX(id)·없으면 NULL) — {@link #refundStatus}·목록 행 refundStatus와 같은 기준. */
+    private static Subquery<Long> latestRefundId(Root<Claim> root, CriteriaQuery<?> query, CriteriaBuilder builder) {
+        Subquery<Long> latest = query.subquery(Long.class);
+        Root<Refund> refund = latest.from(Refund.class);
+        latest.select(builder.max(refund.get("id")))
+                .where(builder.equal(refund.get("claimId"), root.get("id")));
+        return latest;
     }
 }
