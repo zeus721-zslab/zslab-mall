@@ -79,10 +79,13 @@ async function mockClaimsApi(page: Page): Promise<Captured> {
     const type = query.get('type')
     const status = query.get('status')
     const keyword = query.get('keyword')
+    const action = query.get('action')
     let items = type === 'EXCHANGE' ? EXCHANGE_CLAIMS : CLAIMS
     if (type) items = items.filter((item) => item.type === type)
     if (status) items = items.filter((item) => item.status === status)
     if (keyword) items = items.filter((item) => item.productName.includes(keyword) || item.orderNo === keyword)
+    // Track 96-4: action은 BE처럼 availableActions 보유 행만(FOLLOWUP = APPROVE·REJECT 외 전부)
+    if (action) items = items.filter((item) => item.availableActions.some((each) => action === 'FOLLOWUP' ? each !== 'APPROVE' && each !== 'REJECT' : each === action))
     // pendingCount는 BE처럼 type만 반영
     const pendingCount = CLAIMS.filter((item) => item.status === 'REQUESTED' && (!type || item.type === type)).length
     return route.fulfill({ json: { items, page: 0, size: 20, totalCount: items.length, hasNext: false, pendingCount } })
@@ -128,7 +131,7 @@ async function pickOption(page: Page, testId: string, optionName: string): Promi
 }
 
 test.describe('관리자 취소·반품·교환 목록(FE-28)', () => {
-  test('① 사이드바 메뉴 1항목 → 목록 렌더(행 3·유형/상태/환불 chip·처리 대기 2건) → 1440px 가로 스크롤 없음 → 탭 취소 → ?type=CANCEL·API type·대기 1건·새로고침 유지 / 스크린샷', async ({ page }) => {
+  test('① 사이드바 메뉴 1항목 → 목록 렌더(행 3·유형/상태/환불 chip·처리 대기 2건) → 1440px 가로 스크롤 없음 → 탭 취소 → ?type=CANCEL·API type·대기 1건·새로고침 유지 → 필요 액션 필터(Track 96-4) / 스크린샷', async ({ page }) => {
     const captured = await mockClaimsApi(page)
     await loginAs(page, 'ADMIN')
     await page.goto('/admin')
@@ -186,6 +189,24 @@ test.describe('관리자 취소·반품·교환 목록(FE-28)', () => {
     await page.getByTestId('filter-reset').click()
     await expect.poll(() => captured.listQueries.at(-1)!.get('status')).toBeNull()
     expect(page.url()).toContain('type=CANCEL')
+
+    // Track 96-4 FE-56: 필요 액션 필터 → URL·API action(라벨은 행 버튼 문구와 동일) → 전체 탭에서 회수 확인 1행 → 새로고침 유지 → 초기화 해제
+    await page.getByTestId('claim-tab-ALL').click()
+    await page.waitForURL((url) => !url.searchParams.has('type'))
+    await pickOption(page, 'filter-action', '회수 확인')
+    await expect.poll(() => captured.listQueries.at(-1)!.get('action')).toBe('CONFIRM_PICKUP')
+    await expect(page).toHaveURL(/action=CONFIRM_PICKUP/)
+    await expect(page.getByTestId('row-status-chip')).toHaveCount(1)
+    await expect(page.getByTestId('row-confirm-pickup')).toHaveCount(1)
+    await page.reload()
+    await expect(page.getByTestId('filter-action')).toContainText('회수 확인')
+    await expect(page.getByTestId('row-status-chip')).toHaveCount(1)
+    await pickOption(page, 'filter-action', '후속 처리 전체')
+    await expect.poll(() => captured.listQueries.at(-1)!.get('action')).toBe('FOLLOWUP')
+    await expect(page.getByTestId('row-status-chip')).toHaveCount(2) // 회수 확인 1 + 검수 1
+    await page.getByTestId('filter-reset').click()
+    await expect.poll(() => captured.listQueries.at(-1)!.get('action')).toBeNull()
+    expect(page.url()).not.toContain('action=')
   })
 
   test('② 승인(확인 다이얼로그 → POST approve → info 토스트 → 재조회) / 거부: 취소 탭은 "이미 발송됨" 있음·반품은 없음·사유 필수 → POST reject body → danger 토스트 / 스크린샷', async ({ page }) => {

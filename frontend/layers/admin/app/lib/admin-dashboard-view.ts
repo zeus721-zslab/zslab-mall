@@ -33,9 +33,10 @@ export interface PendingTile {
 }
 
 /**
- * 처리 대기 6칸 정의. 정산·클레임은 목록의 status 필터, 배송 대기는 주문 목록 status=PAID(BE는 품목 PAID 건수·주문 목록은 주문 단위라 근사).
+ * 처리 대기 7칸 정의. 정산·클레임은 목록의 status 필터, 배송 대기는 주문 목록 status=PAID(BE는 품목 PAID 건수·주문 목록은 주문 단위라 근사).
  * 재고 임박은 상품 목록 stockFilter=LOW(Track 89-A·BE는 variant 건수·목록은 상품 단위라 근사).
  * 상품·셀러 승인 대기(Track 96-2 FE-54·C-01)는 각 목록 status=PENDING(BE 카운트와 목록 필터 조건 동일·삭제 제외).
+ * 클레임 처리 대기(Track 96-4 FE-56·C-02)는 클레임 목록 action=FOLLOWUP(BE 카운트와 같은 Specification·후속 액션 5종).
  */
 export const PENDING_TILES: PendingTile[] = [
   { key: 'settlementPending', label: '정산 대기', to: `${ADMIN_SETTLEMENTS_PATH}?status=PENDING`, alertTone: 'warning' },
@@ -44,6 +45,7 @@ export const PENDING_TILES: PendingTile[] = [
   { key: 'lowStock', label: '재고 임박', to: `${ADMIN_PRODUCTS_PATH}?stockFilter=LOW`, alertTone: 'danger' },
   { key: 'productPending', label: '상품 승인 대기', to: `${ADMIN_PRODUCTS_PATH}?status=PENDING`, alertTone: 'warning' },
   { key: 'sellerPending', label: '셀러 승인 대기', to: `${ADMIN_SELLERS_PATH}?status=PENDING`, alertTone: 'warning' },
+  { key: 'claimFollowup', label: '클레임 처리 대기', to: `${ADMIN_CLAIMS_PATH}?action=FOLLOWUP`, alertTone: 'warning' },
 ]
 
 /** 0건은 회색(neutral), 1건 이상은 칸별 주의 톤. */
