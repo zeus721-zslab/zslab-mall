@@ -420,13 +420,40 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
         mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/inspect").headers(authHeaders.seller(SELLER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(INSPECT_PASS_RESTOCK))
                 .andExpect(status().isForbidden());
-        // BUYER 토큰의 /api/v1/claims/{id}/inspect는 경로 부재(NoResourceFoundException → GEH catch-all 500·LT-27)라 인가 단언 대상이 아니다.
-        // 매핑 부재는 ClaimProcessingMappingAbsenceTest가 감시한다(제거된 처리 매핑·경로 변경·역할 무관 부활 → RED).
+        // BUYER 토큰은 /api/v1/claims/** 필터를 통과하므로 제거된 처리 경로의 부재가 404로 정직하게 보인다(Track 95 D-201·LT-27 해소·
+        // D-196에서 500 트랩으로 제거했던 단언 복원). 매핑 부재 자체는 ClaimProcessingMappingAbsenceTest가 감시한다.
+        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/inspect").headers(authHeaders.buyer(USER_ID))
+                        .contentType(MediaType.APPLICATION_JSON).content(INSPECT_PASS_RESTOCK))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
+        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/confirm-pickup").headers(authHeaders.buyer(USER_ID)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
         mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/return-shipment").headers(authHeaders.seller(SELLER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(RETURN_SHIPMENT_BODY))
                 .andExpect(status().isForbidden());
         assertThat(claimStatus(claimId)).isEqualTo("APPROVED");
         assertThat(jdbc.queryForObject("SELECT picked_up_at FROM claim WHERE id = ?", LocalDateTime.class, claimId)).isNull();
+    }
+
+    @Test
+    @DisplayName("T11 LT-28: 회수 Delivery가 이미 DELIVERED → 관리자 confirm-pickup 422 DELIVERY_INVALID_STATE·picked_up_at NULL·Delivery 불변·수거 확인 알림 0")
+    void confirmPickup_returnDeliveryAlreadyDelivered_returns422_unchanged() throws Exception {
+        // Track 95 D-201: D-197 이후 정상 API로는 도달 불가한 상태(과거 행·데이터 보정)라 회수 확인을 완료로 간주하지 않고 422로 정직하게 거부한다.
+        Long claimId = approvedReturn();
+        String claimPid = claimPid(claimId);
+        registerReturnShipment(claimPid);
+        jdbc.update("UPDATE delivery SET status = 'DELIVERED', delivered_at = NOW(6) WHERE claim_id = ? AND direction = 'RETURN'", claimId);
+
+        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid + "/confirm-pickup").headers(authHeaders.admin(ADMIN_ID)))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("DELIVERY_INVALID_STATE"));
+
+        assertThat(claimStatus(claimId)).isEqualTo("APPROVED");
+        assertThat(jdbc.queryForObject("SELECT picked_up_at FROM claim WHERE id = ?", LocalDateTime.class, claimId)).isNull();
+        assertThat(returnDeliveryStatus(claimId)).isEqualTo("DELIVERED");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM notification_log WHERE target_id = ? AND template_code = 'TPL_PICKUP_CONFIRMED'",
+                Integer.class, claimId)).isZero();
     }
 
     // ===== 반품 사진 첨부(Track 81-B D-171) =====

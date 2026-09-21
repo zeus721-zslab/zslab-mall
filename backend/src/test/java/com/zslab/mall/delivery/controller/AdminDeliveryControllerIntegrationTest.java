@@ -224,6 +224,48 @@ class AdminDeliveryControllerIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("T8 실패: OUTBOUND READY(미발송) 배송 mark-delivered → 422 DELIVERY_INVALID_STATE·READY 유지·DeliveryCompleted 0(Track 95 D-201)")
+    void markDelivered_readyOutbound_returns422_unchanged() throws Exception {
+        // 셀러 경로(OrderShippingService.markDeliveredBySeller)는 같은 상황을 422로 흡수하는데 관리자 경로만 IllegalStateException이 catch-all 500으로 새던 비대칭.
+        seed(() -> {
+            seedCatalog();
+            seedOrder("PAID");
+            seedOrderItem(OrderItemStatus.PREPARING);
+            seedOutboundDelivery("READY", null);
+        });
+
+        mockMvc.perform(post("/api/v1/admin/deliveries/" + DELIVERY_PID + "/mark-delivered")
+                        .headers(authHeaders.admin(ADMIN)))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("DELIVERY_INVALID_STATE"));
+
+        assertThat(deliveryStatus()).isEqualTo("READY");
+        assertThat(orderItemStatus()).isEqualTo("PREPARING");
+        assertThat(events.stream(DeliveryCompleted.class).count()).isZero();
+    }
+
+    @Test
+    @DisplayName("T9 실패: 이미 DELIVERED인 OUTBOUND 배송 재마감 → 422 DELIVERY_INVALID_STATE·delivered_at 불변·DeliveryCompleted 0(Track 95 D-201)")
+    void markDelivered_alreadyDelivered_returns422_unchanged() throws Exception {
+        seed(() -> {
+            seedCatalog();
+            seedOrder("DELIVERED");
+            seedOrderItem(OrderItemStatus.DELIVERED);
+            seedOutboundDelivery("DELIVERED", "2026-01-01 10:00:00");
+        });
+
+        mockMvc.perform(post("/api/v1/admin/deliveries/" + DELIVERY_PID + "/mark-delivered")
+                        .headers(authHeaders.admin(ADMIN)))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("DELIVERY_INVALID_STATE"));
+
+        assertThat(deliveryStatus()).isEqualTo("DELIVERED");
+        assertThat(jdbc.queryForObject("SELECT delivered_at FROM delivery WHERE id = ?", String.class, DELIVERY_ID))
+                .startsWith("2026-01-01 10:00:00");
+        assertThat(events.stream(DeliveryCompleted.class).count()).isZero();
+    }
+
+    @Test
     @DisplayName("T6 실패: 미존재 deliveryPublicId → 404 DELIVERY_NOT_FOUND·DeliveryCompleted 0")
     void markDelivered_unknownDeliveryPublicId_returns404() throws Exception {
         mockMvc.perform(post("/api/v1/admin/deliveries/" + pid("dlv_", "ADNONE") + "/mark-delivered")
@@ -305,6 +347,15 @@ class AdminDeliveryControllerIntegrationTest extends AbstractIntegrationTest {
                         + "shipped_at, claim_id, created_at, updated_at) "
                         + "VALUES (?, ?, ?, 'CJ', ?, 'SHIPPING', NOW(6), ?, NOW(6), NOW(6))",
                 DELIVERY_ID, DELIVERY_PID, ORDER_ITEM_ID, TRACKING_NO, CLAIM_ID);
+    }
+
+    /** 일반 주문 OUTBOUND 배송 시드(claim_id NULL·Track 95 T8·T9). READY는 shipped_at·delivered_at NULL, DELIVERED는 고정 시각(LT-24). */
+    private void seedOutboundDelivery(String status, String deliveredAt) {
+        jdbc.update("INSERT INTO delivery (id, public_id, order_item_id, carrier, tracking_no, status, direction, "
+                        + "shipped_at, delivered_at, claim_id, created_at, updated_at) "
+                        + "VALUES (?, ?, ?, 'CJ', ?, ?, 'OUTBOUND', ?, ?, NULL, NOW(6), NOW(6))",
+                DELIVERY_ID, DELIVERY_PID, ORDER_ITEM_ID, TRACKING_NO, status,
+                deliveredAt == null ? null : "2026-01-01 09:00:00", deliveredAt);
     }
 
     /** SHIPPING 회수 배송 시드(direction RETURN·claim_id SET·구매자 회수 송장 등록 직후 상태·Track 92-a T7). */
