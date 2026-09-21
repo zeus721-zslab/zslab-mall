@@ -1,7 +1,11 @@
 package com.zslab.mall.stats.repository;
 
 import com.zslab.mall.delivery.enums.DeliveryDirection;
+import com.zslab.mall.inventory.enums.InventoryHistoryChangeType;
 import com.zslab.mall.order.entity.OrderItem;
+import com.zslab.mall.product.entity.Product;
+import com.zslab.mall.product.enums.ProductStatus;
+import com.zslab.mall.product.enums.ProductVariantStatus;
 import com.zslab.mall.refund.enums.RefundStatus;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -10,7 +14,7 @@ import org.springframework.data.repository.Repository;
 import org.springframework.data.repository.query.Param;
 
 /**
- * 셀러 통계 전용 집계 리포지토리(Track 90-E-1 매출 · 90-E-2 주문·클레임·D-200·{@code SellerDashboardRepository} 선례). 관리자 {@link AdminSalesStatsRepository}는
+ * 셀러 통계 전용 집계 리포지토리(Track 90-E-1 매출 · 90-E-2 주문·클레임 · 90-E-3 상품·재고·D-200·{@code SellerDashboardRepository} 선례). 관리자 {@link AdminSalesStatsRepository}는
  * {@code Order} 루트라 {@code order.total_price}(타 셀러 몫·배송비·할인 포함)를 합산하므로 sellerId 인자를 주입하지 않고 신설한다 —
  * 셀러 매출은 <b>자기 품목 {@code order_item.total_price} 합</b>(D-192)이며 루트가 {@link OrderItem}이다. 상품 축은 관리자
  * {@link AdminSalesStatsRepository#aggregateByProductInSeller}를 그대로 재사용한다(이미 order_item.seller_id 필터).
@@ -166,4 +170,46 @@ public interface SellerStatsRepository extends Repository<OrderItem, Long> {
             + "GROUP BY oi.productId ORDER BY COUNT(c) DESC, oi.productId ASC")
     List<SellerClaimProductProjection> countClaimsByProduct(@Param("sellerId") Long sellerId,
             @Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
+    // ---------- 상품·재고(90-E-3·현재 상태는 product.seller_id 축·Product/ProductVariant @SQLRestriction으로 삭제 제외) ----------
+
+    /** 판매 상태(SALE) 자기 상품 중 기간 내 결제 품목이 0인 상품(미판매·id 오름차순). 이름은 현행 product.name(주문이 없어 스냅샷이 없다). */
+    @Query("SELECT p FROM Product p WHERE p.sellerId = :sellerId AND p.status = :status "
+            + "AND NOT EXISTS (SELECT 1 FROM OrderItem oi JOIN oi.order o WHERE oi.productId = p.id "
+            + "AND o.paidAt >= :from AND o.paidAt < :to) ORDER BY p.id ASC")
+    List<Product> findUnsoldProducts(@Param("sellerId") Long sellerId,
+            @Param("status") ProductStatus status, @Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
+    /** 판매 상태(SALE) 자기 상품 목록(재고 회전 대상·id 오름차순). */
+    @Query("SELECT p FROM Product p WHERE p.sellerId = :sellerId AND p.status = :status ORDER BY p.id ASC")
+    List<Product> findProductsByStatus(@Param("sellerId") Long sellerId,
+            @Param("status") ProductStatus status);
+
+    /**
+     * 상품별 기간 입고 수량 합(inventory_history INBOUND·created_at 반구간). inventory→variant→product 3홉이며 product.seller_id로 먼저
+     * 좁힌다(EXPLAIN 실측 ix_product_seller_status → uk_product_variant_options → uk_inventory_variant → fk_inventory_history_inventory).
+     */
+    @Query("SELECT p.id AS keyId, COALESCE(SUM(ih.quantityDelta), 0) AS quantity "
+            + "FROM InventoryHistory ih JOIN ih.inventory i, ProductVariant v, Product p "
+            + "WHERE i.variantId = v.id AND v.productId = p.id AND p.sellerId = :sellerId "
+            + "AND ih.changeType = :changeType AND ih.createdAt >= :from AND ih.createdAt < :to "
+            + "GROUP BY p.id")
+    List<SellerProductQuantityProjection> sumInboundByProduct(@Param("sellerId") Long sellerId,
+            @Param("changeType") InventoryHistoryChangeType changeType,
+            @Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
+    /** 상품별 현재 가용 재고 합(삭제 안 된 variant·현재 시점·기간 무관). */
+    @Query("SELECT p.id AS keyId, COALESCE(SUM(i.quantityAvailable), 0) AS quantity "
+            + "FROM Inventory i, ProductVariant v, Product p "
+            + "WHERE i.variantId = v.id AND v.productId = p.id AND p.sellerId = :sellerId "
+            + "GROUP BY p.id")
+    List<SellerProductQuantityProjection> sumAvailableByProduct(@Param("sellerId") Long sellerId);
+
+    /** 판매 중(product SALE·variant SALE) 옵션 중 현재 가용 재고 0인 옵션 수·판매 중 옵션 수(현재 시점·기간 무관·soldout_manual 무관). */
+    @Query("SELECT COALESCE(SUM(CASE WHEN i.quantityAvailable = 0 THEN 1 ELSE 0 END), 0) AS soldOutCount, COUNT(i) AS totalCount "
+            + "FROM Inventory i, ProductVariant v, Product p "
+            + "WHERE i.variantId = v.id AND v.productId = p.id AND p.sellerId = :sellerId "
+            + "AND p.status = :productStatus AND v.status = :variantStatus")
+    SellerOptionStockProjection countSoldOutOptions(@Param("sellerId") Long sellerId,
+            @Param("productStatus") ProductStatus productStatus, @Param("variantStatus") ProductVariantStatus variantStatus);
 }
