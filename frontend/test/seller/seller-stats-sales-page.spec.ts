@@ -105,7 +105,7 @@ describe('셀러 매출 통계 페이지', () => {
     expect(wrapper.findAll('[data-testid="breakdown-row-linkable"]')).toHaveLength(2)
     expect(wrapper.find('[data-testid="sales-settlement-link"]').attributes('href')).toBe('/seller/settlements')
     expect(wrapper.find('[data-testid="seller-stats-tab-/seller/stats/sales"]').classes()).toContain('v-tab--selected')
-    expect(wrapper.find('[data-testid="seller-stats-tab-pending-2"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('[data-testid="seller-stats-tab-/seller/stats/products"]').attributes('disabled')).toBeUndefined()
     expect(wrapper.find('[data-testid="period-hint"]').text()).toContain('365일')
   })
 

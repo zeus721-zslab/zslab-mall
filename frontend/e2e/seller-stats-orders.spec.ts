@@ -44,7 +44,7 @@ test.describe('셀러 주문·클레임 통계(90-E-2)', () => {
 
     const sidebar = page.getByTestId('seller-sidebar')
     await expect(sidebar.locator('a[href="/seller/stats/orders"]')).toHaveCount(1)
-    await expect(sidebar.locator('.v-list-item--disabled')).toHaveCount(1)
+    await expect(sidebar.locator('.v-list-item--disabled')).toHaveCount(0)
     const statsResponse = page.waitForResponse((response) => ORDERS_URL.test(response.url()) && response.status() === 200)
     await sidebar.locator('a[href="/seller/stats/orders"]').click()
     await page.waitForURL(/\/seller\/stats\/orders/)

@@ -59,14 +59,15 @@ test.describe('셀러 셸 — 셀러 계정', () => {
     await expect(page.getByTestId('seller-sidebar')).toBeVisible()
     await expect(page.getByTestId('seller-topbar')).toBeVisible()
     await expect(page.getByTestId('seller-dashboard')).toBeVisible()
-    // 메뉴 6그룹: 대시보드·주문·배송·정산(90-B-3)·상품·재고(90-C-3)·클레임(90-D-1)·설정 그룹 비밀번호 변경(90-D-2)·정산계좌(90-D-3)·통계 매출(90-E-1)·주문클레임(90-E-2) 활성 링크, 미구현 항목(통계 상품 1)은 비활성(라우트 없음)
+    // 메뉴 6그룹: 대시보드·주문·배송·정산(90-B-3)·상품·재고(90-C-3)·클레임(90-D-1)·설정 그룹 비밀번호 변경(90-D-2)·정산계좌(90-D-3)·통계 매출·주문클레임·상품(90-E-1~3) 활성 링크, 비활성 항목 0
     const sidebar = page.getByTestId('seller-sidebar')
     for (const label of ['주문', '상품', '통계', '정산', '설정', '비밀번호 변경', '정산계좌']) {
       await expect(sidebar.getByText(label, { exact: true }).first()).toBeVisible()
     }
-    await expect(sidebar.locator('.v-list-item--disabled')).toHaveCount(1)
+    await expect(sidebar.locator('.v-list-item--disabled')).toHaveCount(0)
     await expect(sidebar.locator('a[href="/seller/stats/sales"]')).toHaveCount(1)
     await expect(sidebar.locator('a[href="/seller/stats/orders"]')).toHaveCount(1)
+    await expect(sidebar.locator('a[href="/seller/stats/products"]')).toHaveCount(1)
     await expect(sidebar.locator('a[href="/seller/settings/password"]')).toHaveCount(1)
     await expect(sidebar.locator('a[href="/seller/settings/bank-account"]')).toHaveCount(1)
     const cookies = await context.cookies()

@@ -102,7 +102,7 @@ test.describe('셀러 상품 목록 화면(90-C-3)', () => {
     await expect(sidebar.locator('.v-list-item--active')).toHaveCount(1)
     await expect(sidebar.locator('.v-list-item--active')).toContainText('상품')
     await expect(sidebar.locator('a[href="/seller/products/inventory"]')).toHaveCount(1)
-    // 미구현 항목(통계 상품 1)만 비활성 — 90-B-3의 7개에서 상품·재고(90-C-3)·클레임(90-D-1)·비밀번호 변경(90-D-2)·통계 매출(90-E-1)·주문클레임(90-E-2) 6개 활성화
-    await expect(sidebar.locator('.v-list-item--disabled')).toHaveCount(1)
+    // 비활성 항목 0 — 90-B-3의 7개에서 상품·재고(90-C-3)·클레임(90-D-1)·비밀번호 변경(90-D-2)·통계 매출·주문클레임·상품(90-E-1~3) 7개 전부 활성화
+    await expect(sidebar.locator('.v-list-item--disabled')).toHaveCount(0)
   })
 })

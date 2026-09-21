@@ -79,7 +79,7 @@ describe('셀러 주문·클레임 통계 페이지', () => {
     expect(wrapper.findAll('[data-testid="claim-product-row-linkable"]')).toHaveLength(1)
     expect(wrapper.findAll('[data-testid="claim-product-row"]')).toHaveLength(1)
     expect(wrapper.find('[data-testid="seller-stats-tab-/seller/stats/orders"]').classes()).toContain('v-tab--selected')
-    expect(wrapper.find('[data-testid="seller-stats-tab-pending-2"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('[data-testid="seller-stats-tab-/seller/stats/products"]').attributes('disabled')).toBeUndefined()
     expect(wrapper.find('[data-testid="period-hint"]').text()).toContain('365일')
   })
 

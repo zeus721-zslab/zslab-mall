@@ -15,7 +15,7 @@ import { DEFAULT_SELLER_STATS_AXIS, SELLER_STATS_AXES, SELLER_STATS_MAX_PERIOD_D
 import { normalizeDateOnly } from '#layers/seller/app/lib/seller-order-query'
 
 /**
- * 셀러 통계 화면 상태 ↔ URL query ↔ BE 파라미터 순수 매핑(Track 90-E-1 매출·90-E-2 주문클레임·관리자 admin-sales-stats-query·admin-stats-period-query
+ * 셀러 통계 화면 상태 ↔ URL query ↔ BE 파라미터 순수 매핑(Track 90-E-1 매출·90-E-2 주문클레임·90-E-3 상품·관리자 admin-sales-stats-query·admin-stats-period-query
  * 복제·드릴다운 없음). URL이 단일
  * 소스라 새로고침·뒤로가기에도 기간·단위·비교·축이 유지된다. 프리셋은 "오늘" 기준으로 매번 계산하므로 URL에는 preset만 두고 custom일 때만
  * from·to를 싣는다. 기본값과 같은 항목은 URL에서 생략하고 잘못된 값은 기본값으로 정규화한다. 기간 계산은 공용(~/lib/stats-period).
@@ -146,4 +146,30 @@ export function toSellerStatsPeriodRouteQuery(state: SellerStatsPeriodQuery): Lo
 /** 주문클레임 GET 파라미터(from·to·unit·compare·매출 요약과 동일 형태). */
 export function toSellerOrderStatsApiParams(state: SellerStatsPeriodQuery, period: StatsPeriodRange): SellerSalesStatsApiParams {
   return { from: period.from, to: period.to, unit: state.unit, compare: state.compare }
+}
+
+// ---------- 상품(90-E-3·기간만·preset|from|to) ----------
+
+export type SellerStatsRangeQuery = Pick<SellerSalesStatsQuery, 'preset' | 'from' | 'to'>
+
+export const DEFAULT_SELLER_STATS_RANGE_QUERY: SellerStatsRangeQuery = { preset: DEFAULT_PERIOD_PRESET, from: null, to: null }
+
+/** route.query → 상품 통계 화면 상태(기간만·unit/compare/axis 무시). */
+export function parseSellerStatsRangeQuery(query: LocationQuery): SellerStatsRangeQuery {
+  const { preset, from, to } = parseSellerSalesStatsQuery(query)
+  return { preset, from, to }
+}
+
+/** 화면 상태 → router.replace용 query(기본 프리셋 생략·custom일 때만 from·to). */
+export function toSellerStatsRangeRouteQuery(state: SellerStatsRangeQuery): LocationQueryRaw {
+  return toSellerSalesStatsRouteQuery({ ...DEFAULT_SELLER_SALES_STATS_QUERY, ...state })
+}
+
+export interface SellerProductStatsApiParams {
+  from: string
+  to: string
+}
+
+export function toSellerProductStatsApiParams(period: StatsPeriodRange): SellerProductStatsApiParams {
+  return { from: period.from, to: period.to }
 }
