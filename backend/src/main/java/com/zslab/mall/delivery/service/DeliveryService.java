@@ -174,14 +174,20 @@ public class DeliveryService {
      * {@link DeliveryCompleted}는 direction=RETURN으로 발행되어 품목 DELIVERED 전이·교환 종결·배송 알림 소비처가 건너뛴다.
      *
      * @return 마감된 회수 Delivery
-     * @throws ClaimInvalidStateException 회수 Delivery 부재
-     * @throws IllegalStateException      이미 DELIVERED 등 불법 전이(Delivery.markDelivered 위임)
+     * @throws ClaimInvalidStateException    회수 Delivery 부재
+     * @throws DeliveryInvalidStateException 회수 Delivery가 SHIPPING이 아니어서 DELIVERED 전이 불가(이미 DELIVERED 등·422)
      */
     public Delivery completeReturnShipment(Long claimId) {
         Delivery delivery = deliveryRepository.findByClaimIdAndDirection(claimId, DeliveryDirection.RETURN)
                 .orElseThrow(() -> new ClaimInvalidStateException(
                         "회수 송장이 등록되지 않아 회수 확인할 수 없습니다: claimId=" + claimId));
-        delivery.markDelivered(LocalDateTime.now());
+        try {
+            delivery.markDelivered(LocalDateTime.now());
+        } catch (IllegalStateException exception) {
+            // Track 95 D-201(LT-28): D-197 이후 정상 API로는 도달하지 않는 상태(과거 행·데이터 보정으로 먼저 DELIVERED)라 확인 완료로
+            // 간주하지 않고 422로 거부한다 — 직접 IllegalStateException 매핑은 500 fallback으로 새므로 금지(OrderShippingService.markDeliveredBySeller 패턴 1:1).
+            throw new DeliveryInvalidStateException("회수 배송을 완료 처리할 수 없는 상태입니다: " + exception.getMessage());
+        }
         deliveryRepository.save(delivery);
         eventPublisher.publishEvent(new DeliveryCompleted(
                 delivery.getId(), delivery.getOrderItemId(), delivery.getDeliveredAt(), delivery.getDirection(),
@@ -225,7 +231,7 @@ public class DeliveryService {
      * D-102 §5 wrapper 패턴 2회차·D-104 §후속.
      * 회수(RETURN) 배송의 완료는 관리자 confirm-pickup({@link #completeReturnShipment}) 단일 경로다 — 직접 마감은 422(Track 92-a D-197).
      *
-     * @throws DeliveryInvalidStateException direction이 RETURN인 회수 배송(422)
+     * @throws DeliveryInvalidStateException direction이 RETURN인 회수 배송(422)·SHIPPING이 아니어서 DELIVERED 전이 불가한 배송(READY·이미 DELIVERED·422)
      */
     @Transactional
     public void markDeliveredByAdmin(Long deliveryId) {
@@ -235,6 +241,11 @@ public class DeliveryService {
                     throw new DeliveryInvalidStateException(
                             "회수 배송은 클레임 회수 확인(confirm-pickup)으로만 완료됩니다: deliveryId=" + deliveryId);
                 });
-        markDelivered(deliveryId);
+        try {
+            markDelivered(deliveryId);
+        } catch (IllegalStateException exception) {
+            // Track 95 D-201: 비-SHIPPING(READY·이미 DELIVERED) 전이 위반을 셀러 경로(OrderShippingService.markDeliveredBySeller)와 대칭으로 422 흡수한다.
+            throw new DeliveryInvalidStateException("배송 완료 처리할 수 없는 배송 상태입니다: " + exception.getMessage());
+        }
     }
 }

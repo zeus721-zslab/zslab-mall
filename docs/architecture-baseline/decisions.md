@@ -11843,3 +11843,44 @@ EXPLAIN(로컬 읽기·seller 4·30일): 입고 합 = product PRIMARY index scan
 
 ### §8 이월(90-E 전체)
 - inventory_history `created_at`·refund `refunded_at` 인덱스 후보(현 규모 무시·D-180 §8 그대로) · 통계 집계 테이블 이관 시 `seller_sales_daily` 폐기 판단.
+
+## D-201. GEH catch-all 500 정리 — 표준 예외 404·405·415 · confirm-pickup·관리자 mark-delivered 422 (Track 95)
+
+날짜: 2026-09-21
+브랜치: fix/track-95-geh-500-leak
+정찰: docs/track-95/recon-report.md(로컬·STEP 834~838)
+
+### 배경
+`GlobalExceptionHandler`는 `ResponseEntityExceptionHandler`를 상속하지 않는 73개 개별 핸들러 + `Exception` catch-all(500 INTERNAL_ERROR·`log.error` 스택)이다. 이월돼 있던 누수 3건을 정찰로 확정했다. (1) LT-27: 매핑 부재 `NoResourceFoundException`이 catch-all로 500 — 공개(permitAll) 경로에서는 무인증으로 재현되며(`GET /api/v1/products/…/extra` → 500) 같은 계열의 `HttpRequestMethodNotSupportedException`(405)·`HttpMediaTypeNotSupportedException`(415)도 500이었다(로컬 gateway 프로브·백엔드 `미분류 서버 오류` 로그 4건). (2) LT-28: 회수(RETURN) Delivery가 먼저 DELIVERED면 관리자 confirm-pickup → `Delivery.markDelivered` DELIVERED→DELIVERED `IllegalStateException` → 500·같은 TX 롤백으로 picked_up_at NULL·inspect 영구 422. D-197 이후 정상 API·스케줄러·시드로는 도달 경로 0(정찰 A-2)·운영 확인 SELECT 로컬 0행. (3) 정찰 부수: 관리자 `markDeliveredByAdmin`은 RETURN 가드 뒤 primitive를 catch 없이 호출해 OUTBOUND READY·이미 DELIVERED 재마감이 500(셀러 경로는 422 흡수·비대칭). 별건 D-189 Javadoc "구매자 FE가 유일한 비밀번호 변경 경로"는 FE-50 셀러 폼 추가 후 거짓.
+
+### 결정
+1. **LT-28 = α(422 흡수)**: `DeliveryService.completeReturnShipment`의 `markDelivered` 호출 한 곳만 `catch (IllegalStateException)` → `DeliveryInvalidStateException`(422 `DELIVERY_INVALID_STATE`). picked_up_at 미기록·`ClaimPickedUp`·`DeliveryCompleted` 미발행. `OrderShippingService.markDeliveredBySeller` 서비스 경계 catch 패턴 1:1.
+2. **관리자 mark-delivered 대칭**: `markDeliveredByAdmin`도 primitive 호출을 같은 패턴으로 422 흡수(READY·이미 DELIVERED).
+3. **GEH 표준 예외 핸들러 3종(예외별 1핸들러)**: `NoResourceFoundException` → 404 `RESOURCE_NOT_FOUND` · `HttpRequestMethodNotSupportedException` → 405 `METHOD_NOT_ALLOWED` · `HttpMediaTypeNotSupportedException` → 415 `UNSUPPORTED_MEDIA_TYPE`. 406은 도달 경로가 없어 제외. RFC7807·`build()` 관례 유지·detail은 고정 문구(요청 경로·내부 메시지 미노출)·로그는 4xx 관례 `warn`(스택 없음).
+4. **`ClaimReturnIntegrationTest` T7 BUYER 404 단언 복원**(D-196에서 500 트랩으로 제거) — 제거된 inspect·confirm-pickup 경로가 필터를 통과하는 역할에서 404로 정직하게 보인다.
+5. **D-189 Javadoc 교정**: `AdminMemberProvisioningService` 클래스 Javadoc — 관리(목록·상세·탈퇴·재발급)는 BUYER 기준(참)·비밀번호 변경은 role 무관 `PATCH /api/v1/users/me/password`로 구매자·셀러 양쪽(FE-50).
+6. **이월 유지**: `DeliveryService.markDelivered` 배송 미존재 `IllegalArgumentException` → 전역 400 MALFORMED_REQUEST(404가 자연스러움·관찰만·§8).
+
+### §1-A 갈림길·채택/기각 근거
+1. **LT-28 α 422 흡수 【채택】** / **β 이미 DELIVERED인 회수는 확인 완료로 간주(picked_up_at 기록·markDelivered 생략) 【기각】**: β는 검수 차단을 자동 해소하고 소비처 부작용도 0이지만(정찰 A-4), D-197 이후 도달 경로가 0이고 운영 SELECT도 0행이라 "정상 흐름에 없는 상태를 코드가 정상으로 승인"하는 분기를 둘 실익이 없다. 과거 행이 발견되면 delivery 원복 후 재시도(LT-28 처치)로 충분. α는 500·ERROR 스택을 정직한 422로 바꾸는 최소 변경.
+2. **표준 예외 (a) 예외별 핸들러 + generic code 【채택】** / **(b) catch-all 진입 `instanceof ErrorResponse` 분기 1개 【기각】**: (b)는 향후 누락 재발까지 막지만 code가 상태 기반 자동 생성이 되어 GEH의 "1 예외 = 1 핸들러·명시 code" 관례와 테스트 단언의 명확성이 깨진다. `ResponseEntityExceptionHandler` 상속은 기존 400(`MethodArgumentNotValid`·`HttpMessageNotReadable`·`MissingServletRequestParameter`·`TypeMismatch`)·413 핸들러와 ambiguous handler 충돌 【기각】.
+3. **`IllegalStateException` 전역 매핑(409·422) 【기각】**: main `new IllegalStateException` 91건 중 엔티티 가드는 23건뿐이고 68건(seed 누락·전이 후 재조회 실패·FK 무결성·이벤트 소비 대상 미발견·직렬화·암호화 실패)은 500이 정답 — 전역 매핑은 이들을 4xx로 위장해 ERROR 로그·5xx 알림에서 지운다. 기존 박제(`OrderShippingService:169` "직접 IllegalStateException 매핑은 500 fallback으로 새므로 금지") 유지.
+4. **관리자 mark-delivered 비-SHIPPING 흡수 본 트랙 포함 【채택】** / 별건 이월 【기각】: 같은 파일·같은 패턴·IT 2건으로 닫힌다.
+
+### RED 선증명(STEP 839)
+수정 전 신규 IT 7건 실행 → 전부 `Status expected:<404|405|415|422> but was:<500>` RED 실측(`StandardErrorMappingIntegrationTest` T1~T3 · `ClaimReturnIntegrationTest` T7 BUYER 404·T11 LT-28 · `AdminDeliveryControllerIntegrationTest` T8 READY·T9 DELIVERED) → 수정 → 3클래스 23/23 GREEN.
+
+### 운영 확인 SELECT(정찰 A-3·읽기 전용·개인정보 컬럼 없음)
+`claim c JOIN delivery d ON d.claim_id = c.id AND d.direction = 'RETURN' WHERE c.picked_up_at IS NULL AND d.status = 'DELIVERED'` — 로컬 **0행**(2026-09-21·RETURN delivery 10/10 DELIVERED·pickup 클레임 13 중 picked 10). 운영은 zslab 실행. N행이면 delivery 행 원복(status·delivered_at) 후 confirm-pickup 재시도.
+
+### §2 확정 구현 규칙
+- main 3파일: `GlobalExceptionHandler`(핸들러 3·code 상수 3·import 3) · `DeliveryService`(`completeReturnShipment`·`markDeliveredByAdmin` try-catch 2·Javadoc @throws) · `AdminMemberProvisioningService`(Javadoc 2줄).
+- test 3파일: `StandardErrorMappingIntegrationTest` 신규 3(무인증 permitAll·code·status·detail·type·instance·traceId) · `ClaimReturnIntegrationTest` T7 +2 단언·T11 신규(RETURN DELIVERED → 422·APPROVED·picked_up_at NULL·DELIVERED 불변·`notification_log TPL_PICKUP_CONFIRMED` 0) · `AdminDeliveryControllerIntegrationTest` T8·T9 신규 + `seedOutboundDelivery`(고정 시각·LT-24).
+- 상태기계·전이 매트릭스·SecurityConfig·FE 무변경. `SellerWriteMappingRegistryTest`·`ClaimProcessingMappingAbsenceTest` 무영향(매핑 증감 0).
+- 검증(실측): `./gradlew.bat test --rerun-tasks` 235파일 **1384 tests·0 fail·0 error·0 skip**(1378 + 6) · typecheck 0 · vitest 91파일 609 · Playwright 103건 콜드 90/11 fail(버림) → 웜 99/2 fail(admin-deliveries ①·admin-operators ① 콜드 트랩) → 3차 2/2 = **101/103**(2 skip) · 픽셀 12장 track90e3 대비 1차 login-mobile 8px(0.002%·캡처 노이즈) → 재캡처 **diff 0**(FE 변경 0).
+- 프로브(로컬 gateway 경유·무인증·backend 재시작 후): `GET /api/v1/products/no-such-path-xyz/extra/more` **404 RESOURCE_NOT_FOUND** · `GET /api/v1/auth/login` **405 METHOD_NOT_ALLOWED** · `POST /api/v1/auth/login` text/plain **415 UNSUPPORTED_MEDIA_TYPE** — 전부 `application/problem+json`·고정 detail·traceId · 백엔드 로그 `[Web] … (404|405|415)` WARN 3건·ERROR 0(수정 전 같은 프로브는 `미분류 서버 오류` ERROR 스택 4건).
+
+### §8 이월
+- `DeliveryService.markDelivered`·`markShipping` 배송 미존재 `IllegalArgumentException` → 400 MALFORMED_REQUEST(관찰). 호출자가 컨트롤러에서 publicId로 먼저 조회해 404를 내므로 실제 도달 경로는 없다 — `DeliveryNotFoundException`으로 바꿀지는 별건.
+- `HttpMediaTypeNotAcceptableException`(406)·`ServletRequestBindingException`(400)·`HandlerMethodValidationException`(400): 현재 도달 경로 없음. 도달 경로가 생기면 같은 패턴으로 추가.
+- 컨트롤러 "전이 후 재조회 실패" `IllegalStateException` 4곳은 진짜 불변식 위반 → 500 유지(변경 대상 아님).
