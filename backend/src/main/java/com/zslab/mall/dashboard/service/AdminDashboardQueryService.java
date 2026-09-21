@@ -22,9 +22,11 @@ import com.zslab.mall.dashboard.repository.DashboardTopSellerProjection;
 import com.zslab.mall.inventory.policy.LowStockThreshold;
 import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.product.entity.Product;
+import com.zslab.mall.product.enums.ProductStatus;
 import com.zslab.mall.product.repository.ProductRepository;
 import com.zslab.mall.refund.enums.RefundStatus;
 import com.zslab.mall.seller.entity.Seller;
+import com.zslab.mall.seller.enums.SellerStatus;
 import com.zslab.mall.seller.repository.SellerRepository;
 import com.zslab.mall.settlement.enums.SettlementStatus;
 import com.zslab.mall.user.entity.User;
@@ -105,7 +107,9 @@ public class AdminDashboardQueryService {
                 dashboardRepository.countSettlementsByStatus(SettlementStatus.PENDING),
                 dashboardRepository.countClaimsByStatus(ClaimStatus.REQUESTED),
                 dashboardRepository.countOrderItemsByStatus(OrderItemStatus.PAID),
-                dashboardRepository.countLowStock(LowStockThreshold.MIN, LowStockThreshold.MAX));
+                dashboardRepository.countLowStock(LowStockThreshold.MIN, LowStockThreshold.MAX),
+                dashboardRepository.countProductsByStatus(ProductStatus.PENDING),
+                dashboardRepository.countSellersByStatus(SellerStatus.PENDING));
     }
 
     /** 최근 6개월(당월 포함)·빈 달 0. 매출은 paid_at·환불은 refunded_at 구간이라 각각 집계 후 월 키로 합친다. */

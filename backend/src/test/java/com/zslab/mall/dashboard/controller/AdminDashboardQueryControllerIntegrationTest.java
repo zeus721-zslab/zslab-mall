@@ -52,9 +52,13 @@ class AdminDashboardQueryControllerIntegrationTest extends AbstractIntegrationTe
     private static final long NON_BUYER_TODAY = ID_BASE + 4;
     private static final long SELLER_A = ID_BASE + 1;
     private static final long SELLER_B = ID_BASE + 2;
+    private static final long SELLER_PENDING = ID_BASE + 3;
+    private static final long SELLER_PENDING_DELETED = ID_BASE + 4;
     private static final long PRODUCT_A = ID_BASE + 1;
     private static final long PRODUCT_B = ID_BASE + 2;
     private static final long PRODUCT_SOLDOUT = ID_BASE + 3;
+    private static final long PRODUCT_PENDING = ID_BASE + 4;
+    private static final long PRODUCT_PENDING_DELETED = ID_BASE + 5;
     private static final long ORDER_TODAY_MIDNIGHT = ID_BASE + 1;
     private static final long ORDER_TODAY_NOON = ID_BASE + 2;
     private static final long ORDER_YESTERDAY_LAST_SECOND = ID_BASE + 3;
@@ -194,7 +198,8 @@ class AdminDashboardQueryControllerIntegrationTest extends AbstractIntegrationTe
     }
 
     @Test
-    @DisplayName("T3 처리 대기: 정산 PENDING 1·클레임 REQUESTED 1·배송 대기(PAID 품목) 3·재고 임박(1~5·수동 품절 제외) 1")
+    @DisplayName("T3 처리 대기: 정산 PENDING 1·클레임 REQUESTED 1·배송 대기(PAID 품목) 3·재고 임박(1~5·수동 품절 제외) 1"
+            + "·상품 승인 대기 1(삭제 제외)·셀러 승인 대기 1(삭제 제외)")
     void pending() throws Exception {
         JsonNode before = fetch();
         seed();
@@ -207,6 +212,9 @@ class AdminDashboardQueryControllerIntegrationTest extends AbstractIntegrationTe
         assertThat(delta(before, after, "pending", "deliveryReady")).isEqualTo(paidItems);
         // 가용 3(포함)·0·6·variant 수동품절 2·product 수동품절 2 → 1건
         assertThat(delta(before, after, "pending", "lowStock")).isEqualTo(1);
+        // Track 96-2 D-203: PENDING 2건 중 deleted_at 있는 1건 제외(@SQLRestriction) · SALE·ACTIVE는 미집계
+        assertThat(delta(before, after, "pending", "productPending")).isEqualTo(1);
+        assertThat(delta(before, after, "pending", "sellerPending")).isEqualTo(1);
     }
 
     @Test
@@ -468,9 +476,15 @@ class AdminDashboardQueryControllerIntegrationTest extends AbstractIntegrationTe
 
                 insertSeller(SELLER_A, "대시보드셀러A");
                 insertSeller(SELLER_B, "대시보드셀러B");
+                // 승인 대기 셀러 1 + 승인 대기였다가 삭제된 셀러 1(집계 제외)
+                insertSellerWithStatus(SELLER_PENDING, "대시보드승인대기셀러", "PENDING", false);
+                insertSellerWithStatus(SELLER_PENDING_DELETED, "대시보드삭제셀러", "PENDING", true);
                 insertProduct(PRODUCT_A, SELLER_A, "대시보드상품A", false);
                 insertProduct(PRODUCT_B, SELLER_B, "대시보드상품B", false);
                 insertProduct(PRODUCT_SOLDOUT, SELLER_B, "대시보드품절상품", true);
+                // 승인 대기 상품 1 + 승인 대기였다가 삭제된 상품 1(집계 제외)
+                insertProductWithStatus(PRODUCT_PENDING, SELLER_A, "대시보드승인대기상품", "PENDING", false);
+                insertProductWithStatus(PRODUCT_PENDING_DELETED, SELLER_A, "대시보드삭제상품", "PENDING", true);
                 // 재고: 가용 3(임박) · 0(품절) · 6(여유) · variant 수동품절 2 · product 수동품절 2
                 insertVariantWithInventory(ID_BASE + 1, PRODUCT_A, false, 3);
                 insertVariantWithInventory(ID_BASE + 2, PRODUCT_A, false, 0);
@@ -507,6 +521,18 @@ class AdminDashboardQueryControllerIntegrationTest extends AbstractIntegrationTe
     private void insertSeller(long id, String companyName) {
         jdbc.update("INSERT INTO seller (id, public_id, company_name, ceo_name, status, commission_rate, created_at, "
                 + "updated_at) VALUES (?, ?, ?, '대표', 'ACTIVE', 1000, NOW(6), NOW(6))", id, publicId("slr", id), companyName);
+    }
+
+    private void insertSellerWithStatus(long id, String companyName, String status, boolean deleted) {
+        jdbc.update("INSERT INTO seller (id, public_id, company_name, ceo_name, status, commission_rate, deleted_at, created_at, "
+                + "updated_at) VALUES (?, ?, ?, '대표', ?, 1000, ?, NOW(6), NOW(6))",
+                id, publicId("slr", id), companyName, status, deleted ? LocalDateTime.now() : null);
+    }
+
+    private void insertProductWithStatus(long id, long sellerId, String name, String status, boolean deleted) {
+        jdbc.update("INSERT INTO product (id, public_id, seller_id, category_id, name, status, base_price, is_soldout_manual, "
+                + "deleted_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 10000, 0, ?, NOW(6), NOW(6))",
+                id, publicId("prd", id), sellerId, ID_BASE, name, status, deleted ? LocalDateTime.now() : null);
     }
 
     private void insertProduct(long id, long sellerId, String name, boolean soldoutManual) {
