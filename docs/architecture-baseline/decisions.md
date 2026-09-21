@@ -11809,3 +11809,18 @@ gateway nginx가 2026-09-18부터 `location ^~ /api/webhooks { return 404; }`로
 ### §8 이월
 - 90-E-2 주문클레임 탭(퍼널·소요시간·클레임률/환불률·사유·클레임 상품별) · 90-E-3 상품 탭(상위/하위·미판매·재고 회전·현재 품절 옵션 수) — 결정 7 적용.
 - refund `refunded_at`·inventory_history `created_at` 인덱스(현 규모 무시·D-180 §8) · `seller_sales_daily` 미사용 read model 폐기 판단(D-180 §8).
+
+### 90-E-2 주문·클레임 통계 API (2026-09-21 · 같은 브랜치 db0bf674 위)
+
+정의 확정표(STEP 807·관리자 `AdminOrderStatsRepository` 정의를 order_item 단위로 좁힘·전 지표 품목 단위 산출 가능):
+- 퍼널 paidItems(:174-185 → + oi.sellerId·결제 코호트 품목 라인 수) · shipped/delivered(:175-176 원 발송 delivery OUTBOUND·claim NULL·도달 시각 기간 밖도 도달 → 동일 + oi.sellerId·Delivery는 품목 1:1이라 부분 출고 = 품목별) · confirmed/cancelled/returned·클레임 요청→종결(:203-207)은 셀러 사양 밖(3단계·소요시간 2종만).
+- 소요시간 결제→출고(:188-193 → 조건 추가) · 출고→배송완료(:196-200 Delivery 단독 → OrderItem theta-join 추가) · `LeadTimeCalculator` 재사용(짝수 = 가운데 두 값 평균·역전/NULL 제외·표본 0 → null).
+- 클레임률 = countClaims(:210-211 + Claim×OrderItem 조인·requested_at·재요청 포함) ÷ countPaidItems(:214-215 + oi.sellerId) · 환불률 = COMPLETED refunded_at 환불(:222-225 → Refund→Claim→OrderItem 2단 조인) ÷ **자기 품목 매출**(:218-219 order.total_price **재작성** → `sumSales` 재사용·결정 3 α).
+- 추이: 클레임/결제 품목 버킷(조인·조건 추가) · 매출/환불 버킷(:242-254 재작성 → 90-E-1 `sumSalesByBucket`·`sumRefundByBucket` 재사용).
+- 유형·사유 분포(:257-264 + 조인·share = 셀러 전체 클레임 대비) · **클레임 상품별 분해(신규·관리자 없음)** `GROUP BY oi.productId`·MAX(product_name) 스냅샷·key = 상품 public_id.
+- 비교 기간은 클레임 요약·추이만(관리자 동일). CSV·분해 endpoint는 관리자에 없어 셀러도 **단일 GET**(상품별 분해는 응답 필드 `claimByProduct`).
+
+구현: `GET /api/v1/seller/stats/orders?from&to&unit&compare` → `SellerOrderStatsResponse{funnel{paidItems,shippedItems,deliveredItems}, leadTime{paidToShipped?,shippedToDelivered?}, claimSummary, compareClaimSummary?, claimTrend[], compareClaimTrend?, claimByType[], claimByReason[], claimByProduct[{productKey?,productName,count,share}]}`(요약·추이·분포·소요시간 record는 관리자 것 재사용). `SellerStatsRepository`에 11쿼리 추가(6 → 17·조건 추가 4·조인 추가 6·재작성은 90-E-1 쿼리 재사용) + projection 2 · `SellerOrderStatsQueryService`(365일·`StatsPeriod/StatsBuckets/LeadTimeCalculator` 같은 패키지 재사용) · 컨트롤러 1 · response 4 record. 관리자 파일 수정 0 · Flyway 0.
+- 트랩: 유형 분포 동률 정렬 `c.type ASC`는 DB ENUM 선언 순(CANCEL·RETURN·EXCHANGE)이지 문자열 순이 아니다(관리자 동일·IT T5에 박제).
+- IT `SellerOrderStatsQueryControllerIntegrationTest` 11(T1 401/403/200 · T2 혼합 주문 격리·퍼널 4/3/2(부분 출고·미출고·회수/교환 재발송 제외)·B 1/1/1·빈 셀러 0·주문 총액 미노출 · T3 소요시간 홀수 3표본 중앙값 24/평균 32·짝수 2표본 72·기간 밖 종결 제외·타 셀러 미혼입 · T4 클레임률 75%·환불률 35.71%(분모 자기 품목 매출 42,000)·DAY/WEEK/MONTH·구간 귀속 · T5 유형/사유/상품별(public_id·스냅샷 이름) · T6 비교 PREVIOUS/YEAR_AGO 0 생략/NONE · T7 365/366·from>to·형식·unit/compare 400·미결제 제외 · T8 키 화이트리스트 + 관리자 전용 키(confirmedItems·cancelledItems·returnedItems·claimRequestedToClosed) 금지 · T9 SUSPENDED 200 · T10 PENDING/TERMINATED 401).
+- 검증(실측): gradlew --rerun-tasks 233파일 **1366·0 fail·0 error·0 skip**(1355 + 11) · 단독 11/11(T5 ENUM 순 교정 1회) · 관리자 주문/회원 IT 12·셀러 매출 IT 12·레지스트리 1 무회귀.
