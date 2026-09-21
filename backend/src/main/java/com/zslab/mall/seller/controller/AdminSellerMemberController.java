@@ -7,12 +7,15 @@ import com.zslab.mall.common.auth.AdminActorResolver;
 import com.zslab.mall.seller.controller.request.AdminSellerMemberAddRequest;
 import com.zslab.mall.seller.controller.request.AdminSellerMemberRemoveRequest;
 import com.zslab.mall.seller.controller.request.AdminSellerMemberRoleChangeRequest;
-import com.zslab.mall.seller.controller.response.AdminSellerDetailResponse;
+import com.zslab.mall.seller.controller.response.AdminSellerMemberAddResponse;
+import com.zslab.mall.user.controller.AdminMemberController;
 import com.zslab.mall.seller.service.AdminSellerMemberCommandService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.CacheControl;
+import org.springframework.http.HttpHeaders;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -42,15 +45,18 @@ public class AdminSellerMemberController {
     }
 
     /**
-     * 구성원 추가(기존 회원 {@code userPublicId} XOR 신규 계정 {@code newUser}). 201 + 구성원 행. 셀러·회원 미존재 404·탈퇴 회원 409·
-     * 이미 소속 409·신규 이메일 중복 409·SMS 실패 502·검증 400(XOR 위반 포함).
+     * 구성원 추가(기존 회원 {@code userPublicId} XOR 신규 계정 {@code newUser}). 201 + 구성원 행 + 신규 계정이면 임시 비밀번호 평문 1회
+     * (D-204·기존 회원 연결은 null). 셀러·회원 미존재 404·탈퇴 회원 409·이미 소속 409·신규 이메일 중복 409·SMS 실패 502·검증 400(XOR 위반 포함).
+     * 평문이 실릴 수 있는 응답이라 no-store를 명시한다.
      */
     @PostMapping("/api/v1/admin/sellers/{sellerPublicId}/members")
-    public ResponseEntity<AdminSellerDetailResponse.Member> add(
+    public ResponseEntity<AdminSellerMemberAddResponse> add(
             @PathVariable String sellerPublicId,
             @RequestBody @Valid AdminSellerMemberAddRequest request,
             HttpServletRequest httpRequest) {
         return ResponseEntity.status(HttpStatus.CREATED)
+                .cacheControl(CacheControl.noStore())
+                .header(HttpHeaders.PRAGMA, AdminMemberController.PRAGMA_NO_CACHE)
                 .body(commandService.add(sellerPublicId, request, auditContext(httpRequest)));
     }
 

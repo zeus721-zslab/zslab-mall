@@ -3,6 +3,8 @@ package com.zslab.mall.user.service;
 import com.zslab.mall.audit.enums.AuditLogAction;
 import com.zslab.mall.audit.service.AuditContext;
 import com.zslab.mall.audit.service.AuditRecorder;
+import com.zslab.mall.auth.enums.RoleCode;
+import com.zslab.mall.auth.repository.UserRoleRepository;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
 import com.zslab.mall.grade.entity.BuyerGrade;
 import com.zslab.mall.grade.repository.BuyerGradeRepository;
@@ -11,8 +13,10 @@ import com.zslab.mall.notification.service.NotificationService;
 import com.zslab.mall.notification.template.NotificationTemplateCodes;
 import com.zslab.mall.user.controller.request.AdminMemberGradeRequest;
 import com.zslab.mall.user.controller.request.AdminMemberUpdateRequest;
+import com.zslab.mall.user.controller.response.TemporaryPasswordResponse;
 import com.zslab.mall.user.entity.BuyerProfile;
 import com.zslab.mall.user.entity.User;
+import com.zslab.mall.user.exception.MemberAdminRoleAssignedException;
 import com.zslab.mall.user.exception.MemberAlreadyWithdrawnException;
 import com.zslab.mall.user.exception.MemberPhoneMissingException;
 import com.zslab.mall.user.exception.TemporaryPasswordDeliveryFailedException;
@@ -21,6 +25,7 @@ import com.zslab.mall.user.repository.BuyerProfileRepository;
 import com.zslab.mall.user.repository.UserRepository;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
@@ -31,7 +36,7 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * 관리자 회원 명령(Track 84): 정보 수정·탈퇴·임시 비밀번호 발급·수동 등급 변경. 대상 해소(404)는
  * {@link AdminMemberQueryService#requireBuyer}를 공유하고, 상태 변경은 같은 트랜잭션에서 감사 로그를 남긴다.
- * 임시 비밀번호 평문은 SMS 원문 발송에만 쓰고 응답·로그·감사 어디에도 남기지 않는다.
+ * 임시 비밀번호 평문은 SMS 원문과 발급 응답(관리자 화면 1회 표시·D-204)에만 쓰고 로그·감사·notification_log에는 남기지 않는다.
  */
 @Slf4j
 @Service
@@ -42,11 +47,16 @@ public class AdminMemberCommandService {
     private static final String TEMPORARY_PASSWORD_SMS = "[zslab-mall] 임시 비밀번호: %s 로그인 후 비밀번호를 변경해 주세요.";
     private static final String TEMPORARY_PASSWORD_MASK = "****";
     private static final String TEMPORARY_PASSWORD_EVENT = "TemporaryPassword";
+    /** 감사 after에 "평문이 관리자 화면에 표시됐다"는 사실만 남기는 키(D-204·평문 아님). */
+    private static final String AUDIT_DISPLAYED_TO_ACTOR = "displayedToActor";
+    /** 임시 비밀번호 발급을 차단하는 관리자 역할(D-204·관리자 영역은 변경 강제가 없음). */
+    private static final EnumSet<RoleCode> ADMIN_ROLE_CODES = EnumSet.of(RoleCode.SUPER_ADMIN, RoleCode.ADMIN_OPERATOR);
     /** 등급 고정 만료 시각의 당일 종료(DATETIME(6) 마이크로초 정밀도). */
     private static final LocalTime LOCK_END_OF_DAY = LocalTime.of(23, 59, 59, 999_999_000);
 
     private final AdminMemberQueryService adminMemberQueryService;
     private final UserRepository userRepository;
+    private final UserRoleRepository userRoleRepository;
     private final BuyerProfileRepository buyerProfileRepository;
     private final BuyerGradeRepository buyerGradeRepository;
     private final MemberActivityChecker memberActivityChecker;
@@ -57,12 +67,13 @@ public class AdminMemberCommandService {
     private final AuditRecorder auditRecorder;
 
     public AdminMemberCommandService(AdminMemberQueryService adminMemberQueryService, UserRepository userRepository,
-            BuyerProfileRepository buyerProfileRepository, BuyerGradeRepository buyerGradeRepository,
-            MemberActivityChecker memberActivityChecker, PasswordEncoder passwordEncoder, PasswordPolicy passwordPolicy,
-            TemporaryPasswordGenerator temporaryPasswordGenerator, NotificationService notificationService,
-            AuditRecorder auditRecorder) {
+            UserRoleRepository userRoleRepository, BuyerProfileRepository buyerProfileRepository,
+            BuyerGradeRepository buyerGradeRepository, MemberActivityChecker memberActivityChecker,
+            PasswordEncoder passwordEncoder, PasswordPolicy passwordPolicy, TemporaryPasswordGenerator temporaryPasswordGenerator,
+            NotificationService notificationService, AuditRecorder auditRecorder) {
         this.adminMemberQueryService = adminMemberQueryService;
         this.userRepository = userRepository;
+        this.userRoleRepository = userRoleRepository;
         this.buyerProfileRepository = buyerProfileRepository;
         this.buyerGradeRepository = buyerGradeRepository;
         this.memberActivityChecker = memberActivityChecker;
@@ -110,16 +121,24 @@ public class AdminMemberCommandService {
     }
 
     /**
-     * 임시 비밀번호 발급. 해시 저장 → 자격증명 갱신(기존 토큰 무효) → 변경 강제 플래그 → SMS 발송(같은 TX). 발송 FAILED면 예외로 전체를
-     * 롤백해 기존 비밀번호가 유지된다. 감사에는 필드명만 남는다(passwordHash는 {@code Masker}가 마스킹).
+     * 임시 비밀번호 발급. 해시 저장 → 자격증명 갱신(기존 토큰 무효) → 변경 강제 플래그 → SMS 발송(같은 TX) → 평문을 응답으로 반환
+     * (관리자 화면 1회 표시·D-204). 발송 FAILED면 예외로 전체를 롤백해 기존 비밀번호가 유지된다. 감사에는 필드명과 표시 사실
+     * ({@value #AUDIT_DISPLAYED_TO_ACTOR})만 남는다(passwordHash는 {@code Masker}가 마스킹).
      *
+     * @return 화면 표시용 평문(호출자는 응답 본문 외에 쓰지 않는다)
      * @throws com.zslab.mall.user.exception.UserNotFoundException 미존재·비BUYER(404)
      * @throws MemberAlreadyWithdrawnException 탈퇴 회원(409)
+     * @throws MemberAdminRoleAssignedException 관리자 역할 보유 회원(422·권한 해제 후 재발급)
      * @throws MemberPhoneMissingException 연락처 없음(422)
      * @throws TemporaryPasswordDeliveryFailedException SMS 발송 실패(502·롤백)
      */
-    public void resetPassword(String publicId, AuditContext auditContext) {
+    public TemporaryPasswordResponse resetPassword(String publicId, AuditContext auditContext) {
         User user = requireActiveBuyer(publicId);
+        // 관리자 영역은 변경 강제가 없어(adminAuth 플래그 미저장) 화면에 표시된 임시 비밀번호로 관리자 조작이 무기한 가능해진다 → 차단(D-204).
+        if (userRoleRepository.existsByUserIdAndRole_CodeIn(user.getId(), ADMIN_ROLE_CODES)) {
+            throw new MemberAdminRoleAssignedException(
+                    "관리자 권한을 보유한 회원에게는 임시 비밀번호를 발급할 수 없습니다. 관리자 권한 해제 후 재발급하세요: publicId=" + publicId);
+        }
         if (user.getPhone() == null || user.getPhone().isBlank()) {
             throw new MemberPhoneMissingException("연락처가 없어 임시 비밀번호를 발송할 수 없습니다: publicId=" + publicId);
         }
@@ -131,8 +150,9 @@ public class AdminMemberCommandService {
         user.markCredentialsChanged(LocalDateTime.now());
         user.requirePasswordChange();
         userRepository.save(user);
-        auditRecorder.record(auditContext, AuditLogAction.UPDATE, PolymorphicTargetType.USER, user.getId(),
-                before, credentialFields(user));
+        Map<String, Object> after = credentialFields(user);
+        after.put(AUDIT_DISPLAYED_TO_ACTOR, true);
+        auditRecorder.record(auditContext, AuditLogAction.UPDATE, PolymorphicTargetType.USER, user.getId(), before, after);
 
         NotificationLogStatus status = notificationService.sendSensitiveSms(
                 user.getId(), user.getPhone(), NotificationTemplateCodes.TEMPORARY_PASSWORD, "임시 비밀번호",
@@ -141,7 +161,8 @@ public class AdminMemberCommandService {
         if (status != NotificationLogStatus.SENT) {
             throw new TemporaryPasswordDeliveryFailedException("임시 비밀번호 SMS 발송에 실패했습니다: publicId=" + publicId);
         }
-        log.info("[AdminMember] 임시 비밀번호 발급 userId={} byActor={}", user.getId(), auditContext.actorUserId());
+        log.info("[AdminMember] 임시 비밀번호 발급·화면 표시 userId={} byActor={}", user.getId(), auditContext.actorUserId());
+        return new TemporaryPasswordResponse(temporaryPassword);
     }
 
     /**

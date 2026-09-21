@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -24,7 +25,10 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -43,6 +47,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * {@code @Transactional}을 두지 않는다. 모든 SQL은 ? positional 바인딩(SQL injection 없음).
  */
 @AutoConfigureMockMvc
+@ExtendWith(OutputCaptureExtension.class)
 class AdminSellerMemberControllerIntegrationTest extends AbstractIntegrationTest {
 
     private static final String URL = "/api/v1/admin/sellers";
@@ -150,8 +155,11 @@ class AdminSellerMemberControllerIntegrationTest extends AbstractIntegrationTest
                 .andExpect(jsonPath("$.roleCode").value("SELLER_MANAGER"))
                 .andExpect(jsonPath("$.withdrawnAt").doesNotExist())
                 .andExpect(jsonPath("$.joinedAt").exists())
+                .andExpect(jsonPath("$.temporaryPassword").doesNotExist()) // 기존 회원 연결은 평문 없음(D-204·null은 직렬화 생략)
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+                .andExpect(header().string(HttpHeaders.PRAGMA, "no-cache"))
                 .andReturn().getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
-        assertThat(body).doesNotContain("password");
+        assertThat(body).doesNotContain("password_hash");
 
         // 추가 후: 같은 기발급 토큰으로 셀러 API 200(매 요청 DB 조회) · 로그인도 200
         mockMvc.perform(get(SELLER_API).headers(preIssuedSellerToken)).andExpect(status().isOk());
@@ -324,16 +332,22 @@ class AdminSellerMemberControllerIntegrationTest extends AbstractIntegrationTest
     // ==================== T7 미가입자 계정 생성 ====================
 
     @Test
-    @DisplayName("T7-1 미가입자: newUser → 201·user 생성(BUYER role·buyer_profile·password_hash·변경 강제 1)·seller_user 연결·SMS 1회·로그 마스킹·응답에 비밀번호 없음·감사 CREATE USER + CREATE SELLER(newUserCreated)")
-    void add_newUser_createsAccountAndMembership() throws Exception {
+    @DisplayName("T7-1 미가입자(D-204): newUser → 201·응답 temporaryPassword 1회(no-store)·user 생성(BUYER role·buyer_profile·password_hash·변경 강제 1)·seller_user 연결·SMS 1회 = 응답 평문·로그 마스킹·감사 CREATE USER(displayedToActor) + CREATE SELLER(newUserCreated)·감사·서버 로그 평문 없음·응답 평문으로 SELLER 로그인 passwordChangeRequired true")
+    void add_newUser_createsAccountAndMembership(CapturedOutput output) throws Exception {
         String body = mockMvc.perform(post(URL + "/" + pid(S_C) + "/members").headers(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(addNewUserBody(NEW_EMAIL, "신규대표", NEW_PHONE, "SELLER_OWNER")))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.userPublicId").exists())
                 .andExpect(jsonPath("$.email").value(NEW_EMAIL))
                 .andExpect(jsonPath("$.roleCode").value("SELLER_OWNER"))
+                .andExpect(jsonPath("$.temporaryPassword").isString())
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+                .andExpect(header().string(HttpHeaders.PRAGMA, "no-cache"))
                 .andReturn().getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
-        assertThat(body).doesNotContainIgnoringCase("password");
+        // D-189 §1-A 3 "응답에 비밀번호 없음"을 D-204 "응답 1회 표시"로 대체 — 평문은 응답 본문에만, 해시는 여전히 미노출
+        String displayedPassword = objectMapper.readTree(body).path("temporaryPassword").asText();
+        assertThat(displayedPassword).hasSize(12);
+        assertThat(body).doesNotContain("password_hash");
 
         Map<String, Object> user = jdbc.queryForMap("SELECT id, public_id, name, phone, password_hash, password_change_required, "
                 + "credentials_changed_at, withdrawn_at FROM `user` WHERE email = ?", NEW_EMAIL);
@@ -348,23 +362,35 @@ class AdminSellerMemberControllerIntegrationTest extends AbstractIntegrationTest
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM buyer_profile WHERE user_id = ?", Integer.class, userId)).isEqualTo(1);
         assertThat(memberRole(S_C, userId)).isEqualTo("SELLER_OWNER");
 
-        // 임시 비밀번호 SMS: 원문 1회 발송·저장본은 마스킹(평문 없음)
-        verify(smsSender).send(any(), any());
+        assertThat(body).doesNotContain((String) user.get("password_hash"));
+        // 임시 비밀번호 SMS: 원문 1회 발송(응답 평문과 동일·결정 3 병행 유지)·저장본은 마스킹(평문 없음)
+        org.mockito.ArgumentCaptor<String> smsContent = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(smsSender).send(any(), smsContent.capture());
+        assertThat(smsContent.getValue()).contains(displayedPassword);
         Map<String, Object> smsLog = jdbc.queryForMap("SELECT status, template_code, content FROM notification_log "
                 + "WHERE recipient_user_id = ? AND template_code = 'TPL_TEMPORARY_PASSWORD'", userId);
         assertThat(smsLog.get("status")).isEqualTo("SENT");
-        assertThat((String) smsLog.get("content")).contains("****");
-        // 감사: USER CREATE(최소셋) + SELLER CREATE(newUserCreated=true)
+        assertThat((String) smsLog.get("content")).contains("****").doesNotContain(displayedPassword);
+        // 감사: USER CREATE(최소셋 + displayedToActor) + SELLER CREATE(newUserCreated=true) · 평문 없음
         JsonNode userAudit = singleAuditDiff("CREATE", "USER", userId);
         assertThat(userAudit.path("role").path("after").asText()).isEqualTo("BUYER");
         assertThat(userAudit.path("passwordChangeRequired").path("after").asBoolean()).isTrue();
-        assertThat(userAudit.toString()).doesNotContain(NEW_EMAIL).doesNotContain(NEW_PHONE);
+        assertThat(userAudit.path("displayedToActor").path("after").asBoolean()).isTrue();
+        assertThat(userAudit.toString()).doesNotContain(NEW_EMAIL).doesNotContain(NEW_PHONE).doesNotContain(displayedPassword);
         JsonNode sellerAudit = singleAuditDiff("CREATE", "SELLER", S_C);
         assertThat(sellerAudit.path("newUserCreated").path("after").asBoolean()).isTrue();
         assertThat(sellerAudit.path("userId").path("after").asLong()).isEqualTo(userId);
 
-        // 생성된 계정으로 SELLER 로그인 가능 여부는 임시 비밀번호를 모르므로 검증하지 않는다(평문 미노출 계약). 매핑만으로 셀러 API는 열린다.
+        assertThat(sellerAudit.toString()).doesNotContain(displayedPassword);
+
+        // 응답 평문으로 SELLER 로그인 200·변경 강제 true(D-204 이전에는 평문을 몰라 검증 불가였음) · 매핑만으로 셀러 API도 열린다
+        mockMvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content(loginBody(NEW_EMAIL, displayedPassword, "SELLER")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.passwordChangeRequired").value(true));
         mockMvc.perform(get(SELLER_API).headers(authHeaders.seller(userId))).andExpect(status().isOk());
+        // 요청 처리 중 서버 로그 전체에 평문 없음
+        assertThat(output.getAll()).doesNotContain(displayedPassword);
     }
 
     @Test

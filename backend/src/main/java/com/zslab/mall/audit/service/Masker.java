@@ -25,6 +25,7 @@ public class Masker {
     private static final Set<String> SENSITIVE_FIELDS = Set.of(
             "password",
             "passwordHash",
+            "temporaryPassword", // D-204: 임시 비밀번호 평문이 실수로 diff에 들어와도 저장되지 않게 하는 방어(정상 경로는 키 자체를 넣지 않음)
             "accountNumber",
             "bankAccountNumber",
             "residentRegistrationNumber",
