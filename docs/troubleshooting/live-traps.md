@@ -554,6 +554,8 @@ PowerShell 안전 훅이 명령 문자열 전체를 스캔해 슬래시로 시�
 - 리뷰 패킷·문서에는 슬래시 경로를 그대로 써도 된다(파일 내용은 스캔 대상이 아님) — 명령 텍스트만 해당.
 ### 관련
 - PROGRESS STEP 613·626·650
+- 보강(2026-09-21): 처치의 heredoc 우회는 짧은 본문에 한한다. 따옴표(`'`·`"`)가 섞인 긴 커밋 메시지는 Bash heredoc이 파싱 실패로 빈 메시지·구문 오류를 낸다(Track 90-E-2 STEP 815 재현) → 메시지 파일은 Write 도구 또는 스크립트로 UTF-8 no-BOM으로 쓰고 `git commit -F`로 넘긴다.
+- 보강(2026-09-21): 가운뎃점(·)도 같은 규칙으로 쉼표 치환(90-D 이후 세션 관례).
 
 ---
 
@@ -598,6 +600,7 @@ prod·dev compose가 `container_name`과 이미지 태그(`zslab-mall-zslab_mall
 `git push`(및 `-u origin <branch>`)는 항상 단독 명령으로 실행한다. 사전 확인(status·diff·테스트)은 별도 호출로 끝낸 뒤 push만 따로 보낸다.
 ### 관련
 - LT-23 · PROGRESS STEP 691·695·699
+- 보강(2026-09-21): 훅 차단과 별개로 PowerShell 도구 세션은 credential 프롬프트를 띄울 수 없어(terminal prompts disabled) push가 exit 128로 끝난다(Track 90-D-2 STEP 766 실측). `git push`는 Git Bash에서 단독 명령으로 실행한다 — Track 90-D-3(STEP 791)·90-E(STEP 824·828) 고정 절차.
 
 ---
 
@@ -640,6 +643,78 @@ D-197로 셀러 claim 연결 마감·관리자 RETURN 마감을 422로 막아 �
 D-198: 브라우저는 인가된 `POST /api/v1/payments/mock-callback`(BUYER Bearer·본인 주문)만 부른다. gateway 404 규칙은 유지(실 PG 전환 Track 94에서 서명·IP 화이트리스트와 함께 해제). `/api/webhooks/**` 아래에 브라우저가 부를 endpoint를 다시 두지 말 것 — 운영에서만 404가 난다. 운영 gateway 규칙 변경은 `docs/infra/05-ssl-domain.md` 스냅샷에 즉시 반영해 로컬·운영 차이를 문서로 남긴다.
 ### 관련
 - D-198 배경·§1-A 3 · docs/track-93/recon-report-webhook.md §D · `MockPaymentCallbackIntegrationTest` · `e2e/mock-payment.spec.ts`(webhook 0회 단언)
+- 보강(2026-09-21): 원인 항목의 로컬 conf 경로 `~/gateway/nginx/nginx.conf`는 오기 — 로컬 gateway conf는 홈 경로가 아니라 projects 폴더 하위 `gateway/nginx/nginx.conf`다(`docker inspect gateway_nginx` Mounts 실측·docs/infra/05-ssl-domain.md §gateway_nginx server block과 일치). Track 93 STEP 768에서 같은 규칙을 로컬에도 삽입해 dev=prod 복원.
+- 보강(2026-09-21): BE는 URI 접근 로그를 남기지 않아 "BE 로그에 없음"만으로 gateway 차단을 단정할 수 없다. 판별은 응답 본문 출처로 한다 — nginx 기본 html 404(nginx 버전 문자열·bytes 153)면 gateway 차단, RFC7807 JSON(code·traceId)이면 BE 도달(STEP 770 실측).
+
+---
+
+## LT-30. Git Bash sed -i·Claude Code Edit 도구가 CRLF 파일을 LF로 바꿔 한 줄 수정이 전체 파일 diff로 번진다 [ACTIVE]
+**발견 트랙**: Track 90-D-1(STEP 689 LT-24 append)·Track 90-E(STEP 814·822 FE-52·STEP 826 D-200 CRLF 재적용)
+**원본 결정**: 세션 트랩(본 카탈로그 직접 등록)
+### 증상
+decisions-fe.md·live-traps.md·CLAUDE-DEV.md처럼 CRLF로 저장된 문서에 한 줄만 추가·치환했는데 `git diff`가 파일 전체를 변경으로 보여 준다(모든 줄에서 CR 제거). 의도한 줄만 바뀌었는지 확인할 수 없고 리뷰 패킷·PR diff가 오염된다.
+### 원인
+MSYS(Git Bash) `sed -i`는 파일을 재작성하며 CRLF를 보존하지 않고, Claude Code Edit 도구도 LF로 정규화해 쓴다. 저장소에 `.gitattributes`가 없어 파일별 줄바꿈이 혼재한다(md 일부 CRLF·PROGRESS.md LF).
+### 처치
+편집 전 대상 파일의 줄바꿈을 실측(`file` 또는 python `b.count(b'\r\n')`) → 편집 → 원래 CRLF 재적용(python 바이너리 치환 또는 `unix2dos`) → `git diff --stat`·`git diff | grep -c '^-'`로 변경 줄 수가 의도한 수·삭제 0인지 확인. 다중 줄 삽입은 CRLF를 명시한 python 바이너리 append·치환이 가장 안전하다(STEP 815 "바이너리 CRLF append·삽입 21줄만").
+### 관련
+- LT-23·LT-26(도구 환경 계열) · PROGRESS STEP 689·814·815·822·826
+
+---
+
+## LT-31. 셀러 쓰기 API 신설 시 `SellerWriteMappingRegistryTest`만 RED — 의도된 실패, 인가 검토 후 허용 목록 갱신 [ACTIVE]
+**발견 트랙**: Track 90-D-3(STEP 783 `POST /api/v1/seller/bank-accounts` 신설 후 전체 게이트 1 fail)
+**원본 결정**: D-196(셀러 쓰기 매핑 집합 고정 테스트 신설)·D-199(허용 목록 12 → 13)
+### 증상
+`/api/v1/seller/**`에 POST·PUT·PATCH·DELETE 컨트롤러를 새로 만들면 신규 기능 IT는 전부 GREEN인데 전체 게이트에서 `SellerWriteMappingRegistryTest` 1건만 `containsExactlyInAnyOrder` 불일치로 실패한다. 코드 결함으로 보여 매핑을 의심하게 된다.
+### 원인
+D-196이 `RequestMappingHandlerMapping`에서 셀러 prefix 쓰기 매핑을 수집해 실측 허용 목록과 정확 일치를 단언한다. 셀러 쓰기가 늘거나 줄면 RED가 나도록 설계된 테스트이며, 셀러 권한으로 열리는 쓰기 경로를 무심코 추가하는 인가 구멍을 막는 게 목적이다.
+### 처치
+허용 목록에 추가해 GREEN을 만들기 전에 (1) 새 매핑이 SecurityConfig `/api/v1/seller/**` hasRole(SELLER) 매처와 리졸버 상태 가드(SUSPENDED 쓰기 403) 안에 있고 (2) 해당 쓰기 개방이 D-XX에 박제된 결정인지 확인한다. 둘이 성립하면 허용 목록 1건 추가(STEP 783: 12 → 13). 조건이 안 맞으면 목록이 아니라 매핑을 고친다.
+### 관련
+- D-196·D-199 · `common/security/SellerWriteMappingRegistryTest` · PROGRESS STEP 704·783
+
+---
+
+## LT-32. JPQL `ORDER BY` enum 컬럼은 문자열 순이 아니라 DB `ENUM` 선언 순 — 통계 동률 정렬 기대값 오류 [ACTIVE]
+**발견 트랙**: Track 90-E-2(STEP 808~815 셀러 클레임 유형 분포 IT T5 1회 교정)
+**원본 결정**: D-200 90-E-2 트랩 1줄(본 카탈로그로 일반화)
+### 증상
+클레임 유형 분포의 동률 정렬 `ORDER BY c.type ASC`에 IT가 문자열 순(CANCEL·EXCHANGE·RETURN)을 기대하면 실패한다. 실제 응답 순서는 CANCEL·RETURN·EXCHANGE.
+### 원인
+MySQL `ENUM` 컬럼은 비교·정렬을 선언 인덱스로 한다. JPQL은 `@Enumerated(EnumType.STRING)` 필드 정렬을 그대로 DB 컬럼 정렬로 내리므로 Java enum 이름의 문자열 순도, Java 선언 순도 아니라 Flyway `ENUM(...)` 선언 순이 된다. 관리자 통계도 동일하게 동작하고 있었다(문자열 순으로 보인 것은 우연).
+### 처치
+enum 컬럼을 정렬 키로 쓰는 쿼리의 기대값·정의 확정표는 Flyway `ENUM` 선언 순으로 적는다. 표시 순서를 따로 원하면 서비스에서 재정렬하고, 그 규칙을 정의 확정표에 명시한다. 신규 type·status 컬럼(CLAUDE.md 4층위 잠금)은 DB ENUM 선언 순과 Java enum 선언 순을 맞춰 두면 혼란이 줄지만 문자열 순은 어느 쪽도 아니다.
+### 관련
+- D-200 90-E-2 · `SellerOrderStatsQueryControllerIntegrationTest` T5 · PROGRESS STEP 808~815
+
+---
+
+## LT-33. vitest "Hook timed out in 10000ms" 대량 실패 — 콜드 transform 또는 gradle 동시 실행 CPU 경합, 단독 재실행으로 판정 [ACTIVE]
+**발견 트랙**: Track 92-a(STEP 728 gradle 병렬 12파일)·Track 90-E-3(STEP 821 컨테이너 test/seller 단독 1회·STEP 827 gradle 동시 8 fail)
+**원본 결정**: FE-52 90-E-3 트랩 1줄(본 카탈로그로 일반화)
+### 증상
+코드 변경이 없는 파일까지 `beforeEach`·`mountSuspended` 훅이 "Hook timed out in 10000ms"로 8~12파일 실패한다. 같은 명령을 그대로 재실행하면 전부 GREEN.
+### 원인
+(1) 컨테이너에서 특정 디렉터리(test/seller)만 단독 실행할 때 콜드 transform 부하가 훅 10초를 넘긴다. (2) 호스트에서 `gradlew test --rerun-tasks`와 vitest를 동시에 돌리면 CPU 경합으로 같은 증상이 난다. 둘 다 테스트 대상 코드와 무관하다.
+### 처치
+gradle이 끝난(또는 `gradlew --stop`) 뒤 vitest를 단독 재실행하고 그 결과로 판정한다. timeout 1차 실패는 판정에 쓰지 않으며, 훅 타임아웃 상향으로 덮지 않는다(실제 무한 대기 결함을 숨긴다). 검증 게이트 순서는 gradle → typecheck → vitest 직렬을 기본으로 한다.
+### 관련
+- LT-22 후속 영향(Playwright 콜드 1차 폐기와 같은 판정 규칙) · FE-52 · PROGRESS STEP 728·821·827
+
+---
+
+## LT-34. IT 시드 `pid()` 태그 우측 0-패딩으로 접두어가 겹치는 태그(X1·X10)가 같은 public_id로 충돌 [ACTIVE]
+**발견 트랙**: Track 90-E-3 보정(STEP 826 T11 5·15·25건 시드 DuplicateKey)
+**원본 결정**: 세션 트랩(본 카탈로그 직접 등록)
+### 증상
+시드 헬퍼로 상품 10건 이상을 만들 때 `pid("SPSPX1")`과 `pid("SPSPX10")`이 `DuplicateKeyException`(public_id UNIQUE)으로 충돌한다. 태그는 서로 다른데 저장된 public_id가 같다.
+### 원인
+IT 공용 패턴 `pid(prefix, tag)`는 `(tag + "000…").substring(0, 26)`으로 태그를 우측 0-패딩한다. `X1` + 0패딩과 `X10` + 0패딩은 26자 결과가 동일하다. 숫자 접미가 한 자리에서 두 자리로 넘어가는 순간(9 → 10) 반드시 터진다.
+### 처치
+한 테스트 안의 태그는 서로 접두어가 되지 않게 짓는다 — 자릿수를 고정(`X01`·`X10`)하거나 구분 문자를 붙인다(STEP 826은 `SPSPX1Q`). 시드 건수를 10 이상으로 늘리는 IT를 추가할 때 이 규칙을 먼저 확인한다.
+### 관련
+- `AuditWiringIntegrationTest.pid` 등 IT 공용 패턴 · `SellerProductStatsQueryControllerIntegrationTest` T11 · PROGRESS STEP 826
 
 ---
 
