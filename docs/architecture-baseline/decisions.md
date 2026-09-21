@@ -11991,9 +11991,12 @@ EXPLAIN(로컬 읽기·seller 4·30일): 입고 합 = product PRIMARY index scan
 - 검증: `./gradlew.bat test --rerun-tasks` 236파일 **1388·0 fail·0 error·0 skip**(1387 + 1).
 - 트랩: Jackson `default-property-inclusion: non_null`이라 P2 기존 회원 연결 응답에서 `temporaryPassword` 키 자체가 생략된다(`jsonPath(...).doesNotExist()`로 단언·FE 타입은 optional).
 
+- **응답 계약(외부 검토 R1 Q3 확인)**: 평문 응답은 서비스 트랜잭션(`@Transactional` 클래스·`resetPassword`/`add`) 커밋 뒤에만 컨트롤러가 조립한다 — 커밋 실패·SMS 실패(502)·감사 적재 실패는 예외로 전파돼 본문 없는 오류 응답이 된다. 트랜잭션을 컨트롤러로 올리거나 `REQUIRES_NEW`로 분리하지 않는다(분리하면 "커밋된 해시 ≠ 표시된 평문" 창이 생긴다).
+
 ### 운영 절차(화면 밖)
 - **운영자(ADMIN_OPERATOR 겸직 회원) 비밀번호 분실 복구**: 관리자 목록에서 역할 회수(`DELETE /admin/users/{usr_}/roles/ADMIN_OPERATOR`·사유) → 회원 상세 "임시 비밀번호 발급" → 평문 전달 → 본인이 구매자 화면(`/mypage/password`·강제 이동)에서 변경 → 관리자 목록에서 재부여. SUPER_ADMIN(X3)은 이 절차가 없다 — DB 직접 갱신뿐(별도 결정 필요·§8).
 
 ### §8 이월
 - SUPER_ADMIN 비밀번호 분실 복구 경로(X3) · 관리자 영역 변경 강제(X2 근본 대응) · 임시 비밀번호 유효기간(X4) · gateway 캐시/로그 설정 확인(N1) · 실 SMS 어댑터 도입 시 TX 분리(D-178 §8 이월 유지).
-- 외부 검토: (검토 후 기록)
+- **운영 확인 항목(배포 후·서버 읽기 전용 점검)**: 운영 `logging.level`(com.zslab.mall INFO·root WARN)·gateway access log 형식(응답 본문 미기록)·응답 본문 로깅 필터 부재 확인 — gateway 캐시 확인과 함께 1회 점검하고 결과를 PROGRESS에 남긴다.
+- 외부 검토: A / 2라운드(R1 BE·R2 FE) / major 1(R2 Q6 — P2 신규 계정인데 응답에 평문이 없거나 빈 문자열이면 성공 토스트만 내고 전달 불가 상태가 됨 → fail-closed 분기: danger 토스트 "계정은 생성되었지만 임시 비밀번호를 받지 못했습니다. 회원 상세에서 재발급해 주세요" + done) 수용 · minor 2 부분 수용(가드 IT를 SUPER_ADMIN·ADMIN_OPERATOR 2종 파라미터로 / P2 평문 누락 vitest 2 / P1 페이지 토스트 인자 무평문·재발급(다른 값) 시 이전 평문 DOM 부재 vitest 2) · 기각 4(역할 부여 경합 직렬화 — 부여 API가 SUPER_ADMIN 전용·같은 TX 내 판정 후 해시 저장까지 ms 단위·실질 위협 없음 / P2 생성 직후 역할 부여 후 P1 시나리오 — 별개 요청 2건이며 P1 가드가 그대로 차단 / P2 후속 저장(seller_user saveAndFlush 409) 실패 IT — 기존 T4·T7-2가 롤백을 단언 / 라우트 이탈 테스트 — 로컬 ref는 컴포넌트 언마운트로 소멸) · PASS 7 · 재검토 생략(국소 수정·테스트 재현).

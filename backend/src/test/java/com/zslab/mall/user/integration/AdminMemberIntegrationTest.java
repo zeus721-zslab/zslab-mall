@@ -37,6 +37,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.mockito.ArgumentCaptor;
@@ -246,9 +248,13 @@ class AdminMemberIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.code").value("MEMBER_ALREADY_WITHDRAWN"));
     }
 
-    @Test
-    @DisplayName("(6-2) 임시 비밀번호 가드(D-204): 관리자 역할(ADMIN_OPERATOR) 보유 회원 → 422 MEMBER_ADMIN_ROLE_ASSIGNED·해시·플래그 불변·감사 0·SMS 0")
-    void resetPassword_adminRoleHolder_rejected() throws Exception {
+    @ParameterizedTest(name = "(6-2) 관리자 역할 {0} 보유 회원 → 422")
+    @ValueSource(strings = {"ADMIN_OPERATOR", "SUPER_ADMIN"})
+    @DisplayName("(6-2) 임시 비밀번호 가드(D-204): 관리자 역할(ADMIN_OPERATOR·SUPER_ADMIN 각각) 보유 회원 → 422 MEMBER_ADMIN_ROLE_ASSIGNED·해시·플래그 불변·감사 0·SMS 0")
+    void resetPassword_adminRoleHolder_rejected(String adminRoleCode) throws Exception {
+        // seed는 ADMIN_OPERATOR 겸직 — SUPER_ADMIN 케이스는 역할 행을 바꿔 판정 집합(ADMIN_ROLE_CODES) 2종을 각각 실측한다(외부 검토 R1 Q7).
+        jdbc.update("DELETE FROM user_role WHERE user_id = ? AND role_id IN (SELECT id FROM role WHERE code IN ('ADMIN_OPERATOR', 'SUPER_ADMIN'))", BUYER_ADMIN);
+        jdbc.update("INSERT INTO user_role (user_id, role_id, created_at) SELECT ?, id, NOW(6) FROM role WHERE code = ?", BUYER_ADMIN, adminRoleCode);
         String hashBefore = jdbc.queryForObject("SELECT password_hash FROM `user` WHERE id = ?", String.class, BUYER_ADMIN);
 
         mockMvc.perform(post(URL + "/" + BUYER_ADMIN_PID + "/password-reset").headers(authHeaders.admin(ADMIN_ID)))

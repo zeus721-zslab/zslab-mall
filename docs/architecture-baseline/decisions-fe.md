@@ -2321,5 +2321,9 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 - 트랩: vitest에서 `vi.stubGlobal('navigator', {...navigator, clipboard})`를 `createVuetify()` 마운트 **전에** 걸면 `navigator.userAgent` 소실로 vuetify display가 throw(이전 spec의 unstub 누락이 다음 spec까지 오염) → 마운트 뒤 스텁 + `afterEach(unstubAllGlobals)`. 컨테이너에서 `pnpm typecheck`(nuxt prepare) 후에는 dev 서버가 새 컴포넌트를 못 찾아 E2E가 "element not found"로 실패 → E2E 전 컨테이너 재시작(기존 트랩 재확인).
 - 검증: typecheck 0 · vitest 96파일 **639**(634 + 5) · no-admin-import 통과 · Playwright 콜드 101/104(admin-sellers ① 콜드 트랩 1) → 웜 **102/104**(101 + 1 신규 ④·2 skip = seller-password env) · 픽셀 12장 track96-3 track96-2 대비 **diff 0**(관리자 다이얼로그는 기준 12장에 미포함).
 
+### 외부 검토 반영(R2 Q6·Q7)
+- **P2 fail-closed**: 신규 계정 모드(`mode === 'new'`)에서 201 응답에 `temporaryPassword`가 없거나 빈 문자열이면 성공 토스트·결과 다이얼로그 없이 `toast.danger("… 계정은 생성되었지만 임시 비밀번호를 받지 못했습니다. 회원 상세에서 재발급해 주세요.")` → `emit('done')`(목록 갱신·계정은 이미 존재). 기존 회원 연결(`existing`)은 평문 부재가 정상이라 무변경. vitest RED 선증명: 적용 전 성공 토스트 1회 호출 → 적용 후 GREEN.
+- vitest 추가: `admin-seller-member-add-dialog.spec.ts` +2(키 없음·빈 문자열) · `admin-member-detail-reset.spec.ts` 신규 2(P1 페이지 — 모든 토스트 호출 인자에 평문 없음·성공 토스트 0 / 닫기 → 다른 값 재발급 → 이전 평문 DOM 부재 → 닫으면 둘 다 부재). 페이지 spec 트랩: `useRoute`/`useRouter`를 `mockNuxtImport`로 바꾸면 Nuxt 초기화(`router.beforeEach`)가 깨진다 → `mountSuspended(..., { route: '/admin/members/usr_A' })`로 실제 라우터 사용.
+
 ### §8 이월
 - 관리자 영역 강제 변경(adminAuth 플래그·관리자 비밀번호 페이지)은 D-204 §8.

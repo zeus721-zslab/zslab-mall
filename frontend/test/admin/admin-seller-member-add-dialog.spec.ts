@@ -105,6 +105,28 @@ describe('AdminSellerMemberAddDialog — 신규 계정 임시 비밀번호 1회 
     vi.unstubAllGlobals()
   })
 
+  it.each([
+    ['키 없음', {}],
+    ['빈 문자열', { temporaryPassword: '' }],
+  ])('신규 계정 201인데 temporaryPassword %s → fail-closed: 성공 토스트 없음·결과 다이얼로그 없음·danger 안내(재발급) → done(목록 갱신)', async (_label, extra) => {
+    sellersApiMock.addMember.mockResolvedValue({ userPublicId: 'usr_N', email: 'new@e2e.invalid', name: '신규대표', roleCode: 'SELLER_STAFF', joinedAt: '2026-09-21T00:00:00', ...extra })
+    const wrapper = await mountDialog()
+    await click('seller-member-add-tab-new')
+    await fill('seller-member-new-email', 'new@e2e.invalid')
+    await fill('seller-member-new-name', '신규대표')
+    await fill('seller-member-new-phone', '010-9999-0000')
+    await click('seller-member-add-ok')
+
+    expect(sellersApiMock.addMember).toHaveBeenCalledTimes(1)
+    expect(toastMock.success).not.toHaveBeenCalled()
+    expect(query('seller-member-password-result-value')).toBeNull()
+    expect(toastMock.danger).toHaveBeenCalledTimes(1)
+    expect(String(toastMock.danger.mock.calls[0]?.[0])).toContain('임시 비밀번호를 받지 못했습니다')
+    expect(String(toastMock.danger.mock.calls[0]?.[0])).toContain('회원 상세에서 재발급')
+    expect(wrapper.emitted('done')).toHaveLength(1)
+    vi.unstubAllGlobals()
+  })
+
   it('기존 회원 연결(temporaryPassword 없음) → 결과 다이얼로그 없이 즉시 done', async () => {
     membersApiMock.list.mockResolvedValue({ items: [{ publicId: 'usr_E', name: '기존회원', email: 'e@e2e.invalid', phone: '010-1' }], totalCount: 1, page: 0, size: 10 })
     sellersApiMock.addMember.mockResolvedValue({ userPublicId: 'usr_E', email: 'e@e2e.invalid', name: '기존회원', roleCode: 'SELLER_STAFF', joinedAt: '2026-09-21T00:00:00' })

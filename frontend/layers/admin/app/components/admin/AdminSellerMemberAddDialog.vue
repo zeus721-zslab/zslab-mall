@@ -128,10 +128,16 @@ async function submit(): Promise<void> {
   try {
     const created = await sellersApi.addMember(props.detail.sellerPublicId, body)
     const who = created.name ?? created.email ?? created.userPublicId ?? '구성원'
-    if (mode.value === 'new' && created.temporaryPassword) {
-      // 신규 계정: 결과 다이얼로그(1회 표시)를 먼저 띄우고, 닫힌 뒤 done을 올린다(부모가 닫으면 평문을 볼 기회가 사라짐).
-      toast.success(`${who} 계정을 만들고 ${ADMIN_SELLER_MEMBER_ROLE_LABEL[role.value]}(으)로 추가했습니다. 임시 비밀번호를 확인해 전달해 주세요.`)
-      issuedPassword.value = created.temporaryPassword
+    if (mode.value === 'new') {
+      // 신규 계정: 평문이 있으면 결과 다이얼로그(1회 표시)를 먼저 띄우고 닫힌 뒤 done. 평문이 없거나 빈 문자열이면 fail-closed —
+      // 계정은 이미 만들어졌으므로(201) 성공으로 안내하지 않고 재발급 경로를 알린 뒤 done으로 목록만 갱신한다(외부 검토 R2 Q6).
+      if (created.temporaryPassword) {
+        toast.success(`${who} 계정을 만들고 ${ADMIN_SELLER_MEMBER_ROLE_LABEL[role.value]}(으)로 추가했습니다. 임시 비밀번호를 확인해 전달해 주세요.`)
+        issuedPassword.value = created.temporaryPassword
+        return
+      }
+      toast.danger(`${who} 계정은 생성되었지만 임시 비밀번호를 받지 못했습니다. 회원 상세에서 재발급해 주세요.`)
+      emit('done')
       return
     }
     toast.success(`${who} 회원을 ${ADMIN_SELLER_MEMBER_ROLE_LABEL[role.value]}(으)로 추가했습니다. 지금부터 셀러 로그인이 가능합니다.`)
