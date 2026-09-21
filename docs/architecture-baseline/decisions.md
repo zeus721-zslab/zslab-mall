@@ -11715,6 +11715,10 @@ gateway nginx가 2026-09-18부터 `location ^~ /api/webhooks { return 404; }`로
 - 언급만: `lib/utils/datetime.ts toKstLocalDateTime`은 본 트랙으로 호출처 0(단위 테스트만 남음). 삭제는 하지 않았다.
 - `docs/infra/05-ssl-domain.md`(gitignored·로컬) 스냅샷에 `location ^~ /api/webhooks { return 404; }` 블록 반영. 로컬 gateway conf에는 이 블록이 없고 직접 proxy_pass 형태(운영과 상이).
 
+- 외부 검토: **등급 A** / 2라운드(r1 인가 경계·r2 상태 전이·예외) / r1 지적 0·정보 부족 2건 자체 확정 / r2 minor 5 중 수용 2(pgTid 400 케이스 상태·재고 단언, 멱등 케이스 Order PAID 단언)·기각 2(기록: flush 판별 구조·제약명 문자열 판별 → §8)·PASS 1 / blocker 0 / 재검토 불필요.
+- r1 정보 부족 확정(STEP 762): (1) 구매자 "정지" 상태는 인증 모델에 **없음** — `AuthenticatedUserStateVerifier`가 보는 축은 deleted_at·withdrawn_at·credentials_changed_at 3개뿐이며 SUSPENDED는 Seller 엔티티 축이라 구매자 토큰과 무관(해당 없음). (2) 종결 결제(EXPIRED·FAILED·CANCELLED) × 콜백 9조합: ×SUCCESS → REJECT 422(`handleSuccess` 종결 분기) / ×FAILURE → NO-OP 200 / ×CANCEL → NO-OP 200. 종결→PAID 부활 조합 없음(2차 방어 `Payment.transitionTo`의 `canTransitionTo`). 대표 3조합(×SUCCESS)을 `MockPaymentCallbackIntegrationTest` `@ParameterizedTest`로 고정(422·상태·pgTid·Order·재고·history 무변경).
+- 검증(검토 반영 후): `./gradlew.bat test --rerun-tasks` 230파일 **1332 tests·0 fail·0 error·0 skip**(1329 + 3) · FE 무변경이라 typecheck·vitest·Playwright·픽셀 생략.
+
 ### §8 이월 — Track 94(실 PG 전환) 범위
 - PG 서명 검증 필터(raw body 캐싱·HMAC·타임스탬프 창·nonce) — `/api/webhooks/**` 한정·SecurityConfig 매처 공유 패턴. 서블릿 필터 계층이 관례(정찰 §E-17)이나 `ContentCachingRequestWrapper` 선례 없음.
 - provider 화이트리스트(`PaymentGateway.provider()`와 일치 강제)·provider `@Size(max=50)`·occurredAt 허용 범위.
@@ -11723,3 +11727,5 @@ gateway nginx가 2026-09-18부터 `location ^~ /api/webhooks { return 404; }`로
 - gateway PG 발신 IP 화이트리스트 + `return 404` 해제(zslab 수동).
 - mock 결제 페이지·`/api/v1/payments/mock-callback`의 `local`·`test` 프로필 게이트 또는 제거.
 - IT: 무서명 401·서명 위조 401·nonce 재사용·provider 불일치·금액 불일치.
+- **flush 판별의 전제**: `handleCallback`의 명시 flush는 영속성 컨텍스트 전체를 내보낸다. 현재 flush 시점에 dirty인 엔티티는 Payment뿐(동기 핸들러는 flush 뒤에 실행)이라 `uk_payment_provider_pg_tid` 판별이 성립하지만, 같은 트랜잭션에 Payment와 독립인 dirty 엔티티가 추가되면 그 엔티티의 무결성 위반이 이 catch로 들어온다 — 그때 판별 위치·범위를 재검토한다(외부 검토 r2 기록).
+- **제약명 문자열 판별의 전제**: 409 변환은 `DataIntegrityViolationException.getMostSpecificCause().getMessage()`에 제약명이 포함되는 MariaDB 드라이버 메시지 형식에 의존한다(90-C 선례와 동일). DB·드라이버 교체 시 예외 구조를 고정하는 테스트(제약 위반 메시지에 제약명 포함 단언)가 필요하다(외부 검토 r2 기록).

@@ -202,7 +202,11 @@ class PaymentWebhookIntegrationTest extends AbstractIntegrationTest {
                         .content(successBody("t".repeat(PG_TID_MAX_LENGTH + 1))))
                 .andExpect(status().isBadRequest());
 
+        // 외부 검토 r2 수용: Bean Validation 400은 Service 진입 전 차단 — 결제 행·주문·재고 전부 무변경
         assertThat(paymentStatus()).isEqualTo("PENDING");
+        assertThat(pgTid()).isNull();
+        assertThat(orderStatus()).isEqualTo("PENDING_PAYMENT");
+        assertThat(onHand()).isEqualTo(10);
         assertThat(reserved()).isEqualTo(1);
     }
 
@@ -292,6 +296,10 @@ class PaymentWebhookIntegrationTest extends AbstractIntegrationTest {
 
     private String paymentStatus() {
         return jdbc.queryForObject("SELECT status FROM payment WHERE id = ?", String.class, PAYMENT_ID);
+    }
+
+    private String pgTid() {
+        return jdbc.queryForObject("SELECT pg_tid FROM payment WHERE id = ?", String.class, PAYMENT_ID);
     }
 
     private String failureCode() {

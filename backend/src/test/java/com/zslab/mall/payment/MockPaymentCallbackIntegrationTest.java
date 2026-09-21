@@ -11,6 +11,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
@@ -142,8 +144,31 @@ class MockPaymentCallbackIntegrationTest extends AbstractIntegrationTest {
         assertThat(refundCount()).isZero();
     }
 
+    @ParameterizedTest(name = "{0} 결제 × SUCCESS → 422 INVALID_CALLBACK·상태 무변경·재고 불변(종결 상태에서 PAID 부활 없음·외부 검토 r1 정보 부족 확정)")
+    @ValueSource(strings = {"EXPIRED", "FAILED", "CANCELLED"})
+    void terminalPayment_success_422(String terminalStatus) throws Exception {
+        tx.executeWithoutResult(s -> {
+            jdbc.update("UPDATE payment SET status = ? WHERE id = ?", terminalStatus, PAYMENT_ID);
+            jdbc.update("UPDATE `order` SET status = 'PAYMENT_EXPIRED' WHERE id = ?", ORDER_ID);
+        });
+
+        mockMvc.perform(post(ENDPOINT)
+                        .headers(authHeaders.buyer(BUYER_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body("SUCCESS")))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("INVALID_CALLBACK"));
+
+        assertThat(paymentStatus()).isEqualTo(terminalStatus);
+        assertThat(pgTid()).isNull();
+        assertThat(orderStatus()).isEqualTo("PAYMENT_EXPIRED");
+        assertThat(onHand()).isEqualTo(10);
+        assertThat(reserved()).isEqualTo(1);
+        assertThat(inventoryHistoryCount()).isZero();
+    }
+
     @Test
-    @DisplayName("SUCCESS 2회 → 2회차 200 멱등 NO-OP·재고 차감 1회(history 1)·결제완료 알림 1회")
+    @DisplayName("SUCCESS 2회 → 2회차 200 멱등 NO-OP·재고 차감 1회(history 1)·결제완료 알림 1회·Order PAID 유지")
     void success_twice_idempotent() throws Exception {
         mockMvc.perform(post(ENDPOINT)
                         .headers(authHeaders.buyer(BUYER_ID))
@@ -164,6 +189,7 @@ class MockPaymentCallbackIntegrationTest extends AbstractIntegrationTest {
         assertThat(reserved()).isZero();
         assertThat(inventoryHistoryCount()).isEqualTo(1);
         assertThat(notificationCount()).isEqualTo(1);
+        assertThat(orderStatus()).isEqualTo("PAID");            // 외부 검토 r2 수용: 2회차 NO-OP가 주문 상태를 건드리지 않음
     }
 
     @Test
