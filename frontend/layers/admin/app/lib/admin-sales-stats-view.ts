@@ -2,37 +2,42 @@ import type { ApexOptions } from 'apexcharts'
 import type {
   AdminSalesBreakdownResponse,
   AdminSalesBreakdownRow,
-  AdminSalesStatsResponse,
   AdminSalesSummary,
   AdminSalesTrendBucket,
 } from '#layers/admin/app/types/admin-sales-stats'
-import { DELETED_NAME_LABELS, STATS_AXIS_LABELS, type StatsAxis, type StatsCompare } from '#layers/admin/app/lib/constants/admin-sales-stats'
-import { changeChipClass, changeRate, changeTone, formatChangeRate, type AdminChartSeries, type ChangeTone } from '#layers/admin/app/lib/admin-dashboard-view'
+import { DELETED_NAME_LABELS, STATS_AXIS_LABELS, type StatsAxis } from '#layers/admin/app/lib/constants/admin-sales-stats'
+import { changeChipClass, type AdminChartSeries } from '#layers/admin/app/lib/admin-dashboard-view'
 import { formatWon } from '#layers/admin/app/lib/format'
+import {
+  axisLabel,
+  changeRate,
+  changeTone,
+  compareNetSeries,
+  formatChangeRate,
+  formatItemsPerOrder,
+  salesChangeTone,
+  type SortableBreakdownRow,
+} from '~/lib/stats-view'
+
+// 정규화·증감 반전·후행 0 절단·x축 라벨·정렬·비교 열·CSV 파일명은 셀러 통계와 공용이라 app/lib/stats-view.ts로 이동(FE-52)·기존 이름 re-export
+export {
+  normalizeSalesStats,
+  formatItemsPerOrder,
+  salesChangeTone,
+  isZeroBucket,
+  compareNetSeries,
+  axisLabel,
+  isTrendEmpty,
+  sortBreakdownRows,
+  showsCompare,
+  csvFileNameFrom,
+} from '~/lib/stats-view'
+export type { NormalizedSalesStats, BreakdownSortKey } from '~/lib/stats-view'
 
 /**
  * 매출 통계 표시 규칙 순수 함수(FE-34·admin-dashboard-view 패턴). 응답 정규화(NON_NULL 생략 → null)·요약 카드·증감 톤(환불 반전)·
  * 추이 차트(3계열 + 비교 순매출 점선·후행 0 → null)·분해 행(이름 대체·증감률)·CSV 파일명 추출을 여기 모아 vitest로 고정한다.
  */
-
-// ---------- 정규화 ----------
-
-export interface NormalizedSalesStats {
-  summary: AdminSalesSummary
-  compareSummary: AdminSalesSummary | null
-  trend: AdminSalesTrendBucket[]
-  compareTrend: AdminSalesTrendBucket[] | null
-}
-
-/** BE NON_NULL 직렬화로 생략된 비교 필드를 null로 고정한다. */
-export function normalizeSalesStats(response: AdminSalesStatsResponse): NormalizedSalesStats {
-  return {
-    summary: response.summary,
-    compareSummary: response.compareSummary ?? null,
-    trend: response.trend,
-    compareTrend: response.compareTrend ?? null,
-  }
-}
 
 // ---------- 요약 카드 ----------
 
@@ -46,14 +51,8 @@ export interface SalesSummaryCardSpec {
   inverse: boolean
 }
 
-const ITEMS_PER_ORDER_FRACTION_DIGITS = 2
-
 export function formatCount(value: number): string {
   return `${value.toLocaleString('ko-KR')}건`
-}
-
-export function formatItemsPerOrder(value: number): string {
-  return `${value.toFixed(ITEMS_PER_ORDER_FRACTION_DIGITS)}개`
 }
 
 /** 카드 6장 정의·순서. 환불만 inverse. */
@@ -65,13 +64,6 @@ export const SALES_SUMMARY_CARDS: SalesSummaryCardSpec[] = [
   { key: 'avgOrderValue', label: '객단가', format: formatWon, inverse: false },
   { key: 'avgItemsPerOrder', label: '주문당 품목수', format: formatItemsPerOrder, inverse: false },
 ]
-
-/** 증감 톤. inverse(환불)면 up↔down을 바꿔 "환불 증가 = 빨강"이 되게 한다. flat은 그대로. */
-export function salesChangeTone(rate: number | null, inverse: boolean): ChangeTone {
-  const tone = changeTone(rate)
-  if (!inverse || tone === 'flat') return tone
-  return tone === 'up' ? 'down' : 'up'
-}
 
 export interface SalesSummaryCardView {
   key: SalesSummaryKey
@@ -110,26 +102,6 @@ const DASH_SOLID = 0
 const DASH_COMPARE = 5
 const LINE_WIDTH = 2
 const MAX_X_TICKS = 12
-
-/** 구간이 모두 0(매출·환불·주문 없음)인지 — 후행 0 판정과 빈 상태 판정에 같이 쓴다. */
-export function isZeroBucket(bucket: AdminSalesTrendBucket): boolean {
-  return bucket.revenue === 0 && bucket.refund === 0 && bucket.orderCount === 0
-}
-
-/**
- * 비교 추이의 순매출 계열. BE는 compareTrend를 trend 길이에 맞춰 뒤를 0으로 채우거나 절단하므로(D-181 §1-A 4), 실제 비교 구간이
- * 더 적을 때 끝이 0으로 급락해 보인다 → <b>후행</b> 0 구간만 null로 바꿔 선을 끊는다(중간 0은 실제 0이라 유지). 비교 없으면 null.
- */
-export function compareNetSeries(compareTrend: AdminSalesTrendBucket[] | null, length: number): (number | null)[] | null {
-  if (compareTrend === null) return null
-  const trimmed = compareTrend.slice(0, length)
-  const values: (number | null)[] = trimmed.map((bucket) => bucket.netRevenue)
-  for (let index = trimmed.length - 1; index >= 0 && isZeroBucket(trimmed[index]!); index--) {
-    values[index] = null
-  }
-  while (values.length < length) values.push(null)
-  return values
-}
 
 export interface SalesTrendChartSpec {
   series: AdminChartSeries
@@ -189,19 +161,9 @@ export function salesTrendChart(trend: AdminSalesTrendBucket[], compareTrend: Ad
   }
 }
 
-/** x축 라벨: yyyy-MM-dd(일·주 시작일)는 연도를 떼 MM-DD로 줄인다(30일·7일 조회에서 겹침 실측). 월(yyyy-MM)은 그대로. 툴팁은 전체 라벨. */
-export function axisLabel(label: string): string {
-  return /^\d{4}-\d{2}-\d{2}$/.test(label) ? label.slice(5) : label
-}
-
-/** 추이 전 구간이 0인지(빈 상태 캡션). */
-export function isTrendEmpty(trend: AdminSalesTrendBucket[]): boolean {
-  return trend.every(isZeroBucket)
-}
-
 // ---------- 분해 테이블 ----------
 
-export interface SalesBreakdownRowView {
+export interface SalesBreakdownRowView extends SortableBreakdownRow {
   /** 행 식별(key 없으면 이름·순번으로 대체). */
   id: string
   key: string | null
@@ -251,50 +213,7 @@ export function breakdownRowViews(response: AdminSalesBreakdownResponse | null):
   })
 }
 
-export type BreakdownSortKey = 'name' | 'revenue' | 'share' | 'orderCount' | 'quantity' | 'compareRevenue' | 'rate'
-
-/** 클라이언트 정렬(BE는 매출 DESC 고정). null(비교 불가)은 방향과 무관하게 맨 뒤. 동률은 매출 DESC. */
-export function sortBreakdownRows(rows: SalesBreakdownRowView[], key: BreakdownSortKey, order: 'asc' | 'desc'): SalesBreakdownRowView[] {
-  const direction = order === 'asc' ? 1 : -1
-  return [...rows].sort((a, b) => {
-    const left = a[key]
-    const right = b[key]
-    if (left === null && right === null) return b.revenue - a.revenue
-    if (left === null) return 1
-    if (right === null) return -1
-    const primary = typeof left === 'string' && typeof right === 'string' ? left.localeCompare(right, 'ko-KR') : Number(left) - Number(right)
-    return primary !== 0 ? primary * direction : b.revenue - a.revenue
-  })
-}
-
 /** 브레드크럼 상위 라벨: 축 라벨 + 이름(모르면 key). */
 export function breadcrumbLabel(axis: StatsAxis, parentKey: string, parentName: string | null): string {
   return `${STATS_AXIS_LABELS[axis]} · ${parentName ?? parentKey}`
-}
-
-/** 비교 열 표시 여부. */
-export function showsCompare(compare: StatsCompare): boolean {
-  return compare !== 'NONE'
-}
-
-// ---------- CSV ----------
-
-const CSV_DEFAULT_NAME = 'sales-breakdown.csv'
-
-/**
- * Content-Disposition에서 파일명 추출: filename*=UTF-8''(RFC 5987) 우선·없으면 filename="…"·둘 다 없으면 기본명.
- * BE는 `attachment; filename="sales-breakdown-…csv"; filename*=UTF-8''매출통계_…csv`(D-181 §1-A 10)를 보낸다.
- */
-export function csvFileNameFrom(contentDisposition: string | null): string {
-  if (!contentDisposition) return CSV_DEFAULT_NAME
-  const extended = /filename\*=UTF-8''([^;]+)/i.exec(contentDisposition)
-  if (extended?.[1]) {
-    try {
-      return decodeURIComponent(extended[1].trim())
-    } catch {
-      // 잘못된 percent-encoding이면 ASCII filename으로 폴백
-    }
-  }
-  const plain = /filename="([^"]+)"/i.exec(contentDisposition) ?? /filename=([^;]+)/i.exec(contentDisposition)
-  return plain?.[1]?.trim() || CSV_DEFAULT_NAME
 }

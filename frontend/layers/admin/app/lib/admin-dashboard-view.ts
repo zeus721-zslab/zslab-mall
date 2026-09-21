@@ -8,31 +8,10 @@ import { formatWon } from '#layers/admin/app/lib/format'
  * 고정하고 컴포넌트는 표시·배선만 한다.
  */
 
-/** 증감 톤: up=연한 녹색·down=연한 빨강·flat=회색(0 또는 비교 불가). */
-export type ChangeTone = 'up' | 'down' | 'flat'
-
-const PERCENT = 100
-const RATE_FRACTION_DIGITS = 1
-export const CHANGE_RATE_UNAVAILABLE = '—'
-
-/** (현재 − 비교) / 비교 × 100. 비교값 0(또는 음수·비정상)이면 계산 불가 null — Infinity·NaN을 만들지 않는다. */
-export function changeRate(current: number, previous: number): number | null {
-  if (!Number.isFinite(current) || !Number.isFinite(previous) || previous <= 0) return null
-  return ((current - previous) / previous) * PERCENT
-}
-
-/** "+12.3%"·"-4.0%"·"0.0%"·비교 불가 "—". */
-export function formatChangeRate(rate: number | null): string {
-  if (rate === null) return CHANGE_RATE_UNAVAILABLE
-  const fixed = rate.toFixed(RATE_FRACTION_DIGITS)
-  if (rate > 0) return `+${fixed}%`
-  return `${fixed}%`
-}
-
-export function changeTone(rate: number | null): ChangeTone {
-  if (rate === null || rate === 0) return 'flat'
-  return rate > 0 ? 'up' : 'down'
-}
+// 증감률·톤(ChangeTone·changeRate·formatChangeRate·changeTone)은 셀러 통계와 공용이라 app/lib/stats-view.ts로 이동(FE-52)·기존 이름 re-export
+export { CHANGE_RATE_UNAVAILABLE, changeRate, formatChangeRate, changeTone } from '~/lib/stats-view'
+export type { ChangeTone } from '~/lib/stats-view'
+import type { ChangeTone } from '~/lib/stats-view'
 
 /** 배지 CSS 클래스(admin-vuetify.css .adm-chip--*). flat은 회색(neutral). */
 export function changeChipClass(tone: ChangeTone): string {

@@ -2203,3 +2203,46 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 ### §8 이월
 - 셀러 계좌 페이지에서 정산 상세로의 링크·정산 상세 계좌 카드에서 계좌 페이지 링크(요구 없음).
 - 대시보드 최근 클레임·처리 대기 클레임 칸 링크(FE-47 이월)·회수 송장 표시(D-195 §8) — FE-50 §8 그대로.
+
+## FE-52: 통계 상수·순수 함수 공용화 · 셀러 매출 통계 화면 · 통계 메뉴 활성 (Track 90-E-1) (2026-09-21)
+
+배경: D-200(셀러 매출 통계 3 endpoint)의 셀러 화면. 정찰(recon §F) 실측: 관리자 통계 FE는 전부 layers/admin(페이지 3·lib 4·컴포넌트 10)이고 셀러 레이어는 admin import 금지(no-admin-import.spec) · 공용화 선례 2종(컴포넌트 복제 = SellerChart / 상수 공용 이동 = bank.ts + admin re-export) · 사이드바 통계 그룹은 `to` 없는 placeholder(seller-shell ③ disabled 3 단언).
+
+결정:
+- **공용화 범위 β(D-200 결정 6)**: 레이어 CSS·색·라우트에 묶이지 않는 것만 `app/`으로 이동하고 관리자 모듈은 기존 이름 그대로 **re-export만**(관리자 페이지·컴포넌트·spec 무수정).
+  - `app/lib/constants/stats.ts`: `STATS_UNITS/LABELS`·`STATS_COMPARES/LABELS`·`PERIOD_PRESETS/LABELS`·`DEFAULT_PERIOD_PRESET/STATS_UNIT/STATS_COMPARE`·`CATEGORY_AXIS_NOTICE` ← admin `constants/admin-sales-stats.ts`(축 `STATS_AXES`·`DELETED_NAME_LABELS`는 관리자 잔류).
+  - `app/lib/stats-period.ts`: `toDateOnly`·`presetPeriod`·`resolveStatsPeriod`·`isPeriodInverted` ← admin `admin-sales-stats-query.ts`(`resolvePeriod`는 위임 함수로 유지) + 셀러용 `periodDayCount`(UTC 자정 차·365 상한 판정).
+  - `app/lib/stats-view.ts`: `ChangeTone`·`changeRate`·`formatChangeRate`·`changeTone` ← `admin-dashboard-view.ts` / `normalizeSalesStats`·`formatItemsPerOrder`·`salesChangeTone`·`isZeroBucket`·`compareNetSeries`·`axisLabel`·`isTrendEmpty`·`sortBreakdownRows`(제네릭 `SortableBreakdownRow`)·`showsCompare`·`csvFileNameFrom` ← `admin-sales-stats-view.ts`. 배지 클래스(`changeChipClass` adm-chip/slr-chip)·차트 색·카드 정의·`breakdownRowViews`(drillable)는 각 레이어.
+  - `app/types/stats.ts`: `SalesSummary`·`SalesTrendBucket`·`SalesStatsResponse` ← admin `types/admin-sales-stats.ts`(`AdminSalesSummary` 등은 type alias re-export).
+- **셀러 레이어 신규**: `lib/constants/seller-stats.ts`(축 PRODUCT·OPTION·CATEGORY·`SELLER_STATS_MAX_PERIOD_DAYS=365`·삭제 표기) · `types/seller-stats.ts` · `lib/seller-stats-query.ts`(URL 단일 소스·`sellerStatsPeriodError` 역전/365일) · `lib/seller-stats-view.ts`(slr-chip 톤·카드 6장 = 매출·환불·순매출·주문수·객단가·**판매수량**(관리자의 주문당 품목수 대신)·셀러 teal 차트·행 뷰 `linkable`) · composable `useSellerSalesStats`(sales·breakdown·breakdownCsv raw blob) · 컴포넌트 복제 4(`SellerPeriodPicker`(periodError·maxDays prop)·`SellerStatsTabs`(SELLER_MENU 통계 그룹에서 탭 파생·`to` 없는 탭 disabled)·`SellerSalesSummaryCards`·`SellerSalesBreakdownTable`(드릴다운 대신 linkable 행 → emit open)) · 페이지 `pages/seller/stats/sales.vue`(관리자 FE-34 골격·URL query preset/from/to/unit/compare/axis·sales/breakdown 분리 요청·요청 키 watch·CSV blob 다운로드·정산 안내 링크 `/seller/settlements`·상품 행 → `/seller/products/{publicId}?back=통계 URL`).
+- **`seller-back-path.ts`**: `SELLER_STATS_SALES_PATH` 추가 · 상품 상세 back 허용 목록에 통계 매출 등록(오픈 리다이렉트 방지 관례 유지).
+- **메뉴**: `seller-menu.ts` 통계 그룹 `매출 → /seller/stats/sales`(주문·클레임·상품은 `to` 없음 유지) · `seller-menu.spec`·`seller-product-query.spec`(비활성 3 → 2)·`e2e/seller-shell ③`(disabled 3 → 2 + 매출 href 1).
+
+### §1-A 갈림길·채택/기각 근거
+- **공용화 — α 전부 복제 【기각: 기간·증감·정렬·CSV 파일명 12함수 이중 관리】 / β 상수·순수 함수만 공용 + 컴포넌트 복제 【채택】 / γ 컴포넌트까지 app/components 이동 【기각: 관리자 import 경로 전면 수정·픽셀 회귀 범위】**.
+- **요약 카드 6번째 — 주문당 품목수(관리자 동일) 【기각】 / 판매수량 【채택: D-200 요약 정의(매출·주문수·객단가·판매수량)·품목 축 셀러에겐 수량이 직접 지표】**.
+- **상품 행 이동 — 드릴다운(관리자) 【기각: 셀러 분해는 축 3종 전환으로 충분·BE parentKey 없음】 / 상품 상세 링크 【채택】**.
+
+### §2 확정 구현 규칙·트랩
+- vitest: `test/unit/stats-helpers.spec.ts` 8(공용 상수·기간·일수·증감·정규화·후행 0·정렬 제네릭·CSV 파일명) · `test/seller/seller-stats-helpers.spec.ts` 9(URL 매핑·축 정규화·기간 오류·API 파라미터·back 경로·카드 6장 slr-chip·행 뷰 linkable·차트 계열) · `test/seller/seller-stats-sales-page.spec.ts` 8(진입 요청 파라미터·카드·탭 / 기간 오류 미요청 / 축 전환 = router.replace → breakdown만 재조회 / 비교 데이터 0 안내 / 빈 상태 / 에러·재시도 / CSV raw·파일명 토스트·실패 / 상품 행 이동). 관리자 `admin-sales-stats-helpers.spec` 등은 re-export 경유로 무수정 통과.
+- **트랩(페이지 spec)**: (1) `mockNuxtImport('useRouter')`는 nuxt test-utils 셋업(`afterEach`)을 깨뜨림 → 실제 라우터 + `mountSuspended({ route })` (2) router.replace → route.query 반영은 마이크로태스크로 끝나지 않아 `vi.waitFor` 폴링 (3) 라우터가 파일 내 공유라 마운트한 페이지는 `afterEach`에서 unmount(살아 있으면 다음 라우트 변경에 watch 반응·요청 수 혼입) (4) jsdom에서 v-tabs 클릭은 모델을 바꾸지 않음(슬라이드 그룹 ResizeObserver) → VTabs vm `update:modelValue` emit (5) 셀러 미들웨어의 로그인 리다이렉트도 `navigateTo` mock에 잡히므로 객체 인자만 필터.
+- Playwright `e2e/seller-stats-sales.spec.ts` 1(데모 셀러 seller02·실 API): 사이드바 매출 링크·disabled 2 → 진입 → 통계 탭 선택/비활성 2 → 요약 6 = waitForResponse 응답 포맷(하드코딩 없음) → 차트 svg·빈 상태 = trend 전부 0 → 분해 행 = rows(linkable = key 있는 행) → 옵션 탭 → breakdown axis=OPTION 재요청·URL·sales 재요청 0 → CSV export 200 text/csv·axis=OPTION·filename* 한글.
+- 검증(실측·컨테이너): typecheck EXIT 0 · vitest 87파일 **586**(561 + 25: unit 8·seller helpers 9·page 8) · no-admin-import 통과 · 재시작 → Playwright 3역할 env 101건: 콜드 41 pass/2 fail/58 skip(admin-dashboard ① 콜드 트랩 + seller-products ② disabled 3 → 2 갱신 필요·env 미주입 skip) → 컨테이너 NUXT_*_DEMO_* 재주입 웜 **99/101**(2 skip = seller-password 전용 env) · 재시작 직후 픽셀 track90e1 12장 track90d3 대비 **diff 0** · layers/admin diff 5파일(+57/−229·전부 re-export 치환) · 수동 스크린샷 6장 playwright-report/step804-manual(관리자 통계 3탭 렌더·차트 1/3/2·셀러 매출 통계 기본/비교+옵션/올해+월+카테고리·pageerror 0·console error 0).
+- 신규 의존성: 없음.
+
+### §8 이월
+- 90-E-2·3 탭 화면(주문·클레임·상품) — `SellerStatsTabs`·`SellerPeriodPicker`(unit/compare 미전달 시 숨김) 재사용.
+- 관리자 `admin-stats-period-query.ts`의 `resolveStatsPeriod` 우회 호출(`resolvePeriod({...state, axis, parent})`)은 동작 무변경으로 두었다 — 공용 `resolveStatsPeriod` 직접 호출로 정리만 이월.
+
+### 90-E-2 셀러 주문·클레임 통계 화면 (2026-09-21)
+- **공용 추가(β 범위·관리자 re-export)**: `app/types/stats.ts`에 `LeadTimeMetric`·`ClaimSummary`·`ClaimTrendBucket`·`ClaimTypeShare`·`ClaimReasonShare`(admin types는 alias re-export) · `app/lib/stats-view.ts`에 `formatRate`·`formatPercent`·`formatHours`·`LEAD_TIME_EMPTY`·`percentOf`·`isZeroClaimBucket`·`compareRefundRateSeries`·`isClaimTrendEmpty`·`claimTypeLabel`·`claimReasonLabel`·`claimTypeRows`·`claimReasonRows`·`DistributionRowView` ← `admin-order-stats-view.ts`(동작 무변경·관리자 spec 무수정 통과). 퍼널 단계 정의(관리자 4·셀러 3)·도넛 색·카드 정의는 각 레이어.
+- **셀러 신규**: `types/seller-order-stats.ts` · `lib/seller-order-stats-view.ts`(퍼널 3단계·소요시간 카드 값 = **중앙값**·요약 4 톤 반전·teal 추이/도넛·상품별 행 linkable) · `seller-stats-query.ts`에 기간 전용 `SellerStatsPeriodQuery`(축 없음·parse/toRoute/api) · composable `useSellerOrderStats` · 컴포넌트 복제 5(`SellerOrderFunnel`·`SellerLeadTimeCards`·`SellerDonutCard`·`SellerStatsSummaryCards`·셀러 전용 `SellerClaimProductTable`) · `SellerChart` type에 `donut`·`series: number[]` 허용(관리자 AdminChart 동형) · 페이지 `pages/seller/stats/orders.vue`(관리자 FE-35 골격·상품 행 → 상품 상세 back) · `seller-back-path` `SELLER_STATS_ORDERS_PATH` 허용 · 메뉴 주문·클레임 활성(disabled 2 → 1: seller-menu·seller-product-query spec·e2e seller-shell·seller-products·seller-stats-sales 갱신) · `SellerSalesSummaryCardView` → `SellerStatsSummaryCardView`(key string·매출·클레임 공용).
+- 테스트: vitest `seller-order-stats-helpers.spec` 8 · `seller-stats-orders-page.spec` 5(진입 파라미터·렌더·탭 / 기간 오류·비교 안내 / 빈 상태 / 에러·재시도 / 상품 행 이동) · Playwright `seller-stats-orders.spec` 1(seller02 실 API·퍼널/소요시간/요약/분포/상품별 = 응답·단위 WEEK 전환 재요청·URL).
+- 검증(실측·컨테이너): typecheck EXIT 0 · vitest 89파일 **599**(586 + 13) · no-admin-import 통과 · 재시작 → Playwright 3역할 env 102건: 콜드 99/1 fail(admin-categories ① 콜드 트랩·기존)/2 skip → 웜 **100/102**(2 skip = seller-password env) · 재시작 직후 픽셀 track90e2 12장 track90e1 대비 **diff 0** · layers/admin diff 2파일(admin-order-stats-view·types/admin-order-stats·re-export 치환만).
+
+### 90-E-3 셀러 상품 통계 화면 · 통계 메뉴 완성 (2026-09-21)
+- **셀러 신규**(관리자 대응 화면 없음·공용 추가 없음): `types/seller-product-stats.ts` · `lib/seller-product-stats-view.ts`(`formatDepletionDays` 판매 없음/재고 없음/N일·상위/하위 행 linkable·재고 회전 행 임박(≤7일·재고 없음) 강조·품절 캡션 "현재 시점(기간과 무관)"·전체 빈 판정) · `seller-stats-query.ts`에 기간 전용 `SellerStatsRangeQuery`(preset|from|to) · composable `useSellerProductStats` · 컴포넌트 `SellerProductRankTable` · 페이지 `pages/seller/stats/products.vue`(`SellerPeriodPicker` unit/compare 미전달 = 숨김 · 품절 카드 → `/seller/products/inventory` · 상위/하위/미판매/재고 회전 행 → 상품 상세 back) · `seller-back-path` `SELLER_STATS_PRODUCTS_PATH` 허용.
+- **메뉴**: 통계 그룹 상품 활성 → 셀러 사이드바 비활성 항목 0(seller-menu·seller-product-query spec·e2e seller-shell·seller-products·seller-stats-sales/orders 단언 갱신).
+- 테스트: vitest `seller-product-stats-helpers.spec` 5 · `seller-stats-products-page.spec` 5(진입 from·to만·단위/비교 없음·카드·표 4 / 기간 오류·custom / 빈 상태 / 에러·재시도 / 행 이동 3종) · Playwright `seller-stats-products.spec` 1(seller02 실 API·품절 카드·상위/하위·미판매·재고 회전 소진 표기 = 응답·프리셋 7일 재요청).
+- 검증(실측·컨테이너): typecheck EXIT 0 · vitest 91파일 **609**(599 + 10) · no-admin-import 통과 · 재시작 → Playwright 3역할 env 103건: 콜드 100/1 fail(admin-categories ① 콜드 트랩·기존)/2 skip → 웜 **101/103**(2 skip = seller-password env) · 재시작 직후 픽셀 track90e3 12장 track90e2 대비 **diff 0** · 수동 스크린샷 6장 playwright-report/step821-manual(관리자 통계 3탭 + 셀러 통계 3탭·pageerror 0·console error 0) · layers/admin diff 0(90-E-3).
+- 트랩: 컨테이너에서 test/seller 전량을 단독 실행 시 "Hook timed out 10000ms" 1회(콜드 transform 부하·재실행·전량 vitest에서는 재현 없음).
