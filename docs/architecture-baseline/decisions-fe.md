@@ -2276,3 +2276,25 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 ### §8 이월
 - C-05(구매자 송장 노출)·C-01(관리자 승인 대기 타일)·C-03(정산 월 배치) 등 정찰 §7의 나머지 후보는 별 트랙.
 - 재고 임박 타일은 재고 화면에 임박 필터가 없어 화면 진입만 연결 — 필터 추가 시 `?lowStock=1`류로 좁힌다.
+
+## FE-54: 구매자 주문 상세 배송 정보 블록(C-05) + 관리자 대시보드 승인 대기 타일 2칸(C-01) (Track 96-2) (2026-09-21)
+
+배경: Track 96 정찰 §7 C-05(구매자 송장 미노출·A3)·C-01(관리자 승인 대기 타일 없음·A5). BE는 D-203(조회 응답 필드 추가만). 택배사 코드→이름 매핑은 `app/lib/constants/delivery.ts`에 이미 공용이라 이동 없음(admin·seller 레이어는 자체 사본 유지 — 기존 설계·무변경).
+
+결정:
+- **C-05 배송 정보 블록**: `app/components/order/ItemDeliveryInfo.vue`(props `delivery`·`itemStatusCode`) — 주문 상세 품목 상태 행 바로 아래. `delivery` 있으면 택배사 라벨·송장번호(`select-all`)·**"송장번호 복사"** 버튼·발송일·배송완료일(있을 때) / 없고 품목이 **발송 전 상태(PAID·PREPARING)** 면 "발송 준비 중" / 그 외(ORDERED·CANCELLED·CONFIRMED 등)는 미렌더 — 취소·미결제 품목에 "발송 준비 중"이 찍히는 오안내 방지. 복사는 `navigator.clipboard.writeText` → 인라인 안내(성공 "송장번호를 복사했습니다." / 실패 `console.warn` + "복사하지 못했습니다. 송장번호를 길게 눌러 복사해 주세요.") — 구매자 앱은 토스트 인프라 부재(FE-53 §1-A와 같은 이유). 외부 추적 링크·외부 API 없음(결정 범위 외). 교환품 송장은 클레임 상세 `claim-reshipment` 기존 표시로 충분(무작업).
+- **타입**: `types/order.ts` `OrderItemDelivery`(carrier·trackingNo·status·shippedAt·deliveredAt) · `OrderItem.delivery?: OrderItemDelivery | null`. `constants/delivery.ts` `DeliveryStatus`를 BE 정합 `'READY' | 'SHIPPING' | 'DELIVERED'`로 정정(기존 `'PREPARING'`은 BE에 없는 값·비교 사용처 0이라 동작 변화 없음).
+- **C-01 타일**: `PENDING_TILES`에 `productPending`("상품 승인 대기" → `/admin/products?status=PENDING`)·`sellerPending`("셀러 승인 대기" → `/admin/members/sellers?status=PENDING`) 추가(6칸·0건이어도 표시·warning 톤·기존 `cols=6 md=3` 그리드 유지 = 데스크톱 4+2). 두 목록 모두 URL query로 필터 복원(`parseAdminProductQuery`·`parseAdminSellerQuery` 기존) → 목록 페이지 수정 없음. 아이콘 `mdiTagArrowDownOutline`·`mdiStoreClockOutline`.
+
+### §1-A 갈림길·채택/기각 근거
+- **"발송 준비 중"을 delivery 없는 모든 품목에 표시 【기각: 취소·미결제 품목 오안내】 / PAID·PREPARING만 【채택】** — 프롬프트 "미발송 = 발송 준비 중"의 해석. 다르게 원하면 `PRE_SHIPMENT_STATUSES` 한 곳.
+- **6칸 그리드를 md=4(3+3)로 재배치 【기각: 기존 4칸 레이아웃·픽셀 기준 변경 최소화】 / 기존 md=3 유지(4+2) 【채택】**.
+- **복사 안내 자동 소멸 【기각: 타이머·추가 상태】 / 다음 조작까지 유지 【채택】**.
+
+### §2 확정 구현 규칙·트랩
+- 변경: app 5(`types/order.ts`·`constants/delivery.ts`·`components/order/ItemDeliveryInfo.vue` 신규·`pages/orders/[orderPublicId].vue`) · admin 3(`types/admin-dashboard.ts`·`lib/admin-dashboard-view.ts`·`components/admin/AdminDashboardPending.vue`) · vitest 2(`test/component/OrderItemDeliveryInfo.spec.ts` 신규 6·`test/admin/admin-dashboard-helpers.spec.ts` 6칸) · e2e 3(`claims.spec.ts` ① ORDER_DETAIL delivery 2건·블록 단언·복사 → clipboard readText / `admin-dashboard.spec.ts` ① 6칸·링크 2 / `admin-products.spec.ts` ⑥ 상품 승인 대기 타일 → `status=PENDING` URL·select "판매대기"·API 파라미터).
+- 트랩: 컴포넌트 자동 import는 디렉터리 접두(`components/order/ItemDeliveryInfo.vue` → `<OrderItemDeliveryInfo>`) — 파일명을 `OrderItemDeliveryInfo.vue`로 두면 `<OrderOrderItemDeliveryInfo>`가 된다. Playwright clipboard 검증은 `context().grantPermissions(['clipboard-read','clipboard-write'])` 필요(chromium).
+- 검증: typecheck 0 · vitest 94파일 **634**(628 + 6) · no-admin-import 통과 · Playwright 콜드 100/103(admin-categories ① 콜드 트랩 1) → 웜 **101/103**(2 skip = seller-password env) · 픽셀 12장 track96-1b 대비 **diff 0**(주문 상세·관리자 대시보드는 기준 12장에 미포함).
+
+### §8 이월
+- 주문 목록(`/orders`) 카드에는 송장 미표시 — 상세만. 요구 시 `OrderSummaryResponse` 확장 별 트랙.

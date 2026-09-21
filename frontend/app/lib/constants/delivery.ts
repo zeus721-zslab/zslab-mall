@@ -24,8 +24,8 @@ export function deliveryCarrierLabel(code: string): string {
 /** 송장번호 최대 길이(BE ReturnShipmentRequest @Size). */
 export const DELIVERY_TRACKING_NO_MAX = 100
 
-/** 배송 상태 code(BE DeliveryStatus). 회수 송장은 등록 시 SHIPPING·회수 확인 시 DELIVERED. */
-export type DeliveryStatus = 'PREPARING' | 'SHIPPING' | 'DELIVERED'
+/** 배송 상태 code(BE DeliveryStatus READY·SHIPPING·DELIVERED). 회수 송장은 등록 시 SHIPPING·회수 확인 시 DELIVERED. */
+export type DeliveryStatus = 'READY' | 'SHIPPING' | 'DELIVERED'
 
 /** 배송 방향(BE DeliveryDirection·Track 81-A). RETURN=반품 회수·OUTBOUND=발송(재발송 포함). */
 export type DeliveryDirection = 'OUTBOUND' | 'RETURN'

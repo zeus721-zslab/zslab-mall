@@ -7,6 +7,9 @@ import com.zslab.mall.claim.entity.Claim;
 import com.zslab.mall.claim.enums.ClaimStatus;
 import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.repository.ClaimRepository;
+import com.zslab.mall.delivery.entity.Delivery;
+import com.zslab.mall.delivery.enums.DeliveryDirection;
+import com.zslab.mall.delivery.repository.DeliveryRepository;
 import com.zslab.mall.order.entity.Order;
 import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.enums.OrderStatus;
@@ -46,18 +49,21 @@ public class BuyerOrderQueryService {
     private final ProductVariantRepository productVariantRepository;
     private final SellerRepository sellerRepository;
     private final ClaimRepository claimRepository;
+    private final DeliveryRepository deliveryRepository;
 
     public BuyerOrderQueryService(
             OrderRepository orderRepository,
             ProductRepository productRepository,
             ProductVariantRepository productVariantRepository,
             SellerRepository sellerRepository,
-            ClaimRepository claimRepository) {
+            ClaimRepository claimRepository,
+            DeliveryRepository deliveryRepository) {
         this.orderRepository = orderRepository;
         this.productRepository = productRepository;
         this.productVariantRepository = productVariantRepository;
         this.sellerRepository = sellerRepository;
         this.claimRepository = claimRepository;
+        this.deliveryRepository = deliveryRepository;
     }
 
     /** 본인 주문 단건(§11 seller 그룹화 + #6 배송지). 미존재·타인 주문 모두 404(정보 노출 회피·§2). */
@@ -69,7 +75,23 @@ public class BuyerOrderQueryService {
         }
         List<OrderItem> items = order.getItems();
         return OrderResponse.fromOrderWithItems(
-                order, productsByIdFor(items), variantsByIdFor(items), sellersByIdFor(items), exchangeCompletedItemIdsFor(items));
+                order, productsByIdFor(items), variantsByIdFor(items), sellersByIdFor(items), exchangeCompletedItemIdsFor(items),
+                originalDeliveryByItemIdFor(items));
+    }
+
+    /**
+     * 품목 id별 원 발송 Delivery(Track 96-2 D-203·C-05). 주문 단위 1회 배치 조회(셀러 품목 조회와 같은
+     * {@code findByOrderItemIdInAndDirectionOrderByIdDesc} 재사용·품목별 개별 쿼리 없음). OUTBOUND 중 클레임 미연결(claim_id NULL)만
+     * 원 발송으로 보고 id DESC 정렬의 첫 등장(최신)을 유지한다 — 교환품·재발송은 클레임 상세가 담당한다. 품목이 없으면 조회 없이 빈 맵.
+     */
+    private Map<Long, Delivery> originalDeliveryByItemIdFor(List<OrderItem> items) {
+        if (items.isEmpty()) {
+            return Map.of();
+        }
+        List<Long> itemIds = items.stream().map(OrderItem::getId).toList();
+        return deliveryRepository.findByOrderItemIdInAndDirectionOrderByIdDesc(itemIds, DeliveryDirection.OUTBOUND).stream()
+                .filter(delivery -> delivery.getClaimId() == null)
+                .collect(Collectors.toMap(Delivery::getOrderItemId, Function.identity(), (latest, older) -> latest));
     }
 
     /**

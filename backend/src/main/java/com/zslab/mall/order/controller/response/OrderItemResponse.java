@@ -12,6 +12,8 @@ package com.zslab.mall.order.controller.response;
  *
  * <p>exchangeCompleted는 이 품목에 완료된 교환(EXCHANGE·COMPLETED)이 있는지(Track 83 D-177 보충·FE-30-4). 교환 완료 품목은 DELIVERED로
  * 복귀하지만 재교환은 422이므로 FE가 교환 버튼을 숨기는 데 쓴다(반품 버튼은 유지). 추가형 필드.
+ *
+ * <p>delivery는 원 발송(OUTBOUND·클레임 미연결) 최신 배송 정보(Track 96-2 D-203·C-05). 송장 미등록이면 null. 추가형 필드.
  */
 public record OrderItemResponse(
         String orderItemId,
@@ -23,5 +25,6 @@ public record OrderItemResponse(
         long totalPrice,
         String optionLabel,
         StatusView status,
-        boolean exchangeCompleted) {
+        boolean exchangeCompleted,
+        OrderItemDeliveryResponse delivery) {
 }

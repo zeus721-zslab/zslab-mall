@@ -152,6 +152,9 @@ useSeoMeta({
                   </div>
                 </div>
 
+                <!-- 배송 정보(FE-54·C-05): 원 발송 송장·발송일·배송완료일 / 발송 전이면 "발송 준비 중". 교환품 송장은 클레임 상세가 담당. -->
+                <OrderItemDeliveryInfo :delivery="item.delivery" :item-status-code="item.status.code" />
+
                 <!-- 클레임 진입점: 품목 상태가 허용하는 유형만 노출(claimableTypes 빈 배열이면 미노출). 배송완료 품목은 구매확정 버튼(C-06)도 함께. -->
                 <div v-if="claimableTypes(item.status.code, item.exchangeCompleted ?? false).length || item.status.code === 'DELIVERED'" class="flex flex-wrap gap-2">
                   <Button

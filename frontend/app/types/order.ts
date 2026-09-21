@@ -5,6 +5,7 @@
  */
 
 import type { ShippingAddress } from '~/types/checkout'
+import type { DeliveryCarrier, DeliveryStatus } from '~/lib/constants/delivery'
 
 /** UI 노출 상태(BE StatusView 대응). BE는 label=code로 내려줌 → 표시엔 lib/constants/order.ts 라벨 사용. */
 export interface StatusView {
@@ -31,6 +32,15 @@ export interface OrderSummary {
   orderedAt: string
 }
 
+/** 품목의 원 발송 배송 정보(BE OrderItemDeliveryResponse·Track 96-2 FE-54). shippedAt·deliveredAt은 ISO(+09:00) 문자열·미도달 시 null. */
+export interface OrderItemDelivery {
+  carrier: DeliveryCarrier
+  trackingNo: string | null
+  status: DeliveryStatus
+  shippedAt: string | null
+  deliveredAt: string | null
+}
+
 /**
  * 주문 품목(BE OrderItemResponse 대응). 식별자·productName은 삭제 상품 시 NON_NULL로 생략되므로 optional/null 허용.
  * productName은 표시용 enrich 값(public_id 아님). status는 품목 상태(Track 68 item_status·BE NOT NULL이라 필수).
@@ -48,6 +58,8 @@ export interface OrderItem {
   status: StatusView
   /** 완료된 교환이 있는 품목인지(Track 83 D-177 보충·FE-30-4). true면 교환 요청 버튼을 숨긴다(재교환 BE 422). */
   exchangeCompleted?: boolean
+  /** 원 발송(OUTBOUND·클레임 미연결) 최신 배송 정보(Track 96-2 FE-54). 송장 미등록이면 NON_NULL로 생략된다. */
+  delivery?: OrderItemDelivery | null
 }
 
 /** seller 단위 그룹(BE SellerGroupResponse 대응). 단일 판매자 주문도 배열 길이 1. */

@@ -1,5 +1,6 @@
 package com.zslab.mall.order.controller.response;
 
+import com.zslab.mall.delivery.entity.Delivery;
 import com.zslab.mall.order.entity.Order;
 import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.product.entity.Product;
@@ -28,16 +29,20 @@ public record OrderResponse(
             Map<Long, Product> productById,
             Map<Long, ProductVariant> variantById,
             Map<Long, Seller> sellerById) {
-        return fromOrderWithItems(order, productById, variantById, sellerById, Set.of());
+        return fromOrderWithItems(order, productById, variantById, sellerById, Set.of(), Map.of());
     }
 
-    /** {@link #fromOrderWithItems(Order, Map, Map, Map)} + 교환 완료 품목 id 집합(Track 83 D-177 보충·exchangeCompleted). */
+    /**
+     * {@link #fromOrderWithItems(Order, Map, Map, Map)} + 교환 완료 품목 id 집합(Track 83 D-177 보충·exchangeCompleted)
+     * + 품목 id별 원 발송 Delivery(Track 96-2 D-203·delivery·없으면 null).
+     */
     public static OrderResponse fromOrderWithItems(
             Order order,
             Map<Long, Product> productById,
             Map<Long, ProductVariant> variantById,
             Map<Long, Seller> sellerById,
-            Set<Long> exchangeCompletedItemIds) {
+            Set<Long> exchangeCompletedItemIds,
+            Map<Long, Delivery> originalDeliveryByItemId) {
         // seller_id 단위 그룹화(삽입 순서 보존). 단일 판매자도 배열 길이 1.
         Map<Long, List<OrderItem>> itemsBySeller = new LinkedHashMap<>();
         for (OrderItem item : order.getItems()) {
@@ -62,7 +67,8 @@ public record OrderResponse(
                         item.getTotalPrice(),
                         item.getOptionLabel(),
                         StatusView.of(item.getItemStatus()),
-                        exchangeCompletedItemIds.contains(item.getId())));
+                        exchangeCompletedItemIds.contains(item.getId()),
+                        OrderItemDeliveryResponse.from(originalDeliveryByItemId.get(item.getId()))));
                 subtotal += item.getTotalPrice();
             }
             sellers.add(new SellerGroupResponse(

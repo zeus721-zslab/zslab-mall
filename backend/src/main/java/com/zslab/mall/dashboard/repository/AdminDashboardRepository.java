@@ -4,7 +4,9 @@ import com.zslab.mall.auth.enums.RoleCode;
 import com.zslab.mall.claim.enums.ClaimStatus;
 import com.zslab.mall.order.entity.Order;
 import com.zslab.mall.order.enums.OrderItemStatus;
+import com.zslab.mall.product.enums.ProductStatus;
 import com.zslab.mall.refund.enums.RefundStatus;
+import com.zslab.mall.seller.enums.SellerStatus;
 import com.zslab.mall.settlement.enums.SettlementStatus;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -58,6 +60,14 @@ public interface AdminDashboardRepository extends Repository<Order, Long> {
             + "AND v.soldoutManual = false AND p.soldoutManual = false "
             + "AND i.quantityAvailable >= :min AND i.quantityAvailable <= :max")
     long countLowStock(@Param("min") int min, @Param("max") int max);
+
+    /** 상품 승인 대기(Track 96-2 D-203·C-01). Product의 {@code @SQLRestriction(deleted_at IS NULL)}로 삭제 상품은 자동 제외된다. */
+    @Query("SELECT COUNT(p) FROM Product p WHERE p.status = :status")
+    long countProductsByStatus(@Param("status") ProductStatus status);
+
+    /** 셀러 승인 대기(Track 96-2 D-203·C-01). Seller의 {@code @SQLRestriction(deleted_at IS NULL)}로 삭제 셀러는 자동 제외된다. */
+    @Query("SELECT COUNT(s) FROM Seller s WHERE s.status = :status")
+    long countSellersByStatus(@Param("status") SellerStatus status);
 
     /** 구간별 결제완료 주문 건수·total_price 합. pattern은 월별 "%Y-%m"·일별 "%Y-%m-%d"이며 서비스 상수만 전달한다. */
     @Query("SELECT FUNCTION('DATE_FORMAT', o.paidAt, :pattern) AS bucket, COUNT(o) AS orderCount, "
