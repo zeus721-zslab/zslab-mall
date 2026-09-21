@@ -604,7 +604,7 @@ prod·dev compose가 `container_name`과 이미지 태그(`zslab-mall-zslab_mall
 
 ---
 
-## LT-27. 제거된 경로의 `NoResourceFoundException`이 GEH `Exception` catch-all에 잡혀 404가 아닌 500 — 경로 제거 시 403 단언 사용 [ACTIVE]
+## LT-27. 제거된 경로의 `NoResourceFoundException`이 GEH `Exception` catch-all에 잡혀 404가 아닌 500 — 경로 제거 시 403 단언 사용 [RESOLVED]
 **발견 트랙**: Track 92(STEP 700 예측·STEP 703 실측)
 **원본 결정**: D-196 §1-A 2
 ### 증상
@@ -615,10 +615,11 @@ prod·dev compose가 `container_name`과 이미지 태그(`zslab-mall-zslab_mall
 경로를 제거한 뒤의 "부재" 단언은 404가 아니라 **인가 필터 단계에서 결정되는 403**(해당 경로 규칙에 없는 역할의 토큰)으로 둔다. 필터를 통과하는 역할의 토큰으로 부재를 단언하지 않는다. catch-all에 `NoResourceFoundException` 404 매핑을 추가하는 GEH 수정은 별건으로 이월(D-196 §8).
 ### 관련
 - D-196 §1-A 2·§8 · PROGRESS STEP 700·703 · `SellerClaimIntegrationTest` R1~R4 · `SellerDeliveryIntegrationTest` R5
+- 해소(2026-09-21): D-201 — GEH에 `NoResourceFoundException` 404 RESOURCE_NOT_FOUND(+405·415) 핸들러 추가. 필터를 통과하는 역할의 부재 경로가 404로 정직하게 보이며 `ClaimReturnIntegrationTest` T7 BUYER 404 단언 복원. 공개(permitAll) 경로의 무인증 500·ERROR 스택도 함께 해소.
 
 ---
 
-## LT-28. 회수(RETURN) Delivery가 먼저 DELIVERED가 되면 관리자 confirm-pickup이 `IllegalStateException` → GEH catch-all 500·검수 영구 차단 [ACTIVE]
+## LT-28. 회수(RETURN) Delivery가 먼저 DELIVERED가 되면 관리자 confirm-pickup이 `IllegalStateException` → GEH catch-all 500·검수 영구 차단 [RESOLVED]
 **발견 트랙**: Track 92(STEP 711 부수 관찰)·Track 92-a(정찰 C-10 실측)
 **원본 결정**: D-197 §8
 ### 증상
@@ -629,6 +630,7 @@ prod·dev compose가 `container_name`과 이미지 태그(`zslab-mall-zslab_mall
 D-197로 셀러 claim 연결 마감·관리자 RETURN 마감을 422로 막아 정상 API로는 도달하지 않는다. confirm-pickup 측의 `IllegalStateException` 흡수(422)·GEH 매핑은 범위 밖으로 이월(D-197 §8). 과거 데이터에서 재현되면 delivery 행 원복 후 confirm-pickup 재시도.
 ### 관련
 - D-197 배경·§8 · docs/track-92a/recon-report-delivery.md C-10 · PROGRESS STEP 711·719 · `SellerDeliveryCompletionControllerIntegrationTest` T6 · `AdminDeliveryControllerIntegrationTest` T7
+- 해소(2026-09-21): D-201 — `completeReturnShipment`가 불법 전이를 422 DELIVERY_INVALID_STATE로 흡수(α·picked_up_at 미기록·이벤트 미발행). D-197 이후 도달 경로 0·운영 확인 SELECT 로컬 0행이라 확인 완료 간주(β)는 기각. 과거 행은 delivery 원복 후 재시도. 관리자 mark-delivered 비-SHIPPING 500도 같은 패턴으로 422.
 
 ---
 
