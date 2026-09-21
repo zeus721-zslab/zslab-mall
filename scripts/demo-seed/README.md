@@ -31,7 +31,7 @@ python scripts/demo-seed/seed.py --step verify             # 검증만
 
 ## 단계
 1. `master` — 카테고리(기존 '데모' 활용 + 5) · 구매자 10·셀러 owner 3 가입 · 관리자 입점(ACTIVE) · 계좌 등록 API `POST /api/v1/admin/sellers/{slr}/bank-accounts`(Track 89-F·계좌번호 AES 암호화 저장·raw INSERT 금지) · PIL 이미지 생성→업로드→상품 30 등록·이미지 연결·승인
-2. `orders` — 주문 생성 → Mock 웹훅 SUCCESS(`occurredAt`=목표 결제시각) → ADMIN 송장·배송완료 → BUYER 구매확정 / 클레임(취소·반품·교환) 완결 · 9월 진행분(결제완료 8·배송중 8·배송완료 9·진행 클레임 3)
+2. `orders` — 주문 생성 → 구매자 본인 mock 콜백 SUCCESS(`POST /api/v1/payments/mock-callback`·결제시각은 timeshift가 SQL로 보정) → ADMIN 송장·배송완료 → BUYER 구매확정 / 클레임(취소·반품·교환) 완결 · 9월 진행분(결제완료 8·배송중 8·배송완료 9·진행 클레임 3)
 3. `timeshift` — 데모 마커 행만 시각 UPDATE(order·payment·order_item·delivery·claim·refund + 마스터 행) · order_no 날짜부 갱신 · 순서 불변식 검증
 4. `settlement` — 3~8월 정산 생성 → 3~7월 확정 → 3~6월 지급 → 지급 paid_at = 지급예정일 +0~3일(SQL)
 5. `verify` — settlement_item 합 = gross/fee, occurred_at = confirmed_at, 월별 주문·클레임 집계, 시각 불변식 재검증
@@ -39,4 +39,4 @@ python scripts/demo-seed/seed.py --step verify             # 검증만
 ## 운영 실행 전
 - `mariadb-dump --single-transaction` 백업 + `mall_uploads` 볼륨 스냅샷
 - 롤백은 dump 복원 또는 state 파일 id 기준 FK 역순 DELETE(plan.md §5). TRUNCATE·DROP 금지
-- 결제 PENDING TTL 30분·JWT 1시간 — 스크립트가 단계마다 재로그인하고 체크아웃 직후 웹훅을 호출한다
+- 결제 PENDING TTL 30분·JWT 1시간 — 스크립트가 단계마다 재로그인하고 체크아웃 직후 mock 콜백을 호출한다(웹훅 경로 `/api/webhooks/**`는 호출 0·운영 gateway 차단 LT-29)
