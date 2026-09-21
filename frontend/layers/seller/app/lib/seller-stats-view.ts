@@ -1,72 +1,56 @@
 import type { ApexOptions } from 'apexcharts'
-import type {
-  AdminSalesBreakdownResponse,
-  AdminSalesBreakdownRow,
-  AdminSalesSummary,
-  AdminSalesTrendBucket,
-} from '#layers/admin/app/types/admin-sales-stats'
-import { DELETED_NAME_LABELS, STATS_AXIS_LABELS, type StatsAxis } from '#layers/admin/app/lib/constants/admin-sales-stats'
-import { changeChipClass, type AdminChartSeries } from '#layers/admin/app/lib/admin-dashboard-view'
-import { formatWon } from '#layers/admin/app/lib/format'
+import type { SellerSalesBreakdownResponse, SellerSalesBreakdownRow, SellerSalesSummary, SellerSalesTrendBucket } from '#layers/seller/app/types/seller-stats'
+import { SELLER_DELETED_NAME_LABELS } from '#layers/seller/app/lib/constants/seller-stats'
+import { semanticChipClass } from '#layers/seller/app/lib/constants/semantic'
+import { formatCount, formatWon } from '#layers/seller/app/lib/format'
+import type { SellerChartSeries } from '#layers/seller/app/lib/seller-dashboard-view'
 import {
   axisLabel,
   changeRate,
   changeTone,
   compareNetSeries,
   formatChangeRate,
-  formatItemsPerOrder,
   salesChangeTone,
+  type ChangeTone,
   type SortableBreakdownRow,
 } from '~/lib/stats-view'
 
-// 정규화·증감 반전·후행 0 절단·x축 라벨·정렬·비교 열·CSV 파일명은 셀러 통계와 공용이라 app/lib/stats-view.ts로 이동(FE-52)·기존 이름 re-export
-export {
-  normalizeSalesStats,
-  formatItemsPerOrder,
-  salesChangeTone,
-  isZeroBucket,
-  compareNetSeries,
-  axisLabel,
-  isTrendEmpty,
-  sortBreakdownRows,
-  showsCompare,
-  csvFileNameFrom,
-} from '~/lib/stats-view'
-export type { NormalizedSalesStats, BreakdownSortKey } from '~/lib/stats-view'
-
 /**
- * 매출 통계 표시 규칙 순수 함수(FE-34·admin-dashboard-view 패턴). 응답 정규화(NON_NULL 생략 → null)·요약 카드·증감 톤(환불 반전)·
- * 추이 차트(3계열 + 비교 순매출 점선·후행 0 → null)·분해 행(이름 대체·증감률)·CSV 파일명 추출을 여기 모아 vitest로 고정한다.
+ * 셀러 매출 통계 표시 규칙(Track 90-E-1·관리자 admin-sales-stats-view 복제·순수 함수 부분은 공용 ~/lib/stats-view 사용). 레이어에 묶이는 것
+ * (slr-chip 배지 클래스·셀러 테마 차트 색·카드 정의·삭제 표기)만 여기 둔다. 응답 정규화·후행 0 절단·정렬·CSV 파일명은 공용 함수를 그대로 쓴다.
  */
+
+// ---------- 배지 ----------
+
+/** 증감 배지 CSS(seller-vuetify.css .slr-chip--*). flat은 회색(neutral). */
+export function changeChipClass(tone: ChangeTone): string {
+  return semanticChipClass(tone === 'up' ? 'success' : tone === 'down' ? 'danger' : 'neutral')
+}
 
 // ---------- 요약 카드 ----------
 
-export type SalesSummaryKey = keyof AdminSalesSummary
+export type SellerSalesSummaryKey = keyof SellerSalesSummary
 
-export interface SalesSummaryCardSpec {
-  key: SalesSummaryKey
+export interface SellerSalesSummaryCardSpec {
+  key: SellerSalesSummaryKey
   label: string
   format: (value: number) => string
   /** true면 증가가 부정(환불) — 톤 색을 반전한다. */
   inverse: boolean
 }
 
-export function formatCount(value: number): string {
-  return `${value.toLocaleString('ko-KR')}건`
-}
-
-/** 카드 6장 정의·순서. 환불만 inverse. */
-export const SALES_SUMMARY_CARDS: SalesSummaryCardSpec[] = [
+/** 카드 6장 정의·순서(D-200 요약 = 매출·주문수·객단가·판매수량 + 환불·순매출·환불만 inverse). 주문당 품목수는 카드로 두지 않는다. */
+export const SELLER_SALES_SUMMARY_CARDS: SellerSalesSummaryCardSpec[] = [
   { key: 'revenue', label: '매출', format: formatWon, inverse: false },
   { key: 'refund', label: '환불', format: formatWon, inverse: true },
   { key: 'netRevenue', label: '순매출', format: formatWon, inverse: false },
-  { key: 'orderCount', label: '주문수', format: formatCount, inverse: false },
+  { key: 'orderCount', label: '주문수', format: (value) => formatCount(value), inverse: false },
   { key: 'avgOrderValue', label: '객단가', format: formatWon, inverse: false },
-  { key: 'avgItemsPerOrder', label: '주문당 품목수', format: formatItemsPerOrder, inverse: false },
+  { key: 'itemQuantity', label: '판매수량', format: (value) => formatCount(value, '개'), inverse: false },
 ]
 
-export interface SalesSummaryCardView {
-  key: SalesSummaryKey
+export interface SellerSalesSummaryCardView {
+  key: SellerSalesSummaryKey
   label: string
   value: string
   compareValue: string | null
@@ -75,8 +59,8 @@ export interface SalesSummaryCardView {
 }
 
 /** 카드 뷰 6장. 비교 없음(compareSummary null)이면 배지 "—"·회색·비교값 없음. */
-export function salesSummaryCards(summary: AdminSalesSummary | null, compareSummary: AdminSalesSummary | null): SalesSummaryCardView[] {
-  return SALES_SUMMARY_CARDS.map((card) => {
+export function sellerSalesSummaryCards(summary: SellerSalesSummary | null, compareSummary: SellerSalesSummary | null): SellerSalesSummaryCardView[] {
+  return SELLER_SALES_SUMMARY_CARDS.map((card) => {
     const current = summary ? summary[card.key] : null
     const previous = compareSummary ? compareSummary[card.key] : null
     const rate = current !== null && previous !== null ? changeRate(current, previous) : null
@@ -93,7 +77,8 @@ export function salesSummaryCards(summary: AdminSalesSummary | null, compareSumm
 
 // ---------- 추이 차트 ----------
 
-const CHART_COLOR_PRIMARY = '#2563EB'
+/** 셀러 Vuetify 테마와 같은 색(lib/vuetify.ts primary teal·info·success) + 비교 회색. */
+const CHART_COLOR_PRIMARY = '#0D9488'
 const CHART_COLOR_WARNING = '#F97316'
 const CHART_COLOR_SUCCESS = '#22C55E'
 const CHART_COLOR_COMPARE = '#94A3B8'
@@ -102,22 +87,21 @@ const DASH_SOLID = 0
 const DASH_COMPARE = 5
 const LINE_WIDTH = 2
 const MAX_X_TICKS = 12
+const COMPARE_SERIES_NAME = '비교 순매출'
 
-export interface SalesTrendChartSpec {
-  series: AdminChartSeries
+export interface SellerSalesTrendChartSpec {
+  series: SellerChartSeries
   options: ApexOptions
 }
 
-const COMPARE_SERIES_NAME = '비교 순매출'
-
 /**
- * 매출·환불·순매출 3계열 line + (비교 시) 비교 순매출 1계열 점선. 6계열은 과밀이라 비교는 순매출만 겹치고(FE-34 §1-A α) 매출·환불 비교값은
- * 툴팁에 병기한다. x축은 bucketLabel(주는 월요일 날짜). y축·툴팁은 원 단위 콤마.
+ * 매출·환불·순매출 3계열 line + (비교 시) 비교 순매출 1계열 점선(관리자 FE-34 §1-A α 동일). 매출·환불 비교값은 툴팁에 병기한다.
+ * x축은 bucketLabel(주는 월요일 날짜). y축·툴팁은 원 단위 콤마.
  */
-export function salesTrendChart(trend: AdminSalesTrendBucket[], compareTrend: AdminSalesTrendBucket[] | null): SalesTrendChartSpec {
+export function sellerSalesTrendChart(trend: SellerSalesTrendBucket[], compareTrend: SellerSalesTrendBucket[] | null): SellerSalesTrendChartSpec {
   const categories = trend.map((bucket) => bucket.bucketLabel)
   const compareNet = compareNetSeries(compareTrend, trend.length)
-  const series: AdminChartSeries = [
+  const series: SellerChartSeries = [
     { name: '매출', data: trend.map((bucket) => bucket.revenue) },
     { name: '환불', data: trend.map((bucket) => bucket.refund) },
     { name: '순매출', data: trend.map((bucket) => bucket.netRevenue) },
@@ -163,34 +147,21 @@ export function salesTrendChart(trend: AdminSalesTrendBucket[], compareTrend: Ad
 
 // ---------- 분해 테이블 ----------
 
-export interface SalesBreakdownRowView extends SortableBreakdownRow {
+export interface SellerSalesBreakdownRowView extends SortableBreakdownRow {
   /** 행 식별(key 없으면 이름·순번으로 대체). */
   id: string
   key: string | null
-  name: string
   deleted: boolean
-  revenue: number
-  share: number
-  orderCount: number
-  quantity: number
-  compareRevenue: number | null
-  /** 정렬용 숫자(비교 불가는 null → 맨 뒤). */
-  rate: number | null
   rateText: string
   rateClass: string
-  drillable: boolean
+  /** 상품 행(PRODUCT 축·key 있음)만 셀러 상품 상세로 이동한다. */
+  linkable: boolean
 }
 
-/** 행이 실제로 속한 축(parentKey가 있으면 상품 행). */
-export function rowAxisOf(axis: StatsAxis, parentKey: string | null): StatsAxis {
-  return parentKey ? 'PRODUCT' : axis
-}
-
-/** 응답 행 → 표 행. name null은 "(삭제된 …)"·key null은 드릴다운 불가. */
-export function breakdownRowViews(response: AdminSalesBreakdownResponse | null): SalesBreakdownRowView[] {
+/** 응답 행 → 표 행. name null은 "(삭제된 …)"·PRODUCT 축의 key 있는 행만 linkable. */
+export function sellerBreakdownRowViews(response: SellerSalesBreakdownResponse | null): SellerSalesBreakdownRowView[] {
   if (!response) return []
-  const rowAxis = rowAxisOf(response.axis, response.parentKey ?? null)
-  return response.rows.map((row: AdminSalesBreakdownRow, index) => {
+  return response.rows.map((row: SellerSalesBreakdownRow, index) => {
     const key = row.key ?? null
     const name = row.name ?? null
     const compareRevenue = row.compareRevenue ?? null
@@ -198,7 +169,7 @@ export function breakdownRowViews(response: AdminSalesBreakdownResponse | null):
     return {
       id: key ?? `${name ?? 'row'}-${index}`,
       key,
-      name: name ?? DELETED_NAME_LABELS[rowAxis],
+      name: name ?? SELLER_DELETED_NAME_LABELS[response.axis],
       deleted: name === null,
       revenue: row.revenue,
       share: row.share,
@@ -208,12 +179,7 @@ export function breakdownRowViews(response: AdminSalesBreakdownResponse | null):
       rate,
       rateText: formatChangeRate(rate),
       rateClass: changeChipClass(changeTone(rate)),
-      drillable: row.drillable && key !== null,
+      linkable: response.axis === 'PRODUCT' && key !== null,
     }
   })
-}
-
-/** 브레드크럼 상위 라벨: 축 라벨 + 이름(모르면 key). */
-export function breadcrumbLabel(axis: StatsAxis, parentKey: string, parentName: string | null): string {
-  return `${STATS_AXIS_LABELS[axis]} · ${parentName ?? parentKey}`
 }

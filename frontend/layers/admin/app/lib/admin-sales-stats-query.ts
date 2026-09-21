@@ -14,6 +14,7 @@ import {
   type StatsUnit,
 } from '#layers/admin/app/lib/constants/admin-sales-stats'
 import { normalizeDateOnly } from '#layers/admin/app/lib/admin-order-query'
+import { resolveStatsPeriod } from '~/lib/stats-period'
 
 /**
  * 매출 통계 화면 상태 ↔ URL query ↔ BE 파라미터 순수 매핑(FE-34·admin-order-query 패턴). URL이 단일 소스라 새로고침·뒤로가기에도
@@ -43,10 +44,6 @@ export const DEFAULT_ADMIN_SALES_STATS_QUERY: AdminSalesStatsQuery = {
   parent: null,
 }
 
-const RECENT_7_DAYS = 7
-const RECENT_30_DAYS = 30
-const RECENT_MONTHS = 3
-
 function first(value: LocationQuery[string] | undefined): string | null {
   const single = Array.isArray(value) ? value[0] : value
   return typeof single === 'string' && single !== '' ? single : null
@@ -56,48 +53,12 @@ function isOneOf<T extends string>(values: readonly T[], value: string | null): 
   return value !== null && (values as readonly string[]).includes(value)
 }
 
-/** Date → yyyy-MM-dd(로컬 시간대·관리자 PC = KST 전제·BE도 KST 벽시계). */
-export function toDateOnly(date: Date): string {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
-
-function shiftDays(date: Date, days: number): Date {
-  const next = new Date(date)
-  next.setDate(next.getDate() + days)
-  return next
-}
-
-/** 프리셋 → 기간(오늘 포함·종료일 = 오늘). 7일/30일은 오늘 포함 N일, 3개월은 3개월 전 같은 날 +1일, 올해는 1월 1일부터. */
-export function presetPeriod(preset: Exclude<PeriodPreset, 'custom'>, today: Date): { from: string; to: string } {
-  const to = toDateOnly(today)
-  switch (preset) {
-    case '7d':
-      return { from: toDateOnly(shiftDays(today, -(RECENT_7_DAYS - 1))), to }
-    case '30d':
-      return { from: toDateOnly(shiftDays(today, -(RECENT_30_DAYS - 1))), to }
-    case '3m': {
-      const start = new Date(today)
-      start.setMonth(start.getMonth() - RECENT_MONTHS)
-      return { from: toDateOnly(shiftDays(start, 1)), to }
-    }
-    case 'ytd':
-      return { from: `${today.getFullYear()}-01-01`, to }
-  }
-}
+// 기간 순수 함수(toDateOnly·presetPeriod·isPeriodInverted)는 셀러 통계와 공용이라 app/lib/stats-period.ts로 이동(FE-52)·기존 이름 re-export
+export { toDateOnly, presetPeriod, isPeriodInverted } from '~/lib/stats-period'
 
 /** 화면 상태 → 실제 조회 기간. custom인데 from·to가 비면 null(요청 보류·입력 안내). */
 export function resolvePeriod(state: AdminSalesStatsQuery, today: Date): { from: string; to: string } | null {
-  if (state.preset !== 'custom') return presetPeriod(state.preset, today)
-  if (state.from === null || state.to === null) return null
-  return { from: state.from, to: state.to }
-}
-
-/** 기간 역전(from > to) — BE 400 전에 화면이 막는다(yyyy-MM-dd 문자열 비교로 충분). */
-export function isPeriodInverted(period: { from: string; to: string } | null): boolean {
-  return period !== null && period.from > period.to
+  return resolveStatsPeriod(state, today)
 }
 
 /** route.query → 화면 상태. custom인데 from·to가 하나라도 없으면 기본 프리셋으로 되돌린다. */
