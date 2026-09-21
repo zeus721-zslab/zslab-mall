@@ -11764,6 +11764,9 @@ gateway nginx가 2026-09-18부터 `location ^~ /api/webhooks { return 404; }`로
 - 검증(실측): gradlew --rerun-tasks 231파일 **1340·0 fail·0 error·0 skip**(1332 + 8) · 셀러·정산·감사 패키지 34클래스 179·0 fail · 관리자 계좌 IT 5/5·정산 전이 IT 6/6 무회귀. FE는 FE-51.
 - 관리자 정산 상세 화면은 지급 대상 계좌(은행·끝 4자리·예금주·스냅샷/현재 구분)를 이미 표시(Track 85·`admin/settlements/[id].vue:268-279`) → 추가 작업 없음.
 
+- **외부 검토: A / 지적 2건(Q2 major·Q7 minor) 중 수용 1·부분 수용 1(타 셀러 OWNER·동시성 테스트 기각) · PASS 5 · 재검토 생략(국소 순서 교체)**.
+- **OWNER 판정 순서(Q2 수용)**: `SellerBankAccountService.register`가 셀러 행 비관락(`findByIdForUpdate`)을 먼저 잡고 그 뒤에 OWNER를 판정한다 — 관리자 구성원 제거·역할 변경(`AdminSellerMemberCommandService.remove·changeRole`)이 같은 셀러 행 락 안에서 실행되므로 락 이후 판정은 강등·제거 커밋 후의 seller_user를 본다. 이어지는 `commandService.register(sellerId, …)`의 재 FOR UPDATE는 같은 트랜잭션이라 무해(락 없는 공개 API 추가 안 함). IT 보강(Q7 부분 수용) T3-b MANAGER 403 · T3-c OWNER→MANAGER 강등 후 기존 토큰 403 · T3-d seller_user 삭제 후 기존 토큰 401 — 순서 교체 전 코드로도 3건 GREEN(경합 전용 교정·결정적 재현 대상 아님) · 교체 후 gradlew --rerun-tasks 231파일 **1343·0 fail**(1340 + 3).
+- **Q5 확인**: `GlobalExceptionHandler.handleValidation`(:181-192)은 field·defaultMessage만 detail·fieldErrors에 싣고 rejectedValue를 쓰지 않으며 로그도 없다 → 계좌번호 입력값 echo 경로 없음·무작업.
 ### §8 이월
 - 동일 계좌 중복 검출(HMAC blind index·D-188 §8) · 계좌 실명인증 연동 · 계좌 삭제 API — D-188 §8 그대로.
 - `AdminSellerQueryService.toBankAccount`의 끝 4자리 substring이 엔티티 `accountNumberSuffix()`와 중복 구현(동작 동일·정리만 이월).

@@ -158,6 +158,50 @@ class SellerBankAccountControllerIntegrationTest extends AbstractIntegrationTest
     }
 
     @Test
+    @DisplayName("T3-b MANAGER 역할 구성원 POST → 403 SELLER_OWNER_REQUIRED·행 0 (외부 검토 Q7)")
+    void register_byManager_forbidden() throws Exception {
+        seed(SellerStatus.ACTIVE);
+        changeRole(STAFF_USER_ID, "SELLER_MANAGER");
+
+        mockMvc.perform(post(URL).headers(authHeaders.seller(STAFF_USER_ID))
+                        .contentType(MediaType.APPLICATION_JSON).content(json("KB", NUMBER_FIRST, "대표자")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("SELLER_OWNER_REQUIRED"));
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM seller_bank_account WHERE seller_id = ?", Integer.class, SELLER_ID))
+                .isZero();
+    }
+
+    @Test
+    @DisplayName("T3-c OWNER를 MANAGER로 강등한 뒤 기존 토큰 POST → 403·행 0 (역할은 토큰이 아니라 요청 시점 DB·외부 검토 Q7)")
+    void register_afterDemotion_forbidden() throws Exception {
+        seed(SellerStatus.ACTIVE);
+        org.springframework.http.HttpHeaders ownerToken = authHeaders.seller(OWNER_USER_ID);
+        changeRole(OWNER_USER_ID, "SELLER_MANAGER");
+
+        mockMvc.perform(post(URL).headers(ownerToken)
+                        .contentType(MediaType.APPLICATION_JSON).content(json("KB", NUMBER_FIRST, "대표자")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("SELLER_OWNER_REQUIRED"));
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM seller_bank_account WHERE seller_id = ?", Integer.class, SELLER_ID))
+                .isZero();
+    }
+
+    @Test
+    @DisplayName("T3-d OWNER의 seller_user 행 삭제 뒤 기존 토큰 POST → 401 UNAUTHENTICATED(리졸버 매핑 부재)·행 0 (외부 검토 Q7)")
+    void register_afterMembershipRemoved_unauthorized() throws Exception {
+        seed(SellerStatus.ACTIVE);
+        org.springframework.http.HttpHeaders ownerToken = authHeaders.seller(OWNER_USER_ID);
+        jdbc.update("DELETE FROM seller_user WHERE user_id = ?", OWNER_USER_ID);
+
+        mockMvc.perform(post(URL).headers(ownerToken)
+                        .contentType(MediaType.APPLICATION_JSON).content(json("KB", NUMBER_FIRST, "대표자")))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM seller_bank_account WHERE seller_id = ?", Integer.class, SELLER_ID))
+                .isZero();
+    }
+
+    @Test
     @DisplayName("T4 SUSPENDED 셀러 OWNER POST → 403 SELLER_SUSPENDED·행 0 / GET은 200")
     void register_suspended_forbidden() throws Exception {
         seed(SellerStatus.SUSPENDED);
@@ -295,6 +339,13 @@ class SellerBankAccountControllerIntegrationTest extends AbstractIntegrationTest
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
             }
         });
+    }
+
+    /** 구성원 역할을 role.code로 바꾼다(강등·승격 시나리오·? 바인딩). */
+    private void changeRole(long userId, String roleCode) {
+        int updated = jdbc.update("UPDATE seller_user su SET su.role_id = (SELECT id FROM role WHERE code = ?) WHERE su.user_id = ?",
+                roleCode, userId);
+        assertThat(updated).isEqualTo(1);
     }
 
     private List<Map<String, Object>> audits(long accountId, long actorUserId) {
