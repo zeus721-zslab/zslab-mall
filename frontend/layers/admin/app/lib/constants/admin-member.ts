@@ -9,6 +9,12 @@ export type AdminMemberStatus = 'ACTIVE' | 'WITHDRAWN'
 /** BE AdminMemberSort 2값(가입일 기준). */
 export type AdminMemberSort = 'LATEST' | 'OLDEST'
 
+/** 임시 비밀번호 1회 표시 다이얼로그 안내(FE-55·D-204). 재발급·셀러 구성원 신규 계정 공용. */
+export const TEMPORARY_PASSWORD_DIALOG_NOTICE = [
+  '이 창을 닫으면 다시 볼 수 없습니다. 회원에게 안전한 경로로 전달해 주세요.',
+  '첫 로그인 시 비밀번호 변경이 강제됩니다. 기존 로그인 세션은 종료됩니다.',
+] as const
+
 export const ADMIN_MEMBER_SORT_OPTIONS: { value: AdminMemberSort; title: string }[] = [
   { value: 'LATEST', title: '최근 가입순' },
   { value: 'OLDEST', title: '오래된 가입순' },

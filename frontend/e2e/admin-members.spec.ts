@@ -26,6 +26,8 @@ const DETAIL_A = {
   // STEP 498: 셀러 구성원(마지막 활성) → 탈퇴 다이얼로그 경고 2줄·강조. 확인은 그대로 활성(차단 아님).
   sellerMembership: { sellerPublicId: 'slr_E2E0000000000000000000SA1', companyName: 'E2E리빙샵', roleCode: 'SELLER_OWNER', lastActiveMember: true },
 }
+/** 임시 비밀번호 mock 평문(실 계정 아님·BE 생성 형식 12자와 같은 모양). */
+const E2E_TEMP_PASSWORD = 'E2eMockPw2345'
 const DETAIL_B_NO_PHONE = { publicId: MEMBER_B, name: 'E2E회원B', email: 'b@e2e.invalid', createdAt: '2026-09-01T09:00:00', passwordChangeRequired: true, grade: { code: 'GOLD', source: 'MANUAL', lockedUntil: '2026-10-01T23:59:59' }, addresses: [] }
 const DETAIL_W = { ...DETAIL_A, publicId: MEMBER_W, name: 'E2E탈퇴회원', email: 'w@e2e.invalid', withdrawnAt: '2026-09-05T08:00:00' }
 
@@ -83,7 +85,8 @@ async function mockMemberApi(page: Page, options: { listStatus?: number; withdra
   await page.route((url) => /\/api\/v1\/admin\/members\/usr_[^/]+\/password-reset$/.test(url.pathname), (route) => {
     captured.writes.push({ method: 'POST', url: route.request().url(), body: '' })
     if (options.resetStatus === 502) return route.fulfill(problem(502, 'TEMPORARY_PASSWORD_DELIVERY_FAILED', 'SMS 발송 실패'))
-    return route.fulfill({ status: 204 })
+    // D-204: 200 + 평문 1회(응답 mock — 실 BE 호출 없음)
+    return route.fulfill({ status: 200, headers: { 'Cache-Control': 'no-store', Pragma: 'no-cache' }, json: { temporaryPassword: E2E_TEMP_PASSWORD } })
   })
   await page.route((url) => /\/api\/v1\/admin\/members\/usr_[^/]+\/grade$/.test(url.pathname), (route) => {
     captured.writes.push({ method: 'PUT', url: route.request().url(), body: route.request().postData() ?? '' })
@@ -215,7 +218,7 @@ test.describe('관리자 회원 관리(Track 84)', () => {
     expect(JSON.parse(put?.body ?? '{}')).toEqual({ gradeCode: 'PLATINUM', lockedUntil: '2099-12-31' })
   })
 
-  test('⑤ 탈퇴 409 → 문구 토스트·상세 유지 / 임시 비밀번호 발급 204 → 성공 토스트 / 502 → 실패 문구', async ({ page }) => {
+  test('⑤ 탈퇴 409 → 문구 토스트·상세 유지 / 임시 비밀번호 발급 200 → 결과 다이얼로그(평문·복사·닫기 확인·닫힌 뒤 평문 없음·토스트에 평문 없음) / 502 → 실패 문구', async ({ page, context }) => {
     await mockMemberApi(page, { withdrawStatus: 409, resetStatus: 502 })
     await loginAs(page, 'ADMIN')
     await gotoMembers(page, `/admin/members/${MEMBER_A}`)
@@ -236,9 +239,29 @@ test.describe('관리자 회원 관리(Track 84)', () => {
 
     await page.unrouteAll({ behavior: 'ignoreErrors' })
     await mockMemberApi(page)
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'])
     await page.getByTestId('action-reset-password').click()
+    await expect(page.getByTestId('member-reset-dialog')).toContainText('화면에 1회 표시하고')
     await page.getByTestId('member-reset-dialog-ok').click()
-    await expect(page.getByText('임시 비밀번호를 SMS로 발송했습니다. 기존 로그인 세션은 종료됩니다.')).toBeVisible()
+    const result = page.getByTestId('member-reset-result')
+    await expect(result).toBeVisible()
+    await expect(result.getByTestId('member-reset-result-value')).toHaveText(E2E_TEMP_PASSWORD)
+    await expect(result.getByTestId('member-reset-result-recipient')).toContainText('E2E회원A')
+    await expect(result.getByTestId('member-reset-result-notice')).toContainText('이 창을 닫으면 다시 볼 수 없습니다')
+    await result.getByTestId('member-reset-result-copy').click()
+    await expect(result.getByTestId('member-reset-result-copy-notice')).toHaveText('임시 비밀번호를 복사했습니다.')
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(E2E_TEMP_PASSWORD)
+    // 토스트(sonner 영역)에는 평문이 없어야 한다
+    await expect(page.getByTestId('admin-toaster')).not.toContainText(E2E_TEMP_PASSWORD)
+    // 닫기 2단: 닫기 → 경고 → 계속 보기 → 닫기 → 닫기 확인
+    await result.getByTestId('member-reset-result-close').click()
+    await expect(result.getByTestId('member-reset-result-close-confirm')).toBeVisible()
+    await result.getByTestId('member-reset-result-close-cancel').click()
+    await expect(result.getByTestId('member-reset-result-close-confirm')).toBeHidden()
+    await result.getByTestId('member-reset-result-close').click()
+    await result.getByTestId('member-reset-result-close-ok').click()
+    await expect(result).toBeHidden()
+    await expect(page.locator('body')).not.toContainText(E2E_TEMP_PASSWORD)
   })
 
   test('⑥ 탈퇴 회원 상세 → 안내 + 액션 4종 비활성 / 연락처 없는 회원 → 발급 버튼 비활성 + 안내·변경 필요 chip / 미존재 → 404 화면·목록 이동', async ({ page }) => {

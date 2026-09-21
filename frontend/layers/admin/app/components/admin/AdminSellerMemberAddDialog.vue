@@ -24,7 +24,8 @@ import { useAdminToast } from '#layers/admin/app/composables/useAdminToast'
 
 /**
  * 셀러 구성원 추가 다이얼로그(FE-42·D-189 POST /members 201). 2경로 탭 — "기존 회원 검색"(FE-39 운영자 등록·FE-40 입점 owner 검색 패턴·활성 BUYER 목록 API)
- * / "새 계정 생성"(이름·이메일·휴대폰 → BE가 계정 + BUYER 자격 + 임시 비밀번호 SMS·화면에 비밀번호 없음). 역할은 공통(권한에 영향 없음 안내). 사유 없음.
+ * / "새 계정 생성"(이름·이메일·휴대폰 → BE가 계정 + BUYER 자격 + 임시 비밀번호 SMS·응답 평문을 결과 다이얼로그에 1회 표시 후 done·D-204). 역할은 공통(권한에
+ * 영향 없음 안내). 사유 없음.
  * 이미 이 셀러의 구성원인 회원은 선택 시 인라인 안내로 막고(같은 UK라 BE 409 코드로는 같은 셀러·타 셀러를 구분할 수 없음), 그 외 409는 코드별 문구.
  */
 type Mode = 'existing' | 'new'
@@ -48,9 +49,12 @@ const newUser = reactive({ email: '', name: '', phone: '' })
 const errors = ref<Record<string, string>>({})
 const submitting = ref(false)
 const submitError = ref<string | null>(null)
+// 신규 계정의 임시 비밀번호 평문 — 결과 다이얼로그가 열린 동안만 보관하고 닫히면 null(D-204·토스트·스토어 금지).
+const issuedPassword = ref<string | null>(null)
 let searchSequence = 0
 
 function reset(): void {
+  issuedPassword.value = null
   mode.value = 'existing'
   role.value = 'SELLER_STAFF'
   keyword.value = ''
@@ -124,9 +128,13 @@ async function submit(): Promise<void> {
   try {
     const created = await sellersApi.addMember(props.detail.sellerPublicId, body)
     const who = created.name ?? created.email ?? created.userPublicId ?? '구성원'
-    toast.success(mode.value === 'new'
-      ? `${who} 계정을 만들고 ${ADMIN_SELLER_MEMBER_ROLE_LABEL[role.value]}(으)로 추가했습니다. 임시 비밀번호는 SMS로 발송되었습니다.`
-      : `${who} 회원을 ${ADMIN_SELLER_MEMBER_ROLE_LABEL[role.value]}(으)로 추가했습니다. 지금부터 셀러 로그인이 가능합니다.`)
+    if (mode.value === 'new' && created.temporaryPassword) {
+      // 신규 계정: 결과 다이얼로그(1회 표시)를 먼저 띄우고, 닫힌 뒤 done을 올린다(부모가 닫으면 평문을 볼 기회가 사라짐).
+      toast.success(`${who} 계정을 만들고 ${ADMIN_SELLER_MEMBER_ROLE_LABEL[role.value]}(으)로 추가했습니다. 임시 비밀번호를 확인해 전달해 주세요.`)
+      issuedPassword.value = created.temporaryPassword
+      return
+    }
+    toast.success(`${who} 회원을 ${ADMIN_SELLER_MEMBER_ROLE_LABEL[role.value]}(으)로 추가했습니다. 지금부터 셀러 로그인이 가능합니다.`)
     emit('done')
   } catch (error) {
     const code = extractErrorCode(error)
@@ -154,6 +162,11 @@ async function submit(): Promise<void> {
   } finally {
     submitting.value = false
   }
+}
+
+function closeIssuedPassword(): void {
+  issuedPassword.value = null
+  emit('done')
 }
 </script>
 
@@ -235,10 +248,17 @@ async function submit(): Promise<void> {
       <v-card-actions class="px-5 pb-4">
         <v-spacer />
         <v-btn variant="text" :disabled="submitting" data-testid="seller-member-add-cancel" @click="emit('cancel')">닫기</v-btn>
-        <v-btn color="primary" variant="flat" :loading="submitting" :disabled="confirmDisabled" data-testid="seller-member-add-ok" @click="submit">{{ mode === 'new' ? '계정 생성 후 추가' : '구성원 추가' }}</v-btn>
+        <v-btn color="primary" variant="flat" :loading="submitting" :disabled="confirmDisabled || issuedPassword !== null" data-testid="seller-member-add-ok" @click="submit">{{ mode === 'new' ? '계정 생성 후 추가' : '구성원 추가' }}</v-btn>
       </v-card-actions>
     </v-card>
   </v-dialog>
+  <AdminTemporaryPasswordDialog
+    :open="issuedPassword !== null"
+    :temporary-password="issuedPassword"
+    :recipient-label="`${newUser.name || '—'}(${newUser.email || '—'}) 계정의 임시 비밀번호입니다.`"
+    test-id="seller-member-password-result"
+    @closed="closeIssuedPassword"
+  />
 </template>
 
 <style scoped>

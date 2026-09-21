@@ -62,9 +62,11 @@ const sellerWarning = computed(() => (detail.value ? withdrawSellerWarning(detai
 const resetAllowed = computed(() => (detail.value ? canResetPassword(detail.value) : false))
 
 // ---------- 액션 다이얼로그 ----------
-type MemberDialog = 'edit' | 'withdraw' | 'reset' | 'grade'
+type MemberDialog = 'edit' | 'withdraw' | 'reset' | 'reset-result' | 'grade'
 const activeDialog = ref<MemberDialog | null>(null)
 const actionBusy = ref(false)
+// 임시 비밀번호 평문은 결과 다이얼로그가 열린 동안만 이 로컬 ref에 있고 닫히면 null(D-204·토스트·스토어 금지).
+const temporaryPassword = ref<string | null>(null)
 
 function closeDialog(refresh: boolean): void {
   activeDialog.value = null
@@ -97,14 +99,15 @@ async function runResetPassword(): Promise<void> {
   if (!detail.value || actionBusy.value) return
   actionBusy.value = true
   try {
-    await membersApi.resetPassword(detail.value.publicId)
-    toast.success('임시 비밀번호를 SMS로 발송했습니다. 기존 로그인 세션은 종료됩니다.')
-    activeDialog.value = null
+    const issued = await membersApi.resetPassword(detail.value.publicId)
+    // 확인 다이얼로그 → 결과 다이얼로그(1회 표시). 성공 토스트는 띄우지 않는다(평문이 아니어도 결과 창과 중복).
+    temporaryPassword.value = issued.temporaryPassword
+    activeDialog.value = 'reset-result'
     await load()
   } catch (error) {
     activeDialog.value = null
     const code = extractErrorCode(error)
-    if (code === 'MEMBER_PHONE_MISSING' || code === 'MEMBER_ALREADY_WITHDRAWN' || code === 'TEMPORARY_PASSWORD_DELIVERY_FAILED') {
+    if (code === 'MEMBER_PHONE_MISSING' || code === 'MEMBER_ALREADY_WITHDRAWN' || code === 'MEMBER_ADMIN_ROLE_ASSIGNED' || code === 'TEMPORARY_PASSWORD_DELIVERY_FAILED') {
       toast.warning(toAdminErrorMessage(error))
       if (code !== 'TEMPORARY_PASSWORD_DELIVERY_FAILED') await load()
     } else {
@@ -113,6 +116,11 @@ async function runResetPassword(): Promise<void> {
   } finally {
     actionBusy.value = false
   }
+}
+
+function closeResetResult(): void {
+  temporaryPassword.value = null
+  activeDialog.value = null
 }
 
 // ---------- 주문정보 탭(URL query 단일 소스: tab·page·size) ----------
@@ -336,12 +344,19 @@ function openOrder(row: AdminMemberActivityRow): void {
     <AdminConfirmDialog
       :open="activeDialog === 'reset'"
       title="임시 비밀번호 발급"
-      :message="`등록된 연락처(${detail?.phone ?? '—'})로 임시 비밀번호를 SMS 발송합니다.\n기존 로그인 세션은 종료되며, 회원은 로그인 후 비밀번호를 변경해야 합니다.`"
+      :message="`새 임시 비밀번호를 발급해 화면에 1회 표시하고, 등록된 연락처(${detail?.phone ?? '—'})로 SMS도 발송합니다.\n기존 로그인 세션은 종료되며, 회원은 로그인 후 비밀번호를 변경해야 합니다.`"
       confirm-label="발급"
       :loading="actionBusy"
       test-id="member-reset-dialog"
       @confirm="runResetPassword"
       @cancel="activeDialog = null"
+    />
+    <AdminTemporaryPasswordDialog
+      :open="activeDialog === 'reset-result'"
+      :temporary-password="temporaryPassword"
+      :recipient-label="`${detail?.name ?? '—'}(${detail?.email ?? '—'}) 회원의 임시 비밀번호입니다.`"
+      test-id="member-reset-result"
+      @closed="closeResetResult"
     />
   </div>
 </template>
