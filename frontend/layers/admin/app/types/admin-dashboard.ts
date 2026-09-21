@@ -29,6 +29,9 @@ export interface AdminDashboardPending {
   claimRequested: number
   deliveryReady: number
   lowStock: number
+  /** 상품 승인 대기(product PENDING)·셀러 승인 대기(seller PENDING)(Track 96-2 D-203·FE-54). */
+  productPending: number
+  sellerPending: number
 }
 
 /** yearMonth "yyyy-MM". */

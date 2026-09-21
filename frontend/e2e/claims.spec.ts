@@ -37,8 +37,9 @@ const ORDER_DETAIL = {
   sellers: [{
     sellerId: 'slr_E2E1', companyName: 'E2E셀러', subtotal: 29900,
     items: [
-      { orderItemId: SHIPPING_ITEM, productName: 'E2E 배송중 티셔츠', quantity: 1, unitPrice: 19900, totalPrice: 19900, status: { code: 'SHIPPING', label: 'SHIPPING' } },
-      { orderItemId: DELIVERED_ITEM, productName: 'E2E 배송완료 양말', productId: PRODUCT_ID, variantId: VARIANT_RED, quantity: 1, unitPrice: 10000, totalPrice: 10000, status: { code: 'DELIVERED', label: 'DELIVERED' } },
+      // Track 96-2(C-05): 배송중 품목은 발송일만·배송완료 품목은 배송완료일까지·교환완료 품목은 delivery 부재(원 발송 없음 가정)
+      { orderItemId: SHIPPING_ITEM, productName: 'E2E 배송중 티셔츠', quantity: 1, unitPrice: 19900, totalPrice: 19900, status: { code: 'SHIPPING', label: 'SHIPPING' }, delivery: { carrier: 'CJ', trackingNo: 'E2E-TRACK-0001', status: 'SHIPPING', shippedAt: '2026-09-15T09:00:00+09:00', deliveredAt: null } },
+      { orderItemId: DELIVERED_ITEM, productName: 'E2E 배송완료 양말', productId: PRODUCT_ID, variantId: VARIANT_RED, quantity: 1, unitPrice: 10000, totalPrice: 10000, status: { code: 'DELIVERED', label: 'DELIVERED' }, delivery: { carrier: 'HANJIN', trackingNo: 'E2E-TRACK-0002', status: 'DELIVERED', shippedAt: '2026-09-10T09:00:00+09:00', deliveredAt: '2026-09-12T15:30:00+09:00' } },
       { orderItemId: EXCHANGED_ITEM, productName: 'E2E 교환완료 모자', productId: PRODUCT_ID, variantId: VARIANT_BLUE, quantity: 1, unitPrice: 10000, totalPrice: 10000, status: { code: 'DELIVERED', label: 'DELIVERED' }, exchangeCompleted: true },
     ],
   }],
@@ -105,6 +106,17 @@ test.describe('사용자 반품 요청·회수·검수(FE-29)', () => {
     await expect(page.getByTestId('item-confirm-warning')).toHaveText('확정 후에는 반품·교환을 신청할 수 없습니다.')
     await page.getByTestId('item-confirm-cancel').click()
     await expect(page.getByTestId('item-confirm-panel')).toHaveCount(0)
+    // C-05(Track 96-2): 배송 정보 블록 2(배송중=발송일만·배송완료=배송완료일까지)·교환완료 품목은 미노출 → 송장 복사 → 인라인 안내(외부 링크 없음)
+    await expect(page.getByTestId('item-delivery')).toHaveCount(2)
+    await expect(page.getByTestId('item-delivery-carrier')).toHaveText(['CJ대한통운', '한진택배'])
+    await expect(page.getByTestId('item-delivery-tracking-no')).toHaveText(['E2E-TRACK-0001', 'E2E-TRACK-0002'])
+    await expect(page.getByTestId('item-delivery-delivered-at')).toHaveCount(1)
+    await expect(page.getByTestId('item-delivery-delivered-at')).toHaveText('배송완료일 2026.09.12 15:30')
+    await expect(page.getByTestId('item-delivery-preparing')).toHaveCount(0)
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
+    await page.getByTestId('item-delivery-copy').first().click()
+    await expect(page.getByTestId('item-delivery-copy-notice')).toHaveText('송장번호를 복사했습니다.')
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('E2E-TRACK-0001')
 
     await page.getByRole('button', { name: '반품 요청' }).first().click()
     await page.waitForURL(/\/claims\/new\?/)

@@ -53,12 +53,15 @@ describe('증감률', () => {
 })
 
 describe('처리 대기', () => {
-  it('4칸 순서·링크: 정산·클레임·배송·재고 임박 전부 목록 필터로', () => {
-    expect(PENDING_TILES.map((tile) => tile.key)).toEqual(['settlementPending', 'claimRequested', 'deliveryReady', 'lowStock'])
+  it('6칸 순서·링크: 정산·클레임·배송·재고 임박·상품 승인·셀러 승인 전부 목록 필터로', () => {
+    expect(PENDING_TILES.map((tile) => tile.key)).toEqual(['settlementPending', 'claimRequested', 'deliveryReady', 'lowStock', 'productPending', 'sellerPending'])
     expect(PENDING_TILES[0]!.to).toBe('/admin/settlements?status=PENDING')
     expect(PENDING_TILES[1]!.to).toBe('/admin/orders/claims?status=REQUESTED')
     expect(PENDING_TILES[2]!.to).toBe('/admin/orders?status=PAID')
     expect(PENDING_TILES[3]!.to).toBe('/admin/products?stockFilter=LOW')
+    // Track 96-2(FE-54·C-01): 승인 대기 2칸은 각 목록의 status=PENDING(목록이 URL query로 필터 복원)
+    expect(PENDING_TILES[4]!.to).toBe('/admin/products?status=PENDING')
+    expect(PENDING_TILES[5]!.to).toBe('/admin/members/sellers?status=PENDING')
   })
 
   it('톤: 0건 회색, 1건 이상은 정산·클레임·배송 노랑·재고 임박 빨강', () => {
@@ -67,6 +70,9 @@ describe('처리 대기', () => {
     expect(pendingChipClass(settlement!, 3)).toBe('adm-chip adm-chip--warning')
     expect(pendingChipClass(lowStock!, 0)).toBe('adm-chip adm-chip--neutral')
     expect(pendingChipClass(lowStock!, 1)).toBe('adm-chip adm-chip--danger')
+    const [, , , , productPending, sellerPending] = PENDING_TILES
+    expect(pendingChipClass(productPending!, 1)).toBe('adm-chip adm-chip--warning')
+    expect(pendingChipClass(sellerPending!, 0)).toBe('adm-chip adm-chip--neutral')
   })
 })
 

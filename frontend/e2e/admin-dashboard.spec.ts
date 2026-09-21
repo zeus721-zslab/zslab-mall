@@ -6,7 +6,7 @@ import { loginAs } from './helpers/login'
  * 요약 카드 6·처리 대기 4·차트 2(apexcharts SVG)·리스트 4가 렌더되는지 확인한다. 데이터 유무와 무관하게 성립하는 단언만 둔다.
  */
 test.describe('관리자 대시보드 (FE-33)', () => {
-  test('① 로그인 → /admin: 요약 카드 6·증감 배지·처리 대기 4·차트 2·리스트 4 렌더', async ({ page }) => {
+  test('① 로그인 → /admin: 요약 카드 6·증감 배지·처리 대기 6·차트 2·리스트 4 렌더', async ({ page }) => {
     const dashboardResponse = page.waitForResponse((response) => response.url().includes('/api/v1/admin/dashboard') && response.status() === 200)
     await loginAs(page, 'ADMIN')
     await page.goto('/admin')
@@ -25,12 +25,14 @@ test.describe('관리자 대시보드 (FE-33)', () => {
       expect(text.trim()).toMatch(/^([+-]?\d+\.\d%|—)$/)
     }
 
-    // 처리 대기 4칸: 링크 4(정산·클레임·배송·재고 임박=상품 목록 stockFilter=LOW·Track 89-A)
-    await expect(page.getByTestId('dashboard-pending-count')).toHaveCount(4)
+    // 처리 대기 6칸: 링크 6(정산·클레임·배송·재고 임박=상품 목록 stockFilter=LOW·Track 89-A / 상품·셀러 승인 대기=status=PENDING·Track 96-2)
+    await expect(page.getByTestId('dashboard-pending-count')).toHaveCount(6)
     await expect(page.getByTestId('dashboard-pending-settlementPending')).toHaveAttribute('href', '/admin/settlements?status=PENDING')
     await expect(page.getByTestId('dashboard-pending-claimRequested')).toHaveAttribute('href', '/admin/orders/claims?status=REQUESTED')
     await expect(page.getByTestId('dashboard-pending-deliveryReady')).toHaveAttribute('href', '/admin/orders?status=PAID')
     await expect(page.getByTestId('dashboard-pending-lowStock')).toHaveAttribute('href', '/admin/products?stockFilter=LOW')
+    await expect(page.getByTestId('dashboard-pending-productPending')).toHaveAttribute('href', '/admin/products?status=PENDING')
+    await expect(page.getByTestId('dashboard-pending-sellerPending')).toHaveAttribute('href', '/admin/members/sellers?status=PENDING')
 
     // 차트 2: apexcharts SVG가 카드 안에 그려진다(데이터 0이어도 축은 렌더)
     await expect(page.getByTestId('dashboard-chart-monthly').locator('svg.apexcharts-svg')).toBeVisible()
