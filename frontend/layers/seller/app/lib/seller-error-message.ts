@@ -31,6 +31,8 @@ const SELLER_ERROR_MESSAGES: Record<string, string> = {
   PRODUCT_VARIANT_OPTION_CONFLICT: '같은 옵션 조합의 변형이 이미 있습니다.',
   PRODUCT_IMAGE_NOT_FOUND: '상품 이미지를 찾을 수 없습니다.',
   INVENTORY_INVARIANT_VIOLATION: '재고 수량이 맞지 않습니다(출고량이 보유·가용 재고를 초과하거나 재고 행이 없음).',
+  // 정산계좌(Track 90-D-3·D-199)
+  SELLER_OWNER_REQUIRED: '정산계좌 등록은 셀러 대표(OWNER)만 할 수 있습니다.',
 }
 
 /** 코드가 없거나 미지일 때 HTTP 상태별 폴백. */

@@ -108,39 +108,17 @@ export const ADMIN_SELLER_BANK_ACCOUNT_STATUS_LABEL: Record<AdminSellerBankAccou
 }
 
 /**
- * 은행 선택 옵션(bank_code VARCHAR(20)·BE는 자유 문자열·시드 KB/SHINHAN/WOORI와 같은 영문 약칭). 목록에 없는 코드는 화면이 코드 그대로 표기한다
- * (bankLabel). 실명인증 연동 시 금융결제원 표준 코드로 바꿀 수 있도록 code를 값으로 둔다.
+ * 은행 옵션·계좌 형식 한도는 Track 90-D-3(FE-51)에서 공용 app/lib/constants/bank.ts 로 이동했다(셀러 본인 등록 폼과 단일 소스).
+ * 관리자 코드·spec의 기존 이름을 유지하기 위해 여기서 re-export만 한다.
  */
-export const ADMIN_BANK_OPTIONS: { value: string; title: string }[] = [
-  { value: 'KB', title: 'KB국민은행' },
-  { value: 'SHINHAN', title: '신한은행' },
-  { value: 'WOORI', title: '우리은행' },
-  { value: 'HANA', title: '하나은행' },
-  { value: 'NH', title: 'NH농협은행' },
-  { value: 'IBK', title: 'IBK기업은행' },
-  { value: 'SC', title: 'SC제일은행' },
-  { value: 'CITI', title: '씨티은행' },
-  { value: 'POST', title: '우체국' },
-  { value: 'KAKAO', title: '카카오뱅크' },
-  { value: 'TOSS', title: '토스뱅크' },
-  { value: 'KBANK', title: '케이뱅크' },
-  { value: 'BUSAN', title: '부산은행' },
-  { value: 'DAEGU', title: 'iM뱅크(대구은행)' },
-  { value: 'GWANGJU', title: '광주은행' },
-  { value: 'JEONBUK', title: '전북은행' },
-  { value: 'KYONGNAM', title: '경남은행' },
-  { value: 'JEJU', title: '제주은행' },
-  { value: 'SUHYUP', title: '수협은행' },
-  { value: 'SAEMAUL', title: '새마을금고' },
-  { value: 'SHINHYUP', title: '신협' },
-]
-
-/** BE AdminSellerBankAccountRegisterRequest·UpdateRequest @Size·@Pattern(계좌번호 숫자·하이픈 6~30자·bank_code 20·account_holder 50). */
-export const ADMIN_SELLER_BANK_CODE_MAX = 20
-export const ADMIN_SELLER_ACCOUNT_NUMBER_MIN = 6
-export const ADMIN_SELLER_ACCOUNT_NUMBER_MAX = 30
-export const ADMIN_SELLER_ACCOUNT_HOLDER_MAX = 50
-export const ADMIN_SELLER_ACCOUNT_NUMBER_PATTERN = /^[0-9-]+$/
+export {
+  BANK_OPTIONS as ADMIN_BANK_OPTIONS,
+  BANK_CODE_MAX as ADMIN_SELLER_BANK_CODE_MAX,
+  ACCOUNT_NUMBER_MIN as ADMIN_SELLER_ACCOUNT_NUMBER_MIN,
+  ACCOUNT_NUMBER_MAX as ADMIN_SELLER_ACCOUNT_NUMBER_MAX,
+  ACCOUNT_HOLDER_MAX as ADMIN_SELLER_ACCOUNT_HOLDER_MAX,
+  ACCOUNT_NUMBER_PATTERN as ADMIN_SELLER_ACCOUNT_NUMBER_PATTERN,
+} from '~/lib/constants/bank'
 
 /** 정산 지급에 사용된 계좌(referencedBySettlement) 수정 불가 툴팁·안내(외부 검토 Q6·지적 13·계좌 단위 의미). */
 export const SELLER_BANK_ACCOUNT_REFERENCED_TOOLTIP = '정산 지급에 사용된 계좌입니다. 새 계좌를 등록한 뒤 주 계좌로 전환하세요.'

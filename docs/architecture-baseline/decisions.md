@@ -11729,3 +11729,44 @@ gateway nginx가 2026-09-18부터 `location ^~ /api/webhooks { return 404; }`로
 - IT: 무서명 401·서명 위조 401·nonce 재사용·provider 불일치·금액 불일치.
 - **flush 판별의 전제**: `handleCallback`의 명시 flush는 영속성 컨텍스트 전체를 내보낸다. 현재 flush 시점에 dirty인 엔티티는 Payment뿐(동기 핸들러는 flush 뒤에 실행)이라 `uk_payment_provider_pg_tid` 판별이 성립하지만, 같은 트랜잭션에 Payment와 독립인 dirty 엔티티가 추가되면 그 엔티티의 무결성 위반이 이 catch로 들어온다 — 그때 판별 위치·범위를 재검토한다(외부 검토 r2 기록).
 - **제약명 문자열 판별의 전제**: 409 변환은 `DataIntegrityViolationException.getMostSpecificCause().getMessage()`에 제약명이 포함되는 MariaDB 드라이버 메시지 형식에 의존한다(90-C 선례와 동일). DB·드라이버 교체 시 예외 구조를 고정하는 테스트(제약 위반 메시지에 제약명 포함 단언)가 필요하다(외부 검토 r2 기록).
+
+## D-199. 셀러 정산계좌 본인 등록 · SELLER_OWNER 한정 쓰기 (Track 90-D-3)
+
+날짜: 2026-09-21
+브랜치: feat/track-90d3-seller-bank-account
+정찰: docs/track-90d/recon-report-account.md(로컬·STEP 771~774)
+
+### 배경
+계좌 도메인은 Track 89-F(D-188)로 관리자 측에 완성돼 있었으나(테이블·AES Converter·V32 주 계좌 UNIQUE·관리자 등록/수정/전환 API·감사 마스킹) 셀러 측 계좌 API·화면은 0건이었고 셀러 me 응답에 `bankAccountRegistered` boolean만 있었다. D-188 §8이 "셀러 본인 등록은 같은 서비스를 셀러 컨트롤러에서 재사용·status PENDING → 관리자 확인 흐름은 그때 결정"으로 이월했다. 정찰 실측: (1) 관리자 서비스는 `sellerPublicId` 시그니처라 셀러 리졸버의 `sellerId`로 바로 호출 불가 (2) JWT는 coarse `ActorRole.SELLER`만 실어 세분 역할(SELLER_OWNER)은 요청마다 DB 조회이며 **셀러 컨트롤러 15개 중 역할 판정 사례 0건** (3) 정산은 `pay()` 시점에만 주 계좌 id를 스냅샷(PENDING·CONFIRMED는 `bank_account_id NULL`)하고 status(PENDING/VERIFIED)는 검사하지 않는다 (4) "PENDING → 관리자 VERIFY" 전용 API는 없고 VERIFIED 전환은 `update()` 값 변경 부수효과뿐.
+
+### 결정
+- **셀러 등록 = 관리자 등록과 동일 규칙**: VERIFIED + 첫 계좌 자동 주 계좌 · 2번째 이후 비주계좌(N건 허용·건수 제한 없음). `POST /api/v1/seller/bank-accounts` 201.
+- **수정·삭제·주 계좌 전환은 관리자만**(셀러 API 없음·D-188 3명령 그대로).
+- **쓰기는 SELLER_OWNER만**: `SellerBankAccountService.register`가 `SellerUserRepository.existsBySellerIdAndUserIdAndRoleCode(sellerId, userId, SELLER_OWNER)`(theta-join·기존 `findUserIdsBySellerIdAndRoleCode` 동형)로 판정 → 아니면 `SellerOwnerRequiredException` **403 `SELLER_OWNER_REQUIRED`**(GEH·`SELLER_SUSPENDED` 선례와 같은 인가 거부). 조회(`GET /api/v1/seller/bank-accounts`)는 모든 셀러 역할·SUSPENDED도 가능(리졸버 READ 통과).
+- **서비스 재사용**: `AdminSellerBankAccountCommandService`의 등록 본문을 `registerLocked(seller, …)`(셀러 행 락 획득 후 공통)로 추출 · `register(Long sellerId, bankCode, accountNumber, accountHolder, AuditContext)` 오버로드 + `SellerRepository.findByIdForUpdate`(PESSIMISTIC_WRITE·`findByPublicIdForUpdate` 동형) · 관리자 `register(String publicId, …)`는 동작 불변(기존 IT 5/5) · 클래스 Javadoc "sellerId 기준" 문구를 실제 시그니처(관리자 publicId·셀러 sellerId 오버로드)로 교정.
+- **셀러 응답 DTO 분리** `SellerBankAccountResponse`(id·bankCode·accountNumberSuffix·accountHolder·isPrimary·status·createdAt) — 전체 계좌번호 필드 없음(IT 키 화이트리스트 고정). 관리자 응답의 `referencedBySettlement`·`verifiedAt`·`updatedAt`은 셀러가 수정 권한이 없어 싣지 않는다. 요청 DTO `SellerBankAccountRegisterRequest`는 관리자와 같은 Bean Validation(bank_code 20·계좌번호 숫자·하이픈 6~30·예금주 50)이되 별도 record(관리자 DTO 변경에 셀러 계약이 끌려가지 않게).
+- **감사**: 셀러 등록도 같은 `audit_log`(`SETTLEMENT_BANK_ACCOUNT` CREATE·`actor_role=SELLER`·`accountNumber` Masker 마스킹·suffix 병기) — 컨텍스트 조립은 `SellerDeliveryManagementController` 선례(user.id + coarse role).
+- **이월**: 동일 계좌 유니크(HMAC blind index·D-188 §8) 그대로.
+
+### §1-A 갈림길·채택/기각 근거
+- **셀러 등록 계좌 status·주 계좌 — α 관리자와 동일(VERIFIED·첫 계좌 자동 주 계좌) 【채택】 / β PENDING + is_primary=false·관리자 주 계좌 전환으로 승인 대체 【기각: 운영 절차 부담(전용 VERIFY API + 카드 버튼 + 셀러 안내) 대비 방어 범위가 "첫 등록 계좌 탈취" 1건뿐이고, 그 위협은 OWNER 한정 쓰기 + 감사 로그 + 관리자 상세 즉시 노출로 이미 좁혀진다】 / γ PENDING + 자동 주 계좌 + `pay()`에 VERIFIED 검사 【기각: 정산 지급 경로(SettlementTransitionService) 수정 = 돈 경계 코드 변경·Track 85 IT 영향】** — pay가 status를 보지 않는 현행(D-179 정합)은 유지.
+- **SELLER_OWNER 가드 위치 — α 서비스 레이어 seller_user·role 조회 → 403 신규 예외 【채택】 / β `SellerMembershipProjection`에 roleCode JOIN + 리졸버 `requireOwner` 【기각: 전 셀러 요청의 리졸버 쿼리 변경(회귀 범위 큼)·소비처 1곳】**.
+- **서비스 재사용 — α 관리자 서비스 공용 추출 + sellerId 오버로드 【채택】 / β 셀러 전용 커맨드 서비스 신설 【기각: 등록 규칙이 동일해 락·첫 계좌 판정·감사 스냅샷 복제만 남음】**.
+- **셀러 조회 API — α `GET /api/v1/seller/bank-accounts` 신설 【채택】 / β `/seller/me` 확장 【기각: me 소비처(상단바·배너)에 계좌 배열이 실려 과잉】**.
+- **등록 건수 — N건 허용(관리자와 동일) 【채택】 / 1건 한정 409 【기각: 관리자·셀러 규칙 분기 = 두 진입점이 같은 서비스를 쓰는 이점 상실·주 계좌 전환은 관리자가 하므로 2번째 계좌는 전환 대기 계좌로 의미 있음】**.
+
+### 단언 유효성 선증명(STEP 777)
+가드 없는 컨트롤러·서비스로 `SellerBankAccountControllerIntegrationTest` 실행: **T3 STAFF POST → 기대 403·실측 201**(나머지 7/8 통과) → `SellerOwnerRequiredException` + GEH 매핑 추가 → 8/8 GREEN.
+
+### §2 확정 구현 규칙
+- 컨트롤러 `SellerBankAccountController`(GET/POST `/api/v1/seller/bank-accounts`·SecurityConfig `/api/v1/seller/**` hasRole(SELLER) 매처 자동 적용·리졸버 상태 가드 SUSPENDED 쓰기 403/PENDING·TERMINATED 401). `SellerWriteMappingRegistryTest` 허용 목록 12 → 13(`POST /api/v1/seller/bank-accounts`).
+- IT `SellerBankAccountControllerIntegrationTest` 8: T1 OWNER 첫 등록 201(주 계좌·VERIFIED·verified_at·DB `v1:` 암호문·복호 원문 일치·감사 CREATE actor_role SELLER·accountNumber MASKED·suffix) · T2 두 번째 비주계좌·GET 2건 등록순·주 계좌 1 · T3 STAFF 403 행 0 감사 0 · T4 SUSPENDED POST 403 SELLER_SUSPENDED/GET 200 · T5 무인증 401·BUYER 403 · T6 400 3종 · T7 GET 본인 셀러만(타 셀러 계좌 미포함·STAFF 조회 가능·원 계좌번호 부재·키 화이트리스트) · T8 CONFIRMED 정산 pay 422 MISSING → 셀러 등록 → pay 200 PAID·`settlement.bank_account_id` = 등록 계좌 id.
+- 검증(실측): gradlew --rerun-tasks 231파일 **1340·0 fail·0 error·0 skip**(1332 + 8) · 셀러·정산·감사 패키지 34클래스 179·0 fail · 관리자 계좌 IT 5/5·정산 전이 IT 6/6 무회귀. FE는 FE-51.
+- 관리자 정산 상세 화면은 지급 대상 계좌(은행·끝 4자리·예금주·스냅샷/현재 구분)를 이미 표시(Track 85·`admin/settlements/[id].vue:268-279`) → 추가 작업 없음.
+
+- **외부 검토: A / 지적 2건(Q2 major·Q7 minor) 중 수용 1·부분 수용 1(타 셀러 OWNER·동시성 테스트 기각) · PASS 5 · 재검토 생략(국소 순서 교체)**.
+- **OWNER 판정 순서(Q2 수용)**: `SellerBankAccountService.register`가 셀러 행 비관락(`findByIdForUpdate`)을 먼저 잡고 그 뒤에 OWNER를 판정한다 — 관리자 구성원 제거·역할 변경(`AdminSellerMemberCommandService.remove·changeRole`)이 같은 셀러 행 락 안에서 실행되므로 락 이후 판정은 강등·제거 커밋 후의 seller_user를 본다. 이어지는 `commandService.register(sellerId, …)`의 재 FOR UPDATE는 같은 트랜잭션이라 무해(락 없는 공개 API 추가 안 함). IT 보강(Q7 부분 수용) T3-b MANAGER 403 · T3-c OWNER→MANAGER 강등 후 기존 토큰 403 · T3-d seller_user 삭제 후 기존 토큰 401 — 순서 교체 전 코드로도 3건 GREEN(경합 전용 교정·결정적 재현 대상 아님) · 교체 후 gradlew --rerun-tasks 231파일 **1343·0 fail**(1340 + 3).
+- **Q5 확인**: `GlobalExceptionHandler.handleValidation`(:181-192)은 field·defaultMessage만 detail·fieldErrors에 싣고 rejectedValue를 쓰지 않으며 로그도 없다 → 계좌번호 입력값 echo 경로 없음·무작업.
+### §8 이월
+- 동일 계좌 중복 검출(HMAC blind index·D-188 §8) · 계좌 실명인증 연동 · 계좌 삭제 API — D-188 §8 그대로.
+- `AdminSellerQueryService.toBankAccount`의 끝 4자리 substring이 엔티티 `accountNumberSuffix()`와 중복 구현(동작 동일·정리만 이월).

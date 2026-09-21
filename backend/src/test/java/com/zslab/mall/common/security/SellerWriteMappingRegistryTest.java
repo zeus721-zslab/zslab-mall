@@ -26,12 +26,13 @@ class SellerWriteMappingRegistryTest extends AbstractIntegrationTest {
     private static final Set<RequestMethod> WRITE_METHODS =
             Set.of(RequestMethod.POST, RequestMethod.PUT, RequestMethod.PATCH, RequestMethod.DELETE);
 
-    /** 2026-09-21 실측 허용 목록(상품 등록·수정·이미지, 재고 입출고, 파일 업로드, 송장 정정). 갱신은 D-XX 박제와 함께. */
+    /** 2026-09-21 실측 허용 목록(상품 등록·수정·이미지, 재고 입출고, 파일 업로드, 송장 정정, 정산계좌 등록 D-199). 갱신은 D-XX 박제와 함께. */
     private static final List<String> ALLOWED_SELLER_WRITE_MAPPINGS = List.of(
             "DELETE /api/v1/seller/products/{productId}/images/{imageId}",
             "PATCH /api/v1/seller/deliveries/{deliveryPublicId}/tracking",
             "PATCH /api/v1/seller/products/{productId}/images/reorder",
             "PATCH /api/v1/seller/products/{productId}/images/{imageId}/main",
+            "POST /api/v1/seller/bank-accounts",
             "POST /api/v1/seller/files/images",
             "POST /api/v1/seller/inventories/{variantPublicId}/mark-inbound",
             "POST /api/v1/seller/inventories/{variantPublicId}/mark-outbound",
@@ -45,7 +46,7 @@ class SellerWriteMappingRegistryTest extends AbstractIntegrationTest {
     private RequestMappingHandlerMapping requestMappingHandlerMapping;
 
     @Test
-    @DisplayName("/api/v1/seller/** POST·PUT·PATCH·DELETE 매핑 집합 = 허용 목록 12건과 정확히 일치(신규 셀러 쓰기는 RED)")
+    @DisplayName("/api/v1/seller/** POST·PUT·PATCH·DELETE 매핑 집합 = 허용 목록 13건과 정확히 일치(신규 셀러 쓰기는 RED)")
     void sellerWriteMappings_matchAllowedListExactly() {
         Set<String> actual = new TreeSet<>();
         for (Map.Entry<RequestMappingInfo, HandlerMethod> entry : requestMappingHandlerMapping.getHandlerMethods().entrySet()) {

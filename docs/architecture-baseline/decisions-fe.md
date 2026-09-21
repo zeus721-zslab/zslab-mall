@@ -2174,3 +2174,32 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 - **D-189 Javadoc 불일치**: `AdminMemberProvisioningService.java:38-39` "구매자 FE의 비밀번호 변경 화면이 유일한 변경 경로"는 본 트랙 후 사실과 다르다(셀러 폼 추가). BUYER 동시 부여 결정 자체(회원 목록·탈퇴·재발급이 BUYER 기준)는 유효 — 문구 수정은 별건.
 - 90-D-3: 계좌 화면 + 사이드바 "설정" 그룹 승격(비밀번호 변경·계좌).
 - 대시보드 최근 클레임·처리 대기 클레임 칸 링크(FE-47 이월)·회수 송장 표시(D-195 §8) — FE-49 §8 그대로.
+
+## FE-51: 셀러 정산계좌 화면·설정 그룹 승격·은행 상수 공용화 (Track 90-D-3) (2026-09-21)
+
+배경: D-199(셀러 본인 등록 `GET/POST /api/v1/seller/bank-accounts`·SELLER_OWNER 한정 쓰기)의 셀러 화면. 정찰(recon-report-account §F) 실측: 사이드바 마지막 항목은 단일 링크 "비밀번호 변경"(FE-50 예고대로 그룹 승격 대상)·`GROUP_BADGES['설정']` 아이콘 기존 · 셀러 FE 역할은 `useSellerMe().me.roleCode`(useState 공유·소비처 상단바 1곳) · 은행 옵션·형식 한도 상수는 admin 레이어 한정(`ADMIN_BANK_OPTIONS`)인데 셀러 레이어는 `no-admin-import.spec`으로 admin import 0건 강제.
+
+결정:
+- **은행 상수 공용 이동**: `app/lib/constants/bank.ts`(`BANK_OPTIONS`·`BANK_CODE_MAX`·`ACCOUNT_NUMBER_MIN/MAX`·`ACCOUNT_HOLDER_MAX`·`ACCOUNT_NUMBER_PATTERN`·`bankLabel`) 신설. admin `constants/admin-seller.ts`는 기존 `ADMIN_*` 이름으로 **re-export만**(관리자 코드·spec 무수정·admin → `~/lib` 방향 import는 기존 관례).
+- **사이드바 "설정" 그룹 승격**(`seller-menu.ts`): `{ label: '설정', children: [비밀번호 변경 → /seller/settings/password, 정산계좌 → /seller/settings/bank-account] }`. 렌더는 `SellerSidebar` children 분기·배지 기존이라 컴포넌트 무변경. `seller-menu.spec`(라벨·경로 배열·활성 판정) · `e2e/seller-shell.spec ③`(라벨 루프에 설정·정산계좌·href 2건) 갱신.
+- **페이지 `pages/seller/settings/bank-account.vue`**: 좌 목록 카드(로딩 progress·빈 상태·에러+다시 시도·행 = `은행표시명 ···끝4자리` + 주 정산계좌 chip + 예금주·상태 라벨·등록일) / 우 등록 폼 카드는 **`roleCode === 'SELLER_OWNER'`일 때만**, 그 외 "셀러 대표(OWNER)만 등록·조회만 가능" info alert. 폼 안내 1줄 "첫 번째로 등록한 계좌가 주 정산계좌로 지정됩니다. 계좌 변경·수정은 운영자에게 문의하세요." 서버가 같은 판정(403)을 하므로 화면 분기는 안내용.
+- **폼**: v-select(은행·`BANK_OPTIONS`)·계좌번호(inputmode numeric·maxlength 30·hint)·예금주(maxlength 50). 클라 검증은 순수 함수 `lib/seller-bank-account.ts` `validateSellerBankAccountForm`(은행 필수·계좌번호 숫자/하이픈 6~30·예금주 1~50·trim) — 관리자 `admin-seller-bank-view.validateAccountNumberInput`과 같은 규칙이나 admin import 금지라 셀러 레이어 구현. 제출 본문은 trim.
+- **성공(201)**: success 토스트 "정산계좌를 등록했습니다." → 폼 초기화 → 목록 재조회(GET). **에러**: 400 `VALIDATION_FAILED` → `mapFieldErrors` 필드 매핑(없으면 계좌번호 필드) / `SELLER_OWNER_REQUIRED`(`seller-error-message.ts` 문구 추가 "정산계좌 등록은 셀러 대표(OWNER)만 할 수 있습니다.")·`SELLER_SUSPENDED`·그 외 → danger 토스트. 중복 제출은 `submitting` 가드.
+- **타입** `types/seller-bank-account.ts`(BE `SellerBankAccountResponse` 1:1·`accountNumber` 필드 없음) · composable `useSellerBankAccounts`(list·register·상태는 호출부 소유).
+- **관리자 정산 지급 화면 계좌 표시**: 이미 있음(Track 85·`admin/settlements/[id].vue` 정산계좌 카드) → 무변경.
+
+### §1-A 갈림길·채택/기각 근거
+- **은행 상수 — α 공용 `app/lib/constants/bank.ts` + admin re-export 【채택】 / β 셀러 레이어 사본 【기각: 목록 21행 이중 관리·추가 시 동기화 누락】**.
+- **역할 분기 데이터 — α `useSellerMe().me.roleCode` 기존 공유 상태 【채택】 / β 계좌 목록 응답에 `canRegister` 같은 권한 플래그 【기각: BE 응답 확장·me가 이미 역할을 싣고 있음】**.
+- **폼 노출 — α 비OWNER는 폼 대신 안내 alert 【채택】 / β 폼 표시 + 제출 시 403 토스트 【기각: 등록할 수 없는 폼을 보이면 입력 후 거부되는 경로만 남김】**. 403은 역할 변경 직후 화면 잔존 케이스로 토스트 처리 유지.
+
+### §2 확정 구현 규칙·트랩
+- vitest `test/seller/seller-bank-account-page.spec.ts` 13: 순수 함수 3(유효·경계·trim / 필드별 오류 / 표기·목록 밖 코드) + 페이지 10(OWNER 폼·안내·GET 1회 / MANAGER·STAFF 폼 없음·안내 / 빈 상태·2행·chip 1·마스킹·전체 번호 없음 / 목록 실패·다시 시도 / 검증 실패 미호출 / 201 trim 본문·토스트·재조회·초기화 / 중복 제출 1회 / 400 fieldErrors / 403 OWNER_REQUIRED·SUSPENDED 토스트). v-select는 `findComponent({ name: 'VSelect' }).setValue`.
+- Playwright `e2e/seller-bank-account.spec.ts` 2: ① 실 me·실 GET(로그인 셀러 실제 목록 또는 빈 상태·전체 계좌번호 프로퍼티 부재·사이드바 활성·roleCode 대조 폼/안내) ② STAFF me mock + 목록 mock 2건(폼 없음·안내·chip 1·은행 표시명). **POST는 실행하지 않는다**(실 DB 누적·BE IT가 커버).
+- **트랩(재확인)**: 신규 페이지 파일은 dev 서버 재시작 전 404(`seller-bank-account` testid 미발견) → `docker restart zslab_mall_frontend` 후 통과(89-A 신규 파일 트랩 동일). 브랜치 BE 변경은 `docker restart zslab_mall_backend`(헬스 폴링 ~2분) 후 gateway 경유 401 확인.
+- 검증(실측·컨테이너): typecheck EXIT 0 · vitest 84파일 **561**(548 + 13) · no-admin-import 통과 · Playwright 3역할 env 98건: 콜드 85/98(기존 콜드 트랩) → 웜 96/98(admin-operators ①·admin-deliveries ① 플레이크·기존) → 웜 **98/98**(seller-bank-account 2·seller-shell 갱신 포함·2 skip = seller-password 전용 env 미주입) · 재시작 직후 픽셀 track90d3 12장 track93-main 대비 **diff 0** · layers/admin diff = `admin-seller.ts` re-export 교체만(+10/−32) · 수동 스크린샷 `playwright-report/step783-manual/`(셀러 계좌 페이지·관리자 셀러 상세 계좌 카드·관리자 정산 상세 계좌).
+- 신규 의존성: 없음. `@mdi/js` `mdiBankOutline`·`mdiStar` 기존 패키지.
+
+### §8 이월
+- 셀러 계좌 페이지에서 정산 상세로의 링크·정산 상세 계좌 카드에서 계좌 페이지 링크(요구 없음).
+- 대시보드 최근 클레임·처리 대기 클레임 칸 링크(FE-47 이월)·회수 송장 표시(D-195 §8) — FE-50 §8 그대로.

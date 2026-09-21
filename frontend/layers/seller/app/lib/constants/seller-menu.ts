@@ -1,7 +1,7 @@
 /**
  * 셀러 사이드바 메뉴 단일 소스(Track 90-A). 순서는 확정 사양 고정(대시보드 → 주문 → 상품 → 통계 → 정산 → 설정).
- * `to`가 있는 항목만 pages/seller/** 와 1:1이며(90-B-3: 대시보드·주문·배송·정산 / 90-C-3: 상품·재고 / 90-D-1: 클레임 / 90-D-2: 비밀번호 변경), 화면이 아직 없는 항목(통계 90-E)은 `to` 없이 비활성으로 표시한다 — 라우트를 미리 만들지 않는다.
- * 마지막 항목은 90-D-2에서 단일 링크 "비밀번호 변경"이며, 계좌 화면이 들어오는 90-D-3에서 "설정" 그룹(children)으로 승격한다(FE-50).
+ * `to`가 있는 항목만 pages/seller/** 와 1:1이며(90-B-3: 대시보드·주문·배송·정산 / 90-C-3: 상품·재고 / 90-D-1: 클레임 / 90-D-2: 비밀번호 변경 / 90-D-3: 정산계좌), 화면이 아직 없는 항목(통계 90-E)은 `to` 없이 비활성으로 표시한다 — 라우트를 미리 만들지 않는다.
+ * 마지막 항목 "설정"은 90-D-2까지 단일 링크 "비밀번호 변경"이었고, 계좌 화면이 들어온 90-D-3에서 그룹(children: 비밀번호 변경·정산계좌)으로 승격했다(FE-50·FE-51).
  * 재고(/seller/products/inventory)는 상품(/seller/products)의 하위 경로지만 resolveActiveSellerMenuPath가 정확 일치를 우선하므로 재고만 활성된다.
  */
 export interface SellerMenuItem {
@@ -32,7 +32,10 @@ export const SELLER_MENU: SellerMenuGroup[] = [
     children: [{ label: '매출' }, { label: '주문·클레임' }, { label: '상품' }],
   },
   { label: '정산', to: '/seller/settlements' },
-  { label: '비밀번호 변경', to: '/seller/settings/password' },
+  {
+    label: '설정',
+    children: [{ label: '비밀번호 변경', to: '/seller/settings/password' }, { label: '정산계좌', to: '/seller/settings/bank-account' }],
+  },
 ]
 
 /**

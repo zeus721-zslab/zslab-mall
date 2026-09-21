@@ -54,6 +54,7 @@ import com.zslab.mall.seller.exception.SellerLastOwnerException;
 import com.zslab.mall.seller.exception.SellerMemberInvalidStateException;
 import com.zslab.mall.seller.exception.SellerMemberNotFoundException;
 import com.zslab.mall.seller.exception.SellerNotFoundException;
+import com.zslab.mall.seller.exception.SellerOwnerRequiredException;
 import com.zslab.mall.seller.exception.SellerUserAlreadyExistsException;
 import com.zslab.mall.settlement.exception.SettlementAlreadyExistsException;
 import com.zslab.mall.settlement.exception.SettlementBankAccountMissingException;
@@ -154,6 +155,7 @@ public class GlobalExceptionHandler {
     private static final String CODE_SELLER_LAST_OWNER = "SELLER_LAST_OWNER";
     private static final String CODE_SELLER_MEMBER_INVALID_STATE = "SELLER_MEMBER_INVALID_STATE";
     private static final String CODE_SELLER_SUSPENDED = "SELLER_SUSPENDED";
+    private static final String CODE_SELLER_OWNER_REQUIRED = "SELLER_OWNER_REQUIRED";
     private static final String CODE_FILE_NOT_FOUND = "FILE_NOT_FOUND";
     private static final String CODE_PAYLOAD_TOO_LARGE = "PAYLOAD_TOO_LARGE";
     private static final String CODE_FORBIDDEN = "FORBIDDEN";
@@ -246,6 +248,15 @@ public class GlobalExceptionHandler {
         // 아니라 인가 거부(403)로 응답한다. 전용 코드로 FORBIDDEN 범용 코드와 구분해 FE가 정지 안내를 분기할 수 있게 한다.
         log.warn("[Seller] 정지 셀러 쓰기 차단(403): {}", exception.getMessage());
         return build(HttpStatus.FORBIDDEN, CODE_SELLER_SUSPENDED, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(SellerOwnerRequiredException.class)
+    public ResponseEntity<ProblemDetail> handleSellerOwnerRequired(
+            SellerOwnerRequiredException exception, HttpServletRequest request) {
+        // Track 90-D-3: SELLER_OWNER 한정 쓰기를 MANAGER·STAFF가 호출. 세션은 유효하고 역할상 해당 행위만 금지라 SELLER_SUSPENDED와
+        // 같은 403이며, 전용 코드로 FE가 "대표만 가능" 안내를 분기한다.
+        log.warn("[Seller] OWNER 한정 쓰기 차단(403): {}", exception.getMessage());
+        return build(HttpStatus.FORBIDDEN, CODE_SELLER_OWNER_REQUIRED, exception.getMessage(), request);
     }
 
     // ===== 404 =====

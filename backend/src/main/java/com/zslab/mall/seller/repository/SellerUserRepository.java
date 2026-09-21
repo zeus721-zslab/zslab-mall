@@ -63,4 +63,13 @@ public interface SellerUserRepository extends JpaRepository<SellerUser, Long> {
     @Query("SELECT su.userId FROM SellerUser su, Role r WHERE su.seller.id = :sellerId AND su.roleId = r.id "
             + "AND r.code = :roleCode ORDER BY su.id")
     List<Long> findUserIdsBySellerIdAndRoleCode(@Param("sellerId") Long sellerId, @Param("roleCode") RoleCode roleCode);
+
+    /**
+     * user가 seller의 특정 역할 구성원인지(Track 90-D-3 SELLER_OWNER 한정 쓰기 가드). JWT는 coarse SELLER만 실으므로 세분 역할은 요청마다
+     * 여기서 판정한다. {@link #findUserIdsBySellerIdAndRoleCode}와 같은 theta-join. 모든 변수는 바인딩만 사용하며 SQL injection 위험이 없다.
+     */
+    @Query("SELECT COUNT(su) > 0 FROM SellerUser su, Role r WHERE su.seller.id = :sellerId AND su.userId = :userId "
+            + "AND su.roleId = r.id AND r.code = :roleCode")
+    boolean existsBySellerIdAndUserIdAndRoleCode(
+            @Param("sellerId") Long sellerId, @Param("userId") Long userId, @Param("roleCode") RoleCode roleCode);
 }
