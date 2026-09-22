@@ -118,6 +118,25 @@ class AdminGradeControllerIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("⑤ 일괄 배치 탈퇴 제외(Track 96-6): 탈퇴 buyer는 total 미포함·등급 무변경, 활성 buyer만 반영")
+    void recalculateAll_excludesWithdrawn() throws Exception {
+        seedUser(95101L, pid("usr_", "GRDWDR"));
+        jdbc.update("UPDATE `user` SET withdrawn_at = NOW(6) WHERE id = ?", 95101L);
+        seedBuyerWithConfirmed(95101L, 96101L, silverId, GradeSource.EVENT, null, 2_000_000L); // 탈퇴 → 제외
+        seedUser(95102L, pid("usr_", "GRDACT"));
+        seedBuyerWithConfirmed(95102L, 96102L, silverId, GradeSource.EVENT, null, 2_000_000L); // → PLATINUM
+
+        mockMvc.perform(post(BATCH_URL).headers(authHeaders.admin(ADMIN_ID)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.success").value(1))
+                .andExpect(jsonPath("$.failure").value(0));
+
+        assertGrade(95101L, silverId, "EVENT");
+        assertGrade(95102L, platinumId, "AUTO");
+    }
+
+    @Test
     @DisplayName("④ 권한: 비ADMIN(BUYER) 토큰 → 배치·단일 모두 403")
     void nonAdmin_returns403() throws Exception {
         mockMvc.perform(post(BATCH_URL).headers(authHeaders.buyer(BUYER_TOKEN_ID)))
