@@ -1,5 +1,9 @@
 package com.zslab.mall.inventory.service;
 
+import com.zslab.mall.audit.enums.AuditLogAction;
+import com.zslab.mall.audit.service.AuditContext;
+import com.zslab.mall.audit.service.AuditRecorder;
+import com.zslab.mall.common.enums.PolymorphicTargetType;
 import com.zslab.mall.inventory.entity.Inventory;
 import com.zslab.mall.inventory.entity.InventoryHistory;
 import com.zslab.mall.inventory.enums.InventoryHistoryChangeType;
@@ -11,6 +15,7 @@ import com.zslab.mall.product.entity.ProductVariant;
 import com.zslab.mall.product.exception.ProductVariantNotFoundException;
 import com.zslab.mall.product.repository.ProductRepository;
 import com.zslab.mall.product.repository.ProductVariantRepository;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,6 +37,7 @@ public class InventoryService {
     private final InventoryHistoryRepository inventoryHistoryRepository;
     private final ProductRepository productRepository;
     private final ProductVariantRepository productVariantRepository;
+    private final AuditRecorder auditRecorder;
 
     /**
      * 상품 등록 시 variant의 초기 재고 행을 생성한다(Track 39 provisioning·생성 전용 진입점·기존 adjust/reserve 계열과 분리).
@@ -132,13 +138,28 @@ public class InventoryService {
      * @throws InventoryInvariantViolationException Inventory 미존재 또는 조정 결과 불변조건(INV-1·INV-4) 위반 시
      * @throws IllegalArgumentException quantityDelta가 0일 때
      */
-    public Inventory adjustStock(Long variantId, int quantityDelta, String reason) {
+    public Inventory adjustStock(Long variantId, int quantityDelta, String reason, AuditContext auditContext) {
         Inventory inventory = inventoryRepository.findByVariantIdForUpdate(variantId)
                 .orElseThrow(() -> new InventoryInvariantViolationException("Inventory 미존재: variantId=" + variantId));
+        int beforeOnHand = inventory.getQuantityOnHand();
         inventory.adjustStock(quantityDelta);
         inventoryHistoryRepository.save(
                 InventoryHistory.create(inventory, InventoryHistoryChangeType.ADJUST, quantityDelta, "admin", null, reason));
+        recordAdjustAudit(auditContext, inventory, beforeOnHand, quantityDelta, reason);
         return inventory;
+    }
+
+    /**
+     * 재고 증감을 감사 로그로 남긴다(Track 101-A). {@code inventory_history}가 이미 사유를 남기지만 행위자(actor_user_id)는
+     * 기록하지 않아 "누가 조정했는지"를 추적할 수 없었다(정찰 라운드 3 §2-4). history는 그대로 두고 감사 1행을 더한다.
+     *
+     * <p>delta=0은 도메인이 먼저 거부하므로 여기까지 오면 항상 on_hand가 바뀌어 빈 diff skip에 걸리지 않는다.
+     */
+    private void recordAdjustAudit(AuditContext auditContext, Inventory inventory, int beforeOnHand,
+            int quantityDelta, String reason) {
+        auditRecorder.record(auditContext, AuditLogAction.UPDATE, PolymorphicTargetType.INVENTORY, inventory.getId(),
+                Map.of("quantityOnHand", beforeOnHand),
+                Map.of("quantityOnHand", inventory.getQuantityOnHand(), "quantityDelta", quantityDelta, "reason", reason));
     }
 
     /**
@@ -153,16 +174,19 @@ public class InventoryService {
      * @throws ProductVariantNotFoundException 변형 미존재 또는 타 seller 소유일 때(→404·존재 은닉)
      * @throws InventoryInvariantViolationException Inventory 미존재 또는 조정 결과 불변조건(INV-1·INV-4) 위반 시(→422)
      */
-    public Inventory markInboundBySeller(Long sellerId, Long variantId, int qty, String reason) {
+    public Inventory markInboundBySeller(Long sellerId, Long variantId, int qty, String reason,
+            AuditContext auditContext) {
         if (qty <= 0) {
             throw new IllegalArgumentException("markInboundBySeller: qty는 양수여야 합니다. qty=" + qty);
         }
         authorizeSellerAccess(sellerId, variantId);
         Inventory inventory = inventoryRepository.findByVariantIdForUpdate(variantId)
                 .orElseThrow(() -> new InventoryInvariantViolationException("Inventory 미존재: variantId=" + variantId));
+        int beforeOnHand = inventory.getQuantityOnHand();
         inventory.adjustStock(qty);
         inventoryHistoryRepository.save(
                 InventoryHistory.create(inventory, InventoryHistoryChangeType.INBOUND, qty, "seller", sellerId, reason));
+        recordAdjustAudit(auditContext, inventory, beforeOnHand, qty, reason);
         return inventory;
     }
 
@@ -176,16 +200,19 @@ public class InventoryService {
      * @throws ProductVariantNotFoundException 변형 미존재 또는 타 seller 소유일 때(→404·존재 은닉)
      * @throws InventoryInvariantViolationException Inventory 미존재 또는 조정 결과 불변조건(INV-1·INV-4) 위반 시(→422)
      */
-    public Inventory markOutboundBySeller(Long sellerId, Long variantId, int qty, String reason) {
+    public Inventory markOutboundBySeller(Long sellerId, Long variantId, int qty, String reason,
+            AuditContext auditContext) {
         if (qty <= 0) {
             throw new IllegalArgumentException("markOutboundBySeller: qty는 양수여야 합니다. qty=" + qty);
         }
         authorizeSellerAccess(sellerId, variantId);
         Inventory inventory = inventoryRepository.findByVariantIdForUpdate(variantId)
                 .orElseThrow(() -> new InventoryInvariantViolationException("Inventory 미존재: variantId=" + variantId));
+        int beforeOnHand = inventory.getQuantityOnHand();
         inventory.adjustStock(-qty);
         inventoryHistoryRepository.save(
                 InventoryHistory.create(inventory, InventoryHistoryChangeType.OUTBOUND, -qty, "seller", sellerId, reason));
+        recordAdjustAudit(auditContext, inventory, beforeOnHand, -qty, reason);
         return inventory;
     }
 

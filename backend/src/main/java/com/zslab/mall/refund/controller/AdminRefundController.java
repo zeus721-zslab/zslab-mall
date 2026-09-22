@@ -3,6 +3,8 @@ package com.zslab.mall.refund.controller;
 import com.zslab.mall.claim.entity.Claim;
 import com.zslab.mall.claim.exception.ClaimNotFoundException;
 import com.zslab.mall.claim.repository.ClaimRepository;
+import com.zslab.mall.audit.service.AuditContext;
+import com.zslab.mall.common.auth.ActorRoleResolver;
 import com.zslab.mall.common.auth.AdminActorResolver;
 import com.zslab.mall.refund.controller.request.AdminRefundInitiateRequest;
 import com.zslab.mall.refund.controller.response.AdminRefundInitiateResponse;
@@ -31,14 +33,17 @@ public class AdminRefundController {
     private final RefundService refundService;
     private final ClaimRepository claimRepository;
     private final AdminActorResolver adminActorResolver;
+    private final ActorRoleResolver actorRoleResolver;
 
     public AdminRefundController(
             RefundService refundService,
             ClaimRepository claimRepository,
-            AdminActorResolver adminActorResolver) {
+            AdminActorResolver adminActorResolver,
+            ActorRoleResolver actorRoleResolver) {
         this.refundService = refundService;
         this.claimRepository = claimRepository;
         this.adminActorResolver = adminActorResolver;
+        this.actorRoleResolver = actorRoleResolver;
     }
 
     /**
@@ -51,12 +56,13 @@ public class AdminRefundController {
             @PathVariable String claimPublicId,
             @RequestBody AdminRefundInitiateRequest request,
             HttpServletRequest httpRequest) {
-        // X-Admin-Id 존재·형식 검증만 수행한다(전체 접근·식별자 미사용·D-93 Q3). 누락 401·형식 오류 400.
-        adminActorResolver.resolve(httpRequest);
+        // Track 101-A: 그동안 버리던 actorId를 감사 컨텍스트로 쓴다. 누락 401·형식 오류 400은 resolver가 그대로 낸다.
+        AuditContext auditContext = AuditContext.of(
+                adminActorResolver.resolve(httpRequest), actorRoleResolver.requireCoarseRole());
         Claim claim = claimRepository.findByPublicId(claimPublicId)
                 .orElseThrow(() -> new ClaimNotFoundException("클레임을 찾을 수 없습니다: publicId=" + claimPublicId));
         // initiateByAdmin은 @Transactional 종료 후 개시된 Refund를 반환한다. 스칼라 필드만 읽으므로 OSIV off에서도 재조회 불요.
-        Refund refund = refundService.initiateByAdmin(claim.getId(), request.amount());
+        Refund refund = refundService.initiateByAdmin(claim.getId(), request.amount(), auditContext);
         return AdminRefundInitiateResponse.from(claimPublicId, refund);
     }
 }

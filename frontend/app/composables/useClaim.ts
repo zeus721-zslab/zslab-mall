@@ -105,5 +105,17 @@ export function useClaim() {
     })
   }
 
-  return { requestClaim, uploadAttachments, registerReturnShipment }
+  /**
+   * 클레임 신청 취소(POST /api/v1/claims/{id}/cancel·Track 101-A). 접수(REQUESTED) 상태의 본인 요청만 취소된다.
+   * 404(타인·미존재)·422(승인 이후 등 상태 위반)·401은 throw해 호출부가 타입별로 처리한다(registerReturnShipment 패턴).
+   */
+  function cancelClaim(claimPublicId: string): Promise<ClaimResponse> {
+    return $fetch<ClaimResponse>(`/v1/claims/${claimPublicId}/cancel`, {
+      baseURL: resolveApiBase(),
+      method: 'POST',
+      headers: { Authorization: `Bearer ${auth.token}` },
+    })
+  }
+
+  return { requestClaim, uploadAttachments, registerReturnShipment, cancelClaim }
 }

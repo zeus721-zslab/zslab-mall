@@ -4,6 +4,9 @@ import com.zslab.mall.claim.controller.request.ClaimRequestCommand;
 import com.zslab.mall.claim.controller.response.ClaimResponse;
 import com.zslab.mall.claim.controller.response.ClaimSummaryResponse;
 import com.zslab.mall.attachment.entity.Attachment;
+import com.zslab.mall.audit.enums.AuditLogAction;
+import com.zslab.mall.audit.service.AuditContext;
+import com.zslab.mall.audit.service.AuditRecorder;
 import com.zslab.mall.claim.entity.Claim;
 import com.zslab.mall.claim.enums.ClaimInspectionResult;
 import com.zslab.mall.claim.enums.ClaimReasonCode;
@@ -19,6 +22,7 @@ import com.zslab.mall.claim.event.ClaimRequested;
 import com.zslab.mall.claim.exception.ClaimInvalidStateException;
 import com.zslab.mall.claim.exception.ClaimNotFoundException;
 import com.zslab.mall.claim.repository.ClaimRepository;
+import com.zslab.mall.common.enums.PolymorphicTargetType;
 import com.zslab.mall.common.exception.MalformedRequestException;
 import com.zslab.mall.common.observability.TracedEventPublisher;
 import com.zslab.mall.delivery.entity.Delivery;
@@ -39,6 +43,7 @@ import com.zslab.mall.refund.repository.RefundRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -84,6 +89,7 @@ public class ClaimService {
     private final ClaimAttachmentService claimAttachmentService;
     private final ClaimExchangeService claimExchangeService;
     private final EntityManager entityManager;
+    private final AuditRecorder auditRecorder;
 
     public ClaimService(
             ClaimRepository claimRepository,
@@ -96,7 +102,8 @@ public class ClaimService {
             ReturnWindowPolicy returnWindowPolicy,
             ClaimAttachmentService claimAttachmentService,
             ClaimExchangeService claimExchangeService,
-            EntityManager entityManager) {
+            EntityManager entityManager,
+            AuditRecorder auditRecorder) {
         this.claimRepository = claimRepository;
         this.orderItemRepository = orderItemRepository;
         this.orderRepository = orderRepository;
@@ -108,6 +115,7 @@ public class ClaimService {
         this.claimAttachmentService = claimAttachmentService;
         this.claimExchangeService = claimExchangeService;
         this.entityManager = entityManager;
+        this.auditRecorder = auditRecorder;
     }
 
     /**
@@ -320,7 +328,16 @@ public class ClaimService {
      * @throws IllegalArgumentException   거부 사유 누락·유형 부적합·메모 500자 초과
      */
     public void reject(Long claimId, ClaimRejectReasonCode reasonCode, String memo, LocalDateTime processedAt) {
-        Claim claim = findClaim(claimId);
+        applyReject(findClaim(claimId), reasonCode, memo, processedAt);
+    }
+
+    /**
+     * 이미 로딩된 Claim에 거부 전이를 적용한다(Track 101-A 외부 검토 반영). 호출자가 <b>행 락을 잡고 읽은</b> 엔티티를
+     * 그대로 넘길 수 있게 분리했다 — {@link #reject}를 쓰면 같은 트랜잭션에서 클레임을 두 번 읽게 되고, 락 조회가 앞섰더라도
+     * 두 번째 읽기가 1차 캐시를 타 판정과 전이가 서로 다른 인스턴스를 보는 것처럼 읽힌다(의도 불명확).
+     * 전이·저장·이벤트 발행 순서는 {@link #reject}와 동일하다.
+     */
+    private void applyReject(Claim claim, ClaimRejectReasonCode reasonCode, String memo, LocalDateTime processedAt) {
         claim.reject(reasonCode, memo, processedAt);
         claimRepository.save(claim);
         eventPublisher.publishEvent(new ClaimRejected(
@@ -336,12 +353,78 @@ public class ClaimService {
      * @throws ClaimInvalidStateException type != RETURN·APPROVED 아님·이미 회수 확인됨·회수 송장 중복(422)
      */
     public Delivery registerReturnShipmentByBuyer(String claimPublicId, Long buyerId, DeliveryCarrier carrier, String trackingNo) {
-        Claim claim = claimRepository.findByPublicId(claimPublicId)
-                .orElseThrow(() -> new ClaimNotFoundException("클레임을 찾을 수 없습니다: " + claimPublicId));
-        Long claimId = claim.getId();
+        Claim claim = findClaimByPublicIdForUpdate(claimPublicId);
         if (!buyerId.equals(claim.getRequestedBy())) {
             throw new ClaimNotFoundException("클레임을 찾을 수 없습니다: " + claimPublicId);
         }
+        return registerReturnShipment(claim, carrier, trackingNo);
+    }
+
+    /**
+     * 구매자 클레임 신청 취소(Track 101-A). 접수(REQUESTED) 상태의 자기 요청만 취소할 수 있다 — 승인 뒤에는 환불·회수가
+     * 이미 움직이기 시작하므로 운영자 판단이 필요하다(422).
+     *
+     * <p><b>기존 거부 흐름 재사용</b>: 상태 전이·품목 스냅샷 원복·주문 상태 재계산이 관리자 거부와 완전히 같은 일이라
+     * {@link #reject}를 그대로 호출한다(사유 {@code BUYER_WITHDRAWN} = "구매자 철회"·기존 enum·DDL 무변경).
+     * 따라서 {@code ClaimRejectedHandler}가 품목을 {@code previous_order_item_status}로 되돌리고
+     * {@code OrderService.recalculateStatus}로 주문 상태를 다시 계산하는 경로를 그대로 탄다.
+     *
+     * <p>소유 위반·미존재는 404로 은닉한다(정보 노출 회피·Q8·구매자 조회 규약과 동일).
+     *
+     * <p><b>동시성(Track 101-A 외부 검토 반영)</b>: 클레임 행을 이 트랜잭션의 첫 읽기부터 잠근다. {@code @Version}만으로는
+     * 늦은 쪽이 <b>커밋 시점에</b> 걸러질 뿐이라, 그 전에 두 요청이 모두 "취소 가능"으로 판정하고 각자 {@code ClaimRejected}를
+     * 발행해 품목 원복·알림이 두 번 일어날 수 있다. 락으로 직렬화하면 늦은 쪽은 앞선 전이가 커밋된 뒤에 읽어 상태 가드에서 422로 걸린다.
+     *
+     * @throws ClaimNotFoundException     클레임이 없거나 요청자가 아닌 경우
+     * @throws ClaimInvalidStateException REQUESTED가 아닌 경우(422)
+     */
+    public void cancelByBuyer(String claimPublicId, Long buyerId, LocalDateTime processedAt) {
+        Claim claim = findClaimByPublicIdForUpdate(claimPublicId);
+        if (!buyerId.equals(claim.getRequestedBy())) {
+            throw new ClaimNotFoundException("클레임을 찾을 수 없습니다: " + claimPublicId);
+        }
+        if (claim.getStatus() != ClaimStatus.REQUESTED) {
+            throw new ClaimInvalidStateException(
+                    "접수 상태의 요청만 취소할 수 있습니다. 이미 처리가 시작된 요청은 고객센터로 문의해 주세요: " + claim.getStatus());
+        }
+        // 잠긴 엔티티를 그대로 전이시킨다 — id로 다시 읽지 않는다(판정과 전이가 같은 인스턴스를 본다).
+        applyReject(claim, ClaimRejectReasonCode.BUYER_WITHDRAWN, null, processedAt);
+    }
+
+    /**
+     * 운영자 회수 송장 대행 등록(Track 101-A). 구매자가 회수 송장을 올리지 않으면 관리자는 회수 확인·검수로 넘어갈 수 없고
+     * 독촉 수단도 없어 클레임이 그대로 멈춰 있었다(정찰 라운드 3 §3-1). 전화로 받은 송장번호를 운영자가 대신 넣어 흐름을 잇는다.
+     *
+     * <p>구매자 경로({@link #registerReturnShipmentByBuyer})와 <b>같은 도메인 경로</b>({@link #registerReturnShipment})를 쓰므로
+     * 생성되는 RETURN Delivery·구매자 화면 표시·이후 회수 확인 동작이 모두 동일하다. 관리자는 전체 접근이라 소유 검증 단락만 없다
+     * (D-93 Q3). 중복 등록은 {@code DeliveryService.registerReturnShipment}가 422로 막는다.
+     *
+     * <p>대행 등록임을 감사에 남긴다 — 구매자가 직접 올린 송장과 운영자가 대신 넣은 송장은 분쟁 시 의미가 달라진다.
+     *
+     * @throws ClaimNotFoundException     클레임이 없는 경우
+     * @throws ClaimInvalidStateException type이 RETURN·EXCHANGE가 아님·APPROVED 아님·이미 회수 확인됨·회수 송장 중복(422)
+     */
+    public Delivery registerReturnShipmentByAdmin(String claimPublicId, DeliveryCarrier carrier, String trackingNo,
+            AuditContext auditContext) {
+        Claim claim = findClaimByPublicIdForUpdate(claimPublicId);
+        Delivery delivery = registerReturnShipment(claim, carrier, trackingNo);
+        auditRecorder.record(auditContext, AuditLogAction.CREATE, PolymorphicTargetType.DELIVERY, delivery.getId(),
+                Map.of(),
+                Map.of("claimId", claim.getId(), "direction", delivery.getDirection().name(),
+                        "carrier", carrier.name(), "trackingNo", trackingNo, "registeredOnBehalfOfBuyer", true));
+        return delivery;
+    }
+
+    /**
+     * 회수 송장 등록 primitive(actor 비의존·D-92). 유형·상태·회수 확인 여부를 가드한 뒤 Delivery 생성을 위임한다.
+     * 소유 검증은 액터별 wrapper 책임이다.
+     *
+     * <p><b>전제(Track 101-A 외부 검토 반영)</b>: 호출자는 {@link #findClaimByPublicIdForUpdate}로 <b>클레임 행을 잠근 뒤</b>
+     * 이 메서드를 부른다. 중복 등록 가드는 {@code delivery} 행을 세는데 그 행에는 유니크 제약이 없어, 클레임을 잠그지 않으면
+     * 구매자와 관리자가 동시에 들어와 둘 다 "회수 송장 없음"으로 판정하고 RETURN Delivery를 2건 만들 수 있다.
+     * 클레임 행이 직렬화 지점이다.
+     */
+    private Delivery registerReturnShipment(Claim claim, DeliveryCarrier carrier, String trackingNo) {
         if (!claim.getType().isPickupBased()) {
             throw new ClaimInvalidStateException("회수 송장은 RETURN·EXCHANGE 클레임에만 등록할 수 있습니다: type=" + claim.getType());
         }
@@ -349,9 +432,19 @@ public class ClaimService {
             throw new ClaimInvalidStateException("승인된 반품·교환만 회수 송장을 등록할 수 있습니다: " + claim.getStatus());
         }
         if (claim.getPickedUpAt() != null) {
-            throw new ClaimInvalidStateException("이미 회수 확인된 반품입니다: claimId=" + claimId);
+            throw new ClaimInvalidStateException("이미 회수 확인된 반품입니다: claimId=" + claim.getId());
         }
         return deliveryService.registerReturnShipment(claim, carrier, trackingNo);
+    }
+
+    /**
+     * publicId로 클레임을 <b>행 락과 함께</b> 읽는다(Track 101-A 외부 검토 반영). 상태를 읽고 그 판정으로 전이까지 가는
+     * 구매자·관리자 진입점(취소·회수 송장 등록)이 쓴다. 이 트랜잭션의 첫 읽기여야 한다 — 먼저 락 없이 읽으면 1차 캐시가
+     * 옛 인스턴스를 돌려준다({@code ClaimRepository.findWithLockByPublicId} 규약).
+     */
+    private Claim findClaimByPublicIdForUpdate(String claimPublicId) {
+        return claimRepository.findWithLockByPublicId(claimPublicId)
+                .orElseThrow(() -> new ClaimNotFoundException("클레임을 찾을 수 없습니다: " + claimPublicId));
     }
 
     /**
@@ -367,8 +460,12 @@ public class ClaimService {
      * @throws ClaimNotFoundException     클레임이 없는 경우
      * @throws ClaimInvalidStateException 상태가 REQUESTED가 아닌 경우(CLM-4)
      */
-    public void approveByAdmin(Long claimId, LocalDateTime processedAt, Long refundAmount) {
+    public void approveByAdmin(Long claimId, LocalDateTime processedAt, Long refundAmount, AuditContext auditContext) {
+        ClaimStatus before = findClaim(claimId).getStatus();
         approve(claimId, processedAt, refundAmount);
+        recordClaimAudit(auditContext, AuditLogAction.APPROVE, claimId,
+                Map.of("status", before.name()),
+                Map.of("status", findClaim(claimId).getStatus().name()));
     }
 
     /**
@@ -383,8 +480,17 @@ public class ClaimService {
      * @throws ClaimNotFoundException     클레임이 없는 경우
      * @throws ClaimInvalidStateException 상태가 REQUESTED가 아닌 경우(CLM-4)
      */
-    public void rejectByAdmin(Long claimId, ClaimRejectReasonCode reasonCode, String memo, LocalDateTime processedAt) {
+    public void rejectByAdmin(Long claimId, ClaimRejectReasonCode reasonCode, String memo, LocalDateTime processedAt,
+            AuditContext auditContext) {
+        ClaimStatus before = findClaim(claimId).getStatus();
         reject(claimId, reasonCode, memo, processedAt);
+        Map<String, Object> after = new LinkedHashMap<>();
+        after.put("status", findClaim(claimId).getStatus().name());
+        after.put("rejectReasonCode", reasonCode.name());
+        if (memo != null && !memo.isBlank()) {
+            after.put("rejectMemo", memo);
+        }
+        recordClaimAudit(auditContext, AuditLogAction.REJECT, claimId, Map.of("status", before.name()), after);
     }
 
     /**
@@ -520,8 +626,12 @@ public class ClaimService {
      * @throws ClaimNotFoundException     클레임이 없는 경우
      * @throws ClaimInvalidStateException APPROVED가 아닌 경우(CLM-4)
      */
-    public void confirmPickupByAdmin(Long claimId, LocalDateTime pickedUpAt) {
+    public void confirmPickupByAdmin(Long claimId, LocalDateTime pickedUpAt, AuditContext auditContext) {
         confirmPickup(claimId, pickedUpAt);
+        // before에 키를 두지 않으면 "값 없음"으로 diff된다. 멱등 no-op(이미 회수 확인)이면 before/after가 같아 적재가 skip된다.
+        LocalDateTime confirmed = findClaim(claimId).getPickedUpAt();
+        recordClaimAudit(auditContext, AuditLogAction.UPDATE, claimId,
+                Map.of(), Map.of("pickedUpAt", String.valueOf(confirmed)));
     }
 
     /**
@@ -571,8 +681,34 @@ public class ClaimService {
     /** Admin 액터의 반품 검수 진입점(Track 81-A·전체 접근·미존재만 404). */
     public void inspectByAdmin(Long claimId, ClaimInspectionResult result, Boolean restock,
             ClaimRejectReasonCode rejectReasonCode, String memo, DeliveryCarrier reshipCarrier, String reshipTrackingNo,
-            LocalDateTime inspectedAt) {
+            LocalDateTime inspectedAt, AuditContext auditContext) {
+        ClaimStatus before = findClaim(claimId).getStatus();
         inspect(claimId, result, restock, rejectReasonCode, memo, reshipCarrier, reshipTrackingNo, inspectedAt);
+        Claim inspected = findClaim(claimId);
+        Map<String, Object> after = new LinkedHashMap<>();
+        after.put("status", inspected.getStatus().name());
+        after.put("inspectionResult", result.name());
+        if (restock != null) {
+            after.put("restock", restock);
+        }
+        if (result == ClaimInspectionResult.FAIL) {
+            // 불합격은 재발송 송장까지 같은 조작에서 만들어지므로 함께 남긴다(추적 시 Delivery 감사와 대조).
+            after.put("reshipCarrier", reshipCarrier.name());
+            after.put("reshipTrackingNo", reshipTrackingNo);
+        }
+        recordClaimAudit(auditContext, AuditLogAction.UPDATE, claimId, Map.of("status", before.name()), after);
+    }
+
+    /**
+     * 관리자 클레임 조작을 감사 로그로 남긴다(Track 101-A). 클레임 전이는 불가역인데 그동안 행위자 기록이 없었다
+     * (정찰 라운드 3 §2-4). 전이 필드(status·pickedUpAt·inspectionResult) 중심으로 before/after를 싣고 action은
+     * 승인 APPROVE·거부 REJECT·그 외 UPDATE다(기존 AuditLogAction 재사용·DDL 무변경).
+     *
+     * <p>호출자 트랜잭션에 그대로 참여하므로 감사 적재 실패는 클레임 전이와 함께 롤백된다(AuditRecorder 규약).
+     */
+    private void recordClaimAudit(AuditContext auditContext, AuditLogAction action, Long claimId,
+            Map<String, Object> before, Map<String, Object> after) {
+        auditRecorder.record(auditContext, action, PolymorphicTargetType.CLAIM, claimId, before, after);
     }
 
     private Claim findClaim(Long claimId) {

@@ -4,6 +4,7 @@ import com.zslab.mall.audit.service.AuditContext;
 import com.zslab.mall.common.auth.ActorRoleResolver;
 import com.zslab.mall.common.auth.AdminActorResolver;
 import com.zslab.mall.product.controller.request.AdminProductSaleStatusRequest;
+import com.zslab.mall.product.controller.request.AdminProductWithdrawRejectionRequest;
 import com.zslab.mall.product.controller.response.ProductApprovalResponse;
 import com.zslab.mall.product.entity.Product;
 import com.zslab.mall.product.enums.ProductStatus;
@@ -18,8 +19,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Admin 액터용 상품 상태 전이 REST 컨트롤러(Track 50·71). 운영자가 등록(PENDING) 상품을 승인(→SALE)·거부(→REJECTED)하는
- * 전이 2 endpoint와 판매 상태 전환(SALE ↔ STOPPED) 1 endpoint를 노출한다.
+ * Admin 액터용 상품 상태 전이 REST 컨트롤러(Track 50·71·101-A). 운영자가 등록(PENDING) 상품을 승인(→SALE)·거부(→REJECTED)하는
+ * 전이 2 endpoint, 거부 철회(REJECTED → PENDING) 1 endpoint, 판매 상태 전환(SALE ↔ STOPPED) 1 endpoint를 노출한다.
  *
  * <p>클래스 레벨 base path를 두지 않고 메서드 절대경로를 부여한다({@link com.zslab.mall.settlement.controller.AdminSettlementController}
  * 선례). 인가는 SecurityConfig의 {@code /api/v1/admin/**}→{@code hasRole("ADMIN")}가 강제하므로 메서드 @PreAuthorize를
@@ -66,6 +67,17 @@ public class AdminProductController {
     @PostMapping("/api/v1/admin/products/{publicId}/reject")
     public ResponseEntity<ProductApprovalResponse> reject(@PathVariable String publicId, HttpServletRequest request) {
         Product product = productApprovalService.reject(publicId, auditContext(request));
+        return ResponseEntity.ok(ProductApprovalResponse.from(product));
+    }
+
+    /**
+     * 상품 거부 철회 전이(REJECTED → PENDING·Track 101-A). body {@code { reason }}(필수·200자). 성공 200 + 전이 후 상태.
+     * 사유 누락·초과 400·미존재 404·REJECTED 아님 422({@link ProductApprovalService}·GlobalExceptionHandler).
+     */
+    @PostMapping("/api/v1/admin/products/{publicId}/withdraw-rejection")
+    public ResponseEntity<ProductApprovalResponse> withdrawRejection(@PathVariable String publicId,
+            @Valid @RequestBody AdminProductWithdrawRejectionRequest body, HttpServletRequest request) {
+        Product product = productApprovalService.withdrawRejection(publicId, body.reason().trim(), auditContext(request));
         return ResponseEntity.ok(ProductApprovalResponse.from(product));
     }
 

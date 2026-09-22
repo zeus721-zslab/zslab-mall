@@ -53,6 +53,14 @@ export function useAdminProducts() {
     })
   }
 
+  /** 거부 철회(REJECTED → PENDING·Track 101-A). 사유 필수(감사 기록). REJECTED 아님 422·사유 누락 400은 throw. */
+  function withdrawRejection(productPublicId: string, reason: string): Promise<AdminProductStatusResponse> {
+    return api<AdminProductStatusResponse>(productPath(productPublicId, '/withdraw-rejection'), {
+      method: 'POST',
+      body: { reason },
+    })
+  }
+
   function bulkStatus(productPublicIds: string[], status: AdminProductBulkStatusTarget): Promise<AdminProductBulkResponse> {
     return api<AdminProductBulkResponse>('/v1/admin/products/bulk/status', { method: 'POST', body: { productPublicIds, status } })
   }
@@ -109,7 +117,7 @@ export function useAdminProducts() {
   }
 
   return {
-    list, setSoldOut, changeStatus, bulkStatus, bulkSoldOut, remove, sellers, categories,
+    list, setSoldOut, changeStatus, withdrawRejection, bulkStatus, bulkSoldOut, remove, sellers, categories,
     detail, create, update, replaceImages, replaceVariants, adjustStock, uploadImages,
   }
 }

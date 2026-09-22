@@ -18,6 +18,8 @@ public final class NotificationTemplateCodes {
     public static final String PICKUP_CONFIRMED = "TPL_PICKUP_CONFIRMED";
     public static final String CLAIM_REQUESTED = "TPL_CLAIM_REQUESTED";
     public static final String CLAIM_REJECTED = "TPL_CLAIM_REJECTED";
+    /** 구매자 철회(BUYER_WITHDRAWN) 사유의 클레임 종결 SMS(Track 101-A). 거부와 상태 전이는 같지만 구매자에게 읽히는 의미가 다르다. */
+    public static final String CLAIM_CANCELLED = "TPL_CLAIM_CANCELLED";
     /** 관리자 임시 비밀번호 SMS(Track 84·본문은 마스킹 저장). */
     public static final String TEMPORARY_PASSWORD = "TPL_TEMPORARY_PASSWORD";
     /** 정산 정상처리 셀러 SMS(Track 85). */

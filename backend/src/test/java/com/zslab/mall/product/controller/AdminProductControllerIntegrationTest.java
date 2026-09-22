@@ -311,6 +311,85 @@ class AdminProductControllerIntegrationTest extends AbstractIntegrationTest {
                 Long.class, PRODUCT_ID)).isZero();
     }
 
+    // ==================== Track 101-A 거부 철회 ====================
+
+    @Test
+    @DisplayName("T18 거부 철회: REJECTED 상품 + 사유 → 200·status PENDING(DB 재조회)·감사 UPDATE 1행에 사유 포함")
+    void withdrawRejection_rejected_returns200_pending() throws Exception {
+        seedProduct("REJECTED");
+
+        mockMvc.perform(post(withdrawRejectionUrl(PRODUCT_PID)).headers(authHeaders.admin(ADMIN_ID))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"반려 기준 오적용\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.productPublicId").value(PRODUCT_PID))
+                .andExpect(jsonPath("$.status").value("PENDING"));
+
+        assertThat(currentStatus()).isEqualTo("PENDING");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_log WHERE target_type = 'PRODUCT' AND target_id = ?",
+                Long.class, PRODUCT_ID)).isEqualTo(1L);
+        String diff = jdbc.queryForObject("SELECT diff_json FROM audit_log WHERE target_type = 'PRODUCT' AND target_id = ? "
+                + "ORDER BY id DESC LIMIT 1", String.class, PRODUCT_ID);
+        assertThat(diff).contains("\"before\":\"REJECTED\"").contains("\"after\":\"PENDING\"").contains("반려 기준 오적용");
+        String action = jdbc.queryForObject("SELECT action FROM audit_log WHERE target_type = 'PRODUCT' AND target_id = ? "
+                + "ORDER BY id DESC LIMIT 1", String.class, PRODUCT_ID);
+        assertThat(action).isEqualTo("UPDATE");
+    }
+
+    @Test
+    @DisplayName("T19 거부 철회 비허용 상태: PENDING 상품에 철회 → 422 PRODUCT_INVALID_STATE·status 불변·감사 0(멱등 no-op 없음)")
+    void withdrawRejection_pending_returns422() throws Exception {
+        seedProduct("PENDING");
+
+        mockMvc.perform(post(withdrawRejectionUrl(PRODUCT_PID)).headers(authHeaders.admin(ADMIN_ID))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"오조작\"}"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("PRODUCT_INVALID_STATE"));
+
+        assertThat(currentStatus()).isEqualTo("PENDING");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_log WHERE target_type = 'PRODUCT' AND target_id = ?",
+                Long.class, PRODUCT_ID)).isZero();
+    }
+
+    @Test
+    @DisplayName("T20 거부 철회 사유 누락: 빈 사유 → 400 VALIDATION_FAILED·status 불변")
+    void withdrawRejection_blankReason_returns400() throws Exception {
+        seedProduct("REJECTED");
+
+        mockMvc.perform(post(withdrawRejectionUrl(PRODUCT_PID)).headers(authHeaders.admin(ADMIN_ID))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"  \"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+
+        assertThat(currentStatus()).isEqualTo("REJECTED");
+    }
+
+    @Test
+    @DisplayName("T21 거부 철회 비ADMIN: BUYER 토큰 → 403·status 불변")
+    void withdrawRejection_nonAdmin_returns403() throws Exception {
+        seedProduct("REJECTED");
+
+        mockMvc.perform(post(withdrawRejectionUrl(PRODUCT_PID)).headers(authHeaders.buyer(BUYER_ID))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"권한 없음\"}"))
+                .andExpect(status().isForbidden());
+
+        assertThat(currentStatus()).isEqualTo("REJECTED");
+    }
+
+    @Test
+    @DisplayName("T22 거부 철회 후 재승인: REJECTED → 철회(PENDING) → 승인 200·SALE(PENDING 기존 동작 재사용 확인)")
+    void withdrawRejection_thenApprove_reachesSale() throws Exception {
+        seedProduct("REJECTED");
+
+        mockMvc.perform(post(withdrawRejectionUrl(PRODUCT_PID)).headers(authHeaders.admin(ADMIN_ID))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"재심사\"}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(post(approveUrl(PRODUCT_PID)).headers(authHeaders.admin(ADMIN_ID)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("SALE"));
+
+        assertThat(currentStatus()).isEqualTo("SALE");
+    }
+
     // ---------- seed·helpers ----------
     // 모든 시드 INSERT는 바인딩 파라미터 + 정적 SQL이다(문자열 concat 없음·SQL injection 위험 없음).
 
@@ -364,6 +443,10 @@ class AdminProductControllerIntegrationTest extends AbstractIntegrationTest {
 
     private static String saleStatusUrl(String publicId) {
         return "/api/v1/admin/products/" + publicId + "/sale-status";
+    }
+
+    private static String withdrawRejectionUrl(String publicId) {
+        return "/api/v1/admin/products/" + publicId + "/withdraw-rejection";
     }
 
     private static String pid(String prefix, String tag) {

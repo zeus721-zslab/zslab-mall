@@ -189,7 +189,7 @@ public class Product extends AbstractPublicIdSoftDeletableEntity {
     }
 
     /**
-     * 운영자 거부 전이(PENDING → REJECTED·종료 상태·재심사 없음·Track 50). 전이 합법성은 {@link ProductStatus#canTransitionTo}로
+     * 운영자 거부 전이(PENDING → REJECTED·Track 50). 전이 합법성은 {@link ProductStatus#canTransitionTo}로
      * 가드하며 위반 시 {@link IllegalStateException}을 던진다(Service가 {@code ProductInvalidStateException}(422)으로 흡수).
      *
      * @throws IllegalStateException 현재 상태에서 REJECTED 전이가 불가한 경우(PENDING 아님)
@@ -199,6 +199,20 @@ public class Product extends AbstractPublicIdSoftDeletableEntity {
             throw new IllegalStateException("불법 상품 상태 전이: " + status + " → " + ProductStatus.REJECTED);
         }
         this.status = ProductStatus.REJECTED;
+    }
+
+    /**
+     * 운영자 거부 철회 전이(REJECTED → PENDING·Track 101-A). 오거부를 되돌려 심사 대기로 돌려놓는다. 전이 합법성은
+     * {@link ProductStatus#canTransitionTo}로 가드하며 위반 시 {@link IllegalStateException}을 던진다
+     * (Service가 {@code ProductInvalidStateException}(422)으로 흡수).
+     *
+     * @throws IllegalStateException 현재 상태에서 PENDING 전이가 불가한 경우(REJECTED 아님)
+     */
+    public void withdrawRejection() {
+        if (!status.canTransitionTo(ProductStatus.PENDING)) {
+            throw new IllegalStateException("불법 상품 상태 전이: " + status + " → " + ProductStatus.PENDING);
+        }
+        this.status = ProductStatus.PENDING;
     }
 
     /**

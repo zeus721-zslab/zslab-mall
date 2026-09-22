@@ -7,6 +7,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.zslab.mall.audit.service.AuditContext;
+import com.zslab.mall.audit.service.AuditRecorder;
 import com.zslab.mall.claim.entity.Claim;
 import com.zslab.mall.claim.enums.ClaimReasonCode;
 import com.zslab.mall.claim.enums.ClaimType;
@@ -41,6 +43,7 @@ class ClaimServiceConfirmPickupTest {
     private static final LocalDateTime REQUESTED_AT = LocalDateTime.of(2026, 6, 29, 9, 0);
     private static final LocalDateTime PROCESSED_AT = LocalDateTime.of(2026, 6, 29, 10, 0);
     private static final LocalDateTime PICKED_UP_AT = LocalDateTime.of(2026, 6, 29, 11, 0);
+    private static final AuditContext AUDIT_CONTEXT = AuditContext.of(9001L, "ADMIN");
 
     @Mock
     private ClaimRepository claimRepository;
@@ -54,6 +57,9 @@ class ClaimServiceConfirmPickupTest {
     private DeliveryService deliveryService;
     @Mock
     private ClaimAttachmentService claimAttachmentService;
+    // Track 101-A: 회수 확인 감사 적재 의존.
+    @Mock
+    private AuditRecorder auditRecorder;
 
     @InjectMocks
     private ClaimService claimService;
@@ -125,7 +131,7 @@ class ClaimServiceConfirmPickupTest {
         when(claimRepository.findById(CLAIM_ID)).thenReturn(Optional.of(claim));
         when(claimRepository.save(any(Claim.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        claimService.confirmPickupByAdmin(CLAIM_ID, PICKED_UP_AT);
+        claimService.confirmPickupByAdmin(CLAIM_ID, PICKED_UP_AT, AUDIT_CONTEXT);
 
         verify(eventPublisher).publishEvent(any(ClaimPickedUp.class));
         verify(orderItemRepository, never()).findById(any());

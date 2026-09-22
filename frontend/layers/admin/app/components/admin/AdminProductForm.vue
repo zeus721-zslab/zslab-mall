@@ -11,13 +11,15 @@ import {
   ADMIN_PRODUCT_STATUS_TARGETS,
 } from '#layers/admin/app/lib/constants/product'
 import { semanticChipClass } from '#layers/admin/app/lib/constants/semantic'
-import { formSnapshot, mapFieldErrors, validateForm } from '#layers/admin/app/lib/admin-product-form'
+import { formSnapshot, mapFieldErrors, stockAdjustments, validateForm } from '#layers/admin/app/lib/admin-product-form'
 import { SAVE_STEP_LABEL, SaveStepError, saveProduct, type SaveStep } from '#layers/admin/app/lib/admin-product-save'
 import { extractErrorCode, toAdminErrorMessage } from '#layers/admin/app/lib/admin-error-message'
 import {
   ESCALATE_STOP_TITLE,
   escalateConfirmMessage,
   isEscalation,
+  isRejection,
+  rejectConfirmMessage,
   saleStopSourceAfterAdminChange,
   soldOutToggleSemantic,
   statusTargetTitle,
@@ -26,6 +28,7 @@ import {
 import { useAdminProducts } from '#layers/admin/app/composables/useAdminProducts'
 import { useAdminToast } from '#layers/admin/app/composables/useAdminToast'
 import { priceChangeMessage, priceChangeOf, priceChangeWarnings, type PriceChange } from '~/lib/utils/price-change'
+import { largeInventoryAdjustMessage, largeInventoryAdjusts, type InventoryAdjustLine } from '~/lib/utils/inventory-adjust'
 
 // 상품 폼 셸(FE-26·신규/수정 공용). 섹션 3개(기본·이미지·옵션)를 조립하고 검증→저장 오케스트레이션→토스트→복귀를 담당한다.
 // dirty = 저장 시점 스냅샷과 현재 스냅샷 비교. 라우트 이탈(onBeforeRouteLeave)과 새로고침(beforeunload) 모두 경고한다.
@@ -62,6 +65,8 @@ let savedBasePrice = form.value.basePrice
 
 // 확인 대기 중인 판매가 변동(null이면 다이얼로그 닫힘).
 const priceChange = ref<PriceChange | null>(null)
+// 확인 대기 중인 대량 재고 조정 문구(빈 문자열이면 다이얼로그 닫힘·Track 101-A).
+const largeStockMessage = ref('')
 
 const dirty = computed(() => formSnapshot(form.value) !== savedSnapshot)
 const anyUploading = computed(() => uploading.value.GALLERY || uploading.value.DETAIL)
@@ -96,12 +101,37 @@ async function save(): Promise<void> {
     priceChange.value = change
     return
   }
+  if (openLargeStockConfirm()) return
   await runSave()
 }
 
-/** 판매가 확인 후 이어서 저장한다. */
+/** 판매가 확인 후 이어서 저장한다. 대량 재고 조정이 있으면 그 확인을 한 번 더 받는다(Track 101-A). */
 async function confirmPriceChange(): Promise<void> {
   priceChange.value = null
+  if (openLargeStockConfirm()) return
+  await runSave()
+}
+
+/**
+ * 대량 재고 조정 확인(Track 101-A). 수정 모드에서 서버 재고 대비 임계 이상 변경이 있으면 다이얼로그를 열고 true를 돌려
+ * 저장을 멈춘다. 값 자체는 막지 않으며 확인 후 그대로 저장한다.
+ */
+function openLargeStockConfirm(): boolean {
+  if (props.mode !== 'edit') return false
+  const lines: InventoryAdjustLine[] = stockAdjustments(form.value).map((adjustment) => ({
+    label: form.value.variants.find((variant) => variant.variantPublicId === adjustment.variantPublicId)?.variantCode
+      ?? adjustment.variantPublicId,
+    delta: adjustment.delta,
+  }))
+  const large = largeInventoryAdjusts(lines)
+  if (large.length === 0) return false
+  largeStockMessage.value = largeInventoryAdjustMessage(large)
+  return true
+}
+
+/** 대량 재고 조정 확인 후 이어서 저장한다. */
+async function confirmLargeStock(): Promise<void> {
+  largeStockMessage.value = ''
   await runSave()
 }
 
@@ -158,12 +188,33 @@ function requestStatusChange(target: AdminProductStatusTarget): void {
     escalateOpen.value = true
     return
   }
+  // Track 101-A 보완: 거부는 상세에서도 확인을 받는다(목록과 같은 판정·문구).
+  if (isRejection(target)) {
+    rejectOpen.value = true
+    return
+  }
   void changeStatus(target)
 }
 
 async function confirmEscalate(): Promise<void> {
   escalateOpen.value = false
   await changeStatus('STOPPED')
+}
+
+const rejectOpen = ref(false)
+
+async function confirmReject(): Promise<void> {
+  rejectOpen.value = false
+  await changeStatus('REJECTED')
+}
+
+// Track 101-A: 거부 철회는 사유가 필요해 전용 다이얼로그가 호출까지 맡는다(상태 전환 메뉴와 별도 액션).
+const withdrawOpen = ref(false)
+
+/** 철회 성공·경합 모두 서버 상태를 다시 읽어야 하므로 상위에 상태 변경을 알린다(부모가 상세를 재조회). */
+function closeWithdraw(refresh: boolean): void {
+  withdrawOpen.value = false
+  if (refresh) emit('statusChanged')
 }
 
 async function changeStatus(target: AdminProductStatusTarget): Promise<void> {
@@ -238,6 +289,12 @@ defineExpose({ form, dirty })
               :data-testid="`status-target-${target.value}`"
               @click="requestStatusChange(target.value)"
             />
+            <v-list-item
+              v-if="form.status === 'REJECTED'"
+              title="거부 철회"
+              data-testid="status-withdraw-rejection"
+              @click="withdrawOpen = true"
+            />
           </v-list>
         </v-menu>
         <v-divider vertical class="mx-2" />
@@ -301,12 +358,43 @@ defineExpose({ form, dirty })
       @cancel="priceChange = null"
     />
 
+    <AdminConfirmDialog
+      :open="largeStockMessage !== ''"
+      test-id="admin-large-stock-dialog"
+      title="대량 재고 조정 확인"
+      :message="largeStockMessage"
+      confirm-color="warning"
+      confirm-label="저장"
+      @confirm="confirmLargeStock"
+      @cancel="largeStockMessage = ''"
+    />
+
     <div class="d-flex align-center justify-end ga-2 mb-8" data-testid="form-actions">
       <v-btn variant="text" :prepend-icon="mdiArrowLeft" :to="backPath" data-testid="form-back">목록으로</v-btn>
       <v-btn color="primary" :prepend-icon="mdiContentSave" :loading="saving" :disabled="!canSave" data-testid="form-save" @click="save">
         {{ anyUploading ? '이미지 업로드 중…' : mode === 'create' ? '등록' : '저장' }}
       </v-btn>
     </div>
+    <AdminConfirmDialog
+      :open="rejectOpen"
+      test-id="admin-product-reject-dialog"
+      title="상품 거부"
+      confirm-color="error"
+      :message="rejectConfirmMessage(form.name || form.productPublicId || '')"
+      confirm-label="거부"
+      @confirm="confirmReject"
+      @cancel="rejectOpen = false"
+    />
+
+    <AdminProductWithdrawRejectionDialog
+      :open="withdrawOpen"
+      :product-public-id="form.productPublicId"
+      :product-name="form.name || form.productPublicId || ''"
+      @done="closeWithdraw(true)"
+      @stale="closeWithdraw(true)"
+      @cancel="closeWithdraw(false)"
+    />
+
     <AdminConfirmDialog
       :open="escalateOpen"
       test-id="admin-escalate-dialog"

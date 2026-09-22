@@ -14,6 +14,15 @@ import com.zslab.mall.claim.exception.ClaimNotFoundException;
 import com.zslab.mall.claim.repository.ClaimRepository;
 import com.zslab.mall.claim.service.AdminClaimQueryService;
 import com.zslab.mall.claim.service.ClaimService;
+import com.zslab.mall.audit.controller.response.AdminAuditLogResponse;
+import com.zslab.mall.claim.controller.request.ReturnShipmentRequest;
+import com.zslab.mall.claim.controller.response.ReturnShipmentResponse;
+import com.zslab.mall.delivery.entity.Delivery;
+import com.zslab.mall.audit.service.AdminAuditLogQueryService;
+import com.zslab.mall.audit.service.AuditContext;
+import com.zslab.mall.common.auth.ActorRoleResolver;
+import com.zslab.mall.common.enums.PolymorphicTargetType;
+import com.zslab.mall.order.controller.response.PagedResponse;
 import com.zslab.mall.common.auth.AdminActorResolver;
 import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.repository.OrderItemRepository;
@@ -52,18 +61,35 @@ public class AdminClaimController {
     private final ClaimRepository claimRepository;
     private final OrderItemRepository orderItemRepository;
     private final AdminActorResolver adminActorResolver;
+    private final ActorRoleResolver actorRoleResolver;
+    private final AdminAuditLogQueryService adminAuditLogQueryService;
 
     public AdminClaimController(
             ClaimService claimService,
             AdminClaimQueryService adminClaimQueryService,
             ClaimRepository claimRepository,
             OrderItemRepository orderItemRepository,
-            AdminActorResolver adminActorResolver) {
+            AdminActorResolver adminActorResolver,
+            ActorRoleResolver actorRoleResolver,
+            AdminAuditLogQueryService adminAuditLogQueryService) {
         this.claimService = claimService;
         this.adminClaimQueryService = adminClaimQueryService;
         this.claimRepository = claimRepository;
         this.orderItemRepository = orderItemRepository;
         this.adminActorResolver = adminActorResolver;
+        this.actorRoleResolver = actorRoleResolver;
+        this.adminAuditLogQueryService = adminAuditLogQueryService;
+    }
+
+    /**
+     * 현재 인증 운영자의 감사 컨텍스트를 조립한다(Track 101-A·AdminSettlementController 패턴 1:1).
+     *
+     * <p>기존에는 {@code adminActorResolver.resolve}의 반환값을 버리고 X-Admin-Id 형식 검증에만 썼다(D-93 Q3).
+     * 클레임 조작이 불가역인데 행위자 기록이 없던 문제(정찰 라운드 3 §2-4)를 고치면서 그 actorId를 감사에 싣는다.
+     * 누락 401·형식 오류 400은 resolver가 그대로 낸다.
+     */
+    private AuditContext auditContext(HttpServletRequest request) {
+        return AuditContext.of(adminActorResolver.resolve(request), actorRoleResolver.requireCoarseRole());
     }
 
     /**
@@ -88,6 +114,20 @@ public class AdminClaimController {
     }
 
     /**
+     * 클레임 처리 이력(Track 101-A). 승인·거부·회수 확인·검수 등 이 클레임에 대한 감사 행을 최신순으로 돌려준다.
+     * 미존재 claimPublicId 404·size는 1~100 클램프(Service).
+     */
+    @GetMapping("/{claimPublicId}/audit-logs")
+    public PagedResponse<AdminAuditLogResponse> auditLogs(
+            @PathVariable String claimPublicId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        Claim claim = claimRepository.findByPublicId(claimPublicId)
+                .orElseThrow(() -> new ClaimNotFoundException("클레임을 찾을 수 없습니다: publicId=" + claimPublicId));
+        return adminAuditLogQueryService.listByTarget(PolymorphicTargetType.CLAIM, claim.getId(), page, size);
+    }
+
+    /**
      * Admin 클레임 승인. 미존재만 404(전체 접근·D-93 Q5). 성공 시 200 + 갱신된 ClaimResponse.
      *
      * <p>EXCHANGE 차액환불(D-115): body는 선택이며(required=false) 부재 시 refundAmount=null(차액 없음·기존 동작).
@@ -95,12 +135,11 @@ public class AdminClaimController {
     @PostMapping("/{claimPublicId}/approve")
     public ClaimResponse approveByAdmin(@PathVariable String claimPublicId,
             @RequestBody(required = false) ClaimApproveRequest body, HttpServletRequest request) {
-        // X-Admin-Id 존재·형식 검증만 수행한다(전체 접근·식별자 미사용·D-93 Q3). 누락 401·형식 오류 400.
-        adminActorResolver.resolve(request);
+        AuditContext auditContext = auditContext(request);
         Claim claim = claimRepository.findByPublicId(claimPublicId)
                 .orElseThrow(() -> new ClaimNotFoundException("클레임을 찾을 수 없습니다: publicId=" + claimPublicId));
         Long refundAmount = body != null ? body.refundAmount() : null;
-        claimService.approveByAdmin(claim.getId(), LocalDateTime.now(), refundAmount);
+        claimService.approveByAdmin(claim.getId(), LocalDateTime.now(), refundAmount, auditContext);
         return toResponse(claimPublicId);
     }
 
@@ -112,12 +151,25 @@ public class AdminClaimController {
     @PostMapping("/{claimPublicId}/reject")
     public ClaimResponse rejectByAdmin(@PathVariable String claimPublicId,
             @RequestBody @Valid ClaimRejectRequest body, HttpServletRequest request) {
-        // X-Admin-Id 존재·형식 검증만 수행한다(전체 접근·식별자 미사용·D-93 Q3). 누락 401·형식 오류 400.
-        adminActorResolver.resolve(request);
+        AuditContext auditContext = auditContext(request);
         Claim claim = claimRepository.findByPublicId(claimPublicId)
                 .orElseThrow(() -> new ClaimNotFoundException("클레임을 찾을 수 없습니다: publicId=" + claimPublicId));
-        claimService.rejectByAdmin(claim.getId(), body.reasonCode(), body.memo(), LocalDateTime.now());
+        claimService.rejectByAdmin(claim.getId(), body.reasonCode(), body.memo(), LocalDateTime.now(), auditContext);
         return toResponse(claimPublicId);
+    }
+
+    /**
+     * Admin 회수 송장 대행 등록(Track 101-A). 구매자가 회수 송장을 올리지 않아 멈춘 클레임을 운영자가 대신 진행시킨다.
+     * 구매자 경로와 같은 도메인 경로를 써서 같은 RETURN Delivery를 만든다. 미존재 404·유형/상태 위반·중복 등록 422·
+     * 택배사 누락/송장 100자 초과 400.
+     */
+    @PostMapping("/{claimPublicId}/return-shipment")
+    public ReturnShipmentResponse registerReturnShipmentByAdmin(@PathVariable String claimPublicId,
+            @RequestBody @Valid ReturnShipmentRequest body, HttpServletRequest request) {
+        AuditContext auditContext = auditContext(request);
+        Delivery delivery = claimService.registerReturnShipmentByAdmin(
+                claimPublicId, body.carrier(), body.trackingNo(), auditContext);
+        return ReturnShipmentResponse.from(delivery);
     }
 
     /**
@@ -125,10 +177,10 @@ public class AdminClaimController {
      */
     @PostMapping("/{claimPublicId}/confirm-pickup")
     public ClaimResponse confirmPickupByAdmin(@PathVariable String claimPublicId, HttpServletRequest request) {
-        adminActorResolver.resolve(request);
+        AuditContext auditContext = auditContext(request);
         Claim claim = claimRepository.findByPublicId(claimPublicId)
                 .orElseThrow(() -> new ClaimNotFoundException("클레임을 찾을 수 없습니다: publicId=" + claimPublicId));
-        claimService.confirmPickupByAdmin(claim.getId(), LocalDateTime.now());
+        claimService.confirmPickupByAdmin(claim.getId(), LocalDateTime.now(), auditContext);
         return toResponse(claimPublicId);
     }
 
@@ -139,11 +191,11 @@ public class AdminClaimController {
     @PostMapping("/{claimPublicId}/inspect")
     public ClaimResponse inspectByAdmin(@PathVariable String claimPublicId,
             @RequestBody @Valid ClaimInspectRequest body, HttpServletRequest request) {
-        adminActorResolver.resolve(request);
+        AuditContext auditContext = auditContext(request);
         Claim claim = claimRepository.findByPublicId(claimPublicId)
                 .orElseThrow(() -> new ClaimNotFoundException("클레임을 찾을 수 없습니다: publicId=" + claimPublicId));
         claimService.inspectByAdmin(claim.getId(), body.result(), body.restock(), body.rejectReasonCode(), body.memo(),
-                body.reshipCarrier(), body.reshipTrackingNo(), LocalDateTime.now());
+                body.reshipCarrier(), body.reshipTrackingNo(), LocalDateTime.now(), auditContext);
         return toResponse(claimPublicId);
     }
 

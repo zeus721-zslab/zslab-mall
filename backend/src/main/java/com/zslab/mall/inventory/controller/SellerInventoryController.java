@@ -1,5 +1,8 @@
 package com.zslab.mall.inventory.controller;
 
+import com.zslab.mall.audit.service.AuditContext;
+import com.zslab.mall.common.auth.ActorRoleResolver;
+import com.zslab.mall.common.auth.AuthenticatedUserResolver;
 import com.zslab.mall.common.auth.SellerActorResolver;
 import com.zslab.mall.inventory.controller.request.SellerInventoryMarkInboundRequest;
 import com.zslab.mall.inventory.controller.request.SellerInventoryMarkOutboundRequest;
@@ -35,14 +38,28 @@ public class SellerInventoryController {
     private final InventoryService inventoryService;
     private final ProductVariantRepository productVariantRepository;
     private final SellerActorResolver sellerActorResolver;
+    private final AuthenticatedUserResolver authenticatedUserResolver;
+    private final ActorRoleResolver actorRoleResolver;
 
     public SellerInventoryController(
             InventoryService inventoryService,
             ProductVariantRepository productVariantRepository,
-            SellerActorResolver sellerActorResolver) {
+            SellerActorResolver sellerActorResolver,
+            AuthenticatedUserResolver authenticatedUserResolver,
+            ActorRoleResolver actorRoleResolver) {
         this.inventoryService = inventoryService;
         this.productVariantRepository = productVariantRepository;
         this.sellerActorResolver = sellerActorResolver;
+        this.authenticatedUserResolver = authenticatedUserResolver;
+        this.actorRoleResolver = actorRoleResolver;
+    }
+
+    /**
+     * 현재 인증 셀러 사용자의 감사 컨텍스트를 조립한다(Track 101-A·SellerDeliveryManagementController 패턴 1:1).
+     * 행위자는 셀러 법인(sellerId)이 아니라 로그인한 사용자다.
+     */
+    private AuditContext auditContext() {
+        return AuditContext.of(authenticatedUserResolver.requireUserId(), actorRoleResolver.requireCoarseRole());
     }
 
     /**
@@ -60,7 +77,7 @@ public class SellerInventoryController {
                 .orElseThrow(() -> new ProductVariantNotFoundException(
                         "상품 변형을 찾을 수 없습니다: publicId=" + variantPublicId));
         Inventory adjusted = inventoryService.markInboundBySeller(
-                sellerId, variant.getId(), request.quantity(), request.reason());
+                sellerId, variant.getId(), request.quantity(), request.reason(), auditContext());
         return InventoryAdjustResponse.from(variantPublicId, adjusted);
     }
 
@@ -79,7 +96,7 @@ public class SellerInventoryController {
                 .orElseThrow(() -> new ProductVariantNotFoundException(
                         "상품 변형을 찾을 수 없습니다: publicId=" + variantPublicId));
         Inventory adjusted = inventoryService.markOutboundBySeller(
-                sellerId, variant.getId(), request.quantity(), request.reason());
+                sellerId, variant.getId(), request.quantity(), request.reason(), auditContext());
         return InventoryAdjustResponse.from(variantPublicId, adjusted);
     }
 }

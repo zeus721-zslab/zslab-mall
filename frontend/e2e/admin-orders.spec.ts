@@ -330,7 +330,8 @@ test.describe('관리자 주문 목록·상세(FE-27)', () => {
     await pickOption(page, 'shipment-carrier', 'CJ대한통운')
     await dialog.getByTestId('shipment-tracking-no').locator('input').fill('1234567890')
     await dialog.getByTestId('shipment-dialog-ok').click()
-    await expect(page.locator('[data-sonner-toast][data-type="warning"]')).toContainText('현재 상태에서 처리할 수 없는 클레임')
+    // Track 101-A: CLAIM_STATE_INVALID는 BE detail이 코드 문구를 덮지 않는다 — 원인이 그대로 운영자에게 보여야 한다.
+    await expect(page.locator('[data-sonner-toast][data-type="warning"]')).toContainText('진행 중인 클레임이 있어 송장을 등록할 수 없습니다.')
     await expect(dialog).toBeHidden()
     expect(captured.detailGets.length).toBeGreaterThanOrEqual(2)
   })

@@ -20,6 +20,8 @@ import com.zslab.mall.claim.exception.ClaimNotFoundException;
 import com.zslab.mall.claim.repository.ClaimRepository;
 import com.zslab.mall.claim.service.AdminClaimQueryService;
 import com.zslab.mall.claim.service.ClaimService;
+import com.zslab.mall.audit.service.AdminAuditLogQueryService;
+import com.zslab.mall.common.auth.ActorRoleResolver;
 import com.zslab.mall.common.auth.AdminActorResolver;
 import com.zslab.mall.common.exception.MalformedRequestException;
 import com.zslab.mall.common.exception.UnauthenticatedException;
@@ -74,6 +76,22 @@ class AdminClaimControllerTest {
     @MockitoBean
     private AdminActorResolver adminActorResolver;
 
+    // Track 101-A: 감사 컨텍스트 조립·처리 이력 조회 의존이 컨트롤러에 추가됐다(슬라이스 컨텍스트 로딩용).
+    @MockitoBean
+    private ActorRoleResolver actorRoleResolver;
+
+    @MockitoBean
+    private AdminAuditLogQueryService adminAuditLogQueryService;
+
+    /**
+     * Track 101-A: 컨트롤러가 감사 컨텍스트를 조립하므로 coarse role이 반드시 있어야 한다(null이면 AuditContext가 400).
+     * 슬라이스라 실 resolver가 없으므로 ADMIN으로 고정한다.
+     */
+    @org.junit.jupiter.api.BeforeEach
+    void stubCoarseRole() {
+        when(actorRoleResolver.requireCoarseRole()).thenReturn("ADMIN");
+    }
+
     private Claim mockClaim(ClaimStatus status) {
         Claim claim = org.mockito.Mockito.mock(Claim.class);
         when(claim.getId()).thenReturn(CLAIM_ID);
@@ -112,7 +130,7 @@ class AdminClaimControllerTest {
                 .andExpect(jsonPath("$.orderItemPublicId").value(ORDER_ITEM_PUBLIC_ID))
                 .andExpect(jsonPath("$.claimType").value("CANCEL"))
                 .andExpect(jsonPath("$.status").value("APPROVED"));
-        verify(claimService).approveByAdmin(eq(CLAIM_ID), any(), any());
+        verify(claimService).approveByAdmin(eq(CLAIM_ID), any(), any(), any());
     }
 
     @Test
@@ -123,7 +141,7 @@ class AdminClaimControllerTest {
         mockMvc.perform(post("/api/v1/admin/claims/" + CLAIM_PUBLIC_ID + "/approve"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
-        verify(claimService, never()).approveByAdmin(anyLong(), any(), any());
+        verify(claimService, never()).approveByAdmin(anyLong(), any(), any(), any());
     }
 
     @Test
@@ -145,7 +163,7 @@ class AdminClaimControllerTest {
         mockMvc.perform(post("/api/v1/admin/claims/" + CLAIM_PUBLIC_ID + "/approve").header("X-Admin-Id", "1"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("CLAIM_NOT_FOUND"));
-        verify(claimService, never()).approveByAdmin(anyLong(), any(), any());
+        verify(claimService, never()).approveByAdmin(anyLong(), any(), any(), any());
     }
 
     @Test
@@ -155,7 +173,7 @@ class AdminClaimControllerTest {
         when(adminActorResolver.resolve(any())).thenReturn(ADMIN_ID);
         when(claimRepository.findByPublicId(CLAIM_PUBLIC_ID)).thenReturn(Optional.of(claim));
         doThrow(new ClaimInvalidStateException("불법 클레임 상태 전이"))
-                .when(claimService).approveByAdmin(eq(CLAIM_ID), any(), any());
+                .when(claimService).approveByAdmin(eq(CLAIM_ID), any(), any(), any());
 
         mockMvc.perform(post("/api/v1/admin/claims/" + CLAIM_PUBLIC_ID + "/approve").header("X-Admin-Id", "1"))
                 .andExpect(status().isUnprocessableEntity())
@@ -178,6 +196,6 @@ class AdminClaimControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.publicId").value(CLAIM_PUBLIC_ID))
                 .andExpect(jsonPath("$.status").value("REJECTED"));
-        verify(claimService).rejectByAdmin(eq(CLAIM_ID), eq(ClaimRejectReasonCode.OUT_OF_POLICY), eq("테스트 거부"), any());
+        verify(claimService).rejectByAdmin(eq(CLAIM_ID), eq(ClaimRejectReasonCode.OUT_OF_POLICY), eq("테스트 거부"), any(), any());
     }
 }

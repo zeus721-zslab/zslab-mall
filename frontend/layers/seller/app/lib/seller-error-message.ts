@@ -49,6 +49,12 @@ const SELLER_STATUS_MESSAGES: Record<number, string> = {
 
 const FALLBACK_MESSAGE = '요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.'
 
+/**
+ * 원인이 여러 가지인데 코드가 하나뿐이라 코드 문구가 원인을 지워 버리는 코드(Track 101-A·관리자 admin-error-message와 같은 규칙).
+ * BE가 detail에 실어 보낸 구체 사유를 코드 문구보다 먼저 쓰고, detail이 비어 있으면 기존대로 코드 문구로 폴백한다.
+ */
+const DETAIL_FIRST_CODES: ReadonlySet<string> = new Set(['CLAIM_STATE_INVALID'])
+
 /** ofetch 에러(FetchError)에서 ProblemDetail.code를 꺼낸다. 네트워크 오류·비JSON은 null. */
 export function extractErrorCode(error: unknown): string | null {
   const code = (error as { data?: { code?: unknown } } | null)?.data?.code
@@ -67,14 +73,16 @@ export function isSellerSuspendedError(error: unknown): boolean {
   return extractErrorCode(error) === SELLER_SUSPENDED_ERROR_CODE
 }
 
-/** 코드 우선 → 상태 폴백 → 서버 detail → 일반 문구. */
+/** DETAIL_FIRST_CODES는 서버 detail 우선 → 코드 우선 → 상태 폴백 → 서버 detail → 일반 문구. */
 export function toSellerErrorMessage(error: unknown): string {
   const code = extractErrorCode(error)
+  const detail = (error as { data?: { detail?: unknown } } | null)?.data?.detail
+  const detailText = typeof detail === 'string' && detail !== '' ? detail : null
+  if (code && detailText && DETAIL_FIRST_CODES.has(code)) return detailText
   if (code && SELLER_ERROR_MESSAGES[code]) return SELLER_ERROR_MESSAGES[code]
   const status = extractErrorStatus(error)
   if (status !== null && SELLER_STATUS_MESSAGES[status]) return SELLER_STATUS_MESSAGES[status]
-  const detail = (error as { data?: { detail?: unknown } } | null)?.data?.detail
-  return typeof detail === 'string' && detail !== '' ? detail : FALLBACK_MESSAGE
+  return detailText ?? FALLBACK_MESSAGE
 }
 
 /** BE 400 VALIDATION_FAILED fieldErrors → 필드별 첫 메시지(관리자 admin-order-view.mapFieldErrors 복제). 없으면 빈 객체. */

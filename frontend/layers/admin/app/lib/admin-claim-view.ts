@@ -8,6 +8,7 @@ import {
   refundStatusLabel,
   type ClaimInspectionResult,
   type ClaimRejectReasonCode,
+  type ClaimStatus,
   type ClaimType,
   type RefundStatus,
 } from '~/lib/constants/claim'
@@ -139,4 +140,27 @@ export function validateInspectForm(input: InspectFormInput): Record<string, str
     errors.reshipTrackingNo = `송장번호는 ${ADMIN_ORDER_TRACKING_NO_MAX}자 이하여야 합니다.`
   }
   return errors
+}
+
+/** 회수 대기 판정·표시에 필요한 행 필드만 추린 입력(테스트에서 목록 행 전체를 만들지 않도록·Track 101-A). */
+export interface PickupWaitingInput {
+  type: ClaimType
+  status: ClaimStatus
+  pickedUpAt?: string
+  returnShipment?: unknown
+}
+
+/**
+ * 구매자 회수 송장 등록을 기다리는 행인지 판정한다(Track 101-A). 승인된 반품·교환인데 회수 송장도 회수 확인도 없는 상태로,
+ * BE availableActions가 빈 목록을 내려 화면에 "—"만 남던 구간이다(AdminClaimQueryService.availableActions 1:1).
+ * 다른 이유로 액션이 없는 행(완료·거부 등)은 false다.
+ */
+export function isWaitingForReturnShipment(item: PickupWaitingInput): boolean {
+  if (item.type !== 'RETURN' && item.type !== 'EXCHANGE') return false
+  return item.status === 'APPROVED' && !item.pickedUpAt && !item.returnShipment
+}
+
+/** 회수 대기 행의 "관리" 칸 안내 문구. 대기 상태가 아니면 null(호출부가 기존 "—" 표기를 유지한다). */
+export function pickupWaitingLabel(item: PickupWaitingInput): string | null {
+  return isWaitingForReturnShipment(item) ? '구매자 회수 송장 등록 대기' : null
 }

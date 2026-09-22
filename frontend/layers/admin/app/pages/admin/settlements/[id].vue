@@ -41,6 +41,12 @@ const settlementsApi = useAdminSettlements()
 const toast = useAdminToast()
 
 const settlementId = computed<number>(() => Number(route.params.id))
+
+/** 처리 이력 첫 페이지 로더(Track 101-A). 정산 id가 바뀌면 참조가 바뀌어 섹션이 다시 읽는다. */
+const auditLoader = computed(() => {
+  const id = settlementId.value
+  return () => settlementsApi.auditLogs(id)
+})
 const backPath = computed(() => resolveBackPath(route.query.back, ADMIN_SETTLEMENTS_PATH))
 
 const detail = ref<AdminSettlementDetail | null>(null)
@@ -304,6 +310,9 @@ function openOrder(row: AdminSettlementItem): void {
           @retry="loadItems"
         />
       </v-card>
+
+      <!-- Track 101-A: 생성·재생성·정상처리·지급완료가 누구 손에서 이뤄졌는지. 되돌릴 수 없는 전이라 기록이 남아야 한다. -->
+      <AdminAuditLogSection class="mt-4" :loader="auditLoader" />
     </template>
 
     <AdminConfirmDialog

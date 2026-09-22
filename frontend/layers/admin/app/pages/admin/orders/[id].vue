@@ -131,6 +131,20 @@ async function runClaimDecision(): Promise<void> {
   }
 }
 
+// Track 101-A: 클레임 1건의 처리 이력을 펼친다(한 번에 하나만·목록이 길어지지 않게).
+const auditClaimId = ref<string | null>(null)
+
+function toggleClaimAudit(claimId: string): void {
+  auditClaimId.value = auditClaimId.value === claimId ? null : claimId
+}
+
+/** 펼친 클레임의 첫 페이지 로더. 대상이 바뀌면 참조가 바뀌어 섹션이 다시 읽는다. */
+const claimAuditLoader = computed(() => {
+  const claimId = auditClaimId.value
+  if (!claimId) return null
+  return () => ordersApi.claimAuditLogs(claimId)
+})
+
 function openReject(claim: AdminOrderClaim, productName: string): void {
   rejectTarget.value = { claimId: claim.claimId, type: claim.type, productName }
 }
@@ -352,7 +366,8 @@ function closeReject(refresh: boolean): void {
 
             <!-- 클레임 -->
             <div v-if="item.claims.length > 0" class="mt-2">
-              <div v-for="claim in item.claims" :key="claim.claimId" class="d-flex align-center flex-wrap ga-2 py-1 text-body-2" data-testid="item-claim">
+              <template v-for="claim in item.claims" :key="claim.claimId">
+              <div class="d-flex align-center flex-wrap ga-2 py-1 text-body-2" data-testid="item-claim">
                 <span class="text-caption text-medium-emphasis">클레임</span>
                 <span class="font-weight-medium">{{ claimTypeLabel(claim.type) }}</span>
                 <v-chip :class="semanticChipClass(ADMIN_CLAIM_STATUS_SEMANTIC[claim.status])" size="x-small" variant="flat" data-testid="claim-status-chip">
@@ -409,7 +424,19 @@ function closeReject(refresh: boolean): void {
                   <v-btn size="x-small" color="primary" variant="flat" data-testid="claim-approve" @click="claimDecision = { claim, productName: item.productName }">승인</v-btn>
                   <v-btn size="x-small" color="error" variant="outlined" data-testid="claim-reject" @click="openReject(claim, item.productName)">거절</v-btn>
                 </template>
+                <!-- Track 101-A: 승인·거부·회수 확인·검수가 누구 손에서 이뤄졌는지 이 자리에서 펼쳐 본다. -->
+                <v-btn
+                  size="x-small"
+                  variant="text"
+                  data-testid="claim-audit-toggle"
+                  @click="toggleClaimAudit(claim.claimId)"
+                >{{ auditClaimId === claim.claimId ? '처리 이력 닫기' : '처리 이력' }}</v-btn>
               </div>
+              <AdminAuditLogSection
+                v-if="auditClaimId === claim.claimId"
+                :loader="claimAuditLoader"
+              />
+              </template>
             </div>
           </div>
         </v-card-text>

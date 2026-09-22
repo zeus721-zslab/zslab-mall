@@ -10,7 +10,9 @@ import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -21,6 +23,17 @@ import org.springframework.data.repository.query.Param;
 public interface ClaimRepository extends JpaRepository<Claim, Long>, JpaSpecificationExecutor<Claim> {
 
     Optional<Claim> findByPublicId(String publicId);
+
+    /**
+     * publicId로 행 락을 잡고 읽는다(Track 101-A 외부 검토 반영·동시 요청 직렬화). {@link Claim}에는 {@code @Version}이 있어
+     * 두 트랜잭션이 같은 행을 바꾸면 늦은 쪽이 낙관 락 실패로 걸러지지만, 그 실패는 <b>커밋 시점</b>에야 드러난다 — 그 전까지
+     * 두 트랜잭션이 모두 "취소 가능"으로 판정하고 각자 {@code ClaimRejected}를 발행해 품목 원복·알림 같은 부수효과를 두 번
+     * 일으킬 수 있다. 상태를 읽고 그 판정으로 전이까지 가는 경로는 <b>해당 트랜잭션에서 이 행을 처음 읽을 때</b> 이 메서드를
+     * 써야 한다 — 먼저 락 없이 읽어 두면 1차 캐시가 그 인스턴스를 돌려줘 락을 잡고도 옛 상태로 판정한다
+     * ({@code DeliveryRepository.findWithLockById} 규약 1:1·D-168 트랩).
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    Optional<Claim> findWithLockByPublicId(String publicId);
 
     /**
      * 동일 OrderItem에 활성 클레임(REQUESTED·APPROVED)이 존재하는지 판정한다(CLM-5 사전 가드).
