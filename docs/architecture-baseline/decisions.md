@@ -12283,3 +12283,49 @@ PG·SMS·이메일은 포트(`PaymentGateway`·`SmsSender`·`NotificationSender`
 - 대시보드 장기 배송중 링크는 배송 목록 `?status=SHIPPING`이라 "3일 이상"이 아니라 배송중 전체를 연다(BE 카운트와 목록 조건 불일치·`lowStock` 선례와 같은 근사).
 - 회수(RETURN) 배송의 완료(`completeReturnShipment`)에는 행 락을 넣지 않았다 — 이번 수용 범위는 배송완료·송장 정정이다. 회수 배송도 SHIPPING이면 정정 대상이므로 같은 경합이 이론상 가능하다(빈도·영향 재검토 후 결정).
 - 외부 검토: A / 지적 5건 중 수용 2건(1 문구 정정·4 행 락 확대) · 기각 2·3·5(감사 동일 TX 설계·Claim @Version·한 바퀴 상한).
+
+## D-211: CI 방식 A 전환 — Actions 빌드 → ghcr.io → 서버 pull (Track 100) (2026-09-23)
+
+배경: 배포가 24분 15초였다. `deploy.yml`이 SSH로 서버에 들어가 `docker compose build`를 backend(Gradle) → frontend(Nuxt) 순서로 돌렸기 때문이다. 순차 빌드인 이유도 서버 제약이다 — 총 7.5Gi·available 약 2.4Gi에서 Nuxt 빌드 피크가 약 3.6GiB라 병렬로 돌리면 OOM(exit 134)이었고(`deploy.yml` 구 29~31행 주석), 빌드 중 스왑이 과다했다. 정찰(`docs/track-100/recon-report-ci-a.md`) 실측: compose 두 서비스에 `image:` 키가 없고(기본 명명), `build.args`·`ARG` 사용처가 0건이라 **러너 빌드와 서버 빌드의 입력이 동일**하며, `application*.yml`은 전부 `${}` 플레이스홀더라 하드코딩 비밀값이 0건이다. 즉 빌드 위치를 옮겨도 구워지는 값이 달라지지 않는다. 한편 `docs/infra/04-mall-stack.md:37`·`06-environment.md:10,11,53`은 **이미 "ghcr.io에 push, 운영 서버에서 pull"로 기술**돼 있었다 — 문서가 방식 A를 전제하고 구현만 방식 B였다. 배포 롤백 절차는 저장소·문서 어디에도 없었다.
+
+결정:
+- **빌드 이관**: `deploy.yml`을 `build` → `deploy` → `cleanup` 3 job으로 나눈다. `build`가 ghcr.io에 push하고, 서버는 `docker compose pull` + `up -d --no-build`만 한다. 서버 `git pull`은 남긴다 — compose·`docker/filebeat/filebeat.yml` 동기화 때문이다.
+- **compose**: `zslab_mall_backend`·`zslab_mall_frontend`에 `image: ghcr.io/zeus721-zslab/zslab-mall-{backend,frontend}:${BACKEND|FRONTEND_IMAGE_TAG:-latest}`를 추가하고 `build:`는 유지한다. `docker-compose.dev.yml`의 backend에 `image: zslab-mall-backend-dev`를 추가한다.
+- **backend Dockerfile 2단 COPY**: 빌드 스크립트 3파일(`settings.gradle.kts`·`build.gradle.kts`·`gradle.properties`)을 먼저 COPY하고 더미 main 클래스로 `bootJar`를 1회 돌려 의존성 레이어를 만든 뒤 `rm -rf src build` → `COPY . .` → `bootJar`. 런타임 스테이지·산출 jar 경로 무변경. frontend Dockerfile은 이미 lock 3파일 선 COPY라 무변경.
+- **태그·보관·공개**: `latest` + `sha-<7자>` 동시 push · 패키지별 최근 5개 유지(`actions/delete-package-versions`) · 패키지 public.
+- **문서**: `docs/architecture-baseline/deploy-runbook.md` 신설(평상시 배포·최초 전환·롤백·확인/정리·자주 나오는 실패) · `.env.example`에 `BACKEND_IMAGE_TAG`·`FRONTEND_IMAGE_TAG` 주석.
+
+### §1-A 갈림길·채택/기각 근거
+- **태그 = `latest` + `sha-<7자>` 동시 push 【채택: 서버는 `latest`로 단순 운용하고, 롤백할 때만 서버 `.env`에 sha 태그를 지정한다. 레이어를 공유하므로 저장 용량이 두 배가 되지 않는다. 롤백 수단이 **처음으로** 생긴다 — 방식 B에서는 직전 이미지가 태그 없는 dangling으로만 남아 되돌릴 대상을 지목할 수 없었다】** / `latest` 단독 【기각: 어떤 커밋이 떠 있는지 알 수 없고 롤백 불가】 / `sha` 단독 【기각: 평상시 배포마다 서버 `.env`를 고쳐야 한다 — 운영자 1인 전제에서 매번 손이 가는 쪽은 진다】.
+- **보관 = 패키지별 최근 5개 【채택: 공개 패키지는 저장·전송 무료라 용량이 이유가 아니다. 목록이 길어지면 롤백 대상을 고르기 어렵다. 5개면 하루치 배포를 덮는다】** / 무제한 방치 【기각: GHCR는 자동 정리가 없어 태그 없는 중간 버전이 계속 쌓인다】 / 수동 정리 【기각: 운영자가 기억해야 하는 일을 늘린다】. **대가: 6번째 이전 버전으로는 롤백할 수 없다**(런북 §4 명시).
+- **공개 = public 패키지 【채택: 서버에 레지스트리 자격을 두지 않아도 된다 — PAT 발급·보관·만료 갱신이 통째로 사라진다. 이미지에 비밀값이 없다는 것은 정찰에서 전수 확인했다(`build.args` 0·`ARG` 0·`application*.yml` 하드코딩 0·최종 이미지는 `app.jar`/`.output`만)】** / private + 서버 `docker login` 【기각: 갱신 주체가 불명확한 자격을 서버에 하나 더 둔다. 소스가 공개인데 빌드 산출물만 감추는 것은 실익이 없다】.
+- **backend 캐시 = Dockerfile 2단 COPY + gha 레이어 캐시 【채택: 구조를 그대로 두고 `type=gha`만 붙이면 `COPY . .` 직후가 `bootJar`라 소스 1바이트 변경에도 의존성 레이어가 무효가 된다(=캐시가 사실상 안 든다). 2단으로 쪼개야 gha 캐시가 의미를 갖는다. 실측: 1회차 62초 → 소스 1줄 변경 후 2회차 15.5초(의존성 레이어 CACHED)】** / Dockerfile 무변경·gha 캐시만 【기각: 위 이유로 캐시 미적중】 / Dockerfile 밖에서 `gradlew bootJar` 후 jar만 COPY 【기각: 빌드가 러너 JDK 설정에 의존하게 되어 "빌드도구가 컨테이너 안에 있다"는 기존 전제(`docs/infra/04-mall-stack.md:35`)가 깨진다】.
+- **의존성 레이어 = 더미 main으로 `bootJar` 1회 【채택: `bootJar`가 runtimeClasspath 아티팩트를 실제로 내려받아 패키징하므로 실 빌드가 쓰는 jar가 전부 레이어에 남는다】** / `gradle dependencies` 【기각: 의존성 **그래프 메타데이터**만 받고 jar를 내려받지 않아 캐시 효과가 없다】 / `gradle classes`만 【기각: `runtimeOnly`(jjwt-impl·jjwt-jackson)가 빠진다】.
+- **paths 필터 = `dorny/paths-filter`로 job 내부 분기 【채택: GitHub의 workflow-level `paths`는 워크플로 전체 단위라 job별 분기가 안 된다. 액션 1개로 끝나고 워크플로는 하나로 남는다】** / 워크플로 3분할 + `workflow_run` 연결 【기각: 배포 트리거가 두 빌드의 완료를 기다리는 구조가 되어 "한쪽만 바뀐 경우"의 연결이 복잡해진다】 / `git diff HEAD^ HEAD` 자체 판정 【기각: 외부 액션은 0개가 되지만 첫 커밋·force push 예외를 직접 다뤄야 한다】 / 분기 없이 항상 둘 다 빌드 【기각: 캐시가 들어도 미변경 쪽의 push·레지스트리 버전이 계속 늘어 보관 5개를 잠식한다】.
+- **CI(test) 연결 = 현행 유지(연결하지 않음) 【채택: 이번 트랙은 빌드 위치 이동이다. `needs: test`나 `workflow_run`을 넣으면 배포 시간이 다시 늘거나(머지 후 재검증) 머지 커밋과 PR run의 연결이 어긋난다. 테스트 게이트는 PR CI + 브랜치 보호로 두고, `deploy.yml` 주석에 "이 워크플로는 테스트를 실행하지 않는다"를 명시해 오해를 막는다】** / `needs: test` 【기각: 배포 총시간 += 전체 테스트(20분 상한) — 전환 목적과 정면 충돌】 / PR 시점에 이미지를 만들어 승격 【기각: 구조 복잡도 대비 이득이 없다(단일 운영자 전제)】.
+- **compose = `image:`와 `build:` 병기 【채택: `docker-compose.dev.yml`이 mall.yml의 `context`를 **상속**하므로(dev는 `dockerfile`만 오버라이드) `build:`를 지우면 로컬 개발이 통째로 깨진다. 서버는 `--no-build`로 build를 무시한다】** / `build:` 제거 + dev.yml에 context 명시 【기각: 로컬 개발 경로를 건드릴 이유가 없다 — 최소 변경】.
+
+### §2 확정 구현 규칙·트랩
+- 변경: `.github/workflows/deploy.yml`(전면) · `backend/Dockerfile` · `docker-compose.mall.yml` · `docker-compose.dev.yml` · `.env.example` · 신규 `docs/architecture-baseline/deploy-runbook.md`.
+- **`image:` 누락이 가장 조용한 실패다** — `compose pull`이 대상 없이 no-op 되고 `up -d`가 기존 컨테이너를 유지해 "배포는 성공인데 코드가 안 바뀐다". 그래서 `deploy` job 끝에서 컨테이너별 실행 이미지와 RepoDigest를 로그로 찍는다.
+- **GHCR 패키지의 기본 가시성은 private이다 — 저장소가 공개여도 그렇다.** 최초 실행에서 `build`는 성공하고 `deploy`만 `denied`로 실패하는 것이 정상 경로다. 패키지 2개를 public으로 전환한 뒤 `deploy` job만 re-run 한다(런북 §2).
+- **`workflow_dispatch`에는 비교 대상 커밋이 없다** — `paths-filter`를 그대로 두면 수동 배포가 아무것도 빌드하지 않는 빈 실행이 된다. 이 이벤트에서는 필터 스텝을 건너뛰고 양쪽을 무조건 빌드한다.
+- gha 캐시 `scope`를 서비스별로 나눈다(`scope=backend`/`scope=frontend`). 나누지 않으면 두 이미지가 같은 캐시 키를 두고 서로를 축출한다. GHA 캐시 한도는 저장소당 10GB(초과 시 LRU).
+- **베이스 이미지 `gradle:8-jdk21`은 `/home/gradle/.gradle`를 `VOLUME`으로 선언한다** — 빌드 중 그 경로에 쓴 내용은 레이어 커밋 시 폐기된다. 지금은 `Config.User=root`라 Gradle 캐시가 `/root/.gradle`에 쌓여 의존성 레이어가 살아남는다. 베이스가 `USER gradle`로 바뀌면 캐시가 조용히 사라지므로 Dockerfile 주석에 남겼다.
+- 더미 main(`Warmup`)은 `rm -rf src build`로 지운 뒤 실 소스를 COPY한다. 산출 jar에 `BOOT-INF/classes` 최상위 클래스 0건·`Warmup.class` 0건을 실측 확인했다.
+- `docker-compose.dev.yml`의 backend `image` 지정은 선택이 아니다 — mall.yml의 `image`가 ghcr 이름이 된 이상 지정하지 않으면 **dev 빌드가 배포 태그를 덮어쓴다**(frontend는 FE-24에서 이미 같은 이유로 분리돼 있었다).
+- 서버 이미지 정리는 `docker image prune -f --filter "label=org.opencontainers.image.source=<저장소 URL>"` — 이 라벨은 `docker/metadata-action`이 붙인다. 라벨 필터가 없으면 서버의 다른 프로젝트 dangling 이미지까지 지운다.
+- `cleanup` job은 `continue-on-error`다 — 최초 실행처럼 패키지가 아직 없으면 실패하는데, 정리 실패가 배포 성공을 뒤집으면 안 된다.
+- **이미지 롤백은 DB를 되돌리지 않는다.** Flyway가 `ddl-auto: validate` + `validate`로 기동하므로 마이그레이션이 포함된 커밋은 구 이미지로 내리면 기동에 실패할 수 있다(런북 §3 마지막 문단).
+- `command_timeout` 30m → 10m. 서버에 남은 일이 pull + 헬스 대기(`--wait-timeout 180`)뿐이다.
+- `concurrency: {group: deploy-main, cancel-in-progress: false}`. job이 3개로 늘어 연속 머지 시 두 배포가 겹치면 먼저 시작한 쪽이 나중에 끝나 구버전이 최종 상태로 남을 수 있다(D-162 §8 "관찰만" 이월 항목을 여기서 해소). **취소하지 않고 대기시키는 이유**: 앞 배포가 이미 서버에서 `up -d`를 시작했을 수 있어 중간에 끊으면 한쪽만 신버전인 상태로 멈춘다.
+- 검증(로컬·2026-09-23): `actionlint`(docker `rhysd/actionlint`) 저장소 전 워크플로 exit 0·지적 0건 · backend prod 이미지 빌드 성공 **585MB**(정찰 "미측정" 해소) · 컨테이너 기동 `/actuator/health` UP·Flyway 34 migrations validated · 2회차 빌드 15.5초(의존성 레이어 CACHED) · `compose config` 단독 = ghcr image 2건, dev 병합 = `zslab-mall-backend-dev`/`zslab-mall-frontend-dev` · 로컬 dev `up -d --wait` 3서비스 Healthy · 변경 6파일 UTF-8·BOM 없음·U+FFFD 0·CRLF 유지.
+
+### §8 이월
+- **러너 빌드 시간·실제 배포 시간은 첫 배포 후 실측한다.** 지금 있는 수치는 로컬 빌드(62초/15.5초)와 사용자 제공 구 배포 시간(24분 15초)뿐이다. gha 캐시는 첫 실행에 비어 있으므로 1회차는 캐시 없는 시간이 찍힌다.
+- 서버 sparse-checkout에서 `backend/`·`frontend/`를 **제외할 수 있다**(빌드 컨텍스트가 러너로 이동해 서버에 소스가 필요 없다). 서버 작업이라 이번 범위 밖 — `decisions-fe.md:119,171,207`의 "sparse-checkout에 frontend/ 포함" 이월 항목은 이 결정으로 방향이 반대가 된다.
+- D-162의 정합 판정식(`git diff --stat <서버HEAD> origin/main -- backend frontend docker docker-compose.mall.yml deploy.yml`)은 서버가 소스를 더 이상 체크아웃하지 않게 되면 대조 대상이 `docker`·`docker-compose.mall.yml`로 줄어든다. sparse 목록을 실제로 줄일 때 함께 갱신한다.
+- 서버 아키텍처 확인됨: `uname -m` = x86_64(amd64). 러너 `ubuntu-latest`와 같아 크로스빌드(`platforms:`)가 필요 없다 — 정찰의 "서버 확인 필요" 항목 해소.
+- `frontend/.dockerignore`에 `.env`가 없다(정찰 §2-D). 현재 `frontend/.env`는 없고 최종 이미지에도 남지 않지만, 저비용 방어책이라 별건으로 남긴다.
+- 로컬 구 태그 `zslab-mall-zslab_mall_backend:latest`(dev 이미지·1.24GB)는 이제 아무도 참조하지 않는다 — 로컬 정리는 zslab 판단.
+- LT-25(로컬 prod `up -d`가 dev 컨테이너를 교체)는 이미지 이름이 분리되면서 양상이 바뀐다 — 재현 여부 확인 후 갱신 또는 종결.
