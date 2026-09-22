@@ -12323,6 +12323,8 @@ PG·SMS·이메일은 포트(`PaymentGateway`·`SmsSender`·`NotificationSender`
 
 ### §8 이월
 - **첫 배포 실측(2026-09-23·PR #256)**: `deploy` job **51초**(전환 전 24분 15초·서버 빌드 포함). 이 51초는 gha 캐시가 비어 있는 1회차이며 `build` job 시간은 별도다. 서버에서 실제로 뜬 이미지의 ghcr digest를 로그로 확인했다.
+- **2회차 실측(2026-09-23·PR #257)**: gha 캐시가 적중해 `build`+`deploy` **전체 2분 미만**. 전환 전 24분 15초 → 1회차 `deploy` 51초(캐시 없음) → 2회차 2분 미만이 이 트랙의 최종 수치다. §8 "첫 배포 후 실측" 이월은 여기서 종결한다.
+- **라벨 prune 검증(2회차)**: 서버 `docker image prune` 로그에서 정리된 대상이 직전 ghcr 이미지 2개뿐임을 확인했다 — 라벨 필터(`org.opencontainers.image.source`)가 의도대로 동작해 서버의 다른 프로젝트 이미지에는 닿지 않았다.
 - **서버 메모리 실측(전환 후)**: 스왑 사용 5.1Gi(기준선 5.2Gi)·`so` 0·`wa` 0~1%. 기준선과 사실상 동일하다 — 배포 중 빌드 부하가 사라진 효과는 이번 회차로 분리되지 않으므로 다음 배포에서 재확인한다.
 - **GHCR public 전환은 불필요했다(실측)**: 패키지가 처음부터 pull 가능한 상태로 만들어져 최초 실행에서 `deploy`가 그대로 성공했다. 전환 전 예상(§2 트랩·런북 §2 초판)이 빗나간 지점이라 런북 §2를 실제 경과로 고쳐 썼다.
 - 잔존 정리 대상(미조치): 서버의 구 로컬빌드 태그 2개(합 638MB) · dangling 이미지 109개. dangling에는 다른 프로젝트 것이 섞여 있을 수 있어 라벨 필터 없는 일괄 prune을 하지 않았다 — `deploy` job의 라벨 필터 prune은 이 저장소 라벨이 붙은 것만 지우므로 구 로컬빌드 이미지에는 닿지 않는다(라벨이 없다). 정리는 zslab 판단.
@@ -12332,3 +12334,65 @@ PG·SMS·이메일은 포트(`PaymentGateway`·`SmsSender`·`NotificationSender`
 - `frontend/.dockerignore`에 `.env`가 없다(정찰 §2-D). 현재 `frontend/.env`는 없고 최종 이미지에도 남지 않지만, 저비용 방어책이라 별건으로 남긴다.
 - 로컬 구 태그 `zslab-mall-zslab_mall_backend:latest`(dev 이미지·1.24GB)는 이제 아무도 참조하지 않는다 — 로컬 정리는 zslab 판단.
 - LT-25(로컬 prod `up -d`가 dev 컨테이너를 교체)는 이미지 이름이 분리되면서 양상이 바뀐다 — 재현 여부 확인 후 갱신 또는 종결.
+
+## D-212: 예외·실수 복구 — 상품 거부 철회 · 클레임 감사·처리 이력 · 회수 송장 대행 · 구매자 신청 취소 (Track 101-A) (2026-09-23)
+
+배경: 라운드 3 정찰(`docs/track-101/recon-report-round3.md`)에서 되돌릴 수 없는 조작 23건을 전수 실측했다. 그중 **상품 거부**는 불가역인데 목록 드롭다운 1클릭으로 즉시 실행되고 복구 수단이 "셀러 재등록"뿐이었다(§2-1). **클레임 승인·거부·회수 확인·검수**와 **수동 환불 개시·재고 증감**은 `claim`·`refund`·`inventory` 패키지에 `AuditRecorder` 참조가 0건이라 불가역 조작인데 행위자 기록이 없었고, 감사 로그 조회 API 자체가 0개라 기록되는 도메인조차 화면에서 확인할 수 없었다(§2-4). **회수 송장**은 구매자만 등록할 수 있어 구매자가 올리지 않으면 관리자가 회수 확인·검수로 넘어갈 수 없고, 화면에는 액션도 사유도 없이 "—"만 남았으며 독촉 수단도 없었다(§3-1). **구매자 클레임 신청 취소**는 엔드포인트 자체가 없어 잘못 신청하면 운영자에게 연락해 "거부" 처리를 받아야 했다(§1-1 #22). 422 문구는 `CLAIM_STATE_INVALID` 한 코드에 원인이 뭉쳐 있어 BE가 detail에 쓴 구체 사유("회수 송장이 등록되지 않아…")가 코드 매핑 문구에 덮여 화면에 나오지 않았다(§3-2).
+
+결정:
+- **상품 거부 철회(REJECTED → PENDING)**: `ProductStatus.canTransitionTo`에 전이 1건 추가 · `Product.withdrawRejection()` mutator · `POST /api/v1/admin/products/{publicId}/withdraw-rejection` body `{reason}`(필수·≤200) · 감사 `UPDATE`/`PRODUCT` 1행(after에 사유). 철회 후에는 PENDING의 기존 동작(재승인·재거부·셀러 수정 후 재요청)을 그대로 쓴다.
+- **클레임·환불·재고 감사 적재**: 클레임 승인 `APPROVE`·거부 `REJECT`·회수 확인/검수 `UPDATE`(대상 `CLAIM`) · 교환품 발송·회수 송장 대행 `CREATE`(대상 `DELIVERY`) · 수동 환불 개시 `CREATE`(대상 `REFUND`) · 재고 증감 `UPDATE`(대상 `INVENTORY`). 기존 `AuditLogAction` 7값·`PolymorphicTargetType`로 전부 표현되어 **DDL 무변경**이다.
+- **처리 이력 조회**: `AdminAuditLogQueryService.listByTarget(targetType, targetId, page, size)` + 대상별 endpoint 2개(`GET /admin/claims/{pid}/audit-logs` · `GET /admin/settlements/{id}/audit-logs`). size 1~100 클램프·최신순(id DESC). 전체 감사 로그를 훑는 조회는 만들지 않는다.
+- **관리자 회수 송장 대행 등록**: `POST /api/v1/admin/claims/{claimPublicId}/return-shipment`. 구매자 경로와 **같은 primitive**(`ClaimService.registerReturnShipment`)를 쓰고 소유 검증 단락만 없다. 중복 등록은 기존 `DeliveryService.registerReturnShipment`가 422로 막는다. 감사 after에 `registeredOnBehalfOfBuyer=true`.
+- **구매자 클레임 신청 취소**: `POST /api/v1/claims/{claimPublicId}/cancel`(body 없음). REQUESTED 한정·소유 위반 404 은닉·그 외 상태 422. 내부적으로 기존 `reject(BUYER_WITHDRAWN)`를 호출해 `ClaimRejectedHandler`의 품목 스냅샷 원복 + 주문 상태 재계산 경로를 그대로 탄다.
+- **422 문구 우선순위**: `CLAIM_STATE_INVALID`는 BE detail이 코드 문구를 덮지 않는다(관리자·셀러 동일 규칙·detail이 비면 기존 코드 문구로 폴백). 다른 코드의 기존 동작은 무변경.
+- **취소 알림 문구 분기(보완)**: 거부 사유가 `BUYER_WITHDRAWN`이면 `TPL_CLAIM_CANCELLED` "… 요청이 취소되었습니다."로, 그 외 사유는 현행 `TPL_CLAIM_REJECTED` "… 요청이 거부되었습니다. 사유: …"로 적재한다. 발송 경로·수신자·실패 격리는 무변경이며 `template_code`가 VARCHAR라 DDL도 무변경이다.
+- **클레임 행 락(외부 검토 반영)**: 구매자 취소·회수 송장 등록(구매자·관리자)은 `ClaimRepository.findWithLockByPublicId`(PESSIMISTIC_WRITE)로 **그 트랜잭션의 첫 읽기부터** 클레임 행을 잠근다. 관리자 승인·거부·검수 등 기존 경로는 무변경이다.
+- **이력 행위자 표기(보완)**: `AdminAuditLogResponse`에 `actorName`·`actorEmail`을 더한다(관리자 화면 사용자 표기 관례 = 이름 + 이메일). 페이지 단위 1쿼리(`UserRepository.findByIdIn`)로 해소하며, 해소 불가(시스템 행·삭제된 회원)면 둘 다 null이다. 내부 `actorUserId`는 여전히 싣지 않는다.
+
+### §1-A 갈림길·채택/기각 근거
+- **거부 철회 목적지 = PENDING 단독 【채택: 되돌릴 곳은 거부 직전 상태 하나뿐이다. 재심사 전용 상태를 새로 만들면 ENUM 값 추가(Flyway) + 카탈로그·목록 필터·FE 전이표가 전부 그 값을 알아야 하는데, 얻는 것은 "심사 대기"와 구분되는 라벨 하나뿐이다. `product.status` ENUM에 PENDING·REJECTED가 이미 있어 DDL도 건드리지 않는다】** / REVIEW 같은 신규 상태 【기각: 위 비용 대비 이득 없음·스키마 변경】 / 철회 대신 셀러 재등록 안내만 【기각: 정찰이 잡은 문제가 바로 그 "재등록뿐"이다】.
+- **철회에 멱등 no-op 단락 없음 【채택: 승인·거부는 "이미 그 상태면 건너뜀"이 있지만, 이미 PENDING인 상품에 철회를 누른 것은 되돌릴 게 없는 오조작이다. `stopSale`이 같은 상태 재요청을 422로 거부하는 규약(D-160 오조작 감지)과 같은 쪽에 선다】** / 승인·거부처럼 멱등 200 【기각: 오조작을 성공으로 돌려준다】.
+- **감사 적재 위치 = 액터 wrapper(`*ByAdmin`) 【채택: primitive는 actor 비의존 시그니처를 유지한다는 D-92 횡단 원칙을 깨지 않는다. wrapper가 `AuditContext`를 받아 primitive 호출 전후로 상태를 읽어 diff를 만든다. 호출자 트랜잭션에 그대로 참여하므로 감사 실패는 전이와 함께 롤백된다(AuditRecorder 규약)】** / primitive에 AuditContext 추가 【기각: 이벤트 핸들러·스케줄러 등 액터 없는 호출자가 같은 primitive를 쓴다】 / 이벤트 소비 핸들러에서 적재 【기각: AFTER_COMMIT이라 전이는 커밋됐는데 감사만 빠지는 창이 생긴다 — 감사 무결성 우선 원칙(Track 52 결정1)과 어긋난다】.
+- **행위자 = 그동안 버리던 `adminActorResolver.resolve` 반환값 【채택: 클레임·환불·재고 컨트롤러는 X-Admin-Id를 형식 검증에만 쓰고 actorId를 버리고 있었다(D-93 Q3). 그 값이 곧 행위자라 새 수집 경로가 필요 없다】** / 별도 액터 헤더 신설 【기각: 이미 있는 값을 안 쓰고 있었을 뿐】.
+- **처리 이력 조회 = 대상별 endpoint 2개 【채택: 소비처가 클레임 상세·정산 상세 두 화면뿐이고, FE가 가진 식별자(claim publicId·settlement id)로 바로 해소된다. 무제한 감사 조회는 그 자체가 감사 데이터 유출 면이다(기조 4)】** / 범용 `GET /admin/audit-logs?targetType=&targetId=` 【기각: FE는 숫자 id를 모르고, 전체 조회 면이 열린다】 / 화면별 응답에 이력을 끼워 넣기 【기각: 상세 응답이 무거워지고 목록 N+1 위험】.
+- **회수 대행 노출 조건 = FE 도메인 판정(`isWaitingForReturnShipment`) 【채택: BE `availableActions`에 6번째 값을 더하면 "필요 액션" 필터(`AdminClaimActionFilter` FOLLOWUP 합집합)와 대시보드 "클레임 처리 대기" 타일 집계가 같이 바뀐다 — 대행은 운영자가 "할 수 있는 일"이지 "해야 할 일"이 아니므로 처리 대기 건수에 들어가면 안 된다. 판정에 필요한 필드(type·status·returnShipment·pickedUpAt)가 이미 목록 행에 전부 있다】** / `availableActions`에 `REGISTER_RETURN_SHIPMENT` 추가 【기각: 필터·타일 회귀】 / 대행 버튼 상시 노출 【기각: 이미 등록·회수 확인된 행에도 뜬다】.
+- **구매자 취소 = 기존 거부 흐름 재사용(사유 `BUYER_WITHDRAWN`) 【채택: 취소가 해야 할 일(REJECTED 전이·품목 `previous_order_item_status` 원복·주문 상태 재계산)이 관리자 거부와 완전히 같다. `BUYER_WITHDRAWN`("구매자 철회")은 V23 CHECK에 이미 있는 값이라 DDL도 건드리지 않는다】** / `CANCELLED` 같은 신규 ClaimStatus 【기각: ENUM·CHECK 변경 + 4상태 전이 매트릭스·통계·필터가 전부 5번째 값을 알아야 한다】 / 클레임 행 삭제 【기각: append-only 이력 원칙 위배·재신청 추적 불가】.
+- **취소 허용 범위 = REQUESTED 한정 【채택: 승인 뒤에는 환불·회수가 이미 움직이기 시작해 구매자 단독으로 되돌리면 정합이 깨진다】** / APPROVED까지 허용 【기각: 위와 같음】 / 회수 송장 등록 전까지 허용 【기각: CANCEL 유형은 회수가 없어 기준이 유형마다 갈린다】.
+- **취소 문구 분기 기준 = 사유 코드(호출자 아님) 【채택: 관리자가 "구매자 철회"로 거부한 경우에도 사실은 구매자가 철회한 것이라 "취소되었습니다"가 맞다. 호출자(구매자 취소 API인지)로 가르면 같은 사실에 두 문구가 나온다. 사유가 문구에 이미 녹아 있어 "사유: 구매자 철회"를 덧붙이지 않는다】** / 호출 진입점으로 분기 【기각: 같은 사유에 문구가 갈린다】 / 현행 유지 【기각: 자기가 취소한 구매자에게 "거부되었습니다"를 보낸다】.
+- **행위자 표기 = 이름 + 이메일(페이지 1쿼리 해소) 【채택: 운영자가 여럿이면 역할만으로는 추적이 안 된다 — 감사를 남긴 목적 자체가 "누가"다. 표기 형식은 관리자 화면 관례(`AdminOrderQueryService`의 buyerName·buyerEmail)를 그대로 따른다. `actor_user_id`는 논리참조라 회원 행이 없을 수 있고 스케줄러 행은 아예 null이므로, 해소 실패를 정상 케이스로 두고 역할만 보여 준다】** / `actorUserId` 노출 【기각: 내부 id를 운영 화면에 흘린다】 / 행마다 회원 조회 【기각: N+1】 / 감사 적재 시 이름을 스냅샷으로 저장 【기각: 컬럼 추가(Flyway) + 개명 시 과거 행이 옛 이름으로 굳는다】.
+- **동시성 = 클레임 행 락(외부 검토 반영) 【채택: `Claim`에 `@Version`이 있어 같은 행을 바꾸는 경합(취소×2·취소 vs 승인)은 늦은 쪽이 낙관 락 실패로 걸러진다. 그러나 (1) 그 실패는 **커밋 시점**에야 드러나 그 전까지 두 요청이 모두 "가능"으로 판정하고 각자 `ClaimRejected`를 발행하며, (2) 회수 송장은 **다른 행**(`delivery`)을 만들므로 클레임 버전이 올라가지 않아 `@Version`이 아예 걸리지 않는다. 실제로 락 없는 상태에서 RED를 먼저 확인했다 — 회수 송장 경합은 **양쪽 다 성공해 RETURN Delivery가 2건** 생겼고, 취소 경합은 늦은 쪽이 422가 아니라 `ObjectOptimisticLockingFailureException`(409)으로 떨어졌다. 클레임 행을 잠그면 늦은 쪽이 앞선 커밋 뒤에 읽어 상태 가드에서 422로 걸린다 — 사용자에게 "이미 처리가 시작됐다"는 문구가 가고, 부수효과도 1회로 고정된다】** / `delivery`에 `(claim_id, direction)` DB 유니크 【기각: Flyway 마이그레이션 + 기존 행 정합 확인이 필요하고(이번 트랙 스키마 무변경 원칙), 유니크는 회수 송장 중복만 막을 뿐 취소 경합의 이중 이벤트에는 무력하다. 락 하나로 두 경합이 함께 직렬화된다】 / `@Version`에 맡기고 409를 그대로 노출 【기각: 부수효과 이중 실행을 막지 못하고, 사용자에게는 "동시 수정 충돌"이라는 내부 사정이 그대로 간다】.
+- **락 범위 = 구매자·공유 primitive 진입점만(외부 검토 반영) 【채택: 락이 필요한 것은 "상태를 읽은 판정으로 전이까지 가는데 다른 액터가 같은 행에 동시에 들어올 수 있는" 경로다. 구매자 취소·회수 송장 등록이 그렇다(구매자와 관리자가 같은 대상에 동시 진입). 관리자 승인·거부·검수는 운영자 1인 전제이고 결과 정합성은 `@Version`이 지킨다 — 전 경로 락은 잠금 범위만 넓히고 얻는 것이 없다】** / 클레임 전 경로 락 【기각: 위와 같음·§8로 이월해 다중 운영자 시점에 재판단】 / 락 없음 【기각: RED로 재현됨】.
+- **422 문구 = 특정 코드만 detail 우선(`DETAIL_FIRST_CODES`) 【채택: `CLAIM_STATE_INVALID`는 원인이 6가지 이상인데 코드가 하나뿐이라 코드 문구가 원인을 지운다. 반대로 대부분의 코드는 detail이 내부 표현이고 코드 문구가 더 낫다(예: `PRODUCT_HAS_ORDER_HISTORY`는 "판매중지로 전환하세요"라는 다음 행동까지 준다)】** / 전 코드 detail 우선 【기각: 잘 다듬은 운영자 문구를 내부 메시지로 되돌린다】 / BE를 코드별로 쪼개기 【기각: 신규 에러 코드 6종 + GlobalExceptionHandler·FE 매핑·e2e 동반 변경 — 이번 라운드 범위 대비 과대】.
+
+### §2 확정 구현 규칙·트랩
+- 신규 BE: `product/controller/request/AdminProductWithdrawRejectionRequest.java` · `audit/controller/response/AdminAuditLogResponse.java` · `audit/service/AdminAuditLogQueryService.java`.
+- `ClaimService.registerReturnShipment(claim, carrier, trackingNo)` private primitive를 뽑아 구매자·관리자 wrapper가 공유한다(소유 검증만 wrapper 차이). 구매자 경로의 기존 가드 3종(유형·APPROVED·미회수)은 primitive로 그대로 옮겨 갔다.
+- 감사 diff에서 "값 없음"은 **키를 빼서** 표현한다 — `Map.of`는 null 값을 못 담고 `DiffBuilder`는 없는 키를 null로 읽는다. 회수 확인은 before를 `Map.of()`로 넘겨 `pickedUpAt` 신규 설정을 diff에 남긴다(멱등 no-op이면 before/after가 같아 `AuditRecorder`가 skip).
+- `AuditContext.of(actorId, null)`은 `IllegalArgumentException` → 400이다. 컨트롤러가 감사 컨텍스트를 조립하기 시작하면서 `@WebMvcTest` 슬라이스는 `ActorRoleResolver.requireCoarseRole()`을 **반드시 스텁해야** 한다(미스텁 null → 전 케이스 400·`AdminClaimControllerTest` 실발생).
+- `@WebMvcTest(AdminClaimController.class)`에 `ActorRoleResolver`·`AdminAuditLogQueryService` `@MockitoBean` 추가 없이는 컨텍스트 로딩부터 실패한다(슬라이스는 컨트롤러 의존을 자동 제공하지 않는다).
+- `ClaimProcessingMappingAbsenceTest`의 허용 매핑 목록은 구매자 쓰기 3건 고정이었다 — 취소 1건을 더해 4건으로 갱신했다(가드가 의도대로 작동해 RED가 났고, 갱신은 이 박제와 함께).
+- 처리 이력 정렬은 `created_at DESC`가 아니라 **`id DESC`**다 — 같은 트랜잭션에서 여러 감사 행이 생기면 `created_at`이 동률이라 순서가 흔들린다. 조회는 기존 `ix_audit_log_target(target_type, target_id, created_at)`의 등치 구간을 탄다(Flyway 불필요).
+- `diff_json` 파싱 실패는 삼키고 빈 변경 목록으로 돌린다(`log.warn` 1줄) — 과거 행 하나가 깨져 이력 화면 전체가 500이 되면 오히려 추적이 막힌다.
+- 마스킹은 **적재 시점**에 `Masker`가 이미 끝냈다. 조회는 저장된 diff를 그대로 옮기며 별도 마스킹을 다시 걸지 않는다.
+- `InventoryService`의 세 진입점(`adjustStock`·`markInboundBySeller`·`markOutboundBySeller`)에 `AuditContext` 파라미터가 붙었다. 셀러 경로의 행위자는 셀러 법인(sellerId)이 아니라 **로그인한 사용자**(`AuthenticatedUserResolver.requireUserId()`·`SellerDeliveryManagementController` 선례)다.
+- 락 적용 3지점: `ClaimService.cancelByBuyer`·`registerReturnShipmentByBuyer`·`registerReturnShipmentByAdmin`. 셋 다 `findClaimByPublicIdForUpdate`가 **그 트랜잭션의 첫 읽기**다 — 먼저 락 없이 읽어 두면 1차 캐시가 옛 인스턴스를 돌려줘 락을 잡고도 옛 상태로 판정한다(D-168 트랩·`DeliveryRepository.findWithLockById` 규약 1:1).
+- 취소는 잠근 엔티티를 그대로 전이시킨다 — `reject(claimId, …)`를 부르면 같은 트랜잭션에서 클레임을 두 번 읽게 되므로 `applyReject(Claim, …)` private primitive를 뽑아 중복 조회를 없앴다. `reject(claimId, …)`(관리자 경로)는 그 primitive에 위임만 한다.
+- RED 선증명(2026-09-23): 락을 뺀 상태로 `ClaimLockRaceIntegrationTest`를 돌려 **C1·C3 실패**를 먼저 확인했다(C3는 buyer=OK·admin=OK로 RETURN Delivery 2건, C1은 늦은 쪽이 `ObjectOptimisticLockingFailureException`). C2(취소 vs 승인)는 락 없이도 통과한다 — `@Version`이 같은 행 경합을 잡기 때문이며, 이 차이가 곧 "락이 없으면 무엇이 새는가"의 경계다.
+- 낙관 락 응답 매핑은 **이미 있었다**(실측): `GlobalExceptionHandler`가 `OptimisticLockingFailureException`을 409 `OPTIMISTIC_LOCK_FAILURE`로 매핑한다(`ObjectOptimisticLockingFailureException`이 그 하위 타입). 신규 매핑·예외 체계 추가 없음.
+- 재고 이중 기록의 책임 분리: `inventory_history`는 **재고 수량 원장**(수량·사유·참조)이고 `audit_log`는 **행위자 기록**(누가·언제·어떤 역할)이다. history에는 actor_user_id가 없고 audit에는 재고 잔량 원장 성격이 없어, 한쪽을 지우면 다른 목적이 빈다 — 통합하지 않고 둘 다 남긴다.
+- 감사 필드 ↔ 마스킹 정책은 `AuditFieldMaskingPolicyTest`가 고정한다: 감사 적재 호출부가 있는 main 소스를 훑어 diff 맵 키 **61개**를 박제하고, 그중 `Masker`가 실제로 가리는 것이 정확히 `accountNumber`·`passwordHash` 2개임을 단언한다. 새 감사 필드가 생기면 이 테스트가 먼저 깨져 민감도 판단을 강제한다.
+- 보완(2026-09-23): 취소 문구 분기는 `NotificationService.recordClaimRejected` 안에서 사유 코드로 단락하며 나머지 본문·저장 경로를 그대로 지난다. 이력 행위자 해소는 `actorsById`(distinct id → `findByIdIn` 1쿼리)로 페이지 단위 배치다.
+- 검증(로컬·2026-09-23): `gradlew test --rerun-tasks` **1486/0 실패**(기준선 1466 → +20) · typecheck 0 · vitest **702**(기준선 676 → +26) · Playwright **106 passed / 2 skipped**(기준선 유지·`admin-orders ⑧` 단언 1건 갱신) · 워크스루 18/18 2회 연속 수치 완전 일치(86·31·28 — 라운드 2와 동일, 늘어난 시나리오 없음).
+
+### §8 이월
+- ~~구매자 자기 취소에도 "거부되었습니다" SMS~~ → 보완 완료(사유 `BUYER_WITHDRAWN` 분기·`TPL_CLAIM_CANCELLED`).
+- ~~상품 상세의 거부 확인 부재~~ → 보완 완료(FE-62 §8 참조·목록과 같은 판정·문구 공유).
+- **픽셀 기준선 미실행**. 픽셀 도구 대상 6페이지(`/`·`/products`·상품 상세·`/login`·`/cart`·`/mypage`)의 렌더 경로에 이번 변경 파일이 하나도 없다(구매자 변경은 `/claims/{id}` 1개). 컨테이너 재시작 직후 캡처 조건을 맞추지 않아 실행하지 않았다.
+- 셀러 화면도 `CLAIM_STATE_INVALID`에서 BE detail을 그대로 보여 준다 — BE 메시지에 `orderItemId=` 같은 내부 식별자가 붙어 있어 셀러에게 노출된다. 운영자 대상이라 수용했으나, 노출 범위를 줄이려면 BE 메시지에서 기술 접미사를 떼는 편이 낫다.
+- 재고 증감 감사는 `inventory_history`(사유·수량)와 **중복 기록**이다. history는 그대로 두고 감사 1행을 더한 것이며, 통합 여부는 재검토 대상.
+- 행위자 이름은 **조회 시점의 현재 이름**이다(스냅샷 아님). 개명하면 과거 이력의 표기도 함께 바뀐다 — 시점 보존이 필요해지면 적재 시 스냅샷 컬럼을 검토한다.
+- 취소 문구 분기로 `template_code`가 9종이 됐다. `NotificationTemplateCodes`의 enum 승격 기준(≥10건)에 근접했다.
+- **클레임 경로 락 정책 통일 미적용**: 이번에 잠근 것은 구매자·공유 primitive 진입점 3곳뿐이고 관리자 승인·거부·검수는 `@Version`에 맡겼다. 운영자가 여럿이 되거나 자동화(스케줄러)가 클레임 전이에 들어오면 같은 기준으로 전 경로를 재판단한다.
+- `AuditFieldMaskingPolicyTest`의 소스 스캔은 감사 적재 파일의 `.put("키"` 전부를 세므로 감사와 무관한 맵 조립이 섞이면 과검출된다. 과검출은 "박제와 다르다"로 드러나 조용히 새는 쪽보다 안전하다고 보고 수용했다 — 오탐이 잦아지면 호출식 범위로 좁힌다.
+- 외부 검토: A / 지적 5건 중 수용 3건(회수 대행 동시성·취소 동시성·마스킹 테스트 고정) · 기각 2건(재고 이중 기록 책임 분리 · 감사 조회 whitelist는 적재 시 마스킹으로 일관)

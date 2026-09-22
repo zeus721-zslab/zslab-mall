@@ -350,13 +350,14 @@ PENDING ──→ COMPLETED (불가역)
 
 ## 10. Product.status (A분류 #6)
 
-> 소스: product.enums.ProductStatus(A#6·7값)·product.enums.SaleStopSource(2값)·invariants.md PRD-6·PRD-7·V1__init.sql product.status·V34 product.sale_stop_source·Track 50 승인 워크플로·Track 71 판매 상태 전환(D-160)·Track 96-5 셀러 셀프 전환(D-206) [확정 2026-07-05 · 갱신 2026-09-22].
+> 소스: product.enums.ProductStatus(A#6·7값)·product.enums.SaleStopSource(2값)·invariants.md PRD-6·PRD-7·V1__init.sql product.status·V34 product.sale_stop_source·Track 50 승인 워크플로·Track 71 판매 상태 전환(D-160)·Track 96-5 셀러 셀프 전환(D-206)·Track 101-A 거부 철회(D-212) [확정 2026-07-05 · 갱신 2026-09-23].
 > A분류: ENUM 값 집합 코드 레이어 enum 고정. 추가/변경 = Flyway 마이그레이션 + db-schema 갱신.
 
 전이 다이어그램 (평문 들여쓰기):
 
     PENDING ──→ SALE (운영자 승인)
-    PENDING ──→ REJECTED (운영자 거부·종료)
+    PENDING ──→ REJECTED (운영자 거부)
+    REJECTED ─→ PENDING (운영자 거부 철회·사유 필수·Track 101-A)
     SALE    ──→ STOPPED (판매중지·주체 기록 ADMIN | SELLER)
     STOPPED ──→ SALE (재판매·주체 NULL 복귀)
 
@@ -366,7 +367,7 @@ PENDING ──→ COMPLETED (불가역)
 |---|---|---|
 | PENDING | Product 행 생성 시 초기값 (판매자 등록·Track 39/50) | 승인 심사 대기·카탈로그 미노출 |
 | SALE | 운영자 승인 · 재판매(STOPPED에서) | 공개 판매·카탈로그 노출 대상 (Seller ACTIVE 전제·D-129) |
-| REJECTED | 운영자 거부 | 종료 상태·재심사 없음·카탈로그 미노출 |
+| REJECTED | 운영자 거부 | 카탈로그 미노출. 종료 상태가 아니다 — 운영자 거부 철회로 PENDING 복귀 가능(Track 101-A) |
 | STOPPED | 판매중지(SALE에서) | 목록 숨김·상세 접속 가능(saleStopped)·담기/주문 422(D-160). **sale_stop_source(ADMIN·SELLER) NOT NULL**(D-206) |
 
 **전이 규칙**:
@@ -375,11 +376,14 @@ PENDING ──→ COMPLETED (불가역)
 |---|---|---|---|
 | PENDING → SALE | 운영자 상품 승인 | ADMIN | — |
 | PENDING → REJECTED | 운영자 상품 거부 | ADMIN | — |
+| REJECTED → PENDING | 운영자 거부 철회(오거부 복구·사유 필수·감사 UPDATE 1행) | ADMIN | — |
 | SALE → STOPPED | 판매중지(단건·관리자 일괄) | ADMIN · SELLER(자기 상품·ACTIVE 셀러·역할 무차등) | ADMIN 경로=ADMIN · 셀러 경로=SELLER |
 | STOPPED → SALE | 재판매 | ADMIN(주체 무관) · SELLER(**주체 SELLER일 때만**·ADMIN이면 422 PRODUCT_STOPPED_BY_ADMIN) | NULL로 복귀 |
 | STOPPED(SELLER) → STOPPED(ADMIN) | 제재 전환(관리자가 셀러 중지 상품에 STOPPED 요청·status 불변·주체만 상향·D-206 보정) | ADMIN만(역방향 ADMIN→SELLER 수단 없음·STOPPED(ADMIN) 재요청은 422) | SELLER → ADMIN |
 
-**역전·기타 차단**: 위 4전이 외 전부 차단(canTransitionTo=false·같은 상태 재요청도 422). REJECTED는 종료 상태(재심사 없음). HIDDEN·DRAFT·APPROVED에서의 전이는 소비처가 없어 도입하지 않는다.
+**역전·기타 차단**: 위 5전이 외 전부 차단(canTransitionTo=false·같은 상태 재요청도 422). HIDDEN·DRAFT·APPROVED에서의 전이는 소비처가 없어 도입하지 않는다.
+
+**거부 철회(Track 101-A·D-212)**: `POST /api/v1/admin/products/{publicId}/withdraw-rejection` body `{reason}`(필수·≤200). 되돌릴 곳은 거부 직전 상태인 PENDING 하나뿐이라 재심사 전용 상태를 새로 만들지 않는다. 철회 후에는 PENDING의 기존 동작(재승인·재거부·셀러 수정 후 재요청)을 그대로 쓴다. 승인·거부와 달리 **멱등 no-op 단락이 없다** — 이미 PENDING인 상품에 대한 철회 요청은 오조작이므로 422(`stopSale` 같은 상태 재요청 거부 규약과 같다). 사유는 Product 컬럼이 아니라 감사 로그 `diff_json.after.reason`에만 남는다(89-A 송장 정정 선례). DDL 무변경 — `product.status` ENUM에 PENDING·REJECTED가 이미 있다.
 
 **전이 권한**: 승인·거부는 운영자(ADMIN)만(SecurityConfig {@code /api/v1/admin/**}). 판매중지·재판매는 운영자 + 셀러 본인({@code /api/v1/seller/products/{id}/sale-status}·D-190 SUSPENDED 쓰기 403·소유 검증 404). 주체 가드(관리자 중지는 셀러가 못 품)는 SellerProductSaleStatusService.
 
@@ -387,7 +391,8 @@ PENDING ──→ COMPLETED (불가역)
 
 **PRD-6 정합**: invariants.md PRD-6 전이 규칙을 ProductStatus.canTransitionTo() 메서드로 구현 (Settlement §9 canTransitionTo 동일 패턴). 등록 초기=PENDING·SALE 도달=승인 경유(등록 직행 SALE 아님·Track 50).
 
-**확장 지점**: 판매자 상품 수정/재심사 기능 도입 시 REJECTED→PENDING 전이 검토.
+**확장 지점**: 셀러가 거부 사유를 화면에서 확인하고 스스로 재요청하는 흐름(현재 철회는 운영자만 개시).
+
 
 ---
 
