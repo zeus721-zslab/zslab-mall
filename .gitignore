@@ -56,3 +56,6 @@ frontend/.nitro/
 frontend/.data/
 frontend/dist/
 backend/uploads/
+
+# Python 바이트코드 (scripts/walkthrough 모듈 import 시 생성)
+__pycache__/
