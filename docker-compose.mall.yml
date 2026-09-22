@@ -1,5 +1,9 @@
 services:
   zslab_mall_backend:
+    # Track 100 방식 A: 운영은 Actions가 빌드해 ghcr.io에 올린 이미지를 pull한다(서버 빌드 없음).
+    # build는 로컬 전용으로 남긴다 — dev 오버라이드(docker-compose.dev.yml)가 여기의 context를 상속하기 때문.
+    # 태그는 서버 .env의 BACKEND_IMAGE_TAG로 고정할 수 있다(롤백 = 이전 sha 태그 지정 후 pull·up).
+    image: ghcr.io/zeus721-zslab/zslab-mall-backend:${BACKEND_IMAGE_TAG:-latest}
     build:
       context: ./backend
       dockerfile: ${BACKEND_DOCKERFILE:-Dockerfile}
@@ -58,6 +62,7 @@ services:
           - mall-backend
 
   zslab_mall_frontend:
+    image: ghcr.io/zeus721-zslab/zslab-mall-frontend:${FRONTEND_IMAGE_TAG:-latest}
     build:
       context: ./frontend
       dockerfile: ${FRONTEND_DOCKERFILE:-Dockerfile}

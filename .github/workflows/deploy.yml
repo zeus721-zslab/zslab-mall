@@ -1,4 +1,11 @@
-name: Deploy Backend to Production
+name: Deploy to Production
+
+# Track 100 방식 A — Actions가 이미지를 빌드해 ghcr.io에 push하고, 서버는 pull만 한다(서버 빌드 없음).
+# 주의 1: 이 워크플로의 이미지 빌드는 테스트를 실행하지 않는다(backend/Dockerfile은 bootJar만 호출).
+#         테스트 게이트는 PR 단계의 backend-ci.yml·frontend-ci.yml이며, 여기서 GREEN을 보장하지 않는다.
+# 주의 2: 저장소가 공개여도 GHCR 패키지의 기본 가시성은 private이다. 최초 1회 zslab이 두 패키지
+#         (zslab-mall-backend·zslab-mall-frontend)를 public으로 전환해야 서버가 인증 없이 pull할 수 있다.
+#         전환 전에 deploy job이 실패하면 전환 후 해당 job만 re-run 하면 된다.
 
 on:
   push:
@@ -12,9 +19,109 @@ on:
       - '.github/workflows/deploy.yml'
   workflow_dispatch:
 
+# 연속 머지로 배포가 겹치면 먼저 시작한 쪽이 나중에 끝나 구버전이 최종 상태가 될 수 있다. 앞 배포를 끝까지 보낸 뒤 실행한다.
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  BACKEND_IMAGE: ghcr.io/zeus721-zslab/zslab-mall-backend
+  FRONTEND_IMAGE: ghcr.io/zeus721-zslab/zslab-mall-frontend
+  REPO_URL: https://github.com/zeus721-zslab/zslab-mall
+
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 변경된 쪽만 빌드한다. docker/**·compose·이 파일이 바뀌면 판단 근거가 양쪽에 걸치므로 둘 다 빌드한다.
+      # workflow_dispatch에는 비교 대상 커밋이 없어 이 스텝을 건너뛰고, 아래 if에서 무조건 둘 다 빌드한다.
+      - name: Detect changed areas
+        id: changes
+        if: github.event_name != 'workflow_dispatch'
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+              - 'docker/**'
+              - 'docker-compose.mall.yml'
+              - '.github/workflows/deploy.yml'
+            frontend:
+              - 'frontend/**'
+              - 'docker/**'
+              - 'docker-compose.mall.yml'
+              - '.github/workflows/deploy.yml'
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # org.opencontainers.image.source 라벨은 서버 prune 필터의 선택 기준이기도 하다(deploy job 참조).
+      - name: Backend image metadata
+        id: backend_meta
+        if: github.event_name == 'workflow_dispatch' || steps.changes.outputs.backend == 'true'
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.BACKEND_IMAGE }}
+          tags: |
+            type=raw,value=latest
+            type=sha
+          labels: |
+            org.opencontainers.image.source=${{ env.REPO_URL }}
+
+      - name: Build and push backend
+        if: github.event_name == 'workflow_dispatch' || steps.changes.outputs.backend == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: true
+          tags: ${{ steps.backend_meta.outputs.tags }}
+          labels: ${{ steps.backend_meta.outputs.labels }}
+          # scope를 서비스별로 나누지 않으면 두 이미지가 같은 캐시 키를 두고 서로를 축출한다.
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+
+      - name: Frontend image metadata
+        id: frontend_meta
+        if: github.event_name == 'workflow_dispatch' || steps.changes.outputs.frontend == 'true'
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.FRONTEND_IMAGE }}
+          tags: |
+            type=raw,value=latest
+            type=sha
+          labels: |
+            org.opencontainers.image.source=${{ env.REPO_URL }}
+
+      - name: Build and push frontend
+        if: github.event_name == 'workflow_dispatch' || steps.changes.outputs.frontend == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          push: true
+          tags: ${{ steps.frontend_meta.outputs.tags }}
+          labels: ${{ steps.frontend_meta.outputs.labels }}
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.2.4
@@ -22,13 +129,45 @@ jobs:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
-          # 이미지 빌드(backend gradle + frontend nuxt·순차) 후 backend 헬스 대기까지 기본 10m을 넘긴 사례(FE-27 배포·당시 병렬) → 30m
-          command_timeout: 30m
+          # 서버 빌드가 사라져 pull + 헬스 대기만 남는다(구 30m → 10m).
+          command_timeout: 10m
           script: |
+            set -e
             cd ${{ secrets.DEPLOY_PATH }}
+            # compose·filebeat.yml 동기화용. 이미지는 더 이상 서버 소스에서 빌드하지 않는다.
             git pull origin main
-            # 호스트 메모리 제약(총 7.5Gi·available 약 2.4Gi)으로 순차 빌드 — backend gradle과 frontend nuxt(피크 약 3.6GiB)를 병렬로 빌드하면 FE 빌드가 OOM(exit 134).
-            # compose build는 서비스 1개씩 호출해 병렬화를 피한다(--parallel 미사용). filebeat는 이미지 pull 전용이라 build 대상이 아니다.
-            docker compose -f docker-compose.mall.yml build zslab_mall_backend
-            docker compose -f docker-compose.mall.yml build zslab_mall_frontend
-            docker compose -f docker-compose.mall.yml up -d --wait --wait-timeout 180
+            docker compose -f docker-compose.mall.yml pull zslab_mall_backend zslab_mall_frontend
+            docker compose -f docker-compose.mall.yml up -d --no-build --wait --wait-timeout 180
+            # 실제로 뜬 이미지의 digest를 남긴다 — pull이 조용히 no-op 되어 구버전이 계속 뜨는 상황을 로그로 잡는다.
+            for container in zslab_mall_backend zslab_mall_frontend; do
+              image=$(docker inspect "$container" --format '{{.Config.Image}}')
+              digest=$(docker image inspect "$image" --format '{{join .RepoDigests ","}}')
+              echo "$container -> $image @ $digest"
+            done
+            # 이 저장소 라벨이 붙은 dangling 이미지만 정리한다(서버의 다른 프로젝트 이미지 무영향).
+            docker image prune -f --filter "label=org.opencontainers.image.source=${{ env.REPO_URL }}"
+
+  cleanup:
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # 최근 5개 버전만 남긴다(태그 없는 중간 버전 포함). 최초 실행처럼 패키지가 아직 없으면 실패하므로
+      # 정리 실패가 배포 성공을 뒤집지 않도록 continue-on-error로 둔다.
+      - name: Prune old backend versions
+        continue-on-error: true
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: zslab-mall-backend
+          package-type: container
+          min-versions-to-keep: 5
+          delete-only-untagged-versions: false
+
+      - name: Prune old frontend versions
+        continue-on-error: true
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: zslab-mall-frontend
+          package-type: container
+          min-versions-to-keep: 5
+          delete-only-untagged-versions: false
