@@ -6,7 +6,7 @@ import {
   type AdminDeliveryCarrier,
 } from '#layers/admin/app/lib/constants/admin-order'
 import { mapFieldErrors } from '#layers/admin/app/lib/admin-order-view'
-import { inspectPassLabel, inspectPassToast, validateInspectForm } from '#layers/admin/app/lib/admin-claim-view'
+import { inspectDialogTitle, inspectPassLabel, inspectPassToast, validateInspectForm } from '#layers/admin/app/lib/admin-claim-view'
 import { extractErrorCode, toAdminErrorMessage } from '#layers/admin/app/lib/admin-error-message'
 import { useAdminOrders } from '#layers/admin/app/composables/useAdminOrders'
 import { useAdminToast } from '#layers/admin/app/composables/useAdminToast'
@@ -34,7 +34,8 @@ const props = defineProps<{
   open: boolean
   target: AdminClaimInspectTarget | null
 }>()
-const emit = defineEmits<{ done: []; stale: []; cancel: [] }>()
+// done은 처리한 검수 결과를 싣는다 — 목록이 합격(교환)일 때만 교환품 발송을 이어 연다(FE-61).
+const emit = defineEmits<{ done: [result: ClaimInspectionResult]; stale: []; cancel: [] }>()
 
 const ordersApi = useAdminOrders()
 const toast = useAdminToast()
@@ -113,6 +114,7 @@ async function submit(): Promise<void> {
   submitting.value = true
   try {
     if (pickupRequired.value && !(await applyPickup(props.target.claimId))) return
+    const submitted: ClaimInspectionResult = result.value
     if (result.value === 'PASS') {
       await ordersApi.inspectClaim(props.target.claimId, { result: 'PASS', restock: restock.value ?? false })
       toast.info(inspectPassToast(claimType.value))
@@ -126,7 +128,7 @@ async function submit(): Promise<void> {
       })
       toast.danger('검수 불합격 처리했습니다. 상품을 재발송합니다.') // 거부 종결은 부정적 의미
     }
-    emit('done')
+    emit('done', submitted)
   } catch (error) {
     // 회수 확인이 이미 반영된 뒤 검수만 실패한 경우: 구분해 알리고 부모가 최신 행을 다시 읽는다(회수 확인은 유지·검수는 목록에서 재시도).
     if (pickupApplied.value) {
@@ -157,7 +159,7 @@ async function submit(): Promise<void> {
 <template>
   <v-dialog :model-value="open" max-width="520" :persistent="submitting" @update:model-value="(value: boolean) => !value && emit('cancel')">
     <v-card data-testid="admin-claim-inspect-dialog">
-      <v-card-title class="text-subtitle-1 font-weight-bold pt-5 px-5">반품 검수</v-card-title>
+      <v-card-title class="text-subtitle-1 font-weight-bold pt-5 px-5">{{ inspectDialogTitle(claimType) }}</v-card-title>
       <v-card-text class="px-5">
         <p class="text-body-2 mb-3">
           <span class="font-weight-medium">{{ lastTarget?.productName }}</span> 회수품을 검수합니다.

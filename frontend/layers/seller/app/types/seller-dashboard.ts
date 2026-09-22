@@ -26,6 +26,8 @@ export interface SellerDashboardPending {
   claimRequested: number
   lowStock: number
   settlementPending: number
+  /** 장기 배송중 = 자기 품목의 발송 배송이 SHIPPING이고 발송 후 3일 이상 지난 건(Track 99 D-210·FE-61). BE LongShippingThreshold.DAYS. */
+  longShipping: number
 }
 
 /** 일별 추이 1행. orderCount는 DISTINCT 주문 수·revenue는 자기 품목 합. 차트 2종이 이 배열에서 파생된다. */

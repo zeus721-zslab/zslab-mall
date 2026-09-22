@@ -156,7 +156,9 @@ public class OrderShippingService {
      * @throws DeliveryInvalidStateException 배송이 SHIPPING이 아니어서 DELIVERED 전이 불가한 경우(배송 완료 불가·422)·클레임 연결 배송(422)
      */
     public void markDeliveredBySeller(Long sellerId, Long deliveryId) {
-        Delivery delivery = deliveryRepository.findById(deliveryId)
+        // 이 트랜잭션의 첫 읽기부터 행 락을 잡는다(Track 99 외부 검토 4) — 락 없이 먼저 읽으면 뒤이은 markDelivered의 락 조회가
+        // 1차 캐시(옛 상태)를 돌려줘 소유·클레임 가드를 옛 값으로 판정한다.
+        Delivery delivery = deliveryRepository.findWithLockById(deliveryId)
                 .orElseThrow(() -> new DeliveryNotFoundException("배송을 찾을 수 없습니다: deliveryId=" + deliveryId));
         authorizeDelivery(sellerId, delivery);
         if (delivery.getClaimId() != null) {

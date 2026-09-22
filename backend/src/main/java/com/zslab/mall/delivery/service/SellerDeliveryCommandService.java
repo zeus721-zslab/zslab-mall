@@ -42,7 +42,8 @@ public class SellerDeliveryCommandService {
      */
     public Delivery correctTracking(Long sellerId, String deliveryPublicId, DeliveryCarrier carrier, String trackingNo,
             String reason, AuditContext auditContext) {
-        Delivery delivery = deliveryRepository.findByPublicId(deliveryPublicId)
+        // 행 락 후 상태를 읽는다(Track 99 외부 검토 4·관리자 경로와 동일 — lost update 차단).
+        Delivery delivery = deliveryRepository.findWithLockByPublicId(deliveryPublicId)
                 .filter(candidate -> isOwnedBy(candidate, sellerId))
                 .orElseThrow(() -> new DeliveryNotFoundException("배송을 찾을 수 없습니다: publicId=" + deliveryPublicId));
         if (delivery.getStatus() != DeliveryStatus.SHIPPING) {

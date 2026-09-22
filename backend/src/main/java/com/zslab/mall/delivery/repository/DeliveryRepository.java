@@ -4,6 +4,7 @@ import com.zslab.mall.delivery.entity.Delivery;
 import com.zslab.mall.delivery.enums.DeliveryDirection;
 import com.zslab.mall.delivery.enums.DeliveryStatus;
 import com.zslab.mall.order.enums.OrderItemStatus;
+import jakarta.persistence.LockModeType;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
@@ -11,6 +12,7 @@ import java.util.Optional;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -20,6 +22,19 @@ import org.springframework.data.repository.query.Param;
 public interface DeliveryRepository extends JpaRepository<Delivery, Long>, JpaSpecificationExecutor<Delivery> {
 
     Optional<Delivery> findByPublicId(String publicId);
+
+    /**
+     * 행 락을 잡고 읽는다(Track 99 외부 검토 4·lost update 차단). {@link Delivery}에는 {@code @Version}도 {@code @DynamicUpdate}도 없어
+     * 더티 체킹 UPDATE가 <b>전 컬럼</b>을 쓴다 — 락 없이 읽은 트랜잭션이 나중에 저장하면 그 사이 다른 트랜잭션이 커밋한 status·delivered_at까지
+     * 자기가 읽은 옛 값으로 되돌린다(송장 정정이 배송완료를 지운다). 전이(배송완료)·값 보정(송장 정정) 경로는 <b>해당 트랜잭션에서 이 행을 처음
+     * 읽을 때</b> 이 메서드를 써야 한다 — 먼저 락 없이 읽어 두면 1차 캐시가 그 인스턴스를 돌려줘 락을 잡고도 옛 상태로 판정한다(D-168 트랩).
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    Optional<Delivery> findWithLockById(Long id);
+
+    /** publicId로 행 락을 잡고 읽는다(송장 정정 경로·{@link #findWithLockById}와 같은 규약). */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    Optional<Delivery> findWithLockByPublicId(String publicId);
 
     /** 교환 배송 이중 등록 멱등 가드용(D-99 Q11). claim_id 연결된 Delivery 존재 시 재등록을 차단한다. */
     Optional<Delivery> findByClaimId(Long claimId);
@@ -57,6 +72,22 @@ public interface DeliveryRepository extends JpaRepository<Delivery, Long>, JpaSp
             @Param("status") DeliveryStatus status,
             @Param("threshold") LocalDateTime threshold,
             @Param("itemStatus") OrderItemStatus itemStatus,
+            Pageable pageable);
+
+    /**
+     * 자동 배송완료 후보(Track 99 D-210). 발송 방향(OUTBOUND)·배송중(SHIPPING)·송장 보유 행을 id 오름차순으로 한 페이지 돌려준다.
+     * {@code cursor}보다 큰 id만 보므로, 배달 완료가 아니어서 남는 건이 다음 페이지를 막지 않는다(굶주림 방지).
+     * 교환품 발송·검수 불합격 재발송(claim_id 보유)도 발송이므로 포함하고, 회수(RETURN)는 조건에서 빠진다.
+     * 모든 변수는 :name 바인딩 사용, SQL injection 위험 없음.
+     */
+    @Query("SELECT new com.zslab.mall.delivery.repository.DeliveryTrackingCandidate("
+            + "d.id, d.carrier, d.trackingNo, d.shippedAt) FROM Delivery d "
+            + "WHERE d.direction = :direction AND d.status = :status AND d.trackingNo IS NOT NULL "
+            + "AND d.id > :cursor ORDER BY d.id ASC")
+    List<DeliveryTrackingCandidate> findAutoCompleteCandidates(
+            @Param("direction") DeliveryDirection direction,
+            @Param("status") DeliveryStatus status,
+            @Param("cursor") Long cursor,
             Pageable pageable);
 
     /** 관리자 목록·상세 배치 enrich(Track 81-A·클레임별 회수/재발송 Delivery). id 내림차순. */

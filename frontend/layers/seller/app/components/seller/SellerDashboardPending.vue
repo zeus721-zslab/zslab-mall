@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { mdiAlertOutline, mdiClipboardTextClockOutline, mdiPackageVariantClosed, mdiWalletOutline } from '@mdi/js'
+import { mdiAlertOutline, mdiClipboardTextClockOutline, mdiPackageVariantClosed, mdiTruckAlertOutline, mdiWalletOutline } from '@mdi/js'
 import type { SellerDashboardPending } from '#layers/seller/app/types/seller-dashboard'
 import { PENDING_TILES, pendingChipClass, type PendingKey } from '#layers/seller/app/lib/seller-dashboard-view'
 
 /**
- * 처리 대기 4칸(Track 90-B-3·관리자 AdminDashboardPending 복제). 4칸 전부 해당 화면으로 이동한다(Track 96-1 C-14). 톤은 0건 회색·1건 이상
+ * 처리 대기 5칸(Track 90-B-3·관리자 AdminDashboardPending 복제 + Track 99 FE-61 장기 배송중). 5칸 전부 해당 화면으로 이동한다(Track 96-1 C-14).
+ * md에서 4칸 + 1칸으로 접힌다(관리자 8칸이 4+4인 것과 달리 한 칸이 남는 줄이 생긴다). 톤은 0건 회색·1건 이상
  * 주의이며 판정은 lib/seller-dashboard-view.ts.
  */
 const props = defineProps<{
@@ -16,6 +17,7 @@ const ICONS: Record<PendingKey, string> = {
   claimRequested: mdiClipboardTextClockOutline,
   lowStock: mdiAlertOutline,
   settlementPending: mdiWalletOutline,
+  longShipping: mdiTruckAlertOutline,
 }
 
 // 문자열 'NuxtLink'는 전역 등록 컴포넌트가 아니라 <nuxtlink> 원소로 렌더된다 → resolveComponent로 실제 컴포넌트를 넘긴다.

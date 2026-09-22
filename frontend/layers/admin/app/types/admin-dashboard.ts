@@ -34,6 +34,8 @@ export interface AdminDashboardPending {
   sellerPending: number
   /** 클레임 처리 대기 = 관리자 후속 액션 보유 건수(목록 action=FOLLOWUP과 동일 조건)(Track 96-4 D-205·FE-56). */
   claimFollowup: number
+  /** 장기 배송중 = 발송 배송이 SHIPPING이고 발송 후 3일 이상 지난 건(Track 99 D-210·FE-61). BE LongShippingThreshold.DAYS. */
+  longShipping: number
 }
 
 /** yearMonth "yyyy-MM". */

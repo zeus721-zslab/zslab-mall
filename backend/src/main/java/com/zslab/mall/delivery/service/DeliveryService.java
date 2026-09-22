@@ -63,11 +63,15 @@ public class DeliveryService {
     /**
      * 배송 완료 처리(SHIPPING → DELIVERED). 전이 후 save 직후 {@link DeliveryCompleted}를 발행한다(D-29).
      *
+     * <p><b>행 락</b>(Track 99 외부 검토 4): 상태를 읽기 전에 {@code SELECT … FOR UPDATE}로 행을 잠근다. 송장 정정 경로와 같은 행을 두고
+     * 경합하면 뒤늦은 쪽이 대기했다가 최신 상태로 도메인 가드를 통과·실패하므로 lost update가 생기지 않는다
+     * ({@link com.zslab.mall.delivery.repository.DeliveryRepository#findWithLockById} 주석 참조).
+     *
      * @throws IllegalArgumentException 배송이 없는 경우
      * @throws IllegalStateException    불법 배송 상태 전이 또는 DLV-3 위반 시(Delivery.markDelivered 위임)
      */
     public void markDelivered(Long deliveryId) {
-        Delivery delivery = deliveryRepository.findById(deliveryId)
+        Delivery delivery = deliveryRepository.findWithLockById(deliveryId)
                 .orElseThrow(() -> new IllegalArgumentException("배송을 찾을 수 없습니다: deliveryId=" + deliveryId));
         delivery.markDelivered(LocalDateTime.now());
         deliveryRepository.save(delivery);
@@ -235,7 +239,8 @@ public class DeliveryService {
      */
     @Transactional
     public void markDeliveredByAdmin(Long deliveryId) {
-        deliveryRepository.findById(deliveryId)
+        // 이 트랜잭션의 첫 읽기부터 락을 잡는다 — 락 없이 먼저 읽으면 뒤이은 markDelivered의 락 조회가 1차 캐시(옛 상태)를 돌려준다.
+        deliveryRepository.findWithLockById(deliveryId)
                 .filter(delivery -> delivery.getDirection() == DeliveryDirection.RETURN)
                 .ifPresent(delivery -> {
                     throw new DeliveryInvalidStateException(

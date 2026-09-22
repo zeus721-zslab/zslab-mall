@@ -14,6 +14,7 @@ import { SELLER_SAVE_STEP_LABEL, SellerSaveStepError, saveSellerProduct, type Se
 import { extractErrorCode, extractErrorStatus, isSellerSuspendedError, toSellerErrorMessage } from '#layers/seller/app/lib/seller-error-message'
 import { useSellerProducts } from '#layers/seller/app/composables/useSellerProducts'
 import { useSellerToast } from '#layers/seller/app/composables/useSellerToast'
+import { priceChangeMessage, priceChangeOf, priceChangeWarnings, type PriceChange } from '~/lib/utils/price-change'
 
 /**
  * 셀러 상품 폼 셸(Track 90-C-4·관리자 AdminProductForm 복제·축소·신규/수정 공용). 섹션 3개(기본·이미지·옵션)를 조립하고 검증→저장 오케스트레이션→
@@ -54,6 +55,11 @@ const failedMessage = ref('')
 const completedSteps = ref<SellerSaveStep[]>([])
 let savedSnapshot = formSnapshot(form.value)
 let savedSections = sectionSnapshots(form.value)
+// 직전 저장 시점의 판매가(FE-61). 저장에 성공할 때마다 갱신해 "이번 저장에서 바뀌는 금액"만 확인받는다.
+let savedBasePrice = form.value.basePrice
+
+// 확인 대기 중인 판매가 변동(null이면 다이얼로그 닫힘).
+const priceChange = ref<PriceChange | null>(null)
 
 const dirty = computed(() => formSnapshot(form.value) !== savedSnapshot)
 const anyUploading = computed(() => uploading.value.GALLERY || uploading.value.DETAIL)
@@ -72,6 +78,10 @@ onMounted(() => window.addEventListener('beforeunload', onBeforeUnload))
 onBeforeUnmount(() => window.removeEventListener('beforeunload', onBeforeUnload))
 
 // ---------- 저장 ----------
+/**
+ * 저장 요청. 검증·변경 판정을 마친 뒤, 수정 모드에서 판매가가 바뀌었으면 확인 다이얼로그를 열고 멈춘다(FE-61).
+ * 가격이 그대로거나 신규 등록이면 바로 저장한다.
+ */
 async function save(): Promise<void> {
   if (!canSave.value) return
   errors.value = validateSellerProductForm(form.value, props.mode)
@@ -84,6 +94,22 @@ async function save(): Promise<void> {
     toast.info('변경된 내용이 없습니다.')
     return
   }
+  const change = props.mode === 'edit' ? priceChangeOf(savedBasePrice, form.value.basePrice) : null
+  if (change) {
+    priceChange.value = change
+    return
+  }
+  await runSave()
+}
+
+/** 판매가 확인 후 이어서 저장한다. */
+async function confirmPriceChange(): Promise<void> {
+  priceChange.value = null
+  await runSave()
+}
+
+async function runSave(): Promise<void> {
+  const changed = changedSections(savedSections, form.value)
   saving.value = true
   failedStep.value = null
   failedMessage.value = ''
@@ -92,6 +118,7 @@ async function save(): Promise<void> {
     const result = await saveSellerProduct(productsApi, form.value, props.mode, changed)
     savedSnapshot = formSnapshot(form.value)
     savedSections = sectionSnapshots(form.value)
+    savedBasePrice = form.value.basePrice
     if (props.mode === 'create') {
       emit('created', result.productPublicId)
     } else {
@@ -182,6 +209,24 @@ defineExpose({ form, dirty })
     </v-card>
 
     <SellerProductOptionSection v-model="form" :mode="mode" :errors="errors" />
+
+    <!-- 판매가 변경 확인(FE-61): 수정 모드에서 판매가가 바뀐 저장만 한 번 확인한다. 셀러 레이어에는 공용 확인 다이얼로그가 없어 여기서 조립한다. -->
+    <v-dialog :model-value="priceChange !== null" max-width="440" @update:model-value="(value) => !value && (priceChange = null)">
+      <v-card data-testid="seller-price-change-dialog">
+        <v-card-title class="text-subtitle-1 font-weight-bold pt-5 px-5">판매가 변경 확인</v-card-title>
+        <v-card-text class="px-5 text-body-2" data-testid="price-change-message">{{ priceChange ? priceChangeMessage(priceChange) : '' }}</v-card-text>
+        <v-card-text v-if="priceChange && priceChangeWarnings(priceChange).length > 0" class="px-5 pt-0">
+          <v-alert type="warning" variant="tonal" density="compact" data-testid="price-change-warning">
+            <p v-for="line in priceChangeWarnings(priceChange)" :key="line" class="text-body-2 font-weight-bold mb-0">{{ line }}</p>
+          </v-alert>
+        </v-card-text>
+        <v-card-actions class="px-5 pb-4">
+          <v-spacer />
+          <v-btn variant="text" data-testid="price-change-cancel" @click="priceChange = null">취소</v-btn>
+          <v-btn color="primary" variant="flat" data-testid="price-change-ok" @click="confirmPriceChange">저장</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <div class="d-flex align-center justify-end ga-2 mb-8" data-testid="form-actions">
       <v-btn variant="text" :prepend-icon="mdiArrowLeft" :to="backPath" data-testid="form-back">목록으로</v-btn>

@@ -42,6 +42,39 @@ function toMarkdown(rows: WalkthroughMetrics[]): string {
   )
   lines.push('| **합계** | ' + rows.length + '개 시나리오 | **' + total.clicks + '** | **' + total.inputs + '** | **' + total.navigations + '** | | |')
   lines.push('')
+  lines.push('## 역할 · 구간별')
+  lines.push('')
+  lines.push('역할 전환 시나리오는 역할별로, 다건 반복 시나리오는 건별로 나눠 센 값이다(구간이 없는 시나리오는 생략).')
+  lines.push('')
+  lines.push('| 시나리오 | 구간 | 역할 | 클릭 | 입력 | 화면 이동 |')
+  lines.push('|---|---|---|---:|---:|---:|')
+  for (const row of rows.filter((candidate) => candidate.segments.length > 0)) {
+    for (const segment of row.segments) {
+      lines.push('| ' + [row.title, segment.label, segment.role, segment.clicks, segment.inputs, segment.navigations].join(' | ') + ' |')
+    }
+  }
+
+  lines.push('')
+  lines.push('## 관찰값')
+  lines.push('')
+  for (const row of rows.filter((candidate) => Object.keys(candidate.notes).length > 0)) {
+    lines.push('- **' + row.title + '** — ' + Object.entries(row.notes).map(([key, value]) => key + ': ' + value).join(' · '))
+  }
+
+  lines.push('')
+  lines.push('## 브라우저 오류')
+  lines.push('')
+  const withErrors = rows.filter((candidate) => candidate.errors.length > 0)
+  if (withErrors.length === 0) {
+    lines.push('없음(pageerror·console.error 0건).')
+  } else {
+    for (const row of withErrors) {
+      lines.push('- **' + row.title + '** (' + row.errors.length + '건)')
+      for (const error of row.errors) lines.push('  - ' + error)
+    }
+  }
+
+  lines.push('')
   lines.push('## 단계')
   for (const row of rows) {
     lines.push('')

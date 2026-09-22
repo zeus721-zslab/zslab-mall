@@ -7,6 +7,8 @@ import {
   type AdminDeliveryCarrier,
 } from '#layers/admin/app/lib/constants/admin-order'
 import { mapFieldErrors, shippableItems, validateShipmentForm } from '#layers/admin/app/lib/admin-order-view'
+import { ADMIN_HOME_PATH } from '#layers/admin/app/lib/constants/auth'
+import { LAST_CARRIER_MAX_AGE_SECONDS, parseLastCarrier } from '~/lib/utils/last-carrier'
 import { extractErrorCode, toAdminErrorMessage } from '#layers/admin/app/lib/admin-error-message'
 import { useAdminOrders } from '#layers/admin/app/composables/useAdminOrders'
 import { useAdminToast } from '#layers/admin/app/composables/useAdminToast'
@@ -30,6 +32,17 @@ const itemOptions = computed(() => candidates.value.map((item) => ({
   title: `${item.productName}${item.optionLabel ? ` (${item.optionLabel})` : ''} · 수량 ${item.quantity}`,
 })))
 
+/**
+ * 직전 출고 택배사 기억(Track 99 FE-61). 대개 같은 택배사로 계속 출고하므로 마지막으로 성공한 택배사를 다음 출고의 기본 선택으로 둔다.
+ * 쿠키 path=/admin라 다른 역할 화면에는 실리지 않고, 값 해석은 parseLastCarrier가 담당한다(값 집합 밖이면 기본 선택 없음 = 현행).
+ */
+const lastCarrier = useCookie<string | null>('admin_last_carrier', {
+  path: ADMIN_HOME_PATH,
+  sameSite: 'lax',
+  secure: true,
+  maxAge: LAST_CARRIER_MAX_AGE_SECONDS,
+})
+
 const orderItemId = ref<string | null>(null)
 const carrier = ref<AdminDeliveryCarrier | null>(null)
 const trackingNo = ref('')
@@ -38,7 +51,7 @@ const submitting = ref(false)
 
 function reset(): void {
   orderItemId.value = candidates.value.length === 1 ? candidates.value[0]!.orderItemId : null
-  carrier.value = null
+  carrier.value = parseLastCarrier(lastCarrier.value)
   trackingNo.value = ''
   errors.value = {}
   submitting.value = false
@@ -58,6 +71,7 @@ async function submit(): Promise<void> {
   submitting.value = true
   try {
     const response = await ordersApi.prepareShipment(orderItemId.value, { carrier: carrier.value, trackingNo: trackingNo.value.trim() })
+    lastCarrier.value = response.carrier
     toast.info(`송장을 등록했습니다: ${ADMIN_DELIVERY_CARRIER_LABEL[response.carrier]} ${response.trackingNo}`)
     emit('done')
   } catch (error) {

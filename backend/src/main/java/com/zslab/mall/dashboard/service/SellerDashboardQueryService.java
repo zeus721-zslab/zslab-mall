@@ -1,6 +1,9 @@
 package com.zslab.mall.dashboard.service;
 
 import com.zslab.mall.claim.enums.ClaimStatus;
+import com.zslab.mall.delivery.enums.DeliveryDirection;
+import com.zslab.mall.delivery.enums.DeliveryStatus;
+import com.zslab.mall.delivery.policy.LongShippingThreshold;
 import com.zslab.mall.common.exception.MalformedRequestException;
 import com.zslab.mall.dashboard.controller.response.SellerDashboardDailyTrendResponse;
 import com.zslab.mall.dashboard.controller.response.SellerDashboardPendingResponse;
@@ -105,7 +108,9 @@ public class SellerDashboardQueryService {
                 sellerDashboardRepository.countOrderItemsByStatus(sellerId, OrderItemStatus.PAID),
                 sellerDashboardRepository.countClaimsByStatus(sellerId, ClaimStatus.REQUESTED),
                 sellerDashboardRepository.countLowStock(sellerId, LowStockThreshold.MIN, LowStockThreshold.MAX),
-                settlementRepository.countBySellerIdAndStatusIn(sellerId, PENDING_ONLY));
+                settlementRepository.countBySellerIdAndStatusIn(sellerId, PENDING_ONLY),
+                sellerDashboardRepository.countLongShipping(sellerId, DeliveryDirection.OUTBOUND, DeliveryStatus.SHIPPING,
+                        LocalDateTime.now().minusDays(LongShippingThreshold.DAYS)));
     }
 
     /** 기간 내 매일 1행·빈 날 0. */
