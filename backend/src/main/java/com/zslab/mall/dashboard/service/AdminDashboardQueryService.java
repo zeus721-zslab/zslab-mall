@@ -3,6 +3,9 @@ package com.zslab.mall.dashboard.service;
 import com.zslab.mall.auth.enums.RoleCode;
 import com.zslab.mall.claim.controller.request.AdminClaimActionFilter;
 import com.zslab.mall.claim.enums.ClaimStatus;
+import com.zslab.mall.delivery.enums.DeliveryDirection;
+import com.zslab.mall.delivery.enums.DeliveryStatus;
+import com.zslab.mall.delivery.policy.LongShippingThreshold;
 import com.zslab.mall.claim.repository.AdminClaimSpecifications;
 import com.zslab.mall.claim.repository.ClaimRepository;
 import com.zslab.mall.dashboard.controller.response.AdminDashboardResponse;
@@ -115,7 +118,9 @@ public class AdminDashboardQueryService {
                 dashboardRepository.countProductsByStatus(ProductStatus.PENDING),
                 dashboardRepository.countSellersByStatus(SellerStatus.PENDING),
                 // Track 96-4 D-205: 목록 action=FOLLOWUP과 같은 Specification을 재사용한다(별도 조건식 금지·매트릭스 IT가 동치 강제)
-                claimRepository.count(AdminClaimSpecifications.action(AdminClaimActionFilter.FOLLOWUP)));
+                claimRepository.count(AdminClaimSpecifications.action(AdminClaimActionFilter.FOLLOWUP)),
+                dashboardRepository.countLongShipping(DeliveryDirection.OUTBOUND, DeliveryStatus.SHIPPING,
+                        LocalDateTime.now().minusDays(LongShippingThreshold.DAYS)));
     }
 
     /** 최근 6개월(당월 포함)·빈 달 0. 매출은 paid_at·환불은 refunded_at 구간이라 각각 집계 후 월 키로 합친다. */

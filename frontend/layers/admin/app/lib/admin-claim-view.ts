@@ -62,6 +62,24 @@ export function inspectPassLabel(claimType: ClaimType): string {
   return claimType === 'EXCHANGE' ? '합격 (교환품 발송 대기)' : '합격 (환불 진행)'
 }
 
+/** 검수 다이얼로그 제목(FE-61). 본문·합격 라벨과 같은 기준으로 유형을 구분한다. */
+export function inspectDialogTitle(claimType: ClaimType): string {
+  return claimType === 'EXCHANGE' ? '교환 검수' : '반품 검수'
+}
+
+/**
+ * 검수 합격 직후 교환품 발송 다이얼로그를 이어 열 조건(FE-61). 교환 + 합격 + 갱신된 행이 실제로 발송 등록을 허용할 때만 연다 —
+ * 세 조건 중 하나라도 어긋나면(반품·불합격·경합으로 액션이 사라짐) 현행대로 목록에 머문다.
+ *
+ * @param claimType        갱신된 행의 클레임 유형
+ * @param result           방금 처리한 검수 결과
+ * @param availableActions 갱신된 행의 BE 처리 가능 액션
+ */
+export function shouldChainExchangeShipment(claimType: ClaimType, result: ClaimInspectionResult,
+        availableActions: string[]): boolean {
+  return claimType === 'EXCHANGE' && result === 'PASS' && availableActions.includes('REGISTER_EXCHANGE_SHIPMENT')
+}
+
 export function inspectPassToast(claimType: ClaimType): string {
   return claimType === 'EXCHANGE' ? '검수 합격 처리했습니다. 교환품 발송을 등록하세요.' : '검수 합격 처리했습니다. 환불이 진행됩니다.'
 }

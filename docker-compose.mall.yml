@@ -40,6 +40,11 @@ services:
       PAYMENT_GATEWAY: ${PAYMENT_GATEWAY:-mock}
       SMS_SENDER: ${SMS_SENDER:-mock}
       EMAIL_SENDER: ${EMAIL_SENDER:-mock}
+      # Track 99 D-210 배송 조회·자동 배송완료(application.yml zslab.delivery.*). 기본 mock = 외부 호출 없음·발송 후 N일이면 배달 완료로 본다.
+      # DELIVERY_AUTO_COMPLETE_ENABLED=false면 자동 배송완료 스케줄러가 뜨지 않는다(워크스루 실행 등 배송중 상태를 유지해야 할 때).
+      DELIVERY_TRACKER: ${DELIVERY_TRACKER:-mock}
+      MOCK_DELIVERY_DAYS: ${MOCK_DELIVERY_DAYS:-2}
+      DELIVERY_AUTO_COMPLETE_ENABLED: ${DELIVERY_AUTO_COMPLETE_ENABLED:-true}
       # KST 통일(JVM TZ) — application.yml hibernate.jdbc.time_zone과 동시 정렬 필수(Track 69·70)
       TZ: Asia/Seoul
     volumes:

@@ -96,6 +96,15 @@ zslab:
   notification:
     sms-sender: ${SMS_SENDER:mock}
     email-sender: ${EMAIL_SENDER:mock}
+  # Track 99 D-210 배송 조회·자동 배송완료. tracker는 위 3개와 같은 선택 장치이며(mock 외 값은 실 구현체 필수) mock-days는
+  # Mock 어댑터가 "발송 후 며칠이면 배달 완료로 본다"로 쓰는 값이다(실 어댑터에서는 무시된다).
+  # auto-complete.enabled=false면 자동 배송완료 스케줄러 빈이 생성되지 않는다(수동 배송완료 API는 영향 없음).
+  delivery:
+    tracker: ${DELIVERY_TRACKER:mock}
+    # MockDeliveryTracker 전용. tracker가 스칼라라 그 아래 하위 키를 둘 수 없어(YAML 키 충돌) 형제 키로 뗀다.
+    tracker-mock-days: ${MOCK_DELIVERY_DAYS:2}
+    auto-complete:
+      enabled: ${DELIVERY_AUTO_COMPLETE_ENABLED:true}
 
 settlement:
   # Track 85 정산 설정. default-commission-rate = 플랫폼 기본 수수료율(basis-point·1000=10.00%)·셀러 개별율·카테고리율이 모두 없을 때

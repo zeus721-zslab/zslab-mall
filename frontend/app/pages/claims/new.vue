@@ -2,6 +2,7 @@
 import {
   CLAIM_REASON_LABELS,
   CLAIM_TYPE_LABELS,
+  REFUND_TIMING_NOTICE,
   claimReasonCodesFor,
   isClaimAttachmentAllowed,
   isClaimType,
@@ -151,7 +152,9 @@ useSeoMeta({ title: '클레임 요청 · zslab-mall', description: 'zslab-mall �
       <!-- 제출 성공: 인라인 성공 상태(toast 인프라 부재). 원주문 id 미보유라 주문 내역으로 유도. -->
       <div v-else-if="submitted" class="flex flex-col items-center justify-center gap-4 py-20 text-center">
         <p class="text-base font-medium text-ink">클레임이 접수되었습니다.</p>
-        <p class="text-sm text-sub">판매자 승인 후 처리가 진행됩니다.</p>
+        <p class="text-sm text-sub">쇼핑몰 승인 후 처리가 진행됩니다.</p>
+        <!-- 환불 반영 시점 안내(FE-61): 환불로 이어지는 취소·반품 요청만·기간은 적지 않는다. -->
+        <p v-if="claimType !== 'EXCHANGE'" class="text-xs text-sub" data-testid="claim-refund-timing">{{ REFUND_TIMING_NOTICE }}</p>
         <Button variant="outline" size="lg" as-child>
           <NuxtLink to="/orders">주문 내역으로</NuxtLink>
         </Button>
@@ -166,7 +169,7 @@ useSeoMeta({ title: '클레임 요청 · zslab-mall', description: 'zslab-mall �
           <p class="text-sm text-sub">요청 대상</p>
           <p class="mt-1 text-base font-medium text-ink">{{ productName || '주문 품목' }}</p>
           <p class="mt-3 text-sm text-ink">{{ typeGuidance }}</p>
-          <p class="mt-1 text-sm text-sub">요청 후 판매자 승인이 필요합니다.</p>
+          <p class="mt-1 text-sm text-sub">요청 후 쇼핑몰 승인이 필요합니다.</p>
         </section>
 
         <!-- 입력 폼 -->

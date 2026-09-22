@@ -225,3 +225,10 @@ export const REFUND_STATUS_LABELS: Record<RefundStatus, string> = {
 export function refundStatusLabel(code: string): string {
   return REFUND_STATUS_LABELS[code as RefundStatus] ?? code
 }
+
+/**
+ * 환불 반영 시점 안내(FE-61). 클레임 상세 환불 상태 옆과 취소 접수 완료 화면이 공유한다.
+ * 소요 기간·날짜를 적지 않는 것은 단계 안내와 같은 원칙이다(lib/utils/claim-timeline.ts RETURN_GUIDES 주석) —
+ * 시스템이 보장할 수 없는 값을 약속하지 않는다.
+ */
+export const REFUND_TIMING_NOTICE = '환불 완료 후 실제 반영 시점은 결제수단에 따라 다를 수 있습니다.'

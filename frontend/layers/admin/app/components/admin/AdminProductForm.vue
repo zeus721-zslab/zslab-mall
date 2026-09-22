@@ -25,6 +25,7 @@ import {
 } from '#layers/admin/app/lib/admin-product-view'
 import { useAdminProducts } from '#layers/admin/app/composables/useAdminProducts'
 import { useAdminToast } from '#layers/admin/app/composables/useAdminToast'
+import { priceChangeMessage, priceChangeOf, priceChangeWarnings, type PriceChange } from '~/lib/utils/price-change'
 
 // 상품 폼 셸(FE-26·신규/수정 공용). 섹션 3개(기본·이미지·옵션)를 조립하고 검증→저장 오케스트레이션→토스트→복귀를 담당한다.
 // dirty = 저장 시점 스냅샷과 현재 스냅샷 비교. 라우트 이탈(onBeforeRouteLeave)과 새로고침(beforeunload) 모두 경고한다.
@@ -56,6 +57,11 @@ const uploading = ref({ GALLERY: false, DETAIL: false })
 const failedStep = ref<SaveStep | null>(null)
 const failedMessage = ref('')
 let savedSnapshot = formSnapshot(form.value)
+// 직전 저장 시점의 판매가(FE-61). 저장에 성공할 때마다 갱신해 "이번 저장에서 바뀌는 금액"만 확인받는다.
+let savedBasePrice = form.value.basePrice
+
+// 확인 대기 중인 판매가 변동(null이면 다이얼로그 닫힘).
+const priceChange = ref<PriceChange | null>(null)
 
 const dirty = computed(() => formSnapshot(form.value) !== savedSnapshot)
 const anyUploading = computed(() => uploading.value.GALLERY || uploading.value.DETAIL)
@@ -74,6 +80,10 @@ onMounted(() => window.addEventListener('beforeunload', onBeforeUnload))
 onBeforeUnmount(() => window.removeEventListener('beforeunload', onBeforeUnload))
 
 // ---------- 저장 ----------
+/**
+ * 저장 요청. 검증을 마친 뒤, 수정 모드에서 판매가가 바뀌었으면 확인 다이얼로그를 열고 멈춘다(FE-61).
+ * 가격이 그대로거나 신규 등록이면 바로 저장한다.
+ */
 async function save(): Promise<void> {
   if (!canSave.value) return
   errors.value = validateForm(form.value, props.mode)
@@ -81,12 +91,28 @@ async function save(): Promise<void> {
     toast.warning('입력값을 확인해 주세요.')
     return
   }
+  const change = props.mode === 'edit' ? priceChangeOf(savedBasePrice, form.value.basePrice) : null
+  if (change) {
+    priceChange.value = change
+    return
+  }
+  await runSave()
+}
+
+/** 판매가 확인 후 이어서 저장한다. */
+async function confirmPriceChange(): Promise<void> {
+  priceChange.value = null
+  await runSave()
+}
+
+async function runSave(): Promise<void> {
   saving.value = true
   failedStep.value = null
   failedMessage.value = ''
   try {
     await saveProduct(productsApi, form.value, props.mode)
     savedSnapshot = formSnapshot(form.value)
+    savedBasePrice = form.value.basePrice
     toast.success(props.mode === 'create' ? '상품을 등록했습니다.' : '상품을 저장했습니다.')
     await router.push(props.backPath)
     return
@@ -261,6 +287,19 @@ defineExpose({ form, dirty })
     </v-card>
 
     <AdminProductOptionSection v-model="form" :mode="mode" :errors="errors" />
+
+    <!-- 판매가 변경 확인(FE-61): 수정 모드에서 판매가가 바뀐 저장만 한 번 확인한다. -->
+    <AdminConfirmDialog
+      :open="priceChange !== null"
+      test-id="admin-price-change-dialog"
+      title="판매가 변경 확인"
+      :message="priceChange ? priceChangeMessage(priceChange) : ''"
+      :warning-lines="priceChange ? priceChangeWarnings(priceChange) : []"
+      warning-emphasis
+      confirm-label="저장"
+      @confirm="confirmPriceChange"
+      @cancel="priceChange = null"
+    />
 
     <div class="d-flex align-center justify-end ga-2 mb-8" data-testid="form-actions">
       <v-btn variant="text" :prepend-icon="mdiArrowLeft" :to="backPath" data-testid="form-back">목록으로</v-btn>

@@ -79,7 +79,8 @@ class DeliveryServiceTest {
     void markDelivered_shipping_transitionsAndPublishes() {
         Delivery delivery = Delivery.create(ORDER_ITEM_ID, DeliveryCarrier.CJ);
         delivery.markShipping(TRACKING_NO, LocalDateTime.now());
-        when(deliveryRepository.findById(DELIVERY_ID)).thenReturn(Optional.of(delivery));
+        // markDelivered는 전이 전에 행 락을 잡고 읽는다(Track 99 외부 검토 4).
+        when(deliveryRepository.findWithLockById(DELIVERY_ID)).thenReturn(Optional.of(delivery));
 
         deliveryService.markDelivered(DELIVERY_ID);
 
@@ -98,7 +99,8 @@ class DeliveryServiceTest {
         Delivery delivery = Delivery.create(ORDER_ITEM_ID, DeliveryCarrier.CJ);
         // shippedAt을 미래로 설정해 service의 markDelivered(now)가 DLV-3을 위반하도록 한다.
         delivery.markShipping(TRACKING_NO, LocalDateTime.now().plusDays(1));
-        when(deliveryRepository.findById(DELIVERY_ID)).thenReturn(Optional.of(delivery));
+        // markDelivered는 전이 전에 행 락을 잡고 읽는다(Track 99 외부 검토 4).
+        when(deliveryRepository.findWithLockById(DELIVERY_ID)).thenReturn(Optional.of(delivery));
 
         assertThatThrownBy(() -> deliveryService.markDelivered(DELIVERY_ID))
                 .isInstanceOf(IllegalStateException.class)
@@ -111,7 +113,8 @@ class DeliveryServiceTest {
     @DisplayName("markDelivered: READY 상태(SHIPPING 스킵) → canTransitionTo 위반·IllegalStateException·미발행")
     void markDelivered_ready_throwsAndDoesNotPublish() {
         Delivery delivery = Delivery.create(ORDER_ITEM_ID, DeliveryCarrier.CJ);
-        when(deliveryRepository.findById(DELIVERY_ID)).thenReturn(Optional.of(delivery));
+        // markDelivered는 전이 전에 행 락을 잡고 읽는다(Track 99 외부 검토 4).
+        when(deliveryRepository.findWithLockById(DELIVERY_ID)).thenReturn(Optional.of(delivery));
 
         assertThatThrownBy(() -> deliveryService.markDelivered(DELIVERY_ID))
                 .isInstanceOf(IllegalStateException.class);

@@ -13,8 +13,23 @@ import { resolve } from 'node:path'
  *             진입 화면(첫 로드)은 세지 않는다. query만 바뀌는 필터 조작은 이동으로 보지 않는다.
  *
  * 래퍼를 거치지 않은 조작(locator.click 직접 호출 등)은 세지 않는다 — 시나리오는 반드시 이 래퍼만 쓴다.
+ *
+ * Track 99 확장:
+ * - segment  = 한 시나리오 안의 구간 계측. 역할 전환 시나리오는 역할별로, 다건 반복 시나리오는 건별로 나눠 센다.
+ *              합계(clicks·inputs·navigations)는 구간과 무관하게 시나리오 전체다.
+ * - note     = assert하지 않는 관찰값(화면에 무엇이 보였는지·어느 행을 썼는지). 리포트가 사실 근거로 인용한다.
+ * - errors   = 시나리오 동안 브라우저가 낸 오류(pageerror·console.error). 통과 여부와 무관하게 사실로 남긴다.
  */
 export const WALKTHROUGH_ROOT = resolve(process.cwd(), 'playwright-report/walkthrough')
+
+/** 시나리오 내 구간 계측(역할 전환·다건 반복). */
+export interface WalkthroughSegment {
+  label: string
+  role: string
+  clicks: number
+  inputs: number
+  navigations: number
+}
 
 export interface WalkthroughMetrics {
   role: string
@@ -25,6 +40,9 @@ export interface WalkthroughMetrics {
   navigations: number
   shots: number
   steps: string[]
+  segments: WalkthroughSegment[]
+  notes: Record<string, string>
+  errors: string[]
   durationMs: number
   recordedAt: string
 }
@@ -35,6 +53,10 @@ export class Walkthrough {
   private navigations = 0
   private shotIndex = 0
   private readonly steps: string[] = []
+  private readonly segments: WalkthroughSegment[] = []
+  private readonly notes: Record<string, string> = {}
+  private readonly errors: string[] = []
+  private openSegment: { label: string; role: string; clicks: number; inputs: number; navigations: number } | null = null
   private lastPath: string | null = null
   private readonly startedAt = Date.now()
   private readonly outDir: string
@@ -47,6 +69,15 @@ export class Walkthrough {
   ) {
     this.outDir = resolve(WALKTHROUGH_ROOT, this.role, this.scenario)
     mkdirSync(this.outDir, { recursive: true })
+    // 통과한 시나리오에서도 조용히 나는 오류를 놓치지 않도록 기록만 한다(실패시키지 않는다).
+    this.page.on('pageerror', (error) => { this.errors.push('pageerror: ' + error.message) })
+    this.page.on('console', (message) => {
+      if (message.type() !== 'error') return
+      // dev 서버 전용 잡음: Nuxt가 dev에서 app manifest(/_nuxt/builds/meta/dev.json)를 찾지 못해 내는 404.
+      // 실행마다 나는 시나리오가 달라져 재현성 비교를 깨뜨리므로 제외한다(앱 코드와 무관·리포트에 사실로 기록).
+      if (message.text().includes('_nuxt/builds/meta') || message.location().url.includes('/_nuxt/builds/meta/')) return
+      this.errors.push('console.error: ' + message.text())
+    })
     this.page.on('framenavigated', (frame) => {
       if (frame !== this.page.mainFrame()) return
       let path: string
@@ -100,6 +131,40 @@ export class Walkthrough {
     await this.page.getByRole('option', { name: optionLabel, exact: true }).first().click()
   }
 
+  /**
+   * 계측 구간을 연다(이전 구간은 여기서 닫힌다). 역할 전환 시나리오는 역할을, 다건 반복 시나리오는 건 번호를 label로 준다.
+   * role을 생략하면 시나리오 기본 역할로 기록한다.
+   */
+  segment(label: string, role?: 'admin' | 'seller' | 'buyer'): void {
+    this.closeSegment()
+    this.openSegment = {
+      label,
+      role: role ?? this.role,
+      clicks: this.clicks,
+      inputs: this.inputs,
+      navigations: this.navigations,
+    }
+  }
+
+  /** 관찰값 기록(assert 아님). 화면에 무엇이 보였는지·어느 행을 썼는지를 리포트 근거로 남긴다. */
+  note(key: string, value: string): void {
+    this.notes[key] = value
+  }
+
+  /** 열린 구간을 현재 누계와의 차이로 닫는다. */
+  private closeSegment(): void {
+    const open = this.openSegment
+    if (open === null) return
+    this.segments.push({
+      label: open.label,
+      role: open.role,
+      clicks: this.clicks - open.clicks,
+      inputs: this.inputs - open.inputs,
+      navigations: this.navigations - open.navigations,
+    })
+    this.openSegment = null
+  }
+
   /** 화면 직접 진입(주소 입력). 이동 수는 framenavigated 리스너가 센다. */
   async goto(path: string): Promise<void> {
     await this.page.goto(path)
@@ -115,6 +180,7 @@ export class Walkthrough {
 
   /** 시나리오 종료: 계측을 metrics.json으로 남긴다(globalTeardown이 모아 summary를 만든다). */
   finish(): WalkthroughMetrics {
+    this.closeSegment()
     const metrics: WalkthroughMetrics = {
       role: this.role,
       scenario: this.scenario,
@@ -124,6 +190,9 @@ export class Walkthrough {
       navigations: this.navigations,
       shots: this.shotIndex,
       steps: this.steps,
+      segments: this.segments,
+      notes: this.notes,
+      errors: this.errors,
       durationMs: Date.now() - this.startedAt,
       recordedAt: new Date().toISOString(),
     }

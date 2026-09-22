@@ -18,7 +18,8 @@ const PICKED = '2026-09-12T10:00:00+09:00'
 
 describe('claimStageGuide(C-16) — 타임라인과 같은 단계 판정·기간 문구 없음', () => {
   it('반품: 승인 대기 → 송장 등록 요청 → 회수 확인 대기 → 검수 대기 → 환불 진행 → 완료', () => {
-    expect(claimStageGuide(detail({}))).toBe('판매자의 승인을 기다리고 있습니다.')
+    // Track 99 FE-61: 승인·검수 주체는 관리자라 구매자 문구의 "판매자"를 "쇼핑몰"로 고쳤다.
+    expect(claimStageGuide(detail({}))).toBe('쇼핑몰의 승인을 기다리고 있습니다.')
     expect(claimStageGuide(detail({ status: 'APPROVED', returnShipmentRequired: true }))).toContain('회수 송장을 등록해 주세요')
     expect(claimStageGuide(detail({ status: 'APPROVED', returnShipment: shipment }))).toContain('회수 확인을 기다리고')
     expect(claimStageGuide(detail({ status: 'APPROVED', returnShipment: shipment, pickedUpAt: PICKED }))).toContain('검수 결과를 기다리고')

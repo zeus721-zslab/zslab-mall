@@ -2,6 +2,7 @@
 import {
   CLAIM_INSPECTION_RESULT_LABELS,
   CLAIM_REASON_LABELS,
+  REFUND_TIMING_NOTICE,
   claimRejectReasonLabel,
   claimStatusLabel,
   claimTypeLabel,
@@ -218,6 +219,8 @@ useSeoMeta({ title: '클레임 상세 · zslab-mall', description: 'zslab-mall �
               <dd class="text-right text-ink" data-testid="claim-refund-status">{{ refundStatusLabel(data.refundStatus) }}</dd>
             </div>
           </dl>
+          <!-- 환불 반영 시점 안내(FE-61): 환불이 걸린 클레임에서만·기간은 적지 않는다. -->
+          <p v-if="data.refundStatus" class="mt-3 text-xs text-sub" data-testid="claim-refund-timing">{{ REFUND_TIMING_NOTICE }}</p>
 
           <!-- 첨부 사진(FE-29·Track 81-B): 순서 보존·클릭 시 원본 -->
           <div v-if="data.attachmentUrls && data.attachmentUrls.length > 0" class="mt-4">
@@ -237,8 +240,8 @@ useSeoMeta({ title: '클레임 상세 · zslab-mall', description: 'zslab-mall �
           <h2 class="mb-1 text-base font-semibold text-ink">회수 송장 등록</h2>
           <p class="mb-4 text-sm text-sub" data-testid="claim-return-shipment-guide">
             {{ data.claimType === 'EXCHANGE'
-              ? '교환할 상품을 발송한 택배사와 송장번호를 등록해 주세요. 판매자가 회수를 확인하고 검수한 뒤 교환품을 발송합니다.'
-              : '상품을 발송한 택배사와 송장번호를 등록해 주세요. 판매자가 회수를 확인한 뒤 검수를 진행합니다.' }}
+              ? '교환할 상품을 발송한 택배사와 송장번호를 등록해 주세요. 쇼핑몰이 회수를 확인하고 검수한 뒤 교환품을 발송합니다.'
+              : '상품을 발송한 택배사와 송장번호를 등록해 주세요. 쇼핑몰이 회수를 확인한 뒤 검수를 진행합니다.' }}
           </p>
           <form class="space-y-3" @submit.prevent="submitReturnShipment">
             <div class="space-y-1.5">

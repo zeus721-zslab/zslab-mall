@@ -1,6 +1,8 @@
 package com.zslab.mall.dashboard.repository;
 
 import com.zslab.mall.claim.enums.ClaimStatus;
+import com.zslab.mall.delivery.enums.DeliveryDirection;
+import com.zslab.mall.delivery.enums.DeliveryStatus;
 import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.refund.enums.RefundStatus;
@@ -49,6 +51,15 @@ public interface SellerDashboardRepository extends Repository<OrderItem, Long> {
     /** 배송 대기 = 송장 미등록 품목(PAID). 송장 등록이 PAID→PREPARING→SHIPPING을 1TX로 전이하므로 PAID가 곧 대기 상태다. */
     @Query("SELECT COUNT(oi) FROM OrderItem oi WHERE oi.sellerId = :sellerId AND oi.itemStatus = :status")
     long countOrderItemsByStatus(@Param("sellerId") Long sellerId, @Param("status") OrderItemStatus status);
+
+    /**
+     * 장기 배송중 = 자기 품목의 발송(OUTBOUND) 배송이 아직 SHIPPING이고 발송 시각이 {@code threshold} 이전인 건(Track 99 D-210).
+     * 소유 판정은 order_item.seller_id 1-hop이며 관리자 집계와 같은 조건에 셀러 조건만 더한다. 모든 변수는 :바인딩이다.
+     */
+    @Query("SELECT COUNT(d) FROM Delivery d, OrderItem oi WHERE oi.id = d.orderItemId AND oi.sellerId = :sellerId "
+            + "AND d.direction = :direction AND d.status = :status AND d.shippedAt <= :threshold")
+    long countLongShipping(@Param("sellerId") Long sellerId, @Param("direction") DeliveryDirection direction,
+            @Param("status") DeliveryStatus status, @Param("threshold") LocalDateTime threshold);
 
     /** 재고 임박 = 자기 상품(product.seller_id)의 가용 재고가 [min, max] 구간인 variant 수. 수동 품절분은 판매 의도가 없어 제외한다. */
     @Query("SELECT COUNT(i) FROM Inventory i, ProductVariant v, Product p "

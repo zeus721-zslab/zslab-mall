@@ -39,7 +39,9 @@ public class AdminDeliveryCommandService {
      */
     public Delivery correctTracking(String deliveryPublicId, DeliveryCarrier carrier, String trackingNo, String reason,
             AuditContext auditContext) {
-        Delivery delivery = deliveryRepository.findByPublicId(deliveryPublicId)
+        // 행 락 후 상태를 읽는다(Track 99 외부 검토 4) — 락이 없으면 배송완료 커밋 뒤 이 트랜잭션의 save가 전 컬럼을 옛 값으로 덮어써
+        // status·delivered_at이 되돌아간다(lost update). 락을 잡으면 아래 SHIPPING 가드가 최신 상태를 보고 422로 막는다.
+        Delivery delivery = deliveryRepository.findWithLockByPublicId(deliveryPublicId)
                 .orElseThrow(() -> new DeliveryNotFoundException("배송을 찾을 수 없습니다: publicId=" + deliveryPublicId));
         if (delivery.getStatus() != DeliveryStatus.SHIPPING) {
             throw new DeliveryInvalidStateException("송장 정정은 배송중(SHIPPING)에서만 가능합니다: status=" + delivery.getStatus());

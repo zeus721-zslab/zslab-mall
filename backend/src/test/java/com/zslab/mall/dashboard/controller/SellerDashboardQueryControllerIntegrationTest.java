@@ -120,7 +120,8 @@ class SellerDashboardQueryControllerIntegrationTest extends AbstractIntegrationT
             "recentClaims", "topProducts");
     private static final Set<String> PERIOD_KEYS = Set.of("from", "to");
     private static final Set<String> SUMMARY_KEYS = Set.of("revenue", "refund", "netRevenue", "orderCount");
-    private static final Set<String> PENDING_KEYS = Set.of("deliveryReady", "claimRequested", "lowStock", "settlementPending");
+    private static final Set<String> PENDING_KEYS = Set.of("deliveryReady", "claimRequested", "lowStock", "settlementPending",
+            "longShipping");
     private static final Set<String> DAILY_TREND_KEYS = Set.of("date", "orderCount", "revenue");
     private static final Set<String> RECENT_ORDER_ITEM_KEYS = Set.of("orderItemId", "orderNo", "productName", "optionLabel",
             "quantity", "totalPrice", "itemStatus", "paidAt");

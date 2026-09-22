@@ -5,14 +5,14 @@ import type { AdminClaimRejectTarget } from '#layers/admin/app/components/admin/
 import type { AdminRefundInitiateTarget } from '#layers/admin/app/components/admin/AdminRefundInitiateDialog.vue'
 import type { AdminClaimInspectTarget } from '#layers/admin/app/components/admin/AdminClaimInspectDialog.vue'
 import type { AdminExchangeShipmentTarget } from '#layers/admin/app/components/admin/AdminExchangeShipmentDialog.vue'
-import { CLAIM_TYPE_LABELS, claimTypeLabel, type ClaimType } from '~/lib/constants/claim'
+import { CLAIM_TYPE_LABELS, claimTypeLabel, type ClaimInspectionResult, type ClaimType } from '~/lib/constants/claim'
 import {
   DEFAULT_ADMIN_CLAIM_QUERY,
   hasActiveClaimFilters,
   parseAdminClaimQuery,
   toAdminClaimRouteQuery,
 } from '#layers/admin/app/lib/admin-claim-query'
-import { approveConfirmMessage, confirmPickupMessage } from '#layers/admin/app/lib/admin-claim-view'
+import { approveConfirmMessage, confirmPickupMessage, shouldChainExchangeShipment } from '#layers/admin/app/lib/admin-claim-view'
 import { extractErrorCode, toAdminErrorMessage } from '#layers/admin/app/lib/admin-error-message'
 import { useAdminClaims } from '#layers/admin/app/composables/useAdminClaims'
 import { useAdminOrders } from '#layers/admin/app/composables/useAdminOrders'
@@ -181,7 +181,11 @@ async function runConfirmPickup(): Promise<void> {
   }
 }
 
+// 검수 대상 행 원본(FE-61). 다이얼로그 target에는 교환 옵션 라벨이 없어 교환품 발송을 이어 열 때 행이 필요하다.
+const inspectItem = ref<AdminClaimSummary | null>(null)
+
 function openInspect(item: AdminClaimSummary): void {
+  inspectItem.value = item
   inspectTarget.value = {
     claimId: item.claimId,
     productName: item.productName ?? '',
@@ -191,9 +195,21 @@ function openInspect(item: AdminClaimSummary): void {
   }
 }
 
-function closeInspect(refresh: boolean): void {
+/**
+ * 검수 다이얼로그 종료(FE-61). 갱신된 목록에서 같은 클레임 행을 다시 찾아, 교환 합격이고 그 행이 발송 등록을 허용할 때만
+ * 교환품 발송 다이얼로그를 이어 연다. 행이 사라졌거나 액션이 없으면(경합·반품·불합격) 현행대로 목록에 머문다.
+ */
+async function closeInspect(refresh: boolean, result: ClaimInspectionResult | null = null): Promise<void> {
+  const inspected = inspectItem.value
   inspectTarget.value = null
-  if (refresh) void load()
+  inspectItem.value = null
+  if (!refresh) return
+  await load()
+  if (inspected === null || result === null) return
+  const row = items.value.find((candidate) => candidate.claimId === inspected.claimId)
+  if (row && shouldChainExchangeShipment(row.type, result, row.availableActions)) {
+    openExchangeShipment(row)
+  }
 }
 
 // ---------- 수동 환불 개시(FE-36·Track 89-A): BE availableActions INITIATE_REFUND(승인 후 환불 없음·실패)에만 노출 ----------
@@ -359,7 +375,7 @@ async function runMarkExchangeDelivered(): Promise<void> {
     <AdminClaimInspectDialog
       :open="inspectTarget !== null"
       :target="inspectTarget"
-      @done="closeInspect(true)"
+      @done="(result) => closeInspect(true, result)"
       @stale="closeInspect(true)"
       @cancel="closeInspect(false)"
     />
@@ -376,7 +392,7 @@ async function runMarkExchangeDelivered(): Promise<void> {
       title="교환품 배송완료"
       :message="exchangeDeliveredMessage"
       confirm-label="배송완료"
-      data-testid="exchange-delivered-dialog"
+      test-id="exchange-delivered-dialog"
       @confirm="runMarkExchangeDelivered"
       @cancel="exchangeDeliveredTarget = null"
     />

@@ -12237,3 +12237,49 @@ PG·SMS·이메일은 포트(`PaymentGateway`·`SmsSender`·`NotificationSender`
 - 비밀번호 찾기: 가이드 §4 선택지(토큰 저장 vs 서명 토큰 / SMS vs 이메일 / 레이트 리밋 gateway vs 앱) 결정 후 별도 트랙.
 - 실 모드 전환 시 필수 키 prod fail-fast(JWT·BANK_ACCOUNT 동형)는 실 구현체 트랙에서 적용.
 - 외부 검토: B / 생략.
+
+## D-210: 자동 배송완료 — 배송 조회 포트 + 스케줄러 · 장기 배송중 대시보드 칸 (Track 99-B) (2026-09-23)
+
+배경: 라운드 2 워크스루 실측에서 관리자 "배송중 품목 → 배송완료 처리"가 대시보드 진입점 없이 사이드바 → 전체 주문 → 배송상태 필터 → 행 메뉴 → 확인(4클릭·1입력)이었고, 배송중이 며칠째인지는 목록 행의 "경과 N일" 배지로만 보였다(집계 0·BE 필드 0·정찰 §3-2). 배송완료는 사람이 일일이 누르는 단계이면서 반품 기한·자동 구매확정의 기산점이다(정찰 §1-5). 정찰에서 전이 primitive가 이미 actor 비의존 1곳({@code DeliveryService.markDelivered})으로 모여 있고(§1-1), 스케줄러 9종이 같은 패턴(@ConditionalOnProperty·건별 독립 TX·격리·schedulerRunId)을 쓰며(§2-1), mark-delivered 경로에 감사 로그가 없어 자동/수동을 사후 구분할 수단이 없다(§1-4)는 것을 실측했다.
+
+결정:
+- **배송 조회 포트 신설**: `delivery/adapter/DeliveryTracker`(carrier·trackingNo·shippedAt → `DeliveryTrackingStatus` 3값 DELIVERED·IN_TRANSIT·UNKNOWN) + `MockDeliveryTracker`(발송 후 N일 경과 = 배달 완료). 선택 장치는 D-209 패턴 그대로 `zslab.delivery.tracker=${DELIVERY_TRACKER:mock}`(matchIfMissing mock·mock 외 값인데 구현체 없으면 주입 지점 기동 실패).
+- **자동 배송완료 스케줄러**: `DeliveryAutoCompleteScheduler`(fixedDelay 1h·킬스위치 `zslab.delivery.auto-complete.enabled`) → 트랜잭션 밖 조회 → 배달 완료 건만 `DeliveryAutoCompleteService.completeOne`(건별 독립 TX·행 락·방향/상태 재확인·`DeliveryService.markDelivered` 재사용·감사 `AuditContext.system()` 1행).
+- **대상**: direction OUTBOUND · status SHIPPING · tracking_no 보유. 회수(RETURN)는 제외(회수 완료는 confirm-pickup 단일 경로·D-197). 교환품 발송·검수 불합격 재발송(claim_id 보유)은 발송이므로 포함한다.
+- **장기 배송중 칸**: `LongShippingThreshold.DAYS = 3`(FE `elapsed-days.ts` ELAPSED_WARNING_DAYS와 같은 값·양쪽 주석 명시) · 관리자 `DashboardPendingResponse.longShipping`(7→8칸) · 셀러 `SellerDashboardPendingResponse.longShipping`(4→5칸) · 링크는 각 배송 목록 `?status=SHIPPING`.
+- **수동 경로 무변경**: 관리자·셀러 mark-delivered API는 그대로다. 킬스위치는 스케줄러 빈만 끈다.
+
+### §1-A 갈림길·채택/기각 근거
+- **트리거 = 조회 결과 기준 α 【채택: 포트가 판정을 쥐므로 실 택배사 어댑터로 바꾸면 스케줄러·서비스 무수정으로 "진짜 배달됨"이 된다. Mock이 시간으로 모사하는 것은 어댑터 안에만 있다】** / β 시간 기준(발송 후 N일 경과 = 자동 완료) 【기각: 실 전환 때 스케줄러 판정 로직을 통째로 갈아야 하고, 그때까지 "배달 안 됐는데 완료"가 반품 기한을 잘못 시작시킨다】 / γ 관리자 일괄 처리 화면 【기각: 사람이 누르는 횟수를 줄일 뿐 판정은 여전히 사람 몫 — 라운드 목표(화면 밖 작업·반복 비용 축소)에 못 미친다】.
+- **`delivered_at` = 처리 시각 α 【채택: 반품 기한·자동 구매확정 기산점({@code ReturnWindowPolicy.originalDeliveredAt})이 이미 이 값을 쓰고 있어, 조회 시각으로 바꾸면 이미 쌓인 건의 기한이 소급해 달라진다. 포트 계약에 배달 시각을 넣지 않아 실 어댑터가 무엇을 주든 이 결정이 흔들리지 않는다】** / β 조회가 알려 주는 배달 시각 【기각(이번 트랙): 실 어댑터 도입 전에는 검증할 값이 없고, 기산점 변경은 소급 범위 결정이 선행돼야 한다 — 전환 가이드 §4-4로 이월】.
+- **범위 = OUTBOUND 전체(claim_id 포함) 【채택: 교환품·재발송도 구매자에게 가는 발송이고, 배송완료 소비처(교환 종결 핸들러)가 이미 자동/수동을 구분하지 않는다. 제외하면 교환품만 사람이 눌러야 해 불편이 남는다】** / 원 발송(claim_id NULL)만 【기각: 근거 없는 반쪽 자동화】 / RETURN 포함 【기각: 회수 완료는 검수 흐름의 일부라 confirm-pickup 단일 경로여야 한다(D-197)】.
+- **순회 = id 커서·결과 무관 전진 + 실행 간 커서 유지(F2) 【채택: 커서가 단조 증가하고 끝에서만 0으로 돌아가므로 모든 후보가 **한 바퀴(= 후보 수 ÷ MAX_PER_RUN 실행) 이내에 한 번씩** 조회된다. 조회 결과가 아직 배달 전이거나 처리가 실패한 건도 다음 바퀴에서 다시 차례가 온다. 매 실행 0에서 시작하면 배송중이 상한보다 많을 때 앞쪽 1000건만 반복 조회되고 뒤쪽은 차례가 오지 않는다. **단, 시간당 신규 배송중 유입이 MAX_PER_RUN(1000/시간)을 넘으면 한 바퀴가 계속 길어지므로 상한·주기를 조정해야 한다** — 이 구조가 보장하는 것은 "굶주림 해소"가 아니라 "한 바퀴 이내 처리"다】** / 한 실행 안에서만 커서 전진(실행마다 0에서 재시작) 【기각: 한 바퀴가 영영 돌지 않는다 — 최초 구현의 결함 F2】 / offset 페이징 【기각: 전이로 집합이 줄어 건너뛰기가 생긴다】 / 한 페이지만 【기각: 앞쪽만 반복】.
+- **재확인에 택배사·송장번호 포함(F1) 【채택: 운영자 송장 정정({@code Delivery.correctTracking})은 SHIPPING을 유지하므로 방향·상태 가드로는 걸리지 않는다. 조회한 송장과 전이 직전의 송장이 다르면 방금 받은 조회 결과는 다른 송장의 것이므로 그대로 버리고 다음 실행이 새 송장으로 다시 조회하게 한다】** / 방향·상태만 재확인 【기각: "A 송장이 배달됐다"는 결과로 B 송장 배송을 완료 처리하게 된다 — 최초 구현의 결함 F1】 / 조회~전이를 한 트랜잭션으로 묶어 정정을 막기 【기각: 외부 호출이 트랜잭션·DB 커넥션을 붙든다(단건 TX 경계 원칙 위배)】.
+- **동시성 = 행 락(PESSIMISTIC_WRITE) 【채택: {@code Delivery}에 {@code @Version}도 {@code @DynamicUpdate}도 없어 더티 체킹 UPDATE가 전 컬럼을 쓴다 — 락 없이 읽은 송장 정정 트랜잭션이 배송완료 커밋 뒤에 저장되면 status·delivered_at을 옛 값(SHIPPING·NULL)으로 되돌린다(lost update). 전이·정정 경로가 그 행을 처음 읽을 때 {@code SELECT … FOR UPDATE}로 잠그면 뒤늦은 쪽이 대기했다가 최신 상태로 도메인 가드를 통과·실패한다. 락 추가 전 코드에서 경합 테스트 R1이 실제로 실패하는 것을 먼저 확인했다(정정이 CORRECTED로 성공)】** / {@code @Version} 낙관 락 【기각: 컬럼 신설 = Flyway 마이그레이션이 필요하고(이번 트랙 금지 범위) 기존 모든 쓰기 경로에 OptimisticLockException 처리를 붙여야 한다. 경합 빈도가 낮아 비관 락 대기 비용이 문제되지 않으므로 락만으로 충분하다】 / {@code @DynamicUpdate}만 추가 【기각: 바뀐 컬럼만 쓰게 되어 되돌림 범위는 줄지만 "정정이 배송완료된 행을 정정한다"는 상태 판정 자체는 그대로 틀린다 — 근본 해결이 아니다】.
+- **감사 = 자동 전이만 SYSTEM 1행 【채택: 수동 경로에 감사 로그가 없어(정찰 §1-4) SYSTEM 행의 유무가 곧 자동/수동 구분이다. 기존 action 체계(UPDATE·DELIVERY)로 되므로 스키마 변경이 없다】** / 수동까지 함께 남기기 【기각: 이번 트랙 범위 밖(수동 경로 무변경)】 / 남기지 않기 【기각: 자동이 바꾼 것을 사후에 알 수 없다】.
+- **장기 배송중 임계 = FE와 같은 3일 【채택: 대시보드 카운트와 목록 행 "경과 N일" 주의 배지가 같은 건을 가리켜야 한다. 다르면 "대시보드 3건인데 목록 주의는 5건"이 된다】** / BE 독자 값 【기각: 두 화면이 어긋난다】.
+
+### §2 확정 구현 규칙·트랩
+- 신규: `delivery/adapter/{DeliveryTracker,DeliveryTrackingStatus,MockDeliveryTracker}.java` · `delivery/policy/LongShippingThreshold.java` · `delivery/repository/DeliveryTrackingCandidate.java` · `delivery/service/DeliveryAutoCompleteService.java` · `delivery/scheduler/DeliveryAutoCompleteScheduler.java`.
+- 프로퍼티 키 트랩: `zslab.delivery.tracker`가 스칼라라 그 아래 `.mock-days` 하위 키를 둘 수 없다(YAML 키 충돌) → **`zslab.delivery.tracker-mock-days`** 형제 키로 뗐다.
+- 상한 상수: PAGE_SIZE 100 · MAX_PER_RUN 1000 · fixedDelay 1h. 남은 건은 다음 실행이 이어받는다.
+- 스케줄러 상한 루프는 페이지 내부에서도 `scanned >= MAX_PER_RUN`을 검사해야 한다(바깥 while만 보면 페이지 크기만큼 초과한다).
+- 커서는 `DeliveryAutoCompleteScheduler`의 **인스턴스 필드**다(F2). `@Scheduled`는 한 번에 하나씩 실행되므로 동시 접근이 없고, 재기동하면 0부터 다시 시작한다(전이는 멱등이라 중복 조회 비용만 든다). 여러 인스턴스가 뜨면 각자 다른 위치를 들고 도는 것은 분산 락이 없는 기존 스케줄러 9종과 같은 전제다(§8).
+- `completeOne(deliveryId, trackedCarrier, trackedNo)`는 조회에 쓴 송장을 인자로 받아 행 락 뒤에 현재 값과 대조한다(F1). 호출부(스케줄러)는 `DeliveryTrackingCandidate`의 값을 그대로 넘긴다 — 조회와 전이가 같은 송장을 가리킨다는 것을 시그니처가 강제한다.
+- **`Delivery`는 `@DynamicUpdate`가 없어 더티 체킹 UPDATE가 전 컬럼을 쓴다** — 락 없이 읽은 트랜잭션의 `save`가 그 사이 커밋된 `status`·`delivered_at`까지 옛 값으로 되돌린다(lost update). 그래서 전이·정정 경로는 `DeliveryRepository.findWithLockById`/`findWithLockByPublicId`로 **그 트랜잭션의 첫 읽기부터** 잠근다. 먼저 락 없이 읽어 두면 1차 캐시가 그 인스턴스를 돌려줘 락을 잡고도 옛 상태로 판정한다(D-168 트랩) — `markDeliveredByAdmin`·`markDeliveredBySeller`의 선행 읽기까지 락 조회로 바꾼 이유다.
+- 후보 조회는 영속 엔티티가 아니라 JPQL 생성자 표현식 투영(`DeliveryTrackingCandidate`)으로 받는다 — 조회를 트랜잭션 밖에서 하므로 detached 엔티티를 들고 다니지 않는다.
+- Flyway 불필요(실측): 후보 조회·관리자/셀러 장기 배송중 집계 3종 EXPLAIN이 모두 기존 `ix_delivery_direction_status_delivered_at`의 (direction, status) 등치 구간을 탄다. 후보 조회는 `ORDER BY id`에 filesort가 붙지만 대상 집합이 "배송중 전량"이라 운영 규모에 비례한다.
+- 테스트 킬스위치: `AbstractIntegrationTest`가 `zslab.delivery.auto-complete.enabled=false`를 전역으로 내린다(스케줄러가 IT 데이터를 자동 변경하지 않게). 등록 검증은 `SchedulerRegistrationTest`가 별도 runner로 3상태 + fixedDelay 1h를 단언한다(기존 2종은 24h 묶음이라 분리).
+- 검증(로컬·2026-09-23): `gradlew test --rerun-tasks` **1459/0 실패**(기준선 1440 → +19) · typecheck 0 · vitest **676**(기준선 664 → +12) · Playwright **106 passed / 2 skipped**(기준선 유지) · 워크스루 18/18 2회 연속 수치 완전 일치.
+- F1·F2 수정 후 재검증(2026-09-23): `gradlew test --rerun-tasks` **1463/0 실패**(+4 — 스케줄러 단위 F2 3건·통합 F1 1건).
+- 행 락 추가 후 재검증(2026-09-23): `gradlew test --rerun-tasks` **1466/0 실패**(+3 — `DeliveryLockRaceIntegrationTest` R1~R3). 락 적용 5지점: `DeliveryService.markDelivered`·`markDeliveredByAdmin` 선행 읽기·`OrderShippingService.markDeliveredBySeller` 선행 읽기·`AdminDeliveryCommandService.correctTracking`·`SellerDeliveryCommandService.correctTracking`. 배송 e2e 2 spec은 API를 모킹하므로 영향 없음(재실행 3/3 통과).
+- 로컬 수동 1회(2026-09-23): `MOCK_DELIVERY_DAYS=2`·auto-complete on으로 컨테이너 재생성 → 1틱에 `조회=9 배송완료=8 skip=1`, `audit_log` SYSTEM·UPDATE·DELIVERY 8행(diff `{"status":{"before":"SHIPPING","after":"DELIVERED"}}`·actor_user_id NULL), 품목·주문 상태 DELIVERED 재계산 확인.
+- 워크스루 실행 시 `DELIVERY_AUTO_COMPLETE_ENABLED=false` 필수(배송중 전제 시나리오 4개) — `scripts/walkthrough/README.md` "자동 배송완료 끄기" 절.
+
+### §8 이월
+- `delivered_at`을 실 조회의 배달 시각으로 바꿀지(소급 범위 포함)는 실 어댑터 트랙 — 전환 가이드 §4-4.
+- 기존 스케줄러 9종의 킬스위치 env 노출(compose·.env.example)은 미적용 — 이번 트랙은 신규 스위치만 연결했다(PROGRESS 보류).
+- 분산 락(ShedLock) 없음 — 단일 인스턴스 전제는 기존 스케줄러와 같다. 다중 인스턴스 도입 시 9종과 함께 재검토.
+- 대시보드 장기 배송중 링크는 배송 목록 `?status=SHIPPING`이라 "3일 이상"이 아니라 배송중 전체를 연다(BE 카운트와 목록 조건 불일치·`lowStock` 선례와 같은 근사).
+- 회수(RETURN) 배송의 완료(`completeReturnShipment`)에는 행 락을 넣지 않았다 — 이번 수용 범위는 배송완료·송장 정정이다. 회수 배송도 SHIPPING이면 정정 대상이므로 같은 경합이 이론상 가능하다(빈도·영향 재검토 후 결정).
+- 외부 검토: A / 지적 5건 중 수용 2건(1 문구 정정·4 행 락 확대) · 기각 2·3·5(감사 동일 TX 설계·Claim @Version·한 바퀴 상한).

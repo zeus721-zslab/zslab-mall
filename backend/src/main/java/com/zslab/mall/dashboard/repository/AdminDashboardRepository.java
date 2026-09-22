@@ -2,6 +2,8 @@ package com.zslab.mall.dashboard.repository;
 
 import com.zslab.mall.auth.enums.RoleCode;
 import com.zslab.mall.claim.enums.ClaimStatus;
+import com.zslab.mall.delivery.enums.DeliveryDirection;
+import com.zslab.mall.delivery.enums.DeliveryStatus;
 import com.zslab.mall.order.entity.Order;
 import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.product.enums.ProductStatus;
@@ -49,6 +51,16 @@ public interface AdminDashboardRepository extends Repository<Order, Long> {
 
     @Query("SELECT COUNT(c) FROM Claim c WHERE c.status = :status")
     long countClaimsByStatus(@Param("status") ClaimStatus status);
+
+    /**
+     * 장기 배송중 = 발송(OUTBOUND) 배송이 아직 SHIPPING이고 발송 시각이 {@code threshold} 이전인 건(Track 99 D-210).
+     * 기준 일수는 서비스가 {@code LongShippingThreshold.DAYS}로 계산해 바인딩한다. 회수(RETURN)는 발송이 아니라 제외한다.
+     * 인덱스 ix_delivery_direction_status_delivered_at (direction, status, …) 등치 구간을 타며 모든 변수는 :바인딩이다.
+     */
+    @Query("SELECT COUNT(d) FROM Delivery d WHERE d.direction = :direction AND d.status = :status "
+            + "AND d.shippedAt <= :threshold")
+    long countLongShipping(@Param("direction") DeliveryDirection direction, @Param("status") DeliveryStatus status,
+            @Param("threshold") LocalDateTime threshold);
 
     /** 배송 대기 = 송장 미등록 품목. 송장 등록이 PAID→PREPARING→SHIPPING을 1TX로 전이하므로 PAID가 곧 대기 상태다(recon §2-4). */
     @Query("SELECT COUNT(oi) FROM OrderItem oi WHERE oi.itemStatus = :status")

@@ -1,6 +1,13 @@
 import type { ApexOptions } from 'apexcharts'
 import type { AdminDashboardDailyOrders, AdminDashboardMonthlyRevenue, AdminDashboardPending } from '#layers/admin/app/types/admin-dashboard'
-import { ADMIN_CLAIMS_PATH, ADMIN_ORDERS_PATH, ADMIN_PRODUCTS_PATH, ADMIN_SELLERS_PATH, ADMIN_SETTLEMENTS_PATH } from '#layers/admin/app/lib/admin-back-path'
+import {
+  ADMIN_CLAIMS_PATH,
+  ADMIN_DELIVERIES_PATH,
+  ADMIN_ORDERS_PATH,
+  ADMIN_PRODUCTS_PATH,
+  ADMIN_SELLERS_PATH,
+  ADMIN_SETTLEMENTS_PATH,
+} from '#layers/admin/app/lib/admin-back-path'
 import { formatWon } from '#layers/admin/app/lib/format'
 
 /**
@@ -37,6 +44,7 @@ export interface PendingTile {
  * 재고 임박은 상품 목록 stockFilter=LOW(Track 89-A·BE는 variant 건수·목록은 상품 단위라 근사).
  * 상품·셀러 승인 대기(Track 96-2 FE-54·C-01)는 각 목록 status=PENDING(BE 카운트와 목록 필터 조건 동일·삭제 제외).
  * 클레임 처리 대기(Track 96-4 FE-56·C-02)는 클레임 목록 action=FOLLOWUP(BE 카운트와 같은 Specification·후속 액션 5종).
+ * 장기 배송중(Track 99 FE-61·D-210)은 배송 목록 status=SHIPPING(BE는 발송 후 3일 이상 건수·목록은 배송중 전체라 근사).
  */
 export const PENDING_TILES: PendingTile[] = [
   { key: 'settlementPending', label: '정산 대기', to: `${ADMIN_SETTLEMENTS_PATH}?status=PENDING`, alertTone: 'warning' },
@@ -46,6 +54,7 @@ export const PENDING_TILES: PendingTile[] = [
   { key: 'productPending', label: '상품 승인 대기', to: `${ADMIN_PRODUCTS_PATH}?status=PENDING`, alertTone: 'warning' },
   { key: 'sellerPending', label: '셀러 승인 대기', to: `${ADMIN_SELLERS_PATH}?status=PENDING`, alertTone: 'warning' },
   { key: 'claimFollowup', label: '클레임 처리 대기', to: `${ADMIN_CLAIMS_PATH}?action=FOLLOWUP`, alertTone: 'warning' },
+  { key: 'longShipping', label: '장기 배송중', to: `${ADMIN_DELIVERIES_PATH}?status=SHIPPING`, alertTone: 'warning' },
 ]
 
 /** 0건은 회색(neutral), 1건 이상은 칸별 주의 톤. */

@@ -7,6 +7,8 @@ import {
   type SellerDeliveryCarrier,
 } from '#layers/seller/app/lib/constants/seller-order'
 import { itemLabel, validateShipmentForm } from '#layers/seller/app/lib/seller-order-view'
+import { SELLER_HOME_PATH } from '#layers/seller/app/lib/constants/auth'
+import { LAST_CARRIER_MAX_AGE_SECONDS, parseLastCarrier } from '~/lib/utils/last-carrier'
 import { extractErrorCode, isSellerSuspendedError, mapFieldErrors, toSellerErrorMessage } from '#layers/seller/app/lib/seller-error-message'
 import { useSellerOrders } from '#layers/seller/app/composables/useSellerOrders'
 import { useSellerToast } from '#layers/seller/app/composables/useSellerToast'
@@ -25,13 +27,24 @@ const emit = defineEmits<{ done: []; stale: []; cancel: [] }>()
 const ordersApi = useSellerOrders()
 const toast = useSellerToast()
 
+/**
+ * 직전 출고 택배사 기억(Track 99 FE-61). 대개 같은 택배사로 계속 출고하므로 마지막으로 성공한 택배사를 다음 출고의 기본 선택으로 둔다.
+ * 쿠키 path=/seller라 다른 역할 화면에는 실리지 않고, 값 해석은 parseLastCarrier가 담당한다(값 집합 밖이면 기본 선택 없음 = 현행).
+ */
+const lastCarrier = useCookie<string | null>('seller_last_carrier', {
+  path: SELLER_HOME_PATH,
+  sameSite: 'lax',
+  secure: true,
+  maxAge: LAST_CARRIER_MAX_AGE_SECONDS,
+})
+
 const carrier = ref<SellerDeliveryCarrier | null>(null)
 const trackingNo = ref('')
 const errors = ref<Record<string, string>>({})
 const submitting = ref(false)
 
 function reset(): void {
-  carrier.value = null
+  carrier.value = parseLastCarrier(lastCarrier.value)
   trackingNo.value = ''
   errors.value = {}
   submitting.value = false
@@ -51,6 +64,7 @@ async function submit(): Promise<void> {
   submitting.value = true
   try {
     const response = await ordersApi.prepareShipment(props.item.orderItemId, { carrier: carrier.value, trackingNo: trackingNo.value.trim() })
+    lastCarrier.value = response.carrier
     toast.info(`출고 처리했습니다: ${SELLER_DELIVERY_CARRIER_LABEL[response.carrier]} ${response.trackingNo}`)
     emit('done')
   } catch (error) {
