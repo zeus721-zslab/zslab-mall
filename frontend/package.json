@@ -13,7 +13,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "pixel": "node e2e/tools/pixel.mjs"
+    "pixel": "node e2e/tools/pixel.mjs",
+    "walkthrough": "playwright test --config=playwright.walkthrough.config.ts"
   },
   "dependencies": {
     "@lucide/vue": "^1.46.0",
