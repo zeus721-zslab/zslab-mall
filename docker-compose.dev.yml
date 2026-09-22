@@ -3,6 +3,9 @@
 # 운영(서버)은 docker-compose.mall.yml 단독 사용(이 오버라이드 미적용).
 services:
   zslab_mall_backend:
+    # Track 100: mall.yml의 image가 ghcr 이름이 되어, 지정하지 않으면 dev 빌드가 배포 태그를 덮어쓴다.
+    # 로컬 전용 이름으로 분리한다(frontend는 FE-24에서 이미 분리).
+    image: zslab-mall-backend-dev
     build:
       dockerfile: Dockerfile.dev
     volumes:
