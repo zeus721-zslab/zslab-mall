@@ -1,4 +1,10 @@
-import type { SellerProductSort, SellerProductStatus, SellerProductImageType, SellerVariantStatus } from '#layers/seller/app/lib/constants/seller-product'
+import type {
+  SellerProductSort,
+  SellerProductStatus,
+  SellerProductImageType,
+  SellerSaleStopSource,
+  SellerVariantStatus,
+} from '#layers/seller/app/lib/constants/seller-product'
 
 /**
  * 셀러 상품·재고 API 타입(Track 90-C-3·BE 계약 1:1·backend product/controller/response/SellerProduct*·inventory/.../SellerInventorySummaryResponse 실측).
@@ -7,13 +13,14 @@ import type { SellerProductSort, SellerProductStatus, SellerProductImageType, Se
  * 같은 직렬화지만 관리자 파서·타입은 복제하지 않는다(FE-44 §2 격리).
  */
 
-/** 목록 행(BE SellerProductSummaryResponse·10필드). 셀러 식별·공급가·판매기간·재고 합계는 없다(재고는 재고 화면). */
+/** 목록 행(BE SellerProductSummaryResponse·11필드). 셀러 식별·공급가·판매기간·재고 합계는 없다(재고는 재고 화면). saleStopSource는 STOPPED일 때만(D-206). */
 export interface SellerProductSummary {
   productPublicId: string
   name: string
   categoryId: number
   categoryName?: string
   status: SellerProductStatus
+  saleStopSource?: SellerSaleStopSource
   basePrice: number
   thumbnailUrl?: string
   variantCount: number
@@ -71,6 +78,7 @@ export interface SellerProductDetail {
   categoryId: number
   categoryName?: string
   status: SellerProductStatus
+  saleStopSource?: SellerSaleStopSource
   basePrice: number
   thumbnailUrl?: string
   soldoutManual: boolean

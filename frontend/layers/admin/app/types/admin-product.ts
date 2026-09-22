@@ -1,4 +1,4 @@
-import type { AdminProductSort, AdminProductStatus, AdminProductStockFilter } from '#layers/admin/app/lib/constants/product'
+import type { AdminProductSort, AdminProductStatus, AdminProductStockFilter, AdminSaleStopSource } from '#layers/admin/app/lib/constants/product'
 import type { AdminSellerStatus } from '#layers/admin/app/lib/constants/admin-seller'
 
 /** 관리자 상품 목록 행(BE AdminProductSummaryResponse 대응·Track 76). nullable 필드는 BE NON_NULL 직렬화로 생략될 수 있어 optional. */
@@ -12,6 +12,8 @@ export interface AdminProductSummary {
   categoryName?: string
   stockTotal: number
   status: AdminProductStatus
+  /** 판매중지 주체(STOPPED일 때만·D-206). */
+  saleStopSource?: AdminSaleStopSource
   /** 판정 결과(재고·수동품절 종합·ProductPurchasePolicy.isSoldOut). */
   soldOut: boolean
   /** 상품 단위 수동 품절 스위치 값. */
@@ -85,6 +87,8 @@ export interface AdminProductDetail {
   sellerPublicId?: string
   sellerName?: string
   status: AdminProductStatus
+  /** 판매중지 주체(STOPPED일 때만·D-206). */
+  saleStopSource?: AdminSaleStopSource
   soldOutManual: boolean
   basePrice: number
   supplyPrice?: number

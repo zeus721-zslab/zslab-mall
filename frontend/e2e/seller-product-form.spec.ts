@@ -168,6 +168,12 @@ test.describe('셀러 상품 등록·수정 폼(90-C-4)', () => {
     await expect(page.getByTestId('seller-product-form')).toBeVisible()
     await expect(page.getByTestId('status-chip')).toHaveText('판매중')
     await expect(page.getByTestId('status-menu')).toHaveCount(0)
+    // 판매 관리 카드(96-5): SALE → 판매중지 버튼 활성·수동 품절 스위치·기본정보 안내 문구는 카드로 유도
+    await expect(page.getByTestId('sale-card-status-chip')).toHaveText('판매중')
+    await expect(page.getByTestId('sale-card-action')).toHaveText('판매중지')
+    await expect(page.getByTestId('sale-card-action')).toBeEnabled()
+    await expect(page.getByTestId('sale-card-soldout')).toBeVisible()
+    await expect(page.getByTestId('status-readonly-note')).toContainText('판매 관리 카드')
 
     // 옵션 그룹 편집 UI 잠금
     await expect(page.getByTestId('option-locked-notice')).toBeVisible()

@@ -7,6 +7,7 @@ import type { AdminProductStatusTarget } from '#layers/admin/app/lib/constants/p
 import {
   ADMIN_PRODUCT_ALLOWED_TRANSITIONS,
   ADMIN_PRODUCT_STATUS_LABEL,
+  ADMIN_SALE_STOP_SOURCE_LABEL,
   ADMIN_PRODUCT_STATUS_SEMANTIC,
   ADMIN_PRODUCT_STATUS_TARGETS,
 } from '#layers/admin/app/lib/constants/product'
@@ -116,6 +117,8 @@ async function changeStatus(target: AdminProductStatusTarget): Promise<void> {
   try {
     const response = await productsApi.changeStatus(form.value.productPublicId, form.value.status, target)
     form.value.status = response.status
+    // D-206: 관리자가 STOPPED로 바꾸면 주체는 항상 ADMIN(BE ProductSaleStatusService 기록값과 동일·응답에는 없음), SALE 복귀면 null.
+    form.value.saleStopSource = response.status === 'STOPPED' ? 'ADMIN' : null
     refreshSnapshotStatus()
     toast.info(`상태 → ${ADMIN_PRODUCT_STATUS_LABEL[response.status]}`)
     emit('statusChanged')
@@ -147,6 +150,7 @@ async function toggleSoldOut(value: boolean): Promise<void> {
 function refreshSnapshotStatus(): void {
   const parsed = JSON.parse(savedSnapshot) as Record<string, unknown>
   parsed.status = form.value.status
+  parsed.saleStopSource = form.value.saleStopSource
   parsed.soldOutManual = form.value.soldOutManual
   savedSnapshot = JSON.stringify(parsed)
 }
@@ -162,6 +166,9 @@ defineExpose({ form, dirty })
         <v-chip :class="semanticChipClass(ADMIN_PRODUCT_STATUS_SEMANTIC[form.status])" size="small" variant="flat" data-testid="status-chip">
           {{ ADMIN_PRODUCT_STATUS_LABEL[form.status] }}
         </v-chip>
+        <span v-if="form.status === 'STOPPED' && form.saleStopSource" class="text-caption text-medium-emphasis" data-testid="stop-source">
+          {{ ADMIN_SALE_STOP_SOURCE_LABEL[form.saleStopSource] }}
+        </span>
         <v-menu>
           <template #activator="{ props: activatorProps }">
             <v-btn v-bind="activatorProps" size="small" variant="outlined" :append-icon="mdiDotsVertical" :disabled="statusBusy" data-testid="status-menu">상태 전환</v-btn>

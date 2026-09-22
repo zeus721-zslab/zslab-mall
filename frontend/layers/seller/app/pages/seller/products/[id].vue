@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { SellerProductDetail } from '#layers/seller/app/types/seller-product'
 import type { SellerProductForm } from '#layers/seller/app/types/seller-product-form'
+import type { SellerSaleAction } from '#layers/seller/app/lib/constants/seller-product'
 import type { CategorySummary } from '~/types/category'
 import { toSellerProductForm } from '#layers/seller/app/lib/seller-product-form'
 import { SELLER_PRODUCTS_PATH, resolveBackPath } from '#layers/seller/app/lib/seller-back-path'
@@ -13,6 +14,7 @@ useSeoMeta({ title: '상품 수정 · zslab-mall 셀러' })
 
 // 상품 수정(Track 90-C-4·관리자 [id].vue 복제). 상세(90-C-1 GET)를 폼으로 변환해 띄운다. 타 셀러·미존재(404)는 안내 + 목록 이동.
 // ?partial=1은 등록 후속(이미지) 단계 실패에서 넘어온 경우(안내 표시). 저장 성공 후에는 상세를 재조회해 폼을 새로 만든다(서버 값 반영·신규 variant id 확보).
+// 판매 관리 카드(Track 96-5·D-206): 판매중지·재판매(확인 다이얼로그)·수동 품절 → 성공·stale 모두 상세 재조회(폼 재마운트).
 const route = useRoute()
 const router = useRouter()
 const productsApi = useSellerProducts()
@@ -67,6 +69,14 @@ function onNotFound(): void {
   toast.danger('상품을 찾을 수 없어 목록으로 돌아갑니다.')
   void navigateTo(backPath.value)
 }
+
+// ---------- 판매중지·재판매 ----------
+const saleAction = ref<SellerSaleAction | null>(null)
+
+function onSaleDone(): void {
+  saleAction.value = null
+  void load()
+}
 </script>
 
 <template>
@@ -86,15 +96,26 @@ function onNotFound(): void {
     <v-alert v-else-if="loadError" type="error" class="mb-4" data-testid="product-load-error">
       {{ loadError }} <v-btn size="small" variant="outlined" color="error" class="ml-2" @click="load">다시 시도</v-btn>
     </v-alert>
-    <SellerProductForm
-      v-else-if="initial"
-      :key="formKey"
-      mode="edit"
-      :initial="initial"
-      :categories="categories"
-      :back-path="backPath"
-      @saved="onSaved"
-      @not-found="onNotFound"
+    <template v-else-if="initial && detail">
+      <SellerProductSaleStatusCard :detail="detail" @sale-action="(action) => (saleAction = action)" @changed="load" />
+      <SellerProductForm
+        :key="formKey"
+        mode="edit"
+        :initial="initial"
+        :categories="categories"
+        :back-path="backPath"
+        @saved="onSaved"
+        @not-found="onNotFound"
+      />
+    </template>
+
+    <SellerProductSaleStatusDialog
+      :open="saleAction !== null"
+      :action="saleAction ?? 'STOP'"
+      :product="detail"
+      @done="onSaleDone"
+      @stale="onSaleDone"
+      @cancel="saleAction = null"
     />
   </div>
 </template>

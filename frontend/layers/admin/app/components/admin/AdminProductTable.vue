@@ -5,6 +5,7 @@ import {
   ADMIN_PRODUCT_ALLOWED_TRANSITIONS,
   ADMIN_PRODUCT_PAGE_SIZES,
   ADMIN_PRODUCT_STATUS_LABEL,
+  ADMIN_SALE_STOP_SOURCE_LABEL,
   ADMIN_PRODUCT_STATUS_SEMANTIC,
   ADMIN_PRODUCT_STATUS_TARGETS,
   type AdminProductStatusTarget,
@@ -117,6 +118,9 @@ function isPending(item: AdminProductSummary): boolean {
       <v-chip :class="semanticChipClass(ADMIN_PRODUCT_STATUS_SEMANTIC[item.status])" size="small" variant="flat" data-testid="status-chip">
         {{ ADMIN_PRODUCT_STATUS_LABEL[item.status] }}
       </v-chip>
+      <div v-if="item.status === 'STOPPED' && item.saleStopSource" class="text-caption text-medium-emphasis mt-1" data-testid="stop-source">
+        {{ ADMIN_SALE_STOP_SOURCE_LABEL[item.saleStopSource] }}
+      </div>
     </template>
 
     <template #[`item.soldOut`]="{ item }">

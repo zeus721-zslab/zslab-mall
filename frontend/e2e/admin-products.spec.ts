@@ -20,8 +20,9 @@ const ITEMS = [
 
 interface Captured { listQueries: URLSearchParams[]; patches: { url: string; body: string }[]; bulkBodies: string[] }
 
-async function mockAdminApi(page: Page, options: { deleteStatus?: number } = {}): Promise<Captured> {
+async function mockAdminApi(page: Page, options: { deleteStatus?: number; items?: (typeof ITEMS[number] & { saleStopSource?: 'ADMIN' | 'SELLER' })[] } = {}): Promise<Captured> {
   const captured: Captured = { listQueries: [], patches: [], bulkBodies: [] }
+  const items = options.items ?? ITEMS
   await page.route('**/api/v1/admin/sellers', (route) =>
     route.fulfill({ json: [{ sellerPublicId: 'slr_E2E1', companyName: 'E2E셀러', status: 'ACTIVE' }] }))
   await page.route('**/api/v1/categories', (route) => route.fulfill({ json: [{ categoryId: 1, displayName: '데모', sortOrder: 0 }] }))
@@ -53,7 +54,7 @@ async function mockAdminApi(page: Page, options: { deleteStatus?: number } = {})
   await page.route('**/api/v1/admin/products?**', (route) => {
     const query = new URL(route.request().url()).searchParams
     captured.listQueries.push(query)
-    const filtered = query.get('status') ? ITEMS.filter((item) => item.status === query.get('status')) : ITEMS
+    const filtered = query.get('status') ? items.filter((item) => item.status === query.get('status')) : items
     route.fulfill({ json: { items: filtered, page: 0, size: 20, totalCount: filtered.length, hasNext: false } })
   })
   return captured
@@ -210,5 +211,19 @@ test.describe('관리자 상품 목록(FE-25)', () => {
     await expect(page).toHaveURL(/\/admin\/products\?status=PENDING$/)
     await expect(page.getByTestId('filter-status')).toContainText('판매대기')
     await expect.poll(() => captured.listQueries.at(-1)?.get('status')).toBe('PENDING')
+  })
+
+  test('⑦ 판매중지 주체 라벨(Track 96-5·D-206): STOPPED 행에 "셀러 중지"/"관리자 중지" · SALE 행은 라벨 없음', async ({ page }) => {
+    await mockAdminApi(page, { items: [
+      { ...ITEMS[0]!, productPublicId: 'prd_E2E0000000000000000000011', name: 'E2E 셀러중지', status: 'STOPPED', saleStopSource: 'SELLER' },
+      { ...ITEMS[0]!, productPublicId: 'prd_E2E0000000000000000000012', name: 'E2E 관리자중지', status: 'STOPPED', saleStopSource: 'ADMIN' },
+      ITEMS[0]!,
+    ] })
+    await loginAs(page, 'ADMIN')
+    await page.goto('/admin/products')
+    await expect(page.getByTestId('status-chip')).toHaveCount(3)
+    await expect(page.getByTestId('stop-source')).toHaveCount(2)
+    await expect(page.getByTestId('stop-source').first()).toHaveText('셀러 중지')
+    await expect(page.getByTestId('stop-source').nth(1)).toHaveText('관리자 중지')
   })
 })

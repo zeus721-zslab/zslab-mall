@@ -29,6 +29,22 @@ export const SELLER_PRODUCT_STATUS_SEMANTIC: Record<SellerProductStatus, SellerS
   STOPPED: 'danger',
 }
 
+/** BE SaleStopSource 2값(V34·D-206). STOPPED일 때만 존재하며 ADMIN 중지는 셀러가 재판매할 수 없다. */
+export type SellerSaleStopSource = 'ADMIN' | 'SELLER'
+
+export const SELLER_SALE_STOP_SOURCE_LABEL: Record<SellerSaleStopSource, string> = {
+  ADMIN: '관리자 판매중지',
+  SELLER: '셀러 판매중지',
+}
+
+/** 셀러 판매 상태 액션(BE sale-status body status: STOP→STOPPED·RESUME→SALE). */
+export type SellerSaleAction = 'STOP' | 'RESUME'
+
+export const SELLER_SALE_ACTION_LABEL: Record<SellerSaleAction, string> = {
+  STOP: '판매중지',
+  RESUME: '재판매',
+}
+
 /** 필터 드롭다운 옵션(셀러 등록·관리자 전이로 실제 도달하는 4상태). */
 export const SELLER_PRODUCT_STATUS_OPTIONS: { value: SellerProductStatus; title: string }[] = [
   { value: 'SALE', title: SELLER_PRODUCT_STATUS_LABEL.SALE },

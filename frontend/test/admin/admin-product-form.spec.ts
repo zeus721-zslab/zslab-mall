@@ -70,6 +70,9 @@ describe('detailToForm', () => {
     expect(second?.soldOutManual).toBe(true)
     expect(second?.stockOnServer).toBe(3)
     expect(variantLabel(second as NonNullable<typeof second>, form.optionGroups)).toBe('화이트 / L')
+    // D-206: SALE 상세는 saleStopSource 부재(NON_NULL) → null, STOPPED 상세는 주체 보존.
+    expect(form.saleStopSource).toBeNull()
+    expect(detailToForm({ ...DETAIL, status: 'STOPPED', saleStopSource: 'SELLER' }).saleStopSource).toBe('SELLER')
   })
 
   it('옵션 없는 상세는 hasOptions=false·단일 variant', () => {

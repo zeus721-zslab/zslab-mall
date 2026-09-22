@@ -8,6 +8,14 @@ import type { AdminSemantic } from '#layers/admin/app/lib/constants/semantic'
 /** BE ProductStatus 7값. 관리자 화면은 판매중·판매중지·판매대기 3상태를 주로 다루고 나머지는 라벨만 둔다. */
 export type AdminProductStatus = 'DRAFT' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'SALE' | 'HIDDEN' | 'STOPPED'
 
+/** BE SaleStopSource 2값(V34·D-206). STOPPED일 때만 존재. ADMIN 중지는 셀러가 재판매할 수 없고 관리자만 풀 수 있다. */
+export type AdminSaleStopSource = 'ADMIN' | 'SELLER'
+
+export const ADMIN_SALE_STOP_SOURCE_LABEL: Record<AdminSaleStopSource, string> = {
+  ADMIN: '관리자 중지',
+  SELLER: '셀러 중지',
+}
+
 export const ADMIN_PRODUCT_STATUS_LABEL: Record<AdminProductStatus, string> = {
   DRAFT: '임시저장',
   PENDING: '판매대기',

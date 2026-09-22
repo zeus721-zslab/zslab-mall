@@ -1,17 +1,22 @@
 <script setup lang="ts">
-import { mdiImageOffOutline, mdiPencilOutline } from '@mdi/js'
+import { mdiDotsVertical, mdiImageOffOutline, mdiPencilOutline } from '@mdi/js'
 import type { SellerProductSummary } from '#layers/seller/app/types/seller-product'
 import { formatDateTime } from '~/lib/utils/datetime'
 import {
   SELLER_PRODUCT_PAGE_SIZES,
   SELLER_PRODUCT_STATUS_LABEL,
   SELLER_PRODUCT_STATUS_SEMANTIC,
+  SELLER_SALE_ACTION_LABEL,
+  SELLER_SALE_STOP_SOURCE_LABEL,
+  type SellerSaleAction,
 } from '#layers/seller/app/lib/constants/seller-product'
+import { resolveSellerSaleAction } from '#layers/seller/app/lib/seller-product-sale-status'
 import { formatWon } from '#layers/seller/app/lib/format'
 import { semanticChipClass } from '#layers/seller/app/lib/constants/semantic'
 
 // 상품 표(Track 90-C-3·v-data-table-server·관리자 AdminProductTable 복제·셀러/공급가/판매기간/품절 컬럼 없음). 페이지·크기는 부모(URL)가 소유하고
 // 표는 이벤트만 올린다. 정렬은 필터 카드의 정렬 select가 담당하므로 컬럼 정렬은 끈다. 수정 버튼은 부모가 수정 화면(90-C-4)으로 이동시킨다.
+// 행 메뉴(Track 96-5·D-206): SALE=판매중지 · STOPPED(셀러 중지)=재판매 · STOPPED(관리자 중지)=재판매 비활성+운영자 문의 · 그 외 상태는 메뉴 미노출.
 defineProps<{
   items: SellerProductSummary[]
   totalCount: number
@@ -24,7 +29,12 @@ const emit = defineEmits<{
   'update:page': [page: number]
   'update:size': [size: number]
   edit: [item: SellerProductSummary]
+  saleAction: [item: SellerProductSummary, action: SellerSaleAction]
 }>()
+
+function saleActionOf(item: SellerProductSummary) {
+  return resolveSellerSaleAction(item.status, item.saleStopSource)
+}
 
 const headers = [
   { title: '', key: 'thumbnailUrl', sortable: false, width: 64 },
@@ -90,6 +100,9 @@ function markBroken(productPublicId: string): void {
       <v-chip :class="semanticChipClass(SELLER_PRODUCT_STATUS_SEMANTIC[item.status])" size="small" variant="flat" data-testid="status-chip">
         {{ SELLER_PRODUCT_STATUS_LABEL[item.status] }}
       </v-chip>
+      <div v-if="item.status === 'STOPPED' && item.saleStopSource" class="text-caption text-medium-emphasis mt-1" data-testid="stop-source">
+        {{ SELLER_SALE_STOP_SOURCE_LABEL[item.saleStopSource] }}
+      </div>
     </template>
 
     <template #[`item.basePrice`]="{ item }">
@@ -105,7 +118,7 @@ function markBroken(productPublicId: string): void {
     </template>
 
     <template #[`item.actions`]="{ item }">
-      <div class="d-flex align-center justify-end">
+      <div class="d-flex align-center justify-end ga-1">
         <v-btn
           :icon="mdiPencilOutline"
           size="small"
@@ -114,6 +127,22 @@ function markBroken(productPublicId: string): void {
           data-testid="row-edit"
           @click="emit('edit', item)"
         />
+        <v-menu v-if="saleActionOf(item).action">
+          <template #activator="{ props: activatorProps }">
+            <v-btn v-bind="activatorProps" :icon="mdiDotsVertical" size="small" variant="text" :aria-label="`${item.name} 판매 관리`" data-testid="row-menu" />
+          </template>
+          <v-list density="compact" min-width="220">
+            <v-list-subheader>판매 관리</v-list-subheader>
+            <v-list-item
+              :title="SELLER_SALE_ACTION_LABEL[saleActionOf(item).action!]"
+              :subtitle="saleActionOf(item).note ?? undefined"
+              :disabled="saleActionOf(item).disabled"
+              lines="two"
+              data-testid="row-sale-action"
+              @click="emit('saleAction', item, saleActionOf(item).action!)"
+            />
+          </v-list>
+        </v-menu>
       </div>
     </template>
 
