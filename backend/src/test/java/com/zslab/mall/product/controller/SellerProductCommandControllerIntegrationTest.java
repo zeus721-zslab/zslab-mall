@@ -134,7 +134,7 @@ class SellerProductCommandControllerIntegrationTest extends AbstractIntegrationT
 
     /** 셀러 상세 응답 키 화이트리스트(90-C-1 SellerProductQueryControllerIntegrationTest와 동일·응답 DTO 공유). */
     private static final Set<String> DETAIL_KEYS = Set.of("productPublicId", "name", "description", "categoryId", "categoryName",
-            "status", "basePrice", "thumbnailUrl", "soldoutManual", "createdAt", "updatedAt", "images", "optionGroups", "variants");
+            "status", "saleStopSource", "basePrice", "thumbnailUrl", "soldoutManual", "createdAt", "updatedAt", "images", "optionGroups", "variants");
     private static final Set<String> NESTED_KEYS = Set.of("imageId", "imageUrl", "imageType", "displayOrder", "main",
             "optionGroupId", "name", "values", "optionValueId", "value", "variantPublicId", "variantCode", "sellerSku", "barcode",
             "additionalPrice", "soldoutManual", "options", "quantityOnHand", "quantityReserved", "quantityAvailable");
@@ -257,7 +257,10 @@ class SellerProductCommandControllerIntegrationTest extends AbstractIntegrationT
                 .andExpect(jsonPath("$.thumbnailUrl").value(THUMBNAIL_URL))
                 .andReturn().getResponse().getContentAsString();
         JsonNode root = objectMapper.readTree(body);
-        assertThat(keysOf(root)).containsExactlyInAnyOrderElementsOf(DETAIL_KEYS);
+        // P1은 SALE → saleStopSource null·NON_NULL 생략(D-206).
+        Set<String> saleDetailKeys = new LinkedHashSet<>(DETAIL_KEYS);
+        saleDetailKeys.remove("saleStopSource");
+        assertThat(keysOf(root)).containsExactlyInAnyOrderElementsOf(saleDetailKeys);
         assertThat(allKeys(root)).doesNotContainAnyElementsOf(FORBIDDEN_KEYS);
 
         Map<String, Object> product = jdbc.queryForMap("SELECT name, base_price, category_id, status, seller_id, supply_price, "

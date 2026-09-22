@@ -3,6 +3,7 @@ package com.zslab.mall.product.controller.response;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.zslab.mall.common.serialization.KstOffsetSerializer;
 import com.zslab.mall.product.enums.ProductStatus;
+import com.zslab.mall.product.enums.SaleStopSource;
 import java.time.LocalDateTime;
 
 /**
@@ -20,6 +21,7 @@ public record AdminProductSummaryResponse(
         String categoryName,
         int stockTotal,
         ProductStatus status,
+        SaleStopSource saleStopSource,
         boolean soldOut,
         boolean soldOutManual,
         long basePrice,

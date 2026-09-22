@@ -38,6 +38,7 @@ import com.zslab.mall.payment.exception.PaymentPgTidConflictException;
 import com.zslab.mall.product.exception.ProductImageNotFoundException;
 import com.zslab.mall.product.exception.ProductHasOrderHistoryException;
 import com.zslab.mall.product.exception.ProductInvalidStateException;
+import com.zslab.mall.product.exception.ProductStoppedByAdminException;
 import com.zslab.mall.product.exception.ProductNotFoundException;
 import com.zslab.mall.product.exception.ProductVariantNotFoundException;
 import com.zslab.mall.product.exception.ProductVariantOptionConflictException;
@@ -150,6 +151,7 @@ public class GlobalExceptionHandler {
     private static final String CODE_CART_ITEM_NOT_PURCHASABLE = "CART_ITEM_NOT_PURCHASABLE";
     private static final String CODE_PRODUCT_VARIANT_OPTION_CONFLICT = "PRODUCT_VARIANT_OPTION_CONFLICT";
     private static final String CODE_PRODUCT_INVALID_STATE = "PRODUCT_INVALID_STATE";
+    private static final String CODE_PRODUCT_STOPPED_BY_ADMIN = "PRODUCT_STOPPED_BY_ADMIN";
     private static final String CODE_PRODUCT_HAS_ORDER_HISTORY = "PRODUCT_HAS_ORDER_HISTORY";
     private static final String CODE_SELLER_NOT_FOUND = "SELLER_NOT_FOUND";
     private static final String CODE_SELLER_INVALID_STATE = "SELLER_INVALID_STATE";
@@ -719,6 +721,14 @@ public class GlobalExceptionHandler {
         // Track 50: 상품 승인·거부 전이 불가 상태(PENDING 아님). 500 fallback 차단·422 매핑(SettlementInvalidStateException 선례).
         log.warn("[Product] 상품 상태 위반(422): {}", exception.getMessage());
         return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_PRODUCT_INVALID_STATE, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(ProductStoppedByAdminException.class)
+    public ResponseEntity<ProblemDetail> handleProductStoppedByAdmin(
+            ProductStoppedByAdminException exception, HttpServletRequest request) {
+        // Track 96-5 D-206: 관리자 중지(saleStopSource=ADMIN) 상품의 셀러 재판매 거부 — 제재 우회 차단·FE "운영자 문의" 분기용 별도 코드.
+        log.warn("[Product] 관리자 중지 상품 셀러 재판매 거부(422): {}", exception.getMessage());
+        return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_PRODUCT_STOPPED_BY_ADMIN, exception.getMessage(), request);
     }
 
     @ExceptionHandler(EmptyCartCheckoutException.class)

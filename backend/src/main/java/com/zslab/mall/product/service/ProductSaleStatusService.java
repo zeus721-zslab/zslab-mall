@@ -6,9 +6,11 @@ import com.zslab.mall.audit.service.AuditRecorder;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
 import com.zslab.mall.product.entity.Product;
 import com.zslab.mall.product.enums.ProductStatus;
+import com.zslab.mall.product.enums.SaleStopSource;
 import com.zslab.mall.product.exception.ProductInvalidStateException;
 import com.zslab.mall.product.exception.ProductNotFoundException;
 import com.zslab.mall.product.repository.ProductRepository;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -22,6 +24,9 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>승인과 달리 같은 상태 재요청(SALE→SALE·STOPPED→STOPPED)은 멱등 no-op이 아니라 전이 위반(422)으로 거부한다
  * (운영자 오조작 감지·확정 사항).
+ *
+ * <p><b>주체 기록(Track 96-5·D-206)</b>: 관리자 중지는 {@code saleStopSource=ADMIN}으로 기록되어 셀러가 재판매할 수 없다. 관리자 재판매는
+ * 주체(ADMIN·SELLER)와 무관하게 허용하며 null로 돌린다. 감사 before/after에 status·saleStopSource를 함께 적재한다.
  */
 @Slf4j
 @Service
@@ -48,9 +53,10 @@ public class ProductSaleStatusService {
                         "상품을 찾을 수 없습니다: publicId=" + publicId));
 
         ProductStatus before = product.getStatus();
+        Map<String, Object> beforeSnapshot = saleStateSnapshot(product);
         try {
             if (target == ProductStatus.STOPPED) {
-                product.stopSale();
+                product.stopSale(SaleStopSource.ADMIN);
             } else {
                 product.resumeSale();
             }
@@ -58,8 +64,16 @@ public class ProductSaleStatusService {
             throw new ProductInvalidStateException("판매 상태를 전환할 수 없습니다: " + exception.getMessage());
         }
         auditRecorder.record(auditContext, AuditLogAction.UPDATE, PolymorphicTargetType.PRODUCT, product.getId(),
-                Map.of("status", before.name()), Map.of("status", product.getStatus().name()));
+                beforeSnapshot, saleStateSnapshot(product));
         log.info("[Product] 판매 상태 전환 완료({} → {}): publicId={}", before, product.getStatus(), publicId);
         return product;
+    }
+
+    /** 감사용 판매 상태 스냅샷(status·saleStopSource). saleStopSource는 null 가능이라 {@code Map.of} 대신 LinkedHashMap을 쓴다. */
+    static Map<String, Object> saleStateSnapshot(Product product) {
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("status", product.getStatus().name());
+        snapshot.put("saleStopSource", product.getSaleStopSource() == null ? null : product.getSaleStopSource().name());
+        return snapshot;
     }
 }

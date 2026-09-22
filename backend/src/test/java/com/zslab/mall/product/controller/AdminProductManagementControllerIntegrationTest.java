@@ -414,6 +414,8 @@ class AdminProductManagementControllerIntegrationTest extends AbstractIntegratio
                 .andExpect(jsonPath("$.results[1].code").value("PRODUCT_INVALID_STATE"))
                 .andExpect(jsonPath("$.results[2].code").value("PRODUCT_NOT_FOUND"));
         assertThat(productStatus(P1)).isEqualTo("STOPPED");
+        // D-206: 일괄 경로도 단건 서비스를 재사용하므로 주체 ADMIN이 기록된다.
+        assertThat(jdbc.queryForObject("SELECT sale_stop_source FROM product WHERE public_id = ?", String.class, P1)).isEqualTo("ADMIN");
 
         String saleBody = "{\"productPublicIds\":[\"" + P1 + "\",\"" + P3 + "\"],\"status\":\"SALE\"}";
         mockMvc.perform(post(URL + "/bulk/status").headers(authHeaders.admin(ADMIN_ID))
@@ -421,6 +423,7 @@ class AdminProductManagementControllerIntegrationTest extends AbstractIntegratio
                 .andExpect(jsonPath("$.successCount").value(2));
         assertThat(productStatus(P1)).isEqualTo("SALE");
         assertThat(productStatus(P3)).isEqualTo("SALE");
+        assertThat(jdbc.queryForObject("SELECT sale_stop_source FROM product WHERE public_id = ?", String.class, P1)).isNull();
 
         mockMvc.perform(post(URL + "/bulk/status").headers(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
