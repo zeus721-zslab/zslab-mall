@@ -88,6 +88,15 @@ bank-account:
   # 더미 키로 암호화된 로컬 데이터는 운영 키로 읽을 수 없다(환경 간 dump 이동 불가). 생성 명령은 .env.example 참조.
   encryption-key: ${BANK_ACCOUNT_ENCRYPTION_KEY:bG9jYWwtZGV2LWR1bW15LWJhbmstYWNjb3VudC1rZXk=}
 
+zslab:
+  # Track 97 D-209 외부 서비스 구현체 선택. mock = Mock 어댑터(기본·외부 호출 없음). mock 외 값은 해당 값으로 등록된 실 구현체가
+  # 있어야 하며 없으면 주입 지점에서 기동 실패한다(조용히 Mock으로 되돌아가지 않음). 전환 절차는 docs/architecture-baseline/real-service-switch-guide.md.
+  payment:
+    gateway: ${PAYMENT_GATEWAY:mock}
+  notification:
+    sms-sender: ${SMS_SENDER:mock}
+    email-sender: ${EMAIL_SENDER:mock}
+
 settlement:
   # Track 85 정산 설정. default-commission-rate = 플랫폼 기본 수수료율(basis-point·1000=10.00%)·셀러 개별율·카테고리율이 모두 없을 때
   # 적용(CommissionRateResolver). V30 백필 상수 1000과 같아야 한다. payout-offset-days = 지급예정일 = 정산 기간 말일 + N일.

@@ -12186,3 +12186,54 @@ EXPLAIN(로컬 읽기·seller 4·30일): 입고 합 = product PRIMARY index scan
 - `.env.example:98 LOG_LEVEL=INFO`는 어느 yml·xml·compose에서도 참조되지 않는 죽은 env(정찰 실측) — 제거는 별건.
 - 슬라이스 테스트 `excludeAutoConfiguration` 정리 — 로그 소음뿐이라 요구 발생 시.
 - 외부 검토: B / 생략.
+
+## D-209. 외부 서비스 구현체 선택 장치 — PG·SMS·이메일 프로퍼티 게이트·PG 응답 타입 개명·FE 결제창 분기·전환 가이드 (Track 97)
+
+날짜: 2026-09-22
+브랜치: feat/track-97-real-service-readiness
+정찰: docs/track-97/recon-report-readiness.md(STEP 1~5)
+
+### 배경
+PG·SMS·이메일은 포트(`PaymentGateway`·`SmsSender`·`NotificationSender`)와 Mock 구현체가 있었지만 구현체 **선택 장치가 없었다**(정찰 §1-1·§2-1: `@Profile`·`@ConditionalOnProperty` 0건·Mock 3종이 무조건 `@Component`). 실 구현체를 `@Component`로 추가하면 주입 지점(PaymentService·RefundService·MockPaymentCallbackService·NotificationService)에서 빈 중복으로 기동 실패한다. 포트 `PaymentGateway.refund` 반환 타입이 `MockRefundResponse`라 실 구현체 추가가 인터페이스·`RefundService` 수정을 강제했고(§1-2 M1·M2), FE 체크아웃은 `redirectUrl`을 Mock 쿼리 구조로 파싱해 내부 `/payment/mock`으로만 이동했다(§1-4·실 PG URL이면 attemptKey 빈 문자열). `.env.example`의 `PG_*`·`SMTP_*`·`SMS_API_KEY`는 자리만 있고 참조처 0, Mock/실 선택 키 자리는 없었다(§4-2). 임시 비밀번호 SMS 문구 상수는 두 서비스에 중복(§2-4).
+
+### 진입점
+- 선택 프로퍼티: backend/src/main/resources/application.yml:91-98 `zslab.payment.gateway=${PAYMENT_GATEWAY:mock}` · `zslab.notification.sms-sender=${SMS_SENDER:mock}` · `zslab.notification.email-sender=${EMAIL_SENDER:mock}` · docker-compose.mall.yml:40-42 · .env.example:113-115
+- Mock 조건 `@ConditionalOnProperty(havingValue="mock", matchIfMissing=true)`: payment/gateway/MockPaymentGateway.java:23 · payment/controller/MockPaymentCallbackController.java:26 · payment/service/MockPaymentCallbackService.java:32 · notification/adapter/MockSmsSender.java:16 · notification/adapter/MockNotificationSender.java:17. `MockRefundAutoCallbackListener.java:26`·`MockRefundPendingRecoveryScheduler.java:29`는 기존 `@ConditionalOnBean(MockPaymentGateway.class)` 유지(자동 연동)
+- 타입 개명: payment/gateway/PgRefundResponse.java(구 MockRefundResponse·필드·동작 무변경) · PaymentGateway.java:33 · RefundService.java:12,138 · 테스트 6파일 참조 갱신
+- 문구 통합: notification/template/NotificationMessages.java `TEMPORARY_PASSWORD_SMS` · AdminMemberCommandService.java:159-160 · AdminMemberProvisioningService.java:128-129(MASK·EVENT 상수는 각 서비스 유지)
+- FE: frontend/app/lib/payment-redirect.ts `resolvePaymentRedirect`(origin ≠ `MOCK_PG_ORIGIN` → external) · frontend/app/lib/constants/payment.ts:7 `MOCK_PG_ORIGIN`(BE MockPaymentGateway.java:21과 동일 리터럴) · frontend/app/pages/checkout/index.vue:149-156 `goToPayment`(external → `navigateTo(url, {external:true})`) · `/payment/mock` 무변경
+- 테스트: backend/src/test/java/com/zslab/mall/common/config/ExternalServiceSelectionTest.java(5) · frontend/test/unit/payment-redirect.spec.ts(5)
+- 가이드: docs/architecture-baseline/real-service-switch-guide.md(§0 공통·§1 PG·§2 SMS·§3 이메일·§4 비밀번호 찾기 설계 메모·§5 회귀·추적) · docs/infra/README.md 색인 1행(미추적·새 경로 링크). 처음 docs/infra/에 두었으나 .gitignore:13 "로컬 참고용" 미추적이라 이동(결정안 A).
+- 무변경(가이드 기록만): 웹훅 서명 검증·실 구현체·비밀번호 찾기·이메일 계약·임시 비밀번호 TX 분리·SecurityConfig.java:88-90 mock-callback 매처.
+
+### 결정
+1. 외부 서비스마다 프로퍼티 1개(`zslab.payment.gateway`·`zslab.notification.sms-sender`·`zslab.notification.email-sender`)로 구현체를 고른다. Mock 빈은 값 `mock`(미지정 포함)에서만 등록되고, 실 구현체는 같은 프로퍼티의 다른 값으로 등록한다. `mock` 외 값에 실 구현체가 없으면 주입 지점에서 기동 실패(조용한 폴백 없음).
+2. PG의 Mock 전용 인가 엔드포인트(`MockPaymentCallbackController`·`MockPaymentCallbackService`)도 같은 게이트에 묶는다 — Mock PG가 없으면 mock 콜백도 없다. D-198 §8 "프로필 게이트 또는 제거"를 프로퍼티 게이트로 확정.
+3. `MockRefundResponse` → `PgRefundResponse`. 포트 시그니처에서 Mock 이름을 제거해 실 구현체가 인터페이스·RefundService를 건드리지 않게 한다.
+4. FE 결제창 진입은 `redirectUrl`의 origin으로 분기: Mock origin이면 기존 내부 `/payment/mock`(쿼리·orderPublicId 이관), 그 외는 외부 이동. 판별은 순수 함수(vitest).
+5. compose가 세 키를 backend에 전달하고 `.env.example`에 자리를 둔다(기본 mock). `PG_*`·`SMTP_*`·`SMS_API_KEY`·`LOG_LEVEL`·`REDIS_*`·`APP_DOMAIN`·`CORS_ALLOWED_ORIGINS`·backend/.env.example `DB_URL`은 삭제하지 않고 "현재 미참조" 주석만 단다.
+6. 임시 비밀번호 SMS 문구는 `NotificationMessages.TEMPORARY_PASSWORD_SMS` 1곳(문구 무변경).
+7. 이메일 포트 계약(`NotificationSender.send(NotificationLog)`)은 유지한다. 실 SMTP 어댑터가 `recipientUserId`로 `User.email`을 조회한다(가이드 §3).
+
+### §1-A 갈림길·채택/기각 근거
+- **선택 방식**: α 프로퍼티 + `@ConditionalOnProperty(matchIfMissing=true)` 【채택: 기존 스케줄러 킬스위치(`zslab.*.enabled`)와 같은 관례·env 1키로 전환·미지정 = mock이라 기존 IT·로컬·운영 무변경】 / β 프로필(`@Profile("!prod")` 등) 【기각: 운영도 Mock을 쓰는 현재 정책(D-198 "전 프로필 허용")과 충돌·prod 스모크 테스트(`ProdSecurityContextSmokeTest`·`ProdBankAccountKeyFailFastTest`)가 prod 프로파일 컨텍스트를 띄우므로 Mock 부재로 깨짐】 / γ `@ConditionalOnMissingBean` 기본 Mock 【기각: 실 구현체 등록 누락·이름 오타 시 조용히 Mock으로 결제·발송이 진행돼 운영에서 눈치채기 어려움. 기동 실패가 안전】.
+- **Mock 전용 엔드포인트 게이트 범위**: 컨트롤러 + 서비스 【채택: 서비스가 `PaymentGateway`를 주입받으므로 Mock PG 부재 시 컨트롤러만 빼면 서비스가 기동을 깨뜨림】 / 컨트롤러만 【기각】.
+- **`@ConditionalOnBean(MockPaymentGateway)` 리스너·스케줄러**: 유지 【채택: Mock 빈 부재로 자동 소멸·ExternalServiceSelectionTest가 단언】 / 프로퍼티 조건으로 교체 【기각: 조건 2중화·D-169 §1 결정 유지】.
+- **이메일 계약**: `NotificationSender(NotificationLog)` 유지 【채택: 호출부 12경로 무수정·어댑터가 User 조회 1회】 / `EmailSender.send(address, subject, body)` 신설(SmsSender 동형) 【기각(이번 트랙): 실 어댑터 없이 계약을 바꾸면 소비처 없는 추상화·실 어댑터 트랙에서 필요 시 재검토】.
+- **FE 분기 기준**: `redirectUrl.origin === MOCK_PG_ORIGIN` 【채택: BE Mock URL이 고정 리터럴(MockPaymentGateway.java:21)·쿼리 존재 여부보다 명확】 / 쿼리에 attemptKey가 있으면 Mock 【기각: 실 PG URL도 임의 쿼리를 가질 수 있음】 / BE 응답에 `provider` 필드 추가 【기각: 계약 변경·이번 범위 밖】.
+- **문구 상수 위치**: `notification/template/NotificationMessages` 【채택: 템플릿 코드(`NotificationTemplateCodes`)와 같은 패키지·문구는 코드가 아니므로 별 클래스】 / 한 서비스의 상수를 다른 서비스가 참조 【기각: 서비스 간 결합】.
+
+### §2 확정 구현 규칙
+- main 수정 12 + 신규 1(`NotificationMessages`) · test 수정 6(타입 개명 컴파일 수정만·단언 무변경) + 신규 1 · FE 수정 2 + 신규 2 · 설정 4(application.yml·docker-compose.mall.yml·.env.example·backend/.env.example) · docs 2(가이드 추적·docs/infra README 색인 미추적).
+- Mock 모드 동작 무변경: `git diff` 기준 Mock 클래스 본문 변경 0(애노테이션·Javadoc만) · 기존 결제·환불·알림 IT 단언 수정 0.
+- 검증(로컬·2026-09-22): `./gradlew.bat test --rerun-tasks` **1440·0 fail·0 error·0 skip**(기준 1435 + ExternalServiceSelectionTest 5) · FE typecheck 0 error · vitest `--maxWorkers=2` 전체 **651 passed·13 skipped(664 = 659 + 5)** — 1회차 2파일(seller-dashboard-view·payment-redirect) Hook timeout(FE-58 트랩 3·LT-33)·단독 재실행 13/13 통과 · Playwright 컨테이너 env 매핑(LT-37) **106 passed·2 skipped(기준선 동일)** · `docker restart zslab_mall_backend` → healthy(~140s)·`Started ZslabMallApplication`·Flyway `up to date`·ERROR 0 · 결제 흐름 수동 1회(API): 로그인 → `POST /orders` 201 → redirectUrl origin = `https://mock-pg.zslab.local`(FE 판별 True) → `mock-callback` SUCCESS 200 → 주문 PAID.
+- 트랩: (1) `git pull`이 네트워크(github 443)로 실패 — 로컬 main 04d11092(직전 세션 pull·origin 동기)를 기준으로 진행. (2) compose `environment` 추가는 `docker restart`로 반영되지 않는다(컨테이너 재생성 필요) — 기본값이 mock이라 이번 검증에는 영향 없음. (3) 로컬 FE `node_modules`에 `vite-plugin-vuetify` 미설치로 호스트 vitest 기동 실패 → 컨테이너(`docker exec zslab_mall_frontend`) 실행.
+
+### §8 이월
+- 가이드 위치는 docs/architecture-baseline/로 확정(결정안 A·application.yml:93·docker-compose.mall.yml:39·.env.example:111 주석 동기). 관련 FE 박제 FE-59.
+- 실 PG: 구현체 + 웹훅 서명·provider·금액 검증(D-198 §8) + gateway 404 해제(LT-29) + `SecurityConfig.java:88-90` 매처 제거 + `pages/payment/mock.vue`·mock e2e 처리 + 데모 시드 결제 단계 + Mock 자동 완료 의존 IT 2건(가이드 §1-6).
+- 실 SMS: 구현체 + 임시 비밀번호 TX 분리(D-178 §8·D-204 N9) + 본문 로깅 차단 + 재발송·@Async 재검토(D-169 §1 C5).
+- 실 이메일: 구현체 + mail 의존성 + `User.email` null 정책 + 테스트 계정 외부 발송 차단.
+- 비밀번호 찾기: 가이드 §4 선택지(토큰 저장 vs 서명 토큰 / SMS vs 이메일 / 레이트 리밋 gateway vs 앱) 결정 후 별도 트랙.
+- 실 모드 전환 시 필수 키 prod fail-fast(JWT·BANK_ACCOUNT 동형)는 실 구현체 트랙에서 적용.
+- 외부 검토: B / 생략.

@@ -2,6 +2,7 @@
 import type { CheckoutRequest, PaymentMethod, ShippingAddress } from '~/types/checkout'
 import type { Address } from '~/types/address'
 import { PAYMENT_METHODS } from '~/lib/constants/payment'
+import { resolvePaymentRedirect } from '~/lib/payment-redirect'
 import {
   RECIPIENT_NAME_MAX,
   RECIPIENT_PHONE_MAX,
@@ -142,20 +143,16 @@ const canSubmit = computed<boolean>(
 )
 
 /**
- * 결제 시작 응답의 redirectUrl(모의 PG)에서 attemptKey·amount·method를, Location 헤더에서 orderPublicId를 파싱해
- * 내부 /payment/mock으로 넘긴다(외부 PG 미방문). Location = /api/v1/orders/{orderPublicId}.
+ * 결제 시작 응답의 redirectUrl로 결제창에 진입한다(Track 97 D-209). Mock PG origin이면 attemptKey·amount·method와 Location 헤더의
+ * orderPublicId를 내부 /payment/mock으로 넘기고(외부 PG 미방문), 실 PG면 결제창 URL로 외부 이동한다. Location = /api/v1/orders/{orderPublicId}.
  */
-async function goToMockPayment(redirectUrl: string, location: string | null): Promise<void> {
-  const url = new URL(redirectUrl)
-  const attemptKey = url.searchParams.get('attemptKey') ?? ''
-  const amount = url.searchParams.get('amount') ?? ''
-  const paymentMethod = url.searchParams.get('method') ?? ''
-  const orderPublicId = location ? location.split('/').pop() ?? '' : ''
-  await navigateTo(
-    `/payment/mock?attemptKey=${encodeURIComponent(attemptKey)}`
-      + `&amount=${encodeURIComponent(amount)}&method=${encodeURIComponent(paymentMethod)}`
-      + `&orderPublicId=${encodeURIComponent(orderPublicId)}`,
-  )
+async function goToPayment(redirectUrl: string, location: string | null): Promise<void> {
+  const redirect = resolvePaymentRedirect(redirectUrl, location)
+  if (redirect.kind === 'external') {
+    await navigateTo(redirect.url, { external: true })
+    return
+  }
+  await navigateTo(redirect.path)
 }
 
 /**
@@ -203,7 +200,7 @@ async function handleSubmit(): Promise<void> {
       return
     }
     if (payment.redirectUrl) {
-      await goToMockPayment(payment.redirectUrl, result.location)
+      await goToPayment(payment.redirectUrl, result.location)
       return
     }
     // 2xx인데 redirectUrl 부재는 비정상 — 방어 안내.

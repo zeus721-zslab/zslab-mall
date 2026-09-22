@@ -10,7 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.zslab.mall.claim.enums.ClaimStatus;
 import com.zslab.mall.order.enums.OrderItemStatus;
-import com.zslab.mall.payment.gateway.MockRefundResponse;
+import com.zslab.mall.payment.gateway.PgRefundResponse;
 import com.zslab.mall.payment.gateway.PaymentGateway;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -116,7 +116,7 @@ class AdminRefundControllerIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("T2 성공: 유효 X-Admin-Id + APPROVED Claim + 유효 amount → 200·PENDING·pgRefundId 부여·Refund 1행 커밋·이벤트 0")
     void initiateRefund_validAdmin_approvedClaim_returns200_persistsPending() throws Exception {
         seedGraph(ClaimStatus.APPROVED);
-        when(paymentGateway.refund(any(), any())).thenReturn(new MockRefundResponse(PG_REFUND_ID, true, null));
+        when(paymentGateway.refund(any(), any())).thenReturn(new PgRefundResponse(PG_REFUND_ID, true, null));
 
         mockMvc.perform(post("/api/v1/admin/claims/" + CLAIM_PID + "/initiate-refund")
                         .headers(authHeaders.admin(ADMIN))

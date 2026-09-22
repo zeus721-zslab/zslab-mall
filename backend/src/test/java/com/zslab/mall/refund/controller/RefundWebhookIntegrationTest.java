@@ -8,7 +8,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
 import com.github.f4b6a3.ulid.UlidCreator;
-import com.zslab.mall.payment.gateway.MockRefundResponse;
+import com.zslab.mall.payment.gateway.PgRefundResponse;
 import com.zslab.mall.payment.gateway.PaymentGateway;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
@@ -69,7 +69,7 @@ class RefundWebhookIntegrationTest extends AbstractIntegrationTest {
     void setUp() {
         tx = new TransactionTemplate(txManager);
         // 접수만 모사(콜백 자동 발생 없음). 호출마다 고유 pg_refund_id를 발급해 재시도(RFN-2) 시나리오도 구분한다.
-        when(paymentGateway.refund(any(), any())).thenAnswer(invocation -> new MockRefundResponse(
+        when(paymentGateway.refund(any(), any())).thenAnswer(invocation -> new PgRefundResponse(
                 "mock_rfn_test_" + UlidCreator.getMonotonicUlid(), true, null));
         cleanup();
     }
