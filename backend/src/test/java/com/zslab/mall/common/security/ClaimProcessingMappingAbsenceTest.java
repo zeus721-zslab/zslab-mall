@@ -32,11 +32,15 @@ class ClaimProcessingMappingAbsenceTest extends AbstractIntegrationTest {
     private static final Set<RequestMethod> WRITE_METHODS =
             Set.of(RequestMethod.POST, RequestMethod.PUT, RequestMethod.PATCH, RequestMethod.DELETE);
 
-    /** 2026-09-21 실측(STEP 711): BuyerClaimController의 클레임 신청·사진 업로드·회수 송장 등록 3건. 갱신은 D-XX 박제와 함께. */
+    /**
+     * 2026-09-21 실측(STEP 711): BuyerClaimController의 클레임 신청·사진 업로드·회수 송장 등록 3건. 갱신은 D-XX 박제와 함께.
+     * 2026-09-23 갱신(Track 101-A·D-212): 구매자 신청 취소 1건 추가 — 접수(REQUESTED) 상태의 본인 요청만 종결시키는 구매자 쓰기다.
+     */
     private static final List<String> ALLOWED_CLAIM_WRITE_MAPPINGS = List.of(
             "POST /api/v1/claims",
             "POST /api/v1/claims/attachments",
-            "POST /api/v1/claims/{claimPublicId}/return-shipment");
+            "POST /api/v1/claims/{claimPublicId}/return-shipment",
+            "POST /api/v1/claims/{claimPublicId}/cancel");
 
     @Autowired
     private RequestMappingHandlerMapping requestMappingHandlerMapping;

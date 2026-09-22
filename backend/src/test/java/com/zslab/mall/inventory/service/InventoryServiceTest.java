@@ -7,6 +7,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.zslab.mall.audit.service.AuditContext;
+import com.zslab.mall.audit.service.AuditRecorder;
 import com.zslab.mall.inventory.entity.Inventory;
 import com.zslab.mall.inventory.entity.InventoryHistory;
 import com.zslab.mall.inventory.enums.InventoryHistoryChangeType;
@@ -38,6 +40,7 @@ class InventoryServiceTest {
     private static final String REFERENCE_TYPE = "order";
     private static final Long REFERENCE_ID = 500L;
     private static final String ADJUST_REASON = "재고 실사 보정";
+    private static final AuditContext AUDIT_CONTEXT = AuditContext.of(9001L, "ADMIN");
 
     @Mock
     private InventoryRepository inventoryRepository;
@@ -49,6 +52,9 @@ class InventoryServiceTest {
     private ProductRepository productRepository;
     @Mock
     private ProductVariantRepository productVariantRepository;
+    // Track 101-A: 재고 증감 감사 적재(recordAdjustAudit) 의존. 검증 대상이 아닌 케이스에서도 생성자 주입을 채운다.
+    @Mock
+    private AuditRecorder auditRecorder;
     @InjectMocks
     private InventoryService inventoryService;
 
@@ -176,7 +182,7 @@ class InventoryServiceTest {
         Inventory inventory = inventory(10, 2, 8);
         when(inventoryRepository.findByVariantIdForUpdate(VARIANT_ID)).thenReturn(Optional.of(inventory));
 
-        Inventory result = inventoryService.adjustStock(VARIANT_ID, 5, ADJUST_REASON);
+        Inventory result = inventoryService.adjustStock(VARIANT_ID, 5, ADJUST_REASON, AUDIT_CONTEXT);
 
         assertThat(result).isSameAs(inventory);
         assertThat(inventory.getQuantityOnHand()).isEqualTo(15);
@@ -197,7 +203,7 @@ class InventoryServiceTest {
         Inventory inventory = inventory(10, 2, 8);
         when(inventoryRepository.findByVariantIdForUpdate(VARIANT_ID)).thenReturn(Optional.of(inventory));
 
-        inventoryService.adjustStock(VARIANT_ID, -3, ADJUST_REASON);
+        inventoryService.adjustStock(VARIANT_ID, -3, ADJUST_REASON, AUDIT_CONTEXT);
 
         assertThat(inventory.getQuantityOnHand()).isEqualTo(7);
         assertThat(inventory.getQuantityAvailable()).isEqualTo(5);
@@ -212,7 +218,7 @@ class InventoryServiceTest {
         Inventory inventory = inventory(10, 2, 8);
         when(inventoryRepository.findByVariantIdForUpdate(VARIANT_ID)).thenReturn(Optional.of(inventory));
 
-        assertThatThrownBy(() -> inventoryService.adjustStock(VARIANT_ID, 0, ADJUST_REASON))
+        assertThatThrownBy(() -> inventoryService.adjustStock(VARIANT_ID, 0, ADJUST_REASON, AUDIT_CONTEXT))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("quantityDelta는 0이 아니어야");
         verify(inventoryHistoryRepository, never()).save(any());
@@ -225,7 +231,7 @@ class InventoryServiceTest {
         Inventory inventory = inventory(10, 8, 2);
         when(inventoryRepository.findByVariantIdForUpdate(VARIANT_ID)).thenReturn(Optional.of(inventory));
 
-        assertThatThrownBy(() -> inventoryService.adjustStock(VARIANT_ID, -9, ADJUST_REASON))
+        assertThatThrownBy(() -> inventoryService.adjustStock(VARIANT_ID, -9, ADJUST_REASON, AUDIT_CONTEXT))
                 .isInstanceOf(InventoryInvariantViolationException.class)
                 .hasMessageContaining("가용 부족");
         verify(inventoryHistoryRepository, never()).save(any());
@@ -238,7 +244,7 @@ class InventoryServiceTest {
         Inventory inventory = inventory(10, 2, 8);
         when(inventoryRepository.findByVariantIdForUpdate(VARIANT_ID)).thenReturn(Optional.of(inventory));
 
-        assertThatThrownBy(() -> inventoryService.adjustStock(VARIANT_ID, -11, ADJUST_REASON))
+        assertThatThrownBy(() -> inventoryService.adjustStock(VARIANT_ID, -11, ADJUST_REASON, AUDIT_CONTEXT))
                 .isInstanceOf(InventoryInvariantViolationException.class)
                 .hasMessageContaining("실물 부족");
         verify(inventoryHistoryRepository, never()).save(any());
@@ -249,7 +255,7 @@ class InventoryServiceTest {
     void adjust_notFound_throws() {
         when(inventoryRepository.findByVariantIdForUpdate(VARIANT_ID)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> inventoryService.adjustStock(VARIANT_ID, 5, ADJUST_REASON))
+        assertThatThrownBy(() -> inventoryService.adjustStock(VARIANT_ID, 5, ADJUST_REASON, AUDIT_CONTEXT))
                 .isInstanceOf(InventoryInvariantViolationException.class)
                 .hasMessageContaining("Inventory 미존재");
         verify(inventoryHistoryRepository, never()).save(any());

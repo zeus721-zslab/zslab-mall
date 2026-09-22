@@ -12,6 +12,8 @@ import static org.mockito.Mockito.when;
 import com.zslab.mall.claim.controller.request.ClaimRequestCommand;
 import com.zslab.mall.claim.controller.response.ClaimResponse;
 import com.zslab.mall.claim.controller.response.ClaimSummaryResponse;
+import com.zslab.mall.audit.service.AuditContext;
+import com.zslab.mall.audit.service.AuditRecorder;
 import com.zslab.mall.claim.entity.Claim;
 import com.zslab.mall.claim.enums.ClaimReasonCode;
 import com.zslab.mall.claim.enums.ClaimRejectReasonCode;
@@ -65,6 +67,7 @@ class ClaimServiceTest {
     private static final Long BUYER_ID = 100L;
     private static final LocalDateTime REQUESTED_AT = LocalDateTime.of(2026, 6, 29, 9, 0);
     private static final LocalDateTime PROCESSED_AT = LocalDateTime.of(2026, 6, 29, 10, 0);
+    private static final AuditContext AUDIT_CONTEXT = AuditContext.of(9001L, "ADMIN");
 
     @Mock
     private ClaimRepository claimRepository;
@@ -87,6 +90,9 @@ class ClaimServiceTest {
     private ClaimAttachmentService claimAttachmentService;
     @Mock
     private ClaimExchangeService claimExchangeService;
+    // Track 101-A: 관리자 클레임 조작 감사 적재 의존. 전이 검증 케이스에서는 호출 여부만 충족하면 된다.
+    @Mock
+    private AuditRecorder auditRecorder;
 
     @InjectMocks
     private ClaimService claimService;
@@ -369,7 +375,7 @@ class ClaimServiceTest {
         Claim claim = requestedClaim();
         when(claimRepository.findById(1L)).thenReturn(Optional.of(claim));
 
-        claimService.approveByAdmin(1L, PROCESSED_AT, null);
+        claimService.approveByAdmin(1L, PROCESSED_AT, null, AUDIT_CONTEXT);
 
         assertThat(claim.getStatus()).isEqualTo(ClaimStatus.APPROVED);
         assertThat(claim.getProcessedAt()).isEqualTo(PROCESSED_AT);
@@ -386,7 +392,7 @@ class ClaimServiceTest {
     void approveByAdmin_notFound_throws() {
         when(claimRepository.findById(999L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> claimService.approveByAdmin(999L, PROCESSED_AT, null))
+        assertThatThrownBy(() -> claimService.approveByAdmin(999L, PROCESSED_AT, null, AUDIT_CONTEXT))
                 .isInstanceOf(ClaimNotFoundException.class);
         verify(claimRepository, never()).save(any());
     }
@@ -398,7 +404,7 @@ class ClaimServiceTest {
         claim.approve(PROCESSED_AT); // 시드: REQUESTED → APPROVED
         when(claimRepository.findById(1L)).thenReturn(Optional.of(claim));
 
-        assertThatThrownBy(() -> claimService.approveByAdmin(1L, PROCESSED_AT, null))
+        assertThatThrownBy(() -> claimService.approveByAdmin(1L, PROCESSED_AT, null, AUDIT_CONTEXT))
                 .isInstanceOf(ClaimInvalidStateException.class);
         verify(claimRepository, never()).save(any());
     }
@@ -409,7 +415,7 @@ class ClaimServiceTest {
         Claim claim = requestedClaim();
         when(claimRepository.findById(1L)).thenReturn(Optional.of(claim));
 
-        claimService.rejectByAdmin(1L, ClaimRejectReasonCode.OUT_OF_POLICY, null, PROCESSED_AT);
+        claimService.rejectByAdmin(1L, ClaimRejectReasonCode.OUT_OF_POLICY, null, PROCESSED_AT, AUDIT_CONTEXT);
 
         assertThat(claim.getStatus()).isEqualTo(ClaimStatus.REJECTED);
         assertThat(claim.getProcessedAt()).isEqualTo(PROCESSED_AT);
@@ -426,7 +432,7 @@ class ClaimServiceTest {
     void rejectByAdmin_notFound_throws() {
         when(claimRepository.findById(999L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> claimService.rejectByAdmin(999L, ClaimRejectReasonCode.OUT_OF_POLICY, null, PROCESSED_AT))
+        assertThatThrownBy(() -> claimService.rejectByAdmin(999L, ClaimRejectReasonCode.OUT_OF_POLICY, null, PROCESSED_AT, AUDIT_CONTEXT))
                 .isInstanceOf(ClaimNotFoundException.class);
         verify(claimRepository, never()).save(any());
     }

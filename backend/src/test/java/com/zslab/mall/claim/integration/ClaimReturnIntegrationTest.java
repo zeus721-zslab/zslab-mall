@@ -13,6 +13,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.zslab.mall.claim.controller.request.ClaimRequestCommand;
+import com.zslab.mall.audit.service.AuditContext;
 import com.zslab.mall.claim.entity.Claim;
 import com.zslab.mall.claim.enums.ClaimReasonCode;
 import com.zslab.mall.claim.enums.ClaimType;
@@ -98,6 +99,9 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
     private static final String ADMIN_CLAIMS_URL = "/api/v1/admin/claims";
     private static final String RETURN_SHIPMENT_BODY = "{\"carrier\":\"CJ\",\"trackingNo\":\"RTN-TRACK-0001\"}";
     private static final String INSPECT_PASS_RESTOCK = "{\"result\":\"PASS\",\"restock\":true}";
+    private static final String REJECT_BODY = "{\"reasonCode\":\"OUT_OF_POLICY\",\"memo\":\"기간 경과\"}";
+    /** 회원 행이 존재하지 않는 행위자 id(감사 행위자 해소 불가 케이스·논리참조라 FK가 없다). */
+    private static final long MISSING_ACTOR_ID = 9399L;
     private static final String ATTACHMENTS_URL = CLAIMS_URL + "/attachments";
     private static final String ATT_PID_UNKNOWN = "att_" + ("RTNATTX" + "00000000000000000000000000").substring(0, 26);
 
@@ -554,6 +558,218 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
         return output.toByteArray();
     }
 
+    // ==================== Track 101-A 예외·실수 복구 ====================
+
+    @Test
+    @DisplayName("101-A T1 구매자 취소: REQUESTED 반품 요청 취소 → 200 REJECTED(BUYER_WITHDRAWN)·품목 DELIVERED 원복·주문 상태 재계산")
+    void cancelByBuyer_requested_restoresItemAndOrder() throws Exception {
+        Long claimId = requestReturn();
+        assertThat(orderItemStatus()).isEqualTo("RETURN_REQUESTED");
+
+        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid(claimId) + "/cancel").headers(authHeaders.buyer(USER_ID)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("REJECTED"));
+
+        assertThat(claimStatus(claimId)).isEqualTo("REJECTED");
+        assertThat(jdbc.queryForObject("SELECT reject_reason_code FROM claim WHERE id = ?", String.class, claimId))
+                .isEqualTo("BUYER_WITHDRAWN");
+        // 거부 흐름(ClaimRejectedHandler) 재사용 확인: 품목 스냅샷 원복 + 주문 상태 재계산
+        assertThat(orderItemStatus()).isEqualTo("DELIVERED");
+        assertThat(jdbc.queryForObject("SELECT status FROM `order` WHERE id = ?", String.class, ORDER_ID))
+                .isEqualTo("DELIVERED");
+    }
+
+    @Test
+    @DisplayName("101-A T2 구매자 취소: 승인된 클레임 취소 시도 → 422 CLAIM_STATE_INVALID·상태 불변")
+    void cancelByBuyer_approved_returns422() throws Exception {
+        Long claimId = approvedReturn();
+
+        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid(claimId) + "/cancel").headers(authHeaders.buyer(USER_ID)))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("CLAIM_STATE_INVALID"));
+
+        assertThat(claimStatus(claimId)).isEqualTo("APPROVED");
+    }
+
+    @Test
+    @DisplayName("101-A T3 구매자 취소: 타인 클레임 취소 시도 → 404(존재 은닉)·상태 불변")
+    void cancelByBuyer_otherBuyer_returns404() throws Exception {
+        Long claimId = requestReturn();
+
+        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid(claimId) + "/cancel").headers(authHeaders.buyer(OTHER_USER_ID)))
+                .andExpect(status().isNotFound());
+
+        assertThat(claimStatus(claimId)).isEqualTo("REQUESTED");
+    }
+
+    @Test
+    @DisplayName("101-A T4 회수 송장 대행 등록: 관리자 등록 → 200·구매자 등록과 같은 RETURN 배송 1건·이어서 회수 확인 200")
+    void registerReturnShipmentByAdmin_createsSameReturnDelivery() throws Exception {
+        Long claimId = approvedReturn();
+
+        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid(claimId) + "/return-shipment").headers(authHeaders.admin(ADMIN_ID))
+                        .contentType(MediaType.APPLICATION_JSON).content(RETURN_SHIPMENT_BODY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.carrier").value("CJ"))
+                .andExpect(jsonPath("$.trackingNo").value("RTN-TRACK-0001"));
+
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM delivery WHERE claim_id = ? AND direction = 'RETURN'",
+                Long.class, claimId)).isEqualTo(1L);
+        // 대행 등록임이 감사에 남는다(구매자 직접 등록과 구분).
+        assertThat(jdbc.queryForObject("SELECT diff_json FROM audit_log WHERE target_type = 'DELIVERY' "
+                + "ORDER BY id DESC LIMIT 1", String.class)).contains("registeredOnBehalfOfBuyer");
+        // 멈춰 있던 흐름이 이어진다.
+        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid(claimId) + "/confirm-pickup").headers(authHeaders.admin(ADMIN_ID)))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("101-A T5 회수 송장 대행 등록: 구매자가 이미 등록한 뒤 대행 등록 → 422 CLAIM_STATE_INVALID·배송 1건 유지")
+    void registerReturnShipmentByAdmin_duplicate_returns422() throws Exception {
+        Long claimId = approvedReturn();
+        registerReturnShipment(claimPid(claimId));
+
+        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid(claimId) + "/return-shipment").headers(authHeaders.admin(ADMIN_ID))
+                        .contentType(MediaType.APPLICATION_JSON).content(RETURN_SHIPMENT_BODY))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("CLAIM_STATE_INVALID"));
+
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM delivery WHERE claim_id = ? AND direction = 'RETURN'",
+                Long.class, claimId)).isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("101-A T6 클레임 감사: 승인 APPROVE·회수 확인/검수 UPDATE·거부 REJECT 행이 CLAIM 대상으로 적재된다")
+    void adminClaimActions_recordAudit() throws Exception {
+        // 거부 먼저 — 검수 PASS로 품목이 RETURNED가 되면 새 반품 요청을 만들 수 없다(재요청은 새 행·CLM-2).
+        Long rejected = requestReturn();
+        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid(rejected) + "/reject").headers(authHeaders.admin(ADMIN_ID))
+                        .contentType(MediaType.APPLICATION_JSON).content(REJECT_BODY))
+                .andExpect(status().isOk());
+        assertThat(auditActions(rejected)).containsExactly("REJECT");
+
+        Long approved = requestReturn();
+        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid(approved) + "/approve").headers(authHeaders.admin(ADMIN_ID)))
+                .andExpect(status().isOk());
+        assertThat(auditActions(approved)).containsExactly("APPROVE");
+
+        registerReturnShipment(claimPid(approved));
+        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid(approved) + "/confirm-pickup").headers(authHeaders.admin(ADMIN_ID)))
+                .andExpect(status().isOk());
+        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid(approved) + "/inspect").headers(authHeaders.admin(ADMIN_ID))
+                        .contentType(MediaType.APPLICATION_JSON).content(INSPECT_PASS_RESTOCK))
+                .andExpect(status().isOk());
+        assertThat(auditActions(approved)).containsExactly("APPROVE", "UPDATE", "UPDATE");
+    }
+
+    @Test
+    @DisplayName("101-A T7 이력 조회: 관리자 200·최신순·페이징 / 비ADMIN 403 / 미존재 클레임 404")
+    void claimAuditLogs_pagingAndAuthorization() throws Exception {
+        Long claimId = requestReturn();
+        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid(claimId) + "/approve").headers(authHeaders.admin(ADMIN_ID)))
+                .andExpect(status().isOk());
+        registerReturnShipment(claimPid(claimId));
+        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid(claimId) + "/confirm-pickup").headers(authHeaders.admin(ADMIN_ID)))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get(ADMIN_CLAIMS_URL + "/" + claimPid(claimId) + "/audit-logs").headers(authHeaders.admin(ADMIN_ID)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalCount").value(2))
+                .andExpect(jsonPath("$.items.length()").value(2))
+                // 최신순: 회수 확인(UPDATE)이 승인(APPROVE)보다 앞
+                .andExpect(jsonPath("$.items[0].action").value("UPDATE"))
+                .andExpect(jsonPath("$.items[1].action").value("APPROVE"))
+                .andExpect(jsonPath("$.items[1].changes[0].field").value("status"));
+
+        mockMvc.perform(get(ADMIN_CLAIMS_URL + "/" + claimPid(claimId) + "/audit-logs").headers(authHeaders.admin(ADMIN_ID))
+                        .param("size", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.hasNext").value(true));
+
+        mockMvc.perform(get(ADMIN_CLAIMS_URL + "/" + claimPid(claimId) + "/audit-logs").headers(authHeaders.buyer(USER_ID)))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(get(ADMIN_CLAIMS_URL + "/" + pid("clm_", "NOTEXIST") + "/audit-logs").headers(authHeaders.admin(ADMIN_ID)))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("101-A T8 취소 알림 문구: 구매자 취소 → TPL_CLAIM_CANCELLED \"요청이 취소되었습니다\" / 관리자 정책 거부 → TPL_CLAIM_REJECTED \"거부되었습니다·사유\"")
+    void cancelAndReject_useDifferentSmsWording() throws Exception {
+        Long cancelled = requestReturn();
+        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid(cancelled) + "/cancel").headers(authHeaders.buyer(USER_ID)))
+                .andExpect(status().isOk());
+
+        assertThat(smsContent(cancelled, "TPL_CLAIM_CANCELLED"))
+                .contains("반품 요청이 취소되었습니다.")
+                .doesNotContain("거부");
+        assertThat(smsCount(cancelled, "TPL_CLAIM_REJECTED")).isZero();
+
+        Long rejected = requestReturn();
+        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid(rejected) + "/reject").headers(authHeaders.admin(ADMIN_ID))
+                        .contentType(MediaType.APPLICATION_JSON).content(REJECT_BODY))
+                .andExpect(status().isOk());
+
+        assertThat(smsContent(rejected, "TPL_CLAIM_REJECTED"))
+                .contains("반품 요청이 거부되었습니다.")
+                .contains("사유: 정책상 불가");
+        assertThat(smsCount(rejected, "TPL_CLAIM_CANCELLED")).isZero();
+    }
+
+    @Test
+    @DisplayName("101-A T9 이력 행위자: 회원 행 있는 운영자 → 이름·이메일 / SYSTEM 행 → 둘 다 없음 / 회원 행 없는 actor → 둘 다 없음")
+    void claimAuditLogs_exposeActorName() throws Exception {
+        Long claimId = requestReturn();
+        seed(() -> jdbc.update("INSERT INTO `user` (id, public_id, email, name, created_at, updated_at) "
+                + "VALUES (?, ?, ?, ?, NOW(6), NOW(6))", ADMIN_ID, pid("usr_", "RTNADM"), "adm@example.test", "감사운영자"));
+        try {
+            mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid(claimId) + "/approve").headers(authHeaders.admin(ADMIN_ID)))
+                    .andExpect(status().isOk());
+            // 행위자 없는 자동 실행(AuditContext.system())과 회원 행이 사라진 과거 행을 같은 대상에 직접 적재한다.
+            insertAuditRow(claimId, null, "SYSTEM");
+            insertAuditRow(claimId, MISSING_ACTOR_ID, "ADMIN");
+
+            mockMvc.perform(get(ADMIN_CLAIMS_URL + "/" + claimPid(claimId) + "/audit-logs").headers(authHeaders.admin(ADMIN_ID)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.totalCount").value(3))
+                    // 최신순: 회원 행 없는 ADMIN → SYSTEM → 실제 승인(운영자)
+                    .andExpect(jsonPath("$.items[0].actorRole").value("ADMIN"))
+                    .andExpect(jsonPath("$.items[0].actorName").doesNotExist())
+                    .andExpect(jsonPath("$.items[0].actorEmail").doesNotExist())
+                    .andExpect(jsonPath("$.items[1].actorRole").value("SYSTEM"))
+                    .andExpect(jsonPath("$.items[1].actorName").doesNotExist())
+                    .andExpect(jsonPath("$.items[2].actorRole").value("ADMIN"))
+                    .andExpect(jsonPath("$.items[2].actorName").value("감사운영자"))
+                    .andExpect(jsonPath("$.items[2].actorEmail").value("adm@example.test"));
+        } finally {
+            seed(() -> jdbc.update("DELETE FROM `user` WHERE id = ?", ADMIN_ID));
+        }
+    }
+
+    /** 감사 행 직접 적재(테스트 전용) — 정상 경로로는 만들 수 없는 행위자 상태(SYSTEM·해소 불가)를 재현한다. */
+    private void insertAuditRow(Long claimId, Long actorUserId, String actorRole) {
+        seed(() -> jdbc.update("INSERT INTO audit_log (public_id, actor_user_id, actor_role, action, target_type, target_id, "
+                        + "diff_json, created_at) VALUES (?, ?, ?, 'UPDATE', 'CLAIM', ?, '{}', NOW(6))",
+                pid("aud_", "RTNAUD" + (actorUserId == null ? "S" : "M")), actorUserId, actorRole, claimId));
+    }
+
+    private String smsContent(Long claimId, String templateCode) {
+        return jdbc.queryForObject("SELECT content FROM notification_log WHERE target_type = 'CLAIM' AND target_id = ? "
+                + "AND template_code = ? ORDER BY id DESC LIMIT 1", String.class, claimId, templateCode);
+    }
+
+    private long smsCount(Long claimId, String templateCode) {
+        return jdbc.queryForObject("SELECT COUNT(*) FROM notification_log WHERE target_type = 'CLAIM' AND target_id = ? "
+                + "AND template_code = ?", Long.class, claimId, templateCode);
+    }
+
+    /** 해당 클레임 감사 행의 action을 오래된 순으로 뽑는다(적재 순서 검증용). */
+    private List<String> auditActions(Long claimId) {
+        return jdbc.queryForList("SELECT action FROM audit_log WHERE target_type = 'CLAIM' AND target_id = ? ORDER BY id",
+                String.class, claimId);
+    }
+
     // ---------- 흐름 헬퍼 ----------
 
     private Long requestReturn() {
@@ -571,7 +787,7 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
     private Long pickedUpReturn() throws Exception {
         Long claimId = approvedReturn();
         registerReturnShipment(claimPid(claimId));
-        claimService.confirmPickupByAdmin(claimId, LocalDateTime.now());
+        claimService.confirmPickupByAdmin(claimId, LocalDateTime.now(), AuditContext.of(9001L, "ADMIN"));
         return claimId;
     }
 
@@ -667,6 +883,13 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
             try {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
                 jdbc.update("DELETE FROM notification_log WHERE recipient_user_id = ?", USER_ID);
+                // Track 101-A 보완: 행위자 테스트가 직접 넣은 운영자 회원 행도 지운다(다른 케이스에 새지 않게).
+                jdbc.update("DELETE FROM `user` WHERE id = ?", ADMIN_ID);
+                // Track 101-A: 클레임·배송 감사 행도 테스트 간 누수되지 않게 지운다(행 수 단언이 있는 케이스).
+                jdbc.update("DELETE FROM audit_log WHERE target_type = 'CLAIM' AND target_id IN "
+                        + "(SELECT id FROM claim WHERE order_item_id = ?)", ORDER_ITEM_ID);
+                jdbc.update("DELETE FROM audit_log WHERE target_type = 'DELIVERY' AND target_id IN "
+                        + "(SELECT id FROM delivery WHERE order_item_id = ?)", ORDER_ITEM_ID);
                 jdbc.update("DELETE FROM attachment WHERE uploaded_by IN (?, ?)", USER_ID, OTHER_USER_ID);
                 jdbc.update("DELETE FROM refund WHERE claim_id IN (SELECT id FROM claim WHERE order_item_id = ?)", ORDER_ITEM_ID);
                 jdbc.update("DELETE FROM delivery WHERE order_item_id = ?", ORDER_ITEM_ID);
