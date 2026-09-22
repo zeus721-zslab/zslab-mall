@@ -12152,3 +12152,37 @@ EXPLAIN(로컬 읽기·seller 4·30일): 입고 합 = product PRIMARY index scan
 - Clock 주입·cron 미도입(테스트는 `YearMonth.now()` 상대 월·`createForPreviousMonthOf(LocalDate)` 주입으로 충분).
 - 셀러 등급 도메인(γ)·응답 생성 경로 필드·ShedLock — 요구 발생 시.
 - 외부 검토: A / 지적 4건 중 수용 2건(1건 부분 수용 — SYSTEM 행위자 생성 경로 전수 확인은 코드 변경 없이 확인·박제만: `new AuditContext` 3곳 전부 AuditContext 내부 · `of()` 19곳 전부 `adminActorResolver.resolve`/`authenticatedUserResolver.requireUserId` + `actorRoleResolver.requireCoarseRole()` = SecurityContext 유래·요청 바디/파라미터 유래 0 · `system()` 호출 1곳(정산 스케줄러) · "SYSTEM"/ROLE_SYSTEM 권한 부재) · 스케줄러 등록 테스트 수용(`SchedulerRegistrationTest`) · 기각 2(동시 생성 IT·JOIN 정리) · 재검토 없음.
+
+## D-208. 기본 UserDetailsService 자동구성 제외 + 운영 Flyway INFO 로그 (Track 96-7)
+
+날짜: 2026-09-22
+브랜치: chore/track-96-7-cleanup
+정찰: docs/track-96/recon-report-cleanup.md(STEP 2·STEP 3)
+
+### 배경
+인증은 `SecurityConfig`의 단일 JWT 필터 체인(`httpBasic`·`formLogin` 미설정)이고 main 소스에 `UserDetailsService`·`AuthenticationManager` 참조가 0인데도, Boot 3.4.1의 `UserDetailsServiceAutoConfiguration`이 기동마다 `InMemoryUserDetailsManager`와 전역 `AuthenticationManager`를 만들고 `WARN … Using generated security password: <uuid>`를 출력했다(로컬 docker logs 실측). 또한 `application-prod.yml`은 `root: WARN`이라 Flyway의 `Successfully validated N migrations`·`Current version of schema` INFO가 운영 로그(CONSOLE·JSON 파일 모두)에 나오지 않았다(D-207 §8 이월).
+
+### 진입점
+- backend/src/main/java/com/zslab/mall/ZslabMallApplication.java:9 `@SpringBootApplication(exclude = UserDetailsServiceAutoConfiguration.class)`(주석 :7-8 사유)
+- backend/src/main/resources/application-prod.yml:19-20 `logging.level.org.flywaydb: INFO`(root WARN·com.zslab.mall INFO 옆·주석 1줄)
+- 인증 체인(무변경): common/security/SecurityConfig.java:44-105 · JwtAuthenticationFilter.java:30 Javadoc("AuthenticationManager·Provider가 없다") · 로그인 비교 auth/service/AuthService.java:52 `passwordEncoder.matches`
+- logback(무변경): backend/src/main/resources/logback-spring.xml:33 주석 "레벨은 application-prod.yml logging.level.root=WARN 이 관리"
+
+### 결정
+1. `UserDetailsServiceAutoConfiguration`을 메인 클래스 어노테이션 `exclude`로 제외한다. 소비처가 없는 기본 사용자·생성 비밀번호 로그를 없애는 정리이며 인가 규칙·필터 순서는 무변경.
+2. 운영 프로파일에 `org.flywaydb: INFO`를 추가해 기동 시 마이그레이션 검증·적용 이력이 운영 로그에 남게 한다. 다른 로거 레벨은 무변경.
+
+### §1-A 갈림길·채택/기각 근거
+- **제외 방식**: 어노테이션 `exclude` 【채택: 프로파일과 무관하게 단일 지점에서 적용·코드 리뷰에서 보임】 / `spring.autoconfigure.exclude`(yml) 【기각: 프로파일별 yml에 누락되면 환경마다 동작이 갈림】.
+- **Flyway 로거 범위**: `org.flywaydb` 전체 【채택: DbValidate·DbMigrate·FlywayExecutor 등 하위 로거가 흩어져 있어 패키지 루트 1키가 단순】 / `org.flywaydb.core.internal.command` 한정 【기각: FlywayExecutor(Database 연결 라인) 누락·이득 없음】 / logback-spring.xml prod `<logger>` 【기각: :33 주석이 레벨 관리를 yml로 못박고 있어 두 곳 분산】.
+
+### §2 확정 구현 규칙
+- main 수정 2: `ZslabMallApplication`(import + exclude + 주석 2줄) · `application-prod.yml`(+2줄).
+- 로그 부재 실측(로컬 backend 재시작·profile=local): `Started ZslabMallApplication` 이후 `Using generated security password` 0 · `inMemoryUserDetailsManager` 0 · `UserDetailsServiceAutoConfiguration` 0 · `/actuator/health` 200 · `/api/v1/admin/products` 무토큰 401(JWT 체인 정상) · Flyway INFO는 local(root INFO)에서 기존대로 출력.
+- 검증: `./gradlew.bat test --rerun-tasks` 245파일 **1435·0 fail·0 error·0 skip**(기준 동일·신규 테스트 없음).
+- 트랩: `@WebMvcTest` 슬라이스 5개(CartCheckout·AdminClaim·BuyerClaim·BuyerOrder·PaymentWebhook ControllerTest)는 슬라이스 자동구성 목록을 따로 쓰므로 메인 클래스 `exclude`가 닿지 않아 테스트 로그에는 generated password가 그대로 남는다(런타임 아님·`addFilters=false`라 동작 영향 0·별건).
+
+### §8 이월
+- `.env.example:98 LOG_LEVEL=INFO`는 어느 yml·xml·compose에서도 참조되지 않는 죽은 env(정찰 실측) — 제거는 별건.
+- 슬라이스 테스트 `excludeAutoConfiguration` 정리 — 로그 소음뿐이라 요구 발생 시.
+- 외부 검토: B / 생략.

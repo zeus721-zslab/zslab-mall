@@ -2393,3 +2393,32 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 - 테스트: vitest `seller-product-sale-status.spec.ts` 10(+2: 카드 비활성 버튼 클릭 → saleAction/changeSaleStatus 0 · 표 행 메뉴 ADMIN/주체 없음 항목 비활성+문의 문구+클릭 emit 0 / SELLER 항목 → RESUME; 품절 케이스를 updated/500 원복·재조회 없음/404 stale로 재작성) · e2e `seller-product-form.spec.ts` ⑥(설명 입력 미저장 → 품절 성공 PATCH·입력값 유지·상세 GET 0 → `unrouteAll` 후 500 mock → 입력값 유지·스위치 원복·GET 0).
 - 트랩: (1) Vuetify `v-textarea`는 sizer용 textarea가 하나 더 있어 `locator('textarea')`가 2개 → `getByRole('textbox', { name })` (2) PowerShell `Get-Content -Raw`+`Set-Content -Encoding utf8`은 cp949로 읽어 한글을 깨뜨리고 BOM을 붙인다 → 소스 편집은 Python UTF-8로만.
 - 검증: typecheck 0 · vitest 99파일 **657**(655 + 2) · Playwright 콜드 104/108(admin-categories ①·seller-bank-account ① 콜드 트랩) → 웜 **106/108**(2 skip = seller-password env) · 픽셀 track96-5r track96-4 대비 **12장 diff 0**.
+
+## FE-58: 관리자 비활성 v-list-item 클릭 가드 — :disabled 조건을 핸들러가 재검사 (Track 96-7) (2026-09-22)
+
+배경: 정찰(docs/track-96/recon-report-cleanup.md STEP 1). Vuetify 3.13.4 `VListItem.js:195-198`(컨테이너 `/app/node_modules/.pnpm/vuetify@3.13.4_…/lib/components/VList/VListItem.js`)은 `onClick`에서 `emit('click', e)`를 **`isClickable`(= `!props.disabled && …`, :115) 검사보다 먼저** 실행한다. 비활성 방어는 CSS `.v-list-item--disabled { pointer-events: none }`(VListItem.css:132-136)와 tabindex 미부여(:246)·onKeydown 미부착(:250)뿐이라 마우스·키보드는 막히지만 프로그래밍 클릭(`HTMLElement.click()`·`dispatchEvent`·Playwright force)은 부모 `@click`까지 도달한다. 관리자 레이어에서 `:disabled`+`@click`을 동시에 가진 v-list-item 5곳(v-btn 제외·전수) 모두 핸들러에 재검사가 없었고, 그중 2곳은 BE `POST /admin/products/{id}/sale-status|approve|reject` → 422로 새는 경로였다. FE-57(:2392) 외부 검토 R2 Q10에서 셀러 `SellerProductTable`에 같은 가드를 넣으며 "LT 후보"로 남긴 항목.
+
+결정:
+- **가드 방식 = 조건 공유**: `:disabled`가 쓰는 식을 함수로 뽑아 템플릿과 핸들러가 **같은 함수 값**을 쓴다(단순 ref 1개면 ref 직접 재검사). 템플릿 구조·표시·data-testid 무변경(속성 식만 교체).
+  - `AdminProductTable.vue` :64 `statusTargetDisabled(item, target)` → :190 `:disabled` · :68-71 `requestStatusChange` 첫 줄 가드 후 `emit('changeStatus')` → :192 `@click`
+  - `AdminProductForm.vue` :125 `statusTargetDisabled(target)`(computed `allowedTargets` 기반) → :211 · :129-130 `requestStatusChange` 첫 줄 가드 → :213
+  - `AdminSellerMemberAddDialog.vue` :106 `resultDisabled(member)`(= `submitting || alreadyMember`) · :109-112 `selectMember` → :222
+  - `AdminOperatorProvisionDialog.vue` :68-71 `selectMember`(`submitting` 재검사) → :124
+  - `AdminSellerProvisionDialog.vue` :97-100 `selectOwner`(`submitting` 재검사) → :209
+- 원인 박제: Vuetify `VListItem.js:195-198` emit 선행(위 배경). 신규 v-list-item에 `:disabled`+`@click`을 함께 쓰면 같은 가드를 둔다(v-btn은 실제 `<button disabled>`라 불요).
+
+### §1-A 갈림길·채택/기각 근거
+- **5곳 전부 핸들러 가드 【채택: 관례 1개로 통일·이후 API 연결이 바뀌어도 함정 없음】** / 422 실재 2곳(ProductTable·ProductForm)만 【기각: 나머지 3곳(제출 중 선택 교체 → 토스트 대상 불일치)에 동일 함정 잔존】.
+- **`v-if` 미렌더(AdminOrderTable 방식) 【기각: 비활성 사유(왜 못 고르는지·"이미 이 셀러의 구성원입니다" subtitle)의 가시성 상실】**.
+- **템플릿 인라인 `!disabled && …`(FE-57 셀러 방식) 【기각: 조건식이 두 곳에 복제돼 어긋날 수 있음·함수 공유로 통일】**.
+
+### §2 확정 구현 규칙·트랩
+- 변경: admin 컴포넌트 5(위) · vitest 2: `test/admin/admin-seller-member-add-dialog.spec.ts` +1(:146 이미 구성원 결과 → `v-list-item--disabled` 확인 → `HTMLElement.click()` → `seller-member-selected` 없음·`addMember` 0·done 없음) · `test/admin/admin-product-table.spec.ts` 신규 1(SALE 행 `row-menu` 열기 → `row-status-SALE` 비활성 클릭 → `changeStatus` emit 없음 → `row-status-STOPPED` 클릭 → emit 1회 `[SALE_ITEM, 'STOPPED']`).
+- **RED 선증명**: 각 컴포넌트 .vue만 `git stash` → SellerMemberAdd `expected <div …> to be null`(선택 단계로 넘어감) · ProductTable `expected [ [ {…}, 'SALE' ] ] to be undefined` → pop 후 GREEN.
+- 트랩: (1) `AdminProductTable`은 `defineModel('selected', { required: true })`라 mount props에 `selected: []` 필수(누락 시 Vue warn) (2) v-menu 항목은 활성자 `row-menu` 클릭 후에만 DOM에 존재(`attachTo: document.body` + `visualViewport` stub·FE-57 트랩(1) 동일) (3) 컨테이너 vitest 전량 실행이 기본 워커(16)에서 `Hook timed out 10000ms`(setupNuxt) 13~1파일 반복 → `--maxWorkers=2`로 100파일 전부 통과(호스트 잔류 `find` 프로세스·gradle 데몬 종료 후에도 재현·환경 부하 트랩).
+- 검증: typecheck 0 · vitest `--maxWorkers=2` 100파일 **659**(657 + 2) · no-admin-import 통과 · Playwright 3역할 env 주입 `--workers=2` 콜드 105/108(admin-categories ① 콜드 트랩) → 단독 재실행 1 passed = **106/108**(2 skip = seller-password env·기준 동일) · e2e `admin-products.spec.ts` ①⑧의 `v-list-item--disabled` 단언 통과(표시 무변경).
+- LT 후보 해소: FE-57 :2392 "비활성 v-list-item @click fallthrough"는 본 박제(관리자 5곳 전수 + 원인 라인)로 해소 표시 — live-traps 승격 없음.
+
+### §8 이월
+- 셀러 `SellerProductTable.vue:143` 인라인 `!disabled &&` 가드를 함수 공유 방식으로 통일 — 동작 동일이라 요구 발생 시.
+- 외부 검토: C(FE 전용).
