@@ -2351,3 +2351,32 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 
 ### §8 이월
 - 필터 조합 상호 배타 안내(D-205 §8) · 셀러 진행 단계 필터 없음(D6).
+
+## FE-57: 셀러 판매중지·재판매·품절 셀프 전환 + 관리자 중지 주체 라벨(C-08) (Track 96-5) (2026-09-22)
+
+배경: Track 96 정찰 C-08. BE는 D-206(`POST /seller/products/{id}/sale-status`·`PATCH …/soldout`·`saleStopSource`·422 `PRODUCT_STOPPED_BY_ADMIN`). 셀러 상품 목록은 행 액션이 수정 1개뿐이었고 폼은 "상태는 관리자가 처리" 안내만 있었다.
+
+결정:
+- **상수** `SellerSaleStopSource = 'ADMIN' | 'SELLER'`·`SELLER_SALE_STOP_SOURCE_LABEL`("관리자 판매중지"/"셀러 판매중지")·`SellerSaleAction = 'STOP' | 'RESUME'`·`SELLER_SALE_ACTION_LABEL`(`lib/constants/seller-product.ts`) / 관리자 `AdminSaleStopSource`·`ADMIN_SALE_STOP_SOURCE_LABEL`("관리자 중지"/"셀러 중지"·`lib/constants/product.ts`) — 레이어 격리(no-admin-import)라 두 벌.
+- **분기 순수 함수** `lib/seller-product-sale-status.ts` `resolveSellerSaleAction(status, saleStopSource)`: SALE → STOP · STOPPED+SELLER → RESUME · STOPPED+ADMIN **또는 주체 불명** → RESUME 비활성 + `SELLER_ADMIN_STOPPED_NOTE`("관리자가 판매중지한 상품입니다. 재판매는 운영자에게 문의하세요."·fail-closed) · 그 외 → 액션 없음(메뉴 미노출). `toSaleStatusTarget`·`saleActionConfirmMessage`(판매중지 문구에 "진행 중 주문은 영향 없음"·재판매 즉시 재노출).
+- **목록 행 메뉴** `SellerProductTable`: 수정 버튼 옆 `row-menu`(⋮·액션 있을 때만) → 항목 1(`row-sale-action`·비활성 시 subtitle에 문의 안내) → `saleAction` emit → 페이지가 `SellerProductSaleStatusDialog` 오픈. STOPPED 행은 칩 아래 주체 라벨(`stop-source`).
+- **확인 다이얼로그** `SellerProductSaleStatusDialog`(SellerInventoryAdjustDialog 복제): 성공 → success 토스트 + done(목록 재조회) · 422 `PRODUCT_STOPPED_BY_ADMIN`/`PRODUCT_INVALID_STATE`·404 → warning + stale(재조회·그사이 관리자 변경) · 403 SELLER_SUSPENDED → danger 토스트 직접 표시 + cancel(FE-44 §8).
+- **수정 화면 판매 관리 카드** `SellerProductSaleStatusCard`(폼 위): 상태 칩·주체 · 판매중지/재판매 버튼(비활성 + 안내) · **수동 품절 스위치 즉시 PATCH**(관리자가 켠 품절도 해제) → changed → 상세 재조회(폼 재마운트·저장 전 수정 내용 초기화됨을 카드 문구로 고지). PENDING·REJECTED는 버튼 없이 "승인·반려는 관리자가 처리" 안내. `SellerProductBasicSection` 안내 문구를 "판매중지·재판매·품절은 위 판매 관리 카드에서" 로 교체(chip은 유지).
+- **에러 메시지** `PRODUCT_INVALID_STATE`·`PRODUCT_STOPPED_BY_ADMIN` 추가(`seller-error-message.ts`). `useSellerProducts` +`changeSaleStatus(id, action)`·`changeSoldOut(id, soldOut)`.
+- **관리자**: 목록 상태 칩 아래·수정 폼 상태 섹션에 주체 라벨(`stop-source`). `ProductForm.saleStopSource`(표시 전용) · 관리자 상태 전환 후 `STOPPED ? 'ADMIN' : null`로 채움(BE 응답에 주체 없음·D-206 §1-A).
+
+### §1-A 갈림길·채택/기각 근거
+- **목록 행 메뉴에 품절 토글 【기각: 목록 응답에 soldoutManual 없음·BE 계약 확장은 결정 밖】 / 상세 카드 스위치 【채택】.**
+- **카드 처리 후 상세만 갱신(폼 유지) 【기각: 기본정보 chip·폼 상태가 stale】 / 상세 재조회·폼 재마운트 + 고지 【채택】.**
+- **주체 불명 STOPPED를 재판매 가능으로 【기각: BE 백필로 운영에선 불가 상태이나 FE는 fail-closed】.**
+- **AdminBulkResultDialog 재사용 【해당 없음: D5 α 단건】.**
+
+### §2 확정 구현 규칙·트랩
+- 변경: seller 9(`lib/constants/seller-product.ts`·`lib/seller-product-sale-status.ts`(신규)·`lib/seller-error-message.ts`·`types/seller-product.ts`·`composables/useSellerProducts.ts`·`components/seller/SellerProductTable.vue`·`SellerProductSaleStatusDialog.vue`(신규)·`SellerProductSaleStatusCard.vue`(신규)·`SellerProductBasicSection.vue`·`pages/seller/products/index.vue`·`[id].vue`) · admin 6(`lib/constants/product.ts`·`types/admin-product.ts`·`types/admin-product-form.ts`·`lib/admin-product-form.ts`·`components/admin/AdminProductTable.vue`·`AdminProductForm.vue`).
+- vitest: `seller-product-sale-status.spec.ts` 신규 8(순수 함수 2 · 표 행 메뉴 3/5·주체 라벨 · 다이얼로그 성공/422 2종/403 · 카드 버튼 분기 3상태·품절 스위치 성공/실패) · `admin-product-form.spec.ts` +saleStopSource 매핑.
+- e2e: `seller-products.spec.ts` ③(mock 항목 주체 부여·sale-status route가 mock 상태 갱신 → 행 메뉴 19/20·판매중지 → POST STOPPED·칩·라벨 → 재판매 → POST SALE · 관리자 중지 행 비활성+문의 문구·Escape) · `seller-product-form.spec.ts` ②(카드 칩·버튼·스위치·안내 문구) · `admin-products.spec.ts` ⑦(`items` 옵션·"셀러 중지"/"관리자 중지").
+- 트랩: (1) v-dialog 컴포넌트 vitest는 `open:false`로 mount 후 `setProps({open:true})` + `visualViewport` stub(SellerInventoryAdjustDialog 선례) (2) v-switch는 내부 모델이 먼저 바뀌므로 두 번째 토글 테스트는 `setProps`로 서버 값을 내려준 뒤 클릭 (3) 픽셀 첫 캡처 cart-mobile 10px는 재시작 노이즈(재캡처 diff 0).
+- 검증: typecheck 0 · vitest 99파일 **654**(646 + 8) · no-admin-import 통과 · Playwright 콜드 **104/106**(2 skip = seller-password env·신규 3 포함·콜드 실패 0) · 픽셀 track96-5 track96-4 대비 **12장 diff 0**(재캡처·셀러/관리자 화면은 기준 12장 미포함).
+
+### §8 이월
+- 일괄 판매중지(D-206 §8) · 목록 행 품절 토글(목록 응답 soldoutManual 추가 시).

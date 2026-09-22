@@ -12046,3 +12046,42 @@ EXPLAIN(로컬 읽기·seller 4·30일): 입고 합 = product PRIMARY index scan
 ### §8 이월
 - 필터 조합의 상호 배타(`status=REQUESTED & action=FOLLOWUP` = 공집합)는 FE에서 막지 않는다(빈 결과·기존 필터 UX와 동일). 필요 시 FE-56 §8.
 - 셀러 화면 "진행 단계" 필터(D6 b)는 요구 시 별 트랙(C-16 claimStageGuide 중복 검토).
+
+## D-206. 셀러 판매중지·재판매·수동 품절 셀프 전환 + 판매중지 주체 기록(C-08) (Track 96-5)
+
+날짜: 2026-09-22
+브랜치: feat/track-96-5-seller-sale-status
+정찰: docs/track-96/recon-report-seller-sale-status.md(§0 이상 징후 4 · STEP 912~916 · 결정 D1~D7)
+
+### 배경
+셀러가 시즌 종료·일시 품절 때마다 관리자에게 판매중지·재판매·수동 품절을 요청해야 했다(C-08). 정찰 실측: 판매 상태 전환 API는 관리자 전용(`AdminProductController` sale-status·`ProductSaleStatusService`·D-160)이고 상품에 **중지 주체·사유 컬럼이 없다**(`V1:372-394`·`V21`). 주체 기록은 `audit_log.actor_role`뿐이라(append-only·최신 1건 조회 없음·`AuditorAwareImpl` empty로 `updated_by`도 NULL) 그대로 셀러 재판매를 열면 `Product.resumeSale`(STOPPED만 검사)이 **관리자 제재 중지를 셀러가 푸는 경로**가 된다. variant 축 판매상태·수동품절은 이미 셀러 PUT variants로 편집 가능했고(Track 90-C-2), 없는 것은 상품 단위 status·soldoutManual이었다.
+
+### 결정
+1. **D1 α — 주체 컬럼**: Flyway **V34** `product.sale_stop_source ENUM('ADMIN','SELLER') NULL`(V33은 Java 마이그레이션 `V33__Encrypt_seller_bank_account_numbers`가 점유·정찰 시 미확인 → 번호 조정). 같은 마이그레이션에서 기존 `status='STOPPED'` 행을 `'ADMIN'`으로 백필(fail-closed·기존 STOPPED는 전부 관리자 전용 API로만 생성됨·로컬 실측 0행). **불변식 PRD-7: STOPPED ↔ source NOT NULL, 그 외 NULL** — 앱 레이어 강제: `Product.stopSale(SaleStopSource)` 시그니처가 주체 없는 STOPPED 전이를 막고(`null` → IllegalArgumentException), `resumeSale()`이 NULL로 돌린다. STOPPED를 쓰는 경로는 전수 `stopSale` 1곳(`ProductSaleStatusService`·관리자 단건·일괄 공용)이며 ADMIN을 넣는다.
+2. **D2 α — 셀러 허용 전이**: SALE→STOPPED(SELLER 기록)·STOPPED(SELLER)→SALE만. 엔티티 mutator·`canTransitionTo` 재사용이라 PENDING·REJECTED·같은 상태 재요청은 추가 가드 없이 422 `PRODUCT_INVALID_STATE`. **STOPPED(ADMIN) 셀러 재판매 = 422 신규 코드 `PRODUCT_STOPPED_BY_ADMIN`**(`ProductStoppedByAdminException`·GlobalExceptionHandler·FE "운영자 문의" 분기용으로 INVALID_STATE와 분리). 관리자 재판매는 주체 무관 허용. 관리자 bulk의 PENDING→approve 분기는 셀러 경로 미재사용.
+3. **D3 α — 품절**: `PATCH /api/v1/seller/products/{id}/soldout {soldOut}`(관리자 PATCH 동형·`Product.changeSoldoutManual`). 품절은 제재가 아니므로 관리자가 켠 품절도 셀러가 해제 가능. 같은 값 재요청은 no-op(변경 없음 → 감사 skip).
+4. **D4 α 역할 무차등**(OWNER·MANAGER·STAFF·기존 상품·재고 쓰기와 동일) · **D5 α 단건만**(일괄 이월) · **D6 α 셀러 감사 기록**(`AuditContext.of(userId, SELLER)`·계좌 등록 선례·before/after = status·saleStopSource(판매 상태) / soldoutManual(품절)).
+5. **D7 α — API**: `POST /api/v1/seller/products/{id}/sale-status {status: SALE|STOPPED}`(@Pattern 400) + PATCH soldout. 응답은 셀러 상세 재조회(`SellerProductDetailResponse`·기존 PUT 3종 관례). 소유 검증 `findOwnedForUpdate`(비관락·타 셀러/미존재/삭제 404 은닉)·SUSPENDED 쓰기 403(리졸버·D-190)·`SellerWriteMappingRegistryTest` 허용 목록 13 → **15**.
+6. **응답**: 셀러·관리자 상품 목록·상세 4 DTO에 `saleStopSource`(nullable·NON_NULL이라 STOPPED일 때만 직렬화) 추가. 관리자 `ProductApprovalResponse`(sale-status 응답)는 무변경 — 관리자 FE는 STOPPED 전환 결과의 주체를 ADMIN으로 결정론적으로 채운다.
+
+### §1-A 갈림길·채택/기각 근거
+- **D1 β HIDDEN을 "셀러 중지"로 전용 【기각: 구매자 상세 `{SALE,STOPPED}` 허용 집합·통계 SALE 조건·라벨·전이표 전부 HIDDEN 분기 확산·"중지"가 두 상태로 갈라짐】 / γ 구분 없음 【기각: 제재 우회 수용 불가】 / δ 셀러 재판매 미허용 【기각: 목표(재판매) 미달】 / α 주체 컬럼 【채택】.**
+- **백필 값 ADMIN 【채택: 주체 불명은 셀러가 못 푸는 쪽(fail-closed)·기존 STOPPED는 관리자 API로만 생성】 / NULL 유지 【기각: 불변식 위반·FE도 fail-closed 처리를 이중으로 둬야 함】.**
+- **DB CHECK `(status='STOPPED') = (sale_stop_source IS NOT NULL)` 【기각·§8: 기존 IT 시드 9곳이 STOPPED를 주체 없이 INSERT(FK_CHECKS 토글로 우회 불가)·결정 범위 밖】 / 앱 시그니처 강제 + 불변식 IT 【채택】.**
+- **주체 가드 위치 — 엔티티 `resumeSaleBySeller()` 【기각: 도메인 전용 예외 코드(422 별도)를 엔티티가 알아야 함】 / Service 선행 판정 【채택】.**
+- **D3 β 기존 PUT 기본정보에 soldoutManual 필드 【기각: 폼 저장과 즉시 토글의 의미 혼합·관리자와 비대칭】 / γ 미도입(variant 스위치로 충분) 【기각: 상품 단위 즉시 품절 요구】 / α PATCH 【채택】.**
+- **D5 β 일괄 【이월: AdminBulkResultDialog는 no-admin-import로 공용 승격 필요·단건 요구부터】.**
+- **관리자 sale-status 응답에 saleStopSource 추가 【기각: 결정 범위 밖·관리자가 STOPPED로 바꾸면 항상 ADMIN이라 FE 결정론 도출 가능】.**
+
+### §2 확정 구현 규칙
+- main 신규 8: `V34__product_sale_stop_source.sql` · `enums/SaleStopSource` · `exception/ProductStoppedByAdminException` · `controller/request/SellerProductSaleStatusRequest`·`SellerProductSoldOutRequest` · `service/SellerProductSaleStatusService`(관리자 서비스 미재사용·패턴 복제·`ProductSaleStatusService.saleStateSnapshot` 감사 스냅샷 공유) · 수정 10: `Product`(필드·`stopSale(source)`·`resumeSale` NULL) · `ProductSaleStatusService`(ADMIN·감사에 saleStopSource) · `SellerProductCommandController`(+2 매핑·AuditContext) · `GlobalExceptionHandler`(+422 코드) · 응답 DTO 4 + 매퍼 2 · `ProductStatus`·`SellerProductCommandService` Javadoc.
+- test: `SellerProductSaleStatusControllerIntegrationTest` 신규 13(T1 인가 3종 · T2 SUSPENDED 403 · T3 타 셀러/미존재 404 · T4 중지 SELLER+감사 · T5 재판매 · **T6 ADMIN 중지 재판매 422·행 불변·감사 0** · T7 PENDING/REJECTED/같은 상태 422 · T8 400 · T9 STAFF 허용 · T10 품절 on/off/no-op 감사 skip + `ProductPurchasePolicy.saleBlock` SOLD_OUT 반영 · T11 관리자 품절 셀러 해제 · T12 STOPPED 상품 품절 토글 status 불변 · **T13 불변식 위반 0**) · `V34SaleStopSourceBackfillMigrationTest`(V33 → 시드 5(STOPPED·SALE·PENDING·REJECTED·삭제 STOPPED) → V34 → STOPPED 전건 ADMIN(삭제 행 포함)·그 외 NULL·ENUM 정의) · `ProductSaleStopSourceTest`(엔티티 2) · 관리자 IT +2(T14 ADMIN 기록+감사 diff · T15 SELLER/ADMIN 중지 모두 관리자 재판매) · bulk IT에 ADMIN 기록·NULL 복귀 단언 · 셀러 IT 2 화이트리스트 +saleStopSource(SALE 행은 NON_NULL 생략) · 레지스트리 15.
+- **RED 선증명**: 구현 전 임시 IT — 관리자 중지 상품 셀러 재판매 `expected:<422> but was:<404>` · 셀러 sale-status/soldout `expected:<200> but was:<404>`(매핑 부재) → 구현 후 GREEN.
+- 검증: `./gradlew.bat test --rerun-tasks` 240파일 **1409·0 fail·0 error·0 skip**(1391 + 18) · 로컬 DB V34 적용(`flyway_schema_history` 34·불변식 위반 0·ENUM 실측) · **라이브(재시작 후)**: 관리자 STOPPED → 상세 `saleStopSource=ADMIN` → SALE → 키 생략 / 데모 셀러(상품 11) 중지 → `SELLER` → 재판매 → 관리자 중지 → 셀러 재판매 **422 PRODUCT_STOPPED_BY_ADMIN** → 관리자 재판매 → 품절 on/off · audit_log 6행(SELLER 4·ADMIN 2·diff에 saleStopSource) · 타 셀러 상품 404·HIDDEN 400·관리자 토큰 셀러 경로 403 · 데모 상품 원상 복구(SALE·NULL·0).
+- 트랩: (1) `Map.of`는 null 값 불가 → saleStopSource 감사 스냅샷은 LinkedHashMap (2) JdbcTemplate `queryForMap`의 TINYINT(1)은 Boolean으로 매핑 (3) 셀러 응답 화이트리스트 IT는 정확 일치라 nullable 신규 키는 SALE 행에서 빼고 단언(barcode 선례) (4) V33이 Java 마이그레이션이라 standalone Flyway 테스트는 `javaMigrations(...)` 등록 필수.
+
+### §8 이월
+- 일괄 판매중지·재판매(D5 β·AdminBulkResultDialog 공용 승격).
+- DB CHECK 불변식(기존 IT 시드 9곳 STOPPED 주체 보강 후).
+- 셀러 목록 행 메뉴 품절 토글(목록 응답에 soldoutManual 없음·상세 화면 카드로 제공).
+- 셀러 상품 수정(PUT 3종) 감사 로그(90-C-2 이월 유지).

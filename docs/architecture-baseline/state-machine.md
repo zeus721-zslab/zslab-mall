@@ -350,32 +350,39 @@ PENDING ──→ COMPLETED (불가역)
 
 ## 10. Product.status (A분류 #6)
 
-> 소스: product.enums.ProductStatus(A#6·7값)·invariants.md PRD-6·V1__init.sql product.status·Track 50 승인 워크플로 [확정 2026-07-05].
+> 소스: product.enums.ProductStatus(A#6·7값)·product.enums.SaleStopSource(2값)·invariants.md PRD-6·PRD-7·V1__init.sql product.status·V34 product.sale_stop_source·Track 50 승인 워크플로·Track 71 판매 상태 전환(D-160)·Track 96-5 셀러 셀프 전환(D-206) [확정 2026-07-05 · 갱신 2026-09-22].
 > A분류: ENUM 값 집합 코드 레이어 enum 고정. 추가/변경 = Flyway 마이그레이션 + db-schema 갱신.
 
 전이 다이어그램 (평문 들여쓰기):
 
     PENDING ──→ SALE (운영자 승인)
     PENDING ──→ REJECTED (운영자 거부·종료)
+    SALE    ──→ STOPPED (판매중지·주체 기록 ADMIN | SELLER)
+    STOPPED ──→ SALE (재판매·주체 NULL 복귀)
 
-**값 집합 (7개)** (V1__init.sql product.status): DRAFT·PENDING·APPROVED·REJECTED·SALE·HIDDEN·STOPPED. Track 50 승인 워크플로가 소비하는 전이 대상은 PENDING·SALE·REJECTED 3값이며, 나머지(DRAFT·APPROVED·HIDDEN·STOPPED)는 값 집합에만 존재하고 전이 소비처가 아직 없다.
+**값 집합 (7개)** (V1__init.sql product.status): DRAFT·PENDING·APPROVED·REJECTED·SALE·HIDDEN·STOPPED. 전이 소비처가 있는 값은 PENDING·SALE·REJECTED·STOPPED 4값이며, 나머지(DRAFT·APPROVED·HIDDEN)는 값 집합에만 존재하고 전이 소비처가 없다.
 
 | 값 | 진입 조건 | 비고 |
 |---|---|---|
 | PENDING | Product 행 생성 시 초기값 (판매자 등록·Track 39/50) | 승인 심사 대기·카탈로그 미노출 |
-| SALE | 운영자 승인 | 공개 판매·카탈로그 노출 대상 (Seller ACTIVE 전제·D-129) |
+| SALE | 운영자 승인 · 재판매(STOPPED에서) | 공개 판매·카탈로그 노출 대상 (Seller ACTIVE 전제·D-129) |
 | REJECTED | 운영자 거부 | 종료 상태·재심사 없음·카탈로그 미노출 |
+| STOPPED | 판매중지(SALE에서) | 목록 숨김·상세 접속 가능(saleStopped)·담기/주문 422(D-160). **sale_stop_source(ADMIN·SELLER) NOT NULL**(D-206) |
 
 **전이 규칙**:
 
-| 전이 | 트리거 | 권한 |
-|---|---|---|
-| PENDING → SALE | 운영자 상품 승인 | ADMIN |
-| PENDING → REJECTED | 운영자 상품 거부 | ADMIN |
+| 전이 | 트리거 | 권한 | 주체 기록 |
+|---|---|---|---|
+| PENDING → SALE | 운영자 상품 승인 | ADMIN | — |
+| PENDING → REJECTED | 운영자 상품 거부 | ADMIN | — |
+| SALE → STOPPED | 판매중지(단건·관리자 일괄) | ADMIN · SELLER(자기 상품·ACTIVE 셀러·역할 무차등) | ADMIN 경로=ADMIN · 셀러 경로=SELLER |
+| STOPPED → SALE | 재판매 | ADMIN(주체 무관) · SELLER(**주체 SELLER일 때만**·ADMIN이면 422 PRODUCT_STOPPED_BY_ADMIN) | NULL로 복귀 |
 
-**역전·기타 차단**: PENDING 외 상태에서의 전이는 전부 차단(canTransitionTo=false). REJECTED는 종료 상태(재심사 없음). SALE·HIDDEN·STOPPED 등에서의 전이는 소비처가 없어 도입하지 않는다.
+**역전·기타 차단**: 위 4전이 외 전부 차단(canTransitionTo=false·같은 상태 재요청도 422). REJECTED는 종료 상태(재심사 없음). HIDDEN·DRAFT·APPROVED에서의 전이는 소비처가 없어 도입하지 않는다.
 
-**전이 권한**: 운영자(ADMIN)만 수행(SecurityConfig {@code /api/v1/admin/**}). 판매자 자기 전이 권한 없음.
+**전이 권한**: 승인·거부는 운영자(ADMIN)만(SecurityConfig {@code /api/v1/admin/**}). 판매중지·재판매는 운영자 + 셀러 본인({@code /api/v1/seller/products/{id}/sale-status}·D-190 SUSPENDED 쓰기 403·소유 검증 404). 주체 가드(관리자 중지는 셀러가 못 품)는 SellerProductSaleStatusService.
+
+**불변식(PRD-7)**: status = STOPPED ↔ sale_stop_source IS NOT NULL. 앱 레이어 강제 — Product.stopSale(SaleStopSource) 시그니처가 주체 없는 STOPPED 전이를 막고 resumeSale()이 NULL로 돌린다. V34 백필은 기존 STOPPED 전건 ADMIN(fail-closed).
 
 **PRD-6 정합**: invariants.md PRD-6 전이 규칙을 ProductStatus.canTransitionTo() 메서드로 구현 (Settlement §9 canTransitionTo 동일 패턴). 등록 초기=PENDING·SALE 도달=승인 경유(등록 직행 SALE 아님·Track 50).
 

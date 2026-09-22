@@ -87,7 +87,8 @@
 | PRD-3 | ProductVariant는 Product 없이 생성 불가 | Aggregate 경계 | DB FK + Domain | Root 경유 강제 | — |
 | PRD-4 | ProductOptionGroup 상품당 최대 3개 | 한국 쇼핑몰 표준 | Service(애플리케이션 제약) | 옵션 그룹 폭증 차단 | DB CHECK(동적 불가·기각) |
 | PRD-5 | option1_value_id NOT NULL·option2/3 nullable | 옵션 구조 | DB NOT NULL | 필수 옵션 보장 | — |
-| PRD-6 | Product.status 전이 = PENDING→SALE(승인)·PENDING→REJECTED(거부)만·REJECTED 종료 | 상품 공개 통제(운영자 승인 게이트) | Domain(ProductStatus.canTransitionTo) + Service(운영자·Track 50) | PENDING만 승인/거부 대상·SALE=카탈로그 노출·REJECTED=미노출 | — |
+| PRD-6 | Product.status 전이 = PENDING→SALE(승인)·PENDING→REJECTED(거부)·SALE↔STOPPED(판매중지·재판매)만·REJECTED 종료 | 상품 공개 통제(운영자 승인 게이트·판매 상태 전환) | Domain(ProductStatus.canTransitionTo) + Service(운영자 Track 50/71·셀러 Track 96-5) | PENDING만 승인/거부 대상·SALE=카탈로그 노출·REJECTED=미노출·STOPPED=목록 숨김 | — |
+| PRD-7 | Product.status = STOPPED ↔ sale_stop_source IS NOT NULL(ADMIN·SELLER) · 관리자 중지(ADMIN)는 셀러가 재판매 불가 | 제재 우회 차단(D-206) | Domain(Product.stopSale(source) 시그니처·resumeSale NULL 복귀) + Service(SellerProductSaleStatusService 주체 가드 422) + V34 백필 ADMIN | 셀러는 자기 중지만 해제·관리자는 주체 무관 해제 | DB CHECK(기존 IT 시드 9곳 STOPPED 무주체 INSERT·기각·§8) |
 
 ### 2.8 Inventory
 | # | Rule | Why | Enforcement Point | Impact | Alternative |
