@@ -205,6 +205,10 @@ test.describe('셀러 상품 등록·수정 폼(90-C-4)', () => {
     await fill(page, 'field-name', 'E2E 반찬통 v2')
     await fill(page, 'field-base-price', '33000')
     await page.getByTestId('form-save').click()
+    // 판매가가 바뀐 저장은 확인 다이얼로그를 한 번 거친다(Track 99 FE-61).
+    await expect(page.getByTestId('seller-price-change-dialog')).toBeVisible()
+    await expect(page.getByTestId('price-change-message')).toContainText('33,000원')
+    await page.getByTestId('price-change-ok').click()
     await expect(page.getByTestId('seller-toaster')).toContainText('상품을 저장했습니다.')
     await expect.poll(() => captured.updates.length).toBe(1)
     expect(captured.updates[0]?.body).toEqual({ categoryId: 11, name: 'E2E 반찬통 v2', description: '설명', basePrice: 33000 })

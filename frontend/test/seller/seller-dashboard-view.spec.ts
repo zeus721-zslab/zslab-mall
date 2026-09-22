@@ -57,8 +57,11 @@ describe('처리 대기', () => {
     expect(byKey.lowStock?.to).toBe('/seller/products/inventory')
     expect(byKey.settlementPending?.to).toBe('/seller/settlements')
     expect(byKey.settlementPending?.hint).toContain('확정 전 정산 건수')
+    // Track 99(FE-61·D-210): 장기 배송중 1칸 추가 — 배송 화면 status=SHIPPING
+    expect(byKey.longShipping?.to).toBe('/seller/deliveries?status=SHIPPING')
+    expect(byKey.longShipping?.hint).toContain('3일 이상')
     expect(PENDING_TILES.some((tile) => tile.hint.includes('준비 중'))).toBe(false)
-    expect(PENDING_TILES.map((tile) => tile.key)).toEqual(['deliveryReady', 'claimRequested', 'lowStock', 'settlementPending'])
+    expect(PENDING_TILES.map((tile) => tile.key)).toEqual(['deliveryReady', 'claimRequested', 'lowStock', 'settlementPending', 'longShipping'])
   })
 
   it('pendingChipClass: 0건 neutral · 1건 이상 칸별 톤(재고 danger·나머지 warning)', () => {

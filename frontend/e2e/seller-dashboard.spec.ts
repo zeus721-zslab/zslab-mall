@@ -15,7 +15,7 @@ const DAILY = Array.from({ length: 30 }, (_, index) => {
 const DASHBOARD = {
   period: { from: '2026-08-22', to: '2026-09-20' },
   summary: { revenue: 232000, refund: 32000, netRevenue: 200000, orderCount: 6 },
-  pending: { deliveryReady: 2, claimRequested: 0, lowStock: 1, settlementPending: 1 },
+  pending: { deliveryReady: 2, claimRequested: 0, lowStock: 1, settlementPending: 1, longShipping: 3 },
   dailyTrend: DAILY,
   recentOrderItems: [
     { orderItemId: 'oit_E2E1', orderNo: '20260917-E2E1', productName: 'E2E 반찬통', quantity: 1, totalPrice: 32000, itemStatus: 'PAID', paidAt: '2026-09-17T17:32:23+09:00' },
@@ -43,7 +43,7 @@ async function mockDashboard(page: Page): Promise<URLSearchParams[]> {
 /** ②가 대조하는 응답 필드(BE SellerDashboardResponse 중 화면 값으로 쓰이는 부분만). */
 interface DemoDashboardResponse {
   summary: { revenue: number; refund: number; netRevenue: number; orderCount: number }
-  pending: { deliveryReady: number; claimRequested: number; lowStock: number; settlementPending: number }
+  pending: { deliveryReady: number; claimRequested: number; lowStock: number; settlementPending: number; longShipping: number }
   dailyTrend: { date: string; orderCount: number; revenue: number }[]
   recentOrderItems: unknown[]
   recentClaims: unknown[]
@@ -61,7 +61,7 @@ async function expectListMatches(page: Page, testId: string, length: number): Pr
 }
 
 test.describe('셀러 대시보드(90-B-3)', () => {
-  test('① 진입 → 상단바 상호·상태 · 요약 4(품목 축 캡션·주문 건수 의미) · 대기 4(배송 대기만 링크) · 차트 2 · 최근 품목 링크·클레임 링크 없음 · 기간 프리셋 → API from/to · 93일 직접 입력 → 클라이언트 오류·API 미호출', async ({ page }) => {
+  test('① 진입 → 상단바 상호·상태 · 요약 4(품목 축 캡션·주문 건수 의미) · 대기 5(전부 링크) · 차트 2 · 최근 품목 링크·클레임 링크 없음 · 기간 프리셋 → API from/to · 93일 직접 입력 → 클라이언트 오류·API 미호출', async ({ page }) => {
     const queries = await mockDashboard(page)
     await loginAs(page, 'SELLER')
     await page.setViewportSize({ width: 1440, height: 900 })
@@ -80,14 +80,15 @@ test.describe('셀러 대시보드(90-B-3)', () => {
     await expect(summary.getByTestId('dashboard-card-orderCount')).toContainText('6건')
     await expect(summary.getByTestId('dashboard-card-orderCount')).toContainText('품목 수와 다를 수 있음')
 
-    // 대기 4: 4칸 전부 해당 화면 링크(Track 96-1 C-14)·"준비 중" 문구 없음
+    // 대기 5: 5칸 전부 해당 화면 링크(Track 96-1 C-14 4칸 + Track 99 D-210 장기 배송중)·"준비 중" 문구 없음
     const pending = page.getByTestId('dashboard-pending')
-    await expect(pending.getByTestId('dashboard-pending-count')).toHaveText(['2건', '0건', '1건', '1건'])
+    await expect(pending.getByTestId('dashboard-pending-count')).toHaveText(['2건', '0건', '1건', '1건', '3건'])
     await expect(page.getByTestId('dashboard-pending-deliveryReady')).toHaveAttribute('href', '/seller/orders?status=PAID')
     await expect(page.getByTestId('dashboard-pending-claimRequested')).toHaveAttribute('href', '/seller/claims?status=REQUESTED')
     await expect(page.getByTestId('dashboard-pending-lowStock')).toHaveAttribute('href', '/seller/products/inventory')
     await expect(page.getByTestId('dashboard-pending-settlementPending')).toHaveAttribute('href', '/seller/settlements')
     await expect(page.getByTestId('dashboard-pending-settlementPending')).toContainText('확정 전 정산 건수')
+    await expect(page.getByTestId('dashboard-pending-longShipping')).toHaveAttribute('href', '/seller/deliveries?status=SHIPPING')
     await expect(pending).not.toContainText('준비 중')
 
     // 차트 2(apexcharts svg)
@@ -124,7 +125,7 @@ test.describe('셀러 대시보드(90-B-3)', () => {
     expect(toValue).toBe(queries[1]!.get('to'))
   })
 
-  test('② 데모 셀러(실 API) → 응답 대조: 요약 4·대기 4 값 일치 · 최근 목록 3 행 수 또는 빈 상태 · 차트 빈 상태 = dailyTrend 전부 0', async ({ page }) => {
+  test('② 데모 셀러(실 API) → 응답 대조: 요약 4·대기 5 값 일치 · 최근 목록 3 행 수 또는 빈 상태 · 차트 빈 상태 = dailyTrend 전부 0', async ({ page }) => {
     await page.goto('/seller/login')
     await page.waitForLoadState('networkidle')
     const demoButton = page.getByTestId('seller-demo-login')
@@ -142,9 +143,10 @@ test.describe('셀러 대시보드(90-B-3)', () => {
     await expect(summary.getByTestId('dashboard-card-netRevenue').getByTestId('seller-stat-card-value')).toHaveText(won(dashboard.summary.netRevenue))
     await expect(summary.getByTestId('dashboard-card-orderCount').getByTestId('seller-stat-card-value')).toHaveText(count(dashboard.summary.orderCount))
 
-    // 대기 4: 순서 = 배송 대기 · 클레임 · 재고 임박 · 정산 예정(SellerDashboardPending 타일 순서)
-    const { deliveryReady, claimRequested, lowStock, settlementPending } = dashboard.pending
-    await expect(page.getByTestId('dashboard-pending').getByTestId('dashboard-pending-count')).toHaveText([deliveryReady, claimRequested, lowStock, settlementPending].map(count))
+    // 대기 5: 순서 = 배송 대기 · 클레임 · 재고 임박 · 정산 예정 · 장기 배송중(SellerDashboardPending 타일 순서)
+    const { deliveryReady, claimRequested, lowStock, settlementPending, longShipping } = dashboard.pending
+    await expect(page.getByTestId('dashboard-pending').getByTestId('dashboard-pending-count'))
+      .toHaveText([deliveryReady, claimRequested, lowStock, settlementPending, longShipping].map(count))
 
     // 최근 목록 3: 응답 배열 길이 = 행 수, 0이면 빈 상태 문구
     await expectListMatches(page, 'dashboard-recent-order-items', dashboard.recentOrderItems.length)
