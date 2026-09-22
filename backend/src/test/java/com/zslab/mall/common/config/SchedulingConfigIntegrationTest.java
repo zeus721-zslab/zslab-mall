@@ -15,8 +15,8 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
  */
 class SchedulingConfigIntegrationTest extends AbstractIntegrationTest {
 
-    /** 등록된 @Scheduled 7건 이상으로 잡은 풀 크기(application.yml과 동일 값·불일치 시 설정 누락 신호). */
-    private static final int EXPECTED_POOL_SIZE = 8;
+    /** 등록된 @Scheduled 9건(Track 96-6 월 정산·등급 재산정 포함) 이상으로 잡은 풀 크기(application.yml과 동일 값·불일치 시 설정 누락 신호). */
+    private static final int EXPECTED_POOL_SIZE = 10;
     private static final String EXPECTED_THREAD_NAME_PREFIX = "zslab-sched-";
 
     @Autowired
@@ -25,7 +25,7 @@ class SchedulingConfigIntegrationTest extends AbstractIntegrationTest {
     private ThreadPoolTaskScheduler taskScheduler;
 
     @Test
-    @DisplayName("spring.task.scheduling pool.size=8·thread-name-prefix가 ThreadPoolTaskScheduler 빈에 반영된다")
+    @DisplayName("spring.task.scheduling pool.size=10·thread-name-prefix가 ThreadPoolTaskScheduler 빈에 반영된다")
     void schedulingPool_configuredFromYaml() {
         assertThat(taskSchedulingProperties.getPool().getSize()).isEqualTo(EXPECTED_POOL_SIZE);
         assertThat(taskSchedulingProperties.getThreadNamePrefix()).isEqualTo(EXPECTED_THREAD_NAME_PREFIX);

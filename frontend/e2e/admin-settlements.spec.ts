@@ -184,6 +184,7 @@ test.describe('관리자 정산(Track 85)', () => {
     await page.getByRole('option', { name: '7월', exact: true }).click()
     await page.waitForURL((url) => url.searchParams.get('month') === '7')
     await expect(page.getByTestId('admin-settlement-empty')).toContainText('2026년 7월 정산이 없습니다')
+    await expect(page.getByTestId('admin-settlement-empty')).toContainText('정산은 매월 1일 이후 전월분이 자동 생성됩니다. 과거 월은 상단의 정산 생성으로 만들 수 있습니다.')
     expect(captured.listQueries.at(-1)?.get('month')).toBe('7')
   })
 

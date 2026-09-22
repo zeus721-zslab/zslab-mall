@@ -12103,3 +12103,52 @@ EXPLAIN(로컬 읽기·seller 4·30일): 입고 합 = product PRIMARY index scan
 - **기각(재현 경로 없음·기존 검증으로 충분)**: STOPPED 생성 경로 전수 재실측(정찰·본 D에서 `stopSale` 1곳으로 실측 완료) · 동시성 IT 2건(같은 행 `findByPublicIdForUpdate` PESSIMISTIC_WRITE로 직렬화·양 순서 모두 422로 수렴·IT로 재현 불가한 타이밍 의존) · V34 실패 시뮬레이션 IT(DDL 암묵 커밋을 테스트 컨테이너에서 강제 실패시킬 수단 없음 → 위 복구 절차 문서로 대체).
 - 외부 검토: A / 2라운드(R1 BE·R2 FE) / major 1(R2 Q9) 수용 · minor 3(R1 Q3·Q7·R2 Q10) 중 수용 2·부분 수용 1(Q3 문서만) · 기각 4(STOPPED 경로 재실측·동시성 IT 2건·V34 실패 시뮬레이션 IT) · PASS 6 · 재검토 생략(국소 수정·테스트 재현).
 - 검증: `./gradlew.bat test --rerun-tasks` 240파일 **1416·0 fail·0 error·0 skip**(1415 + 1) · typecheck 0 · vitest 99파일 **657**(655 + 2) · no-admin-import 통과 · Playwright 콜드 104/108(admin-categories ①·seller-bank-account ① 콜드 트랩) → 웜 **106/108**(2 skip = seller-password env) · 픽셀 track96-5r track96-4 대비 **12장 diff 0**.
+
+## D-207. 월 스케줄러 — 전월 정산 자동 생성(SYSTEM 행위자 감사) + 구매자 등급 일 재산정(탈퇴 제외) (Track 96-6)
+
+날짜: 2026-09-22
+브랜치: feat/track-96-6-monthly-scheduler
+정찰: docs/track-96/recon-report-scheduler.md(§0 핵심 실측 5 · §5 결정 필요 12 · §6 회귀 위험 8)
+
+### 배경
+정산 생성은 관리자가 매월 "정산 생성" 버튼을 눌러야만 만들어졌고(`AdminSettlementController.create` 1 진입점), 등급 재산정은 관리자 API 2개가 있으나 FE 호출부가 없어 사실상 실행되지 않았다. 정찰 실측: 정산 생성은 셀러별 선확인 skip + `uk_settlement_seller_period` UNIQUE로 재실행 안전 · **"셀러 등급"은 코드·DDL·decisions 어디에도 없고 grade 패키지는 구매자 등급(D-136)** · 수수료율은 등급 미참조(주문 시 order_item 스냅샷) · 기존 스케줄러 7건은 전부 `@Scheduled(fixedDelay)` + `@ConditionalOnProperty(zslab.*.enabled, matchIfMissing=true)` 관례이며 cron·ShedLock·Clock·AuditLog 기록 사례 0 · `AuditContext`는 actorUserId NOT NULL 강제라 무-actor 배치가 정산 생성을 호출할 수 없었다.
+
+### 진입점
+- 정산 스케줄러: backend/src/main/java/com/zslab/mall/settlement/scheduler/SettlementMonthlyCreationScheduler.java — `@ConditionalOnProperty(name = "zslab.settlement.monthly-creation.enabled", havingValue = "true", matchIfMissing = true)`(:29) · `FIXED_DELAY_MS = 24h`(:34) · `@Scheduled createPreviousMonthBatch()`(:39-40) → `createForPreviousMonthOf(LocalDate today)`(:49) · `YearMonth.from(today).minusMonths(1)`(:51) · `createMonthlySettlements(year, month, AuditContext.system())`(:54) · `catch (Exception)` log.error(:57)
+- 등급 스케줄러: grade/scheduler/GradeRecalculationScheduler.java — `zslab.grade.recalculation.enabled`(:25) · 24h(:30) · `@Scheduled recalculateBatch()`(:35-36) → `GradeRecalculationBatchService.recalculateAll()` · `catch (Exception)`(:42)
+- 시스템 행위자: audit/service/AuditContext.java — `SYSTEM_ACTOR_ROLE = "SYSTEM"`(:17) · 컴팩트 생성자 `actorUserId == null && !SYSTEM_ACTOR_ROLE.equals(actorRole)` → IAE(:23) · `static AuditContext system()`(:29)
+- 탈퇴 제외: user/repository/BuyerProfileRepository.java `findActiveBuyerIds()`(:18-19·`LEFT JOIN bp.user u WHERE u.withdrawnAt IS NULL`) ← grade/service/GradeRecalculationBatchService.java:36(`findAll()` 대체·관리자 전체 재산정 API와 스케줄러 공용)
+- 설정: application.yml `spring.task.scheduling.pool.size: 10`(:44·7건 + 2 = 9 이상) · 테스트 전역 킬스위치: test/support/AbstractIntegrationTest.java:28-29(`@DynamicPropertySource` 2키 false)
+- FE: frontend/layers/admin/app/pages/admin/settlements/index.vue:213 빈 상태 문구 "정산은 매월 1일 이후 전월분이 자동 생성됩니다. 과거 월은 상단의 정산 생성으로 만들 수 있습니다."(FE 문구 1줄뿐이라 FE-XX 별도 박제 없음)
+
+### 결정
+1. **정산 자동 생성 = "생성까지"**: 24h fixedDelay 스케줄러가 실행일(JVM Asia/Seoul) 기준 전월을 산정해 기존 `SettlementCreationService.createMonthlySettlements`를 그대로 호출한다. 금액 계산·단일 트랜잭션·셀러별 멱등 skip·409 레이스 처리는 무수정. 확정(CONFIRMED)·지급(PAID)은 관리자 수동 전이 유지(안전장치 유지 원칙) · 관리자 "정산 생성" 버튼·API 존치(과거 월·재실행용·멱등 skip으로 공존).
+2. **실패 처리**: 서비스 예외(409 레이스·400 기간 등)는 스케줄러가 `Exception` 단위로 흡수해 `log.error` 후 종료 → 다음 실행(24h 뒤)에서 같은 전월을 재시도. `Error`는 전파(기존 스케줄러 관례).
+3. **감사**: 자동 생성도 셀러별 CREATE 감사를 적재하되 행위자는 `AuditContext.system()` — `actor_user_id NULL · actor_role SYSTEM`. `AuditContext` 컴팩트 생성자의 null 가드는 role이 SYSTEM일 때만 완화되며 그 외 경로(19곳 `of()`·전부 SecurityContext 유래)는 그대로다. DDL(`audit_log.actor_user_id NULL·actor_role VARCHAR(50) NULL·FK 없음`)이라 Flyway 불필요.
+4. **등급 = 구매자 등급 일 재산정**: 24h fixedDelay 스케줄러가 기존 `GradeRecalculationBatchService.recalculateAll`(buyer별 독립 TX·부분 성공)에 위임. 탈퇴 회원(`user.withdrawn_at IS NOT NULL`)은 제외하며 관리자 전체 재산정 API도 같은 경로라 동일 적용. 수동 등급 잠금(`grade_locked_until`) 존중은 `GradeService` 가드 그대로(잠금 만료 시 AUTO 복귀·유지 기한 상한 없음 — 먼 날짜 지정 = 사실상 무기한). 등급 배치 감사 미적재 유지(D-136).
+5. **킬스위치**: `zslab.settlement.monthly-creation.enabled` · `zslab.grade.recalculation.enabled`(havingValue=true·matchIfMissing=true·yml 미기재·끄려면 env 주입 — 기존 7건 관례). 스레드 풀 8 → 10.
+6. **배포 영향**: fixedDelay는 initialDelay 0이라 **기동 직후 첫 실행** — 재시작마다 전월 정산 생성 시도(멱등 skip)·등급 전량 재산정 1회. 로컬 실측: `[SettlementMonthly] period=2026-08 생성=0`(기존 3건 skip) · `[GradeRecalculation] 대상=16 성공=16`(17 − 탈퇴 1).
+
+### §1-A 갈림길·채택/기각 근거
+- **등급 범위**: α 구매자 등급 자동 재산정 【채택: 실재하는 유일한 등급 체계·기존 배치 서비스 재사용·MVP 시나리오에서 실행되는 경로】 / β 96-6에서 제외 【기각: 관리자 API만 있고 호출부 없어 등급이 갱신되지 않는 상태 방치】 / γ 셀러 등급 신규 도메인 【기각: 엔티티·DDL·산식·수수료 연동 전부 부재·요구 정의 없음·별도 트랙】.
+- **실행 방식**: fixedDelay 24h + 전월 자기판정 【채택: 재시작·배포로 특정 시각을 놓쳐도 다음 실행이 보충·기존 7건 관례·마감 가드(`말일 < 오늘`)가 KST 기준이라 1일 00:00 이후 언제 실행돼도 안전】 / `@Scheduled(cron, zone)` 【기각: 최초 도입·정확 시각 실행이 요구가 아님·기동 직후 1회 실행 보충 없음】.
+- **트랜잭션**: 정산 생성 서비스 단일 TX 유지 【채택: 금액 경로 무변경 원칙·레이스 409 시 전체 롤백 후 다음 실행 재시도로 충분】 / 셀러별 독립 TX + 부분 성공 【기각: 관리자 수동 API 동작까지 바뀜·결정 범위 밖】.
+- **감사**: SYSTEM 행위자(user id NULL) 【채택: 금액을 만드는 행위라 생성 추적 필요·DDL nullable·감사 조회 화면은 ORDER 대상만이라 표시 보정 불요】 / 감사 미적재 【기각: 자동 생성분의 출처 추적 불가】 / `createMonthlySettlements` auditContext null 허용 분기 【기각: 서비스 시그니처·분기 추가·감사 누락】.
+- **탈퇴 판별 쿼리**: `LEFT JOIN bp.user u WHERE u.withdrawnAt IS NULL` 【채택: 암시적 inner join(`bp.user.withdrawnAt`)은 user 행 없이 프로필만 시드하는 기존 등급 IT ①②를 깨뜨림·운영은 FK로 orphan 없음】 / IT 시드 보강 후 inner join 【이월 §8】.
+- **IT 스케줄러 비활성**: `AbstractIntegrationTest @DynamicPropertySource` 전역 2키 【채택: 개별 IT 킬스위치 나열 누락 트랩(4키 반복) 방지·운영 데이터 자동 변경 배치】 / 각 IT `@TestPropertySource` 나열 【기각: 106 클래스】. 기존 5키는 관례 유지.
+- **관리자 인지 수단**: 기존 대시보드 PENDING 타일 + 빈 상태 문구 【채택】 / 응답에 생성 경로(수동/자동) 필드 【기각: 응답 필드 추가 없음·audit_log actor로 구분 가능】.
+
+### §2 확정 구현 규칙
+- main 신규 2 · 수정 4: `AuditContext`(SYSTEM_ACTOR_ROLE·system()·가드 완화 SYSTEM 한정) · `SettlementMonthlyCreationScheduler` · `GradeRecalculationScheduler` · `GradeRecalculationBatchService`(findActiveBuyerIds) · `BuyerProfileRepository`(+1 JPQL·바인딩 없음) · `application.yml`(pool 10) · FE `index.vue` 문구 1줄.
+- test: `AuditContextTest` +2(system()·SYSTEM 외 null 거부) · `SettlementMonthlyCreationSchedulerTest` 4(전월·연초 경계·시스템 행위자 캡처·예외 흡수·Error 전파) · `SettlementMonthlyCreationSchedulerIntegrationTest` 3(T1 전월 PENDING + `audit_log actor_user_id NULL·actor_role SYSTEM` · T2 재실행 skip·감사 1 · T3 빈 부재 + 2개월 전 매출 미생성) · `GradeRecalculationSchedulerTest` 3 · `GradeRecalculationSchedulerIntegrationTest` 2(T1 빈 부재·탈퇴 제외 · T2 잠금 유지·잠금 만료 AUTO) · `AdminGradeControllerIntegrationTest` ⑤ 탈퇴 제외(total 1) · `SchedulingConfigIntegrationTest` 10 · `SchedulerRegistrationTest` 4(외부 검토 반영·ApplicationContextRunner·DB 없음·mock 의존: 키 미지정 → 빈 2 + `FixedDelayTask.getIntervalDuration()` 24h 2건 · true → 빈 존재 · false → 빈 없음·등록 0 · 키 독립) · e2e `admin-settlements` ① 문구 단언 +1.
+- **RED 선증명(탈퇴 필터)**: `findAll` 임시 원복 → 관리자 IT ⑤ `$.total expected:<1> but was:<2>` · 스케줄러 IT T1 탈퇴 buyer `expected 1L(SILVER) but was 3L(PLATINUM)` → 원복 GREEN.
+- 검증: `./gradlew.bat test --rerun-tasks` 244파일 **1431·0 fail·0 error·0 skip**(1416 + 15) → 외부 검토 반영 후 245파일 **1435**(+4) · 컨테이너 typecheck 0 · vitest 99파일 **657**(FE 변경 문구뿐) · backend·frontend 재시작 → 기동 발화 실측(결정 6) · Playwright `--workers=2` **106/108**(2 skip = seller-password env) · 픽셀 track96-6 vs track96-5r **12장 diff 0**.
+- 트랩: (1) JPQL `bp.user.withdrawnAt`은 암시적 inner join → LEFT JOIN 명시 (2) Bash heredoc 안 python 문자열 `\n`이 실제 개행으로 치환 → 긴 본문은 Write 도구 (3) **트랩 후보·1회차(FE)**: Playwright 콜드 실행 시 `*_E2E_EMAIL/PASSWORD` env 미주입으로 95건 대량 skip(1 fail = admin-dashboard ①·나머지 skip) → `docker exec` 셸 안에서 컨테이너 `NUXT_*_DEMO_*`를 `<ROLE>_E2E_*`로 매핑 export 후 실행. 재발 시 live-traps.md LT-XX 승격.
+
+### §8 이월
+- **동시 생성 실DB IT(스케줄러 ↔ 관리자 수동 생성 레이스) 【기각】**: 단일 인스턴스 + 24h fixedDelay라 스케줄러 자기 동시 실행은 없고, 수동 생성과의 레이스는 `SettlementCreationService` 선확인 + UNIQUE + `DataIntegrityViolation → 409`(Track 48 P3·Javadoc :53-54·:213-219)가 이미 종결한 경로다. 실DB 스레드 타이밍 재현은 비결정적이며 스케줄러는 409를 흡수·재시도하므로(단위 테스트 `serviceException_isAbsorbed`) 추가 IT가 새 사실을 증명하지 않는다.
+- **`findActiveBuyerIds` JOIN 정리(inner join·EXISTS 전환) 【기각】**: 동작은 LEFT JOIN과 운영 데이터에서 동일(FK로 orphan 프로필 없음). inner join은 기존 등급 IT 시드(user 행 없는 프로필 4건)를 먼저 보강해야 하고 이번 범위(테스트 추가·박제)에서 운영 코드 변경 금지. 시드 보강 트랙에서 함께 처리.
+- 운영 로그: `application-prod.yml` root WARN·`com.zslab.mall` INFO라 Flyway 마이그레이션 INFO(`org.flywaydb`)는 운영 로그에 나오지 않는다 — 스케줄러 배치 완료 INFO는 `com.zslab.mall` 패키지라 출력됨. Flyway 로그 레벨은 별도 결정.
+- Clock 주입·cron 미도입(테스트는 `YearMonth.now()` 상대 월·`createForPreviousMonthOf(LocalDate)` 주입으로 충분).
+- 셀러 등급 도메인(γ)·응답 생성 경로 필드·ShedLock — 요구 발생 시.
+- 외부 검토: A / 지적 4건 중 수용 2건(1건 부분 수용 — SYSTEM 행위자 생성 경로 전수 확인은 코드 변경 없이 확인·박제만: `new AuditContext` 3곳 전부 AuditContext 내부 · `of()` 19곳 전부 `adminActorResolver.resolve`/`authenticatedUserResolver.requireUserId` + `actorRoleResolver.requireCoarseRole()` = SecurityContext 유래·요청 바디/파라미터 유래 0 · `system()` 호출 1곳(정산 스케줄러) · "SYSTEM"/ROLE_SYSTEM 권한 부재) · 스케줄러 등록 테스트 수용(`SchedulerRegistrationTest`) · 기각 2(동시 생성 IT·JOIN 정리) · 재검토 없음.

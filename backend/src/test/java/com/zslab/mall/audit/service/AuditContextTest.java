@@ -42,6 +42,26 @@ class AuditContextTest {
     }
 
     @Test
+    @DisplayName("system(): actorUserId null·role SYSTEM·ip/UA null (Track 96-6)")
+    void system_nullActorWithSystemRole() {
+        AuditContext context = AuditContext.system();
+
+        assertThat(context.actorUserId()).isNull();
+        assertThat(context.actorRole()).isEqualTo(AuditContext.SYSTEM_ACTOR_ROLE);
+        assertThat(context.ipAddress()).isNull();
+        assertThat(context.userAgent()).isNull();
+    }
+
+    @Test
+    @DisplayName("actorUserId null은 SYSTEM 역할에만 허용 — 다른 역할이면 여전히 IllegalArgumentException")
+    void nullActorUserId_allowedOnlyForSystemRole() {
+        assertThatThrownBy(() -> new AuditContext(null, "SELLER", null, null))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> AuditContext.of(null, AuditContext.SYSTEM_ACTOR_ROLE.toLowerCase()))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     @DisplayName("actorRole null·blank → IllegalArgumentException")
     void nullOrBlankActorRole_throws() {
         assertThatThrownBy(() -> AuditContext.of(ACTOR_ID, null))
