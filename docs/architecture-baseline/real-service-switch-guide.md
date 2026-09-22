@@ -1,7 +1,38 @@
-# 실 서비스 전환 가이드 — PG · SMS · 이메일 · 비밀번호 찾기
+# 실 서비스 전환 가이드
 
-> Track 97 D-209. Mock 어댑터를 실 구현체로 바꿀 때 손대는 지점·필요 env·절차·확인 사항. 모든 인용은 작성 시점(2026-09-22·브랜치 feat/track-97-real-service-readiness)의 file:line이며 정찰 원본은 docs/track-97/recon-report-readiness.md(gitignore·로컬). 위치: docs/architecture-baseline/(docs/infra/는 .gitignore 미추적이라 이동·D-209 §8).
+> Track 97 D-209 · Track 99 D-210. Mock 어댑터를 실 구현체로 바꿀 때 손대는 지점·필요 env·절차·확인 사항. 모든 인용은 작성 시점의 file:line이며 정찰 원본은 docs/track-97/recon-report-readiness.md·docs/track-99/recon-report-round2-impl.md(둘 다 gitignore·로컬). 위치: docs/architecture-baseline/(docs/infra/는 .gitignore 미추적이라 이동·D-209 §8).
 > 이 문서는 "무엇을 어디서 바꾸는가"만 다룬다. 실 구현체·웹훅 서명 검증·비밀번호 찾기는 **미구현**이며 해당 트랙에서 결정(D-XX)과 함께 진행한다.
+
+---
+
+## 전환 체크리스트
+
+오픈 전에 한 번에 훑는 표다. **목업 항목**은 지금 Mock으로 돌아가는 것, **선결 항목**은 실 서비스로 가기 전에 결정·구현이 필요한 것이다.
+행마다 상세 절이 있으면 참조에 적었다.
+
+### 목업 항목
+
+| 항목 | 현재 | 전환 시 할 일 | 참조 |
+|---|---|---|---|
+| PG(결제·환불) | `MockPaymentGateway` · `zslab.payment.gateway=mock` | 실 구현체 추가 + `PAYMENT_GATEWAY=<값>` · 웹훅 어댑터 · return URL 페이지 | §1 |
+| Mock 결제 콜백 API | `POST /api/v1/payments/mock-callback`(mock에서만 등록) | 실 모드에서 자동 404 — 호출처(데모 시드·FE 결제창) 정리 | §1-1 |
+| Mock 결제 페이지 | `frontend/app/pages/payment/mock.vue` | 실 모드에서 도달 불가 — 제거 여부 결정 | §1-1 |
+| SecurityConfig mock 매처 | `common/security/SecurityConfig.java` BUYER 매처에 mock-callback 경로 잔존 | 무해하지만 제거 | §1-1 |
+| 데모 시드 결제 단계 | `scripts/demo-seed/seed.py`가 mock-callback으로 결제 완료 | 실 모드에서 404 — 시드 결제 단계 재설계 | §1-1 |
+| SMS | `MockSmsSender` · `zslab.notification.sms-sender=mock` | 실 구현체 추가 + `SMS_SENDER=<값>` | §2 |
+| 이메일 | `MockNotificationSender` · `zslab.notification.email-sender=mock` | 실 구현체 추가 + `EMAIL_SENDER=<값>` · 테스트 도메인 발송 차단 | §3 |
+| 배송 조회 | `MockDeliveryTracker`(발송 후 N일 = 배달 완료) · `zslab.delivery.tracker=mock` | 실 택배사 어댑터 추가 + `DELIVERY_TRACKER=<값>` | §4 |
+
+### 선결 항목(실 서비스로 가기 전 결정·구현)
+
+| 항목 | 현재 | 전환 시 할 일 | 참조 |
+|---|---|---|---|
+| 웹훅 보안 | 서명 검증·재전송 방지·IP 제한 전부 미구현 | D-198 §8 전 항목 구현 후 gateway 404 해제 | §1-4·§1-5 |
+| 임시 비밀번호 TX 분리 | 발급과 SMS 발송이 같은 트랜잭션 | 실 SMS 도입 시 분리(502 계약 변경 동반) | §2-3·D-178 §8 |
+| 구매자 비밀번호 찾기 | 미구현(관리자 임시 비밀번호 발급만) | 설계 결정 후 구현 | §5 |
+| `delivered_at` 기준 | 자동 배송완료가 **처리 시각**을 기록 | 실 조회가 알려 주는 **배달 시각**으로 바꿀지 결정(반품 기한·자동 구매확정 기산점이 함께 움직인다) | §4-4 |
+
+**새 목업을 추가하면 이 표에 행을 추가한다** — Mock 어댑터·Mock 전용 엔드포인트·Mock 전용 화면을 새로 만들 때, 그 트랙에서 "목업 항목" 표에 한 줄을 더한다(빠뜨리면 오픈 직전에 찾아야 한다).
 
 ## 0. 공통 구조
 
@@ -121,9 +152,47 @@
 
 ---
 
-## 4. 구매자 비밀번호 찾기 — 설계 메모(미구현·추천 없음)
+## 4. 배송 조회 · 자동 배송완료
 
-### 4-1. 있는 것
+### 4-1. 교체 지점
+| 구분 | 파일:라인 | 할 일 |
+|---|---|---|
+| 포트 | `delivery/adapter/DeliveryTracker.java` — `track(carrier, trackingNo, shippedAt)` → `DeliveryTrackingStatus` | 실 구현체가 구현. 계약 무변경 |
+| 결과 타입 | `delivery/adapter/DeliveryTrackingStatus.java`(DELIVERED·IN_TRANSIT·UNKNOWN) | 택배사 세부 단계를 이 3값으로 매핑. 장애·미등록 송장은 `UNKNOWN`(예외 금지 — 한 건이 배치를 멈추지 않게) |
+| Mock 구현체 | `delivery/adapter/MockDeliveryTracker.java`(조건 `zslab.delivery.tracker=mock`) | 그대로 둔다. `DELIVERY_TRACKER=<값>`이면 빠짐 |
+| 실 구현체 추가 | `delivery/adapter/<Carrier>DeliveryTracker.java`(신규) | `@Component` + `@ConditionalOnProperty(name="zslab.delivery.tracker", havingValue="<값>")` |
+| 배치 | `delivery/scheduler/DeliveryAutoCompleteScheduler.java` · `delivery/service/DeliveryAutoCompleteService.java` | 손대지 않는다. 조회 결과만 보고 전이하므로 어댑터 교체로 판정 근거만 바뀐다 |
+| 수동 경로 | `AdminDeliveryController` · `SellerDeliveryCompletionController`의 mark-delivered | 무변경. 자동·수동이 같은 primitive(`DeliveryService.markDelivered`)를 쓴다 |
+
+### 4-2. 필요 env
+`.env.example` `DELIVERY_TRACKER`(선택 키) · `MOCK_DELIVERY_DAYS`(Mock 전용·실 어댑터에서는 무시) · `DELIVERY_AUTO_COMPLETE_ENABLED`(스케줄러 on/off).
+실 어댑터가 API 키를 요구하면 PG와 같은 방식으로 `application.yml`(+`application-prod.yml` 기본값 없음)·`docker-compose.mall.yml` backend environment에 연결한다.
+compose environment 변경은 **컨테이너 재생성**이 필요하다(§0).
+
+### 4-3. 동작 원칙
+- **판정은 조회 결과만 본다**: 스케줄러는 `DELIVERED`일 때만 전이하고 `IN_TRANSIT`·`UNKNOWN`은 다음 실행에서 다시 조회한다. "시간이 지나면 완료"는 Mock 어댑터 안에만 있다.
+- **대상은 발송(OUTBOUND)·배송중·송장 보유**다. 회수(RETURN)는 제외한다 — 회수 완료는 클레임 회수 확인 단일 경로다(D-197).
+  교환품 발송·검수 불합격 재발송은 발송이므로 포함되며, 교환품이 배송완료되면 기존 핸들러가 교환을 종결한다.
+- **조회는 트랜잭션 밖**에서 한다(외부 호출이 트랜잭션·DB 커넥션을 붙들지 않게). 전이만 건별 독립 트랜잭션에서 행 락 + 상태 재확인 후 수행한다.
+- **자동 전이만 감사 로그 1행**을 남긴다(`AuditContext.system()`·actorRole=SYSTEM). 수동 경로는 현재 감사 로그가 없으므로 SYSTEM 행의 유무가 곧 자동/수동 구분이다.
+- **커서 순회**: 한 실행에서 id 커서로 배송중을 훑고 커서는 결과와 무관하게 전진한다 — 배달되지 않은 건이 앞을 막아 뒤쪽 건이 굶지 않는다.
+
+### 4-4. `delivered_at`을 무엇으로 볼 것인가(전환 시 결정)
+현재는 **처리 시각**(`markDelivered(now)`)을 기록한다. 실 조회는 보통 배달 시각을 함께 주므로 그 값으로 바꿀 수 있는데, 바꾸면
+반품 요청 기한·자동 구매확정의 기산점(`ReturnWindowPolicy.originalDeliveredAt`)이 함께 앞당겨진다. 이미 쌓인 건의 기한이 소급해 달라지는지,
+새 건부터 적용할지를 그 트랙에서 정한다(D-210 결정 1 참조).
+
+### 4-5. 전환 후 확인
+- 배송중 1건을 실 송장으로 두고 배치 1회 실행 → 조회 결과가 `DELIVERED`일 때만 전이되는지.
+- `audit_log`에 `actor_role='SYSTEM'`·`target_type='DELIVERY'` 행이 전이 건수만큼 쌓이는지.
+- 관리자·셀러 대시보드 "장기 배송중" 수치가 전이 후 줄어드는지.
+- 조회 장애(타임아웃)에서 배치가 멈추지 않고 해당 건만 실패로 기록되는지.
+
+---
+
+## 5. 구매자 비밀번호 찾기 — 설계 메모(미구현·추천 없음)
+
+### 5-1. 있는 것
 | 요소 | 위치 |
 |---|---|
 | 관리자 임시 비밀번호 발급·1회 표시 | `AdminMemberController.java:97-99` → `AdminMemberCommandService.resetPassword`(:135-166) · D-204 |
@@ -132,23 +201,24 @@
 | 셀프 변경 | `PATCH /api/v1/users/me/password`(`UserController.java:44`) |
 | 발송 경계 | `SmsSender` + `NotificationService.sendSensitiveSms`(:490-499·마스킹 저장) |
 
-### 4-2. 없는 것
+### 5-2. 없는 것
 재설정 토큰 저장소·만료·1회성·발급 횟수(D-204 X4) · 공개 요청/확인 엔드포인트(permitAll은 `/api/v1/auth/**` `SecurityConfig.java:63`·실매핑 `POST /api/v1/auth/login`뿐) · FE 진입점(로그인 페이지 링크 없음) · 레이트 리밋·계정 열거 방지(앱 `bucket4j`/`resilience4j` 없음·gateway `limit_req` 없음) · 이메일 주소 기반 발송 계약.
 
-### 4-3. 선택지(나열)
+### 5-3. 선택지(나열)
 - 토큰: (a) `password_reset_token` 테이블(Flyway·해시 저장·만료·used_at) / (b) 서명 토큰(JWT·무저장·`credentials_changed_at`으로 1회성 대체).
 - 채널: (a) SMS — `SmsSender`·`sendSensitiveSms` 재사용·`User.phone` 필요 / (b) 이메일 — §3 실 구현체 + 링크형 본문·`User.email` 필요.
 - 레이트 리밋: (a) gateway nginx `limit_req`(운영 conf·저장소 밖·`05-ssl-domain.md` 스냅샷 갱신) / (b) 앱 필터(bucket4j 등 의존성 추가).
 - 응답 통일: 존재/부재 무관 동일 응답(열거 방지)과 `PaymentNotFoundException` 404 은닉 관례(`MockPaymentCallbackService.java:22-23`) 참고.
 
-### 4-4. D-204 이월(decisions.md:11943-)
+### 5-4. D-204 이월(decisions.md:11943-)
 X2 관리자 영역 변경 강제 없음 · X3 SUPER_ADMIN 재발급 경로 0(DB 직접 갱신뿐) · X4 유효기간·횟수 제한 없음 · N1 gateway 캐시/로그 확인 · N9 실 SMS 시 TX 분리(§2-3 2).
 
 ---
 
-## 5. 회귀 위험 요약
+## 6. 회귀 위험 요약
 1. 실 구현체 없이 `mock` 외 값 → 기동 실패(의도). prod 스모크(`ProdSecurityContextSmokeTest`·`ProdBankAccountKeyFailFastTest`)는 키 미지정(mock)이라 무영향.
 2. Mock 자동 완료 소멸(§1-6) — IT 2건·데모 시드.
 3. TX 분리 시 502 계약 변경(§2-3 2).
 4. gateway 404 해제 전 서명 검증 부재 상태 노출 금지(§1-5).
 5. compose environment 변경은 재생성 필요(§0).
+6. 자동 배송완료를 켠 채 워크스루를 돌리면 배송중 전제 시나리오 4개가 깨진다 — `DELIVERY_AUTO_COMPLETE_ENABLED=false`로 실행한다(`scripts/walkthrough/README.md`).
