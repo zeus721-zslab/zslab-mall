@@ -12308,7 +12308,7 @@ PG·SMS·이메일은 포트(`PaymentGateway`·`SmsSender`·`NotificationSender`
 ### §2 확정 구현 규칙·트랩
 - 변경: `.github/workflows/deploy.yml`(전면) · `backend/Dockerfile` · `docker-compose.mall.yml` · `docker-compose.dev.yml` · `.env.example` · 신규 `docs/architecture-baseline/deploy-runbook.md`.
 - **`image:` 누락이 가장 조용한 실패다** — `compose pull`이 대상 없이 no-op 되고 `up -d`가 기존 컨테이너를 유지해 "배포는 성공인데 코드가 안 바뀐다". 그래서 `deploy` job 끝에서 컨테이너별 실행 이미지와 RepoDigest를 로그로 찍는다.
-- **GHCR 패키지의 기본 가시성은 private이다 — 저장소가 공개여도 그렇다.** 최초 실행에서 `build`는 성공하고 `deploy`만 `denied`로 실패하는 것이 정상 경로다. 패키지 2개를 public으로 전환한 뒤 `deploy` job만 re-run 한다(런북 §2).
+- GHCR 패키지 가시성: 전환 전에는 "기본 private이라 최초 실행에서 `deploy`가 `denied`로 실패하는 것이 정상"으로 예상했으나 **실측은 달랐다** — 패키지가 처음부터 pull 가능해 최초 실행이 그대로 성공했다(§8). 이후 `denied`가 나면 패키지를 public으로 전환하고 `deploy` job만 re-run 하거나 서버에서 `docker login ghcr.io`를 1회 수행한다(런북 §2).
 - **`workflow_dispatch`에는 비교 대상 커밋이 없다** — `paths-filter`를 그대로 두면 수동 배포가 아무것도 빌드하지 않는 빈 실행이 된다. 이 이벤트에서는 필터 스텝을 건너뛰고 양쪽을 무조건 빌드한다.
 - gha 캐시 `scope`를 서비스별로 나눈다(`scope=backend`/`scope=frontend`). 나누지 않으면 두 이미지가 같은 캐시 키를 두고 서로를 축출한다. GHA 캐시 한도는 저장소당 10GB(초과 시 LRU).
 - **베이스 이미지 `gradle:8-jdk21`은 `/home/gradle/.gradle`를 `VOLUME`으로 선언한다** — 빌드 중 그 경로에 쓴 내용은 레이어 커밋 시 폐기된다. 지금은 `Config.User=root`라 Gradle 캐시가 `/root/.gradle`에 쌓여 의존성 레이어가 살아남는다. 베이스가 `USER gradle`로 바뀌면 캐시가 조용히 사라지므로 Dockerfile 주석에 남겼다.
@@ -12322,7 +12322,10 @@ PG·SMS·이메일은 포트(`PaymentGateway`·`SmsSender`·`NotificationSender`
 - 검증(로컬·2026-09-23): `actionlint`(docker `rhysd/actionlint`) 저장소 전 워크플로 exit 0·지적 0건 · backend prod 이미지 빌드 성공 **585MB**(정찰 "미측정" 해소) · 컨테이너 기동 `/actuator/health` UP·Flyway 34 migrations validated · 2회차 빌드 15.5초(의존성 레이어 CACHED) · `compose config` 단독 = ghcr image 2건, dev 병합 = `zslab-mall-backend-dev`/`zslab-mall-frontend-dev` · 로컬 dev `up -d --wait` 3서비스 Healthy · 변경 6파일 UTF-8·BOM 없음·U+FFFD 0·CRLF 유지.
 
 ### §8 이월
-- **러너 빌드 시간·실제 배포 시간은 첫 배포 후 실측한다.** 지금 있는 수치는 로컬 빌드(62초/15.5초)와 사용자 제공 구 배포 시간(24분 15초)뿐이다. gha 캐시는 첫 실행에 비어 있으므로 1회차는 캐시 없는 시간이 찍힌다.
+- **첫 배포 실측(2026-09-23·PR #256)**: `deploy` job **51초**(전환 전 24분 15초·서버 빌드 포함). 이 51초는 gha 캐시가 비어 있는 1회차이며 `build` job 시간은 별도다. 서버에서 실제로 뜬 이미지의 ghcr digest를 로그로 확인했다.
+- **서버 메모리 실측(전환 후)**: 스왑 사용 5.1Gi(기준선 5.2Gi)·`so` 0·`wa` 0~1%. 기준선과 사실상 동일하다 — 배포 중 빌드 부하가 사라진 효과는 이번 회차로 분리되지 않으므로 다음 배포에서 재확인한다.
+- **GHCR public 전환은 불필요했다(실측)**: 패키지가 처음부터 pull 가능한 상태로 만들어져 최초 실행에서 `deploy`가 그대로 성공했다. 전환 전 예상(§2 트랩·런북 §2 초판)이 빗나간 지점이라 런북 §2를 실제 경과로 고쳐 썼다.
+- 잔존 정리 대상(미조치): 서버의 구 로컬빌드 태그 2개(합 638MB) · dangling 이미지 109개. dangling에는 다른 프로젝트 것이 섞여 있을 수 있어 라벨 필터 없는 일괄 prune을 하지 않았다 — `deploy` job의 라벨 필터 prune은 이 저장소 라벨이 붙은 것만 지우므로 구 로컬빌드 이미지에는 닿지 않는다(라벨이 없다). 정리는 zslab 판단.
 - 서버 sparse-checkout에서 `backend/`·`frontend/`를 **제외할 수 있다**(빌드 컨텍스트가 러너로 이동해 서버에 소스가 필요 없다). 서버 작업이라 이번 범위 밖 — `decisions-fe.md:119,171,207`의 "sparse-checkout에 frontend/ 포함" 이월 항목은 이 결정으로 방향이 반대가 된다.
 - D-162의 정합 판정식(`git diff --stat <서버HEAD> origin/main -- backend frontend docker docker-compose.mall.yml deploy.yml`)은 서버가 소스를 더 이상 체크아웃하지 않게 되면 대조 대상이 `docker`·`docker-compose.mall.yml`로 줄어든다. sparse 목록을 실제로 줄일 때 함께 갱신한다.
 - 서버 아키텍처 확인됨: `uname -m` = x86_64(amd64). 러너 `ubuntu-latest`와 같아 크로스빌드(`platforms:`)가 필요 없다 — 정찰의 "서버 확인 필요" 항목 해소.

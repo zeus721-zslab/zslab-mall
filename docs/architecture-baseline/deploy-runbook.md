@@ -19,16 +19,16 @@ Track 100(D-211)에서 서버 빌드를 걷어낸 뒤의 배포 절차다. 대�
 
 수동 배포는 Actions 화면의 `Run workflow`(workflow_dispatch). 이 경우 변경 판정을 건너뛰고 양쪽을 모두 빌드한다.
 
-## 2. 최초 전환 절차 (1회)
+## 2. 최초 전환 (완료 · 2026-09-23 실측)
 
-1. PR 머지 → `deploy.yml`이 처음 실행된다.
-2. `build` job이 두 패키지를 생성한다. **GHCR 패키지의 기본 가시성은 private이다** — 저장소가 공개여도 그렇다.
-3. `deploy` job이 `denied` 또는 `unauthorized`로 실패한다(서버에 레지스트리 자격이 없으므로 정상적인 실패다).
-4. GitHub → 프로필/조직 → Packages → `zslab-mall-backend`, `zslab-mall-frontend` → Package settings → Change visibility → **Public**.
-5. 실패한 run에서 `deploy` job만 **Re-run failed jobs**.
-6. 서버에서 실제로 뜬 이미지를 확인한다(로그에 `zslab_mall_backend -> ghcr.io/... @ ...` 형태로 남는다).
+1. PR #256 머지 → `deploy.yml` 첫 실행.
+2. `build` job이 두 패키지를 생성했고 **`deploy` job이 그대로 성공했다** — 서버가 인증 없이 pull 할 수 있었다. 사전 예상과 달리 **패키지 가시성을 public으로 바꾸는 작업은 필요 없었다**(패키지가 처음부터 pull 가능한 상태로 만들어졌다).
+3. 서버에서 실제로 뜬 이미지를 `deploy` 로그의 digest 줄(`zslab_mall_backend -> ghcr.io/... @ sha256:...`)로 확인했다.
 
-패키지를 private으로 두기로 결정하면 4번 대신 서버에서 `docker login ghcr.io`(PAT·`read:packages`)를 1회 수행해야 한다.
+앞으로 `deploy`가 `denied`/`unauthorized`로 실패한다면 패키지가 private으로 만들어진 경우다. 둘 중 하나로 처치한다.
+
+- GitHub → Packages → `zslab-mall-backend`·`zslab-mall-frontend` → Package settings → Change visibility → **Public** → 실패한 run에서 `deploy` job만 **Re-run failed jobs**
+- private을 유지하려면 서버에서 `docker login ghcr.io`(PAT·`read:packages`)를 1회 수행한다.
 
 ## 3. 롤백
 
@@ -65,6 +65,6 @@ Track 100(D-211)에서 서버 빌드를 걷어낸 뒤의 배포 절차다. 대�
 | 증상 | 원인 | 처치 |
 |---|---|---|
 | 배포는 성공인데 코드가 안 바뀜 | `compose pull`이 대상 없이 no-op | `deploy` 로그의 digest 줄 확인 → `docker-compose.mall.yml`에 `image:` 키가 있는지 확인 |
-| `deploy`가 `denied`로 실패 | 패키지가 private | §2-4 public 전환 후 job re-run |
+| `deploy`가 `denied`로 실패 | 패키지가 private | §2 후반부(public 전환 후 job re-run 또는 서버 `docker login`) |
 | `cleanup`이 실패 | 패키지 미존재(최초 실행) | 무시해도 된다(`continue-on-error`) |
 | 구 이미지로 내렸더니 기동 실패 | Flyway `validate` 불일치 | §3 마지막 문단 |
