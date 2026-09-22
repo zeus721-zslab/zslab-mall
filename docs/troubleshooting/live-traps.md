@@ -556,6 +556,7 @@ PowerShell 안전 훅이 명령 문자열 전체를 스캔해 슬래시로 시�
 - PROGRESS STEP 613·626·650
 - 보강(2026-09-21): 처치의 heredoc 우회는 짧은 본문에 한한다. 따옴표(`'`·`"`)가 섞인 긴 커밋 메시지는 Bash heredoc이 파싱 실패로 빈 메시지·구문 오류를 낸다(Track 90-E-2 STEP 815 재현) → 메시지 파일은 Write 도구 또는 스크립트로 UTF-8 no-BOM으로 쓰고 `git commit -F`로 넘긴다.
 - 보강(2026-09-21): 가운뎃점(·)도 같은 규칙으로 쉼표 치환(90-D 이후 세션 관례).
+- 보강(2026-09-22): 임시 파일(commit-msg.txt) 삭제에 `Remove-Item`을 쓰면 슬래시 경로 인자로 오인돼 같은 훅에 차단된다 → `[System.IO.File]::Delete(절대경로)` 또는 Python `os.remove`로 삭제(Track 96-7 STEP 977~979 관례).
 
 ---
 
@@ -661,6 +662,7 @@ MSYS(Git Bash) `sed -i`는 파일을 재작성하며 CRLF를 보존하지 않고
 편집 전 대상 파일의 줄바꿈을 실측(`file` 또는 python `b.count(b'\r\n')`) → 편집 → 원래 CRLF 재적용(python 바이너리 치환 또는 `unix2dos`) → `git diff --stat`·`git diff | grep -c '^-'`로 변경 줄 수가 의도한 수·삭제 0인지 확인. 다중 줄 삽입은 CRLF를 명시한 python 바이너리 append·치환이 가장 안전하다(STEP 815 "바이너리 CRLF append·삽입 21줄만").
 ### 관련
 - LT-23·LT-26(도구 환경 계열) · PROGRESS STEP 689·814·815·822·826
+- 보강(2026-09-22): Python도 텍스트 모드 `open(path).read()`는 universal newlines로 CRLF를 LF로 바꿔 읽고, `write()`는 플랫폼 줄바꿈으로 되돌리지 않으므로 같은 오염이 난다 → 읽기·쓰기 모두 `open(path, encoding='utf-8', newline='')` 또는 바이너리(`rb`/`wb`)로 CRLF를 그대로 통과시킨다(Track 96-7 PROGRESS.md·decisions 재작성 관례). `-replace`·`Set-Content` 계열은 LT-35 사유로 금지.
 
 ---
 
@@ -703,6 +705,7 @@ enum 컬럼을 정렬 키로 쓰는 쿼리의 기대값·정의 확정표는 Fly
 gradle이 끝난(또는 `gradlew --stop`) 뒤 vitest를 단독 재실행하고 그 결과로 판정한다. timeout 1차 실패는 판정에 쓰지 않으며, 훅 타임아웃 상향으로 덮지 않는다(실제 무한 대기 결함을 숨긴다). 검증 게이트 순서는 gradle → typecheck → vitest 직렬을 기본으로 한다.
 ### 관련
 - LT-22 후속 영향(Playwright 콜드 1차 폐기와 같은 판정 규칙) · FE-52 · PROGRESS STEP 728·821·827
+- 보강(2026-09-22): 원인 (3) 컨테이너 vitest 전량 실행의 기본 워커 수(논리 코어 16)만으로도 `setupNuxt` 훅이 10초를 넘겨 13~1파일이 반복 실패한다 — gradle 종료·`gradlew --stop`·호스트 잔류 프로세스 정리 뒤에도 재현. 처치: `npx vitest run --maxWorkers=2`로 실행하면 100파일 전부 통과(FE-58 §2 트랩(3)·Track 96-7 STEP 974). 단독 재실행 판정 규칙은 그대로.
 
 ---
 
@@ -717,6 +720,70 @@ IT 공용 패턴 `pid(prefix, tag)`는 `(tag + "000…").substring(0, 26)`으로
 한 테스트 안의 태그는 서로 접두어가 되지 않게 짓는다 — 자릿수를 고정(`X01`·`X10`)하거나 구분 문자를 붙인다(STEP 826은 `SPSPX1Q`). 시드 건수를 10 이상으로 늘리는 IT를 추가할 때 이 규칙을 먼저 확인한다.
 ### 관련
 - `AuditWiringIntegrationTest.pid` 등 IT 공용 패턴 · `SellerProductStatsQueryControllerIntegrationTest` T11 · PROGRESS STEP 826
+
+---
+
+## LT-35. PowerShell 5.1 `Get-Content`(인코딩 미지정)가 BOM 없는 UTF-8을 cp949로 읽어 재저장 시 한글이 이중 인코딩·일부 바이트 영구 소실 [ACTIVE]
+**발견 트랙**: Track 96-5(FE-57 §2 트랩(2) `Get-Content -Raw`+`Set-Content -Encoding utf8` 한글 소스 파괴)·Track 96-7(2026-09-22 `(Get-Content PROGRESS.md -Raw) -replace …` + `WriteAllText(UTF8)`로 PROGRESS.md 677줄 전체 파손)
+**원본 결정**: FE-57 §2 트랩(2)(단건) → 2회차 재발로 승격
+### 증상
+파일을 읽어 한 줄만 바꿔 다시 쓴 직후 한글이 `?ㅼ륫`·`愿(0x80)由ъ옄`처럼 깨지고 `?`가 대량 섞인다. 줄 끝 한글 뒤의 CR(0x0D)까지 먹혀 CRLF도 사라진다. `Set-Content -Encoding utf8`은 여기에 BOM까지 붙인다.
+### 원인
+Windows PowerShell 5.1의 `Get-Content`는 BOM이 없으면 시스템 ANSI 코드페이지(한국어 = cp949)로 디코딩한다. UTF-8 바이트열을 cp949 2바이트 쌍으로 잘못 해석한 뒤 UTF-8로 다시 인코딩하므로 이중 인코딩이 되고, cp949에 없는 바이트 조합(`0x80` 트레일·CR(0x0D)이 트레일로 소비되는 경우 등)은 `?`로 치환돼 **역변환으로도 복구되지 않는다**(cp949 encode → UTF-8 decode 역변환 결과 677줄 중 U+FFFD 없는 줄 47). git 미추적 파일(PROGRESS.md)은 복구 원본이 없다.
+### 처치
+텍스트 파일 읽기·치환·쓰기는 Python `open(path, encoding='utf-8', newline='')`(또는 바이너리)로만 한다. PowerShell `Get-Content`·`Set-Content`·`Add-Content`·`Out-File`·`-replace` 파이프는 소스·문서·PROGRESS.md 편집에 쓰지 않는다(체크박스 `[ ]`→`[x]` 같은 한 글자 치환도 동일). 쓰기 후 `b.decode('utf-8')` strict·`count(U+FFFD)==0`·CRLF 수로 즉시 검증한다. git 추적 파일이 깨지면 `git checkout -- <file>`로 복원하고, 미추적 파일은 편집 전 사본을 남긴다.
+### 후속 영향
+- PowerShell로 파일 내용을 다뤄야 하면 `-Encoding UTF8`을 명시해도 5.1은 쓰기 시 BOM을 붙이므로(`Set-Content -Encoding utf8` = BOM), 커밋 메시지·소스에는 `[System.IO.File]::WriteAllText(path, text, UTF8Encoding($false))`만 허용된다 — 단, 이 경로도 **읽기**가 `Get-Content`면 본 트랩에 걸린다.
+- 파손 사본·역변환본은 저장소 밖(`zslab-review/progress-backup/`)에 보관한다(.gitignore는 `PROGRESS.md` 한 줄만 매치).
+### 관련
+- LT-23·LT-26·LT-30(도구 환경 계열) · FE-57 §2 트랩(2) · Track 96-7 PROGRESS.md 재작성(2026-09-22)
+
+---
+
+## LT-36. vitest에서 Nuxt 코어 컴포저블(`useRouter`·`useRuntimeConfig`)을 `mockNuxtImport`로 갈아끼우면 Nuxt 앱 초기화가 깨져 케이스 전체가 skip·실패 [ACTIVE]
+**발견 트랙**: Track 90-E-1(FE-52 페이지 spec 트랩(1) `mockNuxtImport('useRouter')` → nuxt test-utils `afterEach` 셋업 파손)·Track 93(D-198 트랩 `mockNuxtImport('useRuntimeConfig')` → `app.baseURL` 파손·전 케이스 skip)
+**원본 결정**: FE-52 §2 트랩(1)·D-198 트랩(각 단건) → 2회차로 승격
+### 증상
+페이지·컴포넌트 spec에서 라우터나 runtimeConfig를 mock으로 바꾸자 해당 파일의 모든 케이스가 실패하거나 skip으로 나온다. 실패 메시지는 테스트 대상과 무관한 Nuxt 내부(`afterEach` 훅·`app.baseURL`·라우터 초기화)를 가리킨다.
+### 원인
+`@nuxt/test-utils`의 `environment: 'nuxt'`는 실제 Nuxt 앱을 부트해 `mountSuspended`·`afterEach` 정리를 수행한다. `useRouter`·`useRuntimeConfig`처럼 부트 자체가 소비하는 코어 컴포저블을 `mockNuxtImport`로 치환하면 앱 초기화가 mock을 받아 내부 상태가 깨진다. 도메인 컴포저블(`useProducts`·store)을 mock하는 FE 초기 관례(decisions-fe.md γ 채택)는 코어 컴포저블에는 적용되지 않는다.
+### 처치
+라우터는 실제 라우터를 쓰고 `mountSuspended(Comp, { route })`로 초기 경로를 주입하며, `route.query` 반영은 `vi.waitFor` 폴링·마운트한 페이지는 `afterEach`에서 unmount(FE-52 트랩(1)~(3)). runtimeConfig는 실값(apiBase 미설정 → '/api' fallback)을 그대로 쓰고 API 경계는 `$fetch`/컴포저블 mock으로 자른다(D-198). `mockNuxtImport` 대상은 도메인 컴포저블·store·`navigateTo`로 한정한다.
+### 관련
+- FE-52 §2 트랩(1)~(3) · D-198 트랩 · decisions-fe.md γ(초기 mock 경계 관례)
+
+---
+
+## LT-37. Playwright 콜드·전량 실행 시 `*_E2E_EMAIL/PASSWORD` env 미주입으로 대부분이 skip — 컨테이너 `NUXT_*_DEMO_*`를 매핑해 주입 [ACTIVE]
+**발견 트랙**: Track 96-6(D-207 §2 트랩(3) 95건 skip·"트랩 후보·1회차")·Track 96-7(STEP 974 동일 재현 → 매핑 후 105/108)
+**원본 결정**: D-207 §2 트랩(3)(단건·"재발 시 LT 승격" 명시) → 2회차로 승격
+### 증상
+`npx playwright test` 결과가 fail 0~1에 skip 90건 이상으로 나와 "통과"처럼 보이지만 실제 실행된 케이스가 거의 없다. 각 spec 상단 `test.skip(!ADMIN_EMAIL || !ADMIN_PASSWORD, '… 미설정')` 가드가 전부 발동한 것이다.
+### 원인
+e2e spec은 역할별 자격증명을 `ADMIN_E2E_*`·`SELLER_E2E_*`·`BUYER_E2E_*`(비밀번호 spec은 `SELLER_PASSWORD_E2E_*`)로만 읽고 미설정이면 skip한다. 컨테이너에는 데모 로그인용 `NUXT_ADMIN_DEMO_EMAIL/PASSWORD` 등만 주입돼 있어 이름이 다르고, `docker exec` 셸은 호스트 `.env`를 보지 않는다. skip은 Playwright 종료 코드를 올리지 않아 게이트가 통과된 것으로 오판된다.
+### 처치
+`docker exec zslab_mall_frontend sh -c 'export ADMIN_E2E_EMAIL=$NUXT_ADMIN_DEMO_EMAIL ADMIN_E2E_PASSWORD=$NUXT_ADMIN_DEMO_PASSWORD SELLER_E2E_EMAIL=$NUXT_SELLER_DEMO_EMAIL SELLER_E2E_PASSWORD=$NUXT_SELLER_DEMO_PASSWORD BUYER_E2E_EMAIL=$NUXT_BUYER_DEMO_EMAIL BUYER_E2E_PASSWORD=$NUXT_BUYER_DEMO_PASSWORD; npx playwright test --workers=2 --reporter=line'`로 실행하고, 결과 보고는 `passed/failed/skipped` 3수치를 함께 적어 skip 수가 기준선(2 = seller-password env)과 같은지 확인한다. skip이 기준선보다 크면 통과로 판정하지 않는다.
+### 후속 영향
+- 콜드 1차의 `admin-categories ①`·`seller-bank-account ①` 실패는 LT-22 후속 영향의 콜드 트랩 — env 주입과 별개로 단독 재실행으로 판정한다.
+### 관련
+- LT-22(콜드 1차 폐기) · D-207 §2 트랩(3) · FE-58 §2 검증 · `frontend/playwright.config.ts` 주석(역할별 env)
+
+---
+
+## LT-38. Bash heredoc 안 Python 코드의 문자열 이스케이프(\n·\r·\ufffd·\x80)가 셸 단계에서 실제 문자로 치환 — lone CR로 git이 파일을 -text 판정·전체 diff [ACTIVE]
+**발견 트랙**: Track 96-6(D-207 §2 트랩(2) heredoc 안 `\n`이 실제 개행으로 치환)·2026-09-22 LT 정리(live-traps.md LT-35 본문의 `\ufffd`·`\r`·`\x80`이 실제 U+FFFD·CR·0x80으로 기록 → lone CR 2개)
+**원본 결정**: D-207 §2 트랩(2)(단건) → 2회차 재발로 승격
+### 증상
+Python 코드를 `python - <<'EOF' … EOF`로 넘겨 파일을 썼는데 의도한 리터럴 문자열(`\n` 두 글자 등) 자리에 실제 개행·CR·U+FFFD·0x80 바이트가 들어간다. 이어서 `git diff --stat`이 한 파일 전체(+779/−729처럼)를 변경으로 보여 주고 `git ls-files --eol`이 `w/-text`를 출력한다. 줄 하나만 삽입했는데 diff에 삭제 줄이 수백 개 잡힌다.
+### 원인
+도구 셸 단계에서 heredoc 본문의 백슬래시 이스케이프가 한 번 풀려 Python 소스에는 이미 치환된 문자가 도달한다(`\\ufffd`로 적어도 실제 U+FFFD). 그 결과 파일에 lone CR(뒤에 LF가 없는 0x0D)이 생기면 git의 바이너리 휴리스틱이 파일을 텍스트로 보지 않아 `core.autocrlf` 정규화가 꺼지고, CRLF 파일의 모든 줄이 인덱스(LF)와 달라진 것으로 계산된다. `Set-Content`·Edit 도구 계열 트랩(LT-30·LT-35)과 달리 인코딩은 멀쩡해 육안으로는 알아채기 어렵다.
+### 처치
+Python 스크립트는 Write 도구로 `.py` 파일을 만든 뒤 `python <파일>`로 실행하고, heredoc에는 넣지 않는다. 특수 문자는 문자열 이스케이프 대신 코드로 만든다 — `chr(0x0D)`·`chr(0x0A)`·`chr(0xFFFD)`·`chr(0x80)`·`chr(0x5C)`. 문서 본문에 이런 문자를 "표기"할 때는 `CR(0x0D)`·`U+FFFD`처럼 이름으로 적는다. 쓰기 직후 검증을 고정한다: `s.count(chr(0x0D)) == s.count(chr(0x0D)+chr(0x0A))`(lone CR 0)·`chr(0xFFFD)` 0·`git ls-files --eol`이 `w/crlf`·`git diff --stat` 삭제 0.
+### 후속 영향
+- 이미 오염된 파일은 lone CR·U+FFFD·0x80 위치를 찾아 의도한 표기로 치환하면 `-text` 판정이 풀리고 diff가 삽입 줄만으로 돌아온다(2026-09-22 +50/−0 복원).
+- PROGRESS.md 같은 미추적 파일도 같은 경로로 오염되므로 기록 스크립트도 파일 실행 방식으로 통일한다.
+### 관련
+- LT-23·LT-30·LT-35(도구 환경 계열) · D-207 §2 트랩(2) · 2026-09-22 LT 정리(LT-35~37 삽입 시 재현)
 
 ---
 
