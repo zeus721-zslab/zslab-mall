@@ -25,8 +25,9 @@ import org.springframework.transaction.annotation.Transactional;
  * {@link ProductInvalidStateException}(422) 흡수·같은 트랜잭션 감사 로그)을 복제한다(관리자 무수정·셀러 서비스 관례). 소유권은
  * {@code findByPublicIdForUpdate} 후 {@code seller_id = 액터} 대조로 강제하며 타 셀러·미존재·삭제는 404로 은닉한다.
  *
- * <p><b>주체 가드</b>: 관리자 중지({@code saleStopSource=ADMIN}) 상품의 재판매는 {@link ProductStoppedByAdminException}(422
- * PRODUCT_STOPPED_BY_ADMIN)으로 거부한다 — 제재 우회 차단. 셀러 중지는 SELLER로 기록한다. 수동 품절은 제재가 아니므로 관리자가 켠
+ * <p><b>주체 가드(fail-closed)</b>: 재판매는 주체가 {@code SELLER}일 때만 허용한다. ADMIN은 물론 주체 불명(NULL·불변식이 깨진 행)도
+ * {@link ProductStoppedByAdminException}(422 PRODUCT_STOPPED_BY_ADMIN)으로 거부한다 — 제재 우회 차단·외부 검토 R1 Q7 반영. 셀러 중지는
+ * SELLER로 기록한다. 수동 품절은 제재가 아니므로 관리자가 켠
  * 품절도 셀러가 해제할 수 있다(D3 α). 감사는 actor_role=SELLER로 적재한다(D6 α·계좌 등록·송장 정정 선례).
  */
 @Slf4j
@@ -46,15 +47,16 @@ public class SellerProductSaleStatusService {
      * @param target       목표 상태(SALE·STOPPED만·DTO @Pattern으로 선검증됨)
      * @param auditContext 감사 행위자 컨텍스트(셀러 구성원)
      * @throws ProductNotFoundException       미존재·삭제·타 셀러 상품(404)
-     * @throws ProductStoppedByAdminException 관리자 중지 상품 재판매(422)
+     * @throws ProductStoppedByAdminException 주체가 SELLER가 아닌(ADMIN·NULL) 중지 상품 재판매(422)
      * @throws ProductInvalidStateException   허용 외 전이·같은 상태 재요청(422)
      */
     public void changeSaleStatus(Long sellerId, String publicId, ProductStatus target, AuditContext auditContext) {
         Product product = findOwnedForUpdate(sellerId, publicId);
         ProductStatus before = product.getStatus();
         Map<String, Object> beforeSnapshot = ProductSaleStatusService.saleStateSnapshot(product);
+        // fail-closed: 주체가 SELLER인 경우만 통과(ADMIN·NULL 모두 거부).
         if (target == ProductStatus.SALE && before == ProductStatus.STOPPED
-                && product.getSaleStopSource() == SaleStopSource.ADMIN) {
+                && product.getSaleStopSource() != SaleStopSource.SELLER) {
             throw new ProductStoppedByAdminException(
                     "관리자가 판매중지한 상품은 셀러가 재판매할 수 없습니다(운영자 문의): publicId=" + publicId);
         }

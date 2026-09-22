@@ -14,7 +14,8 @@ useSeoMeta({ title: '상품 수정 · zslab-mall 셀러' })
 
 // 상품 수정(Track 90-C-4·관리자 [id].vue 복제). 상세(90-C-1 GET)를 폼으로 변환해 띄운다. 타 셀러·미존재(404)는 안내 + 목록 이동.
 // ?partial=1은 등록 후속(이미지) 단계 실패에서 넘어온 경우(안내 표시). 저장 성공 후에는 상세를 재조회해 폼을 새로 만든다(서버 값 반영·신규 variant id 확보).
-// 판매 관리 카드(Track 96-5·D-206): 판매중지·재판매(확인 다이얼로그)·수동 품절 → 성공·stale 모두 상세 재조회(폼 재마운트).
+// 판매 관리 카드(Track 96-5·D-206·외부 검토 R2 Q9): 판매중지·재판매(확인 다이얼로그)·수동 품절은 **카드 상태(detail)만** 갱신한다 — 폼은 initial을
+// 마운트 시 clone하므로 detail 교체는 폼에 닿지 않고, formKey를 올리지 않아 저장 전 수정 내용이 유지된다. 폼 재마운트는 저장 성공(onSaved)·초기 로드만.
 const route = useRoute()
 const router = useRouter()
 const productsApi = useSellerProducts()
@@ -70,12 +71,29 @@ function onNotFound(): void {
   void navigateTo(backPath.value)
 }
 
-// ---------- 판매중지·재판매 ----------
+// ---------- 판매 관리 카드(폼 보존) ----------
 const saleAction = ref<SellerSaleAction | null>(null)
+
+/** 카드 상태만 재조회(폼 무접촉). 404는 초기 로드와 같이 "찾을 수 없음" 화면, 그 외 실패는 토스트만(폼 유지). */
+async function refreshCard(): Promise<void> {
+  try {
+    detail.value = await productsApi.detail(productPublicId.value)
+  } catch (error) {
+    if (extractErrorCode(error) === 'PRODUCT_NOT_FOUND') {
+      notFound.value = true
+    } else {
+      toast.warning(toSellerErrorMessage(error))
+    }
+  }
+}
 
 function onSaleDone(): void {
   saleAction.value = null
-  void load()
+  void refreshCard()
+}
+
+function onCardUpdated(updated: SellerProductDetail): void {
+  detail.value = updated
 }
 </script>
 
@@ -97,7 +115,7 @@ function onSaleDone(): void {
       {{ loadError }} <v-btn size="small" variant="outlined" color="error" class="ml-2" @click="load">다시 시도</v-btn>
     </v-alert>
     <template v-else-if="initial && detail">
-      <SellerProductSaleStatusCard :detail="detail" @sale-action="(action) => (saleAction = action)" @changed="load" />
+      <SellerProductSaleStatusCard :detail="detail" @sale-action="(action) => (saleAction = action)" @updated="onCardUpdated" @stale="refreshCard" />
       <SellerProductForm
         :key="formKey"
         mode="edit"

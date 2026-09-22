@@ -17,6 +17,7 @@ import { semanticChipClass } from '#layers/seller/app/lib/constants/semantic'
 // 상품 표(Track 90-C-3·v-data-table-server·관리자 AdminProductTable 복제·셀러/공급가/판매기간/품절 컬럼 없음). 페이지·크기는 부모(URL)가 소유하고
 // 표는 이벤트만 올린다. 정렬은 필터 카드의 정렬 select가 담당하므로 컬럼 정렬은 끈다. 수정 버튼은 부모가 수정 화면(90-C-4)으로 이동시킨다.
 // 행 메뉴(Track 96-5·D-206): SALE=판매중지 · STOPPED(셀러 중지)=재판매 · STOPPED(관리자 중지)=재판매 비활성+운영자 문의 · 그 외 상태는 메뉴 미노출.
+// 비활성 항목은 @click 리스너가 루트 요소에 fallthrough 되어 프로그램 클릭·키보드로 발화할 수 있으므로 emit 앞에서 한 번 더 막는다(fail-closed·R2 Q10 실측).
 defineProps<{
   items: SellerProductSummary[]
   totalCount: number
@@ -139,7 +140,7 @@ function markBroken(productPublicId: string): void {
               :disabled="saleActionOf(item).disabled"
               lines="two"
               data-testid="row-sale-action"
-              @click="emit('saleAction', item, saleActionOf(item).action!)"
+              @click="!saleActionOf(item).disabled && emit('saleAction', item, saleActionOf(item).action!)"
             />
           </v-list>
         </v-menu>

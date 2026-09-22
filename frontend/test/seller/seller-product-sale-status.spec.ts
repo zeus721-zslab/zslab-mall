@@ -184,8 +184,9 @@ describe('SellerProductSaleStatusCard', () => {
     expect(body().querySelector('[data-testid="sale-card-note"]')?.textContent).toContain('승인·반려는 관리자가 처리')
   })
 
-  it('품절 스위치 → changeSoldOut(true) · success 토스트 · changed / 실패 → warning 토스트 · changed(서버 값 재조회)', async () => {
-    productsApiMock.changeSoldOut.mockResolvedValueOnce({})
+  it('품절 스위치 성공 → changeSoldOut(true) · success 토스트 · updated(응답 상세·재조회 없음) / 500 실패 → warning · 스위치 원복 · updated/stale 없음 / 404·422 → stale', async () => {
+    const updatedDetail = { productPublicId: 'prd_sale', name: '판매중 상품', status: 'SALE', soldoutManual: true }
+    productsApiMock.changeSoldOut.mockResolvedValueOnce(updatedDetail)
     const wrapper = await mountCard({ status: 'SALE', soldoutManual: false })
     const toggle = body().querySelector<HTMLInputElement>('[data-testid="sale-card-soldout"] input')
     if (!toggle) throw new Error('품절 스위치 없음')
@@ -193,15 +194,82 @@ describe('SellerProductSaleStatusCard', () => {
     await flushPromises()
     expect(productsApiMock.changeSoldOut).toHaveBeenCalledWith('prd_sale', true)
     expect(toastMock.success).toHaveBeenCalledWith(expect.stringContaining('수동 품절로 설정'))
-    expect(wrapper.emitted('changed')).toHaveLength(1)
+    expect(wrapper.emitted('updated')?.[0]).toEqual([updatedDetail])
+    expect(wrapper.emitted('stale')).toBeUndefined()
 
-    // 부모가 재조회해 서버 값(true)을 내려준 뒤 해제 시도 실패 → warning + changed(스위치는 서버 값으로 복귀).
-    await wrapper.setProps({ detail: { productPublicId: 'prd_sale', name: '판매중 상품', status: 'SALE', soldoutManual: true } })
-    productsApiMock.changeSoldOut.mockRejectedValueOnce({ status: 404, data: { code: 'PRODUCT_NOT_FOUND' } })
+    // 부모가 응답으로 detail을 갱신(soldoutManual true) → 해제 시도 500 실패 → warning · 재조회(stale) 없음 · 스위치는 서버 값(true)으로 원복.
+    await wrapper.setProps({ detail: updatedDetail })
+    productsApiMock.changeSoldOut.mockRejectedValueOnce({ status: 500, data: { code: 'INTERNAL_ERROR' } })
     toggle.click()
     await flushPromises()
     expect(productsApiMock.changeSoldOut).toHaveBeenLastCalledWith('prd_sale', false)
+    expect(toastMock.warning).toHaveBeenCalledWith(expect.stringContaining('서버 오류'))
+    expect(wrapper.emitted('stale')).toBeUndefined()
+    expect(wrapper.emitted('updated')).toHaveLength(1)
+    expect(toggle.checked).toBe(true)
+
+    // 404(상품 사라짐)·422(상태 변경)는 카드 상태만 재조회하도록 stale.
+    productsApiMock.changeSoldOut.mockRejectedValueOnce({ status: 404, data: { code: 'PRODUCT_NOT_FOUND' } })
+    toggle.click()
+    await flushPromises()
     expect(toastMock.warning).toHaveBeenCalledWith(expect.stringContaining('상품을 찾을 수 없습니다'))
-    expect(wrapper.emitted('changed')).toHaveLength(2)
+    expect(wrapper.emitted('stale')).toHaveLength(1)
+    expect(toggle.checked).toBe(true)
+  })
+
+  it('fail-closed(R2 Q10): STOPPED+ADMIN·STOPPED+주체 없음 카드의 재판매 버튼은 비활성이라 클릭해도 saleAction 미발생·changeSaleStatus 호출 0', async () => {
+    for (const saleStopSource of ['ADMIN', undefined] as const) {
+      document.body.innerHTML = ''
+      const wrapper = await mountCard({ status: 'STOPPED', saleStopSource, soldoutManual: false })
+      const button = body().querySelector<HTMLButtonElement>('[data-testid="sale-card-action"]')
+      expect(button?.disabled, String(saleStopSource)).toBe(true)
+      button?.click()
+      await flushPromises()
+      expect(wrapper.emitted('saleAction')).toBeUndefined()
+    }
+    expect(productsApiMock.changeSaleStatus).not.toHaveBeenCalled()
+  })
+})
+
+describe('SellerProductTable 행 메뉴 fail-closed(R2 Q10)', () => {
+  beforeEach(() => {
+    document.body.innerHTML = ''
+    vi.clearAllMocks()
+    vi.stubGlobal('visualViewport', { width: 1280, height: 800, scale: 1, offsetLeft: 0, offsetTop: 0, addEventListener: () => {}, removeEventListener: () => {} })
+  })
+
+  it('STOPPED+ADMIN·STOPPED+주체 없음 행: 메뉴 항목 비활성 + 문의 안내 · 클릭해도 saleAction 미발생 / STOPPED+SELLER 행: 클릭 → saleAction(RESUME)', async () => {
+    const rows = [
+      { ...BASE, productPublicId: 'prd_admin', name: '관리자 중지', status: 'STOPPED' as const, saleStopSource: 'ADMIN' as const },
+      { ...BASE, productPublicId: 'prd_null', name: '주체 없음', status: 'STOPPED' as const },
+      { ...BASE, productPublicId: 'prd_seller', name: '셀러 중지', status: 'STOPPED' as const, saleStopSource: 'SELLER' as const },
+    ]
+    const wrapper = await mountSuspended(SellerProductTable, {
+      props: { items: rows, totalCount: 3, page: 0, size: 20, loading: false },
+      global: { plugins: [createVuetify()] },
+      attachTo: document.body,
+    })
+    const menus = body().querySelectorAll<HTMLButtonElement>('[data-testid="row-menu"]')
+    expect(menus).toHaveLength(3)
+    for (const index of [0, 1]) {
+      menus[index]?.click()
+      await flushPromises()
+      const item = Array.from(body().querySelectorAll<HTMLElement>('[data-testid="row-sale-action"]')).at(-1)
+      expect(item?.className, `row ${index}`).toContain('v-list-item--disabled')
+      expect(item?.textContent).toContain('운영자에게 문의')
+      item?.click()
+      await flushPromises()
+      expect(wrapper.emitted('saleAction')).toBeUndefined()
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+      await flushPromises()
+    }
+    menus[2]?.click()
+    await flushPromises()
+    const enabled = Array.from(body().querySelectorAll<HTMLElement>('[data-testid="row-sale-action"]')).at(-1)
+    expect(enabled?.className).not.toContain('v-list-item--disabled')
+    enabled?.click()
+    await flushPromises()
+    expect(wrapper.emitted('saleAction')?.[0]).toEqual([rows[2], 'RESUME'])
+    expect(productsApiMock.changeSaleStatus).not.toHaveBeenCalled()
   })
 })

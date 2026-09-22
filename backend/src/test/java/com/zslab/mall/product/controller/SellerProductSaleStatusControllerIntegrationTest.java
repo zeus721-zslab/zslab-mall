@@ -352,6 +352,21 @@ class SellerProductSaleStatusControllerIntegrationTest extends AbstractIntegrati
         assertAuditCount(P_SELLER, 0);
     }
 
+    @Test
+    @DisplayName("T16 외부 검토 R1 Q7(fail-closed): STOPPED·sale_stop_source NULL(불변식 깨진 행)에 셀러 재판매 → 422 PRODUCT_STOPPED_BY_ADMIN·행 불변·감사 0")
+    void resume_stoppedWithNullSource_returns422() throws Exception {
+        jdbc.update("UPDATE product SET sale_stop_source = NULL WHERE id = ?", P_SELLER);
+        assertProduct(P_SELLER, "STOPPED", null, false);
+
+        mockMvc.perform(post(saleStatusUrl(P_SELLER_PID)).headers(authHeaders.seller(USER_A))
+                        .contentType(MediaType.APPLICATION_JSON).content(RESUME_BODY))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("PRODUCT_STOPPED_BY_ADMIN"));
+
+        assertProduct(P_SELLER, "STOPPED", null, false);
+        assertAuditCount(P_SELLER, 0);
+    }
+
     // ==================== 불변식 ====================
 
     @Test
