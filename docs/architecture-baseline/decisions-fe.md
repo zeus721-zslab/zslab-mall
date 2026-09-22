@@ -2422,3 +2422,25 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 ### §8 이월
 - 셀러 `SellerProductTable.vue:143` 인라인 `!disabled &&` 가드를 함수 공유 방식으로 통일 — 동작 동일이라 요구 발생 시.
 - 외부 검토: C(FE 전용).
+
+## FE-59: 결제창 URL 분기 — redirectUrl origin으로 Mock 내부 경로/실 PG 외부 이동 판정 (Track 97 D-209) (2026-09-22)
+
+배경: 체크아웃 응답 `payment.redirectUrl`을 `checkout/index.vue`의 `goToMockPayment`가 `new URL()`로 파싱해 쿼리 `attemptKey`·`amount`·`method`를 내부 `/payment/mock`으로만 옮겼다(정찰 docs/track-97/recon-report-readiness.md §1-4). 실 PG 결제창 URL이 오면 쿼리 파싱 가정이 깨져 attemptKey 빈 문자열로 `/payment/mock` "결제 정보가 없습니다"에 빠지고, 외부로 이동하는 분기가 없었다. BE는 D-209로 `zslab.payment.gateway` 프로퍼티 게이트를 갖췄으므로 FE도 실 PG URL을 받았을 때 코드 수정 없이 동작해야 한다.
+
+결정:
+- **판정은 순수 함수** `frontend/app/lib/payment-redirect.ts:13-29` `resolvePaymentRedirect(redirectUrl, location)` → `{ kind: 'mock', path }` | `{ kind: 'external', url }`. `url.origin !== MOCK_PG_ORIGIN`(:15)이면 external(URL 그대로), 같으면 기존과 동일한 `/payment/mock?attemptKey&amount&method&orderPublicId` 경로(:18-27·Location 헤더 마지막 세그먼트 = orderPublicId). URL 파싱 실패는 `new URL()`의 TypeError를 그대로 전파(기존 동작·호출자 catch가 일반 오류 안내).
+- `MOCK_PG_ORIGIN = 'https://mock-pg.zslab.local'` — `frontend/app/lib/constants/payment.ts:7`(BE `MockPaymentGateway.java:21` `MOCK_CHECKOUT_BASE`와 같은 리터럴·주석으로 상호 참조).
+- 호출부 `frontend/app/pages/checkout/index.vue:149-156` `goToPayment`: external → `navigateTo(redirect.url, { external: true })`, mock → `navigateTo(redirect.path)`. 호출 지점 :203. `/payment/mock` 페이지·`useCheckout.sendPaymentCallback` 무변경.
+
+### §1-A 갈림길·채택/기각 근거
+- **origin 판별 【채택: BE Mock URL이 고정 리터럴이라 판정이 결정적·쿼리 유무보다 명확·실 PG는 코드 무수정】** / FE 설정 키(runtimeConfig `paymentGateway` 등)로 mock/실 분기 【기각: BE `PAYMENT_GATEWAY`와 이중 관리·둘이 어긋나면 결제창 진입 실패】 / 쿼리 `attemptKey` 존재 여부 【기각: 실 PG URL도 임의 쿼리를 가질 수 있음】 / BE 응답에 provider 필드 추가 【기각: 계약 변경·이번 범위 밖(D-209 §1-A)】.
+- **`navigateTo(url, { external: true })` 【채택: Nuxt 관례·SSR/CSR 공통】** / `window.location.assign` 【기각: SSR 가드 필요·테스트 어려움】.
+
+### §2 확정 구현 규칙·트랩
+- 변경: `lib/payment-redirect.ts` 신규 · `lib/constants/payment.ts` +`MOCK_PG_ORIGIN` · `pages/checkout/index.vue`(`goToMockPayment` → `goToPayment`·판정 위임) · `test/unit/payment-redirect.spec.ts` 신규 5(Mock origin 경로·Location 없음·외부 origin·스킴/포트 상이 → external·잘못된 URL TypeError).
+- 검증: typecheck 0 · vitest `--maxWorkers=2` 전체 651 passed·13 skipped(664 = 659 + 5·1회차 Hook timeout 2파일은 단독 재실행 통과·LT-33) · Playwright 106/108(기준선) — `e2e/mock-payment.spec.ts` 무수정 통과가 Mock 경로 회귀 증거 · 로컬 API 수동 1회에서 redirectUrl origin = `https://mock-pg.zslab.local` 확인.
+- 트랩: 호스트 `node_modules`에 `vite-plugin-vuetify`가 없어 호스트 vitest 기동 실패 → 컨테이너 `docker exec zslab_mall_frontend` 실행(D-209 §2 트랩 3).
+
+### §8 이월
+- 실 PG 전환 시 결제창에서 돌아오는 return URL 페이지 신설·`pages/payment/mock.vue`·mock e2e 처리(docs/architecture-baseline/real-service-switch-guide.md §1-1·§1-6).
+- 외부 검토: C(FE 전용).
