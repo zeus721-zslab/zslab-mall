@@ -31,7 +31,7 @@ import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.order.repository.SellerGrossProjection;
 import com.zslab.mall.order.service.OrderAutoConfirmService;
-import com.zslab.mall.payment.gateway.MockRefundResponse;
+import com.zslab.mall.payment.gateway.PgRefundResponse;
 import com.zslab.mall.payment.gateway.PaymentGateway;
 import com.zslab.mall.refund.enums.RefundStatus;
 import com.zslab.mall.refund.repository.RefundRepository;
@@ -142,7 +142,7 @@ class ClaimExchangeIntegrationTest extends AbstractIntegrationTest {
     @BeforeEach
     void setUp() {
         tx = new TransactionTemplate(txManager);
-        when(paymentGateway.refund(any(), any())).thenAnswer(invocation -> new MockRefundResponse(
+        when(paymentGateway.refund(any(), any())).thenAnswer(invocation -> new PgRefundResponse(
                 "mock_rfn_exc_" + UlidCreator.getMonotonicUlid(), true, null));
         cleanup();
         seed(() -> {

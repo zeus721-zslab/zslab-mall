@@ -18,7 +18,7 @@ import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.payment.entity.Payment;
 import com.zslab.mall.payment.enums.PaymentMethod;
 import com.zslab.mall.payment.enums.PaymentStatus;
-import com.zslab.mall.payment.gateway.MockRefundResponse;
+import com.zslab.mall.payment.gateway.PgRefundResponse;
 import com.zslab.mall.payment.gateway.PaymentGateway;
 import com.zslab.mall.payment.gateway.PaymentGatewayException;
 import com.zslab.mall.payment.repository.PaymentRepository;
@@ -164,7 +164,7 @@ class RefundServiceTest {
         stubPaymentGraph(PAYMENT_AMOUNT);
         when(refundRepository.sumCompletedByPaymentId(PAYMENT_ID)).thenReturn(0L);
         when(refundRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
-        when(paymentGateway.refund(any(), any())).thenReturn(new MockRefundResponse(PG_REFUND_ID, true, null));
+        when(paymentGateway.refund(any(), any())).thenReturn(new PgRefundResponse(PG_REFUND_ID, true, null));
 
         Refund result = refundService.initiate(CLAIM_ID, REFUND_AMOUNT);
 

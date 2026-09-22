@@ -13,7 +13,7 @@ import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.enums.OrderStatus;
 import com.zslab.mall.order.event.OrderPlaced;
 import com.zslab.mall.payment.event.PaymentCompleted;
-import com.zslab.mall.payment.gateway.MockRefundResponse;
+import com.zslab.mall.payment.gateway.PgRefundResponse;
 import com.zslab.mall.payment.gateway.PaymentGateway;
 import java.time.LocalDateTime;
 import org.junit.jupiter.api.AfterEach;
@@ -135,7 +135,7 @@ class NotificationLogIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("T4 ClaimApproved 발행 → NotificationLog 1건·target=CLAIM·TPL_CLAIM_APPROVED·refund 자동 트리거와 공존")
     void claimApproved_recordsNotificationLog_coexistsWithRefund() {
         seedGraph(OrderStatus.PAID, OrderItemStatus.PAID, ClaimStatus.APPROVED, ClaimType.CANCEL);
-        when(paymentGateway.refund(any(), any())).thenReturn(new MockRefundResponse(PG_REFUND_ID, true, null));
+        when(paymentGateway.refund(any(), any())).thenReturn(new PgRefundResponse(PG_REFUND_ID, true, null));
 
         tx.executeWithoutResult(s -> eventPublisher.publishEvent(new ClaimApproved(
                 CLAIM_ID, CLAIM_PID, ORDER_ITEM_ID, ClaimType.CANCEL, ClaimStatus.APPROVED, LocalDateTime.now())));

@@ -9,7 +9,7 @@ import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.event.ClaimApproved;
 import com.zslab.mall.common.observability.TracedEventPublisher;
 import com.zslab.mall.order.enums.OrderItemStatus;
-import com.zslab.mall.payment.gateway.MockRefundResponse;
+import com.zslab.mall.payment.gateway.PgRefundResponse;
 import com.zslab.mall.payment.gateway.PaymentGateway;
 import com.zslab.mall.payment.gateway.PaymentGatewayException;
 import java.time.LocalDateTime;
@@ -85,7 +85,7 @@ class RefundAutoTriggerIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("I1 자동 트리거: ClaimApproved(CANCEL) 발행 → 핸들러 → Refund PENDING 1건·amount=OrderItem.totalPrice")
     void claimApproved_triggersRefundPending() {
         seedGraph(ClaimStatus.APPROVED, ClaimType.CANCEL);
-        when(paymentGateway.refund(any(), any())).thenReturn(new MockRefundResponse(PG_REFUND_ID, true, null));
+        when(paymentGateway.refund(any(), any())).thenReturn(new PgRefundResponse(PG_REFUND_ID, true, null));
 
         publishApproved();
 
@@ -99,7 +99,7 @@ class RefundAutoTriggerIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("I2 멱등: ClaimApproved 재발행 → 활성 PENDING 존재 → 추가 Refund 미생성(count=1·D-94 Q6)")
     void claimApproved_reDelivered_idempotentNoNewRow() {
         seedGraph(ClaimStatus.APPROVED, ClaimType.CANCEL);
-        when(paymentGateway.refund(any(), any())).thenReturn(new MockRefundResponse(PG_REFUND_ID, true, null));
+        when(paymentGateway.refund(any(), any())).thenReturn(new PgRefundResponse(PG_REFUND_ID, true, null));
 
         publishApproved();
         publishApproved(); // 활성 Refund 존재 → Service 멱등 게이트 no-op
