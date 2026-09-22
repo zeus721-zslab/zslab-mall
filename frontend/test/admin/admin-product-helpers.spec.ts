@@ -3,6 +3,15 @@ import { extractErrorCode, toAdminErrorMessage, toBulkFailureMessage } from '#la
 import { formatSalePeriod, formatWon } from '#layers/admin/app/lib/format'
 import { ADMIN_PRODUCT_ALLOWED_TRANSITIONS, ADMIN_PRODUCT_STATUS_TARGETS } from '#layers/admin/app/lib/constants/product'
 import { resolveActiveMenuPath } from '#layers/admin/app/lib/constants/admin-menu'
+import {
+  ESCALATE_STOP_TITLE,
+  countEscalated,
+  escalateConfirmMessage,
+  isEscalation,
+  saleStopSourceAfterAdminChange,
+  statusTargetTitle,
+  statusTargetsFor,
+} from '#layers/admin/app/lib/admin-product-view'
 
 // FE-25: 에러 코드 메시지·표 포맷·허용 전이·하위 경로 메뉴 활성.
 describe('admin-error-message', () => {
@@ -48,6 +57,32 @@ describe('허용 전이(상태 전환 메뉴 비활성 근거)', () => {
     // 메뉴는 3항목 고정이며 허용 목록의 값은 전부 메뉴에 존재한다.
     const menuValues = ADMIN_PRODUCT_STATUS_TARGETS.map((target) => target.value)
     Object.values(ADMIN_PRODUCT_ALLOWED_TRANSITIONS).flat().forEach((value) => expect(menuValues).toContain(value))
+  })
+})
+
+describe('제재 전환(D-206 보정·FE-57)', () => {
+  it('셀러 중지 상품만 STOPPED 목표가 열리고 라벨은 "관리자 중지로 전환" · 관리자 중지·SALE·PENDING은 기존 전이표 그대로', () => {
+    const sellerStopped = { status: 'STOPPED' as const, saleStopSource: 'SELLER' as const }
+    const adminStopped = { status: 'STOPPED' as const, saleStopSource: 'ADMIN' as const }
+    expect(statusTargetsFor(sellerStopped)).toEqual(['SALE', 'STOPPED'])
+    expect(statusTargetsFor(adminStopped)).toEqual(['SALE'])
+    expect(statusTargetsFor({ status: 'STOPPED' })).toEqual(['SALE']) // 주체 불명은 fail-closed(전환 안 열림)
+    expect(statusTargetsFor({ status: 'SALE' })).toEqual(['STOPPED'])
+    expect(statusTargetsFor({ status: 'PENDING' })).toEqual(['SALE', 'REJECTED'])
+    expect(isEscalation(sellerStopped, 'STOPPED')).toBe(true)
+    expect(isEscalation(sellerStopped, 'SALE')).toBe(false)
+    expect(isEscalation({ status: 'SALE' }, 'STOPPED')).toBe(false)
+    expect(statusTargetTitle(sellerStopped, 'STOPPED')).toBe(ESCALATE_STOP_TITLE)
+    expect(statusTargetTitle({ status: 'SALE' }, 'STOPPED')).toBe('판매중지로')
+    expect(statusTargetTitle(sellerStopped, 'SALE')).toBe('판매중으로')
+    expect(escalateConfirmMessage('반찬통')).toContain('셀러는 재판매할 수 없게')
+    expect(saleStopSourceAfterAdminChange('STOPPED')).toBe('ADMIN')
+    expect(saleStopSourceAfterAdminChange('SALE')).toBeUndefined()
+    expect(countEscalated({ results: [
+      { productPublicId: 'a', success: true },
+      { productPublicId: 'b', success: true, code: 'ESCALATED_TO_ADMIN' },
+      { productPublicId: 'c', success: false, code: 'PRODUCT_INVALID_STATE', message: 'x' },
+    ], successCount: 2, failureCount: 1 })).toBe(1)
   })
 })
 

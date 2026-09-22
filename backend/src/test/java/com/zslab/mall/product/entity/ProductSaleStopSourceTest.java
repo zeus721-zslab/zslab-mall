@@ -40,6 +40,24 @@ class ProductSaleStopSourceTest {
     }
 
     @Test
+    @DisplayName("escalateStopToAdmin(보정): STOPPED·SELLER → ADMIN(status 유지) / SALE·PENDING·STOPPED·ADMIN → IllegalStateException·불변")
+    void escalateStopToAdmin_onlyFromSellerStop() {
+        Product sellerStopped = saleProduct();
+        sellerStopped.stopSale(SaleStopSource.SELLER);
+        sellerStopped.escalateStopToAdmin();
+        assertThat(sellerStopped.getStatus()).isEqualTo(ProductStatus.STOPPED);
+        assertThat(sellerStopped.getSaleStopSource()).isEqualTo(SaleStopSource.ADMIN);
+        assertThatThrownBy(sellerStopped::escalateStopToAdmin).isInstanceOf(IllegalStateException.class);
+        assertThat(sellerStopped.getSaleStopSource()).isEqualTo(SaleStopSource.ADMIN);
+
+        Product sale = saleProduct();
+        assertThatThrownBy(sale::escalateStopToAdmin).isInstanceOf(IllegalStateException.class);
+        assertThat(sale.getSaleStopSource()).isNull();
+        Product pending = Product.create(1L, 1L, "상품", null, 1000L, null);
+        assertThatThrownBy(pending::escalateStopToAdmin).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
     @DisplayName("전이 위반: PENDING·STOPPED에서 stopSale → IllegalStateException·주체 미기록 / SALE에서 resumeSale → IllegalStateException")
     void illegalTransitions_doNotRecordSource() {
         Product pending = Product.create(1L, 1L, "상품", null, 1000L, null);

@@ -2380,3 +2380,9 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 
 ### §8 이월
 - 일괄 판매중지(D-206 §8) · 목록 행 품절 토글(목록 응답 soldoutManual 추가 시).
+
+### 보정(2026-09-22 · 같은 브랜치) — 관리자 "관리자 중지로 전환" 액션(D-206 보정)
+- 순수 함수(`lib/admin-product-view.ts`): `isSellerStopped`·`isEscalation(item, target)`·`statusTargetsFor(item)`(셀러 중지 상품만 기본 전이표 + STOPPED·주체 불명은 fail-closed로 안 열림)·`statusTargetTitle`(그 STOPPED 항목만 "관리자 중지로 전환")·`escalateConfirmMessage`(전환 후 셀러 재판매 불가 고지)·`saleStopSourceAfterAdminChange`(STOPPED→ADMIN·SALE→undefined)·`countEscalated`(bulk 성공 code).
+- 목록 `AdminProductTable` 행 메뉴 라벨 분기 → 페이지 `requestStatusChange`가 전환이면 `AdminConfirmDialog`(`admin-escalate-dialog`·warning) 경유 후 `changeStatus` → 행 patch에 saleStopSource 반영·토스트 "→ 관리자 중지로 전환". 수정 폼 `AdminProductForm` 상태 전환 메뉴 동일(다이얼로그 내장). `AdminBulkResultDialog`에 "성공 중 N건 관리자 중지로 전환" 줄(`bulk-result-escalated`).
+- 트랩: Playwright `page.route`는 **나중 등록이 우선** — `**/admin/products/prd_*`(continue) 핸들러보다 뒤에 sale-status mock을 등록해야 실 BE로 새지 않는다.
+- 테스트: vitest `admin-product-helpers.spec.ts` +1(전이·라벨·문구·주체·집계) · e2e `admin-products.spec.ts` ⑧(관리자 중지 행 STOPPED 비활성 / 셀러 중지 행 "관리자 중지로 전환" → 다이얼로그 → POST STOPPED 캡처 → 라벨 "관리자 중지"·토스트).

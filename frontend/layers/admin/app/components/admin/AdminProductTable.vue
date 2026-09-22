@@ -2,7 +2,6 @@
 import { mdiDotsVertical, mdiImageOffOutline, mdiPencilOutline, mdiTrashCanOutline } from '@mdi/js'
 import type { AdminProductSummary } from '#layers/admin/app/types/admin-product'
 import {
-  ADMIN_PRODUCT_ALLOWED_TRANSITIONS,
   ADMIN_PRODUCT_PAGE_SIZES,
   ADMIN_PRODUCT_STATUS_LABEL,
   ADMIN_SALE_STOP_SOURCE_LABEL,
@@ -11,7 +10,7 @@ import {
   type AdminProductStatusTarget,
 } from '#layers/admin/app/lib/constants/product'
 import { formatSalePeriod, formatWon } from '#layers/admin/app/lib/format'
-import { soldOutLabel } from '#layers/admin/app/lib/admin-product-view'
+import { soldOutLabel, statusTargetTitle, statusTargetsFor } from '#layers/admin/app/lib/admin-product-view'
 import { semanticChipClass } from '#layers/admin/app/lib/constants/semantic'
 
 // 상품 표(FE-25·v-data-table-server). 페이지·크기는 부모(URL)가 소유하고 표는 이벤트만 올린다. 정렬은 필터 카드의 정렬 select가
@@ -56,8 +55,9 @@ function markBroken(productPublicId: string): void {
   brokenThumbnails.value = new Set(brokenThumbnails.value).add(productPublicId)
 }
 
+// D-206 보정: 셀러 중지 상품은 STOPPED 목표가 "관리자 중지로 전환"으로 열린다(순수 함수·vitest).
 function allowedTargets(item: AdminProductSummary): AdminProductStatusTarget[] {
-  return ADMIN_PRODUCT_ALLOWED_TRANSITIONS[item.status] ?? []
+  return statusTargetsFor(item)
 }
 
 function isPending(item: AdminProductSummary): boolean {
@@ -176,7 +176,7 @@ function isPending(item: AdminProductSummary): boolean {
             <v-list-item
               v-for="target in ADMIN_PRODUCT_STATUS_TARGETS"
               :key="target.value"
-              :title="target.title"
+              :title="statusTargetTitle(item, target.value)"
               :disabled="!allowedTargets(item).includes(target.value)"
               :data-testid="`row-status-${target.value}`"
               @click="emit('changeStatus', item, target.value)"

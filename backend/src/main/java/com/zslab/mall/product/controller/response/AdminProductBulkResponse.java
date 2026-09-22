@@ -4,7 +4,8 @@ import java.util.List;
 
 /**
  * 일괄 변경 결과(Track 76). 항목별 독립 트랜잭션이라 부분 실패가 가능하며, 실패 항목은 code(기존 에러 코드·PRODUCT_NOT_FOUND·
- * PRODUCT_INVALID_STATE)와 message를 담는다. HTTP는 항상 200이고 성공/실패 집계는 본 응답으로 판단한다.
+ * PRODUCT_INVALID_STATE)와 message를 담는다. 성공 항목의 code는 보통 null이며, 셀러 중지 → 관리자 중지 전환(D-206 보정)만
+ * {@code ESCALATED_TO_ADMIN}으로 구분한다. HTTP는 항상 200이고 성공/실패 집계는 본 응답으로 판단한다.
  */
 public record AdminProductBulkResponse(List<Item> results, int successCount, int failureCount) {
 

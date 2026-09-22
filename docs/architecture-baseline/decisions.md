@@ -12085,3 +12085,13 @@ EXPLAIN(로컬 읽기·seller 4·30일): 입고 합 = product PRIMARY index scan
 - DB CHECK 불변식(기존 IT 시드 9곳 STOPPED 주체 보강 후).
 - 셀러 목록 행 메뉴 품절 토글(목록 응답에 soldoutManual 없음·상세 화면 카드로 제공).
 - 셀러 상품 수정(PUT 3종) 감사 로그(90-C-2 이월 유지).
+
+### 보정(2026-09-22 · 같은 브랜치) — 셀러 중지 상품의 관리자 제재 전환(SELLER → ADMIN)
+- **결함**: `Product.stopSale`은 SALE에서만 허용 → STOPPED(SELLER) 상품에 관리자 중지 요청이 422. 관리자가 제재하려면 재판매 → 재중지 2단계(그 사이 순간 판매 노출)이고, 안 하면 셀러가 계속 재판매 가능(제재 우회 잔존).
+- **규칙**: 관리자 STOPPED 요청이 STOPPED(SELLER) 상품에 오면 status 유지·`saleStopSource`만 ADMIN으로 전환·감사 diff는 saleStopSource SELLER→ADMIN만(status 키 없음). STOPPED(ADMIN) 재요청은 기존대로 422 PRODUCT_INVALID_STATE(오조작 감지). 셀러 경로에는 ADMIN→SELLER로 바꾸는 수단이 없다(셀러 중지 요청이 STOPPED에 오면 주체 무관 422·source 불변). 단건·bulk 동일 규칙, bulk 성공 항목 code `ESCALATED_TO_ADMIN`으로 전환 건 구분.
+- **구현**: `Product.escalateStopToAdmin()`(STOPPED·SELLER가 아니면 IllegalStateException → Service 422·`stopSale` 시그니처·가드 유지) · `ProductSaleStatusService.changeSaleStatus`는 `SaleStatusChange(product, escalated)` 반환 — STOPPED 요청 ∧ 현재 STOPPED → escalate / SALE → `stopSale(ADMIN)` / 그 외 422 · `AdminProductBulkService.execute`가 `Supplier<String>`(성공 구분 코드) · `AdminProductBulkResponse` Javadoc.
+- **§1-A**: 재판매 후 재중지 2단계 【기각: 순간 판매 노출·감사 2행】 / 셀러 재판매 시 관리자 확인 절차 【기각: 셀프 전환 목표 훼손】 / **주체 상향 전용 mutator 【채택】** · escalate를 `stopSale`에 흡수(STOPPED 허용) 【기각: canTransitionTo 의미(같은 상태 재요청 422) 훼손】.
+- **RED**: 관리자 IT T16 `expected 200 → was 422` · bulk 혼합 `successCount expected 2 → was 1` → 구현 후 GREEN.
+- **테스트**: 관리자 IT T16(전환·감사 diff)·T17(ADMIN 재요청 422·감사 0) · bulk 혼합 [SALE·STOPPED SELLER·STOPPED ADMIN·PENDING] → 성공 2(code null / ESCALATED_TO_ADMIN)·실패 2·source 전건 ADMIN · 셀러 IT T14(전환 후 셀러 재판매 422·감사 ADMIN 1행)·T15(셀러 STOPPED 중지 재요청 422·source 불변) · 엔티티 단위 +1 · 불변식 T13 재실행.
+- **검증**: `./gradlew.bat test --rerun-tasks` 240파일 **1415·0 fail·0 error·0 skip**(1409 + 6) · typecheck 0 · vitest 99파일 **655**(654 + 1) · no-admin-import 통과 · Playwright 관리자 상품·셀러 상품 spec 웜 **11/11**(신규 ⑧ 포함) · 라이브: 셀러 중지 → 관리자 STOPPED 요청 → STOPPED/ADMIN·재요청 422·셀러 재판매 422·bulk ADMIN 실패 PRODUCT_INVALID_STATE / SELLER 성공 ESCALATED_TO_ADMIN·데모 상품 원복.
+- FE: FE-57 보정 참조.

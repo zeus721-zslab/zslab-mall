@@ -18,10 +18,10 @@ const ITEMS = [
   },
 ]
 
-interface Captured { listQueries: URLSearchParams[]; patches: { url: string; body: string }[]; bulkBodies: string[] }
+interface Captured { listQueries: URLSearchParams[]; patches: { url: string; body: string }[]; bulkBodies: string[]; saleStatusBodies: { url: string; body: string }[] }
 
 async function mockAdminApi(page: Page, options: { deleteStatus?: number; items?: (typeof ITEMS[number] & { saleStopSource?: 'ADMIN' | 'SELLER' })[] } = {}): Promise<Captured> {
-  const captured: Captured = { listQueries: [], patches: [], bulkBodies: [] }
+  const captured: Captured = { listQueries: [], patches: [], bulkBodies: [], saleStatusBodies: [] }
   const items = options.items ?? ITEMS
   await page.route('**/api/v1/admin/sellers', (route) =>
     route.fulfill({ json: [{ sellerPublicId: 'slr_E2E1', companyName: 'E2E셀러', status: 'ACTIVE' }] }))
@@ -50,6 +50,14 @@ async function mockAdminApi(page: Page, options: { deleteStatus?: number; items?
       return route.fulfill({ status })
     }
     return route.continue()
+  })
+  // D-206 보정(prd_* 핸들러보다 나중 등록 = 우선 매칭): sale-status는 status만 돌려준다(주체는 FE가 ADMIN으로 결정론 반영).
+  await page.route('**/api/v1/admin/products/*/sale-status', (route) => {
+    const body = route.request().postData() ?? ''
+    captured.saleStatusBodies.push({ url: route.request().url(), body })
+    const target = (JSON.parse(body) as { status: string }).status
+    const productPublicId = new URL(route.request().url()).pathname.split('/').at(-2) ?? ''
+    route.fulfill({ json: { productPublicId, status: target } })
   })
   await page.route('**/api/v1/admin/products?**', (route) => {
     const query = new URL(route.request().url()).searchParams
@@ -225,5 +233,36 @@ test.describe('관리자 상품 목록(FE-25)', () => {
     await expect(page.getByTestId('stop-source')).toHaveCount(2)
     await expect(page.getByTestId('stop-source').first()).toHaveText('셀러 중지')
     await expect(page.getByTestId('stop-source').nth(1)).toHaveText('관리자 중지')
+  })
+
+  test('⑧ 제재 전환(D-206 보정): 셀러 중지 행 메뉴 "관리자 중지로 전환" 활성 → 확인 다이얼로그 → POST STOPPED → 라벨 "관리자 중지"·토스트 / 관리자 중지 행은 STOPPED 비활성', async ({ page }) => {
+    const captured = await mockAdminApi(page, { items: [
+      { ...ITEMS[0]!, productPublicId: 'prd_E2E0000000000000000000011', name: 'E2E 셀러중지', status: 'STOPPED', saleStopSource: 'SELLER' },
+      { ...ITEMS[0]!, productPublicId: 'prd_E2E0000000000000000000012', name: 'E2E 관리자중지', status: 'STOPPED', saleStopSource: 'ADMIN' },
+    ] })
+    await loginAs(page, 'ADMIN')
+    await page.goto('/admin/products')
+    await expect(page.getByTestId('status-chip')).toHaveCount(2)
+
+    await page.getByTestId('row-menu').nth(1).click()
+    await expect(page.getByTestId('row-status-STOPPED')).toHaveClass(/v-list-item--disabled/)
+    await expect(page.getByTestId('row-status-STOPPED')).toHaveText(/판매중지로/)
+    await page.keyboard.press('Escape')
+
+    await page.getByTestId('row-menu').first().click()
+    // 닫힌 메뉴의 DOM이 남아 있어 마지막(열린) 메뉴 항목으로 좁힌다.
+    const escalate = page.getByTestId('row-status-STOPPED').last()
+    await expect(escalate).not.toHaveClass(/v-list-item--disabled/)
+    await expect(escalate).toHaveText(/관리자 중지로 전환/)
+    await escalate.click()
+    await expect(page.getByTestId('admin-escalate-dialog')).toBeVisible()
+    await expect(page.getByTestId('admin-escalate-dialog')).toContainText('셀러는 재판매할 수 없게')
+    await page.getByTestId('admin-escalate-dialog-ok').click()
+    await expect(page.getByTestId('admin-escalate-dialog')).toBeHidden()
+    expect(captured.saleStatusBodies).toHaveLength(1)
+    expect(JSON.parse(captured.saleStatusBodies[0]!.body)).toEqual({ status: 'STOPPED' })
+    expect(captured.saleStatusBodies[0]!.url).toContain('/prd_E2E0000000000000000000011/sale-status')
+    await expect(page.getByTestId('stop-source').first()).toHaveText('관리자 중지')
+    await expect(page.getByText('E2E 셀러중지 → 관리자 중지로 전환')).toBeVisible()
   })
 })

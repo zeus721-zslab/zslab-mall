@@ -70,14 +70,15 @@ public class AdminProductController {
     }
 
     /**
-     * 판매 상태 전환(SALE ↔ STOPPED·Track 71). body {@code { status: SALE | STOPPED }}. 성공 200 + 전이 후 상태.
-     * 허용 외 status 값 400(@Pattern)·미존재 404·허용 외 전이/같은 상태 422({@link ProductSaleStatusService}).
+     * 판매 상태 전환(SALE ↔ STOPPED·Track 71). body {@code { status: SALE | STOPPED }}. 성공 200 + 전이 후 상태. 셀러 중지 상품에
+     * STOPPED 요청은 관리자 중지로 전환(status 유지·D-206 보정). 허용 외 status 값 400(@Pattern)·미존재 404·허용 외 전이/같은 상태 422
+     * ({@link ProductSaleStatusService}).
      */
     @PostMapping("/api/v1/admin/products/{publicId}/sale-status")
     public ResponseEntity<ProductApprovalResponse> changeSaleStatus(@PathVariable String publicId,
             @Valid @RequestBody AdminProductSaleStatusRequest body, HttpServletRequest request) {
         Product product = productSaleStatusService.changeSaleStatus(
-                publicId, ProductStatus.valueOf(body.status()), auditContext(request));
+                publicId, ProductStatus.valueOf(body.status()), auditContext(request)).product();
         return ResponseEntity.ok(ProductApprovalResponse.from(product));
     }
 }

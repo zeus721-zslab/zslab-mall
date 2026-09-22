@@ -377,6 +377,7 @@ PENDING ──→ COMPLETED (불가역)
 | PENDING → REJECTED | 운영자 상품 거부 | ADMIN | — |
 | SALE → STOPPED | 판매중지(단건·관리자 일괄) | ADMIN · SELLER(자기 상품·ACTIVE 셀러·역할 무차등) | ADMIN 경로=ADMIN · 셀러 경로=SELLER |
 | STOPPED → SALE | 재판매 | ADMIN(주체 무관) · SELLER(**주체 SELLER일 때만**·ADMIN이면 422 PRODUCT_STOPPED_BY_ADMIN) | NULL로 복귀 |
+| STOPPED(SELLER) → STOPPED(ADMIN) | 제재 전환(관리자가 셀러 중지 상품에 STOPPED 요청·status 불변·주체만 상향·D-206 보정) | ADMIN만(역방향 ADMIN→SELLER 수단 없음·STOPPED(ADMIN) 재요청은 422) | SELLER → ADMIN |
 
 **역전·기타 차단**: 위 4전이 외 전부 차단(canTransitionTo=false·같은 상태 재요청도 422). REJECTED는 종료 상태(재심사 없음). HIDDEN·DRAFT·APPROVED에서의 전이는 소비처가 없어 도입하지 않는다.
 

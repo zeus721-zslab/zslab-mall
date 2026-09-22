@@ -318,6 +318,40 @@ class SellerProductSaleStatusControllerIntegrationTest extends AbstractIntegrati
         assertProduct(P_ADMIN, "STOPPED", "ADMIN", true);
     }
 
+    @Test
+    @DisplayName("T14 보정: 셀러 중지 상품을 관리자가 중지 요청(제재 전환) → 200·status 유지·source ADMIN → 이후 셀러 재판매 422 PRODUCT_STOPPED_BY_ADMIN·불변")
+    void adminEscalation_blocksSellerResume() throws Exception {
+        mockMvc.perform(post("/api/v1/admin/products/" + P_SELLER_PID + "/sale-status").headers(authHeaders.admin(USER_B))
+                        .contentType(MediaType.APPLICATION_JSON).content(STOP_BODY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("STOPPED"));
+        assertProduct(P_SELLER, "STOPPED", "ADMIN", false);
+
+        mockMvc.perform(post(saleStatusUrl(P_SELLER_PID)).headers(authHeaders.seller(USER_A))
+                        .contentType(MediaType.APPLICATION_JSON).content(RESUME_BODY))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("PRODUCT_STOPPED_BY_ADMIN"));
+        assertProduct(P_SELLER, "STOPPED", "ADMIN", false);
+        // 감사: 전환 1행(ADMIN)만 — 셀러 422는 적재 없음.
+        assertAuditCount(P_SELLER, 1);
+        assertThat(latestAudit(P_SELLER).get("actor_role")).isEqualTo("ADMIN");
+    }
+
+    @Test
+    @DisplayName("T15 보정: 셀러가 STOPPED 상품(ADMIN·SELLER 모두)에 중지 재요청 → 422 PRODUCT_INVALID_STATE·source 불변(ADMIN → SELLER 전환 수단 없음)")
+    void sellerStop_onStopped_neverChangesSource() throws Exception {
+        for (String[] target : new String[][] {{P_ADMIN_PID, "ADMIN"}, {P_SELLER_PID, "SELLER"}}) {
+            mockMvc.perform(post(saleStatusUrl(target[0])).headers(authHeaders.seller(USER_A))
+                            .contentType(MediaType.APPLICATION_JSON).content(STOP_BODY))
+                    .andExpect(status().isUnprocessableEntity())
+                    .andExpect(jsonPath("$.code").value("PRODUCT_INVALID_STATE"));
+        }
+        assertProduct(P_ADMIN, "STOPPED", "ADMIN", false);
+        assertProduct(P_SELLER, "STOPPED", "SELLER", false);
+        assertAuditCount(P_ADMIN, 0);
+        assertAuditCount(P_SELLER, 0);
+    }
+
     // ==================== 불변식 ====================
 
     @Test
