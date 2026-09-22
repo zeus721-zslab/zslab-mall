@@ -64,6 +64,12 @@ async function search(): Promise<void> {
   }
 }
 
+// FE-58: :disabled(submitting)와 같은 값을 핸들러가 재검사한다 — Vuetify VListItem은 disabled여도 click을 emit한다(프로그래밍 클릭 fallthrough).
+function selectMember(member: AdminMemberSummary): void {
+  if (submitting.value) return
+  selected.value = member
+}
+
 const confirmDisabled = computed(() => submitting.value || selected.value === null)
 
 async function submit(): Promise<void> {
@@ -115,7 +121,7 @@ async function submit(): Promise<void> {
             :active="selected?.publicId === member.publicId"
             :disabled="submitting"
             data-testid="provision-result"
-            @click="selected = member"
+            @click="selectMember(member)"
           >
             <v-list-item-title>{{ member.name ?? '—' }} <span class="text-medium-emphasis">{{ member.email ?? '' }}</span></v-list-item-title>
             <v-list-item-subtitle>{{ member.phone ?? '연락처 없음' }}</v-list-item-subtitle>
