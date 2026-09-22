@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { mdiAlertCircleOutline, mdiPackageVariantClosed, mdiPlus } from '@mdi/js'
 import type { SellerProductSummary, SellerProductListQuery } from '#layers/seller/app/types/seller-product'
+import type { SellerSaleAction } from '#layers/seller/app/lib/constants/seller-product'
 import type { CategorySummary } from '~/types/category'
 import {
   DEFAULT_SELLER_PRODUCT_QUERY,
@@ -17,6 +18,7 @@ useSeoMeta({ title: '상품 · zslab-mall 셀러' })
 
 // 셀러 상품 목록(Track 90-C-3·90-C-1 API·주문 화면 골격 복제). URL query가 필터·정렬·페이지의 단일 소스: 화면 조작 → router.replace → route.query watch → 조회.
 // 등록·수정은 90-C-4 폼 화면(new·[id])으로 이동하며 현재 목록 URL을 back으로 넘겨 같은 목록으로 복귀한다. 재고는 별도 화면(/seller/products/inventory).
+// 판매중지·재판매(Track 96-5·D-206)는 행 메뉴 → 확인 다이얼로그 → 성공·stale 모두 목록 재조회.
 const route = useRoute()
 const router = useRouter()
 const productsApi = useSellerProducts()
@@ -77,11 +79,23 @@ function openEdit(item: SellerProductSummary): void {
   // 현재 목록 URL(필터·페이지)을 back으로 넘겨 수정 화면에서 같은 목록으로 복귀한다.
   void navigateTo({ path: `${SELLER_PRODUCTS_PATH}/${item.productPublicId}`, query: { back: route.fullPath } })
 }
+
+// ---------- 판매중지·재판매 ----------
+const saleDialog = ref<{ item: SellerProductSummary; action: SellerSaleAction } | null>(null)
+
+function openSaleAction(item: SellerProductSummary, action: SellerSaleAction): void {
+  saleDialog.value = { item, action }
+}
+
+function onSaleDone(): void {
+  saleDialog.value = null
+  void load()
+}
 </script>
 
 <template>
   <div data-testid="seller-products">
-    <SellerPageHeader title="상품" description="내 상품을 조회합니다. 재고 수량과 입출고는 재고 화면에서, 승인·판매중지는 관리자가 처리합니다.">
+    <SellerPageHeader title="상품" description="내 상품을 조회합니다. 판매중지·재판매는 행 메뉴에서, 품절은 상품 수정 화면에서 직접 처리합니다. 재고 수량과 입출고는 재고 화면에서, 승인·반려는 관리자가 처리합니다.">
       <template #actions>
         <v-btn color="primary" :prepend-icon="mdiPlus" data-testid="product-new" @click="openNew">상품 등록</v-btn>
       </template>
@@ -106,6 +120,7 @@ function openEdit(item: SellerProductSummary): void {
         @update:page="(page) => applyQuery({ page }, false)"
         @update:size="(size) => applyQuery({ size })"
         @edit="openEdit"
+        @sale-action="openSaleAction"
       >
         <template #empty>
           <div class="d-flex flex-column align-center text-center py-10" data-testid="seller-product-empty">
@@ -126,5 +141,14 @@ function openEdit(item: SellerProductSummary): void {
         </template>
       </SellerProductTable>
     </v-card>
+
+    <SellerProductSaleStatusDialog
+      :open="saleDialog !== null"
+      :action="saleDialog?.action ?? 'STOP'"
+      :product="saleDialog?.item ?? null"
+      @done="onSaleDone"
+      @stale="onSaleDone"
+      @cancel="saleDialog = null"
+    />
   </div>
 </template>

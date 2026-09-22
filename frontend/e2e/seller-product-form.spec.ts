@@ -32,12 +32,14 @@ interface Captured {
   updates: { url: string; body: unknown }[]
   images: { url: string; body: unknown }[]
   variants: { url: string; body: unknown }[]
+  soldOuts: { soldOut: boolean }[]
+  detailGets: number
   uploads: number
   listQueries: URLSearchParams[]
 }
 
-async function mockSellerProductApis(page: Page, options: { updateStatus?: number; partialCombos?: boolean } = {}): Promise<Captured> {
-  const captured: Captured = { creates: [], updates: [], images: [], variants: [], uploads: 0, listQueries: [] }
+async function mockSellerProductApis(page: Page, options: { updateStatus?: number; partialCombos?: boolean; soldOutStatus?: number } = {}): Promise<Captured> {
+  const captured: Captured = { creates: [], updates: [], images: [], variants: [], soldOuts: [], detailGets: 0, uploads: 0, listQueries: [] }
   const listItems: Record<string, unknown>[] = [{ productPublicId: PRODUCT_ID, name: DETAIL.name, categoryId: 11, categoryName: '주방', status: 'SALE', basePrice: 32000, variantCount: 2, createdAt: DETAIL.createdAt, updatedAt: DETAIL.updatedAt }]
   // partialCombos: 옵션값은 블랙·화이트 2개인데 variant는 블랙만 존재 → 수정 폼에 "추가 가능" 신규 행(화이트)이 노출된다.
   let detail: Record<string, unknown> = options.partialCombos ? { ...DETAIL, variants: [DETAIL.variants[0]] } : { ...DETAIL }
@@ -72,6 +74,15 @@ async function mockSellerProductApis(page: Page, options: { updateStatus?: numbe
       detail = { ...detail, name: body.name, basePrice: body.basePrice }
       return route.fulfill({ json: detail })
     }
+    captured.detailGets += 1
+    return route.fulfill({ json: detail })
+  })
+  // 96-5 판매 관리 카드: 상품 단위 수동 품절(성공은 갱신 상세 응답·soldOutStatus로 실패 mock).
+  await page.route((url) => /\/api\/v1\/seller\/products\/prd_[^/]+\/soldout$/.test(url.pathname), (route) => {
+    const body = route.request().postDataJSON() as { soldOut: boolean }
+    captured.soldOuts.push(body)
+    if (options.soldOutStatus) return route.fulfill({ status: options.soldOutStatus, json: { code: options.soldOutStatus === 404 ? 'PRODUCT_NOT_FOUND' : 'INTERNAL_ERROR', detail: 'mock' } })
+    detail = { ...detail, soldoutManual: body.soldOut }
     return route.fulfill({ json: detail })
   })
   await page.route((url) => url.pathname.endsWith('/api/v1/seller/products'), (route) => {
@@ -168,6 +179,12 @@ test.describe('셀러 상품 등록·수정 폼(90-C-4)', () => {
     await expect(page.getByTestId('seller-product-form')).toBeVisible()
     await expect(page.getByTestId('status-chip')).toHaveText('판매중')
     await expect(page.getByTestId('status-menu')).toHaveCount(0)
+    // 판매 관리 카드(96-5): SALE → 판매중지 버튼 활성·수동 품절 스위치·기본정보 안내 문구는 카드로 유도
+    await expect(page.getByTestId('sale-card-status-chip')).toHaveText('판매중')
+    await expect(page.getByTestId('sale-card-action')).toHaveText('판매중지')
+    await expect(page.getByTestId('sale-card-action')).toBeEnabled()
+    await expect(page.getByTestId('sale-card-soldout')).toBeVisible()
+    await expect(page.getByTestId('status-readonly-note')).toContainText('판매 관리 카드')
 
     // 옵션 그룹 편집 UI 잠금
     await expect(page.getByTestId('option-locked-notice')).toBeVisible()
@@ -270,5 +287,35 @@ test.describe('셀러 상품 등록·수정 폼(90-C-4)', () => {
     await expect(page).toHaveURL(/back=/)
     await expect(page.getByTestId('partial-alert')).toHaveCount(0)
     await expect(page.getByTestId('field-name').locator('input')).toHaveValue('E2E partial 후 저장')
+  })
+
+  test('⑥ 폼 보존(96-5·R2 Q9): 설명 입력(미저장) → 품절 스위치 성공 → PATCH soldout·입력값 유지·상세 재조회 0 → 500 실패 → 입력값 유지·스위치 원복·재조회 0', async ({ page }) => {
+    const captured = await mockSellerProductApis(page)
+    await loginAs(page, 'SELLER')
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto(`/seller/products/${PRODUCT_ID}`)
+    await expect(page.getByTestId('seller-product-form')).toBeVisible()
+    const getsAfterLoad = captured.detailGets
+    const description = page.getByRole('textbox', { name: '상품 설명' })
+    await description.fill('저장 전 수정 내용')
+    await expect(page.getByTestId('field-name').locator('input')).toHaveValue(DETAIL.name)
+
+    // 성공: PATCH soldout → 스위치 ON·입력값 유지·상세 GET 추가 호출 0(응답으로 카드만 갱신).
+    await page.getByTestId('sale-card-soldout').locator('input').click()
+    await expect(page.getByText('수동 품절로 설정했습니다', { exact: false })).toBeVisible()
+    expect(captured.soldOuts).toEqual([{ soldOut: true }])
+    await expect(page.getByTestId('sale-card-soldout').locator('input')).toBeChecked()
+    await expect(description).toHaveValue('저장 전 수정 내용')
+    expect(captured.detailGets).toBe(getsAfterLoad)
+
+    // 실패(500): 스위치 원복(ON 유지)·입력값 유지·재조회 0.
+    await page.unrouteAll({ behavior: 'ignoreErrors' })
+    const failed = await mockSellerProductApis(page, { soldOutStatus: 500 })
+    await page.getByTestId('sale-card-soldout').locator('input').click()
+    await expect(page.getByText('서버 오류가 발생했습니다', { exact: false })).toBeVisible()
+    expect(failed.soldOuts).toEqual([{ soldOut: false }])
+    await expect(page.getByTestId('sale-card-soldout').locator('input')).toBeChecked()
+    await expect(description).toHaveValue('저장 전 수정 내용')
+    expect(failed.detailGets).toBe(0)
   })
 })

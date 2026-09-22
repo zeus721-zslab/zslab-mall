@@ -1,5 +1,5 @@
 import type { ProductImageType } from '#layers/admin/app/lib/constants/product'
-import type { AdminProductStatus } from '#layers/admin/app/lib/constants/product'
+import type { AdminProductStatus, AdminSaleStopSource } from '#layers/admin/app/lib/constants/product'
 
 /**
  * 관리자 상품 등록·수정 폼 모델(FE-26·신규/수정 공용). BE 응답/요청과 분리된 화면 전용 구조이며 변환은 lib/admin-product-form.ts 순수 함수가
@@ -67,6 +67,8 @@ export interface ProductForm {
   variants: ProductFormVariant[]
   /** 수정 모드 표시 전용(서버 상태). */
   status: AdminProductStatus | null
+  /** 수정 모드 표시 전용·STOPPED일 때만(D-206). */
+  saleStopSource: AdminSaleStopSource | null
   soldOutManual: boolean
 }
 

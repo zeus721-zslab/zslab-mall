@@ -42,6 +42,7 @@ export function emptyForm(): ProductForm {
     optionGroups: [],
     variants: [singleVariant()],
     status: null,
+    saleStopSource: null,
     soldOutManual: false,
   }
 }
@@ -143,6 +144,7 @@ export function detailToForm(detail: AdminProductDetail): ProductForm {
     optionGroups,
     variants: variants.length > 0 ? variants : [singleVariant()],
     status: detail.status,
+    saleStopSource: detail.saleStopSource ?? null,
     soldOutManual: detail.soldOutManual,
   }
 }

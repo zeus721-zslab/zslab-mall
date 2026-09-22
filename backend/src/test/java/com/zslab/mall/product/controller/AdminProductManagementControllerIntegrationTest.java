@@ -414,6 +414,8 @@ class AdminProductManagementControllerIntegrationTest extends AbstractIntegratio
                 .andExpect(jsonPath("$.results[1].code").value("PRODUCT_INVALID_STATE"))
                 .andExpect(jsonPath("$.results[2].code").value("PRODUCT_NOT_FOUND"));
         assertThat(productStatus(P1)).isEqualTo("STOPPED");
+        // D-206: 일괄 경로도 단건 서비스를 재사용하므로 주체 ADMIN이 기록된다.
+        assertThat(jdbc.queryForObject("SELECT sale_stop_source FROM product WHERE public_id = ?", String.class, P1)).isEqualTo("ADMIN");
 
         String saleBody = "{\"productPublicIds\":[\"" + P1 + "\",\"" + P3 + "\"],\"status\":\"SALE\"}";
         mockMvc.perform(post(URL + "/bulk/status").headers(authHeaders.admin(ADMIN_ID))
@@ -421,12 +423,41 @@ class AdminProductManagementControllerIntegrationTest extends AbstractIntegratio
                 .andExpect(jsonPath("$.successCount").value(2));
         assertThat(productStatus(P1)).isEqualTo("SALE");
         assertThat(productStatus(P3)).isEqualTo("SALE");
+        assertThat(jdbc.queryForObject("SELECT sale_stop_source FROM product WHERE public_id = ?", String.class, P1)).isNull();
 
         mockMvc.perform(post(URL + "/bulk/status").headers(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"productPublicIds\":[\"" + P1 + "\"],\"status\":\"PENDING\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+    }
+
+    @Test
+    @DisplayName("일괄 상태 혼합(D-206 보정): [P1 SALE→STOPPED 성공·P4 STOPPED(SELLER)→전환 성공 code ESCALATED_TO_ADMIN·P2 STOPPED(ADMIN) 422·P3 PENDING 422] → 건별 결과·source 전건 ADMIN")
+    void bulkStatus_escalatesSellerStop() throws Exception {
+        jdbc.update("UPDATE product SET sale_stop_source = 'SELLER' WHERE public_id = ?", P4);
+        jdbc.update("UPDATE product SET status = 'STOPPED', sale_stop_source = 'ADMIN' WHERE public_id = ?", P2);
+
+        String body = "{\"productPublicIds\":[\"" + P1 + "\",\"" + P4 + "\",\"" + P2 + "\",\"" + P3 + "\"],\"status\":\"STOPPED\"}";
+        mockMvc.perform(post(URL + "/bulk/status").headers(authHeaders.admin(ADMIN_ID))
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.successCount").value(2))
+                .andExpect(jsonPath("$.failureCount").value(2))
+                .andExpect(jsonPath("$.results[0].success").value(true))
+                .andExpect(jsonPath("$.results[0].code").doesNotExist())
+                .andExpect(jsonPath("$.results[1].success").value(true))
+                .andExpect(jsonPath("$.results[1].code").value("ESCALATED_TO_ADMIN"))
+                .andExpect(jsonPath("$.results[2].success").value(false))
+                .andExpect(jsonPath("$.results[2].code").value("PRODUCT_INVALID_STATE"))
+                .andExpect(jsonPath("$.results[3].success").value(false))
+                .andExpect(jsonPath("$.results[3].code").value("PRODUCT_INVALID_STATE"));
+        for (String publicId : new String[] {P1, P4, P2}) {
+            assertThat(productStatus(publicId)).isEqualTo("STOPPED");
+            assertThat(jdbc.queryForObject("SELECT sale_stop_source FROM product WHERE public_id = ?", String.class, publicId))
+                    .isEqualTo("ADMIN");
+        }
+        assertThat(productStatus(P3)).isEqualTo("PENDING");
     }
 
     @Test

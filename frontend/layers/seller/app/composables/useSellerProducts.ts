@@ -11,11 +11,14 @@ import type {
   SellerUpdateRequestBody,
   SellerVariantsRequestBody,
 } from '#layers/seller/app/lib/seller-product-form'
+import type { SellerSaleAction } from '#layers/seller/app/lib/constants/seller-product'
 import { toSellerProductApiParams } from '#layers/seller/app/lib/seller-product-query'
+import { toSaleStatusTarget } from '#layers/seller/app/lib/seller-product-sale-status'
 
 /**
  * 셀러 상품 API 호출 모음(Track 90-C-3 조회 + 90-C-4 등록·수정·업로드). 전부 useSellerApi(seller_token Bearer·401/403 SELLER_SUSPENDED 분기)
- * 경유이며 상태(로딩·에러)는 호출부(페이지·폼)가 소유한다. 상태 전환(승인·판매중지)·삭제·재고 delta는 셀러에게 없다(관리자 소관·BE 계약).
+ * 경유이며 상태(로딩·에러)는 호출부(페이지·폼)가 소유한다. 판매중지·재판매·상품 단위 수동 품절은 셀러가 직접 처리한다(Track 96-5·D-206).
+ * 승인·거부·삭제·재고 delta는 셀러에게 없다(관리자 소관·BE 계약).
  */
 export function useSellerProducts() {
   const api = useSellerApi()
@@ -63,5 +66,19 @@ export function useSellerProducts() {
     return api<SellerImageUploadResponse>('/v1/seller/files/images', { method: 'POST', body: formData })
   }
 
-  return { list, detail, create, update, replaceImages, replaceVariants, uploadImages }
+  // ---------- 96-5 판매 상태·품절 셀프 전환 ----------
+
+  /** 판매중지(STOP→STOPPED)·재판매(RESUME→SALE). 관리자 중지 재판매 422 PRODUCT_STOPPED_BY_ADMIN·허용 외 전이 422 PRODUCT_INVALID_STATE·타 셀러 404는 throw. */
+  function changeSaleStatus(productPublicId: string, action: SellerSaleAction): Promise<SellerProductDetail> {
+    const path: string = `/v1/seller/products/${productPublicId}/sale-status`
+    return api<SellerProductDetail>(path, { method: 'POST', body: { status: toSaleStatusTarget(action) } })
+  }
+
+  /** 상품 단위 수동 품절 on/off(관리자가 켠 품절도 해제 가능·D3 α). 타 셀러 404·정지 셀러 403은 throw. */
+  function changeSoldOut(productPublicId: string, soldOut: boolean): Promise<SellerProductDetail> {
+    const path: string = `/v1/seller/products/${productPublicId}/soldout`
+    return api<SellerProductDetail>(path, { method: 'PATCH', body: { soldOut } })
+  }
+
+  return { list, detail, create, update, replaceImages, replaceVariants, uploadImages, changeSaleStatus, changeSoldOut }
 }

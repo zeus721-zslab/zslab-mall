@@ -91,9 +91,9 @@ class SellerProductQueryControllerIntegrationTest extends AbstractIntegrationTes
 
     /** 목록 행 키 화이트리스트 — 필드가 늘면 여기와 SellerProductSummaryResponse를 함께 바꿔야 한다. */
     private static final Set<String> SUMMARY_KEYS = Set.of("productPublicId", "name", "categoryId", "categoryName", "status",
-            "basePrice", "thumbnailUrl", "variantCount", "createdAt", "updatedAt");
+            "saleStopSource", "basePrice", "thumbnailUrl", "variantCount", "createdAt", "updatedAt");
     private static final Set<String> DETAIL_KEYS = Set.of("productPublicId", "name", "description", "categoryId", "categoryName",
-            "status", "basePrice", "thumbnailUrl", "soldoutManual", "createdAt", "updatedAt", "images", "optionGroups", "variants");
+            "status", "saleStopSource", "basePrice", "thumbnailUrl", "soldoutManual", "createdAt", "updatedAt", "images", "optionGroups", "variants");
     private static final Set<String> IMAGE_KEYS = Set.of("imageId", "imageUrl", "imageType", "displayOrder", "main");
     private static final Set<String> OPTION_GROUP_KEYS = Set.of("optionGroupId", "name", "displayOrder", "values");
     private static final Set<String> OPTION_VALUE_KEYS = Set.of("optionValueId", "value", "displayOrder");
@@ -181,7 +181,9 @@ class SellerProductQueryControllerIntegrationTest extends AbstractIntegrationTes
             assertThat(allKeys(row)).doesNotContainAnyElementsOf(FORBIDDEN_KEYS);
             assertThat(row.toString()).doesNotContain("타셀러상품");
         }
-        assertThat(keysOf(items.get(2))).containsExactlyInAnyOrderElementsOf(SUMMARY_KEYS);
+        // P3(STOPPED·관리자 중지)은 saleStopSource=ADMIN 노출, P1(SALE)은 saleStopSource null → NON_NULL 생략(D-206).
+        assertThat(items.get(0).get("saleStopSource").asText()).isEqualTo("ADMIN");
+        assertThat(keysOf(items.get(2))).containsExactlyInAnyOrderElementsOf(withoutSaleStopSource(SUMMARY_KEYS));
         assertThat(items.get(2).get("createdAt").asText()).endsWith("+09:00");
 
         // 셀러 B 관점: 자기 상품 PB만.
@@ -296,7 +298,8 @@ class SellerProductQueryControllerIntegrationTest extends AbstractIntegrationTes
                 .andReturn().getResponse().getContentAsString();
 
         JsonNode root = objectMapper.readTree(body);
-        assertThat(keysOf(root)).containsExactlyInAnyOrderElementsOf(DETAIL_KEYS);
+        // P1은 SALE → saleStopSource null·NON_NULL 생략(D-206).
+        assertThat(keysOf(root)).containsExactlyInAnyOrderElementsOf(withoutSaleStopSource(DETAIL_KEYS));
         assertThat(keysOf(root.get("images").get(0))).containsExactlyInAnyOrderElementsOf(IMAGE_KEYS);
         assertThat(keysOf(root.get("optionGroups").get(0))).containsExactlyInAnyOrderElementsOf(OPTION_GROUP_KEYS);
         assertThat(keysOf(root.get("optionGroups").get(0).get("values").get(0))).containsExactlyInAnyOrderElementsOf(OPTION_VALUE_KEYS);
@@ -386,6 +389,8 @@ class SellerProductQueryControllerIntegrationTest extends AbstractIntegrationTes
                         "2026-02-01 09:00:00", null);
                 seedProduct(PRODUCT_P3, P3_PID, SELLER_A, CATEGORY_1, "기타 감마", null, "STOPPED", 20_000L, null,
                         "2026-03-01 09:00:00", null);
+                // D-206 불변식(STOPPED ↔ sale_stop_source NOT NULL): 관리자 중지로 시드.
+                jdbc.update("UPDATE product SET sale_stop_source = 'ADMIN' WHERE id = ?", PRODUCT_P3);
                 seedProduct(PRODUCT_P4, P4_PID, SELLER_A, CATEGORY_1, "삭제상품", null, "SALE", 5_000L, null,
                         "2026-03-02 09:00:00", "2026-03-03 09:00:00");
                 seedProduct(PRODUCT_PB, PB_PID, SELLER_B, CATEGORY_1, "타셀러상품", null, "SALE", 7_000L, null,
@@ -484,6 +489,12 @@ class SellerProductQueryControllerIntegrationTest extends AbstractIntegrationTes
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
             }
         });
+    }
+
+    private static Set<String> withoutSaleStopSource(Set<String> keys) {
+        Set<String> result = new LinkedHashSet<>(keys);
+        result.remove("saleStopSource");
+        return result;
     }
 
     @SafeVarargs

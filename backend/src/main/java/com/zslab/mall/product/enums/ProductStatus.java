@@ -9,8 +9,9 @@ package com.zslab.mall.product.enums;
  * {@link #canTransitionTo}로 하며(Product mutator가 이를 가드로 사용·SettlementStatus 동일 패턴), REJECTED는 종료 상태다
  * (재심사 없음).
  *
- * <p><b>판매 상태 전환(Track 71)</b>: 운영자가 SALE ↔ STOPPED(판매중지·재판매)를 전환한다. HIDDEN·DRAFT·APPROVED에서의 전이는
- * 여전히 소비처가 없어 도입하지 않는다.
+ * <p><b>판매 상태 전환(Track 71·96-5)</b>: 운영자·셀러가 SALE ↔ STOPPED(판매중지·재판매)를 전환한다. 중지 주체는
+ * {@link SaleStopSource}로 기록되며 관리자 중지(ADMIN)는 셀러가 재판매할 수 없다(D-206·주체 가드는 Service). HIDDEN·DRAFT·APPROVED에서의
+ * 전이는 여전히 소비처가 없어 도입하지 않는다.
  */
 public enum ProductStatus {
     DRAFT,

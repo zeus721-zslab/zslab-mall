@@ -43,7 +43,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 셀러 상품 변경 Application Service(Track 90-C-2): 기본정보 수정·이미지 메타 치환·variant 메타 수정/신규 추가. 저장 즉시 반영이며
- * 관리자 승인을 거치지 않는다. 상품 상태(승인·판매중지)·공급가·판매기간·셀러는 관리자 소관이라 바꾸지 않는다. 트랜잭션 경계는 메서드 단위다.
+ * 관리자 승인을 거치지 않는다. 승인·거부·공급가·판매기간·셀러는 관리자 소관이라 바꾸지 않는다. 판매중지·재판매·상품 단위 수동 품절은
+ * {@link SellerProductSaleStatusService}(Track 96-5·D-206)가 담당한다. 트랜잭션 경계는 메서드 단위다.
  *
  * <p>소유권은 {@code findByPublicIdForUpdate}(비관락) 후 {@code product.seller_id = 액터} 대조로 강제하며 타 셀러·미존재·삭제는 모두 404로
  * 은닉한다(셀러 조회 관례). 관리자 {@code AdminProductCommandService}·{@code AdminProductVariantService}는 재사용하지 않고 로직을 복제한다

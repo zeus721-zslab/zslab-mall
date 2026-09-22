@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.zslab.mall.common.serialization.KstOffsetSerializer;
 import com.zslab.mall.product.enums.ProductImageType;
 import com.zslab.mall.product.enums.ProductStatus;
+import com.zslab.mall.product.enums.SaleStopSource;
 import com.zslab.mall.product.enums.ProductVariantStatus;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -21,6 +22,7 @@ public record SellerProductDetailResponse(
         Long categoryId,
         String categoryName,
         ProductStatus status,
+        SaleStopSource saleStopSource,
         long basePrice,
         String thumbnailUrl,
         boolean soldoutManual,

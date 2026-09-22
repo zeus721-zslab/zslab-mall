@@ -16,7 +16,14 @@ import {
   toAdminProductRouteQuery,
 } from '#layers/admin/app/lib/admin-product-query'
 import { extractErrorCode, toAdminErrorMessage } from '#layers/admin/app/lib/admin-error-message'
-import { soldOutToggleSemantic, summarizeBulkResult } from '#layers/admin/app/lib/admin-product-view'
+import {
+  ESCALATE_STOP_TITLE,
+  escalateConfirmMessage,
+  isEscalation,
+  saleStopSourceAfterAdminChange,
+  soldOutToggleSemantic,
+  summarizeBulkResult,
+} from '#layers/admin/app/lib/admin-product-view'
 import { useAdminProducts } from '#layers/admin/app/composables/useAdminProducts'
 import { useAdminToast } from '#layers/admin/app/composables/useAdminToast'
 
@@ -116,13 +123,31 @@ async function toggleSoldOut(item: AdminProductSummary, soldOut: boolean): Promi
   }
 }
 
+// D-206 보정: 셀러 중지 상품의 STOPPED 목표는 "관리자 중지로 전환"(확인 다이얼로그 경유·status 유지·주체만 ADMIN).
+const escalateTarget = ref<AdminProductSummary | null>(null)
+
+function requestStatusChange(item: AdminProductSummary, target: AdminProductStatusTarget): void {
+  if (isEscalation(item, target)) {
+    escalateTarget.value = item
+    return
+  }
+  void changeStatus(item, target)
+}
+
+async function confirmEscalate(): Promise<void> {
+  const target = escalateTarget.value
+  escalateTarget.value = null
+  if (target) await changeStatus(target, 'STOPPED')
+}
+
 async function changeStatus(item: AdminProductSummary, target: AdminProductStatusTarget): Promise<void> {
   if (pendingIds.value.has(item.productPublicId)) return
   setPending(item.productPublicId, true)
+  const escalation = isEscalation(item, target)
   try {
     const response = await productsApi.changeStatus(item.productPublicId, item.status, target)
-    patchRow(item.productPublicId, { status: response.status })
-    toast.info(`${item.name} → ${ADMIN_PRODUCT_STATUS_LABEL[response.status]}`) // 상태 전환은 중립
+    patchRow(item.productPublicId, { status: response.status, saleStopSource: saleStopSourceAfterAdminChange(response.status) })
+    toast.info(escalation ? `${item.name} → ${ESCALATE_STOP_TITLE}` : `${item.name} → ${ADMIN_PRODUCT_STATUS_LABEL[response.status]}`) // 상태 전환은 중립
   } catch (error) {
     toast.danger(toAdminErrorMessage(error))
   } finally {
@@ -260,7 +285,7 @@ async function runBulk(): Promise<void> {
         @update:page="(page) => applyQuery({ page }, false)"
         @update:size="(size) => applyQuery({ size })"
         @toggle-sold-out="toggleSoldOut"
-        @change-status="changeStatus"
+        @change-status="requestStatusChange"
         @edit="edit"
         @remove="(item) => (deleteTarget = item)"
       >
@@ -294,6 +319,17 @@ async function runBulk(): Promise<void> {
       :loading="deleting"
       @confirm="confirmDelete"
       @cancel="deleteTarget = null"
+    />
+
+    <AdminConfirmDialog
+      :open="escalateTarget !== null"
+      test-id="admin-escalate-dialog"
+      :title="ESCALATE_STOP_TITLE"
+      confirm-color="warning"
+      :message="escalateConfirmMessage(escalateTarget?.name ?? '')"
+      :confirm-label="ESCALATE_STOP_TITLE"
+      @confirm="confirmEscalate"
+      @cancel="escalateTarget = null"
     />
 
     <AdminConfirmDialog

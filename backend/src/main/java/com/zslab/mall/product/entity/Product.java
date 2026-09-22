@@ -2,6 +2,7 @@ package com.zslab.mall.product.entity;
 
 import com.zslab.mall.common.entity.AbstractPublicIdSoftDeletableEntity;
 import com.zslab.mall.product.enums.ProductStatus;
+import com.zslab.mall.product.enums.SaleStopSource;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -52,6 +53,11 @@ public class Product extends AbstractPublicIdSoftDeletableEntity {
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)
     private ProductStatus status;
+
+    /** 판매중지 주체(Track 96-5·D-206). 불변식: status=STOPPED ↔ NOT NULL. 관리자 중지(ADMIN)는 셀러가 재판매할 수 없다. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "sale_stop_source")
+    private SaleStopSource saleStopSource;
 
     @Column(name = "is_soldout_manual", nullable = false)
     private boolean soldoutManual;
@@ -196,21 +202,43 @@ public class Product extends AbstractPublicIdSoftDeletableEntity {
     }
 
     /**
-     * 운영자 판매중지 전이(SALE → STOPPED·Track 71). 전이 합법성은 {@link ProductStatus#canTransitionTo}로 가드하며 위반 시
+     * 판매중지 전이(SALE → STOPPED·Track 71·96-5). 전이 합법성은 {@link ProductStatus#canTransitionTo}로 가드하며 위반 시
      * {@link IllegalStateException}을 던진다(Service가 {@code ProductInvalidStateException}(422)으로 흡수). 같은 상태 재요청도
-     * 전이 불가로 거부한다(승인의 멱등 no-op과 달리 운영자 오조작 감지 목적).
+     * 전이 불가로 거부한다(승인의 멱등 no-op과 달리 오조작 감지 목적). 주체({@code source})는 필수다 — 주체 없는 STOPPED 전이는
+     * 시그니처로 막는다(D-206 불변식 STOPPED ↔ saleStopSource NOT NULL).
      *
-     * @throws IllegalStateException 현재 상태에서 STOPPED 전이가 불가한 경우(SALE 아님)
+     * @param source 중지 주체(관리자 ADMIN·셀러 SELLER)
+     * @throws IllegalArgumentException source 누락 시
+     * @throws IllegalStateException    현재 상태에서 STOPPED 전이가 불가한 경우(SALE 아님)
      */
-    public void stopSale() {
+    public void stopSale(SaleStopSource source) {
+        if (source == null) {
+            throw new IllegalArgumentException("판매중지 주체(saleStopSource)는 필수입니다.");
+        }
         if (!status.canTransitionTo(ProductStatus.STOPPED)) {
             throw new IllegalStateException("불법 상품 상태 전이: " + status + " → " + ProductStatus.STOPPED);
         }
         this.status = ProductStatus.STOPPED;
+        this.saleStopSource = source;
     }
 
     /**
-     * 운영자 재판매 전이(STOPPED → SALE·Track 71). 가드·예외 흡수 규칙은 {@link #stopSale()}과 동일하다.
+     * 셀러 중지를 관리자 제재 중지로 전환한다(STOPPED·SELLER → STOPPED·ADMIN·Track 96-5 보정·D-206). status는 바꾸지 않고 주체만 ADMIN으로
+     * 올려 셀러가 재판매할 수 없게 한다 — 재판매 후 재중지(2단계)는 순간 판매 노출이 생겨 두지 않는다. 관리자 경로 전용이며 역방향(ADMIN → SELLER)
+     * mutator는 두지 않는다.
+     *
+     * @throws IllegalStateException STOPPED가 아니거나 주체가 SELLER가 아닌 경우(ADMIN 중지 재요청 포함·Service가 422로 흡수)
+     */
+    public void escalateStopToAdmin() {
+        if (status != ProductStatus.STOPPED || saleStopSource != SaleStopSource.SELLER) {
+            throw new IllegalStateException("관리자 중지 전환 불가(STOPPED·SELLER 아님): status=" + status + ", saleStopSource=" + saleStopSource);
+        }
+        this.saleStopSource = SaleStopSource.ADMIN;
+    }
+
+    /**
+     * 재판매 전이(STOPPED → SALE·Track 71). 가드·예외 흡수 규칙은 {@link #stopSale(SaleStopSource)}과 동일하며 주체 기록은 null로
+     * 돌린다. 셀러 재판매의 "관리자 중지는 불가" 판정은 호출 Service가 {@link #getSaleStopSource()}로 선행한다(D-206).
      *
      * @throws IllegalStateException 현재 상태에서 SALE 전이가 불가한 경우(STOPPED 아님·PENDING은 {@link #approve()} 경로)
      */
@@ -219,6 +247,7 @@ public class Product extends AbstractPublicIdSoftDeletableEntity {
             throw new IllegalStateException("불법 상품 상태 전이: " + status + " → " + ProductStatus.SALE);
         }
         this.status = ProductStatus.SALE;
+        this.saleStopSource = null;
     }
 
     @Override

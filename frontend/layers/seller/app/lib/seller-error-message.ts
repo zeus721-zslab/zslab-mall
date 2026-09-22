@@ -30,6 +30,9 @@ const SELLER_ERROR_MESSAGES: Record<string, string> = {
   CATEGORY_NOT_FOUND: '카테고리를 찾을 수 없습니다.',
   PRODUCT_VARIANT_OPTION_CONFLICT: '같은 옵션 조합의 변형이 이미 있습니다.',
   PRODUCT_IMAGE_NOT_FOUND: '상품 이미지를 찾을 수 없습니다.',
+  // 판매 상태 셀프 전환(Track 96-5·D-206)
+  PRODUCT_INVALID_STATE: '현재 상품 상태에서 허용되지 않는 전환입니다(승인대기·반려 상품은 전환 불가·같은 상태 재요청). 최신 상태를 다시 확인하세요.',
+  PRODUCT_STOPPED_BY_ADMIN: '관리자가 판매중지한 상품은 셀러가 재판매할 수 없습니다. 운영자에게 문의하세요.',
   INVENTORY_INVARIANT_VIOLATION: '재고 수량이 맞지 않습니다(출고량이 보유·가용 재고를 초과하거나 재고 행이 없음).',
   // 정산계좌(Track 90-D-3·D-199)
   SELLER_OWNER_REQUIRED: '정산계좌 등록은 셀러 대표(OWNER)만 할 수 있습니다.',

@@ -6,7 +6,7 @@ import { SELLER_PRODUCT_STATUS_LABEL, SELLER_PRODUCT_STATUS_SEMANTIC } from '#la
 import { semanticChipClass } from '#layers/seller/app/lib/constants/semantic'
 
 // 기본정보 섹션(Track 90-C-4·관리자 AdminProductBasicSection 복제·축소). 폼 객체를 v-model로 받아 필드만 바꾼다(변환·검증은 lib).
-// 셀러 지정·공급가·판매기간은 없다(BE 계약 6). 수정 모드의 상품 상태는 표시 전용(승인·판매중지는 관리자 소관).
+// 셀러 지정·공급가·판매기간은 없다(BE 계약 6). 수정 모드의 상품 상태는 표시 전용 — 판매중지·재판매·품절은 판매 관리 카드(Track 96-5), 승인·반려는 관리자 소관.
 const form = defineModel<SellerProductForm>({ required: true })
 
 const props = defineProps<{
@@ -33,7 +33,7 @@ function toNumber(value: string | number | null): number | null {
           <v-chip :class="semanticChipClass(SELLER_PRODUCT_STATUS_SEMANTIC[form.status])" size="small" variant="flat" data-testid="status-chip">
             {{ SELLER_PRODUCT_STATUS_LABEL[form.status] }}
           </v-chip>
-          <span class="text-caption text-medium-emphasis" data-testid="status-readonly-note">상태(승인·판매중지)는 관리자가 처리하며 여기서 바꿀 수 없습니다.</span>
+          <span class="text-caption text-medium-emphasis" data-testid="status-readonly-note">승인·반려는 관리자가 처리합니다. 판매중지·재판매·품절은 위 판매 관리 카드에서 바꿉니다.</span>
         </template>
       </div>
       <v-row dense>

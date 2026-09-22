@@ -5,8 +5,8 @@ import type { AdminSellerSummary } from '#layers/admin/app/types/admin-product'
 import type { CategorySummary } from '~/types/category'
 import type { AdminProductStatusTarget } from '#layers/admin/app/lib/constants/product'
 import {
-  ADMIN_PRODUCT_ALLOWED_TRANSITIONS,
   ADMIN_PRODUCT_STATUS_LABEL,
+  ADMIN_SALE_STOP_SOURCE_LABEL,
   ADMIN_PRODUCT_STATUS_SEMANTIC,
   ADMIN_PRODUCT_STATUS_TARGETS,
 } from '#layers/admin/app/lib/constants/product'
@@ -14,7 +14,15 @@ import { semanticChipClass } from '#layers/admin/app/lib/constants/semantic'
 import { formSnapshot, mapFieldErrors, validateForm } from '#layers/admin/app/lib/admin-product-form'
 import { SAVE_STEP_LABEL, SaveStepError, saveProduct, type SaveStep } from '#layers/admin/app/lib/admin-product-save'
 import { extractErrorCode, toAdminErrorMessage } from '#layers/admin/app/lib/admin-error-message'
-import { soldOutToggleSemantic } from '#layers/admin/app/lib/admin-product-view'
+import {
+  ESCALATE_STOP_TITLE,
+  escalateConfirmMessage,
+  isEscalation,
+  saleStopSourceAfterAdminChange,
+  soldOutToggleSemantic,
+  statusTargetTitle,
+  statusTargetsFor,
+} from '#layers/admin/app/lib/admin-product-view'
 import { useAdminProducts } from '#layers/admin/app/composables/useAdminProducts'
 import { useAdminToast } from '#layers/admin/app/composables/useAdminToast'
 
@@ -108,16 +116,35 @@ async function save(): Promise<void> {
 
 // ---------- 수정 모드: 상태 전환·수동 품절(즉시 반영·폼 저장과 무관) ----------
 const statusBusy = ref(false)
-const allowedTargets = computed(() => (form.value.status ? ADMIN_PRODUCT_ALLOWED_TRANSITIONS[form.value.status] : []))
+// D-206 보정: 셀러 중지 상품은 STOPPED 목표가 "관리자 중지로 전환"(확인 다이얼로그 경유·status 유지·주체만 ADMIN).
+const saleState = computed(() => ({ status: form.value.status ?? 'DRAFT', saleStopSource: form.value.saleStopSource }))
+const allowedTargets = computed(() => (form.value.status ? statusTargetsFor(saleState.value) : []))
+const escalateOpen = ref(false)
+
+function requestStatusChange(target: AdminProductStatusTarget): void {
+  if (isEscalation(saleState.value, target)) {
+    escalateOpen.value = true
+    return
+  }
+  void changeStatus(target)
+}
+
+async function confirmEscalate(): Promise<void> {
+  escalateOpen.value = false
+  await changeStatus('STOPPED')
+}
 
 async function changeStatus(target: AdminProductStatusTarget): Promise<void> {
   if (!form.value.productPublicId || !form.value.status || statusBusy.value) return
   statusBusy.value = true
+  const escalation = isEscalation(saleState.value, target)
   try {
     const response = await productsApi.changeStatus(form.value.productPublicId, form.value.status, target)
     form.value.status = response.status
+    // D-206: 관리자가 STOPPED로 바꾸면 주체는 항상 ADMIN(BE ProductSaleStatusService 기록값과 동일·응답에는 없음), SALE 복귀면 null.
+    form.value.saleStopSource = saleStopSourceAfterAdminChange(response.status) ?? null
     refreshSnapshotStatus()
-    toast.info(`상태 → ${ADMIN_PRODUCT_STATUS_LABEL[response.status]}`)
+    toast.info(escalation ? `상태 → ${ESCALATE_STOP_TITLE}` : `상태 → ${ADMIN_PRODUCT_STATUS_LABEL[response.status]}`)
     emit('statusChanged')
   } catch (error) {
     toast.danger(toAdminErrorMessage(error))
@@ -147,6 +174,7 @@ async function toggleSoldOut(value: boolean): Promise<void> {
 function refreshSnapshotStatus(): void {
   const parsed = JSON.parse(savedSnapshot) as Record<string, unknown>
   parsed.status = form.value.status
+  parsed.saleStopSource = form.value.saleStopSource
   parsed.soldOutManual = form.value.soldOutManual
   savedSnapshot = JSON.stringify(parsed)
 }
@@ -162,6 +190,9 @@ defineExpose({ form, dirty })
         <v-chip :class="semanticChipClass(ADMIN_PRODUCT_STATUS_SEMANTIC[form.status])" size="small" variant="flat" data-testid="status-chip">
           {{ ADMIN_PRODUCT_STATUS_LABEL[form.status] }}
         </v-chip>
+        <span v-if="form.status === 'STOPPED' && form.saleStopSource" class="text-caption text-medium-emphasis" data-testid="stop-source">
+          {{ ADMIN_SALE_STOP_SOURCE_LABEL[form.saleStopSource] }}
+        </span>
         <v-menu>
           <template #activator="{ props: activatorProps }">
             <v-btn v-bind="activatorProps" size="small" variant="outlined" :append-icon="mdiDotsVertical" :disabled="statusBusy" data-testid="status-menu">상태 전환</v-btn>
@@ -170,10 +201,10 @@ defineExpose({ form, dirty })
             <v-list-item
               v-for="target in ADMIN_PRODUCT_STATUS_TARGETS"
               :key="target.value"
-              :title="target.title"
+              :title="statusTargetTitle(saleState, target.value)"
               :disabled="!allowedTargets.includes(target.value)"
               :data-testid="`status-target-${target.value}`"
-              @click="changeStatus(target.value)"
+              @click="requestStatusChange(target.value)"
             />
           </v-list>
         </v-menu>
@@ -231,5 +262,15 @@ defineExpose({ form, dirty })
         {{ anyUploading ? '이미지 업로드 중…' : mode === 'create' ? '등록' : '저장' }}
       </v-btn>
     </div>
+    <AdminConfirmDialog
+      :open="escalateOpen"
+      test-id="admin-escalate-dialog"
+      :title="ESCALATE_STOP_TITLE"
+      confirm-color="warning"
+      :message="escalateConfirmMessage(form.name || form.productPublicId || '')"
+      :confirm-label="ESCALATE_STOP_TITLE"
+      @confirm="confirmEscalate"
+      @cancel="escalateOpen = false"
+    />
   </div>
 </template>

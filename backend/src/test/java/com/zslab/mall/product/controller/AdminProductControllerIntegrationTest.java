@@ -239,6 +239,78 @@ class AdminProductControllerIntegrationTest extends AbstractIntegrationTest {
         assertThat(currentStatus()).isEqualTo("SALE");
     }
 
+    // ==================== Track 96-5 D-206 판매중지 주체 ====================
+
+    @Test
+    @DisplayName("T14 D-206 주체 기록: 관리자 판매중지 → sale_stop_source ADMIN·응답 saleStopSource ADMIN·감사 diff에 saleStopSource")
+    void saleStatus_adminStop_recordsAdminSource() throws Exception {
+        seedProduct("SALE");
+
+        mockMvc.perform(post(saleStatusUrl(PRODUCT_PID)).headers(authHeaders.admin(ADMIN_ID))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"STOPPED\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("STOPPED"));
+
+        assertThat(currentStatus()).isEqualTo("STOPPED");
+        assertThat(currentSaleStopSource()).isEqualTo("ADMIN");
+        String diff = jdbc.queryForObject("SELECT diff_json FROM audit_log WHERE target_type = 'PRODUCT' AND target_id = ? "
+                + "ORDER BY id DESC LIMIT 1", String.class, PRODUCT_ID);
+        assertThat(diff).contains("\"saleStopSource\"").contains("\"ADMIN\"");
+    }
+
+    @Test
+    @DisplayName("T15 D-206 관리자 재판매: 셀러 중지(SELLER)·관리자 중지(ADMIN) 모두 SALE 복귀 200·source NULL")
+    void saleStatus_adminResume_anySource() throws Exception {
+        for (String source : new String[] {"SELLER", "ADMIN"}) {
+            cleanup();
+            seedProduct("STOPPED");
+            jdbc.update("UPDATE product SET sale_stop_source = ? WHERE id = ?", source, PRODUCT_ID);
+
+            mockMvc.perform(post(saleStatusUrl(PRODUCT_PID)).headers(authHeaders.admin(ADMIN_ID))
+                            .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"SALE\"}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.status").value("SALE"));
+
+            assertThat(currentStatus()).isEqualTo("SALE");
+            assertThat(currentSaleStopSource()).isNull();
+        }
+    }
+
+    @Test
+    @DisplayName("T16 D-206 보정 제재 전환: STOPPED(SELLER) 상품에 관리자 중지 요청 → 200·status STOPPED 유지·source ADMIN·감사 diff saleStopSource SELLER→ADMIN")
+    void saleStatus_adminStop_escalatesSellerStop() throws Exception {
+        seedProduct("STOPPED");
+        jdbc.update("UPDATE product SET sale_stop_source = 'SELLER' WHERE id = ?", PRODUCT_ID);
+
+        mockMvc.perform(post(saleStatusUrl(PRODUCT_PID)).headers(authHeaders.admin(ADMIN_ID))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"STOPPED\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("STOPPED"));
+
+        assertThat(currentStatus()).isEqualTo("STOPPED");
+        assertThat(currentSaleStopSource()).isEqualTo("ADMIN");
+        String diff = jdbc.queryForObject("SELECT diff_json FROM audit_log WHERE target_type = 'PRODUCT' AND target_id = ? "
+                + "ORDER BY id DESC LIMIT 1", String.class, PRODUCT_ID);
+        assertThat(diff).contains("\"saleStopSource\"").contains("\"before\":\"SELLER\"").contains("\"after\":\"ADMIN\"")
+                .doesNotContain("\"status\"");
+    }
+
+    @Test
+    @DisplayName("T17 D-206 보정: STOPPED(ADMIN) 상품에 관리자 중지 재요청 → 422 PRODUCT_INVALID_STATE(오조작 감지 유지)·source 불변·감사 0")
+    void saleStatus_adminStop_onAdminStopped_returns422() throws Exception {
+        seedProduct("STOPPED");
+        jdbc.update("UPDATE product SET sale_stop_source = 'ADMIN' WHERE id = ?", PRODUCT_ID);
+
+        mockMvc.perform(post(saleStatusUrl(PRODUCT_PID)).headers(authHeaders.admin(ADMIN_ID))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"STOPPED\"}"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("PRODUCT_INVALID_STATE"));
+
+        assertThat(currentSaleStopSource()).isEqualTo("ADMIN");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_log WHERE target_type = 'PRODUCT' AND target_id = ?",
+                Long.class, PRODUCT_ID)).isZero();
+    }
+
     // ---------- seed·helpers ----------
     // 모든 시드 INSERT는 바인딩 파라미터 + 정적 SQL이다(문자열 concat 없음·SQL injection 위험 없음).
 
@@ -264,10 +336,15 @@ class AdminProductControllerIntegrationTest extends AbstractIntegrationTest {
         return jdbc.queryForObject("SELECT status FROM product WHERE id = ?", String.class, PRODUCT_ID);
     }
 
+    private String currentSaleStopSource() {
+        return jdbc.queryForObject("SELECT sale_stop_source FROM product WHERE id = ?", String.class, PRODUCT_ID);
+    }
+
     private void cleanup() {
         tx.executeWithoutResult(s -> {
             try {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
+                jdbc.update("DELETE FROM audit_log WHERE target_type = 'PRODUCT' AND target_id = ?", PRODUCT_ID);
                 jdbc.update("DELETE FROM product WHERE id = ?", PRODUCT_ID);
                 jdbc.update("DELETE FROM seller WHERE id = ?", SELLER_ID);
                 jdbc.update("DELETE FROM category WHERE id = ?", CATEGORY_ID);
