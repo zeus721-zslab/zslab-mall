@@ -2444,3 +2444,36 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 ### §8 이월
 - 실 PG 전환 시 결제창에서 돌아오는 return URL 페이지 신설·`pages/payment/mock.vue`·mock e2e 처리(docs/architecture-baseline/real-service-switch-guide.md §1-1·§1-6).
 - 외부 검토: C(FE 전용).
+
+## FE-60: 워크스루 도구 — 운영 시나리오 클릭 수 실측 + 매뉴얼 스크린샷 (Track 98) (2026-09-22)
+
+배경: 개선 라운드(운영 편의)와 매뉴얼 3파트가 같은 입력을 필요로 한다 — "이 업무를 끝내는 데 몇 번 눌러야 하는가"와 "각 단계 화면". 정찰(docs/track-98/recon-report-screenshot.md)에서 (1) 액션 카운터 헬퍼 0건(유사 선례는 `page.on('request')` 4곳)·`test.step`·`framenavigated`·tracing 직접 사용 0건 (2) `playwright.config.ts:22` `trace: 'on-first-retry'` + 로컬 `retries: 0`이라 trace.zip이 생성되지 않음 (3) 매뉴얼 스크린샷은 `playwright-report/stepNNN-live.mjs` 26개가 이미 같은 일을 하고 있으나 1회성·비재현(러너 밖 독립 스크립트·번호 파일명 관례만 공유) (4) 시드 데이터는 시나리오가 소비하면 복원되지 않고(`--force` 가드·초기화 명령 없음) 배송완료 품목은 7일 뒤 자동 구매확정으로 사라짐 — 을 실측했다.
+
+결정:
+- **데이터 전략 α(기준 상태 덤프 → 복원 → 실행)**: `scripts/walkthrough/prepare.py`(멱등 보충 + 충족 표) → `dump.py`(`frontend/playwright-report/walkthrough-db/baseline.sql`·gitignored) → 매 실행 전 `restore.py --yes`. 복원 0.8초·백엔드 헬스 재확인까지 포함.
+- **실행 형태 = 별도 설정** `frontend/playwright.walkthrough.config.ts`(testDir `walkthrough` · testMatch `**/*.walkthrough.ts` · workers 1 · retries 0 · trace on · 뷰포트 1440×900 · fullPage false · webServer 미설정). 기존 `playwright.config.ts`(testDir `e2e`·기본 testMatch `*.spec.ts`)와 디렉토리·파일명이 모두 달라 섞이지 않는다.
+- **인증 = 기존 `e2e/helpers/login.ts` `loginAs` 재사용**(러너 안에서 실행하므로 `test.skip`·`test.info()`가 그대로 동작). 데모 로그인 버튼(rate limit 60s/30회)을 쓰지 않는다.
+- **계측 2가지**: 액션 래퍼(`Walkthrough.click`·`check` = 클릭 / `fill`·`selectOption`·`select` = 입력 필드 수)와 URL pathname 변경 감지(`page.on('framenavigated')` 메인 프레임·진입 화면 제외·query만 바뀌는 필터/탭은 미계상). 래퍼를 거치지 않은 조작은 세지 않는다.
+- **산출물**: `playwright-report/walkthrough/{역할}/{시나리오}/{NN}-{단계}.png` + `metrics.json`, globalTeardown이 `summary.json`·`summary.md`로 합친다. 전부 gitignored(`frontend/.gitignore:34`).
+- **시나리오 7**: 관리자 3(클레임 취소 승인 · 정산 확정→지급 · 셀러 입점 승인) · 셀러 2(출고 · 판매중지→재판매) · 구매자 2(구매확정 · 반품 신청).
+
+### §1-A 갈림길·채택/기각 근거
+- **데이터 전략 α(덤프·복원) 【채택: 복원 0.8초·시나리오가 상태를 전이시켜도 매 실행이 같은 출발점·2회 연속 실행 계측 완전 일치로 재현성 실증】** / β(매 실행 전 API로 필요한 데이터를 새로 만들기) 【기각: 시나리오 7개마다 선행 데이터 생성 경로를 따로 구현해야 하고(클레임·정산·셀러 상태까지) 작업량이 도구 본체보다 커진다】 / γ(1회성 스크립트 + 수동 복구) 【기각: `stepNNN-live.mjs` 26개가 이미 그 방식이고 재실행이 안 돼 개선 라운드의 전/후 비교에 쓸 수 없다】.
+- **실행 형태 별도 config 【채택: 기존 e2e 기준선(106/108)을 건드리지 않고 workers·retries·trace를 계측 전용으로 잡을 수 있다】** / 독립 `.mjs`(pixel.mjs 선례) 【기각: `loginAs` 재사용 불가(러너 API 의존)·fixture·리포터·trace를 직접 만들어야 한다】 / 기존 config에 project 추가 【기각: `e2e/` 아래 spec으로 들어가면 전량 실행 기준선이 바뀐다】.
+- **입력 계측 단위 = 필드 수 【채택: "몇 개를 채워야 하는가"가 운영 부담 지표】** / 키 입력 수 【기각: 값 길이에 좌우돼 시나리오 간 비교 불가】. Vuetify select는 DOM 클릭 2회지만 입력 1로 센다(주석 명시).
+- **화면 이동 = pathname 변경 【채택: 탭·필터(query 변경)는 같은 화면 안 조작이므로 이동으로 보지 않는다】** / history 변경 전부 【기각: 필터 1회가 이동 1회로 잡혀 과대계상】.
+- **구매자 두 시나리오의 데이터 분리**: 배송완료 **주문** 2건을 `prepare.py`가 보장하고 반품은 첫 번째·구매확정은 마지막 주문을 쓴다 【채택: 실행 순서(알파벳)가 고정이라 결정적】 / 같은 주문 공유 【기각: 1차 실행에서 반품 신청이 주문 상태를 바꿔 구매확정 시나리오가 대상 주문을 찾지 못했다(실측 실패)】.
+
+### §2 확정 구현 규칙·트랩
+- 신규: `scripts/walkthrough/{common,prepare,dump,restore}.py` + `README.md` · `frontend/playwright.walkthrough.config.ts` · `frontend/walkthrough/helpers/{walkthrough,summary}.ts` · 시나리오 7 · `package.json` script `walkthrough`.
+- 운영 데이터 보호(CLAUDE.md): `restore.py`는 덤프의 DROP/CREATE를 실행하므로 `SPRING_PROFILES_ACTIVE=local` 가드 + `--yes` 필수 + 로컬 컨테이너(`zslab_mariadb`) 존재 확인. DB 비밀번호는 `MYSQL_PWD` 환경변수로만 전달(argv·로그 노출 0).
+- 검증(로컬·2026-09-22): 복원 → 실행 **2회 연속 7/7 통과**, 두 실행의 (클릭·입력·화면 이동·스크린샷) 7행 **완전 일치**, PNG 36장 동일. 기존 설정 목록 `npx playwright test --list` = 108 tests in 32 files·walkthrough 0건. 워크스루 설정 목록 = 7 tests in 7 files. `npm run typecheck` 0(에러 없음).
+- 계측 결과 1차 기준선: 관리자 클레임 승인 4클릭·0입력·1이동 / 정산 확정→지급 6·0·2 / 셀러 입점 승인 4·1·2 / 셀러 출고 3·2·1 / 판매중지→재판매 6·0·0 / 구매자 반품 신청 3·2·2 / 구매확정 3·0·1 — **합계 29클릭·5입력·9이동**.
+- 트랩: (1) gateway는 `/api/`만 backend로 넘기므로(`docs/infra/05-ssl-domain.md:72-77`) `/actuator/health`는 프런트로 가 404 — 복원 후 헬스 확인은 `docker exec zslab_mall_backend curl`로 한다. (2) 출고 완료 조건을 "행 상태 칩 = 배송중"으로 잡으면 실패한다 — 출고된 품목은 `status=PAID` 목록에서 빠지므로 "행이 사라짐"이 완료 조건이다. (3) mock 결제 콜백은 200 + 빈 본문이라 API 헬퍼가 본문 없음을 오류로 보면 안 된다. (4) `typecheck`(vue-tsc)는 `.nuxt/tsconfig.*`의 include에 `walkthrough/`가 없어 **워크스루 파일을 검사하지 않는다**(e2e도 동일) — 별도 `npx tsc --noEmit --ignoreConfig`로 0건 확인했다.
+
+### §8 이월
+- 스크린샷 가변 값(경과 N일·일시·주문번호) 마스킹은 매뉴얼 단계에서 결정(현재 미적용).
+- 시간 기반 배치(자동 구매확정 7일·자동 취소 30분) 킬스위치는 README에 절차만 적고 기본 미사용 — 기준 상태를 오래 재사용하게 되면 재검토.
+- 관리자 반품 검수·교환 5단계, 셀러 재고 입고, 관리자 상품 승인 등 나머지 시나리오는 개선 라운드에서 필요해지면 추가.
+- 구매자 주문 상세의 클레임 요청 버튼(`반품 요청`·`교환 요청`)과 클레임 접수 완료 문구에 `data-testid`가 없어 텍스트 셀렉터를 쓴다 — 문구 변경 시 시나리오가 깨진다.
+- 외부 검토: C(개발 도구·CI 무관).
