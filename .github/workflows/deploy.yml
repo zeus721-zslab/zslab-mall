@@ -3,9 +3,10 @@ name: Deploy to Production
 # Track 100 방식 A — Actions가 이미지를 빌드해 ghcr.io에 push하고, 서버는 pull만 한다(서버 빌드 없음).
 # 주의 1: 이 워크플로의 이미지 빌드는 테스트를 실행하지 않는다(backend/Dockerfile은 bootJar만 호출).
 #         테스트 게이트는 PR 단계의 backend-ci.yml·frontend-ci.yml이며, 여기서 GREEN을 보장하지 않는다.
-# 주의 2: 저장소가 공개여도 GHCR 패키지의 기본 가시성은 private이다. 최초 1회 zslab이 두 패키지
-#         (zslab-mall-backend·zslab-mall-frontend)를 public으로 전환해야 서버가 인증 없이 pull할 수 있다.
-#         전환 전에 deploy job이 실패하면 전환 후 해당 job만 re-run 하면 된다.
+# 주의 2: 2026-09-23 첫 실행에서 서버는 인증 없이 pull에 성공했다 — 패키지를 수동으로 public 전환할
+#         필요가 없었다. 앞으로 deploy job이 denied·unauthorized로 실패하면 패키지가 private으로
+#         만들어진 경우이며, public 전환 후 해당 job만 re-run 하거나 서버에서 docker login ghcr.io를
+#         1회 수행한다(docs/architecture-baseline/deploy-runbook.md §2).
 
 on:
   push:
