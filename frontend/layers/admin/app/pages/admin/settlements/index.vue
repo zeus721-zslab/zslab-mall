@@ -210,7 +210,7 @@ function open(item: AdminSettlementSummary): void {
         :loading="loading"
         :load-error="loadError"
         :empty-title="filtersActive ? '조건에 맞는 정산이 없습니다' : `${periodLabel} 정산이 없습니다`"
-        :empty-message="filtersActive ? '상태·검색어를 바꾸거나 초기화해 보세요.' : '아직 생성되지 않았다면 상단의 정산 생성으로 만들 수 있습니다.'"
+        :empty-message="filtersActive ? '상태·검색어를 바꾸거나 초기화해 보세요.' : '정산은 매월 1일 이후 전월분이 자동 생성됩니다. 과거 월은 상단의 정산 생성으로 만들 수 있습니다.'"
         :show-reset="filtersActive"
         @update:page="(page) => applyQuery({ page }, false)"
         @update:size="(size) => applyQuery({ size })"
