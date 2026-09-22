@@ -30,5 +30,5 @@ public interface PaymentGateway {
      * @return PG 부여 환불 식별자를 담은 응답(pg_refund_id는 콜백 매칭 키)
      * @throws PaymentGatewayException PG 환불 요청 등록 자체가 실패(네트워크·timeout·gateway 예외)한 경우(D-67 FAILED 전이 트리거)
      */
-    MockRefundResponse refund(String paymentPgTid, Long amount);
+    PgRefundResponse refund(String paymentPgTid, Long amount);
 }

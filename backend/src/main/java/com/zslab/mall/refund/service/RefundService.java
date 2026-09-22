@@ -9,7 +9,7 @@ import com.zslab.mall.common.observability.TracedEventPublisher;
 import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.payment.entity.Payment;
 import com.zslab.mall.payment.enums.PaymentStatus;
-import com.zslab.mall.payment.gateway.MockRefundResponse;
+import com.zslab.mall.payment.gateway.PgRefundResponse;
 import com.zslab.mall.payment.gateway.PaymentGateway;
 import com.zslab.mall.payment.repository.PaymentRepository;
 import com.zslab.mall.refund.entity.Refund;
@@ -135,7 +135,7 @@ public class RefundService {
 
         // PG 환불 요청 등록. 호출 예외 시 FAILED 전이(D-67).
         try {
-            MockRefundResponse response = paymentGateway.refund(payment.getPgTid(), amount);
+            PgRefundResponse response = paymentGateway.refund(payment.getPgTid(), amount);
             refund.assignPgRefundId(response.pgRefundId());
         } catch (RuntimeException gatewayException) {
             log.warn("[Refund] PG 환불 요청 예외 → FAILED 전이(D-67): claimId={}, refundId={}, 원인={}",

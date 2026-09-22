@@ -2,6 +2,7 @@ package com.zslab.mall.notification.adapter;
 
 import com.zslab.mall.notification.entity.NotificationLog;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 /**
@@ -9,9 +10,11 @@ import org.springframework.stereotype.Component;
  *
  * <p>{@link com.zslab.mall.payment.gateway.MockPaymentGateway} 패턴과 정합한다. 실 발송 어댑터(SMTP·SMS·PUSH) 도입 시
  * 본 구현만 교체하고 {@link NotificationSender} 계약은 유지한다. 외부 호출·예외 발생 없음.
+ * 활성 조건은 {@code zslab.notification.email-sender=mock}(미지정 시 mock·Track 97 D-209)이다.
  */
 @Slf4j
 @Component
+@ConditionalOnProperty(name = "zslab.notification.email-sender", havingValue = "mock", matchIfMissing = true)
 public class MockNotificationSender implements NotificationSender {
 
     @Override

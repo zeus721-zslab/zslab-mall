@@ -10,6 +10,7 @@ import com.zslab.mall.grade.entity.BuyerGrade;
 import com.zslab.mall.grade.repository.BuyerGradeRepository;
 import com.zslab.mall.notification.enums.NotificationLogStatus;
 import com.zslab.mall.notification.service.NotificationService;
+import com.zslab.mall.notification.template.NotificationMessages;
 import com.zslab.mall.notification.template.NotificationTemplateCodes;
 import com.zslab.mall.user.controller.request.AdminMemberGradeRequest;
 import com.zslab.mall.user.controller.request.AdminMemberUpdateRequest;
@@ -43,8 +44,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 public class AdminMemberCommandService {
 
-    /** 임시 비밀번호 SMS 본문 템플릿. {@code %s}에 평문이 들어가며 저장본은 {@link #TEMPORARY_PASSWORD_MASK}로 치환한다. */
-    private static final String TEMPORARY_PASSWORD_SMS = "[zslab-mall] 임시 비밀번호: %s 로그인 후 비밀번호를 변경해 주세요.";
+    /** notification_log 저장본에서 임시 비밀번호 평문을 대신하는 문자열(본문 템플릿은 {@link NotificationMessages#TEMPORARY_PASSWORD_SMS}). */
     private static final String TEMPORARY_PASSWORD_MASK = "****";
     private static final String TEMPORARY_PASSWORD_EVENT = "TemporaryPassword";
     /** 감사 after에 "평문이 관리자 화면에 표시됐다"는 사실만 남기는 키(D-204·평문 아님). */
@@ -156,8 +156,8 @@ public class AdminMemberCommandService {
 
         NotificationLogStatus status = notificationService.sendSensitiveSms(
                 user.getId(), user.getPhone(), NotificationTemplateCodes.TEMPORARY_PASSWORD, "임시 비밀번호",
-                String.format(TEMPORARY_PASSWORD_SMS, temporaryPassword),
-                String.format(TEMPORARY_PASSWORD_SMS, TEMPORARY_PASSWORD_MASK), TEMPORARY_PASSWORD_EVENT);
+                String.format(NotificationMessages.TEMPORARY_PASSWORD_SMS, temporaryPassword),
+                String.format(NotificationMessages.TEMPORARY_PASSWORD_SMS, TEMPORARY_PASSWORD_MASK), TEMPORARY_PASSWORD_EVENT);
         if (status != NotificationLogStatus.SENT) {
             throw new TemporaryPasswordDeliveryFailedException("임시 비밀번호 SMS 발송에 실패했습니다: publicId=" + publicId);
         }

@@ -11,5 +11,5 @@ package com.zslab.mall.payment.gateway;
  * @param success       PG 요청 접수 성공 여부(true=접수·false=즉시 거절). Mock은 항상 true
  * @param failureReason 접수 거절 사유. success=true이면 null
  */
-public record MockRefundResponse(String pgRefundId, boolean success, String failureReason) {
+public record PgRefundResponse(String pgRefundId, boolean success, String failureReason) {
 }

@@ -11,6 +11,7 @@ import com.zslab.mall.payment.gateway.PaymentGateway;
 import com.zslab.mall.payment.repository.PaymentRepository;
 import java.time.LocalDateTime;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,6 +29,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Slf4j
 @Service
 @Transactional
+@ConditionalOnProperty(name = "zslab.payment.gateway", havingValue = "mock", matchIfMissing = true)
 public class MockPaymentCallbackService {
 
     /** mock PG 거래 ID prefix(FE가 만들던 값을 서버로 이전·payment.pg_tid VARCHAR(100) 내). */
