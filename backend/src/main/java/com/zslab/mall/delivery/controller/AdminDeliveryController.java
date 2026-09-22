@@ -131,12 +131,12 @@ public class AdminDeliveryController {
             @PathVariable String claimPublicId,
             @Valid @RequestBody RegisterExchangeShipmentRequest request,
             HttpServletRequest httpRequest) {
-        // X-Admin-Id 존재·형식 검증만 수행한다(전체 접근·식별자 미사용·D-93 Q3). 누락 401·형식 오류 400.
-        adminActorResolver.resolve(httpRequest);
+        AuditContext auditContext = AuditContext.of(
+                adminActorResolver.resolve(httpRequest), actorRoleResolver.requireCoarseRole());
         Claim claim = claimRepository.findByPublicId(claimPublicId)
                 .orElseThrow(() -> new ClaimNotFoundException("클레임을 찾을 수 없습니다: publicId=" + claimPublicId));
         Delivery delivery = deliveryService.registerExchangeShipmentByAdmin(
-                claim.getId(), request.carrier(), request.trackingNo());
+                claim.getId(), request.carrier(), request.trackingNo(), auditContext);
         return RegisterExchangeShipmentResponse.from(delivery);
     }
 

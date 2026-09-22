@@ -10,6 +10,7 @@ import type {
   AdminSettlementTransitionResponse,
 } from '#layers/admin/app/types/admin-settlement'
 import type { AdminSellerSummary } from '#layers/admin/app/types/admin-product'
+import type { AdminAuditLogPage } from '#layers/admin/app/types/admin-audit'
 import type { AdminSettlementItemType } from '#layers/admin/app/lib/constants/admin-settlement'
 import { toAdminSettlementApiParams } from '#layers/admin/app/lib/admin-settlement-query'
 import { useAdminApi } from '#layers/admin/app/composables/useAdminApi'
@@ -65,5 +66,10 @@ export function useAdminSettlements() {
     return api<AdminSettlementRegenerateResponse>(settlementPath(id, '/regenerate'), { method: 'POST', body: { reason } })
   }
 
-  return { list, get, listItems, listBySeller, sellers, create, confirm, pay, regenerate }
+  /** 정산 처리 이력(Track 101-A·감사 로그 최신순). 미존재 정산 id는 빈 페이지다(BE에서 존재 재확인 없음). */
+  function auditLogs(id: number, page = 0, size = 20): Promise<AdminAuditLogPage> {
+    return api<AdminAuditLogPage>(settlementPath(id, '/audit-logs'), { query: { page, size } })
+  }
+
+  return { list, get, listItems, listBySeller, sellers, create, confirm, pay, regenerate, auditLogs }
 }

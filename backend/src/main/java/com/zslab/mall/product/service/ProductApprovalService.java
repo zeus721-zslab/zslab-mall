@@ -99,4 +99,36 @@ public class ProductApprovalService {
         log.info("[Product] 거부 전이 완료(→REJECTED): publicId={}", publicId);
         return product;
     }
+
+    /**
+     * 상품 거부를 철회한다(REJECTED → PENDING·Track 101-A). 오거부를 화면 안에서 되돌리는 유일한 경로이며, 철회 후에는
+     * PENDING의 기존 동작(재승인·재거부·셀러 수정 후 재요청)을 그대로 쓴다.
+     *
+     * <p>승인·거부와 달리 멱등 no-op 단락을 두지 않는다 — 이미 PENDING인 상품에 대한 철회는 오조작이므로 422로 되돌린다
+     * ({@code stopSale}이 같은 상태 재요청을 거부하는 규약과 같다). 사유는 감사 로그 after에만 남는다(Product 컬럼 없음·89-A 선례).
+     *
+     * @param publicId     철회 대상 상품 public_id(prd_)
+     * @param reason       철회 사유(필수·감사 기록용)
+     * @param auditContext 감사 행위자 컨텍스트(운영자)
+     * @return 철회되어 PENDING이 된 Product
+     * @throws ProductNotFoundException     상품 미존재(404)
+     * @throws ProductInvalidStateException PENDING 전이가 불가한 상태(REJECTED 아님)인 경우(422)
+     */
+    public Product withdrawRejection(String publicId, String reason, AuditContext auditContext) {
+        Product product = productRepository.findByPublicIdForUpdate(publicId)
+                .orElseThrow(() -> new ProductNotFoundException(
+                        "상품을 찾을 수 없습니다: publicId=" + publicId));
+
+        ProductStatus before = product.getStatus();
+        try {
+            product.withdrawRejection();
+        } catch (IllegalStateException exception) {
+            throw new ProductInvalidStateException("거부 철회할 수 없는 상품 상태입니다: " + exception.getMessage());
+        }
+        auditRecorder.record(auditContext, AuditLogAction.UPDATE, PolymorphicTargetType.PRODUCT, product.getId(),
+                Map.of("status", before.name()),
+                Map.of("status", product.getStatus().name(), "reason", reason));
+        log.info("[Product] 거부 철회 완료(→PENDING): publicId={}", publicId);
+        return product;
+    }
 }

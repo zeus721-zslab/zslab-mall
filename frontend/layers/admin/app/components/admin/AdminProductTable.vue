@@ -29,6 +29,8 @@ const emit = defineEmits<{
   'update:size': [size: number]
   toggleSoldOut: [item: AdminProductSummary, soldOut: boolean]
   changeStatus: [item: AdminProductSummary, target: AdminProductStatusTarget]
+  /** 거부 철회(REJECTED → PENDING·사유 다이얼로그는 부모가 연다·Track 101-A). */
+  withdrawRejection: [item: AdminProductSummary]
   edit: [item: AdminProductSummary]
   remove: [item: AdminProductSummary]
 }>()
@@ -190,6 +192,12 @@ function isPending(item: AdminProductSummary): boolean {
               :disabled="statusTargetDisabled(item, target.value)"
               :data-testid="`row-status-${target.value}`"
               @click="requestStatusChange(item, target.value)"
+            />
+            <v-list-item
+              v-if="item.status === 'REJECTED'"
+              title="거부 철회"
+              data-testid="row-withdraw-rejection"
+              @click="emit('withdrawRejection', item)"
             />
             <v-divider class="my-1" />
             <v-list-item

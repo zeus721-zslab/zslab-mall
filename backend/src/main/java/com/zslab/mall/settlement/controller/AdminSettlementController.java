@@ -1,8 +1,12 @@
 package com.zslab.mall.settlement.controller;
 
+import com.zslab.mall.audit.controller.response.AdminAuditLogResponse;
+import com.zslab.mall.audit.service.AdminAuditLogQueryService;
 import com.zslab.mall.audit.service.AuditContext;
 import com.zslab.mall.common.auth.ActorRoleResolver;
 import com.zslab.mall.common.auth.AdminActorResolver;
+import com.zslab.mall.common.enums.PolymorphicTargetType;
+import com.zslab.mall.order.controller.response.PagedResponse;
 import com.zslab.mall.settlement.controller.request.CreateMonthlySettlementRequest;
 import com.zslab.mall.settlement.controller.request.RegenerateSettlementRequest;
 import com.zslab.mall.settlement.controller.response.SettlementBatchResponse;
@@ -19,7 +23,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -43,20 +49,36 @@ public class AdminSettlementController {
     private final SettlementTransitionService settlementTransitionService;
     private final AdminActorResolver adminActorResolver;
     private final ActorRoleResolver actorRoleResolver;
+    private final AdminAuditLogQueryService adminAuditLogQueryService;
 
     public AdminSettlementController(SettlementCreationService settlementCreationService,
             SettlementTransitionService settlementTransitionService,
             AdminActorResolver adminActorResolver,
-            ActorRoleResolver actorRoleResolver) {
+            ActorRoleResolver actorRoleResolver,
+            AdminAuditLogQueryService adminAuditLogQueryService) {
         this.settlementCreationService = settlementCreationService;
         this.settlementTransitionService = settlementTransitionService;
         this.adminActorResolver = adminActorResolver;
         this.actorRoleResolver = actorRoleResolver;
+        this.adminAuditLogQueryService = adminAuditLogQueryService;
     }
 
     /** 현재 인증 운영자의 감사 컨텍스트를 조립한다(actorId·coarse role·ip/UA 미수집·결정4). */
     private AuditContext auditContext(HttpServletRequest request) {
         return AuditContext.of(adminActorResolver.resolve(request), actorRoleResolver.requireCoarseRole());
+    }
+
+    /**
+     * 정산 처리 이력(Track 101-A). 생성·재생성·정상처리·지급완료 감사 행을 최신순으로 돌려준다.
+     * size는 1~100 클램프(Service). 미존재 정산 id는 빈 페이지다 — 감사 행은 정산 삭제 후에도 남을 수 있어
+     * 여기서 정산 존재를 다시 확인하지 않는다.
+     */
+    @GetMapping("/api/v1/admin/settlements/{id}/audit-logs")
+    public PagedResponse<AdminAuditLogResponse> auditLogs(
+            @PathVariable Long id,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return adminAuditLogQueryService.listByTarget(PolymorphicTargetType.SETTLEMENT, id, page, size);
     }
 
     /**

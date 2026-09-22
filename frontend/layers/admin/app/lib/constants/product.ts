@@ -47,6 +47,7 @@ export const ADMIN_PRODUCT_STATUS_OPTIONS: { value: AdminProductStatus; title: s
 
 /**
  * 상태 전환 메뉴 목표(BE 허용 전이·D-165: PENDING→SALE(승인)·PENDING→REJECTED·SALE→STOPPED·STOPPED→SALE). SALE→PENDING 등 불허.
+ * REJECTED→PENDING(거부 철회·Track 101-A)은 사유 입력이 필요해 이 메뉴가 아니라 별도 액션(AdminProductWithdrawRejectionDialog)이 담당한다.
  * 값은 목표 상태이며 호출 경로는 useAdminProducts.changeStatus가 분기한다(PENDING→SALE=approve·REJECTED=reject·그 외 sale-status).
  */
 export type AdminProductStatusTarget = 'SALE' | 'STOPPED' | 'REJECTED'
@@ -60,6 +61,9 @@ export const ADMIN_PRODUCT_ALLOWED_TRANSITIONS: Record<AdminProductStatus, Admin
   HIDDEN: [],
   STOPPED: ['SALE'],
 }
+
+/** 거부 철회 사유 입력 상한(BE AdminProductWithdrawRejectionRequest @Size(max=200) 1:1·Track 101-A). */
+export const ADMIN_PRODUCT_REASON_MAX = 200
 
 /** 상태 전환 메뉴 항목(전부 노출·허용되지 않으면 비활성). */
 export const ADMIN_PRODUCT_STATUS_TARGETS: { value: AdminProductStatusTarget; title: string }[] = [

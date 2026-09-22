@@ -20,6 +20,8 @@ import {
   ESCALATE_STOP_TITLE,
   escalateConfirmMessage,
   isEscalation,
+  isRejection,
+  rejectConfirmMessage,
   saleStopSourceAfterAdminChange,
   soldOutToggleSemantic,
   summarizeBulkResult,
@@ -126,9 +128,16 @@ async function toggleSoldOut(item: AdminProductSummary, soldOut: boolean): Promi
 // D-206 보정: 셀러 중지 상품의 STOPPED 목표는 "관리자 중지로 전환"(확인 다이얼로그 경유·status 유지·주체만 ADMIN).
 const escalateTarget = ref<AdminProductSummary | null>(null)
 
+// Track 101-A: 거부는 목록에서 한 번 더 확인받는다(승인·판매중지·재판매는 가역이라 현행 즉시 반영 유지).
+const rejectTarget = ref<AdminProductSummary | null>(null)
+
 function requestStatusChange(item: AdminProductSummary, target: AdminProductStatusTarget): void {
   if (isEscalation(item, target)) {
     escalateTarget.value = item
+    return
+  }
+  if (isRejection(target)) {
+    rejectTarget.value = item
     return
   }
   void changeStatus(item, target)
@@ -138,6 +147,20 @@ async function confirmEscalate(): Promise<void> {
   const target = escalateTarget.value
   escalateTarget.value = null
   if (target) await changeStatus(target, 'STOPPED')
+}
+
+async function confirmReject(): Promise<void> {
+  const target = rejectTarget.value
+  rejectTarget.value = null
+  if (target) await changeStatus(target, 'REJECTED')
+}
+
+// Track 101-A: 거부 철회는 사유가 필요해 전용 다이얼로그가 호출까지 맡는다(상태 전환 메뉴와 별도 액션).
+const withdrawTarget = ref<AdminProductSummary | null>(null)
+
+function closeWithdraw(refresh: boolean): void {
+  withdrawTarget.value = null
+  if (refresh) void load()
 }
 
 async function changeStatus(item: AdminProductSummary, target: AdminProductStatusTarget): Promise<void> {
@@ -286,6 +309,7 @@ async function runBulk(): Promise<void> {
         @update:size="(size) => applyQuery({ size })"
         @toggle-sold-out="toggleSoldOut"
         @change-status="requestStatusChange"
+        @withdraw-rejection="(item) => (withdrawTarget = item)"
         @edit="edit"
         @remove="(item) => (deleteTarget = item)"
       >
@@ -319,6 +343,26 @@ async function runBulk(): Promise<void> {
       :loading="deleting"
       @confirm="confirmDelete"
       @cancel="deleteTarget = null"
+    />
+
+    <AdminProductWithdrawRejectionDialog
+      :open="withdrawTarget !== null"
+      :product-public-id="withdrawTarget?.productPublicId ?? null"
+      :product-name="withdrawTarget?.name ?? ''"
+      @done="closeWithdraw(true)"
+      @stale="closeWithdraw(true)"
+      @cancel="closeWithdraw(false)"
+    />
+
+    <AdminConfirmDialog
+      :open="rejectTarget !== null"
+      test-id="admin-product-reject-dialog"
+      title="상품 거부"
+      confirm-color="error"
+      :message="rejectConfirmMessage(rejectTarget?.name ?? '')"
+      confirm-label="거부"
+      @confirm="confirmReject"
+      @cancel="rejectTarget = null"
     />
 
     <AdminConfirmDialog

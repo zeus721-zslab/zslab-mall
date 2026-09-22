@@ -1,6 +1,7 @@
 package com.zslab.mall.notification.service;
 
 import com.zslab.mall.claim.entity.Claim;
+import com.zslab.mall.claim.enums.ClaimRejectReasonCode;
 import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.event.ClaimApproved;
 import com.zslab.mall.claim.event.ClaimCompleted;
@@ -199,11 +200,24 @@ public class NotificationService {
 
     /**
      * ClaimRejected 소비 → 거부 SMS 적재·발송(Track 80 D-169). 본문에 거부 사유 라벨을 싣는다(메모는 싣지 않음·개인정보 최소).
+     *
+     * <p><b>구매자 철회 분기(Track 101-A)</b>: 사유가 {@link ClaimRejectReasonCode#BUYER_WITHDRAWN}이면 "취소되었습니다"로 적는다.
+     * 구매자 신청 취소({@code ClaimService.cancelByBuyer})가 상태 전이·품목 원복을 거부 흐름으로 재사용하기 때문에 같은 이벤트가
+     * 오지만, 자기가 취소한 사람에게 "거부되었습니다"라고 알릴 이유가 없다. 관리자가 같은 사유로 거부한 경우에도 사실은
+     * "구매자가 철회했다"이므로 같은 문구가 맞다 — 그래서 호출자가 아니라 <b>사유 코드</b>로 가른다. 사유는 이미 문구에
+     * 녹아 있으므로 "사유: 구매자 철회"를 덧붙이지 않는다.
      */
     public void recordClaimRejected(ClaimRejected event) {
         try {
             ClaimSmsContext sms = resolveClaimSmsContext(event.claimId(), "ClaimRejected");
             if (sms == null) {
+                return;
+            }
+            if (event.rejectReasonCode() == ClaimRejectReasonCode.BUYER_WITHDRAWN) {
+                String cancelled = "[zslab-mall] 주문 " + sms.orderNo() + " " + sms.productName() + " "
+                        + claimTypeLabel(event.claimType()) + " 요청이 취소되었습니다.";
+                saveSms(sms, NotificationTemplateCodes.CLAIM_CANCELLED, event.claimId(),
+                        claimTypeLabel(event.claimType()) + " 요청 취소", cancelled, "ClaimRejected");
                 return;
             }
             String reasonLabel = event.rejectReasonCode() == null ? "" : " 사유: " + event.rejectReasonCode().getLabel();

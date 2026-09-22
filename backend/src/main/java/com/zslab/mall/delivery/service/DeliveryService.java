@@ -5,7 +5,11 @@ import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.enums.ClaimStatus;
 import com.zslab.mall.claim.exception.ClaimInvalidStateException;
 import com.zslab.mall.claim.exception.ClaimNotFoundException;
+import com.zslab.mall.audit.enums.AuditLogAction;
+import com.zslab.mall.audit.service.AuditContext;
+import com.zslab.mall.audit.service.AuditRecorder;
 import com.zslab.mall.claim.repository.ClaimRepository;
+import com.zslab.mall.common.enums.PolymorphicTargetType;
 import com.zslab.mall.common.observability.TracedEventPublisher;
 import com.zslab.mall.delivery.entity.Delivery;
 import com.zslab.mall.delivery.enums.DeliveryCarrier;
@@ -15,6 +19,7 @@ import com.zslab.mall.delivery.event.DeliveryStarted;
 import com.zslab.mall.delivery.exception.DeliveryInvalidStateException;
 import com.zslab.mall.delivery.repository.DeliveryRepository;
 import java.time.LocalDateTime;
+import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,12 +41,14 @@ public class DeliveryService {
     private final DeliveryRepository deliveryRepository;
     private final ClaimRepository claimRepository;
     private final TracedEventPublisher eventPublisher;
+    private final AuditRecorder auditRecorder;
 
     public DeliveryService(DeliveryRepository deliveryRepository, ClaimRepository claimRepository,
-            TracedEventPublisher eventPublisher) {
+            TracedEventPublisher eventPublisher, AuditRecorder auditRecorder) {
         this.deliveryRepository = deliveryRepository;
         this.claimRepository = claimRepository;
         this.eventPublisher = eventPublisher;
+        this.auditRecorder = auditRecorder;
     }
 
     /**
@@ -224,8 +231,15 @@ public class DeliveryService {
     @Transactional
     public Delivery registerExchangeShipmentByAdmin(Long claimId,
                                                     DeliveryCarrier carrier,
-                                                    String trackingNo) {
-        return registerExchangeShipment(claimId, carrier, trackingNo);
+                                                    String trackingNo,
+                                                    AuditContext auditContext) {
+        Delivery delivery = registerExchangeShipment(claimId, carrier, trackingNo);
+        // Track 101-A: 교환품 발송은 되돌릴 수 없는데 행위자 기록이 없었다. 생성된 Delivery 기준 CREATE 1행.
+        auditRecorder.record(auditContext, AuditLogAction.CREATE, PolymorphicTargetType.DELIVERY, delivery.getId(),
+                Map.of(),
+                Map.of("claimId", claimId, "direction", delivery.getDirection().name(),
+                        "carrier", carrier.name(), "trackingNo", trackingNo));
+        return delivery;
     }
 
     /**

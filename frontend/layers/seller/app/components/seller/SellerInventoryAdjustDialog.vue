@@ -6,6 +6,7 @@ import {
   type SellerInventoryAdjustMode,
 } from '#layers/seller/app/lib/constants/seller-product'
 import { inventoryItemLabel, validateInventoryAdjustForm } from '#layers/seller/app/lib/seller-product-view'
+import { isLargeInventoryAdjust, largeInventoryAdjustMessage } from '~/lib/utils/inventory-adjust'
 import { extractErrorCode, isSellerSuspendedError, mapFieldErrors, toSellerErrorMessage } from '#layers/seller/app/lib/seller-error-message'
 import { useSellerInventory } from '#layers/seller/app/composables/useSellerInventory'
 import { useSellerToast } from '#layers/seller/app/composables/useSellerToast'
@@ -29,6 +30,8 @@ const quantity = ref('')
 const reason = ref('')
 const errors = ref<Record<string, string>>({})
 const submitting = ref(false)
+/** 대량 조정 확인 문구(Track 101-A). 값이 차 있으면 확인 대기 상태이며 다음 제출은 그대로 진행한다. */
+const largeWarning = ref('')
 
 const modeLabel = computed(() => SELLER_INVENTORY_ADJUST_LABEL[props.mode])
 
@@ -37,11 +40,14 @@ function reset(): void {
   reason.value = ''
   errors.value = {}
   submitting.value = false
+  largeWarning.value = ''
 }
 watch(() => props.open, (open) => { if (open) reset() })
 
 function clearError(field: string): void {
   errors.value = { ...errors.value, [field]: '' }
+  // 수량을 고쳤으면 확인을 다시 받는다.
+  if (field === 'quantity') largeWarning.value = ''
 }
 
 async function submit(): Promise<void> {
@@ -50,8 +56,15 @@ async function submit(): Promise<void> {
   errors.value = validation
   if (Object.keys(validation).length > 0) return
 
-  submitting.value = true
   const body = { quantity: Number(quantity.value), reason: reason.value.trim() }
+  // 대량 조정은 한 번 확인받고 멈춘다(값 자체는 막지 않는다·Track 101-A). 두 번째 제출은 그대로 진행한다.
+  const delta = props.mode === 'INBOUND' ? body.quantity : -body.quantity
+  if (largeWarning.value === '' && isLargeInventoryAdjust(delta)) {
+    largeWarning.value = largeInventoryAdjustMessage([{ label: inventoryItemLabel(props.item), delta }])
+    return
+  }
+
+  submitting.value = true
   try {
     const response = props.mode === 'INBOUND'
       ? await inventoryApi.markInbound(props.item.variantPublicId, body)
@@ -112,6 +125,15 @@ async function submit(): Promise<void> {
           @update:model-value="clearError('reason')"
           @keyup.enter="submit"
         />
+        <v-alert
+          v-if="largeWarning"
+          type="warning"
+          variant="tonal"
+          density="compact"
+          class="mt-3 text-body-2"
+          style="white-space: pre-line"
+          data-testid="adjust-large-warning"
+        >{{ largeWarning }}</v-alert>
       </v-card-text>
       <v-card-actions class="px-5 pb-4">
         <v-spacer />
@@ -124,7 +146,7 @@ async function submit(): Promise<void> {
           data-testid="adjust-dialog-ok"
           @click="submit"
         >
-          {{ modeLabel }}
+          {{ largeWarning ? `확인하고 ${modeLabel}` : modeLabel }}
         </v-btn>
       </v-card-actions>
     </v-card>

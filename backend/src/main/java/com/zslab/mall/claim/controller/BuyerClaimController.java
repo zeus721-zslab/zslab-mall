@@ -96,6 +96,18 @@ public class BuyerClaimController {
         return ResponseEntity.ok(claimService.getClaim(claimPublicId, buyerId));
     }
 
+    /**
+     * 본인 클레임 신청 취소(Track 101-A). 접수(REQUESTED) 상태의 자기 요청만 취소할 수 있다. 성공 200 + 취소 후 ClaimResponse.
+     * 미존재·타인 클레임 404(은닉)·승인 이후 등 상태 위반 422. body 없음 — 취소 사유는 {@code BUYER_WITHDRAWN} 고정이다.
+     */
+    @PostMapping("/{claimPublicId}/cancel")
+    public ResponseEntity<ClaimResponse> cancel(
+            @PathVariable String claimPublicId, HttpServletRequest httpRequest) {
+        Long buyerId = buyerActorResolver.resolve(httpRequest);
+        claimService.cancelByBuyer(claimPublicId, buyerId, LocalDateTime.now());
+        return ResponseEntity.ok(claimService.getClaim(claimPublicId, buyerId));
+    }
+
     /** 본인 클레임 목록(requested_by 기준·D-54 PagedResponse·page/size 클램프는 Service). */
     @GetMapping
     public ResponseEntity<PagedResponse<ClaimSummaryResponse>> list(

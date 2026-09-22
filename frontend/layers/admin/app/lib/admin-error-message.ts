@@ -61,18 +61,32 @@ const ADMIN_ERROR_MESSAGES: Record<string, string> = {
 
 const FALLBACK_MESSAGE = '요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.'
 
+/**
+ * 원인이 여러 가지인데 코드가 하나뿐이라 코드 문구가 원인을 지워 버리는 코드(Track 101-A). BE가 detail에 실어 보낸 구체 사유를
+ * 코드 문구보다 먼저 쓴다 — 예: 회수 송장 미등록 422는 CLAIM_STATE_INVALID로 내려오지만 detail에만 "회수 송장이 등록되지 않아…"가 있다.
+ * detail이 비어 있으면 기존대로 코드 문구로 폴백한다.
+ */
+const DETAIL_FIRST_CODES: ReadonlySet<string> = new Set(['CLAIM_STATE_INVALID'])
+
 /** ofetch 에러(FetchError)에서 ProblemDetail.code를 꺼낸다. 네트워크 오류·비JSON은 null. */
 export function extractErrorCode(error: unknown): string | null {
   const code = (error as { data?: { code?: unknown } } | null)?.data?.code
   return typeof code === 'string' ? code : null
 }
 
-/** 코드 우선 → 알 수 없으면 서버 detail → 일반 문구. */
+/** ofetch 에러에서 ProblemDetail.detail을 꺼낸다. 없거나 빈 문자열이면 null. */
+function extractErrorDetail(error: unknown): string | null {
+  const detail = (error as { data?: { detail?: unknown } } | null)?.data?.detail
+  return typeof detail === 'string' && detail !== '' ? detail : null
+}
+
+/** DETAIL_FIRST_CODES는 서버 detail 우선 → 코드 우선 → 알 수 없으면 서버 detail → 일반 문구. */
 export function toAdminErrorMessage(error: unknown): string {
   const code = extractErrorCode(error)
+  const detail = extractErrorDetail(error)
+  if (code && detail && DETAIL_FIRST_CODES.has(code)) return detail
   if (code && ADMIN_ERROR_MESSAGES[code]) return ADMIN_ERROR_MESSAGES[code]
-  const detail = (error as { data?: { detail?: unknown } } | null)?.data?.detail
-  return typeof detail === 'string' && detail !== '' ? detail : FALLBACK_MESSAGE
+  return detail ?? FALLBACK_MESSAGE
 }
 
 /** 일괄 결과 실패 항목의 code → 메시지(항목 message가 있으면 코드 문구 뒤에 병기하지 않고 코드 문구만). */

@@ -4,7 +4,11 @@ import com.zslab.mall.claim.entity.Claim;
 import com.zslab.mall.claim.enums.ClaimStatus;
 import com.zslab.mall.claim.exception.ClaimInvalidStateException;
 import com.zslab.mall.claim.exception.ClaimNotFoundException;
+import com.zslab.mall.audit.enums.AuditLogAction;
+import com.zslab.mall.audit.service.AuditContext;
+import com.zslab.mall.audit.service.AuditRecorder;
 import com.zslab.mall.claim.repository.ClaimRepository;
+import com.zslab.mall.common.enums.PolymorphicTargetType;
 import com.zslab.mall.common.observability.TracedEventPublisher;
 import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.payment.entity.Payment;
@@ -23,6 +27,7 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -54,6 +59,7 @@ public class RefundService {
     private final PaymentGateway paymentGateway;
     private final TracedEventPublisher eventPublisher;
     private final EntityManager entityManager;
+    private final AuditRecorder auditRecorder;
 
     public RefundService(
             ClaimRepository claimRepository,
@@ -62,7 +68,8 @@ public class RefundService {
             RefundRepository refundRepository,
             PaymentGateway paymentGateway,
             TracedEventPublisher eventPublisher,
-            EntityManager entityManager) {
+            EntityManager entityManager,
+            AuditRecorder auditRecorder) {
         this.claimRepository = claimRepository;
         this.orderItemRepository = orderItemRepository;
         this.paymentRepository = paymentRepository;
@@ -70,6 +77,7 @@ public class RefundService {
         this.paymentGateway = paymentGateway;
         this.eventPublisher = eventPublisher;
         this.entityManager = entityManager;
+        this.auditRecorder = auditRecorder;
     }
 
     /**
@@ -163,8 +171,13 @@ public class RefundService {
      * @throws ClaimInvalidStateException      클레임이 APPROVED가 아닌 경우(CLM-3·422)
      * @throws RefundInvariantViolationException PAY-1 사전 한도 초과(과환불 차단·422)
      */
-    public Refund initiateByAdmin(Long claimId, long amount) {
-        return initiate(claimId, amount);
+    public Refund initiateByAdmin(Long claimId, long amount, AuditContext auditContext) {
+        Refund refund = initiate(claimId, amount);
+        // Track 101-A: 수동 환불 개시는 금액을 운영자가 직접 입력하고 되돌릴 수 없는데 행위자 기록이 없었다.
+        auditRecorder.record(auditContext, AuditLogAction.CREATE, PolymorphicTargetType.REFUND, refund.getId(),
+                Map.of(),
+                Map.of("claimId", claimId, "amount", amount, "status", refund.getStatus().name()));
+        return refund;
     }
 
     /**

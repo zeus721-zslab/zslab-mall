@@ -15,7 +15,7 @@ import {
   ADMIN_ORDER_PAGE_SIZES,
 } from '#layers/admin/app/lib/constants/admin-order'
 import { formatWon } from '#layers/admin/app/lib/format'
-import { inspectionChip, refundStatusChip } from '#layers/admin/app/lib/admin-claim-view'
+import { inspectionChip, pickupWaitingLabel, refundStatusChip } from '#layers/admin/app/lib/admin-claim-view'
 import { semanticChipClass } from '#layers/admin/app/lib/constants/semantic'
 import { ADMIN_CLAIM_ACTION_LABEL } from '#layers/admin/app/lib/constants/admin-claim'
 
@@ -39,6 +39,8 @@ const emit = defineEmits<{
   confirmPickup: [item: AdminClaimSummary]
   inspect: [item: AdminClaimSummary]
   registerExchangeShipment: [item: AdminClaimSummary]
+  /** 회수 송장 대행 등록(Track 101-A·BE availableActions 무변경·회수 대기 판정으로만 노출). */
+  registerReturnShipment: [item: AdminClaimSummary]
   markExchangeDelivered: [item: AdminClaimSummary]
   initiateRefund: [item: AdminClaimSummary]
 }>()
@@ -239,7 +241,25 @@ function returnCaption(item: AdminClaimSummary): string {
           data-testid="row-initiate-refund"
           @click="emit('initiateRefund', item)"
         >{{ ADMIN_CLAIM_ACTION_LABEL.INITIATE_REFUND }}</v-btn>
-        <span v-if="item.availableActions.length === 0" class="text-caption text-medium-emphasis">—</span>
+        <!-- Track 101-A: 회수 대기는 "무엇을 기다리는 중"인지 적고, 전화로 받은 송장을 대신 넣을 수 있게 한다.
+             BE availableActions에는 값을 더하지 않는다 — 그러면 "필요 액션" 필터·대시보드 처리 대기 타일 집계가 같이 바뀐다. -->
+        <template v-if="pickupWaitingLabel(item)">
+          <span class="text-caption text-medium-emphasis text-no-wrap" data-testid="row-pickup-waiting">
+            {{ pickupWaitingLabel(item) }}
+          </span>
+          <v-btn
+            size="x-small"
+            color="primary"
+            variant="outlined"
+            :disabled="isPending(item)"
+            data-testid="row-register-return-shipment"
+            @click="emit('registerReturnShipment', item)"
+          >회수 송장 대행 등록</v-btn>
+        </template>
+        <span
+          v-else-if="item.availableActions.length === 0"
+          class="text-caption text-medium-emphasis"
+        >—</span>
       </div>
     </template>
 

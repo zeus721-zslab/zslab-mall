@@ -50,7 +50,42 @@ const timeline = computed<TimelineStep[]>(() => (data.value ? claimTimeline(data
 const stageGuide = computed<string>(() => (data.value ? claimStageGuide(data.value) : ''))
 
 // 회수 송장 폼(반품 승인 후·송장 미등록·미회수일 때만·BE returnShipmentRequired).
-const { registerReturnShipment } = useClaim()
+const { registerReturnShipment, cancelClaim } = useClaim()
+
+// 요청 취소(Track 101-A): 접수 상태에서만. 확인 1회 후 호출한다(되돌릴 수 없는 종결이라 즉시 실행하지 않는다).
+const cancelConfirmOpen = ref<boolean>(false)
+const cancelSubmitting = ref<boolean>(false)
+const cancelError = ref<string>('')
+const cancellable = computed<boolean>(() => data.value?.status === 'REQUESTED')
+
+async function submitCancel(): Promise<void> {
+  if (cancelSubmitting.value) return
+  cancelSubmitting.value = true
+  cancelError.value = ''
+  try {
+    await cancelClaim(claimPublicId)
+    cancelConfirmOpen.value = false
+    await refresh()
+  } catch (submitError) {
+    const statusCode = (submitError as { statusCode?: number }).statusCode
+    if (statusCode === 401) {
+      navigateTo(`/login?redirect=${encodeURIComponent(`/claims/${claimPublicId}`)}`)
+      return
+    }
+    cancelConfirmOpen.value = false
+    if (statusCode === 422) {
+      // 그사이 관리자가 승인·거부했거나 이미 취소된 경우: 최신 상태를 보여 준다.
+      cancelError.value = '이미 처리가 시작되어 취소할 수 없습니다. 최신 상태를 확인해 주세요.'
+      await refresh()
+    } else if (statusCode === 404) {
+      cancelError.value = '클레임을 찾을 수 없습니다.'
+    } else {
+      cancelError.value = '요청 취소에 실패했습니다. 잠시 후 다시 시도하세요.'
+    }
+  } finally {
+    cancelSubmitting.value = false
+  }
+}
 const shipmentCarrier = ref<DeliveryCarrier | ''>('')
 const shipmentTrackingNo = ref<string>('')
 const shipmentSubmitting = ref<boolean>(false)
@@ -125,6 +160,31 @@ useSeoMeta({ title: '클레임 상세 · zslab-mall', description: 'zslab-mall �
             {{ claimStatusLabel(data.status) }}
           </span>
         </div>
+
+        <!-- 요청 취소(Track 101-A): 접수 상태에서만 노출. 승인 이후에는 운영자 판단이 필요해 버튼을 감춘다. -->
+        <div v-if="cancellable" class="mb-6" data-testid="claim-cancel-block">
+          <template v-if="!cancelConfirmOpen">
+            <Button variant="outline" size="sm" data-testid="claim-cancel-open" @click="cancelConfirmOpen = true">
+              요청 취소
+            </Button>
+          </template>
+          <div v-else class="rounded-card border border-line bg-gray-50 p-4" data-testid="claim-cancel-panel">
+            <p class="text-sm font-medium text-ink">{{ claimTypeLabel(data.claimType) }} 요청을 취소할까요?</p>
+            <p class="mt-1 text-sm text-soldout" data-testid="claim-cancel-warning">
+              취소하면 이 요청은 종료되며 되돌릴 수 없습니다. 다시 필요하면 주문 내역에서 새로 신청해야 합니다.
+            </p>
+            <div class="mt-3 flex gap-2">
+              <Button size="sm" :disabled="cancelSubmitting" data-testid="claim-cancel-submit" @click="submitCancel">
+                {{ cancelSubmitting ? '취소 중…' : '요청 취소' }}
+              </Button>
+              <Button variant="outline" size="sm" :disabled="cancelSubmitting" data-testid="claim-cancel-dismiss" @click="cancelConfirmOpen = false">
+                닫기
+              </Button>
+            </div>
+          </div>
+          <p v-if="cancelError" class="mt-2 text-sm text-soldout" data-testid="claim-cancel-error">{{ cancelError }}</p>
+        </div>
+        <p v-else-if="cancelError" class="mb-6 text-sm text-soldout" data-testid="claim-cancel-error">{{ cancelError }}</p>
 
         <!-- 진행 타임라인 -->
         <section class="rounded-card border border-line p-5">

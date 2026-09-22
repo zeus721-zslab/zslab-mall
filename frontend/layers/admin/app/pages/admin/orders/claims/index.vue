@@ -5,6 +5,7 @@ import type { AdminClaimRejectTarget } from '#layers/admin/app/components/admin/
 import type { AdminRefundInitiateTarget } from '#layers/admin/app/components/admin/AdminRefundInitiateDialog.vue'
 import type { AdminClaimInspectTarget } from '#layers/admin/app/components/admin/AdminClaimInspectDialog.vue'
 import type { AdminExchangeShipmentTarget } from '#layers/admin/app/components/admin/AdminExchangeShipmentDialog.vue'
+import type { AdminReturnShipmentTarget } from '#layers/admin/app/components/admin/AdminReturnShipmentDialog.vue'
 import { CLAIM_TYPE_LABELS, claimTypeLabel, type ClaimInspectionResult, type ClaimType } from '~/lib/constants/claim'
 import {
   DEFAULT_ADMIN_CLAIM_QUERY,
@@ -212,6 +213,18 @@ async function closeInspect(refresh: boolean, result: ClaimInspectionResult | nu
   }
 }
 
+// ---------- 회수 송장 대행 등록(Track 101-A): 구매자 미등록으로 멈춘 반품·교환을 운영자가 잇는다 ----------
+const returnShipmentTarget = ref<AdminReturnShipmentTarget | null>(null)
+
+function openReturnShipment(item: AdminClaimSummary): void {
+  returnShipmentTarget.value = { claimId: item.claimId, productName: item.productName ?? '' }
+}
+
+function closeReturnShipment(refresh: boolean): void {
+  returnShipmentTarget.value = null
+  if (refresh) void load()
+}
+
 // ---------- 수동 환불 개시(FE-36·Track 89-A): BE availableActions INITIATE_REFUND(승인 후 환불 없음·실패)에만 노출 ----------
 const refundInitiateTarget = ref<AdminRefundInitiateTarget | null>(null)
 
@@ -316,6 +329,7 @@ async function runMarkExchangeDelivered(): Promise<void> {
         @confirm-pickup="(item) => (pickupTarget = item)"
         @inspect="openInspect"
         @register-exchange-shipment="openExchangeShipment"
+        @register-return-shipment="openReturnShipment"
         @mark-exchange-delivered="(item) => (exchangeDeliveredTarget = item)"
         @initiate-refund="openInitiateRefund"
       >
@@ -378,6 +392,13 @@ async function runMarkExchangeDelivered(): Promise<void> {
       @done="(result) => closeInspect(true, result)"
       @stale="closeInspect(true)"
       @cancel="closeInspect(false)"
+    />
+    <AdminReturnShipmentDialog
+      :open="returnShipmentTarget !== null"
+      :target="returnShipmentTarget"
+      @done="closeReturnShipment(true)"
+      @stale="closeReturnShipment(true)"
+      @cancel="closeReturnShipment(false)"
     />
     <AdminExchangeShipmentDialog
       :open="exchangeShipmentTarget !== null"

@@ -49,6 +49,20 @@ export function escalateConfirmMessage(productName: string): string {
 관리자 중지로 전환하면 판매중지 상태는 그대로 유지되고, 셀러는 재판매할 수 없게 됩니다(관리자만 해제 가능).`
 }
 
+/**
+ * 거부 확인이 필요한 전환인지(Track 101-A). 거부는 유일한 불가역 목표라 목록·상세 양쪽에서 같은 조건으로 확인을 받는다.
+ * 승인·판매중지·재판매는 가역이라 현행대로 즉시 반영한다.
+ */
+export function isRejection(target: AdminProductStatusTarget): boolean {
+  return target === 'REJECTED'
+}
+
+/** 거부 확인 문구(불가역·되돌리려면 거부 철회가 필요함을 고지). 목록·상세가 같은 문구를 쓴다. */
+export function rejectConfirmMessage(productName: string): string {
+  return `${productName}을(를) 거부합니다.
+거부된 상품은 판매대기로 돌아가지 않으며, 되돌리려면 거부 철회를 해야 합니다.`
+}
+
 /** 상태 전환 응답 뒤 행에 반영할 주체: STOPPED 결과는 관리자 경로라 항상 ADMIN, SALE 복귀는 없음(BE 응답에 주체 없음). */
 export function saleStopSourceAfterAdminChange(status: AdminProductStatus): AdminSaleStopSource | undefined {
   return status === 'STOPPED' ? 'ADMIN' : undefined

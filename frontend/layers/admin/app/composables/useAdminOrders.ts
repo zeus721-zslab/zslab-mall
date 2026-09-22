@@ -11,6 +11,7 @@ import type {
   AdminShipmentRequest,
 } from '#layers/admin/app/types/admin-order'
 import type { AdminClaimInspectBody, AdminClaimRejectBody, AdminRefundInitiateBody, AdminRefundInitiateResponse } from '#layers/admin/app/types/admin-claim'
+import type { AdminAuditLogPage } from '#layers/admin/app/types/admin-audit'
 import { toAdminOrderApiParams } from '#layers/admin/app/lib/admin-order-query'
 import { useAdminApi } from '#layers/admin/app/composables/useAdminApi'
 
@@ -73,6 +74,21 @@ export function useAdminOrders() {
     return api<AdminDeliveryResponse>(path, { method: 'POST', body })
   }
 
+  /**
+   * 회수 송장 대행 등록(Track 101-A). 구매자가 올리지 않은 회수 송장을 운영자가 대신 넣는다. 구매자 경로와 같은 BE 도메인
+   * 경로라 생성되는 RETURN 배송·구매자 화면 표시가 동일하다. 유형/상태 위반·중복 등록 422는 throw.
+   */
+  function registerReturnShipment(claimPublicId: string, body: AdminShipmentRequest): Promise<AdminDeliveryResponse> {
+    const path: string = `/v1/admin/claims/${claimPublicId}/return-shipment`
+    return api<AdminDeliveryResponse>(path, { method: 'POST', body })
+  }
+
+  /** 클레임 처리 이력(Track 101-A·감사 로그 최신순). 미존재 클레임 404는 throw. */
+  function claimAuditLogs(claimPublicId: string, page = 0, size = 20): Promise<AdminAuditLogPage> {
+    const path: string = `/v1/admin/claims/${claimPublicId}/audit-logs`
+    return api<AdminAuditLogPage>(path, { query: { page, size } })
+  }
+
   function inspectClaim(claimPublicId: string, body: AdminClaimInspectBody): Promise<AdminClaimResponse> {
     const path: string = `/v1/admin/claims/${claimPublicId}/inspect`
     return api<AdminClaimResponse>(path, { method: 'POST', body })
@@ -92,6 +108,6 @@ export function useAdminOrders() {
 
   return {
     list, detail, cancel, prepareShipment, markDelivered, approveClaim, rejectClaim, confirmPickupClaim, inspectClaim,
-    registerExchangeShipment, markPaymentCancelled, initiateRefund,
+    registerExchangeShipment, registerReturnShipment, claimAuditLogs, markPaymentCancelled, initiateRefund,
   }
 }
