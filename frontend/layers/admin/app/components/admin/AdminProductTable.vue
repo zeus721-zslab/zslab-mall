@@ -60,6 +60,16 @@ function allowedTargets(item: AdminProductSummary): AdminProductStatusTarget[] {
   return statusTargetsFor(item)
 }
 
+// FE-58: :disabled와 같은 값을 핸들러가 재검사한다 — Vuetify VListItem은 disabled여도 click을 emit한다(프로그래밍 클릭 fallthrough).
+function statusTargetDisabled(item: AdminProductSummary, target: AdminProductStatusTarget): boolean {
+  return !allowedTargets(item).includes(target)
+}
+
+function requestStatusChange(item: AdminProductSummary, target: AdminProductStatusTarget): void {
+  if (statusTargetDisabled(item, target)) return
+  emit('changeStatus', item, target)
+}
+
 function isPending(item: AdminProductSummary): boolean {
   return props.pendingIds.has(item.productPublicId)
 }
@@ -177,9 +187,9 @@ function isPending(item: AdminProductSummary): boolean {
               v-for="target in ADMIN_PRODUCT_STATUS_TARGETS"
               :key="target.value"
               :title="statusTargetTitle(item, target.value)"
-              :disabled="!allowedTargets(item).includes(target.value)"
+              :disabled="statusTargetDisabled(item, target.value)"
               :data-testid="`row-status-${target.value}`"
-              @click="emit('changeStatus', item, target.value)"
+              @click="requestStatusChange(item, target.value)"
             />
             <v-divider class="my-1" />
             <v-list-item

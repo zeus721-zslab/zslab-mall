@@ -16,6 +16,8 @@ logging:
   level:
     root: WARN
     com.zslab.mall: INFO
+    # D-208: 운영 기동 시 마이그레이션 검증·적용 이력(validated N migrations·Current version)을 root WARN에서 살린다.
+    org.flywaydb: INFO
 
 jwt:
   # 운영: 시크릿 하드코딩·기본값 금지 — JWT_SECRET env 미주입 시 기동 실패(의도적 fail-fast). base yml 더미 override. HS256 최소 32바이트.

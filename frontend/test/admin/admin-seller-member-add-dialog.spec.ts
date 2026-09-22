@@ -141,4 +141,28 @@ describe('AdminSellerMemberAddDialog — 신규 계정 임시 비밀번호 1회 
     expect(wrapper.emitted('done')).toHaveLength(1)
     vi.unstubAllGlobals()
   })
+
+  // FE-58: Vuetify VListItem은 disabled여도 click을 emit한다 — 프로그래밍 클릭(HTMLElement.click)이 핸들러 가드에서 멈추는지 검증.
+  it('이미 구성원인 검색 결과 → 비활성 항목 프로그래밍 클릭 시 선택·addMember 없음', async () => {
+    membersApiMock.list.mockResolvedValue({ items: [{ publicId: 'usr_E', name: '기존회원', email: 'e@e2e.invalid', phone: '010-1' }], totalCount: 1, page: 0, size: 10 })
+    const wrapper = await mountSuspended(AdminSellerMemberAddDialog, {
+      props: { open: false, detail: { ...DETAIL, members: [{ userPublicId: 'usr_E', email: 'e@e2e.invalid', name: '기존회원', roleCode: 'SELLER_STAFF', joinedAt: '2026-09-01T00:00:00' }] } },
+      global: { plugins: [createVuetify()] },
+      attachTo: document.body,
+    })
+    await wrapper.setProps({ open: true })
+    await flushPromises()
+    await fill('seller-member-keyword', '기존')
+    await click('seller-member-search')
+    expect(query('seller-member-result')?.classList.contains('v-list-item--disabled')).toBe(true)
+
+    await click('seller-member-result')
+
+    expect(query('seller-member-selected')).toBeNull()
+    expect(query('seller-member-result')).not.toBeNull()
+    await click('seller-member-add-ok')
+    expect(sellersApiMock.addMember).not.toHaveBeenCalled()
+    expect(wrapper.emitted('done')).toBeUndefined()
+    vi.unstubAllGlobals()
+  })
 })

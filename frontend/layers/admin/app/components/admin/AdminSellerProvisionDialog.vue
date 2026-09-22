@@ -93,6 +93,12 @@ function ownerLabel(member: AdminMemberSummary): string {
   return member.name ?? member.email ?? member.publicId
 }
 
+// FE-58: :disabled(submitting)와 같은 값을 핸들러가 재검사한다 — Vuetify VListItem은 disabled여도 click을 emit한다(프로그래밍 클릭 fallthrough).
+function selectOwner(member: AdminMemberSummary): void {
+  if (submitting.value) return
+  owner.value = member
+}
+
 // FE-42: owner는 선택 사항 — 상호·대표자만 채우면 등록 가능(구성원은 상세에서 추가).
 const confirmDisabled = computed(() =>
   submitting.value || form.companyName.trim() === '' || form.ceoName.trim() === '',
@@ -200,7 +206,7 @@ async function submit(): Promise<void> {
           </v-text-field>
           <v-alert v-if="searchError" type="error" variant="tonal" density="compact" class="mt-3" data-testid="seller-provision-search-error">{{ searchError }}</v-alert>
           <v-list v-else-if="results.length > 0" density="compact" class="mt-3 adm-provision-results" data-testid="seller-provision-results">
-            <v-list-item v-for="member in results" :key="member.publicId" :disabled="submitting" data-testid="seller-provision-result" @click="owner = member">
+            <v-list-item v-for="member in results" :key="member.publicId" :disabled="submitting" data-testid="seller-provision-result" @click="selectOwner(member)">
               <v-list-item-title>{{ member.name ?? '—' }} <span class="text-medium-emphasis">{{ member.email ?? '' }}</span></v-list-item-title>
               <v-list-item-subtitle>{{ member.phone ?? '연락처 없음' }}</v-list-item-subtitle>
             </v-list-item>

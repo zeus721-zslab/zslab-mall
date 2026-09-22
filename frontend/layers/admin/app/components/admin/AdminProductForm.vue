@@ -121,7 +121,13 @@ const saleState = computed(() => ({ status: form.value.status ?? 'DRAFT', saleSt
 const allowedTargets = computed(() => (form.value.status ? statusTargetsFor(saleState.value) : []))
 const escalateOpen = ref(false)
 
+// FE-58: :disabled와 같은 값을 핸들러가 재검사한다 — Vuetify VListItem은 disabled여도 click을 emit한다(프로그래밍 클릭 fallthrough).
+function statusTargetDisabled(target: AdminProductStatusTarget): boolean {
+  return !allowedTargets.value.includes(target)
+}
+
 function requestStatusChange(target: AdminProductStatusTarget): void {
+  if (statusTargetDisabled(target)) return
   if (isEscalation(saleState.value, target)) {
     escalateOpen.value = true
     return
@@ -202,7 +208,7 @@ defineExpose({ form, dirty })
               v-for="target in ADMIN_PRODUCT_STATUS_TARGETS"
               :key="target.value"
               :title="statusTargetTitle(saleState, target.value)"
-              :disabled="!allowedTargets.includes(target.value)"
+              :disabled="statusTargetDisabled(target.value)"
               :data-testid="`status-target-${target.value}`"
               @click="requestStatusChange(target.value)"
             />

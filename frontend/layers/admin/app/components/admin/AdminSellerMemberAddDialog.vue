@@ -102,6 +102,15 @@ function memberLabel(member: AdminMemberSummary): string {
   return member.name ?? member.email ?? member.publicId
 }
 
+// FE-58: :disabled와 같은 값을 핸들러가 재검사한다 — Vuetify VListItem은 disabled여도 click을 emit한다(프로그래밍 클릭 fallthrough).
+function resultDisabled(member: AdminMemberSummary): boolean {
+  return submitting.value || alreadyMember(member)
+}
+function selectMember(member: AdminMemberSummary): void {
+  if (resultDisabled(member)) return
+  selected.value = member
+}
+
 const confirmDisabled = computed(() => {
   if (submitting.value) return true
   if (mode.value === 'existing') return selected.value === null
@@ -210,7 +219,7 @@ function closeIssuedPassword(): void {
             </v-text-field>
             <v-alert v-if="searchError" type="error" variant="tonal" density="compact" class="mt-3" data-testid="seller-member-search-error">{{ searchError }}</v-alert>
             <v-list v-else-if="results.length > 0" density="compact" class="mt-3 adm-member-results" data-testid="seller-member-results">
-              <v-list-item v-for="member in results" :key="member.publicId" :disabled="submitting || alreadyMember(member)" data-testid="seller-member-result" @click="selected = member">
+              <v-list-item v-for="member in results" :key="member.publicId" :disabled="resultDisabled(member)" data-testid="seller-member-result" @click="selectMember(member)">
                 <v-list-item-title>{{ member.name ?? '—' }} <span class="text-medium-emphasis">{{ member.email ?? '' }}</span></v-list-item-title>
                 <v-list-item-subtitle>{{ alreadyMember(member) ? '이미 이 셀러의 구성원입니다' : (member.phone ?? '연락처 없음') }}</v-list-item-subtitle>
               </v-list-item>
