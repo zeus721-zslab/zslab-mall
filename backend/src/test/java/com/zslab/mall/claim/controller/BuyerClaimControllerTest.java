@@ -3,6 +3,7 @@ package com.zslab.mall.claim.controller;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
@@ -284,7 +285,7 @@ class BuyerClaimControllerTest {
     @Test
     @DisplayName("GET 목록: 정상 → 200 PagedResponse 구조")
     void list_returns200() throws Exception {
-        when(claimService.listClaims(anyLong(), anyInt(), anyInt()))
+        when(claimService.listClaims(anyLong(), any(), anyInt(), anyInt()))
                 .thenReturn(new PagedResponse<>(List.of(), 0, 20, 0L, false));
 
         mockMvc.perform(get("/api/v1/claims").header("X-Buyer-Id", BUYER_ID)
@@ -310,22 +311,40 @@ class BuyerClaimControllerTest {
     @Test
     @DisplayName("GET 목록: size 파라미터 누락 → defaultValue 20 적용")
     void list_defaultSize_returns200() throws Exception {
-        when(claimService.listClaims(anyLong(), anyInt(), anyInt()))
+        when(claimService.listClaims(anyLong(), any(), anyInt(), anyInt()))
                 .thenReturn(new PagedResponse<>(List.of(), 5, 20, 0L, false));
 
         mockMvc.perform(get("/api/v1/claims").header("X-Buyer-Id", BUYER_ID).param("page", "5"))
                 .andExpect(status().isOk());
-        verify(claimService).listClaims(eq(1L), eq(5), eq(20));
+        verify(claimService).listClaims(eq(1L), isNull(), eq(5), eq(20));
+    }
+
+    @Test
+    @DisplayName("GET 목록: type=RETURN → 서비스에 유형 필터 전달(Track 101-B 탭)")
+    void list_typeFilter_returns200() throws Exception {
+        when(claimService.listClaims(anyLong(), any(), anyInt(), anyInt()))
+                .thenReturn(new PagedResponse<>(List.of(), 0, 20, 0L, false));
+
+        mockMvc.perform(get("/api/v1/claims").header("X-Buyer-Id", BUYER_ID).param("type", "RETURN"))
+                .andExpect(status().isOk());
+        verify(claimService).listClaims(eq(1L), eq(ClaimType.RETURN), eq(0), eq(20));
+    }
+
+    @Test
+    @DisplayName("GET 목록: 허용값 밖 type → 400(enum 바인딩 실패)")
+    void list_invalidType_returns400() throws Exception {
+        mockMvc.perform(get("/api/v1/claims").header("X-Buyer-Id", BUYER_ID).param("type", "REFUND"))
+                .andExpect(status().isBadRequest());
     }
 
     @Test
     @DisplayName("GET 목록: page 파라미터 누락 → defaultValue 0 적용")
     void list_defaultPage_returns200() throws Exception {
-        when(claimService.listClaims(anyLong(), anyInt(), anyInt()))
+        when(claimService.listClaims(anyLong(), any(), anyInt(), anyInt()))
                 .thenReturn(new PagedResponse<>(List.of(), 0, 50, 0L, false));
 
         mockMvc.perform(get("/api/v1/claims").header("X-Buyer-Id", BUYER_ID).param("size", "50"))
                 .andExpect(status().isOk());
-        verify(claimService).listClaims(eq(1L), eq(0), eq(50));
+        verify(claimService).listClaims(eq(1L), isNull(), eq(0), eq(50));
     }
 }

@@ -37,14 +37,16 @@ function categoriesState(overrides: { data?: CategorySummary[] | null; error?: u
   return { data: ref(overrides.data ?? null), pending: ref(false), error: ref(overrides.error ?? null), refresh: vi.fn() }
 }
 
-/** 드롭다운 항목 순서·경로(AppHeader.accountMenuItems + 로그아웃). 회원 탈퇴는 의도적으로 없다. */
+/**
+ * 드롭다운 항목 순서·경로(AppHeader.accountMenuItems + 로그아웃). 회원 탈퇴는 의도적으로 없다.
+ * FE-63: 취소·반품·교환 내역은 주문내역 탭으로 통합돼 별도 항목이 없다.
+ */
 const EXPECTED_LINKS: { href: string; label: string }[] = [
   { href: '/mypage', label: '마이페이지' },
   { href: '/orders', label: '주문내역' },
   { href: '/mypage/profile', label: '회원정보 수정' },
   { href: '/mypage/password', label: '비밀번호 변경' },
   { href: '/mypage/addresses', label: '배송지 관리' },
-  { href: '/claims', label: '취소·반품·교환 내역' },
 ]
 
 /**
