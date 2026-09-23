@@ -80,8 +80,20 @@ public interface SettlementRepository extends JpaRepository<Settlement, Long>, J
     /** 셀러 공개 단건(본인·CONFIRMED·PAID만·그 외 empty → 404 통일). */
     Optional<Settlement> findByIdAndSellerIdAndStatusIn(Long id, Long sellerId, Collection<SettlementStatus> statuses);
 
-    /** 셀러의 특정 상태 정산 건수(Track 89-D 종료 가드 G1·미지급 = PENDING·CONFIRMED). 파생 쿼리 바인딩. */
+    /** 셀러의 특정 상태 정산 건수(셀러 내 정보·대시보드 PENDING 건수). 종료 가드 G1은 {@link #countNotCarriedOverBySellerIdAndStatusIn}. 파생 쿼리 바인딩. */
     long countBySellerIdAndStatusIn(Long sellerId, Collection<SettlementStatus> statuses);
+
+    /**
+     * 셀러의 특정 상태 정산 중 다음 정산에 이월되지 않은 건수(Track 104-4 종료 가드 G1). 이미 이월(CARRYOVER 품목 출처 = 이 정산 id)된 음수
+     * CONFIRMED 정산은 지급 전이가 막힌 채 CONFIRMED로 남지만 그 부족분은 이월받은 정산이 떠안으므로 미지급으로 세지 않는다 — 판정은
+     * {@link #sumByStatusForSeller}와 같은 CARRYOVER 조인(정산당 최대 1행). 모든 변수는 :sellerId·:statuses 바인딩이다.
+     */
+    @Query("SELECT COUNT(s) FROM Settlement s "
+            + "LEFT JOIN SettlementItem carried ON carried.itemType = com.zslab.mall.settlement.enums.SettlementItemType.CARRYOVER "
+            + "AND carried.sourceId = s.id "
+            + "WHERE s.sellerId = :sellerId AND s.status IN :statuses AND carried.id IS NULL")
+    long countNotCarriedOverBySellerIdAndStatusIn(
+            @Param("sellerId") Long sellerId, @Param("statuses") Collection<SettlementStatus> statuses);
 
     /**
      * 셀러 정산 상태별 건수·금액 합(Track 89-D 관리자 셀러 상세·전 기간). 이미 이월된 음수 정산의 순지급액은 net 합에서 뺀다

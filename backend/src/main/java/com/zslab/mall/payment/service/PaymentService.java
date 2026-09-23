@@ -137,6 +137,7 @@ public class PaymentService {
         // FE-12c-2 근본 가드: 비-PENDING_PAYMENT(미결제 종료 PAYMENT_EXPIRED·완료 등) 주문의 결제 시작 차단.
         // 삭제 대상(PAYMENT_EXPIRED) 주문에 새 PENDING payment 자식 행이 생기는 동시성 창을 닫는다. INITIATE_FAILED로
         // PENDING_PAYMENT가 유지된 주문의 재결제(D-32 만료 PENDING 새 시도 포함)는 통과한다.
+        // 결제 전 단계 — Order.status가 원천 상태
         if (order.getStatus() != OrderStatus.PENDING_PAYMENT) {
             throw new OrderNotPendingPaymentException(
                     "결제를 시작할 수 없는 주문 상태입니다(PENDING_PAYMENT 아님): status=" + order.getStatus());
@@ -398,6 +399,7 @@ public class PaymentService {
             return recordConflict(ReconciliationIssueType.PG_PAYMENT_SUCCESS_CONFLICT, payment, command, "DUPLICATE_PAID_PAYMENT", null);
         }
         Order order = reloadOrderForApproval(payment.getOrderId());
+        // 결제 전 단계 — Order.status가 원천 상태
         if (order.getStatus() != OrderStatus.PENDING_PAYMENT) {
             // 늦은 승인: 종료로 해제된 예약분(타 주문 예약분)을 차감하지 않도록 재고 확정 전에 멈춘다(D-173).
             log.warn("[Payment] SUCCESS 콜백 충돌(늦은 승인): orderId={}, orderStatus={}, attemptKey={}",

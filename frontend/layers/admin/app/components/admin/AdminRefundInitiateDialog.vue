@@ -7,17 +7,21 @@ import { extractErrorCode, toAdminErrorMessage } from '#layers/admin/app/lib/adm
 import { useAdminOrders } from '#layers/admin/app/composables/useAdminOrders'
 import { useAdminToast } from '#layers/admin/app/composables/useAdminToast'
 
-/** 환불 개시 대상 최소 정보(목록 행). amount는 품목 결제금액(자동 환불이 썼을 값)으로 기본값이 된다. */
+/**
+ * 환불 개시 대상 최소 정보(목록 행). amount는 품목 결제금액(표시용), remainingRefundable은 품목 잔여 환불 상한(품목 금액 − 기환불액·
+ * Track 104-4)으로 기본값이자 최댓값이 된다 — 품목 전액을 기본값으로 두면 앞선 환불이 있는 품목에서 BE 품목 상한 422가 났다.
+ */
 export interface AdminRefundInitiateTarget {
   claimId: string
   type: ClaimType
   productName: string
   amount: number | null
+  remainingRefundable: number
 }
 
 /**
  * 관리자 수동 환불 개시 다이얼로그(FE-36·Track 89-A·BE D-106 fallback). 자동 환불(취소 승인·반품 검수 합격)이 유실됐거나 실패한 APPROVED
- * 클레임에서 운영자가 환불을 다시 개시한다. 금액은 품목 금액을 기본으로 보여주되 수정할 수 있다(1 이상·결제액 초과는 BE 422).
+ * 클레임에서 운영자가 환불을 다시 개시한다. 금액은 품목 잔여 상한을 기본으로 보여주되 1 이상·잔여 상한 이하로 수정할 수 있다(결제액 초과는 BE 422).
  * 호출·토스트는 다이얼로그가 소유하고 422(상태 경합·한도 초과)는 warning 후 stale(부모 재조회)·400은 필드 표시(AdminClaimRejectDialog 패턴).
  */
 const props = defineProps<{
@@ -37,15 +41,21 @@ const lastTarget = ref<AdminRefundInitiateTarget | null>(null)
 watch(() => props.target, (next) => { if (next) lastTarget.value = next })
 
 function reset(): void {
-  amountInput.value = props.target?.amount != null ? String(props.target.amount) : ''
+  amountInput.value = props.target ? String(props.target.remainingRefundable) : ''
   errors.value = {}
   submitting.value = false
 }
 watch(() => props.open, (open) => { if (open) reset() })
 
+const maxAmount = computed<number>(() => (props.target ?? lastTarget.value)?.remainingRefundable ?? 0)
+const amountOverMax = computed<boolean>(() => Number(amountInput.value) > maxAmount.value)
 const amountValue = computed<number | null>(() => {
   const parsed = Number(amountInput.value)
-  return Number.isInteger(parsed) && parsed >= 1 ? parsed : null
+  return Number.isInteger(parsed) && parsed >= 1 && parsed <= maxAmount.value ? parsed : null
+})
+const amountErrors = computed<string[]>(() => {
+  if (errors.value.amount) return [errors.value.amount]
+  return amountOverMax.value ? [`환불 가능 잔액 ${formatWon(maxAmount.value)} 이하로 입력하세요.`] : []
 })
 const confirmDisabled = computed(() => submitting.value || amountValue.value === null)
 const title = computed(() => `${claimTypeLabel(lastTarget.value?.type ?? 'CANCEL')} 환불 개시`)
@@ -54,7 +64,7 @@ async function submit(): Promise<void> {
   if (submitting.value || !props.target) return
   const amount = amountValue.value
   if (amount === null) {
-    errors.value = { amount: '1원 이상의 정수 금액을 입력하세요.' }
+    errors.value = { amount: `1원 이상 ${formatWon(maxAmount.value)} 이하의 정수 금액을 입력하세요.` }
     return
   }
   submitting.value = true
@@ -98,8 +108,9 @@ async function submit(): Promise<void> {
           label="환불 금액(원)"
           type="number"
           min="1"
+          :max="maxAmount"
           step="1"
-          :error-messages="errors.amount ? [errors.amount] : []"
+          :error-messages="amountErrors"
           :disabled="submitting"
           data-testid="refund-initiate-amount"
           @update:model-value="errors = { ...errors, amount: '' }"

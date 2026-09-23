@@ -20,7 +20,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.OptimisticLockingFailureException;
@@ -41,9 +40,6 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 public class AdminOrderCancelService {
-
-    private static final Set<OrderStatus> TERMINAL_STATUSES =
-            Set.of(OrderStatus.CANCELLED, OrderStatus.PAYMENT_EXPIRED);
 
     private final OrderRepository orderRepository;
     private final OrderAutoCancelService orderAutoCancelService;
@@ -66,17 +62,23 @@ public class AdminOrderCancelService {
         Order order = orderRepository.findByPublicIdWithItems(orderPublicId)
                 .orElseThrow(() -> new OrderNotFoundException("주문을 찾을 수 없습니다: " + orderPublicId));
 
+        // 결제 전 단계 — Order.status가 원천 상태
         if (order.getStatus() == OrderStatus.PENDING_PAYMENT) {
             cancelUnpaid(order, reasonCode, reasonDetail, auditContext);
             return new AdminOrderCancelResponse(orderPublicId, OrderStatus.PAYMENT_EXPIRED.name(), List.of());
         }
-        if (TERMINAL_STATUSES.contains(order.getStatus())) {
+        // Track 104-4(P4): 미결제 종료는 Order.status가 원천이고, 결제 후 취소 종결은 요약값(CANCELLED) 대신 품목 사실(전 품목 CANCELLED)로 본다.
+        if (order.getStatus() == OrderStatus.PAYMENT_EXPIRED || allItemsCancelled(order)) {
             throw new OptimisticLockingFailureException("이미 종료된 주문입니다: " + orderPublicId + ", status=" + order.getStatus());
         }
         List<AdminOrderCancelResponse.CancelledItem> cancelled =
                 cancelPaidItems(order, orderItemPublicIds, reasonCode, reasonDetail, auditContext.actorUserId());
         // 항목 전이는 동기 핸들러가 같은 TX에서 반영했고 Order.status는 Resolver로 재계산됐다(관리 엔티티 최신값).
         return new AdminOrderCancelResponse(orderPublicId, order.getStatus().name(), cancelled);
+    }
+
+    private static boolean allItemsCancelled(Order order) {
+        return order.getItems().stream().allMatch(item -> item.getItemStatus() == OrderItemStatus.CANCELLED);
     }
 
     private void cancelUnpaid(Order order, ClaimReasonCode reasonCode, String reasonDetail, AuditContext auditContext) {

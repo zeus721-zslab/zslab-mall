@@ -148,6 +148,21 @@ class RefundItemCapIntegrationTest extends AbstractIntegrationTest {
         assertThat(initiateRefundFilterCount()).isEqualTo(1); // 품목 A 클레임만(환불 없음·잔여 있음)
     }
 
+    @Test
+    @DisplayName("C4 목록 행 품목 잔여 상한(Track 104-4 재개시 기본 금액): 다른 클레임 완료 환불 3,000이 있는 품목 B → 7,000 · 환불 없는 품목 A → 10,000")
+    void claimRow_exposesItemRemainingRefundable() throws Exception {
+        inFkOff(() -> {
+            seedClaim(CLAIM_B_REJECTED_ID, pid("clm_", "RCAPB1"), ITEM_B_ID, "REJECTED");
+            jdbc.update("INSERT INTO refund (id, public_id, claim_id, payment_id, amount, status, pg_refund_id, refunded_at, created_at, "
+                    + "updated_at) VALUES (?, ?, ?, ?, 3000, 'COMPLETED', 'rcap_rfn_b002', NOW(6), NOW(6), NOW(6))",
+                    REFUND_B_ID, pid("rfn_", "RCAPRFNB"), CLAIM_B_REJECTED_ID, PAYMENT_ID);
+            seedClaim(CLAIM_B_APPROVED_ID, CLAIM_B_APPROVED_PID, ITEM_B_ID, "APPROVED");
+        });
+
+        assertThat(claimRow(CLAIM_B_APPROVED_PID).get("itemRemainingRefundable").asLong()).isEqualTo(7_000L);
+        assertThat(claimRow(CLAIM_A_PID).get("itemRemainingRefundable").asLong()).isEqualTo(ITEM_PRICE);
+    }
+
     // ---------- 요청·조회 ----------
     // 모든 SQL은 ? positional 바인딩 + 정적 SQL이다(문자열 concat 없음·SQL injection 위험 없음).
 

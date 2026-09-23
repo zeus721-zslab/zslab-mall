@@ -74,6 +74,12 @@ public interface ReconciliationIssueRepository
     /** 유형·중복 키로 1행 조회(UNIQUE 인덱스) — 시스템 해결 뒤 감사 대상 id 찾기. */
     Optional<ReconciliationIssue> findByIssueTypeAndDedupeKey(ReconciliationIssueType issueType, String dedupeKey);
 
+    /**
+     * 주문에 해당 상태의 불일치가 있는지(Track 104-4 구매확정 가드). 유형 제한 없음 — 정산 보류(D-218 SALE·REFUND 원천 쿼리의 OPEN NOT
+     * EXISTS)와 같은 의미다. 파생 쿼리 바인딩.
+     */
+    boolean existsByOrderIdAndStatus(Long orderId, ReconciliationIssueStatus status);
+
     /** 주문 상세의 불일치 섹션(최신순). */
     List<ReconciliationIssue> findByOrderIdOrderByIdDesc(Long orderId);
 }

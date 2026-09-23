@@ -233,6 +233,50 @@ class AdminOrderIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("T3-2 전 품목 취소 후 재취소(Track 104-4 교체 지점): 품목 지정 없이 취소 → 전 품목 CANCELLED·주문 CANCELLED → 재취소 409 OPTIMISTIC_LOCK_FAILURE·Claim 추가 없음")
+    void adminCancelAll_thenCancelAgain_conflict() throws Exception {
+        mockMvc.perform(post(URL + "/" + ORDER_A_PID + "/cancel").headers(authHeaders.admin(ADMIN_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reasonCode\":\"STOCK_DELAY\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.claims.length()").value(2));
+        assertThat(itemStatus(ORDER_A_ITEM_1)).isEqualTo("CANCELLED");
+        assertThat(itemStatus(ORDER_A_ITEM_2)).isEqualTo("CANCELLED");
+        assertThat(orderStatus(ORDER_A)).isEqualTo("CANCELLED");
+
+        mockMvc.perform(post(URL + "/" + ORDER_A_PID + "/cancel").headers(authHeaders.admin(ADMIN_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reasonCode\":\"STOCK_DELAY\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("OPTIMISTIC_LOCK_FAILURE"));
+        assertThat(claimCount(ORDER_A_ITEM_1)).isEqualTo(1);
+        assertThat(claimCount(ORDER_A_ITEM_2)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("T3-3 판별(Track 104-4 P4): 주문 요약 PAID(비종결) + 전 품목 CANCELLED → 재취소 409(품목 사실 판정) — 옛 주문 상태 판정이면 "
+            + "취소 대상 없음 422")
+    void adminCancel_itemsAllCancelledButOrderStatusStale_conflictByItemFacts() throws Exception {
+        tx.executeWithoutResult(s -> {
+            try {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
+                jdbc.update("UPDATE order_item SET item_status = 'CANCELLED' WHERE order_id = ?", ORDER_A);
+            } finally {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
+            }
+        });
+        assertThat(orderStatus(ORDER_A)).isEqualTo("PAID");
+
+        mockMvc.perform(post(URL + "/" + ORDER_A_PID + "/cancel").headers(authHeaders.admin(ADMIN_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reasonCode\":\"STOCK_DELAY\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("OPTIMISTIC_LOCK_FAILURE"));
+        assertThat(claimCount(ORDER_A_ITEM_1)).isZero();
+        assertThat(claimCount(ORDER_A_ITEM_2)).isZero();
+    }
+
+    @Test
     @DisplayName("T4 배송 시작 후 취소 거절: SHIPPING 품목 관리자 취소 → 422·Claim 없음")
     void adminCancel_shippingItem_rejected() throws Exception {
         mockMvc.perform(post(URL + "/" + ORDER_C_PID + "/cancel").headers(authHeaders.admin(ADMIN_ID))

@@ -106,7 +106,7 @@ class WithdrawControllerIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("(5) 진행 중 주문(PAID) 보유 → 409 MEMBER_ACTIVITY_IN_PROGRESS·withdrawn_at NULL 유지")
     void withdraw_withActiveOrder_returns409() throws Exception {
-        seedOrder(ORDER_ACTIVE_ID, "PAID");
+        seedOrder(ORDER_ACTIVE_ID, "PAID", "PAID");
 
         mockMvc.perform(post(URL).headers(authHeaders.buyer(WITHDRAW_USER_ID)))
                 .andExpect(status().isConflict())
@@ -116,15 +116,37 @@ class WithdrawControllerIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("(6) 종결 주문만 보유(CONFIRMED·CANCELLED·PARTIAL_CANCEL·PAYMENT_EXPIRED) → 204")
+    @DisplayName("(5-2) 결제 전 주문(PENDING_PAYMENT·품목 ORDERED) 보유 → 409 MEMBER_ACTIVITY_IN_PROGRESS(결제 전 단계는 주문 상태로 판정·Track 104-4)")
+    void withdraw_withPendingPaymentOrder_returns409() throws Exception {
+        seedOrder(ORDER_ACTIVE_ID, "PENDING_PAYMENT", "ORDERED");
+
+        mockMvc.perform(post(URL).headers(authHeaders.buyer(WITHDRAW_USER_ID)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("MEMBER_ACTIVITY_IN_PROGRESS"));
+    }
+
+    @Test
+    @DisplayName("(6) 종결 주문만 보유(CONFIRMED·CANCELLED·PARTIAL_CANCEL·PAYMENT_EXPIRED — 품목도 각 요약에 맞는 상태) → 204")
     void withdraw_withTerminalOrdersOnly_returns204() throws Exception {
-        seedOrder(ORDER_TERMINAL_ID, "CONFIRMED");
-        seedOrder(ORDER_TERMINAL_ID + 1, "CANCELLED");
-        seedOrder(ORDER_TERMINAL_ID + 2, "PARTIAL_CANCEL");
-        seedOrder(ORDER_TERMINAL_ID + 3, "PAYMENT_EXPIRED");
+        seedOrder(ORDER_TERMINAL_ID, "CONFIRMED", "CONFIRMED", "RETURNED");
+        seedOrder(ORDER_TERMINAL_ID + 1, "CANCELLED", "CANCELLED");
+        seedOrder(ORDER_TERMINAL_ID + 2, "PARTIAL_CANCEL", "CANCELLED", "CONFIRMED");
+        seedOrder(ORDER_TERMINAL_ID + 3, "PAYMENT_EXPIRED", "ORDERED");
 
         mockMvc.perform(post(URL).headers(authHeaders.buyer(WITHDRAW_USER_ID)))
                 .andExpect(status().isNoContent());
+    }
+
+    @Test
+    @DisplayName("(6-2) 판별(Track 104-4 P4): 주문 요약 CONFIRMED(옛 종결 집합) + 품목 하나 SHIPPING → 409(품목 사실 판정) — 옛 주문 상태 판정이면 204")
+    void withdraw_orderStatusTerminalButItemInProgress_returns409() throws Exception {
+        seedOrder(ORDER_TERMINAL_ID, "CONFIRMED", "CONFIRMED", "SHIPPING");
+
+        mockMvc.perform(post(URL).headers(authHeaders.buyer(WITHDRAW_USER_ID)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("MEMBER_ACTIVITY_IN_PROGRESS"));
+        assertThat(jdbc.queryForObject("SELECT withdrawn_at FROM `user` WHERE id=?", Timestamp.class, WITHDRAW_USER_ID))
+                .isNull();
     }
 
     @Test
@@ -202,14 +224,25 @@ class WithdrawControllerIntegrationTest extends AbstractIntegrationTest {
         });
     }
 
-    /** 탈퇴 가드 픽스처(Track 84): 주문·품목·클레임은 FK_CHECKS=0으로 상품·셀러 없이 심는다(가드는 status만 본다). */
-    private void seedOrder(long orderId, String status) {
+    /**
+     * 탈퇴 가드 픽스처(Track 84): 주문·품목·클레임은 FK_CHECKS=0으로 상품·셀러 없이 심는다. 가드는 결제 전 주문 상태·결제 후 품목 상태를
+     * 보므로(Track 104-4) 주문 요약값과 맞는 품목을 itemStatuses로 함께 심는다(품목 id = 주문 id × 10 + 순번).
+     */
+    private void seedOrder(long orderId, String status, String... itemStatuses) {
         tx.executeWithoutResult(s -> {
             try {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
                 jdbc.update("INSERT INTO `order` (id, public_id, buyer_id, order_no, status, total_price, discount_amount, "
                                 + "shipping_fee, ordered_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 10000, 0, 0, NOW(6), NOW(6), NOW(6))",
                         orderId, pid("ord_", "WDR" + orderId), WITHDRAW_USER_ID, "ORDWDR" + orderId, status);
+                for (int index = 0; index < itemStatuses.length; index++) {
+                    long orderItemId = orderId * 10 + index;
+                    jdbc.update("INSERT INTO order_item (id, public_id, order_id, product_id, variant_id, seller_id, quantity, unit_price, "
+                                    + "total_price, item_status, product_name, created_at, updated_at, commission_rate) "
+                                    + "VALUES (?, ?, ?, ?, ?, ?, 1, 10000, 10000, ?, '탈퇴가드상품', NOW(6), NOW(6), 1000)",
+                            orderItemId, pid("oit_", "WDRI" + orderItemId), orderId, DUMMY_FK_ID, DUMMY_FK_ID, DUMMY_FK_ID,
+                            itemStatuses[index]);
+                }
             } finally {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
             }
@@ -249,7 +282,7 @@ class WithdrawControllerIntegrationTest extends AbstractIntegrationTest {
             try {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
                 jdbc.update("DELETE FROM claim WHERE id = ?", CLAIM_ID);
-                jdbc.update("DELETE FROM order_item WHERE id = ?", ORDER_ITEM_ID);
+                jdbc.update("DELETE FROM order_item WHERE order_id IN (SELECT id FROM `order` WHERE buyer_id = ?)", WITHDRAW_USER_ID);
                 jdbc.update("DELETE FROM `order` WHERE buyer_id = ?", WITHDRAW_USER_ID);
                 // FK RESTRICT 회귀 방지: 자식(user_role)을 user보다 먼저 삭제.
                 jdbc.update("DELETE FROM user_role WHERE user_id = ?", WITHDRAW_USER_ID);

@@ -43,6 +43,8 @@ export interface AdminClaimSummary {
   optionLabel?: string
   quantity: number
   amount?: number
+  /** 품목 잔여 환불 상한(품목 금액 − 기환불액·Track 104-4). 환불 재개시 기본 금액·최댓값. */
+  itemRemainingRefundable: number
   reasonCode: string
   reasonDetail?: string
   rejectReasonCode?: ClaimRejectReasonCode

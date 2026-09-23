@@ -20,8 +20,8 @@ import org.springframework.transaction.annotation.Transactional;
  * "종료 가능 여부 미리보기"와 실제 전이가 같은 {@link #evaluate}를 쓰므로 미리보기와 결과가 어긋나지 않는다.
  *
  * <ul>
- *   <li>G1 미지급 정산: {@code settlement.status IN (PENDING, CONFIRMED)}</li>
- *   <li>G2 진행 중 품목: 품목 상태 ∉ 종결 4종 ∧ 주문 상태 ∉ {PAYMENT_EXPIRED, CANCELLED} — 결제 만료 주문의 ORDERED 품목 트랩 제외</li>
+ *   <li>G1 미지급 정산: {@code settlement.status IN (PENDING, CONFIRMED)} — 다음 정산에 이월 완료된 음수 CONFIRMED 정산 제외(Track 104-4)</li>
+ *   <li>G2 진행 중 품목: 품목 상태 ∉ 종결 4종 ∧ 주문 상태 ≠ PAYMENT_EXPIRED — 결제 만료 주문의 ORDERED 품목 트랩 제외</li>
  *   <li>G3 활성 클레임: {@code claim.status IN (REQUESTED, APPROVED)}</li>
  * </ul>
  *
@@ -41,8 +41,11 @@ public class SellerTerminationGuard {
     private static final Set<OrderItemStatus> TERMINAL_ITEM_STATUSES = Set.of(
             OrderItemStatus.CONFIRMED, OrderItemStatus.CANCELLED, OrderItemStatus.RETURNED, OrderItemStatus.EXCHANGED);
 
-    /** 품목 상태와 무관하게 거래가 끝난 주문. PAYMENT_EXPIRED는 품목이 ORDERED로 남는 트랩(정찰 실측)이라 반드시 제외한다. */
-    private static final Set<OrderStatus> CLOSED_ORDER_STATUSES = Set.of(OrderStatus.PAYMENT_EXPIRED, OrderStatus.CANCELLED);
+    /**
+     * 품목 상태와 무관하게 거래가 끝난 주문. 결제 전 단계 — Order.status가 원천 상태: PAYMENT_EXPIRED는 품목이 ORDERED로 남는 트랩(정찰 실측)이라
+     * 반드시 제외한다. 결제 후 취소 종결(CANCELLED)은 요약값이라 넣지 않는다 — 전 품목 CANCELLED라 품목 종결 조건이 이미 제외한다(Track 104-4·P4).
+     */
+    private static final Set<OrderStatus> CLOSED_ORDER_STATUSES = Set.of(OrderStatus.PAYMENT_EXPIRED);
 
     private final SettlementRepository settlementRepository;
     private final OrderItemRepository orderItemRepository;
@@ -61,7 +64,7 @@ public class SellerTerminationGuard {
     @Transactional(readOnly = true)
     public List<SellerTerminationBlock> evaluate(Long sellerId) {
         List<SellerTerminationBlock> blocks = new ArrayList<>();
-        long unpaidSettlements = settlementRepository.countBySellerIdAndStatusIn(sellerId, UNPAID_SETTLEMENT_STATUSES);
+        long unpaidSettlements = settlementRepository.countNotCarriedOverBySellerIdAndStatusIn(sellerId, UNPAID_SETTLEMENT_STATUSES);
         if (unpaidSettlements > 0) {
             blocks.add(new SellerTerminationBlock(SellerTerminationBlockCode.UNPAID_SETTLEMENT, unpaidSettlements));
         }

@@ -90,6 +90,8 @@ class AdminSellerManagementControllerIntegrationTest extends AbstractIntegration
     private static final long SETTLEMENT_BUSY_PENDING = 8952L;
     private static final long SETTLEMENT_BUSY_CONFIRMED = 8953L;
     private static final long SETTLEMENT_CLEAN_PAID = 8954L;
+    private static final long SETTLEMENT_CLEAN_NEGATIVE = 8955L;   // T4-3 · 8906 6월 음수 CONFIRMED(지급 불가)
+    private static final long SETTLEMENT_CLEAN_RECEIVER = 8956L;   // T4-3 · 8906 7월 이월받은 정산
     private static final long BANK_ACCOUNT_A = 8961L;
 
     private static final String BUSINESS_NO_A = "890-89-00001";
@@ -305,8 +307,10 @@ class AdminSellerManagementControllerIntegrationTest extends AbstractIntegration
         updateWithoutFk("UPDATE order_item SET item_status = 'SHIPPING' WHERE id = ?", ITEM_A_CONFIRMED);
         updateWithoutFk("UPDATE `order` SET status = 'SHIPPING' WHERE id = ?", ORDER_CONFIRMED);
         assertBlocked(S_ACTIVE, Map.of("ORDER_ITEM_IN_PROGRESS", 1L));
-        // 같은 품목이라도 주문이 취소(CANCELLED)면 진행 중 아님
+        // Track 104-4(P4): 결제 후 취소 종결은 품목 사실(CANCELLED)로 본다 — 주문 요약값(CANCELLED)만으로는 진행 중 품목을 빼지 않는다
         updateWithoutFk("UPDATE `order` SET status = 'CANCELLED' WHERE id = ?", ORDER_CONFIRMED);
+        assertBlocked(S_ACTIVE, Map.of("ORDER_ITEM_IN_PROGRESS", 1L));
+        updateWithoutFk("UPDATE order_item SET item_status = 'CANCELLED' WHERE id = ?", ITEM_A_CONFIRMED);
         assertThat(readJson(mockMvc.perform(get(URL + "/" + pid(S_ACTIVE)).headers(admin())).andExpect(status().isOk()))
                 .get("terminable").asBoolean()).isTrue();
         updateWithoutFk("UPDATE order_item SET item_status = 'CONFIRMED' WHERE id = ?", ITEM_A_CONFIRMED);
@@ -324,6 +328,42 @@ class AdminSellerManagementControllerIntegrationTest extends AbstractIntegration
         updateWithoutFk("UPDATE claim SET status = 'REJECTED' WHERE id = ?", 8943L);
         assertThat(readJson(mockMvc.perform(get(URL + "/" + pid(S_ACTIVE)).headers(admin())).andExpect(status().isOk()))
                 .get("terminable").asBoolean()).isTrue();
+    }
+
+    @Test
+    @DisplayName("T4-3 이월(Track 104-4): 미이월 음수 CONFIRMED 정산 → G1 1건(대조군) / 다음 정산에 이월 → 원 정산 제외·이월받은 PENDING 1건만 / "
+            + "이월받은 정산 PAID → 종료 200")
+    void terminate_carriedOverNegativeSettlement_notCountedAsUnpaid() throws Exception {
+        // 8906: PAID 정산·종결 품목·COMPLETED 클레임·만료 ORDERED만 → 종료 가능 상태에 지급 불가(음수) 확정 정산을 더한다
+        tx.executeWithoutResult(s -> {
+            try {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
+                seedSettlement(SETTLEMENT_CLEAN_NEGATIVE, S_CLEAN, "CONFIRMED", 0L, 0L, 6);
+            } finally {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
+            }
+        });
+        updateWithoutFk("UPDATE settlement SET refund_amount = 3000, net_amount = -3000 WHERE id = ?", SETTLEMENT_CLEAN_NEGATIVE);
+        assertBlocked(S_CLEAN, Map.of("UNPAID_SETTLEMENT", 1L));
+
+        // 7월 정산이 6월 음수 정산을 이월받는다(CARRYOVER 출처 = 원 정산 id). 옛 판정이면 원 정산(CONFIRMED)과 7월(PENDING) 2건이다
+        tx.executeWithoutResult(s -> {
+            try {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
+                seedSettlement(SETTLEMENT_CLEAN_RECEIVER, S_CLEAN, "PENDING", 10_000L, 1_000L, 7);
+                jdbc.update("UPDATE settlement SET carryover_amount = 3000, net_amount = 6000 WHERE id = ?", SETTLEMENT_CLEAN_RECEIVER);
+                jdbc.update("INSERT INTO settlement_item (settlement_id, item_type, source_id, amount, commission_rate, fee_amount, "
+                        + "occurred_at, created_at) VALUES (?, 'CARRYOVER', ?, 3000, 0, 0, '2026-06-30 23:59:59', NOW(6))",
+                        SETTLEMENT_CLEAN_RECEIVER, SETTLEMENT_CLEAN_NEGATIVE);
+            } finally {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
+            }
+        });
+        assertBlocked(S_CLEAN, Map.of("UNPAID_SETTLEMENT", 1L));
+
+        updateWithoutFk("UPDATE settlement SET status = 'PAID', paid_at = NOW(6) WHERE id = ?", SETTLEMENT_CLEAN_RECEIVER);
+        transition(S_CLEAN, "TERMINATED", "이월 정리 후 종료").andExpect(status().isOk());
+        assertThat(sellerStatus(S_CLEAN)).isEqualTo("TERMINATED");
     }
 
     // ==================== T5 허용 전이 ====================
@@ -771,6 +811,7 @@ class AdminSellerManagementControllerIntegrationTest extends AbstractIntegration
                 jdbc.update("DELETE FROM audit_log WHERE actor_user_id = ?", ADMIN_ID);
                 jdbc.update("DELETE FROM withdrawn_seller WHERE original_seller_id BETWEEN 8901 AND 8907");
                 jdbc.update("DELETE FROM claim WHERE id BETWEEN 8941 AND 8949");
+                jdbc.update("DELETE FROM settlement_item WHERE settlement_id BETWEEN 8951 AND 8959");
                 jdbc.update("DELETE FROM settlement WHERE id BETWEEN 8951 AND 8959");
                 jdbc.update("DELETE FROM order_item WHERE id BETWEEN 8931 AND 8939");
                 jdbc.update("DELETE FROM `order` WHERE id BETWEEN 8921 AND 8929");

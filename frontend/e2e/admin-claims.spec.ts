@@ -392,7 +392,8 @@ test.describe('관리자 취소·반품·교환 목록(FE-28)', () => {
       claimId: LOST_CLAIM, type: 'CANCEL', status: 'APPROVED', requestedAt: '2026-09-12T10:00:00+09:00', processedAt: '2026-09-12T10:30:00+09:00',
       orderId: ORDER_ID, orderItemId: 'oit_E2E0000000000000000000001', orderNo: 'ORD-20260916-0001', buyerName: 'E2E구매자', buyerEmail: 'buyer@e2e.invalid',
       productName: 'E2E 티셔츠', optionLabel: 'M', quantity: 1, amount: 19900, reasonCode: 'BUYER_CHANGED_MIND', refundStatus: 'FAILED',
-      availableActions: ['INITIATE_REFUND'],
+      // Track 104-4: 앞선 환불 7,000원이 있는 품목 — 기본 금액은 품목 금액이 아니라 잔여 상한
+      itemRemainingRefundable: 12900, availableActions: ['INITIATE_REFUND'],
     }
     await page.route((url) => url.pathname.endsWith('/api/v1/admin/claims'), (route) => {
       const query = new URL(route.request().url()).searchParams
@@ -418,8 +419,14 @@ test.describe('관리자 취소·반품·교환 목록(FE-28)', () => {
     await expect(dialog).toBeVisible()
     await expect(dialog).toContainText('취소 환불 개시')
     await expect(dialog.getByTestId('refund-initiate-item-amount')).toHaveText('19,900원')
-    await expect(dialog.getByTestId('refund-initiate-amount').locator('input')).toHaveValue('19900')
+    await expect(dialog.getByTestId('refund-initiate-amount').locator('input')).toHaveValue('12900')
     await expect(dialog.getByTestId('refund-initiate-dialog-ok')).toBeEnabled()
+    // Track 104-4: 최댓값 = 잔여 상한 — 입력 max 속성·한도 초과(12,901) 시 확인 비활성 + 초과 안내
+    const amountInput = dialog.getByTestId('refund-initiate-amount').locator('input')
+    await expect(amountInput).toHaveAttribute('max', '12900')
+    await amountInput.fill('12901')
+    await expect(dialog.getByTestId('refund-initiate-dialog-ok')).toBeDisabled()
+    await expect(dialog).toContainText('환불 가능 잔액 12,900원 이하로 입력하세요.')
     // 실제 환불 개시는 데이터를 바꾸므로 여기서는 노출까지만 확인하고 닫는다
     await dialog.getByTestId('refund-initiate-dialog-close').click()
     await expect(dialog).toBeHidden()
