@@ -80,7 +80,7 @@ public class SellerProductStatsQueryService {
                 options.getTotalCount());
     }
 
-    /** SALE 상품 단위: 입고(기간)·판매(기간·상위 집계 재사용)·현재 가용·소진 예상일. 소진 예상 ASC(null = 판매 없음은 뒤·동률 id ASC). */
+    /** SALE 상품 단위: 입고(기간)·판매(기간·상위 집계 재사용)·현재 가용·소진 예상일. 소진 예상 ASC(null = 판매 없음은 뒤·동률 productKey = public_id ASC). */
     private List<SellerStockTurnoverResponse> stockTurnover(Long sellerId, StatsPeriod period, List<SalesAxisProjection> sold) {
         List<Product> products = sellerStatsRepository.findProductsByStatus(sellerId, ProductStatus.SALE);
         if (products.isEmpty()) {

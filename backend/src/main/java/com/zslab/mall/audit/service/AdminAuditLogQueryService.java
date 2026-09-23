@@ -7,6 +7,8 @@ import com.zslab.mall.audit.controller.response.AdminAuditLogResponse;
 import com.zslab.mall.audit.entity.AuditLog;
 import com.zslab.mall.audit.repository.AuditLogRepository;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
+import com.zslab.mall.delivery.entity.Delivery;
+import com.zslab.mall.delivery.repository.DeliveryRepository;
 import com.zslab.mall.order.controller.response.PagedResponse;
 import com.zslab.mall.user.entity.User;
 import com.zslab.mall.user.repository.UserRepository;
@@ -31,6 +33,7 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p><b>범위</b>: 대상 1건(targetType + targetId)의 이력만 돌려준다. 전체 감사 로그를 훑는 조회는 만들지 않는다 —
  * 소비처가 클레임 상세·정산 상세 두 화면뿐이고, 무제한 조회는 그 자체로 감사 데이터 유출 면이 된다(기조 4).
+ * 클레임만 예외로 연결 배송 행을 합친다({@link #listByClaim}·Track 103).
  */
 @Slf4j
 @Service
@@ -42,6 +45,7 @@ public class AdminAuditLogQueryService {
 
     private final AuditLogRepository auditLogRepository;
     private final UserRepository userRepository;
+    private final DeliveryRepository deliveryRepository;
     private final ObjectMapper objectMapper;
 
     /**
@@ -57,6 +61,33 @@ public class AdminAuditLogQueryService {
             PolymorphicTargetType targetType, Long targetId, int page, int size) {
         Pageable pageable = PageRequest.of(Math.max(page, 0), clampSize(size));
         Page<AuditLog> logs = auditLogRepository.findByTargetTypeAndTargetIdOrderByIdDesc(targetType, targetId, pageable);
+        return toPagedResponse(logs);
+    }
+
+    /**
+     * 클레임 처리 이력을 최신순으로 조회한다(Track 103 D-214). 클레임 행에 더해 그 클레임에 연결된 배송(claim_id — 회수·교환품·재발송)의
+     * 감사 행(대행 송장 등록·교환품 발송·송장 정정·자동 배송완료)을 합친다 — 운영자가 한 클레임의 처리 흐름을 한 목록에서 보게 하려는 것.
+     * 연결 배송 id는 1쿼리, 이력은 1쿼리(+count)라 N+1이 없다. page·size 규약은 {@link #listByTarget}과 같다.
+     *
+     * @param claimId 클레임 id
+     * @param page    0부터
+     * @param size    1~100
+     */
+    @Transactional(readOnly = true)
+    public PagedResponse<AdminAuditLogResponse> listByClaim(Long claimId, int page, int size) {
+        List<Long> deliveryIds = deliveryRepository.findByClaimIdInOrderByIdDesc(List.of(claimId)).stream()
+                .map(Delivery::getId)
+                .toList();
+        if (deliveryIds.isEmpty()) {
+            return listByTarget(PolymorphicTargetType.CLAIM, claimId, page, size);
+        }
+        Pageable pageable = PageRequest.of(Math.max(page, 0), clampSize(size));
+        Page<AuditLog> logs = auditLogRepository.findClaimHistory(
+                PolymorphicTargetType.CLAIM, claimId, PolymorphicTargetType.DELIVERY, deliveryIds, pageable);
+        return toPagedResponse(logs);
+    }
+
+    private PagedResponse<AdminAuditLogResponse> toPagedResponse(Page<AuditLog> logs) {
         Map<Long, User> actors = actorsById(logs.getContent());
         return PagedResponse.from(logs.map(log -> {
             User actor = log.getActorUserId() == null ? null : actors.get(log.getActorUserId());

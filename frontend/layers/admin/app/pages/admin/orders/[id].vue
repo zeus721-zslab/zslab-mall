@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { mdiArrowLeft } from '@mdi/js'
+import { mdiArrowLeft, mdiChevronDown, mdiChevronUp } from '@mdi/js'
 import type { AdminOrderClaim, AdminOrderDetail, AdminOrderPayment } from '#layers/admin/app/types/admin-order'
 import { orderStatusLabel } from '~/lib/constants/order'
 import {
@@ -424,10 +424,13 @@ function closeReject(refresh: boolean): void {
                   <v-btn size="x-small" variant="flat" class="op-risk-action" data-testid="claim-approve" @click="claimDecision = { claim, productName: item.productName }">승인</v-btn>
                   <v-btn size="x-small" variant="flat" class="op-risk-action" data-testid="claim-reject" @click="openReject(claim, item.productName)">거부</v-btn>
                 </template>
-                <!-- Track 101-A: 승인·거부·회수 확인·검수가 누구 손에서 이뤄졌는지 이 자리에서 펼쳐 본다. -->
+                <!-- Track 101-A: 승인·거부·회수 확인·검수가 누구 손에서 이뤄졌는지 이 자리에서 펼쳐 본다.
+                     Track 103: 텍스트 버튼은 주변 메타 문구와 섞여 보여 외곽선 + 펼침 아이콘 + aria-expanded로 버튼임을 드러낸다. -->
                 <v-btn
                   size="x-small"
-                  variant="text"
+                  variant="outlined"
+                  :append-icon="auditClaimId === claim.claimId ? mdiChevronUp : mdiChevronDown"
+                  :aria-expanded="auditClaimId === claim.claimId"
                   data-testid="claim-audit-toggle"
                   @click="toggleClaimAudit(claim.claimId)"
                 >{{ auditClaimId === claim.claimId ? '처리 이력 닫기' : '처리 이력' }}</v-btn>

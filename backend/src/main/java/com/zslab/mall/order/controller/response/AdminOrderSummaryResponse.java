@@ -10,6 +10,7 @@ import java.util.List;
  * @param paymentAmount  실결제액 = total_price − discount_amount + shipping_fee(PaymentService.recomputeAmount 정합)
  * @param paymentStatus  PAID 행 우선, 없으면 최신 결제 행 상태·결제 행 없으면 null
  * @param deliveryStatus 품목 배송 집계: 배송 없음 null / 하나라도 SHIPPING → SHIPPING / 전부 DELIVERED → DELIVERED / 그 외 READY
+ * @param allItemsReturned 전 품목 RETURNED(반품 완료) 여부. 이 주문은 규칙 [7]로 status가 CONFIRMED라 목록 보조 표기 근거(Track 103)
  * @param actions        관리자 가능 액션 코드(CANCEL·PREPARE_SHIPMENT·MARK_DELIVERED)
  */
 public record AdminOrderSummaryResponse(
@@ -29,5 +30,6 @@ public record AdminOrderSummaryResponse(
         String paymentStatus,
         String deliveryStatus,
         boolean claimInProgress,
+        boolean allItemsReturned,
         List<String> actions) {
 }

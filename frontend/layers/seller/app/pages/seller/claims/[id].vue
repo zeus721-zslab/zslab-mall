@@ -90,7 +90,8 @@ const previewAttachment = computed(() => {
     </v-alert>
 
     <template v-else-if="detail">
-      <v-row dense>
+      <!-- Track 103: 카드 줄과 아래 카드 사이 간격(h-100 카드의 mb-4는 칸 밖으로 넘쳐 간격이 되지 않는다) -->
+      <v-row dense class="mb-4">
         <!-- 클레임 -->
         <v-col cols="12" md="7">
           <v-card class="mb-4 h-100" data-testid="claim-detail-info">
@@ -108,7 +109,8 @@ const previewAttachment = computed(() => {
             <v-card-text class="px-5 pb-5">
               <div class="text-body-1 font-weight-medium" data-testid="claim-detail-product">{{ detail.productName }}</div>
               <div class="text-body-2 text-medium-emphasis mb-3">{{ detail.optionLabel ?? '옵션 없음' }}</div>
-              <v-row dense>
+              <!-- Track 103: 한 row에서 줄바꿈되는 라벨·값 칸 사이 행 간격(dense 4+4px만으로는 붙어 보였다) -->
+              <v-row dense class="gr-2">
                 <v-col cols="6"><div class="text-caption text-medium-emphasis">주문번호</div><div class="text-body-2" data-testid="claim-detail-order-no">{{ detail.orderNo }}</div></v-col>
                 <v-col cols="6"><div class="text-caption text-medium-emphasis">클레임 ID</div><div class="slr-product-id">{{ detail.claimId }}</div></v-col>
                 <v-col cols="6"><div class="text-caption text-medium-emphasis">요청일시</div><div class="text-body-2" data-testid="claim-detail-requested-at">{{ formatDateTime(detail.requestedAt) }}</div></v-col>

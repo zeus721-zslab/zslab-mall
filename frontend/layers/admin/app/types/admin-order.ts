@@ -33,6 +33,8 @@ export interface AdminOrderSummary {
   paymentStatus?: AdminPaymentStatus
   deliveryStatus?: AdminDeliveryStatus
   claimInProgress: boolean
+  /** 전 품목 반품완료(BE allItemsReturned·Track 103). 이 주문의 status는 CONFIRMED다. */
+  allItemsReturned: boolean
   actions: AdminOrderAction[]
 }
 

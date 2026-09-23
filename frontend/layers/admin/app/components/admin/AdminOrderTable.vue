@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { mdiDotsVertical, mdiOpenInNew } from '@mdi/js'
 import type { AdminOrderSummary } from '#layers/admin/app/types/admin-order'
-import { orderStatusLabel } from '~/lib/constants/order'
 import { formatDateTime } from '~/lib/utils/datetime'
 import { elapsedChip, type ElapsedChip } from '~/lib/utils/elapsed-days'
 import {
@@ -14,7 +13,7 @@ import {
   paymentMethodLabel,
 } from '#layers/admin/app/lib/constants/admin-order'
 import { formatWon } from '#layers/admin/app/lib/format'
-import { sellerNamesLabel, showDeliveryChip } from '#layers/admin/app/lib/admin-order-view'
+import { adminOrderListStatusLabel, sellerNamesLabel, showDeliveryChip } from '#layers/admin/app/lib/admin-order-view'
 import { semanticChipClass } from '#layers/admin/app/lib/constants/semantic'
 
 // 주문 표(FE-27·v-data-table-server·AdminProductTable 패턴). 페이지·크기는 부모(URL)가 소유하고 표는 이벤트만 올린다.
@@ -44,7 +43,7 @@ const headers = [
   { title: '주문자', key: 'buyer', sortable: false },
   { title: '셀러', key: 'sellerNames', sortable: false },
   { title: '상품', key: 'productSummary', sortable: false },
-  { title: '금액', key: 'amounts', sortable: false, align: 'end' as const },
+  { title: '주문 금액', key: 'amounts', sortable: false, align: 'end' as const },
   { title: '결제', key: 'payment', sortable: false },
   { title: '주문 · 배송', key: 'orderDelivery', sortable: false },
   { title: '관리', key: 'actions', sortable: false, align: 'end' as const },
@@ -121,23 +120,26 @@ function hasRowMenu(item: AdminOrderSummary): boolean {
     </template>
 
     <template #[`item.payment`]="{ item }">
-      <v-chip
-        v-if="item.paymentStatus"
-        :class="semanticChipClass(ADMIN_PAYMENT_STATUS_SEMANTIC[item.paymentStatus])"
-        size="small"
-        variant="flat"
-        data-testid="payment-status-chip"
-      >
-        {{ ADMIN_PAYMENT_STATUS_LABEL[item.paymentStatus] }}
-      </v-chip>
-      <span v-else class="text-medium-emphasis">—</span>
-      <div class="text-caption text-medium-emphasis">{{ item.paymentMethod ? paymentMethodLabel(item.paymentMethod) : '—' }}</div>
+      <!-- Track 103: 결제수단은 상태 칩 옆 같은 줄 보조 표기(칩 아래 줄로 떨어지면 칩 안쪽 여백만큼 어긋나 보였다) -->
+      <div class="d-flex align-center flex-wrap ga-1">
+        <v-chip
+          v-if="item.paymentStatus"
+          :class="semanticChipClass(ADMIN_PAYMENT_STATUS_SEMANTIC[item.paymentStatus])"
+          size="small"
+          variant="flat"
+          data-testid="payment-status-chip"
+        >
+          {{ ADMIN_PAYMENT_STATUS_LABEL[item.paymentStatus] }}
+        </v-chip>
+        <span v-else class="text-medium-emphasis">—</span>
+        <span class="text-caption text-medium-emphasis" data-testid="payment-method">{{ item.paymentMethod ? paymentMethodLabel(item.paymentMethod) : '—' }}</span>
+      </div>
     </template>
 
     <template #[`item.orderDelivery`]="{ item }">
       <div class="d-flex align-center flex-wrap ga-1">
         <v-chip :class="semanticChipClass(ADMIN_ORDER_STATUS_SEMANTIC[item.status])" size="small" variant="flat" data-testid="status-chip">
-          {{ orderStatusLabel(item.status) }}
+          {{ adminOrderListStatusLabel(item) }}
         </v-chip>
         <v-chip
           v-if="item.deliveryStatus && showDeliveryChip(item.status, item.deliveryStatus)"
@@ -152,6 +154,8 @@ function hasRowMenu(item: AdminOrderSummary): boolean {
           클레임 진행중
         </v-chip>
       </div>
+      <!-- Track 103: 전 품목 반품완료 주문은 규칙 [7]로 구매확정 집계라, 결제취소와 함께 보일 때 오해하지 않게 보조 표기 -->
+      <div v-if="item.allItemsReturned" class="text-caption text-medium-emphasis" data-testid="all-returned-note">전체 반품</div>
     </template>
 
     <template #[`item.actions`]="{ item }">

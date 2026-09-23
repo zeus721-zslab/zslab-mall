@@ -257,6 +257,7 @@ public class AdminOrderQueryService {
                 representative == null ? null : representative.getStatus().name(),
                 aggregateDeliveryStatus(items, enrichment.latestDeliveryByItemId),
                 hasActiveClaim(items, enrichment.claimsByItemId),
+                allItemsReturned(items),
                 actions(order, enrichment));
     }
 
@@ -304,6 +305,14 @@ public class AdminOrderQueryService {
             return DeliveryStatus.DELIVERED.name();
         }
         return DeliveryStatus.READY.name();
+    }
+
+    /**
+     * 전 품목 반품 완료 여부(Track 103 D-214). 규칙 [7](OrderStatusResolver)은 RETURNED를 확정 계열로 묶어 이런 주문을 CONFIRMED로
+     * 집계하므로, 목록이 "구매확정"만 보고 오해하지 않게 보조 표기 근거를 싣는다. 품목은 목록 조회가 이미 fetch한 것이라 추가 쿼리가 없다.
+     */
+    private static boolean allItemsReturned(List<OrderItem> items) {
+        return !items.isEmpty() && items.stream().allMatch(item -> item.getItemStatus() == OrderItemStatus.RETURNED);
     }
 
     private static boolean hasActiveClaim(List<OrderItem> items, Map<Long, List<Claim>> claimsByItemId) {

@@ -2,7 +2,7 @@
 import type { AdminAuditLog } from '#layers/admin/app/types/admin-audit'
 import { formatDateTime } from '~/lib/utils/datetime'
 import {
-  ADMIN_AUDIT_ACTION_LABEL,
+  auditActionText,
   auditActorText,
   auditChangeSummary,
 } from '#layers/admin/app/lib/admin-audit-view'
@@ -73,10 +73,10 @@ const hiddenCount = computed(() => Math.max(totalCount.value - items.value.lengt
             class="text-body-2 font-weight-medium text-no-wrap"
             :title="log.actorEmail"
             data-testid="audit-log-actor"
-          >{{ auditActorText(log.actorRole, log.actorName) }}</span>
-          <span class="text-body-2 text-no-wrap">{{ ADMIN_AUDIT_ACTION_LABEL[log.action] }}</span>
+          >{{ auditActorText(log.actorRole, log.actorName, log.actorEmail) }}</span>
+          <span class="text-body-2 text-no-wrap" data-testid="audit-log-action">{{ auditActionText(log) }}</span>
           <span class="text-caption text-medium-emphasis" data-testid="audit-log-changes">
-            {{ auditChangeSummary(log.changes) || '변경 내역 없음' }}
+            {{ auditChangeSummary(log.changes, log.targetType) || '변경 내역 없음' }}
           </span>
         </div>
         <p v-if="hiddenCount > 0" class="text-caption text-medium-emphasis mb-0 mt-2" data-testid="audit-log-more">
