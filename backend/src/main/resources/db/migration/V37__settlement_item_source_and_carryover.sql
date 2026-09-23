@@ -9,6 +9,7 @@
 --   item_type CARRYOVER — 순지급액 음수로 지급이 막힌 정산의 부족분을 다음 정산에서 차감하는 행(⑧).
 --   이월 행은 주문 품목이 없어 채울 수 없는 컬럼만 NULL 허용으로 완화한다:
 --     order_item_id·order_public_id·product_name·quantity (amount·commission_rate(0)·fee_amount(0)·occurred_at은 이월 행도 채운다).
+--     완화는 CARRYOVER 행에만 적용된다 — SALE·REFUND 행의 4개 컬럼과 모든 행의 source_id는 CHECK(⑤)로 필수다.
 --   settlement.carryover_amount — 이월 차감 합(CARRYOVER 품목 금액 합). 순지급액 = gross − fee − refund − carryover(STL-1).
 --     환불(refund_amount)과 섞지 않고 별도 컬럼으로 둔다. 기존 행은 이월이 없으므로 DEFAULT 0이 곧 정확한 값이다.
 --
@@ -47,10 +48,21 @@ ALTER TABLE settlement
   ADD COLUMN IF NOT EXISTS carryover_amount BIGINT NOT NULL DEFAULT 0 COMMENT '이월 차감 합(CARRYOVER 품목 금액 합)' AFTER refund_amount,
   MODIFY COLUMN net_amount BIGINT NOT NULL COMMENT '정산액=gross-fee-refund-carryover(STL-1)';
 
+-- ⑤ 유형별 필수 컬럼(외부 검토 라운드 1): ①의 NULL 완화는 이월(CARRYOVER) 행만을 위한 것이다. SALE·REFUND 행은 주문 품목 스냅샷 4개가
+--    그대로 필수이고, 모든 유형은 source_id가 필수다 — source_id가 NULL이면 UNIQUE 비교에서 빠져(NULL≠NULL) 전역 유니크가 그 행을 보호하지 못한다.
+--    ②의 백필 뒤라 기존 행은 통과한다(정찰 실측(로컬): SALE 132행 source_id NULL 0·4컬럼 NULL 0). 마지막 문장이라 IF NOT EXISTS 없이 둔다
+--    (앞 문장 실패 시 여기까지 오지 않고, 이 문장이 성공하면 마이그레이션이 끝난다).
+ALTER TABLE settlement_item
+  ADD CONSTRAINT chk_settlement_item_source_shape CHECK (
+    source_id IS NOT NULL
+    AND (item_type = 'CARRYOVER'
+      OR (order_item_id IS NOT NULL AND order_public_id IS NOT NULL AND product_name IS NOT NULL AND quantity IS NOT NULL)));
+
 -- ============================================================
 -- ROLLBACK (보상 마이그레이션·수동 실행용·Flyway OSS는 undo 미지원)
 -- CARRYOVER 행이 있으면 ENUM 축소·NOT NULL 복원이 실패한다 — 이월 행과 그 정산을 먼저 확인·처리한 뒤 실행한다.
 --
+-- ALTER TABLE settlement_item DROP CONSTRAINT chk_settlement_item_source_shape;
 -- ALTER TABLE settlement
 --   DROP COLUMN carryover_amount,
 --   MODIFY COLUMN net_amount BIGINT NOT NULL COMMENT '정산액=gross-fee-refund(STL-1)';
