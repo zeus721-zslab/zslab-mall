@@ -6,7 +6,7 @@ import {
   type AdminDeliveryCarrier,
 } from '#layers/admin/app/lib/constants/admin-order'
 import { mapFieldErrors } from '#layers/admin/app/lib/admin-order-view'
-import { inspectDialogTitle, inspectPassLabel, inspectPassToast, validateInspectForm } from '#layers/admin/app/lib/admin-claim-view'
+import { inspectDialogTitle, inspectNoticeMessage, inspectPassLabel, inspectPassToast, validateInspectForm } from '#layers/admin/app/lib/admin-claim-view'
 import { extractErrorCode, toAdminErrorMessage } from '#layers/admin/app/lib/admin-error-message'
 import { useAdminOrders } from '#layers/admin/app/composables/useAdminOrders'
 import { useAdminToast } from '#layers/admin/app/composables/useAdminToast'
@@ -161,10 +161,7 @@ async function submit(): Promise<void> {
     <v-card data-testid="admin-claim-inspect-dialog">
       <v-card-title class="text-subtitle-1 font-weight-bold pt-5 px-5">{{ inspectDialogTitle(claimType) }}</v-card-title>
       <v-card-text class="px-5">
-        <p class="text-body-2 mb-3">
-          <span class="font-weight-medium">{{ lastTarget?.productName }}</span> 회수품을 검수합니다.
-          {{ claimType === 'EXCHANGE' ? '합격은 교환품 발송 대기로 넘어가고' : '합격은 환불이 자동 진행되고' }}, 불합격은 상품을 구매자에게 재발송합니다.
-        </p>
+        <p class="text-body-2 mb-3" style="white-space: pre-line" data-testid="inspect-notice">{{ inspectNoticeMessage(claimType, lastTarget?.productName ?? '') }}</p>
         <v-checkbox
           v-if="pickupRequired"
           v-model="pickupChecked"
@@ -249,7 +246,7 @@ async function submit(): Promise<void> {
       <v-card-actions class="px-5 pb-4">
         <v-spacer />
         <v-btn variant="text" :disabled="submitting" data-testid="inspect-dialog-close" @click="emit('cancel')">닫기</v-btn>
-        <v-btn :color="result === 'FAIL' ? 'error' : 'primary'" variant="flat" :loading="submitting" :disabled="confirmDisabled" data-testid="inspect-dialog-ok" @click="submit">
+        <v-btn variant="flat" class="op-risk-action" :loading="submitting" :disabled="confirmDisabled" data-testid="inspect-dialog-ok" @click="submit">
           {{ result === 'FAIL' ? '불합격 처리' : '합격 처리' }}
         </v-btn>
       </v-card-actions>

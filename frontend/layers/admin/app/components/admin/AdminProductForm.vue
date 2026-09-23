@@ -172,7 +172,7 @@ async function runSave(): Promise<void> {
 
 // ---------- 수정 모드: 상태 전환·수동 품절(즉시 반영·폼 저장과 무관) ----------
 const statusBusy = ref(false)
-// D-206 보정: 셀러 중지 상품은 STOPPED 목표가 "관리자 중지로 전환"(확인 다이얼로그 경유·status 유지·주체만 ADMIN).
+// D-206 보정: 셀러 판매중지 상품은 STOPPED 목표가 "관리자 판매중지로 전환"(확인 다이얼로그 경유·status 유지·주체만 ADMIN).
 const saleState = computed(() => ({ status: form.value.status ?? 'DRAFT', saleStopSource: form.value.saleStopSource }))
 const allowedTargets = computed(() => (form.value.status ? statusTargetsFor(saleState.value) : []))
 const escalateOpen = ref(false)
@@ -379,7 +379,7 @@ defineExpose({ form, dirty })
       :open="rejectOpen"
       test-id="admin-product-reject-dialog"
       title="상품 거부"
-      confirm-color="error"
+      risk
       :message="rejectConfirmMessage(form.name || form.productPublicId || '')"
       confirm-label="거부"
       @confirm="confirmReject"

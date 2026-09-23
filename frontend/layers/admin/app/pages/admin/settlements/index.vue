@@ -134,7 +134,7 @@ function open(item: AdminSettlementSummary): void {
 
 <template>
   <div>
-    <AdminPageHeader title="정산 내역" description="월별 셀러 정산을 생성·검수하고 정상처리·지급완료를 처리합니다. 합계는 선택한 월 전체 기준입니다.">
+    <AdminPageHeader title="정산 내역" description="월별 셀러 정산을 생성·검수하고 확정·지급완료를 처리합니다. 합계는 선택한 월 전체 기준입니다.">
       <template #actions>
         <v-btn color="primary" :prepend-icon="mdiPlus" :disabled="loading" data-testid="settlement-create" @click="createDialogOpen = true">정산 생성</v-btn>
       </template>

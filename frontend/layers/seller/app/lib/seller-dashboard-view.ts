@@ -96,14 +96,14 @@ export interface PendingTile {
 /**
  * 처리 대기 5칸(Track 96-1 FE-53·C-14 4칸 + Track 99 FE-61 장기 배송중 1칸). 배송 대기(PAID 품목)는 품목 목록 status=PAID로, 클레임 요청은
  * 클레임 목록 status=REQUESTED로 정확히 연결된다. 재고 임박은 재고 화면에 임박 필터가 없어 화면 진입만 연결한다. 정산 예정은 PENDING 건수이며
- * 셀러 정산 목록에는 확정 전 정산이 나오지 않지만(D-191 ε) 정산 화면 상단이 같은 건수를 안내하므로 화면 진입을 연결한다.
+ * 셀러 정산 목록에는 확정 대기 정산이 나오지 않지만(D-191 ε) 정산 화면 상단이 같은 건수를 안내하므로 화면 진입을 연결한다.
  * 장기 배송중은 배송 화면 status=SHIPPING으로 연결한다(BE는 발송 후 3일 이상 건수·목록은 배송중 전체라 근사).
  */
 export const PENDING_TILES: PendingTile[] = [
-  { key: 'deliveryReady', label: '배송 대기', to: `${SELLER_ORDERS_PATH}?status=PAID`, alertTone: 'warning', hint: '결제완료 품목 · 주문 화면에서 출고' },
+  { key: 'deliveryReady', label: '배송 대기', to: `${SELLER_ORDERS_PATH}?status=PAID`, alertTone: 'warning', hint: '결제완료 품목 · 주문 화면에서 발송' },
   { key: 'claimRequested', label: '클레임 요청', to: `${SELLER_CLAIMS_PATH}?status=REQUESTED`, alertTone: 'warning', hint: '요청 상태 클레임 · 처리는 관리자가 진행' },
   { key: 'lowStock', label: '재고 임박', to: SELLER_INVENTORY_PATH, alertTone: 'danger', hint: '가용 재고 1~5 · 재고 화면에서 입고' },
-  { key: 'settlementPending', label: '정산 예정', to: SELLER_SETTLEMENTS_PATH, alertTone: 'warning', hint: '확정 전 정산 건수 · 확정 후 정산 화면에 표시' },
+  { key: 'settlementPending', label: '정산 예정', to: SELLER_SETTLEMENTS_PATH, alertTone: 'warning', hint: '확정 대기 정산 건수 · 확정 후 정산 화면에 표시' },
   { key: 'longShipping', label: '장기 배송중', to: `${SELLER_DELIVERIES_PATH}?status=SHIPPING`, alertTone: 'warning', hint: '발송 후 3일 이상 배송중 · 배송 화면에서 확인' },
 ]
 

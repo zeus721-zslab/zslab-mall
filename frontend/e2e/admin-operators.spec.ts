@@ -72,7 +72,7 @@ test.describe('관리자 운영자 관리(FE-39)', () => {
     const revokeDialog = page.getByTestId('admin-operator-revoke-dialog')
     await expect(revokeDialog).toBeVisible()
     await expect(revokeDialog.getByTestId('revoke-role-SUPER_ADMIN').locator('input')).toBeEnabled()
-    await expect(revokeDialog.getByTestId('revoke-message')).toContainText('다시 부여할 수 없으므로')
+    await expect(revokeDialog.getByTestId('revoke-message')).toContainText('되돌릴 수 없습니다.') // Track 102 FE-64 가역성 규약
     await expect(revokeDialog.getByTestId('revoke-message')).toContainText('남은 역할(운영 관리자)은 유지됩니다')
     await expect(revokeDialog.getByTestId('revoke-dialog-ok')).toBeDisabled()
     await revokeDialog.getByTestId('revoke-role-ADMIN_OPERATOR').locator('label').click()

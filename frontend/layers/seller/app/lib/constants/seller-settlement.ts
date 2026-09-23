@@ -1,4 +1,5 @@
 import type { SellerSemantic } from '#layers/seller/app/lib/constants/semantic'
+import { SETTLEMENT_ITEM_TYPE_LABELS, SETTLEMENT_STATUS_LABELS } from '~/lib/constants/settlement'
 
 /**
  * 셀러 정산 상수 단일 소스(Track 90-B-3·관리자 constants/admin-settlement 복제·CLAUDE.md 4층위 enum 잠금 (4)프론트). BE D-179 계약(SettlementStatus·
@@ -8,11 +9,8 @@ import type { SellerSemantic } from '#layers/seller/app/lib/constants/semantic'
 /** BE SettlementStatus 3값(PENDING → CONFIRMED → PAID 직진). */
 export type SellerSettlementStatus = 'PENDING' | 'CONFIRMED' | 'PAID'
 
-export const SELLER_SETTLEMENT_STATUS_LABEL: Record<SellerSettlementStatus, string> = {
-  PENDING: '확정 전',
-  CONFIRMED: '확정',
-  PAID: '지급완료',
-}
+/** 라벨 실체는 공용 단일 소스(app/lib/constants/settlement.ts·Track 102 FE-64). 셀러 코드의 기존 이름만 유지한다. */
+export const SELLER_SETTLEMENT_STATUS_LABEL: Record<SellerSettlementStatus, string> = SETTLEMENT_STATUS_LABELS
 
 export const SELLER_SETTLEMENT_STATUS_SEMANTIC: Record<SellerSettlementStatus, SellerSemantic> = {
   PENDING: 'warning',
@@ -24,8 +22,8 @@ export const SELLER_SETTLEMENT_STATUS_SEMANTIC: Record<SellerSettlementStatus, S
 export type SellerSettlementItemType = 'SALE' | 'REFUND'
 
 export const SELLER_SETTLEMENT_ITEM_TABS: { value: SellerSettlementItemType; label: string }[] = [
-  { value: 'SALE', label: '판매' },
-  { value: 'REFUND', label: '환불' },
+  { value: 'SALE', label: SETTLEMENT_ITEM_TYPE_LABELS.SALE },
+  { value: 'REFUND', label: SETTLEMENT_ITEM_TYPE_LABELS.REFUND },
 ]
 export const DEFAULT_SELLER_SETTLEMENT_ITEM_TAB: SellerSettlementItemType = 'SALE'
 

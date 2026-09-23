@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { MARK_DELIVERED_CONFIRM_MESSAGE } from '~/lib/constants/delivery'
 import type { SellerDeliverySummary } from '#layers/seller/app/types/seller-delivery'
 import { SELLER_DELIVERY_CARRIER_LABEL } from '#layers/seller/app/lib/constants/seller-order'
 import { extractErrorCode, isSellerSuspendedError, toSellerErrorMessage } from '#layers/seller/app/lib/seller-error-message'
@@ -50,7 +51,7 @@ async function submit(): Promise<void> {
     <v-card data-testid="seller-mark-delivered-dialog">
       <v-card-title class="text-subtitle-1 font-weight-bold pt-5 px-5">배송완료 처리</v-card-title>
       <v-card-text class="px-5">
-        <p class="text-body-2 mb-3">선택한 배송을 배송완료로 바꿉니다. 되돌릴 수 없습니다.</p>
+        <p class="text-body-2 mb-3" style="white-space: pre-line" data-testid="delivered-notice">{{ MARK_DELIVERED_CONFIRM_MESSAGE }}</p>
         <p v-if="item" class="text-body-2 mb-0" data-testid="delivered-target">
           {{ item.productName ?? '—' }} · {{ SELLER_DELIVERY_CARRIER_LABEL[item.carrier] }} {{ item.trackingNo ?? '' }}
           <span class="text-caption text-medium-emphasis d-block">주문번호 {{ item.orderNo ?? '—' }}</span>
@@ -59,7 +60,7 @@ async function submit(): Promise<void> {
       <v-card-actions class="px-5 pb-4">
         <v-spacer />
         <v-btn variant="text" :disabled="submitting" data-testid="delivered-dialog-close" @click="emit('cancel')">닫기</v-btn>
-        <v-btn color="success" variant="flat" :loading="submitting" :disabled="submitting || !item" data-testid="delivered-dialog-ok" @click="submit">
+        <v-btn variant="flat" class="op-risk-action" :loading="submitting" :disabled="submitting || !item" data-testid="delivered-dialog-ok" @click="submit">
           배송완료
         </v-btn>
       </v-card-actions>

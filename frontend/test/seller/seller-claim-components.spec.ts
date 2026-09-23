@@ -51,8 +51,8 @@ describe('SellerClaimTable', () => {
     expect(body().querySelector('[data-testid="row-reason"]')?.textContent?.trim()).toBe('상품 불량')
     const processed = Array.from(body().querySelectorAll('[data-testid="row-processed-at"]')).map((node) => node.textContent?.trim())
     expect(processed).toEqual(['처리 —', '처리 2026.09.08 09:30'])
-    // 조회 전용: 승인·거부·검수·출고 버튼이 없다
-    expect(body().textContent).not.toMatch(/승인|거부|거절|검수/)
+    // 조회 전용: 승인·거부·검수·발송 버튼이 없다
+    expect(body().textContent).not.toMatch(/승인|거부|검수/)
     expect(body().querySelectorAll('[data-testid="row-prepare-shipment"]')).toHaveLength(0)
     expect(body().querySelectorAll('button[data-testid="row-open"]')).toHaveLength(2)
 

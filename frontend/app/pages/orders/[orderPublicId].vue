@@ -1,6 +1,11 @@
 <script setup lang="ts">
-import { AUTO_CONFIRM_GUIDE, PAYMENT_EXPIRE_GUIDE, orderStatusLabel } from '~/lib/constants/order'
+import { AUTO_CONFIRM_GUIDE, ITEM_CONFIRM_WARNING, PAYMENT_EXPIRE_GUIDE, orderStatusLabel } from '~/lib/constants/order'
 import { claimableTypes, claimTypeLabel, orderItemStatusLabel, type ClaimType } from '~/lib/constants/claim'
+import { PAYMENT_METHODS } from '~/lib/constants/payment'
+import { canResumePayment, isPaymentExpired, paymentResumeFailure, PAYMENT_EXPIRED_NOTICE } from '~/lib/utils/payment-resume'
+import type { PaymentResumeErrorLike } from '~/lib/utils/payment-resume'
+import { resolvePaymentRedirect } from '~/lib/payment-redirect'
+import type { PaymentMethod } from '~/types/checkout'
 import type { OrderItem } from '~/types/order'
 
 // BUYER 전용 — 미인증/비-BUYER는 buyer 미들웨어가 /login으로 유도한다.
@@ -41,6 +46,46 @@ function goClaim(item: OrderItem, type: ClaimType): void {
     ? `&product=${item.productId ?? ''}&variant=${item.variantId ?? ''}&unitPrice=${item.unitPrice}`
     : ''
   navigateTo(base + exchangeQuery)
+}
+
+// 결제 재개(Track 102 FE-64): 결제대기 주문에서 BE 재결제(D-60)를 호출하고 체크아웃과 같은 방식으로 결제창에 진입한다.
+// 결제수단 기본값은 체크아웃 폼과 같은 첫 선택지다. 실패는 인라인 안내만 한다(구매자 앱에 토스트 인프라가 없다).
+const { retryPayment } = useCheckout()
+const payMethod = ref<PaymentMethod>(PAYMENT_METHODS[0]!.value)
+const paying = ref<boolean>(false)
+const payError = ref<string>('')
+
+async function submitResumePayment(): Promise<void> {
+  if (paying.value) return
+  paying.value = true
+  payError.value = ''
+  try {
+    const result = await retryPayment(orderPublicId, payMethod.value)
+    const payment = result.data.payment
+    if (payment.publicId === null || !payment.redirectUrl) {
+      payError.value = '결제 준비에 실패했습니다. 잠시 후 다시 시도해 주세요.'
+      return
+    }
+    // 재결제 응답의 Location은 결제(payment)를 가리키므로 주문번호를 직접 넘긴다(payment-redirect 주석 참조).
+    const redirect = resolvePaymentRedirect(payment.redirectUrl, result.location, orderPublicId)
+    if (redirect.kind === 'external') {
+      await navigateTo(redirect.url, { external: true })
+      return
+    }
+    await navigateTo(redirect.path)
+  } catch (payFetchError) {
+    // 실패 8종의 문구·후속 동작 판정은 순수 함수가 갖는다(Track 102 보완·payment-resume.ts).
+    const failure = paymentResumeFailure(payFetchError as PaymentResumeErrorLike)
+    if (failure.login) {
+      await navigateTo(`/login?redirect=${encodeURIComponent(`/orders/${orderPublicId}`)}`)
+      return
+    }
+    payError.value = failure.message
+    // 상태가 이미 바뀐 실패는 상세를 다시 읽어 결제 영역 자체가 사라지게 한다.
+    if (failure.refresh) await refresh()
+  } finally {
+    paying.value = false
+  }
 }
 
 // 구매확정(FE-53·C-06): DELIVERED 품목만. 확인 패널(인라인·구매자 앱은 다이얼로그·토스트 인프라 부재)에서 반품·교환 불가 경고 후 호출한다.
@@ -117,6 +162,33 @@ useSeoMeta({
           {{ PAYMENT_EXPIRE_GUIDE }}
         </p>
 
+        <!--
+          결제 재개(Track 102 FE-64): 결제대기 주문에서 결제를 다시 시작한다. BE 재결제(D-60)가 결제수단을 따로 받으므로
+          체크아웃과 같은 선택지를 그대로 보여주고, 이동은 체크아웃과 같은 resolvePaymentRedirect 경로를 쓴다.
+        -->
+        <section v-if="canResumePayment(data.status.code)" class="mb-6 rounded-card border border-line p-5" data-testid="order-resume-payment">
+          <h2 class="mb-3 text-base font-semibold text-ink">결제하기</h2>
+          <div class="flex flex-wrap gap-2">
+            <label
+              v-for="option in PAYMENT_METHODS"
+              :key="option.value"
+              class="flex cursor-pointer items-center gap-2 rounded-card border border-line px-3 py-2 text-sm text-ink"
+            >
+              <input v-model="payMethod" type="radio" :value="option.value" name="resume-payment-method" class="h-4 w-4" />
+              {{ option.label }}
+            </label>
+          </div>
+          <Button class="mt-4" :disabled="paying" data-testid="order-resume-payment-submit" @click="submitResumePayment">
+            {{ paying ? '결제 준비 중…' : '결제하기' }}
+          </Button>
+          <p v-if="payError" role="alert" class="mt-2 text-sm text-soldout" data-testid="order-resume-payment-error">{{ payError }}</p>
+        </section>
+
+        <!-- 미결제 종료 주문: 결제 버튼 대신 왜 결제할 수 없는지를 말한다. -->
+        <p v-else-if="isPaymentExpired(data.status.code)" class="-mt-3 mb-6 text-sm text-sub" data-testid="order-payment-expired-notice">
+          {{ PAYMENT_EXPIRED_NOTICE }}
+        </p>
+
         <!-- seller 그룹별 품목 -->
         <section class="space-y-4">
           <div
@@ -179,12 +251,12 @@ useSeoMeta({
                 <!-- 배송완료 안내(FE-53·C-16): 값은 lib/constants/order.ts AUTO_CONFIRM_DAYS(BE 설정과 일치). -->
                 <p v-if="item.status.code === 'DELIVERED'" class="text-xs text-sub" data-testid="item-auto-confirm-guide">{{ AUTO_CONFIRM_GUIDE }}</p>
 
-                <!-- 구매확정 확인 패널(FE-53·C-06): 확정 후 반품·교환 신청 불가 경고 필수. -->
+                <!-- 구매확정 확인 패널(FE-53·C-06): 확정 후 반품·교환 요청 불가 경고 + 가역성 1줄(Track 102 FE-64 규약). -->
                 <div v-if="confirmTargetId === item.orderItemId" class="rounded-card border border-line bg-gray-50 p-4" data-testid="item-confirm-panel">
                   <p class="text-sm font-medium text-ink">이 품목을 구매확정할까요?</p>
-                  <p class="mt-1 text-sm text-soldout" data-testid="item-confirm-warning">확정 후에는 반품·교환을 신청할 수 없습니다.</p>
+                  <p class="mt-1 text-sm text-soldout" style="white-space: pre-line" data-testid="item-confirm-warning">{{ ITEM_CONFIRM_WARNING }}</p>
                   <div class="mt-3 flex gap-2">
-                    <Button size="sm" :disabled="confirming" data-testid="item-confirm-submit" @click="submitConfirm(item)">
+                    <Button variant="destructive" size="sm" :disabled="confirming" data-testid="item-confirm-submit" @click="submitConfirm(item)">
                       {{ confirming ? '확정 중…' : '확정' }}
                     </Button>
                     <Button variant="outline" size="sm" :disabled="confirming" data-testid="item-confirm-cancel" @click="confirmTargetId = null">취소</Button>

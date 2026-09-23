@@ -28,7 +28,7 @@ definePageMeta({ layout: 'seller', middleware: ['seller', 'seller-vuetify'] })
 useSeoMeta({ title: '정산 상세 · zslab-mall 셀러' })
 
 // 셀러 정산 상세(Track 90-B-3·Track 85 BE·관리자 settlements/[id].vue 골격 복제·읽기 전용·액션 없음). 헤더(기간·금액 4종·상태·지급예정일·지급일)·
-// 계좌(끝 4자리·스냅샷/현재 구분)·품목 탭(판매/환불·URL query ?tab=·?page=·?size=). 미존재·타 셀러·확정 전(404)은 안내 + 목록 이동.
+// 계좌(끝 4자리·스냅샷/현재 구분)·품목 탭(판매/환불·URL query ?tab=·?page=·?size=). 미존재·타 셀러·확정 대기(404)은 안내 + 목록 이동.
 const route = useRoute()
 const router = useRouter()
 const settlementsApi = useSellerSettlements()

@@ -1,3 +1,5 @@
+import { reversibleBy, riskConfirmMessage } from '~/lib/utils/risk-confirm'
+
 /**
  * 클레임/품목상태 라벨·규칙 단일 소스(FE-14·CLAUDE.md 4층위 enum 잠금 (4)프론트). order.ts 패턴 정합
  * (유니온 타입 + Record 라벨맵 + label 함수). BE는 StatusView.label=code로 내려주므로 code→한글은 FE가 담당한다.
@@ -69,7 +71,7 @@ export type ClaimStatus = 'REQUESTED' | 'APPROVED' | 'REJECTED' | 'COMPLETED'
 export const CLAIM_STATUS_LABELS: Record<ClaimStatus, string> = {
   REQUESTED: '요청',
   APPROVED: '승인',
-  REJECTED: '거절',
+  REJECTED: '거부',
   COMPLETED: '완료',
 }
 
@@ -232,3 +234,12 @@ export function refundStatusLabel(code: string): string {
  * 시스템이 보장할 수 없는 값을 약속하지 않는다.
  */
 export const REFUND_TIMING_NOTICE = '환불 완료 후 실제 반영 시점은 결제수단에 따라 다를 수 있습니다.'
+
+/**
+ * 클레임 요청 취소 확인 문구(Track 102 FE-64 위험 조작 문구 규약 — 무엇이 일어나는지 + 가역성).
+ * 취소는 이 요청을 종결시키지만, 같은 품목으로 새 요청을 낼 수는 있다(BE CLM-2·거부 후 재요청과 같은 규칙).
+ */
+export const CLAIM_CANCEL_WARNING = riskConfirmMessage(
+  '요청이 즉시 종료되고 품목은 요청 전 상태로 돌아갑니다.',
+  reversibleBy('이 요청은 되살릴 수 없고, 주문 내역에서 새로 요청해야 합니다'),
+)

@@ -1,3 +1,4 @@
+import { IRREVERSIBLE, reversibleBy, riskConfirmMessage } from '~/lib/utils/risk-confirm'
 import type { AdminSemantic } from '#layers/admin/app/lib/constants/semantic'
 import { ADMIN_REFUND_STATUS_SEMANTIC } from '#layers/admin/app/lib/constants/admin-order'
 import {
@@ -42,20 +43,53 @@ export function refundStatusChip(refundStatus: RefundStatus | undefined): { text
   return { text: refundStatusLabel(refundStatus), semantic: ADMIN_REFUND_STATUS_SEMANTIC[refundStatus] }
 }
 
-/** 승인 확인 다이얼로그 문구(주문 상세·목록 공유). 취소는 승인 즉시 환불, 교환은 교환 옵션 재고 예약(부족 시 422)을 알린다(FE-30·D-177). */
+/**
+ * 승인 확인 다이얼로그 문구(주문 상세·목록 공유). 취소는 승인 즉시 환불, 교환은 교환 옵션 재고 예약(부족 시 422)을 알린다(FE-30·D-177).
+ * 형식은 riskConfirmMessage(Track 102 FE-64) — 마지막 줄이 항상 가역성이다. 승인은 되돌리는 경로가 없다(취소는 이미 환불이 나간다).
+ */
 export function approveConfirmMessage(claimType: ClaimType, productName: string): string {
   const label = `${claimTypeLabel(claimType)} 요청 (${productName})`
-  if (claimType === 'CANCEL') return `${label}을(를) 승인합니다.\n취소 요청은 승인 즉시 환불이 진행됩니다.`
-  if (claimType === 'EXCHANGE') return `${label}을(를) 승인합니다.\n승인 시 교환 옵션 재고가 예약되며, 재고가 부족하면 승인되지 않습니다.`
-  return `${label}을(를) 승인합니다.`
+  if (claimType === 'CANCEL') return riskConfirmMessage(`${label}을(를) 승인합니다.\n취소 요청은 승인 즉시 환불이 진행됩니다.`, IRREVERSIBLE)
+  if (claimType === 'EXCHANGE') {
+    return riskConfirmMessage(`${label}을(를) 승인합니다.\n승인 시 교환 옵션 재고가 예약되며, 재고가 부족하면 승인되지 않습니다.`, IRREVERSIBLE)
+  }
+  return riskConfirmMessage(`${label}을(를) 승인합니다.`, IRREVERSIBLE)
+}
+
+/** 거부 확인 문구(AdminClaimRejectDialog 본문). 이 클레임은 종결되지만 구매자가 같은 품목으로 새 요청을 낼 수 있다(CLM-2). */
+export function rejectConfirmMessage(claimType: ClaimType, productName: string): string {
+  return riskConfirmMessage(
+    `${claimTypeLabel(claimType)} 요청 (${productName})을(를) 거부합니다.\n품목은 요청 전 상태로 돌아가고 구매자에게 사유가 안내됩니다.`,
+    reversibleBy('이 요청은 종결되며, 구매자가 같은 품목으로 다시 요청할 수 있습니다'),
+  )
+}
+
+/** 검수 다이얼로그 안내(AdminClaimInspectDialog 본문). 합격·불합격 모두 되돌리는 경로가 없다. */
+export function inspectNoticeMessage(claimType: ClaimType, productName: string): string {
+  const pass = claimType === 'EXCHANGE' ? '합격은 교환품 발송 대기로 넘어가고' : '합격은 환불이 자동 진행되고'
+  return riskConfirmMessage(`${productName} 회수품을 검수합니다.\n${pass}, 불합격은 상품을 구매자에게 재발송합니다.`, IRREVERSIBLE)
+}
+
+/** 교환품 배송완료 확인 문구(교환 종결 전이). */
+export function exchangeDeliveredConfirmMessage(productName: string): string {
+  return riskConfirmMessage(
+    `교환 요청 (${productName})의 교환품 배송을 완료 처리합니다.\n완료 시 품목이 교환 옵션으로 바뀌고 배송완료 상태로 돌아갑니다.`,
+    IRREVERSIBLE,
+  )
 }
 
 /** 회수 확인 다이얼로그 문구(FE-29·FE-30). 회수 확인은 환불·발송을 일으키지 않고 검수 단계로만 넘긴다(D-170·D-177). */
 export function confirmPickupMessage(productName: string, claimType: ClaimType = 'RETURN'): string {
   if (claimType === 'EXCHANGE') {
-    return `교환 요청 (${productName})의 회수를 확인합니다.\n회수 확인 후 검수를 진행할 수 있으며, 교환품 발송은 검수 합격 후 등록합니다.`
+    return riskConfirmMessage(
+      `교환 요청 (${productName})의 회수를 확인합니다.\n회수 확인 후 검수를 진행할 수 있으며, 교환품 발송은 검수 합격 후 등록합니다.`,
+      IRREVERSIBLE,
+    )
   }
-  return `반품 요청 (${productName})의 회수를 확인합니다.\n회수 확인 후 검수를 진행할 수 있으며, 환불은 검수 합격 시 진행됩니다.`
+  return riskConfirmMessage(
+    `반품 요청 (${productName})의 회수를 확인합니다.\n회수 확인 후 검수를 진행할 수 있으며, 환불은 검수 합격 시 진행됩니다.`,
+    IRREVERSIBLE,
+  )
 }
 
 /** 검수 다이얼로그의 합격 의미(FE-30): 반품은 환불 자동 진행, 교환은 교환품 발송 대기. */
@@ -163,4 +197,18 @@ export function isWaitingForReturnShipment(item: PickupWaitingInput): boolean {
 /** 회수 대기 행의 "관리" 칸 안내 문구. 대기 상태가 아니면 null(호출부가 기존 "—" 표기를 유지한다). */
 export function pickupWaitingLabel(item: PickupWaitingInput): string | null {
   return isWaitingForReturnShipment(item) ? '구매자 회수 송장 등록 대기' : null
+}
+
+/**
+ * 액션이 하나도 없는 행에 "왜 없는지"를 적는다(Track 102 FE-64). 회수 대기(Track 101-A)만 문구가 있었고 나머지는 "—"였는데,
+ * 처음 쓰는 운영자에게는 "내가 할 게 없는 행"과 "조건을 못 채운 행"이 구분되지 않는다. 종결 2종을 이유로 덧붙인다.
+ * 액션이 있는 행은 null(호출부가 버튼을 그린다).
+ */
+export function rowActionAbsenceReason(item: PickupWaitingInput & { availableActions: readonly string[] }): string | null {
+  if (item.availableActions.length > 0) return null
+  const waiting = pickupWaitingLabel(item)
+  if (waiting) return waiting
+  if (item.status === 'COMPLETED') return '처리 완료'
+  if (item.status === 'REJECTED') return '거부로 종결'
+  return null
 }

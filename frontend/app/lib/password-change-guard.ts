@@ -11,7 +11,8 @@ export interface PasswordChangeGuardInput {
   required: boolean
 }
 
-const ALLOWED_PATHS = new Set<string>([PASSWORD_CHANGE_PATH, '/login'])
+// 도움말(Track 102 FE-64)은 공개 경로이고, 임시 비밀번호 상태에서 무엇을 해야 하는지 찾아볼 수 있어야 해서 함께 허용한다.
+const ALLOWED_PATHS = new Set<string>([PASSWORD_CHANGE_PATH, '/login', '/help'])
 
 /** 리다이렉트 대상 경로(query 포함) 또는 null(통과). */
 export function resolvePasswordChangeRedirect(input: PasswordChangeGuardInput): string | null {

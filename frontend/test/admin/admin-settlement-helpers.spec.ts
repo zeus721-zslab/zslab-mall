@@ -46,7 +46,7 @@ describe('표시 포맷', () => {
   })
 
   it('상태 라벨 3종', () => {
-    expect(settlementStatusLabel('PENDING')).toBe('대기')
+    expect(settlementStatusLabel('PENDING')).toBe('확정 대기')
     expect(settlementStatusLabel('CONFIRMED')).toBe('확정')
     expect(settlementStatusLabel('PAID')).toBe('지급완료')
   })
@@ -60,7 +60,7 @@ describe('표시 포맷', () => {
 })
 
 describe('상태별 액션 활성', () => {
-  it('PENDING → 정상처리·재생성만 / CONFIRMED → 지급완료만 / PAID → 없음', () => {
+  it('PENDING → 확정·재생성만 / CONFIRMED → 지급완료만 / PAID → 없음', () => {
     const pending = { ...BASE, status: 'PENDING' as const }
     const paid = { ...BASE, status: 'PAID' as const }
     expect([canConfirm(pending), canRegenerate(pending), canPay(pending)]).toEqual([true, true, false])

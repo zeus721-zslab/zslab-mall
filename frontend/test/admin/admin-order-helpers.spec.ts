@@ -49,7 +49,7 @@ describe('액션 대상 판정(BE actions·canTransitionTo 정합)', () => {
     expect(cancellableItems(items).map((entry) => entry.orderItemId)).toEqual(['oit_paid', 'oit_preparing'])
   })
 
-  it('송장 등록 = PAID만 · 배송완료 = 최신 배송 SHIPPING만', () => {
+  it('발송 처리 = PAID만 · 배송완료 = 최신 배송 SHIPPING만', () => {
     expect(shippableItems(items).map((entry) => entry.orderItemId)).toEqual(['oit_paid'])
     expect(deliverableItems(items).map((entry) => entry.orderItemId)).toEqual(['oit_shipping'])
   })

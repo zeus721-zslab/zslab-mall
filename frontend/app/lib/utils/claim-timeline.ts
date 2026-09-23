@@ -2,9 +2,9 @@ import type { ClaimStatus } from '~/lib/constants/claim'
 import type { ClaimDetail } from '~/types/claim'
 
 /**
- * 클레임 상세 진행 타임라인 계산(FE-29·FE-30·순수 함수). 취소는 요청→승인→완료 3단(REJECTED는 요청→거절), 반품은
+ * 클레임 상세 진행 타임라인 계산(FE-29·FE-30·순수 함수). 취소는 요청→승인→완료 3단(REJECTED는 요청→거부), 반품은
  * 요청→승인→회수 송장→회수 확인→검수→환불 완료 6단이며 검수 불합격은 검수 단계에서 종결한다(D-170 §2). 교환은
- * 신청→승인→회수→검수→교환품 발송→배송완료→완료 7단(FE-30-2·D-177)이며 검수 불합격은 검수 단계에서 종결한다.
+ * 요청→승인→회수→검수→교환품 발송→배송완료→완료 7단(FE-30-2·D-177)이며 검수 불합격은 검수 단계에서 종결한다.
  * 단계 시각은 BE가 주는 값만 쓴다(요청 requestedAt·회수 송장 shippedAt·회수 확인 pickedUpAt·교환품 발송/배송완료 reshipment·종결 processedAt).
  * 승인·검수 시각은 데이터가 없어 표기하지 않는다(추정 금지).
  */
@@ -17,7 +17,7 @@ export interface TimelineStep {
 }
 
 const RETURN_LABELS = ['요청', '승인', '회수 송장', '회수 확인', '검수', '환불 완료'] as const
-const EXCHANGE_LABELS = ['신청', '승인', '회수', '검수', '교환품 발송', '배송완료', '완료'] as const
+const EXCHANGE_LABELS = ['요청', '승인', '회수', '검수', '교환품 발송', '배송완료', '완료'] as const
 
 type TimelineSource = Pick<
   ClaimDetail,
@@ -63,7 +63,7 @@ export function claimTimeline(detail: TimelineSource): TimelineStep[] {
       )
     }
     if (detail.status === 'REJECTED') {
-      return withStates(['신청', '거절'], 1, [detail.requestedAt, detail.processedAt])
+      return withStates(['요청', '거부'], 1, [detail.requestedAt, detail.processedAt])
     }
     const current = exchangeStageIndex(detail)
     return withStates(EXCHANGE_LABELS, current, [
@@ -87,7 +87,7 @@ export function claimTimeline(detail: TimelineSource): TimelineStep[] {
       )
     }
     if (detail.status === 'REJECTED') {
-      return withStates(['요청', '거절'], 1, [detail.requestedAt, detail.processedAt])
+      return withStates(['요청', '거부'], 1, [detail.requestedAt, detail.processedAt])
     }
     const current = returnStageIndex(detail)
     return withStates(RETURN_LABELS, current, [
@@ -101,7 +101,7 @@ export function claimTimeline(detail: TimelineSource): TimelineStep[] {
   }
 
   if (detail.status === 'REJECTED') {
-    return withStates(['요청', '거절'], 1, [detail.requestedAt, detail.processedAt])
+    return withStates(['요청', '거부'], 1, [detail.requestedAt, detail.processedAt])
   }
   const order: ClaimStatus[] = ['REQUESTED', 'APPROVED', 'COMPLETED']
   const currentIndex = order.indexOf(detail.status)
@@ -143,20 +143,20 @@ const CANCEL_GUIDES: Record<ClaimStatus, string> = {
   REQUESTED: '쇼핑몰의 승인을 기다리고 있습니다.',
   APPROVED: '취소가 승인되어 환불을 진행하고 있습니다.',
   COMPLETED: '취소와 환불이 완료되었습니다.',
-  REJECTED: '취소 요청이 거절되었습니다.',
+  REJECTED: '취소 요청이 거부되었습니다.',
 }
 
 /** 현재 단계 1줄 안내. 타임라인과 같은 단계 판정을 쓴다. */
 export function claimStageGuide(detail: TimelineSource): string {
   if (detail.claimType === 'EXCHANGE') {
     if (detail.status === 'REJECTED') {
-      return detail.inspectionResult === 'FAIL' ? '검수 결과 교환이 거절되어 상품을 다시 보내드립니다.' : '교환 요청이 거절되었습니다.'
+      return detail.inspectionResult === 'FAIL' ? '검수 결과 교환이 거부되어 상품을 다시 보내드립니다.' : '교환 요청이 거부되었습니다.'
     }
     return EXCHANGE_GUIDES[exchangeStageIndex(detail)] ?? ''
   }
   if (detail.claimType === 'RETURN') {
     if (detail.status === 'REJECTED') {
-      return detail.inspectionResult === 'FAIL' ? '검수 결과 반품이 거절되어 상품을 다시 보내드립니다.' : '반품 요청이 거절되었습니다.'
+      return detail.inspectionResult === 'FAIL' ? '검수 결과 반품이 거부되어 상품을 다시 보내드립니다.' : '반품 요청이 거부되었습니다.'
     }
     return RETURN_GUIDES[returnStageIndex(detail)] ?? ''
   }

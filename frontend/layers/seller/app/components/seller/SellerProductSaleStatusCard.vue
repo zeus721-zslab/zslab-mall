@@ -15,7 +15,7 @@ import { useSellerToast } from '#layers/seller/app/composables/useSellerToast'
 
 /**
  * 상품 수정 화면 판매 관리 카드(Track 96-5·D-206·FE-57). 판매 상태 칩·중지 주체 · 판매중지/재판매 버튼(확인 다이얼로그는 부모가 띄움) ·
- * 상품 단위 수동 품절 스위치(즉시 PATCH·D3 α). 승인대기·반려 상품은 전환 버튼을 숨긴다(BE 422·메뉴 미노출 규칙과 동일).
+ * 상품 단위 수동 품절 스위치(즉시 PATCH·D3 α). 승인대기·거부됨 상품은 전환 버튼을 숨긴다(BE 422·메뉴 미노출 규칙과 동일).
  *
  * <p><b>폼 보존(외부 검토 R2 Q9 반영)</b>: 카드 조작은 아래 수정 폼을 건드리지 않는다. 품절 성공은 응답(셀러 상세)을 {@code updated}로 올려
  * 부모가 카드 상태만 국소 갱신하고, 실패는 재조회 없이 스위치를 서버 값으로 원복한다. 단 상태가 그사이 바뀐 사유(422 PRODUCT_STOPPED_BY_ADMIN·
@@ -84,7 +84,7 @@ async function toggleSoldOut(next: boolean): Promise<void> {
           </v-btn>
           <span v-if="saleAction.note" class="text-caption text-medium-emphasis" data-testid="sale-card-note">{{ saleAction.note }}</span>
         </template>
-        <span v-else class="text-caption text-medium-emphasis" data-testid="sale-card-note">승인·반려는 관리자가 처리합니다. 승인 후 판매중지·재판매를 직접 할 수 있습니다.</span>
+        <span v-else class="text-caption text-medium-emphasis" data-testid="sale-card-note">승인·거부는 관리자가 처리합니다. 승인 후 판매중지·재판매를 직접 할 수 있습니다.</span>
         <v-spacer />
         <v-switch
           :model-value="soldOut"

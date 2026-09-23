@@ -103,7 +103,7 @@ function openProduct(row: SellerClaimProductRowView): void {
 
 <template>
   <div data-testid="seller-order-stats">
-    <SellerPageHeader title="주문·클레임 통계" description="내 품목 기준 결제 → 출고 → 배송완료 퍼널, 처리 소요시간, 클레임률·환불률과 클레임 유형·사유·상품 분포를 봅니다.">
+    <SellerPageHeader title="주문·클레임 통계" description="내 품목 기준 결제 → 발송 → 배송완료 퍼널, 처리 소요시간, 클레임률·환불률과 클레임 유형·사유·상품 분포를 봅니다.">
       <template #actions>
         <v-btn variant="text" size="small" data-testid="orders-reset" @click="resetQuery">초기화</v-btn>
         <v-btn variant="text" :prepend-icon="mdiRefresh" :loading="loading" data-testid="orders-refresh" @click="load">새로고침</v-btn>

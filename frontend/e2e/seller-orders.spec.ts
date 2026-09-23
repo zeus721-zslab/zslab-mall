@@ -3,8 +3,8 @@ import { loginAs } from './helpers/login'
 import { SUSPENDED_PROBLEM, mockSellerMe, pagedResponse, pickOption } from './helpers/seller-mock'
 
 /**
- * 셀러 주문(품목) 화면(Track 90-B-3·D-191) E2E. 로그인은 loginAs(SELLER), 품목 목록·상세·출고(POST prepare-shipment)는 page.route mock.
- * ① 목록 → 상태 필터(URL·API status) → 상세(배송지 전체) → 출고 성공 ② 출고 403 SELLER_SUSPENDED → 호출부 danger 토스트 + 레이아웃 배너(둘 다).
+ * 셀러 주문(품목) 화면(Track 90-B-3·D-191) E2E. 로그인은 loginAs(SELLER), 품목 목록·상세·발송(POST prepare-shipment)은 page.route mock.
+ * ① 목록 → 상태 필터(URL·API status) → 상세(배송지 전체) → 발송 성공 ② 발송 403 SELLER_SUSPENDED → 호출부 danger 토스트 + 레이아웃 배너(둘 다).
  */
 const PAID_ID = 'oit_E2E0000000000000000000001'
 const SHIPPING_ID = 'oit_E2E0000000000000000000002'
@@ -42,7 +42,7 @@ async function mockSellerOrders(page: Page, shipmentStatus = 200): Promise<Captu
 }
 
 test.describe('셀러 주문 화면(90-B-3)', () => {
-  test('① 진입(품목 2행·PAID만 출고 버튼) → 상태 필터 PAID(URL·API) → 상세(배송지 전체·배송 화면 안내) → 출고 다이얼로그 → POST 성공 → 토스트·재조회', async ({ page }) => {
+  test('① 진입(품목 2행·PAID만 발송 버튼) → 상태 필터 PAID(URL·API) → 상세(배송지 전체·배송 화면 안내) → 발송 다이얼로그 → POST 성공 → 토스트·재조회', async ({ page }) => {
     const captured = await mockSellerOrders(page)
     await loginAs(page, 'SELLER')
     await page.setViewportSize({ width: 1440, height: 900 })
@@ -52,7 +52,7 @@ test.describe('셀러 주문 화면(90-B-3)', () => {
     await expect(page.getByTestId('status-chip').first()).toHaveText('결제완료')
     await expect(page.getByTestId('status-chip').first()).toHaveClass(/slr-chip--info/)
     await expect(page.getByTestId('delivery-status-chip')).toHaveCount(1) // SHIPPING 행만 배송 chip
-    await expect(page.getByTestId('row-prepare-shipment')).toHaveCount(1) // PAID 행만 출고
+    await expect(page.getByTestId('row-prepare-shipment')).toHaveCount(1) // PAID 행만 발송
     await expect(page.getByTestId('row-paid-at').first()).toHaveText('2026.09.17 17:32') // KST 오프셋 ISO → formatDateTime
     expect(captured.listQueries[0]?.get('page')).toBe('0')
     expect(captured.listQueries[0]?.has('status')).toBe(false)
@@ -63,7 +63,7 @@ test.describe('셀러 주문 화면(90-B-3)', () => {
     await expect(page.getByTestId('row-order-no')).toHaveCount(1)
     await expect.poll(() => captured.listQueries.at(-1)?.get('status')).toBe('PAID')
 
-    // 상세: 주문번호 클릭 → back=목록 URL · 배송지 전체 · 출고 전 안내
+    // 상세: 주문번호 클릭 → back=목록 URL · 배송지 전체 · 발송 전 안내
     await page.getByTestId('row-order-no').first().click()
     await page.waitForURL(new RegExp(`/seller/orders/${PAID_ID}\\?back=`))
     await expect(page.getByTestId('order-detail-status')).toHaveText('결제완료')
@@ -71,12 +71,12 @@ test.describe('셀러 주문 화면(90-B-3)', () => {
     await expect(page.getByTestId('order-detail-recipient')).toContainText('010-2000-0000')
     await expect(page.getByTestId('order-detail-address')).toContainText('[16489] 경기 수원시 영통구 광교로 145 101호')
     await expect(page.getByTestId('order-detail-address')).toContainText('메모: 문 앞')
-    await expect(page.getByTestId('order-detail-no-delivery')).toContainText('아직 출고 전')
+    await expect(page.getByTestId('order-detail-no-delivery')).toContainText('아직 발송 전')
     await expect(page.getByTestId('order-detail-prepare-shipment')).toBeVisible()
     await page.getByTestId('order-detail-back').click()
     await expect(page).toHaveURL(/\/seller\/orders\?status=PAID$/)
 
-    // 출고: 행 버튼 → 다이얼로그 → 검증(택배사·송장) → 입력 → POST body → info 토스트 → 목록 재조회
+    // 발송: 행 버튼 → 다이얼로그 → 검증(택배사·송장) → 입력 → POST body → info 토스트 → 목록 재조회
     await page.getByTestId('row-prepare-shipment').click()
     const dialog = page.getByTestId('seller-shipment-dialog')
     await expect(dialog).toBeVisible()
@@ -88,7 +88,7 @@ test.describe('셀러 주문 화면(90-B-3)', () => {
     await dialog.getByTestId('shipment-tracking-no').locator('input').fill('E2E-NEW-0001')
     const listCallsBefore = captured.listQueries.length
     await dialog.getByTestId('shipment-dialog-ok').click()
-    await expect(page.getByTestId('seller-toaster')).toContainText('출고 처리했습니다: CJ대한통운 E2E-NEW-0001')
+    await expect(page.getByTestId('seller-toaster')).toContainText('발송 처리했습니다: CJ대한통운 E2E-NEW-0001')
     expect(captured.shipments).toHaveLength(1)
     expect(captured.shipments[0]?.url).toContain(`/api/v1/order-items/${PAID_ID}/prepare-shipment`)
     expect(captured.shipments[0]?.body).toEqual({ carrier: 'CJ', trackingNo: 'E2E-NEW-0001' })
@@ -96,7 +96,7 @@ test.describe('셀러 주문 화면(90-B-3)', () => {
     await expect.poll(() => captured.listQueries.length).toBeGreaterThan(listCallsBefore)
   })
 
-  test('② 출고 403 SELLER_SUSPENDED → 호출부 danger 토스트(정지 문구) + 레이아웃 정지 배너(배너에만 의존하지 않음)', async ({ page }) => {
+  test('② 발송 403 SELLER_SUSPENDED → 호출부 danger 토스트(정지 문구) + 레이아웃 정지 배너(배너에만 의존하지 않음)', async ({ page }) => {
     const captured = await mockSellerOrders(page, 403)
     await loginAs(page, 'SELLER')
     await page.setViewportSize({ width: 1440, height: 900 })

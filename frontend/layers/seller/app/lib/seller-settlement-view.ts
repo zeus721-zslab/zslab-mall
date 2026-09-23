@@ -48,10 +48,10 @@ export function bankAccountSourceLabel(account: Pick<SellerSettlementBankAccount
 }
 
 /**
- * 확정 전(PENDING) 정산 안내 문구. 셀러 API는 PENDING을 404로 숨기므로(D-191 ε) 목록에 없는 게 정상이며, 대시보드·상단 "정산 예정 N건"은
- * 그 확정 전 건수다. 건수 0이면 null(안내 없음).
+ * 확정 대기(PENDING) 정산 안내 문구. 셀러 API는 PENDING을 404로 숨기므로(D-191 ε) 목록에 없는 게 정상이며, 대시보드·상단 "정산 예정 N건"은
+ * 그 확정 대기 건수다. 건수 0이면 null(안내 없음).
  */
 export function pendingSettlementNotice(pendingCount: number): string | null {
   if (pendingCount <= 0) return null
-  return `확정 전 정산 ${pendingCount.toLocaleString('ko-KR')}건이 있습니다. 운영자가 확정하면 이 목록에 표시됩니다(대시보드 "정산 예정"과 같은 건수).`
+  return `확정 대기 정산 ${pendingCount.toLocaleString('ko-KR')}건이 있습니다. 운영자가 확정하면 이 목록에 표시됩니다(대시보드 "정산 예정"과 같은 건수).`
 }

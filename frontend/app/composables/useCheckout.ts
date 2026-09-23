@@ -1,4 +1,4 @@
-import type { CheckoutRequest, CheckoutResponse } from '~/types/checkout'
+import type { CheckoutRequest, CheckoutResponse, PaymentMethod } from '~/types/checkout'
 
 /** 체크아웃 호출 결과. status(201 신규·200 멱등 캐시)·Location 헤더(신규만 존재)를 응답 본문과 함께 노출한다. */
 export interface CheckoutResult {
@@ -65,5 +65,29 @@ export function useCheckout() {
     })
   }
 
-  return { submit, sendPaymentCallback }
+  /**
+   * 재결제(POST /api/v1/orders/{orderPublicId}/payments·BE BuyerOrderController §6·D-60). 결제대기 주문에 새 Payment를 만들고
+   * 체크아웃과 같은 응답(payment.redirectUrl + Location)을 돌려주므로 호출부는 goToPayment(resolvePaymentRedirect)를 그대로 쓴다.
+   * 실패(401/404/422 — 이미 결제됨·취소됨 등)는 throw해 호출부가 안내한다.
+   */
+  async function retryPayment(orderPublicId: string, method: PaymentMethod): Promise<CheckoutResult> {
+    const baseURL = import.meta.server
+      ? `${config.apiInternalBase}/api`
+      : config.public.apiBase || '/api'
+
+    const response = await $fetch.raw<CheckoutResponse>(`/v1/orders/${orderPublicId}/payments`, {
+      baseURL,
+      method: 'POST',
+      headers: { Authorization: `Bearer ${auth.token}` },
+      body: { method },
+    })
+
+    return {
+      data: response._data as CheckoutResponse,
+      status: response.status,
+      location: response.headers.get('Location'),
+    }
+  }
+
+  return { submit, sendPaymentCallback, retryPayment }
 }

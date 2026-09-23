@@ -137,7 +137,7 @@ export interface AdminOrderClaim {
   requestedBy?: number
   requestedAt: string
   processedAt?: string
-  /** 사용자 승인형 Claim(REQUESTED)에 대한 승인/거절 버튼 노출 여부. */
+  /** 사용자 승인형 Claim(REQUESTED)에 대한 승인/거부 버튼 노출 여부. */
   approvable: boolean
   /** 거부 사유 코드·메모(FE-28·Track 80 D-169). 거부 전 생략. */
   rejectReasonCode?: ClaimRejectReasonCode
@@ -180,13 +180,13 @@ export interface AdminOrderCancelResponse {
   claims: { claimId: string; orderItemId: string; status: ClaimStatus }[]
 }
 
-/** 송장 등록 요청(BE PrepareShipmentRequest). */
+/** 발송 요청(BE PrepareShipmentRequest). */
 export interface AdminShipmentRequest {
   carrier: AdminDeliveryCarrier
   trackingNo: string
 }
 
-/** 송장 등록·배송완료 응답(BE PrepareShipmentResponse·RegisterExchangeShipmentResponse 동일 4필드). */
+/** 발송·배송완료 응답(BE PrepareShipmentResponse·RegisterExchangeShipmentResponse 동일 4필드). */
 export interface AdminDeliveryResponse {
   deliveryPublicId: string
   status: AdminDeliveryStatus
@@ -194,7 +194,7 @@ export interface AdminDeliveryResponse {
   trackingNo: string
 }
 
-/** 클레임 승인/거절 응답(BE ClaimResponse). */
+/** 클레임 승인/거부 응답(BE ClaimResponse). */
 export interface AdminClaimResponse {
   publicId: string
   orderItemPublicId: string

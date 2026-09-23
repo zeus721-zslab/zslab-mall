@@ -1,32 +1,24 @@
 import type { AdminSemantic } from '#layers/admin/app/lib/constants/semantic'
+import { PRODUCT_STATUS_LABELS, SALE_STOP_SOURCE_LABELS } from '~/lib/constants/product-status'
 
 /**
  * 관리자 상품 관리 상수 단일 소스(FE-25·D-165 §8 4층위 4단). BE enum(ProductStatus·AdminProductSort·ProductImageType)과 1:1이며
  * 매직 문자열 대신 이 유니온·옵션 배열을 소비한다.
  */
 
-/** BE ProductStatus 7값. 관리자 화면은 판매중·판매중지·판매대기 3상태를 주로 다루고 나머지는 라벨만 둔다. */
+/** BE ProductStatus 7값. 관리자 화면은 판매중·판매중지·승인대기 3상태를 주로 다루고 나머지는 라벨만 둔다. */
 export type AdminProductStatus = 'DRAFT' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'SALE' | 'HIDDEN' | 'STOPPED'
 
 /** BE SaleStopSource 2값(V34·D-206). STOPPED일 때만 존재. ADMIN 중지는 셀러가 재판매할 수 없고 관리자만 풀 수 있다. */
 export type AdminSaleStopSource = 'ADMIN' | 'SELLER'
 
-export const ADMIN_SALE_STOP_SOURCE_LABEL: Record<AdminSaleStopSource, string> = {
-  ADMIN: '관리자 중지',
-  SELLER: '셀러 중지',
-}
+/** 라벨 실체는 공용 단일 소스(app/lib/constants/product-status.ts·Track 102 FE-64). 관리자 코드의 기존 이름만 유지한다. */
+export const ADMIN_SALE_STOP_SOURCE_LABEL: Record<AdminSaleStopSource, string> = SALE_STOP_SOURCE_LABELS
 
-export const ADMIN_PRODUCT_STATUS_LABEL: Record<AdminProductStatus, string> = {
-  DRAFT: '임시저장',
-  PENDING: '판매대기',
-  APPROVED: '승인됨',
-  REJECTED: '거부됨',
-  SALE: '판매중',
-  HIDDEN: '숨김',
-  STOPPED: '판매중지',
-}
+/** 라벨 실체는 공용 단일 소스(app/lib/constants/product-status.ts·Track 102 FE-64). 관리자 코드의 기존 이름만 유지한다. */
+export const ADMIN_PRODUCT_STATUS_LABEL: Record<AdminProductStatus, string> = PRODUCT_STATUS_LABELS
 
-/** 상태 chip 의미 색상(constants/semantic.ts): 판매중=success·판매중지=danger·판매대기=warning·그 외는 중립 info. */
+/** 상태 chip 의미 색상(constants/semantic.ts): 판매중=success·판매중지=danger·승인대기=warning·그 외는 중립 info. */
 export const ADMIN_PRODUCT_STATUS_SEMANTIC: Record<AdminProductStatus, AdminSemantic> = {
   DRAFT: 'info',
   PENDING: 'warning',
@@ -76,7 +68,7 @@ export const ADMIN_PRODUCT_STATUS_TARGETS: { value: AdminProductStatusTarget; ti
 export type AdminProductBulkStatusTarget = 'SALE' | 'STOPPED'
 
 export const ADMIN_PRODUCT_BULK_STATUS_OPTIONS: { value: AdminProductBulkStatusTarget; title: string }[] = [
-  { value: 'SALE', title: '판매중으로 (판매대기는 승인)' },
+  { value: 'SALE', title: '판매중으로 (승인대기는 승인)' },
   { value: 'STOPPED', title: '판매중지로' },
 ]
 

@@ -55,7 +55,7 @@ onMounted(load)
 
 <template>
   <div>
-    <AdminPageHeader title="상품 수정" :description="detail?.name ?? productPublicId" />
+    <AdminPageHeader title="상품 수정" :description="detail?.name ?? productPublicId" guide="기본정보·이미지·옵션을 고치고 저장합니다. 승인·거부·판매중지는 상품 목록의 행 메뉴에서 처리합니다." />
     <v-alert v-if="partial" type="warning" class="mb-4" data-testid="partial-alert">
       상품은 등록되었지만 이미지·옵션 저장 중 실패한 단계가 있습니다. 내용을 확인한 뒤 다시 저장하세요.
     </v-alert>

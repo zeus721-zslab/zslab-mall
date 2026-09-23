@@ -4,6 +4,7 @@ import { mountSuspended, mockNuxtImport } from '@nuxt/test-utils/runtime'
 import { flushPromises } from '@vue/test-utils'
 import OrderDetailPage from '~/pages/orders/[orderPublicId].vue'
 import type { OrderDetail, OrderItem } from '~/types/order'
+import { ITEM_CONFIRM_WARNING } from '~/lib/constants/order'
 
 // 주문 상세 옵션 라벨(Track 75·FE-21): useOrderDetail만 mock해 스냅샷 값의 조건부 렌더를 검증한다.
 const { useOrderDetailMock, routeMock, confirmPurchaseMock } = vi.hoisted(() => ({
@@ -146,7 +147,7 @@ describe('pages/orders/[orderPublicId].vue 구매확정(C-06)·안내 문구(C-1
     const wrapper = await mountSuspended(OrderDetailPage)
     expect(wrapper.find('[data-testid="item-confirm-panel"]').exists()).toBe(false)
     await wrapper.find('[data-testid="item-confirm-purchase"]').trigger('click')
-    expect(wrapper.find('[data-testid="item-confirm-warning"]').text()).toBe('확정 후에는 반품·교환을 신청할 수 없습니다.')
+    expect(wrapper.find('[data-testid="item-confirm-warning"]').text()).toBe(ITEM_CONFIRM_WARNING)
     await wrapper.find('[data-testid="item-confirm-cancel"]').trigger('click')
     expect(wrapper.find('[data-testid="item-confirm-panel"]').exists()).toBe(false)
     expect(confirmPurchaseMock).not.toHaveBeenCalled()

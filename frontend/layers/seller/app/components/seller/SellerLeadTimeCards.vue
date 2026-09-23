@@ -3,7 +3,7 @@ import { mdiClockOutline, mdiTruckFastOutline } from '@mdi/js'
 import { sellerLeadTimeCards, type NormalizedSellerOrderStats, type SellerLeadTimeKey } from '#layers/seller/app/lib/seller-order-stats-view'
 
 /**
- * 셀러 처리 소요시간 카드 2장(Track 90-E-2·관리자 AdminLeadTimeCards 복제): 결제→출고 / 출고→배송완료. 값은 중앙값(D-200), 캡션에 표본 수·평균.
+ * 셀러 처리 소요시간 카드 2장(Track 90-E-2·관리자 AdminLeadTimeCards 복제): 결제→발송 / 발송→배송완료. 값은 중앙값(D-200), 캡션에 표본 수·평균.
  * 표본 0이면 "데이터 없음". 시간 표기는 공용 formatHours(24h 미만 시간·이상 "N일 M시간").
  */
 const props = defineProps<{

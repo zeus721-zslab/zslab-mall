@@ -41,7 +41,7 @@ function onCreatedPartially(productPublicId: string): void {
 
 <template>
   <div>
-    <AdminPageHeader title="상품 등록" description="기본정보·이미지·옵션을 입력하고 등록하면 판매대기 상태로 생성됩니다(승인 후 판매)." />
+    <AdminPageHeader title="상품 등록" description="기본정보·이미지·옵션을 입력하고 등록하면 승인대기 상태로 생성됩니다(승인 후 판매)." />
     <v-card v-if="optionsLoading" class="mb-4"><v-card-text><v-skeleton-loader type="article" /></v-card-text></v-card>
     <v-alert v-else-if="optionsError" type="error" class="mb-4" data-testid="options-error">
       {{ optionsError }} <v-btn size="small" variant="outlined" color="error" class="ml-2" @click="loadOptions">다시 시도</v-btn>

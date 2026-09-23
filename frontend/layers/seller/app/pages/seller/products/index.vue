@@ -95,7 +95,7 @@ function onSaleDone(): void {
 
 <template>
   <div data-testid="seller-products">
-    <SellerPageHeader title="상품" description="내 상품을 조회합니다. 판매중지·재판매는 행 메뉴에서, 품절은 상품 수정 화면에서 직접 처리합니다. 재고 수량과 입출고는 재고 화면에서, 승인·반려는 관리자가 처리합니다.">
+    <SellerPageHeader title="상품" description="내 상품을 조회합니다. 판매중지·재판매는 행 메뉴에서, 품절은 상품 수정 화면에서 직접 처리합니다. 재고 수량과 입출고는 재고 화면에서, 승인·거부는 관리자가 처리합니다.">
       <template #actions>
         <v-btn color="primary" :prepend-icon="mdiPlus" data-testid="product-new" @click="openNew">상품 등록</v-btn>
       </template>

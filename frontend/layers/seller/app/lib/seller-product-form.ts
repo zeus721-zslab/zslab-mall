@@ -200,7 +200,7 @@ export function includedVariants(form: SellerProductForm): SellerFormVariant[] {
 
 // ---------- 검증 ----------
 
-/** BE Long/int 계약(기본가·추가금·초기 재고): 0 이상 정수만 통과(소수·NaN·음수 거부·검토 반영 ⑦·UI step만으로는 막지 못한다). */
+/** BE Long/int 계약(판매가·추가금·초기 재고): 0 이상 정수만 통과(소수·NaN·음수 거부·검토 반영 ⑦·UI step만으로는 막지 못한다). */
 export function isNonNegativeInteger(value: number): boolean {
   return Number.isInteger(value) && value >= 0
 }
@@ -210,8 +210,8 @@ export function validateSellerProductForm(form: SellerProductForm, mode: SellerP
   if (form.categoryId === null) errors.categoryId = '카테고리를 선택하세요.'
   if (form.name.trim() === '') errors.name = '상품명을 입력하세요.'
   else if (form.name.trim().length > PRODUCT_NAME_MAX) errors.name = `상품명은 ${PRODUCT_NAME_MAX}자 이내입니다.`
-  if (form.basePrice === null || Number.isNaN(form.basePrice)) errors.basePrice = '기본가를 입력하세요.'
-  else if (!isNonNegativeInteger(form.basePrice)) errors.basePrice = '기본가는 0 이상의 정수여야 합니다.'
+  if (form.basePrice === null || Number.isNaN(form.basePrice)) errors.basePrice = '판매가를 입력하세요.'
+  else if (!isNonNegativeInteger(form.basePrice)) errors.basePrice = '판매가는 0 이상의 정수여야 합니다.'
 
   if (form.hasOptions) {
     if (form.optionGroups.length === 0) errors.optionGroups = '옵션 그룹을 1개 이상 추가하세요.'

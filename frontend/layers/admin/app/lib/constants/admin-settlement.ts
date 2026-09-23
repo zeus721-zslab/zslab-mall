@@ -1,4 +1,5 @@
 import type { AdminSemantic } from '#layers/admin/app/lib/constants/semantic'
+import { SETTLEMENT_ITEM_TYPE_LABELS, SETTLEMENT_STATUS_LABELS } from '~/lib/constants/settlement'
 
 /**
  * 관리자 정산 상수 단일 소스(Track 85 FE·CLAUDE.md 4층위 enum 잠금 (4)프론트). BE D-179 계약(SettlementStatus·SettlementItemType)과 1:1이며
@@ -8,11 +9,8 @@ import type { AdminSemantic } from '#layers/admin/app/lib/constants/semantic'
 /** BE SettlementStatus 3값(settlement.status ENUM·PENDING → CONFIRMED → PAID 직진). */
 export type AdminSettlementStatus = 'PENDING' | 'CONFIRMED' | 'PAID'
 
-export const ADMIN_SETTLEMENT_STATUS_LABEL: Record<AdminSettlementStatus, string> = {
-  PENDING: '대기',
-  CONFIRMED: '확정',
-  PAID: '지급완료',
-}
+/** 라벨 실체는 공용 단일 소스(app/lib/constants/settlement.ts·Track 102 FE-64). 관리자 코드의 기존 이름만 유지한다. */
+export const ADMIN_SETTLEMENT_STATUS_LABEL: Record<AdminSettlementStatus, string> = SETTLEMENT_STATUS_LABELS
 
 export const ADMIN_SETTLEMENT_STATUS_SEMANTIC: Record<AdminSettlementStatus, AdminSemantic> = {
   PENDING: 'warning',
@@ -28,8 +26,8 @@ export const ADMIN_SETTLEMENT_STATUS_OPTIONS: { value: AdminSettlementStatus; ti
 export type AdminSettlementItemType = 'SALE' | 'REFUND'
 
 export const ADMIN_SETTLEMENT_ITEM_TABS: { value: AdminSettlementItemType; label: string }[] = [
-  { value: 'SALE', label: '판매' },
-  { value: 'REFUND', label: '환불' },
+  { value: 'SALE', label: SETTLEMENT_ITEM_TYPE_LABELS.SALE },
+  { value: 'REFUND', label: SETTLEMENT_ITEM_TYPE_LABELS.REFUND },
 ]
 export const DEFAULT_ADMIN_SETTLEMENT_ITEM_TAB: AdminSettlementItemType = 'SALE'
 

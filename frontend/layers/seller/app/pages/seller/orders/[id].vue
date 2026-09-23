@@ -20,8 +20,8 @@ import { useSellerOrders } from '#layers/seller/app/composables/useSellerOrders'
 definePageMeta({ layout: 'seller', middleware: ['seller', 'seller-vuetify'] })
 useSeoMeta({ title: '주문 품목 상세 · zslab-mall 셀러' })
 
-// 셀러 품목 상세(Track 90-B-3·D-191). 품목 정보 + 배송지 스냅샷(마스킹 없음·출고 라벨용·수령인 정보만) + 원 발송 배송 상태. 구매자 계정 정보·주문 총액은
-// BE가 싣지 않는다. 출고(PAID)는 여기서도 가능하고 배송완료·송장 정정은 배송 화면으로 안내한다. 미존재·타 셀러·미결제(404)는 안내 + 목록 이동.
+// 셀러 품목 상세(Track 90-B-3·D-191). 품목 정보 + 배송지 스냅샷(마스킹 없음·발송 라벨용·수령인 정보만) + 원 발송 배송 상태. 구매자 계정 정보·주문 총액은
+// BE가 싣지 않는다. 발송(PAID)은 여기서도 가능하고 배송완료·송장 정정은 배송 화면으로 안내한다. 미존재·타 셀러·미결제(404)는 안내 + 목록 이동.
 // 클레임(Track 90-D-1): 최신 1건 칩(+건수) → 클레임 상세(조회 전용·back은 이 상세).
 const route = useRoute()
 const ordersApi = useSellerOrders()
@@ -70,7 +70,7 @@ function closeShipment(refresh: boolean): void {
     <SellerPageHeader title="주문 품목 상세" :description="detail ? `${detail.orderNo} · ${detail.productName}` : undefined">
       <template #actions>
         <v-btn variant="text" :prepend-icon="mdiArrowLeft" :to="backPath" data-testid="order-detail-back">목록</v-btn>
-        <v-btn v-if="shippable" color="primary" variant="flat" :prepend-icon="mdiTruckDeliveryOutline" data-testid="order-detail-prepare-shipment" @click="shipmentOpen = true">출고 처리</v-btn>
+        <v-btn v-if="shippable" color="primary" variant="flat" :prepend-icon="mdiTruckDeliveryOutline" data-testid="order-detail-prepare-shipment" @click="shipmentOpen = true">발송 처리</v-btn>
       </template>
     </SellerPageHeader>
 
@@ -173,7 +173,7 @@ function closeShipment(refresh: boolean): void {
           </template>
           <template v-else>
             <p class="text-body-2 text-medium-emphasis mb-0" data-testid="order-detail-no-delivery">
-              {{ shippable ? '아직 출고 전입니다. 택배사·송장번호를 입력해 출고 처리하면 배송이 시작됩니다.' : '등록된 배송이 없습니다.' }}
+              {{ shippable ? '아직 발송 전입니다. 택배사·송장번호를 입력해 발송 처리하면 배송이 시작됩니다.' : '등록된 배송이 없습니다.' }}
             </p>
           </template>
         </v-card-text>

@@ -6,8 +6,8 @@ import { formatCount } from '#layers/seller/app/lib/format'
 import { formatRate } from '~/lib/stats-view'
 
 /**
- * 셀러 결제 코호트 퍼널(Track 90-E-2·관리자 AdminOrderFunnel 복제·3단계). 결제 → 출고 → 배송완료를 가로 막대(폭 = 결제 대비 도달률)로 그리고
- * 단계별 건수·도달률·직전 대비 이탈률을 병기한다. 내 품목 단위라 혼합 주문의 부분 출고는 품목별로 보인다. 비율 계산은 lib 순수 함수(BE는 건수만).
+ * 셀러 결제 코호트 퍼널(Track 90-E-2·관리자 AdminOrderFunnel 복제·3단계). 결제 → 발송 → 배송완료를 가로 막대(폭 = 결제 대비 도달률)로 그리고
+ * 단계별 건수·도달률·직전 대비 이탈률을 병기한다. 내 품목 단위라 혼합 주문의 부분 발송은 품목별로 보인다. 비율 계산은 lib 순수 함수(BE는 건수만).
  */
 const props = defineProps<{
   funnel: SellerOrderFunnel | null

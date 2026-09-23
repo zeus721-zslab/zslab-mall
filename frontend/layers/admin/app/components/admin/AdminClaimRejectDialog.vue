@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { claimTypeLabel, CLAIM_REJECT_MEMO_MAX, type ClaimRejectReasonCode, type ClaimType } from '~/lib/constants/claim'
+import { rejectConfirmMessage } from '#layers/admin/app/lib/admin-claim-view'
 import { mapFieldErrors } from '#layers/admin/app/lib/admin-order-view'
 import { rejectReasonItems, validateRejectForm } from '#layers/admin/app/lib/admin-claim-view'
 import { extractErrorCode, toAdminErrorMessage } from '#layers/admin/app/lib/admin-error-message'
@@ -61,7 +62,7 @@ async function submit(): Promise<void> {
       reasonCode: reasonCode.value,
       memo: memo.value.trim() || undefined,
     })
-    toast.danger(`${claimTypeLabel(props.target.type)} 요청을 거절했습니다.`) // 거절은 부정적 의미
+    toast.danger(`${claimTypeLabel(props.target.type)} 요청을 거부했습니다.`) // 거부는 부정적 의미
     emit('done')
   } catch (error) {
     const code = extractErrorCode(error)
@@ -89,9 +90,7 @@ async function submit(): Promise<void> {
     <v-card data-testid="admin-claim-reject-dialog">
       <v-card-title class="text-subtitle-1 font-weight-bold pt-5 px-5">{{ title }}</v-card-title>
       <v-card-text class="px-5">
-        <p class="text-body-2 mb-3">
-          <span class="font-weight-medium">{{ lastTarget?.productName }}</span> 요청을 거절합니다. 품목은 요청 전 상태로 돌아가며 구매자에게 사유가 안내됩니다.
-        </p>
+        <p class="text-body-2 mb-3" style="white-space: pre-line" data-testid="reject-notice">{{ rejectConfirmMessage(lastTarget?.type ?? 'CANCEL', lastTarget?.productName ?? '') }}</p>
         <v-select
           :model-value="reasonCode"
           :items="reasonItems"
@@ -118,7 +117,7 @@ async function submit(): Promise<void> {
       <v-card-actions class="px-5 pb-4">
         <v-spacer />
         <v-btn variant="text" :disabled="submitting" data-testid="reject-dialog-close" @click="emit('cancel')">닫기</v-btn>
-        <v-btn color="error" variant="flat" :loading="submitting" :disabled="confirmDisabled" data-testid="reject-dialog-ok" @click="submit">
+        <v-btn variant="flat" class="op-risk-action" :loading="submitting" :disabled="confirmDisabled" data-testid="reject-dialog-ok" @click="submit">
           거부
         </v-btn>
       </v-card-actions>

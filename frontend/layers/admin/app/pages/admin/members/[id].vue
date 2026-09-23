@@ -15,6 +15,7 @@ import {
 } from '#layers/admin/app/lib/constants/admin-member'
 import { canResetPassword, gradeLabel, gradeSourceLabel, isWithdrawn, tabClaimType, withdrawSellerWarning } from '#layers/admin/app/lib/admin-member-view'
 import { ADMIN_MEMBERS_PATH, ADMIN_MEMBERS_WITHDRAWN_PATH, resolveBackPath } from '#layers/admin/app/lib/admin-back-path'
+import { memberWithdrawMessage, temporaryPasswordMessage } from '#layers/admin/app/lib/admin-risk-confirm'
 import { extractErrorCode, toAdminErrorMessage } from '#layers/admin/app/lib/admin-error-message'
 import { useAdminMembers } from '#layers/admin/app/composables/useAdminMembers'
 import { useAdminToast } from '#layers/admin/app/composables/useAdminToast'
@@ -216,7 +217,7 @@ function openOrder(row: AdminMemberActivityRow): void {
 
 <template>
   <div>
-    <AdminPageHeader title="회원 상세" :description="detail ? `${detail.name ?? '—'} · ${detail.email ?? '—'}` : undefined">
+    <AdminPageHeader title="회원 상세" :description="detail ? `${detail.name ?? '—'} · ${detail.email ?? '—'}` : undefined" guide="회원정보 수정·등급 변경·임시 비밀번호 발급·탈퇴 처리를 하고, 이 회원의 주문·클레임 이력을 봅니다.">
       <template #actions>
         <v-btn variant="text" :prepend-icon="mdiArrowLeft" :to="backPath" data-testid="member-back">목록</v-btn>
       </template>
@@ -331,9 +332,9 @@ function openOrder(row: AdminMemberActivityRow): void {
     <AdminConfirmDialog
       :open="activeDialog === 'withdraw'"
       title="회원 탈퇴 처리"
-      :message="`${detail?.name ?? '—'}(${detail?.email ?? '—'}) 회원을 탈퇴 처리합니다.\n진행 중인 주문이나 클레임이 있으면 처리되지 않으며, 탈퇴 후에는 복구할 수 없습니다.`"
+      :message="memberWithdrawMessage(detail?.name ?? '—', detail?.email ?? '—')"
       confirm-label="탈퇴 처리"
-      confirm-color="error"
+      risk
       :loading="actionBusy"
       :warning-lines="sellerWarning?.lines"
       :warning-emphasis="sellerWarning?.emphasis"
@@ -344,8 +345,9 @@ function openOrder(row: AdminMemberActivityRow): void {
     <AdminConfirmDialog
       :open="activeDialog === 'reset'"
       title="임시 비밀번호 발급"
-      :message="`새 임시 비밀번호를 발급해 화면에 1회 표시하고, 등록된 연락처(${detail?.phone ?? '—'})로 SMS도 발송합니다.\n기존 로그인 세션은 종료되며, 회원은 로그인 후 비밀번호를 변경해야 합니다.`"
+      :message="temporaryPasswordMessage(detail?.phone ?? '—')"
       confirm-label="발급"
+      risk
       :loading="actionBusy"
       test-id="member-reset-dialog"
       @confirm="runResetPassword"

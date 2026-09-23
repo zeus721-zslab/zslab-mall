@@ -29,7 +29,7 @@ test('관리자 · 취소 클레임 거부(사유 코드·메모)', async ({ pag
   await walkthrough.shot('거부-다이얼로그')
 
   await walkthrough.select(page.getByTestId('reject-reason'), '이미 발송됨')
-  await walkthrough.fill(page.getByTestId('reject-memo').locator('textarea').first(), '워크스루 거부 사유(이미 출고됨)')
+  await walkthrough.fill(page.getByTestId('reject-memo').locator('textarea').first(), '워크스루 거부 사유(이미 발송됨)')
   await walkthrough.shot('거부-사유-입력')
 
   await walkthrough.click(page.getByTestId('reject-dialog-ok'))

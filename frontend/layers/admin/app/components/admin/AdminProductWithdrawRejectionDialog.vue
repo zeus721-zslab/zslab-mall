@@ -8,7 +8,7 @@ import { useAdminToast } from '#layers/admin/app/composables/useAdminToast'
 
 /**
  * 상품 거부 철회 다이얼로그(Track 101-A·BE POST /withdraw-rejection·AdminSellerStatusDialog 패턴). 거부(REJECTED)를 되돌려
- * 판매대기(PENDING)로 보낸다. 사유는 필수이며 감사 로그에만 남는다(Product 컬럼 없음).
+ * 승인대기(PENDING)로 보낸다. 사유는 필수이며 감사 로그에만 남는다(Product 컬럼 없음).
  * 성공 시 done(전이 후 상태) → 부모가 행·상단 표시를 갱신한다. 422(REJECTED 아님)·404는 warning 후 stale(부모 재조회).
  */
 const props = defineProps<{
@@ -48,7 +48,7 @@ async function submit(): Promise<void> {
   submitting.value = true
   try {
     await productsApi.withdrawRejection(props.productPublicId, trimmed)
-    toast.info(`${lastName.value} 거부를 철회했습니다. 판매대기로 돌아갑니다.`) // 상태 복귀는 중립
+    toast.info(`${lastName.value} 거부를 철회했습니다. 승인대기로 돌아갑니다.`) // 상태 복귀는 중립
     emit('done')
   } catch (error) {
     const code = extractErrorCode(error)
@@ -79,13 +79,13 @@ async function submit(): Promise<void> {
           class="mb-4"
           data-testid="withdraw-rejection-message"
         >
-          <p class="text-body-2 mb-0">{{ lastName }}의 거부를 철회해 판매대기로 되돌립니다.</p>
+          <p class="text-body-2 mb-0">{{ lastName }}의 거부를 철회해 승인대기로 되돌립니다.</p>
           <p class="text-body-2 mb-0">철회 후에는 다시 승인하거나 거부할 수 있고, 셀러도 수정해 재요청할 수 있습니다.</p>
         </v-alert>
         <v-textarea
           v-model="reason"
           label="철회 사유 (필수)"
-          placeholder="예: 반려 기준 오적용 — 카테고리 확인 후 재심사"
+          placeholder="예: 거부 기준 오적용 — 카테고리 확인 후 재심사"
           rows="2"
           auto-grow
           :maxlength="ADMIN_PRODUCT_REASON_MAX"

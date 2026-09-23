@@ -37,6 +37,11 @@ export interface PendingTile {
   to: string | null
   /** 1건 이상일 때 톤. 재고 임박만 danger. */
   alertTone: 'warning' | 'danger'
+  /**
+   * 칸 아래 한 줄 설명(Track 102 FE-64·셀러 대시보드 hint와 같은 형태). "무엇을 센 건지 · 어디서 처리하는지"를 적고,
+   * 카운트 기준과 이동할 목록의 필터가 어긋나는 칸은 건수가 다를 수 있다는 사실까지 적는다(정찰 라운드 4: 근사 3칸).
+   */
+  hint: string
 }
 
 /**
@@ -47,14 +52,22 @@ export interface PendingTile {
  * 장기 배송중(Track 99 FE-61·D-210)은 배송 목록 status=SHIPPING(BE는 발송 후 3일 이상 건수·목록은 배송중 전체라 근사).
  */
 export const PENDING_TILES: PendingTile[] = [
-  { key: 'settlementPending', label: '정산 대기', to: `${ADMIN_SETTLEMENTS_PATH}?status=PENDING`, alertTone: 'warning' },
-  { key: 'claimRequested', label: '클레임 요청', to: `${ADMIN_CLAIMS_PATH}?status=REQUESTED`, alertTone: 'warning' },
-  { key: 'deliveryReady', label: '배송 대기', to: `${ADMIN_ORDERS_PATH}?status=PAID`, alertTone: 'warning' },
-  { key: 'lowStock', label: '재고 임박', to: `${ADMIN_PRODUCTS_PATH}?stockFilter=LOW`, alertTone: 'danger' },
-  { key: 'productPending', label: '상품 승인 대기', to: `${ADMIN_PRODUCTS_PATH}?status=PENDING`, alertTone: 'warning' },
-  { key: 'sellerPending', label: '셀러 승인 대기', to: `${ADMIN_SELLERS_PATH}?status=PENDING`, alertTone: 'warning' },
-  { key: 'claimFollowup', label: '클레임 처리 대기', to: `${ADMIN_CLAIMS_PATH}?action=FOLLOWUP`, alertTone: 'warning' },
-  { key: 'longShipping', label: '장기 배송중', to: `${ADMIN_DELIVERIES_PATH}?status=SHIPPING`, alertTone: 'warning' },
+  { key: 'settlementPending', label: '정산 대기', to: `${ADMIN_SETTLEMENTS_PATH}?status=PENDING`, alertTone: 'warning',
+    hint: '확정 대기 정산 · 정산 상세에서 확정' },
+  { key: 'claimRequested', label: '클레임 요청', to: `${ADMIN_CLAIMS_PATH}?status=REQUESTED`, alertTone: 'warning',
+    hint: '요청 상태 클레임 · 클레임 화면에서 승인·거부' },
+  { key: 'deliveryReady', label: '배송 대기', to: `${ADMIN_ORDERS_PATH}?status=PAID`, alertTone: 'warning',
+    hint: '결제완료 품목 · 주문 화면에서 발송 처리 (품목 수라 주문 목록 건수와 다를 수 있음)' },
+  { key: 'lowStock', label: '재고 임박', to: `${ADMIN_PRODUCTS_PATH}?stockFilter=LOW`, alertTone: 'danger',
+    hint: '가용 재고 1~5 옵션 · 상품 화면에서 확인 (옵션 수라 상품 목록 건수와 다를 수 있음)' },
+  { key: 'productPending', label: '상품 승인 대기', to: `${ADMIN_PRODUCTS_PATH}?status=PENDING`, alertTone: 'warning',
+    hint: '승인대기 상품 · 상품 화면에서 승인·거부' },
+  { key: 'sellerPending', label: '셀러 승인 대기', to: `${ADMIN_SELLERS_PATH}?status=PENDING`, alertTone: 'warning',
+    hint: '승인 대기 셀러 · 셀러 상세에서 활성으로 전이' },
+  { key: 'claimFollowup', label: '클레임 처리 대기', to: `${ADMIN_CLAIMS_PATH}?action=FOLLOWUP`, alertTone: 'warning',
+    hint: '승인 후 후속 처리가 남은 클레임 · 클레임 화면에서 회수 확인·검수·발송' },
+  { key: 'longShipping', label: '장기 배송중', to: `${ADMIN_DELIVERIES_PATH}?status=SHIPPING`, alertTone: 'warning',
+    hint: '발송 후 3일 이상 배송중 · 배송 화면에서 확인 (목록은 배송중 전체라 건수가 다를 수 있음)' },
 ]
 
 /** 0건은 회색(neutral), 1건 이상은 칸별 주의 톤. */

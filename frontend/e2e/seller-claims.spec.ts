@@ -81,8 +81,8 @@ test.describe('셀러 클레임 화면(90-D-1)', () => {
     await expect(page.getByTestId('row-attachment-count')).toHaveCount(1)
     await expect(page.getByTestId('row-attachment-count')).toContainText('첨부 2장')
     await expect(page.getByTestId('row-requested-at').nth(1)).toHaveText('2026.09.17 10:00')
-    // 조회 전용: 처리 UI(승인·거부·검수·출고) 부재 · 사이드바 클레임 활성
-    await expect(page.getByTestId('seller-claims').getByRole('button', { name: /승인|거부|거절|검수|출고/ })).toHaveCount(0)
+    // 조회 전용: 처리 UI(승인·거부·검수·발송) 부재 · 사이드바 클레임 활성
+    await expect(page.getByTestId('seller-claims').getByRole('button', { name: /승인|거부|검수|발송/ })).toHaveCount(0)
     await expect(page.getByTestId('seller-claims').locator('[data-testid="row-prepare-shipment"]')).toHaveCount(0)
     await expect(page.getByTestId('seller-sidebar').locator('.v-list-item--active')).toContainText('클레임')
     expect(captured.listQueries[0]?.get('page')).toBe('0')
@@ -104,7 +104,7 @@ test.describe('셀러 클레임 화면(90-D-1)', () => {
     await expect(page.getByTestId('claim-timeline-requested')).toContainText('요청 접수')
     await expect(page.getByTestId('claim-timeline-requested')).toContainText('2026.09.17 10:00')
     await expect(page.getByTestId('claim-timeline-processed')).toContainText('관리자 처리 대기')
-    await expect(page.getByTestId('seller-claim-detail').getByRole('button', { name: /승인|거부|거절|검수/ })).toHaveCount(0)
+    await expect(page.getByTestId('seller-claim-detail').getByRole('button', { name: /승인|거부|검수/ })).toHaveCount(0)
     await expect(page.getByTestId('claim-attachment')).toHaveCount(2)
     const thumb = page.getByTestId('claim-attachment-thumb')
     await expect(thumb).toHaveCount(1)

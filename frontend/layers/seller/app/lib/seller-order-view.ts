@@ -3,11 +3,11 @@ import { claimStatusLabel, claimTypeLabel } from '~/lib/constants/claim'
 import { SELLER_SHIPPABLE_ITEM_STATUSES, SELLER_TRACKING_NO_MAX } from '#layers/seller/app/lib/constants/seller-order'
 
 /**
- * 셀러 주문(품목) 화면 표시·검증 순수 함수(Track 90-B-3·관리자 admin-order-view 복제·vitest 대상). 출고 대상 판정은 BE 규칙
+ * 셀러 주문(품목) 화면 표시·검증 순수 함수(Track 90-B-3·관리자 admin-order-view 복제·vitest 대상). 발송 대상 판정은 BE 규칙
  * (OrderShippingService.prepareShipment·PAID만)과 1:1이며, 폼 검증은 BE Bean Validation과 같은 한도로 400을 예방한다(도메인 검증은 BE 422).
  */
 
-/** 출고(prepare-shipment) 가능 품목: PAID. PREPARING 이후는 이미 송장이 있다. */
+/** 발송(prepare-shipment) 가능 품목: PAID. PREPARING 이후는 이미 송장이 있다. */
 export function canPrepareShipment(item: Pick<SellerOrderItemSummary, 'itemStatus'>): boolean {
   return SELLER_SHIPPABLE_ITEM_STATUSES.includes(item.itemStatus)
 }
@@ -22,7 +22,7 @@ export interface ShipmentFormInput {
   trackingNo: string
 }
 
-/** 출고 폼 검증(필드 → 메시지). BE @NotBlank·@Size(100)과 동일 한도. */
+/** 발송 폼 검증(필드 → 메시지). BE @NotBlank·@Size(100)과 동일 한도. */
 export function validateShipmentForm(input: ShipmentFormInput): Record<string, string> {
   const errors: Record<string, string> = {}
   if (!input.carrier) errors.carrier = '택배사를 선택하세요.'

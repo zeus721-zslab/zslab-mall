@@ -1,4 +1,6 @@
 import type { AdminSemantic } from '#layers/admin/app/lib/constants/semantic'
+import { SELLER_MEMBER_ROLE_LABELS, SELLER_STATUS_LABELS } from '~/lib/constants/seller'
+import { reversalLine, reversibleBy } from '~/lib/utils/risk-confirm'
 
 /**
  * 관리자 셀러 관리 상수 단일 소스(FE-40·Track 89-D D-187·CLAUDE.md 4층위 enum 잠금 (4)프론트). BE SellerStatus·SellerTerminationBlockCode·
@@ -10,12 +12,8 @@ export type AdminSellerStatus = 'PENDING' | 'ACTIVE' | 'SUSPENDED' | 'TERMINATED
 
 export const ADMIN_SELLER_STATUSES: AdminSellerStatus[] = ['PENDING', 'ACTIVE', 'SUSPENDED', 'TERMINATED']
 
-export const ADMIN_SELLER_STATUS_LABEL: Record<AdminSellerStatus, string> = {
-  PENDING: '승인 대기',
-  ACTIVE: '활성',
-  SUSPENDED: '정지',
-  TERMINATED: '종료',
-}
+/** 라벨 실체는 공용 단일 소스(app/lib/constants/seller.ts·Track 102 FE-64). 관리자 코드의 기존 이름만 유지한다. */
+export const ADMIN_SELLER_STATUS_LABEL: Record<AdminSellerStatus, string> = SELLER_STATUS_LABELS
 
 /** 배지 톤(admin-vuetify.css .adm-chip--*): 활성 녹색 / 승인 대기 노랑(warning) / 정지 주황·적색(danger·구매 차단 의미) / 종료 회색(neutral). */
 export type AdminSellerStatusTone = AdminSemantic | 'neutral'
@@ -93,9 +91,6 @@ export const SELLER_COMMISSION_RATE_CHANGE_WARNING = [
   '셀러 개별 수수료율은 카테고리 수수료율보다 우선 적용됩니다(미설정이면 카테고리율 → 플랫폼 기본율).',
 ] as const
 
-/** 종료(TERMINATED) 불가역 안내 — 확인 다이얼로그 본문에 반드시 포함한다. */
-export const SELLER_TERMINATE_IRREVERSIBLE_NOTICE = '종료 후에는 어떤 상태로도 되돌릴 수 없습니다.'
-
 // ---------- 정산계좌(FE-41·Track 89-F D-188) ----------
 
 /** BE SellerBankAccountStatus 3값(seller_bank_account.status ENUM). 관리자 등록은 항상 VERIFIED(실명인증 연동은 이월). */
@@ -144,11 +139,7 @@ export type AdminSellerMemberRole = 'SELLER_OWNER' | 'SELLER_MANAGER' | 'SELLER_
 
 export const ADMIN_SELLER_MEMBER_ROLES: AdminSellerMemberRole[] = ['SELLER_OWNER', 'SELLER_MANAGER', 'SELLER_STAFF']
 
-export const ADMIN_SELLER_MEMBER_ROLE_LABEL: Record<AdminSellerMemberRole, string> = {
-  SELLER_OWNER: '대표',
-  SELLER_MANAGER: '매니저',
-  SELLER_STAFF: '담당자',
-}
+export const ADMIN_SELLER_MEMBER_ROLE_LABEL: Record<AdminSellerMemberRole, string> = SELLER_MEMBER_ROLE_LABELS
 
 /** 역할 배지 톤: 대표 info(정산 SMS 대체 수신처·가드 대상) / 매니저·담당자 neutral. */
 export const ADMIN_SELLER_MEMBER_ROLE_TONE: Record<AdminSellerMemberRole, AdminSellerStatusTone> = {
@@ -185,7 +176,9 @@ export const SELLER_MEMBER_NEW_USER_NOTICE = [
 /** 구성원 제거 확인 안내(D-189 §1-A 1: 리졸버 매 요청 조회 → 즉시 차단·BUYER 세션·계정 유지). */
 export const SELLER_MEMBER_REMOVE_NOTICE = [
   '제거 즉시 이 계정의 셀러 로그인과 셀러 기능 접근이 차단됩니다(이미 로그인한 세션도 다음 요청부터 차단).',
-  '일반 회원(구매자) 계정·주문 이력은 그대로 유지되며, 필요하면 다시 구성원으로 추가할 수 있습니다.',
+  '일반 회원(구매자) 계정·주문 이력은 그대로 유지됩니다.',
+  // 가역성 줄은 위험 조작 확인 문구 규약과 같은 문장으로 맨 끝에 둔다(Track 102 FE-64).
+  reversalLine(reversibleBy('같은 회원을 구성원으로 다시 추가할 수 있습니다')),
 ] as const
 
 /** 마지막 활성 대표 제거·강등 불가 툴팁(BE 409 SELLER_LAST_OWNER와 같은 판정·D-189 §1-A 2). */

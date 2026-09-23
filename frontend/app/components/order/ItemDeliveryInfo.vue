@@ -13,7 +13,7 @@ const props = defineProps<{
   itemStatusCode: string
 }>()
 
-/** 발송 전 품목 상태(BE OrderItemStatus PAID·PREPARING). 송장 등록이 PAID→SHIPPING을 1TX로 전이하므로 이 둘이 곧 "발송 준비 중"이다. */
+/** 발송 전 품목 상태(BE OrderItemStatus PAID·PREPARING). 발송 처리가 PAID→SHIPPING을 1TX로 전이하므로 이 둘이 곧 "발송 준비 중"이다. */
 const PRE_SHIPMENT_STATUSES: readonly string[] = ['PAID', 'PREPARING']
 
 const showPreparing = computed<boolean>(() => !props.delivery && PRE_SHIPMENT_STATUSES.includes(props.itemStatusCode))

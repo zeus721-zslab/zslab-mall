@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {
+  CLAIM_CANCEL_WARNING,
   CLAIM_INSPECTION_RESULT_LABELS,
   CLAIM_REASON_LABELS,
   REFUND_TIMING_NOTICE,
@@ -174,11 +175,9 @@ useSeoMeta({ title: '클레임 상세 · zslab-mall', description: 'zslab-mall �
           </template>
           <div v-else class="rounded-card border border-line bg-gray-50 p-4" data-testid="claim-cancel-panel">
             <p class="text-sm font-medium text-ink">{{ claimTypeLabel(data.claimType) }} 요청을 취소할까요?</p>
-            <p class="mt-1 text-sm text-soldout" data-testid="claim-cancel-warning">
-              취소하면 이 요청은 종료되며 되돌릴 수 없습니다. 다시 필요하면 주문 내역에서 새로 신청해야 합니다.
-            </p>
+            <p class="mt-1 text-sm text-soldout" style="white-space: pre-line" data-testid="claim-cancel-warning">{{ CLAIM_CANCEL_WARNING }}</p>
             <div class="mt-3 flex gap-2">
-              <Button size="sm" :disabled="cancelSubmitting" data-testid="claim-cancel-submit" @click="submitCancel">
+              <Button variant="destructive" size="sm" :disabled="cancelSubmitting" data-testid="claim-cancel-submit" @click="submitCancel">
                 {{ cancelSubmitting ? '취소 중…' : '요청 취소' }}
               </Button>
               <Button variant="outline" size="sm" :disabled="cancelSubmitting" data-testid="claim-cancel-dismiss" @click="cancelConfirmOpen = false">

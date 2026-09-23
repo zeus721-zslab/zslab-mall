@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { mdiLogout, mdiMenu } from '@mdi/js'
+import { mdiHelpCircleOutline, mdiLogout, mdiMenu } from '@mdi/js'
 import { ADMIN_LOGIN_PATH } from '#layers/admin/app/lib/constants/auth'
 import { ADMIN_MENU, resolveActiveMenuPath } from '#layers/admin/app/lib/constants/admin-menu'
 import { useAdminAuthStore } from '#layers/admin/app/stores/adminAuth'
@@ -62,6 +62,7 @@ async function handleLogout(): Promise<void> {
         <v-list min-width="220" data-testid="admin-account-menu-content">
           <v-list-item v-if="displayName" :title="displayName" :subtitle="displayEmail || undefined" data-testid="admin-display-name" />
           <v-divider v-if="displayName" class="my-1" />
+          <v-list-item :prepend-icon="mdiHelpCircleOutline" title="도움말" to="/admin/help" data-testid="admin-help-link" />
           <v-list-item :prepend-icon="mdiLogout" title="로그아웃" data-testid="admin-logout" @click="handleLogout" />
         </v-list>
       </v-menu>

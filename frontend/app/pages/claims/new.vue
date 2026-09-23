@@ -76,7 +76,7 @@ const exchangeOptions = computed<ExchangeOptionCandidate[]>(() =>
     : [],
 )
 const exchangeVariantId = ref<string>('')
-// 상품 판매중지·후보 0건이면 신청 자체가 불가(BE도 422). 조회 중·실패는 제출을 막고 안내만 한다.
+// 상품 판매중지·후보 0건이면 요청 자체가 불가(BE도 422). 조회 중·실패는 제출을 막고 안내만 한다.
 const exchangeBlocked = computed<boolean>(() =>
   isExchange && (optionsPending.value || optionsStatus.value === 'error' || (productDetail.value?.saleStopped ?? false) || exchangeOptions.value.length === 0),
 )
@@ -202,7 +202,7 @@ useSeoMeta({ title: '클레임 요청 · zslab-mall', description: 'zslab-mall �
             <p class="text-right text-xs text-sub">{{ reasonDetail.length }}/{{ REASON_DETAIL_MAX }}</p>
           </div>
 
-          <!-- 교환 옵션 선택(FE-30-1): 같은 가격·판매 중 옵션만 후보. 0건이면 신청 불가 안내. -->
+          <!-- 교환 옵션 선택(FE-30-1): 같은 가격·판매 중 옵션만 후보. 0건이면 요청 불가 안내. -->
           <fieldset v-if="isExchange" class="space-y-1.5" data-testid="exchange-options">
             <legend class="block text-sm font-medium text-ink">교환할 옵션</legend>
             <p v-if="optionsPending" class="text-sm text-sub" data-testid="exchange-options-loading">교환 가능한 옵션을 불러오는 중…</p>

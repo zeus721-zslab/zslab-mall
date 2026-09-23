@@ -111,7 +111,7 @@ function onEditDone(): void {
 
 <template>
   <div>
-    <AdminPageHeader title="셀러 상세" :description="detail ? `${detail.companyName} · ${detail.ceoName}` : undefined">
+    <AdminPageHeader title="셀러 상세" :description="detail ? `${detail.companyName} · ${detail.ceoName}` : undefined" guide="상태 전이(승인·정지·종료)와 정보·수수료율 수정, 정산계좌·구성원 관리를 합니다.">
       <template #actions>
         <v-btn variant="text" :prepend-icon="mdiArrowLeft" :to="backPath" data-testid="seller-back">목록</v-btn>
       </template>

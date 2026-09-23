@@ -25,8 +25,8 @@ export interface ClaimTimelineStep {
 }
 
 /**
- * 클레임 상태 → 타임라인 3단계(요청 → 승인/거절 → 완료). BE 상태기계(REQUESTED → APPROVED → COMPLETED / REQUESTED·검수 FAIL → REJECTED)를 그대로
- * 표시만 한다. processedAt은 승인·거절 시각이며 완료 전이(markCompleted)가 덮어쓰므로 COMPLETED에서는 완료 시각으로 쓴다. REJECTED는 종결이라 완료 단계가 없다.
+ * 클레임 상태 → 타임라인 3단계(요청 → 승인/거부 → 완료). BE 상태기계(REQUESTED → APPROVED → COMPLETED / REQUESTED·검수 FAIL → REJECTED)를 그대로
+ * 표시만 한다. processedAt은 승인·거부 시각이며 완료 전이(markCompleted)가 덮어쓰므로 COMPLETED에서는 완료 시각으로 쓴다. REJECTED는 종결이라 완료 단계가 없다.
  */
 export function claimTimeline(claim: Pick<SellerClaimSummary, 'status' | 'requestedAt' | 'processedAt'>): ClaimTimelineStep[] {
   const requested: ClaimTimelineStep = { key: 'requested', label: '요청 접수', at: claim.requestedAt, state: 'done' }
@@ -37,7 +37,7 @@ export function claimTimeline(claim: Pick<SellerClaimSummary, 'status' | 'reques
     case 'APPROVED':
       return [requested, { key: 'processed', label: '승인', at: processedAt, state: 'done' }, { key: 'completed', label: '처리 진행 중', at: null, state: 'current' }]
     case 'REJECTED':
-      return [requested, { key: 'processed', label: '거절', at: processedAt, state: 'done' }]
+      return [requested, { key: 'processed', label: '거부', at: processedAt, state: 'done' }]
     case 'COMPLETED':
       return [requested, { key: 'processed', label: '승인', at: null, state: 'done' }, { key: 'completed', label: '완료', at: processedAt, state: 'done' }]
   }

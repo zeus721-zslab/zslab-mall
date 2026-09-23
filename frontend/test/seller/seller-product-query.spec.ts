@@ -28,7 +28,7 @@ describe('parseSellerProductQuery', () => {
     expect(parseSellerProductQuery({ status: ['STOPPED', 'SALE'] }).status).toBe('STOPPED')
   })
 
-  it('상태 옵션 4종(판매중·승인대기·판매중지·반려) · 정렬 옵션 4종(BE SellerProductSort 1:1)', () => {
+  it('상태 옵션 4종(판매중·승인대기·판매중지·거부됨) · 정렬 옵션 4종(BE SellerProductSort 1:1)', () => {
     expect(SELLER_PRODUCT_STATUS_OPTIONS.map((option) => option.value)).toEqual(['SALE', 'PENDING', 'STOPPED', 'REJECTED'])
     expect(SELLER_PRODUCT_SORT_OPTIONS.map((option) => option.value)).toEqual(['LATEST', 'NAME', 'PRICE_ASC', 'PRICE_DESC'])
   })

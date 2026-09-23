@@ -11,7 +11,7 @@ import { canMarkDelivered, canPrepareShipment, itemLabel, validateShipmentForm }
 import { SELLER_ORDER_ITEM_STATUS_CODES } from '#layers/seller/app/lib/constants/seller-order'
 import { resolveBackPath, SELLER_DASHBOARD_PATH, SELLER_DELIVERIES_PATH, SELLER_ORDERS_PATH } from '#layers/seller/app/lib/seller-back-path'
 
-// Track 90-B-3(D-191): 품목 목록 URL query ↔ 화면 상태 ↔ BE 파라미터(status·paid_at 기간·keyword·page·size — sort 없음) + 출고 판정·폼 검증 + 복귀 경로.
+// Track 90-B-3(D-191): 품목 목록 URL query ↔ 화면 상태 ↔ BE 파라미터(status·paid_at 기간·keyword·page·size — sort 없음) + 발송 판정·폼 검증 + 복귀 경로.
 describe('parseSellerOrderQuery', () => {
   it('빈 query → 기본 상태(page 0·size 20·필터 없음)', () => {
     expect(parseSellerOrderQuery({})).toEqual(DEFAULT_SELLER_ORDER_QUERY)
@@ -53,7 +53,7 @@ describe('toSellerOrderRouteQuery · toSellerOrderApiParams', () => {
 })
 
 describe('seller-order-view', () => {
-  it('출고 대상은 PAID만 · 배송완료 대상은 원 발송 SHIPPING', () => {
+  it('발송 대상은 PAID만 · 배송완료 대상은 원 발송 SHIPPING', () => {
     expect(canPrepareShipment({ itemStatus: 'PAID' })).toBe(true)
     expect(canPrepareShipment({ itemStatus: 'PREPARING' })).toBe(false)
     expect(canPrepareShipment({ itemStatus: 'CANCEL_REQUESTED' })).toBe(false)

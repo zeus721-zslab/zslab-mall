@@ -14,7 +14,7 @@ import { useAdminOrders } from '#layers/admin/app/composables/useAdminOrders'
 import { useAdminToast } from '#layers/admin/app/composables/useAdminToast'
 
 /**
- * 송장 등록 다이얼로그(FE-27). 대상 품목(PAID·1개면 자동 선택) + 택배사(4값) + 송장번호(≤100). 성공 시 info 토스트(상태 전환은 중립)
+ * 발송 처리(송장 등록) 다이얼로그(FE-27). 대상 품목(PAID·1개면 자동 선택) + 택배사(4값) + 송장번호(≤100). 성공 시 info 토스트(상태 전환은 중립)
  * 후 done, 422(품목 상태 경합·활성 클레임)는 warning 토스트 후 stale, 400은 fieldErrors 표시.
  */
 const props = defineProps<{
@@ -33,7 +33,7 @@ const itemOptions = computed(() => candidates.value.map((item) => ({
 })))
 
 /**
- * 직전 출고 택배사 기억(Track 99 FE-61). 대개 같은 택배사로 계속 출고하므로 마지막으로 성공한 택배사를 다음 출고의 기본 선택으로 둔다.
+ * 직전 발송 택배사 기억(Track 99 FE-61). 대개 같은 택배사로 계속 발송하므로 마지막으로 성공한 택배사를 다음 발송의 기본 선택으로 둔다.
  * 쿠키 path=/admin라 다른 역할 화면에는 실리지 않고, 값 해석은 parseLastCarrier가 담당한다(값 집합 밖이면 기본 선택 없음 = 현행).
  */
 const lastCarrier = useCookie<string | null>('admin_last_carrier', {
@@ -80,7 +80,7 @@ async function submit(): Promise<void> {
       const mapped = mapFieldErrors(error)
       errors.value = Object.keys(mapped).length > 0 ? mapped : { trackingNo: toAdminErrorMessage(error) }
     } else if (code === 'DELIVERY_INVALID_STATE' || code === 'ORDER_NOT_FOUND' || code === 'CLAIM_STATE_INVALID') {
-      // CLAIM_STATE_INVALID(FE-28·Track 80 C2): 취소 요청 진행 중 품목은 송장 등록이 막힌다 → 안내 후 상세를 다시 읽는다.
+      // CLAIM_STATE_INVALID(FE-28·Track 80 C2): 취소 요청 진행 중 품목은 발송 처리가 막힌다 → 안내 후 상세를 다시 읽는다.
       toast.warning(toAdminErrorMessage(error))
       emit('stale')
     } else {
@@ -95,7 +95,7 @@ async function submit(): Promise<void> {
 <template>
   <v-dialog :model-value="open" max-width="480" :persistent="submitting" @update:model-value="(value: boolean) => !value && emit('cancel')">
     <v-card data-testid="admin-shipment-dialog">
-      <v-card-title class="text-subtitle-1 font-weight-bold pt-5 px-5">송장 등록</v-card-title>
+      <v-card-title class="text-subtitle-1 font-weight-bold pt-5 px-5">발송 처리</v-card-title>
       <v-card-text class="px-5">
         <p v-if="candidates.length === 0" class="text-body-2 text-medium-emphasis mb-3" data-testid="shipment-empty">
           송장을 등록할 수 있는 품목(결제완료)이 없습니다.

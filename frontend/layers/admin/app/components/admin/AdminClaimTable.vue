@@ -15,7 +15,7 @@ import {
   ADMIN_ORDER_PAGE_SIZES,
 } from '#layers/admin/app/lib/constants/admin-order'
 import { formatWon } from '#layers/admin/app/lib/format'
-import { inspectionChip, pickupWaitingLabel, refundStatusChip } from '#layers/admin/app/lib/admin-claim-view'
+import { inspectionChip, pickupWaitingLabel, refundStatusChip, rowActionAbsenceReason } from '#layers/admin/app/lib/admin-claim-view'
 import { semanticChipClass } from '#layers/admin/app/lib/constants/semantic'
 import { ADMIN_CLAIM_ACTION_LABEL } from '#layers/admin/app/lib/constants/admin-claim'
 
@@ -180,8 +180,8 @@ function returnCaption(item: AdminClaimSummary): string {
         <v-btn
           v-if="item.availableActions.includes('APPROVE')"
           size="x-small"
-          color="primary"
           variant="flat"
+          class="op-risk-action"
           :disabled="isPending(item)"
           data-testid="row-approve"
           @click="emit('approve', item)"
@@ -189,8 +189,8 @@ function returnCaption(item: AdminClaimSummary): string {
         <v-btn
           v-if="item.availableActions.includes('REJECT')"
           size="x-small"
-          color="error"
-          variant="outlined"
+          variant="flat"
+          class="op-risk-action"
           :disabled="isPending(item)"
           data-testid="row-reject"
           @click="emit('reject', item)"
@@ -198,8 +198,8 @@ function returnCaption(item: AdminClaimSummary): string {
         <v-btn
           v-if="item.availableActions.includes('CONFIRM_PICKUP')"
           size="x-small"
-          color="secondary"
           variant="flat"
+          class="op-risk-action"
           :disabled="isPending(item)"
           data-testid="row-confirm-pickup"
           @click="emit('confirmPickup', item)"
@@ -208,8 +208,8 @@ function returnCaption(item: AdminClaimSummary): string {
         <v-btn
           v-if="item.availableActions.includes('INSPECT') || item.availableActions.includes('CONFIRM_PICKUP')"
           size="x-small"
-          color="primary"
-          :variant="item.availableActions.includes('INSPECT') ? 'flat' : 'outlined'"
+          variant="flat"
+          class="op-risk-action"
           :disabled="isPending(item)"
           data-testid="row-inspect"
           @click="emit('inspect', item)"
@@ -226,8 +226,8 @@ function returnCaption(item: AdminClaimSummary): string {
         <v-btn
           v-if="item.availableActions.includes('MARK_EXCHANGE_DELIVERED')"
           size="x-small"
-          color="secondary"
           variant="flat"
+          class="op-risk-action"
           :disabled="isPending(item)"
           data-testid="row-mark-exchange-delivered"
           @click="emit('markExchangeDelivered', item)"
@@ -235,8 +235,8 @@ function returnCaption(item: AdminClaimSummary): string {
         <v-btn
           v-if="item.availableActions.includes('INITIATE_REFUND')"
           size="x-small"
-          color="primary"
-          variant="outlined"
+          variant="flat"
+          class="op-risk-action"
           :disabled="isPending(item)"
           data-testid="row-initiate-refund"
           @click="emit('initiateRefund', item)"
@@ -256,10 +256,12 @@ function returnCaption(item: AdminClaimSummary): string {
             @click="emit('registerReturnShipment', item)"
           >회수 송장 대행 등록</v-btn>
         </template>
+        <!-- Track 102 FE-64: 액션이 없는 행은 이유를 적는다(종결 2종). 이유를 못 찾으면 기존 "—". -->
         <span
           v-else-if="item.availableActions.length === 0"
           class="text-caption text-medium-emphasis"
-        >—</span>
+          data-testid="row-no-action-reason"
+        >{{ rowActionAbsenceReason(item) ?? '—' }}</span>
       </div>
     </template>
 

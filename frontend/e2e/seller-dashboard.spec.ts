@@ -68,7 +68,7 @@ test.describe('셀러 대시보드(90-B-3)', () => {
     await page.goto('/seller')
 
     await expect(page.getByTestId('seller-company-name')).toHaveText('E2E 셀러샵')
-    await expect(page.getByTestId('seller-status-chip')).toHaveText('정상')
+    await expect(page.getByTestId('seller-status-chip')).toHaveText('활성')
     await expect(page.getByTestId('seller-suspended-notice')).toHaveCount(0)
 
     // 요약 4: 값 + 캡션(품목 축·주문 건수 의미)
@@ -87,7 +87,7 @@ test.describe('셀러 대시보드(90-B-3)', () => {
     await expect(page.getByTestId('dashboard-pending-claimRequested')).toHaveAttribute('href', '/seller/claims?status=REQUESTED')
     await expect(page.getByTestId('dashboard-pending-lowStock')).toHaveAttribute('href', '/seller/products/inventory')
     await expect(page.getByTestId('dashboard-pending-settlementPending')).toHaveAttribute('href', '/seller/settlements')
-    await expect(page.getByTestId('dashboard-pending-settlementPending')).toContainText('확정 전 정산 건수')
+    await expect(page.getByTestId('dashboard-pending-settlementPending')).toContainText('확정 대기 정산 건수')
     await expect(page.getByTestId('dashboard-pending-longShipping')).toHaveAttribute('href', '/seller/deliveries?status=SHIPPING')
     await expect(pending).not.toContainText('준비 중')
 

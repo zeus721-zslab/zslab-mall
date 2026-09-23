@@ -1,3 +1,5 @@
+import { IRREVERSIBLE, riskConfirmMessage } from '~/lib/utils/risk-confirm'
+
 /**
  * 주문 상태 라벨 단일 소스(FE-12a·FE-12c·BE OrderStatus enum 9값 대응·CLAUDE.md 4층위 enum 잠금 (4)프론트).
  * BE는 StatusView.label=code(한글 미제공)로 내려주므로 code→한글 매핑은 FE가 담당한다. 유니온 타입으로 매직 문자열을 막는다.
@@ -42,6 +44,15 @@ export function orderStatusLabel(code: string): string {
  */
 export const AUTO_CONFIRM_DAYS = 7
 export const PAYMENT_EXPIRE_MINUTES = 30
+
+/**
+ * 구매확정 확인 패널 경고(Track 102 FE-64 위험 조작 문구 규약 — 무엇이 일어나는지 + 가역성).
+ * 구매확정은 되돌릴 수 없고, 되돌리고 싶어도 반품·교환 요청 경로가 닫힌다.
+ */
+export const ITEM_CONFIRM_WARNING = riskConfirmMessage(
+  '확정하면 이 품목의 반품·교환을 더 이상 요청할 수 없습니다.',
+  IRREVERSIBLE,
+)
 
 /** 배송완료 품목 아래 안내(구매확정 버튼 옆). */
 export const AUTO_CONFIRM_GUIDE = `배송완료 ${AUTO_CONFIRM_DAYS}일 후 자동 구매확정됩니다.`

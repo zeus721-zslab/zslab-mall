@@ -6,7 +6,7 @@ import { mockSellerMe, pickOption } from './helpers/seller-mock'
  * 셀러 상품 목록 화면(Track 90-C-3·90-C-1 API) E2E. 로그인은 loginAs(SELLER·BE 로그인 API·데모 경유 없음), 상품 목록·카테고리는 page.route mock.
  * /seller/**는 CSR 전용(ssr:false)이라 page.goto로도 mock을 거친다(기존 셀러 spec 동형). ① 목록 로드(칩·가격·등록일·수정 비활성) → 상태 필터(URL·API) →
  * 카테고리 필터 → 페이지 이동(page=1·API page) → 초기화 ② 빈 상태(필터 없음/있음 문구 분기) → 사이드바 활성
- * ③ 판매중지·재판매 셀프 전환(Track 96-5·D-206): 행 메뉴 → 확인 다이얼로그 → POST sale-status(mock 상태 갱신) → 재조회 반영 → 관리자 중지 행은 재판매 비활성.
+ * ③ 판매중지·재판매 셀프 전환(Track 96-5·D-206): 행 메뉴 → 확인 다이얼로그 → POST sale-status(mock 상태 갱신) → 재조회 반영 → 관리자 판매중지 행은 재판매 비활성.
  */
 const PRODUCTS = Array.from({ length: 21 }, (_, index) => ({
   productPublicId: `prd_E2E${String(index + 1).padStart(23, '0')}`,
@@ -14,7 +14,7 @@ const PRODUCTS = Array.from({ length: 21 }, (_, index) => ({
   categoryId: index % 2 === 0 ? 11 : 12,
   categoryName: index % 2 === 0 ? '주방' : '생활',
   status: index === 0 ? 'SALE' : index === 1 ? 'PENDING' : 'STOPPED',
-  // D-206: STOPPED 행은 주체를 가진다 — index 2는 셀러 중지(재판매 가능), 나머지는 관리자 중지(재판매 비활성).
+  // D-206: STOPPED 행은 주체를 가진다 — index 2는 셀러 판매중지(재판매 가능), 나머지는 관리자 판매중지(재판매 비활성).
   saleStopSource: index === 0 || index === 1 ? undefined : index === 2 ? 'SELLER' : 'ADMIN',
   basePrice: 32000 + index * 1000,
   thumbnailUrl: index === 0 ? '/api/v1/files/products/e2e/thumb.jpg' : undefined,
@@ -121,7 +121,7 @@ test.describe('셀러 상품 목록 화면(90-C-3)', () => {
     await expect(sidebar.locator('.v-list-item--disabled')).toHaveCount(0)
   })
 
-  test('③ 판매중지·재판매(96-5): SALE 행 메뉴 → 판매중지 확인 → POST STOPPED → 칩·셀러 판매중지 라벨 → 재판매 → POST SALE · 관리자 중지 행은 재판매 비활성 · PENDING 행 메뉴 없음', async ({ page }) => {
+  test('③ 판매중지·재판매(96-5): SALE 행 메뉴 → 판매중지 확인 → POST STOPPED → 칩·셀러 판매중지 라벨 → 재판매 → POST SALE · 관리자 판매중지 행은 재판매 비활성 · PENDING 행 메뉴 없음', async ({ page }) => {
     const items = PRODUCTS.map((item) => ({ ...item }))
     const captured = await mockSellerProducts(page, items)
     await loginAs(page, 'SELLER')
@@ -155,7 +155,7 @@ test.describe('셀러 상품 목록 화면(90-C-3)', () => {
     expect(captured.saleStatusBodies.at(-1)).toEqual({ productPublicId: PRODUCTS[0]!.productPublicId, status: 'SALE' })
     await expect(page.getByTestId('status-chip').first()).toHaveText('판매중')
 
-    // 관리자 중지 행(4행·index 3): 재판매 비활성 + 문의 안내
+    // 관리자 판매중지 행(4행·index 3): 재판매 비활성 + 문의 안내
     await page.getByTestId('row-menu').nth(2).click()
     const blocked = page.getByTestId('row-sale-action')
     await expect(blocked).toHaveClass(/v-list-item--disabled/)

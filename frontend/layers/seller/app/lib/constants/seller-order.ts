@@ -55,7 +55,7 @@ export const SELLER_DELIVERY_STATUS_OPTIONS: { value: SellerDeliveryStatus; titl
   ['READY', 'SHIPPING', 'DELIVERED'] as SellerDeliveryStatus[]
 ).map((value) => ({ value, title: SELLER_DELIVERY_STATUS_LABEL[value] }))
 
-/** BE DeliveryCarrier 4값(delivery.carrier ENUM). 출고·송장 정정 select의 유일한 출처. */
+/** BE DeliveryCarrier 4값(delivery.carrier ENUM). 발송·송장 정정 select의 유일한 출처. */
 export type SellerDeliveryCarrier = 'CJ' | 'HANJIN' | 'POST' | 'LOGEN'
 
 export const SELLER_DELIVERY_CARRIER_LABEL: Record<SellerDeliveryCarrier, string> = {
@@ -69,7 +69,7 @@ export const SELLER_DELIVERY_CARRIER_OPTIONS: { value: SellerDeliveryCarrier; ti
   ['CJ', 'HANJIN', 'POST', 'LOGEN'] as SellerDeliveryCarrier[]
 ).map((value) => ({ value, title: SELLER_DELIVERY_CARRIER_LABEL[value] }))
 
-/** 출고(prepare-shipment)가 허용되는 품목 상태(BE OrderShippingService·PAID만). */
+/** 발송(prepare-shipment)이 허용되는 품목 상태(BE OrderShippingService·PAID만). */
 export const SELLER_SHIPPABLE_ITEM_STATUSES: readonly OrderItemStatusCode[] = ['PAID']
 
 /** 페이지 크기 옵션(BE size 1~100 클램프·관리자와 동일 3단). */

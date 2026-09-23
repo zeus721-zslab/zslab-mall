@@ -14,8 +14,8 @@ const ADMIN_ERROR_MESSAGES: Record<string, string> = {
   ORDER_NOT_FOUND: '주문 또는 주문 품목을 찾을 수 없습니다.',
   CLAIM_NOT_FOUND: '클레임을 찾을 수 없습니다.',
   DELIVERY_NOT_FOUND: '배송 정보를 찾을 수 없습니다.',
-  CLAIM_STATE_INVALID: '현재 상태에서 처리할 수 없는 클레임입니다(취소 불가 품목·진행 중 클레임 중복·클레임 진행 중 품목의 송장 등록 등).',
-  DELIVERY_INVALID_STATE: '현재 배송 상태에서 허용되지 않는 처리입니다(송장 등록은 결제완료 품목, 배송완료·송장 수정은 배송중만).',
+  CLAIM_STATE_INVALID: '현재 상태에서 처리할 수 없는 클레임입니다(취소 불가 품목·진행 중 클레임 중복·클레임 진행 중 품목의 발송 처리 등).',
+  DELIVERY_INVALID_STATE: '현재 배송 상태에서 허용되지 않는 처리입니다(발송 처리는 결제완료 품목, 배송완료·송장 수정은 배송중만).',
   // FE-37 관리자 배송 관리(Track 89-B)
   DELIVERY_TRACKING_NO_CONFLICT: '다른 배송이 이미 사용 중인 송장번호입니다.',
   ORDER_ITEM_INVALID_STATE: '현재 품목 상태에서 허용되지 않는 처리입니다.',
@@ -54,7 +54,7 @@ const ADMIN_ERROR_MESSAGES: Record<string, string> = {
   SETTLEMENT_NOT_FOUND: '정산을 찾을 수 없습니다.',
   SETTLEMENT_PERIOD_INVALID: '정산 기간이 올바르지 않습니다. 연·월 범위를 확인하고, 아직 마감되지 않은 월은 생성할 수 없습니다.',
   SETTLEMENT_ALREADY_EXISTS: '같은 기간의 정산이 이미 생성되고 있습니다. 잠시 후 목록을 새로고침하세요.',
-  SETTLEMENT_INVALID_STATE: '현재 정산 상태에서 허용되지 않는 처리입니다(정상처리·재생성은 대기, 지급완료는 확정 상태만).',
+  SETTLEMENT_INVALID_STATE: '현재 정산 상태에서 허용되지 않는 처리입니다(확정·재생성은 확정 대기, 지급완료는 확정 상태만).',
   SETTLEMENT_NET_NEGATIVE: '지급액이 음수인 정산은 지급할 수 없습니다(차감 이월 필요).',
   SETTLEMENT_BANK_ACCOUNT_MISSING: '셀러의 주 정산계좌가 없어 지급할 수 없습니다.',
 }
