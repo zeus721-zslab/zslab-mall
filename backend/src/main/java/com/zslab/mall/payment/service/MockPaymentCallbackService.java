@@ -10,7 +10,9 @@ import com.zslab.mall.payment.enums.CallbackType;
 import com.zslab.mall.payment.exception.PaymentNotFoundException;
 import com.zslab.mall.payment.gateway.PaymentGateway;
 import com.zslab.mall.payment.repository.PaymentRepository;
+import com.zslab.mall.reconciliation.enums.ReconciliationIssueType;
 import java.time.LocalDateTime;
+import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
@@ -61,10 +63,11 @@ public class MockPaymentCallbackService {
      * @param buyerId      요청자 buyer_id(JWT principal)
      * @param attemptKey   결제 시도 식별자(pat_)
      * @param callbackType 콜백 타입
+     * @return 충돌로 기록한 불일치 유형(빈 값 = 정상 전이·멱등). 기록은 이 트랜잭션과 함께 커밋되고, 구매자 응답(기존 4xx)은 컨트롤러가 정한다
+     *         — 여기서 예외를 던지면 기록까지 롤백된다(Track 104-2 D-216)
      * @throws PaymentNotFoundException attemptKey 미존재·주문 미존재·타인 주문(404·정보 노출 회피)
-     * @throws com.zslab.mall.payment.exception.InvalidCallbackException 상태 조합 REJECT(422·{@link PaymentService#handleCallback})
      */
-    public void handleMockCallback(Long buyerId, String attemptKey, CallbackType callbackType) {
+    public Optional<ReconciliationIssueType> handleMockCallback(Long buyerId, String attemptKey, CallbackType callbackType) {
         // Track 104-1 D-215(P5): 결제·주문을 적재하기 전에 주문 쓰기 락을 먼저 잡는다(handleCallback의 재호출은 이미 쥔 락).
         paymentRepository.findOrderIdByPaymentAttemptKey(attemptKey).ifPresent(orderService::lockForWrite);
         Payment payment = paymentRepository.findByPaymentAttemptKey(attemptKey)
@@ -80,7 +83,7 @@ public class MockPaymentCallbackService {
         String pgTid = callbackType == CallbackType.SUCCESS
                 ? MOCK_TID_PREFIX + UlidCreator.getMonotonicUlid()
                 : null;
-        paymentService.handleCallback(new PaymentCallbackCommand(
+        return paymentService.handleCallback(new PaymentCallbackCommand(
                 paymentGateway.provider(), callbackType, attemptKey, pgTid, LocalDateTime.now(), null));
     }
 }

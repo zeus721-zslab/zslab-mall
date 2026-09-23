@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { mdiArrowLeft, mdiChevronDown, mdiChevronUp } from '@mdi/js'
 import type { AdminOrderClaim, AdminOrderDetail, AdminOrderPayment } from '#layers/admin/app/types/admin-order'
+import type { AdminReconciliationIssue } from '#layers/admin/app/types/admin-reconciliation'
 import { orderStatusLabel } from '~/lib/constants/order'
 import {
   CLAIM_REASON_LABELS,
@@ -87,6 +88,14 @@ const paymentCancelTarget = ref<AdminOrderPayment | null>(null)
 
 function closePaymentCancel(refresh: boolean): void {
   paymentCancelTarget.value = null
+  if (refresh) void load()
+}
+
+// ---------- 불일치 해결(Track 104-2 FE-66): 표시만 바꾸는 기록이라 결제·주문은 그대로 — 끝나면 섹션을 다시 읽는다 ----------
+const reconciliationTarget = ref<AdminReconciliationIssue | null>(null)
+
+function closeReconciliation(refresh: boolean): void {
+  reconciliationTarget.value = null
   if (refresh) void load()
 }
 
@@ -299,10 +308,7 @@ function closeReject(refresh: boolean): void {
                   <v-chip :class="semanticChipClass(ADMIN_PAYMENT_STATUS_SEMANTIC[payment.status])" size="small" variant="flat">
                     {{ ADMIN_PAYMENT_STATUS_LABEL[payment.status] }}
                   </v-chip>
-                  <!-- C-12: 전액 환불 완료인데 PAID 잔존 = 자동 취소 전이 유실 → 경고 배지·수동 취소 버튼 조건부 -->
-                  <v-chip v-if="isPaymentCancelLost(payment)" :class="semanticChipClass('warning')" size="x-small" variant="flat" class="ml-1" data-testid="payment-cancel-lost">
-                    환불 전액 완료·취소 미반영
-                  </v-chip>
+                  <!-- Track 104-2 FE-66: C-12 계산형 경고 배지는 저장된 불일치 섹션(아래)으로 대체했다. 수동 취소 버튼은 같은 계산 조건 그대로. -->
                 </td>
                 <td class="text-right">{{ formatWon(payment.amount) }}</td>
                 <td>{{ payment.pgProvider ?? '—' }}</td>
@@ -325,6 +331,14 @@ function closeReject(refresh: boolean): void {
             </tbody>
           </v-table>
           <p v-else class="text-body-2 text-medium-emphasis">결제 이력이 없습니다.</p>
+        </v-card-text>
+      </v-card>
+
+      <!-- 불일치(Track 104-2 FE-66·D-216): 이 주문에 기록된 결제·주문·환불 불일치. 없으면 섹션 자체를 그리지 않는다. -->
+      <v-card v-if="detail.reconciliationIssues.length > 0" class="mb-4" data-testid="order-reconciliation">
+        <v-card-title class="text-subtitle-2 font-weight-bold pt-4 px-5">불일치 ({{ detail.reconciliationIssues.length }})</v-card-title>
+        <v-card-text class="px-5 pb-3">
+          <AdminReconciliationIssueList :issues="detail.reconciliationIssues" @resolve="(issue) => (reconciliationTarget = issue)" />
         </v-card-text>
       </v-card>
 
@@ -450,6 +464,13 @@ function closeReject(refresh: boolean): void {
     <AdminShipmentDialog :open="activeDialog === 'shipment'" :detail="detail" @done="closeDialog(true)" @stale="closeDialog(true)" @cancel="closeDialog(false)" />
     <AdminMarkDeliveredDialog :open="activeDialog === 'delivered'" :detail="detail" @done="closeDialog(true)" @stale="closeDialog(true)" @cancel="closeDialog(false)" />
     <AdminPaymentCancelDialog :open="paymentCancelTarget !== null" :payment="paymentCancelTarget" @done="closePaymentCancel(true)" @cancel="closePaymentCancel(false)" />
+    <AdminReconciliationResolveDialog
+      :open="reconciliationTarget !== null"
+      :issue="reconciliationTarget"
+      @done="closeReconciliation(true)"
+      @stale="closeReconciliation(true)"
+      @cancel="closeReconciliation(false)"
+    />
 
     <AdminConfirmDialog
       :open="claimDecision !== null"

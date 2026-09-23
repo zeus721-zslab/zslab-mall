@@ -30,6 +30,8 @@ import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.product.entity.Product;
 import com.zslab.mall.product.enums.ProductStatus;
 import com.zslab.mall.product.repository.ProductRepository;
+import com.zslab.mall.reconciliation.enums.ReconciliationIssueStatus;
+import com.zslab.mall.reconciliation.repository.ReconciliationIssueRepository;
 import com.zslab.mall.refund.enums.RefundStatus;
 import com.zslab.mall.seller.entity.Seller;
 import com.zslab.mall.seller.enums.SellerStatus;
@@ -78,6 +80,7 @@ public class AdminDashboardQueryService {
     private final SellerRepository sellerRepository;
     private final ProductRepository productRepository;
     private final ClaimRepository claimRepository;
+    private final ReconciliationIssueRepository reconciliationIssueRepository;
 
     public AdminDashboardResponse getDashboard() {
         LocalDate today = LocalDate.now();
@@ -120,7 +123,8 @@ public class AdminDashboardQueryService {
                 // Track 96-4 D-205: 목록 action=FOLLOWUP과 같은 Specification을 재사용한다(별도 조건식 금지·매트릭스 IT가 동치 강제)
                 claimRepository.count(AdminClaimSpecifications.action(AdminClaimActionFilter.FOLLOWUP)),
                 dashboardRepository.countLongShipping(DeliveryDirection.OUTBOUND, DeliveryStatus.SHIPPING,
-                        LocalDateTime.now().minusDays(LongShippingThreshold.DAYS)));
+                        LocalDateTime.now().minusDays(LongShippingThreshold.DAYS)),
+                reconciliationIssueRepository.countByStatus(ReconciliationIssueStatus.OPEN));
     }
 
     /** 최근 6개월(당월 포함)·빈 달 0. 매출은 paid_at·환불은 refunded_at 구간이라 각각 집계 후 월 키로 합친다. */

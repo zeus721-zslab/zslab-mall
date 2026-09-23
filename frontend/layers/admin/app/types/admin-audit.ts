@@ -6,8 +6,11 @@
 /** 감사 행위 유형(BE AuditLogAction 7값). */
 export type AdminAuditAction = 'CREATE' | 'UPDATE' | 'DELETE' | 'APPROVE' | 'REJECT' | 'LOGIN' | 'LOGOUT'
 
-/** 처리 이력 행의 대상 유형(BE PolymorphicTargetType 중 이력 endpoint가 내려주는 값). 클레임 이력에는 연결 배송 행이 섞인다(Track 103). */
-export type AdminAuditTargetType = 'CLAIM' | 'DELIVERY' | 'SETTLEMENT'
+/**
+ * 처리 이력 행의 대상 유형(BE PolymorphicTargetType 중 이력 endpoint가 내려주는 값). 클레임 이력에는 연결 배송 행이 섞인다(Track 103).
+ * RECONCILIATION_ISSUE는 불일치 해결 감사(Track 104-2 D-216·관리자 해결·재전송 매칭 자동 해소)다.
+ */
+export type AdminAuditTargetType = 'CLAIM' | 'DELIVERY' | 'SETTLEMENT' | 'RECONCILIATION_ISSUE'
 
 /** 변경 1건. 값이 없던 필드는 null(신규 생성의 before 등). */
 export interface AdminAuditChange {

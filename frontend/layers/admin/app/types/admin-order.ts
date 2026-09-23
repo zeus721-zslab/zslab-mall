@@ -8,6 +8,7 @@ import type {
   AdminOrderSort,
   AdminPaymentStatus,
 } from '#layers/admin/app/lib/constants/admin-order'
+import type { AdminReconciliationIssue } from '#layers/admin/app/types/admin-reconciliation'
 
 /**
  * 관리자 주문 API 타입(FE-27·Track 79 D-168 BE 계약). nullable 필드는 BE NON_NULL 직렬화로 생략될 수 있어 optional.
@@ -65,6 +66,8 @@ export interface AdminOrderDetail {
   /** 미결제 관리자 취소의 audit 기록(Claim 없는 경로). 결제 후 취소 사유는 items[].claims. */
   cancelReasons: AdminOrderCancelReason[]
   actions: AdminOrderAction[]
+  /** 이 주문의 불일치(Track 104-2 D-216·FE-66·해결 포함·최신순). */
+  reconciliationIssues: AdminReconciliationIssue[]
 }
 
 export interface AdminOrderBuyer {

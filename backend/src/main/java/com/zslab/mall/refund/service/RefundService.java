@@ -2,6 +2,7 @@ package com.zslab.mall.refund.service;
 
 import com.zslab.mall.claim.entity.Claim;
 import com.zslab.mall.claim.enums.ClaimStatus;
+import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.exception.ClaimInvalidStateException;
 import com.zslab.mall.claim.exception.ClaimNotFoundException;
 import com.zslab.mall.audit.enums.AuditLogAction;
@@ -10,6 +11,7 @@ import com.zslab.mall.audit.service.AuditRecorder;
 import com.zslab.mall.claim.repository.ClaimRepository;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
 import com.zslab.mall.common.observability.TracedEventPublisher;
+import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.order.service.OrderService;
 import com.zslab.mall.payment.entity.Payment;
@@ -17,6 +19,9 @@ import com.zslab.mall.payment.enums.PaymentStatus;
 import com.zslab.mall.payment.gateway.PgRefundResponse;
 import com.zslab.mall.payment.gateway.PaymentGateway;
 import com.zslab.mall.payment.repository.PaymentRepository;
+import com.zslab.mall.reconciliation.enums.ReconciliationIssueType;
+import com.zslab.mall.reconciliation.service.ReconciliationIssueRecorder;
+import com.zslab.mall.reconciliation.service.ReconciliationIssueRefs;
 import com.zslab.mall.refund.entity.Refund;
 import com.zslab.mall.refund.enums.RefundCallbackStatus;
 import com.zslab.mall.refund.enums.RefundStatus;
@@ -27,8 +32,10 @@ import com.zslab.mall.refund.repository.RefundRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -62,6 +69,7 @@ public class RefundService {
     private final EntityManager entityManager;
     private final AuditRecorder auditRecorder;
     private final OrderService orderService;
+    private final ReconciliationIssueRecorder reconciliationIssueRecorder;
 
     public RefundService(
             ClaimRepository claimRepository,
@@ -72,7 +80,8 @@ public class RefundService {
             TracedEventPublisher eventPublisher,
             EntityManager entityManager,
             AuditRecorder auditRecorder,
-            OrderService orderService) {
+            OrderService orderService,
+            ReconciliationIssueRecorder reconciliationIssueRecorder) {
         this.claimRepository = claimRepository;
         this.orderItemRepository = orderItemRepository;
         this.paymentRepository = paymentRepository;
@@ -82,6 +91,7 @@ public class RefundService {
         this.entityManager = entityManager;
         this.auditRecorder = auditRecorder;
         this.orderService = orderService;
+        this.reconciliationIssueRecorder = reconciliationIssueRecorder;
     }
 
     /**
@@ -190,9 +200,12 @@ public class RefundService {
      * 환불 완료를 적용한다(PENDING → COMPLETED·expected-spec §5.1). pg_refund_id로 행을 찾고 RFN-1·RFN-3·PAY-1 사후를 가드한 뒤
      * refunded_at을 시스템 시각(D-70)으로 채우고 {@code RefundCompleted}를 발행한다(save→publish·D-29).
      *
+     * <p><b>충돌 기록(Track 104-2 D-216·P1·P6)</b>: PAY-1 사후 초과·결제 취소 불가 상태는 거부(롤백) 대신 전이 전에 불일치를 기록하고 PENDING
+     * 그대로 돌려준다. 전이 뒤에는 교환·거부 클레임 환불·확정 품목 있는 전액 환불을 불일치로 남긴다(저장·전이는 그대로).
+     *
      * @param pgRefundId webhook 콜백이 운반한 PG 환불 식별자(매칭 키·RFN-1 필수)
-     * @return COMPLETED로 전이된 Refund
-     * @throws RefundInvariantViolationException pg_refund_id 누락(RFN-1)·PAY-1 사후 한도 초과
+     * @return COMPLETED로 전이된 Refund(충돌 기록 시 PENDING 그대로)
+     * @throws RefundInvariantViolationException pg_refund_id 누락(RFN-1)
      * @throws RefundNotFoundException            pg_refund_id 미매칭
      * @throws RefundIdempotentNoOpException      이미 COMPLETED인 환불 재호출(RFN-3 멱등 시그널)
      */
@@ -208,7 +221,7 @@ public class RefundService {
         Refund refund = refundRepository.findByPgRefundId(pgRefundId)
                 .orElseThrow(() -> new RefundNotFoundException("환불 행을 찾을 수 없습니다: pgRefundId=" + pgRefundId));
         // D-172 보충(락 순서 Claim → Refund → Payment): 동시 SUCCESS 콜백 N건 중 1건만 COMPLETED 전이·이벤트 발행(나머지는 종결 no-op)
-        lockClaimThenRefund(refund);
+        Claim claim = lockClaimThenRefund(refund);
 
         // RFN-3: 이미 COMPLETED면 멱등 no-op 시그널(직접 호출 경로·webhook은 handleCallback에서 선검사)
         if (refund.getStatus() == RefundStatus.COMPLETED) {
@@ -220,19 +233,70 @@ public class RefundService {
         Payment payment = paymentRepository.findByIdForUpdate(refund.getPaymentId())
                 .orElseThrow(() -> new IllegalStateException(
                         "환불 대상 결제를 찾을 수 없습니다: paymentId=" + refund.getPaymentId()));
-        long alreadyCompleted = refundRepository.sumCompletedByPaymentId(refund.getPaymentId());
-        if (alreadyCompleted + refund.getAmount() > payment.getAmount()) {
-            throw new RefundInvariantViolationException(
-                    "PAY-1 위반(사후): 누적 " + alreadyCompleted + " + 신규 " + refund.getAmount()
-                            + " > 결제액 " + payment.getAmount());
+        long completedAfter = refundRepository.sumCompletedByPaymentId(refund.getPaymentId()) + refund.getAmount();
+        if (completedAfter > payment.getAmount()) {
+            // Track 104-2 D-216(P1): PG에서 끝난 환불을 거부(422·롤백)하지 않는다 — 환불은 PENDING 그대로 두고 초과 사실을 불일치로 남긴다.
+            log.warn("[Refund] 환불 완료 충돌(PAY-1 사후 초과): refundId={}, 완료 후 합계={}, 결제액={}",
+                    refund.getId(), completedAfter, payment.getAmount());
+            recordRefundIssue(ReconciliationIssueType.PG_REFUND_EXCEEDS_PAYMENT, "refund:" + refund.getId(), refund, payment,
+                    refundDetail("PAY1_EXCEEDED", refund, payment, completedAfter));
+            return refund;
+        }
+        // 도달 경로 미발견: Refund.paymentId는 개시 시점의 PAID 결제이고 PAID는 CANCELLED로만 간다. 전액 완료인데 결제가 PAID·CANCELLED가
+        // 아니면 동기 체인의 결제 취소 전이가 422로 실패하므로 환불 전이 전에 판정한다(D-216).
+        if (completedAfter == payment.getAmount()
+                && payment.getStatus() != PaymentStatus.PAID && payment.getStatus() != PaymentStatus.CANCELLED) {
+            log.warn("[Refund] 환불 완료 충돌(결제 취소 불가 상태): refundId={}, paymentStatus={}", refund.getId(), payment.getStatus());
+            recordRefundIssue(ReconciliationIssueType.FULL_REFUND_PAYMENT_NOT_CANCELLED, "refund:" + refund.getId(), refund, payment,
+                    refundDetail("PAYMENT_NOT_CANCELLABLE", refund, payment, completedAfter));
+            return refund;
         }
 
         // 전이 + refunded_at 시스템 시각(D-70) + 이벤트 누적
         refund.markCompleted(LocalDateTime.now());
         List<Object> events = refund.pullDomainEvents();
         refundRepository.save(refund);
+        recordCompletionIssues(refund, payment, claim, completedAfter);
         events.forEach(eventPublisher::publishEvent); // D-29 save→publish
         return refund;
+    }
+
+    /**
+     * 환불 완료 시점 불일치 기록(Track 104-2 D-216·P6) — 저장·전이는 그대로 두고 표식만 남긴다. 클레임 상태는 동기 체인이 바꾸기 전 값으로 본다.
+     * <ul>
+     *   <li>교환 클레임·거부된 클레임에 환불 완료(REFUND_ON_INVALID_CLAIM) — 체인은 이 클레임을 종결하지 않고 건너뛴다</li>
+     *   <li>구매확정 품목이 있는 주문의 전액 환불(FULL_REFUND_WITH_CONFIRMED_ITEM) — 결제는 기존대로 CANCELLED가 된다</li>
+     * </ul>
+     */
+    private void recordCompletionIssues(Refund refund, Payment payment, Claim claim, long completedAfter) {
+        if (claim.getType() == ClaimType.EXCHANGE || claim.getStatus() == ClaimStatus.REJECTED) {
+            Map<String, Object> detail = refundDetail("CLAIM_NOT_REFUNDABLE", refund, payment, completedAfter);
+            detail.put("claimType", claim.getType().name());
+            detail.put("claimStatus", claim.getStatus().name());
+            recordRefundIssue(ReconciliationIssueType.REFUND_ON_INVALID_CLAIM, "refund:" + refund.getId(), refund, payment, detail);
+        }
+        if (completedAfter == payment.getAmount()
+                && orderItemRepository.existsByOrderIdAndItemStatus(payment.getOrderId(), OrderItemStatus.CONFIRMED)) {
+            recordRefundIssue(ReconciliationIssueType.FULL_REFUND_WITH_CONFIRMED_ITEM, "payment:" + payment.getId(), refund, payment,
+                    refundDetail("FULL_REFUND_WITH_CONFIRMED_ITEM", refund, payment, completedAfter));
+        }
+    }
+
+    private void recordRefundIssue(ReconciliationIssueType type, String dedupeKey, Refund refund, Payment payment,
+            Map<String, Object> detail) {
+        reconciliationIssueRecorder.record(type, dedupeKey, ReconciliationIssueRefs.ofRefund(payment.getOrderId(), payment.getId(),
+                refund.getId(), refund.getClaimId(), refund.getPgRefundId()), detail);
+    }
+
+    /** 환불 불일치 세부 — 사유·금액·결제 상태. */
+    private Map<String, Object> refundDetail(String reason, Refund refund, Payment payment, long completedAfter) {
+        Map<String, Object> detail = new LinkedHashMap<>();
+        detail.put("reason", reason);
+        detail.put("refundAmount", refund.getAmount());
+        detail.put("completedTotalAfter", completedAfter);
+        detail.put("paymentAmount", payment.getAmount());
+        detail.put("paymentStatus", payment.getStatus().name());
+        return detail;
     }
 
     /**
@@ -259,16 +323,34 @@ public class RefundService {
      * webhook 콜백을 처리한다(expected-spec §6). pg_refund_id로 행을 찾고 status로 분기한다. 종결 상태 재수신은 멱등 no-op이다
      * (RFN-3·예외 없이 200 응답 유도). 정상 분기는 {@link #markCompleted}·{@link #markFailed}에 위임한다.
      *
-     * @throws RefundNotFoundException pg_refund_id 미매칭
+     * <p><b>충돌 기록(Track 104-2 D-216·P1)</b>: 매칭 환불이 없는 통지(구 404·로그 없음)와 실패 처리된 환불의 성공 통지(구 500)는 거부 대신
+     * 불일치를 기록하고 정상 종료한다(상태 불변). 매칭 환불이 없으면 주문을 모르므로 락 없이 통지 원문만 기록한다. 매칭 없음은 환불 개시 커밋
+     * 전에 도착한 통지일 수 있어 웹훅은 기록 커밋 뒤 기존 404로 PG 재전송을 부르고, 재전송이 같은 종류로 매칭돼 상태 전이까지 끝나면 그 행을
+     * 자동 해소한다(결정 1·외부 검토 지적 2 — 충돌·멱등 NO-OP는 해소하지 않음).
+     *
+     * @return 충돌로 기록한 불일치 유형(매칭 없음·실패 환불의 성공). 정상 처리·멱등·완료 처리 중 기록(markCompleted)은 빈 값
      */
-    public void handleCallback(String pgRefundId, RefundCallbackStatus status, String failureReason) {
+    public Optional<ReconciliationIssueType> handleCallback(String pgRefundId, RefundCallbackStatus status, String failureReason) {
         if (pgRefundId == null || pgRefundId.isBlank() || status == null) {
             throw new IllegalArgumentException("환불 콜백 입력 누락(pgRefundId·status).");
         }
         // Track 104-1 D-215(P5): 환불·클레임을 적재하기 전에 주문 쓰기 락을 먼저 잡는다(형제 품목 확정·클레임과 직렬화). 행 존재도 이
         // 스칼라 조회로 판정한다 — PG 콜백이 환불 개시 커밋과 경합하면 스칼라는 비었는데 뒤 엔티티 조회가 커밋을 봐 락 없이 진행할 수 있다.
-        orderService.lockForWrite(refundRepository.findOrderIdByPgRefundId(pgRefundId)
-                .orElseThrow(() -> new RefundNotFoundException("환불 행을 찾을 수 없습니다: pgRefundId=" + pgRefundId)));
+        Optional<Long> orderId = refundRepository.findOrderIdByPgRefundId(pgRefundId);
+        if (orderId.isEmpty()) {
+            log.warn("[Refund] 매칭 환불 없는 PG 통지 → 불일치 기록: pgRefundId={}, status={}", pgRefundId, status);
+            Map<String, Object> detail = new LinkedHashMap<>();
+            detail.put("reason", "NO_MATCHING_REFUND");
+            detail.put("callbackStatus", status.name());
+            if (failureReason != null) {
+                detail.put("failureReason", failureReason);
+            }
+            reconciliationIssueRecorder.record(ReconciliationIssueType.PG_UNMATCHED_CALLBACK,
+                    ReconciliationIssueRecorder.unmatchedRefundKey(pgRefundId, status.name()), ReconciliationIssueRefs.unmatched(null, pgRefundId),
+                    detail);
+            return Optional.of(ReconciliationIssueType.PG_UNMATCHED_CALLBACK);
+        }
+        orderService.lockForWrite(orderId.get());
         Refund refund = refundRepository.findByPgRefundId(pgRefundId)
                 .orElseThrow(() -> new RefundNotFoundException("환불 행을 찾을 수 없습니다: pgRefundId=" + pgRefundId));
         // D-172 보충: 비잠금 조회로 claimId를 얻은 뒤 Claim → Refund 순으로 잠그고 종결 여부를 재확인한다(initiate와 같은 순서·교착 제거).
@@ -278,18 +360,42 @@ public class RefundService {
             case SUCCESS -> {
                 if (refund.getStatus() == RefundStatus.COMPLETED) {
                     log.info("[Refund] SUCCESS 콜백 멱등 NO-OP(이미 COMPLETED·RFN-3): pgRefundId={}", pgRefundId);
-                    return;
+                    return Optional.empty();
                 }
-                markCompleted(pgRefundId);
+                if (refund.getStatus() == RefundStatus.FAILED) {
+                    // RFN-2: FAILED는 종결이라 COMPLETED로 되돌리지 않는다 — PG에서 끝난 환불 사실은 불일치로 남긴다(구 500·롤백).
+                    log.warn("[Refund] SUCCESS 콜백 충돌(이미 FAILED): pgRefundId={}, refundId={}", pgRefundId, refund.getId());
+                    Map<String, Object> detail = new LinkedHashMap<>();
+                    detail.put("reason", "REFUND_ALREADY_FAILED");
+                    detail.put("refundAmount", refund.getAmount());
+                    reconciliationIssueRecorder.record(ReconciliationIssueType.PG_REFUND_SUCCESS_ON_FAILED, "refund:" + refund.getId(),
+                            ReconciliationIssueRefs.ofRefund(orderId.get(), refund.getPaymentId(), refund.getId(), refund.getClaimId(),
+                                    pgRefundId), detail);
+                    return Optional.of(ReconciliationIssueType.PG_REFUND_SUCCESS_ON_FAILED);
+                }
+                // markCompleted는 PAY-1 초과·결제 취소 불가면 불일치만 기록하고 PENDING으로 돌려준다 — 그 경우는 정상 처리가 아니다.
+                if (markCompleted(pgRefundId).getStatus() == RefundStatus.COMPLETED) {
+                    resolveUnmatchedAfterProcessed(pgRefundId, status);
+                }
             }
             case FAIL -> {
                 if (refund.getStatus() == RefundStatus.FAILED) {
                     log.info("[Refund] FAIL 콜백 멱등 NO-OP(이미 FAILED): pgRefundId={}", pgRefundId);
-                    return;
+                    return Optional.empty();
                 }
                 markFailed(refund.getId(), failureReason);
+                resolveUnmatchedAfterProcessed(pgRefundId, status);
             }
         }
+        return Optional.empty();
+    }
+
+    /**
+     * 같은 종류 통지의 정상 처리(상태 전이)가 끝난 직후에만 — 앞서 매칭 없음(환불 개시 커밋 전 도착)으로 기록된 같은 통지를 자동 해소한다.
+     * 멱등 NO-OP·충돌 기록 분기는 부르지 않는다(D-216 결정 1·외부 검토 지적 2).
+     */
+    private void resolveUnmatchedAfterProcessed(String pgRefundId, RefundCallbackStatus status) {
+        reconciliationIssueRecorder.resolveUnmatchedOnMatch(ReconciliationIssueRecorder.unmatchedRefundKey(pgRefundId, status.name()));
     }
 
     /**
@@ -299,11 +405,12 @@ public class RefundService {
      * refresh인 이유: 호출부가 1차 캐시에 올린 stale 엔티티를 잠금과 함께 최신으로 재적재한다(Track 79 트랩). 같은 TX에서 두 번 호출돼도 이미
      * 보유한 락이라 무해하다.
      */
-    private void lockClaimThenRefund(Refund refund) {
+    private Claim lockClaimThenRefund(Refund refund) {
         Claim claim = claimRepository.findById(refund.getClaimId())
                 .orElseThrow(() -> new IllegalStateException("환불의 클레임 미존재: claimId=" + refund.getClaimId()));
         entityManager.refresh(claim, LockModeType.PESSIMISTIC_WRITE);
         entityManager.refresh(refund, LockModeType.PESSIMISTIC_WRITE);
+        return claim;
     }
 
     /** 운영 조회: 한 클레임의 전체 환불 행(재시도 = 새 행·RFN-2 추적). */

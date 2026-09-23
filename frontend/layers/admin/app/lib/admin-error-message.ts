@@ -57,6 +57,9 @@ const ADMIN_ERROR_MESSAGES: Record<string, string> = {
   SETTLEMENT_INVALID_STATE: '현재 정산 상태에서 허용되지 않는 처리입니다(확정·재생성은 확정 대기, 지급완료는 확정 상태만).',
   SETTLEMENT_NET_NEGATIVE: '지급액이 음수인 정산은 지급할 수 없습니다(차감 이월 필요).',
   SETTLEMENT_BANK_ACCOUNT_MISSING: '셀러의 주 정산계좌가 없어 지급할 수 없습니다.',
+  // Track 104-2 관리자 불일치(D-216·FE-66).
+  RECONCILIATION_ISSUE_NOT_FOUND: '불일치를 찾을 수 없습니다.',
+  RECONCILIATION_ISSUE_INVALID_STATE: '이미 해결된 불일치입니다. 목록을 새로 불러옵니다.',
 }
 
 const FALLBACK_MESSAGE = '요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.'

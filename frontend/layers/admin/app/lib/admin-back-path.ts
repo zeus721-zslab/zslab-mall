@@ -7,6 +7,7 @@ export const ADMIN_PRODUCTS_PATH = '/admin/products'
 export const ADMIN_ORDERS_PATH = '/admin/orders'
 export const ADMIN_CLAIMS_PATH = '/admin/orders/claims'
 export const ADMIN_DELIVERIES_PATH = '/admin/orders/deliveries'
+export const ADMIN_RECONCILIATION_PATH = '/admin/orders/reconciliation'
 export const ADMIN_MEMBERS_PATH = '/admin/members'
 export const ADMIN_MEMBERS_WITHDRAWN_PATH = '/admin/members/withdrawn'
 export const ADMIN_SELLERS_PATH = '/admin/members/sellers'
@@ -18,8 +19,8 @@ export const ADMIN_SETTLEMENTS_SELLERS_PATH = '/admin/settlements/sellers'
  * 복귀한다. 회원 상세(Track 84)는 일반회원·탈퇴회원 목록 양쪽에서 진입한다. 그 외 화면(상품 등)은 기존처럼 base만 허용한다.
  */
 const EXTRA_BACK_BASES: Record<string, string[]> = {
-  // 대시보드(FE-33) 최근 주문·상위 상품에서 주문·상품 상세로 진입한다.
-  [ADMIN_ORDERS_PATH]: [ADMIN_CLAIMS_PATH, ADMIN_DASHBOARD_PATH],
+  // 대시보드(FE-33) 최근 주문·상위 상품에서 주문·상품 상세로 진입한다. 불일치 목록(Track 104-2 FE-66)에서도 주문 상세로 진입한다.
+  [ADMIN_ORDERS_PATH]: [ADMIN_CLAIMS_PATH, ADMIN_DASHBOARD_PATH, ADMIN_RECONCILIATION_PATH],
   [ADMIN_PRODUCTS_PATH]: [ADMIN_DASHBOARD_PATH],
   [ADMIN_MEMBERS_PATH]: [ADMIN_MEMBERS_WITHDRAWN_PATH],
   // 정산 상세(Track 85)는 정산 내역·셀러별 정산 양쪽에서 진입한다.

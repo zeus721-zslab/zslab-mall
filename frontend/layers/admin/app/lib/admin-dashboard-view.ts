@@ -5,6 +5,7 @@ import {
   ADMIN_DELIVERIES_PATH,
   ADMIN_ORDERS_PATH,
   ADMIN_PRODUCTS_PATH,
+  ADMIN_RECONCILIATION_PATH,
   ADMIN_SELLERS_PATH,
   ADMIN_SETTLEMENTS_PATH,
 } from '#layers/admin/app/lib/admin-back-path'
@@ -35,7 +36,7 @@ export interface PendingTile {
   label: string
   /** 이동 가능한 목록 경로(필터 포함). 연결할 화면이 없으면 null(카운트만). */
   to: string | null
-  /** 1건 이상일 때 톤. 재고 임박만 danger. */
+  /** 1건 이상일 때 톤. 재고 임박·불일치만 danger. */
   alertTone: 'warning' | 'danger'
   /**
    * 칸 아래 한 줄 설명(Track 102 FE-64·셀러 대시보드 hint와 같은 형태). "무엇을 센 건지 · 어디서 처리하는지"를 적고,
@@ -45,11 +46,12 @@ export interface PendingTile {
 }
 
 /**
- * 처리 대기 7칸 정의. 정산·클레임은 목록의 status 필터, 배송 대기는 주문 목록 status=PAID(BE는 품목 PAID 건수·주문 목록은 주문 단위라 근사).
+ * 처리 대기 9칸 정의. 정산·클레임은 목록의 status 필터, 배송 대기는 주문 목록 status=PAID(BE는 품목 PAID 건수·주문 목록은 주문 단위라 근사).
  * 재고 임박은 상품 목록 stockFilter=LOW(Track 89-A·BE는 variant 건수·목록은 상품 단위라 근사).
  * 상품·셀러 승인 대기(Track 96-2 FE-54·C-01)는 각 목록 status=PENDING(BE 카운트와 목록 필터 조건 동일·삭제 제외).
  * 클레임 처리 대기(Track 96-4 FE-56·C-02)는 클레임 목록 action=FOLLOWUP(BE 카운트와 같은 Specification·후속 액션 5종).
  * 장기 배송중(Track 99 FE-61·D-210)은 배송 목록 status=SHIPPING(BE는 발송 후 3일 이상 건수·목록은 배송중 전체라 근사).
+ * 불일치(Track 104-2 FE-66·D-216)는 불일치 목록 status=OPEN(BE 카운트와 목록 필터 조건 동일)·기록이 어긋난 건이라 재고 임박과 같은 danger.
  */
 export const PENDING_TILES: PendingTile[] = [
   { key: 'settlementPending', label: '정산 대기', to: `${ADMIN_SETTLEMENTS_PATH}?status=PENDING`, alertTone: 'warning',
@@ -68,6 +70,8 @@ export const PENDING_TILES: PendingTile[] = [
     hint: '승인 후 후속 처리가 남은 클레임 · 클레임 화면에서 회수 확인·검수·발송' },
   { key: 'longShipping', label: '장기 배송중', to: `${ADMIN_DELIVERIES_PATH}?status=SHIPPING`, alertTone: 'warning',
     hint: '발송 후 3일 이상 배송중 · 배송 화면에서 확인 (목록은 배송중 전체라 건수가 다를 수 있음)' },
+  { key: 'reconciliationOpen', label: '불일치', to: `${ADMIN_RECONCILIATION_PATH}?status=OPEN`, alertTone: 'danger',
+    hint: '결제·주문·환불 기록이 서로 맞지 않는 건 · 불일치 화면에서 확인 후 해결 처리' },
 ]
 
 /** 0건은 회색(neutral), 1건 이상은 칸별 주의 톤. */

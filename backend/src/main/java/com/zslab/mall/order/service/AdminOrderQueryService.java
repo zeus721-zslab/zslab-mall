@@ -33,6 +33,7 @@ import com.zslab.mall.order.repository.OrderRepository;
 import com.zslab.mall.payment.entity.Payment;
 import com.zslab.mall.payment.enums.PaymentStatus;
 import com.zslab.mall.payment.repository.PaymentRepository;
+import com.zslab.mall.reconciliation.service.AdminReconciliationIssueService;
 import com.zslab.mall.seller.entity.Seller;
 import com.zslab.mall.seller.repository.SellerRepository;
 import com.zslab.mall.refund.entity.Refund;
@@ -94,6 +95,7 @@ public class AdminOrderQueryService {
     private final ClaimExchangeService claimExchangeService;
     private final ObjectMapper objectMapper;
     private final AdminMemberQueryService adminMemberQueryService;
+    private final AdminReconciliationIssueService adminReconciliationIssueService;
 
     /**
      * 관리자 주문 목록. keyword는 주문번호 정확일치·주문자 이름/이메일·상품명 부분일치.
@@ -197,7 +199,8 @@ public class AdminOrderQueryService {
                 buyer == null ? null : new AdminOrderDetailResponse.Buyer(buyer.getPublicId(), buyer.getName(), buyer.getEmail()),
                 order.getShippingSnapshot() == null ? null : ShippingAddressResponse.from(order.getShippingSnapshot()),
                 order.getTotalPrice(), order.getDiscountAmount(), order.getShippingFee(), paymentAmount(order),
-                payments, items, cancelReasons(order.getId()), actions(order, enrichment));
+                payments, items, cancelReasons(order.getId()), actions(order, enrichment),
+                adminReconciliationIssueService.listByOrder(order.getId()));
     }
 
     // ---------- 배치 enrich ----------

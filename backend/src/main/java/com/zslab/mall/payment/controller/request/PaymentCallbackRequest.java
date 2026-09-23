@@ -25,13 +25,19 @@ import java.util.Map;
 public record PaymentCallbackRequest(
         @NotBlank String provider,
         @NotNull CallbackType callbackType,
-        @NotBlank String paymentAttemptKey,
+        @NotBlank @Size(max = PAYMENT_ATTEMPT_KEY_MAX_LENGTH) String paymentAttemptKey,
         @Size(max = PG_TID_MAX_LENGTH) String pgTid,
         @NotNull LocalDateTime occurredAt,
         Map<String, String> metadata) {
 
     /** payment.pg_tid VARCHAR(100)(V1). */
     private static final int PG_TID_MAX_LENGTH = 100;
+
+    /**
+     * Track 104-2부터 매칭 없는 통지를 불일치로 기록하므로(dedupe_key = "payment-attempt:" + 키·VARCHAR(191)) 선검증하지 않으면 긴 키가
+     * INSERT 오류(500)로 샌다(셀프 리뷰 #6). 실제 키는 CHAR(30)이지만 PG 식별자 상한을 pgTid와 같은 100으로 둔다.
+     */
+    private static final int PAYMENT_ATTEMPT_KEY_MAX_LENGTH = 100;
 
     /** HTTP 요청을 도메인 명령으로 변환한다(D-27 — Service에 HTTP 타입 유출 금지). */
     public PaymentCallbackCommand toCommand() {

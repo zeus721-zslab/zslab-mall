@@ -28,5 +28,7 @@ public enum PolymorphicTargetType {
     AUDIT_LOG,
     NOTIFICATION_LOG,
     CODE,
-    BUYER_GRADE
+    BUYER_GRADE,
+    /** 주문·결제 불일치(Track 104-2 D-216·해결 처리 감사 대상). */
+    RECONCILIATION_ISSUE
 }
