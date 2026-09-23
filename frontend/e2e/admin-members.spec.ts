@@ -179,7 +179,7 @@ test.describe('관리자 회원 관리(Track 84)', () => {
 
     await page.getByTestId('member-tab-orders').click()
     await page.waitForURL((url) => !url.searchParams.has('tab'))
-    await page.route((url) => /\/api\/v1\/admin\/orders\/ord_[^/]+$/.test(url.pathname), (route) => route.fulfill({ json: { ...ORDER_ROW, buyer: { userId: MEMBER_A, name: 'E2E회원A', email: 'a@e2e.invalid' }, totalPrice: 19900, discountAmount: 0, shippingFee: 0, payments: [], items: [], cancelReasons: [], actions: [] } }))
+    await page.route((url) => /\/api\/v1\/admin\/orders\/ord_[^/]+$/.test(url.pathname), (route) => route.fulfill({ json: { ...ORDER_ROW, buyer: { userId: MEMBER_A, name: 'E2E회원A', email: 'a@e2e.invalid' }, totalPrice: 19900, discountAmount: 0, shippingFee: 0, payments: [], items: [], cancelReasons: [], actions: [], reconciliationIssues: [] } }))
     await page.getByTestId('activity-order-no').click()
     await page.waitForURL((url) => url.pathname === `/admin/orders/${ORDER_ROW.orderId}`)
     expect(decodeURIComponent(page.url())).toContain(`back=/admin/members/${MEMBER_A}`)

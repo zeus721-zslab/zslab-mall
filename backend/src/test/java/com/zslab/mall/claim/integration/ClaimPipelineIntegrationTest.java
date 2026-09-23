@@ -346,8 +346,8 @@ class ClaimPipelineIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("T8 전액 환불 콜백 → Refund COMPLETED·Claim COMPLETED·Payment CANCELLED가 같은 TX / Payment 전이 불가(PENDING 결제) → 422·전부 롤백")
-    void fullRefundCallback_cancelsPaymentInSameTx_andRollsBackOnPaymentFailure() throws Exception {
+    @DisplayName("T8 전액 환불 콜백 → Refund COMPLETED·Claim COMPLETED·Payment CANCELLED가 같은 TX / Payment 전이 불가(PENDING 결제) → 200·불일치 1행·상태 불변(D-216)")
+    void fullRefundCallback_cancelsPaymentInSameTx_andRecordsOnPaymentNotCancellable() throws Exception {
         seed(() -> {
             seedOrderItem(ITEM_A, "CANCEL_REQUESTED");
             seedClaim(CLAIM_ID, ITEM_A, "CANCEL", "APPROVED", "PAID", LocalDateTime.now().minusMinutes(1));
@@ -357,7 +357,9 @@ class ClaimPipelineIntegrationTest extends AbstractIntegrationTest {
 
         mockMvc.perform(post("/api/webhooks/refunds").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"pgRefundId\":\"" + PG_REFUND_ID + "\",\"status\":\"SUCCESS\"}"))
-                .andExpect(status().isUnprocessableEntity());
+                .andExpect(status().isOk());
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM reconciliation_issue WHERE issue_type = ? AND refund_id = ?",
+                Integer.class, "FULL_REFUND_PAYMENT_NOT_CANCELLED", REFUND_ID)).isEqualTo(1);
         assertThat(refundStatus(CLAIM_ID)).isEqualTo("PENDING");
         assertThat(claimStatus(CLAIM_ID)).isEqualTo("APPROVED");
         assertThat(itemStatus(ITEM_A)).isEqualTo("CANCEL_REQUESTED");
@@ -602,6 +604,7 @@ class ClaimPipelineIntegrationTest extends AbstractIntegrationTest {
                 jdbc.update("DELETE FROM inventory_history WHERE inventory_id = ?", VARIANT_ID);
                 jdbc.update("DELETE FROM inventory WHERE id = ?", VARIANT_ID);
                 jdbc.update("DELETE FROM payment WHERE id = ?", PAYMENT_ID);
+                jdbc.update("DELETE FROM reconciliation_issue WHERE order_id = ?", ORDER_ID);
                 jdbc.update("DELETE FROM order_item WHERE id IN (?, ?)", ITEM_A, ITEM_B);
                 jdbc.update("DELETE FROM `order` WHERE id = ?", ORDER_ID);
                 jdbc.update("DELETE FROM product_variant WHERE id = ?", VARIANT_ID);

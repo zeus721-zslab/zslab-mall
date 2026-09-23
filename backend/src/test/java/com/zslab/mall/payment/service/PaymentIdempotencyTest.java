@@ -20,6 +20,7 @@ import com.zslab.mall.payment.gateway.PaymentGateway;
 import com.zslab.mall.payment.repository.PaymentRepository;
 import com.zslab.mall.order.entity.Order;
 import com.zslab.mall.order.repository.OrderRepository;
+import com.zslab.mall.reconciliation.service.ReconciliationIssueRecorder;
 import jakarta.persistence.EntityManager;
 import java.time.LocalDateTime;
 import java.util.Map;
@@ -62,6 +63,8 @@ class PaymentIdempotencyTest {
     private EntityManager entityManager;
     @Mock
     private OrderService orderService;
+    @Mock
+    private ReconciliationIssueRecorder reconciliationIssueRecorder;
     @InjectMocks
     private PaymentService paymentService;
 

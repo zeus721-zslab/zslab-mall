@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.same;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -20,13 +21,17 @@ import com.zslab.mall.payment.enums.PaymentMethod;
 import com.zslab.mall.payment.enums.PaymentStatus;
 import com.zslab.mall.payment.event.PaymentCompleted;
 import com.zslab.mall.payment.exception.InvalidCallbackException;
+import com.zslab.mall.payment.exception.PaymentPgTidConflictException;
 import com.zslab.mall.payment.gateway.PaymentGateway;
 import com.zslab.mall.payment.repository.PaymentRepository;
 import com.zslab.mall.order.entity.Order;
 import com.zslab.mall.order.enums.OrderStatus;
 import com.zslab.mall.order.repository.OrderRepository;
+import com.zslab.mall.reconciliation.enums.ReconciliationIssueType;
+import com.zslab.mall.reconciliation.service.ReconciliationIssueRecorder;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
+import java.sql.SQLException;
 import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.Optional;
@@ -39,6 +44,7 @@ import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.util.ReflectionTestUtils;
 
 /**
@@ -69,6 +75,8 @@ class PaymentCallbackTest {
     private EntityManager entityManager;
     @Mock
     private OrderService orderService;
+    @Mock
+    private ReconciliationIssueRecorder reconciliationIssueRecorder;
     @InjectMocks
     private PaymentService paymentService;
 
@@ -115,20 +123,22 @@ class PaymentCallbackTest {
     }
 
     @Test
-    @DisplayName("SUCCESS × PENDING + 이미 PAID 행 존재 → InvalidCallbackException(PAY-3a anomaly)")
-    void success_pending_payThreeAViolation_rejects() {
+    @DisplayName("SUCCESS × PENDING + 이미 PAID 행 존재(PAY-3a anomaly) → 불일치 기록·예외 없음·PENDING 유지·미발행(D-216)")
+    void success_pending_payThreeAViolation_recordsIssue() {
         Payment payment = paymentInStatus(PaymentStatus.PENDING);
         stubFind(payment);
         when(paymentRepository.existsByOrderIdAndStatus(ORDER_ID, PaymentStatus.PAID)).thenReturn(true);
 
-        assertThatThrownBy(() -> paymentService.handleCallback(command(CallbackType.SUCCESS)))
-                .isInstanceOf(InvalidCallbackException.class);
+        assertThat(paymentService.handleCallback(command(CallbackType.SUCCESS)))
+                .contains(ReconciliationIssueType.PG_PAYMENT_SUCCESS_CONFLICT);
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PENDING);
+        verifyConflictRecorded(ReconciliationIssueType.PG_PAYMENT_SUCCESS_CONFLICT);
         verify(eventPublisher, never()).publishEvent(any());
     }
 
     @Test
-    @DisplayName("SUCCESS × PENDING + 주문 비PENDING_PAYMENT(락 후 재확인·늦은 승인) → InvalidCallbackException·Payment PENDING 유지·미발행(D-173)")
-    void success_pending_orderAlreadyTerminated_rejectsBeforeComplete() {
+    @DisplayName("SUCCESS × PENDING + 주문 비PENDING_PAYMENT(락 후 재확인·늦은 승인) → 불일치 기록·Payment PENDING 유지·미발행(D-173·D-216)")
+    void success_pending_orderAlreadyTerminated_recordsBeforeComplete() {
         Payment payment = paymentInStatus(PaymentStatus.PENDING);
         stubFind(payment);
         when(paymentRepository.existsByOrderIdAndStatus(ORDER_ID, PaymentStatus.PAID)).thenReturn(false);
@@ -136,9 +146,10 @@ class PaymentCallbackTest {
         ReflectionTestUtils.setField(expiredOrder, "status", OrderStatus.PAYMENT_EXPIRED);
         when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.of(expiredOrder));
 
-        assertThatThrownBy(() -> paymentService.handleCallback(command(CallbackType.SUCCESS)))
-                .isInstanceOf(InvalidCallbackException.class);
+        assertThat(paymentService.handleCallback(command(CallbackType.SUCCESS)))
+                .contains(ReconciliationIssueType.PG_PAYMENT_SUCCESS_CONFLICT);
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PENDING);
+        verifyConflictRecorded(ReconciliationIssueType.PG_PAYMENT_SUCCESS_CONFLICT);
         InOrder lockOrder = inOrder(entityManager);
         lockOrder.verify(entityManager).refresh(same(payment), eq(LockModeType.PESSIMISTIC_WRITE));
         lockOrder.verify(entityManager).refresh(same(expiredOrder), eq(LockModeType.PESSIMISTIC_WRITE));
@@ -159,13 +170,15 @@ class PaymentCallbackTest {
 
     @ParameterizedTest
     @EnumSource(value = PaymentStatus.class, names = {"FAILED", "CANCELLED", "EXPIRED"})
-    @DisplayName("SUCCESS × 종결(FAILED·CANCELLED·EXPIRED) → REJECT(InvalidCallbackException)")
-    void success_terminal_rejects(PaymentStatus terminal) {
+    @DisplayName("SUCCESS × 종결(FAILED·CANCELLED·EXPIRED) → 불일치 기록·예외 없음·상태 불변(구 REJECT·D-216)")
+    void success_terminal_recordsIssue(PaymentStatus terminal) {
         Payment payment = paymentInStatus(terminal);
         stubFind(payment);
 
-        assertThatThrownBy(() -> paymentService.handleCallback(command(CallbackType.SUCCESS)))
-                .isInstanceOf(InvalidCallbackException.class);
+        assertThat(paymentService.handleCallback(command(CallbackType.SUCCESS)))
+                .contains(ReconciliationIssueType.PG_PAYMENT_SUCCESS_CONFLICT);
+        assertThat(payment.getStatus()).isEqualTo(terminal);
+        verifyConflictRecorded(ReconciliationIssueType.PG_PAYMENT_SUCCESS_CONFLICT);
         verify(eventPublisher, never()).publishEvent(any());
     }
 
@@ -201,15 +214,16 @@ class PaymentCallbackTest {
     // ---------- CANCEL ----------
 
     @Test
-    @DisplayName("CANCEL × PAID → REJECT(InvalidCallbackException·환불 우회 차단·Track 93 D-198)·PAID 유지·미발행")
-    void cancel_paid_rejects() {
+    @DisplayName("CANCEL × PAID → 불일치 기록(환불 우회 차단·Track 93 D-198·D-216)·PAID 유지·미발행")
+    void cancel_paid_recordsIssue() {
         Payment payment = paymentInStatus(PaymentStatus.PAID);
         stubFind(payment);
 
-        assertThatThrownBy(() -> paymentService.handleCallback(command(CallbackType.CANCEL)))
-                .isInstanceOf(InvalidCallbackException.class);
+        assertThat(paymentService.handleCallback(command(CallbackType.CANCEL)))
+                .contains(ReconciliationIssueType.PG_PAYMENT_CANCEL_ON_PAID);
 
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PAID);
+        verifyConflictRecorded(ReconciliationIssueType.PG_PAYMENT_CANCEL_ON_PAID);
         verify(eventPublisher, never()).publishEvent(any());
     }
 
@@ -242,14 +256,54 @@ class PaymentCallbackTest {
     // ---------- 행 미발견 ----------
 
     @Test
-    @DisplayName("attempt_key 미매칭 → InvalidCallbackException")
-    void callback_attemptKeyNotFound_rejects() {
-        // Track 104-1 D-215: 행 존재는 주문 락 대상 해소(스칼라 조회)에서 판정한다 — 비면 락도 결제 적재도 없이 거부.
+    @DisplayName("attempt_key 미매칭 → 주문 없이 불일치 기록(PG_UNMATCHED_CALLBACK)·락·결제 적재 없음(D-216)")
+    void callback_attemptKeyNotFound_recordsUnmatched() {
+        // Track 104-1 D-215: 행 존재는 주문 락 대상 해소(스칼라 조회)에서 판정한다 — 비면 락도 결제 적재도 없이 기록만 한다.
         when(paymentRepository.findOrderIdByPaymentAttemptKey(ATTEMPT_KEY)).thenReturn(Optional.empty());
+
+        assertThat(paymentService.handleCallback(command(CallbackType.SUCCESS)))
+                .contains(ReconciliationIssueType.PG_UNMATCHED_CALLBACK);
+        verify(reconciliationIssueRecorder).record(eq(ReconciliationIssueType.PG_UNMATCHED_CALLBACK),
+                eq("payment-attempt:" + ATTEMPT_KEY + ":SUCCESS"), any(), any());
+        verify(eventPublisher, never()).publishEvent(any());
+        verify(orderService, never()).lockForWrite(any());
+        verify(paymentRepository, never()).findByPaymentAttemptKey(any());
+    }
+
+    @Test
+    @DisplayName("결제 행은 있는데 주문 행 없음(FK상 도달 경로 미발견) → InvalidCallbackException 유지")
+    void success_pending_orderRowMissing_rejects() {
+        Payment payment = paymentInStatus(PaymentStatus.PENDING);
+        stubFind(payment);
+        when(paymentRepository.existsByOrderIdAndStatus(ORDER_ID, PaymentStatus.PAID)).thenReturn(false);
+        when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> paymentService.handleCallback(command(CallbackType.SUCCESS)))
                 .isInstanceOf(InvalidCallbackException.class);
+        verify(reconciliationIssueRecorder, never()).record(any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("SUCCESS × PENDING + 선조회 통과 뒤 다른 주문의 동시 승인과 pgTid UNIQUE 충돌(flush) → 409 유지·불일치 미기록(롤백 경로·D-216 §1-A)")
+    void success_pending_concurrentPgTidFlushConflict_rejects409() {
+        Payment payment = paymentInStatus(PaymentStatus.PENDING);
+        stubFind(payment);
+        when(paymentRepository.existsByOrderIdAndStatus(ORDER_ID, PaymentStatus.PAID)).thenReturn(false);
+        when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.of(pendingOrder()));
+        when(paymentRepository.existsByPgProviderAndPgTid(PG_PROVIDER, PG_TID)).thenReturn(false);
+        doThrow(new DataIntegrityViolationException("flush",
+                new SQLException("Duplicate entry 'MOCK_PG-tid_xyz' for key 'uk_payment_provider_pg_tid'")))
+                .when(paymentRepository).flush();
+
+        assertThatThrownBy(() -> paymentService.handleCallback(command(CallbackType.SUCCESS)))
+                .isInstanceOf(PaymentPgTidConflictException.class);
+        verify(reconciliationIssueRecorder, never()).record(any(), any(), any(), any());
         verify(eventPublisher, never()).publishEvent(any());
-        verify(orderService, never()).lockForWrite(any());
+    }
+
+    /** 충돌은 결제 id 중복 키로 1회 기록되고 결제 저장은 일어나지 않는다(Track 104-2 D-216). */
+    private void verifyConflictRecorded(ReconciliationIssueType type) {
+        verify(reconciliationIssueRecorder).record(eq(type), eq("payment:" + PAYMENT_ID), any(), any());
+        verify(paymentRepository, never()).save(any());
     }
 }

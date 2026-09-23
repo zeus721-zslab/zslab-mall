@@ -40,6 +40,9 @@ class AuditFieldMaskingPolicyTest {
      * 2026-09-23 실측 61개: 감사 적재 호출부가 있는 main 소스의 diff 맵 키 전부(Track 101-A 신설분만이 아니라 정산·상품·
      * 셀러·회원·등급 등 <b>기존 소비처까지</b> 포함한다 — 정책은 필드 집합 전체에 걸리므로 부분만 박제하면 의미가 없다).
      * 갱신은 D-XX 박제와 함께 한다(필드를 늘린 트랙이 민감도를 판단했다는 기록이 남아야 한다).
+     * Track 104-2(D-216 §2) +7 = 68개: callbackStatus·claimStatus·claimType·completedTotalAfter·failureReason·paymentAmount·
+     * paymentStatus — 감사 diff가 아니라 같은 파일(RefundService)의 불일치 세부 키를 스캐너가 함께 잡은 것이다. 민감정보 없음(상태·금액·
+     * PG 실패 사유 문구)이라 평문 목록에 둔다.
      */
     private static final Set<String> RECORDED_AUDIT_FIELDS = Set.of(
             "accountHolder", "accountNumber", "accountNumberSuffix", "bankCode",
@@ -57,10 +60,12 @@ class AuditFieldMaskingPolicyTest {
             "saleStartAt", "saleStopSource", "sellerId", "sellerPublicId",
             "soldoutManual", "sortOrder", "status", "supplyPrice",
             "thumbnailUrl", "userId", "userPublicId", "variantCount",
-            "withdrawnAt");
+            "withdrawnAt",
+            "callbackStatus", "claimStatus", "claimType", "completedTotalAfter",
+            "failureReason", "paymentAmount", "paymentStatus");
 
     /**
-     * 위 집합 중 {@link Masker}가 실제로 가리는 필드(2026-09-23 실측 2개). 나머지 59개는 평문으로 적재된다 —
+     * 위 집합 중 {@link Masker}가 실제로 가리는 필드(2026-09-23 실측 2개). 나머지 66개는 평문으로 적재된다 —
      * 상태·사유·수량·금액처럼 운영자가 추적하려고 남기는 값이라 가리면 감사가 쓸모없어진다.
      * {@code accountNumberSuffix}는 뒷자리만 담는 별도 필드라 의도적으로 가리지 않는다(정책 목록에 없음).
      */

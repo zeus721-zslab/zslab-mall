@@ -53,8 +53,8 @@ describe('증감률', () => {
 })
 
 describe('처리 대기', () => {
-  it('8칸 순서·링크: 정산·클레임·배송·재고 임박·상품 승인·셀러 승인·클레임 처리 대기·장기 배송중 전부 목록 필터로', () => {
-    expect(PENDING_TILES.map((tile) => tile.key)).toEqual(['settlementPending', 'claimRequested', 'deliveryReady', 'lowStock', 'productPending', 'sellerPending', 'claimFollowup', 'longShipping'])
+  it('9칸 순서·링크: 정산·클레임·배송·재고 임박·상품 승인·셀러 승인·클레임 처리 대기·장기 배송중·불일치 전부 목록 필터로', () => {
+    expect(PENDING_TILES.map((tile) => tile.key)).toEqual(['settlementPending', 'claimRequested', 'deliveryReady', 'lowStock', 'productPending', 'sellerPending', 'claimFollowup', 'longShipping', 'reconciliationOpen'])
     expect(PENDING_TILES[0]!.to).toBe('/admin/settlements?status=PENDING')
     expect(PENDING_TILES[1]!.to).toBe('/admin/orders/claims?status=REQUESTED')
     expect(PENDING_TILES[2]!.to).toBe('/admin/orders?status=PAID')
@@ -66,6 +66,8 @@ describe('처리 대기', () => {
     expect(PENDING_TILES[6]!.to).toBe('/admin/orders/claims?action=FOLLOWUP')
     // Track 99(FE-61·D-210): 장기 배송중은 배송 목록 status=SHIPPING(BE는 발송 후 3일 이상 건수·목록은 배송중 전체라 근사)
     expect(PENDING_TILES[7]!.to).toBe('/admin/orders/deliveries?status=SHIPPING')
+    // Track 104-2(FE-66·D-216): 불일치는 불일치 목록 status=OPEN(BE 카운트와 같은 조건)
+    expect(PENDING_TILES[8]!.to).toBe('/admin/orders/reconciliation?status=OPEN')
   })
 
   it('톤: 0건 회색, 1건 이상은 정산·클레임·배송 노랑·재고 임박 빨강', () => {
@@ -74,11 +76,13 @@ describe('처리 대기', () => {
     expect(pendingChipClass(settlement!, 3)).toBe('adm-chip adm-chip--warning')
     expect(pendingChipClass(lowStock!, 0)).toBe('adm-chip adm-chip--neutral')
     expect(pendingChipClass(lowStock!, 1)).toBe('adm-chip adm-chip--danger')
-    const [, , , , productPending, sellerPending, claimFollowup, longShipping] = PENDING_TILES
+    const [, , , , productPending, sellerPending, claimFollowup, longShipping, reconciliationOpen] = PENDING_TILES
     expect(pendingChipClass(productPending!, 1)).toBe('adm-chip adm-chip--warning')
     expect(pendingChipClass(sellerPending!, 0)).toBe('adm-chip adm-chip--neutral')
     expect(pendingChipClass(claimFollowup!, 2)).toBe('adm-chip adm-chip--warning')
     expect(pendingChipClass(longShipping!, 2)).toBe('adm-chip adm-chip--warning')
+    expect(pendingChipClass(reconciliationOpen!, 0)).toBe('adm-chip adm-chip--neutral')
+    expect(pendingChipClass(reconciliationOpen!, 1)).toBe('adm-chip adm-chip--danger')
   })
 })
 

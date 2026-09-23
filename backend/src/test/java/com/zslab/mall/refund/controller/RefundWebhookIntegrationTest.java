@@ -53,6 +53,8 @@ class RefundWebhookIntegrationTest extends AbstractIntegrationTest {
     private static final long CLAIM_ID = 9001L;
     private static final long VARIANT_ID = 9001L;
     private static final long FULL_AMOUNT = 10_000L;
+    /** 매칭 환불 없는 통지 재현용 pgRefundId(D-175·D-216). */
+    private static final String UNKNOWN_PG_REFUND_ID = "mock_rfn_stage5_unknown";
 
     @Autowired
     private MockMvc mockMvc;
@@ -158,14 +160,17 @@ class RefundWebhookIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("webhook 미존재 pgRefundId(삭제·미등록 환불 콜백·D-175): 404(RefundNotFound 기존 매핑)·500 fallback 없음")
-    void webhook_unknownPgRefundId_notFound404() throws Exception {
-        String body = "{ \"pgRefundId\": \"mock_rfn_stage5_unknown\", \"status\": \"SUCCESS\" }";
+    @DisplayName("webhook 미존재 pgRefundId(삭제·미등록 환불 콜백·D-175): 404 유지(PG 재전송 유도)·주문 없는 불일치 1행은 커밋·500 fallback 없음(D-216 결정 1)")
+    void webhook_unknownPgRefundId_recordsUnmatched() throws Exception {
+        String body = "{ \"pgRefundId\": \"" + UNKNOWN_PG_REFUND_ID + "\", \"status\": \"SUCCESS\" }";
 
         mockMvc.perform(post("/api/webhooks/refunds")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isNotFound());
+
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM reconciliation_issue WHERE issue_type = 'PG_UNMATCHED_CALLBACK' "
+                + "AND dedupe_key = ? AND order_id IS NULL", Integer.class, "pg-refund:" + UNKNOWN_PG_REFUND_ID + ":SUCCESS")).isEqualTo(1);
     }
 
     // ---------- helpers ----------
@@ -213,6 +218,7 @@ class RefundWebhookIntegrationTest extends AbstractIntegrationTest {
             try {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
                 jdbc.update("DELETE FROM refund WHERE claim_id = ?", CLAIM_ID);
+                jdbc.update("DELETE FROM reconciliation_issue WHERE dedupe_key LIKE ?", "pg-refund:" + UNKNOWN_PG_REFUND_ID + ":%");
                 jdbc.update("DELETE FROM claim WHERE id = ?", CLAIM_ID);
                 jdbc.update("DELETE FROM payment WHERE id = ?", PAYMENT_ID);
                 jdbc.update("DELETE FROM order_item WHERE id = ?", ORDER_ITEM_ID);
