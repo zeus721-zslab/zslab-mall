@@ -12325,9 +12325,9 @@ PG·SMS·이메일은 포트(`PaymentGateway`·`SmsSender`·`NotificationSender`
 - **첫 배포 실측(2026-09-23·PR #256)**: `deploy` job **51초**(전환 전 24분 15초·서버 빌드 포함). 이 51초는 gha 캐시가 비어 있는 1회차이며 `build` job 시간은 별도다. 서버에서 실제로 뜬 이미지의 ghcr digest를 로그로 확인했다.
 - **2회차 실측(2026-09-23·PR #257)**: gha 캐시가 적중해 `build`+`deploy` **전체 2분 미만**. 전환 전 24분 15초 → 1회차 `deploy` 51초(캐시 없음) → 2회차 2분 미만이 이 트랙의 최종 수치다. §8 "첫 배포 후 실측" 이월은 여기서 종결한다.
 - **라벨 prune 검증(2회차)**: 서버 `docker image prune` 로그에서 정리된 대상이 직전 ghcr 이미지 2개뿐임을 확인했다 — 라벨 필터(`org.opencontainers.image.source`)가 의도대로 동작해 서버의 다른 프로젝트 이미지에는 닿지 않았다.
-- **서버 메모리 실측(전환 후)**: 스왑 사용 5.1Gi(기준선 5.2Gi)·`so` 0·`wa` 0~1%. 기준선과 사실상 동일하다 — 배포 중 빌드 부하가 사라진 효과는 이번 회차로 분리되지 않으므로 다음 배포에서 재확인한다.
+- **서버 메모리 실측 — 이월 종결(2026-09-23)**: 전환 직후·2회차(PR #257)·Track 101-A 배포(PR #258) **3회 모두** 스왑 5.0~5.1Gi(기준선 5.2Gi)·`so` 0·`wa` 0~1%였다. 방식 A 전환 후 서버에서 빌드가 사라졌고 3회 연속 기준선 이하로 유지되므로 "다음 배포에서 재확인" 이월은 여기서 종결한다. 배포 시간도 전환 전 24분 15초 → 2회차 이후 2분 미만을 유지했다.
 - **GHCR public 전환은 불필요했다(실측)**: 패키지가 처음부터 pull 가능한 상태로 만들어져 최초 실행에서 `deploy`가 그대로 성공했다. 전환 전 예상(§2 트랩·런북 §2 초판)이 빗나간 지점이라 런북 §2를 실제 경과로 고쳐 썼다.
-- 잔존 정리 대상(미조치): 서버의 구 로컬빌드 태그 2개(합 638MB) · dangling 이미지 109개. dangling에는 다른 프로젝트 것이 섞여 있을 수 있어 라벨 필터 없는 일괄 prune을 하지 않았다 — `deploy` job의 라벨 필터 prune은 이 저장소 라벨이 붙은 것만 지우므로 구 로컬빌드 이미지에는 닿지 않는다(라벨이 없다). 정리는 zslab 판단.
+- 잔존 정리 대상(미조치): 서버의 구 로컬빌드 태그 2개(합 638MB) · dangling 이미지 109개. dangling에는 다른 프로젝트 것이 섞여 있을 수 있어 라벨 필터 없는 일괄 prune을 하지 않았다 — `deploy` job의 라벨 필터 prune은 이 저장소 라벨이 붙은 것만 지우므로 구 로컬빌드 이미지에는 닿지 않는다(라벨이 없다). 3회 배포 연속 109개로 증가는 없다 — 정리는 zslab 판단.
 - 서버 sparse-checkout에서 `backend/`·`frontend/`를 **제외할 수 있다**(빌드 컨텍스트가 러너로 이동해 서버에 소스가 필요 없다). 서버 작업이라 이번 범위 밖 — `decisions-fe.md:119,171,207`의 "sparse-checkout에 frontend/ 포함" 이월 항목은 이 결정으로 방향이 반대가 된다.
 - D-162의 정합 판정식(`git diff --stat <서버HEAD> origin/main -- backend frontend docker docker-compose.mall.yml deploy.yml`)은 서버가 소스를 더 이상 체크아웃하지 않게 되면 대조 대상이 `docker`·`docker-compose.mall.yml`로 줄어든다. sparse 목록을 실제로 줄일 때 함께 갱신한다.
 - 서버 아키텍처 확인됨: `uname -m` = x86_64(amd64). 러너 `ubuntu-latest`와 같아 크로스빌드(`platforms:`)가 필요 없다 — 정찰의 "서버 확인 필요" 항목 해소.
@@ -12396,3 +12396,49 @@ PG·SMS·이메일은 포트(`PaymentGateway`·`SmsSender`·`NotificationSender`
 - **클레임 경로 락 정책 통일 미적용**: 이번에 잠근 것은 구매자·공유 primitive 진입점 3곳뿐이고 관리자 승인·거부·검수는 `@Version`에 맡겼다. 운영자가 여럿이 되거나 자동화(스케줄러)가 클레임 전이에 들어오면 같은 기준으로 전 경로를 재판단한다.
 - `AuditFieldMaskingPolicyTest`의 소스 스캔은 감사 적재 파일의 `.put("키"` 전부를 세므로 감사와 무관한 맵 조립이 섞이면 과검출된다. 과검출은 "박제와 다르다"로 드러나 조용히 새는 쪽보다 안전하다고 보고 수용했다 — 오탐이 잦아지면 호출식 범위로 좁힌다.
 - 외부 검토: A / 지적 5건 중 수용 3건(회수 대행 동시성·취소 동시성·마스킹 테스트 고정) · 기각 2건(재고 이중 기록 책임 분리 · 감사 조회 whitelist는 적재 시 마스킹으로 일관)
+
+## D-213: 구매자 주문내역 통합 — 탭 1라우트 · 클레임 목록 기준을 주문 구매자로 전환 · 주문 카드 진행 중 클레임 배지 (Track 101-B) (2026-09-23)
+
+배경: 구매자에게 주문내역(`/orders`)과 클레임 내역(`/claims`)이 별도 메뉴였고 두 페이지는 구조가 1:1로 같았다(정찰 `docs/track-101/recon-report-101b.md` STEP 3). 주문 카드에는 클레임 진행 여부가 전혀 드러나지 않아 "내 반품이 어떻게 됐나"를 보려면 다른 메뉴로 옮겨 가야 했다. 정찰에서 **기존 결함 1건**도 드러났다 — 구매자 클레임 목록이 `requested_by` 기준(`ClaimRepository.findAllByRequestedBy`)인데 관리자 대행 취소는 `requested_by`가 관리자 user id라(`ClaimService.requestByAdmin`) 그 건이 구매자 목록에서 아예 빠졌다. 클레임 목록은 정렬도 미지정이었고 응답에 주문번호·상품명이 없어 "어느 주문의 무엇인지"를 알 수 없었다.
+
+결정:
+- **탭 1라우트**: `/orders?tab=order|cancel|return|exchange` 하나로 통합한다. `tab`·`page`를 URL 단일 소스로 올리고(로컬 ref 폐기) `/claims`는 `routeRules` 리다이렉트(`/orders?tab=cancel`)로 흡수한다. `/claims/{id}` 상세·`/claims/new`는 그대로 둔다.
+- **조회 기준 전환**: 구매자 클레임 목록·단건 조회·쓰기 진입점의 소유 판정을 전부 **주문의 구매자(`order.buyer_id`)** 로 옮긴다(`findAllByOrderBuyerId`·`findOrderBuyerIdByClaimId`). `findAllByRequestedBy`는 소비처가 사라져 제거했다.
+- **유형 필터·정렬**: `GET /api/v1/claims?type=`(enum 바인딩·미지정 전체) 추가 · 정렬을 `requested_at DESC, id DESC`로 명시한다(주문 목록 `ordered_at DESC`와 나란히 놓이는 화면이라 순서가 흔들리면 안 된다).
+- **요약 확장**: `ClaimSummaryResponse`에 `orderNo`·`productName`을 더하고 관리자 목록 선례(`AdminClaimQueryService`)의 경량 projection 2쿼리(`findAllById` + `findOrderSummariesByIdIn`)로 채운다. Order 엔티티는 적재하지 않는다.
+- **주문 카드 배지**: `OrderSummaryResponse.activeClaims`(유형별 건수 목록·없으면 빈 목록)를 더한다. 집계는 페이지 단위 배치 1쿼리(`findByOrderItemIdInOrderByIdDesc`)이며 활성 판정은 신설 `ClaimStatus.isActive()`(REQUESTED·APPROVED)다.
+- **진입점 일원화**: 헤더 계정 드롭다운에서 "취소·반품·교환 내역" 항목을 없애고(6 → 5) 마이페이지 허브의 클레임 항목을 "주문 내역"으로 바꾼다.
+
+### §1-A 갈림길·채택/기각 근거
+- **조회 기준 = 주문 구매자(order.buyer_id) 【채택: 같은 저장소에 이미 이 기준이 있다 — 탈퇴 가드 `existsActiveByBuyerId`가 claim → order_item → order.buyer_id로 세며 주석에 "관리자 취소 생성분 포함"이라고 못박혀 있다. 즉 "구매자의 클레임"의 정의는 이미 주문 기준이었고 목록만 다른 기준을 쓰고 있었다. 탭 통합으로 주문과 클레임이 한 화면에 놓이면 이 불일치가 곧바로 보인다 — 주문 카드 배지(주문 기준)에는 뜨는데 취소 탭(requested_by 기준)에는 없는 행이 생긴다】** / requested_by 유지 + 배지도 requested_by로 맞추기 【기각: 관리자가 대신 취소해 준 건을 구매자가 확인할 방법이 계속 없다. 정찰이 잡은 결함을 그대로 두는 선택이다】 / 목록만 주문 기준·상세는 requested_by 유지 【기각: 목록에 보이는 행을 눌렀더니 404가 되는 화면 트랩】.
+- **소유 판정 통일 범위 = 조회 + 쓰기 3지점 전부 【채택: 지시는 단건 조회 통일이었으나, 조회만 바꾸면 상세는 열리는데 취소·회수 송장 등록은 404가 되는 새 불일치가 생긴다. 실제 동작 변화는 없다 — 관리자 대행 취소는 생성과 같은 트랜잭션에서 APPROVED까지 가므로(`requestByAdmin`) REQUESTED 한정인 구매자 취소 대상이 애초에 아니고, 대행 생성은 CANCEL뿐이라 회수 송장 경로에도 걸리지 않는다. 기준만 하나로 맞춘다】** / 조회만 전환 【기각: 위 불일치】.
+- **활성 판정 거처 = DB(JPQL) 한 곳·`ClaimStatus.isActive()`는 Java 쪽 단일 선언 + 대조 테스트(외부 검토 반영으로 1차안 수정) 【채택: 1차안은 배지 집계만 애플리케이션에서 `isActive()`로 걸렀는데, 그러면 종결 클레임까지 전부 적재한 뒤 버리게 되고(품목에 종결 행이 쌓일수록 적재량 증가) 거르는 지점이 DB·Java 둘이 된다. 배지 전용 `findActiveByOrderItemIdIn`을 내 조건을 쿼리로 내리고 Java 필터를 없앴다 — 쿼리 수는 1 그대로다. 기존 배치 메서드(`findByOrderItemIdInOrderByIdDesc`)는 소비처 4곳이 종결 행을 필요로 해 건드리지 않았다. 중복 자체는 `ClaimActiveStatusConsistencyTest`가 모든 상태에 실제 행을 넣어 enum ↔ JPQL 4곳을 대조해 묶는다(한쪽만 고치면 깨진다)】** / 배지도 Java에서 거르기(1차안) 【기각: 위 이중 거름·불필요 적재】 / 서비스 private 상수 【기각: 같은 기준의 표현이 도메인 밖에 하나 더 생긴다】 / JPQL을 Specification으로 통합 【기각: 고쳐야 할 결함이 없는 코드를 건드린다(최소 변경)】.
+- **유형 필터 = 파생 쿼리 2메서드 【채택: `(:type IS NULL OR c.type = :type)` 한 메서드로 합치면 enum 파라미터의 null 비교가 타입 추론에 걸린다. 경우가 둘뿐이라 분기 한 줄이 더 싸다】** / Specification(이미 `JpaSpecificationExecutor` 상속) 【기각: 조건이 유형 하나뿐인데 동적 조립 기계를 들인다】.
+- **클레임 목록 enrich = 기존 projection에 `productName` 필드 추가(외부 검토 반영) 【채택: 주문번호와 상품명이 같은 `itemIds`로 각각 나가 같은 품목을 두 번 훑었다(품목 엔티티 적재 1 + 스칼라 projection 1). `OrderItemOrderProjection`은 이미 `orderItemId`를 키로 갖는 품목 축 projection이라 상품명이 들어갈 자리가 맞고, 인터페이스 projection이라 필드 추가가 기존 소비처 4곳(관리자 클레임·관리자/셀러 배송·셀러 품목)에 무영향이다. 5 → 4쿼리·엔티티 적재 0】** / 품목 조회만 남기고 주문번호를 품목에서 꺼내기 【기각: `OrderItem`이 소속 Order getter를 노출하지 않는다(Aggregate 단방향)】 / 클레임 목록 전용 projection 신설 【기각: 관리자 목록과 같은 모양의 타입이 하나 더 생긴다】.
+- **배지 데이터 = 유형별 건수 목록(BE) + 접기 규칙(FE) 【채택: "2종까지·초과 시 외 N"은 카드 폭이 정하는 화면 규칙이라 BE가 미리 접으면 화면이 바뀔 때마다 API가 바뀐다. BE는 사실(유형별 건수)만 내려준다】** / BE가 접은 문자열 【기각: 표현이 API에 굳는다】 / 대표 클레임 1건 【기각: 유형이 섞인 주문에서 나머지가 사라진다】.
+- **`/claims` = routeRules 리다이렉트 + 페이지 파일 삭제 【채택: 북마크·외부 링크 호환은 유지하면서 죽은 페이지를 남기지 않는다. `routeRules`는 정확 일치라 `/claims/new`·`/claims/{id}`는 그대로 산다】** / 리다이렉트 전용 페이지 유지 【기각: 같은 일을 하는 파일이 남는다】 / 경로 삭제 【기각: 기존 링크가 404】.
+
+### §2 확정 구현 규칙·트랩
+- 신규 BE: `BuyerOrderClaimTabIntegrationTest`(통합 7케이스). 신규 FE: `lib/constants/order-tabs.ts`·`lib/utils/active-claim-badge.ts`·`components/order/OrderSummaryCard.vue`·`components/claim/ClaimSummaryCard.vue`.
+- 배지 집계의 역인덱스는 **fetch join으로 이미 로딩된 items**에서 만든다 — 클레임 행에는 order_id가 없고 `OrderItem`도 소속 Order getter를 노출하지 않아(Aggregate 단방향) 주문으로 되접는 경로가 이것뿐이다.
+- 쿼리 수 실측(2026-09-23·Hibernate Statistics·외부 검토 반영 후): 주문 목록 **5**(페이지 select + count + items fetch join + 클레임 배치 + 인증 조회) · 클레임 목록 **4**(목록 + count + 환불 배치 + 주문·품목 projection). 클레임 목록은 품목 엔티티 배치 조회를 projection에 합쳐 5 → 4가 됐다. 테스트 예산은 각각 6·5(여유 1)로 잡아 N+1 회귀만 잡는다.
+- 클레임 목록 enrich에서 Order 엔티티를 적재하면 `shippingSnapshot`(OneToOne mappedBy·LAZY 불가)이 주문마다 SELECT를 더 낸다 — `OrderItemOrderProjection`을 쓴다(관리자 선례 주석 1:1).
+- `@WebMvcTest`의 `listClaims` 스텁은 인자가 4개가 됐다(`anyLong(), any(), anyInt(), anyInt()`). 유형 미지정 검증은 `isNull()`로 고정한다.
+- 허용값 밖 `type`은 스프링 enum 바인딩이 400으로 거른다(별도 검증 코드 없음·테스트로 고정).
+- **소유권 테스트 트랩(외부 검토 반영)**: `getClaim_otherOwner_throws`가 `findOrderBuyerIdByClaimId`를 스텁하지 않아 Mockito 기본값 `Optional.empty()`로 "해소 실패" 경로를 타고 있었다 — 404는 났지만 소유권 판정 자체는 검증되지 않았다. 해소는 되고 구매자만 다른 상태로 스텁을 채우고, 해소 실패는 `getClaim_orderBuyerUnresolved_throws`로 분리했다. 두 경로가 같은 404로 수렴하는 설계에서는 스텁 공백이 통과로 위장된다.
+- 목록 enrich의 `Collectors.toMap`은 값이 null이면 NPE다 — projection의 `productName`을 값으로 바로 담을 수 없어 projection 자체를 값으로 담고 조립 시 null을 푼다(이전 구현은 `productName != null` 필터로 회피하고 있었다).
+- 주문 카드는 카드 전체가 상세 링크인데 배지도 각자 탭으로 이동해야 한다 — `<a>` 중첩이 불가해 **상세 링크를 카드를 덮는 오버레이(absolute inset-0)로 깔고 배지만 z-10으로 올렸다**. 그 결과 앵커에 텍스트가 없어져 워크스루의 `a[href^="/orders/ord_"]` + hasText 필터가 깨진다 — 카드 `data-testid="order-card"` 기준으로 갱신했다(4파일).
+- 워크스루의 구매자 `/claims` 진입 2건(`admin-claim-return-inspect`·`admin-claim-exchange-full`)은 파일명이 admin이지만 첫 구간이 구매자다 — `/orders?tab=return|exchange`로 갱신했다.
+- 클레임 목록 `useFetch` key에 유형을 넣는다(`claim-list:<type>`). 고정 key면 한 라우트에서 탭이 갈릴 때 SSR 페이로드가 서로를 덮는다. 주문 탭 진입(type=null)은 `immediate: false`로 클레임을 조회하지 않는다.
+- 검증(로컬·2026-09-23): `gradlew test --rerun-tasks` **1496/0 실패**(기준선 1486 → +10) · typecheck 0 · vitest **713**(기준선 702 → +11) · Playwright 105 passed/1 failed/2 skipped(실패 `admin-categories ①`은 단독 재실행 통과·LT-22·LT-37 콜드 트랩) · 워크스루 18/18 2회 연속 **86·31·28 완전 일치**.
+- 재검증(외부 검토 반영 후·2026-09-23): `gradlew test --rerun-tasks` **1501/0 실패**(+5) · typecheck 0 · vitest **713**(FE 무변경) · Playwright **106 passed/0 failed/2 skipped**(LT-37 규정 명령·컨테이너 실행). BE만 바뀐 회차라 e2e 전 `zslab_mall_backend` restart 후 healthy를 확인하고 돌렸다 — 소스 bind-mount라 재기동만으로 새 코드가 뜬다.
+
+### §8 이월
+- **클레임 첨부 인가는 여전히 `requested_by` 기준이다**(`ClaimAttachmentAuthorizationService`). 이번 전환 범위(claim 도메인 조회·쓰기) 밖이라 두었다 — 관리자 대행 생성은 CANCEL뿐이고 CANCEL에는 반품 사진이 없어 실제 갭은 없으나, 대행 범위가 RETURN으로 넓어지면 같이 옮겨야 한다.
+- 주문 **상세**에는 클레임 배지를 넣지 않았다(이번 범위는 목록 카드). 상세에는 품목별 클레임 정보가 이미 있어 중복 여부를 판단한 뒤 결정한다.
+- 클레임 목록 `getCachedData` 미적용 — 탭 왕복 시 stale 노출 여부는 **미측정**이다(상세에는 이미 적용돼 있다).
+- 픽셀 `products` 2장 diff 87px는 시드 데이터 차이(상품 1건 가격 숫자 1자)로 코드 무관이다 — 픽셀 기준선이 워크스루 실행 이력에 오염되는 구조라, 기준선 캡처 시점을 restore 직후로 고정할지 검토 대상.
+- 배지 상한(유형 2종)은 카드 폭 기준으로 정한 값이며 운영 실측이 아니다.
+- 구매자 클레임 **취소 요청 1회에 소유권 조회가 2번** 나간다 — `cancelByBuyer`가 검증하고, 응답을 만들려고 곧바로 부르는 `getClaim`이 또 검증한다(컨트롤러가 취소 후 `getClaim`으로 응답을 조립하는 구조). 지적은 받았으나 이번엔 두지 않았다: 없애려면 `cancelByBuyer`가 조회 결과를 반환하도록 시그니처·책임을 바꿔야 하는데, 쓰기 1회당 가벼운 스칼라 조회 1건이 더 나가는 비용 대비 이득이 작다. 클레임 쓰기 경로를 다시 손볼 때 함께 본다.
+- 외부 검토: A / 지적 3건 중 수용 1건(클레임 목록 조회 합치기·5 → 4쿼리) · 부분 수용 1건(활성 판정 중복 — 배지 조건을 DB로 내리고 Java 필터 제거 + 전 상태 대조 테스트로 고정, JPQL 통합은 미채택) · 기각 1건(취소 요청의 소유권 중복 조회 — 시그니처 변경 대비 이득 작음) · 권한 경계 지적 없음
+
