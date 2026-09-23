@@ -12567,3 +12567,46 @@ PG·SMS·이메일은 포트(`PaymentGateway`·`SmsSender`·`NotificationSender`
 - (반영됨) FE 감사 대상 유형 `RECONCILIATION_ISSUE` — 처리 이력 "불일치 해결"·상태 라벨.
 - 결제 시작·환불 개시의 PG 호출이 트랜잭션 안에 있는 구조(D-215 §8)가 매칭 없는 통지 경합의 근원이다 — 실 어댑터 트랙에서 트랜잭션 밖으로 빼면 결정 1의 재전송 의존이 줄어든다.
 - 외부 검토: A / 지적 5건 중 수용 3건(자동 해소 조건·자동 해소 경합·점검 소진) · 기각 2건(pgTid 경합·이벤트 롤백 — PG 재전송 시 기록·반영)
+
+## D-217: Track 104-3a 환불 품목 귀속·PG 사실 보존 (2026-09-23)
+
+배경: 104-3 정찰(`docs/track-104/recon-report-104-3.md`)에서 환불 상한이 결제 단위 PAY-1(완료 환불 합계만)뿐이라 관리자 수동 환불이 품목 금액을 넘어 형제 품목 금액까지 나갈 수 있었고, 품목 단위 누계 조회가 없었다. D-216 §8 "104-3 필수" 2건 — (a) 실패(FAILED) 처리한 환불에 PG 성공 통지가 오면 사실은 불일치 행에만 남고 재개시 판정 3곳(initiate 멱등 게이트·관리자 목록·필요 액션 필터)·PAY-1이 보지 못해 관리자 재개시로 PG 이중 환불이 가능했다 (b) 완료(COMPLETED) 환불에 FAIL 통지가 오면 상태 전이 예외 → 500 → 롤백 → PG 무한 재전송이었다(P1 위반).
+
+결정:
+- **품목 상한**: 새 환불 amount ≤ order_item.total_price − 품목 기환불액. 기환불액 = COMPLETED + PENDING + (FAILED ∧ `pg_refund_succeeded_at` NOT NULL)의 amount 합, 품목 귀속은 refund → claim → `claim.order_item_id`. 결제 단위 PAY-1 사전(`RefundService.java:158-163`)·사후(`markCompleted`)는 보조로 유지. 위반은 `RefundInvariantViolationException` 422 "품목 상한 위반(사전): 기환불 X + 신규 Y > 품목 금액 Z"(`RefundService.java:148-156`).
+- **PG 성공 사실 컬럼**(V36): `refund.pg_refund_succeeded_at DATETIME(6) NULL`. 실패 환불의 SUCCESS 통지는 기존 `PG_REFUND_SUCCESS_ON_FAILED` 기록을 유지하고 `Refund.recordPgRefundSucceeded(LocalDateTime)`(`Refund.java:161` — 상태 불변·처음 값만)으로 행에도 남긴다(`RefundService.java:374-386`). 상태는 FAILED 그대로(RFN-2).
+- **"환불된 금액" 조건 단일 지점** `refund/repository/RefundedCondition`: JPQL 상수 `JPQL`(:19) · Criteria `predicate(Root<Refund>, CriteriaBuilder)`(:27) · 메모리 `matches(Refund)`(:36) 세 표현을 한 파일에 둔다.
+- **완료 환불의 FAIL 통지**: 전이 시도 없이 새 유형 `PG_REFUND_FAIL_ON_COMPLETED`(키 `refund:{id}`·detail.reason `REFUND_ALREADY_COMPLETED`) 기록 후 유형 반환(`RefundService.java:398-412`) → 웹훅 200(컨트롤러는 매칭 없음만 404). 유형 12값 4층위(V36 ENUM·`ReconciliationIssueType`·목록 필터 enum 바인딩·FE `reconciliation.ts`).
+- **재개시 판정 정합**: initiate 게이트·관리자 목록·필요 액션 필터가 같은 조건을 쓴다. 목록·필터는 "클레임의 환불 행 전체에 `RefundedCondition` 행 없음 + 품목 잔여 > 0". 응답 `AdminClaimSummaryResponse.pgRefundSucceeded`(boolean·:62) · FE 클레임 표 "PG 환불됨(실패 기록)" 칩(`AdminClaimTable.vue:261`).
+- **복구 배치 사전 제외**: `RefundRecoveryService.recoverMissingRefund(Long)`(:40)이 주문 락·품목 적재 뒤 품목 잔여 ≤ 0이면 initiate를 부르지 않고 log.warn + false(:47-52). 스케줄러 로그는 "제외" 건수를 분리(`RefundRecoveryScheduler.java:53-60`). 자동 핸들러 2개(ClaimApprovedHandler·ClaimInspectionPassedHandler) 무변경.
+
+### §1-A 갈림길·채택/기각 근거
+- **상한 기준 = 결제 단위 PAY-1 + 품목 단위 둘 다 【채택: 결제 단위만으로는 한 품목 환불이 형제 품목 금액까지 나가고, 품목 단위만으로는 할인·배송비가 생겼을 때 결제액 초과를 막지 못한다 — 서로 다른 초과를 막는다】** / α 결제 단위 유지 【기각: 관리자 수동 환불이 품목 금액을 넘어도 결제 잔액 안이면 통과(정찰 §1.3)】 / β 품목 단위로 대체 【기각: PAY-1은 결제 관점의 불변식(invariants PAY-1)이고 사후 검사가 PG 사실 충돌 기록(D-216)을 겸한다】.
+- **PG 성공 사실 반영 위치 = 환불 행 컬럼 【채택: 돈 계산(합계 쿼리)과 재개시 판정이 환불 행만 보고 같은 조건으로 판정할 수 있고, RFN-2 전이 규칙이 그대로다】** / α 불일치(reconciliation_issue) 조회 【기각: 해결(RESOLVED)된 행을 포함할지가 돈 판정에 섞이고, 불일치 행은 "확인할 일" 표식이라 돈의 근거로 쓰면 해결 처리가 금액을 바꾼다】 / γ 환불 상태 추가(예: FAILED_BUT_PG_SUCCEEDED) 【기각: 상태 집합이 늘면 Resolver·정산·클레임 체인이 파급된다 — D-216 §1-A 충돌 전이 기각과 같은 이유】.
+- **완료 환불의 FAIL 통지 = 새 유형 + 200 【채택: 기존 11유형 중 뜻이 맞는 것이 없고(성공 on 실패의 반대 방향) 운영자 조치가 다르다. 200이어야 기록이 커밋되고 PG 재전송이 멈춘다】** / 기존 유형 재사용 + detail.reason 【기각: `PG_REFUND_SUCCESS_ON_FAILED`에 반대 사실을 섞으면 유형 필터로 구분이 안 된다】.
+- **자동 경로 = 금액 그대로 + 복구 배치만 사전 제외 【채택: 자동 3경로는 품목 전액이 원래 규칙이고, 잔여가 없는 품목만 배치가 422를 되풀이한다】** / 자동 경로 금액을 품목 잔여로 축소 【기각: 새 귀속 규칙이다(결정 ④ "별도 귀속 규칙 없음") — 일부만 환불된 품목의 자동 전액 환불은 운영자가 판단한다】.
+- 목록 판정 범위(최신 1행 → 클레임 환불 전체): 대안 검토 없음 — initiate 게이트가 이미 전체 행을 보므로 "같은 조건" 요구의 직접 결과다(기존 매트릭스 M17 = 완료 행 + 최신 FAILED가 버튼은 보이고 게이트는 no-op이던 조합이 해소).
+- V35 무수정: 대안 검토 없음 — 적용된 마이그레이션 파일을 고치면 Flyway 체크섬 불일치로 기동이 막힌다(로컬 V35 적용 이력 실측). "12값"은 V36 머리 주석·Java enum Javadoc에만 적는다.
+
+### §2 확정 구현 규칙·결정 재진입
+- **기환불액 정의·단일 지점을 바꾸면 재진입할 지점**(전부 `RefundedCondition`을 경유 — 조건을 바꾸면 이 파일의 세 표현을 함께 고친다):
+  - initiate 멱등 게이트 `RefundRepository.findRefundedByClaimIdForUpdate(Long)`(:45) ← `RefundService.java:134`
+  - initiate 품목 상한 `RefundRepository.sumRefundedByOrderItemId(Long)`(:53) ← `RefundService.java:148-156`
+  - 관리자 목록 `AdminClaimQueryService` enrich(:160-170 — `RefundedCondition::matches`·`sumRefundedByOrderItemIdIn(Collection<Long>)`) → `availableActions(Claim, Delivery, Delivery, boolean, long)`(:266) → `refundInitiatable(Claim, boolean, long)`(:297)
+  - 필요 액션 필터·대시보드 처리 대기 `AdminClaimSpecifications.initiateRefund`(:185 — NOT EXISTS `RefundedCondition.predicate`) · `itemRemainingRefundable`(:202 — coalesce(sum) < 품목 금액 서브쿼리)
+  - 복구 배치 `RefundRecoveryService.recoverMissingRefund`(:47 `sumRefundedByOrderItemId`)
+- 새 조회는 모두 주문 쓰기 락 뒤다(initiate·복구 배치). 전역 READ COMMITTED라 합계 쿼리는 최신 커밋을 읽고, 환불 행을 쓰는 경로(개시·콜백)가 같은 주문 락을 먼저 잡으므로 품목 합계가 경쟁 없이 계산된다.
+- 목록 쿼리 +1(품목 기환불액 배치) — 쿼리 예산 Track80 10 → 11 · ClaimExchange 목록 12 → 13(실측 13).
+- **트랩(검증 1회차 실패)**: `ClaimPipelineIntegrationTest` T4 시드가 한 품목에 APPROVED 취소 클레임 4건을 겹쳐 두고(CLM-5 위반 합성) 그중 하나에 PENDING 환불을 둬, PENDING이 기환불액에 들어가 같은 품목의 누락 복구 대상 잔여가 0 → 복구 제외. PENDING 클레임을 별도 품목(ITEM_C)으로 옮겨 해소(제품 코드 무변경).
+- **Flyway 트랩**: 적용된 마이그레이션은 주석 한 줄도 고치지 않는다 — 체크섬이 바뀌면 운영·로컬 기동이 막히고 테스트(새 DB)는 통과해 CI에서 드러나지 않는다.
+- 검증(2026-09-23): BE 영향 테스트(`*Refund*`·`*Reconciliation*`·`*AdminClaim*`·`*Settlement*`·AuditFieldMaskingPolicyTest + 변경 클래스 참조 12 클래스 + Track80CancelFlowIntegrationTest) `--rerun-tasks` **287/0 실패/0 skip**(1회차 T4 시드 1 실패 → 승인 후 2회차) · FE typecheck 0 · vitest admin-reconciliation-view 9/9.
+- 셀프 리뷰(A): 지적 7건(상 0·중 1·하 6) 수용 0 — 전부 범위 밖·이월(§8).
+- 외부 검토: A / 지적 0건
+
+### §8 이월
+- PG 호출 예외로 `pg_refund_id` NULL인 FAILED 환불의 뒤늦은 성공 통지는 매칭 불가(`PG_UNMATCHED_CALLBACK`) — 재개시 시 이중 환불 잔존.
+- FAIL 통지 → 관리자 재개시(PG 2차 호출) → 원 환불의 늦은 SUCCESS 도착 시 이중 환불 — PG 조회 없이는 차단 불가(기록·불일치는 남는다).
+- 복구 배치에서 제외된 클레임은 환불 행이 생기지 않아 매 배치 다시 선별돼 id 오름차순 100건 창을 점유할 수 있다(잔여 0 < r < 품목 금액이면 initiate 422 반복).
+- 재개시 다이얼로그 기본 금액이 품목 전액이라 품목 잔여가 그보다 작으면 422 → 104-4.
+- PAY-1 사전·사후 합계와 결제 전액 환불 판정에 "FAILED + PG 성공" 미포함(결정 ① 범위 — PAY-1은 그대로 유지).
+- `RefundRepository.existsActiveByClaimId`(구 조건 PENDING·COMPLETED) main 호출처 0 — 삭제 보류.
