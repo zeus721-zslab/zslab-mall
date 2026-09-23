@@ -18,10 +18,14 @@ export const SETTLEMENT_STATUS_LABELS: Record<SettlementStatusCode, string> = {
   PAID: '지급완료',
 }
 
-/** BE SettlementItemType 2값(settlement_item.item_type ENUM). 상세 품목 탭과 1:1. */
-export type SettlementItemTypeCode = 'SALE' | 'REFUND'
+/**
+ * BE SettlementItemType 3값(settlement_item.item_type ENUM·V37). 상세 품목 탭과 1:1.
+ * CARRYOVER = 지급이 막힌 앞선 음수 정산의 부족분을 이 정산에서 차감한 행(Track 104-3b) — 헤더 "이월 차감"과 같은 이름을 쓴다.
+ */
+export type SettlementItemTypeCode = 'SALE' | 'REFUND' | 'CARRYOVER'
 
 export const SETTLEMENT_ITEM_TYPE_LABELS: Record<SettlementItemTypeCode, string> = {
   SALE: '판매',
   REFUND: '환불',
+  CARRYOVER: '이월 차감',
 }

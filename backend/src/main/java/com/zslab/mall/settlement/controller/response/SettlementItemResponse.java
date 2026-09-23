@@ -6,7 +6,7 @@ import com.zslab.mall.settlement.entity.SettlementItem;
 import com.zslab.mall.settlement.enums.SettlementItemType;
 import java.time.LocalDateTime;
 
-/** 정산 품목 스냅샷 행(Track 85·관리자·셀러 공용). */
+/** 정산 품목 스냅샷 행(Track 85·관리자·셀러 공용). CARRYOVER는 주문 품목이 없어 orderItemId·orderPublicId·productName·quantity가 null. */
 public record SettlementItemResponse(
         Long id,
         SettlementItemType itemType,
@@ -15,7 +15,7 @@ public record SettlementItemResponse(
         String orderPublicId,
         String productName,
         String optionLabel,
-        int quantity,
+        Integer quantity,
         long amount,
         int commissionRate,
         long feeAmount,

@@ -18,6 +18,7 @@ public record AdminSettlementSummaryResponse(
         long grossAmount,
         long feeAmount,
         long refundAmount,
+        long carryoverAmount,
         long netAmount,
         SettlementStatus status,
         LocalDate scheduledPayDate,
@@ -29,7 +30,7 @@ public record AdminSettlementSummaryResponse(
             boolean bankAccountRegistered, long saleItemCount) {
         return new AdminSettlementSummaryResponse(settlement.getId(), seller, settlement.getPeriodStart(),
                 settlement.getPeriodEnd(), settlement.getGrossAmount(), settlement.getFeeAmount(),
-                settlement.getRefundAmount(), settlement.getNetAmount(), settlement.getStatus(),
+                settlement.getRefundAmount(), settlement.getCarryoverAmount(), settlement.getNetAmount(), settlement.getStatus(),
                 settlement.getScheduledPayDate(), settlement.getPaidAt(), bankAccountRegistered, saleItemCount);
     }
 }

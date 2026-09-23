@@ -72,7 +72,11 @@ public class Settlement extends AbstractFullAuditableEntity {
     @Column(name = "refund_amount", nullable = false)
     private Long refundAmount;
 
-    /** 정산액 = gross - fee - refund(STL-1). */
+    /** 이월 차감 합(CARRYOVER 품목 금액 합·앞선 음수 정산의 부족분·Track 104-3b). */
+    @Column(name = "carryover_amount", nullable = false)
+    private Long carryoverAmount;
+
+    /** 정산액 = gross - fee - refund - carryover(STL-1). */
     @Column(name = "net_amount", nullable = false)
     private Long netAmount;
 
@@ -99,11 +103,12 @@ public class Settlement extends AbstractFullAuditableEntity {
             Long grossAmount,
             Long feeAmount,
             Long refundAmount,
+            Long carryoverAmount,
             LocalDate scheduledPayDate) {
         if (sellerId == null || periodStart == null || periodEnd == null || grossAmount == null
-                || feeAmount == null || refundAmount == null || scheduledPayDate == null) {
-            throw new IllegalArgumentException(
-                    "Settlement 필수값 누락(sellerId·periodStart·periodEnd·grossAmount·feeAmount·refundAmount·scheduledPayDate).");
+                || feeAmount == null || refundAmount == null || carryoverAmount == null || scheduledPayDate == null) {
+            throw new IllegalArgumentException("Settlement 필수값 누락(sellerId·periodStart·periodEnd·grossAmount·feeAmount·"
+                    + "refundAmount·carryoverAmount·scheduledPayDate).");
         }
         Settlement settlement = new Settlement();
         settlement.sellerId = sellerId;
@@ -112,7 +117,8 @@ public class Settlement extends AbstractFullAuditableEntity {
         settlement.grossAmount = grossAmount;
         settlement.feeAmount = feeAmount;
         settlement.refundAmount = refundAmount;
-        settlement.netAmount = grossAmount - feeAmount - refundAmount;
+        settlement.carryoverAmount = carryoverAmount;
+        settlement.netAmount = grossAmount - feeAmount - refundAmount - carryoverAmount;
         settlement.scheduledPayDate = scheduledPayDate;
         settlement.status = SettlementStatus.PENDING;
         return settlement;

@@ -445,8 +445,9 @@ class ClaimExchangeIntegrationTest extends AbstractIntegrationTest {
         assertThat(refundRepository.aggregateRefundBySeller(RefundStatus.COMPLETED, confirmedAt.minusMinutes(1), confirmedAt.plusMinutes(1)))
                 .noneMatch(row -> row.getSellerId().equals(SELLER_ID));
         // Track 85 품목 스냅샷 소스: 교환 복귀 후 확정된 품목이 원가·교환 옵션 라벨로 SALE 소스에 포함된다
-        assertThat(orderItemRepository.findSettlementSaleSources(OrderItemStatus.CONFIRMED,
-                        confirmedAt.minusMinutes(1), confirmedAt.plusMinutes(1), SELLER_ID))
+        // (Track 104-3b: 소스 조회는 기간 하한 없이 "기간 말까지 + 미편입"이라 같은 셀러의 다른 미편입 품목과 섞일 수 있어 이 품목만 본다)
+        assertThat(orderItemRepository.findSettlementSaleSources(OrderItemStatus.CONFIRMED, confirmedAt.plusMinutes(1), SELLER_ID))
+                .filteredOn(source -> source.getOrderItemId().equals(ORDER_ITEM_ID))
                 .singleElement()
                 .satisfies(source -> {
                     assertThat(source.getOrderItemId()).isEqualTo(ORDER_ITEM_ID);

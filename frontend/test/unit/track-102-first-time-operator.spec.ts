@@ -45,7 +45,9 @@ describe('용어 표준 — 같은 값은 역할이 달라도 같은 말', () =>
     expect(ADMIN_SETTLEMENT_STATUS_LABEL).toBe(SETTLEMENT_STATUS_LABELS)
     expect(SELLER_SETTLEMENT_STATUS_LABEL).toBe(SETTLEMENT_STATUS_LABELS)
     expect(ADMIN_SETTLEMENT_ITEM_TABS.map((tab) => tab.label)).toEqual(SELLER_SETTLEMENT_ITEM_TABS.map((tab) => tab.label))
+    expect(ADMIN_SETTLEMENT_ITEM_TABS.map((tab) => tab.value)).toEqual(['SALE', 'REFUND', 'CARRYOVER'])
     expect(SETTLEMENT_ITEM_TYPE_LABELS.SALE).toBe('판매')
+    expect(SETTLEMENT_ITEM_TYPE_LABELS.CARRYOVER).toBe('이월 차감')
   })
 
   it('표준 문구 확정값: 승인대기·거부됨·관리자 판매중지·활성·매니저·확정 대기·거부', () => {

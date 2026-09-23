@@ -59,15 +59,18 @@ class AdminSettlementControllerIntegrationTest extends AbstractIntegrationTest {
     private EntityManager entityManager;
 
     private TransactionTemplate tx;
+    private long settlementIdBefore;
 
     @BeforeEach
     void setUp() {
         tx = new TransactionTemplate(txManager);
         cleanup();
+        settlementIdBefore = jdbc.queryForObject("SELECT COALESCE(MAX(id), 0) FROM settlement", Long.class);
     }
 
     @AfterEach
     void tearDown() {
+        cleanupCreatedSettlements();
         cleanup();
     }
 
@@ -253,6 +256,18 @@ class AdminSettlementControllerIntegrationTest extends AbstractIntegrationTest {
             .setParameter(5, confirmedAt)
             .setParameter(6, ORDER_ID)
             .executeUpdate();
+    }
+
+    /**
+     * 이 테스트 중 만들어진 정산을 셀러와 무관하게 지운다(Track 104-3b). 생성은 전 셀러 대상이고 기간 하한이 없어 다른 테스트의 미정산 잔여
+     * 사실까지 편입할 수 있다 — 남기면 그 품목의 settlement_item 출처 키가 뒤 테스트의 편입을 막는다. 모든 변수는 ? 바인딩이다.
+     */
+    private void cleanupCreatedSettlements() {
+        tx.executeWithoutResult(s -> {
+            jdbc.update("DELETE FROM audit_log WHERE target_type = 'SETTLEMENT' AND target_id > ?", settlementIdBefore);
+            jdbc.update("DELETE FROM settlement_item WHERE settlement_id > ?", settlementIdBefore);
+            jdbc.update("DELETE FROM settlement WHERE id > ?", settlementIdBefore);
+        });
     }
 
     private void cleanup() {

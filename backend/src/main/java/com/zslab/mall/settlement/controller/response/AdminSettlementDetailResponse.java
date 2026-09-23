@@ -17,6 +17,7 @@ public record AdminSettlementDetailResponse(
         long grossAmount,
         long feeAmount,
         long refundAmount,
+        long carryoverAmount,
         long netAmount,
         SettlementStatus status,
         LocalDate scheduledPayDate,
@@ -24,14 +25,16 @@ public record AdminSettlementDetailResponse(
         boolean bankAccountRegistered,
         long saleItemCount,
         long refundItemCount,
+        long carryoverItemCount,
         SettlementSellerContactResponse sellerContact,
         SettlementBankAccountResponse bankAccount) {
 
     public static AdminSettlementDetailResponse of(AdminSettlementSummaryResponse summary, long refundItemCount,
-            SettlementSellerContactResponse sellerContact, SettlementBankAccountResponse bankAccount) {
+            long carryoverItemCount, SettlementSellerContactResponse sellerContact, SettlementBankAccountResponse bankAccount) {
         return new AdminSettlementDetailResponse(summary.id(), summary.seller(), summary.periodStart(),
                 summary.periodEnd(), summary.grossAmount(), summary.feeAmount(), summary.refundAmount(),
-                summary.netAmount(), summary.status(), summary.scheduledPayDate(), summary.paidAt(),
-                summary.bankAccountRegistered(), summary.saleItemCount(), refundItemCount, sellerContact, bankAccount);
+                summary.carryoverAmount(), summary.netAmount(), summary.status(), summary.scheduledPayDate(), summary.paidAt(),
+                summary.bankAccountRegistered(), summary.saleItemCount(), refundItemCount, carryoverItemCount, sellerContact,
+                bankAccount);
     }
 }

@@ -48,7 +48,7 @@ class SettlementRepositoryTest extends Batch1DataJpaTestBase {
         LocalDateTime start = LocalDateTime.of(2026, 6, 1, 0, 0);
         LocalDateTime end = LocalDateTime.of(2026, 6, 30, 23, 59);
         Settlement saved = settlementRepository.saveAndFlush(
-            Settlement.create(sellerId, start, end, 1_000_000L, 30_000L, 20_000L, LocalDate.of(2026, 7, 20)));
+            Settlement.create(sellerId, start, end, 1_000_000L, 30_000L, 20_000L, 0L, LocalDate.of(2026, 7, 20)));
         entityManager.clear();
 
         Optional<Settlement> found = settlementRepository.findById(saved.getId());

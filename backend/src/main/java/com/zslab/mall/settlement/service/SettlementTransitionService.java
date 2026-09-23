@@ -92,7 +92,7 @@ public class SettlementTransitionService {
      * @return 지급 완료된(또는 이미 지급 상태인) Settlement
      * @throws SettlementNotFoundException           정산 미존재(404)
      * @throws SettlementInvalidStateException       PAID 전이가 불가한 상태(예: PENDING)인 경우(422)
-     * @throws SettlementNegativeNetException        net 음수(차감 이월 정책 미도입·422)
+     * @throws SettlementNegativeNetException        net 음수(422·부족분은 다음 정산 생성 시 이월 차감)
      * @throws SettlementBankAccountMissingException 주 정산계좌 부재(422)
      */
     public Settlement pay(Long settlementId, AuditContext auditContext) {

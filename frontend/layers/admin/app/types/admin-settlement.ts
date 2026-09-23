@@ -12,7 +12,7 @@ export interface AdminSettlementSellerRef {
   companyName: string
 }
 
-/** 목록 행(BE AdminSettlementSummaryResponse·13필드). 셀러별 이력 API도 같은 행을 내린다. */
+/** 목록 행(BE AdminSettlementSummaryResponse·14필드). 셀러별 이력 API도 같은 행을 내린다. */
 export interface AdminSettlementSummary {
   id: number
   seller: AdminSettlementSellerRef
@@ -21,6 +21,8 @@ export interface AdminSettlementSummary {
   grossAmount: number
   feeAmount: number
   refundAmount: number
+  /** 이월 차감 = 앞선 음수 정산의 부족분(Track 104-3b). net = gross − fee − refund − carryover. */
+  carryoverAmount: number
   netAmount: number
   status: AdminSettlementStatus
   scheduledPayDate?: string
@@ -35,6 +37,7 @@ export interface AdminSettlementMonthlyTotals {
   grossAmount: number
   feeAmount: number
   refundAmount: number
+  carryoverAmount: number
   netAmount: number
   pendingCount: number
   confirmedCount: number
@@ -75,23 +78,27 @@ export interface AdminSettlementBankAccount {
   snapshot: boolean
 }
 
-/** 상세(BE AdminSettlementDetailResponse = Summary + 환불 건수·연락처·계좌). */
+/** 상세(BE AdminSettlementDetailResponse = Summary + 환불·이월 건수·연락처·계좌). */
 export interface AdminSettlementDetail extends AdminSettlementSummary {
   refundItemCount: number
+  carryoverItemCount: number
   sellerContact?: AdminSettlementSellerContact
   bankAccount?: AdminSettlementBankAccount
 }
 
-/** 품목 스냅샷(BE SettlementItemResponse). refundId는 REFUND만, optionLabel은 옵션 없는 상품이면 생략. */
+/**
+ * 품목 스냅샷(BE SettlementItemResponse). refundId는 REFUND만, optionLabel은 옵션 없는 상품이면 생략.
+ * CARRYOVER는 주문 품목이 없어 orderItemId·orderPublicId·productName·quantity가 생략된다.
+ */
 export interface AdminSettlementItem {
   id: number
   itemType: AdminSettlementItemType
-  orderItemId: number
+  orderItemId?: number
   refundId?: number
-  orderPublicId: string
-  productName: string
+  orderPublicId?: string
+  productName?: string
   optionLabel?: string
-  quantity: number
+  quantity?: number
   amount: number
   commissionRate: number
   feeAmount: number
@@ -111,6 +118,7 @@ export interface AdminSettlementBatchResponse {
     grossAmount: number
     feeAmount: number
     refundAmount: number
+    carryoverAmount: number
     netAmount: number
     scheduledPayDate?: string
   }[]
@@ -131,6 +139,7 @@ export interface AdminSettlementRegenerateResponse {
   grossAmount?: number
   feeAmount?: number
   refundAmount?: number
+  carryoverAmount?: number
   netAmount?: number
 }
 

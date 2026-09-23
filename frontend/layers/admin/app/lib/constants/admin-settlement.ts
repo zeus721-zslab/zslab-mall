@@ -22,12 +22,13 @@ export const ADMIN_SETTLEMENT_STATUS_OPTIONS: { value: AdminSettlementStatus; ti
   ['PENDING', 'CONFIRMED', 'PAID'] as AdminSettlementStatus[]
 ).map((value) => ({ value, title: ADMIN_SETTLEMENT_STATUS_LABEL[value] }))
 
-/** BE SettlementItemType 2값(settlement_item.item_type ENUM). 상세 품목 탭과 1:1. */
-export type AdminSettlementItemType = 'SALE' | 'REFUND'
+/** BE SettlementItemType 3값(settlement_item.item_type ENUM·V37). 상세 품목 탭과 1:1. */
+export type AdminSettlementItemType = 'SALE' | 'REFUND' | 'CARRYOVER'
 
 export const ADMIN_SETTLEMENT_ITEM_TABS: { value: AdminSettlementItemType; label: string }[] = [
   { value: 'SALE', label: SETTLEMENT_ITEM_TYPE_LABELS.SALE },
   { value: 'REFUND', label: SETTLEMENT_ITEM_TYPE_LABELS.REFUND },
+  { value: 'CARRYOVER', label: SETTLEMENT_ITEM_TYPE_LABELS.CARRYOVER },
 ]
 export const DEFAULT_ADMIN_SETTLEMENT_ITEM_TAB: AdminSettlementItemType = 'SALE'
 

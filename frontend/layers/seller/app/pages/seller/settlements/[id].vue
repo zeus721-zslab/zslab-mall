@@ -22,13 +22,14 @@ import { SELLER_SETTLEMENTS_PATH, resolveBackPath } from '#layers/seller/app/lib
 import { extractErrorCode, toSellerErrorMessage } from '#layers/seller/app/lib/seller-error-message'
 import { formatWon } from '#layers/seller/app/lib/format'
 import { formatDateTime } from '~/lib/utils/datetime'
+import { SETTLEMENT_ITEM_TYPE_LABELS } from '~/lib/constants/settlement'
 import { useSellerSettlements } from '#layers/seller/app/composables/useSellerSettlements'
 
 definePageMeta({ layout: 'seller', middleware: ['seller', 'seller-vuetify'] })
 useSeoMeta({ title: '정산 상세 · zslab-mall 셀러' })
 
 // 셀러 정산 상세(Track 90-B-3·Track 85 BE·관리자 settlements/[id].vue 골격 복제·읽기 전용·액션 없음). 헤더(기간·금액 4종·상태·지급예정일·지급일)·
-// 계좌(끝 4자리·스냅샷/현재 구분)·품목 탭(판매/환불·URL query ?tab=·?page=·?size=). 미존재·타 셀러·확정 대기(404)은 안내 + 목록 이동.
+// 계좌(끝 4자리·스냅샷/현재 구분)·품목 탭(판매/환불/이월 차감·URL query ?tab=·?page=·?size=). 미존재·타 셀러·확정 대기(404)은 안내 + 목록 이동.
 const route = useRoute()
 const router = useRouter()
 const settlementsApi = useSellerSettlements()
@@ -123,11 +124,16 @@ async function loadItems(): Promise<void> {
 }
 watch([activeTab, itemPage, itemSize, settlementId], () => { void loadItems() }, { immediate: true })
 
-const itemEmptyMessage = computed(() => (activeTab.value === 'SALE' ? '판매 품목이 없습니다' : '환불 품목이 없습니다'))
+const itemEmptyMessage = computed(() => `${SETTLEMENT_ITEM_TYPE_LABELS[activeTab.value]} 품목이 없습니다`)
 
 function tabCount(tab: SellerSettlementItemType): number {
   if (!detail.value) return 0
-  return tab === 'SALE' ? detail.value.saleItemCount : detail.value.refundItemCount
+  const counts: Record<SellerSettlementItemType, number> = {
+    SALE: detail.value.saleItemCount,
+    REFUND: detail.value.refundItemCount,
+    CARRYOVER: detail.value.carryoverItemCount,
+  }
+  return counts[tab]
 }
 </script>
 
@@ -171,14 +177,15 @@ function tabCount(tab: SellerSettlementItemType): number {
             <v-col cols="6" md="3"><div class="text-caption text-medium-emphasis">정산 기간</div><div class="text-body-2" data-testid="settlement-period">{{ formatDateTime(detail.periodStart).slice(0, 10) }} ~ {{ formatDateTime(detail.periodEnd).slice(0, 10) }}</div></v-col>
             <v-col cols="6" md="3"><div class="text-caption text-medium-emphasis">지급예정일</div><div class="text-body-2" data-testid="settlement-scheduled">{{ formatDateOnly(detail.scheduledPayDate) }}</div></v-col>
             <v-col cols="6" md="3"><div class="text-caption text-medium-emphasis">지급일</div><div class="text-body-2" data-testid="settlement-paid-at">{{ detail.paidAt ? formatDateTime(detail.paidAt) : '—' }}</div></v-col>
-            <v-col cols="6" md="3"><div class="text-caption text-medium-emphasis">품목</div><div class="text-body-2">판매 {{ detail.saleItemCount }} · 환불 {{ detail.refundItemCount }}</div></v-col>
+            <v-col cols="6" md="3"><div class="text-caption text-medium-emphasis">품목</div><div class="text-body-2">판매 {{ detail.saleItemCount }} · 환불 {{ detail.refundItemCount }} · 이월 차감 {{ detail.carryoverItemCount }}</div></v-col>
           </v-row>
           <v-divider class="my-4" />
           <v-row dense>
-            <v-col cols="6" md="3"><div class="text-caption text-medium-emphasis">매출</div><div class="text-body-1" data-testid="settlement-gross">{{ formatWon(detail.grossAmount) }}</div></v-col>
-            <v-col cols="6" md="3"><div class="text-caption text-medium-emphasis">수수료</div><div class="text-body-1" data-testid="settlement-fee">{{ formatWon(detail.feeAmount) }}</div></v-col>
-            <v-col cols="6" md="3"><div class="text-caption text-medium-emphasis">환불</div><div class="text-body-1" data-testid="settlement-refund">{{ formatWon(detail.refundAmount) }}</div></v-col>
-            <v-col cols="6" md="3"><div class="text-caption text-medium-emphasis">지급액</div><div class="text-body-1 font-weight-bold" :class="isNegativeNet(detail) ? 'text-error' : ''" data-testid="settlement-net">{{ formatWon(detail.netAmount) }}</div></v-col>
+            <v-col cols="6" md><div class="text-caption text-medium-emphasis">매출</div><div class="text-body-1" data-testid="settlement-gross">{{ formatWon(detail.grossAmount) }}</div></v-col>
+            <v-col cols="6" md><div class="text-caption text-medium-emphasis">수수료</div><div class="text-body-1" data-testid="settlement-fee">{{ formatWon(detail.feeAmount) }}</div></v-col>
+            <v-col cols="6" md><div class="text-caption text-medium-emphasis">환불</div><div class="text-body-1" data-testid="settlement-refund">{{ formatWon(detail.refundAmount) }}</div></v-col>
+            <v-col cols="6" md><div class="text-caption text-medium-emphasis">이월 차감</div><div class="text-body-1" data-testid="settlement-carryover">{{ formatWon(detail.carryoverAmount) }}</div></v-col>
+            <v-col cols="6" md><div class="text-caption text-medium-emphasis">지급액</div><div class="text-body-1 font-weight-bold" :class="isNegativeNet(detail) ? 'text-error' : ''" data-testid="settlement-net">{{ formatWon(detail.netAmount) }}</div></v-col>
           </v-row>
           <p v-if="isNegativeNet(detail)" class="text-caption text-error mt-3 mb-0" data-testid="settlement-negative-notice">지급액이 음수인 정산은 다음 정산에서 차감 이월됩니다.</p>
         </v-card-text>

@@ -12,15 +12,17 @@ public record SettlementRegenerateResponse(
         Long grossAmount,
         Long feeAmount,
         Long refundAmount,
+        Long carryoverAmount,
         Long netAmount) {
 
     public static SettlementRegenerateResponse from(SettlementRegenerateResult result) {
         if (result.regenerated() == null) {
-            return new SettlementRegenerateResponse(result.deletedSettlementId(), true, null, null, null, null, null);
+            return new SettlementRegenerateResponse(result.deletedSettlementId(), true, null, null, null, null, null, null);
         }
         return new SettlementRegenerateResponse(
                 result.deletedSettlementId(), false, result.regenerated().getId(),
                 result.regenerated().getGrossAmount(), result.regenerated().getFeeAmount(),
-                result.regenerated().getRefundAmount(), result.regenerated().getNetAmount());
+                result.regenerated().getRefundAmount(), result.regenerated().getCarryoverAmount(),
+                result.regenerated().getNetAmount());
     }
 }
