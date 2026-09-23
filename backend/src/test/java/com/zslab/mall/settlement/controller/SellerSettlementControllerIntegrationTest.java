@@ -149,9 +149,10 @@ class SellerSettlementControllerIntegrationTest extends AbstractIntegrationTest 
                 insertSettlement(STL_A_MAY_PENDING, SELLER_A, 2026, 5, "PENDING", null);
                 insertSettlement(STL_A_APR_PAID, SELLER_A, 2026, 4, "PAID", SELLER_A_ACCOUNT);
                 insertSettlement(STL_B_JUNE_CONFIRMED, SELLER_B, 2026, 6, "CONFIRMED", null);
-                jdbc.update("INSERT INTO settlement_item (id, settlement_id, item_type, order_item_id, refund_id, order_public_id, "
+                // source_id(V37 CHECK 필수) = SALE의 order_item_id.
+                jdbc.update("INSERT INTO settlement_item (id, settlement_id, item_type, order_item_id, refund_id, source_id, order_public_id, "
                         + "product_name, option_label, quantity, amount, commission_rate, fee_amount, occurred_at, created_at) "
-                        + "VALUES (?, ?, 'SALE', 1, NULL, 'ord_STL85SLRORDER000000000000', '상품1', NULL, 1, 15000, 1000, 1500, ?, NOW(6))",
+                        + "VALUES (?, ?, 'SALE', 1, NULL, 1, 'ord_STL85SLRORDER000000000000', '상품1', NULL, 1, 15000, 1000, 1500, ?, NOW(6))",
                         9495L, STL_A_JUNE_CONFIRMED, LocalDateTime.of(2026, 6, 10, 9, 0));
             } finally {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");

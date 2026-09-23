@@ -1,13 +1,16 @@
 package com.zslab.mall.settlement.integration;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.entry;
 
 import com.zslab.mall.audit.service.AuditContext;
 import com.zslab.mall.settlement.enums.SettlementStatus;
+import com.zslab.mall.settlement.exception.SettlementNegativeNetException;
 import com.zslab.mall.settlement.repository.SettlementRepository;
 import com.zslab.mall.settlement.repository.SettlementStatusTotalProjection;
 import com.zslab.mall.settlement.service.SettlementCreationService;
+import com.zslab.mall.settlement.service.SettlementTransitionService;
 import com.zslab.mall.support.AbstractIntegrationTest;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -49,6 +52,8 @@ class SettlementInclusionIntegrationTest extends AbstractIntegrationTest {
     private static final long CLAIM_B2 = 7372L;
     private static final long REFUND_A1 = 7381L;
     private static final long REFUND_B2 = 7382L;
+    private static final long PAYMENT_A = 7391L;
+    private static final long PAYMENT_A_AMOUNT = 25_000L;
     private static final long ID_RANGE_START = 7340L;
     private static final long ID_RANGE_END = 7399L;
     private static final long SALE_AMOUNT = 10_000L;
@@ -59,10 +64,14 @@ class SettlementInclusionIntegrationTest extends AbstractIntegrationTest {
     private static final LocalDateTime JAN_START = LocalDateTime.of(2025, 1, 1, 0, 0);
     private static final LocalDateTime JAN_END = LocalDateTime.of(2025, 1, 31, 23, 59, 59, 999_999_000);
     private static final LocalDateTime MAR_START = LocalDateTime.of(2025, 3, 1, 0, 0);
+    private static final LocalDateTime APR_START = LocalDateTime.of(2025, 4, 1, 0, 0);
+    private static final LocalDateTime APR_END = LocalDateTime.of(2025, 4, 30, 23, 59, 59, 999_999_000);
     private static final AuditContext ADMIN = AuditContext.of(7349L, "ADMIN");
 
     @Autowired
     private SettlementCreationService settlementCreationService;
+    @Autowired
+    private SettlementTransitionService settlementTransitionService;
     @Autowired
     private SettlementRepository settlementRepository;
     @Autowired
@@ -103,13 +112,17 @@ class SettlementInclusionIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("I2 이미 편입된 건 제외: 2월 정산(지급 완료)에 들어간 매출은 3월에 다시 들어오지 않고, 그 품목의 3월 환불은 3월 차감으로 들어온다")
+    @DisplayName("I2 이미 편입된 건 제외: 2월 정산(지급 완료)에 들어간 매출은 3월에 다시 들어오지 않고, 그 품목의 3월 환불은 3월 차감으로 들어온다"
+            + " · 결제액 = order_item.total_price(⑤ — 결제 금액·상태와 무관)")
     void alreadyIncludedSale_isExcluded_andRefundAfterPayoutIsDeductedNext() {
         seedSeller(SELLER_A);
         seedOrder(ORDER_A);
+        // ⑤: 주문 결제는 품목 합(10,000 + 20,000)과 다른 금액이고 취소 상태다 — 정산은 결제 행을 읽지 않고 품목 total_price만 쓴다.
+        seedPayment(PAYMENT_A, ORDER_A, PAYMENT_A_AMOUNT, "CANCELLED");
         seedItem(ITEM_A1, ORDER_A, SELLER_A, "CONFIRMED", LocalDateTime.of(2025, 2, 10, 12, 0), SALE_AMOUNT);
         settlementCreationService.createMonthlySettlements(YEAR, 2, ADMIN);
-        assertThat(amounts(SELLER_A, FEB_START)).isEqualTo("gross=10000 fee=1000 refund=0 carryover=0 net=9000");
+        assertThat(amounts(SELLER_A, FEB_START)).as("gross = order_item.total_price(결제 %d·CANCELLED 아님)", PAYMENT_A_AMOUNT)
+                .isEqualTo("gross=10000 fee=1000 refund=0 carryover=0 net=9000");
         jdbc.update("UPDATE settlement SET status = 'PAID', paid_at = NOW(6) WHERE id = ?", settlementId(SELLER_A, FEB_START));
 
         seedItem(ITEM_A2, ORDER_A, SELLER_A, "CONFIRMED", LocalDateTime.of(2025, 3, 10, 12, 0), 20_000L);
@@ -145,7 +158,8 @@ class SettlementInclusionIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("I4 음수 정산 이월: 확정된 음수 정산만 다음 정산에 CARRYOVER 차감(PENDING 음수 제외)·이월만 있는 셀러도 생성·재생성 후에도 1회·다음 달 재편입 없음")
+    @DisplayName("I4 음수 정산 이월: 확정된 음수 정산만 다음 정산에 CARRYOVER 차감(PENDING 음수 제외)·원 정산은 CONFIRMED 유지·지급 차단·"
+            + "이월만 있는 셀러도 생성·재생성 후에도 1회·다음 달 재편입 없음")
     void confirmedNegativeSettlement_isCarriedOverOnce() {
         seedSeller(SELLER_C);
         seedSeller(SELLER_D);
@@ -169,6 +183,13 @@ class SettlementInclusionIntegrationTest extends AbstractIntegrationTest {
         assertThat(carryover.get("order_item_id")).isNull();
         assertThat(amounts(SELLER_D, MAR_START)).as("이월만 있는 셀러").isEqualTo("gross=0 fee=0 refund=0 carryover=2000 net=-2000");
 
+        // ⑧ 원 정산은 되돌리지 않는다(상쇄): 이월 뒤에도 CONFIRMED·net −5000 그대로이고 지급은 계속 막힌다(422 SETTLEMENT_NET_NEGATIVE).
+        assertThat(statusOf(negativeFeb)).as("이월 직후 원 정산 상태 그대로").isEqualTo("CONFIRMED");
+        assertThatThrownBy(() -> settlementTransitionService.pay(negativeFeb, ADMIN))
+                .as("이월된 원 음수 정산도 지급 차단").isInstanceOf(SettlementNegativeNetException.class);
+        assertThat(statusOf(negativeFeb)).as("지급 시도 실패 후에도 CONFIRMED").isEqualTo("CONFIRMED");
+        assertThat(amounts(SELLER_C, FEB_START)).isEqualTo("gross=0 fee=0 refund=5000 carryover=0 net=-5000");
+
         settlementCreationService.regenerate(settlementId(SELLER_C, MAR_START), "이월 재생성", ADMIN);
         assertThat(amounts(SELLER_C, MAR_START)).as("재생성은 자기 이월 행을 지운 뒤 다시 편입")
                 .isEqualTo("gross=10000 fee=1000 refund=0 carryover=5000 net=4000");
@@ -180,28 +201,37 @@ class SettlementInclusionIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("I5 합계 이중 반영 없음: 이월 전 음수 정산은 합계에 반영, 다음 정산에 이월된 뒤에는 원 정산 net을 월·셀러 합계에서 빼 부족분이 한 번만 반영(건수 불변)")
+    @DisplayName("I5 합계 이중 반영 없음: 이월 전 음수 정산은 합계에 반영, 다음 정산에 이월된 뒤에는 원 정산 net을 월·셀러 합계에서 빼 부족분이 한 번만 반영(건수 불변)"
+            + " · 대조군: 이월되지 않은 CONFIRMED 음수 정산(4월)은 계속 포함 — 음수라서가 아니라 이월돼서 제외")
     void carriedOverNegativeSettlement_isCountedOnceInTotals() {
         seedSeller(SELLER_C);
         seedSettlement(SELLER_C, FEB_START, FEB_END, "CONFIRMED", -5_000L);
+        // 대조군: 3월 생성의 이월 대상은 기간 말 ≤ 3월 말뿐이라 4월 음수 정산은 이월되지 않는다.
+        SettlementStatusTotalProjection aprBase = confirmedRowOrNull(settlementRepository.sumByStatusForPeriod(APR_START, APR_END));
+        seedSettlement(SELLER_C, APR_START, APR_END, "CONFIRMED", -3_000L);
         assertThat(totalsByStatus(settlementRepository.sumByStatusForSeller(SELLER_C)))
-                .as("아직 이월되지 않은 음수 정산은 합계에 그대로").containsExactly(entry(SettlementStatus.CONFIRMED, "1:5000:0:-5000"));
+                .as("아직 이월되지 않은 음수 정산은 합계에 그대로").containsExactly(entry(SettlementStatus.CONFIRMED, "2:8000:0:-8000"));
         SettlementStatusTotalProjection febBefore = confirmedRow(settlementRepository.sumByStatusForPeriod(FEB_START, FEB_END));
 
         seedOrder(ORDER_C);
         seedItem(ITEM_C1, ORDER_C, SELLER_C, "CONFIRMED", LocalDateTime.of(2025, 3, 5, 12, 0), SALE_AMOUNT);
         settlementCreationService.createMonthlySettlements(YEAR, 3, ADMIN);
 
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM settlement_item WHERE item_type = 'CARRYOVER' AND source_id = ?",
+                Long.class, settlementId(SELLER_C, APR_START))).as("4월 음수 정산은 이월되지 않음(대조군 전제)").isZero();
         assertThat(totalsByStatus(settlementRepository.sumByStatusForSeller(SELLER_C)))
-                .as("원 정산 행은 남고(건수·환불 그대로) net은 이월받은 3월 정산에만")
-                .containsOnly(entry(SettlementStatus.CONFIRMED, "1:5000:0:0"), entry(SettlementStatus.PENDING, "1:0:5000:4000"));
+                .as("원 정산 행은 남고(건수·환불 그대로) 이월된 2월 net만 빠지고 이월 안 된 4월 −3000은 남는다")
+                .containsOnly(entry(SettlementStatus.CONFIRMED, "2:8000:0:-3000"), entry(SettlementStatus.PENDING, "1:0:5000:4000"));
         // 월 합계는 셀러로 거를 수 없어(공유 DB의 같은 달 다른 정산) 이월 전후 차이로 본다.
         SettlementStatusTotalProjection febAfter = confirmedRow(settlementRepository.sumByStatusForPeriod(FEB_START, FEB_END));
         assertThat(febAfter.getSettlementCount()).as("2월 월 합계 건수 불변").isEqualTo(febBefore.getSettlementCount());
         assertThat(febAfter.getRefundAmount()).isEqualTo(febBefore.getRefundAmount());
         assertThat(febAfter.getNetAmount() - febBefore.getNetAmount()).as("2월 월 합계 net에서 이월된 −5000만 빠짐").isEqualTo(5_000L);
+        SettlementStatusTotalProjection aprAfter = confirmedRow(settlementRepository.sumByStatusForPeriod(APR_START, APR_END));
+        assertThat(aprAfter.getSettlementCount() - countOf(aprBase)).as("4월 월 합계에 대조군 1건").isEqualTo(1L);
+        assertThat(aprAfter.getNetAmount() - netOf(aprBase)).as("4월 월 합계 net에 이월 안 된 −3000이 그대로 포함").isEqualTo(-3_000L);
         assertThat(jdbc.queryForObject("SELECT SUM(net_amount) FROM settlement WHERE seller_id = ?", Long.class, SELLER_C))
-                .as("행 net 합(-5000 + 4000)은 부족분을 두 번 뺀 값 — 합계 쿼리는 이 값을 쓰지 않는다").isEqualTo(-1_000L);
+                .as("행 net 합(-5000 − 3000 + 4000)은 2월 부족분을 두 번 뺀 값 — 합계 쿼리는 이 값을 쓰지 않는다").isEqualTo(-4_000L);
     }
 
     // ---------- seed·helpers ----------
@@ -214,6 +244,19 @@ class SettlementInclusionIntegrationTest extends AbstractIntegrationTest {
 
     private static SettlementStatusTotalProjection confirmedRow(List<SettlementStatusTotalProjection> rows) {
         return rows.stream().filter(row -> row.getStatus() == SettlementStatus.CONFIRMED).findFirst().orElseThrow();
+    }
+
+    /** 공유 DB에 그 달 CONFIRMED 정산이 없으면 null(기준값 0으로 본다). */
+    private static SettlementStatusTotalProjection confirmedRowOrNull(List<SettlementStatusTotalProjection> rows) {
+        return rows.stream().filter(row -> row.getStatus() == SettlementStatus.CONFIRMED).findFirst().orElse(null);
+    }
+
+    private static long countOf(SettlementStatusTotalProjection row) {
+        return row == null ? 0L : row.getSettlementCount();
+    }
+
+    private static long netOf(SettlementStatusTotalProjection row) {
+        return row == null ? 0L : row.getNetAmount();
     }
 
     private void seedSeller(long sellerId) {
@@ -232,6 +275,12 @@ class SettlementInclusionIntegrationTest extends AbstractIntegrationTest {
                 + "quantity, unit_price, total_price, commission_rate, item_status, confirmed_at, created_at, updated_at, product_name) "
                 + "VALUES (?, ?, ?, 1, 1, ?, 1, ?, ?, 1000, ?, ?, NOW(6), NOW(6), '편입 상품')",
                 itemId, pid("oit_", "INC" + itemId), orderId, sellerId, amount, amount, itemStatus, confirmedAt));
+    }
+
+    private void seedPayment(long paymentId, long orderId, long amount, String status) {
+        withoutForeignKeys(() -> jdbc.update("INSERT INTO payment (id, public_id, order_id, method, amount, status, payment_attempt_key, "
+                + "created_at, updated_at) VALUES (?, ?, ?, 'CARD', ?, ?, ?, NOW(6), NOW(6))",
+                paymentId, pid("pay_", "INC" + paymentId), orderId, amount, status, pid("pat_", "INC" + paymentId)));
     }
 
     private void seedCompletedRefund(long claimId, long refundId, long itemId, long amount, LocalDateTime refundedAt) {
@@ -262,6 +311,10 @@ class SettlementInclusionIntegrationTest extends AbstractIntegrationTest {
                 String.class, sellerId, periodStart);
     }
 
+    private String statusOf(Long settlementId) {
+        return jdbc.queryForObject("SELECT status FROM settlement WHERE id = ?", String.class, settlementId);
+    }
+
     private int settlementCount(long sellerId) {
         return jdbc.queryForObject("SELECT COUNT(*) FROM settlement WHERE seller_id = ?", Integer.class, sellerId);
     }
@@ -290,6 +343,7 @@ class SettlementInclusionIntegrationTest extends AbstractIntegrationTest {
             jdbc.update("DELETE FROM reconciliation_issue WHERE order_id BETWEEN ? AND ?", ID_RANGE_START, ID_RANGE_END);
             jdbc.update("DELETE FROM refund WHERE id BETWEEN ? AND ?", ID_RANGE_START, ID_RANGE_END);
             jdbc.update("DELETE FROM claim WHERE id BETWEEN ? AND ?", ID_RANGE_START, ID_RANGE_END);
+            jdbc.update("DELETE FROM payment WHERE id BETWEEN ? AND ?", ID_RANGE_START, ID_RANGE_END);
             jdbc.update("DELETE FROM order_item WHERE id BETWEEN ? AND ?", ID_RANGE_START, ID_RANGE_END);
             jdbc.update("DELETE FROM `order` WHERE id BETWEEN ? AND ?", ID_RANGE_START, ID_RANGE_END);
             jdbc.update("DELETE FROM seller WHERE id BETWEEN ? AND ?", ID_RANGE_START, ID_RANGE_END);

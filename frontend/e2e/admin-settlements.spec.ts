@@ -58,6 +58,10 @@ const SALE_ITEMS = [
 const REFUND_ITEMS = [
   { id: 3, itemType: 'REFUND', orderItemId: 11, refundId: 5, orderPublicId: ORDER_PID, productName: 'E2E 티셔츠', optionLabel: '색상: 블랙 / 사이즈: M', quantity: 1, amount: 20_000, commissionRate: 1000, feeAmount: 0, occurredAt: '2026-06-20T15:00:00+09:00' },
 ]
+// CARRYOVER는 주문 품목이 없다 — orderItemId·orderPublicId·productName·quantity를 아예 싣지 않는다(BE non_null 직렬화와 동일).
+const CARRYOVER_ITEMS = [
+  { id: 4, itemType: 'CARRYOVER', amount: 5_000, commissionRate: 0, feeAmount: 0, occurredAt: '2026-05-31T23:59:59.999999+09:00' },
+]
 
 interface Captured {
   listFail: boolean
@@ -76,6 +80,7 @@ async function mockSettlementApi(page: Page, options: { listStatus?: number; cre
     [ROW_PENDING, ROW_CONFIRMED, ROW_NEGATIVE, ROW_NO_ACCOUNT, ROW_PAID].map((row) => [row.id, detailOf(row)]),
   )
   detailById.set(STL_REGENERATED, detailOf(base(STL_REGENERATED, SELLER_A, 'E2E셀러A', { netAmount: 65_000 })))
+  detailById.set(STL_PENDING, { ...detailOf(ROW_PENDING), carryoverItemCount: 1 })
 
   await page.route((url) => url.pathname.endsWith('/api/v1/admin/settlements'), (route) => {
     const request = route.request()
@@ -104,7 +109,9 @@ async function mockSettlementApi(page: Page, options: { listStatus?: number; cre
   await page.route((url) => /\/api\/v1\/admin\/settlements\/\d+\/items$/.test(url.pathname), (route) => {
     const query = new URL(route.request().url()).searchParams
     captured.itemQueries.push(query)
-    return route.fulfill({ json: paged(query.get('type') === 'REFUND' ? REFUND_ITEMS : SALE_ITEMS) })
+    const type = query.get('type')
+    const items = type === 'REFUND' ? REFUND_ITEMS : type === 'CARRYOVER' ? CARRYOVER_ITEMS : SALE_ITEMS
+    return route.fulfill({ json: paged(items) })
   })
   await page.route((url) => /\/api\/v1\/admin\/settlements\/\d+\/(confirm|pay|regenerate)$/.test(url.pathname), (route) => {
     const request = route.request()
@@ -249,6 +256,18 @@ test.describe('관리자 정산(Track 85)', () => {
     await gotoPath(page, `/admin/settlements/${STL_PENDING}?back=${encodeURIComponent('/admin/settlements?year=2026&month=6&status=PENDING')}`)
     await page.getByTestId('settlement-back').click()
     await page.waitForURL((url) => url.pathname === '/admin/settlements' && url.searchParams.get('status') === 'PENDING')
+
+    // 이월 차감(CARRYOVER) 탭: 건수 표시 → 클릭 시 URL·API type=CARRYOVER → 주문 품목 없는 행은 "—"·주문 링크 없음(외부 검토 라운드 3)
+    await gotoPath(page, `/admin/settlements/${STL_PENDING}`)
+    await expect(page.getByTestId('settlement-tab-CARRYOVER').locator('span.text-medium-emphasis')).toHaveText('1')
+    await page.getByTestId('settlement-tab-CARRYOVER').click()
+    await page.waitForURL((url) => url.searchParams.get('tab') === 'CARRYOVER')
+    await expect(page.getByTestId('item-product')).toHaveCount(1)
+    await expect(page.getByTestId('item-product')).toHaveText('—')
+    await expect(page.getByTestId('item-order-no')).toHaveCount(0)
+    const carryoverRow = page.getByTestId('settlement-items-table').locator('tbody tr').first()
+    await expect(carryoverRow.locator('td').nth(3)).toHaveText('—')
+    expect(captured.itemQueries.at(-1)?.get('type')).toBe('CARRYOVER')
   })
 
   test('④ 확정 → POST confirm·확정 상태·지급완료 버튼 / 지급완료 → POST pay·지급일·스냅샷 계좌·액션 없음 / 재생성 → 사유 필수·POST body·새 정산으로 이동', async ({ page }) => {

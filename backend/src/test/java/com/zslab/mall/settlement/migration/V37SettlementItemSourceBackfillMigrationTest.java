@@ -23,7 +23,8 @@ import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 /**
  * V37 정산 품목 출처 키 backfill 검증(Track 104-3b·V34SaleStopSourceBackfillMigrationTest 패턴). 별도 스키마를 V36까지 마이그레이션 →
  * 두 정산에 SALE·REFUND 품목을 시딩 → V37 적용 → source_id 백필(SALE=order_item_id·REFUND=refund_id)·(item_type, source_id) 전역 UNIQUE·
- * 이월 행(주문 품목 없음) 적재 가능·기존 정산 carryover_amount 0을 확인한다. 통합 테스트 컨텍스트는 빈 스키마에 전체 마이그레이션을 한 번에 적용하므로 backfill 경로가
+ * 이월 행(주문 품목 없음) 적재 가능·기존 정산 carryover_amount 0과, 유형별 필수 컬럼 CHECK(CARRYOVER만 주문 품목 스냅샷 NULL 허용·
+ * 모든 유형 source_id 필수)를 확인한다. 통합 테스트 컨텍스트는 빈 스키마에 전체 마이그레이션을 한 번에 적용하므로 backfill 경로가
  * 실행되지 않는다(본 테스트가 유일한 커버).
  */
 class V37SettlementItemSourceBackfillMigrationTest {
@@ -61,7 +62,8 @@ class V37SettlementItemSourceBackfillMigrationTest {
     }
 
     @Test
-    @DisplayName("V36 상태의 SALE·REFUND 품목 → V37 적용 후 source_id 백필·(item_type, source_id) 전역 UNIQUE·이월 행 적재 가능·헤더 이월 0")
+    @DisplayName("V36 상태의 SALE·REFUND 품목 → V37 적용 후 source_id 백필·(item_type, source_id) 전역 UNIQUE(SALE·REFUND·CARRYOVER)·"
+            + "이월 행 적재 가능·헤더 이월 0")
     void v37_backfillsSourceIdAndEnforcesGlobalUnique() {
         migrateTo("36");
         // FK 부모 그래프 없이 시딩(세션 단일 커넥션이라 FOREIGN_KEY_CHECKS=0 유지). 모든 값은 ? 바인딩.
@@ -93,6 +95,12 @@ class V37SettlementItemSourceBackfillMigrationTest {
                 + "'2026-07-15 12:00:00', NOW(6))"))
                 .as("같은 매출 품목은 다른 정산에도 다시 들어갈 수 없다(전역 UNIQUE)")
                 .isInstanceOf(DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> jdbc.update("INSERT INTO settlement_item (settlement_id, item_type, order_item_id, refund_id, source_id, "
+                + "order_public_id, product_name, quantity, amount, commission_rate, fee_amount, occurred_at, created_at) "
+                + "VALUES (1, 'REFUND', 101, 501, 501, 'ord_V3700000000000000000000000', 'V37 상품', 1, 1000, 1000, 0, "
+                + "'2026-07-20 12:00:00', NOW(6))"))
+                .as("같은 환불(백필된 정산 2의 REFUND 501)은 다른 정산에도 다시 들어갈 수 없다(전역 UNIQUE)")
+                .isInstanceOf(DataIntegrityViolationException.class);
 
         jdbc.update("INSERT INTO settlement_item (settlement_id, item_type, source_id, amount, commission_rate, fee_amount, occurred_at, "
                 + "created_at) VALUES (2, 'CARRYOVER', 1, 5000, 0, 0, '2026-07-31 23:59:59.999999', NOW(6))");
@@ -104,6 +112,51 @@ class V37SettlementItemSourceBackfillMigrationTest {
                 .isInstanceOf(DataIntegrityViolationException.class);
         assertThat(jdbc.queryForObject("SELECT version FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 1", String.class))
                 .isEqualTo("37");
+    }
+
+    @Test
+    @DisplayName("V37 유형별 필수 컬럼 CHECK: SALE은 order_item_id·source_id NULL 거부, REFUND는 source_id NULL 거부·정상 저장, "
+            + "CARRYOVER는 주문 품목 4컬럼 NULL로 저장·source_id NULL은 거부")
+    void v37_checkConstraintAllowsNullSnapshotOnlyForCarryover() {
+        migrateTo("37");
+        jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
+        seedSettlement(1, "2026-07-01 00:00:00", "2026-07-31 23:59:59.999999");
+
+        assertThatThrownBy(() -> insertSale(null, 201L))
+                .as("SALE 행의 order_item_id NULL은 거부").isInstanceOf(DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> insertSale(201L, null))
+                .as("SALE 행의 source_id NULL은 거부(NULL이면 전역 UNIQUE가 보호하지 못한다)")
+                .isInstanceOf(DataIntegrityViolationException.class);
+        insertSale(201L, 201L);
+
+        assertThatThrownBy(() -> insertRefund(601L, null))
+                .as("REFUND 행의 source_id NULL은 거부").isInstanceOf(DataIntegrityViolationException.class);
+        insertRefund(601L, 601L);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM settlement_item WHERE item_type = 'REFUND' AND source_id = 601",
+                Long.class)).as("REFUND + source_id 정상은 저장").isEqualTo(1L);
+
+        jdbc.update("INSERT INTO settlement_item (settlement_id, item_type, source_id, amount, commission_rate, fee_amount, occurred_at, "
+                + "created_at) VALUES (1, 'CARRYOVER', 9, 5000, 0, 0, '2026-06-30 23:59:59.999999', NOW(6))");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM settlement_item WHERE item_type = 'CARRYOVER' AND order_item_id IS NULL "
+                + "AND order_public_id IS NULL AND product_name IS NULL AND quantity IS NULL", Long.class))
+                .as("CARRYOVER는 주문 품목 4컬럼 NULL로 저장").isEqualTo(1L);
+        assertThatThrownBy(() -> jdbc.update("INSERT INTO settlement_item (settlement_id, item_type, amount, commission_rate, fee_amount, "
+                + "occurred_at, created_at) VALUES (1, 'CARRYOVER', 5000, 0, 0, '2026-06-30 23:59:59.999999', NOW(6))"))
+                .as("CARRYOVER도 source_id NULL은 거부").isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    private void insertSale(Long orderItemId, Long sourceId) {
+        jdbc.update("INSERT INTO settlement_item (settlement_id, item_type, order_item_id, source_id, order_public_id, product_name, "
+                + "quantity, amount, commission_rate, fee_amount, occurred_at, created_at) "
+                + "VALUES (1, 'SALE', ?, ?, 'ord_V3700000000000000000000000', 'V37 상품', 1, 1000, 1000, 100, '2026-07-15 12:00:00', NOW(6))",
+                orderItemId, sourceId);
+    }
+
+    private void insertRefund(Long refundId, Long sourceId) {
+        jdbc.update("INSERT INTO settlement_item (settlement_id, item_type, order_item_id, refund_id, source_id, order_public_id, "
+                + "product_name, quantity, amount, commission_rate, fee_amount, occurred_at, created_at) "
+                + "VALUES (1, 'REFUND', 201, ?, ?, 'ord_V3700000000000000000000000', 'V37 상품', 1, 500, 1000, 0, '2026-07-20 12:00:00', NOW(6))",
+                refundId, sourceId);
     }
 
     private void seedSettlement(long id, String periodStart, String periodEnd) {

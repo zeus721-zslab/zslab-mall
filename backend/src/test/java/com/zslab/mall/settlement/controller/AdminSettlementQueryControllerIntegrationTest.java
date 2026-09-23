@@ -266,10 +266,12 @@ class AdminSettlementQueryControllerIntegrationTest extends AbstractIntegrationT
 
     private void insertItem(long id, long settlementId, String type, long orderItemId, Long refundId, String productName,
             long amount, long fee, LocalDateTime occurredAt) {
-        jdbc.update("INSERT INTO settlement_item (id, settlement_id, item_type, order_item_id, refund_id, order_public_id, "
+        // source_id(V37 CHECK 필수) = SALE은 order_item_id·REFUND는 refund_id(SettlementItem 팩토리와 같은 규칙).
+        jdbc.update("INSERT INTO settlement_item (id, settlement_id, item_type, order_item_id, refund_id, source_id, order_public_id, "
                 + "product_name, option_label, quantity, amount, commission_rate, fee_amount, occurred_at, created_at) "
-                + "VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 1, ?, 1000, ?, ?, NOW(6))",
-                id, settlementId, type, orderItemId, refundId, ORDER_PID, productName, amount, fee, occurredAt);
+                + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 1, ?, 1000, ?, ?, NOW(6))",
+                id, settlementId, type, orderItemId, refundId, refundId != null ? refundId : orderItemId, ORDER_PID, productName,
+                amount, fee, occurredAt);
     }
 
     private void cleanup() {
