@@ -76,6 +76,7 @@ const AUDIT_FIELD_LABEL: Record<string, string> = {
   grossAmount: '매출',
   feeAmount: '수수료',
   refundAmount: '환불',
+  carryoverAmount: '이월 차감',
   netAmount: '지급액',
   memo: '메모',
 }
@@ -119,6 +120,7 @@ const FIELD_VALUE_LABEL: Record<string, (value: string) => string> = {
   grossAmount: wonText,
   feeAmount: wonText,
   refundAmount: wonText,
+  carryoverAmount: wonText,
   netAmount: wonText,
 }
 

@@ -15,5 +15,7 @@ public interface SettlementStatusTotalProjection {
 
     Long getRefundAmount();
 
+    Long getCarryoverAmount();
+
     Long getNetAmount();
 }

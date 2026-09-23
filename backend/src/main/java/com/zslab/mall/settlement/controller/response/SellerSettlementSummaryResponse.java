@@ -15,6 +15,7 @@ public record SellerSettlementSummaryResponse(
         long grossAmount,
         long feeAmount,
         long refundAmount,
+        long carryoverAmount,
         long netAmount,
         SettlementStatus status,
         LocalDate scheduledPayDate,
@@ -23,7 +24,7 @@ public record SellerSettlementSummaryResponse(
     public static SellerSettlementSummaryResponse from(Settlement settlement) {
         return new SellerSettlementSummaryResponse(settlement.getId(), settlement.getPeriodStart(),
                 settlement.getPeriodEnd(), settlement.getGrossAmount(), settlement.getFeeAmount(),
-                settlement.getRefundAmount(), settlement.getNetAmount(), settlement.getStatus(),
+                settlement.getRefundAmount(), settlement.getCarryoverAmount(), settlement.getNetAmount(), settlement.getStatus(),
                 settlement.getScheduledPayDate(), settlement.getPaidAt());
     }
 }

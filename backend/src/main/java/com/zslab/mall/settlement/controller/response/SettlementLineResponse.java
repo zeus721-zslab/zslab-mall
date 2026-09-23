@@ -13,6 +13,7 @@ public record SettlementLineResponse(
         long grossAmount,
         long feeAmount,
         long refundAmount,
+        long carryoverAmount,
         long netAmount,
         LocalDate scheduledPayDate) {
 
@@ -23,6 +24,7 @@ public record SettlementLineResponse(
                 settlement.getGrossAmount(),
                 settlement.getFeeAmount(),
                 settlement.getRefundAmount(),
+                settlement.getCarryoverAmount(),
                 settlement.getNetAmount(),
                 settlement.getScheduledPayDate());
     }

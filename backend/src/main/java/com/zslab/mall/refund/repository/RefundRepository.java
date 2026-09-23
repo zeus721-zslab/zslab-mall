@@ -127,9 +127,12 @@ public interface RefundRepository extends JpaRepository<Refund, Long> {
             @Param("periodEnd") LocalDateTime periodEnd);
 
     /**
-     * 정산 기간 내 완료(COMPLETED) 환불을 스냅샷 소스로 조회한다(Track 85·settlement_item REFUND). 조인 경로·기간 기준·
-     * D-168 가드({@code oi.confirmedAt IS NOT NULL})는 {@link #aggregateRefundBySeller}와 동일하며 sellerId가 null이면 전 셀러,
-     * 아니면 해당 셀러만(재생성). 모든 변수는 :status·:periodStart·:periodEnd·:sellerId 바인딩만 사용하며 SQL injection 위험이 없다.
+     * 기간 말까지 완료(COMPLETED)됐고 아직 어느 정산에도 편입되지 않은 환불을 스냅샷 소스로 조회한다(Track 85·settlement_item REFUND ·
+     * Track 104-3b 결정 ⑦). 조인 경로·D-168 가드({@code oi.confirmedAt IS NOT NULL})는 {@link #aggregateRefundBySeller}와 동일하다.
+     * 기간 하한이 없으므로 앞선 기간에 빠진 환불(환불 뒤 늦은 확정·보류 해제·지급 후 환불)도 다음 정산의 차감으로 들어온다 — 편입 여부는
+     * settlement_item (REFUND, source_id) 전역 UNIQUE 키로 판정한다. 열린(OPEN) 불일치가 있는 주문의 환불은 제외한다(보류·결정 ⑥).
+     * sellerId가 null이면 전 셀러, 아니면 해당 셀러만(재생성). 모든 변수는 :status·:periodEnd·:sellerId 바인딩만 사용하며 SQL injection
+     * 위험이 없다.
      */
     @Query("SELECT r.id AS refundId, r.amount AS amount, r.refundedAt AS refundedAt, oi.id AS orderItemId, "
             + "oi.sellerId AS sellerId, o.publicId AS orderPublicId, oi.productName AS productName, "
@@ -139,13 +142,15 @@ public interface RefundRepository extends JpaRepository<Refund, Long> {
             + "AND c.orderItemId = oi.id "
             + "AND oi.confirmedAt IS NOT NULL "
             + "AND r.status = :status "
-            + "AND r.refundedAt >= :periodStart "
             + "AND r.refundedAt <= :periodEnd "
             + "AND (:sellerId IS NULL OR oi.sellerId = :sellerId) "
+            + "AND NOT EXISTS (SELECT 1 FROM SettlementItem si "
+            + "WHERE si.itemType = com.zslab.mall.settlement.enums.SettlementItemType.REFUND AND si.sourceId = r.id) "
+            + "AND NOT EXISTS (SELECT 1 FROM ReconciliationIssue ri "
+            + "WHERE ri.orderId = o.id AND ri.status = com.zslab.mall.reconciliation.enums.ReconciliationIssueStatus.OPEN) "
             + "ORDER BY oi.sellerId, r.refundedAt, r.id")
     List<SettlementRefundSourceProjection> findSettlementRefundSources(
             @Param("status") RefundStatus status,
-            @Param("periodStart") LocalDateTime periodStart,
             @Param("periodEnd") LocalDateTime periodEnd,
             @Param("sellerId") Long sellerId);
 }

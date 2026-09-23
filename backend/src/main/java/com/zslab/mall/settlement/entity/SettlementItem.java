@@ -24,7 +24,8 @@ import org.hibernate.type.SqlTypes;
  * 재생성은 삭제 후 재적재다.
  *
  * <p>중복 적재는 DB generated 컬럼 {@code dedup_key}(settlement_id:item_type:order_item_id:COALESCE(refund_id,0)) UNIQUE가 차단한다
- * (엔티티는 매핑하지 않음·읽기 불요).
+ * (엔티티는 매핑하지 않음·읽기 불요). 정산 사이의 중복은 (item_type, source_id) 전역 UNIQUE가 차단하며, 정산 조회가 이 키로 "이미 편입된
+ * 사실"을 제외한다(Track 104-3b·V37).
  */
 @Entity
 @Table(name = "settlement_item")
@@ -46,27 +47,31 @@ public class SettlementItem extends AbstractCreatedOnlyEntity {
     @Column(name = "item_type", nullable = false, updatable = false)
     private SettlementItemType itemType;
 
-    @Column(name = "order_item_id", nullable = false, updatable = false)
+    @Column(name = "order_item_id", updatable = false)
     private Long orderItemId;
 
     /** REFUND만 채움(SALE은 NULL). */
     @Column(name = "refund_id", updatable = false)
     private Long refundId;
 
+    /** 출처 id(SALE = order_item.id · REFUND = refund.id · CARRYOVER = 원 정산 id). (item_type, source_id) 전역 UNIQUE. */
+    @Column(name = "source_id", updatable = false)
+    private Long sourceId;
+
     @JdbcTypeCode(SqlTypes.CHAR)
-    @Column(name = "order_public_id", nullable = false, updatable = false, length = 30)
+    @Column(name = "order_public_id", updatable = false, length = 30)
     private String orderPublicId;
 
-    @Column(name = "product_name", nullable = false, updatable = false, length = 200)
+    @Column(name = "product_name", updatable = false, length = 200)
     private String productName;
 
     @Column(name = "option_label", updatable = false, length = 500)
     private String optionLabel;
 
-    @Column(name = "quantity", nullable = false, updatable = false)
-    private int quantity;
+    @Column(name = "quantity", updatable = false)
+    private Integer quantity;
 
-    /** SALE = order_item.total_price · REFUND = refund.amount. */
+    /** SALE = order_item.total_price · REFUND = refund.amount · CARRYOVER = −원 정산 순지급액. */
     @Column(name = "amount", nullable = false, updatable = false)
     private Long amount;
 
@@ -74,11 +79,11 @@ public class SettlementItem extends AbstractCreatedOnlyEntity {
     @Column(name = "commission_rate", nullable = false, updatable = false)
     private Integer commissionRate;
 
-    /** SALE = floor(amount × rate / 10000) · REFUND = 0(환불 시 수수료 환급 없음·현행 정책). */
+    /** SALE = floor(amount × rate / 10000) · REFUND·CARRYOVER = 0(수수료 환급 없음·현행 정책). */
     @Column(name = "fee_amount", nullable = false, updatable = false)
     private Long feeAmount;
 
-    /** SALE = order_item.confirmed_at · REFUND = refund.refunded_at. */
+    /** SALE = order_item.confirmed_at · REFUND = refund.refunded_at · CARRYOVER = 원 정산 기간 말. */
     @Column(name = "occurred_at", nullable = false, updatable = false)
     private LocalDateTime occurredAt;
 
@@ -96,6 +101,7 @@ public class SettlementItem extends AbstractCreatedOnlyEntity {
             String optionLabel, int quantity, Long amount, Integer commissionRate, LocalDateTime confirmedAt) {
         SettlementItem item = base(settlementId, SettlementItemType.SALE, orderItemId, orderPublicId, productName,
                 optionLabel, quantity, amount, commissionRate, confirmedAt);
+        item.sourceId = orderItemId;
         item.feeAmount = calculateFee(amount, commissionRate);
         return item;
     }
@@ -114,7 +120,35 @@ public class SettlementItem extends AbstractCreatedOnlyEntity {
         SettlementItem item = base(settlementId, SettlementItemType.REFUND, orderItemId, orderPublicId, productName,
                 optionLabel, quantity, amount, commissionRate, refundedAt);
         item.refundId = refundId;
+        item.sourceId = refundId;
         item.feeAmount = 0L;
+        return item;
+    }
+
+    /**
+     * 음수 정산 이월 차감 품목을 만든다(Track 104-3b). 주문 품목이 없어 주문·상품·수량 스냅샷은 비우고, 수수료 환급이 없으므로
+     * commissionRate·feeAmount = 0이다. 출처(source_id) = 원 정산 id라 같은 음수 정산은 한 번만 이월된다(전역 UNIQUE).
+     *
+     * @param originSettlementId 지급이 막힌 음수 정산 id
+     * @param amount             이월 금액(= −원 정산 순지급액·양수)
+     * @param occurredAt         원 정산의 기간 말
+     * @throws IllegalArgumentException 필수값 누락·금액이 양수가 아닌 경우
+     */
+    public static SettlementItem carryover(Long settlementId, Long originSettlementId, Long amount, LocalDateTime occurredAt) {
+        if (settlementId == null || originSettlementId == null || amount == null || occurredAt == null) {
+            throw new IllegalArgumentException("SettlementItem(CARRYOVER) 필수값 누락(settlementId·originSettlementId·amount·occurredAt).");
+        }
+        if (amount <= 0) {
+            throw new IllegalArgumentException("SettlementItem(CARRYOVER) 이월 금액은 양수여야 합니다: " + amount);
+        }
+        SettlementItem item = new SettlementItem();
+        item.settlementId = settlementId;
+        item.itemType = SettlementItemType.CARRYOVER;
+        item.sourceId = originSettlementId;
+        item.amount = amount;
+        item.commissionRate = 0;
+        item.feeAmount = 0L;
+        item.occurredAt = occurredAt;
         return item;
     }
 

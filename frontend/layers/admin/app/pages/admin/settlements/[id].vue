@@ -27,6 +27,7 @@ import { ADMIN_SETTLEMENTS_PATH, resolveBackPath } from '#layers/admin/app/lib/a
 import { extractErrorCode, toAdminErrorMessage } from '#layers/admin/app/lib/admin-error-message'
 import { formatWon } from '#layers/admin/app/lib/format'
 import { formatDateTime } from '~/lib/utils/datetime'
+import { SETTLEMENT_ITEM_TYPE_LABELS } from '~/lib/constants/settlement'
 import { useAdminSettlements } from '#layers/admin/app/composables/useAdminSettlements'
 import { useAdminToast } from '#layers/admin/app/composables/useAdminToast'
 
@@ -35,7 +36,7 @@ useSeoMeta({ title: '정산 상세 · zslab-mall 관리자' })
 
 // 정산 상세(Track 85 FE·D-179). 헤더(셀러·기간·금액 4종·상태·지급예정일·지급일)·연락처(BE 마스킹본)·계좌(스냅샷/현재 구분)를 읽기 전용으로 보이고,
 // 액션은 상태별로 활성(PENDING → 확정·재생성 / CONFIRMED → 지급완료 / PAID → 없음). 전이 후에는 상세를 다시 읽는다. 재생성 성공 시 새 정산
-// 상세로 이동(삭제만이면 목록). 품목 탭(판매/환불)·페이지는 URL query(?tab=·?page=·?size=)에 반영한다. 미존재(404)는 안내 + 목록 이동.
+// 상세로 이동(삭제만이면 목록). 품목 탭(판매/환불/이월 차감)·페이지는 URL query(?tab=·?page=·?size=)에 반영한다. 미존재(404)는 안내 + 목록 이동.
 const route = useRoute()
 const router = useRouter()
 const settlementsApi = useAdminSettlements()
@@ -191,11 +192,16 @@ async function loadItems(): Promise<void> {
 }
 watch([activeTab, itemPage, itemSize, settlementId], () => { void loadItems() }, { immediate: true })
 
-const itemEmptyMessage = computed(() => (activeTab.value === 'SALE' ? '판매 품목이 없습니다' : '환불 품목이 없습니다'))
+const itemEmptyMessage = computed(() => `${SETTLEMENT_ITEM_TYPE_LABELS[activeTab.value]} 품목이 없습니다`)
 
 function tabCount(tab: AdminSettlementItemType): number {
   if (!detail.value) return 0
-  return tab === 'SALE' ? detail.value.saleItemCount : detail.value.refundItemCount
+  const counts: Record<AdminSettlementItemType, number> = {
+    SALE: detail.value.saleItemCount,
+    REFUND: detail.value.refundItemCount,
+    CARRYOVER: detail.value.carryoverItemCount,
+  }
+  return counts[tab]
 }
 
 function openOrder(row: AdminSettlementItem): void {
@@ -252,10 +258,11 @@ function openOrder(row: AdminSettlementItem): void {
           </v-row>
           <v-divider class="my-4" />
           <v-row dense>
-            <v-col cols="6" md="3"><div class="text-caption text-medium-emphasis">매출</div><div class="text-body-1" data-testid="settlement-gross">{{ formatWon(detail.grossAmount) }}</div></v-col>
-            <v-col cols="6" md="3"><div class="text-caption text-medium-emphasis">수수료</div><div class="text-body-1" data-testid="settlement-fee">{{ formatWon(detail.feeAmount) }}</div></v-col>
-            <v-col cols="6" md="3"><div class="text-caption text-medium-emphasis">환불</div><div class="text-body-1" data-testid="settlement-refund">{{ formatWon(detail.refundAmount) }}</div></v-col>
-            <v-col cols="6" md="3"><div class="text-caption text-medium-emphasis">지급액</div><div class="text-body-1 font-weight-bold" :class="isNegativeNet(detail) ? 'text-error' : ''" data-testid="settlement-net">{{ formatWon(detail.netAmount) }}</div></v-col>
+            <v-col cols="6" md><div class="text-caption text-medium-emphasis">매출</div><div class="text-body-1" data-testid="settlement-gross">{{ formatWon(detail.grossAmount) }}</div></v-col>
+            <v-col cols="6" md><div class="text-caption text-medium-emphasis">수수료</div><div class="text-body-1" data-testid="settlement-fee">{{ formatWon(detail.feeAmount) }}</div></v-col>
+            <v-col cols="6" md><div class="text-caption text-medium-emphasis">환불</div><div class="text-body-1" data-testid="settlement-refund">{{ formatWon(detail.refundAmount) }}</div></v-col>
+            <v-col cols="6" md><div class="text-caption text-medium-emphasis">이월 차감</div><div class="text-body-1" data-testid="settlement-carryover">{{ formatWon(detail.carryoverAmount) }}</div></v-col>
+            <v-col cols="6" md><div class="text-caption text-medium-emphasis">지급액</div><div class="text-body-1 font-weight-bold" :class="isNegativeNet(detail) ? 'text-error' : ''" data-testid="settlement-net">{{ formatWon(detail.netAmount) }}</div></v-col>
           </v-row>
         </v-card-text>
       </v-card>

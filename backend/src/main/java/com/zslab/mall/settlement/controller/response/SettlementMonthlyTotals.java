@@ -5,6 +5,7 @@ public record SettlementMonthlyTotals(
         long grossAmount,
         long feeAmount,
         long refundAmount,
+        long carryoverAmount,
         long netAmount,
         long pendingCount,
         long confirmedCount,

@@ -37,10 +37,36 @@ public interface SettlementRepository extends JpaRepository<Settlement, Long>, J
     @Query("SELECT s FROM Settlement s WHERE s.id = :id")
     Optional<Settlement> findByIdForUpdate(@Param("id") Long id);
 
-    /** 해당 월(기간 정확 일치) 상태별 건수·금액 합(Track 85 관리자 목록 합계). 모든 변수는 :periodStart·:periodEnd 바인딩이다. */
+    /**
+     * 다음 정산으로 이월할 음수 정산을 조회한다(Track 104-3b 결정 ⑧). 대상 = 확정(CONFIRMED)됐지만 순지급액이 음수라 지급이 막힌 정산 중
+     * 기간 말이 새 정산 기간 말 이전이고 아직 이월 품목으로 편입되지 않은 것. PENDING 음수 정산은 재생성으로 id가 바뀔 수 있어 확정 뒤에만
+     * 이월한다. 편입 여부는 settlement_item (CARRYOVER, source_id = 원 정산 id) 전역 UNIQUE 키로 판정한다. sellerId가 null이면 전 셀러.
+     * 모든 변수는 :periodEnd·:sellerId 바인딩만 사용하며 SQL injection 위험이 없다.
+     */
+    @Query("SELECT s.id AS settlementId, s.sellerId AS sellerId, s.netAmount AS netAmount, s.periodEnd AS periodEnd "
+            + "FROM Settlement s "
+            + "WHERE s.status = com.zslab.mall.settlement.enums.SettlementStatus.CONFIRMED "
+            + "AND s.netAmount < 0 "
+            + "AND s.periodEnd <= :periodEnd "
+            + "AND (:sellerId IS NULL OR s.sellerId = :sellerId) "
+            + "AND NOT EXISTS (SELECT 1 FROM SettlementItem si "
+            + "WHERE si.itemType = com.zslab.mall.settlement.enums.SettlementItemType.CARRYOVER AND si.sourceId = s.id) "
+            + "ORDER BY s.sellerId, s.periodEnd, s.id")
+    List<SettlementCarryoverSourceProjection> findCarryoverSources(
+            @Param("periodEnd") LocalDateTime periodEnd, @Param("sellerId") Long sellerId);
+
+    /**
+     * 해당 월(기간 정확 일치) 상태별 건수·금액 합(Track 85 관리자 목록 합계). 이미 다음 정산에 이월(CARRYOVER 품목 출처 = 이 정산 id)된
+     * 음수 정산의 순지급액은 net 합에서 뺀다 — 그 부족분은 이월받은 정산의 net에 반영돼 있어 두 번 세면 이중 차감이다(Track 104-3b).
+     * 건수·다른 금액 합은 그대로다. CARRYOVER 조인은 (item_type, source_id) 전역 UNIQUE라 정산당 최대 1행이다.
+     * 모든 변수는 :periodStart·:periodEnd 바인딩이다.
+     */
     @Query("SELECT s.status AS status, COUNT(s) AS settlementCount, COALESCE(SUM(s.grossAmount), 0) AS grossAmount, "
             + "COALESCE(SUM(s.feeAmount), 0) AS feeAmount, COALESCE(SUM(s.refundAmount), 0) AS refundAmount, "
-            + "COALESCE(SUM(s.netAmount), 0) AS netAmount FROM Settlement s "
+            + "COALESCE(SUM(s.carryoverAmount), 0) AS carryoverAmount, "
+            + "COALESCE(SUM(CASE WHEN carried.id IS NULL THEN s.netAmount ELSE 0 END), 0) AS netAmount FROM Settlement s "
+            + "LEFT JOIN SettlementItem carried ON carried.itemType = com.zslab.mall.settlement.enums.SettlementItemType.CARRYOVER "
+            + "AND carried.sourceId = s.id "
             + "WHERE s.periodStart = :periodStart AND s.periodEnd = :periodEnd GROUP BY s.status")
     List<SettlementStatusTotalProjection> sumByStatusForPeriod(
             @Param("periodStart") LocalDateTime periodStart, @Param("periodEnd") LocalDateTime periodEnd);
@@ -57,10 +83,16 @@ public interface SettlementRepository extends JpaRepository<Settlement, Long>, J
     /** 셀러의 특정 상태 정산 건수(Track 89-D 종료 가드 G1·미지급 = PENDING·CONFIRMED). 파생 쿼리 바인딩. */
     long countBySellerIdAndStatusIn(Long sellerId, Collection<SettlementStatus> statuses);
 
-    /** 셀러 정산 상태별 건수·금액 합(Track 89-D 관리자 셀러 상세·전 기간). 모든 변수는 :sellerId 바인딩이다. */
+    /**
+     * 셀러 정산 상태별 건수·금액 합(Track 89-D 관리자 셀러 상세·전 기간). 이미 이월된 음수 정산의 순지급액은 net 합에서 뺀다
+     * ({@link #sumByStatusForPeriod}와 같은 이유·Track 104-3b). 건수는 그대로다. 모든 변수는 :sellerId 바인딩이다.
+     */
     @Query("SELECT s.status AS status, COUNT(s) AS settlementCount, COALESCE(SUM(s.grossAmount), 0) AS grossAmount, "
             + "COALESCE(SUM(s.feeAmount), 0) AS feeAmount, COALESCE(SUM(s.refundAmount), 0) AS refundAmount, "
-            + "COALESCE(SUM(s.netAmount), 0) AS netAmount FROM Settlement s "
+            + "COALESCE(SUM(s.carryoverAmount), 0) AS carryoverAmount, "
+            + "COALESCE(SUM(CASE WHEN carried.id IS NULL THEN s.netAmount ELSE 0 END), 0) AS netAmount FROM Settlement s "
+            + "LEFT JOIN SettlementItem carried ON carried.itemType = com.zslab.mall.settlement.enums.SettlementItemType.CARRYOVER "
+            + "AND carried.sourceId = s.id "
             + "WHERE s.sellerId = :sellerId GROUP BY s.status")
     List<SettlementStatusTotalProjection> sumByStatusForSeller(@Param("sellerId") Long sellerId);
 

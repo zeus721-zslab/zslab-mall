@@ -8,7 +8,8 @@ import { formatDateTime } from '~/lib/utils/datetime'
 
 /**
  * 정산 상세 품목 탭 표(Track 90-B-3·관리자 AdminSettlementItemTable 복제·읽기 전용). 판매·환불 품목 스냅샷을 같은 컬럼(발생일시·주문·상품(옵션)·수량·금액·
- * 수수료율·수수료)으로 보인다. 주문 public_id는 셀러 주문 화면이 품목 단위라 링크 없이 표기만 한다(주문 축 상세 화면 없음). 상태(로딩·에러·페이지)는 부모가 소유한다.
+ * 수수료율·수수료)으로 보인다. 주문 public_id는 셀러 주문 화면이 품목 단위라 링크 없이 표기만 한다(주문 축 상세 화면 없음). 이월 차감(CARRYOVER) 행은
+ * 주문 품목이 없어 주문·상품·수량을 "—"로 둔다. 상태(로딩·에러·페이지)는 부모가 소유한다.
  */
 defineProps<{
   rows: SellerSettlementItem[]
@@ -65,13 +66,13 @@ const headers = [
   >
     <template #[`item.occurredAt`]="{ item }">{{ formatDateTime(item.occurredAt) }}</template>
     <template #[`item.orderPublicId`]="{ item }">
-      <span class="slr-product-id" data-testid="item-order-id">{{ item.orderPublicId }}</span>
+      <span class="slr-product-id" data-testid="item-order-id">{{ item.orderPublicId ?? '—' }}</span>
     </template>
     <template #[`item.productName`]="{ item }">
-      <span data-testid="item-product">{{ item.productName }}</span>
+      <span data-testid="item-product">{{ item.productName ?? '—' }}</span>
       <div v-if="item.optionLabel" class="text-caption text-medium-emphasis">{{ item.optionLabel }}</div>
     </template>
-    <template #[`item.quantity`]="{ item }">{{ item.quantity }}</template>
+    <template #[`item.quantity`]="{ item }">{{ item.quantity ?? '—' }}</template>
     <template #[`item.amount`]="{ item }">{{ formatWon(item.amount) }}</template>
     <template #[`item.commissionRate`]="{ item }">
       <span data-testid="item-rate">{{ formatCommissionRate(item.commissionRate) }}</span>

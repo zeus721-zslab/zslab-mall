@@ -107,11 +107,12 @@ public class AdminSettlementQueryService {
         Settlement settlement = requireSettlement(settlementId);
         AdminSettlementSummaryResponse summary = enrich(List.of(settlement)).get(0);
         long refundItemCount = countItems(List.of(settlementId), SettlementItemType.REFUND).getOrDefault(settlementId, 0L);
+        long carryoverItemCount = countItems(List.of(settlementId), SettlementItemType.CARRYOVER).getOrDefault(settlementId, 0L);
         Seller seller = sellerRepository.findById(settlement.getSellerId()).orElse(null);
         SettlementSellerContactResponse contact = seller == null ? null
                 : new SettlementSellerContactResponse(maskEmail(seller.getContactEmail()),
                         PhoneMasker.mask(seller.getContactPhone()));
-        return AdminSettlementDetailResponse.of(summary, refundItemCount, contact, bankAccount(settlement));
+        return AdminSettlementDetailResponse.of(summary, refundItemCount, carryoverItemCount, contact, bankAccount(settlement));
     }
 
     /**
@@ -201,6 +202,7 @@ public class AdminSettlementQueryService {
         long gross = 0;
         long fee = 0;
         long refund = 0;
+        long carryover = 0;
         long net = 0;
         long pending = 0;
         long confirmed = 0;
@@ -209,6 +211,7 @@ public class AdminSettlementQueryService {
             gross += row.getGrossAmount();
             fee += row.getFeeAmount();
             refund += row.getRefundAmount();
+            carryover += row.getCarryoverAmount();
             net += row.getNetAmount();
             switch (row.getStatus()) {
                 case PENDING -> pending = row.getSettlementCount();
@@ -216,7 +219,7 @@ public class AdminSettlementQueryService {
                 case PAID -> paid = row.getSettlementCount();
             }
         }
-        return new SettlementMonthlyTotals(gross, fee, refund, net, pending, confirmed, paid);
+        return new SettlementMonthlyTotals(gross, fee, refund, carryover, net, pending, confirmed, paid);
     }
 
     private static String normalizeKeyword(String keyword) {

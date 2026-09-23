@@ -14,19 +14,21 @@ public record SellerSettlementDetailResponse(
         long grossAmount,
         long feeAmount,
         long refundAmount,
+        long carryoverAmount,
         long netAmount,
         SettlementStatus status,
         LocalDate scheduledPayDate,
         @JsonSerialize(using = KstOffsetSerializer.class) LocalDateTime paidAt,
         long saleItemCount,
         long refundItemCount,
+        long carryoverItemCount,
         SettlementBankAccountResponse bankAccount) {
 
     public static SellerSettlementDetailResponse of(SellerSettlementSummaryResponse summary, long saleItemCount,
-            long refundItemCount, SettlementBankAccountResponse bankAccount) {
+            long refundItemCount, long carryoverItemCount, SettlementBankAccountResponse bankAccount) {
         return new SellerSettlementDetailResponse(summary.id(), summary.periodStart(), summary.periodEnd(),
-                summary.grossAmount(), summary.feeAmount(), summary.refundAmount(), summary.netAmount(),
-                summary.status(), summary.scheduledPayDate(), summary.paidAt(), saleItemCount, refundItemCount,
-                bankAccount);
+                summary.grossAmount(), summary.feeAmount(), summary.refundAmount(), summary.carryoverAmount(),
+                summary.netAmount(), summary.status(), summary.scheduledPayDate(), summary.paidAt(), saleItemCount,
+                refundItemCount, carryoverItemCount, bankAccount);
     }
 }

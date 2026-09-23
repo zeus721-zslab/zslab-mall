@@ -53,7 +53,8 @@ const ADMIN_ERROR_MESSAGES: Record<string, string> = {
   // Track 85 관리자 정산(D-179). PERIOD_INVALID는 연·월 범위 위반과 미마감 월이 같은 코드라 둘을 함께 안내한다.
   SETTLEMENT_NOT_FOUND: '정산을 찾을 수 없습니다.',
   SETTLEMENT_PERIOD_INVALID: '정산 기간이 올바르지 않습니다. 연·월 범위를 확인하고, 아직 마감되지 않은 월은 생성할 수 없습니다.',
-  SETTLEMENT_ALREADY_EXISTS: '같은 기간의 정산이 이미 생성되고 있습니다. 잠시 후 목록을 새로고침하세요.',
+  // Track 104-3b: 같은 기간 정산 생성뿐 아니라 같은 품목을 다른 정산 작업(다른 기간 생성·재생성)이 먼저 편입한 경합도 이 코드다.
+  SETTLEMENT_ALREADY_EXISTS: '다른 정산 작업과 겹쳤습니다. 잠시 후 목록을 새로고침하세요.',
   SETTLEMENT_INVALID_STATE: '현재 정산 상태에서 허용되지 않는 처리입니다(확정·재생성은 확정 대기, 지급완료는 확정 상태만).',
   SETTLEMENT_NET_NEGATIVE: '지급액이 음수인 정산은 지급할 수 없습니다(차감 이월 필요).',
   SETTLEMENT_BANK_ACCOUNT_MISSING: '셀러의 주 정산계좌가 없어 지급할 수 없습니다.',

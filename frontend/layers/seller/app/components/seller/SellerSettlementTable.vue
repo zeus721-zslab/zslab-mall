@@ -34,6 +34,7 @@ const headers = [
   { title: '매출', key: 'grossAmount', sortable: false, align: 'end' as const },
   { title: '수수료', key: 'feeAmount', sortable: false, align: 'end' as const },
   { title: '환불', key: 'refundAmount', sortable: false, align: 'end' as const },
+  { title: '이월 차감', key: 'carryoverAmount', sortable: false, align: 'end' as const },
   { title: '지급액', key: 'netAmount', sortable: false, align: 'end' as const },
   { title: '상태', key: 'status', sortable: false },
   { title: '지급예정일', key: 'scheduledPayDate', sortable: false },
@@ -74,6 +75,7 @@ const headers = [
     <template #[`item.grossAmount`]="{ item }">{{ formatWon(item.grossAmount) }}</template>
     <template #[`item.feeAmount`]="{ item }">{{ formatWon(item.feeAmount) }}</template>
     <template #[`item.refundAmount`]="{ item }">{{ formatWon(item.refundAmount) }}</template>
+    <template #[`item.carryoverAmount`]="{ item }">{{ formatWon(item.carryoverAmount) }}</template>
     <template #[`item.netAmount`]="{ item }">
       <span :class="isNegativeNet(item) ? 'text-error font-weight-bold' : 'font-weight-medium'" data-testid="row-net">{{ formatWon(item.netAmount) }}</span>
     </template>

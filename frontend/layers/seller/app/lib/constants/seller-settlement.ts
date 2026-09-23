@@ -18,12 +18,13 @@ export const SELLER_SETTLEMENT_STATUS_SEMANTIC: Record<SellerSettlementStatus, S
   PAID: 'success',
 }
 
-/** BE SettlementItemType 2값(settlement_item.item_type ENUM). 상세 품목 탭과 1:1. */
-export type SellerSettlementItemType = 'SALE' | 'REFUND'
+/** BE SettlementItemType 3값(settlement_item.item_type ENUM·V37). 상세 품목 탭과 1:1. */
+export type SellerSettlementItemType = 'SALE' | 'REFUND' | 'CARRYOVER'
 
 export const SELLER_SETTLEMENT_ITEM_TABS: { value: SellerSettlementItemType; label: string }[] = [
   { value: 'SALE', label: SETTLEMENT_ITEM_TYPE_LABELS.SALE },
   { value: 'REFUND', label: SETTLEMENT_ITEM_TYPE_LABELS.REFUND },
+  { value: 'CARRYOVER', label: SETTLEMENT_ITEM_TYPE_LABELS.CARRYOVER },
 ]
 export const DEFAULT_SELLER_SETTLEMENT_ITEM_TAB: SellerSettlementItemType = 'SALE'
 

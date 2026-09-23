@@ -51,8 +51,10 @@ public class SellerSettlementQueryService {
         List<Long> ids = List.of(settlementId);
         long saleCount = adminSettlementQueryService.countItems(ids, SettlementItemType.SALE).getOrDefault(settlementId, 0L);
         long refundCount = adminSettlementQueryService.countItems(ids, SettlementItemType.REFUND).getOrDefault(settlementId, 0L);
+        long carryoverCount = adminSettlementQueryService.countItems(ids, SettlementItemType.CARRYOVER)
+                .getOrDefault(settlementId, 0L);
         return SellerSettlementDetailResponse.of(SellerSettlementSummaryResponse.from(settlement), saleCount, refundCount,
-                adminSettlementQueryService.bankAccount(settlement));
+                carryoverCount, adminSettlementQueryService.bankAccount(settlement));
     }
 
     /**

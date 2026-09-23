@@ -94,23 +94,27 @@ public interface OrderItemRepository extends JpaRepository<OrderItem, Long>, Jpa
             @Param("periodEnd") LocalDateTime periodEnd);
 
     /**
-     * 정산 기간 내 구매확정(CONFIRMED) 품목을 스냅샷 소스로 조회한다(Track 85·settlement_item SALE). 기간 기준·경계는
-     * {@link #aggregateGrossBySeller}와 동일(confirmed_at 양끝 포함)이며 sellerId가 null이면 전 셀러, 아니면 해당 셀러만(재생성).
-     * 주문 public_id는 {@code oi.order} 조인 네비게이션으로 얻는다(OrderItem은 order getter 미노출·엔티티 미적재).
-     * 모든 변수는 :status·:periodStart·:periodEnd·:sellerId 바인딩만 사용하며 SQL injection 위험이 없다.
+     * 기간 말까지 구매확정(CONFIRMED)됐고 아직 어느 정산에도 편입되지 않은 품목을 스냅샷 소스로 조회한다(Track 85·settlement_item SALE ·
+     * Track 104-3b 결정 ⑦). 기간 하한이 없으므로 앞선 기간에 빠진 사실(보류 해제·늦은 확정 등)도 다음 정산에 들어온다 — 편입 여부는
+     * settlement_item (SALE, source_id) 전역 UNIQUE 키로 판정한다. 열린(OPEN) 불일치가 있는 주문의 품목은 제외한다(보류·결정 ⑥ ·
+     * ix_reconciliation_issue_order_status). sellerId가 null이면 전 셀러, 아니면 해당 셀러만(재생성 — 같은 트랜잭션에서 지운 자기 품목은
+     * 미편입으로 보여 다시 집계된다). 주문 public_id는 {@code oi.order} 조인 네비게이션으로 얻는다(OrderItem은 order getter 미노출·엔티티 미적재).
+     * 모든 변수는 :status·:periodEnd·:sellerId 바인딩만 사용하며 SQL injection 위험이 없다.
      */
     @Query("SELECT oi.id AS orderItemId, oi.sellerId AS sellerId, o.publicId AS orderPublicId, "
             + "oi.productName AS productName, oi.optionLabel AS optionLabel, oi.quantity AS quantity, "
             + "oi.totalPrice AS amount, oi.commissionRate AS commissionRate, oi.confirmedAt AS confirmedAt "
             + "FROM OrderItem oi JOIN oi.order o "
             + "WHERE oi.itemStatus = :status "
-            + "AND oi.confirmedAt >= :periodStart "
             + "AND oi.confirmedAt <= :periodEnd "
             + "AND (:sellerId IS NULL OR oi.sellerId = :sellerId) "
+            + "AND NOT EXISTS (SELECT 1 FROM SettlementItem si "
+            + "WHERE si.itemType = com.zslab.mall.settlement.enums.SettlementItemType.SALE AND si.sourceId = oi.id) "
+            + "AND NOT EXISTS (SELECT 1 FROM ReconciliationIssue ri "
+            + "WHERE ri.orderId = o.id AND ri.status = com.zslab.mall.reconciliation.enums.ReconciliationIssueStatus.OPEN) "
             + "ORDER BY oi.sellerId, oi.confirmedAt, oi.id")
     List<SettlementSaleSourceProjection> findSettlementSaleSources(
             @Param("status") OrderItemStatus status,
-            @Param("periodStart") LocalDateTime periodStart,
             @Param("periodEnd") LocalDateTime periodEnd,
             @Param("sellerId") Long sellerId);
 
