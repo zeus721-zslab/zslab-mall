@@ -2665,3 +2665,35 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 - 처리 이력 행위명 추론은 BE 적재 diff 키에 결합돼 있다 — 감사 적재 형식을 바꾸면 `auditActionText`와 vitest를 같이 고친다.
 - 구매자 화면에는 이번 표시 규칙("발송 대기"·"전체 반품")을 적용하지 않았다(지시 범위: 관리자 목록 전용). 같은 목록 API를 쓰는 관리자 회원 상세 "주문" 탭(`members/[id].vue`)도 공용 라벨 그대로다 — 결제 칸이 없어 '결제완료' 중복은 없지만 전 품목 반품 주문은 "구매확정"으로만 보인다.
 - 외부 검토: B(생략) · 셀프 리뷰 지적 5건 중 수용 4건
+
+## FE-66: 불일치 화면 — 목록·해결 다이얼로그·주문 상세 섹션·대시보드 9칸 (Track 104-2 D-216) (2026-09-23)
+
+배경: BE가 PG 충돌·환불 완료 시점·정기 점검에서 발견한 불일치를 `reconciliation_issue`로 남기게 됐다(D-216). 운영자가 그것을 찾고, 확인한 뒤 해결 처리할 화면이 필요했다. 주문 상세의 C-12 경고 배지("환불 전액 완료·취소 미반영")는 응답 값으로 계산한 표식이라 저장된 불일치와 기준이 둘이 된다.
+
+결정:
+- **상수 단일 소스** `layers/admin/app/lib/constants/reconciliation.ts`: 유형 11·상태 2(4층위 (4)) · 세부 사유(detail.reason) 라벨 — 사유는 DB 컬럼이 아니라 세부 JSON 값이라 모르는 코드는 원문을 보인다.
+- **표시 순수 함수** `lib/admin-reconciliation-view.ts`: URL ↔ 조회 조건(기본 = 확인 필요·"전체"는 `status=ALL` 명시) · 요약(사유 라벨 → 원문 → 유형 라벨) · 세부 사실(정해진 키만 라벨·금액 변환) · 기록 주체(정기 점검/처리 중 기록) · 해결 확인 문구.
+- **공용 행 목록** `AdminReconciliationIssueList`: 목록 화면과 주문 상세 섹션이 함께 쓴다(주문 링크는 목록에서만). 해결된 행은 처리자·메모 — 시스템 자동 해소(재전송 매칭)는 "시스템".
+- **해결 다이얼로그** `AdminReconciliationResolveDialog`: 메모 필수 · `riskConfirmMessage(…, IRREVERSIBLE)` · 확정 버튼 `.op-risk-action`(FE-64) · 이미 해결 422 → warning 후 재조회.
+- **목록 화면** `/admin/orders/reconciliation`(주문 관리 메뉴 "불일치") · 주문 상세 back 허용.
+- **대시보드 9번째 칸** `reconciliationOpen` → 목록 `status=OPEN`(BE 카운트와 같은 조건이라 근사 칸 아님) · 톤 danger(재고 임박과 함께).
+- **주문 상세**: C-12 계산형 배지 제거 → 불일치 섹션(해결 포함·없으면 섹션 없음). 수동 결제 취소 버튼은 같은 계산 조건(`isPaymentCancelLost`) 그대로.
+- **처리 이력**: `AdminAuditTargetType`에 `RECONCILIATION_ISSUE` · 행위명 "불일치 해결" · 상태 라벨 · `memo` 라벨.
+
+### §1-A 갈림길·채택/기각 근거
+- **배지만 제거·버튼 유지 【채택: 경고는 저장된 불일치(스케줄러 U6)가 대신하고, 버튼은 BE 전액 환불 가드와 같은 조건이라 보정 수단으로 남아야 한다】** / 배지·버튼 모두 섹션으로 이동 【기각: 섹션은 불일치 기록이고 보정 조작은 결제 행에 있어야 대상이 분명하다】 / 둘 다 유지 【기각: 같은 사실을 계산형·저장형 두 기준으로 보여 준다】.
+- **목록 기본 = 확인 필요 【채택: 대시보드 칸과 같은 조건으로 들어오고, 해결된 건은 필요할 때 필터로 본다】** / 전체 【기각: 처리할 것이 해결된 건 사이에 묻힌다】.
+- **행 목록 공용 컴포넌트 【채택: 목록과 주문 상세가 같은 요약·세부·해결 버튼을 보여야 한다 — 두 벌이면 문구가 갈린다】** / 목록은 표·상세는 별도 마크업 【기각: 위】.
+- **해결 버튼 = 위험 조작 규약 【채택: 해결된 행은 다시 열리지 않는다(D-216) — 되돌릴 수 없는 조작】** / 일상 버튼 【기각: FE-64 규약 위반】.
+
+### §2 확정 구현 규칙·트랩
+- 주문 상세 응답에 `reconciliationIssues`가 늘 온다(빈 배열도 직렬화) — 주문 상세를 mock하는 e2e 3파일(admin-claims·admin-members·admin-settlements)에 `[]`를 넣지 않으면 상세 화면이 `length` 접근에서 깨진다.
+- 새 페이지 라우트는 프런트 컨테이너 재시작 후 등록된다(FE-64 §2와 같은 계열) — 검증 전 `docker restart zslab_mall_frontend`.
+- 기존 테스트 갱신: vitest `admin-dashboard-helpers`(9칸·링크·danger) · `track-102-first-time-operator`(9칸 hint) · e2e `admin-dashboard`(9칸·불일치 링크) · `admin-orders` ⑨(배지 0 → 섹션·해결 다이얼로그 노출까지).
+- 신규: vitest `admin-reconciliation-view.spec`(9) · e2e `admin-reconciliation.spec`(2 — 목록·유형 필터·해결 POST body·422 재조회, API mock).
+- 검증(2026-09-23): typecheck 0 · vitest **753**(106 파일·744 → +9) · Playwright **113/0/2 실질**(112 passed + 콜드 트랩 admin-categories ① 단독 통과·기준선 111 + 신규 2).
+
+### §8 이월
+- 불일치 행의 결제·환불·클레임·배송 id는 응답에 싣지 않았다(주문 번호·PG 번호·세부 사실로 추적) — 대상 행으로 바로 가는 링크가 필요해지면 BE에 public id를 더한다.
+- 목록 페이지 크기 선택 UI는 두지 않았다(URL `size`로만·기본 20).
+- 외부 검토: A(PR 등급 적용·FE 범위 지적 없음)
