@@ -12652,7 +12652,11 @@ PG·SMS·이메일은 포트(`PaymentGateway`·`SmsSender`·`NotificationSender`
   2) 합계 이중 반영 수정: BE 8클래스(SettlementRepository 참조 4·소비 API 2·AdminSellerCommandServiceTest·AuditFieldMaskingPolicyTest) **41/0**(47s) · FE 변경 없어 생략
   3) 지급액 카드 캡션: FE typecheck 0·가장 가까운 vitest 3파일 **37/37**(이 컴포넌트를 참조하는 vitest 0건)
 - 셀프 리뷰(A, 2회): 1회차 지적 5건(상0·중1·하4) 수용 2(전 셀러 생성 테스트 3개 정리 코드 추가·409 FE 문구 일반화) / 2회차(합계 수정) 지적 3건(상0·중1·하2) 수용 2(I5 월 합계 단언을 이월 전후 차이로·헬퍼에 환불·이월 합 포함)
-- 외부 검토: A / 예정
+- 외부 검토 기각(2건):
+  - RR 스냅샷과 OPEN 판정 레이스(잠금 읽기로 바꾸자는 지적) 【기각: 스냅샷 이후 열린 불일치는 그 시점에 없던 사실이고, 편입 후 발생분은 P3로 다음 정산에서 상쇄된다. 잠금 읽기는 불일치 기록 경로와 락 경합한다(D-215 락 순서)】.
+  - 과거 미편입분 청킹(페이지·배치 분할 도입 지적) 【기각: 생성 트랜잭션을 분할하면 REPEATABLE READ 스냅샷(한 트랜잭션·한 시점) 전제가 깨진다. 규모는 배포 전 조회로 확인한다】.
+- 외부 검토 수용 반영: V37 조건부 CHECK 제약(`chk_settlement_item_source_shape`) · 테스트 검증 공백 5건(⑤ 결제액 정의·⑦ REFUND 전역 유니크·⑧ 원 정산 유지·지급 차단·합계 대조군·REFUND CHECK) · 관리자 CARRYOVER 탭 e2e.
+- 외부 검토: A / 3라운드 · 지적 9건 중 수용 7건 (R1 운영 코드 3건 중 1 · R2 BE 테스트 5건 중 5 · R3 표시·문서 1건 중 1)
 
 ### §8 이월
 1) SellerTerminationGuard가 이월 완료 후에도 원 음수 정산(CONFIRMED)을 미지급으로 세어 셀러 종료를 차단한다 → 104-4.
