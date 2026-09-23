@@ -42,7 +42,7 @@ const headers = [
   { title: '상품명', key: 'name', sortable: false },
   { title: '카테고리', key: 'categoryName', sortable: false },
   { title: '상태', key: 'status', sortable: false },
-  { title: '기본가', key: 'basePrice', sortable: false, align: 'end' as const },
+  { title: '판매가', key: 'basePrice', sortable: false, align: 'end' as const },
   { title: '옵션수', key: 'variantCount', sortable: false, align: 'end' as const },
   { title: '등록일', key: 'createdAt', sortable: false },
   { title: '관리', key: 'actions', sortable: false, align: 'end' as const },

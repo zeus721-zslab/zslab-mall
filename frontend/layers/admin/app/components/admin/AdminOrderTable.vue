@@ -50,7 +50,7 @@ const headers = [
   { title: '관리', key: 'actions', sortable: false, align: 'end' as const },
 ]
 
-/** 경과 N일(C-15): 출고 대기(PAID·PREPARING) 주문만 결제일 기준으로 표시한다. */
+/** 경과 N일(C-15): 발송 대기(PAID·PREPARING) 주문만 결제일 기준으로 표시한다. */
 function pendingElapsed(item: AdminOrderSummary): ElapsedChip | null {
   return item.status === 'PAID' || item.status === 'PREPARING' ? elapsedChip(item.paidAt) : null
 }
@@ -174,13 +174,14 @@ function hasRowMenu(item: AdminOrderSummary): boolean {
             <v-list-subheader>상태 변경</v-list-subheader>
             <v-list-item
               v-if="item.actions.includes('PREPARE_SHIPMENT')"
-              title="송장 등록"
+              title="발송 처리"
               data-testid="row-prepare-shipment"
               @click="emit('prepareShipment', item)"
             />
             <v-list-item
               v-if="item.actions.includes('MARK_DELIVERED')"
               title="배송완료 처리"
+              class="op-risk-menu-item"
               data-testid="row-mark-delivered"
               @click="emit('markDelivered', item)"
             />

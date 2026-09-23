@@ -2,6 +2,7 @@
 import { claimTypeLabel, type ClaimType } from '~/lib/constants/claim'
 import { mapFieldErrors } from '#layers/admin/app/lib/admin-order-view'
 import { formatWon } from '#layers/admin/app/lib/format'
+import { refundInitiateMessage } from '#layers/admin/app/lib/admin-risk-confirm'
 import { extractErrorCode, toAdminErrorMessage } from '#layers/admin/app/lib/admin-error-message'
 import { useAdminOrders } from '#layers/admin/app/composables/useAdminOrders'
 import { useAdminToast } from '#layers/admin/app/composables/useAdminToast'
@@ -88,10 +89,9 @@ async function submit(): Promise<void> {
     <v-card data-testid="admin-refund-initiate-dialog">
       <v-card-title class="text-subtitle-1 font-weight-bold pt-5 px-5">{{ title }}</v-card-title>
       <v-card-text class="px-5">
+        <p class="text-body-2 mb-1" style="white-space: pre-line" data-testid="refund-initiate-notice">{{ refundInitiateMessage(lastTarget?.productName ?? '') }}</p>
         <p class="text-body-2 mb-3">
-          <span class="font-weight-medium">{{ lastTarget?.productName }}</span> 환불을 수동으로 개시합니다. 자동 환불이 붙지 않았거나 실패한 경우에만 사용하세요.
-          품목 금액
-          <span class="font-weight-medium" data-testid="refund-initiate-item-amount">{{ lastTarget?.amount != null ? formatWon(lastTarget.amount) : '—' }}</span>
+          품목 금액 <span class="font-weight-medium" data-testid="refund-initiate-item-amount">{{ lastTarget?.amount != null ? formatWon(lastTarget.amount) : '—' }}</span>
         </p>
         <v-text-field
           v-model="amountInput"
@@ -108,7 +108,7 @@ async function submit(): Promise<void> {
       <v-card-actions class="px-5 pb-4">
         <v-spacer />
         <v-btn variant="text" :disabled="submitting" data-testid="refund-initiate-dialog-close" @click="emit('cancel')">닫기</v-btn>
-        <v-btn color="primary" variant="flat" :loading="submitting" :disabled="confirmDisabled" data-testid="refund-initiate-dialog-ok" @click="submit">
+        <v-btn variant="flat" class="op-risk-action" :loading="submitting" :disabled="confirmDisabled" data-testid="refund-initiate-dialog-ok" @click="submit">
           환불 개시
         </v-btn>
       </v-card-actions>

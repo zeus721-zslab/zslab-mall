@@ -39,7 +39,7 @@ export function isNegativeNet(settlement: Pick<AdminSettlementSummary, 'netAmoun
   return settlement.netAmount < 0
 }
 
-/** 상태별 액션 활성: PENDING → 정상처리·재생성 / CONFIRMED → 지급완료 / PAID → 없음. */
+/** 상태별 액션 활성: PENDING → 확정·재생성 / CONFIRMED → 지급완료 / PAID → 없음. */
 export function canConfirm(settlement: Pick<AdminSettlementSummary, 'status'>): boolean {
   return settlement.status === 'PENDING'
 }

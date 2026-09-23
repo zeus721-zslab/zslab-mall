@@ -32,7 +32,7 @@ export function cancellableItems(items: AdminOrderItem[]): AdminOrderItem[] {
   return items.filter((item) => claimableTypes(item.status).includes('CANCEL'))
 }
 
-/** 송장 등록 대상: 품목 PAID(BE prepare-shipment 422 규칙·PREPARING은 이미 송장 있음). */
+/** 발송 처리 대상: 품목 PAID(BE prepare-shipment 422 규칙·PREPARING은 이미 송장 있음). */
 export function shippableItems(items: AdminOrderItem[]): AdminOrderItem[] {
   return items.filter((item) => item.status === 'PAID')
 }

@@ -110,7 +110,7 @@ async function submit(): Promise<void> {
       <v-card-actions class="px-5 pb-4">
         <v-spacer />
         <v-btn variant="text" :disabled="submitting" data-testid="seller-status-cancel" @click="emit('cancel')">취소</v-btn>
-        <v-btn :color="isTerminate ? 'error' : 'primary'" variant="flat" :loading="submitting" :disabled="confirmDisabled" data-testid="seller-status-ok" @click="submit">
+        <v-btn variant="flat" class="op-risk-action" :loading="submitting" :disabled="confirmDisabled" data-testid="seller-status-ok" @click="submit">
           {{ lastTarget ? ADMIN_SELLER_TRANSITION_LABEL[lastTarget] : '확인' }}
         </v-btn>
       </v-card-actions>

@@ -14,7 +14,7 @@
           <a href="#" class="transition duration-200 hover:text-gray-900">회사소개</a>
           <a href="#" class="transition duration-200 hover:text-gray-900">이용약관</a>
           <a href="#" class="transition duration-200 hover:text-gray-900">개인정보처리방침</a>
-          <a href="#" class="transition duration-200 hover:text-gray-900">고객센터</a>
+          <NuxtLink to="/help" class="transition duration-200 hover:text-gray-900" data-testid="footer-help-link">고객센터</NuxtLink>
         </nav>
       </div>
       <p class="mt-10 border-t border-gray-50 pt-6 text-xs text-gray-400">

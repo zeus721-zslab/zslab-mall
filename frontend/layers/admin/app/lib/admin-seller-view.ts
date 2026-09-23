@@ -1,3 +1,4 @@
+import { IRREVERSIBLE, reversibleBy, riskConfirmMessage } from '~/lib/utils/risk-confirm'
 import type {
   AdminSellerDetail,
   AdminSellerMember,
@@ -8,7 +9,6 @@ import {
   ADMIN_SELLER_STATUS_TONE,
   ADMIN_SELLER_TERMINATION_BLOCK_LABEL,
   ADMIN_SELLER_TRANSITIONS,
-  SELLER_TERMINATE_IRREVERSIBLE_NOTICE,
   type AdminSellerStatus,
 } from '#layers/admin/app/lib/constants/admin-seller'
 import { extractErrorCode, toAdminErrorMessage } from '#layers/admin/app/lib/admin-error-message'
@@ -93,22 +93,31 @@ export function transitionConfirmMessage(
 ): string {
   const name = detail.companyName
   if (target === 'TERMINATED') {
-    const lines = [`${name} 셀러를 종료합니다.`, SELLER_TERMINATE_IRREVERSIBLE_NOTICE,
+    // 종료 불가역 고지는 마지막 가역성 줄이 담당한다(Track 102 FE-64 형식) — 본문 중간에 한 번 더 적지 않는다.
+    const lines = [`${name} 셀러를 종료합니다.`,
       '종료 즉시 이 셀러의 상품은 카탈로그에서 사라지고 담기·주문·재결제가 차단됩니다. 사유는 종료 아카이브와 감사 이력에 기록됩니다.']
     if (detail.warnings.saleProductCount > 0) lines.push(`판매중 상품 ${detail.warnings.saleProductCount}건이 있습니다(상품 상태는 바뀌지 않습니다).`)
     if (detail.warnings.primaryBankAccountMissing) lines.push('주 정산계좌가 없습니다. 남은 매출의 정산 지급이 불가능할 수 있습니다.')
-    return lines.join('\n')
+    return riskConfirmMessage(lines.join('\n'), IRREVERSIBLE)
   }
   if (target === 'SUSPENDED') {
-    return [`${name} 셀러를 정지합니다.`,
-      '정지 즉시 이 셀러의 상품은 카탈로그에서 사라지고 담기·주문·재결제가 차단됩니다. 진행 중인 주문·정산은 계속 처리됩니다.',
-      '정지 해제(활성화)로 되돌릴 수 있습니다.'].join('\n')
+    return riskConfirmMessage(
+      [`${name} 셀러를 정지합니다.`,
+        '정지 즉시 이 셀러의 상품은 카탈로그에서 사라지고 담기·주문·재결제가 차단됩니다. 진행 중인 주문·정산은 계속 처리됩니다.'].join('\n'),
+      reversibleBy('정지 해제(활성화)로 되돌릴 수 있습니다'),
+    )
   }
-  // ACTIVE
+  // ACTIVE — 승인·정지 해제는 제재가 아니라 되돌리기 쉬운 조작이라 가역성 줄도 그렇게 적는다.
   if (detail.status === 'PENDING') {
-    return [`${name} 셀러의 입점을 승인합니다.`, '승인 즉시 판매중 상품이 카탈로그에 노출되고 구매가 가능해집니다.'].join('\n')
+    return riskConfirmMessage(
+      [`${name} 셀러의 입점을 승인합니다.`, '승인 즉시 판매중 상품이 카탈로그에 노출되고 구매가 가능해집니다.'].join('\n'),
+      reversibleBy('정지로 다시 막을 수 있습니다'),
+    )
   }
-  return [`${name} 셀러의 정지를 해제합니다.`, '해제 즉시 판매중 상품이 카탈로그에 다시 노출되고 구매가 가능해집니다.'].join('\n')
+  return riskConfirmMessage(
+    [`${name} 셀러의 정지를 해제합니다.`, '해제 즉시 판매중 상품이 카탈로그에 다시 노출되고 구매가 가능해집니다.'].join('\n'),
+    reversibleBy('정지로 다시 막을 수 있습니다'),
+  )
 }
 
 /** 상품 수 클릭 → 상품 목록 셀러 필터(admin-product-query.ts sellerPublicId). */

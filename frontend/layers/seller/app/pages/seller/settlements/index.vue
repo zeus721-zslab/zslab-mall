@@ -12,7 +12,7 @@ definePageMeta({ layout: 'seller', middleware: ['seller', 'seller-vuetify'] })
 useSeoMeta({ title: '정산 · zslab-mall 셀러' })
 
 // 셀러 정산 목록(Track 90-B-3·Track 85 BE·관리자 settlements/sellers.vue 골격 복제·읽기 전용). 본인 CONFIRMED·PAID만 최신 기간순·필터 없음.
-// 확정 전(PENDING) 정산은 BE가 404로 숨겨 목록에 없는 게 정상이며(D-191 ε), 그 건수는 GET /seller/me.pendingSettlementCount(대시보드 "정산 예정"과 동일)로
+// 확정 대기(PENDING) 정산은 BE가 404로 숨겨 목록에 없는 게 정상이며(D-191 ε), 그 건수는 GET /seller/me.pendingSettlementCount(대시보드 "정산 예정"과 동일)로
 // 안내한다. 페이지·크기는 URL query(?page=·?size=) 단일 소스.
 const route = useRoute()
 const router = useRouter()
@@ -73,7 +73,7 @@ function open(item: SellerSettlementSummary): void {
 
 <template>
   <div data-testid="seller-settlements">
-    <SellerPageHeader title="정산" description="확정·지급완료된 월별 정산 내역입니다. 확정 전 정산은 운영자 확정 후 표시됩니다." />
+    <SellerPageHeader title="정산" description="확정·지급완료된 월별 정산 내역입니다. 확정 대기 정산은 운영자 확정 후 표시됩니다." />
 
     <v-alert v-if="pendingNotice" type="info" variant="tonal" density="compact" class="mb-4" :icon="mdiInformationOutline" data-testid="seller-settlement-pending-notice">
       {{ pendingNotice }}

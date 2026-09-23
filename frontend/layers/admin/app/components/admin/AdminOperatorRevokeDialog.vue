@@ -120,7 +120,7 @@ async function submit(): Promise<void> {
       <v-card-actions class="px-5 pb-4">
         <v-spacer />
         <v-btn variant="text" :disabled="submitting" data-testid="revoke-dialog-close" @click="emit('cancel')">닫기</v-btn>
-        <v-btn color="error" variant="flat" :loading="submitting" :disabled="confirmDisabled" data-testid="revoke-dialog-ok" @click="submit">
+        <v-btn variant="flat" class="op-risk-action" :loading="submitting" :disabled="confirmDisabled" data-testid="revoke-dialog-ok" @click="submit">
           회수
         </v-btn>
       </v-card-actions>

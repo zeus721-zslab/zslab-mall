@@ -138,7 +138,7 @@ function isPending(item: SellerDeliverySummary): boolean {
           </template>
           <v-list density="compact" min-width="180">
             <v-list-subheader>배송 처리</v-list-subheader>
-            <v-list-item v-if="canMarkDelivered(item)" title="배송완료 처리" data-testid="row-mark-delivered" @click="emit('markDelivered', item)" />
+            <v-list-item v-if="canMarkDelivered(item)" title="배송완료 처리" class="op-risk-menu-item" data-testid="row-mark-delivered" @click="emit('markDelivered', item)" />
             <v-list-item v-if="canCorrectTracking(item.status)" title="송장 정정" data-testid="row-correct-tracking" @click="emit('correctTracking', item)" />
           </v-list>
         </v-menu>

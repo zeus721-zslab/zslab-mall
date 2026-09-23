@@ -10,6 +10,7 @@ import {
   type AdminSettlementItemType,
 } from '#layers/admin/app/lib/constants/admin-settlement'
 import { semanticChipClass } from '#layers/admin/app/lib/constants/semantic'
+import { settlementConfirmMessage, settlementPayMessage } from '#layers/admin/app/lib/admin-risk-confirm'
 import {
   bankAccountSourceLabel,
   canConfirm,
@@ -33,7 +34,7 @@ definePageMeta({ layout: 'admin', middleware: ['admin', 'vuetify'] })
 useSeoMeta({ title: '정산 상세 · zslab-mall 관리자' })
 
 // 정산 상세(Track 85 FE·D-179). 헤더(셀러·기간·금액 4종·상태·지급예정일·지급일)·연락처(BE 마스킹본)·계좌(스냅샷/현재 구분)를 읽기 전용으로 보이고,
-// 액션은 상태별로 활성(PENDING → 정상처리·재생성 / CONFIRMED → 지급완료 / PAID → 없음). 전이 후에는 상세를 다시 읽는다. 재생성 성공 시 새 정산
+// 액션은 상태별로 활성(PENDING → 확정·재생성 / CONFIRMED → 지급완료 / PAID → 없음). 전이 후에는 상세를 다시 읽는다. 재생성 성공 시 새 정산
 // 상세로 이동(삭제만이면 목록). 품목 탭(판매/환불)·페이지는 URL query(?tab=·?page=·?size=)에 반영한다. 미존재(404)는 안내 + 목록 이동.
 const route = useRoute()
 const router = useRouter()
@@ -95,7 +96,7 @@ async function runTransition(kind: 'confirm' | 'pay'): Promise<void> {
   try {
     if (kind === 'confirm') {
       await settlementsApi.confirm(detail.value.id)
-      toast.success(`${periodLabel.value} 정산을 정상처리했습니다. 셀러에게 공개되고 SMS가 발송됩니다.`)
+      toast.success(`${periodLabel.value} 정산을 확정했습니다. 셀러에게 공개되고 SMS가 발송됩니다.`)
     } else {
       await settlementsApi.pay(detail.value.id)
       toast.success(`${periodLabel.value} 정산을 지급완료로 처리했습니다.`)
@@ -204,7 +205,7 @@ function openOrder(row: AdminSettlementItem): void {
 
 <template>
   <div>
-    <AdminPageHeader title="정산 상세" :description="detail ? `${detail.seller.companyName} · ${periodLabel}` : undefined">
+    <AdminPageHeader title="정산 상세" :description="detail ? `${detail.seller.companyName} · ${periodLabel}` : undefined" guide="금액·계좌를 확인하고 확정 → 지급완료를 처리합니다. 확정 전에는 재생성으로 다시 집계할 수 있습니다.">
       <template #actions>
         <v-btn variant="text" :prepend-icon="mdiArrowLeft" :to="backPath" data-testid="settlement-back">목록</v-btn>
       </template>
@@ -235,9 +236,9 @@ function openOrder(row: AdminSettlementItem): void {
             </v-chip>
           </div>
           <div class="d-flex align-center flex-wrap ga-2">
-            <v-btn v-if="confirmAllowed" size="small" variant="flat" color="primary" :disabled="actionBusy" :loading="actionBusy && activeDialog === 'confirm'" data-testid="action-confirm" @click="activeDialog = 'confirm'">정상처리</v-btn>
+            <v-btn v-if="confirmAllowed" size="small" variant="flat" :disabled="actionBusy" :loading="actionBusy && activeDialog === 'confirm'" class="op-risk-action" data-testid="action-confirm" @click="activeDialog = 'confirm'">확정</v-btn>
             <v-btn v-if="regenerateAllowed" size="small" variant="outlined" color="warning" :disabled="actionBusy" data-testid="action-regenerate" @click="activeDialog = 'regenerate'">재생성</v-btn>
-            <v-btn v-if="detail.status === 'CONFIRMED'" size="small" variant="flat" color="success" :disabled="!payAllowed || actionBusy" :loading="actionBusy && activeDialog === 'pay'" data-testid="action-pay" @click="activeDialog = 'pay'">지급완료</v-btn>
+            <v-btn v-if="detail.status === 'CONFIRMED'" size="small" variant="flat" class="op-risk-action" :disabled="!payAllowed || actionBusy" :loading="actionBusy && activeDialog === 'pay'" data-testid="action-pay" @click="activeDialog = 'pay'">지급완료</v-btn>
             <span v-if="detail.status === 'PAID'" class="text-caption text-medium-emphasis" data-testid="settlement-paid-notice">지급이 완료된 정산입니다.</span>
           </div>
         </v-card-title>
@@ -311,15 +312,16 @@ function openOrder(row: AdminSettlementItem): void {
         />
       </v-card>
 
-      <!-- Track 101-A: 생성·재생성·정상처리·지급완료가 누구 손에서 이뤄졌는지. 되돌릴 수 없는 전이라 기록이 남아야 한다. -->
+      <!-- Track 101-A: 생성·재생성·확정·지급완료가 누구 손에서 이뤄졌는지. 되돌릴 수 없는 전이라 기록이 남아야 한다. -->
       <AdminAuditLogSection class="mt-4" :loader="auditLoader" />
     </template>
 
     <AdminConfirmDialog
       :open="activeDialog === 'confirm'"
-      title="정산 정상처리"
-      :message="`${periodLabel} ${detail?.seller.companyName ?? ''} 정산을 확정합니다.\n확정 후 셀러에게 공개되고 SMS가 발송되며, 되돌릴 수 없습니다.`"
-      confirm-label="정상처리"
+      title="정산 확정"
+      :message="settlementConfirmMessage(periodLabel, detail?.seller.companyName ?? '')"
+      confirm-label="확정"
+      risk
       :loading="actionBusy"
       test-id="settlement-confirm-dialog"
       @confirm="runTransition('confirm')"
@@ -328,9 +330,9 @@ function openOrder(row: AdminSettlementItem): void {
     <AdminConfirmDialog
       :open="activeDialog === 'pay'"
       title="정산 지급완료"
-      :message="`${periodLabel} ${detail?.seller.companyName ?? ''} 정산 ${formatWon(detail?.netAmount)}을 지급완료로 표시합니다.\n계좌: ${bankAccountText ?? '—'}\n지급 시점의 주 정산계좌가 기록되며 되돌릴 수 없습니다.`"
+      :message="settlementPayMessage(periodLabel, detail?.seller.companyName ?? '', formatWon(detail?.netAmount), bankAccountText ?? '—')"
       confirm-label="지급완료"
-      confirm-color="success"
+      risk
       :loading="actionBusy"
       test-id="settlement-pay-dialog"
       @confirm="runTransition('pay')"

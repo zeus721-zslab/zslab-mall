@@ -2,7 +2,7 @@ import type { ClaimReasonShare, ClaimSummary, ClaimTrendBucket, ClaimTypeShare, 
 
 /**
  * 셀러 주문·클레임 통계 API 타입(Track 90-E-2·D-200 `GET /api/v1/seller/stats/orders` 응답 1:1·backend stats/controller/response/SellerOrderStats* 실측).
- * 관리자 주문클레임 통계를 내 품목 단위로 좁힌 것 — 퍼널 3단계(결제→출고→배송완료)·소요시간 2종·클레임 요약/추이/유형/사유 + 셀러 전용 상품별 분해.
+ * 관리자 주문클레임 통계를 내 품목 단위로 좁힌 것 — 퍼널 3단계(결제→발송→배송완료)·소요시간 2종·클레임 요약/추이/유형/사유 + 셀러 전용 상품별 분해.
  * BE는 전역 NON_NULL 직렬화라 compareClaimSummary·compareClaimTrend·leadTime 각 구간(표본 0)은 키 생략 → optional.
  */
 

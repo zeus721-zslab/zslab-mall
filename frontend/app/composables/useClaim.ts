@@ -42,7 +42,7 @@ export function useClaimList(page: Ref<number>, type: Ref<ClaimType | null>, siz
 
 /**
  * 구매자 클레임 단건 조회(GET /api/v1/claims/{claimPublicId}·BUYER 전용). useOrderDetail 패턴 정합: Bearer 주입,
- * 미존재·타인 클레임은 BE가 404(존재 은닉)를 반환한다. 클레임은 상태 전이(승인·완료·거절)를 추적하는 화면이라
+ * 미존재·타인 클레임은 BE가 404(존재 은닉)를 반환한다. 클레임은 상태 전이(승인·완료·거부)를 추적하는 화면이라
  * 재방문 시 항상 재검증한다(getCachedData로 stale 캐시 반환 차단·useOrderDetail와 동일 사유).
  */
 export function useClaimDetail(claimPublicId: string) {
@@ -112,7 +112,7 @@ export function useClaim() {
   }
 
   /**
-   * 클레임 신청 취소(POST /api/v1/claims/{id}/cancel·Track 101-A). 접수(REQUESTED) 상태의 본인 요청만 취소된다.
+   * 클레임 요청 취소(POST /api/v1/claims/{id}/cancel·Track 101-A). 접수(REQUESTED) 상태의 본인 요청만 취소된다.
    * 404(타인·미존재)·422(승인 이후 등 상태 위반)·401은 throw해 호출부가 타입별로 처리한다(registerReturnShipment 패턴).
    */
   function cancelClaim(claimPublicId: string): Promise<ClaimResponse> {

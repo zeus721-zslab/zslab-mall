@@ -13,7 +13,7 @@ import {
   parseAdminClaimQuery,
   toAdminClaimRouteQuery,
 } from '#layers/admin/app/lib/admin-claim-query'
-import { approveConfirmMessage, confirmPickupMessage, shouldChainExchangeShipment } from '#layers/admin/app/lib/admin-claim-view'
+import { approveConfirmMessage, confirmPickupMessage, exchangeDeliveredConfirmMessage, shouldChainExchangeShipment } from '#layers/admin/app/lib/admin-claim-view'
 import { extractErrorCode, toAdminErrorMessage } from '#layers/admin/app/lib/admin-error-message'
 import { useAdminClaims } from '#layers/admin/app/composables/useAdminClaims'
 import { useAdminOrders } from '#layers/admin/app/composables/useAdminOrders'
@@ -251,9 +251,9 @@ function closeExchangeShipment(refresh: boolean): void {
   if (refresh) void load()
 }
 
-const exchangeDeliveredMessage = computed(() => exchangeDeliveredTarget.value
-  ? `교환 요청 (${exchangeDeliveredTarget.value.productName ?? ''})의 교환품 배송을 완료 처리합니다.\n완료 시 품목이 교환 옵션으로 바뀌고 배송완료 상태로 돌아갑니다.`
-  : '')
+const exchangeDeliveredMessage = computed(() => (exchangeDeliveredTarget.value
+  ? exchangeDeliveredConfirmMessage(exchangeDeliveredTarget.value.productName ?? '')
+  : ''))
 
 async function runMarkExchangeDelivered(): Promise<void> {
   const target = exchangeDeliveredTarget.value
@@ -358,6 +358,7 @@ async function runMarkExchangeDelivered(): Promise<void> {
       title="클레임 승인"
       :message="approveMessage"
       confirm-label="승인"
+      risk
       :loading="approveBusy"
       @confirm="runApprove"
       @cancel="approveTarget = null"
@@ -382,6 +383,7 @@ async function runMarkExchangeDelivered(): Promise<void> {
       title="회수 확인"
       :message="pickupMessage"
       confirm-label="회수 확인"
+      risk
       :loading="pickupBusy"
       @confirm="runConfirmPickup"
       @cancel="pickupTarget = null"
@@ -413,6 +415,7 @@ async function runMarkExchangeDelivered(): Promise<void> {
       title="교환품 배송완료"
       :message="exchangeDeliveredMessage"
       confirm-label="배송완료"
+      risk
       test-id="exchange-delivered-dialog"
       @confirm="runMarkExchangeDelivered"
       @cancel="exchangeDeliveredTarget = null"

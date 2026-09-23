@@ -45,7 +45,7 @@ export interface SellerOrderItemSummary {
   claimCount: number
 }
 
-/** 배송지 스냅샷(BE ShippingAddressResponse·마스킹 없음·출고 라벨용). */
+/** 배송지 스냅샷(BE ShippingAddressResponse·마스킹 없음·발송 라벨용). */
 export interface SellerOrderShippingAddress {
   recipientName: string
   recipientPhone: string
@@ -70,13 +70,13 @@ export interface SellerOrderItemListResponse {
   hasNext: boolean
 }
 
-/** 출고 요청(BE PrepareShipmentRequest). */
+/** 발송 요청(BE PrepareShipmentRequest). */
 export interface SellerShipmentRequest {
   carrier: SellerDeliveryCarrier
   trackingNo: string
 }
 
-/** 출고·배송완료·송장 정정 응답(BE PrepareShipmentResponse·RegisterExchangeShipmentResponse·SellerDeliveryTrackingCorrectionResponse 공통 4필드). */
+/** 발송·배송완료·송장 정정 응답(BE PrepareShipmentResponse·RegisterExchangeShipmentResponse·SellerDeliveryTrackingCorrectionResponse 공통 4필드). */
 export interface SellerDeliveryResponse {
   deliveryPublicId: string
   status: SellerDeliveryStatus

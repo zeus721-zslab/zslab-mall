@@ -114,7 +114,7 @@ function open(item: AdminSettlementSummary): void {
 
 <template>
   <div>
-    <AdminPageHeader title="셀러별 정산" description="셀러를 선택하면 월별 정산 이력(최신순)을 보입니다. 상세에서 정상처리·지급완료를 처리합니다." />
+    <AdminPageHeader title="셀러별 정산" description="셀러를 선택하면 월별 정산 이력(최신순)을 보입니다. 상세에서 확정·지급완료를 처리합니다." />
 
     <v-card class="mb-4" data-testid="admin-settlement-seller-picker">
       <v-card-text class="pa-4">

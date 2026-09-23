@@ -35,7 +35,7 @@ import { useAdminToast } from '#layers/admin/app/composables/useAdminToast'
 definePageMeta({ layout: 'admin', middleware: ['admin', 'vuetify'] })
 useSeoMeta({ title: '주문 상세 · zslab-mall 관리자' })
 
-// 주문 상세(FE-27). 주문·주문자·배송지·결제·품목(배송·클레임)을 읽기 전용으로 보이고, 취소·송장·배송완료·클레임 승인/거절은
+// 주문 상세(FE-27). 주문·주문자·배송지·결제·품목(배송·클레임)을 읽기 전용으로 보이고, 취소·송장·배송완료·클레임 승인/거부는
 // 여기서만 실행한다. 모든 변경 후에는 상세를 다시 읽는다(응답 조립 대신 서버 상태 재확인). 미존재(404)는 안내 + 목록 이동.
 const route = useRoute()
 const ordersApi = useAdminOrders()
@@ -90,7 +90,7 @@ function closePaymentCancel(refresh: boolean): void {
   if (refresh) void load()
 }
 
-// ---------- 클레임 승인(확인 다이얼로그) · 거절(사유 다이얼로그·FE-28 공용) → 기존 단건 API ----------
+// ---------- 클레임 승인(확인 다이얼로그) · 거부(사유 다이얼로그·FE-28 공용) → 기존 단건 API ----------
 // 첨부 사진 확대(FE-29·Track 81-B): 클릭한 원본 URL을 v-dialog로 띄운다.
 const previewUrl = ref<string | null>(null)
 
@@ -157,7 +157,7 @@ function closeReject(refresh: boolean): void {
 
 <template>
   <div>
-    <AdminPageHeader title="주문 상세" :description="detail?.orderNo ?? orderPublicId">
+    <AdminPageHeader title="주문 상세" :description="detail?.orderNo ?? orderPublicId" guide="품목별로 발송 처리·배송완료·클레임 승인·거부를 하고, 주문 취소·결제 취소를 처리합니다.">
       <template #actions>
         <v-btn variant="text" :prepend-icon="mdiArrowLeft" :to="backPath" data-testid="back-to-list">목록으로</v-btn>
         <v-btn
@@ -173,7 +173,7 @@ function closeReject(refresh: boolean): void {
           variant="outlined"
           data-testid="open-shipment"
           @click="activeDialog = 'shipment'"
-        >송장 등록</v-btn>
+        >발송 처리</v-btn>
         <v-btn
           v-if="detail?.actions.includes('MARK_DELIVERED')"
           color="success"
@@ -421,8 +421,8 @@ function closeReject(refresh: boolean): void {
                   · 요청 {{ formatDateTime(claim.requestedAt) }}<template v-if="claim.processedAt"> · 처리 {{ formatDateTime(claim.processedAt) }}</template>
                 </span>
                 <template v-if="claim.approvable">
-                  <v-btn size="x-small" color="primary" variant="flat" data-testid="claim-approve" @click="claimDecision = { claim, productName: item.productName }">승인</v-btn>
-                  <v-btn size="x-small" color="error" variant="outlined" data-testid="claim-reject" @click="openReject(claim, item.productName)">거절</v-btn>
+                  <v-btn size="x-small" variant="flat" class="op-risk-action" data-testid="claim-approve" @click="claimDecision = { claim, productName: item.productName }">승인</v-btn>
+                  <v-btn size="x-small" variant="flat" class="op-risk-action" data-testid="claim-reject" @click="openReject(claim, item.productName)">거부</v-btn>
                 </template>
                 <!-- Track 101-A: 승인·거부·회수 확인·검수가 누구 손에서 이뤄졌는지 이 자리에서 펼쳐 본다. -->
                 <v-btn
@@ -454,6 +454,7 @@ function closeReject(refresh: boolean): void {
       title="클레임 승인"
       :message="claimDecisionMessage"
       confirm-label="승인"
+      risk
       :loading="claimBusy"
       @confirm="runClaimDecision"
       @cancel="claimDecision = null"

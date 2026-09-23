@@ -100,7 +100,7 @@ async function submit(): Promise<void> {
       <v-card-actions class="px-5 pb-4">
         <v-spacer />
         <v-btn variant="text" :disabled="submitting" data-testid="seller-member-remove-cancel" @click="emit('cancel')">취소</v-btn>
-        <v-btn color="error" variant="flat" :loading="submitting" :disabled="confirmDisabled" data-testid="seller-member-remove-ok" @click="submit">제거</v-btn>
+        <v-btn variant="flat" class="op-risk-action" :loading="submitting" :disabled="confirmDisabled" data-testid="seller-member-remove-ok" @click="submit">제거</v-btn>
       </v-card-actions>
     </v-card>
   </v-dialog>

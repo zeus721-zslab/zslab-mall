@@ -12,10 +12,10 @@ const SELLER_ERROR_MESSAGES: Record<string, string> = {
   VALIDATION_FAILED: '입력값을 확인해 주세요.',
   MALFORMED_REQUEST: '잘못된 요청입니다.',
   INTERNAL_ERROR: '서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.',
-  // 주문·출고(D-191·prepare-shipment)
+  // 주문·발송(D-191·prepare-shipment)
   ORDER_NOT_FOUND: '주문 품목을 찾을 수 없습니다(내 품목이 아니거나 미결제 주문).',
-  ORDER_ITEM_INVALID_STATE: '현재 품목 상태에서 허용되지 않는 처리입니다(출고는 결제완료 품목만).',
-  CLAIM_STATE_INVALID: '클레임이 진행 중인 품목은 출고할 수 없습니다.',
+  ORDER_ITEM_INVALID_STATE: '현재 품목 상태에서 허용되지 않는 처리입니다(발송은 결제완료 품목만).',
+  CLAIM_STATE_INVALID: '클레임이 진행 중인 품목은 발송할 수 없습니다.',
   // 배송(D-191·mark-delivered·송장 정정)
   DELIVERY_NOT_FOUND: '배송을 찾을 수 없습니다(내 배송이 아니거나 삭제됨).',
   DELIVERY_INVALID_STATE: '현재 배송 상태에서 허용되지 않는 처리입니다(배송완료·송장 정정은 배송중만).',
@@ -23,7 +23,7 @@ const SELLER_ERROR_MESSAGES: Record<string, string> = {
   // 클레임 조회(Track 90-D-1)
   CLAIM_NOT_FOUND: '클레임을 찾을 수 없습니다(내 품목의 클레임이 아니거나 삭제됨).',
   // 정산(Track 85)
-  SETTLEMENT_NOT_FOUND: '정산을 찾을 수 없습니다(확정 전 정산은 조회되지 않습니다).',
+  SETTLEMENT_NOT_FOUND: '정산을 찾을 수 없습니다(확정 대기 정산은 조회되지 않습니다).',
   // 상품·재고(Track 90-C·GlobalExceptionHandler 코드명 1:1)
   PRODUCT_NOT_FOUND: '상품을 찾을 수 없습니다(내 상품이 아니거나 삭제됨).',
   PRODUCT_VARIANT_NOT_FOUND: '상품 옵션(변형)을 찾을 수 없습니다(내 상품이 아니거나 삭제됨).',
@@ -31,7 +31,7 @@ const SELLER_ERROR_MESSAGES: Record<string, string> = {
   PRODUCT_VARIANT_OPTION_CONFLICT: '같은 옵션 조합의 변형이 이미 있습니다.',
   PRODUCT_IMAGE_NOT_FOUND: '상품 이미지를 찾을 수 없습니다.',
   // 판매 상태 셀프 전환(Track 96-5·D-206)
-  PRODUCT_INVALID_STATE: '현재 상품 상태에서 허용되지 않는 전환입니다(승인대기·반려 상품은 전환 불가·같은 상태 재요청). 최신 상태를 다시 확인하세요.',
+  PRODUCT_INVALID_STATE: '현재 상품 상태에서 허용되지 않는 전환입니다(승인대기·거부됨 상품은 전환 불가·같은 상태 재요청). 최신 상태를 다시 확인하세요.',
   PRODUCT_STOPPED_BY_ADMIN: '관리자가 판매중지한 상품은 셀러가 재판매할 수 없습니다. 운영자에게 문의하세요.',
   INVENTORY_INVARIANT_VIOLATION: '재고 수량이 맞지 않습니다(출고량이 보유·가용 재고를 초과하거나 재고 행이 없음).',
   // 정산계좌(Track 90-D-3·D-199)

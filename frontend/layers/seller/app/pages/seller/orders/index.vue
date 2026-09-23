@@ -15,7 +15,7 @@ definePageMeta({ layout: 'seller', middleware: ['seller', 'seller-vuetify'] })
 useSeoMeta({ title: '주문 · zslab-mall 셀러' })
 
 // 셀러 주문(품목) 목록(Track 90-B-3·D-191·관리자 orders/index.vue 골격 복제). 행 = 자기 품목(한 주문에 여러 셀러 품목이 섞이므로 주문 단위가 아님).
-// URL query가 필터·페이지의 단일 소스: 화면 조작 → router.replace → route.query watch → 조회. 출고(prepare-shipment)는 PAID 행에서 바로 다이얼로그를 연다
+// URL query가 필터·페이지의 단일 소스: 화면 조작 → router.replace → route.query watch → 조회. 발송(prepare-shipment)은 PAID 행에서 바로 다이얼로그를 연다
 // (행에 품목 id가 있어 상세 선조회 불요). 배송완료·송장 정정은 배송 화면.
 const route = useRoute()
 const router = useRouter()
@@ -76,7 +76,7 @@ function openClaim(item: SellerOrderItemSummary): void {
   void navigateTo({ path: `${SELLER_CLAIMS_PATH}/${item.claim.claimId}`, query: { back: route.fullPath } })
 }
 
-// ---------- 출고 다이얼로그 ----------
+// ---------- 발송 다이얼로그 ----------
 const shipmentItem = ref<SellerOrderItemSummary | null>(null)
 const pendingIds = computed<Set<string>>(() => (shipmentItem.value ? new Set([shipmentItem.value.orderItemId]) : new Set()))
 
@@ -92,7 +92,7 @@ function closeShipment(refresh: boolean): void {
 
 <template>
   <div data-testid="seller-orders">
-    <SellerPageHeader title="주문" description="내 품목 단위로 주문을 조회하고 결제완료 품목을 출고합니다. 배송완료·송장 정정은 배송 화면에서 처리합니다." />
+    <SellerPageHeader title="주문" description="내 품목 단위로 주문을 조회하고 결제완료 품목을 발송합니다. 배송완료·송장 정정은 배송 화면에서 처리합니다." />
 
     <SellerOrderFilterCard :query="query" @apply="applyQuery" @reset="resetQuery" />
 

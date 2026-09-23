@@ -14,7 +14,7 @@ import { useSellerOrders } from '#layers/seller/app/composables/useSellerOrders'
 import { useSellerToast } from '#layers/seller/app/composables/useSellerToast'
 
 /**
- * 출고(송장 등록) 다이얼로그(Track 90-B-3·관리자 AdminShipmentDialog 복제·품목 1건 고정). 택배사(4값) + 송장번호(≤100).
+ * 발송 처리(송장 등록) 다이얼로그(Track 90-B-3·관리자 AdminShipmentDialog 복제·품목 1건 고정). 택배사(4값) + 송장번호(≤100).
  * 성공 시 info 토스트 후 done · 422(품목 상태 경합·활성 클레임)·404는 warning 토스트 후 stale(목록 재조회) · 400은 fieldErrors 표시 ·
  * **403 SELLER_SUSPENDED는 여기서 danger 토스트로 직접 표시**(배너는 useSellerApi가 켜지만 호출부가 삼키면 안 된다·FE-44 §8) 후 cancel.
  */
@@ -28,7 +28,7 @@ const ordersApi = useSellerOrders()
 const toast = useSellerToast()
 
 /**
- * 직전 출고 택배사 기억(Track 99 FE-61). 대개 같은 택배사로 계속 출고하므로 마지막으로 성공한 택배사를 다음 출고의 기본 선택으로 둔다.
+ * 직전 발송 택배사 기억(Track 99 FE-61). 대개 같은 택배사로 계속 발송하므로 마지막으로 성공한 택배사를 다음 발송의 기본 선택으로 둔다.
  * 쿠키 path=/seller라 다른 역할 화면에는 실리지 않고, 값 해석은 parseLastCarrier가 담당한다(값 집합 밖이면 기본 선택 없음 = 현행).
  */
 const lastCarrier = useCookie<string | null>('seller_last_carrier', {
@@ -65,7 +65,7 @@ async function submit(): Promise<void> {
   try {
     const response = await ordersApi.prepareShipment(props.item.orderItemId, { carrier: carrier.value, trackingNo: trackingNo.value.trim() })
     lastCarrier.value = response.carrier
-    toast.info(`출고 처리했습니다: ${SELLER_DELIVERY_CARRIER_LABEL[response.carrier]} ${response.trackingNo}`)
+    toast.info(`발송 처리했습니다: ${SELLER_DELIVERY_CARRIER_LABEL[response.carrier]} ${response.trackingNo}`)
     emit('done')
   } catch (error) {
     const code = extractErrorCode(error)
@@ -76,7 +76,7 @@ async function submit(): Promise<void> {
       const mapped = mapFieldErrors(error)
       errors.value = Object.keys(mapped).length > 0 ? mapped : { trackingNo: toSellerErrorMessage(error) }
     } else if (code === 'ORDER_ITEM_INVALID_STATE' || code === 'ORDER_NOT_FOUND' || code === 'CLAIM_STATE_INVALID' || code === 'DELIVERY_INVALID_STATE') {
-      // 조회~처리 사이 품목 상태가 바뀐 경우(다른 창에서 출고·취소 요청 등): 안내 후 목록을 다시 읽는다.
+      // 조회~처리 사이 품목 상태가 바뀐 경우(다른 창에서 발송·취소 요청 등): 안내 후 목록을 다시 읽는다.
       toast.warning(toSellerErrorMessage(error))
       emit('stale')
     } else {
@@ -91,7 +91,7 @@ async function submit(): Promise<void> {
 <template>
   <v-dialog :model-value="open" max-width="480" :persistent="submitting" @update:model-value="(value: boolean) => !value && emit('cancel')">
     <v-card data-testid="seller-shipment-dialog">
-      <v-card-title class="text-subtitle-1 font-weight-bold pt-5 px-5">출고 처리</v-card-title>
+      <v-card-title class="text-subtitle-1 font-weight-bold pt-5 px-5">발송 처리</v-card-title>
       <v-card-text class="px-5">
         <p v-if="item" class="text-body-2 mb-1" data-testid="shipment-item">{{ itemLabel(item) }}</p>
         <p v-if="item" class="text-caption text-medium-emphasis mb-3">주문번호 {{ item.orderNo }} · 송장 등록과 동시에 배송중으로 전환됩니다.</p>
@@ -121,7 +121,7 @@ async function submit(): Promise<void> {
         <v-spacer />
         <v-btn variant="text" :disabled="submitting" data-testid="shipment-dialog-close" @click="emit('cancel')">닫기</v-btn>
         <v-btn color="primary" variant="flat" :loading="submitting" :disabled="submitting || !item" data-testid="shipment-dialog-ok" @click="submit">
-          출고
+          발송
         </v-btn>
       </v-card-actions>
     </v-card>

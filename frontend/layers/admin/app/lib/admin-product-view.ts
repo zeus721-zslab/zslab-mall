@@ -1,3 +1,4 @@
+import { reversibleBy, riskConfirmMessage } from '~/lib/utils/risk-confirm'
 import type { AdminProductBulkResponse, AdminProductSummary } from '#layers/admin/app/types/admin-product'
 import type { AdminSemantic } from '#layers/admin/app/lib/constants/semantic'
 import type { AdminProductStatus, AdminProductStatusTarget, AdminSaleStopSource } from '#layers/admin/app/lib/constants/product'
@@ -19,7 +20,7 @@ export function soldOutLabel(item: Pick<AdminProductSummary, 'soldOut' | 'soldOu
 
 export type SaleStateLike = { status: AdminProductStatus; saleStopSource?: AdminSaleStopSource | null }
 
-/** 셀러가 중지한 상품인가(관리자 중지로 전환 대상). */
+/** 셀러가 판매중지한 상품인가(관리자 판매중지로 전환 대상). */
 export function isSellerStopped(item: SaleStateLike): boolean {
   return item.status === 'STOPPED' && item.saleStopSource === 'SELLER'
 }
@@ -29,15 +30,15 @@ export function isEscalation(item: SaleStateLike, target: AdminProductStatusTarg
   return target === 'STOPPED' && isSellerStopped(item)
 }
 
-/** 상태 전환 메뉴 허용 목표: 기본 전이표 + 셀러 중지 상품은 STOPPED(전환) 추가. 관리자 중지 상품은 기존대로 SALE만. */
+/** 상태 전환 메뉴 허용 목표: 기본 전이표 + 셀러 판매중지 상품은 STOPPED(전환) 추가. 관리자 판매중지 상품은 기존대로 SALE만. */
 export function statusTargetsFor(item: SaleStateLike): AdminProductStatusTarget[] {
   const base = ADMIN_PRODUCT_ALLOWED_TRANSITIONS[item.status] ?? []
   return isSellerStopped(item) ? [...base, 'STOPPED'] : base
 }
 
-export const ESCALATE_STOP_TITLE = '관리자 중지로 전환'
+export const ESCALATE_STOP_TITLE = '관리자 판매중지로 전환'
 
-/** 메뉴 항목 라벨: 셀러 중지 상품의 STOPPED 목표만 "관리자 중지로 전환", 그 외는 고정 라벨. */
+/** 메뉴 항목 라벨: 셀러 판매중지 상품의 STOPPED 목표만 "관리자 판매중지로 전환", 그 외는 고정 라벨. */
 export function statusTargetTitle(item: SaleStateLike, target: AdminProductStatusTarget): string {
   if (isEscalation(item, target)) return ESCALATE_STOP_TITLE
   return ADMIN_PRODUCT_STATUS_TARGETS.find((entry) => entry.value === target)?.title ?? target
@@ -45,8 +46,11 @@ export function statusTargetTitle(item: SaleStateLike, target: AdminProductStatu
 
 /** 전환 확인 문구(순간 판매 노출 없이 주체만 바뀜·셀러 재판매 불가 고지). */
 export function escalateConfirmMessage(productName: string): string {
-  return `${productName}은(는) 셀러가 판매중지한 상품입니다.
-관리자 중지로 전환하면 판매중지 상태는 그대로 유지되고, 셀러는 재판매할 수 없게 됩니다(관리자만 해제 가능).`
+  return riskConfirmMessage(
+    `${productName}은(는) 셀러가 판매중지한 상품입니다.
+관리자 판매중지로 전환하면 판매중지 상태는 그대로 유지되고, 셀러는 재판매할 수 없게 됩니다.`,
+    reversibleBy('관리자가 판매중으로 되돌릴 수 있습니다'),
+  )
 }
 
 /**
@@ -57,10 +61,13 @@ export function isRejection(target: AdminProductStatusTarget): boolean {
   return target === 'REJECTED'
 }
 
-/** 거부 확인 문구(불가역·되돌리려면 거부 철회가 필요함을 고지). 목록·상세가 같은 문구를 쓴다. */
+/** 거부 확인 문구. 목록·상세가 같은 문구를 쓴다. 형식은 riskConfirmMessage(Track 102 FE-64·마지막 줄이 가역성). */
 export function rejectConfirmMessage(productName: string): string {
-  return `${productName}을(를) 거부합니다.
-거부된 상품은 판매대기로 돌아가지 않으며, 되돌리려면 거부 철회를 해야 합니다.`
+  return riskConfirmMessage(
+    `${productName}을(를) 거부합니다.
+거부된 상품은 승인대기로 자동으로 돌아가지 않고, 셀러는 수정해 다시 요청해야 합니다.`,
+    reversibleBy('거부 철회로 승인대기로 되돌릴 수 있습니다'),
+  )
 }
 
 /** 상태 전환 응답 뒤 행에 반영할 주체: STOPPED 결과는 관리자 경로라 항상 ADMIN, SALE 복귀는 없음(BE 응답에 주체 없음). */

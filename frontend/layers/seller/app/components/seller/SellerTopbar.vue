@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { mdiLogout, mdiMenu } from '@mdi/js'
+import { mdiHelpCircleOutline, mdiLogout, mdiMenu } from '@mdi/js'
 import { SELLER_LOGIN_PATH } from '#layers/seller/app/lib/constants/auth'
 import { SELLER_MENU, resolveActiveSellerMenuPath } from '#layers/seller/app/lib/constants/seller-menu'
 import { useSellerAuthStore } from '#layers/seller/app/stores/sellerAuth'
@@ -77,6 +77,7 @@ async function handleLogout(): Promise<void> {
           <v-list-item v-if="displayName" :title="displayName" :subtitle="displayEmail || undefined" data-testid="seller-display-name" />
           <v-list-item v-if="companyName" :title="companyName" :subtitle="roleLabel || undefined" data-testid="seller-membership" />
           <v-divider v-if="displayName || companyName" class="my-1" />
+          <v-list-item :prepend-icon="mdiHelpCircleOutline" title="도움말" to="/seller/help" data-testid="seller-help-link" />
           <v-list-item :prepend-icon="mdiLogout" title="로그아웃" data-testid="seller-logout" @click="handleLogout" />
         </v-list>
       </v-menu>

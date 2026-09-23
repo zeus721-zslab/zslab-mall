@@ -3,6 +3,7 @@ import type { OrderSummary } from '~/types/order'
 import { orderStatusLabel } from '~/lib/constants/order'
 import { formatDateTime } from '~/lib/utils/datetime'
 import { toActiveClaimBadges } from '~/lib/utils/active-claim-badge'
+import { canResumePayment } from '~/lib/utils/payment-resume'
 
 /** 주문 목록 카드(FE-63·orders/index.vue 본문 승격). 표시만 담당하고 조회·페이징은 페이지가 가진다. */
 const props = defineProps<{ order: OrderSummary }>()
@@ -32,9 +33,23 @@ function formatPrice(value: number): string {
           {{ formatDateTime(order.orderedAt) }} · 판매자 {{ order.sellerCount }}곳
         </p>
       </div>
-      <span class="shrink-0 rounded-badge bg-gray-100 px-3 py-1 text-xs font-medium text-ink">
-        {{ orderStatusLabel(order.status.code) }}
-      </span>
+      <div class="flex shrink-0 flex-col items-end gap-2">
+        <span class="rounded-badge bg-gray-100 px-3 py-1 text-xs font-medium text-ink">
+          {{ orderStatusLabel(order.status.code) }}
+        </span>
+        <!--
+          결제 재개 진입점(Track 102 FE-64): 결제대기 주문만. 결제수단 선택이 필요해 여기서 결제를 시작하지 않고
+          상세의 결제 영역으로 보낸다(카드 전체 링크 위에 얹히므로 상세 링크와 같은 z-10 규칙을 따른다).
+        -->
+        <NuxtLink
+          v-if="canResumePayment(order.status.code)"
+          :to="`/orders/${order.orderId}`"
+          class="relative z-10 rounded-badge bg-primary px-3 py-1 text-xs font-medium text-white hover:opacity-90"
+          data-testid="order-card-resume-payment"
+        >
+          결제하기
+        </NuxtLink>
+      </div>
     </div>
 
     <div class="mt-3 flex items-end justify-between gap-4">

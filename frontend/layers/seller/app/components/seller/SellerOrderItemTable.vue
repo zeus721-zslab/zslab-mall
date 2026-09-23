@@ -17,7 +17,7 @@ import { formatWon } from '#layers/seller/app/lib/format'
 import { semanticChipClass } from '#layers/seller/app/lib/constants/semantic'
 
 // 품목 표(Track 90-B-3·v-data-table-server·관리자 AdminOrderTable 복제). 행 = 자기 품목(D-191). 페이지·크기는 부모(URL)가 소유하고 표는 이벤트만 올린다.
-// 출고 버튼은 PAID 품목에만 노출(canPrepareShipment)·부모가 다이얼로그를 연다. 배송완료는 배송 화면(진입점 분리·D-191 §5-2).
+// 발송 버튼은 PAID 품목에만 노출(canPrepareShipment)·부모가 다이얼로그를 연다. 배송완료는 배송 화면(진입점 분리·D-191 §5-2).
 // 클레임 칩(Track 90-D-1)은 최신 1건 유형·상태(+2건 이상이면 건수)이며 클릭 시 부모가 클레임 상세로 보낸다(조회 전용·처리 없음).
 const props = defineProps<{
   items: SellerOrderItemSummary[]
@@ -47,7 +47,7 @@ const headers = [
   { title: '관리', key: 'actions', sortable: false, align: 'end' as const },
 ]
 
-/** 경과 N일(C-15): 출고 대기(PAID) 품목만 결제일 기준으로 표시한다. */
+/** 경과 N일(C-15): 발송 대기(PAID) 품목만 결제일 기준으로 표시한다. */
 function pendingElapsed(item: SellerOrderItemSummary): ElapsedChip | null {
   return item.itemStatus === 'PAID' ? elapsedChip(item.paidAt) : null
 }
@@ -151,7 +151,7 @@ function isPending(item: SellerOrderItemSummary): boolean {
           data-testid="row-prepare-shipment"
           @click="emit('prepareShipment', item)"
         >
-          출고
+          발송
         </v-btn>
       </div>
     </template>

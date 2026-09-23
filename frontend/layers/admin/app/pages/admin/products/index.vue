@@ -16,6 +16,7 @@ import {
   toAdminProductRouteQuery,
 } from '#layers/admin/app/lib/admin-product-query'
 import { extractErrorCode, toAdminErrorMessage } from '#layers/admin/app/lib/admin-error-message'
+import { productDeleteMessage } from '#layers/admin/app/lib/admin-risk-confirm'
 import {
   ESCALATE_STOP_TITLE,
   escalateConfirmMessage,
@@ -125,7 +126,7 @@ async function toggleSoldOut(item: AdminProductSummary, soldOut: boolean): Promi
   }
 }
 
-// D-206 보정: 셀러 중지 상품의 STOPPED 목표는 "관리자 중지로 전환"(확인 다이얼로그 경유·status 유지·주체만 ADMIN).
+// D-206 보정: 셀러 판매중지 상품의 STOPPED 목표는 "관리자 판매중지로 전환"(확인 다이얼로그 경유·status 유지·주체만 ADMIN).
 const escalateTarget = ref<AdminProductSummary | null>(null)
 
 // Track 101-A: 거부는 목록에서 한 번 더 확인받는다(승인·판매중지·재판매는 가역이라 현행 즉시 반영 유지).
@@ -337,9 +338,9 @@ async function runBulk(): Promise<void> {
       :open="deleteTarget !== null"
       test-id="admin-delete-dialog"
       title="상품 삭제"
-      :message="`${deleteTarget?.name ?? ''}을(를) 삭제합니다.\n삭제된 상품은 목록·사용자 화면에서 사라지며 복구할 수 없습니다.`"
+      :message="productDeleteMessage(deleteTarget?.name ?? '')"
       confirm-label="삭제"
-      confirm-color="error"
+      risk
       :loading="deleting"
       @confirm="confirmDelete"
       @cancel="deleteTarget = null"
@@ -358,7 +359,7 @@ async function runBulk(): Promise<void> {
       :open="rejectTarget !== null"
       test-id="admin-product-reject-dialog"
       title="상품 거부"
-      confirm-color="error"
+      risk
       :message="rejectConfirmMessage(rejectTarget?.name ?? '')"
       confirm-label="거부"
       @confirm="confirmReject"

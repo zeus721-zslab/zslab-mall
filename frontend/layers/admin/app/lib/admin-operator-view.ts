@@ -1,3 +1,4 @@
+import { IRREVERSIBLE, reversibleBy, riskConfirmMessage } from '~/lib/utils/risk-confirm'
 import type { AdminMe, AdminOperatorListQuery, AdminOperatorSummary } from '#layers/admin/app/types/admin-operator'
 import {
   ADMIN_OPERATOR_ROLE_LABEL,
@@ -76,15 +77,20 @@ export function roleRevokeBlockedReason(role: AdminOperatorRole, superAdminCount
 export function revokeConfirmMessage(row: AdminOperatorSummary, role: AdminOperatorRole): string {
   const who = row.email ? `${operatorDisplayName(row)} (${row.email})` : operatorDisplayName(row)
   const remaining = row.roles.filter((held) => held !== role)
+  const remainingLine = remaining.length > 0
+    ? `남은 역할(${remaining.map((held) => ADMIN_OPERATOR_ROLE_LABEL[held]).join(', ')})은 유지됩니다.`
+    : null
   if (role === 'SUPER_ADMIN') {
-    return `${who}의 슈퍼 관리자 역할을 회수합니다.\n`
-      + '회수 즉시 운영자 등록·역할 회수 권한을 잃습니다. 슈퍼 관리자 역할은 화면에서 다시 부여할 수 없으므로(부여 API 없음) 되돌리려면 DB 작업이 필요합니다.'
-      + (remaining.length > 0 ? `\n남은 역할(${remaining.map((held) => ADMIN_OPERATOR_ROLE_LABEL[held]).join(', ')})은 유지됩니다.` : '')
+    const lines = [`${who}의 슈퍼 관리자 역할을 회수합니다.`, '회수 즉시 운영자 등록·역할 회수 권한을 잃습니다.']
+    if (remainingLine) lines.push(remainingLine)
+    // 화면에는 슈퍼 관리자 부여 API가 없어(D-186 §8 이월) 되돌리려면 DB 작업이 필요하다 — 화면 기준으로는 불가역이다.
+    return riskConfirmMessage(lines.join('\n'), IRREVERSIBLE)
   }
-  return `${who}의 운영 관리자 역할을 회수합니다.\n`
-    + (remaining.length > 0
-      ? `남은 역할(${remaining.map((held) => ADMIN_OPERATOR_ROLE_LABEL[held]).join(', ')})은 유지되어 관리자 화면 접근은 계속 가능합니다.`
-      : '회수 즉시 관리자 화면에 로그인할 수 없습니다. 필요하면 운영자 등록에서 다시 부여할 수 있습니다.')
+  const lines = [`${who}의 운영 관리자 역할을 회수합니다.`]
+  lines.push(remaining.length > 0
+    ? `남은 역할(${remaining.map((held) => ADMIN_OPERATOR_ROLE_LABEL[held]).join(', ')})은 유지되어 관리자 화면 접근은 계속 가능합니다.`
+    : '회수 즉시 관리자 화면에 로그인할 수 없습니다.')
+  return riskConfirmMessage(lines.join('\n'), reversibleBy('운영자 등록에서 다시 부여할 수 있습니다'))
 }
 
 /**

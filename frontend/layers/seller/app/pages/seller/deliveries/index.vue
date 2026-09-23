@@ -17,7 +17,7 @@ useSeoMeta({ title: '배송 · zslab-mall 셀러' })
 
 // 셀러 배송 목록(Track 90-B-3·D-191·관리자 orders/deliveries.vue 골격 복제). 배송(delivery) 행 단위·기본 조회 범위는 원 발송. URL query가 필터·정렬·페이지의
 // 단일 소스: 화면 조작 → router.replace → route.query watch → 조회. 행 메뉴 → 배송완료(mark-delivered)·송장 정정(PATCH·SHIPPING만).
-// 주의(D-191 §5-2): 출고 대상(PAID 품목)은 아직 Delivery 행이 없어 이 목록에 나오지 않는다 — 출고는 주문 화면, 배송완료·송장 정정은 여기(진입점 분리·상단 안내).
+// 주의(D-191 §5-2): 발송 대상(PAID 품목)은 아직 Delivery 행이 없어 이 목록에 나오지 않는다 — 발송은 주문 화면, 배송완료·송장 정정은 여기(진입점 분리·상단 안내).
 const route = useRoute()
 const router = useRouter()
 const deliveriesApi = useSellerDeliveries()
@@ -108,10 +108,10 @@ function closeDialog(refresh: boolean): void {
   <div data-testid="seller-deliveries">
     <SellerPageHeader title="배송" description="발송된 배송을 송장·수령인·주문번호로 검색하고 배송완료 처리·송장 정정을 합니다." />
 
-    <!-- 진입점 안내: 출고 전 품목은 배송 행이 없어 여기 없다. -->
+    <!-- 진입점 안내: 발송 전 품목은 배송 행이 없어 여기 없다. -->
     <v-alert type="info" variant="tonal" density="compact" class="mb-4" :icon="mdiInformationOutline" data-testid="seller-delivery-entry-notice">
-      아직 출고하지 않은 결제완료 품목은 배송이 생성되기 전이라 이 목록에 없습니다.
-      출고(택배사·송장 입력)는 <NuxtLink :to="shippingReadyLink" class="text-primary font-weight-medium" data-testid="seller-delivery-shipping-ready-link">주문 화면의 결제완료 품목</NuxtLink>에서 하고,
+      아직 발송하지 않은 결제완료 품목은 배송이 생성되기 전이라 이 목록에 없습니다.
+      발송(택배사·송장 입력)은 <NuxtLink :to="shippingReadyLink" class="text-primary font-weight-medium" data-testid="seller-delivery-shipping-ready-link">주문 화면의 결제완료 품목</NuxtLink>에서 하고,
       배송완료 처리와 송장 정정은 이 화면(배송중 행)에서 합니다.
     </v-alert>
 
@@ -151,7 +151,7 @@ function closeDialog(refresh: boolean): void {
             </template>
             <template v-else>
               <p class="text-subtitle-2 font-weight-medium mb-1">배송이 없습니다</p>
-              <p class="text-body-2 text-medium-emphasis">아직 출고한 품목이 없습니다. 결제완료 품목은 주문 화면에서 출고하세요.</p>
+              <p class="text-body-2 text-medium-emphasis">아직 발송한 품목이 없습니다. 결제완료 품목은 주문 화면에서 발송하세요.</p>
             </template>
           </div>
         </template>

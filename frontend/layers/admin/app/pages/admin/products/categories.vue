@@ -2,6 +2,7 @@
 import { mdiAlertCircleOutline, mdiPlus, mdiShapeOutline } from '@mdi/js'
 import type { AdminCategorySummary } from '#layers/admin/app/types/admin-category'
 import { moveCategory, toProductListPath } from '#layers/admin/app/lib/admin-category-view'
+import { categoryDeleteMessage } from '#layers/admin/app/lib/admin-risk-confirm'
 import { extractErrorCode, toAdminErrorMessage } from '#layers/admin/app/lib/admin-error-message'
 import { useAdminCategories } from '#layers/admin/app/composables/useAdminCategories'
 import { useAdminToast } from '#layers/admin/app/composables/useAdminToast'
@@ -63,11 +64,7 @@ function closeDialog(refresh: boolean): void {
 const deleteTarget = ref<AdminCategorySummary | null>(null)
 const deleting = ref(false)
 
-const deleteMessage = computed(() =>
-  deleteTarget.value
-    ? `"${deleteTarget.value.displayName}" 카테고리를 삭제합니다.\n상품 등록 드롭다운과 카탈로그 탭에서 즉시 사라지며, 같은 이름으로 다시 등록할 수 있습니다.`
-    : '',
-)
+const deleteMessage = computed(() => (deleteTarget.value ? categoryDeleteMessage(deleteTarget.value.displayName) : ''))
 
 async function confirmDelete(): Promise<void> {
   if (!deleteTarget.value || deleting.value) return
@@ -165,7 +162,7 @@ function openProducts(item: AdminCategorySummary): void {
       title="카테고리 삭제"
       :message="deleteMessage"
       confirm-label="삭제"
-      confirm-color="error"
+      risk
       :loading="deleting"
       test-id="admin-category-delete-dialog"
       @confirm="confirmDelete"

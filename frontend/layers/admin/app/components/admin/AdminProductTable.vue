@@ -57,7 +57,7 @@ function markBroken(productPublicId: string): void {
   brokenThumbnails.value = new Set(brokenThumbnails.value).add(productPublicId)
 }
 
-// D-206 보정: 셀러 중지 상품은 STOPPED 목표가 "관리자 중지로 전환"으로 열린다(순수 함수·vitest).
+// D-206 보정: 셀러 판매중지 상품은 STOPPED 목표가 "관리자 판매중지로 전환"으로 열린다(순수 함수·vitest).
 function allowedTargets(item: AdminProductSummary): AdminProductStatusTarget[] {
   return statusTargetsFor(item)
 }
@@ -189,6 +189,7 @@ function isPending(item: AdminProductSummary): boolean {
               v-for="target in ADMIN_PRODUCT_STATUS_TARGETS"
               :key="target.value"
               :title="statusTargetTitle(item, target.value)"
+              :class="target.value === 'REJECTED' ? 'op-risk-menu-item' : undefined"
               :disabled="statusTargetDisabled(item, target.value)"
               :data-testid="`row-status-${target.value}`"
               @click="requestStatusChange(item, target.value)"
@@ -202,8 +203,8 @@ function isPending(item: AdminProductSummary): boolean {
             <v-divider class="my-1" />
             <v-list-item
               title="삭제"
+              class="op-risk-menu-item"
               :prepend-icon="mdiTrashCanOutline"
-              base-color="error"
               data-testid="row-delete"
               @click="emit('remove', item)"
             />

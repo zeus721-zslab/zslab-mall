@@ -57,7 +57,7 @@ export type SellerFunnelStageKey = keyof SellerOrderFunnel
 
 export const SELLER_FUNNEL_STAGES: { key: SellerFunnelStageKey; label: string }[] = [
   { key: 'paidItems', label: '결제' },
-  { key: 'shippedItems', label: '출고' },
+  { key: 'shippedItems', label: '발송' },
   { key: 'deliveredItems', label: '배송완료' },
 ]
 
@@ -94,8 +94,8 @@ export function sellerFunnelStages(funnel: SellerOrderFunnel | null): SellerFunn
 export type SellerLeadTimeKey = keyof NormalizedSellerOrderStats['leadTime']
 
 export const SELLER_LEAD_TIME_LABELS: Record<SellerLeadTimeKey, string> = {
-  paidToShipped: '결제 → 출고',
-  shippedToDelivered: '출고 → 배송완료',
+  paidToShipped: '결제 → 발송',
+  shippedToDelivered: '발송 → 배송완료',
 }
 
 export interface SellerLeadTimeCardView {

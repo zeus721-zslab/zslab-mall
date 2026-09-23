@@ -100,7 +100,7 @@ function closeDialog(refresh: boolean): void {
 
 <template>
   <div>
-    <AdminPageHeader title="전체 주문" description="주문을 검색·조회하고 송장 등록·배송완료를 처리합니다. 취소는 주문 상세에서 진행합니다." />
+    <AdminPageHeader title="전체 주문" description="주문을 검색·조회하고 발송·배송완료를 처리합니다. 취소는 주문 상세에서 진행합니다." />
 
     <AdminOrderFilterCard :query="query" @apply="applyQuery" @reset="resetQuery" />
 
