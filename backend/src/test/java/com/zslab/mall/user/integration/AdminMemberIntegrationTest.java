@@ -214,11 +214,21 @@ class AdminMemberIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("(5) 관리자 탈퇴: 진행 중 주문 409 → 종결 후 204·withdrawn_at·credentials_changed_at·감사 DELETE → 재탈퇴 409")
     void withdraw() throws Exception {
         seedOrder(ORDER_A_ACTIVE, BUYER_A, "SHIPPING", false);
+        // Track 104-4: 결제 후 주문의 진행 판정은 품목 상태를 본다 — 주문 요약값과 맞는 품목을 함께 둔다(ORD-1)
+        seedOrderItem(ORDER_A_ACTIVE, "SHIPPING");
         mockMvc.perform(post(URL + "/" + BUYER_A_PID + "/withdraw").headers(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("MEMBER_ACTIVITY_IN_PROGRESS"));
 
         jdbc.update("UPDATE `order` SET status = 'CONFIRMED' WHERE id = ?", ORDER_A_ACTIVE);
+        tx.executeWithoutResult(s -> {
+            try {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
+                jdbc.update("UPDATE order_item SET item_status = 'CONFIRMED' WHERE order_id = ?", ORDER_A_ACTIVE);
+            } finally {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
+            }
+        });
         mockMvc.perform(post(URL + "/" + BUYER_A_PID + "/withdraw").headers(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isNoContent());
         Map<String, Object> row = jdbc.queryForMap(
@@ -551,6 +561,21 @@ class AdminMemberIntegrationTest extends AbstractIntegrationTest {
         });
     }
 
+    /** 주문 1건에 품목 1건(id = 주문 id·FK_CHECKS=0으로 상품·셀러 없이 심는다). */
+    private void seedOrderItem(long orderId, String itemStatus) {
+        tx.executeWithoutResult(s -> {
+            try {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
+                jdbc.update("INSERT INTO order_item (id, public_id, order_id, product_id, variant_id, seller_id, quantity, unit_price, "
+                                + "total_price, item_status, product_name, created_at, updated_at, commission_rate) "
+                                + "VALUES (?, ?, ?, 1, 1, 1, 1, 10000, 10000, ?, '탈퇴가드상품', NOW(6), NOW(6), 1000)",
+                        orderId, pid("oit_", "T84I" + orderId), orderId, itemStatus);
+            } finally {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
+            }
+        });
+    }
+
     private void cleanup() {
         tx.executeWithoutResult(s -> {
             try {
@@ -561,6 +586,7 @@ class AdminMemberIntegrationTest extends AbstractIntegrationTest {
                 for (Long id : ids) {
                     jdbc.update("DELETE FROM audit_log WHERE target_type = 'USER' AND target_id = ?", id);
                     jdbc.update("DELETE FROM notification_log WHERE target_type = 'USER' AND target_id = ?", id);
+                    jdbc.update("DELETE FROM order_item WHERE order_id IN (SELECT id FROM `order` WHERE buyer_id = ?)", id);
                     jdbc.update("DELETE FROM `order` WHERE buyer_id = ?", id);
                     jdbc.update("DELETE FROM user_address WHERE user_id = ?", id);
                     jdbc.update("DELETE FROM buyer_profile WHERE user_id = ?", id);
