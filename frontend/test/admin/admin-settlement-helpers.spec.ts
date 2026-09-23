@@ -97,7 +97,7 @@ describe('에러 문구(정산 6코드)', () => {
   it('코드별 운영자 문구', () => {
     expect(toAdminErrorMessage(error('SETTLEMENT_NOT_FOUND'))).toBe('정산을 찾을 수 없습니다.')
     expect(toAdminErrorMessage(error('SETTLEMENT_PERIOD_INVALID'))).toContain('마감되지 않은 월')
-    expect(toAdminErrorMessage(error('SETTLEMENT_ALREADY_EXISTS'))).toContain('이미 생성')
+    expect(toAdminErrorMessage(error('SETTLEMENT_ALREADY_EXISTS'))).toContain('다른 정산 작업과 겹쳤습니다')
     expect(toAdminErrorMessage(error('SETTLEMENT_INVALID_STATE'))).toContain('허용되지 않는 처리')
     expect(toAdminErrorMessage(error('SETTLEMENT_NET_NEGATIVE'))).toContain('음수')
     expect(toAdminErrorMessage(error('SETTLEMENT_BANK_ACCOUNT_MISSING'))).toContain('정산계좌')

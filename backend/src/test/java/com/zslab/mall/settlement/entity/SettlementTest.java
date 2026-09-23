@@ -24,7 +24,7 @@ class SettlementTest {
     private static final Long BANK_ACCOUNT_ID = 77L;
 
     private Settlement pendingSettlement() {
-        return Settlement.create(1L, PERIOD_START, PERIOD_END, 10_000L, 1_000L, 0L, SCHEDULED_PAY_DATE);
+        return Settlement.create(1L, PERIOD_START, PERIOD_END, 10_000L, 1_000L, 0L, 0L, SCHEDULED_PAY_DATE);
     }
 
     @Test
@@ -37,7 +37,7 @@ class SettlementTest {
         assertThat(settlement.getBankAccountId()).isNull();
         assertThat(settlement.getCommissionRate()).isNull();
         assertThat(settlement.getScheduledPayDate()).isEqualTo(SCHEDULED_PAY_DATE);
-        assertThatThrownBy(() -> Settlement.create(1L, PERIOD_START, PERIOD_END, 10_000L, 1_000L, 0L, null))
+        assertThatThrownBy(() -> Settlement.create(1L, PERIOD_START, PERIOD_END, 10_000L, 1_000L, 0L, 0L, null))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 

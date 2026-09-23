@@ -1,15 +1,18 @@
 package com.zslab.mall.settlement.integration;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 
 import com.zslab.mall.audit.service.AuditContext;
 import com.zslab.mall.refund.repository.RefundRepository;
+import com.zslab.mall.settlement.exception.SettlementAlreadyExistsException;
 import com.zslab.mall.settlement.service.SettlementCreationService;
 import com.zslab.mall.support.AbstractIntegrationTest;
 import java.time.LocalDateTime;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -35,7 +38,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  *
  * <p><b>끼워 넣기</b>: 환불 소스 조회({@code RefundRepository.findSettlementRefundSources}) 진입에서 스파이가 멈춘다 — 매출 조회는 이미
  * 끝났다. 그동안 다른 트랜잭션이 같은 기간·같은 셀러의 COMPLETED 환불을 커밋하고 래치를 푼다(ClaimLockRace·DeliveryLockRace 래치 방식).
- * 한 시점 기준이면 끼어든 환불은 이번 정산에 들어가지 않는다(다음 재생성에서 반영).
+ * 한 시점 기준이면 끼어든 환불은 이번 정산에 들어가지 않는다(다음 재생성에서 반영). 같은 정지점에서 매출 품목을 다른 정산에 먼저 편입해 커밋하면
+ * 품목 저장이 전역 출처 UNIQUE(Track 104-3b V37)에 걸려 409로 변환된다(P3).
  *
  * <p><b>시드</b>: 셀러 1 · 기간(마감된 2025-03) 안에 구매확정된 매출 품목 10,000 · 기간 전에 확정된 품목의 반품 클레임(환불은 끼어드는 쪽이 넣는다).
  * FK는 시드·끼워 넣기 트랜잭션에서만 끈다. 클래스에 {@code @Transactional}을 두지 않는다(실제 커밋 관찰).
@@ -77,6 +81,7 @@ class SettlementSnapshotIsolationIntegrationTest extends AbstractIntegrationTest
     private PlatformTransactionManager txManager;
 
     private TransactionTemplate tx;
+    private long settlementIdBefore;
     private final AtomicBoolean holdBeforeRefundQuery = new AtomicBoolean(false);
     private CountDownLatch saleQueried;
     private CountDownLatch refundCommitted;
@@ -95,14 +100,16 @@ class SettlementSnapshotIsolationIntegrationTest extends AbstractIntegrationTest
                 awaitQuietly(refundCommitted);
             }
             return delegateToRealRepository.answer(invocation);
-        }).when(refundRepository).findSettlementRefundSources(any(), any(), any(), any());
+        }).when(refundRepository).findSettlementRefundSources(any(), any(), any());
         cleanup();
+        settlementIdBefore = jdbc.queryForObject("SELECT COALESCE(MAX(id), 0) FROM settlement", Long.class);
         seed();
     }
 
     @AfterEach
     void tearDown() {
         refundCommitted.countDown();
+        cleanupCreatedSettlements();
         cleanup();
     }
 
@@ -127,21 +134,55 @@ class SettlementSnapshotIsolationIntegrationTest extends AbstractIntegrationTest
         assertThat(refundItemCount()).isZero();
     }
 
+    @Test
+    @DisplayName("P3 매출 조회 뒤 같은 매출 품목이 다른 정산에 먼저 편입(커밋) → 품목 저장의 전역 출처 UNIQUE 위반을 409(SettlementAlreadyExists)로 변환·롤백")
+    void monthlyCreation_saleIncludedElsewhereBetweenQueries_isConflict() {
+        assertThatThrownBy(() -> runWithInterleaved(
+                () -> settlementCreationService.createMonthlySettlements(SETTLEMENT_YEAR, SETTLEMENT_MONTH, ADMIN),
+                this::commitSaleIncludedInOtherSettlement))
+                .isInstanceOf(ExecutionException.class)
+                .hasCauseInstanceOf(SettlementAlreadyExistsException.class);
+
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM settlement WHERE seller_id = ? AND period_start = ?", Long.class,
+                SELLER_ID, PERIOD_START)).as("배치 롤백 — 3월 정산 헤더도 남지 않는다").isZero();
+    }
+
     // ---------- 끼워 넣기 ----------
 
     /** 정산 작업을 환불 조회 직전에 세우고, 그동안 같은 기간 환불을 다른 트랜잭션으로 커밋한 뒤 풀어 준다. */
     private void runWithInterleavedRefund(Runnable settlementWork) throws Exception {
+        runWithInterleaved(settlementWork, this::commitInterleavedRefund);
+    }
+
+    /** 정산 작업을 환불 조회 직전(매출 조회 뒤)에 세우고, 그동안 다른 트랜잭션의 커밋을 끼워 넣은 뒤 풀어 준다. */
+    private void runWithInterleaved(Runnable settlementWork, Runnable interleavedCommit) throws Exception {
         holdBeforeRefundQuery.set(true);
         ExecutorService pool = Executors.newSingleThreadExecutor();
         try {
             Future<?> settlement = pool.submit(settlementWork);
             assertThat(saleQueried.await(RACE_TIMEOUT_SECONDS, TimeUnit.SECONDS)).as("정산이 환불 조회 직전 정지점에 도달").isTrue();
-            commitInterleavedRefund();
+            interleavedCommit.run();
             refundCommitted.countDown();
             settlement.get(RACE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         } finally {
             pool.shutdownNow();
         }
+    }
+
+    /** 같은 셀러의 앞선 기간(2월) 정산이 매출 품목을 먼저 편입한 상태를 커밋한다(동시 실행 레이스 재현). */
+    private void commitSaleIncludedInOtherSettlement() {
+        tx.executeWithoutResult(status -> {
+            jdbc.update("INSERT INTO settlement (seller_id, period_start, period_end, gross_amount, fee_amount, refund_amount, "
+                    + "net_amount, status, created_at, updated_at) VALUES (?, ?, ?, ?, 0, 0, ?, 'PENDING', NOW(6), NOW(6))",
+                    SELLER_ID, LocalDateTime.of(2025, 2, 1, 0, 0), LocalDateTime.of(2025, 2, 28, 23, 59, 59, 999_999_000),
+                    SALE_AMOUNT, SALE_AMOUNT);
+            Long otherSettlementId = jdbc.queryForObject("SELECT id FROM settlement WHERE seller_id = ? AND period_start = ?",
+                    Long.class, SELLER_ID, LocalDateTime.of(2025, 2, 1, 0, 0));
+            jdbc.update("INSERT INTO settlement_item (settlement_id, item_type, order_item_id, source_id, order_public_id, product_name, "
+                    + "quantity, amount, commission_rate, fee_amount, occurred_at, created_at) "
+                    + "VALUES (?, 'SALE', ?, ?, ?, '스냅샷 상품', 1, ?, 1000, 1000, ?, NOW(6))",
+                    otherSettlementId, SALE_ITEM_ID, SALE_ITEM_ID, pid("ord_", "SSIORD"), SALE_AMOUNT, IN_PERIOD);
+        });
     }
 
     private void commitInterleavedRefund() {
@@ -196,6 +237,18 @@ class SettlementSnapshotIsolationIntegrationTest extends AbstractIntegrationTest
                         + "total_price, commission_rate, item_status, confirmed_at, created_at, updated_at, product_name) "
                         + "VALUES (?, ?, ?, 1, 1, ?, 1, ?, ?, 1000, ?, ?, NOW(6), NOW(6), '스냅샷 상품')",
                 id, pid("oit_", tag), ORDER_ID, SELLER_ID, SALE_AMOUNT, SALE_AMOUNT, itemStatus, confirmedAt);
+    }
+
+    /**
+     * 이 테스트 중 만들어진 정산을 셀러와 무관하게 지운다(Track 104-3b). 생성은 전 셀러 대상이고 기간 하한이 없어 다른 테스트의 미정산 잔여
+     * 사실까지 편입할 수 있다 — 남기면 그 품목의 settlement_item 출처 키가 뒤 테스트의 편입을 막는다.
+     */
+    private void cleanupCreatedSettlements() {
+        tx.executeWithoutResult(status -> {
+            jdbc.update("DELETE FROM audit_log WHERE target_type = 'SETTLEMENT' AND target_id > ?", settlementIdBefore);
+            jdbc.update("DELETE FROM settlement_item WHERE settlement_id > ?", settlementIdBefore);
+            jdbc.update("DELETE FROM settlement WHERE id > ?", settlementIdBefore);
+        });
     }
 
     private void cleanup() {

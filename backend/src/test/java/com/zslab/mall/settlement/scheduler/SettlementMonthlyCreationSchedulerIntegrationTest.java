@@ -48,16 +48,19 @@ class SettlementMonthlyCreationSchedulerIntegrationTest extends AbstractIntegrat
 
     private TransactionTemplate tx;
     private SettlementMonthlyCreationScheduler scheduler;
+    private long settlementIdBefore;
 
     @BeforeEach
     void setUp() {
         tx = new TransactionTemplate(txManager);
         scheduler = new SettlementMonthlyCreationScheduler(settlementCreationService);
         cleanup();
+        settlementIdBefore = jdbc.queryForObject("SELECT COALESCE(MAX(id), 0) FROM settlement", Long.class);
     }
 
     @AfterEach
     void tearDown() {
+        cleanupCreatedSettlements();
         cleanup();
     }
 
@@ -101,15 +104,19 @@ class SettlementMonthlyCreationSchedulerIntegrationTest extends AbstractIntegrat
     }
 
     @Test
-    @DisplayName("T3 킬스위치: enabled=false 컨텍스트에 스케줄러 빈 없음 / 실행일 기준 전월만 대상(2개월 전 매출은 미생성)")
-    void killSwitch_andOnlyPreviousMonth() {
+    @DisplayName("T3 킬스위치: enabled=false 컨텍스트에 스케줄러 빈 없음 / 실행일 기준 전월 정산에 2개월 전 미정산 매출도 편입(Track 104-3b ⑦)")
+    void killSwitch_andPreviousMonthIncludesEarlierUnsettledSale() {
         assertThat(applicationContext.getBeanNamesForType(SettlementMonthlyCreationScheduler.class)).isEmpty();
 
         seedSellerWithSale(YearMonth.now().minusMonths(2).atDay(15).atTime(12, 0));
 
         scheduler.createForPreviousMonthOf(LocalDate.now());
 
-        assertThat(settlementCount()).isZero();
+        Map<String, Object> settlement = jdbc.queryForMap(
+                "SELECT period_start, gross_amount FROM settlement WHERE seller_id = ?", SELLER_ID);
+        assertThat(((java.sql.Timestamp) settlement.get("period_start")).toLocalDateTime())
+                .as("헤더 기간은 요청한 전월").isEqualTo(YearMonth.now().minusMonths(1).atDay(1).atStartOfDay());
+        assertThat(((Number) settlement.get("gross_amount")).longValue()).isEqualTo(10_000L);
     }
 
     // ---------- seed·helpers (바인딩 파라미터 + 정적 SQL·SQL injection 위험 없음) ----------
@@ -142,6 +149,18 @@ class SettlementMonthlyCreationSchedulerIntegrationTest extends AbstractIntegrat
 
     private int settlementCount() {
         return jdbc.queryForObject("SELECT COUNT(*) FROM settlement WHERE seller_id = ?", Integer.class, SELLER_ID);
+    }
+
+    /**
+     * 이 테스트 중 만들어진 정산을 셀러와 무관하게 지운다(Track 104-3b). 전월 생성은 전 셀러 대상이고 기간 하한이 없어 다른 테스트의 미정산 잔여
+     * 사실까지 편입할 수 있다 — 남기면 그 품목의 settlement_item 출처 키가 뒤 테스트의 편입을 막는다. 모든 변수는 ? 바인딩이다.
+     */
+    private void cleanupCreatedSettlements() {
+        tx.executeWithoutResult(s -> {
+            jdbc.update("DELETE FROM audit_log WHERE target_type = 'SETTLEMENT' AND target_id > ?", settlementIdBefore);
+            jdbc.update("DELETE FROM settlement_item WHERE settlement_id > ?", settlementIdBefore);
+            jdbc.update("DELETE FROM settlement WHERE id > ?", settlementIdBefore);
+        });
     }
 
     private void cleanup() {

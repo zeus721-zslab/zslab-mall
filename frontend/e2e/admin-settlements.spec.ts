@@ -24,6 +24,7 @@ const base = (id: number, sellerPublicId: string, companyName: string, overrides
   grossAmount: 100_000,
   feeAmount: 10_000,
   refundAmount: 20_000,
+  carryoverAmount: 0,
   netAmount: 70_000,
   status: 'PENDING',
   scheduledPayDate: '2026-07-20',
@@ -38,8 +39,8 @@ const ROW_NEGATIVE = base(STL_NEGATIVE, SELLER_B, 'E2E셀러B', { status: 'CONFI
 const ROW_NO_ACCOUNT = base(STL_NO_ACCOUNT, SELLER_A, 'E2E셀러A', { status: 'CONFIRMED', bankAccountRegistered: false })
 const ROW_PAID = base(STL_PAID, SELLER_A, 'E2E셀러A', { status: 'PAID', paidAt: '2026-07-21T10:00:00+09:00', periodStart: '2026-05-01T00:00:00+09:00', periodEnd: '2026-05-31T23:59:59.999999+09:00' })
 const JUNE_ROWS = [ROW_PENDING, ROW_CONFIRMED, ROW_NEGATIVE]
-const TOTALS = { grossAmount: 300_000, feeAmount: 30_000, refundAmount: 135_000, netAmount: 135_000, pendingCount: 1, confirmedCount: 2, paidCount: 0 }
-const EMPTY_TOTALS = { grossAmount: 0, feeAmount: 0, refundAmount: 0, netAmount: 0, pendingCount: 0, confirmedCount: 0, paidCount: 0 }
+const TOTALS = { grossAmount: 300_000, feeAmount: 30_000, refundAmount: 135_000, carryoverAmount: 0, netAmount: 135_000, pendingCount: 1, confirmedCount: 2, paidCount: 0 }
+const EMPTY_TOTALS = { grossAmount: 0, feeAmount: 0, refundAmount: 0, carryoverAmount: 0, netAmount: 0, pendingCount: 0, confirmedCount: 0, paidCount: 0 }
 
 const CONTACT = { contactEmail: 'se***@e2e.invalid', contactPhone: '010-****-1234' }
 const BANK_CURRENT = { id: 1, bankCode: '004', accountHolder: '홍길동', accountNumberSuffix: '5678', snapshot: false }
@@ -47,7 +48,7 @@ const BANK_SNAPSHOT = { ...BANK_CURRENT, snapshot: true }
 
 function detailOf(row: ReturnType<typeof base>) {
   const bankAccount = row.status === 'PAID' ? BANK_SNAPSHOT : (row.bankAccountRegistered ? BANK_CURRENT : undefined)
-  return { ...row, refundItemCount: 1, sellerContact: CONTACT, bankAccount }
+  return { ...row, refundItemCount: 1, carryoverItemCount: 0, sellerContact: CONTACT, bankAccount }
 }
 
 const SALE_ITEMS = [
@@ -200,7 +201,7 @@ test.describe('관리자 정산(Track 85)', () => {
     await page.getByTestId('settlement-create').click()
     await expect(page.getByTestId('settlement-create-dialog')).toContainText('2026년 6월 정산을 생성합니다')
     await page.getByTestId('settlement-create-dialog-ok').click()
-    await expect(page.getByText('같은 기간의 정산이 이미 생성되고 있습니다. 잠시 후 목록을 새로고침하세요.')).toBeVisible()
+    await expect(page.getByText('다른 정산 작업과 겹쳤습니다. 잠시 후 목록을 새로고침하세요.')).toBeVisible()
 
     await page.unrouteAll({ behavior: 'ignoreErrors' })
     const second = await mockSettlementApi(page)

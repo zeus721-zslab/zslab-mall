@@ -422,7 +422,7 @@ class SettlementCreationServiceTest extends Batch1DataJpaTestBase {
 
         // CONFIRMED는 재생성 불가(422)·미존재 404
         Settlement confirmed = settlementRepository.saveAndFlush(
-            Settlement.create(SELLER_MIXED, PERIOD_START, PERIOD_END, 1L, 0L, 0L, LocalDate.of(2026, 7, 20)));
+            Settlement.create(SELLER_MIXED, PERIOD_START, PERIOD_END, 1L, 0L, 0L, 0L, LocalDate.of(2026, 7, 20)));
         confirmed.markConfirmed();
         settlementRepository.saveAndFlush(confirmed);
         assertThatThrownBy(() -> settlementCreationService.regenerate(confirmed.getId(), "사유", ADMIN))

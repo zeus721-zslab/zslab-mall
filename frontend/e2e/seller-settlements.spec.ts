@@ -6,15 +6,15 @@ import { mockSellerMe, pagedResponse } from './helpers/seller-mock'
  * 셀러 정산 화면(Track 90-B-3·Track 85 BE·읽기 전용) E2E. 로그인은 loginAs(SELLER), /seller/me(확정 대기 건수)·정산 목록·상세·품목은 page.route mock.
  * ① 목록(확정 대기 안내·행) → 상세(금액·계좌 스냅샷) → 품목 탭 전환(URL tab·API type) → 목록 복귀 ② 확정 대기 정산 id 직접 진입 → 404 안내.
  */
-const CONFIRMED = { id: 13, periodStart: '2026-07-01T00:00:00+09:00', periodEnd: '2026-07-31T23:59:59.999999+09:00', grossAmount: 352600, feeAmount: 35260, refundAmount: 0, netAmount: 317340, status: 'CONFIRMED', scheduledPayDate: '2026-08-20' }
-const PAID = { id: 10, periodStart: '2026-06-01T00:00:00+09:00', periodEnd: '2026-06-30T23:59:59.999999+09:00', grossAmount: 371700, feeAmount: 37170, refundAmount: 12000, netAmount: 322530, status: 'PAID', scheduledPayDate: '2026-07-20', paidAt: '2026-07-20T10:00:00+09:00' }
-const DETAIL = { ...CONFIRMED, saleItemCount: 2, refundItemCount: 1, bankAccount: { id: 1, bankCode: '004', accountHolder: '데모 셀러', accountNumberSuffix: '1234', snapshot: false } }
+const CONFIRMED = { id: 13, periodStart: '2026-07-01T00:00:00+09:00', periodEnd: '2026-07-31T23:59:59.999999+09:00', grossAmount: 352600, feeAmount: 35260, refundAmount: 0, carryoverAmount: 0, netAmount: 317340, status: 'CONFIRMED', scheduledPayDate: '2026-08-20' }
+const PAID = { id: 10, periodStart: '2026-06-01T00:00:00+09:00', periodEnd: '2026-06-30T23:59:59.999999+09:00', grossAmount: 371700, feeAmount: 37170, refundAmount: 12000, carryoverAmount: 0, netAmount: 322530, status: 'PAID', scheduledPayDate: '2026-07-20', paidAt: '2026-07-20T10:00:00+09:00' }
+const DETAIL = { ...CONFIRMED, saleItemCount: 2, refundItemCount: 1, carryoverItemCount: 0, bankAccount: { id: 1, bankCode: '004', accountHolder: '데모 셀러', accountNumberSuffix: '1234', snapshot: false } }
 const SALE_ITEMS = [
   { id: 101, itemType: 'SALE', orderItemId: 1, orderPublicId: 'ord_E2E1', productName: 'E2E 냄비 세트', quantity: 1, amount: 89000, commissionRate: 1000, feeAmount: 8900, occurredAt: '2026-07-10T10:00:00+09:00' },
   { id: 102, itemType: 'SALE', orderItemId: 2, orderPublicId: 'ord_E2E2', productName: 'E2E 반찬통', optionLabel: '6종', quantity: 2, amount: 64000, commissionRate: 1000, feeAmount: 6400, occurredAt: '2026-07-12T10:00:00+09:00' },
 ]
 const REFUND_ITEMS = [
-  { id: 201, itemType: 'REFUND', orderItemId: 1, refundId: 9, orderPublicId: 'ord_E2E1', productName: 'E2E 냄비 세트', quantity: 1, amount: -89000, commissionRate: 1000, feeAmount: -8900, occurredAt: '2026-07-15T10:00:00+09:00' },
+  { id: 201, itemType: 'REFUND', orderItemId: 1, refundId: 9, orderPublicId: 'ord_E2E1', productName: 'E2E 냄비 세트', quantity: 1, amount: 89000, commissionRate: 1000, feeAmount: 0, occurredAt: '2026-07-15T10:00:00+09:00' },
 ]
 
 interface Captured { itemQueries: URLSearchParams[] }
@@ -64,7 +64,7 @@ test.describe('셀러 정산 화면(90-B-3)', () => {
     await page.getByTestId('settlement-tab-REFUND').click()
     await expect(page).toHaveURL(/tab=REFUND/)
     await expect(page.getByTestId('item-product')).toHaveCount(1)
-    await expect(page.getByTestId('item-fee').first()).toHaveText('-8,900원')
+    await expect(page.getByTestId('item-fee').first()).toHaveText('0원')
     await expect.poll(() => captured.itemQueries.at(-1)?.get('type')).toBe('REFUND')
 
     await page.getByTestId('settlement-back').click()

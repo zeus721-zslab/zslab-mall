@@ -397,7 +397,10 @@ class AdminDashboardQueryControllerIntegrationTest extends AbstractIntegrationTe
         return items.stream().filter(item -> paidOrderIds.contains(item.orderId())).filter(filter).mapToLong(value).sum();
     }
 
-    /** 정산 gross 소스와 같은 쿼리(CONFIRMED·confirmed_at 양끝 포함)로 시드 셀러(A·B)의 월 gross 합을 구한다. */
+    /**
+     * 월 한정 집계 쿼리(CONFIRMED·confirmed_at 양끝 포함)로 시드 셀러(A·B)의 월 gross 합을 구한다. 정산 소스 조회는 Track 104-3b부터
+     * "기간 말까지 + 미편입"이라 이 월 한정 합과 같지 않다 — 여기서는 확정 월 귀속 매출을 대시보드 월 매출과 대사하는 데만 쓴다.
+     */
     private long settlementGrossOfSeededSellers(YearMonth month) {
         LocalDateTime periodStart = month.atDay(1).atStartOfDay();
         LocalDateTime periodEnd = month.atEndOfMonth().atTime(23, 59, 59, 999_999_000);
