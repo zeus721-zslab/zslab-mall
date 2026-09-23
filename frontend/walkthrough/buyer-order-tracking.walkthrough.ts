@@ -15,7 +15,7 @@ test('구매자 · 배송중 주문 배송 정보 확인', async ({ page }) => {
   await expect(page.getByRole('heading', { name: '주문 내역' })).toBeVisible()
   await walkthrough.shot('주문-목록')
 
-  const shippingOrder = page.locator('a[href^="/orders/ord_"]').filter({ hasText: '배송중' }).first()
+  const shippingOrder = page.getByTestId('order-card').filter({ hasText: '배송중' }).first()
   await expect(shippingOrder).toBeVisible()
   await walkthrough.click(shippingOrder)
   await expect(page.getByText('총 결제금액')).toBeVisible()

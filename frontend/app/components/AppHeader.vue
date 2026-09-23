@@ -29,13 +29,13 @@ const { data: categories, error: categoriesError } = useCategories()
 const categoryMenuItems = computed(() => (categoriesError.value ? [] : categories.value ?? []))
 
 // 계정 드롭다운 링크 항목(FE-19). 회원 탈퇴는 파괴적 동작이라 헤더 상시 노출 대상에서 제외(/mypage 허브에서만 진입).
+// FE-63: 취소·반품·교환 내역은 주문내역 탭으로 통합돼 별도 항목을 두지 않는다(진입점 일원화).
 const accountMenuItems: { to: string; label: string }[] = [
   { to: '/mypage', label: '마이페이지' },
   { to: '/orders', label: '주문내역' },
   { to: '/mypage/profile', label: '회원정보 수정' },
   { to: '/mypage/password', label: '비밀번호 변경' },
   { to: '/mypage/addresses', label: '배송지 관리' },
-  { to: '/claims', label: '취소·반품·교환 내역' },
 ]
 
 // route.meta.middleware는 단일 문자열 'buyer' 또는 배열로 노출될 수 있어 양쪽 모두 방어적으로 판정한다.

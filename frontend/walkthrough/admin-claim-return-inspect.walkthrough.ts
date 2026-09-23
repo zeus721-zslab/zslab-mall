@@ -16,8 +16,8 @@ test('관리자 · 반품 회수 송장(구매자) → 검수 합격·재입고'
   // ---------- 구매자: 회수 송장 등록 ----------
   walkthrough.segment('구매자', 'buyer')
   await loginAs(page, 'BUYER')
-  await walkthrough.goto('/claims')
-  await expect(page.getByRole('heading', { name: '취소·반품·교환 내역' })).toBeVisible()
+  await walkthrough.goto('/orders?tab=return')
+  await expect(page.getByRole('heading', { name: '주문 내역' })).toBeVisible()
   // hydration 전에 링크를 누르면 NuxtLink가 아닌 네이티브 이동이 돼 상세가 SSR로 다시 그려지고, 이어지는 select 조작이 hydration에 덮인다.
   await page.waitForLoadState('networkidle')
   await walkthrough.shot('구매자-클레임-목록')

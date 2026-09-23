@@ -34,4 +34,18 @@ public enum ClaimStatus {
             case REJECTED, COMPLETED -> false;
         };
     }
+
+    /**
+     * 아직 진행 중(활성)인 클레임인지 판정한다(Track 101-B). 활성 = REQUESTED·APPROVED이며 종결 상태(REJECTED·COMPLETED)는
+     * 비활성이다.
+     *
+     * <p>거르는 일은 전부 DB가 한다 — {@code ClaimRepository.existsActiveByOrderItemId}·{@code existsActiveByBuyerId}·
+     * {@code countActiveBySellerId}·{@code findActiveByOrderItemIdIn} 네 JPQL이 같은 상태 집합을 인라인으로 갖고 있다.
+     * 이 메서드는 그 기준의 <b>Java 쪽 단일 선언</b>이며, {@code ClaimActiveStatusConsistencyTest}가 모든 상태에 실제 행을
+     * 넣어 네 쿼리 결과와 이 판정을 대조한다(외부 검토 반영). 기준을 바꿀 때는 이 메서드와 JPQL 네 곳을 함께 고친다 —
+     * 한쪽만 고치면 그 테스트가 먼저 깨진다.
+     */
+    public boolean isActive() {
+        return this == REQUESTED || this == APPROVED;
+    }
 }

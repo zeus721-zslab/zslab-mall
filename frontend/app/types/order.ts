@@ -5,6 +5,7 @@
  */
 
 import type { ShippingAddress } from '~/types/checkout'
+import type { ClaimType } from '~/lib/constants/claim'
 import type { DeliveryCarrier, DeliveryStatus } from '~/lib/constants/delivery'
 
 /** UI 노출 상태(BE StatusView 대응). BE는 label=code로 내려줌 → 표시엔 lib/constants/order.ts 라벨 사용. */
@@ -22,6 +23,12 @@ export interface PagedResponse<T> {
   hasNext: boolean
 }
 
+/** 주문에 걸린 진행 중 클레임의 유형별 건수(BE OrderSummaryResponse.ActiveClaimCount·Track 101-B). */
+export interface ActiveClaimCount {
+  claimType: ClaimType
+  count: number
+}
+
 /** 주문 목록 항목(BE OrderSummaryResponse 대응). previewTitle은 서버 생성 문자열, orderedAt은 ISO 문자열. */
 export interface OrderSummary {
   orderId: string
@@ -30,6 +37,8 @@ export interface OrderSummary {
   totalPrice: number
   status: StatusView
   orderedAt: string
+  /** 진행 중(REQUESTED·APPROVED) 클레임 유형별 건수(FE-63). 없으면 빈 배열. */
+  activeClaims: ActiveClaimCount[]
 }
 
 /** 품목의 원 발송 배송 정보(BE OrderItemDeliveryResponse·Track 96-2 FE-54). shippedAt·deliveredAt은 ISO(+09:00) 문자열·미도달 시 null. */

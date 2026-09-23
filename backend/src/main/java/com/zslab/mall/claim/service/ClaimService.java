@@ -35,6 +35,7 @@ import com.zslab.mall.order.controller.response.PagedResponse;
 import com.zslab.mall.order.entity.Order;
 import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.enums.OrderItemStatus;
+import com.zslab.mall.order.repository.OrderItemOrderProjection;
 import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.order.repository.OrderRepository;
 import com.zslab.mall.refund.entity.Refund;
@@ -47,6 +48,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -346,22 +348,34 @@ public class ClaimService {
     }
 
     /**
-     * 구매자 반품 회수 송장 등록(Track 81-A D-170·R4). 본인이 요청한 RETURN·APPROVED·회수 확인 전 클레임에만 허용한다.
+     * 구매자 소유 클레임인지 검증한다(Track 101-B). 기준은 클레임의 {@code requested_by}가 아니라 <b>주문의 구매자</b>다 —
+     * 관리자 대행 취소는 requested_by가 관리자 user id라, requested_by로 판정하면 목록(주문 구매자 기준)에는 보이는데
+     * 상세·쓰기는 404가 되는 불일치가 생긴다. 소유 위반·해소 실패는 모두 404로 은닉한다(Q8).
+     *
+     * @throws ClaimNotFoundException 주문 구매자가 아니거나 품목·주문이 해소되지 않는 경우
+     */
+    private void verifyBuyerOwnership(Claim claim, Long buyerId, String claimPublicId) {
+        Long orderBuyerId = claimRepository.findOrderBuyerIdByClaimId(claim.getId()).orElse(null);
+        if (!buyerId.equals(orderBuyerId)) {
+            throw new ClaimNotFoundException("클레임을 찾을 수 없습니다: " + claimPublicId);
+        }
+    }
+
+    /**
+     * 구매자 반품 회수 송장 등록(Track 81-A D-170·R4). 본인 주문의 RETURN·APPROVED·회수 확인 전 클레임에만 허용한다(소유 기준은 주문 구매자·Track 101-B).
      * 소유 위반·미존재는 404(정보 노출 회피·Q8), 유형·상태 위반은 422. Delivery 생성·SHIPPING·이벤트는 {@link DeliveryService#registerReturnShipment}.
      *
-     * @throws ClaimNotFoundException     클레임이 없거나 요청자가 아닌 경우
+     * @throws ClaimNotFoundException     클레임이 없거나 주문의 구매자가 아닌 경우
      * @throws ClaimInvalidStateException type != RETURN·APPROVED 아님·이미 회수 확인됨·회수 송장 중복(422)
      */
     public Delivery registerReturnShipmentByBuyer(String claimPublicId, Long buyerId, DeliveryCarrier carrier, String trackingNo) {
         Claim claim = findClaimByPublicIdForUpdate(claimPublicId);
-        if (!buyerId.equals(claim.getRequestedBy())) {
-            throw new ClaimNotFoundException("클레임을 찾을 수 없습니다: " + claimPublicId);
-        }
+        verifyBuyerOwnership(claim, buyerId, claimPublicId);
         return registerReturnShipment(claim, carrier, trackingNo);
     }
 
     /**
-     * 구매자 클레임 신청 취소(Track 101-A). 접수(REQUESTED) 상태의 자기 요청만 취소할 수 있다 — 승인 뒤에는 환불·회수가
+     * 구매자 클레임 신청 취소(Track 101-A). 접수(REQUESTED) 상태의 본인 주문 클레임만 취소할 수 있다(소유 기준은 주문 구매자·Track 101-B) — 승인 뒤에는 환불·회수가
      * 이미 움직이기 시작하므로 운영자 판단이 필요하다(422).
      *
      * <p><b>기존 거부 흐름 재사용</b>: 상태 전이·품목 스냅샷 원복·주문 상태 재계산이 관리자 거부와 완전히 같은 일이라
@@ -375,14 +389,12 @@ public class ClaimService {
      * 늦은 쪽이 <b>커밋 시점에</b> 걸러질 뿐이라, 그 전에 두 요청이 모두 "취소 가능"으로 판정하고 각자 {@code ClaimRejected}를
      * 발행해 품목 원복·알림이 두 번 일어날 수 있다. 락으로 직렬화하면 늦은 쪽은 앞선 전이가 커밋된 뒤에 읽어 상태 가드에서 422로 걸린다.
      *
-     * @throws ClaimNotFoundException     클레임이 없거나 요청자가 아닌 경우
+     * @throws ClaimNotFoundException     클레임이 없거나 주문의 구매자가 아닌 경우
      * @throws ClaimInvalidStateException REQUESTED가 아닌 경우(422)
      */
     public void cancelByBuyer(String claimPublicId, Long buyerId, LocalDateTime processedAt) {
         Claim claim = findClaimByPublicIdForUpdate(claimPublicId);
-        if (!buyerId.equals(claim.getRequestedBy())) {
-            throw new ClaimNotFoundException("클레임을 찾을 수 없습니다: " + claimPublicId);
-        }
+        verifyBuyerOwnership(claim, buyerId, claimPublicId);
         if (claim.getStatus() != ClaimStatus.REQUESTED) {
             throw new ClaimInvalidStateException(
                     "접수 상태의 요청만 취소할 수 있습니다. 이미 처리가 시작된 요청은 고객센터로 문의해 주세요: " + claim.getStatus());
@@ -494,7 +506,8 @@ public class ClaimService {
     }
 
     /**
-     * 본인 클레임 단건을 조회한다. 소유권은 requested_by로 판정하며, 미존재·타인 클레임 모두 404다(정보 노출 회피·Q8).
+     * 본인 클레임 단건을 조회한다. 소유권은 주문의 구매자({@code order.buyer_id})로 판정하며(Track 101-B·{@link #verifyBuyerOwnership}),
+     * 미존재·타인 클레임 모두 404다(정보 노출 회피·Q8).
      *
      * @throws ClaimNotFoundException 클레임이 없거나 소유자가 다른 경우
      */
@@ -502,9 +515,7 @@ public class ClaimService {
     public ClaimResponse getClaim(String claimPublicId, Long buyerId) {
         Claim claim = claimRepository.findByPublicId(claimPublicId)
                 .orElseThrow(() -> new ClaimNotFoundException("클레임을 찾을 수 없습니다: " + claimPublicId));
-        if (!buyerId.equals(claim.getRequestedBy())) {
-            throw new ClaimNotFoundException("클레임을 찾을 수 없습니다: " + claimPublicId);
-        }
+        verifyBuyerOwnership(claim, buyerId, claimPublicId);
         String orderItemPublicId = orderItemRepository.findById(claim.getOrderItemId())
                 .map(OrderItem::getPublicId)
                 .orElseThrow(() -> new IllegalStateException(
@@ -543,15 +554,38 @@ public class ClaimService {
                 claimAttachmentService.urlsOf(claim.getId()), reshipment, exchangeOptionLabel, originalOptionLabel);
     }
 
-    /** 본인 클레임 목록(requested_by 기준·D-54 페이징). size는 1~100 클램프. 환불 상태는 페이지 단위 배치 1쿼리(Track 80). */
+    /**
+     * 본인 클레임 목록(Track 101-B·주문 구매자 기준·D-54 페이징·요청 시각 내림차순). size는 1~100 클램프이며 {@code type}이 null이면
+     * 전체 유형이다(주문내역 탭의 취소·반품·교환 탭이 유형을 건다).
+     *
+     * <p>enrich는 전부 페이지 단위 배치다 — 환불 상태 1쿼리(Track 80) + 주문·품목 요약 projection 1쿼리(관리자 목록
+     * {@code AdminClaimQueryService} 선례). 주문번호와 상품명을 같은 projection에서 읽으므로 품목 엔티티를 따로 적재하지 않는다
+     * (외부 검토 반영·이전에는 같은 itemIds로 {@code findAllById}가 한 번 더 나갔다). 주문도 엔티티로 적재하지 않는다 —
+     * {@code shippingSnapshot}이 OneToOne mappedBy(LAZY 불가)라 주문마다 SELECT가 더 나간다.
+     */
     @Transactional(readOnly = true)
-    public PagedResponse<ClaimSummaryResponse> listClaims(Long buyerId, int page, int size) {
+    public PagedResponse<ClaimSummaryResponse> listClaims(Long buyerId, ClaimType type, int page, int size) {
         Pageable pageable = PageRequest.of(Math.max(page, 0), clampSize(size));
-        Page<Claim> claimPage = claimRepository.findAllByRequestedBy(buyerId, pageable);
+        Page<Claim> claimPage = type == null
+                ? claimRepository.findAllByOrderBuyerId(buyerId, pageable)
+                : claimRepository.findAllByOrderBuyerIdAndType(buyerId, type, pageable);
         Map<Long, RefundStatus> refundStatusByClaimId = latestRefundStatusByClaimId(
                 claimPage.getContent().stream().map(Claim::getId).toList());
-        Page<ClaimSummaryResponse> claims = claimPage
-                .map(claim -> ClaimSummaryResponse.from(claim, refundStatusByClaimId.get(claim.getId())));
+
+        List<Long> itemIds = claimPage.getContent().stream().map(Claim::getOrderItemId).distinct().toList();
+        Map<Long, OrderItemOrderProjection> orderByItemId = itemIds.isEmpty()
+                ? Map.of()
+                : orderItemRepository.findOrderSummariesByIdIn(itemIds).stream()
+                        .collect(Collectors.toMap(OrderItemOrderProjection::getOrderItemId, Function.identity()));
+
+        Page<ClaimSummaryResponse> claims = claimPage.map(claim -> {
+            OrderItemOrderProjection order = orderByItemId.get(claim.getOrderItemId());
+            return ClaimSummaryResponse.from(
+                    claim,
+                    refundStatusByClaimId.get(claim.getId()),
+                    order == null ? null : order.getOrderNo(),
+                    order == null ? null : order.getProductName());
+        });
         return PagedResponse.from(claims);
     }
 

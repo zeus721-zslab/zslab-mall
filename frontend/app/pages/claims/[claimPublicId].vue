@@ -17,6 +17,7 @@ import {
 } from '~/lib/constants/delivery'
 import { formatDateTime } from '~/lib/utils/datetime'
 import { claimStageGuide, claimTimeline, type TimelineStep, type TimelineStepState } from '~/lib/utils/claim-timeline'
+import { tabOfClaimType } from '~/lib/constants/order-tabs'
 
 // BUYER 전용 — 미인증/비-BUYER는 buyer 미들웨어가 /login으로 유도한다.
 definePageMeta({ middleware: 'buyer' })
@@ -25,6 +26,9 @@ const route = useRoute()
 const claimPublicId = route.params.claimPublicId as string
 
 const { data, pending, error, refresh } = useClaimDetail(claimPublicId)
+
+// FE-63: 목록 복귀는 통합된 주문내역의 자기 유형 탭으로 간다. 조회 전에는 유형을 모르므로 취소 탭을 기본으로 둔다.
+const listTab = computed(() => (data.value ? tabOfClaimType(data.value.claimType) : 'cancel'))
 
 // 401(세션 만료)은 /login 유도. 404(타인·미존재)는 존재 은닉이라 안내만(orders/[id] 패턴).
 watch(
@@ -335,10 +339,10 @@ useSeoMeta({ title: '클레임 상세 · zslab-mall', description: 'zslab-mall �
           </form>
         </section>
 
-        <!-- 목록으로 -->
+        <!-- 목록으로(FE-63: 주문내역의 자기 유형 탭으로 복귀) -->
         <div class="mt-8">
           <Button variant="outline" size="lg" class="w-full" as-child>
-            <NuxtLink to="/claims">클레임 내역으로</NuxtLink>
+            <NuxtLink :to="{ path: '/orders', query: { tab: listTab } }">주문 내역으로</NuxtLink>
           </Button>
         </div>
       </template>

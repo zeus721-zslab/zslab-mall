@@ -60,11 +60,55 @@ public interface ClaimRepository extends JpaRepository<Claim, Long>, JpaSpecific
             + "ORDER BY c.id ASC")
     List<Long> findRefundMissingClaimIds(@Param("threshold") LocalDateTime threshold, Pageable pageable);
 
-    /** Buyer 본인 클레임 목록(requested_by 기준·D-54 페이징). */
-    Page<Claim> findAllByRequestedBy(Long requestedBy, Pageable pageable);
+    /**
+     * Buyer 본인 클레임 목록(Track 101-B·주문 구매자 기준·D-54 페이징). claim → order_item → order.buyer_id 경로이며
+     * requested_by는 쓰지 않는다 — 관리자 대행 취소는 requested_by가 관리자 user id라 구매자 목록에서 빠지기 때문이다
+     * ({@link #existsActiveByBuyerId}와 같은 기준). 정렬은 요청 시각 내림차순이며 동률은 id 내림차순으로 고정한다
+     * (주문 목록의 ordered_at DESC와 나란히 놓이는 화면이라 순서가 흔들리면 안 된다).
+     *
+     * <p>buyerId는 {@code :buyerId} 바인딩이다(SQL injection 위험 없음).
+     */
+    @Query(value = "SELECT c FROM Claim c, OrderItem oi WHERE oi.id = c.orderItemId AND oi.order.buyerId = :buyerId "
+            + "ORDER BY c.requestedAt DESC, c.id DESC",
+            countQuery = "SELECT COUNT(c) FROM Claim c, OrderItem oi WHERE oi.id = c.orderItemId AND oi.order.buyerId = :buyerId")
+    Page<Claim> findAllByOrderBuyerId(@Param("buyerId") Long buyerId, Pageable pageable);
+
+    /**
+     * Buyer 본인 클레임 목록의 유형 탭 조회(Track 101-B). {@link #findAllByOrderBuyerId}와 기준·정렬이 같고 유형 조건만 더한다 —
+     * {@code (:type IS NULL OR …)} 한 메서드로 합치지 않는 이유는 enum 파라미터의 null 비교가 타입 추론에 기대기 때문이다.
+     *
+     * <p>모든 변수는 :name 바인딩이다(SQL injection 위험 없음).
+     */
+    @Query(value = "SELECT c FROM Claim c, OrderItem oi WHERE oi.id = c.orderItemId AND oi.order.buyerId = :buyerId "
+            + "AND c.type = :type ORDER BY c.requestedAt DESC, c.id DESC",
+            countQuery = "SELECT COUNT(c) FROM Claim c, OrderItem oi WHERE oi.id = c.orderItemId AND oi.order.buyerId = :buyerId "
+                    + "AND c.type = :type")
+    Page<Claim> findAllByOrderBuyerIdAndType(@Param("buyerId") Long buyerId, @Param("type") ClaimType type, Pageable pageable);
+
+    /**
+     * 클레임의 주문 구매자 id(Track 101-B 소유권 판정). 목록 기준을 order.buyer_id로 옮기면서 단건 조회·쓰기 진입점의
+     * 소유 검증도 같은 기준을 써야 목록엔 보이는데 상세는 404가 되는 불일치가 생기지 않는다.
+     *
+     * <p>claimId는 {@code :claimId} 바인딩이다(SQL injection 위험 없음).
+     */
+    @Query("SELECT oi.order.buyerId FROM Claim c, OrderItem oi WHERE oi.id = c.orderItemId AND c.id = :claimId")
+    Optional<Long> findOrderBuyerIdByClaimId(@Param("claimId") Long claimId);
 
     /** 관리자 주문 목록·상세 배치 enrich(Track 79 D-168·N+1 회피). 항목별 최신 행이 앞에 오도록 id 내림차순. */
     List<Claim> findByOrderItemIdInOrderByIdDesc(Collection<Long> orderItemIds);
+
+    /**
+     * 여러 품목의 활성(REQUESTED·APPROVED) 클레임만 배치 조회한다(Track 101-B 구매자 주문 카드 배지·외부 검토 반영).
+     * {@link #findByOrderItemIdInOrderByIdDesc}는 종결 행까지 다 실어 오므로 배지 집계 전용으로 DB에서 거른다 — 종결 클레임이
+     * 쌓인 품목이 많은 페이지에서 적재량이 커지지 않게 하려는 것이며 쿼리 수는 그대로 1이다. 활성 기준은
+     * {@link #existsActiveByOrderItemId}·{@link ClaimStatus#isActive()}와 동일하다(넷을 함께 고친다).
+     *
+     * <p>orderItemIds는 {@code :orderItemIds} 바인딩이고 status는 enum 상수 비교다(SQL injection 위험 없음).
+     */
+    @Query("SELECT c FROM Claim c WHERE c.orderItemId IN :orderItemIds "
+            + "AND c.status IN (com.zslab.mall.claim.enums.ClaimStatus.REQUESTED, "
+            + "com.zslab.mall.claim.enums.ClaimStatus.APPROVED)")
+    List<Claim> findActiveByOrderItemIdIn(@Param("orderItemIds") Collection<Long> orderItemIds);
 
     /** 동일 품목에 검수 불합격(FAIL) 이력이 있는지(Track 81-A D-170 보충·반품 재요청 차단). 파생 쿼리 바인딩. */
     boolean existsByOrderItemIdAndTypeAndInspectionResult(Long orderItemId, ClaimType type, ClaimInspectionResult inspectionResult);

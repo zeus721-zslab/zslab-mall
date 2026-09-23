@@ -40,8 +40,8 @@ test('관리자 · 교환 승인 → 회수 송장(구매자) → 검수 → 교
   // ---------- 구매자: 회수 송장 등록 ----------
   walkthrough.segment('구매자·회수송장', 'buyer')
   await loginAs(page, 'BUYER')
-  await walkthrough.goto('/claims')
-  await expect(page.getByRole('heading', { name: '취소·반품·교환 내역' })).toBeVisible()
+  await walkthrough.goto('/orders?tab=exchange')
+  await expect(page.getByRole('heading', { name: '주문 내역' })).toBeVisible()
   // hydration 전에 링크를 누르면 NuxtLink가 아닌 네이티브 이동이 돼 상세가 SSR로 다시 그려지고, 이어지는 select 조작이 hydration에 덮인다.
   await page.waitForLoadState('networkidle')
   // 유형만으로는 과거 완료 건과 섞이므로 상태(승인 = 회수 송장 등록 단계)까지 함께 건다.
