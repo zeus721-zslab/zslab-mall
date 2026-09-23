@@ -32,10 +32,16 @@ import org.springframework.transaction.annotation.Transactional;
  * INSERT 실패도 {@code @Transactional}로 User·UserRole을 원자 롤백하고 예외를 전파한다(부분 생성 상태 방지).
  *
  * <p>email·password 평문은 어떤 로그에도 남기지 않는다.
+ *
+ * <p><b>기본 이름(Track 103 D-214)</b>: 이름 없이 만들면 처리 이력 등 행위자 표기가 역할만 남는다. 신규 생성에만
+ * {@link #DEFAULT_NAME}을 넣으며, 이미 있는 계정은 보정하지 않는다(생성 전용 계약 유지).
  */
 @Slf4j
 @Component
 public class SuperAdminBootstrapRunner implements CommandLineRunner {
+
+    /** 최초 SUPER_ADMIN 기본 이름(관리자 화면 역할 라벨과 같은 표기). */
+    static final String DEFAULT_NAME = "슈퍼 관리자";
 
     private final UserRepository userRepository;
     private final RoleRepository roleRepository;
@@ -81,7 +87,7 @@ public class SuperAdminBootstrapRunner implements CommandLineRunner {
         Role superAdminRole = roleRepository.findByCode(RoleCode.SUPER_ADMIN)
                 .orElseThrow(() -> new IllegalStateException("SUPER_ADMIN Role seed 누락(V11 마이그레이션 확인 필요)."));
 
-        User user = User.create(bootstrapEmail, null, null);
+        User user = User.create(bootstrapEmail, DEFAULT_NAME, null);
         user.assignPasswordHash(passwordEncoder.encode(bootstrapPassword));
         User saved = userRepository.save(user);
         userRoleRepository.save(UserRole.create(saved.getId(), superAdminRole));

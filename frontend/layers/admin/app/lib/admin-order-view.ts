@@ -6,6 +6,7 @@ import type {
   AdminOrderDetail,
   AdminOrderItem,
   AdminOrderPayment,
+  AdminOrderSummary,
 } from '#layers/admin/app/types/admin-order'
 import { claimableTypes } from '~/lib/constants/claim'
 import { refundStatusChip } from '#layers/admin/app/lib/admin-claim-view'
@@ -77,6 +78,18 @@ export function claimRefundLabel(claim: Pick<AdminOrderClaim, 'type' | 'status' 
  */
 export function isPaymentCancelLost(payment: Pick<AdminOrderPayment, 'status' | 'amount' | 'refundedAmount'>): boolean {
   return payment.status === 'PAID' && payment.amount > 0 && payment.refundedAmount === payment.amount
+}
+
+/**
+ * 관리자 주문 목록 "주문" 칸 상태 표기(Track 103 FE-65·D-214). PAID는 같은 행 결제 칸의 결제상태 '결제완료'와 문구가 겹쳐 운영자가
+ * 할 일 기준으로 나눈다. 주문 PAID는 Resolver 기본값이라 "아직 아무것도 발송 안 함"과 "일부 확정·반품 요청 등 혼합"을 함께 덮는다 —
+ * 원 발송 배송이 하나도 없고(목록 deliveryStatus 부재) 발송할 PAID 품목이 있으면(BE 액션 PREPARE_SHIPMENT) '발송 대기', 그 외는 '처리 중'.
+ * 발송 가능 조건을 함께 보는 이유: 전 품목 취소 요청(CANCEL_REQUESTED)도 Resolver 기본값으로 PAID·배송 없음이지만 발송할 것이 없다.
+ * 목록 전용 — 공용 라벨 맵·상세·구매자 화면은 그대로다.
+ */
+export function adminOrderListStatusLabel(order: Pick<AdminOrderSummary, 'status' | 'deliveryStatus' | 'actions'>): string {
+  if (order.status !== 'PAID') return orderStatusLabel(order.status)
+  return !order.deliveryStatus && order.actions.includes('PREPARE_SHIPMENT') ? '발송 대기' : '처리 중'
 }
 
 export interface CancelFormInput {

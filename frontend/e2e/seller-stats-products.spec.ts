@@ -22,6 +22,8 @@ function depletion(days: number | undefined): string {
 }
 
 const PRODUCTS_URL = /\/api\/v1\/seller\/stats\/products\?/
+/** 미판매·재고 회전 기본 노출 행 수 재현(seller-product-stats-view STATS_LIST_PREVIEW_LIMIT·Track 103). */
+const PREVIEW_LIMIT = 10
 
 test.describe('셀러 상품 통계(90-E-3)', () => {
   test('데모 셀러 → 사이드바 통계 3항목 활성 → 품절 카드(현재 시점·재고 링크)·상위/하위·미판매·재고 회전 = 응답 · 프리셋 7일 → from/to 재요청·URL', async ({ page }) => {
@@ -63,10 +65,17 @@ test.describe('셀러 상품 통계(90-E-3)', () => {
       if (rows.length > 0) await expect(page.getByTestId(`${testid}-name`).first()).toHaveText(rows[0]!.productName)
     }
 
-    // 미판매·재고 회전: 행 수 = 응답 · 소진 예상 표기 = 응답 포맷
-    await expect(page.getByTestId('product-unsold-row')).toHaveCount(stats.unsoldProducts.length)
+    // 미판매·재고 회전: 기본 상위 10행(Track 103 FE-65) · 초과 시 "전체 보기" → 행 수 = 응답 · 소진 예상 표기 = 응답 포맷(BE 정렬 유지)
+    for (const [testid, total] of [['product-unsold', stats.unsoldProducts.length], ['product-turnover', stats.stockTurnover.length]] as const) {
+      await expect(page.getByTestId(`${testid}-row`)).toHaveCount(Math.min(total, PREVIEW_LIMIT))
+      await expect(page.getByTestId(`${testid}-toggle`)).toHaveCount(total > PREVIEW_LIMIT ? 1 : 0)
+      if (total > PREVIEW_LIMIT) {
+        await page.getByTestId(`${testid}-toggle`).click()
+        await expect(page.getByTestId(`${testid}-toggle`)).toHaveAttribute('aria-expanded', 'true')
+        await expect(page.getByTestId(`${testid}-row`)).toHaveCount(total)
+      }
+    }
     await expect(page.getByTestId('product-unsold-empty')).toHaveCount(stats.unsoldProducts.length === 0 ? 1 : 0)
-    await expect(page.getByTestId('product-turnover-row')).toHaveCount(stats.stockTurnover.length)
     await expect(page.getByTestId('product-turnover-depletion')).toHaveText(stats.stockTurnover.map((row) => depletion(row.depletionDays)))
     await expect(page.getByTestId('product-turnover-period')).toContainText(`${stats.periodDays}일 기준`)
 

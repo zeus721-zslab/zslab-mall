@@ -89,7 +89,8 @@ function closeShipment(refresh: boolean): void {
     </v-alert>
 
     <template v-else-if="detail">
-      <v-row dense>
+      <!-- Track 103: 카드 줄과 아래 카드 사이 간격(h-100 카드의 mb-4는 칸 밖으로 넘쳐 간격이 되지 않는다) -->
+      <v-row dense class="mb-4">
         <!-- 품목 -->
         <v-col cols="12" md="6">
           <v-card class="mb-4 h-100" data-testid="order-detail-item">
@@ -102,7 +103,8 @@ function closeShipment(refresh: boolean): void {
             <v-card-text class="px-5 pb-5">
               <div class="text-body-1 font-weight-medium" data-testid="order-detail-product">{{ detail.productName }}</div>
               <div class="text-body-2 text-medium-emphasis mb-3">{{ detail.optionLabel ?? '옵션 없음' }}</div>
-              <v-row dense>
+              <!-- Track 103: 한 row에서 줄바꿈되는 라벨·값 칸 사이 행 간격(dense 4+4px만으로는 붙어 보였다) -->
+              <v-row dense class="gr-2">
                 <v-col cols="6"><div class="text-caption text-medium-emphasis">주문번호</div><div class="text-body-2" data-testid="order-detail-order-no">{{ detail.orderNo }}</div></v-col>
                 <v-col cols="6"><div class="text-caption text-medium-emphasis">품목 ID</div><div class="slr-product-id">{{ detail.orderItemId }}</div></v-col>
                 <v-col cols="6"><div class="text-caption text-medium-emphasis">주문일시</div><div class="text-body-2">{{ formatDateTime(detail.orderedAt) }}</div></v-col>

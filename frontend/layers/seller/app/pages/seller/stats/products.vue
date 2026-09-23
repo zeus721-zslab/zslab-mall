@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { mdiAlertCircleOutline, mdiInformationOutline, mdiOpenInNew, mdiPackageVariantRemove, mdiRefresh } from '@mdi/js'
+import { mdiAlertCircleOutline, mdiChevronDown, mdiChevronUp, mdiInformationOutline, mdiOpenInNew, mdiPackageVariantRemove, mdiRefresh } from '@mdi/js'
 import { SELLER_STATS_MAX_PERIOD_DAYS } from '#layers/seller/app/lib/constants/seller-stats'
 import {
   DEFAULT_SELLER_STATS_RANGE_QUERY,
@@ -12,8 +12,10 @@ import {
 } from '#layers/seller/app/lib/seller-stats-query'
 import {
   isProductStatsEmpty,
+  previewRows,
   productRankRows,
   soldOutCaption,
+  STATS_LIST_PREVIEW_LIMIT,
   stockTurnoverRows,
   unsoldRows,
 } from '#layers/seller/app/lib/seller-product-stats-view'
@@ -86,6 +88,11 @@ const topRows = computed(() => productRankRows(stats.value?.topProducts ?? []))
 const bottomRows = computed(() => productRankRows(stats.value?.bottomProducts ?? []))
 const unsold = computed(() => unsoldRows(stats.value?.unsoldProducts ?? []))
 const turnover = computed(() => stockTurnoverRows(stats.value?.stockTurnover ?? []))
+// Track 103: 상품이 많으면 두 표가 페이지를 길게 늘려 상위 10개만 먼저 보이고 "전체 보기"로 펼친다(FE만·BE 정렬 유지)
+const unsoldExpanded = ref(false)
+const turnoverExpanded = ref(false)
+const visibleUnsold = computed(() => previewRows(unsold.value, unsoldExpanded.value))
+const visibleTurnover = computed(() => previewRows(turnover.value, turnoverExpanded.value))
 const soldOutText = computed(() => soldOutCaption(stats.value))
 const allEmpty = computed(() => isProductStatsEmpty(stats.value))
 const periodDays = computed(() => stats.value?.periodDays ?? null)
@@ -161,8 +168,11 @@ function openProduct(key: string | null): void {
 
     <v-card class="mb-4" data-testid="product-unsold">
       <v-card-text class="pa-5">
-        <p class="text-subtitle-1 font-weight-bold mb-1">미판매 상품</p>
-        <p class="text-caption text-medium-emphasis mb-3">판매 중(SALE) 상품 가운데 기간 내 결제 완료 품목이 없는 상품입니다. 판매 중지·승인 대기 상품은 제외됩니다.</p>
+        <!-- Track 103: 지표 설명은 제목 옆 1줄(D-200 90-E-3 정의표 미판매 행) -->
+        <div class="d-flex align-baseline flex-wrap ga-2 mb-3">
+          <p class="text-subtitle-1 font-weight-bold mb-0">미판매 상품</p>
+          <span class="text-caption text-medium-emphasis" data-testid="product-unsold-desc">조회 기간 결제 0건인 판매 중 상품(판매 중지·승인 대기 제외) · 등록순</span>
+        </div>
         <v-table density="compact" hover class="slr-table slr-table--compact" data-testid="product-unsold-table">
           <thead>
             <tr>
@@ -174,7 +184,7 @@ function openProduct(key: string | null): void {
             <tr v-if="unsold.length === 0">
               <td colspan="2" class="text-center text-medium-emphasis py-4" data-testid="product-unsold-empty">미판매 상품 없음</td>
             </tr>
-            <tr v-for="row in unsold" :key="row.key" class="slr-row--linkable" data-testid="product-unsold-row" @click="openProduct(row.key)">
+            <tr v-for="row in visibleUnsold" :key="row.key" class="slr-row--linkable" data-testid="product-unsold-row" @click="openProduct(row.key)">
               <td>
                 <div class="d-flex align-center ga-1" style="min-width: 0">
                   <span class="text-body-2 text-truncate" data-testid="product-unsold-name">{{ row.name }}</span>
@@ -185,16 +195,29 @@ function openProduct(key: string | null): void {
             </tr>
           </tbody>
         </v-table>
+        <v-btn
+          v-if="unsold.length > STATS_LIST_PREVIEW_LIMIT"
+          size="x-small"
+          variant="outlined"
+          class="mt-2"
+          :append-icon="unsoldExpanded ? mdiChevronUp : mdiChevronDown"
+          :aria-expanded="unsoldExpanded"
+          data-testid="product-unsold-toggle"
+          @click="unsoldExpanded = !unsoldExpanded"
+        >{{ unsoldExpanded ? '접기' : `전체 보기 (${unsold.length}건)` }}</v-btn>
       </v-card-text>
     </v-card>
 
     <v-card data-testid="product-turnover">
       <v-card-text class="pa-5">
-        <p class="text-subtitle-1 font-weight-bold mb-1">재고 회전</p>
-        <p class="text-caption text-medium-emphasis mb-3">
-          판매 중 상품별 기간 입고(재고 입고 이력) · 기간 판매(결제 완료 수량) · 현재 가용 재고(현재 시점) · 소진 예상 = 현재 가용 ÷ 기간 일평균 판매
-          <span v-if="periodDays !== null" data-testid="product-turnover-period">({{ periodDays }}일 기준)</span>. 판매가 없으면 계산하지 않습니다.
-        </p>
+        <!-- Track 103: 지표 설명은 제목 옆 1줄(D-200 90-E-3 정의표 재고 회전 행) -->
+        <div class="d-flex align-baseline flex-wrap ga-2 mb-3">
+          <p class="text-subtitle-1 font-weight-bold mb-0">재고 회전</p>
+          <span class="text-caption text-medium-emphasis" data-testid="product-turnover-desc">
+            소진 예상 = 현재 가용 재고 × 기간 일수 ÷ 기간 판매 수량(올림)<span v-if="periodDays !== null" data-testid="product-turnover-period"> · {{ periodDays }}일 기준</span>
+            · 입고·판매는 조회 기간, 재고는 현재 시점 · 소진 임박순
+          </span>
+        </div>
         <v-table density="compact" hover class="slr-table slr-table--compact" data-testid="product-turnover-table">
           <thead>
             <tr>
@@ -209,7 +232,7 @@ function openProduct(key: string | null): void {
             <tr v-if="turnover.length === 0">
               <td colspan="5" class="text-center text-medium-emphasis py-4" data-testid="product-turnover-empty">판매 중 상품 없음</td>
             </tr>
-            <tr v-for="row in turnover" :key="row.key" class="slr-row--linkable" data-testid="product-turnover-row" @click="openProduct(row.key)">
+            <tr v-for="row in visibleTurnover" :key="row.key" class="slr-row--linkable" data-testid="product-turnover-row" @click="openProduct(row.key)">
               <td>
                 <div class="d-flex align-center ga-1" style="min-width: 0">
                   <span class="text-body-2 text-truncate" data-testid="product-turnover-name">{{ row.name }}</span>
@@ -225,6 +248,16 @@ function openProduct(key: string | null): void {
             </tr>
           </tbody>
         </v-table>
+        <v-btn
+          v-if="turnover.length > STATS_LIST_PREVIEW_LIMIT"
+          size="x-small"
+          variant="outlined"
+          class="mt-2"
+          :append-icon="turnoverExpanded ? mdiChevronUp : mdiChevronDown"
+          :aria-expanded="turnoverExpanded"
+          data-testid="product-turnover-toggle"
+          @click="turnoverExpanded = !turnoverExpanded"
+        >{{ turnoverExpanded ? '접기' : `전체 보기 (${turnover.length}건)` }}</v-btn>
       </v-card-text>
     </v-card>
   </div>

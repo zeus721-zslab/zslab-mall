@@ -3,6 +3,7 @@ package com.zslab.mall.audit.controller.response;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.zslab.mall.audit.entity.AuditLog;
 import com.zslab.mall.audit.enums.AuditLogAction;
+import com.zslab.mall.common.enums.PolymorphicTargetType;
 import com.zslab.mall.common.serialization.KstOffsetSerializer;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -20,6 +21,7 @@ import java.util.List;
  * @param actorRole     행위자 역할(coarse·미상이면 null)
  * @param actorName     행위자 이름(해소 불가·시스템 행이면 null)
  * @param actorEmail    행위자 이메일(해소 불가·시스템 행이면 null)
+ * @param targetType    대상 유형(클레임 이력은 연결 배송 행이 섞이므로 화면이 status 등 같은 키를 대상별로 해석하는 근거·Track 103)
  * @param action        행위 유형
  * @param changes       변경 필드 요약(diff_json 파싱 결과·없으면 빈 목록)
  */
@@ -30,6 +32,7 @@ public record AdminAuditLogResponse(
         String actorRole,
         String actorName,
         String actorEmail,
+        PolymorphicTargetType targetType,
         AuditLogAction action,
         List<Change> changes) {
 
@@ -45,6 +48,7 @@ public record AdminAuditLogResponse(
                 auditLog.getActorRole(),
                 actorName,
                 actorEmail,
+                auditLog.getTargetType(),
                 auditLog.getAction(),
                 changes);
     }

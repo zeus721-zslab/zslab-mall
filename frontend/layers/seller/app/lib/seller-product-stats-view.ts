@@ -68,6 +68,14 @@ export interface SellerStockTurnoverRowView {
 
 export const DEPLETION_URGENT_DAYS = 7
 
+/** 미판매·재고 회전 표 기본 노출 행 수(Track 103 FE-65). BE는 상한 없이 전량을 주고, 초과분은 "전체 보기"로 펼친다. */
+export const STATS_LIST_PREVIEW_LIMIT = 10
+
+/** 펼치지 않았으면 앞 {@link STATS_LIST_PREVIEW_LIMIT}행만 — BE 정렬(미판매 등록순·재고 회전 소진 임박순)을 그대로 자른다. */
+export function previewRows<T>(rows: T[], expanded: boolean): T[] {
+  return expanded ? rows : rows.slice(0, STATS_LIST_PREVIEW_LIMIT)
+}
+
 export function stockTurnoverRows(rows: SellerStockTurnover[]): SellerStockTurnoverRowView[] {
   return rows.map((row) => {
     const days = row.depletionDays ?? null

@@ -6,6 +6,9 @@
 /** 감사 행위 유형(BE AuditLogAction 7값). */
 export type AdminAuditAction = 'CREATE' | 'UPDATE' | 'DELETE' | 'APPROVE' | 'REJECT' | 'LOGIN' | 'LOGOUT'
 
+/** 처리 이력 행의 대상 유형(BE PolymorphicTargetType 중 이력 endpoint가 내려주는 값). 클레임 이력에는 연결 배송 행이 섞인다(Track 103). */
+export type AdminAuditTargetType = 'CLAIM' | 'DELIVERY' | 'SETTLEMENT'
+
 /** 변경 1건. 값이 없던 필드는 null(신규 생성의 before 등). */
 export interface AdminAuditChange {
   field: string
@@ -22,6 +25,7 @@ export interface AdminAuditLog {
   actorName?: string
   /** 행위자 이메일(동명이인 구분용 보조 표기). 이름과 같은 조건으로 생략된다. */
   actorEmail?: string
+  targetType: AdminAuditTargetType
   action: AdminAuditAction
   changes: AdminAuditChange[]
 }

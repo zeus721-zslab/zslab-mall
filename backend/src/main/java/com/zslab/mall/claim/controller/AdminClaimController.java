@@ -21,7 +21,6 @@ import com.zslab.mall.delivery.entity.Delivery;
 import com.zslab.mall.audit.service.AdminAuditLogQueryService;
 import com.zslab.mall.audit.service.AuditContext;
 import com.zslab.mall.common.auth.ActorRoleResolver;
-import com.zslab.mall.common.enums.PolymorphicTargetType;
 import com.zslab.mall.order.controller.response.PagedResponse;
 import com.zslab.mall.common.auth.AdminActorResolver;
 import com.zslab.mall.order.entity.OrderItem;
@@ -115,6 +114,7 @@ public class AdminClaimController {
 
     /**
      * 클레임 처리 이력(Track 101-A). 승인·거부·회수 확인·검수 등 이 클레임에 대한 감사 행을 최신순으로 돌려준다.
+     * 연결 배송(회수·교환품·재발송)의 감사 행도 합친다(Track 103).
      * 미존재 claimPublicId 404·size는 1~100 클램프(Service).
      */
     @GetMapping("/{claimPublicId}/audit-logs")
@@ -124,7 +124,7 @@ public class AdminClaimController {
             @RequestParam(defaultValue = "20") int size) {
         Claim claim = claimRepository.findByPublicId(claimPublicId)
                 .orElseThrow(() -> new ClaimNotFoundException("클레임을 찾을 수 없습니다: publicId=" + claimPublicId));
-        return adminAuditLogQueryService.listByTarget(PolymorphicTargetType.CLAIM, claim.getId(), page, size);
+        return adminAuditLogQueryService.listByClaim(claim.getId(), page, size);
     }
 
     /**

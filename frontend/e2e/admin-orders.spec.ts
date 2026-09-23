@@ -13,13 +13,13 @@ const SUMMARIES = [
   {
     orderId: PAID_ID, orderNo: 'ORD-20260916-0001', orderedAt: '2026-09-16T10:00:00', paidAt: '2026-09-16T10:05:00', status: 'PAID',
     buyerName: 'E2E구매자', buyerEmail: 'buyer@e2e.invalid', sellerNames: ['E2E셀러', 'B셀러'], productSummary: 'E2E 티셔츠 외 1건', itemCount: 2,
-    paymentAmount: 32900, shippingFee: 3000, paymentMethod: 'CARD', paymentStatus: 'PAID', deliveryStatus: null, claimInProgress: false,
+    paymentAmount: 32900, shippingFee: 3000, paymentMethod: 'CARD', paymentStatus: 'PAID', deliveryStatus: null, claimInProgress: false, allItemsReturned: false,
     actions: ['CANCEL', 'PREPARE_SHIPMENT'],
   },
   {
     orderId: UNPAID_ID, orderNo: 'ORD-20260916-0002', orderedAt: '2026-09-15T09:00:00', status: 'PENDING_PAYMENT',
     buyerName: 'E2E구매자', buyerEmail: 'buyer@e2e.invalid', sellerNames: ['E2E셀러'], productSummary: 'E2E 모자', itemCount: 1,
-    paymentAmount: 12000, shippingFee: 0, paymentMethod: 'KAKAO', paymentStatus: 'PENDING', deliveryStatus: null, claimInProgress: true,
+    paymentAmount: 12000, shippingFee: 0, paymentMethod: 'KAKAO', paymentStatus: 'PENDING', deliveryStatus: null, claimInProgress: true, allItemsReturned: false,
     actions: ['CANCEL'],
   },
 ]
@@ -127,7 +127,10 @@ test.describe('관리자 주문 목록·상세(FE-27)', () => {
     })
     await page.screenshot({ path: 'playwright-report/fe-27/list-desktop.png' })
     expect(overflow).toEqual({ table: 0, body: 0 })
-    await expect(page.getByTestId('status-chip').first()).toHaveText('결제완료')
+    // Track 103: 목록 주문 칸의 PAID는 결제 칸 '결제완료'와 겹치지 않게 '발송 대기'(상세·필터·공용 라벨은 그대로)
+    await expect(page.getByTestId('status-chip').first()).toHaveText('발송 대기')
+    await expect(page.getByTestId('payment-method').first()).toHaveText('카드')
+    await expect(page.getByTestId('all-returned-note')).toHaveCount(0)
     await expect(page.getByTestId('status-chip').first()).toHaveClass(/adm-chip--info/)
     await expect(page.getByTestId('status-chip').nth(1)).toHaveText('결제대기')
     await expect(page.getByTestId('payment-status-chip').first()).toHaveClass(/adm-chip--success/)

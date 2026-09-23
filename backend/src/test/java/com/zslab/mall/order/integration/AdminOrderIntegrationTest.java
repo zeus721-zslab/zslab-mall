@@ -384,6 +384,24 @@ class AdminOrderIntegrationTest extends AbstractIntegrationTest {
     // ===== F: 관리자 송장 등록·권한 =====
 
     @Test
+    @DisplayName("T9 목록 전체 반품 표기(Track 103): 전 품목 RETURNED(주문 CONFIRMED) → allItemsReturned true / 일반 주문 false")
+    void list_allItemsReturned() throws Exception {
+        tx.executeWithoutResult(s -> {
+            jdbc.update("UPDATE order_item SET item_status = 'RETURNED' WHERE id = ?", ORDER_C_ITEM);
+            jdbc.update("UPDATE `order` SET status = 'CONFIRMED' WHERE id = ?", ORDER_C);
+        });
+
+        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("keyword", "트랙79상품C"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].orderId").value(ORDER_C_PID))
+                .andExpect(jsonPath("$.items[0].status").value("CONFIRMED"))
+                .andExpect(jsonPath("$.items[0].allItemsReturned").value(true));
+        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("keyword", "ORDT79" + ORDER_A))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].allItemsReturned").value(false));
+    }
+
+    @Test
     @DisplayName("T8 관리자 송장 등록(F): ADMIN 200·품목 SHIPPING·delivery 생성 / BUYER 403 / 미인증 401 / SHIPPING 품목 재등록 422")
     void adminPrepareShipment_andAuthorization() throws Exception {
         String body = "{\"carrier\":\"CJ\",\"trackingNo\":\"T79TRACK0002\"}";

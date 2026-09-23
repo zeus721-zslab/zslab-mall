@@ -13,6 +13,8 @@ import {
   productRankRows,
   soldOutCaption,
   stockTurnoverRows,
+  previewRows,
+  STATS_LIST_PREVIEW_LIMIT,
   unsoldRows,
 } from '#layers/seller/app/lib/seller-product-stats-view'
 import { resolveBackPath, SELLER_PRODUCTS_PATH, SELLER_STATS_PRODUCTS_PATH } from '#layers/seller/app/lib/seller-back-path'
@@ -84,5 +86,16 @@ describe('seller-product-stats-view', () => {
     expect(isProductStatsEmpty(null)).toBe(false)
     expect(isProductStatsEmpty(response())).toBe(false)
     expect(isProductStatsEmpty(response({ topProducts: [], unsoldProducts: [], stockTurnover: [] }))).toBe(true)
+  })
+})
+
+// Track 103(FE-65): 미판매·재고 회전은 기본 상위 10행 · 펼치면 전량 · 순서 유지(BE 정렬 그대로 자름).
+describe('previewRows', () => {
+  it('접힘이면 앞 10행만, 펼침이면 전량 · 10행 이하는 그대로', () => {
+    const rows = Array.from({ length: 13 }, (_, index) => index)
+    expect(STATS_LIST_PREVIEW_LIMIT).toBe(10)
+    expect(previewRows(rows, false)).toEqual(rows.slice(0, 10))
+    expect(previewRows(rows, true)).toEqual(rows)
+    expect(previewRows([1, 2, 3], false)).toEqual([1, 2, 3])
   })
 })
