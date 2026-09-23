@@ -11843,6 +11843,7 @@ EXPLAIN(로컬 읽기·seller 4·30일): 입고 합 = product PRIMARY index scan
 
 ### §8 이월(90-E 전체)
 - inventory_history `created_at`·refund `refunded_at` 인덱스 후보(현 규모 무시·D-180 §8 그대로) · 통계 집계 테이블 이관 시 `seller_sales_daily` 폐기 판단.
+- 정정(Track 103 D-214·2026-09-23): 위 90-E-3 정의표 재고 회전 행의 "결정 9 α"는 결정 목록(1~7)에 없는 번호다 — 판매 소스 선결정은 **결정 7**("재고 회전 판매 소스 = 결제 order_item 수량")이다. 본문은 그대로 두고 여기서 정정한다.
 
 ## D-201. GEH catch-all 500 정리 — 표준 예외 404·405·415 · confirm-pickup·관리자 mark-delivered 422 (Track 95)
 
@@ -12442,3 +12443,34 @@ PG·SMS·이메일은 포트(`PaymentGateway`·`SmsSender`·`NotificationSender`
 - 구매자 클레임 **취소 요청 1회에 소유권 조회가 2번** 나간다 — `cancelByBuyer`가 검증하고, 응답을 만들려고 곧바로 부르는 `getClaim`이 또 검증한다(컨트롤러가 취소 후 `getClaim`으로 응답을 조립하는 구조). 지적은 받았으나 이번엔 두지 않았다: 없애려면 `cancelByBuyer`가 조회 결과를 반환하도록 시그니처·책임을 바꿔야 하는데, 쓰기 1회당 가벼운 스칼라 조회 1건이 더 나가는 비용 대비 이득이 작다. 클레임 쓰기 경로를 다시 손볼 때 함께 본다.
 - 외부 검토: A / 지적 3건 중 수용 1건(클레임 목록 조회 합치기·5 → 4쿼리) · 부분 수용 1건(활성 판정 중복 — 배지 조건을 DB로 내리고 Java 필터 제거 + 전 상태 대조 테스트로 고정, JPQL 통합은 미채택) · 기각 1건(취소 요청의 소유권 중복 조회 — 시그니처 변경 대비 이득 작음) · 권한 경계 지적 없음
 
+
+## D-214: 화면 확인 이슈 — 처리 이력 · 관리자 주문 목록 · 셀러 간격·통계 (Track 103) (2026-09-23)
+
+배경: 화면 확인에서 나온 이슈 7건(처리 이력 가독성·토글·관리자 주문 목록 결제/금액/주문 칸·결제취소+구매확정 조합·셀러 품목 상세 간격·셀러 미판매/재고 회전)을 정찰했다(`docs/track-103/recon-report.md`). 결제취소+구매확정 조합 8건 중 7건은 전 품목 반품의 정상 조합(규칙 [7]·D-71)이라 목록 표기로 푼다("전체 반품"). 나머지 1건(order id=2 — 환불·클레임 없이 결제만 CANCELLED가 된 뒤 구매확정)은 구매확정 경로가 결제 상태를 보지 않는 정합성 결함이라 **Track 104(주문 정합성)로 분리**했다 — 이 결정은 화면·조회 수정만 다룬다.
+
+결정:
+- **클레임 처리 이력 = 클레임 행 + 연결 배송(claim_id) 행**: `AdminAuditLogQueryService.listByClaim`(배송 id 1쿼리 + 이력 1쿼리 + count) · 응답 `targetType` 추가.
+- **처리 이력 표시(FE)**: 값 변환·필드 기반 행위명 추론·이름 없는 행위자는 이메일 대체(FE-65).
+- **관리자 주문 목록 주문 칸 PAID 분기**: 원 발송 배송 없음 + 발송할 PAID 품목 있음 → "발송 대기", 그 외 PAID → "처리 중". 전 품목 반품완료 주문에 "전체 반품" 보조 표기(BE `allItemsReturned`).
+- **최초 관리자 기본 이름** "슈퍼 관리자"(신규 생성만·기존 계정 보정 없음).
+- **처리 이력 토글·셀러 상세 간격·상품 통계 상위 10 + 전체 보기·지표 설명**(FE-65).
+
+### §1-A 갈림길·채택/기각 근거
+- **행위명 = 바뀐 필드 키로 FE 추론 【채택: 적재 지점별 diff 키가 서로 겹치지 않는다(회수 확인 pickedUpAt·검수 inspectionResult·정산 status after·배송 CREATE direction/registeredOnBehalfOfBuyer·송장 정정 trackingNo/carrier·자동 배송완료 status). 스키마·API 계약 무변경】** / `AuditLogAction` enum 확장 【기각: DDL ENUM 변경(Flyway)이 필요하고 4층위 잠금 전 층을 건드린다 — 이번 트랙 Flyway 금지】 / 적재 시 행위 키 추가 【기각: 과거 행은 추론이 여전히 필요하다】.
+- **클레임 이력의 배송 행 = delivery.claim_id 기준 합류 + 응답 targetType 【채택: 회수 송장 대행·교환품 발송이 클레임 처리 흐름의 일부인데 대상이 DELIVERY라 이력에서 빠졌다. 배송 status 키가 클레임 status와 같은 이름이라 값 변환에 대상 유형이 필요하다】** / 호출 맥락으로만 구분 【기각: 한 목록에 두 대상이 섞인다】.
+- **목록 "발송 대기·처리 중" 분기 【채택: 주문 PAID는 Resolver 기본값이라 "아직 아무것도 발송 안 함"과 혼합 상태(일부 확정·반품 요청·전 품목 취소 요청)를 함께 덮는다. 판단은 목록 응답의 기존 값(원 발송 deliveryStatus 부재 + 액션 PREPARE_SHIPMENT)으로 충분해 BE 필드를 늘리지 않았다 — READY 배송 행은 생성 즉시 같은 트랜잭션에서 발송돼 DB에 남지 않는다(로컬 SHIPPING 9·DELIVERED 168). 액션 조건은 셀프 리뷰 반영(전 품목 CANCEL_REQUESTED가 "발송 대기"로 보이던 오표시)】** / PAID 전부 "발송 대기" 【기각: 혼합 상태에 할 일을 잘못 알린다】 / Resolver 기본값 수정 【기각: 주문 상태 집계(ORD-2)와 정산·통계 소비처를 건드린다】.
+- **"전체 반품" = 보조 표기 + BE `allItemsReturned` 【채택: 목록 조회가 이미 fetch한 items로 계산해 추가 쿼리 0】** / 규칙 [7] 변경(RETURNED를 확정 계열에서 분리) 【기각: 정산·통계가 CONFIRMED를 쓴다(decisions.md:8738)】.
+- **미판매·재고 회전 = FE 상위 10 + "전체 보기" 【채택: BE 정렬(미판매 등록순·재고 회전 소진 임박순)을 그대로 자르면 되고 계약 무변경】** / BE 상한·페이지네이션 【기각: 컨트롤러·서비스·쿼리·응답 계약 전부 변경 대비 로컬 최대 11행】.
+
+### §2 확정 구현 규칙·트랩
+- 처리 이력 값 변환: 검수 결과·재입고·대행 등록은 값만 표기(라벨 중복 제거) · 내부 id(claimId·sellerId·bankAccountId) 숨김 · 택배사만 정정하면 diff에 trackingNo가 없다(DiffBuilder는 바뀐 키만) → "송장 정정" 조건에 carrier 포함.
+- **로컬 트랩**: 호스트 `gradlew test --rerun-tasks` 중 백엔드 컨테이너(bind-mount `./backend`·bootRun)가 `NoClassDefFoundError`로 500 — 재컴파일이 컨테이너 클래스패스(build/)를 덮는다. API를 쓰는 작업(prepare·워크스루·e2e)은 전량 테스트 종료 후 컨테이너 재생성 뒤에 한다.
+- 클레임 이력 쿼리 EXPLAIN(로컬·audit_log 237행·클레임 1 + 연결 배송 2): 본 쿼리·count 모두 `ix_audit_log_target` range(3행) · 본 쿼리는 범위 결과만 filesort(`ORDER BY id DESC`).
+- 부수 변경: `backend/.gitignore`에 Eclipse/jdtls 임포트 산출물(`/.classpath`·`/.factorypath`·`/.project`·`/.settings/`·`/bin/`) 무시 규칙 · `SellerProductStatsQueryService` 재고 회전 Javadoc 동률 기준을 코드와 맞춤("id ASC" → "productKey = public_id ASC").
+- 검증(분리 후·2026-09-23): `gradlew test --rerun-tasks` **1503/0 실패/0 skip**(254 클래스) · typecheck 0 · vitest **744** · Playwright **111 passed/0 failed/2 skipped** · 워크스루 18/18 2회 **86·31·28** 일치(시나리오 대상 선택은 기존 그대로). 셀프 리뷰(B): 지적 5건 중 수용 4(EXPLAIN 기록·회원 상세 탭 이월·vitest 타입 import 정정·부수 변경 기록)·기각 1(상위 10 토글 페이지 테스트 — slice는 vitest·토글은 로컬 11행 e2e가 탄다).
+
+### §8 이월
+- 목록 "경과 N일" 칩은 주문 PAID 전체에 붙는다(기존) — 이번 "처리 중" 행에도 뜬다. 같은 판정식으로 맞출지 다음 라운드 판단.
+- 다셀러 혼합(한 품목 배송완료 + 다른 셀러 품목 미발송) 주문은 "처리 중"이라 미발송이 가려진다 — 지시 규칙("모든 품목 발송 전"만 발송 대기) 그대로 두었다.
+- 결제만 CANCELLED가 된 채 구매확정까지 간 주문(order id=2 유형)의 차단·탐지는 Track 104(주문 정합성)에서 다룬다.
+- 외부 검토: B(생략) · 셀프 리뷰 지적 5건 중 수용 4건

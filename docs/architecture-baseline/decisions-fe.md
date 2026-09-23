@@ -2636,3 +2636,32 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 - **결제 재개 실측 커버리지(외부 검토 지적)는 해소**: 실패 매핑 단위 6케이스 + Location override 1케이스 + e2e 2건(결제대기 → mock 결제 화면 진입 / 만료 주문 버튼 미노출). **잔여**: 409 `PAYMENT_IN_PROGRESS`·422 `ORDER_NOT_PAYABLE`은 실 서버 응답이 아니라 매핑 함수 단위로만 검증했다(재현에 결제·재고 상태 조작이 필요). 보완 후 검증: vitest **731** · Playwright **111 passed / 0 failed / 2 skipped**.
 - BE `NotificationService` Javadoc(`:60`·`:439`·`:459`)에 "정산 정상처리" 표현이 남아 있다(주석 전용·동작 무관).
 - 필수 입력 표시 규약(`사유 (필수)` vs `판매가(원) *`)은 여전히 두 가지다 — 정찰 STEP 4 지적이지만 이번 결정 범위 밖.
+
+## FE-65: 화면 확인 이슈 — 처리 이력 사람 말 · 토글 · 관리자 주문 목록 · 셀러 간격·통계 (Track 103 D-214) (2026-09-23)
+
+배경: 화면 확인 이슈 7건 정찰(`docs/track-103/recon-report.md`). 처리 이력은 BE diff 원시값(`REQUESTED`·`true`·나노초 ISO)이 그대로 보였고 회수 확인·검수·정산 확정·지급이 모두 "변경"이었으며, 이름 없는 최초 관리자는 역할만 보였다. 처리 이력 토글은 `variant="text"` x-small이라 주변 메타 문구와 섞였다. 관리자 주문 목록은 결제 칸(결제상태)과 주문 칸(주문상태)이 서로 다른 맵인데 PAID가 둘 다 '결제완료'였고, 전 품목 반품 주문은 '결제취소 + 구매확정'으로 보였다. 셀러 품목·클레임 상세는 한 `v-row dense`에 7칸을 줄바꿈시켜 행 간격이 4+4px뿐이었고, 셀러 미판매·재고 회전 표는 전량을 렌더했다.
+
+결정:
+- **처리 이력 순수 함수**(`layers/admin/app/lib/admin-audit-view.ts`): `auditValueText`(status는 대상별 클레임/정산/배송 라벨 · 거부 사유·검수 결과·택배사·배송 방향 기존 라벨 재사용 · 재입고함/재입고 안 함 · 구매자 대신 등록 · 시각 `formatDateTime` · 금액 `formatWon`) · `auditActionText`(바뀐 필드로 검수·회수 확인·정산 생성/삭제/확정·지급완료·회수 송장 대행 등록·교환품 발송·송장 등록·송장 정정·배송완료, 추론 불가는 기존 라벨) · `auditActorText` 이름 없으면 이메일. 타입 `AdminAuditTargetType`('CLAIM'|'DELIVERY'|'SETTLEMENT')·`AdminAuditLog.targetType`.
+- **토글**: 클레임 행 "처리 이력" 토글 1건을 `variant="outlined"` x-small + `append-icon` chevron + `:aria-expanded`로. 같은 방식을 셀러 통계 "전체 보기"에도 쓴다.
+- **관리자 주문 목록**: `adminOrderListStatusLabel(order)` — PAID + 원 발송 없음 + `PREPARE_SHIPMENT` → "발송 대기", 그 외 PAID → "처리 중", 나머지 공용 라벨(공용 맵·필터·상세·구매자 무변경). 결제수단은 상태 칩 옆 같은 줄 보조 표기(`payment-method`). 머리글 "금액" → "주문 금액". `allItemsReturned`면 "전체 반품" 캡션.
+- **셀러 간격**: 주문·클레임 상세 바깥 `v-row dense`에 `mb-4`, 라벨/값 `v-row dense`에 `gr-2`(Vuetify 3.13 row-gap 8px) — 클래스만·구조 무변경.
+- **셀러 상품 통계**: `STATS_LIST_PREVIEW_LIMIT = 10`·`previewRows(rows, expanded)`(BE 정렬 그대로 slice) · 초과 시 "전체 보기 (N건)"/"접기" · 제목 옆 지표 설명 1줄(D-200 90-E-3 정의표 인용).
+
+### §1-A 갈림길·채택/기각 근거
+- **값 변환 거처 = FE 【채택: BE는 원문 전달 설계(`admin-audit-view.ts` 머리 주석)이고 라벨 단일 소스가 이미 FE constants에 있다】** / BE parseChanges 【기각: 화면 라벨이 API에 굳는다】.
+- **값만 표기하는 필드(검수 결과·재입고·대행 등록) 【채택: "검수 결과 검수 합격"·"재입고 재입고함"처럼 라벨이 겹친다】** / 전부 "라벨 값" 【기각: 위】.
+- **결제수단 = 칩 옆 같은 줄 【채택: 칩 아래 줄 캡션은 칩 안쪽 여백만큼 어긋나 보였다. flex-wrap이라 좁으면 자연히 줄바꿈되고 1440 가로 스크롤 0 e2e가 유지된다】** / 칩 아래 줄 + 왼쪽 여백 보정 【기각: 칩 패딩 값에 결합】.
+- **목록 PAID 판정 = 기존 응답(deliveryStatus·actions) 【채택: BE 필드 추가 없이 가능·액션은 BE `AdminOrderQueryService.actions`와 1:1】** / BE에 표시 상태 필드 추가 【기각: 표시 규칙이 API에 굳는다】.
+- **셀러 간격 = Vuetify 유틸 클래스 【채택: `seller-vuetify.css:9` 셀러 컴포넌트 Tailwind 금지 규약 · 구조 변경 금지 지시】** / `slr-*` CSS 신설 【기각: 단일 사용】 / 한 줄 row + divider 구조 변경 【기각: 지시 범위 밖】.
+
+### §2 확정 구현 규칙·트랩
+- 기존 테스트 기대값 갱신: `track-101a-recovery.spec`(원시값 → 라벨·행위명·이메일 대체) · e2e `admin-orders`(주문 칩 "발송 대기"·`payment-method` "카드"·`all-returned-note` 0) · e2e `seller-stats-products`(행 수 = min(응답, 10) · 초과 시 토글 → aria-expanded true → 전량).
+- e2e는 앱 코드를 import하지 않는 관례라 미리보기 한도 10을 `PREVIEW_LIMIT` 상수로 재현한다(`depletion()` 선례).
+- 검증(분리 후·2026-09-23): typecheck 0 · vitest **744**(FE-64 보완 후 731 → +13) · Playwright **111 passed/0 failed/2 skipped** · 워크스루 18/18 2회 **86·31·28** 일치.
+
+### §8 이월
+- 목록 "경과 N일" 칩이 "처리 중" PAID 행에도 붙는다(기존 `pendingElapsed`) — D-214 §8.
+- 처리 이력 행위명 추론은 BE 적재 diff 키에 결합돼 있다 — 감사 적재 형식을 바꾸면 `auditActionText`와 vitest를 같이 고친다.
+- 구매자 화면에는 이번 표시 규칙("발송 대기"·"전체 반품")을 적용하지 않았다(지시 범위: 관리자 목록 전용). 같은 목록 API를 쓰는 관리자 회원 상세 "주문" 탭(`members/[id].vue`)도 공용 라벨 그대로다 — 결제 칸이 없어 '결제완료' 중복은 없지만 전 품목 반품 주문은 "구매확정"으로만 보인다.
+- 외부 검토: B(생략) · 셀프 리뷰 지적 5건 중 수용 4건
