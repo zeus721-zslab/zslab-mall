@@ -48,6 +48,8 @@ export interface AdminClaimSummary {
   rejectReasonCode?: ClaimRejectReasonCode
   rejectMemo?: string
   refundStatus?: RefundStatus
+  /** 실패 처리한 환불에 PG가 성공을 통지한 사실(Track 104-3a). true면 환불 표기는 실패여도 PG에서 돈이 나갔다. */
+  pgRefundSucceeded: boolean
   availableActions: AdminClaimAction[]
   /** 반품 회수 Delivery(구매자 등록·Track 81-A). 없으면 생략. */
   returnShipment?: ClaimShipment

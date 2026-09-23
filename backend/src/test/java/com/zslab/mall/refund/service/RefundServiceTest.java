@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -14,6 +15,7 @@ import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.exception.ClaimInvalidStateException;
 import com.zslab.mall.claim.repository.ClaimRepository;
 import com.zslab.mall.common.observability.TracedEventPublisher;
+import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.order.service.OrderService;
@@ -44,8 +46,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 /**
- * {@link RefundService} 단위 검증(Mockito). initiate(CLM-3·PAY-1 사전·D-67)·markCompleted(RFN-1·RFN-3·PAY-1 사후·D-70·이벤트)·
- * markFailed(전이·멱등)를 11 케이스로 커버한다.
+ * {@link RefundService} 단위 검증(Mockito). initiate(CLM-3·품목 상한·PAY-1 사전·D-67)·markCompleted(RFN-1·RFN-3·PAY-1 사후·D-70·이벤트)·
+ * markFailed(전이·멱등)를 12 케이스로 커버한다.
  */
 @ExtendWith(MockitoExtension.class)
 class RefundServiceTest {
@@ -106,9 +108,17 @@ class RefundServiceTest {
     }
 
     private void stubPaymentGraph(long paymentAmount) {
+        stubPaymentGraph(paymentAmount, paymentAmount);
+    }
+
+    /** 결제 해소 + 품목 금액(Track 104-3a 품목 상한). 품목 기환불액은 mock 기본값 0. */
+    private void stubPaymentGraph(long paymentAmount, long itemTotalPrice) {
         when(orderItemRepository.findOrderIdById(ORDER_ITEM_ID)).thenReturn(Optional.of(ORDER_ID));
         when(paymentRepository.findFirstByOrderIdAndStatusOrderByIdDesc(ORDER_ID, PaymentStatus.PAID))
                 .thenReturn(Optional.of(paidPayment(paymentAmount)));
+        OrderItem item = mock(OrderItem.class);
+        when(item.getTotalPrice()).thenReturn(itemTotalPrice);
+        when(orderItemRepository.findById(ORDER_ITEM_ID)).thenReturn(Optional.of(item));
     }
 
     // ---------- initiate ----------
@@ -136,6 +146,20 @@ class RefundServiceTest {
     }
 
     @Test
+    @DisplayName("initiate: 품목 상한 초과(기환불 5,000 + 신규 6,000 > 품목 10,000) → 결제 잔액이 남아도 RefundInvariantViolationException·PG 미호출(Track 104-3a)")
+    void initiate_itemCapExceeded_blockedEvenWithPaymentBalance() {
+        when(claimRepository.findById(CLAIM_ID)).thenReturn(Optional.of(claim(ClaimStatus.APPROVED)));
+        stubPaymentGraph(20_000L, 10_000L);
+        when(refundRepository.sumRefundedByOrderItemId(ORDER_ITEM_ID)).thenReturn(5_000L);
+
+        assertThatThrownBy(() -> refundService.initiate(CLAIM_ID, REFUND_AMOUNT))
+                .isInstanceOf(RefundInvariantViolationException.class)
+                .hasMessage("품목 상한 위반(사전): 기환불 5000 + 신규 6000 > 품목 금액 10000");
+        verify(refundRepository, never()).save(any());
+        verify(paymentGateway, never()).refund(any(), any());
+    }
+
+    @Test
     @DisplayName("initiate: PG 호출 예외 → FAILED 전이(D-67·CR-03)")
     void initiate_gatewayException_transitionsToFailed() {
         when(claimRepository.findById(CLAIM_ID)).thenReturn(Optional.of(claim(ClaimStatus.APPROVED)));
@@ -156,7 +180,7 @@ class RefundServiceTest {
         Refund existing = pendingRefund();
         Claim claim = claim(ClaimStatus.APPROVED);
         when(claimRepository.findById(CLAIM_ID)).thenReturn(Optional.of(claim));
-        when(refundRepository.findByClaimIdAndStatusInForUpdate(org.mockito.ArgumentMatchers.eq(CLAIM_ID), any())).thenReturn(java.util.List.of(existing));
+        when(refundRepository.findRefundedByClaimIdForUpdate(CLAIM_ID)).thenReturn(java.util.List.of(existing));
 
         Refund result = refundService.initiate(CLAIM_ID, REFUND_AMOUNT);
 

@@ -213,7 +213,7 @@ class PgCallbackReconciliationIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("R-2 실패 처리된 환불(FAILED)의 SUCCESS → 200·불일치 1행·환불 FAILED 유지")
+    @DisplayName("R-2 실패 처리된 환불(FAILED)의 SUCCESS → 200·불일치 1행·환불 FAILED 유지·PG 성공 시각 기록(Track 104-3a)")
     void refundSuccess_onFailedRefund_recordsInsteadOfFailing() throws Exception {
         sql("UPDATE refund SET status = 'FAILED' WHERE id = ?", REFUND_ID);
 
@@ -221,6 +221,21 @@ class PgCallbackReconciliationIntegrationTest extends AbstractIntegrationTest {
 
         assertThat(issueCount("PG_REFUND_SUCCESS_ON_FAILED", "refund:" + REFUND_ID)).isEqualTo(1);
         assertThat(refundStatus(REFUND_ID)).isEqualTo("FAILED");
+        assertThat(jdbc.queryForObject("SELECT pg_refund_succeeded_at IS NOT NULL FROM refund WHERE id = ?", Boolean.class, REFUND_ID))
+                .isTrue();
+    }
+
+    @Test
+    @DisplayName("R-7 완료된 환불(COMPLETED)의 FAIL → 200·PG_REFUND_FAIL_ON_COMPLETED 1행 커밋(롤백 없음)·환불 COMPLETED·클레임 불변(Track 104-3a·구 500)")
+    void refundFail_onCompletedRefund_recordsInsteadOfFailing() throws Exception {
+        sql("UPDATE refund SET status = 'COMPLETED', refunded_at = NOW(6) WHERE id = ?", REFUND_ID);
+
+        refundWebhook("FAIL", PG_REFUND_ID).andExpect(status().isOk());
+        refundWebhook("FAIL", PG_REFUND_ID).andExpect(status().isOk()); // 재전송 멱등
+
+        assertThat(issueCount("PG_REFUND_FAIL_ON_COMPLETED", "refund:" + REFUND_ID)).isEqualTo(1);
+        assertThat(issueOrderId("PG_REFUND_FAIL_ON_COMPLETED", "refund:" + REFUND_ID)).isEqualTo(RF_ORDER_ID);
+        assertThat(refundStatus(REFUND_ID) + "/" + claimStatus(RF_CLAIM_ID)).isEqualTo("COMPLETED/APPROVED");
     }
 
     @Test

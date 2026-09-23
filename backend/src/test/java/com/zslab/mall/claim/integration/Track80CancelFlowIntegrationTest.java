@@ -90,8 +90,11 @@ class Track80CancelFlowIntegrationTest extends AbstractIntegrationTest {
     private static final long ITEM_PRICE = 10_000L;
     private static final String BUYER_PHONE = "010-1111-2222";
     private static final String BUYER_NAME = "트랙80구매자";
-    /** 실측: claim count·page + user·order_item·주문 요약 projection·refund·클레임 delivery(Track 81-A) 배치 5 + REQUESTED count 1 + 첨부 count 1 + 인증 필터 회원 상태 조회 1(Track 84) = 10. */
-    private static final int QUERY_BUDGET_FOR_LIST = 10;
+    /**
+     * 실측: claim count·page + user·order_item·주문 요약 projection·refund·클레임 delivery(Track 81-A) 배치 5 + REQUESTED count 1 + 첨부 count 1 +
+     * 인증 필터 회원 상태 조회 1(Track 84) + 품목 기환불액 배치 1(Track 104-3a) = 11.
+     */
+    private static final int QUERY_BUDGET_FOR_LIST = 11;
 
     private static final String ORDER_A_PID = pid("ord_", "T80ORDA");
     private static final String ORDER_B_PID = pid("ord_", "T80ORDB");

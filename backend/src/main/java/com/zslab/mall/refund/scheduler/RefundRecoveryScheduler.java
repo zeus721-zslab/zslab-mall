@@ -50,17 +50,22 @@ public class RefundRecoveryScheduler {
             return;
         }
         int success = 0;
+        int skipped = 0;
         int failed = 0;
         for (Long claimId : claimIds) {
             try {
-                refundRecoveryService.recoverMissingRefund(claimId);
-                success++;
+                if (refundRecoveryService.recoverMissingRefund(claimId)) {
+                    success++;
+                } else {
+                    skipped++;
+                }
             } catch (Exception exception) {
                 // Error(OOM 등)는 흡수하지 않고 전파한다. RuntimeException 1건 실패는 격리 후 다음 건을 계속 처리한다.
                 failed++;
                 log.error("[RefundRecovery] schedulerRunId={} 환불 누락 복구 실패 claimId={} — 격리 후 진행", schedulerRunId, claimId, exception);
             }
         }
-        log.info("[RefundRecovery] schedulerRunId={} 배치 완료 대상={} 성공={} 실패={}", schedulerRunId, claimIds.size(), success, failed);
+        log.info("[RefundRecovery] schedulerRunId={} 배치 완료 대상={} 성공={} 제외={} 실패={}", schedulerRunId, claimIds.size(), success,
+                skipped, failed);
     }
 }

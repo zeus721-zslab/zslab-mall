@@ -36,7 +36,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -111,7 +110,7 @@ public class RefundService {
      * @return 생성된 Refund(정상 시 PENDING+pg_refund_id, PG 예외 시 FAILED)
      * @throws ClaimNotFoundException          클레임이 없는 경우
      * @throws ClaimInvalidStateException      클레임이 APPROVED가 아닌 경우(CLM-3)
-     * @throws RefundInvariantViolationException PAY-1 사전 한도 초과(과환불 차단)
+     * @throws RefundInvariantViolationException 품목 상한·PAY-1 사전 한도 초과(과환불 차단)
      */
     public Refund initiate(Long claimId, long amount) {
         if (claimId == null) {
@@ -131,8 +130,8 @@ public class RefundService {
         // 멱등 게이트(D-94 Q6 α′·락 이후 잠금 읽기로 재확인): 동일 claimId에 활성 Refund(PENDING/COMPLETED) 존재 시 신규 생성 없이 기존 행을
         // no-op 반환한다. 잠금 읽기인 이유: REPEATABLE READ에서 비잠금 exists는 TX 첫 읽기 스냅샷에 묶여 락 대기 중 커밋된 행을 못 본다(D-172).
         // 인메모리 ApplicationEvent 가정 하 이벤트 재전달·운영 재실행·중복 진입을 차단한다(외부 브로커·Outbox 도입 시 재검토·D-94 박제).
-        List<Refund> activeRefunds = refundRepository.findByClaimIdAndStatusInForUpdate(
-                claimId, Set.of(RefundStatus.PENDING, RefundStatus.COMPLETED));
+        // Track 104-3a: PG 성공이 기록된 FAILED 행도 활성이다 — PG에서 이미 돈이 나갔으므로 새 행(= PG 재환불)을 만들지 않는다.
+        List<Refund> activeRefunds = refundRepository.findRefundedByClaimIdForUpdate(claimId);
         if (!activeRefunds.isEmpty()) {
             return activeRefunds.get(0);
         }
@@ -145,6 +144,16 @@ public class RefundService {
 
         // payment 해소: claim → order_item → order → PAID payment
         Payment payment = resolvePaidPayment(claim);
+
+        // 품목 상한(Track 104-3a): 기환불액 + 신규 amount ≤ 품목 금액. 결제 단위 PAY-1만으로는 한 품목 환불이 형제 품목 금액까지 나갈 수 있다.
+        long itemTotalPrice = orderItemRepository.findById(claim.getOrderItemId())
+                .orElseThrow(() -> new IllegalStateException("주문 품목을 찾을 수 없습니다: orderItemId=" + claim.getOrderItemId()))
+                .getTotalPrice();
+        long itemRefunded = refundRepository.sumRefundedByOrderItemId(claim.getOrderItemId());
+        if (itemRefunded + amount > itemTotalPrice) {
+            throw new RefundInvariantViolationException(
+                    "품목 상한 위반(사전): 기환불 " + itemRefunded + " + 신규 " + amount + " > 품목 금액 " + itemTotalPrice);
+        }
 
         // PAY-1 사전 검증: Σ(COMPLETED) + 신규 amount ≤ Payment.amount
         long alreadyCompleted = refundRepository.sumCompletedByPaymentId(payment.getId());
@@ -185,7 +194,7 @@ public class RefundService {
      * @return 생성된 Refund(정상 시 PENDING+pg_refund_id, PG 예외 시 FAILED)
      * @throws ClaimNotFoundException          클레임이 없는 경우(404)
      * @throws ClaimInvalidStateException      클레임이 APPROVED가 아닌 경우(CLM-3·422)
-     * @throws RefundInvariantViolationException PAY-1 사전 한도 초과(과환불 차단·422)
+     * @throws RefundInvariantViolationException 품목 상한·PAY-1 사전 한도 초과(과환불 차단·422)
      */
     public Refund initiateByAdmin(Long claimId, long amount, AuditContext auditContext) {
         Refund refund = initiate(claimId, amount);
@@ -324,11 +333,11 @@ public class RefundService {
      * (RFN-3·예외 없이 200 응답 유도). 정상 분기는 {@link #markCompleted}·{@link #markFailed}에 위임한다.
      *
      * <p><b>충돌 기록(Track 104-2 D-216·P1)</b>: 매칭 환불이 없는 통지(구 404·로그 없음)와 실패 처리된 환불의 성공 통지(구 500)는 거부 대신
-     * 불일치를 기록하고 정상 종료한다(상태 불변). 매칭 환불이 없으면 주문을 모르므로 락 없이 통지 원문만 기록한다. 매칭 없음은 환불 개시 커밋
+     * 불일치를 기록하고 정상 종료한다(상태 불변). 완료된 환불의 실패 통지(구 500·Track 104-3a)도 같다. 매칭 환불이 없으면 주문을 모르므로 락 없이 통지 원문만 기록한다. 매칭 없음은 환불 개시 커밋
      * 전에 도착한 통지일 수 있어 웹훅은 기록 커밋 뒤 기존 404로 PG 재전송을 부르고, 재전송이 같은 종류로 매칭돼 상태 전이까지 끝나면 그 행을
      * 자동 해소한다(결정 1·외부 검토 지적 2 — 충돌·멱등 NO-OP는 해소하지 않음).
      *
-     * @return 충돌로 기록한 불일치 유형(매칭 없음·실패 환불의 성공). 정상 처리·멱등·완료 처리 중 기록(markCompleted)은 빈 값
+     * @return 충돌로 기록한 불일치 유형(매칭 없음·실패 환불의 성공·완료 환불의 실패). 정상 처리·멱등·완료 처리 중 기록(markCompleted)은 빈 값
      */
     public Optional<ReconciliationIssueType> handleCallback(String pgRefundId, RefundCallbackStatus status, String failureReason) {
         if (pgRefundId == null || pgRefundId.isBlank() || status == null) {
@@ -364,7 +373,10 @@ public class RefundService {
                 }
                 if (refund.getStatus() == RefundStatus.FAILED) {
                     // RFN-2: FAILED는 종결이라 COMPLETED로 되돌리지 않는다 — PG에서 끝난 환불 사실은 불일치로 남긴다(구 500·롤백).
+                    // Track 104-3a: 사실은 환불 행에도 남긴다 — 품목 기환불액·재개시 판정(RefundedCondition)이 이 행을 "환불된 금액"으로 센다.
                     log.warn("[Refund] SUCCESS 콜백 충돌(이미 FAILED): pgRefundId={}, refundId={}", pgRefundId, refund.getId());
+                    refund.recordPgRefundSucceeded(LocalDateTime.now());
+                    refundRepository.save(refund);
                     Map<String, Object> detail = new LinkedHashMap<>();
                     detail.put("reason", "REFUND_ALREADY_FAILED");
                     detail.put("refundAmount", refund.getAmount());
@@ -382,6 +394,21 @@ public class RefundService {
                 if (refund.getStatus() == RefundStatus.FAILED) {
                     log.info("[Refund] FAIL 콜백 멱등 NO-OP(이미 FAILED): pgRefundId={}", pgRefundId);
                     return Optional.empty();
+                }
+                if (refund.getStatus() == RefundStatus.COMPLETED) {
+                    // RFN-2: COMPLETED는 종결이라 FAILED로 되돌리지 않는다 — PG의 실패 통지는 불일치로 남기고 정상 종료한다(Track 104-3a·구 500·
+                    // 롤백·PG 무한 재전송). 기록기는 이 트랜잭션에 참여하므로 예외 없이 끝나야 기록이 커밋된다.
+                    log.warn("[Refund] FAIL 콜백 충돌(이미 COMPLETED): pgRefundId={}, refundId={}", pgRefundId, refund.getId());
+                    Map<String, Object> detail = new LinkedHashMap<>();
+                    detail.put("reason", "REFUND_ALREADY_COMPLETED");
+                    detail.put("refundAmount", refund.getAmount());
+                    if (failureReason != null) {
+                        detail.put("failureReason", failureReason);
+                    }
+                    reconciliationIssueRecorder.record(ReconciliationIssueType.PG_REFUND_FAIL_ON_COMPLETED, "refund:" + refund.getId(),
+                            ReconciliationIssueRefs.ofRefund(orderId.get(), refund.getPaymentId(), refund.getId(), refund.getClaimId(),
+                                    pgRefundId), detail);
+                    return Optional.of(ReconciliationIssueType.PG_REFUND_FAIL_ON_COMPLETED);
                 }
                 markFailed(refund.getId(), failureReason);
                 resolveUnmatchedAfterProcessed(pgRefundId, status);

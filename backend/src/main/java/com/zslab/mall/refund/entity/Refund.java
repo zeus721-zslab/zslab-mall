@@ -66,6 +66,10 @@ public class Refund extends AbstractPublicIdFullAuditableEntity {
     @Column(name = "refunded_at")
     private LocalDateTime refundedAt;
 
+    /** PG가 환불 성공을 통지한 시각(Track 104-3a·V36). 실패 처리 뒤 도착한 성공 통지만 기록하며 상태는 FAILED 그대로다(RFN-2). */
+    @Column(name = "pg_refund_succeeded_at")
+    private LocalDateTime pgRefundSucceededAt;
+
     /** 상태 전이 시 누적되는 도메인 이벤트. @Transient·영속 제외·{@link #pullDomainEvents}로만 노출한다. */
     @Getter(AccessLevel.NONE)
     @Transient
@@ -146,6 +150,21 @@ public class Refund extends AbstractPublicIdFullAuditableEntity {
      */
     public void markFailed() {
         transitionTo(RefundStatus.FAILED);
+    }
+
+    /**
+     * PG가 환불 성공을 통지한 사실을 남긴다(Track 104-3a·P1). 상태는 바꾸지 않는다 — 실패 처리한 환불도 PG에서 돈이 나갔으면
+     * 품목 기환불액에 들어가야 같은 금액을 다시 환불하지 않는다. 처음 통지 시각만 남긴다(재전송은 무변경).
+     *
+     * @throws IllegalArgumentException succeededAt가 null인 경우
+     */
+    public void recordPgRefundSucceeded(LocalDateTime succeededAt) {
+        if (succeededAt == null) {
+            throw new IllegalArgumentException("recordPgRefundSucceeded: succeededAt는 필수입니다.");
+        }
+        if (pgRefundSucceededAt == null) {
+            this.pgRefundSucceededAt = succeededAt;
+        }
     }
 
     /** 누적된 도메인 이벤트를 반환하고 내부 목록을 비운다(D-29). RefundService가 save 직후 호출해 발행한다. */

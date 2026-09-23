@@ -6,6 +6,7 @@ import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.order.service.OrderService;
 import com.zslab.mall.refund.enums.RefundCallbackStatus;
+import com.zslab.mall.refund.repository.RefundRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -25,11 +26,15 @@ public class RefundRecoveryService {
     private final OrderItemRepository orderItemRepository;
     private final RefundService refundService;
     private final OrderService orderService;
+    private final RefundRepository refundRepository;
 
     /**
      * 환불 누락 클레임 1건에 환불을 시작한다(자동 핸들러가 실패·유실된 경우). 금액은 자동 핸들러와 동일하게 품목 totalPrice다.
      *
-     * @return initiate가 새 환불을 만들었거나 기존 활성 환불을 돌려줬으면 true(둘 다 "환불 존재"로 수렴)
+     * <p><b>품목 잔여 없음 제외(Track 104-3a)</b>: 품목 기환불액이 품목 금액에 도달했으면 initiate를 부르지 않는다 — 품목 상한이 422로 막아
+     * 배치마다 같은 실패를 되풀이하기 때문이다(다른 클레임의 환불로 이미 품목 금액만큼 나간 경우).
+     *
+     * @return initiate가 새 환불을 만들었거나 기존 활성 환불을 돌려줬으면 true(둘 다 "환불 존재"로 수렴) · 품목 잔여 없음으로 제외하면 false
      */
     @Transactional
     public boolean recoverMissingRefund(Long claimId) {
@@ -39,6 +44,12 @@ public class RefundRecoveryService {
                 .orElseThrow(() -> new IllegalStateException("환불 복구 대상 클레임 미존재: claimId=" + claimId));
         OrderItem orderItem = orderItemRepository.findById(claim.getOrderItemId())
                 .orElseThrow(() -> new IllegalStateException("환불 복구 대상 품목 미존재: orderItemId=" + claim.getOrderItemId()));
+        long itemRefunded = refundRepository.sumRefundedByOrderItemId(orderItem.getId());
+        if (orderItem.getTotalPrice() - itemRefunded <= 0) {
+            log.warn("[RefundRecovery] 품목 잔여 환불 한도 없음 → 복구 제외 claimId={} orderItemId={} itemTotalPrice={} itemRefunded={}",
+                    claimId, orderItem.getId(), orderItem.getTotalPrice(), itemRefunded);
+            return false;
+        }
         refundService.initiate(claimId, orderItem.getTotalPrice());
         log.info("[RefundRecovery] 환불 누락 복구 initiate claimId={} type={} amount={}", claimId, claim.getType(), orderItem.getTotalPrice());
         return true;

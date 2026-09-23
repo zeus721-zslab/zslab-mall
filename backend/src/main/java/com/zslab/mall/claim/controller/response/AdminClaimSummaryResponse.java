@@ -28,6 +28,7 @@ import java.util.List;
  * @param rejectReasonCode 거부 사유 코드(거부 전 null)
  * @param rejectMemo       거부 메모(거부 전 null)
  * @param refundStatus     최신 환불 상태(환불 미생성 시 null)
+ * @param pgRefundSucceeded 실패 처리한 환불에 PG가 성공을 통지한 사실(Track 104-3a) — true면 환불 표기는 실패여도 PG에서 돈이 나갔다
  * @param availableActions 처리 가능 액션(REQUESTED: APPROVE·REJECT / RETURN APPROVED: 회수 송장 있고 미회수 CONFIRM_PICKUP·회수 후 미검수 INSPECT)
  * @param returnShipment   반품 회수 Delivery(구매자 등록·없으면 null·Track 81-A)
  * @param reshipment       검수 불합격 재발송 Delivery(없으면 null)
@@ -58,6 +59,7 @@ public record AdminClaimSummaryResponse(
         ClaimRejectReasonCode rejectReasonCode,
         String rejectMemo,
         RefundStatus refundStatus,
+        boolean pgRefundSucceeded,
         List<String> availableActions,
         ReturnShipmentResponse returnShipment,
         ReturnShipmentResponse reshipment,

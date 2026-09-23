@@ -21,13 +21,14 @@ import { auditActionText, auditChangeSummary } from '#layers/admin/app/lib/admin
 // Track 104-2 FE-66 불일치 화면: URL ↔ 조회 조건, 요약·세부 사실·기록 주체 표기, 해결 확인 문구(FE-64 형식), 진입·복귀 경로.
 
 describe('유형 상수(4층위 (4)프론트)', () => {
-  it('BE ReconciliationIssueType 11값과 같은 키·옵션 순서', () => {
+  it('BE ReconciliationIssueType 12값과 같은 키·옵션 순서', () => {
     expect(Object.keys(RECONCILIATION_ISSUE_TYPE_LABEL)).toEqual([
       'PG_PAYMENT_SUCCESS_CONFLICT', 'PG_PAYMENT_CANCEL_ON_PAID', 'PG_TID_CONFLICT', 'PG_UNMATCHED_CALLBACK',
       'PG_REFUND_EXCEEDS_PAYMENT', 'PG_REFUND_SUCCESS_ON_FAILED', 'PAYMENT_CANCELLED_WITHOUT_REFUND',
       'FULL_REFUND_PAYMENT_NOT_CANCELLED', 'FULL_REFUND_WITH_CONFIRMED_ITEM', 'REFUND_ON_INVALID_CLAIM', 'ITEM_STATE_DRIFT',
+      'PG_REFUND_FAIL_ON_COMPLETED',
     ])
-    expect(RECONCILIATION_ISSUE_TYPE_OPTIONS).toHaveLength(11)
+    expect(RECONCILIATION_ISSUE_TYPE_OPTIONS).toHaveLength(12)
   })
 })
 

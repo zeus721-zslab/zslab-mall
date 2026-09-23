@@ -1,7 +1,7 @@
 package com.zslab.mall.reconciliation.enums;
 
 /**
- * 주문·결제 불일치 유형(reconciliation_issue.issue_type DDL ENUM 1:1·V35·4층위 잠금·Track 104-2 D-216).
+ * 주문·결제 불일치 유형 12값(reconciliation_issue.issue_type DDL ENUM 1:1·V35 11값 + V36 1값·4층위 잠금·Track 104-2 D-216·104-3a).
  * FE 상수는 {@code frontend/layers/admin/app/lib/constants/reconciliation.ts}와 1:1이다(값을 바꾸면 넷을 함께 고친다).
  */
 public enum ReconciliationIssueType {
@@ -27,5 +27,7 @@ public enum ReconciliationIssueType {
     /** 교환 클레임·거부된 클레임에 환불 완료. */
     REFUND_ON_INVALID_CLAIM,
     /** 클레임·배송 상태와 품목 상태가 어긋남(세부는 detail.reason = 점검 패턴 이름). */
-    ITEM_STATE_DRIFT
+    ITEM_STATE_DRIFT,
+    /** 완료 처리된 환불에 PG 환불 실패 통지(RFN-2·Track 104-3a). */
+    PG_REFUND_FAIL_ON_COMPLETED
 }

@@ -99,9 +99,9 @@ class ClaimExchangeIntegrationTest extends AbstractIntegrationTest {
     private static final long DUMMY_FK_ID = 9402L;
     private static final long ITEM_PRICE = 10_000L;
     private static final int INITIAL_STOCK = 10;
-    /** 관리자 주문 상세·클레임 목록 쿼리 예산(T13·옵션 라벨 배치 조회 3쿼리 포함·N+1 회귀 감지). */
+    /** 관리자 주문 상세·클레임 목록 쿼리 예산(T13·옵션 라벨 배치 조회 3쿼리 포함·N+1 회귀 감지·목록은 Track 104-3a 품목 기환불액 배치 +1). */
     private static final int ADMIN_DETAIL_QUERY_BUDGET = 20;
-    private static final int ADMIN_LIST_QUERY_BUDGET = 12;
+    private static final int ADMIN_LIST_QUERY_BUDGET = 13;
     /** 구매자 주문 상세 쿼리 예산(T14·주문+품목·상품·variant·셀러·교환 완료 클레임 배치 1). */
     private static final int BUYER_DETAIL_QUERY_BUDGET = 8;
 

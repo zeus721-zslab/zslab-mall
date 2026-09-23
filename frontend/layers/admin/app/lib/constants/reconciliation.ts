@@ -6,7 +6,7 @@ import { ADMIN_ORDER_PAGE_SIZES, DEFAULT_ADMIN_ORDER_PAGE_SIZE } from '#layers/a
  * {@code ReconciliationIssueType}·{@code ReconciliationIssueStatus}와 V35 DDL ENUM과 1:1이다(값을 바꾸면 넷을 함께 고친다).
  */
 
-/** BE ReconciliationIssueType 11값. */
+/** BE ReconciliationIssueType 12값. */
 export type ReconciliationIssueType =
   | 'PG_PAYMENT_SUCCESS_CONFLICT'
   | 'PG_PAYMENT_CANCEL_ON_PAID'
@@ -19,6 +19,7 @@ export type ReconciliationIssueType =
   | 'FULL_REFUND_WITH_CONFIRMED_ITEM'
   | 'REFUND_ON_INVALID_CLAIM'
   | 'ITEM_STATE_DRIFT'
+  | 'PG_REFUND_FAIL_ON_COMPLETED'
 
 export const RECONCILIATION_ISSUE_TYPE_LABEL: Record<ReconciliationIssueType, string> = {
   PG_PAYMENT_SUCCESS_CONFLICT: 'PG 결제 성공 충돌',
@@ -32,6 +33,7 @@ export const RECONCILIATION_ISSUE_TYPE_LABEL: Record<ReconciliationIssueType, st
   FULL_REFUND_WITH_CONFIRMED_ITEM: '구매확정 품목 있는 전액 환불',
   REFUND_ON_INVALID_CLAIM: '환불 대상 아닌 클레임의 환불',
   ITEM_STATE_DRIFT: '품목 상태 어긋남',
+  PG_REFUND_FAIL_ON_COMPLETED: '완료된 환불의 PG 실패 통지',
 }
 
 export const RECONCILIATION_ISSUE_TYPE_OPTIONS: { value: ReconciliationIssueType; title: string }[] = (
@@ -69,6 +71,7 @@ export const RECONCILIATION_REASON_LABEL: Record<string, string> = {
   NO_MATCHING_PAYMENT: '일치하는 결제 시도가 없는 결제 통지입니다',
   NO_MATCHING_REFUND: '일치하는 환불이 없는 환불 통지입니다',
   REFUND_ALREADY_FAILED: '실패 처리한 환불에 PG 환불 성공 통지가 왔습니다',
+  REFUND_ALREADY_COMPLETED: '완료 처리한 환불에 PG 환불 실패 통지가 왔습니다(환불은 완료 상태로 두었습니다)',
   PAY1_EXCEEDED: '환불 완료 합계가 결제액을 넘어 환불을 완료 처리하지 않았습니다',
   PAYMENT_NOT_CANCELLABLE: '전액 환불인데 결제를 취소 상태로 바꿀 수 없어 환불을 완료 처리하지 않았습니다',
   CLAIM_NOT_REFUNDABLE: '교환 또는 거부된 클레임에 환불이 완료됐습니다',
