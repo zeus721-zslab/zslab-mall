@@ -12664,3 +12664,57 @@ PG·SMS·이메일은 포트(`PaymentGateway`·`SmsSender`·`NotificationSender`
 3) 이월 행에 원 정산 id(source_id)가 응답(`SettlementItemResponse`)에 없어 화면에서 어느 정산의 부족분인지 추적할 수 없다 → 운영 편의 라운드.
 4) 월 합계 카드 4항목 정합(매출−수수료−환불−이월=지급액)이 성립하지 않는다(이월된 원 정산의 net이 그 정산이 속한 기간 합계에서 빠지기 때문) → 운영 편의 라운드. (2026-09-24: 지급액 카드 캡션에 "이월된 음수 정산 제외" 문구를 붙여 설명은 붙였으나, 항등식 자체는 여전히 성립하지 않는다.)
 5) 운영 첫 스케줄러 실행 시 과거 미편입분이 한꺼번에 편입된다 — 배포 전 (a) confirmed_at ≤ 지난달 말인데 미편입인 CONFIRMED 품목·COMPLETED 환불 (b) net<0인 CONFIRMED 정산의 규모를 조회해 둘 것.
+
+## D-219: Track 104-4 주문 가드 정리(품목 기준·구매확정 가드) (2026-09-24)
+
+배경: 104-1~3b(주문 락·불일치 기록·환불 품목 귀속·정산 보류/이월)는 머지 완료. 104-4는 그 위에 Order.status 판단 사용 정리(P4)·구매확정 가드(P2·P6)·재개시 기본 금액·셀러 종료 가드 이월 반영 4항목을 얹는다. 정찰(`docs/track-104/recon-report-104-4.md`) 기준 원 9곳 중 결제 후 요약값을 읽는 3곳을 품목 사실로 교체하고, 나머지 6곳은 Order.status가 원천 상태라 유지했다.
+
+### §1-A 갈림길
+- **Order.status 가드 범위 = 결제 후 요약 3곳만 교체 【채택: AdminOrderCancelService 재취소 분기·MemberActivityChecker 탈퇴 가드·SellerTerminationGuard G2. OrderStatusResolver 규칙 [5]~[7](`order/service/OrderStatusResolver.java:37-49`)이 "주문이 CANCELLED·PARTIAL_CANCEL·CONFIRMED"와 "전 품목이 {CANCELLED, CONFIRMED, RETURNED, EXCHANGED}"를 필요충분으로 묶는다 — 정상 상태에서 두 판정은 동치이고 원천이 아닌 파생값 사용만 없앤다(P4)】** / 9곳 전부 교체 【기각: PENDING_PAYMENT·PAYMENT_EXPIRED 두 결제 전 상태는 품목으로 구분되지 않는다 — ORDERED 품목은 `Order.markPaid`(`order/entity/Order.java:142-151`)가 전 품목을 PAID로 넘길 때만 사라지므로, 결제 전 두 상태 모두 품목은 ORDERED로 남는다(정찰 F1). PaymentService:140-141·402-403·OrderEventHandler:53·OrderService.markPaid:112·ExpiredOrderCleanupService:73·AdminOrderCancelService의 PENDING_PAYMENT 분기(:65-66)는 결제 전 상태 자체가 판단 대상이라 대체 기준이 없다】.
+- **구매확정 순수령액의 환불 기준 = RefundedCondition 【채택: `refund/repository/RefundedCondition.java:19-21`(PENDING·COMPLETED·PG 성공 통지 FAILED) — Track 104-3a 품목 상한(`RefundService.initiate`)·재개시 잔여(§1-5)와 같은 함수를 재사용해 "나갈 수 있는 돈"까지 보수적으로 차단한다. invariants.md P2 문구("완료 환불")와는 표현이 다르다(§8-7 이월)】** / COMPLETED만 【기각: 이미 PG가 성공을 통지했거나 처리 중인 환불이 있는데도 구매확정을 허용하면 그 돈이 정산에서 다시 빠져나갈 여지를 남긴다 — 3a·재개시와 다른 기준을 새로 만드는 비용도 있다】.
+- **자동 확정 배치 제외 = 조회 단계 제외 【채택: D-175(§1-A 1) 만료 주문 정리 기아 제외) 선례. 후보 쿼리가 커서 없는 0페이지·id 오름차순 100건 고정이라, 조회 후 필터링하면 차단된 품목이 매 실행 배치 창 앞자리를 점유해 뒤 후보가 밀린다(정찰 §2.4)】** / 조회 후 필터 【기각: 위와 같은 기아 재발】.
+- 그 외 결정 항목은 대안 검토 없음: 사유 코드 2종 분리(`PurchaseConfirmBlockedReason`)·OPEN 판정 유형 무제한(정산 보류 쿼리와 같은 의미)·재개시 필드명(`itemRemainingRefundable`)·SellerTerminationGuard G1 판정 방식(104-3b `sumByStatusForSeller`와 같은 CARRYOVER LEFT JOIN).
+
+### §2 재진입
+- 구매확정 가드(`BuyerOrderConfirmService.requireConfirmable`)와 자동 확정 후보 제외(`DeliveryRepository.findAutoConfirmCandidateOrderItemIds`)는 반드시 동치 조건을 유지한다 — 한쪽만 바꾸면 배치가 통과시킨 품목을 확정 시점에 가드가 막거나(스케줄러가 매 실행 같은 품목을 재시도), 가드가 허용하는 품목을 배치가 영영 후보에서 빼는 어긋남이 생긴다. 두 곳 모두 (1) `oi.totalPrice > SUM(RefundedCondition 행 amount)`(순수령액 > 0의 반대 비교) (2) `NOT EXISTS ReconciliationIssue(orderId = 주문 id, status = OPEN)`이며, `RefundedCondition.JPQL`(위 §1-A) 상수를 그대로 재사용해 두 곳의 기환불 정의가 문자 그대로 같다. 재진입 시 조건을 바꾸면 이 둘을 함께 고친다.
+
+### 본문 — 교체 3곳
+| # | 위치 | 옛 판정(Order.status) | 새 판정(품목·주문 사실) |
+|---|---|---|---|
+| 1 | `order/service/AdminOrderCancelService.java:71`(`cancel`) | `status IN (CANCELLED, PAYMENT_EXPIRED)`이면 409 | `status == PAYMENT_EXPIRED`(결제 전, :65 분기로 먼저 처리된 뒤의 잔여 판정) 또는 `allItemsCancelled(order)`(:80-82, 전 품목 CANCELLED)이면 409 |
+| 2 | `user/service/MemberActivityChecker.java:54-58`(`requireNoActivityInProgress`) | `status NOT IN (CANCELLED, PAYMENT_EXPIRED, CONFIRMED, PARTIAL_CANCEL)`인 주문 존재 시 409 | `OrderRepository.existsByBuyerIdAndStatus(userId, PENDING_PAYMENT)`(:45) 또는 `OrderItemRepository.existsByOrderBuyerIdAndItemStatusNotIn(userId, {ORDERED, CONFIRMED, CANCELLED, RETURNED, EXCHANGED})`(:56, `OrderItemRepository.java:60`)이면 409 |
+| 3 | `seller/service/SellerTerminationGuard.java` G2(:72, `evaluate`) | `CLOSED_ORDER_STATUSES = {PAYMENT_EXPIRED, CANCELLED}`로 주문 조인 제외 | `CLOSED_ORDER_STATUSES = {PAYMENT_EXPIRED}`(:48)만 — CANCELLED 부분은 전 품목 CANCELLED가 이미 `TERMINAL_ITEM_STATUSES`로 빠지므로 불필요 |
+
+유지 6곳(결제 전 단계 — Order.status가 원천 상태, 주석 추가): `PaymentService.java:140-141`(결제 시작)·`PaymentService.java:402-403`(늦은 승인)·`OrderEventHandler.java:53`(markPaid backstop)·`OrderService.java:112`(markPaid)·`ExpiredOrderCleanupService.java:73`(hard delete)·`AdminOrderCancelService.java:65-66`(미결제 취소 분기).
+
+### 본문 — 구매확정 가드
+- `BuyerOrderConfirmService.confirmItem`(:96-107, 수동·자동 공용 코어)이 DELIVERED→CONFIRMED 전이 직후 `requireConfirmable`(:114-)를 호출한다. 두 호출부(`confirmPurchase`·`OrderAutoConfirmService.confirmOne`) 모두 주문 쓰기 락 뒤에서 진입해 새 락은 없다.
+- 판정: `target.getTotalPrice() - refundRepository.sumRefundedByOrderItemId(target.getId()) <= 0`이면 `PurchaseConfirmBlockedException(NET_AMOUNT_NOT_POSITIVE)` · `reconciliationIssueRepository.existsByOrderIdAndStatus(orderId, OPEN)`이면 `PurchaseConfirmBlockedException(RECONCILIATION_OPEN)`(신규 `order/exception/PurchaseConfirmBlockedException.java`·`PurchaseConfirmBlockedReason.java`).
+- 사유 코드 2종: `GlobalExceptionHandler.java:143-144`(code 상수) → `handlePurchaseConfirmBlocked`(:661-, enum switch)가 422 `PURCHASE_CONFIRM_NET_AMOUNT_NOT_POSITIVE` / `PURCHASE_CONFIRM_RECONCILIATION_OPEN`으로 매핑한다. detail은 구매자 화면에 그대로 노출되는 문구다(코드→문구 매핑 테이블 없음).
+- 자동 확정 후보(`DeliveryRepository.findAutoConfirmCandidateOrderItemIds`, :91-96)는 위 §2 조건으로 같은 품목을 조회 단계에서 제외한다.
+
+### 본문 — 재개시 다이얼로그 기본 금액
+- `AdminClaimSummaryResponse.itemRemainingRefundable`(:26 Javadoc·:58 필드) = `item.getTotalPrice() - refundedAmount`(기존 로컬 변수 재사용·추가 쿼리 없음). FE `AdminRefundInitiateDialog`가 이 값을 입력 기본값·`max` 속성으로 쓰고, 초과 입력 시 확인 버튼을 비활성화한다.
+
+### 본문 — SellerTerminationGuard G1
+- `SettlementRepository.countNotCarriedOverBySellerIdAndStatusIn`(:86-96, 신규)이 `sumByStatusForSeller`(104-3b)와 같은 `LEFT JOIN SettlementItem carried ON carried.itemType = CARRYOVER AND carried.sourceId = s.id` 방식으로 이월 완료 정산을 제외한다. `SellerTerminationGuard.evaluate`(:67)가 이 메서드로 교체됐다. 옛 파생 쿼리 `countBySellerIdAndStatusIn`(:84)은 PENDING 단독 호출 2곳(`SellerMeQueryService`·`SellerDashboardQueryService`)이 남아 유지한다.
+
+### 기존 규칙 변경
+- **셀러 종료 T4-2 단정 변경**(`AdminSellerManagementControllerIntegrationTest`): 옛 단정 "품목 SHIPPING + 주문 CANCELLED면 종료 가능"은 위 교체 3번 이전 규칙(주문 요약값만으로 CANCELLED를 종결로 봄)을 검증하던 것이고, Resolver 규칙상 이 조합(품목 진행 중 + 주문 CANCELLED)은 정상 흐름에서 나오지 않는다. 새 규칙에서는 같은 조합이 여전히 차단(품목이 진행 중이므로)이고, 품목까지 CANCELLED로 바꿔야 종료 가능이 되도록 단정을 바꿨다.
+
+### 검증
+- BE `gradlew test --rerun-tasks` 60클래스(정찰 §5.1 전부 + 신규 `PurchaseConfirmGuardIntegrationTest` + `DeliveryRepositoryTest` + `AuditFieldMaskingPolicyTest`) → 1차 413/1 실패(테스트 준비 코드의 FK 위반, 제품 코드 무관) → 해당 클래스만 수정 후 재검증 13/13 통과. FE typecheck 0·관련 vitest 43/43·e2e `admin-claims.spec.ts` 6/6.
+- RED 선증명 2회: ① 구현 직후 가드 4곳(confirmItem 호출·후보 쿼리 2조건·G1 옛 count·G2 CANCELLED)을 임시 원복 → 신규·수정 테스트 17건 중 예상한 6건만 실패 → 원복. ② 외부 검토 반영 후 교체 판정 2곳(AdminOrderCancelService·MemberActivityChecker)을 옛 Order.status 판정으로 임시 원복 → 새로 추가한 판별 픽스처 2건만 실패 → 원복.
+
+### 외부 검토
+A / 2라운드 · 지적 3건 중 수용 2건(R1 운영 코드 1건 중 0 — Order 재취소 재요약 3곳 판정 동치 지적은 ORDERED가 결제 전에만 존재한다는 사실(`Order.markPaid`가 ORDERED→PAID 일괄 전이)로 기각. R2 테스트 판별력 2건 중 2 — 옛/새 판정이 반대 결과를 내는 조합(재취소 T3-3·탈퇴 (6-2))을 추가하고 RED로 판별력을 확인).
+
+### §8 이월
+1. `AdminOrderQueryService.actions()`(`order/service/AdminOrderQueryService.java:84`)가 관리자 버튼 노출 판정에 아직 `Order.status` CANCELLED를 읽는다(정찰 9곳 밖·표시용, 정상 상태에서는 품목 판정과 결과가 같다).
+2. 조회~처리 사이 경합으로 가드가 차단하면 로그가 두 번 남는다(서비스 `log.warn` + 스케줄러 `log.error`).
+3. `itemRemainingRefundable`에 0 하한이 없어, 과거 과환불 데이터에서는 음수로 노출될 수 있다(재개시 액션은 잔여 > 0 조건이라 실제로는 도달하지 않는다).
+4. 재개시 다이얼로그가 잔여 한도 자체를 별도 표시하지 않는다(입력 기본값·초과 시 문구로만 드러난다).
+5. 결제 취소 + 품목 구매확정(104-1 S3) 조합 중 환불이 형제 품목에 귀속된 경우는 순수령액·OPEN 불일치 두 조건 모두로 막히지 않는다(정찰 §2.5, 코드 추론).
+6. 관리자 불일치 해결(`AdminReconciliationIssueService`)이 주문 락을 잡지 않아, OPEN→RESOLVED 커밋이 구매확정 가드와 직렬화되지 않는다(가드를 더 느슨하게 만드는 방향의 경합이라 안전 쪽 — 정찰 §2.3).
+7. `RefundedCondition`(PENDING·COMPLETED·PG 성공 FAILED)과 invariants.md P2 문구("완료 환불")의 표현 차이는 그대로 남는다.
+8. `Order.expirePayment()`(`order/entity/Order.java:171`) 호출처 0(미사용 코드 언급만) · `AdminRefundInitiateRequest`에 Bean Validation 없음(기존 코드).
