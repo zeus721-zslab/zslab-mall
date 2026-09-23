@@ -50,6 +50,7 @@ public class OrderEventHandler {
         Order order = orderRepository.findByIdWithItems(event.orderId())
                 .orElseThrow(() -> new IllegalArgumentException(
                         "PaymentCompleted 소비 실패·주문 미발견: orderId=" + event.orderId()));
+        // 결제 전 단계 — Order.status가 원천 상태
         if (order.getStatus() != OrderStatus.PENDING_PAYMENT) {
             // 늦은 웹훅(주문 이미 종료·결제 완료) → REJECT 422로 변환(트랜잭션은 그대로 롤백)
             throw new InvalidCallbackException(

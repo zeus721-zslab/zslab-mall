@@ -5,7 +5,12 @@ import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.exception.OrderItemInvalidStateException;
 import com.zslab.mall.order.exception.OrderNotFoundException;
+import com.zslab.mall.order.exception.PurchaseConfirmBlockedException;
+import com.zslab.mall.order.exception.PurchaseConfirmBlockedReason;
 import com.zslab.mall.order.repository.OrderRepository;
+import com.zslab.mall.reconciliation.enums.ReconciliationIssueStatus;
+import com.zslab.mall.reconciliation.repository.ReconciliationIssueRepository;
+import com.zslab.mall.refund.repository.RefundRepository;
 import java.time.LocalDateTime;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -34,10 +39,15 @@ public class BuyerOrderConfirmService {
 
     private final OrderRepository orderRepository;
     private final OrderService orderService;
+    private final RefundRepository refundRepository;
+    private final ReconciliationIssueRepository reconciliationIssueRepository;
 
-    public BuyerOrderConfirmService(OrderRepository orderRepository, OrderService orderService) {
+    public BuyerOrderConfirmService(OrderRepository orderRepository, OrderService orderService, RefundRepository refundRepository,
+            ReconciliationIssueRepository reconciliationIssueRepository) {
         this.orderRepository = orderRepository;
         this.orderService = orderService;
+        this.refundRepository = refundRepository;
+        this.reconciliationIssueRepository = reconciliationIssueRepository;
     }
 
     /**
@@ -49,6 +59,7 @@ public class BuyerOrderConfirmService {
      * @return 확정된(또는 이미 확정 상태인) OrderItem
      * @throws OrderNotFoundException        주문 미존재·타 buyer 소유·항목 미소속인 경우(존재 은닉·404)
      * @throws OrderItemInvalidStateException OrderItem이 DELIVERED가 아니어서 CONFIRMED 전이 불가한 경우(구매확정 불가·422)
+     * @throws PurchaseConfirmBlockedException 품목 순수령액 0 이하·주문에 미해결 불일치(Track 104-4·422)
      */
     public OrderItem confirmPurchase(Long buyerId, String orderPublicId, String orderItemPublicId) {
         // Track 104-1 D-215(P5): 주문·품목을 적재하기 전에 주문 쓰기 락을 먼저 잡는다(형제 품목 변경과 직렬화·락 뒤 최신 품목으로 재계산).
@@ -77,9 +88,10 @@ public class BuyerOrderConfirmService {
 
     /**
      * 구매확정 코어(Track 81-B D-171·수동 {@link #confirmPurchase}·자동 {@code OrderAutoConfirmService} 공용). 소유권·멱등 판정은 호출부
-     * 책임이며 본 메서드는 DELIVERED→CONFIRMED 전이·confirmed_at 기록·Order.status 재계산만 수행한다(정산 귀속 기준 동일).
+     * 책임이며 본 메서드는 DELIVERED→CONFIRMED 전이·구매확정 가드·confirmed_at 기록·Order.status 재계산만 수행한다(정산 귀속 기준 동일).
      *
-     * @throws OrderItemInvalidStateException OrderItem이 DELIVERED가 아니어서 CONFIRMED 전이 불가한 경우(422)
+     * @throws OrderItemInvalidStateException  OrderItem이 DELIVERED가 아니어서 CONFIRMED 전이 불가한 경우(422)
+     * @throws PurchaseConfirmBlockedException 품목 순수령액이 0 이하이거나 주문에 미해결 불일치가 있는 경우(422)
      */
     public void confirmItem(OrderItem target, Long orderId) {
         try {
@@ -87,8 +99,31 @@ public class BuyerOrderConfirmService {
         } catch (IllegalStateException exception) {
             throw new OrderItemInvalidStateException("구매확정할 수 없는 주문 품목 상태입니다: " + exception.getMessage());
         }
+        // 전이 합법성(상태 422)을 먼저 보고 돈·불일치 사실을 본다. 가드 예외는 트랜잭션을 롤백하므로 위 전이도 남지 않는다.
+        requireConfirmable(target, orderId);
         // 전이 성공 직후 확정 시각 기록(정산 월 귀속 기준·Track 48 P3). markConfirmedAt은 기존값 미덮어쓰기 멱등 가드 보유.
         target.markConfirmedAt(LocalDateTime.now());
         orderService.recalculateStatus(orderId);
+    }
+
+    /**
+     * 구매확정 가드(Track 104-4·P2·P6). 순수령액 = total_price − 기환불액(RefundedCondition·환불 개시 품목 상한과 같은 함수)이 0보다 커야 하고,
+     * 주문에 미해결 불일치가 없어야 한다(정산 보류와 같은 의미). 호출부가 주문 쓰기 락을 쥔 뒤라, 같은 락을 먼저 잡는 환불·불일치 기록의
+     * 최신 커밋을 읽는다(READ COMMITTED).
+     */
+    private void requireConfirmable(OrderItem target, Long orderId) {
+        long refundedAmount = refundRepository.sumRefundedByOrderItemId(target.getId());
+        long netAmount = target.getTotalPrice() - refundedAmount;
+        if (netAmount <= 0) {
+            log.warn("[Order] 구매확정 차단 — 순수령액 {}(품목 {} − 기환불 {}): orderItemId={}",
+                    netAmount, target.getTotalPrice(), refundedAmount, target.getId());
+            throw new PurchaseConfirmBlockedException(PurchaseConfirmBlockedReason.NET_AMOUNT_NOT_POSITIVE,
+                    "환불로 결제 금액이 남지 않은 상품은 구매확정할 수 없습니다.");
+        }
+        if (reconciliationIssueRepository.existsByOrderIdAndStatus(orderId, ReconciliationIssueStatus.OPEN)) {
+            log.warn("[Order] 구매확정 차단 — 미해결 불일치: orderId={} orderItemId={}", orderId, target.getId());
+            throw new PurchaseConfirmBlockedException(PurchaseConfirmBlockedReason.RECONCILIATION_OPEN,
+                    "주문에 확인 중인 결제·환불 문제가 있어 지금은 구매확정할 수 없습니다.");
+        }
     }
 }

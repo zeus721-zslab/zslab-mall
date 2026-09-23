@@ -4,6 +4,7 @@ import com.zslab.mall.delivery.entity.Delivery;
 import com.zslab.mall.delivery.enums.DeliveryDirection;
 import com.zslab.mall.delivery.enums.DeliveryStatus;
 import com.zslab.mall.order.enums.OrderItemStatus;
+import com.zslab.mall.refund.repository.RefundedCondition;
 import jakarta.persistence.LockModeType;
 import java.time.LocalDateTime;
 import java.util.Collection;
@@ -72,12 +73,21 @@ public interface DeliveryRepository extends JpaRepository<Delivery, Long>, JpaSp
      * 자동 구매확정 후보 품목 id(Track 81-B D-171). 원 주문 발송(OUTBOUND·claim_id NULL) 배송완료가 {@code threshold} 이전이고 품목이
      * 아직 DELIVERED인 행 — V24 인덱스 (direction, status, claim_id, delivered_at) 범위 스캔 후 order_item 조인. 확정 여부의 최종 판정은
      * 서비스가 행 락 후 {@code ReturnWindowPolicy}로 재확인한다. 모든 변수는 :name 바인딩 사용, SQL injection 위험 없음.
+     *
+     * <p>Track 104-4: 구매확정 가드({@code BuyerOrderConfirmService.requireConfirmable})에 걸릴 품목 — 순수령액(total_price − RefundedCondition
+     * 기환불액) 0 이하·주문에 OPEN 불일치 — 을 조회 단계에서 뺀다(D-175 기아 제외 방식). 빼지 않으면 커서 없는 0페이지 id 오름차순이라 매 실행
+     * 같은 품목이 배치 창을 점유한다. 두 조건은 가드와 같은 식이며, 가드는 조회~처리 사이 변경 대비로 남는다.
      */
     @Query("SELECT DISTINCT d.orderItemId FROM Delivery d JOIN OrderItem oi ON oi.id = d.orderItemId "
             + "LEFT JOIN Claim c ON c.id = d.claimId "
             + "WHERE d.direction = :direction AND d.status = :status "
             + "AND (d.claimId IS NULL OR c.type = com.zslab.mall.claim.enums.ClaimType.EXCHANGE) "
-            + "AND d.deliveredAt <= :threshold AND oi.itemStatus = :itemStatus ORDER BY d.orderItemId ASC")
+            + "AND d.deliveredAt <= :threshold AND oi.itemStatus = :itemStatus "
+            + "AND oi.totalPrice > (SELECT COALESCE(SUM(r.amount), 0) FROM Refund r, Claim refundClaim "
+            + "WHERE r.claimId = refundClaim.id AND refundClaim.orderItemId = oi.id AND " + RefundedCondition.JPQL + ") "
+            + "AND NOT EXISTS (SELECT 1 FROM ReconciliationIssue ri WHERE ri.orderId = oi.order.id "
+            + "AND ri.status = com.zslab.mall.reconciliation.enums.ReconciliationIssueStatus.OPEN) "
+            + "ORDER BY d.orderItemId ASC")
     List<Long> findAutoConfirmCandidateOrderItemIds(
             @Param("direction") DeliveryDirection direction,
             @Param("status") DeliveryStatus status,

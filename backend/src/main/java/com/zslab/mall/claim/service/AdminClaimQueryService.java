@@ -240,6 +240,7 @@ public class AdminClaimQueryService {
                 item == null ? null : item.getOptionLabel(),
                 item == null ? 0 : item.getQuantity(),
                 item == null ? null : item.getTotalPrice(),
+                itemRemainingRefundable,
                 claim.getReasonCode(),
                 claim.getReasonDetail(),
                 claim.getRejectReasonCode(),

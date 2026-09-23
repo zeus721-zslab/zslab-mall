@@ -23,6 +23,7 @@ import java.util.List;
  * @param optionLabel      옵션 라벨 스냅샷(없으면 null)
  * @param quantity         수량
  * @param amount           품목 금액(totalPrice·환불 기준액)
+ * @param itemRemainingRefundable 품목 잔여 환불 상한(totalPrice − RefundedCondition 기환불액·품목 미적재 시 0·Track 104-4) — 환불 재개시 기본 금액·최댓값
  * @param reasonCode       요청 사유 코드
  * @param reasonDetail     요청 상세 사유
  * @param rejectReasonCode 거부 사유 코드(거부 전 null)
@@ -54,6 +55,7 @@ public record AdminClaimSummaryResponse(
         String optionLabel,
         int quantity,
         Long amount,
+        long itemRemainingRefundable,
         String reasonCode,
         String reasonDetail,
         ClaimRejectReasonCode rejectReasonCode,

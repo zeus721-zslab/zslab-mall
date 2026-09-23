@@ -41,8 +41,8 @@ public interface OrderRepository extends JpaRepository<Order, Long>, JpaSpecific
 
     boolean existsByOrderNo(String orderNo);
 
-    /** 구매자에게 종결(statuses) 외 상태의 주문이 있는지(Track 84 탈퇴 가드·진행 중 주문 판정). 파생 쿼리 바인딩. */
-    boolean existsByBuyerIdAndStatusNotIn(Long buyerId, Collection<OrderStatus> statuses);
+    /** 구매자에게 해당 상태의 주문이 있는지(Track 84 탈퇴 가드 결제 전 단계·Track 104-4). 파생 쿼리 바인딩. */
+    boolean existsByBuyerIdAndStatus(Long buyerId, OrderStatus status);
 
     /**
      * 구매자별 결제 완료 최근 시각(MAX(paid_at))·관리자 회원 목록 페이지 배치 enrich(Track 84·N+1 회피). paid_at NULL 주문은 제외.

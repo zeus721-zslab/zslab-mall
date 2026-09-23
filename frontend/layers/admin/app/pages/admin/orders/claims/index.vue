@@ -229,7 +229,13 @@ function closeReturnShipment(refresh: boolean): void {
 const refundInitiateTarget = ref<AdminRefundInitiateTarget | null>(null)
 
 function openInitiateRefund(item: AdminClaimSummary): void {
-  refundInitiateTarget.value = { claimId: item.claimId, type: item.type, productName: item.productName ?? '', amount: item.amount ?? null }
+  refundInitiateTarget.value = {
+    claimId: item.claimId,
+    type: item.type,
+    productName: item.productName ?? '',
+    amount: item.amount ?? null,
+    remainingRefundable: item.itemRemainingRefundable,
+  }
 }
 
 function closeInitiateRefund(refresh: boolean): void {

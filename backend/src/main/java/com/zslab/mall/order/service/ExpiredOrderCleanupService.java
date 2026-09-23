@@ -70,6 +70,7 @@ public class ExpiredOrderCleanupService {
             return;
         }
         // (0) 조회~삭제 사이 상태 변경(재결제 성공 등) 방어. PAYMENT_EXPIRED가 아니면 삭제 대상이 아니다.
+        // 결제 전 단계 — Order.status가 원천 상태
         if (order.getStatus() != OrderStatus.PAYMENT_EXPIRED) {
             log.info("[ExpiredCleanup] cleanupOne skip: PAYMENT_EXPIRED 아님 status={} orderId={}", order.getStatus(), orderId);
             return;

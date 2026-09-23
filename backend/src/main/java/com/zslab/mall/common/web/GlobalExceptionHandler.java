@@ -28,6 +28,7 @@ import com.zslab.mall.inventory.exception.InventoryInvariantViolationException;
 import com.zslab.mall.order.exception.OrderItemInvalidStateException;
 import com.zslab.mall.order.exception.OrderNotFoundException;
 import com.zslab.mall.order.exception.OrderNotPayableException;
+import com.zslab.mall.order.exception.PurchaseConfirmBlockedException;
 import com.zslab.mall.payment.exception.InvalidCallbackException;
 import com.zslab.mall.payment.exception.OrderNotPendingPaymentException;
 import com.zslab.mall.payment.exception.PaymentAlreadyCompletedException;
@@ -139,6 +140,8 @@ public class GlobalExceptionHandler {
     private static final String CODE_DELIVERY_INVALID_STATE = "DELIVERY_INVALID_STATE";
     private static final String CODE_DELIVERY_TRACKING_NO_CONFLICT = "DELIVERY_TRACKING_NO_CONFLICT";
     private static final String CODE_ORDER_ITEM_INVALID_STATE = "ORDER_ITEM_INVALID_STATE";
+    private static final String CODE_PURCHASE_CONFIRM_NET_AMOUNT_NOT_POSITIVE = "PURCHASE_CONFIRM_NET_AMOUNT_NOT_POSITIVE";
+    private static final String CODE_PURCHASE_CONFIRM_RECONCILIATION_OPEN = "PURCHASE_CONFIRM_RECONCILIATION_OPEN";
     private static final String CODE_PAYMENT_NOT_FOUND = "PAYMENT_NOT_FOUND";
     private static final String CODE_PAYMENT_INVALID_STATE = "PAYMENT_INVALID_STATE";
     private static final String CODE_RECONCILIATION_ISSUE_NOT_FOUND = "RECONCILIATION_ISSUE_NOT_FOUND";
@@ -652,6 +655,18 @@ public class GlobalExceptionHandler {
         // Track 47: 구매확정 불가 상태(OrderItem 비-DELIVERED 등). 500 fallback 차단·422 매핑(DeliveryInvalidStateException 선례).
         log.warn("[Order] 구매확정 상태 위반(422): {}", exception.getMessage());
         return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_ORDER_ITEM_INVALID_STATE, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(PurchaseConfirmBlockedException.class)
+    public ResponseEntity<ProblemDetail> handlePurchaseConfirmBlocked(
+            PurchaseConfirmBlockedException exception, HttpServletRequest request) {
+        // Track 104-4: 구매확정 가드(순수령액·미해결 불일치). 구매자 화면이 detail을 그대로 보여 주므로 사유는 code로 가른다.
+        String code = switch (exception.getReason()) {
+            case NET_AMOUNT_NOT_POSITIVE -> CODE_PURCHASE_CONFIRM_NET_AMOUNT_NOT_POSITIVE;
+            case RECONCILIATION_OPEN -> CODE_PURCHASE_CONFIRM_RECONCILIATION_OPEN;
+        };
+        log.warn("[Order] 구매확정 가드 차단(422): reason={}", exception.getReason());
+        return build(HttpStatus.UNPROCESSABLE_ENTITY, code, exception.getMessage(), request);
     }
 
     @ExceptionHandler(SettlementInvalidStateException.class)

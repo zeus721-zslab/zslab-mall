@@ -109,6 +109,7 @@ public class OrderService {
      */
     public Order markPaid(Long orderId, LocalDateTime paidAt) {
         Order order = findOrder(orderId);
+        // 결제 전 단계 — Order.status가 원천 상태
         if (order.getStatus() != OrderStatus.PENDING_PAYMENT) {
             throw new IllegalStateException(
                     "이미 종료된 주문에는 결제 완료를 반영할 수 없습니다(늦은 웹훅 차단): orderId=" + orderId

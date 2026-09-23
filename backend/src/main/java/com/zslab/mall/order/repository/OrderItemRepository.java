@@ -56,6 +56,9 @@ public interface OrderItemRepository extends JpaRepository<OrderItem, Long>, Jpa
     /** 주문에 특정 상태 품목이 있는지(Track 104-2 D-216·확정 품목 있는 전액 환불 판정). 파생 쿼리 바인딩. */
     boolean existsByOrderIdAndItemStatus(Long orderId, OrderItemStatus itemStatus);
 
+    /** 구매자 주문에 제외 상태(itemStatuses) 밖의 품목이 있는지(Track 104-4 탈퇴 가드 결제 후 단계·P4). 파생 쿼리 바인딩. */
+    boolean existsByOrderBuyerIdAndItemStatusNotIn(Long buyerId, Collection<OrderItemStatus> itemStatuses);
+
     /**
      * 여러 주문 품목의 소속 주문 요약(id·public_id·주문번호·구매자 id)과 품목 상품명을 한 번에 조회한다(Track 80 관리자 클레임 목록
      * 배치 enrich·N+1 회피·Order 엔티티 미적재). 상품명은 Track 101-B 외부 검토 반영으로 더했다 — 구매자 클레임 목록이 같은
@@ -137,7 +140,7 @@ public interface OrderItemRepository extends JpaRepository<OrderItem, Long>, Jpa
 
     /**
      * 셀러의 진행 중 품목 수(Track 89-D 종료 가드 G2·D-187). 진행 중 = 품목 상태가 종결 4종(CONFIRMED·CANCELLED·RETURNED·EXCHANGED)이
-     * 아니면서 주문이 미결제 종료(PAYMENT_EXPIRED)·취소(CANCELLED)도 아닌 것. <b>주문 상태 조인이 필수</b>다 — 결제 만료 주문의 품목은
+     * 아니면서 주문이 닫힌 상태(closedOrderStatuses — 가드는 미결제 종료 PAYMENT_EXPIRED)도 아닌 것. <b>주문 상태 조인이 필수</b>다 — 결제 만료 주문의 품목은
      * {@code item_status=ORDERED}로 남아(품목 전이 없음·정찰 실측) 품목 상태만 보면 만료 주문이 진행 중으로 잡힌다.
      * PENDING_PAYMENT(미결제·만료 전)는 결제될 수 있어 진행 중으로 센다. 모든 변수는 :sellerId·:terminalItemStatuses·:closedOrderStatuses 바인딩이다.
      */
