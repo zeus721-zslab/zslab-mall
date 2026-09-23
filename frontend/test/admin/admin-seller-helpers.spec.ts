@@ -20,7 +20,7 @@ import {
   toSellerProductListPath,
   transitionConfirmMessage,
 } from '#layers/admin/app/lib/admin-seller-view'
-import { SELLER_TERMINATE_IRREVERSIBLE_NOTICE, type AdminSellerStatus } from '#layers/admin/app/lib/constants/admin-seller'
+import type { AdminSellerStatus } from '#layers/admin/app/lib/constants/admin-seller'
 import { formatPercent, parsePercentInput, toPercentInput } from '#layers/admin/app/lib/admin-category-view'
 import type { AdminSellerDetail, AdminSellerMember } from '#layers/admin/app/types/admin-seller'
 
@@ -107,12 +107,12 @@ describe('admin-seller-view', () => {
 
   it('전이 확인 문구: 종료는 불가역 안내 필수 + 경고 병기·정지는 해제 가능·활성화는 PENDING/SUSPENDED 분기', () => {
     const terminate = transitionConfirmMessage(detail({ warnings: { primaryBankAccountMissing: true, saleProductCount: 9 } }), 'TERMINATED')
-    expect(terminate).toContain(SELLER_TERMINATE_IRREVERSIBLE_NOTICE)
-    expect(terminate).toContain('종료 후에는 어떤 상태로도 되돌릴 수 없습니다.')
+    // Track 102 FE-64: 가역성은 규약 문장 한 줄로 통일됐고 항상 마지막 줄이다.
+    expect(terminate.split('\n').at(-1)).toBe('되돌릴 수 없습니다.')
     expect(terminate).toContain('판매중 상품 9건')
     expect(terminate).toContain('주 정산계좌가 없습니다')
     expect(transitionConfirmMessage(detail(), 'TERMINATED')).not.toContain('판매중 상품')
-    expect(transitionConfirmMessage(detail(), 'SUSPENDED')).toContain('정지 해제(활성화)로 되돌릴 수 있습니다.')
+    expect(transitionConfirmMessage(detail(), 'SUSPENDED')).toContain('되돌릴 수 있습니다: 정지 해제(활성화)로 되돌릴 수 있습니다')
     expect(transitionConfirmMessage(detail({ status: 'PENDING' }), 'ACTIVE')).toContain('입점을 승인합니다')
     expect(transitionConfirmMessage(detail({ status: 'SUSPENDED' }), 'ACTIVE')).toContain('정지를 해제합니다')
   })

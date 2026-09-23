@@ -115,13 +115,14 @@ describe('revokeConfirmMessage / toOperatorErrorMessage', () => {
   it('SUPER_ADMIN: 재부여 불가 명시, 남은 역할 있으면 유지 안내', () => {
     const message = revokeConfirmMessage(row({ roles: ['SUPER_ADMIN', 'ADMIN_OPERATOR'] }), 'SUPER_ADMIN')
     expect(message).toContain('홍운영 (a@test.local)의 슈퍼 관리자 역할을 회수합니다.')
-    expect(message).toContain('다시 부여할 수 없으므로')
+    expect(message.split('\n').at(-1)).toBe('되돌릴 수 없습니다.') // 화면에 슈퍼 관리자 부여 경로가 없다(D-186 §8)
     expect(message).toContain('남은 역할(운영 관리자)은 유지됩니다.')
     expect(revokeConfirmMessage(row({ roles: ['SUPER_ADMIN'] }), 'SUPER_ADMIN')).not.toContain('남은 역할')
   })
 
   it('ADMIN_OPERATOR: 남은 역할 없으면 로그인 불가·재부여 가능, 있으면 접근 유지', () => {
     expect(revokeConfirmMessage(row(), 'ADMIN_OPERATOR')).toContain('관리자 화면에 로그인할 수 없습니다')
+    expect(revokeConfirmMessage(row(), 'ADMIN_OPERATOR')).toContain('되돌릴 수 있습니다: 운영자 등록에서 다시 부여할 수 있습니다')
     expect(revokeConfirmMessage(row({ roles: ['SUPER_ADMIN', 'ADMIN_OPERATOR'] }), 'ADMIN_OPERATOR')).toContain('남은 역할(슈퍼 관리자)은 유지되어')
   })
 

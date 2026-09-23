@@ -181,7 +181,7 @@ describe('SellerProductSaleStatusCard', () => {
 
     await mountCard({ status: 'PENDING', soldoutManual: false })
     expect(body().querySelector('[data-testid="sale-card-action"]')).toBeNull()
-    expect(body().querySelector('[data-testid="sale-card-note"]')?.textContent).toContain('승인·반려는 관리자가 처리')
+    expect(body().querySelector('[data-testid="sale-card-note"]')?.textContent).toContain('승인·거부는 관리자가 처리')
   })
 
   it('품절 스위치 성공 → changeSoldOut(true) · success 토스트 · updated(응답 상세·재조회 없음) / 500 실패 → warning · 스위치 원복 · updated/stale 없음 / 404·422 → stale', async () => {

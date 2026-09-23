@@ -249,7 +249,7 @@ test.describe('관리자 취소·반품·교환 목록(FE-28)', () => {
     await page.screenshot({ path: 'playwright-report/fe-28/claims-reject-dialog.png' })
     const postsBefore = captured.posts.length
     await dialog.getByTestId('reject-dialog-ok').click()
-    await expect(page.locator('[data-sonner-toast][data-type="error"]')).toContainText('취소 요청을 거절했습니다.')
+    await expect(page.locator('[data-sonner-toast][data-type="error"]')).toContainText('취소 요청을 거부했습니다.')
     expect(captured.posts[postsBefore]!.url).toContain(`/admin/claims/${CANCEL_CLAIM}/reject`)
     expect(JSON.parse(captured.posts[postsBefore]!.body)).toEqual({ reasonCode: 'ALREADY_SHIPPED', memo: '오전 출고분' })
     await expect(dialog).toBeHidden()

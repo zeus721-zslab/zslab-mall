@@ -66,7 +66,7 @@ describe('seller-order-stats-view', () => {
     expect(normalized.claimByProduct).toHaveLength(2)
   })
 
-  it('퍼널 3단계: 결제 100%·출고 75%(이탈 25%)·배송완료 50%(이탈 33.3%) · null/0이면 0·— ', () => {
+  it('퍼널 3단계: 결제 100%·발송 75%(이탈 25%)·배송완료 50%(이탈 33.3%) · null/0이면 0·— ', () => {
     const stages = sellerFunnelStages({ paidItems: 4, shippedItems: 3, deliveredItems: 2 })
     expect(stages.map((stage) => [stage.key, stage.count, stage.reachRate, stage.dropRate])).toEqual([
       ['paidItems', 4, 100, null],
@@ -81,8 +81,8 @@ describe('seller-order-stats-view', () => {
   it('소요시간 카드 2장: 값 = 중앙값·캡션 표본·평균 · 표본 0은 데이터 없음 · formatHours 24h 경계', () => {
     const cards = sellerLeadTimeCards({ paidToShipped: { avgHours: 32, medianHours: 24, count: 3 }, shippedToDelivered: null })
     expect(cards.map((card) => card.key)).toEqual(['paidToShipped', 'shippedToDelivered'])
-    expect(cards[0]).toMatchObject({ label: '결제 → 출고', median: '1일', average: '1일 8시간', caption: '표본 3건 · 종결 시각 기준', empty: false })
-    expect(cards[1]).toMatchObject({ label: '출고 → 배송완료', median: '데이터 없음', average: '—', caption: '표본 0건', empty: true })
+    expect(cards[0]).toMatchObject({ label: '결제 → 발송', median: '1일', average: '1일 8시간', caption: '표본 3건 · 종결 시각 기준', empty: false })
+    expect(cards[1]).toMatchObject({ label: '발송 → 배송완료', median: '데이터 없음', average: '—', caption: '표본 0건', empty: true })
     expect(formatHours(23.96)).toBe('24.0시간')
     expect(formatHours(47.6)).toBe('2일')
     expect(formatHours(72)).toBe('3일')

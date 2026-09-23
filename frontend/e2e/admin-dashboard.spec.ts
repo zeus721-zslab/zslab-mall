@@ -37,6 +37,11 @@ test.describe('관리자 대시보드 (FE-33)', () => {
     await expect(page.getByTestId('dashboard-pending-sellerPending')).toHaveAttribute('href', '/admin/members/sellers?status=PENDING')
     await expect(page.getByTestId('dashboard-pending-claimFollowup')).toHaveAttribute('href', '/admin/orders/claims?action=FOLLOWUP')
     await expect(page.getByTestId('dashboard-pending-longShipping')).toHaveAttribute('href', '/admin/orders/deliveries?status=SHIPPING')
+    // Track 102 FE-64: 칸마다 "무엇을 센 건지 · 어디서 처리하는지" 한 줄. 근사 집계 3칸은 건수 차이를 알린다.
+    await expect(page.getByTestId('dashboard-pending-hint')).toHaveCount(8)
+    await expect(page.getByTestId('dashboard-pending-longShipping')).toContainText('발송 후 3일 이상')
+    await expect(page.getByTestId('dashboard-pending-deliveryReady')).toContainText('다를 수 있음')
+
     // 0건도 "N건"으로 표시(응답 필드 누락이면 '—')
     await expect(page.getByTestId('dashboard-pending-claimFollowup').getByTestId('dashboard-pending-count')).toHaveText(/^\d{1,3}(,\d{3})*건$/)
 

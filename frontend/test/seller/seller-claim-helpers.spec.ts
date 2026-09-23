@@ -64,7 +64,7 @@ describe('seller-claim-view', () => {
     expect(attachmentCountLabel(3)).toBe('첨부 3장')
   })
 
-  it('타임라인: REQUESTED 대기(current) · APPROVED 승인 시각 + 진행 중 · REJECTED 거절로 종결(2단계) · COMPLETED 완료 시각 = processedAt', () => {
+  it('타임라인: REQUESTED 대기(current) · APPROVED 승인 시각 + 진행 중 · REJECTED 거부로 종결(2단계) · COMPLETED 완료 시각 = processedAt', () => {
     const requestedAt = '2026-09-10T10:00:00+09:00'
     const processedAt = '2026-09-11T10:00:00+09:00'
     expect(claimTimeline({ status: 'REQUESTED', requestedAt }).map((step) => [step.key, step.state, step.at]))
@@ -73,7 +73,7 @@ describe('seller-claim-view', () => {
       .toEqual([['요청 접수', 'done', requestedAt], ['승인', 'done', processedAt], ['처리 진행 중', 'current', null]])
     const rejected = claimTimeline({ status: 'REJECTED', requestedAt, processedAt })
     expect(rejected).toHaveLength(2)
-    expect(rejected[1]).toMatchObject({ key: 'processed', label: '거절', state: 'done', at: processedAt })
+    expect(rejected[1]).toMatchObject({ key: 'processed', label: '거부', state: 'done', at: processedAt })
     const completed = claimTimeline({ status: 'COMPLETED', requestedAt, processedAt })
     expect(completed.map((step) => step.state)).toEqual(['done', 'done', 'done'])
     expect(completed[1]?.at).toBeNull()

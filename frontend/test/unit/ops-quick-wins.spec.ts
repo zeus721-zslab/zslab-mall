@@ -27,12 +27,12 @@ describe('claimStageGuide(C-16) — 타임라인과 같은 단계 판정·기간
     expect(claimStageGuide(detail({ status: 'COMPLETED', returnShipment: shipment, pickedUpAt: PICKED, inspectionResult: 'PASS' }))).toBe('반품과 환불이 완료되었습니다.')
   })
 
-  it('거절 분기: 검수 불합격은 재발송 안내·일반 거절은 거절 문구 / 교환·취소 유형별', () => {
+  it('거부 분기: 검수 불합격은 재발송 안내·일반 거부는 거부 문구 / 교환·취소 유형별', () => {
     expect(claimStageGuide(detail({ status: 'REJECTED', inspectionResult: 'FAIL' }))).toContain('다시 보내드립니다')
-    expect(claimStageGuide(detail({ status: 'REJECTED' }))).toBe('반품 요청이 거절되었습니다.')
+    expect(claimStageGuide(detail({ status: 'REJECTED' }))).toBe('반품 요청이 거부되었습니다.')
     expect(claimStageGuide(detail({ claimType: 'EXCHANGE', status: 'APPROVED' }))).toContain('회수 송장을 등록해 주세요')
     expect(claimStageGuide(detail({ claimType: 'EXCHANGE', status: 'APPROVED', returnShipment: shipment, pickedUpAt: PICKED, inspectionResult: 'PASS' }))).toContain('교환품 발송을 기다리고')
-    expect(claimStageGuide(detail({ claimType: 'EXCHANGE', status: 'REJECTED', inspectionResult: 'FAIL' }))).toContain('교환이 거절되어')
+    expect(claimStageGuide(detail({ claimType: 'EXCHANGE', status: 'REJECTED', inspectionResult: 'FAIL' }))).toContain('교환이 거부되어')
     expect(claimStageGuide(detail({ claimType: 'CANCEL', status: 'APPROVED' }))).toContain('환불을 진행하고')
     expect(claimStageGuide(detail({ claimType: 'CANCEL', status: 'COMPLETED' }))).toBe('취소와 환불이 완료되었습니다.')
   })

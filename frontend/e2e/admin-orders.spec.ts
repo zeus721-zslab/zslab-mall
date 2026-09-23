@@ -219,7 +219,7 @@ test.describe('관리자 주문 목록·상세(FE-27)', () => {
     expect(captured.detailGets.length).toBeGreaterThanOrEqual(2)
   })
 
-  test('⑤ 목록 행 메뉴 "송장 등록" → 상세 선조회 → 품목 선택·택배사·송장번호 검증 → POST prepare-shipment → info 토스트 → 목록 재조회', async ({ page }) => {
+  test('⑤ 목록 행 메뉴 "발송 처리" → 상세 선조회 → 품목 선택·택배사·송장번호 검증 → POST prepare-shipment → info 토스트 → 목록 재조회', async ({ page }) => {
     const captured = await mockAdminApi(page)
     await loginAs(page, 'ADMIN')
     await page.goto('/admin/orders')
@@ -281,7 +281,7 @@ test.describe('관리자 주문 목록·상세(FE-27)', () => {
     await page.screenshot({ path: 'playwright-report/fe-27/list-mobile.png' })
   })
 
-  test('⑦ FE-28 상세 "거절" → 사유 다이얼로그(반품이라 "이미 발송됨" 없음·사유 필수) → POST reject body{reasonCode,memo} → danger 토스트 → 재조회 / 거부 사유·메모 표기', async ({ page }) => {
+  test('⑦ FE-28 상세 "거부" → 사유 다이얼로그(반품이라 "이미 발송됨" 없음·사유 필수) → POST reject body{reasonCode,memo} → danger 토스트 → 재조회 / 거부 사유·메모 표기', async ({ page }) => {
     const captured = await mockAdminApi(page)
     await loginAs(page, 'ADMIN')
     await page.goto(`/admin/orders/${PAID_ID}`)
@@ -313,14 +313,14 @@ test.describe('관리자 주문 목록·상세(FE-27)', () => {
     await page.getByRole('option', { name: '정책상 불가', exact: true }).click()
     await dialog.getByTestId('reject-memo').locator('textarea').first().fill(' 기간 경과 ')
     await dialog.getByTestId('reject-dialog-ok').click()
-    await expect(page.locator('[data-sonner-toast][data-type="error"]')).toContainText('반품 요청을 거절했습니다.')
+    await expect(page.locator('[data-sonner-toast][data-type="error"]')).toContainText('반품 요청을 거부했습니다.')
     expect(captured.posts[0]!.url).toContain('/admin/claims/clm_E2E0000000000000000000001/reject')
     expect(JSON.parse(captured.posts[0]!.body)).toEqual({ reasonCode: 'OUT_OF_POLICY', memo: '기간 경과' })
     await expect(dialog).toBeHidden()
     expect(captured.detailGets.length).toBeGreaterThanOrEqual(2)
   })
 
-  test('⑧ FE-28 송장 등록 422 CLAIM_STATE_INVALID(취소 요청 진행 중) → warning 토스트 → 다이얼로그 닫힘·상세 재조회', async ({ page }) => {
+  test('⑧ FE-28 발송 처리 422 CLAIM_STATE_INVALID(취소 요청 진행 중) → warning 토스트 → 다이얼로그 닫힘·상세 재조회', async ({ page }) => {
     const captured = await mockAdminApi(page, { shipmentStatus: 422 })
     await loginAs(page, 'ADMIN')
     await page.goto(`/admin/orders/${PAID_ID}`)

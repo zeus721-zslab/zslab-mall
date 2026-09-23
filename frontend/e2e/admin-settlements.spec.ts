@@ -4,7 +4,7 @@ import { loginAs } from './helpers/login'
 /**
  * 관리자 정산(Track 85 FE) E2E. 로그인은 공용 헬퍼 loginAs(ADMIN_E2E_* 주입·미주입 시 skip), 정산·셀러 API는 page.route로 mock해 로컬 DB를
  * 바꾸지 않고 결정적으로 검증한다(목록 렌더·월 변경→URL→API 파라미터·합계·빈 상태·에러 재시도 / 생성 성공·409 / 상세 렌더·탭 전환·주문 링크 /
- * 정상처리·지급완료·재생성 성공 / 계좌 미등록·음수 비활성·삭제만 / 셀러별 이력).
+ * 확정·지급완료·재생성 성공 / 계좌 미등록·음수 비활성·삭제만 / 셀러별 이력).
  */
 const SELLER_A = 'slr_E2E0000000000000000000A01'
 const SELLER_B = 'slr_E2E0000000000000000000B02'
@@ -219,7 +219,7 @@ test.describe('관리자 정산(Track 85)', () => {
     await page.getByTestId('row-open').first().click()
     await page.waitForURL((url) => url.pathname === `/admin/settlements/${STL_PENDING}`)
     await expect(page.getByTestId('settlement-seller')).toHaveText('E2E셀러A')
-    await expect(page.getByTestId('settlement-status')).toHaveText('대기')
+    await expect(page.getByTestId('settlement-status')).toHaveText('확정 대기')
     await expect(page.getByTestId('settlement-net')).toHaveText('70,000원')
     await expect(page.getByTestId('settlement-scheduled')).toHaveText('2026.07.20')
     await expect(page.getByTestId('settlement-contact-phone')).toHaveText('010-****-1234')
@@ -250,7 +250,7 @@ test.describe('관리자 정산(Track 85)', () => {
     await page.waitForURL((url) => url.pathname === '/admin/settlements' && url.searchParams.get('status') === 'PENDING')
   })
 
-  test('④ 정상처리 → POST confirm·확정 상태·지급완료 버튼 / 지급완료 → POST pay·지급일·스냅샷 계좌·액션 없음 / 재생성 → 사유 필수·POST body·새 정산으로 이동', async ({ page }) => {
+  test('④ 확정 → POST confirm·확정 상태·지급완료 버튼 / 지급완료 → POST pay·지급일·스냅샷 계좌·액션 없음 / 재생성 → 사유 필수·POST body·새 정산으로 이동', async ({ page }) => {
     const captured = await mockSettlementApi(page)
     await loginAs(page, 'ADMIN')
     await gotoPath(page, `/admin/settlements/${STL_PENDING}`)

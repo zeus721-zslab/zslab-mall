@@ -22,9 +22,9 @@ describe('toSellerErrorMessage', () => {
   it('코드 매핑: 401·404·409·422 계열 도메인 코드', () => {
     expect(toSellerErrorMessage(fetchError(401, { code: 'UNAUTHENTICATED' }))).toBe('로그인이 필요합니다.')
     expect(toSellerErrorMessage(fetchError(404, { code: 'ORDER_NOT_FOUND' }))).toContain('주문 품목을 찾을 수 없습니다')
-    expect(toSellerErrorMessage(fetchError(404, { code: 'SETTLEMENT_NOT_FOUND' }))).toContain('확정 전 정산은 조회되지 않습니다')
+    expect(toSellerErrorMessage(fetchError(404, { code: 'SETTLEMENT_NOT_FOUND' }))).toContain('확정 대기 정산은 조회되지 않습니다')
     expect(toSellerErrorMessage(fetchError(409, { code: 'DELIVERY_TRACKING_NO_CONFLICT' }))).toBe('다른 배송이 이미 사용 중인 송장번호입니다.')
-    expect(toSellerErrorMessage(fetchError(422, { code: 'ORDER_ITEM_INVALID_STATE' }))).toContain('출고는 결제완료 품목만')
+    expect(toSellerErrorMessage(fetchError(422, { code: 'ORDER_ITEM_INVALID_STATE' }))).toContain('발송은 결제완료 품목만')
     expect(toSellerErrorMessage(fetchError(422, { code: 'DELIVERY_INVALID_STATE' }))).toContain('배송완료·송장 정정은 배송중만')
   })
 

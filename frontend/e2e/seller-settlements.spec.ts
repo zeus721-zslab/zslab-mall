@@ -3,8 +3,8 @@ import { loginAs } from './helpers/login'
 import { mockSellerMe, pagedResponse } from './helpers/seller-mock'
 
 /**
- * 셀러 정산 화면(Track 90-B-3·Track 85 BE·읽기 전용) E2E. 로그인은 loginAs(SELLER), /seller/me(확정 전 건수)·정산 목록·상세·품목은 page.route mock.
- * ① 목록(확정 전 안내·행) → 상세(금액·계좌 스냅샷) → 품목 탭 전환(URL tab·API type) → 목록 복귀 ② 확정 전 정산 id 직접 진입 → 404 안내.
+ * 셀러 정산 화면(Track 90-B-3·Track 85 BE·읽기 전용) E2E. 로그인은 loginAs(SELLER), /seller/me(확정 대기 건수)·정산 목록·상세·품목은 page.route mock.
+ * ① 목록(확정 대기 안내·행) → 상세(금액·계좌 스냅샷) → 품목 탭 전환(URL tab·API type) → 목록 복귀 ② 확정 대기 정산 id 직접 진입 → 404 안내.
  */
 const CONFIRMED = { id: 13, periodStart: '2026-07-01T00:00:00+09:00', periodEnd: '2026-07-31T23:59:59.999999+09:00', grossAmount: 352600, feeAmount: 35260, refundAmount: 0, netAmount: 317340, status: 'CONFIRMED', scheduledPayDate: '2026-08-20' }
 const PAID = { id: 10, periodStart: '2026-06-01T00:00:00+09:00', periodEnd: '2026-06-30T23:59:59.999999+09:00', grossAmount: 371700, feeAmount: 37170, refundAmount: 12000, netAmount: 322530, status: 'PAID', scheduledPayDate: '2026-07-20', paidAt: '2026-07-20T10:00:00+09:00' }
@@ -37,13 +37,13 @@ async function mockSellerSettlements(page: Page): Promise<Captured> {
 }
 
 test.describe('셀러 정산 화면(90-B-3)', () => {
-  test('① 목록(확정 전 1건 안내·2행·상태 chip) → 상세(금액·계좌 현재 주계좌·확정 안내) → 환불 탭(URL tab·API type=REFUND) → 목록 복귀', async ({ page }) => {
+  test('① 목록(확정 대기 1건 안내·2행·상태 chip) → 상세(금액·계좌 현재 주계좌·확정 안내) → 환불 탭(URL tab·API type=REFUND) → 목록 복귀', async ({ page }) => {
     const captured = await mockSellerSettlements(page)
     await loginAs(page, 'SELLER')
     await page.setViewportSize({ width: 1440, height: 900 })
     await page.goto('/seller/settlements')
 
-    await expect(page.getByTestId('seller-settlement-pending-notice')).toContainText('확정 전 정산 1건')
+    await expect(page.getByTestId('seller-settlement-pending-notice')).toContainText('확정 대기 정산 1건')
     await expect(page.getByTestId('seller-settlement-pending-notice')).toContainText('대시보드 "정산 예정"과 같은 건수')
     await expect(page.getByTestId('row-period')).toHaveText(['2026년 7월', '2026년 6월'])
     await expect(page.getByTestId('row-status')).toHaveText(['확정', '지급완료'])
@@ -71,7 +71,7 @@ test.describe('셀러 정산 화면(90-B-3)', () => {
     await expect(page).toHaveURL(/\/seller\/settlements$/)
   })
 
-  test('② 확정 전(404) 정산 id 직접 진입 → 안내 카드·목록 이동 버튼', async ({ page }) => {
+  test('② 확정 대기(404) 정산 id 직접 진입 → 안내 카드·목록 이동 버튼', async ({ page }) => {
     await mockSellerSettlements(page)
     await loginAs(page, 'SELLER')
     await page.goto('/seller/settlements/99')

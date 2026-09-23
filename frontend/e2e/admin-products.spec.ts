@@ -95,7 +95,7 @@ test.describe('관리자 상품 목록(FE-25)', () => {
     await loginAs(page, 'ADMIN')
     await page.goto('/admin/products')
     await expect(page.getByTestId('status-chip')).toHaveCount(2)
-    // 초기 chip 의미 색: 판매중=success·판매대기=warning / 재고 있음=success·품절(재고)=danger
+    // 초기 chip 의미 색: 판매중=success·승인대기=warning / 재고 있음=success·품절(재고)=danger
     await expect(page.getByTestId('status-chip').first()).toHaveClass(/adm-chip--success/)
     await expect(page.getByTestId('status-chip').nth(1)).toHaveClass(/adm-chip--warning/)
     await expect(page.getByTestId('soldout-chip').first()).toHaveClass(/adm-chip--success/)
@@ -217,11 +217,11 @@ test.describe('관리자 상품 목록(FE-25)', () => {
     await expect(pendingTile).toHaveAttribute('href', '/admin/products?status=PENDING')
     await pendingTile.click()
     await expect(page).toHaveURL(/\/admin\/products\?status=PENDING$/)
-    await expect(page.getByTestId('filter-status')).toContainText('판매대기')
+    await expect(page.getByTestId('filter-status')).toContainText('승인대기')
     await expect.poll(() => captured.listQueries.at(-1)?.get('status')).toBe('PENDING')
   })
 
-  test('⑦ 판매중지 주체 라벨(Track 96-5·D-206): STOPPED 행에 "셀러 중지"/"관리자 중지" · SALE 행은 라벨 없음', async ({ page }) => {
+  test('⑦ 판매중지 주체 라벨(Track 96-5·D-206): STOPPED 행에 "셀러 판매중지"/"관리자 판매중지" · SALE 행은 라벨 없음', async ({ page }) => {
     await mockAdminApi(page, { items: [
       { ...ITEMS[0]!, productPublicId: 'prd_E2E0000000000000000000011', name: 'E2E 셀러중지', status: 'STOPPED', saleStopSource: 'SELLER' },
       { ...ITEMS[0]!, productPublicId: 'prd_E2E0000000000000000000012', name: 'E2E 관리자중지', status: 'STOPPED', saleStopSource: 'ADMIN' },
@@ -231,11 +231,11 @@ test.describe('관리자 상품 목록(FE-25)', () => {
     await page.goto('/admin/products')
     await expect(page.getByTestId('status-chip')).toHaveCount(3)
     await expect(page.getByTestId('stop-source')).toHaveCount(2)
-    await expect(page.getByTestId('stop-source').first()).toHaveText('셀러 중지')
-    await expect(page.getByTestId('stop-source').nth(1)).toHaveText('관리자 중지')
+    await expect(page.getByTestId('stop-source').first()).toHaveText('셀러 판매중지')
+    await expect(page.getByTestId('stop-source').nth(1)).toHaveText('관리자 판매중지')
   })
 
-  test('⑧ 제재 전환(D-206 보정): 셀러 중지 행 메뉴 "관리자 중지로 전환" 활성 → 확인 다이얼로그 → POST STOPPED → 라벨 "관리자 중지"·토스트 / 관리자 중지 행은 STOPPED 비활성', async ({ page }) => {
+  test('⑧ 제재 전환(D-206 보정): 셀러 판매중지 행 메뉴 "관리자 판매중지로 전환" 활성 → 확인 다이얼로그 → POST STOPPED → 라벨 "관리자 판매중지"·토스트 / 관리자 판매중지 행은 STOPPED 비활성', async ({ page }) => {
     const captured = await mockAdminApi(page, { items: [
       { ...ITEMS[0]!, productPublicId: 'prd_E2E0000000000000000000011', name: 'E2E 셀러중지', status: 'STOPPED', saleStopSource: 'SELLER' },
       { ...ITEMS[0]!, productPublicId: 'prd_E2E0000000000000000000012', name: 'E2E 관리자중지', status: 'STOPPED', saleStopSource: 'ADMIN' },
@@ -253,7 +253,7 @@ test.describe('관리자 상품 목록(FE-25)', () => {
     // 닫힌 메뉴의 DOM이 남아 있어 마지막(열린) 메뉴 항목으로 좁힌다.
     const escalate = page.getByTestId('row-status-STOPPED').last()
     await expect(escalate).not.toHaveClass(/v-list-item--disabled/)
-    await expect(escalate).toHaveText(/관리자 중지로 전환/)
+    await expect(escalate).toHaveText(/관리자 판매중지로 전환/)
     await escalate.click()
     await expect(page.getByTestId('admin-escalate-dialog')).toBeVisible()
     await expect(page.getByTestId('admin-escalate-dialog')).toContainText('셀러는 재판매할 수 없게')
@@ -262,7 +262,7 @@ test.describe('관리자 상품 목록(FE-25)', () => {
     expect(captured.saleStatusBodies).toHaveLength(1)
     expect(JSON.parse(captured.saleStatusBodies[0]!.body)).toEqual({ status: 'STOPPED' })
     expect(captured.saleStatusBodies[0]!.url).toContain('/prd_E2E0000000000000000000011/sale-status')
-    await expect(page.getByTestId('stop-source').first()).toHaveText('관리자 중지')
-    await expect(page.getByText('E2E 셀러중지 → 관리자 중지로 전환')).toBeVisible()
+    await expect(page.getByTestId('stop-source').first()).toHaveText('관리자 판매중지')
+    await expect(page.getByText('E2E 셀러중지 → 관리자 판매중지로 전환')).toBeVisible()
   })
 })

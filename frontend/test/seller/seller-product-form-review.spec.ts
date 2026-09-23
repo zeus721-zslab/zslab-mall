@@ -15,7 +15,7 @@ import {
 import { SellerSaveStepError, saveSellerProduct, type SellerSaveApi } from '#layers/seller/app/lib/seller-product-save'
 
 /**
- * 외부 검토 반영(Track 90-C): ⑦ 정수 경계(기본가·추가금·초기재고 소수·음수 → 오류) · 옵션 조합 중복 검증 직접 트리거 · 기존 variant의
+ * 외부 검토 반영(Track 90-C): ⑦ 정수 경계(판매가·추가금·초기재고 소수·음수 → 오류) · 옵션 조합 중복 검증 직접 트리거 · 기존 variant의
  * initialStock·options를 오염시켜도 PUT variants 요청에서 0·[]로 나가는지 · ⑧ formSnapshot이 저장 payload 기준(공백·제외 행 무시) ·
  * save: basic 실패 / variants 실패 / changed 조합 3종 / failure 원본 보존.
  */
@@ -48,13 +48,13 @@ describe('⑦ 정수 검증', () => {
     for (const bad of [1.5, -1, Number.NaN, Number.POSITIVE_INFINITY, 0.1]) expect(isNonNegativeInteger(bad), String(bad)).toBe(false)
   })
 
-  it('기본가·추가금·초기재고 각각 소수 입력 → 해당 필드 오류(정수 문구)', () => {
+  it('판매가·추가금·초기재고 각각 소수 입력 → 해당 필드 오류(정수 문구)', () => {
     const form = optionForm()
     form.basePrice = 45000.5
     form.variants[0]!.additionalPrice = 100.25
     form.variants[1]!.initialStock = 2.5
     const errors = validateSellerProductForm(form, 'create')
-    expect(errors.basePrice).toBe('기본가는 0 이상의 정수여야 합니다.')
+    expect(errors.basePrice).toBe('판매가는 0 이상의 정수여야 합니다.')
     expect(errors['variants.0.additionalPrice']).toBe('추가금은 0 이상의 정수.')
     expect(errors['variants.1.initialStock']).toBe('초기 재고는 0 이상의 정수.')
     form.basePrice = 45000
@@ -85,7 +85,7 @@ describe('옵션 조합 중복·기존 variant 오염', () => {
 })
 
 describe('⑧ formSnapshot — 저장 payload 기준', () => {
-  it('상품명 앞뒤 공백·제외된 신규 행 입력·표시 전용 필드(status)는 dirty가 아니고, 저장에 실리는 변경(기본가·사용 토글·추가 체크)은 dirty', () => {
+  it('상품명 앞뒤 공백·제외된 신규 행 입력·표시 전용 필드(status)는 dirty가 아니고, 저장에 실리는 변경(판매가·사용 토글·추가 체크)은 dirty', () => {
     const form = toSellerProductForm(DETAIL)
     const before = formSnapshot(form)
     form.name = `  ${form.name}  `

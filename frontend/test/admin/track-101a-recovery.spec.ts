@@ -131,7 +131,7 @@ describe('422 문구 우선순위(CLAIM_STATE_INVALID)', () => {
 
   it('detail이 비면 기존 코드 문구로 폴백한다', () => {
     expect(toAdminErrorMessage({ data: { code: 'CLAIM_STATE_INVALID' } })).toContain('클레임')
-    expect(toSellerErrorMessage({ data: { code: 'CLAIM_STATE_INVALID' } })).toContain('출고할 수 없습니다')
+    expect(toSellerErrorMessage({ data: { code: 'CLAIM_STATE_INVALID' } })).toContain('발송할 수 없습니다')
   })
 
   it('다른 코드는 기존대로 코드 문구가 detail보다 우선한다', () => {

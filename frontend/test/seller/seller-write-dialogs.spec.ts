@@ -8,7 +8,7 @@ import SellerMarkDeliveredDialog from '#layers/seller/app/components/seller/Sell
 import SellerDeliveryTrackingDialog from '#layers/seller/app/components/seller/SellerDeliveryTrackingDialog.vue'
 
 /**
- * 셀러 쓰기 다이얼로그 3종(출고·배송완료·송장 정정)의 에러 분기(Track 90-B-3·FE-44 §8 이월): **403 SELLER_SUSPENDED는 호출부가 danger 토스트로 직접 표시**
+ * 셀러 쓰기 다이얼로그 3종(발송·배송완료·송장 정정)의 에러 분기(Track 90-B-3·FE-44 §8 이월): **403 SELLER_SUSPENDED는 호출부가 danger 토스트로 직접 표시**
  * (배너에만 의존 금지) 후 cancel · 422/404 상태 경합은 warning + stale · 409 송장 중복은 필드 오류 유지 · 성공은 done. API·토스트는 mock(실 네트워크 없음).
  */
 const { ordersApiMock, deliveriesApiMock, toastMock } = vi.hoisted(() => ({
@@ -73,7 +73,7 @@ describe('셀러 쓰기 다이얼로그 — 403 SELLER_SUSPENDED 표시·에러 
     expect(wrapper.emitted('done')).toHaveLength(1)
   })
 
-  it('출고: 폼 검증(택배사·송장 필수·API 미호출) → 입력 후 403 SELLER_SUSPENDED → danger 토스트 + cancel · 422 ORDER_ITEM_INVALID_STATE → stale', async () => {
+  it('발송: 폼 검증(택배사·송장 필수·API 미호출) → 입력 후 403 SELLER_SUSPENDED → danger 토스트 + cancel · 422 ORDER_ITEM_INVALID_STATE → stale', async () => {
     const wrapper = await mountDialog(SellerShipmentDialog, { item: ORDER_ITEM })
     await clickOk('shipment-dialog-ok')
     expect(ordersApiMock.prepareShipment).not.toHaveBeenCalled()
@@ -95,7 +95,7 @@ describe('셀러 쓰기 다이얼로그 — 403 SELLER_SUSPENDED 표시·에러 
 
     ordersApiMock.prepareShipment.mockRejectedValueOnce({ status: 422, data: { code: 'ORDER_ITEM_INVALID_STATE' } })
     await clickOk('shipment-dialog-ok')
-    expect(toastMock.warning).toHaveBeenCalledWith(expect.stringContaining('출고는 결제완료 품목만'))
+    expect(toastMock.warning).toHaveBeenCalledWith(expect.stringContaining('발송은 결제완료 품목만'))
     expect(wrapper.emitted('stale')).toHaveLength(1)
   })
 

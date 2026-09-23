@@ -43,13 +43,13 @@ async function mockSellerDeliveries(page: Page, options: { conflictFirstPatch?: 
 }
 
 test.describe('셀러 배송 화면(90-B-3)', () => {
-  test('① 진입점 안내(출고는 주문 화면 링크) → 원 발송 2행·상태 chip·택배사 캡션 → scope RETURN(URL·API·회수 배지) → 행 메뉴는 SHIPPING만 → 배송완료 POST 성공 → 토스트·재조회', async ({ page }) => {
+  test('① 진입점 안내(발송은 주문 화면 링크) → 원 발송 2행·상태 chip·택배사 캡션 → scope RETURN(URL·API·회수 배지) → 행 메뉴는 SHIPPING만 → 배송완료 POST 성공 → 토스트·재조회', async ({ page }) => {
     const captured = await mockSellerDeliveries(page)
     await loginAs(page, 'SELLER')
     await page.setViewportSize({ width: 1440, height: 900 })
     await page.goto('/seller/deliveries')
 
-    await expect(page.getByTestId('seller-delivery-entry-notice')).toContainText('출고하지 않은 결제완료 품목은')
+    await expect(page.getByTestId('seller-delivery-entry-notice')).toContainText('발송하지 않은 결제완료 품목은')
     await expect(page.getByTestId('seller-delivery-shipping-ready-link')).toHaveAttribute('href', '/seller/orders?status=PAID')
 
     await expect(page.getByTestId('status-chip')).toHaveCount(2)

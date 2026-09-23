@@ -61,7 +61,7 @@ describe('허용 전이(상태 전환 메뉴 비활성 근거)', () => {
 })
 
 describe('제재 전환(D-206 보정·FE-57)', () => {
-  it('셀러 중지 상품만 STOPPED 목표가 열리고 라벨은 "관리자 중지로 전환" · 관리자 중지·SALE·PENDING은 기존 전이표 그대로', () => {
+  it('셀러 판매중지 상품만 STOPPED 목표가 열리고 라벨은 "관리자 판매중지로 전환" · 관리자 판매중지·SALE·PENDING은 기존 전이표 그대로', () => {
     const sellerStopped = { status: 'STOPPED' as const, saleStopSource: 'SELLER' as const }
     const adminStopped = { status: 'STOPPED' as const, saleStopSource: 'ADMIN' as const }
     expect(statusTargetsFor(sellerStopped)).toEqual(['SALE', 'STOPPED'])

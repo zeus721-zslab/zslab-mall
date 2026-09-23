@@ -36,4 +36,14 @@ describe('resolvePaymentRedirect', () => {
     expect(() => resolvePaymentRedirect('not-a-url', LOCATION)).toThrow(TypeError)
     expect(() => resolvePaymentRedirect('', LOCATION)).toThrow(TypeError)
   })
+
+  // Track 102 보완: 재결제(D-60)의 Location은 `/api/v1/payments/{paymentPublicId}`라 말미가 주문번호가 아니다.
+  it('orderPublicIdOverride가 있으면 Location 말미보다 우선한다(재결제 경로)', () => {
+    const redirectUrl = `${MOCK_PG_ORIGIN}/checkout?attemptKey=pat_01XYZ&amount=15000&method=CARD`
+    const paymentLocation = '/api/v1/payments/pay_01PAY'
+    const withoutOverride = resolvePaymentRedirect(redirectUrl, paymentLocation)
+    expect(withoutOverride.kind === 'mock' && withoutOverride.path).toContain('orderPublicId=pay_01PAY')
+    const withOverride = resolvePaymentRedirect(redirectUrl, paymentLocation, 'ord_01ORDER')
+    expect(withOverride.kind === 'mock' && withOverride.path).toContain('orderPublicId=ord_01ORDER')
+  })
 })

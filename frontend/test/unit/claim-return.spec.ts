@@ -89,20 +89,20 @@ describe('claimTimeline(claim-timeline.ts)', () => {
     expect(steps.map((step) => step.at)).toEqual(['2026-09-10T10:00:00+09:00', null, '2026-09-11T10:00:00+09:00', '2026-09-12T10:00:00+09:00', null, '2026-09-13T10:00:00+09:00'])
   })
 
-  it('검수 불합격은 5단 종결("검수 불합격" current·processedAt) / 승인 전 거절은 2단', () => {
+  it('검수 불합격은 5단 종결("검수 불합격" current·processedAt) / 승인 전 거부는 2단', () => {
     const failed = labels(returnDetail({ status: 'REJECTED', inspectionResult: 'FAIL', rejectReasonCode: 'INSPECTION_FAILED', returnShipment: shipment, pickedUpAt: '2026-09-12T10:00:00+09:00', processedAt: '2026-09-13T10:00:00+09:00' }))
     expect(failed).toEqual(['요청:done', '승인:done', '회수 송장:done', '회수 확인:done', '검수 불합격:current'])
-    expect(labels(returnDetail({ status: 'REJECTED', rejectReasonCode: 'OUT_OF_POLICY' }))).toEqual(['요청:done', '거절:current'])
+    expect(labels(returnDetail({ status: 'REJECTED', rejectReasonCode: 'OUT_OF_POLICY' }))).toEqual(['요청:done', '거부:current'])
   })
 
   it('취소는 기존 3단 유지', () => {
     expect(labels(returnDetail({ claimType: 'CANCEL', status: 'APPROVED' }))).toEqual(['요청:done', '승인:current', '완료:upcoming'])
   })
 
-  it('교환 7단(FE-30-2): 신청/승인/회수/검수/교환품 발송/배송완료/완료 단계 판정·시각은 pickedUpAt·reshipment shippedAt/deliveredAt·processedAt', () => {
+  it('교환 7단(FE-30-2): 요청/승인/회수/검수/교환품 발송/배송완료/완료 단계 판정·시각은 pickedUpAt·reshipment shippedAt/deliveredAt·processedAt', () => {
     const exchange = (overrides: Partial<ClaimDetail>) => returnDetail({ claimType: 'EXCHANGE', ...overrides })
     const outbound = { ...shipment, deliveryPublicId: 'dlv_2', direction: 'OUTBOUND' as const, trackingNo: 'X1', shippedAt: '2026-09-14T10:00:00+09:00' }
-    expect(labels(exchange({ status: 'REQUESTED' }))).toEqual(['신청:current', '승인:upcoming', '회수:upcoming', '검수:upcoming', '교환품 발송:upcoming', '배송완료:upcoming', '완료:upcoming'])
+    expect(labels(exchange({ status: 'REQUESTED' }))).toEqual(['요청:current', '승인:upcoming', '회수:upcoming', '검수:upcoming', '교환품 발송:upcoming', '배송완료:upcoming', '완료:upcoming'])
     expect(labels(exchange({ status: 'APPROVED' }))[1]).toBe('승인:current')
     expect(labels(exchange({ status: 'APPROVED', returnShipment: shipment }))[2]).toBe('회수:current')
     expect(labels(exchange({ status: 'APPROVED', returnShipment: shipment, pickedUpAt: '2026-09-12T10:00:00+09:00' }))[3]).toBe('검수:current')
@@ -111,12 +111,12 @@ describe('claimTimeline(claim-timeline.ts)', () => {
     expect(labels(shipping)[5]).toBe('배송완료:current')
     expect(claimTimeline(shipping).map((step) => step.at)).toEqual([shipping.requestedAt, null, '2026-09-12T10:00:00+09:00', null, '2026-09-14T10:00:00+09:00', null, null])
     const done = exchange({ status: 'COMPLETED', returnShipment: shipment, pickedUpAt: '2026-09-12T10:00:00+09:00', inspectionResult: 'PASS', reshipment: { ...outbound, status: 'DELIVERED', deliveredAt: '2026-09-15T10:00:00+09:00' }, processedAt: '2026-09-15T10:00:00+09:00' })
-    expect(labels(done)).toEqual(['신청:done', '승인:done', '회수:done', '검수:done', '교환품 발송:done', '배송완료:done', '완료:current'])
+    expect(labels(done)).toEqual(['요청:done', '승인:done', '회수:done', '검수:done', '교환품 발송:done', '배송완료:done', '완료:current'])
     expect(claimTimeline(done)[5]!.at).toBe('2026-09-15T10:00:00+09:00')
-    // 검수 불합격은 4단 종결·승인 전 거절은 2단
+    // 검수 불합격은 4단 종결·승인 전 거부는 2단
     expect(labels(exchange({ status: 'REJECTED', inspectionResult: 'FAIL', returnShipment: shipment, pickedUpAt: '2026-09-12T10:00:00+09:00', processedAt: '2026-09-13T10:00:00+09:00' })))
-      .toEqual(['신청:done', '승인:done', '회수:done', '검수 불합격:current'])
-    expect(labels(exchange({ status: 'REJECTED', rejectReasonCode: 'OUT_OF_POLICY' }))).toEqual(['신청:done', '거절:current'])
+      .toEqual(['요청:done', '승인:done', '회수:done', '검수 불합격:current'])
+    expect(labels(exchange({ status: 'REJECTED', rejectReasonCode: 'OUT_OF_POLICY' }))).toEqual(['요청:done', '거부:current'])
   })
 })
 
