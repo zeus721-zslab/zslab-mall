@@ -51,6 +51,8 @@ public class BuyerOrderConfirmService {
      * @throws OrderItemInvalidStateException OrderItem이 DELIVERED가 아니어서 CONFIRMED 전이 불가한 경우(구매확정 불가·422)
      */
     public OrderItem confirmPurchase(Long buyerId, String orderPublicId, String orderItemPublicId) {
+        // Track 104-1 D-215(P5): 주문·품목을 적재하기 전에 주문 쓰기 락을 먼저 잡는다(형제 품목 변경과 직렬화·락 뒤 최신 품목으로 재계산).
+        orderRepository.findIdByPublicId(orderPublicId).ifPresent(orderService::lockForWrite);
         Order order = orderRepository.findByPublicIdWithItems(orderPublicId)
                 .orElseThrow(() -> new OrderNotFoundException("주문을 찾을 수 없습니다: " + orderPublicId));
         if (!order.getBuyerId().equals(buyerId)) {

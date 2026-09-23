@@ -35,6 +35,7 @@ public class OrderAutoConfirmService {
     private final ReturnWindowPolicy returnWindowPolicy;
     private final BuyerOrderConfirmService buyerOrderConfirmService;
     private final EntityManager entityManager;
+    private final OrderService orderService;
 
     /**
      * 품목 1건을 자동 구매확정한다. 행 락 후 3중 재확인에 하나라도 어긋나면 무처리(false)다.
@@ -45,6 +46,8 @@ public class OrderAutoConfirmService {
      */
     @Transactional
     public boolean confirmOne(Long orderItemId, LocalDateTime now) {
+        // Track 104-1 D-215(P5): 품목 행 락보다 주문 쓰기 락을 먼저 잡는다(반품 요청·형제 품목 변경과 같은 첫 락).
+        orderItemRepository.findOrderIdById(orderItemId).ifPresent(orderService::lockForWrite);
         Optional<OrderItem> found = orderItemRepository.findById(orderItemId);
         if (found.isEmpty()) {
             log.debug("[OrderAutoConfirm] skip: 품목 없음 orderItemId={}", orderItemId);

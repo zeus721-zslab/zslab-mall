@@ -11,6 +11,7 @@ import com.zslab.mall.audit.service.AuditRecorder;
 import com.zslab.mall.claim.repository.ClaimRepository;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
 import com.zslab.mall.common.observability.TracedEventPublisher;
+import com.zslab.mall.order.service.OrderService;
 import com.zslab.mall.delivery.entity.Delivery;
 import com.zslab.mall.delivery.enums.DeliveryCarrier;
 import com.zslab.mall.delivery.enums.DeliveryDirection;
@@ -42,13 +43,15 @@ public class DeliveryService {
     private final ClaimRepository claimRepository;
     private final TracedEventPublisher eventPublisher;
     private final AuditRecorder auditRecorder;
+    private final OrderService orderService;
 
     public DeliveryService(DeliveryRepository deliveryRepository, ClaimRepository claimRepository,
-            TracedEventPublisher eventPublisher, AuditRecorder auditRecorder) {
+            TracedEventPublisher eventPublisher, AuditRecorder auditRecorder, OrderService orderService) {
         this.deliveryRepository = deliveryRepository;
         this.claimRepository = claimRepository;
         this.eventPublisher = eventPublisher;
         this.auditRecorder = auditRecorder;
+        this.orderService = orderService;
     }
 
     /**
@@ -58,6 +61,7 @@ public class DeliveryService {
      * @throws IllegalStateException    불법 배송 상태 전이 시(Delivery.markShipping 위임)
      */
     public void markShipping(Long deliveryId, String trackingNo) {
+        lockOrderOfDelivery(deliveryId);
         Delivery delivery = deliveryRepository.findById(deliveryId)
                 .orElseThrow(() -> new IllegalArgumentException("배송을 찾을 수 없습니다: deliveryId=" + deliveryId));
         delivery.markShipping(trackingNo, LocalDateTime.now());
@@ -78,6 +82,7 @@ public class DeliveryService {
      * @throws IllegalStateException    불법 배송 상태 전이 또는 DLV-3 위반 시(Delivery.markDelivered 위임)
      */
     public void markDelivered(Long deliveryId) {
+        lockOrderOfDelivery(deliveryId);
         Delivery delivery = deliveryRepository.findWithLockById(deliveryId)
                 .orElseThrow(() -> new IllegalArgumentException("배송을 찾을 수 없습니다: deliveryId=" + deliveryId));
         delivery.markDelivered(LocalDateTime.now());
@@ -107,6 +112,7 @@ public class DeliveryService {
      * @throws IllegalStateException      markShipping 검증 위반(trackingNo·shippedAt null)
      */
     public Delivery registerExchangeShipment(Long claimId, DeliveryCarrier carrier, String trackingNo) {
+        claimRepository.findOrderIdById(claimId).ifPresent(orderService::lockForWrite); // Track 104-1 D-215(P5)
         deliveryRepository.findByClaimIdAndDirection(claimId, DeliveryDirection.OUTBOUND).ifPresent(existing -> {
             throw new ClaimInvalidStateException("교환 배송이 이미 등록되었습니다: claimId=" + claimId);
         });
@@ -189,6 +195,7 @@ public class DeliveryService {
      * @throws DeliveryInvalidStateException 회수 Delivery가 SHIPPING이 아니어서 DELIVERED 전이 불가(이미 DELIVERED 등·422)
      */
     public Delivery completeReturnShipment(Long claimId) {
+        claimRepository.findOrderIdById(claimId).ifPresent(orderService::lockForWrite); // Track 104-1 D-215(P5)
         Delivery delivery = deliveryRepository.findByClaimIdAndDirection(claimId, DeliveryDirection.RETURN)
                 .orElseThrow(() -> new ClaimInvalidStateException(
                         "회수 송장이 등록되지 않아 회수 확인할 수 없습니다: claimId=" + claimId));
@@ -253,7 +260,8 @@ public class DeliveryService {
      */
     @Transactional
     public void markDeliveredByAdmin(Long deliveryId) {
-        // 이 트랜잭션의 첫 읽기부터 락을 잡는다 — 락 없이 먼저 읽으면 뒤이은 markDelivered의 락 조회가 1차 캐시(옛 상태)를 돌려준다.
+        lockOrderOfDelivery(deliveryId);
+        // 배송 엔티티의 첫 읽기부터 락을 잡는다 — 락 없이 먼저 읽으면 뒤이은 markDelivered의 락 조회가 1차 캐시(옛 상태)를 돌려준다.
         deliveryRepository.findWithLockById(deliveryId)
                 .filter(delivery -> delivery.getDirection() == DeliveryDirection.RETURN)
                 .ifPresent(delivery -> {
@@ -266,5 +274,14 @@ public class DeliveryService {
             // Track 95 D-201: 비-SHIPPING(READY·이미 DELIVERED) 전이 위반을 셀러 경로(OrderShippingService.markDeliveredBySeller)와 대칭으로 422 흡수한다.
             throw new DeliveryInvalidStateException("배송 완료 처리할 수 없는 배송 상태입니다: " + exception.getMessage());
         }
+    }
+
+    /**
+     * 배송이 속한 주문의 쓰기 락을 잡는다(Track 104-1 D-215·invariants P5). 쓰기 메서드의 첫 DB 접근으로 부른다 — 주문 id는 스칼라로
+     * 구하므로 배송이 1차 캐시에 먼저 올라가지 않는다. wrapper·primitive·동기 핸들러 어디서 불려도 같은 트랜잭션의 재획득이라 무해하다.
+     * 배송이 없으면 잠그지 않고 기존 미존재 처리에 맡긴다.
+     */
+    private void lockOrderOfDelivery(Long deliveryId) {
+        deliveryRepository.findOrderIdById(deliveryId).ifPresent(orderService::lockForWrite);
     }
 }

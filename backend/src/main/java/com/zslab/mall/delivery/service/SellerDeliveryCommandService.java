@@ -13,6 +13,7 @@ import com.zslab.mall.delivery.exception.DeliveryTrackingNoConflictException;
 import com.zslab.mall.delivery.repository.AdminDeliverySpecifications;
 import com.zslab.mall.delivery.repository.DeliveryRepository;
 import com.zslab.mall.order.repository.OrderItemRepository;
+import com.zslab.mall.order.service.OrderService;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -31,6 +32,7 @@ public class SellerDeliveryCommandService {
     private final DeliveryRepository deliveryRepository;
     private final OrderItemRepository orderItemRepository;
     private final AuditRecorder auditRecorder;
+    private final OrderService orderService;
 
     /**
      * 셀러 송장 정정. Delivery는 sellerId를 직접 보유하지 않으므로 order_item.seller_id로 소유를 대조한다({@code OrderShippingService.
@@ -42,6 +44,8 @@ public class SellerDeliveryCommandService {
      */
     public Delivery correctTracking(Long sellerId, String deliveryPublicId, DeliveryCarrier carrier, String trackingNo,
             String reason, AuditContext auditContext) {
+        // Track 104-1 D-215(P5): 배송 행 락보다 주문 쓰기 락을 먼저 잡는다(타 셀러 배송이면 뒤의 소유 대조가 404로 끝낸다).
+        deliveryRepository.findOrderIdByPublicId(deliveryPublicId).ifPresent(orderService::lockForWrite);
         // 행 락 후 상태를 읽는다(Track 99 외부 검토 4·관리자 경로와 동일 — lost update 차단).
         Delivery delivery = deliveryRepository.findWithLockByPublicId(deliveryPublicId)
                 .filter(candidate -> isOwnedBy(candidate, sellerId))

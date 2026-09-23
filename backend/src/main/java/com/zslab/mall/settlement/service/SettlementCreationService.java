@@ -33,6 +33,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -100,6 +101,9 @@ public class SettlementCreationService {
      * @throws SettlementPeriodInvalidException year/month가 유효 범위 밖이거나 기간이 아직 마감되지 않은(말일 ≥ 오늘) 경우(400)
      * @throws SettlementAlreadyExistsException 선확인 통과 후 UNIQUE 위반(동시 실행 레이스)인 경우(409)
      */
+    // REPEATABLE READ(Track 104-1 D-215): 한 정산 안의 매출(SALE)·환불(REFUND) 조회가 같은 스냅샷(첫 조회 시점)을 봐야 한다 — 앱 전역은
+    // READ COMMITTED라 두 조회 사이에 커밋된 환불이 환불 쪽에만 섞인다. 호출자(관리자 API·월 스케줄러)는 트랜잭션이 없어 여기가 최외곽이다.
+    @Transactional(isolation = Isolation.REPEATABLE_READ)
     public SettlementBatchResult createMonthlySettlements(int year, int month, AuditContext auditContext) {
         if (month < 1 || month > 12 || year < MIN_YEAR || year > MAX_YEAR) {
             throw new SettlementPeriodInvalidException(
@@ -144,6 +148,9 @@ public class SettlementCreationService {
      * @throws SettlementNotFoundException     정산 미존재(404)
      * @throws SettlementInvalidStateException PENDING이 아닌 경우(422)
      */
+    // REPEATABLE READ(Track 104-1 D-215): createMonthlySettlements와 같은 이유(재집계의 SALE·REFUND 한 스냅샷). 앞선 정산 행 락 조회는
+    // 잠금 읽기라 스냅샷을 만들지 않고, 스냅샷은 재집계의 첫 매출 조회 시점에 잡힌다. 호출자(관리자 API)는 트랜잭션이 없어 여기가 최외곽이다.
+    @Transactional(isolation = Isolation.REPEATABLE_READ)
     public SettlementRegenerateResult regenerate(Long settlementId, String reason, AuditContext auditContext) {
         Settlement existing = settlementRepository.findByIdForUpdate(settlementId)
                 .orElseThrow(() -> new SettlementNotFoundException("정산을 찾을 수 없습니다: settlementId=" + settlementId));

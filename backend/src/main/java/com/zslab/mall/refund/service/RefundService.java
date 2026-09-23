@@ -11,6 +11,7 @@ import com.zslab.mall.claim.repository.ClaimRepository;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
 import com.zslab.mall.common.observability.TracedEventPublisher;
 import com.zslab.mall.order.repository.OrderItemRepository;
+import com.zslab.mall.order.service.OrderService;
 import com.zslab.mall.payment.entity.Payment;
 import com.zslab.mall.payment.enums.PaymentStatus;
 import com.zslab.mall.payment.gateway.PgRefundResponse;
@@ -60,6 +61,7 @@ public class RefundService {
     private final TracedEventPublisher eventPublisher;
     private final EntityManager entityManager;
     private final AuditRecorder auditRecorder;
+    private final OrderService orderService;
 
     public RefundService(
             ClaimRepository claimRepository,
@@ -69,7 +71,8 @@ public class RefundService {
             PaymentGateway paymentGateway,
             TracedEventPublisher eventPublisher,
             EntityManager entityManager,
-            AuditRecorder auditRecorder) {
+            AuditRecorder auditRecorder,
+            OrderService orderService) {
         this.claimRepository = claimRepository;
         this.orderItemRepository = orderItemRepository;
         this.paymentRepository = paymentRepository;
@@ -78,6 +81,7 @@ public class RefundService {
         this.eventPublisher = eventPublisher;
         this.entityManager = entityManager;
         this.auditRecorder = auditRecorder;
+        this.orderService = orderService;
     }
 
     /**
@@ -106,6 +110,8 @@ public class RefundService {
         if (amount < 1) {
             throw new IllegalArgumentException("환불금액은 1 이상이어야 합니다. 입력: " + amount);
         }
+        // Track 104-1 D-215(P5): 클레임 행 락보다 주문 쓰기 락을 먼저 잡는다(환불 경로 락 순서 Order → Claim → Refund → Payment).
+        claimRepository.findOrderIdById(claimId).ifPresent(orderService::lockForWrite);
 
         // CLM-3 전제: 클레임 행 락(D-172) — 동시 initiate 직렬화 후 멱등 게이트·상태를 최신 값으로 재확인한다.
         Claim claim = claimRepository.findById(claimId)
@@ -195,6 +201,10 @@ public class RefundService {
         if (pgRefundId == null || pgRefundId.isBlank()) {
             throw new RefundInvariantViolationException("RFN-1 위반: pg_refund_id 없이 COMPLETED 전이 불가.");
         }
+        // Track 104-1 D-215(P5): 직접 호출 경로도 주문 쓰기 락이 먼저다(handleCallback 경유면 이미 쥔 락). 행 존재도 이 스칼라 조회로
+        // 판정한다(PG 콜백이 환불 개시 커밋과 경합할 때 락 없이 진행하는 창 차단 — handleCallback과 같은 이유).
+        orderService.lockForWrite(refundRepository.findOrderIdByPgRefundId(pgRefundId)
+                .orElseThrow(() -> new RefundNotFoundException("환불 행을 찾을 수 없습니다: pgRefundId=" + pgRefundId)));
         Refund refund = refundRepository.findByPgRefundId(pgRefundId)
                 .orElseThrow(() -> new RefundNotFoundException("환불 행을 찾을 수 없습니다: pgRefundId=" + pgRefundId));
         // D-172 보충(락 순서 Claim → Refund → Payment): 동시 SUCCESS 콜백 N건 중 1건만 COMPLETED 전이·이벤트 발행(나머지는 종결 no-op)
@@ -255,6 +265,10 @@ public class RefundService {
         if (pgRefundId == null || pgRefundId.isBlank() || status == null) {
             throw new IllegalArgumentException("환불 콜백 입력 누락(pgRefundId·status).");
         }
+        // Track 104-1 D-215(P5): 환불·클레임을 적재하기 전에 주문 쓰기 락을 먼저 잡는다(형제 품목 확정·클레임과 직렬화). 행 존재도 이
+        // 스칼라 조회로 판정한다 — PG 콜백이 환불 개시 커밋과 경합하면 스칼라는 비었는데 뒤 엔티티 조회가 커밋을 봐 락 없이 진행할 수 있다.
+        orderService.lockForWrite(refundRepository.findOrderIdByPgRefundId(pgRefundId)
+                .orElseThrow(() -> new RefundNotFoundException("환불 행을 찾을 수 없습니다: pgRefundId=" + pgRefundId)));
         Refund refund = refundRepository.findByPgRefundId(pgRefundId)
                 .orElseThrow(() -> new RefundNotFoundException("환불 행을 찾을 수 없습니다: pgRefundId=" + pgRefundId));
         // D-172 보충: 비잠금 조회로 claimId를 얻은 뒤 Claim → Refund 순으로 잠그고 종결 여부를 재확인한다(initiate와 같은 순서·교착 제거).
@@ -279,7 +293,8 @@ public class RefundService {
     }
 
     /**
-     * 환불 경로 공통 락 순서(D-172 보충·외부 검토 2차): <b>Claim → Refund → Payment → OrderItem/Order → Inventory</b>. 콜백 경로가 Refund를
+     * 환불 경로 공통 락 순서(D-172 보충·외부 검토 2차 → Track 104-1 D-215): <b>Order(주문 쓰기 락) → Claim → Refund → Payment → OrderItem →
+     * Inventory</b>. 주문 락은 각 진입점 첫 문장이 잡고 여기서는 그 아래 순서를 지킨다. 콜백 경로가 Refund를
      * 먼저 잡고 Claim을 나중에(markCompleted UPDATE) 잡으면 Claim을 먼저 잡는 initiate(복구 스케줄러·자동 핸들러)와 교착한다(T1 실측·PENDING 잔류).
      * refresh인 이유: 호출부가 1차 캐시에 올린 stale 엔티티를 잠금과 함께 최신으로 재적재한다(Track 79 트랩). 같은 TX에서 두 번 호출돼도 이미
      * 보유한 락이라 무해하다.

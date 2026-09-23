@@ -45,14 +45,17 @@ public class OrderShippingService {
     private final DeliveryService deliveryService;
     private final ClaimRepository claimRepository;
     private final EntityManager entityManager;
+    private final OrderService orderService;
 
     public OrderShippingService(OrderItemRepository orderItemRepository, DeliveryRepository deliveryRepository,
-            DeliveryService deliveryService, ClaimRepository claimRepository, EntityManager entityManager) {
+            DeliveryService deliveryService, ClaimRepository claimRepository, EntityManager entityManager,
+            OrderService orderService) {
         this.orderItemRepository = orderItemRepository;
         this.deliveryRepository = deliveryRepository;
         this.deliveryService = deliveryService;
         this.claimRepository = claimRepository;
         this.entityManager = entityManager;
+        this.orderService = orderService;
     }
 
     /**
@@ -70,6 +73,8 @@ public class OrderShippingService {
      * @throws ClaimInvalidStateException    활성 클레임(취소 요청 등)이 있는 품목인 경우(422·Track 80 C2)
      */
     public Delivery prepareShipment(Long sellerId, Long orderItemId, DeliveryCarrier carrier, String trackingNo) {
+        // Track 104-1 D-215(P5): 품목을 적재하기 전에 주문 쓰기 락을 먼저 잡는다(클레임 요청·형제 품목 변경과 직렬화).
+        orderItemRepository.findOrderIdById(orderItemId).ifPresent(orderService::lockForWrite);
         OrderItem orderItem = authorize(sellerId, orderItemId);
 
         // 가드 B: changeToPreparing은 markShipping(E4 발행) 前. recalc는 DeliveryStartedHandler가 최종 SHIPPING으로 수행(생략).
@@ -89,6 +94,8 @@ public class OrderShippingService {
      * @throws ClaimInvalidStateException    활성 클레임(취소 요청 등)이 있는 품목인 경우(422·Track 80 C2)
      */
     public Delivery prepareShipmentByAdmin(Long orderItemId, DeliveryCarrier carrier, String trackingNo) {
+        // Track 104-1 D-215(P5): 셀러 경로와 같은 첫 락(주문 쓰기 락 → 품목).
+        orderItemRepository.findOrderIdById(orderItemId).ifPresent(orderService::lockForWrite);
         OrderItem orderItem = orderItemRepository.findById(orderItemId)
                 .orElseThrow(() -> new OrderNotFoundException("주문 품목을 찾을 수 없습니다: orderItemId=" + orderItemId));
         changeToPreparing(orderItem);
@@ -156,7 +163,9 @@ public class OrderShippingService {
      * @throws DeliveryInvalidStateException 배송이 SHIPPING이 아니어서 DELIVERED 전이 불가한 경우(배송 완료 불가·422)·클레임 연결 배송(422)
      */
     public void markDeliveredBySeller(Long sellerId, Long deliveryId) {
-        // 이 트랜잭션의 첫 읽기부터 행 락을 잡는다(Track 99 외부 검토 4) — 락 없이 먼저 읽으면 뒤이은 markDelivered의 락 조회가
+        // Track 104-1 D-215(P5): 배송 행보다 주문 쓰기 락을 먼저 잡는다(스칼라로 주문 id만 구해 배송 엔티티는 락 뒤에 적재).
+        deliveryRepository.findOrderIdById(deliveryId).ifPresent(orderService::lockForWrite);
+        // 배송 엔티티의 첫 읽기부터 행 락을 잡는다(Track 99 외부 검토 4) — 락 없이 먼저 읽으면 뒤이은 markDelivered의 락 조회가
         // 1차 캐시(옛 상태)를 돌려줘 소유·클레임 가드를 옛 값으로 판정한다.
         Delivery delivery = deliveryRepository.findWithLockById(deliveryId)
                 .orElseThrow(() -> new DeliveryNotFoundException("배송을 찾을 수 없습니다: deliveryId=" + deliveryId));

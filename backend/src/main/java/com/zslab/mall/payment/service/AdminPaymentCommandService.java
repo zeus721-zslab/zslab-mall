@@ -4,6 +4,7 @@ import com.zslab.mall.audit.enums.AuditLogAction;
 import com.zslab.mall.audit.service.AuditContext;
 import com.zslab.mall.audit.service.AuditRecorder;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
+import com.zslab.mall.order.service.OrderService;
 import com.zslab.mall.payment.entity.Payment;
 import com.zslab.mall.payment.enums.PaymentStatus;
 import com.zslab.mall.payment.exception.PaymentNotFoundException;
@@ -28,6 +29,7 @@ public class AdminPaymentCommandService {
     private final PaymentService paymentService;
     private final PaymentRepository paymentRepository;
     private final AuditRecorder auditRecorder;
+    private final OrderService orderService;
 
     /**
      * 수동 결제 취소. 상태가 실제로 바뀐 경우에만 감사(UPDATE·PAYMENT·before status·after status+reason)를 남긴다.
@@ -35,6 +37,8 @@ public class AdminPaymentCommandService {
      * @throws PaymentNotFoundException paymentPublicId 미존재(404)
      */
     public Payment markCancelled(String paymentPublicId, String reason, AuditContext auditContext) {
+        // Track 104-1 D-215(P5): 결제를 적재하기 전에 주문 쓰기 락을 먼저 잡는다.
+        paymentRepository.findOrderIdByPublicId(paymentPublicId).ifPresent(orderService::lockForWrite);
         Payment payment = paymentRepository.findByPublicId(paymentPublicId)
                 .orElseThrow(() -> new PaymentNotFoundException("결제를 찾을 수 없습니다: publicId=" + paymentPublicId));
         PaymentStatus before = payment.getStatus();

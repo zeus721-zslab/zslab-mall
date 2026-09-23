@@ -32,6 +32,21 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
     /** 콜백 매핑 1차 키로 결제 행을 조회한다(D-35). */
     Optional<Payment> findByPaymentAttemptKey(String paymentAttemptKey);
 
+    /**
+     * 결제가 속한 주문 id(Track 104-1 D-215·주문 쓰기 락 대상 해소). 엔티티를 적재하지 않는 스칼라 조회라 주문 락 전에 불러도
+     * 1차 캐시에 결제가 남지 않는다. 모든 변수는 :name 바인딩이다(SQL injection 위험 없음).
+     */
+    @Query("SELECT p.orderId FROM Payment p WHERE p.id = :id")
+    Optional<Long> findOrderIdById(@Param("id") Long id);
+
+    /** {@link #findOrderIdById}의 public_id 판(pay_로 받는 관리자 진입점). 모든 변수는 :name 바인딩이다. */
+    @Query("SELECT p.orderId FROM Payment p WHERE p.publicId = :publicId")
+    Optional<Long> findOrderIdByPublicId(@Param("publicId") String publicId);
+
+    /** {@link #findOrderIdById}의 콜백 매핑 키 판(PG 결제 콜백 진입점·D-35). 모든 변수는 :name 바인딩이다. */
+    @Query("SELECT p.orderId FROM Payment p WHERE p.paymentAttemptKey = :paymentAttemptKey")
+    Optional<Long> findOrderIdByPaymentAttemptKey(@Param("paymentAttemptKey") String paymentAttemptKey);
+
     /** PAY-3a 가드: 한 주문에 특정 상태(PAID) 행 존재 여부. */
     boolean existsByOrderIdAndStatus(Long orderId, PaymentStatus status);
 

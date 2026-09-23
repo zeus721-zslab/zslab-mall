@@ -49,6 +49,7 @@ public class AdminOrderCancelService {
     private final OrderAutoCancelService orderAutoCancelService;
     private final ClaimService claimService;
     private final AuditRecorder auditRecorder;
+    private final OrderService orderService;
 
     /**
      * 관리자 주문 취소. 미결제 경로는 PAYMENT_EXPIRED·빈 claims, 결제 후 경로는 항목별 생성·승인된 Claim 목록을 응답으로 조립한다.
@@ -60,6 +61,8 @@ public class AdminOrderCancelService {
     @Transactional
     public AdminOrderCancelResponse cancel(String orderPublicId, List<String> orderItemPublicIds, ClaimReasonCode reasonCode,
             String reasonDetail, AuditContext auditContext) {
+        // Track 104-1 D-215(P5): 주문 상태로 경로를 가르기 전에 주문 쓰기 락을 먼저 잡는다(분기 판정이 최신 커밋 기준).
+        orderRepository.findIdByPublicId(orderPublicId).ifPresent(orderService::lockForWrite);
         Order order = orderRepository.findByPublicIdWithItems(orderPublicId)
                 .orElseThrow(() -> new OrderNotFoundException("주문을 찾을 수 없습니다: " + orderPublicId));
 

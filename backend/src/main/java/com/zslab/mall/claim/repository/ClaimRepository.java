@@ -94,6 +94,17 @@ public interface ClaimRepository extends JpaRepository<Claim, Long>, JpaSpecific
     @Query("SELECT oi.order.buyerId FROM Claim c, OrderItem oi WHERE oi.id = c.orderItemId AND c.id = :claimId")
     Optional<Long> findOrderBuyerIdByClaimId(@Param("claimId") Long claimId);
 
+    /**
+     * 클레임이 속한 주문 id(Track 104-1 D-215·주문 쓰기 락 대상 해소). 엔티티를 적재하지 않는 스칼라 조회라 주문 락 전에 불러도
+     * 1차 캐시에 클레임이 남지 않는다. 모든 변수는 :name 바인딩이다(SQL injection 위험 없음).
+     */
+    @Query("SELECT oi.order.id FROM Claim c, OrderItem oi WHERE oi.id = c.orderItemId AND c.id = :claimId")
+    Optional<Long> findOrderIdById(@Param("claimId") Long claimId);
+
+    /** {@link #findOrderIdById}의 public_id 판(clm_로 받는 구매자·관리자 진입점). 모든 변수는 :name 바인딩이다. */
+    @Query("SELECT oi.order.id FROM Claim c, OrderItem oi WHERE oi.id = c.orderItemId AND c.publicId = :publicId")
+    Optional<Long> findOrderIdByPublicId(@Param("publicId") String publicId);
+
     /** 관리자 주문 목록·상세 배치 enrich(Track 79 D-168·N+1 회피). 항목별 최신 행이 앞에 오도록 id 내림차순. */
     List<Claim> findByOrderItemIdInOrderByIdDesc(Collection<Long> orderItemIds);
 
