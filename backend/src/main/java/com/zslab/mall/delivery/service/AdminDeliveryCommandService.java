@@ -12,6 +12,7 @@ import com.zslab.mall.delivery.exception.DeliveryNotFoundException;
 import com.zslab.mall.delivery.exception.DeliveryTrackingNoConflictException;
 import com.zslab.mall.delivery.repository.AdminDeliverySpecifications;
 import com.zslab.mall.delivery.repository.DeliveryRepository;
+import com.zslab.mall.order.service.OrderService;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -28,6 +29,7 @@ public class AdminDeliveryCommandService {
 
     private final DeliveryRepository deliveryRepository;
     private final AuditRecorder auditRecorder;
+    private final OrderService orderService;
 
     /**
      * 송장 정정. SHIPPING에서만 허용하며 상태·발송 시각은 바꾸지 않는다. 감사(UPDATE·DELIVERY·before carrier/trackingNo·after
@@ -39,6 +41,8 @@ public class AdminDeliveryCommandService {
      */
     public Delivery correctTracking(String deliveryPublicId, DeliveryCarrier carrier, String trackingNo, String reason,
             AuditContext auditContext) {
+        // Track 104-1 D-215(P5): 배송 행 락보다 주문 쓰기 락을 먼저 잡는다.
+        deliveryRepository.findOrderIdByPublicId(deliveryPublicId).ifPresent(orderService::lockForWrite);
         // 행 락 후 상태를 읽는다(Track 99 외부 검토 4) — 락이 없으면 배송완료 커밋 뒤 이 트랜잭션의 save가 전 컬럼을 옛 값으로 덮어써
         // status·delivered_at이 되돌아간다(lost update). 락을 잡으면 아래 SHIPPING 가드가 최신 상태를 보고 422로 막는다.
         Delivery delivery = deliveryRepository.findWithLockByPublicId(deliveryPublicId)

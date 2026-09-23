@@ -15,6 +15,7 @@ import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.enums.OrderStatus;
 import com.zslab.mall.order.exception.OrderNotFoundException;
 import com.zslab.mall.order.repository.OrderRepository;
+import com.zslab.mall.order.service.OrderService;
 import com.zslab.mall.payment.entity.Payment;
 import com.zslab.mall.payment.enums.PaymentMethod;
 import com.zslab.mall.payment.enums.PaymentStatus;
@@ -57,6 +58,8 @@ class PaymentInitiateTest {
     private PaymentGateway paymentGateway;
     @Mock
     private TracedEventPublisher eventPublisher;
+    @Mock
+    private OrderService orderService;
     @InjectMocks
     private PaymentService paymentService;
 

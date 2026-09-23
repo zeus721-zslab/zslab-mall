@@ -18,6 +18,7 @@ import com.zslab.mall.payment.gateway.PaymentGateway;
 import com.zslab.mall.payment.repository.PaymentRepository;
 import com.zslab.mall.order.entity.Order;
 import com.zslab.mall.order.repository.OrderRepository;
+import com.zslab.mall.order.service.OrderService;
 import jakarta.persistence.EntityManager;
 import java.time.LocalDateTime;
 import java.util.Map;
@@ -55,6 +56,8 @@ class PaymentEventTest {
     private OrderRepository orderRepository;
     @Mock
     private EntityManager entityManager;
+    @Mock
+    private OrderService orderService;
     @InjectMocks
     private PaymentService paymentService;
 
@@ -81,6 +84,7 @@ class PaymentEventTest {
     @DisplayName("PaymentCompleted 페이로드: paymentId·orderId·amount·pgTransactionId·occurredAt 정합(D-30)")
     void paymentCompleted_payload() {
         Payment payment = paymentInStatus(PaymentStatus.PENDING);
+        when(paymentRepository.findOrderIdByPaymentAttemptKey(ATTEMPT_KEY)).thenReturn(Optional.of(ORDER_ID));
         when(paymentRepository.findByPaymentAttemptKey(ATTEMPT_KEY)).thenReturn(Optional.of(payment));
         when(paymentRepository.existsByOrderIdAndStatus(ORDER_ID, PaymentStatus.PAID)).thenReturn(false);
         when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.of(pendingOrder()));
@@ -104,6 +108,7 @@ class PaymentEventTest {
     @DisplayName("REJECT 예외 시 이벤트 미발행(예외가 pull·publish 이전에 전파·롤백 안전)")
     void reject_doesNotPublish() {
         Payment payment = paymentInStatus(PaymentStatus.FAILED);
+        when(paymentRepository.findOrderIdByPaymentAttemptKey(ATTEMPT_KEY)).thenReturn(Optional.of(ORDER_ID));
         when(paymentRepository.findByPaymentAttemptKey(ATTEMPT_KEY)).thenReturn(Optional.of(payment));
 
         assertThatThrownBy(() -> paymentService.handleCallback(command(CallbackType.SUCCESS, Map.of())))

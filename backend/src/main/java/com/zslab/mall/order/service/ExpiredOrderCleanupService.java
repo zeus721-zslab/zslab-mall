@@ -52,6 +52,7 @@ public class ExpiredOrderCleanupService {
     private final OrderShippingSnapshotRepository shippingSnapshotRepository;
     private final PaymentRepository paymentRepository;
     private final ExpiredOrderCleanupMetrics cleanupMetrics;
+    private final OrderService orderService;
 
     /**
      * PAYMENT_EXPIRED 주문 1건을 삭제 가능 조건 충족 시 hard delete한다. 미충족 시 skip한다.
@@ -60,6 +61,8 @@ public class ExpiredOrderCleanupService {
      */
     @Transactional
     public void cleanupOne(Long orderId) {
+        // Track 104-1 D-215(P5): 가드 판정·자식 삭제 전에 주문 쓰기 락을 먼저 잡는다(재결제 시작 등과 직렬화).
+        orderService.lockForWrite(orderId);
         Order order = orderRepository.findById(orderId).orElse(null);
         if (order == null) {
             // 배치 조회~트랜잭션 사이 행이 사라지는 경우는 정상 흐름상 없으나 방어적으로 skip한다.

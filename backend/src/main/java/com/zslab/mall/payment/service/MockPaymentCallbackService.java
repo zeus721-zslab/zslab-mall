@@ -3,6 +3,7 @@ package com.zslab.mall.payment.service;
 import com.github.f4b6a3.ulid.UlidCreator;
 import com.zslab.mall.order.entity.Order;
 import com.zslab.mall.order.repository.OrderRepository;
+import com.zslab.mall.order.service.OrderService;
 import com.zslab.mall.payment.command.PaymentCallbackCommand;
 import com.zslab.mall.payment.entity.Payment;
 import com.zslab.mall.payment.enums.CallbackType;
@@ -39,16 +40,19 @@ public class MockPaymentCallbackService {
     private final OrderRepository orderRepository;
     private final PaymentGateway paymentGateway;
     private final PaymentService paymentService;
+    private final OrderService orderService;
 
     public MockPaymentCallbackService(
             PaymentRepository paymentRepository,
             OrderRepository orderRepository,
             PaymentGateway paymentGateway,
-            PaymentService paymentService) {
+            PaymentService paymentService,
+            OrderService orderService) {
         this.paymentRepository = paymentRepository;
         this.orderRepository = orderRepository;
         this.paymentGateway = paymentGateway;
         this.paymentService = paymentService;
+        this.orderService = orderService;
     }
 
     /**
@@ -61,6 +65,8 @@ public class MockPaymentCallbackService {
      * @throws com.zslab.mall.payment.exception.InvalidCallbackException 상태 조합 REJECT(422·{@link PaymentService#handleCallback})
      */
     public void handleMockCallback(Long buyerId, String attemptKey, CallbackType callbackType) {
+        // Track 104-1 D-215(P5): 결제·주문을 적재하기 전에 주문 쓰기 락을 먼저 잡는다(handleCallback의 재호출은 이미 쥔 락).
+        paymentRepository.findOrderIdByPaymentAttemptKey(attemptKey).ifPresent(orderService::lockForWrite);
         Payment payment = paymentRepository.findByPaymentAttemptKey(attemptKey)
                 .orElseThrow(() -> new PaymentNotFoundException("결제 시도를 찾을 수 없습니다: attemptKey=" + attemptKey));
         Order order = orderRepository.findById(payment.getOrderId())

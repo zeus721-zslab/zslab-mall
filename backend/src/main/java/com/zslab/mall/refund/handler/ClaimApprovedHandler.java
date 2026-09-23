@@ -5,6 +5,7 @@ import com.zslab.mall.claim.event.ClaimApproved;
 import com.zslab.mall.notification.service.NotificationService;
 import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.repository.OrderItemRepository;
+import com.zslab.mall.order.service.OrderService;
 import com.zslab.mall.refund.service.RefundService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -43,6 +44,7 @@ public class ClaimApprovedHandler {
     private final RefundService refundService;
     private final OrderItemRepository orderItemRepository;
     private final NotificationService notificationService;
+    private final OrderService orderService;
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -52,6 +54,8 @@ public class ClaimApprovedHandler {
             log.info("[Refund] ClaimApproved 수신·type={} → 자동 환불 미대상: claimId={}", event.claimType(), event.claimId());
             return;
         }
+        // Track 104-1 D-215(P5): 새 트랜잭션(REQUIRES_NEW)의 첫 DB 접근으로 주문 쓰기 락을 잡는다 — 품목은 락 뒤에 적재.
+        orderItemRepository.findOrderIdById(event.orderItemId()).ifPresent(orderService::lockForWrite);
         OrderItem orderItem = orderItemRepository.findById(event.orderItemId()).orElse(null);
         if (orderItem == null) {
             log.warn("[Refund] ClaimApproved 소비·주문 품목 미발견 → 자동 환불 건너뜀: orderItemId={}", event.orderItemId());

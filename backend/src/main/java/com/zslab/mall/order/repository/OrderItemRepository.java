@@ -47,6 +47,13 @@ public interface OrderItemRepository extends JpaRepository<OrderItem, Long>, Jpa
     Optional<Long> findOrderIdById(@Param("id") Long id);
 
     /**
+     * {@link #findOrderIdById}의 public_id 판(Track 104-1 D-215·주문 쓰기 락 대상 해소). 엔티티를 적재하지 않으므로 주문 락 전에
+     * 불러도 1차 캐시에 품목이 남지 않는다. 모든 변수는 :publicId 바인딩이다.
+     */
+    @Query("SELECT oi.order.id FROM OrderItem oi WHERE oi.publicId = :publicId")
+    Optional<Long> findOrderIdByPublicId(@Param("publicId") String publicId);
+
+    /**
      * 여러 주문 품목의 소속 주문 요약(id·public_id·주문번호·구매자 id)과 품목 상품명을 한 번에 조회한다(Track 80 관리자 클레임 목록
      * 배치 enrich·N+1 회피·Order 엔티티 미적재). 상품명은 Track 101-B 외부 검토 반영으로 더했다 — 구매자 클레임 목록이 같은
      * itemIds로 {@code findAllById}를 한 번 더 돌려 OrderItem 엔티티를 적재하던 것을 이 스칼라 1쿼리로 합쳤다.

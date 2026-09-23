@@ -15,6 +15,7 @@ import com.zslab.mall.claim.repository.ClaimRepository;
 import com.zslab.mall.common.observability.TracedEventPublisher;
 import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.repository.OrderItemRepository;
+import com.zslab.mall.order.service.OrderService;
 import com.zslab.mall.payment.entity.Payment;
 import com.zslab.mall.payment.enums.PaymentMethod;
 import com.zslab.mall.payment.enums.PaymentStatus;
@@ -71,6 +72,8 @@ class RefundServiceTest {
     private TracedEventPublisher eventPublisher;
     @Mock
     private EntityManager entityManager;
+    @Mock
+    private OrderService orderService;
 
     @InjectMocks
     private RefundService refundService;
@@ -191,6 +194,7 @@ class RefundServiceTest {
     void markCompleted_duplicate_idempotentSignal() {
         Refund refund = pendingRefund();
         ReflectionTestUtils.setField(refund, "status", RefundStatus.COMPLETED);
+        when(refundRepository.findOrderIdByPgRefundId(PG_REFUND_ID)).thenReturn(Optional.of(ORDER_ID));
         when(refundRepository.findByPgRefundId(PG_REFUND_ID)).thenReturn(Optional.of(refund));
         when(claimRepository.findById(CLAIM_ID)).thenReturn(Optional.of(claim(ClaimStatus.APPROVED))); // D-172 보충: Claim → Refund 락 순서
 
@@ -203,6 +207,7 @@ class RefundServiceTest {
     @DisplayName("markCompleted: PAY-1 사후 재검증 초과 → RefundInvariantViolationException(D-68)")
     void markCompleted_payOnePostCheckExceeded_blocked() {
         Refund refund = pendingRefund();
+        when(refundRepository.findOrderIdByPgRefundId(PG_REFUND_ID)).thenReturn(Optional.of(ORDER_ID));
         when(refundRepository.findByPgRefundId(PG_REFUND_ID)).thenReturn(Optional.of(refund));
         when(claimRepository.findById(CLAIM_ID)).thenReturn(Optional.of(claim(ClaimStatus.APPROVED))); // D-172 보충: Claim → Refund 락 순서
         when(paymentRepository.findByIdForUpdate(PAYMENT_ID)).thenReturn(Optional.of(paidPayment(PAYMENT_AMOUNT)));
@@ -217,6 +222,7 @@ class RefundServiceTest {
     @DisplayName("markCompleted: refunded_at = 시스템 시각(D-70·콜백 시각 아님)")
     void markCompleted_refundedAt_systemClock() {
         Refund refund = pendingRefund();
+        when(refundRepository.findOrderIdByPgRefundId(PG_REFUND_ID)).thenReturn(Optional.of(ORDER_ID));
         when(refundRepository.findByPgRefundId(PG_REFUND_ID)).thenReturn(Optional.of(refund));
         when(claimRepository.findById(CLAIM_ID)).thenReturn(Optional.of(claim(ClaimStatus.APPROVED))); // D-172 보충: Claim → Refund 락 순서
         when(paymentRepository.findByIdForUpdate(PAYMENT_ID)).thenReturn(Optional.of(paidPayment(PAYMENT_AMOUNT)));
@@ -235,6 +241,7 @@ class RefundServiceTest {
     @DisplayName("markCompleted: 정상 → COMPLETED 전이·RefundCompleted 발행(D-29)")
     void markCompleted_success_completesAndPublishes() {
         Refund refund = pendingRefund();
+        when(refundRepository.findOrderIdByPgRefundId(PG_REFUND_ID)).thenReturn(Optional.of(ORDER_ID));
         when(refundRepository.findByPgRefundId(PG_REFUND_ID)).thenReturn(Optional.of(refund));
         when(claimRepository.findById(CLAIM_ID)).thenReturn(Optional.of(claim(ClaimStatus.APPROVED))); // D-172 보충: Claim → Refund 락 순서
         when(paymentRepository.findByIdForUpdate(PAYMENT_ID)).thenReturn(Optional.of(paidPayment(PAYMENT_AMOUNT)));

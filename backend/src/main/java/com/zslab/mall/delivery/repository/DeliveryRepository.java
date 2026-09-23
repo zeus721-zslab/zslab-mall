@@ -36,6 +36,17 @@ public interface DeliveryRepository extends JpaRepository<Delivery, Long>, JpaSp
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<Delivery> findWithLockByPublicId(String publicId);
 
+    /**
+     * 배송이 속한 주문 id(Track 104-1 D-215·주문 쓰기 락 대상 해소). 엔티티를 적재하지 않는 스칼라 조회라 주문 락 전에 불러도
+     * 1차 캐시에 배송이 남지 않는다. 모든 변수는 :name 바인딩이다(SQL injection 위험 없음).
+     */
+    @Query("SELECT oi.order.id FROM Delivery d, OrderItem oi WHERE oi.id = d.orderItemId AND d.id = :deliveryId")
+    Optional<Long> findOrderIdById(@Param("deliveryId") Long deliveryId);
+
+    /** {@link #findOrderIdById}의 public_id 판(dlv_로 받는 송장 정정 진입점). 모든 변수는 :name 바인딩이다. */
+    @Query("SELECT oi.order.id FROM Delivery d, OrderItem oi WHERE oi.id = d.orderItemId AND d.publicId = :publicId")
+    Optional<Long> findOrderIdByPublicId(@Param("publicId") String publicId);
+
     /** 교환 배송 이중 등록 멱등 가드용(D-99 Q11). claim_id 연결된 Delivery 존재 시 재등록을 차단한다. */
     Optional<Delivery> findByClaimId(Long claimId);
 

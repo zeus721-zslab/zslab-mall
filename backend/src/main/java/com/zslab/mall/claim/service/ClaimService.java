@@ -38,6 +38,7 @@ import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.repository.OrderItemOrderProjection;
 import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.order.repository.OrderRepository;
+import com.zslab.mall.order.service.OrderService;
 import com.zslab.mall.refund.entity.Refund;
 import com.zslab.mall.refund.enums.RefundStatus;
 import com.zslab.mall.refund.repository.RefundRepository;
@@ -92,6 +93,7 @@ public class ClaimService {
     private final ClaimExchangeService claimExchangeService;
     private final EntityManager entityManager;
     private final AuditRecorder auditRecorder;
+    private final OrderService orderService;
 
     public ClaimService(
             ClaimRepository claimRepository,
@@ -105,7 +107,8 @@ public class ClaimService {
             ClaimAttachmentService claimAttachmentService,
             ClaimExchangeService claimExchangeService,
             EntityManager entityManager,
-            AuditRecorder auditRecorder) {
+            AuditRecorder auditRecorder,
+            OrderService orderService) {
         this.claimRepository = claimRepository;
         this.orderItemRepository = orderItemRepository;
         this.orderRepository = orderRepository;
@@ -118,6 +121,7 @@ public class ClaimService {
         this.claimExchangeService = claimExchangeService;
         this.entityManager = entityManager;
         this.auditRecorder = auditRecorder;
+        this.orderService = orderService;
     }
 
     /**
@@ -130,7 +134,9 @@ public class ClaimService {
      * @throws MalformedRequestException  첨부 허용 조건(RETURN·EXCHANGE·불량/오배송) 위반·첨부 id 소유권/연결/중복 위반·교환 옵션 미지정(400)
      */
     public Claim request(ClaimRequestCommand command) {
-        // (0) 첨부(Track 81-B·D-177 결정 3): RETURN·EXCHANGE + 불량/오배송에서만 허용. 소유권·미연결 검증은 락 전에(읽기만) 끝낸다.
+        // Track 104-1 D-215(P5): 주문 쓰기 락이 첫 DB 접근이다(첨부·교환 옵션 읽기 검증과 품목 적재는 락 뒤).
+        orderItemRepository.findOrderIdByPublicId(command.orderItemPublicId()).ifPresent(orderService::lockForWrite);
+        // (0) 첨부(Track 81-B·D-177 결정 3): RETURN·EXCHANGE + 불량/오배송에서만 허용. 소유권·미연결 검증은 품목 행 락 전에(읽기만·주문 쓰기 락 뒤) 끝낸다.
         List<String> attachmentIds = command.attachmentIds();
         if (!attachmentIds.isEmpty()
                 && (!command.claimType().isPickupBased() || !ATTACHABLE_RETURN_REASONS.contains(command.reasonCode()))) {
@@ -270,6 +276,7 @@ public class ClaimService {
      */
     public Claim requestByAdmin(Long orderItemId, ClaimReasonCode reasonCode, String reasonDetail,
             Long adminUserId, LocalDateTime now) {
+        orderItemRepository.findOrderIdById(orderItemId).ifPresent(orderService::lockForWrite); // Track 104-1 D-215(P5)
         Claim claim = createClaim(orderItemId, ClaimType.CANCEL, reasonCode, reasonDetail, adminUserId, now, null);
         approve(claim.getId(), now, null);
         return claim;
@@ -298,6 +305,7 @@ public class ClaimService {
         if (refundAmount != null) {
             throw new MalformedRequestException("refundAmount는 더 이상 지원하지 않습니다(교환 차액 환불 폐기·D-177).");
         }
+        lockOrderOfClaim(claimId);
         Claim claim = findClaim(claimId);
         if (claim.getType() == ClaimType.EXCHANGE) {
             entityManager.refresh(claim, LockModeType.PESSIMISTIC_WRITE);
@@ -330,6 +338,7 @@ public class ClaimService {
      * @throws IllegalArgumentException   거부 사유 누락·유형 부적합·메모 500자 초과
      */
     public void reject(Long claimId, ClaimRejectReasonCode reasonCode, String memo, LocalDateTime processedAt) {
+        lockOrderOfClaim(claimId);
         applyReject(findClaim(claimId), reasonCode, memo, processedAt);
     }
 
@@ -369,6 +378,7 @@ public class ClaimService {
      * @throws ClaimInvalidStateException type != RETURN·APPROVED 아님·이미 회수 확인됨·회수 송장 중복(422)
      */
     public Delivery registerReturnShipmentByBuyer(String claimPublicId, Long buyerId, DeliveryCarrier carrier, String trackingNo) {
+        lockOrderOfClaimPublicId(claimPublicId);
         Claim claim = findClaimByPublicIdForUpdate(claimPublicId);
         verifyBuyerOwnership(claim, buyerId, claimPublicId);
         return registerReturnShipment(claim, carrier, trackingNo);
@@ -393,6 +403,7 @@ public class ClaimService {
      * @throws ClaimInvalidStateException REQUESTED가 아닌 경우(422)
      */
     public void cancelByBuyer(String claimPublicId, Long buyerId, LocalDateTime processedAt) {
+        lockOrderOfClaimPublicId(claimPublicId);
         Claim claim = findClaimByPublicIdForUpdate(claimPublicId);
         verifyBuyerOwnership(claim, buyerId, claimPublicId);
         if (claim.getStatus() != ClaimStatus.REQUESTED) {
@@ -418,6 +429,7 @@ public class ClaimService {
      */
     public Delivery registerReturnShipmentByAdmin(String claimPublicId, DeliveryCarrier carrier, String trackingNo,
             AuditContext auditContext) {
+        lockOrderOfClaimPublicId(claimPublicId);
         Claim claim = findClaimByPublicIdForUpdate(claimPublicId);
         Delivery delivery = registerReturnShipment(claim, carrier, trackingNo);
         auditRecorder.record(auditContext, AuditLogAction.CREATE, PolymorphicTargetType.DELIVERY, delivery.getId(),
@@ -451,8 +463,8 @@ public class ClaimService {
 
     /**
      * publicId로 클레임을 <b>행 락과 함께</b> 읽는다(Track 101-A 외부 검토 반영). 상태를 읽고 그 판정으로 전이까지 가는
-     * 구매자·관리자 진입점(취소·회수 송장 등록)이 쓴다. 이 트랜잭션의 첫 읽기여야 한다 — 먼저 락 없이 읽으면 1차 캐시가
-     * 옛 인스턴스를 돌려준다({@code ClaimRepository.findWithLockByPublicId} 규약).
+     * 구매자·관리자 진입점(취소·회수 송장 등록)이 쓴다. 이 트랜잭션에서 클레임 엔티티의 첫 읽기여야 한다(앞선 주문 쓰기 락·스칼라 조회는
+     * 클레임을 적재하지 않는다) — 먼저 락 없이 읽으면 1차 캐시가 옛 인스턴스를 돌려준다({@code ClaimRepository.findWithLockByPublicId} 규약).
      */
     private Claim findClaimByPublicIdForUpdate(String claimPublicId) {
         return claimRepository.findWithLockByPublicId(claimPublicId)
@@ -473,6 +485,7 @@ public class ClaimService {
      * @throws ClaimInvalidStateException 상태가 REQUESTED가 아닌 경우(CLM-4)
      */
     public void approveByAdmin(Long claimId, LocalDateTime processedAt, Long refundAmount, AuditContext auditContext) {
+        lockOrderOfClaim(claimId);
         ClaimStatus before = findClaim(claimId).getStatus();
         approve(claimId, processedAt, refundAmount);
         recordClaimAudit(auditContext, AuditLogAction.APPROVE, claimId,
@@ -494,6 +507,7 @@ public class ClaimService {
      */
     public void rejectByAdmin(Long claimId, ClaimRejectReasonCode reasonCode, String memo, LocalDateTime processedAt,
             AuditContext auditContext) {
+        lockOrderOfClaim(claimId);
         ClaimStatus before = findClaim(claimId).getStatus();
         reject(claimId, reasonCode, memo, processedAt);
         Map<String, Object> after = new LinkedHashMap<>();
@@ -609,6 +623,7 @@ public class ClaimService {
      * @throws ClaimInvalidStateException APPROVED·COMPLETED가 아닌 상태에서 호출된 경우(CLM-1·CLM-4)
      */
     public void markCompleted(Long claimId) {
+        lockOrderOfClaim(claimId);
         Claim claim = claimRepository.findById(claimId)
                 .orElseThrow(() -> new ClaimNotFoundException("클레임을 찾을 수 없습니다: claimId=" + claimId));
         if (claim.getStatus() == ClaimStatus.COMPLETED) {
@@ -634,6 +649,7 @@ public class ClaimService {
      * @throws ClaimInvalidStateException APPROVED가 아닌 경우(CLM-4)
      */
     public void confirmPickup(Long claimId, LocalDateTime pickedUpAt) {
+        lockOrderOfClaim(claimId);
         Claim claim = claimRepository.findById(claimId)
                 .orElseThrow(() -> new ClaimNotFoundException("클레임을 찾을 수 없습니다: claimId=" + claimId));
         if (claim.getPickedUpAt() != null) {
@@ -687,6 +703,7 @@ public class ClaimService {
         if (result == null) {
             throw new IllegalArgumentException("inspect: 검수 결과는 필수입니다.");
         }
+        lockOrderOfClaim(claimId);
         Claim claim = findClaim(claimId);
         entityManager.refresh(claim, LockModeType.PESSIMISTIC_WRITE);
         if (result == ClaimInspectionResult.PASS) {
@@ -716,6 +733,7 @@ public class ClaimService {
     public void inspectByAdmin(Long claimId, ClaimInspectionResult result, Boolean restock,
             ClaimRejectReasonCode rejectReasonCode, String memo, DeliveryCarrier reshipCarrier, String reshipTrackingNo,
             LocalDateTime inspectedAt, AuditContext auditContext) {
+        lockOrderOfClaim(claimId);
         ClaimStatus before = findClaim(claimId).getStatus();
         inspect(claimId, result, restock, rejectReasonCode, memo, reshipCarrier, reshipTrackingNo, inspectedAt);
         Claim inspected = findClaim(claimId);
@@ -743,6 +761,20 @@ public class ClaimService {
     private void recordClaimAudit(AuditContext auditContext, AuditLogAction action, Long claimId,
             Map<String, Object> before, Map<String, Object> after) {
         auditRecorder.record(auditContext, action, PolymorphicTargetType.CLAIM, claimId, before, after);
+    }
+
+    /**
+     * 클레임이 속한 주문의 쓰기 락을 잡는다(Track 104-1 D-215·invariants P5). 쓰기 메서드의 첫 DB 접근으로 부른다 — 주문 id는 스칼라로
+     * 구하므로 클레임이 1차 캐시에 먼저 올라가지 않는다. wrapper·primitive 양쪽에서 불려도 같은 트랜잭션의 재획득이라 무해하며, primitive를
+     * 직접 부르는 경로(동기 핸들러·통합 테스트)도 같은 순서를 지킨다. 클레임이 없으면 잠그지 않고 기존 404 처리에 맡긴다.
+     */
+    private void lockOrderOfClaim(Long claimId) {
+        claimRepository.findOrderIdById(claimId).ifPresent(orderService::lockForWrite);
+    }
+
+    /** {@link #lockOrderOfClaim}의 public_id 판(구매자·관리자 clm_ 진입점). */
+    private void lockOrderOfClaimPublicId(String claimPublicId) {
+        claimRepository.findOrderIdByPublicId(claimPublicId).ifPresent(orderService::lockForWrite);
     }
 
     private Claim findClaim(Long claimId) {

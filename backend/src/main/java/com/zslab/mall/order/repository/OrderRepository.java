@@ -3,6 +3,7 @@ package com.zslab.mall.order.repository;
 import com.zslab.mall.order.entity.Order;
 import com.zslab.mall.order.enums.OrderStatus;
 import com.zslab.mall.payment.enums.PaymentStatus;
+import jakarta.persistence.LockModeType;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
@@ -11,6 +12,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -21,6 +23,19 @@ import org.springframework.data.repository.query.Param;
 public interface OrderRepository extends JpaRepository<Order, Long>, JpaSpecificationExecutor<Order> {
 
     Optional<Order> findByPublicId(String publicId);
+
+    /**
+     * 주문 행을 비관적 쓰기 락(SELECT ... FOR UPDATE)으로 조회한다(Track 104-1 D-215·invariants P5). 호출은
+     * {@code OrderService.lockForWrite} 한 곳이다 — 이미 1차 캐시에 있는 주문은 이 조회가 덮어쓰지 않으므로(D-168 트랩) 쓰기 트랜잭션의
+     * 첫 문장으로만 부른다. 모든 변수는 :id 바인딩이다.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT o FROM Order o WHERE o.id = :id")
+    Optional<Order> findByIdForUpdate(@Param("id") Long id);
+
+    /** 주문 public_id → id 스칼라 조회(Track 104-1·주문 락 전 엔티티 미적재). 모든 변수는 :publicId 바인딩이다. */
+    @Query("SELECT o.id FROM Order o WHERE o.publicId = :publicId")
+    Optional<Long> findIdByPublicId(@Param("publicId") String publicId);
 
     Optional<Order> findByOrderNo(String orderNo);
 

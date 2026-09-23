@@ -7,6 +7,7 @@ import com.zslab.mall.claim.event.ClaimInspectionPassed;
 import com.zslab.mall.notification.service.NotificationService;
 import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.repository.OrderItemRepository;
+import com.zslab.mall.order.service.OrderService;
 import com.zslab.mall.refund.service.RefundService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -32,10 +33,13 @@ public class ClaimInspectionPassedHandler {
     private final OrderItemRepository orderItemRepository;
     private final ClaimRepository claimRepository;
     private final NotificationService notificationService;
+    private final OrderService orderService;
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void handle(ClaimInspectionPassed event) {
+        // Track 104-1 D-215(P5): 새 트랜잭션(REQUIRES_NEW)의 첫 DB 접근으로 주문 쓰기 락을 잡는다 — 클레임·품목은 락 뒤에 적재.
+        orderItemRepository.findOrderIdById(event.orderItemId()).ifPresent(orderService::lockForWrite);
         // Track 83 D-177: 교환 검수 PASS는 환불 없이 교환품 발송 대기다(같은 가격·차액 없음). 유형은 클레임 행에서 판정한다.
         Claim claim = claimRepository.findById(event.claimId()).orElse(null);
         if (claim == null) {

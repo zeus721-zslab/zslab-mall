@@ -1,6 +1,7 @@
 package com.zslab.mall.payment.service;
 
 import com.zslab.mall.order.service.OrderAutoCancelService;
+import com.zslab.mall.order.service.OrderService;
 import com.zslab.mall.payment.entity.Payment;
 import com.zslab.mall.payment.enums.PaymentStatus;
 import com.zslab.mall.payment.repository.PaymentRepository;
@@ -21,8 +22,8 @@ import org.springframework.transaction.annotation.Transactional;
  * <p><b>Order 종료 위임(FE-12c)</b>: Payment를 EXPIRED로 종료한 뒤 {@link OrderAutoCancelService#cancelOne}으로 주문을
  * PAYMENT_EXPIRED 종료하며, 재고 예약 해제는 cancelOne이 발행하는 OrderTerminated를 {@code InventoryOrderTerminatedHandler}
  * (동기 @EventListener·D-167 보충2)가 같은 트랜잭션에서 수행한다(원칙 3·PaymentFailed 결합 제거). 해제 실패 시 만료 종료까지
- * 롤백된다. Payment는 도메인 이벤트를 발행하지 않는다(원칙 4·expire()). 행 락 순서는 Payment(FOR UPDATE) → Order(조건부 UPDATE)
- * → Inventory(FOR UPDATE)로 결제 콜백 경로(D-173)와 같다.
+ * 롤백된다. Payment는 도메인 이벤트를 발행하지 않는다(원칙 4·expire()). 행 락 순서는 Order(주문 쓰기 락·Track 104-1 D-215) →
+ * Payment(FOR UPDATE) → Order(조건부 UPDATE·이미 쥔 락) → Inventory(FOR UPDATE)로 결제 콜백 경로와 같다.
  *
  * <p><b>멱등·다중 인스턴스 방어</b>: {@link PaymentRepository#findByIdForUpdate} 비관적 락으로 행을 잠근 뒤 상태를
  * 재검증한다. 조회~잠금 사이에 콜백으로 PAID/EXPIRED 전이된 경우 {@code status != PENDING} skip, 만료 조건 미충족 시
@@ -35,6 +36,7 @@ public class ExpirePaymentService {
 
     private final PaymentRepository paymentRepository;
     private final OrderAutoCancelService orderAutoCancelService;
+    private final OrderService orderService;
 
     /**
      * 만료된 PENDING 결제 1건을 EXPIRED로 종료하고 주문을 PAYMENT_EXPIRED로 종료한다. 상태·만료 조건을 잠금 후 재검증하며,
@@ -44,6 +46,8 @@ public class ExpirePaymentService {
      */
     @Transactional
     public void expireOne(Long paymentId) {
+        // Track 104-1 D-215(P5): 결제 행보다 주문 행을 먼저 잠근다(결제 콜백·관리자 경로와 같은 첫 락).
+        paymentRepository.findOrderIdById(paymentId).ifPresent(orderService::lockForWrite);
         Payment payment = paymentRepository.findByIdForUpdate(paymentId).orElse(null);
         if (payment == null) {
             // 배치 조회~잠금 사이 행이 사라지는 경우는 정상 흐름상 없으나 방어적으로 skip한다.

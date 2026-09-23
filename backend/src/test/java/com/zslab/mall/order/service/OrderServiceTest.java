@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -17,6 +18,8 @@ import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.enums.OrderStatus;
 import com.zslab.mall.order.event.OrderPlaced;
 import com.zslab.mall.order.repository.OrderRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
@@ -40,6 +43,9 @@ class OrderServiceTest {
 
     @Mock
     private TracedEventPublisher eventPublisher;
+
+    @Mock
+    private EntityManager entityManager;
 
     @InjectMocks
     private OrderService orderService;
@@ -113,12 +119,42 @@ class OrderServiceTest {
         Order order = Order.create(100L, "20260625-ABCDEF", 0L, 0L);
         order.addItem(OrderItem.create(10L, 20L, 30L, "테스트 상품", 1, 5_000L, 5_000L, 1000));
         when(orderRepository.findById(1L)).thenReturn(java.util.Optional.of(order));
+        when(entityManager.getLockMode(order)).thenReturn(LockModeType.PESSIMISTIC_WRITE);
         when(orderStatusResolver.resolve(any())).thenReturn(OrderStatus.SHIPPING);
 
         Order result = orderService.recalculateStatus(1L);
 
         assertThat(result.getStatus()).isEqualTo(OrderStatus.SHIPPING);
         verify(orderStatusResolver).resolve(any());
+    }
+
+    @Test
+    @DisplayName("recalculateStatus: 같은 TX에서 주문 UPDATE가 flush된 뒤(Hibernate WRITE → PESSIMISTIC_FORCE_INCREMENT)도 락 보유로 인정")
+    void recalculateStatus_afterOrderUpdateFlush_accepts() {
+        Order order = Order.create(100L, "20260923-FLUSHD", 0L, 0L);
+        order.addItem(OrderItem.create(10L, 20L, 30L, "테스트 상품", 1, 5_000L, 5_000L, 1000));
+        when(orderRepository.findById(1L)).thenReturn(java.util.Optional.of(order));
+        when(entityManager.getLockMode(order)).thenReturn(LockModeType.PESSIMISTIC_FORCE_INCREMENT);
+        when(orderStatusResolver.resolve(any())).thenReturn(OrderStatus.PAID);
+
+        Order result = orderService.recalculateStatus(1L);
+
+        assertThat(result.getStatus()).isEqualTo(OrderStatus.PAID);
+    }
+
+    @Test
+    @DisplayName("recalculateStatus: 주문 쓰기 락 없이 호출 → IllegalStateException·Resolver 미호출·상태 불변(Track 104-1 D-215·P4)")
+    void recalculateStatus_withoutWriteLock_rejects() {
+        Order order = Order.create(100L, "20260923-NOLOCK", 0L, 0L);
+        order.addItem(OrderItem.create(10L, 20L, 30L, "테스트 상품", 1, 5_000L, 5_000L, 1000));
+        when(orderRepository.findById(1L)).thenReturn(java.util.Optional.of(order));
+        when(entityManager.getLockMode(order)).thenReturn(LockModeType.NONE);
+
+        assertThatThrownBy(() -> orderService.recalculateStatus(1L))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("lockForWrite");
+        verify(orderStatusResolver, never()).resolve(any());
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
     }
 
     @Test

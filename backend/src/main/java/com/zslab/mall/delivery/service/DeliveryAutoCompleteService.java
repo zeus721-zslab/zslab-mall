@@ -9,6 +9,7 @@ import com.zslab.mall.delivery.enums.DeliveryCarrier;
 import com.zslab.mall.delivery.enums.DeliveryDirection;
 import com.zslab.mall.delivery.enums.DeliveryStatus;
 import com.zslab.mall.delivery.repository.DeliveryRepository;
+import com.zslab.mall.order.service.OrderService;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import java.util.Map;
@@ -46,6 +47,7 @@ public class DeliveryAutoCompleteService {
     private final DeliveryService deliveryService;
     private final AuditRecorder auditRecorder;
     private final EntityManager entityManager;
+    private final OrderService orderService;
 
     /**
      * 배송 1건을 자동 배송완료 처리한다. 행 락 후 재확인에 어긋나면 무처리(false)다.
@@ -57,6 +59,8 @@ public class DeliveryAutoCompleteService {
      */
     @Transactional
     public boolean completeOne(Long deliveryId, DeliveryCarrier trackedCarrier, String trackedNo) {
+        // Track 104-1 D-215(P5): 배송 행 락보다 주문 쓰기 락을 먼저 잡는다(배송 엔티티는 락 뒤에 적재).
+        deliveryRepository.findOrderIdById(deliveryId).ifPresent(orderService::lockForWrite);
         Optional<Delivery> found = deliveryRepository.findById(deliveryId);
         if (found.isEmpty()) {
             log.debug("[DeliveryAutoComplete] skip: 배송 없음 deliveryId={}", deliveryId);

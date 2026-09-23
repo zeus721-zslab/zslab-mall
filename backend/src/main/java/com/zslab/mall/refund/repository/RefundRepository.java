@@ -24,6 +24,13 @@ public interface RefundRepository extends JpaRepository<Refund, Long> {
     /** webhook 콜백 매칭 키로 환불 행을 조회한다(RFN-3 멱등 키·expected-spec §6). */
     Optional<Refund> findByPgRefundId(String pgRefundId);
 
+    /**
+     * 환불이 속한 주문 id(Track 104-1 D-215·주문 쓰기 락 대상 해소·콜백 매칭 키 기준). 엔티티를 적재하지 않는 스칼라 조회라 주문 락
+     * 전에 불러도 1차 캐시에 환불이 남지 않는다. 모든 변수는 :pgRefundId 바인딩이다(SQL injection 위험 없음).
+     */
+    @Query("SELECT p.orderId FROM Refund r, Payment p WHERE p.id = r.paymentId AND r.pgRefundId = :pgRefundId")
+    Optional<Long> findOrderIdByPgRefundId(@Param("pgRefundId") String pgRefundId);
+
     /** 한 클레임의 환불 행 전체(재시도 = 새 행·RFN-2 추적). */
     List<Refund> findByClaimId(Long claimId);
 

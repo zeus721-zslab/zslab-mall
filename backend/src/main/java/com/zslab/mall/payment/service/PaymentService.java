@@ -7,6 +7,7 @@ import com.zslab.mall.order.enums.OrderStatus;
 import com.zslab.mall.order.exception.OrderNotFoundException;
 import com.zslab.mall.order.repository.OrderRepository;
 import com.zslab.mall.order.service.OrderAutoCancelService;
+import com.zslab.mall.order.service.OrderService;
 import com.zslab.mall.payment.command.PaymentCallbackCommand;
 import com.zslab.mall.payment.entity.Payment;
 import com.zslab.mall.payment.enums.PaymentMethod;
@@ -75,6 +76,7 @@ public class PaymentService {
     private final RefundRepository refundRepository;
     private final OrderAutoCancelService orderAutoCancelService;
     private final EntityManager entityManager;
+    private final OrderService orderService;
 
     public PaymentService(
             OrderRepository orderRepository,
@@ -83,7 +85,8 @@ public class PaymentService {
             TracedEventPublisher eventPublisher,
             RefundRepository refundRepository,
             OrderAutoCancelService orderAutoCancelService,
-            EntityManager entityManager) {
+            EntityManager entityManager,
+            OrderService orderService) {
         this.orderRepository = orderRepository;
         this.paymentRepository = paymentRepository;
         this.paymentGateway = paymentGateway;
@@ -91,6 +94,7 @@ public class PaymentService {
         this.refundRepository = refundRepository;
         this.orderAutoCancelService = orderAutoCancelService;
         this.entityManager = entityManager;
+        this.orderService = orderService;
     }
 
     /**
@@ -112,6 +116,8 @@ public class PaymentService {
         if (orderPublicId == null || orderPublicId.isBlank() || buyerId == null || method == null) {
             throw new IllegalArgumentException("결제 시도 입력 누락(orderPublicId·buyerId·method).");
         }
+        // Track 104-1 D-215(P5): 주문 쓰기 락이 첫 DB 접근이다 — 주문 엔티티는 락 뒤에 적재한다.
+        orderRepository.findIdByPublicId(orderPublicId).ifPresent(orderService::lockForWrite);
 
         // §2·D-42: 주문 조회 + 본인 일치 검증. 미존재·타인 주문 모두 404로 통일(정보 노출 회피).
         Order order = orderRepository.findByPublicId(orderPublicId)
@@ -163,10 +169,10 @@ public class PaymentService {
     /**
      * PG 콜백을 처리한다(D-34 매트릭스). 결제 행은 paymentAttemptKey로 식별한다(D-35).
      *
-     * <p><b>행 락 순서(D-173)</b>: Payment {@code refresh(PESSIMISTIC_WRITE)} → (SUCCESS) Order {@code refresh(PESSIMISTIC_WRITE)}
-     * → 동기 핸들러(Order 전이 → Inventory FOR UPDATE) 순으로 잡는다. 비잠금 조회 스냅샷은 락 대기 중 만료·타 콜백으로 바뀔 수
-     * 있어 잠금 후 최신 상태로 분기한다. 만료(ExpirePaymentService)·실패·취소 경로(cancelOne 조건부 UPDATE)와 같은
-     * Payment → Order → Inventory 순서다.
+     * <p><b>행 락 순서(D-173 → Track 104-1 D-215)</b>: 주문 쓰기 락({@link OrderService#lockForWrite}) → Payment
+     * {@code refresh(PESSIMISTIC_WRITE)} → (SUCCESS) Order {@code refresh}(이미 쥔 락·최신 재적재) → 동기 핸들러(Order 전이 → Inventory
+     * FOR UPDATE) 순으로 잡는다. 결제 행은 엔티티 적재 없이 스칼라로 주문 id만 구한 뒤 잠근다. 만료(ExpirePaymentService)·실패·취소
+     * 경로(cancelOne 조건부 UPDATE)와 같은 Order → Payment → Inventory 순서다.
      *
      * @throws InvalidCallbackException 행 미발견·REJECT 조합·PAY-3a 위반·늦은 승인 anomaly(Controller가 HTTP 422로 응답)
      */
@@ -175,6 +181,12 @@ public class PaymentService {
                 || command.paymentAttemptKey() == null || command.occurredAt() == null) {
             throw new IllegalArgumentException("콜백 입력 누락(callbackType·paymentAttemptKey·occurredAt).");
         }
+        // Track 104-1 D-215(P5): 결제 행보다 주문 행을 먼저 잠근다(모든 쓰기 경로 공통 첫 락). 행 존재도 이 스칼라 조회로 판정한다 —
+        // PG 콜백은 결제 시작 커밋과 경합할 수 있어, 스칼라는 비었는데 바로 뒤 엔티티 조회가 커밋을 보면 주문 락 없이 진행하게 된다.
+        Long orderId = paymentRepository.findOrderIdByPaymentAttemptKey(command.paymentAttemptKey())
+                .orElseThrow(() -> new InvalidCallbackException(
+                        "결제 행을 찾을 수 없습니다: attemptKey=" + command.paymentAttemptKey()));
+        orderService.lockForWrite(orderId);
 
         Payment payment = paymentRepository.findByPaymentAttemptKey(command.paymentAttemptKey())
                 .orElseThrow(() -> new InvalidCallbackException(
@@ -311,6 +323,7 @@ public class PaymentService {
      * 승인 전 Order 행을 잠그고 PENDING_PAYMENT를 재확인한다(D-173). 주문 종료(만료·취소)와 결제 승인이 같은 Order 행 X 락으로
      * 직렬화되며, 락 대기 후 이미 종료된 주문(늦은 승인)은 재고 차감 전에 422로 거절한다 — 종료로 해제된 예약분(타 주문 예약분)을
      * 차감하는 경합을 원천 차단한다. 잠근 엔티티는 1차 캐시에 남아 후속 OrderEventHandler.markPaid가 같은 인스턴스로 전이한다.
+     * Track 104-1부터 주문 락은 {@link #handleCallback} 첫 문장에서 이미 잡혀 있어 여기 refresh는 같은 락 위의 최신 재적재다.
      */
     private void lockOrderForApproval(Long orderId, String attemptKey) {
         Order order = orderRepository.findById(orderId)
