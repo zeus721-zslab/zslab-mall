@@ -67,7 +67,7 @@
 ### 2.5 Settlement
 | # | Rule | Why | Enforcement Point | Impact | Alternative |
 |---|---|---|---|---|---|
-| STL-1 | net_amount = gross_amount − fee_amount − refund_amount | 정산 금액 정합 | Domain | 정산액 계산 일관 | — |
+| STL-1 | net_amount = gross_amount − fee_amount − refund_amount − carryover_amount(Track 104-3b·앞선 음수 정산 이월 차감) | 정산 금액 정합 | Domain | 정산액 계산 일관 | — |
 | STL-2 | Settlement.status 전이(PENDING→CONFIRMED→PAID·A분류) | 정산 흐름 정합 | Domain(enum canTransition) | 미확정 정산 지급 차단 | — |
 | STL-3 | bank_account_id = 정산 시점 스냅샷 | 계좌 변경 무관 정합 | Domain | 사후 계좌 변경 영향 차단 | — |
 | STL-4 | 상태·금액 변경 AuditLog 기록 | 감사(D-11) | Service | 정산 분쟁 대응 | — |

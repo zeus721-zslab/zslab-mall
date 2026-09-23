@@ -12610,3 +12610,53 @@ PG·SMS·이메일은 포트(`PaymentGateway`·`SmsSender`·`NotificationSender`
 - 재개시 다이얼로그 기본 금액이 품목 전액이라 품목 잔여가 그보다 작으면 422 → 104-4.
 - PAY-1 사전·사후 합계와 결제 전액 환불 판정에 "FAILED + PG 성공" 미포함(결정 ① 범위 — PAY-1은 그대로 유지).
 - `RefundRepository.existsActiveByClaimId`(구 조건 PENDING·COMPLETED) main 호출처 0 — 삭제 보류.
+
+## D-218: Track 104-3b 정산 편입 조건·보류·이월 (2026-09-24)
+
+배경: 104-3b 정찰(`docs/track-104/recon-report-104-3b.md`)에서 정산 편입 조건에 기간 하한이 있어 보류 해제·늦은 확정처럼 지난 기간에 빠진 사실이 다음 기간에 자동으로 들어오지 못했고, settlement_item 유니크가 정산 단위(dedup_key)뿐이라 같은 사실이 서로 다른 정산에 중복 편입되는 것을 DB가 막지 못했다. OPEN 불일치가 있는 주문의 매출·환불이 정산에 섞여 들어갔고, 확정 뒤 순지급액이 음수인 정산은 지급이 영구히 막히기만 할 뿐 다음 정산으로 넘어가는 경로가 없었다(§8 이월).
+
+결정:
+- **편입 조건(⑦)**: SALE·REFUND 조회의 기간 하한을 없애고 상한(기간 말)만 둔다. 편입 여부는 settlement_item (item_type, source_id) 전역 UNIQUE 키로 판정한다(NOT EXISTS) — `OrderItemRepository.findSettlementSaleSources`(:96-119)·`RefundRepository.findSettlementRefundSources`(:129-155). 재생성은 삭제 후 재집계라 같은 트랜잭션에서 지운 자기 품목이 다시 편입된다(별도 분기 없음).
+- **보류(⑥)**: 위 두 쿼리에 "그 주문에 OPEN 불일치 없음"(`NOT EXISTS ReconciliationIssue ri WHERE ri.orderId = o.id AND ri.status = OPEN`) 조건을 인라인으로 추가했다(별도 조회 메서드·서비스 없음). `ix_reconciliation_issue_order_status(order_id, status)` 인덱스를 그대로 쓴다.
+- **전역 유니크(β)**: V37이 `settlement_item.source_id BIGINT NULL`을 추가하고 백필(SALE=order_item_id·REFUND=refund_id) 후 `UNIQUE(item_type, source_id)`(V37:33-43)를 건다. 기존 `dedup_key`(정산 단위 UNIQUE)는 그대로 둔다.
+- **이월(⑧)**: 확정(CONFIRMED)됐고 net<0인 정산만 이월 대상이다(`SettlementRepository.findCarryoverSources`:40-56). 출처 id = 원 정산 id, 금액 = −원 정산 net(양수), 수수료율·수수료 0, 발생 시각 = 원 정산 기간 말(`SettlementItem.carryover`:137-153). 이월만 있는 셀러도 생성 대상 셀러 집합에 포함한다(`SettlementCreationService.collectSources`:188-212). 지급 차단(net<0 → 422)은 그대로 유지.
+- **헤더 이월 금액(A)**: `settlement.carryover_amount BIGINT NOT NULL DEFAULT 0`(V37:47) 신설. `net = gross − fee − refund − carryover`(`Settlement.create`:99-125·STL-1).
+- **이월 품목 표시(가)**: 관리자·셀러 상세에 이월 탭 추가(`ADMIN_SETTLEMENT_ITEM_TABS`·`SELLER_SETTLEMENT_ITEM_TABS`), `carryoverItemCount` 응답 필드 추가.
+- **⑨ 셀러 행 없음 유형**: 기각. 구현하지 않음.
+- **합계 이중 반영 수정**: 이미 이월(CARRYOVER 품목 존재)된 원 정산의 net을 `sumByStatusForPeriod`(:58-72)·`sumByStatusForSeller`(:86-97) 합계에서 제외한다(`LEFT JOIN SettlementItem carried ON itemType=CARRYOVER AND sourceId=s.id` + `CASE WHEN carried.id IS NULL THEN net ELSE 0`). 건수·다른 금액 합은 불변. 새 컬럼 없음 — 기존 전역 유니크 키(item_type, source_id)로 판정.
+- **예외 응답**: 품목 저장(`settlementItemRepository.saveAllAndFlush`)의 전역 유니크 위반도 헤더 저장과 같은 catch에서 409(`SettlementAlreadyExistsException`)로 변환(`SettlementCreationService.createOne`:214-254).
+
+### §1-A 갈림길·채택/기각 근거
+- **전역 유니크 방식 = 컬럼 신설(β) 【채택: 기존 dedup_key는 정산 단위(settlement_id 포함)라 재정의로는 전역 유니크를 못 만들고, 이미 SALE·REFUND 조회·조인 판정에 쓰고 있어 그대로 둘 수 있다】** / 기존 dedup_key 재정의 【기각: settlement_id를 빼면 SALE 행에서 refund_id가 NULL이라 MariaDB NULL 시맨틱상 전역 유니크가 무효화된다(V29 실측 트랩과 동일)】 / 유니크 없이 NOT EXISTS만 【기각: 동시 실행 레이스(다른 기간 생성·재생성)에서 같은 사실이 두 정산에 들어가는 것을 앱 레벨 NOT EXISTS만으로는 막지 못한다 — DB 제약이 최종 방어선이다】.
+- **이월 금액 표현 = carryover_amount 신설(A) 【채택: net = gross−fee−refund−carryover가 그대로 성립하고, 환불과 이월이 화면·감사에서 구분된다】** / refund_amount에 합산(B) 【기각: 환불과 이월이 섞이면 "환불" 카드·탭이 실제로는 두 가지 다른 사실을 가리켜 운영자가 원인을 못 나눈다】.
+- **이월 품목 표시 = 탭 추가(가) 【채택: SALE·REFUND와 같은 급의 사실이라 같은 방식(탭+건수)으로 노출하는 것이 일관적이다】** / 환불 탭 합침(나) 【기각: REFUND 건수·금액에 CARRYOVER가 섞이면 "환불과 섞지 않는다" 결정(헤더 이월 금액 항)과 모순된다】 / 미표시(다) 【기각: 헤더 금액만으로는 어느 정산이 이월됐는지 추적할 수 없다(§8-3 참조)】.
+- **⑨ 셀러 행 없음 유형 = 기각 【채택: `order_item.seller_id`·`settlement.seller_id`가 FK ON DELETE RESTRICT(V1__init.sql:593·331)이고 main 코드에 셀러 hard·soft delete 호출이 없어(Seller.java `@SQLRestriction`만) 앱 경로로 도달 불가(정찰 실측) — D-216 §1-A가 이미 "주문 밖 비PG 행 포함"을 기각한 것과 같은 이유로도 걸린다】** / 유형 추가 【기각: 도달 불가능한 코드 경로를 위한 유형·4층위 전부(DB ENUM·Java enum·DTO·FE)를 추가하는 것은 YAGNI(5대 기조 4)】.
+- 기간 하한 제거 방식(periodEnd만 남기고 periodStart 파라미터 삭제): 대안 검토 없음 — 결정 ⑦이 정찰 단계에서 이미 확정돼 구현 시점에는 방식 비교가 없었다.
+- 이월 대상 = CONFIRMED·net<0만(PENDING 제외): 대안 검토 없음 — PENDING 음수는 재생성으로 정산 id가 바뀔 수 있어 출처 id(source_id=원 정산 id)가 불안정해지는 직접적 이유로 제외했다(대안과의 트레이드오프 비교는 하지 않음).
+
+### §2 확정 구현 규칙·결정 재진입
+- **편입 조건(하한·전역 유니크)을 바꾸면 재진입할 지점**:
+  - `OrderItemRepository.findSettlementSaleSources`(:96-119)·`RefundRepository.findSettlementRefundSources`(:129-155) — 두 쿼리의 NOT EXISTS 서브쿼리
+  - `SettlementRepository.findCarryoverSources`(:40-56) — 이월도 같은 전역 키 패턴
+  - `SettlementCreationService.collectSources`(:188-212)·`createOne`(:214-254)·`buildItems`(:256-275) — 소스 3종을 모으고 저장하는 지점
+  - V37 `uk_settlement_item_source(item_type, source_id)` — DB 최종 방어선
+- **보류 조건을 바꾸면 재진입할 지점**: 위 두 조회 쿼리의 `NOT EXISTS ReconciliationIssue` 서브쿼리 2곳(각 파일 1곳). 별도 조회 메서드가 없어 재진입 지점이 이 2곳뿐이다.
+- **이월 대상(CONFIRMED만)을 바꾸면 재진입할 지점**: `SettlementRepository.findCarryoverSources`(:48 `s.status = CONFIRMED`·:49 `s.netAmount < 0`) 조건과, 합계 이중 반영 제외 조인(`sumByStatusForPeriod`:64-72·`sumByStatusForSeller`:90-97)의 CARRYOVER 판정 — 대상 상태를 넓히면 이 조인의 전제(원 정산이 CONFIRMED로 고정돼 id가 안정적)도 재검토해야 한다.
+- **기존 규칙 변경**:
+  - T3 기대값 변경: `SettlementMonthlyCreationSchedulerIntegrationTest.java:107` "2개월 전 매출은 미생성" → "전월 정산에 2개월 전 미정산 매출도 편입"(결정 ⑦과 정면 충돌하던 기존 단언을 정정).
+  - STL-1 불변식 문구 변경: `invariants.md:70` `net_amount = gross − fee − refund` → `… − carryover_amount`.
+  - `OrderItemRepository.java:96-103` Javadoc "aggregateGrossBySeller와 동일(양끝 포함)" → 기간 하한 제거·전역 키 판정으로 정정.
+  - `AdminDashboardQueryControllerIntegrationTest.java:401-403` 주석 "정산 소스와 같은 쿼리" → "월 한정 집계 쿼리(정산 소스 조회는 104-3b부터 다름)"로 정정.
+- 검증(2026-09-24, 3라운드):
+  1) 편입·보류·이월 구현: BE `--rerun-tasks` §5.2 영향 49클래스 **297/0 실패/0 skip**(1m40s) · FE typecheck 0·vitest 84/84 · e2e admin/seller-settlements 7 통과·1 콜드 트랩(단독 재실행 2/2)
+  2) 합계 이중 반영 수정: BE 8클래스(SettlementRepository 참조 4·소비 API 2·AdminSellerCommandServiceTest·AuditFieldMaskingPolicyTest) **41/0**(47s) · FE 변경 없어 생략
+  3) 지급액 카드 캡션: FE typecheck 0·가장 가까운 vitest 3파일 **37/37**(이 컴포넌트를 참조하는 vitest 0건)
+- 셀프 리뷰(A, 2회): 1회차 지적 5건(상0·중1·하4) 수용 2(전 셀러 생성 테스트 3개 정리 코드 추가·409 FE 문구 일반화) / 2회차(합계 수정) 지적 3건(상0·중1·하2) 수용 2(I5 월 합계 단언을 이월 전후 차이로·헬퍼에 환불·이월 합 포함)
+- 외부 검토: A / 예정
+
+### §8 이월
+1) SellerTerminationGuard가 이월 완료 후에도 원 음수 정산(CONFIRMED)을 미지급으로 세어 셀러 종료를 차단한다 → 104-4.
+2) `settlement_item.source_id` NULL 허용을 유지한다 — 앱 팩토리는 항상 채우지만 raw INSERT 행은 편입 판정(NOT EXISTS)에서 누락될 수 있다. NOT NULL 승격은 별도 트랙.
+3) 이월 행에 원 정산 id(source_id)가 응답(`SettlementItemResponse`)에 없어 화면에서 어느 정산의 부족분인지 추적할 수 없다 → 운영 편의 라운드.
+4) 월 합계 카드 4항목 정합(매출−수수료−환불−이월=지급액)이 성립하지 않는다(이월된 원 정산의 net이 그 정산이 속한 기간 합계에서 빠지기 때문) → 운영 편의 라운드. (2026-09-24: 지급액 카드 캡션에 "이월된 음수 정산 제외" 문구를 붙여 설명은 붙였으나, 항등식 자체는 여전히 성립하지 않는다.)
+5) 운영 첫 스케줄러 실행 시 과거 미편입분이 한꺼번에 편입된다 — 배포 전 (a) confirmed_at ≤ 지난달 말인데 미편입인 CONFIRMED 품목·COMPLETED 환불 (b) net<0인 CONFIRMED 정산의 규모를 조회해 둘 것.
