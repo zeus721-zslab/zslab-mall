@@ -256,6 +256,14 @@ function returnCaption(item: AdminClaimSummary): string {
             @click="emit('registerReturnShipment', item)"
           >회수 송장 대행 등록</v-btn>
         </template>
+        <!-- Track 104-3a: 실패 처리한 환불에 PG 성공이 기록되면 재개시 버튼이 사라진다 — 그 이유(PG에서 이미 환불됨)를 적는다. -->
+        <v-chip
+          v-else-if="item.pgRefundSucceeded"
+          :class="semanticChipClass('warning')"
+          size="small"
+          variant="flat"
+          data-testid="row-pg-refund-succeeded"
+        >PG 환불됨(실패 기록)</v-chip>
         <!-- Track 102 FE-64: 액션이 없는 행은 이유를 적는다(종결 2종). 이유를 못 찾으면 기존 "—". -->
         <span
           v-else-if="item.availableActions.length === 0"

@@ -11,6 +11,7 @@ import com.zslab.mall.delivery.enums.DeliveryStatus;
 import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.refund.entity.Refund;
 import com.zslab.mall.refund.enums.RefundStatus;
+import com.zslab.mall.refund.repository.RefundedCondition;
 import com.zslab.mall.user.entity.User;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
@@ -119,7 +120,8 @@ public final class AdminClaimSpecifications {
     /**
      * 필요 액션(Track 96-4 D-205). {@code AdminClaimQueryService.availableActions}의 후속 처리 5종을 같은 조건으로 재표현한다 —
      * 규칙이 바뀌면 양쪽을 함께 고쳐야 하며 {@code AdminClaimActionFilterIntegrationTest} 매트릭스가 동치를 강제한다.
-     * 방향별 최신 Delivery·최신 Refund는 Java와 같이 id 최대 행(MAX(id) 서브쿼리·D4)이다. FOLLOWUP은 5종 OR. null이면 조건 없음.
+     * 방향별 최신 Delivery는 Java와 같이 id 최대 행(MAX(id) 서브쿼리·D4)이다. 환불은 클레임의 환불 행 전체에서 {@link RefundedCondition} 행 유무와
+     * 품목 기환불액을 본다(Track 104-3a). FOLLOWUP은 5종 OR. null이면 조건 없음.
      */
     public static Specification<Claim> action(AdminClaimActionFilter action) {
         return (root, query, builder) -> {
@@ -176,8 +178,9 @@ public final class AdminClaimSpecifications {
     }
 
     /**
-     * APPROVED + (CANCEL 또는 RETURN 회수 후 검수 PASS) + 최신 환불 없음/FAILED ↔ refundInitiatable:273-281. RETURN의 회수(picked_up_at)
-     * 조건은 availableActions:250-256 early return과 같은 배타 조건이다.
+     * APPROVED + (CANCEL 또는 RETURN 회수 후 검수 PASS) + "환불된 금액" 환불 행 없음 + 품목 잔여 상한 있음 ↔ refundInitiatable
+     * (Track 104-3a·환불 행 조건은 {@link RefundedCondition#predicate} 단일 소스). RETURN의 회수(picked_up_at) 조건은 availableActions의
+     * early return과 같은 배타 조건이다.
      */
     private static Predicate initiateRefund(Root<Claim> root, CriteriaQuery<?> query, CriteriaBuilder builder) {
         Predicate refundDue = builder.or(
@@ -186,15 +189,29 @@ public final class AdminClaimSpecifications {
                         builder.equal(root.get("type"), ClaimType.RETURN),
                         builder.isNotNull(root.get("pickedUpAt")),
                         builder.equal(root.get("inspectionResult"), ClaimInspectionResult.PASS)));
-        Subquery<Long> failedClaims = query.subquery(Long.class);
-        Root<Refund> refund = failedClaims.from(Refund.class);
-        failedClaims.select(refund.get("claimId"))
-                .where(builder.equal(refund.get("id"), latestRefundId(root, query, builder)),
-                        builder.equal(refund.get("status"), RefundStatus.FAILED));
-        Predicate noActiveRefund = builder.or(
-                builder.isNull(latestRefundId(root, query, builder)),
-                root.get("id").in(failedClaims));
-        return builder.and(builder.equal(root.get("status"), ClaimStatus.APPROVED), refundDue, noActiveRefund);
+        Subquery<Long> refundedRefunds = query.subquery(Long.class);
+        Root<Refund> refund = refundedRefunds.from(Refund.class);
+        refundedRefunds.select(refund.get("id"))
+                .where(builder.equal(refund.get("claimId"), root.get("id")), RefundedCondition.predicate(refund, builder));
+        Predicate noRefundedRefund = builder.not(builder.exists(refundedRefunds));
+        return builder.and(builder.equal(root.get("status"), ClaimStatus.APPROVED), refundDue, noRefundedRefund,
+                itemRemainingRefundable(root, query, builder));
+    }
+
+    /** 품목 기환불액({@link RefundedCondition} 행 합·클레임 무관 품목 전체) &lt; 품목 금액 ↔ RefundService.initiate 품목 상한. */
+    private static Predicate itemRemainingRefundable(Root<Claim> root, CriteriaQuery<?> query, CriteriaBuilder builder) {
+        Subquery<Long> itemRefunded = query.subquery(Long.class);
+        Root<Refund> refund = itemRefunded.from(Refund.class);
+        Root<Claim> itemClaim = itemRefunded.from(Claim.class);
+        itemRefunded.select(builder.coalesce(builder.sum(refund.<Long>get("amount")), 0L))
+                .where(builder.equal(refund.get("claimId"), itemClaim.get("id")),
+                        builder.equal(itemClaim.get("orderItemId"), root.get("orderItemId")),
+                        RefundedCondition.predicate(refund, builder));
+        Subquery<Long> itemTotalPrice = query.subquery(Long.class);
+        Root<OrderItem> item = itemTotalPrice.from(OrderItem.class);
+        itemTotalPrice.select(item.<Long>get("totalPrice"))
+                .where(builder.equal(item.get("id"), root.get("orderItemId")));
+        return builder.lessThan(itemRefunded, itemTotalPrice);
     }
 
     private static Predicate approvedPickupBased(Root<Claim> root, CriteriaBuilder builder) {
@@ -219,15 +236,6 @@ public final class AdminClaimSpecifications {
         latest.select(builder.max(delivery.get("id")))
                 .where(builder.equal(delivery.get("claimId"), root.get("id")),
                         builder.equal(delivery.get("direction"), direction));
-        return latest;
-    }
-
-    /** 클레임의 최신 Refund id(MAX(id)·없으면 NULL) — {@link #refundStatus}·목록 행 refundStatus와 같은 기준. */
-    private static Subquery<Long> latestRefundId(Root<Claim> root, CriteriaQuery<?> query, CriteriaBuilder builder) {
-        Subquery<Long> latest = query.subquery(Long.class);
-        Root<Refund> refund = latest.from(Refund.class);
-        latest.select(builder.max(refund.get("id")))
-                .where(builder.equal(refund.get("claimId"), root.get("id")));
         return latest;
     }
 }

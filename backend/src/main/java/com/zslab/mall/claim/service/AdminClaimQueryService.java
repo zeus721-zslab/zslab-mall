@@ -24,7 +24,9 @@ import com.zslab.mall.order.repository.OrderItemOrderProjection;
 import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.refund.entity.Refund;
 import com.zslab.mall.refund.enums.RefundStatus;
+import com.zslab.mall.refund.repository.OrderItemRefundedProjection;
 import com.zslab.mall.refund.repository.RefundRepository;
+import com.zslab.mall.refund.repository.RefundedCondition;
 import com.zslab.mall.user.entity.User;
 import com.zslab.mall.user.repository.UserRepository;
 import com.zslab.mall.user.service.AdminMemberQueryService;
@@ -47,7 +49,7 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * 관리자 클레임 목록 조회(Track 80 D-169·{@code AdminOrderQueryService} 패턴). Specification으로 페이지를 잡은 뒤 품목·주문·구매자·환불을
  * 배치 조회해 행을 조립한다(N+1 회피·쿼리 수 고정: count·page·품목·품목→주문 요약·구매자·환불·클레임 Delivery·첨부 개수·대기건수 = 9·
- * Track 81-A +1·Track 81-B +1).
+ * Track 81-A +1·Track 81-B +1 · Track 104-3a 품목 기환불액 +1).
  */
 @Service
 @Transactional(readOnly = true)
@@ -66,7 +68,8 @@ public class AdminClaimQueryService {
     static final String ACTION_MARK_EXCHANGE_DELIVERED = "MARK_EXCHANGE_DELIVERED";
     /**
      * 수동 환불 개시(Track 89-A·D-106 fallback 진입점). 자동 환불(CANCEL 승인·RETURN 검수 PASS 핸들러)이 유실됐거나 FAILED로 끝난
-     * APPROVED 클레임에만 노출한다 — 활성 환불(PENDING·COMPLETED)이 있으면 initiate가 멱등 no-op이라 노출하지 않는다.
+     * APPROVED 클레임에만 노출한다 — 활성 환불(PENDING·COMPLETED·PG 성공이 기록된 FAILED)이 있으면 initiate가 멱등 no-op이라, 품목 잔여
+     * 상한이 없으면 initiate가 422라 노출하지 않는다(Track 104-3a).
      * EXCHANGE 차액 환불은 트리거 재설계 이월(D-172 보충)이라 제외한다.
      */
     static final String ACTION_INITIATE_REFUND = "INITIATE_REFUND";
@@ -140,7 +143,7 @@ public class AdminClaimQueryService {
     /** 페이지 내 클레임의 품목·주문 요약·구매자·최신 환불을 배치 조회한다(각 1쿼리·페이지가 비면 0쿼리). */
     private Enrichment enrich(List<Claim> claims) {
         if (claims.isEmpty()) {
-            return new Enrichment(Map.of(), Map.of(), Map.of(), Map.of(), Map.of(), Map.of(), Map.of());
+            return new Enrichment(Map.of(), Map.of(), Map.of(), Map.of(), Set.of(), Set.of(), Map.of(), Map.of(), Map.of(), Map.of());
         }
         Set<Long> itemIds = claims.stream().map(Claim::getOrderItemId).collect(Collectors.toCollection(LinkedHashSet::new));
         List<Long> claimIds = claims.stream().map(Claim::getId).toList();
@@ -154,8 +157,17 @@ public class AdminClaimQueryService {
         Map<Long, User> userById = userRepository.findByIdIn(buyerIds).stream()
                 .collect(Collectors.toMap(User::getId, Function.identity()));
         // id 내림차순 조회이므로 first-wins 병합이 클레임별 최신 환불이 된다
-        Map<Long, Refund> latestRefundByClaimId = refundRepository.findByClaimIdInOrderByIdDesc(claimIds).stream()
+        List<Refund> refunds = refundRepository.findByClaimIdInOrderByIdDesc(claimIds);
+        Map<Long, Refund> latestRefundByClaimId = refunds.stream()
                 .collect(Collectors.toMap(Refund::getClaimId, Function.identity(), (latest, older) -> latest));
+        // Track 104-3a: 재개시 판정은 initiate 멱등 게이트와 같이 클레임의 환불 행 전체에서 "환불된 금액" 행(RefundedCondition) 유무를 본다
+        Set<Long> refundedClaimIds = refunds.stream().filter(RefundedCondition::matches).map(Refund::getClaimId)
+                .collect(Collectors.toSet());
+        Set<Long> pgRefundSucceededClaimIds = refunds.stream().filter(refund -> refund.getPgRefundSucceededAt() != null)
+                .map(Refund::getClaimId).collect(Collectors.toSet());
+        // Track 104-3a: 품목 기환불액 1쿼리 배치(품목 잔여 상한 판정·환불 행 없는 품목은 0)
+        Map<Long, Long> refundedAmountByOrderItemId = refundRepository.sumRefundedByOrderItemIdIn(itemIds).stream()
+                .collect(Collectors.toMap(OrderItemRefundedProjection::getOrderItemId, OrderItemRefundedProjection::getRefundedAmount));
         // Track 81-A: 클레임 연결 Delivery(회수 RETURN·재발송/교환 OUTBOUND) 1쿼리 배치 — 방향별 최신 1건
         Map<Long, List<Delivery>> deliveriesByClaimId = deliveryRepository.findByClaimIdInOrderByIdDesc(claimIds).stream()
                 .collect(Collectors.groupingBy(Delivery::getClaimId));
@@ -177,8 +189,8 @@ public class AdminClaimQueryService {
         }
         variantIds.remove(null);
         Map<Long, String> optionLabelByVariantId = claimExchangeService.optionLabelsByVariantId(variantIds);
-        return new Enrichment(itemById, orderByItemId, userById, latestRefundByClaimId, deliveriesByClaimId,
-                attachmentCountByClaimId, optionLabelByVariantId);
+        return new Enrichment(itemById, orderByItemId, userById, latestRefundByClaimId, refundedClaimIds, pgRefundSucceededClaimIds,
+                refundedAmountByOrderItemId, deliveriesByClaimId, attachmentCountByClaimId, optionLabelByVariantId);
     }
 
     /** 교환 원 옵션 라벨: 승인 스냅샷(original_option_label) 우선, 없으면 original variant로 재조립한 라벨(D-177 결정 2 보충). */
@@ -207,7 +219,11 @@ public class AdminClaimQueryService {
         Refund latestRefund = enrichment.latestRefundByClaimId().get(claim.getId());
         Delivery returnDelivery = latestByDirection(enrichment.deliveriesByClaimId().get(claim.getId()), DeliveryDirection.RETURN);
         Delivery reshipment = latestByDirection(enrichment.deliveriesByClaimId().get(claim.getId()), DeliveryDirection.OUTBOUND);
-        List<String> actions = availableActions(claim, returnDelivery, reshipment, latestRefund);
+        long itemRemainingRefundable = item == null
+                ? 0L
+                : item.getTotalPrice() - enrichment.refundedAmountByOrderItemId().getOrDefault(claim.getOrderItemId(), 0L);
+        List<String> actions = availableActions(claim, returnDelivery, reshipment,
+                enrichment.refundedClaimIds().contains(claim.getId()), itemRemainingRefundable);
         Long originalVariantId = originalVariantIdOf(claim, item);
         return new AdminClaimSummaryResponse(
                 claim.getPublicId(),
@@ -229,6 +245,7 @@ public class AdminClaimQueryService {
                 claim.getRejectReasonCode(),
                 claim.getRejectMemo(),
                 latestRefund == null ? null : latestRefund.getStatus(),
+                enrichment.pgRefundSucceededClaimIds().contains(claim.getId()),
                 actions,
                 returnDelivery == null ? null : ReturnShipmentResponse.from(returnDelivery),
                 reshipment == null ? null : ReturnShipmentResponse.from(reshipment),
@@ -244,9 +261,10 @@ public class AdminClaimQueryService {
      * 단계별 처리 가능 액션(Track 81-A D-170 / Track 83 D-177). REQUESTED는 승인·거부, RETURN·EXCHANGE APPROVED는 회수 송장이 있고 미회수면
      * CONFIRM_PICKUP·회수 확인 후 미검수면 INSPECT. EXCHANGE는 검수 PASS 후 OUTBOUND 미등록이면 REGISTER_EXCHANGE_SHIPMENT·발송 중이면
      * MARK_EXCHANGE_DELIVERED. 그 외(완료·거부·회수 송장 대기)는 빈 목록. INITIATE_REFUND(Track 89-A)는 자동 환불이 붙었어야 할 시점
-     * (CANCEL APPROVED / RETURN 검수 PASS) 이후 최신 환불이 없거나 FAILED일 때만 추가된다({@link #ACTION_INITIATE_REFUND}).
+     * (CANCEL APPROVED / RETURN 검수 PASS) 이후 "환불된 금액" 환불 행이 없고 품목 잔여 상한이 남았을 때만 추가된다({@link #ACTION_INITIATE_REFUND}).
      */
-    static List<String> availableActions(Claim claim, Delivery returnDelivery, Delivery outboundDelivery, Refund latestRefund) {
+    static List<String> availableActions(Claim claim, Delivery returnDelivery, Delivery outboundDelivery, boolean hasRefundedRefund,
+            long itemRemainingRefundable) {
         if (claim.getStatus() == ClaimStatus.REQUESTED) {
             return List.of(ACTION_APPROVE, ACTION_REJECT);
         }
@@ -266,21 +284,23 @@ public class AdminClaimQueryService {
                 }
             }
         }
-        if (refundInitiatable(claim, latestRefund)) {
+        if (refundInitiatable(claim, hasRefundedRefund, itemRemainingRefundable)) {
             return List.of(ACTION_INITIATE_REFUND);
         }
         return List.of();
     }
 
-    /** CANCEL APPROVED 또는 RETURN APPROVED+검수 PASS이고 최신 환불이 없거나 FAILED(활성 환불 없음). */
-    private static boolean refundInitiatable(Claim claim, Refund latestRefund) {
+    /**
+     * CANCEL APPROVED 또는 RETURN APPROVED+검수 PASS이고, 클레임에 "환불된 금액" 환불 행({@link RefundedCondition} — PENDING·COMPLETED·
+     * PG 성공이 기록된 FAILED)이 없고, 품목 잔여 상한(품목 금액 − 품목 기환불액)이 남았을 때(Track 104-3a·initiate 게이트·품목 상한과 같은 조건).
+     */
+    private static boolean refundInitiatable(Claim claim, boolean hasRefundedRefund, long itemRemainingRefundable) {
         if (claim.getStatus() != ClaimStatus.APPROVED) {
             return false;
         }
         boolean refundDue = claim.getType() == ClaimType.CANCEL
                 || (claim.getType() == ClaimType.RETURN && claim.isInspectionPassed());
-        boolean noActiveRefund = latestRefund == null || latestRefund.getStatus() == RefundStatus.FAILED;
-        return refundDue && noActiveRefund;
+        return refundDue && !hasRefundedRefund && itemRemainingRefundable > 0;
     }
 
     private static Delivery latestByDirection(List<Delivery> deliveries, DeliveryDirection direction) {
@@ -296,6 +316,9 @@ public class AdminClaimQueryService {
             Map<Long, OrderItemOrderProjection> orderByItemId,
             Map<Long, User> userById,
             Map<Long, Refund> latestRefundByClaimId,
+            Set<Long> refundedClaimIds,
+            Set<Long> pgRefundSucceededClaimIds,
+            Map<Long, Long> refundedAmountByOrderItemId,
             Map<Long, List<Delivery>> deliveriesByClaimId,
             Map<Long, Long> attachmentCountByClaimId,
             Map<Long, String> optionLabelByVariantId) {
