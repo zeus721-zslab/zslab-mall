@@ -238,7 +238,7 @@ test.describe('관리자 정산(Track 85)', () => {
     await expect(page.getByTestId('item-fee')).toHaveText('0원')
     expect(captured.itemQueries.at(-1)?.get('type')).toBe('REFUND')
 
-    await page.route((url) => /\/api\/v1\/admin\/orders\/ord_[^/]+$/.test(url.pathname), (route) => route.fulfill({ json: { orderId: ORDER_PID, orderNo: 'ORD-20260610-0001', orderedAt: '2026-06-10T12:00:00', status: 'CONFIRMED', buyer: { userId: 'usr_x', name: '구매자', email: 'b@e2e.invalid' }, totalPrice: 60000, discountAmount: 0, shippingFee: 0, paymentAmount: 60000, payments: [], items: [], cancelReasons: [], actions: [] } }))
+    await page.route((url) => /\/api\/v1\/admin\/orders\/ord_[^/]+$/.test(url.pathname), (route) => route.fulfill({ json: { orderId: ORDER_PID, orderNo: 'ORD-20260610-0001', orderedAt: '2026-06-10T12:00:00', status: 'CONFIRMED', buyer: { userId: 'usr_x', name: '구매자', email: 'b@e2e.invalid' }, totalPrice: 60000, discountAmount: 0, shippingFee: 0, paymentAmount: 60000, payments: [], items: [], cancelReasons: [], actions: [], reconciliationIssues: [] } }))
     await page.getByTestId('item-order-no').first().click()
     await page.waitForURL((url) => url.pathname === `/admin/orders/${ORDER_PID}`)
     const orderUrl = decodeURIComponent(page.url())

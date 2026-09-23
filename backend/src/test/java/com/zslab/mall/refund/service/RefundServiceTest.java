@@ -3,6 +3,7 @@ package com.zslab.mall.refund.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -23,6 +24,8 @@ import com.zslab.mall.payment.gateway.PgRefundResponse;
 import com.zslab.mall.payment.gateway.PaymentGateway;
 import com.zslab.mall.payment.gateway.PaymentGatewayException;
 import com.zslab.mall.payment.repository.PaymentRepository;
+import com.zslab.mall.reconciliation.enums.ReconciliationIssueType;
+import com.zslab.mall.reconciliation.service.ReconciliationIssueRecorder;
 import com.zslab.mall.refund.entity.Refund;
 import com.zslab.mall.refund.enums.RefundStatus;
 import com.zslab.mall.refund.event.RefundCompleted;
@@ -74,6 +77,8 @@ class RefundServiceTest {
     private EntityManager entityManager;
     @Mock
     private OrderService orderService;
+    @Mock
+    private ReconciliationIssueRecorder reconciliationIssueRecorder;
 
     @InjectMocks
     private RefundService refundService;
@@ -204,8 +209,8 @@ class RefundServiceTest {
     }
 
     @Test
-    @DisplayName("markCompleted: PAY-1 사후 재검증 초과 → RefundInvariantViolationException(D-68)")
-    void markCompleted_payOnePostCheckExceeded_blocked() {
+    @DisplayName("markCompleted: PAY-1 사후 재검증 초과 → 불일치 기록·예외 없음·Refund PENDING 유지·미발행(D-68 → D-216)")
+    void markCompleted_payOnePostCheckExceeded_recordsIssue() {
         Refund refund = pendingRefund();
         when(refundRepository.findOrderIdByPgRefundId(PG_REFUND_ID)).thenReturn(Optional.of(ORDER_ID));
         when(refundRepository.findByPgRefundId(PG_REFUND_ID)).thenReturn(Optional.of(refund));
@@ -213,8 +218,12 @@ class RefundServiceTest {
         when(paymentRepository.findByIdForUpdate(PAYMENT_ID)).thenReturn(Optional.of(paidPayment(PAYMENT_AMOUNT)));
         when(refundRepository.sumCompletedByPaymentId(PAYMENT_ID)).thenReturn(5_000L); // 5000 + 6000 > 10000
 
-        assertThatThrownBy(() -> refundService.markCompleted(PG_REFUND_ID))
-                .isInstanceOf(RefundInvariantViolationException.class);
+        Refund result = refundService.markCompleted(PG_REFUND_ID);
+
+        assertThat(result.getStatus()).isEqualTo(RefundStatus.PENDING);
+        verify(reconciliationIssueRecorder).record(
+                eq(ReconciliationIssueType.PG_REFUND_EXCEEDS_PAYMENT), eq("refund:" + REFUND_ID), any(), any());
+        verify(refundRepository, never()).save(any());
         verify(eventPublisher, never()).publishEvent(any());
     }
 

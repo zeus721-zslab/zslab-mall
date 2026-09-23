@@ -47,6 +47,9 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
     @Query("SELECT p.orderId FROM Payment p WHERE p.paymentAttemptKey = :paymentAttemptKey")
     Optional<Long> findOrderIdByPaymentAttemptKey(@Param("paymentAttemptKey") String paymentAttemptKey);
 
+    /** PAY-3b 사전 판정: (pg_provider, pg_tid)가 이미 다른 결제 행에 기록돼 있는지(Track 104-2 D-216·UNIQUE 위반 전에 불일치로 기록). */
+    boolean existsByPgProviderAndPgTid(String pgProvider, String pgTid);
+
     /** PAY-3a 가드: 한 주문에 특정 상태(PAID) 행 존재 여부. */
     boolean existsByOrderIdAndStatus(Long orderId, PaymentStatus status);
 

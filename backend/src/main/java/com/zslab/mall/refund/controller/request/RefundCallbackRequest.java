@@ -3,6 +3,7 @@ package com.zslab.mall.refund.controller.request;
 import com.zslab.mall.refund.enums.RefundCallbackStatus;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 
 /**
  * PG 환불 webhook 콜백 HTTP 요청 DTO(expected-spec §6.2). Bean Validation으로 형식을 검증한다.
@@ -15,7 +16,13 @@ import jakarta.validation.constraints.NotNull;
  * @param failureReason 실패 사유(FAIL 시·로깅 전용)
  */
 public record RefundCallbackRequest(
-        @NotBlank String pgRefundId,
+        @NotBlank @Size(max = PG_REFUND_ID_MAX_LENGTH) String pgRefundId,
         @NotNull RefundCallbackStatus status,
         String failureReason) {
+
+    /**
+     * refund.pg_refund_id·reconciliation_issue.pg_refund_id VARCHAR(100). 매칭 없는 통지를 불일치로 기록하므로(Track 104-2) 초과분이
+     * INSERT 오류(500)로 새지 않게 400으로 막는다(셀프 리뷰 #6).
+     */
+    private static final int PG_REFUND_ID_MAX_LENGTH = 100;
 }

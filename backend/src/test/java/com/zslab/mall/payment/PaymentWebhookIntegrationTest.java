@@ -36,6 +36,8 @@ class PaymentWebhookIntegrationTest extends AbstractIntegrationTest {
     private static final long VARIANT_ID = 1L;   // 시드 order_item.variant_id와 일치(재고 해제 대상)
     private static final long AMOUNT = 10_000L;
     private static final String ATTEMPT_KEY = "pat_track6_it_0001";
+    /** 매칭 결제 없는 통지 재현용 attemptKey(D-175·D-216). */
+    private static final String UNKNOWN_ATTEMPT_KEY = "pat_stage5_unknown_0001";
     /** pgTid 중복(409) 재현용 타 주문 PAID 결제 행. */
     private static final long OTHER_PAYMENT_ID = 8002L;
     /** payment.pg_tid VARCHAR(100)(V1). */
@@ -136,16 +138,17 @@ class PaymentWebhookIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("webhook SUCCESS 늦은 승인(Track 78 D-167): Order PAYMENT_EXPIRED → 422(REJECT 정합)·Payment PENDING·재고 불변")
-    void webhook_success_lateAfterExpiry_rejects422() throws Exception {
+    @DisplayName("webhook SUCCESS 늦은 승인(Track 78 D-167): Order PAYMENT_EXPIRED → 200·불일치 1행·Payment PENDING·재고 불변(D-216)")
+    void webhook_success_lateAfterExpiry_recordsIssue() throws Exception {
         seedInventory(10, 0, 10);   // 이미 종료·예약 해제된 주문
         tx.executeWithoutResult(s -> jdbc.update("UPDATE `order` SET status = 'PAYMENT_EXPIRED' WHERE id = ?", ORDER_ID));
 
         mockMvc.perform(post("/api/webhooks/payments")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(successBody("tid_track78_it_0002")))
-                .andExpect(status().isUnprocessableEntity());
+                .andExpect(status().isOk());
 
+        assertThat(issueCount("PG_PAYMENT_SUCCESS_CONFLICT", "payment:" + PAYMENT_ID)).isEqualTo(1);
         assertThat(paymentStatus()).isEqualTo("PENDING");
         assertThat(orderStatus()).isEqualTo("PAYMENT_EXPIRED");
         assertThat(orderItemStatus()).isEqualTo("ORDERED");
@@ -154,21 +157,22 @@ class PaymentWebhookIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("webhook 미존재 attemptKey(늦은·삭제된 결제 콜백·D-175): 422(REJECT 정합)·500 fallback 없음·기존 결제 불변")
-    void webhook_unknownAttemptKey_rejects422() throws Exception {
-        String body = successBody("tid_stage5_it_0001").replace(ATTEMPT_KEY, "pat_stage5_unknown_0001");
+    @DisplayName("webhook 미존재 attemptKey(늦은·삭제된 결제 콜백·D-175): 422 유지(PG 재전송 유도)·주문 없는 불일치 1행은 커밋·500 fallback 없음·기존 결제 불변(D-216 결정 1)")
+    void webhook_unknownAttemptKey_recordsUnmatched() throws Exception {
+        String body = successBody("tid_stage5_it_0001").replace(ATTEMPT_KEY, UNKNOWN_ATTEMPT_KEY);
 
         mockMvc.perform(post("/api/webhooks/payments")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isUnprocessableEntity());
 
+        assertThat(issueCount("PG_UNMATCHED_CALLBACK", "payment-attempt:" + UNKNOWN_ATTEMPT_KEY + ":SUCCESS")).isEqualTo(1);
         assertThat(paymentStatus()).isEqualTo("PENDING");
     }
 
     @Test
-    @DisplayName("webhook CANCEL×PAID(Track 93): 422 REJECT·Payment PAID 유지·Order PAID 유지·환불 행 없음(환불 우회 봉쇄)")
-    void webhook_cancelOnPaid_rejects422() throws Exception {
+    @DisplayName("webhook CANCEL×PAID(Track 93): 200·불일치 1행·Payment PAID 유지·Order PAID 유지·환불 행 없음(환불 우회 봉쇄·D-216)")
+    void webhook_cancelOnPaid_recordsIssue() throws Exception {
         tx.executeWithoutResult(s -> {
             jdbc.update("UPDATE payment SET status = 'PAID', pg_provider = 'MOCK_PG', pg_tid = 'tid_track93_paid', "
                     + "paid_at = NOW(6) WHERE id = ?", PAYMENT_ID);
@@ -185,8 +189,9 @@ class PaymentWebhookIntegrationTest extends AbstractIntegrationTest {
         mockMvc.perform(post("/api/webhooks/payments")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
-                .andExpect(status().isUnprocessableEntity());
+                .andExpect(status().isOk());
 
+        assertThat(issueCount("PG_PAYMENT_CANCEL_ON_PAID", "payment:" + PAYMENT_ID)).isEqualTo(1);
         assertThat(paymentStatus()).isEqualTo("PAID");
         assertThat(orderStatus()).isEqualTo("PAID");
         assertThat(refundCount()).isZero();
@@ -211,16 +216,17 @@ class PaymentWebhookIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("webhook pgTid 중복(uk_payment_provider_pg_tid·Track 93): 409·Payment PENDING·Order PENDING_PAYMENT·재고 불변(500 아님)")
-    void webhook_pgTidDuplicate_rejects409() throws Exception {
+    @DisplayName("webhook pgTid 중복(uk_payment_provider_pg_tid·Track 93): 200·불일치 1행·Payment PENDING·Order PENDING_PAYMENT·재고 불변(D-216)")
+    void webhook_pgTidDuplicate_recordsIssue() throws Exception {
         seedInventory(10, 1, 9);
         seedOtherPaidPayment("tid_track93_dup");
 
         mockMvc.perform(post("/api/webhooks/payments")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(successBody("tid_track93_dup")))
-                .andExpect(status().isConflict());
+                .andExpect(status().isOk());
 
+        assertThat(issueCount("PG_TID_CONFLICT", "payment:" + PAYMENT_ID)).isEqualTo(1);
         assertThat(paymentStatus()).isEqualTo("PENDING");
         assertThat(orderStatus()).isEqualTo("PENDING_PAYMENT");
         assertThat(orderItemStatus()).isEqualTo("ORDERED");
@@ -291,7 +297,15 @@ class PaymentWebhookIntegrationTest extends AbstractIntegrationTest {
             jdbc.update("DELETE FROM `order` WHERE id = ?", ORDER_ID);
             jdbc.update("DELETE FROM inventory_history WHERE inventory_id = ?", INVENTORY_ID);
             jdbc.update("DELETE FROM inventory WHERE id = ?", INVENTORY_ID);
+            jdbc.update("DELETE FROM reconciliation_issue WHERE payment_id = ? OR dedupe_key LIKE ?",
+                    PAYMENT_ID, "payment-attempt:" + UNKNOWN_ATTEMPT_KEY + ":%");
         });
+    }
+
+    /** 유형·중복 키별 열린 불일치 행 수(Track 104-2 D-216). 모든 변수 ? 바인딩. */
+    private int issueCount(String issueType, String dedupeKey) {
+        return jdbc.queryForObject("SELECT COUNT(*) FROM reconciliation_issue WHERE issue_type = ? AND dedupe_key = ? AND status = 'OPEN'",
+                Integer.class, issueType, dedupeKey);
     }
 
     private String paymentStatus() {

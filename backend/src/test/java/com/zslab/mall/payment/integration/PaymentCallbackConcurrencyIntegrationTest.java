@@ -1,13 +1,12 @@
 package com.zslab.mall.payment.integration;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.zslab.mall.payment.command.PaymentCallbackCommand;
 import com.zslab.mall.payment.enums.CallbackType;
-import com.zslab.mall.payment.exception.InvalidCallbackException;
 import com.zslab.mall.payment.service.ExpirePaymentService;
 import com.zslab.mall.payment.service.PaymentService;
+import com.zslab.mall.reconciliation.enums.ReconciliationIssueType;
 import com.zslab.mall.support.AbstractIntegrationTest;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -121,17 +120,17 @@ class PaymentCallbackConcurrencyIntegrationTest extends AbstractIntegrationTest 
                         return null;
                     }));
 
-            // 허용 실패 = 늦은 승인 422(InvalidCallbackException)뿐. 교착·락 타임아웃·불변식 예외는 실패.
-            assertThat(failures).allMatch(InvalidCallbackException.class::isInstance);
+            // Track 104-2 D-216: 늦은 승인도 예외 없이 불일치로 기록된다 — 교착·락 타임아웃·불변식 예외는 전부 실패.
+            assertThat(failures).isEmpty();
 
             if ("PAID".equals(paymentStatus())) {
                 paidRounds++;
-                assertThat(failures).isEmpty();
+                assertThat(issueCount()).isZero();
                 assertPaidOutcome();
             } else {
                 expiredRounds++;
                 assertThat(paymentStatus()).isEqualTo("EXPIRED");
-                assertThat(failures).hasSize(1);
+                assertThat(issueCount()).isEqualTo(1);   // 만료 선점 → 후행 SUCCESS는 불일치 1행
                 assertTerminatedOutcome();
             }
             assertCommonInvariants();
@@ -155,16 +154,16 @@ class PaymentCallbackConcurrencyIntegrationTest extends AbstractIntegrationTest 
                     () -> { paymentService.handleCallback(successCommand(pgTid)); return null; },
                     () -> { paymentService.handleCallback(failureCommand()); return null; }));
 
-            assertThat(failures).allMatch(InvalidCallbackException.class::isInstance);
+            assertThat(failures).isEmpty();
 
             if ("PAID".equals(paymentStatus())) {
                 paidRounds++;
-                assertThat(failures).isEmpty();          // 후행 FAILURE는 비PENDING NO-OP(200)
+                assertThat(issueCount()).isZero();         // 후행 FAILURE는 비PENDING NO-OP(200)
                 assertPaidOutcome();
             } else {
                 failedRounds++;
                 assertThat(paymentStatus()).isEqualTo("FAILED");
-                assertThat(failures).hasSize(1);          // 후행 SUCCESS × FAILED REJECT
+                assertThat(issueCount()).isEqualTo(1);     // 후행 SUCCESS × FAILED → 불일치 기록(구 REJECT·D-216)
                 assertTerminatedOutcome();
             }
             assertCommonInvariants();
@@ -173,16 +172,17 @@ class PaymentCallbackConcurrencyIntegrationTest extends AbstractIntegrationTest 
     }
 
     @Test
-    @DisplayName("T3 늦은 승인: 만료 종료 후 SUCCESS → InvalidCallbackException(422)·Payment EXPIRED 유지·재고 불변(B 예약 유지)")
-    void lateApproval_afterExpiry_rejectsWithoutTouchingInventory() {
+    @DisplayName("T3 늦은 승인: 만료 종료 후 SUCCESS → 불일치 1행(구 422·D-216)·Payment EXPIRED 유지·재고 불변(B 예약 유지)")
+    void lateApproval_afterExpiry_recordsWithoutTouchingInventory() {
         seedGraph(LocalDateTime.now().minusMinutes(1));
         expirePaymentService.expireOne(PAYMENT_ID);
         assertThat(paymentStatus()).isEqualTo("EXPIRED");
         assertTerminatedOutcome();
 
-        assertThatThrownBy(() -> paymentService.handleCallback(successCommand("tid_d173_t3")))
-                .isInstanceOf(InvalidCallbackException.class);
+        assertThat(paymentService.handleCallback(successCommand("tid_d173_t3")))
+                .contains(ReconciliationIssueType.PG_PAYMENT_SUCCESS_CONFLICT);
 
+        assertThat(issueCount()).isEqualTo(1);
         assertThat(paymentStatus()).isEqualTo("EXPIRED");
         assertTerminatedOutcome();
         assertCommonInvariants();
@@ -305,6 +305,7 @@ class PaymentCallbackConcurrencyIntegrationTest extends AbstractIntegrationTest 
                 jdbc.update("DELETE FROM inventory_history WHERE inventory_id = ?", INVENTORY_ID);
                 jdbc.update("DELETE FROM inventory WHERE id = ?", INVENTORY_ID);
                 jdbc.update("DELETE FROM payment WHERE id = ?", PAYMENT_ID);
+                jdbc.update("DELETE FROM reconciliation_issue WHERE payment_id = ?", PAYMENT_ID);
                 jdbc.update("DELETE FROM order_item WHERE id IN (?, ?)", ORDER_A_ITEM_ID, ORDER_B_ITEM_ID);
                 jdbc.update("DELETE FROM `order` WHERE id IN (?, ?)", ORDER_A_ID, ORDER_B_ID);
                 jdbc.update("DELETE FROM product_variant WHERE id = ?", VARIANT_ID);
@@ -315,6 +316,12 @@ class PaymentCallbackConcurrencyIntegrationTest extends AbstractIntegrationTest 
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
             }
         });
+    }
+
+    /** 대상 결제의 불일치 행 수(Track 104-2 D-216). 여기서 생길 수 있는 유형은 결제 성공 충돌뿐이라 그 유형으로 좁혀 센다. */
+    private int issueCount() {
+        return jdbc.queryForObject("SELECT COUNT(*) FROM reconciliation_issue WHERE payment_id = ? AND issue_type = 'PG_PAYMENT_SUCCESS_CONFLICT'",
+                Integer.class, PAYMENT_ID);
     }
 
     private String paymentStatus() {

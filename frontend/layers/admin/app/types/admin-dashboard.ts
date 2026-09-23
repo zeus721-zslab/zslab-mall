@@ -36,6 +36,8 @@ export interface AdminDashboardPending {
   claimFollowup: number
   /** 장기 배송중 = 발송 배송이 SHIPPING이고 발송 후 3일 이상 지난 건(Track 99 D-210·FE-61). BE LongShippingThreshold.DAYS. */
   longShipping: number
+  /** 열린 불일치 = reconciliation_issue status OPEN 건수(Track 104-2 D-216·FE-66). 목록 status=OPEN과 같은 조건. */
+  reconciliationOpen: number
 }
 
 /** yearMonth "yyyy-MM". */

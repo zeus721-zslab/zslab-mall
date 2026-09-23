@@ -8,6 +8,7 @@ import {
   type AdminDeliveryCarrier,
   type AdminDeliveryStatus,
 } from '#layers/admin/app/lib/constants/admin-order'
+import { RECONCILIATION_ISSUE_STATUS_LABEL, type ReconciliationIssueStatus } from '#layers/admin/app/lib/constants/reconciliation'
 import { formatWon } from '#layers/admin/app/lib/format'
 import { formatDateTime } from '~/lib/utils/datetime'
 
@@ -76,6 +77,7 @@ const AUDIT_FIELD_LABEL: Record<string, string> = {
   feeAmount: '수수료',
   refundAmount: '환불',
   netAmount: '지급액',
+  memo: '메모',
 }
 
 export function auditFieldLabel(field: string): string {
@@ -87,6 +89,7 @@ const STATUS_VALUE_LABEL: Record<AdminAuditTargetType, (value: string) => string
   CLAIM: claimStatusLabel,
   SETTLEMENT: (value) => SETTLEMENT_STATUS_LABELS[value as SettlementStatusCode] ?? value,
   DELIVERY: (value) => ADMIN_DELIVERY_STATUS_LABEL[value as AdminDeliveryStatus] ?? value,
+  RECONCILIATION_ISSUE: (value) => RECONCILIATION_ISSUE_STATUS_LABEL[value as ReconciliationIssueStatus] ?? value,
 }
 
 /** 값 → 원 단위 금액. 숫자가 아니면 원본(방어). */
@@ -180,5 +183,6 @@ export function auditActionText(log: Pick<AdminAuditLog, 'targetType' | 'action'
     if (log.action === 'UPDATE' && (has('trackingNo') || has('carrier'))) return '송장 정정'
     if (log.action === 'UPDATE' && afterOf('status') === 'DELIVERED') return '배송완료'
   }
+  if (log.targetType === 'RECONCILIATION_ISSUE' && log.action === 'UPDATE' && afterOf('status') === 'RESOLVED') return '불일치 해결'
   return ADMIN_AUDIT_ACTION_LABEL[log.action]
 }

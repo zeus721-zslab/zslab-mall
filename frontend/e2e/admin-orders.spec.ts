@@ -29,7 +29,7 @@ const PAID_DETAIL = {
   buyer: { userId: 'usr_E2E1', name: 'E2E구매자', email: 'buyer@e2e.invalid' },
   shippingAddress: { recipientName: '홍길동', recipientPhone: '010-0000-0000', zonecode: '06236', addressRoad: '서울 강남구 테헤란로 1', addressDetail: '101호' },
   totalPrice: 29900, discountAmount: 0, shippingFee: 3000, paymentAmount: 32900,
-  // refundedAmount = amount(전액 환불 완료·PAID 잔존) → C-12 경고 배지·수동 취소 버튼 노출 조건(FE-53)
+  // refundedAmount = amount(전액 환불 완료·PAID 잔존) → 수동 취소 버튼 노출 조건(FE-53). 경고는 불일치 섹션(Track 104-2 FE-66)이 맡는다.
   payments: [{ paymentId: 'pay_E2E1', method: 'CARD', status: 'PAID', amount: 32900, pgProvider: 'MOCK_PG', pgTid: 'MOCK-TID-0001', paidAt: '2026-09-16T10:05:00', createdAt: '2026-09-16T10:01:00', refundedAmount: 32900 }],
   items: [
     { orderItemId: 'oit_E2E0000000000000000000001', productName: 'E2E 티셔츠', optionLabel: 'M', quantity: 1, unitPrice: 19900, totalPrice: 19900, status: 'PAID', sellerName: 'E2E셀러',
@@ -51,6 +51,10 @@ const PAID_DETAIL = {
       ] },
   ],
   cancelReasons: [], actions: ['CANCEL', 'PREPARE_SHIPMENT'],
+  // Track 104-2 FE-66: 점검 스케줄러가 기록한 전액 환불·결제 미취소 불일치 1건(열림)
+  reconciliationIssues: [{ issueId: 901, issueType: 'FULL_REFUND_PAYMENT_NOT_CANCELLED', status: 'OPEN', orderId: PAID_ID, orderNo: 'ORD-20260916-0001',
+    pgTid: 'MOCK-TID-0001', detail: { reason: 'FULL_REFUND_PAYMENT_NOT_CANCELLED', detectedBy: 'SYSTEM', paymentStatus: 'PAID', paymentAmount: 32900, refundedAmount: 32900 },
+    detectedAt: '2026-09-17T03:00:00' }],
 }
 
 const UNPAID_DETAIL = {
@@ -58,7 +62,7 @@ const UNPAID_DETAIL = {
   buyer: { userId: 'usr_E2E1', name: 'E2E구매자', email: 'buyer@e2e.invalid' },
   totalPrice: 12000, discountAmount: 0, shippingFee: 0, paymentAmount: 12000, payments: [],
   items: [{ orderItemId: 'oit_E2E0000000000000000000003', productName: 'E2E 모자', quantity: 1, unitPrice: 12000, totalPrice: 12000, status: 'ORDERED', sellerName: 'E2E셀러', claims: [] }],
-  cancelReasons: [], actions: ['CANCEL'],
+  cancelReasons: [], actions: ['CANCEL'], reconciliationIssues: [],
 }
 
 interface Captured { listQueries: URLSearchParams[]; detailGets: string[]; posts: { url: string; body: string }[] }
@@ -339,16 +343,30 @@ test.describe('관리자 주문 목록·상세(FE-27)', () => {
     expect(captured.detailGets.length).toBeGreaterThanOrEqual(2)
   })
 
-  test('⑨ FE-36(Track 89-A) 상세 결제 표: PG 거래번호·실패코드 컬럼 → 전액 환불·PAID 잔존 행 경고 배지(C-12) + "취소 처리" → 다이얼로그(금액·사유 필수) 노출까지만(실행 안 함) → 닫기', async ({ page }) => {
+  test('⑨ FE-36(Track 89-A) 상세 결제 표: PG 거래번호·실패코드 컬럼 → 계산형 배지 대신 불일치 섹션(Track 104-2) + 해결 다이얼로그(메모 필수·FE-64 문구) → "취소 처리" 다이얼로그(금액·사유 필수) 노출까지만(실행 안 함) → 닫기', async ({ page }) => {
     const captured = await mockAdminApi(page)
     await loginAs(page, 'ADMIN')
     await page.goto(`/admin/orders/${PAID_ID}`)
     await expect(page.getByTestId('payment-row')).toHaveCount(1)
     await expect(page.getByTestId('payment-pg-tid')).toHaveText('MOCK-TID-0001')
     await expect(page.getByTestId('payment-failure-code')).toHaveText('—')
-    await expect(page.getByTestId('payment-cancel-lost')).toHaveText('환불 전액 완료·취소 미반영')
+    // Track 104-2 FE-66: C-12 계산형 배지는 제거하고 저장된 불일치를 섹션으로 보인다(취소 버튼은 같은 계산 조건 유지)
+    await expect(page.getByTestId('payment-cancel-lost')).toHaveCount(0)
+    const section = page.getByTestId('order-reconciliation')
+    await expect(section.getByTestId('reconciliation-type')).toHaveText('전액 환불·결제 미취소')
+    await expect(section.getByTestId('reconciliation-status')).toHaveText('확인 필요')
+    await expect(section.getByTestId('reconciliation-summary')).toHaveText('환불 합계가 결제액과 같은데 결제가 결제완료로 남아 있습니다')
+    await expect(section.getByTestId('reconciliation-facts')).toContainText('환불 완료 합계 32,900원')
 
     const postsBefore = captured.posts.length
+    await section.getByTestId('reconciliation-resolve').click()
+    const resolveDialog = page.getByTestId('admin-reconciliation-resolve-dialog')
+    await expect(resolveDialog).toBeVisible()
+    await expect(resolveDialog.getByTestId('resolve-message')).toContainText('되돌릴 수 없습니다.')
+    await expect(resolveDialog.getByTestId('resolve-dialog-ok')).toBeDisabled() // 메모 필수
+    await resolveDialog.getByTestId('resolve-dialog-close').click()
+    await expect(resolveDialog).toBeHidden()
+
     await page.getByTestId('payment-cancel').click()
     const dialog = page.getByTestId('admin-payment-cancel-dialog')
     await expect(dialog).toBeVisible()

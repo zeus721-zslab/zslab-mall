@@ -1,8 +1,8 @@
 package com.zslab.mall.payment.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -19,6 +19,8 @@ import com.zslab.mall.payment.repository.PaymentRepository;
 import com.zslab.mall.order.entity.Order;
 import com.zslab.mall.order.repository.OrderRepository;
 import com.zslab.mall.order.service.OrderService;
+import com.zslab.mall.reconciliation.enums.ReconciliationIssueType;
+import com.zslab.mall.reconciliation.service.ReconciliationIssueRecorder;
 import jakarta.persistence.EntityManager;
 import java.time.LocalDateTime;
 import java.util.Map;
@@ -33,7 +35,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 /**
- * {@link PaymentService} 이벤트 발행 페이로드·발행 시점 검증(D-29·D-30). 페이로드 정합 + REJECT 예외 시 미발행.
+ * {@link PaymentService} 이벤트 발행 페이로드·발행 시점 검증(D-29·D-30). 페이로드 정합 + 충돌 기록 시 미발행(Track 104-2).
  */
 @ExtendWith(MockitoExtension.class)
 class PaymentEventTest {
@@ -58,6 +60,8 @@ class PaymentEventTest {
     private EntityManager entityManager;
     @Mock
     private OrderService orderService;
+    @Mock
+    private ReconciliationIssueRecorder reconciliationIssueRecorder;
     @InjectMocks
     private PaymentService paymentService;
 
@@ -105,14 +109,16 @@ class PaymentEventTest {
     //         FAILURE × PENDING 신규 동작(EXPIRED·cancelOne 위임·미발행)은 PaymentCallbackTest가 커버한다.
 
     @Test
-    @DisplayName("REJECT 예외 시 이벤트 미발행(예외가 pull·publish 이전에 전파·롤백 안전)")
-    void reject_doesNotPublish() {
+    @DisplayName("충돌(종결 결제의 SUCCESS) 시 불일치 기록·예외 없음·이벤트 미발행(구 REJECT 예외·Track 104-2 D-216)")
+    void conflict_recordsAndDoesNotPublish() {
         Payment payment = paymentInStatus(PaymentStatus.FAILED);
         when(paymentRepository.findOrderIdByPaymentAttemptKey(ATTEMPT_KEY)).thenReturn(Optional.of(ORDER_ID));
         when(paymentRepository.findByPaymentAttemptKey(ATTEMPT_KEY)).thenReturn(Optional.of(payment));
 
-        assertThatThrownBy(() -> paymentService.handleCallback(command(CallbackType.SUCCESS, Map.of())))
-                .isInstanceOf(RuntimeException.class);
+        assertThat(paymentService.handleCallback(command(CallbackType.SUCCESS, Map.of())))
+                .contains(ReconciliationIssueType.PG_PAYMENT_SUCCESS_CONFLICT);
+        verify(reconciliationIssueRecorder).record(eq(ReconciliationIssueType.PG_PAYMENT_SUCCESS_CONFLICT),
+                eq("payment:" + PAYMENT_ID), any(), any());
         verify(eventPublisher, never()).publishEvent(any());
     }
 }

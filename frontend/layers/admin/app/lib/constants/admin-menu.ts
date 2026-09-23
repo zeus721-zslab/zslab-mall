@@ -31,6 +31,7 @@ export const ADMIN_MENU: AdminMenuGroup[] = [
       { to: '/admin/orders', label: '전체 주문' },
       { to: '/admin/orders/claims', label: '취소·반품·교환' },
       { to: '/admin/orders/deliveries', label: '배송 관리' },
+      { to: '/admin/orders/reconciliation', label: '불일치' },
     ],
   },
   {

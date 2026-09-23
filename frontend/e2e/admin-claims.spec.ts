@@ -58,7 +58,7 @@ const ORDER_DETAIL = {
   buyer: { userId: 'usr_E2E1', name: 'E2E구매자', email: 'buyer@e2e.invalid' },
   totalPrice: 29900, discountAmount: 0, shippingFee: 3000, paymentAmount: 32900, payments: [],
   items: [{ orderItemId: 'oit_E2E0000000000000000000001', productName: 'E2E 티셔츠', optionLabel: 'M', quantity: 1, unitPrice: 19900, totalPrice: 19900, status: 'CANCEL_REQUESTED', sellerName: 'E2E셀러', claims: [] }],
-  cancelReasons: [], actions: [],
+  cancelReasons: [], actions: [], reconciliationIssues: [],
 }
 
 interface Captured { listQueries: URLSearchParams[]; posts: { url: string; body: string }[] }

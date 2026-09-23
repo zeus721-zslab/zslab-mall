@@ -42,6 +42,8 @@ import com.zslab.mall.product.exception.ProductStoppedByAdminException;
 import com.zslab.mall.product.exception.ProductNotFoundException;
 import com.zslab.mall.product.exception.ProductVariantNotFoundException;
 import com.zslab.mall.product.exception.ProductVariantOptionConflictException;
+import com.zslab.mall.reconciliation.exception.ReconciliationIssueInvalidStateException;
+import com.zslab.mall.reconciliation.exception.ReconciliationIssueNotFoundException;
 import com.zslab.mall.refund.exception.RefundInvariantViolationException;
 import com.zslab.mall.refund.exception.RefundNotFoundException;
 import com.zslab.mall.seller.exception.SellerActivityInProgressException;
@@ -139,6 +141,8 @@ public class GlobalExceptionHandler {
     private static final String CODE_ORDER_ITEM_INVALID_STATE = "ORDER_ITEM_INVALID_STATE";
     private static final String CODE_PAYMENT_NOT_FOUND = "PAYMENT_NOT_FOUND";
     private static final String CODE_PAYMENT_INVALID_STATE = "PAYMENT_INVALID_STATE";
+    private static final String CODE_RECONCILIATION_ISSUE_NOT_FOUND = "RECONCILIATION_ISSUE_NOT_FOUND";
+    private static final String CODE_RECONCILIATION_ISSUE_INVALID_STATE = "RECONCILIATION_ISSUE_INVALID_STATE";
     private static final String CODE_EMAIL_ALREADY_EXISTS = "EMAIL_ALREADY_EXISTS";
     private static final String CODE_USER_NOT_FOUND = "USER_NOT_FOUND";
     private static final String CODE_ADDRESS_NOT_FOUND = "ADDRESS_NOT_FOUND";
@@ -343,6 +347,13 @@ public class GlobalExceptionHandler {
             PaymentNotFoundException exception, HttpServletRequest request) {
         // Track 28 D-113: Admin 결제 취소 시 paymentPublicId 미존재(404). 500 fallback으로 새는 트랩 차단.
         return build(HttpStatus.NOT_FOUND, CODE_PAYMENT_NOT_FOUND, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(ReconciliationIssueNotFoundException.class)
+    public ResponseEntity<ProblemDetail> handleReconciliationIssueNotFound(
+            ReconciliationIssueNotFoundException exception, HttpServletRequest request) {
+        // Track 104-2 D-216: 관리자 불일치 해결 대상 미존재(404).
+        return build(HttpStatus.NOT_FOUND, CODE_RECONCILIATION_ISSUE_NOT_FOUND, exception.getMessage(), request);
     }
 
     @ExceptionHandler(UserNotFoundException.class)
@@ -617,6 +628,14 @@ public class GlobalExceptionHandler {
         // D-172 보충: 환불 완료 콜백 동기 체인의 결제 취소 전이 불가(비PAID 등). 500 fallback 차단·422 매핑(DeliveryInvalidStateException 선례).
         log.warn("[Payment] 결제 상태 전이 위반(422): {}", exception.getMessage());
         return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_PAYMENT_INVALID_STATE, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(ReconciliationIssueInvalidStateException.class)
+    public ResponseEntity<ProblemDetail> handleReconciliationIssueInvalidState(
+            ReconciliationIssueInvalidStateException exception, HttpServletRequest request) {
+        // Track 104-2 D-216: 이미 해결된 불일치의 재해결(422).
+        log.warn("[Reconciliation] 불일치 상태 위반(422): {}", exception.getMessage());
+        return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_RECONCILIATION_ISSUE_INVALID_STATE, exception.getMessage(), request);
     }
 
     @ExceptionHandler(DeliveryInvalidStateException.class)

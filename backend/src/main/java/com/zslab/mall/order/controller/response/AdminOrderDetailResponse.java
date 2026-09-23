@@ -1,5 +1,6 @@
 package com.zslab.mall.order.controller.response;
 
+import com.zslab.mall.reconciliation.controller.response.AdminReconciliationIssueResponse;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -7,6 +8,7 @@ import java.util.List;
  * 관리자 주문 상세(Track 79 D-168). 주문자·배송지·결제 이력·항목(항목별 배송·클레임 이력)·미결제 취소 사유(audit)·가능 액션.
  *
  * @param cancelReasons 미결제 관리자 취소의 audit 기록(Claim 없는 경로·diff_json 파싱). 결제 후 취소 사유는 items[].claims에 있다.
+ * @param reconciliationIssues 이 주문의 불일치(Track 104-2 D-216·해결 포함·최신순)
  */
 public record AdminOrderDetailResponse(
         String orderId,
@@ -23,7 +25,8 @@ public record AdminOrderDetailResponse(
         List<PaymentRow> payments,
         List<Item> items,
         List<CancelReason> cancelReasons,
-        List<String> actions) {
+        List<String> actions,
+        List<AdminReconciliationIssueResponse> reconciliationIssues) {
 
     public record Buyer(String userId, String name, String email) {
     }

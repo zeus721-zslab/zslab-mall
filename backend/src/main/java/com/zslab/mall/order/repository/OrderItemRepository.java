@@ -53,6 +53,9 @@ public interface OrderItemRepository extends JpaRepository<OrderItem, Long>, Jpa
     @Query("SELECT oi.order.id FROM OrderItem oi WHERE oi.publicId = :publicId")
     Optional<Long> findOrderIdByPublicId(@Param("publicId") String publicId);
 
+    /** 주문에 특정 상태 품목이 있는지(Track 104-2 D-216·확정 품목 있는 전액 환불 판정). 파생 쿼리 바인딩. */
+    boolean existsByOrderIdAndItemStatus(Long orderId, OrderItemStatus itemStatus);
+
     /**
      * 여러 주문 품목의 소속 주문 요약(id·public_id·주문번호·구매자 id)과 품목 상품명을 한 번에 조회한다(Track 80 관리자 클레임 목록
      * 배치 enrich·N+1 회피·Order 엔티티 미적재). 상품명은 Track 101-B 외부 검토 반영으로 더했다 — 구매자 클레임 목록이 같은
