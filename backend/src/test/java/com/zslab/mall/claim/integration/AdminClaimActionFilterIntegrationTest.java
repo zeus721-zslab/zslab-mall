@@ -107,7 +107,7 @@ class AdminClaimActionFilterIntegrationTest extends AbstractIntegrationTest {
             long m25 = claim("M25", ClaimType.EXCHANGE, ClaimStatus.APPROVED, true, "PASS", List.of("MARK_EXCHANGE_DELIVERED"));
             delivery(m25, "OUTBOUND", "SHIPPING");
             refund(m25, "FAILED");
-            // --- INITIATE_REFUND: CANCEL APPROVED / RETURN PASS · 최신 환불 없음·FAILED / 활성 환불 있으면 제외 · 복수 행 MAX(id) ---
+            // --- INITIATE_REFUND: CANCEL APPROVED / RETURN PASS · "환불된 금액" 행(PENDING·COMPLETED·PG 성공 FAILED) 없음 · 품목 잔여 있음 ---
             claim("M12", ClaimType.CANCEL, ClaimStatus.APPROVED, false, null, List.of("INITIATE_REFUND"));
             long m13 = claim("M13", ClaimType.CANCEL, ClaimStatus.APPROVED, false, null, List.of("INITIATE_REFUND"));
             refund(m13, "FAILED");
@@ -118,9 +118,13 @@ class AdminClaimActionFilterIntegrationTest extends AbstractIntegrationTest {
             long m16 = claim("M16", ClaimType.CANCEL, ClaimStatus.APPROVED, false, null, List.of());
             refund(m16, "FAILED"); // 낮은 id
             refund(m16, "PENDING"); // 최신 = 활성
-            long m17 = claim("M17", ClaimType.CANCEL, ClaimStatus.APPROVED, false, null, List.of("INITIATE_REFUND"));
-            refund(m17, "COMPLETED"); // 낮은 id(활성 존재 여부로 보면 오판)
+            // Track 104-3a: 최신이 FAILED여도 완료 행이 있으면 개시 불가 — initiate 게이트가 완료 행을 돌려줘(no-op) 버튼과 어긋나던 조합
+            long m17 = claim("M17", ClaimType.CANCEL, ClaimStatus.APPROVED, false, null, List.of());
+            refund(m17, "COMPLETED"); // 낮은 id
             refund(m17, "FAILED"); // 최신 = FAILED
+            // Track 104-3a: 실패 처리했지만 PG가 성공을 통지한 환불 → 이미 환불된 금액이라 개시 불가
+            long m28 = claim("M28", ClaimType.CANCEL, ClaimStatus.APPROVED, false, null, List.of());
+            refundPgSucceeded(m28);
             long m18 = claim("M18", ClaimType.RETURN, ClaimStatus.APPROVED, true, "PASS", List.of("INITIATE_REFUND"));
             delivery(m18, "RETURN", "DELIVERED");
             long m19 = claim("M19", ClaimType.RETURN, ClaimStatus.APPROVED, true, "PASS", List.of());
@@ -188,7 +192,7 @@ class AdminClaimActionFilterIntegrationTest extends AbstractIntegrationTest {
         mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.admin(ADMIN))
                         .param("keyword", PRODUCT_NAME).param("action", "INITIATE_REFUND").param("refundStatus", "FAILED"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.totalCount").value(2)); // M13·M17
+                .andExpect(jsonPath("$.totalCount").value(1)); // M13(M17은 완료 행·M28은 PG 성공으로 제외·Track 104-3a)
 
         long followupTotal = list("action", "FOLLOWUP").get("totalCount").asLong();
         JsonNode page = list("action", "FOLLOWUP", "size", "2");
@@ -323,6 +327,18 @@ class AdminClaimActionFilterIntegrationTest extends AbstractIntegrationTest {
                 .setParameter(2, pid("rfn_", "M964R" + id))
                 .setParameter(3, claimId)
                 .setParameter(4, status)
+                .executeUpdate();
+    }
+
+    /** 실패 처리했지만 PG 성공 통지가 기록된 환불(Track 104-3a·pg_refund_succeeded_at). */
+    private void refundPgSucceeded(long claimId) {
+        long id = nextId++;
+        entityManager.createNativeQuery(
+                        "INSERT INTO refund (id, public_id, claim_id, payment_id, amount, status, pg_refund_succeeded_at, created_at, updated_at) "
+                                + "VALUES (?1, ?2, ?3, 1, 10000, 'FAILED', NOW(6), NOW(6), NOW(6))")
+                .setParameter(1, id)
+                .setParameter(2, pid("rfn_", "M964R" + id))
+                .setParameter(3, claimId)
                 .executeUpdate();
     }
 

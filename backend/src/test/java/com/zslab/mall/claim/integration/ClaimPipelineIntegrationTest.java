@@ -72,6 +72,8 @@ class ClaimPipelineIntegrationTest extends AbstractIntegrationTest {
     private static final long ORDER_ID = 9502L;
     private static final long ITEM_A = 9502L;
     private static final long ITEM_B = 9503L;
+    /** T4 Mock PENDING 전용 품목(Track 104-3a: PENDING 환불은 품목 기환불액이라 ITEM_A에 두면 누락 복구 대상 품목의 잔여가 0이 된다). */
+    private static final long ITEM_C = 9505L;
     private static final long PAYMENT_ID = 9502L;
     private static final long CLAIM_ID = 9502L;
     private static final long REFUND_ID = 9502L;
@@ -238,7 +240,8 @@ class ClaimPipelineIntegrationTest extends AbstractIntegrationTest {
             seedClaim(passedReturn, ITEM_B, "RETURN", "APPROVED", "DELIVERED", LocalDateTime.now().minusMinutes(10));
             jdbc.update("UPDATE claim SET picked_up_at = ?, inspected_at = ?, inspection_result = 'PASS', restock = 0 WHERE id = ?",
                     LocalDateTime.now().minusMinutes(11), LocalDateTime.now().minusMinutes(10), passedReturn);
-            seedClaim(pendingMock, ITEM_A, "CANCEL", "APPROVED", "PAID", LocalDateTime.now().minusMinutes(10));
+            seedOrderItem(ITEM_C, "CANCEL_REQUESTED");
+            seedClaim(pendingMock, ITEM_C, "CANCEL", "APPROVED", "PAID", LocalDateTime.now().minusMinutes(10));
             seedRefund(REFUND_ID + 1, pendingMock, "PENDING", PG_REFUND_ID, 10);
         });
 
@@ -598,14 +601,14 @@ class ClaimPipelineIntegrationTest extends AbstractIntegrationTest {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
                 jdbc.update("DELETE FROM notification_log WHERE recipient_user_id = ?", USER_ID);
                 jdbc.update("DELETE FROM attachment WHERE uploaded_by = ?", USER_ID);
-                jdbc.update("DELETE FROM refund WHERE claim_id IN (SELECT id FROM claim WHERE order_item_id IN (?, ?))", ITEM_A, ITEM_B);
-                jdbc.update("DELETE FROM delivery WHERE order_item_id IN (?, ?)", ITEM_A, ITEM_B);
-                jdbc.update("DELETE FROM claim WHERE order_item_id IN (?, ?)", ITEM_A, ITEM_B);
+                jdbc.update("DELETE FROM refund WHERE claim_id IN (SELECT id FROM claim WHERE order_item_id IN (?, ?, ?))", ITEM_A, ITEM_B, ITEM_C);
+                jdbc.update("DELETE FROM delivery WHERE order_item_id IN (?, ?, ?)", ITEM_A, ITEM_B, ITEM_C);
+                jdbc.update("DELETE FROM claim WHERE order_item_id IN (?, ?, ?)", ITEM_A, ITEM_B, ITEM_C);
                 jdbc.update("DELETE FROM inventory_history WHERE inventory_id = ?", VARIANT_ID);
                 jdbc.update("DELETE FROM inventory WHERE id = ?", VARIANT_ID);
                 jdbc.update("DELETE FROM payment WHERE id = ?", PAYMENT_ID);
                 jdbc.update("DELETE FROM reconciliation_issue WHERE order_id = ?", ORDER_ID);
-                jdbc.update("DELETE FROM order_item WHERE id IN (?, ?)", ITEM_A, ITEM_B);
+                jdbc.update("DELETE FROM order_item WHERE id IN (?, ?, ?)", ITEM_A, ITEM_B, ITEM_C);
                 jdbc.update("DELETE FROM `order` WHERE id = ?", ORDER_ID);
                 jdbc.update("DELETE FROM product_variant WHERE id = ?", VARIANT_ID);
                 jdbc.update("DELETE FROM product WHERE id = ?", PRODUCT_ID);
