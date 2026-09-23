@@ -37,6 +37,7 @@ import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.repository.OrderItemOrderProjection;
 import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.order.repository.OrderRepository;
+import com.zslab.mall.order.service.OrderService;
 import com.zslab.mall.refund.repository.RefundRepository;
 import jakarta.persistence.EntityManager;
 import java.time.LocalDateTime;
@@ -94,6 +95,8 @@ class ClaimServiceTest {
     // Track 101-A: 관리자 클레임 조작 감사 적재 의존. 전이 검증 케이스에서는 호출 여부만 충족하면 된다.
     @Mock
     private AuditRecorder auditRecorder;
+    @Mock
+    private OrderService orderService;
 
     @InjectMocks
     private ClaimService claimService;

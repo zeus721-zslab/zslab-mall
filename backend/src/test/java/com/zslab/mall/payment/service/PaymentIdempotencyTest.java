@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 
 import com.zslab.mall.common.observability.TracedEventPublisher;
 import com.zslab.mall.order.service.OrderAutoCancelService;
+import com.zslab.mall.order.service.OrderService;
 import com.zslab.mall.payment.command.PaymentCallbackCommand;
 import com.zslab.mall.payment.entity.Payment;
 import com.zslab.mall.payment.enums.CallbackType;
@@ -59,6 +60,8 @@ class PaymentIdempotencyTest {
     private OrderRepository orderRepository;
     @Mock
     private EntityManager entityManager;
+    @Mock
+    private OrderService orderService;
     @InjectMocks
     private PaymentService paymentService;
 
@@ -85,6 +88,7 @@ class PaymentIdempotencyTest {
     void duplicateSuccess_isIdempotent() {
         Payment payment = pendingPayment();
         // 동일 행을 두 콜백 모두에 반환(attempt_key 1차 키 식별)
+        when(paymentRepository.findOrderIdByPaymentAttemptKey(ATTEMPT_KEY)).thenReturn(Optional.of(ORDER_ID));
         when(paymentRepository.findByPaymentAttemptKey(ATTEMPT_KEY)).thenReturn(Optional.of(payment));
         when(paymentRepository.existsByOrderIdAndStatus(ORDER_ID, PaymentStatus.PAID)).thenReturn(false);
         when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.of(pendingOrder()));
@@ -100,6 +104,7 @@ class PaymentIdempotencyTest {
     @DisplayName("FAILURE 2회 수신: 1회 PG 실패(FAILED·Order 종료 위임), 2회차는 NO-OP(cancelOne 1회뿐·FE-12c 정정)")
     void duplicateFailure_isIdempotent() {
         Payment payment = pendingPayment();
+        when(paymentRepository.findOrderIdByPaymentAttemptKey(ATTEMPT_KEY)).thenReturn(Optional.of(ORDER_ID));
         when(paymentRepository.findByPaymentAttemptKey(ATTEMPT_KEY)).thenReturn(Optional.of(payment));
 
         paymentService.handleCallback(command(CallbackType.FAILURE)); // PENDING→FAILED·Order 종료 위임

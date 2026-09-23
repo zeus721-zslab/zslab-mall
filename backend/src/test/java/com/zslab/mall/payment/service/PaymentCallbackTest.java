@@ -12,6 +12,7 @@ import static org.mockito.Mockito.when;
 
 import com.zslab.mall.common.observability.TracedEventPublisher;
 import com.zslab.mall.order.service.OrderAutoCancelService;
+import com.zslab.mall.order.service.OrderService;
 import com.zslab.mall.payment.command.PaymentCallbackCommand;
 import com.zslab.mall.payment.entity.Payment;
 import com.zslab.mall.payment.enums.CallbackType;
@@ -66,6 +67,8 @@ class PaymentCallbackTest {
     private OrderRepository orderRepository;
     @Mock
     private EntityManager entityManager;
+    @Mock
+    private OrderService orderService;
     @InjectMocks
     private PaymentService paymentService;
 
@@ -90,6 +93,7 @@ class PaymentCallbackTest {
     }
 
     private void stubFind(Payment payment) {
+        when(paymentRepository.findOrderIdByPaymentAttemptKey(ATTEMPT_KEY)).thenReturn(Optional.of(ORDER_ID));
         when(paymentRepository.findByPaymentAttemptKey(ATTEMPT_KEY)).thenReturn(Optional.of(payment));
     }
 
@@ -107,6 +111,7 @@ class PaymentCallbackTest {
 
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PAID);
         verify(eventPublisher).publishEvent(any(PaymentCompleted.class));
+        verify(orderService).lockForWrite(ORDER_ID);   // Track 104-1 D-215: 결제 행보다 주문 쓰기 락이 먼저
     }
 
     @Test
@@ -239,10 +244,12 @@ class PaymentCallbackTest {
     @Test
     @DisplayName("attempt_key 미매칭 → InvalidCallbackException")
     void callback_attemptKeyNotFound_rejects() {
-        when(paymentRepository.findByPaymentAttemptKey(ATTEMPT_KEY)).thenReturn(Optional.empty());
+        // Track 104-1 D-215: 행 존재는 주문 락 대상 해소(스칼라 조회)에서 판정한다 — 비면 락도 결제 적재도 없이 거부.
+        when(paymentRepository.findOrderIdByPaymentAttemptKey(ATTEMPT_KEY)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> paymentService.handleCallback(command(CallbackType.SUCCESS)))
                 .isInstanceOf(InvalidCallbackException.class);
         verify(eventPublisher, never()).publishEvent(any());
+        verify(orderService, never()).lockForWrite(any());
     }
 }

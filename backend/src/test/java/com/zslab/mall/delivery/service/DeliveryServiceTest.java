@@ -14,6 +14,7 @@ import com.zslab.mall.delivery.enums.DeliveryStatus;
 import com.zslab.mall.delivery.event.DeliveryCompleted;
 import com.zslab.mall.delivery.event.DeliveryStarted;
 import com.zslab.mall.delivery.repository.DeliveryRepository;
+import com.zslab.mall.order.service.OrderService;
 import java.time.LocalDateTime;
 import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
@@ -39,6 +40,8 @@ class DeliveryServiceTest {
     private DeliveryRepository deliveryRepository;
     @Mock
     private TracedEventPublisher eventPublisher;
+    @Mock
+    private OrderService orderService;
     @InjectMocks
     private DeliveryService deliveryService;
 

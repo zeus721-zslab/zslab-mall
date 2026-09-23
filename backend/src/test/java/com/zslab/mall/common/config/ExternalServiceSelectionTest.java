@@ -9,6 +9,7 @@ import com.zslab.mall.notification.adapter.MockSmsSender;
 import com.zslab.mall.notification.adapter.NotificationSender;
 import com.zslab.mall.notification.adapter.SmsSender;
 import com.zslab.mall.order.repository.OrderRepository;
+import com.zslab.mall.order.service.OrderService;
 import com.zslab.mall.payment.controller.MockPaymentCallbackController;
 import com.zslab.mall.payment.gateway.MockPaymentGateway;
 import com.zslab.mall.payment.gateway.MockRefundAutoCallbackListener;
@@ -77,6 +78,11 @@ class ExternalServiceSelectionTest {
         @Bean
         PaymentService paymentService() {
             return Mockito.mock(PaymentService.class);
+        }
+
+        @Bean
+        OrderService orderService() {
+            return Mockito.mock(OrderService.class);
         }
 
         @Bean

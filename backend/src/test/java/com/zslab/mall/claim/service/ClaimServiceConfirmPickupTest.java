@@ -21,6 +21,7 @@ import com.zslab.mall.common.observability.TracedEventPublisher;
 import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.order.repository.OrderRepository;
+import com.zslab.mall.order.service.OrderService;
 import java.time.LocalDateTime;
 import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
@@ -60,6 +61,8 @@ class ClaimServiceConfirmPickupTest {
     // Track 101-A: 회수 확인 감사 적재 의존.
     @Mock
     private AuditRecorder auditRecorder;
+    @Mock
+    private OrderService orderService;
 
     @InjectMocks
     private ClaimService claimService;

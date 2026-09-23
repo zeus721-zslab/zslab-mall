@@ -8,6 +8,7 @@ import com.zslab.mall.claim.enums.ClaimStatus;
 import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.event.OrderPlaced;
 import com.zslab.mall.order.event.OrderTerminated;
+import com.zslab.mall.order.service.OrderService;
 import com.zslab.mall.payment.event.PaymentCompleted;
 import java.time.LocalDateTime;
 import org.junit.jupiter.api.AfterEach;
@@ -61,6 +62,8 @@ class InventoryEventIntegrationTest extends AbstractIntegrationTest {
     private PlatformTransactionManager txManager;
     @Autowired
     private ApplicationEvents applicationEvents;
+    @Autowired
+    private OrderService orderService;
 
     private TransactionTemplate tx;
 
@@ -204,9 +207,15 @@ class InventoryEventIntegrationTest extends AbstractIntegrationTest {
 
     // ---------- 발행·seed·helpers ----------
 
-    /** 커밋 트랜잭션에서 이벤트를 발행해 그 커밋 시점에 AFTER_COMMIT 핸들러가 동기 발화하도록 한다(@Async 아님). */
+    /**
+     * 커밋 트랜잭션에서 이벤트를 발행해 그 커밋 시점에 AFTER_COMMIT 핸들러가 동기 발화하도록 한다(@Async 아님). 실제 발행처(주문 쓰기
+     * 경로)처럼 주문 쓰기 락을 먼저 잡는다 — 동기 핸들러의 주문 상태 재계산은 락 보유를 전제로 한다(Track 104-1 D-215).
+     */
     private void publishInTx(Object event) {
-        tx.executeWithoutResult(s -> eventPublisher.publishEvent(event));
+        tx.executeWithoutResult(s -> {
+            orderService.lockForWrite(ORDER_ID);
+            eventPublisher.publishEvent(event);
+        });
     }
 
     /** FK 비활성 상태로 시드하고 복원한다(LT-02 try-finally). */

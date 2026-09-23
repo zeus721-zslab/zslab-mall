@@ -13,6 +13,7 @@ import com.zslab.mall.claim.event.ClaimApproved;
 import com.zslab.mall.notification.service.NotificationService;
 import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.repository.OrderItemRepository;
+import com.zslab.mall.order.service.OrderService;
 import com.zslab.mall.payment.gateway.PaymentGatewayException;
 import com.zslab.mall.refund.entity.Refund;
 import com.zslab.mall.refund.service.RefundService;
@@ -44,6 +45,8 @@ class ClaimApprovedHandlerTest {
     private OrderItemRepository orderItemRepository;
     @Mock
     private NotificationService notificationService;
+    @Mock
+    private OrderService orderService;
     @InjectMocks
     private ClaimApprovedHandler handler;
 
