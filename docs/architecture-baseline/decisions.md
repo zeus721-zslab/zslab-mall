@@ -12474,3 +12474,42 @@ PG·SMS·이메일은 포트(`PaymentGateway`·`SmsSender`·`NotificationSender`
 - 다셀러 혼합(한 품목 배송완료 + 다른 셀러 품목 미발송) 주문은 "처리 중"이라 미발송이 가려진다 — 지시 규칙("모든 품목 발송 전"만 발송 대기) 그대로 두었다.
 - 결제만 CANCELLED가 된 채 구매확정까지 간 주문(order id=2 유형)의 차단·탐지는 Track 104(주문 정합성)에서 다룬다.
 - 외부 검토: B(생략) · 셀프 리뷰 지적 5건 중 수용 4건
+
+
+## D-215: 주문 단위 직렬화(주문 쓰기 락) · READ COMMITTED · 재계산 일원화 (Track 104-1) (2026-09-23)
+
+배경: Track 104는 주문·결제·정산 정합성 원칙 P1~P6(`invariants.md` 끝 절)을 기준으로 삼고, 쓰기 경로 31개를 원칙별로 감사했다(`docs/track-104/recon-report.md`). P5(주문 단위 직렬화) 위반이 25경로다 — 경로마다 첫 락이 결제·클레임·배송·품목으로 달랐고, 주문 행은 마지막 암묵 UPDATE에서만 잠겼다. 격리 수준은 설정이 없어 MariaDB 기본 REPEATABLE READ였고, 재계산은 락 전 첫 읽기 스냅샷을 봤다. 그 결과 구매확정과 형제 품목 환불 완료가 겹치면 두 트랜잭션이 각자 옛 품목으로 재계산해 주문 상태를 틀리게 커밋했다(RED S1). 104-1은 P4·P5만 다룬다 — 돈·표식·정산(P1·P2·P3·P6)과 구매확정 가드는 104-2~4다. Track 103에서 보류한 WIP(결제 행 락·구매확정 결제 가드·관리자 취소 가드 등)는 `zslab-review/track-104-backup/`에 패치로 보존하고 코드에서는 되돌렸다.
+
+결정:
+- **주문 쓰기 락 공용 수단** `OrderService.lockForWrite(orderId)`: `@Lock(PESSIMISTIC_WRITE)` 단건 조회 · 필수 트랜잭션(MANDATORY) · 주문이 없으면 잠그지 않고 빈 값(호출부의 기존 404·skip에 맡김). 주문 id는 엔티티를 적재하지 않는 스칼라 조회(`findOrderIdBy…`·`findIdByPublicId`)로 구한다.
+- **적용**: 주문 소유 엔티티(결제·환불·클레임·품목·배송·주문)를 바꾸는 쓰기 트랜잭션의 첫 DB 접근이 주문 쓰기 락이다. 정찰 P5 위반 25경로 전부 + AFTER_COMMIT·REQUIRES_NEW 환불 개시 핸들러 2 + 재계산까지 이어지는 public primitive(ClaimService·DeliveryService 쓰기 메서드). 기존 클레임·배송·품목·환불·결제 행 락은 그 뒤에 그대로 둔다.
+- **격리 수준**: 앱 전체 READ COMMITTED(`application.yml` `spring.datasource.hikari.transaction-isolation`·모든 프로필·테스트 공유) · 정산 생성(월 생성·재생성)만 REPEATABLE READ(외부 검토 반영).
+- **재계산 일원화**: `recalculateStatus`는 주문 쓰기 락을 쥔 트랜잭션에서만 호출된다 — 관리 엔티티 잠금 모드가 쓰기 락이 아니면 `IllegalStateException`. Resolver 규칙은 무변경.
+
+### §1-A 갈림길·채택/기각 근거
+- **직렬화 축 = 주문 행 락 【채택: 결제가 없는 쓰기(클레임 요청·출고·배송완료·송장 정정)까지 한 줄로 세울 수 있는 공통 행은 주문뿐이다. 모든 경로의 첫 락이 같아 교차 순서(결제 → 주문 / 클레임 → 환불 → 결제 / 품목 → 주문 / 배송 → 품목)가 사라진다】** / 결제 행 락(Track 103 WIP) 【기각: 결제를 건드리지 않는 경로는 직렬화하지 못하고, 경로마다 첫 락이 달라 순서 역전이 남는다(환불 완료 체인이 결제 락을 쥔 확정을 RR 스냅샷으로 덮어쓰는 반대 방향 — 임시 L10 실측 PAID)】 / 경로별 기존 락 유지 【기각: RED S1(틀린 상태 커밋)이 그대로다】.
+- **격리 = 앱 전체 READ COMMITTED 【채택: 모든 쓰기 경로가 주문 락을 첫 문장에서 잡으므로 락 전 스냅샷이 생기지 않고, 락 뒤 비잠금 읽기가 앞 트랜잭션의 커밋을 본다. 운영 binlog 꺼짐 확인(2026-09-23)】** / 경로별 `@Transactional(isolation)` 【기각: Track 103 WIP가 구매확정 2경로에만 적용했을 때 반대 방향 경로가 RR로 남아 옛 상태를 덮어썼다. 합류(REQUIRED) 트랜잭션에서는 무시되고, 누락되면 조용히 틀린다】 / 락 뒤 잠금 읽기 재조회 【기각: 형제 품목 행을 잠그는 순간 경로 간 새 교착이 생긴다(Track 103 M1 기각 근거)】.
+- **주문이 없으면 잠그지 않음 【채택: 기존 미존재 처리(404·skip) 메시지·코드가 그대로이고 새 예외 경로가 없다】** — 단 PG 웹훅 진입 2곳(`PaymentService.handleCallback` 결제 콜백·`RefundService.handleCallback` 환불 콜백)은 스칼라 조회를 존재 판정으로 쓴다(같은 예외·메시지). 이 둘은 우리 트랜잭션(결제 시작·환불 개시 `initiate`)이 PG를 호출한 뒤 커밋하기 전에 PG가 그 키(attemptKey·pgRefundId)로 웹훅을 보낼 수 있는 진입이라, 스칼라가 비었는데 바로 뒤 엔티티 조회가 커밋을 보면 락 없이 진행하는 창이 생긴다(셀프 리뷰 #3). `markCompleted`도 같은 판정을 쓰지만 PG 진입이 아니다(`handleCallback` 경유·직접 호출 — 일관성 목적). Mock PG 콜백(자동 완료 리스너·mock 결제 콜백 API)은 개시 트랜잭션 커밋 뒤에 오므로 창이 없고, 그 밖의 진입점은 키가 이미 커밋된 행의 id·public_id라 스칼라가 비면 뒤 조회도 비어 기존 처리(404·skip·예외)로 끝난다.
+- **재계산 락 확인 = 관리 엔티티 잠금 모드(PESSIMISTIC_WRITE 또는 flush 뒤 PESSIMISTIC_FORCE_INCREMENT) 【채택: JPA 표준 API 1줄】** / 트랜잭션 리소스에 잠근 주문 id 등록 【기각: 코드가 늘고, REQUIRES_NEW 핸들러에서 바깥 트랜잭션 등록이 그대로 보여 확인이 약해진다】.
+- **primitive에도 락 【채택: 통합 테스트·동기 핸들러가 ClaimService·DeliveryService primitive를 직접 부르는 곳이 100여 곳(테스트 기준 ClaimService 74·DeliveryService 등 27) — 락이 없으면 재계산 확인에 걸린다. 같은 트랜잭션의 재획득은 이미 쥔 락이라 무해하다】** / 진입 wrapper에만 락 【기각: 위 호출이 전부 실패하고, primitive를 새로 부르는 경로가 락을 우회한다】.
+- **정산 생성 트랜잭션 = REPEATABLE READ(`SettlementCreationService.createMonthlySettlements`·`regenerate` 메서드 선언) 【채택: 한 정산 안의 매출(SALE)·환불(REFUND) 조회가 같은 시점을 봐야 한다. 전역 READ COMMITTED에서는 두 조회 사이에 커밋된 환불이 환불 쪽에만 섞인다(RED 실측 — 월 생성·재생성 모두 기대 refund=0·실측 refund=3000). 호출자(관리자 API 2·월 스케줄러)는 트랜잭션이 없어 선언이 최외곽에 적용된다 — 합류(REQUIRED)였다면 Spring 기본은 격리 선언을 경고 없이 무시한다. 재생성의 정산 행 락 조회는 잠금 읽기라 스냅샷을 만들지 않고, 스냅샷은 재집계 첫 매출 조회 시점에 잡힌다】** / 104-3 이월 【기각: 전역 READ COMMITTED 전환(이번 트랙)이 연 문제라 이번에 닫는다 — 외부 검토 지적(중)】.
+
+### §2 확정 구현 규칙·트랩
+- 호출 규약: 쓰기 메서드 첫 문장 `스칼라 주문 id 조회.ifPresent(orderService::lockForWrite)` → 그 뒤 엔티티 적재. 스칼라 조회: `OrderRepository.findIdByPublicId` · `OrderItemRepository.findOrderIdById/ByPublicId` · `ClaimRepository.findOrderIdById/ByPublicId` · `DeliveryRepository.findOrderIdById/ByPublicId` · `PaymentRepository.findOrderIdById/ByPublicId/ByPaymentAttemptKey` · `RefundRepository.findOrderIdByPgRefundId`. 한 트랜잭션에서 여러 주문을 잠그는 경로는 현재 없다(생기면 주문 id 오름차순).
+- **Hibernate 잠금 모드 트랩**: 락을 쥔 주문이라도 같은 트랜잭션에서 주문 UPDATE가 한 번 flush되면 Hibernate가 잠금 모드를 WRITE로 덮는다(`AbstractEntityEntry.postUpdate`·6.6.4 소스 확인). JPA로는 `PESSIMISTIC_FORCE_INCREMENT`로 보이고, 다시 잠가도 PESSIMISTIC_WRITE로 돌아오지 않는다 → 두 번째 재계산이 500(셀프 리뷰 #1). 재계산 확인은 두 값을 모두 쓰기 락으로 인정한다.
+- **1차 캐시 트랩(D-168) 유지**: 락 조회는 이미 관리 중인 주문의 상태를 덮어쓰지 않는다 → 주문 락은 반드시 엔티티 적재 전에 잡는다.
+- 테스트에서 동기 핸들러 이벤트(`ClaimCompleted` 등)를 직접 발행하는 경우 실제 발행처처럼 주문 쓰기 락을 먼저 잡아야 한다(`InventoryEventIntegrationTest.publishInTx`).
+- 부수 변경: delivery 패키지 서비스가 `OrderService`(주문 락)에 의존한다(순환 없음 — `OrderService` 의존은 Repository·Resolver·Publisher·EntityManager뿐).
+- RED(수정 전 main·`OrderSerializationLockRaceIntegrationTest`·앞 작업을 재계산 진입에서 정지): S1 구매확정 × 형제 품목 환불 완료 → 주문/대상/형제 **PAID/CONFIRMED/RETURNED**(틀린 상태·기대 CONFIRMED) · S2 환불 완료 체인 × 형제 반품 요청·S3 구매확정 × 관리자 결제 취소 → **직렬화 부재**(뒤 작업이 2초 안에 끝남·최종 상태는 어느 순서든 같아 상태로는 드러나지 않음). GREEN 3/3(뒤 작업 대기 확인·30초 안 종료 = 교착 없음). 정산 스냅샷(`SettlementSnapshotIsolationIntegrationTest`·환불 소스 조회 직전 정지 후 같은 기간 환불 커밋): RED 월 생성·재생성 모두 **gross=10000 refund=3000**(혼합 스냅샷·기대 refund=0) → REPEATABLE READ 선언 후 GREEN 2/2.
+- 검증(2026-09-23): `gradlew test --rerun-tasks` **1508/0 실패/0 skip**(255 클래스·main 1503 + 경합 3 + 재계산 확인 2) · 1회차는 `ExternalServiceSelectionTest` 4건 실패(DB 없는 컨텍스트 러너가 `MockPaymentCallbackService`의 새 의존 `OrderService`를 못 찾음 — 생성자 주입을 늘리면 그 빈을 직접 조립하는 슬라이스·설정 테스트가 패키지 밖에서 깨진다) → mock 빈 추가 후 2회차 통과. 외부 검토 반영(정산 격리) 후 재검증: **1510/0 실패/0 skip**(256 클래스·정산 스냅샷 +2). Playwright·워크스루·vitest는 생략(BE 내부 변경·API 계약 무변경).
+- 셀프 리뷰(A): 지적 10건(중 1·하 9) → 수용 4(#1 잠금 모드 트랩·#3 PG 콜백 락 생략 창·#7 주석·#10 공백) · 부분 수용 1(#9 콜백 단위 테스트가 락 호출 검증) · 이월 2(#4·#5) · 기각 3(#2 락 전 캐시 주문 — 현재 경로 0·상시 refresh는 전 경로 SELECT 추가 / #6 소유권 검증 전 락 — P5 첫 문장 우선·ULID / #8 S2·S3 상태 단언 판별력 — RED 기준 = 직렬화 부재로 결정).
+
+### §8 이월 (104-2~4 예고)
+- **104-2 (P1·P6)**: PG 사실(결제 성공·환불 완료) 거부 경로를 저장 + 불일치 표식으로, 로그로 끝나는 불일치의 영속 표식·관리자 화면.
+- **104-3 (P2·P3)**: 정산 대상 품목 순수령액·불일치 주문 자동 보류·확정 뒤 환불의 차감 항목.
+- ~~셀프 리뷰 #5(RC에서 정산 생성의 SALE·REFUND 두 쿼리가 같은 스냅샷이 아님)~~ → 정산 쪽 해소: 정산 생성 트랜잭션 REPEATABLE READ(§1-A·외부 검토 반영). 관리자 주문 상세가 결제·환불을 따로 읽는 사이의 순간 불일치는 표시 전용이라 남는다.
+- **104-4 (구매확정 가드 재정의)**: S3가 커밋하는 **결제 CANCELLED + 품목 CONFIRMED 조합의 옳고 그름**은 104-4에서 판단한다(104-1은 직렬화·일관만 확인).
+- P4 잔여: Order.status를 판단에 읽는 9곳(recon-report §3.2)·Resolver 밖 직접 세팅(`Order.markPaid`·`OrderRepository.transitionStatus`)은 104-1 범위 밖.
+- 환불 개시 PG 호출 동안 주문 락 보유(`RefundService.initiate`) — PG 지연 시 같은 주문 쓰기가 대기하고, AFTER_COMMIT 핸들러의 락 획득은 try 밖이다(셀프 리뷰 #4). PG 호출을 트랜잭션 밖으로 빼는 것은 실 어댑터 트랙에서 — 실 서비스 전환 체크리스트 선결 항목에 등재(`real-service-switch-guide.md`).
+- 락 없는 public 메서드(`PaymentService.markCancelled`·`DeliveryService.createForOrder/registerReturnShipment/registerReshipment`·`ClaimExchangeService.completeExchange`·`BuyerOrderConfirmService.confirmItem`·`RefundService.markFailed`)는 락을 쥔 호출부에서만 불린다 — 새 직접 호출처가 생기면 락을 먼저 잡는다.
+- 외부 검토: A / 지적 1건(중) 수용 · 문서 지적 1건 수용 · 경로 누락·락 전 적재·다중 주문·교착 지적 없음
