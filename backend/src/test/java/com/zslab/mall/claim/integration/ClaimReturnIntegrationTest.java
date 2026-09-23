@@ -747,6 +747,37 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
         }
     }
 
+    @Test
+    @DisplayName("103 T10 이력 연결 배송: 회수 송장 대행 등록(DELIVERY CREATE)이 클레임 이력에 시간순 합류·targetType 구분 / 연결 안 된 원 발송 배송 행은 제외")
+    void claimAuditLogs_includeLinkedDeliveryRows() throws Exception {
+        Long claimId = approvedReturn();
+        // 원 발송(claim_id 없음) 배송의 송장 정정 행 — 이 클레임의 이력이 아니다.
+        seed(() -> jdbc.update("INSERT INTO audit_log (public_id, actor_user_id, actor_role, action, target_type, target_id, "
+                        + "diff_json, created_at) VALUES (?, ?, 'ADMIN', 'UPDATE', 'DELIVERY', ?, '{}', NOW(6))",
+                pid("aud_", "RTNAUDOUT"), ADMIN_ID, OUTBOUND_DELIVERY_ID));
+        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid(claimId) + "/return-shipment").headers(authHeaders.admin(ADMIN_ID))
+                        .contentType(MediaType.APPLICATION_JSON).content(RETURN_SHIPMENT_BODY))
+                .andExpect(status().isOk());
+        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid(claimId) + "/confirm-pickup").headers(authHeaders.admin(ADMIN_ID)))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get(ADMIN_CLAIMS_URL + "/" + claimPid(claimId) + "/audit-logs").headers(authHeaders.admin(ADMIN_ID)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalCount").value(2))
+                // 최신순: 회수 확인(CLAIM UPDATE) → 대행 등록(DELIVERY CREATE)
+                .andExpect(jsonPath("$.items[0].targetType").value("CLAIM"))
+                .andExpect(jsonPath("$.items[0].action").value("UPDATE"))
+                .andExpect(jsonPath("$.items[1].targetType").value("DELIVERY"))
+                .andExpect(jsonPath("$.items[1].action").value("CREATE"));
+
+        mockMvc.perform(get(ADMIN_CLAIMS_URL + "/" + claimPid(claimId) + "/audit-logs").headers(authHeaders.admin(ADMIN_ID))
+                        .param("size", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.totalCount").value(2))
+                .andExpect(jsonPath("$.hasNext").value(true));
+    }
+
     /** 감사 행 직접 적재(테스트 전용) — 정상 경로로는 만들 수 없는 행위자 상태(SYSTEM·해소 불가)를 재현한다. */
     private void insertAuditRow(Long claimId, Long actorUserId, String actorRole) {
         seed(() -> jdbc.update("INSERT INTO audit_log (public_id, actor_user_id, actor_role, action, target_type, target_id, "

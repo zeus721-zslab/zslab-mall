@@ -1,10 +1,13 @@
 import { describe, it, expect } from 'vitest'
 import type { AdminOrderItem } from '#layers/admin/app/types/admin-order'
+import type { AdminDeliveryStatus, AdminOrderAction } from '#layers/admin/app/lib/constants/admin-order'
+import type { OrderStatusCode } from '~/lib/constants/order'
 import {
   cancelResultMessage,
   cancellableItems,
   claimRefundLabel,
   deliverableItems,
+  adminOrderListStatusLabel,
   isPaymentCancelLost,
   isUnpaidOrder,
   mapFieldErrors,
@@ -159,5 +162,26 @@ describe('isPaymentCancelLost(C-12)', () => {
     expect(isPaymentCancelLost({ status: 'PAID', amount: 32900, refundedAmount: 0 })).toBe(false)
     expect(isPaymentCancelLost({ status: 'CANCELLED', amount: 32900, refundedAmount: 32900 })).toBe(false)
     expect(isPaymentCancelLost({ status: 'PAID', amount: 0, refundedAmount: 0 })).toBe(false)
+  })
+})
+
+// Track 103(FE-65·D-214): 목록 주문 칸 전용 — PAID는 발송 여부·발송 가능 품목으로 나눈다(Resolver 기본값 PAID가 혼합 상태를 덮는다).
+describe('adminOrderListStatusLabel', () => {
+  const row = (status: OrderStatusCode, deliveryStatus: AdminDeliveryStatus | undefined, actions: AdminOrderAction[]) => ({ status, deliveryStatus, actions })
+
+  it('PAID + 원 발송 없음 + 발송할 PAID 품목 있음 → 발송 대기', () => {
+    expect(adminOrderListStatusLabel(row('PAID', undefined, ['CANCEL', 'PREPARE_SHIPMENT']))).toBe('발송 대기')
+  })
+
+  it('PAID + 배송 있음(부분 확정·반품 요청 등 혼합) 또는 발송할 품목 없음(전 품목 취소 요청) → 처리 중', () => {
+    expect(adminOrderListStatusLabel(row('PAID', 'DELIVERED', []))).toBe('처리 중')
+    expect(adminOrderListStatusLabel(row('PAID', 'READY', ['PREPARE_SHIPMENT']))).toBe('처리 중')
+    expect(adminOrderListStatusLabel(row('PAID', undefined, []))).toBe('처리 중')
+  })
+
+  it('PAID 외 상태는 공용 주문 상태 라벨 · 공용 맵은 무변경', () => {
+    expect(adminOrderListStatusLabel(row('CONFIRMED', 'DELIVERED', []))).toBe(ORDER_STATUS_LABELS.CONFIRMED)
+    expect(adminOrderListStatusLabel(row('PENDING_PAYMENT', undefined, ['CANCEL']))).toBe(ORDER_STATUS_LABELS.PENDING_PAYMENT)
+    expect(ORDER_STATUS_LABELS.PAID).toBe('결제완료')
   })
 })

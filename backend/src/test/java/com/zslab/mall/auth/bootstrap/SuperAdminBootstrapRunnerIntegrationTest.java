@@ -64,7 +64,7 @@ class SuperAdminBootstrapRunnerIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("(A) SUPER_ADMIN 부재 시: run() → user + user_role(SUPER_ADMIN) 생성·password는 BCrypt 인코딩 저장")
+    @DisplayName("(A) SUPER_ADMIN 부재 시: run() → user + user_role(SUPER_ADMIN) 생성·password는 BCrypt 인코딩 저장·기본 이름(Track 103)")
     void whenNoSuperAdmin_createsUserAndSuperAdminRole() {
         SuperAdminBootstrapRunner runner = newRunner(CREATE_EMAIL, CREATE_PASSWORD);
 
@@ -77,6 +77,8 @@ class SuperAdminBootstrapRunnerIntegrationTest extends AbstractIntegrationTest {
         assertThat(hash).isNotNull();
         assertThat(hash).isNotEqualTo(CREATE_PASSWORD); // 평문 저장 금지·인코딩 확인
         assertThat(passwordEncoder.matches(CREATE_PASSWORD, hash)).isTrue();
+        assertThat(jdbc.queryForObject("SELECT name FROM `user` WHERE email = ?", String.class, CREATE_EMAIL))
+                .isEqualTo(SuperAdminBootstrapRunner.DEFAULT_NAME);
     }
 
     @Test
