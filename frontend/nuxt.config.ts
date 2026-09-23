@@ -20,6 +20,9 @@ export default defineNuxtConfig({
   // 실 dev는 gateway_nginx가 /api를 먼저 처리하므로 이 규칙까지 오지 않는다(SSR도 apiInternalBase 직결이라 /api 미사용) → 충돌 없음.
   routeRules: {
     '/api/**': { proxy: `${process.env.API_INTERNAL_BASE || 'http://mall-backend:8080'}/api/**` },
+    // FE-63: 구매자 클레임 목록은 /orders 탭으로 통합됐다. 북마크·외부 링크 호환을 위해 경로만 흡수한다
+    // (정확 일치라 /claims/new·/claims/{id} 상세는 그대로 살아 있다).
+    '/claims': { redirect: '/orders?tab=cancel' },
   },
   shadcn: {
     prefix: '',

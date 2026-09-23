@@ -15,7 +15,7 @@ test('구매자 · 결제완료 주문 취소 신청', async ({ page }) => {
   await walkthrough.shot('주문-목록')
 
   // 결제완료 주문 중 가장 최근 건 = prepare.py가 마지막에 보장한 취소 가능(품목 PAID) 주문(목록은 주문일시 내림차순).
-  const paidOrder = page.locator('a[href^="/orders/ord_"]').filter({ hasText: '결제완료' }).first()
+  const paidOrder = page.getByTestId('order-card').filter({ hasText: '결제완료' }).first()
   await expect(paidOrder).toBeVisible()
   await walkthrough.click(paidOrder)
   const cancelButton = page.getByRole('button', { name: '취소 요청' }).first()

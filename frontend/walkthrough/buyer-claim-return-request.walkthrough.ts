@@ -15,7 +15,7 @@ test('구매자 · 배송완료 품목 반품 신청', async ({ page }) => {
   await walkthrough.shot('주문-목록')
 
   // 구매확정 시나리오와 겹치지 않도록 배송완료 주문 중 첫 번째를 쓴다(구매확정은 마지막 주문).
-  const deliveredOrder = page.locator('a[href^="/orders/ord_"]').filter({ hasText: '배송완료' }).first()
+  const deliveredOrder = page.getByTestId('order-card').filter({ hasText: '배송완료' }).first()
   await expect(deliveredOrder).toBeVisible()
   await walkthrough.click(deliveredOrder)
   const returnButton = page.getByRole('button', { name: '반품 요청' }).first()

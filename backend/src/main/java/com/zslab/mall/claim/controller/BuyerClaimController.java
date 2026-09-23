@@ -5,6 +5,7 @@ import com.zslab.mall.claim.controller.request.ReturnShipmentRequest;
 import com.zslab.mall.claim.controller.response.ClaimAttachmentUploadResponse;
 import com.zslab.mall.claim.controller.response.ClaimResponse;
 import com.zslab.mall.claim.controller.response.ClaimSummaryResponse;
+import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.controller.response.ReturnShipmentResponse;
 import com.zslab.mall.claim.entity.Claim;
 import com.zslab.mall.claim.service.ClaimAttachmentService;
@@ -108,13 +109,17 @@ public class BuyerClaimController {
         return ResponseEntity.ok(claimService.getClaim(claimPublicId, buyerId));
     }
 
-    /** 본인 클레임 목록(requested_by 기준·D-54 PagedResponse·page/size 클램프는 Service). */
+    /**
+     * 본인 클레임 목록(Track 101-B·주문 구매자 기준·D-54 PagedResponse·page/size 클램프는 Service). {@code type}은 주문내역의
+     * 취소·반품·교환 탭이 거는 유형 필터로 미지정이면 전체다. 허용값 밖 문자열은 스프링 enum 바인딩이 400으로 거른다.
+     */
     @GetMapping
     public ResponseEntity<PagedResponse<ClaimSummaryResponse>> list(
+            @RequestParam(required = false) ClaimType type,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             HttpServletRequest httpRequest) {
         Long buyerId = buyerActorResolver.resolve(httpRequest);
-        return ResponseEntity.ok(claimService.listClaims(buyerId, page, size));
+        return ResponseEntity.ok(claimService.listClaims(buyerId, type, page, size));
     }
 }

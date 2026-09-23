@@ -93,6 +93,10 @@ export interface ClaimSummary {
   rejectReasonCode: ClaimRejectReasonCode | null
   /** 최신 환불 상태(FE-28). 환불 미생성 시 null. */
   refundStatus: RefundStatus | null
+  /** 주문번호(FE-63·주문내역 탭에서 어느 주문인지 표기). 해소 실패 시 null. */
+  orderNo: string | null
+  /** 주문 시점 상품명 스냅샷(FE-63). 해소 실패 시 null. */
+  productName: string | null
 }
 
 /**

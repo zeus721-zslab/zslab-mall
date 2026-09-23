@@ -47,11 +47,13 @@ public interface OrderItemRepository extends JpaRepository<OrderItem, Long>, Jpa
     Optional<Long> findOrderIdById(@Param("id") Long id);
 
     /**
-     * 여러 주문 품목의 소속 주문 요약(id·public_id·주문번호·구매자 id)을 한 번에 조회한다(Track 80 관리자 클레임 목록 배치 enrich·
-     * N+1 회피·Order 엔티티 미적재). 모든 변수는 :ids 바인딩이다.
+     * 여러 주문 품목의 소속 주문 요약(id·public_id·주문번호·구매자 id)과 품목 상품명을 한 번에 조회한다(Track 80 관리자 클레임 목록
+     * 배치 enrich·N+1 회피·Order 엔티티 미적재). 상품명은 Track 101-B 외부 검토 반영으로 더했다 — 구매자 클레임 목록이 같은
+     * itemIds로 {@code findAllById}를 한 번 더 돌려 OrderItem 엔티티를 적재하던 것을 이 스칼라 1쿼리로 합쳤다.
+     * 모든 변수는 :ids 바인딩이다.
      */
     @Query("SELECT oi.id AS orderItemId, o.id AS orderId, o.publicId AS orderPublicId, o.orderNo AS orderNo, "
-            + "o.buyerId AS buyerId FROM OrderItem oi JOIN oi.order o WHERE oi.id IN :ids")
+            + "o.buyerId AS buyerId, oi.productName AS productName FROM OrderItem oi JOIN oi.order o WHERE oi.id IN :ids")
     List<OrderItemOrderProjection> findOrderSummariesByIdIn(@Param("ids") Collection<Long> ids);
 
     /**

@@ -34,6 +34,7 @@ import com.zslab.mall.order.controller.response.PagedResponse;
 import com.zslab.mall.order.entity.Order;
 import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.enums.OrderItemStatus;
+import com.zslab.mall.order.repository.OrderItemOrderProjection;
 import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.order.repository.OrderRepository;
 import com.zslab.mall.refund.repository.RefundRepository;
@@ -446,6 +447,8 @@ class ClaimServiceTest {
         Claim claim = org.mockito.Mockito.spy(requestedClaim());
         org.mockito.Mockito.doReturn(1L).when(claim).getId();
         when(claimRepository.findByPublicId(CLAIM_PUBLIC_ID)).thenReturn(Optional.of(claim));
+        // Track 101-B: 소유 판정 기준이 claim.requested_by가 아니라 주문의 구매자다.
+        when(claimRepository.findOrderBuyerIdByClaimId(1L)).thenReturn(Optional.of(BUYER_ID));
         OrderItem orderItem = org.mockito.Mockito.mock(OrderItem.class);
         when(orderItem.getPublicId()).thenReturn(ORDER_ITEM_PUBLIC_ID);
         when(orderItemRepository.findById(ORDER_ITEM_ID)).thenReturn(Optional.of(orderItem));
@@ -469,10 +472,14 @@ class ClaimServiceTest {
     }
 
     @Test
-    @DisplayName("getClaim: 타인 소유(requestedBy 불일치) → ClaimNotFoundException(정보 누출 차단·Q8)")
+    @DisplayName("getClaim: 타인 소유(주문 구매자가 다름) → ClaimNotFoundException(정보 누출 차단·Q8)")
     void getClaim_otherOwner_throws() {
-        Claim claim = requestedClaim();
+        // 해소는 되고 구매자만 다른 상태를 만든다 — 스텁을 비우면 Optional.empty()가 돌아와 "해소 실패" 경로를 타므로
+        // 소유권 판정 자체가 검증되지 않는다(외부 검토 반영·해소 실패는 아래 별도 케이스).
+        Claim claim = org.mockito.Mockito.spy(requestedClaim());
+        org.mockito.Mockito.doReturn(1L).when(claim).getId();
         when(claimRepository.findByPublicId(CLAIM_PUBLIC_ID)).thenReturn(Optional.of(claim));
+        when(claimRepository.findOrderBuyerIdByClaimId(1L)).thenReturn(Optional.of(BUYER_ID));
 
         assertThatThrownBy(() -> claimService.getClaim(CLAIM_PUBLIC_ID, 999L))
                 .isInstanceOf(ClaimNotFoundException.class);
@@ -480,10 +487,25 @@ class ClaimServiceTest {
     }
 
     @Test
+    @DisplayName("getClaim: 주문 구매자 해소 실패(품목·주문 없음) → ClaimNotFoundException(404 은닉)")
+    void getClaim_orderBuyerUnresolved_throws() {
+        Claim claim = org.mockito.Mockito.spy(requestedClaim());
+        org.mockito.Mockito.doReturn(1L).when(claim).getId();
+        when(claimRepository.findByPublicId(CLAIM_PUBLIC_ID)).thenReturn(Optional.of(claim));
+        when(claimRepository.findOrderBuyerIdByClaimId(1L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> claimService.getClaim(CLAIM_PUBLIC_ID, BUYER_ID))
+                .isInstanceOf(ClaimNotFoundException.class);
+        verify(orderItemRepository, never()).findById(any());
+    }
+
+    @Test
     @DisplayName("getClaim: 주문 품목 해소 실패(이상 케이스) → IllegalStateException")
     void getClaim_orderItemMissing_throws() {
-        Claim claim = requestedClaim();
+        Claim claim = org.mockito.Mockito.spy(requestedClaim());
+        org.mockito.Mockito.doReturn(1L).when(claim).getId();
         when(claimRepository.findByPublicId(CLAIM_PUBLIC_ID)).thenReturn(Optional.of(claim));
+        when(claimRepository.findOrderBuyerIdByClaimId(1L)).thenReturn(Optional.of(BUYER_ID));
         when(orderItemRepository.findById(ORDER_ITEM_ID)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> claimService.getClaim(CLAIM_PUBLIC_ID, BUYER_ID))
@@ -493,13 +515,13 @@ class ClaimServiceTest {
     // ===== listClaims: D-54 =====
 
     @Test
-    @DisplayName("listClaims: 정상 목록 → PagedResponse<ClaimSummaryResponse> 매핑")
+    @DisplayName("listClaims: 정상 목록 → PagedResponse<ClaimSummaryResponse> 매핑(주문 구매자 기준 조회)")
     void listClaims_happyPath() {
         Claim claim = requestedClaim();
-        when(claimRepository.findAllByRequestedBy(eq(BUYER_ID), any(Pageable.class)))
+        when(claimRepository.findAllByOrderBuyerId(eq(BUYER_ID), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(claim), PageRequest.of(0, 20), 1));
 
-        PagedResponse<ClaimSummaryResponse> response = claimService.listClaims(BUYER_ID, 0, 20);
+        PagedResponse<ClaimSummaryResponse> response = claimService.listClaims(BUYER_ID, null, 0, 20);
 
         assertThat(response.items()).hasSize(1);
         assertThat(response.items().get(0).claimType()).isEqualTo(ClaimType.CANCEL);
@@ -510,15 +532,62 @@ class ClaimServiceTest {
     }
 
     @Test
+    @DisplayName("listClaims: 주문번호·상품명을 주문 요약 projection 1쿼리로 채운다(품목 엔티티 미적재)")
+    void listClaims_enrichesFromSingleProjection() {
+        Claim claim = requestedClaim();
+        when(claimRepository.findAllByOrderBuyerId(eq(BUYER_ID), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(claim), PageRequest.of(0, 20), 1));
+        OrderItemOrderProjection projection = org.mockito.Mockito.mock(OrderItemOrderProjection.class);
+        when(projection.getOrderItemId()).thenReturn(ORDER_ITEM_ID);
+        when(projection.getOrderNo()).thenReturn("ORD20260629001");
+        when(projection.getProductName()).thenReturn("검수용 상품");
+        when(orderItemRepository.findOrderSummariesByIdIn(List.of(ORDER_ITEM_ID))).thenReturn(List.of(projection));
+
+        PagedResponse<ClaimSummaryResponse> response = claimService.listClaims(BUYER_ID, null, 0, 20);
+
+        assertThat(response.items().get(0).orderNo()).isEqualTo("ORD20260629001");
+        assertThat(response.items().get(0).productName()).isEqualTo("검수용 상품");
+        // 외부 검토 반영: 같은 itemIds로 품목 엔티티를 다시 적재하던 조회가 없어졌다.
+        verify(orderItemRepository, never()).findAllById(any());
+    }
+
+    @Test
+    @DisplayName("listClaims: 주문 요약 해소 실패 → 주문번호·상품명 null(목록 자체는 내려간다)")
+    void listClaims_unresolvedOrderSummary_leavesNulls() {
+        Claim claim = requestedClaim();
+        when(claimRepository.findAllByOrderBuyerId(eq(BUYER_ID), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(claim), PageRequest.of(0, 20), 1));
+        when(orderItemRepository.findOrderSummariesByIdIn(List.of(ORDER_ITEM_ID))).thenReturn(List.of());
+
+        PagedResponse<ClaimSummaryResponse> response = claimService.listClaims(BUYER_ID, null, 0, 20);
+
+        assertThat(response.items()).hasSize(1);
+        assertThat(response.items().get(0).orderNo()).isNull();
+        assertThat(response.items().get(0).productName()).isNull();
+    }
+
+    @Test
+    @DisplayName("listClaims: 유형 지정 → 유형 필터 쿼리로 분기(Track 101-B 탭)")
+    void listClaims_withType_usesTypeQuery() {
+        when(claimRepository.findAllByOrderBuyerIdAndType(eq(BUYER_ID), eq(ClaimType.RETURN), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 20), 0));
+
+        claimService.listClaims(BUYER_ID, ClaimType.RETURN, 0, 20);
+
+        verify(claimRepository).findAllByOrderBuyerIdAndType(eq(BUYER_ID), eq(ClaimType.RETURN), any(Pageable.class));
+        verify(claimRepository, never()).findAllByOrderBuyerId(any(), any());
+    }
+
+    @Test
     @DisplayName("listClaims: size 클램프(200→100·0→20·-1→20)")
     void listClaims_clampsSize() {
         ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
-        when(claimRepository.findAllByRequestedBy(eq(BUYER_ID), captor.capture()))
+        when(claimRepository.findAllByOrderBuyerId(eq(BUYER_ID), captor.capture()))
                 .thenReturn(new PageImpl<>(List.of()));
 
-        claimService.listClaims(BUYER_ID, 0, 200);
-        claimService.listClaims(BUYER_ID, 0, 0);
-        claimService.listClaims(BUYER_ID, 0, -1);
+        claimService.listClaims(BUYER_ID, null, 0, 200);
+        claimService.listClaims(BUYER_ID, null, 0, 0);
+        claimService.listClaims(BUYER_ID, null, 0, -1);
 
         List<Pageable> pageables = captor.getAllValues();
         assertThat(pageables.get(0).getPageSize()).isEqualTo(100);
