@@ -8,7 +8,7 @@ export function useSkinName(): Ref<SkinName> {
   return useState<SkinName>(SKIN_STATE_KEY, () => DEFAULT_SKIN)
 }
 
-/** 현재 스킨의 뷰. 없으면 parent → classic 순으로 대체한다. */
+/** 현재 스킨의 뷰. 없으면 parent → 기준 스킨(renew) 순으로 대체한다. */
 export function useSkinView(view: SkinViewName): Component {
   return resolveSkinView(useSkinName().value, view)
 }

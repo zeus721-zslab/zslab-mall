@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mountSuspended, mockNuxtImport } from '@nuxt/test-utils/runtime'
 import SignupPage from '~/pages/signup.vue'
-import SignupView from '~/skins/classic/views/SignupView.vue'
+import SignupView from '~/skins/renew/views/SignupView.vue'
 import type { SignupPageVm } from '~/skins/contracts/signup'
 
 // 회원가입 비밀번호 확인 판정(FE-74): signupPasswordConfirm을 선언한 스킨에서만 불일치를 막는다.
-// vitest 스킨은 classic 고정이라 need는 useSkinNeeds mock으로 켜고 끈다. 판정은 페이지 vm으로 직접 호출해 확인한다.
+// need를 선언하지 않은 스킨 경로도 검증하려고 need는 useSkinNeeds mock으로 켜고 끈다(vitest 스킨은 renew 고정·FE-75). 판정은 페이지 vm으로 직접 호출해 확인한다.
 const { authMock, useSkinNeedsMock, navigateToMock, routeMock } = vi.hoisted(() => ({
   authMock: { isAuthenticated: false, signup: vi.fn() },
   useSkinNeedsMock: vi.fn(),
@@ -53,7 +53,7 @@ describe('pages/signup.vue 비밀번호 확인', () => {
     expect(vm.errorMessage).toBe('')
   })
 
-  it('need 꺼짐(classic) → 확인 값과 무관하게 가입 요청', async () => {
+  it('need 꺼짐(선언 없는 스킨) →확인 값과 무관하게 가입 요청', async () => {
     const vm = await mountVm(false)
     vm.passwordConfirm = ''
     await vm.handleSubmit()

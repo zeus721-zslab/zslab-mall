@@ -8,7 +8,7 @@ function isBuyerPath(pathname: string): boolean {
 }
 
 /**
- * 구매자 스킨 결정(FE-67). 우선순위: 쿠키 zslab_skin → NUXT_PUBLIC_SKIN → classic. 미등록 값은 무시한다.
+ * 구매자 스킨 결정(FE-67). 우선순위: 쿠키 zslab_skin → NUXT_PUBLIC_SKIN → renew. 미등록 값(제거된 classic 포함)은 무시한다.
  * ?skin=<이름>은 쿠키를 설정하고 ?skin=reset은 지운다 — 구매자 경로에서만(관리자·셀러 경로는 무관).
  * useState 초기화 함수는 SSR에서만 실행되고 CSR은 페이로드 값을 그대로 써서 요청 단위 1회 결정이 SSR·CSR에서 일치한다.
  */

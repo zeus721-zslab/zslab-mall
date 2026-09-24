@@ -47,7 +47,7 @@ describe('app/skins 금지 사용(스킨 = 화면만)', () => {
 
   it('검사 대상 파일과 금지 식별자가 비어 있지 않다', () => {
     expect(files.length).toBeGreaterThan(0)
-    expect(forbiddenCalls).toEqual(expect.arrayContaining(['useProductList', 'useCartStore', 'useAuthStore', 'useAdminApi', 'useSellerApi']))
+    expect(forbiddenCalls).toEqual(expect.arrayContaining(['useProductPage','useCartStore', 'useAuthStore', 'useAdminApi', 'useSellerApi']))
   })
 
   it('composable·store·API 모듈 import 0건', () => {
