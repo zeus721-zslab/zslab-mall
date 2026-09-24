@@ -28,8 +28,8 @@ const FOOTER_LINK = 'transition duration-fast ease-soft hover:text-ink max-md:in
 
 <template>
   <div class="flex min-h-screen flex-col bg-surface-page text-ink">
-    <!-- ≥1024 높이는 --header-height 토큰으로 고정한다(상세 구매 영역 sticky가 같은 값 기준·FE-70). -->
-    <header class="sticky top-0 z-50 border-b border-line bg-white lg:h-(--header-height)">
+    <!-- ≥1024 높이는 --header-height 토큰으로 고정한다(상세 구매 영역 sticky가 같은 값 기준·FE-70). top은 상단 안전 영역만큼 내린다(FE-78). -->
+    <header class="sticky top-[env(safe-area-inset-top,0px)] z-50 border-b border-line bg-white lg:h-(--header-height)">
       <div :class="[CONTAINER, 'flex flex-wrap items-center gap-x-2 gap-y-3 py-3 md:gap-x-6']">
         <NuxtLink to="/" class="mr-auto shrink-0 text-h2 text-ink md:mr-0">
           zslab<span class="text-primary">.</span>mall

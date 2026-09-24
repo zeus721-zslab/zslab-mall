@@ -16,7 +16,7 @@ function onChange(event: Event): void {
   <span class="relative inline-flex h-6 w-6 shrink-0">
     <input
       type="checkbox"
-      class="peer h-6 w-6 cursor-pointer appearance-none rounded-lg border-2 border-line bg-white transition duration-200 checked:border-primary checked:bg-primary focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-default disabled:opacity-40"
+      class="peer h-6 w-6 cursor-pointer appearance-none rounded-lg border-2 border-line bg-white transition duration-fast ease-soft checked:border-primary checked:bg-primary focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-default disabled:opacity-40"
       :checked="checked"
       :disabled="disabled"
       :aria-label="ariaLabel"

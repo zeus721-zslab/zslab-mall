@@ -14,6 +14,12 @@ export default defineNuxtConfig({
   },
   modules: ['@pinia/nuxt', 'shadcn-nuxt'],
   css: ['~/assets/css/main.css'],
+  // FE-78: viewport-fit=cover가 있어야 iOS에서 env(safe-area-inset-*)가 0이 아니다(하단 고정 바·상단 sticky 헤더가 사용).
+  app: {
+    head: {
+      viewport: 'width=device-width, initial-scale=1, viewport-fit=cover',
+    },
+  },
   // Playwright Browser/SSR Smoke(FE-15 STEP3): :3000 직접 접근(게이트웨이 미경유) 시 client-side /api를 backend로 프록시한다.
   // target은 API_INTERNAL_BASE env(컨테이너 내부 alias)에서 읽고 하드코딩하지 않는다. 기본값은 언더스코어 없는 mall-backend alias
   // (Tomcat 엄격 Host 검증이 zslab_mall_backend 언더스코어 호스트를 400 거부하기 때문).
