@@ -12759,3 +12759,34 @@ A / 2라운드 · 지적 3건 중 수용 2건(R1 운영 코드 1건 중 0 — Or
   (근거: AI 주 가치는 Q&A, 실패 비용 낮은 곳에서 근거 주입→초안→수정률 먼저 검증)
 - 착수 시 확인 추가: 클레임 처리 주체(셀러/관리자)와 권한 경계
 - 외부 검토: 지적 6건 중 수용 5건(2건 형태 변경), 기각 1건(긴급순 정의 — 착수 시 결정 사항)
+
+## D-221 구매자 상품 목록 큐레이션 파라미터 — 셀러 필터·가격 상한·판매량 정렬 (Track 105-2b · 2026-09-24)
+
+### 배경
+renew 메인 큐레이션(FE-68 β)에 필요한 조회를 기존 `GET /api/v1/products`(공개) 확장으로 제공한다. 기존 파라미터·기본 정렬(LATEST)·응답 필드는 그대로이고 필드 추가만 한다.
+
+### 결정
+- **sellerPublicId** 판매자 public_id(slr_) 일치 필터. trim 후 빈 값이면 조건 없음(keyword와 동일), 미존재·형식 오류·비활성 셀러는 모두 빈 목록 200(존재 여부를 응답으로 구분할 수 없게).
+- **maxPrice** 대표가(basePrice + 판매가능 variant MIN(additional_price) — 응답 displayPrice와 같은 식) 이하. 상한과 같은 가격 포함. 음수는 400 MALFORMED_REQUEST(Service·keyword 길이 검증과 같은 방식), 숫자 아님은 타입 변환 400.
+- **sort=SALES** 최근 7일 판매 수량 합 내림차순. 판매 0 상품도 포함하고 동률·0은 기존 tiebreaker(created_at DESC, id DESC) = 최신순.
+  - 기간 기준 = `order.paid_at ≥ now − 7일`. 결제 시각이 판매 시점이고 인덱스(V31)가 있으며 관리자·셀러 매출 통계와 같은 기준이다(created_at은 인덱스 없음).
+  - 집계 품목 상태 = PAID·PREPARING·SHIPPING·DELIVERED·CONFIRMED·CANCEL_REQUESTED·RETURN_REQUESTED·EXCHANGE_REQUESTED·EXCHANGED. 제외 = ORDERED(미결제)·CANCELLED·RETURNED(취소·반품 종결). *_REQUESTED는 종결 전이라 포함하고, 교환은 판매가 유지되므로 포함한다. 품목 1건은 한 번만 센다(클레임은 부분 수량이 없고 교환은 같은 품목의 옵션만 바꾼다).
+  - 관리자 매출 통계(AdminSalesStatsRepository)는 상태로 거르지 않고 환불로 상쇄한다 — 이 정렬의 "판매량"은 순위용 정의로 통계와 다르다.
+- **응답 필드 추가** 목록 ProductSummaryResponse에 `sellerPublicId`(셀러 필터 왕복용). 내부 seller_id는 노출하지 않는다. 상세 응답에는 추가하지 않았다.
+- **셀러 픽** 신규 API 없이 FE 조합 — 최신 상품에서 서로 다른 셀러 3곳을 골라 셀러 필터로 조회한다.
+- 판매 수량 값은 응답에 없고 순위만 노출된다. 다만 LATEST와 SALES 순서를 비교하면 판매 유무는 추론할 수 있다(공개 베스트 순위의 일반 성질로 수용).
+
+### §1-A 갈림길·채택/기각 근거
+- **판매량 실시간 쿼리**(목록 쿼리 ORDER BY의 상관 서브쿼리) 【채택: 현 데이터 규모가 작다(product 34·order_item 191 실측)】
+- **집계 테이블·배치** 【기각: 현 규모에 과하다 — 규모 증가 시 재검토】
+
+### §2 확정 구현 규칙·트랩
+- 상관 서브쿼리는 상품마다 `order_item(product_id)` FK 인덱스로 그 상품의 전체 기간 품목을 읽고 order PK로 조인한 뒤 paid_at을 거른다(EXPLAIN: `ix_order_paid_at` 미사용·바깥 filesort라 LIMIT 선적용 불가). 비용은 "노출 상품의 전체 기간 주문 품목 수"에 비례한다.
+- 재검토 트리거: SALES 목록 응답이 눈에 띄게 느려지거나 order_item이 수십만 건 규모에 이르면 집계 테이블(또는 paid_at 범위를 먼저 거르는 파생 테이블 조인)로 전환한다.
+- 요청마다 7일 창이 움직이므로 SALES offset 페이징은 페이지 사이에서 순위가 바뀔 수 있다(무한 스크롤은 FE에서 중복 제거).
+- 검증(2026-09-24): `gradlew test --rerun-tasks` 266 클래스 1574/0 실패(셀프 리뷰 반영 전) · 반영 후 영향 테스트 ProductCatalogControllerIntegrationTest 23/23(무변경) · ProductCatalogCurationIntegrationTest 11/11.
+
+### §8 이월
+- FE `ProductSort` 유니온·`ProductSummary` 타입에 SALES·sellerPublicId 반영(Track 105-2c에서 사용 시).
+
+외부 검토: B / 셀프 리뷰 3관점 지적 16건 중 수용 11건

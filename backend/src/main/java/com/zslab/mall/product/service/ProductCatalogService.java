@@ -6,6 +6,7 @@ import com.zslab.mall.common.exception.MalformedRequestException;
 import com.zslab.mall.inventory.entity.Inventory;
 import com.zslab.mall.inventory.repository.InventoryRepository;
 import com.zslab.mall.order.controller.response.PagedResponse;
+import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.product.controller.request.ProductCatalogSort;
 import com.zslab.mall.product.controller.response.ProductDetailResponse;
 import com.zslab.mall.product.controller.response.ProductSummaryResponse;
@@ -30,8 +31,10 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
@@ -63,6 +66,21 @@ public class ProductCatalogService {
     // 단순상품 합성 sentinel 옵션 그룹명(ProductRegistrationService의 DEFAULT_OPTION_GROUP_NAME과 동일 계약). 카탈로그 노출에서 숨긴다.
     private static final String DEFAULT_OPTION_GROUP_NAME = "DEFAULT";
 
+    // 판매량 정렬(D-221) 집계 기간. 결제 시각(order.paid_at·인덱스 V31) 기준 최근 N일.
+    private static final int SALES_WINDOW_DAYS = 7;
+    // 판매량으로 세는 품목 상태(D-221): 결제 완료 이후 전부. 미결제(ORDERED)와 취소·반품으로 종결된 CANCELLED·RETURNED만 뺀다 —
+    // *_REQUESTED는 아직 종결 전이라 포함하고, 교환(EXCHANGED)은 판매가 유지되므로 포함한다.
+    private static final Set<OrderItemStatus> SALES_COUNTED_ITEM_STATUSES = EnumSet.of(
+            OrderItemStatus.PAID,
+            OrderItemStatus.PREPARING,
+            OrderItemStatus.SHIPPING,
+            OrderItemStatus.DELIVERED,
+            OrderItemStatus.CONFIRMED,
+            OrderItemStatus.CANCEL_REQUESTED,
+            OrderItemStatus.RETURN_REQUESTED,
+            OrderItemStatus.EXCHANGE_REQUESTED,
+            OrderItemStatus.EXCHANGED);
+
     private final ProductRepository productRepository;
     private final ProductVariantRepository productVariantRepository;
     private final ProductOptionGroupRepository productOptionGroupRepository;
@@ -73,22 +91,29 @@ public class ProductCatalogService {
     private final CategoryRepository categoryRepository;
 
     /**
-     * 노출대상 상품 목록(D1 노출·D2 품절·D3 대표가·페이징·정렬·상품명 keyword). size는 1~100 클램프(BuyerOrderQueryService 정합).
+     * 노출대상 상품 목록(D1 노출·D2 품절·D3 대표가·페이징·정렬·상품명 keyword·셀러·가격 상한). size는 1~100 클램프
+     * (BuyerOrderQueryService 정합). 미존재 sellerPublicId는 빈 목록이다(에러 아님·D-221). sellerPublicId는 keyword와 같이
+     * trim 후 빈 값이면 조건 없음이다.
      *
-     * @throws MalformedRequestException keyword가 trim 후 {@value #MAX_KEYWORD_LENGTH}자를 초과할 때(400)
+     * @throws MalformedRequestException keyword가 trim 후 {@value #MAX_KEYWORD_LENGTH}자를 초과하거나 maxPrice가 음수일 때(400)
      */
     public PagedResponse<ProductSummaryResponse> listProducts(
-            Long categoryId, String keyword, ProductCatalogSort sort, int page, int size) {
+            Long categoryId, String keyword, String sellerPublicId, Long maxPrice, ProductCatalogSort sort, int page, int size) {
+        if (maxPrice != null && maxPrice < 0) {
+            throw new MalformedRequestException("maxPrice는 0 이상이어야 합니다.");
+        }
         Pageable pageable = PageRequest.of(Math.max(page, 0), clampSize(size));
         LocalDateTime now = LocalDateTime.now();
+        String sellerFilter = sellerPublicId == null || sellerPublicId.isBlank() ? null : sellerPublicId.trim();
         Page<Product> products = productRepository.findDisplayable(
-                now, categoryId, toLikePattern(keyword), sort.name(), pageable);
+                now, categoryId, toLikePattern(keyword), sellerFilter, maxPrice, sort.name(),
+                now.minusDays(SALES_WINDOW_DAYS), SALES_COUNTED_ITEM_STATUSES, pageable);
         List<Product> content = products.getContent();
 
         List<Long> productIds = content.stream().map(Product::getId).toList();
         Map<Long, List<ProductVariant>> saleVariantsByProduct = saleVariantsByProductId(productIds);
         Map<Long, Inventory> inventoryByVariant = inventoryByVariantId(saleVariantsByProduct.values());
-        Map<Long, String> sellerNameById = sellerNamesByIdFor(content);
+        Map<Long, Seller> sellerById = sellersByIdFor(content);
         Map<Long, Category> categoryById = categoriesByIdFor(content);
 
         List<ProductSummaryResponse> summaries = content.stream()
@@ -96,7 +121,7 @@ public class ProductCatalogService {
                         product,
                         saleVariantsByProduct.getOrDefault(product.getId(), List.of()),
                         inventoryByVariant,
-                        sellerNameById,
+                        sellerById,
                         categoryById))
                 .toList();
         Page<ProductSummaryResponse> summaryPage =
@@ -173,9 +198,10 @@ public class ProductCatalogService {
             Product product,
             List<ProductVariant> saleVariants,
             Map<Long, Inventory> inventoryByVariant,
-            Map<Long, String> sellerNameById,
+            Map<Long, Seller> sellerById,
             Map<Long, Category> categoryById) {
         Category category = categoryById.get(product.getCategoryId());
+        Seller seller = sellerById.get(product.getSellerId());
         return new ProductSummaryResponse(
                 product.getPublicId(),
                 product.getName(),
@@ -184,7 +210,8 @@ public class ProductCatalogService {
                 isProductSoldOut(product, saleVariants, inventoryByVariant),
                 product.getCategoryId(),
                 category != null ? category.getDisplayName() : null,
-                sellerNameById.get(product.getSellerId()));
+                seller != null ? seller.getCompanyName() : null,
+                seller != null ? seller.getPublicId() : null);
     }
 
     private ProductDetailResponse toDetail(
@@ -290,13 +317,13 @@ public class ProductCatalogService {
                 .collect(Collectors.toMap(Inventory::getVariantId, Function.identity()));
     }
 
-    private Map<Long, String> sellerNamesByIdFor(List<Product> products) {
+    private Map<Long, Seller> sellersByIdFor(List<Product> products) {
         List<Long> sellerIds = products.stream().map(Product::getSellerId).distinct().toList();
         if (sellerIds.isEmpty()) {
             return Map.of();
         }
         return sellerRepository.findByIdIn(sellerIds).stream()
-                .collect(Collectors.toMap(Seller::getId, Seller::getCompanyName));
+                .collect(Collectors.toMap(Seller::getId, Function.identity()));
     }
 
     private Map<Long, Category> categoriesByIdFor(List<Product> products) {

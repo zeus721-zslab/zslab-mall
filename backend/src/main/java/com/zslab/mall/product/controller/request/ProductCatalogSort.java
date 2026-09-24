@@ -8,11 +8,13 @@ package com.zslab.mall.product.controller.request;
  *   <li>{@link #PRICE_ASC} — 대표가 오름차순(basePrice + 판매가능 variant MIN(additional_price))</li>
  *   <li>{@link #PRICE_DESC} — 대표가 내림차순</li>
  *   <li>{@link #NAME} — 상품명 오름차순</li>
+ *   <li>{@link #SALES} — 최근 7일 판매 수량 내림차순(결제 완료 이후·취소/반품 종결 제외·동률은 최신순·D-221)</li>
  * </ul>
  */
 public enum ProductCatalogSort {
     LATEST,
     PRICE_ASC,
     PRICE_DESC,
-    NAME
+    NAME,
+    SALES
 }

@@ -12,6 +12,7 @@ package com.zslab.mall.product.controller.response;
  * @param categoryId 카테고리 식별자(공개 taxonomy·필터 왕복용)
  * @param categoryName 카테고리 표시명
  * @param sellerName 판매자 상호명(company_name)
+ * @param sellerPublicId 외부 노출 판매자 식별자(slr_·셀러 필터 왕복용·D-221). 내부 seller_id는 노출하지 않는다
  */
 public record ProductSummaryResponse(
         String productPublicId,
@@ -21,5 +22,6 @@ public record ProductSummaryResponse(
         boolean soldOut,
         Long categoryId,
         String categoryName,
-        String sellerName) {
+        String sellerName,
+        String sellerPublicId) {
 }
