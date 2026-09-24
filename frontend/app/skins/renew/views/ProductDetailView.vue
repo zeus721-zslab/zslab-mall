@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { ProductDetailPageVm } from '~/skins/contracts/product-detail'
 import { categoryTheme } from '../category-theme'
+import MobileActionBar from '../components/MobileActionBar.vue'
 import RenewProductCard from '../components/RenewProductCard.vue'
 import SectionHeading from '../components/SectionHeading.vue'
 
@@ -33,14 +34,8 @@ function formatAmount(value: number): string {
   return value.toLocaleString('ko-KR')
 }
 
-// <768 고정 바가 페이지 끝(푸터)을 가리지 않도록 body 하단에 바 높이만큼 여백을 둔다.
-// 바 높이 = 상단 테두리 1 + 위 여백 12 + 버튼 48 + 아래 여백 max(12, safe-area) — 아래 고정 바 클래스와 같이 고친다.
-const showMobileBar = computed(() => !props.vm.pending && !props.vm.error && Boolean(product.value))
-useHead({
-  bodyAttrs: {
-    class: computed(() => (showMobileBar.value ? 'max-md:pb-[calc(61px+max(12px,env(safe-area-inset-bottom)))]' : '')),
-  },
-})
+// 본문 담기 버튼: 화면에 없을 때만 모바일 고정 바가 나타난다(FE-71 도킹).
+const addButton = ref<HTMLButtonElement | null>(null)
 </script>
 
 <template>
@@ -189,6 +184,7 @@ useHead({
 
             <!-- 담기: 진행 중·미확정·품절·판매중지면 비활성(canAddToCart) -->
             <button
+              ref="addButton"
               type="button"
               :class="[ADD_BUTTON, 'mt-4 h-14 w-full text-base']"
               :disabled="!vm.canAddToCart || vm.adding"
@@ -239,26 +235,16 @@ useHead({
           </div>
         </section>
 
-        <!-- <768 하단 고정 바: 본문 담기와 같은 함수·같은 비활성 규칙. 높이를 바꾸면 script의 body 여백도 같이 고친다. -->
-        <div class="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-white px-5 pb-[max(12px,env(safe-area-inset-bottom))] pt-3 md:hidden">
-          <div class="flex h-12 items-center gap-4">
-            <div class="min-w-0 flex-1">
-              <p class="text-xs text-sub">총 상품 금액</p>
-              <p v-if="vm.totalPrice !== null" class="truncate text-ink">
-                <span class="font-mono text-lg font-semibold">{{ formatAmount(vm.totalPrice) }}</span><span class="ml-0.5 text-sm">원</span>
-              </p>
-              <p v-else class="truncate text-sm text-sub">{{ totalPendingText }}</p>
-            </div>
-            <button
-              type="button"
-              :class="[ADD_BUTTON, 'h-12 shrink-0 px-6 text-sm']"
-              :disabled="!vm.canAddToCart || vm.adding"
-              @click="vm.handleAddToCart"
-            >
-              {{ addButtonLabel }}
-            </button>
-          </div>
-        </div>
+        <!-- <768 하단 고정 바: 본문 담기 버튼이 화면에 없을 때만·같은 함수·같은 비활성 규칙 -->
+        <MobileActionBar
+          :anchor="addButton"
+          label="총 상품 금액"
+          :amount="vm.totalPrice"
+          :pending-text="totalPendingText"
+          :button-label="addButtonLabel"
+          :disabled="!vm.canAddToCart || vm.adding"
+          @action="vm.handleAddToCart"
+        />
       </template>
     </div>
   </div>

@@ -2861,3 +2861,42 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 ### §8 이월
 - `viewport-fit=cover` 미적용 — nuxt.config에 head viewport 설정이 없어 iOS에서 `env(safe-area-inset-bottom)`이 0이다(고정 바 아래 여백은 최소 12px로 동작). 적용하면 전 페이지 영향 검증이 필요하다.
 - 768~1023은 1열 쌓임이고 고정 바가 없다(스펙 범위 그대로).
+
+## FE-71: renew 구매 흐름 — 장바구니·주문서·모의 결제·주문 완료 · 모바일 고정 바 도킹 (Track 105-2f) (2026-09-24)
+
+배경: 상세(FE-70) 다음 구매 흐름 4화면이 classic 뷰에 토큰만 입힌 상태였다. 페이지 script(결제·주문·장바구니 로직)는 그대로 두고 뷰만 renew로 만든다.
+
+결정:
+- **구성** renew 뷰 4개(CartView·CheckoutView·PaymentMockView·CheckoutCompleteView)를 renew/index에 등록. 장바구니·주문서는 ≥1024 [목록 | 400px 금액 카드] 2열, 금액 카드는 sticky(top = `--header-height` + 24px·FE-70 토큰). 흰 카드 28px·금액 mono(값 변경 시 0.2s 페이드 `FadeAmount`). 공용 renew 컴포넌트: `RenewCheckbox`(실제 checkbox를 appearance-none으로 꾸밈·라벨 연결) · `FadeAmount` · `MobileActionBar`.
+  - 장바구니: 전체 선택 · 품목 행(체크·썸네일 96px 18px/없으면 placeholder 면·셀러명(있을 때)·상품명·옵션·구매 불가 핑크 배지·수량 알약·합계·삭제 아이콘) · 금액 카드(선택 상품 금액·배송비 무료·결제 예정 금액·주문하기 56px) · 빈 상태(아이콘·"장바구니가 비어 있어요"·쇼핑 계속하기 /products). busy 잠금·구매 불가 비활성·checkoutEnabled 규칙은 classic 그대로.
+  - 주문서: 번호 섹션 ① 배송지 ② 결제 수단(PAYMENT_METHODS 카드형 실제 radio 3열 — 4값이라 3+1 배치) ③ 주문 상품 + 결제 금액 카드(오류·장바구니 링크는 버튼 바로 위·submitting 스피너).
+  - 모의 결제: 결제 금액 카드 형태만 바꾸고 제목(h1 "모의 결제")·문구·버튼·동작·testid 그대로. 주문 완료: 민트 원형 체크·"주문이 완료됐어요"·주문번호 mono·주문 상세 보기(id 없으면 classic처럼 주문 내역 /orders)·쇼핑 계속하기(/products).
+- **저장 배송지 요약 카드**(역제안 β 채택 — 재구매 사용자는 입력보다 확인이 주 동작) 저장 배송지를 고르면 입력칸 대신 요약(받는 분·연락처·주소) + "이 주소 수정"으로 펼친다. 새 주소 입력·저장 배송지 없음은 처음부터 펼침. 알약 선택은 기존 `selectedKey` + `onSelectAddress` 그대로이고 펼침 여부만 뷰 로컬 상태(다른 알약을 고르면 다시 접힘) — 로직 불변. 입력칸은 접혀도 DOM에 남아 v-model·required·maxlength가 classic과 같고, 접힘은 grid-rows 높이 전환 + `inert`(초점·보조기기 제외).
+- **모바일 고정 바 도킹(<768)** 상세·장바구니·주문서가 같은 `MobileActionBar` 하나를 쓴다. 본문의 실제 주 버튼(장바구니 담기·주문하기·결제하기)이 화면에 없을 때만 바가 나타난다 — `skins/renew/dock-visibility.ts`(IntersectionObserver·rootMargin 하단 = 바 높이라 실제 버튼이 바 뒤에 있으면 "안 보임"·DOM만 사용·skin-guard 준수). 표시/숨김은 아래로 슬라이드 + 페이드 0.2s(reduced-motion 즉시), 첫 측정 전(SSR 포함)에는 숨김이라 처음부터 버튼이 보이는 화면에서 깜빡이지 않는다. 바 버튼은 본문 버튼과 같은 함수·같은 비활성 규칙(주문서는 같은 form submit).
+  - FE-70의 "항상 표시 + body 하단 여백(useHead)" 방식을 대체한다: 실제 버튼이 화면에 보일 때 바 버튼과 두 개가 동시에 보였고, 페이지 끝에서 body 여백이 푸터 아래 빈 영역으로 남았다. 도킹이면 실제 버튼이 보이는 페이지 끝에서 바가 없어 여백이 필요 없다(상세처럼 버튼이 위쪽에 있는 화면은 페이지 끝에서도 바가 떠 있어 푸터 아래쪽을 덮는다).
+- **계약 확인 결과** 디자인 전부 기존 vm으로 가능. 없어서 쓰지 않은 필드: 장바구니 품목 **구매 불가 사유**(CartItemView는 purchasable boolean만 → 배지는 classic 문구 "구매 불가 (품절 또는 판매 중지)"). 장바구니 vm에는 배송비가 없어 "무료" 표기(SHIPPING_FEE 0·FE-70과 같음), 주문서는 summary.shippingFee(0이면 무료).
+- **testid** classic 대응 뷰의 testid 전부 유지(CartView item-option-label · 주문서 공용 목록과 같은 item-option-label · payment-mock-title/success/cancel/error · checkout-complete-order-id).
+
+### §1-A 갈림길·채택/기각 근거
+- **저장 배송지 = 요약 카드 + 수정 펼침(β)** 【채택: 재구매는 확인 위주·로직 불변】
+- **저장 배송지도 입력칸 항상 펼침(classic 배치)** 【기각: 채워진 입력칸 7개가 확인을 어렵게 한다】
+- **고정 바 도킹** 【채택: 버튼 중복 노출·푸터 아래 여백 해소】
+- **고정 바 항상 표시 + body 여백(FE-70 방식)** 【기각: 위 두 문제】
+
+### §2 확정 구현 규칙·트랩
+- Playwright `waitForLoadState('networkidle')`는 이미 도달한 상태면 새 요청을 기다리지 않고 즉시 반환한다 — 조작(PATCH·재조회·금액 페이드) 뒤 값 확인은 값이 바뀔 때까지 폴링한다.
+- renew 뷰는 비동기 청크라 컨테이너 재시작 뒤 첫 이동에서 늦게 붙는다 — 즉시 판정(`isVisible`) 전에 대상 요소를 기다린다.
+- 높이 0·overflow로 접은 영역 안 요소는 Playwright `isVisible`이 참이다(요소 자체 박스는 남음) — 접힘은 래퍼 높이·`inert`로 판정한다.
+- 좁은 폭(390) 장바구니 행은 수량 알약과 금액이 한 줄에 안 들어간다 → 금액 줄바꿈 금지 + 하단 줄 flex-wrap(금액이 다음 줄 오른쪽).
+- 검증(2026-09-24): typecheck 0 · vitest 108 files / 762 passed(skin-guard) · e2e 전수(기본 renew) 112 passed/1 failed(admin-categories ① LT-22·단독 1/1)/2 skipped(도킹 전·후 각 1회) · classic 회귀 smoke·mock-payment·order-resume-payment·claims 11/11 · 임시 스크립트(실 API·로컬 DB 주문 생성·데모 구매자 기존 장바구니 선택 해제 후 복원·새 주소 저장 안 함) 2차 39/41 + 측정 시점 결함 2건 부분 재확인 5/5 — 구매 흐름(담기 → 선택·수량 → 주문서 요약·수정 펼침·새 주소·결제 수단 → 모의 결제 성공 → 완료 · 실패 경로 · 390 고정 바 주문·결제) · 구매 불가 비활성·빈 상태(장바구니 응답 mock) · 390 도킹 3화면 ①~④·동시 노출 0 · 스크린샷 12장 docs/frontend/screens-track105-2f/.
+
+### §8 이월
+- 구매 불가 사유 필드(품절/판매중지/셀러 비활성 구분)가 생기면 배지 문구를 사유별로 바꿀 수 있다(BE 계약 추가 필요).
+- 상세 화면은 담기 버튼이 페이지 위쪽이라 페이지 끝에서도 고정 바가 떠 푸터 아래쪽을 덮는다(도킹 규칙상 정상) — 필요 시 푸터 관찰을 더하는 방식 검토.
+- 도킹 판정용 바 높이는 마운트 시 한 번 잰다 — <768↔≥768을 오가는 창 크기 변경에서는 다시 재지 않는다.
+- `viewport-fit=cover` 미적용(FE-70 §8)은 그대로다.
+
+### 보완 (Track 105-2f 보완) (2026-09-24)
+- **고정 바 표시 중 하단 여백** 바가 보이는 동안에만 body 하단 여백 = 바 높이(`calc(61px + max(12px, safe-area))`·<768), 숨겨지면 0 — `MobileActionBar`가 표시 상태로 useHead bodyAttrs를 바꾼다. 상세처럼 페이지 끝에서도 바가 떠 있는 화면은 푸터 마지막 줄까지 바 위로 보이고(§8 "푸터 아래쪽을 덮는다" 해소), 장바구니·주문서는 페이지 끝에서 바가 숨어 여백 0이다. 여백은 문서 끝에만 붙어 바 표시·숨김이 바뀌어도 보이는 콘텐츠 위치는 그대로다.
+- **결제 수단 배치** 주문서 결제 수단 카드 ≥768 4열 · <768 2열(4값이 한 줄 또는 2×2로 맞아떨어짐 — 3열의 3+1 배치 해소).
+- 검증(2026-09-24): typecheck 0 · vitest 108 files / 762 passed(skin-guard) · e2e smoke·mock-payment·order-resume-payment·claims(기본 renew) 11/11 · 임시 스크립트(390·주문 생성·장바구니 조작 없음) 9/9 — 상세 끝 바 표시·여백 73 = 바 73·푸터 마지막 줄 안 가려짐 · 장바구니·주문서 끝 바 숨김·여백 0·푸터 아래 빈 영역 0 · 3화면 바 표시↔숨김 전환 전후 제목 문서 위치·스크롤 불변 · 결제 수단 1440 4열·390 2열 · 스크린샷 detail-390-end·checkout-method-1440·checkout-method-390.
