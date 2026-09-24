@@ -536,10 +536,10 @@ public class ClaimService {
         Claim claim = claimRepository.findByPublicId(claimPublicId)
                 .orElseThrow(() -> new ClaimNotFoundException("클레임을 찾을 수 없습니다: " + claimPublicId));
         verifyBuyerOwnership(claim, buyerId, claimPublicId);
-        String orderItemPublicId = orderItemRepository.findById(claim.getOrderItemId())
-                .map(OrderItem::getPublicId)
+        OrderItem orderItem = orderItemRepository.findById(claim.getOrderItemId())
                 .orElseThrow(() -> new IllegalStateException(
                         "클레임의 주문 품목을 찾을 수 없습니다: orderItemId=" + claim.getOrderItemId()));
+        String orderItemPublicId = orderItem.getPublicId();
         RefundStatus refundStatus = latestRefundStatusByClaimId(List.of(claim.getId())).get(claim.getId());
         // Track 81-A·FE-29: 클레임 연결 Delivery 1쿼리(id 내림차순) → 회수(RETURN)·검수 불합격 재발송(OUTBOUND) 방향별 최신 1건
         Delivery returnDelivery = null;
@@ -571,7 +571,24 @@ public class ClaimService {
         }
         // Track 81-B: 첨부 URL 1쿼리(순서 보존·없으면 빈 목록)
         return ClaimResponse.from(claim, orderItemPublicId, refundStatus, returnDelivery,
-                claimAttachmentService.urlsOf(claim.getId()), reshipment, exchangeOptionLabel, originalOptionLabel);
+                claimAttachmentService.urlsOf(claim.getId()), reshipment, exchangeOptionLabel, originalOptionLabel,
+                orderContextOf(claim, orderItem));
+    }
+
+    /**
+     * 구매자 상세의 주문·대상 품목(Track 105-4g-3). 주문은 목록과 같은 스칼라 projection 1쿼리(Order 엔티티 적재 시
+     * shippingSnapshot 추가 SELECT 회피·{@link #listClaims} 주석), 썸네일은 목록과 같은 {@link #thumbnailUrlByProductId} 1쿼리 —
+     * 고정 2쿼리. 상품명·옵션·수량은 이미 적재한 품목 스냅샷이라 추가 조회가 없다.
+     */
+    private ClaimResponse.OrderContext orderContextOf(Claim claim, OrderItem orderItem) {
+        List<OrderItemOrderProjection> orders = orderItemRepository.findOrderSummariesByIdIn(List.of(orderItem.getId()));
+        OrderItemOrderProjection order = orders.isEmpty() ? null : orders.get(0);
+        String thumbnailUrl = order == null ? null : thumbnailUrlByProductId(orders).get(order.getProductId());
+        String optionLabel = claim.getOriginalOptionLabel() != null ? claim.getOriginalOptionLabel() : orderItem.getOptionLabel();
+        return new ClaimResponse.OrderContext(
+                order == null ? null : order.getOrderPublicId(),
+                order == null ? null : order.getOrderNo(),
+                new ClaimResponse.ClaimItemSummary(orderItem.getProductName(), optionLabel, orderItem.getQuantity(), thumbnailUrl));
     }
 
     /**

@@ -10,6 +10,7 @@ import RenewBadge from '../components/RenewBadge.vue'
 import RenewNotice from '../components/RenewNotice.vue'
 import { CLAIM_NEUTRAL_CHIP_CLASS, CLAIM_TYPE_BADGE_TONE } from '../claim-type-tone'
 import { orderItemStatusTone } from '../order-item-tone'
+import { ORDER_NO_CHIP_CLASS } from '../order-no-chip'
 
 // renew 주문 내역(FE-73). 탭 2개(전체 주문 · 취소·반품·교환) + 번호 페이지. 전체 주문은 주문 카드(헤더 + 품목 행),
 // 취소·반품·교환은 클레임 카드(누르면 클레임 상세). 품목 행의 구매확정은 확인 모달(DialogConfirm), 클레임은 주문 상세와 같은 경로로 이동한다.
@@ -153,8 +154,8 @@ const ACTION_BUTTON = 'btn btn-sm w-full max-md:min-h-11'
           >
             <p class="text-small font-semibold tabular-nums text-ink">{{ vm.formatDateTime(order.orderedAt) }}</p>
             <div class="col-span-2 row-start-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-              <!-- 주문번호 = 식별자 단독(모노) · 연한 바탕 칩 -->
-              <span class="whitespace-nowrap rounded-md bg-surface-muted px-2 py-0.5 font-mono text-caption font-normal text-sub" data-testid="order-card-order-id">{{ order.orderId }}</span>
+              <!-- 주문번호 = 사람이 읽는 orderNo(모노 칩) · 없는 옛 응답이면 생략(내부 id 노출 금지 · Track 105-4g-3) -->
+              <span v-if="order.orderNo" :class="ORDER_NO_CHIP_CLASS" data-testid="order-card-order-id">{{ order.orderNo }}</span>
               <span class="whitespace-nowrap text-small text-sub" data-testid="order-card-summary">
                 <template v-if="orderItemCount(order) !== null">상품 <span class="tabular-nums">{{ orderItemCount(order) }}</span>개 · </template>총
                 <span class="font-semibold tabular-nums text-ink">{{ order.totalPrice.toLocaleString('ko-KR') }}</span>원

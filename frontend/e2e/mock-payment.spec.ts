@@ -8,6 +8,8 @@ import { gotoClientSide } from './helpers/navigation'
  */
 const ATTEMPT_KEY = 'pat_E2E00000000000000000000931'
 const ORDER_ID = 'ord_E2E00000000000000000000931'
+// 완료 화면은 사람이 읽는 주문번호만 보인다(Track 105-4g-3) — 쿼리의 내부 id로 주문 상세를 조회해 orderNo를 쓴다.
+const ORDER_NO = '20260925-E2E931'
 const MOCK_PAGE = `/payment/mock?attemptKey=${ATTEMPT_KEY}&amount=19900&method=CARD&orderPublicId=${ORDER_ID}`
 
 interface CapturedCallback {
@@ -35,6 +37,17 @@ test.describe('mock 결제 페이지(Track 93 인가 endpoint)', () => {
     })
     // 완료 화면 진입 시 카트 재조회는 실 API 대신 빈 카트로 응답(로컬 DB 무변경).
     await page.route((url) => url.pathname.endsWith('/api/v1/cart'), (route) => route.fulfill({ json: { items: [], totalQuantity: 0 } }))
+    // 완료 화면의 주문번호 조회도 실 API 대신 픽스처(로컬 DB에 없는 주문 id).
+    await page.route((url) => url.pathname.endsWith(`/api/v1/orders/${ORDER_ID}`), (route) => route.fulfill({
+      json: {
+        orderId: ORDER_ID,
+        orderNo: ORDER_NO,
+        status: { code: 'PAID', label: 'PAID' },
+        sellers: [],
+        totalPrice: 19900,
+        shippingAddress: null,
+      },
+    }))
 
     await loginAs(page, 'BUYER')
     await gotoClientSide(page, MOCK_PAGE)
@@ -44,7 +57,7 @@ test.describe('mock 결제 페이지(Track 93 인가 endpoint)', () => {
 
     await page.waitForURL((url) => url.pathname === '/checkout/complete')
     expect(new URL(page.url()).searchParams.get('orderPublicId')).toBe(ORDER_ID)
-    await expect(page.getByTestId('checkout-complete-order-id')).toHaveText(ORDER_ID)
+    await expect(page.getByTestId('checkout-complete-order-id')).toHaveText(ORDER_NO)
 
     expect(webhookCalls).toBe(0)
     expect(captured).toHaveLength(1)

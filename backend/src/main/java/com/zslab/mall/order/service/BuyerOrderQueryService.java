@@ -21,6 +21,8 @@ import com.zslab.mall.order.exception.OrderNotFoundException;
 import com.zslab.mall.order.repository.ItemStatusCountProjection;
 import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.order.repository.OrderRepository;
+import com.zslab.mall.payment.entity.Payment;
+import com.zslab.mall.payment.repository.PaymentRepository;
 import com.zslab.mall.product.entity.Product;
 import com.zslab.mall.product.entity.ProductVariant;
 import com.zslab.mall.product.repository.ProductRepository;
@@ -73,6 +75,7 @@ public class BuyerOrderQueryService {
     private final SellerRepository sellerRepository;
     private final ClaimRepository claimRepository;
     private final DeliveryRepository deliveryRepository;
+    private final PaymentRepository paymentRepository;
 
     public BuyerOrderQueryService(
             OrderRepository orderRepository,
@@ -81,7 +84,8 @@ public class BuyerOrderQueryService {
             ProductVariantRepository productVariantRepository,
             SellerRepository sellerRepository,
             ClaimRepository claimRepository,
-            DeliveryRepository deliveryRepository) {
+            DeliveryRepository deliveryRepository,
+            PaymentRepository paymentRepository) {
         this.orderRepository = orderRepository;
         this.orderItemRepository = orderItemRepository;
         this.productRepository = productRepository;
@@ -89,6 +93,7 @@ public class BuyerOrderQueryService {
         this.sellerRepository = sellerRepository;
         this.claimRepository = claimRepository;
         this.deliveryRepository = deliveryRepository;
+        this.paymentRepository = paymentRepository;
     }
 
     /**
@@ -122,7 +127,19 @@ public class BuyerOrderQueryService {
         List<OrderItem> items = order.getItems();
         return OrderResponse.fromOrderWithItems(
                 order, productsByIdFor(items), variantsByIdFor(items), sellersByIdFor(items), exchangeCompletedItemIdsFor(items),
-                originalDeliveryByItemIdFor(items));
+                originalDeliveryByItemIdFor(items), paidPaymentFor(order));
+    }
+
+    /**
+     * 결제 요약 대상 행(Track 105-4g-3): 결제 시각이 있는 행 중 최신 1건. 재시도마다 행이 새로 생기므로(D-28) 주문 1회 조회 후 거른다.
+     * PAID만으로 거르지 않는 이유 — 전액 환불 뒤 PAID 행이 CANCELLED로 바뀌어도 paidAt은 남으며, 구매자에게는 여전히 결제한 주문이다.
+     * 결제 시각 있는 행이 없으면(미결제·실패·만료만) null → 응답에서 payment 키가 생략된다.
+     */
+    private Payment paidPaymentFor(Order order) {
+        return paymentRepository.findAllByOrderIdOrderByIdDesc(order.getId()).stream()
+                .filter(payment -> payment.getPaidAt() != null)
+                .findFirst()
+                .orElse(null);
     }
 
     /**

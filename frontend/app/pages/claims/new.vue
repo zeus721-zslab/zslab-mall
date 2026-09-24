@@ -99,7 +99,7 @@ function handleSubmitError(submitError: ClaimRequestErrorLike): void {
     errorMessage.value = '대상 주문 품목을 찾을 수 없습니다.'
     return
   }
-  errorMessage.value = claimRequestErrorMessage(submitError) ?? '클레임 요청에 실패했습니다. 잠시 후 다시 시도하세요.'
+  errorMessage.value = claimRequestErrorMessage(submitError) ?? '취소·반품·교환 요청에 실패했습니다. 잠시 후 다시 시도하세요.'
 }
 
 async function handleSubmit(): Promise<void> {
@@ -136,7 +136,7 @@ async function handleSubmit(): Promise<void> {
   }
 }
 
-useSeoMeta({ title: '클레임 요청 · zslab-mall', description: 'zslab-mall 클레임 요청' })
+useSeoMeta({ title: '취소·반품·교환 요청 · zslab-mall', description: 'zslab-mall 취소·반품·교환 요청' })
 
 const vm: ClaimNewPageVm = reactive({
   isValidQuery,

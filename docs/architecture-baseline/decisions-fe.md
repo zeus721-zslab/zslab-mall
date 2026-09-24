@@ -3601,3 +3601,51 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 - 목록 배너 눈썹 "Category"의 `opacity-80`은 검색과 같은 패턴이지만 axe 통과라 유지했다.
 
 외부 검토: C / 생략
+
+## FE-83: 주문번호·주문 상세·클레임 대상 품목 연결 + 채점 이월 보완 5건 (Track 105-4g-3) (2026-09-25)
+
+배경: FE-82 §8에서 넘긴 BE 필요 감점 3건(내부 주문 ID 노출 · 주문 상세 일시·결제 수단 없음 · 클레임 상세 대상 품목 없음)을 D-225 응답 필드로 연결하고, FE 이월 5건(상품 카드 접근 이름 · landmark-unique · 상품명 break-keep · "클레임" 용어 · 마이페이지 모바일 가로줄)을 처리했다.
+
+결정:
+- **주문번호 표시** 화면에는 사람이 읽는 `orderNo`만 보인다. 링크·라우팅·API 호출은 `orderId`(public_id)를 그대로 쓴다. `orderNo`가 없는 옛 응답이면 표시를 생략한다(내부 id로 대체하지 않는다).
+  - 식별자 칩 한 곳: `skins/renew/order-no-chip.ts` `ORDER_NO_CHIP_CLASS`(기존 주문 목록 칩 클래스 · 모노 + surface-muted). 쓰는 곳: 주문 목록 카드 · 마이페이지 최근 주문 · 주문 상세 머리 · 주문 완료 · 클레임 상세 대상 품목.
+  - 주문 완료: 쿼리의 `orderPublicId`로 기존 `useOrderDetail`을 조회해 orderNo를 쓴다. id가 없으면 조회하지 않고, 조회 실패·옛 응답이면 번호 줄만 뺀다(완료 안내·상세 링크는 그대로).
+  - 주문 상세 탭 제목: `주문 {orderNo}` · orderNo가 없으면 "주문 상세".
+- **주문 상세 머리** dl 3행 — 주문번호(칩) · 주문 일시(`formatDateTime` · tabular-nums) · 결제 수단(`paymentMethodLabel` — `PAYMENT_METHODS` 파생 · 모의 결제도 같은 수단 코드). 값이 없는 행은 생략한다(미결제 = BE가 payment 생략).
+- **클레임 상세 대상 품목** 맨 위 흰 카드 — 썸네일(없으면 이미지 대기 면) · 상품명(break-keep) · 옵션·수량 · 주문번호 칩 · "주문 상세 보기" `btn-tertiary`(→ `/orders/{orderId}`). 대상 품목이 없는 옛 응답이면 카드를 생략한다.
+- **상품 카드 접근 이름** 링크를 상품명에만 걸고 `after:absolute after:inset-0`으로 카드 전체를 누르게 넓혔다(주문 목록 상품명 링크와 같은 방식). 접근 이름 = 보이는 상품명이고 셀러·가격은 링크 밖 일반 텍스트라 중복 낭독이 없다. 포커스 링은 넓힌 영역(after)에 그려 카드 전체에 보인다. 이미지는 이름과 겹쳐 `alt=""`. testid `product-card`는 카드 div에 그대로 둔다. 적용: RenewProductCard · 홈 셀러 픽.
+  - 홈 히어로 타일(`HomeView` 히어로)은 보이는 상품명 없이 이미지만 있는 링크라 `aria-label`=상품명이 유일한 이름이다 — 불변.
+- **landmark-unique** 목록 카테고리 탭 nav 이름을 "카테고리" → "목록 카테고리"로 바꿨다. 헤더의 데스크톱·모바일 nav 2개는 lg 경계로 동시에 보이지 않아 같은 이름을 유지한다.
+- **상품명 줄바꿈** 상품 카드 이름에 `break-keep`(단어 중간 끊김 방지).
+- **"클레임" 용어** 구매자 화면 문구를 "취소·반품·교환"으로 바꿨다. URL·코드·testid·관리자·셀러 화면은 그대로다.
+  - 교체 목록(11): 클레임 상세 제목 · 요약 aria-label · "클레임 유형" 라벨 · "클레임 정보" 제목 / 요청 화면 제목 폴백 · 잘못된 접근 안내 · 접수 완료 문구 / 클레임 상세 404·로드 실패·요청 취소 404 문구 · 탭 제목 / 요청 실패 문구 · 요청 탭 제목 / 주문 내역 취소·반품·교환 탭 로드 실패 / 진행 중 요청 중복 안내(claim-request-error `message` — `match`는 BE detail 문자열이라 불변)
+  - 불변: `useClaim` 내부 Error 문구(화면에 나오지 않음)
+- **마이페이지 모바일 가로줄** `LayoutShellVm.hasListingTabs`를 목적에 맞게 `hasPageTabRow`(화면 자체 탭 줄이 있는 화면)로 이름을 바꾸고 경로를 넓혔다: `/products` · `/categories/*`(FE-82) + `/mypage` · `/mypage/*` · `/orders` · `/orders/*` · `/claims/*`(MypageFrame을 쓰는 9화면). 768 미만에서 헤더 카테고리 줄을 숨겨 390 마이페이지 가로줄이 3단 → 2단(헤더 · 메뉴 칩)이 됐다.
+- **FE-82 대비 표기 재계산 일치**: #B0245A / 라벤더 #E3DAF5 = 4.81(흰 6.47 · surface-muted 5.52 · 핑크 5.05도 일치) — 정정 없음.
+
+### §1-A 갈림길·채택/기각 근거
+- **상품 카드 접근 이름: 상품명 링크 + after 오버레이(채택) / aria-label 제거 + 이미지 alt=""(기각)** 후자는 구조 변경이 가장 작지만 이름이 "셀러 상품명 가격 원"으로 길게 읽힌다.
+- **주문 완료 주문번호: 주문 상세 조회로 orderNo 표시(채택) / 번호 줄 제거(기각)** 완료 화면이 클레임·주문 목록과 같은 번호로 대조할 수 있는 첫 지점이다.
+
+### §2 검증
+- typecheck EXIT 0(error TS 0) · vitest 121 files / 836 passed · e2e smoke·claims·mock-payment·order-resume-payment 11 passed
+- 테스트 추가·수정
+  - 신규: OrdersPage 1(칩 = orderNo · 없으면 생략) · OrderDetailPage 2(머리 3행 / 옛 응답·미결제 생략) · ClaimDetailPage 3(대상 품목 카드 · 썸네일·옵션 없음 · 옛 응답 카드 생략·제목) · payment-method-label 2
+  - 깨진 단언 2(의도 유지): smoke 첫 카드 href → 카드 안 링크의 href · mock-payment 완료 화면 주문번호 = orderNo(주문 상세 GET 픽스처 추가)
+- 캡처 docs/frontend/screens-track105-4g-3/(커밋 제외): mypage · orders · order-detail · orders-claim · claim-detail · checkout-complete × 1440·390 — 전부 200 · 가로 넘침 0 · 화면 텍스트 `ord_` 0. 1440 6장은 대체 글꼴로 찍혔다(390 정상 · 원인 미확인 · 캡처 도구 쪽).
+
+### §3 채점 감점 대응표(105-4g-1 기준 · FE-82 이월분)
+| 축 | 감점 항목 | 점 | 이번 처리 |
+|---|---|---|---|
+| 디자인 | 내부 주문 ID 노출 | 2 | 조치 |
+| 디자인 | 상품명 break-keep | 1 | 조치 |
+| 접근성 | 상품 카드 접근 이름 · landmark-unique | 2·1 | 조치 |
+| 접근성 | 장바구니·주문 단계 링크 이름(숫자) | 1 | 이월 |
+| 직관성 | 마이페이지 모바일 가로줄 3단 · "클레임" 용어 | 2(일부)·1 | 조치 |
+| 편의성 | 클레임 상세 대상 품목 · 주문 일시·결제 수단 · 클레임↔주문 대조 | 2·1·1 | 조치 |
+
+### §8 이월
+- 접근성: 헤더 장바구니·마이페이지 주문 단계 링크 접근 이름에 숫자 없음(105-4g-1 1점).
+- 클레임 목록의 주문번호(`· 주문 {orderNo}`)는 캡션 평문 그대로다(칩 통일은 범위 밖).
+
+외부 검토: B / 생략(D-225와 같은 트랙)

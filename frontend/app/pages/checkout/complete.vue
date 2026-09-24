@@ -21,9 +21,14 @@ onMounted(async () => {
   }
 })
 
+// 화면에는 사람이 읽는 주문번호만 보인다(Track 105-4g-3): 쿼리의 내부 id로 주문 상세를 조회해 orderNo를 쓴다.
+// id가 없으면 조회하지 않고, 조회 실패는 번호 줄만 생략한다(완료 안내·상세 링크는 그대로).
+const orderDetail = orderPublicId ? useOrderDetail(orderPublicId) : null
+const orderNo = computed<string>(() => orderDetail?.data.value?.orderNo ?? '')
+
 useSeoMeta({ title: '주문 완료 · zslab-mall' })
 
-const vm: CheckoutCompletePageVm = reactive({ orderPublicId })
+const vm: CheckoutCompletePageVm = reactive({ orderPublicId, orderNo })
 </script>
 
 <template>

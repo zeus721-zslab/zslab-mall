@@ -16,9 +16,11 @@ import java.util.Set;
 
 /**
  * 주문 목록 항목 응답(D-55·§11 그룹화 비적용). previewTitle은 서버 생성 문자열(null 금지·§15).
+ * orderNo는 사람이 읽는 주문번호(Track 105-4g-3·추가형 필드 — 화면 표시용, 링크·라우팅은 orderId 유지).
  */
 public record OrderSummaryResponse(
         String orderId,
+        String orderNo,
         String previewTitle,
         int sellerCount,
         long totalPrice,
@@ -79,6 +81,7 @@ public record OrderSummaryResponse(
                 .toList();
         return new OrderSummaryResponse(
                 order.getPublicId(),
+                order.getOrderNo(),
                 buildPreviewTitle(orderedItems),
                 (int) sellerCount,
                 order.getTotalPrice(),

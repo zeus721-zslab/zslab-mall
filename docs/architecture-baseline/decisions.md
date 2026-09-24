@@ -12867,3 +12867,28 @@ renew 메인 큐레이션(FE-68 β)에 필요한 조회를 기존 `GET /api/v1/p
 - BuyerOrderStatusSummaryIntegrationTest 경계 ±1시간도 같은 월말 클램프 flake 가능(발생 확률 극히 낮음·이번 범위 밖)
 
 외부 검토: B / 생략(셀프 리뷰 지적 3건 중 수용 1건·상·중 0 — 읽기 필터·추가형 인덱스·응답 필드 추가라 쓰기 경로·권한 경계 변경 없음)
+
+## D-225 Track 105-4g-3 구매자 주문 응답 주문번호·주문 일시·결제 요약 · 클레임 상세 대상 품목 (2026-09-25)
+
+### 결정
+- **응답 필드 추가만**(기존 필드·계약 불변 · 전역 NON_NULL · 스키마·쓰기 경로 변경 없음)
+  - 주문 목록(마이페이지 최근 주문 공용) `OrderSummaryResponse.orderNo`
+  - 주문 상세 `OrderResponse` 끝에 `orderNo` · `orderedAt`(KST) · `payment{method, paidAt}`
+  - 구매자 클레임 상세 `ClaimResponse` 끝에 `orderId`(주문 public_id·링크용) · `orderNo` · `item{productName, optionLabel, quantity, thumbnailUrl}` — 구매자 상세 조회(신청 취소 응답 포함)만 채우고 요청 생성·관리자 전이 응답은 null
+- 주문번호는 기존 `order.order_no`(V1부터 NOT NULL·UK) — 새 컬럼·백필 없음. 화면은 orderNo만 보이고 링크·라우팅은 orderId(public_id) 유지(FE-83).
+- 주문 도메인 조회 서비스가 `PaymentRepository`를 읽는다 — 관리자 주문 조회(`AdminOrderQueryService`)와 같은 방향의 기존 의존이라 애그리거트 경계 변경이 아니다.
+
+### §1-A 갈림길·채택/기각 근거
+- **결제 요약 대상 행: paidAt 있는 최신 행(채택) / 관리자 대표 결제 규칙 "PAID 우선, 없으면 최신 행"(기각)** 관리자 규칙은 미결제 주문에도 PENDING·FAILED 행을 내보내 "미결제면 생략"과 어긋난다. PAID만 거르면 전액 환불(PAID→CANCELLED·paidAt 유지) 주문의 결제 수단이 사라진다. paidAt은 PENDING→PAID 전이에서만 채워져 두 경우를 모두 맞춘다.
+- **교환 대상 품목 옵션: claim.originalOptionLabel 우선(채택) / order_item.option_label(기각)** 교환 완료 뒤 품목 옵션이 교환 후 옵션으로 바뀌어 "무엇을 교환 요청했는지"를 잃는다. 승인 전(스냅샷 없음)은 품목 옵션이 곧 원 옵션이다.
+- **클레임 상세 주문 정보: 스칼라 projection(`findOrderSummariesByIdIn`) 재사용(채택) / Order 엔티티 적재(기각)** Order 적재는 shippingSnapshot(OneToOne mappedBy)이 추가 SELECT를 낸다(목록과 같은 이유). 상품명·옵션·수량은 이미 적재한 품목 스냅샷이라 추가 조회가 없다.
+
+### §2 확정 구현 규칙
+- 추가 쿼리: 주문 목록 0(적재된 Order 필드) · 주문 상세 +1(결제 행 조회 · 품목 수 무관 — T6 품목 1 = 3) · 클레임 상세 +2(주문 projection·상품 썸네일 IN · 취소 클레임 상세 실측 8 = 기존 6 + 2 → 상한 8)
+- 삭제 상품: 썸네일만 키 생략(@SQLRestriction·D-224와 같은 findByIdIn) · 상품명·수량은 주문 스냅샷 유지
+- 검증(2026-09-25): `gradlew test --rerun-tasks` 1612/0 실패(신규 11: BuyerOrderNumberPaymentIntegrationTest 6 · BuyerClaimDetailOrderItemIntegrationTest 5)
+
+### §8 이월
+- 클레임 상세의 소유권 쿼리(`findOrderBuyerIdByClaimId`)와 주문 projection이 같은 주문을 두 번 읽는다(projection에 buyerId 있음 — 합치면 1쿼리 절감 · 최소 변경 원칙으로 이번 범위 밖)
+
+외부 검토: B / 생략(셀프 리뷰 지적 4건 중 수용 1건·상·중 0 — 읽기 응답 필드 추가라 쓰기 경로·권한 경계 변경 없음 · 타 구매자 404 불변 테스트)

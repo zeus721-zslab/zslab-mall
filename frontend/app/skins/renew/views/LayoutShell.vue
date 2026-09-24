@@ -140,8 +140,8 @@ const FOOTER_LINK = 'transition duration-fast ease-soft hover:text-ink max-md:in
       </div>
 
       <!-- 최상위 카테고리 메뉴(모바일·태블릿): 한 줄 가로 스크롤. <768은 스크롤바 숨김·스냅·오른쪽 흐림, 현재 카테고리는 보이는 위치로.
-           목록·카테고리 화면의 <768은 목록 카테고리 탭과 같은 줄이 두 번 나와 이 줄을 숨긴다(FE-82). -->
-      <nav aria-label="카테고리" :class="['border-t border-line lg:hidden', vm.hasListingTabs ? 'max-md:hidden' : '']">
+           자체 탭 줄이 있는 화면(목록·카테고리 = 목록 카테고리 탭 FE-82 · 마이페이지 틀 = 메뉴 칩 줄 Track 105-4g-3)의 <768은 줄이 겹겹이 쌓여 이 줄을 숨긴다. -->
+      <nav aria-label="카테고리" :class="['border-t border-line lg:hidden', vm.hasPageTabRow ? 'max-md:hidden' : '']">
         <ul
           ref="mobileMenuElement"
           :class="[

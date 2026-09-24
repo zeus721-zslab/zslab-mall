@@ -16,7 +16,7 @@ const { authMock, cartMock, navigateToMock, routeMock, useCategoriesMock } = vi.
   cartMock: { count: 0, clear: vi.fn() },
   navigateToMock: vi.fn(),
   // it별로 middleware·query를 갈아끼우기 위한 가변 route 홀더.
-  // path: 레이아웃이 목록 화면 여부(hasListingTabs · FE-82)를 경로로 판정한다.
+  // path: 레이아웃이 자체 탭 줄 화면 여부(hasPageTabRow · FE-82 · Track 105-4g-3)를 경로로 판정한다.
   routeMock: { path: '/', meta: { middleware: undefined as unknown }, query: {} as Record<string, string> },
   useCategoriesMock: vi.fn(),
 }))

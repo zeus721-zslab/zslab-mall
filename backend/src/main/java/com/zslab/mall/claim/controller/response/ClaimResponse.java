@@ -22,6 +22,8 @@ import java.util.List;
  * Track 81-A(D-170) 추가 필드: returnShipmentRequired(회수 송장 등록 가능 단계)·returnShipment(회수 Delivery)·pickedUpAt·inspectionResult.
  * Track 81-B(D-171) 추가 필드: attachmentUrls(반품 사진 URL·순서 보존·없으면 빈 목록).
  * FE-29 추가 필드: reshipment(검수 불합격 재발송 Delivery·OUTBOUND·claim_id·없으면 null).
+ * Track 105-4g-3 추가 필드: orderId·orderNo·item(대상 품목 요약) — 구매자 상세 조회(getClaim·신청 취소 응답 포함)만 채우고
+ * 요청 생성 응답·관리자 전이 응답은 null(키 생략).
  * 기존 필드는 무변경이다.
  */
 public record ClaimResponse(
@@ -47,7 +49,24 @@ public record ClaimResponse(
         /** 교환 요청 옵션 라벨(EXCHANGE·Track 83 D-177·미해소 null). 비교환은 null. */
         String exchangeOptionLabel,
         /** 교환 전 원 옵션 라벨(EXCHANGE·승인 스냅샷 우선·없으면 재조립·D-177 결정 2 보충). 비교환은 null. */
-        String originalOptionLabel) {
+        String originalOptionLabel,
+        /** 대상 주문 public_id(주문 상세 링크용). */
+        String orderId,
+        /** 사람이 읽는 주문번호(화면 표시용). */
+        String orderNo,
+        /** 대상 품목 요약. */
+        ClaimItemSummary item) {
+
+    /**
+     * 대상 품목 요약. 상품명·옵션·수량은 주문 시점 스냅샷이라 상품이 삭제돼도 남고, 썸네일만 삭제·미등록 상품이면 null(키 생략)이다.
+     * 옵션은 교환 승인 스냅샷(claim.originalOptionLabel) 우선 — 교환 완료 뒤 품목 옵션이 교환 후 옵션으로 바뀌기 때문이다.
+     */
+    public record ClaimItemSummary(String productName, String optionLabel, int quantity, String thumbnailUrl) {
+    }
+
+    /** 구매자 상세 조회의 주문·대상 품목 enrich(Track 105-4g-3). */
+    public record OrderContext(String orderId, String orderNo, ClaimItemSummary item) {
+    }
 
     /** 영속 Claim + 해소된 orderItemPublicId로 상세 응답을 조립한다(환불 상태·회수 송장·첨부 미조회·전이 직후 응답용). */
     public static ClaimResponse from(Claim claim, String orderItemPublicId) {
@@ -76,6 +95,14 @@ public record ClaimResponse(
     /** {@link #from(Claim, String, RefundStatus, Delivery, List, Delivery)} + 교환/원 옵션 라벨(Track 83 D-177). */
     public static ClaimResponse from(Claim claim, String orderItemPublicId, RefundStatus refundStatus, Delivery returnDelivery,
             List<String> attachmentUrls, Delivery reshipment, String exchangeOptionLabel, String originalOptionLabel) {
+        return from(claim, orderItemPublicId, refundStatus, returnDelivery, attachmentUrls, reshipment, exchangeOptionLabel,
+                originalOptionLabel, null);
+    }
+
+    /** {@link #from(Claim, String, RefundStatus, Delivery, List, Delivery, String, String)} + 주문·대상 품목(Track 105-4g-3·null이면 생략). */
+    public static ClaimResponse from(Claim claim, String orderItemPublicId, RefundStatus refundStatus, Delivery returnDelivery,
+            List<String> attachmentUrls, Delivery reshipment, String exchangeOptionLabel, String originalOptionLabel,
+            OrderContext orderContext) {
         // 회수 송장 등록 단계는 반품·교환 공통(D-177): APPROVED·회수 송장 없음·미회수
         boolean returnShipmentRequired = claim.getType().isPickupBased() && claim.getStatus() == ClaimStatus.APPROVED
                 && returnDelivery == null && claim.getPickedUpAt() == null;
@@ -98,6 +125,9 @@ public record ClaimResponse(
                 attachmentUrls,
                 reshipment == null ? null : ReturnShipmentResponse.from(reshipment),
                 exchangeOptionLabel,
-                originalOptionLabel);
+                originalOptionLabel,
+                orderContext == null ? null : orderContext.orderId(),
+                orderContext == null ? null : orderContext.orderNo(),
+                orderContext == null ? null : orderContext.item());
     }
 }

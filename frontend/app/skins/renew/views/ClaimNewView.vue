@@ -20,10 +20,10 @@ const FIELD =
 </script>
 
 <template>
-  <MypageFrame :title="vm.isValidQuery ? `${vm.typeLabel} 요청` : '클레임 요청'" active-to="/orders">
+  <MypageFrame :title="vm.isValidQuery ? `${vm.typeLabel} 요청` : '취소·반품·교환 요청'" active-to="/orders">
     <!-- 필수 query 누락·부정: 폼 진입 차단하고 주문 내역으로 유도(재시도 무의미라 링크 안내). -->
     <div v-if="!vm.isValidQuery" :class="[CARD, 'flex max-w-[720px] flex-col items-center py-14 text-center']">
-      <p class="text-body text-sub">잘못된 접근입니다. 주문 상세에서 클레임을 요청해 주세요.</p>
+      <p class="text-body text-sub">잘못된 접근입니다. 주문 상세에서 취소·반품·교환을 요청해 주세요.</p>
       <NuxtLink to="/orders" class="btn btn-primary btn-md mt-6">주문 내역으로</NuxtLink>
     </div>
 
@@ -34,7 +34,7 @@ const FIELD =
           <path d="M5 12.5l4.5 4.5L19 7.5" />
         </svg>
       </span>
-      <p class="mt-6 text-h2 text-ink">클레임이 접수되었습니다.</p>
+      <p class="mt-6 text-h2 text-ink">취소·반품·교환 요청이 접수되었습니다.</p>
       <p class="mt-2 text-body text-sub">쇼핑몰 승인 후 처리가 진행됩니다.</p>
       <!-- 환불 반영 시점 안내(FE-61): 환불로 이어지는 취소·반품 요청만·기간은 적지 않는다. -->
       <RenewNotice v-if="vm.claimType !== 'EXCHANGE'" tone="info" class="mt-6 w-full text-left" data-testid="claim-refund-timing">

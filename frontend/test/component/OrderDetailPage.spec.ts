@@ -69,6 +69,36 @@ describe('pages/orders/[orderPublicId].vue 옵션 라벨', () => {
   })
 })
 
+// Track 105-4g-3: 머리 = 주문번호(orderNo 칩) · 주문 일시 · 결제 수단 라벨. 없는 필드는 행 생략·내부 id 미노출.
+describe('pages/orders/[orderPublicId].vue 머리 주문번호·주문 일시·결제 수단', () => {
+  beforeEach(() => {
+    useOrderDetailMock.mockReset()
+  })
+
+  it('orderNo·orderedAt·payment 있음 → 칩·일시·결제 수단 한글 라벨', async () => {
+    const detail: OrderDetail = {
+      ...orderWith([orderItem({})]),
+      orderNo: '20260920-AB12CD',
+      orderedAt: '2026-09-20T12:00:00+09:00',
+      payment: { method: 'KAKAO', paidAt: '2026-09-20T12:05:00+09:00' },
+    }
+    useOrderDetailMock.mockReturnValue({ data: ref(detail), pending: ref(false), error: ref(null), refresh: vi.fn() })
+    const wrapper = await mountSuspended(OrderDetailPage)
+    expect(wrapper.find('[data-testid="order-detail-order-no"]').text()).toBe('20260920-AB12CD')
+    expect(wrapper.find('[data-testid="order-detail-ordered-at"]').text()).toBe('2026.09.20 12:00')
+    expect(wrapper.find('[data-testid="order-detail-payment-method"]').text()).toBe('카카오페이')
+  })
+
+  it('옛 응답(orderNo·orderedAt 없음)·미결제(payment 없음) → 행 생략 · 내부 id 미노출', async () => {
+    useOrderDetailMock.mockReturnValue({ data: ref(orderWith([orderItem({})])), pending: ref(false), error: ref(null), refresh: vi.fn() })
+    const wrapper = await mountSuspended(OrderDetailPage)
+    expect(wrapper.find('[data-testid="order-detail-order-no"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="order-detail-ordered-at"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="order-detail-payment-method"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('ord_test')
+  })
+})
+
 // FE-29: 반품 진입 버튼은 DELIVERED만(SHIPPING → RETURN 제거·D-170 배송완료 기준 기한).
 describe('pages/orders/[orderPublicId].vue 클레임 진입 버튼(FE-29)', () => {
   beforeEach(() => {

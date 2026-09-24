@@ -23,7 +23,7 @@ const RETURN_422_MESSAGES: { match: string; message: string }[] = [
   { match: '판매 중이 아닌 옵션', message: '판매 중이 아닌 옵션으로는 교환할 수 없습니다.' },
   { match: '배송완료 품목만', message: '배송완료된 상품만 요청할 수 있습니다.' },
   { match: '배송완료 기록이 없어', message: '배송완료 기록이 없어 요청할 수 없습니다.' },
-  { match: '이미 진행 중인 클레임', message: '이미 진행 중인 클레임이 있습니다.' },
+  { match: '이미 진행 중인 클레임', message: '이미 진행 중인 취소·반품·교환 요청이 있습니다.' },
 ]
 
 const DEFAULT_422 = '현재 상태에서는 요청할 수 없습니다.'

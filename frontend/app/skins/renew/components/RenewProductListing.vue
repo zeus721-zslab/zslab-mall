@@ -57,10 +57,11 @@ const tabsEdges = trackScrollEdges(tabsElement)
 
       <!-- 최상위 카테고리 탭 + 정렬 -->
       <div class="mt-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <!-- 탭 줄: 한 줄 가로 스크롤. <768은 스크롤바 숨김·스냅·오른쪽 흐림, 현재 탭은 보이는 위치로. -->
+        <!-- 탭 줄: 한 줄 가로 스크롤. <768은 스크롤바 숨김·스냅·오른쪽 흐림, 현재 탭은 보이는 위치로.
+             랜드마크 이름은 헤더 카테고리 메뉴("카테고리")와 겹치지 않게 따로 둔다(landmark-unique · Track 105-4g-3). -->
         <nav
           ref="tabsElement"
-          aria-label="카테고리"
+          aria-label="목록 카테고리"
           data-testid="category-tabs"
           :class="[
             'relative -mx-1 overflow-x-auto px-1 pb-1 max-md:scrollbar-none max-md:snap-x max-md:snap-mandatory max-md:scroll-px-1',

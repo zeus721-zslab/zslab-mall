@@ -7,6 +7,7 @@ import MypageFrame from '../components/MypageFrame.vue'
 import RenewBadge from '../components/RenewBadge.vue'
 import RenewNotice from '../components/RenewNotice.vue'
 import { orderItemStatusTone } from '../order-item-tone'
+import { ORDER_NO_CHIP_CLASS } from '../order-no-chip'
 
 // renew 주문 상세(FE-73). 섹션 순서는 classic과 같다: 헤더 → 결제하기 → 셀러 그룹별 품목 → 총 결제금액 → 배송지 → 목록 링크.
 // 품목 썸네일을 더하고, 구매확정 확인은 인라인 패널 대신 확인 모달(DialogConfirm)을 쓴다 — 확정 상태·함수·testid는 페이지 vm 그대로다.
@@ -52,12 +53,23 @@ const ACTION_BUTTON = 'btn btn-sm max-md:min-h-11'
     <CommonErrorState v-else-if="vm.error || !vm.data" :message="vm.errorMessage" @retry="vm.refresh" />
 
     <div v-else class="space-y-6">
-      <!-- 헤더: 주문번호 · 결제 대기/미결제 종료 안내. 상태는 품목별 배지로만 보인다(FE-80 — 주문 상태는 품목 상태 파생이라 한 줄로 요약하면 섞인 주문을 잘못 말한다). -->
+      <!-- 헤더: 주문번호 · 주문 일시 · 결제 수단 · 결제 대기/미결제 종료 안내. 상태는 품목별 배지로만 보인다(FE-80 — 주문 상태는 품목 상태 파생이라 한 줄로 요약하면 섞인 주문을 잘못 말한다).
+           주문번호는 사람이 읽는 orderNo만(없는 옛 응답이면 행 생략 · 내부 id 노출 금지 · Track 105-4g-3). 결제 수단은 결제 시각이 있을 때만(미결제면 BE가 생략). -->
       <section :class="CARD" aria-label="주문 정보">
-        <div class="min-w-0">
-          <p class="text-caption font-normal text-sub">주문번호</p>
-          <p class="mt-1 break-all font-mono text-body font-semibold text-ink md:text-h3">{{ vm.data.orderId }}</p>
-        </div>
+        <dl class="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-6 gap-y-2 text-body">
+          <template v-if="vm.data.orderNo">
+            <dt class="text-sub">주문번호</dt>
+            <dd><span :class="ORDER_NO_CHIP_CLASS" data-testid="order-detail-order-no">{{ vm.data.orderNo }}</span></dd>
+          </template>
+          <template v-if="vm.data.orderedAt">
+            <dt class="text-sub">주문 일시</dt>
+            <dd class="tabular-nums text-ink" data-testid="order-detail-ordered-at">{{ vm.formatDateTime(vm.data.orderedAt) }}</dd>
+          </template>
+          <template v-if="vm.data.payment">
+            <dt class="text-sub">결제 수단</dt>
+            <dd class="text-ink" data-testid="order-detail-payment-method">{{ vm.paymentMethodLabel(vm.data.payment.method) }}</dd>
+          </template>
+        </dl>
         <!-- 결제 대기 안내(FE-53·C-16): 값은 lib/constants/order.ts PAYMENT_EXPIRE_MINUTES(BE 설정과 일치). -->
         <RenewNotice v-if="vm.data.status.code === 'PENDING_PAYMENT'" tone="info" class="mt-5" data-testid="order-payment-expire-guide">
           {{ vm.PAYMENT_EXPIRE_GUIDE }}
