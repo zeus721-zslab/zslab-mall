@@ -14,6 +14,9 @@ package com.zslab.mall.order.controller.response;
  * 복귀하지만 재교환은 422이므로 FE가 교환 버튼을 숨기는 데 쓴다(반품 버튼은 유지). 추가형 필드.
  *
  * <p>delivery는 원 발송(OUTBOUND·클레임 미연결) 최신 배송 정보(Track 96-2 D-203·C-05). 송장 미등록이면 null. 추가형 필드.
+ *
+ * <p>thumbnailUrl은 상품의 현재 product.thumbnail_url(Track 105-2d·D-223·장바구니·상품 목록과 같은 축소본). 삭제 상품·썸네일 없음은
+ * null(NON_NULL로 키 생략). 추가형 필드.
  */
 public record OrderItemResponse(
         String orderItemId,
@@ -26,5 +29,6 @@ public record OrderItemResponse(
         String optionLabel,
         StatusView status,
         boolean exchangeCompleted,
-        OrderItemDeliveryResponse delivery) {
+        OrderItemDeliveryResponse delivery,
+        String thumbnailUrl) {
 }
