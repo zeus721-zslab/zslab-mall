@@ -76,6 +76,12 @@ async function handleDemoLogin(): Promise<void> {
   }
 }
 
+// 회원가입 링크(FE-74)는 받은 redirect를 그대로 넘긴다 — 가입 화면의 로그인 링크가 다시 돌려주고, 허용 여부는 로그인 시점에 resolveRedirect가 판정한다.
+const signupLink = computed<string>(() => {
+  const redirect = route.query.redirect
+  return typeof redirect === 'string' && redirect !== '' ? `/signup?redirect=${encodeURIComponent(redirect)}` : '/signup'
+})
+
 useSeoMeta({
   title: '로그인 · zslab-mall',
   description: 'zslab-mall 로그인',
@@ -90,6 +96,7 @@ const vm: LoginPageVm = reactive({
   demoEnabled,
   handleSubmit,
   handleDemoLogin,
+  signupLink,
 })
 </script>
 

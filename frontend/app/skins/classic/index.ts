@@ -1,3 +1,4 @@
+import { defineAsyncComponent } from 'vue'
 import type { SkinDefinition } from '../registry'
 import type { SkinViews } from '../contracts/views'
 import LayoutShell from './views/LayoutShell.vue'
@@ -47,6 +48,8 @@ export const classicViews: SkinViews = {
   AddressesView,
   OrderDetailView,
   ProductDetailView,
+  // 에러 화면은 classic 뷰 없이 renew 뷰를 쓴다(FE-74).
+  ErrorView: defineAsyncComponent(() => import('../renew/views/ErrorView.vue')),
 }
 
 export const classicSkin: SkinDefinition = { views: classicViews }

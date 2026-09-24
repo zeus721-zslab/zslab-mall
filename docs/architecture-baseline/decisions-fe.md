@@ -3014,3 +3014,45 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 #### §8 이월
 - 클레임 목록 썸네일 부재(BE 응답에 없음).
 - classic에서 옛 링크로 필터가 적용될 때 칩 UI 없음(105-3에서 해소).
+
+## FE-74: renew 로그인·회원가입·검색 결과·도움말·에러 화면 — 모든 구매자 화면 renew 뷰 보유 (Track 105-2g) (2026-09-24)
+
+배경: renew 뷰가 없어 classic으로 대체되던 마지막 4화면(LoginView·SignupView·SearchView·HelpView)과, error.vue 부재로 Nuxt 기본 영문 에러 페이지(레이아웃·스킨 없음)가 뜨던 에러 화면을 renew로 만든다(recon-report-track105-2g). 이 트랙으로 모든 구매자 화면이 renew 뷰를 갖는다.
+
+결정:
+- **공통** 기존 renew 토큰·컴포넌트(RenewNotice·파스텔 토큰) 사용 · 메시지 톤 완료 success · 안내 info · 되돌릴 수 없는 동작 warning · 실패 danger · classic 뷰 무수정(페이지 script·계약은 추가만) · renew 전용 동작은 skin needs(renew만 선언) · 기존 testid·e2e 단언 문구 유지(password-change.spec /login testid 5·문구 1 · help.spec "준비 중입니다." · pixel.mjs 데모 버튼 문구).
+- **로그인** 데모 로그인 버튼(FE-43)·기존 동작·에러 문구 유지. "회원가입" 링크(/signup) 추가 — 받은 redirect를 그대로 넘긴다(계약 signupLink). ≥1024는 연보라 안내 면 + 폼 카드(RenewAuthFrame·회원가입 공용), <1024는 폼 카드만.
+- **회원가입** 비밀번호 확인 칸(need signupPasswordConfirm·renew만 선언) — 불일치면 요청 전에 "비밀번호가 일치하지 않습니다"(danger·비밀번호 변경 화면과 같은 방식), BE 요청 본문 불변(확인 값 미전송). classic은 확인 칸·검사 없는 현행. "로그인" 링크(/login·redirect 그대로 되돌림·계약 loginLink). 이메일 중복(409) 안내 등 기존 동작 유지. 비밀번호 찾기·약관 동의 없음.
+- **검색 결과** renew 상품 목록과 같은 형태(번호 페이지·정렬 칩·상품 카드·카테고리 탭 없음). useProductPage(categoryId, keyword) — 검색 모드 캐시 키 `product-search:${keyword}:${sort}:${page}`로 목록 키와 분리(둘 다 categoryId null이라 충돌), 빈 검색어는 조회하지 않음, BE 목록 API keyword 사용. 제목 면에 검색어·결과 건수. 빈 결과 = 안내 문구 + "전체 상품 보기"(/products). 빈 검색어·50자 초과 등은 기존 동작(안내 문구·400 → CommonErrorState). 헤더 검색창 무변경. classic은 기존 무한스크롤.
+- **도움말** renew 준비 중 화면(FE-64 자리 그대로·"준비 중입니다." 유지). 비밀번호 변경 가드 허용 경로 무변경.
+- **에러 화면** app/error.vue 신규 — 구매자 경로는 기본 레이아웃(헤더·푸터·data-skin) 안에서 renew ErrorView 렌더(Nuxt는 에러 상태에서 app.vue 대신 error.vue를 렌더하므로 NuxtLayout을 직접 감싼다). 404 "페이지를 찾을 수 없어요" / 그 외 "일시적인 오류가 발생했어요" + 한국어 설명 1줄. 버튼 홈으로(clearError + 이동) · 이전 페이지. 에러 화면에서 API 직접 호출 없음. classic 레지스트리는 renew ErrorView를 가리키는 1줄. 상세 화면의 페이지 안 404(CommonErrorState)는 무변경.
+- **error.vue 경로 분기** /admin·/seller 경로는 레이아웃 없이 ErrorView 본문만 렌더하고 "홈으로"는 /admin·/seller — 앱 전역 error.vue 1개라 관리자·셀러 404에 구매자 헤더가 노출되는 회귀를 막기 위해.
+- **지시 외 수용 3건**
+  - 이전 페이지 대체 이동: 이전 기록이 없으면(주소로 바로 진입) 홈으로 이동.
+  - RenewPagination 분리: RenewProductListing의 번호 페이지 블록을 컴포넌트로 옮겨 목록·검색 공용(마크업 동일).
+  - productList need 공유: 검색 결과는 새 need 없이 기존 productList를 선언한 스킨에서 번호 페이지로 조회.
+
+### §1-A 갈림길·채택/기각 근거
+- **비밀번호 확인 칸: α 추가 / β 현행** → α 채택(비밀번호 찾기 부재로 오타가 곧 영구 잠금).
+- **검색 결과: α 무한스크롤 유지 / β renew 목록과 같은 번호 페이지** → β 채택(목록과 일관).
+- **에러 화면**: 대안 검토 없음.
+
+### §2 검증
+- typecheck 0 · vitest 113 files / 783 passed(신규 useProductPage 3·SignupPage 3·skin-guard 3 — 1차는 SearchView 주석의 "useProductPage(" 표기가 소스 스캔에 걸려 1 failed → 주석 수정 후 통과) · e2e password-change·help·smoke(renew) 7 passed.
+- 임시 스크립트(1440·390): 로그인↔회원가입 redirect 유지 · 불일치 danger · 검색 제목·건수 · 정렬 칩·페이지 이동 keyword 유지 · 빈 결과 링크 · 도움말 문구 · 구매자 404(HTTP 404·헤더 포함) · /admin 404(구매자 헤더 없음·홈으로 → /admin) · 회원가입 POST 0.
+  - ① "페이지 이동 → API keyword/page" 판정 실패는 판정 시점 오류로 통과 처리 — 이미 idle이라 networkidle 대기가 즉시 반환돼 page=2 요청 전에 읽었고, 2페이지 스크린샷에 page=2 응답(0건)이 렌더됨.
+  - ② "404 홈으로 → 홈 렌더" 단독 재확인 통과 — url / · 상품 카드 23 · 에러 화면 0.
+  - 2페이지 스크린샷은 totalCount 모의값(45)으로 촬영 — 실데이터에 20건을 넘는 검색어가 없음(항목은 실응답).
+- 스크린샷 docs/frontend/screens-track105-2g/ — login · signup · signup-mismatch · search · search-page2 · search-empty · help · error-404(각 1440·390) · error-404-admin-1440 · error-404-home-after-1440.
+
+### §8 이월
+- 비밀번호 찾기(BE 기능).
+- 약관 동의(약관 본문 없음).
+- 500 계열 에러 화면 확인.
+- CommonErrorState·CommonEmptyState renew 톤(105-3).
+- helpers/login.ts 주석 불일치(smoke 구매자 데모 케이스 언급 — 실제는 password-change.spec ③).
+- skin-guard 정규식이 주석까지 검사함.
+- classic 스킨에서 ErrorView 파스텔 값 미정의(105-3에서 해소) — /admin·/seller 404도 data-skin이 없어 같은 상태.
+- 로그인 1440 스크린샷의 왼쪽 안내 면이 흐리게 찍힘(계산 opacity 1·촬영 시점 무관 — 원인 미확정).
+
+외부 검토: C / 생략

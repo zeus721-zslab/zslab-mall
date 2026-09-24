@@ -10,8 +10,9 @@ const PAGE_QUERY_PATTERN = /^[1-9]\d*$/
  * 번호 페이지 상품 목록(FE-69·renew ProductsView·CategoryView). 페이지가 스킨이 productList를 선언했을 때만 호출한다.
  * classic의 무한스크롤(useProductList)과 달리 URL ?sort=·?page=(1부터)가 상태의 기준이라 SSR·뒤로가기·새로고침이 같은 화면이다.
  * 정렬 선택지는 classic과 같은 PRODUCT_SORT_OPTIONS(SALES 제외). 카테고리 탭·배너용 목록은 헤더와 같은 useCategories 키를 공유한다.
+ * keyword(FE-74·검색 결과)를 넘기면 검색 모드다 — 캐시 키를 목록과 분리하고(같은 categoryId null이라 충돌), 빈 검색어면 조회하지 않는다.
  */
-export function useProductPage(categoryId: Ref<number | null>) {
+export function useProductPage(categoryId: Ref<number | null>, keyword: Ref<string> | null = null) {
   const route = useRoute()
   const router = useRouter()
   const config = useRuntimeConfig()
@@ -28,11 +29,21 @@ export function useProductPage(categoryId: Ref<number | null>) {
   })
 
   const { data, pending, error, refresh } = useAsyncData(
-    () => `product-page:${sort.value}:${categoryId.value ?? 'all'}:${page.value}`,
+    () =>
+      keyword === null
+        ? `product-page:${sort.value}:${categoryId.value ?? 'all'}:${page.value}`
+        : `product-search:${keyword.value}:${sort.value}:${page.value}`,
     () => {
+      // 빈 검색어는 조회하지 않는다(classic 검색과 같은 규칙·FE-20). 뷰는 안내 문구만 보인다.
+      if (keyword !== null && keyword.value === '') {
+        return Promise.resolve(null)
+      }
       const query: ProductListQuery = { sort: sort.value, page: page.value - 1, size: PAGE_SIZE }
       if (categoryId.value !== null) {
         query.categoryId = categoryId.value
+      }
+      if (keyword !== null) {
+        query.keyword = keyword.value
       }
       return $fetch<ProductListResponse>('/v1/products', { baseURL, query })
     },
