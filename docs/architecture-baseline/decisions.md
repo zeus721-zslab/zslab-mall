@@ -12790,3 +12790,12 @@ renew 메인 큐레이션(FE-68 β)에 필요한 조회를 기존 `GET /api/v1/p
 - FE `ProductSort` 유니온·`ProductSummary` 타입에 SALES·sellerPublicId 반영(Track 105-2c에서 사용 시).
 
 외부 검토: B / 셀프 리뷰 3관점 지적 16건 중 수용 11건
+
+## D-222 구매자 상품 상세 응답 sellerPublicId 추가 (Track 105-2e · 2026-09-24)
+
+### 결정
+- 공개 상세 `GET /api/v1/products/{productPublicId}`의 ProductDetailResponse 끝에 `sellerPublicId`(slr_)를 추가한다. 목록(D-221)과 같은 값이며 내부 seller_id는 노출하지 않는다. D-221의 "상세 응답에는 추가하지 않았다"를 이 결정으로 갱신한다.
+- 용도: renew 상세 "셀러의 다른 상품"이 목록 셀러 필터로 왕복한다(FE-70). 기존 필드·순서·404 은닉(비-ACTIVE 셀러) 불변, 이미 조회한 seller에서 읽어 추가 쿼리 없음.
+- 검증(2026-09-24): `gradlew test --rerun-tasks` 266 클래스 1578/0 실패 · ProductCatalogControllerIntegrationTest T10b(상세 값 직접 단정 + 목록 필터 왕복)·기존 상세 테스트 무변경.
+
+외부 검토: B / 셀프 리뷰(BE 노출·회귀) 지적 0건

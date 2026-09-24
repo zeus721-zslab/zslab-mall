@@ -217,6 +217,19 @@ class ProductCatalogControllerIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.variants[0].options.length()").value(0));
     }
 
+    @Test
+    @DisplayName("T10b 단건 상세 sellerPublicId — 판매자 public_id(slr_)를 목록 셀러 필터와 같은 값으로 노출(D-221 왕복)")
+    void detail_exposesSellerPublicId() throws Exception {
+        String sellerPublicId = pad("slr_", "CATSLR" + SELLER_ACTIVE);
+        mockMvc.perform(get(URL + "/" + PID_MULTI))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sellerPublicId").value(sellerPublicId));
+        mockMvc.perform(get(URL).param("categoryId", String.valueOf(CAT_DETAIL)).param("sellerPublicId", sellerPublicId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[?(@.productPublicId == '" + PID_MULTI + "')].sellerPublicId")
+                        .value(sellerPublicId));
+    }
+
     // ==================== 단건 404(은닉) ====================
 
     @Test
