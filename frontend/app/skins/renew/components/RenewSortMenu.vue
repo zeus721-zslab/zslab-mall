@@ -25,11 +25,11 @@ function onSelect(value: AcceptableValue): void {
     <DropdownMenuTrigger as-child>
       <button
         type="button"
-        class="group inline-flex h-11 items-center gap-2 rounded-full border border-line bg-white pl-5 pr-4 text-sm font-bold text-ink transition duration-200 focus-visible:border-primary focus-visible:outline-hidden data-[state=open]:border-primary"
+        class="group btn btn-secondary btn-md pr-4 data-[state=open]:bg-(--pastel-lavender-bg)"
       >
         <span class="sr-only">정렬 기준: </span>{{ selectedLabel }}
         <svg
-          class="pointer-events-none h-4 w-4 text-sub transition-transform duration-200 group-data-[state=open]:rotate-180"
+          class="pointer-events-none h-4 w-4 transition-transform duration-fast ease-soft group-data-[state=open]:rotate-180"
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"
@@ -45,14 +45,14 @@ function onSelect(value: AcceptableValue): void {
     <DropdownMenuContent
       align="end"
       :side-offset="8"
-      class="min-w-(--reka-dropdown-menu-trigger-width) rounded-2xl border-line bg-white p-1.5 text-ink shadow-[0_16px_36px_-16px_rgba(34,31,43,0.28)] data-[state=closed]:animate-[renew-menu-out_150ms_ease-in] data-[state=open]:animate-[renew-menu-in_180ms_ease-out] motion-reduce:animate-none"
+      class="min-w-(--reka-dropdown-menu-trigger-width) rounded-2xl border-line bg-white p-1.5 text-ink shadow-e2 data-[state=closed]:animate-[renew-menu-out_150ms_ease-in] data-[state=open]:animate-[renew-menu-in_150ms_var(--ease-soft)] motion-reduce:animate-none"
     >
       <DropdownMenuRadioGroup :model-value="modelValue" @update:model-value="onSelect">
         <DropdownMenuRadioItem
           v-for="option in options"
           :key="option.value"
           :value="option.value"
-          class="min-h-11 cursor-pointer rounded-xl pl-9 pr-4 text-sm font-bold text-ink focus:bg-(--pastel-lavender-bg) focus:text-ink data-[highlighted]:bg-(--pastel-lavender-bg) data-[state=checked]:text-primary"
+          class="min-h-11 cursor-pointer rounded-xl pl-9 pr-4 font-bold text-ink focus:bg-(--pastel-lavender-bg) focus:text-ink data-[highlighted]:bg-(--pastel-lavender-bg) data-[state=checked]:text-primary"
         >
           <template #indicator-icon>
             <svg
@@ -68,7 +68,8 @@ function onSelect(value: AcceptableValue): void {
               <path d="M5 12.5l4.5 4.5L19 7.5" />
             </svg>
           </template>
-          {{ option.label }}
+          <!-- 서체 스케일 유틸은 cn(tailwind-merge)이 글자색으로 보고 text-ink와 합칠 수 있어 항목 class가 아닌 라벨에 둔다(FE-76). -->
+          <span class="text-body font-bold">{{ option.label }}</span>
         </DropdownMenuRadioItem>
       </DropdownMenuRadioGroup>
     </DropdownMenuContent>

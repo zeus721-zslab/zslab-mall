@@ -48,7 +48,7 @@ useHead({
   <div
     ref="barElement"
     :class="[
-      'fixed inset-x-0 bottom-0 z-40 border-t border-line bg-white px-5 pb-[max(12px,env(safe-area-inset-bottom))] pt-3 transition-[transform,opacity] duration-200 ease-out motion-reduce:transition-none md:hidden',
+      'fixed inset-x-0 bottom-0 z-40 border-t border-line bg-white px-5 pb-[max(12px,env(safe-area-inset-bottom))] pt-3 transition-[transform,opacity] duration-fast ease-soft motion-reduce:transition-none md:hidden',
       shown ? 'translate-y-0 opacity-100' : 'pointer-events-none translate-y-full opacity-0',
     ]"
     :aria-hidden="shown ? undefined : 'true'"
@@ -56,15 +56,15 @@ useHead({
   >
     <div class="flex h-12 items-center gap-4">
       <div class="min-w-0 flex-1">
-        <p class="text-xs text-sub">{{ label }}</p>
+        <p class="text-caption font-normal text-sub">{{ label }}</p>
         <p v-if="amount !== null" class="truncate text-ink">
-          <span class="font-mono text-lg font-semibold">{{ amount.toLocaleString('ko-KR') }}</span><span class="ml-0.5 text-sm">원</span>
+          <span class="text-h3 font-semibold tabular-nums">{{ amount.toLocaleString('ko-KR') }}</span><span class="ml-0.5 text-small">원</span>
         </p>
-        <p v-else class="truncate text-sm text-sub">{{ pendingText }}</p>
+        <p v-else class="truncate text-small text-sub">{{ pendingText }}</p>
       </div>
       <button
         :type="submit ? 'submit' : 'button'"
-        class="flex h-12 shrink-0 items-center justify-center rounded-full bg-primary px-6 text-sm font-bold text-primary-foreground transition duration-200 hover:bg-primary-hover focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-primary"
+        class="btn btn-primary btn-md h-12 shrink-0"
         :disabled="disabled"
         @click="submit ? undefined : emit('action')"
       >

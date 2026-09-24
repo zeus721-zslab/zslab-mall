@@ -2,6 +2,7 @@
 import type { ProductPageListVm } from '~/skins/contracts/product-page'
 import { categoryTheme } from '../category-theme'
 import { followActiveItem } from '../scroll-active'
+import { trackScrollEdges } from '../scroll-edges'
 import CategoryIllustration from './CategoryIllustration.vue'
 import RenewPagination from './RenewPagination.vue'
 import RenewProductCard from './RenewProductCard.vue'
@@ -17,14 +18,9 @@ const props = defineProps<{
 const CONTAINER = 'mx-auto max-w-[1440px] px-5 md:px-10 lg:px-16'
 const PRODUCT_GRID = 'grid grid-cols-2 gap-x-4 gap-y-10 md:grid-cols-3 md:gap-x-6 lg:grid-cols-4 xl:grid-cols-5'
 const SKELETON_COUNT = 10
-const PILL = 'flex min-h-11 shrink-0 items-center whitespace-nowrap rounded-full px-5 text-sm font-bold transition duration-200'
 
 const title = computed(() => props.list.activeCategoryName ?? (props.categoryId === null ? '전체 상품' : '카테고리'))
 const theme = computed(() => categoryTheme(props.list.activeCategoryName))
-
-function tabClass(active: boolean): string {
-  return `${PILL} ${active ? 'bg-primary text-primary-foreground' : 'bg-surface-muted text-ink hover:bg-(--pastel-lavender-bg)'}`
-}
 
 const tabsElement = ref<HTMLElement | null>(null)
 let stopFollowingActiveTab: (() => void) | null = null
@@ -32,21 +28,23 @@ onMounted(() => {
   if (tabsElement.value) stopFollowingActiveTab = followActiveItem(tabsElement.value)
 })
 onBeforeUnmount(() => stopFollowingActiveTab?.())
+// 오른쪽 흐림은 줄 끝에 닿기 전까지만(FE-77).
+const tabsEdges = trackScrollEdges(tabsElement)
 </script>
 
 <template>
   <div class="pb-8 pt-6 md:pt-10">
     <div :class="CONTAINER">
-      <!-- 카테고리 배너: 색 전환 0.45s -->
+      <!-- 카테고리 배너: 색 전환 150ms -->
       <section
-        class="flex items-center justify-between gap-6 overflow-hidden rounded-(--panel-radius) px-6 py-10 transition-colors duration-[450ms] md:px-12 md:py-14"
+        class="flex items-center justify-between gap-6 overflow-hidden rounded-(--panel-radius) px-6 py-10 transition-colors duration-fast ease-soft md:px-12 md:py-14"
         :style="{ background: theme.background, color: theme.ink }"
       >
         <div>
-          <p class="font-mono text-xs font-medium uppercase tracking-widest opacity-80">Category</p>
-          <h1 class="mt-2 text-3xl font-bold tracking-tight md:text-4xl">{{ title }}</h1>
-          <p class="mt-3 text-sm">
-            <span class="font-mono font-semibold">{{ list.totalCount.toLocaleString('ko-KR') }}</span>개의 상품
+          <p class="text-caption uppercase tracking-[0.12em] opacity-80">Category</p>
+          <h1 class="mt-2 text-h1">{{ title }}</h1>
+          <p class="mt-3 text-small">
+            <span class="font-semibold tabular-nums">{{ list.totalCount.toLocaleString('ko-KR') }}</span>개의 상품
           </p>
         </div>
         <CategoryIllustration :name="theme.illustration" class="h-20 w-20 shrink-0 md:h-28 md:w-28" />
@@ -59,19 +57,29 @@ onBeforeUnmount(() => stopFollowingActiveTab?.())
           ref="tabsElement"
           aria-label="카테고리"
           data-testid="category-tabs"
-          class="relative -mx-1 overflow-x-auto px-1 pb-1 max-md:scrollbar-none max-md:snap-x max-md:snap-mandatory max-md:scroll-px-1 max-md:fade-right"
+          :class="[
+            'relative -mx-1 overflow-x-auto px-1 pb-1 max-md:scrollbar-none max-md:snap-x max-md:snap-mandatory max-md:scroll-px-1',
+            tabsEdges.atEnd ? '' : 'max-md:fade-right',
+          ]"
         >
+          <!-- 탭은 링크라 선택 표시는 aria-current(이동 위치) + chip의 data-state=on(보라 채움). -->
           <ul class="flex gap-2 max-md:[&>li]:snap-start">
             <li>
-              <NuxtLink to="/products" :class="tabClass(categoryId === null)" :aria-current="categoryId === null ? 'page' : undefined">
+              <NuxtLink
+                to="/products"
+                class="chip shrink-0"
+                :aria-current="categoryId === null ? 'page' : undefined"
+                :data-state="categoryId === null ? 'on' : undefined"
+              >
                 전체
               </NuxtLink>
             </li>
             <li v-for="category in list.categories" :key="category.categoryId">
               <NuxtLink
                 :to="`/categories/${category.categoryId}`"
-                :class="tabClass(categoryId === category.categoryId)"
+                class="chip shrink-0"
                 :aria-current="categoryId === category.categoryId ? 'page' : undefined"
+                :data-state="categoryId === category.categoryId ? 'on' : undefined"
               >
                 {{ category.displayName }}
               </NuxtLink>

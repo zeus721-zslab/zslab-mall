@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { LayoutShellVm } from '~/skins/contracts/layout'
 import { followActiveItem } from '../scroll-active'
+import { trackScrollEdges } from '../scroll-edges'
 
 // renew 레이아웃 셸. 헤더 상태·동작은 레이아웃이 vm으로 넘긴다(useAppHeader·FE-69) — classic AppHeader와 같은 기능·testid.
 defineProps<{ vm: LayoutShellVm }>()
@@ -15,20 +16,22 @@ onMounted(() => {
   if (mobileMenuElement.value) stopFollowingActiveMenu = followActiveItem(mobileMenuElement.value)
 })
 onBeforeUnmount(() => stopFollowingActiveMenu?.())
+// 오른쪽 흐림은 줄 끝에 닿기 전까지만(FE-77).
+const mobileMenuEdges = trackScrollEdges(mobileMenuElement)
 
 const CONTAINER = 'mx-auto max-w-[1440px] px-5 md:px-10 lg:px-16'
 const ICON_BUTTON =
-  'relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-ink transition duration-200 hover:bg-surface-muted focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary'
-const MENU_LINK =
-  'flex min-h-11 shrink-0 items-center whitespace-nowrap rounded-full px-4 text-sm font-bold text-ink transition duration-200 hover:bg-surface-muted'
+  'relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-ink transition duration-fast ease-soft hover:bg-surface-muted focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary'
+const MENU_LINK = 'btn btn-tertiary btn-md shrink-0'
+const FOOTER_LINK = 'transition duration-fast ease-soft hover:text-ink max-md:inline-flex max-md:min-h-11 max-md:items-center'
 </script>
 
 <template>
   <div class="flex min-h-screen flex-col bg-surface-page text-ink">
     <!-- ≥1024 높이는 --header-height 토큰으로 고정한다(상세 구매 영역 sticky가 같은 값 기준·FE-70). -->
-    <header class="sticky top-0 z-50 border-b border-line bg-surface-page/95 backdrop-blur lg:h-(--header-height)">
+    <header class="sticky top-0 z-50 border-b border-line bg-white lg:h-(--header-height)">
       <div :class="[CONTAINER, 'flex flex-wrap items-center gap-x-2 gap-y-3 py-3 md:gap-x-6']">
-        <NuxtLink to="/" class="mr-auto shrink-0 text-xl font-bold tracking-tight text-ink md:mr-0">
+        <NuxtLink to="/" class="mr-auto shrink-0 text-h2 text-ink md:mr-0">
           zslab<span class="text-primary">.</span>mall
         </NuxtLink>
 
@@ -63,7 +66,7 @@ const MENU_LINK =
               placeholder="찾으시는 상품을 검색해 보세요"
               aria-label="상품 검색"
               data-testid="search-input"
-              class="min-h-11 w-full rounded-full border border-line bg-surface-muted py-2.5 pl-12 pr-4 text-sm text-ink placeholder-sub transition duration-200 focus:border-primary focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-primary"
+              class="min-h-11 w-full rounded-control border border-line bg-surface-page py-2.5 pl-12 pr-4 text-body text-ink placeholder-sub transition duration-fast ease-soft focus:border-primary focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-primary"
             />
           </label>
         </form>
@@ -99,16 +102,16 @@ const MENU_LINK =
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-        <NuxtLink v-else to="/login" :class="[MENU_LINK, 'min-w-11 justify-center']">로그인</NuxtLink>
+        <NuxtLink v-else to="/login" :class="MENU_LINK">로그인</NuxtLink>
 
-        <!-- 장바구니: 뱃지는 담긴 품목 수(>0)일 때만. 숫자는 mono·포인트색. -->
+        <!-- 장바구니: 뱃지는 담긴 품목 수(>0)일 때만. 숫자는 고정폭 숫자·포인트색. -->
         <NuxtLink to="/cart" aria-label="장바구니" :class="ICON_BUTTON">
           <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
             <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 10.5V6a3.75 3.75 0 10-7.5 0v4.5m11.356-1.993l1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 01-1.12-1.243l1.264-12A1.125 1.125 0 015.513 7.5h12.974c.576 0 1.059.435 1.119 1.007z" />
           </svg>
           <span
             v-if="vm.cartCount > 0"
-            class="absolute right-0.5 top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 font-mono text-xs font-semibold text-primary-foreground"
+            class="absolute right-0.5 top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-caption tabular-nums text-primary-foreground"
           >
             {{ vm.cartCount }}
           </span>
@@ -119,7 +122,11 @@ const MENU_LINK =
       <nav aria-label="카테고리" class="border-t border-line lg:hidden">
         <ul
           ref="mobileMenuElement"
-          :class="[CONTAINER, 'relative flex gap-1 overflow-x-auto py-1 max-md:scrollbar-none max-md:snap-x max-md:snap-mandatory max-md:scroll-px-5 max-md:fade-right max-md:[&>li]:snap-start']"
+          :class="[
+            CONTAINER,
+            'relative flex gap-1 overflow-x-auto py-1 max-md:scrollbar-none max-md:snap-x max-md:snap-mandatory max-md:scroll-px-5 max-md:[&>li]:snap-start',
+            mobileMenuEdges.atEnd ? '' : 'max-md:fade-right',
+          ]"
         >
           <li><NuxtLink to="/products" :class="MENU_LINK">전체</NuxtLink></li>
           <li v-for="category in vm.categoryMenuItems" :key="category.categoryId">
@@ -133,21 +140,21 @@ const MENU_LINK =
       <slot />
     </main>
 
-    <footer class="mt-20 border-t border-line">
+    <footer class="mt-20 border-t border-line bg-surface-muted">
       <div :class="[CONTAINER, 'py-12']">
         <div class="flex flex-col gap-8 md:flex-row md:items-start md:justify-between">
           <div>
-            <p class="text-lg font-bold tracking-tight text-ink">zslab<span class="text-primary">.</span>mall</p>
-            <p class="mt-2 text-sm text-sub">쇼핑의 기준</p>
+            <p class="text-h3 text-ink">zslab<span class="text-primary">.</span>mall</p>
+            <p class="mt-2 text-small text-sub">쇼핑의 기준</p>
           </div>
-          <nav class="flex flex-wrap gap-x-8 gap-y-3 text-sm text-sub" aria-label="푸터">
-            <a href="#" class="transition duration-200 hover:text-ink">회사소개</a>
-            <a href="#" class="transition duration-200 hover:text-ink">이용약관</a>
-            <a href="#" class="transition duration-200 hover:text-ink">개인정보처리방침</a>
-            <NuxtLink to="/help" class="transition duration-200 hover:text-ink" data-testid="footer-help-link">고객센터</NuxtLink>
+          <nav class="flex flex-wrap gap-x-8 gap-y-3 text-small text-sub max-md:gap-y-0" aria-label="푸터">
+            <a href="#" :class="FOOTER_LINK">회사소개</a>
+            <a href="#" :class="FOOTER_LINK">이용약관</a>
+            <a href="#" :class="FOOTER_LINK">개인정보처리방침</a>
+            <NuxtLink to="/help" :class="FOOTER_LINK" data-testid="footer-help-link">고객센터</NuxtLink>
           </nav>
         </div>
-        <p class="mt-10 border-t border-line pt-6 font-mono text-xs text-sub">© 2026 zslab-mall. All rights reserved.</p>
+        <p class="mt-10 border-t border-line pt-6 text-caption font-normal text-sub">© 2026 zslab-mall. All rights reserved.</p>
       </div>
     </footer>
   </div>
