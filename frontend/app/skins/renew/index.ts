@@ -13,6 +13,10 @@ export const renewSkin: SkinDefinition = {
     ProductsView: defineAsyncComponent(() => import('./views/ProductsView.vue')),
     CategoryView: defineAsyncComponent(() => import('./views/CategoryView.vue')),
     ProductDetailView: defineAsyncComponent(() => import('./views/ProductDetailView.vue')),
+    CartView: defineAsyncComponent(() => import('./views/CartView.vue')),
+    CheckoutView: defineAsyncComponent(() => import('./views/CheckoutView.vue')),
+    PaymentMockView: defineAsyncComponent(() => import('./views/PaymentMockView.vue')),
+    CheckoutCompleteView: defineAsyncComponent(() => import('./views/CheckoutCompleteView.vue')),
   },
   needs: ['layoutHeader', 'homeCuration', 'productList', 'productDetailMore'],
 }
