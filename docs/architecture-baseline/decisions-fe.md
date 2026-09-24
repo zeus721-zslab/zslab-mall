@@ -3274,3 +3274,80 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 - 원형 아이콘·스테퍼 컨트롤의 공용 유틸 여부는 화면 그룹이 끝난 뒤 판단한다(FE-77 §8).
 
 외부 검토: C / 생략
+
+## FE-79: 마이페이지 디자인·사용성 — 틀·홈·회원 정보·비밀번호·배송지·탈퇴 + 공용 보완 (Track 105-4e-1) (2026-09-25)
+
+배경: FE-76 기준을 마이페이지에 적용하는 단계다. 대상은 MypageFrame·MypageView·ProfileView·PasswordView·AddressesView·WithdrawView다. 여기에 공용 보완 4건(카테고리 대체 테마·RenewNotice action 슬롯·연락처 표시 형식·DialogConfirm 처리 중 상태)과 배송지 모달 주소 검색을 함께 처리했다. BE 계약은 바꾸지 않았다. vm 계약은 배송지 1건만 바꿨다(아래). 주문 목록·상세·클레임, 그리고 홈 주문 현황 숫자 링크는 105-4e-2에서 한다.
+
+결정:
+- **공통 규칙** FE-77·FE-78과 같다. 글자 버튼은 `btn`, 영역당 주 버튼 1개, 띠 면 위 보조 버튼은 흰 바탕이다. 상태 알약은 RenewBadge를 쓰고, font-mono는 주문번호에만 쓴다. 크기는 서체 스케일 유틸이다. 콘텐츠 카드는 흰색 + `shadow-e1`, 전환은 150ms `ease-soft`다. 첫 화면 등장 모션은 두지 않는다. 768 미만 터치 영역은 44다.
+- **A. 카테고리 대체 테마** `categoryTheme(categoryId, displayName)`. id가 null이면 "전체"(흰 면 + 격자)다. "전체" 타일은 카테고리 목록에 없는 가상 항목으로, /products 배너에서 categoryId가 null일 때 쓴다. 이름 매핑이 있으면 기존과 같다. 매핑이 없는 실제 카테고리(이름이 null인 경우 포함)는 `|id| % 5`로 파스텔(라벤더·페리윙클·핑크·민트·버터)을 고르고 태그 선 일러스트를 쓴다. 호출처는 3곳이다(HomeView 카테고리 타일 · RenewProductListing 배너 · ProductDetailView 카테고리 링크). 운영 "데모"가 "전체"와 같은 흰 면·격자로 보이던 문제가 해소됐다.
+- **B. RenewNotice action 슬롯** 버튼이 있으면 768 이상에서 아이콘·문구·버튼을 세로 가운데로 맞추고, 768 미만에서는 버튼을 아래 줄(문구 시작선 들여쓰기)로 내린다. 버튼이 없으면 아이콘을 문구 첫 줄(24px) 가운데에 맞춘다. 자체 스타일도 정리했다(FE-78 이월): `rounded-[20px]` → `rounded-card`, `text-sm font-bold` → `text-body font-semibold`.
+  - 이전한 곳(알림 안 버튼 전수 6곳): MypageView 구매 확정 대기 "확정하러 가기" · CheckoutView 3곳(선택 상품 없음·구매 불가·오류 — "장바구니로 이동") · ClaimNewView 교환 옵션 오류 "다시 시도" · ClaimDetailView 취소 패널(요청 취소 = `btn-danger`, 닫기 = 흰 바탕 보조).
+  - 대상 밖 화면(주문서·클레임)은 슬롯 이전과 버튼 유틸 교체만 했다.
+- **C. 연락처 표시 형식** `app/lib/format/phone.ts` `formatPhone`. +82는 0으로 바꾼 뒤 판단한다. 규칙은 01X 11자리 3-4-4 / 10자리 3-3-4, 02 2-3/4-4, 그 밖의 지역번호 3-3/4-4다. 숫자·공백·하이픈·괄호·점 밖의 글자(마스킹 `*` 등)가 있거나 자릿수가 맞지 않으면 원문을 돌려준다. 표시 문자열만 바꾸고 입력칸 값(BE로 보내는 값)은 바꾸지 않는다.
+  - 구매자 4곳: AddressesView 목록 · MypageView 기본 배송지 · OrderDetailView 배송지 · CheckoutView 저장 배송지 요약.
+  - 관리자·셀러 12곳(표시 문자열만 바꾸고 Vuetify 마크업·스타일은 그대로): AdminDeliveryDetailDialog 수령인 · AdminMemberListView 연락처 열 · AdminOperatorProvisionDialog·AdminSellerProvisionDialog·AdminSellerMemberAddDialog 회원 검색 부제 · members/sellers/[id] 담당자 · members/[id] 연락처·배송지 표·임시 비밀번호 확인 문구 · orders/[id] 수령인 · settlements/[id] 정산 연락처(마스킹이라 원문 유지) · seller/orders/[id] 수령인. 기존 대체 문구(`?? '—'`·`?? '연락처 없음'`)는 판별 불가라 그대로 돌아온다.
+  - 정찰 당시 관리자·셀러는 10곳으로 셌으나 재검색에서 12곳으로 정정했다(첫 grep 결과 오계수 1 + 한 줄 조건 밖 확인 문구 1).
+- **D. 배송지 모달 주소 검색** 추가·수정 모달의 우편번호·도로명·지번 입력칸을 RenewAddressSearch로 바꿨다(FE-78과 같은 방식). 검색 모달은 폼 모달 위에 겹친다. 수정 모드에서는 기존 주소가 요약 카드로 보이고 "변경"으로 다시 검색한다. 직접 입력을 고를 때만 세 칸을 펼친다.
+  - 주소 비움 저장: 입력칸이 없어 브라우저 필수 검사가 닿지 않는다. 그래서 저장을 누를 때 주소가 비어 있으면 요청을 보내지 않고 "주소를 검색해 선택해 주세요."(`aria-live="polite"`, FE-78 문구)를 보인다.
+  - 겹침 오버레이: `RenewAddressSearch`의 `nested` prop을 켜면 검색 모달 오버레이가 투명이다(공용 DialogContent `overlayClass` prop). 배경 어둡기는 1단계로 유지된다. 배송지만 켜고, 주문서는 그대로다.
+  - 닫힘 뒤 초기화(이월 해소): 페이지는 닫기만 하고, 뷰가 DialogContent `close-auto-focus`(닫힘 애니메이션이 끝나 모달이 사라진 뒤)에서 `resetForm`을 부른다. 페이지 오류 알림은 `!formOpen` 대신 뷰의 `formShown` 기준이다. 닫히는 사이에 폼 오류가 페이지로 번쩍이지 않게 하기 위해서다.
+- **E. DialogConfirm 처리 중** 기존 `pending`(FE-73, 두 버튼 잠금)을 확장했다. 확인 버튼에 스피너와 `aria-busy`를 두고, pending 동안 Esc·바깥 누름·닫기 요청을 무시한다. 버튼은 `btn btn-md`다(취소 `btn-secondary`, 확인 `btn-danger`/`btn-primary`).
+  - 배송지 삭제에 연결했다.
+  - 대상 밖 사용처(목록만): OrderDetailView·OrdersView 구매확정 모달. 이미 `pending`을 쓰고 있고, 공용 변경으로 확인 버튼 외형이 빨강 채움에서 핑크 틴트(`btn-danger`)로 함께 바뀌었다.
+- **vm 계약 변경(배송지)** `AddressesPageVm.removing` 추가: `confirmRemove`가 삭제가 끝날 때까지 확인 모달을 열어 두고, 성공·실패 뒤 닫는다. `closeForm`은 닫기만 하고 저장 성공 경로도 닫기만 한다. 초기화는 뷰가 닫힘 뒤 `resetForm`으로 한다(계약 주석 갱신).
+
+화면별 변경:
+- **MypageFrame** "My page" 눈썹과 활성 점(기능 없는 장식)을 제거했다. 768 이상 메뉴의 활성 항목은 흰 면 + `shadow-e1` + primary 글자다. 768 미만은 `max-md:chip`(44)이고, 활성 `aria-current`는 보라 채움이다. 흐림은 `trackScrollEdges`로 끝에 닿기 전까지만 보인다. 제목은 `text-h1`이고, 본문 등장 모션을 제거했다. `max-md:chip`처럼 변형이 붙은 커스텀 유틸이 `@media (width < 48rem)` 안에 규칙 전체로 출력되는 것을 컴파일 CSS에서 확인했다.
+- **홈**
+  - 인사: 라벤더 띠 면(`--panel-radius`)을 유지했다. "회원 정보 수정"은 흰 바탕 보조 버튼이다.
+  - 카드: 주문 현황·진행 중 클레임·기본 배송지·최근 주문은 흰 카드다.
+  - 숫자: 현황 숫자는 `text-h1 tabular-nums`, 클레임 건수는 `text-display tabular-nums`다.
+  - 구매 확정 대기: RenewNotice + action 슬롯이다.
+  - 최근 주문: 날짜 줄과 주문번호 줄(모노·줄바꿈 없음)을 나눴다. 640 미만에서는 상태·금액을 정보 아래 줄로 내려 390에서 주문번호가 잘리지 않는다(FE-72 이월 해소). 주문 상태는 RenewBadge info다.
+- **회원 정보·비밀번호** 폼은 흰 카드이고, 라벨·입력칸은 주문서 상수와 같다(`rounded-control`·`text-body`). 저장·변경 버튼은 `btn-primary btn-lg`(56 → 52)이고, 메시지는 기존 RenewNotice를 유지했다.
+- **배송지**
+  - 기본 배송지: 라벤더 띠 면 한 장이다. "기본 배송지" caption으로 표시하는데, 띠 면 위 라벨 배지는 대비가 부족해서다.
+  - 나머지 배송지: 흰 카드이고 768 이상에서 2열이다. 배송지 이름 알약은 "· 이름" 글자로 바꿨다(FE-78 라벨 알약 → 글자 선례).
+  - 액션: 기본으로 설정 `btn-secondary` · 수정 `btn-tertiary` · 삭제 `btn-tertiary text-destructive`. 전부 `btn-sm`이고 768 미만은 44다.
+- **탈퇴** 경고 RenewNotice를 유지했다. 탈퇴는 `btn-danger btn-lg`이고, "취소"(`btn-secondary` → /mypage)를 새로 뒀다. 동의 label은 44다.
+
+### §1-A 갈림길·채택/기각 근거
+- **카테고리 대체: 이름 매핑 + id 순환(채택) / id 매핑(기각) / 관리자 지정(이월)** id 매핑은 환경마다 id가 달라 기각했다. id 순환은 매핑이 없는 카테고리에만 적용되고, 이름이 바뀌어도 흰 면으로 떨어지지 않는다. 관리자가 색·일러스트를 지정하는 방식은 운영 구조(D-220)와 함께 설계하므로 이월한다.
+- **닫힘 뒤 초기화: 뷰가 close-auto-focus에서 resetForm(채택) / 뷰만 수정(불가)** 입력칸이 `vm.form`에 직접 묶여 있고, 저장 성공 경로는 페이지가 초기화 → 닫기 순으로 처리해 뷰만으로는 막을 수 없다.
+
+### §2 검증
+- 1차: backend dev 재생성(D-224 반영) → typecheck EXIT 0 → vitest 116 files / 798 passed(신규 category-theme 4 · phone-format 5 · DialogConfirm 2 · AddressesView 4 · RenewNotice +2) → e2e smoke·password-change 4 passed → 캡처 판정 7 PASS / 1 FAIL로 중단.
+  - FAIL 원인: 검색 모달이 카카오 iframe(교차 출처) 안 검색창에 포커스를 둔다. 그래서 Esc keydown이 부모 문서에 닿지 않아 모달이 닫히지 않았다. 겹침 순서 문제는 아니다. 이어서 스크립트가 시간 초과로 끝났다(스크립트 결함).
+- 결정 A 반영 뒤: nested 오버레이 + 단위 1 → 변경 관련 vitest 5 files / 28 passed → 캡처 재실행 1회 22/22 PASS. typecheck·e2e는 재실행하지 않았다(PR CI).
+  - 카테고리·틀: "데모"는 페리윙클 + 태그다. 390 메뉴 칩은 44다.
+  - 확정 대기 정렬: 1440은 아이콘·문구·버튼 중심이 같고, 390은 아이콘이 문구 첫 줄 중심에 있고 버튼은 아래 줄 44다. 390 주문번호는 넘치지 않는다.
+  - 겹침: 오버레이는 폼 반투명 + 검색 투명(1단계)이다. 닫기 버튼에 포커스를 두고 Esc를 누르면 검색만 닫히고 포커스가 폼의 "주소 검색"으로 돌아온다.
+  - 닫힘 초기화: 취소 직후에는 입력값이 유지되고, 다시 열면 비어 있다.
+  - 탈퇴: 위험·보조 버튼이 적용됐다.
+  - 연락처: 관리자 회원 17행과 셀러 주문 상세가 형식과 일치한다.
+
+### §3 작업 전후 집계(대상 8파일 — 6화면 + RenewNotice·DialogConfirm)
+- 버튼·배지: 인라인 글자 버튼 19 → 0(남은 비-btn은 메뉴 칩 링크 1과 카드 행 링크 2) · btn 51곳. 상태·라벨 알약 3 → RenewBadge 1 + 띠 면 caption 1 + 글자 1.
+- 서체: font-mono 8 → 1(주문번호) · tabular-nums 0 → 12 · 표준 크기 클래스 49 → 0.
+- 모션: 150ms가 아닌 전환 21 → 0 · 첫 화면 등장 모션 2곳 → 0.
+- 면·모서리: 임의 모서리 14 → 2(썸네일, FE-77 유지 선례) · 임의 그림자 0 → 0 · shadow-e1 0 → 8.
+
+### §8 이월
+- **iframe 안 포커스 중 Esc 무반응** 카카오 우편번호 iframe은 교차 출처라 검색창에 포커스가 있을 때 Esc가 모달에 닿지 않는다(주문서 FE-78도 같은 구조). 대체 수단: Shift+Tab으로 닫기 버튼에 도달한 뒤 Esc · 닫기 버튼 · 바깥 누름.
+- **105-4e-2** 주문 목록·상세·클레임 · 홈 주문 현황 숫자 → 필터 목록 연결(D-224).
+- 주문서 결제 금액 aside(1024 이상 좁은 열)의 action 슬롯 알림은 768 이상 가로 배치 규칙이라 문구 열이 좁아질 수 있다(이번 캡처 대상 밖 · 105-4e-2 이후 화면 점검 때 확인).
+- 캡처 관찰: mypage-1440 풀페이지에서 한글이 대체 글꼴로 찍혔다(FE-76 §8과 같은 촬영 시점 현상으로 추정). 데모 구매자 배송지가 1건이라 흰 카드 2열은 컴포넌트 테스트·클래스로만 확인했다.
+- 관리자가 카테고리 테마를 지정하는 방식은 D-220 운영 구조와 함께 설계한다.
+
+### 보완 — DialogConfirm tone 분리 · 결과 안내 · 동작명 버튼(커밋 전 같은 브랜치)
+- DialogConfirm tone 분리(기본 primary, 삭제·취소·철회만 danger) — 구매확정 위험색 결함 수정. 위 E의 공용 변경으로 구매확정 확인 버튼이 `btn-danger`(핑크 틴트)가 됐는데, 구매확정은 긍정 동작이라 맞지 않았다. `destructive` boolean을 `tone: 'primary' | 'danger'`로 바꿨고 그 밖의 색은 추가하지 않았다.
+- **구조 강조** 설명 칸에는 대상만 적는다. 되돌릴 수 없는 결과는 notice 슬롯(RenewNotice warning, 슬롯이 비면 렌더하지 않음)에 둔다. 확인 버튼 이름은 동작을 그대로 적는다. testid `descriptionTestId`는 `noticeTestId`로 바꿨다.
+- **구매확정 결과 문구** 규약 문구 `ITEM_CONFIRM_WARNING`(FE-64 단일 소스, 2줄 가역성 형식)을 그대로 notice에 옮겼다. 처음 지정했던 "확정하면 반품·교환을 요청할 수 없어요."는 쓰지 않았다(단일 소스 유지). testid `item-confirm-warning`을 notice로 옮겼고 unit·e2e 단언은 바꾸지 않았다(둘 다 testid로 찾아 문구를 비교한다).
+- 호출처(DialogConfirm 전수 3곳 — 클레임 요청 취소·탈퇴는 DialogConfirm 미사용이라 변경 없음):
+  - 배송지 삭제(AddressesView): tone danger · "삭제하기"(처리 중 "삭제 중…") · 설명 "{받는 분} · {도로명}" · notice "삭제하면 되돌릴 수 없어요." — 근거 UserAddressService.delete soft delete(markDeleted) + UserAddressController 복구 경로 없음.
+  - 구매확정(OrderDetailView·OrdersView): tone primary · "구매 확정하기"(처리 중 "확정 중…") · 설명 `itemConfirmDescription` = "{상품명} · {옵션}을 구매 확정합니다."(옵션 없으면 상품명만, 둘 다 없으면 "이 품목") · notice `ITEM_CONFIRM_WARNING` — 근거 ClaimService.validateReturnRequest(반품·교환은 DELIVERED 품목만). 설명은 닫히는 동안 바뀌어 보이지 않게 열려 있을 때의 값을 붙잡아 둔다.
+- §1-A: **α 구조 강조(결과 안내 + 동작명 버튼)** 채택 / **β 별도 강조색** 기각(포인트 1색 기준(FE-76) 위반, 경고와 의미 중복) / **γ 크기·아이콘만 강조** 기각(결과가 전달되지 않음).
+
+외부 검토: C / 생략

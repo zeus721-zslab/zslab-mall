@@ -6,10 +6,10 @@ import RenewNotice from '../components/RenewNotice.vue'
 // renew 비밀번호 변경(FE-72). 폼 동작·검증·임시 비밀번호 안내는 classic과 같은 페이지 vm을 쓴다(testid·안내 문구 동일).
 defineProps<{ vm: PasswordPageVm }>()
 
-const CARD = 'max-w-[720px] rounded-[28px] bg-white p-6 md:p-8'
-const LABEL = 'mb-1.5 block text-sm font-bold text-ink'
+const CARD = 'rounded-card bg-white p-5 shadow-e1 md:p-6'
+const LABEL = 'mb-1.5 block text-small font-bold text-ink'
 const INPUT =
-  'h-12 w-full rounded-[14px] border border-line bg-white px-4 text-sm text-ink transition duration-200 placeholder:text-sub focus:border-primary focus:outline-hidden focus:ring-1 focus:ring-primary'
+  'h-12 w-full rounded-control border border-line bg-white px-4 text-body text-ink transition duration-fast ease-soft placeholder:text-sub focus:border-primary focus:outline-hidden focus:ring-1 focus:ring-primary'
 </script>
 
 <template>
@@ -70,12 +70,7 @@ const INPUT =
 
           <RenewNotice v-if="vm.errorMessage" tone="danger">{{ vm.errorMessage }}</RenewNotice>
 
-          <button
-            type="submit"
-            class="flex h-14 w-full items-center justify-center gap-2 rounded-full bg-primary text-base font-bold text-primary-foreground transition duration-200 hover:bg-primary-hover focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-primary sm:w-48"
-            :disabled="vm.submitting"
-            data-testid="password-submit"
-          >
+          <button type="submit" class="btn btn-primary btn-lg w-full sm:w-48" :disabled="vm.submitting" data-testid="password-submit">
             <span v-if="vm.submitting" class="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white motion-reduce:animate-none" aria-hidden="true"></span>
             {{ vm.submitting ? '변경 중…' : '비밀번호 변경' }}
           </button>

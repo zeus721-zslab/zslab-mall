@@ -16,6 +16,7 @@ import {
 } from '#layers/admin/app/lib/admin-member-query'
 import { toAdminErrorMessage } from '#layers/admin/app/lib/admin-error-message'
 import { formatDateTime } from '~/lib/utils/datetime'
+import { formatPhone } from '~/lib/format/phone'
 import { useAdminMembers } from '#layers/admin/app/composables/useAdminMembers'
 
 /**
@@ -179,7 +180,7 @@ function open(item: AdminMemberSummary): void {
           <span data-testid="row-email">{{ item.email ?? '—' }}</span>
         </template>
         <template #[`item.phone`]="{ item }">
-          {{ item.phone ?? '—' }}
+          {{ formatPhone(item.phone ?? '—') }}
         </template>
         <template #[`item.createdAt`]="{ item }">
           {{ formatDateTime(item.createdAt) }}

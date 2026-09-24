@@ -18,15 +18,17 @@ defineOptions({
   inheritAttrs: false,
 })
 
+// overlayClass(FE-79): 모달 위에 모달을 겹칠 때 위 모달의 오버레이를 덮어써(예: bg-transparent) 배경이 두 번 어두워지지 않게 한다.
 const props = withDefaults(
-  defineProps<DialogContentProps & { class?: HTMLAttributes["class"]; showClose?: boolean }>(),
+  defineProps<DialogContentProps & { class?: HTMLAttributes["class"]; overlayClass?: HTMLAttributes["class"]; showClose?: boolean }>(),
   {
     showClose: true,
+    overlayClass: undefined,
   },
 )
 const emits = defineEmits<DialogContentEmits>()
 
-const delegatedProps = reactiveOmit(props, "class", "showClose")
+const delegatedProps = reactiveOmit(props, "class", "overlayClass", "showClose")
 
 const forwarded = useForwardPropsEmits(delegatedProps, emits)
 </script>
@@ -35,7 +37,7 @@ const forwarded = useForwardPropsEmits(delegatedProps, emits)
   <DialogPortal>
     <DialogOverlay
       data-slot="dialog-overlay"
-      class="fixed inset-0 z-50 bg-foreground/40 data-[state=closed]:animate-[dialog-fade-out_150ms_ease-in] data-[state=open]:animate-[dialog-fade-in_200ms_ease-out] motion-reduce:animate-none"
+      :class="cn('fixed inset-0 z-50 bg-foreground/40 data-[state=closed]:animate-[dialog-fade-out_150ms_ease-in] data-[state=open]:animate-[dialog-fade-in_200ms_ease-out] motion-reduce:animate-none', props.overlayClass)"
     />
     <DialogContent
       data-slot="dialog-content"

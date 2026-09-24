@@ -23,7 +23,7 @@ const FADE = {
 }
 
 const product = computed(() => props.vm.data)
-const theme = computed(() => categoryTheme(product.value?.categoryName ?? null))
+const theme = computed(() => categoryTheme(product.value?.categoryId ?? null, product.value?.categoryName ?? null))
 const sellerInitial = computed(() => product.value?.sellerName.trim().charAt(0) ?? '')
 const addButtonLabel = computed(() => (props.vm.adding ? '담는 중…' : '장바구니 담기'))
 // 금액이 없을 때 문구: 판매 불가(판매 가능 variant 없음 포함)면 그 사유, 아니면 옵션 선택 안내.

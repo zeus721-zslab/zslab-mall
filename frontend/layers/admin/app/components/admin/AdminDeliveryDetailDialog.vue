@@ -12,6 +12,7 @@ import {
 import { ADMIN_DELIVERY_DIRECTION_LABEL } from '#layers/admin/app/lib/constants/admin-delivery'
 import { canCorrectTracking, deliveryClaimChip, trackingCorrectionBlockedReason } from '#layers/admin/app/lib/admin-delivery-view'
 import { semanticChipClass } from '#layers/admin/app/lib/constants/semantic'
+import { formatPhone } from '~/lib/format/phone'
 
 /**
  * 배송 상세 다이얼로그(FE-37). 배송 정보·배송지 스냅샷·주문/품목·클레임을 읽기 전용으로 보여주고 "송장 수정" 액션만 올린다.
@@ -76,7 +77,7 @@ function address(detail: AdminDeliveryDetail): string {
           <v-table density="compact" class="mb-4" data-testid="detail-shipping">
             <tbody>
               <tr><th class="text-medium-emphasis" style="width: 120px">수령인</th><td>{{ shown.shippingAddress?.recipientName ?? shown.recipientName ?? '—' }}</td></tr>
-              <tr><th class="text-medium-emphasis">연락처</th><td>{{ shown.shippingAddress?.recipientPhone ?? '—' }}</td></tr>
+              <tr><th class="text-medium-emphasis">연락처</th><td>{{ formatPhone(shown.shippingAddress?.recipientPhone ?? '—') }}</td></tr>
               <tr><th class="text-medium-emphasis">주소</th><td>{{ address(shown) }}</td></tr>
               <tr v-if="shown.shippingAddress?.deliveryMemo"><th class="text-medium-emphasis">배송 메모</th><td>{{ shown.shippingAddress.deliveryMemo }}</td></tr>
             </tbody>

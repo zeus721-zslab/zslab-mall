@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { CheckoutPageVm } from '~/skins/contracts/checkout'
+import { formatPhone } from '~/lib/format/phone'
 import FadeAmount from '../components/FadeAmount.vue'
 import MobileActionBar from '../components/MobileActionBar.vue'
 import RenewAddressSearch from '../components/RenewAddressSearch.vue'
@@ -21,8 +22,8 @@ const INPUT =
 // 저장 배송지 선택 칩: 실제 radio(sr-only)를 감싸므로 선택 표시는 data-state, 초점 표시는 has-focus-visible로 준다.
 const ADDRESS_CHIP = 'chip cursor-pointer has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-primary has-[:focus-visible]:ring-offset-2'
 const NEW_ADDRESS_KEY = 'new'
-// 알림 안의 장바구니 링크: 띠 면 위 보조 버튼(흰 바탕).
-const CART_LINK = 'btn btn-sm mt-3 bg-white text-primary max-md:min-h-11'
+// 알림 action 슬롯의 장바구니 링크: 띠 면 위 보조 버튼(흰 바탕). 배치는 RenewNotice가 맡는다(FE-79).
+const CART_LINK = 'btn btn-sm bg-white text-primary max-md:min-h-11'
 
 // "이 주소 수정"으로 펼친 상태(화면 상태만). 다른 배송지를 고르면 다시 요약으로 접는다.
 const editing = ref(false)
@@ -88,7 +89,7 @@ const submitButton = ref<HTMLButtonElement | null>(null)
             <!-- 저장 배송지 요약(접힘 상태) -->
             <div v-if="!expanded" class="mt-5 flex flex-col gap-4 rounded-card bg-surface-muted p-5 sm:flex-row sm:items-start sm:justify-between">
               <div class="min-w-0 space-y-1 text-body text-ink">
-                <p class="font-bold">{{ vm.recipientName }} <span class="ml-1 font-normal tabular-nums text-sub">{{ vm.recipientPhone }}</span></p>
+                <p class="font-bold">{{ vm.recipientName }} <span class="ml-1 font-normal tabular-nums text-sub">{{ formatPhone(vm.recipientPhone) }}</span></p>
                 <p class="break-keep">({{ vm.zonecode }}) {{ vm.addressRoad }} {{ vm.addressDetail }}</p>
               </div>
               <button type="button" class="btn btn-md shrink-0 self-start bg-white text-primary" @click="editing = true">이 주소 수정</button>
@@ -217,12 +218,16 @@ const submitButton = ref<HTMLButtonElement | null>(null)
 
           <RenewNotice v-if="vm.summary.items.length === 0" tone="info" class="mt-4">
             <p>선택된 상품이 없습니다</p>
-            <NuxtLink to="/cart" :class="CART_LINK">장바구니로 이동</NuxtLink>
+            <template #action>
+              <NuxtLink to="/cart" :class="CART_LINK">장바구니로 이동</NuxtLink>
+            </template>
           </RenewNotice>
           <template v-else>
             <RenewNotice v-if="vm.summary.hasUnpurchasableSelected" tone="danger" class="mt-4">
               <p>구매할 수 없는 상품이 포함되어 있습니다. 장바구니에서 삭제해 주세요.</p>
-              <NuxtLink to="/cart" :class="CART_LINK">장바구니로 이동</NuxtLink>
+              <template #action>
+                <NuxtLink to="/cart" :class="CART_LINK">장바구니로 이동</NuxtLink>
+              </template>
             </RenewNotice>
             <dl class="mt-5 space-y-3 text-body">
               <div class="flex items-baseline justify-between">
@@ -246,7 +251,9 @@ const submitButton = ref<HTMLButtonElement | null>(null)
           <!-- 오류·장바구니 링크: 버튼 바로 위 -->
           <RenewNotice v-if="vm.errorMessage" tone="danger" class="mt-5">
             <p>{{ vm.errorMessage }}</p>
-            <NuxtLink v-if="vm.showCartLink" to="/cart" :class="CART_LINK">장바구니로 이동</NuxtLink>
+            <template v-if="vm.showCartLink" #action>
+              <NuxtLink to="/cart" :class="CART_LINK">장바구니로 이동</NuxtLink>
+            </template>
           </RenewNotice>
 
           <button ref="submitButton" type="submit" class="btn btn-primary btn-lg mt-5 w-full" :disabled="vm.submitting || !vm.canSubmit">

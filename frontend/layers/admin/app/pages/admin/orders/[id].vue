@@ -32,6 +32,7 @@ import { ADMIN_ORDERS_PATH, resolveBackPath } from '#layers/admin/app/lib/admin-
 import { extractErrorCode, toAdminErrorMessage } from '#layers/admin/app/lib/admin-error-message'
 import { useAdminOrders } from '#layers/admin/app/composables/useAdminOrders'
 import { useAdminToast } from '#layers/admin/app/composables/useAdminToast'
+import { formatPhone } from '~/lib/format/phone'
 
 definePageMeta({ layout: 'admin', middleware: ['admin', 'vuetify'] })
 useSeoMeta({ title: '주문 상세 · zslab-mall 관리자' })
@@ -272,7 +273,7 @@ function closeReject(refresh: boolean): void {
             <v-card-text class="px-5 pb-5">
               <template v-if="detail.shippingAddress">
                 <div class="text-body-1 font-weight-medium">
-                  {{ detail.shippingAddress.recipientName }} <span class="text-body-2 text-medium-emphasis">{{ detail.shippingAddress.recipientPhone }}</span>
+                  {{ detail.shippingAddress.recipientName }} <span class="text-body-2 text-medium-emphasis">{{ formatPhone(detail.shippingAddress.recipientPhone) }}</span>
                 </div>
                 <div class="text-body-2">
                   [{{ detail.shippingAddress.zonecode }}] {{ detail.shippingAddress.addressRoad }}

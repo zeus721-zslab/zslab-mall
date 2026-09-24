@@ -48,6 +48,7 @@ const successMessage = ref<string>('')
 // 폼·삭제 확인 모달 열림 상태(FE-72 보완 1·renew 뷰가 사용). classic 뷰는 쓰지 않아 기존 동작 그대로다.
 const formOpen = ref<boolean>(false)
 const removeTargetId = ref<number | null>(null)
+const removing = ref<boolean>(false)
 
 function resetForm(): void {
   editingId.value = null
@@ -82,8 +83,8 @@ function openCreate(): void {
   formOpen.value = true
 }
 
+// 닫기만 한다 — 초기화는 뷰가 닫힘 애니메이션이 끝난 뒤 resetForm으로 한다(FE-79). 다시 열 때는 openCreate·startEdit가 값을 채운다.
 function closeForm(): void {
-  resetForm()
   formOpen.value = false
 }
 
@@ -134,7 +135,6 @@ async function handleSubmit(): Promise<void> {
       await updateAddress(editingId.value, body)
       successMessage.value = '배송지가 수정되었습니다'
     }
-    resetForm()
     formOpen.value = false
     await refresh()
   } catch (submitError) {
@@ -171,11 +171,17 @@ function cancelRemove(): void {
   removeTargetId.value = null
 }
 
+// 삭제가 끝날 때까지 확인 모달을 열어 둔다(removing = 모달 pending · FE-79). 성공·실패 모두 끝나면 닫고 결과는 페이지 알림으로 보인다.
 async function confirmRemove(): Promise<void> {
   const addressId = removeTargetId.value
-  if (addressId === null) return
-  removeTargetId.value = null
-  await removeById(addressId)
+  if (addressId === null || removing.value) return
+  removing.value = true
+  try {
+    await removeById(addressId)
+  } finally {
+    removing.value = false
+    removeTargetId.value = null
+  }
 }
 
 // 삭제 실행부(두 경로 공유).
@@ -214,6 +220,7 @@ const vm: AddressesPageVm = reactive({
   openCreate,
   closeForm,
   removeTargetId,
+  removing,
   requestRemove,
   cancelRemove,
   confirmRemove,

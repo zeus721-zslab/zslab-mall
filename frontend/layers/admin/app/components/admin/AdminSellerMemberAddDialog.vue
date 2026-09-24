@@ -21,6 +21,7 @@ import { toSellerMemberErrorMessage, validateNewUserInput } from '#layers/admin/
 import { useAdminMembers } from '#layers/admin/app/composables/useAdminMembers'
 import { useAdminSellers } from '#layers/admin/app/composables/useAdminSellers'
 import { useAdminToast } from '#layers/admin/app/composables/useAdminToast'
+import { formatPhone } from '~/lib/format/phone'
 
 /**
  * 셀러 구성원 추가 다이얼로그(FE-42·D-189 POST /members 201). 2경로 탭 — "기존 회원 검색"(FE-39 운영자 등록·FE-40 입점 owner 검색 패턴·활성 BUYER 목록 API)
@@ -221,7 +222,7 @@ function closeIssuedPassword(): void {
             <v-list v-else-if="results.length > 0" density="compact" class="mt-3 adm-member-results" data-testid="seller-member-results">
               <v-list-item v-for="member in results" :key="member.publicId" :disabled="resultDisabled(member)" data-testid="seller-member-result" @click="selectMember(member)">
                 <v-list-item-title>{{ member.name ?? '—' }} <span class="text-medium-emphasis">{{ member.email ?? '' }}</span></v-list-item-title>
-                <v-list-item-subtitle>{{ alreadyMember(member) ? '이미 이 셀러의 구성원입니다' : (member.phone ?? '연락처 없음') }}</v-list-item-subtitle>
+                <v-list-item-subtitle>{{ alreadyMember(member) ? '이미 이 셀러의 구성원입니다' : formatPhone(member.phone ?? '연락처 없음') }}</v-list-item-subtitle>
               </v-list-item>
             </v-list>
             <p v-else-if="searched" class="text-body-2 text-medium-emphasis mt-3" data-testid="seller-member-empty">조건에 맞는 활성 회원이 없습니다. 미가입자는 "새 계정 생성"으로 추가하세요.</p>

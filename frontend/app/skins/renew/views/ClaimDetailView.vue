@@ -57,10 +57,10 @@ const ROW = 'flex justify-between gap-4'
           <RenewNotice v-else tone="warning" data-testid="claim-cancel-panel">
             <p class="text-ink">{{ vm.claimTypeLabel(vm.data.claimType) }} 요청을 취소할까요?</p>
             <p class="mt-1 font-normal" style="white-space: pre-line" data-testid="claim-cancel-warning">{{ vm.CLAIM_CANCEL_WARNING }}</p>
-            <div class="mt-3 flex flex-wrap gap-2">
+            <template #action>
               <button
                 type="button"
-                :class="[SMALL_PILL, 'bg-destructive text-destructive-foreground hover:opacity-90']"
+                class="btn btn-danger btn-sm max-md:min-h-11"
                 :disabled="vm.cancelSubmitting"
                 data-testid="claim-cancel-submit"
                 @click="vm.submitCancel"
@@ -69,14 +69,14 @@ const ROW = 'flex justify-between gap-4'
               </button>
               <button
                 type="button"
-                :class="[SMALL_PILL, 'bg-white text-ink hover:bg-ink hover:text-white']"
+                class="btn btn-sm bg-white text-primary max-md:min-h-11"
                 :disabled="vm.cancelSubmitting"
                 data-testid="claim-cancel-dismiss"
                 @click="vm.cancelConfirmOpen = false"
               >
                 닫기
               </button>
-            </div>
+            </template>
           </RenewNotice>
           <RenewNotice v-if="vm.cancelError" tone="danger" class="mt-3" data-testid="claim-cancel-error">{{ vm.cancelError }}</RenewNotice>
         </div>

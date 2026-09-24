@@ -45,6 +45,11 @@ defineProps<{ name: CategoryIllustrationName }>()
       <path d="M31 8l9 9-21 21-11 2 2-11L31 8z" />
       <path d="M27 12l9 9M10 29l9 9" />
     </template>
+    <!-- 이름 매핑이 없는 카테고리 대체(FE-79) -->
+    <template v-else-if="name === 'tag'">
+      <path d="M8 10v13.2a3 3 0 0 0 .9 2.1l14.8 14.8a3 3 0 0 0 4.2 0l12.2-12.2a3 3 0 0 0 0-4.2L25.3 8.9A3 3 0 0 0 23.2 8H10a2 2 0 0 0-2 2z" />
+      <circle cx="17" cy="17" r="3" />
+    </template>
     <template v-else>
       <rect x="9" y="9" width="12" height="12" rx="3" />
       <rect x="27" y="9" width="12" height="12" rx="3" />

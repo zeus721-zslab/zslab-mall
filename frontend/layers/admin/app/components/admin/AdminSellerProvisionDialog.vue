@@ -17,6 +17,7 @@ import { extractErrorCode, toAdminErrorMessage } from '#layers/admin/app/lib/adm
 import { useAdminMembers } from '#layers/admin/app/composables/useAdminMembers'
 import { useAdminSellers } from '#layers/admin/app/composables/useAdminSellers'
 import { useAdminToast } from '#layers/admin/app/composables/useAdminToast'
+import { formatPhone } from '~/lib/format/phone'
 
 /**
  * 셀러 입점 등록 다이얼로그(FE-40·BE Track 37 provisioning + D-187 §1-A 9 publicId 전환 + FE-42 D-189 owner 선택화). 1단계 사업자 정보 입력 →
@@ -208,7 +209,7 @@ async function submit(): Promise<void> {
           <v-list v-else-if="results.length > 0" density="compact" class="mt-3 adm-provision-results" data-testid="seller-provision-results">
             <v-list-item v-for="member in results" :key="member.publicId" :disabled="submitting" data-testid="seller-provision-result" @click="selectOwner(member)">
               <v-list-item-title>{{ member.name ?? '—' }} <span class="text-medium-emphasis">{{ member.email ?? '' }}</span></v-list-item-title>
-              <v-list-item-subtitle>{{ member.phone ?? '연락처 없음' }}</v-list-item-subtitle>
+              <v-list-item-subtitle>{{ formatPhone(member.phone ?? '연락처 없음') }}</v-list-item-subtitle>
             </v-list-item>
           </v-list>
           <p v-else-if="searched" class="text-body-2 text-medium-emphasis mt-3" data-testid="seller-provision-empty">조건에 맞는 활성 회원이 없습니다. 비워 두고 등록한 뒤 구성원 카드에서 새 계정을 만들 수 있습니다.</p>

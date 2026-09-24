@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { OrdersPageVm } from '~/skins/contracts/orders'
 import type { OrderSummaryItem } from '~/types/order'
+import { itemConfirmDescription } from '~/lib/constants/order'
 import MypageFrame from '../components/MypageFrame.vue'
 import RenewNotice from '../components/RenewNotice.vue'
 import { CLAIM_NEUTRAL_CHIP_CLASS, CLAIM_TYPE_BADGE_CLASS } from '../claim-type-tone'
@@ -9,6 +10,15 @@ import { CLAIM_NEUTRAL_CHIP_CLASS, CLAIM_TYPE_BADGE_CLASS } from '../claim-type-
 // 취소·반품·교환은 클레임 카드(누르면 클레임 상세). 품목 행의 구매확정은 확인 모달(DialogConfirm), 클레임은 주문 상세와 같은 경로로 이동한다.
 // 배송 조회·요청 상세 버튼은 목록에 두지 않는다(D-223 — 주문 상세·클레임 상세가 담당).
 const props = defineProps<{ vm: OrdersPageVm }>()
+
+// 확인창 설명 = 대상(FE-79). 닫히는 동안 대상이 비어도 문구가 바뀌어 보이지 않게 열려 있을 때의 값을 붙잡아 둔다.
+const confirmDescription = ref('')
+watch(
+  () => props.vm.confirmTarget,
+  (target) => {
+    if (target) confirmDescription.value = itemConfirmDescription(target.item.productName, target.item.optionLabel)
+  },
+)
 
 function claimTypesOf(item: OrderSummaryItem) {
   return props.vm.claimableTypes(item.status.code, item.exchangeCompleted)
@@ -248,20 +258,21 @@ const PAGE_BUTTON =
       </div>
     </template>
 
-    <!-- 구매확정 확인 모달(FE-73): 설명은 위험 조작 문구 규약의 경고(되돌릴 수 없음). testid는 주문 상세의 확정 패널과 같다. -->
+    <!-- 구매확정 확인 모달(FE-73): 설명 = 대상 · 결과 = 안내(위험 조작 문구 규약의 경고 · FE-79). testid는 주문 상세의 확정 패널과 같다. -->
     <DialogConfirm
       :open="vm.confirmTarget !== null"
       title="이 품목을 구매확정할까요?"
-      :description="vm.ITEM_CONFIRM_WARNING"
-      :confirm-label="vm.confirming ? '확정 중…' : '구매확정'"
-      destructive
+      :description="confirmDescription"
+      :confirm-label="vm.confirming ? '확정 중…' : '구매 확정하기'"
       :pending="vm.confirming"
       content-test-id="item-confirm-panel"
-      description-test-id="item-confirm-warning"
+      notice-test-id="item-confirm-warning"
       cancel-test-id="item-confirm-cancel"
       confirm-test-id="item-confirm-submit"
       @update:open="onConfirmOpenChange"
       @confirm="vm.submitConfirm"
-    />
+    >
+      <template #notice>{{ vm.ITEM_CONFIRM_WARNING }}</template>
+    </DialogConfirm>
   </MypageFrame>
 </template>

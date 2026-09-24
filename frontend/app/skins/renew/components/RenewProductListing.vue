@@ -20,7 +20,7 @@ const PRODUCT_GRID = 'grid grid-cols-2 gap-x-4 gap-y-10 md:grid-cols-3 md:gap-x-
 const SKELETON_COUNT = 10
 
 const title = computed(() => props.list.activeCategoryName ?? (props.categoryId === null ? '전체 상품' : '카테고리'))
-const theme = computed(() => categoryTheme(props.list.activeCategoryName))
+const theme = computed(() => categoryTheme(props.categoryId, props.list.activeCategoryName))
 
 const tabsElement = ref<HTMLElement | null>(null)
 let stopFollowingActiveTab: (() => void) | null = null
