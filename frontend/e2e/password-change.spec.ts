@@ -28,9 +28,9 @@ async function mockAuthApi(page: Page): Promise<{ changes: string[] }> {
 async function loginWithTemporaryPassword(page: Page): Promise<void> {
   await page.goto('/login')
   await page.waitForLoadState('networkidle')
-  await page.fill('#email', 'temp@e2e.invalid')
-  await page.fill('#password', 'temporary-pw-1')
-  await page.click('button[type="submit"]')
+  await page.getByTestId('login-email').fill('temp@e2e.invalid')
+  await page.getByTestId('login-password').fill('temporary-pw-1')
+  await page.getByTestId('login-submit').click()
 }
 
 test.describe('구매자 비밀번호 변경 강제(Track 84)', () => {
@@ -57,10 +57,10 @@ test.describe('구매자 비밀번호 변경 강제(Track 84)', () => {
     const captured = await mockAuthApi(page)
     await loginWithTemporaryPassword(page)
     await page.waitForURL((url) => url.pathname === '/mypage/password')
-    await page.fill('#currentPassword', 'temporary-pw-1')
-    await page.fill('#newPassword', 'brand-new-password-9')
-    await page.fill('#newPasswordConfirm', 'brand-new-password-9')
-    await page.click('button[type="submit"]')
+    await page.getByTestId('password-current').fill('temporary-pw-1')
+    await page.getByTestId('password-new').fill('brand-new-password-9')
+    await page.getByTestId('password-new-confirm').fill('brand-new-password-9')
+    await page.getByTestId('password-submit').click()
     await page.waitForURL((url) => url.pathname === '/login')
     expect(new URL(page.url()).searchParams.get('notice')).toBe('password-changed')
     await expect(page.getByTestId('login-password-changed-notice')).toContainText('비밀번호가 변경되었습니다. 다시 로그인해 주세요.')

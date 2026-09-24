@@ -11,6 +11,8 @@ export interface ProductSummary {
   categoryId: number
   categoryName: string
   sellerName: string
+  /** 판매자 공개 식별자(slr_·셀러 필터 왕복용·D-221). */
+  sellerPublicId: string
 }
 
 /**
@@ -27,8 +29,20 @@ export interface ProductListResponse {
 /**
  * 구매자 카탈로그 목록 정렬 기준(백엔드 ProductCatalogSort 대응). DB 영속 컬럼이 아닌 조회 파라미터라
  * 4층위 enum 잠금 대상이 아니며(recon-report-67 B-2), 프론트 단일 소스 유니온으로 매직 문자열을 방지한다.
+ * SALES(최근 7일 판매량순·D-221)는 메인 큐레이션 전용이라 목록 정렬 선택지(PRODUCT_SORT_OPTIONS)에는 넣지 않는다.
  */
-export type ProductSort = 'LATEST' | 'PRICE_ASC' | 'PRICE_DESC' | 'NAME'
+export type ProductSort = 'LATEST' | 'PRICE_ASC' | 'PRICE_DESC' | 'NAME' | 'SALES'
+
+/** 목록 조회 파라미터(GET /api/v1/products). 값이 없는 항목은 보내지 않는다. */
+export interface ProductListQuery {
+  sort?: ProductSort
+  categoryId?: number
+  keyword?: string
+  sellerPublicId?: string
+  maxPrice?: number
+  page?: number
+  size?: number
+}
 
 /**
  * 상세 이미지 1건(백엔드 ProductDetailResponse.Image 대응). 목록의 평면 mainImageUrl과 달리 상세는

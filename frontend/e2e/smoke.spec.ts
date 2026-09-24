@@ -11,8 +11,8 @@ import { test, expect } from '@playwright/test'
 test('상품 목록에서 첫 상품 상세로 이동하면 상품명·가격이 SSR 렌더된다', async ({ page }) => {
   await page.goto('/products')
 
-  // 상세 링크만 매칭('/products/{publicId}' 접두). 목록 자체(/products)·헤더 링크(/, /cart, /login)는 제외된다.
-  const firstCard = page.locator('a[href^="/products/"]').first()
+  // 목록 그리드의 상품 카드(상세 링크). 헤더·배너 링크는 대상이 아니다.
+  const firstCard = page.getByTestId('product-card').first()
   await expect(
     firstCard,
     '상품 카드가 없습니다 — 데모 시드 미기동으로 추정(catalog.demo-seed.enabled 확인).',
@@ -20,15 +20,15 @@ test('상품 목록에서 첫 상품 상세로 이동하면 상품명·가격이
 
   const href = await firstCard.getAttribute('href')
   expect(href, '첫 상품 카드의 href를 추출하지 못했습니다.').toBeTruthy()
-  // 카드에 렌더된 상품명(첫 p). 상세 h1과 대조해 목록→상세 정합을 확인한다.
-  const listName = (await firstCard.locator('p').first().innerText()).trim()
+  // 카드에 렌더된 상품명. 상세 h1과 대조해 목록→상세 정합을 확인한다.
+  const listName = (await firstCard.getByTestId('product-card-name').innerText()).trim()
   expect(listName, '첫 상품 카드의 상품명이 비어 있습니다.').not.toBe('')
 
   // 새 goto = 상세 페이지 SSR 재렌더(SPA client 이동이 아니라 서버 렌더 경로 검증).
   await page.goto(href!)
 
   // 상세 SSR 요소 1: 상품명 h1이 목록 카드명과 일치.
-  await expect(page.locator('h1')).toHaveText(listName)
+  await expect(page.getByTestId('product-detail-name')).toHaveText(listName)
   // 상세 SSR 요소 2: 가격 표기(formattedPrice = toLocaleString('ko-KR') + '원', 예 "39,900원").
-  await expect(page.getByText(/[0-9][0-9,]*원/).first()).toBeVisible()
+  await expect(page.getByTestId('product-detail-price')).toHaveText(/[0-9][0-9,]*원/)
 })

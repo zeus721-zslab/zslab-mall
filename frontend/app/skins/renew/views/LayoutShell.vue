@@ -1,0 +1,153 @@
+<script setup lang="ts">
+import type { LayoutShellVm } from '~/skins/contracts/layout'
+import { followActiveItem } from '../scroll-active'
+
+// renew 레이아웃 셸. 헤더 상태·동작은 레이아웃이 vm으로 넘긴다(useAppHeader·FE-69) — classic AppHeader와 같은 기능·testid.
+defineProps<{ vm: LayoutShellVm }>()
+
+// 모바일(md 미만)에서 검색창은 아이콘으로 접고, 누르면 헤더 아래 한 줄로 펼친다(화면 상태만·데이터 아님).
+const mobileSearchOpen = ref(false)
+
+// 셸은 페이지 이동 뒤에도 남으므로 현재 카테고리 링크(aria-current)가 바뀔 때마다 다시 맞춘다.
+const mobileMenuElement = ref<HTMLElement | null>(null)
+let stopFollowingActiveMenu: (() => void) | null = null
+onMounted(() => {
+  if (mobileMenuElement.value) stopFollowingActiveMenu = followActiveItem(mobileMenuElement.value)
+})
+onBeforeUnmount(() => stopFollowingActiveMenu?.())
+
+const CONTAINER = 'mx-auto max-w-[1440px] px-5 md:px-10 lg:px-16'
+const ICON_BUTTON =
+  'relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-ink transition duration-200 hover:bg-surface-card focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary'
+const MENU_LINK =
+  'flex min-h-11 shrink-0 items-center whitespace-nowrap rounded-full px-4 text-sm font-bold text-ink transition duration-200 hover:bg-surface-card'
+</script>
+
+<template>
+  <div class="flex min-h-screen flex-col bg-surface-page text-ink">
+    <header class="sticky top-0 z-50 border-b border-line bg-surface-page/95 backdrop-blur">
+      <div :class="[CONTAINER, 'flex flex-wrap items-center gap-x-2 gap-y-3 py-3 md:gap-x-6']">
+        <NuxtLink to="/" class="mr-auto shrink-0 text-xl font-bold tracking-tight text-ink md:mr-0">
+          zslab<span class="text-primary">.</span>mall
+        </NuxtLink>
+
+        <!-- 최상위 카테고리 메뉴(데스크톱). 모바일은 아래 가로 스크롤 줄. -->
+        <nav aria-label="카테고리" class="hidden min-w-0 flex-1 lg:block" data-testid="category-menu-content">
+          <ul class="flex items-center gap-1 overflow-x-auto">
+            <li><NuxtLink to="/products" :class="MENU_LINK">전체</NuxtLink></li>
+            <li v-for="category in vm.categoryMenuItems" :key="category.categoryId">
+              <NuxtLink :to="`/categories/${category.categoryId}`" :class="MENU_LINK">{{ category.displayName }}</NuxtLink>
+            </li>
+          </ul>
+        </nav>
+
+        <!-- 검색: submit → /search?keyword=. 모바일은 아이콘으로 펼친 뒤 헤더 아래 전체 폭. -->
+        <form
+          role="search"
+          data-testid="search-form"
+          :class="[mobileSearchOpen ? 'block' : 'hidden', 'order-last w-full md:order-none md:ml-auto md:block md:w-72']"
+          @submit.prevent="vm.handleSearchSubmit"
+        >
+          <label class="relative block">
+            <span class="sr-only">상품 검색</span>
+            <span class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4 text-sub">
+              <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35m1.35-5.4a7.5 7.5 0 11-15 0 7.5 7.5 0 0115 0z" />
+              </svg>
+            </span>
+            <input
+              v-model="vm.searchKeyword"
+              type="search"
+              name="keyword"
+              placeholder="찾으시는 상품을 검색해 보세요"
+              aria-label="상품 검색"
+              data-testid="search-input"
+              class="min-h-11 w-full rounded-full border border-line bg-surface-card py-2.5 pl-12 pr-4 text-sm text-ink placeholder-sub transition duration-200 focus:border-primary focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-primary"
+            />
+          </label>
+        </form>
+
+        <button
+          type="button"
+          :class="[ICON_BUTTON, 'md:hidden']"
+          :aria-expanded="mobileSearchOpen"
+          aria-label="검색 열기"
+          @click="mobileSearchOpen = !mobileSearchOpen"
+        >
+          <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35m1.35-5.4a7.5 7.5 0 11-15 0 7.5 7.5 0 0115 0z" />
+          </svg>
+        </button>
+
+        <!-- 계정: BUYER 로그인이면 계정 메뉴(classic과 같은 항목·로그아웃), 아니면 로그인 링크. -->
+        <DropdownMenu v-if="vm.isBuyerSignedIn">
+          <DropdownMenuTrigger as-child>
+            <button type="button" :class="ICON_BUTTON" aria-label="마이페이지" data-testid="account-menu-trigger">
+              <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.5 20.1a7.5 7.5 0 0115 0A17.9 17.9 0 0112 21.75c-2.68 0-5.22-.58-7.5-1.65z" />
+              </svg>
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" class="min-w-44" data-testid="account-menu-content">
+            <DropdownMenuItem v-for="item in vm.accountMenuItems" :key="item.to" as-child>
+              <NuxtLink :to="item.to" class="w-full cursor-pointer">{{ item.label }}</NuxtLink>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem class="cursor-pointer" data-testid="account-menu-logout" @select="vm.handleLogout">
+              로그아웃
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <NuxtLink v-else to="/login" :class="[MENU_LINK, 'min-w-11 justify-center']">로그인</NuxtLink>
+
+        <!-- 장바구니: 뱃지는 담긴 품목 수(>0)일 때만. 숫자는 mono·포인트색. -->
+        <NuxtLink to="/cart" aria-label="장바구니" :class="ICON_BUTTON">
+          <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 10.5V6a3.75 3.75 0 10-7.5 0v4.5m11.356-1.993l1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 01-1.12-1.243l1.264-12A1.125 1.125 0 015.513 7.5h12.974c.576 0 1.059.435 1.119 1.007z" />
+          </svg>
+          <span
+            v-if="vm.cartCount > 0"
+            class="absolute right-0.5 top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 font-mono text-xs font-semibold text-primary-foreground"
+          >
+            {{ vm.cartCount }}
+          </span>
+        </NuxtLink>
+      </div>
+
+      <!-- 최상위 카테고리 메뉴(모바일·태블릿): 한 줄 가로 스크롤. <768은 스크롤바 숨김·스냅·오른쪽 흐림, 현재 카테고리는 보이는 위치로. -->
+      <nav aria-label="카테고리" class="border-t border-line lg:hidden">
+        <ul
+          ref="mobileMenuElement"
+          :class="[CONTAINER, 'relative flex gap-1 overflow-x-auto py-1 max-md:scrollbar-none max-md:snap-x max-md:snap-mandatory max-md:scroll-px-5 max-md:fade-right max-md:[&>li]:snap-start']"
+        >
+          <li><NuxtLink to="/products" :class="MENU_LINK">전체</NuxtLink></li>
+          <li v-for="category in vm.categoryMenuItems" :key="category.categoryId">
+            <NuxtLink :to="`/categories/${category.categoryId}`" :class="MENU_LINK">{{ category.displayName }}</NuxtLink>
+          </li>
+        </ul>
+      </nav>
+    </header>
+
+    <main class="flex-1">
+      <slot />
+    </main>
+
+    <footer class="mt-20 border-t border-line">
+      <div :class="[CONTAINER, 'py-12']">
+        <div class="flex flex-col gap-8 md:flex-row md:items-start md:justify-between">
+          <div>
+            <p class="text-lg font-bold tracking-tight text-ink">zslab<span class="text-primary">.</span>mall</p>
+            <p class="mt-2 text-sm text-sub">쇼핑의 기준</p>
+          </div>
+          <nav class="flex flex-wrap gap-x-8 gap-y-3 text-sm text-sub" aria-label="푸터">
+            <a href="#" class="transition duration-200 hover:text-ink">회사소개</a>
+            <a href="#" class="transition duration-200 hover:text-ink">이용약관</a>
+            <a href="#" class="transition duration-200 hover:text-ink">개인정보처리방침</a>
+            <NuxtLink to="/help" class="transition duration-200 hover:text-ink" data-testid="footer-help-link">고객센터</NuxtLink>
+          </nav>
+        </div>
+        <p class="mt-10 border-t border-line pt-6 font-mono text-xs text-sub">© 2026 zslab-mall. All rights reserved.</p>
+      </div>
+    </footer>
+  </div>
+</template>

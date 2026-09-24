@@ -1,5 +1,6 @@
 package com.zslab.mall.product.repository;
 
+import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.product.entity.Product;
 import jakarta.persistence.LockModeType;
 import java.time.LocalDateTime;
@@ -52,9 +53,13 @@ public interface ProductRepository extends JpaRepository<Product, Long>, JpaSpec
      * escape·%감싸기까지 마친 LIKE 패턴이며(null이면 조건 없음), ESCAPE '\'로 %·_·\ 리터럴 매칭을 보장한다.
      * 목록·countQuery에 동일 조건을 적용해 totalCount·hasNext가 일치한다.
      *
-     * <p>정렬(sort)은 요청 파라미터(LATEST·PRICE_ASC·PRICE_DESC·NAME)로 분기한다. PRICE는 대표가(basePrice + 판매가능
+     * sellerPublicId(D-221)는 판매자 public_id 일치 필터(미존재 값이면 0건), maxPrice(D-221)는 대표가(아래 PRICE 정렬과 같은 식) 이하 필터다.
+     *
+     * <p>정렬(sort)은 요청 파라미터(LATEST·PRICE_ASC·PRICE_DESC·NAME·SALES)로 분기한다. PRICE는 대표가(basePrice + 판매가능
      * variant의 MIN(additional_price))로 정렬하며, 판매가능 variant가 없으면 COALESCE 0으로 basePrice만 반영한다.
-     * LATEST(created_at DESC)는 기본이자 동순위 tiebreaker다. 모든 변수는 :now·:categoryId·:keywordPattern·:sort 바인딩이다(SQL injection 위험 없음).
+     * SALES(D-221)는 결제 시각이 :salesSince 이후인 주문의 품목 중 :salesStatuses 상태 품목 수량 합 내림차순이다(판매 0은 COALESCE 0).
+     * LATEST(created_at DESC)는 기본이자 동순위 tiebreaker다. 모든 변수는 :now·:categoryId·:keywordPattern·:sellerPublicId·:maxPrice·
+     * :sort·:salesSince·:salesStatuses 바인딩이다(SQL injection 위험 없음).
      */
     @Query(value = "SELECT p FROM Product p, com.zslab.mall.seller.entity.Seller s "
             + "WHERE p.sellerId = s.id "
@@ -64,7 +69,14 @@ public interface ProductRepository extends JpaRepository<Product, Long>, JpaSpec
             + "AND (p.saleEndAt IS NULL OR p.saleEndAt > :now) "
             + "AND (:categoryId IS NULL OR p.categoryId = :categoryId) "
             + "AND (:keywordPattern IS NULL OR p.name LIKE :keywordPattern ESCAPE '\\') "
+            + "AND (:sellerPublicId IS NULL OR s.publicId = :sellerPublicId) "
+            + "AND (:maxPrice IS NULL OR p.basePrice + "
+            + "(SELECT COALESCE(MIN(v.additionalPrice), 0) FROM ProductVariant v "
+            + "WHERE v.productId = p.id AND v.status = com.zslab.mall.product.enums.ProductVariantStatus.SALE) <= :maxPrice) "
             + "ORDER BY "
+            + "CASE WHEN :sort = 'SALES' THEN "
+            + "(SELECT COALESCE(SUM(oi.quantity), 0) FROM OrderItem oi JOIN oi.order o "
+            + "WHERE oi.productId = p.id AND oi.itemStatus IN :salesStatuses AND o.paidAt >= :salesSince) END DESC, "
             + "CASE WHEN :sort = 'PRICE_ASC' THEN p.basePrice + "
             + "(SELECT COALESCE(MIN(v.additionalPrice), 0) FROM ProductVariant v "
             + "WHERE v.productId = p.id AND v.status = com.zslab.mall.product.enums.ProductVariantStatus.SALE) END ASC, "
@@ -80,12 +92,20 @@ public interface ProductRepository extends JpaRepository<Product, Long>, JpaSpec
             + "AND (p.saleStartAt IS NULL OR p.saleStartAt <= :now) "
             + "AND (p.saleEndAt IS NULL OR p.saleEndAt > :now) "
             + "AND (:categoryId IS NULL OR p.categoryId = :categoryId) "
-            + "AND (:keywordPattern IS NULL OR p.name LIKE :keywordPattern ESCAPE '\\')")
+            + "AND (:keywordPattern IS NULL OR p.name LIKE :keywordPattern ESCAPE '\\') "
+            + "AND (:sellerPublicId IS NULL OR s.publicId = :sellerPublicId) "
+            + "AND (:maxPrice IS NULL OR p.basePrice + "
+            + "(SELECT COALESCE(MIN(v.additionalPrice), 0) FROM ProductVariant v "
+            + "WHERE v.productId = p.id AND v.status = com.zslab.mall.product.enums.ProductVariantStatus.SALE) <= :maxPrice)")
     Page<Product> findDisplayable(
             @Param("now") LocalDateTime now,
             @Param("categoryId") Long categoryId,
             @Param("keywordPattern") String keywordPattern,
+            @Param("sellerPublicId") String sellerPublicId,
+            @Param("maxPrice") Long maxPrice,
             @Param("sort") String sort,
+            @Param("salesSince") LocalDateTime salesSince,
+            @Param("salesStatuses") Collection<OrderItemStatus> salesStatuses,
             Pageable pageable);
 
     /**

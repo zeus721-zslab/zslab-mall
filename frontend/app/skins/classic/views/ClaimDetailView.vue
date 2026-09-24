@@ -55,9 +55,9 @@ defineProps<{ vm: ClaimDetailPageVm }>()
         <!-- 진행 타임라인 -->
         <section class="rounded-card border border-line p-5">
           <h2 class="mb-5 text-base font-semibold text-ink">진행 상태</h2>
-          <ol class="flex items-start">
+          <ol class="flex items-start" data-testid="claim-timeline">
             <template v-for="(step, index) in vm.timeline" :key="step.label">
-              <li class="flex min-w-[3rem] flex-col items-center gap-1.5 text-center">
+              <li class="flex min-w-[3rem] flex-col items-center gap-1.5 text-center" data-testid="claim-timeline-step">
                 <span
                   class="flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold"
                   :class="vm.stepCircleClass(step.state)"
@@ -126,7 +126,7 @@ defineProps<{ vm: ClaimDetailPageVm }>()
               <dd class="text-right text-ink" data-testid="claim-inspection-result">{{ vm.CLAIM_INSPECTION_RESULT_LABELS[vm.data.inspectionResult] }}</dd>
             </div>
             <div v-if="vm.data.reshipment" class="flex justify-between gap-4">
-              <dt class="text-sub">{{ vm.data.claimType === 'EXCHANGE' ? '교환품 배송 송장' : '재발송 송장' }}</dt>
+              <dt class="text-sub" data-testid="claim-reshipment-label">{{ vm.data.claimType === 'EXCHANGE' ? '교환품 배송 송장' : '재발송 송장' }}</dt>
               <dd class="text-right text-ink" data-testid="claim-reshipment">
                 {{ vm.deliveryCarrierLabel(vm.data.reshipment.carrier) }} {{ vm.data.reshipment.trackingNo }}
               </dd>
@@ -154,7 +154,7 @@ defineProps<{ vm: ClaimDetailPageVm }>()
             <ul class="grid grid-cols-5 gap-2" data-testid="claim-attachments">
               <li v-for="(url, index) in vm.data.attachmentUrls" :key="url" class="aspect-square overflow-hidden rounded-control border border-line">
                 <a :href="url" target="_blank" rel="noopener">
-                  <img :src="url" :alt="`첨부 사진 ${index + 1}`" class="h-full w-full object-cover">
+                  <img :src="url" :alt="`첨부 사진 ${index + 1}`" class="h-full w-full object-cover" data-testid="claim-attachment-photo">
                 </a>
               </li>
             </ul>
@@ -176,6 +176,7 @@ defineProps<{ vm: ClaimDetailPageVm }>()
                 id="shipmentCarrier"
                 v-model="vm.shipmentCarrier"
                 required
+                data-testid="claim-return-shipment-carrier"
                 class="w-full rounded-control border border-line px-4 py-2.5 text-sm text-ink transition duration-normal focus:border-gray-900 focus:outline-hidden focus:ring-1 focus:ring-gray-900"
               >
                 <option value="" disabled>택배사를 선택하세요</option>
@@ -187,6 +188,7 @@ defineProps<{ vm: ClaimDetailPageVm }>()
               <input
                 id="shipmentTrackingNo"
                 v-model="vm.shipmentTrackingNo"
+                data-testid="claim-return-shipment-tracking-no"
                 type="text"
                 :maxlength="vm.DELIVERY_TRACKING_NO_MAX"
                 required

@@ -15,7 +15,9 @@ useSeoMeta({
   description: 'zslab-mall 카테고리별 상품 목록.',
 })
 
-const vm: CategoryPageVm = reactive({ categoryId })
+// 번호 페이지 목록은 스킨이 productList를 선언했을 때만 조회한다(FE-69). 잘못된 id(null)는 classic처럼 조회하지 않고 빈 상태다.
+const list = useSkinNeeds('productList') && categoryId.value !== null ? reactive(useProductPage(categoryId)) : undefined
+const vm: CategoryPageVm = reactive({ categoryId, list })
 </script>
 
 <template>

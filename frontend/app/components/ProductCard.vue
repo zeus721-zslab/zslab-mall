@@ -13,6 +13,7 @@ const formattedPrice = computed(() => `${props.product.displayPrice.toLocaleStri
   <NuxtLink
     :to="`/products/${product.productPublicId}`"
     :aria-label="product.name"
+    data-testid="product-card"
     class="group block rounded-card focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2"
   >
     <div class="overflow-hidden rounded-card border border-line bg-white transition duration-normal group-hover:-translate-y-0.5 group-hover:shadow-card-hover">
@@ -37,7 +38,7 @@ const formattedPrice = computed(() => `${props.product.displayPrice.toLocaleStri
       </div>
 
       <div class="space-y-1 p-3">
-        <p class="line-clamp-2 text-sm font-medium leading-snug text-ink">{{ product.name }}</p>
+        <p class="line-clamp-2 text-sm font-medium leading-snug text-ink" data-testid="product-card-name">{{ product.name }}</p>
         <p class="text-xs text-seller">{{ product.sellerName }}</p>
         <p class="pt-1 text-lg font-bold text-price">{{ formattedPrice }}</p>
       </div>

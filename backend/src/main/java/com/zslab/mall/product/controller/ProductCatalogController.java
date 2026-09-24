@@ -31,17 +31,21 @@ public class ProductCatalogController {
     }
 
     /**
-     * 노출대상 상품 목록(D-54 PagedResponse·필터 categoryId·상품명 keyword(Track 72)·정렬 sort·페이징). 기본 정렬 LATEST·
-     * 기본 size 20. keyword는 trim 후 빈 값이면 조건 없음·50자 초과는 400(MALFORMED_REQUEST·Service 정규화).
+     * 노출대상 상품 목록(D-54 PagedResponse·필터 categoryId·상품명 keyword(Track 72)·셀러 sellerPublicId·가격 상한 maxPrice(D-221)·
+     * 정렬 sort·페이징). 기본 정렬 LATEST·기본 size 20. keyword는 trim 후 빈 값이면 조건 없음·50자 초과는 400(MALFORMED_REQUEST·
+     * Service 정규화). sellerPublicId는 빈 값이면 조건 없음·미존재면 빈 목록, maxPrice 음수는 400(Service 검증).
      */
     @GetMapping
     public ResponseEntity<PagedResponse<ProductSummaryResponse>> list(
             @RequestParam(required = false) Long categoryId,
             @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) String sellerPublicId,
+            @RequestParam(required = false) Long maxPrice,
             @RequestParam(defaultValue = "LATEST") ProductCatalogSort sort,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(productCatalogService.listProducts(categoryId, keyword, sort, page, size));
+        return ResponseEntity.ok(productCatalogService.listProducts(
+                categoryId, keyword, sellerPublicId, maxPrice, sort, page, size));
     }
 
     /** 노출대상 단건 상세. 미존재·비노출은 404(PRODUCT_NOT_FOUND·존재 여부 은닉). */

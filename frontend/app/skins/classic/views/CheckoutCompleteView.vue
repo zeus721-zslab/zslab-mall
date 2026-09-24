@@ -12,7 +12,7 @@ defineProps<{ vm: CheckoutCompletePageVm }>()
 
       <div v-if="vm.orderPublicId" class="mt-6 rounded-card border border-line p-5">
         <p class="text-sm text-sub">주문번호</p>
-        <p class="mt-1 break-all font-mono text-sm font-medium text-ink">{{ vm.orderPublicId }}</p>
+        <p class="mt-1 break-all font-mono text-sm font-medium text-ink" data-testid="checkout-complete-order-id">{{ vm.orderPublicId }}</p>
       </div>
 
       <div class="mt-8 space-y-2">
