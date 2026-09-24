@@ -2697,3 +2697,51 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 - 불일치 행의 결제·환불·클레임·배송 id는 응답에 싣지 않았다(주문 번호·PG 번호·세부 사실로 추적) — 대상 행으로 바로 가는 링크가 필요해지면 BE에 public id를 더한다.
 - 목록 페이지 크기 선택 UI는 두지 않았다(URL `size`로만·기본 20).
 - 외부 검토: A(PR 등급 적용·FE 범위 지적 없음)
+
+## FE-67: 구매자 스킨 구조 — 페이지=로직 / 스킨=화면 (Track 105-1a) (2026-09-24)
+
+배경: 구매자 화면의 디자인을 바꿔 끼울 수 있게 하되, 기본 스킨은 env로 정하고 운영 중에도 쿠키로 다른 스킨을 미리 볼 수 있어야 한다. 정찰(recon-report-track105) 결과 구매자 페이지 21개는 로직과 마크업이 한 파일에 있고, 관리자·셀러는 별도 레이어(Vuetify)라 경계가 이미 나뉘어 있다.
+
+결정:
+- **구조** `app/skins/registry.ts`(스킨 표·대체 규칙) · `app/skins/contracts/`(페이지↔뷰 타입) · `app/skins/classic/`(index.ts + views/). `app/components` 밖이라 컴포넌트 자동 import 대상이 아니다.
+- **레지스트리** 스킨명 → `{ parent?, views: Partial<SkinViews> }`. 스킨 목록 SoT = `SKIN_NAMES`. classic은 전 뷰를 정적 import하고 `SkinViews`(전부 필수)로 선언 — 뷰 누락은 typecheck에서 막힌다. 이후 스킨은 바꾸는 뷰만 `defineAsyncComponent`로 채운다(별도 청크).
+- **스킨 결정** `plugins/skin.ts`: 쿠키 `zslab_skin` → `runtimeConfig.public.skin`(env `NUXT_PUBLIC_SKIN`, 기본 classic) → classic. 미등록 값은 무시. `useState('skin')`로 요청 단위 1회 결정(SSR 결정값을 페이로드로 CSR이 그대로 씀).
+- **미리보기** `?skin=<이름>` → 쿠키 설정(세션 쿠키) · `?skin=reset` → 삭제 · 미등록 이름은 쿠키도 건드리지 않음 · 구매자 경로에서만(`/admin`·`/seller` 제외, `useRequestURL` 기준).
+- **적용** 구매자 레이아웃(`layouts/default.vue`)이 `<html data-skin>`을 붙이고 `useSkinView('LayoutShell')`로 셸을 렌더한다(slot 전달). 관리자·셀러 화면에는 data-skin이 없다.
+- **조회** `useSkinView(name)`: 현재 스킨 → parent 체인(순환 방지) → classic.
+- **페이지** script 로직(조회·조작·이동·에러·useSeoMeta·definePageMeta)은 그대로 두고, 템플릿은 `<component :is="useSkinView('XxxView')" :vm="vm" />`만. `vm = reactive({...})`에 템플릿이 쓰던 스크립트 바인딩을 전부(상수 포함) 담고 `app/skins/contracts/<페이지>.ts` 인터페이스로 받는다(캐스팅 없이 대입 — ref·computed는 reactive가 풀어 준다). 바인딩이 없는 페이지(index·help)는 vm 없이 뷰만.
+- **뷰** 기존 템플릿 그대로(클래스·data-testid·문구 불변), 바인딩만 `vm.` 접두. 입력은 `v-model="vm.필드"`(reactive를 거쳐 페이지 ref가 바뀐다).
+- **스킨 가드** `test/unit/skin-guard.spec.ts`: app/skins의 .vue·.ts에서 composable·store·API 모듈 import(`/composables`·`/stores`·`#layers/`·`/server/`)와 호출(`useFetch`·`useLazyFetch`·`useAsyncData`·`useLazyAsyncData`·`$fetch`·`navigateTo`·`useRouter` + 구매자·관리자·셀러 composables/stores의 export 이름 전부)을 0건으로 강제. auto-import라 import 없이 호출돼도 잡는다. `registry.ts`·`contracts/`는 제외.
+- **예외(스킨 밖 공용 컴포넌트·수정 안 함)**: 뷰가 직접 쓰는 `AppHeader`(auth·cart store·navigateTo·useCategories) · `HomeProductGrid`(useProducts) · `ProductListView`(useProductList·useRouter). `CategoryTabs`(useCategories)는 ProductListView 안에서 간접 사용. 스킨이 이 컴포넌트를 쓰는 것은 허용하고, 스킨마다 다른 모양이 필요해지면 그때 로직/뷰를 나눈다.
+- **배치 계획** a = 셸 + 난이도 하 8(index·help·search·products/index·categories/[id]·checkout/complete·mypage/index·mypage/withdraw — 이번) · b = 중 6(login·signup·mypage/password·mypage/profile·orders/index·payment/mock) · c = 상 7(cart·checkout/index·claims/new·claims/[claimPublicId]·mypage/addresses·orders/[orderPublicId]·products/[productPublicId]).
+
+### §1-A 갈림길·채택/기각 근거
+- **α Nuxt layer 덮어쓰기(스킨 = 레이어, 같은 경로 파일을 덮음)** 【기각: 빌드 시점에 한 벌만 존재 — 쿠키로 요청마다 다른 스킨을 고르는 미리보기와 공존할 수 없다】
+- **β app/skins + 레지스트리 조회** 【채택: 모든 스킨이 한 빌드에 함께 있고 요청마다 고를 수 있다. 없는 뷰는 parent → classic으로 대체돼 스킨을 부분만 만들 수 있다】
+- **페이지 로직을 composable로 추출** 【기각: 페이지마다 로직을 옮겨야 해 이관 범위·회귀 위험이 커진다 — vm 객체로 넘기면 script는 그대로이고 템플릿만 이동한다】
+
+### §2 확정 구현 규칙·트랩
+- `app/composables`에 새 파일을 추가하면 실행 중인 dev 컨테이너가 auto-import에 등록하지 못한다(SSR 500 "useSkinName is not defined"·템플릿 "useSkinView accessed during render but is not defined") — `docker restart zslab_mall_frontend` 후 정상(FE-66 §2 새 라우트와 같은 계열).
+- `docker-compose.mall.yml` 프런트 env가 명시 목록이라 `NUXT_PUBLIC_SKIN`을 추가했다(없으면 .env 값이 컨테이너에 닿지 않는다). 값은 런타임 override라 재빌드 없이 바뀐다.
+- SSR HTML(하 8 + 변형 2 = 10화면)을 main과 대조: 차이는 `data-skin` 속성 · `__NUXT__.config.public.skin` · `<main>` 안 슬롯 fragment 주석 1쌍(레이아웃 slot → LayoutShell slot 2중 전달)뿐 — 요소·클래스·문구·testid 차이 0.
+- 검증(2026-09-24): typecheck 0 · vitest **756**(107 파일·753 → +3 스킨 가드) · Playwright smoke 1/1 · `?skin=` classic/미등록/reset·관리자·셀러 경로 curl 확인 · 가드 위반 샘플 1회(import 1·호출 5 검출 후 샘플 삭제).
+
+### §8 이월
+- 난이도 중(b)·상(c) 페이지 이관.
+- 두 번째 스킨이 생기기 전까지 비동기 뷰 경로(`defineAsyncComponent`)는 실제로 실행되지 않는다 — 첫 스킨 추가 시 SSR 렌더·청크 분리를 확인한다.
+
+### 배치 b·c 완료·보완 확인 (Track 105-1b·1c) (2026-09-24)
+- **배치 a(1a)**: 셸 + 하 8 · SSR 10화면 차이 = data-skin·public.skin·슬롯 fragment 주석 1쌍 · 관련 e2e 8 spec 29/29(1b 보완 검증·재시작 후).
+- **배치 b(1b)**: 중 6(login·signup·mypage/password·mypage/profile·orders/index·payment/mock) · SSR 11화면 diff 0 · 관련 e2e 8 spec 29/29 · vitest 756.
+- **배치 c(1c)**: 상 7(cart·checkout/index·claims/[claimPublicId]·claims/new·mypage/addresses·orders/[orderPublicId]·products/[productPublicId]) · SSR 24화면(유형·상태·쿼리·미존재 변형) diff 0 · e2e 전수 35 파일 115 → 112 passed/1 failed/2 skipped · vitest 756 · typecheck 0. 구매자 21페이지 전부 이관 완료(뷰 22 = 셸 1 + 페이지 21).
+- 콜드스타트: 전수 e2e 실패 1건은 재시작 직후 첫 테스트 admin-categories ①(관리자 화면·이번 변경 무관) — 단독 재실행 1/1로 LT-22 콜드 트랩 판정.
+- **부분 스킨 타입·비동기 경로**: 임시 스킨(parent classic·HelpView만 `defineAsyncComponent`)을 등록해도 typecheck 0 → 레지스트리 타입 수정 불필요("classic = 전부 필수, 그 외 = Partial"이 이미 성립). dev 서버 SSR에서 비동기 뷰 렌더·없는 뷰의 classic 대체·쿠키 전환까지 확인 후 제거 → 위 §8 "SSR 렌더" 항목 해소(청크 분리는 prod 빌드 미확인·아래 이월).
+- **규칙 보완(1b·1c에서 확정)**: 뷰는 "기존 템플릿에 vm. 접두만" — 상수·순수 함수(라벨 함수·formatDateTime 등)도 원래 이름 그대로 vm 키로 넣고 계약은 `typeof`로 선언한다. 템플릿 안 대입(`vm.cancelConfirmOpen = true`·`vm.confirmTargetId = null`·`vm.activeImageUrl = …`)과 컴포넌트 v-model(`v-model="vm.attachments"`)도 reactive 경유로 그대로 동작한다. watch는 전부 페이지 script에 남는다. 예외 1건: 1a withdraw는 WITHDRAW_NOTICE를 `vm.notice`로 개명한 채 유지.
+- **e2e 미커버 페이지**: signup·mypage/profile·orders/index·cart·checkout/index·mypage/addresses는 e2e 0, products/[id]는 smoke(SSR 렌더)만 → 커밋하지 않는 임시 Playwright 8케이스(목 외 비-GET API 전부 abort로 실데이터 변경 0)로 입력·검증 안내·탭/페이지 이동·수량/선택·배송지 전환·결제수단·수정 모드·요청 취소 패널·옵션/담기·썸네일 전환 확인 → 8/8 후 삭제.
+- 임시 스크립트 셀렉터: 1회차 3건 실패는 `getByRole('status')`가 Nuxt 라우트 안내 `<span role="status">`와 앱 문구 `<p role="status">`에 동시에 걸린 strict 위반(앱 결함 아님) → 기대 문구 `getByText`로 바꿔 재실행 8/8.
+- 트랩 재발: 1b 보완 검증 1회차 24건 실패는 1a typecheck(nuxt prepare) 뒤 컨테이너 재시작 없이 e2e를 돌려 `#app-manifest` 미해석(FE-16 계열) → 재시작 후 29/29. 이후 검증 순서 = typecheck → 재시작·healthy → vitest·e2e.
+
+### §8 이월(추가)
+- prod 빌드에서 비동기 스킨 뷰의 청크 분리 확인(첫 실제 스킨 추가 시).
+- 스킨 밖 공용 컴포넌트(AppHeader·HomeProductGrid·ProductListView·CategoryTabs + 페이지 하위 컴포넌트 CheckoutOrderItemList·CheckoutPaymentSummary·OrderSummaryCard·ClaimSummaryCard·OrderItemDeliveryInfo·ClaimAttachmentInput·CommonErrorState·CommonEmptyState)는 모든 스킨이 공유한다 — 스킨별 모양이 필요해질 때 로직/뷰를 나눈다.
+- e2e 미커버 6페이지는 정규 spec이 없다(이번 확인은 임시 스크립트) — 해당 흐름을 바꿀 때 spec을 추가한다.
