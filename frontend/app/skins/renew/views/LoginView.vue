@@ -69,7 +69,7 @@ const BUTTON = 'flex h-14 w-full items-center justify-center gap-2 rounded-full 
     <button
       v-if="vm.demoEnabled"
       type="button"
-      :class="[BUTTON, 'mt-3 border border-line bg-white text-ink hover:bg-surface-card']"
+      :class="[BUTTON, 'mt-3 border border-line bg-white text-ink hover:bg-surface-muted']"
       data-testid="demo-login"
       :disabled="vm.submitting"
       @click="vm.handleDemoLogin"

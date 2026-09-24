@@ -45,10 +45,10 @@ const addButton = ref<HTMLButtonElement | null>(null)
       <div v-if="vm.pending" class="lg:grid lg:grid-cols-2 lg:gap-12 xl:gap-16" aria-hidden="true">
         <div class="aspect-square rounded-(--panel-radius) bg-(--image-placeholder)"></div>
         <div class="mt-8 space-y-4 lg:mt-0">
-          <div class="h-9 w-24 rounded-full bg-surface-card"></div>
-          <div class="h-10 w-3/4 rounded-full bg-surface-card"></div>
-          <div class="h-8 w-40 rounded-full bg-surface-card"></div>
-          <div class="h-10 w-1/3 rounded-full bg-surface-card"></div>
+          <div class="h-9 w-24 rounded-full bg-surface-muted"></div>
+          <div class="h-10 w-3/4 rounded-full bg-surface-muted"></div>
+          <div class="h-8 w-40 rounded-full bg-surface-muted"></div>
+          <div class="h-10 w-1/3 rounded-full bg-surface-muted"></div>
         </div>
       </div>
 
@@ -108,7 +108,7 @@ const addButton = ref<HTMLButtonElement | null>(null)
 
             <h1 class="mt-4 text-[32px] font-extrabold leading-tight tracking-tight text-ink" data-testid="product-detail-name">{{ product.name }}</h1>
 
-            <p class="mt-4 inline-flex items-center gap-2 rounded-full bg-surface-card py-1 pl-1 pr-4">
+            <p class="mt-4 inline-flex items-center gap-2 rounded-full bg-surface-muted py-1 pl-1 pr-4">
               <span class="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground" aria-hidden="true">{{ sellerInitial }}</span>
               <span class="text-sm font-bold text-ink">{{ product.sellerName }}</span>
             </p>
@@ -152,7 +152,7 @@ const addButton = ref<HTMLButtonElement | null>(null)
                 <button
                   type="button"
                   aria-label="수량 감소"
-                  class="flex h-10 w-10 items-center justify-center rounded-full text-lg text-ink transition duration-200 hover:bg-surface-card disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
+                  class="flex h-10 w-10 items-center justify-center rounded-full text-lg text-ink transition duration-200 hover:bg-surface-muted disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
                   :disabled="vm.quantity <= 1"
                   @click="vm.decrementQuantity"
                 >
@@ -162,7 +162,7 @@ const addButton = ref<HTMLButtonElement | null>(null)
                 <button
                   type="button"
                   aria-label="수량 증가"
-                  class="flex h-10 w-10 items-center justify-center rounded-full text-lg text-ink transition duration-200 hover:bg-surface-card"
+                  class="flex h-10 w-10 items-center justify-center rounded-full text-lg text-ink transition duration-200 hover:bg-surface-muted"
                   @click="vm.incrementQuantity"
                 >
                   +

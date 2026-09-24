@@ -5,7 +5,7 @@ import type { PaymentMockPageVm } from '~/skins/contracts/payment-mock'
 defineProps<{ vm: PaymentMockPageVm }>()
 
 const BUTTON = 'flex h-14 w-full items-center justify-center rounded-full text-base font-bold transition duration-200 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-default disabled:opacity-40'
-const LINK = 'mt-4 inline-flex min-h-11 items-center rounded-full bg-surface-card px-6 text-sm font-bold text-ink transition duration-200 hover:bg-(--pastel-lavender-bg)'
+const LINK = 'mt-4 inline-flex min-h-11 items-center rounded-full bg-surface-muted px-6 text-sm font-bold text-ink transition duration-200 hover:bg-(--pastel-lavender-bg)'
 </script>
 
 <template>
@@ -32,7 +32,7 @@ const LINK = 'mt-4 inline-flex min-h-11 items-center rounded-full bg-surface-car
         <dl class="space-y-4">
           <div class="flex items-center justify-between text-sm">
             <dt class="text-sub">결제수단</dt>
-            <dd class="rounded-full bg-surface-card px-3 py-1 font-bold text-ink">{{ vm.methodLabel }}</dd>
+            <dd class="rounded-full bg-surface-muted px-3 py-1 font-bold text-ink">{{ vm.methodLabel }}</dd>
           </div>
           <div class="flex items-baseline justify-between border-t border-line pt-4">
             <dt class="text-sm font-bold text-ink">결제금액</dt>
@@ -62,7 +62,7 @@ const LINK = 'mt-4 inline-flex min-h-11 items-center rounded-full bg-surface-car
           </button>
           <button
             type="button"
-            :class="[BUTTON, 'text-sub hover:bg-surface-card hover:text-ink']"
+            :class="[BUTTON, 'text-sub hover:bg-surface-muted hover:text-ink']"
             :disabled="vm.submitting"
             data-testid="payment-mock-cancel"
             @click="vm.pay('CANCEL')"

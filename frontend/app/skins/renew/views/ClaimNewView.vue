@@ -117,7 +117,7 @@ const LINK_BUTTON =
           <ul v-else class="grid gap-2 sm:grid-cols-2">
             <li v-for="option in vm.exchangeOptions" :key="option.variantPublicId">
               <label
-                class="flex min-h-12 cursor-pointer items-center gap-3 rounded-[14px] border border-line bg-white px-4 text-sm font-bold text-ink transition duration-200 hover:border-ink has-checked:border-primary has-checked:bg-surface-card"
+                class="flex min-h-12 cursor-pointer items-center gap-3 rounded-[14px] border border-line bg-white px-4 text-sm font-bold text-ink transition duration-200 hover:border-ink has-checked:border-primary has-checked:bg-surface-muted"
               >
                 <input
                   v-model="vm.exchangeVariantId"

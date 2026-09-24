@@ -67,7 +67,7 @@ const submitButton = ref<HTMLButtonElement | null>(null)
             </div>
 
             <!-- 저장 배송지 요약(접힘 상태) -->
-            <div v-if="!expanded" class="mt-5 flex flex-col gap-4 rounded-card bg-surface-card p-5 sm:flex-row sm:items-start sm:justify-between">
+            <div v-if="!expanded" class="mt-5 flex flex-col gap-4 rounded-card bg-surface-muted p-5 sm:flex-row sm:items-start sm:justify-between">
               <div class="min-w-0 space-y-1 text-sm text-ink">
                 <p class="font-bold">{{ vm.recipientName }} <span class="ml-1 font-mono font-normal text-sub">{{ vm.recipientPhone }}</span></p>
                 <p class="break-keep">({{ vm.zonecode }}) {{ vm.addressRoad }} {{ vm.addressDetail }}</p>
@@ -142,7 +142,7 @@ const submitButton = ref<HTMLButtonElement | null>(null)
                 :key="option.value"
                 :class="[
                   'flex min-h-14 cursor-pointer items-center justify-center rounded-card border-2 px-3 text-center text-sm font-bold transition duration-200 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-primary has-[:focus-visible]:ring-offset-2',
-                  vm.method === option.value ? 'border-primary bg-surface-card text-ink' : 'border-line bg-white text-sub hover:border-ink hover:text-ink',
+                  vm.method === option.value ? 'border-primary bg-surface-muted text-ink' : 'border-line bg-white text-sub hover:border-ink hover:text-ink',
                 ]"
               >
                 <input v-model="vm.method" type="radio" name="method" :value="option.value" class="sr-only" />

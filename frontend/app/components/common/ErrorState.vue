@@ -12,7 +12,7 @@ const emit = defineEmits<{ retry: [] }>()
     <p class="text-sub">{{ message }}</p>
     <button
       type="button"
-      class="rounded-full border border-line px-5 py-2 text-sm font-medium text-ink transition duration-200 hover:bg-surface-card focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+      class="rounded-full border border-line px-5 py-2 text-sm font-medium text-ink transition duration-200 hover:bg-surface-muted focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
       @click="emit('retry')"
     >
       다시 시도

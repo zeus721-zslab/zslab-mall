@@ -17,13 +17,13 @@ function thumbnailOf(order: OrderSummary): string | null {
 
 const CARD = 'rounded-[28px] bg-white p-6 md:p-8'
 const SECTION_TITLE = 'text-lg font-bold text-ink'
-const SKELETON = 'rounded-2xl bg-surface-card'
+const SKELETON = 'rounded-2xl bg-surface-muted'
 // 불러온 내용이 스켈레톤 자리에 나타날 때 짧게 떠오른다(움직임 줄이기면 없음).
 const ENTER = 'motion-safe:transition motion-safe:duration-300 motion-safe:ease-out motion-safe:starting:translate-y-1.5 motion-safe:starting:opacity-0'
 const PILL_LINK =
   'inline-flex min-h-11 shrink-0 items-center justify-center rounded-full px-5 text-sm font-bold transition duration-200 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2'
 const MORE_LINK =
-  'flex min-h-11 shrink-0 items-center rounded-full px-4 text-sm font-bold text-sub transition duration-200 hover:bg-surface-card hover:text-ink'
+  'flex min-h-11 shrink-0 items-center rounded-full px-4 text-sm font-bold text-sub transition duration-200 hover:bg-surface-muted hover:text-ink'
 </script>
 
 <template>
@@ -154,7 +154,7 @@ const MORE_LINK =
         </div>
         <CommonErrorState v-else-if="vm.home.recentOrders.error || !vm.home.recentOrders.data" message="최근 주문을 불러오지 못했습니다" @retry="vm.home.recentOrders.refresh" />
         <div v-else-if="vm.home.recentOrders.data.items.length === 0" :class="[ENTER, 'flex flex-col items-center px-6 py-12 text-center']">
-          <span class="flex h-16 w-16 items-center justify-center rounded-full bg-surface-card text-primary" aria-hidden="true">
+          <span class="flex h-16 w-16 items-center justify-center rounded-full bg-surface-muted text-primary" aria-hidden="true">
             <svg class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
               <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 10.5V6a3.75 3.75 0 10-7.5 0v4.5m11.356-1.993l1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 01-1.12-1.243l1.264-12A1.125 1.125 0 015.513 7.5h12.974c.576 0 1.059.435 1.119 1.007z" />
             </svg>
@@ -184,7 +184,7 @@ const MORE_LINK =
                 <p class="mt-1 truncate text-sm font-bold text-ink md:text-base">{{ order.previewTitle }}</p>
               </div>
               <div class="flex shrink-0 flex-col items-end gap-1.5 sm:flex-row sm:items-center sm:gap-5">
-                <span class="rounded-full bg-surface-card px-3 py-1 text-xs font-bold text-ink">{{ vm.home.orderStatusLabel(order.status.code) }}</span>
+                <span class="rounded-full bg-surface-muted px-3 py-1 text-xs font-bold text-ink">{{ vm.home.orderStatusLabel(order.status.code) }}</span>
                 <p class="whitespace-nowrap text-ink">
                   <span class="font-mono text-sm font-semibold md:text-base">{{ order.totalPrice.toLocaleString('ko-KR') }}</span><span class="ml-0.5 text-xs">원</span>
                 </p>

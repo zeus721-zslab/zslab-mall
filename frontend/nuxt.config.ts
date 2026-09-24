@@ -23,6 +23,8 @@ export default defineNuxtConfig({
     // FE-63: 구매자 클레임 목록은 /orders 탭으로 통합됐다. 북마크·외부 링크 호환을 위해 경로만 흡수한다
     // (정확 일치라 /claims/new·/claims/{id} 상세는 그대로 살아 있다).
     '/claims': { redirect: '/orders?tab=cancel' },
+    // FE-76: 폰트 1년 캐시. 파일명에 버전이 없으므로 폰트 교체 시 폴더명 버전(예: pretendard-1.3.9)을 올려 캐시를 깬다.
+    '/fonts/**': { headers: { 'cache-control': 'public, max-age=31536000, immutable' } },
   },
   shadcn: {
     prefix: '',

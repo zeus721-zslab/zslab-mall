@@ -65,7 +65,7 @@ async function capture(name) {
       )
       await page.waitForFunction(() => Array.from(document.images).every((img) => img.complete && img.naturalWidth > 0))
       await page.mouse.move(0, 0)
-      await page.evaluate(() => Promise.all([document.fonts.load('400 16px NanumGothic'), document.fonts.load('700 16px NanumGothic')]))
+      await page.evaluate(() => Promise.all([document.fonts.load('400 16px "Pretendard Variable"'), document.fonts.load('700 16px "Pretendard Variable"')]))
       await page.evaluate(() => document.fonts.ready)
       await page.addStyleTag({ content: '#nuxt-devtools-container, nuxt-devtools-frame, [id^="nuxt-devtools"] { display: none !important }' })
       await page.waitForTimeout(SETTLE_MS)

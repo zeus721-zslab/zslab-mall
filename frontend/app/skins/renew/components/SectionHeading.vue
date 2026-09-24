@@ -16,7 +16,7 @@ defineProps<{
     <NuxtLink
       v-if="moreTo"
       :to="moreTo"
-      class="flex min-h-11 shrink-0 items-center rounded-full px-4 text-sm font-bold text-sub transition duration-200 hover:bg-surface-card hover:text-ink"
+      class="flex min-h-11 shrink-0 items-center rounded-full px-4 text-sm font-bold text-sub transition duration-200 hover:bg-surface-muted hover:text-ink"
     >
       전체 보기
     </NuxtLink>

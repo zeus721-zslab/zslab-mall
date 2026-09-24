@@ -71,12 +71,12 @@ const PAGE_BUTTON =
     <!-- 로딩 -->
     <div v-if="vm.pending" class="space-y-4" aria-hidden="true">
       <div v-for="index in 3" :key="index" :class="[CARD, 'space-y-4 p-6 md:p-8']">
-        <div class="h-4 w-1/3 rounded-full bg-surface-card"></div>
+        <div class="h-4 w-1/3 rounded-full bg-surface-muted"></div>
         <div class="flex gap-4">
           <div class="h-20 w-20 shrink-0 rounded-[18px] bg-(--image-placeholder)"></div>
           <div class="flex-1 space-y-2 pt-1">
-            <div class="h-3 w-1/4 rounded-full bg-surface-card"></div>
-            <div class="h-4 w-2/3 rounded-full bg-surface-card"></div>
+            <div class="h-3 w-1/4 rounded-full bg-surface-muted"></div>
+            <div class="h-4 w-2/3 rounded-full bg-surface-muted"></div>
           </div>
         </div>
       </div>
@@ -87,7 +87,7 @@ const PAGE_BUTTON =
 
     <!-- 빈 목록 -->
     <div v-else-if="vm.isEmpty" :class="[CARD, ENTER, 'flex flex-col items-center px-6 py-16 text-center']">
-      <span class="flex h-16 w-16 items-center justify-center rounded-full bg-surface-card text-primary" aria-hidden="true">
+      <span class="flex h-16 w-16 items-center justify-center rounded-full bg-surface-muted text-primary" aria-hidden="true">
         <svg class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
           <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 10.5V6a3.75 3.75 0 10-7.5 0v4.5m11.356-1.993l1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 01-1.12-1.243l1.264-12A1.125 1.125 0 015.513 7.5h12.974c.576 0 1.059.435 1.119 1.007z" />
         </svg>
@@ -122,7 +122,7 @@ const PAGE_BUTTON =
               </NuxtLink>
               <NuxtLink
                 :to="`/orders/${order.orderId}`"
-                class="group flex min-h-10 items-center gap-0.5 rounded-full px-3 text-sm font-bold text-sub transition duration-200 hover:bg-surface-card hover:text-ink"
+                class="group flex min-h-10 items-center gap-0.5 rounded-full px-3 text-sm font-bold text-sub transition duration-200 hover:bg-surface-muted hover:text-ink"
               >
                 주문 상세
                 <svg class="h-4 w-4 transition-transform duration-200 motion-safe:group-hover:translate-x-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
@@ -156,7 +156,7 @@ const PAGE_BUTTON =
                 <div class="min-w-0 flex-1 md:flex md:items-center md:gap-6">
                   <div class="min-w-0 flex-1">
                     <div class="flex flex-wrap items-center gap-2">
-                      <span class="rounded-full bg-surface-card px-2.5 py-0.5 text-xs font-bold text-ink">{{ vm.orderItemStatusLabel(item.status.code) }}</span>
+                      <span class="rounded-full bg-surface-muted px-2.5 py-0.5 text-xs font-bold text-ink">{{ vm.orderItemStatusLabel(item.status.code) }}</span>
                       <span v-if="item.sellerName" class="truncate text-xs text-sub">{{ item.sellerName }}</span>
                     </div>
                     <p class="mt-1.5 truncate text-sm font-bold text-ink md:text-base">{{ item.productName ?? '삭제된 상품' }}</p>
