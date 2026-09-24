@@ -50,6 +50,14 @@ defineProps<{ name: CategoryIllustrationName }>()
       <path d="M8 10v13.2a3 3 0 0 0 .9 2.1l14.8 14.8a3 3 0 0 0 4.2 0l12.2-12.2a3 3 0 0 0 0-4.2L25.3 8.9A3 3 0 0 0 23.2 8H10a2 2 0 0 0-2 2z" />
       <circle cx="17" cy="17" r="3" />
     </template>
+    <template v-else-if="name === 'box'">
+      <path d="M24 6l16 8v20l-16 8-16-8V14l16-8z" />
+      <path d="M8 14l16 8 16-8M24 22v20" />
+    </template>
+    <template v-else-if="name === 'sparkle'">
+      <path d="M22 8l3.2 9.8L35 21l-9.8 3.2L22 34l-3.2-9.8L9 21l9.8-3.2L22 8z" />
+      <path d="M36 30l1.4 4.1L41.5 35.5l-4.1 1.4L36 41l-1.4-4.1-4.1-1.4 4.1-1.4L36 30z" />
+    </template>
     <template v-else>
       <rect x="9" y="9" width="12" height="12" rx="3" />
       <rect x="27" y="9" width="12" height="12" rx="3" />

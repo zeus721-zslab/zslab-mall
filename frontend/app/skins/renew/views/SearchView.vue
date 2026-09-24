@@ -19,7 +19,7 @@ const SKELETON_COUNT = 10
     <div :class="CONTAINER">
       <!-- 제목 면: 검색어 + 결과 수(조회가 끝난 뒤에만) -->
       <section class="rounded-(--panel-radius) bg-(--pastel-lavender-bg) px-6 py-10 text-(--pastel-lavender-ink) md:px-12 md:py-14">
-        <p class="text-caption uppercase tracking-[0.12em] opacity-80">Search</p>
+        <p class="text-caption uppercase tracking-[0.12em]">Search</p>
         <h1 class="mt-2 break-all text-h1" data-testid="search-title">{{ vm.title }}</h1>
         <p v-if="vm.keyword && vm.list && !vm.list.pending && !vm.list.hasError" class="mt-3 text-small" data-testid="search-count">
           <span class="font-semibold tabular-nums">{{ vm.list.totalCount.toLocaleString('ko-KR') }}</span>개의 상품

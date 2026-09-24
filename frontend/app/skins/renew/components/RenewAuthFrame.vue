@@ -13,15 +13,13 @@ const PANEL_ILLUSTRATIONS: readonly CategoryIllustrationName[] = ['shirt', 'mug'
 <template>
   <div class="pb-12 pt-6 md:pb-16 md:pt-10">
     <div :class="[CONTAINER, 'lg:grid lg:grid-cols-2 lg:items-stretch lg:gap-8']">
-      <section
-        class="hidden rounded-(--panel-radius) bg-(--pastel-lavender-bg) p-12 lg:flex lg:flex-col"
-        aria-hidden="true"
-      >
+      <!-- 문구는 스크린리더도 읽고 일러스트만 숨긴다(FE-82). -->
+      <section class="hidden rounded-(--panel-radius) bg-(--pastel-lavender-bg) p-12 lg:flex lg:flex-col">
         <!-- 색은 메인 히어로 띠 면과 같다(눈썹 lavender-ink · 제목 ink · 리드 sub). -->
         <p class="text-caption uppercase tracking-[0.12em] text-(--pastel-lavender-ink)">{{ eyebrow }}</p>
         <p class="mt-3 text-h1 text-ink">{{ headline }}</p>
         <p class="mt-3 text-body text-sub">{{ description }}</p>
-        <div class="mt-10 grid w-max grid-cols-2 gap-4">
+        <div class="mt-10 grid w-max grid-cols-2 gap-4" aria-hidden="true">
           <span
             v-for="illustration in PANEL_ILLUSTRATIONS"
             :key="illustration"

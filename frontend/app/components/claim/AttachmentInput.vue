@@ -81,8 +81,8 @@ function remove(index: number): void {
 <template>
   <div class="space-y-2" data-testid="claim-attachment-input">
     <div class="flex items-center justify-between">
-      <span class="text-sm font-medium text-ink">사진 첨부 (선택)</span>
-      <span class="text-xs text-sub">{{ modelValue.length }}/{{ CLAIM_ATTACHMENT_MAX }}</span>
+      <span class="text-small text-ink">사진 첨부 (선택)</span>
+      <span class="text-caption font-normal tabular-nums text-sub">{{ modelValue.length }}/{{ CLAIM_ATTACHMENT_MAX }}</span>
     </div>
 
     <ul v-if="modelValue.length > 0" class="grid grid-cols-5 gap-2" data-testid="claim-attachment-list">
@@ -90,7 +90,7 @@ function remove(index: number): void {
         <img :src="photo.thumbnailUrl" :alt="photo.fileName" class="h-full w-full object-cover">
         <button
           type="button"
-          class="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-white/90 text-xs text-ink shadow"
+          class="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-white text-caption text-ink shadow-e1"
           :aria-label="`${photo.fileName} 삭제`"
           :disabled="disabled || uploading"
           data-testid="claim-attachment-remove"
@@ -108,12 +108,18 @@ function remove(index: number): void {
       data-testid="claim-attachment-file-input"
       @change="onFilesSelected"
     >
-    <Button type="button" variant="outline" size="sm" :disabled="disabled || uploading || remaining <= 0" data-testid="claim-attachment-add" @click="openPicker">
+    <button
+      type="button"
+      class="btn btn-secondary btn-sm max-md:min-h-11"
+      :disabled="disabled || uploading || remaining <= 0"
+      data-testid="claim-attachment-add"
+      @click="openPicker"
+    >
       {{ uploading ? '업로드 중…' : remaining <= 0 ? '최대 장수 도달' : '사진 추가' }}
-    </Button>
-    <p class="text-xs text-sub">jpg·png·webp · 파일당 {{ CLAIM_ATTACHMENT_MAX_MB }}MB · 최대 {{ CLAIM_ATTACHMENT_MAX }}장. 상품 불량·오배송 확인에 사용됩니다.</p>
+    </button>
+    <p class="text-caption font-normal text-sub">jpg·png·webp · 파일당 {{ CLAIM_ATTACHMENT_MAX_MB }}MB · 최대 {{ CLAIM_ATTACHMENT_MAX }}장. 상품 불량·오배송 확인에 사용됩니다.</p>
 
-    <ul v-if="failures.length > 0" role="alert" class="space-y-0.5 text-xs text-soldout" data-testid="claim-attachment-failures">
+    <ul v-if="failures.length > 0" role="alert" class="space-y-0.5 text-caption font-normal text-soldout" data-testid="claim-attachment-failures">
       <li v-for="(failure, index) in failures" :key="`${failure.fileName}-${index}`">{{ failure.fileName }}: {{ failure.reason }}</li>
     </ul>
   </div>

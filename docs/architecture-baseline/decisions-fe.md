@@ -3502,3 +3502,102 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 - 안내 면 aria-hidden 유지 — 제목·리드는 폼 제목과 중복이라 두었다. 접근성 채점 때 재검토한다.
 
 외부 검토: C / 생략
+
+## FE-82: 채점 보완 — 접근성·일관성·디자인·직관성 + 성능 1차 (Track 105-4g-2) (2026-09-25)
+
+배경: 105-4g-1에서 운영 사이트를 FE-76 6축으로 재채점했다. 결과는 디자인 91 · 일관성 93 · 직관성 94 · 편의성 93 · 접근성 82 · 성능 64(평균 86.2, 목표 95)였다. 이번 트랙은 그중 FE만으로 고칠 수 있는 감점을 처리하고, 성능은 1차 조치만 한다. 주문번호·주문 일시·결제 수단·클레임 대상 품목은 BE가 함께 바뀌어야 해서 105-4g-3으로 넘긴다. 성능 재측정은 배포 후에 한다.
+
+결정:
+- **접근성**
+  - 언어: nuxt.config `app.head.htmlAttrs.lang = 'ko'`. 레이아웃·error.vue의 `useHead({ htmlAttrs: { 'data-skin' } })`와 unhead가 합친다(구매자 404에서 `lang=ko data-skin=renew` 확인). 전역 설정이라 관리자·셀러도 lang=ko가 된다.
+  - 위험 글자색: 구매자 `[data-skin]`의 `--destructive`를 #EF4444에서 #B0245A로 바꿨다. 대비는 흰 바탕 6.47 · surface-muted 5.52 · 라벤더 4.81 · 핑크 바탕 5.05다. `btn-tertiary text-destructive`와 인라인 위험 문구가 이 토큰 하나를 쓴다. 관리자·셀러(`:root`)는 그대로다.
+  - 마이페이지 0건 단계: 링크의 `opacity-40`을 없애고 숫자만 `text-sub`로 낮췄다. 투명도 때문에 라벨 대비가 1.87까지 떨어졌었다.
+  - 검색 눈썹 문구: `opacity-80`을 없앴다(lavender-ink 7.17).
+  - 터치 44(390 폭): 헤더 로고는 `inline-flex min-h-11`로 모양이 그대로다. 상세 수량 버튼은 h/w-11이다. 송장번호 복사는 `btn btn-sm bg-white text-primary max-md:min-h-11`이다.
+  - 본문 바로가기: LayoutShell의 첫 포커스 요소다. `btn btn-primary btn-md`를 쓰고, 고정 위치에 투명하게 두었다가 포커스를 받을 때만 보인다. main은 `id="main-content" tabindex="-1"`이고, 링크를 누르면 해시 이동 대신 main에 직접 포커스한다.
+  - 로그인·회원가입 안내 면: 면 전체의 aria-hidden을 없애 문구가 읽히게 했다. 일러스트 묶음에만 aria-hidden을 남겼다.
+- **일관성**
+  - 공용 DialogContent의 임의 그림자를 `shadow-e3`로 바꿨다.
+  - 공용 3개
+    - ItemDeliveryInfo: `bg-gray-50`·`text-xs`·`hover:bg-gray-100`을 surface-muted 면과 `text-small`로 바꿨다. 복사 버튼은 흰 바탕 btn이다.
+    - ErrorState: "다시 시도"를 `btn btn-secondary btn-md`로 바꿨다.
+    - AttachmentInput: 크기를 서체 스케일로 바꿨다. shadcn Button outline은 `btn btn-secondary btn-sm`으로, `shadow`는 `shadow-e1`로 바꿨다.
+  - 클레임 타임라인 현재 단계: `ring-4`(box-shadow)를 같은 토큰 색의 `outline-4`로 바꿨다. 그림자는 e1~e3만 쓴다는 규칙을 따른다.
+  - 주문 탭: FE-80 세그먼트(흰 바탕 + `shadow-e1` · 선택 primary 채움 · aria-current)와 이미 같아 코드는 바꾸지 않았다. **세그먼트를 btn·chip과 나란한 허용 패턴으로 등재**한다(용도: 화면 전환 탭 2~3개).
+  - 상세 카테고리 링크: 버터색 인라인 채움을 `btn-secondary`로 바꿨다. 이 링크만 쓰던 categoryTheme import도 정리했다.
+- **디자인**
+  - 카테고리 테마 목록 단위 계산: `categoryThemes(categories)`를 추가했다. 결과는 입력 순서와 같다. 메인 타일과 목록 배너가 같은 계산을 쓰고, 목록 밖 id와 전체는 단일 `categoryTheme`을 쓴다.
+    - 색: 매핑 없는 카테고리는 id % 5가 기본이다. 바로 앞 타일 색이나 바로 다음 타일 색(매핑 여부 무관 · 매핑이 없으면 그 타일의 기본색)과 같으면 다음 파스텔로 넘긴다. 피할 색은 최대 2개이고 파스텔은 5색이라 항상 고를 수 있다.
+    - 초기 규칙의 빈틈: 처음에는 앞 타일만 피했다. 그러자 로컬 순서 데모(id 1 · 기본 페리윙클) → 리빙·주방(매핑 페리윙클)에서 뒤쪽 겹침이 남았다(캡처로 발견). 그래서 다음 타일도 피하도록 넓혔다.
+    - 대체 아이콘: tag·box·sparkle 3종이다. 매핑 없는 카테고리를 id 오름차순으로 세운 순번으로 돌린다. id % 3을 쓰면 운영의 기타(1)·데모(7)가 같은 아이콘이 된다. 단일 `categoryTheme`은 목록을 모르므로 id % 3으로 돌린다.
+    - 그리드: md 4열 · lg 6열로 바꿨다(이전 md 3 · xl 6). 타일 높이 상한은 `max-h-40`이다.
+  - 빈 목록: CommonEmptyState를 검색 빈 결과와 같은 톤으로 바꿨다. 흰 카드 + `shadow-e1` + 아이콘 원을 쓰고, 기존 문구 "등록된 상품이 없습니다"를 `text-h3`로 유지했다. 카테고리 화면에만 "전체 상품 보기" `btn-secondary` 버튼을 둔다.
+- **직관성**
+  - 푸터 회사소개·이용약관·개인정보처리방침: `<a href="#">`를 button으로 바꿨다. 누르면 RenewNotice info "준비 중입니다."를 띄운다(FE-81 비밀번호 찾기와 같은 방식). 외형은 고객센터 링크와 같은 푸터 링크 모양을 유지했다(btn 아님). 고객센터(/help)는 그대로다.
+  - 모바일 카테고리 줄: LayoutShellVm에 `hasListingTabs`를 추가했다. layouts/default.vue가 경로로 판정한다(`/products` · `/categories/*`). 목록·카테고리 화면의 768 미만에서는 헤더 카테고리 줄을 `max-md:hidden`으로 숨기고 목록 탭만 둔다.
+  - 상세 셀러 표시: 아바타 + surface-muted 알약을 평문(`text-small text-sub`)으로 바꿨다.
+- **기타** `.gitignore`에 `docs/frontend/scorecard-*.md`를 추가했다(채점 보고서는 로컬 전용).
+
+성능 1차:
+- **prefetch 원인** Nuxt entry의 dynamicImports에 관리자·셀러 레이어의 레이아웃 4개와 미들웨어 4개가 있었다. Nuxt는 entry의 동적 import를 모든 화면에서 prefetch한다. 이 목록을 따라 Vuetify JS·CSS 청크까지 구매자 화면에서 미리 받고 있었다.
+- **조치** nuxt.config `hooks['build:manifest']`에서 isEntry 청크의 dynamicImports 중 `layers/(admin|seller)/` 경로만 뺐다. 매니페스트는 링크 힌트 계산에만 쓰이므로 실제 `import()`와 관리자·셀러 화면 로딩은 그대로다(빌드 산출에서 /admin/login·/seller/login 200 · Vuetify 렌더 · 콘솔 오류 0).
+- **전후 수치**(pnpm build 산출 · / · /products · 상세 · /login 모두 같다)
+  - prefetch: 51(CSS 11 — Vuetify 10) → 1(CSS 0)
+  - modulepreload: 4~5 → 4~5
+  - preload: 0 → 0
+  - entry CSS: 109,711B → 109,449B
+- **렌더 차단 CSS** 구성은 @font-face 94개 49,322B · utilities 48,697B · 나머지 약 11KB다. utilities는 전부 app/ 소스에서 나오고 테스트·e2e에서만 생긴 클래스는 0이라, 안전하게 뺄 전역 CSS가 없다. `features.inlineStyles` 기본값은 .vue 스타일만 인라인하므로 전역 main.css는 대상이 아니다. 조치하지 않았다.
+- **LCP 요소**(105-4g-1 운영 Lighthouse 모바일): / = 히어로 h1 텍스트 · /products = 첫 상품 썸네일 img · 상세 = 대표 원본 png · /login = 이메일 입력칸 placeholder.
+
+### §1-A 갈림길·채택/기각 근거
+- **본문 바로가기 숨김: 투명도(채택) / sr-only + focus:not-sr-only(기각)** `not-sr-only`가 padding을 0으로 되돌려 btn 좌우 여백이 사라진다.
+- **대체 아이콘 순환 기준: id 오름차순 순번(채택) / id % 3(기각)** 운영 id 1·7이 같은 나머지라 "기타·데모가 같은 아이콘이 되지 않게"를 지키지 못한다.
+- **렌더 차단 CSS: 조치 없음(채택) / 전역 CSS 인라인·폰트 선언 분리(보류)** 인라인은 HTML마다 108KB가 붙고 캐시를 잃는다. 폰트 선언 분리는 FOUT 동작이 바뀌어 성능 트랙에서 측정과 함께 판단한다.
+
+### §2 검증
+- 1차(각 1회)
+  - typecheck EXIT 0(error TS 0) · vitest 119 files / 827 passed(+5) · build EXIT 0
+  - e2e smoke·help·password-change·claims 13 passed
+  - 로컬 axe 390(/ · /mypage · /search?keyword=노트): lang=ko이고 앱 요소의 lang·대비 위반은 0이다. 남은 color-contrast 1·region 1은 dev 전용 nuxt-devtools-frame이다.
+  - 390 DOM: 로고 91×44 · 수량 44×44 · 송장번호 복사 107×44
+- 규칙 확장 뒤: typecheck EXIT 0 · category-theme vitest 1 file / 8 passed. build·e2e·axe는 순수 함수 규칙만 바뀌어 다시 돌리지 않았다.
+- 캡처 docs/frontend/screens-track105-4g-2/(커밋 제외): home-categories 1440·820·390 · footer-notice-1440 · pdp-seller 1440·390 · products-header-390 · category-empty 390·1440
+  - 빈 카테고리 캡처: 로컬에는 상품 0개 카테고리가 없다. 클라이언트 이동 때의 상품 조회만 page.route로 빈 목록으로 바꿔 찍었다.
+- 테스트 추가·수정
+  - categoryThemes 4: 인접 색 겹침 없음 · 다음 매핑 타일 회피 · 아이콘 순환 · 전체 타일 유지
+  - LayoutShell 2: 본문 바로가기 · 푸터 준비 중 알림
+  - 깨진 단언 2: category-theme 대체 아이콘 기대값 · LayoutShell routeMock에 path 추가
+
+### §3 채점 감점 대응표(105-4g-1 기준)
+| 축 | 감점 항목 | 점 | 이번 처리 |
+|---|---|---|---|
+| 접근성 | html lang 없음 | 3 | 조치 |
+| 접근성 | 대비: 주문 현황 · 위험색 · 검색 눈썹 | 2·2·1 | 조치 |
+| 접근성 | 44 미만: 로고 · 스테퍼 · 송장 복사 | 2·1·1 | 조치 |
+| 접근성 | 스킵 링크 · 안내 면 aria-hidden | 1·1 | 조치 |
+| 접근성 | 상품 카드 접근 이름 · 장바구니·주문 단계 이름 · landmark-unique | 2·1·1 | 이월 |
+| 일관성 | 모달 임의 그림자 · 공용 3컴포넌트 · 타임라인 링 · 버터 버튼 | 2·2·1·1 | 조치 |
+| 일관성 | 주문 탭 세그먼트 | 1 | 허용 패턴 등재 |
+| 디자인 | 카테고리 타일 3건 · 빈 상태 톤 · 배송 정보 블록 | 3·2·1 | 조치 |
+| 디자인 | 내부 주문 ID 노출 | 2 | 105-4g-3 |
+| 디자인 | 상품명 break-keep | 1 | 이월 |
+| 직관성 | 푸터 # 링크 · 셀러 알약 | 2·1 | 조치 |
+| 직관성 | 모바일 탐색 줄 중복 | 2 | 목록·카테고리 조치(마이페이지 3단은 이월) |
+| 직관성 | "클레임" 용어 | 1 | 이월 |
+| 편의성 | 빈 카테고리 막다른 길 | 1 | 조치 |
+| 편의성 | 클레임 상세 대상 품목 · 주문 일시·결제 수단 · 클레임↔주문 대조 | 2·1·1 | 105-4g-3 |
+| 편의성 | 준비 중 2건(비밀번호 찾기·도움말) | 1·1 | 유지(FE-76 준비 중 기준) |
+| 성능 | 모바일 LCP | 계산식 | 1차(prefetch) · 배포 후 재측정 |
+
+### §8 이월
+- 성능 트랙
+  - 렌더 차단 CSS의 절반가량이 @font-face 94개(49,322B)다. 폰트 선언 분리·지연을 검토한다(FOUT 동작과 함께).
+  - LCP 요소별 개선 후보: 히어로 h1 텍스트(폰트·렌더 차단) · 목록 첫 썸네일 · 상세 원본 png(srcset·sizes — FE-77 이월) · 로그인 입력칸.
+  - 배포 후 운영 Lighthouse 재측정(prefetch 51 → 1의 효과 확인).
+- 105-4g-3(BE+FE): 주문번호(orderNo — 주문 목록 응답에 필드 없음) · 주문 일시·결제 수단 · 클레임 대상 품목.
+- 접근성: 상품 카드·장바구니 접근 이름 · landmark-unique(헤더 데스크톱 nav와 목록 탭 nav가 같은 "카테고리" 이름).
+- 디자인·직관성: 상품명 break-keep · "클레임" 용어 통일 · 마이페이지 모바일 가로줄 3단.
+- routeRules `/claims` → `/orders?tab=cancel` 옛 값(105-4g-1 대조 결과 감점 없음).
+- 목록 배너 눈썹 "Category"의 `opacity-80`은 검색과 같은 패턴이지만 axe 통과라 유지했다.
+
+외부 검토: C / 생략

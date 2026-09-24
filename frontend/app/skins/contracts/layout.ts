@@ -9,4 +9,6 @@ export interface LayoutShellVm {
   handleLogout: () => Promise<void>
   isBuyerSignedIn: boolean
   cartCount: number
+  /** 현재 경로가 상품 목록·카테고리 화면(목록 카테고리 탭이 있는 화면)인지. 셸이 <768 헤더 카테고리 줄 중복을 숨길 때 쓴다(FE-82). */
+  hasListingTabs: boolean
 }

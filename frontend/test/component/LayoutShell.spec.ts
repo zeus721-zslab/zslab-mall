@@ -16,7 +16,8 @@ const { authMock, cartMock, navigateToMock, routeMock, useCategoriesMock } = vi.
   cartMock: { count: 0, clear: vi.fn() },
   navigateToMock: vi.fn(),
   // it별로 middleware·query를 갈아끼우기 위한 가변 route 홀더.
-  routeMock: { meta: { middleware: undefined as unknown }, query: {} as Record<string, string> },
+  // path: 레이아웃이 목록 화면 여부(hasListingTabs · FE-82)를 경로로 판정한다.
+  routeMock: { path: '/', meta: { middleware: undefined as unknown }, query: {} as Record<string, string> },
   useCategoriesMock: vi.fn(),
 }))
 
@@ -209,5 +210,41 @@ describe('구매자 헤더(renew LayoutShell)', () => {
     useCategoriesMock.mockReturnValue(categoriesState({ data: [] }))
     const wrapper = await mountSuspended(DefaultLayout)
     expect(categoryLinks(wrapper).map((link) => link.href)).toEqual(['/products'])
+  })
+
+  // ==================== FE-82 본문 바로가기·푸터 준비 중 ====================
+
+  it('본문 바로가기 = 첫 포커스 요소 · 누르면 main에 포커스(URL·이동 없음)', async () => {
+    useCategoriesMock.mockReturnValue(categoriesState({ data: [] }))
+    const wrapper = await mountSuspended(DefaultLayout, { attachTo: document.body })
+    const firstFocusable = wrapper.findAll('a[href], button, input')[0]
+    expect(firstFocusable?.attributes('data-testid')).toBe('skip-to-main')
+    expect(firstFocusable?.text()).toBe('본문 바로가기')
+
+    await wrapper.get('[data-testid="skip-to-main"]').trigger('click')
+
+    const main = wrapper.get('main').element
+    expect(main.id).toBe('main-content')
+    expect(main.getAttribute('tabindex')).toBe('-1')
+    expect(document.activeElement).toBe(main)
+    expect(navigateToMock).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('푸터 회사소개·이용약관·개인정보처리방침 → 누르면 준비 중 알림 · 이동 없음 · 고객센터는 /help 링크 유지', async () => {
+    useCategoriesMock.mockReturnValue(categoriesState({ data: [] }))
+    const wrapper = await mountSuspended(DefaultLayout)
+    const placeholders = wrapper.findAll('[data-testid="footer-placeholder-link"]')
+    expect(placeholders.map((button) => button.text())).toEqual(['회사소개', '이용약관', '개인정보처리방침'])
+    expect(placeholders.every((button) => button.element.tagName === 'BUTTON')).toBe(true)
+    expect(wrapper.find('[data-testid="footer-placeholder-notice"]').exists()).toBe(false)
+
+    await placeholders[1]?.trigger('click')
+
+    const notice = wrapper.get('[data-testid="footer-placeholder-notice"]')
+    expect(notice.text()).toBe('준비 중입니다.')
+    expect(notice.attributes('data-tone')).toBe('info')
+    expect(navigateToMock).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-testid="footer-help-link"]').attributes('href')).toBe('/help')
   })
 })

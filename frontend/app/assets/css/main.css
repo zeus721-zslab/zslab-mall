@@ -173,6 +173,9 @@
   --ring: #5B3FA8;
   --badge-new-ink: #5B3FA8;
 
+  /* FE-82 위험 글자(삭제 버튼·오류 문구) 단일 토큰. shadcn 기본 #EF4444는 흰 바탕 3.76이라 흰색·surface-muted·라벤더 바탕 모두 4.5:1 이상인 진한 핑크로 바꾼다. */
+  --destructive: #B0245A;
+
   --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono',
     'Courier New', monospace;
 

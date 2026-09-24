@@ -56,11 +56,11 @@ const SKELETON = 'rounded-2xl bg-surface-muted'
               :aria-label="`${stage.label} ${stage.count}건 주문 보기`"
               :class="[
                 'group mx-1 flex min-h-11 flex-col items-center gap-1 rounded-2xl px-1 py-1 text-center transition duration-fast ease-soft hover:bg-surface-page focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary',
-                stage.dimmed ? 'opacity-40' : '',
               ]"
               data-testid="mypage-order-stage-link"
             >
-              <span :class="['text-h1 tabular-nums', stage.dimmed ? 'text-ink' : 'text-primary']">{{ stage.count }}</span>
+              <!-- 0건 단계는 투명도 대신 숫자를 sub 색으로 낮춘다(FE-82 — 투명도는 라벨 대비를 1.87까지 떨어뜨렸다). -->
+              <span :class="['text-h1 tabular-nums', stage.dimmed ? 'text-sub' : 'text-primary']">{{ stage.count }}</span>
               <span class="whitespace-nowrap text-caption text-sub md:text-small">{{ stage.label }}</span>
             </NuxtLink>
           </li>

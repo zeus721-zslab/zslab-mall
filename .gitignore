@@ -39,6 +39,7 @@ docs/track-*/recon-report*.md
 docs/track-*/manual-impact.md
 docs/frontend/recon-report-*.md
 docs/frontend/*review-packet*.md
+docs/frontend/scorecard-*.md
 
 # 인수인계 임시 파일
 docs/handover.md

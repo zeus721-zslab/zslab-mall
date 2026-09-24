@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { HomePageVm } from '~/skins/contracts/home'
-import { categoryTheme } from '../category-theme'
+import { categoryThemes } from '../category-theme'
 import CategoryIllustration from '../components/CategoryIllustration.vue'
 import RenewProductCard from '../components/RenewProductCard.vue'
 import SectionHeading from '../components/SectionHeading.vue'
@@ -12,6 +12,14 @@ import { trackScrollEdges } from '../scroll-edges'
 const props = defineProps<{ vm: HomePageVm }>()
 
 const heroTiles = computed(() => buildHeroCollage(props.vm.newArrivals))
+// 카테고리 타일 테마는 목록 단위로 만든다(이웃 색 겹침·대체 아이콘 순환 — FE-82).
+const categoryTiles = computed(() => {
+  const themes = categoryThemes(props.vm.categories)
+  return props.vm.categories.flatMap((category, index) => {
+    const theme = themes[index]
+    return theme ? [{ category, theme }] : []
+  })
+})
 
 const CONTAINER = 'mx-auto max-w-[1440px] px-5 md:px-10 lg:px-16'
 // 상품 열 수: ≥1280 5 · ≥1024 4 · ≥768 3 · 미만 2. 세로 간격은 호버 면(카드 바깥 12px)이 겹치지 않을 만큼.
@@ -96,21 +104,18 @@ function scrollBudget(direction: 1 | -1): void {
       :class="[CONTAINER, SECTION, 'scroll-mt-32 lg:scroll-mt-[calc(var(--header-height)+2rem)]']"
     >
       <SectionHeading tag="Categories" title="카테고리" />
-      <!-- <768: 한 줄 가로 스크롤(카드 폭 고정). ≥768: 격자. -->
+      <!-- <768: 한 줄 가로 스크롤(카드 폭 고정). ≥768: 격자 4열 · ≥1024 6열, 타일 높이 상한 160(태블릿 과대 방지 — FE-82). -->
       <ul
         ref="categoryScroller"
-        :class="[HORIZONTAL_SCROLL_MOBILE, 'gap-4 md:grid md:grid-cols-3 xl:grid-cols-6', categoryEdges.atEnd ? '' : 'max-md:fade-right']"
+        :class="[HORIZONTAL_SCROLL_MOBILE, 'gap-4 md:grid md:grid-cols-4 lg:grid-cols-6', categoryEdges.atEnd ? '' : 'max-md:fade-right']"
       >
-        <li v-for="category in vm.categories" :key="category.categoryId" class="max-md:w-36 max-md:shrink-0 max-md:snap-start">
+        <li v-for="{ category, theme } in categoryTiles" :key="category.categoryId" class="max-md:w-36 max-md:shrink-0 max-md:snap-start">
           <NuxtLink
             :to="`/categories/${category.categoryId}`"
-            class="flex h-full flex-col justify-between gap-6 rounded-card p-5 transition duration-fast ease-soft hover:shadow-e2 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary motion-safe:hover:-translate-y-1"
-            :style="{
-              background: categoryTheme(category.categoryId, category.displayName).background,
-              color: categoryTheme(category.categoryId, category.displayName).ink,
-            }"
+            class="flex h-full max-h-40 flex-col justify-between gap-6 rounded-card p-5 transition duration-fast ease-soft hover:shadow-e2 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary motion-safe:hover:-translate-y-1"
+            :style="{ background: theme.background, color: theme.ink }"
           >
-            <CategoryIllustration :name="categoryTheme(category.categoryId, category.displayName).illustration" class="h-12 w-12" />
+            <CategoryIllustration :name="theme.illustration" class="h-12 w-12" />
             <span class="text-h3">{{ category.displayName }}</span>
           </NuxtLink>
         </li>
