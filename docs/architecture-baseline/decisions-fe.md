@@ -3444,3 +3444,61 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 - 캡처 대기 방식: 클라이언트 전환 뒤에는 networkidle 대신 대상 요소 대기를 쓴다(이번 클레임 탭 결함).
 
 외부 검토: C / 생략
+
+## FE-81: 인증·기타 디자인 — 로그인·회원가입·도움말·에러 화면 + 비밀번호 찾기 준비 중 (Track 105-4f) (2026-09-25)
+
+배경: FE-76 기준을 마지막 화면 그룹에 적용하는 단계다. 대상은 LoginView·SignupView·HelpView·ErrorView와 이 화면들이 쓰는 RenewAuthFrame, 그리고 app/error.vue다. 비밀번호 찾기 진입점을 "준비 중"으로 둔다. BE 계약과 vm 계약은 바꾸지 않았다.
+
+결정:
+- **공통 규칙** FE-77~FE-80과 같다. 글자 버튼은 `btn`이고 영역당 주 버튼은 1개다. font-mono는 식별자 단독에만 쓰는데 대상 파일에는 해당이 0건이다(눈썹 문구는 `text-caption`). 크기는 서체 스케일 유틸, 콘텐츠 카드는 흰색 + `shadow-e1`, 전환은 150ms `ease-soft`다. 첫 화면 등장 모션은 두지 않는다. 768 미만 터치 영역은 44이고, 인라인 메시지는 RenewNotice다(대상 화면은 이미 RenewNotice였다).
+- **비밀번호 찾기 준비 중** 준비 중 처리 기준(FE-76: 새 BE 도메인 · 외부 발송·결제 연동 · 검토 등급 A 중 하나)에 해당한다. 인증 영역이고 검토 등급 A다. 로그인 비밀번호 칸 아래 오른쪽에 3차 버튼 "비밀번호를 잊으셨나요?"(testid `login-forgot-password` · type=button · 768 미만 44)를 두고, 누르면 공용 알림 RenewNotice info "비밀번호 찾기는 준비 중입니다."(testid `login-forgot-password-notice`)를 폼 안에 띄운다. 페이지 이동과 요청은 없다.
+  - 표시 상태는 뷰의 로컬 `ref` 하나다. skin-guard는 데이터 조회·조작·이동 호출만 막으므로 뷰에서 공용 알림을 쓸 수 있어, 지시에서 허용한 vm 동작 추가는 하지 않았다.
+- **1024 미만 안내 면** 현행 유지(`hidden lg:flex`). 폼 카드만 보인다.
+
+로그인 안내 면(RenewAuthFrame · ≥1024 왼쪽):
+- 장식 원 2개와 진입 모션(ENTER)을 없앴다. 라벤더 띠 면(`--panel-radius`) 한 장에 위에서 아래로 놓는다.
+  - 눈썹: "zslab-mall" · `text-caption` · 대문자 · 0.12em · `--pastel-lavender-ink`(메인 히어로와 같다).
+  - 제목: 기존 headline "다시 만나서 반가워요" · `text-h1` · ink.
+  - 리드: 기존 description "로그인하고 장바구니와 주문 내역을 이어서 확인하세요." · `text-body` · sub.
+  - 일러스트: CategoryIllustration shirt·mug·bottle·bag을 흰 원형 칩(64 · `shadow-e1` · lavender-ink 선) 2×2로 둔다.
+  - 보조 문구: `note` prop(선택). 로그인은 데모 로그인이 켜져 있을 때만 "데모 계정으로 바로 둘러볼 수 있어요"를 넘긴다(`text-small` · 면 하단 `mt-auto` · testid `auth-panel-note`).
+- **새 문구 목록** 1개 — "데모 계정으로 바로 둘러볼 수 있어요". 리드는 기존 description으로 1줄이 되어(1440 기준) 재사용했다. 눈썹 "zslab-mall"은 지시 값이고 메인 히어로 눈썹과 같다. 이 밖의 새 문구는 지시로 정한 "비밀번호를 잊으셨나요?" · "비밀번호 찾기는 준비 중입니다." · 도움말 "홈으로"다.
+- 안내 면은 기존대로 `aria-hidden`이다. 데모 버튼은 폼에 있어 보조 문구를 스크린리더에서 읽지 않아도 기능 손실이 없다.
+- 회원가입도 같은 틀이라 장식 원 제거·일러스트 칩이 함께 적용된다. note는 넘기지 않고 눈썹 "Join"은 유지했다.
+
+화면별 변경:
+- **로그인 폼** 폼 카드는 흰색 + `shadow-e1` + `rounded-card`(28px → 24px)이고 제목은 `text-h1`이다(틀 공용). 라벨·입력칸은 FE-79 상수(`text-small` · `rounded-control` · `text-body`)다. 로그인은 `btn-primary btn-lg`(56 → 52), 데모는 `btn-secondary btn-lg`(문구·testid 유지), 회원가입 링크는 `btn-tertiary btn-sm text-primary`(768 미만 44)다. 비밀번호 찾기 버튼은 `-mr-4`로 3차 버튼 좌우 여백만큼 당겨 글자 끝을 입력칸 오른쪽 끝에 맞추고 글자색은 sub다. 오류는 RenewNotice danger(문구 유지)다.
+- **회원가입** 폼은 흰 카드(틀 공용)이고 라벨·입력칸은 FE-79 상수다. 가입은 `btn-primary btn-lg`, 로그인 링크는 `btn-tertiary btn-sm text-primary`(768 미만 44)다. 비밀번호 확인 불일치는 기존 동작(요청 전 판정 · 문구 · RenewNotice danger · testid `signup-error`)을 그대로 둔다.
+- **도움말** 라벤더 띠 면 → 흰 카드 1장(`shadow-e1` · 최대 560 가운데)이다. 아이콘 원(lavender) + 제목 `text-h1` "도움말" + "준비 중입니다."(testid `help-placeholder` · 문구 완전 일치 유지) + "홈으로"(`btn-secondary btn-md` · /)다. 모노 눈썹 "Help"와 진입 모션을 없앴다.
+- **에러 화면** 라벤더 띠 면 → 흰 카드 1장(`shadow-e1` · 최대 560 가운데)이다. 404는 큰 숫자 "404"(`text-display` 800 · primary · tabular-nums · aria-hidden) + 제목 + 설명, 일시 오류는 숫자 없이 제목 + 설명이다. 아이콘(SearchX·CloudAlert)과 모노 눈썹을 없앴다. 홈으로는 `btn-primary btn-md`, 이전 페이지는 `btn-secondary btn-md`(testid·문구 유지)다.
+- **error.vue** /admin·/seller 분기(레이아웃 없이 ErrorView · 홈으로 = 각 영역 첫 화면)는 유지했다. 그 분기에 바탕 div(`min-h-screen bg-surface-page`) 한 겹을 더했다. 레이아웃이 없으면 LayoutShell의 바탕 면도 없어 흰 카드가 흰 body에 묻히기 때문이다(지시 외 · 캡처로 바탕 #F7F5FB 확인).
+
+### §1-A 갈림길·채택/기각 근거
+- **비밀번호 찾기 알림: α 뷰 로컬 상태(채택) / β vm 동작 추가(기각)** β는 지시상 공용 알림을 뷰에서 쓸 수 없을 때의 대안이다. skin-guard가 막지 않아 계약 변경 없이 α로 끝난다.
+- **에러 화면 면: 흰 카드(채택) / 라벤더 띠 면(기각)** 도움말과 같은 모양으로 맞췄고, primary 숫자 "404"가 흰 면에서 대비가 크다.
+
+### §2 검증
+- typecheck(컨테이너) vue-tsc 오류 출력 0. EXIT=0은 `| tail` 파이프의 종료 코드라 pnpm 자체 코드가 아니다(재실행 안 함 · FE-76 §2와 같은 실수).
+- vitest 119 files / 822 passed(CODE=0 · 신규 LoginView 2). 깨진 단언은 0건이었다(대상 뷰에 클래스·문구 단언이 없다).
+  - LoginView: 비밀번호 찾기 클릭 → info 알림 문구 완전 일치 · 경로 불변 · handleSubmit/handleDemoLogin 미호출.
+  - LoginView: 안내 면 데모 문구는 demoEnabled true일 때만 렌더된다.
+- e2e smoke·password-change·help 7 passed(EXIT=0 · 데모 로그인 ③ 포함).
+- 임시 캡처(커밋 제외 · document.fonts.ready 뒤 촬영): /login(+비밀번호 찾기 알림 상태) · /signup · /help · /없는-경로 · /admin/없는-경로 × 1440·390 = 12장, 판정 10/12 PASS.
+  - FAIL 2는 /admin 404의 HTTP 상태 200이다. `/admin/**`는 ssr:false(D-9)라 SPA 셸 200 + 클라이언트 404가 정상이므로 판정 기준 오류로 통과 처리했다. 나머지 값(404 · 800 · 제목 · 구매자 푸터 0 · 카드 흰색 · 바탕 #F7F5FB)은 일치했다.
+  - 로그인: 1440 안내 면 · 칩 4 · 데모 문구 표시 / 390 안내 면 숨김 · 로그인·데모 52 · 비밀번호 찾기·회원가입 링크 36(1440)/44(390) · 알림 뒤 URL 불변.
+  - 구매자 404: HTTP 404 · 숫자 800 · 헤더·푸터 포함 · 버튼 44.
+- 스크린샷 docs/frontend/screens-track105-4f/ — login · login-forgot · signup · help · error-404 · error-404-admin(각 1440·390).
+- 캡처 관찰: login-forgot-1440 풀페이지에서 한글이 대체 글꼴로 찍혔다(fonts.ready 뒤 · body 계산 글꼴 Pretendard — FE-76 §8과 같은 촬영 현상).
+
+### §3 작업 전후 집계(대상 6파일 — 4뷰 + RenewAuthFrame · error.vue)
+- 버튼: 인라인 글자 버튼 5 → 0 · 밑줄 글자 링크 2 → 0(`btn-tertiary`) · btn 0 → 9.
+- 서체: font-mono 3 → 0 · 표준 크기 클래스 21 → 0 · tabular-nums 0 → 1.
+- 면·모션: 임의 그림자 0 → 0 · shadow-e 0 → 4 · 임의 모서리 3 → 0 · 150ms가 아닌 전환 8 → 0 · 첫 화면 등장 모션 3 → 0.
+- 메시지: 인라인 메시지 0 → 0 · RenewNotice 3 → 4(비밀번호 찾기 알림).
+
+### §8 이월
+- 실제 비밀번호 찾기(BE 기능 · 외부 발송) · 약관 동의 · 도움말 본문(매뉴얼 단계).
+- 500 계열 에러 화면 확인(FE-74 이월 유지 — 이번 캡처는 404만).
+- 안내 면 aria-hidden 유지 — 제목·리드는 폼 제목과 중복이라 두었다. 접근성 채점 때 재검토한다.
+
+외부 검토: C / 생략
