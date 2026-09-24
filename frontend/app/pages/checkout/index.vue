@@ -34,7 +34,7 @@ function formatPrice(value: number): string {
   return `${value.toLocaleString('ko-KR')}원`
 }
 
-// 배송지 필수 4 + 선택 3. 우편번호 검색 API는 이연 — zonecode는 수기 입력(FE-11 범위).
+// 배송지 필수 4 + 선택 3. 우편번호·도로명·지번은 뷰의 주소 검색이 채운다(FE-78 · 검색 로드 실패 시 수기 입력).
 const recipientName = ref<string>('')
 const recipientPhone = ref<string>('')
 const zonecode = ref<string>('')

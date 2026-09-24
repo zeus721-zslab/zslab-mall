@@ -7,7 +7,7 @@ import RenewProductCard from '../components/RenewProductCard.vue'
 import SectionHeading from '../components/SectionHeading.vue'
 
 // renew 상품 상세(FE-70). ≥1024 = 왼쪽 갤러리 · 오른쪽 구매 영역(sticky), 그 아래 상품 설명 · 셀러의 다른 상품.
-// <768 = 구매 영역이 이미지 아래로 이어지고 화면 하단 고정 바(총 금액 + 담기)가 붙는다. 담기·옵션·수량은 모두 페이지 함수를 쓴다.
+// <1024 = 구매 영역이 이미지 아래로 이어지고 화면 하단 고정 바(총 금액 + 담기)가 붙는다(FE-78 — 768~1023 포함). 담기·옵션·수량은 모두 페이지 함수를 쓴다.
 const props = defineProps<{ vm: ProductDetailPageVm }>()
 
 const CONTAINER = 'mx-auto max-w-[1440px] px-5 md:px-10 lg:px-16'
@@ -226,7 +226,7 @@ const addButton = ref<HTMLButtonElement | null>(null)
           </div>
         </section>
 
-        <!-- <768 하단 고정 바: 본문 담기 버튼이 화면에 없을 때만·같은 함수·같은 비활성 규칙 -->
+        <!-- <1024 하단 고정 바: 본문 담기 버튼이 화면에 없을 때만·같은 함수·같은 비활성 규칙 -->
         <MobileActionBar
           :anchor="addButton"
           label="총 상품 금액"

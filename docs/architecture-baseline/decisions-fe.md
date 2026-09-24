@@ -3220,3 +3220,57 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 - `--shadow-card-hover`(FE-07) 사용처는 여전히 0이다(FE-76 §8).
 
 외부 검토: C / 생략
+
+## FE-78: 구매 흐름 디자인·사용성 — 장바구니·주문서·결제·완료 + 주소 검색 (Track 105-4d) (2026-09-25)
+
+배경: FE-76 기준을 구매 흐름에 적용하는 단계다. 대상은 CartView·CheckoutView·PaymentMockView·CheckoutCompleteView와 이 화면들이 쓰는 MobileActionBar·FadeAmount·RenewCheckbox다. 사용성 3건(주문서 주소 검색·태블릿 고정 바·안전 영역)을 함께 처리했다. BE 계약과 vm 계약은 바꾸지 않았다.
+
+결정:
+- **공통 규칙** FE-77과 같다. 글자 버튼은 `btn`으로 바꾸고 영역당 주 버튼은 1개다. 띠 면 위 보조 버튼은 흰 바탕이다. 상태 배지는 RenewBadge, font-mono는 식별자(주문번호)에만 쓴다. 크기는 서체 스케일 유틸, 콘텐츠 카드는 흰색 + `shadow-e1`, 전환은 150ms `ease-soft`, 768 미만 터치 영역은 44, 선택 알약은 `chip`이다. 이 화면들의 인라인 성공·오류 메시지 7곳은 RenewNotice로 바꿨다.
+- **구매 불가 배지·사유 분리** "구매 불가 (품절 또는 판매 중지)" 알약을 RenewBadge danger "구매 불가" + 사유 caption으로 나눴다. RenewBadge는 줄바꿈이 없어 390 폭 품목 행에서 넘친다.
+- **장바구니 삭제** X 아이콘 버튼을 "삭제" 3차 버튼(`btn-tertiary` + `text-destructive`)으로 바꿨다. 컴파일 CSS에서 `.btn-tertiary`가 `.text-destructive`보다 앞이라 위험 글자색이 적용된다.
+- **고정 바 1024 미만** MobileActionBar `md:hidden` → `lg:hidden`. 768~1023에는 sticky 요약 카드(lg부터)도 없어 고정 바도 sticky 카드도 없었다(정찰 5e). body 하단 여백도 `max-lg`로 맞췄고, 태블릿 좌우 여백은 `md:px-10`이다. 상품 상세·장바구니·주문서 공통이다.
+- **안전 영역** nuxt.config `app.head.viewport`에 `viewport-fit=cover`를 명시했다(전역 — 관리자·셀러 포함). 없으면 iOS에서 `env(safe-area-inset-*)`가 0이다. 고정 바 아래 여백은 `12px + inset`, body 여백은 `73px + inset`이다. 헤더 sticky `top`은 상단 inset만큼 내린다.
+- **주소 미선택 안내** 주소가 비면 canSubmit이 false라 결제하기(고정 바 포함)가 비활성이고, 그래서 제출 때 뜨는 기존 필수 문구는 없다. 받는 사람·연락처를 채우고 주소만 비었을 때 주소 영역 아래에 "주소를 검색해 선택해 주세요."(`text-small` · 위험색 · `aria-live="polite"`)를 보인다. 알림 영역은 항상 두고 문구만 바꾼다. 처음 진입과 직접 입력 중에는 보이지 않고, canSubmit은 바꾸지 않았다.
+- **e2e postcode 모의 불필요** 지정 e2e 3종은 주문서 주소 검색에 닿지 않고, 스크립트는 "주소 검색"을 누를 때만 넣으므로 모의할 요청이 없다.
+- **RenewNotice 자체 스타일** 공용 알림(`text-sm` · `rounded-[20px]`)은 마이페이지에도 쓰여 105-4e에서 정리한다.
+
+주소 검색(카카오 우편번호):
+- **로더** `skins/renew/postcode-loader.ts`. 처음 쓸 때 script를 1회 동적 삽입하고 로드 Promise를 공유한다. 클라이언트 전용이고 타임아웃은 8초다. 실패하면 script를 지우고 캐시를 비워 "다시 시도"가 새로 넣는다. 생성자는 `kakao?.Postcode ?? daum?.Postcode`다. 스크립트(VERSION 260702)는 로드 즉시 `window.kakao = window.daum`을 공유하고 Postcode를 정의한다. document.write는 팝업 문서용이라 동적 삽입이 가능했다. app composables는 import하지 않는다(skin-guard).
+- **표시** RenewAddressSearch가 공용 Dialog를 연다. 1024 미만은 전체 화면 시트(상·하단 안전 영역), 1024 이상은 가운데 520×600이다. 헤더는 "주소 검색"(`text-h3`) + 닫기 아이콘 44이고, 본문은 임베드가 채운다. 열림 자동 포커스는 막고 임베드 `focusInput`으로 검색창에 포커스한다. 테마는 배경 흰색 · 테두리 line · 강조 primary의 토큰 hex다(iframe 안이라 CSS 변수를 읽지 못한다).
+- **폼** 주소 영역은 하나다. 선택 전에는 "주소 검색" `btn-secondary btn-lg` 전폭 버튼이고, 선택 후에는 요약 카드(surface-muted · 우편번호 tabular-nums · 도로명 body · 지번 small·sub · "변경" `btn-tertiary`)다. 아래에 상세 주소 칸 1개를 둔다. 주소를 고르면 닫힘 자동 포커스를 막고 상세 주소로 직접 포커스한다.
+- **값 연결** zonecode → zonecode · (roadAddress || autoRoadAddress) + 참고항목 → addressRoad · (jibunAddress || autoJibunAddress) → addressJibun. 참고항목은 끝 글자가 동·로·가인 법정동과, 공동주택일 때의 건물명이다. 도로명이 둘 다 비면 선택을 받지 않고 모달 안에 "도로명 주소가 있는 결과를 선택해 주세요"를 띄운다.
+- **실패 대비** 로드 실패·타임아웃이면 모달 본문에 RenewNotice warning + "다시 시도"(`btn-secondary`) + "직접 입력"(`btn-tertiary`)을 둔다. 직접 입력을 고르면 모달을 닫고 폼에 우편번호·도로명·지번 입력칸을 펼친다. 수기 입력칸은 이때만 보인다.
+- **공용 모달 덮어쓰기 트랩** cn(tailwind-merge)은 `rounded-*-card`·`max-h-none`을 기본값과 충돌로 보지 않아 둘 다 남긴다. 같은 속성 유틸은 컴파일 CSS에서 이름순으로 뒤에 오는 쪽이 이긴다(`md:rounded-none` > `md:rounded-card` · `max-h-none` > `max-h-[90dvh]`). 다만 `rounded-none`은 `rounded-t-card`보다 앞이라 base에는 `rounded-t-none`을 쓴다.
+- **105-4e** 마이페이지 배송지 모달도 같은 컴포넌트를 쓴다(모달 위 모달).
+
+화면별 변경:
+- **장바구니** 품목은 목록 행 카드다(흰색 + `shadow-e1` · 768 이상에서 왼쪽 선택·이미지·정보 / 오른쪽 수량·금액·삭제). 스테퍼는 768 미만 44 · 이상 36이고, 체크박스는 label로 둘레를 44로 넓혔다. 요약은 흰 카드(1024 이상 sticky)이고 주문하기는 `btn-primary btn-lg`(56 → 52)다. 빈 상태 문구는 유지했다. 알림 2곳은 RenewNotice danger다.
+- **주문서** 섹션 4개(배송지·결제 수단·주문 상품·결제 금액)는 흰 카드 + `shadow-e1`이다. 저장 배송지 알약은 `chip`(data-state=on) + "기본" RenewBadge info다. 저장 배송지 요약 카드는 유지했고 "이 주소 수정"은 흰 바탕 보조 버튼이다. 결제하기는 `btn-primary btn-lg`다. 알림 4곳은 RenewNotice(배송지 로드 실패 warning · 선택 상품 없음 info · 구매 불가 danger · 오류 danger)이고, "장바구니로 이동" 글자 링크 3곳은 흰 바탕 `btn-sm`이다.
+- **모의 결제** 모의 안내는 RenewNotice info다. 결제 수단·금액은 흰 카드이고 금액은 `text-h2 tabular-nums`다. 오류는 RenewNotice danger(testid 유지)이고, 성공·실패·취소 버튼은 주·보조·3차다.
+- **완료** 결과 띠 면(민트 · `--panel-radius`)이다. 주문번호만 모노이고, 주문 상세는 주 버튼, 쇼핑 계속은 흰 바탕 보조 버튼이다.
+- **공용** FadeAmount는 font-mono → tabular-nums, "원" `text-[0.7em]` → `text-small`, 150ms `ease-soft`다. RenewCheckbox 전환도 150ms `ease-soft`다(Withdraw·Addresses 공용).
+
+### §1-A 갈림길·채택/기각 근거
+- **주소 검색 표시: 모달 + 요약 카드(채택) / 폼 안 임베드(기각)** 폼 안 임베드는 1차 구현·캡처 뒤 기각했다. 열면 아래 입력칸을 밀어내고, 카카오 기본 테두리가 톤과 맞지 않으며, 우편번호·도로명·지번 칸이 많아 어색했다(zslab 확인).
+- **고정 바 아래 여백: 12px + inset(채택) / max(12px, inset)(기각)** max는 버튼이 홈 인디케이터 영역 경계에 바로 붙는다.
+
+### §2 검증
+- 1차: typecheck EXIT 0 → vitest 111 files / 776 passed → e2e smoke·mock-payment·order-resume-payment 5 passed → 캡처 판정 35/36 PASS. FAIL 1건은 390 품목 행의 display 기대값을 block으로 정의한 판정 오류다(li 기본값 list-item · 결함 아님 · 통과 처리).
+- 표시 방식 변경 뒤: typecheck EXIT 0 → vitest 112 files / 781 passed(RenewAddressSearch 11 · CheckoutView 1) → 주소 검색 캡처 교체 6/6 PASS. e2e는 재실행하지 않았다(주소 검색 경로 미접촉).
+- 캡처 판정 요지:
+  - 고정 바: 1440 숨김 / 820·390 표시 · body 73px · 바 아래 12px. 820 맨 아래에서 푸터를 가리지 않는다. 요약 sticky는 1440에서만이다.
+  - 모달: 1440 가운데 520×600 · 24px / 390 0,0 · 390×844 · 0px. 검색창 포커스는 region_name이다.
+  - 선택: "테헤란로 152" → 06236 · "서울 강남구 테헤란로 152 (역삼동)" · "서울 강남구 역삼동 737" · 상세 주소 포커스 · 안내 표시 후 사라짐.
+
+### §3 작업 전후 집계(대상 7파일)
+- 인라인 글자 버튼 11 → 0(남은 인라인은 스테퍼 기호 버튼 2) · 밑줄 글자 링크 3 → 0 · 선택 알약 2 → chip.
+- 상태 배지 2 → RenewBadge 2(+ "기본" 1) · font-mono 12 → 1(주문번호) · 표준 크기 클래스 66 → 0 · 임의 크기 1 → 0 · 임의 그림자 0 → 0.
+- 150ms가 아닌 전환 16 → 0 · 인라인 메시지 7 → 0(RenewNotice 8) · 임의 모서리 11 → 3(썸네일 — FE-77과 같이 유지).
+
+### §8 이월
+- 105-4e: 마이페이지 배송지 모달 주소 검색(같은 컴포넌트) · RenewNotice 자체 스타일. 105-4f: 인증 화면.
+- 카카오 결과 상자 테두리가 진하게 보인다(캡처 관찰). 테마 outlineColor가 닿지 않는 카카오 내부 스타일이다.
+- 원형 아이콘·스테퍼 컨트롤의 공용 유틸 여부는 화면 그룹이 끝난 뒤 판단한다(FE-77 §8).
+
+외부 검토: C / 생략
