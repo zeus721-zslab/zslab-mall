@@ -153,6 +153,19 @@ describe('pages/orders/index.vue 주문 카드(FE-80)', () => {
     expect(wrapper.find('[data-testid="order-item-product-link"]').attributes('href')).toBe('/products/prd_1')
   })
 
+  it('주문번호 칩 = orderNo(Track 105-4g-3) · orderNo 없는 옛 응답이면 칩 생략·내부 id 미노출 · 상세 링크는 orderId', async () => {
+    mockLists(page([{ ...deliveredOrder(), orderNo: '20260920-AB12CD' }]))
+    const withNo = await mountSuspended(OrdersPage)
+    expect(withNo.find('[data-testid="order-card-order-id"]').text()).toBe('20260920-AB12CD')
+    expect(withNo.find('[data-testid="order-card-detail"]').attributes('href')).toBe('/orders/ord_1')
+
+    useOrderListMock.mockReset()
+    mockLists(page([deliveredOrder()]))
+    const withoutNo = await mountSuspended(OrdersPage)
+    expect(withoutNo.find('[data-testid="order-card-order-id"]').exists()).toBe(false)
+    expect(withoutNo.find('[data-testid="order-card"]').text()).not.toContain('ord_1')
+  })
+
   it('품목 요약이 없는 응답은 개수를 빼고 총액만', async () => {
     const order = deliveredOrder()
     delete order.items

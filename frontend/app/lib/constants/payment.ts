@@ -16,3 +16,11 @@ export const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = [
   { value: 'VBANK', label: '가상계좌' },
   { value: 'KAKAO', label: '카카오페이' },
 ]
+
+/**
+ * 결제수단 코드 → 한글 라벨(주문 상세 결제 요약·Track 105-4g-3). 모의 결제도 같은 수단 코드를 쓰므로 별도 항목이 없다.
+ * 목록 밖 코드(BE enum이 먼저 늘어난 경우)는 코드 그대로 보여 준다(관리자 paymentMethodLabel과 같은 폴백).
+ */
+export function paymentMethodLabel(method: PaymentMethod): string {
+  return PAYMENT_METHODS.find((option) => option.value === method)?.label ?? method
+}

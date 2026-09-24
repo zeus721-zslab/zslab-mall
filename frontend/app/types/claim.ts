@@ -135,4 +135,18 @@ export interface ClaimDetail {
   exchangeOptionLabel?: string | null
   /** 교환 전 원 옵션 라벨(EXCHANGE·승인 스냅샷 우선·FE-30·D-177). */
   originalOptionLabel?: string | null
+  /** 대상 주문 public_id(주문 상세 링크용·Track 105-4g-3). 이 필드 이전 응답이면 없다. */
+  orderId?: string
+  /** 사람이 읽는 주문번호(화면 표시용·Track 105-4g-3). */
+  orderNo?: string
+  /** 대상 품목 요약(Track 105-4g-3). */
+  item?: ClaimItemSummary
+}
+
+/** 클레임 대상 품목 요약(BE ClaimResponse.ClaimItemSummary). 상품명·옵션·수량은 주문 스냅샷, 썸네일은 삭제·미등록 상품이면 없다. */
+export interface ClaimItemSummary {
+  productName: string
+  optionLabel?: string
+  quantity: number
+  thumbnailUrl?: string
 }

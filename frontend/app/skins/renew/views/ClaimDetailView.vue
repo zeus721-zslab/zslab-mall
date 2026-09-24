@@ -4,6 +4,7 @@ import MypageFrame from '../components/MypageFrame.vue'
 import RenewBadge from '../components/RenewBadge.vue'
 import RenewNotice from '../components/RenewNotice.vue'
 import { CLAIM_NEUTRAL_CHIP_CLASS, CLAIM_TYPE_BADGE_TONE } from '../claim-type-tone'
+import { ORDER_NO_CHIP_CLASS } from '../order-no-chip'
 
 // renew 클레임 상세(FE-73). 화면 상태·동작은 classic과 같다: 헤더(유형·상태) → 요청 취소(접수 상태만·인라인 확인) → 진행 타임라인 →
 // 클레임 정보(회수·검수·재발송·거부·환불·첨부) → 회수 송장 등록(필요할 때만) → 목록 링크. 문구·testid는 페이지 vm 그대로다.
@@ -19,7 +20,7 @@ const ROW = 'flex justify-between gap-4'
 </script>
 
 <template>
-  <MypageFrame title="클레임 상세" active-to="/orders">
+  <MypageFrame title="취소·반품·교환 상세" active-to="/orders">
     <!-- 로딩 -->
     <div v-if="vm.pending" class="space-y-4" aria-hidden="true">
       <div :class="[CARD, 'h-28']"></div>
@@ -30,11 +31,36 @@ const ROW = 'flex justify-between gap-4'
     <CommonErrorState v-else-if="vm.error || !vm.data" :message="vm.errorMessage" @retry="vm.refresh" />
 
     <div v-else class="space-y-6">
+      <!-- 대상 품목(Track 105-4g-3): 무엇에 대한 요청인지 · 썸네일(없으면 이미지 대기 면) · 상품명 · 옵션·수량 · 주문번호 + 주문 상세 보기(3차).
+           대상 품목이 없는 옛 응답이면 카드 생략. -->
+      <section v-if="vm.data.item" :class="[CARD, 'flex items-center gap-4']" aria-label="요청 대상 품목" data-testid="claim-target-item">
+        <div class="h-16 w-16 shrink-0 overflow-hidden rounded-[14px] bg-(--image-placeholder)">
+          <img v-if="vm.data.item.thumbnailUrl" :src="vm.data.item.thumbnailUrl" :alt="vm.data.item.productName" class="h-full w-full object-cover" />
+        </div>
+        <div class="min-w-0 flex-1">
+          <p class="break-keep text-body font-semibold text-ink" data-testid="claim-target-item-name">{{ vm.data.item.productName }}</p>
+          <p class="mt-0.5 text-small font-normal text-sub">
+            <template v-if="vm.data.item.optionLabel">{{ vm.data.item.optionLabel }} · </template>수량 <span class="tabular-nums">{{ vm.data.item.quantity }}</span>개
+          </p>
+          <div v-if="vm.data.orderNo || vm.data.orderId" class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span v-if="vm.data.orderNo" :class="ORDER_NO_CHIP_CLASS" data-testid="claim-target-order-no">{{ vm.data.orderNo }}</span>
+            <NuxtLink
+              v-if="vm.data.orderId"
+              :to="`/orders/${vm.data.orderId}`"
+              class="btn btn-tertiary btn-sm max-md:min-h-11"
+              data-testid="claim-target-order-link"
+            >
+              주문 상세 보기
+            </NuxtLink>
+          </div>
+        </div>
+      </section>
+
       <!-- 헤더: 클레임 유형 + 상태 · 요청 취소(Track 101-A·접수 상태만) -->
-      <section :class="CARD" aria-label="클레임 요약">
+      <section :class="CARD" aria-label="취소·반품·교환 요약">
         <div class="flex items-start justify-between gap-4">
           <div class="min-w-0">
-            <p class="text-caption font-normal text-sub">클레임 유형</p>
+            <p class="text-caption font-normal text-sub">취소·반품·교환 유형</p>
             <!-- 유형 = 색 배지(RenewBadge) · 상태 = 중립 칩(FE-73 보완 1 · FE-80) -->
             <RenewBadge :tone="CLAIM_TYPE_BADGE_TONE[vm.data.claimType]" class="mt-2" data-testid="claim-type-badge">
               {{ vm.claimTypeLabel(vm.data.claimType) }}
@@ -126,7 +152,7 @@ const ROW = 'flex justify-between gap-4'
 
       <!-- 클레임 정보 -->
       <section :class="CARD" aria-labelledby="claim-info-title">
-        <h2 id="claim-info-title" :class="SECTION_TITLE">클레임 정보</h2>
+        <h2 id="claim-info-title" :class="SECTION_TITLE">취소·반품·교환 정보</h2>
         <dl class="mt-4 space-y-3 text-body">
           <div :class="ROW">
             <dt class="shrink-0 text-sub">사유</dt>

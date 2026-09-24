@@ -180,20 +180,26 @@ function scrollBudget(direction: 1 | -1): void {
           <p class="text-caption uppercase tracking-[0.12em] text-sub">Seller</p>
           <p class="mt-1 truncate text-h3 text-ink">{{ pick.sellerName }}</p>
           <ul class="mt-5 grid grid-cols-3 gap-3">
-            <li v-for="item in pick.items" :key="item.productPublicId">
-              <NuxtLink :to="`/products/${item.productPublicId}`" :aria-label="item.name" class="group block">
-                <div class="aspect-square overflow-hidden rounded-2xl bg-(--image-placeholder)">
-                  <img
-                    v-if="item.mainImageUrl"
-                    :src="item.mainImageUrl"
-                    :alt="item.name"
-                    loading="lazy"
-                    class="h-full w-full object-cover transition duration-fast ease-soft motion-safe:group-hover:scale-[1.04]"
-                  />
-                </div>
-                <p class="mt-2 truncate text-caption font-normal text-ink">{{ item.name }}</p>
-                <p class="text-caption tabular-nums text-ink">{{ item.displayPrice.toLocaleString('ko-KR') }}원</p>
-              </NuxtLink>
+            <!-- 링크는 상품명에만 걸고 after:inset-0으로 칸 전체를 누르게 넓힌다(Track 105-4g-3 · 상품 카드와 같은 접근 이름 규칙). -->
+            <li v-for="item in pick.items" :key="item.productPublicId" class="group relative rounded-2xl">
+              <div class="aspect-square overflow-hidden rounded-2xl bg-(--image-placeholder)">
+                <img
+                  v-if="item.mainImageUrl"
+                  :src="item.mainImageUrl"
+                  alt=""
+                  loading="lazy"
+                  class="h-full w-full object-cover transition duration-fast ease-soft motion-safe:group-hover:scale-[1.04]"
+                />
+              </div>
+              <p class="mt-2 truncate text-caption font-normal text-ink">
+                <NuxtLink
+                  :to="`/products/${item.productPublicId}`"
+                  class="after:absolute after:inset-0 after:rounded-2xl focus-visible:outline-hidden focus-visible:after:ring-2 focus-visible:after:ring-primary"
+                >
+                  {{ item.name }}
+                </NuxtLink>
+              </p>
+              <p class="text-caption tabular-nums text-ink">{{ item.displayPrice.toLocaleString('ko-KR') }}원</p>
             </li>
           </ul>
         </li>

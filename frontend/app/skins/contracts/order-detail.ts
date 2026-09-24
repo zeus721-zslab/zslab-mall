@@ -3,8 +3,9 @@ import type { PaymentMethod } from '~/types/checkout'
 import type { ClaimType } from '~/lib/constants/claim'
 import type { AUTO_CONFIRM_GUIDE, ITEM_CONFIRM_WARNING, PAYMENT_EXPIRE_GUIDE, orderStatusLabel } from '~/lib/constants/order'
 import type { claimableTypes, claimTypeLabel, orderItemStatusLabel } from '~/lib/constants/claim'
-import type { PAYMENT_METHODS } from '~/lib/constants/payment'
+import type { PAYMENT_METHODS, paymentMethodLabel } from '~/lib/constants/payment'
 import type { canResumePayment, isPaymentExpired, PAYMENT_EXPIRED_NOTICE } from '~/lib/utils/payment-resume'
+import type { formatDateTime } from '~/lib/utils/datetime'
 
 export interface ItemConfirmNotice {
   orderItemId: string
@@ -44,4 +45,6 @@ export interface OrderDetailPageVm {
   claimTypeLabel: typeof claimTypeLabel
   canResumePayment: typeof canResumePayment
   isPaymentExpired: typeof isPaymentExpired
+  paymentMethodLabel: typeof paymentMethodLabel
+  formatDateTime: typeof formatDateTime
 }

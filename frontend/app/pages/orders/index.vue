@@ -121,7 +121,7 @@ watch(
 const emptyMessage = computed(() =>
   isOrderTab.value ? '주문 내역이 없습니다' : `${ORDER_LIST_TAB_LABELS[tab.value]} 내역이 없습니다`,
 )
-const errorMessage = computed(() => (isOrderTab.value ? '주문 내역을 불러오지 못했습니다' : '클레임 내역을 불러오지 못했습니다'))
+const errorMessage = computed(() => (isOrderTab.value ? '주문 내역을 불러오지 못했습니다' : '취소·반품·교환 내역을 불러오지 못했습니다'))
 
 // 목록 품목 행의 클레임 진입(FE-73): 주문 상세 goClaim과 같은 이동 경로·같은 교환 파라미터(상품·변형·주문 단가).
 function goClaim(item: OrderSummaryItem, type: ClaimType): void {

@@ -46,8 +46,8 @@ watch(
 // 404와 그 외 오류 문구 구분(존재 은닉이라 미노출도 404).
 const errorMessage = computed<string>(() =>
   (error.value as { statusCode?: number } | null)?.statusCode === 404
-    ? '클레임을 찾을 수 없습니다'
-    : '클레임을 불러오지 못했습니다',
+    ? '취소·반품·교환 내역을 찾을 수 없습니다'
+    : '취소·반품·교환 내역을 불러오지 못했습니다',
 )
 
 // 진행 타임라인(FE-29·순수 함수 분리): 취소·교환 3단, 반품 6단(검수 불합격은 5단 종결).
@@ -84,7 +84,7 @@ async function submitCancel(): Promise<void> {
       cancelError.value = '이미 처리가 시작되어 취소할 수 없습니다. 최신 상태를 확인해 주세요.'
       await refresh()
     } else if (statusCode === 404) {
-      cancelError.value = '클레임을 찾을 수 없습니다.'
+      cancelError.value = '취소·반품·교환 내역을 찾을 수 없습니다.'
     } else {
       cancelError.value = '요청 취소에 실패했습니다. 잠시 후 다시 시도하세요.'
     }
@@ -139,7 +139,7 @@ function stepCircleClass(state: TimelineStepState): string {
   return 'bg-gray-100 text-sub'
 }
 
-useSeoMeta({ title: '클레임 상세 · zslab-mall', description: 'zslab-mall 클레임 상세' })
+useSeoMeta({ title: '취소·반품·교환 상세 · zslab-mall', description: 'zslab-mall 취소·반품·교환 상세' })
 
 const vm: ClaimDetailPageVm = reactive({
   pending,

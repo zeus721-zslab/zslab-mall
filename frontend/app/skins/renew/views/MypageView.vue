@@ -6,6 +6,7 @@ import { orderSummaryStageLink } from '~/lib/utils/order-summary-stages'
 import MypageFrame from '../components/MypageFrame.vue'
 import RenewBadge from '../components/RenewBadge.vue'
 import RenewNotice from '../components/RenewNotice.vue'
+import { ORDER_NO_CHIP_CLASS } from '../order-no-chip'
 
 // renew 마이페이지 홈(FE-72). 인사 → 주문 현황(최근 N개월 5단계) → 구매 확정 대기 → 진행 중 클레임·기본 배송지 → 최근 주문.
 // 섹션마다 로딩(스켈레톤)·실패(CommonErrorState + 재시도)를 따로 보여 준다 — 한 섹션이 실패해도 나머지는 그대로 보인다.
@@ -175,7 +176,8 @@ const SKELETON = 'rounded-2xl bg-surface-muted'
               <div class="min-w-0 flex-1 sm:flex sm:items-center sm:gap-5">
                 <div class="min-w-0 flex-1">
                   <p class="text-caption font-normal tabular-nums text-sub">{{ vm.home.formatDateTime(order.orderedAt) }}</p>
-                  <p class="whitespace-nowrap font-mono text-caption font-normal text-sub">{{ order.orderId }}</p>
+                  <!-- 주문번호 = 사람이 읽는 orderNo(모노 칩) · 없는 옛 응답이면 생략(내부 id 노출 금지 · Track 105-4g-3) -->
+                  <p v-if="order.orderNo" class="mt-0.5"><span :class="ORDER_NO_CHIP_CLASS" data-testid="mypage-recent-order-no">{{ order.orderNo }}</span></p>
                   <p class="mt-1 truncate text-body font-semibold text-ink">{{ order.previewTitle }}</p>
                 </div>
                 <div class="mt-2 flex items-center gap-3 sm:mt-0 sm:shrink-0 sm:gap-5">

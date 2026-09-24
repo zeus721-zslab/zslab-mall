@@ -18,7 +18,8 @@ test('상품 목록에서 첫 상품 상세로 이동하면 상품명·가격이
     '상품 카드가 없습니다 — 데모 시드 미기동으로 추정(catalog.demo-seed.enabled 확인).',
   ).toBeVisible()
 
-  const href = await firstCard.getAttribute('href')
+  // 카드 링크는 상품명에 걸린다(Track 105-4g-3 — 카드 전체는 after 오버레이로 누른다).
+  const href = await firstCard.getByRole('link').getAttribute('href')
   expect(href, '첫 상품 카드의 href를 추출하지 못했습니다.').toBeTruthy()
   // 카드에 렌더된 상품명. 상세 h1과 대조해 목록→상세 정합을 확인한다.
   const listName = (await firstCard.getByTestId('product-card-name').innerText()).trim()

@@ -4,7 +4,7 @@
  * (StatusView fallback) 표시용 한글 라벨은 FE 단일 소스(lib/constants/order.ts)에서 파생한다.
  */
 
-import type { ShippingAddress } from '~/types/checkout'
+import type { PaymentMethod, ShippingAddress } from '~/types/checkout'
 import type { ClaimType } from '~/lib/constants/claim'
 import type { DeliveryCarrier, DeliveryStatus } from '~/lib/constants/delivery'
 
@@ -51,6 +51,8 @@ export interface OrderSummaryItem {
 /** 주문 목록 항목(BE OrderSummaryResponse 대응). previewTitle은 서버 생성 문자열, orderedAt은 ISO 문자열. */
 export interface OrderSummary {
   orderId: string
+  /** 사람이 읽는 주문번호(화면 표시용·Track 105-4g-3). 이 필드 이전 응답이면 없다 — 그때는 표시를 생략한다(내부 id 노출 금지). */
+  orderNo?: string
   previewTitle: string
   sellerCount: number
   totalPrice: number
@@ -137,4 +139,16 @@ export interface OrderDetail {
   sellers: SellerGroup[]
   totalPrice: number
   shippingAddress: ShippingAddress | null
+  /** 사람이 읽는 주문번호(Track 105-4g-3). 이 필드 이전 응답이면 없다 — 표시를 생략한다. */
+  orderNo?: string
+  /** 주문 일시(ISO +09:00). */
+  orderedAt?: string
+  /** 결제 요약(결제 시각이 있는 최신 결제·환불 포함). 미결제면 NON_NULL로 생략된다. */
+  payment?: OrderPaymentSummary
+}
+
+/** 주문 상세 결제 요약(BE OrderResponse.PaymentSummary). paidAt은 ISO(+09:00). */
+export interface OrderPaymentSummary {
+  method: PaymentMethod
+  paidAt: string
 }

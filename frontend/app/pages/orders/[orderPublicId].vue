@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { AUTO_CONFIRM_GUIDE, ITEM_CONFIRM_WARNING, PAYMENT_EXPIRE_GUIDE, orderStatusLabel } from '~/lib/constants/order'
 import { claimableTypes, claimTypeLabel, orderItemStatusLabel, type ClaimType } from '~/lib/constants/claim'
-import { PAYMENT_METHODS } from '~/lib/constants/payment'
+import { PAYMENT_METHODS, paymentMethodLabel } from '~/lib/constants/payment'
+import { formatDateTime } from '~/lib/utils/datetime'
 import { canResumePayment, isPaymentExpired, paymentResumeFailure, PAYMENT_EXPIRED_NOTICE } from '~/lib/utils/payment-resume'
 import type { PaymentResumeErrorLike } from '~/lib/utils/payment-resume'
 import { resolvePaymentRedirect } from '~/lib/payment-redirect'
@@ -128,8 +129,9 @@ async function submitConfirm(item: OrderItem): Promise<void> {
   }
 }
 
+// 탭 제목은 사람이 읽는 주문번호만 쓴다(내부 id 노출 금지 · orderNo 없는 옛 응답은 "주문 상세").
 useSeoMeta({
-  title: () => (data.value ? `주문 ${data.value.orderId} · zslab-mall` : '주문 상세 · zslab-mall'),
+  title: () => (data.value?.orderNo ? `주문 ${data.value.orderNo} · zslab-mall` : '주문 상세 · zslab-mall'),
   description: 'zslab-mall 주문 상세',
 })
 
@@ -161,6 +163,8 @@ const vm: OrderDetailPageVm = reactive({
   claimTypeLabel,
   canResumePayment,
   isPaymentExpired,
+  paymentMethodLabel,
+  formatDateTime,
 })
 </script>
 
