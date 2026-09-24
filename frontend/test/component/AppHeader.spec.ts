@@ -39,14 +39,14 @@ function categoriesState(overrides: { data?: CategorySummary[] | null; error?: u
 
 /**
  * 드롭다운 항목 순서·경로(AppHeader.accountMenuItems + 로그아웃). 회원 탈퇴는 의도적으로 없다.
- * FE-63: 취소·반품·교환 내역은 주문내역 탭으로 통합돼 별도 항목이 없다.
+ * FE-63: 취소·반품·교환 내역은 주문내역 탭으로 통합돼 별도 항목이 없다. FE-72: 순서·라벨은 마이페이지 메뉴 정의에서 파생한다.
  */
 const EXPECTED_LINKS: { href: string; label: string }[] = [
   { href: '/mypage', label: '마이페이지' },
-  { href: '/orders', label: '주문내역' },
-  { href: '/mypage/profile', label: '회원정보 수정' },
-  { href: '/mypage/password', label: '비밀번호 변경' },
+  { href: '/orders', label: '주문 내역' },
+  { href: '/mypage/profile', label: '회원 정보' },
   { href: '/mypage/addresses', label: '배송지 관리' },
+  { href: '/mypage/password', label: '비밀번호 변경' },
 ]
 
 /**

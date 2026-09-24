@@ -29,6 +29,25 @@ export interface ActiveClaimCount {
   count: number
 }
 
+/**
+ * 주문 목록의 품목 요약(BE OrderSummaryResponse.ItemSummary·D-223). 순서는 previewTitle과 같다(첫 품목 = previewTitle 대표).
+ * 삭제된 상품·variant·셀러 등 null 필드는 전역 NON_NULL로 응답에서 키가 빠지므로 선택 필드다.
+ */
+export interface OrderSummaryItem {
+  orderItemId: string
+  productName?: string
+  optionLabel?: string
+  quantity: number
+  unitPrice: number
+  totalPrice: number
+  status: StatusView
+  sellerName?: string
+  thumbnailUrl?: string
+  productId?: string
+  variantId?: string
+  exchangeCompleted: boolean
+}
+
 /** 주문 목록 항목(BE OrderSummaryResponse 대응). previewTitle은 서버 생성 문자열, orderedAt은 ISO 문자열. */
 export interface OrderSummary {
   orderId: string
@@ -39,6 +58,27 @@ export interface OrderSummary {
   orderedAt: string
   /** 진행 중(REQUESTED·APPROVED) 클레임 유형별 건수(FE-63). 없으면 빈 배열. */
   activeClaims: ActiveClaimCount[]
+  /** 품목 요약(D-223·추가형 필드). 이 필드 이전 응답과의 호환을 위해 선택으로 둔다. */
+  items?: OrderSummaryItem[]
+}
+
+/** 주문 현황 단계별 품목 건수(BE OrderStatusSummaryResponse.Stages·품목 상태 1:1). 0건 단계도 0으로 온다. */
+export interface OrderStatusStages {
+  paid: number
+  preparing: number
+  shipping: number
+  delivered: number
+  confirmed: number
+}
+
+/**
+ * 구매자 주문 현황 요약(GET /api/v1/orders/summary·BE OrderStatusSummaryResponse·D-223). stages는 최근 periodMonths개월
+ * (주문일 기준) 주문 품목 기준이고, activeClaimCount는 기간 제한 없는 진행 중(REQUESTED·APPROVED) 클레임 수다.
+ */
+export interface OrderStatusSummary {
+  periodMonths: number
+  stages: OrderStatusStages
+  activeClaimCount: number
 }
 
 /** 품목의 원 발송 배송 정보(BE OrderItemDeliveryResponse·Track 96-2 FE-54). shippedAt·deliveredAt은 ISO(+09:00) 문자열·미도달 시 null. */

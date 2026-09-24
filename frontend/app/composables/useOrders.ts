@@ -1,4 +1,4 @@
-import type { ConfirmPurchaseResponse, OrderDetail, OrderSummary, PagedResponse } from '~/types/order'
+import type { ConfirmPurchaseResponse, OrderDetail, OrderStatusSummary, OrderSummary, PagedResponse } from '~/types/order'
 
 /** 목록 기본 페이지 크기(BE BuyerOrderController list 기본 size=20 정합). */
 const DEFAULT_PAGE_SIZE = 20
@@ -22,6 +22,30 @@ export function useOrderList(page: Ref<number>, size: number = DEFAULT_PAGE_SIZE
     key: 'order-list',
     baseURL: resolveApiBase(),
     query: { page, size },
+    headers: { Authorization: `Bearer ${auth.token}` },
+  })
+}
+
+/**
+ * 구매자 최근 주문 size건(GET /api/v1/orders?page=0&size·마이페이지 홈 FE-72). 주문 내역 페이지(useOrderList)와 조회 조건이
+ * 달라 캐시 키를 나눈다(같은 키면 두 화면이 한 데이터를 공유한다).
+ */
+export function useRecentOrders(size: number) {
+  const auth = useAuthStore()
+  return useFetch<PagedResponse<OrderSummary>>('/v1/orders', {
+    key: 'recent-orders',
+    baseURL: resolveApiBase(),
+    query: { page: 0, size },
+    headers: { Authorization: `Bearer ${auth.token}` },
+  })
+}
+
+/** 구매자 주문 현황 요약(GET /api/v1/orders/summary·D-223·마이페이지 홈 FE-72). BUYER 전용이라 Bearer 주입. */
+export function useOrderStatusSummary() {
+  const auth = useAuthStore()
+  return useFetch<OrderStatusSummary>('/v1/orders/summary', {
+    key: 'order-status-summary',
+    baseURL: resolveApiBase(),
     headers: { Authorization: `Bearer ${auth.token}` },
   })
 }

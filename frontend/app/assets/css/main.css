@@ -224,6 +224,41 @@
   }
 }
 
+/* 구매자 공용 모달(components/ui/dialog·FE-72 보완 1): 배경 페이드 · ≥768 페이드 + 살짝 확대 · <768 하단 시트 아래→위.
+   확대는 scale 속성으로 둬 가운데 정렬(translate 속성)과 겹치지 않게 한다. tw-animate 미도입이라 직접 정의한다. */
+@keyframes dialog-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes dialog-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes dialog-zoom-in {
+  from {
+    opacity: 0;
+    scale: 0.96;
+  }
+}
+@keyframes dialog-zoom-out {
+  to {
+    opacity: 0;
+    scale: 0.96;
+  }
+}
+@keyframes dialog-sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+}
+@keyframes dialog-sheet-out {
+  to {
+    transform: translateY(100%);
+  }
+}
+
 /* v4 Preflight는 v3와 달리 button에 cursor:pointer를 부여하지 않는다(브라우저 기본=default).
    FE-03/07의 인터랙티브 버튼(hover 상태 보유·장바구니/CTA/재시도)의 클릭 어포던스를 유지하기 위해 v3 동작을 복원한다. */
 @layer base {
