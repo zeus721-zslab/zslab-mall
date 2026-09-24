@@ -2829,3 +2829,35 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 - **2만원 이하 좌우 이동** ≥1024: 제목 줄 오른쪽 이전·다음 원형 버튼(44px·aria-label·선 화살표)으로 보이는 폭만큼 부드럽게 이동, 양끝에서 해당 버튼 비활성(흐림·클릭 불가), 가장자리 흐림 없음. <1024: 버튼 숨김·스와이프 + 오른쪽 흐림, 끝까지 가면 흐림 제거. 카드 폭 고정·scroll-padding·스냅 유지. `SectionHeading`에 제목 줄 오른쪽 slot을 열었다.
 - **흐림 색 토큰화** 2만원 이하 흐림은 마스크 대신 바탕 토큰(`to-surface-page`)으로 끝나는 그라디언트 오버레이 — 끝 도달 시 제거하려고 요소로 둔다. 탭·카드 줄의 `fade-right`(마스크)는 색이 없어 바탕이 그대로 비친다.
 - 검증(2026-09-24): typecheck 0 · vitest 756 · 임시 스크립트 18항목(정렬 마우스·키보드·포커스 복귀·패널 치수·가격/이름 순서 · 버튼 양끝 비활성·끝까지 이동/복귀 · 모바일 흐림 색·제거) · e2e 전수(기본 renew) 112 passed/1 failed(admin-categories ① LT-22·단독 1/1)/2 skipped · 스크린샷 5장(정렬 열림 1440/390 · 2만원 이하 1440 처음/끝 · 390).
+
+## FE-70: renew 상품 상세 — 구매 영역·옵션 품절·총액·셀러의 다른 상품·모바일 고정 바 (Track 105-2e) (2026-09-24)
+
+배경: renew 상세는 classic 뷰에 토큰만 입힌 상태였다. 구매 판단에 필요한 옵션 품절·총액·같은 셀러 상품을 화면에 두되, 페이지 로직은 classic과 공유하고 classic 동작·조회는 바꾸지 않는다.
+
+결정:
+- **구성** `skins/renew/views/ProductDetailView.vue`. ≥1024 2열: 왼쪽 갤러리(대표 1:1·32px·이미지 없으면 `--image-placeholder` / 썸네일 88px·18px·선택 = 본문색 2px 테두리), 오른쪽 구매 영역 sticky. 순서 = 카테고리 배지(category-theme 색·해당 카테고리 목록 링크) → 상품명 32px → 셀러 칩(이니셜·링크 없음) → 가격(mono) → 구분선 → 옵션 알약 → 수량 알약 → 총 상품 금액 박스("배송비 무료") → 담기 56px → 성공 카드(민트·"장바구니 보기" /cart) / 실패 문구. 설명은 아래 전체 폭 흰 카드(28px·본문 최대 880px). testid(product-detail-name·product-detail-price)는 classic과 같다. 모션: 썸네일 전환 시 대표 이미지 교차 페이드 0.2s·성공 카드 페이드·motion-reduce 시 없음.
+- **sticky 기준** 헤더 높이 토큰 `--header-height: 69px`(main.css renew 블록) 한 곳 — LayoutShell 헤더(≥1024 `lg:h-(--header-height)`, 자연 높이와 같은 값)와 구매 영역(`top: calc(var(--header-height) + 24px)`)이 함께 쓴다. 스펙의 "top 24px"를 그대로 두면 구매 영역 윗부분이 sticky 헤더 밑에 가려진다.
+- **옵션 품절 규칙** 표시(흐림·취소선) = 현재 선택 조합 기준 / 비활성 = 이 값으로 구매 가능한 variant가 전혀 없을 때만. 판정은 `lib/utils/product-option-availability.ts` 하나(이 값 + 다른 그룹 선택값을 포함하는 variant 중 구매 가능 0 → 품절·미선택 그룹은 조건에서 뺌·매칭 variant 없음도 품절)를 선택 조합/빈 선택으로 두 번 쓴다. 조합 기준 품절 값을 누르면 기존 "선택하신 옵션은 품절입니다."·담기 비활성(canAddToCart)이 그대로 동작한다.
+  - 교착 사례: 블랙-L·화이트-M 품절(대각)에서 블랙→M을 고르면 조합 기준으로 화이트·L이 모두 품절이라, 비활성까지 조합 기준이면 구매 가능한 화이트-L로 옮겨갈 수 없다(선택 해제 수단 없음).
+- **총 상품 금액** = 기존 표시 단가(currentPrice = 확정 variant salePrice = basePrice + additionalPrice) × 수량 — 장바구니 단가(CartService displayPrice)와 같은 규칙을 재사용하고 새 계산식을 만들지 않는다. variant 확정 전에는 null → 금액 박스·고정 바 모두 "옵션을 선택해 주세요"(판매 불가면 그 사유 문구). 담기 비활성은 기존 canAddToCart 그대로.
+- **셀러의 다른 상품** 스킨 데이터 선언 `productDetailMore`(SKIN_NEEDS 추가·renew needs). 페이지가 선언 시에만 `useProductDetailMore()` 호출: 상세 응답 sellerPublicId(D-222)로 LATEST 6개 조회 → 현재 상품 제외 → 최대 5개(목록 API에 제외 파라미터가 없어서). 실패·0개는 섹션 숨김. SSR은 상세 요청을 기다린 뒤 조회하고, 브라우저는 상세가 아직 없으면 첫 조회를 건너뛰고 sellerPublicId가 정해질 때 1회 조회(중복 요청 방지). 제목 "[셀러명]의 다른 상품"·renew 상품 카드·메인과 같은 열 규칙. classic은 추가 조회 0.
+- **모바일 고정 바(<768)** 하단 fixed(흰 바탕·상단 테두리·아래 여백 max(12px, safe-area))에 총액 + 담기(본문과 같은 handleAddToCart·같은 비활성 규칙). 바가 페이지 끝(푸터)을 가리지 않도록 뷰가 `useHead` bodyAttrs로 body 하단 여백(바 높이 73px = 테두리 1 + 12 + 48 + max(12, safe-area))을 준다 — 페이지 이탈 시 자동 제거.
+- **vm 추가 필드** isOptionValueSoldOut·isOptionValueUnavailable·totalPrice·sellerProducts(classic 뷰는 쓰지 않음·classic 뷰 무변경).
+- **제외** 바로 구매·셀러 목록 링크(셀러 칩은 링크 없음)·등급 표시 — 등급 혜택율(grade_policy discount_rate·point_rate)은 결제·적립에 적용하는 코드가 없어 화면에 보이면 실제와 어긋난다. 배송 정보는 "배송비 무료" 문구만(배송비 0 고정 D-61).
+
+### §1-A 갈림길·채택/기각 근거
+- **비활성 = 이 값으로 살 variant가 없을 때만**(D5 A) 【채택: 교착 없음·페이지 로직 불변·classic 무영향】
+- **조합 기준 비활성 + 선택 초기화 버튼** 【기각: 요청에 없는 요소 추가】
+- **품절 값 클릭 시 양립 불가 선택 자동 해제** 【기각: selectOption 동작이 바뀌어 classic까지 영향·renew 전용 함수 필요】
+- **확정 전 총액 = 최저가 × 수량** 【기각: 옵션에 따라 달라지는 합계를 확정처럼 보인다】
+
+### §2 확정 구현 규칙·트랩
+- **컨테이너 vitest가 로컬 스킨 env를 물려받음 → 테스트 환경 classic 고정** @nuxt/test-utils가 설정 로드 시 process.env의 NUXT_*를 runtimeConfig에 적용한다(test-utils config.mjs applyEnv·`.env.test`는 기존 env를 덮지 않음). 컨테이너 `NUXT_PUBLIC_SKIN=renew`가 새면 classic 전제 테스트(CategoryPage.spec)가 실패 → `frontend/vitest.config.ts` 최상단에서 `process.env.NUXT_PUBLIC_SKIN = 'classic'`(test.env는 워커 전용이라 늦음).
+- **준비 단계(setupNuxt 훅) 시간 상향** 컨테이너 실행 시 import가 거의 없는 가벼운 파일이 워커 첫 파일이 되면 Nuxt 전체 변환을 준비 단계에서 떠안아 10s 기본 제한을 넘는다(측정 transform 10.02·10.35s — 다른 무거운 프로세스 없이 재현, 페이지를 import하는 파일은 import 단계에서 선변환돼 통과) → `hookTimeout: 30000`(testTimeout 불변). 상향 후 단독 transform 12.5s로 통과.
+- 페이지 내 이동은 URL이 새 페이지 부착보다 먼저 바뀐다 — 이전 페이지의 head(body class) 제거를 확인할 때는 이전 뷰 요소가 사라진 뒤 측정한다.
+- 상품명 32px/800은 NanumGothic ExtraBold 파일이 없어 700으로 렌더된다(`font-extrabold` 지정).
+- 검증(2026-09-24): typecheck 0 · vitest 108 files / 762 passed(신규 unit 6케이스 포함·skin-guard) · e2e 전수(기본 renew) 112 passed/1 failed(admin-categories ① LT-22·단독 1/1)/2 skipped · classic 회귀(임시 설정 쿠키 classic) smoke·claims·order-resume-payment 9/9 · classic SSR 3종(단일 옵션·다중 옵션·판매중지 — 로컬 DB 1행 임시 STOPPED 후 복원) main 대비 차이 = devtools 타임스탬프 1개·페이로드 키 동일(추가 조회 0) · 임시 스크립트 26항목(품절 비활성·교착 탈출·총액·sticky 93px·담기 성공 카드/장바구니 이동·390 고정 바 담기·body 여백·셀러 조회 renew 1회/classic 0회) · 스크린샷 4장 docs/frontend/screens-track105-2e/.
+
+### §8 이월
+- `viewport-fit=cover` 미적용 — nuxt.config에 head viewport 설정이 없어 iOS에서 `env(safe-area-inset-bottom)`이 0이다(고정 바 아래 여백은 최소 12px로 동작). 적용하면 전 페이지 영향 검증이 필요하다.
+- 768~1023은 1열 쌓임이고 고정 바가 없다(스펙 범위 그대로).

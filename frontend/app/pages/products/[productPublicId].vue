@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import type { ProductImage, ProductVariant } from '~/types/product'
+import type { ProductImage, ProductSummary, ProductVariant } from '~/types/product'
 import { BUYER_ROLE } from '~/lib/constants/auth'
+import { isOptionValueSoldOut } from '~/lib/utils/product-option-availability'
 import type { ProductDetailPageVm } from '~/skins/contracts/product-detail'
 
 // 라우트 파라미터(prd_)로 상세를 조회한다. permitAll 공개 카탈로그라 인증 없이 SSR/CSR 모두 조회 가능.
@@ -10,7 +11,12 @@ const productPublicId = route.params.productPublicId as string
 const auth = useAuthStore()
 const cart = useCartStore()
 
-const { data, pending, error, refresh } = useProductDetail(productPublicId)
+const productDetail = useProductDetail(productPublicId)
+const { data, pending, error, refresh } = productDetail
+
+// 셀러의 다른 상품은 스킨이 productDetailMore를 선언했을 때만 조회한다(FE-70). classic은 추가 조회 0건.
+const detailMore = useSkinNeeds('productDetailMore') ? useProductDetailMore(productPublicId, productDetail) : undefined
+const sellerProducts = computed<ProductSummary[]>(() => detailMore?.sellerProducts.value ?? [])
 
 // 404(PRODUCT_NOT_FOUND)와 그 외 오류를 구분해 안내 문구를 달리한다(존재 은닉이라 미노출도 404).
 const errorMessage = computed<string>(() =>
@@ -68,6 +74,15 @@ const currentPrice = computed<number>(
 )
 const formattedPrice = computed<string>(() => `${currentPrice.value.toLocaleString('ko-KR')}원`)
 
+// 옵션 값 품절(FE-70): 표시 = 현재 선택 조합 기준 / 비활성 = 다른 선택과 무관하게 이 값으로 살 variant가 없을 때만.
+// 조합 기준으로 비활성까지 걸면 2그룹 대각 품절에서 구매 가능한 조합으로 옮겨갈 수 없는 교착이 생긴다.
+function optionValueSoldOut(groupName: string, value: string): boolean {
+  return isOptionValueSoldOut(data.value?.variants ?? [], selectedOptions.value, groupName, value)
+}
+function optionValueUnavailable(groupName: string, value: string): boolean {
+  return isOptionValueSoldOut(data.value?.variants ?? [], {}, groupName, value)
+}
+
 // 담기 seam(FE-10b 소비): 확정 variant의 대상키. 미확정이면 null.
 const selectedVariantPublicId = computed<string | null>(
   () => selectedVariant.value?.variantPublicId ?? null,
@@ -94,6 +109,12 @@ function decrementQuantity(): void {
 function incrementQuantity(): void {
   quantity.value += 1
 }
+
+// 총 상품 금액: 장바구니와 같은 단가(= 확정 variant salePrice = basePrice + additionalPrice) × 수량. 확정 전에는 대표가(최저가)로
+// 합계를 만들지 않도록 null(FE-70).
+const totalPrice = computed<number | null>(() =>
+  selectedVariant.value ? currentPrice.value * quantity.value : null,
+)
 
 // 담기 진행/결과 상태. adding으로 중복 클릭을 막고, 성공/실패 문구를 버튼 아래에 노출한다.
 const adding = ref<boolean>(false)
@@ -168,6 +189,10 @@ const vm: ProductDetailPageVm = reactive({
   addSucceeded,
   addErrorMessage,
   handleAddToCart,
+  isOptionValueSoldOut: optionValueSoldOut,
+  isOptionValueUnavailable: optionValueUnavailable,
+  totalPrice,
+  sellerProducts,
 })
 </script>
 

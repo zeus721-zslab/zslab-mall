@@ -178,6 +178,9 @@
   --pastel-mint-ink: #2F5A4E;
   --pastel-butter-bg: #F4EDD3;
   --pastel-butter-ink: #62552A;
+
+  /* 헤더 높이(≥1024 한 줄 = 세로 여백 12×2 + 버튼 44 + 하단 테두리 1). LayoutShell 헤더와 상세 구매 영역 sticky 기준이 함께 쓴다(FE-70). */
+  --header-height: 69px;
 }
 
 /* v4는 --duration-* 테마 네임스페이스로 named duration 유틸을 생성하지 않는다(내장은 duration-<number>만).
