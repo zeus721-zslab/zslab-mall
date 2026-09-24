@@ -19,6 +19,7 @@ defineProps<{ vm: LoginPageVm }>()
           <input
             id="email"
             v-model="vm.email"
+            data-testid="login-email"
             type="email"
             autocomplete="email"
             required
@@ -32,6 +33,7 @@ defineProps<{ vm: LoginPageVm }>()
           <input
             id="password"
             v-model="vm.password"
+            data-testid="login-password"
             type="password"
             autocomplete="current-password"
             required
@@ -43,7 +45,7 @@ defineProps<{ vm: LoginPageVm }>()
         <!-- 에러: 사유 무관 단일 문구(계정 열거·자격 노출 방지) -->
         <p v-if="vm.errorMessage" role="alert" class="text-sm text-soldout">{{ vm.errorMessage }}</p>
 
-        <Button type="submit" size="lg" class="w-full" :disabled="vm.submitting">
+        <Button type="submit" size="lg" class="w-full" :disabled="vm.submitting" data-testid="login-submit">
           {{ vm.submitting ? '로그인 중…' : '로그인' }}
         </Button>
       </form>

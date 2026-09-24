@@ -16,7 +16,7 @@ defineProps<{ vm: ClaimNewPageVm }>()
       </div>
 
       <!-- 제출 성공: 인라인 성공 상태(toast 인프라 부재). 원주문 id 미보유라 주문 내역으로 유도. -->
-      <div v-else-if="vm.submitted" class="flex flex-col items-center justify-center gap-4 py-20 text-center">
+      <div v-else-if="vm.submitted" class="flex flex-col items-center justify-center gap-4 py-20 text-center" data-testid="claim-submitted">
         <p class="text-base font-medium text-ink">클레임이 접수되었습니다.</p>
         <p class="text-sm text-sub">쇼핑몰 승인 후 처리가 진행됩니다.</p>
         <!-- 환불 반영 시점 안내(FE-61): 환불로 이어지는 취소·반품 요청만·기간은 적지 않는다. -->
@@ -34,7 +34,7 @@ defineProps<{ vm: ClaimNewPageVm }>()
         <section class="mb-6 rounded-card border border-line p-5">
           <p class="text-sm text-sub">요청 대상</p>
           <p class="mt-1 text-base font-medium text-ink">{{ vm.productName || '주문 품목' }}</p>
-          <p class="mt-3 text-sm text-ink">{{ vm.typeGuidance }}</p>
+          <p class="mt-3 text-sm text-ink" data-testid="claim-type-guidance">{{ vm.typeGuidance }}</p>
           <p class="mt-1 text-sm text-sub">요청 후 쇼핑몰 승인이 필요합니다.</p>
         </section>
 
@@ -46,10 +46,11 @@ defineProps<{ vm: ClaimNewPageVm }>()
               id="reasonCode"
               v-model="vm.reasonCode"
               required
+              data-testid="claim-reason-code"
               class="w-full rounded-control border border-line px-4 py-2.5 text-sm text-ink transition duration-normal focus:border-gray-900 focus:outline-hidden focus:ring-1 focus:ring-gray-900"
             >
               <option value="" disabled>사유를 선택하세요</option>
-              <option v-for="code in vm.reasonCodes" :key="code" :value="code">
+              <option v-for="code in vm.reasonCodes" :key="code" :value="code" data-testid="claim-reason-option">
                 {{ vm.CLAIM_REASON_LABELS[code] }}
               </option>
             </select>

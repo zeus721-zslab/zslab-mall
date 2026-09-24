@@ -78,7 +78,7 @@ defineProps<{ vm: OrderDetailPageVm }>()
                 <div class="flex items-start justify-between gap-4">
                   <div class="min-w-0">
                     <!-- productName은 표시용 enrich. 삭제 상품(null/부재) 시 방어 문구. -->
-                    <p class="truncate text-sm font-medium text-ink">
+                    <p class="truncate text-sm font-medium text-ink" data-testid="item-product-name">
                       {{ item.productName ?? '삭제된 상품' }}
                     </p>
                     <p v-if="item.optionLabel" data-testid="item-option-label" class="truncate text-xs text-sub">{{ item.optionLabel }}</p>
@@ -114,6 +114,7 @@ defineProps<{ vm: OrderDetailPageVm }>()
                     :key="type"
                     variant="outline"
                     size="sm"
+                    :data-testid="`item-claim-${type.toLowerCase()}`"
                     @click="vm.goClaim(item, type)"
                   >
                     {{ vm.claimTypeLabel(type) }} 요청

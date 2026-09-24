@@ -39,12 +39,12 @@ test.describe('mock 결제 페이지(Track 93 인가 endpoint)', () => {
     await loginAs(page, 'BUYER')
     await gotoClientSide(page, MOCK_PAGE)
 
-    await expect(page.getByRole('heading', { name: '모의 결제' })).toBeVisible()
-    await page.getByRole('button', { name: '결제 성공' }).click()
+    await expect(page.getByTestId('payment-mock-title')).toBeVisible()
+    await page.getByTestId('payment-mock-success').click()
 
     await page.waitForURL((url) => url.pathname === '/checkout/complete')
     expect(new URL(page.url()).searchParams.get('orderPublicId')).toBe(ORDER_ID)
-    await expect(page.getByText(ORDER_ID)).toBeVisible()
+    await expect(page.getByTestId('checkout-complete-order-id')).toHaveText(ORDER_ID)
 
     expect(webhookCalls).toBe(0)
     expect(captured).toHaveLength(1)
@@ -63,11 +63,11 @@ test.describe('mock 결제 페이지(Track 93 인가 endpoint)', () => {
     await loginAs(page, 'BUYER')
     await gotoClientSide(page, MOCK_PAGE)
 
-    await page.getByRole('button', { name: '결제 취소' }).click()
-    await expect(page.getByRole('alert')).toContainText('결제 처리 중 문제가 발생했습니다')
+    await page.getByTestId('payment-mock-cancel').click()
+    await expect(page.getByTestId('payment-mock-error')).toContainText('결제 처리 중 문제가 발생했습니다')
     expect(new URL(page.url()).pathname).toBe('/payment/mock')
 
-    await page.getByRole('button', { name: '결제 취소' }).click()
+    await page.getByTestId('payment-mock-cancel').click()
     await expect.poll(() => calls).toBe(2)
   })
 })

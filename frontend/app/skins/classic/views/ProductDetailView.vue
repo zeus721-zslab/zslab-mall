@@ -66,11 +66,11 @@ defineProps<{ vm: ProductDetailPageVm }>()
         <div class="space-y-5">
           <div class="space-y-2">
             <p class="text-sm text-sub">{{ vm.data.categoryName }}</p>
-            <h1 class="text-2xl font-medium leading-snug tracking-tight text-ink">{{ vm.data.name }}</h1>
+            <h1 class="text-2xl font-medium leading-snug tracking-tight text-ink" data-testid="product-detail-name">{{ vm.data.name }}</h1>
             <p class="text-sm text-seller">{{ vm.data.sellerName }}</p>
           </div>
 
-          <p class="text-3xl font-bold text-price">{{ vm.formattedPrice }}</p>
+          <p class="text-3xl font-bold text-price" data-testid="product-detail-price">{{ vm.formattedPrice }}</p>
 
           <!-- 상세 설명: nullable → 있을 때만 -->
           <p v-if="vm.data.description" class="whitespace-pre-line text-sm leading-relaxed text-ink">

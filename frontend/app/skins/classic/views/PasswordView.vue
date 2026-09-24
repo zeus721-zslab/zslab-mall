@@ -20,6 +20,7 @@ defineProps<{ vm: PasswordPageVm }>()
           <input
             id="currentPassword"
             v-model="vm.currentPassword"
+            data-testid="password-current"
             type="password"
             autocomplete="current-password"
             required
@@ -33,6 +34,7 @@ defineProps<{ vm: PasswordPageVm }>()
           <input
             id="newPassword"
             v-model="vm.newPassword"
+            data-testid="password-new"
             type="password"
             autocomplete="new-password"
             required
@@ -48,6 +50,7 @@ defineProps<{ vm: PasswordPageVm }>()
           <input
             id="newPasswordConfirm"
             v-model="vm.newPasswordConfirm"
+            data-testid="password-new-confirm"
             type="password"
             autocomplete="new-password"
             required
@@ -60,7 +63,7 @@ defineProps<{ vm: PasswordPageVm }>()
 
         <p v-if="vm.errorMessage" role="alert" class="text-sm text-soldout">{{ vm.errorMessage }}</p>
 
-        <Button type="submit" size="lg" class="w-full" :disabled="vm.submitting">
+        <Button type="submit" size="lg" class="w-full" :disabled="vm.submitting" data-testid="password-submit">
           {{ vm.submitting ? '변경 중…' : '비밀번호 변경' }}
         </Button>
       </form>

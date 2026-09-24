@@ -7,7 +7,7 @@ defineProps<{ vm: PaymentMockPageVm }>()
 <template>
   <div class="py-8 md:py-12">
     <div class="mx-auto max-w-[480px] px-4 md:px-6">
-      <h1 class="mb-1 text-2xl font-bold tracking-tight text-ink">모의 결제</h1>
+      <h1 class="mb-1 text-2xl font-bold tracking-tight text-ink" data-testid="payment-mock-title">모의 결제</h1>
       <p class="mb-6 text-sm text-sub">개발용 모의 PG입니다. 실제 결제가 이뤄지지 않습니다.</p>
 
       <!-- 결제 정보 없음(attemptKey 부재) -->
@@ -37,11 +37,11 @@ defineProps<{ vm: PaymentMockPageVm }>()
         </dl>
 
         <div v-if="vm.errorMessage" class="mt-4">
-          <p role="alert" class="text-sm text-soldout">{{ vm.errorMessage }}</p>
+          <p role="alert" class="text-sm text-soldout" data-testid="payment-mock-error">{{ vm.errorMessage }}</p>
         </div>
 
         <div class="mt-6 space-y-2">
-          <Button size="lg" class="w-full" :disabled="vm.submitting" @click="vm.pay('SUCCESS')">
+          <Button size="lg" class="w-full" :disabled="vm.submitting" data-testid="payment-mock-success" @click="vm.pay('SUCCESS')">
             {{ vm.submitting ? '처리 중…' : '결제 성공' }}
           </Button>
           <Button
@@ -53,7 +53,7 @@ defineProps<{ vm: PaymentMockPageVm }>()
           >
             결제 실패
           </Button>
-          <Button size="lg" variant="ghost" class="w-full" :disabled="vm.submitting" @click="vm.pay('CANCEL')">
+          <Button size="lg" variant="ghost" class="w-full" :disabled="vm.submitting" data-testid="payment-mock-cancel" @click="vm.pay('CANCEL')">
             결제 취소
           </Button>
         </div>
