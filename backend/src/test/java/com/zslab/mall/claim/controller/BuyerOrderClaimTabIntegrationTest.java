@@ -57,9 +57,10 @@ class BuyerOrderClaimTabIntegrationTest extends AbstractIntegrationTest {
     private static final int ORDER_LIST_QUERY_BUDGET = 10;
     /**
      * 클레임 목록 1회 호출 쿼리 예산. 실측 4(2026-09-23·목록 select + count + 환불 배치 + 주문·품목 projection)이며 여유 1.
-     * 외부 검토 반영으로 품목 엔티티 배치 조회가 주문 projection에 합쳐져 5 → 4가 됐다.
+     * 외부 검토 반영으로 품목 엔티티 배치 조회가 주문 projection에 합쳐져 5 → 4가 됐다. Track 105-4b 썸네일 상품 배치
+     * (findByIdIn 페이지당 1회)로 4 → 5가 되어 상한도 5 → 6으로 올린다(여유 1 유지).
      */
-    private static final int CLAIM_LIST_QUERY_BUDGET = 5;
+    private static final int CLAIM_LIST_QUERY_BUDGET = 6;
 
     private static final String ORDER_MINE_PID = pid("ord_", "BOCTORD1");
     private static final String ORDER_OTHER_PID = pid("ord_", "BOCTORD2");

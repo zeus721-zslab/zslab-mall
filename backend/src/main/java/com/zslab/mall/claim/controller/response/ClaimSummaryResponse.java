@@ -25,15 +25,18 @@ public record ClaimSummaryResponse(
         ClaimRejectReasonCode rejectReasonCode,
         RefundStatus refundStatus,
         String orderNo,
-        String productName) {
+        String productName,
+        String thumbnailUrl) {
 
     /**
      * 영속 Claim + 최신 환불 상태(없으면 null) + 소속 주문·품목 정보로 목록 항목을 조립한다(Track 80 D-169·Track 101-B 주문 탭 통합).
      *
-     * @param orderNo     주문번호(배치 projection·해소 실패 시 null)
-     * @param productName 주문 시점 상품명 스냅샷(배치 조회·해소 실패 시 null)
+     * @param orderNo      주문번호(배치 projection·해소 실패 시 null)
+     * @param productName  주문 시점 상품명 스냅샷(배치 조회·해소 실패 시 null)
+     * @param thumbnailUrl 상품 썸네일(Track 105-4b·D-223 주문 목록과 같은 값·삭제 상품·미등록이면 null → 응답에서 키 생략)
      */
-    public static ClaimSummaryResponse from(Claim claim, RefundStatus refundStatus, String orderNo, String productName) {
+    public static ClaimSummaryResponse from(
+            Claim claim, RefundStatus refundStatus, String orderNo, String productName, String thumbnailUrl) {
         return new ClaimSummaryResponse(
                 claim.getPublicId(),
                 claim.getType(),
@@ -43,6 +46,7 @@ public record ClaimSummaryResponse(
                 claim.getRejectReasonCode(),
                 refundStatus,
                 orderNo,
-                productName);
+                productName,
+                thumbnailUrl);
     }
 }

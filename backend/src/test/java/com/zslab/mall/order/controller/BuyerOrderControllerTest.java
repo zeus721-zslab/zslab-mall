@@ -4,6 +4,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -205,7 +206,7 @@ class BuyerOrderControllerTest {
     @Test
     @DisplayName("GET 목록: 200 PagedResponse")
     void list_returns200() throws Exception {
-        when(buyerOrderQueryService.listOrders(anyLong(), anyInt(), anyInt()))
+        when(buyerOrderQueryService.listOrders(anyLong(), isNull(), anyInt(), anyInt()))
                 .thenReturn(new PagedResponse<>(List.of(), 0, 20, 0L, false));
 
         mockMvc.perform(get("/api/v1/orders").header("X-Buyer-Id", BUYER_ID))

@@ -13,6 +13,7 @@ import com.zslab.mall.order.controller.response.OrderResponse;
 import com.zslab.mall.order.controller.response.OrderStatusSummaryResponse;
 import com.zslab.mall.order.controller.response.OrderSummaryResponse;
 import com.zslab.mall.order.controller.response.PagedResponse;
+import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.service.BuyerOrderConfirmService;
 import com.zslab.mall.order.service.BuyerOrderQueryService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -88,14 +89,15 @@ public class BuyerOrderController {
         return ResponseEntity.ok(buyerOrderQueryService.getOrder(orderPublicId, buyerId));
     }
 
-    /** 본인 주문 목록(D-54 PagedResponse·ordered_at DESC·sort 미노출). */
+    /** 본인 주문 목록(D-54 PagedResponse·ordered_at DESC·sort 미노출). itemStatus = 요약 단계 품목 상태 필터(선택·D-224). */
     @GetMapping
     public ResponseEntity<PagedResponse<OrderSummaryResponse>> list(
+            @RequestParam(required = false) OrderItemStatus itemStatus,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             HttpServletRequest httpRequest) {
         Long buyerId = buyerActorResolver.resolve(httpRequest);
-        return ResponseEntity.ok(buyerOrderQueryService.listOrders(buyerId, page, size));
+        return ResponseEntity.ok(buyerOrderQueryService.listOrders(buyerId, itemStatus, page, size));
     }
 
     /** 본인 주문 품목 구매확정(Track 47). 배송완료(DELIVERED)→구매확정(CONFIRMED) 전이 후 확정 결과 200. */

@@ -9,6 +9,7 @@ import com.zslab.mall.claim.entity.Claim;
 import com.zslab.mall.claim.enums.ClaimStatus;
 import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.repository.ClaimRepository;
+import com.zslab.mall.common.exception.MalformedRequestException;
 import com.zslab.mall.delivery.entity.Delivery;
 import com.zslab.mall.delivery.enums.DeliveryDirection;
 import com.zslab.mall.delivery.repository.DeliveryRepository;
@@ -95,7 +96,7 @@ public class BuyerOrderQueryService {
      * 진행 중 클레임 수를 기간 제한 없이 센다(count 1쿼리). ORDERED·클레임 계열 품목은 집계 대상 상태가 아니라 조회에서 빠진다.
      */
     public OrderStatusSummaryResponse summarize(Long buyerId) {
-        LocalDateTime orderedFrom = LocalDateTime.now().minusMonths(SUMMARY_PERIOD_MONTHS);
+        LocalDateTime orderedFrom = summaryPeriodStart();
         Map<OrderItemStatus, Long> countByStatus = new EnumMap<>(OrderItemStatus.class);
         for (ItemStatusCountProjection row
                 : orderItemRepository.countByBuyerIdGroupByItemStatus(buyerId, orderedFrom, SUMMARY_STAGE_STATUSES)) {
@@ -157,11 +158,21 @@ public class BuyerOrderQueryService {
     /**
      * 본인 주문 목록(ordered_at DESC·D-42·D-54). 페이지는 정렬 미노출(서버 고정)·size는 1~100 클램프.
      * 미결제 종료(PAYMENT_EXPIRED) 주문은 목록에서 제외한다(FE-12c·비노출·DB 레벨 제외로 페이지 정합 유지).
+     *
+     * <p>itemStatus가 있으면 주문 현황 요약과 같은 기준으로 거른다(Track 105-4b D-224): 요약 단계 상태만 허용하고, 그 상태 품목을
+     * 가진 최근 {@value #SUMMARY_PERIOD_MONTHS}개월 주문만 남긴다. 없으면 기간 제한 없이 기존 목록이다.
+     *
+     * @throws MalformedRequestException itemStatus가 요약 단계 상태가 아닐 때(400)
      */
-    public PagedResponse<OrderSummaryResponse> listOrders(Long buyerId, int page, int size) {
+    public PagedResponse<OrderSummaryResponse> listOrders(Long buyerId, OrderItemStatus itemStatus, int page, int size) {
+        if (itemStatus != null && !SUMMARY_STAGE_STATUSES.contains(itemStatus)) {
+            throw new MalformedRequestException("itemStatus는 " + SUMMARY_STAGE_STATUSES + " 중 하나여야 합니다: " + itemStatus);
+        }
         Pageable pageable = PageRequest.of(Math.max(page, 0), clampSize(size));
-        Page<Order> orders = orderRepository.findByBuyerIdAndStatusNotOrderByOrderedAtDesc(
-                buyerId, OrderStatus.PAYMENT_EXPIRED, pageable);
+        Page<Order> orders = itemStatus == null
+                ? orderRepository.findByBuyerIdAndStatusNotOrderByOrderedAtDesc(buyerId, OrderStatus.PAYMENT_EXPIRED, pageable)
+                : orderRepository.findByBuyerIdHavingItemStatusSince(
+                        buyerId, OrderStatus.PAYMENT_EXPIRED, summaryPeriodStart(), itemStatus, pageable);
 
         List<Long> orderIds = orders.getContent().stream().map(Order::getId).toList();
         Map<Long, Order> ordersWithItems = orderIds.isEmpty()
@@ -222,6 +233,11 @@ public class BuyerOrderQueryService {
                 .map(entry -> new ActiveClaimCount(entry.getKey(), entry.getValue()))
                 .toList()));
         return result;
+    }
+
+    /** 요약 집계와 품목 상태 필터 목록이 공유하는 기간 하한(주문일 포함 경계·D-224 — 두 화면의 숫자 기준을 맞춘다). */
+    private static LocalDateTime summaryPeriodStart() {
+        return LocalDateTime.now().minusMonths(SUMMARY_PERIOD_MONTHS);
     }
 
     private int clampSize(int size) {

@@ -19,4 +19,7 @@ public interface OrderItemOrderProjection {
 
     /** 주문 시점 상품명 스냅샷({@code order_item.product_name}·Track 76 V22). Track 101-B 구매자 클레임 목록이 쓴다. */
     String getProductName();
+
+    /** 품목 상품 id({@code order_item.product_id}). Track 105-4b 구매자 클레임 목록 썸네일 배치 조회 키다. */
+    Long getProductId();
 }
