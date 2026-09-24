@@ -33,14 +33,15 @@ async function copyTrackingNo(trackingNo: string): Promise<void> {
 </script>
 
 <template>
-  <div v-if="delivery" class="rounded-card bg-gray-50 px-3 py-2 text-xs text-sub" data-testid="item-delivery">
-    <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
-      <span class="font-medium text-ink" data-testid="item-delivery-carrier">{{ deliveryCarrierLabel(delivery.carrier) }}</span>
+  <!-- 흰 카드 안 옅은 면(surface-muted) · 복사는 옅은 면 위 보조 버튼이라 흰 바탕(FE-82 · FE-76 기준). -->
+  <div v-if="delivery" class="space-y-1 rounded-card bg-surface-muted px-4 py-3 text-small text-sub" data-testid="item-delivery">
+    <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+      <span class="font-semibold text-ink" data-testid="item-delivery-carrier">{{ deliveryCarrierLabel(delivery.carrier) }}</span>
       <template v-if="delivery.trackingNo">
-        <span class="select-all text-ink" data-testid="item-delivery-tracking-no">{{ delivery.trackingNo }}</span>
+        <span class="select-all tabular-nums text-ink" data-testid="item-delivery-tracking-no">{{ delivery.trackingNo }}</span>
         <button
           type="button"
-          class="rounded-badge border border-line bg-white px-2 py-0.5 text-xs text-ink hover:bg-gray-100"
+          class="btn btn-sm bg-white text-primary max-md:min-h-11"
           data-testid="item-delivery-copy"
           @click="copyTrackingNo(delivery.trackingNo)"
         >
@@ -57,5 +58,5 @@ async function copyTrackingNo(trackingNo: string): Promise<void> {
       data-testid="item-delivery-copy-notice"
     >{{ copyNotice.text }}</p>
   </div>
-  <p v-else-if="showPreparing" class="text-xs text-sub" data-testid="item-delivery-preparing">발송 준비 중</p>
+  <p v-else-if="showPreparing" class="text-small text-sub" data-testid="item-delivery-preparing">발송 준비 중</p>
 </template>

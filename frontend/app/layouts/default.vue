@@ -8,6 +8,7 @@ useHead({ htmlAttrs: { 'data-skin': skinName } })
 // 헤더 상태는 스킨이 layoutHeader를 선언했을 때만 만든다(FE-69). classic 셸은 AppHeader가 같은 로직(useAppHeader)을 직접 쓴다.
 function createShellVm(): LayoutShellVm {
   const header = useAppHeader()
+  const route = useRoute()
   return reactive({
     searchKeyword: header.searchKeyword,
     handleSearchSubmit: header.handleSearchSubmit,
@@ -16,6 +17,7 @@ function createShellVm(): LayoutShellVm {
     handleLogout: header.handleLogout,
     isBuyerSignedIn: header.isBuyerSignedIn,
     cartCount: header.cartCount,
+    hasListingTabs: computed(() => route.path === '/products' || route.path.startsWith('/categories/')),
   })
 }
 const shellVm = useSkinNeeds('layoutHeader') ? createShellVm() : undefined

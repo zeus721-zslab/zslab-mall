@@ -1,6 +1,7 @@
 <script setup lang="ts">
+import { ShoppingBag } from '@lucide/vue'
 import type { ProductPageListVm } from '~/skins/contracts/product-page'
-import { categoryTheme } from '../category-theme'
+import { categoryTheme, categoryThemes } from '../category-theme'
 import { followActiveItem } from '../scroll-active'
 import { trackScrollEdges } from '../scroll-edges'
 import CategoryIllustration from './CategoryIllustration.vue'
@@ -20,7 +21,11 @@ const PRODUCT_GRID = 'grid grid-cols-2 gap-x-4 gap-y-10 md:grid-cols-3 md:gap-x-
 const SKELETON_COUNT = 10
 
 const title = computed(() => props.list.activeCategoryName ?? (props.categoryId === null ? '전체 상품' : '카테고리'))
-const theme = computed(() => categoryTheme(props.categoryId, props.list.activeCategoryName))
+// 배너 색·아이콘은 메인 카테고리 타일과 같게 목록 단위 규칙을 쓴다(FE-82). 목록에 없는 id·전체는 단일 규칙.
+const theme = computed(() => {
+  const index = props.list.categories.findIndex((category) => category.categoryId === props.categoryId)
+  return categoryThemes(props.list.categories)[index] ?? categoryTheme(props.categoryId, props.list.activeCategoryName)
+})
 
 const tabsElement = ref<HTMLElement | null>(null)
 let stopFollowingActiveTab: (() => void) | null = null
@@ -102,7 +107,20 @@ const tabsEdges = trackScrollEdges(tabsElement)
           </div>
         </div>
         <CommonErrorState v-else-if="list.hasError" @retry="list.retry()" />
-        <CommonEmptyState v-else-if="list.items.length === 0" />
+        <!-- 빈 목록: 검색 빈 결과와 같은 흰 카드 톤(FE-82). 카테고리 화면만 전체 상품으로 가는 보조 버튼을 둔다. -->
+        <div
+          v-else-if="list.items.length === 0"
+          class="flex flex-col items-center rounded-card bg-white px-6 py-16 text-center shadow-e1"
+          data-testid="listing-empty"
+        >
+          <span class="flex h-20 w-20 items-center justify-center rounded-full bg-surface-muted text-primary" aria-hidden="true">
+            <ShoppingBag class="h-10 w-10" :stroke-width="1.6" />
+          </span>
+          <p class="mt-6 text-h3 text-ink">등록된 상품이 없습니다</p>
+          <NuxtLink v-if="categoryId !== null" to="/products" class="btn btn-secondary btn-md mt-6" data-testid="listing-empty-products-link">
+            전체 상품 보기
+          </NuxtLink>
+        </div>
         <div v-else :class="PRODUCT_GRID">
           <RenewProductCard v-for="item in list.items" :key="item.productPublicId" :product="item" />
         </div>

@@ -43,7 +43,7 @@ const forwarded = useForwardPropsEmits(delegatedProps, emits)
       data-slot="dialog-content"
       v-bind="{ ...$attrs, ...forwarded }"
       :class="cn(
-        'fixed z-50 flex flex-col bg-white text-foreground shadow-[0_24px_48px_-24px_rgba(0,0,0,0.35)] outline-hidden motion-reduce:animate-none',
+        'fixed z-50 flex flex-col bg-white text-foreground shadow-e3 outline-hidden motion-reduce:animate-none',
         'inset-x-0 bottom-0 max-h-[90dvh] rounded-t-card pb-[env(safe-area-inset-bottom)] max-md:data-[state=closed]:animate-[dialog-sheet-out_180ms_ease-in] max-md:data-[state=open]:animate-[dialog-sheet-in_250ms_cubic-bezier(0.32,0.72,0,1)]',
         'md:inset-x-auto md:bottom-auto md:left-1/2 md:top-1/2 md:max-h-[85dvh] md:w-[calc(100%-4rem)] md:max-w-lg md:-translate-x-1/2 md:-translate-y-1/2 md:rounded-card md:pb-0 md:data-[state=closed]:animate-[dialog-zoom-out_150ms_ease-in] md:data-[state=open]:animate-[dialog-zoom-in_200ms_ease-out]',
         props.class,

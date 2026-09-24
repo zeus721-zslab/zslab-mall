@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { LayoutShellVm } from '~/skins/contracts/layout'
+import RenewNotice from '../components/RenewNotice.vue'
 import { followActiveItem } from '../scroll-active'
 import { trackScrollEdges } from '../scroll-edges'
 
@@ -19,6 +20,16 @@ onBeforeUnmount(() => stopFollowingActiveMenu?.())
 // 오른쪽 흐림은 줄 끝에 닿기 전까지만(FE-77).
 const mobileMenuEdges = trackScrollEdges(mobileMenuElement)
 
+// 본문 바로가기(FE-82): 해시 이동 대신 main에 직접 포커스한다(URL 불변 · 라우터 스크롤 규칙과 무관).
+const mainElement = ref<HTMLElement | null>(null)
+function skipToMain(): void {
+  mainElement.value?.focus()
+}
+
+// 푸터 회사소개·약관·개인정보처리방침은 페이지가 없어 준비 중 안내만 띄운다(FE-82 · FE-81 비밀번호 찾기와 같은 방식).
+const footerNoticeShown = ref<boolean>(false)
+const FOOTER_PLACEHOLDER_LABELS = ['회사소개', '이용약관', '개인정보처리방침'] as const
+
 const CONTAINER = 'mx-auto max-w-[1440px] px-5 md:px-10 lg:px-16'
 const ICON_BUTTON =
   'relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-ink transition duration-fast ease-soft hover:bg-surface-muted focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary'
@@ -28,10 +39,20 @@ const FOOTER_LINK = 'transition duration-fast ease-soft hover:text-ink max-md:in
 
 <template>
   <div class="flex min-h-screen flex-col bg-surface-page text-ink">
+    <!-- 첫 포커스 요소. 포커스를 받을 때만 보인다(FE-82). sr-only·not-sr-only는 padding을 0으로 덮어 btn 여백이 사라져 투명도로 숨긴다. -->
+    <a
+      href="#main-content"
+      class="btn btn-primary btn-md pointer-events-none fixed left-4 top-[calc(env(safe-area-inset-top,0px)+1rem)] z-60 opacity-0 focus:pointer-events-auto focus:opacity-100"
+      data-testid="skip-to-main"
+      @click.prevent="skipToMain"
+    >
+      본문 바로가기
+    </a>
     <!-- ≥1024 높이는 --header-height 토큰으로 고정한다(상세 구매 영역 sticky가 같은 값 기준·FE-70). top은 상단 안전 영역만큼 내린다(FE-78). -->
     <header class="sticky top-[env(safe-area-inset-top,0px)] z-50 border-b border-line bg-white lg:h-(--header-height)">
       <div :class="[CONTAINER, 'flex flex-wrap items-center gap-x-2 gap-y-3 py-3 md:gap-x-6']">
-        <NuxtLink to="/" class="mr-auto shrink-0 text-h2 text-ink md:mr-0">
+        <!-- 높이 44는 터치 영역(FE-82). 헤더 줄 높이는 아이콘 버튼 44와 같아 바뀌지 않는다. -->
+        <NuxtLink to="/" class="mr-auto inline-flex min-h-11 shrink-0 items-center text-h2 text-ink md:mr-0">
           zslab<span class="text-primary">.</span>mall
         </NuxtLink>
 
@@ -118,8 +139,9 @@ const FOOTER_LINK = 'transition duration-fast ease-soft hover:text-ink max-md:in
         </NuxtLink>
       </div>
 
-      <!-- 최상위 카테고리 메뉴(모바일·태블릿): 한 줄 가로 스크롤. <768은 스크롤바 숨김·스냅·오른쪽 흐림, 현재 카테고리는 보이는 위치로. -->
-      <nav aria-label="카테고리" class="border-t border-line lg:hidden">
+      <!-- 최상위 카테고리 메뉴(모바일·태블릿): 한 줄 가로 스크롤. <768은 스크롤바 숨김·스냅·오른쪽 흐림, 현재 카테고리는 보이는 위치로.
+           목록·카테고리 화면의 <768은 목록 카테고리 탭과 같은 줄이 두 번 나와 이 줄을 숨긴다(FE-82). -->
+      <nav aria-label="카테고리" :class="['border-t border-line lg:hidden', vm.hasListingTabs ? 'max-md:hidden' : '']">
         <ul
           ref="mobileMenuElement"
           :class="[
@@ -136,7 +158,7 @@ const FOOTER_LINK = 'transition duration-fast ease-soft hover:text-ink max-md:in
       </nav>
     </header>
 
-    <main class="flex-1">
+    <main id="main-content" ref="mainElement" tabindex="-1" class="flex-1 focus:outline-hidden">
       <slot />
     </main>
 
@@ -148,12 +170,20 @@ const FOOTER_LINK = 'transition duration-fast ease-soft hover:text-ink max-md:in
             <p class="mt-2 text-small text-sub">쇼핑의 기준</p>
           </div>
           <nav class="flex flex-wrap gap-x-8 gap-y-3 text-small text-sub max-md:gap-y-0" aria-label="푸터">
-            <a href="#" :class="FOOTER_LINK">회사소개</a>
-            <a href="#" :class="FOOTER_LINK">이용약관</a>
-            <a href="#" :class="FOOTER_LINK">개인정보처리방침</a>
+            <button
+              v-for="label in FOOTER_PLACEHOLDER_LABELS"
+              :key="label"
+              type="button"
+              :class="FOOTER_LINK"
+              data-testid="footer-placeholder-link"
+              @click="footerNoticeShown = true"
+            >
+              {{ label }}
+            </button>
             <NuxtLink to="/help" :class="FOOTER_LINK" data-testid="footer-help-link">고객센터</NuxtLink>
           </nav>
         </div>
+        <RenewNotice v-if="footerNoticeShown" tone="info" class="mt-6" data-testid="footer-placeholder-notice">준비 중입니다.</RenewNotice>
         <p class="mt-10 border-t border-line pt-6 text-caption font-normal text-sub">© 2026 zslab-mall. All rights reserved.</p>
       </div>
     </footer>

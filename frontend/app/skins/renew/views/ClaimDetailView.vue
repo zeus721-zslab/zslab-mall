@@ -102,11 +102,12 @@ const ROW = 'flex justify-between gap-4'
               ]"
               aria-hidden="true"
             ></span>
+            <!-- 현재 단계 강조는 그림자(ring) 대신 윤곽선이다(FE-82 — 그림자는 e1~e3만 쓴다). -->
             <span
               :class="[
                 'relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-caption tabular-nums transition duration-fast ease-soft',
                 step.state === 'upcoming' ? 'bg-surface-muted text-sub' : 'bg-primary text-primary-foreground',
-                step.state === 'current' ? 'ring-4 ring-(--pastel-lavender-bg)' : '',
+                step.state === 'current' ? 'outline-4 outline-(--pastel-lavender-bg)' : '',
               ]"
             >
               <svg v-if="step.state === 'done'" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">

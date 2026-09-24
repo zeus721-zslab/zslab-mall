@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import type { ProductDetailPageVm } from '~/skins/contracts/product-detail'
-import { categoryTheme } from '../category-theme'
 import MobileActionBar from '../components/MobileActionBar.vue'
 import RenewBadge from '../components/RenewBadge.vue'
 import RenewProductCard from '../components/RenewProductCard.vue'
@@ -23,8 +22,6 @@ const FADE = {
 }
 
 const product = computed(() => props.vm.data)
-const theme = computed(() => categoryTheme(product.value?.categoryId ?? null, product.value?.categoryName ?? null))
-const sellerInitial = computed(() => product.value?.sellerName.trim().charAt(0) ?? '')
 const addButtonLabel = computed(() => (props.vm.adding ? '담는 중…' : '장바구니 담기'))
 // 금액이 없을 때 문구: 판매 불가(판매 가능 variant 없음 포함)면 그 사유, 아니면 옵션 선택 안내.
 const totalPendingText = computed(() => props.vm.unavailableLabel ?? TOTAL_PENDING_TEXT)
@@ -99,18 +96,15 @@ const addButton = ref<HTMLButtonElement | null>(null)
             <NuxtLink
               v-if="product.categoryName"
               :to="`/categories/${product.categoryId}`"
-              class="btn btn-sm hover:opacity-80 max-md:min-h-11"
-              :style="{ background: theme.background, color: theme.ink }"
+              class="btn btn-secondary btn-sm max-md:min-h-11"
             >
               {{ product.categoryName }}
             </NuxtLink>
 
             <h1 class="mt-4 text-h1 text-ink" data-testid="product-detail-name">{{ product.name }}</h1>
 
-            <p class="mt-4 inline-flex items-center gap-2 rounded-full bg-surface-muted py-1 pl-1 pr-4">
-              <span class="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-small font-bold text-primary-foreground" aria-hidden="true">{{ sellerInitial }}</span>
-              <span class="text-small font-bold text-ink">{{ product.sellerName }}</span>
-            </p>
+            <!-- 셀러는 눌리지 않으므로 알약 모양 없이 평문으로 둔다(FE-82). -->
+            <p class="mt-2 text-small text-sub" data-testid="product-detail-seller">{{ product.sellerName }}</p>
 
             <p class="mt-6 text-h1 font-semibold tabular-nums text-ink" data-testid="product-detail-price">{{ vm.formattedPrice }}</p>
 
@@ -145,7 +139,7 @@ const addButton = ref<HTMLButtonElement | null>(null)
                 <button
                   type="button"
                   aria-label="수량 감소"
-                  class="flex h-10 w-10 items-center justify-center rounded-full text-h3 font-normal text-ink transition duration-fast ease-soft hover:bg-surface-muted disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
+                  class="flex h-11 w-11 items-center justify-center rounded-full text-h3 font-normal text-ink transition duration-fast ease-soft hover:bg-surface-muted disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
                   :disabled="vm.quantity <= 1"
                   @click="vm.decrementQuantity"
                 >
@@ -155,7 +149,7 @@ const addButton = ref<HTMLButtonElement | null>(null)
                 <button
                   type="button"
                   aria-label="수량 증가"
-                  class="flex h-10 w-10 items-center justify-center rounded-full text-h3 font-normal text-ink transition duration-fast ease-soft hover:bg-surface-muted"
+                  class="flex h-11 w-11 items-center justify-center rounded-full text-h3 font-normal text-ink transition duration-fast ease-soft hover:bg-surface-muted"
                   @click="vm.incrementQuantity"
                 >
                   +

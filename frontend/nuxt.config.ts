@@ -1,5 +1,8 @@
 import tailwindcss from '@tailwindcss/vite'
 
+// FE-82: entry의 동적 import 중 관리자·셀러 레이어(레이아웃 4·미들웨어 4 → Vuetify JS·CSS 청크) 경로.
+const ADMIN_SELLER_LAYER_PATTERN = /(^|\/)layers\/(admin|seller)\//
+
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
@@ -14,9 +17,22 @@ export default defineNuxtConfig({
   },
   modules: ['@pinia/nuxt', 'shadcn-nuxt'],
   css: ['~/assets/css/main.css'],
+  hooks: {
+    // FE-82: Nuxt는 entry의 동적 import를 모든 화면에서 prefetch한다. 구매자 화면이 관리자·셀러 청크를 미리 받지 않게
+    // entry 목록에서만 뺀다. 매니페스트는 링크 힌트 계산에만 쓰여 실제 import()·관리자·셀러 화면 로딩은 그대로다.
+    'build:manifest': (manifest) => {
+      for (const chunk of Object.values(manifest)) {
+        if (chunk.isEntry && chunk.dynamicImports) {
+          chunk.dynamicImports = chunk.dynamicImports.filter((id) => !ADMIN_SELLER_LAYER_PATTERN.test(id))
+        }
+      }
+    },
+  },
   // FE-78: viewport-fit=cover가 있어야 iOS에서 env(safe-area-inset-*)가 0이 아니다(하단 고정 바·상단 sticky 헤더가 사용).
+  // FE-82: 스크린리더 언어 지정. 레이아웃·error.vue의 useHead htmlAttrs(data-skin)와 unhead가 합친다.
   app: {
     head: {
+      htmlAttrs: { lang: 'ko' },
       viewport: 'width=device-width, initial-scale=1, viewport-fit=cover',
     },
   },
