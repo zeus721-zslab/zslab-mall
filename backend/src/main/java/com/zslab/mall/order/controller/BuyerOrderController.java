@@ -10,6 +10,7 @@ import com.zslab.mall.order.controller.request.RetryPaymentRequest;
 import com.zslab.mall.order.controller.response.CheckoutResponse;
 import com.zslab.mall.order.controller.response.ConfirmPurchaseResponse;
 import com.zslab.mall.order.controller.response.OrderResponse;
+import com.zslab.mall.order.controller.response.OrderStatusSummaryResponse;
 import com.zslab.mall.order.controller.response.OrderSummaryResponse;
 import com.zslab.mall.order.controller.response.PagedResponse;
 import com.zslab.mall.order.service.BuyerOrderConfirmService;
@@ -70,6 +71,13 @@ public class BuyerOrderController {
         String idempotencyKey = resolveIdempotencyKey(idempotencyKeyHeader);
         CheckoutOutcome outcome = checkoutService.checkout(request.toCommand(buyerId, idempotencyKey));
         return CheckoutOutcomeSupport.toResponseEntity(outcome);
+    }
+
+    /** 본인 주문 현황 요약(Track 105-2d 마이페이지). 리터럴 경로라 {@code /{orderPublicId}}보다 먼저 매칭된다. */
+    @GetMapping("/summary")
+    public ResponseEntity<OrderStatusSummaryResponse> summary(HttpServletRequest httpRequest) {
+        Long buyerId = buyerActorResolver.resolve(httpRequest);
+        return ResponseEntity.ok(buyerOrderQueryService.summarize(buyerId));
     }
 
     /** 본인 주문 단건 조회(§11 seller 그룹화). */

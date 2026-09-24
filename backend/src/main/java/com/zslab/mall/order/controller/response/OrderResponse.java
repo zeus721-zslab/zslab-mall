@@ -68,7 +68,8 @@ public record OrderResponse(
                         item.getOptionLabel(),
                         StatusView.of(item.getItemStatus()),
                         exchangeCompletedItemIds.contains(item.getId()),
-                        OrderItemDeliveryResponse.from(originalDeliveryByItemId.get(item.getId()))));
+                        OrderItemDeliveryResponse.from(originalDeliveryByItemId.get(item.getId())),
+                        product != null ? product.getThumbnailUrl() : null));
                 subtotal += item.getTotalPrice();
             }
             sellers.add(new SellerGroupResponse(

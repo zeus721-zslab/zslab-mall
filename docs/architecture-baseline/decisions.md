@@ -12760,6 +12760,12 @@ A / 2라운드 · 지적 3건 중 수용 2건(R1 운영 코드 1건 중 0 — Or
 - 착수 시 확인 추가: 클레임 처리 주체(셀러/관리자)와 권한 경계
 - 외부 검토: 지적 6건 중 수용 5건(2건 형태 변경), 기각 1건(긴급순 정의 — 착수 시 결정 사항)
 
+### 보완 2 (2026-09-24 · 구매자 상호작용 묶음 반영)
+- 순서 변경: Q&A 기능·1:1 문의·FAQ 위젯은 Track 106(구매자 상호작용)에서 선행 구축 → D-220은 업무함 → 클레임 규칙 제안·원클릭(A) → Q&A 답변 초안 → 클레임 AI 보조(B) → 매뉴얼
+- 업무함 대상 추가: Q&A 미답변 · 1:1 문의 · 리뷰 블라인드 요청
+- FAQ 트리 관리자 편집은 업무함 단계에서 함께 검토(106에서는 정적 파일 + 로딩 경계)
+- 5겹 중 "없앤다" 층의 첫 구현 = 106 FAQ 위젯(셀프 해결 → 미해결 시 1:1 문의 전환)
+
 ## D-221 구매자 상품 목록 큐레이션 파라미터 — 셀러 필터·가격 상한·판매량 정렬 (Track 105-2b · 2026-09-24)
 
 ### 배경
@@ -12799,3 +12805,32 @@ renew 메인 큐레이션(FE-68 β)에 필요한 조회를 기존 `GET /api/v1/p
 - 검증(2026-09-24): `gradlew test --rerun-tasks` 266 클래스 1578/0 실패 · ProductCatalogControllerIntegrationTest T10b(상세 값 직접 단정 + 목록 필터 왕복)·기존 상세 테스트 무변경.
 
 외부 검토: B / 셀프 리뷰(BE 노출·회귀) 지적 0건
+
+## D-223 Track 105-2d-BE 마이페이지 요약 API · 주문 목록 품목 요약·썸네일 (2026-09-24)
+
+### 결정
+- **요약 API** `GET /api/v1/orders/summary`(구매자 본인·기존 `/api/v1/orders/**` BUYER 인가 그대로). 응답 periodMonths(3)·stages{paid, preparing, shipping, delivered, confirmed}·activeClaimCount.
+  - stages = 품목 상태 1:1(PAID·PREPARING·SHIPPING·DELIVERED·CONFIRMED). ORDERED·클레임 계열은 제외하고 0건 단계도 0으로 응답한다. 구매 확정 대기 전용 필드는 없다(FE는 delivered 사용).
+  - 기간 = 주문일 `ordered_at ≥ now − 3개월`(서버 상수 1곳). activeClaimCount = `ClaimStatus.isActive()`(REQUESTED·APPROVED) 합계·기간 제한 없음. 상태 집합은 isActive()에서 만들어 바인딩한다(인라인 상태 목록을 늘리지 않음).
+  - 집계 = GROUP BY 1쿼리 + 클레임 count 1쿼리(엔티티 미적재).
+- **목록 items[]** 주문 목록 OrderSummaryResponse 끝에 품목 요약 추가(orderItemId·productName·optionLabel·quantity·unitPrice·totalPrice·status·sellerName·thumbnailUrl·productId·variantId·exchangeCompleted). 순서는 previewTitle과 같은 비교자(created_at ASC·id ASC). 배송 정보·진행 클레임 ID는 넣지 않는다. 옵션 라벨은 order_item 스냅샷이라 추가 조회가 없고, 상품·variant·셀러·교환 완료는 페이지 단위 IN 배치다.
+- **썸네일** = `product.thumbnail_url`(목록 items·상세 OrderItemResponse.thumbnailUrl 공통). 삭제 상품·NULL → null.
+- 기존 응답 필드는 불변(끝에 추가만). null 필드는 전역 NON_NULL로 응답에서 키가 빠진다.
+
+### §1-A 갈림길·채택/기각 근거
+- 집계 기간: α 전체 기간 / β 최근 3개월 → β 채택(누적 증가 방지·자동 확정 7일로 진행 단계 이탈 없음)
+- 목록 버튼 범위: α 시안 전부(배송·클레임 ID 포함) / β 구매 확정·클레임 신청만 → β 채택(상세가 배송·클레임 담당, 외부 추적 링크 없음, 쿼리 최소)
+- 썸네일: α product_image 원본(대표 우선·DETAIL 제외) / β product.thumbnail_url → β 채택(기존 장바구니·상품 목록 축소본과 일치, 쿼리 1개 감소). α는 설계 시 컬럼 미인지로 잘못 정했던 규칙이며, 구현 후 정정함
+
+### §2 확정 구현 규칙
+- 주문 목록 쿼리 상한(BuyerOrderClaimTabIntegrationTest ORDER_LIST_QUERY_BUDGET) 6 → 10: items[] 배치 조회 4로 증가(실측 9 + 여유 1), 페이지당 고정이라 N+1 아님.
+- 검증(2026-09-24): `gradlew test --rerun-tasks` order.*·claim.* 362/0 실패.
+
+### §8 이월
+- (buyer_id, ordered_at) 인덱스 부재 — 요약 집계는 ix_order_buyer_status의 buyer_id 접두로 찾은 뒤 ordered_at을 행 필터
+- EXCHANGED 관련 오래된 주석(ClaimCompletedHandler:22·DeliveryService:101·OrderItemRepository:129,142) — 교환 완료는 DELIVERED 복귀이며 EXCHANGED 기록 경로 없음
+- BuyerOrderController 클래스 Javadoc 엔드포인트 수("4개" — 실제 6개)
+- `/api/v1/orders` ADMIN 403 테스트 부재(이번은 SELLER 403만)
+- 105-2d-FE 인계: null 필드는 응답에서 키가 빠지므로 FE 타입은 선택 필드로
+
+외부 검토: B / 생략(셀프 리뷰 지적 3건 중 수용 3건 — 그중 리졸버 직접 테스트는 썸네일 정정으로 리졸버와 함께 삭제)

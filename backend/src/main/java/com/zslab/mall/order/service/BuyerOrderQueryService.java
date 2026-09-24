@@ -1,6 +1,7 @@
 package com.zslab.mall.order.service;
 
 import com.zslab.mall.order.controller.response.OrderResponse;
+import com.zslab.mall.order.controller.response.OrderStatusSummaryResponse;
 import com.zslab.mall.order.controller.response.OrderSummaryResponse;
 import com.zslab.mall.order.controller.response.OrderSummaryResponse.ActiveClaimCount;
 import com.zslab.mall.order.controller.response.PagedResponse;
@@ -13,8 +14,11 @@ import com.zslab.mall.delivery.enums.DeliveryDirection;
 import com.zslab.mall.delivery.repository.DeliveryRepository;
 import com.zslab.mall.order.entity.Order;
 import com.zslab.mall.order.entity.OrderItem;
+import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.enums.OrderStatus;
 import com.zslab.mall.order.exception.OrderNotFoundException;
+import com.zslab.mall.order.repository.ItemStatusCountProjection;
+import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.order.repository.OrderRepository;
 import com.zslab.mall.product.entity.Product;
 import com.zslab.mall.product.entity.ProductVariant;
@@ -22,6 +26,8 @@ import com.zslab.mall.product.repository.ProductRepository;
 import com.zslab.mall.product.repository.ProductVariantRepository;
 import com.zslab.mall.seller.entity.Seller;
 import com.zslab.mall.seller.repository.SellerRepository;
+import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.EnumMap;
 import java.util.HashMap;
@@ -48,7 +54,19 @@ public class BuyerOrderQueryService {
     private static final int MAX_PAGE_SIZE = 100;
     private static final int DEFAULT_PAGE_SIZE = 20;
 
+    /** 주문 현황 요약 집계 기간(주문일 기준·D-223 — 누적 증가 방지, 자동 확정 7일이라 진행 단계가 기간 밖으로 밀리지 않는다). */
+    private static final int SUMMARY_PERIOD_MONTHS = 3;
+
+    private static final List<OrderItemStatus> SUMMARY_STAGE_STATUSES = List.of(
+            OrderItemStatus.PAID, OrderItemStatus.PREPARING, OrderItemStatus.SHIPPING,
+            OrderItemStatus.DELIVERED, OrderItemStatus.CONFIRMED);
+
+    private static final List<ClaimStatus> ACTIVE_CLAIM_STATUSES = Arrays.stream(ClaimStatus.values())
+            .filter(ClaimStatus::isActive)
+            .toList();
+
     private final OrderRepository orderRepository;
+    private final OrderItemRepository orderItemRepository;
     private final ProductRepository productRepository;
     private final ProductVariantRepository productVariantRepository;
     private final SellerRepository sellerRepository;
@@ -57,17 +75,40 @@ public class BuyerOrderQueryService {
 
     public BuyerOrderQueryService(
             OrderRepository orderRepository,
+            OrderItemRepository orderItemRepository,
             ProductRepository productRepository,
             ProductVariantRepository productVariantRepository,
             SellerRepository sellerRepository,
             ClaimRepository claimRepository,
             DeliveryRepository deliveryRepository) {
         this.orderRepository = orderRepository;
+        this.orderItemRepository = orderItemRepository;
         this.productRepository = productRepository;
         this.productVariantRepository = productVariantRepository;
         this.sellerRepository = sellerRepository;
         this.claimRepository = claimRepository;
         this.deliveryRepository = deliveryRepository;
+    }
+
+    /**
+     * 본인 주문 현황 요약(Track 105-2d 마이페이지). 최근 {@value #SUMMARY_PERIOD_MONTHS}개월 주문의 품목을 단계별로 세고(GROUP BY 1쿼리)
+     * 진행 중 클레임 수를 기간 제한 없이 센다(count 1쿼리). ORDERED·클레임 계열 품목은 집계 대상 상태가 아니라 조회에서 빠진다.
+     */
+    public OrderStatusSummaryResponse summarize(Long buyerId) {
+        LocalDateTime orderedFrom = LocalDateTime.now().minusMonths(SUMMARY_PERIOD_MONTHS);
+        Map<OrderItemStatus, Long> countByStatus = new EnumMap<>(OrderItemStatus.class);
+        for (ItemStatusCountProjection row
+                : orderItemRepository.countByBuyerIdGroupByItemStatus(buyerId, orderedFrom, SUMMARY_STAGE_STATUSES)) {
+            countByStatus.put(row.getItemStatus(), row.getItemCount());
+        }
+        OrderStatusSummaryResponse.Stages stages = new OrderStatusSummaryResponse.Stages(
+                countByStatus.getOrDefault(OrderItemStatus.PAID, 0L),
+                countByStatus.getOrDefault(OrderItemStatus.PREPARING, 0L),
+                countByStatus.getOrDefault(OrderItemStatus.SHIPPING, 0L),
+                countByStatus.getOrDefault(OrderItemStatus.DELIVERED, 0L),
+                countByStatus.getOrDefault(OrderItemStatus.CONFIRMED, 0L));
+        long activeClaimCount = claimRepository.countByOrderBuyerIdAndStatusIn(buyerId, ACTIVE_CLAIM_STATUSES);
+        return new OrderStatusSummaryResponse(SUMMARY_PERIOD_MONTHS, stages, activeClaimCount);
     }
 
     /** 본인 주문 단건(§11 seller 그룹화 + #6 배송지). 미존재·타인 주문 모두 404(정보 노출 회피·§2). */
@@ -130,11 +171,21 @@ public class BuyerOrderQueryService {
 
         Map<Long, List<ActiveClaimCount>> activeClaimsByOrderId = activeClaimCountsByOrderId(ordersWithItems.values());
 
+        // 품목 요약 enrich(Track 105-2d): 페이지 품목 전체로 상품(썸네일 포함)·variant·셀러·교환 완료를 각 1회 IN 배치 조회한다(N+1 없음).
+        List<OrderItem> pageItems = ordersWithItems.values().stream()
+                .flatMap(order -> order.getItems().stream())
+                .toList();
+        Map<Long, Product> productById = productsByIdFor(pageItems);
+        Map<Long, ProductVariant> variantById = variantsByIdFor(pageItems);
+        Map<Long, Seller> sellerById = sellersByIdFor(pageItems);
+        Set<Long> exchangeCompletedItemIds = exchangeCompletedItemIdsFor(pageItems);
+
         // 페이지 순서(ordered_at DESC) 유지하며 items 로딩본으로 요약 생성(상품명은 order_item 스냅샷·Track 76).
         List<OrderSummaryResponse> summaries = orders.getContent().stream()
                 .map(order -> OrderSummaryResponse.from(
                         ordersWithItems.getOrDefault(order.getId(), order),
-                        activeClaimsByOrderId.getOrDefault(order.getId(), List.of())))
+                        activeClaimsByOrderId.getOrDefault(order.getId(), List.of()),
+                        productById, variantById, sellerById, exchangeCompletedItemIds))
                 .toList();
         Page<OrderSummaryResponse> summaryPage = new PageImpl<>(summaries, pageable, orders.getTotalElements());
         return PagedResponse.from(summaryPage);

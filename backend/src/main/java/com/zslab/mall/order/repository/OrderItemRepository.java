@@ -139,6 +139,19 @@ public interface OrderItemRepository extends JpaRepository<OrderItem, Long>, Jpa
             @Param("status") OrderItemStatus status);
 
     /**
+     * 구매자 주문 품목의 상태별 건수(Track 105-2d 마이페이지 주문 현황). 기간 기준은 주문일({@code ordered_at})이며 하한 포함이다.
+     * 집계 대상 상태(itemStatuses) 밖의 품목은 조회 단계에서 제외되므로 0건 상태는 결과 행이 없다(0 채움은 호출부).
+     * 모든 변수는 :buyerId·:orderedFrom·:itemStatuses 바인딩이다(SQL injection 위험 없음).
+     */
+    @Query("SELECT oi.itemStatus AS itemStatus, COUNT(oi) AS itemCount FROM OrderItem oi JOIN oi.order o "
+            + "WHERE o.buyerId = :buyerId AND o.orderedAt >= :orderedFrom AND oi.itemStatus IN :itemStatuses "
+            + "GROUP BY oi.itemStatus")
+    List<ItemStatusCountProjection> countByBuyerIdGroupByItemStatus(
+            @Param("buyerId") Long buyerId,
+            @Param("orderedFrom") LocalDateTime orderedFrom,
+            @Param("itemStatuses") Collection<OrderItemStatus> itemStatuses);
+
+    /**
      * 셀러의 진행 중 품목 수(Track 89-D 종료 가드 G2·D-187). 진행 중 = 품목 상태가 종결 4종(CONFIRMED·CANCELLED·RETURNED·EXCHANGED)이
      * 아니면서 주문이 닫힌 상태(closedOrderStatuses — 가드는 미결제 종료 PAYMENT_EXPIRED)도 아닌 것. <b>주문 상태 조인이 필수</b>다 — 결제 만료 주문의 품목은
      * {@code item_status=ORDERED}로 남아(품목 전이 없음·정찰 실측) 품목 상태만 보면 만료 주문이 진행 중으로 잡힌다.

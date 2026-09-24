@@ -149,6 +149,15 @@ public interface ClaimRepository extends JpaRepository<Claim, Long>, JpaSpecific
     boolean existsActiveByBuyerId(@Param("buyerId") Long buyerId);
 
     /**
+     * 구매자 주문 품목에 걸린 클레임 중 주어진 상태의 건수(Track 105-2d 마이페이지 진행 클레임 수). claim → order_item →
+     * order.buyer_id 경로이며 {@link #existsActiveByBuyerId}와 같은 기준이다. 상태 집합은 호출부가 {@link ClaimStatus#isActive()}에서
+     * 만들어 넘긴다 — 인라인 상태 목록을 하나 더 두지 않기 위해서다. 모든 변수는 :buyerId·:statuses 바인딩이다(SQL injection 위험 없음).
+     */
+    @Query("SELECT COUNT(c) FROM Claim c, OrderItem oi "
+            + "WHERE oi.id = c.orderItemId AND oi.order.buyerId = :buyerId AND c.status IN :statuses")
+    long countByOrderBuyerIdAndStatusIn(@Param("buyerId") Long buyerId, @Param("statuses") Collection<ClaimStatus> statuses);
+
+    /**
      * 셀러 품목에 걸린 활성 클레임(REQUESTED·APPROVED) 수(Track 89-D 종료 가드 G3·D-187). 활성 기준은
      * {@link #existsActiveByOrderItemId}와 동일하며 claim → order_item.seller_id 경로로 센다. 모든 변수는 :sellerId 바인딩이다.
      */
