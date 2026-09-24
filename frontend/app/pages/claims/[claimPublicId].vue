@@ -29,8 +29,8 @@ const claimPublicId = route.params.claimPublicId as string
 
 const { data, pending, error, refresh } = useClaimDetail(claimPublicId)
 
-// FE-63: 목록 복귀는 통합된 주문내역의 자기 유형 탭으로 간다. 조회 전에는 유형을 모르므로 취소 탭을 기본으로 둔다.
-const listTab = computed(() => (data.value ? tabOfClaimType(data.value.claimType) : 'cancel'))
+// FE-63 → FE-73: 목록 복귀는 주문내역의 취소·반품·교환 탭(유형 구분 없는 한 탭)으로 간다.
+const listTab = computed(() => (data.value ? tabOfClaimType(data.value.claimType) : 'claim'))
 
 // 401(세션 만료)은 /login 유도. 404(타인·미존재)는 존재 은닉이라 안내만(orders/[id] 패턴).
 watch(

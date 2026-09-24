@@ -4,13 +4,17 @@
  */
 
 import type { ActiveClaimCount } from '~/types/order'
-import { claimTypeLabel } from '~/lib/constants/claim'
+import { claimTypeLabel, type ClaimType } from '~/lib/constants/claim'
 import { tabOfClaimType, type OrderListTab } from '~/lib/constants/order-tabs'
 
-/** 카드에 찍는 배지 1개. tab이 있으면 해당 유형 탭으로 이동하는 배지이고, 없으면 "외 N" 요약이다. */
+/**
+ * 카드에 찍는 배지 1개. tab이 있으면 클레임 탭으로 이동하는 배지이고, 없으면 "외 N" 요약이다.
+ * claimType은 유형 배지(renew 색·유형 필터 링크·FE-73 보완 1)용이며 "외 N" 요약은 null이다.
+ */
 export interface ActiveClaimBadge {
   label: string
   tab: OrderListTab | null
+  claimType: ClaimType | null
 }
 
 /** 한 카드에 나열하는 유형 배지 수 상한. 초과분은 "외 N" 배지 하나로 접는다. */
@@ -27,7 +31,8 @@ export function toActiveClaimBadges(activeClaims: ActiveClaimCount[] | undefined
   const visible = counted.slice(0, MAX_VISIBLE_TYPES).map((entry) => ({
     label: `${claimTypeLabel(entry.claimType)} ${entry.count}`,
     tab: tabOfClaimType(entry.claimType),
+    claimType: entry.claimType,
   }))
   const hidden = counted.length - visible.length
-  return hidden > 0 ? [...visible, { label: `외 ${hidden}`, tab: null }] : visible
+  return hidden > 0 ? [...visible, { label: `외 ${hidden}`, tab: null, claimType: null }] : visible
 }

@@ -2964,3 +2964,53 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 #### §8 이월
 - 2f 이전 renew 뷰(장바구니·주문서 등)의 메시지를 공용 알림으로 교체(통합 검토).
 - 알림 톤 4번째 warning(butter, role=status): 되돌릴 수 없는 동작 안내용, 현재 탈퇴 안내만 사용
+
+## FE-73: renew 주문 목록·주문 상세·클레임 신청·클레임 상세 — 탭 2개 · 품목 행 · 구매 확정 확인 모달 (Track 105-2d-FE2) (2026-09-24)
+
+배경: 주문·클레임 4화면이 classic 뷰에 토큰만 입힌 상태였고, 주문 목록은 유형별 4탭(FE-63)이었다. FE-72에서 사이드 메뉴 통합과 함께 탭 2개를 예고했고, 주문 목록 품목 요약(D-223 items[])으로 카드 안에서 품목 단위 동작이 가능해졌다.
+
+결정:
+- **탭 2개** `order-tabs.ts` = 전체 주문(order·GET /orders) · 취소·반품·교환(claim·GET /claims를 type 없이). 탭 상수 변경은 classic OrdersView에도 적용된다(허용). 번호 페이지 유지. `useClaimList(page, enabled)` — 클레임 탭일 때만 조회(자동 watch 끔·[enabled, page] 변화 시 refresh), 전환 직후 idle은 로딩으로 표시. 클레임 상세 복귀·진행 클레임 배지는 claim 탭.
+- **전체 주문 탭 = 주문 카드** 헤더(주문일·주문번호·"주문 상세" 링크·결제대기면 결제하기) + 진행 클레임 배지(→ claim 탭) + items[] 품목 행(썸네일·품목 상태 배지·셀러명·상품명·옵션·수량·금액). 행 버튼: 구매 확정(DELIVERED) · 클레임 요청(상세와 같은 claimableTypes 규칙·같은 /claims/new 경로·교환은 상품·변형·단가 전달). 배송 조회·요청 상세 버튼은 두지 않는다(D-223). items가 없는 응답은 previewTitle 한 줄.
+- **취소·반품·교환 탭 = 클레임 카드** 유형 배지·상태·품목명·요청일·거부 사유·환불 상태, 누르면 클레임 상세.
+- **구매 확정 확인 모달(목록·상세 공통)** DialogConfirm·설명 = 기존 경고 문구(ITEM_CONFIRM_WARNING). testid는 기존 확인 패널과 같다(content item-confirm-panel·description item-confirm-warning·cancel item-confirm-cancel·확정 item-confirm-submit). 성공 시 재조회 + success 알림, 실패(422 등)는 서버 detail 우선 danger 알림 — 상세와 같은 규칙. 상세의 인라인 확인 패널은 이 모달로 대체(페이지 확정 상태 confirmTargetId를 모달 열림으로 연결·script 무변경). 목록은 페이지에 confirmTarget·openConfirm·cancelConfirm·submitConfirm·goClaim을 추가.
+- **주문 상세** 섹션 순서 유지(헤더 → 결제하기 → 셀러 그룹별 품목 → 총 결제금액 → 배송지 → 목록 링크) + 품목 썸네일(OrderItem.thumbnailUrl·D-223). 배송 정보·송장 복사(공용 OrderItemDeliveryInfo)·자동확정 안내·클레임 버튼 유지.
+- **클레임 신청·상세** 기존 vm 계약·화면 상태 그대로 renew 뷰(잘못된 접근/폼/접수 완료 · 타임라인(<768 세로·≥768 가로) · 요청 취소 인라인 · 회수 송장 등록). 4화면 모두 MypageFrame 사용, 사이드 "주문 내역"은 /orders·/orders/*·/claims/*에서 활성.
+- **메시지 톤** 완료 success · 안내 info · 되돌릴 수 없는 동작 안내 warning(요청 취소 확인 패널) · 실패 danger.
+- **확정 범위 밖 변경 3건**
+  - claims/[claimPublicId].vue 복귀 탭 기본값 'cancel' → 'claim'(탭 타입 변경에 따른 필수 수정 1줄).
+  - DialogConfirm 선택 prop(pending·content/description/cancel/confirm testid·설명 줄바꿈 표시) — 기본값에서는 동작 불변.
+  - MypageFrame activeTo(하위 화면이 소속 메뉴를 지정하면 aria-current).
+
+### §1-A 갈림길·채택/기각 근거
+- **탭: α 4탭(FE-63 유지) / β 2탭** → β 채택(FE-72 사이드 메뉴 통합과 정합·BE type 선택값).
+- **구매 확정 확인: α 인라인 패널 / β 확인 모달** → β 채택(목록 품목 행 크기 증가 방지·공용 모달 재사용).
+- 그 외 대안 검토 없음.
+
+### §2 검증
+- 1차(2026-09-24): typecheck 0 · vitest 111 files / 772 passed · e2e claims·order-resume-payment·smoke(renew) 9/9 · 임시 스크립트 7/9 — 실패 2건은 판정 방식 오류로 통과 처리(① 구매 확정 모달 취소 후 배지 불변·확정 POST 0건 확인 ② 클레임 신청 화면 "주문 내역" 활성은 렌더 후 스크린샷에서 확인).
+- 재검증(보완 1 반영 후·2026-09-24): typecheck 0(1회 실패 → LocationQuery 타입 명시 후 통과) · vitest 111 files / 777 passed(order-tabs 15·skin-guard 3) · e2e claims·order-resume-payment·smoke(renew) 9/9.
+
+### §8 이월
+- FE-72 이월 종결: 구매 확정 모달 전환(목록·상세 공통 확인 모달) · ?tab=claim(claim 탭으로 열림).
+- 요청 취소·탈퇴 확인의 모달 전환 여부(통합 검토).
+- 클레임 접수 완료 "주문 내역으로" 링크의 탭(현재 기본 탭·통합 검토).
+- 목록 페이지당 20건일 때 renew 카드 페이지 길이(통합 검토).
+- 모바일 주문 카드의 버튼 밀도(통합 검토).
+
+외부 검토: C / 생략
+
+### 보완 1 (클레임 유형 색·필터 칩) (2026-09-24)
+- **유형 색 규칙** renew 전용 상수 1곳 `skins/renew/claim-type-tone.ts` — 유형 배지 = 기존 파스텔 토큰(취소 butter · 반품 pink · 교환 periwinkle·새 색 값 없음), 상태 칩·환불 상태·거부 사유 = 흰 바탕 + 테두리 중립 칩(문구 그대로). 적용 4곳: 클레임 탭 카드 · 주문 카드 진행 클레임 배지 · 클레임 상세 헤더 · 클레임 신청 화면 대상 카드.
+- **유형 필터 칩** 취소·반품·교환 탭 안 전체 · 취소 · 반품 · 교환. URL ?tab=claim&type=cancel|return|exchange(type 없음 = 전체·칩 변경 시 page 0·허용값 밖은 전체). 조회는 기존 GET /claims의 type 파라미터(BE 변경 없음). 필터 결과 0건 문구 "해당 유형의 요청이 없습니다". 옛 ?tab=cancel|return|exchange는 claim 탭 + 해당 유형으로 해석한다(parseClaimTypeFilter·?type 우선).
+- **지시 없이 추가해 수용한 2건** ① 옛 탭 링크로 들어오면 주소를 tab=claim&type=으로 정리(onMounted — 이후 페이지·탭 이동이 쿼리를 이어받을 때 유형이 사라지지 않도록) ② 진행 클레임 배지 링크에 해당 유형(type)을 붙임(ActiveClaimBadge.claimType 추가·classic 카드는 미사용).
+
+#### §1-A 갈림길·채택/기각 근거
+- **α 유형별 페이지 분리 / β 탭 안 필터 칩** → β 채택(탭 통합 결정 유지·BE type 파라미터 재사용·옛 링크 의미 보존).
+
+#### §2 검증
+- 위 재검증과 같음 · 스크린샷 orders-claim 1440/390 · orders-claim-filter-return 1440(반품 칩 선택·반품 3건만) · claim-detail 1440(유형 색 배지·상태 중립 칩) — docs/frontend/screens-track105-2d/.
+
+#### §8 이월
+- 클레임 목록 썸네일 부재(BE 응답에 없음).
+- classic에서 옛 링크로 필터가 적용될 때 칩 UI 없음(105-3에서 해소).
