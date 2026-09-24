@@ -26,5 +26,5 @@ export type SkinViewName =
   | 'ProductDetailView'
   | 'ErrorView'
 
-/** 뷰 이름 → 컴포넌트. 기준 스킨(classic)은 전부 채워야 한다(누락은 typecheck에서 차단). */
+/** 뷰 이름 → 컴포넌트. 기준 스킨(renew)은 전부 채워야 한다(누락은 typecheck에서 차단). */
 export type SkinViews = Record<SkinViewName, Component>

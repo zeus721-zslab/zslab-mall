@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { ref } from 'vue'
 import { mountSuspended, mockNuxtImport } from '@nuxt/test-utils/runtime'
-import { flushPromises } from '@vue/test-utils'
+import { flushPromises, type VueWrapper } from '@vue/test-utils'
 import OrderDetailPage from '~/pages/orders/[orderPublicId].vue'
 import type { OrderDetail, OrderItem } from '~/types/order'
 import { ITEM_CONFIRM_WARNING } from '~/lib/constants/order'
@@ -122,6 +122,8 @@ describe('pages/orders/[orderPublicId].vue 구매확정(C-06)·안내 문구(C-1
   beforeEach(() => {
     useOrderDetailMock.mockReset()
     confirmPurchaseMock.mockReset()
+    // Portal 잔존물이 it 간 누적되지 않도록 body를 비운다.
+    document.body.innerHTML = ''
   })
 
   it('DELIVERED 품목만 구매확정 버튼 + 자동 확정 안내(7일) · SHIPPING·PAID 품목엔 없음', async () => {
@@ -141,25 +143,36 @@ describe('pages/orders/[orderPublicId].vue 구매확정(C-06)·안내 문구(C-1
     expect(wrapper.find('[data-testid="order-payment-expire-guide"]').text()).toBe('30분 내 결제되지 않으면 주문이 자동 취소됩니다.')
   })
 
+  // renew 확인 패널은 DialogConfirm(reka Portal → document.body)이라 wrapper가 아닌 document 기준으로 조회한다(FE-75).
+  function dialogPart(testId: string): HTMLElement | null {
+    return document.querySelector<HTMLElement>(`[data-testid="${testId}"]`)
+  }
+
+  async function openConfirm(wrapper: VueWrapper): Promise<void> {
+    await wrapper.find('[data-testid="item-confirm-purchase"]').trigger('click')
+    await flushPromises()
+  }
+
   it('버튼 → 확인 패널(반품·교환 불가 경고) → 확정 → API 1회·재조회·성공 안내 / 취소는 호출 없음', async () => {
     const { refresh } = mountWith([delivered()])
     confirmPurchaseMock.mockResolvedValue({ orderItemId: 'oit_2', status: 'CONFIRMED' })
     const wrapper = await mountSuspended(OrderDetailPage)
-    expect(wrapper.find('[data-testid="item-confirm-panel"]').exists()).toBe(false)
-    await wrapper.find('[data-testid="item-confirm-purchase"]').trigger('click')
-    expect(wrapper.find('[data-testid="item-confirm-warning"]').text()).toBe(ITEM_CONFIRM_WARNING)
-    await wrapper.find('[data-testid="item-confirm-cancel"]').trigger('click')
-    expect(wrapper.find('[data-testid="item-confirm-panel"]').exists()).toBe(false)
+    expect(dialogPart('item-confirm-panel')).toBeNull()
+    await openConfirm(wrapper)
+    expect(dialogPart('item-confirm-warning')?.textContent?.trim()).toBe(ITEM_CONFIRM_WARNING)
+    dialogPart('item-confirm-cancel')!.click()
+    await flushPromises()
+    expect(dialogPart('item-confirm-panel')).toBeNull()
     expect(confirmPurchaseMock).not.toHaveBeenCalled()
 
-    await wrapper.find('[data-testid="item-confirm-purchase"]').trigger('click')
-    await wrapper.find('[data-testid="item-confirm-submit"]').trigger('click')
+    await openConfirm(wrapper)
+    dialogPart('item-confirm-submit')!.click()
     await flushPromises()
     expect(confirmPurchaseMock).toHaveBeenCalledTimes(1)
     expect(confirmPurchaseMock).toHaveBeenCalledWith('ord_test', 'oit_2')
     expect(refresh).toHaveBeenCalledTimes(1)
     expect(wrapper.find('[data-testid="item-confirm-notice"]').text()).toBe('구매확정이 완료되었습니다.')
-    expect(wrapper.find('[data-testid="item-confirm-panel"]').exists()).toBe(false)
+    expect(dialogPart('item-confirm-panel')).toBeNull()
   })
 
   it('중복 제출 차단: 응답 전 두 번째 클릭은 호출 없음', async () => {
@@ -167,9 +180,9 @@ describe('pages/orders/[orderPublicId].vue 구매확정(C-06)·안내 문구(C-1
     let resolveCall: (value: { orderItemId: string; status: string }) => void = () => {}
     confirmPurchaseMock.mockReturnValue(new Promise((resolve) => { resolveCall = resolve }))
     const wrapper = await mountSuspended(OrderDetailPage)
-    await wrapper.find('[data-testid="item-confirm-purchase"]').trigger('click')
-    await wrapper.find('[data-testid="item-confirm-submit"]').trigger('click')
-    await wrapper.find('[data-testid="item-confirm-submit"]').trigger('click')
+    await openConfirm(wrapper)
+    dialogPart('item-confirm-submit')!.click()
+    dialogPart('item-confirm-submit')!.click()
     expect(confirmPurchaseMock).toHaveBeenCalledTimes(1)
     resolveCall({ orderItemId: 'oit_2', status: 'CONFIRMED' })
     await flushPromises()
@@ -179,8 +192,8 @@ describe('pages/orders/[orderPublicId].vue 구매확정(C-06)·안내 문구(C-1
     const { refresh } = mountWith([delivered()])
     confirmPurchaseMock.mockRejectedValue({ statusCode: 422, data: { detail: '구매확정할 수 없는 상태입니다' } })
     const wrapper = await mountSuspended(OrderDetailPage)
-    await wrapper.find('[data-testid="item-confirm-purchase"]').trigger('click')
-    await wrapper.find('[data-testid="item-confirm-submit"]').trigger('click')
+    await openConfirm(wrapper)
+    dialogPart('item-confirm-submit')!.click()
     await flushPromises()
     expect(wrapper.find('[data-testid="item-confirm-notice"]').text()).toBe('구매확정할 수 없는 상태입니다')
     expect(refresh).toHaveBeenCalledTimes(1)

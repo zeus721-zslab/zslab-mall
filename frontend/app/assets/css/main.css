@@ -73,7 +73,7 @@
   --duration-slow: 250ms;
 }
 
-/* FE-07 브랜드 토큰(classic 값). 스킨은 아래 [data-skin] 블록에서 이 변수 값만 바꾼다. */
+/* FE-07 브랜드 토큰(data-skin이 없는 관리자·셀러 화면의 값). 구매자 화면은 아래 [data-skin] 블록에서 이 변수 값만 바꾼다. */
 :root {
   --primary-hover: #1D4ED8;
   --price: #E11D48;
@@ -122,10 +122,10 @@
   --radius-badge: var(--badge-radius);
 }
 
-/* renew 스킨(FE-68). 구매자 레이아웃이 <html data-skin>을 붙이므로 :root와 같은 요소에서 값을 덮어쓴다.
-   renew 뷰가 없는 화면도 classic 뷰가 이 값으로 렌더된다. 가격은 본문색·강조는 포인트색.
-   파스텔·이미지 대기 배경·큰 면 모서리는 변수만 정의한다(사용은 Track 105-2c). */
-:root[data-skin="renew"] {
+/* 구매자 기준 토큰(FE-68 renew 값 → FE-75 선택자 [data-skin]). 구매자 레이아웃이 <html data-skin>을 붙이므로 :root와 같은 요소에서 값을 덮어쓴다.
+   관리자·셀러 화면은 data-skin이 없어 위 :root 기본값을 쓴다(text-primary 등 토큰 유틸 사용 중). 이후 스킨은 [data-skin="이름"]으로 바꿀 값만 덮어쓴다.
+   가격은 본문색·강조는 포인트색. */
+:root[data-skin] {
   --background: #F8F6FC;
   --surface-page: #F8F6FC;
 
@@ -287,8 +287,8 @@
   src: url('/fonts/NanumGothic-Bold.woff2') format('woff2');
 }
 
-/* IBM Plex Mono self-host (FE-68·OFL — public/fonts/IBMPlexMono-OFL.txt). renew의 --font-mono가 참조한다.
-   @font-face는 실제로 쓰는 요소가 있을 때만 내려받으므로 classic에는 요청이 생기지 않는다. */
+/* IBM Plex Mono self-host (FE-68·OFL — public/fonts/IBMPlexMono-OFL.txt). 구매자 [data-skin]의 --font-mono가 참조한다.
+   @font-face는 실제로 쓰는 요소가 있을 때만 내려받으므로 관리자·셀러 화면에는 요청이 생기지 않는다. */
 @font-face {
   font-family: 'IBM Plex Mono';
   font-style: normal;

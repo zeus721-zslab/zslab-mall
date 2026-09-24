@@ -1,9 +1,9 @@
 import { defineVitestConfig } from '@nuxt/test-utils/config'
 import { configDefaults } from 'vitest/config'
 
-// 테스트 스킨은 classic 고정(FE-70). test-utils가 설정 로드 시 process.env의 NUXT_*를 runtimeConfig에 적용하므로
-// 컨테이너가 물려받은 로컬 스킨 env(NUXT_PUBLIC_SKIN=renew)가 테스트에 새지 않도록 설정 로드 전에 덮어쓴다(test.env는 워커 전용이라 늦음).
-process.env.NUXT_PUBLIC_SKIN = 'classic'
+// 테스트 스킨은 기준 스킨 renew 고정(FE-70 → FE-75). test-utils가 설정 로드 시 process.env의 NUXT_*를 runtimeConfig에 적용하므로
+// 컨테이너가 물려받은 스킨 env가 테스트에 새지 않도록 설정 로드 전에 덮어쓴다(test.env는 워커 전용이라 늦음).
+process.env.NUXT_PUBLIC_SKIN = 'renew'
 
 // nuxt.config.ts의 vite 설정(alias·tailwindcss 등)을 test-utils가 상속하므로 alias 수동 배선 없음.
 export default defineVitestConfig({

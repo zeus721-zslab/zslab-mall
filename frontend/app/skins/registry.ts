@@ -1,16 +1,15 @@
 import type { Component } from 'vue'
-import { classicSkin, classicViews } from './classic'
-import { renewSkin } from './renew'
+import { renewSkin, renewViews } from './renew'
 import type { SkinViewName, SkinViews } from './contracts/views'
 
-/** 등록된 스킨 이름 SoT. 여기 없는 값(쿠키·env)은 무시하고 classic으로 대체한다. */
-export const SKIN_NAMES = ['classic', 'renew'] as const
+/** 등록된 스킨 이름 SoT. 여기 없는 값(쿠키·env)은 무시하고 기본 스킨(renew)으로 대체한다. */
+export const SKIN_NAMES = ['renew'] as const
 export type SkinName = (typeof SKIN_NAMES)[number]
-export const DEFAULT_SKIN: SkinName = 'classic'
+export const DEFAULT_SKIN: SkinName = 'renew'
 
 /**
  * 스킨이 페이지·레이아웃에 요청할 수 있는 추가 데이터(FE-69). 선언한 스킨에서만 페이지가 해당 조회를 실행해 vm으로 넘긴다
- * — 선언이 없는 스킨(classic)은 추가 조회 0건. layoutHeader = 헤더 상태·동작 · homeCuration = 메인 큐레이션 섹션 ·
+ * — 선언이 없는 스킨은 추가 조회 0건. layoutHeader = 헤더 상태·동작 · homeCuration = 메인 큐레이션 섹션 ·
  * productList = 번호 페이지 상품 목록·카테고리 탭·검색 결과(FE-74) · productDetailMore = 상품 상세의 셀러 다른 상품(FE-70) ·
  * mypageHome = 마이페이지 홈의 회원명·주문 현황·기본 배송지·최근 주문(FE-72) · signupPasswordConfirm = 회원가입 비밀번호 확인 칸 검사(FE-74).
  */
@@ -18,8 +17,8 @@ export const SKIN_NEEDS = ['layoutHeader', 'homeCuration', 'productList', 'produ
 export type SkinNeed = (typeof SKIN_NEEDS)[number]
 
 /**
- * 스킨 정의. views에 없는 뷰는 parent → classic 순으로 대체한다.
- * classic은 전 뷰를 정적 import로 채운다. 이후 스킨은 바꾸는 뷰만 defineAsyncComponent로 채워 별도 청크로 분리한다.
+ * 스킨 정의. views에 없는 뷰는 parent → 기준 스킨(renew) 순으로 대체한다.
+ * renew는 전 뷰를 정적 import로 채운다(FE-75). 이후 스킨(계절 스킨 등)은 바꾸는 뷰만 defineAsyncComponent로 채워 별도 청크로 분리한다.
  * needs는 parent 체인까지 합산한다(물려받은 뷰가 쓰는 데이터도 함께 받도록).
  */
 export interface SkinDefinition {
@@ -29,7 +28,6 @@ export interface SkinDefinition {
 }
 
 const skins: Record<SkinName, SkinDefinition> = {
-  classic: classicSkin,
   renew: renewSkin,
 }
 
@@ -55,7 +53,7 @@ export function resolveSkinView(skin: SkinName, view: SkinViewName): Component {
     const found = definition.views[view]
     if (found) return found
   }
-  return classicViews[view]
+  return renewViews[view]
 }
 
 export function skinNeeds(skin: SkinName, need: SkinNeed): boolean {

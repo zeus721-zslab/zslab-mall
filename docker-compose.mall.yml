@@ -81,7 +81,7 @@ services:
       NUXT_PUBLIC_API_BASE: ${NUXT_PUBLIC_API_BASE:-}
       NUXT_API_INTERNAL_BASE: ${NUXT_API_INTERNAL_BASE:-http://mall-backend:8080}
       # FE-67 구매자 기본 스킨(런타임 runtimeConfig.public.skin override).
-      NUXT_PUBLIC_SKIN: ${NUXT_PUBLIC_SKIN:-classic}
+      NUXT_PUBLIC_SKIN: ${NUXT_PUBLIC_SKIN:-renew}
       # FE-43 구매자 데모 로그인: 비공개 runtimeConfig(서버 라우트 /_demo/* 전용)로만 소비되며 미설정 시 데모 비활성.
       NUXT_BUYER_DEMO_EMAIL: ${NUXT_BUYER_DEMO_EMAIL:-}
       NUXT_BUYER_DEMO_PASSWORD: ${NUXT_BUYER_DEMO_PASSWORD:-}

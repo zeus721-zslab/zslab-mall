@@ -3056,3 +3056,42 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 - 로그인 1440 스크린샷의 왼쪽 안내 면이 흐리게 찍힘(계산 opacity 1·촬영 시점 무관 — 원인 미확정).
 
 외부 검토: C / 생략
+
+## FE-75: classic 스킨 제거 — renew 기준 스킨 · 토큰 선택자 [data-skin] · classic 전용 컴포넌트 정리 (Track 105-3) (2026-09-24)
+
+배경: FE-74로 모든 구매자 화면이 renew 뷰를 가져 classic은 대체 대상으로만 남았다(recon-report-track105-2g STEP 7). classic을 제거하고 renew를 기준 스킨으로 삼되, 스킨 구조(registry·parent 체인·needs·data-skin)는 계절 스킨 용도로 유지한다.
+
+결정:
+- **기준 스킨** `skins/renew/index.ts` parent 제거 · 23뷰 정적 import · `renewViews: SkinViews`(전체 Record — 누락은 typecheck 차단). registry `SKIN_NAMES = ['renew']` · `DEFAULT_SKIN = 'renew'` · resolveSkinView 최종 대체 = renewViews. `SkinDefinition.views`는 Partial 유지(이후 스킨은 바꾸는 뷰만 비동기) · needs·parent 체인·순환 방지 유지. `skins/classic/` 23파일 삭제.
+- **기본값 5곳 renew** nuxt.config.ts `public.skin` · docker-compose.mall.yml fallback · .env.example · vitest.config.ts 강제 덮어쓰기(줄 유지·값만) · registry.ts DEFAULT_SKIN. 각 설명 주석도 수정.
+- **토큰 분기 (b)** layers/admin·seller가 main.css 토큰 유틸을 21파일 22건 사용(text-primary 18·text-warning 3·text-success 1) → `:root` 기본값은 data-skin이 없는 관리자·셀러용으로 유지하고, 선택자 `:root[data-skin="renew"]` → `:root[data-skin]`(값 무변경)으로 구매자 기준 토큰을 삼는다. 이후 스킨은 `[data-skin="이름"]`으로 바꿀 값만 덮어쓴다. FE-07·FE-68 주석의 classic 설명 수정.
+- **classic 전용 컴포넌트 13 삭제** AppHeader·AppFooter·HomeHero·HomeProductGrid·ProductListView·ProductCard·CategoryTabs·SortSelect·LoadingSkeleton·OrderItemList·PaymentSummary·OrderSummaryCard·ClaimSummaryCard(classic 외 코드 참조 0 — 남긴 것 없음) + 이들만 쓰던 컴포저블 useProducts·useProductList. 유지 AttachmentInput·EmptyState·ErrorState·ItemDeliveryInfo·useAppHeader.
+- **CommonErrorState·CommonEmptyState** 고정 회색만 토큰으로(아이콘 gray-300 → text-line · 버튼 border-line·text-ink·hover:bg-surface-card·ring-ring). 레이아웃·문구·props 무변경.
+- **제거된 스킨 값** 쿠키 zslab_skin=classic·?skin=classic은 isSkinName에서 걸러져 env → 기본 스킨(renew)으로 떨어진다(plugins/skin.ts 코드 확인). 남은 쿠키는 무시되므로 지우지 않는다.
+- **대체되는 결정** FE-67(기본 스킨 classic · classic = 전 뷰 정적 기준 스킨 · 최종 대체 classic) · FE-68(토큰 :root = classic 값 · renew 블록 [data-skin="renew"]) · FE-69 보완(CI·운영 기본값 classic 유지) · FE-70(vitest 스킨 classic 고정 → renew 고정) · FE-72 classic 허브 파생(소비처 소멸).
+- **테스트** 삭제한 컴포넌트·컴포저블 spec 7 삭제 · AppHeader.spec 13케이스를 test/component/LayoutShell.spec.ts(기본 레이아웃 마운트 → renew LayoutShell + useAppHeader)로 전부 이전(지시 3종 외 로그아웃·카테고리·ADMIN도 의도 유지로 이전)·"링크 6개" → "링크 5개" · 페이지 mount spec 단언 교체(SearchPage·CategoryPage → useProductPage mock · OrderDetailPage 확인 패널 Portal → document 조회 · SignupPage renew 뷰 import) · skin-guard 금지 목록 useProductList → useProductPage.
+
+### §1-A 갈림길·채택/기각 근거
+- **기준 스킨 뷰 로딩: α 정적 import / β 비동기 유지** → α 채택. β 기각: 기준 스킨은 항상 쓰여 청크 분리 이득이 없다. α는 SkinViews 전체 Record로 누락을 typecheck에서 막는다.
+- **토큰: (a) renew 값을 :root로 통합 / (b) :root 유지 + [data-skin]** → 정찰 실측(관리자·셀러 22건)으로 (b).
+- **AppHeader.spec 이전 범위: 지시 3종만 / 전부** → 전부(케이스 의도 유지·커버리지 소실 방지).
+
+### §2 검증
+- typecheck 0 · vitest 107 files / 762 passed(113 − 삭제 7 + LayoutShell 1 · skin-guard 3 · LayoutShell 13) · e2e smoke·help·password-change(renew) 7 passed.
+- 개발 중 영향 spec: OrderDetailPage 구매확정 3건이 wrapper 기준 조회라 실패(renew 확인 패널은 DialogConfirm Portal) → document 기준 조회로 교체 후 통과.
+- hookTimeout 30000 유지 — 워커 첫 파일(가벼운 파일 6개) 파일 소요 17.0~18.5s(테스트 시간 0.5s 내외 → 대부분 준비 단계). FE-70 측정값(transform 10.0~10.4s)과 측정 기준이 다르다.
+- 'classic' 잔여(docs 제외) 50줄 — 전부 주석·JSDoc·테스트 이름·설정 설명, 실행 코드 참조 0.
+
+### §3 공용 컴포넌트 하드코딩 색 집계(수정 없음 — 105-4)
+- app/components 4파일 7건: order/ItemDeliveryInfo 3(bg-gray-50·bg-white·hover:bg-gray-100) · ui/dialog/DialogContent 2(bg-white·rgba(0,0,0,0.35)) · ui/dialog/DialogConfirm 1(bg-white) · claim/AttachmentInput 1(bg-white/90). CommonErrorState·CommonEmptyState 0.
+
+### §8 이월
+- 'classic' 언급 주석 정리(페이지·renew 뷰·contracts의 "classic과 같은" 등 50줄).
+- 소비처 없어진 vm 잔존: mypage/index.vue menus(MYPAGE_HUB_MENU_ITEMS) · addresses.vue handleRemove(window.confirm 경로).
+- /admin·/seller 404의 ErrorView 파스텔 값 미정의 — 분기 (b)로 data-skin 없는 경로는 그대로(FE-74 이월 중 구매자 쪽만 해소).
+- FE-73 이월 "classic 옛 링크 필터 칩 UI 없음"은 classic 제거로 종결.
+- 로컬 .env 주석 "운영·CI 기본값은 classic"(비커밋 파일).
+- e2e 잔여 의존 정리 · needs 구조 단순화 · 디자인 변경(105-4).
+- FE-74 이월 '로그인 안내 면 흐림' — 오탐(브라우저 확인 정상), 종결
+
+외부 검토: C / 생략

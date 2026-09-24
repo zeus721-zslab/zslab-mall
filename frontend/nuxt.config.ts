@@ -38,8 +38,8 @@ export default defineNuxtConfig({
     buyerDemoPassword: '',
     public: {
       apiBase: process.env.NUXT_PUBLIC_API_BASE || '',
-      // FE-67 구매자 기본 스킨. 런타임 env NUXT_PUBLIC_SKIN으로 교체(재빌드 불필요). 미등록 값은 classic으로 대체.
-      skin: 'classic',
+      // FE-67 구매자 기본 스킨. 런타임 env NUXT_PUBLIC_SKIN으로 교체(재빌드 불필요). 미등록 값은 renew로 대체(FE-75).
+      skin: 'renew',
     },
   },
   vite: {
