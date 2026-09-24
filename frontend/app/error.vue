@@ -43,7 +43,10 @@ const vm: ErrorPageVm = reactive({ notFound, handleGoHome, handleGoBack })
 </script>
 
 <template>
-  <component :is="useSkinView('ErrorView')" v-if="areaHome" :vm="vm" />
+  <!-- 레이아웃이 없어 바탕 면(LayoutShell의 surface-page)도 없다 → 흰 카드가 묻히지 않게 같은 바탕을 깐다(FE-81). -->
+  <div v-if="areaHome" class="min-h-screen bg-surface-page">
+    <component :is="useSkinView('ErrorView')" :vm="vm" />
+  </div>
   <NuxtLayout v-else name="default">
     <component :is="useSkinView('ErrorView')" :vm="vm" />
   </NuxtLayout>

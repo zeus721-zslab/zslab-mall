@@ -7,9 +7,9 @@ import RenewNotice from '../components/RenewNotice.vue'
 // 비밀번호 확인 칸은 renew만 있다 — 불일치 판정은 페이지(signupPasswordConfirm 선언 시)가 하고, 문구는 danger로 보인다.
 defineProps<{ vm: SignupPageVm }>()
 
-const LABEL = 'mb-1.5 block text-sm font-bold text-ink'
+const LABEL = 'mb-1.5 block text-small font-bold text-ink'
 const INPUT =
-  'h-12 w-full rounded-[14px] border border-line bg-white px-4 text-sm text-ink transition duration-200 placeholder:text-sub focus:border-primary focus:outline-hidden focus:ring-1 focus:ring-primary'
+  'h-12 w-full rounded-control border border-line bg-white px-4 text-body text-ink transition duration-fast ease-soft placeholder:text-sub focus:border-primary focus:outline-hidden focus:ring-1 focus:ring-primary'
 </script>
 
 <template>
@@ -102,20 +102,15 @@ const INPUT =
       <!-- 에러: 확인 불일치 · 이메일 중복 · 그 외 단일 문구 -->
       <RenewNotice v-if="vm.errorMessage" tone="danger" data-testid="signup-error">{{ vm.errorMessage }}</RenewNotice>
 
-      <button
-        type="submit"
-        class="flex h-14 w-full items-center justify-center gap-2 rounded-full bg-primary text-base font-bold text-primary-foreground transition duration-200 hover:bg-primary-hover focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-primary"
-        :disabled="vm.submitting"
-        data-testid="signup-submit"
-      >
+      <button type="submit" class="btn btn-primary btn-lg w-full" :disabled="vm.submitting" data-testid="signup-submit">
         <span v-if="vm.submitting" class="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white motion-reduce:animate-none" aria-hidden="true"></span>
         {{ vm.submitting ? '가입 중…' : '회원가입' }}
       </button>
     </form>
 
-    <p class="mt-8 text-center text-sm text-sub">
+    <p class="mt-8 text-center text-small text-sub">
       이미 계정이 있으신가요?
-      <NuxtLink :to="vm.loginLink" class="ml-1 font-bold text-primary hover:underline" data-testid="signup-login-link">로그인</NuxtLink>
+      <NuxtLink :to="vm.loginLink" class="btn btn-tertiary btn-sm text-primary max-md:min-h-11" data-testid="signup-login-link">로그인</NuxtLink>
     </p>
   </RenewAuthFrame>
 </template>
