@@ -97,6 +97,8 @@ export interface ClaimSummary {
   orderNo: string | null
   /** 주문 시점 상품명 스냅샷(FE-63). 해소 실패 시 null. */
   productName: string | null
+  /** 상품 대표 이미지(D-224·NON_NULL — 삭제 상품·미등록이면 키 없음). */
+  thumbnailUrl?: string
 }
 
 /**

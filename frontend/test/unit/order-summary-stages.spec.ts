@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { toOrderSummaryStages } from '~/lib/utils/order-summary-stages'
+import { orderSummaryStageLabel, orderSummaryStageLink, toOrderSummaryStages } from '~/lib/utils/order-summary-stages'
 
 /**
  * Track 105-2d-FE1(FE-72) 마이페이지 주문 현황 단계 매핑. BE stages(D-223) → 표시 순서 5단계와 0건 흐림 판정만 고정한다.
@@ -24,5 +24,26 @@ describe('toOrderSummaryStages — 요약 단계 매핑', () => {
   it('전 단계 0건이면 전부 흐리다', () => {
     const stages = toOrderSummaryStages({ paid: 0, preparing: 0, shipping: 0, delivered: 0, confirmed: 0 })
     expect(stages.every((stage) => stage.dimmed && stage.count === 0)).toBe(true)
+  })
+})
+
+// FE-80·D-224: 현황 숫자 → 그 단계 품목 상태로 거른 주문 목록(0건 단계도 같은 링크). 칩·빈 결과 문구는 같은 단계 라벨을 쓴다.
+describe('orderSummaryStageLink · orderSummaryStageLabel — 홈 현황 링크', () => {
+  it('5단계 링크 = /orders?itemStatus=PAID|PREPARING|SHIPPING|DELIVERED|CONFIRMED(탭 쿼리 없음 = 전체 주문)', () => {
+    const stages = toOrderSummaryStages({ paid: 0, preparing: 1, shipping: 0, delivered: 2, confirmed: 0 })
+    expect(stages.map((stage) => orderSummaryStageLink(stage.key))).toEqual([
+      { path: '/orders', query: { itemStatus: 'PAID' } },
+      { path: '/orders', query: { itemStatus: 'PREPARING' } },
+      { path: '/orders', query: { itemStatus: 'SHIPPING' } },
+      { path: '/orders', query: { itemStatus: 'DELIVERED' } },
+      { path: '/orders', query: { itemStatus: 'CONFIRMED' } },
+    ])
+  })
+
+  it('필터 값 → 현황과 같은 단계 라벨', () => {
+    expect(orderSummaryStageLabel('PAID')).toBe('결제 완료')
+    expect(orderSummaryStageLabel('PREPARING')).toBe('상품 준비')
+    expect(orderSummaryStageLabel('DELIVERED')).toBe('배송 완료')
+    expect(orderSummaryStageLabel('CONFIRMED')).toBe('구매 확정')
   })
 })

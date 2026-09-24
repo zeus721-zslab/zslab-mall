@@ -137,6 +137,21 @@ describe('pages/orders/[orderPublicId].vue 구매확정(C-06)·안내 문구(C-1
     expect(wrapper.find('[data-testid="order-payment-expire-guide"]').exists()).toBe(false)
   })
 
+  // FE-80: 품목 상태 = 품목 행마다 RenewBadge(의미 tone) · 머리의 주문 상태 배지는 없다.
+  it('품목 배지 tone: 배송중 neutral · 배송완료 success · 주문 상태 라벨 미표시', async () => {
+    mountWith([
+      orderItem({ orderItemId: 'oit_1', status: { code: 'SHIPPING', label: '배송중' } }),
+      delivered(),
+    ])
+    const wrapper = await mountSuspended(OrderDetailPage)
+    const badges = wrapper.findAll('[data-testid="item-status"]')
+    expect(badges.map((badge) => [badge.text(), badge.attributes('data-tone')])).toEqual([
+      ['배송중', 'neutral'],
+      ['배송완료', 'success'],
+    ])
+    expect(wrapper.find('section[aria-label="주문 정보"]').text()).not.toContain('결제완료')
+  })
+
   it('결제 대기 주문 → 30분 자동 취소 안내', async () => {
     mountWith([orderItem({ status: { code: 'PENDING', label: '대기' } })], 'PENDING_PAYMENT')
     const wrapper = await mountSuspended(OrderDetailPage)
@@ -176,12 +191,14 @@ describe('pages/orders/[orderPublicId].vue 구매확정(C-06)·안내 문구(C-1
   })
 
   // FE-79: 설명 = 대상(상품명 · 옵션) · 결과 = 안내(규약 경고 · RenewNotice warning) · 확인 버튼 = 동작명 · tone primary.
+  // FE-80: 설명은 두 줄("구매 확정할 품목" / 대상)이고 대상에 조사를 붙이지 않는다.
   it('확인창 = 대상 설명 · 결과 안내(warning) · "구매 확정하기"(btn-primary)', async () => {
     mountWith([orderItem({ orderItemId: 'oit_2', productName: '배송완료 상품', optionLabel: '색상: 블랙', status: { code: 'DELIVERED', label: '배송완료' } })])
     const wrapper = await mountSuspended(OrderDetailPage)
     await openConfirm(wrapper)
     const panel = dialogPart('item-confirm-panel')!
-    expect(panel.textContent).toContain('배송완료 상품 · 색상: 블랙을 구매 확정합니다.')
+    expect(panel.querySelector('[data-slot="dialog-description"]')?.textContent).toContain('구매 확정할 품목')
+    expect(dialogPart('item-confirm-target')?.textContent?.trim()).toBe('배송완료 상품 · 색상: 블랙')
     const notice = dialogPart('item-confirm-warning')!
     expect(notice.getAttribute('data-tone')).toBe('warning')
     expect(notice.textContent?.trim()).toBe(ITEM_CONFIRM_WARNING)

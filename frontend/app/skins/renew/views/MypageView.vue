@@ -2,6 +2,7 @@
 import type { MypageHomeVm, MypagePageVm } from '~/skins/contracts/mypage'
 import type { OrderSummary } from '~/types/order'
 import { formatPhone } from '~/lib/format/phone'
+import { orderSummaryStageLink } from '~/lib/utils/order-summary-stages'
 import MypageFrame from '../components/MypageFrame.vue'
 import RenewBadge from '../components/RenewBadge.vue'
 import RenewNotice from '../components/RenewNotice.vue'
@@ -36,7 +37,7 @@ const SKELETON = 'rounded-2xl bg-surface-muted'
         </div>
       </section>
 
-      <!-- 2. 주문 현황(표시 전용 — 숫자 링크는 105-4e-2) -->
+      <!-- 2. 주문 현황 -->
       <section :class="CARD" aria-labelledby="mypage-order-status-title" data-testid="mypage-order-status">
         <div class="flex items-baseline justify-between gap-4">
           <h2 id="mypage-order-status-title" :class="SECTION_TITLE">주문 현황</h2>
@@ -46,16 +47,22 @@ const SKELETON = 'rounded-2xl bg-surface-muted'
           <div v-for="index in 5" :key="index" :class="[SKELETON, 'h-16']"></div>
         </div>
         <CommonErrorState v-else-if="vm.home.summary.error || !vm.home.summary.data" message="주문 현황을 불러오지 못했습니다" @retry="vm.home.summary.refresh" />
+        <!-- 단계 숫자 = 그 단계 품목이 있는 최근 주문 목록 링크(D-224·FE-80). 0건도 링크를 유지한다(빈 목록 안내로 이동). -->
         <ol v-else class="mt-6 grid grid-cols-5">
-          <li
-            v-for="(stage, index) in vm.home.summaryStages"
-            :key="stage.key"
-            :class="['relative flex flex-col items-center gap-1 px-1 text-center transition-opacity duration-fast ease-soft', stage.dimmed ? 'opacity-40' : '']"
-            :data-dimmed="stage.dimmed"
-          >
+          <li v-for="(stage, index) in vm.home.summaryStages" :key="stage.key" class="relative" :data-dimmed="stage.dimmed">
             <span v-if="index > 0" class="absolute left-0 top-1/2 h-10 w-px -translate-y-1/2 bg-line" aria-hidden="true"></span>
-            <span :class="['text-h1 tabular-nums', stage.dimmed ? 'text-ink' : 'text-primary']">{{ stage.count }}</span>
-            <span class="whitespace-nowrap text-caption text-sub md:text-small">{{ stage.label }}</span>
+            <NuxtLink
+              :to="orderSummaryStageLink(stage.key)"
+              :aria-label="`${stage.label} ${stage.count}건 주문 보기`"
+              :class="[
+                'group mx-1 flex min-h-11 flex-col items-center gap-1 rounded-2xl px-1 py-1 text-center transition duration-fast ease-soft hover:bg-surface-page focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary',
+                stage.dimmed ? 'opacity-40' : '',
+              ]"
+              data-testid="mypage-order-stage-link"
+            >
+              <span :class="['text-h1 tabular-nums', stage.dimmed ? 'text-ink' : 'text-primary']">{{ stage.count }}</span>
+              <span class="whitespace-nowrap text-caption text-sub md:text-small">{{ stage.label }}</span>
+            </NuxtLink>
           </li>
         </ol>
       </section>

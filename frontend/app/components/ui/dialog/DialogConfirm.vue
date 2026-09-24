@@ -16,11 +16,12 @@ import RenewNotice from "~/skins/renew/components/RenewNotice.vue"
 // FE-73: pending이면 두 버튼을 잠근다(처리 중 중복 확인 방지). testid는 기존 화면의 e2e 단언을 잇도록 사용처가 바꿀 수 있다.
 // FE-79: pending 동안 확인 버튼에 스피너·aria-busy를 보이고, Esc·바깥 누름·닫기 요청을 무시한다(처리 결과를 보기 전에 닫히지 않게).
 // 결과 안내는 줄바꿈(\n)을 그대로 보인다(위험 조작 문구 규약의 2줄 경고). testid는 안내에 둔다(noticeTestId).
+// FE-80: 설명을 여러 줄·다른 글자 크기로 보여야 하면 description 슬롯을 쓴다(구매확정 "구매 확정할 품목" + 대상). 슬롯이 있으면 prop보다 우선한다.
 const props = withDefaults(
   defineProps<{
     open: boolean
     title: string
-    description: string
+    description?: string
     confirmLabel: string
     cancelLabel?: string
     tone?: "primary" | "danger"
@@ -31,6 +32,7 @@ const props = withDefaults(
     confirmTestId?: string
   }>(),
   {
+    description: "",
     cancelLabel: "취소",
     tone: "primary",
     pending: false,
@@ -63,7 +65,7 @@ function preventWhilePending(event: Event): void {
     >
       <DialogHeader class="pr-6 md:pr-8">
         <DialogTitle>{{ title }}</DialogTitle>
-        <DialogDescription>{{ description }}</DialogDescription>
+        <DialogDescription><slot name="description">{{ description }}</slot></DialogDescription>
       </DialogHeader>
       <div v-if="$slots.notice" class="mt-4 px-6 md:px-8">
         <RenewNotice tone="warning" :data-testid="noticeTestId" data-slot="confirm-notice">

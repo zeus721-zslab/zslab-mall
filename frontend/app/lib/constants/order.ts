@@ -54,13 +54,17 @@ export const ITEM_CONFIRM_WARNING = riskConfirmMessage(
   IRREVERSIBLE,
 )
 
+/** 구매확정 확인창 설명 첫 줄(FE-80). 둘째 줄이 대상 품목이다({@link itemConfirmTarget}). */
+export const ITEM_CONFIRM_TARGET_CAPTION = '구매 확정할 품목'
+
 /**
- * 구매확정 확인창 설명 = 대상만(FE-79). 결과(ITEM_CONFIRM_WARNING)는 확인창 안내로 따로 보인다.
- * 상품명·옵션은 표시용 선택 값이라 둘 다 없으면 "이 품목"으로 쓴다.
+ * 구매확정 확인창 설명 둘째 줄 = 대상 품목만(FE-79·FE-80). 결과(ITEM_CONFIRM_WARNING)는 확인창 안내로 따로 보인다.
+ * 조사를 붙이지 않는다 — 옵션 라벨 끝 글자에 따라 "사이즈: M을"처럼 어색해진다(FE-79 캡처 관찰). 상품명·옵션은 표시용 선택 값이라
+ * 둘 다 없으면 "이 품목"으로 쓴다.
  */
-export function itemConfirmDescription(productName: string | null | undefined, optionLabel: string | null | undefined): string {
+export function itemConfirmTarget(productName: string | null | undefined, optionLabel: string | null | undefined): string {
   const target = [productName, optionLabel].filter((part): part is string => typeof part === 'string' && part.trim() !== '').join(' · ')
-  return `${target === '' ? '이 품목' : target}을 구매 확정합니다.`
+  return target === '' ? '이 품목' : target
 }
 
 /** 배송완료 품목 아래 안내(구매확정 버튼 옆). */
