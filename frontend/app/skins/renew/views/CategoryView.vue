@@ -9,7 +9,7 @@ defineProps<{ vm: CategoryPageVm }>()
 <template>
   <RenewProductListing v-if="vm.list" :list="vm.list" :category-id="vm.categoryId" />
   <div v-else class="mx-auto max-w-[1440px] px-5 pb-8 pt-6 md:px-10 md:pt-10 lg:px-16">
-    <h1 class="mb-6 text-3xl font-bold tracking-tight text-ink">카테고리</h1>
+    <h1 class="mb-6 text-h1 text-ink">카테고리</h1>
     <CommonEmptyState />
   </div>
 </template>

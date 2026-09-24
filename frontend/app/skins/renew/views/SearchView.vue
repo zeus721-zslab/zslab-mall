@@ -12,7 +12,6 @@ defineProps<{ vm: SearchPageVm }>()
 const CONTAINER = 'mx-auto max-w-[1440px] px-5 md:px-10 lg:px-16'
 const PRODUCT_GRID = 'grid grid-cols-2 gap-x-4 gap-y-10 md:grid-cols-3 md:gap-x-6 lg:grid-cols-4 xl:grid-cols-5'
 const SKELETON_COUNT = 10
-const ENTER = 'motion-safe:transition motion-safe:duration-300 motion-safe:ease-out motion-safe:starting:translate-y-1.5 motion-safe:starting:opacity-0'
 </script>
 
 <template>
@@ -20,10 +19,10 @@ const ENTER = 'motion-safe:transition motion-safe:duration-300 motion-safe:ease-
     <div :class="CONTAINER">
       <!-- 제목 면: 검색어 + 결과 수(조회가 끝난 뒤에만) -->
       <section class="rounded-(--panel-radius) bg-(--pastel-lavender-bg) px-6 py-10 text-(--pastel-lavender-ink) md:px-12 md:py-14">
-        <p class="font-mono text-xs font-medium uppercase tracking-widest opacity-80">Search</p>
-        <h1 class="mt-2 break-all text-3xl font-bold tracking-tight md:text-4xl" data-testid="search-title">{{ vm.title }}</h1>
-        <p v-if="vm.keyword && vm.list && !vm.list.pending && !vm.list.hasError" class="mt-3 text-sm" data-testid="search-count">
-          <span class="font-mono font-semibold">{{ vm.list.totalCount.toLocaleString('ko-KR') }}</span>개의 상품
+        <p class="text-caption uppercase tracking-[0.12em] opacity-80">Search</p>
+        <h1 class="mt-2 break-all text-h1" data-testid="search-title">{{ vm.title }}</h1>
+        <p v-if="vm.keyword && vm.list && !vm.list.pending && !vm.list.hasError" class="mt-3 text-small" data-testid="search-count">
+          <span class="font-semibold tabular-nums">{{ vm.list.totalCount.toLocaleString('ko-KR') }}</span>개의 상품
         </p>
       </section>
 
@@ -48,17 +47,17 @@ const ENTER = 'motion-safe:transition motion-safe:duration-300 motion-safe:ease-
           <CommonErrorState v-else-if="vm.list.hasError" @retry="vm.list.retry()" />
           <div
             v-else-if="vm.list.items.length === 0"
-            :class="[ENTER, 'flex flex-col items-center rounded-[28px] bg-white px-6 py-16 text-center']"
+            class="flex flex-col items-center rounded-card bg-white px-6 py-16 text-center shadow-e1"
             data-testid="search-empty"
           >
             <span class="flex h-20 w-20 items-center justify-center rounded-full bg-surface-muted text-primary" aria-hidden="true">
               <SearchX class="h-10 w-10" :stroke-width="1.6" />
             </span>
-            <p class="mt-6 break-all text-lg font-bold text-ink">'{{ vm.keyword }}'에 맞는 상품을 찾지 못했어요</p>
-            <p class="mt-2 text-sm text-sub">다른 검색어로 찾아보거나 전체 상품을 둘러보세요.</p>
+            <p class="mt-6 break-all text-h3 text-ink">'{{ vm.keyword }}'에 맞는 상품을 찾지 못했어요</p>
+            <p class="mt-2 text-small text-sub">다른 검색어로 찾아보거나 전체 상품을 둘러보세요.</p>
             <NuxtLink
               to="/products"
-              class="mt-6 inline-flex min-h-11 items-center rounded-full bg-primary px-8 text-sm font-bold text-primary-foreground transition duration-200 hover:bg-primary-hover focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+              class="btn btn-primary btn-md mt-6"
               data-testid="search-empty-products-link"
             >
               전체 상품 보기

@@ -3156,3 +3156,67 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 - 캡처 관찰(재실행 없음): login-1440에서 한글 일부가 대체 글꼴로 찍혔고(같은 화면 390은 Pretendard), 안내 면이 옅게 찍혔다. 다이나믹 서브셋 로딩·진입 모션 시점과 촬영 시점이 겹친 것으로 보이며 브라우저 확인이 필요하다. 관리자 화면의 `document.fonts.check('16px "Pretendard Variable"')`는 false였다(렌더는 Pretendard).
 
 외부 검토: C / 생략
+
+## FE-77: 탐색 그룹 디자인 적용 — 헤더·메인·목록·검색·상품 상세 (Track 105-4c) (2026-09-25)
+
+배경: FE-76 기준(면·그림자·서체 스케일·버튼·칩·배지·모션)을 화면 그룹 단위로 적용하는 첫 단계다. 대상은 LayoutShell, HomeView, ProductsView·CategoryView·RenewProductListing·RenewSortMenu·RenewPagination, SearchView, ProductDetailView와 이 화면들이 쓰는 RenewProductCard·SectionHeading·MobileActionBar다. 기능·BE 계약·vm 계약은 바꾸지 않았다.
+
+결정:
+- **공통 규칙** 글자 버튼은 `btn` + 단계 + 크기로 바꾸고, 영역당 주 버튼은 1개다. 띠 면 위 보조 버튼은 흰 바탕(`btn` + `bg-white text-primary`)이다. 상태 배지는 RenewBadge로 바꿨다. font-mono는 식별자 단독에만 쓰는데 대상 파일에는 해당이 0건이라 전부 Pretendard + `tabular-nums`로 바꿨다. 크기 클래스는 모두 서체 스케일 유틸로 바꿨다. 페이지 위 콘텐츠 카드는 흰색 + `shadow-e1`이고, 임의 그림자는 e1~e3로 바꿨다. hover·전환은 150ms `ease-soft`, 카드 hover는 `-translate-y-1` + `shadow-e2`다. 첫 화면 등장 모션은 두지 않는다. 탭·필터 알약은 `chip`이다.
+- **굵기 우선순위** 컴파일된 CSS에서 스케일 유틸(`:where([data-skin]) .text-*`, 우선순위 0,1,0)이 `font-*`보다 앞에 출력된다. 따라서 같은 요소에 `font-*`를 함께 쓰면 `font-*` 굵기가 이긴다. 캡처에서도 `text-caption font-normal`의 계산 굵기가 400이었다. 기존 굵기를 유지할 곳에만 `font-*`를 남겼다.
+- **히어로 리드 문구 17/28 예외** 히어로 리드 문구 1종만 스케일 밖의 `text-[1.0625rem] leading-7`을 쓴다. 대상 파일에 남은 임의 크기는 이것 하나다.
+- **많이 찾는 1위 확대** 띠 안 그리드는 1024px 이상에서 4열로 고정한다(1280px 이상 5열 규칙에서 제외). 1위 카드는 `lg:col-span-2 lg:row-span-2`로 키운다. 규칙은 상품 개수와 무관하고, 지금 5개일 때는 2행이 꽉 찬다. 5열로 두면 둘째 줄에 빈 칸 2개가 생겨 채택하지 않았다.
+- **상품 상세 주 버튼** "장바구니 담기"가 영역의 주 버튼이다. 바로 구매는 만들지 않는다. vm 계약과 구매 흐름이 바뀌기 때문이며, 105-4d에서도 범위 밖이고 필요하면 준비 중 기준을 적용한다.
+
+화면별 변경:
+- **헤더·푸터** 헤더는 흰 바탕 + 하단 line 1px이다(블러 제거). 로고는 `text-h2`다. 검색 입력은 `rounded-control` · `bg-surface-page` · `border-line` · `text-body`다. 카테고리 링크와 로그인은 `btn btn-tertiary btn-md`다. 장바구니 수는 `text-caption tabular-nums`다. 푸터는 `bg-surface-muted`이고 768px 미만에서 링크 높이가 44px이다. testid·aria는 그대로다.
+- **메인 히어로** 패널 전체가 라벤더 띠 면(`--panel-radius`)이다. 눈썹은 caption·대문자·0.12em, 제목은 `text-display`다. 버튼은 주 "지금 둘러보기"(/products)와 흰 보조 "카테고리 보기"(#home-categories — 카테고리 섹션이 있을 때만 보이고, 섹션에 헤더 높이만큼 `scroll-mt`를 둔다)다. 콜라주는 `skins/renew/hero-collage.ts`의 `buildHeroCollage`가 vm.newArrivals 앞 3개로 만든다.
+  - 배치: 1024px 이상은 2열이고 첫 칸이 2행을 차지한다. 768~1023px은 3칸 한 줄, 768px 미만은 3칸 한 줄에 높이 132px이다.
+  - 칸: `rounded-card` · `shadow-e1` · 링크 aria-label은 상품명이다.
+  - 대체 규칙: 이미지 없는 상품 칸은 파스텔 블록이지만 링크는 유지한다. 상품이 없는 칸은 파스텔이고 링크 없이 aria-hidden이다. 칸 순서대로 pink·periwinkle·mint다.
+  - 이미지 로딩: 첫 칸은 기본값, 나머지 2칸은 lazy다.
+- **메인 섹션** SectionHeading에 `size`('h1'|'h2', 기본 h2)를 두었다. 새로 들어온·많이 찾는·카테고리별 추천은 h1, 카테고리·셀러 픽·2만원 이하는 h2다. 눈썹은 caption이고 "전체 보기"는 `btn-tertiary btn-sm`이다. 카테고리 타일은 `shadow-e2`다. "많이 찾는" 띠는 `surface-muted`로 바꿨고, 순위 숫자는 Pretendard 800 · primary · tabular-nums다. 추천 탭은 `chip`(aria-selected)이다. 셀러 픽 카드는 흰색 + `shadow-e1`(테두리 제거)이다.
+- **상품 카드** hover는 `shadow-e2` · `-translate-y-1` · 150ms다. 품절은 RenewBadge neutral이다(기존 흰 바탕·본문색이라 의미색이 없던 것을 기준으로 했다). 가격은 `text-h3 tabular-nums`다.
+- **목록·카테고리·검색**
+  - 배너·검색 제목 면: 눈썹 caption · 제목 `text-h1` · 건수 `text-small tabular-nums`. 배너 색 전환은 450ms → 150ms다.
+  - 카테고리 탭: `chip`. 탭이 링크라 aria-selected를 붙일 수 없어, `aria-current`는 유지하고 `data-state=on`으로 선택 상태(보라 채움)를 표시한다.
+  - 정렬 트리거: `btn btn-secondary btn-md`. 패널 그림자는 `shadow-e2`, 열림 애니메이션은 150ms ease-soft다.
+  - 페이지 번호: `tabular-nums`. 현재 페이지는 primary 채움이다.
+  - 검색 빈 결과: 흰 카드 + `shadow-e1`. 진입 모션은 제거했다(첫 화면 SSR 등장 모션 없음). "전체 상품 보기"는 `btn-primary btn-md`다.
+  - cn(tailwind-merge) 트랩: `DropdownMenuRadioItem`은 class를 cn으로 합치는데, 이때 스케일 유틸이 글자색으로 판정돼 `text-ink`와 합쳐진다. 그래서 스케일 유틸은 라벨 span에 두었다.
+- **상품 상세**
+  - 금액 박스: 흰색 + `shadow-e1`. 가격·합계·수량은 `tabular-nums`, 상품명 `text-[32px]`은 `text-h1`로 바꿨다.
+  - 버튼: 담기는 `btn-primary btn-lg`(56 → 52px). 성공 카드의 "장바구니 보기"는 흰 보조 버튼이다.
+  - 배지·칩: 판매 불가 오버레이 라벨은 RenewBadge neutral이다. 옵션 값 버튼은 `chip`(aria-pressed)이며, 선택 색이 검정 채움 → 보라 채움으로 바뀌었다.
+  - 기타: 상품 설명 카드는 `rounded-card` + `shadow-e1`이다.
+- **MobileActionBar(공용)** 버튼은 `btn btn-primary btn-md h-12`로 바꿨다(높이 48 유지 · 글자 14/700 → 15/600). 금액은 `text-h3 tabular-nums`, 슬라이드 전환은 150ms ease-soft다. 장바구니·주문서(105-4d 대상) 고정 바에도 같은 외형 변화가 적용된다.
+- **가로 스크롤 흐림 끝 처리** 기존에는 흐림(`fade-right`)이 스크롤 위치와 무관하게 항상 보였다. `skins/renew/scroll-edges.ts`에 `readScrollEdges`(순수 판정 · 오차 1px)와 `trackScrollEdges`(요소 ref → 스크롤·resize 때 갱신)를 두었다. app composables는 import하지 않는다(skin-guard). 흐림은 끝에 닿지 않았을 때만 보인다. 흐림은 mask라서 드러나는 색은 바탕 면(메인은 `surface-page`, 헤더는 흰색)이다. 2만원 이하 오버레이 흐림은 `to-surface-page`를 유지한다.
+  - 교체한 곳: HomeView 2만원 이하(기존 판정 로직 이전) · HomeView 카테고리 줄 · LayoutShell 모바일 카테고리 메뉴 · RenewProductListing 카테고리 탭.
+- **홈 SSR 카테고리 요청 1회화** `useCategories`에 `getCachedData`를 두었다. hydration과 cause 'initial'이면 `payload.data[key]`를 쓰고, refresh는 캐시를 쓰지 않는다.
+
+### §1-A 갈림길·채택/기각 근거
+- **카테고리 2회 원인 정정** 정찰(recon-report-track105-4 §7-2)은 dedupe 'cancel'이 진행 중인 요청을 취소한다고 판독했다. 실제 원인은 순차 재조회다. Vue SSR이 레이아웃 serverPrefetch(카테고리 조회)를 기다린 뒤 페이지 setup을 실행하므로, 페이지 쪽 호출 시점에는 진행 중인 promise가 없다. 그런데 기본 getCachedData는 서버에서 `static.data`만 보므로 handler가 다시 실행된다. 처음 적용한 `dedupe: 'defer'`는 개발 중 측정에서 2회가 그대로여서 기각했다.
+- **α getCachedData(채택) / β 페이지 쪽이 useNuxtData로 공유 데이터만 읽기** β는 레이아웃이 먼저 조회한다는 순서에 기대고, 홈만 해결한다. α는 /products(레이아웃 + useProductPage)도 함께 1회가 되고, 실패는 payload에 남지 않아 기존처럼 재조회한다. 부수 변화로, 클라이언트 이동 때 새 페이지의 useCategories가 이미 받은 결과를 재사용한다(이전에는 이동마다 1회 재조회).
+
+### §2 검증
+- typecheck(컨테이너) EXIT 0 → vitest 110 files / 769 passed(+hero-collage 1 · scroll-edges 1) → e2e smoke(renew) 1 passed. 깨진 단언은 0건이었다(대상 뷰에 클래스 단언이 없다).
+- 홈 SSR 카테고리 요청 수(백엔드 SQL 로그에서 루트 카테고리 쿼리의 요청 ID 고유 수, 비로그인 / 1회): 변경 전 2 → 변경 후 **1**. 같은 요청의 BE 요청 ID는 9개(카테고리 1 + 상품 섹션 4 + 셀러 픽 1+3)다. 개발 중 확인한 /products도 1이다.
+- 임시 캡처(커밋 제외): / · /products · /categories/1 · /search?keyword=T75 · /products/{첫 상품} × 1440·390 + 390 메인 카테고리 줄 끝 상태 1장. 판정 36/36 PASS.
+  - 히어로·헤더: 히어로 3칸 loading [기본·lazy·lazy] · 헤더 흰색.
+  - 그리드·흐림: 1440 1위 span 2 / span 2 · 390 카테고리 줄 흐림이 시작에는 있고 끝에서 사라짐.
+  - 목록 탭: 현재 탭 보라 채움.
+  - 상세: 담기 btn-primary 52px · 가격 tabular-nums.
+- 캡처 관찰: 첫 상품(T75 실측용)은 상세 API `images`가 빈 배열이라 대표 이미지 칸이 비어 있다(데이터 원인, 갤러리 코드 변경 없음).
+
+### §3 작업 전후 집계(대상 12파일)
+- 인라인 버튼 27 → 10. 남은 글자 버튼은 0이다. 남은 10은 아이콘 버튼 3 · 원형 화살표 2 · 수량 스테퍼 2 · 페이지 번호 1 + 화살표 2로, btn 유틸(글자·좌우 여백) 대상이 아니다. 교체 후 btn 10곳 · chip 4곳이다.
+- 상태 배지 2 → RenewBadge 2 · font-mono 17 → 0 · 임의 그림자 3 → 0 · 임의 크기 1 → 1(히어로 리드 예외) · 표준 크기 클래스 74 → 0 · 150ms가 아닌 duration 34 → 0.
+
+### §8 이월
+- 구매 흐름·마이페이지·인증 화면(105-4d~f): 같은 규칙 적용. 장바구니·주문서 고정 바는 이번 MobileActionBar 변경이 먼저 반영돼 있다.
+- 이미지 srcset·sizes(105-4g).
+- 원형 아이콘·페이지 번호 컨트롤의 공용 유틸 여부는 화면 그룹이 끝난 뒤 판단한다.
+- 상세 썸네일 `rounded-[18px]` 임의 모서리는 이번 규칙 밖이라 유지했다.
+- `--shadow-card-hover`(FE-07) 사용처는 여전히 0이다(FE-76 §8).
+
+외부 검토: C / 생략
