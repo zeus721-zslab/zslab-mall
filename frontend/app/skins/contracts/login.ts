@@ -8,4 +8,6 @@ export interface LoginPageVm {
   demoEnabled: boolean
   handleSubmit: () => Promise<void>
   handleDemoLogin: () => Promise<void>
+  /** 회원가입 링크. 받은 redirect가 있으면 그대로 붙인다(FE-74). */
+  signupLink: string
 }

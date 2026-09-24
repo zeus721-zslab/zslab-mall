@@ -17,7 +17,9 @@ useSeoMeta({
   description: 'zslab-mall 상품 검색 결과.',
 })
 
-const vm: SearchPageVm = reactive({ keyword, title })
+// 번호 페이지 검색 결과는 스킨이 productList를 선언했을 때만 조회한다(FE-74). classic은 SearchView → ProductListView가 무한스크롤로 조회한다.
+const list = useSkinNeeds('productList') ? reactive(useProductPage(ref<number | null>(null), keyword)) : undefined
+const vm: SearchPageVm = reactive({ keyword, title, list })
 </script>
 
 <template>

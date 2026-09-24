@@ -3,6 +3,7 @@ import type { ProductPageListVm } from '~/skins/contracts/product-page'
 import { categoryTheme } from '../category-theme'
 import { followActiveItem } from '../scroll-active'
 import CategoryIllustration from './CategoryIllustration.vue'
+import RenewPagination from './RenewPagination.vue'
 import RenewProductCard from './RenewProductCard.vue'
 import RenewSortMenu from './RenewSortMenu.vue'
 
@@ -16,17 +17,10 @@ const props = defineProps<{
 const CONTAINER = 'mx-auto max-w-[1440px] px-5 md:px-10 lg:px-16'
 const PRODUCT_GRID = 'grid grid-cols-2 gap-x-4 gap-y-10 md:grid-cols-3 md:gap-x-6 lg:grid-cols-4 xl:grid-cols-5'
 const SKELETON_COUNT = 10
-// 번호 페이지는 현재 페이지 앞뒤로 이만큼만 보인다.
-const PAGE_WINDOW = 2
 const PILL = 'flex min-h-11 shrink-0 items-center whitespace-nowrap rounded-full px-5 text-sm font-bold transition duration-200'
 
 const title = computed(() => props.list.activeCategoryName ?? (props.categoryId === null ? '전체 상품' : '카테고리'))
 const theme = computed(() => categoryTheme(props.list.activeCategoryName))
-const pageNumbers = computed<number[]>(() => {
-  const first = Math.max(1, props.list.page - PAGE_WINDOW)
-  const last = Math.min(props.list.totalPages, props.list.page + PAGE_WINDOW)
-  return Array.from({ length: last - first + 1 }, (_, index) => first + index)
-})
 
 function tabClass(active: boolean): string {
   return `${PILL} ${active ? 'bg-primary text-primary-foreground' : 'bg-surface-card text-ink hover:bg-(--pastel-lavender-bg)'}`
@@ -107,39 +101,7 @@ onBeforeUnmount(() => stopFollowingActiveTab?.())
       </div>
 
       <!-- 번호 페이지 -->
-      <nav v-if="list.totalPages > 1" aria-label="페이지" class="mt-14 flex items-center justify-center gap-1">
-        <button
-          type="button"
-          class="flex h-11 min-w-11 items-center justify-center rounded-full text-sm font-bold text-ink transition duration-200 hover:bg-surface-card disabled:opacity-40"
-          :disabled="list.page <= 1"
-          aria-label="이전 페이지"
-          @click="list.goToPage(list.page - 1)"
-        >
-          ‹
-        </button>
-        <button
-          v-for="pageNumber in pageNumbers"
-          :key="pageNumber"
-          type="button"
-          :class="[
-            'flex h-11 min-w-11 items-center justify-center rounded-full px-3 font-mono text-sm font-semibold transition duration-200',
-            pageNumber === list.page ? 'bg-primary text-primary-foreground' : 'text-ink hover:bg-surface-card',
-          ]"
-          :aria-current="pageNumber === list.page ? 'page' : undefined"
-          @click="list.goToPage(pageNumber)"
-        >
-          {{ pageNumber }}
-        </button>
-        <button
-          type="button"
-          class="flex h-11 min-w-11 items-center justify-center rounded-full text-sm font-bold text-ink transition duration-200 hover:bg-surface-card disabled:opacity-40"
-          :disabled="list.page >= list.totalPages"
-          aria-label="다음 페이지"
-          @click="list.goToPage(list.page + 1)"
-        >
-          ›
-        </button>
-      </nav>
+      <RenewPagination :page="list.page" :total-pages="list.totalPages" @change="list.goToPage" />
     </div>
   </div>
 </template>
