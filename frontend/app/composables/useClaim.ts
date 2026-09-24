@@ -22,22 +22,32 @@ function resolveApiBase(): string {
 }
 
 /**
- * 구매자 클레임 목록 조회(GET /api/v1/claims?type&page&size·BUYER 전용·FE-14 유스케이스 B·FE-63 유형 탭). useOrderList 패턴 정합:
- * Bearer 주입·page·type을 Ref로 받아 변경 시 useFetch가 재조회한다. 401 등 인증 실패는 error로 노출해 소비 페이지가 /login으로 유도한다.
+ * 구매자 클레임 목록 조회(GET /api/v1/claims?page&size·BUYER 전용·FE-14 유스케이스 B). useOrderList 패턴 정합: Bearer 주입·page를 Ref로 받는다.
+ * FE-73: 취소·반품·교환이 한 탭이라 type 없이 전체 유형을 조회한다. 401 등 인증 실패는 error로 노출해 소비 페이지가 /login으로 유도한다.
  *
- * <p>type이 null이면 전체 유형이다(BE는 파라미터 미전송으로 본다 — Nuxt는 null 쿼리를 보내지 않는다).
+ * <p>enabled(클레임 탭 여부)가 false면 조회하지 않는다. 주문 탭으로 진입하면 첫 조회를 건너뛰고, 클레임 탭이 되거나 그 탭에서 page·유형이
+ * 바뀔 때만 다시 조회한다(주문 탭에서의 page 변화로 클레임을 부르지 않도록 자동 watch를 끈다).
+ * type(FE-73 보완 1 유형 필터 칩)은 null이면 전체 유형이다(BE type 파라미터 미전송 — Nuxt는 null 쿼리를 보내지 않는다).
  */
-export function useClaimList(page: Ref<number>, type: Ref<ClaimType | null>, size: number = DEFAULT_PAGE_SIZE) {
+export function useClaimList(
+  page: Ref<number>,
+  enabled: Ref<boolean>,
+  type: Ref<ClaimType | null> = ref(null),
+  size: number = DEFAULT_PAGE_SIZE,
+) {
   const auth = useAuthStore()
-  return useFetch<PagedResponse<ClaimSummary>>('/v1/claims', {
-    // 주문 탭과 한 페이지에 공존하고 유형까지 갈리므로 key에 유형을 넣는다(고정 key면 탭 간 SSR 페이로드가 서로를 덮는다).
-    key: computed(() => `claim-list:${type.value ?? 'ALL'}`),
+  const result = useFetch<PagedResponse<ClaimSummary>>('/v1/claims', {
+    key: 'claim-list',
     baseURL: resolveApiBase(),
     query: { type, page, size },
     headers: { Authorization: `Bearer ${auth.token}` },
-    // 주문 탭으로 진입(type=null)하면 클레임을 조회하지 않는다. 이후 탭 전환은 query 변화가 재조회를 건다.
-    immediate: type.value !== null,
+    immediate: enabled.value,
+    watch: false,
   })
+  watch([enabled, page, type], ([isEnabled]) => {
+    if (isEnabled) result.refresh()
+  })
+  return result
 }
 
 /**

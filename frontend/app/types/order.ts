@@ -109,6 +109,8 @@ export interface OrderItem {
   exchangeCompleted?: boolean
   /** 원 발송(OUTBOUND·클레임 미연결) 최신 배송 정보(Track 96-2 FE-54). 송장 미등록이면 NON_NULL로 생략된다. */
   delivery?: OrderItemDelivery | null
+  /** 상품 썸네일(product.thumbnail_url·D-223). 삭제 상품·미등록이면 NON_NULL로 생략된다. */
+  thumbnailUrl?: string
 }
 
 /** seller 단위 그룹(BE SellerGroupResponse 대응). 단일 판매자 주문도 배열 길이 1. */

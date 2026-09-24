@@ -22,6 +22,10 @@ export const renewSkin: SkinDefinition = {
     PasswordView: defineAsyncComponent(() => import('./views/PasswordView.vue')),
     AddressesView: defineAsyncComponent(() => import('./views/AddressesView.vue')),
     WithdrawView: defineAsyncComponent(() => import('./views/WithdrawView.vue')),
+    OrdersView: defineAsyncComponent(() => import('./views/OrdersView.vue')),
+    OrderDetailView: defineAsyncComponent(() => import('./views/OrderDetailView.vue')),
+    ClaimNewView: defineAsyncComponent(() => import('./views/ClaimNewView.vue')),
+    ClaimDetailView: defineAsyncComponent(() => import('./views/ClaimDetailView.vue')),
   },
   needs: ['layoutHeader', 'homeCuration', 'productList', 'productDetailMore', 'mypageHome'],
 }

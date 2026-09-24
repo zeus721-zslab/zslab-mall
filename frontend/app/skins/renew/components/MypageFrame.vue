@@ -5,7 +5,8 @@ import { followActiveItem } from '../scroll-active'
 // renew 마이페이지 공통 틀(FE-72): 사이드 메뉴 + 제목 + 본문(slot). 메뉴는 정의(lib/constants/mypage-menu)를 그대로 렌더한다.
 // 현재 위치는 NuxtLink가 경로가 정확히 일치할 때만 붙이는 aria-current로 표시한다 — 홈(/mypage)은 하위 화면에서 활성이 아니다.
 // <768은 상단 가로 스크롤 탭으로 바뀌고 현재 항목을 보이는 위치로 옮긴다(scroll-active 재사용).
-defineProps<{ title: string }>()
+// activeTo(FE-73): 하위 화면(주문 상세·클레임 신청·클레임 상세)이 소속 메뉴를 지정하면 그 항목에 aria-current를 붙인다.
+defineProps<{ title: string; activeTo?: string }>()
 
 const menuElement = ref<HTMLElement | null>(null)
 let stopFollowingActiveItem: (() => void) | null = null
@@ -29,7 +30,7 @@ const MENU_LINK =
           class="relative flex gap-1 overflow-x-auto py-1 max-md:scrollbar-none max-md:snap-x max-md:snap-mandatory max-md:scroll-px-5 max-md:px-5 max-md:fade-right max-md:[&>li]:snap-start md:mt-4 md:flex-col md:overflow-visible md:py-0"
         >
           <li v-for="item in MYPAGE_MENU_ITEMS" :key="item.to">
-            <NuxtLink :to="item.to" :class="MENU_LINK">
+            <NuxtLink :to="item.to" :class="MENU_LINK" v-bind="item.to === activeTo ? { 'aria-current': 'page' } : {}">
               {{ item.label }}
               <span
                 class="hidden h-1.5 w-1.5 rounded-full bg-primary opacity-0 transition-opacity duration-200 md:block group-aria-[current=page]:opacity-100"
