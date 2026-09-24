@@ -7,6 +7,7 @@ import {
   PASSWORD_CHANGE_REASON_QUERY,
   PASSWORD_CHANGE_REASON_TEMPORARY,
 } from '~/lib/constants/auth'
+import type { PasswordPageVm } from '~/skins/contracts/password'
 
 // BUYER 전용 — 미인증/비-BUYER는 buyer 미들웨어가 /login으로 유도한다.
 definePageMeta({ middleware: 'buyer' })
@@ -62,68 +63,20 @@ async function handleSubmit(): Promise<void> {
 }
 
 useSeoMeta({ title: '비밀번호 변경 · zslab-mall', description: 'zslab-mall 비밀번호 변경' })
+
+const vm: PasswordPageVm = reactive({
+  temporaryNotice,
+  currentPassword,
+  newPassword,
+  newPasswordConfirm,
+  submitting,
+  errorMessage,
+  handleSubmit,
+  PASSWORD_MIN,
+  PASSWORD_MAX,
+})
 </script>
 
 <template>
-  <div class="py-8 md:py-12">
-    <div class="mx-auto max-w-sm px-4 md:px-6">
-      <NuxtLink to="/mypage" class="mb-4 inline-block text-sm text-sub hover:underline">← 마이페이지</NuxtLink>
-      <h1 class="mb-6 text-2xl font-bold tracking-tight text-ink">비밀번호 변경</h1>
-
-      <p v-if="temporaryNotice" role="status" class="mb-4 rounded-card border border-line bg-gray-50 p-3 text-sm text-ink" data-testid="password-temporary-notice">
-        임시 비밀번호로 로그인했습니다. 새 비밀번호로 변경해 주세요.
-      </p>
-
-      <form class="space-y-4" @submit.prevent="handleSubmit">
-        <div class="space-y-1.5">
-          <label for="currentPassword" class="block text-sm font-medium text-ink">현재 비밀번호</label>
-          <input
-            id="currentPassword"
-            v-model="currentPassword"
-            type="password"
-            autocomplete="current-password"
-            required
-            class="w-full rounded-control border border-line px-4 py-2.5 text-sm text-ink transition duration-normal placeholder-gray-400 focus:border-gray-900 focus:outline-hidden focus:ring-1 focus:ring-gray-900"
-            placeholder="현재 비밀번호를 입력하세요"
-          />
-        </div>
-
-        <div class="space-y-1.5">
-          <label for="newPassword" class="block text-sm font-medium text-ink">새 비밀번호</label>
-          <input
-            id="newPassword"
-            v-model="newPassword"
-            type="password"
-            autocomplete="new-password"
-            required
-            :minlength="PASSWORD_MIN"
-            :maxlength="PASSWORD_MAX"
-            class="w-full rounded-control border border-line px-4 py-2.5 text-sm text-ink transition duration-normal placeholder-gray-400 focus:border-gray-900 focus:outline-hidden focus:ring-1 focus:ring-gray-900"
-            :placeholder="`새 비밀번호를 입력하세요 (${PASSWORD_MIN}자 이상)`"
-          />
-        </div>
-
-        <div class="space-y-1.5">
-          <label for="newPasswordConfirm" class="block text-sm font-medium text-ink">새 비밀번호 확인</label>
-          <input
-            id="newPasswordConfirm"
-            v-model="newPasswordConfirm"
-            type="password"
-            autocomplete="new-password"
-            required
-            :minlength="PASSWORD_MIN"
-            :maxlength="PASSWORD_MAX"
-            class="w-full rounded-control border border-line px-4 py-2.5 text-sm text-ink transition duration-normal placeholder-gray-400 focus:border-gray-900 focus:outline-hidden focus:ring-1 focus:ring-gray-900"
-            placeholder="새 비밀번호를 다시 입력하세요"
-          />
-        </div>
-
-        <p v-if="errorMessage" role="alert" class="text-sm text-soldout">{{ errorMessage }}</p>
-
-        <Button type="submit" size="lg" class="w-full" :disabled="submitting">
-          {{ submitting ? '변경 중…' : '비밀번호 변경' }}
-        </Button>
-      </form>
-    </div>
-  </div>
+  <component :is="useSkinView('PasswordView')" :vm="vm" />
 </template>

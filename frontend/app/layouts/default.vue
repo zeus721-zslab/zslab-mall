@@ -1,13 +1,11 @@
 <script setup lang="ts">
-// FE-03 기본 레이아웃 셸. 헤더/푸터 고정·본문 flex-1로 푸터를 화면 하단에 고정한다.
+// 구매자 기본 레이아웃. 마크업은 현재 스킨의 LayoutShell 뷰가 담당한다(FE-67). data-skin은 스킨별 CSS 범위 지정용.
+const skinName = useSkinName()
+useHead({ htmlAttrs: { 'data-skin': skinName } })
 </script>
 
 <template>
-  <div class="flex min-h-screen flex-col bg-surface-page">
-    <AppHeader />
-    <main class="flex-1">
-      <slot />
-    </main>
-    <AppFooter />
-  </div>
+  <component :is="useSkinView('LayoutShell')">
+    <slot />
+  </component>
 </template>
