@@ -59,3 +59,6 @@ backend/uploads/
 
 # Python 바이트코드 (scripts/walkthrough 모듈 import 시 생성)
 __pycache__/
+
+# 로컬 화면 캡처 산출물 (Track 105-2c 스킨 스크린샷)
+docs/frontend/screens-*/

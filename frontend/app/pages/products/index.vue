@@ -15,7 +15,9 @@ useSeoMeta({
   description: 'zslab-mall 상품 목록. 최신순·가격순·이름순으로 둘러보세요.',
 })
 
-const vm: ProductsPageVm = reactive({ categoryId })
+// 번호 페이지 목록은 스킨이 productList를 선언했을 때만 조회한다(FE-69). classic은 ProductListView가 직접 조회한다.
+const list = useSkinNeeds('productList') ? reactive(useProductPage(categoryId)) : undefined
+const vm: ProductsPageVm = reactive({ categoryId, list })
 </script>
 
 <template>

@@ -2745,3 +2745,87 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 - prod 빌드에서 비동기 스킨 뷰의 청크 분리 확인(첫 실제 스킨 추가 시).
 - 스킨 밖 공용 컴포넌트(AppHeader·HomeProductGrid·ProductListView·CategoryTabs + 페이지 하위 컴포넌트 CheckoutOrderItemList·CheckoutPaymentSummary·OrderSummaryCard·ClaimSummaryCard·OrderItemDeliveryInfo·ClaimAttachmentInput·CommonErrorState·CommonEmptyState)는 모든 스킨이 공유한다 — 스킨별 모양이 필요해질 때 로직/뷰를 나눈다.
 - e2e 미커버 6페이지는 정규 spec이 없다(이번 확인은 임시 스크립트) — 해당 흐름을 바꿀 때 spec을 추가한다.
+
+## FE-68: renew 스킨 준비 — 범위·토큰 덮어쓰기·서체·testid 전환 (Track 105-2a) (2026-09-24)
+
+배경: FE-67 구조 위에 두 번째 스킨 renew를 만든다. 정찰(recon-report-track105-2) 결과 구매자 상품 API는 `GET /api/v1/products` 하나(최신순·카테고리별만 가능)이고, 카테고리 API는 루트만 주며 slug가 없고, 운영자 테마·기획전 엔티티는 없다.
+
+결정:
+- **105-2 범위(β)** 메인 큐레이션을 위해 구매자 상품 목록에 셀러 필터·가격 상한·판매량 정렬을 BE에 추가한다. 운영자 테마·기획전은 만들지 않고 메인에 자리만 둔다.
+- **카테고리 색 키 = 카테고리 이름**(displayName). 매핑표에 없는 이름은 기본값. id는 AUTO_INCREMENT이고 시드가 id를 지정하지 않아 환경마다 달라진다.
+- **목록 하위 카테고리 탭 미도입** — 카테고리 API가 루트만 주고 자식 데이터가 없다.
+- **스킨별 데이터 선언**(스킨이 필요한 조회를 어떻게 선언할지)은 105-2c에서 정한다.
+- **토큰** 브랜드 색 17·모서리 3을 shadcn 토큰과 같은 `:root` 변수 + `@theme inline` 배선으로 옮겼다(classic 값 동일). renew는 `:root[data-skin="renew"]`에서 변수 값만 덮어쓰므로 renew 뷰가 없는 화면도 classic 뷰가 renew 톤으로 렌더된다. 가격은 본문색, 버튼·강조·활성(ring)은 포인트색. 파스텔 5쌍·이미지 대기 배경·큰 면 모서리(32px)는 변수만 정의(사용은 2c).
+- **서체** 나눔고딕 자체 호스팅 유지(보유 굵기 400·700 — 800 없음). IBM Plex Mono 500·600 woff2를 같은 방식으로 자체 호스팅(OFL 동봉 `public/fonts/IBMPlexMono-OFL.txt`). `--font-mono`는 renew 블록에서만 덮어써 classic의 `font-mono`는 그대로다.
+- **testid 전환 범위** smoke·mock-payment·password-change·claims에서 구매자 뷰 문구·DOM에 기대던 locator를 classic 뷰 `data-testid`로 바꿨다. 문구 자체가 검증 대상인 단정(에러 안내·교환 안내·사유 라벨·타임라인 단계명·송장 라벨)은 testid로 찾고 문구 단정을 유지한다.
+
+### §1-A 갈림길·채택/기각 근거
+- **α 기존 API만** 【기각: 최신순·카테고리별 두 가지뿐이라 메인이 빈약하다】
+- **β 구매자 목록 파라미터 3개 BE 추가** 【채택: 기존 엔드포인트 확장으로 메인 섹션을 구성할 수 있다】
+- **γ 테마·기획전 엔티티까지** 【기각: 운영자가 등록하는 구조는 D-220 운영 구조와 함께 설계한다】
+
+### §2 확정 구현 규칙·트랩
+- 전환 전에도 일반 `@theme` 유틸은 `var(--color-X)`를 참조해 셀렉터 덮어쓰기 자체는 가능했다(컴파일 CSS 실측). 전환은 두 토큰 계열을 같은 `:root` 구조로 통일한 것이다. 컴파일 CSS 전후 diff = 유틸 22곳 `var(--color-X)`→`var(--X)` 1:1 · 출력되던 값 15개 동일.
+- classic 뷰 밖 공용 컴포넌트는 이번에 건드리지 않아 locator를 유지했다: smoke 카드 링크·상품명(ProductCard) · claims 첨부 목록 `li`(AttachmentInput). order-resume-payment의 heading '모의 결제'도 범위 밖이라 유지.
+- Git Bash에서 `docker exec ... sh -s /tmp/x`처럼 컨테이너 경로를 인자로 넘기면 MSYS가 `C:/Users/.../Temp/x`로 바꿔 bind-mount된 `/app` 아래 `C:` 디렉터리를 만든다 → `MSYS_NO_PATHCONV=1`. 같은 원인으로 보이는 이전 잔재(`frontend/C:/Program Files/Git/app/...` 빈 디렉터리)도 이번에 함께 지워졌다.
+- 검증(2026-09-24): typecheck 0 · vitest 756(107 파일) · e2e 전수 115 → 111 passed/2 failed/2 skipped, 실패 2(admin-categories ①·admin-product-form ① 각 파일 첫 테스트)는 단독 재실행 2/2로 LT-22 콜드 트랩 판정 · classic SSR 16화면 data-testid 외 차이 0 · `?skin=renew` 메인·목록·상세 바탕 #F8F6FC·본문 #221F2B·포인트 #5B3FA8·카드 모서리 24px · 흰 글자/포인트 대비 7.72:1.
+
+### §8 이월
+- renew `--primary-hover` 값 미지정 → 포인트와 같은 값으로 둠(hover 시 색 변화 없음). 값 확정 시 교체.
+- 뱃지 new/soldout 배경은 면(#EFEBF8)·new 글자는 포인트로 매핑, sale 뱃지·success·warning·destructive·control/badge 모서리는 classic 값 그대로.
+- classic 뷰·공용 컴포넌트에 하드코딩된 Tailwind 팔레트(`bg-white`·`bg-gray-*`·`text-gray-*`·`border-gray-*` 124곳·31파일)는 토큰이 아니라 renew에서도 바뀌지 않는다 — renew 뷰(2c)에서 처리.
+- renew에 비동기 뷰가 없어 prod 청크 분리 확인(FE-67 §8)은 여전히 미실행.
+
+## FE-69: renew 스킨 1차 — 스킨별 데이터 선언·메인 큐레이션·상품 목록·상품 카드 (Track 105-2c) (2026-09-24)
+
+배경: renew는 classic과 다른 데이터(메인 큐레이션·번호 페이지 목록·헤더 상태)를 화면에 쓴다. 스킨 뷰는 조회·이동을 할 수 없으므로(FE-67 skin-guard) 데이터를 누가·언제 조회할지 정해야 한다.
+
+결정:
+- **스킨별 데이터 선언** 레지스트리 스킨 정의에 `needs`(SKIN_NEEDS 중: layoutHeader·homeCuration·productList)를 두고 parent 체인까지 합산한다. 페이지·레이아웃은 `useSkinNeeds(키)`가 true일 때만 조회 composable을 호출해 vm으로 넘긴다 — classic은 선언이 없어 추가 조회 0건(메인 SSR 백엔드 요청 수·페이로드 asyncData 키 모두 전과 동일).
+  - layoutHeader: 레이아웃이 `useAppHeader()`(AppHeader에서 추출·마크업 불변) 결과를 LayoutShell vm으로.
+  - homeCuration: pages/index가 `useHomeCuration()`.
+  - productList: products/index·categories/[id]가 `useProductPage()`(번호 페이지·URL ?sort·?page가 상태 기준). 잘못된 카테고리 id는 조회하지 않는다(classic과 같음).
+- **메인 큐레이션** 섹션 = 새로 들어온(LATEST 5) · 많이 찾는(SALES 5) · 카테고리별 추천(첫 카테고리 LATEST 5·탭 전환 시 해당 카테고리 재조회) · 셀러 픽(최신 20개에서 서로 다른 셀러 3곳 → 셀러별 3개·신규 API 없음) · 2만원 이하(maxPrice 20000·6). 섹션마다 별도 useAsyncData라 SSR에서 병렬이고, 조회 실패·빈 결과는 그 섹션만 숨긴다(페이지 에러 아님). 카테고리 목록은 헤더와 같은 `categories` 키를 공유한다.
+- **테마·기획전 섹션** 자리만 예약(데이터 없음·렌더 안 함) — D-220 운영 구조와 함께 설계한다.
+- **카테고리 매핑표** `skins/renew/category-theme.ts`: 의류=라벤더·셔츠 / 리빙=페리윙클·머그 / 뷰티=핑크·병 / 푸드=민트·그릇 / 잡화=버터·가방. 전체·미매핑 = 면(옅은 라벤더)·그리드. 가운뎃점으로 묶인 이름은 첫 단어로 찾는다("리빙·주방" → 리빙·시드 실측명). 일러스트는 인라인 선 SVG(stroke 1.6·currentColor·aria-hidden).
+- **반응형 상품 열** ≥1280 5 · ≥1024 4 · ≥768 3 · 그 미만 2. 좌우 여백 데스크톱(≥1024) 64px · 태블릿 40px · 모바일 20px. 모바일 헤더 검색은 아이콘으로 접고 누르면 헤더 아래 한 줄로 펼친다.
+- **호버** 상품 카드는 바깥 12px까지 흰 면·그림자·−6px·이미지 1.04, 그 12px를 음수 마진으로 상쇄해 호버 전 정렬 불변. 카테고리 카드 떠오름, 목록 배너 색 전환 0.45s. 이동·확대는 `motion-safe`에서만. SSR 첫 화면을 숨겼다 보이는 연출 없음.
+- **목록 정렬 선택지**는 classic과 같은 4종(SALES는 메인 전용 — PRODUCT_SORT_OPTIONS에 넣으면 classic 셀렉트가 바뀐다).
+- **testid** renew 뷰는 classic 셸·목록의 testid(search-form·search-input·account-menu-*·footer-help-link·category-tabs)와 공용 카드 testid(product-card·product-card-name — 이번에 공용 ProductCard에도 추가·smoke가 사용)를 그대로 가진다. renew 헤더는 드롭다운이 아닌 인라인 카테고리 메뉴라 `category-menu-content`만 있고 `category-menu-trigger`는 없다.
+
+### §1-A 갈림길·채택/기각 근거
+- **큐레이션 조회 위치 = 페이지 로직 + 스킨 선언** 【채택: 스킨은 화면만(FE-67) 유지·필요한 스킨만 조회】
+- **스킨 뷰 내부 조회** 【기각: skin-guard 원칙 위반(스킨이 조회·이동을 갖게 됨)】
+- **항상 조회** 【기각: classic에 쓰지 않는 호출이 생긴다】
+
+### §2 확정 구현 규칙·트랩
+- BE 변경 뒤 백엔드 dev 컨테이너(bootRun·소스 마운트)가 이전 코드로 떠 있으면 새 파라미터가 400(`sort=SALES`)이거나 무시되고 새 필드가 없다 → `docker restart zslab_mall_backend` 후 healthy에서 확인(D-214 §2와 같은 계열).
+- 전체 길이 스크린샷은 `loading="lazy"` 이미지가 빈 칸으로 찍힌다 → 끝까지 스크롤한 뒤 캡처.
+- renew e2e는 커밋하지 않는 임시 설정(기존 playwright.config + storageState 쿠키 `zslab_skin=renew`)으로 돌린다.
+- 검증(2026-09-24): typecheck 0 · vitest 756(107 파일·skin-guard가 renew 포함 스캔) · classic SSR 8화면 data-testid 외 차이 0·페이로드 키 동일 · e2e classic 전수 112 passed/1 failed(admin-categories ① LT-22·단독 1/1)/2 skipped · renew smoke·help·admin-shell·seller-shell 15/16(help ① 1건은 단독 1/1·재현 불가 → 콜드 트랩 판정) · 스크린샷 8장 docs/frontend/screens-track105-2c/(gitignore 대상 아님).
+
+### §8 이월
+- 2만원 이하 6개는 ≥1280(5열)·≥1024(4열)에서 마지막 줄에 1·2개가 남는다 — 개수·배치 확정 필요.
+- 히어로 "지금 둘러보기"는 classic HomeHero처럼 동작 없는 버튼 그대로.
+- renew에 이제 비동기 뷰가 있으나 prod 빌드 청크 분리 확인(FE-67 §8)은 미실행.
+- 섹션은 클라이언트 이동 시 조회가 끝나면 나타난다(로딩 자리 표시 없음).
+- renew help ① 첫 실행 실패의 원인 미확정(재시작 뒤 첫 실행에서만 1회) — 재발 시 조사.
+- renew 뷰가 없는 나머지 화면(상세·장바구니·주문 등)은 classic 뷰에 renew 토큰이 적용된 상태.
+
+### 보완 (Track 105-2c 보완) (2026-09-24)
+- **로컬 기본 스킨 renew** 로컬 `.env`에 `NUXT_PUBLIC_SKIN=renew`(비커밋). CI·운영 기본값은 classic 유지(`.env.example`·compose 기본값 불변) — 운영 전환은 서버 `.env` 값만 바꾼다. env는 컨테이너 생성 때 들어가므로 값 변경 뒤에는 restart가 아니라 dev 오버레이로 재생성(`compose -f docker-compose.mall.yml -f docker-compose.dev.yml up -d zslab_mall_frontend`·LT-25). classic 확인은 `?skin=classic` 또는 쿠키 `zslab_skin=classic`.
+- **정렬 선택 상자** 네이티브 select 유지, 겉모습만(appearance none·알약·흰 바탕·border-line·높이 44px·오른쪽 선 화살표는 pointer-events 없음·포커스 시 포인트색 테두리·aria-label 유지).
+- **가로 스크롤 규칙** 한 줄 고정·overflow-x auto·스크롤바 숨김(`scrollbar-none`)·scroll-snap·오른쪽 끝 흐림(`fade-right` 마스크)·scroll-padding = 줄 안쪽 여백(없으면 snap이 첫 항목을 여백만큼 왼쪽으로 민다). 현재 항목(aria-current="page")은 진입 시와 aria-current가 바뀔 때 가운데로 옮긴다(`skins/renew/scroll-active.ts`). 대상: <768의 목록 카테고리 탭·메인 카테고리 카드 줄·헤더 카테고리 메뉴(≥768은 기존 배치) + 전 폭의 2만원 이하.
+- **카테고리 배정표**(실측 표시명·탭 순서): 데모=기본(면·그리드) · 리빙·주방=페리윙클·머그 · 의류=라벤더·셔츠 · 잡화=버터·가방 · 디지털=민트·모니터 · 문구=버터·연필. 파스텔 5색이라 버터를 재사용하되 탭에서 이웃하지 않게(잡화와 문구 사이에 디지털). 뷰티=핑크·병·푸드=민트·그릇은 데이터가 없지만 유지.
+- **2만원 이하** 10개 조회 → 전 폭 한 줄 가로 스크롤(카드 폭 고정 160/208px). 열 수 규칙과의 어긋남(§8)을 해소.
+- **히어로** "지금 둘러보기"를 /products 링크(`<a>`)로, 버튼 모양 유지.
+- **help ①** 이번 전수(기본 renew)에서 재발 없음 — 105-2c 1회는 재시작 뒤 첫 실행 콜드로 본다.
+- 검증(2026-09-24): typecheck 0 · vitest 756 · e2e 전수(기본 renew) 112 passed/1 failed(admin-categories ① LT-22·단독 1/1)/2 skipped · classic 회귀(임시 설정 쿠키 classic) smoke·help·admin-shell·seller-shell 16/16 · 스크린샷 8장 재촬영(DevTools 오버레이 숨김) · `docs/frontend/screens-*/` gitignore 추가.
+
+### 보완 2 (Track 105-2c 보완 2) (2026-09-24)
+- **정렬 목록 커스텀** renew 목록·카테고리의 정렬을 네이티브 select에서 기존 shadcn dropdown-menu(RadioGroup) 기반 `skins/renew/components/RenewSortMenu.vue`로 바꿨다. 네이티브 select의 펼침 목록은 OS가 그려 스타일을 입힐 수 없기 때문이다. 트리거는 보완 1의 알약 외형(선택값·화살표 열림 시 180°)이고, 패널은 흰 바탕·16px·border-line·부드러운 그림자·트리거 폭 이상·항목 44px·하이라이트 옅은 라벤더·선택 항목 포인트 글자 + 체크, 열림/닫힘 페이드 + 4px(180/150ms). 키보드·포커스 복귀·aria는 reka-ui 기본 그대로. 값 변경 동작(쿼리·1페이지·재조회)은 기존 setSort. classic SortSelect는 그대로다.
+  - tw-animate가 없어 shadcn 기본 `animate-in` 클래스는 동작하지 않는다 → 패널 모션은 main.css keyframes(`renew-menu-in/out`)로 직접 정의(reka Presence가 닫힘 애니메이션 끝까지 기다림).
+  - 메뉴가 열리면 reka가 바깥 영역에 aria-hidden을 건다(모달 메뉴) — 자동화에서 열린 상태의 트리거는 role이 아니라 CSS로 찾는다.
+- **2만원 이하 좌우 이동** ≥1024: 제목 줄 오른쪽 이전·다음 원형 버튼(44px·aria-label·선 화살표)으로 보이는 폭만큼 부드럽게 이동, 양끝에서 해당 버튼 비활성(흐림·클릭 불가), 가장자리 흐림 없음. <1024: 버튼 숨김·스와이프 + 오른쪽 흐림, 끝까지 가면 흐림 제거. 카드 폭 고정·scroll-padding·스냅 유지. `SectionHeading`에 제목 줄 오른쪽 slot을 열었다.
+- **흐림 색 토큰화** 2만원 이하 흐림은 마스크 대신 바탕 토큰(`to-surface-page`)으로 끝나는 그라디언트 오버레이 — 끝 도달 시 제거하려고 요소로 둔다. 탭·카드 줄의 `fade-right`(마스크)는 색이 없어 바탕이 그대로 비친다.
+- 검증(2026-09-24): typecheck 0 · vitest 756 · 임시 스크립트 18항목(정렬 마우스·키보드·포커스 복귀·패널 치수·가격/이름 순서 · 버튼 양끝 비활성·끝까지 이동/복귀 · 모바일 흐림 색·제거) · e2e 전수(기본 renew) 112 passed/1 failed(admin-categories ① LT-22·단독 1/1)/2 skipped · 스크린샷 5장(정렬 열림 1440/390 · 2만원 이하 1440 처음/끝 · 390).
