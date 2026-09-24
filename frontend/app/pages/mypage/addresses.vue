@@ -45,6 +45,9 @@ const form = reactive({
 const submitting = ref<boolean>(false)
 const errorMessage = ref<string>('')
 const successMessage = ref<string>('')
+// 폼·삭제 확인 모달 열림 상태(FE-72 보완 1·renew 뷰가 사용). classic 뷰는 쓰지 않아 기존 동작 그대로다.
+const formOpen = ref<boolean>(false)
+const removeTargetId = ref<number | null>(null)
 
 function resetForm(): void {
   editingId.value = null
@@ -71,6 +74,17 @@ function startEdit(address: Address): void {
   form.isDefault = address.isDefault
   errorMessage.value = ''
   successMessage.value = ''
+  formOpen.value = true
+}
+
+function openCreate(): void {
+  resetForm()
+  formOpen.value = true
+}
+
+function closeForm(): void {
+  resetForm()
+  formOpen.value = false
 }
 
 // 옵션 필드는 빈 문자열이면 undefined로 보내 서버에 저장하지 않는다($fetch가 undefined 키를 생략).
@@ -121,6 +135,7 @@ async function handleSubmit(): Promise<void> {
       successMessage.value = '배송지가 수정되었습니다'
     }
     resetForm()
+    formOpen.value = false
     await refresh()
   } catch (submitError) {
     handleMutationError(submitError as { statusCode?: number }, '저장에 실패했습니다. 입력을 확인하세요')
@@ -142,8 +157,29 @@ async function handleSetDefault(addressId: number): Promise<void> {
 }
 
 async function handleRemove(addressId: number): Promise<void> {
-  // 삭제는 되돌릴 수 없으므로 명시적 확인 후 실행.
+  // 삭제는 되돌릴 수 없으므로 명시적 확인 후 실행(classic 뷰 경로).
   if (!window.confirm('이 배송지를 삭제하시겠습니까?')) return
+  await removeById(addressId)
+}
+
+// 삭제 확인 모달 경로(renew 뷰): 요청 → 모달 확인 → 삭제. 확인 문구는 모달이 보여 준다.
+function requestRemove(addressId: number): void {
+  removeTargetId.value = addressId
+}
+
+function cancelRemove(): void {
+  removeTargetId.value = null
+}
+
+async function confirmRemove(): Promise<void> {
+  const addressId = removeTargetId.value
+  if (addressId === null) return
+  removeTargetId.value = null
+  await removeById(addressId)
+}
+
+// 삭제 실행부(두 경로 공유).
+async function removeById(addressId: number): Promise<void> {
   errorMessage.value = ''
   successMessage.value = ''
   try {
@@ -174,6 +210,13 @@ const vm: AddressesPageVm = reactive({
   handleSubmit,
   handleSetDefault,
   handleRemove,
+  formOpen,
+  openCreate,
+  closeForm,
+  removeTargetId,
+  requestRemove,
+  cancelRemove,
+  confirmRemove,
   RECIPIENT_NAME_MAX,
   RECIPIENT_PHONE_MAX,
   ADDRESS_LABEL_MAX,

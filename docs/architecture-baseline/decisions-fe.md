@@ -2900,3 +2900,67 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 - **고정 바 표시 중 하단 여백** 바가 보이는 동안에만 body 하단 여백 = 바 높이(`calc(61px + max(12px, safe-area))`·<768), 숨겨지면 0 — `MobileActionBar`가 표시 상태로 useHead bodyAttrs를 바꾼다. 상세처럼 페이지 끝에서도 바가 떠 있는 화면은 푸터 마지막 줄까지 바 위로 보이고(§8 "푸터 아래쪽을 덮는다" 해소), 장바구니·주문서는 페이지 끝에서 바가 숨어 여백 0이다. 여백은 문서 끝에만 붙어 바 표시·숨김이 바뀌어도 보이는 콘텐츠 위치는 그대로다.
 - **결제 수단 배치** 주문서 결제 수단 카드 ≥768 4열 · <768 2열(4값이 한 줄 또는 2×2로 맞아떨어짐 — 3열의 3+1 배치 해소).
 - 검증(2026-09-24): typecheck 0 · vitest 108 files / 762 passed(skin-guard) · e2e smoke·mock-payment·order-resume-payment·claims(기본 renew) 11/11 · 임시 스크립트(390·주문 생성·장바구니 조작 없음) 9/9 — 상세 끝 바 표시·여백 73 = 바 73·푸터 마지막 줄 안 가려짐 · 장바구니·주문서 끝 바 숨김·여백 0·푸터 아래 빈 영역 0 · 3화면 바 표시↔숨김 전환 전후 제목 문서 위치·스크롤 불변 · 결제 수단 1440 4열·390 2열 · 스크린샷 detail-390-end·checkout-method-1440·checkout-method-390.
+
+## FE-72: renew 마이페이지 — 공통 틀(사이드 메뉴)·홈·회원 정보·비밀번호·배송지·탈퇴 · 메뉴 정의 통합 (Track 105-2d-FE1) (2026-09-24)
+
+배경: 마이페이지 5화면이 classic 뷰에 토큰만 입힌 상태였고, 메뉴가 헤더(useAppHeader)와 classic 허브(pages/mypage/index.vue)에 따로 정의돼 라벨·순서가 달랐다. 홈은 D-223 요약 API·주문 목록 items[]로 구성한다.
+
+결정:
+- **메뉴 정의 1곳** `lib/constants/mypage-menu.ts` MYPAGE_MENU_ITEMS = 홈(/mypage)·주문 내역(/orders)·회원 정보·배송지 관리·비밀번호 변경·회원 탈퇴(label·description). 취소·반품·교환 항목 없음(FE-63).
+  - 파생: 헤더 ACCOUNT_MENU_ITEMS = 회원 탈퇴 제외(FE-19 유지)·홈은 "마이페이지"로 표기 / classic 허브 = 허브 자신인 홈 제외·description 사용 / renew 사이드 메뉴 = 전체.
+  - 통합으로 바뀐 표시: 헤더 계정 메뉴 라벨·순서(주문내역 → 주문 내역 · 회원정보 수정 → 회원 정보 · 배송지 관리가 비밀번호 변경 앞) · classic 허브 "프로필" → "회원 정보"(순서도 정의 기준).
+- **사이드 메뉴** renew 공통 `skins/renew/components/MypageFrame.vue`(메뉴 + 제목 h1 + slot)를 5화면 모두 쓴다. 정의를 데이터로 렌더(항목 추가는 정의 한 줄). 현재 위치 = NuxtLink 정확 일치 aria-current(홈은 하위 화면에서 비활성)이고 활성 스타일도 aria-current 기준. ≥768 왼쪽 세로 메뉴(≥1024 sticky) · <768 상단 가로 스크롤 탭 + `followActiveItem`(scroll-active 재사용). 본문은 진입 시 짧게 떠오른다(@starting-style·움직임 줄이기면 없음).
+- **홈 구성** 인사 카드("{회원명}님, 반가워요" + 회원 정보 수정·등급/혜택 없음) → 주문 현황(최근 {periodMonths}개월·결제 완료·상품 준비·배송 중·배송 완료·구매 확정 5단계·단계 사이 구분선·0건 흐림·표시 전용) → 구매 확정 대기(stages.delivered > 0일 때만·확정하러 가기 /orders) → 진행 중인 취소·반품·교환(activeClaimCount·/orders?tab=claim) · 기본 배송지(isDefault·없으면 빈 상태 + 배송지 등록) 2카드(<768 세로) → 최근 주문 3건(썸네일 = items[0].thumbnailUrl·없으면 자리 표시 · 주문일·주문번호 · previewTitle · 상태 배지 · 금액 · 행 클릭 = 주문 상세 · 더 보기 /orders · 0건이면 빈 상태 + 쇼핑하러 가기).
+- **홈 데이터** need `mypageHome`(renew만 선언·classic 추가 조회 0) → `useMypageHome`: 회원명 = useProfile.fetchProfile · 기본 배송지 = useAddresses.listAddresses의 isDefault · 요약 = useOrderStatusSummary(신규) · 최근 주문 = useRecentOrders(3)(신규). 섹션별 독립 조회·캐시 키 분리(mypage-home:* · recent-orders — useOrderList 키 'order-list'가 고정이라 주문 내역 페이지와 데이터가 섞이지 않게). 섹션별 스켈레톤, 실패한 섹션만 CommonErrorState + 재시도, 어느 섹션이든 401이면 로그인 유도(기존 페이지 관례). 단계 매핑 = `lib/utils/order-summary-stages.ts`.
+- **타입** OrderStatusSummary·OrderStatusStages 신설 · OrderSummaryItem(null 키가 빠지는 필드는 선택·D-223 인계) · OrderSummary.items 선택 필드.
+- **회원 정보·비밀번호·배송지·탈퇴** renew 뷰만 추가(vm 계약·페이지 script 무변경·기능 추가 없음). testid·e2e 단언 문구 유지. 배송지는 ≥1024 [주소 카드 목록 | 400px 폼 sticky], 체크박스는 RenewCheckbox.
+- **계약** MypagePageVm.home(MypageHomeVm | undefined) 추가. renew MypageView는 home을 필수로 받는다(need 선언 스킨 전제·renew HomeView와 같음).
+
+### §1-A 갈림길·채택/기각 근거
+- **주문 목록 탭 구성: α 4탭 유지 / β 2탭** → β 채택(사이드 메뉴 통합 결정과 정합·BE type 선택값). 실제 변경은 FE2.
+- 그 외 대안 검토 없음.
+
+### §2 확정 구현 규칙·트랩
+- bootRun backend 컨테이너는 재생성 전까지 새로 머지된 BE 코드를 싣지 않는다 — 신규 API를 쓰는 FE 검증(스크린샷 포함) 전에 backend를 --force-recreate·healthy 확인한다(이번: /orders/summary가 "summary"를 주문번호로 해석해 404·목록 items[] 누락 → 재생성 후 200). D-214 §2와 같은 계열.
+- 검증(2026-09-24): typecheck 0 · vitest 110 files / 769 passed(skin-guard·신규 mypage-menu 4·order-summary-stages 3) · e2e password-change·admin-shell(기본 renew) 9/9 · 스크린샷 13장 docs/frontend/screens-track105-2d/(홈 4장은 backend 재생성 후 재촬영).
+
+### §8 이월
+- 홈 클레임 카드 링크 ?tab=claim은 FE2 전까지 기본 탭(주문)으로 열린다.
+- 390 폭 최근 주문 행의 주문번호 잘림 → 통합 검토의 모바일 항목에서 처리.
+- AppHeader.spec 테스트 이름 "링크 6개" 표기 불일치(실제 링크 5 + 로그아웃·기존 표기).
+
+외부 검토: C / 생략
+
+### 보완 1 (배송지 모달 전환·공용 모달 기반) (2026-09-24)
+- **공용 모달** `components/ui/dialog/`(shadcn-vue 구성·reka-ui Dialog·새 패키지 없음): Dialog · DialogContent(Portal + Overlay + Content) · DialogHeader · DialogTitle · DialogDescription · DialogBody(본문 안쪽 스크롤) · DialogFooter · DialogConfirm · DialogClose(reka re-export).
+  - 용도 2가지: 폼 = Content 안에 Header + Body + Footer 조립 / 확인 = DialogConfirm(제목 + 설명 + 취소·확인, destructive면 확인 버튼 위험 강조색, 열림은 부모의 open + update:open, 확인은 confirm만 알림).
+  - 반응형: ≥768 가운데 모달(최대 85dvh·기본 max-w-lg, 사용처가 class로 폭 지정) / <768 하단 시트(최대 90dvh·하단 safe-area 여백·<768 바닥 버튼은 같은 폭으로 채움). 애니메이션: 배경 페이드 · 모달 페이드 + 0.96 확대(scale 속성 — 가운데 정렬 translate와 분리) · 시트 아래→위, 0.15~0.25s, reduced-motion이면 없음(main.css keyframes — tw-animate 미도입).
+  - 포커스 가두기·Esc·aria 제목·설명 연결·배경 스크롤 잠금(Overlay)·닫을 때 열었던 요소로 포커스 복귀는 reka 기본 동작(reka 2.10은 열릴 때 활성 요소를 trigger로 기억 — DialogTrigger 없이 제어형 open도 복귀). 닫기 X는 DOM 끝에 둬 첫 초점이 본문으로 간다.
+- **배송지 vm 추가(기존 필드·함수 동작 유지)** formOpen · openCreate(초기화 후 열기) · closeForm(초기화 후 닫기) · startEdit(기존 + 열기) · 저장 성공 시 닫기 / removeTargetId · requestRemove · cancelRemove · confirmRemove(window.confirm 없이 삭제). 삭제 실행부는 내부 removeById 하나를 공유하고, 기존 handleRemove는 window.confirm 후 같은 함수를 부른다 — classic 뷰는 무변경으로 기존 경로(인라인 폼·window.confirm)를 그대로 쓴다.
+- **renew 배송지** 제목 줄 "+ 새 배송지 추가"(MypageFrame actions slot) · 카드 그리드(≥1024 2열·받는 사람·기본 배지·배송지 이름·연락처·주소·수정·삭제·기본이 아니면 기본으로 설정) · 0건 빈 상태 + 추가 · 폼 모달(2열·<768 1열·추가 모드만 기본 체크·취소·저장·errorMessage는 모달이 열려 있으면 안, 닫혀 있으면 페이지) · 삭제 확인 모달("이 배송지를 삭제하시겠습니까?" + 대상 요약·취소·삭제) · successMessage 페이지 role=status. 닫힘 애니메이션 동안 closeForm·confirmRemove가 상태를 먼저 비워도 제목·설명이 바뀌어 보이지 않게 열린 시점 값을 뷰가 붙잡아 둔다.
+
+#### §1-A 갈림길·채택/기각 근거
+- **A 상하 배치 + 폼 접기 / B 단순 상하 배치 / C 모달** → C 채택(reka-ui 기반이라 비용이 낮고 106 리뷰·문의·재입고 신청 등에서 재사용).
+
+#### §2 검증
+- 검증(2026-09-24): typecheck 0 · vitest 110 files / 769 passed(skin-guard) · 임시 스크립트(데모 구매자·임시 배송지만 생성·삭제·잔여 0) 8/8 — 추가 저장 → 닫힘 + 목록 반영 · 수정 모달 값 채움(제목·필드·기본 체크 숨김) → 저장 반영 · 삭제 확인 취소 유지·삭제 제거 · Esc 닫힘 + 추가 버튼·해당 카드 수정 버튼 포커스 복귀 · 열림 동안 body overflow hidden·휠 후 scrollY 불변 · 스크린샷 8장 addresses(목록·추가·수정·삭제 확인) × 1440/390.
+
+#### §8 이월
+- 연락처 표시 형식(+82 원문 그대로 표시).
+- 구매 확정·탈퇴 확인의 모달 전환 여부(FE2·통합 검토에서 판단).
+
+### 보완 2 (renew 공용 알림·배송지 1열 행) (2026-09-24)
+- **renew 공용 알림** `skins/renew/components/RenewNotice.vue`(tone 필수). 톤 규칙 3가지:
+  - success = 저장·추가·수정·삭제 완료(민트·체크 아이콘·role=status)
+  - info = 안내(라벤더·정보 아이콘·role=status)
+  - danger = 실패(핑크·경고 아이콘·role=alert)
+  - 색은 기존 파스텔 토큰만 쓰고(새 색 값 없음) 아이콘은 @lucide/vue(CircleCheck·Info·TriangleAlert·aria-hidden). 본문은 단어 단위 줄바꿈(break-keep).
+- **적용 범위** FE1 renew 뷰 5개의 성공·안내·에러 메시지 전부(모달 안 에러 포함): 회원 정보 저장 success·에러 danger / 비밀번호 임시 비밀번호 안내 info·에러 danger / 배송지 페이지 완료 success·페이지 에러 danger·폼 모달 에러 danger / 탈퇴 안내 info·에러 danger / 홈 구매 확정 대기 info. 문구·testid(password-temporary-notice·withdraw-notice·mypage-confirm-waiting)는 유지. 2f 이전 renew 뷰는 대상 아님.
+- **배송지 목록 1열** 모든 폭 1열 — ≥768 가로형 행(왼쪽 이름·기본 배지·배송지 이름 / 연락처 / 주소, 오른쪽 기본으로 설정(기본이 아닐 때)·수정·삭제), <768 버튼은 아래 줄. 이유: 배송지가 1건일 때 2열 그리드는 오른쪽이 빈 영역으로 남는다.
+- **공용 모달 설명** DialogDescription에 break-keep(한국어 단어 단위 줄바꿈 — 삭제 확인의 "없습니/다" 끊김 해소).
+- 대안 검토 없음.
+- 검증(2026-09-24): 신규 vitest RenewNotice 3(톤별 role·아이콘·내용) · typecheck 0 · vitest 전체 exit 0(skin-guard 포함) · e2e password-change(renew) 3/3 · 임시 스크립트(데모 구매자·임시 배송지 추가 후 삭제·DB 잔여 0) — success 알림 role=status "배송지가 추가되었습니다" · 삭제 확인 설명 word-break keep-all · 스크린샷 addresses-1440·addresses-390·addresses-success-1440·addresses-delete-390.
+
+#### §8 이월
+- 2f 이전 renew 뷰(장바구니·주문서 등)의 메시지를 공용 알림으로 교체(통합 검토).
+- 알림 톤 4번째 warning(butter, role=status): 되돌릴 수 없는 동작 안내용, 현재 탈퇴 안내만 사용

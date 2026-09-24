@@ -36,7 +36,17 @@ export interface AddressesPageVm {
   startEdit: (address: Address) => void
   handleSubmit: () => Promise<void>
   handleSetDefault: (addressId: number) => Promise<void>
+  /** window.confirm 확인 후 삭제(classic 경로). */
   handleRemove: (addressId: number) => Promise<void>
+  /** 폼 모달 열림(FE-72 보완 1). openCreate = 초기화 후 열기 · startEdit도 연다 · closeForm = 초기화 후 닫기 · 저장 성공 시 닫힘. */
+  formOpen: boolean
+  openCreate: () => void
+  closeForm: () => void
+  /** 삭제 확인 모달 대상(null = 닫힘). confirmRemove는 window.confirm 없이 삭제한다(renew 경로). */
+  removeTargetId: number | null
+  requestRemove: (addressId: number) => void
+  cancelRemove: () => void
+  confirmRemove: () => Promise<void>
   RECIPIENT_NAME_MAX: typeof RECIPIENT_NAME_MAX
   RECIPIENT_PHONE_MAX: typeof RECIPIENT_PHONE_MAX
   ADDRESS_LABEL_MAX: typeof ADDRESS_LABEL_MAX
