@@ -97,16 +97,10 @@ const LINK_BUTTON =
           <legend :class="LABEL">교환할 옵션</legend>
           <p v-if="vm.optionsPending" class="text-sm text-sub" data-testid="exchange-options-loading">교환 가능한 옵션을 불러오는 중…</p>
           <RenewNotice v-else-if="vm.optionsStatus === 'error'" tone="danger" data-testid="exchange-options-error">
-            <div class="flex flex-wrap items-center justify-between gap-3">
-              <p>교환 가능한 옵션을 불러오지 못했습니다.</p>
-              <button
-                type="button"
-                class="flex min-h-10 items-center rounded-full bg-white px-4 text-sm font-bold text-ink transition duration-200 hover:bg-ink hover:text-white"
-                @click="vm.refreshOptions()"
-              >
-                다시 시도
-              </button>
-            </div>
+            <p>교환 가능한 옵션을 불러오지 못했습니다.</p>
+            <template #action>
+              <button type="button" class="btn btn-sm bg-white text-primary max-md:min-h-11" @click="vm.refreshOptions()">다시 시도</button>
+            </template>
           </RenewNotice>
           <RenewNotice v-else-if="vm.productDetail?.saleStopped" tone="info" data-testid="exchange-options-empty">
             판매가 중지된 상품은 교환할 수 없습니다. 반품을 이용해 주세요.

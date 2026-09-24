@@ -156,6 +156,26 @@ describe('RenewAddressSearch — 모달 + 요약 카드', () => {
     expect(document.activeElement).toBe(detailInput)
   })
 
+  it('nested(폼 모달 안 · FE-79) → 검색 모달 오버레이 투명 · 기본(주문서) → 기존 어두운 오버레이', async () => {
+    installFakePostcode('kakao')
+    const overlayClasses = async (nested: boolean): Promise<string[]> => {
+      const wrapper = await mountSuspended(RenewAddressSearch, { props: { ...EMPTY_ADDRESS, detailInputId: DETAIL_INPUT_ID, nested } })
+      await wrapper.find('button').trigger('click')
+      await settle()
+      const overlay = document.querySelector<HTMLElement>('[data-slot="dialog-overlay"]')
+      const classes = overlay ? Array.from(overlay.classList) : []
+      wrapper.unmount()
+      await settle()
+      return classes
+    }
+    const standalone = await overlayClasses(false)
+    expect(standalone).toContain('bg-foreground/40')
+    expect(standalone).not.toContain('bg-transparent')
+    const nested = await overlayClasses(true)
+    expect(nested).toContain('bg-transparent')
+    expect(nested).not.toContain('bg-foreground/40')
+  })
+
   it('변경 → 같은 모달로 다시 검색한다', async () => {
     const calls = installFakePostcode('kakao')
     const wrapper = await mountSearch(SELECTED_ADDRESS)

@@ -105,9 +105,12 @@ function scrollBudget(direction: 1 | -1): void {
           <NuxtLink
             :to="`/categories/${category.categoryId}`"
             class="flex h-full flex-col justify-between gap-6 rounded-card p-5 transition duration-fast ease-soft hover:shadow-e2 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary motion-safe:hover:-translate-y-1"
-            :style="{ background: categoryTheme(category.displayName).background, color: categoryTheme(category.displayName).ink }"
+            :style="{
+              background: categoryTheme(category.categoryId, category.displayName).background,
+              color: categoryTheme(category.categoryId, category.displayName).ink,
+            }"
           >
-            <CategoryIllustration :name="categoryTheme(category.displayName).illustration" class="h-12 w-12" />
+            <CategoryIllustration :name="categoryTheme(category.categoryId, category.displayName).illustration" class="h-12 w-12" />
             <span class="text-h3">{{ category.displayName }}</span>
           </NuxtLink>
         </li>

@@ -24,6 +24,7 @@ import { formatWon } from '#layers/admin/app/lib/format'
 import { ADMIN_SELLERS_PATH, resolveBackPath } from '#layers/admin/app/lib/admin-back-path'
 import { extractErrorCode, toAdminErrorMessage } from '#layers/admin/app/lib/admin-error-message'
 import { formatDateTime } from '~/lib/utils/datetime'
+import { formatPhone } from '~/lib/format/phone'
 import { useAdminSellers } from '#layers/admin/app/composables/useAdminSellers'
 
 definePageMeta({ layout: 'admin', middleware: ['admin', 'vuetify'] })
@@ -196,7 +197,7 @@ function onEditDone(): void {
             <v-col cols="6" md="3"><div class="text-caption text-medium-emphasis">대표자</div><div class="text-body-2" data-testid="seller-ceo">{{ detail.ceoName }}</div></v-col>
             <v-col cols="6" md="3"><div class="text-caption text-medium-emphasis">수수료율</div><div class="text-body-2" data-testid="seller-rate">{{ detail.commissionRate !== undefined ? formatPercent(detail.commissionRate) : '미설정 (카테고리율 → 기본율)' }}</div></v-col>
             <v-col cols="6" md="3"><div class="text-caption text-medium-emphasis">담당자 이메일</div><div class="text-body-2" data-testid="seller-email">{{ detail.contactEmail ?? '—' }}</div></v-col>
-            <v-col cols="6" md="3"><div class="text-caption text-medium-emphasis">담당자 연락처</div><div class="text-body-2" data-testid="seller-phone">{{ detail.contactPhone ?? '—' }}</div></v-col>
+            <v-col cols="6" md="3"><div class="text-caption text-medium-emphasis">담당자 연락처</div><div class="text-body-2" data-testid="seller-phone">{{ formatPhone(detail.contactPhone ?? '—') }}</div></v-col>
             <v-col cols="6" md="3"><div class="text-caption text-medium-emphasis">등록일</div><div class="text-body-2">{{ formatDateTime(detail.createdAt) }}</div></v-col>
             <v-col cols="12" md="3"><div class="text-caption text-medium-emphasis">셀러 ID</div><div class="adm-product-id">{{ detail.sellerPublicId }}</div></v-col>
           </v-row>

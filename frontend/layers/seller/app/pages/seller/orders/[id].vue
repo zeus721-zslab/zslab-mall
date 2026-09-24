@@ -15,6 +15,7 @@ import { canPrepareShipment } from '#layers/seller/app/lib/seller-order-view'
 import { SELLER_CLAIMS_PATH, SELLER_DELIVERIES_PATH, SELLER_ORDERS_PATH, resolveBackPath } from '#layers/seller/app/lib/seller-back-path'
 import { extractErrorCode, toSellerErrorMessage } from '#layers/seller/app/lib/seller-error-message'
 import { formatWon } from '#layers/seller/app/lib/format'
+import { formatPhone } from '~/lib/format/phone'
 import { useSellerOrders } from '#layers/seller/app/composables/useSellerOrders'
 
 definePageMeta({ layout: 'seller', middleware: ['seller', 'seller-vuetify'] })
@@ -140,7 +141,7 @@ function closeShipment(refresh: boolean): void {
             <v-card-text class="px-5 pb-5">
               <template v-if="detail.shippingAddress">
                 <div class="text-body-1 font-weight-medium" data-testid="order-detail-recipient">
-                  {{ detail.shippingAddress.recipientName }} <span class="text-body-2 text-medium-emphasis">{{ detail.shippingAddress.recipientPhone }}</span>
+                  {{ detail.shippingAddress.recipientName }} <span class="text-body-2 text-medium-emphasis">{{ formatPhone(detail.shippingAddress.recipientPhone) }}</span>
                 </div>
                 <div class="text-body-2 mt-1">
                   [{{ detail.shippingAddress.zonecode }}] {{ detail.shippingAddress.addressRoad }}

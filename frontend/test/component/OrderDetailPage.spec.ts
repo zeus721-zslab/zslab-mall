@@ -175,6 +175,21 @@ describe('pages/orders/[orderPublicId].vue 구매확정(C-06)·안내 문구(C-1
     expect(dialogPart('item-confirm-panel')).toBeNull()
   })
 
+  // FE-79: 설명 = 대상(상품명 · 옵션) · 결과 = 안내(규약 경고 · RenewNotice warning) · 확인 버튼 = 동작명 · tone primary.
+  it('확인창 = 대상 설명 · 결과 안내(warning) · "구매 확정하기"(btn-primary)', async () => {
+    mountWith([orderItem({ orderItemId: 'oit_2', productName: '배송완료 상품', optionLabel: '색상: 블랙', status: { code: 'DELIVERED', label: '배송완료' } })])
+    const wrapper = await mountSuspended(OrderDetailPage)
+    await openConfirm(wrapper)
+    const panel = dialogPart('item-confirm-panel')!
+    expect(panel.textContent).toContain('배송완료 상품 · 색상: 블랙을 구매 확정합니다.')
+    const notice = dialogPart('item-confirm-warning')!
+    expect(notice.getAttribute('data-tone')).toBe('warning')
+    expect(notice.textContent?.trim()).toBe(ITEM_CONFIRM_WARNING)
+    const submit = dialogPart('item-confirm-submit')!
+    expect(submit.textContent?.trim()).toBe('구매 확정하기')
+    expect(submit.classList).toContain('btn-primary')
+  })
+
   it('중복 제출 차단: 응답 전 두 번째 클릭은 호출 없음', async () => {
     mountWith([delivered()])
     let resolveCall: (value: { orderItemId: string; status: string }) => void = () => {}

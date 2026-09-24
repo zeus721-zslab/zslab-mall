@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { h } from 'vue'
 import { mountSuspended } from '@nuxt/test-utils/runtime'
 import RenewNotice from '~/skins/renew/components/RenewNotice.vue'
 
@@ -25,4 +26,29 @@ describe('RenewNotice — 톤별 role·아이콘', () => {
       expect(wrapper.text()).toContain('알림 문구')
     })
   }
+})
+
+// FE-79 action 슬롯: 버튼 있음 → ≥768 가운데 정렬·<768 아래 줄 / 없음 → 아이콘을 첫 줄 높이(items-start + mt-0.5)에 맞춤.
+describe('RenewNotice — action 슬롯 유무별 정렬', () => {
+  it('action 없음 → 루트 items-start · 아이콘 mt-0.5 · 슬롯 영역 없음', async () => {
+    const wrapper = await mountSuspended(RenewNotice, { props: { tone: 'info' }, slots: { default: () => '여러 줄 안내' } })
+    expect(wrapper.classes()).toContain('items-start')
+    expect(wrapper.classes()).not.toContain('md:items-center')
+    expect(wrapper.find('svg').classes()).toEqual(expect.arrayContaining(['mt-0.5']))
+    expect(wrapper.find('svg').classes()).not.toContain('md:mt-0')
+    expect(wrapper.find('[data-slot="notice-action"]').exists()).toBe(false)
+  })
+
+  it('action 있음 → 루트 flex-col·md:flex-row·md:items-center · 아이콘 md:mt-0 · 버튼은 슬롯 영역(<768 문구 시작선 들여쓰기)', async () => {
+    const wrapper = await mountSuspended(RenewNotice, {
+      props: { tone: 'info' },
+      slots: { default: () => '안내', action: () => h('button', { type: 'button' }, '확정하러 가기') },
+    })
+    expect(wrapper.classes()).toEqual(expect.arrayContaining(['flex-col', 'md:flex-row', 'md:items-center']))
+    expect(wrapper.classes()).not.toContain('items-start')
+    expect(wrapper.find('svg').classes()).toEqual(expect.arrayContaining(['mt-0.5', 'md:mt-0']))
+    const action = wrapper.find('[data-slot="notice-action"]')
+    expect(action.classes()).toContain('max-md:pl-8')
+    expect(action.find('button').text()).toBe('확정하러 가기')
+  })
 })

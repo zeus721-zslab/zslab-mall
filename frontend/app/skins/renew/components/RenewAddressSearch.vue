@@ -9,6 +9,8 @@ import RenewNotice from './RenewNotice.vue'
 const props = defineProps<{
   // 주소를 고른 뒤 포커스를 옮길 상세 주소 입력칸 id.
   detailInputId: string
+  // 폼 모달 안에서 쓸 때(배송지 관리 · FE-79): 아래 모달이 이미 배경을 어둡게 하므로 검색 모달 오버레이는 투명(어둡기 1단계 유지).
+  nested?: boolean
 }>()
 
 const zonecode = defineModel<string>('zonecode', { required: true })
@@ -120,6 +122,7 @@ function onCloseAutoFocus(event: Event): void {
       <DialogContent
         :show-close="false"
         :class="DIALOG_LAYOUT"
+        :overlay-class="nested ? 'bg-transparent' : undefined"
         data-testid="address-search-dialog"
         @open-auto-focus.prevent
         @close-auto-focus="onCloseAutoFocus"

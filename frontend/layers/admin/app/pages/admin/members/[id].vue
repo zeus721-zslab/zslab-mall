@@ -19,6 +19,7 @@ import { memberWithdrawMessage, temporaryPasswordMessage } from '#layers/admin/a
 import { extractErrorCode, toAdminErrorMessage } from '#layers/admin/app/lib/admin-error-message'
 import { useAdminMembers } from '#layers/admin/app/composables/useAdminMembers'
 import { useAdminToast } from '#layers/admin/app/composables/useAdminToast'
+import { formatPhone } from '~/lib/format/phone'
 
 definePageMeta({ layout: 'admin', middleware: ['admin', 'vuetify'] })
 useSeoMeta({ title: '회원 상세 · zslab-mall 관리자' })
@@ -256,7 +257,7 @@ function openOrder(row: AdminMemberActivityRow): void {
           <v-row dense>
             <v-col cols="6" md="3"><div class="text-caption text-medium-emphasis">이름</div><div class="text-body-2" data-testid="member-name">{{ detail.name ?? '—' }}</div></v-col>
             <v-col cols="6" md="3"><div class="text-caption text-medium-emphasis">이메일</div><div class="text-body-2" data-testid="member-email">{{ detail.email ?? '—' }}</div></v-col>
-            <v-col cols="6" md="3"><div class="text-caption text-medium-emphasis">연락처</div><div class="text-body-2" data-testid="member-phone">{{ detail.phone ?? '—' }}</div></v-col>
+            <v-col cols="6" md="3"><div class="text-caption text-medium-emphasis">연락처</div><div class="text-body-2" data-testid="member-phone">{{ formatPhone(detail.phone ?? '—') }}</div></v-col>
             <v-col cols="6" md="3"><div class="text-caption text-medium-emphasis">가입일</div><div class="text-body-2">{{ formatDateTime(detail.createdAt) }}</div></v-col>
             <v-col v-if="detail.withdrawnAt" cols="6" md="3"><div class="text-caption text-medium-emphasis">탈퇴일</div><div class="text-body-2" data-testid="member-withdrawn-at">{{ formatDateTime(detail.withdrawnAt) }}</div></v-col>
             <v-col cols="12" md="3"><div class="text-caption text-medium-emphasis">회원 ID</div><div class="adm-product-id">{{ detail.publicId }}</div></v-col>
@@ -294,7 +295,7 @@ function openOrder(row: AdminMemberActivityRow): void {
                   <tr v-for="address in detail.addresses" :key="address.id" data-testid="member-address-row">
                     <td>{{ address.addressLabel ?? '—' }}<v-chip v-if="address.isDefault" size="x-small" class="ml-1" variant="tonal" color="primary">기본</v-chip></td>
                     <td>{{ address.recipientName }}</td>
-                    <td>{{ address.recipientPhone }}</td>
+                    <td>{{ formatPhone(address.recipientPhone) }}</td>
                     <td>[{{ address.zonecode }}] {{ address.addressRoad }}<span v-if="address.addressDetail"> {{ address.addressDetail }}</span></td>
                   </tr>
                 </tbody>
@@ -345,7 +346,7 @@ function openOrder(row: AdminMemberActivityRow): void {
     <AdminConfirmDialog
       :open="activeDialog === 'reset'"
       title="임시 비밀번호 발급"
-      :message="temporaryPasswordMessage(detail?.phone ?? '—')"
+      :message="temporaryPasswordMessage(formatPhone(detail?.phone ?? '—'))"
       confirm-label="발급"
       risk
       :loading="actionBusy"

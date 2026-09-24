@@ -54,6 +54,15 @@ export const ITEM_CONFIRM_WARNING = riskConfirmMessage(
   IRREVERSIBLE,
 )
 
+/**
+ * 구매확정 확인창 설명 = 대상만(FE-79). 결과(ITEM_CONFIRM_WARNING)는 확인창 안내로 따로 보인다.
+ * 상품명·옵션은 표시용 선택 값이라 둘 다 없으면 "이 품목"으로 쓴다.
+ */
+export function itemConfirmDescription(productName: string | null | undefined, optionLabel: string | null | undefined): string {
+  const target = [productName, optionLabel].filter((part): part is string => typeof part === 'string' && part.trim() !== '').join(' · ')
+  return `${target === '' ? '이 품목' : target}을 구매 확정합니다.`
+}
+
 /** 배송완료 품목 아래 안내(구매확정 버튼 옆). */
 export const AUTO_CONFIRM_GUIDE = `배송완료 ${AUTO_CONFIRM_DAYS}일 후 자동 구매확정됩니다.`
 /** 결제 대기 주문 헤더 아래 안내. */

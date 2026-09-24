@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import type { OrderDetailPageVm } from '~/skins/contracts/order-detail'
 import type { OrderItem } from '~/types/order'
+import { formatPhone } from '~/lib/format/phone'
+import { itemConfirmDescription } from '~/lib/constants/order'
 import MypageFrame from '../components/MypageFrame.vue'
 import RenewNotice from '../components/RenewNotice.vue'
 
@@ -12,6 +14,12 @@ const confirmTargetItem = computed<OrderItem | null>(() => {
   const targetId = props.vm.confirmTargetId
   if (targetId === null || !props.vm.data) return null
   return props.vm.data.sellers.flatMap((seller) => seller.items).find((item) => item.orderItemId === targetId) ?? null
+})
+
+// 확인창 설명 = 대상(FE-79). 닫히는 동안 대상이 비어도 문구가 바뀌어 보이지 않게 열려 있을 때의 값을 붙잡아 둔다.
+const confirmDescription = ref('')
+watch(confirmTargetItem, (item) => {
+  if (item) confirmDescription.value = itemConfirmDescription(item.productName, item.optionLabel)
 })
 
 function claimTypesOf(item: OrderItem) {
@@ -175,7 +183,7 @@ const PILL = 'flex min-h-11 cursor-pointer items-center gap-2 rounded-full borde
           </div>
           <div class="flex gap-4">
             <dt class="w-14 shrink-0 text-sub">연락처</dt>
-            <dd class="min-w-0 font-mono text-ink">{{ vm.data.shippingAddress.recipientPhone }}</dd>
+            <dd class="min-w-0 font-mono text-ink">{{ formatPhone(vm.data.shippingAddress.recipientPhone) }}</dd>
           </div>
           <div class="flex gap-4">
             <dt class="w-14 shrink-0 text-sub">주소</dt>
@@ -200,20 +208,21 @@ const PILL = 'flex min-h-11 cursor-pointer items-center gap-2 rounded-full borde
       </NuxtLink>
     </div>
 
-    <!-- 구매확정 확인 모달(FE-73): 인라인 확인 패널 대체. 경고 문구·확정/취소 testid는 기존 패널과 같다. -->
+    <!-- 구매확정 확인 모달(FE-73): 인라인 확인 패널 대체. 설명 = 대상 · 결과 = 안내(규약 경고, FE-79) · testid는 기존 패널과 같다. -->
     <DialogConfirm
       :open="vm.confirmTargetId !== null"
       title="이 품목을 구매확정할까요?"
-      :description="vm.ITEM_CONFIRM_WARNING"
-      :confirm-label="vm.confirming ? '확정 중…' : '구매확정'"
-      destructive
+      :description="confirmDescription"
+      :confirm-label="vm.confirming ? '확정 중…' : '구매 확정하기'"
       :pending="vm.confirming"
       content-test-id="item-confirm-panel"
-      description-test-id="item-confirm-warning"
+      notice-test-id="item-confirm-warning"
       cancel-test-id="item-confirm-cancel"
       confirm-test-id="item-confirm-submit"
       @update:open="onConfirmOpenChange"
       @confirm="onConfirm"
-    />
+    >
+      <template #notice>{{ vm.ITEM_CONFIRM_WARNING }}</template>
+    </DialogConfirm>
   </MypageFrame>
 </template>

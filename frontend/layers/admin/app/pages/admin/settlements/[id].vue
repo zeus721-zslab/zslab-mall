@@ -30,6 +30,7 @@ import { formatDateTime } from '~/lib/utils/datetime'
 import { SETTLEMENT_ITEM_TYPE_LABELS } from '~/lib/constants/settlement'
 import { useAdminSettlements } from '#layers/admin/app/composables/useAdminSettlements'
 import { useAdminToast } from '#layers/admin/app/composables/useAdminToast'
+import { formatPhone } from '~/lib/format/phone'
 
 definePageMeta({ layout: 'admin', middleware: ['admin', 'vuetify'] })
 useSeoMeta({ title: '정산 상세 · zslab-mall 관리자' })
@@ -274,7 +275,7 @@ function openOrder(row: AdminSettlementItem): void {
             <v-card-title class="text-subtitle-2 font-weight-bold pt-4 px-5">셀러 연락처</v-card-title>
             <v-card-text class="px-5 pb-5">
               <div class="text-body-2">이메일: <span data-testid="settlement-contact-email">{{ detail.sellerContact?.contactEmail ?? '—' }}</span></div>
-              <div class="text-body-2">연락처: <span data-testid="settlement-contact-phone">{{ detail.sellerContact?.contactPhone ?? '—' }}</span></div>
+              <div class="text-body-2">연락처: <span data-testid="settlement-contact-phone">{{ formatPhone(detail.sellerContact?.contactPhone ?? '—') }}</span></div>
               <div class="text-caption text-medium-emphasis mt-1">개인정보 보호를 위해 일부 마스킹됩니다.</div>
             </v-card-text>
           </v-card>

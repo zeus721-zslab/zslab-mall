@@ -8,6 +8,7 @@ import { toAdminErrorMessage } from '#layers/admin/app/lib/admin-error-message'
 import { useAdminMembers } from '#layers/admin/app/composables/useAdminMembers'
 import { useAdminOperators } from '#layers/admin/app/composables/useAdminOperators'
 import { useAdminToast } from '#layers/admin/app/composables/useAdminToast'
+import { formatPhone } from '~/lib/format/phone'
 
 /**
  * 신규 운영자 등록 다이얼로그(FE-39·BE D-186). 프로비저닝 API는 기존 회원에 ADMIN_OPERATOR 역할을 부여할 뿐이라(신규 계정·비밀번호 발급 없음)
@@ -124,7 +125,7 @@ async function submit(): Promise<void> {
             @click="selectMember(member)"
           >
             <v-list-item-title>{{ member.name ?? '—' }} <span class="text-medium-emphasis">{{ member.email ?? '' }}</span></v-list-item-title>
-            <v-list-item-subtitle>{{ member.phone ?? '연락처 없음' }}</v-list-item-subtitle>
+            <v-list-item-subtitle>{{ formatPhone(member.phone ?? '연락처 없음') }}</v-list-item-subtitle>
           </v-list-item>
         </v-list>
         <p v-else-if="searched" class="text-body-2 text-medium-emphasis mt-3" data-testid="provision-empty">조건에 맞는 활성 회원이 없습니다.</p>
