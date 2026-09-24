@@ -1,6 +1,7 @@
 package com.zslab.mall.order.repository;
 
 import com.zslab.mall.order.entity.Order;
+import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.enums.OrderStatus;
 import com.zslab.mall.payment.enums.PaymentStatus;
 import jakarta.persistence.LockModeType;
@@ -79,6 +80,26 @@ public interface OrderRepository extends JpaRepository<Order, Long>, JpaSpecific
      * 페이지 정합을 위해 DB 레벨에서 제외하며(서비스 필터 시 페이지 카운트 붕괴), 나머지 관습은 {@link #findByBuyerIdOrderByOrderedAtDesc}와 동일하다.
      */
     Page<Order> findByBuyerIdAndStatusNotOrderByOrderedAtDesc(Long buyerId, OrderStatus status, Pageable pageable);
+
+    /**
+     * Buyer 본인 주문 목록 품목 상태 필터(Track 105-4b D-224·주문 현황 요약과 같은 기준). 해당 상태 품목을 1개 이상 가진 주문만
+     * EXISTS로 골라 한 주문에 일치 품목이 여럿이어도 1행이며, count도 같은 조건이다. 주문일 하한(orderedFrom)은 포함 경계다.
+     * 상태 제외·정렬은 {@link #findByBuyerIdAndStatusNotOrderByOrderedAtDesc}와 같다.
+     * 모든 변수는 :buyerId·:excludedStatus·:orderedFrom·:itemStatus 바인딩이다.
+     */
+    @Query(value = "SELECT o FROM Order o WHERE o.buyerId = :buyerId AND o.status <> :excludedStatus "
+            + "AND o.orderedAt >= :orderedFrom "
+            + "AND EXISTS (SELECT 1 FROM OrderItem oi WHERE oi.order.id = o.id AND oi.itemStatus = :itemStatus) "
+            + "ORDER BY o.orderedAt DESC",
+            countQuery = "SELECT COUNT(o) FROM Order o WHERE o.buyerId = :buyerId AND o.status <> :excludedStatus "
+                    + "AND o.orderedAt >= :orderedFrom "
+                    + "AND EXISTS (SELECT 1 FROM OrderItem oi WHERE oi.order.id = o.id AND oi.itemStatus = :itemStatus)")
+    Page<Order> findByBuyerIdHavingItemStatusSince(
+            @Param("buyerId") Long buyerId,
+            @Param("excludedStatus") OrderStatus excludedStatus,
+            @Param("orderedFrom") LocalDateTime orderedFrom,
+            @Param("itemStatus") OrderItemStatus itemStatus,
+            Pageable pageable);
 
     /**
      * 자동취소 대상(status·createdAt≤기준시각) 주문을 배치 상한으로 조회한다(D-153 Phase 1·ExpirePayment 배치 관습 정합).

@@ -38,6 +38,7 @@ import com.zslab.mall.order.repository.OrderItemOrderProjection;
 import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.order.repository.OrderRepository;
 import com.zslab.mall.order.service.OrderService;
+import com.zslab.mall.product.repository.ProductRepository;
 import com.zslab.mall.refund.repository.RefundRepository;
 import jakarta.persistence.EntityManager;
 import java.time.LocalDateTime;
@@ -97,6 +98,9 @@ class ClaimServiceTest {
     private AuditRecorder auditRecorder;
     @Mock
     private OrderService orderService;
+    // Track 105-4b: 구매자 클레임 목록 썸네일 배치 조회 의존.
+    @Mock
+    private ProductRepository productRepository;
 
     @InjectMocks
     private ClaimService claimService;

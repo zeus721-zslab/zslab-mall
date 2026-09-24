@@ -39,12 +39,15 @@ import com.zslab.mall.order.repository.OrderItemOrderProjection;
 import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.order.repository.OrderRepository;
 import com.zslab.mall.order.service.OrderService;
+import com.zslab.mall.product.entity.Product;
+import com.zslab.mall.product.repository.ProductRepository;
 import com.zslab.mall.refund.entity.Refund;
 import com.zslab.mall.refund.enums.RefundStatus;
 import com.zslab.mall.refund.repository.RefundRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -94,6 +97,7 @@ public class ClaimService {
     private final EntityManager entityManager;
     private final AuditRecorder auditRecorder;
     private final OrderService orderService;
+    private final ProductRepository productRepository;
 
     public ClaimService(
             ClaimRepository claimRepository,
@@ -108,7 +112,8 @@ public class ClaimService {
             ClaimExchangeService claimExchangeService,
             EntityManager entityManager,
             AuditRecorder auditRecorder,
-            OrderService orderService) {
+            OrderService orderService,
+            ProductRepository productRepository) {
         this.claimRepository = claimRepository;
         this.orderItemRepository = orderItemRepository;
         this.orderRepository = orderRepository;
@@ -122,6 +127,7 @@ public class ClaimService {
         this.entityManager = entityManager;
         this.auditRecorder = auditRecorder;
         this.orderService = orderService;
+        this.productRepository = productRepository;
     }
 
     /**
@@ -591,6 +597,7 @@ public class ClaimService {
                 ? Map.of()
                 : orderItemRepository.findOrderSummariesByIdIn(itemIds).stream()
                         .collect(Collectors.toMap(OrderItemOrderProjection::getOrderItemId, Function.identity()));
+        Map<Long, String> thumbnailUrlByProductId = thumbnailUrlByProductId(orderByItemId.values());
 
         Page<ClaimSummaryResponse> claims = claimPage.map(claim -> {
             OrderItemOrderProjection order = orderByItemId.get(claim.getOrderItemId());
@@ -598,9 +605,24 @@ public class ClaimService {
                     claim,
                     refundStatusByClaimId.get(claim.getId()),
                     order == null ? null : order.getOrderNo(),
-                    order == null ? null : order.getProductName());
+                    order == null ? null : order.getProductName(),
+                    order == null ? null : thumbnailUrlByProductId.get(order.getProductId()));
         });
         return PagedResponse.from(claims);
+    }
+
+    /**
+     * 상품별 썸네일(Track 105-4b·D-223 주문 목록과 같은 {@code product.thumbnail_url}·같은 {@code findByIdIn} 배치). 페이지 상품
+     * IN 1쿼리이며, 삭제 상품(@SQLRestriction)·썸네일 미등록은 키가 없다. 빈 입력은 0쿼리.
+     */
+    private Map<Long, String> thumbnailUrlByProductId(Collection<OrderItemOrderProjection> orders) {
+        List<Long> productIds = orders.stream().map(OrderItemOrderProjection::getProductId).distinct().toList();
+        if (productIds.isEmpty()) {
+            return Map.of();
+        }
+        return productRepository.findByIdIn(productIds).stream()
+                .filter(product -> product.getThumbnailUrl() != null)
+                .collect(Collectors.toMap(Product::getId, Product::getThumbnailUrl));
     }
 
     /** 클레임별 최신 환불 상태(id 내림차순 조회·first-wins). 환불 미생성 클레임은 키가 없다. 빈 입력은 0쿼리. */

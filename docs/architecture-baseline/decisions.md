@@ -12834,3 +12834,36 @@ renew 메인 큐레이션(FE-68 β)에 필요한 조회를 기존 `GET /api/v1/p
 - 105-2d-FE 인계: null 필드는 응답에서 키가 빠지므로 FE 타입은 선택 필드로
 
 외부 검토: B / 생략(셀프 리뷰 지적 3건 중 수용 3건 — 그중 리졸버 직접 테스트는 썸네일 정정으로 리졸버와 함께 삭제)
+
+## D-224 Track 105-4b 구매자 주문 목록 품목 상태 필터 · 클레임 목록 썸네일 (2026-09-25)
+
+### 결정
+- **주문 목록 필터** `GET /api/v1/orders?itemStatus=`(선택). 값은 요약 stages 5단계의 품목 상태 PAID·PREPARING·SHIPPING·DELIVERED·CONFIRMED이며 기존 enum 바인딩 관례대로 대문자다. 그 밖의 값(ORDERED·소문자·임의 문자열)은 400 MALFORMED_REQUEST, 빈 값(`itemStatus=`)은 미지정(기존 목록)이다.
+  - 있으면: 해당 상태 품목을 1개 이상 가진 주문만(EXISTS·주문 중복 없음) + 주문일 ≥ now − 3개월(포함 경계·상한 없음). 상태 집합·기간 하한은 요약과 같은 상수·계산을 BuyerOrderQueryService 한 곳에서 공유한다. PAYMENT_EXPIRED 제외·ordered_at DESC·페이지·응답은 기존과 같고 totalCount도 같은 조건이다.
+  - 없으면 기존 동작(기간 제한 없음).
+- **인덱스** V38 `ix_order_buyer_ordered_at (buyer_id, ordered_at)` 추가형(컬럼·데이터 변경 없음·rollback DROP KEY 주석).
+- **클레임 목록 썸네일** ClaimSummaryResponse 끝에 thumbnailUrl(D-223과 같은 이름·값 product.thumbnail_url·NON_NULL). 주문 품목 projection에 productId를 더하고 상품을 페이지당 IN 1회로 배치 조회한다(D-223 방식). 삭제 상품·미등록이면 키가 빠진다.
+
+### §1-A 갈림길·채택/기각 근거
+- α 품목 상태 필터 + 요약과 같은 기간 → 채택(누른 숫자와 같은 기준의 목록)
+- β 필터 없이 목록으로 이동 → 기각(숫자와 목록이 무관해 직관성 감점 유지)
+- γ 주문 상태 필터 → 기각(주문 상태는 품목 상태 파생이라 요약과 기준 불일치 — 예: {DELIVERED, CONFIRMED} 주문은 PAID)
+- 단계 밖 값 차단: 단계 전용 enum을 새로 두지 않고 OrderItemStatus 바인딩 + 요약 상수로 서비스에서 확인(매핑 1곳 유지)
+
+### 특이사항
+- 요약은 품목 수, 목록은 주문 수라 숫자가 1:1이 아니다(한 주문에 같은 상태 품목 2개 → 요약 2·목록 1). 목록은 품목별 배지(items[].status)로 이해할 수 있게 한다 — 105-4e.
+- 목록의 PAYMENT_EXPIRED 제외는 요약과 어긋나지 않는다 — 미결제 종료는 품목 상태를 바꾸지 않아(ORDERED 유지) 단계 상태 품목이 없다.
+
+### §2 확정 구현 규칙
+- 클레임 목록 쿼리 상한(BuyerOrderClaimTabIntegrationTest CLAIM_LIST_QUERY_BUDGET) 5 → 6: 썸네일 상품 배치 1 추가(여유 1 유지). 행 수와 무관한 고정 쿼리임은 BuyerClaimListThumbnailIntegrationTest T4(1건 = 3건)로 확인.
+- 필터 테스트 기간 경계 여유는 일 단위(±2일) — 시드와 서버가 각자 minusMonths를 계산해 월말 자정 통과 시 말일 클램프로 하한이 최대 약 1일 이동한다.
+- 검증(2026-09-25): `gradlew test --rerun-tasks` 270 클래스 1601/0 실패 · 셀프 리뷰 반영 후 필터 테스트 9/0.
+
+### 이월 해소
+- D-223 §8 `/api/v1/orders` ADMIN 403 테스트 부재 → BuyerOrderItemStatusFilterIntegrationTest T9
+- D-223 §8 (buyer_id, ordered_at) 인덱스 부재 → V38
+
+### §8 이월
+- BuyerOrderStatusSummaryIntegrationTest 경계 ±1시간도 같은 월말 클램프 flake 가능(발생 확률 극히 낮음·이번 범위 밖)
+
+외부 검토: B / 생략(셀프 리뷰 지적 3건 중 수용 1건·상·중 0 — 읽기 필터·추가형 인덱스·응답 필드 추가라 쓰기 경로·권한 경계 변경 없음)
