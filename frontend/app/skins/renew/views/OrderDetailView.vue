@@ -49,7 +49,7 @@ const PILL = 'flex min-h-11 cursor-pointer items-center gap-2 rounded-full borde
             <p class="text-xs text-sub">주문번호</p>
             <p class="mt-1 break-all font-mono text-base font-semibold text-ink md:text-lg">{{ vm.data.orderId }}</p>
           </div>
-          <span class="shrink-0 rounded-full bg-surface-card px-3 py-1 text-sm font-bold text-ink">{{ vm.orderStatusLabel(vm.data.status.code) }}</span>
+          <span class="shrink-0 rounded-full bg-surface-muted px-3 py-1 text-sm font-bold text-ink">{{ vm.orderStatusLabel(vm.data.status.code) }}</span>
         </div>
         <!-- 결제 대기 안내(FE-53·C-16): 값은 lib/constants/order.ts PAYMENT_EXPIRE_MINUTES(BE 설정과 일치). -->
         <RenewNotice v-if="vm.data.status.code === 'PENDING_PAYMENT'" tone="info" class="mt-5" data-testid="order-payment-expire-guide">
@@ -100,7 +100,7 @@ const PILL = 'flex min-h-11 cursor-pointer items-center gap-2 rounded-full borde
                 <div class="flex items-start justify-between gap-4">
                   <div class="min-w-0">
                     <!-- 품목 상태 배지(BE label=code이므로 FE 라벨 매핑). -->
-                    <span class="rounded-full bg-surface-card px-2.5 py-0.5 text-xs font-bold text-ink">{{ vm.orderItemStatusLabel(item.status.code) }}</span>
+                    <span class="rounded-full bg-surface-muted px-2.5 py-0.5 text-xs font-bold text-ink">{{ vm.orderItemStatusLabel(item.status.code) }}</span>
                     <!-- productName은 표시용 enrich. 삭제 상품(null/부재) 시 방어 문구. -->
                     <p class="mt-1.5 truncate text-sm font-bold text-ink md:text-base" data-testid="item-product-name">{{ item.productName ?? '삭제된 상품' }}</p>
                     <p v-if="item.optionLabel" data-testid="item-option-label" class="truncate text-xs text-sub">{{ item.optionLabel }}</p>

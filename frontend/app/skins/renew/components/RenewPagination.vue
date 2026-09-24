@@ -17,7 +17,7 @@ const pageNumbers = computed<number[]>(() => {
   <nav v-if="totalPages > 1" aria-label="페이지" class="mt-14 flex items-center justify-center gap-1">
     <button
       type="button"
-      class="flex h-11 min-w-11 items-center justify-center rounded-full text-sm font-bold text-ink transition duration-200 hover:bg-surface-card disabled:opacity-40"
+      class="flex h-11 min-w-11 items-center justify-center rounded-full text-sm font-bold text-ink transition duration-200 hover:bg-surface-muted disabled:opacity-40"
       :disabled="page <= 1"
       aria-label="이전 페이지"
       @click="emit('change', page - 1)"
@@ -30,7 +30,7 @@ const pageNumbers = computed<number[]>(() => {
       type="button"
       :class="[
         'flex h-11 min-w-11 items-center justify-center rounded-full px-3 font-mono text-sm font-semibold transition duration-200',
-        pageNumber === page ? 'bg-primary text-primary-foreground' : 'text-ink hover:bg-surface-card',
+        pageNumber === page ? 'bg-primary text-primary-foreground' : 'text-ink hover:bg-surface-muted',
       ]"
       :aria-current="pageNumber === page ? 'page' : undefined"
       @click="emit('change', pageNumber)"
@@ -39,7 +39,7 @@ const pageNumbers = computed<number[]>(() => {
     </button>
     <button
       type="button"
-      class="flex h-11 min-w-11 items-center justify-center rounded-full text-sm font-bold text-ink transition duration-200 hover:bg-surface-card disabled:opacity-40"
+      class="flex h-11 min-w-11 items-center justify-center rounded-full text-sm font-bold text-ink transition duration-200 hover:bg-surface-muted disabled:opacity-40"
       :disabled="page >= totalPages"
       aria-label="다음 페이지"
       @click="emit('change', page + 1)"

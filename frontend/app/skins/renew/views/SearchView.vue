@@ -41,8 +41,8 @@ const ENTER = 'motion-safe:transition motion-safe:duration-300 motion-safe:ease-
           <div v-if="vm.list.pending" :class="PRODUCT_GRID" aria-hidden="true">
             <div v-for="index in SKELETON_COUNT" :key="index">
               <div class="aspect-square rounded-card bg-(--image-placeholder)"></div>
-              <div class="mt-3 h-3 w-2/3 rounded-full bg-surface-card"></div>
-              <div class="mt-2 h-3 w-1/3 rounded-full bg-surface-card"></div>
+              <div class="mt-3 h-3 w-2/3 rounded-full bg-surface-muted"></div>
+              <div class="mt-2 h-3 w-1/3 rounded-full bg-surface-muted"></div>
             </div>
           </div>
           <CommonErrorState v-else-if="vm.list.hasError" @retry="vm.list.retry()" />
@@ -51,7 +51,7 @@ const ENTER = 'motion-safe:transition motion-safe:duration-300 motion-safe:ease-
             :class="[ENTER, 'flex flex-col items-center rounded-[28px] bg-white px-6 py-16 text-center']"
             data-testid="search-empty"
           >
-            <span class="flex h-20 w-20 items-center justify-center rounded-full bg-surface-card text-primary" aria-hidden="true">
+            <span class="flex h-20 w-20 items-center justify-center rounded-full bg-surface-muted text-primary" aria-hidden="true">
               <SearchX class="h-10 w-10" :stroke-width="1.6" />
             </span>
             <p class="mt-6 break-all text-lg font-bold text-ink">'{{ vm.keyword }}'에 맞는 상품을 찾지 못했어요</p>

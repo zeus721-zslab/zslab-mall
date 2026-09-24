@@ -1,4 +1,6 @@
 @import "tailwindcss";
+/* Pretendard Variable 다이나믹 서브셋 @font-face(FE-76 — 자체 호스팅, 글꼴 파일은 public/fonts/pretendard-1.3.9/). */
+@import "./pretendard.css";
 
 /* FE-09: shadcn-vue 시맨틱 토큰(gray baseColor). :root에 런타임 CSS 변수로 정의하고
    @theme inline이 shadcn 유틸(bg-primary·text-foreground 등)을 이 변수에 배선한다.
@@ -63,14 +65,21 @@
    FE-09: --color-primary는 위 @theme inline(=var(--primary))이 제공하므로 이 블록에서 제거(중복 정의 방지).
    FE-68: 색·모서리는 스킨이 값만 덮어쓰도록 아래 :root 변수 + @theme inline 배선으로 옮겼다(값 동일). */
 @theme {
-  --font-sans: 'NanumGothic', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
+  --font-sans: 'Pretendard Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
     'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
 
   --shadow-card-hover: 0 4px 12px rgba(0, 0, 0, 0.08);
 
+  /* FE-76 그림자 3단계(shadow-e1 카드 · e2·e3 떠 있는 면). */
+  --shadow-e1: 0 1px 2px rgba(34, 31, 43, 0.04), 0 4px 12px rgba(91, 63, 168, 0.06);
+  --shadow-e2: 0 8px 24px rgba(91, 63, 168, 0.1);
+  --shadow-e3: 0 16px 48px rgba(34, 31, 43, 0.16);
+
+  /* FE-76 모션: 150/240/360ms + ease-soft. duration-* 커스텀 유틸은 사용처 0이라 값만 FE-76 기준으로 바꿨다(FE-07 180·250 → 240·360). */
+  --ease-soft: cubic-bezier(0.2, 0.8, 0.2, 1);
   --duration-fast: 150ms;
-  --duration-normal: 180ms;
-  --duration-slow: 250ms;
+  --duration-normal: 240ms;
+  --duration-slow: 360ms;
 }
 
 /* FE-07 브랜드 토큰(data-skin이 없는 관리자·셀러 화면의 값). 구매자 화면은 아래 [data-skin] 블록에서 이 변수 값만 바꾼다. */
@@ -103,6 +112,7 @@
   --color-price: var(--price);
   --color-surface-page: var(--surface-page);
   --color-surface-card: var(--surface-card);
+  --color-surface-muted: var(--surface-muted);
   --color-surface-section: var(--surface-section);
   --color-ink: var(--ink);
   --color-sub: var(--sub);
@@ -126,15 +136,17 @@
    관리자·셀러 화면은 data-skin이 없어 위 :root 기본값을 쓴다(text-primary 등 토큰 유틸 사용 중). 이후 스킨은 [data-skin="이름"]으로 바꿀 값만 덮어쓴다.
    가격은 본문색·강조는 포인트색. */
 :root[data-skin] {
-  --background: #F8F6FC;
-  --surface-page: #F8F6FC;
+  /* FE-76 면 단계: 바탕 #F7F5FB · 카드 흰색 · 흰 카드 안의 옅은 면(스켈레톤·칩·hover·선택)은 surface-muted. */
+  --background: #F7F5FB;
+  --surface-page: #F7F5FB;
 
-  --card: #EFEBF8;
-  --popover: #EFEBF8;
+  --card: #FFFFFF;
+  --popover: #FFFFFF;
+  --surface-card: #FFFFFF;
+  --surface-muted: #EFEBF8;
   --secondary: #EFEBF8;
   --muted: #EFEBF8;
   --accent: #EFEBF8;
-  --surface-card: #EFEBF8;
   --surface-section: #EFEBF8;
   --badge-new-bg: #EFEBF8;
   --badge-soldout-bg: #EFEBF8;
@@ -210,6 +222,182 @@
   mask-image: linear-gradient(to right, #000 calc(100% - 2.5rem), transparent);
 }
 
+/* FE-76 서체 스케일(768 미만 / 이상). px 기준: display 30/38·44/52 · h1 24/32·30/38 · h2 20/28·22/30 · h3 16/24·17/24 · body 15/24 · small 13/20 · caption 12/16.
+   관리자·셀러 Vuetify도 text-caption·text-h1~h6 클래스를 쓰므로(text-caption 229곳) 구매자 화면([data-skin])에서만 적용한다.
+   :where()라 선택자 우선순위는 일반 유틸과 같다. tailwind-merge(cn)는 이 이름을 글자색으로 보고 text-ink 등과 합칠 수 있어 cn에 함께 넘기지 않는다. */
+@utility text-display {
+  :where([data-skin]) & {
+    font-size: 1.875rem;
+    line-height: 2.375rem;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    @media (width >= 48rem) {
+      font-size: 2.75rem;
+      line-height: 3.25rem;
+    }
+  }
+}
+@utility text-h1 {
+  :where([data-skin]) & {
+    font-size: 1.5rem;
+    line-height: 2rem;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    @media (width >= 48rem) {
+      font-size: 1.875rem;
+      line-height: 2.375rem;
+    }
+  }
+}
+@utility text-h2 {
+  :where([data-skin]) & {
+    font-size: 1.25rem;
+    line-height: 1.75rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    @media (width >= 48rem) {
+      font-size: 1.375rem;
+      line-height: 1.875rem;
+    }
+  }
+}
+@utility text-h3 {
+  :where([data-skin]) & {
+    font-size: 1rem;
+    line-height: 1.5rem;
+    font-weight: 700;
+    @media (width >= 48rem) {
+      font-size: 1.0625rem;
+    }
+  }
+}
+@utility text-body {
+  :where([data-skin]) & {
+    font-size: 0.9375rem;
+    line-height: 1.5rem;
+    font-weight: 400;
+  }
+}
+@utility text-small {
+  :where([data-skin]) & {
+    font-size: 0.8125rem;
+    line-height: 1.25rem;
+    font-weight: 500;
+  }
+}
+@utility text-caption {
+  :where([data-skin]) & {
+    font-size: 0.75rem;
+    line-height: 1rem;
+    font-weight: 600;
+  }
+}
+
+/* FE-76 버튼: 알약형 3단계(primary 채움 · secondary 틴트 · tertiary 글자) + danger(핑크 틴트). 크기 lg 52 · md 44 · sm 36.
+   NuxtLink·a·button 어디에나 붙인다(btn + 단계 + 크기). 띠 면 위 보조 버튼은 흰 바탕으로 쓴다(화면 단계에서 적용). */
+@utility btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 9999px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition-property: color, background-color, border-color, text-decoration-color, box-shadow, opacity;
+  transition-duration: var(--duration-fast);
+  transition-timing-function: var(--ease-soft);
+  &:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  &:disabled,
+  &[aria-disabled='true'] {
+    cursor: default;
+    opacity: 0.4;
+  }
+}
+@utility btn-primary {
+  background-color: var(--primary);
+  color: var(--primary-foreground);
+  &:hover:not(:disabled, [aria-disabled='true']) {
+    background-color: var(--primary-hover);
+  }
+}
+@utility btn-secondary {
+  background-color: var(--surface-muted);
+  color: var(--primary);
+  &:hover:not(:disabled, [aria-disabled='true']) {
+    background-color: var(--pastel-lavender-bg);
+  }
+}
+@utility btn-tertiary {
+  background-color: transparent;
+  color: var(--ink);
+  text-underline-offset: 4px;
+  &:hover:not(:disabled, [aria-disabled='true']) {
+    text-decoration-line: underline;
+  }
+}
+@utility btn-danger {
+  background-color: var(--pastel-pink-bg);
+  color: var(--pastel-pink-ink);
+  &:hover:not(:disabled, [aria-disabled='true']) {
+    background-color: color-mix(in srgb, var(--pastel-pink-bg) 85%, var(--pastel-pink-ink));
+  }
+}
+@utility btn-lg {
+  min-height: 3.25rem;
+  padding-inline: 1.75rem;
+  font-size: 1rem;
+}
+@utility btn-md {
+  min-height: 2.75rem;
+  padding-inline: 1.25rem;
+  font-size: 0.9375rem;
+}
+@utility btn-sm {
+  min-height: 2.25rem;
+  padding-inline: 1rem;
+  font-size: 0.875rem;
+}
+
+/* FE-76 칩: 36(768 미만은 터치 영역 44) · 흰 바탕 + 선. 선택 상태(aria-pressed·aria-selected·data-state=on)는 보라 채움. */
+@utility chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  min-height: 2.75rem;
+  padding-inline: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 9999px;
+  background-color: var(--surface-card);
+  color: var(--ink);
+  font-size: 0.875rem;
+  font-weight: 600;
+  white-space: nowrap;
+  transition-property: color, background-color, border-color;
+  transition-duration: var(--duration-fast);
+  transition-timing-function: var(--ease-soft);
+  @media (width >= 48rem) {
+    min-height: 2.25rem;
+  }
+  &:hover:not(:disabled, [aria-pressed='true'], [aria-selected='true'], [data-state='on']) {
+    border-color: var(--ink);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  &[aria-pressed='true'],
+  &[aria-selected='true'],
+  &[data-state='on'] {
+    border-color: var(--primary);
+    background-color: var(--primary);
+    color: var(--primary-foreground);
+  }
+}
+
 /* renew 드롭다운 패널 열림·닫힘: 페이드 + 4px 이동(FE-69 보완 2). tw-animate 미도입이라 직접 정의한다. */
 @keyframes renew-menu-in {
   from {
@@ -268,33 +456,27 @@
   }
 }
 
-/* 나눔고딕 self-host (FE-04). 원본 woff2는 public/fonts/ 에 배치(=/fonts/ 로 정적 서빙).
-   전역 적용은 @theme --font-sans('NanumGothic' 우선)가 담당한다.
-   font-display: swap — 폰트 로드 전 폴백으로 즉시 렌더(FOIT 회피). */
-@font-face {
-  font-family: 'NanumGothic';
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url('/fonts/NanumGothic-Regular.woff2') format('woff2');
+/* FE-76 reduced-motion 전역 대응: 개별 motion-reduce 누락(드롭다운·hover 전환 등)까지 덮는다.
+   0이 아닌 최소값으로 두는 이유 — animationend·transitionend를 기다리는 닫힘 처리(reka Presence 등)가 그대로 끝나게 하기 위해서다. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
-@font-face {
-  font-family: 'NanumGothic';
-  font-style: normal;
-  font-weight: 700;
-  font-display: swap;
-  src: url('/fonts/NanumGothic-Bold.woff2') format('woff2');
-}
-
-/* IBM Plex Mono self-host (FE-68·OFL — public/fonts/IBMPlexMono-OFL.txt). 구매자 [data-skin]의 --font-mono가 참조한다.
+/* IBM Plex Mono self-host (FE-68·OFL — public/fonts/ibm-plex-mono-2.005/IBMPlexMono-OFL.txt · 폴더명 = 글꼴 버전, FE-76). 구매자 [data-skin]의 --font-mono가 참조한다.
    @font-face는 실제로 쓰는 요소가 있을 때만 내려받으므로 관리자·셀러 화면에는 요청이 생기지 않는다. */
 @font-face {
   font-family: 'IBM Plex Mono';
   font-style: normal;
   font-weight: 500;
   font-display: swap;
-  src: url('/fonts/IBMPlexMono-Medium.woff2') format('woff2');
+  src: url('/fonts/ibm-plex-mono-2.005/IBMPlexMono-Medium.woff2') format('woff2');
 }
 
 @font-face {
@@ -302,5 +484,5 @@
   font-style: normal;
   font-weight: 600;
   font-display: swap;
-  src: url('/fonts/IBMPlexMono-SemiBold.woff2') format('woff2');
+  src: url('/fonts/ibm-plex-mono-2.005/IBMPlexMono-SemiBold.woff2') format('woff2');
 }

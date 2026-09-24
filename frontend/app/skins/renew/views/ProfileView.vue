@@ -18,8 +18,8 @@ const INPUT =
       <!-- 로딩 -->
       <div v-if="vm.pending" class="space-y-5" aria-hidden="true">
         <div v-for="index in 3" :key="index" class="space-y-2">
-          <div class="h-3 w-16 rounded-full bg-surface-card"></div>
-          <div class="h-12 rounded-[14px] bg-surface-card"></div>
+          <div class="h-3 w-16 rounded-full bg-surface-muted"></div>
+          <div class="h-12 rounded-[14px] bg-surface-muted"></div>
         </div>
       </div>
 

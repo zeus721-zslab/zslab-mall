@@ -11,7 +11,7 @@ defineProps<{ vm: CartPageVm }>()
 const CONTAINER = 'mx-auto max-w-[1440px] px-5 md:px-10 lg:px-16'
 const CARD = 'rounded-[28px] bg-white'
 const STEP_BUTTON =
-  'flex h-9 w-9 items-center justify-center rounded-full text-ink transition duration-200 hover:bg-surface-card disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent'
+  'flex h-9 w-9 items-center justify-center rounded-full text-ink transition duration-200 hover:bg-surface-muted disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent'
 // 요약 카드의 주문하기: 화면에 없을 때만 모바일 고정 바가 나타난다(FE-71 도킹).
 const checkoutButton = ref<HTMLButtonElement | null>(null)
 
@@ -30,9 +30,9 @@ const PRIMARY_BUTTON =
           <div v-for="index in 3" :key="index" class="flex gap-4">
             <div class="h-24 w-24 shrink-0 rounded-[18px] bg-(--image-placeholder)"></div>
             <div class="flex-1 space-y-3 pt-1">
-              <div class="h-3 w-1/4 rounded-full bg-surface-card"></div>
-              <div class="h-4 w-2/3 rounded-full bg-surface-card"></div>
-              <div class="h-9 w-32 rounded-full bg-surface-card"></div>
+              <div class="h-3 w-1/4 rounded-full bg-surface-muted"></div>
+              <div class="h-4 w-2/3 rounded-full bg-surface-muted"></div>
+              <div class="h-9 w-32 rounded-full bg-surface-muted"></div>
             </div>
           </div>
         </div>
@@ -44,7 +44,7 @@ const PRIMARY_BUTTON =
 
       <!-- 빈 장바구니 -->
       <div v-else-if="vm.items.length === 0" :class="[CARD, 'flex flex-col items-center px-6 py-16 text-center']">
-        <span class="flex h-20 w-20 items-center justify-center rounded-full bg-surface-card text-primary" aria-hidden="true">
+        <span class="flex h-20 w-20 items-center justify-center rounded-full bg-surface-muted text-primary" aria-hidden="true">
           <svg class="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
             <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 10.5V6a3.75 3.75 0 10-7.5 0v4.5m11.356-1.993l1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 01-1.12-1.243l1.264-12A1.125 1.125 0 015.513 7.5h12.974c.576 0 1.059.435 1.119 1.007z" />
           </svg>
@@ -98,7 +98,7 @@ const PRIMARY_BUTTON =
                   </div>
                   <button
                     type="button"
-                    class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sub transition duration-200 hover:bg-surface-card hover:text-ink disabled:cursor-default disabled:opacity-40"
+                    class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sub transition duration-200 hover:bg-surface-muted hover:text-ink disabled:cursor-default disabled:opacity-40"
                     :aria-label="`${item.productName ?? '상품'} 삭제`"
                     :disabled="vm.busy"
                     @click="vm.removeItem(item)"

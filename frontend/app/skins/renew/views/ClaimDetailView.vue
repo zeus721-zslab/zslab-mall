@@ -105,7 +105,7 @@ const ROW = 'flex justify-between gap-4'
             <span
               :class="[
                 'relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full font-mono text-xs font-semibold transition duration-300',
-                step.state === 'upcoming' ? 'bg-surface-card text-sub' : 'bg-primary text-primary-foreground',
+                step.state === 'upcoming' ? 'bg-surface-muted text-sub' : 'bg-primary text-primary-foreground',
                 step.state === 'current' ? 'ring-4 ring-(--pastel-lavender-bg)' : '',
               ]"
             >

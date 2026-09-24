@@ -18,7 +18,7 @@ const PILL = 'flex min-h-11 shrink-0 items-center whitespace-nowrap rounded-full
 const HORIZONTAL_SCROLL_MOBILE =
   'flex max-md:-my-3 max-md:overflow-x-auto max-md:py-3 max-md:scrollbar-none max-md:snap-x max-md:snap-mandatory max-md:fade-right'
 const ROUND_BUTTON =
-  'flex h-11 w-11 items-center justify-center rounded-full border border-line bg-white text-ink transition duration-200 hover:bg-surface-card focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-default disabled:opacity-40 disabled:hover:bg-white'
+  'flex h-11 w-11 items-center justify-center rounded-full border border-line bg-white text-ink transition duration-200 hover:bg-surface-muted focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-default disabled:opacity-40 disabled:hover:bg-white'
 // 스크롤 위치 판정 여유(소수점 픽셀 오차).
 const EDGE_TOLERANCE = 1
 
@@ -101,7 +101,7 @@ onBeforeUnmount(() => window.removeEventListener('resize', updateBudgetEdges))
       </div>
     </section>
 
-    <!-- 많이 찾는: 옅은 라벤더 띠 + 순위 -->
+    <!-- 많이 찾는: 카드 면 띠(FE-76부터 흰색 — 띠 면 파스텔 전환은 화면 단계) + 순위 -->
     <section v-if="vm.popular.length > 0" :class="[CONTAINER, SECTION]">
       <div class="rounded-(--panel-radius) bg-surface-card px-5 py-10 md:px-10">
         <SectionHeading tag="Best 7 days" title="많이 찾는" />
@@ -130,7 +130,7 @@ onBeforeUnmount(() => window.removeEventListener('resize', updateBudgetEdges))
           type="button"
           role="tab"
           :aria-selected="vm.activeCategoryId === category.categoryId"
-          :class="[PILL, vm.activeCategoryId === category.categoryId ? 'bg-primary text-primary-foreground' : 'bg-surface-card text-ink hover:bg-(--pastel-lavender-bg)']"
+          :class="[PILL, vm.activeCategoryId === category.categoryId ? 'bg-primary text-primary-foreground' : 'bg-surface-muted text-ink hover:bg-(--pastel-lavender-bg)']"
           @click="vm.selectCategory(category.categoryId)"
         >
           {{ category.displayName }}

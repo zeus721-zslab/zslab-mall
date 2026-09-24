@@ -23,7 +23,7 @@ const title = computed(() => props.list.activeCategoryName ?? (props.categoryId 
 const theme = computed(() => categoryTheme(props.list.activeCategoryName))
 
 function tabClass(active: boolean): string {
-  return `${PILL} ${active ? 'bg-primary text-primary-foreground' : 'bg-surface-card text-ink hover:bg-(--pastel-lavender-bg)'}`
+  return `${PILL} ${active ? 'bg-primary text-primary-foreground' : 'bg-surface-muted text-ink hover:bg-(--pastel-lavender-bg)'}`
 }
 
 const tabsElement = ref<HTMLElement | null>(null)
@@ -89,8 +89,8 @@ onBeforeUnmount(() => stopFollowingActiveTab?.())
         <div v-if="list.pending" :class="PRODUCT_GRID" aria-hidden="true">
           <div v-for="index in SKELETON_COUNT" :key="index">
             <div class="aspect-square rounded-card bg-(--image-placeholder)"></div>
-            <div class="mt-3 h-3 w-2/3 rounded-full bg-surface-card"></div>
-            <div class="mt-2 h-3 w-1/3 rounded-full bg-surface-card"></div>
+            <div class="mt-3 h-3 w-2/3 rounded-full bg-surface-muted"></div>
+            <div class="mt-2 h-3 w-1/3 rounded-full bg-surface-muted"></div>
           </div>
         </div>
         <CommonErrorState v-else-if="list.hasError" @retry="list.retry()" />

@@ -3095,3 +3095,64 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 - FE-74 이월 '로그인 안내 면 흐림' — 오탐(브라우저 확인 정상), 종결
 
 외부 검토: C / 생략
+
+## FE-76: 105-4 디자인 기준 · 토큰·서체·공용 기반 (Track 105-4a) (2026-09-24)
+
+배경: renew가 기준 스킨이 된 뒤(FE-75) 남은 과제는 디자인 폴리시와 사용성 보완이다. 정찰(recon-report-track105-4) 결과, 카드 계열 토큰이 모두 #EFEBF8 한 값이라 면 구분이 약했다. 공용 Button은 renew에서 0건이고 인라인 버튼이 84곳이며, 같은 의미의 배지가 9묶음으로 따로 구현돼 있었다. 105-4a는 모든 화면이 쓸 기준과 기반만 만든다. 화면별 재디자인은 105-4c~f에서 한다.
+
+결정:
+- **목표** 사이트 전체 6축(디자인·일관성·직관성·편의성·접근성·성능)의 동일 가중 평균 95 이상. 기준선은 이전 측정 디자인 82 · 일관성 84 · 직관성 74 · 편의성 66 · 접근성 76 · 성능 미측정. 상품 이미지 품질은 채점에서 제외한다.
+- **범위** 디자인 폴리시 + 사용성 보완.
+- **준비 중 처리 기준** 새 BE 도메인 · 외부 발송·결제 연동 · 검토 등급 A 중 하나에 해당하면 "준비 중입니다."로 둔다. 비밀번호 찾기가 여기에 해당한다.
+- **면 4단계** 바탕 #F7F5FB / 카드 #FFFFFF + 그림자 1 / 띠 면 파스텔 / 떠 있는 면 그림자 2·3.
+- **그림자 3단계** e1 `0 1px 2px rgba(34,31,43,.04), 0 4px 12px rgba(91,63,168,.06)` · e2 `0 8px 24px rgba(91,63,168,.10)` · e3 `0 16px 48px rgba(34,31,43,.16)`.
+- **서체** Pretendard Variable(본문) · IBM Plex Mono(식별자). 모노는 주문번호 같은 식별자 단독에만 쓰고, 금액·숫자는 tabular-nums로 맞춘다.
+- **서체 스케일**(768 미만 / 이상) display 30/38 · 44/52 800 −0.02em · h1 24/32 · 30/38 800 −0.02em · h2 20/28 · 22/30 700 −0.02em · h3 16/24 · 17/24 700 · body 15/24 400 · small 13/20 500 · caption 12/16 600. 메인 큐레이션 섹션 제목은 H1 스케일, 보조 섹션은 H2.
+- **버튼** 3단계(주 채움 · 보조 틴트 · 3차 글자) + 위험(핑크 틴트). 영역당 주 버튼 1개. 높이 52/44/36. 알약형. 띠 면 위의 보조 버튼은 흰 바탕.
+- **카드 4종** 상품 카드(면 없음) · 콘텐츠 카드(흰색 24px, 여백 24/20, 그림자 1) · 목록 행 카드(768 이상에서 좌 정보 / 우 요약·액션) · 띠 면 패널(파스텔 32px).
+- **간격** 4px 척도(4·8·12·16·20·24·32·40·56·80). 섹션 간격 80/56. 컨테이너 1320, 좌우 32/20.
+- **모션** 150/240/360ms · cubic-bezier(.2,.8,.2,1) · 순차 40ms·최대 6개 · 첫 화면(SSR) 등장 모션 없음 · reduced-motion 전역 대응.
+- **배지·칩** 배지 22px 12/600, 의미별 파스텔. 칩 36(390 폭에서는 44), 선택 시 보라 채움.
+- **접근성** 터치 영역 44 · 본문 대비 4.5:1.
+- **시안** 캔버스 "105-4 폴리시" 페이지(메인·주문 내역·배송지·배송지 추가, 1440·390).
+
+구현(105-4a — 기반만, 화면 재디자인·기존 버튼/배지/모노 교체 없음):
+- **서체** npm pretendard@1.3.9의 `dist/web/variable/woff2-dynamic-subset/` woff2 92개(2,957,724B)를 `public/fonts/pretendard-1.3.9/`에 두고 OFL.txt(dist/LICENSE.txt)를 함께 뒀다. 의존성 추가 없이 파일만 복사했다. `pretendardvariable-dynamic-subset.css`는 `app/assets/css/pretendard.css`로 복사해 url만 `/fonts/pretendard-1.3.9/`로 바꾸고, main.css가 `@import`한다. `--font-sans` 첫 값은 'Pretendard Variable'이다. 나눔고딕 @font-face 2개·woff2 2개는 참조 0건을 확인하고 삭제했다(e2e/tools/pixel.mjs 폰트 대기 대상도 교체). IBM Plex Mono는 유지한다. main.css는 전역이라 관리자·셀러도 Pretendard로 바뀐다(`var(--font-sans)` 참조).
+- **폰트 버전 폴더·캐시** 모든 폰트는 버전 폴더에 둔다(`pretendard-1.3.9` · `ibm-plex-mono-2.005` — Plex 버전은 name 테이블 "Version 2.005"로 확인). 파일명에 버전이 없으므로 폰트를 교체할 때는 폴더명 버전을 올려 캐시를 깬다. nuxt.config routeRules `'/fonts/**'`에 `cache-control: public, max-age=31536000, immutable`을 둔다.
+- **토큰**(`:root[data-skin]`) background·surface-page #F7F5FB · card·popover·surface-card #FFFFFF · 신규 `--surface-muted` #EFEBF8(`bg-surface-muted`) · secondary·muted·accent·surface-section·배지 bg는 #EFEBF8 유지. `:root`(관리자·셀러) 값은 바꾸지 않았다.
+- **그림자·모션**(@theme) `shadow-e1·e2·e3` · `ease-soft` · 기존 커스텀 유틸 `duration-fast/normal/slow`(사용처 0) 값을 150/180/250 → 150/240/360으로 바꿨다. 전역 `@media (prefers-reduced-motion: reduce)`는 animation·transition을 0.01ms로 줄인다. 0이 아닌 값인 이유: animationend를 기다리는 닫힘 처리(reka Presence)가 끝나야 해서다.
+- **서체 스케일 유틸** text-display·h1·h2·h3·body·small·caption(768 미만/이상). 관리자·셀러 Vuetify가 `text-caption` 클래스를 229곳에서 쓰므로(text-h* 계열도 Vuetify 이름) `:where([data-skin]) &`로 구매자 화면에만 적용한다. 이름은 유지했고 우선순위 가산은 없다. tailwind-merge(cn)는 이 이름을 글자색으로 보고 합칠 수 있어 cn에는 함께 넘기지 않는다.
+- **버튼·칩 유틸** `btn` + `btn-primary|secondary|tertiary|danger` + `btn-lg|md|sm`(52/44/36 · 글자 16/15/14 · 좌우 28/20/16px). `chip`은 768 미만 44·이상 36, 흰 바탕 + border-line이다. `aria-pressed`·`aria-selected`·`data-state=on`이면 보라 채움이고, 선택된 칩은 hover 테두리에서 뺐다. 기존 클래스 사용처가 없어(chip은 주석 단어뿐) 전역으로 둔다.
+- **RenewBadge**(skins/renew/components) tone info=lavender · success=mint · warning=butter · danger=pink · neutral=periwinkle. 22px · 12/600(text-xs font-semibold) · 알약형 · role 없음 · data-tone.
+- **error.vue** `useHead({ htmlAttrs: { 'data-skin' } })`를 추가했다. /admin·/seller 에러(레이아웃 없이 ErrorView만)에서도 파스텔·panel-radius 변수가 정의된다(FE-75 §8 이월 해소). 에러가 풀리면 속성도 함께 빠진다.
+
+### §1-A 갈림길·채택/기각 근거
+- **버튼: α CSS 유틸리티 / β 공용 Button 컴포넌트로 이전** → α 채택. NuxtLink·a·button에 공통으로 붙고 마크업 변경이 최소다. β 기각: 84곳 마크업 교체로 회귀 위험이 크다.
+- **배지: 컴포넌트** 채택. 9개 묶음의 마크업이 같아 컴포넌트로 묶어도 교체 비용이 작다.
+- **폰트: 자체 호스팅 다이나믹 서브셋 / CDN** → 자체 호스팅 채택. CDN 기각: 외부 장애 지점이 생긴다.
+
+### 부록 A surface-card 분류(토큰 흰색 전환에 따른 복구) — 64곳 중 변경 60 · 유지 4
+기준: 흰 카드 위에 놓이거나 옅은 면으로 구분돼야 하는 요소(스켈레톤·칩·hover·선택 상태·입력 배경·빈 상태 아이콘 원·안내 박스)는 `surface-muted`(#EFEBF8, 이전 값과 같음)로 바꾼다. 페이지 위의 카드·패널 면 자체는 그대로 둔다(이제 흰색). 카드 그림자·레이아웃은 화면 그룹 단계에서 추가한다.
+- **변경 60** (줄은 변경 전 기준)
+  - 스켈레톤 20: AddressesView:58·59·60 · CartView:33·34·35 · OrdersView:74·78·79 · ProfileView:21·22 · MypageView:20(SKELETON 상수) · SearchView:44·45 · RenewProductListing:92·93 · ProductDetailView:48·49·50·51
+  - 빈 상태 아이콘 원 5: AddressesView:108 · CartView:47 · OrdersView:90 · MypageView:157 · SearchView:54
+  - 상태 칩·라벨 7: AddressesView:79 · OrdersView:159 · OrderDetailView:52·103 · MypageView:187 · PaymentMockView:35 · ProductDetailView:111(셀러 알약)
+  - hover 배경 19: AddressesView:91·100 · CartView:14·101 · OrdersView:125 · MypageView:26 · PaymentMockView:65 · ProductDetailView:155·165 · LayoutShell:21·23 · SectionHeading:19 · RenewPagination:20·33·42 · HomeView:21 · ErrorView:41 · LoginView:72 · components/common/ErrorState:15
+  - 선택 상태 3: ClaimNewView:120 · CheckoutView:145 · ClaimDetailView:108
+  - 흰 카드 안 안내 박스·링크 알약 3: CheckoutView:70 · CheckoutCompleteView:21 · PaymentMockView:8
+  - 미선택 알약 탭 2: HomeView:133 · RenewProductListing:26
+  - 입력 배경 1: LayoutShell:66(헤더 검색)
+- **유지 4**(페이지 위 면 → 흰색): HomeView:58(히어로 패널) · HomeView:106(많이 찾는 띠) · ProductDetailView:174(총 상품 금액 박스) · category-theme.ts:25(전체·미매핑 카테고리 배경 — 배너·카드 면). HomeView:104와 category-theme.ts:23 주석의 "옅은 라벤더" 설명만 흰색 기준으로 바꿨다.
+- 참고: 유지 4곳 중 HomeView:106 띠 안의 RenewProductCard는 hover 시 `bg-white`라, 흰 띠 위에서는 hover 면이 보이지 않고 그림자·이동만 남는다. 띠 면 파스텔 전환(105-4c)에서 함께 정리한다.
+
+### §2 검증
+- typecheck(컨테이너) 통과. vue-tsc 오류 출력 0이다. 종료 코드는 셸 인용 실수로 받지 못했고 재실행하지 않았다. → vitest 108 files / 767 passed(+RenewBadge 5) → e2e smoke(renew) 1 passed.
+- 임시 캡처(데모 구매자·관리자, 커밋 제외): / · /orders · /mypage/addresses · /login × 1440·390 전부 200 · data-skin renew · 흰 면 겹침 스캔(불투명 흰 요소 + 흰 조상 + 테두리·그림자 없음) 0건 · 육안 확인도 겹침 없음. 관리자 대시보드는 body font Pretendard이며 한글이 Pretendard로 렌더됐다. /admin 404는 data-skin renew · 파스텔 변수가 정의돼 라벤더 패널이 표시된다.
+- 개발 중 확인: @tailwindcss/node 컴파일로 신규 유틸 출력과 `:where([data-skin])` 중첩 유지를 확인했다.
+
+### §8 이월
+- 화면 그룹(105-4c~f): 카드 그림자 e1 적용 · 84개 인라인 버튼 → btn 유틸 · 배지 9묶음 → RenewBadge · 모노 51곳 → tabular-nums · 서체 스케일 적용 · 히어로·띠 패널 파스텔 전환(띠 안 카드 hover 면 포함).
+- `--shadow-card-hover`(FE-07)는 사용처 0 — 정리 대상(이번 변경 없음).
+- 캡처 관찰(재실행 없음): login-1440에서 한글 일부가 대체 글꼴로 찍혔고(같은 화면 390은 Pretendard), 안내 면이 옅게 찍혔다. 다이나믹 서브셋 로딩·진입 모션 시점과 촬영 시점이 겹친 것으로 보이며 브라우저 확인이 필요하다. 관리자 화면의 `document.fonts.check('16px "Pretendard Variable"')`는 false였다(렌더는 Pretendard).
+
+외부 검토: C / 생략

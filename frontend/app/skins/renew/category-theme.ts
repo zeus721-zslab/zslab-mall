@@ -20,7 +20,7 @@ const CATEGORY_THEMES: Record<string, CategoryTheme> = {
   문구: { background: 'var(--pastel-butter-bg)', ink: 'var(--pastel-butter-ink)', illustration: 'pencil' },
 }
 
-/** 전체·미매핑 카테고리: 옅은 라벤더(면 색) + 그리드. */
+/** 전체·미매핑 카테고리: 카드 면 색(FE-76부터 흰색) + 그리드. */
 const DEFAULT_THEME: CategoryTheme = {
   background: 'var(--surface-card)',
   ink: 'var(--pastel-lavender-ink)',

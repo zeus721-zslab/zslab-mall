@@ -18,9 +18,9 @@ onBeforeUnmount(() => stopFollowingActiveMenu?.())
 
 const CONTAINER = 'mx-auto max-w-[1440px] px-5 md:px-10 lg:px-16'
 const ICON_BUTTON =
-  'relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-ink transition duration-200 hover:bg-surface-card focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary'
+  'relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-ink transition duration-200 hover:bg-surface-muted focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary'
 const MENU_LINK =
-  'flex min-h-11 shrink-0 items-center whitespace-nowrap rounded-full px-4 text-sm font-bold text-ink transition duration-200 hover:bg-surface-card'
+  'flex min-h-11 shrink-0 items-center whitespace-nowrap rounded-full px-4 text-sm font-bold text-ink transition duration-200 hover:bg-surface-muted'
 </script>
 
 <template>
@@ -63,7 +63,7 @@ const MENU_LINK =
               placeholder="찾으시는 상품을 검색해 보세요"
               aria-label="상품 검색"
               data-testid="search-input"
-              class="min-h-11 w-full rounded-full border border-line bg-surface-card py-2.5 pl-12 pr-4 text-sm text-ink placeholder-sub transition duration-200 focus:border-primary focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-primary"
+              class="min-h-11 w-full rounded-full border border-line bg-surface-muted py-2.5 pl-12 pr-4 text-sm text-ink placeholder-sub transition duration-200 focus:border-primary focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-primary"
             />
           </label>
         </form>

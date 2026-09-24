@@ -18,7 +18,7 @@ const BUTTON = 'flex min-h-14 w-full items-center justify-center rounded-full te
       <h1 class="mt-6 text-2xl font-bold tracking-tight text-ink">주문이 완료됐어요</h1>
       <p class="mt-2 text-sm text-sub">결제가 정상적으로 처리되었습니다. 감사합니다.</p>
 
-      <div v-if="vm.orderPublicId" class="mt-8 rounded-card bg-surface-card px-5 py-4">
+      <div v-if="vm.orderPublicId" class="mt-8 rounded-card bg-surface-muted px-5 py-4">
         <p class="text-xs text-sub">주문번호</p>
         <p class="mt-1 break-all font-mono text-sm font-semibold text-ink" data-testid="checkout-complete-order-id">{{ vm.orderPublicId }}</p>
       </div>

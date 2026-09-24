@@ -17,6 +17,11 @@ const areaHome = computed<string | null>(
   () => AREA_HOMES.find((prefix) => route.path === prefix || route.path.startsWith(`${prefix}/`)) ?? null,
 )
 
+// 관리자·셀러 경로는 기본 레이아웃을 거치지 않아 data-skin이 없다 → renew ErrorView의 [data-skin] 색 변수를 쓰도록 여기서 붙인다(FE-76).
+// 에러가 풀려 이 화면이 사라지면 속성도 함께 빠진다. 구매자 경로는 레이아웃이 같은 값을 붙인다.
+const skinName = useSkinName()
+useHead({ htmlAttrs: { 'data-skin': skinName } })
+
 async function handleGoHome(): Promise<void> {
   await clearError({ redirect: areaHome.value ?? '/' })
 }

@@ -38,7 +38,7 @@ const BUTTON =
           >
             홈으로
           </button>
-          <button type="button" :class="[BUTTON, 'bg-white text-ink hover:bg-surface-card']" data-testid="error-back" @click="vm.handleGoBack">
+          <button type="button" :class="[BUTTON, 'bg-white text-ink hover:bg-surface-muted']" data-testid="error-back" @click="vm.handleGoBack">
             이전 페이지
           </button>
         </div>

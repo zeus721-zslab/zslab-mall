@@ -55,9 +55,9 @@ const SMALL_BUTTON =
     <!-- 로딩 -->
     <div v-if="vm.pending" class="space-y-4" aria-hidden="true">
       <div v-for="index in 3" :key="index" :class="[CARD, 'space-y-3']">
-        <div class="h-4 w-1/4 rounded-full bg-surface-card"></div>
-        <div class="h-3 w-1/3 rounded-full bg-surface-card"></div>
-        <div class="h-3 w-2/3 rounded-full bg-surface-card"></div>
+        <div class="h-4 w-1/4 rounded-full bg-surface-muted"></div>
+        <div class="h-3 w-1/3 rounded-full bg-surface-muted"></div>
+        <div class="h-3 w-2/3 rounded-full bg-surface-muted"></div>
       </div>
     </div>
 
@@ -76,7 +76,7 @@ const SMALL_BUTTON =
             <div class="flex flex-wrap items-center gap-2">
               <p class="text-base font-bold text-ink">{{ address.recipientName }}</p>
               <span v-if="address.isDefault" class="rounded-full bg-primary px-2.5 py-0.5 text-xs font-bold text-primary-foreground">기본</span>
-              <span v-if="address.addressLabel" class="rounded-full bg-surface-card px-2.5 py-0.5 text-xs font-bold text-sub">{{ address.addressLabel }}</span>
+              <span v-if="address.addressLabel" class="rounded-full bg-surface-muted px-2.5 py-0.5 text-xs font-bold text-sub">{{ address.addressLabel }}</span>
             </div>
             <p class="mt-2 font-mono text-sm text-sub">{{ address.recipientPhone }}</p>
             <p class="mt-1 break-keep text-sm text-ink">
@@ -88,7 +88,7 @@ const SMALL_BUTTON =
             <button
               v-if="!address.isDefault"
               type="button"
-              :class="[SMALL_BUTTON, 'text-primary hover:bg-surface-card max-md:-ml-4']"
+              :class="[SMALL_BUTTON, 'text-primary hover:bg-surface-muted max-md:-ml-4']"
               @click="vm.handleSetDefault(address.id)"
             >
               기본으로 설정
@@ -97,7 +97,7 @@ const SMALL_BUTTON =
               <button type="button" :class="[SMALL_BUTTON, 'border border-line bg-white text-ink hover:border-ink']" data-testid="address-edit" @click="vm.startEdit(address)">
                 수정
               </button>
-              <button type="button" :class="[SMALL_BUTTON, 'text-sub hover:bg-surface-card hover:text-ink']" data-testid="address-remove" @click="vm.requestRemove(address.id)">
+              <button type="button" :class="[SMALL_BUTTON, 'text-sub hover:bg-surface-muted hover:text-ink']" data-testid="address-remove" @click="vm.requestRemove(address.id)">
                 삭제
               </button>
             </div>
@@ -105,7 +105,7 @@ const SMALL_BUTTON =
         </li>
       </ul>
       <div v-else :class="[CARD, 'flex flex-col items-center py-14 text-center']">
-        <span class="flex h-16 w-16 items-center justify-center rounded-full bg-surface-card text-primary" aria-hidden="true">
+        <span class="flex h-16 w-16 items-center justify-center rounded-full bg-surface-muted text-primary" aria-hidden="true">
           <svg class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
             <path stroke-linecap="round" stroke-linejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
             <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
