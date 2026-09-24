@@ -85,7 +85,7 @@ export interface ProductVariant {
 }
 
 /**
- * 구매자 카탈로그 단건 상세(백엔드 ProductDetailResponse 대응·11필드). 요약 필드에 description·images·
+ * 구매자 카탈로그 단건 상세(백엔드 ProductDetailResponse 대응·13필드). 요약 필드에 description·images·
  * optionGroups·variants를 더한다. 목록의 mainImageUrl은 상세에 없으며 images 리스트의 main 플래그로 대표를 판별한다.
  */
 export interface ProductDetail {
@@ -102,4 +102,6 @@ export interface ProductDetail {
   images: ProductImage[]
   optionGroups: ProductOptionGroup[]
   variants: ProductVariant[]
+  /** 판매자 공개 식별자(slr_·목록 셀러 필터와 같은 값·D-221). */
+  sellerPublicId: string
 }

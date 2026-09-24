@@ -266,7 +266,8 @@ public class ProductCatalogService {
                 !ProductPurchasePolicy.isOnSale(product, now),
                 images,
                 optionGroups,
-                variants);
+                variants,
+                seller.getPublicId());
     }
 
     /** variant의 option1~3 값을 라벨(그룹명·값)로 해소한다. DEFAULT sentinel 그룹 소속 값은 제외한다(단순상품은 빈 목록). */

@@ -12,6 +12,7 @@ export const renewSkin: SkinDefinition = {
     HomeView: defineAsyncComponent(() => import('./views/HomeView.vue')),
     ProductsView: defineAsyncComponent(() => import('./views/ProductsView.vue')),
     CategoryView: defineAsyncComponent(() => import('./views/CategoryView.vue')),
+    ProductDetailView: defineAsyncComponent(() => import('./views/ProductDetailView.vue')),
   },
-  needs: ['layoutHeader', 'homeCuration', 'productList'],
+  needs: ['layoutHeader', 'homeCuration', 'productList', 'productDetailMore'],
 }

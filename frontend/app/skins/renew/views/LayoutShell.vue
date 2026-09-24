@@ -25,7 +25,8 @@ const MENU_LINK =
 
 <template>
   <div class="flex min-h-screen flex-col bg-surface-page text-ink">
-    <header class="sticky top-0 z-50 border-b border-line bg-surface-page/95 backdrop-blur">
+    <!-- ≥1024 높이는 --header-height 토큰으로 고정한다(상세 구매 영역 sticky가 같은 값 기준·FE-70). -->
+    <header class="sticky top-0 z-50 border-b border-line bg-surface-page/95 backdrop-blur lg:h-(--header-height)">
       <div :class="[CONTAINER, 'flex flex-wrap items-center gap-x-2 gap-y-3 py-3 md:gap-x-6']">
         <NuxtLink to="/" class="mr-auto shrink-0 text-xl font-bold tracking-tight text-ink md:mr-0">
           zslab<span class="text-primary">.</span>mall

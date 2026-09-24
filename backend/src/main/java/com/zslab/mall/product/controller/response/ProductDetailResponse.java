@@ -19,6 +19,7 @@ import java.util.List;
  * @param images 이미지 목록(display_order 오름차순)
  * @param optionGroups 옵션 그룹 목록(DEFAULT sentinel 제외·display_order 오름차순)
  * @param variants 판매가능 variant 목록
+ * @param sellerPublicId 외부 노출 판매자 식별자(slr_·목록 셀러 필터 왕복용·D-221과 같은 값). 내부 seller_id는 노출하지 않는다
  */
 public record ProductDetailResponse(
         String productPublicId,
@@ -32,7 +33,8 @@ public record ProductDetailResponse(
         boolean saleStopped,
         List<Image> images,
         List<OptionGroup> optionGroups,
-        List<Variant> variants) {
+        List<Variant> variants,
+        String sellerPublicId) {
 
     /** 상품 이미지. */
     public record Image(String imageUrl, int displayOrder, boolean main) {
