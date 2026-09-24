@@ -3,9 +3,12 @@ import {
   CLAIM_TYPE_FILTERS,
   CLAIM_TYPE_QUERY_VALUES,
   DEFAULT_ORDER_LIST_TAB,
+  ITEM_STATUS_FILTER_PERIOD_MONTHS,
+  ORDER_ITEM_STATUS_FILTERS,
   ORDER_LIST_TABS,
   isLegacyClaimTab,
   parseClaimTypeFilter,
+  parseItemStatusFilter,
   parseOrderListPage,
   parseOrderListTab,
   tabOfClaimType,
@@ -124,5 +127,26 @@ describe('parseClaimTypeFilter — 취소·반품·교환 탭 유형 필터(FE-7
   it('칩 순서는 전체 · 취소 · 반품 · 교환이고 URL 값은 소문자 유형', () => {
     expect(CLAIM_TYPE_FILTERS).toEqual([null, 'CANCEL', 'RETURN', 'EXCHANGE'])
     expect(CLAIM_TYPE_QUERY_VALUES).toEqual({ CANCEL: 'cancel', RETURN: 'return', EXCHANGE: 'exchange' })
+  })
+})
+
+// FE-80·D-224: 전체 주문 탭의 품목 상태 필터. BE가 받는 5값(요약 단계 품목 상태)만 통과시키고 나머지는 필터 없음으로 무시한다(BE 400 방지).
+describe('parseItemStatusFilter — ?itemStatus= 해석', () => {
+  it('허용 5값(대문자)은 그대로 · 순서는 주문 흐름', () => {
+    expect(ORDER_ITEM_STATUS_FILTERS).toEqual(['PAID', 'PREPARING', 'SHIPPING', 'DELIVERED', 'CONFIRMED'])
+    for (const value of ORDER_ITEM_STATUS_FILTERS) expect(parseItemStatusFilter(value)).toBe(value)
+  })
+
+  it('단계 밖 품목 상태·소문자·빈 값·배열·미지정은 null', () => {
+    expect(parseItemStatusFilter('ORDERED')).toBeNull()
+    expect(parseItemStatusFilter('RETURN_REQUESTED')).toBeNull()
+    expect(parseItemStatusFilter('delivered')).toBeNull()
+    expect(parseItemStatusFilter('')).toBeNull()
+    expect(parseItemStatusFilter(['DELIVERED'])).toBeNull()
+    expect(parseItemStatusFilter(undefined)).toBeNull()
+  })
+
+  it('필터 기간은 BE 요약 기간과 같은 3개월', () => {
+    expect(ITEM_STATUS_FILTER_PERIOD_MONTHS).toBe(3)
   })
 })

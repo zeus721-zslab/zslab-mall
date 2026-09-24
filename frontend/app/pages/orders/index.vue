@@ -6,8 +6,10 @@ import {
   ORDER_LIST_TAB_LABELS,
   isLegacyClaimTab,
   parseClaimTypeFilter,
+  parseItemStatusFilter,
   parseOrderListPage,
   parseOrderListTab,
+  type OrderItemStatusFilter,
   type OrderListTab,
 } from '~/lib/constants/order-tabs'
 import { ITEM_CONFIRM_WARNING } from '~/lib/constants/order'
@@ -40,18 +42,33 @@ const tab = computed<OrderListTab>(() => parseOrderListTab(route.query.tab))
 const page = computed<number>(() => parseOrderListPage(route.query.page))
 
 // 탭 전환은 page를 0으로 되돌린다(2페이지에서 탭만 바꾸면 빈 목록이 나오는 트랩 방지). history는 늘리지 않는다.
+// 품목 상태 필터는 전체 주문 탭에만 걸리므로 클레임 탭으로 가면 뺀다(FE-80). 같은 탭 안 페이지 이동은 쿼리를 그대로 이어받는다.
 function moveTo(nextTab: OrderListTab, nextPage: number): void {
-  router.replace({ query: { ...route.query, tab: nextTab, page: String(nextPage) } })
+  const query: LocationQuery = { ...route.query, tab: nextTab, page: String(nextPage) }
+  if (nextTab === 'claim') delete query.itemStatus
+  router.replace({ query })
 }
 
 const isOrderTab = computed(() => tab.value === 'order')
 const isClaimTab = computed(() => tab.value === 'claim')
 // 취소·반품·교환 탭의 유형 필터(FE-73 보완 1·null = 전체). ?type= 우선, 옛 ?tab=cancel|return|exchange도 해당 유형으로 읽는다.
 const claimTypeFilter = computed<ClaimType | null>(() => parseClaimTypeFilter(route.query.type, route.query.tab))
+// 전체 주문 탭의 품목 상태 필터(D-224·FE-80 · null = 없음). 허용 5값 밖은 무시하고, 클레임 탭에서는 쿼리가 남아 있어도 걸지 않는다.
+const itemStatusFilter = computed<OrderItemStatusFilter | null>(() =>
+  isOrderTab.value ? parseItemStatusFilter(route.query.itemStatus) : null,
+)
 
-// 유형 칩을 바꾸면 claim 탭 첫 페이지로 간다. 전체(null)는 type 쿼리를 뺀다.
+// 필터 해제 = itemStatus 쿼리 제거 + 첫 페이지.
+function clearItemStatusFilter(): void {
+  const query: LocationQuery = { ...route.query, page: '0' }
+  delete query.itemStatus
+  router.replace({ query })
+}
+
+// 유형 칩을 바꾸면 claim 탭 첫 페이지로 간다. 전체(null)는 type 쿼리를 뺀다. 품목 상태 필터는 클레임 탭에 걸리지 않아 함께 뺀다.
 function moveToClaimType(type: ClaimType | null): void {
   const query: LocationQuery = { ...route.query, tab: 'claim', page: '0' }
+  delete query.itemStatus
   if (type) {
     router.replace({ query: { ...query, type: CLAIM_TYPE_QUERY_VALUES[type] } })
     return
@@ -68,7 +85,7 @@ onMounted(() => {
 })
 
 // 주문 조회는 page Ref에 반응한다(useFetch query reactive 관례). 클레임 조회(FE-73: 유형 구분 없음)는 클레임 탭일 때만 실행한다.
-const { data: orders, pending: ordersPending, error: ordersError, refresh: refreshOrders } = useOrderList(page)
+const { data: orders, pending: ordersPending, error: ordersError, refresh: refreshOrders } = useOrderList(page, itemStatusFilter)
 const {
   data: claims,
   pending: claimsPending,
@@ -200,6 +217,8 @@ const vm: OrdersPageVm = reactive({
   CLAIM_TYPE_FILTERS,
   CLAIM_TYPE_QUERY_VALUES,
   moveToClaimType,
+  itemStatusFilter,
+  clearItemStatusFilter,
 })
 </script>
 

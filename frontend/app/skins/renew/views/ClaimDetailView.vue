@@ -1,20 +1,20 @@
 <script setup lang="ts">
 import type { ClaimDetailPageVm } from '~/skins/contracts/claim-detail'
 import MypageFrame from '../components/MypageFrame.vue'
+import RenewBadge from '../components/RenewBadge.vue'
 import RenewNotice from '../components/RenewNotice.vue'
-import { CLAIM_NEUTRAL_CHIP_CLASS, CLAIM_TYPE_BADGE_CLASS } from '../claim-type-tone'
+import { CLAIM_NEUTRAL_CHIP_CLASS, CLAIM_TYPE_BADGE_TONE } from '../claim-type-tone'
 
 // renew 클레임 상세(FE-73). 화면 상태·동작은 classic과 같다: 헤더(유형·상태) → 요청 취소(접수 상태만·인라인 확인) → 진행 타임라인 →
 // 클레임 정보(회수·검수·재발송·거부·환불·첨부) → 회수 송장 등록(필요할 때만) → 목록 링크. 문구·testid는 페이지 vm 그대로다.
-// 타임라인은 ≥768 가로, <768 세로로 놓는다(단계 수 최대 7).
+// 타임라인은 ≥768 가로, <768 세로로 놓는다(단계 수 최대 7). FE-80: 섹션 = 흰 카드(shadow-e1) · 시각·단계 번호 = tabular-nums.
 defineProps<{ vm: ClaimDetailPageVm }>()
 
-const CARD = 'rounded-[28px] bg-white p-6 md:p-8'
-const LABEL = 'mb-1.5 block text-sm font-bold text-ink'
+const CARD = 'rounded-card bg-white p-5 shadow-e1 md:p-6'
+const SECTION_TITLE = 'text-h3 text-ink'
+const LABEL = 'mb-1.5 block text-small font-bold text-ink'
 const FIELD =
-  'h-12 w-full rounded-[14px] border border-line bg-white px-4 text-sm text-ink transition duration-200 placeholder:text-sub focus:border-primary focus:outline-hidden focus:ring-1 focus:ring-primary'
-const SMALL_PILL =
-  'flex min-h-10 items-center justify-center rounded-full px-4 text-sm font-bold transition duration-200 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-default disabled:opacity-40'
+  'h-12 w-full rounded-control border border-line bg-white px-4 text-body text-ink transition duration-fast ease-soft placeholder:text-sub focus:border-primary focus:outline-hidden focus:ring-1 focus:ring-primary'
 const ROW = 'flex justify-between gap-4'
 </script>
 
@@ -34,26 +34,26 @@ const ROW = 'flex justify-between gap-4'
       <section :class="CARD" aria-label="클레임 요약">
         <div class="flex items-start justify-between gap-4">
           <div class="min-w-0">
-            <p class="text-xs text-sub">클레임 유형</p>
-            <!-- 유형 = 색 배지 · 상태 = 중립 칩(FE-73 보완 1) -->
-            <span :class="['mt-2 inline-flex rounded-full px-4 py-1.5 text-base font-bold', CLAIM_TYPE_BADGE_CLASS[vm.data.claimType]]" data-testid="claim-type-badge">
+            <p class="text-caption font-normal text-sub">클레임 유형</p>
+            <!-- 유형 = 색 배지(RenewBadge) · 상태 = 중립 칩(FE-73 보완 1 · FE-80) -->
+            <RenewBadge :tone="CLAIM_TYPE_BADGE_TONE[vm.data.claimType]" class="mt-2" data-testid="claim-type-badge">
               {{ vm.claimTypeLabel(vm.data.claimType) }}
-            </span>
+            </RenewBadge>
           </div>
-          <span :class="['shrink-0 rounded-full px-3 py-1 text-sm font-bold', CLAIM_NEUTRAL_CHIP_CLASS]">{{ vm.claimStatusLabel(vm.data.status) }}</span>
+          <span :class="CLAIM_NEUTRAL_CHIP_CLASS">{{ vm.claimStatusLabel(vm.data.status) }}</span>
         </div>
 
         <div v-if="vm.cancellable" class="mt-5" data-testid="claim-cancel-block">
           <button
             v-if="!vm.cancelConfirmOpen"
             type="button"
-            :class="[SMALL_PILL, 'border border-line bg-white text-ink hover:border-ink']"
+            class="btn btn-secondary btn-sm max-md:min-h-11"
             data-testid="claim-cancel-open"
             @click="vm.cancelConfirmOpen = true"
           >
             요청 취소
           </button>
-          <!-- 요청 취소 확인은 인라인 그대로(모달 전환은 이월). -->
+          <!-- 요청 취소 확인은 인라인 그대로(모달 전환 안 함 · FE-80). -->
           <RenewNotice v-else tone="warning" data-testid="claim-cancel-panel">
             <p class="text-ink">{{ vm.claimTypeLabel(vm.data.claimType) }} 요청을 취소할까요?</p>
             <p class="mt-1 font-normal" style="white-space: pre-line" data-testid="claim-cancel-warning">{{ vm.CLAIM_CANCEL_WARNING }}</p>
@@ -85,7 +85,7 @@ const ROW = 'flex justify-between gap-4'
 
       <!-- 진행 타임라인 -->
       <section :class="CARD" aria-labelledby="claim-timeline-title">
-        <h2 id="claim-timeline-title" class="text-lg font-bold text-ink">진행 상태</h2>
+        <h2 id="claim-timeline-title" :class="SECTION_TITLE">진행 상태</h2>
         <ol class="mt-6 flex flex-col md:flex-row" data-testid="claim-timeline">
           <li
             v-for="(step, index) in vm.timeline"
@@ -104,7 +104,7 @@ const ROW = 'flex justify-between gap-4'
             ></span>
             <span
               :class="[
-                'relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full font-mono text-xs font-semibold transition duration-300',
+                'relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-caption tabular-nums transition duration-fast ease-soft',
                 step.state === 'upcoming' ? 'bg-surface-muted text-sub' : 'bg-primary text-primary-foreground',
                 step.state === 'current' ? 'ring-4 ring-(--pastel-lavender-bg)' : '',
               ]"
@@ -115,8 +115,8 @@ const ROW = 'flex justify-between gap-4'
               <template v-else>{{ index + 1 }}</template>
             </span>
             <div class="min-w-0 pt-1 md:pt-0">
-              <p :class="['text-sm', step.state === 'upcoming' ? 'text-sub' : 'font-bold text-ink']">{{ step.label }}</p>
-              <p v-if="step.at" class="mt-0.5 font-mono text-[11px] text-sub">{{ vm.formatDateTime(step.at) }}</p>
+              <p :class="['text-small', step.state === 'upcoming' ? 'font-normal text-sub' : 'font-bold text-ink']">{{ step.label }}</p>
+              <p v-if="step.at" class="mt-0.5 text-caption font-normal tabular-nums text-sub">{{ vm.formatDateTime(step.at) }}</p>
             </div>
           </li>
         </ol>
@@ -125,8 +125,8 @@ const ROW = 'flex justify-between gap-4'
 
       <!-- 클레임 정보 -->
       <section :class="CARD" aria-labelledby="claim-info-title">
-        <h2 id="claim-info-title" class="text-lg font-bold text-ink">클레임 정보</h2>
-        <dl class="mt-4 space-y-3 text-sm">
+        <h2 id="claim-info-title" :class="SECTION_TITLE">클레임 정보</h2>
+        <dl class="mt-4 space-y-3 text-body">
           <div :class="ROW">
             <dt class="shrink-0 text-sub">사유</dt>
             <dd class="text-right text-ink">{{ vm.CLAIM_REASON_LABELS[vm.data.reasonCode] }}</dd>
@@ -142,20 +142,20 @@ const ROW = 'flex justify-between gap-4'
           </div>
           <div :class="ROW">
             <dt class="shrink-0 text-sub">요청 일시</dt>
-            <dd class="text-right font-mono text-ink">{{ vm.formatDateTime(vm.data.requestedAt) }}</dd>
+            <dd class="text-right tabular-nums text-ink">{{ vm.formatDateTime(vm.data.requestedAt) }}</dd>
           </div>
           <div v-if="vm.data.processedAt" :class="ROW">
             <dt class="shrink-0 text-sub">처리 일시</dt>
-            <dd class="text-right font-mono text-ink">{{ vm.formatDateTime(vm.data.processedAt) }}</dd>
+            <dd class="text-right tabular-nums text-ink">{{ vm.formatDateTime(vm.data.processedAt) }}</dd>
           </div>
           <!-- 반품 회수·검수·재발송(FE-29·Track 81-A): 값이 있을 때만 행 노출 -->
           <div v-if="vm.data.returnShipment" :class="ROW">
             <dt class="shrink-0 text-sub">회수 송장</dt>
-            <dd class="text-right text-ink" data-testid="claim-return-shipment">{{ vm.deliveryCarrierLabel(vm.data.returnShipment.carrier) }} {{ vm.data.returnShipment.trackingNo }}</dd>
+            <dd class="text-right tabular-nums text-ink" data-testid="claim-return-shipment">{{ vm.deliveryCarrierLabel(vm.data.returnShipment.carrier) }} {{ vm.data.returnShipment.trackingNo }}</dd>
           </div>
           <div v-if="vm.data.pickedUpAt" :class="ROW">
             <dt class="shrink-0 text-sub">회수 확인</dt>
-            <dd class="text-right font-mono text-ink" data-testid="claim-picked-up-at">{{ vm.formatDateTime(vm.data.pickedUpAt) }}</dd>
+            <dd class="text-right tabular-nums text-ink" data-testid="claim-picked-up-at">{{ vm.formatDateTime(vm.data.pickedUpAt) }}</dd>
           </div>
           <div v-if="vm.data.inspectionResult" :class="ROW">
             <dt class="shrink-0 text-sub">검수 결과</dt>
@@ -163,7 +163,7 @@ const ROW = 'flex justify-between gap-4'
           </div>
           <div v-if="vm.data.reshipment" :class="ROW">
             <dt class="shrink-0 text-sub" data-testid="claim-reshipment-label">{{ vm.data.claimType === 'EXCHANGE' ? '교환품 배송 송장' : '재발송 송장' }}</dt>
-            <dd class="text-right text-ink" data-testid="claim-reshipment">{{ vm.deliveryCarrierLabel(vm.data.reshipment.carrier) }} {{ vm.data.reshipment.trackingNo }}</dd>
+            <dd class="text-right tabular-nums text-ink" data-testid="claim-reshipment">{{ vm.deliveryCarrierLabel(vm.data.reshipment.carrier) }} {{ vm.data.reshipment.trackingNo }}</dd>
           </div>
           <!-- 거부 사유·메모·환불 상태(FE-28·Track 80 D-169): 값이 있을 때만 행 노출 -->
           <div v-if="vm.data.rejectReasonCode" :class="ROW">
@@ -177,7 +177,7 @@ const ROW = 'flex justify-between gap-4'
           <div v-if="vm.data.refundStatus" :class="ROW">
             <dt class="shrink-0 text-sub">환불 상태</dt>
             <dd class="text-right" data-testid="claim-refund-status">
-              <span :class="['inline-flex rounded-full px-2.5 py-0.5 text-xs font-bold', CLAIM_NEUTRAL_CHIP_CLASS]">{{ vm.refundStatusLabel(vm.data.refundStatus) }}</span>
+              <span :class="CLAIM_NEUTRAL_CHIP_CLASS">{{ vm.refundStatusLabel(vm.data.refundStatus) }}</span>
             </dd>
           </div>
         </dl>
@@ -186,14 +186,14 @@ const ROW = 'flex justify-between gap-4'
 
         <!-- 첨부 사진(FE-29·Track 81-B): 순서 보존·클릭 시 원본 -->
         <div v-if="vm.data.attachmentUrls && vm.data.attachmentUrls.length > 0" class="mt-5">
-          <p class="mb-2 text-sm text-sub">첨부 사진</p>
+          <p class="mb-2 text-small font-normal text-sub">첨부 사진</p>
           <ul class="grid grid-cols-4 gap-2 sm:grid-cols-5" data-testid="claim-attachments">
             <li v-for="(url, index) in vm.data.attachmentUrls" :key="url" class="aspect-square overflow-hidden rounded-[14px] bg-(--image-placeholder)">
               <a :href="url" target="_blank" rel="noopener" class="group block h-full w-full">
                 <img
                   :src="url"
                   :alt="`첨부 사진 ${index + 1}`"
-                  class="h-full w-full object-cover transition duration-500 ease-out motion-safe:group-hover:scale-[1.04]"
+                  class="h-full w-full object-cover transition duration-fast ease-soft motion-safe:group-hover:scale-[1.04]"
                   data-testid="claim-attachment-photo"
                 >
               </a>
@@ -204,8 +204,8 @@ const ROW = 'flex justify-between gap-4'
 
       <!-- 회수 송장 등록(FE-29): 승인 후 구매자가 직접 등록. 등록되면 BE가 returnShipmentRequired=false로 내려 폼이 사라진다. -->
       <section v-if="vm.data.returnShipmentRequired" :class="CARD" data-testid="claim-return-shipment-form" aria-labelledby="claim-shipment-title">
-        <h2 id="claim-shipment-title" class="text-lg font-bold text-ink">회수 송장 등록</h2>
-        <p class="mt-1 break-keep text-sm text-sub" data-testid="claim-return-shipment-guide">
+        <h2 id="claim-shipment-title" :class="SECTION_TITLE">회수 송장 등록</h2>
+        <p class="mt-1 break-keep text-body text-sub" data-testid="claim-return-shipment-guide">
           {{ vm.data.claimType === 'EXCHANGE'
             ? '교환할 상품을 발송한 택배사와 송장번호를 등록해 주세요. 쇼핑몰이 회수를 확인하고 검수한 뒤 교환품을 발송합니다.'
             : '상품을 발송한 택배사와 송장번호를 등록해 주세요. 쇼핑몰이 회수를 확인한 뒤 검수를 진행합니다.' }}
@@ -232,25 +232,15 @@ const ROW = 'flex justify-between gap-4'
             >
           </div>
           <RenewNotice v-if="vm.shipmentError" tone="danger" class="sm:col-span-2" data-testid="claim-return-shipment-error">{{ vm.shipmentError }}</RenewNotice>
-          <button
-            type="submit"
-            class="flex h-14 w-full items-center justify-center gap-2 rounded-full bg-primary text-base font-bold text-primary-foreground transition duration-200 hover:bg-primary-hover focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-primary sm:col-span-2"
-            :disabled="vm.shipmentSubmitting"
-            data-testid="claim-return-shipment-submit"
-          >
-            <span v-if="vm.shipmentSubmitting" class="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white motion-reduce:animate-none" aria-hidden="true"></span>
+          <button type="submit" class="btn btn-primary btn-lg w-full sm:col-span-2" :disabled="vm.shipmentSubmitting" data-testid="claim-return-shipment-submit">
+            <span v-if="vm.shipmentSubmitting" class="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent motion-reduce:animate-none" aria-hidden="true"></span>
             {{ vm.shipmentSubmitting ? '등록 중…' : '회수 송장 등록' }}
           </button>
         </form>
       </section>
 
       <!-- 목록으로(FE-73: 주문 내역의 취소·반품·교환 탭으로 복귀) -->
-      <NuxtLink
-        :to="{ path: '/orders', query: { tab: vm.listTab } }"
-        class="flex min-h-14 w-full items-center justify-center rounded-full border border-line bg-white text-base font-bold text-ink transition duration-200 hover:border-ink focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary"
-      >
-        주문 내역으로
-      </NuxtLink>
+      <NuxtLink :to="{ path: '/orders', query: { tab: vm.listTab } }" class="btn btn-secondary btn-lg w-full">주문 내역으로</NuxtLink>
     </div>
   </MypageFrame>
 </template>

@@ -3351,3 +3351,96 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 - §1-A: **α 구조 강조(결과 안내 + 동작명 버튼)** 채택 / **β 별도 강조색** 기각(포인트 1색 기준(FE-76) 위반, 경고와 의미 중복) / **γ 크기·아이콘만 강조** 기각(결과가 전달되지 않음).
 
 외부 검토: C / 생략
+
+## FE-80: 주문·클레임 디자인·사용성 — 주문 목록·주문 상세·클레임 + 품목 상태 필터 연결 (Track 105-4e-2) (2026-09-25)
+
+배경: FE-76 기준을 주문·클레임 화면에 적용하는 단계다. 대상은 OrdersView(주문·클레임 탭)·OrderDetailView·ClaimNewView·ClaimDetailView다. 여기에 105-4b(D-224) BE 변경을 FE에 연결했다(홈 주문 현황 → 품목 상태 필터 목록, 클레임 목록 썸네일). BE는 바꾸지 않았다. vm 계약 추가는 주문 목록 2건(아래)뿐이다.
+
+결정:
+- **공통 규칙** FE-77~FE-79와 같다. 글자 버튼은 `btn`, 영역당 주 버튼 1개, 띠 면 위 보조 버튼은 흰 바탕이다. 상태 알약은 RenewBadge를 쓰고, font-mono는 주문번호 식별자 단독에만 쓴다. 숫자는 `tabular-nums`, 크기는 서체 스케일 유틸이다. 콘텐츠 카드는 흰색 + `shadow-e1`, 전환은 150ms `ease-soft`다. 첫 화면 등장 모션은 두지 않는다. 768 미만 터치 영역은 44이고, 선택 알약은 `chip`, 인라인 메시지는 RenewNotice다.
+- **A. 품목별 배지** 주문 카드와 주문 상세 모두 상태를 품목 행마다 RenewBadge로 보인다. 라벨은 `ORDER_ITEM_STATUS_LABELS` 그대로다. 주문 상세 머리의 주문 상태 배지는 없앴다. 주문 상태는 품목 상태에서 파생되므로, 한 줄로 요약하면 상태가 섞인 주문을 잘못 말한다(D-224 γ 기각 근거와 같다). 결제대기·미결제 종료는 머리 안내(RenewNotice)가 이미 말한다. 주문 카드 머리에는 원래 주문 상태 배지가 없었다.
+- **B. 품목 상태 필터(D-224)**
+  - 홈 링크: 마이페이지 홈 주문 현황 5단계 숫자가 `/orders?itemStatus=PAID|PREPARING|SHIPPING|DELIVERED|CONFIRMED` 링크다(`orderSummaryStageLink`). 0건 단계도 링크를 유지하고 흐림도 그대로다. 높이는 44 이상이고 aria-label은 "{라벨} {N}건 주문 보기"다. tab 쿼리는 붙이지 않는다(기본 = 전체 주문).
+  - 쿼리 검증: `parseItemStatusFilter`는 허용 5값(대문자)만 받는다. 단계 밖 품목 상태·소문자·빈 값·배열은 null(필터 없음)로 무시해 BE 400을 부르지 않는다. `useOrderList(page, itemStatus)`는 null을 undefined로 바꿔 쿼리에서 뺀다. ufo는 null 값을 키만 붙은 `?itemStatus`로 출력한다.
+  - 탭·페이지: 필터는 전체 주문 탭에만 걸린다. `moveTo`로 클레임 탭에 가거나 `moveToClaimType`을 쓰면 itemStatus를 지운다. 클레임 탭 URL에 itemStatus가 남아 있어도 걸지 않는다. 같은 탭 안 페이지 이동은 쿼리를 이어받아 필터가 유지된다.
+  - 표시: 목록 위 선택 칩 1개 "{단계 라벨} 품목 · 최근 3개월" + 칩 안 해제 아이콘 버튼(aria-label "필터 해제" · 768 미만 44 · 이상 32)이다. 해제는 itemStatus 제거 + 첫 페이지다. 단계 라벨은 홈 현황과 같은 라벨(`orderSummaryStageLabel`)이고, 기간 3은 FE 상수 `ITEM_STATUS_FILTER_PERIOD_MONTHS`(BE `SUMMARY_PERIOD_MONTHS`와 같은 값)다.
+  - 빈 결과: "최근 3개월 동안 {단계 라벨} 품목이 있는 주문이 없어요" + "필터 해제"(`btn-secondary`)다. 이때는 "쇼핑하러 가기"를 두지 않는다.
+- **C. 페이지 크기** `useOrderList` 기본 size 20 → 10. BE 기본 20·최대 100 범위 안이다. 주문 카드가 품목 행을 모두 펼쳐 20은 길다. 홈 최근 주문(`useRecentOrders` 3)은 그대로다.
+- **D. 주문 카드**
+  - 768 이상 머리 한 줄: 날짜(`text-small` tabular-nums) · 주문번호(모노 caption + `surface-muted` 식별자 칩) · "상품 N개 · 총 {금액}원" · 결제하기(결제대기만 `btn-primary btn-sm`) · "주문 상세"(`btn-tertiary btn-sm`).
+  - 768 미만 머리: 1줄은 날짜 + "상세" 링크(44), 2줄은 주문번호 + 개수·총액이다. 한 grid에서 배치만 바꿔 요소 중복이 없다.
+  - N은 품목 행 수(items.length)다. 품목 요약이 없는 옛 응답이면 개수를 빼고 총액만 쓴다.
+  - 품목 행(768 이상): [썸네일+정보] [금액 열 `w-28` · `text-h3` tabular-nums] [액션 세로 열 `w-36`]. 썸네일+정보 영역은 상품 상세 링크다. 링크는 상품명에 걸고 `after:inset-0`로 영역 전체를 덮는다(카드 안 다른 버튼과 중첩 없음). productId가 없으면(삭제 상품) 링크 없이 글자다. 액션이 없는 행도 열 폭을 남겨 행마다 금액 위치를 맞춘다.
+  - 품목 행(768 미만): 금액은 정보 아래(썸네일 폭만큼 들여쓰기)에 둔다. 버튼은 2열 grid(균등 폭 · 44)이고 3개면 2+1이다.
+  - 주 버튼은 구매확정(배송 완료) 하나다. 반품·교환·취소 요청은 보조(`btn-secondary`)이고, 취소 요청만 있는 품목도 보조다.
+  - 진행 중 클레임 배지는 링크 안 RenewBadge(유형 tone · 768 미만 44), "외 N"은 중립 칩이다.
+- **E. 클레임**
+  - 목록 카드: 썸네일 64(`thumbnailUrl` · 없으면 이미지 대기 면 · lazy). `ClaimSummary` 타입에 `thumbnailUrl?`를 더했다(BE 응답 필드 · vm 계약 변경 아님). hover는 임의 그림자 → `shadow-e2` + `-translate-y-1`이다.
+  - 유형 배지: RenewBadge `CLAIM_TYPE_BADGE_TONE`(취소 warning · 반품 danger · 교환 neutral). 기존 파스텔(butter·pink·periwinkle)과 같은 색이다. `CLAIM_TYPE_BADGE_CLASS`는 사용처가 0이 돼 tone 맵으로 바꿨다.
+  - 상태·거부 사유·환불 상태: 흰 바탕 + 테두리 중립 칩을 유지하고 크기만 RenewBadge(22px · 12/600)에 맞췄다(`CLAIM_NEUTRAL_CHIP_CLASS`). RenewBadge neutral로 바꾸면 교환 유형 배지와 같은 페리윙클이 돼 "색은 요청 유형에만"(FE-73 보완 1)이 깨진다.
+  - 신청 완료 "주문 내역으로" → `/orders?tab=claim`(클레임 상세 복귀 `tabOfClaimType`과 같은 값)이다. 방금 낸 요청이 유형과 무관하게 보인다. 잘못된 접근 안내의 링크는 `/orders` 그대로다.
+  - 클레임 상세 요청 취소 패널: 구조를 유지한다(action 슬롯 FE-79 · 모달 전환 안 함). 여는 버튼만 `btn-secondary btn-sm`이다.
+- **F. 확인창 설명 조사** 구매확정 확인창 설명을 두 줄로 바꿨다. 1줄은 "구매 확정할 품목"(`text-small` · sub), 2줄은 "{상품명} · {옵션}"(없으면 "이 품목" · `text-body` semibold · testid `item-confirm-target`)이다. 조사를 붙이지 않는다. FE-79 캡처에서 "사이즈: M을"로 읽혔기 때문이다. `itemConfirmDescription` → `itemConfirmTarget`(대상만) + `ITEM_CONFIRM_TARGET_CAPTION`. 제목·notice(`ITEM_CONFIRM_WARNING`)·버튼 이름은 그대로다.
+  - 공용 DialogConfirm에 `description` 슬롯을 더했다. 슬롯이 있으면 prop보다 우선하고, prop `description`은 선택(기본 '')이 됐다. 배송지 삭제 확인창은 prop 그대로다.
+- **vm 계약 추가(주문 목록)** `OrdersPageVm.itemStatusFilter`(null = 없음 · 클레임 탭에서는 항상 null) · `clearItemStatusFilter()`. 이름은 `claimTypeFilter`·`moveToClaimType` 관례를 따랐다.
+
+배지 tone 매핑(`skins/renew/order-item-tone.ts` ORDER_ITEM_STATUS_TONE · 미지 값 neutral):
+
+| 품목 상태 | 라벨 | tone | 근거 |
+|---|---|---|---|
+| ORDERED | 주문접수 | info | 관리자·셀러 품목 색 의미(결제 완료와 같은 계열) |
+| PAID | 결제완료 | info | 지시 |
+| PREPARING | 상품준비중 | neutral | 지시 |
+| SHIPPING | 배송중 | neutral | 지시 |
+| DELIVERED | 배송완료 | success | 지시(구매 확정을 기다림) |
+| CONFIRMED | 구매확정 | neutral | 지시(끝난 상태) |
+| CANCEL_REQUESTED · RETURN_REQUESTED · EXCHANGE_REQUESTED | 취소·반품·교환 요청 | warning | 관리자·셀러 `*_REQUESTED=warning` |
+| CANCELLED · RETURNED | 취소완료·반품완료 | danger | 관리자·셀러 취소·반품 완료 = danger |
+| EXCHANGED | 교환완료 | info | 관리자·셀러 EXCHANGED = info |
+
+화면별 변경:
+- **주문 목록** 탭 2개는 세그먼트(흰 바탕 + `shadow-e1` · 선택 primary 채움 · aria-current 유지)다. 클레임 유형 필터는 `chip`(aria-pressed · 768 미만 44)이다. 빈 목록은 흰 카드 + `text-h3`이고 "쇼핑하러 가기"는 `btn-primary btn-md`다. 페이저 이전·다음은 `btn-secondary btn-md`, 번호는 tabular-nums다. 등장 모션(ENTER)을 없앴다.
+- **주문 상세** 머리·결제 재개·판매자 그룹·결제 금액·배송지는 흰 카드 + `shadow-e1`이다. 결제수단 알약은 `chip`(data-state=on · 숨긴 radio의 focus-visible 링)이고, 결제하기는 `btn-primary btn-lg`(56 → 52)다. 품목 금액은 `text-h3`, 총 결제금액은 `text-h2`이며 둘 다 tabular-nums다. 구매확정은 `btn-primary`, 클레임 요청은 `btn-secondary`(`btn-sm` · 768 미만 44)다. 배송지 연락처는 formatPhone 적용 완료(FE-79)를 확인했고, font-mono → tabular-nums로 바꿨다. 배송 정보는 공용 OrderItemDeliveryInfo(판매자 흰 카드 안)이며 변경하지 않았다. "주문 내역으로"는 `btn-secondary btn-lg`다.
+- **클레임 신청** 대상·폼은 흰 카드이고 라벨·입력칸은 FE-79 상수(`rounded-control` · `text-body`)다. 글자수는 tabular-nums다. 교환 옵션 로딩 문구는 RenewNotice info(testid 유지)다. 제출은 영역 주 버튼 `btn-primary btn-lg`(56 → 52)다. 완료 화면 등장 모션을 없앴고, "주문 내역으로"는 `btn-primary btn-md`다.
+- **클레임 상세** 섹션은 흰 카드, 제목은 `text-h3`다. 단계 번호·시각·송장번호는 font-mono → tabular-nums로 바꿨다. 첨부 확대 전환은 500 → 150ms다. 회수 송장 등록은 `btn-primary btn-lg`, "주문 내역으로"는 `btn-secondary btn-lg`다. 이 화면에는 금액 표시가 없다.
+
+### §1-A 갈림길·채택/기각 근거
+- **신청 완료 이동: α `?tab=claim`(채택) / β `?tab=cancel`(routeRules /claims 리다이렉트 값 · 기각) / γ `?tab=claim&type={유형}`(기각)** β는 클레임 탭을 취소 유형으로 걸러 열어, 반품·교환을 막 신청한 사용자에게 새 요청이 보이지 않는다. γ는 필요 이상으로 좁고, 클레임 상세 복귀와 값이 달라진다(zslab 결정 ①).
+- **클레임 상태 칩: 중립 칩 유지(채택) / RenewBadge neutral(기각)** 위 E의 페리윙클 충돌 때문이다(zslab 결정 ⑤).
+- **상품 링크: 이름 링크 + 영역 확장(채택) / 영역 전체를 NuxtLink로 감싸기(기각)** 삭제 상품(productId 없음)일 때 같은 마크업을 링크/비링크 두 벌로 나눠야 한다.
+
+### §2 검증
+- typecheck(컨테이너) EXIT 0 → vitest 118 files / 820 passed → e2e smoke·claims·mock-payment·order-resume-payment 11 passed.
+- 테스트 변경: 깨진 단언은 1건이다(OrderDetailPage "…블랙을 구매 확정합니다." → 설명 캡션 + 대상 "배송완료 상품 · 색상: 블랙"). 추가한 테스트:
+  - order-tabs +3(필터 허용 5값·무시·기간)
+  - order-summary-stages +2(홈 링크 URL·단계 라벨)
+  - order-item-tone 4(tone 매핑·12값 전부·클레임 유형)
+  - OrderDetailPage +1(품목 배지 tone·머리 주문 상태 없음)
+  - OrdersPage 8(필터 전달·칩 · 5값 밖 무시 · 칩 해제 · 페이지 유지·탭 전환 제거 · 빈 결과 · 클레임 탭 미적용 · 카드 요약·배지·상품 링크 · 요약 없음)
+- 테스트 트랩: `useRouter`를 mockNuxtImport로 통째 mock하면 Nuxt 플러그인이 `afterEach`·`beforeResolve`에서 TypeError를 낸다 → 실제 `$router.replace`만 spy로 바꿨다.
+- 임시 캡처(데모 구매자 · 읽기만 · 확정·제출 클릭 없음): /mypage · /orders · ?itemStatus=DELIVERED · ?itemStatus=CONFIRMED · 클레임 탭 · 주문 상세 · 구매확정 확인창 · 클레임 신청 · 클레임 상세 × 1440·390 = 18장, 18/18 OK. 확인 결과:
+  - 홈 링크: 5단계 href · 링크 높이 70/60(390).
+  - 목록: 카드 10 · 요약 "상품 1개 · 총 45,000원" · 상세 링크 36/44 · 필터 칩 문구 · 배지 배송완료 success · 품목 버튼 36/44 · 클레임 탭 전환 URL `tab=claim&page=0`(itemStatus 제거) · 유형 칩 36/44.
+  - 상세: 머리는 주문번호만이다.
+  - 확인창: 설명 "구매 확정할 품목 / T75 옵션 티셔츠 · 색상: 화이트 / 사이즈: M".
+  - 클레임: 신청 반품 danger · 제출 52 / 상세 취소 warning.
+  - CONFIRMED는 데모 데이터에 결과가 2건이라 빈 결과 화면은 컴포넌트 테스트로만 확인했다.
+- 캡처 결함 1(재캡처 안 함): 클레임 탭 2장은 스켈레톤 상태로 찍혔다. 탭 클릭 뒤 `waitForLoadState('networkidle')`가 이미 충족된 상태라 즉시 반환해, 클라이언트 조회 전에 촬영됐다. 진단 1회에서 전환 +500ms에 카드 9, SSR `/orders?tab=claim`도 9로 코드 결함이 아님을 확인했다. 클레임 카드 썸네일의 실제 렌더는 이번 캡처로 확인하지 못했다. API에서 첫 클레임 thumbnailUrl이 있음은 확인했다.
+  - 재캡처 PASS(썸네일 렌더 확인): 대기 조건을 "클레임 카드 1개 이상(최대 10초)"으로 바꿔 1440·390 2장만 다시 찍었다. 카드 9 · 썸네일 img 9/9(API thumbnailUrl 9) 로드 완료 naturalWidth 600 · 썸네일 없는 카드는 이번 데이터에 0건이라 대기 면은 코드·클래스로만 확인했다.
+
+### §3 작업 전후 집계(대상 4파일)
+- 버튼·선택:
+  - 인라인 글자 버튼 17 → 0. 남은 비-btn은 탭 세그먼트 1 · 필터 해제 아이콘 1 · 배지 링크 1 · 상품명 링크 1 · 클레임 카드 링크 1이다.
+  - btn 3 → 23 · 선택 알약 3 → chip 3(유형 필터·결제수단·필터 칩) + 세그먼트 1.
+- 배지: 상태·라벨 알약 13 → RenewBadge 6 + 중립 칩 6 + 주문 상태 1 제거.
+- 서체: font-mono 18 → 2(주문번호) · tabular-nums 0 → 25 · 표준 크기 클래스 82 → 0.
+- 면·모션: 임의 그림자 1 → 0 · shadow-e 0 → 8 · 150ms가 아닌 전환 26 → 0 · 첫 화면 등장 모션 2 → 0 · 임의 모서리 11 → 5(썸네일, FE-77 유지 선례).
+- 메시지: 인라인 메시지 1 → 0 · RenewNotice 17 → 18.
+
+### §8 이월
+- 105-4g: 카테고리 타일 대체 아이콘 중복(기타·데모 모두 태그) · id 순환 색이 이웃 타일과 겹침(기타·리빙·주방 페리윙클) · 태블릿 가로 폭에서 타일이 지나치게 큼 · routeRules `/claims` → `/orders?tab=cancel` 옛 값(FE-63) — `tab=claim`으로 정정 검토.
+- 클레임 목록 조회는 유형 전체일 때 `?type`(키만)을 보낸다(기존 `useClaimList` · null → ufo 키만 출력). BE는 빈 값으로 받아 동작하며 이번 변경은 없다.
+- 마이페이지 홈 "확정하러 가기"는 `/orders` 그대로다. `?itemStatus=DELIVERED` 연결은 지시 범위 밖이라 하지 않았다.
+- 캡처 대기 방식: 클라이언트 전환 뒤에는 networkidle 대신 대상 요소 대기를 쓴다(이번 클레임 탭 결함).
+
+외부 검토: C / 생략

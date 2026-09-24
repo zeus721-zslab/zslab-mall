@@ -1,4 +1,4 @@
-import type { CLAIM_TYPE_FILTERS, CLAIM_TYPE_QUERY_VALUES, OrderListTab } from '~/lib/constants/order-tabs'
+import type { CLAIM_TYPE_FILTERS, CLAIM_TYPE_QUERY_VALUES, OrderItemStatusFilter, OrderListTab } from '~/lib/constants/order-tabs'
 import type { ClaimSummary } from '~/types/claim'
 import type { OrderSummary, OrderSummaryItem, PagedResponse } from '~/types/order'
 import type { ClaimType } from '~/lib/constants/claim'
@@ -59,4 +59,8 @@ export interface OrdersPageVm {
   CLAIM_TYPE_FILTERS: typeof CLAIM_TYPE_FILTERS
   CLAIM_TYPE_QUERY_VALUES: typeof CLAIM_TYPE_QUERY_VALUES
   moveToClaimType: (type: ClaimType | null) => void
+  /** 전체 주문 탭의 품목 상태 필터(null = 없음·D-224·FE-80). 허용 5값만이며 클레임 탭에서는 항상 null이다. */
+  itemStatusFilter: OrderItemStatusFilter | null
+  /** 필터 해제(itemStatus 쿼리 제거 + 첫 페이지). */
+  clearItemStatusFilter: () => void
 }

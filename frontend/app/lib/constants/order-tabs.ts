@@ -5,7 +5,7 @@
  * URL(?tab=&page=)이 탭·페이지의 단일 소스다 — 컴포넌트 로컬 ref를 진실로 두지 않는다(ProductListView의 sort 동기화 선례).
  */
 
-import type { ClaimType } from '~/lib/constants/claim'
+import type { ClaimType, OrderItemStatusCode } from '~/lib/constants/claim'
 
 /** 주문내역 탭 code. 'order'는 주문 목록, 'claim'은 클레임 목록(취소·반품·교환 전체)이다. */
 export type OrderListTab = 'order' | 'claim'
@@ -71,6 +71,24 @@ export function parseOrderListTab(raw: unknown): OrderListTab {
   if (typeof raw !== 'string') return DEFAULT_ORDER_LIST_TAB
   if (LEGACY_CLAIM_TABS.includes(raw)) return 'claim'
   return (ORDER_LIST_TABS as string[]).includes(raw) ? (raw as OrderListTab) : DEFAULT_ORDER_LIST_TAB
+}
+
+/**
+ * 전체 주문 탭의 품목 상태 필터 값(?itemStatus=·D-224·FE-80). 마이페이지 홈 주문 현황 5단계와 같은 품목 상태이며 BE도 이 5값만 받는다
+ * (그 밖의 값은 400). URL 값은 BE와 같은 대문자다.
+ */
+export type OrderItemStatusFilter = Extract<OrderItemStatusCode, 'PAID' | 'PREPARING' | 'SHIPPING' | 'DELIVERED' | 'CONFIRMED'>
+
+/** 필터 허용값(주문 흐름 순서). */
+export const ORDER_ITEM_STATUS_FILTERS: OrderItemStatusFilter[] = ['PAID', 'PREPARING', 'SHIPPING', 'DELIVERED', 'CONFIRMED']
+
+/** 필터가 있을 때 BE가 거는 주문일 기간(BuyerOrderQueryService.SUMMARY_PERIOD_MONTHS = 3 · 요약과 같은 값 · BE 변경 시 함께 갱신). */
+export const ITEM_STATUS_FILTER_PERIOD_MONTHS = 3
+
+/** ?itemStatus= 쿼리를 필터 값으로 해석한다. 허용 5값 밖·소문자·배열·미지정은 null(필터 없음 — BE 400을 부르지 않도록 보내지 않는다). */
+export function parseItemStatusFilter(raw: unknown): OrderItemStatusFilter | null {
+  if (typeof raw !== 'string') return null
+  return (ORDER_ITEM_STATUS_FILTERS as string[]).includes(raw) ? (raw as OrderItemStatusFilter) : null
 }
 
 /** ?page= 쿼리를 0-based 페이지로 해석한다. 숫자가 아니거나 음수면 0(방어·/products의 categoryId 파싱 선례). */

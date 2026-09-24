@@ -1,7 +1,8 @@
 import type { ConfirmPurchaseResponse, OrderDetail, OrderStatusSummary, OrderSummary, PagedResponse } from '~/types/order'
+import type { OrderItemStatusFilter } from '~/lib/constants/order-tabs'
 
-/** 목록 기본 페이지 크기(BE BuyerOrderController list 기본 size=20 정합). */
-const DEFAULT_PAGE_SIZE = 20
+/** 목록 기본 페이지 크기(FE-80: 주문 카드가 품목 행을 모두 펼쳐 20은 길다 · BE 기본 20·최대 100 범위 안). */
+const DEFAULT_PAGE_SIZE = 10
 
 /**
  * API base 이원화(useCheckout·useProductList와 동일): SSR은 내부 직결(apiInternalBase), 브라우저는 동일 Origin 상대경로.
@@ -15,13 +16,19 @@ function resolveApiBase(): string {
  * 구매자 주문 목록 조회(GET /api/v1/orders?page&size). BUYER 전용 API라 Authorization: Bearer를 주입한다
  * (permitAll인 useProductDetail을 복제하지 않는다). page는 Ref로 받아 변경 시 useFetch가 SSR 페이로드와 함께 재조회한다.
  * 401 등 인증 실패는 error로 노출해 소비 페이지가 /login으로 유도한다.
+ * itemStatus(D-224·FE-80)는 품목 상태 필터이며 null이면 쿼리에서 뺀다(키만 붙은 ?itemStatus를 보내지 않도록 undefined로 바꾼다).
  */
-export function useOrderList(page: Ref<number>, size: number = DEFAULT_PAGE_SIZE) {
+export function useOrderList(
+  page: Ref<number>,
+  itemStatus: Ref<OrderItemStatusFilter | null> = ref(null),
+  size: number = DEFAULT_PAGE_SIZE,
+) {
   const auth = useAuthStore()
+  const itemStatusQuery = computed(() => itemStatus.value ?? undefined)
   return useFetch<PagedResponse<OrderSummary>>('/v1/orders', {
     key: 'order-list',
     baseURL: resolveApiBase(),
-    query: { page, size },
+    query: { page, size, itemStatus: itemStatusQuery },
     headers: { Authorization: `Bearer ${auth.token}` },
   })
 }
