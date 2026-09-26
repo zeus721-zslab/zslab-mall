@@ -59,6 +59,7 @@ Track 100(D-211)에서 서버 빌드를 걷어낸 뒤의 배포 절차다. 대�
 - 실행 중인 이미지: `docker compose -f docker-compose.mall.yml ps` / `docker inspect zslab_mall_backend --format '{{.Config.Image}}'`
 - 서버 이미지 정리: `deploy` job 끝에서 이 저장소 라벨(`org.opencontainers.image.source`)이 붙은 dangling 이미지만 자동 정리한다. 서버의 다른 프로젝트 이미지는 건드리지 않는다.
 - 레지스트리 정리: `cleanup` job이 패키지별 최근 5개만 남긴다. **6번째 이전 버전으로는 롤백할 수 없다.**
+- gateway 압축: zslab-mall 443 블록에서 gzip으로 응답한다(D-228). 설정 위치는 gateway nginx(이 저장소 밖)이고, 앱 이미지는 압축하지 않는다. 확인: `curl -sI -H 'Accept-Encoding: gzip' https://zslab-mall.duckdns.org/` → `Content-Encoding: gzip`.
 
 ## 5. 자주 나오는 실패
 

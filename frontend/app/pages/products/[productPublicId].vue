@@ -30,15 +30,20 @@ const sortedImages = computed<ProductImage[]>(() =>
     return first.displayOrder - second.displayOrder
   }),
 )
-const activeImageUrl = ref<string | null>(null)
-// 데이터 로드/변경 시 히어로 이미지를 대표로 초기화(사용자가 썸네일로 바꾸기 전까지).
-watch(
-  sortedImages,
-  (images) => {
-    activeImageUrl.value = images[0]?.imageUrl ?? null
+// 히어로 이미지: 사용자가 고른 썸네일이 없으면 대표(첫 이미지). 뷰가 썸네일 클릭으로 바꾼다(setter).
+// ref + watch(immediate)로 채우면 SSR setup 시점엔 조회 전이라 null로 굳고, 조회 뒤 watch는 SSR에서 돌지 않아
+// 대표 img가 SSR HTML에 빠진다(FE-85). computed는 렌더 시점 데이터로 계산돼 SSR에도 나온다.
+const selectedImageUrl = ref<string | null>(null)
+// 데이터 로드/변경 시 사용자가 고른 썸네일을 비워 대표로 되돌린다.
+watch(sortedImages, () => {
+  selectedImageUrl.value = null
+})
+const activeImageUrl = computed<string | null>({
+  get: () => selectedImageUrl.value ?? sortedImages.value[0]?.imageUrl ?? null,
+  set: (imageUrl) => {
+    selectedImageUrl.value = imageUrl
   },
-  { immediate: true },
-)
+})
 
 // 옵션 선택 상태(그룹명 → 선택값). 단순상품(optionGroups 빈)은 사용하지 않는다.
 const selectedOptions = ref<Record<string, string>>({})

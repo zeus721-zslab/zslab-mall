@@ -56,13 +56,15 @@ const addButton = ref<HTMLButtonElement | null>(null)
           <!-- 갤러리 -->
           <div>
             <div class="relative aspect-square overflow-hidden rounded-(--panel-radius) bg-(--image-placeholder)">
-              <!-- 썸네일 전환 시 대표 이미지 페이드(겹쳐서 교차) -->
+              <!-- 썸네일 전환 시 대표 이미지 페이드(겹쳐서 교차). 대표 이미지가 모바일 LCP라 즉시·높은 우선순위로 요청한다(FE-85). -->
               <Transition v-bind="FADE">
                 <img
                   v-if="vm.activeImageUrl"
                   :key="vm.activeImageUrl"
                   :src="vm.activeImageUrl"
                   :alt="product.name"
+                  loading="eager"
+                  fetchpriority="high"
                   class="absolute inset-0 h-full w-full object-cover"
                 />
               </Transition>

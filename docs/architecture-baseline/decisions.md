@@ -12954,3 +12954,53 @@ renew 메인 큐레이션(FE-68 β)에 필요한 조회를 기존 `GET /api/v1/p
 외부 검토: B / 생략(유니크 제거·입력 검증 추가로 범위가 좁고 데이터 변경 없음 · 롤백 절차 주석화 · 서브에이전트 셀프 리뷰로 단건 조회 잔존·검증 우회·경로 누락·마이그레이션 안전성 확인 · 운영 500 재발 방지 우선)
 
 - 보충(2026-09-26 · 문구 명확화(허용 목록 표현)): 필드 메시지를 "송장번호는 영문, 숫자, 하이픈(-)만 사용해 8~20자로 입력해 주세요."로 교체(`Delivery.TRACKING_NO_FORMAT_MESSAGE` · 규칙·정규식 불변).
+
+## D-228 gateway nginx zslab-mall 응답 gzip (인프라 · 성능 트랙 P1 · 2026-09-26)
+
+### 배경
+- 105-4g-4 최종 재측정(scorecard-track105-4g-final.md)에서 성능이 71이었다. 운영 응답은 `Accept-Encoding: gzip, br`로 요청해도 압축되지 않았다. 메인 JS 562,240B, entry CSS 109,653B, HTML 53,939B가 원본 그대로 왔다.
+- Lighthouse `uses-text-compression`은 5개 화면 모두 실패했다. 추정 절감은 465~504KiB, LCP −2.25~2.7s였다.
+- 레포에는 nginx·압축 설정이 없다. 앞단은 레포 밖 gateway nginx다(D-148).
+
+### 결정
+- **gateway nginx 설정 파일의 zslab-mall 443 서버 블록에만 추가했다(7줄).** 서버 diff로 이 줄들 외에는 변경이 없음을 확인했다.
+  ```
+  gzip on;
+  gzip_comp_level 5;
+  gzip_min_length 1024;
+  gzip_proxied any;
+  gzip_vary on;
+  gzip_types text/plain text/css text/javascript application/javascript application/json application/xml image/svg+xml;
+  ```
+  - `text/html`은 `gzip on`에 기본으로 포함된다.
+  - woff2·이미지는 이미 압축된 형식이라 넣지 않았다.
+  - `gzip_proxied any`는 upstream(frontend·backend) 응답을 압축하기 위해 필요하다.
+- **gzip만 적용했다.** `nginx -V` 컴파일 옵션에 gzip 계열(`--with-http_gzip_static_module`)만 있고 brotli 모듈은 없다.
+- **적용 방식(D-148 규약)**
+  - 적용 전에 날짜를 붙인 백업 사본을 서버에 보관했다.
+  - 수정본을 같은 파일에 덮어썼고, 덮어쓰기 전후 inode가 같음을 확인했다. 단일 파일 bind-mount에 `sed -i`를 쓰면 inode가 바뀌는 트랩(D-148 §트랩)을 피하기 위해서다.
+  - `nginx -t` 성공 뒤 `nginx -s reload`만 했다. 컨테이너는 재시작하지 않았다.
+- **앱(이미지·Nitro) 쪽 압축은 넣지 않았다.** 압축 지점은 gateway 한 곳이다(deploy-runbook §4).
+
+### §1-A 갈림길·채택/기각 근거
+- **α gateway nginx 블록 gzip(채택)**: 설정 7줄로 HTML·JS·CSS·JSON을 한 번에 처리한다. 앱 빌드·배포와 무관하다. 도메인 블록에만 넣어 같은 gateway의 다른 도메인에는 영향이 없다.
+- **β Nitro `compressPublicAssets`(기각)**: 정적 자산(`/_nuxt/**`)만 미리 압축된다. SSR HTML과 API JSON은 그대로 남는다. 또 앱 이미지를 다시 빌드해 배포해야 적용된다.
+- **γ brotli(보류)**: gateway nginx에 모듈이 없다. 모듈 빌드·교체는 공유 gateway 전체에 영향을 준다.
+
+### §2 확정 구현 규칙
+- 전후 전송 크기(서버 curl): HTML 53,939 → 7,568B(−86%) · JS 562,240 → 178,879B(−68%) · CSS 109,653 → 25,909B(−76%) · JSON 390 → 173B
+  - 응답 헤더 `Content-Encoding: gzip`과 `Vary: Accept-Encoding`을 확인했다.
+  - `Accept-Encoding` 없이 요청하면 압축하지 않은 정상 응답이 온다.
+- 외부 실측(로컬 curl): `br`만 요청하면 압축하지 않는다. 1024B 미만 응답(88B JSON)과 ico·woff2·png도 압축하지 않는다. 설정 의도와 같다.
+- 다른 도메인: 같은 gateway의 다른 두 도메인(LMS·기본 사이트)은 변경 전과 같이 200이고, 압축이 적용되지 않았다.
+- 결과(운영 Lighthouse 12 · 모바일 3회 중앙값, scorecard §7)
+  - 모바일 LCP: 5.1~7.1s → 1.5~4.6s
+  - 성능(계산식): 71 → 87
+  - Lighthouse Performance 평균: 모바일 64.0 → 86.6 · 데스크톱 95.0 → 98.8
+  - 6축 평균: 93.2 → 95.8. 트랙 완료 기준(성능 82 · 평균 95)을 통과했다.
+
+### §8 이월
+- gateway 설정은 레포 밖이라 PR로 추적되지 않는다. 변경 사실과 지시어는 이 D-228과 deploy-runbook §4가 SoT다.
+- 성능 트랙 남은 후보(FE-85 §8): JS 분할 · 렌더 차단 CSS · 폰트 전송량.
+
+외부 검토: C / 생략(설정 7줄 · 한 도메인 블록 · 백업·nginx -t·reload 절차 · 다른 도메인 무영향 실측)
