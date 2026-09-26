@@ -5,12 +5,15 @@
 from __future__ import annotations
 
 import io
+import ipaddress
 import json
 import os
+import socket
 import ssl
 import subprocess
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -28,6 +31,15 @@ DUMP_DIR = REPO_ROOT / "frontend" / "playwright-report" / "walkthrough-db"
 DUMP_PATH = DUMP_DIR / "baseline.sql"
 
 API_BASE_URL = "https://zslab-mall.duckdns.org"
+# 로컬은 hosts로 운영과 같은 도메인을 127.0.0.1에 두므로 도메인 이름으로는 대상을 가릴 수 없다.
+# hosts가 운영 IP를 가리키면 운영에 쓰기가 나가므로, 실행 시점 DNS 해석 결과가 전부 아래 대역일 때만 진행한다.
+LOCAL_NETWORKS = (
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+)
 
 
 class WalkthroughError(RuntimeError):
@@ -63,6 +75,29 @@ def require_local(env: dict) -> None:
         raise WalkthroughError("SPRING_PROFILES_ACTIVE=" + repr(profile) + " — 워크스루 DB 조작은 local 전용입니다.")
     if not container_running(DB_CONTAINER):
         raise WalkthroughError("로컬 DB 컨테이너 " + DB_CONTAINER + " 가 실행 중이 아닙니다.")
+
+
+def require_local_api_host() -> None:
+    """API_BASE_URL 호스트가 로컬(loopback·사설 대역)로만 해석될 때 진행한다. 우회 수단은 두지 않는다.
+
+    해석된 IP는 운영 주소일 수 있어 오류 문구에 넣지 않는다.
+    """
+    host = urllib.parse.urlsplit(API_BASE_URL).hostname
+    try:
+        resolved = {info[4][0] for info in socket.getaddrinfo(host, None)}
+    except socket.gaierror:
+        raise WalkthroughError("워크스루 스크립트는 로컬 전용입니다 — " + host + "를 해석할 수 없습니다") from None
+    if not resolved or not all(_is_local_address(address) for address in resolved):
+        raise WalkthroughError("워크스루 스크립트는 로컬 전용입니다 — " + host + "가 외부 주소로 해석됩니다")
+
+
+def _is_local_address(address: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(address)
+    except ValueError:
+        # zone id가 붙은 IPv6(fe80::1%eth0) 등 해석할 수 없는 형태는 로컬로 인정하지 않는다.
+        return False
+    return any(ip in network for network in LOCAL_NETWORKS)
 
 
 def db_exec(env: dict, args: list, stdin_path=None, stdout_path=None) -> None:

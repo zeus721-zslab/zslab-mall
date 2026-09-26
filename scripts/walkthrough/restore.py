@@ -11,7 +11,8 @@ from __future__ import annotations
 import sys
 import time
 
-from common import DUMP_PATH, WalkthroughError, backend_healthy, db_exec, fail, load_env, log, require_local
+from common import (DUMP_PATH, WalkthroughError, backend_healthy, db_exec, fail, load_env, log, require_local,
+                    require_local_api_host)
 
 HEALTH_TIMEOUT_SECONDS = 120
 HEALTH_INTERVAL_SECONDS = 5
@@ -32,6 +33,7 @@ def main() -> int:
         return fail("복원은 로컬 DB를 덤프 시점으로 되돌립니다. 확인했으면 --yes 를 붙여 실행하세요.")
     env = load_env()
     try:
+        require_local_api_host()
         require_local(env)
         if not DUMP_PATH.exists():
             raise WalkthroughError("덤프가 없습니다: " + str(DUMP_PATH) + " (먼저 dump.py 실행)")

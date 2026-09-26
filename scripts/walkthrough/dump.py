@@ -8,12 +8,14 @@ from __future__ import annotations
 
 import sys
 
-from common import DUMP_DIR, DUMP_PATH, WalkthroughError, db_exec, fail, load_env, log, require_local
+from common import (DUMP_DIR, DUMP_PATH, WalkthroughError, db_exec, fail, load_env, log, require_local,
+                    require_local_api_host)
 
 
 def main() -> int:
     env = load_env()
     try:
+        require_local_api_host()
         require_local(env)
         DUMP_DIR.mkdir(parents=True, exist_ok=True)
         # --single-transaction: InnoDB 일관 스냅샷(락 없이) · --routines/--triggers: 스키마 부속 객체 포함
