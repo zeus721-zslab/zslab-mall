@@ -8,7 +8,7 @@ from __future__ import annotations
 import sys
 import time
 
-from common import ApiClient, WalkthroughError, fail, load_env, log
+from common import ApiClient, WalkthroughError, fail, load_env, log, require_local_api_host
 
 # 구매자 시나리오 2개(구매확정·반품 신청)는 주문 목록에서 '배송완료' 주문을 골라 서로 다른 주문 1건씩 쓴다.
 # 품목이 섞인 주문은 주문 상태가 배송완료로 보이지 않으므로 '전 품목 배송완료' 주문 수를 기준으로 삼는다.
@@ -19,9 +19,10 @@ REQUIRED_SELLER_PAID_ITEMS = 4
 REQUIRED_CANCEL_REQUESTED_CLAIMS = 2
 CARRIER = "CJ"
 # 데모 구매자 주문 목록은 시나리오용 상태(배송완료·배송중·결제완료)로만 두기 위해, 셀러 출고분·취소 클레임분은 전용 계정으로 주문한다.
-# 로컬 전용 고정 자격증명 — 재실행 시 같은 계정으로 로그인해 멱등을 유지한다.
+# 이메일은 고정이라 재실행 시 같은 계정으로 로그인해 멱등을 유지한다. 비밀번호는 저장소에 두지 않고 .env에서만 읽는다(GitGuardian 알림).
 WALKTHROUGH_BUYER_EMAIL = "walkthrough-buyer@demo.zslab-mall.com"
-WALKTHROUGH_BUYER_PASSWORD = "Walkthrough!2026"
+BUYER_PASSWORD_KEY = "WALKTHROUGH_BUYER_PASSWORD"
+SELLER_PASSWORD_KEY = "WALKTHROUGH_SELLER_PASSWORD"
 SHIPPING_ADDRESS = {
     "recipientName": "워크스루",
     "recipientPhone": "010-2000-0000",
@@ -31,6 +32,13 @@ SHIPPING_ADDRESS = {
     "addressDetail": "워크스루 기준 상태",
     "deliveryMemo": "워크스루 준비 데이터",
 }
+
+
+def require_walkthrough_passwords(env: dict) -> None:
+    """전용 계정 비밀번호 두 개가 .env에 없으면 API를 부르기 전에 멈춘다(안내에는 키 이름만)."""
+    missing = [key for key in (BUYER_PASSWORD_KEY, SELLER_PASSWORD_KEY) if not env.get(key)]
+    if missing:
+        raise WalkthroughError(".env에 " + ", ".join(missing) + " 값이 없습니다(.env.example 참조).")
 
 
 def delivered_orders(api: ApiClient, buyer_token: str) -> list:
@@ -85,14 +93,14 @@ def create_delivered_order(api: ApiClient, buyer_token: str, admin_token: str) -
     return order_public_id
 
 
-def walkthrough_buyer_token(api: ApiClient) -> str:
+def walkthrough_buyer_token(api: ApiClient, password: str) -> str:
     """전용 구매자 계정 토큰. 없으면 가입시키고 이미 있으면(409) 그대로 로그인한다."""
     status, payload = api.request("POST", "/api/v1/users", body={
         "email": WALKTHROUGH_BUYER_EMAIL, "name": "워크스루구매자",
-        "phone": "010-5000-0001", "password": WALKTHROUGH_BUYER_PASSWORD})
+        "phone": "010-5000-0001", "password": password})
     if status >= 400 and status != 409:
         raise WalkthroughError("전용 구매자 가입 실패 " + str(status) + ": " + str(payload)[:200])
-    return api.login(WALKTHROUGH_BUYER_EMAIL, WALKTHROUGH_BUYER_PASSWORD, "BUYER")
+    return api.login(WALKTHROUGH_BUYER_EMAIL, password, "BUYER")
 
 
 def pick_seller_variant(api: ApiClient, seller_token: str) -> tuple:
@@ -243,8 +251,11 @@ def ensure_seller_paid_items(api: ApiClient, seller_token: str, other_buyer_toke
     return created
 
 
-def ensure_pending_seller(api: ApiClient, admin_token: str) -> int:
-    """승인 대기(PENDING) 셀러가 없으면 1건 만든다. 소유 회원도 함께 가입시킨다."""
+def ensure_pending_seller(api: ApiClient, admin_token: str, owner_password: str) -> int:
+    """승인 대기(PENDING) 셀러가 없으면 1건 만든다. 소유 회원도 함께 가입시킨다.
+
+    가입 시각(stamp)은 이메일 등 고유값에만 쓰고 비밀번호에는 넣지 않는다(시각에서 추측 가능한 규칙 금지).
+    """
     page = api.json("GET", "/api/v1/admin/sellers/page?page=0&size=50", admin_token)
     pending = [s for s in page.get("items", []) if s.get("status") == "PENDING"]
     if pending:
@@ -252,7 +263,7 @@ def ensure_pending_seller(api: ApiClient, admin_token: str) -> int:
     stamp = str(int(time.time()))
     signup = api.json("POST", "/api/v1/users", body={
         "email": "walkthrough-owner-" + stamp + "@demo.zslab-mall.com",
-        "name": "워크스루대표", "phone": "010-4000-" + stamp[-4:], "password": "Walkthrough!" + stamp[-4:]})
+        "name": "워크스루대표", "phone": "010-4000-" + stamp[-4:], "password": owner_password})
     api.json("POST", "/api/v1/admin/sellers", admin_token, {
         "companyName": "워크스루 준비 셀러 " + stamp[-4:], "businessNo": None, "ceoName": "워크스루대표",
         "contactEmail": "walkthrough-" + stamp + "@demo.zslab-mall.com", "contactPhone": "010-4000-" + stamp[-4:],
@@ -317,11 +328,13 @@ def main() -> int:
     env = load_env()
     api = ApiClient()
     try:
+        require_local_api_host()
+        require_walkthrough_passwords(env)
         admin_token = api.login(env["ADMIN_BOOTSTRAP_EMAIL"], env["ADMIN_BOOTSTRAP_PASSWORD"], "ADMIN")
         buyer_token = api.login(env["NUXT_BUYER_DEMO_EMAIL"], env["NUXT_BUYER_DEMO_PASSWORD"], "BUYER")
         seller_token = api.login(env["NUXT_SELLER_DEMO_EMAIL"], env["NUXT_SELLER_DEMO_PASSWORD"], "SELLER")
 
-        other_buyer_token = walkthrough_buyer_token(api)
+        other_buyer_token = walkthrough_buyer_token(api, env[BUYER_PASSWORD_KEY])
 
         # 클레임·배송중 주문을 먼저 만든다 — 이들이 배송완료 주문을 소비하므로 배송완료 보충은 마지막이어야 한다.
         log("반품 회수 대기 클레임 보충: " + ("1건 생성" if ensure_return_claim_awaiting_pickup(api, buyer_token, admin_token)
@@ -349,7 +362,7 @@ def main() -> int:
         log("구매자 취소 가능 주문 보충: " + ("1건 생성" if ensure_buyer_cancelable_order(api, buyer_token)
                                               else "불필요(멱등)"))
 
-        added_seller = ensure_pending_seller(api, admin_token)
+        added_seller = ensure_pending_seller(api, admin_token, env[SELLER_PASSWORD_KEY])
         log("승인 대기 셀러 보충: " + ("1건 생성" if added_seller else "불필요(멱등)"))
 
         ok = report(api, admin_token, seller_token, buyer_token, len(delivered_orders(api, buyer_token)))

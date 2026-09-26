@@ -27,6 +27,13 @@ python scripts/walkthrough/dump.py
 `prepare.py`는 부족한 데이터만 만든다(이미 충족이면 아무것도 만들지 않는다). 출력 표의 판정이 전부 `OK`여야 한다.
 `dump.py` 산출물은 `frontend/playwright-report/walkthrough-db/baseline.sql`(gitignored).
 
+`prepare.py`는 `.env`에 아래 두 값이 있어야 실행된다(하나라도 비어 있으면 API 호출 전에 키 이름을 알리고 중단 · `.env.example` 참조 · 8~72자).
+
+| 변수 | 설명 |
+|---|---|
+| `WALKTHROUGH_BUYER_PASSWORD` | 전용 구매자(`walkthrough-buyer@demo.zslab-mall.com`) 비밀번호. 이미 가입된 로컬 DB에서는 가입 때 쓴 값과 같아야 로그인된다 |
+| `WALKTHROUGH_SELLER_PASSWORD` | 승인 대기 셀러 보충 때 새로 가입시키는 대표 회원 비밀번호 |
+
 ### 2. 실행 (매번 복원 → 실행)
 
 > 선행: **자동 배송완료 끄기**(아래 절). 켜 둔 채 돌리면 배송중 전제 시나리오 4개가 깨진다.
@@ -139,6 +146,10 @@ zslab.order.auto-cancel.enabled=false
 
 ## 주의
 
+- **로컬 전용 가드**: `prepare.py`·`dump.py`·`restore.py`는 시작할 때 `API_BASE_URL`의 호스트를 DNS로 해석해, 결과가 전부
+  loopback(`127.0.0.0/8`·`::1`) 또는 사설 대역(`10/8`·`172.16/12`·`192.168/16`)일 때만 진행한다. 외부 주소가 하나라도 섞이거나
+  해석에 실패하면 거부한다(우회 플래그 없음 · 해석된 IP는 출력하지 않음). 로컬은 hosts로 운영과 같은 도메인을 쓰므로,
+  hosts가 운영 IP를 가리키는 상태에서 운영에 쓰기가 나가는 것을 막는다.
 - `restore.py`는 덤프의 `DROP TABLE`/`CREATE TABLE`을 실행해 로컬 DB를 덤프 시점으로 되돌린다.
   `SPRING_PROFILES_ACTIVE=local`이 아니면 거부하며 `--yes` 없이는 실행되지 않는다(CLAUDE.md 운영 데이터 보호 규칙).
   운영 DB는 원격 도커 데몬이라 이 스크립트의 `docker exec` 대상이 아니다.
