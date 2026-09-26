@@ -4,6 +4,7 @@ import type { SearchPageVm } from '~/skins/contracts/search'
 import RenewPagination from '../components/RenewPagination.vue'
 import RenewProductCard from '../components/RenewProductCard.vue'
 import RenewSortMenu from '../components/RenewSortMenu.vue'
+import { productImagePriority } from '../product-image-priority'
 
 // renew 검색 결과(FE-74): 제목 면(검색어·결과 수) → 정렬 → 그리드 → 번호 페이지. 목록과 같은 형태이되 카테고리 탭은 없다(검색은 전 카테고리 대상).
 // 데이터는 페이지가 검색어로 번호 페이지 목록(useProductPage)을 조회해 vm.list로 넘긴다(productList 선언). 빈 검색어는 조회 없이 안내만 보인다(classic과 같은 규칙).
@@ -64,7 +65,12 @@ const SKELETON_COUNT = 10
             </NuxtLink>
           </div>
           <div v-else :class="PRODUCT_GRID">
-            <RenewProductCard v-for="item in vm.list.items" :key="item.productPublicId" :product="item" />
+            <RenewProductCard
+              v-for="(item, index) in vm.list.items"
+              :key="item.productPublicId"
+              :product="item"
+              :priority="productImagePriority(index)"
+            />
           </div>
         </div>
 

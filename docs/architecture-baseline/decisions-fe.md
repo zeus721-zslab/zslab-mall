@@ -3668,3 +3668,46 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 외부 검토: B / 생략(D-227과 같은 트랙)
 
 - 보충(2026-09-26 · 문구 명확화(허용 목록 표현)): `DELIVERY_TRACKING_NO_FORMAT_MESSAGE`를 BE와 같은 "송장번호는 영문, 숫자, 하이픈(-)만 사용해 8~20자로 입력해 주세요."로 교체(규칙 불변).
+
+## FE-85: 성능 트랙 P2 — 목록·상세 LCP 이미지 우선순위 (D-228) (2026-09-26)
+
+배경: P1(gateway gzip · D-228) 뒤 운영 모바일 재측정(Lighthouse 3회 중앙값)에서 /products·상품 상세 LCP가 4.6s이고, 그중 이미지 요청이 늦게 시작되는 구간(Load Delay)이 3.2s였다. /products LCP는 첫 줄 썸네일인데 `loading="lazy"`였고(lcp-lazy-loaded 실패), 두 화면 모두 `fetchpriority`가 없었다(LCP 발견 점검 `priorityHinted` false). 나머지 화면(/ · /login · /mypage)의 LCP는 텍스트다.
+
+결정:
+- **목록 첫 줄만 즉시 요청**: `RenewProductCard`에 선택 prop `priority`('high' | 'eager')를 둔다. 없으면 기존 `loading="lazy"`, 있으면 `eager`, `'high'`만 `fetchpriority="high"`. 판정 `productImagePriority(index)`(`skins/renew/product-image-priority.ts`)는 첫 장 high · 둘째~다섯째 eager · 나머지 없음이다. 적용: `RenewProductListing`(/products·카테고리) · `SearchView`.
+- **첫 줄 = 5장**: 목록 그리드 `xl:grid-cols-5`(1440 기준). 390(2열)에서는 셋째 줄 첫 장까지 즉시 요청하지만 썸네일 5장(각 7KB 안팎)이라 받아들인다. 폭별로 나누려면 화면 폭을 알아야 해 SSR 결과가 폭마다 달라진다.
+- **첫 장만 high**: 높은 우선순위를 여러 장에 주면 서로 대역폭을 나눠 효과가 줄어든다.
+- **상품 상세 대표 이미지**: `loading="eager"` + `fetchpriority="high"`. 썸네일 버튼 이미지는 그대로다.
+- **상세 대표 이미지 SSR 렌더(검증 중 발견)**: 대표 img가 SSR HTML에 없었다. 로컬과 운영 모두 자리가 `<!---->`였고, 이미지 URL은 payload에만 있었다. 그래서 대표 이미지는 하이드레이션 뒤 JS가 넣었다.
+  - 원인: `pages/products/[productPublicId].vue`는 상세 조회(`useProductDetail`)를 await하지 않는다. 그런데 `activeImageUrl`을 `ref` + `watch(sortedImages, …, { immediate: true })`로만 채웠다. SSR setup 시점에는 조회 전이라 null로 정해졌고, 조회가 끝난 뒤의 watch 콜백은 SSR에서 실행되지 않는다.
+  - 수정: `activeImageUrl`을 쓰기 가능한 computed로 바꿨다.
+    - get은 사용자가 고른 썸네일, 없으면 첫 이미지(main 우선)다.
+    - set은 썸네일 선택이다.
+    - 데이터가 바뀌면 선택을 비운다(비 immediate watch · 기존 "데이터 변경 시 대표로" 유지).
+  - 계약 `vm.activeImageUrl`(뷰가 썸네일 클릭으로 바꿈)과 조회 await 방식은 바꾸지 않았다(최소 변경).
+  - SSR 렌더는 useFetch 조회가 끝난 뒤에 일어나므로, 상세 데이터에 이미지가 있으면 대표 img가 SSR HTML에 나온다. 이미지가 없거나 조회가 실패하면(404 등) 나오지 않는다.
+- **범위 밖**: 홈 섹션(LCP가 히어로 h1) · 상세 "셀러의 다른 상품"(첫 화면 밖). `<link rel=preload>`·이미지 변환(srcset·크기 축소)은 하지 않는다.
+
+### §2 검증
+- 1차: typecheck EXIT 0 · vitest(카드·목록·검색) 13 passed · e2e smoke 1 passed. 이 뒤 SSR 관찰에서 상세 대표 img 누락을 발견했다.
+- 재검증(1회 · 승인): typecheck EXIT 0(error TS 0) · vitest(카드·목록·검색·상세 4파일) 14 passed · e2e smoke 1 passed
+- 로컬 SSR HTML
+  - /products: 카드 순서대로 1장은 eager + high, 2~5장은 eager, 6장부터 lazy다.
+  - /search: 첫 장이 eager + high다.
+  - 상세(이미지 있는 상품): 대표 img가 `loading="eager"` `fetchpriority="high"`로 SSR HTML에 있다. 수정 전에는 `<!---->`였다.
+- 테스트
+  - 신규 `test/unit/RenewProductCard.spec.ts`: 카드 priority 없음/eager/high별 loading·fetchpriority · 목록 7장 중 첫 장만 high, 첫 줄 5장 eager, 나머지 lazy
+  - 신규 `test/component/ProductDetailPage.spec.ts`: 마운트 직후 대표 img(main 우선) eager·high → 썸네일 클릭으로 교체. 테스트 환경은 클라이언트 마운트라서 SSR 포함 여부는 위 로컬 SSR 실측으로 판정했다.
+
+### §8 이월 (성능 트랙)
+- P3 JS 분할: 메인 청크 172KB(gzip) 중 미사용 85~98KB · Lighthouse 추정 LCP −450~600ms. 효과 대비 크기가 커서 하지 않는다.
+- 렌더 차단 CSS: entry CSS(gzip 전 110KB · @font-face 94개 49KB 포함) · 추정 FCP −300~750ms.
+- 폰트 전송량: Pretendard 조각 11~12개 · 약 300KB(woff2라 gzip 효과 없음). gzip 뒤에는 전송량의 약 절반이다.
+- 같은 패턴 점검(`immediate: true` grep · 구매자 app · 수정 안 함)
+  - 조회 데이터로 화면 표시값을 채우는 곳: 0
+  - 조회 오류 401을 로그인으로 유도하는 watch 7곳: `pages/checkout/index.vue:119` · `pages/claims/[claimPublicId].vue:47` · `pages/mypage/addresses.vue:30` · `pages/mypage/index.vue:25` · `pages/mypage/profile.vue:22` · `pages/orders/index.vue:118` · `pages/orders/[orderPublicId].vue:29`
+  - 배송지 폼 상태 1곳: `skins/renew/views/AddressesView.vue:35`
+  - admin·seller 레이어는 SSR을 끄므로(D-9) 제외했다.
+- 운영 재측정: P2 효과(/products·상세 Load Delay·LCP)는 배포 뒤 측정한다.
+
+외부 검토: C / 생략

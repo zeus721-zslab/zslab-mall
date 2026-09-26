@@ -1,14 +1,17 @@
 <script setup lang="ts">
 import type { ProductSummary } from '~/types/product'
+import type { ProductImagePriority } from '../product-image-priority'
 import RenewBadge from './RenewBadge.vue'
 
 // renew 상품 카드. 호버 면은 카드 바깥 12px(p-3)까지 넓히고 같은 만큼 음수 마진(-m-3)으로 상쇄해 호버 전 그리드 정렬을 그대로 둔다.
 // 이동·확대는 motion-safe에서만(prefers-reduced-motion이면 흰 면·그림자만). 가격은 본문색, 순위 숫자만 포인트색.
 // 링크는 상품명에만 걸고 after:inset-0으로 카드 전체를 누를 수 있게 넓힌다(Track 105-4g-3): 접근 이름 = 보이는 상품명,
 // 셀러·가격은 링크 밖 일반 텍스트라 중복 낭독이 없다. 포커스 링은 넓힌 영역(after)에 그려 카드 전체에 보인다. 이미지는 이름과 겹쳐 alt="".
+// priority가 없으면 lazy, 있으면 즉시 요청하고 'high'만 fetchpriority를 높인다(목록 첫 줄 · FE-85).
 const props = defineProps<{
   product: ProductSummary
   rank?: number
+  priority?: ProductImagePriority
 }>()
 
 const formattedPrice = computed(() => props.product.displayPrice.toLocaleString('ko-KR'))
@@ -24,7 +27,8 @@ const formattedPrice = computed(() => props.product.displayPrice.toLocaleString(
         v-if="product.mainImageUrl"
         :src="product.mainImageUrl"
         alt=""
-        loading="lazy"
+        :loading="priority ? 'eager' : 'lazy'"
+        :fetchpriority="priority === 'high' ? 'high' : undefined"
         class="h-full w-full object-cover transition duration-fast ease-soft motion-safe:group-hover:scale-[1.04]"
       />
       <span

@@ -2,6 +2,7 @@
 import { ShoppingBag } from '@lucide/vue'
 import type { ProductPageListVm } from '~/skins/contracts/product-page'
 import { categoryTheme, categoryThemes } from '../category-theme'
+import { productImagePriority } from '../product-image-priority'
 import { followActiveItem } from '../scroll-active'
 import { trackScrollEdges } from '../scroll-edges'
 import CategoryIllustration from './CategoryIllustration.vue'
@@ -123,7 +124,12 @@ const tabsEdges = trackScrollEdges(tabsElement)
           </NuxtLink>
         </div>
         <div v-else :class="PRODUCT_GRID">
-          <RenewProductCard v-for="item in list.items" :key="item.productPublicId" :product="item" />
+          <RenewProductCard
+            v-for="(item, index) in list.items"
+            :key="item.productPublicId"
+            :product="item"
+            :priority="productImagePriority(index)"
+          />
         </div>
       </div>
 
