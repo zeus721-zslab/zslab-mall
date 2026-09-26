@@ -3711,3 +3711,29 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 - 운영 재측정: P2 효과(/products·상세 Load Delay·LCP)는 배포 뒤 측정한다.
 
 외부 검토: C / 생략
+
+## FE-86: 장바구니 뱃지 개수 로드 시점 — 인증 전환 따라 로드·초기화 (2026-09-26)
+
+배경: 운영에서 로그인 뒤 헤더 장바구니 뱃지가 비어 있었고, 카테고리·상세로 옮겨도 그대로였다가 담기 뒤에야 나왔다. 로그아웃 뒤 장바구니로 가면 개수가 남아 있었다. 로컬 재현(데모 구매자 · 서버 품목 5): 클라이언트 로그인 직후 뱃지 없음(GET /cart 0회) · 새 탭 하드 로드는 5(SSR 정상) · 헤더 로그아웃은 비움 · 로그아웃 전에 열어 둔 다른 탭은 5가 남고 장바구니 클릭으로 /login에 가도 5.
+
+원인:
+- 앱 시작 로드는 `plugins/cart-load.ts`의 `callOnce` 하나다. SSR에서 1회 돌고 클라이언트는 건너뛴다. 로그인 전 SSR에서는 미인증이라 `[]`로 끝나고, 로그인(`login.vue` 폼·데모 · `signup.vue` 자동 로그인)은 `auth.login` 뒤 `navigateTo`만 해서 다시 부르지 않는다. 카테고리·상세 등은 `load`를 부르지 않아 담기(`cart.add` 뒤 `load`)나 /cart·/checkout 진입 전까지 `[]`다.
+- `cart.clear()`는 명시 로그아웃 3곳(헤더 · 비밀번호 변경 · 탈퇴)에서만 부른다. Nuxt 4 `useCookie`는 다른 탭의 쿠키 변경(BroadcastChannel)과 maxAge 만료 때 토큰 ref를 비우지만, 이 경로는 cart를 비우지 않는다. 뱃지(`useAppHeader`의 `cartCount`)는 인증과 무관하게 `cart.count`를 보여 준다.
+
+결정:
+- **인증 전환 watch 한 곳**: `cart-load` 플러그인에서 클라이언트만 `watch(isAuthenticated ∧ role = BUYER)`를 건다. true가 되면 `cart.load()`, false가 되면 `cart.clear()`. 로그인 경로(폼·데모·가입)와 로그아웃 경로(명시 · 다른 탭 · 만료)를 호출부마다 배선하지 않고 인증 상태 하나로 묶는다.
+- **개수 로드 시점 규칙**
+  - 하드 로드(SSR): 기존 `callOnce` 1회. 하이드레이션 뒤 클라이언트 요청 없음(watch는 비 immediate).
+  - 앱 시작 뒤 BUYER 로그인: watch가 1회 로드. 페이지 이동만으로는 다시 부르지 않는다.
+  - 담기·수량·선택·삭제·주문 완료·/cart·/checkout 진입: 기존대로 store 조작 뒤 `load` 또는 페이지 로드.
+  - 로그아웃·세션 해제: watch가 비운다. 기존 명시 `clear()` 3곳은 중복이지만 그대로 둔다(최소 변경).
+- 개수 정의는 그대로 품목 행 수(`items.length`). 개수 전용 API 없이 `GET /api/v1/cart`를 재사용한다(BE 변경 없음).
+- 로그인 뒤 로드 실패는 초기 로드와 같이 `console.error`로 남기고 렌더를 계속한다(뱃지는 비필수).
+- 로그인 직후 복귀 경로가 /cart·/checkout이면 watch 로드와 페이지 로드가 겹쳐 그 이동에서 GET이 2회다. 드문 경로라 받아들인다.
+
+### §2 검증
+- typecheck EXIT 0(error TS 0) · vitest 전체 124 files / 849 passed · e2e smoke 1 passed
+- 로컬 재현(컨테이너 Playwright 스크립트 · 커밋 제외): 로그인 직후 5(GET /cart 1회) · 클라 이동 /products 5 · 새 탭 / · /categories/1 · 상세 5(브라우저 GET 0 · SSR 서버 1회) · 로그아웃 직후·/cart 클릭·새 탭 /cart 없음 · 로그아웃 전 열린 다른 탭 없음(수정 전 5)
+- 테스트: `test/admin/cart-load.spec.ts`에 인증 전환 4건(로그인 직후 load · 해제 시 clear · 전환 없으면 추가 호출 없음 · 로드 실패 로깅) · 신규 `test/unit/cart-store.spec.ts`(비로그인 load는 요청 없음 · 개수 0)
+
+외부 검토: C / 생략
