@@ -61,4 +61,8 @@ describe('mapFieldErrors', () => {
     expect(mapFieldErrors(fetchError(400, {}))).toEqual({})
     expect(mapFieldErrors(null)).toEqual({})
   })
+
+  it('D-230: 403 DEMO_ACCOUNT_PROTECTED(셀러 데모 계정 비밀번호 변경) → 데모 안내 문구(403 폴백 아님)', () => {
+    expect(toSellerErrorMessage(fetchError(403, { code: 'DEMO_ACCOUNT_PROTECTED', detail: 'x' }))).toBe('데모 계정은 이 기능을 사용할 수 없습니다.')
+  })
 })

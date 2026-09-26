@@ -117,7 +117,7 @@ function remove(index: number): void {
     >
       {{ uploading ? '업로드 중…' : remaining <= 0 ? '최대 장수 도달' : '사진 추가' }}
     </button>
-    <p class="text-caption font-normal text-sub">jpg·png·webp · 파일당 {{ CLAIM_ATTACHMENT_MAX_MB }}MB · 최대 {{ CLAIM_ATTACHMENT_MAX }}장. 상품 불량·오배송 확인에 사용됩니다.</p>
+    <p class="text-caption font-normal text-sub">jpg·png · 파일당 {{ CLAIM_ATTACHMENT_MAX_MB }}MB · 최대 {{ CLAIM_ATTACHMENT_MAX }}장. 상품 불량·오배송 확인에 사용됩니다.</p>
 
     <ul v-if="failures.length > 0" role="alert" class="space-y-0.5 text-caption font-normal text-soldout" data-testid="claim-attachment-failures">
       <li v-for="(failure, index) in failures" :key="`${failure.fileName}-${index}`">{{ failure.fileName }}: {{ failure.reason }}</li>

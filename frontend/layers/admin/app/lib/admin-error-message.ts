@@ -33,7 +33,10 @@ const ADMIN_ERROR_MESSAGES: Record<string, string> = {
   // FE-39 관리자 운영자 관리(Track 89-E). 도메인 403(SUPER_ADMIN 아님·자기 SUPER_ADMIN 회수)은 code=FORBIDDEN이라 서버 detail을 쓴다(admin-operator-view).
   ADMIN_OPERATOR_ALREADY_EXISTS: '이미 운영 관리자 역할을 보유한 회원입니다.',
   ROLE_ASSIGNMENT_NOT_FOUND: '회수할 역할이 없습니다(회원 미존재 또는 이미 회수됨).',
-  LAST_SUPER_ADMIN: '마지막 슈퍼 관리자는 회수할 수 없습니다(시스템 잠금 방지).',
+  // D-230: 역할 회수·본인 탈퇴·관리자 탈퇴 공통(BE 문구와 동일).
+  LAST_SUPER_ADMIN: '마지막 슈퍼 관리자는 탈퇴하거나 권한을 해제할 수 없습니다.',
+  // D-230: 공개 데모 계정 보호(임시 비밀번호·탈퇴·역할 회수·셀러 구성원 제외 공통·BE 문구와 동일).
+  DEMO_ACCOUNT_PROTECTED: '데모 계정은 이 기능을 사용할 수 없습니다.',
   // FE-40 관리자 셀러 관리(Track 89-D·D-187). SELLER_ACTIVITY_IN_PROGRESS는 응답 blocks로 건수를 조립한다(admin-seller-view.toSellerErrorMessage).
   SELLER_INVALID_STATE: '현재 셀러 상태에서 허용되지 않는 처리입니다.',
   SELLER_ACTIVITY_IN_PROGRESS: '미지급 정산·진행 중 주문·처리 중 클레임이 있어 종료할 수 없습니다.',

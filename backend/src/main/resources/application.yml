@@ -86,6 +86,20 @@ upload:
   # Track 77 이미지 업로드 저장 루트(컨테이너 내부 절대경로·docker-compose.mall.yml이 UPLOAD_PATH=/app/uploads로 고정 주입·볼륨 동일 경로).
   # 하위에 products/yyyy/MM/{ULID}.{ext}로 저장하며 GET /api/v1/files/** 가 같은 루트를 서빙한다.
   path: ${UPLOAD_PATH:/app/uploads}
+  # D-230 이미지 총 픽셀 상한(헤더 판독·디코딩 전 거부). 한 변 8000px 상한은 코드 상수. 초과 시 파일별 IMAGE_TOO_LARGE(부분 성공 유지).
+  max-image-pixels: 25000000
+  # D-230 이미지당 디코딩 픽셀 버퍼 예산 — 디코더 작업 버퍼·메타데이터는 제외. 동시 디코딩 1개로 힙 여유를 확보
+  # (가로×세로×밴드×샘플 바이트·헤더 단계 판정·16비트 등 비표준 래스터는 썸네일 변환 복사본 4B/px 가산)
+  # 100MiB — 8비트 RGBA 5000×5000(1억 B)까지 통과, 16비트 RGBA 4000×4000(1.28억 B + 0.64억 B)은 거부. 초과 시 파일별 IMAGE_TOO_LARGE.
+  max-decode-bytes: 104857600
+  # D-230 앱 전역 동시 디코딩 수(공정 세마포어)와 대기 한도. 1개로 둔다 — progressive JPEG은 libjpeg가 힙 밖에 약 150MB(5000² 기준)를
+  # 추가로 잡으므로, 최대 사용량을 힙 예산 100MiB + 힙 밖 150MB로 고정한다(힙 512m·컨테이너 1GiB 전제). 대기가 한도를 넘으면 요청 전체 503 UPLOAD_BUSY.
+  max-concurrent-decodes: 1
+  # D-230 파일 처리 입장 한도(처리 1 + 대기 4). 파일 바이트를 힙에 올리기 전에 대기 없이 판정하고 가득 차면 요청 전체 503 UPLOAD_BUSY.
+  # 힙 상한(F = 파일당 최대 10MB, B = 디코딩 예산 100MiB): 평상시 5·F + B ≈ 150MB · 최악 피크 5·2F(헤더 판독 중 JPEG ICC 등 일시 사본)
+  # + B + 썸네일 약 5MB ≈ 205MB. 힙 밖 progressive JPEG 약 150MB는 별도(디코딩 차례 1개라 동시에 하나).
+  max-inflight-files: 5
+  decode-wait-timeout: 30s
 
 bank-account:
   # Track 89-F 셀러 정산계좌 AES-256-GCM 키(D-188·SLR-2). raw 32바이트를 Base64로 인코딩한 44자. 로컬 개발용 더미 — 운영은
@@ -115,6 +129,12 @@ zslab:
   reconciliation:
     check:
       enabled: ${RECONCILIATION_CHECK_ENABLED:true}
+  # D-230 데모 계정 보호. 쉼표 구분 이메일(대소문자 무시)은 비밀번호 변경·탈퇴·역할 해제·셀러 구성원 제외를 요청자와 무관하게 403으로 막는다.
+  # compose가 기존 데모 계정 값 3개(ADMIN_BOOTSTRAP_EMAIL·NUXT_BUYER_DEMO_EMAIL·NUXT_SELLER_DEMO_EMAIL)를 이어 붙여 넘긴다. 비어 있으면 보호 없음.
+  demo:
+    protected-emails: ${DEMO_PROTECTED_EMAILS:}
+    # true면 보호 계정 0개일 때 기동 실패(application-prod.yml만 true·fail-open 차단).
+    require-protected-accounts: false
 
 settlement:
   # Track 85 정산 설정. default-commission-rate = 플랫폼 기본 수수료율(basis-point·1000=10.00%)·셀러 개별율·카테고리율이 모두 없을 때

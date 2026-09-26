@@ -31,7 +31,7 @@ public class SellerFileController {
         this.sellerActorResolver = sellerActorResolver;
     }
 
-    /** 이미지 업로드(jpg·png·webp·파일당 10MB·요청당 20장). 항상 200·파일별 결과(부분 실패 허용). 정지 셀러 403. */
+    /** 이미지 업로드(jpg·png·파일당 10MB·요청당 20장·webp 업로드 중단 D-230). 항상 200·파일별 결과(부분 실패 허용). 정지 셀러 403. */
     @PostMapping(value = "/api/v1/seller/files/images", consumes = "multipart/form-data")
     public ResponseEntity<ImageUploadResponse> uploadImages(
             @RequestPart("files") List<MultipartFile> files, HttpServletRequest httpRequest) {

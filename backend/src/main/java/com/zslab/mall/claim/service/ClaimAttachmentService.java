@@ -11,6 +11,7 @@ import com.zslab.mall.file.service.ImageUploadService;
 import com.zslab.mall.file.service.UploadLimits;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -18,6 +19,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -41,6 +43,13 @@ public class ClaimAttachmentService {
     /** 사용자별 미연결 첨부 보유 상한(D-174·기존 미연결 + 이번 요청 장수가 초과하면 400). */
     static final int MAX_UNLINKED_PER_USER = 20;
     private static final UploadLimits ATTACHMENT_LIMITS = new UploadLimits(MAX_ATTACHMENTS, MAX_ATTACHMENT_FILE_SIZE);
+    /** 멀티파트 경계·파트 헤더 여유(D-230). */
+    private static final long MULTIPART_OVERHEAD_BYTES = 1024L * 1024;
+    /**
+     * 구매자 첨부 요청 합계 상한 = 파일당 5MB × 5장 + 여유 1MB = 26MB(D-230). 파싱 뒤 앱 검증만으로는 전역 max-request-size(220MB)까지
+     * 수신·임시 저장되므로 {@code ClaimAttachmentRequestSizeFilter}가 멀티파트 파싱 전에 Content-Length로 거부한다.
+     */
+    public static final long MAX_ATTACHMENT_REQUEST_BYTES = MAX_ATTACHMENT_FILE_SIZE * MAX_ATTACHMENTS + MULTIPART_OVERHEAD_BYTES;
 
     private static final String CLAIM_DIRECTORY = "claims";
 
@@ -55,8 +64,12 @@ public class ClaimAttachmentService {
     /**
      * 구매자 사진 업로드. 성공 파일마다 미연결 Attachment(CLAIM·target_id NULL·uploaded_by)를 저장한다.
      *
+     * <p>D-230: 이미지 처리는 동시 디코딩 차례를 최대 대기 한도까지 기다리므로 DB 커넥션을 쥔 트랜잭션 밖에서 한다(대기가 커넥션 풀을
+     * 고갈시키지 않게). 미연결 보유 수 조회는 단독 읽기, 첨부 행 저장은 {@code saveAll} 한 트랜잭션으로 전부 저장·전부 롤백을 유지한다.
+     *
      * @throws MalformedRequestException 파일 없음·{@value #MAX_ATTACHMENTS}장 초과·미연결 보유 {@value #MAX_UNLINKED_PER_USER}개 초과(400)
      */
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public ClaimAttachmentUploadResponse upload(Long buyerId, List<MultipartFile> files) {
         if (files != null && files.size() > MAX_ATTACHMENTS) {
             throw new MalformedRequestException("반품 사진은 최대 " + MAX_ATTACHMENTS + "장까지 첨부할 수 있습니다.");
@@ -68,15 +81,20 @@ public class ClaimAttachmentService {
                     + "개·현재 " + unlinked + "개). 클레임 요청에 연결하거나 24시간 후 다시 시도해 주세요.");
         }
         ImageUploadResponse uploaded = imageUploadService.upload(files, CLAIM_DIRECTORY, ATTACHMENT_LIMITS);
-        List<ClaimAttachmentUploadResponse.Item> results = new ArrayList<>();
+        List<Attachment> attachments = new ArrayList<>();
         for (ImageUploadResponse.Item item : uploaded.results()) {
-            if (!item.success()) {
-                results.add(ClaimAttachmentUploadResponse.Item.failure(item));
-                continue;
+            if (item.success()) {
+                attachments.add(Attachment.createUnlinked(
+                        PolymorphicTargetType.CLAIM, buyerId, item.fileName(), item.url(), mimeTypeOf(item.url()), item.size()));
             }
-            Attachment attachment = attachmentRepository.save(Attachment.createUnlinked(
-                    PolymorphicTargetType.CLAIM, buyerId, item.fileName(), item.url(), mimeTypeOf(item.url()), item.size()));
-            results.add(ClaimAttachmentUploadResponse.Item.success(item, attachment));
+        }
+        List<Attachment> saved = attachmentRepository.saveAll(attachments);
+        List<ClaimAttachmentUploadResponse.Item> results = new ArrayList<>();
+        Iterator<Attachment> savedAttachments = saved.iterator();
+        for (ImageUploadResponse.Item item : uploaded.results()) {
+            results.add(item.success()
+                    ? ClaimAttachmentUploadResponse.Item.success(item, savedAttachments.next())
+                    : ClaimAttachmentUploadResponse.Item.failure(item));
         }
         log.info("[ClaimAttachment] 업로드 buyerId={} requested={} success={}", buyerId, uploaded.results().size(),
                 uploaded.successCount());

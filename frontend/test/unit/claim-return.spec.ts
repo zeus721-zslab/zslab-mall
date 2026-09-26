@@ -158,7 +158,8 @@ describe('precheckClaimAttachments(claim-attachment.ts)', () => {
       file('edge.jpg', 'image/jpeg', CLAIM_ATTACHMENT_MAX_BYTES),
     ], 0)
     expect(accepted.map((entry) => entry.name)).toEqual(['a.png', 'edge.jpg'])
-    expect(rejected.map((entry) => entry.reason)).toEqual(['jpg·png·webp만 첨부할 수 있습니다.', '파일당 5MB를 초과합니다.'])
+    expect(rejected.map((entry) => entry.reason)).toEqual(['jpg·png만 첨부할 수 있습니다.', '파일당 5MB를 초과합니다.'])
+    expect(precheckClaimAttachments([file('w.webp', 'image/webp', 100)], 0).rejected[0]!.reason).toBe('jpg·png만 첨부할 수 있습니다.') // D-230
 
     const over = precheckClaimAttachments([file('d.png', 'image/png', 1), file('e.png', 'image/png', 1)], 4)
     expect(over.accepted).toHaveLength(1)
@@ -166,9 +167,9 @@ describe('precheckClaimAttachments(claim-attachment.ts)', () => {
   })
 
   it('서버 파일별 실패 코드 → 문구(IMAGE_TOO_LARGE 해상도 안내·D-174)', () => {
-    expect(uploadItemErrorMessage({ success: false, code: 'UNSUPPORTED_FORMAT' })).toContain('jpg·png·webp')
+    expect(uploadItemErrorMessage({ success: false, code: 'UNSUPPORTED_FORMAT' })).toBe('jpg·png만 첨부할 수 있습니다(형식 불일치).')
     expect(uploadItemErrorMessage({ success: false, code: 'FILE_TOO_LARGE' })).toBe('파일당 5MB를 초과합니다.')
-    expect(uploadItemErrorMessage({ success: false, code: 'IMAGE_TOO_LARGE' })).toBe('이미지 해상도가 너무 큽니다. 한 변 8,000px 이하로 줄여 주세요.')
+    expect(uploadItemErrorMessage({ success: false, code: 'IMAGE_TOO_LARGE' })).toBe('이미지가 너무 큽니다(최대 약 5000×5000 픽셀, 8비트 색상).')
     expect(uploadItemErrorMessage({ success: false, message: '서버 문구' })).toBe('서버 문구')
     expect(uploadItemErrorMessage({ success: false })).toBe('업로드에 실패했습니다.')
   })
@@ -180,6 +181,7 @@ describe('precheckClaimAttachments(claim-attachment.ts)', () => {
     expect(uploadRequestErrorMessage({ statusCode: 400, data: { code: 'MALFORMED_REQUEST', detail: '반품 사진은 최대 5장까지 첨부할 수 있습니다.' } }))
       .toContain('최대 5장')
     expect(uploadRequestErrorMessage(new Error('network'))).toContain('잠시 후')
+    expect(uploadRequestErrorMessage({ statusCode: 503, data: { code: 'UPLOAD_BUSY' } })).toBe('이미지 처리 요청이 많습니다. 잠시 후 다시 시도해 주세요.')
   })
 })
 

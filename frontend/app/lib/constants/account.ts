@@ -21,6 +21,16 @@ export const ZONECODE_MAX = 10
 export const ADDRESS_ROAD_MAX = 200
 export const ADDRESS_JIBUN_MAX = 200
 export const ADDRESS_DETAIL_MAX = 200
+// D-230 데모 계정 보호 — SoT: BE GlobalExceptionHandler DEMO_ACCOUNT_PROTECTED(403)·DemoAccountGuard 문구.
+export const DEMO_ACCOUNT_PROTECTED_CODE = 'DEMO_ACCOUNT_PROTECTED'
+export const DEMO_ACCOUNT_PROTECTED_MESSAGE = '데모 계정은 이 기능을 사용할 수 없습니다.'
+
+/** 요청 오류가 데모 계정 보호(403)면 안내 문구, 아니면 null(비밀번호 변경·탈퇴 화면 공용). */
+export function demoAccountProtectedMessage(error: unknown): string | null {
+  const code = (error as { data?: { code?: unknown } } | null)?.data?.code
+  return code === DEMO_ACCOUNT_PROTECTED_CODE ? DEMO_ACCOUNT_PROTECTED_MESSAGE : null
+}
+
 // 휴대폰 형식 — SoT: UpdateProfileRequest @Pattern(AdminMemberUpdateRequest.PHONE_PATTERN·Track 84·D-178). 국내 휴대폰·하이픈 선택.
 export const PHONE_PATTERN = /^01[016789]-?\d{3,4}-?\d{4}$/
 

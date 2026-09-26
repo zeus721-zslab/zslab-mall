@@ -5,6 +5,8 @@ import com.zslab.mall.auth.entity.UserRole;
 import com.zslab.mall.auth.enums.RoleCode;
 import com.zslab.mall.auth.repository.RoleRepository;
 import com.zslab.mall.auth.repository.UserRoleRepository;
+import com.zslab.mall.auth.service.LastSuperAdminGuard;
+import com.zslab.mall.common.security.DemoAccountGuard;
 import com.zslab.mall.grade.entity.BuyerGrade;
 import com.zslab.mall.grade.enums.BuyerGradeCode;
 import com.zslab.mall.grade.repository.BuyerGradeRepository;
@@ -45,6 +47,8 @@ public class UserService {
     private final PasswordEncoder passwordEncoder;
     private final PasswordPolicy passwordPolicy;
     private final MemberActivityChecker memberActivityChecker;
+    private final LastSuperAdminGuard lastSuperAdminGuard;
+    private final DemoAccountGuard demoAccountGuard;
 
     public UserService(
             UserRepository userRepository,
@@ -54,7 +58,9 @@ public class UserService {
             BuyerGradeRepository buyerGradeRepository,
             PasswordEncoder passwordEncoder,
             PasswordPolicy passwordPolicy,
-            MemberActivityChecker memberActivityChecker) {
+            MemberActivityChecker memberActivityChecker,
+            LastSuperAdminGuard lastSuperAdminGuard,
+            DemoAccountGuard demoAccountGuard) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.userRoleRepository = userRoleRepository;
@@ -63,6 +69,8 @@ public class UserService {
         this.passwordEncoder = passwordEncoder;
         this.passwordPolicy = passwordPolicy;
         this.memberActivityChecker = memberActivityChecker;
+        this.lastSuperAdminGuard = lastSuperAdminGuard;
+        this.demoAccountGuard = demoAccountGuard;
     }
 
     /**
@@ -100,10 +108,12 @@ public class UserService {
      *
      * @throws IllegalStateException userId에 해당하는 User가 없는 경우(인증됐으나 데이터 부재·내부 오류·500)
      * @throws IllegalArgumentException 현재 비밀번호 불일치·자격증명 미생성 계정인 경우(400)
+     * @throws com.zslab.mall.common.exception.DemoAccountProtectedException 데모 계정(403)
      */
     public void changePassword(Long userId, ChangePasswordRequest request) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalStateException("인증된 userId에 해당하는 User가 없습니다: " + userId));
+        demoAccountGuard.requireNotProtected(user); // D-230: 구매자·셀러·관리자 토큰 모두 이 경로를 쓴다
 
         // hash null(자격증명 미생성)·불일치 모두 동일 400으로 통일(사유는 내부 로그로만 구분)
         if (user.getPasswordHash() == null
@@ -158,6 +168,8 @@ public class UserService {
      *
      * @throws IllegalStateException userId에 해당하는 User가 없는 경우(인증됐으나 데이터 부재·내부 오류·500)
      * @throws com.zslab.mall.user.exception.MemberActivityInProgressException 진행 중 주문·활성 클레임이 있는 경우(409)
+     * @throws com.zslab.mall.auth.exception.LastSuperAdminRevocationException 마지막 활성 슈퍼 관리자인 경우(409)
+     * @throws com.zslab.mall.common.exception.DemoAccountProtectedException 데모 계정(403)
      */
     public void withdraw(Long userId) {
         User user = userRepository.findById(userId)
@@ -165,7 +177,9 @@ public class UserService {
         if (user.getWithdrawnAt() != null) {
             return; // 멱등: 이미 탈퇴한 회원은 가드·갱신 없이 204(기존 계약 유지)
         }
+        demoAccountGuard.requireNotProtected(user);
         memberActivityChecker.requireNoActivityInProgress(userId);
+        lastSuperAdminGuard.requireNotLastSuperAdmin(userId); // D-230: 관리자 토큰으로도 이 경로를 호출할 수 있다
         LocalDateTime now = LocalDateTime.now();
         user.withdraw();
         user.markCredentialsChanged(now);

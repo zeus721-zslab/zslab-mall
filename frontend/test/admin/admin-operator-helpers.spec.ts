@@ -94,13 +94,17 @@ describe('provisionBlockedReason / revokeBlockedReason', () => {
 describe('superAdminCountInList / roleRevokeBlockedReason', () => {
   const items = [row({ userPublicId: 'usr_1', roles: ['SUPER_ADMIN'] }), row({ userPublicId: 'usr_2', roles: ['SUPER_ADMIN', 'ADMIN_OPERATOR'] }), row({ userPublicId: 'usr_3' })]
 
-  it('목록이 완전할 때만(검색어 없음·역할 전체/SUPER_ADMIN·첫 페이지·hasNext false) 인원을 세고, 아니면 null', () => {
-    expect(superAdminCountInList(items, { role: null, keyword: '', page: 0 }, false)).toBe(2)
-    expect(superAdminCountInList(items, { role: 'SUPER_ADMIN', keyword: '', page: 0 }, false)).toBe(2)
-    expect(superAdminCountInList(items, { role: 'ADMIN_OPERATOR', keyword: '', page: 0 }, false)).toBeNull()
-    expect(superAdminCountInList(items, { role: null, keyword: '홍', page: 0 }, false)).toBeNull()
-    expect(superAdminCountInList(items, { role: null, keyword: '', page: 1 }, false)).toBeNull()
-    expect(superAdminCountInList(items, { role: null, keyword: '', page: 0 }, true)).toBeNull()
+  it('목록이 완전할 때만(ACTIVE·검색어 없음·역할 전체/SUPER_ADMIN·첫 페이지·hasNext false) 인원을 세고, 아니면 null', () => {
+    expect(superAdminCountInList(items, { role: null, status: 'ACTIVE', keyword: '', page: 0 }, false)).toBe(2)
+    expect(superAdminCountInList(items, { role: 'SUPER_ADMIN', status: 'ACTIVE', keyword: '', page: 0 }, false)).toBe(2)
+    expect(superAdminCountInList(items, { role: 'ADMIN_OPERATOR', status: 'ACTIVE', keyword: '', page: 0 }, false)).toBeNull()
+    expect(superAdminCountInList(items, { role: null, status: 'ACTIVE', keyword: '홍', page: 0 }, false)).toBeNull()
+    expect(superAdminCountInList(items, { role: null, status: 'ACTIVE', keyword: '', page: 1 }, false)).toBeNull()
+    expect(superAdminCountInList(items, { role: null, status: 'ACTIVE', keyword: '', page: 0 }, true)).toBeNull()
+  })
+
+  it('D-230: WITHDRAWN 목록은 세지 않음(BE는 활성 보유자만 세고 탈퇴 SUPER_ADMIN의 역할 정리를 허용) → null', () => {
+    expect(superAdminCountInList(items, { role: null, status: 'WITHDRAWN', keyword: '', page: 0 }, false)).toBeNull()
   })
 
   it('마지막 SUPER_ADMIN(인원 ≤1)만 선택지 비활성, 모르면(null) 서버에 맡김', () => {

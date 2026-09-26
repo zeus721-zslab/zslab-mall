@@ -2,15 +2,14 @@ import { CLAIM_ATTACHMENT_MAX } from '~/lib/constants/claim'
 import type { ClaimAttachmentUploadItem } from '~/types/claim'
 
 /**
- * 반품 사진 업로드 클라이언트 사전 검증(FE-29·순수 함수). BE 정책(D-166·D-171·D-174): jpg·png·webp / 파일당 5MB / 클레임당 5장 /
- * 해상도 한 변 8,000px·미연결 사진 20장. 서버 검증(매직 바이트·해상도·디코딩)은 그대로 두고 왕복만 줄인다.
+ * 반품 사진 업로드 클라이언트 사전 검증(FE-29·순수 함수). BE 정책(D-166·D-171·D-174): jpg·png(webp 업로드 중단·D-230) / 파일당 5MB / 클레임당 5장 /
+ * 해상도 한 변 8,000px·총 2,500만 픽셀(D-230)·미연결 사진 20장. 서버 검증(매직 바이트·해상도·디코딩)은 그대로 두고 왕복만 줄인다.
  */
 export const CLAIM_ATTACHMENT_MAX_MB = 5
 export const CLAIM_ATTACHMENT_MAX_BYTES = CLAIM_ATTACHMENT_MAX_MB * 1024 * 1024
-const CLAIM_ATTACHMENT_MAX_SIDE_PX = 8000
 const CLAIM_ATTACHMENT_MAX_UNLINKED = 20
 const FILE_TOO_LARGE_MESSAGE = `파일당 ${CLAIM_ATTACHMENT_MAX_MB}MB를 초과합니다.`
-export const CLAIM_ATTACHMENT_ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/webp']
+export const CLAIM_ATTACHMENT_ACCEPTED_TYPES = ['image/jpeg', 'image/png']
 export const CLAIM_ATTACHMENT_ACCEPT_ATTRIBUTE = CLAIM_ATTACHMENT_ACCEPTED_TYPES.join(',')
 
 export interface ClaimAttachmentPrecheck {
@@ -24,7 +23,7 @@ export function precheckClaimAttachments(files: File[], currentCount: number): C
   const rejected: { file: File; reason: string }[] = []
   for (const file of files) {
     if (!CLAIM_ATTACHMENT_ACCEPTED_TYPES.includes(file.type)) {
-      rejected.push({ file, reason: 'jpg·png·webp만 첨부할 수 있습니다.' })
+      rejected.push({ file, reason: 'jpg·png만 첨부할 수 있습니다.' })
       continue
     }
     if (file.size > CLAIM_ATTACHMENT_MAX_BYTES) {
@@ -43,9 +42,10 @@ export function precheckClaimAttachments(files: File[], currentCount: number): C
 const UPLOAD_ITEM_MESSAGES: Record<string, string> = {
   EMPTY_FILE: '빈 파일입니다.',
   FILE_TOO_LARGE: FILE_TOO_LARGE_MESSAGE,
-  UNSUPPORTED_FORMAT: 'jpg·png·webp만 첨부할 수 있습니다(형식 불일치).',
+  UNSUPPORTED_FORMAT: 'jpg·png만 첨부할 수 있습니다(형식 불일치).',
   INVALID_IMAGE: '이미지를 읽을 수 없습니다.',
-  IMAGE_TOO_LARGE: `이미지 해상도가 너무 큽니다. 한 변 ${CLAIM_ATTACHMENT_MAX_SIDE_PX.toLocaleString('ko-KR')}px 이하로 줄여 주세요.`,
+  // D-230: BE 총 픽셀 25,000,000·한 변 8,000px·디코딩 바이트 예산 상한과 같은 문구(BE IMAGE_TOO_LARGE_MESSAGE).
+  IMAGE_TOO_LARGE: '이미지가 너무 큽니다(최대 약 5000×5000 픽셀, 8비트 색상).',
 }
 
 /** 서버 파일별 실패 항목 → 사용자 문구(코드 우선·없으면 서버 message·일반 문구). */
@@ -74,5 +74,7 @@ export function uploadRequestErrorMessage(error: unknown): string {
     if (detail.includes('연결되지 않은 첨부')) return UNLINKED_LIMIT_MESSAGE
     return `사진 업로드 요청이 잘못되었습니다(최대 ${CLAIM_ATTACHMENT_MAX}장).`
   }
+  // D-230: 503 UPLOAD_BUSY(파일 처리 입장권 소진·디코딩 대기 초과) — 일반 실패 문구 대신 재시도 안내.
+  if (failure.data?.code === 'UPLOAD_BUSY') return '이미지 처리 요청이 많습니다. 잠시 후 다시 시도해 주세요.'
   return '사진 업로드에 실패했습니다. 잠시 후 다시 시도하세요.'
 }

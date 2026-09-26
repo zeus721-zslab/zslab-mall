@@ -9,6 +9,8 @@ const SELLER_ERROR_MESSAGES: Record<string, string> = {
   [SELLER_SUSPENDED_ERROR_CODE]: '정지 상태의 셀러는 변경 작업을 할 수 없습니다. 조회만 가능하며 문의는 관리자에게 하세요.',
   UNAUTHENTICATED: '로그인이 필요합니다.',
   FORBIDDEN: '권한이 없습니다.',
+  // D-230: 셀러 데모 계정 비밀번호 변경 차단(BE 문구와 동일).
+  DEMO_ACCOUNT_PROTECTED: '데모 계정은 이 기능을 사용할 수 없습니다.',
   VALIDATION_FAILED: '입력값을 확인해 주세요.',
   MALFORMED_REQUEST: '잘못된 요청입니다.',
   INTERNAL_ERROR: '서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.',

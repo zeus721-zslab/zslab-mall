@@ -68,7 +68,7 @@ public class BuyerClaimController {
     }
 
     /**
-     * 반품 사진 업로드(Track 81-B). multipart 필드명 {@code files}(다중·jpg/png/webp·파일당 10MB·최대 5장). 항상 200·파일별 결과이며
+     * 반품 사진 업로드(Track 81-B). multipart 필드명 {@code files}(다중·jpg/png·파일당 5MB·최대 5장). 항상 200·파일별 결과이며
      * 성공 항목의 attachmentId를 클레임 요청 본문 attachmentIds에 넘긴다. 인가는 SecurityConfig {@code /api/v1/claims/**}→BUYER.
      */
     @PostMapping(value = "/attachments", consumes = "multipart/form-data")

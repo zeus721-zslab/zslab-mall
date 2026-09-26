@@ -5,16 +5,20 @@ import com.zslab.mall.audit.service.AuditContext;
 import com.zslab.mall.audit.service.AuditRecorder;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
 import com.zslab.mall.common.exception.MalformedRequestException;
+import com.zslab.mall.common.security.DemoAccountGuard;
 import com.zslab.mall.seller.controller.request.AdminSellerUpdateRequest;
 import com.zslab.mall.seller.controller.response.AdminSellerDetailResponse;
 import com.zslab.mall.seller.entity.Seller;
+import com.zslab.mall.seller.entity.SellerUser;
 import com.zslab.mall.seller.entity.WithdrawnSeller;
 import com.zslab.mall.seller.enums.SellerStatus;
 import com.zslab.mall.seller.exception.SellerBusinessNoDuplicateException;
 import com.zslab.mall.seller.exception.SellerInvalidStateException;
 import com.zslab.mall.seller.exception.SellerNotFoundException;
 import com.zslab.mall.seller.repository.SellerRepository;
+import com.zslab.mall.seller.repository.SellerUserRepository;
 import com.zslab.mall.seller.repository.WithdrawnSellerRepository;
+import com.zslab.mall.user.repository.UserRepository;
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -45,18 +49,27 @@ public class AdminSellerCommandService {
     private final SellerTerminationGuard sellerTerminationGuard;
     private final AdminSellerQueryService adminSellerQueryService;
     private final AuditRecorder auditRecorder;
+    private final SellerUserRepository sellerUserRepository;
+    private final UserRepository userRepository;
+    private final DemoAccountGuard demoAccountGuard;
 
     public AdminSellerCommandService(
             SellerRepository sellerRepository,
             WithdrawnSellerRepository withdrawnSellerRepository,
             SellerTerminationGuard sellerTerminationGuard,
             AdminSellerQueryService adminSellerQueryService,
-            AuditRecorder auditRecorder) {
+            AuditRecorder auditRecorder,
+            SellerUserRepository sellerUserRepository,
+            UserRepository userRepository,
+            DemoAccountGuard demoAccountGuard) {
         this.sellerRepository = sellerRepository;
         this.withdrawnSellerRepository = withdrawnSellerRepository;
         this.sellerTerminationGuard = sellerTerminationGuard;
         this.adminSellerQueryService = adminSellerQueryService;
         this.auditRecorder = auditRecorder;
+        this.sellerUserRepository = sellerUserRepository;
+        this.userRepository = userRepository;
+        this.demoAccountGuard = demoAccountGuard;
     }
 
     /**
@@ -74,6 +87,7 @@ public class AdminSellerCommandService {
      * @throws SellerNotFoundException 미존재(404)
      * @throws SellerInvalidStateException 불법 전이·같은 상태 재요청(422)
      * @throws com.zslab.mall.seller.exception.SellerActivityInProgressException 종료 가드 위반(409)
+     * @throws com.zslab.mall.common.exception.DemoAccountProtectedException 데모 계정이 소속된 셀러 해지(403)
      */
     public AdminSellerDetailResponse changeStatus(
             String sellerPublicId, SellerStatus target, String reason, AuditContext auditContext) {
@@ -86,6 +100,9 @@ public class AdminSellerCommandService {
                     "판매자 상태를 전환할 수 없습니다: " + before + " → " + target + " sellerPublicId=" + sellerPublicId);
         }
         if (target == SellerStatus.TERMINATED) {
+            // D-230: 해지는 되돌릴 수 없어 데모 셀러 로그인이 영구히 막힌다 → 보호 계정이 소속된 셀러는 해지 차단(정지는 허용).
+            demoAccountGuard.requireNoProtectedMember(userRepository.findByIdIn(
+                    sellerUserRepository.findBySellerId(seller.getId()).stream().map(SellerUser::getUserId).toList()));
             sellerTerminationGuard.requireTerminable(seller.getId());
         }
         String trimmedReason = reason.trim();

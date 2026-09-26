@@ -48,6 +48,8 @@ class ProdSecurityContextSmokeTest extends AbstractIntegrationTest {
         // 싱글톤 datasource 4-property는 상위 AbstractIntegrationTest가 주입(@DynamicPropertySource는 계층에서 합쳐짐).
         registry.add("jwt.secret", () -> DUMMY_JWT_SECRET);
         registry.add("bank-account.encryption-key", () -> DUMMY_BANK_ACCOUNT_KEY);
+        // D-230: prod는 데모 보호 계정 0개면 기동 실패(DemoAccountGuard fail-open 차단) → 테스트 더미 1개.
+        registry.add("zslab.demo.protected-emails", () -> "prod-smoke-demo@zslab.test");
     }
 
     @Autowired

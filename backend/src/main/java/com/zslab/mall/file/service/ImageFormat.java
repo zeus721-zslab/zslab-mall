@@ -4,7 +4,8 @@ import java.util.Arrays;
 import java.util.Optional;
 
 /**
- * 허용 이미지 형식(Track 77·jpg·png·webp)과 매직 바이트 판별. 확장자·Content-Type은 클라이언트가 위조할 수 있으므로 신뢰하지 않고
+ * 이미지 형식(Track 77·jpg·png·webp)과 매직 바이트 판별. 업로드 허용은 jpg·png뿐이고 webp는 기존 저장 파일의 서빙·썸네일 역산용으로만
+ * 남긴다(D-230 · ImageUploadService.UPLOADABLE_FORMATS). 확장자·Content-Type은 클라이언트가 위조할 수 있으므로 신뢰하지 않고
  * 파일 선두 바이트로만 판정한다. 값 목록은 업로드 정책(D-166)이라 4층위 enum 잠금 대상 컬럼이 아니다.
  */
 public enum ImageFormat {
@@ -46,7 +47,7 @@ public enum ImageFormat {
         return thumbnailExtension;
     }
 
-    /** 선두 바이트로 형식을 판별한다. 허용 3형식이 아니면 empty. */
+    /** 선두 바이트로 형식을 판별한다(jpg·png·webp). 셋 다 아니면 empty. 업로드 허용 여부는 호출부가 따로 판정한다(D-230 webp 업로드 중단). */
     public static Optional<ImageFormat> detect(byte[] content) {
         if (startsWith(content, JPEG_MAGIC, 0)) {
             return Optional.of(JPEG);

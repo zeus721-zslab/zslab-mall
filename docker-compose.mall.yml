@@ -28,6 +28,8 @@ services:
       JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS:-3600000}
       ADMIN_BOOTSTRAP_EMAIL: ${ADMIN_BOOTSTRAP_EMAIL}
       ADMIN_BOOTSTRAP_PASSWORD: ${ADMIN_BOOTSTRAP_PASSWORD}
+      # D-230 데모 계정 보호 대상(관리자·구매자·셀러 데모 계정). 새 값 없이 기존 .env 3개를 이어 붙인다. 빈 항목은 무시된다.
+      DEMO_PROTECTED_EMAILS: "${ADMIN_BOOTSTRAP_EMAIL:-},${NUXT_BUYER_DEMO_EMAIL:-},${NUXT_SELLER_DEMO_EMAIL:-}"
       LOG_PATH: ${LOG_PATH:-/app/logs}
       # Track 77 이미지 업로드 루트. 컨테이너 내부 절대경로로 고정한다 — .env 치환 금지(서버 .env의 상대값이 볼륨 마운트 대상에
       # 치환돼 "mount path must be absolute"로 배포 실패한 이력·D-166 보충). 아래 mall_uploads 마운트 경로와 동일해야 한다.

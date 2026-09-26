@@ -258,7 +258,9 @@ describe('업로드 사전 검증·메시지', () => {
     const big = new File([new Uint8Array(10 * 1024 * 1024 + 1)], 'b.jpg', { type: 'image/jpeg' })
     const result = precheckFiles([ok, gif, big], 19)
     expect(result.accepted).toEqual([ok])
-    expect(result.rejected.map((r) => r.reason)).toEqual(['jpg·png·webp만 업로드할 수 있습니다.', '파일당 10MB를 초과합니다.'])
+    expect(result.rejected.map((r) => r.reason)).toEqual(['jpg·png만 업로드할 수 있습니다.', '파일당 10MB를 초과합니다.'])
+    const webp = new File([new Uint8Array(10)], 'c.webp', { type: 'image/webp' })
+    expect(precheckFiles([webp], 0).rejected[0]?.reason).toBe('jpg·png만 업로드할 수 있습니다.') // D-230 webp 업로드 중단
     expect(precheckFiles([ok], 20).rejected[0]?.reason).toContain('최대 20장')
   })
 
@@ -267,7 +269,8 @@ describe('업로드 사전 검증·메시지', () => {
     expect(uploadRequestFailureMessage({ statusCode: 413, data: null })).toContain('용량 초과')
     expect(uploadRequestFailureMessage({ status: 400, data: { code: 'MALFORMED_REQUEST' } })).toContain('장수 초과')
     expect(uploadItemFailureMessage('UNSUPPORTED_FORMAT', 'x')).toContain('형식 불일치')
-    expect(uploadItemFailureMessage('IMAGE_TOO_LARGE', 'x')).toBe('이미지 해상도가 너무 큽니다. 한 변 8,000px 이하로 줄여 주세요.')
+    expect(uploadItemFailureMessage('IMAGE_TOO_LARGE', 'x')).toBe('이미지가 너무 큽니다(최대 약 5000×5000 픽셀, 8비트 색상).')
+    expect(uploadRequestFailureMessage({ status: 503, data: { code: 'UPLOAD_BUSY' } })).toBe('이미지 처리 요청이 많습니다. 잠시 후 다시 시도해 주세요.')
     expect(uploadItemFailureMessage(undefined, undefined)).toContain('실패')
   })
 })

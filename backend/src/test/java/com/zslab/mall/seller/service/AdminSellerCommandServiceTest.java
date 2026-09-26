@@ -10,12 +10,15 @@ import static org.mockito.Mockito.when;
 
 import com.zslab.mall.audit.service.AuditContext;
 import com.zslab.mall.audit.service.AuditRecorder;
+import com.zslab.mall.common.security.DemoAccountGuard;
 import com.zslab.mall.seller.controller.request.AdminSellerUpdateRequest;
 import com.zslab.mall.seller.entity.Seller;
 import com.zslab.mall.seller.enums.SellerStatus;
 import com.zslab.mall.seller.exception.SellerBusinessNoDuplicateException;
 import com.zslab.mall.seller.repository.SellerRepository;
+import com.zslab.mall.seller.repository.SellerUserRepository;
 import com.zslab.mall.seller.repository.WithdrawnSellerRepository;
+import com.zslab.mall.user.repository.UserRepository;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -40,6 +43,9 @@ class AdminSellerCommandServiceTest {
     @Mock private SellerTerminationGuard sellerTerminationGuard;
     @Mock private AdminSellerQueryService adminSellerQueryService;
     @Mock private AuditRecorder auditRecorder;
+    @Mock private SellerUserRepository sellerUserRepository;
+    @Mock private UserRepository userRepository;
+    @Mock private DemoAccountGuard demoAccountGuard;
 
     private AdminSellerCommandService service;
     private final AuditContext auditContext = AuditContext.of(1L, "ADMIN");
@@ -47,7 +53,7 @@ class AdminSellerCommandServiceTest {
     @BeforeEach
     void setUp() {
         service = new AdminSellerCommandService(sellerRepository, withdrawnSellerRepository, sellerTerminationGuard,
-                adminSellerQueryService, auditRecorder);
+                adminSellerQueryService, auditRecorder, sellerUserRepository, userRepository, demoAccountGuard);
     }
 
     /** 선검사(existsByBusinessNo=false) 통과 후 flush 레이스 분기로 들어가는 픽스처. 호출마다 새 Seller(앞 호출의 update 반영 방지). */
