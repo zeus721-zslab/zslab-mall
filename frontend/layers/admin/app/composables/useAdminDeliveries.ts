@@ -28,7 +28,7 @@ export function useAdminDeliveries() {
     return api<AdminDeliveryDetail>(deliveryPath(deliveryPublicId))
   }
 
-  /** 송장 정정. SHIPPING 외 422(DELIVERY_INVALID_STATE)·타 배송과 송장 중복 409(DELIVERY_TRACKING_NO_CONFLICT)는 throw. */
+  /** 송장 정정. SHIPPING 외 422(DELIVERY_INVALID_STATE)·송장 형식 400(VALIDATION_FAILED)은 throw. */
   function correctTracking(deliveryPublicId: string, body: AdminDeliveryTrackingCorrectionRequest): Promise<AdminDeliveryResponse> {
     return api<AdminDeliveryResponse>(deliveryPath(deliveryPublicId, '/tracking'), { method: 'PATCH', body })
   }

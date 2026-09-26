@@ -161,7 +161,7 @@ public class AdminClaimController {
     /**
      * Admin 회수 송장 대행 등록(Track 101-A). 구매자가 회수 송장을 올리지 않아 멈춘 클레임을 운영자가 대신 진행시킨다.
      * 구매자 경로와 같은 도메인 경로를 써서 같은 RETURN Delivery를 만든다. 미존재 404·유형/상태 위반·중복 등록 422·
-     * 택배사 누락/송장 100자 초과 400.
+     * 택배사 누락/송장 형식 위반(D-227) 400.
      */
     @PostMapping("/{claimPublicId}/return-shipment")
     public ReturnShipmentResponse registerReturnShipmentByAdmin(@PathVariable String claimPublicId,

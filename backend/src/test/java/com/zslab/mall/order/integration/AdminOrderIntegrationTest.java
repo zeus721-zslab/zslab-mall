@@ -471,6 +471,35 @@ class AdminOrderIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(status().isUnprocessableEntity());
     }
 
+    @Test
+    @DisplayName("T9 관리자 송장 형식·중복 허용(D-227): 자모 400·필드 메시지·미생성 / 다른 주문(C)과 같은 번호 + 앞뒤 공백 → 200·공백 제거 저장 / 같은 주문 다른 품목 합포장 200")
+    void adminPrepareShipment_formatRuleAndSharedTrackingNo() throws Exception {
+        String prepareA1 = URL + "/items/" + ITEM_A1_PID + "/prepare-shipment";
+        mockMvc.perform(post(prepareA1).headers(authHeaders.admin(ADMIN_ID))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"carrier\":\"CJ\",\"trackingNo\":\"ㅗㅗㅗ\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.fieldErrors[0].field").value("trackingNo"))
+                .andExpect(jsonPath("$.fieldErrors[0].message").value("송장번호는 숫자·영문·하이픈 8~20자로 입력해 주세요."));
+        assertThat(itemStatus(ORDER_A_ITEM_1)).isEqualTo("PAID");
+
+        // 주문 C의 기존 배송(T79TRACK0001)과 같은 번호 — 택배사 번호 재사용·택배사 간 중복
+        mockMvc.perform(post(prepareA1).headers(authHeaders.admin(ADMIN_ID))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"carrier\":\"CJ\",\"trackingNo\":\"  T79TRACK0001  \"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.trackingNo").value("T79TRACK0001"));
+        // 같은 주문 A의 다른 품목 — 합포장(같은 상자·같은 송장)
+        mockMvc.perform(post(URL + "/items/" + ITEM_A2_PID + "/prepare-shipment").headers(authHeaders.admin(ADMIN_ID))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"carrier\":\"CJ\",\"trackingNo\":\"T79TRACK0001\"}"))
+                .andExpect(status().isOk());
+
+        assertThat(jdbc.queryForObject("SELECT tracking_no FROM delivery WHERE order_item_id = ?", String.class, ORDER_A_ITEM_1))
+                .isEqualTo("T79TRACK0001");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM delivery WHERE tracking_no = ? AND order_item_id IN (?, ?, ?)",
+                Integer.class, "T79TRACK0001", ORDER_A_ITEM_1, ORDER_A_ITEM_2, ORDER_C_ITEM)).isEqualTo(3);
+        assertThat(itemStatus(ORDER_A_ITEM_2)).isEqualTo("SHIPPING");
+    }
+
     // ---------- 동시 실행 ----------
 
     private List<Throwable> runConcurrently(Callable<Void> work) throws InterruptedException {

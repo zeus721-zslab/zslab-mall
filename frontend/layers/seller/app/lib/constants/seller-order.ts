@@ -1,5 +1,6 @@
 import type { SellerSemantic } from '#layers/seller/app/lib/constants/semantic'
 import type { ClaimStatus, OrderItemStatusCode } from '~/lib/constants/claim'
+import { DELIVERY_TRACKING_NO_MAX } from '~/lib/constants/delivery'
 
 /**
  * 셀러 주문(품목) 상수 단일 소스(Track 90-B-3·관리자 constants/admin-order 복제·CLAUDE.md 4층위 enum 잠금 (4)프론트). 품목·클레임 라벨은
@@ -78,5 +79,5 @@ export const DEFAULT_SELLER_ORDER_PAGE_SIZE = 20
 
 /** 검색어 최대 길이(BE SellerOrderItemQueryService MAX_KEYWORD_LENGTH). */
 export const SELLER_ORDER_KEYWORD_MAX = 50
-/** 송장번호 최대 길이(BE PrepareShipmentRequest.trackingNo @Size(max=100)). */
-export const SELLER_TRACKING_NO_MAX = 100
+/** 송장번호 입력 최대 길이(형식 규칙 상한·base DELIVERY_TRACKING_NO_MAX·D-227). */
+export const SELLER_TRACKING_NO_MAX = DELIVERY_TRACKING_NO_MAX

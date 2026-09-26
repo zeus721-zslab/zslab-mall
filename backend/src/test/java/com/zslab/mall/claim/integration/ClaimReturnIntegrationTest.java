@@ -639,6 +639,47 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("D-227 송장 형식: 구매자 회수 자모·관리자 대행 특수문자 400(필드 메시지·배송 0) → 공백 포함 유효값 200·공백 제거 저장 → 검수 FAIL 재발송 특수문자 400(APPROVED 유지) → 공백 포함 유효값 200·공백 제거 저장")
+    void trackingNoFormat_returnAndReshipPaths() throws Exception {
+        Long claimId = approvedReturn();
+        String claimPid = claimPid(claimId);
+        String formatMessage = "송장번호는 숫자·영문·하이픈 8~20자로 입력해 주세요.";
+
+        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/return-shipment").headers(authHeaders.buyer(USER_ID))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"carrier\":\"CJ\",\"trackingNo\":\"ㅕㅕㅕ\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.fieldErrors[0].field").value("trackingNo"))
+                .andExpect(jsonPath("$.fieldErrors[0].message").value(formatMessage));
+        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid + "/return-shipment").headers(authHeaders.admin(ADMIN_ID))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"carrier\":\"CJ\",\"trackingNo\":\"RTN#TRACK01\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.fieldErrors[0].message").value(formatMessage));
+        assertThat(returnDeliveryCount(claimId)).isZero();
+
+        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/return-shipment").headers(authHeaders.buyer(USER_ID))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"carrier\":\"CJ\",\"trackingNo\":\"  RTN-TRACK-0001  \"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.trackingNo").value("RTN-TRACK-0001"));
+        claimService.confirmPickupByAdmin(claimId, LocalDateTime.now(), AuditContext.of(9001L, "ADMIN"));
+
+        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid + "/inspect").headers(authHeaders.admin(ADMIN_ID))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"result\":\"FAIL\",\"rejectReasonCode\":\"INSPECTION_FAILED\","
+                                + "\"reshipCarrier\":\"HANJIN\",\"reshipTrackingNo\":\"RESHIP#0001\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.fieldErrors[0].field").value("reshipTrackingNo"))
+                .andExpect(jsonPath("$.fieldErrors[0].message").value(formatMessage));
+        assertThat(claimStatus(claimId)).isEqualTo("APPROVED");
+
+        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid + "/inspect").headers(authHeaders.admin(ADMIN_ID))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"result\":\"FAIL\",\"rejectReasonCode\":\"INSPECTION_FAILED\","
+                                + "\"reshipCarrier\":\"HANJIN\",\"reshipTrackingNo\":\" RESHIP-0001 \"}"))
+                .andExpect(status().isOk());
+        assertThat(jdbc.queryForObject("SELECT tracking_no FROM delivery WHERE claim_id = ? AND direction = 'OUTBOUND'",
+                String.class, claimId)).isEqualTo("RESHIP-0001");
+    }
+
+    @Test
     @DisplayName("101-A T6 클레임 감사: 승인 APPROVE·회수 확인/검수 UPDATE·거부 REJECT 행이 CLAIM 대상으로 적재된다")
     void adminClaimActions_recordAudit() throws Exception {
         // 거부 먼저 — 검수 PASS로 품목이 RETURNED가 되면 새 반품 요청을 만들 수 없다(재요청은 새 행·CLM-2).

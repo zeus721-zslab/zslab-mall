@@ -70,13 +70,13 @@ describe('seller-delivery-view', () => {
     expect(canMarkDelivered({ status: 'SHIPPING', direction: 'OUTBOUND', claimType: 'RETURN' })).toBe(false)
   })
 
-  it('validateTrackingCorrectionForm: 택배사·송장(≤100)·사유(≤200) 필수', () => {
+  it('validateTrackingCorrectionForm: 택배사·송장(형식 D-227)·사유(≤200) 필수', () => {
     expect(validateTrackingCorrectionForm({ carrier: null, trackingNo: '', reason: '' })).toEqual({
       carrier: '택배사를 선택하세요.', trackingNo: '송장번호를 입력하세요.', reason: '사유를 입력하세요.',
     })
-    expect(validateTrackingCorrectionForm({ carrier: 'CJ', trackingNo: 'x'.repeat(101), reason: 'r'.repeat(201) })).toEqual({
-      trackingNo: '송장번호는 100자 이하여야 합니다.', reason: '사유는 200자 이하여야 합니다.',
+    expect(validateTrackingCorrectionForm({ carrier: 'CJ', trackingNo: 'x'.repeat(21), reason: 'r'.repeat(201) })).toEqual({
+      trackingNo: '송장번호는 숫자·영문·하이픈 8~20자로 입력해 주세요.', reason: '사유는 200자 이하여야 합니다.',
     })
-    expect(validateTrackingCorrectionForm({ carrier: 'CJ', trackingNo: '1', reason: '오타' })).toEqual({})
+    expect(validateTrackingCorrectionForm({ carrier: 'CJ', trackingNo: '12345678', reason: '오타' })).toEqual({})
   })
 })

@@ -9,7 +9,8 @@ import SellerDeliveryTrackingDialog from '#layers/seller/app/components/seller/S
 
 /**
  * 셀러 쓰기 다이얼로그 3종(발송·배송완료·송장 정정)의 에러 분기(Track 90-B-3·FE-44 §8 이월): **403 SELLER_SUSPENDED는 호출부가 danger 토스트로 직접 표시**
- * (배너에만 의존 금지) 후 cancel · 422/404 상태 경합은 warning + stale · 409 송장 중복은 필드 오류 유지 · 성공은 done. API·토스트는 mock(실 네트워크 없음).
+ * (배너에만 의존 금지) 후 cancel · 422/404 상태 경합은 warning + stale · 송장 형식은 제출 전 클라이언트 검증 + 서버 400 fieldErrors 문구를 필드 오류로
+ * 유지(D-227) · 성공은 done. API·토스트는 mock(실 네트워크 없음).
  */
 const { ordersApiMock, deliveriesApiMock, toastMock } = vi.hoisted(() => ({
   ordersApiMock: { prepareShipment: vi.fn() },
@@ -23,7 +24,8 @@ vi.mock('#layers/seller/app/composables/useSellerToast', () => ({ useSellerToast
 const SUSPENDED_403 = { status: 403, data: { code: 'SELLER_SUSPENDED', detail: '정지' } }
 const SUSPENDED_MESSAGE = '정지 상태의 셀러는 변경 작업을 할 수 없습니다. 조회만 가능하며 문의는 관리자에게 하세요.'
 const ORDER_ITEM = { orderItemId: 'oit_1', orderNo: '20260917-A', productName: '반찬통', optionLabel: undefined, quantity: 1 }
-const DELIVERY = { deliveryId: 'dlv_1', orderNo: '20260917-A', productName: '반찬통', carrier: 'CJ' as const, trackingNo: 'TRK-1' }
+const DELIVERY = { deliveryId: 'dlv_1', orderNo: '20260917-A', productName: '반찬통', carrier: 'CJ' as const, trackingNo: 'TRK-00001' }
+const TRACKING_NO_FORMAT_MESSAGE = '송장번호는 숫자·영문·하이픈 8~20자로 입력해 주세요.'
 
 function dialogBody() {
   // v-dialog는 teleport로 body에 그린다 → document에서 찾는다.
@@ -67,7 +69,7 @@ describe('셀러 쓰기 다이얼로그 — 403 SELLER_SUSPENDED 표시·에러 
     expect(toastMock.warning).toHaveBeenCalledWith(expect.stringContaining('배송완료·송장 정정은 배송중만'))
     expect(wrapper.emitted('stale')).toHaveLength(1)
 
-    deliveriesApiMock.markDelivered.mockResolvedValueOnce({ deliveryPublicId: 'dlv_1', status: 'DELIVERED', carrier: 'CJ', trackingNo: 'TRK-1' })
+    deliveriesApiMock.markDelivered.mockResolvedValueOnce({ deliveryPublicId: 'dlv_1', status: 'DELIVERED', carrier: 'CJ', trackingNo: 'TRK-00001' })
     await clickOk('delivered-dialog-ok')
     expect(toastMock.success).toHaveBeenCalledWith('배송완료로 처리했습니다.')
     expect(wrapper.emitted('done')).toHaveLength(1)
@@ -83,13 +85,13 @@ describe('셀러 쓰기 다이얼로그 — 403 SELLER_SUSPENDED 표시·에러 
     wrapper.findComponent(VSelect).vm.$emit('update:modelValue', 'HANJIN')
     const input = dialogBody().querySelector<HTMLInputElement>('[data-testid="shipment-tracking-no"] input')
     if (!input) throw new Error('송장 입력 없음')
-    input.value = ' TRK-NEW '
+    input.value = ' TRK-NEW-01 '
     input.dispatchEvent(new Event('input'))
     await flushPromises()
 
     ordersApiMock.prepareShipment.mockRejectedValueOnce(SUSPENDED_403)
     await clickOk('shipment-dialog-ok')
-    expect(ordersApiMock.prepareShipment).toHaveBeenCalledWith('oit_1', { carrier: 'HANJIN', trackingNo: 'TRK-NEW' })
+    expect(ordersApiMock.prepareShipment).toHaveBeenCalledWith('oit_1', { carrier: 'HANJIN', trackingNo: 'TRK-NEW-01' })
     expect(toastMock.danger).toHaveBeenCalledWith(SUSPENDED_MESSAGE)
     expect(wrapper.emitted('cancel')).toHaveLength(1)
 
@@ -99,10 +101,36 @@ describe('셀러 쓰기 다이얼로그 — 403 SELLER_SUSPENDED 표시·에러 
     expect(wrapper.emitted('stale')).toHaveLength(1)
   })
 
-  it('송장 정정: 현재 값 프리필·사유 없으면 버튼 비활성 → 403 → danger + cancel · 409 → 송장번호 필드 오류(다이얼로그 유지) · 성공 → info + done', async () => {
+  it('발송 송장 형식(D-227): 자모 입력 → 제출 전 클라이언트 검증 문구·API 미호출 / 서버 400 fieldErrors → 입력칸 아래 서버 문구(다이얼로그 유지·토스트 없음)', async () => {
+    const wrapper = await mountDialog(SellerShipmentDialog, { item: ORDER_ITEM })
+    wrapper.findComponent(VSelect).vm.$emit('update:modelValue', 'CJ')
+    const input = dialogBody().querySelector<HTMLInputElement>('[data-testid="shipment-tracking-no"] input')
+    if (!input) throw new Error('송장 입력 없음')
+    input.value = 'ㅗㅗㅗ'
+    input.dispatchEvent(new Event('input'))
+    await flushPromises()
+    await clickOk('shipment-dialog-ok')
+    expect(ordersApiMock.prepareShipment).not.toHaveBeenCalled()
+    expect(dialogBody().querySelector('[data-testid="shipment-tracking-no"]')?.textContent).toContain(TRACKING_NO_FORMAT_MESSAGE)
+
+    input.value = 'CJ-00000001'
+    input.dispatchEvent(new Event('input'))
+    await flushPromises()
+    const serverMessage = '서버가 보낸 송장 형식 문구'
+    ordersApiMock.prepareShipment.mockRejectedValueOnce({
+      status: 400, data: { code: 'VALIDATION_FAILED', fieldErrors: [{ field: 'trackingNo', message: serverMessage }] },
+    })
+    await clickOk('shipment-dialog-ok')
+    expect(ordersApiMock.prepareShipment).toHaveBeenCalledWith('oit_1', { carrier: 'CJ', trackingNo: 'CJ-00000001' })
+    expect(dialogBody().querySelector('[data-testid="shipment-tracking-no"]')?.textContent).toContain(serverMessage)
+    expect(toastMock.danger).not.toHaveBeenCalled()
+    expect(wrapper.emitted('cancel')).toBeUndefined()
+  })
+
+  it('송장 정정: 현재 값 프리필·사유 없으면 버튼 비활성 → 403 → danger + cancel · 400 형식 → 송장번호 필드 오류(다이얼로그 유지) · 성공 → info + done', async () => {
     const wrapper = await mountDialog(SellerDeliveryTrackingDialog, { item: DELIVERY })
     const trackingInput = dialogBody().querySelector<HTMLInputElement>('[data-testid="tracking-no"] input')
-    expect(trackingInput?.value).toBe('TRK-1')
+    expect(trackingInput?.value).toBe('TRK-00001')
     const okButton = dialogBody().querySelector<HTMLButtonElement>('[data-testid="tracking-dialog-ok"]')
     expect(okButton?.disabled).toBe(true)
 
@@ -115,16 +143,18 @@ describe('셀러 쓰기 다이얼로그 — 403 SELLER_SUSPENDED 표시·에러 
 
     deliveriesApiMock.correctTracking.mockRejectedValueOnce(SUSPENDED_403)
     await clickOk('tracking-dialog-ok')
-    expect(deliveriesApiMock.correctTracking).toHaveBeenCalledWith('dlv_1', { carrier: 'CJ', trackingNo: 'TRK-1', reason: '택배사 오선택' })
+    expect(deliveriesApiMock.correctTracking).toHaveBeenCalledWith('dlv_1', { carrier: 'CJ', trackingNo: 'TRK-00001', reason: '택배사 오선택' })
     expect(toastMock.danger).toHaveBeenCalledWith(SUSPENDED_MESSAGE)
     expect(wrapper.emitted('cancel')).toHaveLength(1)
 
-    deliveriesApiMock.correctTracking.mockRejectedValueOnce({ status: 409, data: { code: 'DELIVERY_TRACKING_NO_CONFLICT' } })
+    deliveriesApiMock.correctTracking.mockRejectedValueOnce({
+      status: 400, data: { code: 'VALIDATION_FAILED', fieldErrors: [{ field: 'trackingNo', message: TRACKING_NO_FORMAT_MESSAGE }] },
+    })
     await clickOk('tracking-dialog-ok')
-    expect(dialogBody().textContent).toContain('다른 배송이 이미 사용 중인 송장번호입니다.')
+    expect(dialogBody().textContent).toContain(TRACKING_NO_FORMAT_MESSAGE)
     expect(wrapper.emitted('stale')).toBeUndefined()
 
-    deliveriesApiMock.correctTracking.mockResolvedValueOnce({ deliveryPublicId: 'dlv_1', status: 'SHIPPING', carrier: 'CJ', trackingNo: 'TRK-1' })
+    deliveriesApiMock.correctTracking.mockResolvedValueOnce({ deliveryPublicId: 'dlv_1', status: 'SHIPPING', carrier: 'CJ', trackingNo: 'TRK-00001' })
     await clickOk('tracking-dialog-ok')
     expect(toastMock.info).toHaveBeenCalledWith('송장 정보를 수정했습니다.')
     expect(wrapper.emitted('done')).toHaveLength(1)

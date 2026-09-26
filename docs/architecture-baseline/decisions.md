@@ -12916,3 +12916,39 @@ renew 메인 큐레이션(FE-68 β)에 필요한 조회를 기존 `GET /api/v1/p
 - GitGuardian 인시던트 종결 처리(zslab, 대시보드에서 test credential · resolved)
 
 외부 검토: C / 생략(로컬 전용 스크립트·문서만 변경 · 앱 코드·운영 경로 변경 없음)
+
+## D-227 배송 송장번호 전역 유니크 제거 · 입력 형식 검증 · 오류 표시 (운영 사건 대응 · 2026-09-26)
+
+### 배경
+- 운영 사건(2026-09-25 · 데이터 손상 없음): 관리자 발송 처리에서 송장번호 "Jj"가 2분 전 다른 주문에 쓰인 값과 겹쳐 `uk_delivery_tracking_no`(V1 전역 유니크) 위반 → 처리되지 않은 `DataIntegrityViolationException`이 500으로 나갔다. 관리자는 원인을 모른 채 다른 값으로 재시도해 통과했다.
+- 원인: 발송 등록 경로(`OrderShippingService` → `DeliveryService.markShipping`)에 중복 사전 검사가 없었다(사전 검사 409는 D-184 송장 정정 경로에만 있었다). 형식 검증도 없어 "ㅗㅗㅗ"·"ㅕㅕㅕ" 같은 값도 저장됐다.
+- 정찰: 송장번호로 배송 행을 하나만 찾는 코드는 없었다(자동 배송완료 D-210은 deliveryId 커서 + 값 비교, Mock 조회는 DB 미조회, 목록 검색은 페이지 조회). 유니크를 전제한 로직은 정정 경로 409 사전 검사뿐이었다.
+
+### 결정
+- **V39**: `uk_delivery_tracking_no` 제거 → 같은 컬럼에 일반 인덱스 `ix_delivery_tracking_no`(목록 송장 검색 유지). 데이터 변경 없음. 롤백 주석에 "V39 뒤 같은 번호가 2건 이상이면 UNIQUE 재생성이 실패한다"와 확인 쿼리·이력 행 삭제 절차를 적었다.
+- **D-184 §8 대체**: "송장번호 중복 금지는 도메인 불변식"(decisions.md D-184 §8 · 외부 검토 r2 기각 근거)을 대체한다. 배송 행은 주문 품목 단위라 합포장(같은 상자·같은 송장)은 여러 행에 같은 번호가 정상이고, 택배사는 번호를 재사용하며 택배사끼리도 번호가 겹친다. 정정 경로 409 사전 검사·`DeliveryTrackingNoConflictException`·핸들러·FE 409 분기를 함께 제거했다. invariants.md DLV-1을 형식 규칙으로 바꿨다.
+- **형식 규칙**: 앞뒤 공백 제거 후 `^[A-Za-z0-9-]{8,20}$` · 위반 400 `VALIDATION_FAILED` · 필드 메시지 "송장번호는 숫자·영문·하이픈 8~20자로 입력해 주세요." 송장 입력 5경로 전부(발송 등록 관리자·셀러 · 정정 관리자·셀러 · 교환품 발송 · 검수 불합격 재발송 · 회수 송장 구매자·관리자 대행 공용 DTO)에 요청 DTO로 건다. 규칙·문구는 `Delivery.TRACKING_NO_PATTERN`·`TRACKING_NO_FORMAT_MESSAGE` 한 곳, 공백 제거는 record 생성자(`Delivery.stripTrackingNo`)라 검증과 저장이 같은 값을 본다.
+- **기존 데이터 미보정**: 규칙 이전 값(Jj·ㅗㅗㅗ·ㅕㅕㅕ 등)은 그대로 둔다. 엔티티는 규칙을 강제하지 않는다. 그런 행을 정정할 때는 송장번호도 규칙에 맞게 바꿔야 한다(현재 값 그대로 택배사만 바꾸면 400).
+- 함께 처리: `PrepareShipmentRequest.carrier` `@NotNull`(택배사 누락이 `MALFORMED_REQUEST` 대신 fieldErrors 400). 교환품 발송 DTO carrier는 범위 밖이라 그대로다.
+- 계약 변경: 검수 PASS 요청에 `reshipTrackingNo: ""`를 보내면 이제 400이다(FE는 PASS에 이 필드를 보내지 않는다).
+
+### §1-A 갈림길·채택/기각 근거
+- **α 전역 유니크 제거 + 형식 검증(채택)** 합포장·번호 재사용·택배사 간 중복을 모두 정상 입력으로 받는다.
+- **β 택배사 + 송장번호 복합 유니크(기각)** 택배사 간 중복만 풀린다. 합포장(같은 택배사·같은 번호 여러 품목)과 택배사의 번호 재사용은 여전히 막힌다.
+- **γ 유니크 유지 + 중복 안내 문구(기각)** 500은 없어지지만 합포장 발송 자체가 계속 막힌다.
+
+### §2 확정 구현 규칙
+- 검증(2026-09-26): BE `gradlew test --rerun-tasks` 1619 tests 통과(직전 1612) → 셀프 리뷰 반영 후 영향 테스트(ClaimReturnIntegrationTest 22·AuditFieldMaskingPolicyTest 3) 통과 · 총 1620 · 로컬 DB V39 적용·`tracking_no` 인덱스 NON_UNIQUE 확인 · FE typecheck 0 · vitest 839 · e2e 영향 spec 25(콜드 트랩 3건 단독 재실행 통과).
+- 신규 테스트: 관리자 발송(자모 400·필드 메시지 / 다른 주문과 같은 번호 + 앞뒤 공백 200·공백 제거 저장 / 같은 주문 다른 품목 합포장 200) · 셀러 발송(자모·7자·21자·특수문자 400 / 택배사 누락 fieldErrors / 다른 주문과 같은 번호 + 공백 200) · 회수 송장 구매자·관리자 대행·검수 재발송(형식 400 · 공백 제거 저장).
+- 정정 경로 테스트는 409 기대 → 다른 배송과 같은 번호로 정정 200으로, `DeliveryRepositoryTest`는 UK 위반 기대 → 같은 번호 2건 허용으로 바꿨다.
+- 규칙 미통과 테스트 입력 교체(검증 의도 유지): BE `ClaimPipelineIntegrationTest` X-1·X-2 → PIP-RESHIP-X1·X2 / e2e `seller-orders` E2E-403 → E2E-403-0001 / vitest `seller-write-dialogs` TRK-1 → TRK-00001·' TRK-NEW ' → ' TRK-NEW-01 ' · `admin-order-helpers` ' 123 ' → ' 1234567890 ' · `seller-order-helpers` ' 1234 ' → ' 12345678 ' · `admin-claim-helpers` ' 1234 ' → ' 12345678 '·' R-1 ' → ' R-000001 ' · `seller-delivery-helpers` '1' → '12345678'.
+- 시드·워크스루가 만드는 송장번호는 전부 규칙을 통과한다(demo-seed `DEMO`+8자리 12자 · walkthrough 15~17자) — 스크립트 수정 없음.
+- 셀프 리뷰: 지적 9건 중 수용 3건(롤백 주석 이력 행 삭제 절차 · 발송 외 경로 형식 테스트 추가 · 옛 계약 Javadoc 4곳).
+
+### §8 이월
+- 감사 로그: 배송 처리·클레임 조치가 audit_log에 남지 않음 → D-220 운영 구조.
+- 운영 서버 `/tmp/incident-20260925` 로그 삭제(수정 배포 후 · 서버 작업).
+- 배포 전 운영 규칙 미통과 행 규모 확인(참고): `SELECT COUNT(*) FROM delivery WHERE tracking_no NOT REGEXP '^[A-Za-z0-9-]{8,20}$'`.
+- `scripts/walkthrough/prepare.py:80` 주석의 "UNIQUE(DLV-1)" 문구가 옛 설명으로 남아 있다(스크립트 미수정 지시).
+
+외부 검토: B / 생략(유니크 제거·입력 검증 추가로 범위가 좁고 데이터 변경 없음 · 롤백 절차 주석화 · 서브에이전트 셀프 리뷰로 단건 조회 잔존·검증 우회·경로 누락·마이그레이션 안전성 확인 · 운영 500 재발 방지 우선)

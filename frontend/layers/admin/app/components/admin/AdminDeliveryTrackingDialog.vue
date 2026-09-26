@@ -6,6 +6,7 @@ import {
   type AdminDeliveryCarrier,
 } from '#layers/admin/app/lib/constants/admin-order'
 import { ADMIN_DELIVERY_CORRECTION_REASON_MAX } from '#layers/admin/app/lib/constants/admin-delivery'
+import { DELIVERY_TRACKING_NO_FORMAT_MESSAGE, DELIVERY_TRACKING_NO_PATTERN } from '~/lib/constants/delivery'
 import { mapFieldErrors } from '#layers/admin/app/lib/admin-order-view'
 import { extractErrorCode, toAdminErrorMessage } from '#layers/admin/app/lib/admin-error-message'
 import { useAdminDeliveries } from '#layers/admin/app/composables/useAdminDeliveries'
@@ -13,8 +14,8 @@ import { useAdminToast } from '#layers/admin/app/composables/useAdminToast'
 
 /**
  * 송장 정정 다이얼로그(FE-37·Track 89-B). 잘못 입력된 택배사·송장번호를 바로잡는 운영 경로라 사유(필수·감사 로그)를 받는다.
- * 현재 값을 기본으로 채우고, 성공 시 info 토스트(값 보정은 중립) 후 done. 422(배송완료 등 상태 경합)·409(타 배송 송장 중복)는
- * 토스트 후 stale/유지, 400은 fieldErrors 표시(AdminPaymentCancelDialog 패턴).
+ * 현재 값을 기본으로 채우고, 성공 시 info 토스트(값 보정은 중립) 후 done. 422(배송완료 등 상태 경합)는 토스트 후 stale,
+ * 400(송장 형식 등)은 fieldErrors 표시(AdminPaymentCancelDialog 패턴). 타 배송과 같은 송장번호는 허용한다(합포장·D-227).
  */
 const props = defineProps<{
   open: boolean
@@ -52,7 +53,7 @@ async function submit(): Promise<void> {
   const nextReason = reason.value.trim()
   const localErrors: Record<string, string> = {}
   if (nextTrackingNo === '') localErrors.trackingNo = '송장번호를 입력하세요.'
-  if (nextTrackingNo.length > ADMIN_ORDER_TRACKING_NO_MAX) localErrors.trackingNo = `송장번호는 ${ADMIN_ORDER_TRACKING_NO_MAX}자 이하여야 합니다.`
+  else if (!DELIVERY_TRACKING_NO_PATTERN.test(nextTrackingNo)) localErrors.trackingNo = DELIVERY_TRACKING_NO_FORMAT_MESSAGE
   if (nextReason === '') localErrors.reason = '사유를 입력하세요.'
   if (Object.keys(localErrors).length > 0) {
     errors.value = localErrors
@@ -68,8 +69,6 @@ async function submit(): Promise<void> {
     if (code === 'VALIDATION_FAILED') {
       errors.value = mapFieldErrors(error)
       if (Object.keys(errors.value).length === 0) toast.danger(toAdminErrorMessage(error))
-    } else if (code === 'DELIVERY_TRACKING_NO_CONFLICT') {
-      errors.value = { trackingNo: toAdminErrorMessage(error) }
     } else if (code === 'DELIVERY_INVALID_STATE' || code === 'DELIVERY_NOT_FOUND') {
       toast.warning(toAdminErrorMessage(error))
       emit('stale')

@@ -7,7 +7,7 @@ import {
   SELLER_DELIVERY_CORRECTION_REASON_MAX,
   SELLER_DELIVERY_DIRECTION_SEMANTIC,
 } from '#layers/seller/app/lib/constants/seller-delivery'
-import { SELLER_TRACKING_NO_MAX } from '#layers/seller/app/lib/constants/seller-order'
+import { DELIVERY_TRACKING_NO_FORMAT_MESSAGE, DELIVERY_TRACKING_NO_PATTERN } from '~/lib/constants/delivery'
 
 /** 셀러 배송 화면 순수 판정(Track 90-B-3·관리자 admin-delivery-view 복제). 컴포넌트가 아니라 여기 두어 vitest로 고정한다. */
 
@@ -52,13 +52,13 @@ export interface TrackingCorrectionFormInput {
   reason: string
 }
 
-/** 송장 정정 폼 검증(BE @NotNull·@NotBlank·@Size(100/200)과 동일 한도). */
+/** 송장 정정 폼 검증(BE @NotNull·송장 형식 D-227·사유 @NotBlank·@Size(200)과 동일 규칙). */
 export function validateTrackingCorrectionForm(input: TrackingCorrectionFormInput): Record<string, string> {
   const errors: Record<string, string> = {}
   if (!input.carrier) errors.carrier = '택배사를 선택하세요.'
   const trackingNo = input.trackingNo.trim()
   if (trackingNo === '') errors.trackingNo = '송장번호를 입력하세요.'
-  else if (trackingNo.length > SELLER_TRACKING_NO_MAX) errors.trackingNo = `송장번호는 ${SELLER_TRACKING_NO_MAX}자 이하여야 합니다.`
+  else if (!DELIVERY_TRACKING_NO_PATTERN.test(trackingNo)) errors.trackingNo = DELIVERY_TRACKING_NO_FORMAT_MESSAGE
   const reason = input.reason.trim()
   if (reason === '') errors.reason = '사유를 입력하세요.'
   else if (reason.length > SELLER_DELIVERY_CORRECTION_REASON_MAX) errors.reason = `사유는 ${SELLER_DELIVERY_CORRECTION_REASON_MAX}자 이하여야 합니다.`

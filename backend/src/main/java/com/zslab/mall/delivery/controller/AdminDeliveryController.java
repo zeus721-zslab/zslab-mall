@@ -106,8 +106,8 @@ public class AdminDeliveryController {
     }
 
     /**
-     * 관리자 송장 정정(Track 89-B D-184). SHIPPING에서만 허용(그 외 422 DELIVERY_INVALID_STATE)·타 배송과 송장번호 중복 409·
-     * 사유 누락/200자 초과·carrier 누락 400. 상태는 바꾸지 않으며 값이 바뀐 경우에만 감사 로그를 남긴다. 미존재 404.
+     * 관리자 송장 정정(Track 89-B D-184). SHIPPING에서만 허용(그 외 422 DELIVERY_INVALID_STATE)·타 배송과 같은 송장번호 허용(D-227)·
+     * 송장 형식 위반·사유 누락/200자 초과·carrier 누락 400. 상태는 바꾸지 않으며 값이 바뀐 경우에만 감사 로그를 남긴다. 미존재 404.
      */
     @PatchMapping("/api/v1/admin/deliveries/{deliveryPublicId}/tracking")
     public RegisterExchangeShipmentResponse correctTracking(

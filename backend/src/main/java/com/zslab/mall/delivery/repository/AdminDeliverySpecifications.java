@@ -85,11 +85,4 @@ public final class AdminDeliverySpecifications {
                     root.get("orderItemId").in(items));
         };
     }
-
-    /** 송장번호 정확일치(자기 행 제외·송장 정정 중복 사전 검사용). */
-    public static Specification<Delivery> trackingNoOfOther(String trackingNo, Long selfId) {
-        return (root, query, builder) -> builder.and(
-                builder.equal(root.get("trackingNo"), trackingNo),
-                builder.notEqual(root.get("id"), selfId));
-    }
 }

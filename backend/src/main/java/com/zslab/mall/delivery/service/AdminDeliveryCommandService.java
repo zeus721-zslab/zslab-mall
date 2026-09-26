@@ -9,8 +9,6 @@ import com.zslab.mall.delivery.enums.DeliveryCarrier;
 import com.zslab.mall.delivery.enums.DeliveryStatus;
 import com.zslab.mall.delivery.exception.DeliveryInvalidStateException;
 import com.zslab.mall.delivery.exception.DeliveryNotFoundException;
-import com.zslab.mall.delivery.exception.DeliveryTrackingNoConflictException;
-import com.zslab.mall.delivery.repository.AdminDeliverySpecifications;
 import com.zslab.mall.delivery.repository.DeliveryRepository;
 import com.zslab.mall.order.service.OrderService;
 import java.util.Map;
@@ -37,7 +35,6 @@ public class AdminDeliveryCommandService {
      *
      * @throws DeliveryNotFoundException           deliveryPublicId 미존재(404)
      * @throws DeliveryInvalidStateException       SHIPPING이 아닌 배송(422)
-     * @throws DeliveryTrackingNoConflictException 다른 배송 행이 같은 송장번호를 이미 사용(409·자기 행의 기존 번호는 충돌 아님)
      */
     public Delivery correctTracking(String deliveryPublicId, DeliveryCarrier carrier, String trackingNo, String reason,
             AuditContext auditContext) {
@@ -51,11 +48,6 @@ public class AdminDeliveryCommandService {
             throw new DeliveryInvalidStateException("송장 정정은 배송중(SHIPPING)에서만 가능합니다: status=" + delivery.getStatus());
         }
         String normalizedTrackingNo = trackingNo.trim();
-        long conflicts = deliveryRepository.count(
-                AdminDeliverySpecifications.trackingNoOfOther(normalizedTrackingNo, delivery.getId()));
-        if (conflicts > 0) {
-            throw new DeliveryTrackingNoConflictException("다른 배송이 이미 사용 중인 송장번호입니다: trackingNo=" + normalizedTrackingNo);
-        }
         DeliveryCarrier beforeCarrier = delivery.getCarrier();
         String beforeTrackingNo = delivery.getTrackingNo();
         delivery.correctTracking(carrier, normalizedTrackingNo);

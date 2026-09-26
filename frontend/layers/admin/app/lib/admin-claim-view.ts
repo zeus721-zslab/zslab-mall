@@ -13,7 +13,8 @@ import {
   type ClaimType,
   type RefundStatus,
 } from '~/lib/constants/claim'
-import { ADMIN_ORDER_TRACKING_NO_MAX, type AdminDeliveryCarrier } from '#layers/admin/app/lib/constants/admin-order'
+import type { AdminDeliveryCarrier } from '#layers/admin/app/lib/constants/admin-order'
+import { DELIVERY_TRACKING_NO_FORMAT_MESSAGE, DELIVERY_TRACKING_NO_PATTERN } from '~/lib/constants/delivery'
 
 /**
  * 관리자 클레임 화면 순수 헬퍼(FE-28). 목록·주문 상세·거부 다이얼로그가 공유한다. 라벨 단일 소스는 사용자 constants/claim.ts.
@@ -124,13 +125,13 @@ export interface ExchangeShipmentFormInput {
   trackingNo: string
 }
 
-/** 교환품 발송 폼 검증(FE-30). 송장 규칙은 검수 FAIL 재발송·품목 발송 폼과 같다(택배사 필수·송장 1~100자). */
+/** 교환품 발송 폼 검증(FE-30). 송장 규칙은 검수 FAIL 재발송·품목 발송 폼과 같다(택배사 필수·송장 형식 D-227). */
 export function validateExchangeShipmentForm(input: ExchangeShipmentFormInput): Record<string, string> {
   const errors: Record<string, string> = {}
   if (!input.carrier) errors.carrier = '택배사를 선택하세요.'
   const trackingNo = input.trackingNo.trim()
   if (trackingNo === '') errors.trackingNo = '송장번호를 입력하세요.'
-  else if (trackingNo.length > ADMIN_ORDER_TRACKING_NO_MAX) errors.trackingNo = `송장번호는 ${ADMIN_ORDER_TRACKING_NO_MAX}자 이하여야 합니다.`
+  else if (!DELIVERY_TRACKING_NO_PATTERN.test(trackingNo)) errors.trackingNo = DELIVERY_TRACKING_NO_FORMAT_MESSAGE
   return errors
 }
 
@@ -154,7 +155,7 @@ export interface InspectFormInput {
 
 /**
  * 검수 폼 검증(FE-29·D-172). BE ClaimInspectRequest 조건부 필수(PASS: restock / FAIL: 재발송 택배사·송장)와 동일 규칙을 제출 전에 적용한다.
- * 불합격 사유는 INSPECTION_FAILED 고정이라 입력이 없다. 송장 규칙은 송장 등록 폼(validateShipmentForm)과 같다(≤100).
+ * 불합격 사유는 INSPECTION_FAILED 고정이라 입력이 없다. 송장 규칙은 송장 등록 폼(validateShipmentForm)과 같다(형식 D-227).
  */
 export function validateInspectForm(input: InspectFormInput): Record<string, string> {
   const errors: Record<string, string> = {}
@@ -170,9 +171,7 @@ export function validateInspectForm(input: InspectFormInput): Record<string, str
   if (!input.reshipCarrier) errors.reshipCarrier = '재발송 택배사를 선택하세요.'
   const trackingNo = input.reshipTrackingNo.trim()
   if (trackingNo === '') errors.reshipTrackingNo = '재발송 송장번호를 입력하세요.'
-  else if (trackingNo.length > ADMIN_ORDER_TRACKING_NO_MAX) {
-    errors.reshipTrackingNo = `송장번호는 ${ADMIN_ORDER_TRACKING_NO_MAX}자 이하여야 합니다.`
-  }
+  else if (!DELIVERY_TRACKING_NO_PATTERN.test(trackingNo)) errors.reshipTrackingNo = DELIVERY_TRACKING_NO_FORMAT_MESSAGE
   return errors
 }
 

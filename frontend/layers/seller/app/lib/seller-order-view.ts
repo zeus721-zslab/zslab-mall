@@ -1,6 +1,7 @@
 import type { SellerOrderItemSummary } from '#layers/seller/app/types/seller-order'
 import { claimStatusLabel, claimTypeLabel } from '~/lib/constants/claim'
-import { SELLER_SHIPPABLE_ITEM_STATUSES, SELLER_TRACKING_NO_MAX } from '#layers/seller/app/lib/constants/seller-order'
+import { SELLER_SHIPPABLE_ITEM_STATUSES } from '#layers/seller/app/lib/constants/seller-order'
+import { DELIVERY_TRACKING_NO_FORMAT_MESSAGE, DELIVERY_TRACKING_NO_PATTERN } from '~/lib/constants/delivery'
 
 /**
  * 셀러 주문(품목) 화면 표시·검증 순수 함수(Track 90-B-3·관리자 admin-order-view 복제·vitest 대상). 발송 대상 판정은 BE 규칙
@@ -22,13 +23,13 @@ export interface ShipmentFormInput {
   trackingNo: string
 }
 
-/** 발송 폼 검증(필드 → 메시지). BE @NotBlank·@Size(100)과 동일 한도. */
+/** 발송 폼 검증(필드 → 메시지). 송장번호는 BE와 같은 형식 규칙(공백 제거 후 DELIVERY_TRACKING_NO_PATTERN·D-227). */
 export function validateShipmentForm(input: ShipmentFormInput): Record<string, string> {
   const errors: Record<string, string> = {}
   if (!input.carrier) errors.carrier = '택배사를 선택하세요.'
   const trackingNo = input.trackingNo.trim()
   if (trackingNo === '') errors.trackingNo = '송장번호를 입력하세요.'
-  else if (trackingNo.length > SELLER_TRACKING_NO_MAX) errors.trackingNo = `송장번호는 ${SELLER_TRACKING_NO_MAX}자 이하여야 합니다.`
+  else if (!DELIVERY_TRACKING_NO_PATTERN.test(trackingNo)) errors.trackingNo = DELIVERY_TRACKING_NO_FORMAT_MESSAGE
   return errors
 }
 
