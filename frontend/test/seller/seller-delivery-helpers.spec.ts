@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { DELIVERY_TRACKING_NO_FORMAT_MESSAGE } from '~/lib/constants/delivery'
 import {
   DEFAULT_SELLER_DELIVERY_QUERY,
   hasActiveFilters,
@@ -75,7 +76,7 @@ describe('seller-delivery-view', () => {
       carrier: '택배사를 선택하세요.', trackingNo: '송장번호를 입력하세요.', reason: '사유를 입력하세요.',
     })
     expect(validateTrackingCorrectionForm({ carrier: 'CJ', trackingNo: 'x'.repeat(21), reason: 'r'.repeat(201) })).toEqual({
-      trackingNo: '송장번호는 숫자·영문·하이픈 8~20자로 입력해 주세요.', reason: '사유는 200자 이하여야 합니다.',
+      trackingNo: DELIVERY_TRACKING_NO_FORMAT_MESSAGE, reason: '사유는 200자 이하여야 합니다.',
     })
     expect(validateTrackingCorrectionForm({ carrier: 'CJ', trackingNo: '12345678', reason: '오타' })).toEqual({})
   })

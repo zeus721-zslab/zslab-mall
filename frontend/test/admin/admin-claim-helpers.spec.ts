@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { DELIVERY_TRACKING_NO_FORMAT_MESSAGE } from '~/lib/constants/delivery'
 import {
   approveConfirmMessage,
   confirmPickupMessage,
@@ -83,7 +84,7 @@ describe('admin-claim-view', () => {
     expect(ADMIN_CLAIM_ACTION_LABEL.INITIATE_REFUND).toBe('환불 개시') // Track 89-A
     expect(ADMIN_CLAIM_ACTION_LABEL.REGISTER_EXCHANGE_SHIPMENT).toBe('교환품 발송')
     expect(validateExchangeShipmentForm({ carrier: null, trackingNo: '' })).toEqual({ carrier: '택배사를 선택하세요.', trackingNo: '송장번호를 입력하세요.' })
-    expect(validateExchangeShipmentForm({ carrier: 'CJ', trackingNo: 'X'.repeat(21) }).trackingNo).toBe('송장번호는 숫자·영문·하이픈 8~20자로 입력해 주세요.')
+    expect(validateExchangeShipmentForm({ carrier: 'CJ', trackingNo: 'X'.repeat(21) }).trackingNo).toBe(DELIVERY_TRACKING_NO_FORMAT_MESSAGE)
     expect(validateExchangeShipmentForm({ carrier: 'CJ', trackingNo: ' 12345678 ' })).toEqual({})
   })
 
@@ -137,7 +138,7 @@ describe('반품 회수·검수 헬퍼(admin-claim-view.ts·FE-29)', () => {
     expect(Object.keys(fail).sort()).toEqual(['reshipCarrier', 'reshipTrackingNo'])
     expect(validateInspectForm({ ...base, result: 'FAIL', reshipCarrier: 'CJ', reshipTrackingNo: ' R-000001 ' })).toEqual({})
     expect(validateInspectForm({ ...base, result: 'FAIL', reshipCarrier: 'CJ', reshipTrackingNo: 'R-1' }).reshipTrackingNo)
-      .toBe('송장번호는 숫자·영문·하이픈 8~20자로 입력해 주세요.')
+      .toBe(DELIVERY_TRACKING_NO_FORMAT_MESSAGE)
     expect(validateInspectForm({ ...base, result: 'FAIL', memo: 'm'.repeat(501), reshipCarrier: 'CJ', reshipTrackingNo: 'R' }).memo).toContain('500자')
   })
 })

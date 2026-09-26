@@ -216,11 +216,11 @@ describe('회수 송장 형식(delivery.ts·D-227)', () => {
   it('공백 제거 후 숫자·영문·하이픈 8~20자만 통과', () => {
     for (const valid of ['12345678', 'RTN-TRACK-0001', 'A'.repeat(20)]) expect(DELIVERY_TRACKING_NO_PATTERN.test(valid)).toBe(true)
     for (const invalid of ['ㅕㅕㅕㅕㅕㅕㅕㅕ', '1234567', 'A'.repeat(21), 'RTN#TRACK01', '']) expect(DELIVERY_TRACKING_NO_PATTERN.test(invalid)).toBe(false)
-    expect(DELIVERY_TRACKING_NO_FORMAT_MESSAGE).toBe('송장번호는 숫자·영문·하이픈 8~20자로 입력해 주세요.')
+    expect(DELIVERY_TRACKING_NO_FORMAT_MESSAGE).toBe('송장번호는 영문, 숫자, 하이픈(-)만 사용해 8~20자로 입력해 주세요.')
   })
 
   it('서버 400 fieldErrors의 trackingNo 문구만 꺼낸다(없으면 null → 호출부 일반 안내)', () => {
-    const message = '송장번호는 숫자·영문·하이픈 8~20자로 입력해 주세요.'
+    const message = DELIVERY_TRACKING_NO_FORMAT_MESSAGE
     expect(trackingNoFieldError({ data: { fieldErrors: [{ field: 'carrier', message: '택배사' }, { field: 'trackingNo', message }] } })).toBe(message)
     expect(trackingNoFieldError({ data: { fieldErrors: [{ field: 'carrier', message: '택배사' }] } })).toBeNull()
     expect(trackingNoFieldError({ data: {} })).toBeNull()

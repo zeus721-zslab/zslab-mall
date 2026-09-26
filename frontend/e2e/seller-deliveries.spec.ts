@@ -19,7 +19,7 @@ const SUMMARIES = [
 
 interface Captured { listQueries: URLSearchParams[]; delivered: string[]; patches: { url: string; body: unknown }[] }
 
-const TRACKING_NO_FORMAT_MESSAGE = '송장번호는 숫자·영문·하이픈 8~20자로 입력해 주세요.'
+const TRACKING_NO_FORMAT_MESSAGE = '송장번호는 영문, 숫자, 하이픈(-)만 사용해 8~20자로 입력해 주세요.'
 
 async function mockSellerDeliveries(page: Page, options: { rejectFirstPatch?: boolean } = {}): Promise<Captured> {
   const captured: Captured = { listQueries: [], delivered: [], patches: [] }

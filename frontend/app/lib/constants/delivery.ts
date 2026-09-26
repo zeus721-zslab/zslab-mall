@@ -28,7 +28,7 @@ export function deliveryCarrierLabel(code: string): string {
  * 이 규칙과 문구를 쓴다 — 레이어끼리는 서로 import할 수 없어 base에 둔다.
  */
 export const DELIVERY_TRACKING_NO_PATTERN = /^[A-Za-z0-9-]{8,20}$/
-export const DELIVERY_TRACKING_NO_FORMAT_MESSAGE = '송장번호는 숫자·영문·하이픈 8~20자로 입력해 주세요.'
+export const DELIVERY_TRACKING_NO_FORMAT_MESSAGE = '송장번호는 영문, 숫자, 하이픈(-)만 사용해 8~20자로 입력해 주세요.'
 /** 송장번호 입력 최대 길이(형식 규칙 상한). */
 export const DELIVERY_TRACKING_NO_MAX = 20
 

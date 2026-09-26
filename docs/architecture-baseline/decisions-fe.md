@@ -3666,3 +3666,5 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 - 캡처 docs/frontend/screens-d227/(커밋 제외): 관리자 발송 · 셀러 발송 · 구매자 회수 송장 형식 오류 1440.
 
 외부 검토: B / 생략(D-227과 같은 트랙)
+
+- 보충(2026-09-26 · 문구 명확화(허용 목록 표현)): `DELIVERY_TRACKING_NO_FORMAT_MESSAGE`를 BE와 같은 "송장번호는 영문, 숫자, 하이픈(-)만 사용해 8~20자로 입력해 주세요."로 교체(규칙 불변).
