@@ -22,7 +22,6 @@ import com.zslab.mall.file.exception.StoredFileNotFoundException;
 import com.zslab.mall.common.exception.UnauthenticatedException;
 import com.zslab.mall.delivery.exception.DeliveryInvalidStateException;
 import com.zslab.mall.delivery.exception.DeliveryNotFoundException;
-import com.zslab.mall.delivery.exception.DeliveryTrackingNoConflictException;
 import com.zslab.mall.grade.exception.GradePolicyUnavailableException;
 import com.zslab.mall.inventory.exception.InventoryInvariantViolationException;
 import com.zslab.mall.order.exception.OrderItemInvalidStateException;
@@ -138,7 +137,6 @@ public class GlobalExceptionHandler {
     private static final String CODE_CLAIM_STATE_INVALID = "CLAIM_STATE_INVALID";
     private static final String CODE_INVENTORY_INVARIANT_VIOLATION = "INVENTORY_INVARIANT_VIOLATION";
     private static final String CODE_DELIVERY_INVALID_STATE = "DELIVERY_INVALID_STATE";
-    private static final String CODE_DELIVERY_TRACKING_NO_CONFLICT = "DELIVERY_TRACKING_NO_CONFLICT";
     private static final String CODE_ORDER_ITEM_INVALID_STATE = "ORDER_ITEM_INVALID_STATE";
     private static final String CODE_PURCHASE_CONFIRM_NET_AMOUNT_NOT_POSITIVE = "PURCHASE_CONFIRM_NET_AMOUNT_NOT_POSITIVE";
     private static final String CODE_PURCHASE_CONFIRM_RECONCILIATION_OPEN = "PURCHASE_CONFIRM_RECONCILIATION_OPEN";
@@ -485,14 +483,6 @@ public class GlobalExceptionHandler {
         // Track 89-C: 활성 상품이 연결된 카테고리 soft-delete 차단(409). FK RESTRICT는 하드 삭제만 막으므로 서비스 가드 결과를 변환한다.
         log.warn("[Category] 상품 연결 카테고리 삭제 차단(409): {}", exception.getMessage());
         return build(HttpStatus.CONFLICT, CODE_CATEGORY_HAS_PRODUCTS, exception.getMessage(), request);
-    }
-
-    @ExceptionHandler(DeliveryTrackingNoConflictException.class)
-    public ResponseEntity<ProblemDetail> handleDeliveryTrackingNoConflict(
-            DeliveryTrackingNoConflictException exception, HttpServletRequest request) {
-        // Track 89-B: 송장 정정 시 타 배송 행과 송장번호 중복(409·uk_delivery_tracking_no). 서비스 사전 검사로 UK 위반 500 차단.
-        log.warn("[Delivery] 송장번호 중복(409): {}", exception.getMessage());
-        return build(HttpStatus.CONFLICT, CODE_DELIVERY_TRACKING_NO_CONFLICT, exception.getMessage(), request);
     }
 
     @ExceptionHandler(SettlementAlreadyExistsException.class)

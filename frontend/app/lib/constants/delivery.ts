@@ -23,8 +23,27 @@ export function deliveryCarrierLabel(code: string): string {
   return DELIVERY_CARRIER_LABELS[code as DeliveryCarrier] ?? code
 }
 
-/** 송장번호 최대 길이(BE ReturnShipmentRequest @Size). */
-export const DELIVERY_TRACKING_NO_MAX = 100
+/**
+ * 송장번호 형식(BE Delivery.TRACKING_NO_PATTERN·D-227). 앞뒤 공백을 제거한 값에 적용한다. 송장 입력 화면 전부(구매자 회수·관리자·셀러)가
+ * 이 규칙과 문구를 쓴다 — 레이어끼리는 서로 import할 수 없어 base에 둔다.
+ */
+export const DELIVERY_TRACKING_NO_PATTERN = /^[A-Za-z0-9-]{8,20}$/
+export const DELIVERY_TRACKING_NO_FORMAT_MESSAGE = '송장번호는 숫자·영문·하이픈 8~20자로 입력해 주세요.'
+/** 송장번호 입력 최대 길이(형식 규칙 상한). */
+export const DELIVERY_TRACKING_NO_MAX = 20
+
+/** 송장 등록 실패 응답(RFC7807 + BE fieldErrors) 중 송장 필드 오류만 읽기 위한 최소 형태. */
+export interface TrackingNoErrorLike {
+  data?: { fieldErrors?: { field?: string; message?: string }[] }
+}
+
+/** 400 VALIDATION_FAILED의 trackingNo 필드 문구(없으면 null). 구매자 회수 송장 화면이 서버 문구를 그대로 보여 줄 때 쓴다. */
+export function trackingNoFieldError(error: TrackingNoErrorLike): string | null {
+  const fieldErrors = error.data?.fieldErrors
+  if (!Array.isArray(fieldErrors)) return null
+  const matched = fieldErrors.find((entry) => entry.field === 'trackingNo' && typeof entry.message === 'string' && entry.message !== '')
+  return matched?.message ?? null
+}
 
 /** 배송 상태 code(BE DeliveryStatus READY·SHIPPING·DELIVERED). 회수 송장은 등록 시 SHIPPING·회수 확인 시 DELIVERED. */
 export type DeliveryStatus = 'READY' | 'SHIPPING' | 'DELIVERED'

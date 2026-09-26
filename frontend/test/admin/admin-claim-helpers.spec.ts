@@ -83,8 +83,8 @@ describe('admin-claim-view', () => {
     expect(ADMIN_CLAIM_ACTION_LABEL.INITIATE_REFUND).toBe('환불 개시') // Track 89-A
     expect(ADMIN_CLAIM_ACTION_LABEL.REGISTER_EXCHANGE_SHIPMENT).toBe('교환품 발송')
     expect(validateExchangeShipmentForm({ carrier: null, trackingNo: '' })).toEqual({ carrier: '택배사를 선택하세요.', trackingNo: '송장번호를 입력하세요.' })
-    expect(validateExchangeShipmentForm({ carrier: 'CJ', trackingNo: 'X'.repeat(101) }).trackingNo).toContain('100자')
-    expect(validateExchangeShipmentForm({ carrier: 'CJ', trackingNo: ' 1234 ' })).toEqual({})
+    expect(validateExchangeShipmentForm({ carrier: 'CJ', trackingNo: 'X'.repeat(21) }).trackingNo).toBe('송장번호는 숫자·영문·하이픈 8~20자로 입력해 주세요.')
+    expect(validateExchangeShipmentForm({ carrier: 'CJ', trackingNo: ' 12345678 ' })).toEqual({})
   })
 
   it('claimRefundLabel: refundStatus 우선·없으면 취소 상태 추론 폴백(FE-27 회귀)', () => {
@@ -128,15 +128,16 @@ describe('반품 회수·검수 헬퍼(admin-claim-view.ts·FE-29)', () => {
     expect(rejectReasonItems('RETURN').map((item) => item.value)).not.toContain('INSPECTION_FAILED')
   })
 
-  it('검수 폼: 결과 필수 → PASS는 재입고 필수 → FAIL은 재발송 택배사·송장(≤100) 필수·메모 500(사유 입력 없음)', () => {
+  it('검수 폼: 결과 필수 → PASS는 재입고 필수 → FAIL은 재발송 택배사·송장(형식 D-227) 필수·메모 500(사유 입력 없음)', () => {
     const base = { result: null, restock: null, memo: '', reshipCarrier: null, reshipTrackingNo: '' }
     expect(validateInspectForm(base)).toEqual({ result: '검수 결과를 선택하세요.' })
     expect(validateInspectForm({ ...base, result: 'PASS' })).toEqual({ restock: '재입고 여부를 선택하세요.' })
     expect(validateInspectForm({ ...base, result: 'PASS', restock: false })).toEqual({})
     const fail = validateInspectForm({ ...base, result: 'FAIL' })
     expect(Object.keys(fail).sort()).toEqual(['reshipCarrier', 'reshipTrackingNo'])
-    expect(validateInspectForm({ ...base, result: 'FAIL', reshipCarrier: 'CJ', reshipTrackingNo: ' R-1 ' })).toEqual({})
-    expect(validateInspectForm({ ...base, result: 'FAIL', reshipCarrier: 'CJ', reshipTrackingNo: 'x'.repeat(101) }).reshipTrackingNo).toContain('100자')
+    expect(validateInspectForm({ ...base, result: 'FAIL', reshipCarrier: 'CJ', reshipTrackingNo: ' R-000001 ' })).toEqual({})
+    expect(validateInspectForm({ ...base, result: 'FAIL', reshipCarrier: 'CJ', reshipTrackingNo: 'R-1' }).reshipTrackingNo)
+      .toBe('송장번호는 숫자·영문·하이픈 8~20자로 입력해 주세요.')
     expect(validateInspectForm({ ...base, result: 'FAIL', memo: 'm'.repeat(501), reshipCarrier: 'CJ', reshipTrackingNo: 'R' }).memo).toContain('500자')
   })
 })

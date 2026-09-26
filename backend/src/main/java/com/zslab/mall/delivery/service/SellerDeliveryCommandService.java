@@ -9,8 +9,6 @@ import com.zslab.mall.delivery.enums.DeliveryCarrier;
 import com.zslab.mall.delivery.enums.DeliveryStatus;
 import com.zslab.mall.delivery.exception.DeliveryInvalidStateException;
 import com.zslab.mall.delivery.exception.DeliveryNotFoundException;
-import com.zslab.mall.delivery.exception.DeliveryTrackingNoConflictException;
-import com.zslab.mall.delivery.repository.AdminDeliverySpecifications;
 import com.zslab.mall.delivery.repository.DeliveryRepository;
 import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.order.service.OrderService;
@@ -21,7 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 셀러 배송 명령(Track 90-B-1·{@link AdminDeliveryCommandService} 복제 + 소유 대조). 송장 정정 1건 — 관리자와 같은 제약(SHIPPING만·
- * 타 배송 송장번호 중복 409·사유 필수·상태 불변·값이 바뀐 경우에만 감사)에 셀러 소유 검증을 더한다. 관리자 서비스에 sellerId를 주입하지
+ * 사유 필수·상태 불변·값이 바뀐 경우에만 감사)에 셀러 소유 검증을 더한다. 관리자 서비스에 sellerId를 주입하지
  * 않고 셀러용을 따로 둔다(관리자 무수정 원칙). 쓰기 메서드라 SUSPENDED 셀러는 resolver가 403으로 먼저 막는다(D-190).
  */
 @Service
@@ -40,7 +38,6 @@ public class SellerDeliveryCommandService {
      *
      * @throws DeliveryNotFoundException           deliveryPublicId 미존재·타 셀러 배송(404)
      * @throws DeliveryInvalidStateException       SHIPPING이 아닌 배송(422)
-     * @throws DeliveryTrackingNoConflictException 다른 배송 행이 같은 송장번호를 이미 사용(409·자기 행의 기존 번호는 충돌 아님)
      */
     public Delivery correctTracking(Long sellerId, String deliveryPublicId, DeliveryCarrier carrier, String trackingNo,
             String reason, AuditContext auditContext) {
@@ -54,11 +51,6 @@ public class SellerDeliveryCommandService {
             throw new DeliveryInvalidStateException("송장 정정은 배송중(SHIPPING)에서만 가능합니다: status=" + delivery.getStatus());
         }
         String normalizedTrackingNo = trackingNo.trim();
-        long conflicts = deliveryRepository.count(
-                AdminDeliverySpecifications.trackingNoOfOther(normalizedTrackingNo, delivery.getId()));
-        if (conflicts > 0) {
-            throw new DeliveryTrackingNoConflictException("다른 배송이 이미 사용 중인 송장번호입니다: trackingNo=" + normalizedTrackingNo);
-        }
         DeliveryCarrier beforeCarrier = delivery.getCarrier();
         String beforeTrackingNo = delivery.getTrackingNo();
         delivery.correctTracking(carrier, normalizedTrackingNo);

@@ -14,9 +14,9 @@ import { orderStatusLabel } from '~/lib/constants/order'
 import {
   ADMIN_DELIVERY_STATUS_LABEL,
   ADMIN_ORDER_CANCEL_DETAIL_MAX,
-  ADMIN_ORDER_TRACKING_NO_MAX,
   type AdminDeliveryStatus,
 } from '#layers/admin/app/lib/constants/admin-order'
+import { DELIVERY_TRACKING_NO_FORMAT_MESSAGE, DELIVERY_TRACKING_NO_PATTERN } from '~/lib/constants/delivery'
 
 /**
  * 관리자 주문 화면 표시·검증 순수 함수(FE-27·vitest 대상). 대상 품목 판정은 BE 액션 규칙(AdminOrderQueryService.actions·
@@ -116,16 +116,14 @@ export interface ShipmentFormInput {
   trackingNo: string
 }
 
-/** 송장 폼 검증(필드 → 메시지). BE @NotBlank·@Size(100)과 동일 한도. */
+/** 송장 폼 검증(필드 → 메시지). 송장번호는 BE와 같은 형식 규칙(공백 제거 후 DELIVERY_TRACKING_NO_PATTERN·D-227). */
 export function validateShipmentForm(input: ShipmentFormInput): Record<string, string> {
   const errors: Record<string, string> = {}
   if (!input.orderItemId) errors.orderItemId = '송장을 등록할 품목을 선택하세요.'
   if (!input.carrier) errors.carrier = '택배사를 선택하세요.'
   const trackingNo = input.trackingNo.trim()
   if (trackingNo === '') errors.trackingNo = '송장번호를 입력하세요.'
-  else if (trackingNo.length > ADMIN_ORDER_TRACKING_NO_MAX) {
-    errors.trackingNo = `송장번호는 ${ADMIN_ORDER_TRACKING_NO_MAX}자 이하여야 합니다.`
-  }
+  else if (!DELIVERY_TRACKING_NO_PATTERN.test(trackingNo)) errors.trackingNo = DELIVERY_TRACKING_NO_FORMAT_MESSAGE
   return errors
 }
 

@@ -74,7 +74,7 @@ public class SellerDeliveryManagementController {
 
     /**
      * 셀러 송장 정정(관리자 {@code PATCH /api/v1/admin/deliveries/{id}/tracking}와 동일 제약). SHIPPING에서만(그 외 422 DELIVERY_INVALID_STATE)·
-     * 타 배송과 송장번호 중복 409·사유 누락/200자 초과·carrier 누락 400. 미존재·타 셀러 배송 404(존재 은닉). SUSPENDED 셀러 403(resolver).
+     * 타 배송과 같은 송장번호 허용(D-227)·송장 형식 위반·사유 누락/200자 초과·carrier 누락 400. 미존재·타 셀러 배송 404(존재 은닉). SUSPENDED 셀러 403(resolver).
      */
     @PatchMapping("/api/v1/seller/deliveries/{deliveryPublicId}/tracking")
     public SellerDeliveryTrackingCorrectionResponse correctTracking(

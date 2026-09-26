@@ -91,12 +91,16 @@ describe('폼 검증·에러 매핑', () => {
     expect(validateCancelForm({ unpaid: false, selectedItemIds: ['oit_1'], reasonCode: 'OTHER', reasonDetail: '' })).toEqual({})
   })
 
-  it('송장: 품목·택배사 필수·송장번호 공백 불가·100자 초과 불가', () => {
+  it('송장: 품목·택배사 필수·송장번호 공백 불가·형식(공백 제거 후 숫자·영문·하이픈 8~20자·D-227)', () => {
     expect(validateShipmentForm({ orderItemId: null, carrier: null, trackingNo: '   ' })).toEqual({
       orderItemId: expect.any(String), carrier: expect.any(String), trackingNo: expect.stringContaining('입력'),
     })
-    expect(validateShipmentForm({ orderItemId: 'oit_1', carrier: 'CJ', trackingNo: '1'.repeat(101) })).toEqual({ trackingNo: expect.stringContaining('100') })
-    expect(validateShipmentForm({ orderItemId: 'oit_1', carrier: 'CJ', trackingNo: ' 123 ' })).toEqual({})
+    const formatError = { trackingNo: '송장번호는 숫자·영문·하이픈 8~20자로 입력해 주세요.' }
+    for (const invalid of ['ㅗㅗㅗㅗㅗㅗㅗㅗ', '1234567', '1'.repeat(21), 'CJ_1234#5678']) {
+      expect(validateShipmentForm({ orderItemId: 'oit_1', carrier: 'CJ', trackingNo: invalid })).toEqual(formatError)
+    }
+    expect(validateShipmentForm({ orderItemId: 'oit_1', carrier: 'CJ', trackingNo: ' 1234567890 ' })).toEqual({})
+    expect(validateShipmentForm({ orderItemId: 'oit_1', carrier: 'CJ', trackingNo: 'CJ-' + '1'.repeat(17) })).toEqual({})
   })
 
   it('fieldErrors → 필드별 첫 메시지·orderItemPublicIds[n]은 items로 묶음·비배열은 빈 객체', () => {

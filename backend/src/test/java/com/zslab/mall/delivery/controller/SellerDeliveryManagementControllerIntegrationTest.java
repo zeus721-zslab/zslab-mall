@@ -225,7 +225,7 @@ class SellerDeliveryManagementControllerIntegrationTest extends AbstractIntegrat
     }
 
     @Test
-    @DisplayName("T5 송장 정정 거부: 타 셀러 배송 404(존재 은닉·값 불변) · 미존재 404 · DELIVERED 422 · 중복 송장 409 · 사유 공백 400")
+    @DisplayName("T5 송장 정정 거부: 타 셀러 배송 404(존재 은닉·값 불변) · 미존재 404 · DELIVERED 422 · 사유 공백 400 · 타 배송 번호는 허용 200(D-227)")
     void correctTracking_rejected() throws Exception {
         // 셀러 A가 셀러 B의 SHIPPING 아닌 D2·회수 D3에 접근 → 404(403 아님)
         mockMvc.perform(patch(LIST_URL + "/" + D2_PID + "/tracking").headers(authHeaders.seller(USER_A))
@@ -241,11 +241,6 @@ class SellerDeliveryManagementControllerIntegrationTest extends AbstractIntegrat
                         .contentType(MediaType.APPLICATION_JSON).content(correctionBody("CJ", NEW_TRACKING, "사유")))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("DELIVERY_INVALID_STATE"));
-        // 타 배송(D4)의 송장번호로 정정 → 409(UK 충돌 사전 검사)
-        mockMvc.perform(patch(LIST_URL + "/" + D1_PID + "/tracking").headers(authHeaders.seller(USER_A))
-                        .contentType(MediaType.APPLICATION_JSON).content(correctionBody("CJ", D4_TRACKING, "사유")))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("DELIVERY_TRACKING_NO_CONFLICT"));
         // 자기 행의 기존 번호·같은 택배사 재요청 → 200·감사 0행(무변경)
         mockMvc.perform(patch(LIST_URL + "/" + D1_PID + "/tracking").headers(authHeaders.seller(USER_A))
                         .contentType(MediaType.APPLICATION_JSON).content(correctionBody("CJ", D1_TRACKING, "사유")))
@@ -255,6 +250,12 @@ class SellerDeliveryManagementControllerIntegrationTest extends AbstractIntegrat
                         .contentType(MediaType.APPLICATION_JSON).content(correctionBody("CJ", NEW_TRACKING, " ")))
                 .andExpect(status().isBadRequest());
         assertThat(deliveryRow(D1).get("tracking_no")).isEqualTo(D1_TRACKING);
+        // 타 배송(D4)의 송장번호로 정정 → 합포장·택배사 번호 재사용이라 허용(유니크·409 사전 검사 제거)
+        mockMvc.perform(patch(LIST_URL + "/" + D1_PID + "/tracking").headers(authHeaders.seller(USER_A))
+                        .contentType(MediaType.APPLICATION_JSON).content(correctionBody("CJ", D4_TRACKING, "합포장 송장으로 정정")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.trackingNo").value(D4_TRACKING));
+        assertThat(deliveryRow(D1).get("tracking_no")).isEqualTo(D4_TRACKING);
     }
 
     @Test

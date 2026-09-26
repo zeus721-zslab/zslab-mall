@@ -105,7 +105,7 @@ test.describe('셀러 주문 화면(90-B-3)', () => {
 
     await page.getByTestId('row-prepare-shipment').click()
     await pickOption(page, 'shipment-carrier', '한진택배')
-    await page.getByTestId('shipment-tracking-no').locator('input').fill('E2E-403')
+    await page.getByTestId('shipment-tracking-no').locator('input').fill('E2E-403-0001')
     await page.getByTestId('shipment-dialog-ok').click()
     await expect(page.getByTestId('seller-toaster')).toContainText('정지 상태의 셀러는 변경 작업을 할 수 없습니다')
     await expect(page.getByTestId('seller-suspended-notice')).toBeVisible()

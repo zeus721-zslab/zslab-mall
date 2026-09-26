@@ -22,7 +22,7 @@ import lombok.NoArgsConstructor;
  * 배송(DLV Aggregate Root·ARCHIVE·public_id {@code dlv_}).
  *
  * <p>orderItemId(Order Aggregate)는 외부 — D-01에 따라 Long 필드만(@ManyToOne 금지).
- * trackingNo는 nullable·UK(DLV-1)·MariaDB UNIQUE KEY에서 NULL 다건 허용(DLV-1).
+ * trackingNo는 nullable·유니크 아님(DLV-1·D-227 — 합포장·택배사 번호 재사용).
  * deleted_at 없음(ARCHIVE 분류) — soft-delete 미적용.
  *
  * <p>equals/hashCode·toString은 {@link AbstractPublicIdFullAuditableEntity}가 publicId 기준으로 제공한다.
@@ -32,6 +32,18 @@ import lombok.NoArgsConstructor;
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Delivery extends AbstractPublicIdFullAuditableEntity {
+
+    /**
+     * 송장번호 입력 형식(D-227). 송장 입력 요청 DTO 전부가 {@link #stripTrackingNo}로 앞뒤 공백을 제거한 뒤 이 규칙으로 검증한다.
+     * 규칙 이전에 저장된 값은 보정하지 않으므로 엔티티에서는 강제하지 않는다.
+     */
+    public static final String TRACKING_NO_PATTERN = "^[A-Za-z0-9-]{8,20}$";
+    public static final String TRACKING_NO_FORMAT_MESSAGE = "송장번호는 숫자·영문·하이픈 8~20자로 입력해 주세요.";
+
+    /** 요청 DTO 생성 시 검증 전에 호출한다 — {@code @Pattern}이 공백 제거 후 값을 보도록(D-227). */
+    public static String stripTrackingNo(String trackingNo) {
+        return trackingNo == null ? null : trackingNo.strip();
+    }
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -49,7 +61,7 @@ public class Delivery extends AbstractPublicIdFullAuditableEntity {
     @Column(name = "carrier", nullable = false)
     private DeliveryCarrier carrier;
 
-    /** 발송 전 NULL 허용. MariaDB UNIQUE KEY에서 NULL은 비교 제외 — 다건 NULL 삽입 허용(DLV-1). */
+    /** 발송 전 NULL 허용. 합포장·택배사 번호 재사용으로 여러 행이 같은 번호를 쓸 수 있다(DLV-1·D-227 유니크 제거). */
     @Column(name = "tracking_no", length = 100)
     private String trackingNo;
 

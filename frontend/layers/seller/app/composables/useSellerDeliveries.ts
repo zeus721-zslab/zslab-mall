@@ -17,7 +17,7 @@ export function useSellerDeliveries() {
     return api<SellerDeliveryListResponse>('/v1/seller/deliveries', { query: toSellerDeliveryApiParams(query) })
   }
 
-  /** 송장 정정. SHIPPING 외 422(DELIVERY_INVALID_STATE)·타 배송과 송장 중복 409(DELIVERY_TRACKING_NO_CONFLICT)·타 셀러 404·정지 셀러 403은 throw. */
+  /** 송장 정정. SHIPPING 외 422(DELIVERY_INVALID_STATE)·송장 형식 400(VALIDATION_FAILED)·타 셀러 404·정지 셀러 403은 throw. */
   function correctTracking(deliveryPublicId: string, body: SellerDeliveryTrackingCorrectionRequest): Promise<SellerDeliveryResponse> {
     // 템플릿 리터럴 경로는 nitro 타입드 라우트 추론이 과도해(TS2321) string으로 고정한다.
     const path: string = `/v1/seller/deliveries/${deliveryPublicId}/tracking`

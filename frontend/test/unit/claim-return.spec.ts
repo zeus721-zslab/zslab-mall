@@ -15,6 +15,7 @@ import { exchangeOptionCandidates, variantOptionLabel } from '~/lib/utils/claim-
 import { claimTimeline } from '~/lib/utils/claim-timeline'
 import { CLAIM_ATTACHMENT_MAX_BYTES, precheckClaimAttachments, uploadItemErrorMessage, uploadRequestErrorMessage } from '~/lib/utils/claim-attachment'
 import { claimRequestErrorMessage } from '~/lib/utils/claim-request-error'
+import { DELIVERY_TRACKING_NO_FORMAT_MESSAGE, DELIVERY_TRACKING_NO_PATTERN, trackingNoFieldError } from '~/lib/constants/delivery'
 import type { ClaimDetail } from '~/types/claim'
 
 // FE-29: 반품 요청 조건(사유 3값·DELIVERED만·첨부 허용 사유)·거부 사유 5값(INSPECTION_FAILED 일반 거부 제외)·타임라인·업로드 검증·422 문구.
@@ -207,5 +208,22 @@ describe('claimRequestErrorMessage(claim-request-error.ts)', () => {
     expect(claimRequestErrorMessage({ statusCode: 400, data: { detail: '이미 다른 클레임에 연결된 첨부입니다' } })).toContain('사진 첨부')
     expect(claimRequestErrorMessage({ statusCode: 400, data: { detail: 'orderItemPublicId 형식' } })).toBe('요청 정보를 확인하세요.')
     expect(claimRequestErrorMessage({ statusCode: 404 })).toBeNull()
+  })
+})
+
+// D-227: 회수 송장 형식(BE Delivery.TRACKING_NO_PATTERN과 같은 규칙)·서버 400 fieldErrors 문구 추출.
+describe('회수 송장 형식(delivery.ts·D-227)', () => {
+  it('공백 제거 후 숫자·영문·하이픈 8~20자만 통과', () => {
+    for (const valid of ['12345678', 'RTN-TRACK-0001', 'A'.repeat(20)]) expect(DELIVERY_TRACKING_NO_PATTERN.test(valid)).toBe(true)
+    for (const invalid of ['ㅕㅕㅕㅕㅕㅕㅕㅕ', '1234567', 'A'.repeat(21), 'RTN#TRACK01', '']) expect(DELIVERY_TRACKING_NO_PATTERN.test(invalid)).toBe(false)
+    expect(DELIVERY_TRACKING_NO_FORMAT_MESSAGE).toBe('송장번호는 숫자·영문·하이픈 8~20자로 입력해 주세요.')
+  })
+
+  it('서버 400 fieldErrors의 trackingNo 문구만 꺼낸다(없으면 null → 호출부 일반 안내)', () => {
+    const message = '송장번호는 숫자·영문·하이픈 8~20자로 입력해 주세요.'
+    expect(trackingNoFieldError({ data: { fieldErrors: [{ field: 'carrier', message: '택배사' }, { field: 'trackingNo', message }] } })).toBe(message)
+    expect(trackingNoFieldError({ data: { fieldErrors: [{ field: 'carrier', message: '택배사' }] } })).toBeNull()
+    expect(trackingNoFieldError({ data: {} })).toBeNull()
+    expect(trackingNoFieldError({})).toBeNull()
   })
 })

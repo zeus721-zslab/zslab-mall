@@ -15,7 +15,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 
 /**
- * {@link DeliveryRepository} @DataJpaTest — CRUD·public_id·tracking_no UK·FK·ENUM constraint 검증.
+ * {@link DeliveryRepository} @DataJpaTest — CRUD·public_id·tracking_no 중복 허용(D-227)·FK·ENUM constraint 검증.
  *
  * <p>order_item은 Order Aggregate 외부 — nativeQuery seed(FK_CHECKS=0·LT-02 try-finally 복원).
  */
@@ -79,7 +79,7 @@ class DeliveryRepositoryTest extends Batch1DataJpaTestBase {
     }
 
     @Test
-    @DisplayName("tracking_no NULL 다건 삽입 허용: MariaDB UNIQUE KEY에서 NULL 비교 제외(DLV-1)")
+    @DisplayName("tracking_no NULL 다건 삽입 허용(DLV-1)")
     void insert_trackingNoNull_multipleAllowed() {
         long orderItemId = seedOrderItem(
             "ord_21234567890123456789012345",
@@ -94,8 +94,8 @@ class DeliveryRepositoryTest extends Batch1DataJpaTestBase {
     }
 
     @Test
-    @DisplayName("tracking_no NOT NULL 중복 삽입 → PersistenceException (UK 위반·nativeQuery)")
-    void insert_duplicateTrackingNoNotNull_throwsPersistenceException() {
+    @DisplayName("tracking_no 같은 번호 2건 삽입 허용 (V39 유니크 제거·합포장·택배사 번호 재사용·D-227)")
+    void insert_duplicateTrackingNoNotNull_allowed() {
         long orderItemId = seedOrderItem(
             "ord_31234567890123456789012345",
             "oit_31234567890123456789012345",
@@ -104,13 +104,15 @@ class DeliveryRepositoryTest extends Batch1DataJpaTestBase {
             "INSERT INTO delivery (public_id, order_item_id, carrier, tracking_no, status, created_at, updated_at) "
             + "VALUES ('dlv_01234567890123456789012345', " + orderItemId + ", 'CJ', 'CJ-DUP-TRACK-001', 'SHIPPING', NOW(6), NOW(6))")
             .executeUpdate();
+        entityManager.getEntityManager().createNativeQuery(
+            "INSERT INTO delivery (public_id, order_item_id, carrier, tracking_no, status, created_at, updated_at) "
+            + "VALUES ('dlv_11234567890123456789012345', " + orderItemId + ", 'CJ', 'CJ-DUP-TRACK-001', 'SHIPPING', NOW(6), NOW(6))")
+            .executeUpdate();
 
-        assertThatThrownBy(() ->
-            entityManager.getEntityManager().createNativeQuery(
-                "INSERT INTO delivery (public_id, order_item_id, carrier, tracking_no, status, created_at, updated_at) "
-                + "VALUES ('dlv_11234567890123456789012345', " + orderItemId + ", 'CJ', 'CJ-DUP-TRACK-001', 'SHIPPING', NOW(6), NOW(6))")
-                .executeUpdate()
-        ).isInstanceOf(PersistenceException.class);
+        Number count = (Number) entityManager.getEntityManager().createNativeQuery(
+            "SELECT COUNT(*) FROM delivery WHERE tracking_no = 'CJ-DUP-TRACK-001'")
+            .getSingleResult();
+        assertThat(count.longValue()).isEqualTo(2L);
     }
 
     @Test

@@ -127,7 +127,7 @@ public class OrderShippingService {
      * <p>OrderItem이 PAID가 아니면(예: 이미 SHIPPING·중복 출고 시도) {@link OrderItem#changeStatus}가 {@link IllegalStateException}을
      * 던진다. 이를 {@link DeliveryInvalidStateException}(422)으로 흡수한다 — 직접 IllegalStateException 매핑은 500 fallback으로 새므로
      * 금지한다. 후속 {@code deliveryService.markShipping}은 방금 생성한 READY Delivery에 대해서만 호출되어(READY→SHIPPING 항상 합법·
-     * trackingNo @NotBlank 보장) 도달 가능한 전이 위반이 없으므로 흡수 대상은 본 전이에 국한한다(handler 내부 예외 오분류 회피).
+     * trackingNo @NotNull·@Pattern 보장) 도달 가능한 전이 위반이 없으므로 흡수 대상은 본 전이에 국한한다(handler 내부 예외 오분류 회피).
      */
     private void changeToPreparing(OrderItem orderItem) {
         // Track 80 D-169(C2): 활성 클레임(REQUESTED·APPROVED) 품목은 송장 등록 차단. CANCEL_REQUESTED→PREPARING이 매트릭스상 합법

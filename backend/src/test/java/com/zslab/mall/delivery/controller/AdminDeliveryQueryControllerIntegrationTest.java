@@ -287,16 +287,9 @@ class AdminDeliveryQueryControllerIntegrationTest extends AbstractIntegrationTes
     }
 
     @Test
-    @DisplayName("T9 송장 중복: 타 배송 번호 409 DELIVERY_TRACKING_NO_CONFLICT(불변) · 자기 행 기존 번호 재저장은 200·무변경이면 감사 0행")
+    @DisplayName("T9 송장 중복 허용(D-227): 자기 행 기존 번호로 택배사만 정정 200·감사 1행 · 같은 값 재요청 무변경 · 타 배송(D4) 번호로 정정 200·감사 2행")
     void correctTracking_duplicate() throws Exception {
-        mockMvc.perform(patch(LIST_URL + "/" + D1_PID + "/tracking").headers(authHeaders.admin(ADMIN))
-                        .contentType(MediaType.APPLICATION_JSON).content(correctionBody("CJ", D4_TRACKING, "사유")))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("DELIVERY_TRACKING_NO_CONFLICT"));
-        assertThat(deliveryRow(D1).get("tracking_no")).isEqualTo(D1_TRACKING);
-        assertThat(auditCount(D1)).isZero();
-
-        // 자기 자신의 기존 번호로 택배사만 정정 → 충돌 아님·carrier 변경 감사 1행
+        // 자기 자신의 기존 번호로 택배사만 정정 → carrier 변경 감사 1행
         mockMvc.perform(patch(LIST_URL + "/" + D1_PID + "/tracking").headers(authHeaders.admin(ADMIN))
                         .contentType(MediaType.APPLICATION_JSON).content(correctionBody("POST", D1_TRACKING, "택배사만 정정")))
                 .andExpect(status().isOk())
@@ -309,6 +302,15 @@ class AdminDeliveryQueryControllerIntegrationTest extends AbstractIntegrationTes
                         .contentType(MediaType.APPLICATION_JSON).content(correctionBody("POST", D1_TRACKING, "재요청")))
                 .andExpect(status().isOk());
         assertThat(auditCount(D1)).isEqualTo(1);
+
+        // 타 배송(D4)이 쓰는 번호로 정정 → 합포장·택배사 번호 재사용이라 허용(유니크 제거·409 사전 검사 제거)
+        mockMvc.perform(patch(LIST_URL + "/" + D1_PID + "/tracking").headers(authHeaders.admin(ADMIN))
+                        .contentType(MediaType.APPLICATION_JSON).content(correctionBody("LOGEN", D4_TRACKING, "합포장 송장으로 정정")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.trackingNo").value(D4_TRACKING));
+        assertThat(deliveryRow(D1).get("tracking_no")).isEqualTo(D4_TRACKING);
+        assertThat(deliveryRow(D4).get("tracking_no")).isEqualTo(D4_TRACKING);
+        assertThat(auditCount(D1)).isEqualTo(2);
     }
 
     // ---------- helpers ----------

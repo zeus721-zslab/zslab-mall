@@ -13,8 +13,8 @@ import { useSellerToast } from '#layers/seller/app/composables/useSellerToast'
 
 /**
  * 송장 정정 다이얼로그(Track 90-B-3·관리자 AdminDeliveryTrackingDialog 복제·D-191). 잘못 입력한 택배사·송장번호를 바로잡는 경로라 사유(필수·감사 로그)를 받는다.
- * 현재 값을 기본으로 채우고 성공 시 info 토스트 후 done · 422(배송완료 등 상태 경합)·404는 warning 후 stale · 409(타 배송 송장 중복)는 송장번호 필드 오류로
- * 유지 · 400은 fieldErrors 표시 · **403 SELLER_SUSPENDED는 danger 토스트로 직접 표시**(FE-44 §8) 후 cancel.
+ * 현재 값을 기본으로 채우고 성공 시 info 토스트 후 done · 422(배송완료 등 상태 경합)·404는 warning 후 stale · 400(송장 형식 등)은 fieldErrors를
+ * 필드 오류로 유지(타 배송과 같은 송장번호는 허용·D-227) · **403 SELLER_SUSPENDED는 danger 토스트로 직접 표시**(FE-44 §8) 후 cancel.
  */
 const props = defineProps<{
   open: boolean
@@ -64,8 +64,6 @@ async function submit(): Promise<void> {
     } else if (code === 'VALIDATION_FAILED' || code === 'MALFORMED_REQUEST') {
       const mapped = mapFieldErrors(error)
       errors.value = Object.keys(mapped).length > 0 ? mapped : { trackingNo: toSellerErrorMessage(error) }
-    } else if (code === 'DELIVERY_TRACKING_NO_CONFLICT') {
-      errors.value = { trackingNo: toSellerErrorMessage(error) }
     } else if (code === 'DELIVERY_INVALID_STATE' || code === 'DELIVERY_NOT_FOUND') {
       toast.warning(toSellerErrorMessage(error))
       emit('stale')

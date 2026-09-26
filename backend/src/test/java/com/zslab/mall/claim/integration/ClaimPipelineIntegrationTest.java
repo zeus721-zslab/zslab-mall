@@ -410,14 +410,14 @@ class ClaimPipelineIntegrationTest extends AbstractIntegrationTest {
 
         mockMvc.perform(post("/api/v1/admin/claims/" + claimPid + "/inspect").headers(authHeaders.admin(9500L))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"result\":\"FAIL\",\"rejectReasonCode\":\"OTHER\",\"memo\":\"우회\",\"reshipCarrier\":\"CJ\",\"reshipTrackingNo\":\"X-1\"}"))
+                        .content("{\"result\":\"FAIL\",\"rejectReasonCode\":\"OTHER\",\"memo\":\"우회\",\"reshipCarrier\":\"CJ\",\"reshipTrackingNo\":\"PIP-RESHIP-X1\"}"))
                 .andExpect(status().isBadRequest());
         assertThat(claimStatus(CLAIM_ID)).isEqualTo("APPROVED");
         assertThat(jdbc.queryForObject("SELECT inspection_result FROM claim WHERE id = ?", String.class, CLAIM_ID)).isNull();
 
         int restoreFailStatus = mockMvc.perform(post("/api/v1/admin/claims/" + claimPid + "/inspect").headers(authHeaders.admin(9500L))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"result\":\"FAIL\",\"rejectReasonCode\":\"INSPECTION_FAILED\",\"reshipCarrier\":\"CJ\",\"reshipTrackingNo\":\"X-2\"}"))
+                        .content("{\"result\":\"FAIL\",\"rejectReasonCode\":\"INSPECTION_FAILED\",\"reshipCarrier\":\"CJ\",\"reshipTrackingNo\":\"PIP-RESHIP-X2\"}"))
                 .andReturn().getResponse().getStatus();
         assertThat(restoreFailStatus).isGreaterThanOrEqualTo(400);
         assertThat(claimStatus(CLAIM_ID)).isEqualTo("APPROVED");

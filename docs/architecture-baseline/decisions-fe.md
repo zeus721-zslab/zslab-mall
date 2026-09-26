@@ -3649,3 +3649,20 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 - 클레임 목록의 주문번호(`· 주문 {orderNo}`)는 캡션 평문 그대로다(칩 통일은 범위 밖).
 
 외부 검토: B / 생략(D-225와 같은 트랙)
+
+## FE-84: 송장번호 입력 형식 검증·오류 표시 (관리자·셀러·구매자 회수 송장 · D-227) (2026-09-26)
+
+배경: D-227(송장 전역 유니크 제거 · 형식 규칙 · 정정 409 제거)을 입력 화면에 맞춘다. 운영 사건에서 관리자는 500 뒤 원인을 알 수 없었다.
+
+결정:
+- **규칙·문구 한 곳**: base `app/lib/constants/delivery.ts` `DELIVERY_TRACKING_NO_PATTERN`(`/^[A-Za-z0-9-]{8,20}$/`)·`DELIVERY_TRACKING_NO_FORMAT_MESSAGE`(BE 필드 메시지와 같은 문구). 레이어끼리 import할 수 없어 base에 둔다. 입력 상한 `DELIVERY_TRACKING_NO_MAX` 100 → 20, 레이어 상수(`ADMIN_ORDER_TRACKING_NO_MAX`·`SELLER_TRACKING_NO_MAX`)는 base 값을 그대로 쓴다(maxlength·counter).
+- **제출 전 검증**: 앞뒤 공백 제거 후 빈 값은 기존 "송장번호를 입력하세요."(재발송은 "재발송 송장번호를 입력하세요."), 그 외 위반은 공통 문구. 적용: 관리자 발송 · 교환품 발송 · 회수 송장 대행 · 검수 재발송 · 송장 정정 / 셀러 발송 · 송장 정정 / 구매자 회수 송장(빈 값도 공통 문구 — 입력은 native required).
+- **서버 400 표시**: 관리자·셀러 다이얼로그는 기존 `mapFieldErrors`로 fieldErrors 문구를 입력칸 아래에 표시한다(변경 없음 · 다이얼로그 유지 · 재시도 없이 보임). 구매자 회수 송장은 400이면 `trackingNoFieldError`로 서버 문구를 안내 박스에 쓰고, 필드 오류가 없으면 기존 "택배사와 송장번호를 확인하세요." 500 등 예상 밖 오류는 기존 공통 문구 그대로다.
+- **409 제거**: 정정 다이얼로그 2종의 `DELIVERY_TRACKING_NO_CONFLICT` 분기와 관리자·셀러 오류 문구 매핑을 지웠다(BE가 더 이상 내지 않음).
+
+### §2 검증
+- typecheck EXIT 0(error TS 0) · vitest 121 files / 839 passed(+3) · e2e admin-orders·seller-orders·seller-deliveries·admin-claims·claims 25 passed(첫 실행 22 + 각 spec ① 3건 콜드 트랩 · 단독 재실행 통과)
+- 테스트: 신규 seller-write-dialogs 1(클라이언트 형식 문구·API 미호출 / 서버 400 fieldErrors 문구 입력칸 표시·토스트 없음) · claim-return 2(패턴 · `trackingNoFieldError`) · 수정 seller-write-dialogs 정정 409 → 400 fieldErrors · e2e seller-deliveries ② 409 mock → 클라이언트 문구(PATCH 0) → 서버 400 fieldErrors 문구 · 헬퍼 spec 4종 100자 단언 → 형식 단언 · seller-error-message 409 단언 제거. 입력값 교체 목록은 D-227 §2.
+- 캡처 docs/frontend/screens-d227/(커밋 제외): 관리자 발송 · 셀러 발송 · 구매자 회수 송장 형식 오류 1440.
+
+외부 검토: B / 생략(D-227과 같은 트랙)

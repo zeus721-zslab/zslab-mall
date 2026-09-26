@@ -10,6 +10,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
@@ -50,10 +52,12 @@ class SellerShippingControllerIntegrationTest extends AbstractIntegrationTest {
     private static final long ORDER_ID = 9424L;
     private static final long ORDER_ITEM_ID = 9424L;
     private static final long DUMMY_FK_ID = 9424L;
+    private static final long OTHER_ORDER_ITEM_ID = 9428L; // 다른 주문 품목의 기존 배송(T7·FK 끈 채 delivery 행만 시드)
     private static final long ITEM_PRICE = 10_000L;
 
     private static final String ORDER_ITEM_PID = pid("oit_", "SSCOIT");
     private static final String TRACKING_NO = "CJ-SSC-0001";
+    private static final String TRACKING_NO_FORMAT_MESSAGE = "송장번호는 숫자·영문·하이픈 8~20자로 입력해 주세요.";
     private static final String PREPARE_URL = "/api/v1/order-items/" + ORDER_ITEM_PID + "/prepare-shipment";
 
     @Autowired
@@ -155,6 +159,61 @@ class SellerShippingControllerIntegrationTest extends AbstractIntegrationTest {
         assertThat(events.stream(DeliveryStarted.class).count()).isZero();
     }
 
+    @ParameterizedTest(name = "[{index}] \"{0}\"")
+    @ValueSource(strings = {"ㅗㅗㅗㅗㅗㅗㅗㅗ", "1234567", "ABCDEFGHIJ1234567890K", "CJ_SSC#0001"})
+    @DisplayName("T5 송장 형식 위반(D-227 · 자모·7자·21자·특수문자) → 400 VALIDATION_FAILED·trackingNo 필드 메시지·Delivery 미생성·PAID 무변경")
+    void prepareShipment_invalidTrackingNoFormat_returns400(String trackingNo) throws Exception {
+        seedItem("PAID", "PAID");
+
+        mockMvc.perform(post(PREPARE_URL)
+                        .headers(authHeaders.seller(SELLER_A_USER))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body("CJ", trackingNo)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.fieldErrors.length()").value(1))
+                .andExpect(jsonPath("$.fieldErrors[0].field").value("trackingNo"))
+                .andExpect(jsonPath("$.fieldErrors[0].message").value(TRACKING_NO_FORMAT_MESSAGE));
+
+        assertThat(deliveryCount()).isZero();
+        assertThat(itemStatus()).isEqualTo("PAID");
+    }
+
+    @Test
+    @DisplayName("T6 택배사 누락(D-227) → 400 VALIDATION_FAILED·carrier 필드 오류(MALFORMED_REQUEST 아님)·Delivery 미생성")
+    void prepareShipment_missingCarrier_returns400WithFieldError() throws Exception {
+        seedItem("PAID", "PAID");
+
+        mockMvc.perform(post(PREPARE_URL)
+                        .headers(authHeaders.seller(SELLER_A_USER))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"trackingNo\":\"" + TRACKING_NO + "\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.fieldErrors[0].field").value("carrier"));
+
+        assertThat(deliveryCount()).isZero();
+    }
+
+    @Test
+    @DisplayName("T7 다른 주문 배송과 같은 송장 + 앞뒤 공백(D-227) → 200·공백 제거 저장·같은 번호 2행 공존")
+    void prepareShipment_trackingNoUsedByOtherOrder_strippedAndAccepted() throws Exception {
+        seedItem("PAID", "PAID");
+        seedOtherOrderDelivery(TRACKING_NO);
+
+        mockMvc.perform(post(PREPARE_URL)
+                        .headers(authHeaders.seller(SELLER_A_USER))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body("CJ", "  " + TRACKING_NO + "  ")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.trackingNo").value(TRACKING_NO));
+
+        assertThat(jdbc.queryForObject("SELECT tracking_no FROM delivery WHERE order_item_id = ?", String.class, ORDER_ITEM_ID))
+                .isEqualTo(TRACKING_NO);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM delivery WHERE tracking_no = ? AND order_item_id IN (?, ?)",
+                Integer.class, TRACKING_NO, ORDER_ITEM_ID, OTHER_ORDER_ITEM_ID)).isEqualTo(2);
+    }
+
     // ---------- seed·helpers (SellerDeliveryIntegrationTest 패턴 1:1) ----------
 
     // 모든 시드 INSERT는 ? positional 바인딩 + 정적 SQL이다(문자열 concat 없음·SQL injection 위험 없음).
@@ -181,6 +240,19 @@ class SellerShippingControllerIntegrationTest extends AbstractIntegrationTest {
                                 + "VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, NOW(6), NOW(6), '테스트 상품', 1000)",
                         ORDER_ITEM_ID, ORDER_ITEM_PID, ORDER_ID, PRODUCT_ID, VARIANT_ID, SELLER_A,
                         ITEM_PRICE, ITEM_PRICE, itemStatus);
+            } finally {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
+            }
+        });
+    }
+
+    private void seedOtherOrderDelivery(String trackingNo) {
+        tx.executeWithoutResult(s -> {
+            try {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
+                jdbc.update("INSERT INTO delivery (public_id, order_item_id, carrier, tracking_no, status, shipped_at, "
+                                + "created_at, updated_at) VALUES (?, ?, 'HANJIN', ?, 'SHIPPING', NOW(6), NOW(6), NOW(6))",
+                        pid("dlv_", "SSCDLVOTHER"), OTHER_ORDER_ITEM_ID, trackingNo);
             } finally {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
             }
@@ -217,7 +289,7 @@ class SellerShippingControllerIntegrationTest extends AbstractIntegrationTest {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
                 jdbc.update("DELETE FROM seller_user WHERE user_id IN (?, ?)", SELLER_A_USER, SELLER_B_USER);
                 jdbc.update("DELETE FROM notification_log WHERE recipient_user_id = ?", USER_ID);
-                jdbc.update("DELETE FROM delivery WHERE order_item_id = ?", ORDER_ITEM_ID);
+                jdbc.update("DELETE FROM delivery WHERE order_item_id IN (?, ?)", ORDER_ITEM_ID, OTHER_ORDER_ITEM_ID);
                 jdbc.update("DELETE FROM order_item WHERE id = ?", ORDER_ITEM_ID);
                 jdbc.update("DELETE FROM `order` WHERE id = ?", ORDER_ID);
                 jdbc.update("DELETE FROM product_variant WHERE id = ?", VARIANT_ID);

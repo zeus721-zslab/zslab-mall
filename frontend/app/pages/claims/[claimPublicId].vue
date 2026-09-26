@@ -12,9 +12,13 @@ import {
 import {
   DELIVERY_CARRIER_CODES,
   DELIVERY_CARRIER_LABELS,
+  DELIVERY_TRACKING_NO_FORMAT_MESSAGE,
   DELIVERY_TRACKING_NO_MAX,
+  DELIVERY_TRACKING_NO_PATTERN,
   deliveryCarrierLabel,
+  trackingNoFieldError,
   type DeliveryCarrier,
+  type TrackingNoErrorLike,
 } from '~/lib/constants/delivery'
 import { formatDateTime } from '~/lib/utils/datetime'
 import { claimStageGuide, claimTimeline, type TimelineStep, type TimelineStepState } from '~/lib/utils/claim-timeline'
@@ -104,8 +108,8 @@ async function submitReturnShipment(): Promise<void> {
     shipmentError.value = '택배사를 선택하세요.'
     return
   }
-  if (trackingNo === '' || trackingNo.length > DELIVERY_TRACKING_NO_MAX) {
-    shipmentError.value = `송장번호를 ${DELIVERY_TRACKING_NO_MAX}자 이내로 입력하세요.`
+  if (!DELIVERY_TRACKING_NO_PATTERN.test(trackingNo)) {
+    shipmentError.value = DELIVERY_TRACKING_NO_FORMAT_MESSAGE
     return
   }
   shipmentSubmitting.value = true
@@ -124,7 +128,8 @@ async function submitReturnShipment(): Promise<void> {
       shipmentError.value = '이미 등록되었거나 현재 상태에서는 회수 송장을 등록할 수 없습니다.'
       await refresh()
     } else if (statusCode === 400) {
-      shipmentError.value = '택배사와 송장번호를 확인하세요.'
+      // D-227: 형식 위반은 BE fieldErrors 문구(클라이언트 검증과 같은 문구)를 그대로 보여 준다. 필드 오류가 없으면 일반 안내.
+      shipmentError.value = trackingNoFieldError(submitError as TrackingNoErrorLike) ?? '택배사와 송장번호를 확인하세요.'
     } else {
       shipmentError.value = '회수 송장 등록에 실패했습니다. 잠시 후 다시 시도하세요.'
     }

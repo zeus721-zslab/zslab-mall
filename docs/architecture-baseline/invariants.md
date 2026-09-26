@@ -128,7 +128,7 @@
 ### 2.12 Delivery
 | # | Rule | Why | Enforcement Point | Impact | Alternative |
 |---|---|---|---|---|---|
-| DLV-1 | tracking_no UNIQUE | 송장 중복 차단 | DB UK | 동일 송장번호 중복 차단 | — |
+| DLV-1 | tracking_no 입력 형식: 앞뒤 공백 제거 후 `^[A-Za-z0-9-]{8,20}$`(유니크 아님·D-227이 전역 UK 대체) | 배송 행은 품목 단위라 합포장(같은 송장 여러 행)·택배사 번호 재사용·택배사 간 중복이 정상 입력이고, 형식 없는 값(자모 등)은 배송 조회 불가 | 요청 DTO Bean Validation(송장 입력 5경로 공통·Delivery.TRACKING_NO_PATTERN) · DB는 일반 인덱스 ix_delivery_tracking_no | 형식 위반 400 VALIDATION_FAILED(fieldErrors) · 규칙 이전 저장값은 보정하지 않음 | 택배사 복합 유니크 — 기각(합포장·재사용 미해결·D-227) |
 | DLV-2 | Delivery는 OrderItem 없이 생성 불가(order_item_id) | 부분 배송 지원·OrderItem 1:N Delivery | DB FK + NOT NULL | OrderItem 단위 배송 추적 | — |
 | DLV-3 | shipped_at ≤ delivered_at | 시간 순서 정합 | Service/Domain | 발송 전 배송완료 차단 | — |
 
