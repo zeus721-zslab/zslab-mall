@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { WITHDRAW_NOTICE } from '~/lib/constants/account'
+import { WITHDRAW_NOTICE, demoAccountProtectedMessage } from '~/lib/constants/account'
 import type { WithdrawPageVm } from '~/skins/contracts/withdraw'
 
 // BUYER 전용 — 미인증/비-BUYER는 buyer 미들웨어가 /login으로 유도한다.
@@ -33,6 +33,11 @@ async function handleWithdraw(): Promise<void> {
     const code = (withdrawError as { data?: { code?: unknown } }).data?.code
     if (statusCode === 409 && code === 'MEMBER_ACTIVITY_IN_PROGRESS') {
       errorMessage.value = '진행 중인 주문 또는 교환·반품이 있어 탈퇴할 수 없습니다.'
+      return
+    }
+    const demoMessage = demoAccountProtectedMessage(withdrawError)
+    if (demoMessage) {
+      errorMessage.value = demoMessage
       return
     }
     errorMessage.value = '탈퇴에 실패했습니다. 잠시 후 다시 시도해 주세요'

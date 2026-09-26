@@ -162,7 +162,7 @@ function removeImage(localId: string): void {
       @drop.prevent="onDrop"
     >
       <v-icon :icon="mdiCloudUploadOutline" size="28" class="text-medium-emphasis" />
-      <p class="text-body-2 mb-0 mt-2">이미지를 끌어다 놓거나 클릭해서 선택 (jpg·png·webp · 파일당 10MB · 최대 20장)</p>
+      <p class="text-body-2 mb-0 mt-2">이미지를 끌어다 놓거나 클릭해서 선택 (jpg·png · 파일당 10MB · 최대 20장)</p>
       <input ref="fileInput" type="file" :accept="ACCEPT_ATTRIBUTE" multiple hidden :data-testid="`file-input-${imageType}`" @change="onFilesSelected">
     </div>
 

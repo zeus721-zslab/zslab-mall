@@ -64,6 +64,8 @@ class ProdBankAccountKeyFailFastTest {
                         "spring.datasource.password=" + MariaDbTestContainer.INSTANCE.getPassword(),
                         "spring.datasource.driver-class-name=" + MariaDbTestContainer.INSTANCE.getDriverClassName(),
                         "jwt.secret=" + DUMMY_JWT_SECRET,
+                        // D-230: prod는 데모 보호 계정 0개면 기동 실패 — 계좌 키 fail-fast만 격리해 보려고 더미 1개를 채운다.
+                        "DEMO_PROTECTED_EMAILS=prod-fail-fast-demo@zslab.test",
                         "catalog.demo-seed.enabled=false");
         extraProperties.forEach((key, value) -> builder.properties(key + "=" + value));
         // LOG_PATH는 커맨드라인 인자(최고 우선순위)로 넣는다 — builder.properties(기본 속성)는 OS env LOG_PATH에 밀려 로컬 재현이 어긋난다.

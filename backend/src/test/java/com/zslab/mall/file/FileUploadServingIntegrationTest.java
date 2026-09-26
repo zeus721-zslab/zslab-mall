@@ -136,13 +136,18 @@ class FileUploadServingIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("webp 업로드(TwelveMonkeys 읽기) → 성공·.webp 저장·서빙 image/webp")
-    void uploadWebp_readsAndServes() throws Exception {
+    @DisplayName("D-230 webp 업로드 중단: 정상 webp 바이트 → UNSUPPORTED_FORMAT·저장 0 / 이미 저장된 .webp 파일은 서빙 유지(image/webp)")
+    void uploadWebp_rejected_existingWebpStillServed() throws Exception {
         JsonNode item = upload(file("tiny.webp", "image/webp", WEBP_1X1)).get("results").get(0);
-        assertThat(item.get("success").asBoolean()).as(item.toString()).isTrue();
-        assertThat(item.get("url").asText()).endsWith(".webp");
-        assertThat(item.get("width").asInt()).isEqualTo(1);
-        mockMvc.perform(get(item.get("url").asText())).andExpect(status().isOk())
+        assertThat(item.get("success").asBoolean()).isFalse();
+        assertThat(item.get("code").asText()).isEqualTo("UNSUPPORTED_FORMAT");
+        assertThat(item.get("message").asText()).isEqualTo("jpg·png만 허용합니다(매직 바이트 불일치).");
+        assertThat(countStoredFiles()).isZero();
+
+        Path legacy = uploadRoot.resolve("products/2026/09/LEGACYWEBP0000000000000001.webp");
+        Files.createDirectories(legacy.getParent());
+        Files.write(legacy, WEBP_1X1);
+        mockMvc.perform(get("/api/v1/files/products/2026/09/LEGACYWEBP0000000000000001.webp")).andExpect(status().isOk())
                 .andExpect(header().string("Content-Type", "image/webp"));
     }
 

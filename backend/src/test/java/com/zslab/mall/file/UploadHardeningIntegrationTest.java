@@ -3,6 +3,7 @@ package com.zslab.mall.file;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -18,6 +19,7 @@ import com.zslab.mall.support.AbstractIntegrationTest;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -33,6 +35,8 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.context.ApplicationContext;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -54,6 +58,10 @@ class UploadHardeningIntegrationTest extends AbstractIntegrationTest {
 
     private static final String ADMIN_UPLOAD_URL = "/api/v1/admin/files/images";
     private static final String CLAIM_UPLOAD_URL = "/api/v1/claims/attachments";
+    private static final String SELLER_UPLOAD_URL = "/api/v1/seller/files/images";
+    private static final long SELLER_USER_ID = 78103L;
+    /** 구매자 첨부 요청 합계 상한(D-230·파일당 5MB × 5장 + 여유 1MB). 서비스 상수를 쓰지 않고 값으로 고정해 회귀를 잡는다. */
+    private static final long CLAIM_REQUEST_LIMIT = 26L * 1024 * 1024;
     private static final long ADMIN_ID = 78100L;
     private static final long BUYER_ID = 78101L;
     private static final long OTHER_BUYER_ID = 78102L;
@@ -61,6 +69,10 @@ class UploadHardeningIntegrationTest extends AbstractIntegrationTest {
     private static final int MAX_SIDE = 8_000;
     private static final long FIVE_MB = 5L * 1024 * 1024;
     private static final long PIXEL_BOMB_TIMEOUT_MS = 3_000L;
+    private static final int EIGHT_BIT = 8;
+    private static final int SIXTEEN_BIT = 16;
+    private static final int COLOR_TYPE_RGB = 2;
+    private static final int COLOR_TYPE_RGBA = 6;
 
     @TempDir
     static Path uploadRoot;
@@ -103,22 +115,46 @@ class UploadHardeningIntegrationTest extends AbstractIntegrationTest {
     // ==================== STEP 276 픽셀 상한 ====================
 
     @Test
-    @DisplayName("픽셀 폭탄: 헤더 20000x20000·8001x100·8000x5001(총 픽셀 초과) PNG(수백 바이트) → IMAGE_TOO_LARGE·저장 0·즉시 실패 / 6000x6000 헤더는 통과 후 디코딩 실패 INVALID_IMAGE")
+    @DisplayName("픽셀 폭탄: 헤더 20000x20000·8001x100·8000x5001·6000x6000·5000x5001(총 2,500만 초과·D-230) PNG(수백 바이트) → IMAGE_TOO_LARGE·저장 0·즉시 실패 / 8비트 RGBA 5000x5000(디코딩 1억 B ≤ 예산)은 통과 후 디코딩 실패 INVALID_IMAGE")
     void pixelBomb_rejectedBeforeDecoding() throws Exception {
         long started = System.currentTimeMillis();
         JsonNode results = upload(ADMIN_UPLOAD_URL, authHeaders.admin(ADMIN_ID),
                 file("bomb.png", pngHeaderOnly(20_000, 20_000)),
                 file("wide.png", pngHeaderOnly(MAX_SIDE + 1, 100)),
                 file("pixels.png", pngHeaderOnly(MAX_SIDE, 5_001)),
-                file("truncated.png", pngHeaderOnly(6_000, 6_000))).get("results");
+                file("over-limit.png", pngHeaderOnly(6_000, 6_000)),
+                file("boundary-over.png", pngHeaderOnly(5_000, 5_001)),
+                file("truncated.png", pngHeaderWithEmptyIdat(5_000, 5_000, EIGHT_BIT, COLOR_TYPE_RGBA))).get("results");
         long elapsed = System.currentTimeMillis() - started;
 
         assertThat(results.get(0).get("code").asText()).isEqualTo("IMAGE_TOO_LARGE");
         assertThat(results.get(1).get("code").asText()).isEqualTo("IMAGE_TOO_LARGE");
         assertThat(results.get(2).get("code").asText()).isEqualTo("IMAGE_TOO_LARGE");
-        assertThat(results.get(3).get("code").asText()).as("헤더 통과 → 픽셀 데이터 없음 → 디코딩 실패").isEqualTo("INVALID_IMAGE");
+        // 헤더만 있어 디코딩하면 INVALID_IMAGE가 나올 파일 → IMAGE_TOO_LARGE면 디코딩 전 거부(D-230 총 픽셀 25,000,000)
+        assertThat(results.get(3).get("code").asText()).isEqualTo("IMAGE_TOO_LARGE");
+        assertThat(results.get(3).get("message").asText()).isEqualTo("이미지가 너무 큽니다(최대 약 5000×5000 픽셀, 8비트 색상).");
+        assertThat(results.get(4).get("code").asText()).isEqualTo("IMAGE_TOO_LARGE");
+        assertThat(results.get(5).get("code").asText()).as("한도 이내(정확히 25,000,000·8비트 RGBA 1억 B) 헤더·예산 통과 → 픽셀 데이터 없음 → 디코딩 실패")
+                .isEqualTo("INVALID_IMAGE");
+        assertThat(results.get(5).get("message").asText()).isEqualTo("이미지를 디코딩할 수 없습니다.");
         assertThat(countStoredFiles()).isZero();
         assertThat(elapsed).as("헤더만 읽고 거부 — 전체 디코딩 없음").isLessThan(PIXEL_BOMB_TIMEOUT_MS);
+    }
+
+    @Test
+    @DisplayName("디코딩 바이트 예산(D-230): 총 픽셀 이내 16비트 RGBA 4000x4000(1.28억 B) · 16비트 RGB 4000x4000(0.96억 B + 썸네일 변환 복사 0.64억 B) → 디코딩 전 IMAGE_TOO_LARGE·저장 0 / 8비트 RGB 5000x5000(0.75억 B)은 예산 통과 후 디코딩 실패")
+    void decodeBudget_rejectsHighBitDepthBeforeDecoding() throws Exception {
+        JsonNode results = upload(ADMIN_UPLOAD_URL, authHeaders.admin(ADMIN_ID),
+                file("deep-rgba.png", pngHeaderWithEmptyIdat(4_000, 4_000, SIXTEEN_BIT, COLOR_TYPE_RGBA)),
+                file("deep-rgb.png", pngHeaderWithEmptyIdat(4_000, 4_000, SIXTEEN_BIT, COLOR_TYPE_RGB)),
+                file("plain-rgb.png", pngHeaderWithEmptyIdat(5_000, 5_000, EIGHT_BIT, COLOR_TYPE_RGB))).get("results");
+
+        assertThat(results.get(0).get("code").asText()).isEqualTo("IMAGE_TOO_LARGE");
+        assertThat(results.get(0).get("message").asText()).isEqualTo("이미지가 너무 큽니다(최대 약 5000×5000 픽셀, 8비트 색상).");
+        assertThat(results.get(1).get("code").asText()).isEqualTo("IMAGE_TOO_LARGE");
+        assertThat(results.get(2).get("code").asText()).isEqualTo("INVALID_IMAGE");
+        assertThat(results.get(2).get("message").asText()).isEqualTo("이미지를 디코딩할 수 없습니다.");
+        assertThat(countStoredFiles()).isZero();
     }
 
     @Test
@@ -159,6 +195,55 @@ class UploadHardeningIntegrationTest extends AbstractIntegrationTest {
         // 타 사용자는 영향 없음
         assertThat(upload(CLAIM_UPLOAD_URL, authHeaders.buyer(OTHER_BUYER_ID), file("ok.png", png(10, 10)))
                 .get("successCount").asInt()).isEqualTo(1);
+    }
+
+    // ==================== D-230 구매자 첨부 요청 합계 상한(멀티파트 파싱 전 필터) ====================
+    // MockMvc는 서블릿 멀티파트 파서를 거치지 않아 필터의 Content-Length 판정만 검증한다(MockHttpServletRequest 길이 = content 바이트 수).
+
+    @Test
+    @DisplayName("구매자 첨부 합계 상한: 26MB+1 본문 → 413 PAYLOAD_TOO_LARGE(파싱 전 거부)·첨부 행 0 / 정확히 26MB → 필터 통과(파트 없음 400)")
+    void claimAttachmentRequestTotal_overLimit_returns413() throws Exception {
+        mockMvc.perform(post(CLAIM_UPLOAD_URL).headers(authHeaders.buyer(BUYER_ID))
+                        .contentType(MediaType.MULTIPART_FORM_DATA).content(new byte[(int) CLAIM_REQUEST_LIMIT + 1]))
+                .andExpect(status().isPayloadTooLarge())
+                .andExpect(jsonPath("$.code").value("PAYLOAD_TOO_LARGE"));
+        assertThat(unlinkedCount(BUYER_ID)).isZero();
+
+        mockMvc.perform(post(CLAIM_UPLOAD_URL).headers(authHeaders.buyer(BUYER_ID))
+                        .contentType(MediaType.MULTIPART_FORM_DATA).content(new byte[(int) CLAIM_REQUEST_LIMIT]))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("구매자 첨부 합계 상한은 인코딩 경로 변형(attachment%73 → 디코딩하면 같은 핸들러)에도 적용 → 413")
+    void claimAttachmentRequestTotal_encodedPathVariant_returns413() throws Exception {
+        mockMvc.perform(post(URI.create("/api/v1/claims/attachment%73")).headers(authHeaders.buyer(BUYER_ID))
+                        .contentType(MediaType.MULTIPART_FORM_DATA).content(new byte[(int) CLAIM_REQUEST_LIMIT + 1]))
+                .andExpect(status().isPayloadTooLarge())
+                .andExpect(jsonPath("$.code").value("PAYLOAD_TOO_LARGE"));
+    }
+
+    @Test
+    @DisplayName("구매자 첨부 청크 전송(Content-Length 없음 + Transfer-Encoding) → 411 LENGTH_REQUIRED")
+    void claimAttachmentChunked_returns411() throws Exception {
+        mockMvc.perform(post(CLAIM_UPLOAD_URL).headers(authHeaders.buyer(BUYER_ID))
+                        .contentType(MediaType.MULTIPART_FORM_DATA).header(HttpHeaders.TRANSFER_ENCODING, "chunked"))
+                .andExpect(status().isLengthRequired())
+                .andExpect(jsonPath("$.code").value("LENGTH_REQUIRED"));
+    }
+
+    @Test
+    @DisplayName("관리자·셀러 업로드는 구매자 합계 상한 불변: 26MB+1 본문 → 413·411 아님(필터 미적용)")
+    void adminAndSellerUpload_notAffectedByClaimRequestLimit() throws Exception {
+        byte[] overClaimLimit = new byte[(int) CLAIM_REQUEST_LIMIT + 1];
+        int adminStatus = mockMvc.perform(post(ADMIN_UPLOAD_URL).headers(authHeaders.admin(ADMIN_ID))
+                        .contentType(MediaType.MULTIPART_FORM_DATA).content(overClaimLimit))
+                .andReturn().getResponse().getStatus();
+        int sellerStatus = mockMvc.perform(post(SELLER_UPLOAD_URL).headers(authHeaders.seller(SELLER_USER_ID))
+                        .contentType(MediaType.MULTIPART_FORM_DATA).content(overClaimLimit))
+                .andReturn().getResponse().getStatus();
+        assertThat(adminStatus).isNotIn(413, 411);
+        assertThat(sellerStatus).isNotIn(413, 411);
     }
 
     // ==================== STEP 278 캐시 헤더 ====================
@@ -274,6 +359,24 @@ class UploadHardeningIntegrationTest extends AbstractIntegrationTest {
         ihdr[8] = 8;   // bit depth
         ihdr[9] = 2;   // color type RGB
         writeChunk(output, "IHDR", ihdr);
+        writeChunk(output, "IEND", new byte[0]);
+        return output.toByteArray();
+    }
+
+    /**
+     * PNG 시그니처 + IHDR(폭·높이·비트 깊이·색 형식) + 빈 IDAT + IEND. reader가 IDAT 앞까지 메타데이터를 읽어 밴드·샘플 비트(raw type)를
+     * 헤더 단계에서 확정할 수 있고, 픽셀 데이터가 없어 실제 디코딩은 실패한다(예산 통과 여부와 디코딩 도달 여부를 구분하는 픽스처·D-230).
+     */
+    static byte[] pngHeaderWithEmptyIdat(int width, int height, int bitDepth, int colorType) throws IOException {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        output.write(new byte[] {(byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A});
+        byte[] ihdr = new byte[13];
+        putInt(ihdr, 0, width);
+        putInt(ihdr, 4, height);
+        ihdr[8] = (byte) bitDepth;
+        ihdr[9] = (byte) colorType;
+        writeChunk(output, "IHDR", ihdr);
+        writeChunk(output, "IDAT", new byte[0]);
         writeChunk(output, "IEND", new byte[0]);
         return output.toByteArray();
     }

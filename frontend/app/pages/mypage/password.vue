@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { PASSWORD_MIN, PASSWORD_MAX } from '~/lib/constants/account'
+import { PASSWORD_MIN, PASSWORD_MAX, demoAccountProtectedMessage } from '~/lib/constants/account'
 import type { ChangePasswordRequest } from '~/types/user'
 import {
   LOGIN_NOTICE_PASSWORD_CHANGED,
@@ -53,6 +53,11 @@ async function handleSubmit(): Promise<void> {
     const statusCode = (submitError as { statusCode?: number }).statusCode
     if (statusCode === 401) {
       await navigateTo(`/login?redirect=${encodeURIComponent('/mypage/password')}`)
+      return
+    }
+    const demoMessage = demoAccountProtectedMessage(submitError)
+    if (demoMessage) {
+      errorMessage.value = demoMessage
       return
     }
     // 현재 비밀번호 불일치·정책 위반 모두 400(MALFORMED_REQUEST/VALIDATION_FAILED)로 통합·사유 은닉 → 단일 문구.

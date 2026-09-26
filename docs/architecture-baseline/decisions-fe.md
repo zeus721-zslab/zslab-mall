@@ -3743,3 +3743,32 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 - 테스트: `test/admin/cart-load.spec.ts`에 인증 전환 4건(로그인 직후 load · 해제 시 clear · 전환 없으면 추가 호출 없음 · 로드 실패 로깅) · 신규 `test/unit/cart-store.spec.ts`(비로그인 load는 요청 없음 · 개수 0)
 
 외부 검토: C / 생략
+
+정정(FE-23 §데모 계정 훼손 경로 · 1333줄): 데모 관리자 본인 비밀번호 변경은 현재 비밀번호가 필요해 실제로는 불가(UserService 비밀번호 변경의 현재 비밀번호 검증 · 보안 정찰 2026-09-26).
+
+## FE-87: 데모 계정 보호 DEMO_ACCOUNT_PROTECTED 표시 · LAST_SUPER_ADMIN 문구 · 이미지 크기 문구 (D-230) (2026-09-27)
+
+배경: D-230에서 BE가 공개 데모 계정(관리자·구매자·셀러)의 비밀번호 변경·탈퇴·역할 해제·셀러 구성원 제외를 요청자와 무관하게 403 `DEMO_ACCOUNT_PROTECTED`로 막고, 마지막 슈퍼 관리자의 탈퇴·권한 해제를 409 `LAST_SUPER_ADMIN`(활성 보유자 기준)으로 막으며, 이미지 총 픽셀 상한을 2,500만으로 낮췄다. 1차로 넣었던 데모 세션 표시(관리자 데모 라우트 비밀 헤더)는 D-230 §1-A β 기각으로 되돌렸다(FE 데모 라우트·runtimeConfig 무변경).
+
+결정:
+- **버튼은 그대로**: 데모 계정에서도 버튼을 숨기지 않는다. 403 `DEMO_ACCOUNT_PROTECTED`면 "데모 계정은 이 기능을 사용할 수 없습니다."를 기존 알림 방식으로 보여 준다.
+  - 관리자: `ADMIN_ERROR_MESSAGES`에 추가 → 회원 상세(임시 비밀번호·탈퇴 토스트)·운영자 회수 다이얼로그·셀러 구성원 제외 다이얼로그·셀러 상태 다이얼로그(해지 · `toSellerErrorMessage` → 공용 표 폴백)가 기존 분기 그대로 표시.
+  - 셀러: `SELLER_ERROR_MESSAGES`에 추가 → 비밀번호 변경 화면 토스트(403 상태 폴백 "권한이 없습니다." 대신).
+  - 구매자: 화면별 인라인 문구 구조라 `lib/constants/account.ts`의 `demoAccountProtectedMessage(error)`(코드·문구 단일 소스)를 비밀번호 변경·탈퇴 화면이 401 분기 다음에 쓴다.
+- **LAST_SUPER_ADMIN 문구 통일**: BE와 같은 "마지막 슈퍼 관리자는 탈퇴하거나 권한을 해제할 수 없습니다."(회원 탈퇴·운영자 회수 공통 · 운영자 회수 다이얼로그의 사전 차단 문구 포함).
+- **운영자 목록 인원 계산**: `superAdminCountInList`는 ACTIVE 목록에서만 센다. BE가 활성 보유자만 세므로 ACTIVE 목록과 같고, WITHDRAWN 목록에서 세면 BE가 허용하는 탈퇴 SUPER_ADMIN의 역할 정리를 화면이 막는다.
+- **IMAGE_TOO_LARGE 문구**: 관리자·셀러·구매자 첨부 3곳이 서버 문구 대신 자체 문구("한 변 8,000px 이하")를 보여 줬다. 6000×6000도 거부되는데 원인이 맞지 않아 BE와 같은 문구로 바꿨다. 디코딩 바이트 예산(고비트 이미지 거부)이 더해져 최종 문구는 "이미지가 너무 큽니다(최대 약 5000×5000 픽셀, 8비트 색상)."다.
+- **WebP 업로드 중단(D-230 재결정)**: 관리자·셀러·구매자 첨부 3곳의 허용 MIME·`accept`·사전 검증 거절 문구·서버 `UNSUPPORTED_FORMAT` 문구·화면 안내("jpg·png · 파일당 …")에서 webp를 뺐다. 이미 저장된 .webp 이미지 표시(서빙)는 그대로다.
+- **503 UPLOAD_BUSY**: 세 업로드 흐름 모두 요청 단위 실패에서 모르는 코드는 고정 일반 문구("업로드에 실패했습니다…")로 표시했다(서버 detail 미사용 · 정찰 확인). 동시 디코딩 대기 초과를 재시도 안내로 구분하려고 `UPLOAD_BUSY`면 "이미지 처리 요청이 많습니다. 잠시 후 다시 시도해 주세요."를 쓴다(구매자 `uploadRequestErrorMessage` · 관리자·셀러 `uploadRequestFailureMessage`).
+
+### §2 검증
+- typecheck EXIT 0(error TS 0) · vitest 전체 126 files / 855 passed · e2e admin-members·admin-product-form·claims·seller-product-form 27 passed(재결정 반영 후 전체 실행 1회)
+- 테스트(재결정 추가): webp 사전 검증 거절 3곳(관리자·구매자·셀러) · 셀러 accept 속성 · UNSUPPORTED_FORMAT 문구
+- 테스트: toAdminErrorMessage DEMO_ACCOUNT_PROTECTED·LAST_SUPER_ADMIN · toSellerErrorMessage 403 DEMO_ACCOUNT_PROTECTED · 구매자 demoAccountProtectedMessage · WITHDRAWN 목록 null · 이미지 문구 기대값 2곳 교체 · UPLOAD_BUSY 3곳(셀러 업로드 문구 spec 신규)
+- 로컬 영향: `.env`에 데모 이메일이 있으면 로컬에서도 보호가 켜진다. e2e 비밀번호 변경 spec은 API mock, 셀러 비밀번호 spec은 별도 계정이라 영향 없음.
+
+### §8 이월
+- 구매자 탈퇴 화면(`pages/mypage/withdraw.vue`)은 409 LAST_SUPER_ADMIN을 일반 실패 문구로 보여 준다(BUYER를 겸한 SUPER_ADMIN만 해당 · 범위 밖).
+
+외부 검토: A(D-230과 함께) / 결과: 
+- 외부 검토: FE 변경분 지적 0(2026-09-27)

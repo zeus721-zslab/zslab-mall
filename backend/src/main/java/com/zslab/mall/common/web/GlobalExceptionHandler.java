@@ -15,10 +15,14 @@ import com.zslab.mall.category.exception.CategoryNotFoundException;
 import com.zslab.mall.checkout.exception.CheckoutItemMismatchException;
 import com.zslab.mall.checkout.exception.CheckoutItemNotFoundException;
 import com.zslab.mall.checkout.exception.IdempotencyKeyInProgressException;
+import com.zslab.mall.claim.exception.ClaimAttachmentLengthRequiredException;
+import com.zslab.mall.claim.exception.ClaimAttachmentRequestTooLargeException;
 import com.zslab.mall.claim.exception.ClaimInvalidStateException;
 import com.zslab.mall.claim.exception.ClaimNotFoundException;
+import com.zslab.mall.common.exception.DemoAccountProtectedException;
 import com.zslab.mall.common.exception.MalformedRequestException;
 import com.zslab.mall.file.exception.StoredFileNotFoundException;
+import com.zslab.mall.file.exception.UploadBusyException;
 import com.zslab.mall.common.exception.UnauthenticatedException;
 import com.zslab.mall.delivery.exception.DeliveryInvalidStateException;
 import com.zslab.mall.delivery.exception.DeliveryNotFoundException;
@@ -101,7 +105,7 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
  *
  * <p>HTTP 상태 매트릭스(§14·§17)에 1:1 매핑한다. 필터 계층 401/403은 {@link com.zslab.mall.common.security.SecurityErrorHandler}가
  * 처리하나, 서비스 계층 도메인 403({@link SuperAdminRequiredException}·Track 38)은 여기서 매핑한다(동일 code=FORBIDDEN).
- * 429/502/503(본 트랙 미구현)은 제외한다. traceId는 {@link TraceIdFilter}가 MDC에 넣은 값을 읽는다.
+ * 429/502/503(본 트랙 미구현)은 제외한다(이후 추가: 503 UPLOAD_BUSY·D-230). traceId는 {@link TraceIdFilter}가 MDC에 넣은 값을 읽는다.
  */
 @Slf4j
 @RestControllerAdvice
@@ -172,7 +176,10 @@ public class GlobalExceptionHandler {
     private static final String CODE_SELLER_OWNER_REQUIRED = "SELLER_OWNER_REQUIRED";
     private static final String CODE_FILE_NOT_FOUND = "FILE_NOT_FOUND";
     private static final String CODE_PAYLOAD_TOO_LARGE = "PAYLOAD_TOO_LARGE";
+    private static final String CODE_LENGTH_REQUIRED = "LENGTH_REQUIRED";
+    private static final String CODE_UPLOAD_BUSY = "UPLOAD_BUSY";
     private static final String CODE_FORBIDDEN = "FORBIDDEN";
+    private static final String CODE_DEMO_ACCOUNT_PROTECTED = "DEMO_ACCOUNT_PROTECTED";
     private static final String CODE_SETTLEMENT_PERIOD_INVALID = "SETTLEMENT_PERIOD_INVALID";
     private static final String CODE_SETTLEMENT_ALREADY_EXISTS = "SETTLEMENT_ALREADY_EXISTS";
     private static final String CODE_SETTLEMENT_NOT_FOUND = "SETTLEMENT_NOT_FOUND";
@@ -238,6 +245,13 @@ public class GlobalExceptionHandler {
     }
 
     // ===== 403 =====
+    @ExceptionHandler(DemoAccountProtectedException.class)
+    public ResponseEntity<ProblemDetail> handleDemoAccountProtected(
+            DemoAccountProtectedException exception, HttpServletRequest request) {
+        // D-230: 공개 데모 계정의 로그인을 깨뜨리는 조작 차단(요청자 무관). 권한 부족이 아니라 대상 보호라 전용 코드로 구분한다.
+        return build(HttpStatus.FORBIDDEN, CODE_DEMO_ACCOUNT_PROTECTED, exception.getMessage(), request);
+    }
+
     @ExceptionHandler(SuperAdminRequiredException.class)
     public ResponseEntity<ProblemDetail> handleSuperAdminRequired(
             SuperAdminRequiredException exception, HttpServletRequest request) {
@@ -408,6 +422,28 @@ public class GlobalExceptionHandler {
                 "업로드 용량 한도를 초과했습니다(파일당 10MB·요청당 20장).", request);
     }
 
+    @ExceptionHandler(ClaimAttachmentRequestTooLargeException.class)
+    public ResponseEntity<ProblemDetail> handleClaimAttachmentRequestTooLarge(
+            ClaimAttachmentRequestTooLargeException exception, HttpServletRequest request) {
+        // D-230: 구매자 첨부 합계 상한(멀티파트 파싱 전 필터·ClaimAttachmentRequestSizeFilter). 요청 단위 용량 초과라 기존 413 코드를 쓴다.
+        return build(HttpStatus.PAYLOAD_TOO_LARGE, CODE_PAYLOAD_TOO_LARGE, exception.getMessage(), request);
+    }
+
+    // ===== 503 =====
+    @ExceptionHandler(UploadBusyException.class)
+    public ResponseEntity<ProblemDetail> handleUploadBusy(UploadBusyException exception, HttpServletRequest request) {
+        // D-230: 동시 디코딩 한도 대기 초과. 일시적 과부하라 재시도 가능한 503으로 응답한다(로그는 ImageDecodeLimiter가 남김).
+        return build(HttpStatus.SERVICE_UNAVAILABLE, CODE_UPLOAD_BUSY, exception.getMessage(), request);
+    }
+
+    // ===== 411 =====
+    @ExceptionHandler(ClaimAttachmentLengthRequiredException.class)
+    public ResponseEntity<ProblemDetail> handleClaimAttachmentLengthRequired(
+            ClaimAttachmentLengthRequiredException exception, HttpServletRequest request) {
+        // D-230: 길이 없는 청크 전송은 합계 상한 판정을 우회하므로 구매자 첨부 경로에서 거부한다.
+        return build(HttpStatus.LENGTH_REQUIRED, CODE_LENGTH_REQUIRED, exception.getMessage(), request);
+    }
+
     // ===== 409 =====
     @ExceptionHandler(ProductHasOrderHistoryException.class)
     public ResponseEntity<ProblemDetail> handleProductHasOrderHistory(
@@ -458,8 +494,8 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(LastSuperAdminRevocationException.class)
     public ResponseEntity<ProblemDetail> handleLastSuperAdminRevocation(
             LastSuperAdminRevocationException exception, HttpServletRequest request) {
-        // Track 53: 마지막 SUPER_ADMIN 회수 차단(409). SUPER_ADMIN 0명 시 시스템 락아웃 방지·SUPER_ADMIN 집합 상태와 충돌.
-        log.warn("[Auth] 마지막 SUPER_ADMIN 회수 차단(409): {}", exception.getMessage());
+        // Track 53·D-230: 마지막 SUPER_ADMIN 회수·탈퇴 차단(409). SUPER_ADMIN 0명 시 시스템 락아웃 방지·SUPER_ADMIN 집합 상태와 충돌.
+        log.warn("[Auth] 마지막 SUPER_ADMIN 회수·탈퇴 차단(409): {}", exception.getMessage());
         return build(HttpStatus.CONFLICT, CODE_LAST_SUPER_ADMIN, exception.getMessage(), request);
     }
 

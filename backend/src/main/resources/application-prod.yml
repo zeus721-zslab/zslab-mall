@@ -28,6 +28,11 @@ bank-account:
   # 키 분실 시 저장된 계좌번호를 영구히 복호화할 수 없다. 반드시 별도 백업 후 주입(.env.example 주석 참조).
   encryption-key: ${BANK_ACCOUNT_ENCRYPTION_KEY}
 
+# D-230 데모 계정 보호 fail-open 차단: 운영은 보호 계정이 0개면 기동 실패(DemoAccountGuard). local·test 기본은 false(빈 값 = 보호 없음).
+zslab:
+  demo:
+    require-protected-accounts: true
+
 # 데모 카탈로그 시드(FE-04·CatalogDemoSeedRunner) 운영 활성 — 포폴 데모 상품 노출용(D-157 §8-1 정책).
 # 멱등(productRepository.count()==0)이라 재기동 안전·최초 1회만 데모 공급. 실카탈로그 운영 아님.
 catalog:

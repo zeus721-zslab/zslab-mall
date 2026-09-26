@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 import com.zslab.mall.auth.entity.Role;
 import com.zslab.mall.auth.entity.UserRole;
 import com.zslab.mall.auth.enums.RoleCode;
+import com.zslab.mall.common.security.DemoAccountGuard;
 import com.zslab.mall.auth.repository.RoleRepository;
 import com.zslab.mall.auth.repository.UserRoleRepository;
 import com.zslab.mall.grade.entity.BuyerGrade;
@@ -70,6 +71,8 @@ class UserServiceTest {
     private PasswordPolicy passwordPolicy;
     @Mock
     private MemberActivityChecker memberActivityChecker;
+    @Mock
+    private DemoAccountGuard demoAccountGuard; // D-230: 보호 판정은 DemoAccountProtectionIntegrationTest가 검증(여기선 통과 목)
 
     @InjectMocks
     private UserService userService;

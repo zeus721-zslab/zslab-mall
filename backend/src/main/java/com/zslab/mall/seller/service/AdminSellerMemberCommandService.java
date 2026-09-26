@@ -7,6 +7,7 @@ import com.zslab.mall.auth.entity.Role;
 import com.zslab.mall.auth.enums.RoleCode;
 import com.zslab.mall.auth.repository.RoleRepository;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
+import com.zslab.mall.common.security.DemoAccountGuard;
 import com.zslab.mall.seller.controller.request.AdminSellerMemberAddRequest;
 import com.zslab.mall.seller.controller.response.AdminSellerDetailResponse;
 import com.zslab.mall.seller.controller.response.AdminSellerMemberAddResponse;
@@ -59,6 +60,7 @@ public class AdminSellerMemberCommandService {
     private final RoleRepository roleRepository;
     private final AdminMemberProvisioningService adminMemberProvisioningService;
     private final AuditRecorder auditRecorder;
+    private final DemoAccountGuard demoAccountGuard;
 
     public AdminSellerMemberCommandService(
             SellerRepository sellerRepository,
@@ -66,13 +68,15 @@ public class AdminSellerMemberCommandService {
             UserRepository userRepository,
             RoleRepository roleRepository,
             AdminMemberProvisioningService adminMemberProvisioningService,
-            AuditRecorder auditRecorder) {
+            AuditRecorder auditRecorder,
+            DemoAccountGuard demoAccountGuard) {
         this.sellerRepository = sellerRepository;
         this.sellerUserRepository = sellerUserRepository;
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.adminMemberProvisioningService = adminMemberProvisioningService;
         this.auditRecorder = auditRecorder;
+        this.demoAccountGuard = demoAccountGuard;
     }
 
     /**
@@ -120,11 +124,14 @@ public class AdminSellerMemberCommandService {
      * @throws SellerNotFoundException 셀러 미존재(404)
      * @throws SellerMemberNotFoundException 이 셀러의 구성원이 아님(404·회원 미존재·타 셀러 소속 모두 같은 코드로 은닉)
      * @throws SellerLastOwnerException 마지막 활성 OWNER(409)
+     * @throws com.zslab.mall.common.exception.DemoAccountProtectedException 데모 계정(403)
      */
     public void remove(String sellerPublicId, String userPublicId, String reason, AuditContext auditContext) {
         Seller seller = requireSellerForUpdate(sellerPublicId);
         User user = requireMemberUser(userPublicId);
         SellerUser sellerUser = requireMember(seller, user);
+        // D-230: 셀러 구성원이 아니면 셀러 데모 로그인이 막힌다. 구성원 확인 뒤에 둬 비구성원은 기존대로 404(보호 여부 비노출).
+        demoAccountGuard.requireNotProtected(user);
         Role role = requireRoleById(sellerUser.getRoleId());
         assertNotLastActiveOwner(seller, sellerUser, user, role, "제거");
 

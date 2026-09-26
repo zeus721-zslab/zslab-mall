@@ -100,6 +100,11 @@ describe('toAdminErrorMessage 회원 코드 4 + USER_NOT_FOUND', () => {
     expect(toAdminErrorMessage({ data: { code: 'TEMPORARY_PASSWORD_DELIVERY_FAILED' } })).toBe('SMS 발송에 실패했습니다. 비밀번호는 변경되지 않았습니다.')
     expect(toAdminErrorMessage({ data: { code: 'USER_NOT_FOUND' } })).toBe('회원을 찾을 수 없습니다.')
   })
+
+  it('D-230: LAST_SUPER_ADMIN(탈퇴·권한 해제 공통)·DEMO_ACCOUNT_PROTECTED(데모 계정 보호) → BE와 같은 문구', () => {
+    expect(toAdminErrorMessage({ data: { code: 'LAST_SUPER_ADMIN', detail: 'x' } })).toBe('마지막 슈퍼 관리자는 탈퇴하거나 권한을 해제할 수 없습니다.')
+    expect(toAdminErrorMessage({ data: { code: 'DEMO_ACCOUNT_PROTECTED', detail: 'x' } })).toBe('데모 계정은 이 기능을 사용할 수 없습니다.')
+  })
 })
 
 describe('resolveBackPath 회원 경로(Track 84)', () => {

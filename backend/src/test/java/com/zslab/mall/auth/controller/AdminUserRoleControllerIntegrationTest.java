@@ -30,9 +30,9 @@ import com.zslab.mall.support.AbstractIntegrationTest;
  * 회수"는 서비스가 user_role 실조회로 강제(②·fail-closed).
  *
  * <p><b>self/last 방어(AUTH-5·6)</b>: self 검사는 회수 대상 roleCode가 SUPER_ADMIN일 때만 적용하므로(③), SUPER_ADMIN이 자기
- * ADMIN_OPERATOR를 회수하는 경우는 차단하지 않는다(⑧이 방증). 마지막 SUPER_ADMIN 회수는 Role 행 FOR UPDATE 하 count&lt;=1
- * 판정으로 409 차단한다(④). self 검사가 last 판정보다 선행하므로, count&lt;=1인 sole SUPER_ADMIN이 타 대상의 SUPER_ADMIN을
- * 회수 시도하면 409가 먼저 발화한다(④는 이 경로).
+ * ADMIN_OPERATOR를 회수하는 경우는 차단하지 않는다(⑧이 방증). 마지막 SUPER_ADMIN 회수는 대상이 활성 SUPER_ADMIN일 때만
+ * Role 행 FOR UPDATE 하 활성 count&lt;=1 판정으로 409 차단한다(D-230). 호출자도 활성 SUPER_ADMIN이고 자기 회수는 403이라
+ * 순차 요청으로는 409에 닿지 않으며, 409는 동시 상호 회수에서만 발화한다(LastSuperAdminRaceIntegrationTest). ④는 대상 미보유 404.
  *
  * <p><b>감사(AUTH-4)</b>: 회수 성공 시 같은 트랜잭션에서 audit_log 1건(DELETE/USER/target_id·diff role 키 삭제)을 남긴다(⑤).
  *
@@ -130,21 +130,21 @@ class AdminUserRoleControllerIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("④ 마지막 SUPER_ADMIN: sole SUPER_ADMIN이 SUPER_ADMIN 회수 시도 → 409 LAST_SUPER_ADMIN·count 불변(1)")
-    void revoke_lastSuperAdmin_returns409() throws Exception {
+    @DisplayName("④ 대상 SUPER_ADMIN 미보유: sole SUPER_ADMIN이 비보유 대상의 SUPER_ADMIN 회수 시도 → 404(가드는 대상 보유 시에만 판정·D-230)·count 불변(1)")
+    void revoke_targetWithoutSuperAdmin_returns404() throws Exception {
         seed(() -> {
             seedUser(SUPER_A, PID_A);
             seedUserRole(SUPER_A, "SUPER_ADMIN"); // 유일 SUPER_ADMIN(count=1)
             seedUser(SUPER_B, PID_B);
-            seedUserRole(SUPER_B, "ADMIN_OPERATOR"); // 대상은 SUPER_ADMIN 미보유·count<=1 가드가 선발화
+            seedUserRole(SUPER_B, "ADMIN_OPERATOR"); // 대상은 SUPER_ADMIN 미보유 → 활성 인원을 줄이지 않아 last 가드 미발화
         });
 
         mockMvc.perform(delete(url(PID_B, "SUPER_ADMIN")).headers(authHeaders.admin(SUPER_A))
                         .contentType(MediaType.APPLICATION_JSON).content(REASON_BODY))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("LAST_SUPER_ADMIN"));
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("ROLE_ASSIGNMENT_NOT_FOUND"));
 
-        assertThat(superAdminCount()).isEqualTo(1); // 회수 미수행(락아웃 방지)
+        assertThat(superAdminCount()).isEqualTo(1);
     }
 
     @Test
@@ -312,7 +312,7 @@ class AdminUserRoleControllerIntegrationTest extends AbstractIntegrationTest {
                 jdbc.update("DELETE FROM audit_log WHERE actor_user_id IN (?, ?, ?, ?, ?)",
                         SUPER_A, SUPER_B, OPERATOR_CALLER, BUYER_CALLER, PLAIN_TARGET);
                 // startup 시 build.gradle.kts 더미 자격으로 부트스트랩된 전역 SUPER_ADMIN을 제거해 last-admin count를 확정한다
-                // (RoleRevocationService.countByRole_Code는 전역 카운트·컨테이너는 클래스 전용이라 타 테스트 무영향·부트스트랩
+                // (LastSuperAdminGuard 활성 집계는 전역 카운트·컨테이너는 클래스 전용이라 타 테스트 무영향·부트스트랩
                 // 테스트 cleanup 패턴 정합). 시나리오가 시드한 SUPER_ADMIN 매핑도 함께 제거된다.
                 List<Long> superAdminUserIds = jdbc.queryForList(
                         "SELECT ur.user_id FROM user_role ur JOIN role r ON ur.role_id = r.id "

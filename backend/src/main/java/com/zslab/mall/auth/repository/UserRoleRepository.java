@@ -27,11 +27,19 @@ public interface UserRoleRepository extends JpaRepository<UserRole, Long> {
     boolean existsByRole_Code(RoleCode code);
 
     /**
-     * code 역할을 보유한 회원 수. 마지막 SUPER_ADMIN 회수 방어(count &lt;= 1 차단)에 정확한 인원수가 필요하다 —
-     * {@code existsByRole_Code}는 1명 이상 여부만 알려 마지막 1명을 식별하지 못한다(Track 53). 반드시
-     * {@link RoleRepository#findByCodeForUpdate}로 Role 행을 잠근 뒤 호출해 동시 회수 간 count-then-delete를 직렬화한다.
+     * code 역할을 보유한 활성(탈퇴·삭제 아님) 회원 수. 마지막 SUPER_ADMIN 방어(count &lt;= 1 차단)에 정확한 인원수가 필요하다 —
+     * 탈퇴해도 user_role은 남으므로 전체 보유 수를 세면 탈퇴한 SUPER_ADMIN이 섞였을 때 방어가 뚫린다(D-230). 반드시
+     * {@link RoleRepository#findByCodeForUpdate}로 Role 행을 잠근 뒤 호출해 동시 회수·탈퇴 간 count-then-변경을 직렬화한다
+     * (READ_COMMITTED라 잠금 뒤 읽기는 먼저 커밋된 변경을 본다).
      */
-    long countByRole_Code(RoleCode code);
+    @Query("SELECT COUNT(ur) FROM UserRole ur JOIN User u ON u.id = ur.userId "
+            + "WHERE ur.role.code = :code AND u.withdrawnAt IS NULL AND u.deletedAt IS NULL")
+    long countActiveByRoleCode(RoleCode code);
+
+    /** userId가 code 역할을 보유한 활성(탈퇴·삭제 아님) 회원인지 여부(D-230·마지막 SUPER_ADMIN 판정 대상 여부). */
+    @Query("SELECT COUNT(ur) > 0 FROM UserRole ur JOIN User u ON u.id = ur.userId "
+            + "WHERE ur.userId = :userId AND ur.role.code = :code AND u.withdrawnAt IS NULL AND u.deletedAt IS NULL")
+    boolean existsActiveByUserIdAndRoleCode(Long userId, RoleCode code);
 
     /**
      * userId가 보유한 code 역할 매핑을 HARD delete하고 삭제된 행 수를 반환한다(Track 53 권한 회수·AUTH-4).

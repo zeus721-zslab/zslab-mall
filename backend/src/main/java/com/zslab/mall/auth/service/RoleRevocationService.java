@@ -8,9 +8,9 @@ import com.zslab.mall.auth.exception.LastSuperAdminRevocationException;
 import com.zslab.mall.auth.exception.RoleAssignmentNotFoundException;
 import com.zslab.mall.auth.exception.SelfRoleRevocationException;
 import com.zslab.mall.auth.exception.SuperAdminRequiredException;
-import com.zslab.mall.auth.repository.RoleRepository;
 import com.zslab.mall.auth.repository.UserRoleRepository;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
+import com.zslab.mall.common.security.DemoAccountGuard;
 import com.zslab.mall.user.entity.User;
 import com.zslab.mall.user.repository.UserRepository;
 import java.util.Map;
@@ -36,7 +36,7 @@ import org.springframework.transaction.annotation.Transactional;
  * (과잉방어 회피). 따라서 self 검사는 회수 대상 roleCode가 SUPER_ADMIN일 때만 적용한다.
  *
  * <p><b>마지막 SUPER_ADMIN 방어(409)</b>: SUPER_ADMIN 0명이 되면 시스템 락아웃이 발생한다. count 판정과 delete가
- * 원자적이어야 하므로 {@link RoleRepository#findByCodeForUpdate}로 SUPER_ADMIN Role 행을 잠근 뒤 인원수를 센다.
+ * 원자적이어야 하므로 {@link LastSuperAdminGuard}가 SUPER_ADMIN Role 행을 잠근 뒤 활성 인원수를 센다(탈퇴 경로와 공유·D-230).
  * uk_role_code 단일 행이라 동시 회수가 동일 행에서 직렬화된다.
  *
  * <p><b>회수·감사</b>: find→delete TOCTOU를 없애기 위해 조회 없이 {@code deleteByUserIdAndRoleCode} 단일 delete로
@@ -50,17 +50,20 @@ public class RoleRevocationService {
 
     private final UserRepository userRepository;
     private final UserRoleRepository userRoleRepository;
-    private final RoleRepository roleRepository;
+    private final LastSuperAdminGuard lastSuperAdminGuard;
+    private final DemoAccountGuard demoAccountGuard;
     private final AuditRecorder auditRecorder;
 
     public RoleRevocationService(
             UserRepository userRepository,
             UserRoleRepository userRoleRepository,
-            RoleRepository roleRepository,
+            LastSuperAdminGuard lastSuperAdminGuard,
+            DemoAccountGuard demoAccountGuard,
             AuditRecorder auditRecorder) {
         this.userRepository = userRepository;
         this.userRoleRepository = userRoleRepository;
-        this.roleRepository = roleRepository;
+        this.lastSuperAdminGuard = lastSuperAdminGuard;
+        this.demoAccountGuard = demoAccountGuard;
         this.auditRecorder = auditRecorder;
     }
 
@@ -75,6 +78,7 @@ public class RoleRevocationService {
      * @throws SuperAdminRequiredException       caller가 SUPER_ADMIN이 아닌 경우(403)
      * @throws SelfRoleRevocationException       SUPER_ADMIN이 자기 자신의 SUPER_ADMIN 역할을 회수하려는 경우(403)
      * @throws LastSuperAdminRevocationException  마지막 SUPER_ADMIN 역할을 회수하려는 경우(409)
+     * @throws com.zslab.mall.common.exception.DemoAccountProtectedException 데모 계정(403)
      * @throws RoleAssignmentNotFoundException   대상 미존재·역할 미보유·경합 선삭제로 삭제 행이 없는 경우(404)
      */
     public void revoke(Long callerUserId, String targetUserPublicId, RoleCode roleCode, String reason,
@@ -88,19 +92,15 @@ public class RoleRevocationService {
                 .orElseThrow(() -> new RoleAssignmentNotFoundException(
                         "회수 대상 역할 매핑을 찾을 수 없습니다: userPublicId=" + targetUserPublicId));
         Long targetUserId = target.getId();
+        demoAccountGuard.requireNotProtected(target); // D-230: 역할 코드 무관(BUYER 회수도 데모 로그인을 막는다)
 
         if (roleCode == RoleCode.SUPER_ADMIN) {
             if (callerUserId.equals(targetUserId)) {
                 log.warn("[RoleRevocation] SUPER_ADMIN 자기 회수 차단(403) callerUserId={}", callerUserId);
                 throw new SelfRoleRevocationException("자기 자신의 SUPER_ADMIN 역할은 회수할 수 없습니다.");
             }
-            // count 판정과 delete를 원자화하기 위해 SUPER_ADMIN Role 행을 잠근다(반환값은 락 획득이 목적).
-            roleRepository.findByCodeForUpdate(RoleCode.SUPER_ADMIN)
-                    .orElseThrow(() -> new IllegalStateException("SUPER_ADMIN Role seed 누락(V11 마이그레이션 확인 필요)."));
-            if (userRoleRepository.countByRole_Code(RoleCode.SUPER_ADMIN) <= 1) {
-                log.warn("[RoleRevocation] 마지막 SUPER_ADMIN 회수 차단(409) targetUserPublicId={}", targetUserPublicId);
-                throw new LastSuperAdminRevocationException("마지막 SUPER_ADMIN 역할은 회수할 수 없습니다.");
-            }
+            // count 판정과 delete를 원자화(SUPER_ADMIN Role 행 잠금·활성 인원 집계 — 탈퇴 2경로와 공유·D-230).
+            lastSuperAdminGuard.requireNotLastSuperAdmin(targetUserId);
         }
 
         int affected = userRoleRepository.deleteByUserIdAndRoleCode(targetUserId, roleCode);

@@ -33,15 +33,16 @@ export function isSelf(row: Pick<AdminOperatorSummary, 'userPublicId'>, me: Admi
 }
 
 /**
- * 현재 목록에서 SUPER_ADMIN 인원을 셀 수 있으면 그 수, 아니면 null. 목록이 "완전"할 때만 센다: 검색어 없음·역할 필터 전체 또는 SUPER_ADMIN·
- * 첫 페이지·다음 페이지 없음. 탈퇴 SUPER_ADMIN은 BE 인원수에 포함되지만 ACTIVE 목록에는 없어 화면이 더 보수적으로(비활성 쪽으로) 판정할 수 있다.
+ * 현재 목록에서 활성 SUPER_ADMIN 인원을 셀 수 있으면 그 수, 아니면 null. 목록이 "완전"할 때만 센다: ACTIVE 목록·검색어 없음·역할 필터 전체
+ * 또는 SUPER_ADMIN·첫 페이지·다음 페이지 없음. BE는 탈퇴하지 않은 보유자만 세므로(D-230) ACTIVE 목록 인원과 같고, WITHDRAWN 목록은
+ * 세지 않는다(탈퇴 SUPER_ADMIN의 역할 정리는 BE가 허용).
  */
 export function superAdminCountInList(
   items: AdminOperatorSummary[],
-  query: Pick<AdminOperatorListQuery, 'role' | 'keyword' | 'page'>,
+  query: Pick<AdminOperatorListQuery, 'role' | 'status' | 'keyword' | 'page'>,
   hasNext: boolean,
 ): number | null {
-  const complete = query.keyword.trim() === '' && (query.role === null || query.role === 'SUPER_ADMIN') && query.page === 0 && !hasNext
+  const complete = query.status === 'ACTIVE' && query.keyword.trim() === '' && (query.role === null || query.role === 'SUPER_ADMIN') && query.page === 0 && !hasNext
   if (!complete) return null
   return items.filter((item) => item.roles.includes('SUPER_ADMIN')).length
 }
@@ -65,7 +66,7 @@ export function revokeBlockedReason(row: AdminOperatorSummary, me: AdminMe | nul
 /** 회수 다이얼로그의 역할 선택지 비활성 사유(null=선택 가능). 마지막 SUPER_ADMIN은 인원수를 알 때만 미리 막는다. */
 export function roleRevokeBlockedReason(role: AdminOperatorRole, superAdminCount: number | null): string | null {
   if (role === 'SUPER_ADMIN' && superAdminCount !== null && superAdminCount <= 1) {
-    return '마지막 슈퍼 관리자는 회수할 수 없습니다(시스템 잠금 방지).'
+    return '마지막 슈퍼 관리자는 탈퇴하거나 권한을 해제할 수 없습니다.'
   }
   return null
 }
