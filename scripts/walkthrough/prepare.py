@@ -77,7 +77,7 @@ def create_paid_order(api: ApiClient, buyer_token: str, product_id: str, variant
 
 def ship_item(api: ApiClient, admin_token: str, order_item_id: str) -> str:
     """품목 송장 등록(PAID → SHIPPING). 만들어진 배송 publicId를 돌려준다."""
-    # tracking_no는 UNIQUE(DLV-1)라 실행 시각 기반으로 만든다.
+    # tracking_no는 유니크가 아니고(DLV-1·D-227 V39) 형식(영문·숫자·하이픈 8~20자)만 맞으면 된다. "WT" + 실행 시각(ms 13자리) = 15자.
     tracking_no = "WT" + str(int(time.time() * 1000))
     shipped = api.json("POST", "/api/v1/admin/orders/items/" + order_item_id + "/prepare-shipment", admin_token,
                        {"carrier": CARRIER, "trackingNo": tracking_no})
