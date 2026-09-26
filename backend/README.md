@@ -2,17 +2,18 @@
 
 Spring Boot 3.x · Java 21 · Gradle Kotlin DSL · MariaDB · Flyway
 
-## 실행 (Docker 트랙 머지 후)
+## 실행
 
-1. backend/.env.example 을 backend/.env 로 복사 후 실 값 채움
-2. Docker Compose로 backend 컨테이너 빌드·실행 (별도 트랙)
+루트 README.md "로컬 실행" 절을 따른다.
 
-## 로컬 직접 실행 (JDK 21 설치 시)
+1. 루트 .env.example 을 루트 .env 로 복사 후 실 값 채움 (compose가 루트 .env 값을 backend 컨테이너에 전달)
+2. 루트에서 docker compose -f docker-compose.mall.yml -f docker-compose.dev.yml up -d (개발용 backend 컨테이너가 Dockerfile.dev의 gradle bootRun으로 기동)
 
-1. Gradle wrapper 생성: gradle wrapper (Gradle 8.x 필요)
-2. ./gradlew bootRun
+## 테스트
 
-> 로컬 PC JDK 미설치 상태. Gradle wrapper(gradlew·gradle/wrapper/) 미생성. Docker 트랙으로 빌드·실행 권장.
+Gradle wrapper(gradlew·gradlew.bat·gradle/wrapper/) 포함. JDK 21·Docker(Testcontainers) 필요.
+
+1. ./gradlew test
 
 ## 마이그레이션
 

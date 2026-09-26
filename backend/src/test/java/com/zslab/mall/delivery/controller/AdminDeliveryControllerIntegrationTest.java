@@ -28,7 +28,7 @@ import com.zslab.mall.support.AbstractIntegrationTest;
 /**
  * Admin Delivery endpoint E2E 통합 테스트(Track 18·Track 20·D-102·D-104·실 MariaDB). HTTP → {@code AdminDeliveryController} →
  * {@code DeliveryService} wrapper → primitive → DB 흐름을 실 커밋·HTTP 경유로 실측한다(라이브 트랩 차단·
- * {@link com.zslab.mall.delivery.integration.SellerDeliveryIntegrationTest} 1:1). 교환품 출고 등록(T1~T3)·배송 완료(T4~T6) 2 endpoint를 커버한다.
+ * {@link com.zslab.mall.delivery.integration.SellerDeliveryIntegrationTest} 1:1). 교환품 출고 등록(T1~T3·T10)·배송 완료(T4~T6) 2 endpoint를 커버한다.
  *
  * <p><b>Admin 책임 경계(D-93 Q3·Q5)</b>: Admin은 전체 접근이므로 Seller 테스트의 cross-tenant 시나리오가 부재하다. 인증 헤더
  * 검증(401)·성공(200)·primitive 예외 전파(4xx) 3건만 보장한다(CLAUDE.md 신규 도메인 통합 테스트 3건 의무·D-102 §6).
@@ -156,6 +156,29 @@ class AdminDeliveryControllerIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.code").value("CLAIM_STATE_INVALID"));
 
         // Delivery.create·save 후 Claim.attachExchangeDelivery type 검증 throw → 단일 트랜잭션 롤백으로 행 미잔존.
+        assertThat(deliveryCount()).isZero();
+        assertThat(events.stream(DeliveryStarted.class).count()).isZero();
+    }
+
+    @Test
+    @DisplayName("T10 실패: 택배사 누락(D-231) → 400 VALIDATION_FAILED·carrier 필드 오류(MALFORMED_REQUEST 아님)·Delivery 미생성")
+    void register_missingCarrier_returns400WithFieldError() throws Exception {
+        // T2와 같은 발송 가능 상태로 시드한다. 검증이 없으면 서비스 가드를 통과해 Delivery.create에서 MALFORMED_REQUEST가 된다.
+        seed(() -> {
+            seedCatalog();
+            seedOrder("DELIVERED");
+            seedOrderItem(OrderItemStatus.EXCHANGE_REQUESTED);
+            seedApprovedClaim(ClaimType.EXCHANGE);
+        });
+
+        mockMvc.perform(post("/api/v1/admin/claims/" + CLAIM_PID + "/register-exchange-shipment")
+                        .headers(authHeaders.admin(ADMIN))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"trackingNo\":\"" + TRACKING_NO + "\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.fieldErrors[0].field").value("carrier"));
+
         assertThat(deliveryCount()).isZero();
         assertThat(events.stream(DeliveryStarted.class).count()).isZero();
     }

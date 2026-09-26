@@ -13146,3 +13146,35 @@ renew 메인 큐레이션(FE-68 β)에 필요한 조회를 기존 `GET /api/v1/p
 - 검증 9건(모두 기대대로): 로그인 2MB 413 · 회원가입 11MB 413 · 첨부 27MB 413 / 20MB 401 · 관리자 업로드 30MB 401 · 데모 로그인 3종 200 · 다른 도메인 200. 401은 nginx 한도를 통과해 앱 인증 단계에 닿았다는 뜻이다. 설정은 동일 inode 덮어쓰기(D-148) 후 `nginx -t` 통과 → reload, 변경 전 백업 보관.
 - Q4 완료: 전역 멀티파트 노출은 이번 적용으로 닫혔다(§8 "서버 적용은 배포 시" · 외부 검토 "적용 전에는 Q4가 미완성" 해소).
 - 통합 검토 이월: 로컬 gateway nginx.conf 사본이 운영과 미동기화(S2 경로별 한도 미반영).
+
+## D-231 교환품 발송 택배사 필수 검증(400) · 통합 검토 1차 (2026-09-27)
+
+### 배경
+- D-227이 `PrepareShipmentRequest.carrier`에 `@NotNull`을 붙이면서 교환품 발송 DTO는 범위 밖으로 남겼다(통합 검토 이월).
+- 기존 동작(정찰): `RegisterExchangeShipmentRequest.carrier`에 검증이 없었다. 택배사 없이 `POST /api/v1/admin/claims/{claimPublicId}/register-exchange-shipment`를 보내면 `@Valid`를 통과했다. 이어서 서비스가 주문 잠금·중복·상태 가드를 통과한 뒤 `Delivery.create`에서 IllegalArgumentException이 났고, 응답은 400 `MALFORMED_REQUEST`(fieldErrors 없음)였다. 상태가 맞지 않으면 422가 먼저 나갔다. 트랜잭션 롤백으로 저장은 없었다(DB `delivery.carrier` NOT NULL · V1).
+- 택배사를 선택 입력으로 둔 결정 기록은 없다(D-99 Q3는 어노테이션 미기재 · D-227은 "범위 밖").
+
+### 결정
+- `RegisterExchangeShipmentRequest.carrier`에 `@NotNull`을 붙인다. 형식은 다른 발송 DTO(`PrepareShipmentRequest` · `ReturnShipmentRequest` · 송장 정정 DTO 2종)와 같다(메시지 없음).
+- 변경 후: 택배사 누락 → 400 `VALIDATION_FAILED` · `fieldErrors[0].field = carrier` · 서비스 미진입.
+- DTO 사용처는 관리자 교환품 발송 1곳이다(셀러 endpoint는 제거됨). 검수 FAIL 재발송(`ClaimInspectRequest.reshipCarrier`)은 결과별 조건부 필수라 서비스 검증을 유지한다(범위 밖).
+- FE `AdminExchangeShipmentDialog`는 택배사가 없으면 제출 버튼이 비활성이고 `validateExchangeShipmentForm`도 검사한다 → 항상 전송하므로 FE 변경 없음.
+
+### §1-A 갈림길·채택/기각 근거
+- 대안 검토 없음(기존 발송 DTO와 같은 방식을 그대로 적용).
+
+### §2 검증·테스트
+- `AdminDeliveryControllerIntegrationTest` T10 신규: 발송 가능 상태(승인·검수 합격 교환) 시드 + 택배사 없는 본문 → 400 `VALIDATION_FAILED` · carrier 필드 오류 · Delivery 0 · DeliveryStarted 0. 정상 요청은 기존 T2(200 SHIPPING) 유지.
+- RED: 어노테이션 적용 전 T10 실패(expected `VALIDATION_FAILED` but was `MALFORMED_REQUEST`) → 적용 후 통과.
+- 셀프 리뷰(B): 지적 8건 중 수용 2건(테스트 Javadoc 범위 표기 · DisplayName 형식). 검증 공백 경로·기존 테스트 영향 없음.
+- 전체: `./gradlew.bat test --rerun-tasks` 통과 · 278 클래스 · 1,657 tests · 실패·오류·skip 0.
+
+### 함께 처리(통합 검토 문서 정정)
+- `real-service-switch-guide.md` 인용 줄 번호 전수 대조(표 안·밖 약 80건) → 26줄 정정(예: `application.yml:110-117` · `MockPaymentCallbackController.java:29` · `MockPaymentCallbackService.java:35`). 범위 인용은 본문이 가리키는 구성 단위(메서드·블록) 기준으로 맞췄다.
+- `backend/README.md` 실행 절: 루트 `.env` · 루트 README "로컬 실행"(dev compose) · wrapper 포함 · `./gradlew test`.
+- `scripts/walkthrough/prepare.py:80` 주석: tracking_no는 유니크가 아니다(DLV-1 · D-227 V39).
+
+### §8 이월
+- 없음. `real-service-switch-guide.md` 인용 줄 번호는 이번에 전수 정정 완료(§0 compose·.env.example 포함).
+
+외부 검토: B(셀프 리뷰만 · 외부 검토 불필요 판정)
