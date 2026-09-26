@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { DELIVERY_TRACKING_NO_FORMAT_MESSAGE } from '~/lib/constants/delivery'
 import type { AdminOrderItem } from '#layers/admin/app/types/admin-order'
 import type { AdminDeliveryStatus, AdminOrderAction } from '#layers/admin/app/lib/constants/admin-order'
 import type { OrderStatusCode } from '~/lib/constants/order'
@@ -95,7 +96,7 @@ describe('폼 검증·에러 매핑', () => {
     expect(validateShipmentForm({ orderItemId: null, carrier: null, trackingNo: '   ' })).toEqual({
       orderItemId: expect.any(String), carrier: expect.any(String), trackingNo: expect.stringContaining('입력'),
     })
-    const formatError = { trackingNo: '송장번호는 숫자·영문·하이픈 8~20자로 입력해 주세요.' }
+    const formatError = { trackingNo: DELIVERY_TRACKING_NO_FORMAT_MESSAGE }
     for (const invalid of ['ㅗㅗㅗㅗㅗㅗㅗㅗ', '1234567', '1'.repeat(21), 'CJ_1234#5678']) {
       expect(validateShipmentForm({ orderItemId: 'oit_1', carrier: 'CJ', trackingNo: invalid })).toEqual(formatError)
     }

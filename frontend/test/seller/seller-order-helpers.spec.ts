@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { DELIVERY_TRACKING_NO_FORMAT_MESSAGE } from '~/lib/constants/delivery'
 import {
   DEFAULT_SELLER_ORDER_QUERY,
   hasActiveFilters,
@@ -64,7 +65,7 @@ describe('seller-order-view', () => {
 
   it('validateShipmentForm: 택배사·송장번호 필수·형식(공백 제거 후 숫자·영문·하이픈 8~20자·D-227)', () => {
     expect(validateShipmentForm({ carrier: null, trackingNo: ' ' })).toEqual({ carrier: '택배사를 선택하세요.', trackingNo: '송장번호를 입력하세요.' })
-    expect(validateShipmentForm({ carrier: 'CJ', trackingNo: 'ㅕㅕㅕ' })).toEqual({ trackingNo: '송장번호는 숫자·영문·하이픈 8~20자로 입력해 주세요.' })
+    expect(validateShipmentForm({ carrier: 'CJ', trackingNo: 'ㅕㅕㅕ' })).toEqual({ trackingNo: DELIVERY_TRACKING_NO_FORMAT_MESSAGE })
     expect(validateShipmentForm({ carrier: 'CJ', trackingNo: ' 12345678 ' })).toEqual({})
   })
 

@@ -5,6 +5,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.zslab.mall.delivery.entity.Delivery;
 import com.zslab.mall.delivery.event.DeliveryStarted;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -57,7 +58,7 @@ class SellerShippingControllerIntegrationTest extends AbstractIntegrationTest {
 
     private static final String ORDER_ITEM_PID = pid("oit_", "SSCOIT");
     private static final String TRACKING_NO = "CJ-SSC-0001";
-    private static final String TRACKING_NO_FORMAT_MESSAGE = "송장번호는 숫자·영문·하이픈 8~20자로 입력해 주세요.";
+    private static final String TRACKING_NO_FORMAT_MESSAGE = Delivery.TRACKING_NO_FORMAT_MESSAGE;
     private static final String PREPARE_URL = "/api/v1/order-items/" + ORDER_ITEM_PID + "/prepare-shipment";
 
     @Autowired

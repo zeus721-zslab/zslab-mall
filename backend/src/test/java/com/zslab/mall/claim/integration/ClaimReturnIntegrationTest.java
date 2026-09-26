@@ -19,6 +19,7 @@ import com.zslab.mall.claim.enums.ClaimReasonCode;
 import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.service.ClaimService;
 import com.zslab.mall.common.security.AuthHeaders;
+import com.zslab.mall.delivery.entity.Delivery;
 import com.zslab.mall.notification.adapter.SmsSender;
 import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.support.AbstractIntegrationTest;
@@ -643,7 +644,7 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
     void trackingNoFormat_returnAndReshipPaths() throws Exception {
         Long claimId = approvedReturn();
         String claimPid = claimPid(claimId);
-        String formatMessage = "송장번호는 숫자·영문·하이픈 8~20자로 입력해 주세요.";
+        String formatMessage = Delivery.TRACKING_NO_FORMAT_MESSAGE;
 
         mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/return-shipment").headers(authHeaders.buyer(USER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"carrier\":\"CJ\",\"trackingNo\":\"ㅕㅕㅕ\"}"))

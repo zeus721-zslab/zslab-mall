@@ -14,6 +14,7 @@ import com.zslab.mall.claim.enums.ClaimReasonCode;
 import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.exception.ClaimInvalidStateException;
 import com.zslab.mall.claim.service.ClaimService;
+import com.zslab.mall.delivery.entity.Delivery;
 import com.zslab.mall.order.service.AdminOrderCancelService;
 import com.zslab.mall.support.AbstractIntegrationTest;
 import com.zslab.mall.common.security.AuthHeaders;
@@ -480,7 +481,7 @@ class AdminOrderIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
                 .andExpect(jsonPath("$.fieldErrors[0].field").value("trackingNo"))
-                .andExpect(jsonPath("$.fieldErrors[0].message").value("송장번호는 숫자·영문·하이픈 8~20자로 입력해 주세요."));
+                .andExpect(jsonPath("$.fieldErrors[0].message").value(Delivery.TRACKING_NO_FORMAT_MESSAGE));
         assertThat(itemStatus(ORDER_A_ITEM_1)).isEqualTo("PAID");
 
         // 주문 C의 기존 배송(T79TRACK0001)과 같은 번호 — 택배사 번호 재사용·택배사 간 중복

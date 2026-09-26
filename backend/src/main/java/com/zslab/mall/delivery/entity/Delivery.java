@@ -38,7 +38,7 @@ public class Delivery extends AbstractPublicIdFullAuditableEntity {
      * 규칙 이전에 저장된 값은 보정하지 않으므로 엔티티에서는 강제하지 않는다.
      */
     public static final String TRACKING_NO_PATTERN = "^[A-Za-z0-9-]{8,20}$";
-    public static final String TRACKING_NO_FORMAT_MESSAGE = "송장번호는 숫자·영문·하이픈 8~20자로 입력해 주세요.";
+    public static final String TRACKING_NO_FORMAT_MESSAGE = "송장번호는 영문, 숫자, 하이픈(-)만 사용해 8~20자로 입력해 주세요.";
 
     /** 요청 DTO 생성 시 검증 전에 호출한다 — {@code @Pattern}이 공백 제거 후 값을 보도록(D-227). */
     public static String stripTrackingNo(String trackingNo) {

@@ -3,6 +3,7 @@ import { mountSuspended } from '@nuxt/test-utils/runtime'
 import { createVuetify } from 'vuetify'
 import { VSelect } from 'vuetify/components'
 import { flushPromises } from '@vue/test-utils'
+import { DELIVERY_TRACKING_NO_FORMAT_MESSAGE } from '~/lib/constants/delivery'
 import SellerShipmentDialog from '#layers/seller/app/components/seller/SellerShipmentDialog.vue'
 import SellerMarkDeliveredDialog from '#layers/seller/app/components/seller/SellerMarkDeliveredDialog.vue'
 import SellerDeliveryTrackingDialog from '#layers/seller/app/components/seller/SellerDeliveryTrackingDialog.vue'
@@ -25,7 +26,7 @@ const SUSPENDED_403 = { status: 403, data: { code: 'SELLER_SUSPENDED', detail: '
 const SUSPENDED_MESSAGE = '정지 상태의 셀러는 변경 작업을 할 수 없습니다. 조회만 가능하며 문의는 관리자에게 하세요.'
 const ORDER_ITEM = { orderItemId: 'oit_1', orderNo: '20260917-A', productName: '반찬통', optionLabel: undefined, quantity: 1 }
 const DELIVERY = { deliveryId: 'dlv_1', orderNo: '20260917-A', productName: '반찬통', carrier: 'CJ' as const, trackingNo: 'TRK-00001' }
-const TRACKING_NO_FORMAT_MESSAGE = '송장번호는 숫자·영문·하이픈 8~20자로 입력해 주세요.'
+const TRACKING_NO_FORMAT_MESSAGE = DELIVERY_TRACKING_NO_FORMAT_MESSAGE
 
 function dialogBody() {
   // v-dialog는 teleport로 body에 그린다 → document에서 찾는다.
