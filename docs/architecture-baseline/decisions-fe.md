@@ -3824,3 +3824,32 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 - 빌드 도구 advisory 16건(high 13 · moderate 3) — 런타임 미포함, 상위 범위 안 패치판으로 lockfile 재해석 시 해소 가능하나 무관한 전이 의존성 대량 변경으로 이번 대조 결과가 무효화되므로 통합 검토로 이월
 
 외부 검토: C / 생략
+
+## FE-91: e2e 콜드 트랩 해소 — Playwright globalSetup 워밍업 (2026-09-29)
+
+배경: FE-46부터 "재시작 직후 전량 실행에서 각 spec ① 실패 → 단독 재실행 통과"(콜드 트랩)가 38건 기록됐고(admin-categories ① 약 21회) 원인은 확정된 적이 없다. 정찰(docs/frontend/recon-report-e2e-cold.md) 결과 원인은 **dev 서버 재시작 후 Vite 클라이언트 모듈 첫 변환**이다. 변환 결과는 메모리에만 있어 재시작하면 사라지고, 첫 테스트는 앱 마운트 전에 모듈 수백 건의 변환을 기다린다(모듈 요청 서버 wait 합계 콜드 29.6s vs 웜 1.6s · claims ① 마운트 12.1s · categories ① 6.9s 안에 미마운트). Vite 의존성 재최적화·SSR 첫 요청(87~89ms)·hydration 전 클릭은 기각했다. admin-categories가 잦은 것은 이름순 첫 파일이라 재시작 직후 가장 차가운 서버를 맞고, 첫 확인이 5s expect이기 때문이다.
+
+결정:
+- **§1-A 채택 A(globalSetup 워밍업)** `frontend/e2e/global-setup.ts` + `playwright.config.ts` `globalSetup` 1줄. 브라우저 1개로 구매자 비로그인 5(메인·도움말·상품 목록·첫 상품 상세·로그인) · 로그인 화면 2(/admin/login·/seller/login) · 구매자 로그인 7(마이페이지·비밀번호 변경·주문 상세·클레임 상세·클레임 신청·mock 결제·주문 완료) · 관리자 23 · 셀러 18을 방문한다. 목록은 spec이 여는 경로(구매자·관리자·셀러 모두 전수) + 레이어 pages 기준이고, 동적 [id]는 없는 id(warmup-0 · 404 안내 → 데이터 변화 없음)로 연다. 레이어 첫 화면만 goto(hydration 완료 + networkidle)하고 나머지는 클라이언트 이동으로 라우트 청크만 받는다(전 화면 goto는 웜에서도 99.9s → 44.8s). 클라이언트 이동은 load 수명주기가 없어 networkidle이 즉시 반환되므로, 진행 중 요청 0이 500ms 이어질 때까지 직접 기다린다(이동 전 요청 제외 — 앱 매니페스트 dev.json이 끝 이벤트 없이 남는 것이 실측됨). 로그인은 helpers/login.ts와 같은 BE 로그인 API(데모 계정 = `*_E2E_*` env)로 해 데모 라우트 rate limit을 쓰지 않는다. 자격증명이 없으면 그 역할을 건너뛰고 출력하며, 그 외 실패는 원인을 출력하고 전체 실행을 중단한다.
+- **생략 스위치** `E2E_SKIP_WARMUP=1`이면 "워밍업 생략 — 콜드 서버면 첫 테스트가 실패할 수 있음"을 출력하고 건너뛴다(기본 켜짐). 사용 조건: 서버가 이미 웜일 때(직전 전체 실행·워밍업 이후 재시작 없음) 단일 spec을 반복하는 경우에만 쓴다.
+- **판정 규칙 변경** 워밍업을 켠 전체 실행에서의 실패는 실제 실패로 다룬다. 워밍업을 skip한 경우에만 콜드 트랩(LT-39) 가능성을 검토한다(CLAUDE-DEV.md 규정 명령 절 · LT-37 후속 영향 동기화 — 이전 "실패 spec 단독 재실행 통과 = 콜드 트랩" 판정 폐지).
+- **A' 기각(Vite `server.warmup`)** dev 서버 설정 변경이고 healthy가 워밍 완료를 보장하지 않아 healthy 직후 실행이 여전히 경합한다.
+- **B 기각(운영 빌드 대상 실행)** 콜드와 구조적 여유를 함께 없애는 근본책이지만 소스 수정마다 재빌드(1~3분)가 필요하고 dev와 포트·baseURL 분리가 필요하다.
+- **C·E 기각(timeout 상향·retries)** 증상 은폐 — 원인은 그대로 두고 렌더 회귀 발견만 늦춘다.
+- **D 기각(대기 조건 수정)** 실질은 대기 한도를 30s로 넓히는 C 계열이고 spec 전반 수정이 필요하다.
+- **F 기각(콜드 1차 워커 1)** 동시 변환 경합만 줄이는 부분 효과이며 원인은 그대로다.
+
+### §2 검증
+- 사이클 2회(각각 frontend 재시작 → 전량 1회 · `--workers=2`): ① healthy 32s → 워밍업 94.0s(콜드) → 113 passed · 2 skipped · 0 failed(7.9m) · ② healthy 32s → 워밍업 92.3s → 113 passed · 2 skipped · 0 failed(8.0m). 콜드 트랩 실패 0.
+- 관리자·셀러 spec ① 부팅(goto → 첫 API 요청 · trace 기준): 정찰(워밍업 없음) 평균 3.8s · 최대 12.1s(categories 미마운트) → 평균 2.70s·2.71s · 최대 4.47s·4.59s. ①과 ② 이후(평균 2.72~2.75s)의 차이가 사라졌다. categories ① 2.64s·2.79s · claims ① 2.71s·2.67s.
+- typecheck 0(대상에 e2e/ 미포함 — global-setup.ts는 단독 `tsc --strict` 0으로 확인) · vitest 127 files / 861 passed.
+- 셀프 리뷰 지적 8건 중 수용 0(상태 오염 없음 확인 — 로그인 API readOnly·토큰 폐기 없음 · 방문 화면 onMounted 전부 GET). 이후 결정(zslab)으로 구매자 범위 확장·생략 스위치를 반영했다.
+- 결정 반영 후 재검증(재시작 → 전량 1회): 워밍업 106.2s(구매자 12화면 포함) → 113 passed · 2 skipped · 0 failed(8.1m) · 관리자·셀러 ① 부팅 평균 2.69s · 최대 4.66s. 구매자 spec ①은 goto('/') 뒤 클라이언트 이동이라 첫 API가 곧 나가 0.3~0.4s(claims·mock-payment·order-resume-payment·smoke) · help 3.0s · password-change 3.7s(첫 API가 로그인 폼 제출이라 부팅 순수값 아님). `E2E_SKIP_WARMUP=1` 웜 단일 spec(admin-categories) 생략 문구 출력 · 1 passed(5.3s). global-setup.ts 단독 strict tsc 0.
+
+### §8 이월
+- 웜 부팅 여유가 얇다: 테스트마다 새 컨텍스트라 dev 비번들 모듈 약 640~720건을 다시 받아 부팅 평균 2.7s · 최대 4.5~4.6s(셀러 통계·관리자 셸)로 expect 5s와 여유 0.4s 수준이다. 근본책은 운영 빌드 대상 실행(B)이다.
+- 워밍업 비용: 단일 spec 실행에도 globalSetup이 돈다(웜 약 45~53s · 콜드 약 93s). 웜 서버에서의 반복은 `E2E_SKIP_WARMUP=1`로 생략한다.
+- CI(prod preview)에서는 워밍업 효과가 0이고, 시드·BE가 없으면 전체 실행이 중단된다. 현재 CI는 Playwright를 돌리지 않는다. CI에 도입하면 `E2E_SKIP_WARMUP=1`로 워밍업을 생략해야 한다(통합 검토 이월).
+- **미확정** 정찰 1차에서 admin-dashboard ① 로그인 POST가 30s 무응답이었다(Nuxt 프록시에서 backend 미도달 · 단독 재실행 368ms). 이번 2사이클에서는 재현되지 않았다. 관찰 절차(반복 재현률 · `ss -tnp` · 프록시 디버그 로그 · `docker stats`)는 recon-report-e2e-cold.md 참조.
+
+외부 검토: C / 생략
