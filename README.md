@@ -69,7 +69,7 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-  PR[Pull Request] -->|CI: 테스트 · 타입 검사 · e2e| M[main 병합]
+  PR[Pull Request] -->|"CI: 타입 검사 · Vitest(FE) · Gradle 테스트(BE)<br/>e2e(Playwright)는 로컬 컨테이너에서 실행"| M[main 병합]
   M --> A[GitHub Actions<br/>변경 영역만 이미지 빌드]
   A --> REG[ghcr.io<br/>sha 태그]
   REG -->|SSH| S[운영 서버<br/>pull · 재기동]
