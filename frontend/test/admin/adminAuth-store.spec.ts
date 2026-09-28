@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mockNuxtImport } from '@nuxt/test-utils/runtime'
 import { ref, type Ref } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
@@ -19,7 +19,9 @@ const { cookieRefs, useCookieMock } = vi.hoisted(() => {
 
 mockNuxtImport('useCookie', () => useCookieMock)
 
-const fetchMock = vi.fn()
+// nuxt 4.5부터 $fetch는 auto-import(모듈 로드 시 globalThis.$fetch 고정)라 전역 stub이 닿지 않는다(FE-90).
+const { fetchMock } = vi.hoisted(() => ({ fetchMock: vi.fn() }))
+mockNuxtImport('$fetch', () => fetchMock)
 
 /** 서명 검증 없는 표시용 디코드만 쓰므로 header.payload.signature 형식의 가짜 JWT로 충분하다. */
 function fakeJwt(role: string): string {
@@ -33,12 +35,7 @@ describe('adminAuth 스토어 (FE-22d 세션 분리)', () => {
     cookieRefs.clear()
     useCookieMock.mockClear()
     fetchMock.mockReset()
-    vi.stubGlobal('$fetch', fetchMock)
     setActivePinia(createPinia())
-  })
-
-  afterEach(() => {
-    vi.unstubAllGlobals()
   })
 
   it('쿠키명 admin_token · path=/admin · 사용자 쿠키와 동일 속성(lax·secure·maxAge 3600)', () => {

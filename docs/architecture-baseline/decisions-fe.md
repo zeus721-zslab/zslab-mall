@@ -3799,3 +3799,28 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 - vitest +5: `password-max-bytes.spec`(72/73바이트 · 한글 24/25자 · 문구) · `seller-password-page.spec` 헬퍼 1(한글 24 통과 · 25 오류) · `SignupPage.spec` 1(한글 25자 미요청 · 24자 요청) · 전체 127 files / 861 passed · typecheck 0 · e2e `password-change`·`seller-password` 3 passed · 2 skipped(셀러 전용 계정 env 미설정).
 
 외부 검토:
+
+## FE-90: 보안 S3 FE — nuxt 4.5.2 상향(Vite 8 · unhead 3) (2026-09-29)
+
+배경: `pnpm audit --prod` 25건(critical 1 · high 18 · moderate 6) 중 nuxt 7건(server island RCE·CPU·OOM · routeRules 대소문자 · payload 캐시 등)의 수정판은 4.5.1 이상뿐이고, 4.5.x는 모두 Vite 8(Rolldown)·@unhead/vue 3을 동반한다(정찰 zslab-review/track-s3/recon-s3.md FE 절). 화면·빌드 결과를 main과 같게 유지하는 것이 조건이다.
+
+결정:
+- **상향 범위** package.json 3줄: nuxt ^4.4.8 → ^4.5.2 · vue ^3.5.39 → ^3.5.43 · vue-router ^5.1.0 → ^5.3.1. vue·vue-router는 nuxt 4.5.2 dependencies 하한(vue ^3.5.40 · vue-router ^5.2.0) 때문에 함께 올렸다(직접 의존 범위를 두면 lock이 이전 버전에 남아 이중 설치). 해석 결과 vite 7.3.6 → 8.3.1(단일) · rolldown 1.2.11 신규(nuxt 비선택 peer ~1.2.1을 vite 의존으로 충족) · @unhead/vue 2.1.15 → 3.4.1 · @nuxt/devtools 3.2.4 → 3.4.2 · devalue 5.8.1 → 5.9.4. @pinia/nuxt·shadcn-nuxt·@nuxt/test-utils·vite-plugin-vuetify·@tailwindcss/vite·vitest는 기존 peer가 nuxt 4·vite 8을 포함해 올리지 않았다.
+- **@nuxt/kit 4.4.8 병존 유지** @pinia/nuxt의 기존 lock 항목이 남아 3.21.8(shadcn-nuxt)·4.4.8·4.5.2가 함께 설치된다. 빌드·테스트 영향이 없어 dedupe하지 않았다(lockfile 최소 변경).
+- **Node** 요구 `^22.19.0 || ^24.11.0 || >=26.0.0`(nuxt) · Dockerfile·Dockerfile.dev node:24와 CI node-version 24가 24.18.0으로 충족해 이미지 태그는 바꾸지 않았다.
+- **영향 지점 4곳 코드 무수정(실측)** build:manifest 훅(FE-82)은 4.5.2도 `normalizeViteManifest` 결과로 호출돼 entry prefetch에서 관리자·셀러 레이어가 계속 빠진다 · vite-plugin-vuetify 2.1.3은 Vite 8 빌드 통과 · unhead 3에서 `lang` + `data-skin` 병합과 관리자 이동 시 제거 유지 · `e2e/helpers/navigation.ts`의 `vueApp.$nuxt` 유지.
+- **정찰 누락 영향 지점** nuxt 4.5.2의 `$fetch` auto-import 전환(`#build/fetch.mjs`가 로드 시 globalThis.$fetch 고정)으로 전역 stub이 무효화 → spec 10개를 `vi.stubGlobal('$fetch')`에서 `mockNuxtImport('$fetch')` + `vi.hoisted` 목으로 바꿨다(앱 코드 무변경).
+- **알려진 차이 수용** ① head에 `<script type="importmap">`(#entry) 추가 — `experimental.entryImportMap`은 이전에도 기본 true였으나 4.5.2에서 처음 실제 적용됐다. entry가 바뀌어도 다른 청크 해시가 유지되는 기본값을 따른다. import map 미지원 브라우저(Safari <16.4 등)는 `#entry`를 import하는 청크(218 중 97)부터 로딩에 실패한다. ② Rolldown이 entry를 본체 + 공유 10개로 나눠 modulepreload가 페이지마다 +10, 초기 JS는 +4.5%(홈 566,312 → 591,979B · Nuxt 4.5 진단 코드 등)다. 되돌리려면 Rolldown 청크 설정이 따로 필요해 수용했다.
+- **CSP** 저장소 안 Content-Security-Policy·script-src 0건 → 인라인 importmap을 막는 정책이 없다. **배포 전 확인**: 운영 gateway nginx(저장소 밖) mall vhost의 CSP 유무 — 있으면 script-src가 인라인 스크립트를 허용하는지 확인한다(해시 방식이면 importmap 본문이 빌드마다 바뀐다).
+
+### §2 검증
+- 기준선 대조(main 운영 이미지 vs 상향 운영 이미지 · 6페이지 × 스킨 3변형(env 기본 · ?skin=renew · 제거 값 classic 쿠키 — 등록 스킨은 renew 1종) = 18건): status·응답 헤더·htmlAttrs·bodyAttrs 전부 동일 · head는 ①② 외 태그가 순서까지 동일 · 관리자·셀러 모듈 목록 동일 · 구매자 HTML의 관리자·셀러 모듈 링크 0 · 구매자 초기 정적 import 폐포에 관리자·셀러·Vuetify·apexcharts 코드 0 · 청크 255 → 266파일 · 3,930,024 → 3,882,067B · 브라우저 콘솔(6페이지) 경고·오류·hydration 0.
+- typecheck 0 · vitest 127 files / 861 passed · cart-store.spec은 목을 일부러 틀리게 해 RED 재현(목 반환값 undefined로 실패 = stub 적용 증거) 후 원복 GREEN · Playwright 115: 111 passed · 2 skipped · 2 failed(admin-categories ①·admin-claims ① 첫 렌더 대기) → 단독 재실행 7/7 passed(콜드 트랩 LT-22).
+- audit --prod: 25 → 16(critical 0 · high 13 · moderate 3). 해소 9 = 런타임 nuxt 7 · devalue 1 / 개발 도구 @nuxt/devtools 1. 남은 16은 모두 빌드 도구: brace-expansion 5(nitropack archiver·@vercel/nft) · svgo 3(cssnano) · postcss 2·nanoid 2(@vue/compiler-sfc 경유) · browserslist 2·baseline-browser-mapping 1(@babel/core) · tar 1(@mapbox/node-pre-gyp). 상위 범위 안에 패치판이 있으나 기존 lock 항목이 유지돼 재해석되지 않았다.
+- 셀프 리뷰 지적 2건 중 수용 1(기록만): GHSA-hxvh-4h3w-prp9(routeRules 대소문자)의 수정은 클라이언트 매처뿐이고, 서버 routeRules는 여전히 대소문자를 구분한다(nitropack 2.13.4 전후 동일).
+
+### §8 이월
+- 대소문자 혼합 관리자·셀러 경로(`/Admin/login`·`/Seller/login`)가 SSR로 렌더돼 500([Vuetify] defaults 없음)과 X-Robots-Tag 누락 — 서버 routeRules가 대소문자를 구분해 `ssr:false`·헤더가 적용되지 않는다. 인증 관문은 정상(302). 상향 전부터의 동작(lock·routeRules 동일 근거)이라 통합 검토로 넘긴다.
+- 빌드 도구 advisory 16건(high 13 · moderate 3) — 런타임 미포함, 상위 범위 안 패치판으로 lockfile 재해석 시 해소 가능하나 무관한 전이 의존성 대량 변경으로 이번 대조 결과가 무효화되므로 통합 검토로 이월
+
+외부 검토: C / 생략

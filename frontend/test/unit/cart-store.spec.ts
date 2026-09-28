@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mockNuxtImport } from '@nuxt/test-utils/runtime'
 import { ref, type Ref } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
@@ -18,18 +18,15 @@ const { cookieRefs, useCookieMock } = vi.hoisted(() => {
 
 mockNuxtImport('useCookie', () => useCookieMock)
 
-const fetchMock = vi.fn()
+// nuxt 4.5부터 $fetch는 auto-import(모듈 로드 시 globalThis.$fetch 고정)라 전역 stub이 닿지 않는다(FE-90).
+const { fetchMock } = vi.hoisted(() => ({ fetchMock: vi.fn() }))
+mockNuxtImport('$fetch', () => fetchMock)
 
 describe('cart 스토어 load (FE-86 비로그인 요청 없음)', () => {
   beforeEach(() => {
     cookieRefs.clear()
     fetchMock.mockReset()
-    vi.stubGlobal('$fetch', fetchMock)
     setActivePinia(createPinia())
-  })
-
-  afterEach(() => {
-    vi.unstubAllGlobals()
   })
 
   it('비로그인이면 GET /cart를 요청하지 않고 뱃지 개수는 0', async () => {

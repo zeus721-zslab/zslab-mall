@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mockNuxtImport } from '@nuxt/test-utils/runtime'
 import type { FetchContext, FetchResponse } from 'ofetch'
 import { useSellerApi } from '#layers/seller/app/composables/useSellerApi'
@@ -16,7 +16,9 @@ mockNuxtImport('useAuthStore', () => () => userAuthMock)
 mockNuxtImport('navigateTo', () => navigateToMock)
 
 type CreateOptions = Parameters<typeof $fetch.create>[0]
-const createMock = vi.fn<(options: CreateOptions) => typeof $fetch>()
+// nuxt 4.5부터 $fetch는 auto-import(모듈 로드 시 globalThis.$fetch 고정)라 전역 stub이 닿지 않는다(FE-90).
+const { createMock } = vi.hoisted(() => ({ createMock: vi.fn<(options: CreateOptions) => typeof $fetch>() }))
+mockNuxtImport('$fetch', () => Object.assign(vi.fn(), { create: createMock }))
 
 function capturedOptions(): CreateOptions {
   useSellerApi()
@@ -46,11 +48,6 @@ describe('useSellerApi', () => {
     sellerAuthMock.markSuspended.mockReset()
     userAuthMock.logout.mockReset()
     navigateToMock.mockReset()
-    vi.stubGlobal('$fetch', Object.assign(vi.fn(), { create: createMock }))
-  })
-
-  afterEach(() => {
-    vi.unstubAllGlobals()
   })
 
   it('baseURL은 브라우저 상대경로(/api)', () => {
