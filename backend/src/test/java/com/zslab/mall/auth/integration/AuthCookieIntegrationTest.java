@@ -89,7 +89,7 @@ class AuthCookieIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("역할 로그인 3종: 구매자·셀러·관리자 각각 자기 쿠키 1건만 HttpOnly·Secure·SameSite=Lax·Max-Age=TTL·역할 Path로 발급 + 본문 token 유지")
     void roleLogins_issueOwnCookieOnly() throws Exception {
-        assertIssuedCookie(login("/api/v1/auth/buyer/login", BUYER_EMAIL, null), BUYER_COOKIE, "/api/v1");
+        assertIssuedCookie(login("/api/v1/auth/buyer/login", BUYER_EMAIL, null), BUYER_COOKIE, "/"); // D-235 개정 1: 구매자 Path "/"
         assertIssuedCookie(login("/api/v1/seller/auth/login", SELLER_EMAIL, null), SELLER_COOKIE, "/api/v1/seller");
         assertIssuedCookie(login("/api/v1/admin/auth/login", ADMIN_EMAIL, null), ADMIN_COOKIE, "/api/v1/admin");
     }
@@ -382,7 +382,7 @@ class AuthCookieIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("로그아웃: 쿠키 인증 + CSRF 토큰 없음 → 403 / 토큰 있음 → 204·자기 역할 쿠키만 Max-Age=0")
     void logout_expiresOwnCookieOnly_andRequiresCsrf() throws Exception {
         List<String[]> roles = List.of(
-                new String[] {"/api/v1/auth/logout", BUYER_COOKIE, "/api/v1"},
+                new String[] {"/api/v1/auth/logout", BUYER_COOKIE, "/"}, // D-235 개정 1: 발급과 같은 Path여야 만료된다
                 new String[] {"/api/v1/seller/auth/logout", SELLER_COOKIE, "/api/v1/seller"},
                 new String[] {"/api/v1/admin/auth/logout", ADMIN_COOKIE, "/api/v1/admin"});
         String csrf = fetchCsrfToken();
