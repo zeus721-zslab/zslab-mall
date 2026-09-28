@@ -1,5 +1,13 @@
 <script setup lang="ts">
-import { EMAIL_MAX, NAME_MAX, PHONE_MAX, PASSWORD_MIN, PASSWORD_MAX } from '~/lib/constants/account'
+import {
+  EMAIL_MAX,
+  NAME_MAX,
+  PHONE_MAX,
+  PASSWORD_MIN,
+  PASSWORD_MAX,
+  PASSWORD_MAX_BYTES_MESSAGE,
+  exceedsPasswordMaxBytes,
+} from '~/lib/constants/account'
 import type { SignupPageVm } from '~/skins/contracts/signup'
 
 // 공개 페이지(POST /users permitAll)라 definePageMeta 미부착. role은 auth.signup 내부에서 BUYER 고정.
@@ -27,6 +35,10 @@ async function handleSubmit(): Promise<void> {
   // 확인 일치는 서버 왕복 전 클라에서 즉시 검사한다(비밀번호 변경 화면과 같은 방식).
   if (passwordConfirmRequired && password.value !== passwordConfirm.value) {
     errorMessage.value = '비밀번호가 일치하지 않습니다'
+    return
+  }
+  if (exceedsPasswordMaxBytes(password.value)) {
+    errorMessage.value = PASSWORD_MAX_BYTES_MESSAGE
     return
   }
   submitting.value = true

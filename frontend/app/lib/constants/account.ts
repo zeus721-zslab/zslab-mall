@@ -12,6 +12,15 @@ export const NAME_MAX = 50
 export const PHONE_MAX = 20
 export const PASSWORD_MIN = 8
 export const PASSWORD_MAX = 72
+// D-233 BCrypt 입력 상한 — SoT: BE PasswordPolicy MAX_BYTES(UTF-8). PASSWORD_MAX는 문자 수라 한글 25자(75바이트)도 통과하므로
+// 제출 전에 바이트로 한 번 더 막는다(서버 400 MALFORMED_REQUEST는 변경 폼에서 "현재 비밀번호" 오류와 구분되지 않는다).
+export const PASSWORD_MAX_BYTES = 72
+export const PASSWORD_MAX_BYTES_MESSAGE = '비밀번호는 72바이트 이하여야 합니다(영문 72자, 한글 약 24자).'
+
+/** 비밀번호가 UTF-8 72바이트를 넘으면 true(가입·구매자/셀러 비밀번호 변경 공용). */
+export function exceedsPasswordMaxBytes(password: string): boolean {
+  return new TextEncoder().encode(password).length > PASSWORD_MAX_BYTES
+}
 
 // 배송지(user_address) — SoT: CreateAddressRequest·UpdateAddressRequest
 export const RECIPIENT_NAME_MAX = 50

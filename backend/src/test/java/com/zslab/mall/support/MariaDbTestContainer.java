@@ -1,6 +1,6 @@
 package com.zslab.mall.support;
 
-import org.testcontainers.containers.MariaDBContainer;
+import org.testcontainers.mariadb.MariaDBContainer;
 import org.testcontainers.utility.DockerImageName;
 
 /**
@@ -12,10 +12,10 @@ import org.testcontainers.utility.DockerImageName;
  */
 public final class MariaDbTestContainer {
 
-    public static final MariaDBContainer<?> INSTANCE;
+    public static final MariaDBContainer INSTANCE;
 
     static {
-        INSTANCE = new MariaDBContainer<>(DockerImageName.parse("mariadb:11.4"));
+        INSTANCE = new MariaDBContainer(DockerImageName.parse("mariadb:11.4"));
         INSTANCE.start();
     }
 

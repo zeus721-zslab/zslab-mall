@@ -6,7 +6,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
-import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
@@ -31,10 +31,11 @@ public class SecurityConfig {
 
     /**
      * 클레임 첨부 인가 서빙 경로(Track 82 D-176) 단일 매처. permitAll 규칙과 {@link JwtAuthenticationFilter#shouldNotFilter}가 같은 객체를
-     * 공유해 "필터 건너뜀 = permitAll" 범위가 어긋나지 않는다. 디코딩된 servletPath+pathInfo 기준이라 인코딩 경로도 동일하게 판정된다.
+     * 공유해 "필터 건너뜀 = permitAll" 범위가 어긋나지 않는다. 요청 URI를 RequestPath로 파싱해 세그먼트별 디코딩 값으로 매칭하므로
+     * {@code %63laims} 같은 인코딩 경로도 동일하게 판정된다(D-233 · ClaimAttachmentServingIntegrationTest 인코딩 경로 케이스).
      */
     public static final RequestMatcher CLAIM_ATTACHMENT_SERVING_MATCHER =
-            AntPathRequestMatcher.antMatcher(HttpMethod.GET, "/api/v1/files/claims/**");
+            PathPatternRequestMatcher.pathPattern(HttpMethod.GET, "/api/v1/files/claims/**");
 
     /**
      * 단일 SecurityFilterChain — JWT 인증 파이프라인 + 경로별 hasRole 강제 인가(전 프로파일 동일).

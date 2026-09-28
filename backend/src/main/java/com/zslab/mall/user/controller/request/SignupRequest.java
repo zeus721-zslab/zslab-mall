@@ -17,6 +17,6 @@ public record SignupRequest(
         String email,
         @NotBlank @Size(max = 50) String name, // SoT: User.name @Column(length=50)
         @NotBlank @Size(max = 20) String phone, // SoT: User.phone @Column(length=20)
-        // password는 BCrypt hash로 저장돼 raw 상한은 DB 무관. max=72는 BCrypt 유효 입력 상한(초과 bytes 무시) 방어.
+        // password는 BCrypt hash로 저장돼 raw 상한은 DB 무관. max=72는 문자 수 상한이고, BCrypt 72바이트 상한은 PasswordPolicy가 검증(D-233).
         @NotBlank @Size(min = 8, max = 72, message = "비밀번호는 8자 이상 72자 이하여야 합니다.") String password) {
 }

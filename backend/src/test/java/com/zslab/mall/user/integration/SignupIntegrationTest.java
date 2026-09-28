@@ -10,9 +10,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -33,6 +34,11 @@ class SignupIntegrationTest extends AbstractIntegrationTest {
     private static final String DUP_EMAIL = EMAIL_PREFIX + "dup@zslab.test";
     private static final String BAD_EMAIL = EMAIL_PREFIX + "bad@zslab.test";
     private static final String VALID_PASSWORD = "password123";
+    /** D-233: 한글은 UTF-8 3바이트 — 24자 = 72바이트(상한), 25자 = 75바이트(초과). 둘 다 DTO @Size(max=72자)는 통과한다. */
+    private static final String KOREAN_72_BYTES = "가".repeat(24);
+    private static final String KOREAN_75_BYTES = "가".repeat(25);
+    private static final String ASCII_72_BYTES = "a".repeat(72);
+    private static final String MAX_BYTES_MESSAGE = "비밀번호는 72바이트 이하여야 합니다(영문 72자, 한글 약 24자).";
 
     @Autowired
     private MockMvc mockMvc;
@@ -40,6 +46,8 @@ class SignupIntegrationTest extends AbstractIntegrationTest {
     private JdbcTemplate jdbc;
     @Autowired
     private PlatformTransactionManager txManager;
+    @Autowired
+    private PasswordEncoder passwordEncoder;
 
     private TransactionTemplate tx;
 
@@ -130,6 +138,43 @@ class SignupIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
     }
 
+    @Test
+    @DisplayName("(5) D-233 한글 25자(75바이트) → 400·MALFORMED_REQUEST·정책 문구(BCrypt 원문 아님)·계정 미생성")
+    void koreanPasswordOver72Bytes_returns400WithPolicyMessage() throws Exception {
+        mockMvc.perform(post("/api/v1/users")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(signupBody(NEW_EMAIL, "홍길동", "010-1234-5678", KOREAN_75_BYTES)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"))
+                .andExpect(jsonPath("$.detail").value(MAX_BYTES_MESSAGE));
+
+        Integer userCount = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM `user` WHERE email = ?", Integer.class, NEW_EMAIL);
+        assertThat(userCount).isZero();
+    }
+
+    @Test
+    @DisplayName("(6) D-233 한글 24자(72바이트) → 201·저장 hash가 원문과 일치(상한 경계 포함)")
+    void koreanPasswordAt72Bytes_returns201() throws Exception {
+        mockMvc.perform(post("/api/v1/users")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(signupBody(NEW_EMAIL, "홍길동", "010-1234-5678", KOREAN_72_BYTES)))
+                .andExpect(status().isCreated());
+
+        assertThat(passwordEncoder.matches(KOREAN_72_BYTES, passwordHashByEmail(NEW_EMAIL))).isTrue();
+    }
+
+    @Test
+    @DisplayName("(7) D-233 영문 72자(72바이트) → 201·저장 hash가 원문과 일치(상한 경계 포함)")
+    void asciiPasswordAt72Bytes_returns201() throws Exception {
+        mockMvc.perform(post("/api/v1/users")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(signupBody(NEW_EMAIL, "홍길동", "010-1234-5678", ASCII_72_BYTES)))
+                .andExpect(status().isCreated());
+
+        assertThat(passwordEncoder.matches(ASCII_72_BYTES, passwordHashByEmail(NEW_EMAIL))).isTrue();
+    }
+
     // ---------- seed·helpers (AuthControllerIntegrationTest 패턴·? positional 바인딩·SQL injection 없음) ----------
 
     private void seedExistingUser(String email) {
@@ -159,6 +204,10 @@ class SignupIntegrationTest extends AbstractIntegrationTest {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
             }
         });
+    }
+
+    private String passwordHashByEmail(String email) {
+        return jdbc.queryForObject("SELECT password_hash FROM `user` WHERE email = ?", String.class, email);
     }
 
     private String signupBody(String email, String name, String phone, String password) {

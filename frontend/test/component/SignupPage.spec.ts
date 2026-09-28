@@ -3,6 +3,7 @@ import { mountSuspended, mockNuxtImport } from '@nuxt/test-utils/runtime'
 import SignupPage from '~/pages/signup.vue'
 import SignupView from '~/skins/renew/views/SignupView.vue'
 import type { SignupPageVm } from '~/skins/contracts/signup'
+import { PASSWORD_MAX_BYTES_MESSAGE } from '~/lib/constants/account'
 
 // 회원가입 비밀번호 확인 판정(FE-74): signupPasswordConfirm을 선언한 스킨에서만 불일치를 막는다.
 // need를 선언하지 않은 스킨 경로도 검증하려고 need는 useSkinNeeds mock으로 켜고 끈다(vitest 스킨은 renew 고정·FE-75). 판정은 페이지 vm으로 직접 호출해 확인한다.
@@ -59,5 +60,17 @@ describe('pages/signup.vue 비밀번호 확인', () => {
     await vm.handleSubmit()
     expect(authMock.signup).toHaveBeenCalledTimes(1)
     expect(vm.errorMessage).toBe('')
+  })
+
+  it('D-233 한글 25자(75바이트) → 가입 요청 없이 바이트 상한 문구 · 24자(72바이트)는 가입 요청', async () => {
+    const vm = await mountVm(false)
+    vm.password = '가'.repeat(25)
+    await vm.handleSubmit()
+    expect(authMock.signup).not.toHaveBeenCalled()
+    expect(vm.errorMessage).toBe(PASSWORD_MAX_BYTES_MESSAGE)
+
+    vm.password = '가'.repeat(24)
+    await vm.handleSubmit()
+    expect(authMock.signup).toHaveBeenCalledTimes(1)
   })
 })

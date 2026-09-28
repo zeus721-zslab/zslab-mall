@@ -2,6 +2,7 @@ package com.zslab.mall.user.integration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.zslab.mall.common.security.ActorRole;
@@ -11,7 +12,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -36,6 +37,10 @@ class ChangePasswordIntegrationTest extends AbstractIntegrationTest {
     private static final String EMAIL = "changepw-it@zslab.test";
     private static final String CURRENT_PASSWORD = "current-password";
     private static final String NEW_PASSWORD = "new-password-123";
+    /** D-233: 한글은 UTF-8 3바이트 — 24자 = 72바이트(상한), 25자 = 75바이트(초과). 둘 다 DTO @Size(max=72자)는 통과한다. */
+    private static final String KOREAN_72_BYTES = "가".repeat(24);
+    private static final String KOREAN_75_BYTES = "가".repeat(25);
+    private static final String MAX_BYTES_MESSAGE = "비밀번호는 72바이트 이하여야 합니다(영문 72자, 한글 약 24자).";
 
     @Autowired
     private MockMvc mockMvc;
@@ -107,6 +112,39 @@ class ChangePasswordIntegrationTest extends AbstractIntegrationTest {
         String newHash = jdbc.queryForObject(
                 "SELECT password_hash FROM `user` WHERE id = ?", String.class, USER_ID);
         assertThat(passwordEncoder.matches(NEW_PASSWORD, newHash)).isTrue();
+    }
+
+    @Test
+    @DisplayName("(5) D-233 새 비번 한글 25자(75바이트) → 400·MALFORMED_REQUEST·정책 문구·DB hash 불변")
+    void koreanNewPasswordOver72Bytes_returns400_andKeepsHash() throws Exception {
+        String hashBefore = jdbc.queryForObject(
+                "SELECT password_hash FROM `user` WHERE id = ?", String.class, USER_ID);
+
+        mockMvc.perform(patch("/api/v1/users/me/password")
+                        .header(HttpHeaders.AUTHORIZATION, bearer())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(changeBody(CURRENT_PASSWORD, KOREAN_75_BYTES)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"))
+                .andExpect(jsonPath("$.detail").value(MAX_BYTES_MESSAGE));
+
+        String hashAfter = jdbc.queryForObject(
+                "SELECT password_hash FROM `user` WHERE id = ?", String.class, USER_ID);
+        assertThat(hashAfter).isEqualTo(hashBefore);
+    }
+
+    @Test
+    @DisplayName("(6) D-233 새 비번 한글 24자(72바이트) → 204·DB hash 교체(상한 경계 포함)")
+    void koreanNewPasswordAt72Bytes_returns204_andRehashes() throws Exception {
+        mockMvc.perform(patch("/api/v1/users/me/password")
+                        .header(HttpHeaders.AUTHORIZATION, bearer())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(changeBody(CURRENT_PASSWORD, KOREAN_72_BYTES)))
+                .andExpect(status().isNoContent());
+
+        String newHash = jdbc.queryForObject(
+                "SELECT password_hash FROM `user` WHERE id = ?", String.class, USER_ID);
+        assertThat(passwordEncoder.matches(KOREAN_72_BYTES, newHash)).isTrue();
     }
 
     // ---------- seed·helpers (AuthControllerIntegrationTest 패턴·? positional 바인딩·SQL injection 없음) ----------
