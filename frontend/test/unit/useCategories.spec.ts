@@ -1,12 +1,14 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { defineComponent, h } from 'vue'
-import { mountSuspended } from '@nuxt/test-utils/runtime'
+import { mountSuspended, mockNuxtImport } from '@nuxt/test-utils/runtime'
 import { clearNuxtData } from '#app'
 import { useCategories } from '~/composables/useCategories'
 import type { CategorySummary } from '~/types/category'
 
 // 고정 key('categories')라 it 간 캐시가 공유되므로 매 it 전에 clearNuxtData로 비운다.
-const fetchMock = vi.fn()
+// nuxt 4.5부터 $fetch는 auto-import(모듈 로드 시 globalThis.$fetch 고정)라 전역 stub이 닿지 않는다(FE-90).
+const { fetchMock } = vi.hoisted(() => ({ fetchMock: vi.fn() }))
+mockNuxtImport('$fetch', () => fetchMock)
 
 // 호출 결과를 밖으로 꺼내기 위해 setup에서 반환값을 holder에 담는다.
 function mountWithCategories() {
@@ -23,12 +25,7 @@ function mountWithCategories() {
 describe('useCategories', () => {
   beforeEach(() => {
     fetchMock.mockReset()
-    vi.stubGlobal('$fetch', fetchMock)
     clearNuxtData('categories')
-  })
-
-  afterEach(() => {
-    vi.unstubAllGlobals()
   })
 
   it('성공 → /v1/categories 호출·data에 목록', async () => {

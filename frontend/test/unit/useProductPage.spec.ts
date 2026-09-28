@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { defineComponent, h, ref, type Ref } from 'vue'
 import { mountSuspended, mockNuxtImport } from '@nuxt/test-utils/runtime'
 import { clearNuxtData } from '#app'
@@ -6,12 +6,16 @@ import { useProductPage } from '~/composables/useProductPage'
 import type { ProductListResponse } from '~/types/product'
 
 // useAsyncData는 Nuxt 앱 컨텍스트가 필요하므로 composable을 호출하는 최소 컴포넌트를 mountSuspended로 세운다(useProductList.spec과 같은 방식).
-// 네트워크는 전역 $fetch를 stub해 상품 목록 호출 인자(경로·query)만 검증한다. 카테고리 조회는 mock으로 뺀다.
+// 네트워크는 $fetch를 mock해 상품 목록 호출 인자(경로·query)만 검증한다. 카테고리 조회는 mock으로 뺀다.
 const { useCategoriesMock } = vi.hoisted(() => ({ useCategoriesMock: vi.fn() }))
 mockNuxtImport('useCategories', () => useCategoriesMock)
 
-const emptyResponse: ProductListResponse = { items: [], page: 0, size: 20, totalCount: 0, hasNext: false }
-const fetchMock = vi.fn(async () => emptyResponse)
+// nuxt 4.5부터 $fetch는 auto-import(모듈 로드 시 globalThis.$fetch 고정)라 전역 stub이 닿지 않는다(FE-90).
+const { fetchMock } = vi.hoisted(() => {
+  const emptyResponse: ProductListResponse = { items: [], page: 0, size: 20, totalCount: 0, hasNext: false }
+  return { fetchMock: vi.fn(async () => emptyResponse) }
+})
+mockNuxtImport('$fetch', () => fetchMock)
 
 function hostComponent(categoryId: Ref<number | null>, keyword?: Ref<string>) {
   return defineComponent({
@@ -31,14 +35,9 @@ function productQueries(): Record<string, string | number>[] {
 describe('useProductPage keyword', () => {
   beforeEach(() => {
     fetchMock.mockClear()
-    vi.stubGlobal('$fetch', fetchMock)
     useCategoriesMock.mockReturnValue({ data: ref([]), pending: ref(false), error: ref(null), refresh: vi.fn() })
     // 같은 key는 useAsyncData 캐시가 재사용돼 $fetch가 생략되므로 매번 비운다.
     clearNuxtData()
-  })
-
-  afterEach(() => {
-    vi.unstubAllGlobals()
   })
 
   it('keyword 미지정(목록) → query에 keyword 없음', async () => {

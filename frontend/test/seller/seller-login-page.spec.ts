@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mountSuspended, mockNuxtImport } from '@nuxt/test-utils/runtime'
 import { createVuetify } from 'vuetify'
 import { flushPromises } from '@vue/test-utils'
@@ -15,7 +15,9 @@ mockNuxtImport('navigateTo', () => navigateToMock)
 mockNuxtImport('useRoute', () => () => routeMock)
 mockNuxtImport('definePageMeta', () => () => {})
 
-const fetchMock = vi.fn()
+// nuxt 4.5부터 $fetch는 auto-import(모듈 로드 시 globalThis.$fetch 고정)라 전역 stub이 닿지 않는다(FE-90).
+const { fetchMock } = vi.hoisted(() => ({ fetchMock: vi.fn() }))
+mockNuxtImport('$fetch', () => fetchMock)
 
 async function mountPage() {
   const wrapper = await mountSuspended(SellerLoginPage, { global: { plugins: [createVuetify()] } })
@@ -30,11 +32,6 @@ describe('셀러 로그인 페이지', () => {
     sellerAuthMock.loginDemo.mockReset()
     navigateToMock.mockReset()
     routeMock.query = {}
-    vi.stubGlobal('$fetch', fetchMock)
-  })
-
-  afterEach(() => {
-    vi.unstubAllGlobals()
   })
 
   it('status enabled=true → 데모 버튼 표시 · 클릭 시 loginDemo 후 /seller 이동', async () => {
