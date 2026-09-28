@@ -17,6 +17,8 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   reporter: 'list',
+  // FE-91: dev 서버 재시작 직후 콜드 변환으로 각 spec ①이 실패하던 트랩을 막기 위해 전량 실행 전 주요 화면을 한 번씩 연다.
+  globalSetup: './e2e/global-setup.ts',
   use: {
     baseURL: 'http://localhost:3000',
     trace: 'on-first-retry',

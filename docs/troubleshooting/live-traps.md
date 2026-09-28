@@ -533,7 +533,7 @@ V29로 `settlement_item.order_public_id CHAR(30)`을 추가하고 엔티티에 `
 ### 처치
 BE 변경 후 FE 실측·Playwright 전에 `docker restart zslab_mall_backend`(헬스 ~2분). Track 90-C부터 각 단계 지시의 "사전" 항목으로 고정.
 ### 후속 영향
-- Playwright 콜드 로드 트랩(FE-46)과 겹친다 — 재시작 직후 1차 실행은 버리고 2·3차로 판정.
+- Playwright 콜드 로드 트랩은 LT-39로 분리됐다(FE-91 globalSetup 워밍업으로 해소 — 재시작 직후 1차 실행도 판정에 쓴다).
 - `pnpm typecheck`(nuxt prepare)는 frontend 컨테이너의 `#app-manifest`를 깨뜨리므로(FE 트랩 후보·962행) typecheck 후에도 frontend 재시작.
 ### 관련
 - FE-47 §2·FE-48 §2·PROGRESS STEP 615·649
@@ -764,7 +764,7 @@ e2e spec은 역할별 자격증명을 `ADMIN_E2E_*`·`SELLER_E2E_*`·`BUYER_E2E_
 ### 처치
 `docker exec zslab_mall_frontend sh -c 'export ADMIN_E2E_EMAIL=$NUXT_ADMIN_DEMO_EMAIL ADMIN_E2E_PASSWORD=$NUXT_ADMIN_DEMO_PASSWORD SELLER_E2E_EMAIL=$NUXT_SELLER_DEMO_EMAIL SELLER_E2E_PASSWORD=$NUXT_SELLER_DEMO_PASSWORD BUYER_E2E_EMAIL=$NUXT_BUYER_DEMO_EMAIL BUYER_E2E_PASSWORD=$NUXT_BUYER_DEMO_PASSWORD; npx playwright test --workers=2 --reporter=line'`로 실행하고, 결과 보고는 `passed/failed/skipped` 3수치를 함께 적어 skip 수가 기준선(2 = seller-password env)과 같은지 확인한다. skip이 기준선보다 크면 통과로 판정하지 않는다.
 ### 후속 영향
-- 콜드 1차의 `admin-categories ①`·`seller-bank-account ①` 실패는 LT-22 후속 영향의 콜드 트랩 — env 주입과 별개로 단독 재실행으로 판정한다.
+- 워밍업을 켠 전체 실행에서의 실패는 실제 실패로 다룬다. 워밍업을 skip(E2E_SKIP_WARMUP=1)한 경우에만 콜드 트랩(LT-39) 가능성을 검토한다(FE-91).
 ### 관련
 - LT-22(콜드 1차 폐기) · D-207 §2 트랩(3) · FE-58 §2 검증 · `frontend/playwright.config.ts` 주석(역할별 env)
 
@@ -784,6 +784,23 @@ Python 스크립트는 Write 도구로 `.py` 파일을 만든 뒤 `python <파�
 - PROGRESS.md 같은 미추적 파일도 같은 경로로 오염되므로 기록 스크립트도 파일 실행 방식으로 통일한다.
 ### 관련
 - LT-23·LT-30·LT-35(도구 환경 계열) · D-207 §2 트랩(2) · 2026-09-22 LT 정리(LT-35~37 삽입 시 재현)
+
+---
+
+## LT-39. frontend 재시작 직후 Playwright 전량 실행에서 각 spec ①이 첫 렌더 대기로 실패 — 단독 재실행은 통과(콜드 트랩) [RESOLVED]
+**발견 트랙**: FE-46(트랩 (3) 최초) ~ FE-90까지 38건 기록(admin-categories ① 약 21회 · product-form·claims·operators·dashboard ① 등) · 원인 정찰 2026-09-29(docs/frontend/recon-report-e2e-cold.md)
+**원본 결정**: decisions-fe.md FE-91
+### 증상
+`docker restart zslab_mall_frontend` 직후 전량 실행에서 spec 첫 테스트가 `toHaveCount`·`toBeVisible` 5s 타임아웃(요소 0개)으로 실패하고, admin-claims ①은 `waitForURL` 30s로 실패한다. 같은 spec을 곧바로 단독 재실행하면 통과한다.
+### 원인
+로컬 e2e 대상은 컨테이너 nuxt dev 서버다. Vite는 클라이언트 모듈 변환 결과를 메모리에만 두므로 재시작하면 사라지고, 첫 요청 때 모듈마다 다시 변환한다. 재시작 직후 첫 테스트는 앱 마운트 전에 이 변환을 기다린다(모듈 요청 서버 wait 합계 콜드 29.6s vs 웜 1.6s · 마운트 12.1s 또는 6.9s 안에 미마운트). 이후 spec 첫 테스트도 라우트 청크 첫 변환으로 +0.5~1.5s가 붙는다. Playwright는 spec 파일을 이름순으로 배정하므로 admin-categories(첫 확인이 5s expect)가 재시작 직후 가장 차가운 서버를 맞는다. Vite 의존성 재최적화·SSR 첫 요청(87~89ms)은 원인이 아니다.
+### 처치
+`frontend/e2e/global-setup.ts`(playwright.config.ts `globalSetup`)가 전량 실행 전에 구매자·관리자·셀러 주요 화면을 브라우저 1개로 한 번씩 열어 변환을 끝낸다(방문·대기만 하며 데이터 변화 없음 · 실패 시 전체 중단). 재시작 → 전량 2사이클 모두 콜드 실패 0 · spec ① 부팅 평균 3.8s → 2.7s. 타임아웃·재시도는 바꾸지 않았다.
+### 후속 영향
+- 웜 부팅도 평균 2.7s · 최대 4.5~4.6s로 expect 5s 대비 여유가 얇다(테스트마다 새 컨텍스트 × dev 비번들 모듈 640~720건). 재시작과 무관한 ① 단발 실패가 보이면 이 여유 문제부터 본다(FE-91 §8).
+- 워밍하지 않은 새 페이지를 spec에 추가하면 그 spec ①만 콜드로 남는다 → global-setup.ts 방문 목록에 추가한다.
+### 관련
+- FE-46 트랩 (3) · FE-91 · LT-22(후속 영향 줄) · LT-37(env 주입) · recon-report-e2e-cold.md
 
 ---
 
