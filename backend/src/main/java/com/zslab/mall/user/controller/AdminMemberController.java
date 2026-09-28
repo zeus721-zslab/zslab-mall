@@ -83,7 +83,7 @@ public class AdminMemberController {
         return ResponseEntity.noContent().build();
     }
 
-    /** 관리자 탈퇴. 성공 204·이미 탈퇴 409·진행 중 주문/클레임 409. */
+    /** 관리자 탈퇴. 성공 204·이미 탈퇴 409·관리자 역할 보유 422(D-232)·진행 중 주문/클레임 409. */
     @PostMapping("/{publicId}/withdraw")
     public ResponseEntity<Void> withdraw(@PathVariable String publicId, HttpServletRequest request) {
         adminMemberCommandService.withdrawMember(publicId, auditContext(request));

@@ -98,7 +98,7 @@ public class DeliveryService {
      * 연결 (3) {@link Delivery#markShipping}(E4 발행)을 일괄 처리한다.
      *
      * <p>흐름: ClaimApproved(EXCHANGE) → ClaimPickedUp(E11) → 본 메서드 → 배송 완료 시
-     * {@code ExchangeDeliveryCompletedHandler}가 OrderItem EXCHANGED·Claim COMPLETED로 종결한다.
+     * {@code ExchangeDeliveryCompletedHandler}가 Claim COMPLETED로 종결하고 OrderItem은 DELIVERED로 복귀한다(D-177·EXCHANGED 미사용).
      *
      * @param claimId    교환 클레임 id (EXCHANGE·APPROVED·검수 PASS 선행·Track 83 D-177 가드)
      * @param carrier    택배사

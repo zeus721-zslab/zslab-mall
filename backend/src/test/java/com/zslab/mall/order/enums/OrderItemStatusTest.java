@@ -27,7 +27,7 @@ class OrderItemStatusTest {
         map.put(OrderItemStatus.CANCELLED,         EnumSet.noneOf(OrderItemStatus.class));
         map.put(OrderItemStatus.RETURN_REQUESTED,  EnumSet.of(OrderItemStatus.RETURNED, OrderItemStatus.SHIPPING, OrderItemStatus.DELIVERED));
         map.put(OrderItemStatus.RETURNED,          EnumSet.noneOf(OrderItemStatus.class));
-        map.put(OrderItemStatus.EXCHANGE_REQUESTED, EnumSet.of(OrderItemStatus.EXCHANGED, OrderItemStatus.DELIVERED));
+        map.put(OrderItemStatus.EXCHANGE_REQUESTED, EnumSet.of(OrderItemStatus.DELIVERED));
         map.put(OrderItemStatus.EXCHANGED,         EnumSet.noneOf(OrderItemStatus.class));
         return map;
     }
@@ -85,5 +85,16 @@ class OrderItemStatusTest {
         assertThat(OrderItemStatus.CANCEL_REQUESTED.canTransitionTo(OrderItemStatus.PAID)).isTrue();
         assertThat(OrderItemStatus.CANCEL_REQUESTED.canTransitionTo(OrderItemStatus.PREPARING)).isTrue();
         assertThat(OrderItemStatus.CANCEL_REQUESTED.canTransitionTo(OrderItemStatus.CANCELLED)).isTrue();
+    }
+
+    @Test
+    @DisplayName("EXCHANGED로 가는 전이 없음(D-177: 교환 완료는 DELIVERED 복귀·EXCHANGED 미사용)")
+    void noTransitionIntoExchanged() {
+        for (OrderItemStatus from : OrderItemStatus.values()) {
+            assertThat(from.canTransitionTo(OrderItemStatus.EXCHANGED))
+                    .as("%s → EXCHANGED 은 불가", from)
+                    .isFalse();
+        }
+        assertThat(OrderItemStatus.EXCHANGE_REQUESTED.canTransitionTo(OrderItemStatus.DELIVERED)).isTrue();
     }
 }

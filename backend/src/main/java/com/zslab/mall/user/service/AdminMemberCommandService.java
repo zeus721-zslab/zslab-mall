@@ -51,7 +51,7 @@ public class AdminMemberCommandService {
     private static final String TEMPORARY_PASSWORD_EVENT = "TemporaryPassword";
     /** 감사 after에 "평문이 관리자 화면에 표시됐다"는 사실만 남기는 키(D-204·평문 아님). */
     private static final String AUDIT_DISPLAYED_TO_ACTOR = "displayedToActor";
-    /** 임시 비밀번호 발급을 차단하는 관리자 역할(D-204·관리자 영역은 변경 강제가 없음). */
+    /** 임시 비밀번호 발급(D-204·관리자 영역은 변경 강제가 없음)·관리자 탈퇴(D-232·관리자 계정은 권한 관리 경로에서 다룸)를 차단하는 관리자 역할. */
     private static final EnumSet<RoleCode> ADMIN_ROLE_CODES = EnumSet.of(RoleCode.SUPER_ADMIN, RoleCode.ADMIN_OPERATOR);
     /** 등급 고정 만료 시각의 당일 종료(DATETIME(6) 마이크로초 정밀도). */
     private static final LocalTime LOCK_END_OF_DAY = LocalTime.of(23, 59, 59, 999_999_000);
@@ -113,6 +113,7 @@ public class AdminMemberCommandService {
      *
      * @throws com.zslab.mall.user.exception.UserNotFoundException 미존재·비BUYER(404)
      * @throws MemberAlreadyWithdrawnException 이미 탈퇴(409)
+     * @throws MemberAdminRoleAssignedException 관리자 역할 보유 회원(422·권한 해제 후 탈퇴)
      * @throws com.zslab.mall.user.exception.MemberActivityInProgressException 진행 중 주문·클레임(409)
      * @throws com.zslab.mall.auth.exception.LastSuperAdminRevocationException 마지막 활성 슈퍼 관리자(409)
      * @throws com.zslab.mall.common.exception.DemoAccountProtectedException 데모 계정(403)
@@ -120,8 +121,10 @@ public class AdminMemberCommandService {
     public void withdrawMember(String publicId, AuditContext auditContext) {
         User user = requireActiveBuyer(publicId);
         demoAccountGuard.requireNotProtected(user);
+        requireNoAdminRole(user, "관리자 역할이 있는 회원은 탈퇴 처리할 수 없습니다. 권한을 먼저 해제하세요: publicId=" + publicId);
         memberActivityChecker.requireNoActivityInProgress(user.getId());
-        lastSuperAdminGuard.requireNotLastSuperAdmin(user.getId()); // D-230: BUYER를 겸한 SUPER_ADMIN도 이 경로의 대상
+        // 관리자 역할 차단 뒤라 이 경로에서는 도달하지 않는다 — 차단이 풀려도 활성 SUPER_ADMIN 0명을 막는 방어로 유지(D-230·D-232).
+        lastSuperAdminGuard.requireNotLastSuperAdmin(user.getId());
         LocalDateTime now = LocalDateTime.now();
         user.withdraw();
         user.markCredentialsChanged(now);
@@ -148,10 +151,8 @@ public class AdminMemberCommandService {
         User user = requireActiveBuyer(publicId);
         demoAccountGuard.requireNotProtected(user);
         // 관리자 영역은 변경 강제가 없어(adminAuth 플래그 미저장) 화면에 표시된 임시 비밀번호로 관리자 조작이 무기한 가능해진다 → 차단(D-204).
-        if (userRoleRepository.existsByUserIdAndRole_CodeIn(user.getId(), ADMIN_ROLE_CODES)) {
-            throw new MemberAdminRoleAssignedException(
-                    "관리자 권한을 보유한 회원에게는 임시 비밀번호를 발급할 수 없습니다. 관리자 권한 해제 후 재발급하세요: publicId=" + publicId);
-        }
+        requireNoAdminRole(user,
+                "관리자 권한을 보유한 회원에게는 임시 비밀번호를 발급할 수 없습니다. 관리자 권한 해제 후 재발급하세요: publicId=" + publicId);
         if (user.getPhone() == null || user.getPhone().isBlank()) {
             throw new MemberPhoneMissingException("연락처가 없어 임시 비밀번호를 발송할 수 없습니다: publicId=" + publicId);
         }
@@ -213,6 +214,15 @@ public class AdminMemberCommandService {
             throw new MemberAlreadyWithdrawnException("이미 탈퇴한 회원입니다: publicId=" + publicId);
         }
         return user;
+    }
+
+    /**
+     * @throws MemberAdminRoleAssignedException 관리자 역할(SUPER_ADMIN·ADMIN_OPERATOR) 보유 회원(422)
+     */
+    private void requireNoAdminRole(User user, String message) {
+        if (userRoleRepository.existsByUserIdAndRole_CodeIn(user.getId(), ADMIN_ROLE_CODES)) {
+            throw new MemberAdminRoleAssignedException(message);
+        }
     }
 
     private static Map<String, Object> profileFields(User user) {

@@ -19,7 +19,7 @@ import org.springframework.stereotype.Component;
  * 발행처 {@code ClaimService.markCompleted}는 환불 콜백 TX({@code ClaimRefundCompletedHandler} 동기) 안에서 호출되므로 Refund COMPLETED·
  * Claim COMPLETED·품목 종결·재고 복구가 한 트랜잭션으로 묶인다(실패 시 콜백 422 → PG 재전송).
  *
- * <p><b>type 분기·멱등(D-98 Q4)</b>: CANCEL → CANCELLED·RETURN → RETURNED·EXCHANGE → EXCHANGED. 이미 종결 상태이거나
+ * <p><b>type 분기·멱등(D-98 Q4)</b>: CANCEL → CANCELLED·RETURN → RETURNED·EXCHANGE → DELIVERED(D-177·EXCHANGED 미사용). 이미 종결 상태이거나
  * 대상 *_REQUESTED 상태가 아니면 no-op이다.
  */
 @Slf4j

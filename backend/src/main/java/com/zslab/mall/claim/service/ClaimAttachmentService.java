@@ -81,14 +81,24 @@ public class ClaimAttachmentService {
                     + "개·현재 " + unlinked + "개). 클레임 요청에 연결하거나 24시간 후 다시 시도해 주세요.");
         }
         ImageUploadResponse uploaded = imageUploadService.upload(files, CLAIM_DIRECTORY, ATTACHMENT_LIMITS);
-        List<Attachment> attachments = new ArrayList<>();
-        for (ImageUploadResponse.Item item : uploaded.results()) {
-            if (item.success()) {
-                attachments.add(Attachment.createUnlinked(
-                        PolymorphicTargetType.CLAIM, buyerId, item.fileName(), item.url(), mimeTypeOf(item.url()), item.size()));
+        List<Attachment> saved;
+        try {
+            List<Attachment> attachments = new ArrayList<>();
+            for (ImageUploadResponse.Item item : uploaded.results()) {
+                if (item.success()) {
+                    attachments.add(Attachment.createUnlinked(
+                            PolymorphicTargetType.CLAIM, buyerId, item.fileName(), item.url(), mimeTypeOf(item.url()), item.size()));
+                }
             }
+            saved = attachmentRepository.saveAll(attachments);
+        } catch (RuntimeException saveFailure) {
+            // 행 조립(파일명 공백 등 400)·saveAll(한 트랜잭션이라 전부 롤백) 실패 모두 행이 없어 24시간 정리 배치(행 기준)도 찾지 못한다
+            // → 이번 요청 저장분을 여기서 지운다(D-232). deleteByUrl은 실패해도 예외 없이 warn만 남기므로 원래 예외를 가리지 않는다.
+            uploaded.results().stream()
+                    .filter(ImageUploadResponse.Item::success)
+                    .forEach(item -> imageUploadService.deleteByUrl(item.url()));
+            throw saveFailure;
         }
-        List<Attachment> saved = attachmentRepository.saveAll(attachments);
         List<ClaimAttachmentUploadResponse.Item> results = new ArrayList<>();
         Iterator<Attachment> savedAttachments = saved.iterator();
         for (ImageUploadResponse.Item item : uploaded.results()) {

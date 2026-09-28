@@ -105,6 +105,10 @@ describe('toAdminErrorMessage 회원 코드 4 + USER_NOT_FOUND', () => {
     expect(toAdminErrorMessage({ data: { code: 'LAST_SUPER_ADMIN', detail: 'x' } })).toBe('마지막 슈퍼 관리자는 탈퇴하거나 권한을 해제할 수 없습니다.')
     expect(toAdminErrorMessage({ data: { code: 'DEMO_ACCOUNT_PROTECTED', detail: 'x' } })).toBe('데모 계정은 이 기능을 사용할 수 없습니다.')
   })
+
+  it('D-232: MEMBER_ADMIN_ROLE_ASSIGNED → 임시 비밀번호·탈퇴 공통 문구(서버 detail 무시)', () => {
+    expect(toAdminErrorMessage({ data: { code: 'MEMBER_ADMIN_ROLE_ASSIGNED', detail: 'x' } })).toBe('관리자 역할이 있는 회원은 이 작업을 할 수 없습니다. 권한을 먼저 해제하세요.')
+  })
 })
 
 describe('resolveBackPath 회원 경로(Track 84)', () => {

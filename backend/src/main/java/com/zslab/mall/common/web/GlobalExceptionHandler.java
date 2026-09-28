@@ -579,8 +579,8 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(MemberAdminRoleAssignedException.class)
     public ResponseEntity<ProblemDetail> handleMemberAdminRoleAssigned(
             MemberAdminRoleAssignedException exception, HttpServletRequest request) {
-        // D-204: 관리자 역할 보유 회원 임시 비밀번호 발급 차단(422·관리자 영역 변경 강제 부재·권한 해제 후 재발급).
-        log.warn("[Member] 임시 비밀번호 발급 불가·관리자 역할 보유(422): {}", exception.getMessage());
+        // D-204·D-232: 관리자 역할 보유 회원 임시 비밀번호 발급·관리자 탈퇴 차단(422·권한 해제 후 처리).
+        log.warn("[Member] 관리자 역할 보유 회원 조작 불가(422): {}", exception.getMessage());
         return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_MEMBER_ADMIN_ROLE_ASSIGNED, exception.getMessage(), request);
     }
 

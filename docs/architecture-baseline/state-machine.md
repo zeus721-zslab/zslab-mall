@@ -79,7 +79,7 @@ ORDERED → PAID → PREPARING → SHIPPING → DELIVERED → CONFIRMED
                                                     ↑
                               CANCEL_REQUESTED → CANCELLED (종료)
                               RETURN_REQUESTED → RETURNED ──→ (집계 후 Order.status)
-                              EXCHANGE_REQUESTED → EXCHANGED
+                              EXCHANGE_REQUESTED → DELIVERED (교환품 배송완료 복귀·D-177)
 ```
 
 **확정 값 집합 (12개)**:
@@ -97,12 +97,12 @@ ORDERED → PAID → PREPARING → SHIPPING → DELIVERED → CONFIRMED
 | RETURN_REQUESTED | 반품요청 | Claim(RETURN).REQUESTED |
 | RETURNED | 반품완료 | Claim(RETURN).COMPLETED |
 | EXCHANGE_REQUESTED | 교환요청 | Claim(EXCHANGE).REQUESTED |
-| EXCHANGED | 교환완료 | Claim(EXCHANGE).COMPLETED |
+| EXCHANGED | 교환완료(미사용) | 진입 없음 — D-177: 교환 완료(Claim(EXCHANGE).COMPLETED)는 DELIVERED 복귀. DB ENUM 호환을 위해 값만 유지 |
 
 > **복귀 전이 매트릭스 (ClaimRejected 핸들러 한정·Track 14 PR-1·D-98 Q7·스냅샷 기반)**:
 > - `CANCEL_REQUESTED → CANCELLED | PAID | PREPARING` — `claim.previous_order_item_status` 스냅샷 복원
 > - `RETURN_REQUESTED → RETURNED | SHIPPING | DELIVERED` — `claim.previous_order_item_status` 스냅샷 복원
-> - `EXCHANGE_REQUESTED → EXCHANGED | DELIVERED` — `claim.previous_order_item_status` 스냅샷 복원
+> - `EXCHANGE_REQUESTED → DELIVERED` — `claim.previous_order_item_status` 스냅샷 복원(교환 완료도 같은 전이·D-177)
 >
 > **D-90 Q3 의미 변경 (Track 14·D-98 Q7)**: 기존 §주석(Track 9 PR-C)은 `CANCEL_REQUESTED → PAID`를 claim-lock release(unlock 목적·과거 상태 복원 아님)로 박제했으나, Track 14 PR-1에서 의미 변경. `claim.previous_order_item_status`(Q11) 컬럼에 Claim 요청 시점 OrderItem 상태를 저장·REJECTED 시 해당 스냅샷으로 복원(type 무관). claim-lock release 단어는 더 이상 의미 부재. PREPARING 직접 복원도 스냅샷 기반으로 지원. canTransitionTo 매트릭스 확장 반영.
 
@@ -184,7 +184,7 @@ Order.status는 OrderItem 집계 캐시이므로, OrderItem 상태가 변경될 
 - **종료 상태 우선**: 전체 취소[5]·부분 취소[6]·전체 확정/반품/교환[7]을 먼저 판정해, 진행 중 상태가 종료 케이스를 가리지 않도록 한다.
 - **진행 상태 역순**: 이후 배송완료[4] → 배송중[3] → 준비중[2]을 평가해 "가장 진행된 단계"를 Order.status로 반영한다.
 - [1](PAID)은 결제 이벤트 직후 일괄 적용되므로 재계산 평가 순서에서 제외한다.
-- Claim 처리 완료(OrderItem → CANCELLED/RETURNED/EXCHANGED) 시 재계산 트리거.
+- Claim 처리 완료(OrderItem → CANCELLED/RETURNED · 교환은 DELIVERED 복귀·D-177) 시 재계산 트리거.
 
 ---
 

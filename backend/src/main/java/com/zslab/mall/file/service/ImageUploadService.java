@@ -312,7 +312,16 @@ public class ImageUploadService {
         String thumbnailUrl = url;
         if (image.getWidth() > THUMBNAIL_WIDTH) {
             String thumbnailKey = base + THUMBNAIL_SUFFIX + "." + format.thumbnailExtension();
-            fileStorage.store(thumbnailKey, encodeThumbnail(image, format));
+            try {
+                fileStorage.store(thumbnailKey, encodeThumbnail(image, format));
+            } catch (RuntimeException thumbnailFailure) {
+                // 결과 목록에 오르기 전이라 upload()의 요청 실패 보상이 이 원본을 모른다 → 여기서 지운다(D-232). 썸네일은 CREATE_NEW 쓰기 도중
+                // 실패하면 부분 파일이 남으므로 함께 지운다(ULID 키라 다른 업로드와 겹치지 않음·없으면 false).
+                // delete는 실패해도 예외 없이 warn만 남기므로(FileStorage 계약) 원래 예외를 가리지 않는다.
+                fileStorage.delete(originalKey);
+                fileStorage.delete(thumbnailKey);
+                throw thumbnailFailure;
+            }
             thumbnailUrl = URL_PREFIX + thumbnailKey;
         }
         log.info("[ImageUpload] 저장 key={} {}x{} size={} thumb={}", originalKey, image.getWidth(), image.getHeight(),

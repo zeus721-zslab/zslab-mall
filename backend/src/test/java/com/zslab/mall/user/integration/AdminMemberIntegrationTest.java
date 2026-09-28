@@ -38,6 +38,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
@@ -76,6 +77,8 @@ class AdminMemberIntegrationTest extends AbstractIntegrationTest {
     private static final long NON_BUYER = 9844L; // BUYER role 없음(판매자 계정 상정)
     private static final long BUYER_C = 9845L;  // 무관 회원(토큰 영향 없음 검증)
     private static final long BUYER_ADMIN = 9846L; // BUYER + ADMIN_OPERATOR 겸직(임시 비밀번호 발급 차단 검증·D-204)
+    private static final long ADMIN_CALLER = 9847L; // 관리자 탈퇴 차단(D-232)의 호출자 — 역할 행을 케이스마다 심는다
+    private static final long ORDER_ADMIN_ACTIVE = 98413L; // BUYER_ADMIN의 진행 중 주문(판정 순서: 관리자 역할 → 활동)
     private static final long ORDER_A_PAID = 98411L;
     private static final long SELLER_S1 = 98461L; // (11) 활성 2명
     private static final long SELLER_S2 = 98462L; // (11) 탈퇴 구성원만
@@ -243,6 +246,30 @@ class AdminMemberIntegrationTest extends AbstractIntegrationTest {
         // 탈퇴 회원의 기존 토큰은 401(발급 시점 무관)
         mockMvc.perform(get("/api/v1/users/me").headers(authHeaders.buyer(BUYER_A)))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @ParameterizedTest(name = "(5-2) 호출자 {0} → 대상 {1} 보유 회원 탈퇴 422")
+    @CsvSource({"ADMIN_OPERATOR, SUPER_ADMIN", "ADMIN_OPERATOR, ADMIN_OPERATOR", "SUPER_ADMIN, SUPER_ADMIN", "SUPER_ADMIN, ADMIN_OPERATOR"})
+    @DisplayName("(5-2) 관리자 탈퇴 가드(D-232): 관리자 역할 보유 회원 → 호출자 역할 무관 422 MEMBER_ADMIN_ROLE_ASSIGNED·진행 중 주문보다 먼저·withdrawn_at·자격증명·감사 불변")
+    void withdraw_adminRoleHolder_rejected(String callerRoleCode, String targetRoleCode) throws Exception {
+        tx.executeWithoutResult(s -> {
+            jdbc.update("DELETE FROM user_role WHERE user_id = ? AND role_id IN (SELECT id FROM role WHERE code IN ('ADMIN_OPERATOR', 'SUPER_ADMIN'))", BUYER_ADMIN);
+            jdbc.update("INSERT INTO user_role (user_id, role_id, created_at) SELECT ?, id, NOW(6) FROM role WHERE code = ?", BUYER_ADMIN, targetRoleCode);
+            seedUser(ADMIN_CALLER, pid("usr_", "T84CALL"), "t84-caller@zslab.test", "호출관리자", "010-4444-0000", "pw-x-0000000", false, false);
+            jdbc.update("INSERT INTO user_role (user_id, role_id, created_at) SELECT ?, id, NOW(6) FROM role WHERE code = ?", ADMIN_CALLER, callerRoleCode);
+        });
+        seedOrder(ORDER_ADMIN_ACTIVE, BUYER_ADMIN, "SHIPPING", true);
+        seedOrderItem(ORDER_ADMIN_ACTIVE, "SHIPPING");
+
+        mockMvc.perform(post(URL + "/" + BUYER_ADMIN_PID + "/withdraw").headers(authHeaders.admin(ADMIN_CALLER)))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("MEMBER_ADMIN_ROLE_ASSIGNED"));
+
+        Map<String, Object> row = jdbc.queryForMap(
+                "SELECT withdrawn_at, credentials_changed_at FROM `user` WHERE id = ?", BUYER_ADMIN);
+        assertThat(row.get("withdrawn_at")).isNull();
+        assertThat(row.get("credentials_changed_at")).isNull();
+        assertThat(auditActions(BUYER_ADMIN)).isEmpty();
     }
 
     // ---------- 임시 비밀번호 ----------
@@ -582,7 +609,7 @@ class AdminMemberIntegrationTest extends AbstractIntegrationTest {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
                 jdbc.update("DELETE FROM seller_user WHERE seller_id IN (?, ?, ?)", SELLER_S1, SELLER_S2, SELLER_S3);
                 jdbc.update("DELETE FROM seller WHERE id IN (?, ?, ?)", SELLER_S1, SELLER_S2, SELLER_S3);
-                List<Long> ids = List.of(BUYER_A, BUYER_B, BUYER_NO_PHONE, NON_BUYER, BUYER_C, BUYER_ADMIN);
+                List<Long> ids = List.of(BUYER_A, BUYER_B, BUYER_NO_PHONE, NON_BUYER, BUYER_C, BUYER_ADMIN, ADMIN_CALLER);
                 for (Long id : ids) {
                     jdbc.update("DELETE FROM audit_log WHERE target_type = 'USER' AND target_id = ?", id);
                     jdbc.update("DELETE FROM notification_log WHERE target_type = 'USER' AND target_id = ?", id);
