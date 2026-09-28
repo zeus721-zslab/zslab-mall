@@ -17,8 +17,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.micrometer.metrics.test.autoconfigure.AutoConfigureMetrics;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -35,7 +35,7 @@ import com.zslab.mall.support.AbstractIntegrationTest;
  * scrape 응답 본문에 {@code zslab.event.*} 노출(#7)을 단언한다. 검증 이벤트 종류(OrderPlaced)·핸들러 구현·테스트 클래스명은
  * 변경 가능(Q17 α′ 박제·메트릭 계약만 고정).
  *
- * <p><b>{@code @AutoConfigureObservability}</b>: {@code @SpringBootTest}는 테스트 오염 방지를 위해 메트릭 export
+ * <p><b>{@code @AutoConfigureMetrics}</b>: {@code @SpringBootTest}는 테스트 오염 방지를 위해 메트릭 export
  * 레지스트리를 기본 비활성화(Simple 폴백만)하므로 PrometheusMeterRegistry·{@code /actuator/prometheus} 엔드포인트가
  * 생성되지 않는다. 본 어노테이션으로 실제 export 자동구성을 활성화해 #7 scrape 엔드포인트를 검증한다.
  *
@@ -54,7 +54,7 @@ import com.zslab.mall.support.AbstractIntegrationTest;
  * 차이(after-before==1.0)로 단언한다(라이브 트랩 회피·기조 2).
  */
 @AutoConfigureMockMvc
-@AutoConfigureObservability
+@AutoConfigureMetrics
 class EventFailedMetricIntegrationTest extends AbstractIntegrationTest {
 
     private static final long USER_ID = 9402L;

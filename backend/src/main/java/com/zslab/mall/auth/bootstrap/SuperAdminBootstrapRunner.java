@@ -6,6 +6,7 @@ import com.zslab.mall.auth.enums.RoleCode;
 import com.zslab.mall.auth.repository.RoleRepository;
 import com.zslab.mall.auth.repository.UserRoleRepository;
 import com.zslab.mall.user.entity.User;
+import com.zslab.mall.user.policy.PasswordPolicy;
 import com.zslab.mall.user.repository.UserRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -69,7 +70,8 @@ public class SuperAdminBootstrapRunner implements CommandLineRunner {
      * 존재 확인(skip) → 부재 시 env 검증(Fail Fast) → User·UserRole 원자 생성. 전 과정을 단일 트랜잭션으로 묶어
      * 부분 생성(User만 저장되고 UserRole 실패)이 남지 않게 한다.
      *
-     * @throws IllegalStateException 생성 필요 상태에서 필수 env가 blank이거나 SUPER_ADMIN Role seed가 없는 경우(Fail Fast)
+     * @throws IllegalStateException 생성 필요 상태에서 필수 env가 blank이거나 비밀번호가 72바이트를 넘거나 SUPER_ADMIN Role seed가
+     *         없는 경우(Fail Fast)
      */
     @Override
     @Transactional
@@ -82,6 +84,10 @@ public class SuperAdminBootstrapRunner implements CommandLineRunner {
         if (bootstrapEmail.isBlank() || bootstrapPassword.isBlank()) {
             throw new IllegalStateException(
                     "SUPER_ADMIN이 없어 최초 공급이 필요하나 ADMIN_BOOTSTRAP_EMAIL·ADMIN_BOOTSTRAP_PASSWORD env가 비어 있습니다.");
+        }
+        if (PasswordPolicy.exceedsMaxBytes(bootstrapPassword)) {
+            // D-233: encode의 BCrypt IAE 대신 같은 Fail Fast 계약으로 중단한다(평문 비노출 원칙에 따라 값은 메시지에 넣지 않는다).
+            throw new IllegalStateException("ADMIN_BOOTSTRAP_PASSWORD env가 72바이트를 넘습니다(BCrypt 입력 상한).");
         }
 
         Role superAdminRole = roleRepository.findByCode(RoleCode.SUPER_ADMIN)

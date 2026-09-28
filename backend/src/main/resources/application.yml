@@ -38,6 +38,12 @@ spring:
   jackson:
     # D-49·§15: 응답 null 필드 제외(camelCase는 Jackson 기본). 날짜 UTC Z 포맷은 DTO 필드 @JsonFormat에서 처리.
     default-property-inclusion: non_null
+  # D-233 Jackson 2 브리지(PR2에서 제거): HTTP 변환기와 주입 ObjectMapper가 Jackson 2를 쓰므로 spring.jackson.*을 그대로 복제한다.
+  jackson2:
+    default-property-inclusion: non_null
+  http:
+    converters:
+      preferred-json-mapper: jackson2
   lifecycle:
     timeout-per-shutdown-phase: 20s
   task:

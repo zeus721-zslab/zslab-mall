@@ -1,15 +1,14 @@
 plugins {
     java
-    id("org.springframework.boot") version "3.4.1"
+    id("org.springframework.boot") version "4.1.1"
     id("io.spring.dependency-management") version "1.1.7"
 }
 
 group = "com.zslab.mall"
 version = "0.1.0-SNAPSHOT"
 
-// Spring Boot 3.4.1의 dependency-management가 testcontainers 1.20.4로 pin하므로 override.
-// docker-java 3.5.x 도입 시 도커 Desktop 4.73.1(Engine 29.4.3)과 호환 진단.
-extra["testcontainers.version"] = "1.21.4"
+// D-233: Boot 4.1.1 BOM의 Tomcat 11.0.24에 남는 OSV 권고 3건(DIGEST·긴 경로 constraint·FORM 인증)이 11.0.26에서 0건.
+extra["tomcat.version"] = "11.0.26"
 
 java {
     sourceCompatibility = JavaVersion.VERSION_21
@@ -20,7 +19,9 @@ repositories {
 }
 
 dependencies {
-    implementation("org.springframework.boot:spring-boot-starter-web")
+    implementation("org.springframework.boot:spring-boot-starter-webmvc")
+    // D-233: Jackson 3 전환(PR2) 전까지 Jackson 2 ObjectMapper·@JsonSerialize를 유지하는 브리지. PR2에서 제거.
+    implementation("org.springframework.boot:spring-boot-jackson2")
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
@@ -30,7 +31,7 @@ dependencies {
     runtimeOnly("io.jsonwebtoken:jjwt-jackson:0.12.6")
     implementation("io.micrometer:micrometer-registry-prometheus")
     implementation("org.mariadb.jdbc:mariadb-java-client")
-    implementation("org.flywaydb:flyway-core")
+    implementation("org.springframework.boot:spring-boot-starter-flyway")
     implementation("org.flywaydb:flyway-mysql")
     implementation("com.github.f4b6a3:ulid-creator:5.2.3")
     implementation("net.logstash.logback:logstash-logback-encoder:8.0")
@@ -39,9 +40,13 @@ dependencies {
     compileOnly("org.projectlombok:lombok")
     annotationProcessor("org.projectlombok:lombok")
     testImplementation("org.springframework.boot:spring-boot-starter-test")
-    testImplementation("org.springframework.security:spring-security-test")
-    testImplementation("org.testcontainers:junit-jupiter")
-    testImplementation("org.testcontainers:mariadb")
+    testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
+    testImplementation("org.springframework.boot:spring-boot-starter-security-test")
+    testImplementation("org.springframework.boot:spring-boot-starter-data-jpa-test")
+    testImplementation("org.springframework.boot:spring-boot-starter-flyway-test")
+    testImplementation("org.springframework.boot:spring-boot-starter-micrometer-metrics-test")
+    testImplementation("org.testcontainers:testcontainers-junit-jupiter")
+    testImplementation("org.testcontainers:testcontainers-mariadb")
 }
 
 tasks.test {

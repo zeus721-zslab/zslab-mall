@@ -13217,3 +13217,42 @@ renew 메인 큐레이션(FE-68 β)에 필요한 조회를 기존 `GET /api/v1/p
 
 외부 검토: A / 지적 1건 중 수용 0건
 - 기각: 탈퇴 판정과 역할 부여 사이 경합(중) — 운영 관리자 권한 부여가 탈퇴 회원을 거르지 않아 경합 없이도 "탈퇴 → 부여" 순서로 같은 상태에 도달함. 탈퇴 계정은 인증 거부, SUPER_ADMIN 부여 API 없음, 마지막 SA 집계는 활성 회원만 → 무해. 두 경로 User 잠금 공유는 과잉.
+
+## D-233 보안 S3 BE → Spring Boot 4.1 이전 PR1 — Boot 4.1.1 + Jackson 2 브리지 · 패키지 이동 · Security matcher 전환 · 비밀번호 72바이트 상한 (2026-09-28)
+
+### 배경
+- 보안 S3 BE(비밀번호 72바이트 · CVE-2025-22228)를 처리하기 전에 Boot 3.4 라인 유지 여부를 정찰했다(`docs/track-s3/recon-report-boot4.md` · STEP 72~75). OSS 지원 종료: 3.4 2025-12-31 · 3.5 2026-06-30 · 4.0 2026-12-31 · 4.1 2027-07-31.
+- 현 main(Boot 3.4.1 · Security 6.4.2)은 72바이트를 넘는 비밀번호를 예외 없이 받아 저장했다(RED 실측: 한글 25자 가입 201 · 변경 204).
+
+### 결정
+1. Spring Boot 4.1.1로 이전하고 S3 BE를 이 이전에 흡수한다. 2개 PR로 나눈다: PR1(이번) = 빌드·패키지 이동·Security matcher·72바이트 / PR2 = Jackson 3 전환.
+2. PR1은 Jackson 2를 브리지로 유지한다: `spring-boot-jackson2` + `spring.http.converters.preferred-json-mapper=jackson2` + `spring.jackson.*`을 `spring.jackson2.*`에 복제(`default-property-inclusion: non_null`). Jackson 2 코드(ObjectMapper · `@JsonSerialize` · `KstOffsetSerializer`)는 바꾸지 않는다.
+3. 빌드: starter 교체(webmvc · starter-flyway · 테스트 starter 5종) · `flyway-mysql` 유지(4.1.1 BOM 관리 · MariaDB 지원 모듈) · Testcontainers 2.0.5 좌표 · TC 버전 override 제거 · `tomcat.version` 11.0.26(BOM 11.0.24의 OSV 권고 3건 해소).
+4. `CLAIM_ATTACHMENT_SERVING_MATCHER` = `PathPatternRequestMatcher.pathPattern(GET, "/api/v1/files/claims/**")`. permitAll과 `JwtAuthenticationFilter.shouldNotFilter`의 매처 공유(D-176)는 유지한다. 판정 기준은 "디코딩된 servletPath+pathInfo"에서 "요청 URI를 RequestPath로 파싱한 세그먼트 디코딩 값"으로 바뀌지만 인코딩 경로(`%63laims`) 결과는 같다.
+5. 72바이트 상한은 encode 경로에만 둔다: `PasswordPolicy.validate`에 UTF-8 72바이트 검사(400 `MALFORMED_REQUEST` · "비밀번호는 72바이트 이하여야 합니다(영문 72자, 한글 약 24자).") → 가입·변경은 기존 validate 호출로 적용. 부트스트랩 env 초과는 `IllegalStateException`으로 기동 실패(값 미포함). 로그인·현재 비밀번호 비교(matches)는 바꾸지 않는다. 생성 비밀번호(관리자 임시 발급 · 셀러 구성원 추가)는 12자 ASCII라 상한 이하다.
+
+### §1-A 갈림길·채택/기각 근거
+- (a) Boot 4.1 이전 + S3 BE 흡수 【채택】 — OSS 지원이 남은 유일한 선택이고, 알려진 CVE(OSV) 88건 → 0건(Tomcat override 포함), 72바이트 설계는 Security 7에서도 같다.
+- (b) β(3.4.13 + 같은 minor override) 유지 【기각】 — 3.4 OSS 종료로 새 CVE는 누적만 된다 · Central에 수정판이 없는 권고 14건 잔존(CRITICAL 1 포함) · Boot 4 이전 비용은 줄지 않고 뒤로 밀린다.
+- (c) 3.5.x 경유 【기각】 — 3.5 OSS도 종료 · 가장 큰 작업(Jackson 3)이 줄지 않아 이전을 두 번 하게 된다.
+- PR 2단 분할 【채택】 / 한 번에 Jackson 3까지 【기각】 — Jackson 3은 Jackson 2 databind 어노테이션을 예외 없이 무시해 KST `+09:00`이 컴파일·기동 오류 없이 사라진다(정찰 실험). 이 조용한 회귀를 Hibernate 7·Flyway 12·Security 7 회귀와 섞지 않고 PR2에서 응답 스냅샷 대조로 따로 판정한다.
+- 72바이트 전용 오류 코드·DTO 바이트 제약 【기각(이번 범위)】 — 기존 정책 검증과 같은 방식·코드로 적용한다. matches 경로 검사 【기각】 — 저장된 비밀번호의 로그인을 막지 않는다(checkpw는 예외 없이 동작 유지).
+
+### 환경
+- 운영 MariaDB 10.11: Flyway 12.4.0 OSS 요건(10.3 이상) · Hibernate 7 MariaDBDialect 최소 10.6 충족. 테스트 컨테이너는 `mariadb:11.4`라 운영과 다르다 — 기존 이력 DB 경로는 로컬 MariaDB 10.11 backend 재생성으로 확인했다(Flyway 39개 validate · ddl validate · READ_COMMITTED).
+
+### §2 검증·테스트
+- 테스트 import 치환 107파일(boot test autoconfigure 패키지 이동 · `AutoConfigureObservability` → `AutoConfigureMetrics` · `MariaDBContainer` 패키지 이동과 비제네릭화).
+- 신규 6: 가입 한글 25자 400·문구 / 한글 24자·영문 72자 201 + 저장 hash 일치 · 변경 한글 25자 400·hash 불변 / 한글 24자 204 · 부트스트랩 73바이트 기동 실패·값 미포함.
+- RED: main 기준 임시 워크트리 17건 중 3건 실패(201 · 204 · 예외 없음) → 워크트리 제거·prune.
+- 셀프 리뷰(A): 지적 6건 중 수용 3건(D-176 주석 · DTO 주석 "초과 bytes 무시" 정정 · 경계 테스트 hash 단언). 기각: FE 오인 문구(지시 사양 · 보고) · 기존 이력 DB 경로(backend 재생성으로 검증) · Tomcat part 헤더 512B(보안 기본값 · 보고).
+- 전체: `./gradlew.bat test --rerun-tasks` 280 클래스 · 1,673 tests · 실패·오류·skip 0 · backend 재생성 healthy · JSON 3종(주문 상세 · 상품 상세 · 관리자 감사 로그) main과 바이트 동일(+09:00 · null 생략 유지) · typecheck 0 · vitest 126 files / 856 passed · Playwright 115 중 110 passed · 2 skipped · 3 콜드 트랩(단독 재실행 16/16).
+
+### §8 이월
+- PR2: Jackson 3 전환(직렬화기 2개 → `ValueSerializer`·`ValueDeserializer` · DTO 35개 import · ObjectMapper 7곳 · `JsonProcessingException` 6곳 · `SecurityErrorHandler` `copy().addMixIn` → `rebuild`) + DTO 35개 응답 스냅샷 대조 + 브리지(`spring-boot-jackson2` · `preferred-json-mapper` · `spring.jackson2.*`) 제거.
+- FE 72바이트 문구(확정): FE 사전 검사 채택(기존 클라이언트 검증 패턴) — 가입·구매자 변경·셀러 변경 폼이 제출 전에 UTF-8 72바이트를 검사해 같은 문구를 보인다(FE-89). 서버 400 매핑은 그대로 둔다.
+- Tomcat part 헤더 512B(확정): 기본값 유지(DoS 방어, 한글 약 140자 이상 파일명만 영향).
+
+외부 검토: A / 지적 2건 중 수용 0건
+- 기각: 경로 변형 파라미터 테스트 — 단일 GET 패턴 · 대소문자 구분 · 인코딩 경로 기존 테스트로 충분.
+- 기각: Actuator JSON 형식 — API 계약이 아니고 소비자는 compose healthcheck(HTTP 상태만)이며, PR2에서 Jackson 3로 일괄 전환한다.

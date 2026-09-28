@@ -21,7 +21,7 @@ import com.zslab.mall.support.AbstractIntegrationTest;
 /**
  * 최초 SUPER_ADMIN 부트스트랩 로직 통합 테스트(Track 38·실 MariaDB). {@link SuperAdminBootstrapRunner}를 테스트가 직접
  * 제어한 env(생성자 인자)와 DB 상태로 구성해 (A) 부재 시 생성 (B) 존재 시 멱등·무수정 invariant (C) 필수 env blank 시
- * Fail Fast를 실측한다.
+ * Fail Fast (D) 비밀번호 72바이트 초과 시 Fail Fast를 실측한다.
  *
  * <p>startup 시 build.gradle.kts가 주입한 더미 자격으로 이미 SUPER_ADMIN이 생성돼 있으므로, 각 시나리오는 {@code @BeforeEach}
  * 에서 모든 SUPER_ADMIN 매핑·해당 user를 제거해 상태를 확정한다(컨테이너는 클래스 전용이라 타 테스트에 무영향). Runner의
@@ -112,6 +112,20 @@ class SuperAdminBootstrapRunnerIntegrationTest extends AbstractIntegrationTest {
         assertThatThrownBy(() -> tx.executeWithoutResult(status -> blankPassword.run()))
                 .isInstanceOf(IllegalStateException.class);
         assertThat(superAdminCount()).isZero();
+    }
+
+    @Test
+    @DisplayName("(D) D-233 SUPER_ADMIN 부재 + env 비밀번호 73바이트: run() → IllegalStateException(Fail Fast)·메시지에 값 없음·계정 미생성")
+    void whenNoSuperAdminAndPasswordOver72Bytes_failsFastWithoutValue() {
+        String tooLongPassword = "b".repeat(73);
+        SuperAdminBootstrapRunner runner = newRunner(CREATE_EMAIL, tooLongPassword);
+
+        assertThatThrownBy(() -> tx.executeWithoutResult(status -> runner.run()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("72바이트")
+                .hasMessageNotContaining(tooLongPassword);
+        assertThat(superAdminCount()).isZero();
+        assertThat(userExistsByEmail(CREATE_EMAIL)).isFalse();
     }
 
     // ---------- helpers (AuthControllerIntegrationTest 패턴·? positional 바인딩·SQL injection 없음) ----------

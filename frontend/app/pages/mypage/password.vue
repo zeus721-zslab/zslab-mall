@@ -1,5 +1,11 @@
 <script setup lang="ts">
-import { PASSWORD_MIN, PASSWORD_MAX, demoAccountProtectedMessage } from '~/lib/constants/account'
+import {
+  PASSWORD_MIN,
+  PASSWORD_MAX,
+  PASSWORD_MAX_BYTES_MESSAGE,
+  demoAccountProtectedMessage,
+  exceedsPasswordMaxBytes,
+} from '~/lib/constants/account'
 import type { ChangePasswordRequest } from '~/types/user'
 import {
   LOGIN_NOTICE_PASSWORD_CHANGED,
@@ -34,6 +40,10 @@ async function handleSubmit(): Promise<void> {
   // 새 비밀번호 확인 일치는 서버 왕복 전 클라에서 즉시 검증(BE는 확인 필드를 받지 않음).
   if (newPassword.value !== newPasswordConfirm.value) {
     errorMessage.value = '새 비밀번호가 일치하지 않습니다'
+    return
+  }
+  if (exceedsPasswordMaxBytes(newPassword.value)) {
+    errorMessage.value = PASSWORD_MAX_BYTES_MESSAGE
     return
   }
   submitting.value = true

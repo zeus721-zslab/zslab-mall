@@ -41,6 +41,11 @@ describe('validatePasswordChangeForm', () => {
     expect(validatePasswordChangeForm({ ...VALID, newPassword: 'a'.repeat(72), newPasswordConfirm: 'a'.repeat(72) })).toEqual({})
     expect(validatePasswordChangeForm({ ...VALID, newPassword: ' abcdef ', newPasswordConfirm: ' abcdef ' })).toEqual({})
   })
+
+  it('D-233 한글 24자(72바이트) 통과 · 25자(75바이트, 72자 이하) → 바이트 상한 오류', () => {
+    expect(validatePasswordChangeForm({ ...VALID, newPassword: '가'.repeat(24), newPasswordConfirm: '가'.repeat(24) })).toEqual({})
+    expect(validatePasswordChangeForm({ ...VALID, newPassword: '가'.repeat(25), newPasswordConfirm: '가'.repeat(25) })).toEqual({ newPassword: PASSWORD_CHANGE_FORM_MESSAGES.newPasswordMaxBytes })
+  })
 })
 
 async function mountPage() {

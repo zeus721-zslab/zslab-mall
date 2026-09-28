@@ -3785,3 +3785,17 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 - vitest `admin-member-helpers.spec` 기대 1건 추가(`MEMBER_ADMIN_ROLE_ASSIGNED` → 공통 문구) · 전체 126 files / 856 passed · typecheck 0 · e2e admin-members 6 passed.
 
 외부 검토:
+
+## FE-89: 비밀번호 72바이트 사전 검사 — 가입·구매자 변경·셀러 변경 (D-233) (2026-09-28)
+
+배경: D-233에서 BE가 UTF-8 72바이트를 넘는 새 비밀번호를 400 `MALFORMED_REQUEST`로 거부한다. FE 입력 상한 `PASSWORD_MAX`(72)는 문자 수라 한글 25자(75바이트)가 통과하고, 서버 400이 오면 가입은 단일 문구, 구매자·셀러 변경은 "현재 비밀번호" 오류로 표시돼 원인과 맞지 않는다.
+
+결정:
+- 공용 헬퍼를 `lib/constants/account.ts`(`PASSWORD_MAX` 옆)에 둔다: `PASSWORD_MAX_BYTES`(72 · SoT BE `PasswordPolicy`) · `PASSWORD_MAX_BYTES_MESSAGE`(BE 문구와 같음) · `exceedsPasswordMaxBytes`(TextEncoder).
+- 3개 폼은 기존 클라이언트 검증 방식 그대로 제출 전에 막는다: `signup.vue`·`mypage/password.vue`는 확인 불일치 검사 다음에 `errorMessage` + 제출 안 함, 셀러는 `validatePasswordChangeForm`의 새 비밀번호 길이 검사 다음 필드 오류(`newPasswordMaxBytes`).
+- 서버 400 매핑 분기는 바꾸지 않는다(사전 검사를 통과한 입력은 서버에서도 통과).
+
+### §2 검증
+- vitest +5: `password-max-bytes.spec`(72/73바이트 · 한글 24/25자 · 문구) · `seller-password-page.spec` 헬퍼 1(한글 24 통과 · 25 오류) · `SignupPage.spec` 1(한글 25자 미요청 · 24자 요청) · 전체 127 files / 861 passed · typecheck 0 · e2e `password-change`·`seller-password` 3 passed · 2 skipped(셀러 전용 계정 env 미설정).
+
+외부 검토:

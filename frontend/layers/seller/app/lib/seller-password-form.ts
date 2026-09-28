@@ -1,4 +1,4 @@
-import { PASSWORD_MAX, PASSWORD_MIN } from '~/lib/constants/account'
+import { PASSWORD_MAX, PASSWORD_MAX_BYTES_MESSAGE, PASSWORD_MIN, exceedsPasswordMaxBytes } from '~/lib/constants/account'
 
 /**
  * 셀러 비밀번호 변경 폼 클라이언트 검증(Track 90-D-2·FE-50·순수 함수·vitest 대상). 길이 상·하한은 BE ChangePasswordRequest @Size(8~72)의
@@ -13,6 +13,8 @@ export interface PasswordChangeFormInput {
 export const PASSWORD_CHANGE_FORM_MESSAGES = {
   currentPasswordRequired: '현재 비밀번호를 입력하세요.',
   newPasswordLength: `새 비밀번호는 ${PASSWORD_MIN}자 이상 ${PASSWORD_MAX}자 이하여야 합니다.`,
+  /** D-233 문자 수는 통과해도 UTF-8 72바이트를 넘는 경우(한글 25자 이상 등). */
+  newPasswordMaxBytes: PASSWORD_MAX_BYTES_MESSAGE,
   newPasswordConfirmMismatch: '새 비밀번호가 일치하지 않습니다.',
   /** BE 400 MALFORMED_REQUEST(현재 비밀번호 불일치·사유 은닉)를 현재 비밀번호 필드에 표시할 때 쓴다. */
   currentPasswordMismatch: '현재 비밀번호가 일치하지 않습니다.',
@@ -24,6 +26,8 @@ export function validatePasswordChangeForm(input: PasswordChangeFormInput): Reco
   if (input.currentPassword === '') errors.currentPassword = PASSWORD_CHANGE_FORM_MESSAGES.currentPasswordRequired
   if (input.newPassword.length < PASSWORD_MIN || input.newPassword.length > PASSWORD_MAX) {
     errors.newPassword = PASSWORD_CHANGE_FORM_MESSAGES.newPasswordLength
+  } else if (exceedsPasswordMaxBytes(input.newPassword)) {
+    errors.newPassword = PASSWORD_CHANGE_FORM_MESSAGES.newPasswordMaxBytes
   }
   if (input.newPasswordConfirm !== input.newPassword) errors.newPasswordConfirm = PASSWORD_CHANGE_FORM_MESSAGES.newPasswordConfirmMismatch
   return errors
