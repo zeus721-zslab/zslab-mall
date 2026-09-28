@@ -6,6 +6,7 @@ import com.zslab.mall.auth.controller.response.LoginResponse;
 import com.zslab.mall.auth.service.AuthService;
 import com.zslab.mall.common.security.ActorRole;
 import com.zslab.mall.common.security.AuthCookies;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
@@ -31,18 +32,18 @@ public class RoleAuthController {
 
     // 구매자 쿠키 로그인은 기존 /api/v1/auth/login(본문 role·쿠키 없음)을 바꾸지 않기 위해 따로 둔다(D-235 확장-수축).
     @PostMapping("/api/v1/auth/buyer/login")
-    public ResponseEntity<LoginResponse> buyerLogin(@RequestBody @Valid RoleLoginRequest request) {
-        return login(request, ActorRole.BUYER);
+    public ResponseEntity<LoginResponse> buyerLogin(@RequestBody @Valid RoleLoginRequest request, HttpServletResponse response) {
+        return login(request, ActorRole.BUYER, response);
     }
 
     @PostMapping("/api/v1/seller/auth/login")
-    public ResponseEntity<LoginResponse> sellerLogin(@RequestBody @Valid RoleLoginRequest request) {
-        return login(request, ActorRole.SELLER);
+    public ResponseEntity<LoginResponse> sellerLogin(@RequestBody @Valid RoleLoginRequest request, HttpServletResponse response) {
+        return login(request, ActorRole.SELLER, response);
     }
 
     @PostMapping("/api/v1/admin/auth/login")
-    public ResponseEntity<LoginResponse> adminLogin(@RequestBody @Valid RoleLoginRequest request) {
-        return login(request, ActorRole.ADMIN);
+    public ResponseEntity<LoginResponse> adminLogin(@RequestBody @Valid RoleLoginRequest request, HttpServletResponse response) {
+        return login(request, ActorRole.ADMIN, response);
     }
 
     @PostMapping("/api/v1/seller/auth/logout")
@@ -55,11 +56,14 @@ public class RoleAuthController {
         return logout(ActorRole.ADMIN);
     }
 
-    private ResponseEntity<LoginResponse> login(RoleLoginRequest request, ActorRole role) {
+    /**
+     * 역할 쿠키는 서블릿 응답에 addHeader로 더한다(D-235 개정 2). ResponseEntity 헤더로 주면 Spring이 Set-Cookie를 통째로 교체해
+     * CsrfFilter가 먼저 단 XSRF-TOKEN Set-Cookie가 사라지고, FE는 로그인 직후 첫 unsafe 요청에 실을 CSRF 토큰이 없다.
+     */
+    private ResponseEntity<LoginResponse> login(RoleLoginRequest request, ActorRole role, HttpServletResponse servletResponse) {
         LoginResponse response = authService.login(new LoginRequest(request.email(), request.password(), role));
-        return ResponseEntity.ok()
-                .header(HttpHeaders.SET_COOKIE, authCookies.issue(role, response.token()).toString())
-                .body(response);
+        servletResponse.addHeader(HttpHeaders.SET_COOKIE, authCookies.issue(role, response.token()).toString());
+        return ResponseEntity.ok(response);
     }
 
     private ResponseEntity<Void> logout(ActorRole role) {

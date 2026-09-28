@@ -9,7 +9,10 @@ import org.springframework.http.HttpHeaders;
 /**
  * 클레임 첨부 인가 서빙(Track 82 D-176) 전용 후보 토큰 추출. {@code <img src>}는 Authorization 헤더를 실을 수 없어 FE가 토큰을 보관하는
  * 쿠키(관리자 {@value #ADMIN_TOKEN_COOKIE}·구매자 {@value #AUTH_TOKEN_COOKIE})를 후보로 함께 읽는다. 순서는 Bearer → admin_token →
- * auth_token이며 검증·판정은 호출부가 후보별로 독립 수행한다.
+ * auth_token → {@value AuthCookies#BUYER_COOKIE}이며 검증·판정은 호출부가 후보별로 독립 수행한다.
+ *
+ * <p>구매자 역할 쿠키를 맨 뒤에 두는 이유(D-235 개정 2): 구매자에게는 첨부 별칭이 없고 FE가 옛 쿠키를 더 쓰지 않으면 구매자 {@code <img>}가
+ * 이 경로에서 인증 수단을 잃는다. 셀러·관리자는 별칭 경로를 쓰므로 후보에 넣지 않는다.
  *
  * <p><b>CSRF 경계</b>: 옛 이름 쿠키 인식은 {@code GET /api/v1/files/claims/**} 한 경로에서만 쓰인다. 그 외 경로의 쿠키 인증은
  * {@link JwtAuthenticationFilter}가 새 이름 역할 쿠키({@link AuthCookies})로만 하며 CSRF가 함께 적용된다(D-235). 이 다중 후보 방식은 전환기 호환이라
@@ -26,7 +29,7 @@ public final class RequestTokenCandidates {
     private RequestTokenCandidates() {
     }
 
-    /** Bearer → admin_token → auth_token 순서의 원시 토큰 문자열(빈 값 제외·검증 전). */
+    /** Bearer → admin_token → auth_token → __Secure-buyer_at 순서의 원시 토큰 문자열(빈 값 제외·검증 전). */
     public static List<String> of(HttpServletRequest request) {
         List<String> candidates = new ArrayList<>();
         String header = request.getHeader(HttpHeaders.AUTHORIZATION);
@@ -35,6 +38,7 @@ public final class RequestTokenCandidates {
         }
         addIfPresent(candidates, cookieValue(request, ADMIN_TOKEN_COOKIE));
         addIfPresent(candidates, cookieValue(request, AUTH_TOKEN_COOKIE));
+        addIfPresent(candidates, cookieValue(request, AuthCookies.BUYER_COOKIE));
         return candidates;
     }
 
