@@ -66,7 +66,7 @@ public class ClaimAttachmentAuthorizationService {
 
     /**
      * @param relativeKey 서빙 요청 키(예 {@code claims/2026/09/{ULID}.jpg} 또는 {@code ..._thumb.jpg})
-     * @param candidateTokens Bearer → admin_token → auth_token 순서의 원시 토큰(검증 전)
+     * @param candidateTokens Bearer → admin_token → auth_token → __Secure-buyer_at 순서의 원시 토큰(검증 전)
      * @return 후보 중 하나라도 열람 권한이 있으면 true. 첨부 행이 정확히 1건이 아니거나 대상이 CLAIM이 아니면 false
      */
     public boolean canView(String relativeKey, List<String> candidateTokens) {

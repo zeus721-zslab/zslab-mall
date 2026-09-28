@@ -366,6 +366,19 @@ class AuthCookieIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("역할 로그인 3종 성공 응답(CSRF 헤더·쿠키 없이 200)에 XSRF-TOKEN Set-Cookie가 있고 속성은 전역 발급(공개 GET)과 같다(D-235 개정 2)")
+    void roleLogins_issueXsrfTokenCookie() throws Exception {
+        String globalAttributes = csrfCookieAttributes(mockMvc.perform(get("/api/v1/categories"))
+                .andExpect(status().isOk()).andReturn());
+        assertThat(globalAttributes).isNotNull();
+        String[][] logins = {{"/api/v1/auth/buyer/login", BUYER_EMAIL}, {"/api/v1/seller/auth/login", SELLER_EMAIL},
+                {"/api/v1/admin/auth/login", ADMIN_EMAIL}};
+        for (String[] roleLogin : logins) {
+            assertThat(csrfCookieAttributes(login(roleLogin[0], roleLogin[1], null))).as(roleLogin[0]).isEqualTo(globalAttributes);
+        }
+    }
+
+    @Test
     @DisplayName("구매자 쿠키 로그인은 BUYER 역할이 없는 계정(셀러 전용)이면 401·쿠키 없음")
     void buyerLogin_withoutBuyerRole_fails() throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/auth/buyer/login").contentType(MediaType.APPLICATION_JSON)
@@ -434,6 +447,15 @@ class AuthCookieIntegrationTest extends AbstractIntegrationTest {
         return result.getResponse().getHeaders(HttpHeaders.SET_COOKIE).stream()
                 .filter(header -> !header.startsWith(CSRF_COOKIE + "="))
                 .toList();
+    }
+
+    /** 응답의 XSRF-TOKEN Set-Cookie에서 값을 뺀 속성 부분(없으면 null). 중복 발급이 없어야 하므로 2건 이상이면 실패한다. */
+    private static String csrfCookieAttributes(MvcResult result) {
+        List<String> csrfHeaders = result.getResponse().getHeaders(HttpHeaders.SET_COOKIE).stream()
+                .filter(header -> header.startsWith(CSRF_COOKIE + "="))
+                .toList();
+        assertThat(csrfHeaders).hasSizeLessThanOrEqualTo(1);
+        return csrfHeaders.isEmpty() ? null : csrfHeaders.get(0).replaceFirst("^" + CSRF_COOKIE + "=[^;]*", "");
     }
 
     /** 공개 GET으로 CSRF 쿠키를 받는다(SPA 흐름: 서버가 XSRF-TOKEN을 내려주고 클라이언트가 헤더로 되돌려 보낸다). */
