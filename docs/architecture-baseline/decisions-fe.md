@@ -3853,3 +3853,18 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 - **미확정** 정찰 1차에서 admin-dashboard ① 로그인 POST가 30s 무응답이었다(Nuxt 프록시에서 backend 미도달 · 단독 재실행 368ms). 이번 2사이클에서는 재현되지 않았다. 관찰 절차(반복 재현률 · `ss -tnp` · 프록시 디버그 로그 · `docker stats`)는 recon-report-e2e-cold.md 참조.
 
 외부 검토: C / 생략
+
+## FE-92: 대소문자 혼합 경로 정규화(301) · X-Robots-Tag 복구 (2026-09-29)
+
+배경: 서버 routeRules(nitropack 2.13.4 · radix3 매처)·쿠키 path(`/admin`·`/seller`)·경로 문자열 분기(약 22곳)는 대소문자를 구분하고, vue-router는 구분하지 않는다(기본 `sensitive: false`). 그래서 `/Admin/login`은 관리자 로그인 화면에 매칭되면서 `'/admin/**': { ssr: false, headers: { 'X-Robots-Tag' } }`를 놓쳐 SSR로 렌더되고, 레이아웃 `<v-app>`이 클라이언트 전용 Vuetify 없이 렌더돼 500이 난다(X-Robots-Tag도 없음 · 셀러 동형). 보호 화면은 쿠키가 실리지 않아 302로 끝나지만 역시 헤더가 없다(FE-90 §8 이월 · 정찰 docs/frontend/recon-report-case-path.md).
+
+결정:
+- **§1-A 채택 β(첫 세그먼트 소문자 301)** `frontend/server/utils/case-path-redirect.ts`(순수 함수) + `frontend/server/middleware/case-path-normalize.ts`(`sendRedirect` 301). GET·HEAD에서 첫 세그먼트를 decode했을 때 ASCII 대문자가 있으면 첫 세그먼트의 ASCII 대문자만 소문자로 바꾸고, 뒤 세그먼트와 쿼리는 원문 그대로 붙인다. 진입점 1곳에서 routeRules·쿠키 path·분기 22곳·error.vue 영역 판정을 소문자 경로 기준으로 일괄 정합한다. 최상위 동적 페이지(첫 세그먼트 파라미터)가 없어 파라미터는 바뀌지 않는다. 첫 세그먼트가 비었거나(`//x`) `\`로 시작하면(`/\x` — 브라우저가 `//x` 외부 호스트로 해석) 정규화하지 않는다(오픈 리다이렉트 방지). decode에 실패한 경로도 그대로 통과시킨다.
+- **α 기각(라우터 `sensitive: true`)** 구매자 혼합 경로(`/Mypage` 등)까지 404가 되는 회귀.
+- **γ 기각(`<v-app>` SSR 방어 + 헤더 별도 부여)** 증상 처치에 그치고 쿠키 path·분기 불일치가 남는다.
+
+### §2 검증
+- `pnpm typecheck`(컨테이너) 0 · vitest `test/server/case-path-redirect.spec.ts` 10 passed.
+- frontend 재시작(healthy 31s) 후 `curl -I` 1회씩: `/Admin/login` 301 → `/admin/login` · `/ADMIN/login` 301 → `/admin/login` · `/admin/login` 200 + `X-Robots-Tag: noindex, nofollow` · `/Seller/login` 301 → `/seller/login`.
+
+외부 검토: C / 생략
