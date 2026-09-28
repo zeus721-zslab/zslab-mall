@@ -1,6 +1,6 @@
 package com.zslab.mall.settlement.controller.response;
 
-import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import tools.jackson.databind.annotation.JsonSerialize;
 import com.zslab.mall.common.serialization.KstOffsetSerializer;
 import com.zslab.mall.settlement.entity.Settlement;
 import com.zslab.mall.settlement.enums.SettlementStatus;

@@ -1,6 +1,6 @@
 package com.zslab.mall.claim.controller.response;
 
-import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import tools.jackson.databind.annotation.JsonSerialize;
 import com.zslab.mall.claim.enums.ClaimRejectReasonCode;
 import com.zslab.mall.claim.enums.ClaimInspectionResult;
 import com.zslab.mall.claim.enums.ClaimStatus;

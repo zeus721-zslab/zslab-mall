@@ -1,6 +1,6 @@
 package com.zslab.mall.product.controller.response;
 
-import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import tools.jackson.databind.annotation.JsonSerialize;
 import com.zslab.mall.common.serialization.KstOffsetSerializer;
 import com.zslab.mall.product.enums.ProductImageType;
 import com.zslab.mall.product.enums.ProductStatus;

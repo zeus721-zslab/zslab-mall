@@ -1,11 +1,10 @@
 package com.zslab.mall.common.serialization;
 
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.databind.DeserializationContext;
-import com.fasterxml.jackson.databind.JsonDeserializer;
-import java.io.IOException;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
+import tools.jackson.core.JsonParser;
+import tools.jackson.databind.DeserializationContext;
+import tools.jackson.databind.ValueDeserializer;
 
 /**
  * {@link KstOffsetSerializer}가 내보낸 {@code +09:00} 오프셋 문자열을 {@link LocalDateTime}으로 되돌린다(Track 69).
@@ -14,10 +13,10 @@ import java.time.OffsetDateTime;
  * 기본 LocalDateTime 역직렬화기는 오프셋을 파싱하지 못한다. 직렬화기와 대칭을 이루도록 오프셋을 파싱한 뒤
  * {@code toLocalDateTime()}으로 KST 벽시계를 그대로 복원한다(오프셋 제거·시각 무변환).
  */
-public class KstOffsetDeserializer extends JsonDeserializer<LocalDateTime> {
+public class KstOffsetDeserializer extends ValueDeserializer<LocalDateTime> {
 
     @Override
-    public LocalDateTime deserialize(JsonParser parser, DeserializationContext context) throws IOException {
+    public LocalDateTime deserialize(JsonParser parser, DeserializationContext context) {
         return OffsetDateTime.parse(parser.getValueAsString()).toLocalDateTime();
     }
 }

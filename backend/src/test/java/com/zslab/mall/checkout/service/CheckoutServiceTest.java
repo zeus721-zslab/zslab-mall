@@ -10,7 +10,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import com.zslab.mall.checkout.command.CartCheckoutCommand;
 import com.zslab.mall.checkout.command.CartCheckoutItemCommand;
 import com.zslab.mall.checkout.command.CheckoutCommand;
@@ -90,7 +91,7 @@ class CheckoutServiceTest {
     @Mock private CommissionRateResolver commissionRateResolver;
     @Mock private SellerRepository sellerRepository;
 
-    private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
+    private final ObjectMapper objectMapper = JsonMapper.builder().findAndAddModules().build();
 
     private CheckoutService checkoutService;
 

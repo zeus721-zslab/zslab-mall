@@ -544,7 +544,7 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.successCount").value(1))
                 .andReturn().getResponse().getContentAsString();
-        return com.fasterxml.jackson.databind.json.JsonMapper.builder().build().readTree(body)
+        return tools.jackson.databind.json.JsonMapper.builder().build().readTree(body)
                 .get("results").get(0).get("attachmentId").asText();
     }
 

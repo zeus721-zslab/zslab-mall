@@ -20,8 +20,6 @@ repositories {
 
 dependencies {
     implementation("org.springframework.boot:spring-boot-starter-webmvc")
-    // D-233: Jackson 3 전환(PR2) 전까지 Jackson 2 ObjectMapper·@JsonSerialize를 유지하는 브리지. PR2에서 제거.
-    implementation("org.springframework.boot:spring-boot-jackson2")
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.boot:spring-boot-starter-actuator")

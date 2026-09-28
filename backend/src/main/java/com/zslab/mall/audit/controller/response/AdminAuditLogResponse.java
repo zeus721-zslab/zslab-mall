@@ -1,6 +1,6 @@
 package com.zslab.mall.audit.controller.response;
 
-import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import tools.jackson.databind.annotation.JsonSerialize;
 import com.zslab.mall.audit.entity.AuditLog;
 import com.zslab.mall.audit.enums.AuditLogAction;
 import com.zslab.mall.common.enums.PolymorphicTargetType;

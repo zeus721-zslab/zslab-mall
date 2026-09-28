@@ -1,8 +1,8 @@
 package com.zslab.mall.reconciliation.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 import com.zslab.mall.audit.enums.AuditLogAction;
 import com.zslab.mall.audit.service.AuditContext;
 import com.zslab.mall.audit.service.AuditRecorder;
@@ -119,7 +119,7 @@ public class AdminReconciliationIssueService {
         }
         try {
             return objectMapper.readValue(issue.getDetail(), new TypeReference<Map<String, Object>>() { });
-        } catch (JsonProcessingException exception) {
+        } catch (JacksonException exception) {
             // DDL CHECK(JSON_VALID)로 도달 경로가 없다. 한 행 때문에 목록 전체가 깨지지 않도록 세부만 비우고 남긴다.
             log.warn("[Reconciliation] 불일치 세부 파싱 실패 id={}", issue.getId(), exception);
             return Map.of();

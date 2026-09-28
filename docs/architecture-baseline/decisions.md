@@ -13256,3 +13256,38 @@ renew 메인 큐레이션(FE-68 β)에 필요한 조회를 기존 `GET /api/v1/p
 외부 검토: A / 지적 2건 중 수용 0건
 - 기각: 경로 변형 파라미터 테스트 — 단일 GET 패턴 · 대소문자 구분 · 인코딩 경로 기존 테스트로 충분.
 - 기각: Actuator JSON 형식 — API 계약이 아니고 소비자는 compose healthcheck(HTTP 상태만)이며, PR2에서 Jackson 3로 일괄 전환한다.
+
+## D-234 보안 S3 BE PR2 — Jackson 3 전환 · Jackson 2 브리지 제거 (2026-09-28)
+
+### 배경
+- D-233(PR1)은 Boot 4.1.1로 올리면서 Jackson 2 브리지로 응답 형식을 유지했다. PR2는 브리지를 걷고 Jackson 3로 전환하되 응답·요청 JSON을 main과 바이트 단위로 같게 유지한다.
+- Jackson 3는 Jackson 2 databind 어노테이션을 예외 없이 무시하고(+09:00이 조용히 사라짐), 기본값도 여럿 다르다.
+
+### 결정
+1. Jackson 3 기본값을 Jackson 2 동작으로 고정한다(`application.yml` `spring.jackson`):
+   - `use-jackson2-defaults: true` — Boot가 `MapperBuilder.configureForJackson2()`를 적용(키 선언 순서 · null→primitive 허용 · trailing token 허용 · enum `name()` · final 필드 mutator · getter-as-setter · FIX_FIELD_NAME_UPPER_CASE_PREFIX off · FAIL_ON_EMPTY_BEANS · STRIP_TRAILING_BIGDECIMAL_ZEROES · ONE_BASED_MONTHS off · WRITE_UTC_AS_OFFSET)하고 날짜 timestamp·FAIL_ON_UNKNOWN_PROPERTIES·DEFAULT_VIEW_INCLUSION을 끈다.
+   - 개별 고정: `mapper.detect-parameter-names: true`(configureForJackson2가 끄지만 브리지는 parameter-names 모듈을 등록했다) · `mapper.allow-void-valued-properties: false` · `serialization.fail-on-order-map-by-incomparable-key: true` · `read.use-fast-big-number-parser`·`use-fast-double-parser: false` · `json.write.combine-unicode-surrogates-in-utf8: false` · `visibility.creator: any`.
+   - 파서 한도: `factory.constraints.read.max-string-length: 20000000` · `read.max-nesting-depth: 1000` · `write.max-nesting-depth: 1000`(Jackson 3 기본은 1억 자 · 500).
+   - 커스터마이저 `JacksonConfig`: 단일 인자 생성자 가시성 ANY — `spring.jackson.visibility.scalar-constructor`는 Jackson 3.1.5 `VisibilityChecker.withVisibility`가 처리하지 않아 무효.
+2. 전환: `KstOffsetSerializer`·`KstOffsetDeserializer` → `ValueSerializer`·`ValueDeserializer` · DTO 35개 `@JsonSerialize`와 `CheckoutResponse` `@JsonDeserialize` → `tools.jackson.databind.annotation` · ObjectMapper 사용 7곳(`JacksonException` · `rebuild().addMixIn().build()` · `properties()`) · 브리지 제거(`spring-boot-jackson2` · `preferred-json-mapper` · `spring.jackson2.*`).
+3. jjwt-jackson·logstash-logback-encoder는 현행 유지 — Jackson 2(2.21.5)가 이 둘을 통해 classpath에 병존한다. 앱 코드의 Jackson 2 databind·core 사용은 0건이고 가드로 고정한다.
+4. 정적 가드 `KstOffsetSerializationPolicyTest`: 응답 DTO(`controller/response`)의 LocalDateTime 필드는 Jackson 3 `@JsonSerialize(using = KstOffsetSerializer.class)`이거나 허용 목록 34필드(11 DTO · main에서 오프셋 없이 직렬화 — 형식 통일은 FE 계약 변경이라 범위 밖)여야 한다. main에 `com.fasterxml.jackson.databind`·`core` 사용 0건.
+
+### §1-A 갈림길·채택/기각 근거
+- 기본값 고정: 속성 개별 나열만 【기각】 — 차이가 15건 이상이라 누락 위험 / `use-jackson2-defaults` + 잔여 개별 고정 【채택】 — Jackson이 정의한 호환 묶음에 실측 덤프로 남은 차이만 더한다.
+- 가드 범위: KST 35 DTO 한정 【기각】 — 새 DTO 누락을 못 잡음 / 34필드에 KST 적용 【기각】 — 응답 형식 변경(FE 계약) / 전 필드 검사 + 허용 목록 【채택】(AuditFieldMaskingPolicyTest 방식).
+- 설정으로 고정할 수 없는 차이(영향 없음·알려진 차이): 접근자 이름 legacy 규칙 제거(`getURL` → "URL") — 해당 선언 0건 · 400 `MALFORMED_REQUEST` detail의 Jackson 파서 문구("field name" → "property name" 등) — FE는 유효 JSON만 보낸다 · OffsetDateTime 요청 필드의 "+숫자" epoch 허용(관리자 상품 판매 기간 · 허용 폭 확대).
+
+### §2 검증
+- 덤프: 실제 컨텍스트 빈(브리지 Jackson 2 vs Boot 4.1.1 Jackson 3)의 기능·설정 전 값 → 같은 이름 차이 15건 → 고정 후 0 · jsr310 2.21 JavaTimeFeature 기본값과 Jackson 3 DateTimeFeature 일치.
+- 바이트 대조: main 기준선 54요청(구매자·셀러·관리자 데모 GET 47 + 오류 7: 401·403 보안 필터 · 404 · 400 검증·JSON·타입 · 422) → PR2 재캡처 53건 동일(traceId만 정규화) · 1건은 검증 위반 나열 순서(Hibernate Validator 비결정 · 같은 JVM에서도 요청마다 다름 · 정렬 후 내용·키 순서·길이 동일) → 형식 차이 0.
+- 날짜 필드가 있는 응답 DTO 46개(KST 35 + 오프셋 없음 11) 중 40개는 값으로 캡처. 나머지와 대체 근거: CheckoutResponse(POST 전용 · KstOffsetSerializerTest 배선 재현) · SettlementBatchResponse·SettlementTransitionResponse(POST 전용 · 가드) · AdminProductDetailResponse 판매 기간(데모 데이터 0건 · AdminProductManagementControllerIntegrationTest `saleEndAt` +09:00 단언) · AdminSellerBankAccountResponse·AdminSellerMemberAddResponse(POST 전용 · 가드 허용 목록).
+- 가드 RED: main 기준 임시 워크트리 2/2 실패(Jackson 3 KST 필드 0 · Jackson 2 databind 어노테이션 35파일) → GREEN 2/2.
+- 테스트 API 치환: `fields()` → `properties()` 4 · `elements()` → `values()` 2 · `findAndRegisterModules` 1 · `fieldNames()` → `propertyNames()` 31(정찰 누락분).
+- 셀프 리뷰: 지적 6건 중 수용 2건(파서 한도 · 가드 범위 databind·core). 기각: 400 detail 문구·"+" epoch(알려진 차이) · SecurityErrorHandler mixin 중복(명시 보장 유지) · 커스터마이저 현재 효과 없음(차이 전부 고정 원칙).
+- 전체: `./gradlew.bat test --rerun-tasks` 281 클래스 · 1,675 tests · 실패·오류·skip 0 · backend 재생성 healthy · typecheck 0 · vitest 127 files / 861 passed · Playwright 115 중 111 passed · 2 skipped · 2 콜드 트랩(단독 재실행 7/7).
+
+### §8 이월
+- 응답 날짜 형식 혼재(대부분 +09:00, 관리자·셀러 11 DTO 34필드는 오프셋 없음) — 통일은 FE 계약 변경이라 통합 검토로 이월.
+
+외부 검토: B / 생략(Claude 판정 — 인증·권한·트랜잭션·데이터 변경 없는 직렬화 전환이고, 형식 위험은 실측 응답 54건 바이트 대조로 동일 입증 · 재발은 KstOffsetSerializationPolicyTest로 고정)

@@ -1,7 +1,7 @@
 package com.zslab.mall.checkout.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 import com.zslab.mall.checkout.command.CartCheckoutCommand;
 import com.zslab.mall.checkout.command.CartCheckoutItemCommand;
 import com.zslab.mall.checkout.command.CheckoutCommand;
@@ -450,7 +450,7 @@ public class CheckoutService {
     private String serialize(CheckoutResponse response) {
         try {
             return objectMapper.writeValueAsString(response);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             throw new IllegalStateException("멱등성 응답 직렬화 실패", e);
         }
     }
@@ -458,7 +458,7 @@ public class CheckoutService {
     private CheckoutResponse deserialize(String responseBody) {
         try {
             return objectMapper.readValue(responseBody, CheckoutResponse.class);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             throw new IllegalStateException("멱등성 응답 역직렬화 실패", e);
         }
     }

@@ -1,12 +1,11 @@
 package com.zslab.mall.common.serialization;
 
-import com.fasterxml.jackson.core.JsonGenerator;
-import com.fasterxml.jackson.databind.JsonSerializer;
-import com.fasterxml.jackson.databind.SerializerProvider;
-import java.io.IOException;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import tools.jackson.core.JsonGenerator;
+import tools.jackson.databind.SerializationContext;
+import tools.jackson.databind.ValueSerializer;
 
 /**
  * {@link LocalDateTime} 응답 필드를 KST(+09:00) 오프셋 라벨을 부착한 ISO-8601 문자열로 직렬화한다(Track 69).
@@ -16,13 +15,12 @@ import java.time.format.DateTimeFormatter;
  *
  * <p>전역 ObjectMapper 모듈로 등록하지 않고, 응답 노출 시각 필드에 {@code @JsonSerialize}로만 적용한다.
  */
-public class KstOffsetSerializer extends JsonSerializer<LocalDateTime> {
+public class KstOffsetSerializer extends ValueSerializer<LocalDateTime> {
 
     private static final ZoneOffset KST = ZoneOffset.ofHours(9);
 
     @Override
-    public void serialize(LocalDateTime value, JsonGenerator gen, SerializerProvider serializers)
-            throws IOException {
+    public void serialize(LocalDateTime value, JsonGenerator gen, SerializationContext context) {
         gen.writeString(value.atOffset(KST).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME));
     }
 }

@@ -1,7 +1,7 @@
 package com.zslab.mall.reconciliation.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 import com.zslab.mall.audit.enums.AuditLogAction;
 import com.zslab.mall.audit.service.AuditContext;
 import com.zslab.mall.audit.service.AuditRecorder;
@@ -103,7 +103,7 @@ public class ReconciliationIssueRecorder {
     private String toJson(Map<String, Object> detail) {
         try {
             return objectMapper.writeValueAsString(detail);
-        } catch (JsonProcessingException exception) {
+        } catch (JacksonException exception) {
             // 세부 직렬화 실패는 기록 자체를 막으면 안 되는 오류가 아니라 코드 결함(직렬화 불가 값 전달)이라 그대로 알린다.
             throw new IllegalStateException("불일치 세부 직렬화 실패: " + detail, exception);
         }
