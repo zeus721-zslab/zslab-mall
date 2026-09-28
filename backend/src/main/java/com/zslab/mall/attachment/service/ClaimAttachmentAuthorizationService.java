@@ -70,53 +70,84 @@ public class ClaimAttachmentAuthorizationService {
      * @return 후보 중 하나라도 열람 권한이 있으면 true. 첨부 행이 정확히 1건이 아니거나 대상이 CLAIM이 아니면 false
      */
     public boolean canView(String relativeKey, List<String> candidateTokens) {
+        Optional<ViewTarget> target = findViewTarget(relativeKey);
+        if (target.isEmpty()) {
+            return false;
+        }
+        for (String token : candidateTokens) {
+            Optional<TokenPayload> payload = verifyQuietly(token);
+            if (payload.isPresent() && isAllowed(target.get().attachment(), target.get().claim(),
+                    payload.get().actorId(), payload.get().role())) {
+                return true;
+            }
+        }
+        log.debug("[ClaimAttachmentAuthz] 열람 거부 key={} attachmentId={} candidates={}", relativeKey,
+                target.get().attachment().getPublicId(), candidateTokens.size());
+        return false;
+    }
+
+    /**
+     * 역할 별칭 경로(D-235·/api/v1/admin|seller/files/claims/**)용. 필터가 이미 인증한 주체 1명으로 같은 열람 규칙을 판정한다(후보 순회 없음).
+     *
+     * @param role 별칭 경로가 고정한 역할(접두사 hasRole로 인증 주체의 역할과 같음이 보장된다)
+     */
+    public boolean canView(String relativeKey, Long actorId, ActorRole role) {
+        Optional<ViewTarget> target = findViewTarget(relativeKey);
+        if (target.isEmpty()) {
+            return false;
+        }
+        boolean allowed = isAllowed(target.get().attachment(), target.get().claim(), actorId, role);
+        if (!allowed) {
+            log.debug("[ClaimAttachmentAuthz] 열람 거부 key={} attachmentId={} role={}", relativeKey,
+                    target.get().attachment().getPublicId(), role);
+        }
+        return allowed;
+    }
+
+    /** 요청 키 → 첨부 행(정확히 1건·CLAIM 대상) + 연결 클레임. 조건을 벗어나면 empty(호출부 404). */
+    private Optional<ViewTarget> findViewTarget(String relativeKey) {
         List<String> filePaths = originalFilePathCandidates(relativeKey);
         if (filePaths.isEmpty()) {
             log.debug("[ClaimAttachmentAuthz] 지원하지 않는 썸네일 확장자 key={}", relativeKey);
-            return false;
+            return Optional.empty();
         }
         List<Attachment> found = attachmentRepository.findByFilePathIn(filePaths);
         if (found.size() != 1) {
             log.debug("[ClaimAttachmentAuthz] 첨부 행 수 불일치 key={} found={}", relativeKey, found.size());
-            return false;
+            return Optional.empty();
         }
         Attachment attachment = found.get(0);
         if (attachment.getTargetType() != PolymorphicTargetType.CLAIM) {
             log.debug("[ClaimAttachmentAuthz] 대상 유형 불일치 key={} attachmentId={} targetType={}", relativeKey,
                     attachment.getPublicId(), attachment.getTargetType());
-            return false;
+            return Optional.empty();
         }
-        Claim claim = null;
-        if (attachment.isLinked()) {
-            Optional<Claim> target = claimRepository.findById(attachment.getTargetId());
-            if (target.isEmpty()) {
-                log.debug("[ClaimAttachmentAuthz] 대상 클레임 없음 key={} attachmentId={} claimId={}", relativeKey,
-                        attachment.getPublicId(), attachment.getTargetId());
-                return false;
-            }
-            claim = target.get();
+        if (!attachment.isLinked()) {
+            return Optional.of(new ViewTarget(attachment, null));
         }
-        for (String token : candidateTokens) {
-            Optional<TokenPayload> payload = verifyQuietly(token);
-            if (payload.isPresent() && isAllowed(attachment, claim, payload.get())) {
-                return true;
-            }
+        Optional<Claim> claim = claimRepository.findById(attachment.getTargetId());
+        if (claim.isEmpty()) {
+            log.debug("[ClaimAttachmentAuthz] 대상 클레임 없음 key={} attachmentId={} claimId={}", relativeKey,
+                    attachment.getPublicId(), attachment.getTargetId());
+            return Optional.empty();
         }
-        log.debug("[ClaimAttachmentAuthz] 열람 거부 key={} attachmentId={} candidates={}", relativeKey,
-                attachment.getPublicId(), candidateTokens.size());
-        return false;
+        return Optional.of(new ViewTarget(attachment, claim.get()));
+    }
+
+    /** @param claim 연결 첨부의 대상 클레임. 미연결이면 null */
+    private record ViewTarget(Attachment attachment, Claim claim) {
     }
 
     /** @param claim 연결 첨부의 대상 클레임(소유 기준 requested_by·셀러 기준 order_item_id). 미연결이면 null */
-    private boolean isAllowed(Attachment attachment, Claim claim, TokenPayload payload) {
-        boolean buyer = payload.role() == ActorRole.BUYER;
+    private boolean isAllowed(Attachment attachment, Claim claim, Long actorId, ActorRole role) {
+        boolean buyer = role == ActorRole.BUYER;
         if (!attachment.isLinked()) {
-            return buyer && payload.actorId().equals(attachment.getUploadedBy());
+            return buyer && actorId.equals(attachment.getUploadedBy());
         }
-        if ((buyer && payload.actorId().equals(claim.getRequestedBy())) || payload.role() == ActorRole.ADMIN) {
+        if ((buyer && actorId.equals(claim.getRequestedBy())) || role == ActorRole.ADMIN) {
             return true;
         }
-        return payload.role() == ActorRole.SELLER && isOwningSeller(claim, payload.actorId());
+        return role == ActorRole.SELLER && isOwningSeller(claim, actorId);
     }
 
     /**

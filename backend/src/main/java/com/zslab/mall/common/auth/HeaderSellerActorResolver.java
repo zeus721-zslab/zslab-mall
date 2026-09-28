@@ -18,6 +18,8 @@ import org.springframework.stereotype.Component;
  * 조회로 대체됐고(클래스명은 레거시 유지·rename 이연), Track 36 γ에서 user.id passthrough 결함을 실 매핑으로 교정했다.
  *
  * <p><b>셀러 상태 가드(Track 90-A·D-187 §8)</b>: 셀러 API 컨트롤러 전부가 이 resolver를 첫 줄에서 호출하므로 여기가 단일 차단점이다.
+ * 예외(D-235 별칭): {@code PATCH /api/v1/seller/me/password}(원 경로 /users/me/password와 같이 상태 가드 없음)·
+ * {@code GET /api/v1/seller/files/claims/**}(열람 인가 서비스가 셀러 소속·세션 허용 상태를 직접 판정)는 이 resolver를 거치지 않는다.
  * 판정은 {@link SellerAccessPolicy}와 공유한다.
  * <ul>
  *   <li>인증된 액터 없음 · seller_user 매핑 없음 · seller 부재/soft-delete · PENDING/TERMINATED → 401 {@link UnauthenticatedException}

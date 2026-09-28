@@ -291,11 +291,11 @@ class ClaimAttachmentServingIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("POST /api/v1/files/claims/... + 요청자 쿠키만 → 401 UNAUTHENTICATED (쿠키 인식은 GET 매처 한정·POST는 필터 경유·anyRequest authenticated)")
-    void postOnClaimServingPath_cookieNotRecognized() throws Exception {
-        mockMvc.perform(post(FILES_URL + LINKED_KEY).cookie(authCookie(OWNER_ID, ActorRole.BUYER)))
-                .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
+    @DisplayName("POST /api/v1/files/claims/... + 구매자 역할 쿠키만(CSRF 토큰 없음) → 403 FORBIDDEN (D-235: 쿠키 인증 unsafe 요청은 CSRF 필수)")
+    void postOnClaimServingPath_cookieWithoutCsrf_forbidden() throws Exception {
+        mockMvc.perform(post(FILES_URL + LINKED_KEY).cookie(buyerRoleCookie(OWNER_ID)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
     }
 
     @Test
@@ -316,12 +316,12 @@ class ClaimAttachmentServingIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("쿠키 비인식 경계: auth_token 쿠키만으로 POST /api/v1/claims/attachments → 401 UNAUTHENTICATED(그 외 경로는 Bearer만) / products 익명 → 200 public immutable")
-    void cookieOnlyOutsideClaimServing_isNotAuthenticated() throws Exception {
+    @DisplayName("쿠키 인증 CSRF 경계: 구매자 역할 쿠키만(CSRF 토큰 없음)으로 POST /api/v1/claims/attachments → 403 FORBIDDEN(D-235) / products 익명 → 200 public immutable")
+    void cookieOnlyUnsafeOutsideClaimServing_requiresCsrf() throws Exception {
         MockMultipartFile file = new MockMultipartFile("files", "photo.png", "image/png", png(10, 10));
-        mockMvc.perform(multipart("/api/v1/claims/attachments").file(file).cookie(authCookie(OWNER_ID, ActorRole.BUYER)))
-                .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
+        mockMvc.perform(multipart("/api/v1/claims/attachments").file(file).cookie(buyerRoleCookie(OWNER_ID)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
         mockMvc.perform(get(FILES_URL + PRODUCT_KEY))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Cache-Control", "max-age=31536000, public, immutable"));
@@ -341,6 +341,41 @@ class ClaimAttachmentServingIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("FILE_NOT_FOUND"))
                 .andExpect(header().string("Cache-Control", NO_STORE_PRIVATE));
+    }
+
+    @Test
+    @DisplayName("관리자 별칭 GET /api/v1/admin/files/claims/**: 관리자 역할 쿠키 → 연결 200·no-store / 미연결 404 / 구매자 쿠키만 → 401 / 옛 admin_token → 401")
+    void adminAlias_adminRoleCookie() throws Exception {
+        String url = "/api/v1/admin/files/" + LINKED_KEY;
+        mockMvc.perform(get(url).cookie(adminRoleCookie(ADMIN_ID)))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", NO_STORE_PRIVATE));
+        expectOk(get("/api/v1/admin/files/" + LINKED_THUMB_KEY).cookie(adminRoleCookie(ADMIN_ID)));
+        expectNotFound(get("/api/v1/admin/files/" + UNLINKED_KEY).cookie(adminRoleCookie(ADMIN_ID)));
+        mockMvc.perform(get(url).cookie(buyerRoleCookie(OWNER_ID))).andExpect(status().isUnauthorized());
+        mockMvc.perform(get(url).cookie(adminCookie(ADMIN_ID))).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("셀러 별칭 GET /api/v1/seller/files/claims/**: 소유 셀러 역할 쿠키 → 200 / 타 셀러 404 / 관리자 쿠키만 → 401 / 구매자 Bearer → 403")
+    void sellerAlias_sellerRoleCookie() throws Exception {
+        String url = "/api/v1/seller/files/" + LINKED_KEY;
+        expectOk(get(url).cookie(sellerRoleCookie(SELLER_A_USER_ID)));
+        expectNotFound(get(url).cookie(sellerRoleCookie(SELLER_B_USER_ID)));
+        mockMvc.perform(get(url).cookie(adminRoleCookie(ADMIN_ID))).andExpect(status().isUnauthorized());
+        mockMvc.perform(get(url).headers(authHeaders.buyer(OWNER_ID))).andExpect(status().isForbidden());
+    }
+
+    private Cookie buyerRoleCookie(long actorId) {
+        return new Cookie("__Secure-buyer_at", tokenProvider.issue(actorId, ActorRole.BUYER));
+    }
+
+    private Cookie sellerRoleCookie(long actorId) {
+        return new Cookie("__Secure-seller_at", tokenProvider.issue(actorId, ActorRole.SELLER));
+    }
+
+    private Cookie adminRoleCookie(long actorId) {
+        return new Cookie("__Secure-admin_at", tokenProvider.issue(actorId, ActorRole.ADMIN));
     }
 
     private Cookie authCookie(long actorId, ActorRole role) {

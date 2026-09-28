@@ -12,6 +12,8 @@ import com.zslab.mall.seller.enums.SellerStatus;
  * @param roleCode               이 사용자의 셀러 내 역할(SELLER_OWNER·SELLER_MANAGER·SELLER_STAFF)
  * @param pendingSettlementCount 관리자 정상처리 전(PENDING) 정산 건수. 금액은 싣지 않는다(셀러 정산 API는 CONFIRMED·PAID만 노출·D-179 결정 11)
  * @param bankAccountRegistered  주 정산계좌 등록 여부(계좌 정보는 싣지 않는다)
+ * @param name                   로그인 사용자 이름(셀러 상단바 표시·D-235로 /api/v1/users/me 대신 이 응답을 쓴다)
+ * @param email                  로그인 사용자 이메일(상단바 표시·name이 없을 때 대체)
  */
 public record SellerMeResponse(
         String sellerPublicId,
@@ -19,5 +21,7 @@ public record SellerMeResponse(
         SellerStatus status,
         RoleCode roleCode,
         long pendingSettlementCount,
-        boolean bankAccountRegistered) {
+        boolean bankAccountRegistered,
+        String name,
+        String email) {
 }

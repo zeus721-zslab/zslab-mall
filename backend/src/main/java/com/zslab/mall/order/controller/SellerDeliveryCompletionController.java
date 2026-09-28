@@ -43,7 +43,9 @@ public class SellerDeliveryCompletionController {
      * Seller 일반 주문 배송 완료. 헤더 누락 401·Delivery 미존재/타 seller 404·비-SHIPPING 상태 422·성공 시 200 + 배송 완료된 Delivery 응답.
      * 소유권·상태 검증은 {@link OrderShippingService#markDeliveredBySeller} 책임이다({@code AdminDeliveryController.markDelivered} 대칭).
      */
-    @PostMapping("/api/v1/deliveries/{deliveryPublicId}/mark-delivered")
+    // 셀러 접두사 별칭(D-235): 역할 쿠키 Path(/api/v1/seller)에 실리도록 같은 핸들러를 한 경로 더 노출한다. 옛 경로는 PR3에서 제거.
+    @PostMapping({"/api/v1/deliveries/{deliveryPublicId}/mark-delivered",
+            "/api/v1/seller/deliveries/{deliveryPublicId}/mark-delivered"})
     public RegisterExchangeShipmentResponse markDelivered(
             @PathVariable String deliveryPublicId,
             HttpServletRequest httpRequest) {

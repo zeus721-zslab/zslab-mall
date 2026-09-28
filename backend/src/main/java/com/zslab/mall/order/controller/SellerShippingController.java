@@ -45,7 +45,9 @@ public class SellerShippingController {
      * Seller 일반 주문 배송 개시. 헤더 누락 401·OrderItem 미존재/타 seller 404·비-PAID 상태 422·성공 시 200 + 발송된 Delivery 응답.
      * 소유권·상태 검증은 {@link OrderShippingService#prepareShipment} 책임이다.
      */
-    @PostMapping("/api/v1/order-items/{orderItemPublicId}/prepare-shipment")
+    // 셀러 접두사 별칭(D-235): 역할 쿠키 Path(/api/v1/seller)에 실리도록 같은 핸들러를 한 경로 더 노출한다. 옛 경로는 PR3에서 제거.
+    @PostMapping({"/api/v1/order-items/{orderItemPublicId}/prepare-shipment",
+            "/api/v1/seller/order-items/{orderItemPublicId}/prepare-shipment"})
     public PrepareShipmentResponse prepareShipment(
             @PathVariable String orderItemPublicId,
             @Valid @RequestBody PrepareShipmentRequest request,

@@ -13291,3 +13291,59 @@ renew 메인 큐레이션(FE-68 β)에 필요한 조회를 기존 `GET /api/v1/p
 - 응답 날짜 형식 혼재(대부분 +09:00, 관리자·셀러 11 DTO 34필드는 오프셋 없음) — 통일은 FE 계약 변경이라 통합 검토로 이월.
 
 외부 검토: B / 생략(Claude 판정 — 인증·권한·트랜잭션·데이터 변경 없는 직렬화 전환이고, 형식 위험은 실측 응답 54건 바이트 대조로 동일 입증 · 재발은 KstOffsetSerializationPolicyTest로 고정)
+
+## D-235 인증 토큰 HttpOnly 쿠키 전환 — 확정 명세 · PR1 BE 확장 (통합 검토 3번 · C6) (2026-09-29)
+
+### 문제
+토큰이 JS가 읽는 쿠키(`auth_token`·`seller_token`·`admin_token`)에 있고 JS가 Bearer를 주입한다 — XSS 시 탈취 가능하고, 서버 로그아웃·CSRF 설계가 없었다(정찰 docs/frontend/recon-report-httponly.md · STEP 134).
+
+### 1. 확정 명세 (PR2·PR3의 기준 · 변경 금지)
+최종 상태(PR3 완료):
+- S1 인증 수단은 BE 발급 HttpOnly 쿠키만. Bearer·응답 본문 token 없음.
+- S2 역할 경계: admin `/api/v1/admin/**` · seller `/api/v1/seller/**` · buyer 그 외 `/api/v1/**`. 셀러·관리자 FE는 인증 필요 API를 자기 접두사로만 호출.
+- S3 쿠키: `__Secure-{buyer|seller|admin}_at` · Path 역할 접두사(buyer `/api/v1`) · HttpOnly · Secure · SameSite=Lax · Max-Age=TTL.
+- S4 판정: 경로 접두사로 쿠키 1개 선택, 다른 역할로 대체 인증 금지. 전환기에는 Authorization 헤더가 있으면 쿠키 무시.
+- S5 CSRF: `csrf.spa()` 표준, 역할 쿠키가 자격증명인 unsafe 요청에 적용, 로그인 면제.
+- S6 로그인·로그아웃: buyer `/api/v1/auth/buyer/login` · `/api/v1/auth/logout`, seller·admin `/api/v1/{role}/auth/login` · `logout`. 프레임워크 기본 로그아웃 없음.
+- S7 FE 로그인 상태는 역할별 /me 조회(PR2).
+- 범위 밖: 리프레시 토큰 · 블랙리스트 · 구매자 접두사 이전.
+
+PR 계획:
+- PR1 BE 확장(이번 · 등급 A): S3~S6 신규 · 별칭 5건 · seller/me name·email. 불변: 현 FE 기능 무변경 · 옛 경로·Bearer·옛 첨부 다중 후보 유지.
+- PR2 FE 전환(등급 B): 새 로그인 · Bearer 주입 제거 · X-XSRF-TOKEN · 새 경로 호출 · 데모 로그인·SSR 쿠키 전달 · 옛 JS 쿠키 삭제 · S7 · e2e 재작성. 불변: BE 무변경.
+- PR3 BE 수축(등급 A): Bearer · 본문 token · 본문 role 로그인 · 옛 셀러 경로 · 옛 첨부 다중 후보 · 옛 쿠키 이름 읽기 제거.
+
+### 2. 진행 규칙
+- R1 중단은 두 경우뿐: (a) S1~S6 또는 PR 불변을 지킬 수 없음 (b) 사실이 명세 전제와 달라 명세 항목을 구현할 수 없음.
+- R2 그 외는 원칙으로 판정하고 목록으로 남긴다: 기존 테스트는 기대값이 명세 항목의 의도된 결과로 바뀌면 수정·근거 ID 1줄, 명세와 무관하게 깨지면 코드를 고친다 / 가드 테스트는 절차대로 등록·근거 D-XX / 프레임워크 표준 동작의 부수 변화는 현 FE 기능이 무변경이면 수용·기록 / 쓰이지 않던 프레임워크 기본 경로는 비활성화.
+- R3 이 명세와 규칙을 본 결정 첫머리에 둔다.
+
+### 3. 선택지가 갈린 결정
+- 방식: BE 쿠키 인증 【채택】 인증 책임을 BE 한 곳에 둔다 / Nuxt BFF 【기각】 인증 책임이 FE 서버로 이동 / 보류(트레이드오프 기록) 【기각】 알려진 결함 잔존·기능 추가 전이 재작업 최소 시점.
+- 역할 판별: 경로 재편(별칭) 【채택】 경로만으로 판정 주체가 하나로 정해짐 / 역할 지정 헤더 【기각】 클라이언트가 인증 주체를 선택 / 다중 쿠키 후보 【기각】 판정 주체 모호 / 단일 세션 쿠키 【기각】 3역할 동시 시연 불가.
+- 쿠키 이름: 새 이름 【채택】 / 기존 이름 재사용 【기각】 전환기에 같은 이름 쿠키가 Path만 달리 동시 전송돼 판정 모호.
+- CSRF 적용 범위: 역할 쿠키가 자격증명일 때(헤더 없음 + 경로의 역할 쿠키 존재 + unsafe) 【채택】 / 전 unsafe 요청 【기각】 웹훅·가입 파손·익명 401→403.
+- CSRF 방식: Spring `csrf.spa()` 【채택】 프레임워크 표준 / Origin 검사 【기각】 표준 대신 자체 규칙.
+- XSRF 발급: 표준 전역(XSRF-TOKEN 없는 요청의 응답마다 Set-Cookie) 【채택】 / 발급 범위 한정 핸들러 【기각】 표준에서 벗어나는 자체 핸들러.
+- 배포 호환: 확장-수축(기존 `/auth/login` 무변경 · 구매자 로그인 신설) 【채택】 / PR1+PR2 동시 배포 【기각】 단계 분리 목적 상실 / 쿠키 발급 스위치 【기각】 임시 코드·배포 시 .env 조작.
+
+### 4. R2 판정 목록 (PR1)
+- 수정한 기존 테스트: `ClaimAttachmentServingIntegrationTest` "쿠키만 POST 401" 2건 → "쿠키 인증 POST는 CSRF 토큰 없으면 403"(근거 S5) · `SellerWriteMappingRegistryTest` 허용 목록 +5(근거 D-235 역할 경로 재편 — 별칭 3: `PATCH /seller/me/password` · `POST /seller/order-items/{}/prepare-shipment` · `POST /seller/deliveries/{}/mark-delivered` / 인증 2: `POST /seller/auth/login` · `logout`).
+- 기본 로그아웃 비활성(`logout(disable)` · S6).
+- XSRF-TOKEN 전역 Set-Cookie 수용(표준 부수 변화 · 현 FE는 무시).
+- D-176 불변식 "쿠키만 unsafe 요청은 401"(쿠키 비인식 경계)은 S5로 대체한다. 옛 첨부 경로 `GET /api/v1/files/claims/**`의 다중 후보(Bearer → admin_token → auth_token)는 전환기 호환으로 PR3까지 유지.
+- D-176 정정: 배경의 "`auth_token`·`admin_token` 쿠키(path `/`)"는 사실과 다르다 — `admin_token`은 FE-22d 이후 path `/admin`이라 `/api/**` 요청에 실리지 않는다(관리자 첨부 `<img>`는 관리자 별칭으로 PR2에서 해소).
+- D-197 미결정 "접두사 밖 SELLER 쓰기의 집합 고정 테스트 포함 여부"는 별칭(`/api/v1/seller/**`) 편입으로 해소 — 옛 경로는 PR3에서 제거.
+
+### 5. 셀프 리뷰 기각 근거
+- XSRF 쿠키 Secure 강제·`_csrf` 파라미터 차단: duckdns.org가 공개 접미사 목록에 있어 형제 서브도메인이 같은 사이트가 아니다(쿠키 심기 불가).
+- 쿠키 분기 DB 예외 500: Bearer 분기와 같은 특성이고 DB 장애 시 로그인 자체도 실패한다.
+- 공개 캐시 파일 응답의 XSRF Set-Cookie: gateway에 응답 캐시가 없고, 토큰이 공유돼도 헤더 제출을 요구하므로 CSRF 방어는 유지된다.
+
+### 외부 검토 반영
+- S4 적용 범위: "Authorization 헤더가 있으면 쿠키 무시"는 신규 역할 쿠키(`__Secure-*`) 인증 경로에 적용한다. D-176 옛 첨부 `GET /api/v1/files/claims/**`는 PR3까지 기존 후보 평가(Bearer → admin_token → auth_token)를 유지한다. PR3 완료 조건에 "옛 첨부 후보 제거 후 헤더 우선 불변식이 전체 인증 경로에 적용"을 추가한다.
+- `PATCH /api/v1/seller/me/password`는 본인 비밀번호 변경이라는 원 경로의 의미를 유지하므로 `SellerActorResolver` 상태 가드를 적용하지 않는다(SUSPENDED도 허용). 일반 셀러 쓰기로 재분류하지 않는다.
+- PR3 확인 항목: 로그인 CSRF 면제를 최종 상태(S1)에서 재검토한다.
+- 테스트 가정 기각(고정 ID·FK 체크 해제 fixture의 병렬 충돌): 테스트는 순차 실행(`maxParallelForks` 기본 1·JUnit 병렬 설정 없음)이고 같은 fixture 관례가 기존 통합 테스트 전반에 있다.
+
+외부 검토: A / 지적 6건 중 수용 5건
