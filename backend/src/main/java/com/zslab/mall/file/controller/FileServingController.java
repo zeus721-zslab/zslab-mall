@@ -1,6 +1,8 @@
 package com.zslab.mall.file.controller;
 
 import com.zslab.mall.attachment.service.ClaimAttachmentAuthorizationService;
+import com.zslab.mall.common.auth.AuthenticatedUserResolver;
+import com.zslab.mall.common.security.ActorRole;
 import com.zslab.mall.common.security.RequestTokenCandidates;
 import com.zslab.mall.file.exception.StoredFileNotFoundException;
 import com.zslab.mall.file.service.FileStorage;
@@ -36,11 +38,14 @@ public class FileServingController {
 
     private final FileStorage fileStorage;
     private final ClaimAttachmentAuthorizationService claimAttachmentAuthorizationService;
+    private final AuthenticatedUserResolver authenticatedUserResolver;
 
     public FileServingController(FileStorage fileStorage,
-            ClaimAttachmentAuthorizationService claimAttachmentAuthorizationService) {
+            ClaimAttachmentAuthorizationService claimAttachmentAuthorizationService,
+            AuthenticatedUserResolver authenticatedUserResolver) {
         this.fileStorage = fileStorage;
         this.claimAttachmentAuthorizationService = claimAttachmentAuthorizationService;
+        this.authenticatedUserResolver = authenticatedUserResolver;
     }
 
     @GetMapping("/api/v1/files/{*key}")
@@ -58,6 +63,30 @@ public class FileServingController {
     }
 
     /**
+     * 관리자 클레임 첨부 별칭(D-235). 관리자 역할 쿠키 Path(/api/v1/admin)에 실리는 경로라 {@code <img src>}로 열 수 있다. 인증·역할은 필터와
+     * 접두사 hasRole(ADMIN)이 끝냈으므로 열람 규칙만 판정한다. 거부·미존재는 옛 경로와 같이 404.
+     */
+    @GetMapping("/api/v1/admin/files/claims/{*key}")
+    public ResponseEntity<Resource> serveAdminClaimAttachment(@PathVariable("key") String key, HttpServletResponse response) {
+        return serveClaimAttachmentAs(CLAIM_KEY_PREFIX + stripLeadingSlash(key), ActorRole.ADMIN, response);
+    }
+
+    /** 셀러 클레임 첨부 별칭(D-235). 셀러 역할 쿠키 Path(/api/v1/seller)·접두사 hasRole(SELLER). 규칙은 관리자 별칭과 같다. */
+    @GetMapping("/api/v1/seller/files/claims/{*key}")
+    public ResponseEntity<Resource> serveSellerClaimAttachment(@PathVariable("key") String key, HttpServletResponse response) {
+        return serveClaimAttachmentAs(CLAIM_KEY_PREFIX + stripLeadingSlash(key), ActorRole.SELLER, response);
+    }
+
+    private ResponseEntity<Resource> serveClaimAttachmentAs(String relativeKey, ActorRole role, HttpServletResponse response) {
+        response.setHeader(HttpHeaders.CACHE_CONTROL, CLAIM_CACHE_CONTROL.getHeaderValue());
+        Long actorId = authenticatedUserResolver.requireUserId();
+        if (!claimAttachmentAuthorizationService.canView(relativeKey, actorId, role)) {
+            throw new StoredFileNotFoundException("파일을 찾을 수 없습니다: " + relativeKey);
+        }
+        return claimAttachmentBody(relativeKey);
+    }
+
+    /**
      * 클레임 첨부 인가 서빙(D-176). 캐시 금지 헤더를 서블릿 응답에 먼저 써서 거부·미존재 404(GlobalExceptionHandler 경로)에도 남긴다
      * (Spring Security 기본 Cache-Control은 이미 있는 헤더를 덮어쓰지 않는다). 200 본문은 이 헤더를 그대로 쓰므로 cacheControl을 다시 붙이지
      * 않는다(중복 헤더 방지).
@@ -70,10 +99,18 @@ public class FileServingController {
         if (!claimAttachmentAuthorizationService.canView(relativeKey, RequestTokenCandidates.of(request))) {
             throw new StoredFileNotFoundException("파일을 찾을 수 없습니다: " + relativeKey);
         }
+        return claimAttachmentBody(relativeKey);
+    }
+
+    private ResponseEntity<Resource> claimAttachmentBody(String relativeKey) {
         Path file = fileStorage.resolveExisting(relativeKey);
         return ResponseEntity.ok()
                 .contentType(contentTypeOf(relativeKey))
                 .body(new FileSystemResource(file));
+    }
+
+    private static String stripLeadingSlash(String key) {
+        return key.startsWith("/") ? key.substring(1) : key;
     }
 
     private static CacheControl cacheControlOf(String relativeKey) {

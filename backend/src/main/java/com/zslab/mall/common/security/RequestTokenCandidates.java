@@ -11,8 +11,9 @@ import org.springframework.http.HttpHeaders;
  * 쿠키(관리자 {@value #ADMIN_TOKEN_COOKIE}·구매자 {@value #AUTH_TOKEN_COOKIE})를 후보로 함께 읽는다. 순서는 Bearer → admin_token →
  * auth_token이며 검증·판정은 호출부가 후보별로 독립 수행한다.
  *
- * <p><b>CSRF 경계</b>: 쿠키 인식은 {@code GET /api/v1/files/claims/**} 한 경로에서만 쓰인다({@link JwtAuthenticationFilter}는 쿠키를 읽지
- * 않으므로 그 외 모든 경로·메서드는 Bearer만 인증된다). 이 클래스를 다른 경로에서 호출하지 말 것.
+ * <p><b>CSRF 경계</b>: 옛 이름 쿠키 인식은 {@code GET /api/v1/files/claims/**} 한 경로에서만 쓰인다. 그 외 경로의 쿠키 인증은
+ * {@link JwtAuthenticationFilter}가 새 이름 역할 쿠키({@link AuthCookies})로만 하며 CSRF가 함께 적용된다(D-235). 이 다중 후보 방식은 전환기 호환이라
+ * 옛 첨부 경로와 함께 PR3에서 제거한다. 이 클래스를 다른 경로에서 호출하지 말 것.
  */
 public final class RequestTokenCandidates {
 

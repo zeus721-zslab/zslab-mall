@@ -37,6 +37,13 @@ public class SecurityConfig {
     public static final RequestMatcher CLAIM_ATTACHMENT_SERVING_MATCHER =
             PathPatternRequestMatcher.pathPattern(HttpMethod.GET, "/api/v1/files/claims/**");
 
+    /** 로그인(D-235). 쿠키가 아직 없거나 다시 받는 단계라 CSRF를 면제한다(로그아웃은 면제하지 않는다). */
+    private static final RequestMatcher[] LOGIN_MATCHERS = {
+            PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/api/v1/auth/login"),
+            PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/api/v1/auth/buyer/login"),
+            PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/api/v1/seller/auth/login"),
+            PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/api/v1/admin/auth/login")};
+
     /**
      * 단일 SecurityFilterChain — JWT 인증 파이프라인 + 경로별 hasRole 강제 인가(전 프로파일 동일).
      *
@@ -49,7 +56,13 @@ public class SecurityConfig {
         JwtAuthenticationFilter jwtAuthenticationFilter =
                 new JwtAuthenticationFilter(tokenProvider, userStateVerifier, CLAIM_ATTACHMENT_SERVING_MATCHER);
 
-        http.csrf(AbstractHttpConfigurer::disable)
+        // CSRF(D-235): 쿠키가 자격증명이 되는 요청(헤더 없음 + 경로의 역할 쿠키 존재 + unsafe)만 보호한다. 토큰은 SPA 방식
+        // (XSRF-TOKEN 쿠키 → X-XSRF-TOKEN 헤더). 로그인은 쿠키 발급 전 단계라 면제한다.
+        http.csrf(csrf -> csrf.spa()
+                        .requireCsrfProtectionMatcher(AuthCookies::requiresCsrfProtection)
+                        .ignoringRequestMatchers(LOGIN_MATCHERS))
+                // 프레임워크 기본 /logout은 쓰지 않는다(D-235 S6·역할별 /auth/logout만). CSRF 활성 시 매처가 바뀌는 부수 변화도 함께 없앤다.
+                .logout(AbstractHttpConfigurer::disable)
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .exceptionHandling(eh -> eh
                         .authenticationEntryPoint(securityErrorHandler)
@@ -62,6 +75,9 @@ public class SecurityConfig {
                         .requestMatchers("/error")
                         .permitAll()
                         .requestMatchers("/api/v1/auth/**")
+                        .permitAll()
+                        // 역할 로그인·로그아웃(D-235)은 인증 전·만료 후에도 호출되므로 역할 접두사 hasRole 규칙보다 앞에서 permitAll
+                        .requestMatchers("/api/v1/seller/auth/**", "/api/v1/admin/auth/**")
                         .permitAll()
                         // Buyer 셀프가입(Track 34)은 인증 전 접근이므로 POST만 permitAll(GET 등은 anyRequest authenticated로 fail-closed)
                         .requestMatchers(HttpMethod.POST, "/api/v1/users")

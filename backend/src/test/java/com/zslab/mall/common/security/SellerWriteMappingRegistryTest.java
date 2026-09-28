@@ -26,7 +26,7 @@ class SellerWriteMappingRegistryTest extends AbstractIntegrationTest {
     private static final Set<RequestMethod> WRITE_METHODS =
             Set.of(RequestMethod.POST, RequestMethod.PUT, RequestMethod.PATCH, RequestMethod.DELETE);
 
-    /** 2026-09-22 실측 허용 목록(상품 등록·수정·이미지, 재고 입출고, 파일 업로드, 송장 정정, 정산계좌 등록 D-199, 판매 상태·수동 품절 D-206). 갱신은 D-XX 박제와 함께. */
+    /** 2026-09-22 실측 허용 목록(상품 등록·수정·이미지, 재고 입출고, 파일 업로드, 송장 정정, 정산계좌 등록 D-199, 판매 상태·수동 품절 D-206, 역할 경로 재편 별칭·인증 D-235). 갱신은 D-XX 박제와 함께. */
     private static final List<String> ALLOWED_SELLER_WRITE_MAPPINGS = List.of(
             "DELETE /api/v1/seller/products/{productId}/images/{imageId}",
             "PATCH /api/v1/seller/deliveries/{deliveryPublicId}/tracking",
@@ -42,13 +42,19 @@ class SellerWriteMappingRegistryTest extends AbstractIntegrationTest {
             "POST /api/v1/seller/products/{productPublicId}/sale-status",
             "PUT /api/v1/seller/products/{productPublicId}",
             "PUT /api/v1/seller/products/{productPublicId}/images",
-            "PUT /api/v1/seller/products/{productPublicId}/variants");
+            "PUT /api/v1/seller/products/{productPublicId}/variants",
+            // D-235 역할 경로 재편 — 별칭 3(원 경로와 같은 서비스·인가 동등 이하) · 인증 2(permitAll·로그인은 CSRF 면제)
+            "PATCH /api/v1/seller/me/password",
+            "POST /api/v1/seller/order-items/{orderItemPublicId}/prepare-shipment",
+            "POST /api/v1/seller/deliveries/{deliveryPublicId}/mark-delivered",
+            "POST /api/v1/seller/auth/login",
+            "POST /api/v1/seller/auth/logout");
 
     @Autowired
     private RequestMappingHandlerMapping requestMappingHandlerMapping;
 
     @Test
-    @DisplayName("/api/v1/seller/** POST·PUT·PATCH·DELETE 매핑 집합 = 허용 목록 15건과 정확히 일치(신규 셀러 쓰기는 RED)")
+    @DisplayName("/api/v1/seller/** POST·PUT·PATCH·DELETE 매핑 집합 = 허용 목록 20건과 정확히 일치(신규 셀러 쓰기는 RED)")
     void sellerWriteMappings_matchAllowedListExactly() {
         Set<String> actual = new TreeSet<>();
         for (Map.Entry<RequestMappingInfo, HandlerMethod> entry : requestMappingHandlerMapping.getHandlerMethods().entrySet()) {

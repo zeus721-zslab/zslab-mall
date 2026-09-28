@@ -11,6 +11,8 @@ import com.zslab.mall.seller.repository.SellerRepository;
 import com.zslab.mall.seller.repository.SellerUserRepository;
 import com.zslab.mall.settlement.enums.SettlementStatus;
 import com.zslab.mall.settlement.repository.SettlementRepository;
+import com.zslab.mall.user.entity.User;
+import com.zslab.mall.user.repository.UserRepository;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -18,7 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 셀러 본인 조회(Track 90-B-1·read-only). 셀러·구성원·상태 판정은 {@code SellerActorResolver}가 이미 끝냈으므로(sellerId 확정)
- * 여기서는 표시 정보만 조립한다. 조회 4건(seller·seller_user·role·정산 건수) + 계좌 1건 = 고정 5쿼리.
+ * 여기서는 표시 정보만 조립한다. 조회 4건(seller·seller_user·role·정산 건수) + 계좌 1건 + 사용자 1건(이름·이메일·D-235) = 고정 6쿼리.
  */
 @Service
 @Transactional(readOnly = true)
@@ -32,6 +34,7 @@ public class SellerMeQueryService {
     private final RoleRepository roleRepository;
     private final SettlementRepository settlementRepository;
     private final SellerBankAccountRepository sellerBankAccountRepository;
+    private final UserRepository userRepository;
 
     /**
      * @throws UnauthenticatedException resolver 통과 직후 셀러·구성원 행이 사라진 경합(soft-delete·제거) — 인증 무효와 같은 401
@@ -45,7 +48,9 @@ public class SellerMeQueryService {
                 .orElseThrow(() -> new IllegalStateException("셀러 구성원 역할을 찾을 수 없습니다: roleId=" + membership.getRoleId()));
         long pendingSettlementCount = settlementRepository.countBySellerIdAndStatusIn(sellerId, PENDING_ONLY);
         boolean bankAccountRegistered = !sellerBankAccountRepository.findPrimaryBankAccountIds(sellerId).isEmpty();
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new UnauthenticatedException("인증된 판매자를 확인할 수 없습니다"));
         return new SellerMeResponse(seller.getPublicId(), seller.getCompanyName(), seller.getStatus(), role.getCode(),
-                pendingSettlementCount, bankAccountRegistered);
+                pendingSettlementCount, bankAccountRegistered, user.getName(), user.getEmail());
     }
 }
