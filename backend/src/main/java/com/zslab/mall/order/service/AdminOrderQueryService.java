@@ -1,7 +1,7 @@
 package com.zslab.mall.order.service;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 import com.zslab.mall.attachment.entity.Attachment;
 import com.zslab.mall.attachment.repository.AttachmentRepository;
 import com.zslab.mall.audit.entity.AuditLog;

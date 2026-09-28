@@ -1,7 +1,7 @@
 package com.zslab.mall.audit.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
@@ -62,7 +62,7 @@ public class DiffBuilder {
     public String toJson(Map<String, Object> diff) {
         try {
             return objectMapper.writeValueAsString(diff == null ? Map.of() : diff);
-        } catch (JsonProcessingException exception) {
+        } catch (JacksonException exception) {
             throw new IllegalStateException("diff_json 직렬화에 실패했습니다.", exception);
         }
     }

@@ -3,7 +3,7 @@ package com.zslab.mall.order.controller.response;
 import com.zslab.mall.delivery.entity.Delivery;
 import com.zslab.mall.delivery.enums.DeliveryCarrier;
 import com.zslab.mall.delivery.enums.DeliveryStatus;
-import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import tools.jackson.databind.annotation.JsonSerialize;
 import com.zslab.mall.common.serialization.KstOffsetSerializer;
 import java.time.LocalDateTime;
 

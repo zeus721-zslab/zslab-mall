@@ -5,8 +5,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import com.zslab.mall.common.security.AuthHeaders;
 import com.zslab.mall.support.AbstractIntegrationTest;
 import java.nio.charset.StandardCharsets;
@@ -129,7 +129,7 @@ class AdminSalesStatsQueryControllerIntegrationTest extends AbstractIntegrationT
         assertThat(summary.get("avgOrderValue").asLong()).isEqualTo(15_000L);
         assertThat(summary.get("avgItemsPerOrder").asDouble()).isEqualTo(1.67);
         // record의 boolean 판정 메서드가 Jackson 프로퍼티로 새지 않는지(라이브 검증에서 "empty" 누출 발견)
-        assertThat(summary.fieldNames()).toIterable().containsExactlyInAnyOrder("revenue", "refund", "netRevenue",
+        assertThat(summary.propertyNames()).containsExactlyInAnyOrder("revenue", "refund", "netRevenue",
                 "orderCount", "itemQuantity", "avgOrderValue", "avgItemsPerOrder");
         // 2020-01-13 00:00:00 주문(7000)은 to=2020-01-12 조회에서 제외·to=2020-01-13이면 포함
         assertThat(fetch(URL + "?from=2020-01-06&to=2020-01-13").get("summary").get("revenue").asLong())

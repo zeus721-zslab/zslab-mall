@@ -1,6 +1,6 @@
 package com.zslab.mall.common.security;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import com.zslab.mall.common.web.TraceIdFilter;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -41,7 +41,7 @@ public class SecurityErrorHandler implements AuthenticationEntryPoint, AccessDen
 
     public SecurityErrorHandler(ObjectMapper objectMapper) {
         // ProblemDetail의 properties(code·traceId)를 최상위로 평탄화하는 mixin을 보장한다(GlobalExceptionHandler 출력과 동일 구조).
-        this.objectMapper = objectMapper.copy().addMixIn(ProblemDetail.class, ProblemDetailJacksonMixin.class);
+        this.objectMapper = objectMapper.rebuild().addMixIn(ProblemDetail.class, ProblemDetailJacksonMixin.class).build();
     }
 
     @Override

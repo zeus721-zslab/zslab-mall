@@ -38,12 +38,32 @@ spring:
   jackson:
     # D-49·§15: 응답 null 필드 제외(camelCase는 Jackson 기본). 날짜 UTC Z 포맷은 DTO 필드 @JsonFormat에서 처리.
     default-property-inclusion: non_null
-  # D-233 Jackson 2 브리지(PR2에서 제거): HTTP 변환기와 주입 ObjectMapper가 Jackson 2를 쓰므로 spring.jackson.*을 그대로 복제한다.
-  jackson2:
-    default-property-inclusion: non_null
-  http:
-    converters:
-      preferred-json-mapper: jackson2
+    # D-234 Jackson 3 기본값을 Jackson 2 동작으로 고정(응답·요청 형식 불변). use-jackson2-defaults = MapperBuilder.configureForJackson2()
+    # (키 선언 순서·null primitive 허용·enum name·final 필드 mutator·getter-as-setter·FAIL_ON_EMPTY_BEANS 등). 그 밖의 차이는 아래에서 개별 고정.
+    use-jackson2-defaults: true
+    mapper:
+      # configureForJackson2가 끄지만 Jackson 2 브리지는 parameter-names 모듈을 등록했으므로 켠다.
+      detect-parameter-names: true
+      allow-void-valued-properties: false
+    serialization:
+      fail-on-order-map-by-incomparable-key: true
+    read:
+      use-fast-big-number-parser: false
+      use-fast-double-parser: false
+    json:
+      write:
+        combine-unicode-surrogates-in-utf8: false
+    visibility:
+      # Jackson 2 creator 탐지 범위(ANY). Jackson 3 기본은 PUBLIC_ONLY. 단일 인자 생성자(NON_PRIVATE)는 JacksonConfig에서 고정.
+      creator: any
+    factory:
+      constraints:
+        # Jackson 2 파서 한도. Jackson 3 기본은 문자열 1억 자·중첩 500이라 큰 JSON 문자열이 파서에서 끊기지 않고 힙에 올라간다.
+        read:
+          max-string-length: 20000000
+          max-nesting-depth: 1000
+        write:
+          max-nesting-depth: 1000
   lifecycle:
     timeout-per-shutdown-phase: 20s
   task:

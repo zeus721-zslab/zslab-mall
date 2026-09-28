@@ -5,8 +5,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import com.zslab.mall.common.security.AuthHeaders;
 import com.zslab.mall.dashboard.controller.response.AdminDashboardResponse;
 import com.zslab.mall.seller.enums.SellerStatus;
@@ -600,7 +600,7 @@ class SellerDashboardQueryControllerIntegrationTest extends AbstractIntegrationT
 
     private static Set<String> keysOf(JsonNode node) {
         Set<String> keys = new LinkedHashSet<>();
-        node.fieldNames().forEachRemaining(keys::add);
+        node.propertyNames().forEach(keys::add);
         return keys;
     }
 

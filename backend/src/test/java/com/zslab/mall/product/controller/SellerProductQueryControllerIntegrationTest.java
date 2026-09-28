@@ -8,8 +8,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import com.zslab.mall.common.security.AuthHeaders;
 import com.zslab.mall.product.controller.response.AdminProductDetailResponse;
 import com.zslab.mall.product.controller.response.AdminProductSummaryResponse;
@@ -535,7 +535,7 @@ class SellerProductQueryControllerIntegrationTest extends AbstractIntegrationTes
 
     private static Set<String> keysOf(JsonNode node) {
         Set<String> keys = new LinkedHashSet<>();
-        node.fieldNames().forEachRemaining(keys::add);
+        node.propertyNames().forEach(keys::add);
         return keys;
     }
 
@@ -543,7 +543,7 @@ class SellerProductQueryControllerIntegrationTest extends AbstractIntegrationTes
     private static Set<String> allKeys(JsonNode node) {
         Set<String> keys = new LinkedHashSet<>();
         if (node.isObject()) {
-            node.fields().forEachRemaining(entry -> {
+            node.properties().forEach(entry -> {
                 keys.add(entry.getKey());
                 keys.addAll(allKeys(entry.getValue()));
             });

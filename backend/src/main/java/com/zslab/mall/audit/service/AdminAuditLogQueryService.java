@@ -1,8 +1,8 @@
 package com.zslab.mall.audit.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import com.zslab.mall.audit.controller.response.AdminAuditLogResponse;
 import com.zslab.mall.audit.entity.AuditLog;
 import com.zslab.mall.audit.repository.AuditLogRepository;
@@ -136,14 +136,14 @@ public class AdminAuditLogQueryService {
         try {
             JsonNode root = objectMapper.readTree(diffJson);
             List<AdminAuditLogResponse.Change> changes = new ArrayList<>();
-            for (Iterator<Map.Entry<String, JsonNode>> fields = root.fields(); fields.hasNext(); ) {
+            for (Iterator<Map.Entry<String, JsonNode>> fields = root.properties().iterator(); fields.hasNext(); ) {
                 Map.Entry<String, JsonNode> entry = fields.next();
                 JsonNode change = entry.getValue();
                 changes.add(new AdminAuditLogResponse.Change(
                         entry.getKey(), asText(change.get("before")), asText(change.get("after"))));
             }
             return changes;
-        } catch (JsonProcessingException exception) {
+        } catch (JacksonException exception) {
             log.warn("[Audit] diff_json 파싱 실패 → 변경 요약 생략: auditPublicId={}", auditLog.getPublicId(), exception);
             return List.of();
         }

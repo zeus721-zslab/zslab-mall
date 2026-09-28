@@ -4,8 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import com.zslab.mall.common.security.AuthHeaders;
 import com.zslab.mall.support.AbstractIntegrationTest;
 import java.nio.charset.StandardCharsets;
@@ -133,7 +133,7 @@ class AdminOrderMemberStatsQueryControllerIntegrationTest extends AbstractIntegr
     @DisplayName("T2 퍼널 정합: 코호트 5·각 단계가 앞 단계의 부분집합·취소/반품 종결 건수·경계(01-15 00:00 제외)")
     void funnelConsistency() throws Exception {
         JsonNode funnel = fetch(ORDERS_URL + PERIOD).get("funnel");
-        assertThat(funnel.fieldNames()).toIterable().containsExactlyInAnyOrder("paidItems", "shippedItems", "deliveredItems",
+        assertThat(funnel.propertyNames()).containsExactlyInAnyOrder("paidItems", "shippedItems", "deliveredItems",
                 "confirmedItems", "cancelledItems", "returnedItems");
         long paid = funnel.get("paidItems").asLong();
         long shipped = funnel.get("shippedItems").asLong();
@@ -170,7 +170,7 @@ class AdminOrderMemberStatsQueryControllerIntegrationTest extends AbstractIntegr
     @DisplayName("T4 소요시간: 종결 시각 기준 표본·짝수 중앙값(24,48 평균)·홀수 중앙값·역전 건 제외·표본 0이면 null")
     void leadTime() throws Exception {
         JsonNode leadTime = fetch(ORDERS_URL + PERIOD).get("leadTime");
-        assertThat(leadTime.fieldNames()).toIterable().containsExactlyInAnyOrder("paidToShipped", "shippedToDelivered",
+        assertThat(leadTime.propertyNames()).containsExactlyInAnyOrder("paidToShipped", "shippedToDelivered",
                 "claimRequestedToClosed");
         // 결제→발송: D1 24h·D2 48h·D5 1h·D6 72h(01-05 결제·01-08 발송·종결 시각 기준 포함)·D4(01-15 발송) 제외
         assertMetric(leadTime.get("paidToShipped"), 36.25, 36.0, 4);
@@ -180,7 +180,7 @@ class AdminOrderMemberStatsQueryControllerIntegrationTest extends AbstractIntegr
         assertMetric(leadTime.get("claimRequestedToClosed"), 7.5, 7.5, 2);
 
         JsonNode empty = fetch(ORDERS_URL + EMPTY_PERIOD);
-        assertThat(empty.get("leadTime").fieldNames()).toIterable().as("표본 0 → 구간 null 생략").isEmpty();
+        assertThat(empty.get("leadTime").propertyNames()).as("표본 0 → 구간 null 생략").isEmpty();
         assertThat(empty.get("funnel").get("paidItems").asLong()).isZero();
     }
 
@@ -188,7 +188,7 @@ class AdminOrderMemberStatsQueryControllerIntegrationTest extends AbstractIntegr
     @DisplayName("T5 클레임 요약: 클레임률 4/5=80%·환불률 금액 17,000/44,000=38.64%·환불 건수 2·키 집합")
     void claimSummary() throws Exception {
         JsonNode summary = fetch(ORDERS_URL + PERIOD).get("claimSummary");
-        assertThat(summary.fieldNames()).toIterable().containsExactlyInAnyOrder("claimCount", "claimRate", "refundAmount",
+        assertThat(summary.propertyNames()).containsExactlyInAnyOrder("claimCount", "claimRate", "refundAmount",
                 "refundRate", "refundCount", "paidItemCount");
         assertThat(summary.get("claimCount").asLong()).isEqualTo(4);
         assertThat(summary.get("paidItemCount").asLong()).isEqualTo(5);
@@ -201,7 +201,7 @@ class AdminOrderMemberStatsQueryControllerIntegrationTest extends AbstractIntegr
         assertThat(trend).hasSize(7);
         assertThat(keys(trend)).containsExactly("2018-01-08", "2018-01-09", "2018-01-10", "2018-01-11", "2018-01-12",
                 "2018-01-13", "2018-01-14");
-        assertThat(trend.get(0).fieldNames()).toIterable().containsExactlyInAnyOrder("bucketKey", "bucketLabel", "claimCount",
+        assertThat(trend.get(0).propertyNames()).containsExactlyInAnyOrder("bucketKey", "bucketLabel", "claimCount",
                 "claimRate", "refundAmount", "refundRate", "refundCount");
         assertTrendBucket(trend.get(1), 1, 50.0, 0, 0.0, 0);        // 01-09: C1 요청·품목 2
         assertTrendBucket(trend.get(2), 0, 0.0, 8_000L, 0.0, 1);   // 01-10: 환불 8,000·매출 0 → 환불률 0
@@ -220,7 +220,7 @@ class AdminOrderMemberStatsQueryControllerIntegrationTest extends AbstractIntegr
         JsonNode response = fetch(ORDERS_URL + PERIOD);
         JsonNode byType = response.get("claimByType");
         assertThat(byType).hasSize(3);
-        assertThat(byType.get(0).fieldNames()).toIterable().containsExactlyInAnyOrder("type", "count", "share");
+        assertThat(byType.get(0).propertyNames()).containsExactlyInAnyOrder("type", "count", "share");
         assertThat(byType.get(0).get("type").asText()).isEqualTo("CANCEL");
         assertThat(byType.get(0).get("count").asLong()).isEqualTo(2);
         assertThat(byType.get(0).get("share").asDouble()).isEqualTo(50.0);
@@ -229,7 +229,7 @@ class AdminOrderMemberStatsQueryControllerIntegrationTest extends AbstractIntegr
 
         JsonNode byReason = response.get("claimByReason");
         assertThat(byReason).hasSize(3);
-        assertThat(byReason.get(0).fieldNames()).toIterable().containsExactlyInAnyOrder("reasonCode", "count", "share");
+        assertThat(byReason.get(0).propertyNames()).containsExactlyInAnyOrder("reasonCode", "count", "share");
         assertThat(StreamSupport.stream(byReason.spliterator(), false).map(node -> node.get("reasonCode").asText()).toList())
                 .containsExactly("BUYER_CHANGED_MIND", LEGACY_REASON, "PRODUCT_DEFECT");
         assertThat(byReason.get(1).get("count").asLong()).isEqualTo(1);
@@ -241,7 +241,7 @@ class AdminOrderMemberStatsQueryControllerIntegrationTest extends AbstractIntegr
     @DisplayName("T7 주문 통계 비교 기간: 요약·추이에만 적용(PREVIOUS)·YEAR_AGO/NONE 생략·최상위 키 집합")
     void orderStatsCompare() throws Exception {
         JsonNode previous = fetch(ORDERS_URL + PERIOD + "&compare=PREVIOUS");
-        assertThat(previous.fieldNames()).toIterable().containsExactlyInAnyOrder("funnel", "leadTime", "claimSummary",
+        assertThat(previous.propertyNames()).containsExactlyInAnyOrder("funnel", "leadTime", "claimSummary",
                 "compareClaimSummary", "claimTrend", "compareClaimTrend", "claimByType", "claimByReason");
         JsonNode compareSummary = previous.get("compareClaimSummary");
         assertThat(compareSummary.get("claimCount").asLong()).isEqualTo(1);
@@ -255,7 +255,7 @@ class AdminOrderMemberStatsQueryControllerIntegrationTest extends AbstractIntegr
         assertTrendBucket(compareTrend.get(2), 1, 100.0, 0, 0.0, 0); // 01-03: C4 요청·O8 품목 1
 
         JsonNode yearAgo = fetch(ORDERS_URL + PERIOD + "&compare=YEAR_AGO");
-        assertThat(yearAgo.fieldNames()).toIterable().containsExactlyInAnyOrder("funnel", "leadTime", "claimSummary", "claimTrend",
+        assertThat(yearAgo.propertyNames()).containsExactlyInAnyOrder("funnel", "leadTime", "claimSummary", "claimTrend",
                 "claimByType", "claimByReason");
         JsonNode none = fetch(ORDERS_URL + PERIOD);
         assertThat(none.path("compareClaimSummary").isMissingNode()).isTrue();
@@ -267,7 +267,7 @@ class AdminOrderMemberStatsQueryControllerIntegrationTest extends AbstractIntegr
     void memberSignupAndCumulative() throws Exception {
         JsonNode response = fetch(MEMBERS_URL + PERIOD + "&unit=DAY");
         JsonNode summary = response.get("summary");
-        assertThat(summary.fieldNames()).toIterable().containsExactlyInAnyOrder("newCount", "withdrawnCount", "activeTotal",
+        assertThat(summary.propertyNames()).containsExactlyInAnyOrder("newCount", "withdrawnCount", "activeTotal",
                 "repurchaseRate", "buyerCount", "repeatBuyerCount");
         assertThat(summary.get("newCount").asLong()).isEqualTo(2);
         assertThat(summary.get("withdrawnCount").asLong()).isEqualTo(1);
@@ -275,7 +275,7 @@ class AdminOrderMemberStatsQueryControllerIntegrationTest extends AbstractIntegr
 
         JsonNode trend = response.get("signupTrend");
         assertThat(trend).hasSize(7);
-        assertThat(trend.get(0).fieldNames()).toIterable().containsExactlyInAnyOrder("bucketKey", "bucketLabel", "newCount",
+        assertThat(trend.get(0).propertyNames()).containsExactlyInAnyOrder("bucketKey", "bucketLabel", "newCount",
                 "activeCumulative");
         assertSignup(trend.get(0), "2018-01-08", 1, 3); // 기준 2(USER_BUYER_OLD·USER_PREV_PERIOD) + 가입 1
         assertSignup(trend.get(1), "2018-01-09", 0, 3); // role 없는 가입자 제외
@@ -297,7 +297,7 @@ class AdminOrderMemberStatsQueryControllerIntegrationTest extends AbstractIntegr
         assertThat(summary.get("repurchaseRate").asDouble()).isEqualTo(50.0);
 
         JsonNode split = response.get("buyerSplit");
-        assertThat(split.fieldNames()).toIterable().containsExactlyInAnyOrder("firstTimeBuyerCount", "firstTimeRevenue",
+        assertThat(split.propertyNames()).containsExactlyInAnyOrder("firstTimeBuyerCount", "firstTimeRevenue",
                 "repeatBuyerCount", "repeatRevenue");
         assertThat(split.get("firstTimeBuyerCount").asLong()).isEqualTo(1);
         assertThat(split.get("firstTimeRevenue").asLong()).isEqualTo(9_000L);
@@ -306,7 +306,7 @@ class AdminOrderMemberStatsQueryControllerIntegrationTest extends AbstractIntegr
 
         JsonNode top = response.get("topBuyers");
         assertThat(top).hasSize(2);
-        assertThat(top.get(0).fieldNames()).toIterable().containsExactlyInAnyOrder("userPublicId", "name", "email", "orderCount",
+        assertThat(top.get(0).propertyNames()).containsExactlyInAnyOrder("userPublicId", "name", "email", "orderCount",
                 "revenue");
         assertThat(top.get(0).get("userPublicId").asText()).isEqualTo(publicId("usr", USER_BUYER_OLD));
         assertThat(top.get(0).get("name").asText()).isEqualTo("통계회원" + USER_BUYER_OLD);
@@ -322,7 +322,7 @@ class AdminOrderMemberStatsQueryControllerIntegrationTest extends AbstractIntegr
     void gradeDistribution() throws Exception {
         JsonNode grades = fetch(MEMBERS_URL + PERIOD).get("gradeDistribution");
         assertThat(grades).hasSize(3);
-        assertThat(grades.get(0).fieldNames()).toIterable().containsExactlyInAnyOrder("gradeCode", "memberCount", "share",
+        assertThat(grades.get(0).propertyNames()).containsExactlyInAnyOrder("gradeCode", "memberCount", "share",
                 "revenue", "revenueShare");
         assertThat(StreamSupport.stream(grades.spliterator(), false).map(node -> node.get("gradeCode").asText()).toList())
                 .containsExactly("SILVER", "GOLD", "PLATINUM");
@@ -345,7 +345,7 @@ class AdminOrderMemberStatsQueryControllerIntegrationTest extends AbstractIntegr
     @DisplayName("T11 회원 통계 비교 기간: summary·signupTrend에만 적용·분포/분리/상위에는 비교 필드 없음·YEAR_AGO 생략")
     void memberStatsCompare() throws Exception {
         JsonNode previous = fetch(MEMBERS_URL + PERIOD + "&compare=PREVIOUS");
-        assertThat(previous.fieldNames()).toIterable().containsExactlyInAnyOrder("summary", "compareSummary", "signupTrend",
+        assertThat(previous.propertyNames()).containsExactlyInAnyOrder("summary", "compareSummary", "signupTrend",
                 "compareSignupTrend", "gradeDistribution", "buyerSplit", "topBuyers");
         JsonNode compareSummary = previous.get("compareSummary");
         assertThat(compareSummary.get("newCount").asLong()).isEqualTo(1);      // USER_PREV_PERIOD 01-05
@@ -361,7 +361,7 @@ class AdminOrderMemberStatsQueryControllerIntegrationTest extends AbstractIntegr
         assertSignup(compareTrend.get(4), "2018-01-05", 1, 2);
 
         JsonNode yearAgo = fetch(MEMBERS_URL + PERIOD + "&compare=YEAR_AGO");
-        assertThat(yearAgo.fieldNames()).toIterable().containsExactlyInAnyOrder("summary", "signupTrend", "gradeDistribution",
+        assertThat(yearAgo.propertyNames()).containsExactlyInAnyOrder("summary", "signupTrend", "gradeDistribution",
                 "buyerSplit", "topBuyers");
     }
 
@@ -404,7 +404,7 @@ class AdminOrderMemberStatsQueryControllerIntegrationTest extends AbstractIntegr
     }
 
     private static void assertMetric(JsonNode metric, double avgHours, double medianHours, long count) {
-        assertThat(metric.fieldNames()).toIterable().containsExactlyInAnyOrder("avgHours", "medianHours", "count");
+        assertThat(metric.propertyNames()).containsExactlyInAnyOrder("avgHours", "medianHours", "count");
         assertThat(metric.get("avgHours").asDouble()).isEqualTo(avgHours);
         assertThat(metric.get("medianHours").asDouble()).isEqualTo(medianHours);
         assertThat(metric.get("count").asLong()).isEqualTo(count);
