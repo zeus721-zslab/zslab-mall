@@ -27,6 +27,11 @@ public class AuthCookies {
     public static final String SELLER_COOKIE = "__Secure-seller_at";
     public static final String ADMIN_COOKIE = "__Secure-admin_at";
     static final String BUYER_PATH = "/api/v1";
+    /**
+     * 구매자 쿠키 전송 범위(D-235 개정 1). 구매자 SSR이 페이지 요청으로 쿠키를 받아야 하므로 "/"다. Path는 보안 경계가 아니며 어떤 쿠키로
+     * 판정할지는 {@link #roleForPath}(구매자 = {@value #BUYER_PATH}/**)가 정한다.
+     */
+    static final String BUYER_COOKIE_PATH = "/";
     static final String SELLER_PATH = "/api/v1/seller";
     static final String ADMIN_PATH = "/api/v1/admin";
 
@@ -112,7 +117,7 @@ public class AuthCookies {
 
     private static String cookiePath(ActorRole role) {
         return switch (role) {
-            case BUYER -> BUYER_PATH;
+            case BUYER -> BUYER_COOKIE_PATH;
             case SELLER -> SELLER_PATH;
             case ADMIN -> ADMIN_PATH;
         };
