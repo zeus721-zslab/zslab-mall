@@ -10,6 +10,7 @@ package com.zslab.mall.order.enums;
  *   <li>진행 단계 순방향 인접 전이만 허용: ORDERED → PAID → PREPARING → SHIPPING → DELIVERED → CONFIRMED</li>
  *   <li>요청 상태(*_REQUESTED) → 대응 종결 상태로만: CANCEL_REQUESTED → CANCELLED 등</li>
  *   <li>종결 상태(CONFIRMED·CANCELLED·RETURNED·EXCHANGED) → 어떤 전이도 불가</li>
+ *   <li>EXCHANGED는 미사용(D-177: 교환 완료는 DELIVERED 복귀) · DB ENUM 호환 유지 — 이 값으로 가는 전이는 없다</li>
  *   <li>역방향·단계 건너뛰기 전이 차단(예: DELIVERED → SHIPPING)</li>
  * </ul>
  *
@@ -53,7 +54,7 @@ public enum OrderItemStatus {
             case DELIVERED -> next == CONFIRMED || next == RETURN_REQUESTED || next == EXCHANGE_REQUESTED;
             case CANCEL_REQUESTED -> next == CANCELLED || next == PAID || next == PREPARING;
             case RETURN_REQUESTED -> next == RETURNED || next == SHIPPING || next == DELIVERED;
-            case EXCHANGE_REQUESTED -> next == EXCHANGED || next == DELIVERED;
+            case EXCHANGE_REQUESTED -> next == DELIVERED;
             // 종결 상태는 어떤 전이도 불가
             case CONFIRMED, CANCELLED, RETURNED, EXCHANGED -> false;
         };

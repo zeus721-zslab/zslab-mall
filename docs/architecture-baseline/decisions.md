@@ -13178,3 +13178,42 @@ renew 메인 큐레이션(FE-68 β)에 필요한 조회를 기존 `GET /api/v1/p
 - 없음. `real-service-switch-guide.md` 인용 줄 번호는 이번에 전수 정정 완료(§0 compose·.env.example 포함).
 
 외부 검토: B(셀프 리뷰만 · 외부 검토 불필요 판정)
+
+## D-232 통합 검토 2차 — 셀러 구성원 임시 비밀번호 종결 · EXCHANGED 전이 제거 · 관리자 역할 보유자 탈퇴 차단 · 업로드 파일 고아 보상 (2026-09-28)
+
+### 배경
+- D-230 §8 "통합 검토 이월" 6건 중 4건을 정찰(`docs/track-integration/recon-report.md` · STEP 57~60)로 판정해 처리한다. 이월 4건 처리 — D-230의 이월 줄 자체는 수정하지 않는다.
+- 나머지 2건(부트스트랩이 탈퇴한 SUPER_ADMIN을 존재로 간주 · 구매자 탈퇴 화면의 LAST_SUPER_ADMIN 일반 문구)은 범위 밖이다.
+
+### 결정
+1. **셀러 구성원 추가 시 임시 비밀번호 평문 응답(새 계정) = 종결**(코드 변경 없음). D-204 배경·결정 1이 P2(`POST /api/v1/admin/sellers/{slr_}/members`)를 적용 대상으로 명시했고, 보완 장치가 P1과 같다: `password_change_required`(`AdminMemberProvisioningService.provision`) · `Cache-Control: no-store` + `Pragma: no-cache`(`AdminSellerMemberController`) · 감사 평문 없음(`displayedToActor` · `Masker`) · FE 1회 표시 공용 다이얼로그(FE-55) · IT T7-1.
+2. **`OrderItemStatus`에서 `EXCHANGE_REQUESTED → EXCHANGED` 전이 제거**(→ DELIVERED만). `EXCHANGED` 값은 DB ENUM(V1 `order_item.item_status`)·스키마 validate 호환을 위해 남기고 Javadoc에 "미사용(D-177: 교환 완료는 DELIVERED 복귀) · DB ENUM 호환 유지"를 적는다. 운영 DB `EXCHANGED` 행 0건 확인(zslab). Flyway 없음. 방어용 집합 참조(`OrderStatusResolver` · `ProductCatalogService` · `SellerTerminationGuard` · `MemberActivityChecker`)와 FE 표시 매핑은 유지한다. `state-machine.md` §3·§5와 옛 주석 2곳(`ClaimCompletedHandler` · `DeliveryService`)을 현행으로 고친다.
+3. **관리자 회원 탈퇴(`AdminMemberCommandService.withdrawMember`)에 관리자 역할 보유자 차단**: 422 `MEMBER_ADMIN_ROLE_ASSIGNED`. `resetPassword`와 같은 판정(`requireNoAdminRole` · SUPER_ADMIN·ADMIN_OPERATOR · 호출자 역할 무관)을 공유하고 서버 메시지만 경로별로 둔다("관리자 역할이 있는 회원은 탈퇴 처리할 수 없습니다. 권한을 먼저 해제하세요."). 판정 순서: 데모 보호 403 → 관리자 역할 422 → 진행 중 활동 409 → 마지막 SUPER_ADMIN 409. 마지막 SUPER_ADMIN 가드 호출은 이 경로에서 도달하지 않지만 방어용으로 유지한다(주석). FE 문구는 공통으로 바꾼다(FE-88).
+4. **업로드 파일 고아 보상**(실패 시 즉시 삭제 · `RuntimeException`만 잡고 다시 던짐 · `Error`는 전파):
+   - `ImageUploadService.decodeAndStore`: 원본 저장 뒤 썸네일 생성·저장 실패 → 원본과 썸네일 키(쓰기 도중 실패하면 부분 파일이 남음 · ULID 키라 다른 업로드와 겹치지 않음)를 삭제.
+   - `ClaimAttachmentService.upload`: 첨부 행 조립(`Attachment.createUnlinked` · 파일명 공백 400)·`saveAll`(한 트랜잭션 · 전부 롤백) 실패 → 이번 요청의 성공 파일을 `deleteByUrl`로 삭제.
+   - 삭제 실패는 `FileStorage.delete` 계약(IO 실패 warn · false · 예외 없음)이라 원래 예외를 가리지 않는다.
+
+### §1-A 갈림길·채택/기각 근거
+- 57: 보완 필요 【기각】 — D-204가 정한 보완 장치가 P2에 모두 들어가 있다.
+- 58: 제거(Flyway `MODIFY item_status ENUM`) 【기각】 — 운영 ENUM 변경에 비해 얻는 것이 값 하나 정리뿐이고 D-177 "삭제하지 않고 미사용"과 어긋난다 / 사용 전환 【기각】 — D-177 β 기각 근거 그대로 / 유지 + 전이 제거 【채택】 — "도달 불가"를 문서가 아니라 코드로 보장한다.
+- 59 에러 코드: 탈퇴 전용 신규 코드 【기각】 — FE 매핑·문구가 이중화된다 / `MEMBER_ADMIN_ROLE_ASSIGNED` 재사용 【채택】.
+- 59 판정 순서: 마지막 SUPER_ADMIN(409) 먼저 【기각】 / 관리자 역할(422) 먼저 【채택】 — "관리자 계정은 권한 관리 경로에서 다룬다"를 활동·인원 판정보다 먼저 적용한다. 마지막 SUPER_ADMIN 가드는 차단이 풀려도 활성 SUPER_ADMIN 0명을 막는 방어로 남긴다.
+- 59 호출자 SUPER_ADMIN 예외 【기각】 — D-204 결정 5와 같은 기준(행위자 무관).
+- 59 동류 경로 2건 확인 · D-230 결정 유지: 회원 정보 수정(`updateMember`)·구매 등급 변경(`changeGrade`)은 차단하지 않는다. 근거: 연락처는 알림 수신처에만 쓰이고 임시 비밀번호 발급은 이미 422 차단, 등급은 혜택에만 영향(D-230 적용표 "이름·연락처 수정 허용").
+- 60: 24시간 정리 배치 확장 【기각】 — 배치는 행 기준이라 행 없는 파일을 찾지 못하고, 저장소 전체 스캔은 D-166 9 이월 범위다 / 이월 유지 【기각】 — 원인이 명확하고 기존 보상 패턴(`ImageUploadService.upload` catch)을 두 곳에 적용하면 된다 / 실패 시 즉시 삭제 【채택】 — 트랜잭션 밖 구간이라 TransactionSynchronization이 아니라 try/catch.
+
+### §2 검증·테스트
+- BE: `OrderItemStatusTest` 오라클 1칸 수정 + "EXCHANGED로 가는 전이 없음" 1 · `AdminMemberIntegrationTest` (5-2) 호출자{ADMIN_OPERATOR, SUPER_ADMIN} × 대상 역할 4(진행 중 주문 보유 → 422 먼저 · withdrawn_at·자격증명·감사 불변) · `LastSuperAdminProtectionIntegrationTest` 관리자 탈퇴 케이스 409 → 422(설명에 사유) · `ImageUploadServiceOrphanCompensationTest` 2 · `ClaimAttachmentServiceUploadCompensationTest` 3(실제 `FileStorage` · 임시 디렉터리로 저장소 파일 0 확인 · 삭제 실패여도 원래 예외).
+- FE: `admin-member-helpers.spec` 기대 1건.
+- RED: 새 422 테스트 5건을 main 기준 임시 워크트리에서 실행 → 5/5 실패(expected 422 but was 409) → 워크트리 제거·prune.
+- 셀프 리뷰(A): 지적 7건 중 수용 4건(첨부 보상 범위를 행 조립까지 · 부분 썸네일 삭제 · 422 로그·Javadoc 일반화 · 삭제 횟수 verify). 기각: 탈퇴 422 토스트 색 차이(기능 영향 없음) · 호출자 역할 파라미터 무효과(요청마다 DB 역할을 다시 보지 않음 · 지시 사양) · saveAll 커밋 후 예외(영향 무시 · 24시간 배치가 행 정리). 옛 EXCHANGED 주석 2곳은 기각 후 zslab 지시로 정정.
+- 전체: `./gradlew.bat test --rerun-tasks` 통과 · 280 클래스 · 1,667 tests · 실패·오류·skip 0 · typecheck 0 · vitest 126 files / 856 passed · e2e admin-members 6 passed. 1차 e2e 6 실패는 typecheck(nuxt prepare) 뒤 frontend 미재시작 트랩(`live-traps.md` #app-manifest)이었고, frontend 재시작 후 1회 재실행(승인)으로 통과했다.
+
+### §8 이월
+- D-230 "통합 검토 이월" 남은 2건: 부트스트랩이 탈퇴한 SUPER_ADMIN을 존재로 간주(B 적용으로 도달 불가) · 구매자 탈퇴 화면의 LAST_SUPER_ADMIN 일반 문구.
+- 원본 저장(`FileStorage.store`) 자체가 쓰기 도중 실패할 때 남는 부분 원본 파일 — 기존 동작 · D-166 9(저장소 전체 고아 정리)에 합류.
+- 운영 관리자 권한 부여(`AdminOperatorProvisioningService`)가 탈퇴 회원을 대상으로 허용(무해, 정합성 불일치).
+
+외부 검토: A / 지적 1건 중 수용 0건
+- 기각: 탈퇴 판정과 역할 부여 사이 경합(중) — 운영 관리자 권한 부여가 탈퇴 회원을 거르지 않아 경합 없이도 "탈퇴 → 부여" 순서로 같은 상태에 도달함. 탈퇴 계정은 인증 거부, SUPER_ADMIN 부여 API 없음, 마지막 SA 집계는 활성 회원만 → 무해. 두 경로 User 잠금 공유는 과잉.

@@ -3772,3 +3772,16 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 
 외부 검토: A(D-230과 함께) / 결과: 
 - 외부 검토: FE 변경분 지적 0(2026-09-27)
+
+## FE-88: MEMBER_ADMIN_ROLE_ASSIGNED 공통 문구 — 임시 비밀번호·관리자 탈퇴 (D-232) (2026-09-28)
+
+배경: D-232에서 BE가 관리자 회원 탈퇴도 관리자 역할 보유 회원이면 422 `MEMBER_ADMIN_ROLE_ASSIGNED`로 막는다(임시 비밀번호 발급 D-204와 같은 코드 재사용). 기존 FE 문구는 "관리자 권한을 보유한 회원에게는 임시 비밀번호를 발급할 수 없습니다. 관리자 권한 해제 후 재발급하세요."라 탈퇴 실패에 그대로 뜨면 원인과 맞지 않는다.
+
+결정:
+- `ADMIN_ERROR_MESSAGES.MEMBER_ADMIN_ROLE_ASSIGNED`를 "관리자 역할이 있는 회원은 이 작업을 할 수 없습니다. 권한을 먼저 해제하세요."로 바꾼다(두 경로 공통 · 서버 detail 대신 코드 문구 사용 유지).
+- 회원 상세(`members/[id].vue`)의 분기는 바꾸지 않는다. 임시 비밀번호는 기존 warning 토스트, 탈퇴는 기존 else 분기(danger 토스트)로 같은 문구를 보여 준다. 역할 보유 여부는 상세 응답에 없어 버튼을 미리 막지 않는다(서버 판정).
+
+### §2 검증
+- vitest `admin-member-helpers.spec` 기대 1건 추가(`MEMBER_ADMIN_ROLE_ASSIGNED` → 공통 문구) · 전체 126 files / 856 passed · typecheck 0 · e2e admin-members 6 passed.
+
+외부 검토:

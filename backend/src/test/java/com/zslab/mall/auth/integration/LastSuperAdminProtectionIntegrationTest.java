@@ -24,6 +24,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 /**
  * 마지막 슈퍼 관리자 보호 통합 테스트(D-230·실 MariaDB). 본인 탈퇴·관리자 탈퇴·SUPER_ADMIN 역할 회수 3경로가 같은 가드
  * (LastSuperAdminGuard)로 "활성 SUPER_ADMIN 0명"을 막는지 HTTP 경유로 검증한다. 집계는 탈퇴하지 않은 보유자만 센다.
+ * 관리자 탈퇴 경로는 D-232부터 관리자 역할 차단(422)이 먼저 걸려 이 가드에 도달하지 않는다.
  *
  * <p>전역 부트스트랩 SUPER_ADMIN(build.gradle.kts 테스트 env)이 활성 인원에 들어가므로 정리에서 제거한다
  * (AdminUserRoleControllerIntegrationTest 정리 패턴 정합). 동시 요청은 LastSuperAdminRaceIntegrationTest가 맡는다.
@@ -79,8 +80,9 @@ class LastSuperAdminProtectionIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("관리자 회원 탈퇴: BUYER를 겸한 유일한 활성 슈퍼 관리자 → 409 LAST_SUPER_ADMIN·withdrawn_at 미기록")
-    void adminWithdraw_lastSuperAdmin_returns409() throws Exception {
+    @DisplayName("관리자 회원 탈퇴: BUYER를 겸한 유일한 활성 슈퍼 관리자 → 422 MEMBER_ADMIN_ROLE_ASSIGNED·withdrawn_at 미기록"
+            + "(D-232: 관리자 역할 차단이 마지막 슈퍼 관리자 가드보다 먼저라 이 경로는 409에 도달하지 않는다)")
+    void adminWithdraw_lastSuperAdmin_blockedByAdminRoleGuard_returns422() throws Exception {
         seed(() -> {
             seedSuperAdmin(SUPER_A, PID_A, false, true);
             seedUser(OPERATOR, PID_OPERATOR, false);
@@ -88,8 +90,8 @@ class LastSuperAdminProtectionIntegrationTest extends AbstractIntegrationTest {
         });
 
         mockMvc.perform(post(ADMIN_MEMBERS_URL + PID_A + "/withdraw").headers(authHeaders.admin(OPERATOR)))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("LAST_SUPER_ADMIN"));
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("MEMBER_ADMIN_ROLE_ASSIGNED"));
 
         assertThat(isWithdrawn(SUPER_A)).isFalse();
     }
