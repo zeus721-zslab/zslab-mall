@@ -129,8 +129,9 @@ public class ClaimAttachmentService {
         List<Attachment> ordered = new ArrayList<>();
         for (String attachmentId : attachmentIds) {
             Attachment attachment = found.get(attachmentId);
-            if (attachment == null || !buyerId.equals(attachment.getUploadedBy())) {
-                // 타인 파일도 미존재와 같은 메시지로 은닉한다(파일 존재 여부 추측 차단).
+            if (attachment == null || !buyerId.equals(attachment.getUploadedBy())
+                    || attachment.getTargetType() != PolymorphicTargetType.CLAIM) {
+                // 타인 파일·다른 대상 유형(리뷰 사진 등·Track 106-1)도 미존재와 같은 메시지로 은닉한다(파일 존재 여부 추측 차단).
                 throw new MalformedRequestException("첨부를 찾을 수 없습니다: " + attachmentId);
             }
             if (attachment.isLinked()) {
@@ -150,7 +151,7 @@ public class ClaimAttachmentService {
     public void link(List<Attachment> attachments, Long claimId, Long buyerId) {
         for (int index = 0; index < attachments.size(); index++) {
             Attachment attachment = attachments.get(index);
-            int affected = attachmentRepository.linkIfUnlinked(attachment.getId(), buyerId, claimId, index);
+            int affected = attachmentRepository.linkIfUnlinked(attachment.getId(), buyerId, PolymorphicTargetType.CLAIM, claimId, index);
             if (affected == 0) {
                 throw new MalformedRequestException("이미 다른 클레임에 연결된 첨부입니다: " + attachment.getPublicId());
             }

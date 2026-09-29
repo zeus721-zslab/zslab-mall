@@ -139,8 +139,9 @@ public class ClaimAttachmentAuthorizationService {
     /**
      * 요청 키를 file_path 저장값(서빙 URL)으로 되돌린다. 썸네일 키 {@code {base}_thumb.{thumbExt}}는 원본 확장자를 알 수 없어(webp 원본의
      * 썸네일도 png) thumbExt를 쓰는 모든 형식의 원본 URL을 후보로 만든다. thumbExt가 어느 형식의 썸네일 확장자도 아니면 후보 없음(빈 목록).
+     * 리뷰 사진 공개 판정({@link ReviewAttachmentVisibilityService})도 같은 역산을 쓴다.
      */
-    private static List<String> originalFilePathCandidates(String relativeKey) {
+    static List<String> originalFilePathCandidates(String relativeKey) {
         int dot = relativeKey.lastIndexOf('.');
         if (dot < 0) {
             return List.of(ImageUploadService.URL_PREFIX + relativeKey);

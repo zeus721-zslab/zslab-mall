@@ -1,6 +1,7 @@
 package com.zslab.mall.file.controller;
 
 import com.zslab.mall.attachment.service.ClaimAttachmentAuthorizationService;
+import com.zslab.mall.attachment.service.ReviewAttachmentVisibilityService;
 import com.zslab.mall.common.auth.AuthenticatedUserResolver;
 import com.zslab.mall.common.security.ActorRole;
 import com.zslab.mall.file.exception.StoredFileNotFoundException;
@@ -33,16 +34,22 @@ public class FileServingController {
     /** 클레임 첨부(반품 사진) 키 접두사(D-174): 개인 사진이라 공유 캐시·디스크 캐시를 금지한다. 상품 이미지는 공개 캐시 유지. */
     private static final String CLAIM_KEY_PREFIX = "claims/";
     private static final CacheControl CLAIM_CACHE_CONTROL = CacheControl.noStore().cachePrivate();
+    /** 리뷰 사진 키 접두사(Track 106-1): 공개 서빙이지만 리뷰 공개 상태를 DB로 확인하고 캐시를 금지한다(숨김 즉시 반영). */
+    private static final String REVIEW_KEY_PREFIX = "reviews/";
+    private static final CacheControl REVIEW_CACHE_CONTROL = CacheControl.noStore();
 
     private final FileStorage fileStorage;
     private final ClaimAttachmentAuthorizationService claimAttachmentAuthorizationService;
+    private final ReviewAttachmentVisibilityService reviewAttachmentVisibilityService;
     private final AuthenticatedUserResolver authenticatedUserResolver;
 
     public FileServingController(FileStorage fileStorage,
             ClaimAttachmentAuthorizationService claimAttachmentAuthorizationService,
+            ReviewAttachmentVisibilityService reviewAttachmentVisibilityService,
             AuthenticatedUserResolver authenticatedUserResolver) {
         this.fileStorage = fileStorage;
         this.claimAttachmentAuthorizationService = claimAttachmentAuthorizationService;
+        this.reviewAttachmentVisibilityService = reviewAttachmentVisibilityService;
         this.authenticatedUserResolver = authenticatedUserResolver;
     }
 
@@ -52,6 +59,11 @@ public class FileServingController {
         String relativeKey = key.startsWith("/") ? key.substring(1) : key;
         if (relativeKey.startsWith(CLAIM_KEY_PREFIX)) {
             return serveClaimAttachmentAs(relativeKey, ActorRole.BUYER, response);
+        }
+        // 대소문자를 무시해 판정한다 — "Reviews/"가 공개 분기로 빠지면 대소문자 무시 파일시스템에서 숨김 사진이 1년 공개 캐시로 서빙된다.
+        // 판정 조회(file_path)는 DB 콜레이션(utf8mb4_unicode_ci)이 대소문자를 무시하므로 같은 행의 공개 상태를 본다.
+        if (relativeKey.regionMatches(true, 0, REVIEW_KEY_PREFIX, 0, REVIEW_KEY_PREFIX.length())) {
+            return serveReviewPhoto(relativeKey, response);
         }
         Path file = fileStorage.resolveExisting(relativeKey);
         return ResponseEntity.ok()
@@ -87,6 +99,20 @@ public class FileServingController {
         response.setHeader(HttpHeaders.CACHE_CONTROL, CLAIM_CACHE_CONTROL.getHeaderValue());
         Long actorId = authenticatedUserResolver.requireUserId();
         if (!claimAttachmentAuthorizationService.canView(relativeKey, actorId, role)) {
+            throw new StoredFileNotFoundException("파일을 찾을 수 없습니다: " + relativeKey);
+        }
+        return claimAttachmentBody(relativeKey);
+    }
+
+    /**
+     * 리뷰 사진 공개 서빙(Track 106-1). 인증 없이 열리지만 연결된 리뷰가 공개일 때만 200이고, 숨김·삭제·미연결·미존재는 모두 404다.
+     * 숨김이 즉시 반영되도록 캐시를 금지한다({@code no-store}) — 거부 404에도 남도록 서블릿 응답에 먼저 쓴다(클레임 첨부와 같은 이유).
+     *
+     * @throws StoredFileNotFoundException 비공개·행 없음·파일 없음(모두 404)
+     */
+    private ResponseEntity<Resource> serveReviewPhoto(String relativeKey, HttpServletResponse response) {
+        response.setHeader(HttpHeaders.CACHE_CONTROL, REVIEW_CACHE_CONTROL.getHeaderValue());
+        if (!reviewAttachmentVisibilityService.isPublic(relativeKey)) {
             throw new StoredFileNotFoundException("파일을 찾을 수 없습니다: " + relativeKey);
         }
         return claimAttachmentBody(relativeKey);

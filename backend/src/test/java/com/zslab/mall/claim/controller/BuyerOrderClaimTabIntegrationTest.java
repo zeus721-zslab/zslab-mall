@@ -53,8 +53,9 @@ class BuyerOrderClaimTabIntegrationTest extends AbstractIntegrationTest {
      * 주문 목록 1회 호출 쿼리 예산. 실측 9(2026-09-24·주문 페이지 select + count + items fetch join + 클레임 배치 + 인증 조회
      * + Track 105-2d items[] 배치 4 — 상품·variant·셀러·교환 완료 클레임)이며 여유 1을 더해 둔다 — 잡으려는 것은 품목·클레임이
      * 행마다 조회되는 N+1 회귀(그 경우 수십 건이 된다)다. items[] 배치는 페이지당 고정이라 주문 수와 무관하다.
+     * Track 106-1 품목 리뷰 상태 배치(findWrittenByOrderItemIdIn 페이지당 1회)로 9 → 10이 되어 상한도 10 → 11로 올린다(여유 1 유지).
      */
-    private static final int ORDER_LIST_QUERY_BUDGET = 10;
+    private static final int ORDER_LIST_QUERY_BUDGET = 11;
     /**
      * 클레임 목록 1회 호출 쿼리 예산. 실측 4(2026-09-23·목록 select + count + 환불 배치 + 주문·품목 projection)이며 여유 1.
      * 외부 검토 반영으로 품목 엔티티 배치 조회가 주문 projection에 합쳐져 5 → 4가 됐다. Track 105-4b 썸네일 상품 배치

@@ -30,5 +30,7 @@ public enum PolymorphicTargetType {
     CODE,
     BUYER_GRADE,
     /** 주문·결제 불일치(Track 104-2 D-216·해결 처리 감사 대상). */
-    RECONCILIATION_ISSUE
+    RECONCILIATION_ISSUE,
+    /** 상품 리뷰(Track 106-1·리뷰 사진 첨부 대상·관리자 숨김 감사 대상). */
+    REVIEW
 }

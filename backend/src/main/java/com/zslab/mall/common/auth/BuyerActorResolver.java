@@ -1,6 +1,7 @@
 package com.zslab.mall.common.auth;
 
 import jakarta.servlet.http.HttpServletRequest;
+import java.util.Optional;
 
 /**
  * Buyer 액터 식별자 해석(Track 31 Phase 3 신설). {@link SellerActorResolver}·{@link AdminActorResolver}와 대칭 패턴이며
@@ -17,4 +18,10 @@ public interface BuyerActorResolver {
      * @throws com.zslab.mall.common.exception.UnauthenticatedException 인증된 액터가 없는 경우(401)
      */
     Long resolve(HttpServletRequest request);
+
+    /**
+     * 공개 경로에서 로그인한 구매자면 식별자, 익명이면 empty(Track 106-1·리뷰 목록의 "내가 도움됐어요 눌렀는지"). 필터는 경로에 맞는 역할 쿠키만
+     * 읽으므로 {@code /api/v1/**} 공개 경로의 인증 주체는 구매자뿐이다.
+     */
+    Optional<Long> find();
 }

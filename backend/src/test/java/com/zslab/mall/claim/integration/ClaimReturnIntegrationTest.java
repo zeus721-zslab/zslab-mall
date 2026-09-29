@@ -538,6 +538,24 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.attachmentUrls.length()").value(0));
     }
 
+    @Test
+    @DisplayName("T10-2 교차 타입(Track 106-1): 본인이 올린 미연결 리뷰 사진 id로 불량 반품 요청 → 400·클레임 미생성·사진 미연결")
+    void attachments_reviewAttachmentRejected() throws Exception {
+        String reviewPhoto = pid("att_", "RTNREVPHOTO");
+        jdbc.update("INSERT INTO attachment (public_id, target_type, target_id, file_name, file_path, mime_type, file_size, "
+                        + "display_order, uploaded_by, created_at, updated_at) VALUES (?, 'REVIEW', NULL, 'r.jpg', "
+                        + "'/api/v1/files/reviews/2026/09/RTNREVPHOTO.jpg', 'image/jpeg', 1, 0, ?, NOW(6), NOW(6))",
+                reviewPhoto, USER_ID);
+
+        mockMvc.perform(post(CLAIMS_URL).with(authHeaders.buyer(USER_ID)).contentType(MediaType.APPLICATION_JSON)
+                        .content(requestBody("RETURN", "PRODUCT_DEFECT", reviewPhoto)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
+
+        assertThat(claimCount()).isZero();
+        assertThat(jdbc.queryForObject("SELECT target_id FROM attachment WHERE public_id = ?", Long.class, reviewPhoto)).isNull();
+    }
+
     /** 구매자 사진 1장 업로드 → attachmentId(att_). */
     private String uploadOne(long userId, String fileName) throws Exception {
         String body = mockMvc.perform(multipart(ATTACHMENTS_URL).file(new MockMultipartFile("files", fileName, "image/png", png()))

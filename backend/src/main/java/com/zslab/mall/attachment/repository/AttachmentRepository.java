@@ -21,13 +21,22 @@ public interface AttachmentRepository extends JpaRepository<Attachment, Long> {
     /**
      * 미연결 첨부를 대상에 연결하는 조건부 UPDATE(D-172·Q5). {@code target_id IS NULL AND uploaded_by = :uploadedBy}를 WHERE에 넣어 같은 첨부를
      * 동시에 연결하려는 두 요청 중 한쪽만 영향 행 1을 얻는다(영향 0 = 이미 연결됐거나 타인 파일 → 호출부 400·TX 롤백).
+     * {@code target_type = :targetType}으로 다른 대상 유형의 첨부(클레임 ↔ 리뷰·Track 106-1)를 연결하지 않는다(영향 0).
      * flushAutomatically로 선행 INSERT(클레임)를 먼저 내보낸다. 모든 변수는 :name 바인딩 사용, SQL injection 위험 없음.
      */
     @Modifying(flushAutomatically = true)
     @Query("UPDATE Attachment a SET a.targetId = :targetId, a.displayOrder = :displayOrder "
-            + "WHERE a.id = :id AND a.targetId IS NULL AND a.uploadedBy = :uploadedBy")
-    int linkIfUnlinked(@Param("id") Long id, @Param("uploadedBy") Long uploadedBy,
+            + "WHERE a.id = :id AND a.targetId IS NULL AND a.uploadedBy = :uploadedBy AND a.targetType = :targetType")
+    int linkIfUnlinked(@Param("id") Long id, @Param("uploadedBy") Long uploadedBy, @Param("targetType") PolymorphicTargetType targetType,
             @Param("targetId") Long targetId, @Param("displayOrder") int displayOrder);
+
+    /**
+     * 대상 1건의 첨부 연결을 모두 푼다(Track 106-1 리뷰 사진 전체 교체). 풀린 첨부는 미연결이 되어 정리 배치(생성 24시간 경과) 대상이다.
+     * flushAutomatically로 선행 변경을 먼저 내보낸다. 모든 변수는 :targetType·:targetId 바인딩이다.
+     */
+    @Modifying(flushAutomatically = true)
+    @Query("UPDATE Attachment a SET a.targetId = NULL, a.displayOrder = 0 WHERE a.targetType = :targetType AND a.targetId = :targetId")
+    int unlinkAll(@Param("targetType") PolymorphicTargetType targetType, @Param("targetId") Long targetId);
 
     /** 클레임 첨부 연결용 일괄 조회(Track 81-B D-171). 소유권·미연결 검증은 서비스가 한다. */
     List<Attachment> findByPublicIdIn(Collection<String> publicIds);

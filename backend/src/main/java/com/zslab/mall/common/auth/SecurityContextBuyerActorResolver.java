@@ -1,6 +1,7 @@
 package com.zslab.mall.common.auth;
 
 import jakarta.servlet.http.HttpServletRequest;
+import java.util.Optional;
 import org.springframework.stereotype.Component;
 
 /**
@@ -16,5 +17,10 @@ public class SecurityContextBuyerActorResolver implements BuyerActorResolver {
     @Override
     public Long resolve(HttpServletRequest request) {
         return SecurityContextActorSupport.requireActorId();
+    }
+
+    @Override
+    public Optional<Long> find() {
+        return SecurityContextActorSupport.findActorId();
     }
 }

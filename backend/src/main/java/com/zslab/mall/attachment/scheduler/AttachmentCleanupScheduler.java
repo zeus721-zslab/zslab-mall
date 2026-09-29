@@ -16,7 +16,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * 유예({@link #GRACE_HOURS}시간) 경과한 미연결 클레임 첨부를 주기적으로 정리하는 배치 스케줄러(D-174·OrderAutoCancelScheduler 원형).
+ * 유예({@link #GRACE_HOURS}시간) 경과한 미연결 첨부(클레임 반품 사진·리뷰 사진)를 주기적으로 정리하는 배치 스케줄러(D-174·OrderAutoCancelScheduler 원형).
  * 트랜잭션을 갖지 않으며 오케스트레이션만 담당한다 — 후보를 한 배치(최대 {@link #BATCH_SIZE}건) 조회한 뒤 id별로
  * {@link AttachmentCleanupService#cleanupOne}(각자 독립 트랜잭션)을 호출하고, 행 삭제가 커밋된 뒤 원본·썸네일 파일을 지운다.
  *
@@ -47,19 +47,28 @@ public class AttachmentCleanupScheduler {
     private final AttachmentCleanupService attachmentCleanupService;
     private final ImageUploadService imageUploadService;
 
+    /** 미연결 업로드가 생기는 대상 유형(클레임 반품 사진·리뷰 사진 Track 106-1). 유형마다 한 배치씩 처리한다. */
+    private static final List<PolymorphicTargetType> CLEANUP_TARGET_TYPES =
+            List.of(PolymorphicTargetType.CLAIM, PolymorphicTargetType.REVIEW);
+
     /**
-     * 정리 후보를 한 배치 조회해 id별로 {@link AttachmentCleanupService#cleanupOne}을 호출하고, 삭제된 행의 파일을 지운다.
+     * 대상 유형마다 정리 후보를 한 배치 조회해 id별로 {@link AttachmentCleanupService#cleanupOne}을 호출하고, 삭제된 행의 파일을 지운다.
      */
     @Scheduled(fixedDelay = FIXED_DELAY_MS)
     public void cleanupBatch() {
         String schedulerRunId = UUID.randomUUID().toString();
         LocalDateTime threshold = LocalDateTime.now().minusHours(GRACE_HOURS);
+        for (PolymorphicTargetType targetType : CLEANUP_TARGET_TYPES) {
+            cleanupBatchOf(targetType, threshold, schedulerRunId);
+        }
+    }
 
+    private void cleanupBatchOf(PolymorphicTargetType targetType, LocalDateTime threshold, String schedulerRunId) {
         List<Long> targetIds = attachmentRepository.findUnlinkedIdsCreatedBefore(
-                PolymorphicTargetType.CLAIM, threshold, PageRequest.of(0, BATCH_SIZE));
+                targetType, threshold, PageRequest.of(0, BATCH_SIZE));
 
         if (targetIds.isEmpty()) {
-            log.debug("[AttachmentCleanup] schedulerRunId={} 정리 대상 없음", schedulerRunId);
+            log.debug("[AttachmentCleanup] schedulerRunId={} targetType={} 정리 대상 없음", schedulerRunId, targetType);
             return;
         }
 
@@ -80,7 +89,7 @@ public class AttachmentCleanupScheduler {
             }
         }
 
-        log.info("[AttachmentCleanup] schedulerRunId={} 배치 완료 대상={} 삭제={} 실패={}",
-                schedulerRunId, targetIds.size(), deleted, failed);
+        log.info("[AttachmentCleanup] schedulerRunId={} targetType={} 배치 완료 대상={} 삭제={} 실패={}",
+                schedulerRunId, targetType, targetIds.size(), deleted, failed);
     }
 }

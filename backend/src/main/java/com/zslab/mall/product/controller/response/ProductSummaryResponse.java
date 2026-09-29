@@ -13,6 +13,8 @@ package com.zslab.mall.product.controller.response;
  * @param categoryName 카테고리 표시명
  * @param sellerName 판매자 상호명(company_name)
  * @param sellerPublicId 외부 노출 판매자 식별자(slr_·셀러 필터 왕복용·D-221). 내부 seller_id는 노출하지 않는다
+ * @param averageRating 공개 리뷰 평균 별점(소수 첫째 자리·Track 106-1). 리뷰가 없으면 null(키 생략)
+ * @param reviewCount 공개 리뷰 수(Track 106-1·없으면 0)
  */
 public record ProductSummaryResponse(
         String productPublicId,
@@ -23,5 +25,7 @@ public record ProductSummaryResponse(
         Long categoryId,
         String categoryName,
         String sellerName,
-        String sellerPublicId) {
+        String sellerPublicId,
+        Double averageRating,
+        long reviewCount) {
 }

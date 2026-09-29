@@ -1,0 +1,14 @@
+package com.zslab.mall.review.controller.request;
+
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
+
+/**
+ * 관리자 리뷰 숨김·숨김 해제 요청(Track 106-1). status는 4층위 enum 잠금의 DTO 층(위반 400 VALIDATION_FAILED)이고 같은 상태 재요청은 도메인이
+ * 판정한다(422). reason은 필수이며 감사 이력에 남는다(셀러 상태 전이 선례).
+ */
+public record AdminReviewStatusChangeRequest(
+        @NotBlank @Pattern(regexp = "^(VISIBLE|HIDDEN)$") String status,
+        @NotBlank @Size(max = 200) String reason) {
+}
