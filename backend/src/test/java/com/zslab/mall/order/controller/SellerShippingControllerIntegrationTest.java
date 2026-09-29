@@ -59,7 +59,7 @@ class SellerShippingControllerIntegrationTest extends AbstractIntegrationTest {
     private static final String ORDER_ITEM_PID = pid("oit_", "SSCOIT");
     private static final String TRACKING_NO = "CJ-SSC-0001";
     private static final String TRACKING_NO_FORMAT_MESSAGE = Delivery.TRACKING_NO_FORMAT_MESSAGE;
-    private static final String PREPARE_URL = "/api/v1/order-items/" + ORDER_ITEM_PID + "/prepare-shipment";
+    private static final String PREPARE_URL = "/api/v1/seller/order-items/" + ORDER_ITEM_PID + "/prepare-shipment";
 
     @Autowired
     private MockMvc mockMvc;
@@ -93,7 +93,7 @@ class SellerShippingControllerIntegrationTest extends AbstractIntegrationTest {
         seedItem("PAID", "PAID");
 
         mockMvc.perform(post(PREPARE_URL)
-                        .headers(authHeaders.seller(SELLER_A_USER))
+                        .with(authHeaders.seller(SELLER_A_USER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("CJ", TRACKING_NO)))
                 .andExpect(status().isOk())
@@ -132,7 +132,7 @@ class SellerShippingControllerIntegrationTest extends AbstractIntegrationTest {
         seedItem("PAID", "PAID");
 
         mockMvc.perform(post(PREPARE_URL)
-                        .headers(authHeaders.seller(SELLER_B_USER))
+                        .with(authHeaders.seller(SELLER_B_USER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("CJ", TRACKING_NO)))
                 .andExpect(status().isNotFound())
@@ -149,7 +149,7 @@ class SellerShippingControllerIntegrationTest extends AbstractIntegrationTest {
         seedItem("SHIPPING", "SHIPPING");
 
         mockMvc.perform(post(PREPARE_URL)
-                        .headers(authHeaders.seller(SELLER_A_USER))
+                        .with(authHeaders.seller(SELLER_A_USER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("CJ", TRACKING_NO)))
                 .andExpect(status().isUnprocessableEntity())
@@ -167,7 +167,7 @@ class SellerShippingControllerIntegrationTest extends AbstractIntegrationTest {
         seedItem("PAID", "PAID");
 
         mockMvc.perform(post(PREPARE_URL)
-                        .headers(authHeaders.seller(SELLER_A_USER))
+                        .with(authHeaders.seller(SELLER_A_USER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("CJ", trackingNo)))
                 .andExpect(status().isBadRequest())
@@ -186,7 +186,7 @@ class SellerShippingControllerIntegrationTest extends AbstractIntegrationTest {
         seedItem("PAID", "PAID");
 
         mockMvc.perform(post(PREPARE_URL)
-                        .headers(authHeaders.seller(SELLER_A_USER))
+                        .with(authHeaders.seller(SELLER_A_USER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"trackingNo\":\"" + TRACKING_NO + "\"}"))
                 .andExpect(status().isBadRequest())
@@ -203,7 +203,7 @@ class SellerShippingControllerIntegrationTest extends AbstractIntegrationTest {
         seedOtherOrderDelivery(TRACKING_NO);
 
         mockMvc.perform(post(PREPARE_URL)
-                        .headers(authHeaders.seller(SELLER_A_USER))
+                        .with(authHeaders.seller(SELLER_A_USER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("CJ", "  " + TRACKING_NO + "  ")))
                 .andExpect(status().isOk())

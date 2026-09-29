@@ -188,7 +188,7 @@ class PurchaseConfirmGuardIntegrationTest extends AbstractIntegrationTest {
 
     private ResultActions confirm(long itemId) throws Exception {
         return mockMvc.perform(post("/api/v1/orders/" + orderPid(itemId) + "/items/" + itemPid(itemId) + "/confirm")
-                .headers(authHeaders.buyer(USER_ID)));
+                .with(authHeaders.buyer(USER_ID)));
     }
 
     private String itemStatus(long orderItemId) {

@@ -76,7 +76,7 @@ class SellerMeControllerIntegrationTest extends AbstractIntegrationTest {
     void me_active_returnsWhitelistedFields() throws Exception {
         seed(SellerStatus.ACTIVE, true);
 
-        String body = mockMvc.perform(get(ME_URL).headers(authHeaders.seller(USER_ID)))
+        String body = mockMvc.perform(get(ME_URL).with(authHeaders.seller(USER_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.sellerPublicId").value(SELLER_PID))
                 .andExpect(jsonPath("$.companyName").value("본인조회셀러"))
@@ -95,7 +95,7 @@ class SellerMeControllerIntegrationTest extends AbstractIntegrationTest {
         seed(SellerStatus.ACTIVE, false);
         jdbc.update("DELETE FROM settlement WHERE id IN (?, ?)", SETTLEMENT_PENDING_1, SETTLEMENT_PENDING_2);
 
-        mockMvc.perform(get(ME_URL).headers(authHeaders.seller(USER_ID)))
+        mockMvc.perform(get(ME_URL).with(authHeaders.seller(USER_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.pendingSettlementCount").value(0))
                 .andExpect(jsonPath("$.bankAccountRegistered").value(false));
@@ -106,7 +106,7 @@ class SellerMeControllerIntegrationTest extends AbstractIntegrationTest {
     void me_suspended_returns200() throws Exception {
         seed(SellerStatus.SUSPENDED, true);
 
-        mockMvc.perform(get(ME_URL).headers(authHeaders.seller(USER_ID)))
+        mockMvc.perform(get(ME_URL).with(authHeaders.seller(USER_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("SUSPENDED"));
     }
@@ -117,17 +117,17 @@ class SellerMeControllerIntegrationTest extends AbstractIntegrationTest {
     void me_sessionDenied_returns401(SellerStatus status) throws Exception {
         seed(status, true);
 
-        mockMvc.perform(get(ME_URL).headers(authHeaders.seller(USER_ID)))
+        mockMvc.perform(get(ME_URL).with(authHeaders.seller(USER_ID)))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
     }
 
     @Test
-    @DisplayName("T5 BUYER 토큰 → 403 · 무인증 → 401")
+    @DisplayName("T5 BUYER 토큰 → 401 · 무인증 → 401")
     void me_wrongRole_rejected() throws Exception {
         seed(SellerStatus.ACTIVE, true);
 
-        mockMvc.perform(get(ME_URL).headers(authHeaders.buyer(BUYER_ID))).andExpect(status().isForbidden());
+        mockMvc.perform(get(ME_URL).with(authHeaders.buyer(BUYER_ID))).andExpect(status().isUnauthorized());
         mockMvc.perform(get(ME_URL)).andExpect(status().isUnauthorized());
     }
 

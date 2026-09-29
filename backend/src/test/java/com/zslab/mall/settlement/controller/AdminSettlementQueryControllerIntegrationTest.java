@@ -23,7 +23,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * 관리자 정산 조회 API E2E 통합 테스트(Track 85·실 MariaDB). 목록(year/month 필수·status·keyword·합계·enrich)·상세(연락처 마스킹·계좌
- * 스냅샷 우선·끝 4자리)·품목(type·페이징·정렬)·셀러 이력(404)·403을 검증한다.
+ * 스냅샷 우선·끝 4자리)·품목(type·페이징·정렬)·셀러 이력(404)·비ADMIN 401을 검증한다.
  *
  * <p><b>시드</b>: 셀러 A(연락처·주 계좌 있음) 6월 PENDING(SALE 2·REFUND 1) + 5월 PAID(계좌 스냅샷) / 셀러 B(계좌 없음) 6월 CONFIRMED.
  * 조회 전용이라 FK_CHECKS=0 하에 직접 INSERT하고 실 커밋한다(클래스 @Transactional 없음·시드/정리는 TransactionTemplate).
@@ -76,22 +76,22 @@ class AdminSettlementQueryControllerIntegrationTest extends AbstractIntegrationT
     }
 
     @Test
-    @DisplayName("Q1 목록: year/month 누락 → 400 MALFORMED_REQUEST·month 13 → 400 SETTLEMENT_PERIOD_INVALID·BUYER 403")
+    @DisplayName("Q1 목록: year/month 누락 → 400 MALFORMED_REQUEST·month 13 → 400 SETTLEMENT_PERIOD_INVALID·BUYER 401")
     void list_validation() throws Exception {
-        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("year", "2026"))
+        mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID)).param("year", "2026"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
-        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("year", "2026").param("month", "13"))
+        mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID)).param("year", "2026").param("month", "13"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("SETTLEMENT_PERIOD_INVALID"));
-        mockMvc.perform(get(URL).headers(authHeaders.buyer(BUYER_ID)).param("year", "2026").param("month", "6"))
-                .andExpect(status().isForbidden());
+        mockMvc.perform(get(URL).with(authHeaders.buyer(BUYER_ID)).param("year", "2026").param("month", "6"))
+                .andExpect(status().isUnauthorized());
     }
 
     @Test
     @DisplayName("Q2 목록: 6월 2건(sellerId 순)·셀러 publicId/상호·계좌 유무·SALE 건수·월 합계(상태별 건수·금액)")
     void list_juneRowsAndTotals() throws Exception {
-        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("year", "2026").param("month", "6"))
+        mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID)).param("year", "2026").param("month", "6"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items", hasSize(2)))
                 .andExpect(jsonPath("$.totalCount").value(2))
@@ -122,25 +122,25 @@ class AdminSettlementQueryControllerIntegrationTest extends AbstractIntegrationT
     @Test
     @DisplayName("Q3 목록 필터: status=CONFIRMED 1건(합계는 월 전체 유지)·keyword 상호 부분일치 1건·불일치 0건·%·_ 리터럴 매칭(ESCAPE)")
     void list_filters() throws Exception {
-        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID))
                         .param("year", "2026").param("month", "6").param("status", "CONFIRMED"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items", hasSize(1)))
                 .andExpect(jsonPath("$.items[0].id").value(STL_B_JUNE))
                 .andExpect(jsonPath("$.totals.pendingCount").value(1));
-        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID))
                         .param("year", "2026").param("month", "6").param("keyword", "셀러B"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items", hasSize(1)))
                 .andExpect(jsonPath("$.items[0].seller.publicId").value(SELLER_B_PID));
-        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID))
                         .param("year", "2026").param("month", "6").param("keyword", "없는셀러"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items", hasSize(0)))
                 .andExpect(jsonPath("$.totalCount").value(0));
         // LIKE 와일드카드 이스케이프: "%"·"_"는 전체(2건)가 아니라 상호에 해당 문자를 가진 셀러B만 매칭
         for (String wildcard : List.of("%", "_")) {
-            mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID))
+            mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID))
                             .param("year", "2026").param("month", "6").param("keyword", wildcard))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.items", hasSize(1)))
@@ -151,7 +151,7 @@ class AdminSettlementQueryControllerIntegrationTest extends AbstractIntegrationT
     @Test
     @DisplayName("Q4 상세: 연락처 마스킹·현재 주 계좌(snapshot=false·끝 4자리)·품목 건수 / PAID는 계좌 스냅샷 우선 / 계좌 없는 셀러 null / 미존재 404")
     void detail() throws Exception {
-        mockMvc.perform(get(URL + "/" + STL_A_JUNE).headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(get(URL + "/" + STL_A_JUNE).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(STL_A_JUNE))
                 .andExpect(jsonPath("$.seller.publicId").value(SELLER_A_PID))
@@ -164,17 +164,17 @@ class AdminSettlementQueryControllerIntegrationTest extends AbstractIntegrationT
                 .andExpect(jsonPath("$.bankAccount.accountHolder").value("대표A"))
                 .andExpect(jsonPath("$.bankAccount.accountNumberSuffix").value("4321"))
                 .andExpect(jsonPath("$.bankAccount.snapshot").value(false));
-        mockMvc.perform(get(URL + "/" + STL_A_MAY).headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(get(URL + "/" + STL_A_MAY).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("PAID"))
                 .andExpect(jsonPath("$.bankAccount.id").value(SELLER_A_OLD_ACCOUNT))
                 .andExpect(jsonPath("$.bankAccount.accountNumberSuffix").value("9999"))
                 .andExpect(jsonPath("$.bankAccount.snapshot").value(true));
-        mockMvc.perform(get(URL + "/" + STL_B_JUNE).headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(get(URL + "/" + STL_B_JUNE).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.bankAccount").doesNotExist())
                 .andExpect(jsonPath("$.sellerContact.contactPhone").doesNotExist());
-        mockMvc.perform(get(URL + "/999999").headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(get(URL + "/999999").with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("SETTLEMENT_NOT_FOUND"));
     }
@@ -182,7 +182,7 @@ class AdminSettlementQueryControllerIntegrationTest extends AbstractIntegrationT
     @Test
     @DisplayName("Q5 품목: 전체 3건 occurred_at 오름차순 / type=SALE size=1 → totalCount 2·hasNext / type=REFUND 1건 / 미존재 404")
     void items() throws Exception {
-        mockMvc.perform(get(URL + "/" + STL_A_JUNE + "/items").headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(get(URL + "/" + STL_A_JUNE + "/items").with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items", hasSize(3)))
                 .andExpect(jsonPath("$.items[0].itemType").value("SALE"))
@@ -194,32 +194,32 @@ class AdminSettlementQueryControllerIntegrationTest extends AbstractIntegrationT
                 .andExpect(jsonPath("$.items[2].itemType").value("REFUND"))
                 .andExpect(jsonPath("$.items[2].refundId").value(9490))
                 .andExpect(jsonPath("$.items[2].feeAmount").value(0));
-        mockMvc.perform(get(URL + "/" + STL_A_JUNE + "/items").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(get(URL + "/" + STL_A_JUNE + "/items").with(authHeaders.admin(ADMIN_ID))
                         .param("type", "SALE").param("size", "1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items", hasSize(1)))
                 .andExpect(jsonPath("$.totalCount").value(2))
                 .andExpect(jsonPath("$.hasNext").value(true));
-        mockMvc.perform(get(URL + "/" + STL_A_JUNE + "/items").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(get(URL + "/" + STL_A_JUNE + "/items").with(authHeaders.admin(ADMIN_ID))
                         .param("type", "REFUND"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items", hasSize(1)))
                 .andExpect(jsonPath("$.items[0].amount").value(3000));
-        mockMvc.perform(get(URL + "/999999/items").headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(get(URL + "/999999/items").with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isNotFound());
     }
 
     @Test
     @DisplayName("Q6 셀러 이력: 최신 기간순 2건(6월·5월) / 미존재 셀러 404 SELLER_NOT_FOUND")
     void sellerHistory() throws Exception {
-        mockMvc.perform(get("/api/v1/admin/sellers/" + SELLER_A_PID + "/settlements").headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(get("/api/v1/admin/sellers/" + SELLER_A_PID + "/settlements").with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items", hasSize(2)))
                 .andExpect(jsonPath("$.items[0].id").value(STL_A_JUNE))
                 .andExpect(jsonPath("$.items[1].id").value(STL_A_MAY))
                 .andExpect(jsonPath("$.items[1].status").value("PAID"));
         mockMvc.perform(get("/api/v1/admin/sellers/slr_NOPE00000000000000000000000/settlements")
-                        .headers(authHeaders.admin(ADMIN_ID)))
+                        .with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("SELLER_NOT_FOUND"));
     }

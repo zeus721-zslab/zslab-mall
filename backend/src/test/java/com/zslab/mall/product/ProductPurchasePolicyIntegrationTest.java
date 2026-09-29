@@ -159,16 +159,16 @@ class ProductPurchasePolicyIntegrationTest extends AbstractIntegrationTest {
         entityManager.clear();
 
         updateProduct("sale_end_at = DATE_SUB(NOW(6), INTERVAL 1 DAY)");
-        mockMvc.perform(get("/api/v1/cart").headers(authHeaders.buyer(BUYER_ID)))
+        mockMvc.perform(get("/api/v1/cart").with(authHeaders.buyer(BUYER_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].purchasable").value(false));
 
         updateProduct("sale_end_at = NULL, is_soldout_manual = 1");
-        mockMvc.perform(get("/api/v1/cart").headers(authHeaders.buyer(BUYER_ID)))
+        mockMvc.perform(get("/api/v1/cart").with(authHeaders.buyer(BUYER_ID)))
                 .andExpect(jsonPath("$.items[0].purchasable").value(false));
 
         updateProduct("is_soldout_manual = 0");
-        mockMvc.perform(get("/api/v1/cart").headers(authHeaders.buyer(BUYER_ID)))
+        mockMvc.perform(get("/api/v1/cart").with(authHeaders.buyer(BUYER_ID)))
                 .andExpect(jsonPath("$.items[0].purchasable").value(true));
     }
 
@@ -211,17 +211,17 @@ class ProductPurchasePolicyIntegrationTest extends AbstractIntegrationTest {
     // ==================== helpers ====================
 
     private org.springframework.test.web.servlet.ResultActions addToCart() throws Exception {
-        return mockMvc.perform(post("/api/v1/cart/items").headers(authHeaders.buyer(BUYER_ID))
+        return mockMvc.perform(post("/api/v1/cart/items").with(authHeaders.buyer(BUYER_ID))
                 .contentType(MediaType.APPLICATION_JSON).content(CART_ADD_BODY));
     }
 
     private org.springframework.test.web.servlet.ResultActions checkout() throws Exception {
-        return mockMvc.perform(post("/api/v1/orders").headers(authHeaders.buyer(BUYER_ID))
+        return mockMvc.perform(post("/api/v1/orders").with(authHeaders.buyer(BUYER_ID))
                 .contentType(MediaType.APPLICATION_JSON).content(CHECKOUT_BODY));
     }
 
     private org.springframework.test.web.servlet.ResultActions retryPayment(String orderPublicId) throws Exception {
-        return mockMvc.perform(post("/api/v1/orders/" + orderPublicId + "/payments").headers(authHeaders.buyer(BUYER_ID))
+        return mockMvc.perform(post("/api/v1/orders/" + orderPublicId + "/payments").with(authHeaders.buyer(BUYER_ID))
                 .contentType(MediaType.APPLICATION_JSON).content("{ \"method\": \"CARD\" }"));
     }
 

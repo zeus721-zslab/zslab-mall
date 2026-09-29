@@ -96,11 +96,11 @@ class AdminCategoryManagementControllerIntegrationTest extends AbstractIntegrati
     }
 
     @Test
-    @DisplayName("T1 인가: 목록 비인증 401 · 구매자 403 · 관리자 200(defaultCommissionRate·items)")
+    @DisplayName("T1 인가: 목록 비인증 401 · 구매자 401 · 관리자 200(defaultCommissionRate·items)")
     void authorization() throws Exception {
         mockMvc.perform(get(URL)).andExpect(status().isUnauthorized());
-        mockMvc.perform(get(URL).headers(authHeaders.buyer(BUYER_ID))).andExpect(status().isForbidden());
-        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(get(URL).with(authHeaders.buyer(BUYER_ID))).andExpect(status().isUnauthorized());
+        mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.defaultCommissionRate").value(commissionRateResolver.getDefaultCommissionRate()))
                 .andExpect(jsonPath("$.items").isArray());
@@ -135,7 +135,7 @@ class AdminCategoryManagementControllerIntegrationTest extends AbstractIntegrati
     void update_fields_audit_noop() throws Exception {
         long categoryId = createCategory(NAME_A, 903);
 
-        mockMvc.perform(put(URL + "/" + categoryId).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(put(URL + "/" + categoryId).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(updateBody(NAME_RENAMED, 950, 525, "카테고리 수수료 계약 반영")))
                 .andExpect(status().isNoContent());
@@ -147,14 +147,14 @@ class AdminCategoryManagementControllerIntegrationTest extends AbstractIntegrati
         assertThat(diff).contains("\"commissionRate\"").contains("525").contains("카테고리 수수료 계약 반영").contains(NAME_RENAMED);
 
         // 같은 값 재요청 → 204·감사 불변
-        mockMvc.perform(put(URL + "/" + categoryId).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(put(URL + "/" + categoryId).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(updateBody(NAME_RENAMED, 950, 525, "재요청")))
                 .andExpect(status().isNoContent());
         assertThat(auditCount("UPDATE", categoryId)).isEqualTo(1);
 
         // commissionRate null → 미설정 환원(사유 필수)
-        mockMvc.perform(put(URL + "/" + categoryId).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(put(URL + "/" + categoryId).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(updateBody(NAME_RENAMED, 950, null, "기본율로 환원")))
                 .andExpect(status().isNoContent());
@@ -167,13 +167,13 @@ class AdminCategoryManagementControllerIntegrationTest extends AbstractIntegrati
     void update_reasonPolicy() throws Exception {
         long categoryId = createCategory(NAME_A, 903);
 
-        mockMvc.perform(put(URL + "/" + categoryId).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(put(URL + "/" + categoryId).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(updateBody(NAME_RENAMED, 904, null, null)))
                 .andExpect(status().isNoContent());
         assertThat(auditCount("UPDATE", categoryId)).isEqualTo(1);
 
-        mockMvc.perform(put(URL + "/" + categoryId).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(put(URL + "/" + categoryId).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(updateBody(NAME_RENAMED, 904, 300, "   ")))
                 .andExpect(status().isBadRequest())
@@ -189,14 +189,14 @@ class AdminCategoryManagementControllerIntegrationTest extends AbstractIntegrati
         createCategory(NAME_B, 904);
 
         for (int boundary : new int[] {0, 10_000}) {
-            mockMvc.perform(put(URL + "/" + categoryA).headers(authHeaders.admin(ADMIN_ID))
+            mockMvc.perform(put(URL + "/" + categoryA).with(authHeaders.admin(ADMIN_ID))
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(updateBody(NAME_A, 903, boundary, "경계값")))
                     .andExpect(status().isNoContent());
             assertThat(count("SELECT COUNT(*) FROM category WHERE id=? AND commission_rate=?", categoryA, boundary)).isEqualTo(1);
         }
         for (int outOfRange : new int[] {-1, 10_001}) {
-            mockMvc.perform(put(URL + "/" + categoryA).headers(authHeaders.admin(ADMIN_ID))
+            mockMvc.perform(put(URL + "/" + categoryA).with(authHeaders.admin(ADMIN_ID))
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(updateBody(NAME_A, 903, outOfRange, "범위 밖")))
                     .andExpect(status().isBadRequest())
@@ -205,14 +205,14 @@ class AdminCategoryManagementControllerIntegrationTest extends AbstractIntegrati
         }
         assertThat(count("SELECT COUNT(*) FROM category WHERE id=? AND commission_rate=10000", categoryA)).isEqualTo(1);
 
-        mockMvc.perform(put(URL + "/" + categoryA).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(put(URL + "/" + categoryA).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(updateBody(NAME_B, 903, 10_000, null)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("CATEGORY_DUPLICATE"));
         assertThat(count("SELECT COUNT(*) FROM category WHERE id=? AND display_name=?", categoryA, NAME_A)).isEqualTo(1);
 
-        mockMvc.perform(put(URL + "/999999999").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(put(URL + "/999999999").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(updateBody(NAME_A, 0, null, null)))
                 .andExpect(status().isNotFound())
@@ -222,7 +222,7 @@ class AdminCategoryManagementControllerIntegrationTest extends AbstractIntegrati
     @Test
     @DisplayName("T6 생성 경로: 생성 요청의 commissionRate는 계약에 없어 무시·NULL 저장(범위 밖 유입 경로 없음)")
     void create_ignoresCommissionRate() throws Exception {
-        mockMvc.perform(post(URL).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(URL).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"displayName\":\"" + NAME_A + "\",\"sortOrder\":903,\"commissionRate\":99999}"))
                 .andExpect(status().isCreated());
@@ -238,7 +238,7 @@ class AdminCategoryManagementControllerIntegrationTest extends AbstractIntegrati
         seedProduct(PRODUCT_ID, linkedCategory, false);
         seedProduct(PRODUCT_ID + 1, linkedCategory, true); // 삭제 상품은 가드 집계 제외 → 활성 1건
 
-        mockMvc.perform(delete(URL + "/" + emptyCategory).headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(delete(URL + "/" + emptyCategory).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isNoContent());
         assertThat(count("SELECT COUNT(*) FROM category WHERE id=? AND deleted_at IS NOT NULL", emptyCategory)).isEqualTo(1);
         assertThat(auditCount("DELETE", emptyCategory)).isEqualTo(1);
@@ -246,14 +246,14 @@ class AdminCategoryManagementControllerIntegrationTest extends AbstractIntegrati
         MvcResult publicList = mockMvc.perform(get(PUBLIC_URL)).andExpect(status().isOk()).andReturn();
         assertThat(publicList.getResponse().getContentAsString()).doesNotContain(NAME_A);
 
-        mockMvc.perform(delete(URL + "/" + linkedCategory).headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(delete(URL + "/" + linkedCategory).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("CATEGORY_HAS_PRODUCTS"))
                 .andExpect(jsonPath("$.detail").value(org.hamcrest.Matchers.containsString("productCount=1")));
         assertThat(count("SELECT COUNT(*) FROM category WHERE id=? AND deleted_at IS NULL", linkedCategory)).isEqualTo(1);
         assertThat(auditCount("DELETE", linkedCategory)).isZero();
 
-        mockMvc.perform(delete(URL + "/" + emptyCategory).headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(delete(URL + "/" + emptyCategory).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isNotFound()); // 이미 삭제된 행은 @SQLRestriction으로 미존재
     }
 
@@ -268,14 +268,14 @@ class AdminCategoryManagementControllerIntegrationTest extends AbstractIntegrati
                 .isEqualTo(commissionRateResolver.getDefaultCommissionRate());
 
         long expectedFee = ITEM_PRICE * SNAPSHOT_RATE / 10_000;
-        mockMvc.perform(post(SETTLEMENT_URL).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(SETTLEMENT_URL).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"year\":2026,\"month\":6}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.createdCount").value(1))
                 .andExpect(jsonPath("$.settlements[0].feeAmount").value(expectedFee));
         Long originalId = jdbc.queryForObject("SELECT id FROM settlement WHERE seller_id = ?", Long.class, SELLER_ID);
 
-        mockMvc.perform(put(URL + "/" + categoryId).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(put(URL + "/" + categoryId).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(updateBody(NAME_A, 903, NEW_RATE, "수수료 인상")))
                 .andExpect(status().isNoContent());
@@ -287,7 +287,7 @@ class AdminCategoryManagementControllerIntegrationTest extends AbstractIntegrati
                 .isEqualTo(SNAPSHOT_RATE);
 
         // PENDING 재생성도 order_item 스냅샷만 읽으므로 fee 동일
-        mockMvc.perform(post(SETTLEMENT_URL + "/" + originalId + "/regenerate").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(SETTLEMENT_URL + "/" + originalId + "/regenerate").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"율 변경 후 재생성 검증\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.deletedOnly").value(false))
@@ -310,7 +310,7 @@ class AdminCategoryManagementControllerIntegrationTest extends AbstractIntegrati
         int indexB = swapped.indexOf(categoryB);
         swapped.set(indexA, categoryB);
         swapped.set(indexB, categoryA);
-        mockMvc.perform(patch(URL + "/order").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(patch(URL + "/order").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(orderBody(swapped)))
                 .andExpect(status().isNoContent());
         assertThat(currentOrder()).isEqualTo(swapped);
@@ -324,19 +324,19 @@ class AdminCategoryManagementControllerIntegrationTest extends AbstractIntegrati
         List<Long> unknown = new ArrayList<>(swapped);
         unknown.set(unknown.indexOf(categoryB), 999_999_999L);
         for (List<Long> invalid : List.of(missing, duplicated, unknown)) {
-            mockMvc.perform(patch(URL + "/order").headers(authHeaders.admin(ADMIN_ID))
+            mockMvc.perform(patch(URL + "/order").with(authHeaders.admin(ADMIN_ID))
                             .contentType(MediaType.APPLICATION_JSON).content(orderBody(invalid)))
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
             assertThat(currentOrder()).isEqualTo(swapped);
         }
-        mockMvc.perform(patch(URL + "/order").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(patch(URL + "/order").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"categoryIds\":[]}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
 
         // 원래 순서로 복원(다른 테스트·라이브 데이터 순서 보존)
-        mockMvc.perform(patch(URL + "/order").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(patch(URL + "/order").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(orderBody(original)))
                 .andExpect(status().isNoContent());
         assertThat(currentOrder()).isEqualTo(original);
@@ -345,7 +345,7 @@ class AdminCategoryManagementControllerIntegrationTest extends AbstractIntegrati
     // ---------- helpers ----------
 
     private long createCategory(String displayName, int sortOrder) throws Exception {
-        MvcResult result = mockMvc.perform(post(URL).headers(authHeaders.admin(ADMIN_ID))
+        MvcResult result = mockMvc.perform(post(URL).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"displayName\":\"" + displayName + "\",\"sortOrder\":" + sortOrder + "}"))
                 .andExpect(status().isCreated())
@@ -364,7 +364,7 @@ class AdminCategoryManagementControllerIntegrationTest extends AbstractIntegrati
     }
 
     private JsonNode listItems() throws Exception {
-        MvcResult result = mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)))
+        MvcResult result = mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk()).andReturn();
         return objectMapper.readTree(result.getResponse().getContentAsString()).get("items");
     }

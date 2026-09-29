@@ -48,13 +48,13 @@ class AdminCategoryControllerIntegrationTest extends AbstractIntegrationTest {
     private static final String PRODUCT_URL = "/api/v1/seller/products";
 
     private static final long ADMIN_ID = 4601L;         // ADMIN 액터(JWT subject·hasRole ADMIN 통과)
-    private static final long NON_ADMIN_USER = 4602L;   // BUYER 토큰 subject(인가 거부 403)
+    private static final long NON_ADMIN_USER = 4602L;   // BUYER 토큰 subject(관리자 쿠키 미선택·익명 401)
     private static final long SELLER_ID = 4610L;        // 체이닝 상품 등록용 seller
     private static final long SELLER_USER_ID = 4611L;   // 체이닝 상품 등록 JWT subject(seller_user 매핑 소스)
 
     private static final String NAME_CREATE = "트랙46생성카테고리";   // ① 생성 대상
     private static final String NAME_DUP = "트랙46중복카테고리";     // ② 409 대상
-    private static final String NAME_FORBIDDEN = "트랙46금지카테고리"; // ⑤ 403·미생성
+    private static final String NAME_FORBIDDEN = "트랙46금지카테고리"; // ⑤ 401·미생성
     private static final String NAME_CHAIN = "트랙46체이닝카테고리";   // ⑥ 체이닝 대상
 
     @Autowired
@@ -85,7 +85,7 @@ class AdminCategoryControllerIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("① ADMIN 성공: 유효 생성 → 201·categoryId/displayName/depth=1/sortOrder 반환·category 1건 커밋")
     void create_validAdmin_returns201_persistsCategory() throws Exception {
         MvcResult result = mockMvc.perform(post(URL)
-                        .headers(authHeaders.admin(ADMIN_ID))
+                        .with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(NAME_CREATE, 3)))
                 .andExpect(status().isCreated())
@@ -105,14 +105,14 @@ class AdminCategoryControllerIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("② 중복 displayName: 동일명 재생성 → 409 CATEGORY_DUPLICATE(uk_category_dedup_key·generated 컬럼 실동작)")
     void create_duplicateDisplayName_returns409() throws Exception {
         mockMvc.perform(post(URL)
-                        .headers(authHeaders.admin(ADMIN_ID))
+                        .with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(NAME_DUP, 0)))
                 .andExpect(status().isCreated());
 
         // 동일 스코프(루트)·동일 displayName 재생성은 dedup_key 충돌 → saveAndFlush 위반 → 409
         mockMvc.perform(post(URL)
-                        .headers(authHeaders.admin(ADMIN_ID))
+                        .with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(NAME_DUP, 1)))
                 .andExpect(status().isConflict())
@@ -126,7 +126,7 @@ class AdminCategoryControllerIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("③ displayName 공백 → 400 VALIDATION_FAILED·미생성(@NotBlank)")
     void create_blankDisplayName_returns400() throws Exception {
         mockMvc.perform(post(URL)
-                        .headers(authHeaders.admin(ADMIN_ID))
+                        .with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"displayName\":\"   \",\"sortOrder\":0}"))
                 .andExpect(status().isBadRequest())
@@ -137,7 +137,7 @@ class AdminCategoryControllerIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("④ sortOrder 음수 → 400 VALIDATION_FAILED·미생성(@PositiveOrZero)")
     void create_negativeSortOrder_returns400() throws Exception {
         mockMvc.perform(post(URL)
-                        .headers(authHeaders.admin(ADMIN_ID))
+                        .with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(NAME_CREATE, -1)))
                 .andExpect(status().isBadRequest())
@@ -147,14 +147,14 @@ class AdminCategoryControllerIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("⑤ 비ADMIN: BUYER 토큰 → 403 FORBIDDEN·category 미생성(SecurityConfig hasRole 인가 강제)")
-    void create_nonAdmin_returns403() throws Exception {
+    @DisplayName("⑤ 비ADMIN: BUYER 토큰 → 401 UNAUTHENTICATED·category 미생성(SecurityConfig hasRole 인가 강제)")
+    void create_nonAdmin_returns401() throws Exception {
         mockMvc.perform(post(URL)
-                        .headers(authHeaders.buyer(NON_ADMIN_USER))
+                        .with(authHeaders.buyer(NON_ADMIN_USER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(NAME_FORBIDDEN, 0)))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
 
         assertThat(count("SELECT COUNT(*) FROM category WHERE display_name=?", NAME_FORBIDDEN)).isZero();
     }
@@ -166,7 +166,7 @@ class AdminCategoryControllerIntegrationTest extends AbstractIntegrationTest {
 
         // 1) 카테고리 생성(ADMIN)
         MvcResult created = mockMvc.perform(post(URL)
-                        .headers(authHeaders.admin(ADMIN_ID))
+                        .with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(NAME_CHAIN, 0)))
                 .andExpect(status().isCreated())
@@ -180,7 +180,7 @@ class AdminCategoryControllerIntegrationTest extends AbstractIntegrationTest {
                 List.of(new ProductVariantRequest("CHAIN-1", null, null, 0L, 0, 5, List.of())));
 
         mockMvc.perform(post(PRODUCT_URL)
-                        .headers(authHeaders.seller(SELLER_USER_ID))
+                        .with(authHeaders.seller(SELLER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(product)))
                 .andExpect(status().isCreated())

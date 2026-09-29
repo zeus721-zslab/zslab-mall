@@ -27,7 +27,7 @@ import com.zslab.mall.support.AbstractIntegrationTest;
  * Admin 월 정산 배치 endpoint E2E 통합 테스트(Track 48 P3·실 MariaDB). HTTP → {@code AdminSettlementController} →
  * {@code SettlementCreationService} → 집계·병합·생성 → DB 실 커밋을 검증한다({@code BuyerOrderConfirmControllerIntegrationTest} 패턴 1:1).
  *
- * <p><b>커버</b>: T1 201(gross 집계·fee·net·periodEnd .999999 경계 포함·품목 스냅샷 2건)·T2 403(비ADMIN)·T3 400(month 13)·T4 201
+ * <p><b>커버</b>: T1 201(gross 집계·fee·net·periodEnd .999999 경계 포함·품목 스냅샷 2건)·T2 401(비ADMIN)·T3 400(month 13)·T4 201
  * 멱등(재실행 0건)·T5 재생성 200(PENDING·새 id·감사 DELETE+CREATE)·T6 재생성 422(CONFIRMED)·T7 재생성 400(reason 누락).
  *
  * <p><b>트랜잭션</b>: 실 커밋으로 정산 생성을 구동하므로 클래스 {@code @Transactional} 없음. 시드/정리는 {@link TransactionTemplate}
@@ -38,7 +38,7 @@ import com.zslab.mall.support.AbstractIntegrationTest;
 class AdminSettlementControllerIntegrationTest extends AbstractIntegrationTest {
 
     private static final long ADMIN_ID = 9480L;         // JWT 액터(created_by 미사용·DB 행 불요)
-    private static final long BUYER_ID = 9481L;         // 비ADMIN 403 확인용
+    private static final long BUYER_ID = 9481L;         // 비ADMIN 401 확인용
     private static final long SELLER_ID = 9480L;
     private static final long BANK_ACCOUNT_ID = 9480L;
     private static final long ORDER_ID = 9480L;
@@ -79,7 +79,7 @@ class AdminSettlementControllerIntegrationTest extends AbstractIntegrationTest {
     void create_admin_returns201() throws Exception {
         seedSellerWithSales();
 
-        mockMvc.perform(post(URL).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(URL).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(BODY_JUNE))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.createdCount").value(1))
@@ -107,12 +107,12 @@ class AdminSettlementControllerIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("T5 재생성: PENDING → 200·새 id·품목 재적재·감사 DELETE(reason)+CREATE")
     void regenerate_pending_returns200() throws Exception {
         seedSellerWithSales();
-        mockMvc.perform(post(URL).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(URL).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(BODY_JUNE))
                 .andExpect(status().isCreated());
         Long originalId = jdbc.queryForObject("SELECT id FROM settlement WHERE seller_id = ?", Long.class, SELLER_ID);
 
-        mockMvc.perform(post(URL + "/" + originalId + "/regenerate").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(URL + "/" + originalId + "/regenerate").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"검수 정정\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.deletedSettlementId").value(originalId))
@@ -135,14 +135,14 @@ class AdminSettlementControllerIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("T6 재생성: CONFIRMED → 422 SETTLEMENT_INVALID_STATE")
     void regenerate_confirmed_returns422() throws Exception {
         seedSellerWithSales();
-        mockMvc.perform(post(URL).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(URL).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(BODY_JUNE))
                 .andExpect(status().isCreated());
         Long id = jdbc.queryForObject("SELECT id FROM settlement WHERE seller_id = ?", Long.class, SELLER_ID);
-        mockMvc.perform(post(URL + "/" + id + "/confirm").headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(post(URL + "/" + id + "/confirm").with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(post(URL + "/" + id + "/regenerate").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(URL + "/" + id + "/regenerate").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"검수 정정\"}"))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("SETTLEMENT_INVALID_STATE"));
@@ -152,29 +152,29 @@ class AdminSettlementControllerIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("T7 재생성: reason 누락(blank) → 400·정산 유지")
     void regenerate_missingReason_returns400() throws Exception {
         seedSellerWithSales();
-        mockMvc.perform(post(URL).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(URL).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(BODY_JUNE))
                 .andExpect(status().isCreated());
         Long id = jdbc.queryForObject("SELECT id FROM settlement WHERE seller_id = ?", Long.class, SELLER_ID);
 
-        mockMvc.perform(post(URL + "/" + id + "/regenerate").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(URL + "/" + id + "/regenerate").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\" \"}"))
                 .andExpect(status().isBadRequest());
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM settlement WHERE id = ?", Integer.class, id)).isEqualTo(1);
     }
 
     @Test
-    @DisplayName("T2 비ADMIN: BUYER 토큰 → 403")
-    void create_nonAdmin_returns403() throws Exception {
-        mockMvc.perform(post(URL).headers(authHeaders.buyer(BUYER_ID))
+    @DisplayName("T2 비ADMIN: BUYER 토큰 → 401")
+    void create_nonAdmin_returns401() throws Exception {
+        mockMvc.perform(post(URL).with(authHeaders.buyer(BUYER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(BODY_JUNE))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
     }
 
     @Test
     @DisplayName("T3 잘못된 month(13) → 400 SETTLEMENT_PERIOD_INVALID")
     void create_invalidMonth_returns400() throws Exception {
-        mockMvc.perform(post(URL).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(URL).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"year\":2026,\"month\":13}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("SETTLEMENT_PERIOD_INVALID"));
@@ -184,7 +184,7 @@ class AdminSettlementControllerIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("T3b 진행 중 월(오늘 포함) → 400 SETTLEMENT_PERIOD_INVALID(마감 전 생성 차단·D-168 보충)")
     void create_currentMonth_returns400() throws Exception {
         YearMonth current = YearMonth.now();
-        mockMvc.perform(post(URL).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(URL).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"year\":" + current.getYear() + ",\"month\":" + current.getMonthValue() + "}"))
                 .andExpect(status().isBadRequest())
@@ -196,12 +196,12 @@ class AdminSettlementControllerIntegrationTest extends AbstractIntegrationTest {
     void create_rerun_isIdempotent() throws Exception {
         seedSellerWithSales();
 
-        mockMvc.perform(post(URL).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(URL).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(BODY_JUNE))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.createdCount").value(1));
 
-        mockMvc.perform(post(URL).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(URL).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(BODY_JUNE))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.createdCount").value(0));

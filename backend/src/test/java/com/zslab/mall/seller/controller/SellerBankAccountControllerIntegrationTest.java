@@ -26,6 +26,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -89,7 +90,7 @@ class SellerBankAccountControllerIntegrationTest extends AbstractIntegrationTest
     void register_firstByOwner_created() throws Exception {
         seed(SellerStatus.ACTIVE);
 
-        String body = mockMvc.perform(post(URL).headers(authHeaders.seller(OWNER_USER_ID))
+        String body = mockMvc.perform(post(URL).with(authHeaders.seller(OWNER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(json("KB", NUMBER_FIRST, "대표자")))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.bankCode").value("KB"))
@@ -121,17 +122,17 @@ class SellerBankAccountControllerIntegrationTest extends AbstractIntegrationTest
     @DisplayName("T2 두 번째 등록 → 201·비주계좌(첫 계좌 주 계좌 유지)·GET 2건 등록순")
     void register_secondByOwner_notPrimary() throws Exception {
         seed(SellerStatus.ACTIVE);
-        mockMvc.perform(post(URL).headers(authHeaders.seller(OWNER_USER_ID))
+        mockMvc.perform(post(URL).with(authHeaders.seller(OWNER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(json("KB", NUMBER_FIRST, "대표자")))
                 .andExpect(status().isCreated());
 
-        mockMvc.perform(post(URL).headers(authHeaders.seller(OWNER_USER_ID))
+        mockMvc.perform(post(URL).with(authHeaders.seller(OWNER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(json("SHINHAN", NUMBER_SECOND, "대표자")))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.isPrimary").value(false))
                 .andExpect(jsonPath("$.accountNumberSuffix").value("4321"));
 
-        mockMvc.perform(get(URL).headers(authHeaders.seller(OWNER_USER_ID)))
+        mockMvc.perform(get(URL).with(authHeaders.seller(OWNER_USER_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(2))
                 .andExpect(jsonPath("$[0].isPrimary").value(true))
@@ -146,7 +147,7 @@ class SellerBankAccountControllerIntegrationTest extends AbstractIntegrationTest
     void register_byStaff_forbidden() throws Exception {
         seed(SellerStatus.ACTIVE);
 
-        mockMvc.perform(post(URL).headers(authHeaders.seller(STAFF_USER_ID))
+        mockMvc.perform(post(URL).with(authHeaders.seller(STAFF_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(json("KB", NUMBER_FIRST, "대표자")))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("SELLER_OWNER_REQUIRED"));
@@ -163,7 +164,7 @@ class SellerBankAccountControllerIntegrationTest extends AbstractIntegrationTest
         seed(SellerStatus.ACTIVE);
         changeRole(STAFF_USER_ID, "SELLER_MANAGER");
 
-        mockMvc.perform(post(URL).headers(authHeaders.seller(STAFF_USER_ID))
+        mockMvc.perform(post(URL).with(authHeaders.seller(STAFF_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(json("KB", NUMBER_FIRST, "대표자")))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("SELLER_OWNER_REQUIRED"));
@@ -175,10 +176,10 @@ class SellerBankAccountControllerIntegrationTest extends AbstractIntegrationTest
     @DisplayName("T3-c OWNER를 MANAGER로 강등한 뒤 기존 토큰 POST → 403·행 0 (역할은 토큰이 아니라 요청 시점 DB·외부 검토 Q7)")
     void register_afterDemotion_forbidden() throws Exception {
         seed(SellerStatus.ACTIVE);
-        org.springframework.http.HttpHeaders ownerToken = authHeaders.seller(OWNER_USER_ID);
+        RequestPostProcessor ownerToken = authHeaders.seller(OWNER_USER_ID);
         changeRole(OWNER_USER_ID, "SELLER_MANAGER");
 
-        mockMvc.perform(post(URL).headers(ownerToken)
+        mockMvc.perform(post(URL).with(ownerToken)
                         .contentType(MediaType.APPLICATION_JSON).content(json("KB", NUMBER_FIRST, "대표자")))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("SELLER_OWNER_REQUIRED"));
@@ -190,10 +191,10 @@ class SellerBankAccountControllerIntegrationTest extends AbstractIntegrationTest
     @DisplayName("T3-d OWNER의 seller_user 행 삭제 뒤 기존 토큰 POST → 401 UNAUTHENTICATED(리졸버 매핑 부재)·행 0 (외부 검토 Q7)")
     void register_afterMembershipRemoved_unauthorized() throws Exception {
         seed(SellerStatus.ACTIVE);
-        org.springframework.http.HttpHeaders ownerToken = authHeaders.seller(OWNER_USER_ID);
+        RequestPostProcessor ownerToken = authHeaders.seller(OWNER_USER_ID);
         jdbc.update("DELETE FROM seller_user WHERE user_id = ?", OWNER_USER_ID);
 
-        mockMvc.perform(post(URL).headers(ownerToken)
+        mockMvc.perform(post(URL).with(ownerToken)
                         .contentType(MediaType.APPLICATION_JSON).content(json("KB", NUMBER_FIRST, "대표자")))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
@@ -206,27 +207,27 @@ class SellerBankAccountControllerIntegrationTest extends AbstractIntegrationTest
     void register_suspended_forbidden() throws Exception {
         seed(SellerStatus.SUSPENDED);
 
-        mockMvc.perform(post(URL).headers(authHeaders.seller(OWNER_USER_ID))
+        mockMvc.perform(post(URL).with(authHeaders.seller(OWNER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(json("KB", NUMBER_FIRST, "대표자")))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("SELLER_SUSPENDED"));
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM seller_bank_account WHERE seller_id = ?", Integer.class, SELLER_ID))
                 .isZero();
 
-        mockMvc.perform(get(URL).headers(authHeaders.seller(OWNER_USER_ID))).andExpect(status().isOk());
+        mockMvc.perform(get(URL).with(authHeaders.seller(OWNER_USER_ID))).andExpect(status().isOk());
     }
 
     @Test
-    @DisplayName("T5 무인증 → 401 · BUYER 토큰 → 403 (GET·POST 모두)")
+    @DisplayName("T5 무인증 → 401 · BUYER 토큰 → 401 (GET·POST 모두)")
     void wrongActor_rejected() throws Exception {
         seed(SellerStatus.ACTIVE);
         String content = json("KB", NUMBER_FIRST, "대표자");
 
         mockMvc.perform(get(URL)).andExpect(status().isUnauthorized());
         mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(content)).andExpect(status().isUnauthorized());
-        mockMvc.perform(get(URL).headers(authHeaders.buyer(BUYER_ID))).andExpect(status().isForbidden());
-        mockMvc.perform(post(URL).headers(authHeaders.buyer(BUYER_ID)).contentType(MediaType.APPLICATION_JSON).content(content))
-                .andExpect(status().isForbidden());
+        mockMvc.perform(get(URL).with(authHeaders.buyer(BUYER_ID))).andExpect(status().isUnauthorized());
+        mockMvc.perform(post(URL).with(authHeaders.buyer(BUYER_ID)).contentType(MediaType.APPLICATION_JSON).content(content))
+                .andExpect(status().isUnauthorized());
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM seller_bank_account WHERE seller_id = ?", Integer.class, SELLER_ID))
                 .isZero();
     }
@@ -236,14 +237,14 @@ class SellerBankAccountControllerIntegrationTest extends AbstractIntegrationTest
     void register_invalid_400() throws Exception {
         seed(SellerStatus.ACTIVE);
 
-        mockMvc.perform(post(URL).headers(authHeaders.seller(OWNER_USER_ID))
+        mockMvc.perform(post(URL).with(authHeaders.seller(OWNER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(json("KB", "110-ABC-456", "대표자")))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
-        mockMvc.perform(post(URL).headers(authHeaders.seller(OWNER_USER_ID))
+        mockMvc.perform(post(URL).with(authHeaders.seller(OWNER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(json(" ", NUMBER_FIRST, "대표자")))
                 .andExpect(status().isBadRequest());
-        mockMvc.perform(post(URL).headers(authHeaders.seller(OWNER_USER_ID))
+        mockMvc.perform(post(URL).with(authHeaders.seller(OWNER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(json("KB", NUMBER_FIRST, "가".repeat(51))))
                 .andExpect(status().isBadRequest());
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM seller_bank_account WHERE seller_id = ?", Integer.class, SELLER_ID))
@@ -254,11 +255,11 @@ class SellerBankAccountControllerIntegrationTest extends AbstractIntegrationTest
     @DisplayName("T7 GET → 본인 셀러 계좌만(타 셀러 계좌 미포함)·STAFF도 조회 가능·응답 본문에 원 계좌번호 부재·키 화이트리스트")
     void list_ownSellerOnly_masked() throws Exception {
         seed(SellerStatus.ACTIVE);
-        mockMvc.perform(post(URL).headers(authHeaders.seller(OWNER_USER_ID))
+        mockMvc.perform(post(URL).with(authHeaders.seller(OWNER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(json("KB", NUMBER_FIRST, "대표자")))
                 .andExpect(status().isCreated());
 
-        String body = mockMvc.perform(get(URL).headers(authHeaders.seller(STAFF_USER_ID)))
+        String body = mockMvc.perform(get(URL).with(authHeaders.seller(STAFF_USER_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].accountNumberSuffix").value("6789"))
@@ -272,17 +273,17 @@ class SellerBankAccountControllerIntegrationTest extends AbstractIntegrationTest
     @DisplayName("T8 셀러 첫 등록 후 관리자 pay → 200·PAID·settlement.bank_account_id = 셀러가 등록한 계좌 id(스냅샷)")
     void register_thenAdminPay_snapshotsSellerAccount() throws Exception {
         seed(SellerStatus.ACTIVE);
-        mockMvc.perform(post(PAY_URL + SETTLEMENT_ID + "/pay").headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(post(PAY_URL + SETTLEMENT_ID + "/pay").with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("SETTLEMENT_BANK_ACCOUNT_MISSING"));
 
-        String body = mockMvc.perform(post(URL).headers(authHeaders.seller(OWNER_USER_ID))
+        String body = mockMvc.perform(post(URL).with(authHeaders.seller(OWNER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(json("KB", NUMBER_FIRST, "대표자")))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         long accountId = objectMapper.readTree(body).get("id").asLong();
 
-        mockMvc.perform(post(PAY_URL + SETTLEMENT_ID + "/pay").headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(post(PAY_URL + SETTLEMENT_ID + "/pay").with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("PAID"));
         assertThat(jdbc.queryForObject("SELECT bank_account_id FROM settlement WHERE id = ?", Long.class, SETTLEMENT_ID))

@@ -177,7 +177,7 @@ class AdminClaimActionFilterIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("M2 허용 외 값 400(APPROVE·REJECT·미지 값) · 다른 필터와 AND · 페이징 총건수 유지")
     void actionFilter_validation_and_combination() throws Exception {
         for (String invalid : List.of("APPROVE", "REJECT", "FOO")) {
-            mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.admin(ADMIN)).param("action", invalid))
+            mockMvc.perform(get(CLAIMS_URL).with(authHeaders.admin(ADMIN)).param("action", invalid))
                     .andExpect(status().isBadRequest());
         }
 
@@ -185,11 +185,11 @@ class AdminClaimActionFilterIntegrationTest extends AbstractIntegrationTest {
         JsonNode exchange = list("action", "FOLLOWUP", "type", "EXCHANGE");
         assertThat(actionsByClaimId(exchange).keySet()).isEqualTo(exchangeFollowup);
 
-        mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.admin(ADMIN))
+        mockMvc.perform(get(CLAIMS_URL).with(authHeaders.admin(ADMIN))
                         .param("keyword", PRODUCT_NAME).param("action", "FOLLOWUP").param("status", "REQUESTED"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(0));
-        mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.admin(ADMIN))
+        mockMvc.perform(get(CLAIMS_URL).with(authHeaders.admin(ADMIN))
                         .param("keyword", PRODUCT_NAME).param("action", "INITIATE_REFUND").param("refundStatus", "FAILED"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(1)); // M13(M17은 완료 행·M28은 PG 성공으로 제외·Track 104-3a)
@@ -205,7 +205,7 @@ class AdminClaimActionFilterIntegrationTest extends AbstractIntegrationTest {
 
     /** 시드 상품명 검색어 + size 100(≤ MAX_PAGE_SIZE·params에 size가 있으면 그 값)으로 매트릭스 행만 조회한다. */
     private JsonNode list(String... params) throws Exception {
-        var request = get(CLAIMS_URL).headers(authHeaders.admin(ADMIN)).param("keyword", PRODUCT_NAME);
+        var request = get(CLAIMS_URL).with(authHeaders.admin(ADMIN)).param("keyword", PRODUCT_NAME);
         boolean sizeGiven = false;
         for (int index = 0; index < params.length; index += 2) {
             request = request.param(params[index], params[index + 1]);
@@ -219,7 +219,7 @@ class AdminClaimActionFilterIntegrationTest extends AbstractIntegrationTest {
     }
 
     private JsonNode fetchDashboard() throws Exception {
-        String body = mockMvc.perform(get(DASHBOARD_URL).headers(authHeaders.admin(ADMIN)))
+        String body = mockMvc.perform(get(DASHBOARD_URL).with(authHeaders.admin(ADMIN)))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         return objectMapper.readTree(body);
     }

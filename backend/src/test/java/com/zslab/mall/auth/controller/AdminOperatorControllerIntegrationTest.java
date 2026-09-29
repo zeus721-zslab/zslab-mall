@@ -43,7 +43,7 @@ class AdminOperatorControllerIntegrationTest extends AbstractIntegrationTest {
 
     private static final long SUPER_ADMIN_CALLER = 9601L; // SUPER_ADMIN 매핑 보유(세분 인가 통과)
     private static final long OPERATOR_CALLER = 9602L;     // ADMIN_OPERATOR만 보유(SUPER_ADMIN 아님·③ 403)
-    private static final long BUYER_CALLER = 9603L;        // BUYER 토큰(필터 게이트 거부·② 403)
+    private static final long BUYER_CALLER = 9603L;        // BUYER 토큰(관리자 쿠키 미선택·익명 401·②)
     private static final long TARGET_USER = 9610L;         // 부여 대상(미보유 user)
     private static final long DUP_TARGET = 9611L;          // 이미 ADMIN_OPERATOR 보유(⑤⑥)
 
@@ -84,7 +84,7 @@ class AdminOperatorControllerIntegrationTest extends AbstractIntegrationTest {
         });
 
         mockMvc.perform(post(URL)
-                        .headers(authHeaders.admin(SUPER_ADMIN_CALLER))
+                        .with(authHeaders.admin(SUPER_ADMIN_CALLER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(PID_TARGET)))
                 .andExpect(status().isCreated())
@@ -100,15 +100,15 @@ class AdminOperatorControllerIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("② 비ADMIN: BUYER 토큰 → 403 FORBIDDEN·미부여(SecurityConfig hasRole 필터 게이트)")
-    void provision_buyerToken_returns403_atFilter() throws Exception {
+    @DisplayName("② 비ADMIN: BUYER 토큰 → 401 UNAUTHENTICATED·미부여(SecurityConfig hasRole 필터 게이트)")
+    void provision_buyerToken_returns401_atFilter() throws Exception {
         // 필터 게이트가 컨트롤러 이전에 거부한다(caller/target DB 시드 불요).
         mockMvc.perform(post(URL)
-                        .headers(authHeaders.buyer(BUYER_CALLER))
+                        .with(authHeaders.buyer(BUYER_CALLER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(PID_TARGET)))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
 
         assertThat(adminOperatorMappingCount(TARGET_USER)).isZero();
     }
@@ -124,7 +124,7 @@ class AdminOperatorControllerIntegrationTest extends AbstractIntegrationTest {
         });
 
         mockMvc.perform(post(URL)
-                        .headers(authHeaders.admin(OPERATOR_CALLER))
+                        .with(authHeaders.admin(OPERATOR_CALLER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(PID_TARGET)))
                 .andExpect(status().isForbidden())
@@ -142,7 +142,7 @@ class AdminOperatorControllerIntegrationTest extends AbstractIntegrationTest {
         });
 
         mockMvc.perform(post(URL)
-                        .headers(authHeaders.admin(SUPER_ADMIN_CALLER))
+                        .with(authHeaders.admin(SUPER_ADMIN_CALLER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(PID_MISSING)))
                 .andExpect(status().isNotFound())
@@ -160,7 +160,7 @@ class AdminOperatorControllerIntegrationTest extends AbstractIntegrationTest {
         });
 
         mockMvc.perform(post(URL)
-                        .headers(authHeaders.admin(SUPER_ADMIN_CALLER))
+                        .with(authHeaders.admin(SUPER_ADMIN_CALLER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(PID_DUP)))
                 .andExpect(status().isConflict())
@@ -178,7 +178,7 @@ class AdminOperatorControllerIntegrationTest extends AbstractIntegrationTest {
         });
 
         mockMvc.perform(post(URL)
-                        .headers(authHeaders.admin(SUPER_ADMIN_CALLER))
+                        .with(authHeaders.admin(SUPER_ADMIN_CALLER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(PID_DUP)))
                 .andExpect(status().isConflict());

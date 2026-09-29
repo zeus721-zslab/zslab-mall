@@ -5,8 +5,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import tools.jackson.databind.ObjectMapper;
 import com.zslab.mall.common.security.ActorRole;
+import com.zslab.mall.common.security.AuthCookies;
+import com.zslab.mall.common.security.AuthHeaders;
 import com.zslab.mall.common.security.TokenPayload;
 import com.zslab.mall.common.security.TokenProvider;
 import com.zslab.mall.support.AbstractIntegrationTest;
@@ -25,12 +26,12 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * 로그인 endpoint E2E 통합 테스트(Track 33·실 MariaDB). HTTP → AuthController → AuthService → DB 흐름을 실 커밋·HTTP
- * 경유로 검증한다. 성공 시 토큰을 실 {@link TokenProvider}로 verify해 actorId·role 일치를 확인하고, 실패(비번·미존재·비활성)는
+ * 역할 로그인 E2E 통합 테스트(Track 33·D-235 PR3·실 MariaDB). HTTP → RoleAuthController → AuthService → DB 흐름을 실 커밋·HTTP
+ * 경유로 검증한다. 성공 시 발급된 역할 쿠키의 토큰을 실 {@link TokenProvider}로 verify해 actorId·role 일치를 확인하고, 실패(비번·미존재·비활성)는
  * 사유 무관 401·"Invalid email or password."로 통일됨(계정 열거 방지)을 확인한다.
  *
  * <p>시드는 {@link TransactionTemplate} + {@code FOREIGN_KEY_CHECKS=0}(LT-02 try-finally), password_hash는 실
- * {@link PasswordEncoder}(BCrypt) 해싱 값을 주입한다. 로그인 경로는 SecurityConfig permitAll이라 인증 헤더 없이 호출한다.
+ * {@link PasswordEncoder}(BCrypt) 해싱 값을 주입한다. 로그인은 permitAll이지만 인증 전 CSRF 토큰을 검증하므로 {@code authHeaders.csrf()}를 싣는다.
  */
 @AutoConfigureMockMvc
 class AuthControllerIntegrationTest extends AbstractIntegrationTest {
@@ -44,6 +45,8 @@ class AuthControllerIntegrationTest extends AbstractIntegrationTest {
     private static final String SELLER_EMAIL = "seller-test@zslab.test";
     private static final String PASSWORD = "correct-horse-battery-staple";
     private static final String FAILURE_MESSAGE = "Invalid email or password.";
+    private static final String BUYER_LOGIN_URL = "/api/v1/auth/buyer/login";
+    private static final String SELLER_LOGIN_URL = "/api/v1/seller/auth/login";
 
     @Autowired
     private MockMvc mockMvc;
@@ -56,7 +59,7 @@ class AuthControllerIntegrationTest extends AbstractIntegrationTest {
     @Autowired
     private TokenProvider tokenProvider;
     @Autowired
-    private ObjectMapper objectMapper;
+    private AuthHeaders authHeaders;
 
     private TransactionTemplate tx;
 
@@ -73,17 +76,16 @@ class AuthControllerIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("(1) 유효 credential+role=BUYER → 200·토큰 반환·verify 시 actorId·role 일치")
+    @DisplayName("(1) 유효 credential 구매자 로그인 → 200·구매자 쿠키 토큰 verify 시 actorId·role 일치·본문 token 없음")
     void validCredentials_returns200_andVerifiableToken() throws Exception {
-        MvcResult result = mockMvc.perform(post("/api/v1/auth/login")
+        MvcResult result = mockMvc.perform(post(BUYER_LOGIN_URL).with(authHeaders.csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(loginBody(EMAIL, PASSWORD, "BUYER")))
+                        .content(loginBody(EMAIL, PASSWORD)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.token").exists())
+                .andExpect(jsonPath("$.token").doesNotExist())
                 .andReturn();
 
-        String token = objectMapper.readTree(result.getResponse().getContentAsString()).get("token").asText();
-        TokenPayload payload = tokenProvider.verify(token);
+        TokenPayload payload = tokenProvider.verify(result.getResponse().getCookie(AuthCookies.BUYER_COOKIE).getValue());
         assertThat(payload.actorId()).isEqualTo(USER_ID);
         assertThat(payload.role()).isEqualTo(ActorRole.BUYER);
     }
@@ -91,9 +93,9 @@ class AuthControllerIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("(2) 잘못된 비번 → 401·Invalid email or password.")
     void wrongPassword_returns401() throws Exception {
-        mockMvc.perform(post("/api/v1/auth/login")
+        mockMvc.perform(post(BUYER_LOGIN_URL).with(authHeaders.csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(loginBody(EMAIL, "wrong-password", "BUYER")))
+                        .content(loginBody(EMAIL, "wrong-password")))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.detail").value(FAILURE_MESSAGE));
     }
@@ -101,9 +103,9 @@ class AuthControllerIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("(3) 미존재 email → 401 동일 메시지(enumeration 방지)")
     void unknownEmail_returns401_sameMessage() throws Exception {
-        mockMvc.perform(post("/api/v1/auth/login")
+        mockMvc.perform(post(BUYER_LOGIN_URL).with(authHeaders.csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(loginBody("nobody@zslab.test", PASSWORD, "BUYER")))
+                        .content(loginBody("nobody@zslab.test", PASSWORD)))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.detail").value(FAILURE_MESSAGE));
     }
@@ -111,35 +113,34 @@ class AuthControllerIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("(4) passwordHash null 유저 → 401 동일 메시지")
     void nullPasswordHashUser_returns401() throws Exception {
-        mockMvc.perform(post("/api/v1/auth/login")
+        mockMvc.perform(post(BUYER_LOGIN_URL).with(authHeaders.csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(loginBody(NULL_PW_EMAIL, PASSWORD, "BUYER")))
+                        .content(loginBody(NULL_PW_EMAIL, PASSWORD)))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.detail").value(FAILURE_MESSAGE));
     }
 
     @Test
-    @DisplayName("(5) 유효 credential+role=SELLER인데 seller_user 부재 → 401·fail-closed(role 위조 차단)")
+    @DisplayName("(5) 유효 credential 셀러 로그인인데 seller_user 부재 → 401·fail-closed")
     void sellerRoleWithoutSellerUser_returns401() throws Exception {
         // EMAIL 유저는 BUYER user_role만 보유·seller_user 행 없음 → SELLER 자격 없음(비번은 정상이나 role 판정에서 거부).
-        mockMvc.perform(post("/api/v1/auth/login")
+        mockMvc.perform(post(SELLER_LOGIN_URL).with(authHeaders.csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(loginBody(EMAIL, PASSWORD, "SELLER")))
+                        .content(loginBody(EMAIL, PASSWORD)))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.detail").value(FAILURE_MESSAGE));
     }
 
     @Test
-    @DisplayName("(6) seller_user 보유 유저+role=SELLER → 200·토큰 role=SELLER")
+    @DisplayName("(6) seller_user 보유 유저 셀러 로그인 → 200·셀러 쿠키 토큰 role=SELLER")
     void sellerRoleWithSellerUser_returns200() throws Exception {
-        MvcResult result = mockMvc.perform(post("/api/v1/auth/login")
+        MvcResult result = mockMvc.perform(post(SELLER_LOGIN_URL).with(authHeaders.csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(loginBody(SELLER_EMAIL, PASSWORD, "SELLER")))
+                        .content(loginBody(SELLER_EMAIL, PASSWORD)))
                 .andExpect(status().isOk())
                 .andReturn();
 
-        String token = objectMapper.readTree(result.getResponse().getContentAsString()).get("token").asText();
-        TokenPayload payload = tokenProvider.verify(token);
+        TokenPayload payload = tokenProvider.verify(result.getResponse().getCookie(AuthCookies.SELLER_COOKIE).getValue());
         assertThat(payload.actorId()).isEqualTo(SELLER_USER_ID);
         assertThat(payload.role()).isEqualTo(ActorRole.SELLER);
     }
@@ -194,8 +195,8 @@ class AuthControllerIntegrationTest extends AbstractIntegrationTest {
         });
     }
 
-    private String loginBody(String email, String password, String role) {
-        return "{\"email\":\"" + email + "\",\"password\":\"" + password + "\",\"role\":\"" + role + "\"}";
+    private String loginBody(String email, String password) {
+        return "{\"email\":\"" + email + "\",\"password\":\"" + password + "\"}";
     }
 
     private static String pid(String prefix, String tag) {

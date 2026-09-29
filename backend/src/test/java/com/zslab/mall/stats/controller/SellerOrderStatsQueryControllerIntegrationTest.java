@@ -147,11 +147,11 @@ class SellerOrderStatsQueryControllerIntegrationTest extends AbstractIntegration
     }
 
     @Test
-    @DisplayName("T1 인가: 비인증 401 · 구매자 403 · 셀러 200")
+    @DisplayName("T1 인가: 비인증 401 · 구매자 401 · 셀러 200")
     void authorization() throws Exception {
         mockMvc.perform(get(URL + MARCH)).andExpect(status().isUnauthorized());
-        mockMvc.perform(get(URL + MARCH).headers(authHeaders.buyer(BUYER_ID))).andExpect(status().isForbidden());
-        mockMvc.perform(get(URL + MARCH).headers(authHeaders.seller(USER_A))).andExpect(status().isOk());
+        mockMvc.perform(get(URL + MARCH).with(authHeaders.buyer(BUYER_ID))).andExpect(status().isUnauthorized());
+        mockMvc.perform(get(URL + MARCH).with(authHeaders.seller(USER_A))).andExpect(status().isOk());
     }
 
     @Test
@@ -294,12 +294,12 @@ class SellerOrderStatsQueryControllerIntegrationTest extends AbstractIntegration
     @Test
     @DisplayName("T7 기간 경계: 365일 OK/366일 400 · from>to 400 · 형식 오류 400 · unit·compare 허용 외 400 · 미결제 품목(A6) 미포함")
     void periodBoundaries() throws Exception {
-        mockMvc.perform(get(URL).headers(authHeaders.seller(USER_A)).param("from", "2025-04-01").param("to", "2026-03-31").param("unit", "MONTH"))
+        mockMvc.perform(get(URL).with(authHeaders.seller(USER_A)).param("from", "2025-04-01").param("to", "2026-03-31").param("unit", "MONTH"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.claimTrend.length()").value(12));
         for (String query : List.of("?from=2025-03-31&to=2026-03-31", "?from=2026-03-11&to=2026-03-10", "?from=2026/03/01&to=2026-03-31",
                 MARCH + "&unit=HOUR", MARCH + "&compare=LAST")) {
-            mockMvc.perform(get(URL + query).headers(authHeaders.seller(USER_A)))
+            mockMvc.perform(get(URL + query).with(authHeaders.seller(USER_A)))
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
         }
@@ -350,7 +350,7 @@ class SellerOrderStatsQueryControllerIntegrationTest extends AbstractIntegration
     void sessionDenied_returns401(SellerStatus status) throws Exception {
         cleanup();
         seedAll(status);
-        mockMvc.perform(get(URL + MARCH).headers(authHeaders.seller(USER_A)))
+        mockMvc.perform(get(URL + MARCH).with(authHeaders.seller(USER_A)))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
     }
@@ -358,7 +358,7 @@ class SellerOrderStatsQueryControllerIntegrationTest extends AbstractIntegration
     // ---------- helpers ----------
 
     private JsonNode fetch(long userId, String query) throws Exception {
-        String body = mockMvc.perform(get(URL + query).headers(authHeaders.seller(userId)))
+        String body = mockMvc.perform(get(URL + query).with(authHeaders.seller(userId)))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         return objectMapper.readTree(body);
     }

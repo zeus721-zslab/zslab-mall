@@ -92,7 +92,7 @@ class BuyerOrderItemStatusFilterIntegrationTest extends AbstractIntegrationTest 
     @Test
     @DisplayName("T1 일치 품목이 있는 주문만: SHIPPING 품목 없는 주문 제외·주문일 내림차순")
     void filter_includesOnlyOrdersWithMatchingItem() throws Exception {
-        mockMvc.perform(get(ORDERS_URL).headers(authHeaders.buyer(BUYER_USER)).param("itemStatus", "SHIPPING"))
+        mockMvc.perform(get(ORDERS_URL).with(authHeaders.buyer(BUYER_USER)).param("itemStatus", "SHIPPING"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[*].orderId",
                         contains(ORDER_TWO_SHIPPING, ORDER_ONE_SHIPPING, ORDER_INSIDE_BOUNDARY)));
@@ -102,7 +102,7 @@ class BuyerOrderItemStatusFilterIntegrationTest extends AbstractIntegrationTest 
     @DisplayName("T2 한 주문에 일치 품목 2개 → 주문 1건(EXISTS·중복 없음)·품목은 그대로 3개")
     void filter_multipleMatchingItems_countedOnce() throws Exception {
         String twoShippingPath = "$.items[?(@.orderId == '" + ORDER_TWO_SHIPPING + "')]";
-        mockMvc.perform(get(ORDERS_URL).headers(authHeaders.buyer(BUYER_USER)).param("itemStatus", "SHIPPING"))
+        mockMvc.perform(get(ORDERS_URL).with(authHeaders.buyer(BUYER_USER)).param("itemStatus", "SHIPPING"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath(twoShippingPath, hasSize(1)))
                 .andExpect(jsonPath(twoShippingPath + ".items[*]", hasSize(3)))
@@ -112,7 +112,7 @@ class BuyerOrderItemStatusFilterIntegrationTest extends AbstractIntegrationTest 
     @Test
     @DisplayName("T3 기간: 3개월 − 2일 전 주문 포함·3개월 + 2일 전 주문 제외")
     void filter_excludesOrdersOutsidePeriod() throws Exception {
-        mockMvc.perform(get(ORDERS_URL).headers(authHeaders.buyer(BUYER_USER)).param("itemStatus", "SHIPPING"))
+        mockMvc.perform(get(ORDERS_URL).with(authHeaders.buyer(BUYER_USER)).param("itemStatus", "SHIPPING"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[?(@.orderId == '" + ORDER_INSIDE_BOUNDARY + "')]", hasSize(1)))
                 .andExpect(jsonPath("$.items[?(@.orderId == '" + ORDER_OUTSIDE_BOUNDARY + "')]", hasSize(0)));
@@ -121,10 +121,10 @@ class BuyerOrderItemStatusFilterIntegrationTest extends AbstractIntegrationTest 
     @Test
     @DisplayName("T4 다른 구매자 주문 제외: 각자 자기 주문만")
     void filter_excludesOtherBuyer() throws Exception {
-        mockMvc.perform(get(ORDERS_URL).headers(authHeaders.buyer(BUYER_USER)).param("itemStatus", "SHIPPING"))
+        mockMvc.perform(get(ORDERS_URL).with(authHeaders.buyer(BUYER_USER)).param("itemStatus", "SHIPPING"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[?(@.orderId == '" + ORDER_OTHER_BUYER + "')]", hasSize(0)));
-        mockMvc.perform(get(ORDERS_URL).headers(authHeaders.buyer(OTHER_BUYER)).param("itemStatus", "SHIPPING"))
+        mockMvc.perform(get(ORDERS_URL).with(authHeaders.buyer(OTHER_BUYER)).param("itemStatus", "SHIPPING"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[*].orderId", contains(ORDER_OTHER_BUYER)))
                 .andExpect(jsonPath("$.totalCount").value(1));
@@ -133,13 +133,13 @@ class BuyerOrderItemStatusFilterIntegrationTest extends AbstractIntegrationTest 
     @Test
     @DisplayName("T5 totalCount: size=1(count 쿼리 실행) → 필터 조건 기준 3·페이지 이동")
     void filter_totalCountAcrossPages() throws Exception {
-        mockMvc.perform(get(ORDERS_URL).headers(authHeaders.buyer(BUYER_USER))
+        mockMvc.perform(get(ORDERS_URL).with(authHeaders.buyer(BUYER_USER))
                         .param("itemStatus", "SHIPPING").param("size", "1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[*].orderId", contains(ORDER_TWO_SHIPPING)))
                 .andExpect(jsonPath("$.totalCount").value(3))
                 .andExpect(jsonPath("$.hasNext").value(true));
-        mockMvc.perform(get(ORDERS_URL).headers(authHeaders.buyer(BUYER_USER))
+        mockMvc.perform(get(ORDERS_URL).with(authHeaders.buyer(BUYER_USER))
                         .param("itemStatus", "SHIPPING").param("size", "1").param("page", "2"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[*].orderId", contains(ORDER_INSIDE_BOUNDARY)))
@@ -150,7 +150,7 @@ class BuyerOrderItemStatusFilterIntegrationTest extends AbstractIntegrationTest 
     @Test
     @DisplayName("T6 파라미터 없음: 기존 결과 그대로(기간 제한 없음·PAYMENT_EXPIRED만 제외)")
     void noParam_keepsExistingResult() throws Exception {
-        mockMvc.perform(get(ORDERS_URL).headers(authHeaders.buyer(BUYER_USER)))
+        mockMvc.perform(get(ORDERS_URL).with(authHeaders.buyer(BUYER_USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[*].orderId", contains(ORDER_TWO_SHIPPING, ORDER_ONE_SHIPPING,
                         ORDER_NO_SHIPPING, ORDER_INSIDE_BOUNDARY, ORDER_OUTSIDE_BOUNDARY)))
@@ -161,7 +161,7 @@ class BuyerOrderItemStatusFilterIntegrationTest extends AbstractIntegrationTest 
     @DisplayName("T7 잘못된 값(BOGUS)·단계 밖 품목 상태(ORDERED)·소문자(shipping) → 400 MALFORMED_REQUEST")
     void filter_invalidValue_returns400() throws Exception {
         for (String invalid : new String[] {"BOGUS", "ORDERED", "shipping"}) {
-            mockMvc.perform(get(ORDERS_URL).headers(authHeaders.buyer(BUYER_USER)).param("itemStatus", invalid))
+            mockMvc.perform(get(ORDERS_URL).with(authHeaders.buyer(BUYER_USER)).param("itemStatus", invalid))
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
         }
@@ -170,13 +170,13 @@ class BuyerOrderItemStatusFilterIntegrationTest extends AbstractIntegrationTest 
     @Test
     @DisplayName("T8 교차 확인: 요약 단계별 품목 수 = 같은 단계 필터 결과 속 해당 상태 품목 수(5단계 전부·0 아님)")
     void filter_matchesSummaryStageCounts() throws Exception {
-        String summaryJson = mockMvc.perform(get(SUMMARY_URL).headers(authHeaders.buyer(BUYER_USER)))
+        String summaryJson = mockMvc.perform(get(SUMMARY_URL).with(authHeaders.buyer(BUYER_USER)))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         for (String stageStatus : STAGE_STATUSES) {
             Integer summaryCount = JsonPath.read(summaryJson, "$.stages." + stageStatus.toLowerCase(Locale.ROOT));
             assertThat(summaryCount).as("시드가 단계 %s 품목을 가져야 교차 확인이 의미 있다", stageStatus).isPositive();
-            mockMvc.perform(get(ORDERS_URL).headers(authHeaders.buyer(BUYER_USER))
+            mockMvc.perform(get(ORDERS_URL).with(authHeaders.buyer(BUYER_USER))
                             .param("itemStatus", stageStatus).param("size", "100"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.items[*].items[?(@.status.code == '" + stageStatus + "')]",
@@ -185,11 +185,11 @@ class BuyerOrderItemStatusFilterIntegrationTest extends AbstractIntegrationTest 
     }
 
     @Test
-    @DisplayName("T9 ADMIN → 403 FORBIDDEN(/api/v1/orders는 BUYER 전용)")
-    void list_admin_returns403() throws Exception {
-        mockMvc.perform(get(ORDERS_URL).headers(authHeaders.admin(ADMIN_USER)))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+    @DisplayName("T9 ADMIN → 401 UNAUTHENTICATED(/api/v1/orders는 BUYER 전용)")
+    void list_admin_returns401() throws Exception {
+        mockMvc.perform(get(ORDERS_URL).with(authHeaders.admin(ADMIN_USER)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
     }
 
     // ---------- seed·helpers (BuyerOrderStatusSummaryIntegrationTest 패턴) ----------

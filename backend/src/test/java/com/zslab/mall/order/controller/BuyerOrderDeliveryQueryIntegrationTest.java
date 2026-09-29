@@ -78,7 +78,7 @@ class BuyerOrderDeliveryQueryIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("T1 원 발송만: 교환 OUTBOUND(claim 연결·최신 id)·RETURN·구 원 발송 제외 → 최신 원 발송(택배사·송장·상태·발송일·배송완료일)")
     void detail_originalOutboundOnly() throws Exception {
-        mockMvc.perform(get(ORDER_URL).headers(authHeaders.buyer(BUYER_USER)))
+        mockMvc.perform(get(ORDER_URL).with(authHeaders.buyer(BUYER_USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath(SHIPPED_ITEM_PATH + ".delivery.carrier").value("HANJIN"))
                 .andExpect(jsonPath(SHIPPED_ITEM_PATH + ".delivery.trackingNo").value("ORIG-NEW"))
@@ -90,7 +90,7 @@ class BuyerOrderDeliveryQueryIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("T2 부분 발송: 미발송 품목은 delivery 부재(null·NON_NULL 생략)·발송 품목만 채움")
     void detail_partialShipment() throws Exception {
-        mockMvc.perform(get(ORDER_URL).headers(authHeaders.buyer(BUYER_USER)))
+        mockMvc.perform(get(ORDER_URL).with(authHeaders.buyer(BUYER_USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.sellers[0].items.length()").value(2))
                 .andExpect(jsonPath(UNSHIPPED_ITEM_PATH + ".delivery").doesNotExist())
@@ -100,7 +100,7 @@ class BuyerOrderDeliveryQueryIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("T3 cross-tenant: 타 buyer → 404 ORDER_NOT_FOUND(존재 은닉·배송 정보 미노출)")
     void detail_crossTenant_returns404() throws Exception {
-        mockMvc.perform(get(ORDER_URL).headers(authHeaders.buyer(OTHER_BUYER)))
+        mockMvc.perform(get(ORDER_URL).with(authHeaders.buyer(OTHER_BUYER)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("ORDER_NOT_FOUND"));
     }

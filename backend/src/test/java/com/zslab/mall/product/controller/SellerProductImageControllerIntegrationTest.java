@@ -19,11 +19,11 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import com.zslab.mall.support.AbstractIntegrationTest;
@@ -188,7 +188,7 @@ class SellerProductImageControllerIntegrationTest extends AbstractIntegrationTes
         Long img1 = add(sellerAAuth(), PRODUCT_A_ID, "/api/v1/files/products/2026/09/cdn-1.jpg", false).id();
         Long img2 = add(sellerAAuth(), PRODUCT_A_ID, "/api/v1/files/products/2026/09/cdn-2.jpg", false).id();
 
-        mockMvc.perform(delete(base(PRODUCT_A_ID) + "/" + img1).headers(sellerAAuth()))
+        mockMvc.perform(delete(base(PRODUCT_A_ID) + "/" + img1).with(sellerAAuth()))
                 .andExpect(status().isNoContent());
 
         // 행은 남되 deleted_at 마킹(soft) + 활성(deleted_at IS NULL) 집합에서 제외
@@ -202,7 +202,7 @@ class SellerProductImageControllerIntegrationTest extends AbstractIntegrationTes
     @Test
     @DisplayName("T9 타 판매자 상품에 이미지 등록 시도 → 404 PRODUCT_NOT_FOUND(2-hop product 스코프)")
     void add_crossTenantProduct_returns404() throws Exception {
-        mockMvc.perform(post(base(PRODUCT_A_ID)).headers(sellerBAuth()) // B가 A의 상품에
+        mockMvc.perform(post(base(PRODUCT_A_ID)).with(sellerBAuth()) // B가 A의 상품에
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new AddProductImageRequest("/api/v1/files/products/2026/09/cdn-x.jpg", false))))
                 .andExpect(status().isNotFound())
@@ -217,7 +217,7 @@ class SellerProductImageControllerIntegrationTest extends AbstractIntegrationTes
         designateMain(sellerBAuth(), PRODUCT_A_ID, 7301L)
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("PRODUCT_IMAGE_NOT_FOUND"));
-        mockMvc.perform(delete(base(PRODUCT_A_ID) + "/7301").headers(sellerBAuth()))
+        mockMvc.perform(delete(base(PRODUCT_A_ID) + "/7301").with(sellerBAuth()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("PRODUCT_IMAGE_NOT_FOUND"));
         // 은닉 확인: A 이미지는 무변경(대표 아님·미삭제)
@@ -246,19 +246,19 @@ class SellerProductImageControllerIntegrationTest extends AbstractIntegrationTes
     }
 
     @Test
-    @DisplayName("T13 비-SELLER role(BUYER 토큰) → 403 FORBIDDEN")
-    void add_buyerRole_returns403() throws Exception {
-        mockMvc.perform(post(base(PRODUCT_A_ID)).headers(authHeaders.buyer(BUYER_USER_ID))
+    @DisplayName("T13 비-SELLER role(BUYER 토큰) → 401 UNAUTHENTICATED")
+    void add_buyerRole_returns401() throws Exception {
+        mockMvc.perform(post(base(PRODUCT_A_ID)).with(authHeaders.buyer(BUYER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new AddProductImageRequest("/api/v1/files/products/2026/09/cdn-x.jpg", false))))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
     }
 
     @Test
     @DisplayName("T14 imageUrl 공백 → 400 VALIDATION_FAILED(@NotBlank)")
     void add_blankImageUrl_returns400() throws Exception {
-        mockMvc.perform(post(base(PRODUCT_A_ID)).headers(sellerAAuth())
+        mockMvc.perform(post(base(PRODUCT_A_ID)).with(sellerAAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new AddProductImageRequest("  ", false))))
                 .andExpect(status().isBadRequest())
@@ -267,11 +267,11 @@ class SellerProductImageControllerIntegrationTest extends AbstractIntegrationTes
 
     // ==================== helpers ====================
 
-    private HttpHeaders sellerAAuth() {
+    private RequestPostProcessor sellerAAuth() {
         return authHeaders.seller(SELLER_A_USER_ID);
     }
 
-    private HttpHeaders sellerBAuth() {
+    private RequestPostProcessor sellerBAuth() {
         return authHeaders.seller(SELLER_B_USER_ID);
     }
 
@@ -279,8 +279,8 @@ class SellerProductImageControllerIntegrationTest extends AbstractIntegrationTes
         return "/api/v1/seller/products/" + productId + "/images";
     }
 
-    private ProductImageResponse add(HttpHeaders headers, long productId, String imageUrl, boolean main) throws Exception {
-        MvcResult result = mockMvc.perform(post(base(productId)).headers(headers)
+    private ProductImageResponse add(RequestPostProcessor headers, long productId, String imageUrl, boolean main) throws Exception {
+        MvcResult result = mockMvc.perform(post(base(productId)).with(headers)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new AddProductImageRequest(imageUrl, main))))
                 .andExpect(status().isCreated())
@@ -289,13 +289,13 @@ class SellerProductImageControllerIntegrationTest extends AbstractIntegrationTes
     }
 
     private org.springframework.test.web.servlet.ResultActions designateMain(
-            HttpHeaders headers, long productId, long imageId) throws Exception {
-        return mockMvc.perform(patch(base(productId) + "/" + imageId + "/main").headers(headers));
+            RequestPostProcessor headers, long productId, long imageId) throws Exception {
+        return mockMvc.perform(patch(base(productId) + "/" + imageId + "/main").with(headers));
     }
 
     private org.springframework.test.web.servlet.ResultActions reorder(
-            HttpHeaders headers, long productId, List<Long> imageIds) throws Exception {
-        return mockMvc.perform(patch(base(productId) + "/reorder").headers(headers)
+            RequestPostProcessor headers, long productId, List<Long> imageIds) throws Exception {
+        return mockMvc.perform(patch(base(productId) + "/reorder").with(headers)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(new ReorderProductImagesRequest(imageIds))));
     }

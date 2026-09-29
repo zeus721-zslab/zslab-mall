@@ -26,7 +26,7 @@ import com.zslab.mall.support.AbstractIntegrationTest;
  * 배치/단일 GradeService → DB 실 커밋을 검증한다(AdminSettlementControllerIntegrationTest 패턴 1:1).
  *
  * <p><b>커버</b>: ① 일괄 배치(다등급 반영·요약 카운트) ② 부분 성공(lock buyer skip·나머지 반영·미중단) ③ 단일 α(publicId 해소)
- * ④ 권한(비ADMIN 403). buyer_grade·grade_policy는 V15 Flyway 시드를 쓰고, order·order_item·buyer_profile·user만 native 시드한다.
+ * ④ 권한(비ADMIN 401). buyer_grade·grade_policy는 V15 Flyway 시드를 쓰고, order·order_item·buyer_profile·user만 native 시드한다.
  *
  * <p><b>트랜잭션</b>: 실 커밋으로 산정을 구동하므로 클래스 {@code @Transactional} 없음. 시드/정리는 {@link TransactionTemplate}
  * + {@code FOREIGN_KEY_CHECKS=0}(try-finally). buyer 생애 누적 SUM은 시각 필터가 없어 JdbcTemplate 시드로 충분하다(P2 TZ 트랩 무관).
@@ -75,7 +75,7 @@ class AdminGradeControllerIntegrationTest extends AbstractIntegrationTest {
         seedBuyerWithConfirmed(91002L, 92002L, silverId, GradeSource.EVENT, null, 500_000L);   // → GOLD
         seedBuyerWithConfirmed(91003L, 92003L, silverId, GradeSource.EVENT, null, 2_000_000L); // → PLATINUM
 
-        mockMvc.perform(post(BATCH_URL).headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(post(BATCH_URL).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(3))
                 .andExpect(jsonPath("$.success").value(3))
@@ -94,7 +94,7 @@ class AdminGradeControllerIntegrationTest extends AbstractIntegrationTest {
                 LocalDateTime.now().plusDays(30), 2_000_000L);
         seedBuyerWithConfirmed(93002L, 94002L, silverId, GradeSource.EVENT, null, 500_000L); // → GOLD
 
-        mockMvc.perform(post(BATCH_URL).headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(post(BATCH_URL).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(2))
                 .andExpect(jsonPath("$.success").value(2)) // lock skip도 성공 집계(세분화 미도입)
@@ -111,7 +111,7 @@ class AdminGradeControllerIntegrationTest extends AbstractIntegrationTest {
         seedBuyerWithConfirmed(95001L, 96001L, silverId, GradeSource.EVENT, null, 1_000_000L); // → PLATINUM
 
         mockMvc.perform(post("/api/v1/admin/buyers/" + SINGLE_USER_PUBLIC_ID + "/grade/recalculate")
-                        .headers(authHeaders.admin(ADMIN_ID)))
+                        .with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isNoContent());
 
         assertGrade(95001L, platinumId, "AUTO");
@@ -126,7 +126,7 @@ class AdminGradeControllerIntegrationTest extends AbstractIntegrationTest {
         seedUser(95102L, pid("usr_", "GRDACT"));
         seedBuyerWithConfirmed(95102L, 96102L, silverId, GradeSource.EVENT, null, 2_000_000L); // → PLATINUM
 
-        mockMvc.perform(post(BATCH_URL).headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(post(BATCH_URL).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(1))
                 .andExpect(jsonPath("$.success").value(1))
@@ -137,13 +137,13 @@ class AdminGradeControllerIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("④ 권한: 비ADMIN(BUYER) 토큰 → 배치·단일 모두 403")
-    void nonAdmin_returns403() throws Exception {
-        mockMvc.perform(post(BATCH_URL).headers(authHeaders.buyer(BUYER_TOKEN_ID)))
-                .andExpect(status().isForbidden());
+    @DisplayName("④ 권한: 비ADMIN(BUYER) 토큰 → 배치·단일 모두 401")
+    void nonAdmin_returns401() throws Exception {
+        mockMvc.perform(post(BATCH_URL).with(authHeaders.buyer(BUYER_TOKEN_ID)))
+                .andExpect(status().isUnauthorized());
         mockMvc.perform(post("/api/v1/admin/buyers/" + SINGLE_USER_PUBLIC_ID + "/grade/recalculate")
-                        .headers(authHeaders.buyer(BUYER_TOKEN_ID)))
-                .andExpect(status().isForbidden());
+                        .with(authHeaders.buyer(BUYER_TOKEN_ID)))
+                .andExpect(status().isUnauthorized());
     }
 
     // ---------- seed·helpers (native·FK off·모든 값 바인딩·SQL injection 위험 없음) ----------

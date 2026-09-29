@@ -157,20 +157,20 @@ class SellerClaimQueryControllerIntegrationTest extends AbstractIntegrationTest 
     }
 
     @Test
-    @DisplayName("T1 인가: 목록·상세 비인증 401 · 구매자 403 · 셀러 200")
+    @DisplayName("T1 인가: 목록·상세 비인증 401 · 구매자 401 · 셀러 200")
     void authorization() throws Exception {
         mockMvc.perform(get(LIST_URL)).andExpect(status().isUnauthorized());
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.buyer(BUYER_ID))).andExpect(status().isForbidden());
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A))).andExpect(status().isOk());
+        mockMvc.perform(get(LIST_URL).with(authHeaders.buyer(BUYER_ID))).andExpect(status().isUnauthorized());
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A))).andExpect(status().isOk());
         mockMvc.perform(get(LIST_URL + "/" + CLAIM_C1_PID)).andExpect(status().isUnauthorized());
-        mockMvc.perform(get(LIST_URL + "/" + CLAIM_C1_PID).headers(authHeaders.buyer(BUYER_ID))).andExpect(status().isForbidden());
-        mockMvc.perform(get(LIST_URL + "/" + CLAIM_C1_PID).headers(authHeaders.seller(USER_A))).andExpect(status().isOk());
+        mockMvc.perform(get(LIST_URL + "/" + CLAIM_C1_PID).with(authHeaders.buyer(BUYER_ID))).andExpect(status().isUnauthorized());
+        mockMvc.perform(get(LIST_URL + "/" + CLAIM_C1_PID).with(authHeaders.seller(USER_A))).andExpect(status().isOk());
     }
 
     @Test
     @DisplayName("T2 혼합 주문 스코프: 셀러 A 목록 = C4·C1·C3(요청일 최신순·타 셀러 C2 제외)·키 화이트리스트·금지 키 0·구매자/메모/파일명/금액 문자열 0 · 셀러 B = C2만")
     void list_scopeAndWhitelist() throws Exception {
-        String body = mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)))
+        String body = mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(3))
                 .andExpect(jsonPath("$.items[0].claimId").value(CLAIM_C4_PID))
@@ -206,7 +206,7 @@ class SellerClaimQueryControllerIntegrationTest extends AbstractIntegrationTest 
                 .doesNotContain(BUYER_NAME).doesNotContain(String.valueOf(ITEM_PRICE)).doesNotContain("buyer@");
 
         // 셀러 B 관점: 같은 주문 M에서 B1의 C2만 보인다.
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_B)))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_B)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].claimId").value(CLAIM_C2_PID));
@@ -215,30 +215,30 @@ class SellerClaimQueryControllerIntegrationTest extends AbstractIntegrationTest 
     @Test
     @DisplayName("T3 필터: type RETURN 1 · status REJECTED 1 · keyword 주문번호 정확 2 · 상품명 부분 '단독' 2 · 타 셀러 상품명 0 · 요청일 from/to 경계")
     void list_filters() throws Exception {
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("type", "RETURN"))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("type", "RETURN"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].claimId").value(CLAIM_C1_PID));
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("status", "REJECTED"))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("status", "REJECTED"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].claimId").value(CLAIM_C3_PID));
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("keyword", ORDER_N_NO))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("keyword", ORDER_N_NO))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(2));
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("keyword", "단독"))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("keyword", "단독"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(2));
         // 타 셀러 상품명으로 검색해도 그 셀러의 클레임은 잡히지 않는다(ownership predicate가 AND로 결합)
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("keyword", "혼합상품B"))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("keyword", "혼합상품B"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(0));
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A))
                         .param("from", "2026-04-15T00:00:00").param("to", "2026-05-31T23:59:59"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].claimId").value(CLAIM_C1_PID));
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("from", "2026-06-01T09:00:00"))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("from", "2026-06-01T09:00:00"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].claimId").value(CLAIM_C4_PID));
@@ -248,18 +248,18 @@ class SellerClaimQueryControllerIntegrationTest extends AbstractIntegrationTest 
     @DisplayName("T4 400: 허용 외 type · 허용 외 status · keyword 51자 · from>to")
     void list_badRequest() throws Exception {
         // detail은 호출자 입력·형식 안내만 담고 시드 데이터(구매자·사유·메모·상품명·파일명·클레임 id)를 되비추지 않는다(외부 검토 r2a 반영)
-        String typeDetail = mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("type", "REFUND"))
+        String typeDetail = mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("type", "REFUND"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"))
                 .andReturn().getResponse().getContentAsString();
-        String statusDetail = mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("status", "DONE"))
+        String statusDetail = mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("status", "DONE"))
                 .andExpect(status().isBadRequest())
                 .andReturn().getResponse().getContentAsString();
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("keyword", KEYWORD_LIMIT_EXCEEDED))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("keyword", KEYWORD_LIMIT_EXCEEDED))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"))
                 .andExpect(jsonPath("$.detail").value("keyword는 최대 50자입니다."));
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A))
                         .param("from", "2026-06-01T00:00:00").param("to", "2026-05-01T00:00:00"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"))
@@ -273,7 +273,7 @@ class SellerClaimQueryControllerIntegrationTest extends AbstractIntegrationTest 
     @Test
     @DisplayName("T5 상세: C1 첨부 2건{attachmentId,url}(순서·fileName 없음)·키 화이트리스트 · C4 exchangeDeliveryStatus SHIPPING·refundStatus만(금액 없음) · C3 rejectReasonCode 코드만·rejectMemo 없음")
     void detail_ownClaim() throws Exception {
-        String c1 = mockMvc.perform(get(LIST_URL + "/" + CLAIM_C1_PID).headers(authHeaders.seller(USER_A)))
+        String c1 = mockMvc.perform(get(LIST_URL + "/" + CLAIM_C1_PID).with(authHeaders.seller(USER_A)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.claimId").value(CLAIM_C1_PID))
                 .andExpect(jsonPath("$.type").value("RETURN"))
@@ -300,7 +300,7 @@ class SellerClaimQueryControllerIntegrationTest extends AbstractIntegrationTest 
         }
         assertThat(c1).doesNotContain(BUYER_FILE_NAME).doesNotContain(BUYER_NAME);
 
-        String c4 = mockMvc.perform(get(LIST_URL + "/" + CLAIM_C4_PID).headers(authHeaders.seller(USER_A)))
+        String c4 = mockMvc.perform(get(LIST_URL + "/" + CLAIM_C4_PID).with(authHeaders.seller(USER_A)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.type").value("EXCHANGE"))
                 .andExpect(jsonPath("$.exchangeDeliveryStatus").value("SHIPPING"))
@@ -311,7 +311,7 @@ class SellerClaimQueryControllerIntegrationTest extends AbstractIntegrationTest 
         assertThat(c4).doesNotContain(String.valueOf(ITEM_PRICE));
 
         // REJECTED: 거부 사유 코드만 노출·거부 메모(관리자 기록)는 없음. 목록 행에는 코드도 없다(T2 SUMMARY_KEYS).
-        String c3 = mockMvc.perform(get(LIST_URL + "/" + CLAIM_C3_PID).headers(authHeaders.seller(USER_A)))
+        String c3 = mockMvc.perform(get(LIST_URL + "/" + CLAIM_C3_PID).with(authHeaders.seller(USER_A)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("REJECTED"))
                 .andExpect(jsonPath("$.processedAt").exists())
@@ -327,15 +327,15 @@ class SellerClaimQueryControllerIntegrationTest extends AbstractIntegrationTest 
     @DisplayName("T6 소유권 경계: 타 셀러 클레임 404(403 아님·CLAIM_NOT_FOUND) · 미존재 404 · 소유 셀러는 200")
     void detail_ownershipBoundary() throws Exception {
         // 404 detail은 요청한 publicId만 되비추고(존재 여부·소유 셀러·구매자 등 다른 값 없음) 타 셀러·미존재가 같은 문구다
-        mockMvc.perform(get(LIST_URL + "/" + CLAIM_C2_PID).headers(authHeaders.seller(USER_A)))
+        mockMvc.perform(get(LIST_URL + "/" + CLAIM_C2_PID).with(authHeaders.seller(USER_A)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("CLAIM_NOT_FOUND"))
                 .andExpect(jsonPath("$.detail").value("클레임을 찾을 수 없습니다: publicId=" + CLAIM_C2_PID));
-        mockMvc.perform(get(LIST_URL + "/" + MISSING_PID).headers(authHeaders.seller(USER_A)))
+        mockMvc.perform(get(LIST_URL + "/" + MISSING_PID).with(authHeaders.seller(USER_A)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("CLAIM_NOT_FOUND"))
                 .andExpect(jsonPath("$.detail").value("클레임을 찾을 수 없습니다: publicId=" + MISSING_PID));
-        mockMvc.perform(get(LIST_URL + "/" + CLAIM_C2_PID).headers(authHeaders.seller(USER_B)))
+        mockMvc.perform(get(LIST_URL + "/" + CLAIM_C2_PID).with(authHeaders.seller(USER_B)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.claimId").value(CLAIM_C2_PID));
     }
@@ -343,12 +343,12 @@ class SellerClaimQueryControllerIntegrationTest extends AbstractIntegrationTest 
     @Test
     @DisplayName("T3b 혼합 주문 주문번호 keyword: 같은 주문 M의 번호로 검색해도 셀러 A는 C1만·셀러 B는 C2만(totalCount 1)")
     void list_keywordOrderNoOnMixedOrder_isSellerScoped() throws Exception {
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("keyword", ORDER_M_NO))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("keyword", ORDER_M_NO))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items.length()").value(1))
                 .andExpect(jsonPath("$.items[0].claimId").value(CLAIM_C1_PID));
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_B)).param("keyword", ORDER_M_NO))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_B)).param("keyword", ORDER_M_NO))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items.length()").value(1))
@@ -373,26 +373,26 @@ class SellerClaimQueryControllerIntegrationTest extends AbstractIntegrationTest 
                     "2026-07-04 10:00:00", null, null, null, null);
         });
         // 셀러 A 전체 = 기존 3 + 추가 4 = 7 (와일드카드로 해석되면 아래 검색이 전부 7건이 된다)
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(7));
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("keyword", "%"))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("keyword", "%"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].productName").value("할인 50% 상품"));
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("keyword", "_"))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("keyword", "_"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].productName").value("under_score 상품"));
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("keyword", "\\"))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("keyword", "\\"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].productName").value("back\\slash 상품"));
         // 문자 조합도 literal: "50%"는 percent 상품만, "r_s"는 underscore 상품만(와일드카드면 다른 상품도 잡힌다)
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("keyword", "50%"))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("keyword", "50%"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(1));
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("keyword", "r_s"))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("keyword", "r_s"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].productName").value("under_score 상품"));
@@ -404,7 +404,7 @@ class SellerClaimQueryControllerIntegrationTest extends AbstractIntegrationTest 
         // ② requested_at NULL(관리자 생성 등)·id는 가장 큼 → 요청일이 있는 C1이 대표
         seedExtra(() -> seedClaim(CLAIM_TIE_NULL, pid("clm_", "SCLCTNL"), ITEM_A1, "RETURN", "PRODUCT_DEFECT", null, "REJECTED", "DELIVERED",
                 null, "2026-05-03 10:00:00", "OUT_OF_POLICY", null, null));
-        mockMvc.perform(get(ORDER_ITEMS_URL + "/" + ITEM_A1_PID).headers(authHeaders.seller(USER_A)))
+        mockMvc.perform(get(ORDER_ITEMS_URL + "/" + ITEM_A1_PID).with(authHeaders.seller(USER_A)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.claim.claimId").value(CLAIM_C1_PID))
                 .andExpect(jsonPath("$.claimCount").value(2));
@@ -412,11 +412,11 @@ class SellerClaimQueryControllerIntegrationTest extends AbstractIntegrationTest 
         String tieSamePid = pid("clm_", "SCLCTSM");
         seedExtra(() -> seedClaim(CLAIM_TIE_SAME, tieSamePid, ITEM_A1, "RETURN", "PRODUCT_DEFECT", null, "REJECTED", "DELIVERED",
                 "2026-05-01 10:00:00", "2026-05-02 10:00:00", "OUT_OF_POLICY", null, null));
-        mockMvc.perform(get(ORDER_ITEMS_URL + "/" + ITEM_A1_PID).headers(authHeaders.seller(USER_A)))
+        mockMvc.perform(get(ORDER_ITEMS_URL + "/" + ITEM_A1_PID).with(authHeaders.seller(USER_A)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.claim.claimId").value(tieSamePid))
                 .andExpect(jsonPath("$.claimCount").value(3));
-        mockMvc.perform(get(ORDER_ITEMS_URL).headers(authHeaders.seller(USER_A)))
+        mockMvc.perform(get(ORDER_ITEMS_URL).with(authHeaders.seller(USER_A)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[1].orderItemId").value(ITEM_A1_PID))
                 .andExpect(jsonPath("$.items[1].claim.claimId").value(tieSamePid))
@@ -443,14 +443,14 @@ class SellerClaimQueryControllerIntegrationTest extends AbstractIntegrationTest 
                     "2026-04-25 10:00:00", "2026-04-26 10:00:00", "OUT_OF_POLICY", null, null);
         });
         // 셀러 A 클레임 = 기존 3 + A1 추가 2 + 예산 품목 4개(2+3+2+3=10) = 15 / 품목 = 기존 2 + 4 = 6
-        assertThat(countQueries(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("size", "100"), 15)).isEqualTo(7);
-        assertThat(countQueries(get(ORDER_ITEMS_URL).headers(authHeaders.seller(USER_A)).param("size", "100"), 6)).isEqualTo(8);
+        assertThat(countQueries(get(LIST_URL).with(authHeaders.seller(USER_A)).param("size", "100"), 15)).isEqualTo(7);
+        assertThat(countQueries(get(ORDER_ITEMS_URL).with(authHeaders.seller(USER_A)).param("size", "100"), 6)).isEqualTo(8);
     }
 
     @Test
     @DisplayName("T7 품목 클레임 요약(1:N): A2 = 최신 C4·claimCount 2 · A1 = C1·claimCount 1 · 상세 동일 · 타 셀러 B1 요약은 C2(A 목록에 없음) · 요약 키 4개")
     void orderItem_claimSummary() throws Exception {
-        String body = mockMvc.perform(get(ORDER_ITEMS_URL).headers(authHeaders.seller(USER_A)))
+        String body = mockMvc.perform(get(ORDER_ITEMS_URL).with(authHeaders.seller(USER_A)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(2))
                 .andExpect(jsonPath("$.items[0].orderItemId").value(ITEM_A2_PID))
@@ -467,13 +467,13 @@ class SellerClaimQueryControllerIntegrationTest extends AbstractIntegrationTest 
         }
         assertThat(body).doesNotContain(CLAIM_C2_PID).doesNotContain(CLAIM_C3_PID).doesNotContain(REASON_DETAIL_C1);
 
-        mockMvc.perform(get(ORDER_ITEMS_URL + "/" + ITEM_A2_PID).headers(authHeaders.seller(USER_A)))
+        mockMvc.perform(get(ORDER_ITEMS_URL + "/" + ITEM_A2_PID).with(authHeaders.seller(USER_A)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.claim.claimId").value(CLAIM_C4_PID))
                 .andExpect(jsonPath("$.claim.type").value("EXCHANGE"))
                 .andExpect(jsonPath("$.claimCount").value(2));
 
-        mockMvc.perform(get(ORDER_ITEMS_URL).headers(authHeaders.seller(USER_B)))
+        mockMvc.perform(get(ORDER_ITEMS_URL).with(authHeaders.seller(USER_B)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].claim.claimId").value(CLAIM_C2_PID))
@@ -483,8 +483,8 @@ class SellerClaimQueryControllerIntegrationTest extends AbstractIntegrationTest 
     @Test
     @DisplayName("T8 쿼리 예산(N+1 없음): 클레임 목록 3행 = 7(액터 해소 1 + count·page 2 + 배치 4) · 품목 목록 2행 = 8(액터 해소 1 + count·page 2 + 배치 5·클레임 +1)")
     void queryBudget() throws Exception {
-        assertThat(countQueries(get(LIST_URL).headers(authHeaders.seller(USER_A)), 3)).isEqualTo(7);
-        assertThat(countQueries(get(ORDER_ITEMS_URL).headers(authHeaders.seller(USER_A)), 2)).isEqualTo(8);
+        assertThat(countQueries(get(LIST_URL).with(authHeaders.seller(USER_A)), 3)).isEqualTo(7);
+        assertThat(countQueries(get(ORDER_ITEMS_URL).with(authHeaders.seller(USER_A)), 2)).isEqualTo(8);
     }
 
     /**

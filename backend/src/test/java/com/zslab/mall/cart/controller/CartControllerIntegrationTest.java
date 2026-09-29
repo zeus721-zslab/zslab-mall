@@ -15,11 +15,11 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import com.zslab.mall.support.AbstractIntegrationTest;
@@ -111,17 +111,17 @@ class CartControllerIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("미인증(토큰 없음) → 401 UNAUTHENTICATED")
     void addItem_unauthenticated_returns401() throws Exception {
-        add(new HttpHeaders(), VARIANT_PUBLIC_ID, 1)
+        add(request -> request, VARIANT_PUBLIC_ID, 1)
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
     }
 
     @Test
-    @DisplayName("비-BUYER role(SELLER 토큰) → 403 FORBIDDEN(SecurityConfig 필터 선차단)")
-    void addItem_sellerRole_returns403() throws Exception {
+    @DisplayName("비-BUYER role(SELLER 토큰) → 401 UNAUTHENTICATED(SecurityConfig 필터 선차단)")
+    void addItem_sellerRole_returns401() throws Exception {
         add(authHeaders.seller(SELLER_ACTOR_ID), VARIANT_PUBLIC_ID, 1)
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
     }
 
     @Test
@@ -206,12 +206,12 @@ class CartControllerIntegrationTest extends AbstractIntegrationTest {
 
     // ==================== helpers ====================
 
-    private ResultActions add(HttpHeaders headers, Object variantPublicId, Object quantity) throws Exception {
+    private ResultActions add(RequestPostProcessor auth, Object variantPublicId, Object quantity) throws Exception {
         Map<String, Object> body = new HashMap<>();
         body.put("variantPublicId", variantPublicId);
         body.put("quantity", quantity);
         return mockMvc.perform(post(URL)
-                .headers(headers)
+                .with(auth)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(body)));
     }

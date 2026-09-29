@@ -83,7 +83,7 @@ class BuyerClaimDetailOrderItemIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("T1 주문·대상 품목: orderId(public_id) · orderNo · item 상품명·옵션·수량·썸네일")
     void detail_carriesOrderAndItem() throws Exception {
-        mockMvc.perform(get(CLAIMS_URL + CLAIM_CANCEL).headers(authHeaders.buyer(BUYER_USER)))
+        mockMvc.perform(get(CLAIMS_URL + CLAIM_CANCEL).with(authHeaders.buyer(BUYER_USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.orderId").value(ORDER_PID))
                 .andExpect(jsonPath("$.orderNo").value(ORDER_NO))
@@ -96,7 +96,7 @@ class BuyerClaimDetailOrderItemIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("T2 삭제 상품: 썸네일 키 생략(@SQLRestriction) · 상품명·수량은 주문 스냅샷 유지 · 옵션 없음 → 키 생략")
     void detail_deletedProduct_omitsThumbnail() throws Exception {
-        mockMvc.perform(get(CLAIMS_URL + CLAIM_DELETED_PRODUCT).headers(authHeaders.buyer(BUYER_USER)))
+        mockMvc.perform(get(CLAIMS_URL + CLAIM_DELETED_PRODUCT).with(authHeaders.buyer(BUYER_USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.item.productName").value("삭제상품"))
                 .andExpect(jsonPath("$.item.quantity").value(1))
@@ -107,7 +107,7 @@ class BuyerClaimDetailOrderItemIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("T3 교환: 품목 옵션이 교환 후 옵션이어도 item.optionLabel은 승인 스냅샷(originalOptionLabel)")
     void detail_exchange_usesOriginalOptionLabel() throws Exception {
-        mockMvc.perform(get(CLAIMS_URL + CLAIM_EXCHANGE).headers(authHeaders.buyer(BUYER_USER)))
+        mockMvc.perform(get(CLAIMS_URL + CLAIM_EXCHANGE).with(authHeaders.buyer(BUYER_USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.item.optionLabel").value("사이즈: M"));
     }
@@ -115,7 +115,7 @@ class BuyerClaimDetailOrderItemIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("T4 다른 구매자: 404 불변(추가 필드가 권한 범위를 넓히지 않음)")
     void detail_otherBuyer_notFound() throws Exception {
-        mockMvc.perform(get(CLAIMS_URL + CLAIM_CANCEL).headers(authHeaders.buyer(OTHER_BUYER_USER)))
+        mockMvc.perform(get(CLAIMS_URL + CLAIM_CANCEL).with(authHeaders.buyer(OTHER_BUYER_USER)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.item").doesNotExist())
                 .andExpect(jsonPath("$.orderNo").doesNotExist());
@@ -127,7 +127,7 @@ class BuyerClaimDetailOrderItemIntegrationTest extends AbstractIntegrationTest {
         Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
         statistics.setStatisticsEnabled(true);
         statistics.clear();
-        mockMvc.perform(get(CLAIMS_URL + CLAIM_CANCEL).headers(authHeaders.buyer(BUYER_USER)))
+        mockMvc.perform(get(CLAIMS_URL + CLAIM_CANCEL).with(authHeaders.buyer(BUYER_USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.item.thumbnailUrl").value(THUMBNAIL_URL));
         long count = statistics.getPrepareStatementCount();

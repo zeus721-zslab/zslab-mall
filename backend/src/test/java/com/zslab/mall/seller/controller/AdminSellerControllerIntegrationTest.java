@@ -40,7 +40,7 @@ class AdminSellerControllerIntegrationTest extends AbstractIntegrationTest {
     private static final String URL = "/api/v1/admin/sellers";
 
     private static final long ADMIN_ID = 8801L;        // ADMIN 액터(JWT subject·hasRole ADMIN 통과)
-    private static final long NON_ADMIN_USER = 8802L;   // BUYER 토큰 subject(인가 거부 403)
+    private static final long NON_ADMIN_USER = 8802L;   // BUYER 토큰 subject(관리자 쿠키 미선택·익명 401)
     private static final long OWNER_USER_ID = 8810L;    // 성공 케이스 owner(미소속 user)
     private static final long BOUND_USER_ID = 8811L;    // 기존 seller에 소속된 user(V12·롤백)
     private static final long EXISTING_SELLER_ID = 8820L; // BOUND_USER가 소속된 기존 seller
@@ -51,7 +51,7 @@ class AdminSellerControllerIntegrationTest extends AbstractIntegrationTest {
     private static final String EXISTING_BUSINESS_NO = "899-89-00001"; // ⑦ 사업자번호 중복 시드
 
     private static final String NEW_COMPANY = "트랙37신규셀러";      // ① 생성 대상
-    private static final String FORBIDDEN_COMPANY = "트랙37금지셀러";  // ② 403·미생성
+    private static final String FORBIDDEN_COMPANY = "트랙37금지셀러";  // ② 401·미생성
     private static final String DUP_COMPANY = "트랙37중복셀러";      // ④ 409·롤백
     private static final String SUSPENDED_COMPANY = "트랙37정지셀러"; // ⑤ 400·미생성
     private static final String ROLLBACK_COMPANY = "트랙37롤백셀러";  // ⑥ 롤백 검증 대상
@@ -87,7 +87,7 @@ class AdminSellerControllerIntegrationTest extends AbstractIntegrationTest {
         seed(() -> seedUser(OWNER_USER_ID, "T37OWN"));
 
         mockMvc.perform(post(URL)
-                        .headers(authHeaders.admin(ADMIN_ID))
+                        .with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(provisionBody(NEW_COMPANY, OWNER_USER_PID, "ACTIVE")))
                 .andExpect(status().isCreated())
@@ -109,15 +109,15 @@ class AdminSellerControllerIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("② 비ADMIN: BUYER 토큰 → 403 FORBIDDEN·seller 미생성(SecurityConfig hasRole 인가 강제)")
-    void provision_nonAdmin_returns403() throws Exception {
+    @DisplayName("② 비ADMIN: BUYER 토큰 → 401 UNAUTHENTICATED·seller 미생성(SecurityConfig hasRole 인가 강제)")
+    void provision_nonAdmin_returns401() throws Exception {
         // SecurityConfig /api/v1/admin/** → hasRole(ADMIN)이 컨트롤러 이전에 인가 거부한다(owner 시드 불요).
         mockMvc.perform(post(URL)
-                        .headers(authHeaders.buyer(NON_ADMIN_USER))
+                        .with(authHeaders.buyer(NON_ADMIN_USER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(provisionBody(FORBIDDEN_COMPANY, OWNER_USER_PID, "ACTIVE")))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
 
         assertThat(sellerCountByCompany(FORBIDDEN_COMPANY)).isZero();
     }
@@ -126,7 +126,7 @@ class AdminSellerControllerIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("③ owner 미존재: 미시드 ownerUserPublicId → 404 USER_NOT_FOUND·seller 미생성(seller INSERT 이전 단락·Track 89-D publicId 전환)")
     void provision_unknownOwner_returns404() throws Exception {
         mockMvc.perform(post(URL)
-                        .headers(authHeaders.admin(ADMIN_ID))
+                        .with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(provisionBody(NEW_COMPANY, MISSING_USER_PID, "ACTIVE")))
                 .andExpect(status().isNotFound())
@@ -145,7 +145,7 @@ class AdminSellerControllerIntegrationTest extends AbstractIntegrationTest {
         });
 
         mockMvc.perform(post(URL)
-                        .headers(authHeaders.admin(ADMIN_ID))
+                        .with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(provisionBody(DUP_COMPANY, BOUND_USER_PID, "ACTIVE")))
                 .andExpect(status().isConflict())
@@ -159,7 +159,7 @@ class AdminSellerControllerIntegrationTest extends AbstractIntegrationTest {
         seed(() -> seedUser(OWNER_USER_ID, "T37OWN"));
 
         mockMvc.perform(post(URL)
-                        .headers(authHeaders.admin(ADMIN_ID))
+                        .with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(provisionBody(SUSPENDED_COMPANY, OWNER_USER_PID, "SUSPENDED")))
                 .andExpect(status().isBadRequest())
@@ -179,7 +179,7 @@ class AdminSellerControllerIntegrationTest extends AbstractIntegrationTest {
 
         // 옵션 A: seller save(INSERT) 성공 후 seller_user saveAndFlush가 uk_seller_user_user_id(V12) 위반 → 409 + 전체 롤백.
         mockMvc.perform(post(URL)
-                        .headers(authHeaders.admin(ADMIN_ID))
+                        .with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(provisionBody(ROLLBACK_COMPANY, BOUND_USER_PID, "ACTIVE")))
                 .andExpect(status().isConflict());
@@ -199,7 +199,7 @@ class AdminSellerControllerIntegrationTest extends AbstractIntegrationTest {
 
         // 종전에는 seller_user saveAndFlush의 DataIntegrityViolation과 섞여 SELLER_USER_ALREADY_EXISTS로 오분류되던 경로(정찰 §6-1).
         mockMvc.perform(post(URL)
-                        .headers(authHeaders.admin(ADMIN_ID))
+                        .with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(provisionBody(DUP_BUSINESS_COMPANY, EXISTING_BUSINESS_NO, OWNER_USER_PID, "ACTIVE")))
                 .andExpect(status().isConflict())
@@ -212,7 +212,7 @@ class AdminSellerControllerIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("⑧ owner 없이 입점(Track 89-G·D-189): ownerUserPublicId null → 201·seller 1건·seller_user 0건·감사 diff에 ownerUserId 없음")
     void provision_withoutOwner_returns201_withoutMembership() throws Exception {
         mockMvc.perform(post(URL)
-                        .headers(authHeaders.admin(ADMIN_ID))
+                        .with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(provisionBody(NO_OWNER_COMPANY, null, null, "PENDING")))
                 .andExpect(status().isCreated())

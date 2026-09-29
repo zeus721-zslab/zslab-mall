@@ -80,7 +80,7 @@ class BuyerOrderNumberPaymentIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("T1 상세: orderNo · orderedAt(KST) · payment = 결제 시각 있는 최신 행(앞선 실패 행 제외)")
     void detail_carriesOrderNoOrderedAtAndPayment() throws Exception {
-        mockMvc.perform(get(detailUrl(ORDER_PAID)).headers(authHeaders.buyer(BUYER_USER)))
+        mockMvc.perform(get(detailUrl(ORDER_PAID)).with(authHeaders.buyer(BUYER_USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.orderId").value(orderPid(ORDER_PAID)))
                 .andExpect(jsonPath("$.orderNo").value(orderNo(ORDER_PAID)))
@@ -92,7 +92,7 @@ class BuyerOrderNumberPaymentIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("T2 미결제: 실패·대기 행만 있으면 payment 키 생략(orderNo·orderedAt은 있음)")
     void detail_unpaid_omitsPayment() throws Exception {
-        mockMvc.perform(get(detailUrl(ORDER_UNPAID)).headers(authHeaders.buyer(BUYER_USER)))
+        mockMvc.perform(get(detailUrl(ORDER_UNPAID)).with(authHeaders.buyer(BUYER_USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.orderNo").value(orderNo(ORDER_UNPAID)))
                 .andExpect(jsonPath("$.orderedAt").value(ORDERED_AT_KST))
@@ -102,7 +102,7 @@ class BuyerOrderNumberPaymentIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("T3 환불: 결제 행이 CANCELLED여도 paidAt이 남아 있으면 payment 포함")
     void detail_refunded_keepsPayment() throws Exception {
-        mockMvc.perform(get(detailUrl(ORDER_REFUNDED)).headers(authHeaders.buyer(BUYER_USER)))
+        mockMvc.perform(get(detailUrl(ORDER_REFUNDED)).with(authHeaders.buyer(BUYER_USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.payment.method").value("CARD"))
                 .andExpect(jsonPath("$.payment.paidAt").value(PAID_AT_KST));
@@ -111,7 +111,7 @@ class BuyerOrderNumberPaymentIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("T4 목록: 항목마다 orderNo(orderId는 그대로)")
     void list_carriesOrderNo() throws Exception {
-        mockMvc.perform(get(ORDERS_URL).headers(authHeaders.buyer(BUYER_USER)))
+        mockMvc.perform(get(ORDERS_URL).with(authHeaders.buyer(BUYER_USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items.length()").value(4))
                 .andExpect(jsonPath(listItemPath(ORDER_PAID) + ".orderNo").value(orderNo(ORDER_PAID)))
@@ -122,7 +122,7 @@ class BuyerOrderNumberPaymentIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("T5 다른 구매자: 상세 404 불변(추가 필드가 권한 범위를 넓히지 않음)")
     void detail_otherBuyer_notFound() throws Exception {
-        mockMvc.perform(get(detailUrl(ORDER_PAID)).headers(authHeaders.buyer(OTHER_BUYER_USER)))
+        mockMvc.perform(get(detailUrl(ORDER_PAID)).with(authHeaders.buyer(OTHER_BUYER_USER)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.orderNo").doesNotExist());
     }
@@ -137,7 +137,7 @@ class BuyerOrderNumberPaymentIntegrationTest extends AbstractIntegrationTest {
         Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
         statistics.setStatisticsEnabled(true);
         statistics.clear();
-        mockMvc.perform(get(detailUrl(orderId)).headers(authHeaders.buyer(BUYER_USER)))
+        mockMvc.perform(get(detailUrl(orderId)).with(authHeaders.buyer(BUYER_USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.payment.method").exists());
         long count = statistics.getPrepareStatementCount();

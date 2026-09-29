@@ -168,7 +168,7 @@ class RefundItemCapIntegrationTest extends AbstractIntegrationTest {
 
     private ResultActions initiateRefund(String claimPid, long amount) throws Exception {
         return mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/initiate-refund")
-                .headers(authHeaders.admin(ADMIN))
+                .with(authHeaders.admin(ADMIN))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"amount\":" + amount + "}"));
     }
@@ -195,7 +195,7 @@ class RefundItemCapIntegrationTest extends AbstractIntegrationTest {
     }
 
     private JsonNode listClaims(String action) throws Exception {
-        var request = get(CLAIMS_URL).headers(authHeaders.admin(ADMIN)).param("keyword", ORDER_NO);
+        var request = get(CLAIMS_URL).with(authHeaders.admin(ADMIN)).param("keyword", ORDER_NO);
         if (action != null) {
             request = request.param("action", action);
         }

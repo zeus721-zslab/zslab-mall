@@ -165,11 +165,11 @@ class SellerDashboardQueryControllerIntegrationTest extends AbstractIntegrationT
     }
 
     @Test
-    @DisplayName("T1 인가: 비인증 401 · 구매자 403 · 셀러 200")
+    @DisplayName("T1 인가: 비인증 401 · 구매자 401 · 셀러 200")
     void authorization() throws Exception {
         mockMvc.perform(get(URL)).andExpect(status().isUnauthorized());
-        mockMvc.perform(get(URL).headers(authHeaders.buyer(BUYER_ID))).andExpect(status().isForbidden());
-        mockMvc.perform(get(URL).headers(authHeaders.seller(USER_A))).andExpect(status().isOk());
+        mockMvc.perform(get(URL).with(authHeaders.buyer(BUYER_ID))).andExpect(status().isUnauthorized());
+        mockMvc.perform(get(URL).with(authHeaders.seller(USER_A))).andExpect(status().isOk());
     }
 
     @Test
@@ -275,16 +275,16 @@ class SellerDashboardQueryControllerIntegrationTest extends AbstractIntegrationT
         assertThat(inner.get("dailyTrend")).hasSize(MARCH_DAYS - 2);
 
         // 2026-01-01 ~ 04-02 = 92일(허용) · ~04-03 = 93일(400)
-        mockMvc.perform(get(URL).headers(authHeaders.seller(USER_A)).param("from", "2026-01-01").param("to", "2026-04-02"))
+        mockMvc.perform(get(URL).with(authHeaders.seller(USER_A)).param("from", "2026-01-01").param("to", "2026-04-02"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.dailyTrend.length()").value(92));
-        mockMvc.perform(get(URL).headers(authHeaders.seller(USER_A)).param("from", "2026-01-01").param("to", "2026-04-03"))
+        mockMvc.perform(get(URL).with(authHeaders.seller(USER_A)).param("from", "2026-01-01").param("to", "2026-04-03"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
-        mockMvc.perform(get(URL).headers(authHeaders.seller(USER_A)).param("from", "2026-03-11").param("to", "2026-03-10"))
+        mockMvc.perform(get(URL).with(authHeaders.seller(USER_A)).param("from", "2026-03-11").param("to", "2026-03-10"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
-        mockMvc.perform(get(URL).headers(authHeaders.seller(USER_A)).param("from", "2026/03/01"))
+        mockMvc.perform(get(URL).with(authHeaders.seller(USER_A)).param("from", "2026/03/01"))
                 .andExpect(status().isBadRequest());
 
         // 기본 기간 = 오늘 포함 최근 30일
@@ -401,7 +401,7 @@ class SellerDashboardQueryControllerIntegrationTest extends AbstractIntegrationT
         cleanup();
         seedAll(status);
 
-        mockMvc.perform(get(URL).headers(authHeaders.seller(USER_A)))
+        mockMvc.perform(get(URL).with(authHeaders.seller(USER_A)))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
     }
@@ -409,7 +409,7 @@ class SellerDashboardQueryControllerIntegrationTest extends AbstractIntegrationT
     // ---------- helpers ----------
 
     private JsonNode fetch(long userId, String from, String to) throws Exception {
-        MockHttpServletRequestBuilder request = get(URL).headers(authHeaders.seller(userId));
+        MockHttpServletRequestBuilder request = get(URL).with(authHeaders.seller(userId));
         if (from != null) {
             request = request.param("from", from);
         }

@@ -69,7 +69,7 @@ class ProfileControllerIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("(1) 조회 → 200 + publicId·email·phone·name")
     void getMyProfile_returns200() throws Exception {
-        mockMvc.perform(get(URL).headers(authHeaders.buyer(BUYER_USER_ID)))
+        mockMvc.perform(get(URL).with(authHeaders.buyer(BUYER_USER_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.publicId").value(pid("usr_", "PRFUSR")))
                 .andExpect(jsonPath("$.email").value(EMAIL))
@@ -85,7 +85,7 @@ class ProfileControllerIntegrationTest extends AbstractIntegrationTest {
         body.put("phone", "010-0000-1111");
 
         mockMvc.perform(patch(URL)
-                        .headers(authHeaders.buyer(BUYER_USER_ID))
+                        .with(authHeaders.buyer(BUYER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(body)))
                 .andExpect(status().isOk())
@@ -115,7 +115,7 @@ class ProfileControllerIntegrationTest extends AbstractIntegrationTest {
         body.put("phone", "010-0000-1111");
 
         mockMvc.perform(patch(URL)
-                        .headers(authHeaders.buyer(BUYER_USER_ID))
+                        .with(authHeaders.buyer(BUYER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(body)))
                 .andExpect(status().isBadRequest())

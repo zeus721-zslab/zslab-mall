@@ -17,7 +17,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import com.zslab.mall.common.security.ActorRole;
+import com.zslab.mall.common.security.AuthCookies;
 import com.zslab.mall.common.security.AuthHeaders;
+import jakarta.servlet.http.Cookie;
 import com.zslab.mall.notification.adapter.SmsSender;
 import com.zslab.mall.support.AbstractIntegrationTest;
 import com.zslab.mall.user.repository.BuyerProfileRepository;
@@ -68,7 +70,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 class AdminMemberIntegrationTest extends AbstractIntegrationTest {
 
     private static final String URL = "/api/v1/admin/members";
-    private static final String LOGIN_URL = "/api/v1/auth/login";
+    private static final String LOGIN_URL = "/api/v1/auth/buyer/login";
 
     private static final long ADMIN_ID = 9840L; // JWT 액터(DB 행 불요·필터는 행 없음 통과)
     private static final long BUYER_A = 9841L;  // 활성·연락처·SILVER·배송지 1·결제 주문 1
@@ -137,7 +139,7 @@ class AdminMemberIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("(1) 목록 기본(ACTIVE) → 활성 BUYER만·탈퇴·비BUYER 제외·lastPaidAt 값/NULL·gradeCode SILVER")
     void list_default_active() throws Exception {
-        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("keyword", "t84-"))
+        mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID)).param("keyword", "t84-"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(4)) // A·NO_PHONE·C·ADMIN 겸직(BUYER role 보유라 목록 포함)
                 .andExpect(jsonPath("$.items[?(@.publicId == '" + BUYER_A_PID + "')].gradeCode").value("SILVER"))
@@ -150,30 +152,30 @@ class AdminMemberIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("(2) 목록 status=WITHDRAWN → 탈퇴 회원만·withdrawnAt 노출 / 연락처 keyword·페이지 크기·keyword 51자 400")
     void list_withdrawn_keyword_paging() throws Exception {
-        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("status", "WITHDRAWN").param("keyword", "t84-"))
+        mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID)).param("status", "WITHDRAWN").param("keyword", "t84-"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].publicId").value(BUYER_B_PID))
                 .andExpect(jsonPath("$.items[0].withdrawnAt").exists());
 
-        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("keyword", "8484-00"))
+        mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID)).param("keyword", "8484-00"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].publicId").value(BUYER_A_PID));
 
-        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("keyword", "t84-").param("size", "1").param("page", "0"))
+        mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID)).param("keyword", "t84-").param("size", "1").param("page", "0"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items.length()").value(1))
                 .andExpect(jsonPath("$.hasNext").value(true));
 
-        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("keyword", "k".repeat(51)))
+        mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID)).param("keyword", "k".repeat(51)))
                 .andExpect(status().isBadRequest());
     }
 
     @Test
     @DisplayName("(3) 상세 → 등급·배송지·passwordChangeRequired false / 비BUYER·미존재 404")
     void detail() throws Exception {
-        mockMvc.perform(get(URL + "/" + BUYER_A_PID).headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(get(URL + "/" + BUYER_A_PID).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.email").value(BUYER_A_EMAIL))
                 .andExpect(jsonPath("$.passwordChangeRequired").value(false))
@@ -182,10 +184,10 @@ class AdminMemberIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.addresses.length()").value(1))
                 .andExpect(jsonPath("$.addresses[0].recipientName").value("수령인A"));
 
-        mockMvc.perform(get(URL + "/" + NON_BUYER_PID).headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(get(URL + "/" + NON_BUYER_PID).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("USER_NOT_FOUND"));
-        mockMvc.perform(get(URL + "/" + pid("usr_", "T84NONE")).headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(get(URL + "/" + pid("usr_", "T84NONE")).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isNotFound());
     }
 
@@ -194,19 +196,19 @@ class AdminMemberIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("(4) 수정 → 204·DB 반영·감사 UPDATE USER / 탈퇴 회원 409 / phone 형식 400")
     void update() throws Exception {
-        mockMvc.perform(patch(URL + "/" + BUYER_A_PID).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(patch(URL + "/" + BUYER_A_PID).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(updateBody("변경이름", "01099998888")))
                 .andExpect(status().isNoContent());
         assertThat(jdbc.queryForObject("SELECT name FROM `user` WHERE id = ?", String.class, BUYER_A)).isEqualTo("변경이름");
         assertThat(auditActions(BUYER_A)).containsExactly("UPDATE");
         assertThat(auditDiffs(BUYER_A).get(0)).contains("\"name\"").contains("변경이름");
 
-        mockMvc.perform(patch(URL + "/" + BUYER_B_PID).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(patch(URL + "/" + BUYER_B_PID).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(updateBody("아무개", "010-0000-0000")))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("MEMBER_ALREADY_WITHDRAWN"));
 
-        mockMvc.perform(patch(URL + "/" + BUYER_A_PID).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(patch(URL + "/" + BUYER_A_PID).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(updateBody("아무개", "02-123-4567")))
                 .andExpect(status().isBadRequest());
     }
@@ -219,7 +221,7 @@ class AdminMemberIntegrationTest extends AbstractIntegrationTest {
         seedOrder(ORDER_A_ACTIVE, BUYER_A, "SHIPPING", false);
         // Track 104-4: 결제 후 주문의 진행 판정은 품목 상태를 본다 — 주문 요약값과 맞는 품목을 함께 둔다(ORD-1)
         seedOrderItem(ORDER_A_ACTIVE, "SHIPPING");
-        mockMvc.perform(post(URL + "/" + BUYER_A_PID + "/withdraw").headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(post(URL + "/" + BUYER_A_PID + "/withdraw").with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("MEMBER_ACTIVITY_IN_PROGRESS"));
 
@@ -232,7 +234,7 @@ class AdminMemberIntegrationTest extends AbstractIntegrationTest {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
             }
         });
-        mockMvc.perform(post(URL + "/" + BUYER_A_PID + "/withdraw").headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(post(URL + "/" + BUYER_A_PID + "/withdraw").with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isNoContent());
         Map<String, Object> row = jdbc.queryForMap(
                 "SELECT withdrawn_at, credentials_changed_at FROM `user` WHERE id = ?", BUYER_A);
@@ -240,11 +242,11 @@ class AdminMemberIntegrationTest extends AbstractIntegrationTest {
         assertThat(row.get("credentials_changed_at")).isNotNull();
         assertThat(auditActions(BUYER_A)).containsExactly("DELETE");
 
-        mockMvc.perform(post(URL + "/" + BUYER_A_PID + "/withdraw").headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(post(URL + "/" + BUYER_A_PID + "/withdraw").with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("MEMBER_ALREADY_WITHDRAWN"));
         // 탈퇴 회원의 기존 토큰은 401(발급 시점 무관)
-        mockMvc.perform(get("/api/v1/users/me").headers(authHeaders.buyer(BUYER_A)))
+        mockMvc.perform(get("/api/v1/users/me").with(authHeaders.buyer(BUYER_A)))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -261,7 +263,7 @@ class AdminMemberIntegrationTest extends AbstractIntegrationTest {
         seedOrder(ORDER_ADMIN_ACTIVE, BUYER_ADMIN, "SHIPPING", true);
         seedOrderItem(ORDER_ADMIN_ACTIVE, "SHIPPING");
 
-        mockMvc.perform(post(URL + "/" + BUYER_ADMIN_PID + "/withdraw").headers(authHeaders.admin(ADMIN_CALLER)))
+        mockMvc.perform(post(URL + "/" + BUYER_ADMIN_PID + "/withdraw").with(authHeaders.admin(ADMIN_CALLER)))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("MEMBER_ADMIN_ROLE_ASSIGNED"));
 
@@ -277,10 +279,10 @@ class AdminMemberIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("(6) 임시 비밀번호: 연락처 없음 422 / 탈퇴 409")
     void resetPassword_precondition() throws Exception {
-        mockMvc.perform(post(URL + "/" + NO_PHONE_PID + "/password-reset").headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(post(URL + "/" + NO_PHONE_PID + "/password-reset").with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("MEMBER_PHONE_MISSING"));
-        mockMvc.perform(post(URL + "/" + BUYER_B_PID + "/password-reset").headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(post(URL + "/" + BUYER_B_PID + "/password-reset").with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("MEMBER_ALREADY_WITHDRAWN"));
     }
@@ -294,7 +296,7 @@ class AdminMemberIntegrationTest extends AbstractIntegrationTest {
         jdbc.update("INSERT INTO user_role (user_id, role_id, created_at) SELECT ?, id, NOW(6) FROM role WHERE code = ?", BUYER_ADMIN, adminRoleCode);
         String hashBefore = jdbc.queryForObject("SELECT password_hash FROM `user` WHERE id = ?", String.class, BUYER_ADMIN);
 
-        mockMvc.perform(post(URL + "/" + BUYER_ADMIN_PID + "/password-reset").headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(post(URL + "/" + BUYER_ADMIN_PID + "/password-reset").with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("MEMBER_ADMIN_ROLE_ASSIGNED"));
 
@@ -314,11 +316,11 @@ class AdminMemberIntegrationTest extends AbstractIntegrationTest {
     void resetPassword_success_flow(CapturedOutput output) throws Exception {
         String tokenBeforeReset = backdatedToken(BUYER_A, ActorRole.BUYER);
         String unrelatedToken = backdatedToken(BUYER_C, ActorRole.BUYER);
-        mockMvc.perform(get("/api/v1/users/me").header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenBeforeReset))
+        mockMvc.perform(get("/api/v1/users/me").cookie(buyerCookie(tokenBeforeReset)))
                 .andExpect(status().isOk());
 
         // D-204: 관리자 화면 1회 표시 — 응답 200 + 평문(D-178 §8 "응답 204·평문 없음" 대체·SMS 병행 유지)
-        String resetJson = mockMvc.perform(post(URL + "/" + BUYER_A_PID + "/password-reset").headers(authHeaders.admin(ADMIN_ID)))
+        String resetJson = mockMvc.perform(post(URL + "/" + BUYER_A_PID + "/password-reset").with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.temporaryPassword").isString())
                 .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
@@ -350,36 +352,35 @@ class AdminMemberIntegrationTest extends AbstractIntegrationTest {
         assertThat(passwordEncoder.matches(temporaryPassword, storedHash)).isTrue();
 
         // 초기화 이전 토큰 401·무관 회원 토큰 무영향
-        mockMvc.perform(get("/api/v1/users/me").header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenBeforeReset))
+        mockMvc.perform(get("/api/v1/users/me").cookie(buyerCookie(tokenBeforeReset)))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
-        mockMvc.perform(get("/api/v1/users/me").header(HttpHeaders.AUTHORIZATION, "Bearer " + unrelatedToken))
+        mockMvc.perform(get("/api/v1/users/me").cookie(buyerCookie(unrelatedToken)))
                 .andExpect(status().isOk());
 
-        // 이전 비밀번호 401 · 응답 평문 로그인 → 플래그 true·새 토큰으로 프로필 200
-        mockMvc.perform(post(LOGIN_URL).contentType(MediaType.APPLICATION_JSON)
+        // 이전 비밀번호 401 · 응답 평문 로그인 → 플래그 true·새 구매자 쿠키로 프로필 200
+        mockMvc.perform(post(LOGIN_URL).with(authHeaders.csrf()).contentType(MediaType.APPLICATION_JSON)
                         .content(loginBody(BUYER_A_EMAIL, BUYER_A_PASSWORD)))
                 .andExpect(status().isUnauthorized());
-        String loginJson = mockMvc.perform(post(LOGIN_URL).contentType(MediaType.APPLICATION_JSON)
+        Cookie freshCookie = mockMvc.perform(post(LOGIN_URL).with(authHeaders.csrf()).contentType(MediaType.APPLICATION_JSON)
                         .content(loginBody(BUYER_A_EMAIL, displayedPassword)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.passwordChangeRequired").value(true))
-                .andReturn().getResponse().getContentAsString();
-        String freshToken = loginJson.replaceAll(".*\"token\":\"([^\"]+)\".*", "$1");
-        mockMvc.perform(get("/api/v1/users/me").header(HttpHeaders.AUTHORIZATION, "Bearer " + freshToken))
+                .andReturn().getResponse().getCookie(AuthCookies.BUYER_COOKIE);
+        mockMvc.perform(get("/api/v1/users/me").cookie(freshCookie))
                 .andExpect(status().isOk());
 
         // 셀프 변경 204(계약 유지) → 변경 이전 토큰(백데이트) 401 → 새 로그인 플래그 false.
         // 백데이트 토큰(iat -5s)이 "초기화 이후·변경 이전" 발급이 되도록 초기화 시각을 10초 앞당긴다(초 단위 경계 회피·상태 의미 무변경).
         jdbc.update("UPDATE `user` SET credentials_changed_at = credentials_changed_at - INTERVAL 10 SECOND WHERE id = ?", BUYER_A);
         String tokenBeforeChange = backdatedToken(BUYER_A, ActorRole.BUYER);
-        mockMvc.perform(patch("/api/v1/users/me/password").header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenBeforeChange)
+        mockMvc.perform(patch("/api/v1/users/me/password").cookie(buyerCookie(tokenBeforeChange)).with(authHeaders.csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"currentPassword\":\"" + temporaryPassword + "\",\"newPassword\":\"brand-new-password-9\"}"))
                 .andExpect(status().isNoContent());
-        mockMvc.perform(get("/api/v1/users/me").header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenBeforeChange))
+        mockMvc.perform(get("/api/v1/users/me").cookie(buyerCookie(tokenBeforeChange)))
                 .andExpect(status().isUnauthorized());
-        mockMvc.perform(post(LOGIN_URL).contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(post(LOGIN_URL).with(authHeaders.csrf()).contentType(MediaType.APPLICATION_JSON)
                         .content(loginBody(BUYER_A_EMAIL, "brand-new-password-9")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.passwordChangeRequired").value(false));
@@ -392,7 +393,7 @@ class AdminMemberIntegrationTest extends AbstractIntegrationTest {
         String hashBefore = jdbc.queryForObject("SELECT password_hash FROM `user` WHERE id = ?", String.class, BUYER_A);
         doThrow(new IllegalStateException("SMS 게이트웨이 오류")).when(smsSender).send(anyString(), anyString());
 
-        mockMvc.perform(post(URL + "/" + BUYER_A_PID + "/password-reset").headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(post(URL + "/" + BUYER_A_PID + "/password-reset").with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isBadGateway())
                 .andExpect(jsonPath("$.code").value("TEMPORARY_PASSWORD_DELIVERY_FAILED"));
 
@@ -405,7 +406,7 @@ class AdminMemberIntegrationTest extends AbstractIntegrationTest {
                 "SELECT COUNT(*) FROM notification_log WHERE target_type = 'USER' AND target_id = ?", Long.class, BUYER_A))
                 .isZero();
         assertThat(auditActions(BUYER_A)).isEmpty();
-        mockMvc.perform(get("/api/v1/users/me").headers(authHeaders.buyer(BUYER_A))).andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/users/me").with(authHeaders.buyer(BUYER_A))).andExpect(status().isOk());
     }
 
     // ---------- 등급 ----------
@@ -414,7 +415,7 @@ class AdminMemberIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("(9) 수동 등급: PUT → 204·MANUAL·locked_until·감사 / lockedUntil 과거 400 / 이후 AUTO 재산정 skip(등급 유지)")
     void changeGrade() throws Exception {
         LocalDate lockedUntil = LocalDate.now().plusDays(7);
-        mockMvc.perform(put(URL + "/" + BUYER_A_PID + "/grade").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(put(URL + "/" + BUYER_A_PID + "/grade").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"gradeCode\":\"PLATINUM\",\"lockedUntil\":\"" + lockedUntil + "\"}"))
                 .andExpect(status().isNoContent());
@@ -434,17 +435,17 @@ class AdminMemberIntegrationTest extends AbstractIntegrationTest {
         assertThat(auditActions(BUYER_A)).containsExactly("UPDATE");
         assertThat(auditDiffs(BUYER_A).get(0)).contains("\"gradeId\"").contains("MANUAL");
 
-        mockMvc.perform(put(URL + "/" + BUYER_A_PID + "/grade").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(put(URL + "/" + BUYER_A_PID + "/grade").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"gradeCode\":\"GOLD\",\"lockedUntil\":\"" + LocalDate.now() + "\"}"))
                 .andExpect(status().isBadRequest());
-        mockMvc.perform(put(URL + "/" + BUYER_A_PID + "/grade").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(put(URL + "/" + BUYER_A_PID + "/grade").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"gradeCode\":\"DIAMOND\",\"lockedUntil\":\"" + lockedUntil + "\"}"))
                 .andExpect(status().isBadRequest());
 
         // lock 기간 중 AUTO 재산정(lifetime 0 → SILVER 구간)은 skip → PLATINUM 유지
-        mockMvc.perform(post("/api/v1/admin/buyers/" + BUYER_A_PID + "/grade/recalculate").headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(post("/api/v1/admin/buyers/" + BUYER_A_PID + "/grade/recalculate").with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isNoContent());
         assertThat(jdbc.queryForObject("SELECT grade_id FROM buyer_profile WHERE user_id = ?", Long.class, BUYER_A))
                 .isEqualTo(gradeId("PLATINUM"));
@@ -453,12 +454,12 @@ class AdminMemberIntegrationTest extends AbstractIntegrationTest {
     // ---------- 권한 ----------
 
     @Test
-    @DisplayName("(10) BUYER·SELLER 토큰 → 403 / 미인증 401")
+    @DisplayName("(10) BUYER·SELLER 토큰 → 401 / 미인증 401")
     void authorization() throws Exception {
-        mockMvc.perform(get(URL).headers(authHeaders.buyer(BUYER_A))).andExpect(status().isForbidden());
-        mockMvc.perform(get(URL).headers(authHeaders.seller(NON_BUYER))).andExpect(status().isForbidden());
-        mockMvc.perform(post(URL + "/" + BUYER_A_PID + "/withdraw").headers(authHeaders.buyer(BUYER_A)))
-                .andExpect(status().isForbidden());
+        mockMvc.perform(get(URL).with(authHeaders.buyer(BUYER_A))).andExpect(status().isUnauthorized());
+        mockMvc.perform(get(URL).with(authHeaders.seller(NON_BUYER))).andExpect(status().isUnauthorized());
+        mockMvc.perform(post(URL + "/" + BUYER_A_PID + "/withdraw").with(authHeaders.buyer(BUYER_A)))
+                .andExpect(status().isUnauthorized());
         mockMvc.perform(get(URL)).andExpect(status().isUnauthorized());
     }
 
@@ -485,7 +486,7 @@ class AdminMemberIntegrationTest extends AbstractIntegrationTest {
         });
 
         // 활성 2명 중 1명 → false·상호·역할
-        String body = mockMvc.perform(get(URL + "/" + BUYER_A_PID).headers(authHeaders.admin(ADMIN_ID)))
+        String body = mockMvc.perform(get(URL + "/" + BUYER_A_PID).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.sellerMembership.sellerPublicId").value(pid("slr_", "T84S1")))
                 .andExpect(jsonPath("$.sellerMembership.companyName").value("T84셀러S1"))
@@ -499,28 +500,28 @@ class AdminMemberIntegrationTest extends AbstractIntegrationTest {
 
         // 다른 활성 구성원(BUYER_C)이 탈퇴 → BUYER_A가 유일 활성 → true(역할 무관·STAFF가 빠져도 판정에 반영)
         jdbc.update("UPDATE `user` SET withdrawn_at = NOW(6) WHERE id = ?", BUYER_C);
-        mockMvc.perform(get(URL + "/" + BUYER_A_PID).headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(get(URL + "/" + BUYER_A_PID).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.sellerMembership.lastActiveMember").value(true));
         // 탈퇴한 구성원(BUYER_C·BUYER_B): 소속 필드는 있고(행 유지·D-187 §1-A 11) lastActiveMember false
-        mockMvc.perform(get(URL + "/" + pid("usr_", "T84BUYC")).headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(get(URL + "/" + pid("usr_", "T84BUYC")).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.sellerMembership.roleCode").value("SELLER_STAFF"))
                 .andExpect(jsonPath("$.sellerMembership.lastActiveMember").value(false));
-        mockMvc.perform(get(URL + "/" + BUYER_B_PID).headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(get(URL + "/" + BUYER_B_PID).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.sellerMembership.companyName").value("T84셀러S2"))
                 .andExpect(jsonPath("$.sellerMembership.lastActiveMember").value(false));
         // 미소속·soft-delete 셀러 구성원 → 키 없음
-        mockMvc.perform(get(URL + "/" + NO_PHONE_PID).headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(get(URL + "/" + NO_PHONE_PID).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.sellerMembership").doesNotExist());
         // 목록엔 싣지 않는다
-        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[*].sellerMembership").doesNotExist());
         // 탈퇴는 여전히 차단하지 않는다(확정 4): 유일 활성 구성원 BUYER_A 탈퇴 → 204(진행 중 주문 없음·ORDER_A_PAID는 CONFIRMED)
-        mockMvc.perform(post(URL + "/" + BUYER_A_PID + "/withdraw").headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(post(URL + "/" + BUYER_A_PID + "/withdraw").with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isNoContent());
     }
 
@@ -664,7 +665,11 @@ class AdminMemberIntegrationTest extends AbstractIntegrationTest {
     }
 
     private static String loginBody(String email, String password) {
-        return "{\"email\":\"" + email + "\",\"password\":\"" + password + "\",\"role\":\"BUYER\"}";
+        return "{\"email\":\"" + email + "\",\"password\":\"" + password + "\"}";
+    }
+
+    private static Cookie buyerCookie(String token) {
+        return new Cookie(AuthCookies.BUYER_COOKIE, token);
     }
 
     private static String pid(String prefix, String tag) {

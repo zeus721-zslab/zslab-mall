@@ -117,17 +117,17 @@ class SellerDeliveryManagementControllerIntegrationTest extends AbstractIntegrat
     }
 
     @Test
-    @DisplayName("T1 인가: 비인증 401 · 구매자 403 · 셀러 200")
+    @DisplayName("T1 인가: 비인증 401 · 구매자 401 · 셀러 200")
     void list_authorization() throws Exception {
         mockMvc.perform(get(LIST_URL)).andExpect(status().isUnauthorized());
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.buyer(BUYER_ID))).andExpect(status().isForbidden());
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A))).andExpect(status().isOk());
+        mockMvc.perform(get(LIST_URL).with(authHeaders.buyer(BUYER_ID))).andExpect(status().isUnauthorized());
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A))).andExpect(status().isOk());
     }
 
     @Test
     @DisplayName("T2 셀러 경계 × scope: A는 ORIGINAL 1(D1)·CLAIM_OUTBOUND 1(D4)·RETURN 0·ALL 2 / B는 ORIGINAL 1(D2)·RETURN 1(D3)·ALL 2")
     void list_sellerBoundaryByScope() throws Exception {
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].deliveryId").value(D1_PID))
@@ -135,24 +135,24 @@ class SellerDeliveryManagementControllerIntegrationTest extends AbstractIntegrat
                 .andExpect(jsonPath("$.items[0].orderNo").value(ORDER_A_NO))
                 .andExpect(jsonPath("$.items[0].recipientName").value("홍길동검색"))
                 .andExpect(jsonPath("$.items[0].claimId").doesNotExist());
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("scope", "CLAIM_OUTBOUND"))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("scope", "CLAIM_OUTBOUND"))
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].deliveryId").value(D4_PID))
                 .andExpect(jsonPath("$.items[0].claimId").value(CLAIM_EXCHANGE_PID))
                 .andExpect(jsonPath("$.items[0].claimType").value("EXCHANGE"));
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("scope", "RETURN"))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("scope", "RETURN"))
                 .andExpect(jsonPath("$.totalCount").value(0));
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("scope", "ALL"))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("scope", "ALL"))
                 .andExpect(jsonPath("$.totalCount").value(2))
                 .andExpect(jsonPath("$.items[*].deliveryId", containsInAnyOrder(D1_PID, D4_PID)));
 
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_B)))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_B)))
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].deliveryId").value(D2_PID));
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_B)).param("scope", "RETURN"))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_B)).param("scope", "RETURN"))
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].deliveryId").value(D3_PID));
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_B)).param("scope", "ALL"))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_B)).param("scope", "ALL"))
                 .andExpect(jsonPath("$.totalCount").value(2))
                 .andExpect(jsonPath("$.items[*].deliveryId", containsInAnyOrder(D2_PID, D3_PID)));
     }
@@ -160,7 +160,7 @@ class SellerDeliveryManagementControllerIntegrationTest extends AbstractIntegrat
     @Test
     @DisplayName("T3 응답 키 화이트리스트(예상 밖 필드 추가 시 실패)·관리자 전용 키 없음 · keyword 3축 셀러 경계(타 셀러 송장·주문번호·수령인명 0·본인 1 대칭)")
     void list_responseWhitelist() throws Exception {
-        String body = mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("scope", "ALL"))
+        String body = mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("scope", "ALL"))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
 
@@ -178,21 +178,21 @@ class SellerDeliveryManagementControllerIntegrationTest extends AbstractIntegrat
         assertThat(keysOf(d4)).containsExactlyInAnyOrderElementsOf(d4Keys);
 
         // keyword 3축(송장·주문번호·수령인명) 모두 셀러 범위 안에서만 매칭된다 — A가 B의 값을 넣으면 0, B가 넣으면 1(대칭).
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("scope", "ALL").param("keyword", D2_TRACKING))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("scope", "ALL").param("keyword", D2_TRACKING))
                 .andExpect(jsonPath("$.totalCount").value(0));
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("keyword", D1_TRACKING))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("keyword", D1_TRACKING))
                 .andExpect(jsonPath("$.totalCount").value(1));
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("scope", "ALL").param("keyword", ORDER_B_NO))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("scope", "ALL").param("keyword", ORDER_B_NO))
                 .andExpect(jsonPath("$.totalCount").value(0));
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("scope", "ALL").param("keyword", "김철수"))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("scope", "ALL").param("keyword", "김철수"))
                 .andExpect(jsonPath("$.totalCount").value(0));
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_B)).param("keyword", ORDER_B_NO))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_B)).param("keyword", ORDER_B_NO))
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].deliveryId").value(D2_PID));
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_B)).param("keyword", "김철수"))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_B)).param("keyword", "김철수"))
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].deliveryId").value(D2_PID));
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("keyword", "K".repeat(51)))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("keyword", "K".repeat(51)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
     }
@@ -200,7 +200,7 @@ class SellerDeliveryManagementControllerIntegrationTest extends AbstractIntegrat
     @Test
     @DisplayName("T4 송장 정정: 자기 SHIPPING 배송 200·값 반영·상태/발송시각 불변·감사 DELIVERY UPDATE 1행(actor_role SELLER·reason)")
     void correctTracking_ownShipping() throws Exception {
-        String body = mockMvc.perform(patch(LIST_URL + "/" + D1_PID + "/tracking").headers(authHeaders.seller(USER_A))
+        String body = mockMvc.perform(patch(LIST_URL + "/" + D1_PID + "/tracking").with(authHeaders.seller(USER_A))
                         .contentType(MediaType.APPLICATION_JSON).content(correctionBody("LOGEN", NEW_TRACKING, "택배사 오입력 정정")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.deliveryPublicId").value(D1_PID))
@@ -228,30 +228,30 @@ class SellerDeliveryManagementControllerIntegrationTest extends AbstractIntegrat
     @DisplayName("T5 송장 정정 거부: 타 셀러 배송 404(존재 은닉·값 불변) · 미존재 404 · DELIVERED 422 · 사유 공백 400 · 타 배송 번호는 허용 200(D-227)")
     void correctTracking_rejected() throws Exception {
         // 셀러 A가 셀러 B의 SHIPPING 아닌 D2·회수 D3에 접근 → 404(403 아님)
-        mockMvc.perform(patch(LIST_URL + "/" + D2_PID + "/tracking").headers(authHeaders.seller(USER_A))
+        mockMvc.perform(patch(LIST_URL + "/" + D2_PID + "/tracking").with(authHeaders.seller(USER_A))
                         .contentType(MediaType.APPLICATION_JSON).content(correctionBody("CJ", NEW_TRACKING, "사유")))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("DELIVERY_NOT_FOUND"));
         assertThat(deliveryRow(D2).get("tracking_no")).isEqualTo(D2_TRACKING);
-        mockMvc.perform(patch(LIST_URL + "/" + MISSING_PID + "/tracking").headers(authHeaders.seller(USER_A))
+        mockMvc.perform(patch(LIST_URL + "/" + MISSING_PID + "/tracking").with(authHeaders.seller(USER_A))
                         .contentType(MediaType.APPLICATION_JSON).content(correctionBody("CJ", NEW_TRACKING, "사유")))
                 .andExpect(status().isNotFound());
         // 셀러 B의 자기 배송이지만 DELIVERED → 422
-        mockMvc.perform(patch(LIST_URL + "/" + D2_PID + "/tracking").headers(authHeaders.seller(USER_B))
+        mockMvc.perform(patch(LIST_URL + "/" + D2_PID + "/tracking").with(authHeaders.seller(USER_B))
                         .contentType(MediaType.APPLICATION_JSON).content(correctionBody("CJ", NEW_TRACKING, "사유")))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("DELIVERY_INVALID_STATE"));
         // 자기 행의 기존 번호·같은 택배사 재요청 → 200·감사 0행(무변경)
-        mockMvc.perform(patch(LIST_URL + "/" + D1_PID + "/tracking").headers(authHeaders.seller(USER_A))
+        mockMvc.perform(patch(LIST_URL + "/" + D1_PID + "/tracking").with(authHeaders.seller(USER_A))
                         .contentType(MediaType.APPLICATION_JSON).content(correctionBody("CJ", D1_TRACKING, "사유")))
                 .andExpect(status().isOk());
         assertThat(auditCount(D1)).isZero();
-        mockMvc.perform(patch(LIST_URL + "/" + D1_PID + "/tracking").headers(authHeaders.seller(USER_A))
+        mockMvc.perform(patch(LIST_URL + "/" + D1_PID + "/tracking").with(authHeaders.seller(USER_A))
                         .contentType(MediaType.APPLICATION_JSON).content(correctionBody("CJ", NEW_TRACKING, " ")))
                 .andExpect(status().isBadRequest());
         assertThat(deliveryRow(D1).get("tracking_no")).isEqualTo(D1_TRACKING);
         // 타 배송(D4)의 송장번호로 정정 → 합포장·택배사 번호 재사용이라 허용(유니크·409 사전 검사 제거)
-        mockMvc.perform(patch(LIST_URL + "/" + D1_PID + "/tracking").headers(authHeaders.seller(USER_A))
+        mockMvc.perform(patch(LIST_URL + "/" + D1_PID + "/tracking").with(authHeaders.seller(USER_A))
                         .contentType(MediaType.APPLICATION_JSON).content(correctionBody("CJ", D4_TRACKING, "합포장 송장으로 정정")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.trackingNo").value(D4_TRACKING));
@@ -264,10 +264,10 @@ class SellerDeliveryManagementControllerIntegrationTest extends AbstractIntegrat
         cleanup();
         seedAll(SellerStatus.SUSPENDED);
 
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(1));
-        mockMvc.perform(patch(LIST_URL + "/" + D1_PID + "/tracking").headers(authHeaders.seller(USER_A))
+        mockMvc.perform(patch(LIST_URL + "/" + D1_PID + "/tracking").with(authHeaders.seller(USER_A))
                         .contentType(MediaType.APPLICATION_JSON).content(correctionBody("LOGEN", NEW_TRACKING, "정지 중 정정 시도")))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("SELLER_SUSPENDED"))
@@ -276,7 +276,7 @@ class SellerDeliveryManagementControllerIntegrationTest extends AbstractIntegrat
         assertThat(auditCount(D1)).isZero();
         // 계약(외부 검토 r2·resolver 위치 불변): @Valid가 상태 가드보다 먼저 실행돼 malformed body는 SUSPENDED여도 403이 아닌 400이다.
         // 어느 경로든 쓰기는 차단되고 DB는 변하지 않는다 — 여기서는 사유 공백(400)으로 고정한다.
-        mockMvc.perform(patch(LIST_URL + "/" + D1_PID + "/tracking").headers(authHeaders.seller(USER_A))
+        mockMvc.perform(patch(LIST_URL + "/" + D1_PID + "/tracking").with(authHeaders.seller(USER_A))
                         .contentType(MediaType.APPLICATION_JSON).content(correctionBody("LOGEN", NEW_TRACKING, " ")))
                 .andExpect(status().isBadRequest());
         assertThat(deliveryRow(D1).get("tracking_no")).isEqualTo(D1_TRACKING);
@@ -290,10 +290,10 @@ class SellerDeliveryManagementControllerIntegrationTest extends AbstractIntegrat
         cleanup();
         seedAll(status);
 
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
-        mockMvc.perform(patch(LIST_URL + "/" + D1_PID + "/tracking").headers(authHeaders.seller(USER_A))
+        mockMvc.perform(patch(LIST_URL + "/" + D1_PID + "/tracking").with(authHeaders.seller(USER_A))
                         .contentType(MediaType.APPLICATION_JSON).content(correctionBody("LOGEN", NEW_TRACKING, "사유")))
                 .andExpect(status().isUnauthorized());
         assertThat(deliveryRow(D1).get("tracking_no")).isEqualTo(D1_TRACKING);

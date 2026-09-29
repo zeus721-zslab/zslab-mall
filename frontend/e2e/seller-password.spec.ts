@@ -10,13 +10,20 @@ const EMAIL = process.env.SELLER_PASSWORD_E2E_EMAIL
 const PASSWORD = process.env.SELLER_PASSWORD_E2E_PASSWORD
 
 const LOGIN_API_PATH = '/api/v1/seller/auth/login'
+const CSRF_API_PATH = '/api/v1/auth/csrf'
 const PASSWORD_API_PATH = '/api/v1/seller/me/password'
 const SELLER_SESSION_COOKIE = '__Secure-seller_at'
 const XSRF_COOKIE = 'XSRF-TOKEN'
 
-/** BE 셀러 로그인 성공 여부(200 true · 401 false). 응답 쿠키는 호출한 요청 컨텍스트의 저장소에만 남는다. */
+/**
+ * BE 셀러 로그인 성공 여부(200 true · 401 false). 응답 쿠키는 호출한 요청 컨텍스트의 저장소에만 남는다. 로그인은 CSRF를 검증하므로 같은 컨텍스트로
+ * GET /api/v1/auth/csrf 인증 전 토큰을 먼저 받아 헤더로 싣는다(D-235 PR3 K7).
+ */
 async function canLogin(request: APIRequestContext, email: string, password: string): Promise<boolean> {
-  const response = await request.post(LOGIN_API_PATH, { data: { email, password } })
+  const csrfResponse = await request.get(CSRF_API_PATH)
+  expect(csrfResponse.ok(), `CSRF 토큰 발급 API ${csrfResponse.status()}`).toBe(true)
+  const xsrfToken = (await request.storageState()).cookies.find((cookie) => cookie.name === XSRF_COOKIE)?.value ?? ''
+  const response = await request.post(LOGIN_API_PATH, { data: { email, password }, headers: { 'X-XSRF-TOKEN': xsrfToken } })
   return response.ok()
 }
 

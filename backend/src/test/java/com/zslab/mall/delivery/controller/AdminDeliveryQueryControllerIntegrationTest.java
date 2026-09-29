@@ -102,11 +102,11 @@ class AdminDeliveryQueryControllerIntegrationTest extends AbstractIntegrationTes
     // ---------- 인가 ----------
 
     @Test
-    @DisplayName("T1 인가: 비인증 401 · 구매자 403 · 관리자 200")
+    @DisplayName("T1 인가: 비인증 401 · 구매자 401 · 관리자 200")
     void list_authorization() throws Exception {
         mockMvc.perform(get(LIST_URL)).andExpect(status().isUnauthorized());
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.buyer(BUYER))).andExpect(status().isForbidden());
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.admin(ADMIN))).andExpect(status().isOk());
+        mockMvc.perform(get(LIST_URL).with(authHeaders.buyer(BUYER))).andExpect(status().isUnauthorized());
+        mockMvc.perform(get(LIST_URL).with(authHeaders.admin(ADMIN))).andExpect(status().isOk());
         mockMvc.perform(get(LIST_URL + "/" + D1_PID)).andExpect(status().isUnauthorized());
         mockMvc.perform(patch(LIST_URL + "/" + D1_PID + "/tracking").contentType(MediaType.APPLICATION_JSON)
                         .content(correctionBody("CJ", NEW_TRACKING, "사유")))
@@ -192,14 +192,14 @@ class AdminDeliveryQueryControllerIntegrationTest extends AbstractIntegrationTes
     @Test
     @DisplayName("T5 400: from>to · keyword 51자 · 허용 외 scope/status/carrier/sort")
     void list_malformed() throws Exception {
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.admin(ADMIN)).param("from", "2026-02-01T00:00:00").param("to", "2026-01-01T00:00:00"))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.admin(ADMIN)).param("from", "2026-02-01T00:00:00").param("to", "2026-01-01T00:00:00"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.admin(ADMIN)).param("keyword", KEYWORD_LIMIT_EXCEEDED))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.admin(ADMIN)).param("keyword", KEYWORD_LIMIT_EXCEEDED))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
         for (String[] bogus : new String[][] {{"scope", "BOGUS"}, {"status", "BOGUS"}, {"carrier", "BOGUS"}, {"sort", "BOGUS"}}) {
-            mockMvc.perform(get(LIST_URL).headers(authHeaders.admin(ADMIN)).param(bogus[0], bogus[1]))
+            mockMvc.perform(get(LIST_URL).with(authHeaders.admin(ADMIN)).param(bogus[0], bogus[1]))
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
         }
@@ -210,7 +210,7 @@ class AdminDeliveryQueryControllerIntegrationTest extends AbstractIntegrationTes
     @Test
     @DisplayName("T6 상세: 200(배송지 스냅샷·품목·클레임) · 미존재 404 DELIVERY_NOT_FOUND")
     void detail() throws Exception {
-        mockMvc.perform(get(LIST_URL + "/" + D4_PID).headers(authHeaders.admin(ADMIN)))
+        mockMvc.perform(get(LIST_URL + "/" + D4_PID).with(authHeaders.admin(ADMIN)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.deliveryId").value(D4_PID))
                 .andExpect(jsonPath("$.orderId").value(ORDER_A_PID))
@@ -226,10 +226,10 @@ class AdminDeliveryQueryControllerIntegrationTest extends AbstractIntegrationTes
                 .andExpect(jsonPath("$.claimId").value(CLAIM_EXCHANGE_PID))
                 .andExpect(jsonPath("$.claimType").value("EXCHANGE"))
                 .andExpect(jsonPath("$.claimStatus").value("APPROVED"));
-        mockMvc.perform(get(LIST_URL + "/" + D1_PID).headers(authHeaders.admin(ADMIN)))
+        mockMvc.perform(get(LIST_URL + "/" + D1_PID).with(authHeaders.admin(ADMIN)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.claimId").doesNotExist());
-        mockMvc.perform(get(LIST_URL + "/" + MISSING_PID).headers(authHeaders.admin(ADMIN)))
+        mockMvc.perform(get(LIST_URL + "/" + MISSING_PID).with(authHeaders.admin(ADMIN)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("DELIVERY_NOT_FOUND"));
     }
@@ -239,7 +239,7 @@ class AdminDeliveryQueryControllerIntegrationTest extends AbstractIntegrationTes
     @Test
     @DisplayName("T7 송장 정정: SHIPPING 200·값 반영·상태/발송시각 불변·감사 DELIVERY UPDATE 1행(reason)")
     void correctTracking_shipping() throws Exception {
-        mockMvc.perform(patch(LIST_URL + "/" + D1_PID + "/tracking").headers(authHeaders.admin(ADMIN))
+        mockMvc.perform(patch(LIST_URL + "/" + D1_PID + "/tracking").with(authHeaders.admin(ADMIN))
                         .contentType(MediaType.APPLICATION_JSON).content(correctionBody("LOGEN", NEW_TRACKING, "택배사 오입력 정정")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.deliveryPublicId").value(D1_PID))
@@ -260,7 +260,7 @@ class AdminDeliveryQueryControllerIntegrationTest extends AbstractIntegrationTes
     @Test
     @DisplayName("T8 송장 정정 실패: DELIVERED 422 DELIVERY_INVALID_STATE(값·감사 불변) · 사유 공백 400 · carrier 누락 400 · 미존재 404")
     void correctTracking_rejected() throws Exception {
-        mockMvc.perform(patch(LIST_URL + "/" + D2_PID + "/tracking").headers(authHeaders.admin(ADMIN))
+        mockMvc.perform(patch(LIST_URL + "/" + D2_PID + "/tracking").with(authHeaders.admin(ADMIN))
                         .contentType(MediaType.APPLICATION_JSON).content(correctionBody("CJ", NEW_TRACKING, "사유")))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("DELIVERY_INVALID_STATE"));
@@ -268,19 +268,19 @@ class AdminDeliveryQueryControllerIntegrationTest extends AbstractIntegrationTes
         assertThat(deliveryRow(D2).get("status")).isEqualTo("DELIVERED");
         assertThat(auditCount(D2)).isZero();
 
-        mockMvc.perform(patch(LIST_URL + "/" + D1_PID + "/tracking").headers(authHeaders.admin(ADMIN))
+        mockMvc.perform(patch(LIST_URL + "/" + D1_PID + "/tracking").with(authHeaders.admin(ADMIN))
                         .contentType(MediaType.APPLICATION_JSON).content(correctionBody("CJ", NEW_TRACKING, " ")))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
                 .andExpect(jsonPath("$.fieldErrors[0].field").value("reason"));
-        mockMvc.perform(patch(LIST_URL + "/" + D1_PID + "/tracking").headers(authHeaders.admin(ADMIN))
+        mockMvc.perform(patch(LIST_URL + "/" + D1_PID + "/tracking").with(authHeaders.admin(ADMIN))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"trackingNo\":\"X\",\"reason\":\"사유\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
         assertThat(deliveryRow(D1).get("tracking_no")).isEqualTo(D1_TRACKING);
         assertThat(auditCount(D1)).isZero();
 
-        mockMvc.perform(patch(LIST_URL + "/" + MISSING_PID + "/tracking").headers(authHeaders.admin(ADMIN))
+        mockMvc.perform(patch(LIST_URL + "/" + MISSING_PID + "/tracking").with(authHeaders.admin(ADMIN))
                         .contentType(MediaType.APPLICATION_JSON).content(correctionBody("CJ", NEW_TRACKING, "사유")))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("DELIVERY_NOT_FOUND"));
@@ -290,7 +290,7 @@ class AdminDeliveryQueryControllerIntegrationTest extends AbstractIntegrationTes
     @DisplayName("T9 송장 중복 허용(D-227): 자기 행 기존 번호로 택배사만 정정 200·감사 1행 · 같은 값 재요청 무변경 · 타 배송(D4) 번호로 정정 200·감사 2행")
     void correctTracking_duplicate() throws Exception {
         // 자기 자신의 기존 번호로 택배사만 정정 → carrier 변경 감사 1행
-        mockMvc.perform(patch(LIST_URL + "/" + D1_PID + "/tracking").headers(authHeaders.admin(ADMIN))
+        mockMvc.perform(patch(LIST_URL + "/" + D1_PID + "/tracking").with(authHeaders.admin(ADMIN))
                         .contentType(MediaType.APPLICATION_JSON).content(correctionBody("POST", D1_TRACKING, "택배사만 정정")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.carrier").value("POST"))
@@ -298,13 +298,13 @@ class AdminDeliveryQueryControllerIntegrationTest extends AbstractIntegrationTes
         assertThat(auditCount(D1)).isEqualTo(1);
 
         // 같은 값 재요청 → 200·무변경·감사 행 증가 없음
-        mockMvc.perform(patch(LIST_URL + "/" + D1_PID + "/tracking").headers(authHeaders.admin(ADMIN))
+        mockMvc.perform(patch(LIST_URL + "/" + D1_PID + "/tracking").with(authHeaders.admin(ADMIN))
                         .contentType(MediaType.APPLICATION_JSON).content(correctionBody("POST", D1_TRACKING, "재요청")))
                 .andExpect(status().isOk());
         assertThat(auditCount(D1)).isEqualTo(1);
 
         // 타 배송(D4)이 쓰는 번호로 정정 → 합포장·택배사 번호 재사용이라 허용(유니크 제거·409 사전 검사 제거)
-        mockMvc.perform(patch(LIST_URL + "/" + D1_PID + "/tracking").headers(authHeaders.admin(ADMIN))
+        mockMvc.perform(patch(LIST_URL + "/" + D1_PID + "/tracking").with(authHeaders.admin(ADMIN))
                         .contentType(MediaType.APPLICATION_JSON).content(correctionBody("LOGEN", D4_TRACKING, "합포장 송장으로 정정")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.trackingNo").value(D4_TRACKING));
@@ -316,7 +316,7 @@ class AdminDeliveryQueryControllerIntegrationTest extends AbstractIntegrationTes
     // ---------- helpers ----------
 
     private ResultActions list(Map<String, String> params) throws Exception {
-        var request = get(LIST_URL).headers(authHeaders.admin(ADMIN));
+        var request = get(LIST_URL).with(authHeaders.admin(ADMIN));
         params.forEach(request::param);
         return mockMvc.perform(request).andExpect(status().isOk());
     }

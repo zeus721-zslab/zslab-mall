@@ -85,12 +85,12 @@ class AdminReconciliationIssueIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("인증: 무토큰 401 · 구매자 403(목록·해결) · 관리자 200")
+    @DisplayName("인증: 무토큰 401 · 구매자 401(목록·해결) · 관리자 200")
     void authorization() throws Exception {
         mockMvc.perform(get(URL)).andExpect(status().isUnauthorized());
-        mockMvc.perform(get(URL).headers(authHeaders.buyer(BUYER_ID))).andExpect(status().isForbidden());
-        mockMvc.perform(resolveRequest(openDriftIssueId, "확인").headers(authHeaders.buyer(BUYER_ID))).andExpect(status().isForbidden());
-        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID))).andExpect(status().isOk());
+        mockMvc.perform(get(URL).with(authHeaders.buyer(BUYER_ID))).andExpect(status().isUnauthorized());
+        mockMvc.perform(resolveRequest(openDriftIssueId, "확인").with(authHeaders.buyer(BUYER_ID))).andExpect(status().isUnauthorized());
+        mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID))).andExpect(status().isOk());
         assertThat(issueStatus(openDriftIssueId)).isEqualTo("OPEN");
     }
 
@@ -98,19 +98,19 @@ class AdminReconciliationIssueIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("목록: 상태·유형 필터 · 주문 번호·public id 표시 · 매칭 주문 없는 통지는 주문 null · 잘못된 유형 값 400")
     void list_filters() throws Exception {
         mockMvc.perform(get(URL).param("status", "OPEN").param("type", "ITEM_STATE_DRIFT").param("size", "100")
-                        .headers(authHeaders.admin(ADMIN_ID)))
+                        .with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[?(@.issueId == " + openDriftIssueId + ")].orderNo").value("ORDRAI-6701"))
                 .andExpect(jsonPath("$.items[?(@.issueId == " + openDriftIssueId + ")].orderId").value(ORDER_PUBLIC_ID))
                 .andExpect(jsonPath("$.items[?(@.issueId == " + openDriftIssueId + ")].detail.reason").value("TEST_REASON"))
                 .andExpect(jsonPath("$.items[?(@.issueType != 'ITEM_STATE_DRIFT')]").isEmpty())
                 .andExpect(jsonPath("$.items[?(@.status != 'OPEN')]").isEmpty());
-        mockMvc.perform(get(URL).param("type", "PG_UNMATCHED_CALLBACK").param("size", "100").headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(get(URL).param("type", "PG_UNMATCHED_CALLBACK").param("size", "100").with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 // non_null 직렬화(application.yml)라 주문 없는 행은 orderId 키 자체가 없다
                 .andExpect(jsonPath("$.items[?(@.issueId == " + openUnmatchedIssueId + ")].issueType").value(contains("PG_UNMATCHED_CALLBACK")))
                 .andExpect(jsonPath("$.items[?(@.issueId == " + openUnmatchedIssueId + " && @.orderId)]").isEmpty());
-        mockMvc.perform(get(URL).param("type", "NOT_A_TYPE").headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(get(URL).param("type", "NOT_A_TYPE").with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isBadRequest());
     }
 
@@ -120,7 +120,7 @@ class AdminReconciliationIssueIntegrationTest extends AbstractIntegrationTest {
         long openBefore = dashboardReconciliationOpen();
         assertThat(openBefore).isEqualTo(openCountInDb());
 
-        mockMvc.perform(resolveRequest(openDriftIssueId, "  수동 보정 완료  ").headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(resolveRequest(openDriftIssueId, "  수동 보정 완료  ").with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("RESOLVED"))
                 .andExpect(jsonPath("$.resolvedByName").value("불일치 담당자"))
@@ -132,11 +132,11 @@ class AdminReconciliationIssueIntegrationTest extends AbstractIntegrationTest {
                 + "AND action = 'UPDATE' AND actor_user_id = ?", Integer.class, openDriftIssueId, ADMIN_ID)).isEqualTo(1);
         assertThat(dashboardReconciliationOpen()).isEqualTo(openBefore - 1);
 
-        mockMvc.perform(resolveRequest(openDriftIssueId, "다시").headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(resolveRequest(openDriftIssueId, "다시").with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isUnprocessableEntity());
-        mockMvc.perform(resolveRequest(openUnmatchedIssueId, " ").headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(resolveRequest(openUnmatchedIssueId, " ").with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isBadRequest());
-        mockMvc.perform(resolveRequest(MISSING_ISSUE_ID, "없음").headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(resolveRequest(MISSING_ISSUE_ID, "없음").with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isNotFound());
         assertThat(issueStatus(openUnmatchedIssueId)).isEqualTo("OPEN");
     }
@@ -144,7 +144,7 @@ class AdminReconciliationIssueIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("주문 상세: 이 주문의 불일치(열림·해결 모두·최신순)만 섹션으로 내려간다")
     void orderDetail_includesOrderIssues() throws Exception {
-        mockMvc.perform(get("/api/v1/admin/orders/" + ORDER_PUBLIC_ID).headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(get("/api/v1/admin/orders/" + ORDER_PUBLIC_ID).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.reconciliationIssues", hasSize(2)))
                 .andExpect(jsonPath("$.reconciliationIssues[0].issueType").value("PG_TID_CONFLICT"))
@@ -181,7 +181,7 @@ class AdminReconciliationIssueIntegrationTest extends AbstractIntegrationTest {
     }
 
     private long dashboardReconciliationOpen() throws Exception {
-        String body = mockMvc.perform(get("/api/v1/admin/dashboard").headers(authHeaders.admin(ADMIN_ID)))
+        String body = mockMvc.perform(get("/api/v1/admin/dashboard").with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         return JsonPath.<Number>read(body, "$.pending.reconciliationOpen").longValue();

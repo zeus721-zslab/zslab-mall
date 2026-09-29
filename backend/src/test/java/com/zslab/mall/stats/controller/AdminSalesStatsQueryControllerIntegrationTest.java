@@ -107,13 +107,13 @@ class AdminSalesStatsQueryControllerIntegrationTest extends AbstractIntegrationT
     }
 
     @Test
-    @DisplayName("T1 인가: 비인증 401 · BUYER 403 · ADMIN 200(3 엔드포인트)")
+    @DisplayName("T1 인가: 비인증 401 · BUYER 401 · ADMIN 200(3 엔드포인트)")
     void authorization() throws Exception {
         String query = "?from=2020-01-06&to=2020-01-12&axis=SELLER";
         for (String url : List.of(URL, BREAKDOWN_URL, CSV_URL)) {
             mockMvc.perform(get(url + query)).andExpect(status().isUnauthorized());
-            mockMvc.perform(get(url + query).headers(authHeaders.buyer(BUYER))).andExpect(status().isForbidden());
-            mockMvc.perform(get(url + query).headers(authHeaders.admin(ADMIN_ID))).andExpect(status().isOk());
+            mockMvc.perform(get(url + query).with(authHeaders.buyer(BUYER))).andExpect(status().isUnauthorized());
+            mockMvc.perform(get(url + query).with(authHeaders.admin(ADMIN_ID))).andExpect(status().isOk());
         }
     }
 
@@ -253,9 +253,9 @@ class AdminSalesStatsQueryControllerIntegrationTest extends AbstractIntegrationT
         assertThat(fetch(BREAKDOWN_URL + query + "&axis=SELLER&parentKey=slr_NOPE").get("rows")).isEmpty();
 
         mockMvc.perform(get(BREAKDOWN_URL + query + "&axis=PRODUCT&parentKey=" + publicId("prd", PRODUCT_A))
-                .headers(authHeaders.admin(ADMIN_ID))).andExpect(status().isBadRequest());
+                .with(authHeaders.admin(ADMIN_ID))).andExpect(status().isBadRequest());
         mockMvc.perform(get(BREAKDOWN_URL + query + "&axis=CATEGORY&parentKey=abc")
-                .headers(authHeaders.admin(ADMIN_ID))).andExpect(status().isBadRequest());
+                .with(authHeaders.admin(ADMIN_ID))).andExpect(status().isBadRequest());
     }
 
     @Test
@@ -270,7 +270,7 @@ class AdminSalesStatsQueryControllerIntegrationTest extends AbstractIntegrationT
                 BREAKDOWN_URL + "?from=2020-01-06&to=2020-01-12&axis=OPTION",
                 BREAKDOWN_URL + "?from=2020-01-06&to=2020-01-12",
                 CSV_URL + "?from=2020-01-12&to=2020-01-06&axis=SELLER")) {
-            mockMvc.perform(get(url).headers(authHeaders.admin(ADMIN_ID))).andExpect(status().isBadRequest());
+            mockMvc.perform(get(url).with(authHeaders.admin(ADMIN_ID))).andExpect(status().isBadRequest());
         }
     }
 
@@ -279,7 +279,7 @@ class AdminSalesStatsQueryControllerIntegrationTest extends AbstractIntegrationT
     void csv() throws Exception {
         MockHttpServletResponse response = mockMvc.perform(
                 get(CSV_URL + "?from=2020-01-06&to=2020-01-12&axis=PRODUCT&compare=PREVIOUS")
-                        .headers(authHeaders.admin(ADMIN_ID)))
+                        .with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Content-Type", "text/csv;charset=UTF-8"))
                 .andReturn().getResponse();
@@ -331,7 +331,7 @@ class AdminSalesStatsQueryControllerIntegrationTest extends AbstractIntegrationT
     // ---------- helpers ----------
 
     private JsonNode fetch(String url) throws Exception {
-        String body = mockMvc.perform(get(url).headers(authHeaders.admin(ADMIN_ID)))
+        String body = mockMvc.perform(get(url).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
         return objectMapper.readTree(body);

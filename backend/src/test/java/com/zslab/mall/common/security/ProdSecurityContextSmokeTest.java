@@ -6,11 +6,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.zslab.mall.support.AbstractIntegrationTest;
+import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.http.HttpHeaders;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -74,10 +74,10 @@ class ProdSecurityContextSmokeTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("(3) 유효 Bearer 토큰(ADMIN) → 인증 통과(비-401)")
+    @DisplayName("(3) 유효 관리자 역할 쿠키 → 인증 통과(비-401)")
     void protectedEndpoint_validToken_passesAuthentication() throws Exception {
         String token = tokenProvider.issue(1L, ActorRole.ADMIN);
-        mockMvc.perform(get(PROTECTED_ADMIN_PATH).header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+        mockMvc.perform(get(PROTECTED_ADMIN_PATH).cookie(new Cookie(AuthCookies.ADMIN_COOKIE, token)))
                 // 인증·인가(ROLE_ADMIN) 통과 후 핸들러 부재로 404 — 핵심은 401이 아님(인증 성공).
                 .andExpect(result -> assertThat(result.getResponse().getStatus()).isNotEqualTo(401));
     }

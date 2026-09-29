@@ -158,12 +158,12 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("T1 요청 조건: 배송완료 1일 → 201 / 8일 경과 → 422 / 사유 STOCK_DELAY → 422 / CONFIRMED 품목 → 422")
     void request_windowReasonConfirmedGuards() throws Exception {
-        mockMvc.perform(post(CLAIMS_URL).headers(authHeaders.buyer(USER_ID)).contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(post(CLAIMS_URL).with(authHeaders.buyer(USER_ID)).contentType(MediaType.APPLICATION_JSON)
                         .content(requestBody("RETURN", "STOCK_DELAY")))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("CLAIM_STATE_INVALID"));
 
-        mockMvc.perform(post(CLAIMS_URL).headers(authHeaders.buyer(USER_ID)).contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(post(CLAIMS_URL).with(authHeaders.buyer(USER_ID)).contentType(MediaType.APPLICATION_JSON)
                         .content(requestBody("RETURN", "PRODUCT_DEFECT")))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.claimType").value("RETURN"))
@@ -175,7 +175,7 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
         jdbc.update("DELETE FROM claim WHERE order_item_id = ?", ORDER_ITEM_ID);
         jdbc.update("UPDATE order_item SET item_status = 'DELIVERED' WHERE id = ?", ORDER_ITEM_ID);
         jdbc.update("UPDATE delivery SET delivered_at = NOW(6) - INTERVAL 8 DAY WHERE id = ?", OUTBOUND_DELIVERY_ID);
-        mockMvc.perform(post(CLAIMS_URL).headers(authHeaders.buyer(USER_ID)).contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(post(CLAIMS_URL).with(authHeaders.buyer(USER_ID)).contentType(MediaType.APPLICATION_JSON)
                         .content(requestBody("RETURN", "BUYER_CHANGED_MIND")))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("CLAIM_STATE_INVALID"));
@@ -183,7 +183,7 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
         // 구매확정 품목은 종결 상태라 전이 불가(기존 매트릭스)
         jdbc.update("UPDATE order_item SET item_status = 'CONFIRMED', confirmed_at = NOW(6) WHERE id = ?", ORDER_ITEM_ID);
         jdbc.update("UPDATE delivery SET delivered_at = NOW(6) - INTERVAL 1 DAY WHERE id = ?", OUTBOUND_DELIVERY_ID);
-        mockMvc.perform(post(CLAIMS_URL).headers(authHeaders.buyer(USER_ID)).contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(post(CLAIMS_URL).with(authHeaders.buyer(USER_ID)).contentType(MediaType.APPLICATION_JSON)
                         .content(requestBody("RETURN", "BUYER_CHANGED_MIND")))
                 .andExpect(status().isUnprocessableEntity());
         assertThat(claimCount()).isZero();
@@ -197,26 +197,26 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
         Long claimId = requestReturn();
         String claimPid = claimPid(claimId);
 
-        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/return-shipment").headers(authHeaders.buyer(USER_ID))
+        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/return-shipment").with(authHeaders.buyer(USER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(RETURN_SHIPMENT_BODY))
                 .andExpect(status().isUnprocessableEntity());
 
-        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid + "/approve").headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid + "/approve").with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("APPROVED"));
         verify(smsSender).send(eq(BUYER_PHONE), contains("반품 요청이 승인되었습니다."));
         assertThat(refundCount(claimId)).isZero(); // 승인만으로 환불 없음(RETURN)
 
-        mockMvc.perform(get(CLAIMS_URL + "/" + claimPid).headers(authHeaders.buyer(USER_ID)))
+        mockMvc.perform(get(CLAIMS_URL + "/" + claimPid).with(authHeaders.buyer(USER_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.returnShipmentRequired").value(true))
                 .andExpect(jsonPath("$.returnShipment").doesNotExist());
 
-        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/return-shipment").headers(authHeaders.buyer(OTHER_USER_ID))
+        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/return-shipment").with(authHeaders.buyer(OTHER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(RETURN_SHIPMENT_BODY))
                 .andExpect(status().isNotFound());
 
-        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/return-shipment").headers(authHeaders.buyer(USER_ID))
+        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/return-shipment").with(authHeaders.buyer(USER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(RETURN_SHIPMENT_BODY))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.direction").value("RETURN"))
@@ -225,11 +225,11 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
         assertThat(returnDeliveryCount(claimId)).isEqualTo(1);
         assertThat(orderItemStatus()).isEqualTo("RETURN_REQUESTED"); // 발송 핸들러 무반응(direction=RETURN)
 
-        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/return-shipment").headers(authHeaders.buyer(USER_ID))
+        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/return-shipment").with(authHeaders.buyer(USER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"carrier\":\"CJ\",\"trackingNo\":\"RTN-TRACK-0002\"}"))
                 .andExpect(status().isUnprocessableEntity());
 
-        mockMvc.perform(get(CLAIMS_URL + "/" + claimPid).headers(authHeaders.buyer(USER_ID)))
+        mockMvc.perform(get(CLAIMS_URL + "/" + claimPid).with(authHeaders.buyer(USER_ID)))
                 .andExpect(jsonPath("$.returnShipmentRequired").value(false))
                 .andExpect(jsonPath("$.returnShipment.trackingNo").value("RTN-TRACK-0001"));
     }
@@ -242,14 +242,14 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
         Long claimId = approvedReturn();
         String claimPid = claimPid(claimId);
 
-        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid + "/inspect").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid + "/inspect").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(INSPECT_PASS_RESTOCK))
                 .andExpect(status().isUnprocessableEntity());
-        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid + "/confirm-pickup").headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid + "/confirm-pickup").with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isUnprocessableEntity()); // 회수 송장 부재
 
         registerReturnShipment(claimPid);
-        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid + "/confirm-pickup").headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid + "/confirm-pickup").with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.pickedUpAt").exists());
         assertThat(refundCount(claimId)).isZero(); // 수거 확인만으로 환불 발생하지 않음(Track 81-A 트리거 이동)
@@ -257,11 +257,11 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
         assertThat(orderItemStatus()).isEqualTo("RETURN_REQUESTED"); // 회수 DELIVERED가 품목을 바꾸지 않음
 
         // 관리자 목록 액션: 회수 확인 후 미검수 → INSPECT
-        mockMvc.perform(get(ADMIN_CLAIMS_URL).headers(authHeaders.admin(ADMIN_ID)).param("type", "RETURN"))
+        mockMvc.perform(get(ADMIN_CLAIMS_URL).with(authHeaders.admin(ADMIN_ID)).param("type", "RETURN"))
                 .andExpect(jsonPath("$.items[0].availableActions[0]").value("INSPECT"))
                 .andExpect(jsonPath("$.items[0].returnShipment.trackingNo").value("RTN-TRACK-0001"));
 
-        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid + "/inspect").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid + "/inspect").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(INSPECT_PASS_RESTOCK))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.inspectionResult").value("PASS"))
@@ -274,12 +274,12 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
         assertThat(historyCount("RETURN")).isEqualTo(1);
         verify(smsSender).send(eq(BUYER_PHONE), contains("반품 및 환불이 완료되었습니다."));
         // 사용자 상세(FE-29): PASS는 재발송 없음(null → 필드 생략)
-        mockMvc.perform(get(CLAIMS_URL + "/" + claimPid).headers(authHeaders.buyer(USER_ID)))
+        mockMvc.perform(get(CLAIMS_URL + "/" + claimPid).with(authHeaders.buyer(USER_ID)))
                 .andExpect(jsonPath("$.reshipment").doesNotExist())
                 .andExpect(jsonPath("$.inspectionResult").value("PASS"));
 
         // 재검수 422
-        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid + "/inspect").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid + "/inspect").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(INSPECT_PASS_RESTOCK))
                 .andExpect(status().isUnprocessableEntity());
     }
@@ -290,7 +290,7 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
         Long claimId = pickedUpReturn();
         String claimPid = claimPid(claimId);
 
-        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid + "/inspect").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid + "/inspect").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(INSPECT_PASS_NO_RESTOCK))
                 .andExpect(status().isOk());
 
@@ -309,15 +309,15 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
         Long claimId = pickedUpReturn();
         String claimPid = claimPid(claimId);
 
-        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid + "/inspect").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid + "/inspect").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"result\":\"FAIL\",\"rejectReasonCode\":\"INSPECTION_FAILED\"}"))
                 .andExpect(status().isBadRequest()); // 재발송 택배사·송장 누락
-        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid + "/inspect").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid + "/inspect").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"result\":\"PASS\"}"))
                 .andExpect(status().isBadRequest()); // restock 누락
         assertThat(claimStatus(claimId)).isEqualTo("APPROVED");
 
-        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid + "/inspect").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid + "/inspect").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(INSPECT_FAIL))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("REJECTED"))
@@ -334,20 +334,20 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
         verify(smsSender).send(eq(BUYER_PHONE), contains("반품 요청이 거부되었습니다. 사유: 검수 불합격"));
 
         // 사용자 상세(FE-29): 검수 불합격 재발송 송장 노출·회수 송장 유지
-        mockMvc.perform(get(CLAIMS_URL + "/" + claimPid).headers(authHeaders.buyer(USER_ID)))
+        mockMvc.perform(get(CLAIMS_URL + "/" + claimPid).with(authHeaders.buyer(USER_ID)))
                 .andExpect(jsonPath("$.reshipment.direction").value("OUTBOUND"))
                 .andExpect(jsonPath("$.reshipment.carrier").value("HANJIN"))
                 .andExpect(jsonPath("$.reshipment.trackingNo").value("RESHIP-0001"))
                 .andExpect(jsonPath("$.returnShipment.trackingNo").value("RTN-TRACK-0001"));
 
         // 관리자 주문 상세 클레임 행: 회수 송장·검수 결과 노출
-        mockMvc.perform(get("/api/v1/admin/orders/" + pid("ord_", "RTNORD")).headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(get("/api/v1/admin/orders/" + pid("ord_", "RTNORD")).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(jsonPath("$.items[0].claims[0].inspectionResult").value("FAIL"))
                 .andExpect(jsonPath("$.items[0].claims[0].returnTrackingNo").value("RTN-TRACK-0001"))
                 .andExpect(jsonPath("$.items[0].delivery.trackingNo").value("RESHIP-0001")); // 품목 배송 = 최신 발송(OUTBOUND) = 재발송·회수(RETURN)는 제외
 
         // FAIL 이력 품목 반품 재요청 → 422(기한 안·DELIVERED여도 차단)
-        mockMvc.perform(post(CLAIMS_URL).headers(authHeaders.buyer(USER_ID)).contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(post(CLAIMS_URL).with(authHeaders.buyer(USER_ID)).contentType(MediaType.APPLICATION_JSON)
                         .content(requestBody("RETURN", "PRODUCT_DEFECT")))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("CLAIM_STATE_INVALID"));
@@ -365,7 +365,7 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
                         + "NOW(6) - INTERVAL 1 HOUR, NOW(6), ?, NOW(6), NOW(6))",
                 OUTBOUND_DELIVERY_ID + 1, pid("dlv_", "RTNDLV2"), ORDER_ITEM_ID, 999_999L));
 
-        mockMvc.perform(post(CLAIMS_URL).headers(authHeaders.buyer(USER_ID)).contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(post(CLAIMS_URL).with(authHeaders.buyer(USER_ID)).contentType(MediaType.APPLICATION_JSON)
                         .content(requestBody("RETURN", "BUYER_CHANGED_MIND")))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("CLAIM_STATE_INVALID"));
@@ -373,7 +373,7 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
 
         // 원 발송이 기한 안이면 클레임 연결 발송과 무관하게 201
         jdbc.update("UPDATE delivery SET delivered_at = NOW(6) - INTERVAL 1 DAY WHERE id = ?", OUTBOUND_DELIVERY_ID);
-        mockMvc.perform(post(CLAIMS_URL).headers(authHeaders.buyer(USER_ID)).contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(post(CLAIMS_URL).with(authHeaders.buyer(USER_ID)).contentType(MediaType.APPLICATION_JSON)
                         .content(requestBody("RETURN", "BUYER_CHANGED_MIND")))
                 .andExpect(status().isCreated());
     }
@@ -393,7 +393,7 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
             Callable<Integer> worker = () -> {
                 ready.countDown();
                 start.await(10, TimeUnit.SECONDS);
-                return mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid + "/inspect").headers(authHeaders.admin(ADMIN_ID))
+                return mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid + "/inspect").with(authHeaders.admin(ADMIN_ID))
                                 .contentType(MediaType.APPLICATION_JSON).content(INSPECT_PASS_RESTOCK))
                         .andReturn().getResponse().getStatus();
             };
@@ -414,29 +414,29 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("T7 권한: 소유 셀러 회수 확인·검수 403(Track 92 셀러 처리 endpoint 제거) / 셀러 회수 송장 403")
+    @DisplayName("T7 권한: 셀러 쿠키 회수 확인·검수·회수 송장 401(구매자 경로라 셀러 쿠키 미선택) / 회수 확인·검수 endpoint 부재는 구매자 쿠키 404(Track 92)")
     void authorization_sellerScopeAndRoles() throws Exception {
         Long claimId = approvedReturn();
         String claimPid = claimPid(claimId);
         registerReturnShipment(claimPid);
 
-        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/confirm-pickup").headers(authHeaders.seller(SELLER_USER_ID)))
-                .andExpect(status().isForbidden());
-        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/inspect").headers(authHeaders.seller(SELLER_USER_ID))
+        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/confirm-pickup").with(authHeaders.seller(SELLER_USER_ID)))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/inspect").with(authHeaders.seller(SELLER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(INSPECT_PASS_RESTOCK))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
         // BUYER 토큰은 /api/v1/claims/** 필터를 통과하므로 제거된 처리 경로의 부재가 404로 정직하게 보인다(Track 95 D-201·LT-27 해소·
         // D-196에서 500 트랩으로 제거했던 단언 복원). 매핑 부재 자체는 ClaimProcessingMappingAbsenceTest가 감시한다.
-        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/inspect").headers(authHeaders.buyer(USER_ID))
+        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/inspect").with(authHeaders.buyer(USER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(INSPECT_PASS_RESTOCK))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
-        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/confirm-pickup").headers(authHeaders.buyer(USER_ID)))
+        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/confirm-pickup").with(authHeaders.buyer(USER_ID)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
-        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/return-shipment").headers(authHeaders.seller(SELLER_USER_ID))
+        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/return-shipment").with(authHeaders.seller(SELLER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(RETURN_SHIPMENT_BODY))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
         assertThat(claimStatus(claimId)).isEqualTo("APPROVED");
         assertThat(jdbc.queryForObject("SELECT picked_up_at FROM claim WHERE id = ?", LocalDateTime.class, claimId)).isNull();
     }
@@ -450,7 +450,7 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
         registerReturnShipment(claimPid);
         jdbc.update("UPDATE delivery SET status = 'DELIVERED', delivered_at = NOW(6) WHERE claim_id = ? AND direction = 'RETURN'", claimId);
 
-        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid + "/confirm-pickup").headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid + "/confirm-pickup").with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("DELIVERY_INVALID_STATE"));
 
@@ -473,7 +473,7 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
         String secondUrl = jdbc.queryForObject("SELECT file_path FROM attachment WHERE public_id = ?", String.class, second);
         assertThat(secondUrl).startsWith("/api/v1/files/claims/");
 
-        mockMvc.perform(post(CLAIMS_URL).headers(authHeaders.buyer(USER_ID)).contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(post(CLAIMS_URL).with(authHeaders.buyer(USER_ID)).contentType(MediaType.APPLICATION_JSON)
                         .content(requestBody("RETURN", "PRODUCT_DEFECT", second, first)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.attachmentUrls.length()").value(2))
@@ -483,28 +483,29 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT display_order FROM attachment WHERE public_id = ?", Integer.class, first)).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT target_id FROM attachment WHERE public_id = ?", Long.class, first)).isEqualTo(claimId);
 
-        mockMvc.perform(get(CLAIMS_URL + "/" + claimPid(claimId)).headers(authHeaders.buyer(USER_ID)))
+        mockMvc.perform(get(CLAIMS_URL + "/" + claimPid(claimId)).with(authHeaders.buyer(USER_ID)))
                 .andExpect(jsonPath("$.attachmentUrls.length()").value(2))
                 .andExpect(jsonPath("$.attachmentUrls[0]").value(secondUrl));
-        mockMvc.perform(get(ADMIN_CLAIMS_URL).headers(authHeaders.admin(ADMIN_ID)).param("type", "RETURN"))
+        mockMvc.perform(get(ADMIN_CLAIMS_URL).with(authHeaders.admin(ADMIN_ID)).param("type", "RETURN"))
                 .andExpect(jsonPath("$.items[0].attachmentCount").value(2));
-        mockMvc.perform(get("/api/v1/admin/orders/" + pid("ord_", "RTNORD")).headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(get("/api/v1/admin/orders/" + pid("ord_", "RTNORD")).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(jsonPath("$.items[0].claims[0].attachmentUrls.length()").value(2))
                 .andExpect(jsonPath("$.items[0].claims[0].attachmentUrls[0]").value(secondUrl));
-        // D-176 인가 서빙: 익명 404·클레임 소유 구매자 200·ADMIN 200(연결 첨부)
-        mockMvc.perform(get(secondUrl)).andExpect(status().isNotFound());
-        mockMvc.perform(get(secondUrl).headers(authHeaders.buyer(USER_ID))).andExpect(status().isOk());
-        mockMvc.perform(get(secondUrl).headers(authHeaders.admin(ADMIN_ID))).andExpect(status().isOk());
+        // D-176 인가 서빙(D-235 PR3 K5): 구매자 경로 익명 401·클레임 소유 구매자 200 / ADMIN은 관리자 별칭으로 200(연결 첨부)
+        mockMvc.perform(get(secondUrl)).andExpect(status().isUnauthorized());
+        mockMvc.perform(get(secondUrl).with(authHeaders.buyer(USER_ID))).andExpect(status().isOk());
+        mockMvc.perform(get(secondUrl.replaceFirst("^/api/v1/files/", "/api/v1/admin/files/")).with(authHeaders.admin(ADMIN_ID)))
+                .andExpect(status().isOk());
 
         // 이미 연결된 첨부 재사용 → 400(첨부 검증이 품목 상태 검증보다 앞)
-        mockMvc.perform(post(CLAIMS_URL).headers(authHeaders.buyer(USER_ID)).contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(post(CLAIMS_URL).with(authHeaders.buyer(USER_ID)).contentType(MediaType.APPLICATION_JSON)
                         .content(requestBody("RETURN", "PRODUCT_DEFECT", first)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
     }
 
     @Test
-    @DisplayName("T10 첨부 400/403: 단순변심 첨부·CANCEL 첨부·타인 파일·미존재·중복 id·6장 업로드 → 400 / SELLER 업로드 403 / 첨부 없는 불량 요청 201")
+    @DisplayName("T10 첨부 400/401: 단순변심 첨부·CANCEL 첨부·타인 파일·미존재·중복 id·6장 업로드 → 400 / SELLER 업로드 401 / 첨부 없는 불량 요청 201")
     void attachments_rejections() throws Exception {
         String mine = uploadOne(USER_ID, "mine.png");
         String others = uploadOne(OTHER_USER_ID, "others.png");
@@ -515,7 +516,7 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
                 requestBody("RETURN", "WRONG_PRODUCT", others),
                 requestBody("RETURN", "WRONG_PRODUCT", ATT_PID_UNKNOWN),
                 requestBody("RETURN", "WRONG_PRODUCT", mine, mine))) {
-            mockMvc.perform(post(CLAIMS_URL).headers(authHeaders.buyer(USER_ID)).contentType(MediaType.APPLICATION_JSON).content(body))
+            mockMvc.perform(post(CLAIMS_URL).with(authHeaders.buyer(USER_ID)).contentType(MediaType.APPLICATION_JSON).content(body))
                     .andExpect(status().isBadRequest());
         }
         assertThat(claimCount()).isZero();
@@ -525,13 +526,13 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
         for (int i = 0; i < 6; i++) {
             tooMany.file(new MockMultipartFile("files", "f" + i + ".png", "image/png", png()));
         }
-        mockMvc.perform(tooMany.headers(authHeaders.buyer(USER_ID))).andExpect(status().isBadRequest());
+        mockMvc.perform(tooMany.with(authHeaders.buyer(USER_ID))).andExpect(status().isBadRequest());
         mockMvc.perform(multipart(ATTACHMENTS_URL).file(new MockMultipartFile("files", "s.png", "image/png", png()))
-                        .headers(authHeaders.seller(SELLER_USER_ID)))
-                .andExpect(status().isForbidden());
+                        .with(authHeaders.seller(SELLER_USER_ID)))
+                .andExpect(status().isUnauthorized());
 
         // 사진은 선택 입력: 첨부 없는 불량 반품은 그대로 201
-        mockMvc.perform(post(CLAIMS_URL).headers(authHeaders.buyer(USER_ID)).contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(post(CLAIMS_URL).with(authHeaders.buyer(USER_ID)).contentType(MediaType.APPLICATION_JSON)
                         .content(requestBody("RETURN", "PRODUCT_DEFECT")))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.attachmentUrls.length()").value(0));
@@ -540,7 +541,7 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
     /** 구매자 사진 1장 업로드 → attachmentId(att_). */
     private String uploadOne(long userId, String fileName) throws Exception {
         String body = mockMvc.perform(multipart(ATTACHMENTS_URL).file(new MockMultipartFile("files", fileName, "image/png", png()))
-                        .headers(authHeaders.buyer(userId)))
+                        .with(authHeaders.buyer(userId)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.successCount").value(1))
                 .andReturn().getResponse().getContentAsString();
@@ -567,7 +568,7 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
         Long claimId = requestReturn();
         assertThat(orderItemStatus()).isEqualTo("RETURN_REQUESTED");
 
-        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid(claimId) + "/cancel").headers(authHeaders.buyer(USER_ID)))
+        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid(claimId) + "/cancel").with(authHeaders.buyer(USER_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("REJECTED"));
 
@@ -585,7 +586,7 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
     void cancelByBuyer_approved_returns422() throws Exception {
         Long claimId = approvedReturn();
 
-        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid(claimId) + "/cancel").headers(authHeaders.buyer(USER_ID)))
+        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid(claimId) + "/cancel").with(authHeaders.buyer(USER_ID)))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("CLAIM_STATE_INVALID"));
 
@@ -597,7 +598,7 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
     void cancelByBuyer_otherBuyer_returns404() throws Exception {
         Long claimId = requestReturn();
 
-        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid(claimId) + "/cancel").headers(authHeaders.buyer(OTHER_USER_ID)))
+        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid(claimId) + "/cancel").with(authHeaders.buyer(OTHER_USER_ID)))
                 .andExpect(status().isNotFound());
 
         assertThat(claimStatus(claimId)).isEqualTo("REQUESTED");
@@ -608,7 +609,7 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
     void registerReturnShipmentByAdmin_createsSameReturnDelivery() throws Exception {
         Long claimId = approvedReturn();
 
-        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid(claimId) + "/return-shipment").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid(claimId) + "/return-shipment").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(RETURN_SHIPMENT_BODY))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.carrier").value("CJ"))
@@ -620,7 +621,7 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT diff_json FROM audit_log WHERE target_type = 'DELIVERY' "
                 + "ORDER BY id DESC LIMIT 1", String.class)).contains("registeredOnBehalfOfBuyer");
         // 멈춰 있던 흐름이 이어진다.
-        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid(claimId) + "/confirm-pickup").headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid(claimId) + "/confirm-pickup").with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk());
     }
 
@@ -630,7 +631,7 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
         Long claimId = approvedReturn();
         registerReturnShipment(claimPid(claimId));
 
-        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid(claimId) + "/return-shipment").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid(claimId) + "/return-shipment").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(RETURN_SHIPMENT_BODY))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("CLAIM_STATE_INVALID"));
@@ -646,25 +647,25 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
         String claimPid = claimPid(claimId);
         String formatMessage = Delivery.TRACKING_NO_FORMAT_MESSAGE;
 
-        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/return-shipment").headers(authHeaders.buyer(USER_ID))
+        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/return-shipment").with(authHeaders.buyer(USER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"carrier\":\"CJ\",\"trackingNo\":\"ㅕㅕㅕ\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
                 .andExpect(jsonPath("$.fieldErrors[0].field").value("trackingNo"))
                 .andExpect(jsonPath("$.fieldErrors[0].message").value(formatMessage));
-        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid + "/return-shipment").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid + "/return-shipment").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"carrier\":\"CJ\",\"trackingNo\":\"RTN#TRACK01\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.fieldErrors[0].message").value(formatMessage));
         assertThat(returnDeliveryCount(claimId)).isZero();
 
-        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/return-shipment").headers(authHeaders.buyer(USER_ID))
+        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/return-shipment").with(authHeaders.buyer(USER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"carrier\":\"CJ\",\"trackingNo\":\"  RTN-TRACK-0001  \"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.trackingNo").value("RTN-TRACK-0001"));
         claimService.confirmPickupByAdmin(claimId, LocalDateTime.now(), AuditContext.of(9001L, "ADMIN"));
 
-        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid + "/inspect").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid + "/inspect").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"result\":\"FAIL\",\"rejectReasonCode\":\"INSPECTION_FAILED\","
                                 + "\"reshipCarrier\":\"HANJIN\",\"reshipTrackingNo\":\"RESHIP#0001\"}"))
                 .andExpect(status().isBadRequest())
@@ -672,7 +673,7 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.fieldErrors[0].message").value(formatMessage));
         assertThat(claimStatus(claimId)).isEqualTo("APPROVED");
 
-        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid + "/inspect").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid + "/inspect").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"result\":\"FAIL\",\"rejectReasonCode\":\"INSPECTION_FAILED\","
                                 + "\"reshipCarrier\":\"HANJIN\",\"reshipTrackingNo\":\" RESHIP-0001 \"}"))
                 .andExpect(status().isOk());
@@ -685,36 +686,36 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
     void adminClaimActions_recordAudit() throws Exception {
         // 거부 먼저 — 검수 PASS로 품목이 RETURNED가 되면 새 반품 요청을 만들 수 없다(재요청은 새 행·CLM-2).
         Long rejected = requestReturn();
-        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid(rejected) + "/reject").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid(rejected) + "/reject").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(REJECT_BODY))
                 .andExpect(status().isOk());
         assertThat(auditActions(rejected)).containsExactly("REJECT");
 
         Long approved = requestReturn();
-        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid(approved) + "/approve").headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid(approved) + "/approve").with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk());
         assertThat(auditActions(approved)).containsExactly("APPROVE");
 
         registerReturnShipment(claimPid(approved));
-        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid(approved) + "/confirm-pickup").headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid(approved) + "/confirm-pickup").with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk());
-        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid(approved) + "/inspect").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid(approved) + "/inspect").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(INSPECT_PASS_RESTOCK))
                 .andExpect(status().isOk());
         assertThat(auditActions(approved)).containsExactly("APPROVE", "UPDATE", "UPDATE");
     }
 
     @Test
-    @DisplayName("101-A T7 이력 조회: 관리자 200·최신순·페이징 / 비ADMIN 403 / 미존재 클레임 404")
+    @DisplayName("101-A T7 이력 조회: 관리자 200·최신순·페이징 / 비ADMIN 401 / 미존재 클레임 404")
     void claimAuditLogs_pagingAndAuthorization() throws Exception {
         Long claimId = requestReturn();
-        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid(claimId) + "/approve").headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid(claimId) + "/approve").with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk());
         registerReturnShipment(claimPid(claimId));
-        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid(claimId) + "/confirm-pickup").headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid(claimId) + "/confirm-pickup").with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(get(ADMIN_CLAIMS_URL + "/" + claimPid(claimId) + "/audit-logs").headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(get(ADMIN_CLAIMS_URL + "/" + claimPid(claimId) + "/audit-logs").with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(2))
                 .andExpect(jsonPath("$.items.length()").value(2))
@@ -723,16 +724,16 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.items[1].action").value("APPROVE"))
                 .andExpect(jsonPath("$.items[1].changes[0].field").value("status"));
 
-        mockMvc.perform(get(ADMIN_CLAIMS_URL + "/" + claimPid(claimId) + "/audit-logs").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(get(ADMIN_CLAIMS_URL + "/" + claimPid(claimId) + "/audit-logs").with(authHeaders.admin(ADMIN_ID))
                         .param("size", "1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items.length()").value(1))
                 .andExpect(jsonPath("$.hasNext").value(true));
 
-        mockMvc.perform(get(ADMIN_CLAIMS_URL + "/" + claimPid(claimId) + "/audit-logs").headers(authHeaders.buyer(USER_ID)))
-                .andExpect(status().isForbidden());
+        mockMvc.perform(get(ADMIN_CLAIMS_URL + "/" + claimPid(claimId) + "/audit-logs").with(authHeaders.buyer(USER_ID)))
+                .andExpect(status().isUnauthorized());
 
-        mockMvc.perform(get(ADMIN_CLAIMS_URL + "/" + pid("clm_", "NOTEXIST") + "/audit-logs").headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(get(ADMIN_CLAIMS_URL + "/" + pid("clm_", "NOTEXIST") + "/audit-logs").with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isNotFound());
     }
 
@@ -740,7 +741,7 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("101-A T8 취소 알림 문구: 구매자 취소 → TPL_CLAIM_CANCELLED \"요청이 취소되었습니다\" / 관리자 정책 거부 → TPL_CLAIM_REJECTED \"거부되었습니다·사유\"")
     void cancelAndReject_useDifferentSmsWording() throws Exception {
         Long cancelled = requestReturn();
-        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid(cancelled) + "/cancel").headers(authHeaders.buyer(USER_ID)))
+        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid(cancelled) + "/cancel").with(authHeaders.buyer(USER_ID)))
                 .andExpect(status().isOk());
 
         assertThat(smsContent(cancelled, "TPL_CLAIM_CANCELLED"))
@@ -749,7 +750,7 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
         assertThat(smsCount(cancelled, "TPL_CLAIM_REJECTED")).isZero();
 
         Long rejected = requestReturn();
-        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid(rejected) + "/reject").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid(rejected) + "/reject").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(REJECT_BODY))
                 .andExpect(status().isOk());
 
@@ -766,13 +767,13 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
         seed(() -> jdbc.update("INSERT INTO `user` (id, public_id, email, name, created_at, updated_at) "
                 + "VALUES (?, ?, ?, ?, NOW(6), NOW(6))", ADMIN_ID, pid("usr_", "RTNADM"), "adm@example.test", "감사운영자"));
         try {
-            mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid(claimId) + "/approve").headers(authHeaders.admin(ADMIN_ID)))
+            mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid(claimId) + "/approve").with(authHeaders.admin(ADMIN_ID)))
                     .andExpect(status().isOk());
             // 행위자 없는 자동 실행(AuditContext.system())과 회원 행이 사라진 과거 행을 같은 대상에 직접 적재한다.
             insertAuditRow(claimId, null, "SYSTEM");
             insertAuditRow(claimId, MISSING_ACTOR_ID, "ADMIN");
 
-            mockMvc.perform(get(ADMIN_CLAIMS_URL + "/" + claimPid(claimId) + "/audit-logs").headers(authHeaders.admin(ADMIN_ID)))
+            mockMvc.perform(get(ADMIN_CLAIMS_URL + "/" + claimPid(claimId) + "/audit-logs").with(authHeaders.admin(ADMIN_ID)))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.totalCount").value(3))
                     // 최신순: 회원 행 없는 ADMIN → SYSTEM → 실제 승인(운영자)
@@ -797,13 +798,13 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
         seed(() -> jdbc.update("INSERT INTO audit_log (public_id, actor_user_id, actor_role, action, target_type, target_id, "
                         + "diff_json, created_at) VALUES (?, ?, 'ADMIN', 'UPDATE', 'DELIVERY', ?, '{}', NOW(6))",
                 pid("aud_", "RTNAUDOUT"), ADMIN_ID, OUTBOUND_DELIVERY_ID));
-        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid(claimId) + "/return-shipment").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid(claimId) + "/return-shipment").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(RETURN_SHIPMENT_BODY))
                 .andExpect(status().isOk());
-        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid(claimId) + "/confirm-pickup").headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid(claimId) + "/confirm-pickup").with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(get(ADMIN_CLAIMS_URL + "/" + claimPid(claimId) + "/audit-logs").headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(get(ADMIN_CLAIMS_URL + "/" + claimPid(claimId) + "/audit-logs").with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(2))
                 // 최신순: 회수 확인(CLAIM UPDATE) → 대행 등록(DELIVERY CREATE)
@@ -812,7 +813,7 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.items[1].targetType").value("DELIVERY"))
                 .andExpect(jsonPath("$.items[1].action").value("CREATE"));
 
-        mockMvc.perform(get(ADMIN_CLAIMS_URL + "/" + claimPid(claimId) + "/audit-logs").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(get(ADMIN_CLAIMS_URL + "/" + claimPid(claimId) + "/audit-logs").with(authHeaders.admin(ADMIN_ID))
                         .param("size", "1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items.length()").value(1))
@@ -865,7 +866,7 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
     }
 
     private void registerReturnShipment(String claimPid) throws Exception {
-        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/return-shipment").headers(authHeaders.buyer(USER_ID))
+        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/return-shipment").with(authHeaders.buyer(USER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(RETURN_SHIPMENT_BODY))
                 .andExpect(status().isOk());
     }

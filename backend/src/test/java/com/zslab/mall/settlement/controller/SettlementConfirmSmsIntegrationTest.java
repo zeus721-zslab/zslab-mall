@@ -79,7 +79,7 @@ class SettlementConfirmSmsIntegrationTest extends AbstractIntegrationTest {
     void confirm_sendsToContactPhone() throws Exception {
         seed(CONTACT_PHONE, OWNER_PHONE);
 
-        mockMvc.perform(post(URL).headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(post(URL).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("CONFIRMED"));
 
@@ -96,7 +96,7 @@ class SettlementConfirmSmsIntegrationTest extends AbstractIntegrationTest {
     void confirm_fallsBackToOwnerPhone() throws Exception {
         seed(null, OWNER_PHONE);
 
-        mockMvc.perform(post(URL).headers(authHeaders.admin(ADMIN_ID))).andExpect(status().isOk());
+        mockMvc.perform(post(URL).with(authHeaders.admin(ADMIN_ID))).andExpect(status().isOk());
 
         verify(smsSender).send(eq(OWNER_PHONE), eq(EXPECTED_BODY));
         assertThat(notificationLog().get("recipient_user_id")).isEqualTo(OWNER_USER_ID);
@@ -107,7 +107,7 @@ class SettlementConfirmSmsIntegrationTest extends AbstractIntegrationTest {
     void confirm_skipsWhenNoRecipient() throws Exception {
         seed(null, null);
 
-        mockMvc.perform(post(URL).headers(authHeaders.admin(ADMIN_ID))).andExpect(status().isOk());
+        mockMvc.perform(post(URL).with(authHeaders.admin(ADMIN_ID))).andExpect(status().isOk());
 
         verify(smsSender, never()).send(any(), any());
         assertThat(jdbc.queryForObject("SELECT status FROM settlement WHERE id = ?", String.class, STL_ID)).isEqualTo("CONFIRMED");
@@ -121,7 +121,7 @@ class SettlementConfirmSmsIntegrationTest extends AbstractIntegrationTest {
         seed(CONTACT_PHONE, null);
         doThrow(new IllegalStateException("SMS 게이트웨이 장애")).when(smsSender).send(any(), any());
 
-        mockMvc.perform(post(URL).headers(authHeaders.admin(ADMIN_ID))).andExpect(status().isOk());
+        mockMvc.perform(post(URL).with(authHeaders.admin(ADMIN_ID))).andExpect(status().isOk());
 
         assertThat(jdbc.queryForObject("SELECT status FROM settlement WHERE id = ?", String.class, STL_ID)).isEqualTo("CONFIRMED");
         Map<String, Object> log = notificationLog();
@@ -134,7 +134,7 @@ class SettlementConfirmSmsIntegrationTest extends AbstractIntegrationTest {
     void confirm_skipsWithdrawnOwner() throws Exception {
         seedWithdrawnOwnerFirst(WITHDRAWN_OWNER_PHONE, OWNER_PHONE);
 
-        mockMvc.perform(post(URL).headers(authHeaders.admin(ADMIN_ID))).andExpect(status().isOk());
+        mockMvc.perform(post(URL).with(authHeaders.admin(ADMIN_ID))).andExpect(status().isOk());
 
         verify(smsSender).send(eq(OWNER_PHONE), eq(EXPECTED_BODY));
         verify(smsSender, never()).send(eq(WITHDRAWN_OWNER_PHONE), any());
@@ -146,7 +146,7 @@ class SettlementConfirmSmsIntegrationTest extends AbstractIntegrationTest {
     void confirm_skipsWhenOnlyWithdrawnOwnerHasPhone() throws Exception {
         seedWithdrawnOwnerFirst(WITHDRAWN_OWNER_PHONE, null);
 
-        mockMvc.perform(post(URL).headers(authHeaders.admin(ADMIN_ID))).andExpect(status().isOk());
+        mockMvc.perform(post(URL).with(authHeaders.admin(ADMIN_ID))).andExpect(status().isOk());
 
         verify(smsSender, never()).send(any(), any());
         assertThat(jdbc.queryForObject("SELECT status FROM settlement WHERE id = ?", String.class, STL_ID)).isEqualTo("CONFIRMED");

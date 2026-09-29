@@ -179,20 +179,20 @@ class FileUploadServingIntegrationTest extends AbstractIntegrationTest {
         for (int i = 0; i < 21; i++) {
             request.file(file("f" + i + ".png", "image/png", png));
         }
-        mockMvc.perform(request.headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(request.with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
         assertThat(countStoredFiles()).isZero();
-        mockMvc.perform(multipart(UPLOAD_URL).headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(multipart(UPLOAD_URL).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isBadRequest());
     }
 
     @Test
-    @DisplayName("인가: BUYER 403·미인증 401 → 저장 0")
+    @DisplayName("인가: BUYER 401·미인증 401 → 저장 0")
     void upload_forbiddenAndUnauthenticated() throws Exception {
         byte[] png = image(10, 10, "png");
-        mockMvc.perform(multipart(UPLOAD_URL).file(file("a.png", "image/png", png)).headers(authHeaders.buyer(BUYER_ID)))
-                .andExpect(status().isForbidden());
+        mockMvc.perform(multipart(UPLOAD_URL).file(file("a.png", "image/png", png)).with(authHeaders.buyer(BUYER_ID)))
+                .andExpect(status().isUnauthorized());
         mockMvc.perform(multipart(UPLOAD_URL).file(file("a.png", "image/png", png)))
                 .andExpect(status().isUnauthorized());
         assertThat(countStoredFiles()).isZero();
@@ -245,7 +245,7 @@ class FileUploadServingIntegrationTest extends AbstractIntegrationTest {
     private JsonNode upload(MockMultipartFile... files) throws Exception {
         MockMultipartHttpServletRequestBuilder request = multipart(UPLOAD_URL);
         Arrays.stream(files).forEach(request::file);
-        String body = mockMvc.perform(request.headers(authHeaders.admin(ADMIN_ID)))
+        String body = mockMvc.perform(request.with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         return objectMapper.readTree(body);
@@ -256,7 +256,7 @@ class FileUploadServingIntegrationTest extends AbstractIntegrationTest {
     }
 
     private void putImagesExpecting(String body, org.springframework.test.web.servlet.ResultMatcher expected) throws Exception {
-        mockMvc.perform(put("/api/v1/admin/products/" + PRODUCT_PID + "/images").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(put("/api/v1/admin/products/" + PRODUCT_PID + "/images").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(expected);
     }

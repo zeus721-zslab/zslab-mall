@@ -84,6 +84,10 @@ const SELLER_PATHS = [
 
 type WarmupRole = 'BUYER' | 'ADMIN' | 'SELLER'
 
+const CSRF_TOKEN_API_PATH = '/api/v1/auth/csrf'
+const XSRF_COOKIE_NAME = 'XSRF-TOKEN'
+const XSRF_HEADER_NAME = 'X-XSRF-TOKEN'
+
 interface RoleSession {
   loginApiPath: string
   emailEnv: string
@@ -171,7 +175,15 @@ async function loginAs(context: BrowserContext, baseUrl: string, role: WarmupRol
     return false
   }
   // context.request는 컨텍스트 쿠키 저장소를 공유하므로 BE Set-Cookie(역할 쿠키·XSRF-TOKEN)가 그대로 저장된다(helpers/login.ts와 같은 방식·D-235 F10).
-  const response = await context.request.post(`${baseUrl}${session.loginApiPath}`, { data: { email, password } })
+  // 로그인은 CSRF를 검증하므로 인증 전 토큰을 먼저 받아 헤더로 싣는다(D-235 PR3 K7).
+  const csrfResponse = await context.request.get(`${baseUrl}${CSRF_TOKEN_API_PATH}`)
+  if (!csrfResponse.ok()) throw new Error(`CSRF 토큰 발급 API ${csrfResponse.status()}`)
+  const csrfToken = (await context.cookies()).find((cookie) => cookie.name === XSRF_COOKIE_NAME)?.value
+  if (!csrfToken) throw new Error(`${XSRF_COOKIE_NAME} 쿠키 없음`)
+  const response = await context.request.post(`${baseUrl}${session.loginApiPath}`, {
+    data: { email, password },
+    headers: { [XSRF_HEADER_NAME]: csrfToken },
+  })
   if (!response.ok()) throw new Error(`${role} 로그인 API ${response.status()}`)
   return true
 }

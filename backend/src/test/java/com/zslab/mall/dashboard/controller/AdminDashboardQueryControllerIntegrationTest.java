@@ -151,11 +151,11 @@ class AdminDashboardQueryControllerIntegrationTest extends AbstractIntegrationTe
     }
 
     @Test
-    @DisplayName("T1 인가: 비인증 401 · BUYER 403 · ADMIN 200")
+    @DisplayName("T1 인가: 비인증 401 · BUYER 401 · ADMIN 200")
     void authorization() throws Exception {
         mockMvc.perform(get(URL)).andExpect(status().isUnauthorized());
-        mockMvc.perform(get(URL).headers(authHeaders.buyer(BUYER_TODAY))).andExpect(status().isForbidden());
-        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID))).andExpect(status().isOk());
+        mockMvc.perform(get(URL).with(authHeaders.buyer(BUYER_TODAY))).andExpect(status().isUnauthorized());
+        mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID))).andExpect(status().isOk());
     }
 
     @Test
@@ -414,7 +414,7 @@ class AdminDashboardQueryControllerIntegrationTest extends AbstractIntegrationTe
     // ---------- JSON helpers ----------
 
     private JsonNode fetch() throws Exception {
-        String body = mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)))
+        String body = mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         return objectMapper.readTree(body);

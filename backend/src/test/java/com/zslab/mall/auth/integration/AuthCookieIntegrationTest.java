@@ -32,8 +32,8 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * 역할별 HttpOnly 쿠키 인증(D-235·통합 검토 3번 PR1) 통합 테스트. 역할 로그인의 쿠키 발급·경로 접두사별 쿠키 선택·헤더 우선 불변식·
- * CSRF(쿠키가 자격증명일 때만)·역할별 로그아웃을 실 SecurityFilterChain으로 검증한다. 쿠키 이름은 서버 계약 그 자체라 문자열로 고정한다.
+ * 역할별 HttpOnly 쿠키 인증(D-235 PR1·PR3) 통합 테스트. 역할 로그인의 쿠키 발급·경로 접두사별 쿠키 선택·Authorization 헤더 무시·
+ * CSRF(로그인 + 쿠키가 자격증명일 때)·역할별 로그아웃을 실 SecurityFilterChain으로 검증한다. 쿠키 이름은 서버 계약 그 자체라 문자열로 고정한다.
  */
 @AutoConfigureMockMvc
 class AuthCookieIntegrationTest extends AbstractIntegrationTest {
@@ -87,7 +87,7 @@ class AuthCookieIntegrationTest extends AbstractIntegrationTest {
     // ---------- 역할 로그인·쿠키 발급 ----------
 
     @Test
-    @DisplayName("역할 로그인 3종: 구매자·셀러·관리자 각각 자기 쿠키 1건만 HttpOnly·Secure·SameSite=Lax·Max-Age=TTL·역할 Path로 발급 + 본문 token 유지")
+    @DisplayName("역할 로그인 3종: 구매자·셀러·관리자 각각 자기 쿠키 1건만 HttpOnly·Secure·SameSite=Lax·Max-Age=TTL·역할 Path로 발급 · 본문 token 없음(PR3 K2)")
     void roleLogins_issueOwnCookieOnly() throws Exception {
         assertIssuedCookie(login("/api/v1/auth/buyer/login", BUYER_EMAIL, null), BUYER_COOKIE, "/"); // D-235 개정 1: 구매자 Path "/"
         assertIssuedCookie(login("/api/v1/seller/auth/login", SELLER_EMAIL, null), SELLER_COOKIE, "/api/v1/seller");
@@ -97,9 +97,10 @@ class AuthCookieIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("역할이 없는 계정의 셀러·관리자 로그인 → 401 AUTHENTICATION_FAILED·쿠키 없음")
     void roleLogin_withoutRole_fails() throws Exception {
+        String csrf = fetchCsrfToken();
         for (String url : List.of("/api/v1/seller/auth/login", "/api/v1/admin/auth/login")) {
-            MvcResult result = mockMvc.perform(post(url).contentType(MediaType.APPLICATION_JSON)
-                            .content(loginBody(BUYER_EMAIL, null)))
+            MvcResult result = mockMvc.perform(post(url).cookie(new Cookie(CSRF_COOKIE, csrf)).header(CSRF_HEADER, csrf)
+                            .contentType(MediaType.APPLICATION_JSON).content(loginBody(BUYER_EMAIL, null)))
                     .andExpect(status().isUnauthorized())
                     .andExpect(jsonPath("$.code").value("AUTHENTICATION_FAILED"))
                     .andReturn();
@@ -108,15 +109,14 @@ class AuthCookieIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("기존 /api/v1/auth/login은 BUYER·SELLER·ADMIN 모든 role에서 200·본문 token이지만 쿠키는 발급하지 않는다(확장-수축)")
-    void legacyLogin_anyRole_issuesNoCookie() throws Exception {
-        String[][] accounts = {{BUYER_EMAIL, "BUYER"}, {SELLER_EMAIL, "SELLER"}, {ADMIN_EMAIL, "ADMIN"}};
-        for (String[] account : accounts) {
-            MvcResult result = mockMvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
-                            .content(loginBody(account[0], account[1])))
-                    .andExpect(status().isOk()).andExpect(jsonPath("$.token").exists()).andReturn();
-            assertThat(authCookieHeaders(result)).isEmpty();
-        }
+    @DisplayName("옛 공통 로그인 POST /api/v1/auth/login(본문 role)은 없다: 404·쿠키 없음(D-235 PR3 K3)")
+    void legacyLogin_isRemoved() throws Exception {
+        String csrf = fetchCsrfToken();
+        MvcResult result = mockMvc.perform(post("/api/v1/auth/login").cookie(new Cookie(CSRF_COOKIE, csrf))
+                        .header(CSRF_HEADER, csrf).contentType(MediaType.APPLICATION_JSON).content(loginBody(BUYER_EMAIL, "BUYER")))
+                .andExpect(status().isNotFound())
+                .andReturn();
+        assertThat(authCookieHeaders(result)).isEmpty();
     }
 
     // ---------- 경로 접두사별 쿠키 선택(D2) ----------
@@ -169,29 +169,24 @@ class AuthCookieIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("Authorization 헤더가 무효면 유효한 역할 쿠키가 있어도 401(쿠키로 대체 인증하지 않음)")
-    void invalidBearer_withValidCookie_isUnauthenticated() throws Exception {
-        expectUnauthenticated(get("/api/v1/users/me")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + INVALID_TOKEN).cookie(buyerCookie()));
-    }
-
-    @Test
-    @DisplayName("비-Bearer·빈 Authorization 헤더 + 유효 역할 쿠키 → GET 401 · CSRF 없는 unsafe도 403이 아니라 401(헤더가 있으면 쿠키 무시·CSRF 비적용)")
-    void nonBearerOrEmptyHeader_withValidCookie_isUnauthenticated() throws Exception {
-        for (String headerValue : List.of("Basic dXNlcjpwYXNz", "")) {
-            expectUnauthenticated(get("/api/v1/users/me").header(HttpHeaders.AUTHORIZATION, headerValue).cookie(buyerCookie()));
-            expectUnauthenticated(patch("/api/v1/users/me").header(HttpHeaders.AUTHORIZATION, headerValue).cookie(buyerCookie())
-                    .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"헤더\",\"phone\":\"010-3333-4444\"}"));
+    @DisplayName("Authorization 헤더(무효 Bearer·비-Bearer·빈 값)는 무시한다: 유효 역할 쿠키로 GET 200 · CSRF 없는 unsafe는 403(D-235 PR3 K1)")
+    void authorizationHeader_isIgnored() throws Exception {
+        for (String headerValue : List.of("Bearer " + INVALID_TOKEN, "Basic dXNlcjpwYXNz", "")) {
+            mockMvc.perform(get("/api/v1/users/me").header(HttpHeaders.AUTHORIZATION, headerValue).cookie(buyerCookie()))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.email").value(BUYER_EMAIL));
+            mockMvc.perform(patch("/api/v1/users/me").header(HttpHeaders.AUTHORIZATION, headerValue).cookie(buyerCookie())
+                            .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"헤더\",\"phone\":\"010-3333-4444\"}"))
+                    .andExpect(status().isForbidden());
         }
     }
 
     @Test
-    @DisplayName("유효 Bearer + 역할 쿠키 동시 · CSRF 토큰 없는 unsafe → Bearer로 성공(쿠키가 있어도 헤더 요청은 CSRF 면제)")
-    void bearerWithCookie_unsafe_isExemptFromCsrf() throws Exception {
-        mockMvc.perform(patch("/api/v1/users/me").headers(authHeaders.buyer(BUYER_ID)).cookie(buyerCookie(), adminCookie())
+    @DisplayName("유효 Bearer + 역할 쿠키 · CSRF 토큰 없는 unsafe → 403(Authorization 헤더는 CSRF를 면제하지 않는다·D-235 PR3 K1)")
+    void bearerWithCookie_unsafe_requiresCsrf() throws Exception {
+        mockMvc.perform(patch("/api/v1/users/me").header(HttpHeaders.AUTHORIZATION, validBearer()).cookie(buyerCookie())
                         .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"동시\",\"phone\":\"010-5555-6666\"}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.name").value("동시"));
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
     }
 
     @Test
@@ -238,7 +233,7 @@ class AuthCookieIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("셀러 별칭 PATCH /seller/me/password: 셀러 쿠키+CSRF → 204 / 구매자·관리자 쿠키 → 401 / 구매자 Bearer → 403")
+    @DisplayName("셀러 별칭 PATCH /seller/me/password: 셀러 쿠키+CSRF → 204 / 구매자·관리자 쿠키 → 401")
     void sellerPasswordAlias_sellerOnly() throws Exception {
         String csrf = fetchCsrfToken();
         String url = "/api/v1/seller/me/password";
@@ -247,11 +242,24 @@ class AuthCookieIntegrationTest extends AbstractIntegrationTest {
             expectUnauthenticated(patch(url).cookie(other, new Cookie(CSRF_COOKIE, csrf)).header(CSRF_HEADER, csrf)
                     .contentType(MediaType.APPLICATION_JSON).content(body));
         }
-        mockMvc.perform(patch(url).headers(authHeaders.buyer(BUYER_ID)).contentType(MediaType.APPLICATION_JSON).content(body))
-                .andExpect(status().isForbidden());
         mockMvc.perform(patch(url).cookie(sellerCookie(), new Cookie(CSRF_COOKIE, csrf)).header(CSRF_HEADER, csrf)
                         .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isNoContent());
+    }
+
+    @Test
+    @DisplayName("옛 셀러 경로(접두사 없는 prepare-shipment·mark-delivered)는 없다: 구매자 쿠키+CSRF → 404 RESOURCE_NOT_FOUND(D-235 PR3 K4)")
+    void legacySellerShippingPaths_removed() throws Exception {
+        String csrf = fetchCsrfToken();
+        mockMvc.perform(post("/api/v1/order-items/oit_NOTEXIST000000000000000000/prepare-shipment")
+                        .cookie(buyerCookie(), new Cookie(CSRF_COOKIE, csrf)).header(CSRF_HEADER, csrf)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"carrier\":\"CJ\",\"trackingNo\":\"123456789012\"}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
+        mockMvc.perform(post("/api/v1/deliveries/dlv_NOTEXIST000000000000000000/mark-delivered")
+                        .cookie(buyerCookie(), new Cookie(CSRF_COOKIE, csrf)).header(CSRF_HEADER, csrf))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
     }
 
     @Test
@@ -325,11 +333,11 @@ class AuthCookieIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("Bearer unsafe 요청은 CSRF 토큰 없이 성공(호환)")
-    void bearerUnsafe_isExemptFromCsrf() throws Exception {
-        mockMvc.perform(patch("/api/v1/users/me").headers(authHeaders.buyer(BUYER_ID))
-                        .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"베어러\",\"phone\":\"010-1111-2222\"}"))
-                .andExpect(status().isOk());
+    @DisplayName("유효 Bearer만 있는 요청은 인증 수단이 아니다: GET·unsafe 모두 401(D-235 PR3 K1)")
+    void bearerOnly_isUnauthenticated() throws Exception {
+        expectUnauthenticated(get("/api/v1/users/me").header(HttpHeaders.AUTHORIZATION, validBearer()));
+        expectUnauthenticated(patch("/api/v1/users/me").header(HttpHeaders.AUTHORIZATION, validBearer())
+                .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"베어러\",\"phone\":\"010-1111-2222\"}"));
     }
 
     @Test
@@ -355,34 +363,45 @@ class AuthCookieIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("로그인은 CSRF 면제: 기존 역할 쿠키가 있어도 토큰 없이 로그인 성공")
-    void login_isExemptFromCsrf_evenWithCookie() throws Exception {
-        mockMvc.perform(post("/api/v1/admin/auth/login").cookie(adminCookie())
-                        .contentType(MediaType.APPLICATION_JSON).content(loginBody(ADMIN_EMAIL, null)))
-                .andExpect(status().isOk());
-        mockMvc.perform(post("/api/v1/auth/buyer/login").cookie(buyerCookie())
-                        .contentType(MediaType.APPLICATION_JSON).content(loginBody(BUYER_EMAIL, null)))
-                .andExpect(status().isOk());
-    }
-
-    @Test
-    @DisplayName("역할 로그인 3종 성공 응답(CSRF 헤더·쿠키 없이 200)에 XSRF-TOKEN Set-Cookie가 있고 속성은 전역 발급(공개 GET)과 같다(D-235 개정 2)")
-    void roleLogins_issueXsrfTokenCookie() throws Exception {
-        String globalAttributes = csrfCookieAttributes(mockMvc.perform(get("/api/v1/categories"))
-                .andExpect(status().isOk()).andReturn());
-        assertThat(globalAttributes).isNotNull();
+    @DisplayName("역할 로그인 3종은 역할 쿠키 유무와 관계없이 CSRF 토큰이 없으면 403 FORBIDDEN·역할 쿠키 미발급(D-235 PR3 K7)")
+    void roleLogins_withoutCsrfToken_forbidden() throws Exception {
         String[][] logins = {{"/api/v1/auth/buyer/login", BUYER_EMAIL}, {"/api/v1/seller/auth/login", SELLER_EMAIL},
                 {"/api/v1/admin/auth/login", ADMIN_EMAIL}};
         for (String[] roleLogin : logins) {
-            assertThat(csrfCookieAttributes(login(roleLogin[0], roleLogin[1], null))).as(roleLogin[0]).isEqualTo(globalAttributes);
+            for (Cookie[] cookies : List.of(new Cookie[0], new Cookie[] {buyerCookie(), sellerCookie(), adminCookie()})) {
+                MockHttpServletRequestBuilder request = post(roleLogin[0])
+                        .contentType(MediaType.APPLICATION_JSON).content(loginBody(roleLogin[1], null));
+                if (cookies.length > 0) {
+                    request.cookie(cookies);
+                }
+                MvcResult result = mockMvc.perform(request)
+                        .andExpect(status().isForbidden())
+                        .andExpect(jsonPath("$.code").value("FORBIDDEN"))
+                        .andReturn();
+                assertThat(authCookieHeaders(result)).as(roleLogin[0]).isEmpty();
+            }
         }
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/auth/csrf: 204·본문 없음·XSRF-TOKEN Set-Cookie 속성은 전역 발급(공개 GET)과 같다(D-235 PR3 K7)")
+    void csrfEndpoint_issuesXsrfTokenCookie() throws Exception {
+        String globalAttributes = csrfCookieAttributes(mockMvc.perform(get("/api/v1/categories"))
+                .andExpect(status().isOk()).andReturn());
+        assertThat(globalAttributes).isNotNull();
+        MvcResult result = mockMvc.perform(get("/api/v1/auth/csrf"))
+                .andExpect(status().isNoContent())
+                .andReturn();
+        assertThat(result.getResponse().getContentAsString()).isEmpty();
+        assertThat(csrfCookieAttributes(result)).isEqualTo(globalAttributes);
     }
 
     @Test
     @DisplayName("구매자 쿠키 로그인은 BUYER 역할이 없는 계정(셀러 전용)이면 401·쿠키 없음")
     void buyerLogin_withoutBuyerRole_fails() throws Exception {
-        MvcResult result = mockMvc.perform(post("/api/v1/auth/buyer/login").contentType(MediaType.APPLICATION_JSON)
-                        .content(loginBody(SELLER_EMAIL, null)))
+        String csrf = fetchCsrfToken();
+        MvcResult result = mockMvc.perform(post("/api/v1/auth/buyer/login").cookie(new Cookie(CSRF_COOKIE, csrf))
+                        .header(CSRF_HEADER, csrf).contentType(MediaType.APPLICATION_JSON).content(loginBody(SELLER_EMAIL, null)))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("AUTHENTICATION_FAILED"))
                 .andReturn();
@@ -415,6 +434,20 @@ class AuthCookieIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("요청에 XSRF-TOKEN이 없는 로그아웃 3종: 204·만료 역할 쿠키와 새 XSRF-TOKEN Set-Cookie가 함께 나간다(D-235 PR3 K8·addHeader 발급)")
+    void logout_withoutXsrfCookie_keepsIssuedXsrfToken() throws Exception {
+        String[][] roles = {{"/api/v1/auth/logout", BUYER_COOKIE}, {"/api/v1/seller/auth/logout", SELLER_COOKIE},
+                {"/api/v1/admin/auth/logout", ADMIN_COOKIE}};
+        for (String[] role : roles) {
+            MvcResult result = mockMvc.perform(post(role[0]))
+                    .andExpect(status().isNoContent())
+                    .andReturn();
+            assertThat(authCookieHeaders(result)).as(role[0]).singleElement().asString().startsWith(role[1] + "=").contains("Max-Age=0");
+            assertThat(csrfCookieAttributes(result)).as(role[0]).isNotNull();
+        }
+    }
+
+    @Test
     @DisplayName("프레임워크 기본 /logout 비활성(S6): GET·POST /logout은 역할 쿠키를 만료시키지 않는다")
     void defaultLogout_isDisabled() throws Exception {
         Cookie[] all = {buyerCookie(), sellerCookie(), adminCookie()};
@@ -428,10 +461,17 @@ class AuthCookieIntegrationTest extends AbstractIntegrationTest {
     // ---------- helpers ----------
 
     private MvcResult login(String url, String email, String role) throws Exception {
-        return mockMvc.perform(post(url).contentType(MediaType.APPLICATION_JSON).content(loginBody(email, role)))
+        String csrf = fetchCsrfToken();
+        return mockMvc.perform(post(url).cookie(new Cookie(CSRF_COOKIE, csrf)).header(CSRF_HEADER, csrf)
+                        .contentType(MediaType.APPLICATION_JSON).content(loginBody(email, role)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.token").exists())
+                .andExpect(jsonPath("$.token").doesNotExist())
+                .andExpect(jsonPath("$.passwordChangeRequired").isBoolean())
                 .andReturn();
+    }
+
+    private String validBearer() {
+        return "Bearer " + tokenProvider.issue(BUYER_ID, ActorRole.BUYER);
     }
 
     private void assertIssuedCookie(MvcResult result, String name, String path) {

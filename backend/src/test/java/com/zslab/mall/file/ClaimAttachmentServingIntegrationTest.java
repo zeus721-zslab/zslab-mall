@@ -39,9 +39,10 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * 클레임 첨부 인가 서빙 통합 테스트(Track 82 D-176·실 MariaDB·임시 업로드 루트). claim(요청자 OWNER)·attachment 행·파일을 직접 심고
- * GET /api/v1/files/claims/** 를 Bearer·admin_token·auth_token 후보별로 호출해 열람 규칙(연결: claim.requested_by·ADMIN / 미연결: 업로더만 /
- * 셀러는 품목 소유 셀러만(Track 90-D-1·소속 없음·타 셀러 거부) / _thumb 동일·후보 정확히 1건)과 거부 404 통일·캐시 금지 헤더·쿠키 비인식 경계(그 외 경로·메서드)·인코딩 경로를 검증한다.
+ * 클레임 첨부 인가 서빙 통합 테스트(Track 82 D-176·D-235 PR3 K5·실 MariaDB·임시 업로드 루트). claim(요청자 OWNER)·attachment 행·파일을 직접 심고
+ * 구매자 경로 GET /api/v1/files/claims/**(구매자 역할 쿠키)와 셀러·관리자 별칭(/api/v1/{seller|admin}/files/claims/**)으로 열람 규칙(연결:
+ * claim.requested_by·ADMIN / 미연결: 업로더만 / 셀러는 품목 소유 셀러만(Track 90-D-1·소속 없음·타 셀러 거부) / _thumb 동일·후보 정확히 1건)과
+ * 익명·회원 상태 거부 401 · 열람 권한 없음·미존재 404 통일·캐시 금지 헤더·인코딩 경로를 검증한다.
  * 연결 첨부의 uploaded_by는 클레임 요청자와 다른 UPLOADER_ID로 심어 판정 기준이 claim.requested_by임을 드러낸다(외부 검토 반영).
  * claim·order_item 시드는 FK 때문에 FOREIGN_KEY_CHECKS=0 TX에서 하고 try-finally로 =1 복원한다. 품목 ORDER_ITEM_ID는 셀러 A 소유이며 셀러 B는 타 셀러다.
  */
@@ -73,8 +74,9 @@ class ClaimAttachmentServingIntegrationTest extends AbstractIntegrationTest {
     private static final String NO_ROW_KEY = "claims/2026/09/01T82NOROW0000000000000001.png";
     private static final String PRODUCT_KEY = "products/2026/09/01T82PRODUCT000000000000001.png";
     private static final String FILES_URL = "/api/v1/files/";
+    private static final String SELLER_FILES_URL = "/api/v1/seller/files/";
+    private static final String ADMIN_FILES_URL = "/api/v1/admin/files/";
     private static final String NO_STORE_PRIVATE = "no-store, private";
-    private static final String INVALID_TOKEN = "not.a.jwt";
 
     @TempDir
     static Path uploadRoot;
@@ -118,73 +120,68 @@ class ClaimAttachmentServingIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("연결 첨부: 익명 → 404 FILE_NOT_FOUND / 타 구매자 Bearer → 404 / 클레임 요청자 Bearer → 200 / auth_token 쿠키만 → 200 / uploaded_by 주체(≠requested_by) → 404")
+    @DisplayName("연결 첨부(구매자 경로): 익명 → 401 / 타 구매자 → 404 / 클레임 요청자 → 200 / uploaded_by 주체(≠requested_by) → 404")
     void linkedAttachment_claimRequesterOrNothing() throws Exception {
-        expectNotFound(get(FILES_URL + LINKED_KEY));
-        expectNotFound(get(FILES_URL + LINKED_KEY).headers(authHeaders.buyer(OTHER_BUYER_ID)));
-        expectOk(get(FILES_URL + LINKED_KEY).headers(authHeaders.buyer(OWNER_ID)));
-        expectOk(get(FILES_URL + LINKED_KEY).cookie(authCookie(OWNER_ID, ActorRole.BUYER)));
-        expectNotFound(get(FILES_URL + LINKED_KEY).cookie(authCookie(OTHER_BUYER_ID, ActorRole.BUYER)));
-        expectNotFound(get(FILES_URL + LINKED_KEY).headers(authHeaders.buyer(UPLOADER_ID)));
-        expectNotFound(get(FILES_URL + LINKED_KEY).cookie(authCookie(UPLOADER_ID, ActorRole.BUYER)));
+        mockMvc.perform(get(FILES_URL + LINKED_KEY)).andExpect(status().isUnauthorized());
+        expectNotFound(get(FILES_URL + LINKED_KEY).with(authHeaders.buyer(OTHER_BUYER_ID)));
+        expectOk(get(FILES_URL + LINKED_KEY).with(authHeaders.buyer(OWNER_ID)));
+        expectNotFound(get(FILES_URL + LINKED_KEY).with(authHeaders.buyer(UPLOADER_ID)));
     }
 
     @Test
-    @DisplayName("연결 첨부: 대상 클레임 행 없음 → 요청자·ADMIN 모두 404")
+    @DisplayName("연결 첨부: 대상 클레임 행 없음 → 요청자(구매자 경로)·ADMIN(관리자 별칭) 모두 404")
     void linkedAttachment_missingClaim_rejected() throws Exception {
         jdbc.update("DELETE FROM claim WHERE id = ?", CLAIM_ID);
-        expectNotFound(get(FILES_URL + LINKED_KEY).headers(authHeaders.buyer(OWNER_ID)));
-        expectNotFound(get(FILES_URL + LINKED_KEY).headers(authHeaders.admin(ADMIN_ID)));
+        expectNotFound(get(FILES_URL + LINKED_KEY).with(authHeaders.buyer(OWNER_ID)));
+        expectNotFound(get(ADMIN_FILES_URL + LINKED_KEY).with(authHeaders.admin(ADMIN_ID)));
     }
 
     @Test
-    @DisplayName("ADMIN admin_token 쿠키: 연결 첨부 → 200 / 미연결 첨부 → 404 (ADMIN도 미연결은 불가)")
+    @DisplayName("ADMIN(관리자 별칭): 연결 첨부 → 200 / 미연결 첨부 → 404 (ADMIN도 미연결은 불가)")
     void admin_linkedOnly() throws Exception {
-        expectOk(get(FILES_URL + LINKED_KEY).cookie(adminCookie(ADMIN_ID)));
-        expectOk(get(FILES_URL + LINKED_KEY).headers(authHeaders.admin(ADMIN_ID)));
-        expectNotFound(get(FILES_URL + UNLINKED_KEY).cookie(adminCookie(ADMIN_ID)));
-        expectNotFound(get(FILES_URL + UNLINKED_KEY).headers(authHeaders.admin(ADMIN_ID)));
+        expectOk(get(ADMIN_FILES_URL + LINKED_KEY).with(authHeaders.admin(ADMIN_ID)));
+        expectNotFound(get(ADMIN_FILES_URL + UNLINKED_KEY).with(authHeaders.admin(ADMIN_ID)));
     }
 
     @Test
     @DisplayName("미연결 첨부: 업로더 본인 → 200 / 타 구매자 → 404")
     void unlinkedAttachment_uploaderOnly() throws Exception {
-        expectOk(get(FILES_URL + UNLINKED_KEY).headers(authHeaders.buyer(OWNER_ID)));
-        expectOk(get(FILES_URL + UNLINKED_KEY).cookie(authCookie(OWNER_ID, ActorRole.BUYER)));
-        expectNotFound(get(FILES_URL + UNLINKED_KEY).headers(authHeaders.buyer(OTHER_BUYER_ID)));
+        expectOk(get(FILES_URL + UNLINKED_KEY).with(authHeaders.buyer(OWNER_ID)));
+        expectNotFound(get(FILES_URL + UNLINKED_KEY).with(authHeaders.buyer(OTHER_BUYER_ID)));
     }
 
     @Test
-    @DisplayName("셀러 본인(품목 seller_id 소속·Track 90-D-1): 연결 첨부 Bearer → 200 / _thumb → 200 / 미연결 → 404(어떤 클레임에도 속하지 않음)")
+    @DisplayName("셀러 본인(셀러 별칭·품목 seller_id 소속·Track 90-D-1): 연결 첨부 → 200 / _thumb → 200 / 미연결 → 404(어떤 클레임에도 속하지 않음)")
     void seller_owningItem_allowedForLinkedOnly() throws Exception {
-        expectOk(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(SELLER_A_USER_ID)));
-        expectOk(get(FILES_URL + LINKED_THUMB_KEY).headers(authHeaders.seller(SELLER_A_USER_ID)));
-        expectNotFound(get(FILES_URL + UNLINKED_KEY).headers(authHeaders.seller(SELLER_A_USER_ID)));
+        expectOk(get(SELLER_FILES_URL + LINKED_KEY).with(authHeaders.seller(SELLER_A_USER_ID)));
+        expectOk(get(SELLER_FILES_URL + LINKED_THUMB_KEY).with(authHeaders.seller(SELLER_A_USER_ID)));
+        expectNotFound(get(SELLER_FILES_URL + UNLINKED_KEY).with(authHeaders.seller(SELLER_A_USER_ID)));
     }
 
     @Test
-    @DisplayName("셀러 소속·상태 fail-closed(외부 검토 r1·Q1): seller soft-delete → 404 / TERMINATED·PENDING → 404 / SUSPENDED → 200(조회 허용·D-190) / seller_user 행 제거 → 404 / 품목 seller_id 변경 → 404")
+    @DisplayName("셀러 소속·상태 fail-closed(셀러 별칭·외부 검토 r1·Q1): seller soft-delete → 404 / TERMINATED·PENDING → 404 / SUSPENDED → 200(조회 허용·D-190) / seller_user 행 제거 → 404 / 품목 seller_id 변경 → 404")
     void seller_membershipAndStatus_failClosed() throws Exception {
+        String url = SELLER_FILES_URL + LINKED_KEY;
         // seller soft-delete: findMembershipByUserId가 seller를 조인(@SQLRestriction deleted_at IS NULL)하므로 empty → 거부
         jdbc.update("UPDATE seller SET deleted_at = NOW(6) WHERE id = ?", SELLER_A_ID);
-        expectNotFound(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(SELLER_A_USER_ID)));
+        expectNotFound(get(url).with(authHeaders.seller(SELLER_A_USER_ID)));
         jdbc.update("UPDATE seller SET deleted_at = NULL WHERE id = ?", SELLER_A_ID);
-        expectOk(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(SELLER_A_USER_ID)));
+        expectOk(get(url).with(authHeaders.seller(SELLER_A_USER_ID)));
         // 세션 불허 상태(SellerAccessPolicy.isSessionAllowed=false)
         for (String status : new String[] {"TERMINATED", "PENDING"}) {
             jdbc.update("UPDATE seller SET status = ? WHERE id = ?", status, SELLER_A_ID);
-            expectNotFound(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(SELLER_A_USER_ID)));
+            expectNotFound(get(url).with(authHeaders.seller(SELLER_A_USER_ID)));
         }
         // SUSPENDED는 조회 세션이 유효(정지 셀러는 조회만 가능) → 열람 허용
         jdbc.update("UPDATE seller SET status = 'SUSPENDED' WHERE id = ?", SELLER_A_ID);
-        expectOk(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(SELLER_A_USER_ID)));
+        expectOk(get(url).with(authHeaders.seller(SELLER_A_USER_ID)));
         jdbc.update("UPDATE seller SET status = 'ACTIVE' WHERE id = ?", SELLER_A_ID);
         // 구성원 관계 제거(seller_user에는 deleted_at이 없어 물리 삭제가 곧 탈퇴)
         jdbc.update("DELETE FROM seller_user WHERE user_id = ?", SELLER_A_USER_ID);
-        expectNotFound(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(SELLER_A_USER_ID)));
+        expectNotFound(get(url).with(authHeaders.seller(SELLER_A_USER_ID)));
         jdbc.update("INSERT INTO seller_user (user_id, seller_id, role_id, created_at, updated_at) "
                 + "SELECT ?, ?, id, NOW(6), NOW(6) FROM role WHERE code = 'SELLER_OWNER'", SELLER_A_USER_ID, SELLER_A_ID);
-        expectOk(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(SELLER_A_USER_ID)));
+        expectOk(get(url).with(authHeaders.seller(SELLER_A_USER_ID)));
         // 품목이 다른 셀러 소유로 바뀌면(order_item에는 soft-delete가 없다) 소유 셀러였던 A도 거부
         tx.executeWithoutResult(status -> {
             jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
@@ -194,100 +191,95 @@ class ClaimAttachmentServingIntegrationTest extends AbstractIntegrationTest {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
             }
         });
-        expectNotFound(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(SELLER_A_USER_ID)));
-        expectOk(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(SELLER_B_USER_ID)));
+        expectNotFound(get(url).with(authHeaders.seller(SELLER_A_USER_ID)));
+        expectOk(get(url).with(authHeaders.seller(SELLER_B_USER_ID)));
     }
 
     @Test
     @DisplayName("첨부 soft-delete(외부 검토 r1·Q1): deleted_at 설정 시 구매자 소유자·ADMIN·소유 셀러 모두 404(@SQLRestriction으로 행 자체가 조회되지 않음) · claim에는 soft-delete 컬럼이 없어 대상 아님")
     void softDeletedAttachment_rejectedForAllRoles() throws Exception {
         jdbc.update("UPDATE attachment SET deleted_at = NOW(6) WHERE id = ?", LINKED_ATTACHMENT_ID);
-        expectNotFound(get(FILES_URL + LINKED_KEY).headers(authHeaders.buyer(OWNER_ID)));
-        expectNotFound(get(FILES_URL + LINKED_KEY).headers(authHeaders.admin(ADMIN_ID)));
-        expectNotFound(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(SELLER_A_USER_ID)));
-        expectNotFound(get(FILES_URL + LINKED_THUMB_KEY).headers(authHeaders.admin(ADMIN_ID)));
+        expectNotFound(get(FILES_URL + LINKED_KEY).with(authHeaders.buyer(OWNER_ID)));
+        expectNotFound(get(ADMIN_FILES_URL + LINKED_KEY).with(authHeaders.admin(ADMIN_ID)));
+        expectNotFound(get(SELLER_FILES_URL + LINKED_KEY).with(authHeaders.seller(SELLER_A_USER_ID)));
+        expectNotFound(get(ADMIN_FILES_URL + LINKED_THUMB_KEY).with(authHeaders.admin(ADMIN_ID)));
         jdbc.update("UPDATE attachment SET deleted_at = NULL WHERE id = ?", LINKED_ATTACHMENT_ID);
-        expectOk(get(FILES_URL + LINKED_KEY).headers(authHeaders.admin(ADMIN_ID)));
+        expectOk(get(ADMIN_FILES_URL + LINKED_KEY).with(authHeaders.admin(ADMIN_ID)));
     }
 
     @Test
-    @DisplayName("회원 상태(외부 검토 r1·Q1·AuthenticatedUserStateVerifier): 탈퇴(withdrawn_at)·삭제(deleted_at) 셀러 user → 404 / credentials_changed_at 이후 발급 토큰만 유효(이전 발급 → 404) / 탈퇴한 구매자 소유자 → 404")
+    @DisplayName("회원 상태(AuthenticatedUserStateVerifier·필터): 탈퇴(withdrawn_at)·삭제(deleted_at) 셀러 user → 401 / credentials_changed_at 이전 발급 토큰 → 401·이후 발급 → 200 / 탈퇴한 구매자 소유자 → 401")
     void userState_rejectedOnAttachmentPath() throws Exception {
-        expectOk(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(SELLER_A_USER_ID)));
+        String sellerUrl = SELLER_FILES_URL + LINKED_KEY;
+        expectOk(get(sellerUrl).with(authHeaders.seller(SELLER_A_USER_ID)));
         jdbc.update("UPDATE `user` SET withdrawn_at = NOW(6) WHERE id = ?", SELLER_A_USER_ID);
-        expectNotFound(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(SELLER_A_USER_ID)));
+        mockMvc.perform(get(sellerUrl).with(authHeaders.seller(SELLER_A_USER_ID))).andExpect(status().isUnauthorized());
         jdbc.update("UPDATE `user` SET withdrawn_at = NULL, deleted_at = NOW(6) WHERE id = ?", SELLER_A_USER_ID);
-        expectNotFound(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(SELLER_A_USER_ID)));
+        mockMvc.perform(get(sellerUrl).with(authHeaders.seller(SELLER_A_USER_ID))).andExpect(status().isUnauthorized());
         jdbc.update("UPDATE `user` SET deleted_at = NULL WHERE id = ?", SELLER_A_USER_ID);
-        // 자격증명 갱신: 갱신 시각보다 iat가 앞선 토큰은 거부 — 필터를 건너뛰는 첨부 경로도 verifyQuietly가 같은 검증을 적용.
-        // DB 세션 NOW()와 JVM(Asia/Seoul) 벽시계가 다를 수 있어 경계는 고정 시각(먼 미래·먼 과거)으로 둔다.
+        // 자격증명 갱신: 갱신 시각보다 iat가 앞선 토큰은 거부. DB 세션 NOW()와 JVM(Asia/Seoul) 벽시계가 다를 수 있어 경계는 고정 시각(먼 미래·먼 과거)으로 둔다.
         jdbc.update("UPDATE `user` SET credentials_changed_at = '2099-01-01 00:00:00' WHERE id = ?", SELLER_A_USER_ID);
-        expectNotFound(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(SELLER_A_USER_ID)));
+        mockMvc.perform(get(sellerUrl).with(authHeaders.seller(SELLER_A_USER_ID))).andExpect(status().isUnauthorized());
         jdbc.update("UPDATE `user` SET credentials_changed_at = '2000-01-01 00:00:00' WHERE id = ?", SELLER_A_USER_ID);
-        expectOk(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(SELLER_A_USER_ID)));
+        expectOk(get(sellerUrl).with(authHeaders.seller(SELLER_A_USER_ID)));
         // 구매자 소유자(요청자)도 같은 검증을 탄다 — user 행을 만들어 탈퇴 처리
         jdbc.update("INSERT INTO `user` (id, public_id, withdrawn_at, created_at, updated_at) VALUES (?, ?, NOW(6), NOW(6), NOW(6))",
                 OWNER_ID, "usr_" + ("T82OWNER" + "00000000000000000000000000").substring(0, 26));
-        expectNotFound(get(FILES_URL + LINKED_KEY).headers(authHeaders.buyer(OWNER_ID)));
-        expectNotFound(get(FILES_URL + LINKED_KEY).cookie(authCookie(OWNER_ID, ActorRole.BUYER)));
+        mockMvc.perform(get(FILES_URL + LINKED_KEY).with(authHeaders.buyer(OWNER_ID))).andExpect(status().isUnauthorized());
     }
 
     @Test
-    @DisplayName("셀러 거부: 타 셀러 구성원 → 연결·미연결 404 / 소속 없는 SELLER JWT(클레임 요청자와 같은 user id라도) → 404 / 타 셀러 쿠키 → 404")
+    @DisplayName("셀러 거부(셀러 별칭): 타 셀러 구성원 → 연결·미연결 404 / 소속 없는 SELLER JWT(클레임 요청자와 같은 user id라도) → 404")
     void seller_otherOrUnaffiliated_rejected() throws Exception {
-        expectNotFound(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(SELLER_B_USER_ID)));
-        expectNotFound(get(FILES_URL + UNLINKED_KEY).headers(authHeaders.seller(SELLER_B_USER_ID)));
-        expectNotFound(get(FILES_URL + LINKED_KEY).headers(authHeaders.seller(OWNER_ID)));
-        expectNotFound(get(FILES_URL + UNLINKED_KEY).headers(authHeaders.seller(OWNER_ID)));
-        expectNotFound(get(FILES_URL + LINKED_KEY).cookie(authCookie(SELLER_B_USER_ID, ActorRole.SELLER)));
+        expectNotFound(get(SELLER_FILES_URL + LINKED_KEY).with(authHeaders.seller(SELLER_B_USER_ID)));
+        expectNotFound(get(SELLER_FILES_URL + UNLINKED_KEY).with(authHeaders.seller(SELLER_B_USER_ID)));
+        expectNotFound(get(SELLER_FILES_URL + LINKED_KEY).with(authHeaders.seller(OWNER_ID)));
+        expectNotFound(get(SELLER_FILES_URL + UNLINKED_KEY).with(authHeaders.seller(OWNER_ID)));
     }
 
     @Test
-    @DisplayName("후보 독립 평가: 무효 admin_token + 유효 소유자 auth_token → 200 / 무효 Bearer + 유효 auth_token → 200(401 아님) / 무효만 → 404")
-    void candidates_evaluatedIndependently() throws Exception {
-        expectOk(get(FILES_URL + LINKED_KEY)
-                .cookie(new Cookie("admin_token", INVALID_TOKEN), authCookie(OWNER_ID, ActorRole.BUYER)));
-        expectOk(get(FILES_URL + LINKED_KEY)
-                .header("Authorization", "Bearer " + INVALID_TOKEN)
-                .cookie(authCookie(OWNER_ID, ActorRole.BUYER)));
-        expectNotFound(get(FILES_URL + LINKED_KEY)
-                .header("Authorization", "Bearer " + INVALID_TOKEN)
-                .cookie(new Cookie("admin_token", INVALID_TOKEN), new Cookie("auth_token", INVALID_TOKEN)));
+    @DisplayName("옛 첨부 경로는 구매자 경로(D-235 PR3 K5): 익명 → 401 · 셀러·관리자 역할 쿠키만 → 401(구매자 쿠키로 판정·다른 역할 쿠키 미사용)")
+    void legacyPath_buyerOnly_othersUnauthenticated() throws Exception {
+        mockMvc.perform(get(FILES_URL + LINKED_KEY)).andExpect(status().isUnauthorized());
+        mockMvc.perform(get(FILES_URL + LINKED_KEY).cookie(sellerRoleCookie(SELLER_A_USER_ID))).andExpect(status().isUnauthorized());
+        mockMvc.perform(get(FILES_URL + LINKED_KEY).cookie(adminRoleCookie(ADMIN_ID))).andExpect(status().isUnauthorized());
     }
 
     @Test
-    @DisplayName("_thumb 키: 원본 행 규칙 그대로 — 요청자 200·ADMIN 200·타인 404·익명 404 / 지원하지 않는 썸네일 확장자(.gif) → 404 / 원본 후보 2건(png·webp 동시 존재) → 404")
+    @DisplayName("옛 인증 수단은 읽지 않는다(D-235 PR3 K1·K6): 요청자 토큰을 auth_token·admin_token 쿠키나 Bearer로 보내면 401 / 무효 Bearer + 유효 구매자 쿠키 → 200(헤더 무시)")
+    void legacyCredentials_notRecognized() throws Exception {
+        String ownerToken = tokenProvider.issue(OWNER_ID, ActorRole.BUYER);
+        mockMvc.perform(get(FILES_URL + LINKED_KEY).cookie(new Cookie("auth_token", ownerToken))).andExpect(status().isUnauthorized());
+        mockMvc.perform(get(FILES_URL + LINKED_KEY).cookie(new Cookie("admin_token", tokenProvider.issue(ADMIN_ID, ActorRole.ADMIN))))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get(FILES_URL + LINKED_KEY).header("Authorization", "Bearer " + ownerToken)).andExpect(status().isUnauthorized());
+        expectOk(get(FILES_URL + LINKED_KEY).header("Authorization", "Bearer not.a.jwt").cookie(buyerRoleCookie(OWNER_ID)));
+    }
+
+    @Test
+    @DisplayName("_thumb 키: 원본 행 규칙 그대로 — 요청자 200·ADMIN 200·타인 404·익명 401 / 지원하지 않는 썸네일 확장자(.gif) → 404 / 원본 후보 2건(png·webp 동시 존재) → 404")
     void thumbnail_followsOriginalRow_exactlyOneCandidate() throws Exception {
-        expectOk(get(FILES_URL + LINKED_THUMB_KEY).headers(authHeaders.buyer(OWNER_ID)));
-        expectOk(get(FILES_URL + LINKED_THUMB_KEY).cookie(adminCookie(ADMIN_ID)));
-        expectNotFound(get(FILES_URL + LINKED_THUMB_KEY).headers(authHeaders.buyer(OTHER_BUYER_ID)));
-        expectNotFound(get(FILES_URL + LINKED_THUMB_KEY));
+        expectOk(get(FILES_URL + LINKED_THUMB_KEY).with(authHeaders.buyer(OWNER_ID)));
+        expectOk(get(ADMIN_FILES_URL + LINKED_THUMB_KEY).with(authHeaders.admin(ADMIN_ID)));
+        expectNotFound(get(FILES_URL + LINKED_THUMB_KEY).with(authHeaders.buyer(OTHER_BUYER_ID)));
+        mockMvc.perform(get(FILES_URL + LINKED_THUMB_KEY)).andExpect(status().isUnauthorized());
 
         writeStoredFile(LINKED_THUMB_UNSUPPORTED_KEY); // 파일이 있어도 인가 단계에서 거부
-        expectNotFound(get(FILES_URL + LINKED_THUMB_UNSUPPORTED_KEY).headers(authHeaders.buyer(OWNER_ID)));
+        expectNotFound(get(FILES_URL + LINKED_THUMB_UNSUPPORTED_KEY).with(authHeaders.buyer(OWNER_ID)));
 
         // 같은 base의 webp 원본 행이 추가되면 _thumb.png 후보가 2건 → 정확히 1건이 아니므로 요청자·ADMIN 모두 404(원본 png 자체는 영향 없음)
         seedAttachment(TWIN_ATTACHMENT_ID, UPLOADER_ID, CLAIM_ID, FILES_URL + LINKED_WEBP_TWIN_KEY);
-        expectNotFound(get(FILES_URL + LINKED_THUMB_KEY).headers(authHeaders.buyer(OWNER_ID)));
-        expectNotFound(get(FILES_URL + LINKED_THUMB_KEY).cookie(adminCookie(ADMIN_ID)));
-        expectOk(get(FILES_URL + LINKED_KEY).headers(authHeaders.buyer(OWNER_ID)));
+        expectNotFound(get(FILES_URL + LINKED_THUMB_KEY).with(authHeaders.buyer(OWNER_ID)));
+        expectNotFound(get(ADMIN_FILES_URL + LINKED_THUMB_KEY).with(authHeaders.admin(ADMIN_ID)));
+        expectOk(get(FILES_URL + LINKED_KEY).with(authHeaders.buyer(OWNER_ID)));
     }
 
     @Test
-    @DisplayName("후보 조합: 유효하지만 권한 없는 타 구매자 Bearer + 요청자 auth_token → 200 / 미연결: 유효 admin_token + 업로더 auth_token → 200")
-    void candidates_validButUnauthorizedDoesNotBlockOthers() throws Exception {
-        expectOk(get(FILES_URL + LINKED_KEY).headers(authHeaders.buyer(OTHER_BUYER_ID)).cookie(authCookie(OWNER_ID, ActorRole.BUYER)));
-        expectOk(get(FILES_URL + UNLINKED_KEY).cookie(adminCookie(ADMIN_ID), authCookie(OWNER_ID, ActorRole.BUYER)));
-    }
-
-    @Test
-    @DisplayName("인코딩 경로 GET /api/v1/files/%63laims/... + 무효 Bearer + 유효 요청자 쿠키 → 정상 경로와 동일 200 / 익명 → 404 (필터 skip·permitAll·컨트롤러 분기가 디코딩 경로로 일치)")
+    @DisplayName("인코딩 경로 GET /api/v1/files/%63laims/... + 요청자 구매자 쿠키 → 정상 경로와 동일 200 / 익명 → 401 (쿠키 선택·hasRole(BUYER)·컨트롤러 분기가 디코딩 경로로 일치)")
     void encodedPath_sameAsPlainPath() throws Exception {
         // 문자열 템플릿은 MockMvc가 %를 다시 인코딩(%2563)해 firewall 400이 되므로 URI 객체로 raw 경로를 그대로 보낸다.
-        expectOk(get(URI.create(FILES_URL + LINKED_KEY_ENCODED))
-                .header("Authorization", "Bearer " + INVALID_TOKEN)
-                .cookie(authCookie(OWNER_ID, ActorRole.BUYER)));
-        expectNotFound(get(URI.create(FILES_URL + LINKED_KEY_ENCODED)));
+        expectOk(get(URI.create(FILES_URL + LINKED_KEY_ENCODED)).with(authHeaders.buyer(OWNER_ID)));
+        mockMvc.perform(get(URI.create(FILES_URL + LINKED_KEY_ENCODED))).andExpect(status().isUnauthorized());
     }
 
     @Test
@@ -301,15 +293,15 @@ class ClaimAttachmentServingIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("미존재: 행 없는 파일(고아) → 404 / 행은 있고 파일 없음 → 404 / 200·404 모두 Cache-Control no-store, private 단일 헤더")
     void notFound_andCacheHeaders() throws Exception {
-        expectNotFound(get(FILES_URL + NO_ROW_KEY).headers(authHeaders.admin(ADMIN_ID)));
+        expectNotFound(get(ADMIN_FILES_URL + NO_ROW_KEY).with(authHeaders.admin(ADMIN_ID)));
         Files.delete(uploadRoot.resolve(UNLINKED_KEY));
-        expectNotFound(get(FILES_URL + UNLINKED_KEY).headers(authHeaders.buyer(OWNER_ID)));
+        expectNotFound(get(FILES_URL + UNLINKED_KEY).with(authHeaders.buyer(OWNER_ID)));
 
-        assertThat(mockMvc.perform(get(FILES_URL + LINKED_KEY).headers(authHeaders.buyer(OWNER_ID)))
+        assertThat(mockMvc.perform(get(FILES_URL + LINKED_KEY).with(authHeaders.buyer(OWNER_ID)))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getHeaders("Cache-Control"))
                 .containsExactly(NO_STORE_PRIVATE);
-        assertThat(mockMvc.perform(get(FILES_URL + LINKED_KEY))
+        assertThat(mockMvc.perform(get(FILES_URL + LINKED_KEY).with(authHeaders.buyer(OTHER_BUYER_ID)))
                 .andExpect(status().isNotFound())
                 .andReturn().getResponse().getHeaders("Cache-Control"))
                 .containsExactly(NO_STORE_PRIVATE);
@@ -325,6 +317,30 @@ class ClaimAttachmentServingIntegrationTest extends AbstractIntegrationTest {
         mockMvc.perform(get(FILES_URL + PRODUCT_KEY))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Cache-Control", "max-age=31536000, public, immutable"));
+    }
+
+    @Test
+    @DisplayName("관리자 별칭 GET /api/v1/admin/files/claims/**: 관리자 역할 쿠키 → 연결 200·no-store / 미연결 404 / 구매자 쿠키만 → 401 / 옛 admin_token → 401")
+    void adminAlias_adminRoleCookie() throws Exception {
+        String url = ADMIN_FILES_URL + LINKED_KEY;
+        mockMvc.perform(get(url).cookie(adminRoleCookie(ADMIN_ID)))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", NO_STORE_PRIVATE));
+        expectOk(get(ADMIN_FILES_URL + LINKED_THUMB_KEY).cookie(adminRoleCookie(ADMIN_ID)));
+        expectNotFound(get(ADMIN_FILES_URL + UNLINKED_KEY).cookie(adminRoleCookie(ADMIN_ID)));
+        mockMvc.perform(get(url).cookie(buyerRoleCookie(OWNER_ID))).andExpect(status().isUnauthorized());
+        mockMvc.perform(get(url).cookie(new Cookie("admin_token", tokenProvider.issue(ADMIN_ID, ActorRole.ADMIN))))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("셀러 별칭 GET /api/v1/seller/files/claims/**: 소유 셀러 역할 쿠키 → 200 / 타 셀러 404 / 관리자·구매자 쿠키만 → 401")
+    void sellerAlias_sellerRoleCookie() throws Exception {
+        String url = SELLER_FILES_URL + LINKED_KEY;
+        expectOk(get(url).cookie(sellerRoleCookie(SELLER_A_USER_ID)));
+        expectNotFound(get(url).cookie(sellerRoleCookie(SELLER_B_USER_ID)));
+        mockMvc.perform(get(url).cookie(adminRoleCookie(ADMIN_ID))).andExpect(status().isUnauthorized());
+        mockMvc.perform(get(url).with(authHeaders.buyer(OWNER_ID))).andExpect(status().isUnauthorized());
     }
 
     // ==================== helpers ====================
@@ -343,29 +359,6 @@ class ClaimAttachmentServingIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(header().string("Cache-Control", NO_STORE_PRIVATE));
     }
 
-    @Test
-    @DisplayName("관리자 별칭 GET /api/v1/admin/files/claims/**: 관리자 역할 쿠키 → 연결 200·no-store / 미연결 404 / 구매자 쿠키만 → 401 / 옛 admin_token → 401")
-    void adminAlias_adminRoleCookie() throws Exception {
-        String url = "/api/v1/admin/files/" + LINKED_KEY;
-        mockMvc.perform(get(url).cookie(adminRoleCookie(ADMIN_ID)))
-                .andExpect(status().isOk())
-                .andExpect(header().string("Cache-Control", NO_STORE_PRIVATE));
-        expectOk(get("/api/v1/admin/files/" + LINKED_THUMB_KEY).cookie(adminRoleCookie(ADMIN_ID)));
-        expectNotFound(get("/api/v1/admin/files/" + UNLINKED_KEY).cookie(adminRoleCookie(ADMIN_ID)));
-        mockMvc.perform(get(url).cookie(buyerRoleCookie(OWNER_ID))).andExpect(status().isUnauthorized());
-        mockMvc.perform(get(url).cookie(adminCookie(ADMIN_ID))).andExpect(status().isUnauthorized());
-    }
-
-    @Test
-    @DisplayName("셀러 별칭 GET /api/v1/seller/files/claims/**: 소유 셀러 역할 쿠키 → 200 / 타 셀러 404 / 관리자 쿠키만 → 401 / 구매자 Bearer → 403")
-    void sellerAlias_sellerRoleCookie() throws Exception {
-        String url = "/api/v1/seller/files/" + LINKED_KEY;
-        expectOk(get(url).cookie(sellerRoleCookie(SELLER_A_USER_ID)));
-        expectNotFound(get(url).cookie(sellerRoleCookie(SELLER_B_USER_ID)));
-        mockMvc.perform(get(url).cookie(adminRoleCookie(ADMIN_ID))).andExpect(status().isUnauthorized());
-        mockMvc.perform(get(url).headers(authHeaders.buyer(OWNER_ID))).andExpect(status().isForbidden());
-    }
-
     private Cookie buyerRoleCookie(long actorId) {
         return new Cookie("__Secure-buyer_at", tokenProvider.issue(actorId, ActorRole.BUYER));
     }
@@ -376,14 +369,6 @@ class ClaimAttachmentServingIntegrationTest extends AbstractIntegrationTest {
 
     private Cookie adminRoleCookie(long actorId) {
         return new Cookie("__Secure-admin_at", tokenProvider.issue(actorId, ActorRole.ADMIN));
-    }
-
-    private Cookie authCookie(long actorId, ActorRole role) {
-        return new Cookie("auth_token", tokenProvider.issue(actorId, role));
-    }
-
-    private Cookie adminCookie(long actorId) {
-        return new Cookie("admin_token", tokenProvider.issue(actorId, ActorRole.ADMIN));
     }
 
     /** order_item FK는 FOREIGN_KEY_CHECKS=0으로 우회(클레임 요청자만 필요). try-finally로 =1 복원. */

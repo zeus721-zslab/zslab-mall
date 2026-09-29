@@ -72,7 +72,7 @@ class MockPaymentCallbackIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("본인 주문 SUCCESS → 200·Payment PAID(provider MOCK_PG·pgTid mocktid_ 서버 생성)·Order PAID·재고 확정")
     void ownOrder_success_200() throws Exception {
         mockMvc.perform(post(ENDPOINT)
-                        .headers(authHeaders.buyer(BUYER_ID))
+                        .with(authHeaders.buyer(BUYER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("SUCCESS")))
                 .andExpect(status().isOk());
@@ -89,7 +89,7 @@ class MockPaymentCallbackIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("타인 주문 → 404(은닉)·Payment PENDING 유지")
     void otherBuyer_404() throws Exception {
         mockMvc.perform(post(ENDPOINT)
-                        .headers(authHeaders.buyer(OTHER_BUYER_ID))
+                        .with(authHeaders.buyer(OTHER_BUYER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("SUCCESS")))
                 .andExpect(status().isNotFound())
@@ -114,7 +114,7 @@ class MockPaymentCallbackIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("존재하지 않는 attemptKey → 404(은닉)")
     void unknownAttemptKey_404() throws Exception {
         mockMvc.perform(post(ENDPOINT)
-                        .headers(authHeaders.buyer(BUYER_ID))
+                        .with(authHeaders.buyer(BUYER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("SUCCESS").replace(ATTEMPT_KEY, "pat_track93_unknown_001")))
                 .andExpect(status().isNotFound())
@@ -133,7 +133,7 @@ class MockPaymentCallbackIntegrationTest extends AbstractIntegrationTest {
         });
 
         mockMvc.perform(post(ENDPOINT)
-                        .headers(authHeaders.buyer(BUYER_ID))
+                        .with(authHeaders.buyer(BUYER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("CANCEL")))
                 .andExpect(status().isUnprocessableEntity())
@@ -153,7 +153,7 @@ class MockPaymentCallbackIntegrationTest extends AbstractIntegrationTest {
         });
 
         mockMvc.perform(post(ENDPOINT)
-                        .headers(authHeaders.buyer(BUYER_ID))
+                        .with(authHeaders.buyer(BUYER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("SUCCESS")))
                 .andExpect(status().isUnprocessableEntity())
@@ -171,14 +171,14 @@ class MockPaymentCallbackIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("SUCCESS 2회 → 2회차 200 멱등 NO-OP·재고 차감 1회(history 1)·결제완료 알림 1회·Order PAID 유지")
     void success_twice_idempotent() throws Exception {
         mockMvc.perform(post(ENDPOINT)
-                        .headers(authHeaders.buyer(BUYER_ID))
+                        .with(authHeaders.buyer(BUYER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("SUCCESS")))
                 .andExpect(status().isOk());
         String firstPgTid = pgTid();
 
         mockMvc.perform(post(ENDPOINT)
-                        .headers(authHeaders.buyer(BUYER_ID))
+                        .with(authHeaders.buyer(BUYER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("SUCCESS")))
                 .andExpect(status().isOk());
@@ -196,7 +196,7 @@ class MockPaymentCallbackIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("callbackType 누락 → 400 VALIDATION_FAILED")
     void missingCallbackType_400() throws Exception {
         mockMvc.perform(post(ENDPOINT)
-                        .headers(authHeaders.buyer(BUYER_ID))
+                        .with(authHeaders.buyer(BUYER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"attemptKey\": \"" + ATTEMPT_KEY + "\"}"))
                 .andExpect(status().isBadRequest())

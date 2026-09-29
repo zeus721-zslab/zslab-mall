@@ -97,7 +97,7 @@ class BuyerOrderClaimTabIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("T1 주문 목록 배지: 활성 클레임만 유형별 건수(CANCEL 1·RETURN 1·EXCHANGE 1)·종결 2건 제외")
     void orderList_activeClaimCounts() throws Exception {
-        mockMvc.perform(get(ORDERS_URL).headers(authHeaders.buyer(BUYER_USER)).param("size", "20"))
+        mockMvc.perform(get(ORDERS_URL).with(authHeaders.buyer(BUYER_USER)).param("size", "20"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath(MINE_PATH + ".activeClaims.length()").value(3))
                 .andExpect(jsonPath(MINE_PATH + ".activeClaims[?(@.claimType == 'CANCEL')].count").value(1))
@@ -108,7 +108,7 @@ class BuyerOrderClaimTabIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("T2 클레임 목록: 관리자 대행 생성(requested_by=관리자) 건도 구매자 목록에 보인다(기준 = 주문 구매자)")
     void claimList_includesAdminCreated() throws Exception {
-        mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.buyer(BUYER_USER)).param("size", "20"))
+        mockMvc.perform(get(CLAIMS_URL).with(authHeaders.buyer(BUYER_USER)).param("size", "20"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(5))
                 .andExpect(jsonPath("$.items[?(@.publicId == '" + claimPid(9930) + "')].claimType").value("CANCEL"));
@@ -117,7 +117,7 @@ class BuyerOrderClaimTabIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("T3 클레임 목록: 타인 주문의 클레임은 제외된다")
     void claimList_excludesOtherBuyer() throws Exception {
-        mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.buyer(OTHER_BUYER)).param("size", "20"))
+        mockMvc.perform(get(CLAIMS_URL).with(authHeaders.buyer(OTHER_BUYER)).param("size", "20"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].publicId").value(claimPid(9935)));
@@ -126,7 +126,7 @@ class BuyerOrderClaimTabIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("T4 유형 필터: type=RETURN → 반품만(활성·종결 모두)")
     void claimList_typeFilter() throws Exception {
-        mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.buyer(BUYER_USER)).param("type", "RETURN"))
+        mockMvc.perform(get(CLAIMS_URL).with(authHeaders.buyer(BUYER_USER)).param("type", "RETURN"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(3))
                 .andExpect(jsonPath("$.items[?(@.claimType != 'RETURN')]").doesNotExist());
@@ -135,7 +135,7 @@ class BuyerOrderClaimTabIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("T5 정렬: 요청 시각 내림차순(최신 먼저)")
     void claimList_sortedByRequestedAtDesc() throws Exception {
-        mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.buyer(BUYER_USER)).param("size", "20"))
+        mockMvc.perform(get(CLAIMS_URL).with(authHeaders.buyer(BUYER_USER)).param("size", "20"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].publicId").value(claimPid(9934)))
                 .andExpect(jsonPath("$.items[4].publicId").value(claimPid(9930)));
@@ -144,7 +144,7 @@ class BuyerOrderClaimTabIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("T6 요약 응답: 주문번호·상품명이 채워진다(배치 조립)")
     void claimList_carriesOrderNoAndProductName() throws Exception {
-        mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.buyer(BUYER_USER)).param("type", "EXCHANGE"))
+        mockMvc.perform(get(CLAIMS_URL).with(authHeaders.buyer(BUYER_USER)).param("type", "EXCHANGE"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].orderNo").value(ORDER_NO_MINE))
                 .andExpect(jsonPath("$.items[0].productName").value("탭통합상품"));
@@ -157,12 +157,12 @@ class BuyerOrderClaimTabIntegrationTest extends AbstractIntegrationTest {
         statistics.setStatisticsEnabled(true);
 
         statistics.clear();
-        mockMvc.perform(get(ORDERS_URL).headers(authHeaders.buyer(BUYER_USER)).param("size", "20"))
+        mockMvc.perform(get(ORDERS_URL).with(authHeaders.buyer(BUYER_USER)).param("size", "20"))
                 .andExpect(status().isOk());
         assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(ORDER_LIST_QUERY_BUDGET);
 
         statistics.clear();
-        mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.buyer(BUYER_USER)).param("size", "20"))
+        mockMvc.perform(get(CLAIMS_URL).with(authHeaders.buyer(BUYER_USER)).param("size", "20"))
                 .andExpect(status().isOk());
         assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(CLAIM_LIST_QUERY_BUDGET);
 

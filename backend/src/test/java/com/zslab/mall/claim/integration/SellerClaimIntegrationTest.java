@@ -15,7 +15,6 @@ import com.zslab.mall.claim.event.ClaimRejected;
 import com.zslab.mall.order.enums.OrderItemStatus;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,12 +29,12 @@ import com.zslab.mall.support.AbstractIntegrationTest;
 
 /**
  * 셀러 클레임 처리 endpoint 제거 반전 통합 테스트(Track 92·D-196). "셀러는 조회만·처리는 관리자"가 확정이므로
- * {@code POST /api/v1/claims/{id}/approve · /reject · /confirm-pickup · /inspect}는 셀러 토큰으로 403(SecurityConfig BUYER
- * 광범위 규칙)이어야 하며, 인가·endpoint가 되살아나면 200/422로 RED가 난다(STEP 701에서 매처 복원으로 RED 재현 확인).
+ * {@code POST /api/v1/claims/{id}/approve · /reject · /confirm-pickup · /inspect}는 매핑이 없어야 하며, 경로 역할 쿠키(구매자)로
+ * 호출하면 404 RESOURCE_NOT_FOUND다. endpoint가 되살아나면 404가 아닌 응답으로 RED가 난다.
  *
- * <p><b>단언 경계</b>: 403·클레임 상태 유지·milestone 컬럼 NULL 유지·이벤트 0건까지만 본다. 관리자 처리 정상 경로는
- * AdminClaimIntegrationTest·ClaimReturnIntegrationTest 책임이다. 404 단언은 채택하지 않는다(경로 부재 NoResourceFoundException이
- * GlobalExceptionHandler catch-all에 걸려 500이 될 수 있음).
+ * <p><b>단언 경계</b>: 404·클레임 상태 유지·milestone 컬럼 NULL 유지·이벤트 0건까지만 본다. 관리자 처리 정상 경로는
+ * AdminClaimIntegrationTest·ClaimReturnIntegrationTest 책임이다. 셀러 쿠키는 {@code /api/v1/claims/**}에서 읽히지 않아(D-235 PR3)
+ * 엔드포인트 유무와 무관하게 401이므로 부재 판정에 쓰지 않는다(false-green).
  *
  * <p><b>트랜잭션·시드(β)</b>: 단일 트랜잭션(@Transactional)으로 종료 시 롤백한다. order_item은 product/variant/seller
  * FK 상위 그래프를 요구하므로(V1__init.sql) {@code SET FOREIGN_KEY_CHECKS=0}으로 order·order_item·claim만 시딩한다
@@ -49,8 +48,6 @@ class SellerClaimIntegrationTest extends AbstractIntegrationTest {
 
     private static final long BUYER = 9501L;
     private static final long SELLER_A = 9001L; // 품목 소유 셀러
-    // Track 36 γ Phase 3: actorId(JWT subject)를 seller_id와 다른 값으로 둔다 — user.id==seller.id 우연일치 은폐 제거.
-    private static final long SELLER_A_USER = 9051L; // SELLER_A 소속 user(actorId)
 
     @Autowired
     private MockMvc mockMvc;
@@ -64,20 +61,11 @@ class SellerClaimIntegrationTest extends AbstractIntegrationTest {
     @PersistenceContext
     private EntityManager entityManager;
 
-    @BeforeEach
-    void seedSellerUsers() {
-        // 소유 셀러의 실 매핑(seller_user·ACTIVE seller)을 시드해 403이 "소유 셀러라도 차단"임을 보장한다(행 부재 401과 구분).
-        seed(() -> {
-            seedSeller(SELLER_A, pid("slr_", "SCISLA"));
-            seedSellerUser(SELLER_A_USER, SELLER_A);
-        });
-    }
-
-    // ===== R1~R4: 셀러 처리 endpoint 제거 반전(Track 92) — 인가가 되살아나면 200으로 RED =====
+    // ===== R1~R4: 셀러 처리 endpoint 제거 반전(Track 92) — endpoint가 되살아나면 404가 아니게 되어 RED =====
 
     @Test
-    @DisplayName("R1 승인: 소유 셀러 토큰 → 403 FORBIDDEN·REQUESTED 유지·ClaimApproved 0건(Track 92 셀러 처리 endpoint 제거)")
-    void approve_ownerSellerToken_returns403_noTransition() throws Exception {
+    @DisplayName("R1 승인: 구매자 쿠키 → 404 RESOURCE_NOT_FOUND·REQUESTED 유지·ClaimApproved 0건(Track 92 셀러 처리 endpoint 제거)")
+    void approve_buyerCookie_returns404_noTransition() throws Exception {
         long orderId = 9631L;
         long orderItemId = 9632L;
         long claimId = 9633L;
@@ -89,17 +77,17 @@ class SellerClaimIntegrationTest extends AbstractIntegrationTest {
         });
 
         mockMvc.perform(post("/api/v1/claims/" + claimPid + "/approve")
-                        .headers(authHeaders.seller(SELLER_A_USER)))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+                        .with(authHeaders.buyer(BUYER)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
 
         assertThat(claimStatus(claimId)).isEqualTo("REQUESTED");
         assertThat(events.stream(ClaimApproved.class).count()).isZero();
     }
 
     @Test
-    @DisplayName("R2 거부: 소유 셀러 토큰 → 403 FORBIDDEN·REQUESTED 유지·ClaimRejected 0건(Track 92)")
-    void reject_ownerSellerToken_returns403_noTransition() throws Exception {
+    @DisplayName("R2 거부: 구매자 쿠키 → 404 RESOURCE_NOT_FOUND·REQUESTED 유지·ClaimRejected 0건(Track 92)")
+    void reject_buyerCookie_returns404_noTransition() throws Exception {
         long orderId = 9641L;
         long orderItemId = 9642L;
         long claimId = 9643L;
@@ -111,18 +99,18 @@ class SellerClaimIntegrationTest extends AbstractIntegrationTest {
         });
 
         mockMvc.perform(post("/api/v1/claims/" + claimPid + "/reject")
-                        .headers(authHeaders.seller(SELLER_A_USER))
+                        .with(authHeaders.buyer(BUYER))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"reasonCode\":\"OUT_OF_POLICY\",\"memo\":\"차단 확인\"}"))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
 
         assertThat(claimStatus(claimId)).isEqualTo("REQUESTED");
         assertThat(events.stream(ClaimRejected.class).count()).isZero();
     }
 
     @Test
-    @DisplayName("R3 회수 확인: 소유 셀러 토큰 → 403 FORBIDDEN·picked_up_at NULL 유지·ClaimPickedUp 0건(Track 92)")
-    void confirmPickup_ownerSellerToken_returns403_noTransition() throws Exception {
+    @DisplayName("R3 회수 확인: 구매자 쿠키 → 404 RESOURCE_NOT_FOUND·picked_up_at NULL 유지·ClaimPickedUp 0건(Track 92)")
+    void confirmPickup_buyerCookie_returns404_noTransition() throws Exception {
         long orderId = 9651L;
         long orderItemId = 9652L;
         long claimId = 9653L;
@@ -134,9 +122,9 @@ class SellerClaimIntegrationTest extends AbstractIntegrationTest {
         });
 
         mockMvc.perform(post("/api/v1/claims/" + claimPid + "/confirm-pickup")
-                        .headers(authHeaders.seller(SELLER_A_USER)))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+                        .with(authHeaders.buyer(BUYER)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
 
         assertThat(claimStatus(claimId)).isEqualTo("APPROVED");
         assertThat(claimColumn(claimId, "picked_up_at")).isNull();
@@ -144,8 +132,8 @@ class SellerClaimIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("R4 검수: 소유 셀러 토큰 → 403 FORBIDDEN·inspected_at NULL 유지·ClaimInspectionPassed 0건(Track 92)")
-    void inspect_ownerSellerToken_returns403_noTransition() throws Exception {
+    @DisplayName("R4 검수: 구매자 쿠키 → 404 RESOURCE_NOT_FOUND·inspected_at NULL 유지·ClaimInspectionPassed 0건(Track 92)")
+    void inspect_buyerCookie_returns404_noTransition() throws Exception {
         long orderId = 9661L;
         long orderItemId = 9662L;
         long claimId = 9663L;
@@ -157,10 +145,10 @@ class SellerClaimIntegrationTest extends AbstractIntegrationTest {
         });
 
         mockMvc.perform(post("/api/v1/claims/" + claimPid + "/inspect")
-                        .headers(authHeaders.seller(SELLER_A_USER))
+                        .with(authHeaders.buyer(BUYER))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"result\":\"PASS\",\"restock\":true}"))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
 
         assertThat(claimStatus(claimId)).isEqualTo("APPROVED");
         assertThat(claimColumn(claimId, "inspected_at")).isNull();
@@ -223,24 +211,6 @@ class SellerClaimIntegrationTest extends AbstractIntegrationTest {
                 .setParameter(5, reasonDetail)
                 .setParameter(6, status.name())
                 .setParameter(7, requestedBy)
-                .executeUpdate();
-    }
-
-    private void seedSeller(long sellerId, String publicId) {
-        entityManager.createNativeQuery(
-                        "INSERT INTO seller (id, public_id, company_name, ceo_name, status, created_at, updated_at) "
-                                + "VALUES (?1, ?2, '클레임셀러', '대표', 'ACTIVE', NOW(6), NOW(6))")
-                .setParameter(1, sellerId)
-                .setParameter(2, publicId)
-                .executeUpdate();
-    }
-
-    private void seedSellerUser(long userId, long sellerId) {
-        entityManager.createNativeQuery(
-                        "INSERT INTO seller_user (user_id, seller_id, role_id, created_at, updated_at) "
-                                + "SELECT ?1, ?2, id, NOW(6), NOW(6) FROM role WHERE code = 'SELLER_OWNER'")
-                .setParameter(1, userId)
-                .setParameter(2, sellerId)
                 .executeUpdate();
     }
 

@@ -3,9 +3,11 @@ package com.zslab.mall.user.integration;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.cookie;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.zslab.mall.common.security.AuthCookies;
 import com.zslab.mall.common.security.AuthHeaders;
 import java.sql.Timestamp;
 import org.junit.jupiter.api.AfterEach;
@@ -19,6 +21,7 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import com.zslab.mall.support.AbstractIntegrationTest;
@@ -37,7 +40,7 @@ import com.zslab.mall.support.AbstractIntegrationTest;
 class WithdrawControllerIntegrationTest extends AbstractIntegrationTest {
 
     private static final String URL = "/api/v1/users/me/withdraw";
-    private static final String LOGIN_URL = "/api/v1/auth/login";
+    private static final String LOGIN_URL = "/api/v1/auth/buyer/login";
 
     private static final long WITHDRAW_USER_ID = 9680L;
     private static final long ORDER_ACTIVE_ID = 96801L;
@@ -77,7 +80,7 @@ class WithdrawControllerIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("(1) 인증 후 탈퇴 → 204 + DB withdrawn_at 마킹")
     void withdraw_returns204_marksWithdrawnAt() throws Exception {
-        mockMvc.perform(post(URL).headers(authHeaders.buyer(WITHDRAW_USER_ID)))
+        mockMvc.perform(post(URL).with(authHeaders.buyer(WITHDRAW_USER_ID)))
                 .andExpect(status().isNoContent());
 
         Timestamp withdrawnAt = jdbc.queryForObject(
@@ -88,13 +91,13 @@ class WithdrawControllerIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("(2) 탈퇴 후 재요청 → 탈퇴 회원 토큰 401(Track 84) + withdrawn_at 최초 시각 유지(덮어쓰기 없음)")
     void withdraw_thenRetry_returns401_keepsFirstTimestamp() throws Exception {
-        mockMvc.perform(post(URL).headers(authHeaders.buyer(WITHDRAW_USER_ID)))
+        mockMvc.perform(post(URL).with(authHeaders.buyer(WITHDRAW_USER_ID)))
                 .andExpect(status().isNoContent());
         Timestamp first = jdbc.queryForObject(
                 "SELECT withdrawn_at FROM `user` WHERE id=?", Timestamp.class, WITHDRAW_USER_ID);
 
         // 탈퇴 회원의 토큰은 발급 시점과 무관하게 인증 필터가 거부한다(withdrawn_at != null → 401 UNAUTHENTICATED).
-        mockMvc.perform(post(URL).headers(authHeaders.buyer(WITHDRAW_USER_ID)))
+        mockMvc.perform(post(URL).with(authHeaders.buyer(WITHDRAW_USER_ID)))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
         Timestamp second = jdbc.queryForObject(
@@ -108,7 +111,7 @@ class WithdrawControllerIntegrationTest extends AbstractIntegrationTest {
     void withdraw_withActiveOrder_returns409() throws Exception {
         seedOrder(ORDER_ACTIVE_ID, "PAID", "PAID");
 
-        mockMvc.perform(post(URL).headers(authHeaders.buyer(WITHDRAW_USER_ID)))
+        mockMvc.perform(post(URL).with(authHeaders.buyer(WITHDRAW_USER_ID)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("MEMBER_ACTIVITY_IN_PROGRESS"));
         assertThat(jdbc.queryForObject("SELECT withdrawn_at FROM `user` WHERE id=?", Timestamp.class, WITHDRAW_USER_ID))
@@ -120,7 +123,7 @@ class WithdrawControllerIntegrationTest extends AbstractIntegrationTest {
     void withdraw_withPendingPaymentOrder_returns409() throws Exception {
         seedOrder(ORDER_ACTIVE_ID, "PENDING_PAYMENT", "ORDERED");
 
-        mockMvc.perform(post(URL).headers(authHeaders.buyer(WITHDRAW_USER_ID)))
+        mockMvc.perform(post(URL).with(authHeaders.buyer(WITHDRAW_USER_ID)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("MEMBER_ACTIVITY_IN_PROGRESS"));
     }
@@ -133,7 +136,7 @@ class WithdrawControllerIntegrationTest extends AbstractIntegrationTest {
         seedOrder(ORDER_TERMINAL_ID + 2, "PARTIAL_CANCEL", "CANCELLED", "CONFIRMED");
         seedOrder(ORDER_TERMINAL_ID + 3, "PAYMENT_EXPIRED", "ORDERED");
 
-        mockMvc.perform(post(URL).headers(authHeaders.buyer(WITHDRAW_USER_ID)))
+        mockMvc.perform(post(URL).with(authHeaders.buyer(WITHDRAW_USER_ID)))
                 .andExpect(status().isNoContent());
     }
 
@@ -142,7 +145,7 @@ class WithdrawControllerIntegrationTest extends AbstractIntegrationTest {
     void withdraw_orderStatusTerminalButItemInProgress_returns409() throws Exception {
         seedOrder(ORDER_TERMINAL_ID, "CONFIRMED", "CONFIRMED", "SHIPPING");
 
-        mockMvc.perform(post(URL).headers(authHeaders.buyer(WITHDRAW_USER_ID)))
+        mockMvc.perform(post(URL).with(authHeaders.buyer(WITHDRAW_USER_ID)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("MEMBER_ACTIVITY_IN_PROGRESS"));
         assertThat(jdbc.queryForObject("SELECT withdrawn_at FROM `user` WHERE id=?", Timestamp.class, WITHDRAW_USER_ID))
@@ -156,7 +159,7 @@ class WithdrawControllerIntegrationTest extends AbstractIntegrationTest {
         seedOrderItem(ORDER_ITEM_ID, ORDER_TERMINAL_ID);
         seedClaim(CLAIM_ID, ORDER_ITEM_ID, "REQUESTED");
 
-        mockMvc.perform(post(URL).headers(authHeaders.buyer(WITHDRAW_USER_ID)))
+        mockMvc.perform(post(URL).with(authHeaders.buyer(WITHDRAW_USER_ID)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("MEMBER_ACTIVITY_IN_PROGRESS"));
     }
@@ -167,11 +170,11 @@ class WithdrawControllerIntegrationTest extends AbstractIntegrationTest {
         seedOrder(ORDER_TERMINAL_ID, "CONFIRMED");
         seedOrderItem(ORDER_ITEM_ID, ORDER_TERMINAL_ID);
         seedClaim(CLAIM_ID, ORDER_ITEM_ID, "COMPLETED");
-        HttpHeaders tokenBeforeWithdraw = authHeaders.buyer(WITHDRAW_USER_ID);
+        RequestPostProcessor tokenBeforeWithdraw = authHeaders.buyer(WITHDRAW_USER_ID);
 
-        mockMvc.perform(post(URL).headers(tokenBeforeWithdraw))
+        mockMvc.perform(post(URL).with(tokenBeforeWithdraw))
                 .andExpect(status().isNoContent());
-        mockMvc.perform(get("/api/v1/users/me").headers(tokenBeforeWithdraw))
+        mockMvc.perform(get("/api/v1/users/me").with(tokenBeforeWithdraw))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
     }
@@ -180,19 +183,19 @@ class WithdrawControllerIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("(3) 탈퇴 후 재로그인 차단 실효 → 탈퇴 전 200·탈퇴 후 401(ACCOUNT_DISABLED 통합 401)")
     void withdraw_thenLogin_returns401() throws Exception {
         // 탈퇴 전: 동일 credential 로그인 성공(계정이 완전히 로그인 가능함을 실증·우연일치 배제).
-        mockMvc.perform(post(LOGIN_URL)
+        mockMvc.perform(post(LOGIN_URL).with(authHeaders.csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(loginBody(EMAIL, PASSWORD, "BUYER")))
+                        .content(loginBody(EMAIL, PASSWORD)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.token").exists());
+                .andExpect(cookie().exists(AuthCookies.BUYER_COOKIE));
 
-        mockMvc.perform(post(URL).headers(authHeaders.buyer(WITHDRAW_USER_ID)))
+        mockMvc.perform(post(URL).with(authHeaders.buyer(WITHDRAW_USER_ID)))
                 .andExpect(status().isNoContent());
 
         // 탈퇴 후: withdrawn_at != null 가드 발동 → 사유 무관 401·동일 메시지(계정 열거 방지).
-        mockMvc.perform(post(LOGIN_URL)
+        mockMvc.perform(post(LOGIN_URL).with(authHeaders.csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(loginBody(EMAIL, PASSWORD, "BUYER")))
+                        .content(loginBody(EMAIL, PASSWORD)))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.detail").value(FAILURE_MESSAGE));
     }
@@ -293,8 +296,8 @@ class WithdrawControllerIntegrationTest extends AbstractIntegrationTest {
         });
     }
 
-    private String loginBody(String email, String password, String role) {
-        return "{\"email\":\"" + email + "\",\"password\":\"" + password + "\",\"role\":\"" + role + "\"}";
+    private String loginBody(String email, String password) {
+        return "{\"email\":\"" + email + "\",\"password\":\"" + password + "\"}";
     }
 
     private static String pid(String prefix, String tag) {

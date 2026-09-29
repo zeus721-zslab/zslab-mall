@@ -26,8 +26,8 @@ import com.zslab.mall.support.AbstractIntegrationTest;
  * <ol>
  *   <li>① {@code POST /api/v1/orders}(buyer) → 201·Location에서 orderPublicId 파싱·Payment PENDING 생성</li>
  *   <li>② {@code POST /api/webhooks/payments}(SUCCESS·무인증 webhook) → Payment/OrderItem/Order PAID(E2)</li>
- *   <li>③ {@code POST /api/v1/order-items/{oit}/prepare-shipment}(seller) → Delivery SHIPPING·OrderItem SHIPPING(E4)</li>
- *   <li>④ {@code POST /api/v1/deliveries/{dlv}/mark-delivered}(seller·Track 43 신설) → Delivery DELIVERED·OrderItem/Order DELIVERED(E5)</li>
+ *   <li>③ {@code POST /api/v1/seller/order-items/{oit}/prepare-shipment}(seller) → Delivery SHIPPING·OrderItem SHIPPING(E4)</li>
+ *   <li>④ {@code POST /api/v1/seller/deliveries/{dlv}/mark-delivered}(seller·Track 43 신설) → Delivery DELIVERED·OrderItem/Order DELIVERED(E5)</li>
  * </ol>
  *
  * <p><b>회원가입·상품등록 = 전제 시드</b>(RECON B6): 실 HTTP 관통의 핵심인 결제→배송 트리거 4단계에 집중하기 위해 buyer(user)·seller·
@@ -87,7 +87,7 @@ class OrderFulfillmentE2EIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("E2E 관통: 주문→결제완료(webhook)→발송(seller)→배송완료(seller) 실 HTTP 4연쇄 → Payment PAID·Order/OrderItem/Delivery DELIVERED")
     void fulfillment_orderToDelivered_endToEnd() throws Exception {
         // ① 주문 생성(buyer) → 201·Location에서 orderPublicId 파싱
-        String location = mockMvc.perform(post("/api/v1/orders").headers(authHeaders.buyer(BUYER_ID))
+        String location = mockMvc.perform(post("/api/v1/orders").with(authHeaders.buyer(BUYER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(createOrderBody()))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getHeader("Location");
@@ -108,8 +108,8 @@ class OrderFulfillmentE2EIntegrationTest extends AbstractIntegrationTest {
 
         // ③ 발송(seller) → Delivery SHIPPING·OrderItem SHIPPING
         String orderItemPublicId = orderItemPublicId(orderPublicId);
-        mockMvc.perform(post("/api/v1/order-items/" + orderItemPublicId + "/prepare-shipment")
-                        .headers(authHeaders.seller(SELLER_USER))
+        mockMvc.perform(post("/api/v1/seller/order-items/" + orderItemPublicId + "/prepare-shipment")
+                        .with(authHeaders.seller(SELLER_USER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"carrier\":\"CJ\",\"trackingNo\":\"" + TRACKING_NO + "\"}"))
                 .andExpect(status().isOk());
@@ -120,8 +120,8 @@ class OrderFulfillmentE2EIntegrationTest extends AbstractIntegrationTest {
 
         // ④ 배송완료(seller·Track 43 신설) → Delivery DELIVERED·OrderItem/Order DELIVERED
         String deliveryPublicId = deliveryPublicId(orderPublicId);
-        mockMvc.perform(post("/api/v1/deliveries/" + deliveryPublicId + "/mark-delivered")
-                        .headers(authHeaders.seller(SELLER_USER)))
+        mockMvc.perform(post("/api/v1/seller/deliveries/" + deliveryPublicId + "/mark-delivered")
+                        .with(authHeaders.seller(SELLER_USER)))
                 .andExpect(status().isOk());
 
         assertThat(deliveryStatus(orderPublicId)).isEqualTo("DELIVERED");

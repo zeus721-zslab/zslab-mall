@@ -132,7 +132,7 @@ class SellerPriceChangeSnapshotIntegrationTest extends AbstractIntegrationTest {
 
         sellerChangePrices();
 
-        mockMvc.perform(post("/api/v1/orders/" + orderPublicId + "/payments").headers(authHeaders.buyer(BUYER_ID))
+        mockMvc.perform(post("/api/v1/orders/" + orderPublicId + "/payments").with(authHeaders.buyer(BUYER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content("{ \"method\": \"CARD\" }"))
                 .andExpect(status().isCreated());
         entityManager.flush();
@@ -151,11 +151,11 @@ class SellerPriceChangeSnapshotIntegrationTest extends AbstractIntegrationTest {
     private void sellerChangePrices() throws Exception {
         String variantsBody = "{\"variants\":[{\"variantPublicId\":\"" + VARIANT_PLUS_PID + "\",\"variantCode\":\"V-PLUS\",\"additionalPrice\":"
                 + NEW_PLUS_ADDITIONAL + ",\"status\":\"SALE\",\"soldoutManual\":false,\"displayOrder\":1,\"initialStock\":0}]}";
-        mockMvc.perform(put("/api/v1/seller/products/" + PRODUCT_PID + "/variants").headers(authHeaders.seller(SELLER_USER_ID))
+        mockMvc.perform(put("/api/v1/seller/products/" + PRODUCT_PID + "/variants").with(authHeaders.seller(SELLER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(variantsBody))
                 .andExpect(status().isOk());
         String basicBody = "{\"categoryId\":" + CATEGORY_ID + ",\"name\":\"가격상품\",\"basePrice\":" + NEW_BASE_PRICE + "}";
-        mockMvc.perform(put("/api/v1/seller/products/" + PRODUCT_PID).headers(authHeaders.seller(SELLER_USER_ID))
+        mockMvc.perform(put("/api/v1/seller/products/" + PRODUCT_PID).with(authHeaders.seller(SELLER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(basicBody))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.basePrice").value(NEW_BASE_PRICE));
@@ -166,7 +166,7 @@ class SellerPriceChangeSnapshotIntegrationTest extends AbstractIntegrationTest {
     private String checkout(String variantPublicId, int quantity) throws Exception {
         String body = "{ \"items\": [ { \"productId\": \"" + PRODUCT_PID + "\", \"variantId\": \"" + variantPublicId
                 + "\", \"quantity\": " + quantity + " } ], " + SHIPPING_JSON + "}";
-        String location = mockMvc.perform(post("/api/v1/orders").headers(authHeaders.buyer(BUYER_ID))
+        String location = mockMvc.perform(post("/api/v1/orders").with(authHeaders.buyer(BUYER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getHeader("Location");

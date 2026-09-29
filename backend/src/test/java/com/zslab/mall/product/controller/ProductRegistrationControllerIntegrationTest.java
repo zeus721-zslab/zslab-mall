@@ -29,7 +29,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
@@ -38,6 +37,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import com.zslab.mall.support.AbstractIntegrationTest;
@@ -320,18 +320,18 @@ class ProductRegistrationControllerIntegrationTest extends AbstractIntegrationTe
     @DisplayName("T14 미인증(토큰 없음) → 401 UNAUTHENTICATED")
     void register_unauthenticated_returns401() throws Exception {
         ProductRegistrationRequest request = product(List.of(), List.of(variant("V", 0, 0, 1)));
-        register(new HttpHeaders(), request)
+        register(builder -> builder, request)
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
     }
 
     @Test
-    @DisplayName("T15 비-SELLER role(BUYER 토큰) → 403 FORBIDDEN")
-    void register_buyerRole_returns403() throws Exception {
+    @DisplayName("T15 비-SELLER role(BUYER 토큰) → 401 UNAUTHENTICATED")
+    void register_buyerRole_returns401() throws Exception {
         ProductRegistrationRequest request = product(List.of(), List.of(variant("V", 0, 0, 1)));
         register(authHeaders.buyer(BUYER_USER_ID), request)
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
     }
 
     // ==================== thumbnailUrl 셀러 귀속(Track 90-C 검토 반영) ====================
@@ -390,7 +390,7 @@ class ProductRegistrationControllerIntegrationTest extends AbstractIntegrationTe
                 + "\"saleStartAt\":null,\"saleEndAt\":null,\"optionGroups\":[],"
                 + "\"variants\":[{\"variantCode\":\"ADM-1\",\"additionalPrice\":0,\"displayOrder\":0,\"initialStock\":1,\"optionKeys\":[]}]}";
         MvcResult result = mockMvc.perform(post(ADMIN_URL)
-                        .headers(authHeaders.admin(ADMIN_USER_ID))
+                        .with(authHeaders.admin(ADMIN_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isCreated())
@@ -402,13 +402,13 @@ class ProductRegistrationControllerIntegrationTest extends AbstractIntegrationTe
 
     // ==================== seed·helpers ====================
 
-    private HttpHeaders sellerAuth() {
+    private RequestPostProcessor sellerAuth() {
         return authHeaders.seller(SELLER_USER_ID);
     }
 
-    private ResultActions register(HttpHeaders headers, ProductRegistrationRequest request) throws Exception {
+    private ResultActions register(RequestPostProcessor headers, ProductRegistrationRequest request) throws Exception {
         return mockMvc.perform(post(URL)
-                .headers(headers)
+                .with(headers)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)));
     }
@@ -453,7 +453,7 @@ class ProductRegistrationControllerIntegrationTest extends AbstractIntegrationTe
     /** 본 셀러로 png를 실제 업로드해 결과 항목(url·thumbnailUrl)을 돌려준다(products/sellers/{SELLER_ID}/… 저장 파일 존재). */
     private JsonNode uploadAsSeller(int width, int height) throws Exception {
         MockMultipartFile file = new MockMultipartFile("files", "photo.png", "image/png", png(width, height));
-        String body = mockMvc.perform(multipart(UPLOAD_URL).file(file).headers(sellerAuth()))
+        String body = mockMvc.perform(multipart(UPLOAD_URL).file(file).with(sellerAuth()))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         JsonNode item = objectMapper.readTree(body).get("results").get(0);

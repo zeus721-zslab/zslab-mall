@@ -92,7 +92,7 @@ class CheckoutIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("POST /api/v1/orders: 신규 주문 → 201·Location·X-Trace-Id·서버 가격(20000)·PENDING payment")
     void checkout_happyPath() throws Exception {
-        mockMvc.perform(post("/api/v1/orders").headers(authHeaders.buyer(1))
+        mockMvc.perform(post("/api/v1/orders").with(authHeaders.buyer(1))
                         .contentType(MediaType.APPLICATION_JSON).content(CREATE_BODY))
                 .andExpect(status().isCreated())
                 .andExpect(header().exists("Location"))
@@ -105,11 +105,11 @@ class CheckoutIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("멱등성: 동일 Idempotency-Key 재요청 → 2차는 200 캐시 반환")
     void checkout_idempotentReplay_returns200() throws Exception {
         String key = "idem-key-replay-0001";
-        mockMvc.perform(post("/api/v1/orders").headers(authHeaders.buyer(1)).header("Idempotency-Key", key)
+        mockMvc.perform(post("/api/v1/orders").with(authHeaders.buyer(1)).header("Idempotency-Key", key)
                         .contentType(MediaType.APPLICATION_JSON).content(CREATE_BODY))
                 .andExpect(status().isCreated());
 
-        mockMvc.perform(post("/api/v1/orders").headers(authHeaders.buyer(1)).header("Idempotency-Key", key)
+        mockMvc.perform(post("/api/v1/orders").with(authHeaders.buyer(1)).header("Idempotency-Key", key)
                         .contentType(MediaType.APPLICATION_JSON).content(CREATE_BODY))
                 .andExpect(status().isOk())
                 .andExpect(header().doesNotExist("Location"));
@@ -124,7 +124,7 @@ class CheckoutIntegrationTest extends AbstractIntegrationTest {
         entityManager.flush();
         entityManager.clear();
 
-        mockMvc.perform(post("/api/v1/orders").headers(authHeaders.buyer(1)).header("Idempotency-Key", key)
+        mockMvc.perform(post("/api/v1/orders").with(authHeaders.buyer(1)).header("Idempotency-Key", key)
                         .contentType(MediaType.APPLICATION_JSON).content(CREATE_BODY))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("IDEMPOTENCY_KEY_IN_PROGRESS"));
@@ -135,7 +135,7 @@ class CheckoutIntegrationTest extends AbstractIntegrationTest {
     void getSingle_sellerGrouped() throws Exception {
         String orderPublicId = performCheckout(null);
 
-        mockMvc.perform(get("/api/v1/orders/" + orderPublicId).headers(authHeaders.buyer(1)))
+        mockMvc.perform(get("/api/v1/orders/" + orderPublicId).with(authHeaders.buyer(1)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.orderId").value(orderPublicId))
                 .andExpect(jsonPath("$.totalPrice").value(20000))
@@ -151,7 +151,7 @@ class CheckoutIntegrationTest extends AbstractIntegrationTest {
     void getSingle_otherBuyer_returns404() throws Exception {
         String orderPublicId = performCheckout(null);
 
-        mockMvc.perform(get("/api/v1/orders/" + orderPublicId).headers(authHeaders.buyer(2)))
+        mockMvc.perform(get("/api/v1/orders/" + orderPublicId).with(authHeaders.buyer(2)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("ORDER_NOT_FOUND"))
                 .andExpect(jsonPath("$.traceId").exists());
@@ -162,7 +162,7 @@ class CheckoutIntegrationTest extends AbstractIntegrationTest {
     void getList_returnsPaged() throws Exception {
         performCheckout(null);
 
-        mockMvc.perform(get("/api/v1/orders").headers(authHeaders.buyer(1)).param("page", "0").param("size", "20"))
+        mockMvc.perform(get("/api/v1/orders").with(authHeaders.buyer(1)).param("page", "0").param("size", "20"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(org.hamcrest.Matchers.greaterThanOrEqualTo(1)))
                 .andExpect(jsonPath("$.items[0].previewTitle").value("테스트상품"));
@@ -174,7 +174,7 @@ class CheckoutIntegrationTest extends AbstractIntegrationTest {
         String orderPublicId = performCheckout(null);
         failPaymentAndDepleteStock(orderPublicId);
 
-        mockMvc.perform(post("/api/v1/orders/" + orderPublicId + "/payments").headers(authHeaders.buyer(1))
+        mockMvc.perform(post("/api/v1/orders/" + orderPublicId + "/payments").with(authHeaders.buyer(1))
                         .contentType(MediaType.APPLICATION_JSON).content("{ \"method\": \"CARD\" }"))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("ORDER_NOT_PAYABLE"))
@@ -190,7 +190,7 @@ class CheckoutIntegrationTest extends AbstractIntegrationTest {
         entityManager.flush();
         entityManager.clear();
 
-        mockMvc.perform(post("/api/v1/orders/" + orderPublicId + "/payments").headers(authHeaders.buyer(1))
+        mockMvc.perform(post("/api/v1/orders/" + orderPublicId + "/payments").with(authHeaders.buyer(1))
                         .contentType(MediaType.APPLICATION_JSON).content("{ \"method\": \"CARD\" }"))
                 .andExpect(status().isCreated())
                 .andExpect(header().string("Location", org.hamcrest.Matchers.startsWith("/api/v1/payments/pay_")));
@@ -212,7 +212,7 @@ class CheckoutIntegrationTest extends AbstractIntegrationTest {
                 """.formatted(VARIANT_PID);
 
         // 1차: 상품 미존재 → 404 (D-66 fix: 4xx → IN_PROGRESS row 삭제)
-        mockMvc.perform(post("/api/v1/orders").headers(authHeaders.buyer(1))
+        mockMvc.perform(post("/api/v1/orders").with(authHeaders.buyer(1))
                         .header("Idempotency-Key", key)
                         .contentType(MediaType.APPLICATION_JSON).content(notFoundBody))
                 .andExpect(status().isNotFound());
@@ -220,7 +220,7 @@ class CheckoutIntegrationTest extends AbstractIntegrationTest {
         entityManager.clear();
 
         // 2차: 동일 키 + 올바른 상품 → row 삭제됨 → 신규 처리 → 201
-        mockMvc.perform(post("/api/v1/orders").headers(authHeaders.buyer(1))
+        mockMvc.perform(post("/api/v1/orders").with(authHeaders.buyer(1))
                         .header("Idempotency-Key", key)
                         .contentType(MediaType.APPLICATION_JSON).content(CREATE_BODY))
                 .andExpect(status().isCreated());
@@ -249,7 +249,7 @@ class CheckoutIntegrationTest extends AbstractIntegrationTest {
                 """.formatted(PRODUCT_PID, wrongVariantPid);
 
         // 1차: variant 불일치 → 422 (D-66 fix: 4xx → IN_PROGRESS row 삭제)
-        mockMvc.perform(post("/api/v1/orders").headers(authHeaders.buyer(1))
+        mockMvc.perform(post("/api/v1/orders").with(authHeaders.buyer(1))
                         .header("Idempotency-Key", key)
                         .contentType(MediaType.APPLICATION_JSON).content(mismatchBody))
                 .andExpect(status().isUnprocessableEntity());
@@ -257,7 +257,7 @@ class CheckoutIntegrationTest extends AbstractIntegrationTest {
         entityManager.clear();
 
         // 2차: 동일 키 + 올바른 variant → row 삭제됨 → 신규 처리 → 201
-        mockMvc.perform(post("/api/v1/orders").headers(authHeaders.buyer(1))
+        mockMvc.perform(post("/api/v1/orders").with(authHeaders.buyer(1))
                         .header("Idempotency-Key", key)
                         .contentType(MediaType.APPLICATION_JSON).content(CREATE_BODY))
                 .andExpect(status().isCreated());
@@ -272,7 +272,7 @@ class CheckoutIntegrationTest extends AbstractIntegrationTest {
                 .when(orderService).createOrder(any());
 
         // 1차: 예상치 못한 오류 → 500 (row 잔류)
-        mockMvc.perform(post("/api/v1/orders").headers(authHeaders.buyer(1))
+        mockMvc.perform(post("/api/v1/orders").with(authHeaders.buyer(1))
                         .header("Idempotency-Key", key)
                         .contentType(MediaType.APPLICATION_JSON).content(CREATE_BODY))
                 .andExpect(status().isInternalServerError());
@@ -280,7 +280,7 @@ class CheckoutIntegrationTest extends AbstractIntegrationTest {
         entityManager.clear();
 
         // 2차: 동일 키 → IN_PROGRESS row 잔류 → 409
-        mockMvc.perform(post("/api/v1/orders").headers(authHeaders.buyer(1))
+        mockMvc.perform(post("/api/v1/orders").with(authHeaders.buyer(1))
                         .header("Idempotency-Key", key)
                         .contentType(MediaType.APPLICATION_JSON).content(CREATE_BODY))
                 .andExpect(status().isConflict())
@@ -306,7 +306,7 @@ class CheckoutIntegrationTest extends AbstractIntegrationTest {
         entityManager.flush();
         entityManager.clear();
 
-        mockMvc.perform(post("/api/v1/orders").headers(authHeaders.buyer(1))
+        mockMvc.perform(post("/api/v1/orders").with(authHeaders.buyer(1))
                         .contentType(MediaType.APPLICATION_JSON).content(CREATE_BODY))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("ORDER_NOT_PAYABLE"))
@@ -323,7 +323,7 @@ class CheckoutIntegrationTest extends AbstractIntegrationTest {
         entityManager.flush();
         entityManager.clear();
 
-        mockMvc.perform(post("/api/v1/orders").headers(authHeaders.buyer(1))
+        mockMvc.perform(post("/api/v1/orders").with(authHeaders.buyer(1))
                         .contentType(MediaType.APPLICATION_JSON).content(CREATE_BODY))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("ORDER_NOT_PAYABLE"))
@@ -342,7 +342,7 @@ class CheckoutIntegrationTest extends AbstractIntegrationTest {
         entityManager.flush();
         entityManager.clear();
 
-        mockMvc.perform(post("/api/v1/cart/checkout").headers(authHeaders.buyer(1))
+        mockMvc.perform(post("/api/v1/cart/checkout").with(authHeaders.buyer(1))
                         .contentType(MediaType.APPLICATION_JSON).content(CART_CHECKOUT_BODY))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("ORDER_NOT_PAYABLE"))
@@ -359,7 +359,7 @@ class CheckoutIntegrationTest extends AbstractIntegrationTest {
         entityManager.flush();
         entityManager.clear();
 
-        mockMvc.perform(post("/api/v1/orders").headers(authHeaders.buyer(1))
+        mockMvc.perform(post("/api/v1/orders").with(authHeaders.buyer(1))
                         .contentType(MediaType.APPLICATION_JSON).content(CREATE_BODY))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("ORDER_NOT_PAYABLE"))
@@ -379,7 +379,7 @@ class CheckoutIntegrationTest extends AbstractIntegrationTest {
             entityManager.flush();
             entityManager.clear();
 
-            mockMvc.perform(post("/api/v1/cart/checkout").headers(authHeaders.buyer(1))
+            mockMvc.perform(post("/api/v1/cart/checkout").with(authHeaders.buyer(1))
                             .contentType(MediaType.APPLICATION_JSON).content(CART_CHECKOUT_BODY))
                     .andExpect(status().isUnprocessableEntity())
                     .andExpect(jsonPath("$.code").value("ORDER_NOT_PAYABLE"))
@@ -400,7 +400,7 @@ class CheckoutIntegrationTest extends AbstractIntegrationTest {
         entityManager.flush();
         entityManager.clear();
 
-        mockMvc.perform(post("/api/v1/orders/" + orderPublicId + "/payments").headers(authHeaders.buyer(1))
+        mockMvc.perform(post("/api/v1/orders/" + orderPublicId + "/payments").with(authHeaders.buyer(1))
                         .contentType(MediaType.APPLICATION_JSON).content("{ \"method\": \"CARD\" }"))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("ORDER_NOT_PAYABLE"))
@@ -410,7 +410,7 @@ class CheckoutIntegrationTest extends AbstractIntegrationTest {
         execute("UPDATE seller SET status = 'ACTIVE' WHERE id = 1000");
         entityManager.flush();
         entityManager.clear();
-        mockMvc.perform(post("/api/v1/orders/" + orderPublicId + "/payments").headers(authHeaders.buyer(1))
+        mockMvc.perform(post("/api/v1/orders/" + orderPublicId + "/payments").with(authHeaders.buyer(1))
                         .contentType(MediaType.APPLICATION_JSON).content("{ \"method\": \"CARD\" }"))
                 .andExpect(status().isCreated());
     }
@@ -423,7 +423,7 @@ class CheckoutIntegrationTest extends AbstractIntegrationTest {
         entityManager.flush();
         entityManager.clear();
 
-        mockMvc.perform(post("/api/v1/cart/checkout").headers(authHeaders.buyer(1))
+        mockMvc.perform(post("/api/v1/cart/checkout").with(authHeaders.buyer(1))
                         .contentType(MediaType.APPLICATION_JSON).content(CART_CHECKOUT_BODY))
                 .andExpect(status().isCreated())
                 .andExpect(header().exists("Location"));
@@ -439,7 +439,7 @@ class CheckoutIntegrationTest extends AbstractIntegrationTest {
     }
 
     private String performCheckout(String idempotencyKey) throws Exception {
-        var request = post("/api/v1/orders").headers(authHeaders.buyer(1))
+        var request = post("/api/v1/orders").with(authHeaders.buyer(1))
                 .contentType(MediaType.APPLICATION_JSON).content(CREATE_BODY);
         if (idempotencyKey != null) {
             request = request.header("Idempotency-Key", idempotencyKey);

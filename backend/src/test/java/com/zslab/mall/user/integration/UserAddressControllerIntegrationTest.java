@@ -93,7 +93,7 @@ class UserAddressControllerIntegrationTest extends AbstractIntegrationTest {
         createAddress(BUYER_USER_ID, false, "수령인1");
         createAddress(BUYER_USER_ID, false, "수령인2");
 
-        mockMvc.perform(get(URL).headers(authHeaders.buyer(BUYER_USER_ID)))
+        mockMvc.perform(get(URL).with(authHeaders.buyer(BUYER_USER_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(2));
     }
@@ -104,7 +104,7 @@ class UserAddressControllerIntegrationTest extends AbstractIntegrationTest {
         long id = createAddress(BUYER_USER_ID, false, "수령인원본");
 
         mockMvc.perform(patch(URL + "/" + id)
-                        .headers(authHeaders.buyer(BUYER_USER_ID))
+                        .with(authHeaders.buyer(BUYER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(updateBody("수령인수정")))
                 .andExpect(status().isOk());
@@ -121,7 +121,7 @@ class UserAddressControllerIntegrationTest extends AbstractIntegrationTest {
         long id = createAddress(BUYER_USER_ID, false, "수령인원본");
 
         mockMvc.perform(patch(URL + "/" + id)
-                        .headers(authHeaders.buyer(OTHER_USER_ID))
+                        .with(authHeaders.buyer(OTHER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(updateBody("침해시도")))
                 .andExpect(status().isNotFound())
@@ -136,12 +136,12 @@ class UserAddressControllerIntegrationTest extends AbstractIntegrationTest {
     void delete_returns204_softHidden() throws Exception {
         long id = createAddress(BUYER_USER_ID, false, "삭제대상");
 
-        mockMvc.perform(delete(URL + "/" + id).headers(authHeaders.buyer(BUYER_USER_ID)))
+        mockMvc.perform(delete(URL + "/" + id).with(authHeaders.buyer(BUYER_USER_ID)))
                 .andExpect(status().isNoContent());
 
         assertThat(count("SELECT COUNT(*) FROM user_address WHERE id=? AND deleted_at IS NOT NULL", id))
                 .isEqualTo(1);
-        mockMvc.perform(get(URL).headers(authHeaders.buyer(BUYER_USER_ID)))
+        mockMvc.perform(get(URL).with(authHeaders.buyer(BUYER_USER_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(0));
     }
@@ -151,7 +151,7 @@ class UserAddressControllerIntegrationTest extends AbstractIntegrationTest {
     void delete_notOwned_returns404() throws Exception {
         long id = createAddress(BUYER_USER_ID, false, "삭제대상");
 
-        mockMvc.perform(delete(URL + "/" + id).headers(authHeaders.buyer(OTHER_USER_ID)))
+        mockMvc.perform(delete(URL + "/" + id).with(authHeaders.buyer(OTHER_USER_ID)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("ADDRESS_NOT_FOUND"));
 
@@ -164,7 +164,7 @@ class UserAddressControllerIntegrationTest extends AbstractIntegrationTest {
         long first = createAddress(BUYER_USER_ID, false, "수령인1"); // 첫 주소 → 기본
         long second = createAddress(BUYER_USER_ID, false, "수령인2"); // 비기본
 
-        mockMvc.perform(patch(URL + "/" + second + "/default").headers(authHeaders.buyer(BUYER_USER_ID)))
+        mockMvc.perform(patch(URL + "/" + second + "/default").with(authHeaders.buyer(BUYER_USER_ID)))
                 .andExpect(status().isNoContent());
 
         assertThat(count("SELECT COUNT(*) FROM user_address WHERE id=? AND is_default=1", second)).isEqualTo(1);
@@ -178,7 +178,7 @@ class UserAddressControllerIntegrationTest extends AbstractIntegrationTest {
     void setDefault_notOwned_returns404() throws Exception {
         long id = createAddress(BUYER_USER_ID, false, "수령인1");
 
-        mockMvc.perform(patch(URL + "/" + id + "/default").headers(authHeaders.buyer(OTHER_USER_ID)))
+        mockMvc.perform(patch(URL + "/" + id + "/default").with(authHeaders.buyer(OTHER_USER_ID)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("ADDRESS_NOT_FOUND"));
     }
@@ -201,7 +201,7 @@ class UserAddressControllerIntegrationTest extends AbstractIntegrationTest {
         body.put("addressRoad", "서울시 강남구 테헤란로 1");
 
         mockMvc.perform(post(URL)
-                        .headers(authHeaders.buyer(BUYER_USER_ID))
+                        .with(authHeaders.buyer(BUYER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(body)))
                 .andExpect(status().isBadRequest())
@@ -221,7 +221,7 @@ class UserAddressControllerIntegrationTest extends AbstractIntegrationTest {
         body.put("zonecode", "12345");
         body.put("addressRoad", "서울시 강남구 테헤란로 1");
         String json = mockMvc.perform(post(URL)
-                        .headers(authHeaders.buyer(userId))
+                        .with(authHeaders.buyer(userId))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(body)))
                 .andExpect(status().isCreated())

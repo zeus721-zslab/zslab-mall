@@ -81,7 +81,7 @@ class ImageDecodeLimitIntegrationTest extends AbstractIntegrationTest {
     void overBudget_neverAcquiresDecodePermit() throws Exception {
         mockMvc.perform(multipart(ADMIN_UPLOAD_URL)
                         .file(file("deep.png", UploadHardeningIntegrationTest.pngHeaderWithEmptyIdat(4_000, 4_000, SIXTEEN_BIT, COLOR_TYPE_RGBA)))
-                        .headers(authHeaders.admin(ADMIN_ID)))
+                        .with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.results[0].code").value("IMAGE_TOO_LARGE"));
 
@@ -100,14 +100,14 @@ class ImageDecodeLimitIntegrationTest extends AbstractIntegrationTest {
         }
         long storedBefore = countStoredFiles(); // static @TempDir는 클래스 공유라 절대값 대신 요청 전후 차이로 본다
 
-        mockMvc.perform(multipart(ADMIN_UPLOAD_URL).file(file("ok.png", png(10, 10))).headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(multipart(ADMIN_UPLOAD_URL).file(file("ok.png", png(10, 10))).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.code").value("UPLOAD_BUSY"));
         verify(imageDecodeLimiter, never()).acquire();
         assertThat(countStoredFiles()).isEqualTo(storedBefore);
 
         tearDown();
-        mockMvc.perform(multipart(ADMIN_UPLOAD_URL).file(file("ok.png", png(10, 10))).headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(multipart(ADMIN_UPLOAD_URL).file(file("ok.png", png(10, 10))).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.successCount").value(1));
         assertThat(imageDecodeLimiter.availableAdmissions()).isEqualTo(MAX_INFLIGHT_FILES);
@@ -122,7 +122,7 @@ class ImageDecodeLimitIntegrationTest extends AbstractIntegrationTest {
         }
         long storedBefore = countStoredFiles(); // static @TempDir는 클래스 공유라 절대값 대신 요청 전후 차이로 본다
 
-        mockMvc.perform(multipart(ADMIN_UPLOAD_URL).file(file("ok.png", png(10, 10))).headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(multipart(ADMIN_UPLOAD_URL).file(file("ok.png", png(10, 10))).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.code").value("UPLOAD_BUSY"))
                 .andExpect(jsonPath("$.detail").value("이미지 처리 요청이 많습니다. 잠시 후 다시 시도해 주세요."));
@@ -130,7 +130,7 @@ class ImageDecodeLimitIntegrationTest extends AbstractIntegrationTest {
         assertThat(imageDecodeLimiter.availableAdmissions()).as("디코딩 대기 503이어도 입장권 반납").isEqualTo(MAX_INFLIGHT_FILES);
 
         tearDown();
-        mockMvc.perform(multipart(ADMIN_UPLOAD_URL).file(file("ok.png", png(10, 10))).headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(multipart(ADMIN_UPLOAD_URL).file(file("ok.png", png(10, 10))).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.successCount").value(1));
         assertThat(imageDecodeLimiter.availablePermits()).isEqualTo(MAX_CONCURRENT_DECODES);
@@ -141,7 +141,7 @@ class ImageDecodeLimitIntegrationTest extends AbstractIntegrationTest {
     void decodeFailure_releasesPermit() throws Exception {
         mockMvc.perform(multipart(ADMIN_UPLOAD_URL)
                         .file(file("empty.png", UploadHardeningIntegrationTest.pngHeaderWithEmptyIdat(100, 100, EIGHT_BIT, COLOR_TYPE_RGBA)))
-                        .headers(authHeaders.admin(ADMIN_ID)))
+                        .with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.results[0].code").value("INVALID_IMAGE"));
 

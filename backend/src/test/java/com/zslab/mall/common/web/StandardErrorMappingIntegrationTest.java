@@ -40,9 +40,9 @@ class StandardErrorMappingIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("T2 미지원 메서드(GET /api/v1/auth/login·POST 전용) → 405 METHOD_NOT_ALLOWED·고정 detail")
+    @DisplayName("T2 미지원 메서드(GET /api/v1/auth/buyer/login·POST 전용) → 405 METHOD_NOT_ALLOWED·고정 detail")
     void unsupportedMethod_returns405() throws Exception {
-        mockMvc.perform(get("/api/v1/auth/login"))
+        mockMvc.perform(get("/api/v1/auth/buyer/login"))
                 .andExpect(status().isMethodNotAllowed())
                 .andExpect(jsonPath("$.code").value("METHOD_NOT_ALLOWED"))
                 .andExpect(jsonPath("$.status").value(405))
@@ -52,9 +52,9 @@ class StandardErrorMappingIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("T3 미지원 Content-Type(POST /api/v1/auth/login text/plain) → 415 UNSUPPORTED_MEDIA_TYPE·고정 detail")
+    @DisplayName("T3 미지원 Content-Type(POST /api/v1/users 가입 text/plain) → 415 UNSUPPORTED_MEDIA_TYPE·고정 detail")
     void unsupportedMediaType_returns415() throws Exception {
-        mockMvc.perform(post("/api/v1/auth/login").contentType(MediaType.TEXT_PLAIN).content("hello"))
+        mockMvc.perform(post("/api/v1/users").contentType(MediaType.TEXT_PLAIN).content("hello"))
                 .andExpect(status().isUnsupportedMediaType())
                 .andExpect(jsonPath("$.code").value("UNSUPPORTED_MEDIA_TYPE"))
                 .andExpect(jsonPath("$.status").value(415))

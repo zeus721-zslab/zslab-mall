@@ -76,7 +76,7 @@ class AdminClaimIntegrationTest extends AbstractIntegrationTest {
         });
 
         mockMvc.perform(post("/api/v1/admin/claims/" + claimPid + "/approve")
-                        .headers(authHeaders.admin(ADMIN)))
+                        .with(authHeaders.admin(ADMIN)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.publicId").value(claimPid))
                 .andExpect(jsonPath("$.status").value("APPROVED"));
@@ -99,7 +99,7 @@ class AdminClaimIntegrationTest extends AbstractIntegrationTest {
         });
 
         mockMvc.perform(post("/api/v1/admin/claims/" + claimPid + "/reject")
-                        .headers(authHeaders.admin(ADMIN))
+                        .with(authHeaders.admin(ADMIN))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"reasonCode\":\"OUT_OF_POLICY\",\"memo\":\"테스트 거부\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("REJECTED"));
@@ -114,7 +114,7 @@ class AdminClaimIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("I3 승인: 미존재 claimPublicId → 404·이벤트 0건")
     void approve_unknownPublicId_returns404() throws Exception {
         mockMvc.perform(post("/api/v1/admin/claims/" + pid("clm_", "AI3NONE") + "/approve")
-                        .headers(authHeaders.admin(ADMIN)))
+                        .with(authHeaders.admin(ADMIN)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("CLAIM_NOT_FOUND"));
 
