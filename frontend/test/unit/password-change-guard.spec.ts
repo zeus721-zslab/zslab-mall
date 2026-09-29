@@ -18,7 +18,7 @@ describe('resolvePasswordChangeRedirect', () => {
     expect(resolvePasswordChangeRedirect({ path: '/mypage/password', authenticated: true, required: true })).toBeNull()
     expect(resolvePasswordChangeRedirect({ path: '/login', authenticated: true, required: true })).toBeNull()
     expect(resolvePasswordChangeRedirect({ path: '/admin/orders', authenticated: true, required: true })).toBeNull()
-    // Track 90-A D-4: 셀러 세션(seller_token)은 독립이라 buyer 임시 비밀번호 상태가 /seller/** 진입(로그인 포함)을 막으면 안 된다
+    // Track 90-A D-4: 셀러 세션(셀러 역할 쿠키)은 독립이라 buyer 임시 비밀번호 상태가 /seller/** 진입(로그인 포함)을 막으면 안 된다
     expect(resolvePasswordChangeRedirect({ path: '/seller/login', authenticated: true, required: true })).toBeNull()
     expect(resolvePasswordChangeRedirect({ path: '/seller', authenticated: true, required: true })).toBeNull()
     // Track 102 FE-64: 도움말은 공개 경로라 임시 비밀번호 상태에서도 열린다.

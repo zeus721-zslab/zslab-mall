@@ -185,13 +185,13 @@ class SellerProductCommandControllerIntegrationTest extends AbstractIntegrationT
     // ==================== 인가·상태 가드 ====================
 
     @Test
-    @DisplayName("T1 인가: 비인증 401 · 구매자 403 → 3 API 전부·DB 불변")
+    @DisplayName("T1 인가: 비인증 401 · 구매자 401 → 3 API 전부·DB 불변")
     void authorization() throws Exception {
         for (String url : List.of(BASE_URL + "/" + P1_PID, BASE_URL + "/" + P1_PID + "/images", BASE_URL + "/" + P1_PID + "/variants")) {
             String body = bodyFor(url);
             mockMvc.perform(put(url).contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isUnauthorized());
-            mockMvc.perform(put(url).headers(authHeaders.buyer(BUYER_ID)).contentType(MediaType.APPLICATION_JSON).content(body))
-                    .andExpect(status().isForbidden());
+            mockMvc.perform(put(url).with(authHeaders.buyer(BUYER_ID)).contentType(MediaType.APPLICATION_JSON).content(body))
+                    .andExpect(status().isUnauthorized());
         }
         assertProductUntouched();
     }
@@ -490,7 +490,7 @@ class SellerProductCommandControllerIntegrationTest extends AbstractIntegrationT
 
     private ResultActions putAs(long userId, String url, String body, ResultMatcher expected)
             throws Exception {
-        return mockMvc.perform(put(url).headers(authHeaders.seller(userId)).contentType(MediaType.APPLICATION_JSON).content(body))
+        return mockMvc.perform(put(url).with(authHeaders.seller(userId)).contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(expected);
     }
 
@@ -506,7 +506,7 @@ class SellerProductCommandControllerIntegrationTest extends AbstractIntegrationT
 
     private JsonNode uploadResultAsSellerA(int width, int height) throws Exception {
         MockMultipartFile file = new MockMultipartFile("files", "photo.png", "image/png", png(width, height));
-        String body = mockMvc.perform(multipart(UPLOAD_URL).file(file).headers(authHeaders.seller(USER_A)))
+        String body = mockMvc.perform(multipart(UPLOAD_URL).file(file).with(authHeaders.seller(USER_A)))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         JsonNode item = objectMapper.readTree(body).get("results").get(0);

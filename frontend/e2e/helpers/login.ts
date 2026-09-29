@@ -2,13 +2,17 @@ import { expect, test, type Page } from '@playwright/test'
 
 /**
  * E2E 공용 로그인 헬퍼. 로그인 화면·데모 버튼을 거치지 않고 BE 역할 로그인 API를 page.request로 호출한다(D-235 F10).
- * page.request는 브라우저 컨텍스트의 쿠키 저장소를 공유하므로 BE Set-Cookie(HttpOnly 역할 쿠키·XSRF-TOKEN)가 그대로 컨텍스트에 저장된다 —
- * 응답 본문 token을 쿠키로 옮겨 심지 않는다(PR3에서 본문 token이 사라진다).
+ * page.request는 브라우저 컨텍스트의 쿠키 저장소를 공유하므로 BE Set-Cookie(HttpOnly 역할 쿠키·XSRF-TOKEN)가 그대로 컨텍스트에 저장된다
+ * (로그인 응답 본문에는 token이 없다). 로그인은 CSRF를 검증하므로 GET /api/v1/auth/csrf로 인증 전 토큰을 먼저 받아 헤더로 싣는다(D-235 PR3 K7).
  * 데모 라우트(/_demo·/_admin-demo·/_seller-demo)는 rate limit(60s/30회·FE-43b)이 있어 워커 수에 따라 전량 실행이 429로 깨졌고,
  * BE 로그인 API에는 제한이 없다(recon-report-e2e-debt §3-1). 데모 로그인 자체의 검증은 admin-shell ⑥·seller-shell ⑤·smoke 구매자 데모 케이스가 담당한다.
  * 자격증명은 env(<ROLE>_E2E_EMAIL / <ROLE>_E2E_PASSWORD)로만 받고 미설정 시 해당 케이스를 skip한다.
  */
 export type E2eRole = 'BUYER' | 'ADMIN' | 'SELLER'
+
+const CSRF_TOKEN_API_PATH = '/api/v1/auth/csrf'
+const XSRF_COOKIE_NAME = 'XSRF-TOKEN'
+const XSRF_HEADER_NAME = 'X-XSRF-TOKEN'
 
 interface RoleSession {
   loginApiPath: string
@@ -38,6 +42,19 @@ export async function loginAs(page: Page, role: E2eRole): Promise<void> {
   const password = process.env[session.passwordEnv]
   test.skip(!email || !password, `${session.emailEnv} / ${session.passwordEnv} 미설정`)
 
-  const response = await page.request.post(session.loginApiPath, { data: { email, password } })
+  const csrfToken = await fetchCsrfToken(page)
+  const response = await page.request.post(session.loginApiPath, {
+    data: { email, password },
+    headers: { [XSRF_HEADER_NAME]: csrfToken },
+  })
   expect(response.ok(), `${role} 로그인 API ${response.status()}`).toBe(true)
+}
+
+/** 인증 전 CSRF 토큰(D-235 PR3 K7). 발급 응답의 XSRF-TOKEN이 컨텍스트에 저장되므로(이미 있으면 재발급 없음) 컨텍스트 쿠키에서 값을 읽는다. */
+async function fetchCsrfToken(page: Page): Promise<string> {
+  const response = await page.request.get(CSRF_TOKEN_API_PATH)
+  expect(response.ok(), `CSRF 토큰 발급 API ${response.status()}`).toBe(true)
+  const token = (await page.context().cookies()).find((cookie) => cookie.name === XSRF_COOKIE_NAME)?.value
+  expect(token, `${XSRF_COOKIE_NAME} 쿠키 없음`).toBeTruthy()
+  return token ?? ''
 }

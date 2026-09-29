@@ -44,6 +44,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockMultipartHttpServletRequestBuilder;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -175,7 +176,7 @@ class UploadHardeningIntegrationTest extends AbstractIntegrationTest {
         for (int i = 0; i < 6; i++) {
             sixFiles.file(file("f" + i + ".png", png(10, 10)));
         }
-        mockMvc.perform(sixFiles.headers(authHeaders.buyer(BUYER_ID))).andExpect(status().isBadRequest());
+        mockMvc.perform(sixFiles.with(authHeaders.buyer(BUYER_ID))).andExpect(status().isBadRequest());
 
         byte[] overFiveMb = new byte[(int) FIVE_MB + 1];
         Arrays.fill(overFiveMb, (byte) 'x');
@@ -188,7 +189,7 @@ class UploadHardeningIntegrationTest extends AbstractIntegrationTest {
             seedAttachment(SEED_ATTACHMENT_ID_BASE + i, BUYER_ID, null, "/api/v1/files/claims/2026/09/seed" + i + ".png",
                     LocalDateTime.now());
         }
-        mockMvc.perform(multipart(CLAIM_UPLOAD_URL).file(file("one-more.png", png(10, 10))).headers(authHeaders.buyer(BUYER_ID)))
+        mockMvc.perform(multipart(CLAIM_UPLOAD_URL).file(file("one-more.png", png(10, 10))).with(authHeaders.buyer(BUYER_ID)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
         assertThat(unlinkedCount(BUYER_ID)).isEqualTo(20);
@@ -203,13 +204,13 @@ class UploadHardeningIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("구매자 첨부 합계 상한: 26MB+1 본문 → 413 PAYLOAD_TOO_LARGE(파싱 전 거부)·첨부 행 0 / 정확히 26MB → 필터 통과(파트 없음 400)")
     void claimAttachmentRequestTotal_overLimit_returns413() throws Exception {
-        mockMvc.perform(post(CLAIM_UPLOAD_URL).headers(authHeaders.buyer(BUYER_ID))
+        mockMvc.perform(post(CLAIM_UPLOAD_URL).with(authHeaders.buyer(BUYER_ID))
                         .contentType(MediaType.MULTIPART_FORM_DATA).content(new byte[(int) CLAIM_REQUEST_LIMIT + 1]))
                 .andExpect(status().isPayloadTooLarge())
                 .andExpect(jsonPath("$.code").value("PAYLOAD_TOO_LARGE"));
         assertThat(unlinkedCount(BUYER_ID)).isZero();
 
-        mockMvc.perform(post(CLAIM_UPLOAD_URL).headers(authHeaders.buyer(BUYER_ID))
+        mockMvc.perform(post(CLAIM_UPLOAD_URL).with(authHeaders.buyer(BUYER_ID))
                         .contentType(MediaType.MULTIPART_FORM_DATA).content(new byte[(int) CLAIM_REQUEST_LIMIT]))
                 .andExpect(status().isBadRequest());
     }
@@ -217,7 +218,7 @@ class UploadHardeningIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("구매자 첨부 합계 상한은 인코딩 경로 변형(attachment%73 → 디코딩하면 같은 핸들러)에도 적용 → 413")
     void claimAttachmentRequestTotal_encodedPathVariant_returns413() throws Exception {
-        mockMvc.perform(post(URI.create("/api/v1/claims/attachment%73")).headers(authHeaders.buyer(BUYER_ID))
+        mockMvc.perform(post(URI.create("/api/v1/claims/attachment%73")).with(authHeaders.buyer(BUYER_ID))
                         .contentType(MediaType.MULTIPART_FORM_DATA).content(new byte[(int) CLAIM_REQUEST_LIMIT + 1]))
                 .andExpect(status().isPayloadTooLarge())
                 .andExpect(jsonPath("$.code").value("PAYLOAD_TOO_LARGE"));
@@ -226,7 +227,7 @@ class UploadHardeningIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("구매자 첨부 청크 전송(Content-Length 없음 + Transfer-Encoding) → 411 LENGTH_REQUIRED")
     void claimAttachmentChunked_returns411() throws Exception {
-        mockMvc.perform(post(CLAIM_UPLOAD_URL).headers(authHeaders.buyer(BUYER_ID))
+        mockMvc.perform(post(CLAIM_UPLOAD_URL).with(authHeaders.buyer(BUYER_ID))
                         .contentType(MediaType.MULTIPART_FORM_DATA).header(HttpHeaders.TRANSFER_ENCODING, "chunked"))
                 .andExpect(status().isLengthRequired())
                 .andExpect(jsonPath("$.code").value("LENGTH_REQUIRED"));
@@ -236,10 +237,10 @@ class UploadHardeningIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("관리자·셀러 업로드는 구매자 합계 상한 불변: 26MB+1 본문 → 413·411 아님(필터 미적용)")
     void adminAndSellerUpload_notAffectedByClaimRequestLimit() throws Exception {
         byte[] overClaimLimit = new byte[(int) CLAIM_REQUEST_LIMIT + 1];
-        int adminStatus = mockMvc.perform(post(ADMIN_UPLOAD_URL).headers(authHeaders.admin(ADMIN_ID))
+        int adminStatus = mockMvc.perform(post(ADMIN_UPLOAD_URL).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.MULTIPART_FORM_DATA).content(overClaimLimit))
                 .andReturn().getResponse().getStatus();
-        int sellerStatus = mockMvc.perform(post(SELLER_UPLOAD_URL).headers(authHeaders.seller(SELLER_USER_ID))
+        int sellerStatus = mockMvc.perform(post(SELLER_UPLOAD_URL).with(authHeaders.seller(SELLER_USER_ID))
                         .contentType(MediaType.MULTIPART_FORM_DATA).content(overClaimLimit))
                 .andReturn().getResponse().getStatus();
         assertThat(adminStatus).isNotIn(413, 411);
@@ -249,7 +250,7 @@ class UploadHardeningIntegrationTest extends AbstractIntegrationTest {
     // ==================== STEP 278 캐시 헤더 ====================
 
     @Test
-    @DisplayName("서빙 캐시: 클레임 첨부 URL → 업로더 200·익명 404(D-176) 모두 Cache-Control no-store+private / 상품 이미지 → 익명 200 public immutable 유지 / 둘 다 X-Content-Type-Options nosniff")
+    @DisplayName("서빙 캐시: 클레임 첨부 URL → 업로더 200·타 구매자 404(D-176) 모두 Cache-Control no-store+private · 익명 401 / 상품 이미지 → 익명 200 public immutable 유지 / 둘 다 X-Content-Type-Options nosniff")
     void servingCacheHeaders_byPathPrefix() throws Exception {
         String claimUrl = upload(CLAIM_UPLOAD_URL, authHeaders.buyer(BUYER_ID), file("photo.png", png(10, 10)))
                 .get("results").get(0).get("url").asText();
@@ -258,17 +259,18 @@ class UploadHardeningIntegrationTest extends AbstractIntegrationTest {
                 .get("results").get(0).get("url").asText();
         assertThat(productUrl).startsWith("/api/v1/files/products/");
 
-        String claimCache = mockMvc.perform(get(claimUrl).headers(authHeaders.buyer(BUYER_ID)))
+        String claimCache = mockMvc.perform(get(claimUrl).with(authHeaders.buyer(BUYER_ID)))
                 .andExpect(status().isOk())
                 .andExpect(header().string("X-Content-Type-Options", "nosniff"))
                 .andReturn().getResponse().getHeader("Cache-Control");
         assertThat(claimCache).contains("no-store").contains("private").doesNotContain("public");
-        // D-176: 실제 업로드 흐름으로 만든 미연결 첨부도 익명이면 404(존재 비노출)·캐시 금지 유지
-        String anonymousClaimCache = mockMvc.perform(get(claimUrl))
+        // D-176: 실제 업로드 흐름으로 만든 미연결 첨부도 타 구매자면 404(존재 비노출)·캐시 금지 유지(익명은 D-235 PR3 K5로 401)
+        String otherBuyerClaimCache = mockMvc.perform(get(claimUrl).with(authHeaders.buyer(OTHER_BUYER_ID)))
                 .andExpect(status().isNotFound())
                 .andExpect(header().string("X-Content-Type-Options", "nosniff"))
                 .andReturn().getResponse().getHeader("Cache-Control");
-        assertThat(anonymousClaimCache).contains("no-store").contains("private").doesNotContain("public");
+        assertThat(otherBuyerClaimCache).contains("no-store").contains("private").doesNotContain("public");
+        mockMvc.perform(get(claimUrl)).andExpect(status().isUnauthorized());
 
         mockMvc.perform(get(productUrl))
                 .andExpect(status().isOk())
@@ -327,12 +329,12 @@ class UploadHardeningIntegrationTest extends AbstractIntegrationTest {
 
     // ==================== helpers (모든 SQL은 ? 바인딩·문자열 concat 없음) ====================
 
-    private JsonNode upload(String url, org.springframework.http.HttpHeaders headers, MockMultipartFile... files) throws Exception {
+    private JsonNode upload(String url, RequestPostProcessor headers, MockMultipartFile... files) throws Exception {
         MockMultipartHttpServletRequestBuilder request = multipart(url);
         for (MockMultipartFile file : files) {
             request.file(file);
         }
-        String body = mockMvc.perform(request.headers(headers))
+        String body = mockMvc.perform(request.with(headers))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
         return objectMapper.readTree(body);

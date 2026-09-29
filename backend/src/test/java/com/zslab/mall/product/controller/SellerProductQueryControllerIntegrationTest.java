@@ -138,7 +138,7 @@ class SellerProductQueryControllerIntegrationTest extends AbstractIntegrationTes
     }
 
     @Test
-    @DisplayName("T1 인가: 비인증 401 · 구매자 403 · 셀러 200(목록·상세) · 필터 응답 charset=UTF-8·한글 detail 원문")
+    @DisplayName("T1 인가: 비인증 401 · 구매자 401 · 셀러 200(목록·상세) · 필터 응답 charset=UTF-8·한글 detail 원문")
     void authorization() throws Exception {
         // Track 91: 필터 계층(SecurityErrorHandler) 직접 응답은 charset 미지정 시 ISO-8859-1로 쓰여 한글이 '?'가 됐다 → 헤더·detail 원문 단언
         mockMvc.perform(get(LIST_URL)).andExpect(status().isUnauthorized())
@@ -146,19 +146,19 @@ class SellerProductQueryControllerIntegrationTest extends AbstractIntegrationTes
                 .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"))
                 .andExpect(jsonPath("$.detail").value("인증이 필요합니다."));
         mockMvc.perform(get(LIST_URL + "/" + P1_PID)).andExpect(status().isUnauthorized());
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.buyer(BUYER_ID))).andExpect(status().isForbidden())
+        mockMvc.perform(get(LIST_URL).with(authHeaders.buyer(BUYER_ID))).andExpect(status().isUnauthorized())
                 .andExpect(header().string("Content-Type", containsString("charset=UTF-8")))
-                .andExpect(jsonPath("$.code").value("FORBIDDEN"))
-                .andExpect(jsonPath("$.detail").value("접근 권한이 없습니다."));
-        mockMvc.perform(get(LIST_URL + "/" + P1_PID).headers(authHeaders.buyer(BUYER_ID))).andExpect(status().isForbidden());
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A))).andExpect(status().isOk());
-        mockMvc.perform(get(LIST_URL + "/" + P1_PID).headers(authHeaders.seller(USER_A))).andExpect(status().isOk());
+                .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"))
+                .andExpect(jsonPath("$.detail").value("인증이 필요합니다."));
+        mockMvc.perform(get(LIST_URL + "/" + P1_PID).with(authHeaders.buyer(BUYER_ID))).andExpect(status().isUnauthorized());
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A))).andExpect(status().isOk());
+        mockMvc.perform(get(LIST_URL + "/" + P1_PID).with(authHeaders.seller(USER_A))).andExpect(status().isOk());
     }
 
     @Test
     @DisplayName("T2 목록: 셀러 A는 자기 상품 P3·P2·P1만(등록일 최신순·삭제 P4·타 셀러 PB 제외)·variantCount는 활성 variant 수·키 화이트리스트·금지 키 0")
     void list_returnsOwnProductsOnly() throws Exception {
-        String body = mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)))
+        String body = mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(3))
                 .andExpect(jsonPath("$.items[*].productPublicId", contains(P3_PID, P2_PID, P1_PID)))
@@ -187,7 +187,7 @@ class SellerProductQueryControllerIntegrationTest extends AbstractIntegrationTes
         assertThat(items.get(2).get("createdAt").asText()).endsWith("+09:00");
 
         // 셀러 B 관점: 자기 상품 PB만.
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_B)))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_B)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].productPublicId").value(PB_PID));
@@ -196,59 +196,59 @@ class SellerProductQueryControllerIntegrationTest extends AbstractIntegrationTes
     @Test
     @DisplayName("T3 필터·정렬: keyword 상품명 부분일치 · status · categoryId · sort NAME/PRICE_ASC/PRICE_DESC")
     void list_filtersAndSort() throws Exception {
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("keyword", "알파"))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("keyword", "알파"))
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].productPublicId").value(P1_PID));
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("keyword", "셀러상품"))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("keyword", "셀러상품"))
                 .andExpect(jsonPath("$.totalCount").value(2));
         // LIKE 와일드카드는 리터럴 매칭(escape).
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("keyword", "%"))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("keyword", "%"))
                 .andExpect(jsonPath("$.totalCount").value(0));
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("status", "PENDING"))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("status", "PENDING"))
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].productPublicId").value(P2_PID));
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("categoryId", String.valueOf(CATEGORY_1)))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("categoryId", String.valueOf(CATEGORY_1)))
                 .andExpect(jsonPath("$.items[*].productPublicId", contains(P3_PID, P1_PID)));
         // 상품명 오름차순: "기타 감마" < "셀러상품 베타" < "셀러상품 알파"(ㅂ < ㅇ).
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("sort", "NAME"))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("sort", "NAME"))
                 .andExpect(jsonPath("$.items[*].productPublicId", contains(P3_PID, P2_PID, P1_PID)));
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("sort", "PRICE_ASC"))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("sort", "PRICE_ASC"))
                 .andExpect(jsonPath("$.items[*].productPublicId", contains(P1_PID, P3_PID, P2_PID)));
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("sort", "PRICE_DESC"))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("sort", "PRICE_DESC"))
                 .andExpect(jsonPath("$.items[*].productPublicId", contains(P2_PID, P3_PID, P1_PID)));
     }
 
     @Test
     @DisplayName("T4 400: 허용 외 status·sort → MALFORMED_REQUEST · keyword 51자 → MALFORMED_REQUEST")
     void list_malformed_returns400() throws Exception {
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("status", "BOGUS"))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("status", "BOGUS"))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("sort", "BOGUS"))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("sort", "BOGUS"))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("keyword", KEYWORD_LIMIT_EXCEEDED))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("keyword", KEYWORD_LIMIT_EXCEEDED))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
     }
 
     @Test
     @DisplayName("T5 페이지네이션 경계: size=2 page 0(hasNext) · page 1(마지막) · page 9(빈) · 조건 불일치 빈 결과")
     void list_paginationBoundaries() throws Exception {
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("size", "2").param("page", "0"))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("size", "2").param("page", "0"))
                 .andExpect(jsonPath("$.items.length()").value(2))
                 .andExpect(jsonPath("$.items[*].productPublicId", contains(P3_PID, P2_PID)))
                 .andExpect(jsonPath("$.page").value(0))
                 .andExpect(jsonPath("$.size").value(2))
                 .andExpect(jsonPath("$.totalCount").value(3))
                 .andExpect(jsonPath("$.hasNext").value(true));
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("size", "2").param("page", "1"))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("size", "2").param("page", "1"))
                 .andExpect(jsonPath("$.items.length()").value(1))
                 .andExpect(jsonPath("$.items[0].productPublicId").value(P1_PID))
                 .andExpect(jsonPath("$.hasNext").value(false));
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("size", "2").param("page", "9"))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("size", "2").param("page", "9"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items.length()").value(0))
                 .andExpect(jsonPath("$.totalCount").value(3))
                 .andExpect(jsonPath("$.hasNext").value(false));
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("keyword", "없는상품"))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("keyword", "없는상품"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items.length()").value(0))
                 .andExpect(jsonPath("$.totalCount").value(0));
@@ -257,7 +257,7 @@ class SellerProductQueryControllerIntegrationTest extends AbstractIntegrationTes
     @Test
     @DisplayName("T6 상세 P1: 기본 필드·이미지(순서·대표·유형)·옵션 그룹/값·variant(옵션 해소·재고 3수치·삭제 VA3 제외)·키 화이트리스트·금지 키 0")
     void detail_optionProduct() throws Exception {
-        String body = mockMvc.perform(get(LIST_URL + "/" + P1_PID).headers(authHeaders.seller(USER_A)))
+        String body = mockMvc.perform(get(LIST_URL + "/" + P1_PID).with(authHeaders.seller(USER_A)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.productPublicId").value(P1_PID))
                 .andExpect(jsonPath("$.name").value("셀러상품 알파"))
@@ -315,7 +315,7 @@ class SellerProductQueryControllerIntegrationTest extends AbstractIntegrationTes
     @Test
     @DisplayName("T7 상세 P2(단순상품): DEFAULT sentinel 그룹 제외(optionGroups 빈 배열)·variant options 빈 배열·이미지 없음")
     void detail_simpleProduct() throws Exception {
-        mockMvc.perform(get(LIST_URL + "/" + P2_PID).headers(authHeaders.seller(USER_A)))
+        mockMvc.perform(get(LIST_URL + "/" + P2_PID).with(authHeaders.seller(USER_A)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("PENDING"))
                 .andExpect(jsonPath("$.images.length()").value(0))
@@ -329,15 +329,15 @@ class SellerProductQueryControllerIntegrationTest extends AbstractIntegrationTes
     @Test
     @DisplayName("T8 상세 404: 타 셀러 상품(403 아님) · 미존재 · soft-delete 상품 → PRODUCT_NOT_FOUND / 타 셀러 본인은 200")
     void detail_hiddenAs404() throws Exception {
-        mockMvc.perform(get(LIST_URL + "/" + PB_PID).headers(authHeaders.seller(USER_A)))
+        mockMvc.perform(get(LIST_URL + "/" + PB_PID).with(authHeaders.seller(USER_A)))
                 .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("PRODUCT_NOT_FOUND"));
         // Track 91 대조군: GlobalExceptionHandler 경유 404의 한글 detail은 MVC 컨버터가 UTF-8로 쓴다(회귀 방어)
-        mockMvc.perform(get(LIST_URL + "/" + MISSING_PID).headers(authHeaders.seller(USER_A)))
+        mockMvc.perform(get(LIST_URL + "/" + MISSING_PID).with(authHeaders.seller(USER_A)))
                 .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("PRODUCT_NOT_FOUND"))
                 .andExpect(jsonPath("$.detail").value("상품을 찾을 수 없습니다: publicId=" + MISSING_PID));
-        mockMvc.perform(get(LIST_URL + "/" + P4_PID).headers(authHeaders.seller(USER_A)))
+        mockMvc.perform(get(LIST_URL + "/" + P4_PID).with(authHeaders.seller(USER_A)))
                 .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("PRODUCT_NOT_FOUND"));
-        mockMvc.perform(get(LIST_URL + "/" + PB_PID).headers(authHeaders.seller(USER_B)))
+        mockMvc.perform(get(LIST_URL + "/" + PB_PID).with(authHeaders.seller(USER_B)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").value("타셀러상품"))
                 .andExpect(jsonPath("$.variants[0].variantPublicId").value(VPB_PID));
@@ -349,10 +349,10 @@ class SellerProductQueryControllerIntegrationTest extends AbstractIntegrationTes
         cleanup();
         seedAll(SellerStatus.SUSPENDED);
 
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(3));
-        mockMvc.perform(get(LIST_URL + "/" + P1_PID).headers(authHeaders.seller(USER_A)))
+        mockMvc.perform(get(LIST_URL + "/" + P1_PID).with(authHeaders.seller(USER_A)))
                 .andExpect(status().isOk());
     }
 
@@ -363,10 +363,10 @@ class SellerProductQueryControllerIntegrationTest extends AbstractIntegrationTes
         cleanup();
         seedAll(status);
 
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
-        mockMvc.perform(get(LIST_URL + "/" + P1_PID).headers(authHeaders.seller(USER_A)))
+        mockMvc.perform(get(LIST_URL + "/" + P1_PID).with(authHeaders.seller(USER_A)))
                 .andExpect(status().isUnauthorized());
     }
 

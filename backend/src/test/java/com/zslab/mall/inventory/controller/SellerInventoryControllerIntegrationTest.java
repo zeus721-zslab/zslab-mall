@@ -107,9 +107,9 @@ class SellerInventoryControllerIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("T2 인증 실패: 잘못된 Bearer 토큰 → 401 UNAUTHENTICATED·이벤트 0")
+    @DisplayName("T2 인증 실패: Authorization 헤더(잘못된 Bearer)만 → 401 UNAUTHENTICATED·이벤트 0")
     void markInbound_malformedCredential_returns401() throws Exception {
-        // Track 33 P5: 잘못된 Bearer 토큰은 JwtAuthenticationFilter가 verify 실패로 예외 전파 → ExceptionTranslationFilter가 401 위임.
+        // D-235 PR3 K1: Authorization 헤더는 읽지 않으므로 역할 쿠키 없는 요청은 익명 → 인가 단계에서 401.
         mockMvc.perform(post(INBOUND_URL)
                         .header("Authorization", "Bearer not-a-valid-jwt")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -129,7 +129,7 @@ class SellerInventoryControllerIntegrationTest extends AbstractIntegrationTest {
         });
 
         mockMvc.perform(post(INBOUND_URL)
-                        .headers(authHeaders.seller(SELLER_A_USER))
+                        .with(authHeaders.seller(SELLER_A_USER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(INBOUND_QTY, REASON)))
                 .andExpect(status().isOk())
@@ -159,7 +159,7 @@ class SellerInventoryControllerIntegrationTest extends AbstractIntegrationTest {
         });
 
         mockMvc.perform(post(OUTBOUND_URL)
-                        .headers(authHeaders.seller(SELLER_A_USER))
+                        .with(authHeaders.seller(SELLER_A_USER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(OUTBOUND_QTY, REASON)))
                 .andExpect(status().isOk())
@@ -182,7 +182,7 @@ class SellerInventoryControllerIntegrationTest extends AbstractIntegrationTest {
     void markInbound_unknownVariantPublicId_returns404() throws Exception {
         // 시드 없음(variant 미존재). resolve 통과 후 findByPublicId 실패 → ProductVariantNotFoundException 404.
         mockMvc.perform(post(MISSING_INBOUND_URL)
-                        .headers(authHeaders.seller(SELLER_A_USER))
+                        .with(authHeaders.seller(SELLER_A_USER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(INBOUND_QTY, REASON)))
                 .andExpect(status().isNotFound())
@@ -201,7 +201,7 @@ class SellerInventoryControllerIntegrationTest extends AbstractIntegrationTest {
 
         // variant는 존재(SELLER_A 소유)하나 SELLER_B가 조작 시도 → 3홉 소유권 위반을 미존재로 은닉(404).
         mockMvc.perform(post(INBOUND_URL)
-                        .headers(authHeaders.seller(SELLER_B_USER))
+                        .with(authHeaders.seller(SELLER_B_USER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(INBOUND_QTY, REASON)))
                 .andExpect(status().isNotFound())
@@ -222,7 +222,7 @@ class SellerInventoryControllerIntegrationTest extends AbstractIntegrationTest {
         });
 
         mockMvc.perform(post(OUTBOUND_URL)
-                        .headers(authHeaders.seller(SELLER_A_USER))
+                        .with(authHeaders.seller(SELLER_A_USER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(EXCESS_OUTBOUND_QTY, REASON)))
                 .andExpect(status().isUnprocessableEntity())
@@ -245,7 +245,7 @@ class SellerInventoryControllerIntegrationTest extends AbstractIntegrationTest {
 
         // quantity는 @Positive 미적용(형식/도메인 분리) → Service의 qty≤0 가드가 IllegalArgumentException(→400)으로 차단.
         mockMvc.perform(post(INBOUND_URL)
-                        .headers(authHeaders.seller(SELLER_A_USER))
+                        .with(authHeaders.seller(SELLER_A_USER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(0, REASON)))
                 .andExpect(status().isBadRequest())

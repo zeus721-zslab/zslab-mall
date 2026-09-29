@@ -29,7 +29,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * 데모 계정 보호 통합 테스트(D-230·실 MariaDB). 보호 대상 계정의 로그인을 깨뜨리는 조작 6경로(본인 비밀번호 변경·관리자 임시 비밀번호·
- * 본인 탈퇴·관리자 탈퇴·역할 회수·셀러 구성원 제외)가 요청자와 무관하게 403 DEMO_ACCOUNT_PROTECTED이고, 보호 아닌 계정은 기존대로
+ * 본인 탈퇴·관리자 탈퇴·역할 회수·셀러 구성원 제외)가 인증된 요청자와 무관하게 403 DEMO_ACCOUNT_PROTECTED이고(구매자 경로 /users/me/**에
+ * 셀러·관리자 쿠키로 오면 익명 401 · D-235 PR3), 보호 아닌 계정은 기존대로
  * 동작하며, 보호 계정의 이름·연락처 수정은 허용되는지 HTTP 경유로 검증한다.
  *
  * <p>설정값은 대소문자·앞뒤 공백·빈 항목을 섞고, 구매자 데모 계정은 설정과 대소문자가 다른 이메일로 시드해 모든 경로에서 대소문자 무시를
@@ -94,16 +95,18 @@ class DemoAccountProtectionIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("본인 비밀번호 변경: 구매자·셀러 데모 계정 → 403(비밀번호 불변) / 보호 아닌 구매자 → 204")
+    @DisplayName("본인 비밀번호 변경: 구매자 데모 계정 → 403(비밀번호 불변) · 셀러 쿠키 → 401 / 보호 아닌 구매자 → 204")
     void selfPasswordChange() throws Exception {
         String demoBuyerHash = passwordHash(DEMO_BUYER);
-        expectProtected(mockMvc.perform(patch("/api/v1/users/me/password").headers(authHeaders.buyer(DEMO_BUYER))
+        expectProtected(mockMvc.perform(patch("/api/v1/users/me/password").with(authHeaders.buyer(DEMO_BUYER))
                 .contentType(MediaType.APPLICATION_JSON).content(PASSWORD_CHANGE_BODY)));
-        expectProtected(mockMvc.perform(patch("/api/v1/users/me/password").headers(authHeaders.seller(DEMO_SELLER))
-                .contentType(MediaType.APPLICATION_JSON).content(PASSWORD_CHANGE_BODY)));
+        mockMvc.perform(patch("/api/v1/users/me/password").with(authHeaders.seller(DEMO_SELLER))
+                        .contentType(MediaType.APPLICATION_JSON).content(PASSWORD_CHANGE_BODY))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
         assertThat(passwordHash(DEMO_BUYER)).isEqualTo(demoBuyerHash);
 
-        mockMvc.perform(patch("/api/v1/users/me/password").headers(authHeaders.buyer(NORMAL_BUYER))
+        mockMvc.perform(patch("/api/v1/users/me/password").with(authHeaders.buyer(NORMAL_BUYER))
                         .contentType(MediaType.APPLICATION_JSON).content(PASSWORD_CHANGE_BODY))
                 .andExpect(status().isNoContent());
     }
@@ -113,22 +116,24 @@ class DemoAccountProtectionIntegrationTest extends AbstractIntegrationTest {
     void adminTemporaryPassword() throws Exception {
         String demoBuyerHash = passwordHash(DEMO_BUYER);
         expectProtected(mockMvc.perform(post("/api/v1/admin/members/" + DEMO_BUYER_PID + "/password-reset")
-                .headers(authHeaders.admin(ADMIN_CALLER))));
+                .with(authHeaders.admin(ADMIN_CALLER))));
         assertThat(passwordHash(DEMO_BUYER)).isEqualTo(demoBuyerHash);
 
-        mockMvc.perform(post("/api/v1/admin/members/" + NORMAL_BUYER_PID + "/password-reset").headers(authHeaders.admin(ADMIN_CALLER)))
+        mockMvc.perform(post("/api/v1/admin/members/" + NORMAL_BUYER_PID + "/password-reset").with(authHeaders.admin(ADMIN_CALLER)))
                 .andExpect(status().isOk());
     }
 
     @Test
-    @DisplayName("본인 탈퇴: 데모 구매자·데모 셀러(셀러 토큰) → 403(탈퇴 미기록) / 보호 아닌 구매자 → 204")
+    @DisplayName("본인 탈퇴: 데모 구매자 → 403 · 데모 셀러(셀러 쿠키) → 401(둘 다 탈퇴 미기록) / 보호 아닌 구매자 → 204")
     void selfWithdraw() throws Exception {
-        expectProtected(mockMvc.perform(post("/api/v1/users/me/withdraw").headers(authHeaders.buyer(DEMO_BUYER))));
-        expectProtected(mockMvc.perform(post("/api/v1/users/me/withdraw").headers(authHeaders.seller(DEMO_SELLER))));
+        expectProtected(mockMvc.perform(post("/api/v1/users/me/withdraw").with(authHeaders.buyer(DEMO_BUYER))));
+        mockMvc.perform(post("/api/v1/users/me/withdraw").with(authHeaders.seller(DEMO_SELLER)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
         assertThat(isWithdrawn(DEMO_BUYER)).isFalse();
         assertThat(isWithdrawn(DEMO_SELLER)).isFalse();
 
-        mockMvc.perform(post("/api/v1/users/me/withdraw").headers(authHeaders.buyer(NORMAL_BUYER)))
+        mockMvc.perform(post("/api/v1/users/me/withdraw").with(authHeaders.buyer(NORMAL_BUYER)))
                 .andExpect(status().isNoContent());
         assertThat(isWithdrawn(NORMAL_BUYER)).isTrue();
     }
@@ -137,10 +142,10 @@ class DemoAccountProtectionIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("관리자 탈퇴: 데모 구매자 → 403(탈퇴 미기록) / 보호 아닌 구매자 → 204")
     void adminWithdraw() throws Exception {
         expectProtected(mockMvc.perform(post("/api/v1/admin/members/" + DEMO_BUYER_PID + "/withdraw")
-                .headers(authHeaders.admin(ADMIN_CALLER))));
+                .with(authHeaders.admin(ADMIN_CALLER))));
         assertThat(isWithdrawn(DEMO_BUYER)).isFalse();
 
-        mockMvc.perform(post("/api/v1/admin/members/" + NORMAL_BUYER_PID + "/withdraw").headers(authHeaders.admin(ADMIN_CALLER)))
+        mockMvc.perform(post("/api/v1/admin/members/" + NORMAL_BUYER_PID + "/withdraw").with(authHeaders.admin(ADMIN_CALLER)))
                 .andExpect(status().isNoContent());
         assertThat(isWithdrawn(NORMAL_BUYER)).isTrue();
     }
@@ -149,11 +154,11 @@ class DemoAccountProtectionIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("역할 회수: 데모 구매자의 BUYER 회수 → 403(역할 유지) / 보호 아닌 구매자 → 204")
     void roleRevoke() throws Exception {
         expectProtected(mockMvc.perform(delete("/api/v1/admin/users/" + DEMO_BUYER_PID + "/roles/BUYER")
-                .headers(authHeaders.admin(ADMIN_CALLER)).contentType(MediaType.APPLICATION_JSON).content(REASON_BODY)));
+                .with(authHeaders.admin(ADMIN_CALLER)).contentType(MediaType.APPLICATION_JSON).content(REASON_BODY)));
         assertThat(roleCount(DEMO_BUYER, "BUYER")).isEqualTo(1);
 
         mockMvc.perform(delete("/api/v1/admin/users/" + NORMAL_BUYER_PID + "/roles/BUYER")
-                        .headers(authHeaders.admin(ADMIN_CALLER)).contentType(MediaType.APPLICATION_JSON).content(REASON_BODY))
+                        .with(authHeaders.admin(ADMIN_CALLER)).contentType(MediaType.APPLICATION_JSON).content(REASON_BODY))
                 .andExpect(status().isNoContent());
         assertThat(roleCount(NORMAL_BUYER, "BUYER")).isZero();
     }
@@ -162,11 +167,11 @@ class DemoAccountProtectionIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("셀러 구성원 제외: 데모 셀러(OWNER) → 403(소속 유지) / 보호 아닌 STAFF → 204")
     void sellerMemberRemove() throws Exception {
         expectProtected(mockMvc.perform(delete("/api/v1/admin/sellers/" + SELLER_PID + "/members/" + DEMO_SELLER_PID)
-                .headers(authHeaders.admin(ADMIN_CALLER)).contentType(MediaType.APPLICATION_JSON).content(REASON_BODY)));
+                .with(authHeaders.admin(ADMIN_CALLER)).contentType(MediaType.APPLICATION_JSON).content(REASON_BODY)));
         assertThat(sellerMemberCount(DEMO_SELLER)).isEqualTo(1);
 
         mockMvc.perform(delete("/api/v1/admin/sellers/" + SELLER_PID + "/members/" + NORMAL_STAFF_PID)
-                        .headers(authHeaders.admin(ADMIN_CALLER)).contentType(MediaType.APPLICATION_JSON).content(REASON_BODY))
+                        .with(authHeaders.admin(ADMIN_CALLER)).contentType(MediaType.APPLICATION_JSON).content(REASON_BODY))
                 .andExpect(status().isNoContent());
         assertThat(sellerMemberCount(NORMAL_STAFF)).isZero();
     }
@@ -174,31 +179,35 @@ class DemoAccountProtectionIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("셀러 해지: 데모 셀러가 소속된 셀러 TERMINATED → 403(상태·아카이브 불변) / 같은 셀러 SUSPENDED → 200(되돌릴 수 있어 허용) / 보호 구성원 없는 셀러 TERMINATED → 200")
     void sellerTermination() throws Exception {
-        expectProtected(mockMvc.perform(patch("/api/v1/admin/sellers/" + SELLER_PID + "/status").headers(authHeaders.admin(ADMIN_CALLER))
+        expectProtected(mockMvc.perform(patch("/api/v1/admin/sellers/" + SELLER_PID + "/status").with(authHeaders.admin(ADMIN_CALLER))
                 .contentType(MediaType.APPLICATION_JSON).content(statusBody("TERMINATED"))));
         assertThat(sellerStatus(SELLER_ID)).isEqualTo("ACTIVE");
         assertThat(withdrawnSellerCount(SELLER_ID)).isZero();
 
-        mockMvc.perform(patch("/api/v1/admin/sellers/" + SELLER_PID + "/status").headers(authHeaders.admin(ADMIN_CALLER))
+        mockMvc.perform(patch("/api/v1/admin/sellers/" + SELLER_PID + "/status").with(authHeaders.admin(ADMIN_CALLER))
                         .contentType(MediaType.APPLICATION_JSON).content(statusBody("SUSPENDED")))
                 .andExpect(status().isOk());
         assertThat(sellerStatus(SELLER_ID)).isEqualTo("SUSPENDED");
 
-        mockMvc.perform(patch("/api/v1/admin/sellers/" + NORMAL_SELLER_PID + "/status").headers(authHeaders.admin(ADMIN_CALLER))
+        mockMvc.perform(patch("/api/v1/admin/sellers/" + NORMAL_SELLER_PID + "/status").with(authHeaders.admin(ADMIN_CALLER))
                         .contentType(MediaType.APPLICATION_JSON).content(statusBody("TERMINATED")))
                 .andExpect(status().isOk());
         assertThat(sellerStatus(NORMAL_SELLER_ID)).isEqualTo("TERMINATED");
     }
 
     @Test
-    @DisplayName("관리자 데모(SUPER_ADMIN): 관리자 토큰 본인 비밀번호 변경·본인 탈퇴 403 · 다른 SUPER_ADMIN의 SUPER_ADMIN 회수 403(호출자·데모 활성 SA 2명 이상이라 마지막 SA 가드와 무관)")
+    @DisplayName("관리자 데모(SUPER_ADMIN): 관리자 쿠키 본인 비밀번호 변경·본인 탈퇴 401 · 다른 SUPER_ADMIN의 SUPER_ADMIN 회수 403(호출자·데모 활성 SA 2명 이상이라 마지막 SA 가드와 무관)")
     void adminDemoAccount_protectedOnAllPaths() throws Exception {
         String adminDemoHash = passwordHash(ADMIN_DEMO);
-        expectProtected(mockMvc.perform(patch("/api/v1/users/me/password").headers(authHeaders.admin(ADMIN_DEMO))
-                .contentType(MediaType.APPLICATION_JSON).content(PASSWORD_CHANGE_BODY)));
-        expectProtected(mockMvc.perform(post("/api/v1/users/me/withdraw").headers(authHeaders.admin(ADMIN_DEMO))));
+        mockMvc.perform(patch("/api/v1/users/me/password").with(authHeaders.admin(ADMIN_DEMO))
+                        .contentType(MediaType.APPLICATION_JSON).content(PASSWORD_CHANGE_BODY))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
+        mockMvc.perform(post("/api/v1/users/me/withdraw").with(authHeaders.admin(ADMIN_DEMO)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
         expectProtected(mockMvc.perform(delete("/api/v1/admin/users/" + ADMIN_DEMO_PID + "/roles/SUPER_ADMIN")
-                .headers(authHeaders.admin(ADMIN_CALLER)).contentType(MediaType.APPLICATION_JSON).content(REASON_BODY)));
+                .with(authHeaders.admin(ADMIN_CALLER)).contentType(MediaType.APPLICATION_JSON).content(REASON_BODY)));
 
         assertThat(passwordHash(ADMIN_DEMO)).isEqualTo(adminDemoHash);
         assertThat(isWithdrawn(ADMIN_DEMO)).isFalse();
@@ -208,10 +217,10 @@ class DemoAccountProtectionIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("보호 계정도 로그인과 무관한 이름·연락처 수정은 허용(본인 200 · 관리자 204)")
     void profileUpdate_allowedForProtectedAccount() throws Exception {
-        mockMvc.perform(patch("/api/v1/users/me").headers(authHeaders.buyer(DEMO_BUYER))
+        mockMvc.perform(patch("/api/v1/users/me").with(authHeaders.buyer(DEMO_BUYER))
                         .contentType(MediaType.APPLICATION_JSON).content(PROFILE_BODY))
                 .andExpect(status().isOk());
-        mockMvc.perform(patch("/api/v1/admin/members/" + DEMO_BUYER_PID).headers(authHeaders.admin(ADMIN_CALLER))
+        mockMvc.perform(patch("/api/v1/admin/members/" + DEMO_BUYER_PID).with(authHeaders.admin(ADMIN_CALLER))
                         .contentType(MediaType.APPLICATION_JSON).content(PROFILE_BODY))
                 .andExpect(status().isNoContent());
         assertThat(jdbc.queryForObject("SELECT name FROM `user` WHERE id = ?", String.class, DEMO_BUYER)).isEqualTo("이름변경");

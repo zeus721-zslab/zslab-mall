@@ -1,7 +1,6 @@
 package com.zslab.mall.auth.service;
 
 import com.zslab.mall.auth.controller.request.LoginRequest;
-import com.zslab.mall.auth.controller.response.LoginResponse;
 import com.zslab.mall.auth.exception.AuthenticationFailedException;
 import com.zslab.mall.common.security.ActorRole;
 import com.zslab.mall.common.security.RoleAuthorization;
@@ -16,7 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * 인증(로그인) 서비스. (Track 33)
  *
- * <p>이메일·비밀번호·role을 검증해 토큰을 발급한다. 실패 사유(미존재·비활성·비번 불일치·role 부적격)는 내부 로그로만
+ * <p>이메일·비밀번호와 로그인 경로의 role을 검증해 토큰을 발급한다. 실패 사유(미존재·비활성·비번 불일치·role 부적격)는 내부 로그로만
  * 구분하고, 외부로는 사유를 노출하지 않기 위해 모두 동일한 {@link AuthenticationFailedException}(401 "Invalid email or
  * password.")으로 던진다(계정 열거·자격 노출 방지). 이메일·비밀번호 평문은 로그에 남기지 않는다(actorId·사유코드만).
  */
@@ -40,8 +39,12 @@ public class AuthService {
         this.tokenProvider = tokenProvider;
     }
 
+    /**
+     * @param role 로그인 경로가 고정한 역할(구매자·셀러·관리자 로그인 · D-235 PR3 K3)
+     * @throws AuthenticationFailedException 미존재·비활성·비밀번호 불일치·역할 부적격(사유 비노출·401)
+     */
     @Transactional(readOnly = true)
-    public LoginResponse login(LoginRequest request) {
+    public LoginResult login(LoginRequest request, ActorRole role) {
         // @SQLRestriction("deleted_at IS NULL")로 소프트삭제 회원은 조회 자체가 제외된다(→ USER_NOT_FOUND 경로).
         User user = userRepository.findByEmail(request.email())
                 .orElseThrow(() -> fail(null, "USER_NOT_FOUND"));
@@ -52,11 +55,10 @@ public class AuthService {
         if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
             throw fail(user.getId(), "PASSWORD_MISMATCH");
         }
-        ActorRole role = request.role();
         if (!roleAuthorization.isAuthorized(user.getId(), role)) {
             throw fail(user.getId(), "ROLE_MISMATCH");
         }
-        return new LoginResponse(tokenProvider.issue(user.getId(), role), user.isPasswordChangeRequired());
+        return new LoginResult(tokenProvider.issue(user.getId(), role), user.isPasswordChangeRequired());
     }
 
     /** 실패 사유는 내부 로그로만 구분(이메일·비번 평문 미기록·actorId·사유코드만)하고 외부는 동일 예외로 통일한다. */

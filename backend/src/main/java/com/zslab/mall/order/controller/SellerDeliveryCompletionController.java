@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * Seller 액터용 일반 주문 배송 완료 REST 컨트롤러(Track 43·M1). 판매자 수동 배송 완료(mark-delivered) 1 endpoint를 노출한다.
  *
- * <p><b>경로·패키지</b>: {@code POST /api/v1/deliveries/{deliveryPublicId}/mark-delivered}는 Admin
+ * <p><b>경로·패키지</b>: {@code POST /api/v1/seller/deliveries/{deliveryPublicId}/mark-delivered}는 Admin
  * {@code /api/v1/admin/deliveries/{deliveryPublicId}/mark-delivered}({@code AdminDeliveryController})와 액터축만 다른 대칭이다.
  * 배송 완료의 소유권 해소(delivery→orderItem→seller)가 order 패키지 책임이라 본 컨트롤러는 delivery 패키지가 아닌 order 패키지에 둔다
  * (delivery는 order 무지 유지·{@code SellerShippingController} 패키지 정합).
@@ -40,12 +40,11 @@ public class SellerDeliveryCompletionController {
     }
 
     /**
-     * Seller 일반 주문 배송 완료. 헤더 누락 401·Delivery 미존재/타 seller 404·비-SHIPPING 상태 422·성공 시 200 + 배송 완료된 Delivery 응답.
+     * Seller 일반 주문 배송 완료. 셀러 인증 없음 401·Delivery 미존재/타 seller 404·비-SHIPPING 상태 422·성공 시 200 + 배송 완료된 Delivery 응답.
      * 소유권·상태 검증은 {@link OrderShippingService#markDeliveredBySeller} 책임이다({@code AdminDeliveryController.markDelivered} 대칭).
      */
-    // 셀러 접두사 별칭(D-235): 역할 쿠키 Path(/api/v1/seller)에 실리도록 같은 핸들러를 한 경로 더 노출한다. 옛 경로는 PR3에서 제거.
-    @PostMapping({"/api/v1/deliveries/{deliveryPublicId}/mark-delivered",
-            "/api/v1/seller/deliveries/{deliveryPublicId}/mark-delivered"})
+    // 셀러 접두사 경로(D-235): 셀러 역할 쿠키 Path(/api/v1/seller)에 실리는 경로만 둔다.
+    @PostMapping("/api/v1/seller/deliveries/{deliveryPublicId}/mark-delivered")
     public RegisterExchangeShipmentResponse markDelivered(
             @PathVariable String deliveryPublicId,
             HttpServletRequest httpRequest) {

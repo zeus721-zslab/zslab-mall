@@ -165,14 +165,14 @@ class SellerSalesStatsQueryControllerIntegrationTest extends AbstractIntegration
     }
 
     @Test
-    @DisplayName("T1 인가: 3 endpoint 모두 비인증 401 · 구매자 403 · 셀러 200")
+    @DisplayName("T1 인가: 3 endpoint 모두 비인증 401 · 구매자 401 · 셀러 200")
     void authorization() throws Exception {
         for (String url : List.of(URL + "?from=2026-03-01&to=2026-03-31",
                 BREAKDOWN_URL + "?from=2026-03-01&to=2026-03-31&axis=PRODUCT",
                 EXPORT_URL + "?from=2026-03-01&to=2026-03-31&axis=PRODUCT")) {
             mockMvc.perform(get(url)).andExpect(status().isUnauthorized());
-            mockMvc.perform(get(url).headers(authHeaders.buyer(BUYER_ID))).andExpect(status().isForbidden());
-            mockMvc.perform(get(url).headers(authHeaders.seller(USER_A))).andExpect(status().isOk());
+            mockMvc.perform(get(url).with(authHeaders.buyer(BUYER_ID))).andExpect(status().isUnauthorized());
+            mockMvc.perform(get(url).with(authHeaders.seller(USER_A))).andExpect(status().isOk());
         }
     }
 
@@ -246,7 +246,7 @@ class SellerSalesStatsQueryControllerIntegrationTest extends AbstractIntegration
                 .isEqualTo(SELLER_A_MARCH_REVENUE - ITEM_A7_PRICE - ITEM_A6_PRICE);
 
         // 2025-04-01 ~ 2026-03-31 = 365일(허용) · 2025-03-31 ~ = 366일(400)
-        mockMvc.perform(get(URL).headers(authHeaders.seller(USER_A)).param("from", "2025-04-01").param("to", "2026-03-31")
+        mockMvc.perform(get(URL).with(authHeaders.seller(USER_A)).param("from", "2025-04-01").param("to", "2026-03-31")
                         .param("unit", "MONTH"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.trend.length()").value(12));
@@ -255,7 +255,7 @@ class SellerSalesStatsQueryControllerIntegrationTest extends AbstractIntegration
                 BREAKDOWN_URL + "?from=2026-03-11&to=2026-03-10&axis=OPTION", URL + "?from=2026/03/01&to=2026-03-31",
                 BREAKDOWN_URL + "?from=2026-03-01&to=2026-03-31&axis=SELLER", BREAKDOWN_URL + "?from=2026-03-01&to=2026-03-31",
                 URL + "?from=2026-03-01&to=2026-03-31&unit=HOUR")) {
-            mockMvc.perform(get(url).headers(authHeaders.seller(USER_A)))
+            mockMvc.perform(get(url).with(authHeaders.seller(USER_A)))
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
         }
@@ -360,7 +360,7 @@ class SellerSalesStatsQueryControllerIntegrationTest extends AbstractIntegration
     void csv() throws Exception {
         MockHttpServletResponse response = mockMvc.perform(
                         get(EXPORT_URL + "?from=2026-03-01&to=2026-03-31&axis=PRODUCT&compare=PREVIOUS")
-                                .headers(authHeaders.seller(USER_A)))
+                                .with(authHeaders.seller(USER_A)))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Content-Type", "text/csv;charset=UTF-8"))
                 .andReturn().getResponse();
@@ -409,9 +409,9 @@ class SellerSalesStatsQueryControllerIntegrationTest extends AbstractIntegration
 
         assertThat(fetch(USER_A, URL + "?from=2026-03-01&to=2026-03-31").get("summary").get("revenue").asLong())
                 .isEqualTo(SELLER_A_MARCH_REVENUE);
-        mockMvc.perform(get(BREAKDOWN_URL + "?from=2026-03-01&to=2026-03-31&axis=CATEGORY").headers(authHeaders.seller(USER_A)))
+        mockMvc.perform(get(BREAKDOWN_URL + "?from=2026-03-01&to=2026-03-31&axis=CATEGORY").with(authHeaders.seller(USER_A)))
                 .andExpect(status().isOk());
-        mockMvc.perform(get(EXPORT_URL + "?from=2026-03-01&to=2026-03-31&axis=OPTION").headers(authHeaders.seller(USER_A)))
+        mockMvc.perform(get(EXPORT_URL + "?from=2026-03-01&to=2026-03-31&axis=OPTION").with(authHeaders.seller(USER_A)))
                 .andExpect(status().isOk());
     }
 
@@ -422,7 +422,7 @@ class SellerSalesStatsQueryControllerIntegrationTest extends AbstractIntegration
         cleanup();
         seedAll(status);
 
-        mockMvc.perform(get(URL + "?from=2026-03-01&to=2026-03-31").headers(authHeaders.seller(USER_A)))
+        mockMvc.perform(get(URL + "?from=2026-03-01&to=2026-03-31").with(authHeaders.seller(USER_A)))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
     }
@@ -430,7 +430,7 @@ class SellerSalesStatsQueryControllerIntegrationTest extends AbstractIntegration
     // ---------- helpers ----------
 
     private JsonNode fetch(long userId, String url) throws Exception {
-        String body = mockMvc.perform(get(url).headers(authHeaders.seller(userId)))
+        String body = mockMvc.perform(get(url).with(authHeaders.seller(userId)))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         return objectMapper.readTree(body);
     }

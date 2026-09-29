@@ -188,7 +188,7 @@ class PgCallbackReconciliationIntegrationTest extends AbstractIntegrationTest {
         sql("UPDATE `order` SET status = 'PAYMENT_EXPIRED' WHERE id = ?", PAY_ORDER_ID);
 
         mockMvc.perform(post("/api/v1/payments/mock-callback")
-                        .headers(authHeaders.buyer(BUYER_ID))
+                        .with(authHeaders.buyer(BUYER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"attemptKey\": \"" + ATTEMPT_KEY + "\", \"callbackType\": \"SUCCESS\"}"))
                 .andExpect(status().isUnprocessableEntity())

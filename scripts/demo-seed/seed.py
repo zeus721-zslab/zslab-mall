@@ -9,6 +9,7 @@
 """
 
 import argparse
+import http.cookiejar
 import io
 import json
 import logging
@@ -43,6 +44,13 @@ RETRY_BASE_SECONDS = 1.0
 RETRY_STATUSES = {429, 500, 502, 503, 504}
 MULTIPART_MAX_FILES = 20  # AdminFileController 요청당 20장
 ORDER_NO_DATE_LENGTH = 8  # order_no 'yyyyMMdd-XXXXXX'(OrderService QB-9)의 날짜부 길이
+# 쿠키 인증(D-235 PR3 K9): 역할 로그인 경로·역할 쿠키 이름·CSRF
+CSRF_TOKEN_PATH = "/api/v1/auth/csrf"
+LOGIN_PATHS = {"ADMIN": "/api/v1/admin/auth/login", "BUYER": "/api/v1/auth/buyer/login", "SELLER": "/api/v1/seller/auth/login"}
+ROLE_COOKIES = {"ADMIN": "__Secure-admin_at", "BUYER": "__Secure-buyer_at", "SELLER": "__Secure-seller_at"}
+XSRF_COOKIE = "XSRF-TOKEN"
+XSRF_HEADER = "X-XSRF-TOKEN"
+SAFE_METHODS = {"GET", "HEAD", "OPTIONS", "TRACE"}
 
 MONTH_ORDER_COUNTS = {3: 15, 4: 18, 5: 20, 6: 22, 7: 22, 8: 23}  # 합 120
 # 3~8월 완결 클레임 15건: (월, 유형)
@@ -193,20 +201,47 @@ class StepTimer:
 # ---------------------------------------------------------------------------
 # API 클라이언트
 # ---------------------------------------------------------------------------
+@dataclass(frozen=True)
+class Credential:
+    """역할 로그인 결과(D-235 PR3 K9). 로그인 응답 Set-Cookie에서 읽은 역할 쿠키·XSRF 값을 이후 요청에 Cookie 헤더로 직접 싣는다
+    (세션 쿠키 저장소는 쓰지 않는다). 값은 repr·로그에 나오지 않는다."""
+
+    cookie_name: str
+    cookie_value: str = field(repr=False)
+    xsrf: str = field(repr=False)
+
+    def headers(self, method: str) -> dict:
+        headers = {"Cookie": f"{self.cookie_name}={self.cookie_value}; {XSRF_COOKIE}={self.xsrf}"}
+        if method.upper() not in SAFE_METHODS:
+            headers[XSRF_HEADER] = self.xsrf
+        return headers
+
+
+def set_cookie_value(response: requests.Response, name: str) -> str:
+    """응답 Set-Cookie 원문에서 이름이 name인 쿠키 값을 찾는다(없으면 실패)."""
+    for header in response.raw.headers.getlist("Set-Cookie"):
+        key, _, value = header.split(";", 1)[0].partition("=")
+        if key.strip() == name:
+            return value.strip()
+    raise SeedError(f"{name} Set-Cookie 없음")
+
+
 class ApiClient:
     def __init__(self, base_url: str):
         self.base_url = base_url.rstrip("/")
         self.session = requests.Session()
+        # 인증은 Credential이 Cookie 헤더로 직접 싣는다 — 세션 저장소가 쿠키를 모아 자동 전송하지 않도록 모든 쿠키를 거부한다(D-235 PR3 K9)
+        self.session.cookies.set_policy(http.cookiejar.DefaultCookiePolicy(allowed_domains=[]))
         # 로컬 게이트웨이는 자체 서명 인증서라 API_TLS_VERIFY=false 로만 검증을 끈다(기본 검증 on)
         self.session.verify = os.environ.get("API_TLS_VERIFY", "true").lower() != "false"
         if not self.session.verify:
             requests.packages.urllib3.disable_warnings()
         self.call_count = 0
 
-    def request(self, method: str, path: str, token: str | None = None, expect=(200, 201), **kwargs):
+    def request(self, method: str, path: str, credential: Credential | None = None, expect=(200, 201), **kwargs):
         headers = kwargs.pop("headers", {})
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
+        if credential:
+            headers.update(credential.headers(method))
         url = self.base_url + path
         for attempt in range(1, RETRY_MAX + 1):
             self.call_count += 1
@@ -221,13 +256,16 @@ class ApiClient:
             raise SeedError(f"{method} {path} → {response.status_code} {response.text[:500]}")
         return response
 
-    def json(self, method: str, path: str, token: str | None = None, expect=(200, 201), **kwargs):
-        response = self.request(method, path, token, expect, **kwargs)
+    def json(self, method: str, path: str, credential: Credential | None = None, expect=(200, 201), **kwargs):
+        response = self.request(method, path, credential, expect, **kwargs)
         return response.json() if response.content else None
 
-    def login(self, email: str, password: str, role: str) -> str:
-        body = self.json("POST", "/api/v1/auth/login", json={"email": email, "password": password, "role": role})
-        return body["token"]
+    def login(self, email: str, password: str, role: str) -> Credential:
+        """인증 전 CSRF 토큰(GET /api/v1/auth/csrf) → 역할 로그인(X-XSRF-TOKEN) 순서(D-235 PR3 K7·K9)."""
+        xsrf = set_cookie_value(self.request("GET", CSRF_TOKEN_PATH, expect=(204,)), XSRF_COOKIE)
+        response = self.request("POST", LOGIN_PATHS[role], expect=(200,), json={"email": email, "password": password},
+                                headers={"Cookie": f"{XSRF_COOKIE}={xsrf}", XSRF_HEADER: xsrf})
+        return Credential(ROLE_COOKIES[role], set_cookie_value(response, ROLE_COOKIES[role]), xsrf)
 
 
 # ---------------------------------------------------------------------------
@@ -320,7 +358,7 @@ def make_image(product_name: str, category_name: str, variant_index: int) -> byt
     return buffer.getvalue()
 
 
-def upload_images(api: ApiClient, admin_token: str, files: list[tuple[str, bytes]]) -> list[str]:
+def upload_images(api: ApiClient, admin_token: Credential, files: list[tuple[str, bytes]]) -> list[str]:
     urls = []
     for start in range(0, len(files), MULTIPART_MAX_FILES):
         chunk = files[start:start + MULTIPART_MAX_FILES]
@@ -356,7 +394,7 @@ def build_product_body(seller_public_id: str, category_id: int, index: int, name
             "optionGroups": option_groups, "variants": variants}
 
 
-def step_master(api: ApiClient, conn, state: dict, admin_token: str) -> None:
+def step_master(api: ApiClient, conn, state: dict, admin_token: Credential) -> None:
     counts = {}
     # 1) 카테고리 (기존 '데모' 활용)
     existing = {c["displayName"]: c["categoryId"] for c in api.json("GET", "/api/v1/categories")}
@@ -517,16 +555,16 @@ def build_order_plans(rng: random.Random, product_count: int, buyer_count: int, 
 
 
 class OrderRunner:
-    def __init__(self, api: ApiClient, conn, state: dict, admin_token: str, rng: random.Random):
+    def __init__(self, api: ApiClient, conn, state: dict, admin_token: Credential, rng: random.Random):
         self.api = api
         self.conn = conn
         self.state = state
         self.admin_token = admin_token
         self.rng = rng
-        self.buyer_tokens: dict[int, str] = {}
+        self.buyer_tokens: dict[int, Credential] = {}
         self.tracking_seq = 1000
 
-    def buyer_token(self, buyer_index: int) -> str:
+    def buyer_token(self, buyer_index: int) -> Credential:
         if buyer_index not in self.buyer_tokens:
             buyer = self.state["buyers"][buyer_index]
             self.buyer_tokens[buyer_index] = self.api.login(buyer["email"], buyer["password"], "BUYER")
@@ -591,12 +629,12 @@ class OrderRunner:
             self._confirm(token, record)
         return record
 
-    def _confirm(self, token: str, record: dict) -> None:
+    def _confirm(self, token: Credential, record: dict) -> None:
         for item in record["items"]:
             self.api.json("POST", f"/api/v1/orders/{record['orderId']}/items/{item['orderItemId']}/confirm", token)
         record["confirmed"] = True
 
-    def _cancel(self, token: str, record: dict) -> None:
+    def _cancel(self, token: Credential, record: dict) -> None:
         item = record["items"][0]
         claim = self.api.json("POST", "/api/v1/claims", token, json={
             "orderItemPublicId": item["orderItemId"], "claimType": "CANCEL",
@@ -610,7 +648,7 @@ class OrderRunner:
         if final["status"] != "COMPLETED":
             raise SeedError(f"취소 클레임 미완결: {claim['publicId']} status={final['status']}")
 
-    def _return_or_exchange(self, token: str, record: dict, plan: OrderPlan) -> None:
+    def _return_or_exchange(self, token: Credential, record: dict, plan: OrderPlan) -> None:
         item = record["items"][0]
         product = self.state["products"][item["productIndex"]]
         body = {"orderItemPublicId": item["orderItemId"], "claimType": plan.claim_type,
@@ -639,7 +677,7 @@ class OrderRunner:
             raise SeedError(f"{plan.claim_type} 클레임 미완결: {claim_id} status={final['status']}")
 
 
-def step_orders(api: ApiClient, conn, state: dict, admin_token: str, rng: random.Random) -> None:
+def step_orders(api: ApiClient, conn, state: dict, admin_token: Credential, rng: random.Random) -> None:
     if "products" not in state or "buyers" not in state:
         raise SeedError("state에 master 결과가 없습니다. --step master 먼저 실행")
     option_product_indexes = [i for i, p in enumerate(state["products"]) if p["hasOptions"]]
@@ -883,7 +921,7 @@ def verify_timeshift(conn) -> None:
 # ---------------------------------------------------------------------------
 # STEP settlement
 # ---------------------------------------------------------------------------
-def step_settlement(api: ApiClient, conn, state: dict, admin_token: str, rng: random.Random) -> None:
+def step_settlement(api: ApiClient, conn, state: dict, admin_token: Credential, rng: random.Random) -> None:
     if not state.get("time_shifted"):
         raise SeedError("시각 보정(timeshift) 전에는 정산을 생성하지 않습니다(settlement_item.occurred_at 스냅샷)")
     demo_seller_ids = {s["id"] for s in state["sellers"]}

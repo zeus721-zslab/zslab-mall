@@ -60,7 +60,7 @@ class SellerDeliveryCompletionControllerIntegrationTest extends AbstractIntegrat
     private static final String DELIVERY_PID = pid("dlv_", "SDCDLV");
     private static final String CLAIM_PID = pid("clm_", "SDCCLM");
     private static final String TRACKING_NO = "CJ-SDC-0001";
-    private static final String MARK_URL = "/api/v1/deliveries/" + DELIVERY_PID + "/mark-delivered";
+    private static final String MARK_URL = "/api/v1/seller/deliveries/" + DELIVERY_PID + "/mark-delivered";
 
     @Autowired
     private MockMvc mockMvc;
@@ -106,7 +106,7 @@ class SellerDeliveryCompletionControllerIntegrationTest extends AbstractIntegrat
     void markDelivered_ownerSellerShippingDelivery_returns200() throws Exception {
         seedGraph("SHIPPING", "SHIPPING");
 
-        mockMvc.perform(post(MARK_URL).headers(authHeaders.seller(SELLER_A_USER)))
+        mockMvc.perform(post(MARK_URL).with(authHeaders.seller(SELLER_A_USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.deliveryPublicId").value(DELIVERY_PID))
                 .andExpect(jsonPath("$.status").value("DELIVERED"))
@@ -124,7 +124,7 @@ class SellerDeliveryCompletionControllerIntegrationTest extends AbstractIntegrat
     void markDelivered_crossTenant_returns404() throws Exception {
         seedGraph("SHIPPING", "SHIPPING");
 
-        mockMvc.perform(post(MARK_URL).headers(authHeaders.seller(SELLER_B_USER)))
+        mockMvc.perform(post(MARK_URL).with(authHeaders.seller(SELLER_B_USER)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("DELIVERY_NOT_FOUND"));
 
@@ -138,7 +138,7 @@ class SellerDeliveryCompletionControllerIntegrationTest extends AbstractIntegrat
     void markDelivered_nonShippingDelivery_returns422() throws Exception {
         seedGraph("READY", "PREPARING");
 
-        mockMvc.perform(post(MARK_URL).headers(authHeaders.seller(SELLER_A_USER)))
+        mockMvc.perform(post(MARK_URL).with(authHeaders.seller(SELLER_A_USER)))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("DELIVERY_INVALID_STATE"));
 
@@ -156,7 +156,7 @@ class SellerDeliveryCompletionControllerIntegrationTest extends AbstractIntegrat
         seedClaim("EXCHANGE");
         seedClaimDelivery("OUTBOUND");
 
-        mockMvc.perform(post(MARK_URL).headers(authHeaders.seller(SELLER_A_USER)))
+        mockMvc.perform(post(MARK_URL).with(authHeaders.seller(SELLER_A_USER)))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("DELIVERY_INVALID_STATE"));
 
@@ -174,7 +174,7 @@ class SellerDeliveryCompletionControllerIntegrationTest extends AbstractIntegrat
         seedClaim("RETURN");
         seedClaimDelivery("RETURN");
 
-        mockMvc.perform(post(MARK_URL).headers(authHeaders.seller(SELLER_A_USER)))
+        mockMvc.perform(post(MARK_URL).with(authHeaders.seller(SELLER_A_USER)))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("DELIVERY_INVALID_STATE"));
 

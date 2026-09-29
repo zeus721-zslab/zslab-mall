@@ -22,11 +22,11 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -88,25 +88,25 @@ class AdminSellerBankAccountControllerIntegrationTest extends AbstractIntegratio
     // ==================== T1 권한 ====================
 
     @Test
-    @DisplayName("T1 권한: 등록·수정·전환 — 무인증 401 / BUYER 403 / ADMIN 201·204")
+    @DisplayName("T1 권한: 등록·수정·전환 — 무인증 401 / BUYER 401 / ADMIN 201·204")
     void authorization() throws Exception {
         String body = registerBody("KB", NUMBER_NEW, "홍길동");
         mockMvc.perform(post(accountsUrl(S_EMPTY)).contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isUnauthorized());
-        mockMvc.perform(post(accountsUrl(S_EMPTY)).headers(authHeaders.buyer(BUYER_ID))
+        mockMvc.perform(post(accountsUrl(S_EMPTY)).with(authHeaders.buyer(BUYER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(body))
-                .andExpect(status().isForbidden());
-        mockMvc.perform(put(accountUrl(S_PAID, ACCOUNT_PAID_SECOND)).headers(authHeaders.buyer(BUYER_ID))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(put(accountUrl(S_PAID, ACCOUNT_PAID_SECOND)).with(authHeaders.buyer(BUYER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(updateBody("KB", NUMBER_NEW, "홍길동", "사유")))
-                .andExpect(status().isForbidden());
-        mockMvc.perform(patch(primaryUrl(S_PAID, ACCOUNT_PAID_SECOND)).headers(authHeaders.buyer(BUYER_ID))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(patch(primaryUrl(S_PAID, ACCOUNT_PAID_SECOND)).with(authHeaders.buyer(BUYER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(reasonBody("사유")))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
         assertThat(count("SELECT COUNT(*) FROM seller_bank_account WHERE seller_id = ?", S_EMPTY)).isZero();
 
-        mockMvc.perform(post(accountsUrl(S_EMPTY)).headers(admin()).contentType(MediaType.APPLICATION_JSON).content(body))
+        mockMvc.perform(post(accountsUrl(S_EMPTY)).with(admin()).contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isCreated());
-        mockMvc.perform(patch(primaryUrl(S_PAID, ACCOUNT_PAID_SECOND)).headers(admin())
+        mockMvc.perform(patch(primaryUrl(S_PAID, ACCOUNT_PAID_SECOND)).with(admin())
                         .contentType(MediaType.APPLICATION_JSON).content(reasonBody("사유")))
                 .andExpect(status().isNoContent());
     }
@@ -116,7 +116,7 @@ class AdminSellerBankAccountControllerIntegrationTest extends AbstractIntegratio
     @Test
     @DisplayName("T2 등록: 첫 계좌 자동 주 계좌·VERIFIED·verifiedAt / 두 번째는 비주계좌 / 응답 끝 4자리만 / DB 컬럼 v1: 암호문 / 감사 CREATE(계좌번호 마스킹) / 미존재 404 / 검증 400")
     void register() throws Exception {
-        JsonNode first = readJson(mockMvc.perform(post(accountsUrl(S_EMPTY)).headers(admin())
+        JsonNode first = readJson(mockMvc.perform(post(accountsUrl(S_EMPTY)).with(admin())
                         .contentType(MediaType.APPLICATION_JSON).content(registerBody("KB", NUMBER_NEW, "홍길동")))
                 .andExpect(status().isCreated()));
         assertThat(first.get("isPrimary").asBoolean()).isTrue();
@@ -130,7 +130,7 @@ class AdminSellerBankAccountControllerIntegrationTest extends AbstractIntegratio
         assertThat(first.toString()).doesNotContain(NUMBER_NEW);
         long firstId = first.get("id").asLong();
 
-        JsonNode second = readJson(mockMvc.perform(post(accountsUrl(S_EMPTY)).headers(admin())
+        JsonNode second = readJson(mockMvc.perform(post(accountsUrl(S_EMPTY)).with(admin())
                         .contentType(MediaType.APPLICATION_JSON).content(registerBody("SHINHAN", NUMBER_NEW2, "홍길동")))
                 .andExpect(status().isCreated()));
         assertThat(second.get("isPrimary").asBoolean()).isFalse();
@@ -155,7 +155,7 @@ class AdminSellerBankAccountControllerIntegrationTest extends AbstractIntegratio
         assertThat(diffJson.get("accountNumberSuffix").get("after").asText()).isEqualTo("4321");
 
         // 상세: 목록 2건·주 계좌 = 첫 계좌·경고 해제
-        JsonNode detail = readJson(mockMvc.perform(get(SELLER_URL + "/" + pid(S_EMPTY)).headers(admin())).andExpect(status().isOk()));
+        JsonNode detail = readJson(mockMvc.perform(get(SELLER_URL + "/" + pid(S_EMPTY)).with(admin())).andExpect(status().isOk()));
         assertThat(detail.get("bankAccounts")).hasSize(2);
         assertThat(detail.get("bankAccounts").get(0).get("id").asLong()).isEqualTo(firstId);
         assertThat(detail.get("primaryBankAccount").get("id").asLong()).isEqualTo(firstId);
@@ -163,16 +163,16 @@ class AdminSellerBankAccountControllerIntegrationTest extends AbstractIntegratio
         assertThat(detail.toString()).doesNotContain(NUMBER_NEW).doesNotContain(NUMBER_NEW2);
 
         // 미존재 셀러 404 · 검증 400(문자 포함·공백·길이)
-        mockMvc.perform(post(accountsUrl(9999L)).headers(admin()).contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(post(accountsUrl(9999L)).with(admin()).contentType(MediaType.APPLICATION_JSON)
                         .content(registerBody("KB", NUMBER_NEW, "홍길동")))
                 .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("SELLER_NOT_FOUND"));
-        mockMvc.perform(post(accountsUrl(S_EMPTY)).headers(admin()).contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(post(accountsUrl(S_EMPTY)).with(admin()).contentType(MediaType.APPLICATION_JSON)
                         .content(registerBody("KB", "12AB-3456", "홍길동")))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
-        mockMvc.perform(post(accountsUrl(S_EMPTY)).headers(admin()).contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(post(accountsUrl(S_EMPTY)).with(admin()).contentType(MediaType.APPLICATION_JSON)
                         .content(registerBody("", NUMBER_NEW, "홍길동")))
                 .andExpect(status().isBadRequest());
-        mockMvc.perform(post(accountsUrl(S_EMPTY)).headers(admin()).contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(post(accountsUrl(S_EMPTY)).with(admin()).contentType(MediaType.APPLICATION_JSON)
                         .content(registerBody("KB", "1".repeat(31), "홍길동")))
                 .andExpect(status().isBadRequest());
         assertThat(count("SELECT COUNT(*) FROM seller_bank_account WHERE seller_id = ?", S_EMPTY)).isEqualTo(2);
@@ -184,21 +184,21 @@ class AdminSellerBankAccountControllerIntegrationTest extends AbstractIntegratio
     @DisplayName("T3 수정: 상세 referencedBySettlement 미리보기 = 실제(참조 행 true·409 / 미참조 false·204)·복호 일치·감사 UPDATE+reason / 사유 공백 400 / 무변경 감사 0 / 타 셀러 계좌 404")
     void update() throws Exception {
         // 미리보기(외부 검토 Q6): 상세 bankAccounts의 참조 플래그가 아래 실제 결과(409/204)와 일치해야 한다
-        JsonNode before = readJson(mockMvc.perform(get(SELLER_URL + "/" + pid(S_PAID)).headers(admin())).andExpect(status().isOk()));
+        JsonNode before = readJson(mockMvc.perform(get(SELLER_URL + "/" + pid(S_PAID)).with(admin())).andExpect(status().isOk()));
         assertThat(before.get("bankAccounts").get(0).get("id").asLong()).isEqualTo(ACCOUNT_PAID_PRIMARY);
         assertThat(before.get("bankAccounts").get(0).get("referencedBySettlement").asBoolean()).isTrue();
         assertThat(before.get("bankAccounts").get(1).get("id").asLong()).isEqualTo(ACCOUNT_PAID_SECOND);
         assertThat(before.get("bankAccounts").get(1).get("referencedBySettlement").asBoolean()).isFalse();
 
         // 참조 행(PAID 정산 bank_account_id) → 409·값 불변
-        mockMvc.perform(put(accountUrl(S_PAID, ACCOUNT_PAID_PRIMARY)).headers(admin()).contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(put(accountUrl(S_PAID, ACCOUNT_PAID_PRIMARY)).with(admin()).contentType(MediaType.APPLICATION_JSON)
                         .content(updateBody("KB", NUMBER_NEW, "홍길동", "정정")))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("SELLER_BANK_ACCOUNT_REFERENCED"));
         assertThat(decryptedNumber(ACCOUNT_PAID_PRIMARY)).isEqualTo(NUMBER_PRIMARY);
         assertThat(audits(ACCOUNT_PAID_PRIMARY)).isEmpty();
 
         // 미참조 행 → 204·in-place·verifiedAt 갱신·감사 UPDATE(reason·마스킹)
-        mockMvc.perform(put(accountUrl(S_PAID, ACCOUNT_PAID_SECOND)).headers(admin()).contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(put(accountUrl(S_PAID, ACCOUNT_PAID_SECOND)).with(admin()).contentType(MediaType.APPLICATION_JSON)
                         .content(updateBody("WOORI", NUMBER_NEW, "김수정", "계좌 오기 정정")))
                 .andExpect(status().isNoContent());
         assertThat(decryptedNumber(ACCOUNT_PAID_SECOND)).isEqualTo(NUMBER_NEW);
@@ -215,19 +215,19 @@ class AdminSellerBankAccountControllerIntegrationTest extends AbstractIntegratio
         assertThat(objectMapper.readTree(diff).get("accountNumber").asText()).as("수정 diff도 before/after 모두 MASKED").isEqualTo("***MASKED***");
 
         // 무변경 → 204·감사 추가 없음
-        mockMvc.perform(put(accountUrl(S_PAID, ACCOUNT_PAID_SECOND)).headers(admin()).contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(put(accountUrl(S_PAID, ACCOUNT_PAID_SECOND)).with(admin()).contentType(MediaType.APPLICATION_JSON)
                         .content(updateBody("WOORI", NUMBER_NEW, "김수정", "다시")))
                 .andExpect(status().isNoContent());
         assertThat(audits(ACCOUNT_PAID_SECOND)).hasSize(1);
 
         // 사유 공백 400 · 타 셀러 계좌 404(존재 은닉) · 미존재 계좌 404
-        mockMvc.perform(put(accountUrl(S_PAID, ACCOUNT_PAID_SECOND)).headers(admin()).contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(put(accountUrl(S_PAID, ACCOUNT_PAID_SECOND)).with(admin()).contentType(MediaType.APPLICATION_JSON)
                         .content(updateBody("KB", NUMBER_NEW2, "김수정", " ")))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
-        mockMvc.perform(put(accountUrl(S_PAID, ACCOUNT_OTHER)).headers(admin()).contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(put(accountUrl(S_PAID, ACCOUNT_OTHER)).with(admin()).contentType(MediaType.APPLICATION_JSON)
                         .content(updateBody("KB", NUMBER_NEW2, "김수정", "사유")))
                 .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("SELLER_BANK_ACCOUNT_NOT_FOUND"));
-        mockMvc.perform(put(accountUrl(S_PAID, 99999L)).headers(admin()).contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(put(accountUrl(S_PAID, 99999L)).with(admin()).contentType(MediaType.APPLICATION_JSON)
                         .content(updateBody("KB", NUMBER_NEW2, "김수정", "사유")))
                 .andExpect(status().isNotFound());
         assertThat(decryptedNumber(ACCOUNT_OTHER)).isEqualTo(NUMBER_OTHER);
@@ -238,18 +238,18 @@ class AdminSellerBankAccountControllerIntegrationTest extends AbstractIntegratio
     @Test
     @DisplayName("T4 주 계좌 전환: demote→promote 204·기존 주 계좌 해제·주 계좌 1건 유지·감사·PENDING 정산 지급이 새 주 계좌로 / 이미 주 계좌 422 / 사유 공백 400 / 타 셀러 404")
     void changePrimary() throws Exception {
-        mockMvc.perform(patch(primaryUrl(S_PAID, ACCOUNT_PAID_PRIMARY)).headers(admin()).contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(patch(primaryUrl(S_PAID, ACCOUNT_PAID_PRIMARY)).with(admin()).contentType(MediaType.APPLICATION_JSON)
                         .content(reasonBody("사유")))
                 .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.code").value("SELLER_BANK_ACCOUNT_INVALID_STATE"));
-        mockMvc.perform(patch(primaryUrl(S_PAID, ACCOUNT_PAID_SECOND)).headers(admin()).contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(patch(primaryUrl(S_PAID, ACCOUNT_PAID_SECOND)).with(admin()).contentType(MediaType.APPLICATION_JSON)
                         .content(reasonBody("")))
                 .andExpect(status().isBadRequest());
-        mockMvc.perform(patch(primaryUrl(S_PAID, ACCOUNT_OTHER)).headers(admin()).contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(patch(primaryUrl(S_PAID, ACCOUNT_OTHER)).with(admin()).contentType(MediaType.APPLICATION_JSON)
                         .content(reasonBody("사유")))
                 .andExpect(status().isNotFound());
         assertThat(isPrimary(ACCOUNT_PAID_PRIMARY)).isTrue();
 
-        mockMvc.perform(patch(primaryUrl(S_PAID, ACCOUNT_PAID_SECOND)).headers(admin()).contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(patch(primaryUrl(S_PAID, ACCOUNT_PAID_SECOND)).with(admin()).contentType(MediaType.APPLICATION_JSON)
                         .content(reasonBody("계좌 변경 요청")))
                 .andExpect(status().isNoContent());
         assertThat(isPrimary(ACCOUNT_PAID_PRIMARY)).isFalse();
@@ -263,7 +263,7 @@ class AdminSellerBankAccountControllerIntegrationTest extends AbstractIntegratio
                 .contains(String.valueOf(ACCOUNT_PAID_PRIMARY)).doesNotContain(NUMBER_SECOND);
 
         // 상세: primaryBankAccount = 새 주 계좌·목록 2건 isPrimary 반영
-        JsonNode detail = readJson(mockMvc.perform(get(SELLER_URL + "/" + pid(S_PAID)).headers(admin())).andExpect(status().isOk()));
+        JsonNode detail = readJson(mockMvc.perform(get(SELLER_URL + "/" + pid(S_PAID)).with(admin())).andExpect(status().isOk()));
         assertThat(detail.get("primaryBankAccount").get("id").asLong()).isEqualTo(ACCOUNT_PAID_SECOND);
         assertThat(detail.get("primaryBankAccount").get("accountNumberSuffix").asText()).isEqualTo("5678");
         assertThat(detail.get("bankAccounts")).hasSize(2);
@@ -271,7 +271,7 @@ class AdminSellerBankAccountControllerIntegrationTest extends AbstractIntegratio
         assertThat(detail.get("bankAccounts").get(1).get("isPrimary").asBoolean()).isTrue();
 
         // 되돌리기(전환 재확인) → 다시 첫 계좌가 주 계좌
-        mockMvc.perform(patch(primaryUrl(S_PAID, ACCOUNT_PAID_PRIMARY)).headers(admin()).contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(patch(primaryUrl(S_PAID, ACCOUNT_PAID_PRIMARY)).with(admin()).contentType(MediaType.APPLICATION_JSON)
                         .content(reasonBody("원복")))
                 .andExpect(status().isNoContent());
         assertThat(isPrimary(ACCOUNT_PAID_PRIMARY)).isTrue();
@@ -283,19 +283,19 @@ class AdminSellerBankAccountControllerIntegrationTest extends AbstractIntegratio
     @Test
     @DisplayName("T5 회귀: 암호화된 계좌로 CONFIRMED 정산 지급(D-179 주 계좌 필수) 200·bank_account_id 스냅샷 / 정산 상세 스냅샷 끝 4자리 / 셀러 상세 끝 4자리 / 응답 어디에도 전체 계좌번호 없음")
     void regression_settlementPayAndMasking() throws Exception {
-        mockMvc.perform(post("/api/v1/admin/settlements/" + SETTLEMENT_CONFIRMED + "/pay").headers(admin()))
+        mockMvc.perform(post("/api/v1/admin/settlements/" + SETTLEMENT_CONFIRMED + "/pay").with(admin()))
                 .andExpect(status().isOk());
         assertThat(jdbc.queryForObject("SELECT bank_account_id FROM settlement WHERE id = ?", Long.class, SETTLEMENT_CONFIRMED))
                 .isEqualTo(ACCOUNT_PAID_PRIMARY);
 
-        String settlementDetail = mockMvc.perform(get("/api/v1/admin/settlements/" + SETTLEMENT_PAID).headers(admin()))
+        String settlementDetail = mockMvc.perform(get("/api/v1/admin/settlements/" + SETTLEMENT_PAID).with(admin()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.bankAccount.accountNumberSuffix").value("1234"))
                 .andExpect(jsonPath("$.bankAccount.snapshot").value(true))
                 .andReturn().getResponse().getContentAsString();
         assertThat(settlementDetail).doesNotContain(NUMBER_PRIMARY);
 
-        String sellerDetail = mockMvc.perform(get(SELLER_URL + "/" + pid(S_PAID)).headers(admin()))
+        String sellerDetail = mockMvc.perform(get(SELLER_URL + "/" + pid(S_PAID)).with(admin()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.primaryBankAccount.accountNumberSuffix").value("1234"))
                 .andExpect(jsonPath("$.bankAccounts[0].referencedBySettlement").value(true))
@@ -305,13 +305,13 @@ class AdminSellerBankAccountControllerIntegrationTest extends AbstractIntegratio
         assertThat(sellerDetail).doesNotContain(NUMBER_PRIMARY).doesNotContain(NUMBER_SECOND).doesNotContain("accountNumber\"");
 
         // 지급 재요청은 이미 PAID → 멱등 200(기존 동작 유지)
-        mockMvc.perform(post("/api/v1/admin/settlements/" + SETTLEMENT_CONFIRMED + "/pay").headers(admin()))
+        mockMvc.perform(post("/api/v1/admin/settlements/" + SETTLEMENT_CONFIRMED + "/pay").with(admin()))
                 .andExpect(status().isOk());
     }
 
     // ---------- helpers ----------
 
-    private HttpHeaders admin() {
+    private RequestPostProcessor admin() {
         return authHeaders.admin(ADMIN_ID);
     }
 

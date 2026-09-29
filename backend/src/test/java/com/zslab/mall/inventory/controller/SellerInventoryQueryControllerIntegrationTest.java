@@ -115,17 +115,17 @@ class SellerInventoryQueryControllerIntegrationTest extends AbstractIntegrationT
     }
 
     @Test
-    @DisplayName("T1 인가: 비인증 401 · 구매자 403 · 셀러 200")
+    @DisplayName("T1 인가: 비인증 401 · 구매자 401 · 셀러 200")
     void authorization() throws Exception {
         mockMvc.perform(get(LIST_URL)).andExpect(status().isUnauthorized());
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.buyer(BUYER_ID))).andExpect(status().isForbidden());
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A))).andExpect(status().isOk());
+        mockMvc.perform(get(LIST_URL).with(authHeaders.buyer(BUYER_ID))).andExpect(status().isUnauthorized());
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A))).andExpect(status().isOk());
     }
 
     @Test
     @DisplayName("T2 목록: 셀러 A는 자기 variant VB1·VA1·VA2만(삭제 VA3·삭제 상품 VD1·타 셀러 VPB 제외)·옵션 라벨·재고 3수치·키 화이트리스트·금지 키 0")
     void list_returnsOwnVariantsOnly() throws Exception {
-        String body = mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)))
+        String body = mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(3))
                 .andExpect(jsonPath("$.items[*].variantPublicId", contains(VB1_PID, VA1_PID, VA2_PID)))
@@ -156,7 +156,7 @@ class SellerInventoryQueryControllerIntegrationTest extends AbstractIntegrationT
         assertThat(body).doesNotContain(VA3_PID).doesNotContain(VD1_PID).doesNotContain(VPB_PID).doesNotContain("타셀러재고");
 
         // 셀러 B 관점: 자기 variant VPB만.
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_B)))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_B)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].variantPublicId").value(VPB_PID))
@@ -166,28 +166,28 @@ class SellerInventoryQueryControllerIntegrationTest extends AbstractIntegrationT
     @Test
     @DisplayName("T3 필터: keyword 상품명·sellerSku 부분일치(escape) · productPublicId 상품 한정 · 타 셀러/미존재 상품 id는 빈 결과")
     void list_filters() throws Exception {
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("keyword", "알파"))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("keyword", "알파"))
                 .andExpect(jsonPath("$.items[*].variantPublicId", contains(VA1_PID, VA2_PID)));
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("keyword", "SKU-RED"))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("keyword", "SKU-RED"))
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].variantPublicId").value(VA2_PID));
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("keyword", "SKU-B"))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("keyword", "SKU-B"))
                 .andExpect(jsonPath("$.totalCount").value(2))
                 .andExpect(jsonPath("$.items[*].variantPublicId", contains(VB1_PID, VA1_PID)));
         // LIKE 와일드카드는 리터럴 매칭(escape) — '_'는 SKU에 없으므로 0.
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("keyword", "SKU_B"))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("keyword", "SKU_B"))
                 .andExpect(jsonPath("$.totalCount").value(0));
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("productPublicId", PA1_PID))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("productPublicId", PA1_PID))
                 .andExpect(jsonPath("$.totalCount").value(2))
                 .andExpect(jsonPath("$.items[*].variantPublicId", contains(VA1_PID, VA2_PID)));
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("productPublicId", PA1_PID).param("keyword", "빨강"))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("productPublicId", PA1_PID).param("keyword", "빨강"))
                 .andExpect(jsonPath("$.totalCount").value(0));
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("productPublicId", PB_PID))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("productPublicId", PB_PID))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(0));
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("productPublicId", PA3_PID))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("productPublicId", PA3_PID))
                 .andExpect(jsonPath("$.totalCount").value(0));
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("keyword", KEYWORD_LIMIT_EXCEEDED))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("keyword", KEYWORD_LIMIT_EXCEEDED))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
     }
@@ -195,16 +195,16 @@ class SellerInventoryQueryControllerIntegrationTest extends AbstractIntegrationT
     @Test
     @DisplayName("T4 페이지네이션 경계: size=2 page 0(hasNext) · page 1(마지막) · page 9(빈)")
     void list_paginationBoundaries() throws Exception {
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("size", "2").param("page", "0"))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("size", "2").param("page", "0"))
                 .andExpect(jsonPath("$.items[*].variantPublicId", contains(VB1_PID, VA1_PID)))
                 .andExpect(jsonPath("$.page").value(0))
                 .andExpect(jsonPath("$.size").value(2))
                 .andExpect(jsonPath("$.totalCount").value(3))
                 .andExpect(jsonPath("$.hasNext").value(true));
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("size", "2").param("page", "1"))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("size", "2").param("page", "1"))
                 .andExpect(jsonPath("$.items[*].variantPublicId", contains(VA2_PID)))
                 .andExpect(jsonPath("$.hasNext").value(false));
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("size", "2").param("page", "9"))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("size", "2").param("page", "9"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items.length()").value(0))
                 .andExpect(jsonPath("$.totalCount").value(3));
@@ -216,7 +216,7 @@ class SellerInventoryQueryControllerIntegrationTest extends AbstractIntegrationT
         cleanup();
         seedAll(SellerStatus.SUSPENDED);
 
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(3));
     }
@@ -228,7 +228,7 @@ class SellerInventoryQueryControllerIntegrationTest extends AbstractIntegrationT
         cleanup();
         seedAll(status);
 
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
     }

@@ -25,8 +25,8 @@ import com.zslab.mall.support.AbstractIntegrationTest;
  * ({@code AdminSettlementControllerIntegrationTest} 패턴 준용).
  *
  * <p><b>커버</b>: T1 승인 200(PENDING→SALE)·T2 거부 200(PENDING→REJECTED)·T3 잘못된 전이 422(SALE→REJECTED)·
- * T4 멱등 approve(이미 SALE)·T5 멱등 reject(이미 REJECTED)·T6 404(미존재)·T7 403(비ADMIN)·
- * T8~T13 판매 상태 전환(Track 71): SALE→STOPPED·STOPPED→SALE 200 / PENDING→STOPPED 422 / 같은 상태 422 / 비ADMIN 403 / 허용 외 값 400.
+ * T4 멱등 approve(이미 SALE)·T5 멱등 reject(이미 REJECTED)·T6 404(미존재)·T7 401(비ADMIN)·
+ * T8~T13 판매 상태 전환(Track 71): SALE→STOPPED·STOPPED→SALE 200 / PENDING→STOPPED 422 / 같은 상태 422 / 비ADMIN 401 / 허용 외 값 400.
  *
  * <p><b>트랜잭션·트랩 방지</b>: 상품 seed는 FK_CHECKS=0으로 INSERT하되 부모(category·seller)를 실제 완비한다 — 전이 UPDATE는
  * 앱 커넥션(FK_CHECKS=1)에서 실행되므로 부모 부재 시 FK 검증에 걸린다(Track 49 트랩 재발 방지·coincidental test 금지).
@@ -36,7 +36,7 @@ import com.zslab.mall.support.AbstractIntegrationTest;
 class AdminProductControllerIntegrationTest extends AbstractIntegrationTest {
 
     private static final long ADMIN_ID = 9500L;         // JWT 액터(created_by 미사용·DB 행 불요)
-    private static final long BUYER_ID = 9501L;         // 비ADMIN 403 확인용
+    private static final long BUYER_ID = 9501L;         // 비ADMIN 401 확인용
     private static final long SELLER_ID = 9500L;
     private static final long CATEGORY_ID = 9500L;
     private static final long PRODUCT_ID = 9500L;
@@ -70,7 +70,7 @@ class AdminProductControllerIntegrationTest extends AbstractIntegrationTest {
     void approve_pending_returns200_sale() throws Exception {
         seedProduct("PENDING");
 
-        mockMvc.perform(post(approveUrl(PRODUCT_PID)).headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(post(approveUrl(PRODUCT_PID)).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.productPublicId").value(PRODUCT_PID))
                 .andExpect(jsonPath("$.status").value("SALE"));
@@ -83,7 +83,7 @@ class AdminProductControllerIntegrationTest extends AbstractIntegrationTest {
     void reject_pending_returns200_rejected() throws Exception {
         seedProduct("PENDING");
 
-        mockMvc.perform(post(rejectUrl(PRODUCT_PID)).headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(post(rejectUrl(PRODUCT_PID)).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.productPublicId").value(PRODUCT_PID))
                 .andExpect(jsonPath("$.status").value("REJECTED"));
@@ -96,7 +96,7 @@ class AdminProductControllerIntegrationTest extends AbstractIntegrationTest {
     void reject_sale_returns422() throws Exception {
         seedProduct("SALE");
 
-        mockMvc.perform(post(rejectUrl(PRODUCT_PID)).headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(post(rejectUrl(PRODUCT_PID)).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("PRODUCT_INVALID_STATE"));
 
@@ -108,7 +108,7 @@ class AdminProductControllerIntegrationTest extends AbstractIntegrationTest {
     void approve_alreadySale_isIdempotent() throws Exception {
         seedProduct("SALE");
 
-        mockMvc.perform(post(approveUrl(PRODUCT_PID)).headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(post(approveUrl(PRODUCT_PID)).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("SALE"));
 
@@ -120,7 +120,7 @@ class AdminProductControllerIntegrationTest extends AbstractIntegrationTest {
     void reject_alreadyRejected_isIdempotent() throws Exception {
         seedProduct("REJECTED");
 
-        mockMvc.perform(post(rejectUrl(PRODUCT_PID)).headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(post(rejectUrl(PRODUCT_PID)).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("REJECTED"));
 
@@ -130,18 +130,18 @@ class AdminProductControllerIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("T6 미존재: 없는 publicId 승인 → 404 PRODUCT_NOT_FOUND")
     void approve_missing_returns404() throws Exception {
-        mockMvc.perform(post(approveUrl(MISSING_PID)).headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(post(approveUrl(MISSING_PID)).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("PRODUCT_NOT_FOUND"));
     }
 
     @Test
-    @DisplayName("T7 비ADMIN: BUYER 토큰 승인 → 403")
-    void approve_nonAdmin_returns403() throws Exception {
+    @DisplayName("T7 비ADMIN: BUYER 토큰 승인 → 401")
+    void approve_nonAdmin_returns401() throws Exception {
         seedProduct("PENDING");
 
-        mockMvc.perform(post(approveUrl(PRODUCT_PID)).headers(authHeaders.buyer(BUYER_ID)))
-                .andExpect(status().isForbidden());
+        mockMvc.perform(post(approveUrl(PRODUCT_PID)).with(authHeaders.buyer(BUYER_ID)))
+                .andExpect(status().isUnauthorized());
 
         assertThat(currentStatus()).isEqualTo("PENDING");  // 인가 차단으로 전이 미발생
     }
@@ -153,7 +153,7 @@ class AdminProductControllerIntegrationTest extends AbstractIntegrationTest {
     void saleStatus_saleToStopped_returns200() throws Exception {
         seedProduct("SALE");
 
-        mockMvc.perform(post(saleStatusUrl(PRODUCT_PID)).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(saleStatusUrl(PRODUCT_PID)).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"STOPPED\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.productPublicId").value(PRODUCT_PID))
@@ -167,7 +167,7 @@ class AdminProductControllerIntegrationTest extends AbstractIntegrationTest {
     void saleStatus_stoppedToSale_returns200() throws Exception {
         seedProduct("STOPPED");
 
-        mockMvc.perform(post(saleStatusUrl(PRODUCT_PID)).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(saleStatusUrl(PRODUCT_PID)).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"SALE\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("SALE"));
@@ -180,7 +180,7 @@ class AdminProductControllerIntegrationTest extends AbstractIntegrationTest {
     void saleStatus_pendingToStopped_returns422() throws Exception {
         seedProduct("PENDING");
 
-        mockMvc.perform(post(saleStatusUrl(PRODUCT_PID)).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(saleStatusUrl(PRODUCT_PID)).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"STOPPED\"}"))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("PRODUCT_INVALID_STATE"));
@@ -193,7 +193,7 @@ class AdminProductControllerIntegrationTest extends AbstractIntegrationTest {
     void saleStatus_pendingToSale_returns422() throws Exception {
         seedProduct("PENDING");
 
-        mockMvc.perform(post(saleStatusUrl(PRODUCT_PID)).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(saleStatusUrl(PRODUCT_PID)).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"SALE\"}"))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("PRODUCT_INVALID_STATE"));
@@ -206,7 +206,7 @@ class AdminProductControllerIntegrationTest extends AbstractIntegrationTest {
     void saleStatus_sameStatus_returns422() throws Exception {
         seedProduct("SALE");
 
-        mockMvc.perform(post(saleStatusUrl(PRODUCT_PID)).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(saleStatusUrl(PRODUCT_PID)).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"SALE\"}"))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("PRODUCT_INVALID_STATE"));
@@ -215,13 +215,13 @@ class AdminProductControllerIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("T12 비ADMIN: BUYER 토큰 판매중지 → 403·status 불변")
-    void saleStatus_nonAdmin_returns403() throws Exception {
+    @DisplayName("T12 비ADMIN: BUYER 토큰 판매중지 → 401·status 불변")
+    void saleStatus_nonAdmin_returns401() throws Exception {
         seedProduct("SALE");
 
-        mockMvc.perform(post(saleStatusUrl(PRODUCT_PID)).headers(authHeaders.buyer(BUYER_ID))
+        mockMvc.perform(post(saleStatusUrl(PRODUCT_PID)).with(authHeaders.buyer(BUYER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"STOPPED\"}"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
 
         assertThat(currentStatus()).isEqualTo("SALE");
     }
@@ -231,7 +231,7 @@ class AdminProductControllerIntegrationTest extends AbstractIntegrationTest {
     void saleStatus_invalidValue_returns400() throws Exception {
         seedProduct("SALE");
 
-        mockMvc.perform(post(saleStatusUrl(PRODUCT_PID)).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(saleStatusUrl(PRODUCT_PID)).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"HIDDEN\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
@@ -246,7 +246,7 @@ class AdminProductControllerIntegrationTest extends AbstractIntegrationTest {
     void saleStatus_adminStop_recordsAdminSource() throws Exception {
         seedProduct("SALE");
 
-        mockMvc.perform(post(saleStatusUrl(PRODUCT_PID)).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(saleStatusUrl(PRODUCT_PID)).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"STOPPED\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("STOPPED"));
@@ -266,7 +266,7 @@ class AdminProductControllerIntegrationTest extends AbstractIntegrationTest {
             seedProduct("STOPPED");
             jdbc.update("UPDATE product SET sale_stop_source = ? WHERE id = ?", source, PRODUCT_ID);
 
-            mockMvc.perform(post(saleStatusUrl(PRODUCT_PID)).headers(authHeaders.admin(ADMIN_ID))
+            mockMvc.perform(post(saleStatusUrl(PRODUCT_PID)).with(authHeaders.admin(ADMIN_ID))
                             .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"SALE\"}"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.status").value("SALE"));
@@ -282,7 +282,7 @@ class AdminProductControllerIntegrationTest extends AbstractIntegrationTest {
         seedProduct("STOPPED");
         jdbc.update("UPDATE product SET sale_stop_source = 'SELLER' WHERE id = ?", PRODUCT_ID);
 
-        mockMvc.perform(post(saleStatusUrl(PRODUCT_PID)).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(saleStatusUrl(PRODUCT_PID)).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"STOPPED\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("STOPPED"));
@@ -301,7 +301,7 @@ class AdminProductControllerIntegrationTest extends AbstractIntegrationTest {
         seedProduct("STOPPED");
         jdbc.update("UPDATE product SET sale_stop_source = 'ADMIN' WHERE id = ?", PRODUCT_ID);
 
-        mockMvc.perform(post(saleStatusUrl(PRODUCT_PID)).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(saleStatusUrl(PRODUCT_PID)).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"STOPPED\"}"))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("PRODUCT_INVALID_STATE"));
@@ -318,7 +318,7 @@ class AdminProductControllerIntegrationTest extends AbstractIntegrationTest {
     void withdrawRejection_rejected_returns200_pending() throws Exception {
         seedProduct("REJECTED");
 
-        mockMvc.perform(post(withdrawRejectionUrl(PRODUCT_PID)).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(withdrawRejectionUrl(PRODUCT_PID)).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"반려 기준 오적용\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.productPublicId").value(PRODUCT_PID))
@@ -340,7 +340,7 @@ class AdminProductControllerIntegrationTest extends AbstractIntegrationTest {
     void withdrawRejection_pending_returns422() throws Exception {
         seedProduct("PENDING");
 
-        mockMvc.perform(post(withdrawRejectionUrl(PRODUCT_PID)).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(withdrawRejectionUrl(PRODUCT_PID)).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"오조작\"}"))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("PRODUCT_INVALID_STATE"));
@@ -355,7 +355,7 @@ class AdminProductControllerIntegrationTest extends AbstractIntegrationTest {
     void withdrawRejection_blankReason_returns400() throws Exception {
         seedProduct("REJECTED");
 
-        mockMvc.perform(post(withdrawRejectionUrl(PRODUCT_PID)).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(withdrawRejectionUrl(PRODUCT_PID)).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"  \"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
@@ -364,13 +364,13 @@ class AdminProductControllerIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("T21 거부 철회 비ADMIN: BUYER 토큰 → 403·status 불변")
-    void withdrawRejection_nonAdmin_returns403() throws Exception {
+    @DisplayName("T21 거부 철회 비ADMIN: BUYER 토큰 → 401·status 불변")
+    void withdrawRejection_nonAdmin_returns401() throws Exception {
         seedProduct("REJECTED");
 
-        mockMvc.perform(post(withdrawRejectionUrl(PRODUCT_PID)).headers(authHeaders.buyer(BUYER_ID))
+        mockMvc.perform(post(withdrawRejectionUrl(PRODUCT_PID)).with(authHeaders.buyer(BUYER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"권한 없음\"}"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
 
         assertThat(currentStatus()).isEqualTo("REJECTED");
     }
@@ -380,10 +380,10 @@ class AdminProductControllerIntegrationTest extends AbstractIntegrationTest {
     void withdrawRejection_thenApprove_reachesSale() throws Exception {
         seedProduct("REJECTED");
 
-        mockMvc.perform(post(withdrawRejectionUrl(PRODUCT_PID)).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(withdrawRejectionUrl(PRODUCT_PID)).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"재심사\"}"))
                 .andExpect(status().isOk());
-        mockMvc.perform(post(approveUrl(PRODUCT_PID)).headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(post(approveUrl(PRODUCT_PID)).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("SALE"));
 

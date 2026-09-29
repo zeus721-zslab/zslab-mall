@@ -145,7 +145,7 @@ class AdminOrderIntegrationTest extends AbstractIntegrationTest {
 
         // 승인(관리자 단건 API·기존) → AFTER_COMMIT 환불 initiate → Refund 1건
         String claimPid = jdbc.queryForObject("SELECT public_id FROM claim WHERE order_item_id = ?", String.class, ORDER_A_ITEM_1);
-        mockMvc.perform(post("/api/v1/admin/claims/" + claimPid + "/approve").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post("/api/v1/admin/claims/" + claimPid + "/approve").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content("{}"))
                 .andExpect(status().isOk());
         assertThat(refundCountForItem(ORDER_A_ITEM_1)).isEqualTo(1);
@@ -185,7 +185,7 @@ class AdminOrderIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("T3 관리자 부분 취소(A): 품목 1건 지정 → 200·Claim APPROVED·해당 품목 CANCEL_REQUESTED·타 품목 PAID·Refund 자동 COMPLETED(totalPrice)·CANCELLED·재고 복구·중복 웹훅 멱등")
     void adminPartialCancel_thenRefundWebhook_restoresStock() throws Exception {
-        mockMvc.perform(post(URL + "/" + ORDER_A_PID + "/cancel").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(URL + "/" + ORDER_A_PID + "/cancel").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"reasonCode\":\"STOCK_DELAY\",\"reasonDetail\":\"입고 지연\",\"orderItemPublicIds\":[\"" + ITEM_A1_PID + "\"]}"))
                 .andExpect(status().isOk())
@@ -226,7 +226,7 @@ class AdminOrderIntegrationTest extends AbstractIntegrationTest {
         assertThat(historyCount(INVENTORY_1, "CANCEL")).isEqualTo(1);
 
         // Track 96-1 D-202: 부분 환불(10000/20000) → 상세 결제 행 refundedAmount = 환불 합·status PAID 유지(D-71 전액 가드)
-        mockMvc.perform(get(URL + "/" + ORDER_A_PID).headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(get(URL + "/" + ORDER_A_PID).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.payments[0].status").value("PAID"))
                 .andExpect(jsonPath("$.payments[0].amount").value(20000))
@@ -236,7 +236,7 @@ class AdminOrderIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("T3-2 전 품목 취소 후 재취소(Track 104-4 교체 지점): 품목 지정 없이 취소 → 전 품목 CANCELLED·주문 CANCELLED → 재취소 409 OPTIMISTIC_LOCK_FAILURE·Claim 추가 없음")
     void adminCancelAll_thenCancelAgain_conflict() throws Exception {
-        mockMvc.perform(post(URL + "/" + ORDER_A_PID + "/cancel").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(URL + "/" + ORDER_A_PID + "/cancel").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"reasonCode\":\"STOCK_DELAY\"}"))
                 .andExpect(status().isOk())
@@ -245,7 +245,7 @@ class AdminOrderIntegrationTest extends AbstractIntegrationTest {
         assertThat(itemStatus(ORDER_A_ITEM_2)).isEqualTo("CANCELLED");
         assertThat(orderStatus(ORDER_A)).isEqualTo("CANCELLED");
 
-        mockMvc.perform(post(URL + "/" + ORDER_A_PID + "/cancel").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(URL + "/" + ORDER_A_PID + "/cancel").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"reasonCode\":\"STOCK_DELAY\"}"))
                 .andExpect(status().isConflict())
@@ -268,7 +268,7 @@ class AdminOrderIntegrationTest extends AbstractIntegrationTest {
         });
         assertThat(orderStatus(ORDER_A)).isEqualTo("PAID");
 
-        mockMvc.perform(post(URL + "/" + ORDER_A_PID + "/cancel").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(URL + "/" + ORDER_A_PID + "/cancel").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"reasonCode\":\"STOCK_DELAY\"}"))
                 .andExpect(status().isConflict())
@@ -280,7 +280,7 @@ class AdminOrderIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("T4 배송 시작 후 취소 거절: SHIPPING 품목 관리자 취소 → 422·Claim 없음")
     void adminCancel_shippingItem_rejected() throws Exception {
-        mockMvc.perform(post(URL + "/" + ORDER_C_PID + "/cancel").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(URL + "/" + ORDER_C_PID + "/cancel").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"reasonCode\":\"ORDER_MISTAKE\",\"orderItemPublicIds\":[\"" + ITEM_C_PID + "\"]}"))
                 .andExpect(status().isUnprocessableEntity());
@@ -295,7 +295,7 @@ class AdminOrderIntegrationTest extends AbstractIntegrationTest {
     void adminCancel_unpaid_terminatesAndAudits_thenConflict() throws Exception {
         assertThat(reserved(VARIANT_2)).isEqualTo(1);
 
-        mockMvc.perform(post(URL + "/" + ORDER_B_PID + "/cancel").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(URL + "/" + ORDER_B_PID + "/cancel").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"reasonCode\":\"PAYMENT_ISSUE\",\"reasonDetail\":\"입금 미확인\"}"))
                 .andExpect(status().isOk())
@@ -307,7 +307,7 @@ class AdminOrderIntegrationTest extends AbstractIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_log WHERE target_type = 'ORDER' AND target_id = ? "
                 + "AND diff_json LIKE ?", Integer.class, ORDER_B, "%PAYMENT_ISSUE%")).isEqualTo(1);
 
-        mockMvc.perform(get(URL + "/" + ORDER_B_PID).headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(get(URL + "/" + ORDER_B_PID).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("PAYMENT_EXPIRED"))
                 .andExpect(jsonPath("$.cancelReasons.length()").value(1))
@@ -316,7 +316,7 @@ class AdminOrderIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.cancelReasons[0].actorUserId").value(ADMIN_ID))
                 .andExpect(jsonPath("$.actions.length()").value(0));
 
-        mockMvc.perform(post(URL + "/" + ORDER_B_PID + "/cancel").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(URL + "/" + ORDER_B_PID + "/cancel").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"reasonCode\":\"PAYMENT_ISSUE\"}"))
                 .andExpect(status().isConflict());
@@ -327,7 +327,7 @@ class AdminOrderIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("T6 목록: 필터(status·paymentStatus·deliveryStatus)·검색(주문번호·주문자·상품명)·enrich 필드·쿼리 수 ≤ 8")
     void list_filtersSearchAndEnrich_withBoundedQueries() throws Exception {
-        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("keyword", "ORDT79" + ORDER_A))
+        mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID)).param("keyword", "ORDT79" + ORDER_A))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].orderId").value(ORDER_A_PID))
@@ -344,40 +344,40 @@ class AdminOrderIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.items[0].actions[0]").value("CANCEL"))
                 .andExpect(jsonPath("$.items[0].actions[1]").value("PREPARE_SHIPMENT"));
 
-        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("status", "PENDING_PAYMENT"))
+        mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID)).param("status", "PENDING_PAYMENT"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[?(@.orderId == '" + ORDER_B_PID + "')]").exists())
                 .andExpect(jsonPath("$.items[?(@.orderId == '" + ORDER_A_PID + "')]").doesNotExist());
-        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("paymentStatus", "PENDING")
+        mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID)).param("paymentStatus", "PENDING")
                         .param("keyword", "트랙79구매자"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].orderId").value(ORDER_B_PID))
                 // 미결제(PENDING 결제 행)는 승인 시각이 없어 paidAt 미노출(NON_NULL)
                 .andExpect(jsonPath("$.items[0].paidAt").doesNotExist());
-        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("deliveryStatus", "SHIPPING"))
+        mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID)).param("deliveryStatus", "SHIPPING"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].orderId").value(ORDER_C_PID))
                 .andExpect(jsonPath("$.items[0].deliveryStatus").value("SHIPPING"))
                 .andExpect(jsonPath("$.items[0].actions[0]").value("MARK_DELIVERED"));
-        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("keyword", "트랙79상품C"))
+        mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID)).param("keyword", "트랙79상품C"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].orderId").value(ORDER_C_PID));
-        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("sort", "BOGUS"))
+        mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID)).param("sort", "BOGUS"))
                 .andExpect(status().isBadRequest());
         // Track 84: buyerPublicId 정확 필터 — 해당 회원 주문 3건 전부·타 회원 미포함 / 미존재 publicId는 빈 페이지(404 아님)
-        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("buyerPublicId", pid("usr_", "T79USR")))
+        mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID)).param("buyerPublicId", pid("usr_", "T79USR")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(3))
                 .andExpect(jsonPath("$.items[*].buyerEmail", everyItem(is("t79@example.test"))));
-        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("buyerPublicId", pid("usr_", "T79NONE")))
+        mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID)).param("buyerPublicId", pid("usr_", "T79NONE")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(0))
                 .andExpect(jsonPath("$.items.length()").value(0));
         // 비BUYER(관리자 계정) publicId → BUYER 해소 실패 → 빈 페이지(외부 검토 반영)
-        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("buyerPublicId", pid("usr_", "T79ADM")))
+        mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID)).param("buyerPublicId", pid("usr_", "T79ADM")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(0))
                 .andExpect(jsonPath("$.items.length()").value(0));
@@ -385,7 +385,7 @@ class AdminOrderIntegrationTest extends AbstractIntegrationTest {
         Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
         statistics.setStatisticsEnabled(true);
         statistics.clear();
-        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("keyword", "트랙79구매자").param("size", "3"))
+        mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID)).param("keyword", "트랙79구매자").param("size", "3"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items.length()").value(3));
         assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(QUERY_BUDGET_FOR_LIST);
@@ -399,7 +399,7 @@ class AdminOrderIntegrationTest extends AbstractIntegrationTest {
         claimService.request(new ClaimRequestCommand(ITEM_A2_PID, ClaimType.CANCEL, ClaimReasonCode.BUYER_CHANGED_MIND,
                 "변심", USER_ID, LocalDateTime.now()));
 
-        mockMvc.perform(get(URL + "/" + ORDER_A_PID).headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(get(URL + "/" + ORDER_A_PID).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.orderNo").value("ORDT79" + ORDER_A))
                 .andExpect(jsonPath("$.buyer.name").value("트랙79구매자"))
@@ -417,12 +417,12 @@ class AdminOrderIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.items[?(@.orderItemId == '" + ITEM_A1_PID + "')].claims.length()").value(0))
                 .andExpect(jsonPath("$.cancelReasons.length()").value(0));
 
-        mockMvc.perform(get(URL + "/" + ORDER_C_PID).headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(get(URL + "/" + ORDER_C_PID).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].delivery.status").value("SHIPPING"))
                 .andExpect(jsonPath("$.items[0].delivery.trackingNo").value("T79TRACK0001"));
 
-        mockMvc.perform(get(URL + "/" + pid("ord_", "T79NONE")).headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(get(URL + "/" + pid("ord_", "T79NONE")).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isNotFound());
     }
 
@@ -436,30 +436,30 @@ class AdminOrderIntegrationTest extends AbstractIntegrationTest {
             jdbc.update("UPDATE `order` SET status = 'CONFIRMED' WHERE id = ?", ORDER_C);
         });
 
-        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("keyword", "트랙79상품C"))
+        mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID)).param("keyword", "트랙79상품C"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].orderId").value(ORDER_C_PID))
                 .andExpect(jsonPath("$.items[0].status").value("CONFIRMED"))
                 .andExpect(jsonPath("$.items[0].allItemsReturned").value(true));
-        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("keyword", "ORDT79" + ORDER_A))
+        mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID)).param("keyword", "ORDT79" + ORDER_A))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].allItemsReturned").value(false));
     }
 
     @Test
-    @DisplayName("T8 관리자 송장 등록(F): ADMIN 200·품목 SHIPPING·delivery 생성 / BUYER 403 / 미인증 401 / SHIPPING 품목 재등록 422")
+    @DisplayName("T8 관리자 송장 등록(F): ADMIN 200·품목 SHIPPING·delivery 생성 / BUYER 401 / 미인증 401 / SHIPPING 품목 재등록 422")
     void adminPrepareShipment_andAuthorization() throws Exception {
         String body = "{\"carrier\":\"CJ\",\"trackingNo\":\"T79TRACK0002\"}";
-        mockMvc.perform(post(URL + "/items/" + ITEM_A1_PID + "/prepare-shipment").headers(authHeaders.buyer(USER_ID))
+        mockMvc.perform(post(URL + "/items/" + ITEM_A1_PID + "/prepare-shipment").with(authHeaders.buyer(USER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(body))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
         mockMvc.perform(post(URL + "/items/" + ITEM_A1_PID + "/prepare-shipment")
                         .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isUnauthorized());
-        mockMvc.perform(get(URL).headers(authHeaders.buyer(USER_ID)))
-                .andExpect(status().isForbidden());
+        mockMvc.perform(get(URL).with(authHeaders.buyer(USER_ID)))
+                .andExpect(status().isUnauthorized());
 
-        mockMvc.perform(post(URL + "/items/" + ITEM_A1_PID + "/prepare-shipment").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(URL + "/items/" + ITEM_A1_PID + "/prepare-shipment").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.trackingNo").value("T79TRACK0002"));
@@ -467,7 +467,7 @@ class AdminOrderIntegrationTest extends AbstractIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM delivery WHERE order_item_id = ?", Integer.class, ORDER_A_ITEM_1))
                 .isEqualTo(1);
 
-        mockMvc.perform(post(URL + "/items/" + ITEM_A1_PID + "/prepare-shipment").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(URL + "/items/" + ITEM_A1_PID + "/prepare-shipment").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"carrier\":\"CJ\",\"trackingNo\":\"T79TRACK0003\"}"))
                 .andExpect(status().isUnprocessableEntity());
     }
@@ -476,7 +476,7 @@ class AdminOrderIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("T9 관리자 송장 형식·중복 허용(D-227): 자모 400·필드 메시지·미생성 / 다른 주문(C)과 같은 번호 + 앞뒤 공백 → 200·공백 제거 저장 / 같은 주문 다른 품목 합포장 200")
     void adminPrepareShipment_formatRuleAndSharedTrackingNo() throws Exception {
         String prepareA1 = URL + "/items/" + ITEM_A1_PID + "/prepare-shipment";
-        mockMvc.perform(post(prepareA1).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(prepareA1).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"carrier\":\"CJ\",\"trackingNo\":\"ㅗㅗㅗ\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
@@ -485,12 +485,12 @@ class AdminOrderIntegrationTest extends AbstractIntegrationTest {
         assertThat(itemStatus(ORDER_A_ITEM_1)).isEqualTo("PAID");
 
         // 주문 C의 기존 배송(T79TRACK0001)과 같은 번호 — 택배사 번호 재사용·택배사 간 중복
-        mockMvc.perform(post(prepareA1).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(prepareA1).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"carrier\":\"CJ\",\"trackingNo\":\"  T79TRACK0001  \"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.trackingNo").value("T79TRACK0001"));
         // 같은 주문 A의 다른 품목 — 합포장(같은 상자·같은 송장)
-        mockMvc.perform(post(URL + "/items/" + ITEM_A2_PID + "/prepare-shipment").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(URL + "/items/" + ITEM_A2_PID + "/prepare-shipment").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"carrier\":\"CJ\",\"trackingNo\":\"T79TRACK0001\"}"))
                 .andExpect(status().isOk());
 

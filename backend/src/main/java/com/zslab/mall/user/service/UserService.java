@@ -113,7 +113,7 @@ public class UserService {
     public void changePassword(Long userId, ChangePasswordRequest request) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalStateException("인증된 userId에 해당하는 User가 없습니다: " + userId));
-        demoAccountGuard.requireNotProtected(user); // D-230: 구매자·셀러·관리자 토큰 모두 이 경로를 쓴다
+        demoAccountGuard.requireNotProtected(user); // D-230: 구매자(/users/me/password)·셀러(/seller/me/password) 경로가 모두 이 메서드를 쓴다
 
         // hash null(자격증명 미생성)·불일치 모두 동일 400으로 통일(사유는 내부 로그로만 구분)
         if (user.getPasswordHash() == null

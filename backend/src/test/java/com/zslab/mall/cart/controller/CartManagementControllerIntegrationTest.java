@@ -94,7 +94,7 @@ class CartManagementControllerIntegrationTest extends AbstractIntegrationTest {
         seedCartItem(BUYER_USER_ID, VAR_MANUAL, 1, true);
         seedCartItem(BUYER_USER_ID, VAR_DANGLING, 1, true);
 
-        MvcResult result = mockMvc.perform(get("/api/v1/cart").headers(authHeaders.buyer(BUYER_USER_ID)))
+        MvcResult result = mockMvc.perform(get("/api/v1/cart").with(authHeaders.buyer(BUYER_USER_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items.length()").value(4))
                 .andReturn();
@@ -123,7 +123,7 @@ class CartManagementControllerIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("T2 빈 장바구니 조회 → 200 items 빈 목록")
     void getCart_empty() throws Exception {
-        mockMvc.perform(get("/api/v1/cart").headers(authHeaders.buyer(BUYER_USER_ID)))
+        mockMvc.perform(get("/api/v1/cart").with(authHeaders.buyer(BUYER_USER_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items.length()").value(0));
     }
@@ -136,7 +136,7 @@ class CartManagementControllerIntegrationTest extends AbstractIntegrationTest {
         seedCartItem(BUYER_USER_ID, VAR_OK, 1, true);
         seedCartItem(BUYER_USER_ID, VAR_SOLDOUT, 1, true);
 
-        mockMvc.perform(delete("/api/v1/cart/items").headers(authHeaders.buyer(BUYER_USER_ID))
+        mockMvc.perform(delete("/api/v1/cart/items").with(authHeaders.buyer(BUYER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(Map.of("variantPublicIds", List.of(VAR_OK_PID)))))
                 .andExpect(status().isOk());
@@ -151,7 +151,7 @@ class CartManagementControllerIntegrationTest extends AbstractIntegrationTest {
         seedCartItem(BUYER_USER_ID, VAR_OK, 1, true);
         seedCartItem(BUYER_USER_ID, VAR_SOLDOUT, 1, true);
 
-        mockMvc.perform(delete("/api/v1/cart/items").headers(authHeaders.buyer(BUYER_USER_ID))
+        mockMvc.perform(delete("/api/v1/cart/items").with(authHeaders.buyer(BUYER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(Map.of("variantPublicIds", List.of(VAR_OK_PID, VAR_SOLDOUT_PID)))))
                 .andExpect(status().isOk());
@@ -162,7 +162,7 @@ class CartManagementControllerIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("T5 삭제 빈 배열 → 400 VALIDATION_FAILED(@NotEmpty)")
     void delete_emptyList_returns400() throws Exception {
-        mockMvc.perform(delete("/api/v1/cart/items").headers(authHeaders.buyer(BUYER_USER_ID))
+        mockMvc.perform(delete("/api/v1/cart/items").with(authHeaders.buyer(BUYER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(Map.of("variantPublicIds", List.of()))))
                 .andExpect(status().isBadRequest())
@@ -176,7 +176,7 @@ class CartManagementControllerIntegrationTest extends AbstractIntegrationTest {
     void changeQuantity_absolute() throws Exception {
         seedCartItem(BUYER_USER_ID, VAR_OK, 2, true);
 
-        mockMvc.perform(patch("/api/v1/cart/items/quantity").headers(authHeaders.buyer(BUYER_USER_ID))
+        mockMvc.perform(patch("/api/v1/cart/items/quantity").with(authHeaders.buyer(BUYER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(Map.of("variantPublicId", VAR_OK_PID, "quantity", 9))))
                 .andExpect(status().isOk());
@@ -189,7 +189,7 @@ class CartManagementControllerIntegrationTest extends AbstractIntegrationTest {
     void changeQuantity_belowOne_returns400() throws Exception {
         seedCartItem(BUYER_USER_ID, VAR_OK, 2, true);
 
-        mockMvc.perform(patch("/api/v1/cart/items/quantity").headers(authHeaders.buyer(BUYER_USER_ID))
+        mockMvc.perform(patch("/api/v1/cart/items/quantity").with(authHeaders.buyer(BUYER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(Map.of("variantPublicId", VAR_OK_PID, "quantity", 0))))
                 .andExpect(status().isBadRequest())
@@ -201,7 +201,7 @@ class CartManagementControllerIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("T8 수량변경 대상 미담김 → 404 CART_ITEM_NOT_FOUND")
     void changeQuantity_notInCart_returns404() throws Exception {
-        mockMvc.perform(patch("/api/v1/cart/items/quantity").headers(authHeaders.buyer(BUYER_USER_ID))
+        mockMvc.perform(patch("/api/v1/cart/items/quantity").with(authHeaders.buyer(BUYER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(Map.of("variantPublicId", VAR_OK_PID, "quantity", 3))))
                 .andExpect(status().isNotFound())
@@ -216,7 +216,7 @@ class CartManagementControllerIntegrationTest extends AbstractIntegrationTest {
         seedCartItem(BUYER_USER_ID, VAR_OK, 1, true);
         seedCartItem(BUYER_USER_ID, VAR_SOLDOUT, 1, true);
 
-        mockMvc.perform(patch("/api/v1/cart/items/selected").headers(authHeaders.buyer(BUYER_USER_ID))
+        mockMvc.perform(patch("/api/v1/cart/items/selected").with(authHeaders.buyer(BUYER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(Map.of("variantPublicId", VAR_OK_PID, "selected", false))))
                 .andExpect(status().isOk());
@@ -228,7 +228,7 @@ class CartManagementControllerIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("T10 selected 단건 대상 미담김 → 404 CART_ITEM_NOT_FOUND")
     void setSelected_notInCart_returns404() throws Exception {
-        mockMvc.perform(patch("/api/v1/cart/items/selected").headers(authHeaders.buyer(BUYER_USER_ID))
+        mockMvc.perform(patch("/api/v1/cart/items/selected").with(authHeaders.buyer(BUYER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(Map.of("variantPublicId", VAR_OK_PID, "selected", false))))
                 .andExpect(status().isNotFound())
@@ -241,7 +241,7 @@ class CartManagementControllerIntegrationTest extends AbstractIntegrationTest {
         seedCartItem(BUYER_USER_ID, VAR_OK, 1, true);
         seedCartItem(BUYER_USER_ID, VAR_SOLDOUT, 1, true);
 
-        mockMvc.perform(patch("/api/v1/cart/items/selected/all").headers(authHeaders.buyer(BUYER_USER_ID))
+        mockMvc.perform(patch("/api/v1/cart/items/selected/all").with(authHeaders.buyer(BUYER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(Map.of("selected", false))))
                 .andExpect(status().isOk());
@@ -258,14 +258,14 @@ class CartManagementControllerIntegrationTest extends AbstractIntegrationTest {
         seedCartItem(OTHER_BUYER_ID, VAR_OK, 3, true);
 
         // BUYER가 VAR_OK 삭제 시도 → 타인 항목 잔존
-        mockMvc.perform(delete("/api/v1/cart/items").headers(authHeaders.buyer(BUYER_USER_ID))
+        mockMvc.perform(delete("/api/v1/cart/items").with(authHeaders.buyer(BUYER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(Map.of("variantPublicIds", List.of(VAR_OK_PID)))))
                 .andExpect(status().isOk());
         assertThat(count("SELECT COUNT(*) FROM cart_item WHERE user_id=? AND variant_id=?", OTHER_BUYER_ID, VAR_OK)).isEqualTo(1);
 
         // BUYER가 VAR_OK 수량변경 시도 → 본인 장바구니엔 없음 → 404
-        mockMvc.perform(patch("/api/v1/cart/items/quantity").headers(authHeaders.buyer(BUYER_USER_ID))
+        mockMvc.perform(patch("/api/v1/cart/items/quantity").with(authHeaders.buyer(BUYER_USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(Map.of("variantPublicId", VAR_OK_PID, "quantity", 1))))
                 .andExpect(status().isNotFound());
@@ -283,11 +283,11 @@ class CartManagementControllerIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("T14 비-BUYER role(SELLER 토큰) 조회 → 403 FORBIDDEN")
-    void getCart_sellerRole_returns403() throws Exception {
-        mockMvc.perform(get("/api/v1/cart").headers(authHeaders.seller(SELLER_ACTOR_ID)))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+    @DisplayName("T14 비-BUYER role(SELLER 토큰) 조회 → 401 UNAUTHENTICATED")
+    void getCart_sellerRole_returns401() throws Exception {
+        mockMvc.perform(get("/api/v1/cart").with(authHeaders.seller(SELLER_ACTOR_ID)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
     }
 
     // ==================== helpers ====================

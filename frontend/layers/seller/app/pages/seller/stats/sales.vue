@@ -139,7 +139,7 @@ function resetQuery(): void {
 const csvBusy = ref(false)
 const OBJECT_URL_REVOKE_DELAY_MS = 10_000
 
-/** Bearer가 필요해 직링크 대신 blob → 임시 a 태그 클릭 → revokeObjectURL. 파일명은 Content-Disposition에서 추출(실패 시 기본명). */
+/** API 호출로 받은 blob → 임시 a 태그 클릭 → revokeObjectURL. 파일명은 Content-Disposition에서 추출(실패 시 기본명). */
 async function downloadCsv(): Promise<void> {
   if (!canQuery.value || period.value === null || csvBusy.value) return
   csvBusy.value = true

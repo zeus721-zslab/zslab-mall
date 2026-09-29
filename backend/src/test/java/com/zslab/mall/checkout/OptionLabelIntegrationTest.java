@@ -89,7 +89,7 @@ class OptionLabelIntegrationTest extends AbstractIntegrationTest {
         entityManager.flush();
         entityManager.clear();
 
-        mockMvc.perform(get("/api/v1/cart").headers(authHeaders.buyer(BUYER_ID)))
+        mockMvc.perform(get("/api/v1/cart").with(authHeaders.buyer(BUYER_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[?(@.variantPublicId == '" + OPTION_VARIANT_PID + "')].optionLabel")
                         .value(EXPECTED_LABEL))
@@ -103,7 +103,7 @@ class OptionLabelIntegrationTest extends AbstractIntegrationTest {
         String orderPublicId = performDirectCheckout(OPTION_PRODUCT_PID, OPTION_VARIANT_PID);
 
         assertOptionLabelInDatabase(orderPublicId, EXPECTED_LABEL);
-        mockMvc.perform(get("/api/v1/orders/" + orderPublicId).headers(authHeaders.buyer(BUYER_ID)))
+        mockMvc.perform(get("/api/v1/orders/" + orderPublicId).with(authHeaders.buyer(BUYER_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.sellers[0].items[0].optionLabel").value(EXPECTED_LABEL));
     }
@@ -114,7 +114,7 @@ class OptionLabelIntegrationTest extends AbstractIntegrationTest {
         String orderPublicId = performDirectCheckout(SIMPLE_PRODUCT_PID, SIMPLE_VARIANT_PID);
 
         assertOptionLabelInDatabase(orderPublicId, null);
-        mockMvc.perform(get("/api/v1/orders/" + orderPublicId).headers(authHeaders.buyer(BUYER_ID)))
+        mockMvc.perform(get("/api/v1/orders/" + orderPublicId).with(authHeaders.buyer(BUYER_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.sellers[0].items[0].productName").value("단순상품"))
                 .andExpect(jsonPath("$.sellers[0].items[0].optionLabel").doesNotExist());
@@ -127,7 +127,7 @@ class OptionLabelIntegrationTest extends AbstractIntegrationTest {
         entityManager.flush();
         entityManager.clear();
 
-        String location = mockMvc.perform(post("/api/v1/cart/checkout").headers(authHeaders.buyer(BUYER_ID))
+        String location = mockMvc.perform(post("/api/v1/cart/checkout").with(authHeaders.buyer(BUYER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(CART_CHECKOUT_BODY))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getHeader("Location");
@@ -147,7 +147,7 @@ class OptionLabelIntegrationTest extends AbstractIntegrationTest {
         entityManager.flush();
         entityManager.clear();
 
-        mockMvc.perform(get("/api/v1/orders/" + orderPublicId).headers(authHeaders.buyer(BUYER_ID)))
+        mockMvc.perform(get("/api/v1/orders/" + orderPublicId).with(authHeaders.buyer(BUYER_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.sellers[0].items[0].optionLabel").value(EXPECTED_LABEL));
     }
@@ -161,7 +161,7 @@ class OptionLabelIntegrationTest extends AbstractIntegrationTest {
         entityManager.flush();
         entityManager.clear();
 
-        mockMvc.perform(get("/api/v1/orders/" + orderPublicId).headers(authHeaders.buyer(BUYER_ID)))
+        mockMvc.perform(get("/api/v1/orders/" + orderPublicId).with(authHeaders.buyer(BUYER_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.sellers[0].items[0].productName").value("옵션상품"))
                 .andExpect(jsonPath("$.sellers[0].items[0].optionLabel").doesNotExist());
@@ -182,7 +182,7 @@ class OptionLabelIntegrationTest extends AbstractIntegrationTest {
     private String performDirectCheckout(String productPublicId, String variantPublicId) throws Exception {
         String body = "{ \"items\": [ { \"productId\": \"" + productPublicId + "\", \"variantId\": \""
                 + variantPublicId + "\", \"quantity\": 1 } ], " + SHIPPING_JSON + "}";
-        String location = mockMvc.perform(post("/api/v1/orders").headers(authHeaders.buyer(BUYER_ID))
+        String location = mockMvc.perform(post("/api/v1/orders").with(authHeaders.buyer(BUYER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getHeader("Location");

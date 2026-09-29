@@ -26,8 +26,9 @@ import com.zslab.mall.support.AbstractIntegrationTest;
 
 /**
  * 셀러 교환품 출고 endpoint 제거 반전 통합 테스트(Track 92·D-196·실 MariaDB). "셀러는 조회만·처리는 관리자"가 확정이므로
- * {@code POST /api/v1/claims/{id}/register-exchange-shipment}는 셀러 토큰으로 403(SecurityConfig BUYER 광범위 규칙)이어야 하며,
- * 인가·endpoint가 되살아나면 200으로 RED가 난다(STEP 701에서 매처 복원으로 RED 재현 확인). 관리자 정상 경로는
+ * {@code POST /api/v1/claims/{id}/register-exchange-shipment}는 매핑이 없어야 하며, 경로 역할 쿠키(구매자)로 호출하면
+ * 404 RESOURCE_NOT_FOUND다. endpoint가 되살아나면 404가 아닌 응답으로 RED가 난다. 셀러 쿠키는 {@code /api/v1/claims/**}에서
+ * 읽히지 않아(D-235 PR3) 엔드포인트 유무와 무관하게 401이므로 부재 판정에 쓰지 않는다(false-green). 관리자 정상 경로는
  * AdminDeliveryControllerIntegrationTest 책임이다.
  *
  * <p><b>트랜잭션</b>: 클래스에 {@code @Transactional}을 두지 않고 시드/정리는 {@link TransactionTemplate} +
@@ -40,8 +41,6 @@ class SellerDeliveryIntegrationTest extends AbstractIntegrationTest {
 
     private static final long USER_ID = 9415L;
     private static final long SELLER_A = 9415L; // 품목 소유 셀러
-    // Track 36 γ Phase 3: actorId(JWT subject)를 seller_id와 다른 값으로 둔다 — user.id==seller.id 우연일치 은폐 제거.
-    private static final long SELLER_A_USER = 9417L; // SELLER_A 소속 user(actorId)
     private static final long PRODUCT_ID = 9415L;
     private static final long VARIANT_ID = 9415L;
     private static final long ORDER_ID = 9415L;
@@ -72,7 +71,6 @@ class SellerDeliveryIntegrationTest extends AbstractIntegrationTest {
     void setUp() {
         tx = new TransactionTemplate(txManager);
         cleanup();
-        seedSellerUsers();
     }
 
     @AfterEach
@@ -80,11 +78,11 @@ class SellerDeliveryIntegrationTest extends AbstractIntegrationTest {
         cleanup();
     }
 
-    // ===== R5: 셀러 교환품 출고 endpoint 제거 반전(Track 92) — 인가가 되살아나면 200으로 RED =====
+    // ===== R5: 셀러 교환품 출고 endpoint 제거 반전(Track 92) — endpoint가 되살아나면 404가 아니게 되어 RED =====
 
     @Test
-    @DisplayName("R5 교환품 출고: 소유 셀러 토큰 → 403 FORBIDDEN·Delivery 미생성·DeliveryStarted 0건(Track 92 셀러 처리 endpoint 제거)")
-    void register_ownerSellerToken_returns403_noDelivery() throws Exception {
+    @DisplayName("R5 교환품 출고: 구매자 쿠키 → 404 RESOURCE_NOT_FOUND·Delivery 미생성·DeliveryStarted 0건(Track 92 셀러 처리 endpoint 제거)")
+    void register_buyerCookie_returns404_noDelivery() throws Exception {
         seed(() -> {
             seedCatalog();
             seedOrder("DELIVERED");
@@ -93,11 +91,11 @@ class SellerDeliveryIntegrationTest extends AbstractIntegrationTest {
         });
 
         mockMvc.perform(post("/api/v1/claims/" + CLAIM_PID + "/register-exchange-shipment")
-                        .headers(authHeaders.seller(SELLER_A_USER))
+                        .with(authHeaders.buyer(USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("CJ", TRACKING_NO)))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
 
         assertThat(deliveryCount()).isZero();
         assertThat(events.stream(DeliveryStarted.class).count()).isZero();
@@ -162,29 +160,10 @@ class SellerDeliveryIntegrationTest extends AbstractIntegrationTest {
         }
     }
 
-    // resolver 해소용 seller_user 실 매핑 + seller 행 시드(actorId≠seller_id·role_id=SELLER_OWNER seed). Track 90-A 상태 가드가
-    // seller.status를 조인하므로 ACTIVE seller 행이 있어야 resolver를 통과한다(행 부재 = 401 fail-closed) — 403이 "소유 셀러라도 차단"임을 보장.
-    private void seedSellerUsers() {
-        tx.executeWithoutResult(s -> {
-            try {
-                jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
-                jdbc.update("INSERT INTO seller (id, public_id, company_name, ceo_name, status, created_at, updated_at) "
-                                + "VALUES (?, ?, '통합셀러', '대표', 'ACTIVE', NOW(6), NOW(6))",
-                        SELLER_A, pid("slr_", "SDSLR"));
-                jdbc.update("INSERT INTO seller_user (user_id, seller_id, role_id, created_at, updated_at) "
-                                + "SELECT ?, ?, id, NOW(6), NOW(6) FROM role WHERE code = 'SELLER_OWNER'",
-                        SELLER_A_USER, SELLER_A);
-            } finally {
-                jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
-            }
-        });
-    }
-
     private void cleanup() {
         tx.executeWithoutResult(s -> {
             try {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
-                jdbc.update("DELETE FROM seller_user WHERE user_id = ?", SELLER_A_USER);
                 jdbc.update("DELETE FROM notification_log WHERE recipient_user_id = ?", USER_ID);
                 jdbc.update("DELETE FROM delivery WHERE order_item_id = ?", ORDER_ITEM_ID);
                 jdbc.update("DELETE FROM refund WHERE claim_id IN (SELECT id FROM claim WHERE order_item_id = ?)",
@@ -194,7 +173,6 @@ class SellerDeliveryIntegrationTest extends AbstractIntegrationTest {
                 jdbc.update("DELETE FROM `order` WHERE id = ?", ORDER_ID);
                 jdbc.update("DELETE FROM product_variant WHERE id = ?", VARIANT_ID);
                 jdbc.update("DELETE FROM product WHERE id = ?", PRODUCT_ID);
-                jdbc.update("DELETE FROM seller WHERE id = ?", SELLER_A);
                 jdbc.update("DELETE FROM `user` WHERE id = ?", USER_ID);
             } finally {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");

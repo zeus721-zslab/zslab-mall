@@ -79,7 +79,7 @@ class BuyerClaimListThumbnailIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("T1 썸네일 있음: 클레임 → 주문 품목 → 상품 thumbnail_url")
     void claimList_carriesThumbnail() throws Exception {
-        mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.buyer(BUYER_USER)))
+        mockMvc.perform(get(CLAIMS_URL).with(authHeaders.buyer(BUYER_USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath(claimPath(CLAIM_WITH_THUMBNAIL) + ".thumbnailUrl").value(THUMBNAIL_URL));
     }
@@ -87,7 +87,7 @@ class BuyerClaimListThumbnailIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("T2 삭제 상품: thumbnail_url이 있어도 키 생략(@SQLRestriction·상품명 스냅샷은 유지)")
     void claimList_deletedProduct_omitsThumbnail() throws Exception {
-        mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.buyer(BUYER_USER)))
+        mockMvc.perform(get(CLAIMS_URL).with(authHeaders.buyer(BUYER_USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath(claimPath(CLAIM_DELETED_PRODUCT), hasSize(1)))
                 .andExpect(jsonPath(claimPath(CLAIM_DELETED_PRODUCT) + ".thumbnailUrl", hasSize(0)))
@@ -97,7 +97,7 @@ class BuyerClaimListThumbnailIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("T3 썸네일 미등록: 키 생략(NON_NULL)")
     void claimList_noThumbnail_omitsThumbnail() throws Exception {
-        mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.buyer(BUYER_USER)))
+        mockMvc.perform(get(CLAIMS_URL).with(authHeaders.buyer(BUYER_USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath(claimPath(CLAIM_NO_THUMBNAIL), hasSize(1)))
                 .andExpect(jsonPath(claimPath(CLAIM_NO_THUMBNAIL) + ".thumbnailUrl", hasSize(0)));
@@ -114,7 +114,7 @@ class BuyerClaimListThumbnailIntegrationTest extends AbstractIntegrationTest {
         Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
         statistics.setStatisticsEnabled(true);
         statistics.clear();
-        mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.buyer(BUYER_USER)).param("size", String.valueOf(size)))
+        mockMvc.perform(get(CLAIMS_URL).with(authHeaders.buyer(BUYER_USER)).param("size", String.valueOf(size)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items", hasSize(size)));
         long count = statistics.getPrepareStatementCount();

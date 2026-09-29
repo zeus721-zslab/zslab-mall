@@ -3,9 +3,11 @@ package com.zslab.mall.seller.integration;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.cookie;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.zslab.mall.common.security.AuthCookies;
 import com.zslab.mall.common.security.AuthHeaders;
 import com.zslab.mall.seller.enums.SellerStatus;
 import com.zslab.mall.support.AbstractIntegrationTest;
@@ -27,7 +29,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * 셀러 상태 가드 매트릭스 통합 테스트(Track 90-A·D-187 §8 이월·실 MariaDB). 상태 4종 × {로그인 / 조회 API / 쓰기 API}.
  *
  * <ul>
- *   <li>로그인 {@code POST /api/v1/auth/login role=SELLER}: ACTIVE·SUSPENDED 200 / PENDING·TERMINATED 401(다른 사유와 같은 문구).</li>
+ *   <li>로그인 {@code POST /api/v1/seller/auth/login}: ACTIVE·SUSPENDED 200 / PENDING·TERMINATED 401(다른 사유와 같은 문구).</li>
  *   <li>조회 {@code GET /api/v1/seller/settlements}(resolver 경유): ACTIVE·SUSPENDED 200 / PENDING·TERMINATED 401 UNAUTHENTICATED.</li>
  *   <li>쓰기 {@code POST /api/v1/seller/inventories/{var}/mark-inbound}: ACTIVE 200(실 재고 반영) / SUSPENDED 403 SELLER_SUSPENDED·재고 무변경 /
  *       PENDING·TERMINATED 401·재고 무변경.</li>
@@ -54,7 +56,7 @@ class SellerStatusGuardIntegrationTest extends AbstractIntegrationTest {
     private static final String VARIANT_PID = pid("var_", "SSGVAR");
     private static final int INITIAL_ON_HAND = 10;
     private static final int INBOUND_QTY = 5;
-    private static final String LOGIN_URL = "/api/v1/auth/login";
+    private static final String LOGIN_URL = "/api/v1/seller/auth/login";
     private static final String READ_URL = "/api/v1/seller/settlements";
     private static final String WRITE_URL = "/api/v1/seller/inventories/" + VARIANT_PID + "/mark-inbound";
 
@@ -90,9 +92,9 @@ class SellerStatusGuardIntegrationTest extends AbstractIntegrationTest {
     void login_sessionAllowed_returns200(SellerStatus status) throws Exception {
         seed(status);
 
-        mockMvc.perform(post(LOGIN_URL).contentType(MediaType.APPLICATION_JSON).content(loginBody()))
+        mockMvc.perform(post(LOGIN_URL).with(authHeaders.csrf()).contentType(MediaType.APPLICATION_JSON).content(loginBody()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.token").isString());
+                .andExpect(cookie().exists(AuthCookies.SELLER_COOKIE));
     }
 
     @ParameterizedTest(name = "{0} 셀러 로그인 → 401")
@@ -101,7 +103,7 @@ class SellerStatusGuardIntegrationTest extends AbstractIntegrationTest {
     void login_sessionDenied_returns401(SellerStatus status) throws Exception {
         seed(status);
 
-        mockMvc.perform(post(LOGIN_URL).contentType(MediaType.APPLICATION_JSON).content(loginBody()))
+        mockMvc.perform(post(LOGIN_URL).with(authHeaders.csrf()).contentType(MediaType.APPLICATION_JSON).content(loginBody()))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.detail").value(FAILURE_MESSAGE));
     }
@@ -114,7 +116,7 @@ class SellerStatusGuardIntegrationTest extends AbstractIntegrationTest {
     void read_sessionAllowed_returns200(SellerStatus status) throws Exception {
         seed(status);
 
-        mockMvc.perform(get(READ_URL).headers(authHeaders.seller(USER_ID)))
+        mockMvc.perform(get(READ_URL).with(authHeaders.seller(USER_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items").isArray());
     }
@@ -125,7 +127,7 @@ class SellerStatusGuardIntegrationTest extends AbstractIntegrationTest {
     void read_sessionDenied_returns401(SellerStatus status) throws Exception {
         seed(status);
 
-        mockMvc.perform(get(READ_URL).headers(authHeaders.seller(USER_ID)))
+        mockMvc.perform(get(READ_URL).with(authHeaders.seller(USER_ID)))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
     }
@@ -138,7 +140,7 @@ class SellerStatusGuardIntegrationTest extends AbstractIntegrationTest {
     void write_active_returns200(SellerStatus status) throws Exception {
         seed(status);
 
-        mockMvc.perform(post(WRITE_URL).headers(authHeaders.seller(USER_ID))
+        mockMvc.perform(post(WRITE_URL).with(authHeaders.seller(USER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(inboundBody()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.quantityOnHand").value(INITIAL_ON_HAND + INBOUND_QTY));
@@ -155,7 +157,7 @@ class SellerStatusGuardIntegrationTest extends AbstractIntegrationTest {
     void write_suspended_returns403(SellerStatus status) throws Exception {
         seed(status);
 
-        mockMvc.perform(post(WRITE_URL).headers(authHeaders.seller(USER_ID))
+        mockMvc.perform(post(WRITE_URL).with(authHeaders.seller(USER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(inboundBody()))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("SELLER_SUSPENDED"))
@@ -165,7 +167,7 @@ class SellerStatusGuardIntegrationTest extends AbstractIntegrationTest {
         assertThat(onHand()).isEqualTo(INITIAL_ON_HAND);
         // on_hand 무변경은 최종 상태를, history 0행은 쓰기 경로 미진입을 증명한다. 차단이 트랜잭션 진입 전임을 고정.
         assertThat(historyCount()).isZero();
-        mockMvc.perform(get(READ_URL).headers(authHeaders.seller(USER_ID))).andExpect(status().isOk());
+        mockMvc.perform(get(READ_URL).with(authHeaders.seller(USER_ID))).andExpect(status().isOk());
     }
 
     @ParameterizedTest(name = "{0} 셀러 POST mark-inbound → 401")
@@ -174,7 +176,7 @@ class SellerStatusGuardIntegrationTest extends AbstractIntegrationTest {
     void write_sessionDenied_returns401(SellerStatus status) throws Exception {
         seed(status);
 
-        mockMvc.perform(post(WRITE_URL).headers(authHeaders.seller(USER_ID))
+        mockMvc.perform(post(WRITE_URL).with(authHeaders.seller(USER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(inboundBody()))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
@@ -244,7 +246,7 @@ class SellerStatusGuardIntegrationTest extends AbstractIntegrationTest {
     }
 
     private static String loginBody() {
-        return "{\"email\":\"" + EMAIL + "\",\"password\":\"" + PASSWORD + "\",\"role\":\"SELLER\"}";
+        return "{\"email\":\"" + EMAIL + "\",\"password\":\"" + PASSWORD + "\"}";
     }
 
     private static String inboundBody() {

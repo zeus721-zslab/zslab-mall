@@ -32,7 +32,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * 관리자 상품 관리 API E2E 통합 테스트(Track 76·실 MariaDB). 목록 필터/정렬/페이징·쿼리 수·상세·등록·수정·이미지·variant·수동품절·
- * 일괄·삭제(409)·상품명 스냅샷 불변·비-ADMIN 403을 HTTP 경로로 검증한다(AdminProductControllerIntegrationTest 패턴:
+ * 일괄·삭제(409)·상품명 스냅샷 불변·비-ADMIN 401을 HTTP 경로로 검증한다(AdminProductControllerIntegrationTest 패턴:
  * 클래스 @Transactional 없음·시드/정리는 TransactionTemplate + FK_CHECKS 토글·검증은 JdbcTemplate).
  *
  * <p>시드 상품 5건: P1(SALE·재고 5·기간 무제한) P2(SALE·재고 0) P3(PENDING) P4(STOPPED·수동품절) P5(SALE·주문 이력 보유). 셀러 2명(S1·S2·P5는 S2).
@@ -90,7 +90,7 @@ class AdminProductManagementControllerIntegrationTest extends AbstractIntegratio
     @Test
     @DisplayName("목록 기본: 5건 전부(상태 무관)·LATEST·행 필드(재고합·soldOut·soldOutManual·공급가·판매기간)")
     void list_returnsAllStatusesWithRowFields() throws Exception {
-        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("sellerPublicId", SELLER_1_PID))
+        mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID)).param("sellerPublicId", SELLER_1_PID))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(4))
                 .andExpect(jsonPath("$.items[?(@.productPublicId == '" + P1 + "')].stockTotal").value(5))
@@ -106,22 +106,22 @@ class AdminProductManagementControllerIntegrationTest extends AbstractIntegratio
     @Test
     @DisplayName("목록 필터: status=SALE 3건·soldOut=true 2건(재고0+수동품절)·soldOut=false 2건·categoryId·keyword(이름·public_id)")
     void list_filters() throws Exception {
-        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("status", "SALE"))
+        mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID)).param("status", "SALE"))
                 .andExpect(jsonPath("$.totalCount").value(3));
-        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("soldOut", "true").param("sellerPublicId", SELLER_1_PID))
+        mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID)).param("soldOut", "true").param("sellerPublicId", SELLER_1_PID))
                 .andExpect(jsonPath("$.totalCount").value(2));
-        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("soldOut", "false").param("sellerPublicId", SELLER_1_PID))
+        mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID)).param("soldOut", "false").param("sellerPublicId", SELLER_1_PID))
                 .andExpect(jsonPath("$.totalCount").value(2));
-        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("categoryId", String.valueOf(CATEGORY_2)))
+        mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID)).param("categoryId", String.valueOf(CATEGORY_2)))
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].productPublicId").value(P5));
-        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("keyword", "재고없음"))
+        mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID)).param("keyword", "재고없음"))
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].productPublicId").value(P2));
-        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("keyword", P3))
+        mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID)).param("keyword", P3))
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].productPublicId").value(P3));
-        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("sellerPublicId", MISSING.replace("prd_", "slr_")))
+        mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID)).param("sellerPublicId", MISSING.replace("prd_", "slr_")))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("SELLER_NOT_FOUND"));
     }
@@ -155,7 +155,7 @@ class AdminProductManagementControllerIntegrationTest extends AbstractIntegratio
         jdbc.update("UPDATE product SET is_soldout_manual = 0 WHERE public_id = ?", P4);
         expectStockFilter("LOW", 3, P3, P4, P5);
 
-        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("stockFilter", "BOGUS"))
+        mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID)).param("stockFilter", "BOGUS"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
     }
@@ -163,17 +163,17 @@ class AdminProductManagementControllerIntegrationTest extends AbstractIntegratio
     @Test
     @DisplayName("목록 정렬·페이징: PRICE_ASC 첫 행 P2(1000)·NAME·size=2 hasNext true·잘못된 sort 400")
     void list_sortAndPaging() throws Exception {
-        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("sort", "PRICE_ASC"))
+        mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID)).param("sort", "PRICE_ASC"))
                 .andExpect(jsonPath("$.items[0].productPublicId").value(P2));
-        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("sort", "PRICE_DESC"))
+        mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID)).param("sort", "PRICE_DESC"))
                 .andExpect(jsonPath("$.items[0].productPublicId").value(P5));
-        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("sort", "NAME"))
+        mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID)).param("sort", "NAME"))
                 .andExpect(jsonPath("$.items[0].name").value("가판매중"));
-        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("size", "2").param("page", "0"))
+        mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID)).param("size", "2").param("page", "0"))
                 .andExpect(jsonPath("$.items.length()").value(2))
                 .andExpect(jsonPath("$.hasNext").value(true))
                 .andExpect(jsonPath("$.totalCount").value(5));
-        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("sort", "BOGUS"))
+        mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID)).param("sort", "BOGUS"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
     }
@@ -185,7 +185,7 @@ class AdminProductManagementControllerIntegrationTest extends AbstractIntegratio
         statistics.setStatisticsEnabled(true);
         statistics.clear();
 
-        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("size", "5"))
+        mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID)).param("size", "5"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items.length()").value(5));
 
@@ -196,7 +196,7 @@ class AdminProductManagementControllerIntegrationTest extends AbstractIntegratio
     @Test
     @DisplayName("상세: 기본정보·셀러·이미지(type·순서·대표·id)·옵션 그룹/값(id)·variant(재고·옵션 조합·상태)")
     void detail_returnsEditableGraph() throws Exception {
-        mockMvc.perform(get(URL + "/" + P1).headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(get(URL + "/" + P1).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.productPublicId").value(P1))
                 .andExpect(jsonPath("$.sellerPublicId").value(SELLER_1_PID))
@@ -212,7 +212,7 @@ class AdminProductManagementControllerIntegrationTest extends AbstractIntegratio
                 .andExpect(jsonPath("$.variants[0].quantityAvailable").value(5))
                 .andExpect(jsonPath("$.variants[0].options[0].groupName").value("색상"))
                 .andExpect(jsonPath("$.variants[0].options[0].value").value("검정"));
-        mockMvc.perform(get(URL + "/" + MISSING).headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(get(URL + "/" + MISSING).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("PRODUCT_NOT_FOUND"));
     }
@@ -220,20 +220,20 @@ class AdminProductManagementControllerIntegrationTest extends AbstractIntegratio
     @Test
     @DisplayName("셀러 선택 목록: GET /api/v1/admin/sellers → 시드 셀러 2명 포함·회사명 순")
     void sellerList() throws Exception {
-        mockMvc.perform(get("/api/v1/admin/sellers").headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(get("/api/v1/admin/sellers").with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[?(@.sellerPublicId == '" + SELLER_1_PID + "')].companyName").value("셀러일"))
                 .andExpect(jsonPath("$[?(@.sellerPublicId == '" + SELLER_2_PID + "')].status").value("ACTIVE"));
     }
 
     @Test
-    @DisplayName("비-ADMIN(BUYER) → 목록·등록·삭제 전부 403")
+    @DisplayName("비-ADMIN(BUYER) → 목록·등록·삭제 전부 401")
     void nonAdmin_forbidden() throws Exception {
-        mockMvc.perform(get(URL).headers(authHeaders.buyer(BUYER_ID))).andExpect(status().isForbidden());
-        mockMvc.perform(post(URL).headers(authHeaders.buyer(BUYER_ID))
+        mockMvc.perform(get(URL).with(authHeaders.buyer(BUYER_ID))).andExpect(status().isUnauthorized());
+        mockMvc.perform(post(URL).with(authHeaders.buyer(BUYER_ID))
                 .contentType(MediaType.APPLICATION_JSON).content(createBody(SELLER_1_PID, "x")))
-                .andExpect(status().isForbidden());
-        mockMvc.perform(delete(URL + "/" + P1).headers(authHeaders.buyer(BUYER_ID))).andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(delete(URL + "/" + P1).with(authHeaders.buyer(BUYER_ID))).andExpect(status().isUnauthorized());
     }
 
     // ==================== 등록·수정 ====================
@@ -241,7 +241,7 @@ class AdminProductManagementControllerIntegrationTest extends AbstractIntegratio
     @Test
     @DisplayName("등록: 셀러 지정 + 공급가·판매기간 → 201·PENDING·supply_price/sale_*_at 저장(KST)·variant/inventory 생성·감사 로그")
     void create_persistsAdminFields() throws Exception {
-        String productPublicId = readJson(mockMvc.perform(post(URL).headers(authHeaders.admin(ADMIN_ID))
+        String productPublicId = readJson(mockMvc.perform(post(URL).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(createBody(SELLER_1_PID, "관리자등록상품")))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.variantPublicIds.length()").value(1)))
@@ -264,11 +264,11 @@ class AdminProductManagementControllerIntegrationTest extends AbstractIntegratio
     @Test
     @DisplayName("등록 검증: 셀러 미존재 404 SELLER_NOT_FOUND·필수값 누락 400 VALIDATION_FAILED + fieldErrors[field]")
     void create_validation() throws Exception {
-        mockMvc.perform(post(URL).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(URL).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(createBody(MISSING.replace("prd_", "slr_"), "x")))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("SELLER_NOT_FOUND"));
-        mockMvc.perform(post(URL).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(URL).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"sellerPublicId\":\"" + SELLER_1_PID + "\",\"categoryId\":" + CATEGORY_1
                                 + ",\"name\":\"\",\"basePrice\":-1,\"variants\":[]}"))
@@ -282,7 +282,7 @@ class AdminProductManagementControllerIntegrationTest extends AbstractIntegratio
     @Test
     @DisplayName("수정: 기본정보·공급가·판매기간 치환 → 200 상세·DB 반영 / 시작≥종료 400 / 카테고리 미존재 404")
     void update_replacesBasicInfo() throws Exception {
-        mockMvc.perform(put(URL + "/" + P1).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(put(URL + "/" + P1).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(updateBody(CATEGORY_2, "수정된이름", 12000, 9000L,
                                 "2026-09-01T00:00:00+09:00", "2026-12-31T00:00:00+09:00")))
@@ -293,13 +293,13 @@ class AdminProductManagementControllerIntegrationTest extends AbstractIntegratio
                 .andExpect(jsonPath("$.saleEndAt").value("2026-12-31T00:00:00+09:00"));
         assertThat(jdbc.queryForObject("SELECT base_price FROM product WHERE public_id = ?", Long.class, P1)).isEqualTo(12000L);
 
-        mockMvc.perform(put(URL + "/" + P1).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(put(URL + "/" + P1).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(updateBody(CATEGORY_1, "역전", 12000, null,
                                 "2026-12-31T00:00:00+09:00", "2026-09-01T00:00:00+09:00")))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
-        mockMvc.perform(put(URL + "/" + P1).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(put(URL + "/" + P1).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(updateBody(99999999L, "없는카테고리", 12000, null, null, null)))
                 .andExpect(status().isNotFound())
@@ -313,7 +313,7 @@ class AdminProductManagementControllerIntegrationTest extends AbstractIntegratio
                 "SELECT id FROM product_image WHERE product_id = 76001 AND image_type = 'DETAIL'", Long.class);
         String body = "{\"images\":[{\"imageId\":null,\"imageUrl\":\"/api/v1/files/products/2026/09/new.jpg\",\"imageType\":\"GALLERY\",\"main\":true},"
                 + "{\"imageId\":" + keepImageId + ",\"imageUrl\":\"/api/v1/files/products/2026/09/detail2.jpg\",\"imageType\":\"DETAIL\",\"main\":false}]}";
-        mockMvc.perform(put(URL + "/" + P1 + "/images").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(put(URL + "/" + P1 + "/images").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.images.length()").value(2))
@@ -326,15 +326,15 @@ class AdminProductManagementControllerIntegrationTest extends AbstractIntegratio
 
         String twoMains = "{\"images\":[{\"imageUrl\":\"/api/v1/files/products/2026/09/a.jpg\",\"imageType\":\"GALLERY\",\"main\":true},"
                 + "{\"imageUrl\":\"/api/v1/files/products/2026/09/b.jpg\",\"imageType\":\"GALLERY\",\"main\":true}]}";
-        mockMvc.perform(put(URL + "/" + P1 + "/images").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(put(URL + "/" + P1 + "/images").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(twoMains))
                 .andExpect(status().isBadRequest());
         String foreignImage = "{\"images\":[{\"imageId\":" + keepImageId + ",\"imageUrl\":\"/api/v1/files/products/2026/09/a.jpg\",\"imageType\":\"DETAIL\",\"main\":false}]}";
-        mockMvc.perform(put(URL + "/" + P2 + "/images").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(put(URL + "/" + P2 + "/images").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(foreignImage))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("PRODUCT_IMAGE_NOT_FOUND"));
-        mockMvc.perform(put(URL + "/" + P1 + "/images").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(put(URL + "/" + P1 + "/images").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"images\":[{\"imageUrl\":\"/api/v1/files/products/2026/09/a.jpg\",\"imageType\":\"BOGUS\",\"main\":false}]}"))
                 .andExpect(status().isBadRequest())
@@ -352,7 +352,7 @@ class AdminProductManagementControllerIntegrationTest extends AbstractIntegratio
                 + "{\"variantPublicId\":null,\"variantCode\":\"SKU-RED\",\"additionalPrice\":1000,\"status\":\"SALE\","
                 + "\"soldoutManual\":false,\"displayOrder\":1,\"initialStock\":3,"
                 + "\"options\":[{\"optionGroupId\":" + groupId + ",\"value\":\"빨강\"}]}]}";
-        mockMvc.perform(put(URL + "/" + P1 + "/variants").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(put(URL + "/" + P1 + "/variants").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.variants.length()").value(2))
@@ -368,7 +368,7 @@ class AdminProductManagementControllerIntegrationTest extends AbstractIntegratio
                 "SELECT public_id FROM product_variant WHERE product_id = 76001 AND variant_code = 'SKU-RED'", String.class);
         String keepOnlyNew = "{\"variants\":[{\"variantPublicId\":\"" + newVariantPid + "\",\"variantCode\":\"SKU-RED\","
                 + "\"additionalPrice\":1000,\"status\":\"SALE\",\"soldoutManual\":false,\"displayOrder\":0,\"initialStock\":0,\"options\":[]}]}";
-        mockMvc.perform(put(URL + "/" + P1 + "/variants").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(put(URL + "/" + P1 + "/variants").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(keepOnlyNew))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.variants.length()").value(1));
@@ -380,7 +380,7 @@ class AdminProductManagementControllerIntegrationTest extends AbstractIntegratio
                 + "\"additionalPrice\":1000,\"status\":\"SALE\",\"soldoutManual\":false,\"displayOrder\":0,\"initialStock\":0,\"options\":[]},"
                 + "{\"variantCode\":\"SKU-RED2\",\"additionalPrice\":0,\"status\":\"SALE\",\"soldoutManual\":false,\"displayOrder\":1,"
                 + "\"initialStock\":0,\"options\":[{\"optionGroupId\":" + groupId + ",\"value\":\"빨강\"}]}]}";
-        mockMvc.perform(put(URL + "/" + P1 + "/variants").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(put(URL + "/" + P1 + "/variants").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(duplicate))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("PRODUCT_VARIANT_OPTION_CONFLICT"));
@@ -389,12 +389,12 @@ class AdminProductManagementControllerIntegrationTest extends AbstractIntegratio
     @Test
     @DisplayName("수동 품절: PATCH soldout true → 200 soldOutManual true·DB 1 / false → 0")
     void changeSoldOut() throws Exception {
-        mockMvc.perform(patch(URL + "/" + P1 + "/soldout").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(patch(URL + "/" + P1 + "/soldout").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"soldOut\":true}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.soldOutManual").value(true));
         assertThat(jdbc.queryForObject("SELECT is_soldout_manual FROM product WHERE public_id = ?", Integer.class, P1)).isEqualTo(1);
-        mockMvc.perform(patch(URL + "/" + P1 + "/soldout").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(patch(URL + "/" + P1 + "/soldout").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"soldOut\":false}"))
                 .andExpect(jsonPath("$.soldOutManual").value(false));
     }
@@ -405,7 +405,7 @@ class AdminProductManagementControllerIntegrationTest extends AbstractIntegratio
     @DisplayName("일괄 상태: [P1 SALE→STOPPED 성공·P3 PENDING→SALE 승인 성공·P4 STOPPED→STOPPED 422 항목실패·미존재 404 항목실패] → 200·집계")
     void bulkStatus_partialFailure() throws Exception {
         String stopBody = "{\"productPublicIds\":[\"" + P1 + "\",\"" + P4 + "\",\"" + MISSING + "\"],\"status\":\"STOPPED\"}";
-        mockMvc.perform(post(URL + "/bulk/status").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(URL + "/bulk/status").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(stopBody))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.successCount").value(1))
@@ -418,14 +418,14 @@ class AdminProductManagementControllerIntegrationTest extends AbstractIntegratio
         assertThat(jdbc.queryForObject("SELECT sale_stop_source FROM product WHERE public_id = ?", String.class, P1)).isEqualTo("ADMIN");
 
         String saleBody = "{\"productPublicIds\":[\"" + P1 + "\",\"" + P3 + "\"],\"status\":\"SALE\"}";
-        mockMvc.perform(post(URL + "/bulk/status").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(URL + "/bulk/status").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(saleBody))
                 .andExpect(jsonPath("$.successCount").value(2));
         assertThat(productStatus(P1)).isEqualTo("SALE");
         assertThat(productStatus(P3)).isEqualTo("SALE");
         assertThat(jdbc.queryForObject("SELECT sale_stop_source FROM product WHERE public_id = ?", String.class, P1)).isNull();
 
-        mockMvc.perform(post(URL + "/bulk/status").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(URL + "/bulk/status").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"productPublicIds\":[\"" + P1 + "\"],\"status\":\"PENDING\"}"))
                 .andExpect(status().isBadRequest())
@@ -439,7 +439,7 @@ class AdminProductManagementControllerIntegrationTest extends AbstractIntegratio
         jdbc.update("UPDATE product SET status = 'STOPPED', sale_stop_source = 'ADMIN' WHERE public_id = ?", P2);
 
         String body = "{\"productPublicIds\":[\"" + P1 + "\",\"" + P4 + "\",\"" + P2 + "\",\"" + P3 + "\"],\"status\":\"STOPPED\"}";
-        mockMvc.perform(post(URL + "/bulk/status").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(URL + "/bulk/status").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.successCount").value(2))
@@ -463,7 +463,7 @@ class AdminProductManagementControllerIntegrationTest extends AbstractIntegratio
     @Test
     @DisplayName("일괄 품절: [P1·P2 true] → 2건 성공·DB 반영 / 미존재 포함 시 항목 실패")
     void bulkSoldOut() throws Exception {
-        mockMvc.perform(post(URL + "/bulk/soldout").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(URL + "/bulk/soldout").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"productPublicIds\":[\"" + P1 + "\",\"" + P2 + "\",\"" + MISSING + "\"],\"soldOut\":true}"))
                 .andExpect(status().isOk())
@@ -478,18 +478,18 @@ class AdminProductManagementControllerIntegrationTest extends AbstractIntegratio
     @Test
     @DisplayName("삭제: 주문 이력 없음 → 204·deleted_at 설정·관리자 상세 404·목록 제외 / 재삭제 404")
     void delete_softDeletes() throws Exception {
-        mockMvc.perform(delete(URL + "/" + P2).headers(authHeaders.admin(ADMIN_ID))).andExpect(status().isNoContent());
+        mockMvc.perform(delete(URL + "/" + P2).with(authHeaders.admin(ADMIN_ID))).andExpect(status().isNoContent());
         assertThat(jdbc.queryForObject("SELECT deleted_at FROM product WHERE public_id = ?", String.class, P2)).isNotNull();
-        mockMvc.perform(get(URL + "/" + P2).headers(authHeaders.admin(ADMIN_ID))).andExpect(status().isNotFound());
-        mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("keyword", P2))
+        mockMvc.perform(get(URL + "/" + P2).with(authHeaders.admin(ADMIN_ID))).andExpect(status().isNotFound());
+        mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID)).param("keyword", P2))
                 .andExpect(jsonPath("$.totalCount").value(0));
-        mockMvc.perform(delete(URL + "/" + P2).headers(authHeaders.admin(ADMIN_ID))).andExpect(status().isNotFound());
+        mockMvc.perform(delete(URL + "/" + P2).with(authHeaders.admin(ADMIN_ID))).andExpect(status().isNotFound());
     }
 
     @Test
     @DisplayName("삭제 차단: 주문 이력 있는 P5 → 409 PRODUCT_HAS_ORDER_HISTORY·detail에 판매중지 안내·행 불변")
     void delete_blockedByOrderHistory() throws Exception {
-        mockMvc.perform(delete(URL + "/" + P5).headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(delete(URL + "/" + P5).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("PRODUCT_HAS_ORDER_HISTORY"))
                 .andExpect(jsonPath("$.detail").value(org.hamcrest.Matchers.containsString("판매중지")));
@@ -499,15 +499,15 @@ class AdminProductManagementControllerIntegrationTest extends AbstractIntegratio
     @Test
     @DisplayName("상품명 스냅샷: P5 이름 수정 후 구매자 주문 상세 productName은 주문 시점 이름 유지(V22 order_item.product_name)")
     void productNameSnapshot_survivesRename() throws Exception {
-        mockMvc.perform(put(URL + "/" + P5).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(put(URL + "/" + P5).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(updateBody(CATEGORY_2, "이름바뀐상품", 30000, null, null, null)))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(get("/api/v1/orders/" + pid("ord_", "T76ORDER1")).headers(authHeaders.buyer(BUYER_ID)))
+        mockMvc.perform(get("/api/v1/orders/" + pid("ord_", "T76ORDER1")).with(authHeaders.buyer(BUYER_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.sellers[0].items[0].productName").value("주문된상품"));
-        mockMvc.perform(get("/api/v1/orders").headers(authHeaders.buyer(BUYER_ID)))
+        mockMvc.perform(get("/api/v1/orders").with(authHeaders.buyer(BUYER_ID)))
                 .andExpect(jsonPath("$.items[0].previewTitle").value("주문된상품"));
     }
 
@@ -594,7 +594,7 @@ class AdminProductManagementControllerIntegrationTest extends AbstractIntegratio
     }
 
     private void expectStockFilter(String stockFilter, int totalCount, String... expectedPublicIds) throws Exception {
-        ResultActions actions = mockMvc.perform(get(URL).headers(authHeaders.admin(ADMIN_ID)).param("stockFilter", stockFilter))
+        ResultActions actions = mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID)).param("stockFilter", stockFilter))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(totalCount));
         for (String publicId : expectedPublicIds) {

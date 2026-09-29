@@ -80,7 +80,7 @@ class BuyerOrderItemSummaryIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("T1 다품목 items: created_at ASC 순서(id 순서와 어긋난 시드) + 품목 필드(식별자·스냅샷·가격·상태·셀러명·교환 완료)")
     void list_itemsOrderAndFields() throws Exception {
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.buyer(BUYER_USER)))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.buyer(BUYER_USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items.length()").value(1))
                 .andExpect(jsonPath("$.items[0].items.length()").value(4))
@@ -106,7 +106,7 @@ class BuyerOrderItemSummaryIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("T2 썸네일: product.thumbnail_url 값 전달·thumbnail_url NULL → null·삭제 상품(thumbnail_url 있음) → null")
     void list_thumbnailUrl() throws Exception {
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.buyer(BUYER_USER)))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.buyer(BUYER_USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].items[0].thumbnailUrl").value(THUMB_A))
                 .andExpect(jsonPath("$.items[0].items[1].thumbnailUrl").value(THUMB_B))
@@ -117,7 +117,7 @@ class BuyerOrderItemSummaryIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("T3 기존 필드 불변: orderId·previewTitle(첫 품목 외 N건)·sellerCount·totalPrice·status·orderedAt·activeClaims")
     void list_existingFieldsUnchanged() throws Exception {
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.buyer(BUYER_USER)))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.buyer(BUYER_USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].orderId").value(ORDER_PID))
                 .andExpect(jsonPath("$.items[0].previewTitle").value("썸네일상품A 외 3건"))
@@ -132,7 +132,7 @@ class BuyerOrderItemSummaryIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("T4 상세 thumbnailUrl: 목록과 같은 값(값 전달·NULL → null·삭제 상품 null)")
     void detail_thumbnailUrl() throws Exception {
-        mockMvc.perform(get(DETAIL_URL).headers(authHeaders.buyer(BUYER_USER)))
+        mockMvc.perform(get(DETAIL_URL).with(authHeaders.buyer(BUYER_USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath(detailItemPath(ITEM_FIRST) + ".thumbnailUrl").value(THUMB_A))
                 .andExpect(jsonPath(detailItemPath(ITEM_SECOND) + ".thumbnailUrl").value(THUMB_B))

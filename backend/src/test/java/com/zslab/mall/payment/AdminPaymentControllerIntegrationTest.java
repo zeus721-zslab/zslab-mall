@@ -89,9 +89,9 @@ class AdminPaymentControllerIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("T2 인증 실패: 잘못된 Bearer 토큰 → 401 UNAUTHENTICATED")
+    @DisplayName("T2 인증 실패: Authorization 헤더(잘못된 Bearer)만 → 401 UNAUTHENTICATED")
     void markCancelled_malformedCredential_returns401() throws Exception {
-        // Track 33 P5: 잘못된 Bearer 토큰은 JwtAuthenticationFilter가 verify 실패로 예외 전파 → ExceptionTranslationFilter가 401 위임.
+        // D-235 PR3 K1: Authorization 헤더는 읽지 않으므로 역할 쿠키 없는 요청은 익명 → 인가 단계에서 401.
         mockMvc.perform(post(endpoint(PAYMENT_PID)).header("Authorization", "Bearer not-a-valid-jwt"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
@@ -101,7 +101,7 @@ class AdminPaymentControllerIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("T3 실패: 미존재 paymentPublicId → 404 PAYMENT_NOT_FOUND")
     void markCancelled_unknownPaymentPublicId_returns404() throws Exception {
         // 시드 없음(payment 미존재). resolve 통과 후 findByPublicId 실패 → PaymentNotFoundException 404.
-        mockMvc.perform(post(endpoint(MISSING_PAYMENT_PID)).headers(authHeaders.admin(ADMIN)).contentType(MediaType.APPLICATION_JSON).content(REASON_BODY))
+        mockMvc.perform(post(endpoint(MISSING_PAYMENT_PID)).with(authHeaders.admin(ADMIN)).contentType(MediaType.APPLICATION_JSON).content(REASON_BODY))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("PAYMENT_NOT_FOUND"));
     }
@@ -112,7 +112,7 @@ class AdminPaymentControllerIntegrationTest extends AbstractIntegrationTest {
         seedPayment("PAID");
         seedRefund("COMPLETED", FULL_AMOUNT);
 
-        mockMvc.perform(post(endpoint(PAYMENT_PID)).headers(authHeaders.admin(ADMIN)).contentType(MediaType.APPLICATION_JSON).content(REASON_BODY))
+        mockMvc.perform(post(endpoint(PAYMENT_PID)).with(authHeaders.admin(ADMIN)).contentType(MediaType.APPLICATION_JSON).content(REASON_BODY))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.paymentPublicId").value(PAYMENT_PID))
                 .andExpect(jsonPath("$.status").value("CANCELLED"));
@@ -127,7 +127,7 @@ class AdminPaymentControllerIntegrationTest extends AbstractIntegrationTest {
         seedPayment("PAID");
         seedRefund("COMPLETED", FULL_AMOUNT);
 
-        mockMvc.perform(post(endpoint(PAYMENT_PID)).headers(authHeaders.admin(ADMIN))
+        mockMvc.perform(post(endpoint(PAYMENT_PID)).with(authHeaders.admin(ADMIN))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\" \"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
@@ -135,7 +135,7 @@ class AdminPaymentControllerIntegrationTest extends AbstractIntegrationTest {
         assertThat(paymentStatus()).isEqualTo("PAID");
         assertThat(auditCount()).isZero();
 
-        mockMvc.perform(post(endpoint(PAYMENT_PID)).headers(authHeaders.admin(ADMIN))
+        mockMvc.perform(post(endpoint(PAYMENT_PID)).with(authHeaders.admin(ADMIN))
                         .contentType(MediaType.APPLICATION_JSON).content(REASON_BODY))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("CANCELLED"));
@@ -144,7 +144,7 @@ class AdminPaymentControllerIntegrationTest extends AbstractIntegrationTest {
                 String.class, PAYMENT_ID)).contains("CANCELLED").contains("핸들러 유실 보정");
 
         // 이미 CANCELLED 재호출은 NO-OP → 감사 행 증가 없음
-        mockMvc.perform(post(endpoint(PAYMENT_PID)).headers(authHeaders.admin(ADMIN))
+        mockMvc.perform(post(endpoint(PAYMENT_PID)).with(authHeaders.admin(ADMIN))
                         .contentType(MediaType.APPLICATION_JSON).content(REASON_BODY))
                 .andExpect(status().isOk());
         assertThat(auditCount()).isEqualTo(1);
@@ -155,7 +155,7 @@ class AdminPaymentControllerIntegrationTest extends AbstractIntegrationTest {
     void markCancelled_alreadyCancelled_returns200_idempotent() throws Exception {
         seedPayment("CANCELLED");
 
-        mockMvc.perform(post(endpoint(PAYMENT_PID)).headers(authHeaders.admin(ADMIN)).contentType(MediaType.APPLICATION_JSON).content(REASON_BODY))
+        mockMvc.perform(post(endpoint(PAYMENT_PID)).with(authHeaders.admin(ADMIN)).contentType(MediaType.APPLICATION_JSON).content(REASON_BODY))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("CANCELLED"));
 
@@ -168,7 +168,7 @@ class AdminPaymentControllerIntegrationTest extends AbstractIntegrationTest {
         seedPayment("PAID");
         seedRefund("COMPLETED", PARTIAL_AMOUNT);
 
-        mockMvc.perform(post(endpoint(PAYMENT_PID)).headers(authHeaders.admin(ADMIN)).contentType(MediaType.APPLICATION_JSON).content(REASON_BODY))
+        mockMvc.perform(post(endpoint(PAYMENT_PID)).with(authHeaders.admin(ADMIN)).contentType(MediaType.APPLICATION_JSON).content(REASON_BODY))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("PAID"));
 

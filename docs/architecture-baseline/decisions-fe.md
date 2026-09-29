@@ -3887,5 +3887,6 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 ### §8 이월
 - 구매자 XSRF-TOKEN 부재 경로: XSRF-TOKEN은 세션 쿠키(Spring 기본)이고 구매자 쿠키는 Max-Age=TTL이다. 브라우저 재시작 뒤 SSR로 렌더된 화면에서 브라우저가 /api를 한 번도 호출하지 않은 채 unsafe 요청을 보내면 403이 날 수 있다(로그아웃은 로컬 상태만 초기화). 홈·/mypage는 상품 이미지 요청이 XSRF를 재발급해 재현되지 않아 보완하지 않았다. 재현되면 해소안은 SSR XSRF Set-Cookie 전달이다.
 - 데모 로그인 서버 라우트의 로그인 CSRF(세션 바꿔치기): FE-43부터 같은 구조다. PR3 "로그인 CSRF 면제 재검토"에서 함께 다룬다.
+- 구매자 XSRF-TOKEN 부재 경로 → D-235 PR3 K7(FE 공통 CSRF 함수의 토큰 확보)로 해소
 
 외부 검토: B / 지적 7건 중 수용 0건(SSR unsafe CSRF — SSR unsafe 호출 0건 확인 · 데모 로그인 CSRF — PR3 로그인 CSRF 면제 재검토에 포함 · 나머지는 기존 테스트로 충족 또는 명세 범위 밖)

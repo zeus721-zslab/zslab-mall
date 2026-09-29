@@ -31,13 +31,13 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.http.HttpHeaders;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockMultipartHttpServletRequestBuilder;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -125,7 +125,7 @@ class SellerFileUploadIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("T3 files 파트 누락 → 400·저장 0")
     void upload_missingFilesPart_returns400() throws Exception {
-        mockMvc.perform(multipart(UPLOAD_URL).headers(authHeadersOfSeller()))
+        mockMvc.perform(multipart(UPLOAD_URL).with(authHeadersOfSeller()))
                 .andExpect(status().isBadRequest());
         assertThat(countStoredFiles()).isZero();
     }
@@ -136,7 +136,7 @@ class SellerFileUploadIntegrationTest extends AbstractIntegrationTest {
         cleanup();
         seedSeller(SellerStatus.SUSPENDED);
 
-        mockMvc.perform(multipart(UPLOAD_URL).file(file("a.png", "image/png", image(10, 10, "png"))).headers(authHeadersOfSeller()))
+        mockMvc.perform(multipart(UPLOAD_URL).file(file("a.png", "image/png", image(10, 10, "png"))).with(authHeadersOfSeller()))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("SELLER_SUSPENDED"));
         assertThat(countStoredFiles()).isZero();
@@ -149,18 +149,18 @@ class SellerFileUploadIntegrationTest extends AbstractIntegrationTest {
         cleanup();
         seedSeller(status);
 
-        mockMvc.perform(multipart(UPLOAD_URL).file(file("a.png", "image/png", image(10, 10, "png"))).headers(authHeadersOfSeller()))
+        mockMvc.perform(multipart(UPLOAD_URL).file(file("a.png", "image/png", image(10, 10, "png"))).with(authHeadersOfSeller()))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
         assertThat(countStoredFiles()).isZero();
     }
 
     @Test
-    @DisplayName("T6 인가: BUYER 403·미인증 401 → 저장 0")
+    @DisplayName("T6 인가: BUYER 401·미인증 401 → 저장 0")
     void upload_forbiddenAndUnauthenticated() throws Exception {
         byte[] png = image(10, 10, "png");
-        mockMvc.perform(multipart(UPLOAD_URL).file(file("a.png", "image/png", png)).headers(authHeaders.buyer(BUYER_ID)))
-                .andExpect(status().isForbidden());
+        mockMvc.perform(multipart(UPLOAD_URL).file(file("a.png", "image/png", png)).with(authHeaders.buyer(BUYER_ID)))
+                .andExpect(status().isUnauthorized());
         mockMvc.perform(multipart(UPLOAD_URL).file(file("a.png", "image/png", png)))
                 .andExpect(status().isUnauthorized());
         assertThat(countStoredFiles()).isZero();
@@ -168,16 +168,16 @@ class SellerFileUploadIntegrationTest extends AbstractIntegrationTest {
 
     // ==================== helpers ====================
 
-    private HttpHeaders authHeadersOfSeller() {
+    private RequestPostProcessor authHeadersOfSeller() {
         return authHeaders.seller(USER_A);
     }
 
-    private JsonNode upload(HttpHeaders headers, MockMultipartFile... files) throws Exception {
+    private JsonNode upload(RequestPostProcessor headers, MockMultipartFile... files) throws Exception {
         MockMultipartHttpServletRequestBuilder request = multipart(UPLOAD_URL);
         for (MockMultipartFile file : files) {
             request.file(file);
         }
-        String body = mockMvc.perform(request.headers(headers))
+        String body = mockMvc.perform(request.with(headers))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         return objectMapper.readTree(body);

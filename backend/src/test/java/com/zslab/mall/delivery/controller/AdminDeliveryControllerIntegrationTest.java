@@ -118,7 +118,7 @@ class AdminDeliveryControllerIntegrationTest extends AbstractIntegrationTest {
         });
 
         mockMvc.perform(post("/api/v1/admin/claims/" + CLAIM_PID + "/register-exchange-shipment")
-                        .headers(authHeaders.admin(ADMIN))
+                        .with(authHeaders.admin(ADMIN))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("CJ", TRACKING_NO)))
                 .andExpect(status().isOk())
@@ -149,7 +149,7 @@ class AdminDeliveryControllerIntegrationTest extends AbstractIntegrationTest {
         });
 
         mockMvc.perform(post("/api/v1/admin/claims/" + CLAIM_PID + "/register-exchange-shipment")
-                        .headers(authHeaders.admin(ADMIN))
+                        .with(authHeaders.admin(ADMIN))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("CJ", TRACKING_NO)))
                 .andExpect(status().isUnprocessableEntity())
@@ -172,7 +172,7 @@ class AdminDeliveryControllerIntegrationTest extends AbstractIntegrationTest {
         });
 
         mockMvc.perform(post("/api/v1/admin/claims/" + CLAIM_PID + "/register-exchange-shipment")
-                        .headers(authHeaders.admin(ADMIN))
+                        .with(authHeaders.admin(ADMIN))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"trackingNo\":\"" + TRACKING_NO + "\"}"))
                 .andExpect(status().isBadRequest())
@@ -207,7 +207,7 @@ class AdminDeliveryControllerIntegrationTest extends AbstractIntegrationTest {
 
         // mark-delivered는 body 없음(D-104 확정 스펙). X-Admin-Id 헤더만 전달한다.
         mockMvc.perform(post("/api/v1/admin/deliveries/" + DELIVERY_PID + "/mark-delivered")
-                        .headers(authHeaders.admin(ADMIN)))
+                        .with(authHeaders.admin(ADMIN)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.deliveryPublicId").value(DELIVERY_PID))
                 .andExpect(jsonPath("$.status").value("DELIVERED"))
@@ -236,7 +236,7 @@ class AdminDeliveryControllerIntegrationTest extends AbstractIntegrationTest {
         });
 
         mockMvc.perform(post("/api/v1/admin/deliveries/" + DELIVERY_PID + "/mark-delivered")
-                        .headers(authHeaders.admin(ADMIN)))
+                        .with(authHeaders.admin(ADMIN)))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("DELIVERY_INVALID_STATE"));
 
@@ -258,7 +258,7 @@ class AdminDeliveryControllerIntegrationTest extends AbstractIntegrationTest {
         });
 
         mockMvc.perform(post("/api/v1/admin/deliveries/" + DELIVERY_PID + "/mark-delivered")
-                        .headers(authHeaders.admin(ADMIN)))
+                        .with(authHeaders.admin(ADMIN)))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("DELIVERY_INVALID_STATE"));
 
@@ -278,7 +278,7 @@ class AdminDeliveryControllerIntegrationTest extends AbstractIntegrationTest {
         });
 
         mockMvc.perform(post("/api/v1/admin/deliveries/" + DELIVERY_PID + "/mark-delivered")
-                        .headers(authHeaders.admin(ADMIN)))
+                        .with(authHeaders.admin(ADMIN)))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("DELIVERY_INVALID_STATE"));
 
@@ -292,7 +292,7 @@ class AdminDeliveryControllerIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("T6 실패: 미존재 deliveryPublicId → 404 DELIVERY_NOT_FOUND·DeliveryCompleted 0")
     void markDelivered_unknownDeliveryPublicId_returns404() throws Exception {
         mockMvc.perform(post("/api/v1/admin/deliveries/" + pid("dlv_", "ADNONE") + "/mark-delivered")
-                        .headers(authHeaders.admin(ADMIN)))
+                        .with(authHeaders.admin(ADMIN)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("DELIVERY_NOT_FOUND"));
 

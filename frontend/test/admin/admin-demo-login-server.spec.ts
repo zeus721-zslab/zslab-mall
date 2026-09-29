@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import {
+  fetchBackendLogin,
   HTTP_NOT_FOUND,
   HTTP_UNAUTHORIZED,
   isDemoConfigured,
@@ -11,6 +12,8 @@ import {
 // 자격증명 값은 fetcher 인자로만 흘러야 하며 반환값·에러 어디에도 실리지 않는다.
 const configured = { email: 'demo-admin@example.test', password: 'demo-secret' }
 const API_BASE = 'http://mall-backend:8080'
+// 브라우저 요청의 XSRF-TOKEN 쿠키·헤더 값(D-235 PR3 K7) — 코어는 비교하지 않고 fetcher로 그대로 넘긴다(검증은 BE).
+const CSRF = { cookieToken: 'xsrf-cookie-value', headerToken: 'xsrf-header-value' }
 
 describe('demo-login 서버 코어', () => {
   afterEach(() => {
@@ -21,20 +24,21 @@ describe('demo-login 서버 코어', () => {
     const fetcher = vi.fn<BackendLoginFetcher>()
     expect(isDemoConfigured({ email: '', password: '' })).toBe(false)
     expect(isDemoConfigured({ email: 'a@b.c', password: ' ' })).toBe(false)
-    const result = await loginAsDemo({ email: 'a@b.c', password: '' }, 'ADMIN', API_BASE, fetcher)
+    const result = await loginAsDemo({ email: 'a@b.c', password: '' }, 'ADMIN', API_BASE, CSRF, fetcher)
     expect(result).toEqual({ ok: false, statusCode: HTTP_NOT_FOUND })
     expect(fetcher).not.toHaveBeenCalled()
   })
 
-  it('성공 → BE 관리자 로그인 경로(/api/v1/admin/auth/login)로 대행 · 본문 { passwordChangeRequired }만 · BE Set-Cookie 원문 전달', async () => {
+  it('성공 → BE 관리자 로그인 경로(/api/v1/admin/auth/login)로 대행 · CSRF 쿠키·헤더 값 그대로 전달 · 본문 { passwordChangeRequired }만 · BE Set-Cookie 원문 전달', async () => {
     const setCookies = ['__Secure-admin_at=cookie-value; Path=/api/v1/admin; HttpOnly', 'XSRF-TOKEN=xsrf-value; Path=/']
     const fetcher = vi.fn<BackendLoginFetcher>().mockResolvedValue({ passwordChangeRequired: false, setCookies })
     expect(isDemoConfigured(configured)).toBe(true)
-    const result = await loginAsDemo(configured, 'ADMIN', API_BASE, fetcher)
-    expect(fetcher).toHaveBeenCalledWith(`${API_BASE}/api/v1/admin/auth/login`, {
-      email: configured.email,
-      password: configured.password,
-    })
+    const result = await loginAsDemo(configured, 'ADMIN', API_BASE, CSRF, fetcher)
+    expect(fetcher).toHaveBeenCalledWith(
+      `${API_BASE}/api/v1/admin/auth/login`,
+      { email: configured.email, password: configured.password },
+      CSRF,
+    )
     expect(result).toEqual({ ok: true, body: { passwordChangeRequired: false }, setCookies })
     const serialized = JSON.stringify(result)
     expect(serialized).not.toContain(configured.email)
@@ -43,15 +47,32 @@ describe('demo-login 서버 코어', () => {
 
   it('role BUYER 인자 → BE 구매자 로그인 경로(/api/v1/auth/buyer/login) · BE passwordChangeRequired true 투과', async () => {
     const fetcher = vi.fn<BackendLoginFetcher>().mockResolvedValue({ passwordChangeRequired: true, setCookies: [] })
-    const result = await loginAsDemo(configured, 'BUYER', API_BASE, fetcher)
-    expect(fetcher).toHaveBeenCalledWith(`${API_BASE}/api/v1/auth/buyer/login`, { email: configured.email, password: configured.password })
+    const result = await loginAsDemo(configured, 'BUYER', API_BASE, CSRF, fetcher)
+    expect(fetcher).toHaveBeenCalledWith(`${API_BASE}/api/v1/auth/buyer/login`, { email: configured.email, password: configured.password }, CSRF)
     expect(result).toEqual({ ok: true, body: { passwordChangeRequired: true }, setCookies: [] })
+  })
+
+  it('fetchBackendLogin → BE로 Cookie는 XSRF-TOKEN만 · X-XSRF-TOKEN 헤더 전달 · 값이 없으면 싣지 않는다(D-235 PR3 K7)', async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => new Response(JSON.stringify({ passwordChangeRequired: false }), { status: 200 }))
+    await fetchBackendLogin(`${API_BASE}/api/v1/admin/auth/login`, { email: configured.email, password: configured.password }, CSRF)
+    expect(fetchSpy.mock.calls[0]?.[1]?.headers).toEqual({
+      'content-type': 'application/json',
+      cookie: 'XSRF-TOKEN=xsrf-cookie-value',
+      'x-xsrf-token': 'xsrf-header-value',
+    })
+    await fetchBackendLogin(`${API_BASE}/api/v1/admin/auth/login`, { email: configured.email, password: configured.password }, {
+      cookieToken: null,
+      headerToken: null,
+    })
+    expect(fetchSpy.mock.calls[1]?.[1]?.headers).toEqual({ 'content-type': 'application/json' })
   })
 
   it('BE 실패(401 등 throw) → 401 일반 응답 · 에러 본문에 자격증명 미포함', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const fetcher = vi.fn<BackendLoginFetcher>().mockRejectedValue(new Error('Invalid email or password.'))
-    const result = await loginAsDemo(configured, 'ADMIN', API_BASE, fetcher)
+    const result = await loginAsDemo(configured, 'ADMIN', API_BASE, CSRF, fetcher)
     expect(result).toEqual({ ok: false, statusCode: HTTP_UNAUTHORIZED })
     const logged = warn.mock.calls.flat().map(String).join(' ')
     expect(logged).not.toContain(configured.email)

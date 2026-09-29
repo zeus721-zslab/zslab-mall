@@ -18,7 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * 셀러 품목 조회 REST 컨트롤러(Track 90-B-1). 행 단위는 order_item(셀러 주문 단위 = 자기 품목). URL prefix {@code /api/v1/seller/**}는
  * SecurityConfig가 hasRole(SELLER)로 강제하고, 셀러 식별·상태 가드(D-190·GET이라 SUSPENDED 통과)는 {@link SellerActorResolver}가 한다.
- * 출고는 기존 {@code POST /api/v1/order-items/{oit}/prepare-shipment}({@code SellerShippingController})가 담당한다.
+ * 출고는 기존 {@code POST /api/v1/seller/order-items/{oit}/prepare-shipment}({@code SellerShippingController})가 담당한다.
  */
 @RestController
 public class SellerOrderItemQueryController {

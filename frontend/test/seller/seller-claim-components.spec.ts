@@ -10,7 +10,7 @@ import type { SellerClaimSummary } from '#layers/seller/app/types/seller-claim'
 import type { SellerOrderItemSummary } from '#layers/seller/app/types/seller-order'
 
 /**
- * 셀러 클레임 컴포넌트(Track 90-D-1): 표(유형 링크·상태/환불 칩·첨부 개수·처리 버튼 부재·페이지 0-base), 첨부 blob 로더(fetch Bearer → object URL →
+ * 셀러 클레임 컴포넌트(Track 90-D-1): 표(유형 링크·상태/환불 칩·첨부 개수·처리 버튼 부재·페이지 0-base), 첨부 blob 로더(셀러 별칭 fetch → object URL →
  * 언마운트 revoke·404 플레이스홀더·늦은 응답 폐기), 확대(preview variant·부모는 attachmentId만 보관·개폐 반복 시 revoke 수 = create 수·잔존 0),
  * 품목 표 클레임 칩(openClaim). 실 네트워크 없음(fetch·store mock).
  */

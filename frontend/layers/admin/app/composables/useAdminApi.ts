@@ -14,8 +14,8 @@ export function useAdminApi() {
 
   return $fetch.create({
     baseURL: config.public.apiBase || '/api',
-    onRequest({ options }) {
-      applyCsrfHeader(options)
+    async onRequest({ options }) {
+      await applyCsrfHeader(options)
     },
     async onResponseError({ response }) {
       if (response.status === 401) {

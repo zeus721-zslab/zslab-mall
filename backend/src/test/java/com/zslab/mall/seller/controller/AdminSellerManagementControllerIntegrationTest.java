@@ -24,7 +24,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.mockito.Mockito;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -32,6 +31,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import com.zslab.mall.seller.repository.WithdrawnSellerRepository;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -134,20 +134,20 @@ class AdminSellerManagementControllerIntegrationTest extends AbstractIntegration
     // ==================== T1 권한 ====================
 
     @Test
-    @DisplayName("T1 권한: 목록·상세·전이·수정 — 무인증 401 / BUYER 403 / ADMIN 200·204")
+    @DisplayName("T1 권한: 목록·상세·전이·수정 — 무인증 401 / BUYER 401 / ADMIN 200·204")
     void authorization() throws Exception {
         mockMvc.perform(get(URL + "/page")).andExpect(status().isUnauthorized());
-        mockMvc.perform(get(URL + "/page").headers(authHeaders.buyer(BUYER_ID))).andExpect(status().isForbidden());
-        mockMvc.perform(get(URL + "/" + pid(S_ACTIVE)).headers(authHeaders.buyer(BUYER_ID))).andExpect(status().isForbidden());
-        mockMvc.perform(patch(URL + "/" + pid(S_ACTIVE) + "/status").headers(authHeaders.buyer(BUYER_ID))
+        mockMvc.perform(get(URL + "/page").with(authHeaders.buyer(BUYER_ID))).andExpect(status().isUnauthorized());
+        mockMvc.perform(get(URL + "/" + pid(S_ACTIVE)).with(authHeaders.buyer(BUYER_ID))).andExpect(status().isUnauthorized());
+        mockMvc.perform(patch(URL + "/" + pid(S_ACTIVE) + "/status").with(authHeaders.buyer(BUYER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(statusBody("SUSPENDED", "사유")))
-                .andExpect(status().isForbidden());
-        mockMvc.perform(put(URL + "/" + pid(S_ACTIVE)).headers(authHeaders.buyer(BUYER_ID))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(put(URL + "/" + pid(S_ACTIVE)).with(authHeaders.buyer(BUYER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(updateBody("89D셀러A", BUSINESS_NO_A, null, null)))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
 
-        mockMvc.perform(get(URL + "/page").headers(admin())).andExpect(status().isOk());
-        mockMvc.perform(get(URL + "/" + pid(S_ACTIVE)).headers(admin())).andExpect(status().isOk());
+        mockMvc.perform(get(URL + "/page").with(admin())).andExpect(status().isOk());
+        mockMvc.perform(get(URL + "/" + pid(S_ACTIVE)).with(admin())).andExpect(status().isOk());
         assertThat(sellerStatus(S_ACTIVE)).isEqualTo("ACTIVE");
     }
 
@@ -156,7 +156,7 @@ class AdminSellerManagementControllerIntegrationTest extends AbstractIntegration
     @Test
     @DisplayName("T2 목록: keyword 7건·등록일 desc·상품 수/계좌 여부 배치 집계 · status 필터 · 사업자번호/이메일 검색 · 페이징 · 오값 400")
     void list_filtersAndAggregates() throws Exception {
-        JsonNode page = readJson(mockMvc.perform(get(URL + "/page").headers(admin())
+        JsonNode page = readJson(mockMvc.perform(get(URL + "/page").with(admin())
                         .param("keyword", KEYWORD_PREFIX).param("size", "10"))
                 .andExpect(status().isOk()));
         assertThat(page.get("totalCount").asLong()).isEqualTo(7);
@@ -176,37 +176,37 @@ class AdminSellerManagementControllerIntegrationTest extends AbstractIntegration
         assertThat(findRow(page, pid(S_TERMINATED)).get("productCount").asLong()).isZero();
 
         // status 필터
-        JsonNode suspended = readJson(mockMvc.perform(get(URL + "/page").headers(admin())
+        JsonNode suspended = readJson(mockMvc.perform(get(URL + "/page").with(admin())
                         .param("keyword", KEYWORD_PREFIX).param("status", "SUSPENDED"))
                 .andExpect(status().isOk()));
         assertThat(suspended.get("totalCount").asLong()).isEqualTo(1);
         assertThat(suspended.get("items").get(0).get("sellerPublicId").asText()).isEqualTo(pid(S_SUSPENDED));
-        JsonNode pending = readJson(mockMvc.perform(get(URL + "/page").headers(admin())
+        JsonNode pending = readJson(mockMvc.perform(get(URL + "/page").with(admin())
                 .param("keyword", KEYWORD_PREFIX).param("status", "PENDING")).andExpect(status().isOk()));
         assertThat(pending.get("totalCount").asLong()).isEqualTo(2);
 
         // 사업자번호·이메일 검색(부분일치)
-        assertThat(readJson(mockMvc.perform(get(URL + "/page").headers(admin()).param("keyword", "890-89-0000"))
+        assertThat(readJson(mockMvc.perform(get(URL + "/page").with(admin()).param("keyword", "890-89-0000"))
                 .andExpect(status().isOk())).get("totalCount").asLong()).isEqualTo(2);
-        assertThat(readJson(mockMvc.perform(get(URL + "/page").headers(admin()).param("keyword", "seller-a@89d"))
+        assertThat(readJson(mockMvc.perform(get(URL + "/page").with(admin()).param("keyword", "seller-a@89d"))
                 .andExpect(status().isOk())).get("totalCount").asLong()).isEqualTo(1);
         // LIKE 이스케이프: '_'는 리터럴(전체 매칭 아님)
-        assertThat(readJson(mockMvc.perform(get(URL + "/page").headers(admin()).param("keyword", "89D셀러_"))
+        assertThat(readJson(mockMvc.perform(get(URL + "/page").with(admin()).param("keyword", "89D셀러_"))
                 .andExpect(status().isOk())).get("totalCount").asLong()).isZero();
 
         // 페이징
-        JsonNode second = readJson(mockMvc.perform(get(URL + "/page").headers(admin())
+        JsonNode second = readJson(mockMvc.perform(get(URL + "/page").with(admin())
                 .param("keyword", KEYWORD_PREFIX).param("page", "1").param("size", "5")).andExpect(status().isOk()));
         assertThat(second.get("items")).hasSize(2);
         assertThat(second.get("hasNext").asBoolean()).isFalse();
 
         // 오값
-        mockMvc.perform(get(URL + "/page").headers(admin()).param("status", "FOO")).andExpect(status().isBadRequest());
-        mockMvc.perform(get(URL + "/page").headers(admin()).param("keyword", "x".repeat(51)))
+        mockMvc.perform(get(URL + "/page").with(admin()).param("status", "FOO")).andExpect(status().isBadRequest());
+        mockMvc.perform(get(URL + "/page").with(admin()).param("keyword", "x".repeat(51)))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
 
         // 기존 드롭다운 전량 목록은 형태(배열·3필드) 유지
-        mockMvc.perform(get(URL).headers(admin())).andExpect(status().isOk())
+        mockMvc.perform(get(URL).with(admin())).andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].sellerPublicId").exists())
                 .andExpect(jsonPath("$[0].companyName").exists())
                 .andExpect(jsonPath("$[0].status").exists());
@@ -217,7 +217,7 @@ class AdminSellerManagementControllerIntegrationTest extends AbstractIntegration
     @Test
     @DisplayName("T3 상세: 기본정보(마스킹 없음)·구성원 2(탈퇴 표기)·주 계좌 끝4자리·상품 상태별·주문 수/구매확정 매출·정산 상태별·종료 가능·경고 / 미존재 404")
     void detail_aggregates() throws Exception {
-        JsonNode detail = readJson(mockMvc.perform(get(URL + "/" + pid(S_ACTIVE)).headers(admin()))
+        JsonNode detail = readJson(mockMvc.perform(get(URL + "/" + pid(S_ACTIVE)).with(admin()))
                 .andExpect(status().isOk()));
         assertThat(detail.get("companyName").asText()).isEqualTo("89D셀러A");
         assertThat(detail.get("businessNo").asText()).isEqualTo(BUSINESS_NO_A);
@@ -261,12 +261,12 @@ class AdminSellerManagementControllerIntegrationTest extends AbstractIntegration
         assertThat(detail.get("warnings").get("saleProductCount").asLong()).isEqualTo(2);
 
         // 계좌·구성원·정산 없는 셀러: null·빈 배열·경고 true
-        JsonNode busy = readJson(mockMvc.perform(get(URL + "/" + pid(S_BUSY)).headers(admin())).andExpect(status().isOk()));
+        JsonNode busy = readJson(mockMvc.perform(get(URL + "/" + pid(S_BUSY)).with(admin())).andExpect(status().isOk()));
         assertThat(busy.has("primaryBankAccount")).isFalse(); // NON_NULL 직렬화 → 키 생략
         assertThat(busy.get("members")).isEmpty();
         assertThat(busy.get("warnings").get("primaryBankAccountMissing").asBoolean()).isTrue();
 
-        mockMvc.perform(get(URL + "/slr_NOPE00000000000000000000000").headers(admin()))
+        mockMvc.perform(get(URL + "/slr_NOPE00000000000000000000000").with(admin()))
                 .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("SELLER_NOT_FOUND"));
     }
 
@@ -275,13 +275,13 @@ class AdminSellerManagementControllerIntegrationTest extends AbstractIntegration
     @Test
     @DisplayName("T4 종료 가드: 상세 미리보기 blocks(G1 2·G2 2[만료 ORDERED 제외]·G3 1) = PATCH TERMINATED 409 blocks · 상태·감사·아카이브 불변")
     void terminate_blockedByGuards_previewMatchesActual() throws Exception {
-        JsonNode detail = readJson(mockMvc.perform(get(URL + "/" + pid(S_BUSY)).headers(admin())).andExpect(status().isOk()));
+        JsonNode detail = readJson(mockMvc.perform(get(URL + "/" + pid(S_BUSY)).with(admin())).andExpect(status().isOk()));
         assertThat(detail.get("terminable").asBoolean()).isFalse();
         Map<String, Long> preview = blocks(detail.get("terminationBlocks"));
         assertThat(preview).containsExactlyInAnyOrderEntriesOf(Map.of(
                 "UNPAID_SETTLEMENT", 2L, "ORDER_ITEM_IN_PROGRESS", 2L, "CLAIM_ACTIVE", 1L));
 
-        JsonNode conflict = readJson(mockMvc.perform(patch(URL + "/" + pid(S_BUSY) + "/status").headers(admin())
+        JsonNode conflict = readJson(mockMvc.perform(patch(URL + "/" + pid(S_BUSY) + "/status").with(admin())
                         .contentType(MediaType.APPLICATION_JSON).content(statusBody("TERMINATED", "정책 위반 종료")))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("SELLER_ACTIVITY_IN_PROGRESS")));
@@ -291,7 +291,7 @@ class AdminSellerManagementControllerIntegrationTest extends AbstractIntegration
         assertThat(withdrawnCount(S_BUSY)).isZero();
         assertThat(auditRows(S_BUSY)).isEmpty();
         // 정지(SUSPENDED)는 가드 대상이 아니다
-        mockMvc.perform(patch(URL + "/" + pid(S_BUSY) + "/status").headers(admin())
+        mockMvc.perform(patch(URL + "/" + pid(S_BUSY) + "/status").with(admin())
                         .contentType(MediaType.APPLICATION_JSON).content(statusBody("SUSPENDED", "정지")))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("SUSPENDED"));
     }
@@ -311,7 +311,7 @@ class AdminSellerManagementControllerIntegrationTest extends AbstractIntegration
         updateWithoutFk("UPDATE `order` SET status = 'CANCELLED' WHERE id = ?", ORDER_CONFIRMED);
         assertBlocked(S_ACTIVE, Map.of("ORDER_ITEM_IN_PROGRESS", 1L));
         updateWithoutFk("UPDATE order_item SET item_status = 'CANCELLED' WHERE id = ?", ITEM_A_CONFIRMED);
-        assertThat(readJson(mockMvc.perform(get(URL + "/" + pid(S_ACTIVE)).headers(admin())).andExpect(status().isOk()))
+        assertThat(readJson(mockMvc.perform(get(URL + "/" + pid(S_ACTIVE)).with(admin())).andExpect(status().isOk()))
                 .get("terminable").asBoolean()).isTrue();
         updateWithoutFk("UPDATE order_item SET item_status = 'CONFIRMED' WHERE id = ?", ITEM_A_CONFIRMED);
         updateWithoutFk("UPDATE `order` SET status = 'CONFIRMED' WHERE id = ?", ORDER_CONFIRMED);
@@ -326,7 +326,7 @@ class AdminSellerManagementControllerIntegrationTest extends AbstractIntegration
         });
         assertBlocked(S_ACTIVE, Map.of("CLAIM_ACTIVE", 1L));
         updateWithoutFk("UPDATE claim SET status = 'REJECTED' WHERE id = ?", 8943L);
-        assertThat(readJson(mockMvc.perform(get(URL + "/" + pid(S_ACTIVE)).headers(admin())).andExpect(status().isOk()))
+        assertThat(readJson(mockMvc.perform(get(URL + "/" + pid(S_ACTIVE)).with(admin())).andExpect(status().isOk()))
                 .get("terminable").asBoolean()).isTrue();
     }
 
@@ -400,7 +400,7 @@ class AdminSellerManagementControllerIntegrationTest extends AbstractIntegration
         assertWithdrawnArchive(S_SUSPENDED, "강제 종료");
 
         // ACTIVE → TERMINATED (8906: 만료 주문 ORDERED 품목·PAID 정산·COMPLETED 클레임 → 가드 통과가 핵심)
-        JsonNode cleanDetail = readJson(mockMvc.perform(get(URL + "/" + pid(S_CLEAN)).headers(admin())).andExpect(status().isOk()));
+        JsonNode cleanDetail = readJson(mockMvc.perform(get(URL + "/" + pid(S_CLEAN)).with(admin())).andExpect(status().isOk()));
         assertThat(cleanDetail.get("terminable").asBoolean()).isTrue();
         assertThat(cleanDetail.get("orderCount").asLong()).isEqualTo(1); // 만료 주문은 주문 수에서도 제외
         readJson(transition(S_CLEAN, "TERMINATED", "탈퇴 요청").andExpect(status().isOk())
@@ -447,7 +447,7 @@ class AdminSellerManagementControllerIntegrationTest extends AbstractIntegration
         transition(S_ACTIVE, "SUSPENDED", "   ").andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
         transition(S_ACTIVE, "SUSPENDED", "x".repeat(201)).andExpect(status().isBadRequest());
-        mockMvc.perform(patch(URL + "/slr_NOPE00000000000000000000000/status").headers(admin())
+        mockMvc.perform(patch(URL + "/slr_NOPE00000000000000000000000/status").with(admin())
                         .contentType(MediaType.APPLICATION_JSON).content(statusBody("SUSPENDED", "사유")))
                 .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("SELLER_NOT_FOUND"));
 
@@ -484,7 +484,7 @@ class AdminSellerManagementControllerIntegrationTest extends AbstractIntegration
     @Test
     @DisplayName("T8 PUT 수정: 연락처만 204·감사(사유 없음) / 율 변경 사유 없음 400 / 율+사유 204·감사 reason / 무변경 감사 skip / 사업자번호 중복 409 / 율 범위 400 / 404")
     void update_fields() throws Exception {
-        mockMvc.perform(put(URL + "/" + pid(S_ACTIVE)).headers(admin()).contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(put(URL + "/" + pid(S_ACTIVE)).with(admin()).contentType(MediaType.APPLICATION_JSON)
                         .content(updateBody("89D셀러A", BUSINESS_NO_A, 1200, null, "02-2000-0000", null)))
                 .andExpect(status().isNoContent());
         assertThat(jdbc.queryForObject("SELECT contact_phone FROM seller WHERE id = ?", String.class, S_ACTIVE))
@@ -493,12 +493,12 @@ class AdminSellerManagementControllerIntegrationTest extends AbstractIntegration
         assertThat(audits).hasSize(1);
         assertThat((String) audits.get(0).get("diff_json")).contains("contactPhone").doesNotContain("reason");
 
-        mockMvc.perform(put(URL + "/" + pid(S_ACTIVE)).headers(admin()).contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(put(URL + "/" + pid(S_ACTIVE)).with(admin()).contentType(MediaType.APPLICATION_JSON)
                         .content(updateBody("89D셀러A", BUSINESS_NO_A, 1500, null, "02-2000-0000", null)))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
         assertThat(jdbc.queryForObject("SELECT commission_rate FROM seller WHERE id = ?", Integer.class, S_ACTIVE)).isEqualTo(1200);
 
-        mockMvc.perform(put(URL + "/" + pid(S_ACTIVE)).headers(admin()).contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(put(URL + "/" + pid(S_ACTIVE)).with(admin()).contentType(MediaType.APPLICATION_JSON)
                         .content(updateBody("89D셀러A", BUSINESS_NO_A, 1500, "협의율 변경", "02-2000-0000", null)))
                 .andExpect(status().isNoContent());
         assertThat(jdbc.queryForObject("SELECT commission_rate FROM seller WHERE id = ?", Integer.class, S_ACTIVE)).isEqualTo(1500);
@@ -507,32 +507,32 @@ class AdminSellerManagementControllerIntegrationTest extends AbstractIntegration
         assertThat((String) audits.get(1).get("diff_json")).contains("commissionRate").contains("1500").contains("협의율 변경");
 
         // null 환원(미설정) + 사유
-        mockMvc.perform(put(URL + "/" + pid(S_ACTIVE)).headers(admin()).contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(put(URL + "/" + pid(S_ACTIVE)).with(admin()).contentType(MediaType.APPLICATION_JSON)
                         .content(updateBody("89D셀러A", BUSINESS_NO_A, null, "개별 계약 해지", "02-2000-0000", null)))
                 .andExpect(status().isNoContent());
         assertThat(jdbc.queryForObject("SELECT commission_rate FROM seller WHERE id = ?", Integer.class, S_ACTIVE)).isNull();
 
         // 무변경 → 204·감사 skip(3건 유지)
-        mockMvc.perform(put(URL + "/" + pid(S_ACTIVE)).headers(admin()).contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(put(URL + "/" + pid(S_ACTIVE)).with(admin()).contentType(MediaType.APPLICATION_JSON)
                         .content(updateBody("89D셀러A", BUSINESS_NO_A, null, null, "02-2000-0000", null)))
                 .andExpect(status().isNoContent());
         assertThat(auditRows(S_ACTIVE)).hasSize(3);
 
         // 사업자번호 중복(8905) 409·불변
-        mockMvc.perform(put(URL + "/" + pid(S_ACTIVE)).headers(admin()).contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(put(URL + "/" + pid(S_ACTIVE)).with(admin()).contentType(MediaType.APPLICATION_JSON)
                         .content(updateBody("89D셀러A", BUSINESS_NO_BUSY, null, null, "02-2000-0000", null)))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("SELLER_BUSINESS_NO_DUPLICATE"));
         assertThat(jdbc.queryForObject("SELECT business_no FROM seller WHERE id = ?", String.class, S_ACTIVE)).isEqualTo(BUSINESS_NO_A);
 
         // 범위·형식 400
-        mockMvc.perform(put(URL + "/" + pid(S_ACTIVE)).headers(admin()).contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(put(URL + "/" + pid(S_ACTIVE)).with(admin()).contentType(MediaType.APPLICATION_JSON)
                         .content(updateBody("89D셀러A", BUSINESS_NO_A, 10_001, "사유", "02-2000-0000", null)))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
                 .andExpect(jsonPath("$.fieldErrors[0].field").value("commissionRate"));
-        mockMvc.perform(put(URL + "/" + pid(S_ACTIVE)).headers(admin()).contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(put(URL + "/" + pid(S_ACTIVE)).with(admin()).contentType(MediaType.APPLICATION_JSON)
                         .content(updateBody("89D셀러A", BUSINESS_NO_A, null, null, null, "not-an-email")))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
-        mockMvc.perform(put(URL + "/slr_NOPE00000000000000000000000").headers(admin()).contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(put(URL + "/slr_NOPE00000000000000000000000").with(admin()).contentType(MediaType.APPLICATION_JSON)
                         .content(updateBody("x", null, null, null, null, null)))
                 .andExpect(status().isNotFound());
     }
@@ -543,31 +543,31 @@ class AdminSellerManagementControllerIntegrationTest extends AbstractIntegration
     @DisplayName("T9 관리자 상품 등록: SUSPENDED·PENDING·TERMINATED 셀러 → 422 SELLER_INVALID_STATE·product 미생성 / ACTIVE 201")
     void adminProductCreate_nonActiveSeller_returns422() throws Exception {
         for (long sellerId : new long[] {S_SUSPENDED, S_PENDING, S_TERMINATED}) {
-            mockMvc.perform(post("/api/v1/admin/products").headers(admin()).contentType(MediaType.APPLICATION_JSON)
+            mockMvc.perform(post("/api/v1/admin/products").with(admin()).contentType(MediaType.APPLICATION_JSON)
                             .content(productCreateBody(pid(sellerId), "89D등록차단상품")))
                     .andExpect(status().isUnprocessableEntity())
                     .andExpect(jsonPath("$.code").value("SELLER_INVALID_STATE"));
         }
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM product WHERE name = '89D등록차단상품'", Integer.class)).isZero();
 
-        mockMvc.perform(post("/api/v1/admin/products").headers(admin()).contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(post("/api/v1/admin/products").with(admin()).contentType(MediaType.APPLICATION_JSON)
                         .content(productCreateBody(pid(S_ACTIVE), "89D등록허용상품")))
                 .andExpect(status().isCreated());
     }
 
     // ==================== helpers ====================
 
-    private HttpHeaders admin() {
+    private RequestPostProcessor admin() {
         return authHeaders.admin(ADMIN_ID);
     }
 
     private ResultActions transition(long sellerId, String status, String reason) throws Exception {
-        return mockMvc.perform(patch(URL + "/" + pid(sellerId) + "/status").headers(admin())
+        return mockMvc.perform(patch(URL + "/" + pid(sellerId) + "/status").with(admin())
                 .contentType(MediaType.APPLICATION_JSON).content(statusBody(status, reason)));
     }
 
     private void assertBlocked(long sellerId, Map<String, Long> expected) throws Exception {
-        JsonNode detail = readJson(mockMvc.perform(get(URL + "/" + pid(sellerId)).headers(admin())).andExpect(status().isOk()));
+        JsonNode detail = readJson(mockMvc.perform(get(URL + "/" + pid(sellerId)).with(admin())).andExpect(status().isOk()));
         assertThat(detail.get("terminable").asBoolean()).isFalse();
         assertThat(blocks(detail.get("terminationBlocks"))).isEqualTo(expected);
         JsonNode conflict = readJson(transition(sellerId, "TERMINATED", "종료").andExpect(status().isConflict()));

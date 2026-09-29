@@ -216,7 +216,7 @@ AFTER_COMMIT 핸들러의 "item_status == <종결값>이면 skip" 1차 가드가
 
 ---
 
-## LT-06. permitAll 경로도 무효 Bearer 토큰 동봉 시 401 [ACTIVE]
+## LT-06. permitAll 경로도 무효 Bearer 토큰 동봉 시 401 [RESOLVED]
 
 **발견 트랙**: FE-65 정찰 (/api/v1/products 공개 GET 401 규명·Claude Code HTTP 실측)
 **원본 결정**: docs/frontend/recon-report-65.md (로컬)
@@ -236,6 +236,9 @@ FE API 클라이언트가 공개 카탈로그 GET에 Authorization 헤더를 부
 
 ### 관련
 - recon-report-65 (로컬)·SecurityConfig(GET /api/v1/products/** permitAll)·JwtAuthenticationFilter(ETF 뒤 배치)
+
+### 해소 (2026-09-29 · D-235 PR3 K1)
+인증 수단이 역할 HttpOnly 쿠키만 남아 JwtAuthenticationFilter가 Authorization 헤더를 읽지 않는다. 무효 Bearer가 실려도 permitAll 경로는 200이다(무효·만료 역할 쿠키도 익명으로 두고 요청을 끊지 않는다).
 
 ---
 
@@ -643,7 +646,7 @@ D-197로 셀러 claim 연결 마감·관리자 RETURN 마감을 422로 막아 �
 ### 원인
 운영 gateway nginx 서버블록에 2026-09-18 추가된 `location ^~ /api/webhooks { return 404; }`(무인증 PG 웹훅 경로 외부 차단). 로컬 `~/gateway/nginx/nginx.conf`에는 이 블록이 없어 dev=prod가 깨진 상태였고, 브라우저가 PG용 무인증 경로를 직접 부르던 FE 구조가 차단 규칙과 충돌했다. 앱 매핑·context-path·FE URL 생성은 로컬·운영 동일(정찰 §1~4 배제).
 ### 처치
-D-198: 브라우저는 인가된 `POST /api/v1/payments/mock-callback`(BUYER Bearer·본인 주문)만 부른다. gateway 404 규칙은 유지(실 PG 전환 Track 94에서 서명·IP 화이트리스트와 함께 해제). `/api/webhooks/**` 아래에 브라우저가 부를 endpoint를 다시 두지 말 것 — 운영에서만 404가 난다. 운영 gateway 규칙 변경은 `docs/infra/05-ssl-domain.md` 스냅샷에 즉시 반영해 로컬·운영 차이를 문서로 남긴다.
+D-198: 브라우저는 인가된 `POST /api/v1/payments/mock-callback`(BUYER 역할 쿠키·본인 주문)만 부른다. gateway 404 규칙은 유지(실 PG 전환 Track 94에서 서명·IP 화이트리스트와 함께 해제). `/api/webhooks/**` 아래에 브라우저가 부를 endpoint를 다시 두지 말 것 — 운영에서만 404가 난다. 운영 gateway 규칙 변경은 `docs/infra/05-ssl-domain.md` 스냅샷에 즉시 반영해 로컬·운영 차이를 문서로 남긴다.
 ### 관련
 - D-198 배경·§1-A 3 · docs/track-93/recon-report-webhook.md §D · `MockPaymentCallbackIntegrationTest` · `e2e/mock-payment.spec.ts`(webhook 0회 단언)
 - 보강(2026-09-21): 원인 항목의 로컬 conf 경로 `~/gateway/nginx/nginx.conf`는 오기 — 로컬 gateway conf는 홈 경로가 아니라 projects 폴더 하위 `gateway/nginx/nginx.conf`다(`docker inspect gateway_nginx` Mounts 실측·docs/infra/05-ssl-domain.md §gateway_nginx server block과 일치). Track 93 STEP 768에서 같은 규칙을 로컬에도 삽입해 dev=prod 복원.

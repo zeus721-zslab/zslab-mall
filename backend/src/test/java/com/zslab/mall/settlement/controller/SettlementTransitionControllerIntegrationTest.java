@@ -23,7 +23,7 @@ import com.zslab.mall.support.AbstractIntegrationTest;
  * ({@code AdminSettlementControllerIntegrationTest} 패턴 1:1).
  *
  * <p><b>커버</b>: T1 confirm 200(PENDING→CONFIRMED)·T2 pay 200(CONFIRMED→PAID·paid_at)·T3 confirm 422(PAID 불가역)·
- * T4 pay 422(PENDING 직접 지급)·T5 404(미존재)·T6 403(비ADMIN).
+ * T4 pay 422(PENDING 직접 지급)·T5 404(미존재)·T6 401(비ADMIN).
  *
  * <p><b>트랜잭션</b>: 실 커밋으로 전이를 구동하므로 클래스 {@code @Transactional} 없음. 시드/정리는 {@link TransactionTemplate}
  * + {@code FOREIGN_KEY_CHECKS=0}(try-finally). 전이 대상은 id 조회이므로 시각 세션TZ 트랩과 무관하다.
@@ -69,7 +69,7 @@ class SettlementTransitionControllerIntegrationTest extends AbstractIntegrationT
     void confirm_returns200() throws Exception {
         long id = seedSettlement(SELLER_PENDING, "PENDING");
 
-        mockMvc.perform(post(BASE + id + "/confirm").headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(post(BASE + id + "/confirm").with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.settlementId").value(id))
                 .andExpect(jsonPath("$.status").value("CONFIRMED"))
@@ -81,7 +81,7 @@ class SettlementTransitionControllerIntegrationTest extends AbstractIntegrationT
     void pay_returns200() throws Exception {
         long id = seedSettlement(SELLER_CONFIRMED, "CONFIRMED");
 
-        mockMvc.perform(post(BASE + id + "/pay").headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(post(BASE + id + "/pay").with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.settlementId").value(id))
                 .andExpect(jsonPath("$.status").value("PAID"))
@@ -93,7 +93,7 @@ class SettlementTransitionControllerIntegrationTest extends AbstractIntegrationT
     void confirm_onPaid_returns422() throws Exception {
         long id = seedSettlement(SELLER_PAID, "PAID");
 
-        mockMvc.perform(post(BASE + id + "/confirm").headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(post(BASE + id + "/confirm").with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("SETTLEMENT_INVALID_STATE"));
     }
@@ -103,7 +103,7 @@ class SettlementTransitionControllerIntegrationTest extends AbstractIntegrationT
     void pay_onPending_returns422() throws Exception {
         long id = seedSettlement(SELLER_PENDING2, "PENDING");
 
-        mockMvc.perform(post(BASE + id + "/pay").headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(post(BASE + id + "/pay").with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("SETTLEMENT_INVALID_STATE"));
     }
@@ -111,18 +111,18 @@ class SettlementTransitionControllerIntegrationTest extends AbstractIntegrationT
     @Test
     @DisplayName("T5 미존재 settlementId → 404 SETTLEMENT_NOT_FOUND")
     void transition_notFound_returns404() throws Exception {
-        mockMvc.perform(post(BASE + "9999999/confirm").headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(post(BASE + "9999999/confirm").with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("SETTLEMENT_NOT_FOUND"));
     }
 
     @Test
-    @DisplayName("T6 비ADMIN: BUYER 토큰 → 403")
-    void transition_nonAdmin_returns403() throws Exception {
+    @DisplayName("T6 비ADMIN: BUYER 토큰 → 401")
+    void transition_nonAdmin_returns401() throws Exception {
         long id = seedSettlement(SELLER_PAID2, "PAID");
 
-        mockMvc.perform(post(BASE + id + "/pay").headers(authHeaders.buyer(BUYER_ID)))
-                .andExpect(status().isForbidden());
+        mockMvc.perform(post(BASE + id + "/pay").with(authHeaders.buyer(BUYER_ID)))
+                .andExpect(status().isUnauthorized());
     }
 
     // ---------- seed·helpers ----------

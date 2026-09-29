@@ -28,7 +28,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * 셀러 배송 목록·송장 정정 REST 컨트롤러(Track 90-B-1). 기존 {@code SellerDeliveryController}(Track 92 제거·{@code /api/v1/claims/**} 교환품 출고)·
- * {@code SellerDeliveryCompletionController}({@code /api/v1/deliveries/**} 배송 완료)와 URL 축이 달라 별도 클래스로 둔다.
+ * {@code SellerDeliveryCompletionController}({@code /api/v1/seller/deliveries/{id}/mark-delivered} 배송 완료)와 역할이 달라 별도 클래스로 둔다.
  * URL prefix {@code /api/v1/seller/**}는 SecurityConfig가 hasRole(SELLER)로 강제하고, 셀러 식별·상태 가드는 {@link SellerActorResolver}가
  * 한다(D-190: GET은 SUSPENDED 통과·PATCH는 SUSPENDED 403).
  */

@@ -8,7 +8,7 @@ from __future__ import annotations
 import sys
 import time
 
-from common import ApiClient, WalkthroughError, fail, load_env, log, require_local_api_host
+from common import ApiClient, Credential, WalkthroughError, fail, load_env, log, require_local_api_host
 
 # 구매자 시나리오 2개(구매확정·반품 신청)는 주문 목록에서 '배송완료' 주문을 골라 서로 다른 주문 1건씩 쓴다.
 # 품목이 섞인 주문은 주문 상태가 배송완료로 보이지 않으므로 '전 품목 배송완료' 주문 수를 기준으로 삼는다.
@@ -41,7 +41,7 @@ def require_walkthrough_passwords(env: dict) -> None:
         raise WalkthroughError(".env에 " + ", ".join(missing) + " 값이 없습니다(.env.example 참조).")
 
 
-def delivered_orders(api: ApiClient, buyer_token: str) -> list:
+def delivered_orders(api: ApiClient, buyer_token: Credential) -> list:
     """주문 상태가 배송완료(DELIVERED)인 구매자 주문 publicId 목록."""
     orders = api.json("GET", "/api/v1/orders?page=0&size=50", buyer_token).get("items", [])
     return [order["orderId"] for order in orders if order.get("status", {}).get("code") == "DELIVERED"]
@@ -60,7 +60,7 @@ def pick_sellable_variant(api: ApiClient) -> tuple:
     raise WalkthroughError("주문 가능한 상품/옵션을 찾지 못했습니다(데모 시드 확인).")
 
 
-def create_paid_order(api: ApiClient, buyer_token: str, product_id: str, variant_id: str) -> tuple:
+def create_paid_order(api: ApiClient, buyer_token: Credential, product_id: str, variant_id: str) -> tuple:
     """주문(품목 1개) → mock 결제 승인. (주문 publicId, 첫 품목 publicId)를 돌려준다."""
     body = {"items": [{"productId": product_id, "variantId": variant_id, "quantity": 1}],
             "method": "CARD", "shippingAddress": SHIPPING_ADDRESS}
@@ -75,7 +75,7 @@ def create_paid_order(api: ApiClient, buyer_token: str, product_id: str, variant
     return order_public_id, detail["sellers"][0]["items"][0]["orderItemId"]
 
 
-def ship_item(api: ApiClient, admin_token: str, order_item_id: str) -> str:
+def ship_item(api: ApiClient, admin_token: Credential, order_item_id: str) -> str:
     """품목 송장 등록(PAID → SHIPPING). 만들어진 배송 publicId를 돌려준다."""
     # tracking_no는 유니크가 아니고(DLV-1·D-227 V39) 형식(영문·숫자·하이픈 8~20자)만 맞으면 된다. "WT" + 실행 시각(ms 13자리) = 15자.
     tracking_no = "WT" + str(int(time.time() * 1000))
@@ -84,7 +84,7 @@ def ship_item(api: ApiClient, admin_token: str, order_item_id: str) -> str:
     return shipped["deliveryPublicId"]
 
 
-def create_delivered_order(api: ApiClient, buyer_token: str, admin_token: str) -> str:
+def create_delivered_order(api: ApiClient, buyer_token: Credential, admin_token: Credential) -> str:
     """주문 → 결제 → 송장 등록 → 배송완료까지 진행해 배송완료 주문 1건을 만든다."""
     product_id, variant_id = pick_sellable_variant(api)
     order_public_id, order_item_id = create_paid_order(api, buyer_token, product_id, variant_id)
@@ -93,7 +93,7 @@ def create_delivered_order(api: ApiClient, buyer_token: str, admin_token: str) -
     return order_public_id
 
 
-def walkthrough_buyer_token(api: ApiClient, password: str) -> str:
+def walkthrough_buyer_token(api: ApiClient, password: str) -> Credential:
     """전용 구매자 계정 토큰. 없으면 가입시키고 이미 있으면(409) 그대로 로그인한다."""
     status, payload = api.request("POST", "/api/v1/users", body={
         "email": WALKTHROUGH_BUYER_EMAIL, "name": "워크스루구매자",
@@ -103,7 +103,7 @@ def walkthrough_buyer_token(api: ApiClient, password: str) -> str:
     return api.login(WALKTHROUGH_BUYER_EMAIL, password, "BUYER")
 
 
-def pick_seller_variant(api: ApiClient, seller_token: str) -> tuple:
+def pick_seller_variant(api: ApiClient, seller_token: Credential) -> tuple:
     """데모 셀러 상품 중 주문 가능한 (상품 publicId, variant publicId)."""
     listing = api.json("GET", "/api/v1/seller/products?page=0&size=50", seller_token).get("items", [])
     for summary in listing:
@@ -140,11 +140,11 @@ def pick_exchange_pair(api: ApiClient) -> tuple:
     raise WalkthroughError("같은 가격의 교환 옵션 2개를 가진 상품을 찾지 못했습니다.")
 
 
-def buyer_claims(api: ApiClient, buyer_token: str) -> list:
+def buyer_claims(api: ApiClient, buyer_token: Credential) -> list:
     return api.json("GET", "/api/v1/claims?page=0&size=50", buyer_token).get("items", [])
 
 
-def ensure_buyer_shipping_order(api: ApiClient, buyer_token: str, admin_token: str) -> int:
+def ensure_buyer_shipping_order(api: ApiClient, buyer_token: Credential, admin_token: Credential) -> int:
     """buyer-order-tracking용: 데모 구매자에게 배송중(SHIPPING) 주문이 없으면 1건 만든다."""
     orders = api.json("GET", "/api/v1/orders?page=0&size=50", buyer_token).get("items", [])
     if any(order.get("status", {}).get("code") == "SHIPPING" for order in orders):
@@ -155,7 +155,7 @@ def ensure_buyer_shipping_order(api: ApiClient, buyer_token: str, admin_token: s
     return 1
 
 
-def ensure_return_claim_awaiting_pickup(api: ApiClient, buyer_token: str, admin_token: str) -> int:
+def ensure_return_claim_awaiting_pickup(api: ApiClient, buyer_token: Credential, admin_token: Credential) -> int:
     """admin-claim-return-inspect용: 회수 송장 등록 단계(RETURN·APPROVED·회수 송장 없음) 클레임이 없으면 1건 만든다."""
     for claim in buyer_claims(api, buyer_token):
         if claim.get("claimType") == "RETURN" and claim.get("status") == "APPROVED":
@@ -172,7 +172,7 @@ def ensure_return_claim_awaiting_pickup(api: ApiClient, buyer_token: str, admin_
     return 1
 
 
-def ensure_exchange_claim_requested(api: ApiClient, buyer_token: str, admin_token: str) -> int:
+def ensure_exchange_claim_requested(api: ApiClient, buyer_token: Credential, admin_token: Credential) -> int:
     """admin-claim-exchange-full용: 교환 요청(EXCHANGE·REQUESTED) 클레임이 없으면 1건 만든다."""
     if any(claim.get("claimType") == "EXCHANGE" and claim.get("status") == "REQUESTED"
            for claim in buyer_claims(api, buyer_token)):
@@ -188,7 +188,7 @@ def ensure_exchange_claim_requested(api: ApiClient, buyer_token: str, admin_toke
     return 1
 
 
-def newest_paid_order_cancelable(api: ApiClient, buyer_token: str) -> int:
+def newest_paid_order_cancelable(api: ApiClient, buyer_token: Credential) -> int:
     """가장 최근 결제완료 주문에 취소 신청 가능한 품목(PAID)이 있으면 1, 아니면 0.
 
     주문 상태가 결제완료여도 품목이 교환요청 등으로 넘어가 있으면 화면에 '취소 요청' 버튼이 없다(claimableTypes).
@@ -203,7 +203,7 @@ def newest_paid_order_cancelable(api: ApiClient, buyer_token: str) -> int:
     return 1 if "PAID" in statuses else 0
 
 
-def ensure_buyer_cancelable_order(api: ApiClient, buyer_token: str) -> int:
+def ensure_buyer_cancelable_order(api: ApiClient, buyer_token: Credential) -> int:
     """buyer-order-cancel-request용: 가장 최근 결제완료 주문이 취소 불가면 취소 가능한 주문을 1건 더 만든다(새 주문이 최신이 된다).
 
     데모 구매자 주문을 만드는 보충 중 마지막에 호출해야 한다.
@@ -215,12 +215,12 @@ def ensure_buyer_cancelable_order(api: ApiClient, buyer_token: str) -> int:
     return 1
 
 
-def count_cancel_requested(api: ApiClient, admin_token: str) -> int:
+def count_cancel_requested(api: ApiClient, admin_token: Credential) -> int:
     page = api.json("GET", "/api/v1/admin/claims?type=CANCEL&status=REQUESTED&page=0&size=50", admin_token)
     return len(page.get("items", []))
 
 
-def ensure_cancel_requested_claims(api: ApiClient, admin_token: str, other_buyer_token: str) -> int:
+def ensure_cancel_requested_claims(api: ApiClient, admin_token: Credential, other_buyer_token: Credential) -> int:
     """admin-claim-cancel-approve·admin-claim-cancel-reject용: 취소 요청 클레임을 2건까지 채운다."""
     created = 0
     while count_cancel_requested(api, admin_token) < REQUIRED_CANCEL_REQUESTED_CLAIMS:
@@ -235,11 +235,11 @@ def ensure_cancel_requested_claims(api: ApiClient, admin_token: str, other_buyer
     return created
 
 
-def seller_delivery_ready(api: ApiClient, seller_token: str) -> int:
+def seller_delivery_ready(api: ApiClient, seller_token: Credential) -> int:
     return api.json("GET", "/api/v1/seller/dashboard", seller_token)["pending"]["deliveryReady"]
 
 
-def ensure_seller_paid_items(api: ApiClient, seller_token: str, other_buyer_token: str) -> int:
+def ensure_seller_paid_items(api: ApiClient, seller_token: Credential, other_buyer_token: Credential) -> int:
     """seller-order-ship·seller-order-ship-multi용: 데모 셀러 배송 대기 품목을 4건까지 채운다."""
     created = 0
     while seller_delivery_ready(api, seller_token) < REQUIRED_SELLER_PAID_ITEMS:
@@ -251,7 +251,7 @@ def ensure_seller_paid_items(api: ApiClient, seller_token: str, other_buyer_toke
     return created
 
 
-def ensure_pending_seller(api: ApiClient, admin_token: str, owner_password: str) -> int:
+def ensure_pending_seller(api: ApiClient, admin_token: Credential, owner_password: str) -> int:
     """승인 대기(PENDING) 셀러가 없으면 1건 만든다. 소유 회원도 함께 가입시킨다.
 
     가입 시각(stamp)은 이메일 등 고유값에만 쓰고 비밀번호에는 넣지 않는다(시각에서 추측 가능한 규칙 금지).
@@ -271,24 +271,24 @@ def ensure_pending_seller(api: ApiClient, admin_token: str, owner_password: str)
     return 1
 
 
-def buyer_status_count(api: ApiClient, buyer_token: str, status_code: str) -> int:
+def buyer_status_count(api: ApiClient, buyer_token: Credential, status_code: str) -> int:
     orders = api.json("GET", "/api/v1/orders?page=0&size=50", buyer_token).get("items", [])
     return len([o for o in orders if o.get("status", {}).get("code") == status_code])
 
 
-def buyer_claim_count(api: ApiClient, buyer_token: str, claim_type: str, status: str) -> int:
+def buyer_claim_count(api: ApiClient, buyer_token: Credential, claim_type: str, status: str) -> int:
     return len([c for c in buyer_claims(api, buyer_token)
                 if c.get("claimType") == claim_type and c.get("status") == status])
 
 
-def shipping_delivery_count(api: ApiClient, admin_token: str) -> int:
+def shipping_delivery_count(api: ApiClient, admin_token: Credential) -> int:
     """배송중(SHIPPING) 배송 수. 자동 배송완료 스케줄러(Track 99 D-210)가 켜져 있으면 준비 직후에도 줄어들 수 있다 —
     워크스루 실행 전 DELIVERY_AUTO_COMPLETE_ENABLED=false를 확인한다(README '자동 배송완료 끄기')."""
     page = api.json("GET", "/api/v1/admin/deliveries?status=SHIPPING&page=0&size=100", admin_token)
     return page.get("totalCount", len(page.get("items", [])))
 
 
-def report(api: ApiClient, admin_token: str, seller_token: str, buyer_token: str, delivered_orders_count: int) -> bool:
+def report(api: ApiClient, admin_token: Credential, seller_token: Credential, buyer_token: Credential, delivered_orders_count: int) -> bool:
     """시나리오별 데이터 충족 여부를 출력하고 전부 충족인지 반환한다."""
     admin_pending = api.json("GET", "/api/v1/admin/dashboard", admin_token)["pending"]
     seller_pending = api.json("GET", "/api/v1/seller/dashboard", seller_token)["pending"]

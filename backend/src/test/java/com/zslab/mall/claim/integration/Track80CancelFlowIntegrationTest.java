@@ -149,22 +149,22 @@ class Track80CancelFlowIntegrationTest extends AbstractIntegrationTest {
         String claimPid = requestCancel(ITEM_A1_PID);
         assertThat(itemStatus(ORDER_A_ITEM_1)).isEqualTo("CANCEL_REQUESTED");
 
-        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/reject").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/reject").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"memo\":\"사유 없음\"}"))
                 .andExpect(status().isBadRequest());
-        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/reject").headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/reject").with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isBadRequest());
         assertThat(claimStatus(claimPid)).isEqualTo("REQUESTED");
 
         // RETURN 클레임(배송완료 품목 B·Track 81-A 요청 조건: DELIVERED+발송 배송완료 7일 이내)에 ALREADY_SHIPPED → 도메인 검증 400·상태 불변
         markDeliveredOutbound(ORDER_B_ITEM, 9891L, "T80DLVB1");
         String returnPid = requestClaim(ITEM_B_PID, ClaimType.RETURN, ClaimReasonCode.PRODUCT_DEFECT);
-        mockMvc.perform(post(CLAIMS_URL + "/" + returnPid + "/reject").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(CLAIMS_URL + "/" + returnPid + "/reject").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(ALREADY_SHIPPED_BODY))
                 .andExpect(status().isBadRequest());
         assertThat(claimStatus(returnPid)).isEqualTo("REQUESTED");
 
-        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/reject").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/reject").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(REJECT_BODY))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("REJECTED"))
@@ -204,7 +204,7 @@ class Track80CancelFlowIntegrationTest extends AbstractIntegrationTest {
         String claimPid = requestCancel(ITEM_A1_PID);
 
         mockMvc.perform(post("/api/v1/admin/orders/items/" + ITEM_A1_PID + "/prepare-shipment")
-                        .headers(authHeaders.admin(ADMIN_ID))
+                        .with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(SHIPMENT_BODY))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("CLAIM_STATE_INVALID"));
@@ -213,14 +213,14 @@ class Track80CancelFlowIntegrationTest extends AbstractIntegrationTest {
         assertThat(itemStatus(ORDER_A_ITEM_1)).isEqualTo("CANCEL_REQUESTED");
         assertThat(deliveryCount(ORDER_A_ITEM_1)).isZero();
 
-        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/reject").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/reject").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(ALREADY_SHIPPED_BODY))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.rejectReasonCode").value("ALREADY_SHIPPED"));
         assertThat(itemStatus(ORDER_A_ITEM_1)).isEqualTo("PAID");
 
         mockMvc.perform(post("/api/v1/admin/orders/items/" + ITEM_A1_PID + "/prepare-shipment")
-                        .headers(authHeaders.admin(ADMIN_ID))
+                        .with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(SHIPMENT_BODY))
                 .andExpect(status().isOk());
         assertThat(itemStatus(ORDER_A_ITEM_1)).isEqualTo("SHIPPING");
@@ -237,7 +237,7 @@ class Track80CancelFlowIntegrationTest extends AbstractIntegrationTest {
         verify(smsSender).send(eq(BUYER_PHONE), contains("주문 " + ORDER_A_NO + " 트랙80상품A 취소 요청이 접수되었습니다."));
 
         // 승인 응답 재조회 시점엔 AFTER_COMMIT 체인(자동 콜백 → 완료)이 요청 스레드에서 이미 수렴해 COMPLETED다
-        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/approve").headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/approve").with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("COMPLETED"));
 
@@ -249,15 +249,15 @@ class Track80CancelFlowIntegrationTest extends AbstractIntegrationTest {
         verify(smsSender).send(eq(BUYER_PHONE), contains("취소 및 환불이 완료되었습니다."));
 
         // 사용자 단건 응답에 환불 상태·거부 사유(null) 노출
-        mockMvc.perform(get("/api/v1/claims/" + claimPid).headers(authHeaders.buyer(USER_ID)))
+        mockMvc.perform(get("/api/v1/claims/" + claimPid).with(authHeaders.buyer(USER_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.refundStatus").value("COMPLETED"))
                 .andExpect(jsonPath("$.rejectReasonCode").doesNotExist());
-        mockMvc.perform(get("/api/v1/claims").headers(authHeaders.buyer(USER_ID)))
+        mockMvc.perform(get("/api/v1/claims").with(authHeaders.buyer(USER_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].refundStatus").value("COMPLETED"));
         // 관리자 주문 상세 클레임 행에도 동일 필드
-        mockMvc.perform(get("/api/v1/admin/orders/" + ORDER_A_PID).headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(get("/api/v1/admin/orders/" + ORDER_A_PID).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].claims[0].refundStatus").value("COMPLETED"));
     }
@@ -281,7 +281,7 @@ class Track80CancelFlowIntegrationTest extends AbstractIntegrationTest {
         String claimPid = requestCancel(ITEM_A1_PID);
         doThrow(new IllegalStateException("SMS 게이트웨이 장애")).when(smsSender).send(any(), any());
 
-        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/reject").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(CLAIMS_URL + "/" + claimPid + "/reject").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(REJECT_BODY))
                 .andExpect(status().isOk());
 
@@ -295,20 +295,20 @@ class Track80CancelFlowIntegrationTest extends AbstractIntegrationTest {
     // ===== T6: 관리자 목록(C7) =====
 
     @Test
-    @DisplayName("T6 목록: 유형·상태·기간·검색(주문번호/구매자/상품명)·pendingCount·정렬·쿼리 예산·BUYER 403")
+    @DisplayName("T6 목록: 유형·상태·기간·검색(주문번호/구매자/상품명)·pendingCount·정렬·쿼리 예산·BUYER 401")
     void list_filtersPendingCountQueryBudgetAndAuth() throws Exception {
         String cancelPid = requestCancel(ITEM_A1_PID);
         markDeliveredOutbound(ORDER_B_ITEM, 9892L, "T80DLVB2");
         String returnPid = requestClaim(ITEM_B_PID, ClaimType.RETURN, ClaimReasonCode.PRODUCT_DEFECT);
-        mockMvc.perform(post(CLAIMS_URL + "/" + returnPid + "/reject").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(CLAIMS_URL + "/" + returnPid + "/reject").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(REJECT_BODY))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.buyer(USER_ID)))
-                .andExpect(status().isForbidden());
+        mockMvc.perform(get(CLAIMS_URL).with(authHeaders.buyer(USER_ID)))
+                .andExpect(status().isUnauthorized());
 
         // 전체: 2건·최신 우선(RETURN이 뒤에 요청됨)·pendingCount=1(CANCEL REQUESTED만)
-        mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(get(CLAIMS_URL).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(2))
                 .andExpect(jsonPath("$.pendingCount").value(1))
@@ -331,54 +331,54 @@ class Track80CancelFlowIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.items[1].availableActions[1]").value("REJECT"));
 
         // 유형 탭: RETURN → 1건·pendingCount 0(RETURN REQUESTED 없음)
-        mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.admin(ADMIN_ID)).param("type", "RETURN"))
+        mockMvc.perform(get(CLAIMS_URL).with(authHeaders.admin(ADMIN_ID)).param("type", "RETURN"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.pendingCount").value(0))
                 .andExpect(jsonPath("$.items[0].claimId").value(returnPid));
         // 상태·정렬
-        mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.admin(ADMIN_ID)).param("status", "REQUESTED").param("sort", "OLDEST"))
+        mockMvc.perform(get(CLAIMS_URL).with(authHeaders.admin(ADMIN_ID)).param("status", "REQUESTED").param("sort", "OLDEST"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].claimId").value(cancelPid));
         // 검색: 주문번호 정확·구매자 이름·상품명 부분·무관 키워드 0건
-        mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.admin(ADMIN_ID)).param("keyword", ORDER_B_NO))
+        mockMvc.perform(get(CLAIMS_URL).with(authHeaders.admin(ADMIN_ID)).param("keyword", ORDER_B_NO))
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].claimId").value(returnPid));
-        mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.admin(ADMIN_ID)).param("keyword", "트랙80구매"))
+        mockMvc.perform(get(CLAIMS_URL).with(authHeaders.admin(ADMIN_ID)).param("keyword", "트랙80구매"))
                 .andExpect(jsonPath("$.totalCount").value(2));
-        mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.admin(ADMIN_ID)).param("keyword", "상품B"))
+        mockMvc.perform(get(CLAIMS_URL).with(authHeaders.admin(ADMIN_ID)).param("keyword", "상품B"))
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].claimId").value(returnPid));
         // Track 84: buyerPublicId 정확 필터(order.buyer_id 경로) — 타 회원 클레임 제외·pendingCount는 전역 유지 / 미존재 publicId 빈 페이지
         seedOtherBuyerClaim();
-        mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.admin(ADMIN_ID)).param("keyword", "트랙80"))
+        mockMvc.perform(get(CLAIMS_URL).with(authHeaders.admin(ADMIN_ID)).param("keyword", "트랙80"))
                 .andExpect(jsonPath("$.totalCount").value(3));
-        mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.admin(ADMIN_ID)).param("buyerPublicId", pid("usr_", "T80USR")))
+        mockMvc.perform(get(CLAIMS_URL).with(authHeaders.admin(ADMIN_ID)).param("buyerPublicId", pid("usr_", "T80USR")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(2))
                 .andExpect(jsonPath("$.items[*].buyerName", everyItem(is(BUYER_NAME))))
                 .andExpect(jsonPath("$.pendingCount").value(1));
-        mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.admin(ADMIN_ID)).param("buyerPublicId", pid("usr_", "T80NONE")))
+        mockMvc.perform(get(CLAIMS_URL).with(authHeaders.admin(ADMIN_ID)).param("buyerPublicId", pid("usr_", "T80NONE")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(0))
                 .andExpect(jsonPath("$.items.length()").value(0))
                 .andExpect(jsonPath("$.pendingCount").value(1));
         // 비BUYER(관리자 계정) publicId → BUYER 해소 실패 → 빈 페이지(외부 검토 반영)
-        mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.admin(ADMIN_ID)).param("buyerPublicId", pid("usr_", "T80ADM")))
+        mockMvc.perform(get(CLAIMS_URL).with(authHeaders.admin(ADMIN_ID)).param("buyerPublicId", pid("usr_", "T80ADM")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(0))
                 .andExpect(jsonPath("$.items.length()").value(0));
-        mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.admin(ADMIN_ID)).param("keyword", "없는키워드"))
+        mockMvc.perform(get(CLAIMS_URL).with(authHeaders.admin(ADMIN_ID)).param("keyword", "없는키워드"))
                 .andExpect(jsonPath("$.totalCount").value(0))
                 .andExpect(jsonPath("$.pendingCount").value(1));
         // 기간: 미래 from → 0건 / from>to 400 / 잘못된 enum 400
-        mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.admin(ADMIN_ID)).param("from", "2999-01-01T00:00:00"))
+        mockMvc.perform(get(CLAIMS_URL).with(authHeaders.admin(ADMIN_ID)).param("from", "2999-01-01T00:00:00"))
                 .andExpect(jsonPath("$.totalCount").value(0));
-        mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(get(CLAIMS_URL).with(authHeaders.admin(ADMIN_ID))
                         .param("from", "2026-02-01T00:00:00").param("to", "2026-01-01T00:00:00"))
                 .andExpect(status().isBadRequest());
-        mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.admin(ADMIN_ID)).param("type", "REFUND"))
+        mockMvc.perform(get(CLAIMS_URL).with(authHeaders.admin(ADMIN_ID)).param("type", "REFUND"))
                 .andExpect(status().isBadRequest());
 
         // 쿼리 수 고정(N+1 회피): 1행 페이지와 2행 페이지(주문·구매자·품목이 다른 클레임 2건)의 실행 쿼리 수가 같고 예산 이하
@@ -393,19 +393,19 @@ class Track80CancelFlowIntegrationTest extends AbstractIntegrationTest {
     void list_refundStatusFilter_andInitiateRefundAction() throws Exception {
         // A1: 승인 → 자동 환불 COMPLETED(T3와 동일 경로) / A2: 요청 후 승인 상태만 DB로 세팅(자동 환불 유실 시뮬레이션)
         String completedPid = requestCancel(ITEM_A1_PID);
-        mockMvc.perform(post(CLAIMS_URL + "/" + completedPid + "/approve").headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(post(CLAIMS_URL + "/" + completedPid + "/approve").with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk());
         String lostPid = requestCancel(ITEM_A2_PID);
         jdbc.update("UPDATE claim SET status = 'APPROVED', processed_at = NOW(6) WHERE public_id = ?", lostPid);
 
-        mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.admin(ADMIN_ID)).param("refundStatus", "COMPLETED"))
+        mockMvc.perform(get(CLAIMS_URL).with(authHeaders.admin(ADMIN_ID)).param("refundStatus", "COMPLETED"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].claimId").value(completedPid))
                 .andExpect(jsonPath("$.items[0].availableActions").isEmpty());
-        mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.admin(ADMIN_ID)).param("refundStatus", "FAILED"))
+        mockMvc.perform(get(CLAIMS_URL).with(authHeaders.admin(ADMIN_ID)).param("refundStatus", "FAILED"))
                 .andExpect(jsonPath("$.totalCount").value(0));
-        mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.admin(ADMIN_ID)).param("status", "APPROVED"))
+        mockMvc.perform(get(CLAIMS_URL).with(authHeaders.admin(ADMIN_ID)).param("status", "APPROVED"))
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].claimId").value(lostPid))
                 .andExpect(jsonPath("$.items[0].refundStatus").doesNotExist())
@@ -414,19 +414,19 @@ class Track80CancelFlowIntegrationTest extends AbstractIntegrationTest {
         // FAILED 환불이 최신이면 여전히 개시 가능·FAILED 필터에 잡힘
         long lostClaimId = jdbc.queryForObject("SELECT id FROM claim WHERE public_id = ?", Long.class, lostPid);
         seedRefundRow(9811L, lostClaimId, "FAILED");
-        mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.admin(ADMIN_ID)).param("refundStatus", "FAILED"))
+        mockMvc.perform(get(CLAIMS_URL).with(authHeaders.admin(ADMIN_ID)).param("refundStatus", "FAILED"))
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].claimId").value(lostPid))
                 .andExpect(jsonPath("$.items[0].availableActions[0]").value("INITIATE_REFUND"));
         // 그 뒤 PENDING 환불이 생기면(최신) 개시 불가·PENDING 필터로 이동·FAILED 필터에서 제외
         seedRefundRow(9812L, lostClaimId, "PENDING");
-        mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.admin(ADMIN_ID)).param("refundStatus", "PENDING"))
+        mockMvc.perform(get(CLAIMS_URL).with(authHeaders.admin(ADMIN_ID)).param("refundStatus", "PENDING"))
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].claimId").value(lostPid))
                 .andExpect(jsonPath("$.items[0].availableActions").isEmpty());
-        mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.admin(ADMIN_ID)).param("refundStatus", "FAILED"))
+        mockMvc.perform(get(CLAIMS_URL).with(authHeaders.admin(ADMIN_ID)).param("refundStatus", "FAILED"))
                 .andExpect(jsonPath("$.totalCount").value(0));
-        mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.admin(ADMIN_ID)).param("refundStatus", "DONE"))
+        mockMvc.perform(get(CLAIMS_URL).with(authHeaders.admin(ADMIN_ID)).param("refundStatus", "DONE"))
                 .andExpect(status().isBadRequest());
     }
 
@@ -446,7 +446,7 @@ class Track80CancelFlowIntegrationTest extends AbstractIntegrationTest {
         Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
         statistics.setStatisticsEnabled(true);
         statistics.clear();
-        mockMvc.perform(get(CLAIMS_URL).headers(authHeaders.admin(ADMIN_ID)).param("size", String.valueOf(size)))
+        mockMvc.perform(get(CLAIMS_URL).with(authHeaders.admin(ADMIN_ID)).param("size", String.valueOf(size)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items.length()").value(size));
         long count = statistics.getPrepareStatementCount();

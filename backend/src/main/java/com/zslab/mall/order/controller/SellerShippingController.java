@@ -18,7 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * Seller 액터용 일반 주문 배송 개시 REST 컨트롤러(Track 23). 판매자 수동 출고(prepare-shipment) 1 endpoint를 노출한다.
  *
- * <p>base path는 {@code /api/v1/order-items}로 신설한다({@code /api/v1/claims} 재사용 금지·EXCHANGE 의미 오염 회피).
+ * <p>경로는 {@code /api/v1/seller/order-items}다({@code /api/v1/claims} 재사용 금지·EXCHANGE 의미 오염 회피·D-235 셀러 접두사).
  * OrderItem은 전역 유일한 public_id(oit_)로 식별한다. Seller 식별은 {@code X-Seller-Id} 헤더 stub이다(D-93·{@link SellerActorResolver}).
  *
  * <p>HTTP 책임만 가진다(D-40 β′): 액터 해소·publicId→id 해소·Service 위임·응답 조립만 수행하며 권한/상태 판단은
@@ -42,12 +42,11 @@ public class SellerShippingController {
     }
 
     /**
-     * Seller 일반 주문 배송 개시. 헤더 누락 401·OrderItem 미존재/타 seller 404·비-PAID 상태 422·성공 시 200 + 발송된 Delivery 응답.
+     * Seller 일반 주문 배송 개시. 셀러 인증 없음 401·OrderItem 미존재/타 seller 404·비-PAID 상태 422·성공 시 200 + 발송된 Delivery 응답.
      * 소유권·상태 검증은 {@link OrderShippingService#prepareShipment} 책임이다.
      */
-    // 셀러 접두사 별칭(D-235): 역할 쿠키 Path(/api/v1/seller)에 실리도록 같은 핸들러를 한 경로 더 노출한다. 옛 경로는 PR3에서 제거.
-    @PostMapping({"/api/v1/order-items/{orderItemPublicId}/prepare-shipment",
-            "/api/v1/seller/order-items/{orderItemPublicId}/prepare-shipment"})
+    // 셀러 접두사 경로(D-235): 셀러 역할 쿠키 Path(/api/v1/seller)에 실리는 경로만 둔다.
+    @PostMapping("/api/v1/seller/order-items/{orderItemPublicId}/prepare-shipment")
     public PrepareShipmentResponse prepareShipment(
             @PathVariable String orderItemPublicId,
             @Valid @RequestBody PrepareShipmentRequest request,

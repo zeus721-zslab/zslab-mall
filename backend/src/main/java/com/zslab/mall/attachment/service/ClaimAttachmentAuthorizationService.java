@@ -6,9 +6,6 @@ import com.zslab.mall.claim.entity.Claim;
 import com.zslab.mall.claim.repository.ClaimRepository;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
 import com.zslab.mall.common.security.ActorRole;
-import com.zslab.mall.common.security.AuthenticatedUserStateVerifier;
-import com.zslab.mall.common.security.TokenPayload;
-import com.zslab.mall.common.security.TokenProvider;
 import com.zslab.mall.file.service.ImageFormat;
 import com.zslab.mall.file.service.ImageUploadService;
 import com.zslab.mall.order.repository.OrderItemRepository;
@@ -19,13 +16,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.security.core.AuthenticationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 클레임 첨부(반품 사진) 열람 인가(Track 82 D-176). 서빙 요청 키로 attachment 행을 찾고, 후보 토큰마다 독립 판정해 하나라도 허가되면 열람을
- * 허용한다. 거부·미존재·무효 토큰은 전부 "열람 불가"(호출부 404)로 수렴시켜 파일 존재 여부를 드러내지 않는다.
+ * 클레임 첨부(반품 사진) 열람 인가(Track 82 D-176·D-235 PR3 K5). 서빙 요청 키로 attachment 행을 찾고, 필터가 인증한 주체와 경로의 역할로
+ * 판정한다. 거부·미존재는 전부 "열람 불가"(호출부 404)로 수렴시켜 파일 존재 여부를 드러내지 않는다.
  *
  * <p><b>열람 규칙</b>
  * <ul>
@@ -50,46 +46,21 @@ public class ClaimAttachmentAuthorizationService {
     private final ClaimRepository claimRepository;
     private final OrderItemRepository orderItemRepository;
     private final SellerUserRepository sellerUserRepository;
-    private final TokenProvider tokenProvider;
-    private final AuthenticatedUserStateVerifier userStateVerifier;
 
     public ClaimAttachmentAuthorizationService(AttachmentRepository attachmentRepository, ClaimRepository claimRepository,
-            OrderItemRepository orderItemRepository, SellerUserRepository sellerUserRepository,
-            TokenProvider tokenProvider, AuthenticatedUserStateVerifier userStateVerifier) {
+            OrderItemRepository orderItemRepository, SellerUserRepository sellerUserRepository) {
         this.attachmentRepository = attachmentRepository;
         this.claimRepository = claimRepository;
         this.orderItemRepository = orderItemRepository;
         this.sellerUserRepository = sellerUserRepository;
-        this.tokenProvider = tokenProvider;
-        this.userStateVerifier = userStateVerifier;
     }
 
     /**
-     * @param relativeKey 서빙 요청 키(예 {@code claims/2026/09/{ULID}.jpg} 또는 {@code ..._thumb.jpg})
-     * @param candidateTokens Bearer → admin_token → auth_token → __Secure-buyer_at 순서의 원시 토큰(검증 전)
-     * @return 후보 중 하나라도 열람 권한이 있으면 true. 첨부 행이 정확히 1건이 아니거나 대상이 CLAIM이 아니면 false
-     */
-    public boolean canView(String relativeKey, List<String> candidateTokens) {
-        Optional<ViewTarget> target = findViewTarget(relativeKey);
-        if (target.isEmpty()) {
-            return false;
-        }
-        for (String token : candidateTokens) {
-            Optional<TokenPayload> payload = verifyQuietly(token);
-            if (payload.isPresent() && isAllowed(target.get().attachment(), target.get().claim(),
-                    payload.get().actorId(), payload.get().role())) {
-                return true;
-            }
-        }
-        log.debug("[ClaimAttachmentAuthz] 열람 거부 key={} attachmentId={} candidates={}", relativeKey,
-                target.get().attachment().getPublicId(), candidateTokens.size());
-        return false;
-    }
-
-    /**
-     * 역할 별칭 경로(D-235·/api/v1/admin|seller/files/claims/**)용. 필터가 이미 인증한 주체 1명으로 같은 열람 규칙을 판정한다(후보 순회 없음).
+     * 필터가 인증한 주체 1명으로 열람 규칙을 판정한다(D-235 PR3 K5 — 구매자 경로·셀러·관리자 별칭 공통).
      *
-     * @param role 별칭 경로가 고정한 역할(접두사 hasRole로 인증 주체의 역할과 같음이 보장된다)
+     * @param relativeKey 서빙 요청 키(예 {@code claims/2026/09/{ULID}.jpg} 또는 {@code ..._thumb.jpg})
+     * @param role 경로가 고정한 역할(경로 hasRole로 인증 주체의 역할과 같음이 보장된다)
+     * @return 열람 권한이 있으면 true. 첨부 행이 정확히 1건이 아니거나 대상이 CLAIM이 아니면 false
      */
     public boolean canView(String relativeKey, Long actorId, ActorRole role) {
         Optional<ViewTarget> target = findViewTarget(relativeKey);
@@ -163,18 +134,6 @@ public class ClaimAttachmentAuthorizationService {
         return orderItemRepository.findById(claim.getOrderItemId())
                 .map(item -> item.getSellerId().equals(sellerId))
                 .orElse(false);
-    }
-
-    /** 무효·만료 토큰은 해당 후보만 버린다(요청 실패 금지·토큰 값은 로그에 남기지 않는다). */
-    private Optional<TokenPayload> verifyQuietly(String token) {
-        try {
-            TokenPayload payload = tokenProvider.verify(token);
-            userStateVerifier.verify(payload); // 필터를 건너뛰는 경로라 삭제·탈퇴·갱신 이전 토큰 거부를 여기서도 적용(Track 84)
-            return Optional.of(payload);
-        } catch (AuthenticationException exception) {
-            log.debug("[ClaimAttachmentAuthz] 후보 토큰 무효: {}", exception.getMessage());
-            return Optional.empty();
-        }
     }
 
     /**

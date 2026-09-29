@@ -334,7 +334,7 @@ class ClaimExchangeIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("T7 refundAmount: 승인 body refundAmount → 400 MALFORMED_REQUEST(관리자 API)·서비스 직접 호출도 400·클레임 REQUESTED 유지")
     void refundAmount_rejected400() throws Exception {
         Long claimId = requestExchange(VAR_EXCHANGE_PID).getId();
-        mockMvc.perform(post("/api/v1/admin/claims/" + claimPid(claimId) + "/approve").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post("/api/v1/admin/claims/" + claimPid(claimId) + "/approve").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"refundAmount\": 1000}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
@@ -507,16 +507,16 @@ class ClaimExchangeIntegrationTest extends AbstractIntegrationTest {
         deliveryService.markDelivered(deliveryService.registerExchangeShipment(claimId, DeliveryCarrier.CJ, "CJ-EXC-OUT12").getId());
         assertThat(jdbc.queryForObject("SELECT option_label FROM order_item WHERE id = ?", String.class, ORDER_ITEM_ID)).isEqualTo("색상: 파랑");
 
-        mockMvc.perform(get("/api/v1/admin/claims").headers(authHeaders.admin(ADMIN_ID)).param("type", "EXCHANGE"))
+        mockMvc.perform(get("/api/v1/admin/claims").with(authHeaders.admin(ADMIN_ID)).param("type", "EXCHANGE"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].originalOptionLabel").value("색상: 빨강"))
                 .andExpect(jsonPath("$.items[0].exchangeOptionLabel").value("색상: 파랑"));
-        mockMvc.perform(get("/api/v1/admin/orders/" + pid("ord_", "EXCORD")).headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(get("/api/v1/admin/orders/" + pid("ord_", "EXCORD")).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].optionLabel").value("색상: 파랑"))
                 .andExpect(jsonPath("$.items[0].claims[0].originalOptionLabel").value("색상: 빨강"))
                 .andExpect(jsonPath("$.items[0].claims[0].exchangeOptionLabel").value("색상: 파랑"));
-        mockMvc.perform(get("/api/v1/claims/" + claimPid(claimId)).headers(authHeaders.buyer(USER_ID)))
+        mockMvc.perform(get("/api/v1/claims/" + claimPid(claimId)).with(authHeaders.buyer(USER_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.originalOptionLabel").value("색상: 빨강"))
                 .andExpect(jsonPath("$.exchangeOptionLabel").value("색상: 파랑"));
@@ -538,12 +538,12 @@ class ClaimExchangeIntegrationTest extends AbstractIntegrationTest {
         Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
         statistics.setStatisticsEnabled(true);
         statistics.clear();
-        mockMvc.perform(get("/api/v1/admin/orders/" + pid("ord_", "EXCORD")).headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(get("/api/v1/admin/orders/" + pid("ord_", "EXCORD")).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].claims.length()").value(2));
         long detailQueries = statistics.getPrepareStatementCount();
         statistics.clear();
-        mockMvc.perform(get("/api/v1/admin/claims").headers(authHeaders.admin(ADMIN_ID)).param("type", "EXCHANGE"))
+        mockMvc.perform(get("/api/v1/admin/claims").with(authHeaders.admin(ADMIN_ID)).param("type", "EXCHANGE"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items.length()").value(2));
         long listQueries = statistics.getPrepareStatementCount();
@@ -578,7 +578,7 @@ class ClaimExchangeIntegrationTest extends AbstractIntegrationTest {
         Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
         statistics.setStatisticsEnabled(true);
         statistics.clear();
-        mockMvc.perform(get("/api/v1/orders/" + pid("ord_", "EXCORD")).headers(authHeaders.buyer(USER_ID)))
+        mockMvc.perform(get("/api/v1/orders/" + pid("ord_", "EXCORD")).with(authHeaders.buyer(USER_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.sellers[0].items.length()").value(4))
                 .andExpect(jsonPath("$.sellers[0].items[?(@.orderItemId == '" + ORDER_ITEM_PID + "')].exchangeCompleted").value(true))

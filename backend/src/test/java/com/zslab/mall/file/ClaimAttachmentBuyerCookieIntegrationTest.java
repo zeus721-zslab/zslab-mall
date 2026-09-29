@@ -31,9 +31,9 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * 옛 클레임 첨부 경로 GET /api/v1/files/claims/** 의 구매자 역할 쿠키 후보(D-235 개정 2) 통합 테스트. 옛 후보(Bearer·admin_token·auth_token)
- * 규칙은 {@link ClaimAttachmentServingIntegrationTest}가 검증하고, 여기서는 FE가 옛 쿠키 없이 구매자 역할 쿠키만 보낼 때 같은 열람 규칙
- * (연결 첨부 = claim.requested_by)이 적용되는지만 본다. claim 시드는 FK 때문에 FOREIGN_KEY_CHECKS=0 TX에서 하고 try-finally로 =1 복원한다.
+ * 구매자 클레임 첨부 경로 GET /api/v1/files/claims/** 의 구매자 역할 쿠키 인증(D-235 개정 2·PR3 K5) 통합 테스트. 역할별 열람 규칙 전체는
+ * {@link ClaimAttachmentServingIntegrationTest}가 검증하고, 여기서는 FE가 구매자 역할 쿠키만 보낼 때 같은 열람 규칙(연결 첨부 = claim.requested_by)이
+ * 적용되는지만 본다. claim 시드는 FK 때문에 FOREIGN_KEY_CHECKS=0 TX에서 하고 try-finally로 =1 복원한다.
  */
 @AutoConfigureMockMvc
 class ClaimAttachmentBuyerCookieIntegrationTest extends AbstractIntegrationTest {
@@ -96,8 +96,8 @@ class ClaimAttachmentBuyerCookieIntegrationTest extends AbstractIntegrationTest 
     }
 
     @Test
-    @DisplayName("후보 독립 평가: 무효 Bearer·무효 auth_token 뒤에 요청자 구매자 역할 쿠키 → 200(맨 뒤 후보도 평가된다)")
-    void buyerRoleCookie_evaluatedAfterInvalidCandidates() throws Exception {
+    @DisplayName("무효 Authorization 헤더·무효 auth_token 쿠키가 함께 와도 무시하고 요청자 구매자 역할 쿠키로 판정 → 200(D-235 PR3 K1·K6)")
+    void buyerRoleCookie_ignoresHeaderAndLegacyCookie() throws Exception {
         mockMvc.perform(get(URL).header("Authorization", "Bearer " + INVALID_TOKEN)
                         .cookie(new Cookie("auth_token", INVALID_TOKEN), buyerCookie(OWNER_ID)))
                 .andExpect(status().isOk());

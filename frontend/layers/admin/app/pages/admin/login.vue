@@ -2,7 +2,7 @@
 import { ADMIN_DEMO_STATUS_PATH, ADMIN_HOME_PATH } from '#layers/admin/app/lib/constants/auth'
 import { useAdminAuthStore } from '#layers/admin/app/stores/adminAuth'
 
-// 관리자 로그인(FE-22·D-1·FE-22c Vuetify 폼·FE-22d admin_token 세션). 공개 페이지라 admin 미들웨어 미부착·vuetify 미들웨어만(미인증 상태에서 Vuetify 로드 — 로그인 화면도 관리자 셸 일부).
+// 관리자 로그인(FE-22·D-1·FE-22c Vuetify 폼·관리자 역할 쿠키 세션). 공개 페이지라 admin 미들웨어 미부착·vuetify 미들웨어만(미인증 상태에서 Vuetify 로드 — 로그인 화면도 관리자 셸 일부).
 definePageMeta({ layout: 'admin-auth', middleware: ['vuetify'] })
 
 const adminAuth = useAdminAuthStore()
@@ -22,7 +22,7 @@ function resolveRedirect(): string {
   return ADMIN_HOME_PATH
 }
 
-// 이미 관리자 세션이 있으면 폼 노출 없이 복귀 경로로 보낸다. 사용자 세션(auth_token) 유무는 무관(세션 독립·FE-22d).
+// 이미 관리자 세션이 있으면 폼 노출 없이 복귀 경로로 보낸다. 구매자 세션 유무는 무관(세션 독립·FE-22d).
 if (adminAuth.isAuthenticated) {
   await navigateTo(resolveRedirect())
 }

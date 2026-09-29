@@ -9,12 +9,14 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.cookie;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import com.zslab.mall.common.security.AuthCookies;
 import com.zslab.mall.common.security.AuthHeaders;
 import com.zslab.mall.notification.adapter.SmsSender;
 import com.zslab.mall.support.AbstractIntegrationTest;
@@ -36,6 +38,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -52,6 +55,7 @@ class AdminSellerMemberControllerIntegrationTest extends AbstractIntegrationTest
 
     private static final String URL = "/api/v1/admin/sellers";
     private static final String SELLER_API = "/api/v1/seller/settlements"; // 셀러 전용 읽기 API(리졸버 통과 여부 관측용)
+    private static final String SELLER_LOGIN_URL = "/api/v1/seller/auth/login";
     private static final String BUYER_API = "/api/v1/users/me";
 
     private static final long ADMIN_ID = 8880L;
@@ -112,25 +116,25 @@ class AdminSellerMemberControllerIntegrationTest extends AbstractIntegrationTest
     // ==================== T1 권한 ====================
 
     @Test
-    @DisplayName("T1 권한: 추가·제거·역할 변경 — 무인증 401 / BUYER 403 / ADMIN 201·204")
+    @DisplayName("T1 권한: 추가·제거·역할 변경 — 무인증 401 / BUYER 401 / ADMIN 201·204")
     void authorization() throws Exception {
         mockMvc.perform(post(URL + "/" + pid(S_C) + "/members").contentType(MediaType.APPLICATION_JSON)
                 .content(addBody(upid(FREE), "SELLER_STAFF"))).andExpect(status().isUnauthorized());
-        mockMvc.perform(post(URL + "/" + pid(S_C) + "/members").headers(authHeaders.buyer(BUYER_ID))
+        mockMvc.perform(post(URL + "/" + pid(S_C) + "/members").with(authHeaders.buyer(BUYER_ID))
                 .contentType(MediaType.APPLICATION_JSON).content(addBody(upid(FREE), "SELLER_STAFF")))
-                .andExpect(status().isForbidden());
-        mockMvc.perform(delete(URL + "/" + pid(S_B) + "/members/" + upid(MGR_B)).headers(authHeaders.buyer(BUYER_ID))
-                .contentType(MediaType.APPLICATION_JSON).content(reasonBody("x"))).andExpect(status().isForbidden());
-        mockMvc.perform(patch(URL + "/" + pid(S_B) + "/members/" + upid(MGR_B) + "/role").headers(authHeaders.buyer(BUYER_ID))
-                .contentType(MediaType.APPLICATION_JSON).content(roleBody("SELLER_STAFF", "x"))).andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(delete(URL + "/" + pid(S_B) + "/members/" + upid(MGR_B)).with(authHeaders.buyer(BUYER_ID))
+                .contentType(MediaType.APPLICATION_JSON).content(reasonBody("x"))).andExpect(status().isUnauthorized());
+        mockMvc.perform(patch(URL + "/" + pid(S_B) + "/members/" + upid(MGR_B) + "/role").with(authHeaders.buyer(BUYER_ID))
+                .contentType(MediaType.APPLICATION_JSON).content(roleBody("SELLER_STAFF", "x"))).andExpect(status().isUnauthorized());
         assertThat(memberCount(S_C)).isZero();
 
-        mockMvc.perform(post(URL + "/" + pid(S_C) + "/members").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(URL + "/" + pid(S_C) + "/members").with(authHeaders.admin(ADMIN_ID))
                 .contentType(MediaType.APPLICATION_JSON).content(addBody(upid(FREE), "SELLER_STAFF")))
                 .andExpect(status().isCreated());
-        mockMvc.perform(patch(URL + "/" + pid(S_B) + "/members/" + upid(MGR_B) + "/role").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(patch(URL + "/" + pid(S_B) + "/members/" + upid(MGR_B) + "/role").with(authHeaders.admin(ADMIN_ID))
                 .contentType(MediaType.APPLICATION_JSON).content(roleBody("SELLER_STAFF", "직급 변경"))).andExpect(status().isNoContent());
-        mockMvc.perform(delete(URL + "/" + pid(S_B) + "/members/" + upid(MGR_B)).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(delete(URL + "/" + pid(S_B) + "/members/" + upid(MGR_B)).with(authHeaders.admin(ADMIN_ID))
                 .contentType(MediaType.APPLICATION_JSON).content(reasonBody("퇴사"))).andExpect(status().isNoContent());
     }
 
@@ -139,14 +143,14 @@ class AdminSellerMemberControllerIntegrationTest extends AbstractIntegrationTest
     @Test
     @DisplayName("T2 추가 즉시 접근: 기발급 SELLER 토큰이 추가 전 401 → 추가 후 같은 토큰으로 200(재로그인 불필요) · SELLER 로그인 200 · 응답·행·감사 CREATE")
     void add_grantsSellerAccessImmediately() throws Exception {
-        HttpHeaders preIssuedSellerToken = authHeaders.seller(FREE);
+        RequestPostProcessor preIssuedSellerToken = authHeaders.seller(FREE);
         // 추가 전: 토큰은 유효하나 seller_user 매핑이 없어 리졸버가 401(fail-closed)
-        mockMvc.perform(get(SELLER_API).headers(preIssuedSellerToken)).andExpect(status().isUnauthorized());
+        mockMvc.perform(get(SELLER_API).with(preIssuedSellerToken)).andExpect(status().isUnauthorized());
         // 로그인도 ROLE_MISMATCH 401
-        mockMvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
-                .content(loginBody(FREE_EMAIL, FREE_PASSWORD, "SELLER"))).andExpect(status().isUnauthorized());
+        mockMvc.perform(post(SELLER_LOGIN_URL).with(authHeaders.csrf()).contentType(MediaType.APPLICATION_JSON)
+                .content(loginBody(FREE_EMAIL, FREE_PASSWORD))).andExpect(status().isUnauthorized());
 
-        String body = mockMvc.perform(post(URL + "/" + pid(S_C) + "/members").headers(authHeaders.admin(ADMIN_ID))
+        String body = mockMvc.perform(post(URL + "/" + pid(S_C) + "/members").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(addBody(upid(FREE), "SELLER_MANAGER")))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.userPublicId").value(upid(FREE)))
@@ -162,14 +166,14 @@ class AdminSellerMemberControllerIntegrationTest extends AbstractIntegrationTest
         assertThat(body).doesNotContain("password_hash");
 
         // 추가 후: 같은 기발급 토큰으로 셀러 API 200(매 요청 DB 조회) · 로그인도 200
-        mockMvc.perform(get(SELLER_API).headers(preIssuedSellerToken)).andExpect(status().isOk());
-        mockMvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
-                        .content(loginBody(FREE_EMAIL, FREE_PASSWORD, "SELLER")))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.token").exists());
+        mockMvc.perform(get(SELLER_API).with(preIssuedSellerToken)).andExpect(status().isOk());
+        mockMvc.perform(post(SELLER_LOGIN_URL).with(authHeaders.csrf()).contentType(MediaType.APPLICATION_JSON)
+                        .content(loginBody(FREE_EMAIL, FREE_PASSWORD)))
+                .andExpect(status().isOk()).andExpect(cookie().exists(AuthCookies.SELLER_COOKIE));
 
         assertThat(memberRole(S_C, FREE)).isEqualTo("SELLER_MANAGER");
         // 셀러 상세 구성원 목록에 joinedAt 포함
-        mockMvc.perform(get(URL + "/" + pid(S_C)).headers(authHeaders.admin(ADMIN_ID)))
+        mockMvc.perform(get(URL + "/" + pid(S_C)).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.members.length()").value(1))
                 .andExpect(jsonPath("$.members[0].userPublicId").value(upid(FREE)))
@@ -185,20 +189,20 @@ class AdminSellerMemberControllerIntegrationTest extends AbstractIntegrationTest
     @Test
     @DisplayName("T3 제거 즉시 차단: 기발급 SELLER 토큰 200 → 제거(204·사유·감사 DELETE) → 같은 토큰 즉시 401 · BUYER 토큰은 계속 200 · credentials_changed_at 불변(NULL)")
     void remove_revokesSellerAccessImmediately_keepsBuyerSession() throws Exception {
-        HttpHeaders sellerToken = authHeaders.seller(MGR_B);
-        HttpHeaders buyerToken = authHeaders.buyer(MGR_B);
-        mockMvc.perform(get(SELLER_API).headers(sellerToken)).andExpect(status().isOk());
-        mockMvc.perform(get(BUYER_API).headers(buyerToken)).andExpect(status().isOk());
+        RequestPostProcessor sellerToken = authHeaders.seller(MGR_B);
+        RequestPostProcessor buyerToken = authHeaders.buyer(MGR_B);
+        mockMvc.perform(get(SELLER_API).with(sellerToken)).andExpect(status().isOk());
+        mockMvc.perform(get(BUYER_API).with(buyerToken)).andExpect(status().isOk());
 
-        mockMvc.perform(delete(URL + "/" + pid(S_B) + "/members/" + upid(MGR_B)).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(delete(URL + "/" + pid(S_B) + "/members/" + upid(MGR_B)).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(reasonBody("퇴사 처리")))
                 .andExpect(status().isNoContent());
 
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM seller_user WHERE user_id = ?", Integer.class, MGR_B)).isZero();
         // 토큰 무효화 장치 없이 리졸버의 매 요청 DB 조회만으로 즉시 401
-        mockMvc.perform(get(SELLER_API).headers(sellerToken)).andExpect(status().isUnauthorized());
+        mockMvc.perform(get(SELLER_API).with(sellerToken)).andExpect(status().isUnauthorized());
         // BUYER 겸직 세션은 유지 — credentials_changed_at을 건드리지 않았음을 DB로도 단언
-        mockMvc.perform(get(BUYER_API).headers(buyerToken)).andExpect(status().isOk());
+        mockMvc.perform(get(BUYER_API).with(buyerToken)).andExpect(status().isOk());
         assertThat(jdbc.queryForObject("SELECT credentials_changed_at FROM `user` WHERE id = ?", Timestamp.class, MGR_B)).isNull();
         assertThat(jdbc.queryForObject("SELECT withdrawn_at FROM `user` WHERE id = ?", Timestamp.class, MGR_B)).isNull();
 
@@ -208,21 +212,21 @@ class AdminSellerMemberControllerIntegrationTest extends AbstractIntegrationTest
         assertThat(audit.path("reason").path("after").asText()).isEqualTo("퇴사 처리");
 
         // R1 외부 검토 지적 1: 미존재 계정·타 셀러 소속 계정 모두 같은 404 SELLER_MEMBER_NOT_FOUND(계정 존재 여부 비노출·Track 53/84/89-F 정책)
-        mockMvc.perform(delete(URL + "/" + pid(S_B) + "/members/" + MISSING_USER_PID).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(delete(URL + "/" + pid(S_B) + "/members/" + MISSING_USER_PID).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(reasonBody("없는 계정")))
                 .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("SELLER_MEMBER_NOT_FOUND"));
-        mockMvc.perform(delete(URL + "/" + pid(S_B) + "/members/" + upid(OWNER_A)).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(delete(URL + "/" + pid(S_B) + "/members/" + upid(OWNER_A)).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(reasonBody("타 셀러 소속")))
                 .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("SELLER_MEMBER_NOT_FOUND"));
         assertThat(memberRole(S_A, OWNER_A)).isEqualTo("SELLER_OWNER");
         // 제거 후 재추가 가능(hard-delete·잔존 없음) · 사유 blank 400 · 구성원 아님 404
-        mockMvc.perform(delete(URL + "/" + pid(S_B) + "/members/" + upid(MGR_B)).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(delete(URL + "/" + pid(S_B) + "/members/" + upid(MGR_B)).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(reasonBody("다시")))
                 .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("SELLER_MEMBER_NOT_FOUND"));
-        mockMvc.perform(delete(URL + "/" + pid(S_B) + "/members/" + upid(OWNER_B)).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(delete(URL + "/" + pid(S_B) + "/members/" + upid(OWNER_B)).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(reasonBody("  ")))
                 .andExpect(status().isBadRequest());
-        mockMvc.perform(post(URL + "/" + pid(S_B) + "/members").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(URL + "/" + pid(S_B) + "/members").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(addBody(upid(MGR_B), "SELLER_STAFF")))
                 .andExpect(status().isCreated());
     }
@@ -233,22 +237,22 @@ class AdminSellerMemberControllerIntegrationTest extends AbstractIntegrationTest
     @DisplayName("T4 추가 거부: 타 셀러 소속 409 · 같은 셀러 재추가 409 · 탈퇴 회원 409 · 회원 미존재 404 · 셀러 미존재 404 · 역할 오값 400 — 전부 행 불변")
     void add_rejections() throws Exception {
         int before = totalMemberCount();
-        mockMvc.perform(post(URL + "/" + pid(S_A) + "/members").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(URL + "/" + pid(S_A) + "/members").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(addBody(upid(OWNER_B), "SELLER_STAFF")))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("SELLER_USER_ALREADY_EXISTS"));
-        mockMvc.perform(post(URL + "/" + pid(S_B) + "/members").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(URL + "/" + pid(S_B) + "/members").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(addBody(upid(OWNER_B), "SELLER_STAFF")))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("SELLER_USER_ALREADY_EXISTS"));
-        mockMvc.perform(post(URL + "/" + pid(S_C) + "/members").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(URL + "/" + pid(S_C) + "/members").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(addBody(upid(WDR_FREE), "SELLER_STAFF")))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("MEMBER_ALREADY_WITHDRAWN"));
-        mockMvc.perform(post(URL + "/" + pid(S_C) + "/members").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(URL + "/" + pid(S_C) + "/members").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(addBody(MISSING_USER_PID, "SELLER_STAFF")))
                 .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("USER_NOT_FOUND"));
-        mockMvc.perform(post(URL + "/" + pid("slr_", "89GMISS") + "/members").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(URL + "/" + pid("slr_", "89GMISS") + "/members").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(addBody(upid(FREE), "SELLER_STAFF")))
                 .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("SELLER_NOT_FOUND"));
-        mockMvc.perform(post(URL + "/" + pid(S_C) + "/members").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(URL + "/" + pid(S_C) + "/members").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(addBody(upid(FREE), "BUYER")))
                 .andExpect(status().isBadRequest());
         assertThat(totalMemberCount()).isEqualTo(before);
@@ -260,36 +264,36 @@ class AdminSellerMemberControllerIntegrationTest extends AbstractIntegrationTest
     @DisplayName("T5 마지막 활성 OWNER: 제거 409·강등 409(탈퇴 OWNER는 세지 않음) · 탈퇴 OWNER 행 제거 204(셀러 2 형태) · 다른 OWNER 추가 후 제거 204")
     void lastOwnerGuard() throws Exception {
         // S_A: 활성 OWNER_A + 탈퇴 WDR_A(OWNER) — WDR_A는 활성이 아니므로 OWNER_A가 마지막 활성 OWNER
-        mockMvc.perform(delete(URL + "/" + pid(S_A) + "/members/" + upid(OWNER_A)).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(delete(URL + "/" + pid(S_A) + "/members/" + upid(OWNER_A)).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(reasonBody("정리")))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("SELLER_LAST_OWNER"));
-        mockMvc.perform(patch(URL + "/" + pid(S_A) + "/members/" + upid(OWNER_A) + "/role").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(patch(URL + "/" + pid(S_A) + "/members/" + upid(OWNER_A) + "/role").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(roleBody("SELLER_STAFF", "강등")))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("SELLER_LAST_OWNER"));
         assertThat(memberRole(S_A, OWNER_A)).isEqualTo("SELLER_OWNER");
 
         // 탈퇴 OWNER 행 제거는 허용(기능하는 대표가 줄지 않음) — 셀러 2 정리 시나리오
-        mockMvc.perform(delete(URL + "/" + pid(S_A) + "/members/" + upid(WDR_A)).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(delete(URL + "/" + pid(S_A) + "/members/" + upid(WDR_A)).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(reasonBody("탈퇴 회원 정리")))
                 .andExpect(status().isNoContent());
-        mockMvc.perform(delete(URL + "/" + pid(S_W) + "/members/" + upid(WDR_W)).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(delete(URL + "/" + pid(S_W) + "/members/" + upid(WDR_W)).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(reasonBody("탈퇴 회원 정리")))
                 .andExpect(status().isNoContent());
         assertThat(memberCount(S_W)).isZero();
 
         // 다른 활성 OWNER를 추가하면 기존 OWNER 제거·강등 가능
-        mockMvc.perform(post(URL + "/" + pid(S_A) + "/members").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(URL + "/" + pid(S_A) + "/members").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(addBody(upid(FREE), "SELLER_OWNER")))
                 .andExpect(status().isCreated());
-        mockMvc.perform(patch(URL + "/" + pid(S_A) + "/members/" + upid(OWNER_A) + "/role").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(patch(URL + "/" + pid(S_A) + "/members/" + upid(OWNER_A) + "/role").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(roleBody("SELLER_MANAGER", "대표 교체")))
                 .andExpect(status().isNoContent());
         assertThat(memberRole(S_A, OWNER_A)).isEqualTo("SELLER_MANAGER");
         // 이제 FREE가 마지막 활성 OWNER → 제거 409, OWNER_A(MANAGER) 제거는 204
-        mockMvc.perform(delete(URL + "/" + pid(S_A) + "/members/" + upid(FREE)).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(delete(URL + "/" + pid(S_A) + "/members/" + upid(FREE)).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(reasonBody("x")))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("SELLER_LAST_OWNER"));
-        mockMvc.perform(delete(URL + "/" + pid(S_A) + "/members/" + upid(OWNER_A)).headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(delete(URL + "/" + pid(S_A) + "/members/" + upid(OWNER_A)).with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(reasonBody("정리")))
                 .andExpect(status().isNoContent());
     }
@@ -299,7 +303,7 @@ class AdminSellerMemberControllerIntegrationTest extends AbstractIntegrationTest
     @Test
     @DisplayName("T6 역할 변경: MANAGER→STAFF 204·행·감사 UPDATE(before/after/reason) · 같은 역할 422 · 사유 blank 400 · 오값 400 · 구성원 아님 404")
     void changeRole() throws Exception {
-        mockMvc.perform(patch(URL + "/" + pid(S_B) + "/members/" + upid(MGR_B) + "/role").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(patch(URL + "/" + pid(S_B) + "/members/" + upid(MGR_B) + "/role").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(roleBody("SELLER_STAFF", "직급 조정")))
                 .andExpect(status().isNoContent());
         assertThat(memberRole(S_B, MGR_B)).isEqualTo("SELLER_STAFF");
@@ -308,21 +312,21 @@ class AdminSellerMemberControllerIntegrationTest extends AbstractIntegrationTest
         assertThat(audit.path("roleCode").path("after").asText()).isEqualTo("SELLER_STAFF");
         assertThat(audit.path("reason").path("after").asText()).isEqualTo("직급 조정");
 
-        mockMvc.perform(patch(URL + "/" + pid(S_B) + "/members/" + upid(MGR_B) + "/role").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(patch(URL + "/" + pid(S_B) + "/members/" + upid(MGR_B) + "/role").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(roleBody("SELLER_STAFF", "재요청")))
                 .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.code").value("SELLER_MEMBER_INVALID_STATE"));
-        mockMvc.perform(patch(URL + "/" + pid(S_B) + "/members/" + upid(MGR_B) + "/role").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(patch(URL + "/" + pid(S_B) + "/members/" + upid(MGR_B) + "/role").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(roleBody("SELLER_MANAGER", " ")))
                 .andExpect(status().isBadRequest());
-        mockMvc.perform(patch(URL + "/" + pid(S_B) + "/members/" + upid(MGR_B) + "/role").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(patch(URL + "/" + pid(S_B) + "/members/" + upid(MGR_B) + "/role").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(roleBody("ADMIN_OPERATOR", "승격")))
                 .andExpect(status().isBadRequest());
         // OWNER_A는 S_A 소속 → S_B 경로에서는 404(타 셀러 소속 은닉)
-        mockMvc.perform(patch(URL + "/" + pid(S_B) + "/members/" + upid(OWNER_A) + "/role").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(patch(URL + "/" + pid(S_B) + "/members/" + upid(OWNER_A) + "/role").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(roleBody("SELLER_STAFF", "x")))
                 .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("SELLER_MEMBER_NOT_FOUND"));
         // R1 외부 검토 지적 1: 미존재 계정도 타 셀러 소속과 같은 404 SELLER_MEMBER_NOT_FOUND(USER_NOT_FOUND로 갈리지 않음)
-        mockMvc.perform(patch(URL + "/" + pid(S_B) + "/members/" + MISSING_USER_PID + "/role").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(patch(URL + "/" + pid(S_B) + "/members/" + MISSING_USER_PID + "/role").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(roleBody("SELLER_STAFF", "x")))
                 .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("SELLER_MEMBER_NOT_FOUND"));
         assertThat(memberRole(S_B, MGR_B)).isEqualTo("SELLER_STAFF");
@@ -334,7 +338,7 @@ class AdminSellerMemberControllerIntegrationTest extends AbstractIntegrationTest
     @Test
     @DisplayName("T7-1 미가입자(D-204): newUser → 201·응답 temporaryPassword 1회(no-store)·user 생성(BUYER role·buyer_profile·password_hash·변경 강제 1)·seller_user 연결·SMS 1회 = 응답 평문·로그 마스킹·감사 CREATE USER(displayedToActor) + CREATE SELLER(newUserCreated)·감사·서버 로그 평문 없음·응답 평문으로 SELLER 로그인 passwordChangeRequired true")
     void add_newUser_createsAccountAndMembership(CapturedOutput output) throws Exception {
-        String body = mockMvc.perform(post(URL + "/" + pid(S_C) + "/members").headers(authHeaders.admin(ADMIN_ID))
+        String body = mockMvc.perform(post(URL + "/" + pid(S_C) + "/members").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(addNewUserBody(NEW_EMAIL, "신규대표", NEW_PHONE, "SELLER_OWNER")))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.userPublicId").exists())
@@ -384,11 +388,11 @@ class AdminSellerMemberControllerIntegrationTest extends AbstractIntegrationTest
         assertThat(sellerAudit.toString()).doesNotContain(displayedPassword);
 
         // 응답 평문으로 SELLER 로그인 200·변경 강제 true(D-204 이전에는 평문을 몰라 검증 불가였음) · 매핑만으로 셀러 API도 열린다
-        mockMvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
-                        .content(loginBody(NEW_EMAIL, displayedPassword, "SELLER")))
+        mockMvc.perform(post(SELLER_LOGIN_URL).with(authHeaders.csrf()).contentType(MediaType.APPLICATION_JSON)
+                        .content(loginBody(NEW_EMAIL, displayedPassword)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.passwordChangeRequired").value(true));
-        mockMvc.perform(get(SELLER_API).headers(authHeaders.seller(userId))).andExpect(status().isOk());
+        mockMvc.perform(get(SELLER_API).with(authHeaders.seller(userId))).andExpect(status().isOk());
         // 요청 처리 중 서버 로그 전체에 평문 없음
         assertThat(output.getAll()).doesNotContain(displayedPassword);
     }
@@ -398,26 +402,26 @@ class AdminSellerMemberControllerIntegrationTest extends AbstractIntegrationTest
     void add_newUser_rejections() throws Exception {
         int usersBefore = userCount();
         int membersBefore = totalMemberCount();
-        mockMvc.perform(post(URL + "/" + pid(S_C) + "/members").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(URL + "/" + pid(S_C) + "/members").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(addNewUserBody(FREE_EMAIL, "중복", NEW_PHONE, "SELLER_STAFF")))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("EMAIL_ALREADY_EXISTS"));
-        mockMvc.perform(post(URL + "/" + pid(S_C) + "/members").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(URL + "/" + pid(S_C) + "/members").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(addNewUserBody("wdrfree@89g.test", "중복", NEW_PHONE, "SELLER_STAFF")))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("EMAIL_ALREADY_EXISTS"));
         // XOR: 둘 다 / 둘 다 없음
-        mockMvc.perform(post(URL + "/" + pid(S_C) + "/members").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(URL + "/" + pid(S_C) + "/members").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"userPublicId\":\"" + upid(FREE) + "\",\"newUser\":{\"email\":\"" + NEW_EMAIL
                                 + "\",\"name\":\"둘다\",\"phone\":\"" + NEW_PHONE + "\"},\"role\":\"SELLER_STAFF\"}"))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
-        mockMvc.perform(post(URL + "/" + pid(S_C) + "/members").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(URL + "/" + pid(S_C) + "/members").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"role\":\"SELLER_STAFF\"}"))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
         // 형식: 이메일 형식·phone 누락
-        mockMvc.perform(post(URL + "/" + pid(S_C) + "/members").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(URL + "/" + pid(S_C) + "/members").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(addNewUserBody("not-an-email", "형식", NEW_PHONE, "SELLER_STAFF")))
                 .andExpect(status().isBadRequest());
-        mockMvc.perform(post(URL + "/" + pid(S_C) + "/members").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(URL + "/" + pid(S_C) + "/members").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"newUser\":{\"email\":\"" + NEW_EMAIL + "\",\"name\":\"무연락\"},\"role\":\"SELLER_STAFF\"}"))
                 .andExpect(status().isBadRequest());
@@ -426,7 +430,7 @@ class AdminSellerMemberControllerIntegrationTest extends AbstractIntegrationTest
 
         // SMS 실패 → 502·계정·역할·프로필·매핑 전부 롤백(Track 84 정책 그대로)
         doThrow(new IllegalStateException("SMS 게이트웨이 장애")).when(smsSender).send(any(), any());
-        mockMvc.perform(post(URL + "/" + pid(S_C) + "/members").headers(authHeaders.admin(ADMIN_ID))
+        mockMvc.perform(post(URL + "/" + pid(S_C) + "/members").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(addNewUserBody(NEW_EMAIL, "신규", NEW_PHONE, "SELLER_STAFF")))
                 .andExpect(status().isBadGateway()).andExpect(jsonPath("$.code").value("TEMPORARY_PASSWORD_DELIVERY_FAILED"));
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM `user` WHERE email = ?", Integer.class, NEW_EMAIL)).isZero();
@@ -464,8 +468,8 @@ class AdminSellerMemberControllerIntegrationTest extends AbstractIntegrationTest
         return "{\"role\":\"" + role + "\",\"reason\":\"" + reason + "\"}";
     }
 
-    private static String loginBody(String email, String password, String role) {
-        return "{\"email\":\"" + email + "\",\"password\":\"" + password + "\",\"role\":\"" + role + "\"}";
+    private static String loginBody(String email, String password) {
+        return "{\"email\":\"" + email + "\",\"password\":\"" + password + "\"}";
     }
 
     private int memberCount(long sellerId) {

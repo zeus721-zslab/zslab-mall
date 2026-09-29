@@ -70,7 +70,7 @@ class SellerSettlementControllerIntegrationTest extends AbstractIntegrationTest 
     @Test
     @DisplayName("S1 목록: 본인 CONFIRMED·PAID만 최신 기간순(6월·4월)·PENDING(5월)·타 셀러 제외")
     void list_visibleOnly() throws Exception {
-        mockMvc.perform(get(URL).headers(authHeaders.seller(SELLER_A_USER)))
+        mockMvc.perform(get(URL).with(authHeaders.seller(SELLER_A_USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items", hasSize(2)))
                 .andExpect(jsonPath("$.totalCount").value(2))
@@ -85,7 +85,7 @@ class SellerSettlementControllerIntegrationTest extends AbstractIntegrationTest 
     @Test
     @DisplayName("S2 상세·품목: 본인 CONFIRMED 200(계좌 끝 4자리·품목 건수)·PAID 200(스냅샷 계좌)")
     void detailAndItems_visible() throws Exception {
-        mockMvc.perform(get(URL + "/" + STL_A_JUNE_CONFIRMED).headers(authHeaders.seller(SELLER_A_USER)))
+        mockMvc.perform(get(URL + "/" + STL_A_JUNE_CONFIRMED).with(authHeaders.seller(SELLER_A_USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(STL_A_JUNE_CONFIRMED))
                 .andExpect(jsonPath("$.saleItemCount").value(1))
@@ -94,10 +94,10 @@ class SellerSettlementControllerIntegrationTest extends AbstractIntegrationTest 
                 .andExpect(jsonPath("$.bankAccount.snapshot").value(false))
                 .andExpect(jsonPath("$.seller").doesNotExist())
                 .andExpect(jsonPath("$.sellerContact").doesNotExist());
-        mockMvc.perform(get(URL + "/" + STL_A_APR_PAID).headers(authHeaders.seller(SELLER_A_USER)))
+        mockMvc.perform(get(URL + "/" + STL_A_APR_PAID).with(authHeaders.seller(SELLER_A_USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.bankAccount.snapshot").value(true));
-        mockMvc.perform(get(URL + "/" + STL_A_JUNE_CONFIRMED + "/items").headers(authHeaders.seller(SELLER_A_USER))
+        mockMvc.perform(get(URL + "/" + STL_A_JUNE_CONFIRMED + "/items").with(authHeaders.seller(SELLER_A_USER))
                         .param("type", "SALE"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items", hasSize(1)))
@@ -109,21 +109,21 @@ class SellerSettlementControllerIntegrationTest extends AbstractIntegrationTest 
     @DisplayName("S3 404 통일: 본인 PENDING·타 셀러 CONFIRMED·미존재 → 상세/품목 모두 404 SETTLEMENT_NOT_FOUND")
     void detailAndItems_hidden404() throws Exception {
         for (long id : new long[] {STL_A_MAY_PENDING, STL_B_JUNE_CONFIRMED, 999_999L}) {
-            mockMvc.perform(get(URL + "/" + id).headers(authHeaders.seller(SELLER_A_USER)))
+            mockMvc.perform(get(URL + "/" + id).with(authHeaders.seller(SELLER_A_USER)))
                     .andExpect(status().isNotFound())
                     .andExpect(jsonPath("$.code").value("SETTLEMENT_NOT_FOUND"));
-            mockMvc.perform(get(URL + "/" + id + "/items").headers(authHeaders.seller(SELLER_A_USER)))
+            mockMvc.perform(get(URL + "/" + id + "/items").with(authHeaders.seller(SELLER_A_USER)))
                     .andExpect(status().isNotFound())
                     .andExpect(jsonPath("$.code").value("SETTLEMENT_NOT_FOUND"));
         }
     }
 
     @Test
-    @DisplayName("S4 인가: BUYER 토큰 403·seller_user 미매핑 SELLER 토큰 401")
+    @DisplayName("S4 인가: BUYER 토큰 401·seller_user 미매핑 SELLER 토큰 401")
     void authorization() throws Exception {
-        mockMvc.perform(get(URL).headers(authHeaders.buyer(BUYER_ID)))
-                .andExpect(status().isForbidden());
-        mockMvc.perform(get(URL).headers(authHeaders.seller(UNMAPPED_USER)))
+        mockMvc.perform(get(URL).with(authHeaders.buyer(BUYER_ID)))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get(URL).with(authHeaders.seller(UNMAPPED_USER)))
                 .andExpect(status().isUnauthorized());
     }
 

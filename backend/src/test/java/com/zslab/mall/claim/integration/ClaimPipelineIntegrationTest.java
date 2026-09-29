@@ -408,14 +408,14 @@ class ClaimPipelineIntegrationTest extends AbstractIntegrationTest {
         });
         String claimPid = claimPid(CLAIM_ID);
 
-        mockMvc.perform(post("/api/v1/admin/claims/" + claimPid + "/inspect").headers(authHeaders.admin(9500L))
+        mockMvc.perform(post("/api/v1/admin/claims/" + claimPid + "/inspect").with(authHeaders.admin(9500L))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"result\":\"FAIL\",\"rejectReasonCode\":\"OTHER\",\"memo\":\"우회\",\"reshipCarrier\":\"CJ\",\"reshipTrackingNo\":\"PIP-RESHIP-X1\"}"))
                 .andExpect(status().isBadRequest());
         assertThat(claimStatus(CLAIM_ID)).isEqualTo("APPROVED");
         assertThat(jdbc.queryForObject("SELECT inspection_result FROM claim WHERE id = ?", String.class, CLAIM_ID)).isNull();
 
-        int restoreFailStatus = mockMvc.perform(post("/api/v1/admin/claims/" + claimPid + "/inspect").headers(authHeaders.admin(9500L))
+        int restoreFailStatus = mockMvc.perform(post("/api/v1/admin/claims/" + claimPid + "/inspect").with(authHeaders.admin(9500L))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"result\":\"FAIL\",\"rejectReasonCode\":\"INSPECTION_FAILED\",\"reshipCarrier\":\"CJ\",\"reshipTrackingNo\":\"PIP-RESHIP-X2\"}"))
                 .andReturn().getResponse().getStatus();
@@ -447,7 +447,7 @@ class ClaimPipelineIntegrationTest extends AbstractIntegrationTest {
         List<Callable<String>> workers = new ArrayList<>();
         for (int i = 0; i < THREADS; i++) {
             final long itemId = i % 2 == 0 ? ITEM_A : ITEM_B;
-            workers.add(() -> String.valueOf(mockMvc.perform(post(CLAIMS_URL).headers(authHeaders.buyer(USER_ID))
+            workers.add(() -> String.valueOf(mockMvc.perform(post(CLAIMS_URL).with(authHeaders.buyer(USER_ID))
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"orderItemPublicId\":\"" + itemPid(itemId) + "\",\"claimType\":\"RETURN\",\"reasonCode\":\"PRODUCT_DEFECT\","
                                     + "\"attachmentIds\":[\"" + attachmentPid + "\"]}"))

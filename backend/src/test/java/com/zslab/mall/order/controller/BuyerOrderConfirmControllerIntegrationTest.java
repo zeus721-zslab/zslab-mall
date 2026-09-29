@@ -86,7 +86,7 @@ class BuyerOrderConfirmControllerIntegrationTest extends AbstractIntegrationTest
     void confirm_ownerBuyerDelivered_returns200() throws Exception {
         seedGraph("DELIVERED");
 
-        mockMvc.perform(post(CONFIRM_URL).headers(authHeaders.buyer(BUYER_USER)))
+        mockMvc.perform(post(CONFIRM_URL).with(authHeaders.buyer(BUYER_USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.orderItemId").value(ITEM_PID))
                 .andExpect(jsonPath("$.status").value("CONFIRMED"));
@@ -100,7 +100,7 @@ class BuyerOrderConfirmControllerIntegrationTest extends AbstractIntegrationTest
     void confirm_crossTenant_returns404() throws Exception {
         seedGraph("DELIVERED");
 
-        mockMvc.perform(post(CONFIRM_URL).headers(authHeaders.buyer(OTHER_BUYER)))
+        mockMvc.perform(post(CONFIRM_URL).with(authHeaders.buyer(OTHER_BUYER)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("ORDER_NOT_FOUND"));
 
@@ -112,7 +112,7 @@ class BuyerOrderConfirmControllerIntegrationTest extends AbstractIntegrationTest
     void confirm_nonDeliveredItem_returns422() throws Exception {
         seedGraph("SHIPPING");
 
-        mockMvc.perform(post(CONFIRM_URL).headers(authHeaders.buyer(BUYER_USER)))
+        mockMvc.perform(post(CONFIRM_URL).with(authHeaders.buyer(BUYER_USER)))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("ORDER_ITEM_INVALID_STATE"));
 
@@ -124,7 +124,7 @@ class BuyerOrderConfirmControllerIntegrationTest extends AbstractIntegrationTest
     void confirm_alreadyConfirmed_returns200Idempotent() throws Exception {
         seedGraph("CONFIRMED");
 
-        mockMvc.perform(post(CONFIRM_URL).headers(authHeaders.buyer(BUYER_USER)))
+        mockMvc.perform(post(CONFIRM_URL).with(authHeaders.buyer(BUYER_USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("CONFIRMED"));
 

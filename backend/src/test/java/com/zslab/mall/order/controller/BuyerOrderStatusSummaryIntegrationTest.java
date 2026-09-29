@@ -76,7 +76,7 @@ class BuyerOrderStatusSummaryIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("T1 5단계 건수: 품목 상태 1:1·ORDERED/클레임 계열 제외·3개월 경계 안 포함/밖 제외·타 구매자 제외")
     void summary_stageCounts() throws Exception {
-        mockMvc.perform(get(SUMMARY_URL).headers(authHeaders.buyer(BUYER_USER)))
+        mockMvc.perform(get(SUMMARY_URL).with(authHeaders.buyer(BUYER_USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.periodMonths").value(3))
                 .andExpect(jsonPath("$.stages.paid").value(2))
@@ -89,7 +89,7 @@ class BuyerOrderStatusSummaryIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("T2 activeClaimCount: REQUESTED·APPROVED만 합계(REJECTED·COMPLETED 제외)·경계 밖 주문 클레임 포함·타 구매자 제외")
     void summary_activeClaimCount() throws Exception {
-        mockMvc.perform(get(SUMMARY_URL).headers(authHeaders.buyer(BUYER_USER)))
+        mockMvc.perform(get(SUMMARY_URL).with(authHeaders.buyer(BUYER_USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.activeClaimCount").value(3));
     }
@@ -97,7 +97,7 @@ class BuyerOrderStatusSummaryIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("T3 주문 없음: 5단계 모두 0·activeClaimCount 0(0건 단계도 응답)")
     void summary_noOrders_allZero() throws Exception {
-        mockMvc.perform(get(SUMMARY_URL).headers(authHeaders.buyer(EMPTY_BUYER)))
+        mockMvc.perform(get(SUMMARY_URL).with(authHeaders.buyer(EMPTY_BUYER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.periodMonths").value(3))
                 .andExpect(jsonPath("$.stages.paid").value(0))
@@ -117,17 +117,17 @@ class BuyerOrderStatusSummaryIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("T5 비BUYER(SELLER) → 403 FORBIDDEN")
-    void summary_seller_returns403() throws Exception {
-        mockMvc.perform(get(SUMMARY_URL).headers(authHeaders.seller(SELLER_ID)))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+    @DisplayName("T5 비BUYER(SELLER) → 401 UNAUTHENTICATED")
+    void summary_seller_returns401() throws Exception {
+        mockMvc.perform(get(SUMMARY_URL).with(authHeaders.seller(SELLER_ID)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
     }
 
     @Test
     @DisplayName("T6 /summary는 주문 상세로 해석되지 않음(상세였다면 404 ORDER_NOT_FOUND·sellers 필드)")
     void summary_notResolvedAsOrderDetail() throws Exception {
-        mockMvc.perform(get(SUMMARY_URL).headers(authHeaders.buyer(BUYER_USER)))
+        mockMvc.perform(get(SUMMARY_URL).with(authHeaders.buyer(BUYER_USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.stages").exists())
                 .andExpect(jsonPath("$.sellers").doesNotExist())

@@ -5,6 +5,8 @@ import { HTTP_NOT_FOUND, HTTP_UNAUTHORIZED, loginAsDemo, type BackendLoginFetche
 // (admin·buyer 스펙과 동형). 여기서는 셀러 로그인 경로·응답 형태({ passwordChangeRequired } 구매자형·D-3 + Set-Cookie 전달·D-235 F9)·자격증명 은닉을 검증한다.
 const configured = { email: 'demo-seller@example.test', password: 'demo-secret' }
 const API_BASE = 'http://mall-backend:8080'
+// 브라우저 요청의 XSRF-TOKEN 쿠키·헤더 값(D-235 PR3 K7) — 코어는 비교하지 않고 fetcher로 그대로 넘긴다(검증은 BE).
+const CSRF = { cookieToken: 'xsrf-cookie-value', headerToken: 'xsrf-header-value' }
 
 describe('demo-login 서버 코어 — role SELLER', () => {
   afterEach(() => {
@@ -14,8 +16,8 @@ describe('demo-login 서버 코어 — role SELLER', () => {
   it('성공 → BE 셀러 로그인 경로(/api/v1/seller/auth/login)로 대행 · 본문 { passwordChangeRequired } · BE Set-Cookie 원문 전달', async () => {
     const setCookies = ['__Secure-seller_at=cookie-value; Path=/api/v1/seller; HttpOnly', 'XSRF-TOKEN=xsrf-value; Path=/']
     const fetcher = vi.fn<BackendLoginFetcher>().mockResolvedValue({ passwordChangeRequired: true, setCookies })
-    const result = await loginAsDemo(configured, 'SELLER', API_BASE, fetcher)
-    expect(fetcher).toHaveBeenCalledWith(`${API_BASE}/api/v1/seller/auth/login`, { email: configured.email, password: configured.password })
+    const result = await loginAsDemo(configured, 'SELLER', API_BASE, CSRF, fetcher)
+    expect(fetcher).toHaveBeenCalledWith(`${API_BASE}/api/v1/seller/auth/login`, { email: configured.email, password: configured.password }, CSRF)
     expect(result).toEqual({ ok: true, body: { passwordChangeRequired: true }, setCookies })
     const serialized = JSON.stringify(result)
     expect(serialized).not.toContain(configured.email)
@@ -24,7 +26,7 @@ describe('demo-login 서버 코어 — role SELLER', () => {
 
   it('미설정 → 404 · fetcher 미호출', async () => {
     const fetcher = vi.fn<BackendLoginFetcher>()
-    const result = await loginAsDemo({ email: '', password: '' }, 'SELLER', API_BASE, fetcher)
+    const result = await loginAsDemo({ email: '', password: '' }, 'SELLER', API_BASE, CSRF, fetcher)
     expect(result).toEqual({ ok: false, statusCode: HTTP_NOT_FOUND })
     expect(fetcher).not.toHaveBeenCalled()
   })
@@ -32,7 +34,7 @@ describe('demo-login 서버 코어 — role SELLER', () => {
   it('BE 실패(계정 없음·셀러 상태 차단 401 등) → 401 일반 응답 · 로그에 자격증명 미포함', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const fetcher = vi.fn<BackendLoginFetcher>().mockRejectedValue(new Error('backend login responded 401'))
-    const result = await loginAsDemo(configured, 'SELLER', API_BASE, fetcher)
+    const result = await loginAsDemo(configured, 'SELLER', API_BASE, CSRF, fetcher)
     expect(result).toEqual({ ok: false, statusCode: HTTP_UNAUTHORIZED })
     const logged = warn.mock.calls.flat().map(String).join(' ')
     expect(logged).toContain('SELLER')

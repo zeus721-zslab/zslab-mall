@@ -5,15 +5,13 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.zslab.mall.common.security.ActorRole;
-import com.zslab.mall.common.security.TokenProvider;
+import com.zslab.mall.common.security.AuthHeaders;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -26,8 +24,8 @@ import com.zslab.mall.support.AbstractIntegrationTest;
  * 비밀번호 변경 endpoint E2E 통합 테스트(Track 34·실 MariaDB). HTTP → UserController → UserService → DB 흐름을 검증한다.
  * 정상(204)은 DB hash가 새 비번으로 교체됨을, 미인증은 401(SecurityConfig fail-closed), 현재 비번 불일치는 400을 확인한다.
  *
- * <p>인증은 실 {@link TokenProvider}로 발급한 JWT(role 무관·anyRequest authenticated)를 Bearer로 전달한다.
- * (4)는 SELLER 토큰으로도 같은 계약이 성립함을 박제한다 — 셀러 센터 비밀번호 변경 폼(Track 90-D-2·FE-50)이 이 endpoint를 재사용한다.
+ * <p>인증은 {@link AuthHeaders}가 싣는 구매자 역할 쿠키다(D-235 PR3). 이 경로는 구매자 접두사(/api/v1/**)라 셀러 쿠키는 읽히지 않는다 —
+ * (4)는 셀러 쿠키가 익명(401)임을 박제한다(셀러 비밀번호 변경은 PATCH /api/v1/seller/me/password).
  * 시드는 {@link TransactionTemplate} + {@code FOREIGN_KEY_CHECKS=0}(LT-02 try-finally)·password_hash는 실 BCrypt 해싱이다.
  */
 @AutoConfigureMockMvc
@@ -51,7 +49,7 @@ class ChangePasswordIntegrationTest extends AbstractIntegrationTest {
     @Autowired
     private PasswordEncoder passwordEncoder;
     @Autowired
-    private TokenProvider tokenProvider;
+    private AuthHeaders authHeaders;
 
     private TransactionTemplate tx;
 
@@ -71,7 +69,7 @@ class ChangePasswordIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("(1) 유효 토큰+현재 비번 일치 → 204·DB hash가 새 비번으로 교체")
     void validChange_returns204_andRehashes() throws Exception {
         mockMvc.perform(patch("/api/v1/users/me/password")
-                        .header(HttpHeaders.AUTHORIZATION, bearer())
+                        .with(authHeaders.buyer(USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(changeBody(CURRENT_PASSWORD, NEW_PASSWORD)))
                 .andExpect(status().isNoContent());
@@ -94,24 +92,27 @@ class ChangePasswordIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("(3) 현재 비번 불일치 → 400")
     void wrongCurrentPassword_returns400() throws Exception {
         mockMvc.perform(patch("/api/v1/users/me/password")
-                        .header(HttpHeaders.AUTHORIZATION, bearer())
+                        .with(authHeaders.buyer(USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(changeBody("wrong-password", NEW_PASSWORD)))
                 .andExpect(status().isBadRequest());
     }
 
     @Test
-    @DisplayName("(4) SELLER 토큰+현재 비번 일치 → 204·DB hash 교체(셀러 센터 폼 계약·Track 90-D-2)")
-    void sellerToken_returns204_andRehashes() throws Exception {
+    @DisplayName("(4) 셀러 쿠키 → 401·DB hash 불변(구매자 접두사 경로는 셀러 쿠키를 읽지 않는다·D-235 PR3)")
+    void sellerCookie_returns401_andKeepsHash() throws Exception {
+        String hashBefore = jdbc.queryForObject(
+                "SELECT password_hash FROM `user` WHERE id = ?", String.class, USER_ID);
+
         mockMvc.perform(patch("/api/v1/users/me/password")
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenProvider.issue(USER_ID, ActorRole.SELLER))
+                        .with(authHeaders.seller(USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(changeBody(CURRENT_PASSWORD, NEW_PASSWORD)))
-                .andExpect(status().isNoContent());
+                .andExpect(status().isUnauthorized());
 
-        String newHash = jdbc.queryForObject(
+        String hashAfter = jdbc.queryForObject(
                 "SELECT password_hash FROM `user` WHERE id = ?", String.class, USER_ID);
-        assertThat(passwordEncoder.matches(NEW_PASSWORD, newHash)).isTrue();
+        assertThat(hashAfter).isEqualTo(hashBefore);
     }
 
     @Test
@@ -121,7 +122,7 @@ class ChangePasswordIntegrationTest extends AbstractIntegrationTest {
                 "SELECT password_hash FROM `user` WHERE id = ?", String.class, USER_ID);
 
         mockMvc.perform(patch("/api/v1/users/me/password")
-                        .header(HttpHeaders.AUTHORIZATION, bearer())
+                        .with(authHeaders.buyer(USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(changeBody(CURRENT_PASSWORD, KOREAN_75_BYTES)))
                 .andExpect(status().isBadRequest())
@@ -137,7 +138,7 @@ class ChangePasswordIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("(6) D-233 새 비번 한글 24자(72바이트) → 204·DB hash 교체(상한 경계 포함)")
     void koreanNewPasswordAt72Bytes_returns204_andRehashes() throws Exception {
         mockMvc.perform(patch("/api/v1/users/me/password")
-                        .header(HttpHeaders.AUTHORIZATION, bearer())
+                        .with(authHeaders.buyer(USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(changeBody(CURRENT_PASSWORD, KOREAN_72_BYTES)))
                 .andExpect(status().isNoContent());
@@ -148,10 +149,6 @@ class ChangePasswordIntegrationTest extends AbstractIntegrationTest {
     }
 
     // ---------- seed·helpers (AuthControllerIntegrationTest 패턴·? positional 바인딩·SQL injection 없음) ----------
-
-    private String bearer() {
-        return "Bearer " + tokenProvider.issue(USER_ID, ActorRole.BUYER);
-    }
 
     private void seed() {
         tx.executeWithoutResult(s -> {

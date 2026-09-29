@@ -80,7 +80,7 @@ class AuditWiringIntegrationTest extends AbstractIntegrationTest {
         long settlementId = seedSettlement("PENDING");
 
         mockMvc.perform(post("/api/v1/admin/settlements/" + settlementId + "/confirm")
-                        .headers(authHeaders.admin(ADMIN_ID)))
+                        .with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk());
 
         Map<String, Object> row = singleAuditRow("SETTLEMENT", settlementId);
@@ -96,7 +96,7 @@ class AuditWiringIntegrationTest extends AbstractIntegrationTest {
         seedProduct("PENDING");
 
         mockMvc.perform(post("/api/v1/admin/products/" + PRODUCT_PID + "/approve")
-                        .headers(authHeaders.admin(ADMIN_ID)))
+                        .with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk());
 
         Map<String, Object> row = singleAuditRow("PRODUCT", PRODUCT_ID);
@@ -111,7 +111,7 @@ class AuditWiringIntegrationTest extends AbstractIntegrationTest {
         seedBuyerWithConfirmed(BUYER_CHANGE, ORDER_CHANGE, silverId, 500_000L); // → GOLD
 
         mockMvc.perform(post("/api/v1/admin/buyers/" + USER_PID_CHANGE + "/grade/recalculate")
-                        .headers(authHeaders.admin(ADMIN_ID)))
+                        .with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isNoContent());
 
         Map<String, Object> row = singleAuditRow("USER", BUYER_CHANGE);
@@ -129,7 +129,7 @@ class AuditWiringIntegrationTest extends AbstractIntegrationTest {
         seedBuyerWithConfirmed(BUYER_SAME, ORDER_SAME, silverId, 100_000L); // 여전히 SILVER
 
         mockMvc.perform(post("/api/v1/admin/buyers/" + USER_PID_SAME + "/grade/recalculate")
-                        .headers(authHeaders.admin(ADMIN_ID)))
+                        .with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isNoContent());
 
         assertThat(auditCount("USER", BUYER_SAME)).isZero();

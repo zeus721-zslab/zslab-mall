@@ -183,7 +183,7 @@ class OrderAutoConfirmIntegrationTest extends AbstractIntegrationTest {
         scheduler.confirmBatch(); // ITEM_EXPIRED·ITEM_EXPIRED_2 자동 확정
 
         mockMvc.perform(post("/api/v1/orders/" + orderPid(ITEM_RECENT) + "/items/" + itemPid(ITEM_RECENT) + "/confirm")
-                        .headers(authHeaders.buyer(USER_ID)))
+                        .with(authHeaders.buyer(USER_ID)))
                 .andExpect(status().isOk());
 
         LocalDateTime now = LocalDateTime.now();

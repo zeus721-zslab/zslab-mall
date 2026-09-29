@@ -129,17 +129,17 @@ class SellerOrderItemQueryControllerIntegrationTest extends AbstractIntegrationT
     }
 
     @Test
-    @DisplayName("T1 인가: 비인증 401 · 구매자 403 · 셀러 200")
+    @DisplayName("T1 인가: 비인증 401 · 구매자 401 · 셀러 200")
     void list_authorization() throws Exception {
         mockMvc.perform(get(LIST_URL)).andExpect(status().isUnauthorized());
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.buyer(BUYER_ID))).andExpect(status().isForbidden());
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A))).andExpect(status().isOk());
+        mockMvc.perform(get(LIST_URL).with(authHeaders.buyer(BUYER_ID))).andExpect(status().isUnauthorized());
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A))).andExpect(status().isOk());
     }
 
     @Test
     @DisplayName("T2 혼합 셀러 주문: 셀러 A 목록은 자기 품목 A2·A1만(타 셀러 B1·미결제 A3·만료 A4 제외)·결제일 최신순·주문 축은 번호·시각만")
     void list_mixedOrder_returnsOnlyOwnItems() throws Exception {
-        String body = mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)))
+        String body = mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(2))
                 .andExpect(jsonPath("$.items[0].orderItemId").value(ITEM_A2_PID))
@@ -173,7 +173,7 @@ class SellerOrderItemQueryControllerIntegrationTest extends AbstractIntegrationT
         assertThat(keysOf(items.get(0).get("delivery"))).containsExactlyInAnyOrderElementsOf(a2DeliveryKeys);
 
         // 셀러 B 관점: 같은 주문 M에서 B1만 보인다.
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_B)))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_B)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].orderItemId").value(ITEM_B1_PID));
@@ -182,23 +182,23 @@ class SellerOrderItemQueryControllerIntegrationTest extends AbstractIntegrationT
     @Test
     @DisplayName("T3 필터: status PAID 1 · keyword 상품명 부분 '단독' 1 · 주문번호 정확 1 · 송장 부분 미매칭 0 · 결제일 경계 from/to")
     void list_filters() throws Exception {
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("status", "PAID"))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("status", "PAID"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].orderItemId").value(ITEM_A1_PID));
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("keyword", "단독"))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("keyword", "단독"))
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].orderItemId").value(ITEM_A2_PID));
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("keyword", ORDER_M_NO))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("keyword", ORDER_M_NO))
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].orderItemId").value(ITEM_A1_PID));
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("keyword", "ORDSOI"))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("keyword", "ORDSOI"))
                 .andExpect(jsonPath("$.totalCount").value(0));
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A))
                         .param("from", "2026-04-01T00:00:00").param("to", "2026-04-30T23:59:59"))
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].orderItemId").value(ITEM_A2_PID));
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("to", "2026-03-31T23:59:59"))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("to", "2026-03-31T23:59:59"))
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].orderItemId").value(ITEM_A1_PID));
     }
@@ -206,12 +206,12 @@ class SellerOrderItemQueryControllerIntegrationTest extends AbstractIntegrationT
     @Test
     @DisplayName("T4 400: 허용 외 status · keyword 51자 · from>to")
     void list_badRequests() throws Exception {
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("status", "BOGUS"))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("status", "BOGUS"))
                 .andExpect(status().isBadRequest());
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)).param("keyword", KEYWORD_LIMIT_EXCEEDED))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("keyword", KEYWORD_LIMIT_EXCEEDED))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A))
                         .param("from", "2026-05-01T00:00:00").param("to", "2026-04-01T00:00:00"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
@@ -220,7 +220,7 @@ class SellerOrderItemQueryControllerIntegrationTest extends AbstractIntegrationT
     @Test
     @DisplayName("T5 상세: 자기 품목 200·키 화이트리스트·배송지 7필드 전체(마스킹 없음)·배송 행 · 송장 미등록 품목은 delivery 없음")
     void detail_ownItem_returnsShippingAddress() throws Exception {
-        String body = mockMvc.perform(get(LIST_URL + "/" + ITEM_A2_PID).headers(authHeaders.seller(USER_A)))
+        String body = mockMvc.perform(get(LIST_URL + "/" + ITEM_A2_PID).with(authHeaders.seller(USER_A)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.orderItemId").value(ITEM_A2_PID))
                 .andExpect(jsonPath("$.orderNo").value(ORDER_N_NO))
@@ -252,7 +252,7 @@ class SellerOrderItemQueryControllerIntegrationTest extends AbstractIntegrationT
         assertThat(SHIPPING_ADDRESS_KEYS).containsAll(keysOf(node.get("shippingAddress")));
         assertThat(keysOf(node.get("shippingAddress"))).contains("recipientName", "recipientPhone", "zonecode", "addressRoad", "addressDetail");
 
-        mockMvc.perform(get(LIST_URL + "/" + ITEM_A1_PID).headers(authHeaders.seller(USER_A)))
+        mockMvc.perform(get(LIST_URL + "/" + ITEM_A1_PID).with(authHeaders.seller(USER_A)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.delivery").doesNotExist())
                 .andExpect(jsonPath("$.shippingAddress.recipientName").value("혼합수령인"));
@@ -261,18 +261,18 @@ class SellerOrderItemQueryControllerIntegrationTest extends AbstractIntegrationT
     @Test
     @DisplayName("T6 소유권 경계: 타 셀러 품목 404(403 아님·존재 은닉) · 미존재 404 · 미결제 주문 품목 404 · 만료 주문 품목 404")
     void detail_notOwned_returns404() throws Exception {
-        mockMvc.perform(get(LIST_URL + "/" + ITEM_B1_PID).headers(authHeaders.seller(USER_A)))
+        mockMvc.perform(get(LIST_URL + "/" + ITEM_B1_PID).with(authHeaders.seller(USER_A)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("ORDER_NOT_FOUND"));
-        mockMvc.perform(get(LIST_URL + "/" + MISSING_PID).headers(authHeaders.seller(USER_A)))
+        mockMvc.perform(get(LIST_URL + "/" + MISSING_PID).with(authHeaders.seller(USER_A)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("ORDER_NOT_FOUND"));
-        mockMvc.perform(get(LIST_URL + "/" + ITEM_A3_PID).headers(authHeaders.seller(USER_A)))
+        mockMvc.perform(get(LIST_URL + "/" + ITEM_A3_PID).with(authHeaders.seller(USER_A)))
                 .andExpect(status().isNotFound());
-        mockMvc.perform(get(LIST_URL + "/" + ITEM_A4_PID).headers(authHeaders.seller(USER_A)))
+        mockMvc.perform(get(LIST_URL + "/" + ITEM_A4_PID).with(authHeaders.seller(USER_A)))
                 .andExpect(status().isNotFound());
         // 셀러 B는 자기 품목 B1을 본다(경계가 대칭임을 고정).
-        mockMvc.perform(get(LIST_URL + "/" + ITEM_B1_PID).headers(authHeaders.seller(USER_B)))
+        mockMvc.perform(get(LIST_URL + "/" + ITEM_B1_PID).with(authHeaders.seller(USER_B)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.productName").value("혼합상품B"));
     }
@@ -283,10 +283,10 @@ class SellerOrderItemQueryControllerIntegrationTest extends AbstractIntegrationT
         cleanup();
         seedAll(SellerStatus.SUSPENDED);
 
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[*].orderItemId", containsInAnyOrder(ITEM_A1_PID, ITEM_A2_PID)));
-        mockMvc.perform(get(LIST_URL + "/" + ITEM_A1_PID).headers(authHeaders.seller(USER_A)))
+        mockMvc.perform(get(LIST_URL + "/" + ITEM_A1_PID).with(authHeaders.seller(USER_A)))
                 .andExpect(status().isOk());
     }
 
@@ -297,10 +297,10 @@ class SellerOrderItemQueryControllerIntegrationTest extends AbstractIntegrationT
         cleanup();
         seedAll(status);
 
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.seller(USER_A)))
+        mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
-        mockMvc.perform(get(LIST_URL + "/" + ITEM_A1_PID).headers(authHeaders.seller(USER_A)))
+        mockMvc.perform(get(LIST_URL + "/" + ITEM_A1_PID).with(authHeaders.seller(USER_A)))
                 .andExpect(status().isUnauthorized());
     }
 

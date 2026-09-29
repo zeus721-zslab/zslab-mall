@@ -104,21 +104,21 @@ class SellerProductSaleStatusControllerIntegrationTest extends AbstractIntegrati
     // ==================== 인가·상태 가드 ====================
 
     @Test
-    @DisplayName("T1 인가: 비인증 401 · 구매자 403 · 관리자 403 → 2 API 전부·DB 불변")
+    @DisplayName("T1 인가: 비인증 401 · 구매자 401 · 관리자 401 → 2 API 전부·DB 불변")
     void authorization() throws Exception {
         mockMvc.perform(post(saleStatusUrl(P_SALE_PID)).contentType(MediaType.APPLICATION_JSON).content(STOP_BODY))
                 .andExpect(status().isUnauthorized());
         mockMvc.perform(patch(soldOutUrl(P_SALE_PID)).contentType(MediaType.APPLICATION_JSON).content(SOLDOUT_ON_BODY))
                 .andExpect(status().isUnauthorized());
-        mockMvc.perform(post(saleStatusUrl(P_SALE_PID)).headers(authHeaders.buyer(BUYER_ID))
+        mockMvc.perform(post(saleStatusUrl(P_SALE_PID)).with(authHeaders.buyer(BUYER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(STOP_BODY))
-                .andExpect(status().isForbidden());
-        mockMvc.perform(patch(soldOutUrl(P_SALE_PID)).headers(authHeaders.buyer(BUYER_ID))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(patch(soldOutUrl(P_SALE_PID)).with(authHeaders.buyer(BUYER_ID))
                         .contentType(MediaType.APPLICATION_JSON).content(SOLDOUT_ON_BODY))
-                .andExpect(status().isForbidden());
-        mockMvc.perform(post(saleStatusUrl(P_SALE_PID)).headers(authHeaders.admin(USER_B))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(post(saleStatusUrl(P_SALE_PID)).with(authHeaders.admin(USER_B))
                         .contentType(MediaType.APPLICATION_JSON).content(STOP_BODY))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
 
         assertProduct(P_SALE, "SALE", null, false);
         assertAuditCount(P_SALE, 0);
@@ -130,11 +130,11 @@ class SellerProductSaleStatusControllerIntegrationTest extends AbstractIntegrati
         cleanup();
         seedAll(SellerStatus.SUSPENDED);
 
-        mockMvc.perform(post(saleStatusUrl(P_SALE_PID)).headers(authHeaders.seller(USER_A))
+        mockMvc.perform(post(saleStatusUrl(P_SALE_PID)).with(authHeaders.seller(USER_A))
                         .contentType(MediaType.APPLICATION_JSON).content(STOP_BODY))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("SELLER_SUSPENDED"));
-        mockMvc.perform(patch(soldOutUrl(P_SALE_PID)).headers(authHeaders.seller(USER_A))
+        mockMvc.perform(patch(soldOutUrl(P_SALE_PID)).with(authHeaders.seller(USER_A))
                         .contentType(MediaType.APPLICATION_JSON).content(SOLDOUT_ON_BODY))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("SELLER_SUSPENDED"));
@@ -145,15 +145,15 @@ class SellerProductSaleStatusControllerIntegrationTest extends AbstractIntegrati
     @Test
     @DisplayName("T3 소유: 타 셀러 상품·미존재 → 404 PRODUCT_NOT_FOUND(존재 은닉)·DB 불변")
     void otherSellerOrMissing_returns404() throws Exception {
-        mockMvc.perform(post(saleStatusUrl(PB_PID)).headers(authHeaders.seller(USER_A))
+        mockMvc.perform(post(saleStatusUrl(PB_PID)).with(authHeaders.seller(USER_A))
                         .contentType(MediaType.APPLICATION_JSON).content(STOP_BODY))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("PRODUCT_NOT_FOUND"));
-        mockMvc.perform(patch(soldOutUrl(PB_PID)).headers(authHeaders.seller(USER_A))
+        mockMvc.perform(patch(soldOutUrl(PB_PID)).with(authHeaders.seller(USER_A))
                         .contentType(MediaType.APPLICATION_JSON).content(SOLDOUT_ON_BODY))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("PRODUCT_NOT_FOUND"));
-        mockMvc.perform(post(saleStatusUrl(MISSING_PID)).headers(authHeaders.seller(USER_A))
+        mockMvc.perform(post(saleStatusUrl(MISSING_PID)).with(authHeaders.seller(USER_A))
                         .contentType(MediaType.APPLICATION_JSON).content(STOP_BODY))
                 .andExpect(status().isNotFound());
 
@@ -165,7 +165,7 @@ class SellerProductSaleStatusControllerIntegrationTest extends AbstractIntegrati
     @Test
     @DisplayName("T4 판매중지: SALE + 셀러 → 200·status STOPPED·source SELLER·응답 saleStopSource·감사 1행(SELLER)")
     void stop_saleBySeller_returns200() throws Exception {
-        mockMvc.perform(post(saleStatusUrl(P_SALE_PID)).headers(authHeaders.seller(USER_A))
+        mockMvc.perform(post(saleStatusUrl(P_SALE_PID)).with(authHeaders.seller(USER_A))
                         .contentType(MediaType.APPLICATION_JSON).content(STOP_BODY))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.productPublicId").value(P_SALE_PID))
@@ -184,7 +184,7 @@ class SellerProductSaleStatusControllerIntegrationTest extends AbstractIntegrati
     @Test
     @DisplayName("T5 재판매: STOPPED(SELLER) + 셀러 → 200·status SALE·source NULL·응답 saleStopSource 부재(non_null)")
     void resume_sellerStopped_returns200() throws Exception {
-        mockMvc.perform(post(saleStatusUrl(P_SELLER_PID)).headers(authHeaders.seller(USER_A))
+        mockMvc.perform(post(saleStatusUrl(P_SELLER_PID)).with(authHeaders.seller(USER_A))
                         .contentType(MediaType.APPLICATION_JSON).content(RESUME_BODY))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("SALE"))
@@ -197,7 +197,7 @@ class SellerProductSaleStatusControllerIntegrationTest extends AbstractIntegrati
     @Test
     @DisplayName("T6 제재 우회 차단: STOPPED(ADMIN) + 셀러 재판매 → 422 PRODUCT_STOPPED_BY_ADMIN·행 불변·감사 0")
     void resume_adminStopped_returns422() throws Exception {
-        mockMvc.perform(post(saleStatusUrl(P_ADMIN_PID)).headers(authHeaders.seller(USER_A))
+        mockMvc.perform(post(saleStatusUrl(P_ADMIN_PID)).with(authHeaders.seller(USER_A))
                         .contentType(MediaType.APPLICATION_JSON).content(RESUME_BODY))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("PRODUCT_STOPPED_BY_ADMIN"));
@@ -210,21 +210,21 @@ class SellerProductSaleStatusControllerIntegrationTest extends AbstractIntegrati
     @DisplayName("T7 허용 외 전이: PENDING·REJECTED 상품에 STOPPED/SALE 요청 · 같은 상태 재요청 → 422 PRODUCT_INVALID_STATE·불변")
     void invalidTransitions_return422() throws Exception {
         for (String body : new String[] {STOP_BODY, RESUME_BODY}) {
-            mockMvc.perform(post(saleStatusUrl(P_PENDING_PID)).headers(authHeaders.seller(USER_A))
+            mockMvc.perform(post(saleStatusUrl(P_PENDING_PID)).with(authHeaders.seller(USER_A))
                             .contentType(MediaType.APPLICATION_JSON).content(body))
                     .andExpect(status().isUnprocessableEntity())
                     .andExpect(jsonPath("$.code").value("PRODUCT_INVALID_STATE"));
-            mockMvc.perform(post(saleStatusUrl(P_REJECTED_PID)).headers(authHeaders.seller(USER_A))
+            mockMvc.perform(post(saleStatusUrl(P_REJECTED_PID)).with(authHeaders.seller(USER_A))
                             .contentType(MediaType.APPLICATION_JSON).content(body))
                     .andExpect(status().isUnprocessableEntity())
                     .andExpect(jsonPath("$.code").value("PRODUCT_INVALID_STATE"));
         }
         // 같은 상태 재요청(SALE→SALE·STOPPED→STOPPED)은 관리자와 같이 422(오조작 감지).
-        mockMvc.perform(post(saleStatusUrl(P_SALE_PID)).headers(authHeaders.seller(USER_A))
+        mockMvc.perform(post(saleStatusUrl(P_SALE_PID)).with(authHeaders.seller(USER_A))
                         .contentType(MediaType.APPLICATION_JSON).content(RESUME_BODY))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("PRODUCT_INVALID_STATE"));
-        mockMvc.perform(post(saleStatusUrl(P_SELLER_PID)).headers(authHeaders.seller(USER_A))
+        mockMvc.perform(post(saleStatusUrl(P_SELLER_PID)).with(authHeaders.seller(USER_A))
                         .contentType(MediaType.APPLICATION_JSON).content(STOP_BODY))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("PRODUCT_INVALID_STATE"));
@@ -238,11 +238,11 @@ class SellerProductSaleStatusControllerIntegrationTest extends AbstractIntegrati
     @Test
     @DisplayName("T8 허용 외 값: status HIDDEN → 400 VALIDATION_FAILED · soldOut 누락 → 400")
     void invalidBody_returns400() throws Exception {
-        mockMvc.perform(post(saleStatusUrl(P_SALE_PID)).headers(authHeaders.seller(USER_A))
+        mockMvc.perform(post(saleStatusUrl(P_SALE_PID)).with(authHeaders.seller(USER_A))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"HIDDEN\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
-        mockMvc.perform(patch(soldOutUrl(P_SALE_PID)).headers(authHeaders.seller(USER_A))
+        mockMvc.perform(patch(soldOutUrl(P_SALE_PID)).with(authHeaders.seller(USER_A))
                         .contentType(MediaType.APPLICATION_JSON).content("{}"))
                 .andExpect(status().isBadRequest());
 
@@ -252,7 +252,7 @@ class SellerProductSaleStatusControllerIntegrationTest extends AbstractIntegrati
     @Test
     @DisplayName("T9 역할 무차등(D4 α): SELLER_STAFF 구성원도 판매중지 200")
     void stop_byStaff_returns200() throws Exception {
-        mockMvc.perform(post(saleStatusUrl(P_SALE_PID)).headers(authHeaders.seller(USER_S))
+        mockMvc.perform(post(saleStatusUrl(P_SALE_PID)).with(authHeaders.seller(USER_S))
                         .contentType(MediaType.APPLICATION_JSON).content(STOP_BODY))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("STOPPED"));
@@ -266,7 +266,7 @@ class SellerProductSaleStatusControllerIntegrationTest extends AbstractIntegrati
     @Test
     @DisplayName("T10 품절 on/off: 셀러 토글 on → 200·soldoutManual true·감사 / off → false / 같은 값 재요청 200·감사 skip")
     void soldOut_toggle() throws Exception {
-        mockMvc.perform(patch(soldOutUrl(P_SALE_PID)).headers(authHeaders.seller(USER_A))
+        mockMvc.perform(patch(soldOutUrl(P_SALE_PID)).with(authHeaders.seller(USER_A))
                         .contentType(MediaType.APPLICATION_JSON).content(SOLDOUT_ON_BODY))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.soldoutManual").value(true))
@@ -277,7 +277,7 @@ class SellerProductSaleStatusControllerIntegrationTest extends AbstractIntegrati
         // 구매 정책 반영: 상품 단위 수동 품절은 ProductPurchasePolicy.saleBlock에서 SOLD_OUT(variant SALE·재고 무관).
         assertThat(saleBlockOfSaleProduct()).contains(PurchaseBlockReason.SOLD_OUT);
 
-        mockMvc.perform(patch(soldOutUrl(P_SALE_PID)).headers(authHeaders.seller(USER_A))
+        mockMvc.perform(patch(soldOutUrl(P_SALE_PID)).with(authHeaders.seller(USER_A))
                         .contentType(MediaType.APPLICATION_JSON).content(SOLDOUT_OFF_BODY))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.soldoutManual").value(false));
@@ -286,7 +286,7 @@ class SellerProductSaleStatusControllerIntegrationTest extends AbstractIntegrati
         assertThat(saleBlockOfSaleProduct()).isEmpty();
 
         // 같은 값 재요청은 no-op(엔티티 계약)·변경 없음이라 감사도 skip.
-        mockMvc.perform(patch(soldOutUrl(P_SALE_PID)).headers(authHeaders.seller(USER_A))
+        mockMvc.perform(patch(soldOutUrl(P_SALE_PID)).with(authHeaders.seller(USER_A))
                         .contentType(MediaType.APPLICATION_JSON).content(SOLDOUT_OFF_BODY))
                 .andExpect(status().isOk());
         assertAuditCount(P_SALE, 2);
@@ -297,7 +297,7 @@ class SellerProductSaleStatusControllerIntegrationTest extends AbstractIntegrati
     void soldOut_adminSet_sellerCanClear() throws Exception {
         assertProduct(P_SOLDOUT, "SALE", null, true);
 
-        mockMvc.perform(patch(soldOutUrl(P_SOLDOUT_PID)).headers(authHeaders.seller(USER_A))
+        mockMvc.perform(patch(soldOutUrl(P_SOLDOUT_PID)).with(authHeaders.seller(USER_A))
                         .contentType(MediaType.APPLICATION_JSON).content(SOLDOUT_OFF_BODY))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.soldoutManual").value(false));
@@ -308,7 +308,7 @@ class SellerProductSaleStatusControllerIntegrationTest extends AbstractIntegrati
     @Test
     @DisplayName("T12 품절은 상태와 독립: STOPPED(ADMIN) 상품의 품절 토글도 200(status·source 불변)")
     void soldOut_onStoppedProduct_keepsStatus() throws Exception {
-        mockMvc.perform(patch(soldOutUrl(P_ADMIN_PID)).headers(authHeaders.seller(USER_A))
+        mockMvc.perform(patch(soldOutUrl(P_ADMIN_PID)).with(authHeaders.seller(USER_A))
                         .contentType(MediaType.APPLICATION_JSON).content(SOLDOUT_ON_BODY))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("STOPPED"))
@@ -321,13 +321,13 @@ class SellerProductSaleStatusControllerIntegrationTest extends AbstractIntegrati
     @Test
     @DisplayName("T14 보정: 셀러 중지 상품을 관리자가 중지 요청(제재 전환) → 200·status 유지·source ADMIN → 이후 셀러 재판매 422 PRODUCT_STOPPED_BY_ADMIN·불변")
     void adminEscalation_blocksSellerResume() throws Exception {
-        mockMvc.perform(post("/api/v1/admin/products/" + P_SELLER_PID + "/sale-status").headers(authHeaders.admin(USER_B))
+        mockMvc.perform(post("/api/v1/admin/products/" + P_SELLER_PID + "/sale-status").with(authHeaders.admin(USER_B))
                         .contentType(MediaType.APPLICATION_JSON).content(STOP_BODY))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("STOPPED"));
         assertProduct(P_SELLER, "STOPPED", "ADMIN", false);
 
-        mockMvc.perform(post(saleStatusUrl(P_SELLER_PID)).headers(authHeaders.seller(USER_A))
+        mockMvc.perform(post(saleStatusUrl(P_SELLER_PID)).with(authHeaders.seller(USER_A))
                         .contentType(MediaType.APPLICATION_JSON).content(RESUME_BODY))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("PRODUCT_STOPPED_BY_ADMIN"));
@@ -341,7 +341,7 @@ class SellerProductSaleStatusControllerIntegrationTest extends AbstractIntegrati
     @DisplayName("T15 보정: 셀러가 STOPPED 상품(ADMIN·SELLER 모두)에 중지 재요청 → 422 PRODUCT_INVALID_STATE·source 불변(ADMIN → SELLER 전환 수단 없음)")
     void sellerStop_onStopped_neverChangesSource() throws Exception {
         for (String[] target : new String[][] {{P_ADMIN_PID, "ADMIN"}, {P_SELLER_PID, "SELLER"}}) {
-            mockMvc.perform(post(saleStatusUrl(target[0])).headers(authHeaders.seller(USER_A))
+            mockMvc.perform(post(saleStatusUrl(target[0])).with(authHeaders.seller(USER_A))
                             .contentType(MediaType.APPLICATION_JSON).content(STOP_BODY))
                     .andExpect(status().isUnprocessableEntity())
                     .andExpect(jsonPath("$.code").value("PRODUCT_INVALID_STATE"));
@@ -358,7 +358,7 @@ class SellerProductSaleStatusControllerIntegrationTest extends AbstractIntegrati
         jdbc.update("UPDATE product SET sale_stop_source = NULL WHERE id = ?", P_SELLER);
         assertProduct(P_SELLER, "STOPPED", null, false);
 
-        mockMvc.perform(post(saleStatusUrl(P_SELLER_PID)).headers(authHeaders.seller(USER_A))
+        mockMvc.perform(post(saleStatusUrl(P_SELLER_PID)).with(authHeaders.seller(USER_A))
                         .contentType(MediaType.APPLICATION_JSON).content(RESUME_BODY))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("PRODUCT_STOPPED_BY_ADMIN"));
@@ -372,15 +372,15 @@ class SellerProductSaleStatusControllerIntegrationTest extends AbstractIntegrati
     @Test
     @DisplayName("T13 불변식: 전 경로(중지·재판매·422·품절) 실행 후 시드 상품 전건 STOPPED ↔ sale_stop_source NOT NULL 위반 0")
     void invariant_stoppedIffSourceNotNull() throws Exception {
-        mockMvc.perform(post(saleStatusUrl(P_SALE_PID)).headers(authHeaders.seller(USER_A))
+        mockMvc.perform(post(saleStatusUrl(P_SALE_PID)).with(authHeaders.seller(USER_A))
                 .contentType(MediaType.APPLICATION_JSON).content(STOP_BODY)).andExpect(status().isOk());
-        mockMvc.perform(post(saleStatusUrl(P_SELLER_PID)).headers(authHeaders.seller(USER_A))
+        mockMvc.perform(post(saleStatusUrl(P_SELLER_PID)).with(authHeaders.seller(USER_A))
                 .contentType(MediaType.APPLICATION_JSON).content(RESUME_BODY)).andExpect(status().isOk());
-        mockMvc.perform(post(saleStatusUrl(P_ADMIN_PID)).headers(authHeaders.seller(USER_A))
+        mockMvc.perform(post(saleStatusUrl(P_ADMIN_PID)).with(authHeaders.seller(USER_A))
                 .contentType(MediaType.APPLICATION_JSON).content(RESUME_BODY)).andExpect(status().isUnprocessableEntity());
-        mockMvc.perform(post(saleStatusUrl(P_PENDING_PID)).headers(authHeaders.seller(USER_A))
+        mockMvc.perform(post(saleStatusUrl(P_PENDING_PID)).with(authHeaders.seller(USER_A))
                 .contentType(MediaType.APPLICATION_JSON).content(STOP_BODY)).andExpect(status().isUnprocessableEntity());
-        mockMvc.perform(patch(soldOutUrl(P_SOLDOUT_PID)).headers(authHeaders.seller(USER_A))
+        mockMvc.perform(patch(soldOutUrl(P_SOLDOUT_PID)).with(authHeaders.seller(USER_A))
                 .contentType(MediaType.APPLICATION_JSON).content(SOLDOUT_OFF_BODY)).andExpect(status().isOk());
 
         Long violations = jdbc.queryForObject("SELECT COUNT(*) FROM product WHERE id BETWEEN ? AND ? "

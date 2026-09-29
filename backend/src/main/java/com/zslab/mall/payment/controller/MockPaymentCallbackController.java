@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * mock 결제 콜백 REST 컨트롤러(Track 93·D-198). 구매자(BUYER Bearer)가 자기 주문의 결제 시도에 모의 PG 결과를 통지하는 1 endpoint.
+ * mock 결제 콜백 REST 컨트롤러(Track 93·D-198). 구매자(BUYER 역할 쿠키)가 자기 주문의 결제 시도에 모의 PG 결과를 통지하는 1 endpoint.
  * HTTP 책임만 가지며(D-27) 소유자 검증·서버 생성 필드·콜백 처리는 {@link MockPaymentCallbackService}에 위임한다.
  *
  * <p><b>mock 전용</b>: 실 PG 콜백 수신 경로는 {@code PaymentWebhookController}({@code POST /api/webhooks/payments}·무인증·gateway 외부 차단)이며

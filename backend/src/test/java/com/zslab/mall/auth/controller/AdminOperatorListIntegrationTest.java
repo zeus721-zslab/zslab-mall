@@ -35,7 +35,7 @@ class AdminOperatorListIntegrationTest extends AbstractIntegrationTest {
     private static final long OPERATOR_CALLER = 9802L;   // ADMIN_OPERATOR만
     private static final long WITHDRAWN_OPERATOR = 9803L; // ADMIN_OPERATOR·탈퇴
     private static final long PLAIN_BUYER = 9804L;       // BUYER만(모수 제외)
-    private static final long BUYER_CALLER = 9805L;      // BUYER 토큰(필터 403)
+    private static final long BUYER_CALLER = 9805L;      // BUYER 토큰(관리자 쿠키 미선택·익명 401)
 
     @Autowired
     private MockMvc mockMvc;
@@ -71,20 +71,20 @@ class AdminOperatorListIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("① 조회 인가: ADMIN_OPERATOR caller도 200(코어스 ADMIN 게이트만) · BUYER 토큰 403")
+    @DisplayName("① 조회 인가: ADMIN_OPERATOR caller도 200(코어스 ADMIN 게이트만) · BUYER 토큰 401")
     void list_adminOperatorCanRead_buyerForbidden() throws Exception {
-        mockMvc.perform(get(LIST_URL).param("keyword", TAG).headers(authHeaders.admin(OPERATOR_CALLER)))
+        mockMvc.perform(get(LIST_URL).param("keyword", TAG).with(authHeaders.admin(OPERATOR_CALLER)))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(get(LIST_URL).headers(authHeaders.buyer(BUYER_CALLER)))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        mockMvc.perform(get(LIST_URL).with(authHeaders.buyer(BUYER_CALLER)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
     }
 
     @Test
     @DisplayName("② 모수: 기본(ACTIVE) → 시드 중 SUPER_ADMIN·ADMIN_OPERATOR 활성 2건·BUYER만·탈퇴 제외·가입일 desc·역할 배열")
     void list_default_returnsActiveAdminRolesOnly() throws Exception {
-        mockMvc.perform(get(LIST_URL).param("keyword", TAG).headers(authHeaders.admin(SUPER_CALLER)))
+        mockMvc.perform(get(LIST_URL).param("keyword", TAG).with(authHeaders.admin(SUPER_CALLER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(2))
                 .andExpect(jsonPath("$.items[*].userPublicId").value(
@@ -96,7 +96,7 @@ class AdminOperatorListIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("③ 겸직: SUPER_ADMIN+BUYER 계정 hasBuyerRole true·roles는 ADMIN 계열만 / ADMIN_OPERATOR만 계정 false")
     void list_flagsBuyerRoleAsConcurrent() throws Exception {
-        mockMvc.perform(get(LIST_URL).param("keyword", TAG).headers(authHeaders.admin(SUPER_CALLER)))
+        mockMvc.perform(get(LIST_URL).param("keyword", TAG).with(authHeaders.admin(SUPER_CALLER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[?(@.userPublicId == '" + pid("T89ESA") + "')].hasBuyerRole").value(true))
                 .andExpect(jsonPath("$.items[?(@.userPublicId == '" + pid("T89ESA") + "')].roles").value(
@@ -108,32 +108,32 @@ class AdminOperatorListIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("④ 필터: role=ADMIN_OPERATOR 1건 · status=WITHDRAWN 탈퇴 1건(withdrawnAt 존재) · keyword 이메일 부분일치 · role 오값 400")
     void list_filters() throws Exception {
         mockMvc.perform(get(LIST_URL).param("keyword", TAG).param("role", "ADMIN_OPERATOR")
-                        .headers(authHeaders.admin(SUPER_CALLER)))
+                        .with(authHeaders.admin(SUPER_CALLER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].userPublicId").value(pid("T89EOP")));
 
         mockMvc.perform(get(LIST_URL).param("keyword", TAG).param("status", "WITHDRAWN")
-                        .headers(authHeaders.admin(SUPER_CALLER)))
+                        .with(authHeaders.admin(SUPER_CALLER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].userPublicId").value(pid("T89EWD")))
                 .andExpect(jsonPath("$.items[0].withdrawnAt").exists());
 
-        mockMvc.perform(get(LIST_URL).param("keyword", "t89e-super@").headers(authHeaders.admin(SUPER_CALLER)))
+        mockMvc.perform(get(LIST_URL).param("keyword", "t89e-super@").with(authHeaders.admin(SUPER_CALLER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCount").value(1))
                 .andExpect(jsonPath("$.items[0].email").value("t89e-super@test.local"));
 
-        mockMvc.perform(get(LIST_URL).param("role", "BUYER").headers(authHeaders.admin(SUPER_CALLER)))
+        mockMvc.perform(get(LIST_URL).param("role", "BUYER").with(authHeaders.admin(SUPER_CALLER)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
     }
 
     @Test
-    @DisplayName("⑤ /admin/me: SUPER_ADMIN+BUYER caller → superAdmin true·roles 전체 / ADMIN_OPERATOR caller → false / BUYER 토큰 403")
+    @DisplayName("⑤ /admin/me: SUPER_ADMIN+BUYER caller → superAdmin true·roles 전체 / ADMIN_OPERATOR caller → false / BUYER 토큰 401")
     void me_returnsCallerRoles() throws Exception {
-        mockMvc.perform(get(ME_URL).headers(authHeaders.admin(SUPER_CALLER)))
+        mockMvc.perform(get(ME_URL).with(authHeaders.admin(SUPER_CALLER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.userPublicId").value(pid("T89ESA")))
                 .andExpect(jsonPath("$.name").value(TAG + " 슈퍼"))
@@ -141,13 +141,13 @@ class AdminOperatorListIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.roles").value(org.hamcrest.Matchers.contains("SUPER_ADMIN", "BUYER")))
                 .andExpect(jsonPath("$.superAdmin").value(true));
 
-        mockMvc.perform(get(ME_URL).headers(authHeaders.admin(OPERATOR_CALLER)))
+        mockMvc.perform(get(ME_URL).with(authHeaders.admin(OPERATOR_CALLER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.superAdmin").value(false))
                 .andExpect(jsonPath("$.roles").value(org.hamcrest.Matchers.contains("ADMIN_OPERATOR")));
 
-        mockMvc.perform(get(ME_URL).headers(authHeaders.buyer(BUYER_CALLER)))
-                .andExpect(status().isForbidden());
+        mockMvc.perform(get(ME_URL).with(authHeaders.buyer(BUYER_CALLER)))
+                .andExpect(status().isUnauthorized());
     }
 
     // ---------- seed·helpers (? positional 바인딩·SQL injection 없음) ----------

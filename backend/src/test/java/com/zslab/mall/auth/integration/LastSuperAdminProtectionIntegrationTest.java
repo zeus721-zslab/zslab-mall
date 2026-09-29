@@ -34,7 +34,6 @@ class LastSuperAdminProtectionIntegrationTest extends AbstractIntegrationTest {
 
     private static final String SELF_WITHDRAW_URL = "/api/v1/users/me/withdraw";
     private static final String ADMIN_MEMBERS_URL = "/api/v1/admin/members/";
-    private static final String LAST_SUPER_ADMIN_MESSAGE = "마지막 슈퍼 관리자는 탈퇴하거나 권한을 해제할 수 없습니다.";
     private static final String REASON_BODY = "{\"reason\":\"D-230 탈퇴 슈퍼 관리자 역할 정리\"}";
 
     private static final long SUPER_A = 9731L;   // SUPER_ADMIN + BUYER(관리자 탈퇴 경로 대상이 되려면 BUYER 겸직 필요)
@@ -67,14 +66,13 @@ class LastSuperAdminProtectionIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("본인 탈퇴: 유일한 활성 슈퍼 관리자 → 409 LAST_SUPER_ADMIN·문구·withdrawn_at 미기록")
-    void selfWithdraw_lastSuperAdmin_returns409() throws Exception {
+    @DisplayName("본인 탈퇴: 유일한 활성 슈퍼 관리자가 관리자 쿠키로 호출 → 401 UNAUTHENTICATED·withdrawn_at 미기록")
+    void selfWithdraw_adminCookie_lastSuperAdmin_returns401() throws Exception {
         seed(() -> seedSuperAdmin(SUPER_A, PID_A, false, true));
 
-        mockMvc.perform(post(SELF_WITHDRAW_URL).headers(authHeaders.admin(SUPER_A)))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("LAST_SUPER_ADMIN"))
-                .andExpect(jsonPath("$.detail").value(LAST_SUPER_ADMIN_MESSAGE));
+        mockMvc.perform(post(SELF_WITHDRAW_URL).with(authHeaders.admin(SUPER_A)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
 
         assertThat(isWithdrawn(SUPER_A)).isFalse();
     }
@@ -89,7 +87,7 @@ class LastSuperAdminProtectionIntegrationTest extends AbstractIntegrationTest {
             seedUserRole(OPERATOR, "ADMIN_OPERATOR");
         });
 
-        mockMvc.perform(post(ADMIN_MEMBERS_URL + PID_A + "/withdraw").headers(authHeaders.admin(OPERATOR)))
+        mockMvc.perform(post(ADMIN_MEMBERS_URL + PID_A + "/withdraw").with(authHeaders.admin(OPERATOR)))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("MEMBER_ADMIN_ROLE_ASSIGNED"));
 
@@ -97,31 +95,32 @@ class LastSuperAdminProtectionIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("활성 슈퍼 관리자 2명: 본인 탈퇴 → 204·다른 1명 유지")
-    void selfWithdraw_twoSuperAdmins_allowed() throws Exception {
+    @DisplayName("활성 슈퍼 관리자 2명: 관리자 쿠키로 본인 탈퇴 → 401 UNAUTHENTICATED·탈퇴 미기록·2명 유지")
+    void selfWithdraw_adminCookie_twoSuperAdmins_returns401() throws Exception {
         seed(() -> {
             seedSuperAdmin(SUPER_A, PID_A, false, true);
             seedSuperAdmin(SUPER_B, PID_B, false, false);
         });
 
-        mockMvc.perform(post(SELF_WITHDRAW_URL).headers(authHeaders.admin(SUPER_A)))
-                .andExpect(status().isNoContent());
+        mockMvc.perform(post(SELF_WITHDRAW_URL).with(authHeaders.admin(SUPER_A)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
 
-        assertThat(isWithdrawn(SUPER_A)).isTrue();
-        assertThat(activeSuperAdminCount()).isEqualTo(1);
+        assertThat(isWithdrawn(SUPER_A)).isFalse();
+        assertThat(activeSuperAdminCount()).isEqualTo(2);
     }
 
     @Test
-    @DisplayName("탈퇴한 슈퍼 관리자 혼재(user_role 잔존·보유 2 / 활성 1): 활성 1명의 본인 탈퇴 → 409(탈퇴자는 인원에서 제외)")
-    void selfWithdraw_withWithdrawnSuperAdminMixed_returns409() throws Exception {
+    @DisplayName("탈퇴한 슈퍼 관리자 혼재(user_role 잔존·보유 2 / 활성 1): 활성 1명이 관리자 쿠키로 본인 탈퇴 → 401 UNAUTHENTICATED·탈퇴 미기록")
+    void selfWithdraw_adminCookie_withWithdrawnSuperAdminMixed_returns401() throws Exception {
         seed(() -> {
             seedSuperAdmin(SUPER_A, PID_A, false, true);
             seedSuperAdmin(SUPER_B, PID_B, true, false); // 탈퇴했지만 SUPER_ADMIN 매핑은 남아 있음(탈퇴는 user_role을 지우지 않는다)
         });
 
-        mockMvc.perform(post(SELF_WITHDRAW_URL).headers(authHeaders.admin(SUPER_A)))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("LAST_SUPER_ADMIN"));
+        mockMvc.perform(post(SELF_WITHDRAW_URL).with(authHeaders.admin(SUPER_A)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
 
         assertThat(isWithdrawn(SUPER_A)).isFalse();
     }
@@ -134,7 +133,7 @@ class LastSuperAdminProtectionIntegrationTest extends AbstractIntegrationTest {
             seedSuperAdmin(SUPER_B, PID_B, true, false);
         });
 
-        mockMvc.perform(delete("/api/v1/admin/users/" + PID_B + "/roles/SUPER_ADMIN").headers(authHeaders.admin(SUPER_A))
+        mockMvc.perform(delete("/api/v1/admin/users/" + PID_B + "/roles/SUPER_ADMIN").with(authHeaders.admin(SUPER_A))
                         .contentType(MediaType.APPLICATION_JSON).content(REASON_BODY))
                 .andExpect(status().isNoContent());
 

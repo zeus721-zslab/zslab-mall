@@ -120,12 +120,12 @@ class AdminOrderMemberStatsQueryControllerIntegrationTest extends AbstractIntegr
     }
 
     @Test
-    @DisplayName("T1 인가: 비인증 401 · BUYER 403 · ADMIN 200(2 엔드포인트)")
+    @DisplayName("T1 인가: 비인증 401 · BUYER 401 · ADMIN 200(2 엔드포인트)")
     void authorization() throws Exception {
         for (String url : List.of(ORDERS_URL, MEMBERS_URL)) {
             mockMvc.perform(get(url + PERIOD)).andExpect(status().isUnauthorized());
-            mockMvc.perform(get(url + PERIOD).headers(authHeaders.buyer(USER_BUYER_OLD))).andExpect(status().isForbidden());
-            mockMvc.perform(get(url + PERIOD).headers(authHeaders.admin(ADMIN_ID))).andExpect(status().isOk());
+            mockMvc.perform(get(url + PERIOD).with(authHeaders.buyer(USER_BUYER_OLD))).andExpect(status().isUnauthorized());
+            mockMvc.perform(get(url + PERIOD).with(authHeaders.admin(ADMIN_ID))).andExpect(status().isOk());
         }
     }
 
@@ -369,15 +369,15 @@ class AdminOrderMemberStatsQueryControllerIntegrationTest extends AbstractIntegr
     @DisplayName("T12 400: from>to · 허용 외 unit/compare · 날짜 형식 · 필수 누락(2 엔드포인트)")
     void badRequests() throws Exception {
         for (String url : List.of(ORDERS_URL, MEMBERS_URL)) {
-            mockMvc.perform(get(url + "?from=2018-01-14&to=2018-01-08").headers(authHeaders.admin(ADMIN_ID)))
+            mockMvc.perform(get(url + "?from=2018-01-14&to=2018-01-08").with(authHeaders.admin(ADMIN_ID)))
                     .andExpect(status().isBadRequest());
-            mockMvc.perform(get(url + PERIOD + "&unit=HOUR").headers(authHeaders.admin(ADMIN_ID)))
+            mockMvc.perform(get(url + PERIOD + "&unit=HOUR").with(authHeaders.admin(ADMIN_ID)))
                     .andExpect(status().isBadRequest());
-            mockMvc.perform(get(url + PERIOD + "&compare=LAST_MONTH").headers(authHeaders.admin(ADMIN_ID)))
+            mockMvc.perform(get(url + PERIOD + "&compare=LAST_MONTH").with(authHeaders.admin(ADMIN_ID)))
                     .andExpect(status().isBadRequest());
-            mockMvc.perform(get(url + "?from=2018/01/08&to=2018-01-14").headers(authHeaders.admin(ADMIN_ID)))
+            mockMvc.perform(get(url + "?from=2018/01/08&to=2018-01-14").with(authHeaders.admin(ADMIN_ID)))
                     .andExpect(status().isBadRequest());
-            mockMvc.perform(get(url + "?from=2018-01-08").headers(authHeaders.admin(ADMIN_ID)))
+            mockMvc.perform(get(url + "?from=2018-01-08").with(authHeaders.admin(ADMIN_ID)))
                     .andExpect(status().isBadRequest());
         }
     }
@@ -385,7 +385,7 @@ class AdminOrderMemberStatsQueryControllerIntegrationTest extends AbstractIntegr
     // ---------- helpers ----------
 
     private JsonNode fetch(String url) throws Exception {
-        String body = mockMvc.perform(get(url).headers(authHeaders.admin(ADMIN_ID)))
+        String body = mockMvc.perform(get(url).with(authHeaders.admin(ADMIN_ID)))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
         return objectMapper.readTree(body);
