@@ -2,9 +2,9 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import type { RouteLocationNormalized } from 'vue-router'
 import sellerVuetifyMiddleware from '#layers/seller/app/middleware/seller-vuetify'
 
-// Vuetify 로딩 조건(관리자 FE-22c 동형): 로그인 경로가 아니면서 셀러 세션(seller_token)이 아니면 ensureSellerVuetify를 호출하지 않는다.
+// Vuetify 로딩 조건(관리자 FE-22c 동형): 로그인 경로가 아니면서 셀러 세션(/seller/me 확인·D-235 F5)이 아니면 ensureSellerVuetify를 호출하지 않는다.
 const { sellerAuthMock, ensureSellerVuetifyMock } = vi.hoisted(() => ({
-  sellerAuthMock: { isAuthenticated: false, role: null as string | null },
+  sellerAuthMock: { isAuthenticated: false, role: null as string | null, ensureSession: vi.fn(async () => {}) },
   ensureSellerVuetifyMock: vi.fn(async () => {}),
 }))
 
@@ -28,7 +28,7 @@ describe('seller-vuetify 미들웨어', () => {
     expect(ensureSellerVuetifyMock).not.toHaveBeenCalled()
   })
 
-  it('seller_token role≠SELLER → Vuetify 미로드', async () => {
+  it('셀러 세션 role≠SELLER → Vuetify 미로드', async () => {
     sellerAuthMock.isAuthenticated = true
     sellerAuthMock.role = 'BUYER'
     await sellerVuetifyMiddleware(route('/seller'), from)

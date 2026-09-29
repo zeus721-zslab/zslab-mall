@@ -16,20 +16,12 @@ export interface CheckoutResult {
  * 새 키가 발급되어 신규 주문이 되며, 브라우저 재시도(동일 호출 반복)만 멱등 캐시(200)로 수렴한다.
  */
 export function useCheckout() {
-  const config = useRuntimeConfig()
-  const auth = useAuthStore()
+  const api = useBuyerApi()
 
   async function submit(request: CheckoutRequest): Promise<CheckoutResult> {
-    // API base 이원화(recon §2·store와 동일): SSR은 내부 직결, 브라우저는 동일 Origin 상대경로.
-    const baseURL = import.meta.server
-      ? `${config.apiInternalBase}/api`
-      : config.public.apiBase || '/api'
-
-    const response = await $fetch.raw<CheckoutResponse>('/v1/cart/checkout', {
-      baseURL,
+    const response = await api.raw<CheckoutResponse>('/v1/cart/checkout', {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${auth.token}`,
         'Idempotency-Key': crypto.randomUUID(),
       },
       body: request,
@@ -43,7 +35,7 @@ export function useCheckout() {
   }
 
   /**
-   * 모의 결제 콜백 전송(POST /api/v1/payments/mock-callback·BUYER Bearer·Track 93 D-198). 무인증 webhook(/api/webhooks/payments)은
+   * 모의 결제 콜백 전송(POST /api/v1/payments/mock-callback·BUYER 인증·Track 93 D-198). 무인증 webhook(/api/webhooks/payments)은
    * gateway가 외부 차단하므로 브라우저는 인가된 mock endpoint로 SUCCESS/FAILURE/CANCEL을 통지한다. attemptKey·callbackType만 보내며
    * provider·pgTid·occurredAt은 서버가 생성한다. 실패(4xx/5xx)는 throw해 호출부(try/catch)가 처리하고, 200은 void 반환한다.
    */
@@ -51,16 +43,9 @@ export function useCheckout() {
     attemptKey: string
     callbackType: 'SUCCESS' | 'FAILURE' | 'CANCEL'
   }): Promise<void> {
-    // API base 이원화(submit과 동일): SSR 내부 직결, 브라우저 동일 Origin 상대경로.
-    const baseURL = import.meta.server
-      ? `${config.apiInternalBase}/api`
-      : config.public.apiBase || '/api'
-
     const { attemptKey, callbackType } = params
-    await $fetch('/v1/payments/mock-callback', {
-      baseURL,
+    await api('/v1/payments/mock-callback', {
       method: 'POST',
-      headers: { Authorization: `Bearer ${auth.token}` },
       body: { attemptKey, callbackType },
     })
   }
@@ -71,14 +56,10 @@ export function useCheckout() {
    * 실패(401/404/422 — 이미 결제됨·취소됨 등)는 throw해 호출부가 안내한다.
    */
   async function retryPayment(orderPublicId: string, method: PaymentMethod): Promise<CheckoutResult> {
-    const baseURL = import.meta.server
-      ? `${config.apiInternalBase}/api`
-      : config.public.apiBase || '/api'
-
-    const response = await $fetch.raw<CheckoutResponse>(`/v1/orders/${orderPublicId}/payments`, {
-      baseURL,
+    // 템플릿 리터럴 경로는 nitro 타입드 라우트 추론이 과도해(TS2321) string으로 고정한다(useSellerApi 호출부 선례).
+    const path: string = `/v1/orders/${orderPublicId}/payments`
+    const response = await api.raw<CheckoutResponse>(path, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${auth.token}` },
       body: { method },
     })
 

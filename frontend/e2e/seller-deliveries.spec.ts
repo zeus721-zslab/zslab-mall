@@ -24,7 +24,7 @@ const TRACKING_NO_FORMAT_MESSAGE = '송장번호는 영문, 숫자, 하이픈(-)
 async function mockSellerDeliveries(page: Page, options: { rejectFirstPatch?: boolean } = {}): Promise<Captured> {
   const captured: Captured = { listQueries: [], delivered: [], patches: [] }
   await mockSellerMe(page)
-  await page.route((url) => /\/api\/v1\/deliveries\/dlv_[^/]+\/mark-delivered$/.test(url.pathname), (route) => {
+  await page.route((url) => /\/api\/v1\/seller\/deliveries\/dlv_[^/]+\/mark-delivered$/.test(url.pathname), (route) => {
     captured.delivered.push(route.request().url())
     return route.fulfill({ json: { deliveryPublicId: SHIPPING_ID, status: 'DELIVERED', carrier: 'HANJIN', trackingNo: 'E2E-TRK-0001' } })
   })
@@ -90,7 +90,7 @@ test.describe('셀러 배송 화면(90-B-3)', () => {
     await dialog.getByTestId('delivered-dialog-ok').click()
     await expect(page.getByTestId('seller-toaster')).toContainText('배송완료로 처리했습니다.')
     expect(captured.delivered).toHaveLength(1)
-    expect(captured.delivered[0]).toContain(`/api/v1/deliveries/${SHIPPING_ID}/mark-delivered`)
+    expect(captured.delivered[0]).toContain(`/api/v1/seller/deliveries/${SHIPPING_ID}/mark-delivered`)
     await expect(dialog).toBeHidden()
     await expect.poll(() => captured.listQueries.length).toBeGreaterThan(listCallsBefore)
   })

@@ -14,7 +14,7 @@ export interface CsvDownload {
 
 /**
  * 관리자 매출 통계 API(FE-34·D-181·useAdminDashboard 패턴). 요약·추이(sales)와 분해(breakdown)는 별도 호출이라 축·드릴다운 변경 시
- * breakdown만 다시 부른다. CSV는 Bearer 헤더가 필요해 직링크 대신 blob으로 받고 파일명은 Content-Disposition에서 추출한다.
+ * breakdown만 다시 부른다. CSV는 직링크 대신 blob으로 받고 파일명은 Content-Disposition에서 추출한다.
  * 상태(로딩·에러)는 페이지가 소유한다.
  */
 export function useAdminSalesStats() {

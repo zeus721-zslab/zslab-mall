@@ -2,9 +2,9 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import type { RouteLocationNormalized } from 'vue-router'
 import vuetifyMiddleware from '#layers/admin/app/middleware/vuetify'
 
-// Vuetify 로딩 조건(FE-22c·FE-22d): 로그인 경로가 아니면서 관리자 세션(admin_token)이 아니면 ensureVuetify를 호출하지 않는다.
+// Vuetify 로딩 조건(FE-22c·FE-22d): 로그인 경로가 아니면서 관리자 세션(/admin/me 확인·D-235 F5)이 아니면 ensureVuetify를 호출하지 않는다.
 const { adminAuthMock, ensureVuetifyMock } = vi.hoisted(() => ({
-  adminAuthMock: { isAuthenticated: false, role: null as string | null },
+  adminAuthMock: { isAuthenticated: false, role: null as string | null, ensureSession: vi.fn(async () => {}) },
   ensureVuetifyMock: vi.fn(async () => {}),
 }))
 
@@ -28,7 +28,7 @@ describe('vuetify 미들웨어', () => {
     expect(ensureVuetifyMock).not.toHaveBeenCalled()
   })
 
-  it('admin_token role≠ADMIN → Vuetify 미로드', async () => {
+  it('관리자 세션 role≠ADMIN → Vuetify 미로드', async () => {
     adminAuthMock.isAuthenticated = true
     adminAuthMock.role = 'BUYER'
     await vuetifyMiddleware(route('/admin'), from)

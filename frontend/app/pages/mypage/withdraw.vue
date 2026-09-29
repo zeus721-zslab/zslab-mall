@@ -20,7 +20,7 @@ async function handleWithdraw(): Promise<void> {
   try {
     await withdraw()
     // 세션 정리는 AppHeader.handleLogout과 동일 조합(auth·cart 순차) 후 홈 이동.
-    auth.logout()
+    await auth.logout()
     cart.clear()
     await navigateTo('/')
   } catch (withdrawError) {

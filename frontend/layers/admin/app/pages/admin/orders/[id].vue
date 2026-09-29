@@ -14,6 +14,7 @@ import {
 import type { AdminClaimRejectTarget } from '#layers/admin/app/components/admin/AdminClaimRejectDialog.vue'
 import { approveConfirmMessage, inspectionChip } from '#layers/admin/app/lib/admin-claim-view'
 import { formatDateTime } from '~/lib/utils/datetime'
+import { toRoleClaimAttachmentPath } from '~/lib/claim-attachment-path'
 import {
   ADMIN_CLAIM_STATUS_SEMANTIC,
   ADMIN_DELIVERY_CARRIER_LABEL,
@@ -101,7 +102,7 @@ function closeReconciliation(refresh: boolean): void {
 }
 
 // ---------- 클레임 승인(확인 다이얼로그) · 거부(사유 다이얼로그·FE-28 공용) → 기존 단건 API ----------
-// 첨부 사진 확대(FE-29·Track 81-B): 클릭한 원본 URL을 v-dialog로 띄운다.
+// 첨부 사진 확대(FE-29·Track 81-B): 클릭한 원본 URL(관리자 별칭 경로)을 v-dialog로 띄운다.
 const previewUrl = ref<string | null>(null)
 
 /** 품목 배송이 검수 불합격 재발송인지(BE는 품목 배송으로 최신 발송(OUTBOUND)을 내리므로 FAIL 반품이 있으면 그 송장이 재발송이다·D-170). */
@@ -427,9 +428,9 @@ function closeReject(refresh: boolean): void {
                     class="adm-claim-thumb"
                     :title="`첨부 사진 ${index + 1}`"
                     data-testid="claim-attachment-thumb"
-                    @click="previewUrl = url"
+                    @click="previewUrl = toRoleClaimAttachmentPath(url, 'admin')"
                   >
-                    <img :src="url" :alt="`첨부 사진 ${index + 1}`">
+                    <img :src="toRoleClaimAttachmentPath(url, 'admin')" :alt="`첨부 사진 ${index + 1}`">
                   </button>
                 </span>
                 <span class="text-medium-emphasis">

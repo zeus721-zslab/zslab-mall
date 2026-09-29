@@ -23,13 +23,13 @@ export const SELLER_LOGIN_NOTICE_PASSWORD_CHANGED = 'password-changed'
 
 /**
  * 셀러 비밀번호 변경 강제 상태 쿠키(D-3). 로그인 응답 passwordChangeRequired=true(임시 비밀번호 로그인)면 저장하고 seller 미들웨어가 판정한다.
- * seller_token과 같은 옵션(non-httpOnly·path /seller)이며 로그아웃 시 지운다. 구매자 password_change_required와 독립.
+ * non-httpOnly·path /seller이며 로그아웃·401 시 지운다. 구매자 password_change_required와 독립.
  */
 export const SELLER_PASSWORD_CHANGE_REQUIRED_COOKIE = 'seller_password_change_required'
 
 /**
  * 셀러 데모 로그인 서버 라우트(layers/seller/server/routes/_seller-demo). /api/**(backend 프록시)·/seller/**(CSR 페이지) 밖 경로.
- * status(GET) = { enabled } 버튼 표시 여부 · login(POST) = { token, passwordChangeRequired }.
+ * status(GET) = { enabled } 버튼 표시 여부 · login(POST) = { passwordChangeRequired } + BE Set-Cookie 전달(D-235 F9).
  */
 export const SELLER_DEMO_STATUS_PATH = '/_seller-demo/status'
 export const SELLER_DEMO_LOGIN_PATH = '/_seller-demo/login'

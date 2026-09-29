@@ -4,81 +4,89 @@ import {
   SELLER_PASSWORD_CHANGE_REQUIRED_COOKIE,
   SELLER_ROLE,
 } from '#layers/seller/app/lib/constants/auth'
-import { decodeJwtPayload } from '#layers/seller/app/lib/jwt'
-import type { JwtPayload } from '~/types/auth'
+import { applyCsrfHeader } from '~/lib/csrf'
 
-/** 셀러 세션 쿠키명. 사용자 세션(auth_token)·관리자 세션(admin_token)과 독립(FE-22d α 역할별 쿠키 패턴). */
-export const SELLER_TOKEN_COOKIE = 'seller_token'
-/** 쿠키 수명(초). BE JWT exp(1h)와 정렬(app/stores/auth.ts와 동일 기준). */
-const SELLER_TOKEN_MAX_AGE_SECONDS = 3600
+/** 변경 강제 상태 쿠키 수명(초). BE JWT exp(1h)와 정렬(app/stores/auth.ts와 동일 기준). */
+const SELLER_PASSWORD_CHANGE_REQUIRED_MAX_AGE_SECONDS = 3600
+const UNAUTHORIZED_STATUS = 401
 
-/** BE 로그인 응답 계약(/api/v1/auth/login → LoginResponse). 서버 라우트 데모 대행(/_seller-demo/login)도 같은 형태를 돌려준다. */
+/**
+ * BE 셀러 로그인 응답 계약(/api/v1/seller/auth/login → LoginResponse). 서버 라우트 데모 대행(/_seller-demo/login)도 같은 형태를 돌려준다.
+ * 인증은 응답 Set-Cookie(HttpOnly 셀러 쿠키)로 받으므로 본문 token은 읽지 않는다(D-235 F1).
+ */
 interface SellerLoginResponse {
-  token: string
   passwordChangeRequired?: boolean
 }
 
 /**
- * 셀러 세션 스토어(setup store·Track 90-A). 쿠키 path=/seller라 사용자·관리자 페이지 요청·document.cookie에 노출되지 않는다.
+ * 셀러 세션 스토어(setup store·Track 90-A·D-235 PR2). 인증은 BE 발급 HttpOnly 셀러 쿠키(__Secure-seller_at · Path /api/v1/seller)라 JS가 읽지 않고,
+ * 로그인 상태는 GET /api/v1/seller/me 결과로만 판정한다(F5). 로그인·로그아웃·401 처리는 셀러 상태만 다루며 구매자·관리자 상태에 손대지 않는다.
  * @pinia/nuxt는 루트 stores/만 auto-import하므로 소비처가 `#layers/seller/app/stores/sellerAuth`로 명시 import한다.
- * 로그인·로그아웃·401 처리는 이 레이어 쿠키만 다루며 auth_token·admin_token에 손대지 않는다.
  * passwordChangeRequired는 D-3 구매자형(강제 변경) — 임시 비밀번호 로그인이면 seller 미들웨어가 비밀번호 변경 경로로만 보낸다.
  */
 export const useSellerAuthStore = defineStore('sellerAuth', () => {
-  const cookieOptions = {
+  const passwordChangeRequiredCookie = useCookie<boolean | null>(SELLER_PASSWORD_CHANGE_REQUIRED_COOKIE, {
     path: SELLER_HOME_PATH,
-    sameSite: 'lax' as const,
+    sameSite: 'lax',
     secure: true,
-    maxAge: SELLER_TOKEN_MAX_AGE_SECONDS,
-  }
-  const token = useCookie<string | null>(SELLER_TOKEN_COOKIE, cookieOptions)
-  const passwordChangeRequiredCookie = useCookie<boolean | null>(SELLER_PASSWORD_CHANGE_REQUIRED_COOKIE, cookieOptions)
+    maxAge: SELLER_PASSWORD_CHANGE_REQUIRED_MAX_AGE_SECONDS,
+  })
   const passwordChangeRequired = computed<boolean>(() => passwordChangeRequiredCookie.value === true)
 
-  const payload = computed<JwtPayload | null>(() => (token.value ? decodeJwtPayload(token.value) : null))
-  const role = computed<string | null>(() => payload.value?.role ?? null)
-  const exp = computed<number | null>(() => payload.value?.exp ?? null)
-  const expired = computed<boolean>(() => (exp.value ? exp.value * 1000 < Date.now() : false))
-  const isAuthenticated = computed<boolean>(() => Boolean(token.value) && !expired.value)
+  /** 셀러 로그인 상태. /seller/me 200이면 true, 401(PENDING·TERMINATED·소속 없음 포함)이면 false, null은 아직 확인 전(또는 401 외 실패)이다. */
+  const signedIn = ref<boolean | null>(null)
+  const role = computed<string | null>(() => (signedIn.value ? SELLER_ROLE : null))
+  const isAuthenticated = computed<boolean>(() => signedIn.value === true)
 
   /**
    * 정지(SUSPENDED) 셀러 안내 상태(D-190). 셀러 API 403 SELLER_SUSPENDED를 받으면 켜진다. 세션은 유효(조회 가능)하므로 쿠키가 아닌
-   * 메모리 상태이며 로그아웃·새 로그인 시 지워진다. 셀러 `me` 조회 API가 아직 없어 진입 시점엔 알 수 없고 첫 쓰기 거부에서 드러난다.
+   * 메모리 상태이며 로그아웃·새 로그인 시 지워진다. 진입 시점에는 레이아웃의 /seller/me(useSellerMe)가 켠다.
    */
   const suspended = ref<boolean>(false)
 
   /**
-   * 셀러 로그인. POST /api/v1/auth/login body { email, password, role: SELLER } → { token, passwordChangeRequired }.
+   * 로그인 상태가 확인 전이면 GET /api/v1/seller/me로 1회 확인한다(seller·seller-vuetify 미들웨어). 401 로그인 이동은 미들웨어가 복귀 경로와 함께 하므로
+   * useSellerApi(401 시 즉시 이동)를 쓰지 않는다. 401 외 실패는 확인 전 상태로 두고 다음 호출에서 다시 확인한다.
+   */
+  async function ensureSession(): Promise<void> {
+    if (signedIn.value !== null) return
+    try {
+      await $fetch('/v1/seller/me', { baseURL: apiBase() })
+      signedIn.value = true
+    } catch (error) {
+      if ((error as { statusCode?: number }).statusCode === UNAUTHORIZED_STATUS) {
+        clearSession()
+        return
+      }
+      console.error('[sellerAuth] 셀러 로그인 상태 확인 실패(확인 전 상태 유지)', error)
+    }
+  }
+
+  /**
+   * 셀러 로그인. POST /api/v1/seller/auth/login body { email, password } → BE가 셀러 쿠키를 Set-Cookie로 발급한다.
    * /seller/**는 CSR 전용이라 브라우저 baseURL만 쓴다. 실패(RFC7807·상태 차단 포함 401 통합)는 $fetch가 throw하므로 호출부가 처리한다.
    */
   async function login(email: string, password: string): Promise<void> {
-    const config = useRuntimeConfig()
-    const response = await $fetch<SellerLoginResponse>('/v1/auth/login', {
-      baseURL: config.public.apiBase || '/api',
+    const response = await $fetch<SellerLoginResponse>('/v1/seller/auth/login', {
+      baseURL: apiBase(),
       method: 'POST',
-      body: { email, password, role: SELLER_ROLE },
+      body: { email, password },
     })
     storeLoginResponse(response)
   }
 
   /**
-   * 셀러 데모 로그인. Nuxt 서버 라우트가 env 계정으로 BE 로그인(SELLER)을 대행하므로 브라우저는 자격증명을 모른다.
-   * 응답 형태·role 검증·저장은 login과 동일 경로(storeLoginResponse)를 탄다. 미설정 404·BE 실패 401은 $fetch가 throw한다.
+   * 셀러 데모 로그인. Nuxt 서버 라우트가 env 계정으로 BE 셀러 로그인을 대행하고 BE Set-Cookie를 그대로 전달하므로 브라우저는 자격증명을 모른다.
+   * 응답 반영은 login과 동일 경로(storeLoginResponse)를 탄다. 미설정 404·BE 실패 401은 $fetch가 throw한다.
    */
   async function loginDemo(): Promise<void> {
     const response = await $fetch<SellerLoginResponse>(SELLER_DEMO_LOGIN_PATH, { method: 'POST' })
     storeLoginResponse(response)
   }
 
-  /**
-   * 로그인 응답 반영(login·loginDemo 공용). 토큰 role 클레임이 SELLER가 아니면 저장하지 않고 throw한다(BE는 요청 role로 발급하므로 방어 검증).
-   * 임시 비밀번호 로그인이면 변경 강제 상태를 켠다(D-3). 필드가 없는 응답은 false로 본다.
-   */
+  /** 로그인 응답 반영(login·loginDemo 공용). 임시 비밀번호 로그인이면 변경 강제 상태를 켠다(D-3). 필드가 없는 응답은 false로 본다. */
   function storeLoginResponse(response: SellerLoginResponse): void {
-    if (decodeJwtPayload(response.token)?.role !== SELLER_ROLE) {
-      throw new Error('셀러 토큰이 아닙니다')
-    }
-    token.value = response.token
+    signedIn.value = true
     passwordChangeRequiredCookie.value = response.passwordChangeRequired === true ? true : null
     suspended.value = false
   }
@@ -88,12 +96,45 @@ export const useSellerAuthStore = defineStore('sellerAuth', () => {
     suspended.value = true
   }
 
-  /** 셀러 로그아웃. seller_token·변경 강제 상태만 제거(auth_token·admin_token 유지). */
-  function logout(): void {
-    token.value = null
+  /** 셀러 로그아웃(F6). POST /api/v1/seller/auth/logout(CSRF 헤더 · 셀러 쿠키만 만료)을 호출한 뒤 상태를 초기화한다. */
+  async function logout(): Promise<void> {
+    try {
+      await $fetch('/v1/seller/auth/logout', {
+        baseURL: apiBase(),
+        method: 'POST',
+        onRequest({ options }) {
+          applyCsrfHeader(options)
+        },
+      })
+    } catch (error) {
+      // 로그아웃 요청 실패가 화면 로그아웃을 막지 않도록 기록만 하고 상태는 초기화한다.
+      console.warn('[sellerAuth] 로그아웃 요청 실패(로컬 상태만 초기화)', error)
+    }
+    clearSession()
+  }
+
+  /** 셀러 상태·변경 강제 상태만 로그아웃으로 둔다(로그아웃·셀러 API 401 공용). */
+  function clearSession(): void {
+    signedIn.value = false
     passwordChangeRequiredCookie.value = null
     suspended.value = false
   }
 
-  return { token, role, exp, expired, isAuthenticated, passwordChangeRequired, suspended, login, loginDemo, markSuspended, logout }
+  function apiBase(): string {
+    return useRuntimeConfig().public.apiBase || '/api'
+  }
+
+  return {
+    signedIn,
+    role,
+    isAuthenticated,
+    passwordChangeRequired,
+    suspended,
+    ensureSession,
+    login,
+    loginDemo,
+    markSuspended,
+    logout,
+    clearSession,
+  }
 })

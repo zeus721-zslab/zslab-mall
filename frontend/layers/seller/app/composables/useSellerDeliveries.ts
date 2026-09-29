@@ -7,7 +7,7 @@ import type { SellerDeliveryResponse } from '#layers/seller/app/types/seller-ord
 import { toSellerDeliveryApiParams } from '#layers/seller/app/lib/seller-delivery-query'
 
 /**
- * 셀러 배송 API 호출 모음(Track 90-B-3·D-191 목록·송장 정정 + 기존 배송완료). 전부 useSellerApi(seller_token Bearer·401/403 SELLER_SUSPENDED 분기)
+ * 셀러 배송 API 호출 모음(Track 90-B-3·D-191 목록·송장 정정 + 기존 배송완료). 전부 useSellerApi(셀러 쿠키 인증·CSRF 헤더·401/403 SELLER_SUSPENDED 분기)
  * 경유이며 상태(로딩·에러)는 호출부(페이지·다이얼로그)가 소유한다.
  */
 export function useSellerDeliveries() {
@@ -24,9 +24,9 @@ export function useSellerDeliveries() {
     return api<SellerDeliveryResponse>(path, { method: 'PATCH', body })
   }
 
-  /** 배송완료(셀러 기존 쓰기·/deliveries prefix). 비-SHIPPING 422·타 셀러 404·정지 셀러 403은 throw. */
+  /** 배송완료(셀러 접두사 별칭·D-235). 비-SHIPPING 422·타 셀러 404·정지 셀러 403은 throw. */
   function markDelivered(deliveryPublicId: string): Promise<SellerDeliveryResponse> {
-    const path: string = `/v1/deliveries/${deliveryPublicId}/mark-delivered`
+    const path: string = `/v1/seller/deliveries/${deliveryPublicId}/mark-delivered`
     return api<SellerDeliveryResponse>(path, { method: 'POST' })
   }
 

@@ -13,7 +13,7 @@ export interface SellerCsvDownload {
 
 /**
  * 셀러 매출 통계 API(Track 90-E-1·D-200·관리자 useAdminSalesStats 복제). 요약·추이(sales)와 분해(breakdown)는 별도 호출이라 축만 바뀌면
- * breakdown만 다시 부른다. CSV(export)는 Bearer 헤더가 필요해 직링크 대신 blob으로 받고 파일명은 Content-Disposition에서 추출한다.
+ * breakdown만 다시 부른다. CSV(export)는 직링크 대신 blob으로 받고 파일명은 Content-Disposition에서 추출한다.
  * 셀러는 리졸버가 식별하므로 셀러 파라미터가 없다. 상태(로딩·에러)는 페이지가 소유한다.
  */
 export function useSellerSalesStats() {

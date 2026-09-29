@@ -19,7 +19,7 @@ import { toAdminSellerApiParams } from '#layers/admin/app/lib/admin-seller-query
 import { useAdminApi } from '#layers/admin/app/composables/useAdminApi'
 
 /**
- * 관리자 셀러 관리 API 호출 모음(FE-40·D-187 BE·useAdminMembers 패턴). 전부 useAdminApi(admin_token Bearer·401 처리) 경유이며
+ * 관리자 셀러 관리 API 호출 모음(FE-40·D-187 BE·useAdminMembers 패턴). 전부 useAdminApi(관리자 쿠키 인증·CSRF 헤더·401 처리) 경유이며
  * 상태(로딩·에러)는 호출부가 소유한다. 기존 드롭다운용 전량 목록(GET /admin/sellers)은 useAdminProducts·useAdminSettlements가 계속 쓴다.
  */
 export function useAdminSellers() {

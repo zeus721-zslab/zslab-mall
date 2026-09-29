@@ -2,7 +2,7 @@ import type { SellerClaimDetail, SellerClaimListQuery, SellerClaimListResponse }
 import { toSellerClaimApiParams } from '#layers/seller/app/lib/seller-claim-query'
 
 /**
- * 셀러 클레임 API 호출 모음(Track 90-D-1·조회 전용). 전부 useSellerApi(seller_token Bearer·401/403 SELLER_SUSPENDED 분기) 경유이며
+ * 셀러 클레임 API 호출 모음(Track 90-D-1·조회 전용). 전부 useSellerApi(셀러 쿠키 인증·CSRF 헤더·401/403 SELLER_SUSPENDED 분기) 경유이며
  * 상태(로딩·에러)는 호출부(페이지)가 소유한다. 처리(승인·거부·검수)는 셀러 화면에 없다 — 관리자 전용.
  */
 export function useSellerClaims() {

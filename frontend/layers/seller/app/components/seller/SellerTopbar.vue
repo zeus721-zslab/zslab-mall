@@ -6,13 +6,11 @@ import { useSellerAuthStore } from '#layers/seller/app/stores/sellerAuth'
 import { useSellerMe } from '#layers/seller/app/composables/useSellerMe'
 import { SELLER_ROLE_LABEL, SELLER_STATUS_LABEL, SELLER_STATUS_SEMANTIC } from '#layers/seller/app/lib/constants/seller-me'
 import { semanticChipClass } from '#layers/seller/app/lib/constants/semantic'
-import type { Profile } from '~/types/user'
 
 // 셀러 상단바(Track 90-A·관리자 AdminTopbar 동형): 좌측 브레드크럼(seller-menu 기준 그룹 › 메뉴), 우측 상호·상태 chip + 아바타 메뉴(이름/이메일·역할·로그아웃).
-// 계정 식별은 GET /users/me(publicId·email·name)·소속 셀러(상호·상태·역할)는 GET /seller/me(D-191·레이아웃이 로드한 useSellerMe 공유 상태).
+// 계정 식별(이름·이메일)·소속 셀러(상호·상태·역할)는 모두 GET /seller/me(D-191·D-235·레이아웃이 로드한 useSellerMe 공유 상태).
 const emit = defineEmits<{ toggleSidebar: [] }>()
 const sellerAuth = useSellerAuthStore()
-const sellerApi = useSellerApi()
 const route = useRoute()
 const { me: sellerMe } = useSellerMe()
 
@@ -21,14 +19,10 @@ const statusLabel = computed<string>(() => (sellerMe.value ? SELLER_STATUS_LABEL
 const statusChipClass = computed<string>(() => (sellerMe.value ? semanticChipClass(SELLER_STATUS_SEMANTIC[sellerMe.value.status]) : ''))
 const roleLabel = computed<string>(() => (sellerMe.value ? SELLER_ROLE_LABEL[sellerMe.value.roleCode] : ''))
 
-// 조회 실패(401은 useSellerApi가 로그인으로 보냄·그 외)는 상단바 표시만 비우고 셸 렌더는 계속한다.
-const { data: profile, error: profileError } = useAsyncData<Profile>('seller-profile', () => sellerApi<Profile>('/v1/users/me'))
-const displayName = computed<string>(() => {
-  if (profileError.value || !profile.value) return ''
-  return profile.value.name || profile.value.email
-})
+// 이름·이메일도 같은 GET /seller/me 응답에서 읽는다(D-235 · /users/me 대체). 조회 실패(sellerMe null)는 상단바 표시만 비우고 셸 렌더는 계속한다.
+const displayName = computed<string>(() => sellerMe.value?.name || sellerMe.value?.email || '')
 // 이름이 있을 때만 이메일을 부제로(제목이 이미 이메일이면 중복 표시 방지)
-const displayEmail = computed<string>(() => (profileError.value || !profile.value?.name ? '' : profile.value.email))
+const displayEmail = computed<string>(() => (sellerMe.value?.name ? sellerMe.value.email ?? '' : ''))
 // 아바타 이니셜: 이름(또는 이메일) 첫 글자. 프로필 미도착 시 빈 아바타.
 const avatarInitial = computed<string>(() => displayName.value.charAt(0).toUpperCase())
 
@@ -43,9 +37,9 @@ const breadcrumbs = computed<string[]>(() => {
   return []
 })
 
-// 로그아웃: seller_token만 비운다(auth_token·admin_token 무관). 대상이 /seller/login이라 이탈 가드(전체 새로고침) 미발동·이후 /seller/**는 미들웨어가 다시 가드한다.
+// 로그아웃: 셀러 쿠키·상태만 비운다(구매자·관리자 무관·D-235 F6). 대상이 /seller/login이라 이탈 가드(전체 새로고침) 미발동·이후 /seller/**는 미들웨어가 다시 가드한다.
 async function handleLogout(): Promise<void> {
-  sellerAuth.logout()
+  await sellerAuth.logout()
   await navigateTo(SELLER_LOGIN_PATH)
 }
 </script>

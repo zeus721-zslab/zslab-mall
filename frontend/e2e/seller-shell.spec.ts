@@ -7,6 +7,10 @@ import { loginAs } from './helpers/login'
  */
 const SELLER_EMAIL = process.env.SELLER_E2E_EMAIL
 const SELLER_PASSWORD = process.env.SELLER_E2E_PASSWORD
+/** BE 발급 HttpOnly 역할 쿠키(D-235 S3). */
+const SELLER_SESSION_COOKIE = '__Secure-seller_at'
+const BUYER_SESSION_COOKIE = '__Secure-buyer_at'
+const ADMIN_SESSION_COOKIE = '__Secure-admin_at'
 
 /** Vuetify 전역 시트(vuetify/styles의 .v-application 규칙 또는 런타임 테마 시트) 개수 — 누수 판정 지표(admin-shell과 동일 기준). */
 function countVuetifySheets(page: Page): Promise<number> {
@@ -54,7 +58,7 @@ test.describe('셀러 셸 — 공개 경로', () => {
 test.describe('셀러 셸 — 셀러 계정', () => {
   test.skip(!SELLER_EMAIL || !SELLER_PASSWORD, 'SELLER_E2E_EMAIL / SELLER_E2E_PASSWORD 미설정')
 
-  test('③ 셀러 로그인 → /seller 셸(사이드바·상단바·홈) · seller_token path=/seller · 타 세션 쿠키 미생성 · 로그아웃', async ({ page, context }) => {
+  test('③ 셀러 로그인 → /seller 셸(사이드바·상단바·홈) · 셀러 쿠키 path=/api/v1/seller · 타 세션 쿠키 미생성 · 로그아웃', async ({ page, context }) => {
     await loginAsSeller(page)
     await expect(page.getByTestId('seller-sidebar')).toBeVisible()
     await expect(page.getByTestId('seller-topbar')).toBeVisible()
@@ -71,14 +75,14 @@ test.describe('셀러 셸 — 셀러 계정', () => {
     await expect(sidebar.locator('a[href="/seller/settings/password"]')).toHaveCount(1)
     await expect(sidebar.locator('a[href="/seller/settings/bank-account"]')).toHaveCount(1)
     const cookies = await context.cookies()
-    expect(cookies.find((cookie) => cookie.name === 'seller_token')?.path).toBe('/seller')
-    expect(cookies.some((cookie) => cookie.name === 'auth_token')).toBe(false)
-    expect(cookies.some((cookie) => cookie.name === 'admin_token')).toBe(false)
-    // 상단바 계정 메뉴 → 로그아웃 → /seller/login · seller_token 제거
+    expect(cookies.find((cookie) => cookie.name === SELLER_SESSION_COOKIE)?.path).toBe('/api/v1/seller')
+    expect(cookies.some((cookie) => cookie.name === BUYER_SESSION_COOKIE)).toBe(false)
+    expect(cookies.some((cookie) => cookie.name === ADMIN_SESSION_COOKIE)).toBe(false)
+    // 상단바 계정 메뉴 → 로그아웃 → /seller/login · 셀러 쿠키 제거
     await page.getByTestId('seller-account-menu').click()
     await page.getByTestId('seller-logout').click()
     await page.waitForURL(/\/seller\/login/)
-    expect((await context.cookies()).some((cookie) => cookie.name === 'seller_token')).toBe(false)
+    expect((await context.cookies()).some((cookie) => cookie.name === SELLER_SESSION_COOKIE)).toBe(false)
   })
 
   test('④ 셀러 밖 뒤로가기는 전체 새로고침(Vuetify 시트 0·폰트·높이 원복)', async ({ page }) => {
@@ -105,7 +109,7 @@ test.describe('셀러 셸 — 셀러 계정', () => {
 })
 
 test.describe('셀러 데모 로그인', () => {
-  test('⑤ 셀러 데모 로그인 버튼 → 200 → /seller 셸 진입 · seller_token path=/seller · auth_token 미생성', async ({ page, context }) => {
+  test('⑤ 셀러 데모 로그인 버튼 → 200 → /seller 셸 진입 · 셀러 쿠키 path=/api/v1/seller · 구매자 쿠키 미생성', async ({ page, context }) => {
     await page.goto('/seller/login')
     await page.waitForLoadState('networkidle')
     const demoButton = page.getByTestId('seller-demo-login')
@@ -120,13 +124,13 @@ test.describe('셀러 데모 로그인', () => {
     await expect(page.getByTestId('seller-sidebar')).toBeVisible()
     await expect(page.getByTestId('seller-dashboard')).toBeVisible()
     const cookies = await context.cookies()
-    expect(cookies.find((cookie) => cookie.name === 'seller_token')?.path).toBe('/seller')
-    expect(cookies.some((cookie) => cookie.name === 'auth_token')).toBe(false)
+    expect(cookies.find((cookie) => cookie.name === SELLER_SESSION_COOKIE)?.path).toBe('/api/v1/seller')
+    expect(cookies.some((cookie) => cookie.name === BUYER_SESSION_COOKIE)).toBe(false)
   })
 })
 
 test.describe('셀러 셸 — 세션 격리', () => {
-  test('⑥ BUYER 세션으로 /seller 접근 → /seller/login 도착·auth_token 유지·seller_token 없음·뒤로가기 시 Vuetify 시트 0', async ({ page, context }) => {
+  test('⑥ BUYER 세션으로 /seller 접근 → /seller/login 도착·구매자 쿠키 유지·셀러 쿠키 없음·뒤로가기 시 Vuetify 시트 0', async ({ page, context }) => {
     await loginAs(page, 'BUYER')
     // 뒤로가기 검증을 위해 사용자 페이지를 히스토리에 먼저 둔다
     await page.goto('/')
@@ -136,8 +140,8 @@ test.describe('셀러 셸 — 세션 격리', () => {
     await page.waitForLoadState('networkidle')
     expect(await page.locator('#seller-email').count()).toBe(1)
     const cookies = await context.cookies()
-    expect(cookies.some((cookie) => cookie.name === 'auth_token')).toBe(true)
-    expect(cookies.some((cookie) => cookie.name === 'seller_token')).toBe(false)
+    expect(cookies.some((cookie) => cookie.name === BUYER_SESSION_COOKIE)).toBe(true)
+    expect(cookies.some((cookie) => cookie.name === SELLER_SESSION_COOKIE)).toBe(false)
     // /seller/login(Vuetify 로드됨)에서 뒤로가기로 사용자 페이지 → 이탈 가드 전체 새로고침 → Vuetify 시트 0
     await page.goBack()
     await page.waitForURL((url) => !url.pathname.startsWith('/seller'))

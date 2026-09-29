@@ -8,7 +8,7 @@ import { toReconciliationApiParams } from '#layers/admin/app/lib/admin-reconcili
 import { useAdminApi } from '#layers/admin/app/composables/useAdminApi'
 
 /**
- * 관리자 불일치 API 호출 모음(Track 104-2 FE-66·BE D-216). useAdminApi(admin_token Bearer·401 처리) 경유이며 상태는 호출부가 소유한다.
+ * 관리자 불일치 API 호출 모음(Track 104-2 FE-66·BE D-216). useAdminApi(관리자 쿠키 인증·CSRF 헤더·401 처리) 경유이며 상태는 호출부가 소유한다.
  * 해결은 메모 필수(400)·이미 해결 422(RECONCILIATION_ISSUE_INVALID_STATE)·미존재 404를 throw한다.
  */
 export function useAdminReconciliationIssues() {

@@ -7,7 +7,7 @@ export const BUYER_ROLE = 'BUYER'
 
 /**
  * 비밀번호 변경 강제 상태 쿠키(Track 84·D-178). 로그인 응답 passwordChangeRequired=true(임시 비밀번호 로그인)면 '1'을 저장하고
- * 전역 미들웨어가 비밀번호 변경 페이지로 보낸다. auth_token과 같은 옵션(non-httpOnly·path /)이며 로그아웃·변경 완료 시 지운다.
+ * 전역 미들웨어가 비밀번호 변경 페이지로 보낸다. non-httpOnly·path /이며 로그아웃·401·변경 완료 시 지운다.
  */
 export const PASSWORD_CHANGE_REQUIRED_COOKIE = 'password_change_required'
 /** 강제 이동 대상(비밀번호 변경 페이지)·이동 사유 query(안내 문구 표시). */
@@ -20,7 +20,7 @@ export const LOGIN_NOTICE_PASSWORD_CHANGED = 'password-changed'
 
 /**
  * 구매자 데모 로그인 서버 라우트(FE-43·server/routes/_demo). /api/**(backend 프록시) 밖 경로.
- * status(GET) = { enabled } 버튼 표시 여부 · login(POST) = { token, passwordChangeRequired }. 자격증명은 서버 비공개 runtimeConfig에만 있다.
+ * status(GET) = { enabled } 버튼 표시 여부 · login(POST) = { passwordChangeRequired } + BE Set-Cookie 전달(D-235 F9). 자격증명은 서버 비공개 runtimeConfig에만 있다.
  */
 export const DEMO_STATUS_PATH = '/_demo/status'
 export const DEMO_LOGIN_PATH = '/_demo/login'

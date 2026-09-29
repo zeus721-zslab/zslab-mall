@@ -15,7 +15,7 @@ import type { CreateRequestBody, ImagesRequestBody, UpdateRequestBody, VariantsR
 import { useAdminApi } from '#layers/admin/app/composables/useAdminApi'
 
 /**
- * 관리자 상품 관리 API 호출 모음(FE-25·Track 76 BE). 전부 useAdminApi(admin_token Bearer·401 처리) 경유이며 상태(로딩·에러)는
+ * 관리자 상품 관리 API 호출 모음(FE-25·Track 76 BE). 전부 useAdminApi(관리자 쿠키 인증·CSRF 헤더·401 처리) 경유이며 상태(로딩·에러)는
  * 호출부(페이지)가 소유한다 — 목록·행 갱신·원복 흐름이 화면 로직이기 때문.
  *
  * <p>상태 전환은 목표 상태로 BE 경로를 분기한다: PENDING→SALE=approve·PENDING→REJECTED=reject·그 외 SALE|STOPPED=sale-status.

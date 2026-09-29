@@ -7,6 +7,9 @@ import { loginAs } from './helpers/login'
  */
 const ADMIN_EMAIL = process.env.ADMIN_E2E_EMAIL
 const ADMIN_PASSWORD = process.env.ADMIN_E2E_PASSWORD
+/** BE 발급 HttpOnly 역할 쿠키(D-235 S3). */
+const ADMIN_SESSION_COOKIE = '__Secure-admin_at'
+const BUYER_SESSION_COOKIE = '__Secure-buyer_at'
 
 /** Vuetify 전역 시트(vuetify/styles의 .v-application 규칙 또는 런타임 테마 시트) 개수 — 누수 판정 지표. */
 function countVuetifySheets(page: Page): Promise<number> {
@@ -96,7 +99,7 @@ test.describe('관리자 셸', () => {
     expect(after.height).toBe(baseline.height)
   })
 
-  test('③ BUYER 세션으로 /admin 접근 → /admin/login 도착·auth_token 유지·뒤로가기 시 Vuetify 시트 0', async ({ page, context }) => {
+  test('③ BUYER 세션으로 /admin 접근 → /admin/login 도착·구매자 쿠키 유지·뒤로가기 시 Vuetify 시트 0', async ({ page, context }) => {
     await loginAs(page, 'BUYER')
     // 뒤로가기 검증을 위해 사용자 페이지를 히스토리에 먼저 둔다
     await page.goto('/')
@@ -106,8 +109,8 @@ test.describe('관리자 셸', () => {
     await page.waitForLoadState('networkidle')
     expect(await page.locator('#admin-email').count()).toBe(1)
     const cookiesAfterRedirect = await context.cookies()
-    expect(cookiesAfterRedirect.some((cookie) => cookie.name === 'auth_token')).toBe(true)
-    expect(cookiesAfterRedirect.some((cookie) => cookie.name === 'admin_token')).toBe(false)
+    expect(cookiesAfterRedirect.some((cookie) => cookie.name === BUYER_SESSION_COOKIE)).toBe(true)
+    expect(cookiesAfterRedirect.some((cookie) => cookie.name === ADMIN_SESSION_COOKIE)).toBe(false)
     // /admin/login(Vuetify 로드됨)에서 뒤로가기로 사용자 페이지 → 이탈 가드 전체 새로고침 → Vuetify 시트 0
     await page.goBack()
     await page.waitForURL((url) => !url.pathname.startsWith('/admin'))
@@ -115,28 +118,28 @@ test.describe('관리자 셸', () => {
     expect(await countVuetifySheets(page)).toBe(0)
   })
 
-  test('④ 동시 세션: 관리자 로그인 → 사용자 로그인 → 양쪽 유지 → 관리자 로그아웃 후 사용자 세션 유지·사용자 페이지에 admin_token 미노출', async ({ page, context }) => {
+  test('④ 동시 세션: 관리자 로그인 → 사용자 로그인 → 양쪽 유지 → 관리자 로그아웃 후 사용자 세션 유지·역할 쿠키는 JS에 보이지 않음', async ({ page, context }) => {
     await loginAsAdmin(page)
     // 사용자 로그인(동일 브라우저·전체 로드)
     await loginAs(page, 'BUYER')
     await page.goto('/')
     await page.waitForLoadState('networkidle')
     const both = await context.cookies()
-    expect(both.find((cookie) => cookie.name === 'admin_token')?.path).toBe('/admin')
-    expect(both.some((cookie) => cookie.name === 'auth_token')).toBe(true)
-    // 사용자 페이지 document.cookie에 admin_token 미노출(path=/admin)
+    expect(both.find((cookie) => cookie.name === ADMIN_SESSION_COOKIE)?.path).toBe('/api/v1/admin')
+    expect(both.some((cookie) => cookie.name === BUYER_SESSION_COOKIE)).toBe(true)
+    // 역할 쿠키는 HttpOnly라 사용자 페이지 document.cookie에 보이지 않는다(D-235 S3)
     const userPageCookie = await page.evaluate(() => document.cookie)
-    expect(userPageCookie).not.toContain('admin_token')
-    expect(userPageCookie).toContain('auth_token')
-    // 관리자 세션 유지 확인 → 로그아웃 → admin_token만 제거
+    expect(userPageCookie).not.toContain(ADMIN_SESSION_COOKIE)
+    expect(userPageCookie).not.toContain(BUYER_SESSION_COOKIE)
+    // 관리자 세션 유지 확인 → 로그아웃 → 관리자 쿠키만 제거
     await page.goto('/admin')
     await expect(page.getByTestId('admin-topbar')).toBeVisible()
     await page.getByTestId('admin-account-menu').click()
     await page.getByTestId('admin-logout').click()
     await page.waitForURL(/\/admin\/login/)
     const afterLogout = await context.cookies()
-    expect(afterLogout.some((cookie) => cookie.name === 'admin_token')).toBe(false)
-    expect(afterLogout.some((cookie) => cookie.name === 'auth_token')).toBe(true)
+    expect(afterLogout.some((cookie) => cookie.name === ADMIN_SESSION_COOKIE)).toBe(false)
+    expect(afterLogout.some((cookie) => cookie.name === BUYER_SESSION_COOKIE)).toBe(true)
     // 사용자 세션은 살아 있다(/mypage 진입 가능)
     await page.goto('/mypage')
     await page.waitForURL((url) => url.pathname === '/mypage')
@@ -176,7 +179,7 @@ test.describe('관리자 셸', () => {
 
 // ADMIN_E2E_* 자격증명 없이도 돌아야 하므로 위 describe(skip 조건)와 분리한다.
 test.describe('관리자 데모 로그인 (FE-23)', () => {
-  test('⑥ 관리자 데모 로그인 버튼 → /admin 셸 진입 · 사용자 auth_token 미생성(FE-23)', async ({ page, context }) => {
+  test('⑥ 관리자 데모 로그인 버튼 → /admin 셸 진입 · 관리자 쿠키 생성 · 구매자 쿠키 미생성(FE-23)', async ({ page, context }) => {
     await page.goto('/admin/login')
     await page.waitForLoadState('networkidle')
     const demoButton = page.getByTestId('admin-demo-login')
@@ -186,7 +189,7 @@ test.describe('관리자 데모 로그인 (FE-23)', () => {
     await page.waitForURL(/\/admin$/)
     await expect(page.getByTestId('admin-sidebar')).toBeVisible()
     const cookies = await context.cookies()
-    expect(cookies.find((cookie) => cookie.name === 'admin_token')?.path).toBe('/admin')
-    expect(cookies.some((cookie) => cookie.name === 'auth_token')).toBe(false)
+    expect(cookies.find((cookie) => cookie.name === ADMIN_SESSION_COOKIE)?.path).toBe('/api/v1/admin')
+    expect(cookies.some((cookie) => cookie.name === BUYER_SESSION_COOKIE)).toBe(false)
   })
 })

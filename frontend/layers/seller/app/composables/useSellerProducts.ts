@@ -16,7 +16,7 @@ import { toSellerProductApiParams } from '#layers/seller/app/lib/seller-product-
 import { toSaleStatusTarget } from '#layers/seller/app/lib/seller-product-sale-status'
 
 /**
- * 셀러 상품 API 호출 모음(Track 90-C-3 조회 + 90-C-4 등록·수정·업로드). 전부 useSellerApi(seller_token Bearer·401/403 SELLER_SUSPENDED 분기)
+ * 셀러 상품 API 호출 모음(Track 90-C-3 조회 + 90-C-4 등록·수정·업로드). 전부 useSellerApi(셀러 쿠키 인증·CSRF 헤더·401/403 SELLER_SUSPENDED 분기)
  * 경유이며 상태(로딩·에러)는 호출부(페이지·폼)가 소유한다. 판매중지·재판매·상품 단위 수동 품절은 셀러가 직접 처리한다(Track 96-5·D-206).
  * 승인·거부·삭제·재고 delta는 셀러에게 없다(관리자 소관·BE 계약).
  */

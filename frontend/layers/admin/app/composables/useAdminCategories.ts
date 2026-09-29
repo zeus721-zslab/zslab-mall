@@ -7,7 +7,7 @@ import type {
 import { useAdminApi } from '#layers/admin/app/composables/useAdminApi'
 
 /**
- * 관리자 카테고리 관리 API 호출 모음(FE-38·Track 89-C BE). 전부 useAdminApi(admin_token Bearer·401 처리) 경유이며 상태(로딩·에러)는
+ * 관리자 카테고리 관리 API 호출 모음(FE-38·Track 89-C BE). 전부 useAdminApi(관리자 쿠키 인증·CSRF 헤더·401 처리) 경유이며 상태(로딩·에러)는
  * 호출부(페이지·다이얼로그)가 소유한다. 수정·삭제·정렬은 204(본문 없음) → 호출부가 목록을 재조회한다.
  */
 export function useAdminCategories() {

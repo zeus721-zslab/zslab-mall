@@ -85,7 +85,7 @@ describe('SellerClaimAttachmentImage(blob 로더)', () => {
     return { ok: true, status: 200, blob: () => Promise.resolve(new Blob(['png'])) } as unknown as Response
   }
 
-  it('성공: Bearer 헤더로 fetch → object URL을 img src로 · 클릭 → open(페이로드 없음·URL을 부모에 넘기지 않음) · 언마운트 시 revokeObjectURL', async () => {
+  it('성공: 셀러 별칭 경로로 fetch(Authorization 없음·쿠키 인증) → object URL을 img src로 · 클릭 → open(페이로드 없음·URL을 부모에 넘기지 않음) · 언마운트 시 revokeObjectURL', async () => {
     fetchMock.mockResolvedValue(okResponse())
     const wrapper = await mountSuspended(SellerClaimAttachmentImage, {
       props: { url: '/api/v1/files/claims/2026/09/A.png', index: 0 },
@@ -95,8 +95,8 @@ describe('SellerClaimAttachmentImage(blob 로더)', () => {
     await flushPromises()
     expect(fetchMock).toHaveBeenCalledTimes(1)
     const [url, init] = fetchMock.mock.calls[0] ?? []
-    expect(url).toBe('/api/v1/files/claims/2026/09/A.png')
-    expect((init?.headers as Record<string, string>).Authorization).toBe('Bearer seller-jwt')
+    expect(url).toBe('/api/v1/seller/files/claims/2026/09/A.png')
+    expect(init?.headers).toBeUndefined()
     expect(init?.cache).toBe('no-store')
     const img = body().querySelector<HTMLImageElement>('[data-testid="claim-attachment-thumb"] img')
     expect(img?.getAttribute('src')).toBe('blob:mock-1')

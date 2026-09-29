@@ -5,15 +5,7 @@ import type { OrderItemStatusFilter } from '~/lib/constants/order-tabs'
 const DEFAULT_PAGE_SIZE = 10
 
 /**
- * API base 이원화(useCheckout·useProductList와 동일): SSR은 내부 직결(apiInternalBase), 브라우저는 동일 Origin 상대경로.
- */
-function resolveApiBase(): string {
-  const config = useRuntimeConfig()
-  return import.meta.server ? `${config.apiInternalBase}/api` : config.public.apiBase || '/api'
-}
-
-/**
- * 구매자 주문 목록 조회(GET /api/v1/orders?page&size). BUYER 전용 API라 Authorization: Bearer를 주입한다
+ * 구매자 주문 목록 조회(GET /api/v1/orders?page&size). BUYER 전용 API라 구매자 래퍼(useBuyerApi · 구매자 쿠키 인증)로 호출한다
  * (permitAll인 useProductDetail을 복제하지 않는다). page는 Ref로 받아 변경 시 useFetch가 SSR 페이로드와 함께 재조회한다.
  * 401 등 인증 실패는 error로 노출해 소비 페이지가 /login으로 유도한다.
  * itemStatus(D-224·FE-80)는 품목 상태 필터이며 null이면 쿼리에서 뺀다(키만 붙은 ?itemStatus를 보내지 않도록 undefined로 바꾼다).
@@ -23,13 +15,11 @@ export function useOrderList(
   itemStatus: Ref<OrderItemStatusFilter | null> = ref(null),
   size: number = DEFAULT_PAGE_SIZE,
 ) {
-  const auth = useAuthStore()
   const itemStatusQuery = computed(() => itemStatus.value ?? undefined)
   return useFetch<PagedResponse<OrderSummary>>('/v1/orders', {
     key: 'order-list',
-    baseURL: resolveApiBase(),
+    $fetch: useBuyerApi(),
     query: { page, size, itemStatus: itemStatusQuery },
-    headers: { Authorization: `Bearer ${auth.token}` },
   })
 }
 
@@ -38,36 +28,30 @@ export function useOrderList(
  * 달라 캐시 키를 나눈다(같은 키면 두 화면이 한 데이터를 공유한다).
  */
 export function useRecentOrders(size: number) {
-  const auth = useAuthStore()
   return useFetch<PagedResponse<OrderSummary>>('/v1/orders', {
     key: 'recent-orders',
-    baseURL: resolveApiBase(),
+    $fetch: useBuyerApi(),
     query: { page: 0, size },
-    headers: { Authorization: `Bearer ${auth.token}` },
   })
 }
 
-/** 구매자 주문 현황 요약(GET /api/v1/orders/summary·D-223·마이페이지 홈 FE-72). BUYER 전용이라 Bearer 주입. */
+/** 구매자 주문 현황 요약(GET /api/v1/orders/summary·D-223·마이페이지 홈 FE-72). BUYER 전용이라 구매자 래퍼로 호출. */
 export function useOrderStatusSummary() {
-  const auth = useAuthStore()
   return useFetch<OrderStatusSummary>('/v1/orders/summary', {
     key: 'order-status-summary',
-    baseURL: resolveApiBase(),
-    headers: { Authorization: `Bearer ${auth.token}` },
+    $fetch: useBuyerApi(),
   })
 }
 
 /**
- * 구매자 주문 단건 조회(GET /api/v1/orders/{orderPublicId}). BUYER 전용이라 Bearer 주입. 미존재·타인 주문은 BE가 404
+ * 구매자 주문 단건 조회(GET /api/v1/orders/{orderPublicId}). BUYER 전용이라 구매자 래퍼로 호출. 미존재·타인 주문은 BE가 404
  * (존재 은닉)를 반환하며 useFetch가 error로 노출한다. key는 orderPublicId를 포함해 주문별 캐시를 분리한다.
  * 주문 상세는 상태 전이(결제·배송·클레임)가 잦아 재방문 시 항상 재검증한다(getCachedData로 stale 캐시 반환 차단).
  */
 export function useOrderDetail(orderPublicId: string) {
-  const auth = useAuthStore()
   return useFetch<OrderDetail>(`/v1/orders/${orderPublicId}`, {
     key: `order-detail:${orderPublicId}`,
-    baseURL: resolveApiBase(),
-    headers: { Authorization: `Bearer ${auth.token}` },
+    $fetch: useBuyerApi(),
     getCachedData: () => undefined,
   })
 }
@@ -77,13 +61,13 @@ export function useOrderDetail(orderPublicId: string) {
  * useClaim.registerReturnShipment 패턴: 404(타인·미존재)·422(DELIVERED 아님)·401은 throw해 호출부가 타입별로 처리한다.
  */
 export function useOrderActions() {
-  const auth = useAuthStore()
+  const api = useBuyerApi()
 
   function confirmPurchase(orderPublicId: string, orderItemPublicId: string): Promise<ConfirmPurchaseResponse> {
-    return $fetch<ConfirmPurchaseResponse>(`/v1/orders/${orderPublicId}/items/${orderItemPublicId}/confirm`, {
-      baseURL: resolveApiBase(),
+    // 템플릿 리터럴 경로는 nitro 타입드 라우트 추론이 과도해(TS2321) string으로 고정한다(useSellerApi 호출부 선례).
+    const path: string = `/v1/orders/${orderPublicId}/items/${orderItemPublicId}/confirm`
+    return api<ConfirmPurchaseResponse>(path, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${auth.token}` },
     })
   }
 

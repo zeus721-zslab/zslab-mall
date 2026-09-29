@@ -4,7 +4,7 @@ import { gotoClientSide } from './helpers/navigation'
 
 /**
  * mock 결제 페이지 E2E(Track 93 D-198). 로그인은 공용 헬퍼 loginAs(BUYER_E2E_* 주입·미주입 시 skip)이며 gotoClientSide로 클라이언트 내비게이션해
- * 이후 $fetch가 브라우저에서 실행되도록 한다. mock 콜백 API는 page.route로 가로채 로컬 DB를 바꾸지 않고 요청 계약(경로·Bearer·body)만 검증한다.
+ * 이후 $fetch가 브라우저에서 실행되도록 한다. mock 콜백 API는 page.route로 가로채 로컬 DB를 바꾸지 않고 요청 계약(경로·Authorization 없음·CSRF 헤더·body)만 검증한다.
  */
 const ATTEMPT_KEY = 'pat_E2E00000000000000000000931'
 const ORDER_ID = 'ord_E2E00000000000000000000931'
@@ -15,11 +15,12 @@ const MOCK_PAGE = `/payment/mock?attemptKey=${ATTEMPT_KEY}&amount=19900&method=C
 interface CapturedCallback {
   method: string
   authorization: string
+  xsrfToken: string
   body: Record<string, unknown>
 }
 
 test.describe('mock 결제 페이지(Track 93 인가 endpoint)', () => {
-  test('① 결제 성공 → POST /api/v1/payments/mock-callback(Bearer·attemptKey·callbackType만) → /checkout/complete 이동·주문번호 표시 · webhook 경로 미호출', async ({ page }) => {
+  test('① 결제 성공 → POST /api/v1/payments/mock-callback(구매자 쿠키·CSRF 헤더·attemptKey·callbackType만) → /checkout/complete 이동·주문번호 표시 · webhook 경로 미호출', async ({ page }) => {
     const captured: CapturedCallback[] = []
     let webhookCalls = 0
 
@@ -31,6 +32,7 @@ test.describe('mock 결제 페이지(Track 93 인가 endpoint)', () => {
       captured.push({
         method: route.request().method(),
         authorization: route.request().headers().authorization ?? '',
+        xsrfToken: route.request().headers()['x-xsrf-token'] ?? '',
         body: route.request().postDataJSON() as Record<string, unknown>,
       })
       return route.fulfill({ status: 200, body: '' })
@@ -62,7 +64,11 @@ test.describe('mock 결제 페이지(Track 93 인가 endpoint)', () => {
     expect(webhookCalls).toBe(0)
     expect(captured).toHaveLength(1)
     expect(captured[0].method).toBe('POST')
-    expect(captured[0].authorization).toMatch(/^Bearer .+/)
+    // D-235 F2·F3: Authorization 없이 구매자 쿠키로 인증되고, unsafe 요청이라 XSRF-TOKEN 쿠키 원문 값을 X-XSRF-TOKEN 헤더로 싣는다.
+    expect(captured[0].authorization).toBe('')
+    const xsrfCookie = (await page.context().cookies()).find((cookie) => cookie.name === 'XSRF-TOKEN')?.value
+    expect(xsrfCookie).toBeTruthy()
+    expect(captured[0].xsrfToken).toBe(xsrfCookie)
     expect(captured[0].body).toEqual({ attemptKey: ATTEMPT_KEY, callbackType: 'SUCCESS' })
   })
 

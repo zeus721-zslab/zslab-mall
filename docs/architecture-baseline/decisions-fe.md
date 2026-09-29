@@ -3868,3 +3868,24 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 - frontend 재시작(healthy 31s) 후 `curl -I` 1회씩: `/Admin/login` 301 → `/admin/login` · `/ADMIN/login` 301 → `/admin/login` · `/admin/login` 200 + `X-Robots-Tag: noindex, nofollow` · `/Seller/login` 301 → `/seller/login`.
 
 외부 검토: C / 생략
+
+## FE-93: FE 쿠키 인증 전환 — D-235 PR2 (2026-09-29)
+
+기준: D-235 PR2(확정 명세 S1~S7 · 개정 1 · 개정 2 · 명세 F1~F10). BE 무변경.
+
+### §1-A 선택이 갈린 결정
+- e2e 로그인: 실제 역할 로그인 API 호출(`page.request`·`context.request`가 컨텍스트 쿠키 저장소를 공유해 BE Set-Cookie가 그대로 저장됨) 【채택】 / 응답 본문 token을 쿠키로 직접 주입 【기각】 PR3에서 본문 token이 사라지면 주입할 값이 없다.
+- 비밀번호 변경 강제 플래그: 로그인 응답 `passwordChangeRequired` 값을 기존 플래그 쿠키(`password_change_required`·`seller_password_change_required`)에 보관 유지 【채택】 / `/me` 응답에 필드 추가 【기각】 PR2 BE 무변경 불변 · 토큰에서 얻던 값이 아니다(정찰 recon-report-httponly-pr2-be.md P5).
+
+### §1-B 적용
+- 옛 JS 쿠키(`auth_token`·`seller_token`·`admin_token`) 삭제 코드는 두지 않는다 — 쓰기·읽기만 제거했다.
+- 관리자 클레임 첨부 이미지 404 가능성(D-235 §4 D-176 정정 · 정찰 recon-report-httponly.md §9)은 F4 관리자 별칭 경로(`/api/v1/admin/files/claims/**`)로 해소한다.
+
+### §2 R2 판정 목록
+- 명세 항목의 의도된 결과로 기대값을 바꾼 테스트(근거 F-ID): e2e `helpers/login.ts`·`global-setup.ts`(F10) · `seller-password.spec.ts`(F10·F4) · `password-change.spec.ts`(F10·F7 — 가짜 JWT → 실 로그인 + 응답 플래그만 변조) · `admin-shell.spec.ts`(F10·F7 — document.cookie 토큰 단언 → 역할 쿠키 JS 미노출) · `seller-shell.spec.ts`(F7) · `mock-payment.spec.ts`(F2·F3) · `seller-claims.spec.ts`(F4·F2) · `seller-orders.spec.ts`·`seller-deliveries.spec.ts`(F4) / vitest `adminAuth-store`·`sellerAuth-store`(F1·F5·F6·F7) · `admin-middleware`·`seller-middleware`·`vuetify-middleware`·`seller-vuetify-middleware`(F5) · `useAdminApi`·`useSellerApi`(F2·F3·F5) · `seller-claim-components`(F4·F2) · `seller-password-page`(F4) · `useCheckout-mock-callback`(F2) · `admin-demo-login-server`·`seller-demo-login-server`(F9).
+
+### §8 이월
+- 구매자 XSRF-TOKEN 부재 경로: XSRF-TOKEN은 세션 쿠키(Spring 기본)이고 구매자 쿠키는 Max-Age=TTL이다. 브라우저 재시작 뒤 SSR로 렌더된 화면에서 브라우저가 /api를 한 번도 호출하지 않은 채 unsafe 요청을 보내면 403이 날 수 있다(로그아웃은 로컬 상태만 초기화). 홈·/mypage는 상품 이미지 요청이 XSRF를 재발급해 재현되지 않아 보완하지 않았다. 재현되면 해소안은 SSR XSRF Set-Cookie 전달이다.
+- 데모 로그인 서버 라우트의 로그인 CSRF(세션 바꿔치기): FE-43부터 같은 구조다. PR3 "로그인 CSRF 면제 재검토"에서 함께 다룬다.
+
+외부 검토: B / 지적 7건 중 수용 0건(SSR unsafe CSRF — SSR unsafe 호출 0건 확인 · 데모 로그인 CSRF — PR3 로그인 CSRF 면제 재검토에 포함 · 나머지는 기존 테스트로 충족 또는 명세 범위 밖)

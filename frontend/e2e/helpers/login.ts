@@ -1,30 +1,26 @@
 import { expect, test, type Page } from '@playwright/test'
 
 /**
- * E2E 공용 로그인 헬퍼. 로그인 화면·데모 버튼을 거치지 않고 BE 로그인(POST /api/v1/auth/login)으로 받은 JWT를 역할별 세션 쿠키에 직접 심는다.
+ * E2E 공용 로그인 헬퍼. 로그인 화면·데모 버튼을 거치지 않고 BE 역할 로그인 API를 page.request로 호출한다(D-235 F10).
+ * page.request는 브라우저 컨텍스트의 쿠키 저장소를 공유하므로 BE Set-Cookie(HttpOnly 역할 쿠키·XSRF-TOKEN)가 그대로 컨텍스트에 저장된다 —
+ * 응답 본문 token을 쿠키로 옮겨 심지 않는다(PR3에서 본문 token이 사라진다).
  * 데모 라우트(/_demo·/_admin-demo·/_seller-demo)는 rate limit(60s/30회·FE-43b)이 있어 워커 수에 따라 전량 실행이 429로 깨졌고,
  * BE 로그인 API에는 제한이 없다(recon-report-e2e-debt §3-1). 데모 로그인 자체의 검증은 admin-shell ⑥·seller-shell ⑤·smoke 구매자 데모 케이스가 담당한다.
- *
- * 쿠키명·path는 각 스토어와 일치해야 미들웨어가 세션으로 인식한다(app/stores/auth.ts · layers/admin/app/stores/adminAuth.ts · layers/seller/app/stores/sellerAuth.ts).
  * 자격증명은 env(<ROLE>_E2E_EMAIL / <ROLE>_E2E_PASSWORD)로만 받고 미설정 시 해당 케이스를 skip한다.
  */
 export type E2eRole = 'BUYER' | 'ADMIN' | 'SELLER'
 
 interface RoleSession {
-  cookieName: string
-  cookiePath: string
+  loginApiPath: string
   emailEnv: string
   passwordEnv: string
 }
 
 const ROLE_SESSIONS: Record<E2eRole, RoleSession> = {
-  BUYER: { cookieName: 'auth_token', cookiePath: '/', emailEnv: 'BUYER_E2E_EMAIL', passwordEnv: 'BUYER_E2E_PASSWORD' },
-  ADMIN: { cookieName: 'admin_token', cookiePath: '/admin', emailEnv: 'ADMIN_E2E_EMAIL', passwordEnv: 'ADMIN_E2E_PASSWORD' },
-  SELLER: { cookieName: 'seller_token', cookiePath: '/seller', emailEnv: 'SELLER_E2E_EMAIL', passwordEnv: 'SELLER_E2E_PASSWORD' },
+  BUYER: { loginApiPath: '/api/v1/auth/buyer/login', emailEnv: 'BUYER_E2E_EMAIL', passwordEnv: 'BUYER_E2E_PASSWORD' },
+  ADMIN: { loginApiPath: '/api/v1/admin/auth/login', emailEnv: 'ADMIN_E2E_EMAIL', passwordEnv: 'ADMIN_E2E_PASSWORD' },
+  SELLER: { loginApiPath: '/api/v1/seller/auth/login', emailEnv: 'SELLER_E2E_EMAIL', passwordEnv: 'SELLER_E2E_PASSWORD' },
 }
-
-const LOGIN_API_PATH = '/api/v1/auth/login'
-const DEFAULT_BASE_URL = 'http://localhost:3000'
 
 /** 역할 자격증명 env가 모두 설정돼 있는지. describe 단위 skip 조건에 쓴다. */
 export function hasE2eCredentials(role: E2eRole): boolean {
@@ -33,8 +29,8 @@ export function hasE2eCredentials(role: E2eRole): boolean {
 }
 
 /**
- * 역할로 로그인해 세션 쿠키를 심는다. 페이지 이동은 하지 않으므로 호출 뒤 대상 경로로 goto한다.
- * 쿠키는 스토어와 같은 secure·sameSite=lax로 심는다(Chromium은 http://localhost를 보안 문맥으로 취급해 secure 쿠키를 저장·전송한다).
+ * 역할로 로그인해 BE가 발급한 역할 쿠키를 브라우저 컨텍스트에 받는다. 페이지 이동은 하지 않으므로 호출 뒤 대상 경로로 goto한다.
+ * 역할 쿠키는 Secure라 http://localhost에서도 Chromium이 보안 문맥으로 취급해 저장·전송한다.
  */
 export async function loginAs(page: Page, role: E2eRole): Promise<void> {
   const session = ROLE_SESSIONS[role]
@@ -42,12 +38,6 @@ export async function loginAs(page: Page, role: E2eRole): Promise<void> {
   const password = process.env[session.passwordEnv]
   test.skip(!email || !password, `${session.emailEnv} / ${session.passwordEnv} 미설정`)
 
-  const response = await page.request.post(LOGIN_API_PATH, { data: { email, password, role } })
+  const response = await page.request.post(session.loginApiPath, { data: { email, password } })
   expect(response.ok(), `${role} 로그인 API ${response.status()}`).toBe(true)
-  const { token } = (await response.json()) as { token: string }
-
-  const baseUrl = test.info().project.use.baseURL ?? DEFAULT_BASE_URL
-  await page.context().addCookies([
-    { name: session.cookieName, value: token, domain: new URL(baseUrl).hostname, path: session.cookiePath, secure: true, sameSite: 'Lax' },
-  ])
 }
