@@ -91,12 +91,12 @@ describe('셀러 비밀번호 변경 페이지', () => {
     expect(navigateToMock).not.toHaveBeenCalled()
   })
 
-  it('204 → PATCH /v1/users/me/password(확인 필드 제외) → logout → /seller/login?notice=password-changed', async () => {
+  it('204 → PATCH /v1/seller/me/password(셀러 별칭·확인 필드 제외) → logout → /seller/login?notice=password-changed', async () => {
     apiMock.mockResolvedValue(undefined)
     const wrapper = await mountPage()
     await fillAndSubmit(wrapper, VALID)
     expect(apiMock).toHaveBeenCalledTimes(1)
-    expect(apiMock).toHaveBeenCalledWith('/v1/users/me/password', {
+    expect(apiMock).toHaveBeenCalledWith('/v1/seller/me/password', {
       method: 'PATCH',
       body: { currentPassword: VALID.currentPassword, newPassword: VALID.newPassword },
     })

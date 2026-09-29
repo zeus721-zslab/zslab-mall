@@ -13,7 +13,6 @@ import { gotoClientSide } from './helpers/navigation'
  */
 
 const SKIP_WARMUP_ENV = 'E2E_SKIP_WARMUP'
-const LOGIN_API_PATH = '/api/v1/auth/login'
 const DEFAULT_BASE_URL = 'http://localhost:3000'
 // 동적 경로([id]) 페이지는 청크 변환만 필요하므로 존재하지 않는 id로 연다(상세 API는 404 → 화면 안내, 데이터 변화 없음).
 const PLACEHOLDER_ID = 'warmup-0'
@@ -86,16 +85,15 @@ const SELLER_PATHS = [
 type WarmupRole = 'BUYER' | 'ADMIN' | 'SELLER'
 
 interface RoleSession {
-  cookieName: string
-  cookiePath: string
+  loginApiPath: string
   emailEnv: string
   passwordEnv: string
 }
 
 const ROLE_SESSIONS: Record<WarmupRole, RoleSession> = {
-  BUYER: { cookieName: 'auth_token', cookiePath: '/', emailEnv: 'BUYER_E2E_EMAIL', passwordEnv: 'BUYER_E2E_PASSWORD' },
-  ADMIN: { cookieName: 'admin_token', cookiePath: '/admin', emailEnv: 'ADMIN_E2E_EMAIL', passwordEnv: 'ADMIN_E2E_PASSWORD' },
-  SELLER: { cookieName: 'seller_token', cookiePath: '/seller', emailEnv: 'SELLER_E2E_EMAIL', passwordEnv: 'SELLER_E2E_PASSWORD' },
+  BUYER: { loginApiPath: '/api/v1/auth/buyer/login', emailEnv: 'BUYER_E2E_EMAIL', passwordEnv: 'BUYER_E2E_PASSWORD' },
+  ADMIN: { loginApiPath: '/api/v1/admin/auth/login', emailEnv: 'ADMIN_E2E_EMAIL', passwordEnv: 'ADMIN_E2E_PASSWORD' },
+  SELLER: { loginApiPath: '/api/v1/seller/auth/login', emailEnv: 'SELLER_E2E_EMAIL', passwordEnv: 'SELLER_E2E_PASSWORD' },
 }
 
 interface NuxtRootElement extends Element {
@@ -172,12 +170,9 @@ async function loginAs(context: BrowserContext, baseUrl: string, role: WarmupRol
     console.log(`[warmup] ${role} 건너뜀 — ${session.emailEnv} / ${session.passwordEnv} 미설정`)
     return false
   }
-  const response = await context.request.post(`${baseUrl}${LOGIN_API_PATH}`, { data: { email, password, role } })
+  // context.request는 컨텍스트 쿠키 저장소를 공유하므로 BE Set-Cookie(역할 쿠키·XSRF-TOKEN)가 그대로 저장된다(helpers/login.ts와 같은 방식·D-235 F10).
+  const response = await context.request.post(`${baseUrl}${session.loginApiPath}`, { data: { email, password } })
   if (!response.ok()) throw new Error(`${role} 로그인 API ${response.status()}`)
-  const { token } = (await response.json()) as { token: string }
-  await context.addCookies([
-    { name: session.cookieName, value: token, domain: new URL(baseUrl).hostname, path: session.cookiePath, secure: true, sameSite: 'Lax' },
-  ])
   return true
 }
 

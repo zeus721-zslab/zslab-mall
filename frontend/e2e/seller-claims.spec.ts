@@ -13,6 +13,9 @@ const EXCHANGE_ID = 'clm_E2E0000000000000000000003'
 const OTHER_ID = 'clm_E2E000000000000000000OTHER'
 const ATTACHMENT_OK = '/api/v1/files/claims/2026/09/E2EATTOK00000000000000001.png'
 const ATTACHMENT_DENIED = '/api/v1/files/claims/2026/09/E2EATTDENIED000000000001.png'
+/** 셀러 화면은 BE가 준 첨부 경로를 셀러 접두사 별칭으로 바꿔 요청한다(D-235 F4 · 셀러 쿠키는 셀러 접두사에만 실린다). */
+const SELLER_ATTACHMENT_PREFIX = '/api/v1/seller/files/claims/'
+const ATTACHMENT_OK_SERVED = '/api/v1/seller/files/claims/2026/09/E2EATTOK00000000000000001.png'
 /** 1×1 PNG(첨부 서빙 mock 본문). */
 const PNG_1X1 = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64')
 
@@ -39,9 +42,9 @@ interface Captured { listQueries: URLSearchParams[]; attachmentRequests: { url: 
 async function mockSellerClaims(page: Page): Promise<Captured> {
   const captured: Captured = { listQueries: [], attachmentRequests: [] }
   await mockSellerMe(page)
-  await page.route((url) => url.pathname.startsWith('/api/v1/files/claims/'), (route) => {
+  await page.route((url) => url.pathname.startsWith(SELLER_ATTACHMENT_PREFIX), (route) => {
     captured.attachmentRequests.push({ url: new URL(route.request().url()).pathname, authorization: route.request().headers().authorization })
-    if (new URL(route.request().url()).pathname === ATTACHMENT_OK) {
+    if (new URL(route.request().url()).pathname === ATTACHMENT_OK_SERVED) {
       return route.fulfill({ status: 200, contentType: 'image/png', body: PNG_1X1, headers: { 'Cache-Control': 'no-store, private' } })
     }
     return route.fulfill({ status: 404, json: { type: 'about:blank', title: 'Not Found', status: 404, code: 'FILE_NOT_FOUND', detail: '파일을 찾을 수 없습니다' } })
@@ -112,7 +115,8 @@ test.describe('셀러 클레임 화면(90-D-1)', () => {
     await expect(page.getByTestId('claim-attachment-error')).toHaveCount(1)
     await expect(page.getByTestId('claim-attachment-error')).toContainText('열람 권한이 없거나 삭제된 사진')
     await expect.poll(() => captured.attachmentRequests.length).toBe(2)
-    expect(captured.attachmentRequests.every((request) => request.authorization?.startsWith('Bearer '))).toBe(true)
+    // D-235 F2: Authorization 없이 셀러 쿠키로 인증한다
+    expect(captured.attachmentRequests.every((request) => request.authorization === undefined)).toBe(true)
     // 확대: 썸네일 클릭 → 다이얼로그 blob img → 닫기
     await thumb.click()
     await expect(page.getByTestId('claim-attachment-preview').locator('img')).toHaveAttribute('src', /^blob:/)

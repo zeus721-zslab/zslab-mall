@@ -26,7 +26,7 @@ interface Captured { listQueries: URLSearchParams[]; shipments: { url: string; b
 async function mockSellerOrders(page: Page, shipmentStatus = 200): Promise<Captured> {
   const captured: Captured = { listQueries: [], shipments: [] }
   await mockSellerMe(page)
-  await page.route((url) => /\/api\/v1\/order-items\/oit_[^/]+\/prepare-shipment$/.test(url.pathname), (route) => {
+  await page.route((url) => /\/api\/v1\/seller\/order-items\/oit_[^/]+\/prepare-shipment$/.test(url.pathname), (route) => {
     captured.shipments.push({ url: route.request().url(), body: route.request().postDataJSON() })
     if (shipmentStatus === 403) return route.fulfill({ status: 403, json: SUSPENDED_PROBLEM })
     return route.fulfill({ json: { deliveryPublicId: 'dlv_E2E_NEW', status: 'SHIPPING', carrier: 'CJ', trackingNo: 'E2E-NEW-0001' } })
@@ -90,7 +90,7 @@ test.describe('셀러 주문 화면(90-B-3)', () => {
     await dialog.getByTestId('shipment-dialog-ok').click()
     await expect(page.getByTestId('seller-toaster')).toContainText('발송 처리했습니다: CJ대한통운 E2E-NEW-0001')
     expect(captured.shipments).toHaveLength(1)
-    expect(captured.shipments[0]?.url).toContain(`/api/v1/order-items/${PAID_ID}/prepare-shipment`)
+    expect(captured.shipments[0]?.url).toContain(`/api/v1/seller/order-items/${PAID_ID}/prepare-shipment`)
     expect(captured.shipments[0]?.body).toEqual({ carrier: 'CJ', trackingNo: 'E2E-NEW-0001' })
     await expect(dialog).toBeHidden()
     await expect.poll(() => captured.listQueries.length).toBeGreaterThan(listCallsBefore)

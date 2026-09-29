@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { HTTP_NOT_FOUND, HTTP_UNAUTHORIZED, loginAsDemo, type BackendLoginFetcher } from '~~/server/lib/demo-login'
 
 // 셀러 데모 서버 라우트(layers/seller/server/routes/_seller-demo)는 공용 코어(demo-login.ts)를 role 'SELLER'로 호출하고 결과를 createError로 매핑만 한다
-// (admin·buyer 스펙과 동형). 여기서는 SELLER role 투과·응답 형태({ token, passwordChangeRequired } 구매자형·D-3)·자격증명 은닉을 검증한다.
+// (admin·buyer 스펙과 동형). 여기서는 셀러 로그인 경로·응답 형태({ passwordChangeRequired } 구매자형·D-3 + Set-Cookie 전달·D-235 F9)·자격증명 은닉을 검증한다.
 const configured = { email: 'demo-seller@example.test', password: 'demo-secret' }
 const API_BASE = 'http://mall-backend:8080'
 
@@ -11,11 +11,12 @@ describe('demo-login 서버 코어 — role SELLER', () => {
     vi.restoreAllMocks()
   })
 
-  it('성공 → BE /api/v1/auth/login에 role SELLER로 대행 · 응답 { token, passwordChangeRequired } 그대로', async () => {
-    const fetcher = vi.fn<BackendLoginFetcher>().mockResolvedValue({ token: 'jwt-token', passwordChangeRequired: true })
+  it('성공 → BE 셀러 로그인 경로(/api/v1/seller/auth/login)로 대행 · 본문 { passwordChangeRequired } · BE Set-Cookie 원문 전달', async () => {
+    const setCookies = ['__Secure-seller_at=cookie-value; Path=/api/v1/seller; HttpOnly', 'XSRF-TOKEN=xsrf-value; Path=/']
+    const fetcher = vi.fn<BackendLoginFetcher>().mockResolvedValue({ passwordChangeRequired: true, setCookies })
     const result = await loginAsDemo(configured, 'SELLER', API_BASE, fetcher)
-    expect(fetcher).toHaveBeenCalledWith(`${API_BASE}/api/v1/auth/login`, { email: configured.email, password: configured.password, role: 'SELLER' })
-    expect(result).toEqual({ ok: true, body: { token: 'jwt-token', passwordChangeRequired: true } })
+    expect(fetcher).toHaveBeenCalledWith(`${API_BASE}/api/v1/seller/auth/login`, { email: configured.email, password: configured.password })
+    expect(result).toEqual({ ok: true, body: { passwordChangeRequired: true }, setCookies })
     const serialized = JSON.stringify(result)
     expect(serialized).not.toContain(configured.email)
     expect(serialized).not.toContain(configured.password)

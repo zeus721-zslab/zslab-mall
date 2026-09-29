@@ -4,10 +4,11 @@ import type { FetchContext, FetchResponse } from 'ofetch'
 import { useSellerApi } from '#layers/seller/app/composables/useSellerApi'
 
 // $fetch.create에 넘긴 옵션(baseURL·onRequest·onResponseError)을 붙잡아 훅을 직접 호출·검증한다(실 네트워크 없음).
-// D-190 분기: 401은 seller_token만 비우고 셀러 로그인으로, 403 SELLER_SUSPENDED는 로그아웃 없이 정지 안내 플래그만, 그 외 403은 호출부 처리.
+// D-235: Authorization은 싣지 않고(쿠키 인증) unsafe 요청에만 CSRF 헤더를 싣는다.
+// D-190 분기: 401은 셀러 상태만 비우고 셀러 로그인으로, 403 SELLER_SUSPENDED는 로그아웃 없이 정지 안내 플래그만, 그 외 403은 호출부 처리.
 const { sellerAuthMock, userAuthMock, navigateToMock } = vi.hoisted(() => ({
-  sellerAuthMock: { token: 'seller-token', logout: vi.fn(), markSuspended: vi.fn() },
-  userAuthMock: { token: 'user-token', logout: vi.fn() },
+  sellerAuthMock: { clearSession: vi.fn(), markSuspended: vi.fn() },
+  userAuthMock: { clearSession: vi.fn() },
   navigateToMock: vi.fn(),
 }))
 
@@ -44,9 +45,9 @@ describe('useSellerApi', () => {
   beforeEach(() => {
     createMock.mockReset()
     createMock.mockReturnValue(vi.fn() as unknown as typeof $fetch)
-    sellerAuthMock.logout.mockReset()
+    sellerAuthMock.clearSession.mockReset()
     sellerAuthMock.markSuspended.mockReset()
-    userAuthMock.logout.mockReset()
+    userAuthMock.clearSession.mockReset()
     navigateToMock.mockReset()
   })
 
@@ -54,19 +55,23 @@ describe('useSellerApi', () => {
     expect(capturedOptions().baseURL).toBe('/api')
   })
 
-  it('onRequest → Authorization: Bearer <seller_token> 주입', () => {
-    const options = capturedOptions()
-    const headers = new Headers()
-    const onRequest = options.onRequest
+  it('onRequest → Authorization 없음 · unsafe 요청만 XSRF-TOKEN 쿠키 원문을 X-XSRF-TOKEN으로(F2·F3)', () => {
+    const onRequest = capturedOptions().onRequest
     if (typeof onRequest !== 'function') throw new Error('onRequest 미정의')
-    onRequest({ request: '/v1/users/me', options: { headers } } as FetchContext)
-    expect(headers.get('Authorization')).toBe('Bearer seller-token')
+    document.cookie = 'XSRF-TOKEN=xsrf-value; path=/'
+    const patchHeaders = new Headers()
+    onRequest({ request: '/v1/seller/me/password', options: { method: 'PATCH', headers: patchHeaders } } as FetchContext)
+    expect(patchHeaders.get('Authorization')).toBeNull()
+    expect(patchHeaders.get('X-XSRF-TOKEN')).toBe('xsrf-value')
+    const getHeaders = new Headers()
+    onRequest({ request: '/v1/seller/me', options: { headers: getHeaders } } as FetchContext)
+    expect(getHeaders.get('X-XSRF-TOKEN')).toBeNull()
   })
 
-  it('401 → seller_token만 logout + /seller/login 이동(사용자 auth 스토어 logout 미호출·정지 플래그 미변경)', async () => {
+  it('401 → 셀러 상태만 해제 + /seller/login 이동(사용자 auth 스토어 미호출·정지 플래그 미변경)', async () => {
     await fireResponseError(401)
-    expect(sellerAuthMock.logout).toHaveBeenCalledTimes(1)
-    expect(userAuthMock.logout).not.toHaveBeenCalled()
+    expect(sellerAuthMock.clearSession).toHaveBeenCalledTimes(1)
+    expect(userAuthMock.clearSession).not.toHaveBeenCalled()
     expect(navigateToMock).toHaveBeenCalledWith('/seller/login')
     expect(sellerAuthMock.markSuspended).not.toHaveBeenCalled()
   })
@@ -74,7 +79,7 @@ describe('useSellerApi', () => {
   it('403 SELLER_SUSPENDED → 정지 안내 플래그만 켜고 세션 유지(logout·이동 없음)', async () => {
     await fireResponseError(403, { code: 'SELLER_SUSPENDED', status: 403, detail: '정지 상태의 셀러는 해당 작업을 수행할 수 없습니다.' })
     expect(sellerAuthMock.markSuspended).toHaveBeenCalledTimes(1)
-    expect(sellerAuthMock.logout).not.toHaveBeenCalled()
+    expect(sellerAuthMock.clearSession).not.toHaveBeenCalled()
     expect(navigateToMock).not.toHaveBeenCalled()
   })
 
@@ -82,7 +87,7 @@ describe('useSellerApi', () => {
     await fireResponseError(403, { code: 'FORBIDDEN' })
     await fireResponseError(403)
     expect(sellerAuthMock.markSuspended).not.toHaveBeenCalled()
-    expect(sellerAuthMock.logout).not.toHaveBeenCalled()
+    expect(sellerAuthMock.clearSession).not.toHaveBeenCalled()
     expect(navigateToMock).not.toHaveBeenCalled()
   })
 })

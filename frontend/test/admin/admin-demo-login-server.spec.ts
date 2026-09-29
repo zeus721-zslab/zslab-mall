@@ -26,26 +26,26 @@ describe('demo-login 서버 코어', () => {
     expect(fetcher).not.toHaveBeenCalled()
   })
 
-  it('성공 → BE /api/v1/auth/login에 인자 role로 대행 · 응답은 { token, passwordChangeRequired }만', async () => {
-    const fetcher = vi.fn<BackendLoginFetcher>().mockResolvedValue({ token: 'jwt-token', passwordChangeRequired: false })
+  it('성공 → BE 관리자 로그인 경로(/api/v1/admin/auth/login)로 대행 · 본문 { passwordChangeRequired }만 · BE Set-Cookie 원문 전달', async () => {
+    const setCookies = ['__Secure-admin_at=cookie-value; Path=/api/v1/admin; HttpOnly', 'XSRF-TOKEN=xsrf-value; Path=/']
+    const fetcher = vi.fn<BackendLoginFetcher>().mockResolvedValue({ passwordChangeRequired: false, setCookies })
     expect(isDemoConfigured(configured)).toBe(true)
     const result = await loginAsDemo(configured, 'ADMIN', API_BASE, fetcher)
-    expect(fetcher).toHaveBeenCalledWith(`${API_BASE}/api/v1/auth/login`, {
+    expect(fetcher).toHaveBeenCalledWith(`${API_BASE}/api/v1/admin/auth/login`, {
       email: configured.email,
       password: configured.password,
-      role: 'ADMIN',
     })
-    expect(result).toEqual({ ok: true, body: { token: 'jwt-token', passwordChangeRequired: false } })
+    expect(result).toEqual({ ok: true, body: { passwordChangeRequired: false }, setCookies })
     const serialized = JSON.stringify(result)
     expect(serialized).not.toContain(configured.email)
     expect(serialized).not.toContain(configured.password)
   })
 
-  it('role BUYER 인자 → 요청 body role BUYER · BE passwordChangeRequired true 투과', async () => {
-    const fetcher = vi.fn<BackendLoginFetcher>().mockResolvedValue({ token: 'jwt-token', passwordChangeRequired: true })
+  it('role BUYER 인자 → BE 구매자 로그인 경로(/api/v1/auth/buyer/login) · BE passwordChangeRequired true 투과', async () => {
+    const fetcher = vi.fn<BackendLoginFetcher>().mockResolvedValue({ passwordChangeRequired: true, setCookies: [] })
     const result = await loginAsDemo(configured, 'BUYER', API_BASE, fetcher)
-    expect(fetcher).toHaveBeenCalledWith(`${API_BASE}/api/v1/auth/login`, expect.objectContaining({ role: 'BUYER' }))
-    expect(result).toEqual({ ok: true, body: { token: 'jwt-token', passwordChangeRequired: true } })
+    expect(fetcher).toHaveBeenCalledWith(`${API_BASE}/api/v1/auth/buyer/login`, { email: configured.email, password: configured.password })
+    expect(result).toEqual({ ok: true, body: { passwordChangeRequired: true }, setCookies: [] })
   })
 
   it('BE 실패(401 등 throw) → 401 일반 응답 · 에러 본문에 자격증명 미포함', async () => {

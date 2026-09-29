@@ -4,10 +4,10 @@ import type { FetchContext, FetchResponse } from 'ofetch'
 import { useAdminApi } from '#layers/admin/app/composables/useAdminApi'
 
 // $fetch.create에 넘긴 옵션(baseURL·onRequest·onResponseError)을 붙잡아 훅을 직접 호출·검증한다(실 네트워크 없음).
-// FE-22d: Bearer·401 처리는 관리자 세션(admin_token) 스토어만 다루고 사용자 auth 스토어는 건드리지 않는다(401 격리).
+// FE-22d·D-235: Authorization은 싣지 않고(쿠키 인증) unsafe 요청에만 CSRF 헤더를 싣는다. 401 처리는 관리자 세션 스토어만 다루고 사용자 auth 스토어는 건드리지 않는다(401 격리).
 const { authMock, userAuthMock, navigateToMock } = vi.hoisted(() => ({
-  authMock: { token: 'admin-token', logout: vi.fn() },
-  userAuthMock: { token: 'user-token', logout: vi.fn() },
+  authMock: { clearSession: vi.fn() },
+  userAuthMock: { clearSession: vi.fn() },
   navigateToMock: vi.fn(),
 }))
 
@@ -38,8 +38,8 @@ describe('useAdminApi', () => {
   beforeEach(() => {
     createMock.mockReset()
     createMock.mockReturnValue(vi.fn() as unknown as typeof $fetch)
-    authMock.logout.mockReset()
-    userAuthMock.logout.mockReset()
+    authMock.clearSession.mockReset()
+    userAuthMock.clearSession.mockReset()
     navigateToMock.mockReset()
   })
 
@@ -47,22 +47,26 @@ describe('useAdminApi', () => {
     expect(capturedOptions().baseURL).toBe('/api')
   })
 
-  it('onRequest → Authorization: Bearer <token> 주입', () => {
-    const options = capturedOptions()
-    const headers = new Headers()
-    const onRequest = options.onRequest
+  it('onRequest → Authorization 없음 · unsafe 요청만 XSRF-TOKEN 쿠키 원문을 X-XSRF-TOKEN으로(F2·F3)', () => {
+    const onRequest = capturedOptions().onRequest
     if (typeof onRequest !== 'function') throw new Error('onRequest 미정의')
-    onRequest({ request: '/v1/users/me', options: { headers } } as FetchContext)
-    expect(headers.get('Authorization')).toBe('Bearer admin-token')
+    document.cookie = 'XSRF-TOKEN=xsrf-value; path=/'
+    const postHeaders = new Headers()
+    onRequest({ request: '/v1/admin/orders', options: { method: 'POST', headers: postHeaders } } as FetchContext)
+    expect(postHeaders.get('Authorization')).toBeNull()
+    expect(postHeaders.get('X-XSRF-TOKEN')).toBe('xsrf-value')
+    const getHeaders = new Headers()
+    onRequest({ request: '/v1/admin/me', options: { headers: getHeaders } } as FetchContext)
+    expect(getHeaders.get('X-XSRF-TOKEN')).toBeNull()
   })
 
-  it('401 → admin_token만 logout + /admin/login 이동(사용자 auth 스토어 logout 미호출)', async () => {
+  it('401 → 관리자 상태만 해제 + /admin/login 이동(사용자 auth 스토어 미호출)', async () => {
     const options = capturedOptions()
     const onResponseError = options.onResponseError
     if (typeof onResponseError !== 'function') throw new Error('onResponseError 미정의')
     await onResponseError(responseErrorContext(401))
-    expect(authMock.logout).toHaveBeenCalledTimes(1)
-    expect(userAuthMock.logout).not.toHaveBeenCalled()
+    expect(authMock.clearSession).toHaveBeenCalledTimes(1)
+    expect(userAuthMock.clearSession).not.toHaveBeenCalled()
     expect(navigateToMock).toHaveBeenCalledWith('/admin/login')
   })
 
@@ -71,7 +75,7 @@ describe('useAdminApi', () => {
     const onResponseError = options.onResponseError
     if (typeof onResponseError !== 'function') throw new Error('onResponseError 미정의')
     await onResponseError(responseErrorContext(403))
-    expect(authMock.logout).not.toHaveBeenCalled()
+    expect(authMock.clearSession).not.toHaveBeenCalled()
     expect(navigateToMock).not.toHaveBeenCalled()
   })
 })
