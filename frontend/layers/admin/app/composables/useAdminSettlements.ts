@@ -16,7 +16,7 @@ import { toAdminSettlementApiParams } from '#layers/admin/app/lib/admin-settleme
 import { useAdminApi } from '#layers/admin/app/composables/useAdminApi'
 
 /**
- * 관리자 정산 API 호출 모음(Track 85 FE·D-179 BE·useAdminMembers 패턴). 전부 useAdminApi(admin_token Bearer·401 처리) 경유이며
+ * 관리자 정산 API 호출 모음(Track 85 FE·D-179 BE·useAdminMembers 패턴). 전부 useAdminApi(관리자 쿠키 인증·CSRF 헤더·401 처리) 경유이며
  * 상태(로딩·에러)는 호출부(페이지·다이얼로그)가 소유한다. 셀러 선택 목록은 상품 등록 폼과 같은 GET /admin/sellers를 쓴다.
  */
 export function useAdminSettlements() {

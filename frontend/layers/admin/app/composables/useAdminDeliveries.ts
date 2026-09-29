@@ -9,7 +9,7 @@ import { toAdminDeliveryApiParams } from '#layers/admin/app/lib/admin-delivery-q
 import { useAdminApi } from '#layers/admin/app/composables/useAdminApi'
 
 /**
- * 관리자 배송 관리 API 호출 모음(FE-37·Track 89-B BE). 전부 useAdminApi(admin_token Bearer·401 처리) 경유이며 상태(로딩·에러)는
+ * 관리자 배송 관리 API 호출 모음(FE-37·Track 89-B BE). 전부 useAdminApi(관리자 쿠키 인증·CSRF 헤더·401 처리) 경유이며 상태(로딩·에러)는
  * 호출부(페이지·다이얼로그)가 소유한다.
  */
 export function useAdminDeliveries() {

@@ -9,38 +9,46 @@ export interface DemoCredentials {
   password: string
 }
 
-/** BE LoginRequest.role(ActorRole enum·대문자 정확 일치). 어느 계정으로 대행할지는 라우트가 정한다. */
+/** 어느 역할 계정으로 대행할지는 라우트가 정한다. 역할마다 BE 로그인 경로가 다르다(D-235 S6). */
 export type DemoRole = 'BUYER' | 'ADMIN' | 'SELLER'
 
-/** BE 로그인 응답 계약(/api/v1/auth/login → LoginResponse{ token, passwordChangeRequired }). 클라이언트 스토어 login과 동일 형태. */
-export interface DemoLoginResponse {
-  token: string
+/**
+ * BE 역할 로그인 결과 중 데모 라우트가 쓰는 부분(D-235 F9). 인증은 BE Set-Cookie(역할 쿠키·XSRF-TOKEN)를 브라우저로 그대로 전달하는 것으로 끝나므로
+ * 본문 token은 읽지 않는다.
+ */
+export interface BackendLoginResult {
   passwordChangeRequired: boolean
+  setCookies: string[]
 }
 
-/** 관리자 데모 라우트(/_admin-demo/login) 응답 계약. { token }만 — BE 응답에 필드가 늘어도 실수로 투과되지 않도록 반환 타입으로 고정한다. */
-export interface AdminDemoLoginResponse {
-  token: string
+/** 구매자·셀러 데모 라우트 응답 본문. token 없이 임시 비밀번호 여부만 — 클라이언트 스토어 login 응답 반영과 동일 형태. */
+export interface DemoLoginResponse {
+  passwordChangeRequired: boolean
 }
 
 export const HTTP_NOT_FOUND = 404
 export const HTTP_UNAUTHORIZED = 401
 
 export type DemoLoginResult =
-  | { ok: true; body: DemoLoginResponse }
+  | { ok: true; body: DemoLoginResponse; setCookies: string[] }
   | { ok: false; statusCode: typeof HTTP_NOT_FOUND | typeof HTTP_UNAUTHORIZED }
 
 /** BE 로그인 호출 시그니처(라우트는 fetch, 테스트는 mock 주입). */
-export type BackendLoginFetcher = (url: string, body: { email: string; password: string; role: DemoRole }) => Promise<DemoLoginResponse>
+export type BackendLoginFetcher = (url: string, body: { email: string; password: string }) => Promise<BackendLoginResult>
 
-const BACKEND_LOGIN_PATH = '/api/v1/auth/login'
+/** BE 역할 로그인 경로(D-235 S6). 요청 본문에 role을 싣지 않고 경로가 역할을 정한다. */
+const BACKEND_LOGIN_PATHS: Record<DemoRole, string> = {
+  BUYER: '/api/v1/auth/buyer/login',
+  SELLER: '/api/v1/seller/auth/login',
+  ADMIN: '/api/v1/admin/auth/login',
+}
 
 export function isDemoConfigured(credentials: DemoCredentials): boolean {
   return credentials.email.trim() !== '' && credentials.password.trim() !== ''
 }
 
 /**
- * env 계정으로 BE 로그인을 대행한다. 미설정 404(라우트 부재와 동일 취급)·BE 실패(401·네트워크 등 전부) 401 일반 응답.
+ * env 계정으로 BE 역할 로그인을 대행한다. 미설정 404(라우트 부재와 동일 취급)·BE 실패(401·네트워크 등 전부) 401 일반 응답.
  * BE 오류 본문·메시지는 자격증명 힌트가 될 수 있어 전달하지 않는다.
  */
 export async function loginAsDemo(credentials: DemoCredentials, role: DemoRole, apiInternalBase: string, fetcher: BackendLoginFetcher): Promise<DemoLoginResult> {
@@ -48,12 +56,11 @@ export async function loginAsDemo(credentials: DemoCredentials, role: DemoRole, 
     return { ok: false, statusCode: HTTP_NOT_FOUND }
   }
   try {
-    const response = await fetcher(`${apiInternalBase}${BACKEND_LOGIN_PATH}`, {
+    const response = await fetcher(`${apiInternalBase}${BACKEND_LOGIN_PATHS[role]}`, {
       email: credentials.email,
       password: credentials.password,
-      role,
     })
-    return { ok: true, body: { token: response.token, passwordChangeRequired: response.passwordChangeRequired === true } }
+    return { ok: true, body: { passwordChangeRequired: response.passwordChangeRequired === true }, setCookies: response.setCookies }
   } catch (error) {
     // 사유(비번 불일치·계정 탈퇴·BE 다운)는 서버 로그로만 남기고 클라이언트엔 401 단일 응답(자격증명 은닉).
     console.warn(`[demo-login:${role}] backend login failed`, error instanceof Error ? error.message : String(error))
@@ -63,12 +70,13 @@ export async function loginAsDemo(credentials: DemoCredentials, role: DemoRole, 
 
 /**
  * BE 로그인 호출(라우트 공용). 전역 $fetch는 nitro 타입드 라우트 추론이 임의 문자열 URL에서 TS2321(Excessive stack depth)을 내므로
- * 서버 내부 절대 URL 호출엔 Node 내장 fetch를 쓴다. 비-2xx는 throw해 코어가 401로 통합한다.
+ * 서버 내부 절대 URL 호출엔 Node 내장 fetch를 쓴다. 비-2xx는 throw해 코어가 401로 통합한다. Set-Cookie는 여러 줄 원문 그대로 모은다.
  */
 export const fetchBackendLogin: BackendLoginFetcher = async (url, body) => {
   const response = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
   if (!response.ok) {
     throw new Error(`backend login responded ${response.status}`)
   }
-  return (await response.json()) as DemoLoginResponse
+  const responseBody = (await response.json()) as { passwordChangeRequired?: boolean }
+  return { passwordChangeRequired: responseBody.passwordChangeRequired === true, setCookies: response.headers.getSetCookie() }
 }

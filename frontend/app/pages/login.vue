@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { BUYER_ROLE, DEMO_STATUS_PATH, LOGIN_NOTICE_PASSWORD_CHANGED, LOGIN_NOTICE_QUERY } from '~/lib/constants/auth'
+import { DEMO_STATUS_PATH, LOGIN_NOTICE_PASSWORD_CHANGED, LOGIN_NOTICE_QUERY } from '~/lib/constants/auth'
 import type { LoginPageVm } from '~/skins/contracts/login'
 
 // 공개 페이지(permitAll 로그인 엔드포인트 소비)라 definePageMeta 미부착. buyer 몰이므로 role은 BUYER 고정(UI 노출 없음).
@@ -36,7 +36,7 @@ async function handleSubmit(): Promise<void> {
   submitting.value = true
   errorMessage.value = ''
   try {
-    await auth.login(email.value, password.value, BUYER_ROLE)
+    await auth.login(email.value, password.value)
     await navigateTo(resolveRedirect())
   } catch {
     // BE는 사유(미존재·비번·role·검증)를 401/400으로 통합·은닉하므로 FE도 단일 문구로 안내한다(recon-76 §1-2).

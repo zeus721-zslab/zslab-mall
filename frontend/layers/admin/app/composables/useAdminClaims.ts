@@ -3,7 +3,7 @@ import { toAdminClaimApiParams } from '#layers/admin/app/lib/admin-claim-query'
 import { useAdminApi } from '#layers/admin/app/composables/useAdminApi'
 
 /**
- * 관리자 클레임 목록 API(FE-28·Track 80 D-169 BE). useAdminApi(admin_token Bearer·401 처리) 경유이며 상태(로딩·에러)는 호출부가
+ * 관리자 클레임 목록 API(FE-28·Track 80 D-169 BE). useAdminApi(관리자 쿠키 인증·CSRF 헤더·401 처리) 경유이며 상태(로딩·에러)는 호출부가
  * 소유한다. 승인·거부 단건 호출은 useAdminOrders(approveClaim·rejectClaim)를 그대로 쓴다(주문 상세와 동일 경로).
  */
 export function useAdminClaims() {

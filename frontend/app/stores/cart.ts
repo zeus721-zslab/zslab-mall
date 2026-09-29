@@ -17,16 +17,7 @@ export const useCartStore = defineStore('cart', () => {
       return
     }
 
-    const config = useRuntimeConfig()
-    // API base 이원화(useProducts와 동일): SSR은 내부 직결, 브라우저는 동일 Origin 상대경로.
-    const baseUrl = import.meta.server
-      ? `${config.apiInternalBase}/api`
-      : config.public.apiBase || '/api'
-
-    const response = await $fetch<CartResponse>('/v1/cart', {
-      baseURL: baseUrl,
-      headers: { Authorization: `Bearer ${auth.token}` },
-    })
+    const response = await useBuyerApi()<CartResponse>('/v1/cart')
     items.value = response.items
   }
 
@@ -35,17 +26,8 @@ export const useCartStore = defineStore('cart', () => {
    * (응답 body 대신 재load — 조작 계약과 일관·GET이 enrich 최신값 원천). 실패(401/403/404/409)는 throw해 호출부가 처리한다.
    */
   async function add(variantPublicId: string, quantity: number): Promise<void> {
-    const auth = useAuthStore()
-    const config = useRuntimeConfig()
-    // API base 이원화(load와 동일): SSR은 내부 직결, 브라우저는 동일 Origin 상대경로.
-    const baseUrl = import.meta.server
-      ? `${config.apiInternalBase}/api`
-      : config.public.apiBase || '/api'
-
-    await $fetch('/v1/cart/items', {
-      baseURL: baseUrl,
+    await useBuyerApi()('/v1/cart/items', {
       method: 'POST',
-      headers: { Authorization: `Bearer ${auth.token}` },
       body: { variantPublicId, quantity },
     })
     await load()
@@ -56,16 +38,8 @@ export const useCartStore = defineStore('cart', () => {
    * 실패(401/403/404·@Min(1) 400)는 throw해 호출부가 처리한다.
    */
   async function updateQuantity(variantPublicId: string, quantity: number): Promise<void> {
-    const auth = useAuthStore()
-    const config = useRuntimeConfig()
-    const baseUrl = import.meta.server
-      ? `${config.apiInternalBase}/api`
-      : config.public.apiBase || '/api'
-
-    await $fetch('/v1/cart/items/quantity', {
-      baseURL: baseUrl,
+    await useBuyerApi()('/v1/cart/items/quantity', {
       method: 'PATCH',
-      headers: { Authorization: `Bearer ${auth.token}` },
       body: { variantPublicId, quantity },
     })
     await load()
@@ -73,16 +47,8 @@ export const useCartStore = defineStore('cart', () => {
 
   /** 단건 선택 토글(PATCH /api/v1/cart/items/selected). 성공 후 재load. 실패는 throw. */
   async function setSelected(variantPublicId: string, selected: boolean): Promise<void> {
-    const auth = useAuthStore()
-    const config = useRuntimeConfig()
-    const baseUrl = import.meta.server
-      ? `${config.apiInternalBase}/api`
-      : config.public.apiBase || '/api'
-
-    await $fetch('/v1/cart/items/selected', {
-      baseURL: baseUrl,
+    await useBuyerApi()('/v1/cart/items/selected', {
       method: 'PATCH',
-      headers: { Authorization: `Bearer ${auth.token}` },
       body: { variantPublicId, selected },
     })
     await load()
@@ -90,16 +56,8 @@ export const useCartStore = defineStore('cart', () => {
 
   /** 전체 선택 토글(PATCH /api/v1/cart/items/selected/all·대상키 없음). 성공 후 재load. 실패는 throw. */
   async function setSelectedAll(selected: boolean): Promise<void> {
-    const auth = useAuthStore()
-    const config = useRuntimeConfig()
-    const baseUrl = import.meta.server
-      ? `${config.apiInternalBase}/api`
-      : config.public.apiBase || '/api'
-
-    await $fetch('/v1/cart/items/selected/all', {
-      baseURL: baseUrl,
+    await useBuyerApi()('/v1/cart/items/selected/all', {
       method: 'PATCH',
-      headers: { Authorization: `Bearer ${auth.token}` },
       body: { selected },
     })
     await load()
@@ -107,16 +65,8 @@ export const useCartStore = defineStore('cart', () => {
 
   /** 삭제(DELETE /api/v1/cart/items·단건도 배열 1개). 성공 후 재load. 실패는 throw. */
   async function remove(variantPublicIds: string[]): Promise<void> {
-    const auth = useAuthStore()
-    const config = useRuntimeConfig()
-    const baseUrl = import.meta.server
-      ? `${config.apiInternalBase}/api`
-      : config.public.apiBase || '/api'
-
-    await $fetch('/v1/cart/items', {
-      baseURL: baseUrl,
+    await useBuyerApi()('/v1/cart/items', {
       method: 'DELETE',
-      headers: { Authorization: `Bearer ${auth.token}` },
       body: { variantPublicIds },
     })
     await load()

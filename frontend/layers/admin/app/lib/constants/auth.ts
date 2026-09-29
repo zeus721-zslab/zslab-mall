@@ -10,7 +10,7 @@ export const ADMIN_LOGIN_PATH = '/admin/login'
 
 /**
  * 관리자 데모 로그인 서버 라우트(FE-23·layers/admin/server/routes/_admin-demo). /api/**(backend 프록시)·/admin/**(CSR 페이지) 밖 경로.
- * status(GET) = { enabled } 버튼 표시 여부 · login(POST) = { token }.
+ * status(GET) = { enabled } 버튼 표시 여부 · login(POST) = 204 + BE Set-Cookie 전달(D-235 F9).
  */
 export const ADMIN_DEMO_STATUS_PATH = '/_admin-demo/status'
 export const ADMIN_DEMO_LOGIN_PATH = '/_admin-demo/login'

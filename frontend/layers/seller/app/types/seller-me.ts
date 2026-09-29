@@ -15,4 +15,7 @@ export interface SellerMe {
   /** 정산 예정 건수(PENDING count·금액 아님·D-191 ε). */
   pendingSettlementCount: number
   bankAccountRegistered: boolean
+  /** 로그인 사용자 이름·이메일(상단바 표시·D-235로 /api/v1/users/me 대신 이 응답을 쓴다). */
+  name?: string
+  email?: string
 }

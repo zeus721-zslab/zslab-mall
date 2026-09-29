@@ -16,9 +16,9 @@ definePageMeta({ layout: 'seller', middleware: ['seller', 'seller-vuetify'] })
 useSeoMeta({ title: '비밀번호 변경 · zslab-mall 셀러' })
 
 /**
- * 셀러 본인 비밀번호 변경(Track 90-D-2·FE-50). BE PATCH /api/v1/users/me/password(role 무관·anyRequest authenticated)를 seller_token으로 호출한다.
+ * 셀러 본인 비밀번호 변경(Track 90-D-2·FE-50). BE PATCH /api/v1/seller/me/password(D-235 셀러 접두사 별칭)를 셀러 쿠키로 호출한다.
  * 임시 비밀번호 세션(passwordChangeRequired·D-3)은 seller 미들웨어가 다른 화면 진입을 막고 여기로만 보낸다.
- * 성공 204 후 BE가 그 회원의 모든 토큰(역할 무관·credentials_changed_at)을 무효화하므로 seller_token을 지우고 로그인 페이지로 보내 재로그인을 안내한다.
+ * 성공 204 후 BE가 그 회원의 모든 토큰(역할 무관·credentials_changed_at)을 무효화하므로 셀러 로그아웃(쿠키 만료) 후 로그인 페이지로 보내 재로그인을 안내한다.
  */
 const sellerAuth = useSellerAuthStore()
 const sellerApi = useSellerApi()
@@ -47,9 +47,9 @@ async function submit(): Promise<void> {
   submitting.value = true
   const body: ChangePasswordRequest = { currentPassword: currentPassword.value, newPassword: newPassword.value }
   try {
-    await sellerApi<void>('/v1/users/me/password', { method: 'PATCH', body })
-    // 변경 이전 발급 토큰은 무효(D-178) → 셀러 세션·강제 상태 쿠키를 지우고 재로그인 안내(구매자 mypage/password.vue 동형)
-    sellerAuth.logout()
+    await sellerApi<void>('/v1/seller/me/password', { method: 'PATCH', body })
+    // 변경 이전 발급 토큰은 무효(D-178) → 셀러 로그아웃(F6)·강제 상태 쿠키 제거 후 재로그인 안내(구매자 mypage/password.vue 동형)
+    await sellerAuth.logout()
     await navigateTo(`${SELLER_LOGIN_PATH}?${SELLER_LOGIN_NOTICE_QUERY}=${SELLER_LOGIN_NOTICE_PASSWORD_CHANGED}`)
   } catch (error) {
     const code = extractErrorCode(error)

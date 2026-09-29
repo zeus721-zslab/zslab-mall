@@ -55,7 +55,7 @@ async function handleSubmit(): Promise<void> {
     await changePassword(request)
     // 204 성공 시 BE가 기존 토큰을 무효화한다(D-178) → 강제 상태 해제·세션 정리(withdraw.vue와 같은 auth·cart 조합) 후 재로그인 유도.
     auth.clearPasswordChangeRequired()
-    auth.logout()
+    await auth.logout()
     cart.clear()
     await navigateTo(`/login?${LOGIN_NOTICE_QUERY}=${LOGIN_NOTICE_PASSWORD_CHANGED}`)
     return

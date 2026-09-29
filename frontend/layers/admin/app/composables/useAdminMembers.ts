@@ -14,7 +14,7 @@ import { toAdminMemberApiParams } from '#layers/admin/app/lib/admin-member-query
 import { useAdminApi } from '#layers/admin/app/composables/useAdminApi'
 
 /**
- * 관리자 회원 관리 API 호출 모음(Track 84 FE·D-178 BE·useAdminOrders 패턴). 전부 useAdminApi(admin_token Bearer·401 처리) 경유이며
+ * 관리자 회원 관리 API 호출 모음(Track 84 FE·D-178 BE·useAdminOrders 패턴). 전부 useAdminApi(관리자 쿠키 인증·CSRF 헤더·401 처리) 경유이며
  * 상태(로딩·에러)는 호출부(페이지·다이얼로그)가 소유한다. 회원 상세 주문/클레임 탭은 기존 주문·클레임 목록 API에 buyerPublicId만
  * 붙여 읽는다(회원 전용 조회 API 없음).
  */

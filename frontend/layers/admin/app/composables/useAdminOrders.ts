@@ -16,7 +16,7 @@ import { toAdminOrderApiParams } from '#layers/admin/app/lib/admin-order-query'
 import { useAdminApi } from '#layers/admin/app/composables/useAdminApi'
 
 /**
- * 관리자 주문 관리 API 호출 모음(FE-27·Track 79 BE). 전부 useAdminApi(admin_token Bearer·401 처리) 경유이며 상태(로딩·에러)는
+ * 관리자 주문 관리 API 호출 모음(FE-27·Track 79 BE). 전부 useAdminApi(관리자 쿠키 인증·CSRF 헤더·401 처리) 경유이며 상태(로딩·에러)는
  * 호출부(페이지·다이얼로그)가 소유한다. 송장·배송완료·클레임 승인/거부는 주문이 아니라 품목·배송·클레임 단위 경로다.
  */
 export function useAdminOrders() {

@@ -43,7 +43,7 @@ export function useAppHeader() {
   // 로그아웃은 UI 계층에서 auth·cart를 순차 조합한다(store 간 결합은 store 밖에서).
   // 미들웨어는 네비게이션 시에만 평가되므로, 머문 페이지가 BUYER 보호 페이지면 홈으로 이탈시켜 재가드한다(공개 페이지는 잔류).
   async function handleLogout(): Promise<void> {
-    auth.logout()
+    await auth.logout()
     cart.clear()
     if (isBuyerProtectedRoute()) {
       await navigateTo('/')
