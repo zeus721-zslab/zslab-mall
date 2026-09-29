@@ -1,6 +1,7 @@
 package com.zslab.mall.common.auth;
 
 import com.zslab.mall.common.exception.UnauthenticatedException;
+import java.util.Optional;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 
@@ -24,5 +25,17 @@ final class SecurityContextActorSupport {
             throw new UnauthenticatedException("인증된 액터가 없습니다");
         }
         return actorId;
+    }
+
+    /**
+     * 인증된 액터가 있으면 식별자, 없으면(익명·principal 비-Long) empty. 공개 경로에서 로그인 여부에 따라 응답만 달라지는 조회용(Track 106-1).
+     */
+    static Optional<Long> findActorId() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        Object principal = (authentication != null) ? authentication.getPrincipal() : null;
+        if (!(principal instanceof Long actorId)) {
+            return Optional.empty();
+        }
+        return Optional.of(actorId);
     }
 }

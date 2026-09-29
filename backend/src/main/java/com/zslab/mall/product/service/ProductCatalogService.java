@@ -24,6 +24,8 @@ import com.zslab.mall.product.repository.ProductOptionGroupRepository;
 import com.zslab.mall.product.repository.ProductOptionValueRepository;
 import com.zslab.mall.product.repository.ProductRepository;
 import com.zslab.mall.product.repository.ProductVariantRepository;
+import com.zslab.mall.review.service.ReviewQueryService;
+import com.zslab.mall.review.service.ReviewQueryService.ProductRating;
 import com.zslab.mall.seller.entity.Seller;
 import com.zslab.mall.seller.enums.SellerStatus;
 import com.zslab.mall.seller.repository.SellerRepository;
@@ -89,6 +91,7 @@ public class ProductCatalogService {
     private final InventoryRepository inventoryRepository;
     private final SellerRepository sellerRepository;
     private final CategoryRepository categoryRepository;
+    private final ReviewQueryService reviewQueryService;
 
     /**
      * 노출대상 상품 목록(D1 노출·D2 품절·D3 대표가·페이징·정렬·상품명 keyword·셀러·가격 상한). size는 1~100 클램프
@@ -115,6 +118,7 @@ public class ProductCatalogService {
         Map<Long, Inventory> inventoryByVariant = inventoryByVariantId(saleVariantsByProduct.values());
         Map<Long, Seller> sellerById = sellersByIdFor(content);
         Map<Long, Category> categoryById = categoriesByIdFor(content);
+        Map<Long, ProductRating> ratingByProduct = reviewQueryService.ratingsByProductId(productIds);
 
         List<ProductSummaryResponse> summaries = content.stream()
                 .map(product -> toSummary(
@@ -122,7 +126,8 @@ public class ProductCatalogService {
                         saleVariantsByProduct.getOrDefault(product.getId(), List.of()),
                         inventoryByVariant,
                         sellerById,
-                        categoryById))
+                        categoryById,
+                        ratingByProduct.get(product.getId())))
                 .toList();
         Page<ProductSummaryResponse> summaryPage =
                 new PageImpl<>(summaries, pageable, products.getTotalElements());
@@ -199,7 +204,8 @@ public class ProductCatalogService {
             List<ProductVariant> saleVariants,
             Map<Long, Inventory> inventoryByVariant,
             Map<Long, Seller> sellerById,
-            Map<Long, Category> categoryById) {
+            Map<Long, Category> categoryById,
+            ProductRating rating) {
         Category category = categoryById.get(product.getCategoryId());
         Seller seller = sellerById.get(product.getSellerId());
         return new ProductSummaryResponse(
@@ -211,7 +217,9 @@ public class ProductCatalogService {
                 product.getCategoryId(),
                 category != null ? category.getDisplayName() : null,
                 seller != null ? seller.getCompanyName() : null,
-                seller != null ? seller.getPublicId() : null);
+                seller != null ? seller.getPublicId() : null,
+                rating != null ? rating.averageRating() : null,
+                rating != null ? rating.reviewCount() : 0);
     }
 
     private ProductDetailResponse toDetail(

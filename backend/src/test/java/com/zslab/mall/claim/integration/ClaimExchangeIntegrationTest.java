@@ -102,8 +102,8 @@ class ClaimExchangeIntegrationTest extends AbstractIntegrationTest {
     /** 관리자 주문 상세·클레임 목록 쿼리 예산(T13·옵션 라벨 배치 조회 3쿼리 포함·N+1 회귀 감지·목록은 Track 104-3a 품목 기환불액 배치 +1). */
     private static final int ADMIN_DETAIL_QUERY_BUDGET = 20;
     private static final int ADMIN_LIST_QUERY_BUDGET = 13;
-    /** 구매자 주문 상세 쿼리 예산(T14·주문+품목·상품·variant·셀러·교환 완료 클레임 배치 1). */
-    private static final int BUYER_DETAIL_QUERY_BUDGET = 8;
+    /** 구매자 주문 상세 쿼리 예산(T14·주문+품목·상품·variant·셀러·교환 완료 클레임 배치 1 · Track 106-1 품목 리뷰 상태 배치 1 → 8에서 9). */
+    private static final int BUYER_DETAIL_QUERY_BUDGET = 9;
 
     private static final String ORDER_ITEM_PID = pid("oit_", "EXCOIT");
     private static final String VAR_EXCHANGE_PID = pid("var_", "EXCVAR2");
@@ -556,7 +556,7 @@ class ClaimExchangeIntegrationTest extends AbstractIntegrationTest {
     // ==================== T14 구매자 주문 상세 exchangeCompleted ====================
 
     @Test
-    @DisplayName("T14 exchangeCompleted: 교환 완료 품목 true / 미교환·교환 진행 중(APPROVED)·교환 거부(REJECTED) 품목 false / 품목 4개·클레임 3건에도 주문 단위 배치 1회(쿼리 수 ≤ 8)")
+    @DisplayName("T14 exchangeCompleted: 교환 완료 품목 true / 미교환·교환 진행 중(APPROVED)·교환 거부(REJECTED) 품목 false / 품목 4개·클레임 3건에도 주문 단위 배치 1회(쿼리 수 ≤ 9)")
     void buyerOrderDetail_exchangeCompletedFlag_batched() throws Exception {
         Long claimId = runToInspection(true);
         deliveryService.markDelivered(deliveryService.registerExchangeShipment(claimId, DeliveryCarrier.CJ, "CJ-EXC-OUT14").getId());

@@ -35,6 +35,8 @@ dependencies {
     implementation("net.logstash.logback:logstash-logback-encoder:8.0")
     // Track 77: JDK ImageIO는 webp 미지원 → 읽기 전용 순수 Java 플러그인(BSD-3). 썸네일 쓰기는 JDK jpg/png만 사용(webp 썸네일은 png).
     implementation("com.twelvemonkeys.imageio:imageio-webp:3.12.0")
+    // Track 106-1: 리뷰 사진 재인코딩 전 EXIF Orientation 판독(ImageReencoder). webp의 전이 의존과 같은 버전을 직접 선언한다.
+    implementation("com.twelvemonkeys.imageio:imageio-metadata:3.12.0")
     compileOnly("org.projectlombok:lombok")
     annotationProcessor("org.projectlombok:lombok")
     testImplementation("org.springframework.boot:spring-boot-starter-test")
@@ -45,6 +47,8 @@ dependencies {
     testImplementation("org.springframework.boot:spring-boot-starter-micrometer-metrics-test")
     testImplementation("org.testcontainers:testcontainers-junit-jupiter")
     testImplementation("org.testcontainers:testcontainers-mariadb")
+    // Track 106-1: 리뷰 요약 비동기 재계산(커밋 후 전용 실행기) 결과 대기. 버전은 Boot BOM 관리.
+    testImplementation("org.awaitility:awaitility")
 }
 
 tasks.test {

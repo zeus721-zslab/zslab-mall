@@ -17,6 +17,8 @@ package com.zslab.mall.order.controller.response;
  *
  * <p>thumbnailUrl은 상품의 현재 product.thumbnail_url(Track 105-2d·D-223·장바구니·상품 목록과 같은 축소본). 삭제 상품·썸네일 없음은
  * null(NON_NULL로 키 생략). 추가형 필드.
+ *
+ * <p>review는 품목의 리뷰 상태(Track 106-1·{@link OrderItemReviewResponse}). 추가형 필드.
  */
 public record OrderItemResponse(
         String orderItemId,
@@ -30,5 +32,6 @@ public record OrderItemResponse(
         StatusView status,
         boolean exchangeCompleted,
         OrderItemDeliveryResponse delivery,
-        String thumbnailUrl) {
+        String thumbnailUrl,
+        OrderItemReviewResponse review) {
 }

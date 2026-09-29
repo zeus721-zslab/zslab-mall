@@ -49,6 +49,12 @@ public class ImageUploadService {
      */
     static final int MAX_IMAGE_SIDE_PX = 8_000;
     static final String IMAGE_TOO_LARGE_MESSAGE = "이미지가 너무 큽니다(최대 약 5000×5000 픽셀, 8비트 색상).";
+    /** 리뷰 사진(재인코딩 경로) 총 화소 상한 — 서브샘플링으로 줄여 읽으므로 휴대폰 고화소 사진까지 받는다(Track 106-1). */
+    static final long REENCODE_MAX_IMAGE_PIXELS = 50_000_000L;
+    /** 리뷰 사진 한 변 상한 — 휴대폰 사진(가장 긴 변 약 1만 2천 px)보다 넉넉하고, 원본 폭 행 버퍼를 수백 KB 안으로 묶는다. */
+    static final int REENCODE_MAX_IMAGE_SIDE_PX = 20_000;
+    static final String REENCODE_IMAGE_TOO_LARGE_MESSAGE = "사진 해상도가 너무 큽니다(최대 약 5천만 화소·한 변 2만 픽셀).";
+    static final String REENCODE_DECODE_BUDGET_MESSAGE = "사진의 색상 정보가 너무 커서 처리할 수 없습니다. 해상도를 줄여 다시 올려 주세요.";
     /** 헤더에서 디코딩 크기(밴드·샘플 비트)를 알 수 없을 때의 표식. */
     private static final long UNKNOWN_DECODED_BYTES = -1L;
     private static final int BITS_PER_BYTE = 8;
@@ -133,6 +139,24 @@ public class ImageUploadService {
      *                             파일은 삭제)
      */
     public ImageUploadResponse upload(List<MultipartFile> files, String directory, UploadLimits limits) {
+        return upload(files, directory, limits, false);
+    }
+
+    /**
+     * 원본을 재인코딩해 저장한다(Track 106-1·리뷰 사진 공개 서빙). 서브샘플링으로 줄여 읽고 EXIF Orientation을 픽셀에 반영해 회전한 뒤 긴 변
+     * 2048px로 맞춰 메타데이터 없이 다시 기록하므로 GPS·기기 정보가 남지 않고, 썸네일도 재기록본에서 만든다({@link ImageReencoder}). 해상도 상한은
+     * 한 변 {@value #REENCODE_MAX_IMAGE_SIDE_PX}px·총 {@value #REENCODE_MAX_IMAGE_PIXELS}화소이고, 형식·파일 크기·장수 검증과 응답은
+     * {@link #upload(List, String, UploadLimits)}와 같다.
+     * 관리자·셀러·클레임 업로드는 원본 무재인코딩을 유지한다(DEC:10668 이월).
+     *
+     * @throws MalformedRequestException 파일 없음·{@code limits.maxFiles()}장 초과(400)
+     * @throws UploadBusyException 파일 처리 입장권 소진·디코딩 대기 초과(503)
+     */
+    public ImageUploadResponse uploadReencoded(List<MultipartFile> files, String directory, UploadLimits limits) {
+        return upload(files, directory, limits, true);
+    }
+
+    private ImageUploadResponse upload(List<MultipartFile> files, String directory, UploadLimits limits, boolean reencodeOriginal) {
         if (files == null || files.isEmpty()) {
             throw new MalformedRequestException("업로드할 파일이 없습니다(files).");
         }
@@ -142,7 +166,7 @@ public class ImageUploadService {
         List<ImageUploadResponse.Item> results = new ArrayList<>();
         try {
             for (MultipartFile file : files) {
-                results.add(uploadOne(file, directory, limits.maxFileSize()));
+                results.add(uploadOne(file, directory, limits.maxFileSize(), reencodeOriginal));
             }
         } catch (RuntimeException requestFailure) {
             // 요청 전체가 실패(503 입장권 소진·대기 초과·저장/썸네일 오류)하면 앞서 저장한 파일의 URL은 응답되지 않아 고아가 된다 → 이번 요청 저장분을 지운다.
@@ -238,16 +262,17 @@ public class ImageUploadService {
      *
      * @throws UploadBusyException 입장권 소진(즉시) 또는 디코딩 차례 대기 초과(503)
      */
-    private ImageUploadResponse.Item uploadOne(MultipartFile file, String directory, long maxFileSize) {
+    private ImageUploadResponse.Item uploadOne(MultipartFile file, String directory, long maxFileSize, boolean reencodeOriginal) {
         imageDecodeLimiter.admitFile();
         try {
-            return inspectAndStore(file, directory, maxFileSize);
+            return inspectAndStore(file, directory, maxFileSize, reencodeOriginal);
         } finally {
             imageDecodeLimiter.releaseFile();
         }
     }
 
-    private ImageUploadResponse.Item inspectAndStore(MultipartFile file, String directory, long maxFileSize) {
+    private ImageUploadResponse.Item inspectAndStore(MultipartFile file, String directory, long maxFileSize,
+            boolean reencodeOriginal) {
         String fileName = file.getOriginalFilename();
         if (file.isEmpty()) {
             return ImageUploadResponse.Item.failure(fileName, CODE_EMPTY_FILE, "빈 파일입니다.");
@@ -272,6 +297,9 @@ public class ImageUploadService {
         Optional<ImageHeader> header = readHeader(content);
         if (header.isEmpty()) {
             return ImageUploadResponse.Item.failure(fileName, CODE_INVALID_IMAGE, "이미지 헤더를 읽을 수 없습니다.");
+        }
+        if (reencodeOriginal) {
+            return inspectAndStoreReencoded(fileName, content, format, directory, header.get(), maxFileSize);
         }
         int headerWidth = header.get().width();
         int headerHeight = header.get().height();
@@ -298,12 +326,74 @@ public class ImageUploadService {
         }
     }
 
+    /**
+     * 리뷰 사진(재인코딩 경로·Track 106-1) 검사. 원본은 휴대폰 사진이 대부분이라 한 변 8,000px·총 2,500만 화소 상한 대신 한 변
+     * {@value #REENCODE_MAX_IMAGE_SIDE_PX}px·총 {@value #REENCODE_MAX_IMAGE_PIXELS}화소로 판정한다(한 변 상한은 디코더가 서브샘플링과 무관하게
+     * 원본 폭만큼 잡는 행 버퍼를 막는다 — 극단 종횡비 픽셀 폭탄). 디코딩은 서브샘플링으로 줄여 읽으므로 예산은 줄인 디코딩 버퍼 + 회전·축소
+     * 결과 버퍼로 잰다. 판정 문구는 실제 한도와 같고, 한도 안인데 예산을 넘는 경우(고비트 색상)는 다른 문구로 구분한다.
+     */
+    private ImageUploadResponse.Item inspectAndStoreReencoded(String fileName, byte[] content, ImageFormat format, String directory,
+            ImageHeader header, long maxFileSize) {
+        int width = header.width();
+        int height = header.height();
+        long pixels = (long) width * height;
+        if (width > REENCODE_MAX_IMAGE_SIDE_PX || height > REENCODE_MAX_IMAGE_SIDE_PX || pixels > REENCODE_MAX_IMAGE_PIXELS) {
+            log.warn("[ImageUpload] 리뷰 사진 해상도 상한 초과 거부(디코딩 전) {}x{}", width, height);
+            return ImageUploadResponse.Item.failure(fileName, CODE_IMAGE_TOO_LARGE, REENCODE_IMAGE_TOO_LARGE_MESSAGE);
+        }
+        if (header.decodedBytes() == UNKNOWN_DECODED_BYTES) {
+            return ImageUploadResponse.Item.failure(fileName, CODE_INVALID_IMAGE, "이미지 헤더를 읽을 수 없습니다.");
+        }
+        int subsampling = ImageReencoder.subsamplingFor(Math.max(width, height));
+        long subsampledPixels = (long) Math.ceilDiv(width, subsampling) * Math.ceilDiv(height, subsampling);
+        // 디코딩 버퍼는 헤더 추정(픽셀당 바이트)을 줄인 화소 수에 비례시켜 잡고, 회전·축소 결과(INT 32비트·긴 변 2048 이하)를 더한다.
+        long decodeBufferBytes = Math.ceilDiv(Math.multiplyExact(header.decodedBytes(), subsampledPixels), pixels);
+        long resultBytes = Math.ceilDiv(Math.multiplyExact(Math.min(subsampledPixels, ImageReencoder.maxResizedPixels()),
+                THUMBNAIL_CONVERSION_BITS_PER_PIXEL), BITS_PER_BYTE);
+        long budgetBytes = decodeBufferBytes + resultBytes;
+        if (budgetBytes > maxDecodeBytes) {
+            log.warn("[ImageUpload] 리뷰 사진 디코딩 예산 초과 거부(디코딩 전) {}x{} subsampling={} budgetBytes={}", width, height,
+                    subsampling, budgetBytes);
+            return ImageUploadResponse.Item.failure(fileName, CODE_IMAGE_TOO_LARGE, REENCODE_DECODE_BUDGET_MESSAGE);
+        }
+        imageDecodeLimiter.acquire();
+        try {
+            return decodeReencodeAndStore(fileName, content, format, directory, subsampling, maxFileSize);
+        } finally {
+            imageDecodeLimiter.release();
+        }
+    }
+
+    /**
+     * 서브샘플링 디코딩 → Orientation 회전·긴 변 축소(한 번에) → 메타데이터 없는 재기록 → (재기록본 기준) 저장·썸네일. 재기록은 압축 방식이 달라
+     * 입력보다 커질 수 있어(팔레트 PNG → 트루컬러 등) 저장·공개 서빙 크기도 파일당 한도 안에 둔다.
+     */
+    private ImageUploadResponse.Item decodeReencodeAndStore(String fileName, byte[] uploadedContent, ImageFormat format,
+            String directory, int subsampling, long maxFileSize) {
+        BufferedImage decoded = ImageReencoder.decodeSubsampled(uploadedContent, subsampling);
+        if (decoded == null) {
+            return ImageUploadResponse.Item.failure(fileName, CODE_INVALID_IMAGE, "이미지를 디코딩할 수 없습니다.");
+        }
+        BufferedImage image = ImageReencoder.orientAndFit(decoded, ImageReencoder.readOrientation(uploadedContent, format), format);
+        Optional<byte[]> content = ImageReencoder.encode(image, format, maxFileSize);
+        if (content.isEmpty()) {
+            log.warn("[ImageUpload] 재인코딩 중 파일당 한도 초과로 중단·거부 uploaded={} max={}", uploadedContent.length, maxFileSize);
+            return ImageUploadResponse.Item.failure(fileName, CODE_FILE_TOO_LARGE, "변환 후 파일당 최대 " + maxFileSize + "바이트를 넘습니다.");
+        }
+        return storeWithThumbnail(fileName, image, content.get(), format, directory);
+    }
+
     private ImageUploadResponse.Item decodeAndStore(String fileName, byte[] content, ImageFormat format, String directory) {
         BufferedImage image = decode(content);
         if (image == null) {
             return ImageUploadResponse.Item.failure(fileName, CODE_INVALID_IMAGE, "이미지를 디코딩할 수 없습니다.");
         }
+        return storeWithThumbnail(fileName, image, content, format, directory);
+    }
 
+    /** 원본(또는 재기록본) 바이트를 저장하고, 가로가 썸네일 폭보다 크면 {@code image}로 썸네일을 만들어 함께 저장한다. */
+    private ImageUploadResponse.Item storeWithThumbnail(String fileName, BufferedImage image, byte[] content, ImageFormat format,
+            String directory) {
         String base = directory + "/" + LocalDate.now().format(MONTH_DIRECTORY) + "/" + UlidCreator.getUlid().toString();
         String originalKey = base + "." + format.extension();
         fileStorage.store(originalKey, content);

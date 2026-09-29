@@ -155,6 +155,10 @@ zslab:
   reconciliation:
     check:
       enabled: ${RECONCILIATION_CHECK_ENABLED:true}
+  # Track 106-1 리뷰 한 줄 요약 언어 모델 선택(D-209 패턴). mock = 규칙·템플릿(기본·외부 호출 없음). 허용 목록 밖 값은 LlmProviderGuard가
+  # 기동을 멈춘다(요약은 커밋 후 비동기라 주입 실패로 드러나지 않을 수 있어 직접 검증).
+  llm:
+    provider: ${LLM_PROVIDER:mock}
   # D-230 데모 계정 보호. 쉼표 구분 이메일(대소문자 무시)은 비밀번호 변경·탈퇴·역할 해제·셀러 구성원 제외를 요청자와 무관하게 403으로 막는다.
   # compose가 기존 데모 계정 값 3개(ADMIN_BOOTSTRAP_EMAIL·NUXT_BUYER_DEMO_EMAIL·NUXT_SELLER_DEMO_EMAIL)를 이어 붙여 넘긴다. 비어 있으면 보호 없음.
   demo:

@@ -27,6 +27,8 @@ import com.zslab.mall.product.entity.Product;
 import com.zslab.mall.product.entity.ProductVariant;
 import com.zslab.mall.product.repository.ProductRepository;
 import com.zslab.mall.product.repository.ProductVariantRepository;
+import com.zslab.mall.review.repository.ReviewByOrderItemProjection;
+import com.zslab.mall.review.repository.ReviewRepository;
 import com.zslab.mall.seller.entity.Seller;
 import com.zslab.mall.seller.repository.SellerRepository;
 import java.time.LocalDateTime;
@@ -76,6 +78,7 @@ public class BuyerOrderQueryService {
     private final ClaimRepository claimRepository;
     private final DeliveryRepository deliveryRepository;
     private final PaymentRepository paymentRepository;
+    private final ReviewRepository reviewRepository;
 
     public BuyerOrderQueryService(
             OrderRepository orderRepository,
@@ -85,7 +88,8 @@ public class BuyerOrderQueryService {
             SellerRepository sellerRepository,
             ClaimRepository claimRepository,
             DeliveryRepository deliveryRepository,
-            PaymentRepository paymentRepository) {
+            PaymentRepository paymentRepository,
+            ReviewRepository reviewRepository) {
         this.orderRepository = orderRepository;
         this.orderItemRepository = orderItemRepository;
         this.productRepository = productRepository;
@@ -94,6 +98,7 @@ public class BuyerOrderQueryService {
         this.claimRepository = claimRepository;
         this.deliveryRepository = deliveryRepository;
         this.paymentRepository = paymentRepository;
+        this.reviewRepository = reviewRepository;
     }
 
     /**
@@ -127,7 +132,23 @@ public class BuyerOrderQueryService {
         List<OrderItem> items = order.getItems();
         return OrderResponse.fromOrderWithItems(
                 order, productsByIdFor(items), variantsByIdFor(items), sellersByIdFor(items), exchangeCompletedItemIdsFor(items),
-                originalDeliveryByItemIdFor(items), paidPaymentFor(order));
+                originalDeliveryByItemIdFor(items), paidPaymentFor(order), reviewIdByItemIdFor(items));
+    }
+
+    /**
+     * 품목 id별 리뷰 public_id(Track 106-1·주문 응답 리뷰 상태). 삭제된 리뷰도 키로 남기되 값은 null이다(재작성 불가 표시·링크 없음 — HashMap이라
+     * null 값 허용). 품목 전체 1회 IN 배치 조회이며 품목이 없으면 조회 없이 빈 맵.
+     */
+    private Map<Long, String> reviewIdByItemIdFor(List<OrderItem> items) {
+        if (items.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, String> reviewIdByItemId = new HashMap<>();
+        for (ReviewByOrderItemProjection review : reviewRepository.findWrittenByOrderItemIdIn(
+                items.stream().map(OrderItem::getId).toList())) {
+            reviewIdByItemId.put(review.getOrderItemId(), review.getReviewPublicId());
+        }
+        return reviewIdByItemId;
     }
 
     /**
@@ -207,13 +228,14 @@ public class BuyerOrderQueryService {
         Map<Long, ProductVariant> variantById = variantsByIdFor(pageItems);
         Map<Long, Seller> sellerById = sellersByIdFor(pageItems);
         Set<Long> exchangeCompletedItemIds = exchangeCompletedItemIdsFor(pageItems);
+        Map<Long, String> reviewIdByItemId = reviewIdByItemIdFor(pageItems);
 
         // 페이지 순서(ordered_at DESC) 유지하며 items 로딩본으로 요약 생성(상품명은 order_item 스냅샷·Track 76).
         List<OrderSummaryResponse> summaries = orders.getContent().stream()
                 .map(order -> OrderSummaryResponse.from(
                         ordersWithItems.getOrDefault(order.getId(), order),
                         activeClaimsByOrderId.getOrDefault(order.getId(), List.of()),
-                        productById, variantById, sellerById, exchangeCompletedItemIds))
+                        productById, variantById, sellerById, exchangeCompletedItemIds, reviewIdByItemId))
                 .toList();
         Page<OrderSummaryResponse> summaryPage = new PageImpl<>(summaries, pageable, orders.getTotalElements());
         return PagedResponse.from(summaryPage);

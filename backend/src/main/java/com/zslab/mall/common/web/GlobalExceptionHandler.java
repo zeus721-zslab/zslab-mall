@@ -50,6 +50,12 @@ import com.zslab.mall.reconciliation.exception.ReconciliationIssueInvalidStateEx
 import com.zslab.mall.reconciliation.exception.ReconciliationIssueNotFoundException;
 import com.zslab.mall.refund.exception.RefundInvariantViolationException;
 import com.zslab.mall.refund.exception.RefundNotFoundException;
+import com.zslab.mall.review.exception.ReviewAlreadyExistsException;
+import com.zslab.mall.review.exception.ReviewAttachmentLengthRequiredException;
+import com.zslab.mall.review.exception.ReviewAttachmentRequestTooLargeException;
+import com.zslab.mall.review.exception.ReviewInvalidStateException;
+import com.zslab.mall.review.exception.ReviewNotEligibleException;
+import com.zslab.mall.review.exception.ReviewNotFoundException;
 import com.zslab.mall.seller.exception.SellerActivityInProgressException;
 import com.zslab.mall.seller.exception.SellerBusinessNoDuplicateException;
 import com.zslab.mall.seller.exception.SellerBankAccountInvalidStateException;
@@ -194,6 +200,10 @@ public class GlobalExceptionHandler {
     private static final String CODE_MEMBER_PHONE_MISSING = "MEMBER_PHONE_MISSING";
     private static final String CODE_MEMBER_ADMIN_ROLE_ASSIGNED = "MEMBER_ADMIN_ROLE_ASSIGNED";
     private static final String CODE_TEMPORARY_PASSWORD_DELIVERY_FAILED = "TEMPORARY_PASSWORD_DELIVERY_FAILED";
+    private static final String CODE_REVIEW_NOT_FOUND = "REVIEW_NOT_FOUND";
+    private static final String CODE_REVIEW_ALREADY_EXISTS = "REVIEW_ALREADY_EXISTS";
+    private static final String CODE_REVIEW_NOT_ELIGIBLE = "REVIEW_NOT_ELIGIBLE";
+    private static final String CODE_REVIEW_INVALID_STATE = "REVIEW_INVALID_STATE";
     private static final String CODE_INTERNAL_ERROR = "INTERNAL_ERROR";
 
     // ===== 400 =====
@@ -336,6 +346,13 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.NOT_FOUND, CODE_REFUND_NOT_FOUND, exception.getMessage(), request);
     }
 
+    @ExceptionHandler(ReviewNotFoundException.class)
+    public ResponseEntity<ProblemDetail> handleReviewNotFound(
+            ReviewNotFoundException exception, HttpServletRequest request) {
+        // Track 106-1: 리뷰 미존재·삭제·타인 리뷰 수정·숨김 리뷰 공개 행위(존재 은닉·404).
+        return build(HttpStatus.NOT_FOUND, CODE_REVIEW_NOT_FOUND, exception.getMessage(), request);
+    }
+
     @ExceptionHandler(ClaimNotFoundException.class)
     public ResponseEntity<ProblemDetail> handleClaimNotFound(
             ClaimNotFoundException exception, HttpServletRequest request) {
@@ -429,6 +446,13 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.PAYLOAD_TOO_LARGE, CODE_PAYLOAD_TOO_LARGE, exception.getMessage(), request);
     }
 
+    @ExceptionHandler(ReviewAttachmentRequestTooLargeException.class)
+    public ResponseEntity<ProblemDetail> handleReviewAttachmentRequestTooLarge(
+            ReviewAttachmentRequestTooLargeException exception, HttpServletRequest request) {
+        // Track 106-1: 리뷰 사진 1장 업로드 상한(멀티파트 파싱 전 필터·ReviewAttachmentRequestSizeFilter). 클레임 첨부와 같은 413 코드.
+        return build(HttpStatus.PAYLOAD_TOO_LARGE, CODE_PAYLOAD_TOO_LARGE, exception.getMessage(), request);
+    }
+
     // ===== 503 =====
     @ExceptionHandler(UploadBusyException.class)
     public ResponseEntity<ProblemDetail> handleUploadBusy(UploadBusyException exception, HttpServletRequest request) {
@@ -444,7 +468,21 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.LENGTH_REQUIRED, CODE_LENGTH_REQUIRED, exception.getMessage(), request);
     }
 
+    @ExceptionHandler(ReviewAttachmentLengthRequiredException.class)
+    public ResponseEntity<ProblemDetail> handleReviewAttachmentLengthRequired(
+            ReviewAttachmentLengthRequiredException exception, HttpServletRequest request) {
+        // Track 106-1: 리뷰 사진 업로드도 길이 없는 청크 전송은 상한 판정을 우회하므로 거부한다(클레임 첨부와 같은 411).
+        return build(HttpStatus.LENGTH_REQUIRED, CODE_LENGTH_REQUIRED, exception.getMessage(), request);
+    }
+
     // ===== 409 =====
+    @ExceptionHandler(ReviewAlreadyExistsException.class)
+    public ResponseEntity<ProblemDetail> handleReviewAlreadyExists(
+            ReviewAlreadyExistsException exception, HttpServletRequest request) {
+        // Track 106-1: 품목당 리뷰 1개(삭제 후 재작성 불가·동시 작성은 uk_review_order_item 위반).
+        return build(HttpStatus.CONFLICT, CODE_REVIEW_ALREADY_EXISTS, exception.getMessage(), request);
+    }
+
     @ExceptionHandler(ProductHasOrderHistoryException.class)
     public ResponseEntity<ProblemDetail> handleProductHasOrderHistory(
             ProductHasOrderHistoryException exception, HttpServletRequest request) {
@@ -773,6 +811,20 @@ public class GlobalExceptionHandler {
         // Track 89-G: 같은 역할 재요청(422·같은 상태 재요청 관습).
         log.warn("[SellerMember] 구성원 상태 위반(422): {}", exception.getMessage());
         return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_SELLER_MEMBER_INVALID_STATE, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(ReviewNotEligibleException.class)
+    public ResponseEntity<ProblemDetail> handleReviewNotEligible(
+            ReviewNotEligibleException exception, HttpServletRequest request) {
+        // Track 106-1: 구매확정 전 품목 리뷰 작성·본인 리뷰 도움됐어요(행위 자격 없음·422).
+        return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_REVIEW_NOT_ELIGIBLE, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(ReviewInvalidStateException.class)
+    public ResponseEntity<ProblemDetail> handleReviewInvalidState(
+            ReviewInvalidStateException exception, HttpServletRequest request) {
+        // Track 106-1: 관리자 숨김·해제 같은 상태 재요청(422·ProductInvalidStateException 선례).
+        return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_REVIEW_INVALID_STATE, exception.getMessage(), request);
     }
 
     @ExceptionHandler(ProductInvalidStateException.class)
