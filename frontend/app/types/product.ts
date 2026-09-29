@@ -13,6 +13,10 @@ export interface ProductSummary {
   sellerName: string
   /** 판매자 공개 식별자(slr_·셀러 필터 왕복용·D-221). */
   sellerPublicId: string
+  /** 공개 리뷰 평균 별점(소수 첫째 자리·Track 106-1). 리뷰가 없으면 NON_NULL로 키가 빠진다. */
+  averageRating?: number
+  /** 공개 리뷰 수(없으면 0). */
+  reviewCount: number
 }
 
 /**

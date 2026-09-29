@@ -57,7 +57,7 @@ public record OrderResponse(
     /**
      * {@link #fromOrderWithItems(Order, Map, Map, Map)} + 교환 완료 품목 id 집합(Track 83 D-177 보충·exchangeCompleted)
      * + 품목 id별 원 발송 Delivery(Track 96-2 D-203·delivery·없으면 null) + 결제 시각이 있는 최신 결제 행(Track 105-4g-3·없으면 null)
-     * + 품목 id별 리뷰 public_id(Track 106-1·삭제 리뷰는 값 null·{@link OrderItemReviewResponse#of}).
+     * + 품목 id별 리뷰(Track 106-1·삭제 리뷰는 reviewId null·숨김 여부·{@link OrderItemReviewResponse#of}).
      */
     public static OrderResponse fromOrderWithItems(
             Order order,
@@ -67,7 +67,7 @@ public record OrderResponse(
             Set<Long> exchangeCompletedItemIds,
             Map<Long, Delivery> originalDeliveryByItemId,
             Payment paidPayment,
-            Map<Long, String> reviewIdByItemId) {
+            Map<Long, OrderItemReviewResponse.Written> reviewIdByItemId) {
         // seller_id 단위 그룹화(삽입 순서 보존). 단일 판매자도 배열 길이 1.
         Map<Long, List<OrderItem>> itemsBySeller = new LinkedHashMap<>();
         for (OrderItem item : order.getItems()) {

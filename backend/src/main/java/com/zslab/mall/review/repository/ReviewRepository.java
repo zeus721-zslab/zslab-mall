@@ -34,10 +34,10 @@ public interface ReviewRepository extends JpaRepository<Review, Long> {
 
     /**
      * 주문 응답의 품목별 리뷰 상태(삭제 포함 1쿼리 배치). 삭제된 리뷰는 reviewPublicId가 NULL이다(재작성 불가 표시만·링크 없음).
-     * native라 @SQLRestriction이 붙지 않는다. :orderItemIds 바인딩.
+     * reviewStatus는 숨김 배지용(같은 쿼리 · 추가 조회 없음). native라 @SQLRestriction이 붙지 않는다. :orderItemIds 바인딩.
      */
-    @Query(value = "SELECT order_item_id AS orderItemId, CASE WHEN deleted_at IS NULL THEN public_id END AS reviewPublicId "
-            + "FROM review WHERE order_item_id IN (:orderItemIds)", nativeQuery = true)
+    @Query(value = "SELECT order_item_id AS orderItemId, CASE WHEN deleted_at IS NULL THEN public_id END AS reviewPublicId, "
+            + "status AS reviewStatus FROM review WHERE order_item_id IN (:orderItemIds)", nativeQuery = true)
     List<ReviewByOrderItemProjection> findWrittenByOrderItemIdIn(@Param("orderItemIds") Collection<Long> orderItemIds);
 
     /**

@@ -261,3 +261,69 @@ describe('pages/orders/[orderPublicId].vue 구매확정(C-06)·안내 문구(C-1
     expect(refresh).toHaveBeenCalledTimes(1)
   })
 })
+
+// Track 106-1 PR2: 품목 review.status 기준 리뷰 진입점 — WRITABLE = 별 5개(누른 별점 query) · WRITTEN = 리뷰 수정(숨김이면 배지·사유) · 그 밖 = 없음.
+const { ownReviewStatesMock } = vi.hoisted(() => ({
+  ownReviewStatesMock: { current: {} as Record<string, { status: 'VISIBLE' | 'HIDDEN'; hiddenReason?: string }> },
+}))
+mockNuxtImport('useOwnReviewStates', () => () => ref(ownReviewStatesMock.current))
+
+describe('pages/orders/[orderPublicId].vue 리뷰 진입점(Track 106-1)', () => {
+  const PRODUCT_ID = 'prd_01ABCDEFGHJKMNPQRSTVWXYZ00'
+  const confirmed = (overrides: Partial<OrderItem>) =>
+    orderItem({ productId: PRODUCT_ID, productName: '린넨 셔츠', status: { code: 'CONFIRMED', label: '구매확정' }, ...overrides })
+
+  beforeEach(() => {
+    useOrderDetailMock.mockReset()
+    ownReviewStatesMock.current = {}
+  })
+
+  function mountWith(items: OrderItem[]) {
+    useOrderDetailMock.mockReturnValue({ data: ref(orderWith(items)), pending: ref(false), error: ref(null), refresh: vi.fn() })
+    return mountSuspended(OrderDetailPage)
+  }
+
+  it('WRITABLE → "방금 확정한 상품, 어땠나요?" + 별 5개 링크(누른 별점을 rating query로) · 수정 버튼 없음', async () => {
+    const wrapper = await mountWith([confirmed({ orderItemId: 'oit_A', review: { status: 'WRITABLE' } })])
+    const prompt = wrapper.get('[data-testid="item-review-prompt"]')
+    expect(prompt.text()).toContain('방금 확정한 상품, 어땠나요?')
+    const stars = prompt.findAll('a')
+    expect(stars).toHaveLength(5)
+    expect(stars[3]!.attributes('aria-label')).toBe('4점으로 리뷰 쓰기')
+    expect(stars[3]!.attributes('href')).toContain(`/reviews/new?orderItem=oit_A&product=${PRODUCT_ID}`)
+    expect(stars[3]!.attributes('href')).toContain('&rating=4')
+    expect(wrapper.find('[data-testid="item-review-edit"]').exists()).toBe(false)
+  })
+
+  it('WRITTEN + reviewId → 리뷰 수정 링크 · review.hidden이면 "비공개 처리됨" + 사유(단건 조회) / 공개면 배지 없음', async () => {
+    ownReviewStatesMock.current = { rvw_hidden: { status: 'HIDDEN', hiddenReason: '광고성 게시물' } }
+    const wrapper = await mountWith([
+      confirmed({ orderItemId: 'oit_H', review: { status: 'WRITTEN', reviewId: 'rvw_hidden', hidden: true } }),
+      confirmed({ orderItemId: 'oit_V', review: { status: 'WRITTEN', reviewId: 'rvw_visible', hidden: false } }),
+    ])
+    const edits = wrapper.findAll('[data-testid="item-review-edit"]')
+    expect(edits).toHaveLength(2)
+    expect(edits[0]!.attributes('href')).toContain(`/reviews/rvw_hidden/edit?product=${PRODUCT_ID}`)
+    const hidden = wrapper.findAll('[data-testid="item-review-hidden"]')
+    expect(hidden).toHaveLength(1)
+    expect(hidden[0]!.text()).toContain('비공개 처리됨')
+    expect(hidden[0]!.text()).toContain('광고성 게시물')
+    expect(wrapper.find('[data-testid="item-review-prompt"]').exists()).toBe(false)
+  })
+
+  it('review.hidden인데 사유 조회 전·실패 → 배지만(사유 줄 없음)', async () => {
+    const wrapper = await mountWith([confirmed({ orderItemId: 'oit_H', review: { status: 'WRITTEN', reviewId: 'rvw_hidden', hidden: true } })])
+    const hidden = wrapper.get('[data-testid="item-review-hidden"]')
+    expect(hidden.text()).toBe('비공개 처리됨')
+  })
+
+  it('WRITTEN인데 reviewId 없음(삭제한 리뷰)·NOT_ELIGIBLE·review 없음 → 리뷰 표시 없음', async () => {
+    const wrapper = await mountWith([
+      confirmed({ orderItemId: 'oit_D', review: { status: 'WRITTEN' } }),
+      orderItem({ orderItemId: 'oit_P', productId: PRODUCT_ID, review: { status: 'NOT_ELIGIBLE' } }),
+      orderItem({ orderItemId: 'oit_O', productId: PRODUCT_ID }),
+    ])
+    expect(wrapper.find('[data-testid="item-review-prompt"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="item-review-edit"]').exists()).toBe(false)
+  })
+})

@@ -3,6 +3,8 @@ import type { OrderDetailPageVm } from '~/skins/contracts/order-detail'
 import type { OrderItem } from '~/types/order'
 import { formatPhone } from '~/lib/format/phone'
 import { ITEM_CONFIRM_TARGET_CAPTION, itemConfirmTarget } from '~/lib/constants/order'
+import { REVIEW_RATING_MAX } from '~/lib/constants/review'
+import { Star } from '@lucide/vue'
 import MypageFrame from '../components/MypageFrame.vue'
 import RenewBadge from '../components/RenewBadge.vue'
 import RenewNotice from '../components/RenewNotice.vue'
@@ -39,6 +41,7 @@ function onConfirm(): void {
 const CARD = 'rounded-card bg-white p-5 shadow-e1 md:p-6'
 const SECTION_TITLE = 'text-h3 text-ink'
 const ACTION_BUTTON = 'btn btn-sm max-md:min-h-11'
+const REVIEW_RATINGS = Array.from({ length: REVIEW_RATING_MAX }, (_, index) => index + 1)
 </script>
 
 <template>
@@ -140,7 +143,7 @@ const ACTION_BUTTON = 'btn btn-sm max-md:min-h-11'
             <OrderItemDeliveryInfo :delivery="item.delivery" :item-status-code="item.status.code" />
 
             <!-- 구매확정(배송완료만) · 클레임 진입점(품목 상태가 허용하는 유형만) -->
-            <div v-if="claimTypesOf(item).length || item.status.code === 'DELIVERED'" class="flex flex-wrap gap-2">
+            <div v-if="claimTypesOf(item).length || item.status.code === 'DELIVERED' || vm.reviewEditPath(item)" class="flex flex-wrap gap-2">
               <button
                 v-if="item.status.code === 'DELIVERED'"
                 type="button"
@@ -161,9 +164,41 @@ const ACTION_BUTTON = 'btn btn-sm max-md:min-h-11'
               >
                 {{ vm.claimTypeLabel(type) }} 요청
               </button>
+              <NuxtLink v-if="vm.reviewEditPath(item)" :to="vm.reviewEditPath(item) ?? ''" :class="[ACTION_BUTTON, 'btn-secondary']" data-testid="item-review-edit">
+                리뷰 수정
+              </NuxtLink>
             </div>
             <!-- 배송완료 안내(FE-53·C-16): 값은 lib/constants/order.ts AUTO_CONFIRM_DAYS(BE 설정과 일치). -->
             <p v-if="item.status.code === 'DELIVERED'" class="text-caption font-normal text-sub" data-testid="item-auto-confirm-guide">{{ vm.AUTO_CONFIRM_GUIDE }}</p>
+
+            <!-- 리뷰(Track 106-1): 구매확정 품목 = 별 5개(누른 별점을 채운 채 작성 페이지로) · 작성한 리뷰가 숨김이면 배지 + 사유 -->
+            <div
+              v-if="vm.canWriteReview(item)"
+              class="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-card bg-surface-muted px-4 py-2"
+              data-testid="item-review-prompt"
+            >
+              <p class="text-small font-semibold text-ink">방금 확정한 상품, 어땠나요?</p>
+              <div class="-mx-1 flex" role="group" aria-label="별점을 골라 리뷰 쓰기">
+                <NuxtLink
+                  v-for="rating in REVIEW_RATINGS"
+                  :key="rating"
+                  :to="vm.reviewWritePath(item, rating)"
+                  :aria-label="`${rating}점으로 리뷰 쓰기`"
+                  class="group flex h-11 w-11 items-center justify-center rounded-full focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary"
+                  :data-testid="`item-review-star-${rating}`"
+                >
+                  <Star class="h-7 w-7 text-line transition duration-fast ease-soft group-hover:text-primary motion-safe:group-active:scale-90" fill="currentColor" :stroke-width="0" aria-hidden="true" />
+                </NuxtLink>
+              </div>
+            </div>
+            <div
+              v-if="item.review?.reviewId && item.review.hidden"
+              class="flex flex-wrap items-center gap-2 text-small text-sub"
+              data-testid="item-review-hidden"
+            >
+              <RenewBadge tone="danger">비공개 처리됨</RenewBadge>
+              <span v-if="vm.ownReviewStates[item.review.reviewId]?.hiddenReason" class="break-keep">{{ vm.ownReviewStates[item.review.reviewId]?.hiddenReason }}</span>
+            </div>
 
             <RenewNotice
               v-if="vm.confirmNotice && vm.confirmNotice.orderItemId === item.orderItemId"

@@ -15,6 +15,7 @@ import type {
 import type { canResumePayment } from '~/lib/utils/payment-resume'
 import type { toActiveClaimBadges } from '~/lib/utils/active-claim-badge'
 import type { formatDateTime } from '~/lib/utils/datetime'
+import type { canWriteReview, reviewEditPath, reviewWritePath } from '~/lib/utils/review-links'
 import type { ItemConfirmNotice } from '~/skins/contracts/order-detail'
 
 /** pages/orders/index.vue → OrdersView. tab·page는 URL이 SoT이며 이동은 moveTo로만 한다. */
@@ -54,6 +55,9 @@ export interface OrdersPageVm {
   canResumePayment: typeof canResumePayment
   toActiveClaimBadges: typeof toActiveClaimBadges
   formatDateTime: typeof formatDateTime
+  canWriteReview: typeof canWriteReview
+  reviewWritePath: typeof reviewWritePath
+  reviewEditPath: typeof reviewEditPath
   /** 취소·반품·교환 탭의 유형 필터(null = 전체·FE-73 보완 1). 바꾸기는 moveToClaimType으로만 한다(page 0). */
   claimTypeFilter: ClaimType | null
   CLAIM_TYPE_FILTERS: typeof CLAIM_TYPE_FILTERS

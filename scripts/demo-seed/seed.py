@@ -2,7 +2,8 @@
 데모 시드 스크립트 (docs/infra/demo-seed/plan.md 기반).
 
 단계: master(카테고리·셀러·계좌·구매자·상품·이미지) → orders(3~8월 주문·클레임·9월 진행분)
-     → timeshift(시각 보정 SQL·order_no) → settlement(정산 생성·확정·지급·paid_at 보정) → verify(검증)
+     → timeshift(시각 보정 SQL·order_no) → settlement(정산 생성·확정·지급·paid_at 보정)
+     → reviews(카테고리 키워드·리뷰·사진·도움됐어요·작성 시각 보정) → verify(검증)
 
 접속 정보는 환경변수로만 받는다(README 참조). 재실행 가드는 데모 마커(이메일 도메인·variantCode prefix)로 판정하며
 --force 없이는 기존 데모 데이터 위에 진행하지 않는다.
@@ -74,6 +75,16 @@ PAYOUT_DELAY_MAX_DAYS = 3
 SETTLEMENT_MONTHS = [3, 4, 5, 6, 7, 8]
 SETTLEMENT_PAID_MONTHS = [3, 4, 5, 6]
 SETTLEMENT_CONFIRMED_MONTHS = [3, 4, 5, 6, 7]
+# 리뷰(Track 106-1 PR2): 클레임 없는 구매확정 품목 중 이 비율만 작성 · 별점 가중치(한쪽으로 쏠리지 않게) · 사진 리뷰 비율 · 사진 장수
+REVIEW_RATIO = 0.7
+REVIEW_TARGET_SEED = 1061  # 리뷰 대상 품목 선택 전용 난수 시드(재개해도 같은 대상)
+REVIEW_RATING_WEIGHTS = {5: 30, 4: 30, 3: 20, 2: 12, 1: 8}
+PHOTO_REVIEW_RATIO = 0.35
+PHOTO_COUNT_RANGE = (1, 3)
+REVIEW_PHOTO_SIZE = 480
+HELPFUL_VOTERS_MAX = 3
+REVIEW_DELAY_MAX_DAYS = 5  # 리뷰 작성 시각 = 구매확정 + 0~N일(실행 시각 이전)
+CATEGORY_KEYWORD_ORDER_BASE = 100  # 기본 세트(1~6) 뒤에 보이도록
 
 log = logging.getLogger("demo-seed")
 
@@ -131,6 +142,33 @@ PRODUCTS = [
     ("데모", "tech", "데모 탁상 시계", 33000, None),
 ]
 
+# 카테고리별 리뷰 키워드 세트(Track 106-1 · V40 주석: 기본 세트는 Flyway, 카테고리 세트는 데모 시드). (code, label, group_code)
+# code는 전역 유일(uk) · group_code는 V40 CHECK 5종 안에서만.
+CATEGORY_KEYWORDS = {
+    "의류": [("APPAREL_SIZE_SMALL", "사이즈가 작아요", "PRODUCT"), ("APPAREL_SIZE_FIT", "사이즈가 딱 맞아요", "PRODUCT"),
+           ("APPAREL_SIZE_LARGE", "사이즈가 커요", "PRODUCT"), ("APPAREL_FABRIC_SOFT", "소재가 부드러워요", "QUALITY"),
+           ("APPAREL_COLOR_SAME", "색감이 화면과 같아요", "PRODUCT")],
+    "리빙·주방": [("LIVING_EASY_CLEAN", "세척이 쉬워요", "PRODUCT"), ("LIVING_STURDY", "튼튼해요", "QUALITY"),
+              ("LIVING_SIZE_GOOD", "크기가 적당해요", "PRODUCT"), ("LIVING_DESIGN_PRETTY", "디자인이 예뻐요", "PRODUCT")],
+    "잡화": [("GOODS_FINISH_NEAT", "마감이 깔끔해요", "QUALITY"), ("GOODS_PRACTICAL", "실용적이에요", "PRODUCT"),
+           ("GOODS_GIFT_GOOD", "선물용으로 좋아요", "VALUE"), ("GOODS_COLOR_SAME", "색이 사진과 같아요", "PRODUCT")],
+    "디지털": [("DIGITAL_EASY_SETUP", "설정이 쉬워요", "PRODUCT"), ("DIGITAL_BATTERY_LONG", "배터리가 오래가요", "PRODUCT"),
+            ("DIGITAL_QUIET", "소음이 적어요", "PRODUCT"), ("DIGITAL_SPEC_SAME", "성능이 설명대로예요", "QUALITY"),
+            ("DIGITAL_BUILD_SOLID", "만듦새가 좋아요", "QUALITY")],
+    "문구": [("STATIONERY_WRITES_WELL", "필기감이 좋아요", "PRODUCT"), ("STATIONERY_PAPER_THICK", "종이가 두꺼워요", "QUALITY"),
+           ("STATIONERY_CUTE", "귀여워요", "PRODUCT"), ("STATIONERY_MANY_COLORS", "구성이 알차요", "VALUE")],
+    "데모": [("DEMO_MOOD_GOOD", "분위기가 좋아요", "PRODUCT"), ("DEMO_AS_EXPECTED", "기대한 그대로예요", "QUALITY"),
+           ("DEMO_GIFT_GOOD", "선물하기 좋아요", "VALUE"), ("DEMO_WORTH_IT", "값어치를 해요", "VALUE")],
+}
+POSITIVE_BASE_KEYWORDS = ["DELIVERY_FAST", "PACKAGING_NEAT", "QUALITY_GOOD", "SAME_AS_DESCRIPTION", "VALUE_FOR_MONEY", "WILL_REPURCHASE"]
+REVIEW_TEMPLATES = {
+    5: ["{name} 정말 만족해요. 기대 이상이었어요.", "재구매 의사 있습니다. {name} 강력 추천해요!", "{name} 받자마자 마음에 들었어요.\n가족들도 좋아하네요."],
+    4: ["{name} 전체적으로 만족합니다. 조금만 더 저렴하면 좋겠어요.", "품질 괜찮아요. {name} 잘 쓰고 있습니다.", "생각했던 것과 비슷해요. 무난하게 추천합니다."],
+    3: ["{name} 가격 생각하면 무난해요.", "나쁘지 않은데 특별히 좋지도 않아요.", "{name} 쓸 만은 한데 기대보다는 평범했어요."],
+    2: ["{name} 사진과 조금 달라서 아쉬워요.", "마감이 기대보다 아쉬웠어요. 그래도 쓸 수는 있어요.", "배송은 빨랐지만 {name} 품질은 아쉽네요."],
+    1: ["{name} 제 기대와는 많이 달랐어요.", "사용해 보니 불편한 점이 많았어요. 추천하기 어렵습니다."],
+}
+
 BUYER_NAMES = ["김데모", "이서연", "박지훈", "최민서", "정하은", "강도윤", "조수아", "윤지호", "임채원", "한시우"]
 ADDRESSES = [
     ("06236", "서울 강남구 테헤란로 152", "역삼동 737", "101동 1001호"),
@@ -151,6 +189,10 @@ ADDRESSES = [
 # ---------------------------------------------------------------------------
 class SeedError(Exception):
     pass
+
+
+class LoginRejected(SeedError):
+    """역할 로그인 자격 증명 거부(401). reviews 단계는 그 구매자를 건너뛰고, 그 밖 단계는 SeedError처럼 중단한다."""
 
 
 def env(name: str) -> str:
@@ -261,10 +303,13 @@ class ApiClient:
         return response.json() if response.content else None
 
     def login(self, email: str, password: str, role: str) -> Credential:
-        """인증 전 CSRF 토큰(GET /api/v1/auth/csrf) → 역할 로그인(X-XSRF-TOKEN) 순서(D-235 PR3 K7·K9)."""
+        """인증 전 CSRF 토큰(GET /api/v1/auth/csrf) → 역할 로그인(X-XSRF-TOKEN) 순서(D-235 PR3 K7·K9).
+        자격 증명 거부(401)는 LoginRejected로 구분한다(SeedError 하위라 잡지 않는 단계는 기존처럼 중단)."""
         xsrf = set_cookie_value(self.request("GET", CSRF_TOKEN_PATH, expect=(204,)), XSRF_COOKIE)
-        response = self.request("POST", LOGIN_PATHS[role], expect=(200,), json={"email": email, "password": password},
+        response = self.request("POST", LOGIN_PATHS[role], expect=(200, 401), json={"email": email, "password": password},
                                 headers={"Cookie": f"{XSRF_COOKIE}={xsrf}", XSRF_HEADER: xsrf})
+        if response.status_code == 401:
+            raise LoginRejected(f"{role} 로그인 거부(401): {email}")
         return Credential(ROLE_COOKIES[role], set_cookie_value(response, ROLE_COOKIES[role]), xsrf)
 
 
@@ -308,6 +353,11 @@ def demo_order_count(conn) -> int:
                      (f"%@{DEMO_EMAIL_DOMAIN}",))["c"]
 
 
+def demo_review_count(conn) -> int:
+    return query_one(conn, "SELECT COUNT(*) AS c FROM review r JOIN `user` u ON u.id = r.buyer_id WHERE u.email LIKE %s",
+                     (f"%@{DEMO_EMAIL_DOMAIN}",))["c"]
+
+
 def demo_settlement_count(conn) -> int:
     return query_one(conn, "SELECT COUNT(*) AS c FROM settlement s JOIN seller sl ON sl.id = s.seller_id WHERE sl.company_name LIKE %s",
                      (f"{DEMO_SELLER_PREFIX}%",))["c"]
@@ -323,6 +373,8 @@ def guard(step: str, conn, state: dict, force: bool) -> None:
         reason = "state 파일에 time_shifted=true (이중 보정 방지)"
     elif step == "settlement" and demo_settlement_count(conn) > 0:
         reason = "데모 셀러 정산이 이미 존재"
+    elif step == "reviews" and demo_review_count(conn) > 0:
+        reason = "데모 구매자의 리뷰가 이미 존재"
     if reason is None:
         return
     if force:
@@ -953,6 +1005,185 @@ def step_settlement(api: ApiClient, conn, state: dict, admin_token: Credential, 
 
 
 # ---------------------------------------------------------------------------
+# STEP reviews (Track 106-1 PR2)
+# ---------------------------------------------------------------------------
+def insert_category_keywords(conn, state: dict) -> int:
+    """카테고리별 키워드 세트를 넣는다(키워드 쓰기 API 없음 → SQL). code가 이미 있으면 건너뛰어 재실행해도 중복이 없다."""
+    inserted = 0
+    for category_name, keywords in CATEGORY_KEYWORDS.items():
+        category_id = state["categories"].get(category_name)
+        if category_id is None:
+            raise SeedError(f"state에 카테고리가 없습니다: {category_name}")
+        for order, (code, label, group_code) in enumerate(keywords, start=1):
+            # 모든 변수는 %s 바인딩 사용, SQL injection 위험 없음. 존재 확인 후 INSERT(INSERT IGNORE는 다른 오류까지 삼키므로 쓰지 않는다)
+            inserted += execute(conn,
+                                "INSERT INTO review_keyword (code, label, group_code, top_category_id, display_order, created_at, updated_at) "
+                                "SELECT %s, %s, %s, %s, %s, NOW(6), NOW(6) FROM DUAL "
+                                "WHERE NOT EXISTS (SELECT 1 FROM review_keyword WHERE code = %s)",
+                                (code, label, group_code, category_id, CATEGORY_KEYWORD_ORDER_BASE + order, code))
+    return inserted
+
+
+def make_review_image(product_name: str, photo_index: int, rng: random.Random) -> bytes:
+    """구매자 사진 느낌의 샘플(PIL 생성 · 파스텔 배경 + 원 + 문구). 리뷰 경로는 서버가 재인코딩·메타데이터 제거한다."""
+    palette = [(227, 218, 245), (217, 224, 247), (245, 221, 232), (216, 238, 232), (244, 237, 211)]
+    background = palette[(sum(map(ord, product_name)) + photo_index) % len(palette)]
+    image = Image.new("RGB", (REVIEW_PHOTO_SIZE, REVIEW_PHOTO_SIZE), background)
+    draw = ImageDraw.Draw(image)
+    radius = rng.randint(90, 150)
+    center = (rng.randint(160, 320), rng.randint(160, 300))
+    draw.ellipse((center[0] - radius, center[1] - radius, center[0] + radius, center[1] + radius), fill=(255, 255, 255))
+    draw.text((32, 400), product_name, fill=(60, 50, 90), font=find_font(28))
+    draw.text((32, 440), f"리뷰 사진 {photo_index + 1}", fill=(90, 80, 110), font=find_font(20))
+    buffer = io.BytesIO()
+    image.save(buffer, format="JPEG", quality=85)
+    return buffer.getvalue()
+
+
+def review_candidates(state: dict) -> list[tuple[dict, dict]]:
+    """클레임 없는 구매확정 주문의 품목(주문 기록, 품목 기록) — 리뷰 작성 자격(CONFIRMED)이 확실한 것만."""
+    return [(record, item) for record in state["orders"] if record.get("confirmed") and record["claimType"] is None
+            for item in record["items"]]
+
+
+def pick_keywords(rng: random.Random, rating: int, category_name: str) -> list[str]:
+    category_codes = [code for code, _, _ in CATEGORY_KEYWORDS.get(category_name, [])]
+    picked = rng.sample(category_codes, k=min(len(category_codes), rng.randint(0, 2)))
+    if rating >= 4:
+        picked += rng.sample(POSITIVE_BASE_KEYWORDS, k=rng.randint(1, 2))
+    elif rating == 3:
+        picked += rng.sample(POSITIVE_BASE_KEYWORDS, k=rng.randint(0, 1))
+    return picked
+
+
+class BuyerSessions:
+    """구매자 로그인 캐시(리뷰·도움됐어요 호출용). 로그인이 거부된 구매자(예: 관리자 임시 비밀번호 발급으로 state 비밀번호가 무효)는
+    경고 후 rejected에 넣고 None을 돌려준다 — 호출부가 그 구매자의 품목·투표를 건너뛴다."""
+
+    def __init__(self, api: ApiClient, state: dict):
+        self.api = api
+        self.state = state
+        self.tokens: dict[int, Credential] = {}
+        self.rejected: set[int] = set()
+
+    def token(self, buyer_index: int) -> Credential | None:
+        if buyer_index in self.rejected:
+            return None
+        if buyer_index not in self.tokens:
+            buyer = self.state["buyers"][buyer_index]
+            try:
+                self.tokens[buyer_index] = self.api.login(buyer["email"], buyer["password"], "BUYER")
+            except LoginRejected as rejected:
+                log.warning("[건너뜀] %s — 이 구매자의 리뷰·도움됐어요를 만들지 않습니다", rejected)
+                self.rejected.add(buyer_index)
+                return None
+        return self.tokens[buyer_index]
+
+
+def upload_review_photo(api: ApiClient, token: Credential, name: str, data: bytes) -> str:
+    """리뷰 사진은 요청당 1장(D-237 결정 3). 항상 200 · 파일별 결과라 success를 직접 본다."""
+    body = api.json("POST", "/api/v1/reviews/attachments", token, files=[("files", (name, data, "image/jpeg"))])
+    result = body["results"][0]
+    if not result["success"]:
+        raise SeedError(f"리뷰 사진 업로드 실패 {name}: {result.get('code')} {result.get('message')}")
+    return result["attachmentId"]
+
+
+def write_review(api: ApiClient, sessions: BuyerSessions, state: dict, record: dict, item: dict, rng: random.Random) -> dict | None:
+    """리뷰 1건 작성. 작성자 로그인이 거부되면 None(건너뜀)."""
+    token = sessions.token(record["buyerIndex"])
+    if token is None:
+        return None
+    product = state["products"][item["productIndex"]]
+    product_name, category_name = product["name"], product["category"]
+    rating = rng.choices(list(REVIEW_RATING_WEIGHTS), weights=list(REVIEW_RATING_WEIGHTS.values()))[0]
+    photo_count = rng.randint(*PHOTO_COUNT_RANGE) if rng.random() < PHOTO_REVIEW_RATIO else 0
+    attachment_ids = [upload_review_photo(api, token, f"review-{index + 1}.jpg", make_review_image(product_name, index, rng))
+                      for index in range(photo_count)]
+    body = {"orderItemId": item["orderItemId"], "rating": rating, "keywordCodes": pick_keywords(rng, rating, category_name),
+            "content": rng.choice(REVIEW_TEMPLATES[rating]).format(name=product_name), "attachmentIds": attachment_ids}
+    response = api.request("POST", "/api/v1/reviews", token, expect=(201, 409), json=body)
+    if response.status_code == 409:
+        # 앞 실행이 작성(201) 뒤 state 저장 전에 멈춘 품목 — 이미 작성됐으므로 건너뛴다(올린 사진은 미연결로 24시간 뒤 정리).
+        log.warning("[건너뜀] 이미 리뷰가 있는 품목: %s", item["orderItemId"])
+        return None
+    return {"reviewId": response.json()["reviewId"], "orderItemId": item["orderItemId"], "buyerIndex": record["buyerIndex"],
+            "productPublicId": product["publicId"], "rating": rating, "photoCount": photo_count}
+
+
+def add_helpful_votes(api: ApiClient, sessions: BuyerSessions, state: dict, review: dict, rng: random.Random) -> int:
+    voters = [index for index in range(len(state["buyers"])) if index != review["buyerIndex"]]
+    chosen = rng.sample(voters, k=rng.randint(0, min(HELPFUL_VOTERS_MAX, len(voters))))
+    votes = 0
+    for voter in chosen:
+        token = sessions.token(voter)
+        if token is None:
+            continue
+        api.json("POST", f"/api/v1/reviews/{review['reviewId']}/helpful", token)
+        votes += 1
+    return votes
+
+
+def shift_review_times(conn, state: dict, rng: random.Random) -> None:
+    """리뷰 작성 시각을 구매확정 뒤 0~N일로 옮긴다(timeshift 관례 · 데모 구매자 리뷰만). 실행 시각을 넘기지 않는다."""
+    limit = datetime.now() - timedelta(minutes=5)
+    conn.begin()
+    try:
+        for review in state["reviews"]:
+            # 모든 변수는 %s 바인딩 사용, SQL injection 위험 없음. 데모 구매자 소유 리뷰로 한정(데모 마커 WHERE 포함)
+            row = query_one(conn, "SELECT r.id, oi.confirmed_at FROM review r JOIN order_item oi ON oi.id = r.order_item_id "
+                                  "JOIN `user` u ON u.id = r.buyer_id WHERE r.public_id = %s AND u.email LIKE %s",
+                            (review["reviewId"], f"%@{DEMO_EMAIL_DOMAIN}"))
+            if row is None or row["confirmed_at"] is None:
+                raise SeedError(f"데모 리뷰 또는 구매확정 시각을 찾을 수 없음: {review['reviewId']}")
+            written_at = min(row["confirmed_at"] + timedelta(days=rng.randint(0, REVIEW_DELAY_MAX_DAYS), hours=rng.randint(1, 10)), limit)
+            execute(conn, "UPDATE review SET created_at=%s, updated_at=%s WHERE id=%s", (written_at, written_at, row["id"]))
+            execute(conn, "UPDATE attachment SET created_at=%s, updated_at=%s WHERE target_type='REVIEW' AND target_id=%s",
+                    (written_at, written_at, row["id"]))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+
+def step_reviews(api: ApiClient, conn, state: dict, rng: random.Random) -> None:
+    if not state.get("time_shifted"):
+        raise SeedError("시각 보정(timeshift) 전에는 리뷰를 만들지 않습니다(작성 시각 = 보정된 구매확정 시각 기준)")
+    log.info("카테고리 키워드 신규 %d개(이미 있으면 건너뜀)", insert_category_keywords(conn, state))
+    candidates = review_candidates(state)
+    # 대상 선택은 전용 난수로 — 공유 rng는 앞 단계 실행 여부(--step all · reviews 단독 재개)에 따라 소비량이 달라 대상 집합이 바뀐다.
+    target_rng = random.Random(REVIEW_TARGET_SEED)
+    targets = [pair for pair in candidates if target_rng.random() < REVIEW_RATIO]
+    sessions = BuyerSessions(api, state)
+    reviews = state.setdefault("reviews", [])
+    done = {review["orderItemId"] for review in reviews}
+    log.info("리뷰 대상 %d/%d 품목 (완료 %d건부터 재개)", len(targets), len(candidates), len(done))
+    skipped_items = 0
+    for record, item in targets:
+        if item["orderItemId"] in done:
+            continue
+        review = write_review(api, sessions, state, record, item, rng)
+        if review is None:
+            skipped_items += 1
+            continue
+        done.add(item["orderItemId"])
+        reviews.append(review)
+        save_state(state)
+    helpful = sum(add_helpful_votes(api, sessions, state, review, rng) for review in reviews if "helpful" not in review)
+    for review in reviews:
+        review["helpful"] = True
+    shift_review_times(conn, state, rng)
+    counts = state.setdefault("counts", {})
+    counts["review"] = len(reviews)
+    counts["review_photo"] = sum(review["photoCount"] for review in reviews)
+    save_state(state)
+    ratings = {rating: sum(1 for review in reviews if review["rating"] == rating) for rating in REVIEW_RATING_WEIGHTS}
+    log.info("reviews 완료: 리뷰 %d · 사진 %d장 · 도움됐어요 %d · 별점 분포 %s", counts["review"], counts["review_photo"], helpful, ratings)
+    log.info("건너뛴 구매자 %d명 · 품목 %d개 (로그인 거부: %s)", len(sessions.rejected), skipped_items,
+             ", ".join(state["buyers"][index]["email"] for index in sorted(sessions.rejected)) or "없음")
+
+
+# ---------------------------------------------------------------------------
 # STEP verify
 # ---------------------------------------------------------------------------
 def step_verify(conn, state: dict) -> None:
@@ -1009,13 +1240,15 @@ def print_dry_run(state: dict) -> None:
     log.info("[dry-run] 호출 엔드포인트: POST /users, /admin/sellers, /admin/categories, /admin/files/images, /admin/products(+images/approve), "
              "/orders, /payments/mock-callback, /admin/orders/items/{oit}/prepare-shipment, /admin/deliveries/{dlv}/mark-delivered, "
              "/orders/{ord}/items/{oit}/confirm, /claims(+approve/return-shipment/confirm-pickup/inspect/register-exchange-shipment), "
-             "/admin/settlements(+confirm/pay) · /admin/sellers/{slr}/bank-accounts(Track 89-F) · SQL: 시각 UPDATE · settlement.paid_at UPDATE")
+             "/admin/settlements(+confirm/pay) · /admin/sellers/{slr}/bank-accounts(Track 89-F) · "
+             "/reviews/attachments(1장씩)·/reviews·/reviews/{rvw}/helpful(Track 106-1) · "
+             "SQL: 시각 UPDATE · settlement.paid_at UPDATE · review_keyword INSERT(카테고리 세트) · review.created_at UPDATE")
     log.info("[dry-run] state 파일: %s (존재: %s)", STATE_PATH, STATE_PATH.exists())
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="zslab-mall 데모 시드")
-    parser.add_argument("--step", choices=["master", "orders", "timeshift", "settlement", "verify", "all"], default="all")
+    parser.add_argument("--step", choices=["master", "orders", "timeshift", "settlement", "reviews", "verify", "all"], default="all")
     parser.add_argument("--dry-run", action="store_true", help="실행 없이 계획만 출력")
     parser.add_argument("--force", action="store_true", help="재실행 가드 무시")
     parser.add_argument("--seed", type=int, default=20260918, help="난수 시드(재현용)")
@@ -1032,7 +1265,7 @@ def main() -> int:
         log.error("환경변수 미설정: %s", ", ".join(missing))
         return 2
 
-    steps = ["master", "orders", "timeshift", "settlement", "verify"] if args.step == "all" else [args.step]
+    steps = ["master", "orders", "timeshift", "settlement", "reviews", "verify"] if args.step == "all" else [args.step]
     api = ApiClient(env("API_BASE_URL"))
     conn = connect_db()
     rng = random.Random(args.seed)
@@ -1053,6 +1286,8 @@ def main() -> int:
                     step_timeshift(conn, state, rng)
                 elif step == "settlement":
                     step_settlement(api, conn, state, admin_token, rng)
+                elif step == "reviews":
+                    step_reviews(api, conn, state, rng)
                 elif step == "verify":
                     step_verify(conn, state)
     except SeedError as error:

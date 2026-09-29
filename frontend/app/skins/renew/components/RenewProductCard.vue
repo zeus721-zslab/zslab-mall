@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { ProductSummary } from '~/types/product'
 import type { ProductImagePriority } from '../product-image-priority'
+import { Star } from '@lucide/vue'
 import RenewBadge from './RenewBadge.vue'
 
 // renew 상품 카드. 호버 면은 카드 바깥 12px(p-3)까지 넓히고 같은 만큼 음수 마진(-m-3)으로 상쇄해 호버 전 그리드 정렬을 그대로 둔다.
@@ -51,6 +52,12 @@ const formattedPrice = computed(() => props.product.displayPrice.toLocaleString(
       </p>
       <p class="pt-1 text-ink">
         <span class="text-h3 tabular-nums">{{ formattedPrice }}</span><span class="ml-0.5 text-small">원</span>
+      </p>
+      <!-- 별점(Track 106-1): 공개 리뷰가 있을 때만 "★평균 (N)". 리뷰 0건이면 BE가 averageRating 키를 뺀다. -->
+      <p v-if="product.reviewCount > 0 && product.averageRating !== undefined" class="flex items-center gap-1 text-caption text-sub" data-testid="product-card-rating">
+        <Star class="h-3.5 w-3.5 text-primary" fill="currentColor" :stroke-width="0" aria-hidden="true" />
+        <span class="sr-only">별점</span><span class="font-semibold tabular-nums text-ink">{{ product.averageRating.toFixed(1) }}</span>
+        <span class="tabular-nums">(<span class="sr-only">리뷰 </span>{{ product.reviewCount.toLocaleString('ko-KR') }})</span>
       </p>
     </div>
   </div>

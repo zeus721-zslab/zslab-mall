@@ -18,6 +18,9 @@ const { data, pending, error, refresh } = productDetail
 const detailMore = useSkinNeeds('productDetailMore') ? useProductDetailMore(productPublicId, productDetail) : undefined
 const sellerProducts = computed<ProductSummary[]>(() => detailMore?.sellerProducts.value ?? [])
 
+// 리뷰 요약·목록은 스킨이 productReviews를 선언했을 때만 조회한다(Track 106-1 · 요약·첫 페이지 SSR).
+const reviews = useSkinNeeds('productReviews') ? useProductReviews(productPublicId, productDetail) : null
+
 // 404(PRODUCT_NOT_FOUND)와 그 외 오류를 구분해 안내 문구를 달리한다(존재 은닉이라 미노출도 404).
 const errorMessage = computed<string>(() =>
   error.value?.statusCode === 404 ? '상품을 찾을 수 없습니다' : '상품을 불러오지 못했습니다',
@@ -198,6 +201,7 @@ const vm: ProductDetailPageVm = reactive({
   isOptionValueUnavailable: optionValueUnavailable,
   totalPrice,
   sellerProducts,
+  reviews,
 })
 </script>
 

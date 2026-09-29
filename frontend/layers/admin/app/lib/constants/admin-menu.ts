@@ -40,6 +40,7 @@ export const ADMIN_MENU: AdminMenuGroup[] = [
       { to: '/admin/products', label: '상품 목록' },
       { to: '/admin/products/new', label: '상품 등록' },
       { to: '/admin/products/categories', label: '카테고리' },
+      { to: '/admin/products/reviews', label: '리뷰' },
     ],
   },
   {

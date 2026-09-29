@@ -31,6 +31,8 @@ const BUYER_PATHS = [
   `/orders/${PLACEHOLDER_ID}`,
   `/claims/${PLACEHOLDER_ID}`,
   '/claims/new',
+  '/reviews/new',
+  `/reviews/${PLACEHOLDER_ID}/edit`,
   '/payment/mock',
   '/checkout/complete',
 ]
@@ -41,6 +43,7 @@ const ADMIN_PATHS = [
   '/admin/products',
   '/admin/products/new',
   '/admin/products/categories',
+  '/admin/products/reviews',
   `/admin/products/${PLACEHOLDER_ID}`,
   '/admin/orders',
   '/admin/orders/claims',

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { ProductDetailPageVm } from '~/skins/contracts/product-detail'
 import MobileActionBar from '../components/MobileActionBar.vue'
+import ProductReviewSection from '../components/ProductReviewSection.vue'
 import RenewBadge from '../components/RenewBadge.vue'
 import RenewProductCard from '../components/RenewProductCard.vue'
 import SectionHeading from '../components/SectionHeading.vue'
@@ -213,6 +214,9 @@ const addButton = ref<HTMLButtonElement | null>(null)
             <p class="whitespace-pre-line text-body text-ink">{{ product.description }}</p>
           </div>
         </section>
+
+        <!-- 리뷰(Track 106-1): 설명 뒤 · 셀러 상품 앞. 스킨이 productReviews를 선언했을 때만 vm.reviews가 있다. -->
+        <ProductReviewSection v-if="vm.reviews" :reviews="vm.reviews" />
 
         <!-- 셀러의 다른 상품: 조회 실패·0개면 숨김 -->
         <section v-if="vm.sellerProducts.length > 0" class="mt-20">

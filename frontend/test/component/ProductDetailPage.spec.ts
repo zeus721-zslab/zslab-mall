@@ -40,6 +40,8 @@ mockNuxtImport('useProductDetail', () => () => ({
   refresh: vi.fn(),
 }))
 mockNuxtImport('useProductDetailMore', () => () => ({ sellerProducts: computed(() => []) }))
+// 리뷰 섹션(Track 106-1)은 ProductReviewSection 테스트가 따로 본다 — 여기서는 조회하지 않게 비운다.
+mockNuxtImport('useProductReviews', () => () => null)
 
 describe('pages/products/[productPublicId].vue — 대표 이미지', () => {
   it('마운트 직후 대표 이미지 · eager · fetchpriority high → 썸네일 클릭으로 교체', async () => {

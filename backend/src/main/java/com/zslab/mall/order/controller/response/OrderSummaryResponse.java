@@ -66,7 +66,7 @@ public record OrderSummaryResponse(
      * @param activeClaims 이 주문의 진행 중 클레임 유형별 건수(페이지 단위 배치 조회 결과·없으면 빈 목록)
      * @param productById 페이지 품목의 상품(삭제 상품은 없음) · variantById·sellerById도 같은 배치 조회 결과
      * @param exchangeCompletedItemIds 완료된 교환이 있는 품목 id
-     * @param reviewIdByItemId 페이지 품목의 리뷰(품목 id → 리뷰 public_id·삭제 리뷰는 값 null·Track 106-1)
+     * @param reviewIdByItemId 페이지 품목의 리뷰(품목 id → 리뷰·삭제 리뷰는 reviewId null·숨김 여부·Track 106-1)
      */
     public static OrderSummaryResponse from(
             Order order,
@@ -75,7 +75,7 @@ public record OrderSummaryResponse(
             Map<Long, ProductVariant> variantById,
             Map<Long, Seller> sellerById,
             Set<Long> exchangeCompletedItemIds,
-            Map<Long, String> reviewIdByItemId) {
+            Map<Long, OrderItemReviewResponse.Written> reviewIdByItemId) {
         List<OrderItem> orderedItems = order.getItems().stream()
                 .sorted(Comparator.comparing(OrderItem::getCreatedAt).thenComparing(OrderItem::getId))
                 .toList();
@@ -101,7 +101,7 @@ public record OrderSummaryResponse(
             Map<Long, ProductVariant> variantById,
             Map<Long, Seller> sellerById,
             Set<Long> exchangeCompletedItemIds,
-            Map<Long, String> reviewIdByItemId) {
+            Map<Long, OrderItemReviewResponse.Written> reviewIdByItemId) {
         Product product = productById.get(item.getProductId());
         ProductVariant variant = variantById.get(item.getVariantId());
         Seller seller = sellerById.get(item.getSellerId());
