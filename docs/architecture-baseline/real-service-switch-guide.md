@@ -203,7 +203,7 @@ compose environment 변경은 **컨테이너 재생성**이 필요하다(§0).
 | 발송 경계 | `SmsSender` + `NotificationService.sendSensitiveSms`(:504-513·마스킹 저장) |
 
 ### 5-2. 없는 것
-재설정 토큰 저장소·만료·1회성·발급 횟수(D-204 X4) · 공개 요청/확인 엔드포인트(permitAll은 `/api/v1/auth/**` `SecurityConfig.java:63`·실매핑 `POST /api/v1/auth/login`뿐) · FE 진입점(로그인 페이지 링크 없음) · 레이트 리밋·계정 열거 방지(앱 `bucket4j`/`resilience4j` 없음·gateway `limit_req` 없음) · 이메일 주소 기반 발송 계약.
+재설정 토큰 저장소·만료·1회성·발급 횟수(D-204 X4) · 공개 요청/확인 엔드포인트(permitAll은 `/api/v1/auth/**` `SecurityConfig.java:68`·실매핑 `GET /api/v1/auth/csrf`·`POST /api/v1/auth/buyer/login`·`POST /api/v1/auth/logout`뿐) · FE 진입점(로그인 페이지 링크 없음) · 레이트 리밋·계정 열거 방지(앱 `bucket4j`/`resilience4j` 없음·gateway `limit_req` 없음) · 이메일 주소 기반 발송 계약.
 
 ### 5-3. 선택지(나열)
 - 토큰: (a) `password_reset_token` 테이블(Flyway·해시 저장·만료·used_at) / (b) 서명 토큰(JWT·무저장·`credentials_changed_at`으로 1회성 대체).

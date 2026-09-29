@@ -13372,3 +13372,40 @@ PR 계획:
 - S4 예외 추가: 옛 첨부 경로에서는 무효 Authorization 헤더가 있어도 구매자 역할 쿠키 후보를 평가한다(기존 후보 독립 평가 방식과 같다). 후보의 역할은 검사하지 않고 토큰 자체 역할로 판정한다(`auth_token` 후보와 같음 · 권한 확대 없음).
 - 영향: PR2 F9(데모 로그인이 BE Set-Cookie 전부 전달) 전제 충족. PR3 완료 조건의 "옛 첨부 후보 제거"에 구매자 역할 쿠키 후보도 포함한다 — 제거 후 구매자 첨부는 일반 필터의 구매자 쿠키 인증으로 넘어간다.
 - 외부 검토: A / 지적 4건 중 수용 0건(B1 타 역할 격리 · 후보 순서 · B2 역할 쿠키 존재는 기존 경로·테스트로 이미 보장 · 로그인 CSRF는 PR3 재검토 항목으로 기존 등록)
+
+### PR3 — 확정 명세 K1~K11 (2026-09-29)
+- K1 Bearer 제거: 필터는 경로 접두사로 고른 역할 쿠키로만 인증하고 Authorization 헤더는 무시한다. CSRF 적용 조건에서 "Authorization 없음"을 뺀다.
+- K2 본문 token 제거: 로그인 응답 본문은 passwordChangeRequired만. 쿠키 값은 서비스 내부 결과(LoginResult)에서 가져온다.
+- K3 옛 공통 로그인 제거: POST /api/v1/auth/login · LoginRequest의 role · 해당 CSRF 면제. 역할 로그인은 역할을 인자로 서비스에 넘긴다.
+- K4 옛 셀러 경로 제거: 접두사 없는 prepare-shipment·mark-delivered 매핑과 SecurityConfig 매처. /api/v1/users/me/password는 구매자 경로로 유지.
+- K5 옛 첨부 후보 제거: RequestTokenCandidates · 필터 건너뛰기 · 후보용 canView. GET /api/v1/files/claims/**는 구매자 경로(hasRole BUYER를 GET /api/v1/files/** permitAll보다 앞) · 컨트롤러는 serveClaimAttachmentAs(key, BUYER) · 익명 401 · 권한 없음·미존재 404.
+- K6 옛 쿠키 이름: K5와 함께 읽기가 사라진다. BE·FE·테스트 주석 정리.
+- K7 로그인 CSRF(인증 전 토큰): 로그인 3경로는 역할 쿠키 유무와 관계없이 CSRF 검증(적용 조건 = unsafe AND (로그인 경로 OR 경로 역할 쿠키 존재)) · GET /api/v1/auth/csrf(permitAll·204·본문 없음) · FE 공통 CSRF 함수가 XSRF-TOKEN이 없으면 먼저 1회 받아 온다(동시 요청 공유·SSR 미동작) · 로그인·데모 로그인도 이 함수를 거친다 · 데모 라우트는 브라우저의 XSRF-TOKEN 쿠키 값·X-XSRF-TOKEN 헤더만 BE로 전달하고 검증은 BE 한 곳 · e2e 헬퍼는 토큰을 받은 뒤 로그인.
+- K8 로그아웃 3종: 역할 쿠키 만료를 servlet addHeader로 발급(요청에 XSRF가 없을 때 응답 XSRF Set-Cookie 보존).
+- K9 스크립트(seed.py · walkthrough): /api/v1/auth/csrf → 역할 로그인(X-XSRF-TOKEN) · 응답 Set-Cookie에서 역할 쿠키·XSRF 값을 읽어 Cookie 헤더로 싣고 unsafe에는 X-XSRF-TOKEN · 쿠키 저장소 비의존.
+- K10 테스트 인증 헬퍼: AuthHeaders가 RequestPostProcessor(역할 쿠키 + XSRF-TOKEN 쿠키 + X-XSRF-TOKEN 헤더) · 호출부 .headers → .with · 역할 교차 호출은 익명 401.
+- K11 문서·주석(C5): 정찰 목록의 사실과 다른 서술 정정.
+- 범위 밖: 리프레시 토큰 · 서버 측 토큰 무효화 · 가입 요청 CSRF · 구매자 접두사 이전.
+
+#### §1-A 선택이 갈린 결정
+- K7 로그인 CSRF: β 인증 전 토큰(GET /api/v1/auth/csrf로 XSRF-TOKEN 발급 후 로그인도 검증) 【채택】 / α 면제 유지 【기각】 로그인 CSRF(공격자 계정으로 로그인시키기)를 막지 못한다 / γ Fetch Metadata(Sec-Fetch-Site) 거부 【기각】 헤더가 없는 요청을 허용해야 해 보조 방어에 그치고, 게이트웨이·프록시를 거친 BE 전달이 확인되지 않았다.
+- K7과 개정 2의 관계: 개정 2가 기각한 "FE가 GET으로 XSRF를 받아 오기"는 로그인 응답 XSRF 소실이라는 BE 결함을 FE 우회 호출로 덮는 안이었다. 본 결정은 결함 우회가 아니라 로그인 CSRF의 표준 구조(인증 전 토큰 발급)다.
+- K10 테스트 인증 전환: RequestPostProcessor 【채택】 / HttpHeaders에 Cookie 헤더를 담는 단일 지점 전환 【기각】 MockMvc가 Cookie 헤더를 request.getCookies()에 반영하지 않는다(보충 정찰 S-b).
+
+#### R2 판정 목록
+- 대량 치환(K10): `.headers(authHeaders.X(` → `.with(authHeaders.X(` 1,036건(91파일) · 헬퍼·변수 타입 HttpHeaders → RequestPostProcessor.
+- 역할 교차(K10): 필터 hasRole 403 → 401 UNAUTHENTICATED 76곳 · /users/me/** 교차 7곳(DemoAccountProtection 4 · LastSuperAdminProtection 3: 409·204 → 401, 후속 단언은 "변화 없음"으로) · 첨부 29곳은 K5 기준(셀러·관리자 → 별칭 · 구매자 경로 익명 404 → 401) · 옛 셀러 경로 13곳 → 별칭(K4).
+- K1: AuthCookieIntegrationTest의 Bearer CSRF 면제·헤더 우선 테스트 → "Bearer + 쿠키 unsafe 403" · "Bearer만 401" · "Authorization 헤더 무시(GET 200·unsafe 403)" · ProdSecurityContextSmoke·ChangePassword Bearer → 역할 쿠키(셀러 쿠키의 /users/me/password는 401).
+- K2·K3: `$.token` 단언·본문 token 추출 → 역할 쿠키 · 옛 로그인 호출 7클래스 → 역할 로그인(+CSRF) · 옛 로그인 테스트 → "404·쿠키 없음" · StandardErrorMapping 405·415 대상 경로 교체.
+- K5·K6: ClaimAttachmentServing 전면 개정(후보 전용 테스트 삭제 → 옛 인증 수단 401) · 회원 상태 거부 404 → 401(필터 익명) · UploadHardening·ClaimReturn 익명 404 → 401.
+- 외부 검토 반영: 엔드포인트 부재 테스트의 역할 교차 401은 false-green이다 → 경로 역할 쿠키 + 404로 복원(5곳).
+- K7: 로그인 CSRF 면제 테스트 → 쿠키 유무 무관 403 · 로그인 응답 XSRF 테스트 → /api/v1/auth/csrf 발급 테스트 · vitest 데모 로그인 코어 호출 인자(CSRF)·스토어 데모 호출 옵션(onRequest) · e2e seller-password 로그인 전 토큰.
+
+#### 이월
+- /users/me/**에 관리자·셀러 쿠키가 닿지 않아 LastSuperAdmin 본인 탈퇴 가드와 관리자·셀러 데모 계정의 본인 경로 보호가 HTTP 테스트로 검증되지 않는다(인증 거부만 확인).
+- 로그인 페이지 catch의 무기록·SecurityErrorHandler 403 무기록 — 로그인 CSRF 실패 원인 추적 단서 부족(기존 코드).
+- 대소문자 무시 파일시스템에서 /api/v1/files/Claims/... 로 첨부 인가 우회 가능(기존 · 운영 Linux 비해당).
+- 미정정 문서: docs/infra/05-ssl-domain.md(gitignore) · backend-quality-baseline-v1.md:38(조건부 기준 서술).
+- 프론트 dev 서버가 서버 라우트 변경을 반영하지 않을 수 있다 — 서버 라우트를 바꾼 뒤 e2e 전에는 프론트 컨테이너를 재생성한다(STEP 183 데모 로그인 403 실측).
+
+외부 검토: A / 지적 13건 중 수용 2건(엔드포인트 부재 테스트 false-green — 경로 역할 쿠키 + 404로 복원 · 같은 유형 전수 점검 반영)

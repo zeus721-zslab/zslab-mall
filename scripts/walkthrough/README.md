@@ -71,7 +71,7 @@ frontend/playwright-report/walkthrough/
 ### 역할 전환 · 다건 집계
 
 **역할 전환 시나리오**(`admin-claim-return-inspect`·`admin-claim-exchange-full`)는 한 파일 안에서 `loginAs`를 역할별로 다시 호출한다.
-역할 쿠키는 path가 `/`·`/admin`·`/seller`로 갈려 한 브라우저 컨텍스트에 함께 있어도 충돌하지 않는다. 계측은 `segment('구매자', 'buyer')`처럼
+역할 쿠키는 이름이 역할마다 다르고 path가 `/`·`/api/v1/admin`·`/api/v1/seller`로 갈려 한 브라우저 컨텍스트에 함께 있어도 충돌하지 않는다. 계측은 `segment('구매자', 'buyer')`처럼
 역할 구간으로 나누고 `summary.md`의 **역할 · 구간별** 표가 역할별 행으로 보여 준다.
 
 **다건 시나리오**(`seller-order-ship-multi`)는 `segment('1건째')`·`2건째`·`3건째`로 나눠 1건째(대시보드 → 목록 진입 포함)와
