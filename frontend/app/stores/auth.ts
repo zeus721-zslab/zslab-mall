@@ -1,4 +1,5 @@
 import { BUYER_ROLE, DEMO_LOGIN_PATH, PASSWORD_CHANGE_REQUIRED_COOKIE } from '~/lib/constants/auth'
+import { applyCsrfHeader } from '~/lib/csrf'
 
 /**
  * BE 구매자 로그인 응답 계약(/api/v1/auth/buyer/login → LoginResponse). 서버 라우트 데모 대행(/_demo/login)도 같은 형태를 돌려준다.
@@ -64,7 +65,12 @@ export const useAuthStore = defineStore('auth', () => {
    * 응답 반영은 login과 동일 경로(storeLoginResponse)를 탄다. 미설정 404·BE 실패 401은 $fetch가 throw한다.
    */
   async function loginDemo(): Promise<void> {
-    const response = await $fetch<LoginResponse>(DEMO_LOGIN_PATH, { method: 'POST' })
+    const response = await $fetch<LoginResponse>(DEMO_LOGIN_PATH, {
+      method: 'POST',
+      async onRequest({ options }) {
+        await applyCsrfHeader(options)
+      },
+    })
     storeLoginResponse(response)
   }
 

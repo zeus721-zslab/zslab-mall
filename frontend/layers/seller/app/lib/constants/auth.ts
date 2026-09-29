@@ -10,7 +10,7 @@ export const SELLER_LOGIN_PATH = '/seller/login'
 
 /**
  * 셀러 비밀번호 변경 경로(D-3 구매자형 강제). 임시 비밀번호 세션은 미들웨어가 이 경로로만 보낸다.
- * 변경 폼은 Track 90-D-2(FE-50)에서 제공한다(BE PATCH /api/v1/users/me/password 재사용).
+ * 변경 폼은 Track 90-D-2(FE-50)에서 제공한다(BE PATCH /api/v1/seller/me/password).
  */
 export const SELLER_PASSWORD_CHANGE_PATH = '/seller/settings/password'
 

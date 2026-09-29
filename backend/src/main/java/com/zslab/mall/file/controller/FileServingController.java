@@ -3,11 +3,9 @@ package com.zslab.mall.file.controller;
 import com.zslab.mall.attachment.service.ClaimAttachmentAuthorizationService;
 import com.zslab.mall.common.auth.AuthenticatedUserResolver;
 import com.zslab.mall.common.security.ActorRole;
-import com.zslab.mall.common.security.RequestTokenCandidates;
 import com.zslab.mall.file.exception.StoredFileNotFoundException;
 import com.zslab.mall.file.service.FileStorage;
 import com.zslab.mall.file.service.ImageFormat;
-import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.nio.file.Path;
 import java.util.concurrent.TimeUnit;
@@ -48,12 +46,12 @@ public class FileServingController {
         this.authenticatedUserResolver = authenticatedUserResolver;
     }
 
+    /** 공개 파일 서빙 + 구매자 클레임 첨부(D-235 PR3 K5·SecurityConfig가 {@code claims/}를 구매자 전용으로 인가). */
     @GetMapping("/api/v1/files/{*key}")
-    public ResponseEntity<Resource> serve(@PathVariable("key") String key, HttpServletRequest request,
-            HttpServletResponse response) {
+    public ResponseEntity<Resource> serve(@PathVariable("key") String key, HttpServletResponse response) {
         String relativeKey = key.startsWith("/") ? key.substring(1) : key;
         if (relativeKey.startsWith(CLAIM_KEY_PREFIX)) {
-            return serveClaimAttachment(relativeKey, request, response);
+            return serveClaimAttachmentAs(relativeKey, ActorRole.BUYER, response);
         }
         Path file = fileStorage.resolveExisting(relativeKey);
         return ResponseEntity.ok()
@@ -64,7 +62,7 @@ public class FileServingController {
 
     /**
      * 관리자 클레임 첨부 별칭(D-235). 관리자 역할 쿠키 Path(/api/v1/admin)에 실리는 경로라 {@code <img src>}로 열 수 있다. 인증·역할은 필터와
-     * 접두사 hasRole(ADMIN)이 끝냈으므로 열람 규칙만 판정한다. 거부·미존재는 옛 경로와 같이 404.
+     * 접두사 hasRole(ADMIN)이 끝냈으므로 열람 규칙만 판정한다. 거부·미존재는 구매자 경로와 같이 404.
      */
     @GetMapping("/api/v1/admin/files/claims/{*key}")
     public ResponseEntity<Resource> serveAdminClaimAttachment(@PathVariable("key") String key, HttpServletResponse response) {
@@ -77,26 +75,18 @@ public class FileServingController {
         return serveClaimAttachmentAs(CLAIM_KEY_PREFIX + stripLeadingSlash(key), ActorRole.SELLER, response);
     }
 
+    /**
+     * 클레임 첨부 인가 서빙(D-176·D-235). 인증·역할은 필터와 경로 인가가 끝냈고 여기서는 열람 규칙만 판정한다. 캐시 금지 헤더를 서블릿 응답에
+     * 먼저 써서 거부·미존재 404(GlobalExceptionHandler 경로)에도 남긴다(Spring Security 기본 Cache-Control은 이미 있는 헤더를 덮어쓰지 않는다).
+     * 200 본문은 이 헤더를 그대로 쓰므로 cacheControl을 다시 붙이지 않는다(중복 헤더 방지).
+     *
+     * @param role 경로가 고정한 역할(구매자 경로·셀러·관리자 별칭 — 경로 hasRole로 인증 주체의 역할과 같음이 보장된다)
+     * @throws StoredFileNotFoundException 열람 권한 없음·첨부 행 없음·파일 없음(모두 404)
+     */
     private ResponseEntity<Resource> serveClaimAttachmentAs(String relativeKey, ActorRole role, HttpServletResponse response) {
         response.setHeader(HttpHeaders.CACHE_CONTROL, CLAIM_CACHE_CONTROL.getHeaderValue());
         Long actorId = authenticatedUserResolver.requireUserId();
         if (!claimAttachmentAuthorizationService.canView(relativeKey, actorId, role)) {
-            throw new StoredFileNotFoundException("파일을 찾을 수 없습니다: " + relativeKey);
-        }
-        return claimAttachmentBody(relativeKey);
-    }
-
-    /**
-     * 클레임 첨부 인가 서빙(D-176). 캐시 금지 헤더를 서블릿 응답에 먼저 써서 거부·미존재 404(GlobalExceptionHandler 경로)에도 남긴다
-     * (Spring Security 기본 Cache-Control은 이미 있는 헤더를 덮어쓰지 않는다). 200 본문은 이 헤더를 그대로 쓰므로 cacheControl을 다시 붙이지
-     * 않는다(중복 헤더 방지).
-     *
-     * @throws StoredFileNotFoundException 열람 권한 없음·첨부 행 없음·파일 없음(모두 404)
-     */
-    private ResponseEntity<Resource> serveClaimAttachment(String relativeKey, HttpServletRequest request,
-            HttpServletResponse response) {
-        response.setHeader(HttpHeaders.CACHE_CONTROL, CLAIM_CACHE_CONTROL.getHeaderValue());
-        if (!claimAttachmentAuthorizationService.canView(relativeKey, RequestTokenCandidates.of(request))) {
             throw new StoredFileNotFoundException("파일을 찾을 수 없습니다: " + relativeKey);
         }
         return claimAttachmentBody(relativeKey);

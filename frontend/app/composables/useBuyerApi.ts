@@ -14,9 +14,9 @@ export function useBuyerApi() {
 
   return $fetch.create({
     baseURL: import.meta.server ? `${config.apiInternalBase}/api` : config.public.apiBase || '/api',
-    onRequest({ options }) {
+    async onRequest({ options }) {
       if (requestCookie) options.headers.set('cookie', requestCookie)
-      applyCsrfHeader(options)
+      await applyCsrfHeader(options)
     },
     onResponseError({ response }) {
       if (response.status === 401) auth.clearSession()

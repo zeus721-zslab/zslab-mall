@@ -107,7 +107,7 @@ public class AdminOrderController {
     }
 
     /**
-     * 관리자 송장 등록(Track 79 D-168·F). 셀러 {@code POST /api/v1/order-items/{id}/prepare-shipment}와 동일 body·응답이며
+     * 관리자 송장 등록(Track 79 D-168·F). 셀러 {@code POST /api/v1/seller/order-items/{id}/prepare-shipment}와 동일 body·응답이며
      * 소유 검증만 없다. 품목 미존재 404·PAID 아님 422(DELIVERY_INVALID_STATE).
      */
     @PostMapping("/items/{orderItemPublicId}/prepare-shipment")

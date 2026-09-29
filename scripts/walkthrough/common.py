@@ -15,6 +15,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from dataclasses import dataclass, field
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -132,6 +133,38 @@ def backend_healthy() -> bool:
     return result.returncode == 0 and '"status":"UP"' in result.stdout.replace(" ", "")
 
 
+XSRF_COOKIE = "XSRF-TOKEN"
+CSRF_TOKEN_PATH = "/api/v1/auth/csrf"
+LOGIN_PATHS = {"ADMIN": "/api/v1/admin/auth/login", "BUYER": "/api/v1/auth/buyer/login", "SELLER": "/api/v1/seller/auth/login"}
+ROLE_COOKIES = {"ADMIN": "__Secure-admin_at", "BUYER": "__Secure-buyer_at", "SELLER": "__Secure-seller_at"}
+SAFE_METHODS = {"GET", "HEAD", "OPTIONS", "TRACE"}
+
+
+@dataclass(frozen=True)
+class Credential:
+    """역할 로그인 결과(D-235 PR3 K9). 로그인 응답 Set-Cookie에서 읽은 역할 쿠키·XSRF 값을 이후 요청에 Cookie 헤더로 직접 싣는다
+    (쿠키 저장소를 쓰지 않는다). 값은 repr·로그에 나오지 않는다."""
+
+    cookie_name: str
+    cookie_value: str = field(repr=False)
+    xsrf: str = field(repr=False)
+
+    def headers(self, method: str) -> dict:
+        headers = {"Cookie": self.cookie_name + "=" + self.cookie_value + "; " + XSRF_COOKIE + "=" + self.xsrf}
+        if method.upper() not in SAFE_METHODS:
+            headers["X-XSRF-TOKEN"] = self.xsrf
+        return headers
+
+
+def set_cookie_value(set_cookies: list, name: str) -> str:
+    """Set-Cookie 원문 목록에서 이름이 name인 쿠키 값을 찾는다(없으면 실패)."""
+    for header in set_cookies:
+        key, _, value = header.split(";", 1)[0].partition("=")
+        if key.strip() == name:
+            return value.strip()
+    raise WalkthroughError(name + " Set-Cookie 없음")
+
+
 class ApiClient:
     """준비 스크립트용 최소 API 클라이언트(로컬 자체 서명 인증서라 TLS 검증을 생략한다)."""
 
@@ -141,28 +174,44 @@ class ApiClient:
         self.context.check_hostname = False
         self.context.verify_mode = ssl.CERT_NONE
 
-    def request(self, method: str, path: str, token=None, body=None):
+    def request(self, method: str, path: str, credential: Credential | None = None, body=None):
+        headers = credential.headers(method) if credential else {}
+        status, payload, _ = self._open(method, path, headers, body)
+        return status, payload
+
+    def _open(self, method: str, path: str, headers: dict, body=None):
+        """요청 1회. (상태, 본문, Set-Cookie 원문 목록)을 돌려준다."""
         data = json.dumps(body).encode() if body is not None else None
         request = urllib.request.Request(self.base_url + path, data=data, method=method)
         request.add_header("Content-Type", "application/json")
-        if token:
-            request.add_header("Authorization", "Bearer " + token)
+        for name, value in headers.items():
+            request.add_header(name, value)
         try:
             with urllib.request.urlopen(request, context=self.context) as response:
                 raw = response.read()
-                return response.status, (json.loads(raw) if raw else None)
+                return response.status, (json.loads(raw) if raw else None), response.headers.get_all("Set-Cookie") or []
         except urllib.error.HTTPError as error:
-            return error.code, error.read().decode("utf-8", "replace")[:300]
+            return error.code, error.read().decode("utf-8", "replace")[:300], []
 
-    def json(self, method: str, path: str, token=None, body=None):
-        status, payload = self.request(method, path, token, body)
+    def json(self, method: str, path: str, credential: Credential | None = None, body=None):
+        status, payload = self.request(method, path, credential, body)
         if status >= 400:
             raise WalkthroughError(method + " " + path + " -> " + str(status) + ": " + str(payload)[:200])
         # 204·본문 없는 200(mock 결제 콜백 등)은 빈 dict로 돌려준다.
         return payload if payload is not None else {}
 
-    def login(self, email: str, password: str, role: str) -> str:
-        return self.json("POST", "/api/v1/auth/login", body={"email": email, "password": password, "role": role})["token"]
+    def login(self, email: str, password: str, role: str) -> Credential:
+        """인증 전 CSRF 토큰(GET /api/v1/auth/csrf) → 역할 로그인(X-XSRF-TOKEN) 순서(D-235 PR3 K7·K9)."""
+        status, payload, set_cookies = self._open("GET", CSRF_TOKEN_PATH, {})
+        if status >= 400:
+            raise WalkthroughError("GET " + CSRF_TOKEN_PATH + " -> " + str(status) + ": " + str(payload)[:200])
+        xsrf = set_cookie_value(set_cookies, XSRF_COOKIE)
+        csrf_headers = {"Cookie": XSRF_COOKIE + "=" + xsrf, "X-XSRF-TOKEN": xsrf}
+        login_path = LOGIN_PATHS[role]
+        status, payload, set_cookies = self._open("POST", login_path, csrf_headers, {"email": email, "password": password})
+        if status >= 400:
+            raise WalkthroughError("POST " + login_path + " -> " + str(status) + ": " + str(payload)[:200])
+        return Credential(ROLE_COOKIES[role], set_cookie_value(set_cookies, ROLE_COOKIES[role]), xsrf)
 
 
 def log(message: str) -> None:

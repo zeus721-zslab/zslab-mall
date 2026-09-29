@@ -63,14 +63,18 @@ export const useSellerAuthStore = defineStore('sellerAuth', () => {
   }
 
   /**
-   * 셀러 로그인. POST /api/v1/seller/auth/login body { email, password } → BE가 셀러 쿠키를 Set-Cookie로 발급한다.
-   * /seller/**는 CSR 전용이라 브라우저 baseURL만 쓴다. 실패(RFC7807·상태 차단 포함 401 통합)는 $fetch가 throw하므로 호출부가 처리한다.
+   * 셀러 로그인. POST /api/v1/seller/auth/login body { email, password } → BE가 셀러 쿠키를 Set-Cookie로 발급한다. 로그인도 CSRF를 검증하므로
+   * 인증 전 토큰을 헤더로 싣는다(PR3 K7). /seller/**는 CSR 전용이라 브라우저 baseURL만 쓴다. 실패(RFC7807·상태 차단 포함 401 통합)는 $fetch가
+   * throw하므로 호출부가 처리한다.
    */
   async function login(email: string, password: string): Promise<void> {
     const response = await $fetch<SellerLoginResponse>('/v1/seller/auth/login', {
       baseURL: apiBase(),
       method: 'POST',
       body: { email, password },
+      async onRequest({ options }) {
+        await applyCsrfHeader(options)
+      },
     })
     storeLoginResponse(response)
   }
@@ -80,7 +84,12 @@ export const useSellerAuthStore = defineStore('sellerAuth', () => {
    * 응답 반영은 login과 동일 경로(storeLoginResponse)를 탄다. 미설정 404·BE 실패 401은 $fetch가 throw한다.
    */
   async function loginDemo(): Promise<void> {
-    const response = await $fetch<SellerLoginResponse>(SELLER_DEMO_LOGIN_PATH, { method: 'POST' })
+    const response = await $fetch<SellerLoginResponse>(SELLER_DEMO_LOGIN_PATH, {
+      method: 'POST',
+      async onRequest({ options }) {
+        await applyCsrfHeader(options)
+      },
+    })
     storeLoginResponse(response)
   }
 
@@ -102,8 +111,8 @@ export const useSellerAuthStore = defineStore('sellerAuth', () => {
       await $fetch('/v1/seller/auth/logout', {
         baseURL: apiBase(),
         method: 'POST',
-        onRequest({ options }) {
-          applyCsrfHeader(options)
+        async onRequest({ options }) {
+          await applyCsrfHeader(options)
         },
       })
     } catch (error) {

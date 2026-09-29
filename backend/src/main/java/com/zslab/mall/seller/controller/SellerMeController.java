@@ -43,9 +43,8 @@ public class SellerMeController {
     }
 
     /**
-     * 셀러 본인 비밀번호 변경 — PATCH /api/v1/users/me/password의 셀러 접두사 별칭(D-235·역할 쿠키 Path에 실리도록). 원 경로와 같은 서비스를
-     * 호출한다. 인가는 원 경로(인증된 모든 역할)보다 좁은 접두사 hasRole SELLER이고, 셀러 상태 가드({@link SellerActorResolver})는 원 경로처럼
-     * 거치지 않는다(정지 셀러도 비밀번호는 바꿀 수 있음). 옛 경로는 PR3에서 제거.
+     * 셀러 본인 비밀번호 변경(D-235·셀러 역할 쿠키 Path에 실리는 경로). 구매자 경로 PATCH /api/v1/users/me/password와 같은 서비스를 호출한다.
+     * 인가는 접두사 hasRole SELLER이고, 셀러 상태 가드({@link SellerActorResolver})는 거치지 않는다(정지 셀러도 비밀번호는 바꿀 수 있음).
      */
     @PatchMapping("/api/v1/seller/me/password")
     public ResponseEntity<Void> changePassword(@RequestBody @Valid ChangePasswordRequest request) {

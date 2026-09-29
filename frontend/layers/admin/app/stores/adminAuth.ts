@@ -33,14 +33,18 @@ export const useAdminAuthStore = defineStore('adminAuth', () => {
   }
 
   /**
-   * 관리자 로그인. POST /api/v1/admin/auth/login body { email, password } → BE가 관리자 쿠키를 Set-Cookie로 발급한다(본문 token 미사용·F1).
-   * /admin/**는 CSR 전용(D-9)이라 브라우저 baseURL만 쓴다. 실패(RFC7807)는 $fetch가 throw하므로 호출부가 처리한다.
+   * 관리자 로그인. POST /api/v1/admin/auth/login body { email, password } → BE가 관리자 쿠키를 Set-Cookie로 발급한다(본문 token 없음). 로그인도
+   * CSRF를 검증하므로 인증 전 토큰을 헤더로 싣는다(PR3 K7). /admin/**는 CSR 전용(D-9)이라 브라우저 baseURL만 쓴다. 실패(RFC7807)는 $fetch가
+   * throw하므로 호출부가 처리한다.
    */
   async function login(email: string, password: string): Promise<void> {
     await $fetch('/v1/admin/auth/login', {
       baseURL: apiBase(),
       method: 'POST',
       body: { email, password },
+      async onRequest({ options }) {
+        await applyCsrfHeader(options)
+      },
     })
     signedIn.value = true
   }
@@ -50,7 +54,12 @@ export const useAdminAuthStore = defineStore('adminAuth', () => {
    * 미설정 404·BE 실패 401은 $fetch가 throw한다.
    */
   async function loginDemo(): Promise<void> {
-    await $fetch(ADMIN_DEMO_LOGIN_PATH, { method: 'POST' })
+    await $fetch(ADMIN_DEMO_LOGIN_PATH, {
+      method: 'POST',
+      async onRequest({ options }) {
+        await applyCsrfHeader(options)
+      },
+    })
     signedIn.value = true
   }
 
@@ -60,8 +69,8 @@ export const useAdminAuthStore = defineStore('adminAuth', () => {
       await $fetch('/v1/admin/auth/logout', {
         baseURL: apiBase(),
         method: 'POST',
-        onRequest({ options }) {
-          applyCsrfHeader(options)
+        async onRequest({ options }) {
+          await applyCsrfHeader(options)
         },
       })
     } catch (error) {

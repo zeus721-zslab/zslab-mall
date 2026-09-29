@@ -7,7 +7,7 @@ import {
 } from '#layers/seller/app/lib/constants/auth'
 import { useSellerAuthStore } from '#layers/seller/app/stores/sellerAuth'
 
-// 셀러 로그인(Track 90-A·관리자 admin/login.vue 동형·seller_token 세션). 공개 페이지라 seller 미들웨어 미부착·seller-vuetify 미들웨어만(미인증 상태에서 Vuetify 로드).
+// 셀러 로그인(Track 90-A·관리자 admin/login.vue 동형·셀러 역할 쿠키 세션). 공개 페이지라 seller 미들웨어 미부착·seller-vuetify 미들웨어만(미인증 상태에서 Vuetify 로드).
 definePageMeta({ layout: 'seller-auth', middleware: ['seller-vuetify'] })
 
 const sellerAuth = useSellerAuthStore()

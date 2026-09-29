@@ -30,19 +30,11 @@ import org.springframework.security.web.access.intercept.AuthorizationFilter;
 public class SecurityConfig {
 
     /**
-     * 클레임 첨부 인가 서빙 경로(Track 82 D-176) 단일 매처. permitAll 규칙과 {@link JwtAuthenticationFilter#shouldNotFilter}가 같은 객체를
-     * 공유해 "필터 건너뜀 = permitAll" 범위가 어긋나지 않는다. 요청 URI를 RequestPath로 파싱해 세그먼트별 디코딩 값으로 매칭하므로
+     * 구매자 클레임 첨부 서빙 경로(Track 82 D-176·D-235 PR3 K5). 요청 URI를 RequestPath로 파싱해 세그먼트별 디코딩 값으로 매칭하므로
      * {@code %63laims} 같은 인코딩 경로도 동일하게 판정된다(D-233 · ClaimAttachmentServingIntegrationTest 인코딩 경로 케이스).
      */
-    public static final RequestMatcher CLAIM_ATTACHMENT_SERVING_MATCHER =
+    private static final RequestMatcher CLAIM_ATTACHMENT_SERVING_MATCHER =
             PathPatternRequestMatcher.pathPattern(HttpMethod.GET, "/api/v1/files/claims/**");
-
-    /** 로그인(D-235). 쿠키가 아직 없거나 다시 받는 단계라 CSRF를 면제한다(로그아웃은 면제하지 않는다). */
-    private static final RequestMatcher[] LOGIN_MATCHERS = {
-            PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/api/v1/auth/login"),
-            PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/api/v1/auth/buyer/login"),
-            PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/api/v1/seller/auth/login"),
-            PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/api/v1/admin/auth/login")};
 
     /**
      * 단일 SecurityFilterChain — JWT 인증 파이프라인 + 경로별 hasRole 강제 인가(전 프로파일 동일).
@@ -54,13 +46,12 @@ public class SecurityConfig {
             HttpSecurity http, TokenProvider tokenProvider, AuthenticatedUserStateVerifier userStateVerifier,
             SecurityErrorHandler securityErrorHandler) throws Exception {
         JwtAuthenticationFilter jwtAuthenticationFilter =
-                new JwtAuthenticationFilter(tokenProvider, userStateVerifier, CLAIM_ATTACHMENT_SERVING_MATCHER);
+                new JwtAuthenticationFilter(tokenProvider, userStateVerifier);
 
-        // CSRF(D-235): 쿠키가 자격증명이 되는 요청(헤더 없음 + 경로의 역할 쿠키 존재 + unsafe)만 보호한다. 토큰은 SPA 방식
-        // (XSRF-TOKEN 쿠키 → X-XSRF-TOKEN 헤더). 로그인은 쿠키 발급 전 단계라 면제한다.
+        // CSRF(D-235·PR3 K7): 역할 로그인과, 쿠키가 자격증명이 되는 unsafe 요청을 보호한다(AuthCookies#requiresCsrfProtection). 토큰은 SPA 방식
+        // (XSRF-TOKEN 쿠키 → X-XSRF-TOKEN 헤더)이고 로그인 전 토큰은 GET /api/v1/auth/csrf로 받는다.
         http.csrf(csrf -> csrf.spa()
-                        .requireCsrfProtectionMatcher(AuthCookies::requiresCsrfProtection)
-                        .ignoringRequestMatchers(LOGIN_MATCHERS))
+                        .requireCsrfProtectionMatcher(AuthCookies::requiresCsrfProtection))
                 // 프레임워크 기본 /logout은 쓰지 않는다(D-235 S6·역할별 /auth/logout만). CSRF 활성 시 매처가 바뀌는 부수 변화도 함께 없앤다.
                 .logout(AbstractHttpConfigurer::disable)
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -88,10 +79,10 @@ public class SecurityConfig {
                         // 공개 카테고리 목록(Track 72)은 공개 taxonomy 조회이므로 GET 단일 경로만 permitAll
                         .requestMatchers(HttpMethod.GET, "/api/v1/categories")
                         .permitAll()
-                        // 클레임 첨부 서빙(Track 82 D-176)은 필터 단계에서 401/403을 내지 않는다 — JwtAuthenticationFilter가 이 경로를
-                        // 건너뛰고 ClaimAttachmentAuthorizationService가 Bearer·쿠키 후보를 독립 판정해 거부는 404로 통일한다.
+                        // 클레임 첨부 서빙(Track 82 D-176)은 구매자 경로다(D-235 PR3 K5) — 아래 GET /api/v1/files/** permitAll보다 앞에 둬 익명은
+                        // 401. 셀러·관리자는 역할 별칭(/api/v1/{seller|admin}/files/claims/**)을 쓰고, 열람 권한 없음·미존재는 컨트롤러가 404로 통일한다.
                         .requestMatchers(CLAIM_ATTACHMENT_SERVING_MATCHER)
-                        .permitAll()
+                        .hasRole("BUYER")
                         // 업로드 이미지 서빙(Track 77)은 상품 이미지 공개 조회이므로 GET만 permitAll(업로드는 /api/v1/admin/** ADMIN)
                         .requestMatchers(HttpMethod.GET, "/api/v1/files/**")
                         .permitAll()
@@ -105,11 +96,6 @@ public class SecurityConfig {
                         // mock 결제 콜백(Track 93 D-198)은 구매자 본인 주문 한정이라 BUYER 단일 경로만(실 PG 콜백은 /api/webhooks/** permitAll 별도)
                         .requestMatchers(HttpMethod.POST, "/api/v1/payments/mock-callback")
                         .hasRole("BUYER")
-                        .requestMatchers("/api/v1/order-items/**")
-                        .hasRole("SELLER")
-                        // 일반 주문 배송 완료(Track 43·Seller). /api/v1/admin/deliveries/**(ADMIN)와 prefix 상이·미충돌.
-                        .requestMatchers("/api/v1/deliveries/**")
-                        .hasRole("SELLER")
                         .requestMatchers("/api/v1/seller/**")
                         .hasRole("SELLER")
                         .requestMatchers("/api/v1/admin/**")
