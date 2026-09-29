@@ -55,6 +55,7 @@ class ReviewPublicQueryIntegrationTest extends AbstractIntegrationTest {
     private static final long PHOTO_DELETED = 10653L;
     private static final long PHOTO_UNLINKED = 10654L;
     private static final long PHOTO_FILE_MISSING = 10655L;
+    private static final long OTHER_BUYER = 10656L;
     private static final String BLACK = "색상: 블랙";
     private static final String WHITE = "색상: 화이트";
     private static final String VISIBLE_KEY = "reviews/2026/09/RVQ-VISIBLE.png";
@@ -179,6 +180,25 @@ class ReviewPublicQueryIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.items[1].reviewId").value(whitePid))
                 .andExpect(jsonPath("$.items[1].helpedByMe").value(true))
                 .andExpect(jsonPath("$.items[0].helpedByMe").value(false));
+    }
+
+    @Test
+    @DisplayName("Q3-1 writtenByMe: 작성자 쿠키 → true · 다른 구매자 쿠키 → false · 익명 → 키 없음")
+    void list_writtenByMe_marksOwnReviewsOnly() throws Exception {
+        fixture.seedUser(OTHER_BUYER);
+
+        mockMvc.perform(get(listUrl()).with(authHeaders.buyer(BUYER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(3))
+                .andExpect(jsonPath("$.items[0].writtenByMe").value(true))
+                .andExpect(jsonPath("$.items[2].writtenByMe").value(true));
+        mockMvc.perform(get(listUrl()).with(authHeaders.buyer(OTHER_BUYER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].writtenByMe").value(false))
+                .andExpect(jsonPath("$.items[2].writtenByMe").value(false));
+        mockMvc.perform(get(listUrl()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].writtenByMe").doesNotExist());
     }
 
     @Test

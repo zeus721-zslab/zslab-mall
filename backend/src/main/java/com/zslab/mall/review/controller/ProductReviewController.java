@@ -3,9 +3,11 @@ package com.zslab.mall.review.controller;
 import com.zslab.mall.common.auth.BuyerActorResolver;
 import com.zslab.mall.order.controller.response.PagedResponse;
 import com.zslab.mall.review.controller.response.ReviewItemResponse;
+import com.zslab.mall.review.controller.response.ReviewKeywordOptionResponse;
 import com.zslab.mall.review.controller.response.ReviewSummaryResponse;
 import com.zslab.mall.review.enums.ReviewSort;
 import com.zslab.mall.review.service.ReviewQueryService;
+import java.util.List;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -47,5 +49,11 @@ public class ProductReviewController {
     @GetMapping("/summary")
     public ResponseEntity<ReviewSummaryResponse> summary(@PathVariable String productPublicId) {
         return ResponseEntity.ok(reviewQueryService.summary(productPublicId));
+    }
+
+    /** 작성 폼 키워드 선택지(기본 세트 ∪ 상품 최상위 카테고리 세트 · 표시 순서). */
+    @GetMapping("/keywords")
+    public ResponseEntity<List<ReviewKeywordOptionResponse>> keywords(@PathVariable String productPublicId) {
+        return ResponseEntity.ok(reviewQueryService.usableKeywords(productPublicId));
     }
 }

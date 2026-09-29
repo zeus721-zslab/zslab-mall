@@ -6,6 +6,8 @@ import type { claimableTypes, claimTypeLabel, orderItemStatusLabel } from '~/lib
 import type { PAYMENT_METHODS, paymentMethodLabel } from '~/lib/constants/payment'
 import type { canResumePayment, isPaymentExpired, PAYMENT_EXPIRED_NOTICE } from '~/lib/utils/payment-resume'
 import type { formatDateTime } from '~/lib/utils/datetime'
+import type { canWriteReview, reviewEditPath, reviewWritePath } from '~/lib/utils/review-links'
+import type { OwnReviewState } from '~/composables/useReviews'
 
 export interface ItemConfirmNotice {
   orderItemId: string
@@ -47,4 +49,9 @@ export interface OrderDetailPageVm {
   isPaymentExpired: typeof isPaymentExpired
   paymentMethodLabel: typeof paymentMethodLabel
   formatDateTime: typeof formatDateTime
+  /** 숨긴 리뷰의 사유(reviewId → 상태·사유 · Track 106-1 · review.hidden 품목만 조회). 조회 전·실패면 키가 없다. */
+  ownReviewStates: Record<string, OwnReviewState>
+  canWriteReview: typeof canWriteReview
+  reviewWritePath: typeof reviewWritePath
+  reviewEditPath: typeof reviewEditPath
 }

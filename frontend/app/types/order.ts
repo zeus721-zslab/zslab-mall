@@ -7,6 +7,7 @@
 import type { PaymentMethod, ShippingAddress } from '~/types/checkout'
 import type { ClaimType } from '~/lib/constants/claim'
 import type { DeliveryCarrier, DeliveryStatus } from '~/lib/constants/delivery'
+import type { OrderItemReview } from '~/types/review'
 
 /** UI 노출 상태(BE StatusView 대응). BE는 label=code로 내려줌 → 표시엔 lib/constants/order.ts 라벨 사용. */
 export interface StatusView {
@@ -46,6 +47,8 @@ export interface OrderSummaryItem {
   productId?: string
   variantId?: string
   exchangeCompleted: boolean
+  /** 리뷰 작성 자격·작성한 리뷰(Track 106-1). 이 필드 이전 응답(옛 캐시)이면 없다 — 리뷰 진입점을 두지 않는다. */
+  review?: OrderItemReview
 }
 
 /** 주문 목록 항목(BE OrderSummaryResponse 대응). previewTitle은 서버 생성 문자열, orderedAt은 ISO 문자열. */
@@ -113,6 +116,8 @@ export interface OrderItem {
   delivery?: OrderItemDelivery | null
   /** 상품 썸네일(product.thumbnail_url·D-223). 삭제 상품·미등록이면 NON_NULL로 생략된다. */
   thumbnailUrl?: string
+  /** 리뷰 작성 자격·작성한 리뷰(Track 106-1). 이 필드 이전 응답(옛 캐시)이면 없다 — 리뷰 진입점을 두지 않는다. */
+  review?: OrderItemReview
 }
 
 /** seller 단위 그룹(BE SellerGroupResponse 대응). 단일 판매자 주문도 배열 길이 1. */

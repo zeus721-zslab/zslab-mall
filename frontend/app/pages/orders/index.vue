@@ -26,6 +26,7 @@ import {
 import { canResumePayment } from '~/lib/utils/payment-resume'
 import { toActiveClaimBadges } from '~/lib/utils/active-claim-badge'
 import { formatDateTime } from '~/lib/utils/datetime'
+import { canWriteReview, reviewEditPath, reviewWritePath } from '~/lib/utils/review-links'
 import type { OrderSummary, OrderSummaryItem } from '~/types/order'
 import type { ItemConfirmNotice } from '~/skins/contracts/order-detail'
 import type { OrdersPageVm } from '~/skins/contracts/orders'
@@ -219,6 +220,9 @@ const vm: OrdersPageVm = reactive({
   moveToClaimType,
   itemStatusFilter,
   clearItemStatusFilter,
+  canWriteReview,
+  reviewWritePath,
+  reviewEditPath,
 })
 </script>
 

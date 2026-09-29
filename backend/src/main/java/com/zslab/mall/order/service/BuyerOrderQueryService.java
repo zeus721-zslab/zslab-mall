@@ -1,5 +1,6 @@
 package com.zslab.mall.order.service;
 
+import com.zslab.mall.order.controller.response.OrderItemReviewResponse;
 import com.zslab.mall.order.controller.response.OrderResponse;
 import com.zslab.mall.order.controller.response.OrderStatusSummaryResponse;
 import com.zslab.mall.order.controller.response.OrderSummaryResponse;
@@ -27,6 +28,7 @@ import com.zslab.mall.product.entity.Product;
 import com.zslab.mall.product.entity.ProductVariant;
 import com.zslab.mall.product.repository.ProductRepository;
 import com.zslab.mall.product.repository.ProductVariantRepository;
+import com.zslab.mall.review.enums.ReviewStatus;
 import com.zslab.mall.review.repository.ReviewByOrderItemProjection;
 import com.zslab.mall.review.repository.ReviewRepository;
 import com.zslab.mall.seller.entity.Seller;
@@ -136,17 +138,18 @@ public class BuyerOrderQueryService {
     }
 
     /**
-     * 품목 id별 리뷰 public_id(Track 106-1·주문 응답 리뷰 상태). 삭제된 리뷰도 키로 남기되 값은 null이다(재작성 불가 표시·링크 없음 — HashMap이라
-     * null 값 허용). 품목 전체 1회 IN 배치 조회이며 품목이 없으면 조회 없이 빈 맵.
+     * 품목 id별 리뷰(Track 106-1·주문 응답 리뷰 상태). 삭제된 리뷰도 키로 남기되 reviewId는 null이다(재작성 불가 표시·링크 없음).
+     * 숨김 여부도 같은 행에서 읽는다. 품목 전체 1회 IN 배치 조회이며 품목이 없으면 조회 없이 빈 맵.
      */
-    private Map<Long, String> reviewIdByItemIdFor(List<OrderItem> items) {
+    private Map<Long, OrderItemReviewResponse.Written> reviewIdByItemIdFor(List<OrderItem> items) {
         if (items.isEmpty()) {
             return Map.of();
         }
-        Map<Long, String> reviewIdByItemId = new HashMap<>();
+        Map<Long, OrderItemReviewResponse.Written> reviewIdByItemId = new HashMap<>();
         for (ReviewByOrderItemProjection review : reviewRepository.findWrittenByOrderItemIdIn(
                 items.stream().map(OrderItem::getId).toList())) {
-            reviewIdByItemId.put(review.getOrderItemId(), review.getReviewPublicId());
+            reviewIdByItemId.put(review.getOrderItemId(), new OrderItemReviewResponse.Written(review.getReviewPublicId(),
+                    ReviewStatus.HIDDEN.name().equals(review.getReviewStatus())));
         }
         return reviewIdByItemId;
     }
@@ -228,7 +231,7 @@ public class BuyerOrderQueryService {
         Map<Long, ProductVariant> variantById = variantsByIdFor(pageItems);
         Map<Long, Seller> sellerById = sellersByIdFor(pageItems);
         Set<Long> exchangeCompletedItemIds = exchangeCompletedItemIdsFor(pageItems);
-        Map<Long, String> reviewIdByItemId = reviewIdByItemIdFor(pageItems);
+        Map<Long, OrderItemReviewResponse.Written> reviewIdByItemId = reviewIdByItemIdFor(pageItems);
 
         // 페이지 순서(ordered_at DESC) 유지하며 items 로딩본으로 요약 생성(상품명은 order_item 스냅샷·Track 76).
         List<OrderSummaryResponse> summaries = orders.getContent().stream()

@@ -174,3 +174,33 @@ describe('pages/orders/index.vue 주문 카드(FE-80)', () => {
     expect(wrapper.find('[data-testid="order-card-summary"]').text().replace(/\s+/g, ' ')).toBe('총 12,000원')
   })
 })
+
+// Track 106-1 PR2: 목록 리뷰 진입점 — 숨김 여부는 품목 review.hidden만으로 배지(작성자 단건 조회 없음) · WRITABLE = 별 5개.
+const { ownReviewStatesSpy } = vi.hoisted(() => ({ ownReviewStatesSpy: vi.fn(() => ({ value: {} })) }))
+mockNuxtImport('useOwnReviewStates', () => ownReviewStatesSpy)
+
+describe('pages/orders/index.vue 리뷰 진입점(Track 106-1)', () => {
+  function withReviewItems(): OrderSummary {
+    const order = deliveredOrder()
+    const base = order.items![0]!
+    order.items = [
+      { ...base, orderItemId: 'oit_W', status: { code: 'CONFIRMED', label: 'CONFIRMED' }, review: { status: 'WRITABLE' } },
+      { ...base, orderItemId: 'oit_H', status: { code: 'CONFIRMED', label: 'CONFIRMED' }, review: { status: 'WRITTEN', reviewId: 'rvw_H', hidden: true } },
+      { ...base, orderItemId: 'oit_V', status: { code: 'CONFIRMED', label: 'CONFIRMED' }, review: { status: 'WRITTEN', reviewId: 'rvw_V', hidden: false } },
+    ]
+    return order
+  }
+
+  it('WRITABLE → 별 5개 프롬프트 · WRITTEN → 리뷰 수정 2 · hidden만 "비공개 처리됨"(사유 없음) · 단건 조회 없음', async () => {
+    ownReviewStatesSpy.mockClear()
+    mockLists(page([withReviewItems()]))
+    const wrapper = await mountSuspended(OrdersPage)
+    expect(wrapper.findAll('[data-testid="order-item-review-prompt"]')).toHaveLength(1)
+    expect(wrapper.findAll('[data-testid="order-item-review-prompt"] a')).toHaveLength(5)
+    expect(wrapper.findAll('[data-testid="order-item-review-edit"]')).toHaveLength(2)
+    const hidden = wrapper.findAll('[data-testid="order-item-review-hidden"]')
+    expect(hidden).toHaveLength(1)
+    expect(hidden[0]!.text()).toBe('비공개 처리됨')
+    expect(ownReviewStatesSpy).not.toHaveBeenCalled()
+  })
+})

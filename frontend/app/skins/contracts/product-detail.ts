@@ -1,4 +1,5 @@
 import type { ProductDetail, ProductImage, ProductSummary, ProductVariant } from '~/types/product'
+import type { ProductReviewsVm } from './product-reviews'
 
 /**
  * pages/products/[productPublicId].vue → ProductDetailView. activeImageUrl은 뷰가 썸네일 클릭으로 직접 바꾼다.
@@ -35,4 +36,6 @@ export interface ProductDetailPageVm {
   /** 총 상품 금액 = 표시 단가 × 수량. variant 확정 전에는 null. */
   totalPrice: number | null
   sellerProducts: ProductSummary[]
+  /** 리뷰 요약·목록(Track 106-1). 스킨이 productReviews를 선언했을 때만 있고 그 외에는 null. */
+  reviews: ProductReviewsVm | null
 }

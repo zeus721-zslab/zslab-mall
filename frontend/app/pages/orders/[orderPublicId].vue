@@ -6,6 +6,7 @@ import { formatDateTime } from '~/lib/utils/datetime'
 import { canResumePayment, isPaymentExpired, paymentResumeFailure, PAYMENT_EXPIRED_NOTICE } from '~/lib/utils/payment-resume'
 import type { PaymentResumeErrorLike } from '~/lib/utils/payment-resume'
 import { resolvePaymentRedirect } from '~/lib/payment-redirect'
+import { canWriteReview, reviewEditPath, reviewWritePath } from '~/lib/utils/review-links'
 import type { PaymentMethod } from '~/types/checkout'
 import type { OrderItem } from '~/types/order'
 import type { OrderDetailPageVm } from '~/skins/contracts/order-detail'
@@ -129,6 +130,13 @@ async function submitConfirm(item: OrderItem): Promise<void> {
   }
 }
 
+// 숨긴 리뷰의 사유(Track 106-1): 숨김 여부는 품목 review.hidden으로 알고, 사유만 작성자 단건 조회로 받는다(숨김 품목만 · 브라우저에서만).
+const hiddenReviewIds = computed<string[]>(() =>
+  (data.value?.sellers ?? []).flatMap((seller) => seller.items)
+    .flatMap((item) => (item.review?.reviewId && item.review.hidden ? [item.review.reviewId] : [])),
+)
+const ownReviewStates = useOwnReviewStates(hiddenReviewIds)
+
 // 탭 제목은 사람이 읽는 주문번호만 쓴다(내부 id 노출 금지 · orderNo 없는 옛 응답은 "주문 상세").
 useSeoMeta({
   title: () => (data.value?.orderNo ? `주문 ${data.value.orderNo} · zslab-mall` : '주문 상세 · zslab-mall'),
@@ -165,6 +173,10 @@ const vm: OrderDetailPageVm = reactive({
   isPaymentExpired,
   paymentMethodLabel,
   formatDateTime,
+  ownReviewStates,
+  canWriteReview,
+  reviewWritePath,
+  reviewEditPath,
 })
 </script>
 

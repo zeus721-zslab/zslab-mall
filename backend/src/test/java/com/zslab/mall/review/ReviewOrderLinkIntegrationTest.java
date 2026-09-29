@@ -47,6 +47,9 @@ class ReviewOrderLinkIntegrationTest extends AbstractIntegrationTest {
     private static final long REVIEW_SECOND_VISIBLE = 10754L;
     private static final long OTHER_PRODUCT = 10755L;
     private static final long OTHER_VARIANT = 10756L;
+    /** 숨김 처리된 리뷰가 있는 품목·그 리뷰(PR2 review.hidden). */
+    private static final long ITEM_HIDDEN_REVIEW = 10757L;
+    private static final long REVIEW_HIDDEN_WRITTEN = 10758L;
     /** N+1 확인용으로 뒤에 더하는 상품 대역 시작(상품·옵션 id를 2개씩 쓴다·10760~10765). */
     private static final long GROWTH_BASE = 10760L;
     private static final int GROWTH_ROWS = 3;
@@ -85,8 +88,10 @@ class ReviewOrderLinkIntegrationTest extends AbstractIntegrationTest {
         fixture.seedItemInOrder(ORDER, ITEM_WRITTEN, PRODUCT, VARIANT, SELLER, "CONFIRMED");
         fixture.seedItemInOrder(ORDER, ITEM_DELETED_REVIEW, PRODUCT, VARIANT, SELLER, "CONFIRMED");
         fixture.seedItemInOrder(ORDER, ITEM_NOT_ELIGIBLE, PRODUCT, VARIANT, SELLER, "DELIVERED");
+        fixture.seedItemInOrder(ORDER, ITEM_HIDDEN_REVIEW, PRODUCT, VARIANT, SELLER, "CONFIRMED");
         LocalDateTime now = LocalDateTime.now();
         writtenReviewPid = fixture.insertReview(REVIEW_VISIBLE, ITEM_WRITTEN, PRODUCT, BUYER, 5, "VISIBLE", null, 0, now);
+        fixture.insertReview(REVIEW_HIDDEN_WRITTEN, ITEM_HIDDEN_REVIEW, PRODUCT, BUYER, 2, "HIDDEN", null, 0, now);
         fixture.insertReview(REVIEW_DELETED, ITEM_DELETED_REVIEW, PRODUCT, BUYER, 1, "VISIBLE", null, 0, now);
         jdbc.update("UPDATE review SET deleted_at = NOW(6) WHERE id = ?", REVIEW_DELETED);
         // 목록 별점용 — 품목 id는 주문과 무관한 대역 값(FK 끔·uk_review_order_item만 만족)
@@ -114,6 +119,27 @@ class ReviewOrderLinkIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath(itemReview("sellers[0].items", ITEM_DELETED_REVIEW) + ".status").value("WRITTEN"))
                 .andExpect(jsonPath(itemReview("sellers[0].items", ITEM_DELETED_REVIEW) + ".reviewId").isEmpty())
                 .andExpect(jsonPath(itemReview("sellers[0].items", ITEM_NOT_ELIGIBLE) + ".status").value("NOT_ELIGIBLE"));
+    }
+
+    @Test
+    @DisplayName("O1-1 review.hidden: 숨김 리뷰 품목 true · 공개 리뷰 품목 false · 미작성·확정 전 품목 키 없음(상세·목록 동일)")
+    void orderItemReview_hiddenFlag() throws Exception {
+        mockMvc.perform(get("/api/v1/orders/" + orderPid).with(authHeaders.buyer(BUYER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(itemReview("sellers[0].items", ITEM_HIDDEN_REVIEW) + ".status").value("WRITTEN"))
+                .andExpect(jsonPath(itemReview("sellers[0].items", ITEM_HIDDEN_REVIEW) + ".hidden").value(true))
+                .andExpect(jsonPath(itemReview("sellers[0].items", ITEM_WRITTEN) + ".hidden").value(false))
+                // 키 없음 단언 전에 품목을 찾았음을 먼저 고정한다(못 찾아도 빈 배열이라 isEmpty가 통과하는 false-green 방지).
+                .andExpect(jsonPath(itemReview("sellers[0].items", ITEM_WRITABLE) + ".status").value("WRITABLE"))
+                .andExpect(jsonPath(itemReview("sellers[0].items", ITEM_NOT_ELIGIBLE) + ".status").value("NOT_ELIGIBLE"))
+                .andExpect(jsonPath(itemReview("sellers[0].items", ITEM_WRITABLE) + ".hidden").isEmpty())
+                .andExpect(jsonPath(itemReview("sellers[0].items", ITEM_NOT_ELIGIBLE) + ".hidden").isEmpty());
+        mockMvc.perform(get("/api/v1/orders").with(authHeaders.buyer(BUYER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(itemReview("items[0].items", ITEM_HIDDEN_REVIEW) + ".hidden").value(true))
+                .andExpect(jsonPath(itemReview("items[0].items", ITEM_WRITTEN) + ".hidden").value(false))
+                .andExpect(jsonPath(itemReview("items[0].items", ITEM_WRITABLE) + ".status").value("WRITABLE"))
+                .andExpect(jsonPath(itemReview("items[0].items", ITEM_WRITABLE) + ".hidden").isEmpty());
     }
 
     @Test

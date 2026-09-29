@@ -113,7 +113,9 @@ class ReviewAdminIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].reviewId").value(reviewPid))
                 .andExpect(jsonPath("$.items[0].productPublicId").value(productPid))
-                .andExpect(jsonPath("$.items[0].photoUrls[0]").value("/api/v1/files/" + PHOTO_KEY));
+                .andExpect(jsonPath("$.items[0].photoUrls[0]").value("/api/v1/files/" + PHOTO_KEY))
+                .andExpect(jsonPath("$.items[0].status").value("VISIBLE"))
+                .andExpect(jsonPath("$.items[0].hiddenReason").doesNotExist());
         mockMvc.perform(statusRequest("HIDDEN", "욕설").with(authHeaders.admin(ADMIN))).andExpect(status().isNoContent());
     }
 
@@ -155,7 +157,8 @@ class ReviewAdminIntegrationTest extends AbstractIntegrationTest {
         assertThat(diff).contains("VISIBLE").contains("HIDDEN").contains("광고성 게시물").doesNotContain("테스트 리뷰 본문");
         mockMvc.perform(get(ADMIN_URL).param("status", "HIDDEN").with(authHeaders.admin(ADMIN)))
                 .andExpect(jsonPath("$.totalCount").value(1))
-                .andExpect(jsonPath("$.items[0].status").value("HIDDEN"));
+                .andExpect(jsonPath("$.items[0].status").value("HIDDEN"))
+                .andExpect(jsonPath("$.items[0].hiddenReason").value("광고성 게시물"));
 
         mockMvc.perform(statusRequest("HIDDEN", "다시").with(authHeaders.admin(ADMIN)))
                 .andExpect(status().isUnprocessableEntity())
@@ -166,6 +169,10 @@ class ReviewAdminIntegrationTest extends AbstractIntegrationTest {
         assertThat(hiddenReason()).as("숨김 해제 시 사유를 비운다").isNull();
         mockMvc.perform(get(publicListUrl())).andExpect(jsonPath("$.totalCount").value(2));
         mockMvc.perform(get("/api/v1/files/" + PHOTO_KEY)).andExpect(status().isOk());
+        mockMvc.perform(get(ADMIN_URL).with(authHeaders.admin(ADMIN)))
+                .andExpect(jsonPath("$.items[0].reviewId").value(reviewPid))
+                .andExpect(jsonPath("$.items[0].status").value("VISIBLE"))
+                .andExpect(jsonPath("$.items[0].hiddenReason").doesNotExist());
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_log WHERE target_type = 'REVIEW' AND target_id = ?", Integer.class,
                 REVIEW)).isEqualTo(2);
     }

@@ -20,7 +20,7 @@ python -m pip install -r scripts/demo-seed/requirements.txt
 ## 실행
 ```
 python scripts/demo-seed/seed.py --dry-run                 # 계획만 출력
-python scripts/demo-seed/seed.py --step all                # master → orders → timeshift → settlement → verify
+python scripts/demo-seed/seed.py --step all                # master → orders → timeshift → settlement → reviews → verify
 python scripts/demo-seed/seed.py --step orders             # 단계별 실행(state 파일로 재개)
 python scripts/demo-seed/seed.py --step verify             # 검증만
 ```
@@ -34,7 +34,8 @@ python scripts/demo-seed/seed.py --step verify             # 검증만
 2. `orders` — 주문 생성 → 구매자 본인 mock 콜백 SUCCESS(`POST /api/v1/payments/mock-callback`·결제시각은 timeshift가 SQL로 보정) → ADMIN 송장·배송완료 → BUYER 구매확정 / 클레임(취소·반품·교환) 완결 · 9월 진행분(결제완료 8·배송중 8·배송완료 9·진행 클레임 3)
 3. `timeshift` — 데모 마커 행만 시각 UPDATE(order·payment·order_item·delivery·claim·refund + 마스터 행) · order_no 날짜부 갱신 · 순서 불변식 검증
 4. `settlement` — 3~8월 정산 생성 → 3~7월 확정 → 3~6월 지급 → 지급 paid_at = 지급예정일 +0~3일(SQL)
-5. `verify` — settlement_item 합 = gross/fee, occurred_at = confirmed_at, 월별 주문·클레임 집계, 시각 불변식 재검증
+5. `reviews` — 카테고리별 리뷰 키워드 세트 INSERT(키워드 쓰기 API 없음 · code가 있으면 건너뜀) → 클레임 없는 구매확정 품목 약 70%에 구매자 API로 리뷰 작성(별점 분산 · 일부 PIL 사진 1~3장을 1장씩 업로드) · 도움됐어요 → 작성 시각을 구매확정 뒤로 SQL 보정. 가드 = 데모 구매자 리뷰 존재
+6. `verify` — settlement_item 합 = gross/fee, occurred_at = confirmed_at, 월별 주문·클레임 집계, 시각 불변식 재검증
 
 ## 운영 실행 전
 - `mariadb-dump --single-transaction` 백업 + `mall_uploads` 볼륨 스냅샷

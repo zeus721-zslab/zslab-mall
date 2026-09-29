@@ -12,6 +12,7 @@ import com.zslab.mall.product.exception.ProductNotFoundException;
 import com.zslab.mall.product.repository.ProductRepository;
 import com.zslab.mall.review.controller.response.KeywordResponse;
 import com.zslab.mall.review.controller.response.ReviewItemResponse;
+import com.zslab.mall.review.controller.response.ReviewKeywordOptionResponse;
 import com.zslab.mall.review.controller.response.ReviewOwnerResponse;
 import com.zslab.mall.review.controller.response.ReviewPhotoResponse;
 import com.zslab.mall.review.controller.response.ReviewSummaryResponse;
@@ -114,6 +115,7 @@ public class ReviewQueryService {
                 photosByReview.getOrDefault(review.getId(), List.of()),
                 review.getHelpfulCount(),
                 viewerId != null ? helped.contains(review.getId()) : null,
+                viewerId != null ? review.isWrittenBy(viewerId) : null,
                 review.getCreatedAt())));
     }
 
@@ -146,6 +148,20 @@ public class ReviewQueryService {
                 .orElse(null);
         return new ReviewSummaryResponse(reviewCount, averageRating, distribution, keywordCounts(product.getId()), recentPhotos,
                 summaryText);
+    }
+
+    /**
+     * 작성 폼 키워드 선택지 — 기본 세트 ∪ 상품 최상위 카테고리 세트(작성 검증 {@code ReviewService.resolveKeywordIds}와 같은 허용 범위).
+     * 카테고리는 루트만 생성되므로 상품 categoryId가 곧 최상위다(D-237 R1-3).
+     *
+     * @throws ProductNotFoundException 상품 미존재·삭제·비노출(404 — 리뷰 목록과 같은 판정)
+     */
+    public List<ReviewKeywordOptionResponse> usableKeywords(String productPublicId) {
+        Product product = requireProduct(productPublicId);
+        return reviewKeywordRepository.findUsable(product.getCategoryId()).stream()
+                .map(keyword -> new ReviewKeywordOptionResponse(keyword.getCode(), keyword.getLabel(), keyword.getGroupCode(),
+                        keyword.getDisplayOrder()))
+                .toList();
     }
 
     /**

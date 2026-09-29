@@ -63,6 +63,9 @@ const ADMIN_ERROR_MESSAGES: Record<string, string> = {
   // Track 104-2 관리자 불일치(D-216·FE-66).
   RECONCILIATION_ISSUE_NOT_FOUND: '불일치를 찾을 수 없습니다.',
   RECONCILIATION_ISSUE_INVALID_STATE: '이미 해결된 불일치입니다. 목록을 새로 불러옵니다.',
+  // Track 106-1 관리자 리뷰(D-237).
+  REVIEW_NOT_FOUND: '리뷰를 찾을 수 없습니다(삭제되었거나 존재하지 않음).',
+  REVIEW_INVALID_STATE: '이미 그 상태인 리뷰입니다. 목록을 새로 불러옵니다.',
 }
 
 const FALLBACK_MESSAGE = '요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.'

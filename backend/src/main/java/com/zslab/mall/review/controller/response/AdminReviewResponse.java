@@ -6,7 +6,10 @@ import java.time.LocalDateTime;
 import java.util.List;
 import tools.jackson.databind.annotation.JsonSerialize;
 
-/** 관리자 리뷰 목록 항목(Track 106-1·숨김 판단용). 상품이 삭제됐으면 상품 식별·이름은 null(키 생략). */
+/**
+ * 관리자 리뷰 목록 항목(Track 106-1·숨김 판단용). 상품이 삭제됐으면 상품 식별·이름은 null(키 생략). hiddenReason은 숨김일 때만 값이 있다
+ * (해제 시 비움 — V40 CHECK로 상태와 쌍).
+ */
 public record AdminReviewResponse(
         String reviewId,
         String productPublicId,
@@ -15,6 +18,7 @@ public record AdminReviewResponse(
         String content,
         String optionLabel,
         ReviewStatus status,
+        String hiddenReason,
         int helpfulCount,
         List<String> photoUrls,
         @JsonSerialize(using = KstOffsetSerializer.class)

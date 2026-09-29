@@ -805,6 +805,19 @@ Python 스크립트는 Write 도구로 `.py` 파일을 만든 뒤 `python <파�
 ### 관련
 - FE-46 트랩 (3) · FE-91 · LT-22(후속 영향 줄) · LT-37(env 주입) · recon-report-e2e-cold.md
 
+## LT-40. 프론트 컨테이너 안에서 typecheck·vitest·nuxt prepare를 돌리면 공유 폴더 `.nuxt`가 다시 만들어져 실행 중인 dev 서버와 어긋남 — Playwright global-setup 워밍업 타임아웃 [ACTIVE]
+**발견 트랙**: Track 106-1 PR2(2026-09-30 · Playwright 전체 2회 연속 global-setup 실패)
+**원본 결정**: D-238 · FE-94
+### 증상
+Playwright 전체가 테스트 0건 실행으로 끝난다(`.last-run.json` `failedTests: []`). 로그는 `[warmup] 실패 — page.waitForFunction: Timeout 30000ms exceeded`(global-setup.ts `visit` hydration 대기 · 첫 경로 `/`). 브라우저로 `/`를 열면 hydration이 끝나지 않고 `Failed to fetch dynamically imported module .../nuxt/dist/app/entry.js`(404) · dev 서버 로그에 `Failed to resolve import "#app-manifest"`가 반복된다.
+### 원인
+`./frontend`가 컨테이너 `/app`에 bind mount되어 `.nuxt`를 dev 서버와 공유한다. 컨테이너 재생성 뒤 같은 컨테이너 안에서 `pnpm typecheck`(nuxt prepare)·`pnpm test`(vitest nuxt 환경)를 실행하면 `.nuxt`가 다시 만들어져, 이미 떠 있는 dev 서버가 참조하던 생성물(#app-manifest 등)과 어긋난다. 서버 라우트를 바꾼 뒤 dev 서버가 변경을 반영하지 못하는 경우도 같은 방식으로 드러난다(D-235 이월 · STEP 183 데모 로그인 403).
+### 처치
+Playwright 직전에 프론트 컨테이너를 재생성(`up -d --force-recreate zslab_mall_frontend` → healthy)하고, 재생성과 Playwright 사이에는 컨테이너 안 prepare 계열 명령(typecheck·vitest·nuxt prepare)을 실행하지 않는다. 순서: typecheck·vitest → 재생성 → Playwright. 재생성 뒤 `/` hydration 완료(entry 404 없음)를 먼저 확인하면 워밍업 실패를 미리 가를 수 있다.
+### 관련
+- 같은 트랙에서 함께 드러난 운용 실수: 호스트 `frontend/node_modules`가 lockfile보다 오래됨(nuxt 4.4.8 vs 4.5.2) — 호스트에서 vitest·typecheck를 돌리면 `$fetch` mock 변환 실패·거짓 통과(FE 검증은 컨테이너에서만) · Playwright는 실행 시 `frontend/test-results`를 비우므로 테스트 로그를 그 안에 두지 않는다
+- LT-37(규정 명령) · LT-39(콜드 트랩) · D-235 이월(서버 라우트 변경 후 재생성)
+
 ---
 
 ## 부록. 트랩 추가 절차

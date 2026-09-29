@@ -65,6 +65,7 @@ public class AdminReviewQueryService {
                     review.getContent(),
                     review.getOptionLabel(),
                     review.getStatus(),
+                    review.getHiddenReason(),
                     review.getHelpfulCount(),
                     photoUrls.getOrDefault(review.getId(), List.of()),
                     review.getCreatedAt());

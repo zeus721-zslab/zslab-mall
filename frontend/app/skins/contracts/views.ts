@@ -21,6 +21,7 @@ export type SkinViewName =
   | 'CheckoutView'
   | 'ClaimDetailView'
   | 'ClaimNewView'
+  | 'ReviewFormView'
   | 'AddressesView'
   | 'OrderDetailView'
   | 'ProductDetailView'
