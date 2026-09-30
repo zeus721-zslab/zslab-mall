@@ -47,6 +47,7 @@ const ADMIN_PATHS = [
   '/admin/products/reviews',
   '/admin/products/questions',
   `/admin/products/${PLACEHOLDER_ID}`,
+  '/admin/faqs',
   '/admin/orders',
   '/admin/orders/claims',
   '/admin/orders/deliveries',

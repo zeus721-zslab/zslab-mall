@@ -3956,3 +3956,24 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 외부 검토: C / 생략(FE 전용 · BE 계약 무변경)
 
 § 보완(2026-09-30): 데스크톱 즉시 답 패널 최대 폭 640px · 우측 정렬(전체 폭에서 카드가 과하게 늘어남 · ProductSectionNav.vue lg:max-w-[640px]).
+
+## FE-97: 구매자 채팅 도우미(FAQ) · 관리자 FAQ 관리 — D-240 (Track 106-3) (2026-09-30)
+
+기준: D-240(FAQ 공개 목록·즉시 답 · 관리자 CRUD·카테고리 안 정렬). 정찰 docs/frontend/recon-report-106-3-fe.md 결정 1~6은 추천안으로 확정.
+
+### §1-A 선택이 갈린 결정
+- 대화 유지 저장소: α 메모리 상태만 【기각】 — 새로고침하면 대화가 사라져 "탭 동안 유지"를 채우지 못한다 / β sessionStorage 【채택】 — 탭 동안 유지 · 최근 50개 말풍선 · 복원은 onMounted + try/catch(깨진 값·접근 차단이면 새 대화) — 저장소 첫 선례(useFaqAssistant.ts).
+- 모바일 하단 바 겹침: α 바가 보이는 페이지에서 버튼 숨김 【기각】 — 도우미가 가장 필요한 구매 결정 화면에서 사라진다 / β 공유 composable로 바 표시 상태 전달 【기각】 — 스킨(MobileActionBar)이 composable을 부르게 돼 스킨 가드(FE-67 · skin-guard.spec) 위반 / γ 바가 useHead로 body에 data-mobile-action-bar="shown"을 달고 버튼이 CSS로 <1024에서 바 위로 【채택】 — 스킨은 화면만 유지 · 페이지 3곳 무변경(MobileActionBar.vue · FaqAssistant.vue scoped :global).
+- 패널: α 모달(Dialog 하단 시트 재사용) 【기각】 — 포커스 가두기가 "연 채 링크 이동"과 충돌한다 / β 비모달 패널 【채택】 — 뒤 화면 조작 가능 · Esc·닫기 · 닫으면 버튼으로 포커스 복귀 · 새 말풍선 role=log(aria-live polite).
+- 마운트 위치: α LayoutShell(renew 스킨) 안 【기각】 — 스킨이 늘면 스킨마다 다시 붙여야 하고 스킨 가드상 도우미 로직을 둘 수 없다 / β app/layouts/default.vue의 셸 형제 + ClientOnly 【채택】 — 구매자 레이아웃에만 붙어 관리자·셀러에 없음 · SSR 미렌더 · 셸 박스를 바꾸지 않게 display: contents 루트.
+
+### §1-B 적용
+- 첫 칩: lib/constants/faq.ts faqFirstCategories(라우트 → 카테고리 · 첫 일치) · 제외 경로(모의 결제·리뷰 작성·수정)는 isFaqAssistantExcluded로 미렌더 · 카테고리 칩은 말풍선에 저장하지 않고 현재 페이지 기준으로 순서·강조를 다시 그린다.
+- 관리자: /admin/faqs · 메뉴 "고객센터 > FAQ 관리" · 카테고리 안 위/아래 정렬은 moveCategory 재사용.
+
+### §8 이월
+- 개발 서버가 새 composable 파일을 감지하지 못해(Windows bind mount) 프론트 컨테이너 재시작이 필요했다.
+- payment-resume.ts:55-56 "주문을 취소하고…" 안내와 결제 전 취소 기능 부재 불일치.
+- 도우미 "운영자에게 남기기"는 106-4.
+
+외부 검토: C / 생략(FE 전용 · BE 계약 무변경)

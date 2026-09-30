@@ -37,9 +37,11 @@ onBeforeUnmount(() => stopObserving?.())
 
 // 바가 보이는 동안에만 body 하단에 바 높이만큼 여백을 둬 페이지 끝(푸터 마지막 줄)이 바에 가려지지 않게 한다. 숨김이면 0.
 // 바 높이 = 상단 테두리 1 + 위 여백 12 + 버튼 48 + 아래 여백 12 + 하단 안전 영역(FE-78) — 아래 바 클래스와 같이 고친다.
+// data-mobile-action-bar: 채팅 도우미 버튼(Track 106-3)이 CSS로 바 위로 올라가는 신호(스킨은 composable을 부르지 않는다 · FE-67). 언마운트되면 useHead가 지운다.
 useHead({
   bodyAttrs: {
     class: computed(() => (shown.value ? 'max-lg:pb-[calc(73px+env(safe-area-inset-bottom,0px))]' : '')),
+    'data-mobile-action-bar': computed(() => (shown.value ? 'shown' : undefined)),
   },
 })
 </script>
