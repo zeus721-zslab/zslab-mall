@@ -1,7 +1,12 @@
 <script setup lang="ts">
 import type { ProductDetailPageVm } from '~/skins/contracts/product-detail'
+import { PRODUCT_SECTION_IDS } from '~/lib/constants/product-sections'
 import MobileActionBar from '../components/MobileActionBar.vue'
+import ProductGlanceChips from '../components/ProductGlanceChips.vue'
+import ProductQuestionSection from '../components/ProductQuestionSection.vue'
 import ProductReviewSection from '../components/ProductReviewSection.vue'
+import ProductSectionNav from '../components/ProductSectionNav.vue'
+import type { ProductSectionNavItem } from '~/skins/contracts/product-section-nav'
 import RenewBadge from '../components/RenewBadge.vue'
 import RenewProductCard from '../components/RenewProductCard.vue'
 import SectionHeading from '../components/SectionHeading.vue'
@@ -26,6 +31,17 @@ const product = computed(() => props.vm.data)
 const addButtonLabel = computed(() => (props.vm.adding ? '담는 중…' : '장바구니 담기'))
 // 금액이 없을 때 문구: 판매 불가(판매 가능 variant 없음 포함)면 그 사유, 아니면 옵션 선택 안내.
 const totalPendingText = computed(() => props.vm.unavailableLabel ?? TOTAL_PENDING_TEXT)
+
+// 섹션 바 알약: 화면에 있는 섹션만(설명 없는 상품 · 스킨이 리뷰·묻기를 선언하지 않은 경우 제외). 건수는 리뷰 요약·질문 목록 총수.
+const sectionNavItems = computed<ProductSectionNavItem[]>(() => {
+  const items: ProductSectionNavItem[] = []
+  if (product.value?.description) items.push({ id: PRODUCT_SECTION_IDS.description, label: '상품설명' })
+  const reviews = props.vm.reviews
+  if (reviews) items.push({ id: PRODUCT_SECTION_IDS.reviews, label: `리뷰 ${(reviews.summary?.reviewCount ?? reviews.totalCount).toLocaleString('ko-KR')}` })
+  const questions = props.vm.questions
+  if (questions) items.push({ id: PRODUCT_SECTION_IDS.questions, label: `Q&A ${questions.totalCount.toLocaleString('ko-KR')}` })
+  return items
+})
 
 function formatAmount(value: number): string {
   return value.toLocaleString('ko-KR')
@@ -110,6 +126,9 @@ const addButton = ref<HTMLButtonElement | null>(null)
             <p class="mt-2 text-small text-sub" data-testid="product-detail-seller">{{ product.sellerName }}</p>
 
             <p class="mt-6 text-h1 font-semibold tabular-nums text-ink" data-testid="product-detail-price">{{ vm.formattedPrice }}</p>
+
+            <!-- 한눈에 칩(Track 106-2): 리뷰·Q&A를 구매 결정 지점에서 바로 보이게 한다. -->
+            <ProductGlanceChips :reviews="vm.reviews" :questions="vm.questions" :nav="vm.sectionNav" />
 
             <hr class="my-6 border-line" />
 
@@ -207,8 +226,15 @@ const addButton = ref<HTMLButtonElement | null>(null)
           </div>
         </div>
 
+        <!-- 진행형 섹션 바(Track 106-2): 구매 영역 아래 · 상품 설명 위 · 스크롤하면 헤더 아래에 붙는다. -->
+        <ProductSectionNav v-if="sectionNavItems.length > 0" :nav="vm.sectionNav" :items="sectionNavItems" :questions="vm.questions" />
+
         <!-- 상품 설명: 전체 폭 흰 카드 · 본문 최대 880px -->
-        <section v-if="product.description" class="mt-20 rounded-card bg-white px-5 py-10 shadow-e1 md:px-10 md:py-14">
+        <section
+          v-if="product.description"
+          :id="PRODUCT_SECTION_IDS.description"
+          class="mt-6 scroll-mt-(--product-section-offset) rounded-card bg-white px-5 py-10 shadow-e1 md:px-10 md:py-14"
+        >
           <div class="mx-auto max-w-[880px]">
             <SectionHeading tag="Details" title="상품 설명" />
             <p class="whitespace-pre-line text-body text-ink">{{ product.description }}</p>
@@ -217,6 +243,9 @@ const addButton = ref<HTMLButtonElement | null>(null)
 
         <!-- 리뷰(Track 106-1): 설명 뒤 · 셀러 상품 앞. 스킨이 productReviews를 선언했을 때만 vm.reviews가 있다. -->
         <ProductReviewSection v-if="vm.reviews" :reviews="vm.reviews" />
+
+        <!-- 묻기(Track 106-2): 리뷰 뒤 · 셀러 상품 앞. 스킨이 productQuestions를 선언했을 때만 vm.questions가 있다. -->
+        <ProductQuestionSection v-if="vm.questions" :questions="vm.questions" />
 
         <!-- 셀러의 다른 상품: 조회 실패·0개면 숨김 -->
         <section v-if="vm.sellerProducts.length > 0" class="mt-20">

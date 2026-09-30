@@ -28,7 +28,8 @@ import org.springframework.transaction.annotation.Transactional;
  * 토큰 일치 수로 점수 매겨 상위만 돌려준다. 검색 엔진·전문 인덱스·LLM을 쓰지 않는다 — 후보가 상품 단위로 수백 건이라 앱 계산으로 충분하다.
  *
  * <p>토큰: 질의를 공백·문장부호로 나눠 2자 이상만 앞에서부터 최대 5개. 3자 이상 토큰은 끝 1자를 뗀 형태도 일치로 인정한다(조사 대응 —
- * "사이즈가" → "사이즈"). 점수 = 일치한 토큰 수, 동점이면 최신순. 숨김·삭제된 질문·리뷰는 후보 조회에서 빠진다.
+ * "사이즈가" → "사이즈"). 점수 = 일치한 토큰 수. 동점이면 유형 우선(QNA → REVIEW → PRODUCT · 셀러가 이미 답한 Q&A가 가장 직접적인 답)
+ * → 최신순. 숨김·삭제된 질문·리뷰는 후보 조회에서 빠진다.
  */
 @Service
 @Transactional(readOnly = true)
@@ -46,6 +47,9 @@ public class ProductQuestionSuggestService {
     static final int RESULT_LIMIT = 5;
     /** 결과 중 설명 조각 최대 수. 설명 조각은 동점이면 상품 수정 시각으로 앞서므로 질문·리뷰 자리를 남겨 둔다. */
     static final int PRODUCT_RESULT_LIMIT = 3;
+    /** 동점일 때 유형 우선순위(앞이 먼저 · D-239 규칙 변경). enum 선언 순서에 기대지 않도록 명시한다. */
+    static final List<ProductQuestionSuggestionType> TYPE_PRIORITY = List.of(
+            ProductQuestionSuggestionType.QNA, ProductQuestionSuggestionType.REVIEW, ProductQuestionSuggestionType.PRODUCT);
     /** 표시 텍스트 발췌 길이(넘으면 잘라 말줄임표를 붙인다). */
     static final int EXCERPT_LENGTH = 120;
     private static final String ELLIPSIS = "…";
@@ -84,6 +88,7 @@ public class ProductQuestionSuggestService {
                 .map(candidate -> new ScoredCandidate(candidate, score(candidate.matchText(), tokenForms)))
                 .filter(scored -> scored.score() > 0)
                 .sorted(Comparator.comparingInt(ScoredCandidate::score).reversed()
+                        .thenComparingInt(scored -> TYPE_PRIORITY.indexOf(scored.candidate().type()))
                         .thenComparing(scored -> scored.candidate().writtenAt(), Comparator.reverseOrder()))
                 .toList();
         return pickTop(ranked);

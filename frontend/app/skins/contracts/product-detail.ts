@@ -1,5 +1,7 @@
 import type { ProductDetail, ProductImage, ProductSummary, ProductVariant } from '~/types/product'
+import type { ProductQuestionsVm } from './product-questions'
 import type { ProductReviewsVm } from './product-reviews'
+import type { ProductSectionNavVm } from './product-section-nav'
 
 /**
  * pages/products/[productPublicId].vue → ProductDetailView. activeImageUrl은 뷰가 썸네일 클릭으로 직접 바꾼다.
@@ -38,4 +40,8 @@ export interface ProductDetailPageVm {
   sellerProducts: ProductSummary[]
   /** 리뷰 요약·목록(Track 106-1). 스킨이 productReviews를 선언했을 때만 있고 그 외에는 null. */
   reviews: ProductReviewsVm | null
+  /** 묻기·즉시 답·질문 목록(Track 106-2). 스킨이 productQuestions를 선언했을 때만 있고 그 외에는 null. */
+  questions: ProductQuestionsVm | null
+  /** 한눈에 칩·진행형 섹션 바(Track 106-2). 데이터 조회가 없어 스킨 선언과 무관하게 늘 있다. */
+  sectionNav: ProductSectionNavVm
 }
