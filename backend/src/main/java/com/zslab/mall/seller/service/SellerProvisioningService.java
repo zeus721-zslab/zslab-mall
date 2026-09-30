@@ -7,6 +7,7 @@ import com.zslab.mall.auth.entity.Role;
 import com.zslab.mall.auth.enums.RoleCode;
 import com.zslab.mall.auth.repository.RoleRepository;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
+import com.zslab.mall.common.security.DemoAccountGuard;
 import com.zslab.mall.seller.controller.request.SellerProvisioningRequest;
 import com.zslab.mall.seller.controller.response.SellerProvisioningResponse;
 import com.zslab.mall.seller.entity.Seller;
@@ -46,6 +47,7 @@ public class SellerProvisioningService {
     private final SellerUserRepository sellerUserRepository;
     private final RoleRepository roleRepository;
     private final UserRepository userRepository;
+    private final DemoAccountGuard demoAccountGuard;
     private final AuditRecorder auditRecorder;
 
     public SellerProvisioningService(
@@ -53,11 +55,13 @@ public class SellerProvisioningService {
             SellerUserRepository sellerUserRepository,
             RoleRepository roleRepository,
             UserRepository userRepository,
+            DemoAccountGuard demoAccountGuard,
             AuditRecorder auditRecorder) {
         this.sellerRepository = sellerRepository;
         this.sellerUserRepository = sellerUserRepository;
         this.roleRepository = roleRepository;
         this.userRepository = userRepository;
+        this.demoAccountGuard = demoAccountGuard;
         this.auditRecorder = auditRecorder;
     }
 
@@ -68,6 +72,7 @@ public class SellerProvisioningService {
      * @param request 입점 정보 요청
      * @param auditContext 감사 행위자 컨텍스트(운영자)
      * @throws UserNotFoundException ownerUserPublicId가 지정됐는데 해당 User가 없거나 soft-delete인 경우(404)
+     * @throws com.zslab.mall.common.exception.DemoAccountProtectedException owner가 데모 계정인 경우(403·seller INSERT 전·D-247)
      * @throws IllegalArgumentException 초기 status가 PENDING·ACTIVE가 아닌 경우(400)
      * @throws IllegalStateException SELLER_OWNER Role seed가 없는 경우(내부 오류·500)
      * @throws SellerBusinessNoDuplicateException businessNo가 이미 등록된 경우(409·SLR-1·Track 89-D)
@@ -76,11 +81,15 @@ public class SellerProvisioningService {
     public SellerProvisioningResponse provision(SellerProvisioningRequest request, AuditContext auditContext) {
         // Track 89-D: 요청 식별자는 회원 public_id(usr_). 미존재·soft-delete(@SQLRestriction) 모두 404 USER_NOT_FOUND.
         // Track 89-G: owner는 선택(null → 구성원 없이 입점).
-        Long ownerUserId = request.ownerUserPublicId() == null ? null
+        User owner = request.ownerUserPublicId() == null ? null
                 : userRepository.findByPublicId(request.ownerUserPublicId())
-                        .map(User::getId)
                         .orElseThrow(() -> new UserNotFoundException(
                                 "판매자 owner로 지정한 User가 없습니다: userPublicId=" + request.ownerUserPublicId()));
+        // D-247: 보호 계정이 소속되면 제외·해지가 막혀(D-230) API로 되돌릴 수 없으므로 seller INSERT 전에 막는다.
+        if (owner != null) {
+            demoAccountGuard.requireNotProtected(owner);
+        }
+        Long ownerUserId = owner == null ? null : owner.getId();
 
         validateInitialStatus(request.status());
         // Track 89-D: 사업자번호 중복은 seller_user saveAndFlush에서 같은 DataIntegrityViolation으로 섞여 409

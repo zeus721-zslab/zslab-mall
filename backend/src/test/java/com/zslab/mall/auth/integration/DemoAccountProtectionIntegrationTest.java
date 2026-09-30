@@ -1,6 +1,9 @@
 package com.zslab.mall.auth.integration;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -10,6 +13,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.zslab.mall.common.security.AuthHeaders;
 import com.zslab.mall.notification.adapter.SmsSender;
 import com.zslab.mall.support.AbstractIntegrationTest;
+import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -30,14 +34,15 @@ import org.springframework.transaction.support.TransactionTemplate;
 /**
  * 데모 계정 보호 통합 테스트(D-230·실 MariaDB). 보호 대상 계정의 로그인을 깨뜨리는 조작 6경로(본인 비밀번호 변경·관리자 임시 비밀번호·
  * 본인 탈퇴·관리자 탈퇴·역할 회수·셀러 구성원 제외)가 인증된 요청자와 무관하게 403 DEMO_ACCOUNT_PROTECTED이고(구매자 경로 /users/me/**에
- * 셀러·관리자 쿠키로 오면 익명 401 · D-235 PR3), 회수할 수 없는 운영 관리자 부여도 같은 403이며(D-246), 보호 아닌 계정은 기존대로
+ * 셀러·관리자 쿠키로 오면 익명 401 · D-235 PR3), 회수할 수 없는 운영 관리자 부여도 같은 403이며(D-246), 제외·해지할 수 없는 셀러 소속 부착(구성원 추가 기존·신규
+ * 회원·입점 OWNER 지정)도 같은 403이고(D-247), 보호 아닌 계정은 기존대로
  * 동작하며, 보호 계정의 이름·연락처 수정은 허용되는지 HTTP 경유로 검증한다.
  *
  * <p>설정값은 대소문자·앞뒤 공백·빈 항목을 섞고, 구매자 데모 계정은 설정과 대소문자가 다른 이메일로 시드해 모든 경로에서 대소문자 무시를
  * 함께 확인한다. 설정이 비면 보호 없음은 DemoAccountGuardTest가 맡는다(기본 테스트 컨텍스트도 빈 값이라 다른 통합 테스트가 방증).
  */
 @AutoConfigureMockMvc
-@TestPropertySource(properties = "zslab.demo.protected-emails=demo-admin@zslab.test, Demo-Buyer@zslab.test ,demo-seller@ZSLAB.test,,")
+@TestPropertySource(properties = "zslab.demo.protected-emails=demo-admin@zslab.test, Demo-Buyer@zslab.test ,demo-seller@ZSLAB.test,,demo-unseeded@zslab.test")
 class DemoAccountProtectionIntegrationTest extends AbstractIntegrationTest {
 
     private static final String PROTECTED_CODE = "DEMO_ACCOUNT_PROTECTED";
@@ -66,6 +71,8 @@ class DemoAccountProtectionIntegrationTest extends AbstractIntegrationTest {
     private static final String SELLER_PID = pid("slr_", "D230SLR");
     private static final String NORMAL_SELLER_PID = pid("slr_", "D230NSLR");
     private static final String NORMAL_OWNER_PID = pid("usr_", "D230NOWN");
+    private static final String UNSEEDED_PROTECTED_EMAIL = "demo-unseeded@zslab.test"; // 보호 목록에만 있고 DB 계정 없음(D-247)
+    private static final String PROVISION_COMPANY_NAME = "D247보호입점";
 
     @Autowired
     private MockMvc mockMvc;
@@ -184,6 +191,45 @@ class DemoAccountProtectionIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("셀러 구성원 추가·기존 회원(D-247): 구매자·관리자 데모 → 403(셀러 소속 0·셀러 감사 0)")
+    void sellerMemberAdd_existingProtectedUser() throws Exception {
+        for (String protectedPublicId : List.of(DEMO_BUYER_PID, ADMIN_DEMO_PID)) {
+            expectProtected(mockMvc.perform(post("/api/v1/admin/sellers/" + NORMAL_SELLER_PID + "/members")
+                    .with(authHeaders.admin(ADMIN_CALLER)).contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"userPublicId\":\"" + protectedPublicId + "\",\"role\":\"SELLER_STAFF\"}")));
+        }
+        assertThat(anySellerMembershipCount(DEMO_BUYER)).isZero();
+        assertThat(anySellerMembershipCount(ADMIN_DEMO)).isZero();
+        assertThat(sellerCreateAuditCount(NORMAL_SELLER_ID)).isZero();
+    }
+
+    @Test
+    @DisplayName("셀러 구성원 추가·신규 회원(D-247): 보호 목록에 있고 DB에 없는 이메일(대소문자 다름) → 403(회원 생성 0·셀러 감사 0·SMS 0)")
+    void sellerMemberAdd_newUserWithProtectedEmail() throws Exception {
+        expectProtected(mockMvc.perform(post("/api/v1/admin/sellers/" + NORMAL_SELLER_PID + "/members")
+                .with(authHeaders.admin(ADMIN_CALLER)).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"newUser\":{\"email\":\"Demo-Unseeded@ZSLAB.test\",\"name\":\"보호신규\",\"phone\":\"010-3333-4444\"},"
+                        + "\"role\":\"SELLER_STAFF\"}")));
+        assertThat(userCountByEmail(UNSEEDED_PROTECTED_EMAIL)).isZero();
+        assertThat(sellerCreateAuditCount(NORMAL_SELLER_ID)).isZero();
+        verify(smsSender, never()).send(anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("입점 OWNER 지정(D-247): 구매자·관리자 데모 → 403(셀러 행 생성 0·셀러 소속 0)")
+    void sellerProvision_protectedOwner() throws Exception {
+        for (String protectedPublicId : List.of(DEMO_BUYER_PID, ADMIN_DEMO_PID)) {
+            expectProtected(mockMvc.perform(post("/api/v1/admin/sellers").with(authHeaders.admin(ADMIN_CALLER))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"companyName\":\"" + PROVISION_COMPANY_NAME + "\",\"ceoName\":\"대표\",\"status\":\"ACTIVE\","
+                            + "\"ownerUserPublicId\":\"" + protectedPublicId + "\"}")));
+        }
+        assertThat(sellerCountByCompanyName(PROVISION_COMPANY_NAME)).isZero();
+        assertThat(anySellerMembershipCount(DEMO_BUYER)).isZero();
+        assertThat(anySellerMembershipCount(ADMIN_DEMO)).isZero();
+    }
+
+    @Test
     @DisplayName("셀러 구성원 제외: 데모 셀러(OWNER) → 403(소속 유지) / 보호 아닌 STAFF → 204")
     void sellerMemberRemove() throws Exception {
         expectProtected(mockMvc.perform(delete("/api/v1/admin/sellers/" + SELLER_PID + "/members/" + DEMO_SELLER_PID)
@@ -282,6 +328,27 @@ class DemoAccountProtectionIntegrationTest extends AbstractIntegrationTest {
         return count == null ? 0 : count;
     }
 
+    private int anySellerMembershipCount(long userId) {
+        Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM seller_user WHERE user_id = ?", Integer.class, userId);
+        return count == null ? 0 : count;
+    }
+
+    private int sellerCreateAuditCount(long sellerId) {
+        Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM audit_log WHERE action = 'CREATE' AND target_type = 'SELLER' "
+                + "AND target_id = ?", Integer.class, sellerId);
+        return count == null ? 0 : count;
+    }
+
+    private int userCountByEmail(String email) {
+        Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM `user` WHERE email = ?", Integer.class, email);
+        return count == null ? 0 : count;
+    }
+
+    private int sellerCountByCompanyName(String companyName) {
+        Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM seller WHERE company_name = ?", Integer.class, companyName);
+        return count == null ? 0 : count;
+    }
+
     private static String statusBody(String status) {
         return "{\"status\":\"" + status + "\",\"reason\":\"D-230 데모 셀러 해지 보호 검증\"}";
     }
@@ -355,13 +422,19 @@ class DemoAccountProtectionIntegrationTest extends AbstractIntegrationTest {
         tx.executeWithoutResult(status -> {
             try {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
-                for (long sellerId : List.of(SELLER_ID, NORMAL_SELLER_ID)) {
+                // 가드가 없을 때(RED) 생성될 수 있는 입점 셀러·신규 회원도 정리해 다음 실행을 오염시키지 않는다(D-247).
+                List<Long> sellerIds = new ArrayList<>(List.of(SELLER_ID, NORMAL_SELLER_ID));
+                sellerIds.addAll(jdbc.queryForList("SELECT id FROM seller WHERE company_name = ?", Long.class, PROVISION_COMPANY_NAME));
+                for (long sellerId : sellerIds) {
                     jdbc.update("DELETE FROM audit_log WHERE target_type = 'SELLER' AND target_id = ?", sellerId);
                     jdbc.update("DELETE FROM withdrawn_seller WHERE original_seller_id = ?", sellerId);
                     jdbc.update("DELETE FROM seller_user WHERE seller_id = ?", sellerId);
                     jdbc.update("DELETE FROM seller WHERE id = ?", sellerId);
                 }
-                for (long id : List.of(DEMO_BUYER, DEMO_SELLER, NORMAL_BUYER, NORMAL_STAFF, ADMIN_CALLER, ADMIN_DEMO, NORMAL_OWNER)) {
+                List<Long> userIds = new ArrayList<>(
+                        List.of(DEMO_BUYER, DEMO_SELLER, NORMAL_BUYER, NORMAL_STAFF, ADMIN_CALLER, ADMIN_DEMO, NORMAL_OWNER));
+                userIds.addAll(jdbc.queryForList("SELECT id FROM `user` WHERE email = ?", Long.class, UNSEEDED_PROTECTED_EMAIL));
+                for (long id : userIds) {
                     jdbc.update("DELETE FROM audit_log WHERE target_type = 'USER' AND target_id = ?", id);
                     jdbc.update("DELETE FROM notification_log WHERE target_type = 'USER' AND target_id = ?", id);
                     jdbc.update("DELETE FROM buyer_profile WHERE user_id = ?", id);
