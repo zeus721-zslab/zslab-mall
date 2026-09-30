@@ -44,6 +44,7 @@ class AuditFieldMaskingPolicyTest {
      * paymentStatus — 감사 diff가 아니라 같은 파일(RefundService)의 불일치 세부 키를 스캐너가 함께 잡은 것이다. 민감정보 없음(상태·금액·
      * PG 실패 사유 문구)이라 평문 목록에 둔다.
      * Track 104-3b +1 = 69개: carryoverAmount(정산 감사 금액 스냅샷의 이월 차감 합·금액이라 평문).
+     * Track 106-3 +4 = 73개: answer·category·question·visible(관리자 FAQ 수정·삭제 스냅샷 · 운영자가 쓴 공개 안내문이라 평문).
      */
     private static final Set<String> RECORDED_AUDIT_FIELDS = Set.of(
             "accountHolder", "accountNumber", "accountNumberSuffix", "bankCode",
@@ -64,10 +65,11 @@ class AuditFieldMaskingPolicyTest {
             "withdrawnAt",
             "callbackStatus", "claimStatus", "claimType", "completedTotalAfter",
             "failureReason", "paymentAmount", "paymentStatus",
-            "carryoverAmount");
+            "carryoverAmount",
+            "answer", "category", "question", "visible");
 
     /**
-     * 위 집합 중 {@link Masker}가 실제로 가리는 필드(2026-09-23 실측 2개). 나머지 67개는 평문으로 적재된다 —
+     * 위 집합 중 {@link Masker}가 실제로 가리는 필드(2026-09-23 실측 2개). 나머지 71개는 평문으로 적재된다 —
      * 상태·사유·수량·금액처럼 운영자가 추적하려고 남기는 값이라 가리면 감사가 쓸모없어진다.
      * {@code accountNumberSuffix}는 뒷자리만 담는 별도 필드라 의도적으로 가리지 않는다(정책 목록에 없음).
      */

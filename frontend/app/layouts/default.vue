@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { LayoutShellVm } from '~/skins/contracts/layout'
+import FaqAssistant from '~/components/faq/FaqAssistant.vue'
 
 // 구매자 기본 레이아웃. 마크업은 현재 스킨의 LayoutShell 뷰가 담당한다(FE-67). data-skin은 스킨별 CSS 범위 지정용.
 const skinName = useSkinName()
@@ -31,7 +32,14 @@ const shellVm = useSkinNeeds('layoutHeader') ? createShellVm() : undefined
 </script>
 
 <template>
-  <component :is="useSkinView('LayoutShell')" :vm="shellVm">
-    <slot />
-  </component>
+  <!-- display: contents — 채팅 도우미를 셸 밖 형제로 붙이기 위한 단일 루트(레이아웃 박스는 만들지 않는다). -->
+  <div class="contents">
+    <component :is="useSkinView('LayoutShell')" :vm="shellVm">
+      <slot />
+    </component>
+    <!-- 채팅 도우미(Track 106-3): 스킨과 무관하게 구매자 화면에만 붙인다. 대화 복원이 브라우저 저장소를 쓰므로 SSR에서는 그리지 않는다. -->
+    <ClientOnly>
+      <FaqAssistant />
+    </ClientOnly>
+  </div>
 </template>

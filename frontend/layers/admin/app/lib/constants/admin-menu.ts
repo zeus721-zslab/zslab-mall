@@ -1,5 +1,5 @@
 /**
- * 관리자 사이드바 메뉴 단일 소스(FE-22). 순서는 확정 사양 고정(대시보드 → 회원 → 주문 → 상품 → 정산 → 통계).
+ * 관리자 사이드바 메뉴 단일 소스(FE-22). 순서는 확정 사양 고정(대시보드 → 회원 → 주문 → 상품 → 고객센터(Track 106-3) → 정산 → 통계).
  * 각 항목의 경로는 pages/admin/** 파일과 1:1이며, BE 조회 API가 아직 없는 화면은 공통 "준비 중" 플레이스홀더다.
  */
 export interface AdminMenuItem {
@@ -43,6 +43,10 @@ export const ADMIN_MENU: AdminMenuGroup[] = [
       { to: '/admin/products/reviews', label: '리뷰' },
       { to: '/admin/products/questions', label: '상품 질문' },
     ],
+  },
+  {
+    label: '고객센터',
+    children: [{ to: '/admin/faqs', label: 'FAQ 관리' }],
   },
   {
     label: '정산 관리',

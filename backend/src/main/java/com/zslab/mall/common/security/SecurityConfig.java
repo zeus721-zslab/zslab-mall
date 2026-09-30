@@ -79,6 +79,9 @@ public class SecurityConfig {
                         // 공개 카테고리 목록(Track 72)은 공개 taxonomy 조회이므로 GET 단일 경로만 permitAll
                         .requestMatchers(HttpMethod.GET, "/api/v1/categories")
                         .permitAll()
+                        // 구매자 채팅 도우미 FAQ(Track 106-3)는 비로그인 열람이므로 목록·즉시 답 두 경로만 정확 매칭 GET permitAll(와일드카드 없음)
+                        .requestMatchers(HttpMethod.GET, "/api/v1/faqs", "/api/v1/faqs/suggest")
+                        .permitAll()
                         // 클레임 첨부 서빙(Track 82 D-176)은 구매자 경로다(D-235 PR3 K5) — 아래 GET /api/v1/files/** permitAll보다 앞에 둬 익명은
                         // 401. 셀러·관리자는 역할 별칭(/api/v1/{seller|admin}/files/claims/**)을 쓰고, 열람 권한 없음·미존재는 컨트롤러가 404로 통일한다.
                         .requestMatchers(CLAIM_ATTACHMENT_SERVING_MATCHER)

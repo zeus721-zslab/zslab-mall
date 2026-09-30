@@ -34,5 +34,7 @@ public enum PolymorphicTargetType {
     /** 상품 리뷰(Track 106-1·리뷰 사진 첨부 대상·관리자 숨김 감사 대상). */
     REVIEW,
     /** 상품 질문(Track 106-2·관리자 숨김 감사 대상). */
-    PRODUCT_QUESTION
+    PRODUCT_QUESTION,
+    /** 구매자 채팅 도우미 FAQ(Track 106-3·관리자 수정·삭제 감사 대상). */
+    FAQ
 }
