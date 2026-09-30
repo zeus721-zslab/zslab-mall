@@ -3,7 +3,9 @@
 
 단계: master(카테고리·셀러·계좌·구매자·상품·이미지) → orders(3~8월 주문·클레임·9월 진행분)
      → timeshift(시각 보정 SQL·order_no) → settlement(정산 생성·확정·지급·paid_at 보정)
-     → reviews(카테고리 키워드·리뷰·사진·도움됐어요·작성 시각 보정) → verify(검증)
+     → reviews(카테고리 키워드·리뷰·사진·도움됐어요·작성 시각 보정)
+     → delivered(배송완료 대기 품목) → inquiries(1:1 문의) → qna(상품 Q&A) → verify(검증)
+     106 데이터 단계(delivered·inquiries·qna · D-243)는 조건 충족형이라 반복 실행하면 부족한 조건만 만든다.
 
 접속 정보는 환경변수로만 받는다(README 참조). 재실행 가드는 데모 마커(이메일 도메인·variantCode prefix)로 판정하며
 --force 없이는 기존 데모 데이터 위에 진행하지 않는다.
@@ -23,9 +25,10 @@ import socket
 import string
 import sys
 import time
+import re
 import urllib.parse
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import pymysql
@@ -53,13 +56,18 @@ LOCAL_NETWORKS = (
     ipaddress.ip_network("192.168.0.0/16"),
     ipaddress.ip_network("fc00::/7"),  # IPv6 ULA(사설 대역 대응)
 )
+ALL_STEPS = ["master", "orders", "timeshift", "settlement", "reviews", "delivered", "inquiries", "qna", "verify"]
 # prod 허용 단계 목록(D-242): 운영은 추가분만 쓴다 — 기존 쓰기 단계는 전부 거부하고 새 단계는 목록에 넣을 때만 열린다.
 # settlement는 정산 생성 API가 전 셀러 대상이라 운영에서 비데모 셀러 정산까지 PENDING으로 만든다.
-PROD_ALLOWED_STEPS = ["verify"]
+# 106 데이터 단계(D-243)는 부족한 조건만 API로 추가하므로 허용한다.
+PROD_ALLOWED_STEPS = ["verify", "delivered", "inquiries", "qna"]
 ADMIN_ME_PATH = "/api/v1/admin/me"
 
 REQUIRED_ENV = ["API_BASE_URL", "ADMIN_EMAIL", "ADMIN_PASSWORD",
                 "DB_HOST", "DB_PORT", "DB_NAME", "DB_USER", "DB_PASSWORD"]
+# 106 데이터 단계 계정은 state가 아니라 env에서 받는다(운영에는 state가 없다 · D-243). buyer01 이메일은 코드 고정.
+STEP_REQUIRED_ENV = {"delivered": ["DEMO_BUYER_PASSWORD"], "inquiries": ["DEMO_BUYER_PASSWORD"],
+                     "qna": ["DEMO_BUYER_PASSWORD", "DEMO_SELLER_EMAIL", "DEMO_SELLER_PASSWORD"]}
 RETRY_MAX = 3
 RETRY_BASE_SECONDS = 1.0
 RETRY_STATUSES = {429, 500, 502, 503, 504}
@@ -105,6 +113,39 @@ REVIEW_PHOTO_SIZE = 480
 HELPFUL_VOTERS_MAX = 3
 REVIEW_DELAY_MAX_DAYS = 5  # 리뷰 작성 시각 = 구매확정 + 0~N일(실행 시각 이전)
 CATEGORY_KEYWORD_ORDER_BASE = 100  # 기본 세트(1~6) 뒤에 보이도록
+# 106 데이터 단계(D-243)
+DEMO_BUYER_EMAIL = f"buyer01@{DEMO_EMAIL_DOMAIN}"
+DELIVERED_SELLER_KEY = "fashion"  # delivered 주문 상품의 데모 셀러(seller02 · 데모 패션랩)
+RETURN_WINDOW_DAYS = 7  # 백엔드 ReturnWindowPolicy.WINDOW_DAYS와 같은 값(배송완료 후 자동 구매확정까지)
+# 백엔드는 KST로 시각을 저장한다(application.yml hibernate.jdbc.time_zone=Asia/Seoul). DB 컨테이너 NOW()는 UTC일 수 있어 쓰지 않는다.
+SERVER_ZONE = timezone(timedelta(hours=9))
+TRACKING_SEQUENCE_MODULUS = 100_000_000  # 송장 DEMO + 8자리(D-227 형식) — 기존 시드 송장(DEMO00001001~)과 겹치지 않게 시각 기반
+CATALOG_PAGE_SIZE = 50
+LIST_PAGE_SIZE = 50  # 문의·Q&A 목록 서버 최대 페이지 크기
+INQUIRY_CONDITIONS = ["answered_checked", "answered_unread", "unanswered", "order_attached"]
+INQUIRY_TEMPLATES = {
+    "answered_checked": ("DELIVERY", "주문한 상품은 보통 며칠 안에 받아볼 수 있나요? 평균 배송 기간이 궁금합니다.",
+                         "안녕하세요. 결제 후 영업일 기준 1~2일 안에 출고되고, 출고 후 보통 1~3일 안에 받아보실 수 있습니다."),
+    "answered_unread": ("ORDER_PAYMENT", "결제를 마친 주문의 결제 수단을 카드에서 계좌이체로 바꿀 수 있을까요?",
+                        "결제가 끝난 주문은 결제 수단을 바꿀 수 없습니다. 주문을 취소하신 뒤 원하시는 수단으로 다시 주문해 주세요."),
+    "unanswered": ("CLAIM", "받은 상품이 생각보다 작아서 교환하고 싶어요. 교환 신청은 어디에서 하면 되나요?", None),
+}
+QNA_CONDITIONS = ["multi_sentence_description", "answered", "unanswered", "hidden"]
+QNA_PRODUCT_NAME = "코튼 베이직 티셔츠"  # 데모 셀러(seller02) 상품 — 설명 갱신·질문 대상
+QNA_PRODUCT_DESCRIPTION = ("면 100% 원단으로 만든 기본 반팔 티셔츠입니다.\n"
+                           "두께는 중간 정도라 한 장으로 입거나 셔츠 안에 받쳐 입기 좋습니다.\n"
+                           "정사이즈로 나왔으며 여유 있게 입으시려면 한 치수 크게 고르시길 권합니다.\n"
+                           "찬물 단독 세탁을 권장하며 건조기를 쓰면 조금 줄어들 수 있습니다.")
+QNA_TEMPLATES = {
+    "answered": ("세탁기에 돌려도 줄어들지 않나요? 건조기도 써도 되는지 궁금합니다.",
+                 "찬물 단독 세탁을 권장드려요. 건조기를 쓰시면 조금 줄어들 수 있어 자연 건조를 추천드립니다."),
+    "unanswered": ("평소 95 사이즈를 입는데 어떤 사이즈를 고르면 좋을까요?", None),
+    # 숨김이 실패해 공개로 남아도 해가 없도록 상품과 무관한 잡담성 문구(광고·연락처·링크 없음)
+    "hidden": ("오늘 날씨가 정말 좋네요. 다들 좋은 하루 보내세요!", None),
+}
+QNA_HIDDEN_REASON = "상품과 무관한 내용"
+# 상품 설명 조각 분리 = 백엔드 KeywordMatcher(\R+|(?<=[.!?。])\s+)와 같은 규칙 — 조각 2개 이상이면 여러 문장 설명
+DESCRIPTION_SPLIT = re.compile(r"(?:\r\n|[\n\x0b\x0c\r\x85  ])+|(?<=[.!?。])\s+")
 
 log = logging.getLogger("demo-seed")
 
@@ -1091,7 +1132,7 @@ def verify_timeshift(conn) -> None:
         "refund.refunded_at ≥ claim.processed_at": ("SELECT COUNT(*) AS c FROM refund r JOIN claim c ON c.id=r.claim_id JOIN order_item oi ON oi.id=c.order_item_id "
                                                     "JOIN `order` o ON o.id=oi.order_id JOIN `user` u ON u.id=o.buyer_id "
                                                     "WHERE u.email LIKE %s AND r.status='COMPLETED' AND r.refunded_at < c.processed_at", (demo,)),
-        "미래 시각 없음": ("SELECT COUNT(*) AS c FROM `order` o JOIN `user` u ON u.id=o.buyer_id WHERE u.email LIKE %s AND o.ordered_at > NOW()", (demo,)),
+        "미래 시각 없음": ("SELECT COUNT(*) AS c FROM `order` o JOIN `user` u ON u.id=o.buyer_id WHERE u.email LIKE %s AND o.ordered_at > %s", (demo, server_now())),
     }
     failures = 0
     for name, (sql, params) in checks.items():
@@ -1316,9 +1357,201 @@ def step_reviews(api: ApiClient, conn, state: dict, rng: random.Random) -> None:
 
 
 # ---------------------------------------------------------------------------
+# STEP delivered · inquiries · qna (시더 PR2 · D-243)
+# 조건 충족형: 가드용 SELECT로 현재 상태를 읽어 부족한 조건만 API로 만든다(직접 쓰기 SQL 없음). 판정은 순수 함수로 분리한다.
+# ---------------------------------------------------------------------------
+def server_now() -> datetime:
+    return datetime.now(SERVER_ZONE).replace(tzinfo=None)
+
+
+def delivered_missing(rows: list[dict], now: datetime) -> bool:
+    """자동확정 창 안의 배송완료 품목(진행 중 클레임 없음)이 하나도 없으면 True.
+    rows: item_status · delivered_at · active_claim(REQUESTED·APPROVED 클레임 존재 여부)."""
+    return not any(row["item_status"] == "DELIVERED" and not row["active_claim"] and row["delivered_at"] is not None
+                   and now <= row["delivered_at"] + timedelta(days=RETURN_WINDOW_DAYS) for row in rows)
+
+
+def missing_inquiry_conditions(rows: list[dict]) -> list[str]:
+    """buyer01 문의(삭제 제외)에서 충족되지 않은 조건. rows: answered · checked · has_order."""
+    satisfied = {
+        "answered_checked": any(row["answered"] and row["checked"] for row in rows),
+        "answered_unread": any(row["answered"] and not row["checked"] for row in rows),
+        "unanswered": any(not row["answered"] for row in rows),
+        "order_attached": any(row["has_order"] for row in rows),
+    }
+    return [condition for condition in INQUIRY_CONDITIONS if not satisfied[condition]]
+
+
+def plan_inquiries(missing: list[str]) -> list[tuple[str, bool]]:
+    """부족 조건을 만들 문의 목록(종류, 주문 첨부). 주문 첨부가 부족하면 새로 만드는 첫 문의에 붙이고, 만들 문의가 없으면 미답변 1건을 첨부로 만든다."""
+    kinds = [condition for condition in INQUIRY_CONDITIONS if condition in missing and condition != "order_attached"]
+    attach = "order_attached" in missing
+    if attach and not kinds:
+        kinds = ["unanswered"]
+    return [(kind, attach and index == 0) for index, kind in enumerate(kinds)]
+
+
+def description_fragments(description: str | None) -> list[str]:
+    if not description:
+        return []
+    return [fragment.strip() for fragment in DESCRIPTION_SPLIT.split(description) if fragment.strip()]
+
+
+def missing_qna_conditions(questions: list[dict], descriptions: list[str | None]) -> list[str]:
+    """데모 셀러 상품 기준으로 충족되지 않은 조건. questions: status(VISIBLE·HIDDEN) · answered(삭제 제외)."""
+    satisfied = {
+        "multi_sentence_description": any(len(description_fragments(description)) >= 2 for description in descriptions),
+        "answered": any(question["status"] == "VISIBLE" and question["answered"] for question in questions),
+        "unanswered": any(question["status"] == "VISIBLE" and not question["answered"] for question in questions),
+        "hidden": any(question["status"] == "HIDDEN" for question in questions),
+    }
+    return [condition for condition in QNA_CONDITIONS if not satisfied[condition]]
+
+
+# 가드 판정용 SELECT(쓰기 없음). 모든 변수는 %s 바인딩 사용, SQL injection 위험 없음
+DELIVERED_ROWS_SQL = (
+    "SELECT oi.item_status, d.delivered_at, "
+    "EXISTS(SELECT 1 FROM claim c WHERE c.order_item_id = oi.id AND c.status IN ('REQUESTED', 'APPROVED')) AS active_claim "
+    "FROM order_item oi JOIN `order` o ON o.id = oi.order_id JOIN `user` u ON u.id = o.buyer_id "
+    "JOIN delivery d ON d.order_item_id = oi.id AND d.direction = 'OUTBOUND' AND d.claim_id IS NULL AND d.status = 'DELIVERED' "
+    "WHERE u.email = %s")
+INQUIRY_ROWS_SQL = (
+    "SELECT i.answered_at IS NOT NULL AS answered, i.answer_checked_at IS NOT NULL AS checked, i.order_id IS NOT NULL AS has_order "
+    "FROM inquiry i JOIN `user` u ON u.id = i.buyer_id WHERE u.email = %s AND i.deleted_at IS NULL")
+# 셀러 조회는 데모 상호로 한정한다 — DEMO_SELLER_EMAIL이 비데모 셀러를 가리키면 대상 상품 0건으로 중단(설명 덮어쓰기 방지)
+SELLER_PRODUCT_ROWS_SQL = (
+    "SELECT p.public_id, p.name, p.description FROM product p JOIN seller sl ON sl.id = p.seller_id "
+    "JOIN seller_user su ON su.seller_id = p.seller_id JOIN `user` u ON u.id = su.user_id "
+    "WHERE u.email = %s AND sl.company_name LIKE %s AND p.deleted_at IS NULL")
+SELLER_QUESTION_ROWS_SQL = (
+    "SELECT q.status, q.answered_at IS NOT NULL AS answered FROM product_question q JOIN product p ON p.id = q.product_id "
+    "JOIN seller sl ON sl.id = p.seller_id JOIN seller_user su ON su.seller_id = p.seller_id JOIN `user` u ON u.id = su.user_id "
+    "WHERE u.email = %s AND sl.company_name LIKE %s AND q.deleted_at IS NULL AND p.deleted_at IS NULL")
+
+
+def demo_seller_product(api: ApiClient, seller_key: str) -> dict:
+    """공개 카탈로그에서 데모 셀러의 구매 가능한 상품 1개(state 없이 · OrderRunner 입력 형태)."""
+    company = next(seller["companyName"] for seller in SELLERS if seller["key"] == seller_key)
+    probe = next(name for _, key, name, _, _ in PRODUCTS if key == seller_key)
+    found = api.json("GET", "/api/v1/products", params={"keyword": probe, "size": CATALOG_PAGE_SIZE})["items"]
+    seller_public_id = next((item["sellerPublicId"] for item in found if item["sellerName"] == company), None)
+    if seller_public_id is None:
+        raise SeedError(f"공개 카탈로그에서 데모 셀러({company}) 상품을 찾지 못했습니다 — master 시드 여부 확인")
+    items = api.json("GET", "/api/v1/products", params={"sellerPublicId": seller_public_id, "size": CATALOG_PAGE_SIZE})["items"]
+    for item in items:
+        if item["soldOut"]:
+            continue
+        detail = api.json("GET", f"/api/v1/products/{item['productPublicId']}")
+        variant = next((variant for variant in detail["variants"] if not variant["soldOut"]), None)
+        if variant is not None:
+            return {"publicId": item["productPublicId"], "name": item["name"], "variantPublicIds": [variant["variantPublicId"]]}
+    raise SeedError(f"데모 셀러({company})에 구매 가능한 상품이 없습니다")
+
+
+def buyer01_login(api: ApiClient) -> Credential:
+    return api.login(DEMO_BUYER_EMAIL, env("DEMO_BUYER_PASSWORD"), "BUYER")
+
+
+def step_delivered(api: ApiClient, conn, admin_token: Credential, rng: random.Random) -> None:
+    """buyer01에게 자동확정 창 안의 배송완료 품목이 없으면 새 주문 1건을 배송완료까지 만든다(서버 now 그대로 · timeshift 없음)."""
+    if not delivered_missing(query_all(conn, DELIVERED_ROWS_SQL, (DEMO_BUYER_EMAIL,)), server_now()):
+        log.info("[delivered] 자동확정 창 안의 배송완료 품목이 이미 있어 건너뜁니다")
+        return
+    product = demo_seller_product(api, DELIVERED_SELLER_KEY)
+    buyer = {"email": DEMO_BUYER_EMAIL, "password": env("DEMO_BUYER_PASSWORD"), "name": BUYER_NAMES[0], "address": ADDRESSES[0]}
+    # OrderRunner는 state 형태(buyers·products)만 요구한다 — 메모리 안에서만 쓰고 저장하지 않는다(비밀번호 state 미기록)
+    runner = OrderRunner(api, conn, {"buyers": [buyer], "products": [product]}, admin_token, rng)
+    runner.tracking_seq = int(time.time()) % TRACKING_SEQUENCE_MODULUS
+    now = server_now()
+    record = runner.run(OrderPlan(now.month, now.day, now.hour, now.minute, 0, [0], "DELIVERED"))
+    log.info("[delivered] 배송완료 주문 1건 생성: %s (%s)", record["orderId"], product["name"])
+
+
+def step_inquiries(api: ApiClient, conn, admin_token: Credential) -> None:
+    """buyer01 문의에서 ①답변+확인 ②답변+미확인 ③미답변 ④주문 첨부 중 부족한 조건만 만든다."""
+    missing = missing_inquiry_conditions(query_all(conn, INQUIRY_ROWS_SQL, (DEMO_BUYER_EMAIL,)))
+    if not missing:
+        log.info("[inquiries] 문의 조건 4종이 이미 충족돼 건너뜁니다")
+        return
+    token = buyer01_login(api)
+    plans = plan_inquiries(missing)
+    order_id = None
+    if any(attach for _, attach in plans):
+        orders = api.json("GET", "/api/v1/orders?page=0&size=1", token)["items"]
+        if not orders:
+            raise SeedError("buyer01 주문이 없어 주문 첨부 문의를 만들 수 없습니다 — delivered 단계 먼저 실행")
+        order_id = orders[0]["orderId"]
+    for kind, attach in plans:
+        category, content, answer = INQUIRY_TEMPLATES[kind]
+        body = {"category": category, "content": content}
+        if attach:
+            body["orderId"] = order_id
+        inquiry_id = api.json("POST", "/api/v1/inquiries", token, json=body)["inquiryId"]
+        if answer is not None:
+            api.json("PUT", f"/api/v1/admin/inquiries/{inquiry_id}/answer", admin_token, expect=(204,), json={"content": answer})
+        if kind == "answered_checked":
+            api.json("PUT", f"/api/v1/inquiries/{inquiry_id}/answer-check", token, expect=(204,))
+    log.info("[inquiries] 부족 조건 %s → 문의 %d건 생성", missing, len(plans))
+
+
+def step_qna(api: ApiClient, conn, admin_token: Credential) -> None:
+    """데모 셀러 상품 기준 ①답변됨 ②미답변 ③숨김 ④여러 문장 설명 상품 중 부족한 조건만 만든다(질문 buyer01 · 답변 셀러 · 숨김 관리자)."""
+    seller_email = env("DEMO_SELLER_EMAIL")
+    seller_params = (seller_email, f"{DEMO_SELLER_PREFIX}%")
+    products = query_all(conn, SELLER_PRODUCT_ROWS_SQL, seller_params)
+    questions = query_all(conn, SELLER_QUESTION_ROWS_SQL, seller_params)
+    missing = missing_qna_conditions(questions, [product["description"] for product in products])
+    if not missing:
+        log.info("[qna] Q&A 조건 4종이 이미 충족돼 건너뜁니다")
+        return
+    target = next((product for product in products if product["name"] == QNA_PRODUCT_NAME), None)
+    if target is None:
+        raise SeedError(f"데모 셀러({seller_email})에 대상 상품 '{QNA_PRODUCT_NAME}'이 없습니다")
+    product_id = target["public_id"]
+    seller_token = api.login(seller_email, env("DEMO_SELLER_PASSWORD"), "SELLER")
+    if "multi_sentence_description" in missing:
+        # 셀러 기본정보 수정은 4필드 전체 치환 — 현재 값을 읽어 설명만 바꾼다(상태·variant·재고·이미지 무변경)
+        current = api.json("GET", f"/api/v1/seller/products/{product_id}", seller_token)
+        api.json("PUT", f"/api/v1/seller/products/{product_id}", seller_token, json={
+            "categoryId": current["categoryId"], "name": current["name"], "description": QNA_PRODUCT_DESCRIPTION,
+            "basePrice": current["basePrice"]})
+    question_kinds = [condition for condition in missing if condition in QNA_TEMPLATES]
+    buyer_token = buyer01_login(api) if question_kinds else None
+    for kind in question_kinds:
+        content, answer = QNA_TEMPLATES[kind]
+        question_id = api.json("POST", "/api/v1/product-questions", buyer_token,
+                               json={"productId": product_id, "content": content})["questionId"]
+        if answer is not None:
+            api.json("PUT", f"/api/v1/seller/product-questions/{question_id}/answer", seller_token, expect=(204,),
+                     json={"content": answer})
+        if kind == "hidden":
+            api.json("PATCH", f"/api/v1/admin/product-questions/{question_id}/status", admin_token, expect=(204,),
+                     json={"status": "HIDDEN", "reason": QNA_HIDDEN_REASON})
+    log.info("[qna] 부족 조건 %s → 설명 갱신 %s · 질문 %d건 생성", missing, "multi_sentence_description" in missing, len(question_kinds))
+
+
+def log_demo_data_status(conn) -> None:
+    """106 데이터 충족 여부 출력(D2·R1·R2) — 판정만 하고 exit code에는 반영하지 않는다."""
+    d2 = not delivered_missing(query_all(conn, DELIVERED_ROWS_SQL, (DEMO_BUYER_EMAIL,)), server_now())
+    log.info("[106] D2 배송완료 대기 품목(자동확정 창 안): %s", "충족" if d2 else "부족")
+    r1 = missing_inquiry_conditions(query_all(conn, INQUIRY_ROWS_SQL, (DEMO_BUYER_EMAIL,)))
+    log.info("[106] R1 1:1 문의: %s", "충족" if not r1 else f"부족 {r1}")
+    seller_email = os.environ.get("DEMO_SELLER_EMAIL")
+    if not seller_email:
+        log.info("[106] R2 상품 Q&A: 미판정(DEMO_SELLER_EMAIL 미설정)")
+        return
+    seller_params = (seller_email, f"{DEMO_SELLER_PREFIX}%")
+    products = query_all(conn, SELLER_PRODUCT_ROWS_SQL, seller_params)
+    r2 = missing_qna_conditions(query_all(conn, SELLER_QUESTION_ROWS_SQL, seller_params),
+                                [product["description"] for product in products])
+    log.info("[106] R2 상품 Q&A: %s", "충족" if not r2 else f"부족 {r2}")
+
+
+# ---------------------------------------------------------------------------
 # STEP verify
 # ---------------------------------------------------------------------------
 def step_verify(conn, state: dict) -> None:
+    log_demo_data_status(conn)  # 106 데이터 충족 여부는 출력만(아래 기존 검증이 실패해도 먼저 보이도록 앞에 둔다)
     demo_seller = f"{DEMO_SELLER_PREFIX}%"
     rows = query_all(conn, """
         SELECT s.id, sl.company_name, DATE_FORMAT(s.period_start, '%%Y-%%m') AS ym, s.status, s.gross_amount, s.fee_amount,
@@ -1375,6 +1608,8 @@ def print_dry_run(state: dict) -> None:
              "/admin/settlements(+confirm/pay) · /admin/sellers/{slr}/bank-accounts(Track 89-F) · "
              "/reviews/attachments(1장씩)·/reviews·/reviews/{rvw}/helpful(Track 106-1) · "
              "SQL: 시각 UPDATE · settlement.paid_at UPDATE · review_keyword INSERT(카테고리 세트) · review.created_at UPDATE")
+    log.info("[dry-run] 106 데이터(D-243 · 부족분만): delivered(주문→배송완료) · inquiries(/inquiries·관리자 answer·answer-check) · "
+             "qna(셀러 설명 갱신 PUT /seller/products·/product-questions·셀러 answer·관리자 숨김 PATCH) · SQL: 가드 판정 SELECT만")
     log.info("[dry-run] state 파일: %s (존재: %s · 대상 %s)", active_state_path, active_state_path.exists(), state.get("target"))
 
 
@@ -1382,7 +1617,7 @@ def main() -> int:
     global active_state_path
     parser = argparse.ArgumentParser(description="zslab-mall 데모 시드")
     parser.add_argument("--target", choices=TARGETS, required=True, help="실행 대상(기본값 없음 · D-242)")
-    parser.add_argument("--step", choices=["master", "orders", "timeshift", "settlement", "reviews", "verify", "all"], default="all")
+    parser.add_argument("--step", choices=ALL_STEPS + ["all"], default="all")
     parser.add_argument("--dry-run", action="store_true", help="쓰기 없이 대상 가드·교차 검증 후 계획만 출력")
     parser.add_argument("--force", action="store_true", help="재실행 가드 무시(prod 금지)")
     parser.add_argument("--seed", type=int, default=20260918, help="난수 시드(재현용)")
@@ -1390,13 +1625,14 @@ def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8")  # Windows 콘솔(cp949) 한글 로그 깨짐 방지
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", stream=sys.stdout)
 
-    # dry-run도 교차 검증(읽기)을 하므로 env 전부 필요
-    missing = [name for name in REQUIRED_ENV if not os.environ.get(name)]
+    steps = list(ALL_STEPS) if args.step == "all" else [args.step]
+    # dry-run도 교차 검증(읽기)을 하므로 env 전부 필요 · 106 데이터 단계는 계정 env 추가
+    step_env = [name for step in steps for name in STEP_REQUIRED_ENV.get(step, [])]
+    missing = [name for name in dict.fromkeys(REQUIRED_ENV + step_env) if not os.environ.get(name)]
     if missing:
         log.error("환경변수 미설정: %s", ", ".join(missing))
         return 2
 
-    steps = ["master", "orders", "timeshift", "settlement", "reviews", "verify"] if args.step == "all" else [args.step]
     try:
         reject_legacy_state()
         api_host = api_host_of(env("API_BASE_URL"))
@@ -1424,7 +1660,7 @@ def main() -> int:
         for step in steps:
             if step != "verify":
                 guard(step, conn, state, args.force)
-            if step in ("master", "orders", "settlement"):
+            if step in ("master", "orders", "settlement", "delivered", "inquiries", "qna"):
                 admin_token = api.login(env("ADMIN_EMAIL"), env("ADMIN_PASSWORD"), "ADMIN")  # JWT 1시간 → 단계마다 재발급
             with StepTimer(step):
                 if step == "master":
@@ -1437,6 +1673,12 @@ def main() -> int:
                     step_settlement(api, conn, state, admin_token, rng)
                 elif step == "reviews":
                     step_reviews(api, conn, state, rng)
+                elif step == "delivered":
+                    step_delivered(api, conn, admin_token, rng)
+                elif step == "inquiries":
+                    step_inquiries(api, conn, admin_token)
+                elif step == "qna":
+                    step_qna(api, conn, admin_token)
                 elif step == "verify":
                     step_verify(conn, state)
     except SeedError as error:

@@ -22,13 +22,16 @@ import seed
 PROD_DOMAIN = "zslab-mall.duckdns.org"
 ADMIN_EMAIL = "admin@example.com"
 ADMIN_PUBLIC_ID = "usr_admin"
-STEP_FUNCTIONS = ["step_master", "step_orders", "step_timeshift", "step_settlement", "step_reviews", "step_verify"]
+STEP_FUNCTIONS = ["step_master", "step_orders", "step_timeshift", "step_settlement", "step_reviews",
+                  "step_delivered", "step_inquiries", "step_qna", "step_verify"]
 WRITE_SQL_PREFIXES = ("INSERT", "UPDATE", "DELETE", "REPLACE", "TRUNCATE", "DROP", "ALTER", "CREATE")
 
 
 def base_env(api_host: str, db_host: str = "127.0.0.1", db_name: str = "zslab_mall") -> dict:
+    # 106 데이터 단계 계정 env 포함(--step all·dry-run 기본 all이 요구 · D-243)
     return {"API_BASE_URL": f"https://{api_host}", "ADMIN_EMAIL": ADMIN_EMAIL, "ADMIN_PASSWORD": "pw",
-            "DB_HOST": db_host, "DB_PORT": "3306", "DB_NAME": db_name, "DB_USER": "user", "DB_PASSWORD": "pw"}
+            "DB_HOST": db_host, "DB_PORT": "3306", "DB_NAME": db_name, "DB_USER": "user", "DB_PASSWORD": "pw",
+            "DEMO_BUYER_PASSWORD": "pw", "DEMO_SELLER_EMAIL": "seller@example.com", "DEMO_SELLER_PASSWORD": "pw"}
 
 
 class FakeResolver:
@@ -276,6 +279,29 @@ class TargetGuardTest(unittest.TestCase):
         self.assertEqual(0, code)
         self.assertTrue(step_mocks["step_verify"].called)
         self.assertNotIn("prod 허용 단계", logs)
+
+    def test_prod_allows_106_data_steps(self):
+        # 106 데이터 단계(D-243)는 부족분만 API로 추가하므로 prod 허용 목록에 있다
+        for step in ["delivered", "inquiries", "qna"]:
+            with self.subTest(step=step):
+                code, step_mocks, logs = self.run_seed(["--target", "prod", "--step", step], base_env(PROD_DOMAIN), self.PROD_DNS,
+                                                       typed=PROD_DOMAIN)
+                self.assertEqual(0, code)
+                self.assertTrue(step_mocks[f"step_{step}"].called)
+                self.assertNotIn("prod 허용 단계", logs)
+
+    def test_qna_requires_seller_env(self):
+        env = {key: value for key, value in base_env(PROD_DOMAIN).items() if key != "DEMO_SELLER_PASSWORD"}
+        code, step_mocks, logs = self.run_seed(["--target", "local", "--step", "qna"], env, self.LOCAL_DNS)
+        self.assertEqual(2, code)
+        self.assertIn("DEMO_SELLER_PASSWORD", logs)
+        self.assert_no_write(step_mocks)
+
+    def test_inquiries_does_not_require_seller_env(self):
+        env = {key: value for key, value in base_env(PROD_DOMAIN).items() if not key.startswith("DEMO_SELLER_")}
+        code, step_mocks, _ = self.run_seed(["--target", "local", "--step", "inquiries"], env, self.LOCAL_DNS)
+        self.assertEqual(0, code)
+        self.assertTrue(step_mocks["step_inquiries"].called)
 
     def test_prod_rejects_plain_http(self):
         env = {**base_env(PROD_DOMAIN), "API_BASE_URL": f"http://{PROD_DOMAIN}"}
