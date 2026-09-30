@@ -15,7 +15,8 @@ python -m pip install -r scripts/demo-seed/requirements.txt
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | SUPER_ADMIN 로그인 자격 |
 | `DB_HOST` / `DB_PORT` / `DB_NAME` / `DB_USER` / `DB_PASSWORD` | MariaDB 접속(운영은 SSH 터널 경유) |
 | `API_TLS_VERIFY` | 선택. `false`면 TLS 검증 생략(로컬 자체 서명 인증서 전용 · `--target prod`면 거부) |
-| `DEMO_BUYER_PASSWORD` | 공개 데모 구매자 `buyer01@demo.zslab-mall.com` 비밀번호. master는 선택(미지정 시 랜덤·state 파일 기록) · delivered·inquiries·qna(`all` 포함)는 필수 |
+| `DEMO_BUYER_EMAIL` | 공개 데모 구매자(프론트 데모 버튼 계정) = `.env`의 `NUXT_BUYER_DEMO_EMAIL`. delivered·inquiries·qna(`all` 포함) 필수 · verify [106]은 미설정 시 미판정 |
+| `DEMO_BUYER_PASSWORD` | 106 단계: `DEMO_BUYER_EMAIL` 계정 비밀번호(필수) · master: 시드 구매자 `buyer01@demo.zslab-mall.com` 비밀번호(선택 · 미지정 시 랜덤·state 파일 기록) |
 | `DEMO_SELLER_EMAIL` / `DEMO_SELLER_PASSWORD` | 데모 셀러(seller02 · 데모 패션랩) 로그인 자격 — `.env`의 `NUXT_SELLER_DEMO_*`와 같은 계정. qna(`all` 포함)만 필수 · 누락 시 exit 2 |
 
 ## 실행
@@ -70,11 +71,11 @@ python -m unittest discover -s scripts/demo-seed -p "test_*.py"
 3. `timeshift` — 데모 마커 행만 시각 UPDATE(order·payment·order_item·delivery·claim·refund + 마스터 행) · order_no 날짜부 갱신 · 순서 불변식 검증
 4. `settlement` — 3~8월 정산 생성 → 3~7월 확정 → 3~6월 지급 → 지급 paid_at = 지급예정일 +0~3일(SQL)
 5. `reviews` — 카테고리별 리뷰 키워드 세트 INSERT(키워드 쓰기 API 없음 · code가 있으면 건너뜀) → 클레임 없는 구매확정 품목 약 70%에 구매자 API로 리뷰 작성(별점 분산 · 일부 PIL 사진 1~3장을 1장씩 업로드) · 도움됐어요 → 작성 시각을 구매확정 뒤로 SQL 보정. 가드 = 데모 구매자 리뷰 존재
-6. `delivered` — buyer01에게 자동확정 창(배송완료 후 7일) 안의 배송완료 품목(진행 중 클레임 없음)이 없으면 데모 패션랩 상품으로 새 주문 1건 →
+6. `delivered` — 공개 데모 구매자에게 자동확정 창(배송완료 후 7일) 안의 배송완료 품목(진행 중 클레임 없음)이 없으면 데모 패션랩 상품으로 새 주문 1건 →
    mock 결제 → 관리자 발송 준비(송장 `DEMO`+8자리) → 배송완료. 시각은 서버 now 그대로(timeshift 없음)
-7. `inquiries` — buyer01 1:1 문의에서 ①답변+확인 ②답변+미확인 ③미답변 ④본인 주문 첨부 중 부족한 조건만 문의 작성 → 관리자 답변 → 구매자 답변 확인
+7. `inquiries` — 공개 데모 구매자 1:1 문의에서 ①답변+확인 ②답변+미확인 ③미답변 ④본인 주문 첨부 중 부족한 조건만 문의 작성 → 관리자 답변 → 구매자 답변 확인
 8. `qna` — 데모 셀러 상품에서 ①답변된 질문 ②미답변 질문 ③숨김 질문 ④여러 문장 설명 상품 중 부족한 조건만 —
-   설명은 셀러 기본정보 수정 API(`PUT /api/v1/seller/products/{prd}` · 상태·옵션·재고·이미지 무변경) · 질문 buyer01 · 답변 셀러 · 숨김 관리자
+   설명은 셀러 기본정보 수정 API(`PUT /api/v1/seller/products/{prd}` · 상태·옵션·재고·이미지 무변경) · 질문 공개 데모 구매자 · 답변 셀러 · 숨김 관리자
 9. `verify` — 106 데이터 충족 여부(D2·R1·R2) 출력(판정만 · exit code 무관) · settlement_item 합 = gross/fee, occurred_at = confirmed_at,
    월별 주문·클레임 집계, 시각 불변식 재검증
 
@@ -82,7 +83,7 @@ python -m unittest discover -s scripts/demo-seed -p "test_*.py"
 - 반복 실행 가능: 가드용 SELECT로 현재 상태를 읽어 **부족한 조건만** 만든다. 모두 충족돼 있으면 건너뛴다. 외부인이 데모 중 구매확정·답변 확인을
   해서 조건이 깨지면 다시 실행해 채운다(시연 직전 실행 권장).
 - 쓰기는 전부 API 경유(직접 쓰기 SQL 없음) · 계정은 env(state 미사용 · 비밀번호를 state에 기록하지 않는다).
-- inquiries의 주문 첨부는 buyer01의 최근 주문을 쓴다(주문이 없으면 delivered 먼저).
+- inquiries의 주문 첨부는 공개 데모 구매자의 최근 주문을 쓴다(주문이 없으면 delivered 먼저).
 - 빈 DB에서 `--step all`: master가 셀러 비밀번호를 랜덤으로 만들어 env 셀러 로그인(qna)이 실패한다 → reviews까지 단계별로 실행한 뒤
   state의 seller02 비밀번호를 `DEMO_SELLER_PASSWORD`로 지정해 delivered·inquiries·qna를 실행한다.
 
