@@ -13655,3 +13655,34 @@ D-235(HttpOnly 전환)로 로그인이 역할별 3경로(`/api/v1/auth/buyer/log
 - 중복 제출 서버 방어 없음(D-239 선례) · 문의 등록 rate limit 없음(D-239 §8과 같은 edge 계층 과제).
 
 외부 검토: A / 지적 4건 중 수용 1건
+
+## D-242 데모 시더 대상 가드 — --target 필수 · 호스트 판별 · API·DB 교차 검증 · state 대상 분리 (시더 PR1 · C1·C7) (2026-10-01)
+
+### 배경
+- seed.py는 env 누락만 검사해 운영 오실행 경로가 열려 있었다(docs/track-seed/recon-report.md §2 경로 1~5: hosts 의존 · API/DB 대상 어긋남 · 셸 env 상속 · state 환경 비분리 · 정산 생성 전 셀러 대상). 설계 전제가 "운영 1회 실행"(D-240 §1-A)이라 로컬 전용 가드를 그대로 쓸 수 없다.
+
+### §1-A 갈림길·채택/기각 근거
+- 가드 방식(D1): α 대상 명시형(`--target local|prod` 필수 · local DNS 판별 · prod 도메인 타이핑 · API·DB 교차 검증 · state 대상별 분리) 【채택】 — C1·C7은 운영 데모 데이터를 전제로 하고 경로 1~4를 모두 막는다 / β 로컬 전용(walkthrough와 같은 loopback 가드 · 운영 경로 제거) 【기각】 — 운영 데모 데이터 공급 수단이 사라진다.
+- prod `--force`: 금지 【채택】 — 존재 가드를 무시하면 운영에 중복·반쪽 데이터가 남는다(계정 409·반쪽 주문) / 허용 【기각】.
+- prod settlement 단계: 금지(`--step all` 포함) 【채택】 — 정산 생성 API가 전 셀러 대상이라 비데모 셀러 정산까지 PENDING으로 만든다 / 데모 셀러만 남기고 나머지 정리 【기각】 — 운영 데이터 삭제가 필요하다.
+- 대상 기록 없는 state(Q1): α local만 현재 대상으로 기록해 이어 쓰기 · prod 거부 【채택】 — local은 호스트 판별·교차 검증으로 로컬임이 보장되고, 기존 로컬 state(셀러 랜덤 비밀번호·주문 id)를 PR2가 쓴다 / β local·prod 모두 거부(다른 이름으로 보관) 【기각】 — 로컬 state를 잃어 재시드·수동 편집이 필요하다. 기존 `seed-state.json`은 자동 이전 없이 이름 변경 안내 후 중단.
+- prod 거부 대역(Q2): α 해석 주소 중 하나라도 loopback·사설 대역이면 거부(local과 같은 판정 함수) 【채택】 — 운영은 공인 IP이고 hosts·공유기 DNS가 사설 IP로 돌린 경우도 같은 오실행이다 / β loopback만 【기각】.
+- 테스트(Q3): 표준 unittest(unittest.mock) 【채택】 — 설치·의존성 추가가 없다 / pytest 【기각】 — 호스트 설치와 requirements 추가가 필요하다.
+- dry-run의 state 기록(결정 2): α 기록 안 함(대상 기록은 교차 검증 통과 후 첫 쓰기 실행에서) 【채택】 — dry-run은 쓰기 0이라는 의미를 유지한다 / β dry-run도 기록 【기각】.
+- prod 판정 순서: 호스트 판별 → TLS 검증 끔 → `--force` → settlement 【채택】 — 대상이 어긋난 상태가 가장 근본적인 오류라 그 사유를 먼저 알린다(local 분기와 같은 순서) / 인자 검사 먼저 【기각】 — `--step` 생략(기본 all) 시 hosts 리다이렉트가 settlement 사유에 가려졌다.
+- 셀프 리뷰 반영 보강: HTTP 클라이언트 환경·시스템 프록시 무시(프록시의 별도 해석이 DNS 판정을 우회) · IPv4-mapped·미지정·링크 로컬 주소를 로컬로 판정 · prod `API_TLS_VERIFY=false` 거부(인증서 검증이 마지막 방어층) · prod 도메인 확인은 터미널 입력만(파이프 입력 = 생략 옵션과 같음) 【채택】 / 실행 중 단계마다 DNS·교차 검증 재판정 【기각 · 이월】 — 창을 좁힐 뿐 없애지 못하고 시작 시 교차 검증이 받친다 / redirect 추적 차단 【기각 · 이월】 — 범위 밖.
+
+### §8 이월
+- 범위 밖(시더 PR1 제외): CatalogDemoSeedRunner(prod 활성·Javadoc 불일치) · 계정 마커 겹침 · state 평문 비밀번호 · 반쪽 주문(멱등 키 없음) · IMAGE_DIR 미사용 선언 · 106 데이터 단계(시더 PR2).
+- 계정 마커 겹침 실제 발현: local verify가 walkthrough-buyer@demo.zslab-mall.com 취소 건(refunded_at이 processed_at보다 0.3ms 앞)으로 시각 불변식 위반 1건 → exit 1(시드 주문 아님).
+- 로컬 호스트 → DB 포트 전달 이상: 127.0.0.1:3306이 연결 직후 인사 패킷 없이 끊김(리스너 com.docker.backend · 컨테이너 내부 정상) → zslab_mariadb 재시작으로 복구.
+- 정찰 §11 부수 발견: "prod 미설정" 서술 불일치(CatalogDemoSeedRunner Javadoc·decisions-fe.md:201·plan.md:239) · README "이어서 실행"과 orders·reviews 존재 가드 불일치 · demo-scenario 106 시연 단계 부재 · D-220 셀프 처리 도입 시 진행 중 CANCEL REQUESTED 시드 충돌.
+- state 대상 식별값에 DB_PORT 미포함(교차 검증이 다른 환경을 막으므로 가드 공백 아님 · 같은 식별값에서 DB 복원 시 state 낡음은 남음) · 실행 중 DNS 재판정 · redirect 추적.
+
+### §9 외부 검토 라운드 1 반영
+- prod 단계 판정: α 허용 목록(현재 verify만 · 위 "prod settlement 금지"를 대체) 【채택】 — 운영은 추가분만 쓴다 / β 단계별 금지 목록 【기각】 — 새 단계가 기본 허용되는 구조다.
+- prod `API_BASE_URL`은 https 필수(평문 http면 인증서 검증 방어층이 사라진다) · 로컬 판정 대역에 IPv6 ULA(fc00::/7) 추가. 판정 순서: 호스트 → scheme·TLS → `--force` → 허용 단계.
+- 불변조건: 교차 검증은 API 관리자 식별값(userPublicId·email)이 지정 DB에 존재하는지만 본다 — 운영 덤프를 복원한 DB에는 무력하다.
+- 이월: 로그인 부산물(로그인 직후 서버가 남기는 행)로 교차 검증 강화 · legacy state 검사 순서(기각 근거: 어느 순서든 쓰기 전에 거부되어 결과가 같다).
+
+외부 검토: A / 지적 5건 중 수용 3건 · 부분 수용 1건 · 기각 1건
