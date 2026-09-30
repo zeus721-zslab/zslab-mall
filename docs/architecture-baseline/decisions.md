@@ -13605,3 +13605,32 @@ PR 계획:
 - 공개 suggest rate limit 없음(D-239 §8과 같은 edge 계층 과제).
 
 외부 검토: A / 지적 15건 중 수용 4건
+
+## D-241 운영자 문의(1:1 문의) BE — 구매자 작성·수정·삭제·답변 확인 · 관리자 답변 · 대시보드 미답변 수 (Track 106-4 · C4) (2026-09-30)
+
+### 배경
+- C4의 1:1 문의가 없었다. 정찰: docs/track-106-4/recon-report.md(결정 필요 BE 1~9). 로그인 구매자가 운영자에게 텍스트 문의를 남기고 관리자가 비동기로 답하며, 구매자는 내 문의에서 미확인 답변을 본다. 셀러 전달·알림 발송·사진 첨부 없음. FE는 별도 PR.
+
+### §1-A 갈림길·채택/기각 근거
+- 구매자 경로: α `/api/v1/inquiries/**` + hasRole BUYER 【채택】 — 106-2 `/api/v1/product-questions/**` 선례 / β `/api/v1/users/me/inquiries` 【기각】 — `/users/me/**`는 authenticated만이라 전용 매처를 빠뜨리면 셀러·관리자 인증이 구매자 id로 해석된다.
+- 주문 첨부 단위: α 주문(ord_ publicId · order_id FK) 【채택】 — 취소·반품·교환 버튼은 주문 상세에 품목별로 있어 안내 목적지는 주문이면 충분하다 / β 주문 + 품목(oit_) 【기각】 — 클레임 폼 직행용 식별자인데 버튼 노출 규칙(claimableTypes)을 문의 화면에 복제하게 된다.
+- 미확인 저장: α `answer_checked_at` 컬럼 + 확인 API(멱등·미답변 422) 【채택】 — 기기와 무관하게 서버가 판정한다 / β FE 저장소 【기각】 — 다른 기기·private 창에서 틀린다. 저장소에 읽음 선례가 없어 이 컬럼이 첫 사례다.
+- 상태: α answered_at 파생(상태 컬럼 없음) 【채택】 — 전이가 하나뿐이라 컬럼을 두면 원천이 둘이 된다. 불변식은 CHECK(답변 3컬럼 쌍 · 확인 시각은 답변 있을 때만) / β `status` ENUM 컬럼 【기각】.
+- 관리자 답변 수정: α PUT 덮어쓰기 허용 · 수정 시 확인 시각을 비워 다시 미확인 · 같은 본문 재저장은 무변경 【채택】 — "1문의 1답변"은 대화 턴 제한이지 정정 금지가 아니고, 바뀐 답을 구매자가 다시 봐야 한다. 같은 본문을 무변경으로 두지 않으면 감사 없이 답변자·확인 상태만 바뀐다 / β 1회 등록만 【기각】.
+- 카테고리: α FAQ 카테고리 5종 재사용 【기각】 — REVIEW_QUESTION("리뷰·문의")은 문의 분류로 맞지 않고 기타가 없다 / β 문의 전용 enum 5종(ORDER_PAYMENT·DELIVERY·CLAIM·ACCOUNT·OTHER) + 4층위 잠금 【채택】.
+- 대시보드: α 처리 대기에 미답변 문의 수 추가 【채택】 — 비동기 답변의 유일한 운영자 인지 경로다(메뉴 배지 구조 없음) / β D-220 업무함으로 이월 【기각】.
+- 데모 시드: α seed.py 단계 추가 【이번 PR 기각 · 이월】 — 시드는 106 완료 후 시더 트랙에서 일괄로 넣는다 / β 시드 없음(영구) 【기각】 — 관리자 시연에 빈 목록이 된다.
+- 작성자 마스킹: α 정산의 `maskEmail`을 `common/util/EmailMasker`로 추출하고 정산은 위임 【채택】 — 도메인 간 의존 없이 한 벌만 남는다(동작 동일) / β 정산 메서드 public 승격 후 직접 호출 【기각】 — 문의가 정산 서비스에 기댄다 / γ 휴대폰 번호 PhoneMasker 【기각】 — 번호 없는 회원은 식별 표시가 사라진다.
+- 답변 감사 값: α 기존 `answer` 키에 관리자 답변 본문(등록 {} → {answer} · 수정 {answer 이전} → {answer 새}) 【채택】 — 감사기는 diff가 없으면 적재를 건너뛰어 "답변 있음" 같은 불리언으로는 수정이 남지 않는다. 운영자가 쓴 글이라 FAQ 답변(D-240)과 성격이 같고 AuditFieldMaskingPolicyTest가 무변경이다. 구매자 문의 본문은 싣지 않는다(106-2 사용자 작성 글 비복제) / β 본문 없이 새 키(answeredAt) 【기각】 — 박제 키가 늘고 무엇이 바뀌었는지 남지 않는다.
+
+### §2 구현
+- V43__inquiry.sql: inquiry(public_id inq_ · buyer_id · order_id FK RESTRICT · category + chk_inquiry_category · content 500 · 답변 3컬럼 + chk_inquiry_answer · answer_checked_at + chk_inquiry_answer_checked · 공통 감사 + soft delete) · ix_inquiry_buyer_list · ix_inquiry_unanswered.
+- 구매자 /api/v1/inquiries: POST(카테고리·본문 trim 후 5~500자·선택 orderId — 타인·미존재 404 ORDER_NOT_FOUND) · PUT /{id}(카테고리·본문 · 첨부 주문 불변) · DELETE /{id}(soft) · PUT /{id}/answer-check · GET /me(editable·deletable·unread). 수정·삭제·확인은 행 락 → 작성자 404 → 상태 422(106-2 순서) · INQUIRY_NOT_FOUND 404 · INQUIRY_INVALID_STATE 422.
+- 관리자 /api/v1/admin/inquiries: GET(answered 기본 UNANSWERED · category · 오래된 순 · 작성자 이메일 마스킹 · 첨부 주문) · PUT /{id}/answer(행 락 · 감사 UPDATE·INQUIRY). 대시보드 pending.inquiryUnanswered.
+
+### §8 이월
+- 데모 시드 요구: 답변된·미답변·미확인 각 1건 이상, 주문 첨부 건 포함(106 완료 후 시더 트랙에서 일괄 · 이번 PR 제외).
+- 본문 형식 정규식(`\s`)과 `String.trim()`의 공백 판정 차이(제어문자·전각 공백)는 106-2와 같은 선례 한계다.
+- 중복 제출 서버 방어 없음(D-239 선례) · 문의 등록 rate limit 없음(D-239 §8과 같은 edge 계층 과제).
+
+외부 검토: A / 지적 4건 중 수용 1건

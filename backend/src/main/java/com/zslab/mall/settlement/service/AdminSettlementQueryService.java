@@ -1,6 +1,7 @@
 package com.zslab.mall.settlement.service;
 
 import com.zslab.mall.common.exception.MalformedRequestException;
+import com.zslab.mall.common.util.EmailMasker;
 import com.zslab.mall.common.util.PhoneMasker;
 import com.zslab.mall.order.controller.response.PagedResponse;
 import com.zslab.mall.seller.entity.Seller;
@@ -59,7 +60,6 @@ public class AdminSettlementQueryService {
     private static final int DEFAULT_PAGE_SIZE = 20;
     private static final int MIN_YEAR = 2000;
     private static final int MAX_YEAR = 2100;
-    private static final int EMAIL_VISIBLE_PREFIX = 2;
 
     private final SettlementRepository settlementRepository;
     private final SettlementItemRepository settlementItemRepository;
@@ -110,7 +110,7 @@ public class AdminSettlementQueryService {
         long carryoverItemCount = countItems(List.of(settlementId), SettlementItemType.CARRYOVER).getOrDefault(settlementId, 0L);
         Seller seller = sellerRepository.findById(settlement.getSellerId()).orElse(null);
         SettlementSellerContactResponse contact = seller == null ? null
-                : new SettlementSellerContactResponse(maskEmail(seller.getContactEmail()),
+                : new SettlementSellerContactResponse(EmailMasker.mask(seller.getContactEmail()),
                         PhoneMasker.mask(seller.getContactPhone()));
         return AdminSettlementDetailResponse.of(summary, refundItemCount, carryoverItemCount, contact, bankAccount(settlement));
     }
@@ -240,20 +240,6 @@ public class AdminSettlementQueryService {
     private static String toLikePattern(String keyword) {
         String escaped = keyword.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
         return "%" + escaped + "%";
-    }
-
-    /** 이메일 마스킹: 로컬파트 앞 2자만 노출("ab***@domain")·짧으면 전부 마스킹. */
-    static String maskEmail(String email) {
-        if (email == null || email.isBlank()) {
-            return null;
-        }
-        int at = email.indexOf('@');
-        if (at <= 0) {
-            return "***";
-        }
-        String local = email.substring(0, at);
-        String visible = local.length() > EMAIL_VISIBLE_PREFIX ? local.substring(0, EMAIL_VISIBLE_PREFIX) : "";
-        return visible + "***" + email.substring(at);
     }
 
     static int clampSize(int size) {

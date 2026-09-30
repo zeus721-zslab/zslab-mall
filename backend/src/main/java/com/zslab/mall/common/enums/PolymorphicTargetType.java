@@ -36,5 +36,7 @@ public enum PolymorphicTargetType {
     /** 상품 질문(Track 106-2·관리자 숨김 감사 대상). */
     PRODUCT_QUESTION,
     /** 구매자 채팅 도우미 FAQ(Track 106-3·관리자 수정·삭제 감사 대상). */
-    FAQ
+    FAQ,
+    /** 운영자 문의(Track 106-4·관리자 답변 등록·수정 감사 대상). */
+    INQUIRY
 }

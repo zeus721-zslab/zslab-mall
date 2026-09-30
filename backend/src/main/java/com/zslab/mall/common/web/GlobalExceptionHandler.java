@@ -28,6 +28,8 @@ import com.zslab.mall.delivery.exception.DeliveryInvalidStateException;
 import com.zslab.mall.delivery.exception.DeliveryNotFoundException;
 import com.zslab.mall.faq.exception.FaqNotFoundException;
 import com.zslab.mall.grade.exception.GradePolicyUnavailableException;
+import com.zslab.mall.inquiry.exception.InquiryInvalidStateException;
+import com.zslab.mall.inquiry.exception.InquiryNotFoundException;
 import com.zslab.mall.inventory.exception.InventoryInvariantViolationException;
 import com.zslab.mall.order.exception.OrderItemInvalidStateException;
 import com.zslab.mall.order.exception.OrderNotFoundException;
@@ -210,6 +212,8 @@ public class GlobalExceptionHandler {
     private static final String CODE_PRODUCT_QUESTION_NOT_FOUND = "PRODUCT_QUESTION_NOT_FOUND";
     private static final String CODE_PRODUCT_QUESTION_INVALID_STATE = "PRODUCT_QUESTION_INVALID_STATE";
     private static final String CODE_FAQ_NOT_FOUND = "FAQ_NOT_FOUND";
+    private static final String CODE_INQUIRY_NOT_FOUND = "INQUIRY_NOT_FOUND";
+    private static final String CODE_INQUIRY_INVALID_STATE = "INQUIRY_INVALID_STATE";
     private static final String CODE_INTERNAL_ERROR = "INTERNAL_ERROR";
 
     // ===== 400 =====
@@ -370,6 +374,12 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ProblemDetail> handleFaqNotFound(FaqNotFoundException exception, HttpServletRequest request) {
         // Track 106-3: 관리자 FAQ 수정·삭제 대상 미존재·삭제(404).
         return build(HttpStatus.NOT_FOUND, CODE_FAQ_NOT_FOUND, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(InquiryNotFoundException.class)
+    public ResponseEntity<ProblemDetail> handleInquiryNotFound(InquiryNotFoundException exception, HttpServletRequest request) {
+        // Track 106-4: 문의 미존재·삭제·타인 문의 수정·삭제·확인(존재 은닉·404).
+        return build(HttpStatus.NOT_FOUND, CODE_INQUIRY_NOT_FOUND, exception.getMessage(), request);
     }
 
     @ExceptionHandler(ClaimNotFoundException.class)
@@ -851,6 +861,12 @@ public class GlobalExceptionHandler {
             ProductQuestionInvalidStateException exception, HttpServletRequest request) {
         // Track 106-2: 답변 뒤 질문자 수정·삭제·숨김 질문 수정·답변·관리자 같은 상태 재요청(422·리뷰 선례).
         return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_PRODUCT_QUESTION_INVALID_STATE, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(InquiryInvalidStateException.class)
+    public ResponseEntity<ProblemDetail> handleInquiryInvalidState(InquiryInvalidStateException exception, HttpServletRequest request) {
+        // Track 106-4: 답변 뒤 구매자 수정·삭제·미답변 문의 확인(422·106-2 선례).
+        return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_INQUIRY_INVALID_STATE, exception.getMessage(), request);
     }
 
     @ExceptionHandler(ProductInvalidStateException.class)

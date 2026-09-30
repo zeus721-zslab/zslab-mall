@@ -25,6 +25,7 @@ import com.zslab.mall.dashboard.repository.DashboardRecentOrderProjection;
 import com.zslab.mall.dashboard.repository.DashboardSalesProjection;
 import com.zslab.mall.dashboard.repository.DashboardTopProductProjection;
 import com.zslab.mall.dashboard.repository.DashboardTopSellerProjection;
+import com.zslab.mall.inquiry.repository.InquiryRepository;
 import com.zslab.mall.inventory.policy.LowStockThreshold;
 import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.product.entity.Product;
@@ -81,6 +82,7 @@ public class AdminDashboardQueryService {
     private final ProductRepository productRepository;
     private final ClaimRepository claimRepository;
     private final ReconciliationIssueRepository reconciliationIssueRepository;
+    private final InquiryRepository inquiryRepository;
 
     public AdminDashboardResponse getDashboard() {
         LocalDate today = LocalDate.now();
@@ -124,7 +126,8 @@ public class AdminDashboardQueryService {
                 claimRepository.count(AdminClaimSpecifications.action(AdminClaimActionFilter.FOLLOWUP)),
                 dashboardRepository.countLongShipping(DeliveryDirection.OUTBOUND, DeliveryStatus.SHIPPING,
                         LocalDateTime.now().minusDays(LongShippingThreshold.DAYS)),
-                reconciliationIssueRepository.countByStatus(ReconciliationIssueStatus.OPEN));
+                reconciliationIssueRepository.countByStatus(ReconciliationIssueStatus.OPEN),
+                inquiryRepository.countByAnsweredAtIsNull());
     }
 
     /** 최근 6개월(당월 포함)·빈 달 0. 매출은 paid_at·환불은 refunded_at 구간이라 각각 집계 후 월 키로 합친다. */
