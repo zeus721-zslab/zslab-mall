@@ -13580,3 +13580,6 @@ PR 계획:
 - §8 이월 추가: 공개 suggest rate limit → gateway conf git 편입 백로그와 함께 edge 계층에서 처리.
 
 외부 검토: A / 지적 3건 중 수용 3건(1건 부분)
+
+### § 규칙 변경(2026-09-30)
+- 즉시 답 동점 순서를 최신순에서 "유형 우선(QNA → REVIEW → PRODUCT) → 최신순"으로 바꿨다(ProductQuestionSuggestService.TYPE_PRIORITY). 사유: 같은 점수면 셀러가 이미 답한 Q&A가 가장 직접적인 답이다. 이전 규칙에서는 상품 수정 시각 때문에 설명 조각이 앞섰다.
