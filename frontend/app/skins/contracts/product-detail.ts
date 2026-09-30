@@ -28,9 +28,12 @@ export interface ProductDetailPageVm {
   incrementQuantity: () => void
   canAddToCart: boolean
   adding: boolean
-  addSucceeded: boolean
+  /** 담기 성공 신호(FE-99). 성공할 때마다 1씩 오른다 — 스킨은 값 변화로 스낵바·비행·뱃지를 띄운다. */
+  addedSignal: number
   addErrorMessage: string
   handleAddToCart: () => Promise<void>
+  /** 바로구매(FE-100): 확정 옵션·수량으로 주문서 단일 상품 경로(/checkout?product&variant&quantity)로 이동. 장바구니 API는 부르지 않는다. */
+  handleBuyNow: () => Promise<void>
   /** 옵션 값 품절 표시(현재 다른 그룹 선택값과의 조합 기준·조합 미완료에서도 판단). */
   isOptionValueSoldOut: (groupName: string, value: string) => boolean
   /** 옵션 값 비활성(다른 선택과 무관하게 이 값으로 구매 가능한 variant가 없음). */

@@ -2,6 +2,7 @@
 import type { ProductImage, ProductSummary, ProductVariant } from '~/types/product'
 import { BUYER_ROLE } from '~/lib/constants/auth'
 import { isOptionValueSoldOut } from '~/lib/utils/product-option-availability'
+import { buyNowCheckoutPath } from '~/lib/utils/buy-now'
 import type { ProductDetailPageVm } from '~/skins/contracts/product-detail'
 
 // 라우트 파라미터(prd_)로 상세를 조회한다. permitAll 공개 카탈로그라 인증 없이 SSR/CSR 모두 조회 가능.
@@ -128,9 +129,10 @@ const totalPrice = computed<number | null>(() =>
   selectedVariant.value ? currentPrice.value * quantity.value : null,
 )
 
-// 담기 진행/결과 상태. adding으로 중복 클릭을 막고, 성공/실패 문구를 버튼 아래에 노출한다.
+// 담기 진행/결과 상태. adding으로 중복 클릭을 막고, 실패 문구는 버튼 아래에 노출한다.
+// addedSignal: 성공할 때마다 1씩 올리는 신호(FE-99). 같은 상품을 연달아 담아도 매번 새 값이라 스낵바·비행·뱃지가 다시 동작한다.
 const adding = ref<boolean>(false)
-const addSucceeded = ref<boolean>(false)
+const addedSignal = ref<number>(0)
 const addErrorMessage = ref<string>('')
 
 /**
@@ -143,7 +145,6 @@ async function handleAddToCart(): Promise<void> {
   // 담기 가능(variant 확정·미품절)일 때만 버튼이 활성이나, seam 안전을 위해 대상키 부재는 방어한다.
   if (!variantPublicId) return
 
-  addSucceeded.value = false
   addErrorMessage.value = ''
 
   // 인증 게이트: 미인증 또는 비-BUYER면 로그인으로 유도(복귀 경로 전달). 페이지 진입은 막지 않고 클릭 시점에만 건다.
@@ -155,7 +156,7 @@ async function handleAddToCart(): Promise<void> {
   adding.value = true
   try {
     await cart.add(variantPublicId, quantity.value)
-    addSucceeded.value = true
+    addedSignal.value += 1
   } catch (error) {
     // 세션 만료 등으로 서버가 401이면 재로그인 유도, 구매 불가(422·Track 71)는 전용 문구, 그 외(403 권한 부족 등)는 안내만 한다.
     const statusCode = (error as { statusCode?: number }).statusCode
@@ -172,6 +173,16 @@ async function handleAddToCart(): Promise<void> {
   } finally {
     adding.value = false
   }
+}
+
+/**
+ * 바로구매(FE-100 · D1 β): 확정 variant·수량을 URL에 실어 주문서 단일 상품 경로로 간다. 장바구니 API는 부르지 않는다.
+ * 로그인 판단은 주문서의 buyer 미들웨어가 한다(로그인 뒤 같은 주문서 URL로 복귀).
+ */
+async function handleBuyNow(): Promise<void> {
+  const variantPublicId = selectedVariantPublicId.value
+  if (!variantPublicId || !canAddToCart.value) return
+  await navigateTo(buyNowCheckoutPath({ productPublicId, variantPublicId, quantity: quantity.value }))
 }
 
 useSeoMeta({
@@ -198,9 +209,10 @@ const vm: ProductDetailPageVm = reactive({
   incrementQuantity,
   canAddToCart,
   adding,
-  addSucceeded,
+  addedSignal,
   addErrorMessage,
   handleAddToCart,
+  handleBuyNow,
   isOptionValueSoldOut: optionValueSoldOut,
   isOptionValueUnavailable: optionValueUnavailable,
   totalPrice,

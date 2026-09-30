@@ -13,22 +13,33 @@ import {
 } from '~/lib/constants/account'
 import { isUnchanged, buildCreateAddressRequest, type CheckoutAddressForm } from '~/lib/utils/address-form'
 import { buildCheckoutSummary, type CheckoutSummary } from '~/lib/utils/checkout-summary'
+import { isBuyNowQuery } from '~/lib/utils/buy-now'
 import type { CheckoutPageVm } from '~/skins/contracts/checkout'
 
 // BUYER 전용 페이지 — 미인증/비-BUYER는 buyer 미들웨어가 /login으로 유도한다(recon §9).
 definePageMeta({ middleware: 'buyer' })
 
+const route = useRoute()
 const checkout = useCheckout()
 
 // ── FE-17 주문 요약 ────────────────────────────────────────────────
-// 진입 시 장바구니를 재조회한다(cart.vue 패턴). 렌더는 store의 cart.items(반응)를 읽고, 반환값은 SSR 직렬화·상태 판정용.
+// 품목 원천: 바로구매 query(FE-100)면 상품 상세 1건(장바구니 조회·변경 없음), 아니면 장바구니 selected.
+const buyNow = isBuyNowQuery(route.query) ? useBuyNowCheckout(route.query) : null
+// 장바구니 경로는 진입 시 장바구니를 재조회한다(cart.vue 패턴). 렌더는 store의 cart.items(반응)를 읽고, 반환값은 SSR 직렬화·상태 판정용.
 const cart = useCartStore()
-const { error: cartError, refresh: refreshCart } = useAsyncData('checkout-cart', async () => {
-  await cart.load()
-  // setup store 외부 접근은 ref가 자동 언랩된다(LT-12) — cart.items는 이미 배열(.value 아님).
-  return cart.items.length
-})
-const summary = computed<CheckoutSummary>(() => buildCheckoutSummary(cart.items))
+const cartFetch = buyNow
+  ? null
+  : useAsyncData('checkout-cart', async () => {
+      await cart.load()
+      // setup store 외부 접근은 ref가 자동 언랩된다(LT-12) — cart.items는 이미 배열(.value 아님).
+      return cart.items.length
+    })
+const summary = computed<CheckoutSummary>(() => buildCheckoutSummary(buyNow ? buyNow.items.value : cart.items))
+const itemsError = computed<Error | undefined>(() => (buyNow ? buyNow.error.value : cartFetch?.error.value) ?? undefined)
+async function refreshItems(): Promise<void> {
+  if (buyNow) await buyNow.refresh()
+  else await cartFetch?.refresh()
+}
 
 function formatPrice(value: number): string {
   return `${value.toLocaleString('ko-KR')}원`
@@ -113,7 +124,8 @@ watch(
   addressError,
   (fetchError) => {
     if ((fetchError as { statusCode?: number } | null)?.statusCode === 401) {
-      navigateTo(`/login?redirect=${encodeURIComponent('/checkout')}`)
+      // 바로구매 query까지 복귀하도록 현재 전체 경로를 넘긴다(FE-100).
+      navigateTo(`/login?redirect=${encodeURIComponent(route.fullPath)}`)
     }
   },
   { immediate: true },
@@ -189,9 +201,16 @@ async function handleSubmit(): Promise<void> {
     deliveryMemo: deliveryMemo.value.trim() || undefined,
   }
   const request: CheckoutRequest = { shippingAddress, method: method.value }
+  // 바로구매는 직접 주문(POST /api/v1/orders) — 장바구니를 거치지 않는다. 이후 결제 이동·오류 처리는 장바구니 결제와 같다.
+  const buyNowItem = buyNow?.item ?? null
 
   try {
-    const result = await checkout.submit(request)
+    const result = buyNowItem
+      ? await checkout.submitOrder({
+          items: [{ productId: buyNowItem.productPublicId, variantId: buyNowItem.variantPublicId, quantity: buyNowItem.quantity }],
+          ...request,
+        })
+      : await checkout.submit(request)
     // 확정 8: 주문 생성 성공 직후·결제 준비 실패 분기 판정보다 먼저 저장(결제 이동 전).
     await maybeSaveAddress()
     const payment = result.data.payment
@@ -210,7 +229,7 @@ async function handleSubmit(): Promise<void> {
     const statusCode = (submitError as { statusCode?: number }).statusCode
     const code = (submitError as { data?: { code?: string } }).data?.code
     if (statusCode === 401) {
-      await navigateTo(`/login?redirect=${encodeURIComponent('/checkout')}`)
+      await navigateTo(`/login?redirect=${encodeURIComponent(route.fullPath)}`)
       return
     }
     if (statusCode === 422 && code === 'CART_CHECKOUT_EMPTY') {
@@ -232,8 +251,9 @@ async function handleSubmit(): Promise<void> {
 useSeoMeta({ title: '주문/결제 · zslab-mall', description: 'zslab-mall 주문/결제' })
 
 const vm: CheckoutPageVm = reactive({
-  cartError,
-  refreshCart,
+  cartError: itemsError,
+  refreshCart: refreshItems,
+  buyNowProductPath: buyNow?.productPath ?? null,
   summary,
   addressLoadFailed,
   hasAddresses,

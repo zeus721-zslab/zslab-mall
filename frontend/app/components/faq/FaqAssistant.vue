@@ -8,6 +8,7 @@ import FaqAssistantInput from './FaqAssistantInput.vue'
 // 구매자 채팅 도우미(Track 106-3): 우측 하단 버튼 + 비모달 패널. 구매자 레이아웃(default.vue)에 <ClientOnly>로 붙어 SSR에서는 그리지 않는다.
 // 비모달이라 패널을 연 채 뒤 화면을 조작하고 링크로 이동할 수 있다(포커스 가두기 없음 · Esc·닫기로 닫힘 · 닫으면 버튼으로 포커스 복귀).
 // 1024px 미만에서 하단 고정 바(MobileActionBar)가 보이면 버튼을 바 위로 올린다 — 바가 body에 다는 data-mobile-action-bar 속성을 CSS로 읽는다.
+// 상세 담기 스낵바도 같은 방식(data-cart-snackbar)으로 버튼을 스낵바 위로 올린다(FE-99).
 const route = useRoute()
 const assistant = useFaqAssistant()
 
@@ -113,9 +114,17 @@ watch(() => assistant.open.value, async (isOpen) => {
 <style scoped>
 /* 1024px 미만 하단 고정 바(MobileActionBar · 높이 73px + 안전 영역)가 보이는 동안 버튼을 바 위 16px로 올린다.
    :global(부모) 자식 형태는 Vue가 자식 선택자를 버리므로 선택자 전체를 :global로 감싼다(.faq-launcher는 이 컴포넌트 전용 클래스). */
+/* 상세 담기 스낵바(CartAddedSnackbar · 높이 56px · FE-99)가 보이는 동안은 스낵바 위 8px로 올린다 — 바 없음: 16 + 56 + 8 / 바 있음: 81 + 56 + 8.
+   ≥1024는 스낵바가 가운데 좁은 폭이라 겹치지 않아 그대로 둔다. */
 @media (width < 64rem) {
   :global(body[data-mobile-action-bar='shown'] .faq-launcher) {
     bottom: calc(89px + env(safe-area-inset-bottom, 0px));
+  }
+  :global(body[data-cart-snackbar='shown'] .faq-launcher) {
+    bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+  }
+  :global(body[data-mobile-action-bar='shown'][data-cart-snackbar='shown'] .faq-launcher) {
+    bottom: calc(145px + env(safe-area-inset-bottom, 0px));
   }
 }
 </style>

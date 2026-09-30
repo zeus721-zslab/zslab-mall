@@ -1,24 +1,13 @@
 <script setup lang="ts">
 import type { LayoutShellVm } from '~/skins/contracts/layout'
+import RenewCategoryRow from '../components/RenewCategoryRow.vue'
 import RenewNotice from '../components/RenewNotice.vue'
-import { followActiveItem } from '../scroll-active'
-import { trackScrollEdges } from '../scroll-edges'
 
 // renew 레이아웃 셸. 헤더 상태·동작은 레이아웃이 vm으로 넘긴다(useAppHeader·FE-69) — classic AppHeader와 같은 기능·testid.
 defineProps<{ vm: LayoutShellVm }>()
 
 // 모바일(md 미만)에서 검색창은 아이콘으로 접고, 누르면 헤더 아래 한 줄로 펼친다(화면 상태만·데이터 아님).
 const mobileSearchOpen = ref(false)
-
-// 셸은 페이지 이동 뒤에도 남으므로 현재 카테고리 링크(aria-current)가 바뀔 때마다 다시 맞춘다.
-const mobileMenuElement = ref<HTMLElement | null>(null)
-let stopFollowingActiveMenu: (() => void) | null = null
-onMounted(() => {
-  if (mobileMenuElement.value) stopFollowingActiveMenu = followActiveItem(mobileMenuElement.value)
-})
-onBeforeUnmount(() => stopFollowingActiveMenu?.())
-// 오른쪽 흐림은 줄 끝에 닿기 전까지만(FE-77).
-const mobileMenuEdges = trackScrollEdges(mobileMenuElement)
 
 // 본문 바로가기(FE-82): 해시 이동 대신 main에 직접 포커스한다(URL 불변 · 라우터 스크롤 규칙과 무관).
 const mainElement = ref<HTMLElement | null>(null)
@@ -125,13 +114,15 @@ const FOOTER_LINK = 'transition duration-fast ease-soft hover:text-ink max-md:in
         </DropdownMenu>
         <NuxtLink v-else to="/login" :class="MENU_LINK">로그인</NuxtLink>
 
-        <!-- 장바구니: 뱃지는 담긴 품목 수(>0)일 때만. 숫자는 고정폭 숫자·포인트색. -->
-        <NuxtLink to="/cart" aria-label="장바구니" :class="ICON_BUTTON">
+        <!-- 장바구니: 뱃지는 담긴 품목 수(>0)일 때만. 숫자는 고정폭 숫자·포인트색.
+             data-cart-target·data-cart-badge: 상세 담기 비행의 목적지·튐 대상(FE-99 · skins/renew/fly-to-cart.ts). -->
+        <NuxtLink to="/cart" aria-label="장바구니" :class="ICON_BUTTON" data-cart-target>
           <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
             <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 10.5V6a3.75 3.75 0 10-7.5 0v4.5m11.356-1.993l1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 01-1.12-1.243l1.264-12A1.125 1.125 0 015.513 7.5h12.974c.576 0 1.059.435 1.119 1.007z" />
           </svg>
           <span
             v-if="vm.cartCount > 0"
+            data-cart-badge
             class="absolute right-0.5 top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-caption tabular-nums text-primary-foreground"
           >
             {{ vm.cartCount }}
@@ -139,24 +130,17 @@ const FOOTER_LINK = 'transition duration-fast ease-soft hover:text-ink max-md:in
         </NuxtLink>
       </div>
 
-      <!-- 최상위 카테고리 메뉴(모바일·태블릿): 한 줄 가로 스크롤. <768은 스크롤바 숨김·스냅·오른쪽 흐림, 현재 카테고리는 보이는 위치로.
-           자체 탭 줄이 있는 화면(목록·카테고리 = 목록 카테고리 탭 FE-82 · 마이페이지 틀 = 메뉴 칩 줄 Track 105-4g-3)의 <768은 줄이 겹겹이 쌓여 이 줄을 숨긴다. -->
-      <nav aria-label="카테고리" :class="['border-t border-line lg:hidden', vm.hasPageTabRow ? 'max-md:hidden' : '']">
-        <ul
-          ref="mobileMenuElement"
-          :class="[
-            CONTAINER,
-            'relative flex gap-1 overflow-x-auto py-1 max-md:scrollbar-none max-md:snap-x max-md:snap-mandatory max-md:scroll-px-5 max-md:[&>li]:snap-start',
-            mobileMenuEdges.atEnd ? '' : 'max-md:fade-right',
-          ]"
-        >
-          <li><NuxtLink to="/products" :class="MENU_LINK">전체</NuxtLink></li>
-          <li v-for="category in vm.categoryMenuItems" :key="category.categoryId">
-            <NuxtLink :to="`/categories/${category.categoryId}`" :class="MENU_LINK">{{ category.displayName }}</NuxtLink>
-          </li>
-        </ul>
-      </nav>
+      <!-- 최상위 카테고리 메뉴(모바일·태블릿). 자체 탭 줄이 있는 화면(목록·카테고리 = 목록 카테고리 탭 FE-82 · 마이페이지 틀 = 메뉴 칩 줄 Track 105-4g-3)의
+           <768은 줄이 겹겹이 쌓여 이 줄을 숨긴다. 상품 상세는 아래 헤더 밖에 그린다. -->
+      <RenewCategoryRow
+        v-if="!vm.hasUnpinnedCategoryRow"
+        :items="vm.categoryMenuItems"
+        :class="['border-t', vm.hasPageTabRow ? 'max-md:hidden' : '']"
+      />
     </header>
+    <!-- 상품 상세(FE-99): 카테고리 줄을 고정 헤더 밖에 둬 스크롤과 함께 사라지게 한다 — 헤더 아래 섹션 바·하단 바에 화면을 더 준다.
+         헤더 안일 때와 같은 모습이 되도록 아래 테두리·흰 바탕을 준다. -->
+    <RenewCategoryRow v-if="vm.hasUnpinnedCategoryRow" :items="vm.categoryMenuItems" class="border-b bg-white" />
 
     <main id="main-content" ref="mainElement" tabindex="-1" class="flex-1 focus:outline-hidden">
       <slot />

@@ -22,6 +22,7 @@ function checkoutVm(): CheckoutPageVm {
   return reactive<CheckoutPageVm>({
     cartError: undefined,
     refreshCart: async () => {},
+    buyNowProductPath: null,
     summary: buildCheckoutSummary([]),
     addressLoadFailed: false,
     hasAddresses: false,
