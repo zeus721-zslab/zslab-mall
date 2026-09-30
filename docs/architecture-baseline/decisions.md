@@ -13767,3 +13767,26 @@ D-235(HttpOnly 전환)로 로그인이 역할별 3경로(`/api/v1/auth/buyer/log
 - 셀프 리뷰 지적 7건 중 수용 3건(#1 시드 섞기·분산 테스트 · #2 롤백 테스트 예외 주입 지점 · #3 주석).
 
 외부 검토: A → 생략(zslab 결정 · PR1과 같은 기준) · 운영 적용 조건: 호출 전 백업 + dryRun 확인
+
+## D-246 역할 부여 API에 데모 보호 계정 가드 — 회수 가드와 대칭 (C6) (2026-10-01)
+
+### 배경
+- 운영에서 공개 관리자 데모 세션(SUPER_ADMIN)이 구매자 데모(user 2)에 ADMIN_OPERATOR를 부여했다. 회수는 보호 계정이면 403(D-230)이라 API로 되돌릴 수 없다. 정찰: docs/track-sec-demo/recon-report.md.
+- D-230 §8의 "붙이는 조작 현행 유지" 근거(로그인은 요청한 role로 검증)는 구매자 토큰에만 맞는다. 같은 자격으로 관리자 로그인하면 ADMIN 토큰이 나온다(DbRoleAuthorization ADMIN = SUPER_ADMIN·ADMIN_OPERATOR). 이 결정으로 그중 ADMIN_OPERATOR 부여만 뒤집는다.
+
+### §1-A 갈림길·채택/기각 근거
+- α 부여 가드 【채택】 — 회수와 같은 DemoAccountGuard.requireNotProtected를 대상 조회 직후에 호출(같은 예외·403 DEMO_ACCOUNT_PROTECTED). 최소 변경으로 되돌릴 수 없는 상태를 막는다. 이미 ADMIN_OPERATOR를 가진 보호 계정에 다시 부여하면 409 대신 403(상태 변화 없음 · 회수와 같은 순서 관례).
+- β 관리자 데모 쓰기 범위 제한 【기각】 — D-230 수용 범위. C7(외부인 데모) 착수 전 검토.
+- γ 기록만 【기각】 — API로 되돌릴 수 없는 상태가 남는다.
+
+### §8 이월
+- 같은 유형의 우회 2경로(셀프 리뷰 발견 · 이번 범위 밖): 셀러 구성원 추가(AdminSellerMemberCommandService.add)·입점 OWNER 지정(SellerProvisioningService)에 가드 없음. 구매자·관리자 데모는 셀러 소속이 없어 붙일 수 있고, 붙으면 구성원 제외·셀러 해지가 403이라 API로 되돌릴 수 없다(D-230 §8의 seller_user.user_id UNIQUE 근거는 데모 셀러에만 맞음).
+- 역할 변경 시 기존 토큰 무효화 없음(RoleRevocationService가 markCredentialsChanged를 부르지 않음 · 요청마다 역할 재확인 없음).
+- audit_log ip_address 전체 NULL.
+- 로그인 성공 미기록.
+- @PreAuthorize 부재(ADMIN 세분 인가는 서비스 내 user_role 조회 4곳뿐).
+- 데모 로그인 요청 제한 문서 불일치(코드 30회/60초 · decisions-fe.md 10회).
+- 운영 user 2의 기존 ADMIN_OPERATOR 제거는 이 변경으로 되지 않는다(회수 API는 여전히 403 · DB 조작은 승인 후).
+- 셀프 리뷰 지적 7건 중 수용 3건(예외 Javadoc 조작 목록 · D-230 §8 번복 사유 명시 · 409→403 순서 기록) · 우회 2건은 이월 · 나머지 2건(구성원 역할 변경은 되돌릴 수 있음 · 보호 이메일 선점은 운영 데모 계정이 이미 있어 해당 없음) 결함 아님.
+
+외부 검토: A / 지적 0건 중 수용 0건
