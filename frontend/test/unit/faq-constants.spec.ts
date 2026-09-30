@@ -46,11 +46,11 @@ describe('faqFirstCategories', () => {
 })
 
 describe('isFaqAssistantExcluded', () => {
-  it.each(['/payment/mock', '/reviews/new', '/reviews/rvw_01KX/edit'])('%s → 제외', (path) => {
+  it.each(['/payment/mock', '/reviews/new', '/reviews/rvw_01KX/edit', '/mypage/inquiries/new', '/mypage/inquiries/new/'])('%s → 제외', (path) => {
     expect(isFaqAssistantExcluded(path)).toBe(true)
   })
 
-  it.each(['/', '/payment', '/reviews', '/products/prd_01KX', '/checkout', '/mypage/questions'])('%s → 노출', (path) => {
+  it.each(['/', '/payment', '/reviews', '/products/prd_01KX', '/checkout', '/mypage/questions', '/mypage/inquiries'])('%s → 노출', (path) => {
     expect(isFaqAssistantExcluded(path)).toBe(false)
   })
 })

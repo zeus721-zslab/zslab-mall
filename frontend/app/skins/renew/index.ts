@@ -20,6 +20,8 @@ import ClaimNewView from './views/ClaimNewView.vue'
 import ClaimDetailView from './views/ClaimDetailView.vue'
 import ReviewFormView from './views/ReviewFormView.vue'
 import MypageQuestionsView from './views/MypageQuestionsView.vue'
+import MypageInquiriesView from './views/MypageInquiriesView.vue'
+import InquiryNewView from './views/InquiryNewView.vue'
 import LoginView from './views/LoginView.vue'
 import SignupView from './views/SignupView.vue'
 import SearchView from './views/SearchView.vue'
@@ -51,6 +53,8 @@ export const renewViews: SkinViews = {
   ClaimDetailView,
   ReviewFormView,
   MypageQuestionsView,
+  MypageInquiriesView,
+  InquiryNewView,
   LoginView,
   SignupView,
   SearchView,

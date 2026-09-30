@@ -38,6 +38,8 @@ export interface AdminDashboardPending {
   longShipping: number
   /** 열린 불일치 = reconciliation_issue status OPEN 건수(Track 104-2 D-216·FE-66). 목록 status=OPEN과 같은 조건. */
   reconciliationOpen: number
+  /** 미답변 운영자 문의 = inquiry answered_at NULL·삭제 제외(Track 106-4 D-241). 문의 목록 기본(미답변)과 같은 조건. */
+  inquiryUnanswered: number
 }
 
 /** yearMonth "yyyy-MM". */

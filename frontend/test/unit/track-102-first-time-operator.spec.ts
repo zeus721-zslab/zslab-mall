@@ -171,9 +171,10 @@ describe('결제 재개 실패 매핑 — BE 실패 8종 전수(Track 102 보완
 })
 
 describe('관리자 대시보드 처리 대기 hint', () => {
-  it('9칸 모두 hint가 있고, 카운트 기준이 목록과 어긋나는 3칸은 건수 차이를 알린다', () => {
+  it('10칸 모두 hint가 있고, 카운트 기준이 목록과 어긋나는 3칸은 건수 차이를 알린다', () => {
     // Track 104-2 FE-66: 불일치 칸 추가로 9칸(목록 status=OPEN과 같은 조건이라 근사 칸 아님)
-    expect(PENDING_TILES).toHaveLength(9)
+    // Track 106-4: 미답변 문의 칸 추가로 10칸(문의 목록 기본 필터와 같은 조건이라 근사 칸 아님)
+    expect(PENDING_TILES).toHaveLength(10)
     for (const tile of PENDING_TILES) {
       expect(tile.hint.length).toBeGreaterThan(0)
     }

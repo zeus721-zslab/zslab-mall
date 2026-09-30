@@ -3,6 +3,7 @@ import type { AdminDashboardDailyOrders, AdminDashboardMonthlyRevenue, AdminDash
 import {
   ADMIN_CLAIMS_PATH,
   ADMIN_DELIVERIES_PATH,
+  ADMIN_INQUIRIES_PATH,
   ADMIN_ORDERS_PATH,
   ADMIN_PRODUCTS_PATH,
   ADMIN_RECONCILIATION_PATH,
@@ -46,12 +47,13 @@ export interface PendingTile {
 }
 
 /**
- * 처리 대기 9칸 정의. 정산·클레임은 목록의 status 필터, 배송 대기는 주문 목록 status=PAID(BE는 품목 PAID 건수·주문 목록은 주문 단위라 근사).
+ * 처리 대기 10칸 정의. 정산·클레임은 목록의 status 필터, 배송 대기는 주문 목록 status=PAID(BE는 품목 PAID 건수·주문 목록은 주문 단위라 근사).
  * 재고 임박은 상품 목록 stockFilter=LOW(Track 89-A·BE는 variant 건수·목록은 상품 단위라 근사).
  * 상품·셀러 승인 대기(Track 96-2 FE-54·C-01)는 각 목록 status=PENDING(BE 카운트와 목록 필터 조건 동일·삭제 제외).
  * 클레임 처리 대기(Track 96-4 FE-56·C-02)는 클레임 목록 action=FOLLOWUP(BE 카운트와 같은 Specification·후속 액션 5종).
  * 장기 배송중(Track 99 FE-61·D-210)은 배송 목록 status=SHIPPING(BE는 발송 후 3일 이상 건수·목록은 배송중 전체라 근사).
  * 불일치(Track 104-2 FE-66·D-216)는 불일치 목록 status=OPEN(BE 카운트와 목록 필터 조건 동일)·기록이 어긋난 건이라 재고 임박과 같은 danger.
+ * 미답변 문의(Track 106-4 D-241)는 문의 관리 목록 기본 필터(미답변)와 같은 조건이라 쿼리 없이 목록으로 보낸다.
  */
 export const PENDING_TILES: PendingTile[] = [
   { key: 'settlementPending', label: '정산 대기', to: `${ADMIN_SETTLEMENTS_PATH}?status=PENDING`, alertTone: 'warning',
@@ -72,6 +74,8 @@ export const PENDING_TILES: PendingTile[] = [
     hint: '발송 후 3일 이상 배송중 · 배송 화면에서 확인 (목록은 배송중 전체라 건수가 다를 수 있음)' },
   { key: 'reconciliationOpen', label: '불일치', to: `${ADMIN_RECONCILIATION_PATH}?status=OPEN`, alertTone: 'danger',
     hint: '결제·주문·환불 기록이 서로 맞지 않는 건 · 불일치 화면에서 확인 후 해결 처리' },
+  { key: 'inquiryUnanswered', label: '미답변 문의', to: ADMIN_INQUIRIES_PATH, alertTone: 'warning',
+    hint: '답변 전 운영자 문의 · 문의 관리에서 답변' },
 ]
 
 /** 0건은 회색(neutral), 1건 이상은 칸별 주의 톤. */
