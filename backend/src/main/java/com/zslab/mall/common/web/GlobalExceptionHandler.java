@@ -26,6 +26,7 @@ import com.zslab.mall.file.exception.UploadBusyException;
 import com.zslab.mall.common.exception.UnauthenticatedException;
 import com.zslab.mall.delivery.exception.DeliveryInvalidStateException;
 import com.zslab.mall.delivery.exception.DeliveryNotFoundException;
+import com.zslab.mall.faq.exception.FaqNotFoundException;
 import com.zslab.mall.grade.exception.GradePolicyUnavailableException;
 import com.zslab.mall.inventory.exception.InventoryInvariantViolationException;
 import com.zslab.mall.order.exception.OrderItemInvalidStateException;
@@ -208,6 +209,7 @@ public class GlobalExceptionHandler {
     private static final String CODE_REVIEW_INVALID_STATE = "REVIEW_INVALID_STATE";
     private static final String CODE_PRODUCT_QUESTION_NOT_FOUND = "PRODUCT_QUESTION_NOT_FOUND";
     private static final String CODE_PRODUCT_QUESTION_INVALID_STATE = "PRODUCT_QUESTION_INVALID_STATE";
+    private static final String CODE_FAQ_NOT_FOUND = "FAQ_NOT_FOUND";
     private static final String CODE_INTERNAL_ERROR = "INTERNAL_ERROR";
 
     // ===== 400 =====
@@ -362,6 +364,12 @@ public class GlobalExceptionHandler {
             ProductQuestionNotFoundException exception, HttpServletRequest request) {
         // Track 106-2: 질문 미존재·삭제·타인 질문 수정·삭제·다른 셀러 상품 질문 답변(존재 은닉·404).
         return build(HttpStatus.NOT_FOUND, CODE_PRODUCT_QUESTION_NOT_FOUND, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(FaqNotFoundException.class)
+    public ResponseEntity<ProblemDetail> handleFaqNotFound(FaqNotFoundException exception, HttpServletRequest request) {
+        // Track 106-3: 관리자 FAQ 수정·삭제 대상 미존재·삭제(404).
+        return build(HttpStatus.NOT_FOUND, CODE_FAQ_NOT_FOUND, exception.getMessage(), request);
     }
 
     @ExceptionHandler(ClaimNotFoundException.class)

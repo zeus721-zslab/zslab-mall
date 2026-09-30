@@ -13583,3 +13583,25 @@ PR 계획:
 
 ### § 규칙 변경(2026-09-30)
 - 즉시 답 동점 순서를 최신순에서 "유형 우선(QNA → REVIEW → PRODUCT) → 최신순"으로 바꿨다(ProductQuestionSuggestService.TYPE_PRIORITY). 사유: 같은 점수면 셀러가 이미 답한 Q&A가 가장 직접적인 답이다. 이전 규칙에서는 상품 수정 시각 때문에 설명 조각이 앞섰다.
+
+## D-240 구매자 채팅 도우미 FAQ BE — 공개 목록·즉시 답 · 관리자 등록·수정·삭제·정렬 (Track 106-3 · C4) (2026-09-30)
+
+### 배경
+- C4의 FAQ가 없었다. 정찰: docs/track-106-3/recon-report.md(결정 필요 1~8 · 추천안 (a) 확정). 구매자 화면 플로팅 채팅 도우미(카테고리 칩 → 질문 칩 → 답 · 자유 입력)의 데이터와 관리자 편집 API다. FE는 별도 PR.
+
+### §1-A 갈림길·채택/기각 근거
+- 저장 방식(D-220 보완 2 "106에서는 정적 파일 + 로딩 경계" 대체): α 정적 파일 【기각】 — 확정 설계가 관리자 화면의 등록·수정·순서 변경을 요구하고, 정적 파일은 배포 없이 고칠 수 없다 / β DB 테이블 + 관리자 CRUD 【채택】 — Category 선례(soft delete·전체 id 배열 정렬·수정·삭제만 감사)를 그대로 따른다. FAQ 트리 편집을 업무함 단계로 미루던 D-220 문구는 이 결정으로 대체된다.
+- 즉시 답 검색: α FAQ 서비스에 106-2 토큰 점수 복제 【기각】 — 같은 규칙이 두 곳에서 따로 바뀔 수 있다(상품 검색 LIKE escape가 이미 3곳 복제 상태) / β 순수 함수를 `common/util/KeywordMatcher`로 추출하고 106-2는 위임 【채택】 — 입력 규칙(trim 후 2~100자 · 토큰 규칙)이 두 즉시 답에서 같다는 요구가 코드로 묶인다. 106-2 동작 불변(D-239 §2·외부 검토 반영의 `ProductQuestionSuggestService` 행 번호는 추출 전 기준).
+- 카테고리 모델: α 별도 테이블(관리자가 카테고리도 편집) 【기각】 — 확정 설계의 편집 대상은 FAQ 내용이고, 테이블이면 CRUD·정렬 한 벌이 더 생긴다 / β 고정 enum 5종 + 4층위 잠금 【채택】 — 칩 순서 = `FaqCategory` 선언 순서, 카테고리 안 순서만 sort_order.
+- 초기 데이터: α seed.py 【기각】 — 데모 마커 기반·운영 1회 실행 전제라 운영 기본 콘텐츠 공급 경로가 아니다 / β Java 초기화기 【기각】 — CatalogDemoSeedRunner 선례는 데모 시드이고 운영에서도 켜져 있어 용도가 섞인다 / γ Flyway V42 INSERT 【채택】 — V40 기본 키워드 선례. 운영 배포 시 자동 반영되고 이후 관리자 수정분과 원문이 달라지는 것은 허용한다(재실행 없음).
+
+### §2 구현
+- V42__faq.sql: faq(category VARCHAR(30) + chk_faq_category · question 200 · answer 2000 · sort_order · visible · 공통 감사 + soft delete 컬럼) · ix_faq_category_sort(category, sort_order) · 초기 FAQ 56건.
+- 공개: GET /api/v1/faqs(공개·미삭제 전체 · 카테고리 선언 순서 → sort_order → id) · GET /api/v1/faqs/suggest?q=(질문 + 답 텍스트 점수 · 상위 5건 · 동점은 노출 순서) — SecurityConfig 두 경로 정확 매칭 GET permitAll.
+- 관리자: /api/v1/admin/faqs GET·POST(해당 카테고리 끝)·PUT /{faqId}(전체 치환 · 카테고리 이동 시 새 카테고리 끝)·DELETE /{faqId}(soft)·PATCH /order(category + 해당 카테고리 전체 id) · FAQ_NOT_FOUND 404 · 감사 대상 PolymorphicTargetType.FAQ · AuditFieldMaskingPolicyTest 박제 키 +4(answer·category·question·visible · 운영자 공개 안내문이라 평문).
+
+### §8 이월
+- 동시 편집: 락·버전 없이 단일 운영자 전제(마지막 저장이 이김 · Category 동일) — 정렬과 수정이 겹치면 한쪽 변경이 덮일 수 있다.
+- 공개 suggest rate limit 없음(D-239 §8과 같은 edge 계층 과제).
+
+외부 검토: A / 지적 15건 중 수용 4건
