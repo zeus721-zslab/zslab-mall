@@ -5,7 +5,6 @@ import com.zslab.mall.audit.service.AuditContext;
 import com.zslab.mall.audit.service.AuditRecorder;
 import com.zslab.mall.auth.enums.RoleCode;
 import com.zslab.mall.auth.exception.SuperAdminRequiredException;
-import com.zslab.mall.auth.repository.UserRoleRepository;
 import com.zslab.mall.category.entity.Category;
 import com.zslab.mall.category.repository.CategoryRepository;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
@@ -54,7 +53,7 @@ public class DemoProductQuestionSeedService {
     static final String REASON_NO_OWNER = "소유 구성원 없음";
     static final String REASON_NO_BUYER = "질문 작성자로 쓸 데모 구매자 없음";
 
-    private final UserRoleRepository userRoleRepository;
+    private final DemoSeedAuthorization authorization;
     private final SellerRepository sellerRepository;
     private final SellerUserRepository sellerUserRepository;
     private final CategoryRepository categoryRepository;
@@ -62,10 +61,10 @@ public class DemoProductQuestionSeedService {
     private final DemoProductQuestionWriter writer;
     private final AuditRecorder auditRecorder;
 
-    public DemoProductQuestionSeedService(UserRoleRepository userRoleRepository, SellerRepository sellerRepository,
+    public DemoProductQuestionSeedService(DemoSeedAuthorization authorization, SellerRepository sellerRepository,
             SellerUserRepository sellerUserRepository, CategoryRepository categoryRepository, DemoSeedRepository demoSeedRepository,
             DemoProductQuestionWriter writer, AuditRecorder auditRecorder) {
-        this.userRoleRepository = userRoleRepository;
+        this.authorization = authorization;
         this.sellerRepository = sellerRepository;
         this.sellerUserRepository = sellerUserRepository;
         this.categoryRepository = categoryRepository;
@@ -82,10 +81,7 @@ public class DemoProductQuestionSeedService {
      * @throws SuperAdminRequiredException 호출자가 SUPER_ADMIN이 아닐 때(403 · dryRun 포함)
      */
     public DemoSeedProductQuestionResponse seed(Long callerUserId, boolean dryRun, AuditContext auditContext) {
-        if (!userRoleRepository.existsByUserIdAndRole_Code(callerUserId, RoleCode.SUPER_ADMIN)) {
-            log.warn("[DemoSeed] SUPER_ADMIN 아님 차단(403) callerUserId={}", callerUserId);
-            throw new SuperAdminRequiredException("SUPER_ADMIN만 데모 데이터를 적재할 수 있습니다.");
-        }
+        authorization.requireSuperAdmin(callerUserId);
         List<ExcludedSeller> excluded = new ArrayList<>();
         Map<Long, TargetSeller> targets = selectSellers(excluded);
         List<Product> products = targets.isEmpty() ? List.of()

@@ -66,9 +66,39 @@ final class DemoSeedFixture {
                 answer == null ? null : answeredBy, createdAt, createdAt));
     }
 
+    /** 주문 1건 + 품목 1건(상태·구매확정 시각 지정). 품목 public_id를 돌려준다. 주문 id = 품목 id. */
+    String seedOrderItem(long itemId, long buyerId, long productId, long sellerId, String itemStatus, LocalDateTime confirmedAt) {
+        String itemPublicId = pid("oit_", "DSI" + itemId);
+        withoutForeignKeys(() -> {
+            jdbc.update("INSERT INTO `order` (id, public_id, buyer_id, order_no, status, total_price, discount_amount, shipping_fee, "
+                    + "created_at, updated_at) VALUES (?, ?, ?, ?, ?, 10000, 0, 0, NOW(6), NOW(6))",
+                    itemId, pid("ord_", "DSO" + itemId), buyerId, "ORDDS" + itemId, itemStatus);
+            jdbc.update("INSERT INTO order_item (id, public_id, order_id, product_id, variant_id, seller_id, quantity, unit_price, "
+                    + "total_price, item_status, confirmed_at, created_at, updated_at, product_name, commission_rate) "
+                    + "VALUES (?, ?, ?, ?, 1, ?, 1, 10000, 10000, ?, ?, NOW(6), NOW(6), '시더상품', 1000)",
+                    itemId, itemPublicId, itemId, productId, sellerId, itemStatus, confirmedAt);
+        });
+        return itemPublicId;
+    }
+
+    /** 리뷰 행 직접 삽입(품목 FK 끔 · deleted면 삭제 시각 채움 · HIDDEN이면 사유 채움). */
+    void insertReview(long reviewId, long orderItemId, long productId, long buyerId, String content, String status, boolean deleted) {
+        withoutForeignKeys(() -> jdbc.update(
+                "INSERT INTO review (id, public_id, order_item_id, product_id, buyer_id, rating, content, status, hidden_reason, "
+                        + "deleted_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 5, ?, ?, ?, ?, NOW(6), NOW(6))",
+                reviewId, pid("rvw_", "DSR" + reviewId), orderItemId, productId, buyerId, content, status,
+                "HIDDEN".equals(status) ? "테스트 숨김" : null, deleted ? LocalDateTime.now() : null));
+    }
+
     void cleanup(long fromId, long toId) {
         withoutForeignKeys(() -> {
             jdbc.update("DELETE FROM audit_log WHERE target_type = 'DEMO_SEED' AND actor_user_id BETWEEN ? AND ?", fromId, toId);
+            jdbc.update("DELETE FROM review_keyword_selection WHERE review_id IN "
+                    + "(SELECT id FROM review WHERE product_id BETWEEN ? AND ? OR buyer_id BETWEEN ? AND ?)", fromId, toId, fromId, toId);
+            jdbc.update("DELETE FROM review WHERE product_id BETWEEN ? AND ? OR buyer_id BETWEEN ? AND ?", fromId, toId, fromId, toId);
+            jdbc.update("DELETE FROM product_review_summary WHERE product_id BETWEEN ? AND ?", fromId, toId);
+            jdbc.update("DELETE FROM order_item WHERE id BETWEEN ? AND ?", fromId, toId);
+            jdbc.update("DELETE FROM `order` WHERE id BETWEEN ? AND ?", fromId, toId);
             jdbc.update("DELETE FROM product_question WHERE product_id BETWEEN ? AND ?", fromId, toId);
             jdbc.update("DELETE FROM seller_user WHERE user_id BETWEEN ? AND ?", fromId, toId);
             jdbc.update("DELETE FROM product WHERE id BETWEEN ? AND ?", fromId, toId);
