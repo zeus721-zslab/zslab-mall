@@ -40,9 +40,12 @@ describe('faqCategoryMoved', () => {
 })
 
 describe('관리자 메뉴', () => {
-  it('고객센터 그룹의 FAQ 관리 · 활성 메뉴 경로', () => {
+  it('고객센터 그룹의 FAQ 관리(Track 106-4 문의 관리가 뒤에 붙음) · 활성 메뉴 경로', () => {
     const group = ADMIN_MENU.find((menu) => menu.label === '고객센터')
-    expect(group?.children).toEqual([{ to: '/admin/faqs', label: 'FAQ 관리' }])
+    expect(group?.children).toEqual([
+      { to: '/admin/faqs', label: 'FAQ 관리' },
+      { to: '/admin/inquiries', label: '문의 관리' },
+    ])
     expect(resolveActiveMenuPath('/admin/faqs')).toBe('/admin/faqs')
   })
 })

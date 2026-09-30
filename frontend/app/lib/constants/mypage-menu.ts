@@ -16,6 +16,7 @@ export const MYPAGE_MENU_ITEMS: MypageMenuItem[] = [
   { to: MYPAGE_HOME_PATH, label: '홈', description: '주문 현황과 최근 주문' },
   { to: '/orders', label: '주문 내역', description: '주문·취소·반품·교환 진행 상태 확인' },
   { to: '/mypage/questions', label: '내 질문', description: '상품 질문과 셀러 답변 확인' },
+  { to: '/mypage/inquiries', label: '내 문의', description: '운영자 문의와 답변 확인' },
   { to: '/mypage/profile', label: '회원 정보', description: '이름·연락처 확인 및 수정' },
   { to: '/mypage/addresses', label: '배송지 관리', description: '주소록 추가·수정·삭제' },
   { to: '/mypage/password', label: '비밀번호 변경', description: '로그인 비밀번호 변경' },

@@ -46,6 +46,7 @@ const EXPECTED_LINKS: { href: string; label: string }[] = [
   { href: '/mypage', label: '마이페이지' },
   { href: '/orders', label: '주문 내역' },
   { href: '/mypage/questions', label: '내 질문' },
+  { href: '/mypage/inquiries', label: '내 문의' },
   { href: '/mypage/profile', label: '회원 정보' },
   { href: '/mypage/addresses', label: '배송지 관리' },
   { href: '/mypage/password', label: '비밀번호 변경' },
@@ -120,7 +121,7 @@ describe('구매자 헤더(renew LayoutShell)', () => {
     expect(filled.find('a[href="/cart"]').text()).toContain('3')
   })
 
-  it('트리거 열기 → 링크 5개(순서·경로) + 로그아웃 항목, 회원 탈퇴 없음', async () => {
+  it('트리거 열기 → 링크 7개(순서·경로 · Track 106-4 내 문의 포함) + 로그아웃 항목, 회원 탈퇴 없음', async () => {
     authMock.isAuthenticated = true
     const wrapper = await mountSuspended(DefaultLayout)
     await openAccountMenu(wrapper)

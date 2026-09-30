@@ -76,7 +76,8 @@ test.describe('구매자 채팅 도우미(Track 106-3)', () => {
     await page.getByTestId('faq-chip').filter({ hasText: '송장번호' }).click()
     await expect(lastBubble(page)).toHaveText('주문 상세의 상품별 배송 정보에서 확인할 수 있습니다.')
     await expect(page.getByTestId('faq-message').nth(-2)).toHaveAttribute('data-role', 'user')
-    await expect(page.getByTestId('faq-chip')).toHaveText(['배송 다른 질문', '처음으로'])
+    // Track 106-4: 답 말풍선 뒤에 "운영자에게 남기기" 칩이 붙는다.
+    await expect(page.getByTestId('faq-chip')).toHaveText(['배송 다른 질문', '운영자에게 남기기', '처음으로'])
     await page.getByTestId('faq-chip').filter({ hasText: '배송 다른 질문' }).click()
     await expect(page.getByTestId('faq-chip')).toHaveText(['구매확정은 무엇인가요?'])
     const messageCount = await page.getByTestId('faq-message').count()

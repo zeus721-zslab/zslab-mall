@@ -53,8 +53,8 @@ describe('증감률', () => {
 })
 
 describe('처리 대기', () => {
-  it('9칸 순서·링크: 정산·클레임·배송·재고 임박·상품 승인·셀러 승인·클레임 처리 대기·장기 배송중·불일치 전부 목록 필터로', () => {
-    expect(PENDING_TILES.map((tile) => tile.key)).toEqual(['settlementPending', 'claimRequested', 'deliveryReady', 'lowStock', 'productPending', 'sellerPending', 'claimFollowup', 'longShipping', 'reconciliationOpen'])
+  it('10칸 순서·링크: 정산·클레임·배송·재고 임박·상품 승인·셀러 승인·클레임 처리 대기·장기 배송중·불일치·미답변 문의 전부 목록으로', () => {
+    expect(PENDING_TILES.map((tile) => tile.key)).toEqual(['settlementPending', 'claimRequested', 'deliveryReady', 'lowStock', 'productPending', 'sellerPending', 'claimFollowup', 'longShipping', 'reconciliationOpen', 'inquiryUnanswered'])
     expect(PENDING_TILES[0]!.to).toBe('/admin/settlements?status=PENDING')
     expect(PENDING_TILES[1]!.to).toBe('/admin/orders/claims?status=REQUESTED')
     expect(PENDING_TILES[2]!.to).toBe('/admin/orders?status=PAID')
@@ -68,6 +68,9 @@ describe('처리 대기', () => {
     expect(PENDING_TILES[7]!.to).toBe('/admin/orders/deliveries?status=SHIPPING')
     // Track 104-2(FE-66·D-216): 불일치는 불일치 목록 status=OPEN(BE 카운트와 같은 조건)
     expect(PENDING_TILES[8]!.to).toBe('/admin/orders/reconciliation?status=OPEN')
+    // Track 106-4(D-241): 미답변 문의는 문의 관리 목록(기본 필터가 미답변이라 쿼리 없음)·1건 이상 노랑
+    expect(PENDING_TILES[9]!.to).toBe('/admin/inquiries')
+    expect(pendingChipClass(PENDING_TILES[9]!, 1)).toBe('adm-chip adm-chip--warning')
   })
 
   it('톤: 0건 회색, 1건 이상은 정산·클레임·배송 노랑·재고 임박 빨강', () => {

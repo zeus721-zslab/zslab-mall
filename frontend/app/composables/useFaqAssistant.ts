@@ -5,6 +5,7 @@ import {
   type FaqCategory,
   faqCategoryLabel,
 } from '~/lib/constants/faq'
+import { inquiryNewPath, orderIdFromPath } from '~/lib/constants/inquiry'
 import type { FaqItem } from '~/types/faq'
 
 /** 말풍선 아래 칩. 카테고리 칩 묶음은 말풍선의 showCategories로 따로 그린다(현재 페이지 기준으로 순서·강조가 바뀌어야 해서 저장하지 않는다). */
@@ -13,6 +14,8 @@ export type FaqChip =
   | { kind: 'moreInCategory'; category: FaqCategory; excludeId: number }
   | { kind: 'restart' }
   | { kind: 'retry' }
+  /** 운영자에게 남기기(Track 106-4) — 누르는 시점의 경로로 작성 화면 주소를 만든다(주문 상세면 그 주문을 붙임). */
+  | { kind: 'inquiry' }
 
 export interface FaqMessage {
   id: number
@@ -54,6 +57,7 @@ function prefersReducedMotion(): boolean {
  * 페이지를 옮기거나 새로고침해도 이어진다(최근 50개 말풍선). 상태는 앱 전역(useState)이라 레이아웃이 다시 그려져도 유지된다.
  */
 export function useFaqAssistant() {
+  const route = useRoute()
   const faqList = useFaqList()
   const faqSuggest = useFaqSuggest()
   const messages = useState<FaqMessage[]>('faq-assistant-messages', () => [])
@@ -121,7 +125,7 @@ export function useFaqAssistant() {
     typing.value = false
     say(faq.answer, {
       isAnswer: true,
-      chips: [{ kind: 'moreInCategory', category: faq.category, excludeId: faq.id }, { kind: 'restart' }],
+      chips: [{ kind: 'moreInCategory', category: faq.category, excludeId: faq.id }, { kind: 'inquiry' }, { kind: 'restart' }],
     })
   }
 
@@ -150,6 +154,10 @@ export function useFaqAssistant() {
         return
       case 'retry':
         await greet()
+        return
+      case 'inquiry':
+        // 로그인 여부는 여기서 보지 않는다 — 작성 화면의 buyer 미들웨어가 로그인 후 이 주소로 돌려보낸다.
+        await navigateTo(inquiryNewPath(orderIdFromPath(route.path)))
     }
   }
 
@@ -171,7 +179,7 @@ export function useFaqAssistant() {
       return
     }
     if (results.length === 0) {
-      say(NOT_FOUND_TEXT, { showCategories: true })
+      say(NOT_FOUND_TEXT, { showCategories: true, chips: [{ kind: 'inquiry' }] })
       return
     }
     say('이런 질문을 찾았어요.', { chips: results.map((faq) => ({ kind: 'question', faq })) })

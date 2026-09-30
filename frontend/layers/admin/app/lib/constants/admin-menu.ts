@@ -46,7 +46,10 @@ export const ADMIN_MENU: AdminMenuGroup[] = [
   },
   {
     label: '고객센터',
-    children: [{ to: '/admin/faqs', label: 'FAQ 관리' }],
+    children: [
+      { to: '/admin/faqs', label: 'FAQ 관리' },
+      { to: '/admin/inquiries', label: '문의 관리' },
+    ],
   },
   {
     label: '정산 관리',

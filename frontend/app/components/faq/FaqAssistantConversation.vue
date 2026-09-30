@@ -25,6 +25,8 @@ function chipLabel(chip: FaqChip): string {
       return '처음으로'
     case 'retry':
       return '다시 시도'
+    case 'inquiry':
+      return '운영자에게 남기기'
   }
 }
 

@@ -6,6 +6,7 @@ package com.zslab.mall.dashboard.controller.response;
  * Track 96-4(D-205·C-02) 추가 1종: 클레임 처리 대기(관리자 후속 액션 5종 보유·목록 action=FOLLOWUP과 같은 Specification).
  * Track 99(D-210) 추가 1종: 장기 배송중(발송 OUTBOUND·SHIPPING·shipped_at이 {@code LongShippingThreshold.DAYS}일 이전).
  * Track 104-2(D-216) 추가 1종: 열린 불일치(reconciliation_issue status OPEN).
+ * Track 106-4(D-241) 추가 1종: 미답변 운영자 문의(inquiry answered_at NULL·삭제 제외).
  */
 public record DashboardPendingResponse(
         long settlementPending,
@@ -16,5 +17,6 @@ public record DashboardPendingResponse(
         long sellerPending,
         long claimFollowup,
         long longShipping,
-        long reconciliationOpen) {
+        long reconciliationOpen,
+        long inquiryUnanswered) {
 }

@@ -34,8 +34,8 @@ export const FAQ_CONVERSATION_MAX_MESSAGES = 50
 /** 도우미 답 말풍선 앞 짧은 타이핑 표시 시간(동작 줄이기면 생략). */
 export const FAQ_TYPING_DELAY_MS = 450
 
-/** 도우미를 그리지 않는 경로: 모의 결제(외부 결제창 역할) · 리뷰 작성·수정(하단 고정 등록 버튼과 겹침). */
-const EXCLUDED_PATTERNS: RegExp[] = [/^\/payment\/mock$/, /^\/reviews\/new$/, /^\/reviews\/[^/]+\/edit$/]
+/** 도우미를 그리지 않는 경로: 모의 결제(외부 결제창 역할) · 리뷰 작성·수정(하단 고정 등록 버튼과 겹침) · 운영자 문의 작성(도우미에서 넘어온 화면·입력 폼과 겹침). */
+const EXCLUDED_PATTERNS: RegExp[] = [/^\/payment\/mock$/, /^\/reviews\/new$/, /^\/reviews\/[^/]+\/edit$/, /^\/mypage\/inquiries\/new$/]
 
 /** 페이지별로 먼저 보여 줄(강조할) 카테고리. 위에서부터 첫 일치 규칙을 쓴다. */
 const FIRST_CATEGORY_RULES: { pattern: RegExp; categories: FaqCategory[] }[] = [

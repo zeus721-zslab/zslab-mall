@@ -13,6 +13,7 @@ export const ADMIN_MEMBERS_WITHDRAWN_PATH = '/admin/members/withdrawn'
 export const ADMIN_SELLERS_PATH = '/admin/members/sellers'
 export const ADMIN_SETTLEMENTS_PATH = '/admin/settlements'
 export const ADMIN_SETTLEMENTS_SELLERS_PATH = '/admin/settlements/sellers'
+export const ADMIN_INQUIRIES_PATH = '/admin/inquiries'
 
 /**
  * 허용 base 외 추가 진입 목록(FE-28): 주문 상세는 주문 목록·클레임 목록 양쪽에서 진입하므로 back이 클레임 목록(쿼리 포함)이면 그대로

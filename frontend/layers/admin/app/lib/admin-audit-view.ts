@@ -79,6 +79,7 @@ const AUDIT_FIELD_LABEL: Record<string, string> = {
   carryoverAmount: '이월 차감',
   netAmount: '지급액',
   memo: '메모',
+  answer: '답변',
 }
 
 export function auditFieldLabel(field: string): string {
@@ -91,6 +92,8 @@ const STATUS_VALUE_LABEL: Record<AdminAuditTargetType, (value: string) => string
   SETTLEMENT: (value) => SETTLEMENT_STATUS_LABELS[value as SettlementStatusCode] ?? value,
   DELIVERY: (value) => ADMIN_DELIVERY_STATUS_LABEL[value as AdminDeliveryStatus] ?? value,
   RECONCILIATION_ISSUE: (value) => RECONCILIATION_ISSUE_STATUS_LABEL[value as ReconciliationIssueStatus] ?? value,
+  // 문의 감사는 answer 키만 싣는다(상태 컬럼 없음 · D-241) — status 값이 오면 원본을 그대로 보인다.
+  INQUIRY: (value) => value,
 }
 
 /** 값 → 원 단위 금액. 숫자가 아니면 원본(방어). */

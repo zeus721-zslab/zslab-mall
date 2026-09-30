@@ -11,6 +11,8 @@ export type SkinViewName =
   | 'CheckoutCompleteView'
   | 'MypageView'
   | 'MypageQuestionsView'
+  | 'MypageInquiriesView'
+  | 'InquiryNewView'
   | 'WithdrawView'
   | 'LoginView'
   | 'SignupView'
