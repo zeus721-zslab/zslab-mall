@@ -48,13 +48,15 @@ class SellerWriteMappingRegistryTest extends AbstractIntegrationTest {
             "POST /api/v1/seller/order-items/{orderItemPublicId}/prepare-shipment",
             "POST /api/v1/seller/deliveries/{deliveryPublicId}/mark-delivered",
             "POST /api/v1/seller/auth/login",
-            "POST /api/v1/seller/auth/logout");
+            "POST /api/v1/seller/auth/logout",
+            // D-239 상품 질문 셀러 답변(자기 상품 질문만·다른 셀러 404·숨김 422·정지 셀러 403)
+            "PUT /api/v1/seller/product-questions/{questionPublicId}/answer");
 
     @Autowired
     private RequestMappingHandlerMapping requestMappingHandlerMapping;
 
     @Test
-    @DisplayName("/api/v1/seller/** POST·PUT·PATCH·DELETE 매핑 집합 = 허용 목록 20건과 정확히 일치(신규 셀러 쓰기는 RED)")
+    @DisplayName("/api/v1/seller/** POST·PUT·PATCH·DELETE 매핑 집합 = 허용 목록 21건과 정확히 일치(신규 셀러 쓰기는 RED)")
     void sellerWriteMappings_matchAllowedListExactly() {
         Set<String> actual = new TreeSet<>();
         for (Map.Entry<RequestMappingInfo, HandlerMethod> entry : requestMappingHandlerMapping.getHandlerMethods().entrySet()) {
