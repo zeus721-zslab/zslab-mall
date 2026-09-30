@@ -23,6 +23,20 @@ export interface CheckoutRequest {
   method: PaymentMethod
 }
 
+/** 직접 주문 품목(BE OrderItemRequest 대응). 식별자·수량만 보내고 단가는 서버가 도출한다(D-56). */
+export interface OrderItemRequest {
+  productId: string
+  variantId: string
+  quantity: number
+}
+
+/** 직접 주문 요청(POST /api/v1/orders · BE CreateOrderRequest 대응 · 바로구매 FE-100). */
+export interface OrderCreateRequest {
+  items: OrderItemRequest[]
+  shippingAddress: ShippingAddress
+  method: PaymentMethod
+}
+
 /**
  * 체크아웃 응답(BE CheckoutResponse·NON_NULL 직렬화). 성공 시 payment.redirectUrl 존재·next 생략(null).
  * INITIATE_FAILED 시 payment.publicId=null·status.code='INITIATE_FAILED'·next.retryPaymentUrl 제공.

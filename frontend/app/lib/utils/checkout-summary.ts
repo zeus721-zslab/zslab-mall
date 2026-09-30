@@ -10,9 +10,15 @@ import { SHIPPING_FEE } from '~/lib/constants/checkout'
  * hasUnpurchasableSelected=true로 알려 호출부가 결제를 차단하고, 금액·종류·수량은 selected ∧ purchasable 기준으로만
  * 계산한다(차단이 풀린 상태에서는 selected 전체 = purchasable이라 서버 금액과 일치).
  */
+/** 요약에 쓰는 품목 필드. 장바구니 품목(CartItemView)과 바로구매 품목(FE-100 · lib/utils/buy-now.ts)이 모두 이 모양이다. */
+export type CheckoutSummaryItem = Pick<
+  CartItemView,
+  'variantPublicId' | 'quantity' | 'selected' | 'productName' | 'displayPrice' | 'purchasable' | 'thumbnailUrl' | 'optionLabel'
+>
+
 export interface CheckoutSummary {
   /** 주문 상품 목록(selected 전체·구매 불가 품목 포함·표시용). */
-  items: CartItemView[]
+  items: CheckoutSummaryItem[]
   /** selected 품목 중 구매 불가(purchasable=false)가 1개 이상 있는지. true면 결제 차단 대상. */
   hasUnpurchasableSelected: boolean
   /** 총 상품 종류 수(selected ∧ purchasable). */
@@ -28,7 +34,7 @@ export interface CheckoutSummary {
 }
 
 /** 장바구니 품목에서 체크아웃 요약을 만든다. 미선택 품목은 목록·금액 모두에서 제외한다. */
-export function buildCheckoutSummary(cartItems: CartItemView[]): CheckoutSummary {
+export function buildCheckoutSummary(cartItems: CheckoutSummaryItem[]): CheckoutSummary {
   const selectedItems = cartItems.filter((item) => item.selected)
   const purchasableItems = selectedItems.filter((item) => item.purchasable)
   const productTotal = purchasableItems.reduce((sum, item) => sum + item.displayPrice * item.quantity, 0)

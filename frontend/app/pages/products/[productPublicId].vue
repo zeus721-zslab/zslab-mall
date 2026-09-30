@@ -2,6 +2,7 @@
 import type { ProductImage, ProductSummary, ProductVariant } from '~/types/product'
 import { BUYER_ROLE } from '~/lib/constants/auth'
 import { isOptionValueSoldOut } from '~/lib/utils/product-option-availability'
+import { buyNowCheckoutPath } from '~/lib/utils/buy-now'
 import type { ProductDetailPageVm } from '~/skins/contracts/product-detail'
 
 // 라우트 파라미터(prd_)로 상세를 조회한다. permitAll 공개 카탈로그라 인증 없이 SSR/CSR 모두 조회 가능.
@@ -174,6 +175,16 @@ async function handleAddToCart(): Promise<void> {
   }
 }
 
+/**
+ * 바로구매(FE-100 · D1 β): 확정 variant·수량을 URL에 실어 주문서 단일 상품 경로로 간다. 장바구니 API는 부르지 않는다.
+ * 로그인 판단은 주문서의 buyer 미들웨어가 한다(로그인 뒤 같은 주문서 URL로 복귀).
+ */
+async function handleBuyNow(): Promise<void> {
+  const variantPublicId = selectedVariantPublicId.value
+  if (!variantPublicId || !canAddToCart.value) return
+  await navigateTo(buyNowCheckoutPath({ productPublicId, variantPublicId, quantity: quantity.value }))
+}
+
 useSeoMeta({
   title: () => (data.value ? `${data.value.name} · zslab-mall` : '상품 상세 · zslab-mall'),
   description: () => data.value?.description ?? 'zslab-mall 상품 상세',
@@ -201,6 +212,7 @@ const vm: ProductDetailPageVm = reactive({
   addedSignal,
   addErrorMessage,
   handleAddToCart,
+  handleBuyNow,
   isOptionValueSoldOut: optionValueSoldOut,
   isOptionValueUnavailable: optionValueUnavailable,
   totalPrice,

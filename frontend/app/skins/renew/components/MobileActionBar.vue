@@ -13,8 +13,10 @@ const props = defineProps<{
   anchor: HTMLElement | null
   // true면 감싼 form을 제출한다(주문서).
   submit?: boolean
+  // 있으면 주 버튼 왼쪽에 보조 버튼을 둔다(상세 옵션 상품 [장바구니 담기][바로구매] · FE-100). 비활성 규칙은 주 버튼과 같다.
+  secondaryLabel?: string
 }>()
-const emit = defineEmits<{ action: [] }>()
+const emit = defineEmits<{ action: []; secondary: [] }>()
 
 const barElement = ref<HTMLElement | null>(null)
 // null = 아직 측정 전(숨김).
@@ -64,6 +66,15 @@ useHead({
         </p>
         <p v-else class="truncate text-small text-sub">{{ pendingText }}</p>
       </div>
+      <button
+        v-if="secondaryLabel"
+        type="button"
+        class="btn btn-secondary btn-md h-12 shrink-0"
+        :disabled="disabled"
+        @click="emit('secondary')"
+      >
+        {{ secondaryLabel }}
+      </button>
       <button
         :type="submit ? 'submit' : 'button'"
         class="btn btn-primary btn-md h-12 shrink-0"

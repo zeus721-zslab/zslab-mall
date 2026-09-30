@@ -1,4 +1,4 @@
-import type { CheckoutRequest, CheckoutResponse, PaymentMethod } from '~/types/checkout'
+import type { CheckoutRequest, CheckoutResponse, OrderCreateRequest, PaymentMethod } from '~/types/checkout'
 
 /** 체크아웃 호출 결과. status(201 신규·200 멱등 캐시)·Location 헤더(신규만 존재)를 응답 본문과 함께 노출한다. */
 export interface CheckoutResult {
@@ -19,12 +19,24 @@ export function useCheckout() {
   const api = useBuyerApi()
 
   async function submit(request: CheckoutRequest): Promise<CheckoutResult> {
-    const response = await api.raw<CheckoutResponse>('/v1/cart/checkout', {
+    return postOrder('/v1/cart/checkout', request)
+  }
+
+  /**
+   * 바로구매 직접 주문(POST /api/v1/orders · FE-100). 장바구니를 거치지 않고 품목을 직접 보낸다. 응답·Idempotency-Key·오류 처리는
+   * 장바구니 결제와 같다(같은 CheckoutService · 201 + Location · 422 ORDER_NOT_PAYABLE 등).
+   */
+  async function submitOrder(request: OrderCreateRequest): Promise<CheckoutResult> {
+    return postOrder('/v1/orders', request)
+  }
+
+  async function postOrder(path: string, body: CheckoutRequest | OrderCreateRequest): Promise<CheckoutResult> {
+    const response = await api.raw<CheckoutResponse>(path, {
       method: 'POST',
       headers: {
         'Idempotency-Key': crypto.randomUUID(),
       },
-      body: request,
+      body,
     })
 
     return {
@@ -70,5 +82,5 @@ export function useCheckout() {
     }
   }
 
-  return { submit, sendPaymentCallback, retryPayment }
+  return { submit, submitOrder, sendPaymentCallback, retryPayment }
 }

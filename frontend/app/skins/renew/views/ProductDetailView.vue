@@ -4,6 +4,8 @@ import { PRODUCT_SECTION_IDS } from '~/lib/constants/product-sections'
 import CartAddedSnackbar from '../components/CartAddedSnackbar.vue'
 import { flyToCart } from '../fly-to-cart'
 import MobileActionBar from '../components/MobileActionBar.vue'
+import ProductOptionSheet from '../components/ProductOptionSheet.vue'
+import ProductPurchaseOptions from '../components/ProductPurchaseOptions.vue'
 import ProductGlanceChips from '../components/ProductGlanceChips.vue'
 import ProductQuestionSection from '../components/ProductQuestionSection.vue'
 import ProductReviewSection from '../components/ProductReviewSection.vue'
@@ -51,6 +53,19 @@ function formatAmount(value: number): string {
 
 // 본문 담기 버튼: 화면에 없을 때만 모바일 고정 바가 나타난다(FE-71 도킹).
 const addButton = ref<HTMLButtonElement | null>(null)
+
+// 옵션 상품의 하단 바 → 옵션 시트(FE-100). 열림 여부만 화면 상태이고 옵션·수량·담기·바로구매는 페이지 vm이다.
+const hasOptions = computed(() => (product.value?.optionGroups.length ?? 0) > 0)
+const optionSheetOpen = ref<boolean>(false)
+// 시트를 먼저 닫고 담는다 — 담기 성공 스낵바·비행이 시트 뒤에 가리지 않게 한다.
+function addFromSheet(): void {
+  optionSheetOpen.value = false
+  props.vm.handleAddToCart()
+}
+function buyFromSheet(): void {
+  optionSheetOpen.value = false
+  props.vm.handleBuyNow()
+}
 
 // 담기 성공마다 대표 이미지가 헤더 장바구니로 날아간다(FE-99). 대표 img는 썸네일 전환 때 바뀌므로 감싼 박스에서 찾는다.
 // flush post: 담기 뒤 장바구니 재조회로 헤더 뱃지가 새로 그려진 다음에 목적지를 잰다.
@@ -143,52 +158,8 @@ watch(
 
             <hr class="my-6 border-line" />
 
-            <!-- 옵션: 선택 = 칩 보라 채움(aria-pressed) · 품절 표시(흐림·취소선) = 현재 선택 조합 기준 · 비활성 = 이 값으로 살 variant가 전혀 없을 때만(교착 방지·FE-70) -->
-            <div v-if="product.optionGroups.length > 0" class="space-y-5">
-              <div v-for="group in product.optionGroups" :key="group.name">
-                <p class="text-small font-bold text-ink">{{ group.name }}</p>
-                <div class="mt-2 flex flex-wrap gap-2">
-                  <button
-                    v-for="optionValue in group.values"
-                    :key="optionValue.value"
-                    type="button"
-                    :disabled="vm.isOptionValueUnavailable(group.name, optionValue.value)"
-                    :aria-pressed="vm.selectedOptions[group.name] === optionValue.value"
-                    :class="['chip disabled:cursor-default', vm.isOptionValueSoldOut(group.name, optionValue.value) ? 'line-through opacity-40' : '']"
-                    @click="vm.selectOption(group.name, optionValue.value)"
-                  >
-                    {{ optionValue.value }}<span v-if="vm.isOptionValueSoldOut(group.name, optionValue.value)" class="sr-only"> (품절)</span>
-                  </button>
-                </div>
-              </div>
-              <p v-if="!vm.selectedVariant" class="text-small text-sub">옵션을 모두 선택해 주세요.</p>
-              <p v-else-if="vm.selectedVariant.soldOut" class="text-small font-bold text-ink">선택하신 옵션은 품절입니다.</p>
-            </div>
-
-            <!-- 수량 -->
-            <div class="mt-6 flex items-center justify-between gap-4">
-              <span class="text-small font-bold text-ink">수량</span>
-              <div class="inline-flex items-center rounded-full border border-line bg-white p-1">
-                <button
-                  type="button"
-                  aria-label="수량 감소"
-                  class="flex h-11 w-11 items-center justify-center rounded-full text-h3 font-normal text-ink transition duration-fast ease-soft hover:bg-surface-muted disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
-                  :disabled="vm.quantity <= 1"
-                  @click="vm.decrementQuantity"
-                >
-                  −
-                </button>
-                <span class="min-w-10 text-center text-body font-semibold tabular-nums text-ink">{{ vm.quantity }}</span>
-                <button
-                  type="button"
-                  aria-label="수량 증가"
-                  class="flex h-11 w-11 items-center justify-center rounded-full text-h3 font-normal text-ink transition duration-fast ease-soft hover:bg-surface-muted"
-                  @click="vm.incrementQuantity"
-                >
-                  +
-                </button>
-              </div>
-            </div>
+            <!-- 옵션·수량: 옵션 시트와 같은 컴포넌트·같은 vm(FE-100) -->
+            <ProductPurchaseOptions :vm="vm" :product="product" />
 
             <!-- 총 상품 금액: 흰 콘텐츠 카드 + 그림자 1 -->
             <div class="mt-6 rounded-card bg-white p-5 shadow-e1">
@@ -248,8 +219,22 @@ watch(
           </div>
         </section>
 
-        <!-- <1024 하단 고정 바: 본문 담기 버튼이 화면에 없을 때만·같은 함수·같은 비활성 규칙 -->
+        <!-- <1024 하단 고정 바: 본문 담기 버튼이 화면에 없을 때만. 단일 옵션 상품 = 같은 담기 함수·같은 비활성 규칙(D2 β) /
+             옵션 상품 = [장바구니 담기][바로구매] 모두 옵션 시트를 연다(FE-100 · 판매 불가·담는 중이면 비활성). -->
         <MobileActionBar
+          v-if="hasOptions"
+          :anchor="addButton"
+          label="총 상품 금액"
+          :amount="vm.totalPrice"
+          :pending-text="totalPendingText"
+          secondary-label="장바구니 담기"
+          button-label="바로구매"
+          :disabled="vm.unavailableLabel !== null || vm.adding"
+          @secondary="optionSheetOpen = true"
+          @action="optionSheetOpen = true"
+        />
+        <MobileActionBar
+          v-else
           :anchor="addButton"
           label="총 상품 금액"
           :amount="vm.totalPrice"
@@ -258,6 +243,7 @@ watch(
           :disabled="!vm.canAddToCart || vm.adding"
           @action="vm.handleAddToCart"
         />
+        <ProductOptionSheet v-if="hasOptions" v-model:open="optionSheetOpen" :vm="vm" :product="product" @add="addFromSheet" @buy="buyFromSheet" />
 
         <!-- 담기 성공 스낵바: 하단 바가 보이면 바 바로 위, 아니면 화면 하단 -->
         <CartAddedSnackbar :signal="vm.addedSignal" />

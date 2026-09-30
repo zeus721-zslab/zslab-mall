@@ -216,17 +216,21 @@ const submitButton = ref<HTMLButtonElement | null>(null)
         <aside :class="[CARD, 'mt-6 lg:sticky lg:top-[calc(var(--header-height)_+_24px)] lg:mt-0']" aria-label="결제 금액">
           <h2 class="text-h3 text-ink">결제 금액</h2>
 
+          <!-- 바로구매(FE-100)는 장바구니 대신 상품 상세로 안내한다. -->
           <RenewNotice v-if="vm.summary.items.length === 0" tone="info" class="mt-4">
-            <p>선택된 상품이 없습니다</p>
+            <p>{{ vm.buyNowProductPath ? '주문할 상품 정보를 확인할 수 없습니다' : '선택된 상품이 없습니다' }}</p>
             <template #action>
-              <NuxtLink to="/cart" :class="CART_LINK">장바구니로 이동</NuxtLink>
+              <NuxtLink v-if="vm.buyNowProductPath" :to="vm.buyNowProductPath" :class="CART_LINK">상품으로 돌아가기</NuxtLink>
+              <NuxtLink v-else to="/cart" :class="CART_LINK">장바구니로 이동</NuxtLink>
             </template>
           </RenewNotice>
           <template v-else>
             <RenewNotice v-if="vm.summary.hasUnpurchasableSelected" tone="danger" class="mt-4">
-              <p>구매할 수 없는 상품이 포함되어 있습니다. 장바구니에서 삭제해 주세요.</p>
+              <p v-if="vm.buyNowProductPath">지금 구매할 수 없는 상품입니다(품절 또는 판매 중지).</p>
+              <p v-else>구매할 수 없는 상품이 포함되어 있습니다. 장바구니에서 삭제해 주세요.</p>
               <template #action>
-                <NuxtLink to="/cart" :class="CART_LINK">장바구니로 이동</NuxtLink>
+                <NuxtLink v-if="vm.buyNowProductPath" :to="vm.buyNowProductPath" :class="CART_LINK">상품으로 돌아가기</NuxtLink>
+                <NuxtLink v-else to="/cart" :class="CART_LINK">장바구니로 이동</NuxtLink>
               </template>
             </RenewNotice>
             <dl class="mt-5 space-y-3 text-body">

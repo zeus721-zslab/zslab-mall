@@ -16,8 +16,11 @@ import type { PAYMENT_METHODS } from '~/lib/constants/payment'
  * selectedKey 변경 시 뷰는 onSelectAddress를 호출해 폼을 저장 주소로 채우거나 비운다.
  */
 export interface CheckoutPageVm {
+  /** 주문 상품 조회 오류(장바구니 경로 = 장바구니 조회 · 바로구매 = 상품 상세 조회). */
   cartError: Error | undefined
   refreshCart: () => Promise<void>
+  /** 바로구매 주문서(FE-100)면 안내 링크용 상품 상세 경로, 장바구니 결제면 null. 안내 문구·링크를 장바구니 대신 상품으로 바꾼다. */
+  buyNowProductPath: string | null
   summary: CheckoutSummary
   addressLoadFailed: boolean
   hasAddresses: boolean
