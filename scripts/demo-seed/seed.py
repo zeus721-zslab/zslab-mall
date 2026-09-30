@@ -7,19 +7,23 @@
 
 접속 정보는 환경변수로만 받는다(README 참조). 재실행 가드는 데모 마커(이메일 도메인·variantCode prefix)로 판정하며
 --force 없이는 기존 데모 데이터 위에 진행하지 않는다.
+대상 가드(D-242): --target local|prod 필수 · 호스트 DNS 판별 · prod 도메인 타이핑 확인 · API·DB 교차 검증 · state 대상별 분리.
 """
 
 import argparse
 import http.cookiejar
 import io
+import ipaddress
 import json
 import logging
 import os
 import random
 import secrets
+import socket
 import string
 import sys
 import time
+import urllib.parse
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -35,8 +39,24 @@ DEMO_EMAIL_DOMAIN = "demo.zslab-mall.com"  # 데모 마커 1: 데모 계정 이�
 DEMO_VARIANT_PREFIX = "DEMO-"  # 데모 마커 2: 데모 상품 variantCode prefix
 DEMO_SELLER_PREFIX = "데모 "  # 데모 마커 3: 셀러 상호 prefix
 SEED_YEAR = 2026
-STATE_PATH = Path(__file__).resolve().parent / "state" / "seed-state.json"
+STATE_DIR = Path(__file__).resolve().parent / "state"
+LEGACY_STATE_FILE_NAME = "seed-state.json"  # D-242 이전 단일 state(대상 미기록) — 자동 이전하지 않는다
 IMAGE_DIR = Path(__file__).resolve().parent / "state" / "images"
+TARGETS = ["local", "prod"]
+# local 판정 대역(scripts/walkthrough/common.py LOCAL_NETWORKS와 같은 규칙). 이 PC는 hosts로 운영 도메인을 127.0.0.1에 두므로
+# 도메인 이름으로는 대상을 가릴 수 없어 실행 시점 DNS 해석 결과로 판정한다.
+LOCAL_NETWORKS = (
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("fc00::/7"),  # IPv6 ULA(사설 대역 대응)
+)
+# prod 허용 단계 목록(D-242): 운영은 추가분만 쓴다 — 기존 쓰기 단계는 전부 거부하고 새 단계는 목록에 넣을 때만 열린다.
+# settlement는 정산 생성 API가 전 셀러 대상이라 운영에서 비데모 셀러 정산까지 PENDING으로 만든다.
+PROD_ALLOWED_STEPS = ["verify"]
+ADMIN_ME_PATH = "/api/v1/admin/me"
 
 REQUIRED_ENV = ["API_BASE_URL", "ADMIN_EMAIL", "ADMIN_PASSWORD",
                 "DB_HOST", "DB_PORT", "DB_NAME", "DB_USER", "DB_PASSWORD"]
@@ -211,15 +231,22 @@ def random_password() -> str:
     return "Demo!" + "".join(secrets.choice(alphabet) for _ in range(10))
 
 
-def load_state() -> dict:
-    if STATE_PATH.exists():
-        return json.loads(STATE_PATH.read_text(encoding="utf-8"))
+active_state_path: Path | None = None  # main이 --target으로 정한다(seed-state.{target}.json)
+
+
+def state_path(target: str) -> Path:
+    return STATE_DIR / f"seed-state.{target}.json"
+
+
+def load_state(path: Path) -> dict:
+    if path.exists():
+        return json.loads(path.read_text(encoding="utf-8"))
     return {}
 
 
 def save_state(state: dict) -> None:
-    STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    STATE_PATH.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+    active_state_path.parent.mkdir(parents=True, exist_ok=True)
+    active_state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 class StepTimer:
@@ -274,6 +301,8 @@ class ApiClient:
         self.session = requests.Session()
         # 인증은 Credential이 Cookie 헤더로 직접 싣는다 — 세션 저장소가 쿠키를 모아 자동 전송하지 않도록 모든 쿠키를 거부한다(D-235 PR3 K9)
         self.session.cookies.set_policy(http.cookiejar.DefaultCookiePolicy(allowed_domains=[]))
+        # 환경·시스템 프록시를 쓰지 않는다: 프록시가 도메인을 따로 해석하면 대상 가드의 DNS 판정(hosts 기준)과 실제 접속 대상이 어긋난다(D-242)
+        self.session.trust_env = False
         # 로컬 게이트웨이는 자체 서명 인증서라 API_TLS_VERIFY=false 로만 검증을 끈다(기본 검증 on)
         self.session.verify = os.environ.get("API_TLS_VERIFY", "true").lower() != "false"
         if not self.session.verify:
@@ -381,6 +410,109 @@ def guard(step: str, conn, state: dict, force: bool) -> None:
         log.warning("[가드] %s — --force로 계속 진행", reason)
         return
     raise SeedError(f"[가드] {reason}. 계속하려면 --force 를 지정하세요.")
+
+
+# ---------------------------------------------------------------------------
+# 대상 가드(D-242) — 모든 쓰기보다 먼저 실행한다
+# ---------------------------------------------------------------------------
+def api_host_of(base_url: str) -> str:
+    host = urllib.parse.urlsplit(base_url).hostname
+    if not host:
+        raise SeedError("[대상] API_BASE_URL에서 호스트를 읽을 수 없습니다")
+    return host
+
+
+def resolve_addresses(host: str) -> set[str]:
+    """해석된 IP는 운영 주소일 수 있어 오류 문구에 넣지 않는다(walkthrough 관례)."""
+    try:
+        resolved = {info[4][0] for info in socket.getaddrinfo(host, None)}
+    except socket.gaierror:
+        raise SeedError(f"[대상] {host}를 해석할 수 없습니다") from None
+    if not resolved:
+        raise SeedError(f"[대상] {host}의 해석 결과가 없습니다")
+    return resolved
+
+
+def is_local_address(address: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(address)
+    except ValueError:
+        # IP 형식이 아닌 값은 로컬로 인정하지 않는다
+        return False
+    # IPv4-mapped(::ffff:127.0.0.1)는 IPv4로 풀어 판정 · 미지정(0.0.0.0)·링크 로컬도 이 PC 쪽 주소라 로컬로 본다
+    if ip.version == 6 and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+    return ip.is_unspecified or ip.is_link_local or any(ip in network for network in LOCAL_NETWORKS)
+
+
+def check_target(target: str, api_scheme: str, api_host: str, db_host: str, steps: list[str], force: bool) -> None:
+    """대상과 실제 접속 호스트가 맞는지 본다. 우회 옵션은 두지 않는다.
+    prod DB_HOST는 SSH 터널(127.0.0.1)이 정상 경로라 호스트로 판정하지 않고 API·DB 교차 검증에 맡긴다."""
+    if target == "local":
+        if not all(is_local_address(address) for address in resolve_addresses(api_host)):
+            raise SeedError(f"[대상] local인데 API 호스트 {api_host}가 loopback·사설 대역 밖 주소로 해석됩니다")
+        if not all(is_local_address(address) for address in resolve_addresses(db_host)):
+            raise SeedError(f"[대상] local인데 DB_HOST {db_host}가 loopback·사설 대역 밖 주소로 해석됩니다")
+        return
+    # 호스트 판별을 인자 검사보다 먼저: 대상이 어긋난 상태가 가장 근본적인 오류라 그 사유를 먼저 알린다(local 분기와 같은 순서).
+    # 하나라도 로컬 주소면 거부: hosts가 운영 도메인을 이 PC로 돌려 두면 운영 대상인 척 로컬에 쓰게 된다
+    if any(is_local_address(address) for address in resolve_addresses(api_host)):
+        raise SeedError(f"[대상] prod인데 API 호스트 {api_host}가 loopback·사설 대역으로 해석됩니다(hosts 확인)")
+    # 평문 http는 인증서 검증 자체가 없어 아래 TLS 방어층이 무의미해진다
+    if api_scheme != "https":
+        raise SeedError("[대상] prod API_BASE_URL은 https여야 합니다")
+    # 인증서 검증은 운영 자격 증명 전송의 마지막 방어층(hosts가 운영 도메인을 다른 곳으로 돌려도 인증서가 맞지 않아 끊긴다)
+    if os.environ.get("API_TLS_VERIFY", "true").lower() == "false":
+        raise SeedError("[대상] prod에서는 API_TLS_VERIFY=false를 쓸 수 없습니다(로컬 자체 서명 인증서 전용)")
+    if force:
+        raise SeedError("[대상] prod에서는 --force를 쓸 수 없습니다(데모 데이터 존재 가드 무시 금지)")
+    denied = [step for step in steps if step not in PROD_ALLOWED_STEPS]
+    if denied:
+        raise SeedError(f"[대상] prod에서 실행할 수 없는 단계입니다: {', '.join(denied)} — prod 허용 단계: {', '.join(PROD_ALLOWED_STEPS)}"
+                        "(--step all은 전 단계를 포함)")
+
+
+def confirm_prod_domain(api_host: str) -> None:
+    """운영 실행 직전 도메인을 직접 타이핑해 확인한다 — 운영 env가 남은 셸에서 바로 실행되는 것을 막는다. 생략 옵션은 두지 않는다."""
+    # 파이프(echo 도메인 | seed.py)로 흘려 넣으면 사람 확인이 사라지므로 터미널 입력만 받는다
+    if not sys.stdin.isatty():
+        raise SeedError("[대상] prod 도메인 확인은 터미널에서 직접 입력해야 합니다(파이프·리다이렉트 입력 거부)")
+    try:
+        typed = input(f"운영 대상입니다. 실행하려면 API 호스트 도메인을 그대로 입력하세요 ({api_host}): ")
+    except EOFError:
+        typed = ""
+    if typed.strip() != api_host:
+        raise SeedError("[대상] 입력한 도메인이 API 호스트와 다릅니다 — 실행하지 않습니다")
+
+
+def cross_check_api_db(api: ApiClient, conn, admin_token: Credential) -> None:
+    """API와 DB가 같은 환경인지 본다. API가 알려준 관리자 본인 행이 지정 DB에 없으면 다른 환경으로 보고 중단한다."""
+    me = api.json("GET", ADMIN_ME_PATH, admin_token)
+    # 모든 변수는 %s 바인딩 사용, SQL injection 위험 없음
+    row = query_one(conn, "SELECT COUNT(*) AS c FROM `user` WHERE public_id = %s AND email = %s", (me["userPublicId"], me["email"]))
+    if row["c"] != 1:
+        raise SeedError("[교차 검증] API의 관리자 본인이 지정한 DB에 없습니다 — API_BASE_URL과 DB_*가 다른 환경입니다")
+    log.info("[교차 검증] API 관리자 %s = DB 행 일치", me["userPublicId"])
+
+
+def bind_state_target(state: dict, identity: dict) -> None:
+    """state를 실행 대상에 묶는다. 기록된 대상과 다르면 거부한다.
+    대상 기록이 없는 기존 state는 local일 때만 현재 대상으로 받아들인다(local은 호스트 판별·교차 검증으로 로컬임이 보장됨)."""
+    recorded = state.get("target")
+    if recorded is None:
+        if state and identity["name"] != "local":
+            raise SeedError(f"[state] {active_state_path}에 대상 기록이 없습니다 — prod에서는 쓰지 않습니다")
+        state["target"] = identity
+        return
+    if recorded != identity:
+        raise SeedError(f"[state] {active_state_path}의 기록 대상 {recorded}와 현재 실행 대상 {identity}가 다릅니다")
+
+
+def reject_legacy_state() -> None:
+    legacy = STATE_DIR / LEGACY_STATE_FILE_NAME
+    if legacy.exists():
+        raise SeedError(f"[state] 대상 기록이 없는 {legacy}가 있습니다. 자동 이전하지 않습니다 — "
+                        f"local 실행분이면 seed-state.local.json으로 이름을 바꾸세요")
 
 
 # ---------------------------------------------------------------------------
@@ -1243,35 +1375,52 @@ def print_dry_run(state: dict) -> None:
              "/admin/settlements(+confirm/pay) · /admin/sellers/{slr}/bank-accounts(Track 89-F) · "
              "/reviews/attachments(1장씩)·/reviews·/reviews/{rvw}/helpful(Track 106-1) · "
              "SQL: 시각 UPDATE · settlement.paid_at UPDATE · review_keyword INSERT(카테고리 세트) · review.created_at UPDATE")
-    log.info("[dry-run] state 파일: %s (존재: %s)", STATE_PATH, STATE_PATH.exists())
+    log.info("[dry-run] state 파일: %s (존재: %s · 대상 %s)", active_state_path, active_state_path.exists(), state.get("target"))
 
 
 def main() -> int:
+    global active_state_path
     parser = argparse.ArgumentParser(description="zslab-mall 데모 시드")
+    parser.add_argument("--target", choices=TARGETS, required=True, help="실행 대상(기본값 없음 · D-242)")
     parser.add_argument("--step", choices=["master", "orders", "timeshift", "settlement", "reviews", "verify", "all"], default="all")
-    parser.add_argument("--dry-run", action="store_true", help="실행 없이 계획만 출력")
-    parser.add_argument("--force", action="store_true", help="재실행 가드 무시")
+    parser.add_argument("--dry-run", action="store_true", help="쓰기 없이 대상 가드·교차 검증 후 계획만 출력")
+    parser.add_argument("--force", action="store_true", help="재실행 가드 무시(prod 금지)")
     parser.add_argument("--seed", type=int, default=20260918, help="난수 시드(재현용)")
     args = parser.parse_args()
     sys.stdout.reconfigure(encoding="utf-8")  # Windows 콘솔(cp949) 한글 로그 깨짐 방지
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", stream=sys.stdout)
 
-    state = load_state()
-    if args.dry_run:
-        print_dry_run(state)
-        return 0
+    # dry-run도 교차 검증(읽기)을 하므로 env 전부 필요
     missing = [name for name in REQUIRED_ENV if not os.environ.get(name)]
     if missing:
         log.error("환경변수 미설정: %s", ", ".join(missing))
         return 2
 
     steps = ["master", "orders", "timeshift", "settlement", "reviews", "verify"] if args.step == "all" else [args.step]
+    try:
+        reject_legacy_state()
+        api_host = api_host_of(env("API_BASE_URL"))
+        check_target(args.target, urllib.parse.urlsplit(env("API_BASE_URL")).scheme, api_host, env("DB_HOST"), steps, args.force)
+        if args.target == "prod":
+            confirm_prod_domain(api_host)
+        active_state_path = state_path(args.target)
+        state = load_state(active_state_path)
+        bind_state_target(state, {"name": args.target, "apiHost": api_host, "dbHost": env("DB_HOST"), "dbName": env("DB_NAME")})
+    except SeedError as error:
+        log.error("중단: %s", error)
+        return 1
+
     api = ApiClient(env("API_BASE_URL"))
     conn = connect_db()
     rng = random.Random(args.seed)
     total_start = time.monotonic()
     try:
-        admin_token = None
+        admin_token = api.login(env("ADMIN_EMAIL"), env("ADMIN_PASSWORD"), "ADMIN")
+        cross_check_api_db(api, conn, admin_token)
+        if args.dry_run:
+            print_dry_run(state)
+            return 0
+        save_state(state)  # 대상 기록(교차 검증 통과 후 첫 쓰기)
         for step in steps:
             if step != "verify":
                 guard(step, conn, state, args.force)
