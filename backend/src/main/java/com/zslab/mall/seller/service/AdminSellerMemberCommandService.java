@@ -89,18 +89,25 @@ public class AdminSellerMemberCommandService {
      * @throws SellerUserAlreadyExistsException 이미 이 셀러 또는 타 셀러 소속(409·V12 user_id 단독 UNIQUE)
      * @throws com.zslab.mall.user.exception.EmailAlreadyExistsException 신규 이메일 중복(409)
      * @throws com.zslab.mall.user.exception.TemporaryPasswordDeliveryFailedException 신규 SMS 발송 실패(502·전체 롤백)
+     * @throws com.zslab.mall.common.exception.DemoAccountProtectedException 대상 회원 또는 신규 이메일이 데모 계정(403·D-247)
      */
     public AdminSellerMemberAddResponse add(String sellerPublicId, AdminSellerMemberAddRequest request,
             AuditContext auditContext) {
         Seller seller = requireSellerForUpdate(sellerPublicId);
         Role role = requireRole(RoleCode.valueOf(request.role()));
         boolean newUserCreated = request.newUser() != null;
+        // D-247: 보호 계정은 붙으면 제외·해지가 막혀(D-230) API로 되돌릴 수 없으므로 계정 생성·SMS 발송·부착 전에 막는다.
+        if (newUserCreated) {
+            demoAccountGuard.requireNotProtectedEmail(request.newUser().email());
+        }
         // 신규 계정이면 임시 비밀번호 평문을 응답(관리자 화면 1회 표시·D-204)에만 싣는다. 기존 회원 연결은 null.
         AdminMemberProvisionResult provisioned = newUserCreated
                 ? adminMemberProvisioningService.provision(new AdminMemberProvisionCommand(
                         request.newUser().email(), request.newUser().name(), request.newUser().phone()), auditContext)
                 : null;
         User user = newUserCreated ? provisioned.user() : requireActiveUser(request.userPublicId());
+        // D-247: 대상 확정 직후·기존 구성원 409보다 먼저(remove와 같은 판정). 기존 회원 분기의 판정이며 신규 분기는 위 이메일 판정을 이미 통과했다.
+        demoAccountGuard.requireNotProtected(user);
         assertNotMember(seller, user);
 
         // 선검사 통과 후 레이스는 uk_seller_user_user_id 위반으로 DataIntegrityViolation → GlobalExceptionHandler 기본 경로(입점 catch 미복제).

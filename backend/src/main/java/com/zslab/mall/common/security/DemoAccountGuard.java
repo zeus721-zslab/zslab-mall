@@ -13,7 +13,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * 데모 계정 보호(D-230). 공개 데모 계정(관리자·구매자·셀러)의 로그인이 누구의 조작으로도 깨지지 않게, 보호 대상 계정에 대한
- * 비밀번호 변경·탈퇴·역할 해제·운영 관리자 부여(D-246)·셀러 구성원 제외·소속 셀러 해지를 막는다. 판정은 이 한 곳에 두고 각 서비스가 대상 회원을 확정한 직후 호출한다.
+ * 비밀번호 변경·탈퇴·역할 해제·운영 관리자 부여(D-246)·셀러 구성원 추가·입점 OWNER 지정(D-247)·셀러 구성원 제외·소속 셀러 해지를 막는다. 판정은 이 한 곳에 두고 각 서비스가 대상 회원을 확정한 직후 호출한다.
  *
  * <p>보호 대상은 {@code zslab.demo.protected-emails}(쉼표 구분·앞뒤 공백 제거·대소문자 무시). DB 이메일 비교가 대소문자를 구분하지
  * 않으므로(utf8mb4_unicode_ci) 여기서도 소문자로 맞춘다. 비어 있으면 보호 없음(로컬 기본). 이름·연락처 등 로그인과 무관한 수정은 막지 않는다.
@@ -73,8 +73,25 @@ public class DemoAccountGuard {
         }
     }
 
+    /**
+     * 만들려는 계정의 이메일이 보호 대상이면 거부한다. 신규 회원을 만들어 셀러에 붙이는 경로가 보호 이메일 계정을 먼저 만들어
+     * 되돌릴 수 없게 붙이지 못하도록, 계정 생성·발송 전에 호출한다(D-247).
+     *
+     * @throws DemoAccountProtectedException 보호 대상 이메일(403)
+     */
+    public void requireNotProtectedEmail(String email) {
+        if (isProtectedEmail(email)) {
+            log.warn("[DemoAccount] 데모 계정 이메일 신규 생성 차단(403)");
+            throw new DemoAccountProtectedException(DEMO_ACCOUNT_PROTECTED_MESSAGE);
+        }
+    }
+
     private boolean isProtected(User user) {
-        return user.getEmail() != null && protectedEmails.contains(normalize(user.getEmail()));
+        return isProtectedEmail(user.getEmail());
+    }
+
+    private boolean isProtectedEmail(String email) {
+        return email != null && protectedEmails.contains(normalize(email));
     }
 
     private static String normalize(String email) {
