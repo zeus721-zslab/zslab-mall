@@ -45,6 +45,7 @@ function categoriesState(overrides: { data?: CategorySummary[] | null; error?: u
 const EXPECTED_LINKS: { href: string; label: string }[] = [
   { href: '/mypage', label: '마이페이지' },
   { href: '/orders', label: '주문 내역' },
+  { href: '/mypage/questions', label: '내 질문' },
   { href: '/mypage/profile', label: '회원 정보' },
   { href: '/mypage/addresses', label: '배송지 관리' },
   { href: '/mypage/password', label: '비밀번호 변경' },

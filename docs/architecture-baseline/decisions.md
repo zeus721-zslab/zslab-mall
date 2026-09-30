@@ -13516,3 +13516,70 @@ PR 계획:
 - 디코더 힙 밖 메모리 실측(D-237 R2-3) 유지.
 
 외부 검토: B / 생략(기존 로직 재사용 추가형 조회·필드 4건)
+
+## D-239 상품 Q&A BE — 공개 질문 · 즉시 답(검색) · 셀러 답변 · 관리자 숨김 (Track 106-2 · C4) (2026-09-30)
+
+### 배경
+- C4의 상품 Q&A가 없었다. 정찰: docs/track-106-2/recon-report.md(B1~B7). 상품·리뷰 검색용 ES·FULLTEXT 인덱스가 없고 검색은 상품명 LIKE뿐이다(B2).
+
+### §1-A 갈림길·채택/기각 근거
+- 즉시 답 방식: α ES(nori) 도입 【기각】 — 의존성·컨테이너·매핑·색인 파이프라인·장애 폴백을 전부 새로 만들어야 한다(ES는 로그 수집 전용) / β MariaDB FULLTEXT 【기각】 — 기본 파서는 한국어 조사를 못 다루고 ngram 파서는 인덱스·운영 설정 변경이 필요하다 / γ 상품 단위 후보를 앱에서 토큰 점수 【채택】 — 후보가 상품 1개의 최근 수백 건이라 메모리 계산으로 충분하다.
+- 작성자 표시: 리뷰 규칙 재사용(식별 정보 없음 · writtenByMe만) — 대안 검토 없음.
+- 질문·답변 저장: 답변 별도 테이블 【기각】 — 질문당 1개·삭제 없음이라 행 분리 이득이 없다 / 한 행의 답변 3컬럼 + 전부 NULL 또는 전부 값 CHECK 【채택】.
+- 셀러·관리자 쿠키로 구매자 경로: 403 기대 【기각】 — D-235 경로별 역할 쿠키라 익명 401이다 / 쿠키는 401, 매처는 SELLER·ADMIN 인증 주입으로 403 확인 【채택】(RED: 매처 없으면 주입된 셀러 id로 등록 201).
+- 셀러 목록 범위: 숨김 포함 【기각】 — 숨김 질문에는 답할 수 없다(422) / VISIBLE만 【채택】.
+- 답변 수정: 최초 시각 유지 【기각】 / 덮어쓰기(내용·시각·답변자 모두 마지막 값) 【채택】 — 화면이 보여 주는 답변의 작성자·시각과 일치한다.
+- 설명 조각 동점 기준 시각: 없음(항상 뒤) 【기각】 — "동점이면 최신순"을 적용할 수 없다 / 상품 updated_at 【채택】.
+
+### §2 구현
+- V41__product_question.sql: product_question(pqn_) · chk_product_question_status · chk_product_question_hidden_reason(V40 동형) · chk_product_question_answer · ix_product_question_product_list(product_id, status, deleted_at, created_at) · ix_product_question_buyer_list(buyer_id, deleted_at, created_at) · 셀러 목록은 상품 조인(인덱스 추가 없음).
+- 상태 규칙(엔티티 ProductQuestion — 위반은 IllegalStateException → 서비스가 422로 변환):
+  - `edit(String)` :93 — 미답변 + VISIBLE
+  - `deleteByAuthor()` :108 — 미답변(숨김 허용 · soft delete)
+  - `answer(String, Long, LocalDateTime)` :120 — VISIBLE
+  - `changeStatus(ProductQuestionStatus, String)` :137 — 같은 상태 불가
+- 락: 모든 쓰기가 `ProductQuestionRepository.findByPublicIdForUpdate`를 먼저 잡고, 그 뒤 소유 404 → 상태 422 순으로 판정한다.
+- 구매자 `/api/v1/product-questions/**` hasRole BUYER(SecurityConfig.java:100):
+  - `ProductQuestionService.create(Long buyerId, String productPublicId, String content)` :35 · `update` :48 · `delete` :64
+  - `ProductQuestionQueryService.listMine(Long, int, int)` :66 — 숨김 포함 · editable·deletable
+- 공개(GET /api/v1/products/** permitAll):
+  - `ProductQuestionQueryService.listPublic(String, int, int, Long viewerId)` :52
+  - `ProductQuestionSuggestService.suggest(String productPublicId, String query)` :69
+  - 노출 판정 `ExposedProductReader.require(String)` :28 — 리뷰와 같은 기준 · 등록도 이 판정을 쓴다
+- 즉시 답: 후보는 `ProductQuestionRepository.findRecentAnswered` · `ReviewRepository.findRecentForSuggest`(:87 · 리뷰 코드 변경은 이 메서드 추가뿐) · 설명 조각(줄바꿈 또는 . ! ? 。 뒤 공백). 별도 포트 없음.
+- 셀러: `SellerProductQuestionService.list(Long sellerId, ProductQuestionAnsweredFilter, int, int)` :48(기본 UNANSWERED · 오래된 순) · `answer(Long sellerId, Long answererUserId, String, String)` :75(질문 상품의 sellerId 대조 → 불일치 404) · 답변자 id는 AuthenticatedUserResolver.
+- 관리자: `AdminProductQuestionCommandService.changeStatus(String, ProductQuestionStatus, String reason, AuditContext)` :43 — 감사 UPDATE·PRODUCT_QUESTION · {status} → {status, reason}(본문·답변 미포함 · 감사 호출은 이 클래스뿐 · AuditFieldMaskingPolicyTest 박제 키 변동 없음).
+- 형식: 질문 trim 후 5~500자 = `ProductQuestionContent.PATTERN`(:14 · @Size는 공백을 세서 정규식) · 답변 @NotBlank @Size(max=1000) · 오류 코드 PRODUCT_QUESTION_NOT_FOUND(404)·PRODUCT_QUESTION_INVALID_STATE(422)(GlobalExceptionHandler.java:361·:842).
+- 중복 제출 방어·멱등키 없음(확정 규칙 11).
+
+### §8 이월
+- 공백 판정 불일치: 질문 정규식 `\s`와 `String.trim()`(U+0020 이하 제거)이 달라 제어문자로 감싼 4자 이하 본문이 저장될 수 있다 · 숨김 사유가 제어문자뿐이면 trim 후 빈 값이 DB CHECK에 걸려 400이 아닌 무결성 오류 경로로 간다(리뷰 동일) — strip() 통일 또는 DTO에서 제어문자 거부.
+- 길이 단위: 답변·질의 길이는 UTF-16 단위(@Size·length())라 이모지는 2자로 센다 · 답변은 trim 전 길이로 잰다.
+- 설명 조각 동점 우선: 상품을 수정하면 설명 조각이 동점에서 항상 앞선다 — 1점 동점이 많으면 상위 5건이 설명 조각으로 찰 수 있다.
+- 락 경합 테스트는 답변 vs 삭제 1쌍 — 숨김 vs 수정·숨김 vs 답변 경합 테스트 추가.
+- 셀러 답변은 상품 노출 상태를 보지 않는다(비노출 상품의 기존 질문에도 답할 수 있다).
+- 공개 질문 스팸 방어(작성 빈도 제한) — 429 인프라 없음(정찰 B1).
+- 배송·교환·반품 안내·상품정보제공고시 컬럼 부재로 해당 유형 질문은 상품 정보로 즉시 답하지 못한다(정찰 B3).
+- invariants.md에 ProductQuestion 불변식·public_id pqn_ 미반영.
+
+
+### § 외부 검토 반영 (2026-09-30)
+- 설명 조각 상한 200: `ProductQuestionSuggestService.FRAGMENT_LIMIT`(ProductQuestionSuggestService.java:45) · `fragmentsOf(String)`이 빈 조각을 뺀 뒤 앞에서부터 200개만 후보로 만든다(:170) — 분할 규칙은 그대로.
+- 결과 중 PRODUCT 최대 3건: `PRODUCT_RESULT_LIMIT`(:48) · `pickTop(List<ScoredCandidate>)`(:93)가 정렬(점수 내림차순 → 최신순) 결과를 차례로 고르며 PRODUCT가 3건이면 이후 PRODUCT를 건너뛴다 · 다른 유형이 부족하면 5건 미만 허용.
+- 락 보유 경합 테스트: `ProductQuestionLockRaceIntegrationTest.answerWaitsForLockHolder_thenSeesDeletion()`(:103) — A가 행 락을 쥔 동안 셀러 답변이 500ms 안에 끝나지 않음(락 대기) → A가 같은 트랜잭션에서 삭제·커밋 → 답변 404 · 답변 3컬럼 빈 채(서비스 코드·테스트 훅 무변경).
+- 테스트: `ProductQuestionPublicQueryIntegrationTest.suggest_capsProductFragments()`(:154) · `suggest_ignoresFragmentsBeyondLimit()`(:174 · 200번째 조각 일치 1건 대조).
+- §8 이월 추가: 공개 suggest rate limit → gateway conf git 편입 백로그와 함께 edge 계층에서 처리.
+
+외부 검토: A / 지적 3건 중 수용 3건(1건 부분)
+
+### § 외부 검토 반영 (2026-09-30)
+- 설명 조각 상한 200: `ProductQuestionSuggestService.FRAGMENT_LIMIT`(ProductQuestionSuggestService.java:45) · `fragmentsOf(String)`이 빈 조각을 뺀 뒤 앞에서부터 200개만 후보로 만든다(:170) — 분할 규칙은 그대로.
+- 결과 중 PRODUCT 최대 3건: `PRODUCT_RESULT_LIMIT`(:48) · `pickTop(List<ScoredCandidate>)`(:93)가 정렬(점수 내림차순 → 최신순) 결과를 차례로 고르며 PRODUCT가 3건이면 이후 PRODUCT를 건너뛴다 · 다른 유형이 부족하면 5건 미만 허용.
+- 락 보유 경합 테스트: `ProductQuestionLockRaceIntegrationTest.answerWaitsForLockHolder_thenSeesDeletion()`(:103) — A가 행 락을 쥔 동안 셀러 답변이 500ms 안에 끝나지 않음(락 대기) → A가 같은 트랜잭션에서 삭제·커밋 → 답변 404 · 답변 3컬럼 빈 채(서비스 코드·테스트 훅 무변경).
+- 테스트: `ProductQuestionPublicQueryIntegrationTest.suggest_capsProductFragments()`(:154) · `suggest_ignoresFragmentsBeyondLimit()`(:174 · 200번째 조각 일치 1건 대조).
+- §8 이월 추가: 공개 suggest rate limit → gateway conf git 편입 백로그와 함께 edge 계층에서 처리.
+
+외부 검토: A / 지적 3건 중 수용 3건(1건 부분)
+
+### § 규칙 변경(2026-09-30)
+- 즉시 답 동점 순서를 최신순에서 "유형 우선(QNA → REVIEW → PRODUCT) → 최신순"으로 바꿨다(ProductQuestionSuggestService.TYPE_PRIORITY). 사유: 같은 점수면 셀러가 이미 답한 Q&A가 가장 직접적인 답이다. 이전 규칙에서는 상품 수정 시각 때문에 설명 조각이 앞섰다.

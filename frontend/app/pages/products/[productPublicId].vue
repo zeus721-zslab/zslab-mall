@@ -20,6 +20,10 @@ const sellerProducts = computed<ProductSummary[]>(() => detailMore?.sellerProduc
 
 // 리뷰 요약·목록은 스킨이 productReviews를 선언했을 때만 조회한다(Track 106-1 · 요약·첫 페이지 SSR).
 const reviews = useSkinNeeds('productReviews') ? useProductReviews(productPublicId, productDetail) : null
+// 묻기·즉시 답·질문 목록은 스킨이 productQuestions를 선언했을 때만 조회한다(Track 106-2 · 목록 첫 페이지 SSR).
+const questions = useSkinNeeds('productQuestions') ? useProductQuestions(productPublicId) : null
+// 한눈에 칩·진행형 섹션 바(Track 106-2): 섹션 이동·활성·진행률. 묻기 입력 상태는 위 questions 인스턴스 하나를 섹션과 바가 함께 쓴다.
+const sectionNav = useProductSectionNav()
 
 // 404(PRODUCT_NOT_FOUND)와 그 외 오류를 구분해 안내 문구를 달리한다(존재 은닉이라 미노출도 404).
 const errorMessage = computed<string>(() =>
@@ -202,6 +206,8 @@ const vm: ProductDetailPageVm = reactive({
   totalPrice,
   sellerProducts,
   reviews,
+  questions,
+  sectionNav,
 })
 </script>
 

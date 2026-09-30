@@ -2,6 +2,7 @@
 import { MessageSquareQuote } from '@lucide/vue'
 import type { ProductReviewsVm } from '~/skins/contracts/product-reviews'
 import { REVIEW_SORT_OPTIONS } from '~/lib/constants/review'
+import { PRODUCT_SECTION_IDS } from '~/lib/constants/product-sections'
 import ProductReviewCard from './ProductReviewCard.vue'
 import RenewLightbox from './RenewLightbox.vue'
 import RenewMoreButton from './RenewMoreButton.vue'
@@ -36,7 +37,12 @@ const CARD = 'rounded-card bg-white px-5 py-8 shadow-e1 md:px-10 md:py-10'
 </script>
 
 <template>
-  <section :class="['mt-20', CARD]" aria-labelledby="product-reviews-title" data-testid="product-reviews">
+  <section
+    :id="PRODUCT_SECTION_IDS.reviews"
+    :class="['mt-20 scroll-mt-(--product-section-offset)', CARD]"
+    aria-labelledby="product-reviews-title"
+    data-testid="product-reviews"
+  >
     <!-- 머리 -->
     <div class="flex flex-wrap items-end justify-between gap-3">
       <div>

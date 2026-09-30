@@ -12,9 +12,9 @@ export const DEFAULT_SKIN: SkinName = 'renew'
  * — 선언이 없는 스킨은 추가 조회 0건. layoutHeader = 헤더 상태·동작 · homeCuration = 메인 큐레이션 섹션 ·
  * productList = 번호 페이지 상품 목록·카테고리 탭·검색 결과(FE-74) · productDetailMore = 상품 상세의 셀러 다른 상품(FE-70) ·
  * mypageHome = 마이페이지 홈의 회원명·주문 현황·기본 배송지·최근 주문(FE-72) · signupPasswordConfirm = 회원가입 비밀번호 확인 칸 검사(FE-74) ·
- * productReviews = 상품 상세의 리뷰 요약·목록(Track 106-1).
+ * productReviews = 상품 상세의 리뷰 요약·목록(Track 106-1) · productQuestions = 상품 상세의 묻기·즉시 답·질문 목록(Track 106-2).
  */
-export const SKIN_NEEDS = ['layoutHeader', 'homeCuration', 'productList', 'productDetailMore', 'mypageHome', 'signupPasswordConfirm', 'productReviews'] as const
+export const SKIN_NEEDS = ['layoutHeader', 'homeCuration', 'productList', 'productDetailMore', 'mypageHome', 'signupPasswordConfirm', 'productReviews', 'productQuestions'] as const
 export type SkinNeed = (typeof SKIN_NEEDS)[number]
 
 /**

@@ -19,6 +19,7 @@ import OrderDetailView from './views/OrderDetailView.vue'
 import ClaimNewView from './views/ClaimNewView.vue'
 import ClaimDetailView from './views/ClaimDetailView.vue'
 import ReviewFormView from './views/ReviewFormView.vue'
+import MypageQuestionsView from './views/MypageQuestionsView.vue'
 import LoginView from './views/LoginView.vue'
 import SignupView from './views/SignupView.vue'
 import SearchView from './views/SearchView.vue'
@@ -49,6 +50,7 @@ export const renewViews: SkinViews = {
   ClaimNewView,
   ClaimDetailView,
   ReviewFormView,
+  MypageQuestionsView,
   LoginView,
   SignupView,
   SearchView,
@@ -58,5 +60,5 @@ export const renewViews: SkinViews = {
 
 export const renewSkin: SkinDefinition = {
   views: renewViews,
-  needs: ['layoutHeader', 'homeCuration', 'productList', 'productDetailMore', 'mypageHome', 'signupPasswordConfirm', 'productReviews'],
+  needs: ['layoutHeader', 'homeCuration', 'productList', 'productDetailMore', 'mypageHome', 'signupPasswordConfirm', 'productReviews', 'productQuestions'],
 }

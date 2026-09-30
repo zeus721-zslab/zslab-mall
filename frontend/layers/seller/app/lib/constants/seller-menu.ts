@@ -25,7 +25,11 @@ export const SELLER_MENU: SellerMenuGroup[] = [
   },
   {
     label: '상품',
-    children: [{ label: '상품', to: '/seller/products' }, { label: '재고', to: '/seller/products/inventory' }],
+    children: [
+      { label: '상품', to: '/seller/products' },
+      { label: '재고', to: '/seller/products/inventory' },
+      { label: '상품 질문', to: '/seller/products/questions' },
+    ],
   },
   {
     label: '통계',

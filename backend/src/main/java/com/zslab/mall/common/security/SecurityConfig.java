@@ -96,6 +96,9 @@ public class SecurityConfig {
                         // 리뷰 쓰기·사진 업로드·도움됐어요(Track 106-1). 공개 조회는 위 GET /api/v1/products/** permitAll에 있다.
                         .requestMatchers("/api/v1/reviews/**")
                         .hasRole("BUYER")
+                        // 상품 질문 등록·수정·삭제·내 질문(Track 106-2). 공개 목록·즉시 답은 위 GET /api/v1/products/** permitAll에 있다.
+                        .requestMatchers("/api/v1/product-questions/**")
+                        .hasRole("BUYER")
                         // mock 결제 콜백(Track 93 D-198)은 구매자 본인 주문 한정이라 BUYER 단일 경로만(실 PG 콜백은 /api/webhooks/** permitAll 별도)
                         .requestMatchers(HttpMethod.POST, "/api/v1/payments/mock-callback")
                         .hasRole("BUYER")

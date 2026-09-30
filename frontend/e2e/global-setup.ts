@@ -28,6 +28,7 @@ const BUYER_PUBLIC_PATHS = ['/', '/help', '/products']
 const BUYER_PATHS = [
   '/mypage',
   '/mypage/password',
+  '/mypage/questions',
   `/orders/${PLACEHOLDER_ID}`,
   `/claims/${PLACEHOLDER_ID}`,
   '/claims/new',
@@ -44,6 +45,7 @@ const ADMIN_PATHS = [
   '/admin/products/new',
   '/admin/products/categories',
   '/admin/products/reviews',
+  '/admin/products/questions',
   `/admin/products/${PLACEHOLDER_ID}`,
   '/admin/orders',
   '/admin/orders/claims',
@@ -70,6 +72,7 @@ const SELLER_PATHS = [
   '/seller/products',
   '/seller/products/new',
   '/seller/products/inventory',
+  '/seller/products/questions',
   `/seller/products/${PLACEHOLDER_ID}`,
   '/seller/orders',
   `/seller/orders/${PLACEHOLDER_ID}`,

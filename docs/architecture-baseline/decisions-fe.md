@@ -3912,3 +3912,47 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 - 나머지 이월(작성자 열 · 관리자 숨김 사진 경로 · 옵션명 기준 필터 · 세션 만료 초안)은 D-238 §8.
 
 외부 검토: B / 생략(기존 로직 재사용 추가형 조회·필드 4건 · D-238과 같음)
+
+## FE-95: 상품 Q&A 화면 — D-239 (Track 106-2) (2026-09-30)
+
+기준: D-239(BE 계약). 정찰: docs/frontend/recon-report-106-2-fe.md.
+
+### §1-A 선택이 갈린 결정
+- 묻기 형태: 게시판 탭(질문 목록 + 글쓰기 버튼) 【기각】 — 이미 답이 있는 질문도 셀러에게 다시 쌓여 운영 부담 경감(C3)과 반대로 간다 / 대화형 입력 + 입력창 아래 즉시 답 카드(Q&A·리뷰·상품 설명) + "해결되지 않았어요 → 셀러에게 질문 남기기" 【채택】(ProductQuestionSection.vue · 상세 뷰 배치 ProductDetailView.vue:223).
+- 즉시 답 노출 범위: 로그인 구매자만 【기각】 / 비로그인 허용 【채택】 — BE suggest가 공개 GET(permitAll)이고 공개 질문·리뷰·상품 설명만 돌려주므로 로그인을 요구할 정보가 없다 · 등록만 구매자(비로그인·비구매자는 `/login?redirect=` · useProductQuestions.ts:77-84).
+- 그 밖(debounce 300ms·늦은 응답 폐기 useProductQuestionSuggest.ts:19-33 · 실패 시 카드만 비움 · 더보기 목록 · 내 질문 이전/다음 페이저 · 셀러 클레임 목록 골격 복제 · 관리자 리뷰 숨김 화면 복제 · 수정·삭제 노출은 writtenByMe 미답변/서버 editable·deletable): 대안 검토 없음.
+
+### §1-B 적용
+- 스킨 데이터 선언 productQuestions(registry.ts:17 · renew/index.ts:63) · 메뉴 = 마이페이지 "내 질문"(mypage-menu.ts:18 · 헤더 계정 메뉴에 파생) · 셀러 상품 > "상품 질문"(seller-menu.ts:31) · 관리자 상품 관리 > "상품 질문"(admin-menu.ts:44).
+
+### §8 이월
+- 비로그인 사용자가 입력한 질문 초안은 로그인 뒤 보존하지 않는다(확정 사항).
+- 즉시 답은 입력마다 공개 GET을 보낸다 — 호출 빈도 제한은 edge 계층 백로그(D-239 §8).
+- 공용 스켈레톤·스피너 컴포넌트가 없어 인라인 패턴이 늘어난다.
+- 셀러 대시보드 대기 타일에 미답변 질문 수가 없다.
+- 헤더 계정 메뉴에도 "내 질문"이 자동으로 들어간다(마이페이지 메뉴 파생 구조).
+- 메뉴 고정 테스트가 정찰(F4)이 찾은 3곳 외에 2곳 더 있었다(LayoutShell.spec 헤더 계정 메뉴 · seller-product-query.spec:62) — 정찰 누락.
+
+외부 검토: C / 생략(FE 전용 · BE 계약 무변경)
+
+## FE-96: 상품 상세 한눈에 칩 · 진행형 섹션 바 · 물어보기 알약 — D-239 (Track 106-2) (2026-09-30)
+
+기준: FE-95(묻기 섹션). 긴 상품 설명 아래에 묻힌 리뷰·Q&A를 찾기 어려운 문제를, 내용을 숨기지 않고 어디서든 이동·질문할 수 있게 푼다.
+
+### §1-A 선택이 갈린 결정
+- 섹션 탐색: α 탭 【기각】 — 내용을 숨기고 식상하다 / β 윙(측면 고정) 【기각】 — 1440px 미만과 모바일에 둘 곳이 없고, 시선 밖이며, 106-3 플로팅과 충돌한다 / γ 한눈에 칩 + 진행형 바 + 물어보기 알약 【채택】(칩 ProductDetailView.vue:131 · 바 :230 · 설명 섹션 id :235).
+- 진행률 계산은 IntersectionObserver 대신 passive scroll + rAF(긴 섹션 중간에서는 IO 콜백이 없어 진행률 계산 불가) — useProductSectionNav.ts:41·:75 · 순수 함수 resolveActiveSection·sectionProgress(section-nav.ts:17·:36).
+- 입력 상태 공유(바 알약과 묻기 섹션이 페이지의 질문 composable 인스턴스 하나를 쓴다 · [productPublicId].vue:24·:26): 대안 검토 없음.
+
+### §1-B 적용
+- 이동 go·묻기 ask(useProductSectionNav.ts:64·:68 · 포커스 preventScroll) · 바 Esc·바깥 클릭 접힘과 포커스 복귀(ProductSectionNav.vue:25·:43·:63) · 동작 줄이기면 차오름 숨김(:80) · 섹션 scroll-margin-top = 헤더 + 바 + 여백(CSS 변수 · product-sections.ts) · 우측 하단(106-3 채팅 도우미 자리)은 비워 둔다.
+
+### §8 이월
+- 바의 입력창은 한 줄 높이라 섹션에서 줄바꿈해 쓴 초안이 한 줄로만 보인다.
+- 모바일에서 물어보기를 펼치면 섹션 알약이 가려진다.
+- 설명이 없는 상품은 바에 "상품설명" 알약이 없다.
+- 헤더 계정 메뉴와 칩이 같은 "내 질문" 흐름을 보여 준다(FE-95 이월과 연결).
+
+외부 검토: C / 생략(FE 전용 · BE 계약 무변경)
+
+§ 보완(2026-09-30): 데스크톱 즉시 답 패널 최대 폭 640px · 우측 정렬(전체 폭에서 카드가 과하게 늘어남 · ProductSectionNav.vue lg:max-w-[640px]).
