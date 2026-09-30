@@ -30,7 +30,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 /**
  * 데모 계정 보호 통합 테스트(D-230·실 MariaDB). 보호 대상 계정의 로그인을 깨뜨리는 조작 6경로(본인 비밀번호 변경·관리자 임시 비밀번호·
  * 본인 탈퇴·관리자 탈퇴·역할 회수·셀러 구성원 제외)가 인증된 요청자와 무관하게 403 DEMO_ACCOUNT_PROTECTED이고(구매자 경로 /users/me/**에
- * 셀러·관리자 쿠키로 오면 익명 401 · D-235 PR3), 보호 아닌 계정은 기존대로
+ * 셀러·관리자 쿠키로 오면 익명 401 · D-235 PR3), 회수할 수 없는 운영 관리자 부여도 같은 403이며(D-246), 보호 아닌 계정은 기존대로
  * 동작하며, 보호 계정의 이름·연락처 수정은 허용되는지 HTTP 경유로 검증한다.
  *
  * <p>설정값은 대소문자·앞뒤 공백·빈 항목을 섞고, 구매자 데모 계정은 설정과 대소문자가 다른 이메일로 시드해 모든 경로에서 대소문자 무시를
@@ -164,6 +164,26 @@ class DemoAccountProtectionIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("운영 관리자 부여(D-246): 구매자·셀러·관리자 데모 → 403(ADMIN_OPERATOR 0·감사 0) / 보호 아닌 구매자 → 201(역할 1·감사 1)")
+    void adminOperatorProvision() throws Exception {
+        for (String protectedPublicId : List.of(DEMO_BUYER_PID, DEMO_SELLER_PID, ADMIN_DEMO_PID)) {
+            expectProtected(mockMvc.perform(post("/api/v1/admin/admin-operators").with(authHeaders.admin(ADMIN_CALLER))
+                    .contentType(MediaType.APPLICATION_JSON).content(provisionBody(protectedPublicId))));
+        }
+        for (long protectedUserId : List.of(DEMO_BUYER, DEMO_SELLER, ADMIN_DEMO)) {
+            assertThat(roleCount(protectedUserId, "ADMIN_OPERATOR")).isZero();
+            assertThat(userCreateAuditCount(protectedUserId)).isZero();
+        }
+
+        mockMvc.perform(post("/api/v1/admin/admin-operators").with(authHeaders.admin(ADMIN_CALLER))
+                        .contentType(MediaType.APPLICATION_JSON).content(provisionBody(NORMAL_BUYER_PID)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.userPublicId").value(NORMAL_BUYER_PID));
+        assertThat(roleCount(NORMAL_BUYER, "ADMIN_OPERATOR")).isEqualTo(1);
+        assertThat(userCreateAuditCount(NORMAL_BUYER)).isEqualTo(1);
+    }
+
+    @Test
     @DisplayName("셀러 구성원 제외: 데모 셀러(OWNER) → 403(소속 유지) / 보호 아닌 STAFF → 204")
     void sellerMemberRemove() throws Exception {
         expectProtected(mockMvc.perform(delete("/api/v1/admin/sellers/" + SELLER_PID + "/members/" + DEMO_SELLER_PID)
@@ -249,6 +269,16 @@ class DemoAccountProtectionIntegrationTest extends AbstractIntegrationTest {
     private int roleCount(long userId, String roleCode) {
         Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM user_role ur JOIN role r ON ur.role_id = r.id "
                 + "WHERE ur.user_id = ? AND r.code = ?", Integer.class, userId, roleCode);
+        return count == null ? 0 : count;
+    }
+
+    private static String provisionBody(String userPublicId) {
+        return "{\"userPublicId\":\"" + userPublicId + "\"}";
+    }
+
+    private int userCreateAuditCount(long userId) {
+        Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM audit_log WHERE action = 'CREATE' AND target_type = 'USER' "
+                + "AND target_id = ?", Integer.class, userId);
         return count == null ? 0 : count;
     }
 

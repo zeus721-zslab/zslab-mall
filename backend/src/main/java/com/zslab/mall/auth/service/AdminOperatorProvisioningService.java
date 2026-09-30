@@ -13,6 +13,7 @@ import com.zslab.mall.auth.exception.SuperAdminRequiredException;
 import com.zslab.mall.auth.repository.RoleRepository;
 import com.zslab.mall.auth.repository.UserRoleRepository;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
+import com.zslab.mall.common.security.DemoAccountGuard;
 import com.zslab.mall.user.entity.User;
 import com.zslab.mall.user.exception.UserNotFoundException;
 import com.zslab.mall.user.repository.UserRepository;
@@ -44,16 +45,19 @@ public class AdminOperatorProvisioningService {
     private final UserRepository userRepository;
     private final RoleRepository roleRepository;
     private final UserRoleRepository userRoleRepository;
+    private final DemoAccountGuard demoAccountGuard;
     private final AuditRecorder auditRecorder;
 
     public AdminOperatorProvisioningService(
             UserRepository userRepository,
             RoleRepository roleRepository,
             UserRoleRepository userRoleRepository,
+            DemoAccountGuard demoAccountGuard,
             AuditRecorder auditRecorder) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.userRoleRepository = userRoleRepository;
+        this.demoAccountGuard = demoAccountGuard;
         this.auditRecorder = auditRecorder;
     }
 
@@ -65,6 +69,7 @@ public class AdminOperatorProvisioningService {
      * @param auditContext 감사 행위자 컨텍스트(운영자)
      * @throws SuperAdminRequiredException caller가 SUPER_ADMIN이 아닌 경우(403)
      * @throws UserNotFoundException 대상 userPublicId에 해당하는 User가 없는 경우(404·soft-delete 포함)
+     * @throws com.zslab.mall.common.exception.DemoAccountProtectedException 대상이 데모 보호 계정인 경우(403·D-246)
      * @throws IllegalStateException ADMIN_OPERATOR Role seed가 없는 경우(내부 오류·500)
      * @throws AdminOperatorAlreadyExistsException 대상이 이미 ADMIN_OPERATOR 역할을 보유한 경우(409·uk_user_role 위반)
      */
@@ -78,6 +83,8 @@ public class AdminOperatorProvisioningService {
         User target = userRepository.findByPublicId(request.userPublicId())
                 .orElseThrow(() -> new UserNotFoundException(
                         "운영 관리자로 지정한 User가 없습니다: userPublicId=" + request.userPublicId()));
+        // D-246: 보호 계정은 회수가 막혀(RoleRevocationService·D-230) 부여하면 API로 되돌릴 수 없으므로 부여도 막는다.
+        demoAccountGuard.requireNotProtected(target);
 
         Role operatorRole = roleRepository.findByCode(RoleCode.ADMIN_OPERATOR)
                 .orElseThrow(() -> new IllegalStateException("ADMIN_OPERATOR Role seed 누락(V11 마이그레이션 확인 필요)."));
