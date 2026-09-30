@@ -65,9 +65,10 @@ ADMIN_ME_PATH = "/api/v1/admin/me"
 
 REQUIRED_ENV = ["API_BASE_URL", "ADMIN_EMAIL", "ADMIN_PASSWORD",
                 "DB_HOST", "DB_PORT", "DB_NAME", "DB_USER", "DB_PASSWORD"]
-# 106 데이터 단계 계정은 state가 아니라 env에서 받는다(운영에는 state가 없다 · D-243). buyer01 이메일은 코드 고정.
-STEP_REQUIRED_ENV = {"delivered": ["DEMO_BUYER_PASSWORD"], "inquiries": ["DEMO_BUYER_PASSWORD"],
-                     "qna": ["DEMO_BUYER_PASSWORD", "DEMO_SELLER_EMAIL", "DEMO_SELLER_PASSWORD"]}
+# 106 데이터 단계 계정은 state가 아니라 env에서 받는다(운영에는 state가 없다 · D-243).
+# 구매자 = 공개 데모 구매자(프론트 데모 버튼 · .env NUXT_BUYER_DEMO_EMAIL) — 운영은 buyer01이 아니다(D-243 § 정정).
+STEP_REQUIRED_ENV = {"delivered": ["DEMO_BUYER_EMAIL", "DEMO_BUYER_PASSWORD"], "inquiries": ["DEMO_BUYER_EMAIL", "DEMO_BUYER_PASSWORD"],
+                     "qna": ["DEMO_BUYER_EMAIL", "DEMO_BUYER_PASSWORD", "DEMO_SELLER_EMAIL", "DEMO_SELLER_PASSWORD"]}
 RETRY_MAX = 3
 RETRY_BASE_SECONDS = 1.0
 RETRY_STATUSES = {429, 500, 502, 503, 504}
@@ -114,7 +115,6 @@ HELPFUL_VOTERS_MAX = 3
 REVIEW_DELAY_MAX_DAYS = 5  # 리뷰 작성 시각 = 구매확정 + 0~N일(실행 시각 이전)
 CATEGORY_KEYWORD_ORDER_BASE = 100  # 기본 세트(1~6) 뒤에 보이도록
 # 106 데이터 단계(D-243)
-DEMO_BUYER_EMAIL = f"buyer01@{DEMO_EMAIL_DOMAIN}"
 DELIVERED_SELLER_KEY = "fashion"  # delivered 주문 상품의 데모 셀러(seller02 · 데모 패션랩)
 RETURN_WINDOW_DAYS = 7  # 백엔드 ReturnWindowPolicy.WINDOW_DAYS와 같은 값(배송완료 후 자동 구매확정까지)
 # 백엔드는 KST로 시각을 저장한다(application.yml hibernate.jdbc.time_zone=Asia/Seoul). DB 컨테이너 NOW()는 UTC일 수 있어 쓰지 않는다.
@@ -1372,7 +1372,7 @@ def delivered_missing(rows: list[dict], now: datetime) -> bool:
 
 
 def missing_inquiry_conditions(rows: list[dict]) -> list[str]:
-    """buyer01 문의(삭제 제외)에서 충족되지 않은 조건. rows: answered · checked · has_order."""
+    """공개 데모 구매자 문의(삭제 제외)에서 충족되지 않은 조건. rows: answered · checked · has_order."""
     satisfied = {
         "answered_checked": any(row["answered"] and row["checked"] for row in rows),
         "answered_unread": any(row["answered"] and not row["checked"] for row in rows),
@@ -1448,17 +1448,18 @@ def demo_seller_product(api: ApiClient, seller_key: str) -> dict:
     raise SeedError(f"데모 셀러({company})에 구매 가능한 상품이 없습니다")
 
 
-def buyer01_login(api: ApiClient) -> Credential:
-    return api.login(DEMO_BUYER_EMAIL, env("DEMO_BUYER_PASSWORD"), "BUYER")
+def demo_buyer_login(api: ApiClient) -> Credential:
+    return api.login(env("DEMO_BUYER_EMAIL"), env("DEMO_BUYER_PASSWORD"), "BUYER")
 
 
 def step_delivered(api: ApiClient, conn, admin_token: Credential, rng: random.Random) -> None:
-    """buyer01에게 자동확정 창 안의 배송완료 품목이 없으면 새 주문 1건을 배송완료까지 만든다(서버 now 그대로 · timeshift 없음)."""
-    if not delivered_missing(query_all(conn, DELIVERED_ROWS_SQL, (DEMO_BUYER_EMAIL,)), server_now()):
+    """공개 데모 구매자에게 자동확정 창 안의 배송완료 품목이 없으면 새 주문 1건을 배송완료까지 만든다(서버 now 그대로 · timeshift 없음)."""
+    buyer_email = env("DEMO_BUYER_EMAIL")
+    if not delivered_missing(query_all(conn, DELIVERED_ROWS_SQL, (buyer_email,)), server_now()):
         log.info("[delivered] 자동확정 창 안의 배송완료 품목이 이미 있어 건너뜁니다")
         return
     product = demo_seller_product(api, DELIVERED_SELLER_KEY)
-    buyer = {"email": DEMO_BUYER_EMAIL, "password": env("DEMO_BUYER_PASSWORD"), "name": BUYER_NAMES[0], "address": ADDRESSES[0]}
+    buyer = {"email": buyer_email, "password": env("DEMO_BUYER_PASSWORD"), "name": BUYER_NAMES[0], "address": ADDRESSES[0]}
     # OrderRunner는 state 형태(buyers·products)만 요구한다 — 메모리 안에서만 쓰고 저장하지 않는다(비밀번호 state 미기록)
     runner = OrderRunner(api, conn, {"buyers": [buyer], "products": [product]}, admin_token, rng)
     runner.tracking_seq = int(time.time()) % TRACKING_SEQUENCE_MODULUS
@@ -1468,18 +1469,18 @@ def step_delivered(api: ApiClient, conn, admin_token: Credential, rng: random.Ra
 
 
 def step_inquiries(api: ApiClient, conn, admin_token: Credential) -> None:
-    """buyer01 문의에서 ①답변+확인 ②답변+미확인 ③미답변 ④주문 첨부 중 부족한 조건만 만든다."""
-    missing = missing_inquiry_conditions(query_all(conn, INQUIRY_ROWS_SQL, (DEMO_BUYER_EMAIL,)))
+    """공개 데모 구매자 문의에서 ①답변+확인 ②답변+미확인 ③미답변 ④주문 첨부 중 부족한 조건만 만든다."""
+    missing = missing_inquiry_conditions(query_all(conn, INQUIRY_ROWS_SQL, (env("DEMO_BUYER_EMAIL"),)))
     if not missing:
         log.info("[inquiries] 문의 조건 4종이 이미 충족돼 건너뜁니다")
         return
-    token = buyer01_login(api)
+    token = demo_buyer_login(api)
     plans = plan_inquiries(missing)
     order_id = None
     if any(attach for _, attach in plans):
         orders = api.json("GET", "/api/v1/orders?page=0&size=1", token)["items"]
         if not orders:
-            raise SeedError("buyer01 주문이 없어 주문 첨부 문의를 만들 수 없습니다 — delivered 단계 먼저 실행")
+            raise SeedError("공개 데모 구매자 주문이 없어 주문 첨부 문의를 만들 수 없습니다 — delivered 단계 먼저 실행")
         order_id = orders[0]["orderId"]
     for kind, attach in plans:
         category, content, answer = INQUIRY_TEMPLATES[kind]
@@ -1495,7 +1496,7 @@ def step_inquiries(api: ApiClient, conn, admin_token: Credential) -> None:
 
 
 def step_qna(api: ApiClient, conn, admin_token: Credential) -> None:
-    """데모 셀러 상품 기준 ①답변됨 ②미답변 ③숨김 ④여러 문장 설명 상품 중 부족한 조건만 만든다(질문 buyer01 · 답변 셀러 · 숨김 관리자)."""
+    """데모 셀러 상품 기준 ①답변됨 ②미답변 ③숨김 ④여러 문장 설명 상품 중 부족한 조건만 만든다(질문 공개 데모 구매자 · 답변 셀러 · 숨김 관리자)."""
     seller_email = env("DEMO_SELLER_EMAIL")
     seller_params = (seller_email, f"{DEMO_SELLER_PREFIX}%")
     products = query_all(conn, SELLER_PRODUCT_ROWS_SQL, seller_params)
@@ -1516,7 +1517,7 @@ def step_qna(api: ApiClient, conn, admin_token: Credential) -> None:
             "categoryId": current["categoryId"], "name": current["name"], "description": QNA_PRODUCT_DESCRIPTION,
             "basePrice": current["basePrice"]})
     question_kinds = [condition for condition in missing if condition in QNA_TEMPLATES]
-    buyer_token = buyer01_login(api) if question_kinds else None
+    buyer_token = demo_buyer_login(api) if question_kinds else None
     for kind in question_kinds:
         content, answer = QNA_TEMPLATES[kind]
         question_id = api.json("POST", "/api/v1/product-questions", buyer_token,
@@ -1532,10 +1533,15 @@ def step_qna(api: ApiClient, conn, admin_token: Credential) -> None:
 
 def log_demo_data_status(conn) -> None:
     """106 데이터 충족 여부 출력(D2·R1·R2) — 판정만 하고 exit code에는 반영하지 않는다."""
-    d2 = not delivered_missing(query_all(conn, DELIVERED_ROWS_SQL, (DEMO_BUYER_EMAIL,)), server_now())
-    log.info("[106] D2 배송완료 대기 품목(자동확정 창 안): %s", "충족" if d2 else "부족")
-    r1 = missing_inquiry_conditions(query_all(conn, INQUIRY_ROWS_SQL, (DEMO_BUYER_EMAIL,)))
-    log.info("[106] R1 1:1 문의: %s", "충족" if not r1 else f"부족 {r1}")
+    buyer_email = os.environ.get("DEMO_BUYER_EMAIL")
+    if buyer_email:
+        d2 = not delivered_missing(query_all(conn, DELIVERED_ROWS_SQL, (buyer_email,)), server_now())
+        log.info("[106] D2 배송완료 대기 품목(자동확정 창 안): %s", "충족" if d2 else "부족")
+        r1 = missing_inquiry_conditions(query_all(conn, INQUIRY_ROWS_SQL, (buyer_email,)))
+        log.info("[106] R1 1:1 문의: %s", "충족" if not r1 else f"부족 {r1}")
+    else:
+        log.info("[106] D2 배송완료 대기 품목(자동확정 창 안): 미판정(DEMO_BUYER_EMAIL 미설정)")
+        log.info("[106] R1 1:1 문의: 미판정(DEMO_BUYER_EMAIL 미설정)")
     seller_email = os.environ.get("DEMO_SELLER_EMAIL")
     if not seller_email:
         log.info("[106] R2 상품 Q&A: 미판정(DEMO_SELLER_EMAIL 미설정)")

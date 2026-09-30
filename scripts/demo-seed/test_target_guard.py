@@ -31,7 +31,8 @@ def base_env(api_host: str, db_host: str = "127.0.0.1", db_name: str = "zslab_ma
     # 106 데이터 단계 계정 env 포함(--step all·dry-run 기본 all이 요구 · D-243)
     return {"API_BASE_URL": f"https://{api_host}", "ADMIN_EMAIL": ADMIN_EMAIL, "ADMIN_PASSWORD": "pw",
             "DB_HOST": db_host, "DB_PORT": "3306", "DB_NAME": db_name, "DB_USER": "user", "DB_PASSWORD": "pw",
-            "DEMO_BUYER_PASSWORD": "pw", "DEMO_SELLER_EMAIL": "seller@example.com", "DEMO_SELLER_PASSWORD": "pw"}
+            "DEMO_BUYER_EMAIL": "buyer@example.com", "DEMO_BUYER_PASSWORD": "pw",
+            "DEMO_SELLER_EMAIL": "seller@example.com", "DEMO_SELLER_PASSWORD": "pw"}
 
 
 class FakeResolver:
