@@ -13,7 +13,7 @@ python -m pip install -r scripts/demo-seed/requirements.txt
 |---|---|
 | `API_BASE_URL` | 백엔드 base URL (예 `https://zslab-mall.duckdns.org`) |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | SUPER_ADMIN 로그인 자격 |
-| `DB_HOST` / `DB_PORT` / `DB_NAME` / `DB_USER` / `DB_PASSWORD` | MariaDB 접속(운영은 SSH 터널 경유) |
+| `DB_HOST` / `DB_PORT` / `DB_NAME` / `DB_USER` / `DB_PASSWORD` | MariaDB 접속(운영은 서버 래퍼가 `zslab_mariadb:3306`으로 지정 · 아래 운영 실행 절차) |
 | `API_TLS_VERIFY` | 선택. `false`면 TLS 검증 생략(로컬 자체 서명 인증서 전용 · `--target prod`면 거부) |
 | `DEMO_BUYER_EMAIL` | 공개 데모 구매자(프론트 데모 버튼 계정) = `.env`의 `NUXT_BUYER_DEMO_EMAIL`. delivered·inquiries·qna(`all` 포함) 필수 · verify [106]은 미설정 시 미판정 |
 | `DEMO_BUYER_PASSWORD` | 106 단계: `DEMO_BUYER_EMAIL` 계정 비밀번호(필수) · master: 시드 구매자 `buyer01@demo.zslab-mall.com` 비밀번호(선택 · 미지정 시 랜덤·state 파일 기록) |
@@ -45,19 +45,27 @@ python scripts/demo-seed/seed.py --target local --step verify            # 검�
 - 기존 `state/seed-state.json`(대상 미기록)이 있으면 자동 이전 없이 중단한다 — local 실행분이면 `seed-state.local.json`으로 이름을 바꾼다.
 - HTTP 클라이언트는 환경·시스템 프록시를 쓰지 않는다(DNS 판정과 실제 접속 대상 일치).
 
-## 운영(prod) 실행 절차
-1. 이 PC hosts의 `127.0.0.1 zslab-mall.duckdns.org` 줄을 주석 처리하고 DNS 캐시를 비운다(`ipconfig /flushdns`) — 그대로 두면 prod 가드가 거부한다.
-2. SSH 터널로 운영 DB를 연다(예 `ssh -N -L 3307:127.0.0.1:3306 <운영 서버>` → `DB_HOST=127.0.0.1` · `DB_PORT=3307`).
-   실행 전 그 포트가 운영 DB인지 확인한다(예 `mariadb -h 127.0.0.1 -P 3307 -e "SELECT @@hostname"`이 운영 서버 이름) — 로컬 DB 컨테이너도 127.0.0.1에 있다.
-3. `API_BASE_URL=https://zslab-mall.duckdns.org`(https 필수) · `API_TLS_VERIFY` 미설정 · 운영 관리자·DB 자격을 env로 지정한다.
-4. 허용 단계만 명시해 실행한다. 실행 직전 도메인 입력 프롬프트에 `zslab-mall.duckdns.org`를 직접 입력한다.
+## 운영(prod) 실행 절차 (운영 확인 2026-10-01)
+운영 서버에서 서버 전용 래퍼 `~/demo-seed/run.sh`(저장소 미포함)로 실행한다.
+- 인자: `verify` | `delivered` | `inquiries` | `qna`(`verify --dry-run` 허용) — 항상 `--target prod`로 실행한다.
+- 동작: `docker run --rm --network zslab_zslab_net python:3.12-slim`에 `~/demo-seed`를 마운트하고 requirements 설치 후 seed.py를 실행한다.
+  DB는 도커 네트워크 안 이름 `zslab_mariadb:3306`, API는 운영 도메인.
+- 자격증명은 서버 `.env`에서 읽어 넘긴다: `DB_USER`←`DB_USERNAME` · `ADMIN_EMAIL`/`ADMIN_PASSWORD`←`ADMIN_BOOTSTRAP_*` ·
+  `DEMO_BUYER_*`←`NUXT_BUYER_DEMO_*` · `DEMO_SELLER_*`←`NUXT_SELLER_DEMO_*`.
+
+순서(부족분만 채우므로 반복 실행 가능):
 ```
-python scripts/demo-seed/seed.py --target prod --step verify --dry-run   # 가드·교차 검증만
-python scripts/demo-seed/seed.py --target prod --step delivered          # 106 데이터(부족분만) — inquiries·qna도 같은 방식
-python scripts/demo-seed/seed.py --target prod --step verify
+~/demo-seed/run.sh verify --dry-run   # 가드·교차 검증만
+~/demo-seed/run.sh delivered
+~/demo-seed/run.sh inquiries
+~/demo-seed/run.sh qna
+~/demo-seed/run.sh verify
 ```
+- 단계 사이에 약 1분 둔다. gateway가 로그인 API 3경로(구매자·셀러·관리자)에 IP당 10r/m · burst 5를 걸고 단계마다 로그인하므로 제한을 함께 쓴다.
+  429로 실패하면 잠시 기다렸다가 그 단계를 다시 실행한다(seed.py 자체 재시도는 최대 3회 시도 · 대기 1초·2초).
+- 실행 중 도메인 확인 프롬프트에 운영 도메인을 직접 입력한다(prod 가드).
 - 금지: 허용 목록 밖 단계(master·orders·timeshift·settlement·reviews·all — settlement는 정산 생성 API가 전 셀러 대상이라 비데모 셀러 정산까지 PENDING 생성) · `--force`.
-5. 끝나면 hosts 줄을 복구하고 터널을 닫는다.
+- 함정: 운영 서버의 `127.0.0.1:3306`은 호스트에 직접 설치된 별도 MariaDB라 mall DB가 아니다(`zslab_mariadb`는 호스트 포트 미공개) — PC에서 SSH 터널로 그 포트에 붙는 방식은 쓰지 않는다.
 
 ## 테스트
 ```

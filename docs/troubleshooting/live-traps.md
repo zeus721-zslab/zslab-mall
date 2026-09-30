@@ -818,6 +818,18 @@ Playwright 직전에 프론트 컨테이너를 재생성(`up -d --force-recreate
 - 같은 트랙에서 함께 드러난 운용 실수: 호스트 `frontend/node_modules`가 lockfile보다 오래됨(nuxt 4.4.8 vs 4.5.2) — 호스트에서 vitest·typecheck를 돌리면 `$fetch` mock 변환 실패·거짓 통과(FE 검증은 컨테이너에서만) · Playwright는 실행 시 `frontend/test-results`를 비우므로 테스트 로그를 그 안에 두지 않는다
 - LT-37(규정 명령) · LT-39(콜드 트랩) · D-235 이월(서버 라우트 변경 후 재생성)
 
+## LT-41. 브랜치 전환으로 FE 페이지 파일이 생기거나 지워지면 실행 중인 frontend dev 서버에 반영되지 않음 — 컨테이너 재시작 필요 [ACTIVE]
+**발견 트랙**: 2026-10-01 브랜치 전환 운용(사용자 보고)
+**원본 결정**: 없음(운용 트랩)
+### 증상
+`git checkout`·`git switch`로 페이지 파일(`pages/` 아래 `.vue`)이 새로 생기거나 삭제된 브랜치로 옮긴 뒤, 떠 있는 frontend 컨테이너가 그 변화를 라우트에 반영하지 않는다. 기존 파일의 내용 수정은 반영된다.
+### 원인
+`./frontend`가 컨테이너 `/app`에 bind mount되어(docker-compose.dev.yml `zslab_mall_frontend.volumes`) nuxt dev 서버가 호스트 파일을 직접 본다. 폴링 감시는 Vite 서버에만 켜져 있고(`frontend/nuxt.config.ts` `vite.server.watch.usePolling: true`) Nuxt 자체 파일 감시(페이지 추가·삭제 시 라우트 재생성)에는 폴링 설정이 없다. 그래서 내용 변경은 Vite 폴링이 잡지만, 파일 생성·삭제로 라우트 목록이 바뀌는 경우는 재시작 전까지 반영되지 않는다.
+### 처치
+페이지 파일이 추가·삭제되는 브랜치 전환 뒤에는 `docker restart zslab_mall_frontend` → healthy 확인 후 화면·e2e를 진행한다. 재시작 직후 e2e는 LT-39 워밍업을 거친다. `.nuxt` 생성물 불일치까지 의심되면 LT-40 처치(재생성)를 쓴다.
+### 관련
+- LT-39(재시작 직후 콜드) · LT-40(`.nuxt` 공유 · 재생성)
+
 ---
 
 ## 부록. 트랩 추가 절차
