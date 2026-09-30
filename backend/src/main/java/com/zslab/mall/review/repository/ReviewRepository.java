@@ -82,6 +82,10 @@ public interface ReviewRepository extends JpaRepository<Review, Long> {
     @Query("SELECT r.content FROM Review r WHERE r.productId = :productId AND r.status = :status ORDER BY r.id DESC")
     List<String> findRecentContents(@Param("productId") Long productId, @Param("status") ReviewStatus status, Pageable pageable);
 
+    /** 상품 질문 즉시 답 후보(Track 106-2·공개 리뷰·최신순). 개수는 Pageable로 제한한다. */
+    @Query("SELECT r FROM Review r WHERE r.productId = :productId AND r.status = :status ORDER BY r.createdAt DESC, r.id DESC")
+    List<Review> findRecentForSuggest(@Param("productId") Long productId, @Param("status") ReviewStatus status, Pageable pageable);
+
     /** 상품 목록 카드 별점(상품별 공개 리뷰 수·평균·1쿼리 배치). */
     @Query("SELECT r.productId AS productId, COUNT(r) AS reviewCount, AVG(r.rating) AS averageRating FROM Review r "
             + "WHERE r.productId IN :productIds AND r.status = :status GROUP BY r.productId")

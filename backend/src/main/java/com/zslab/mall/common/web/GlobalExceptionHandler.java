@@ -46,6 +46,8 @@ import com.zslab.mall.product.exception.ProductStoppedByAdminException;
 import com.zslab.mall.product.exception.ProductNotFoundException;
 import com.zslab.mall.product.exception.ProductVariantNotFoundException;
 import com.zslab.mall.product.exception.ProductVariantOptionConflictException;
+import com.zslab.mall.productquestion.exception.ProductQuestionInvalidStateException;
+import com.zslab.mall.productquestion.exception.ProductQuestionNotFoundException;
 import com.zslab.mall.reconciliation.exception.ReconciliationIssueInvalidStateException;
 import com.zslab.mall.reconciliation.exception.ReconciliationIssueNotFoundException;
 import com.zslab.mall.refund.exception.RefundInvariantViolationException;
@@ -204,6 +206,8 @@ public class GlobalExceptionHandler {
     private static final String CODE_REVIEW_ALREADY_EXISTS = "REVIEW_ALREADY_EXISTS";
     private static final String CODE_REVIEW_NOT_ELIGIBLE = "REVIEW_NOT_ELIGIBLE";
     private static final String CODE_REVIEW_INVALID_STATE = "REVIEW_INVALID_STATE";
+    private static final String CODE_PRODUCT_QUESTION_NOT_FOUND = "PRODUCT_QUESTION_NOT_FOUND";
+    private static final String CODE_PRODUCT_QUESTION_INVALID_STATE = "PRODUCT_QUESTION_INVALID_STATE";
     private static final String CODE_INTERNAL_ERROR = "INTERNAL_ERROR";
 
     // ===== 400 =====
@@ -351,6 +355,13 @@ public class GlobalExceptionHandler {
             ReviewNotFoundException exception, HttpServletRequest request) {
         // Track 106-1: 리뷰 미존재·삭제·타인 리뷰 수정·숨김 리뷰 공개 행위(존재 은닉·404).
         return build(HttpStatus.NOT_FOUND, CODE_REVIEW_NOT_FOUND, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(ProductQuestionNotFoundException.class)
+    public ResponseEntity<ProblemDetail> handleProductQuestionNotFound(
+            ProductQuestionNotFoundException exception, HttpServletRequest request) {
+        // Track 106-2: 질문 미존재·삭제·타인 질문 수정·삭제·다른 셀러 상품 질문 답변(존재 은닉·404).
+        return build(HttpStatus.NOT_FOUND, CODE_PRODUCT_QUESTION_NOT_FOUND, exception.getMessage(), request);
     }
 
     @ExceptionHandler(ClaimNotFoundException.class)
@@ -825,6 +836,13 @@ public class GlobalExceptionHandler {
             ReviewInvalidStateException exception, HttpServletRequest request) {
         // Track 106-1: 관리자 숨김·해제 같은 상태 재요청(422·ProductInvalidStateException 선례).
         return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_REVIEW_INVALID_STATE, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(ProductQuestionInvalidStateException.class)
+    public ResponseEntity<ProblemDetail> handleProductQuestionInvalidState(
+            ProductQuestionInvalidStateException exception, HttpServletRequest request) {
+        // Track 106-2: 답변 뒤 질문자 수정·삭제·숨김 질문 수정·답변·관리자 같은 상태 재요청(422·리뷰 선례).
+        return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_PRODUCT_QUESTION_INVALID_STATE, exception.getMessage(), request);
     }
 
     @ExceptionHandler(ProductInvalidStateException.class)
