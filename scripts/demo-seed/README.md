@@ -15,13 +15,14 @@ python -m pip install -r scripts/demo-seed/requirements.txt
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | SUPER_ADMIN 로그인 자격 |
 | `DB_HOST` / `DB_PORT` / `DB_NAME` / `DB_USER` / `DB_PASSWORD` | MariaDB 접속(운영은 SSH 터널 경유) |
 | `API_TLS_VERIFY` | 선택. `false`면 TLS 검증 생략(로컬 자체 서명 인증서 전용 · `--target prod`면 거부) |
-| `DEMO_BUYER_PASSWORD` | 선택. 공개 데모 구매자 `buyer01@demo.zslab-mall.com` 비밀번호(미지정 시 랜덤·state 파일 기록) |
+| `DEMO_BUYER_PASSWORD` | 공개 데모 구매자 `buyer01@demo.zslab-mall.com` 비밀번호. master는 선택(미지정 시 랜덤·state 파일 기록) · delivered·inquiries·qna(`all` 포함)는 필수 |
+| `DEMO_SELLER_EMAIL` / `DEMO_SELLER_PASSWORD` | 데모 셀러(seller02 · 데모 패션랩) 로그인 자격 — `.env`의 `NUXT_SELLER_DEMO_*`와 같은 계정. qna(`all` 포함)만 필수 · 누락 시 exit 2 |
 
 ## 실행
 `--target local|prod`는 필수다(기본값 없음 · D-242). `--dry-run`도 env 전부·관리자 로그인·DB 연결이 필요하다(교차 검증을 읽기로 수행).
 ```
 python scripts/demo-seed/seed.py --target local --dry-run                # 대상 가드·교차 검증 후 계획만 출력(쓰기 0)
-python scripts/demo-seed/seed.py --target local --step all               # master → orders → timeshift → settlement → reviews → verify
+python scripts/demo-seed/seed.py --target local --step all               # master → orders → timeshift → settlement → reviews → delivered → inquiries → qna → verify
 python scripts/demo-seed/seed.py --target local --step orders            # 단계별 실행(state 파일로 재개)
 python scripts/demo-seed/seed.py --target local --step verify            # 검증만
 ```
@@ -35,8 +36,8 @@ python scripts/demo-seed/seed.py --target local --step verify            # 검�
   hosts 줄이 빠지면 거부된다.
 - prod: 순서대로 거부 — API 호스트 해석 결과 중 하나라도 loopback·사설 대역(IPv6 ULA 포함) → `API_BASE_URL`이 https가 아님 →
   `API_TLS_VERIFY=false` → `--force` → 허용 단계 밖. 통과하면 API 호스트 도메인을 터미널에서 직접 입력해 확인한다(파이프 입력·생략 옵션 없음).
-- prod 허용 단계: `verify`만(허용 목록 방식 · 운영은 추가분만 쓴다). master·orders·timeshift·settlement·reviews·all은 거부되고,
-  새 단계는 목록(`PROD_ALLOWED_STEPS`)에 넣을 때만 열린다.
+- prod 허용 단계: `verify`·`delivered`·`inquiries`·`qna`(허용 목록 방식 · 운영은 추가분만 쓴다). master·orders·timeshift·settlement·reviews·all은
+  거부되고, 새 단계는 목록(`PROD_ALLOWED_STEPS`)에 넣을 때만 열린다.
 - 교차 검증: 관리자 로그인 → `GET /api/v1/admin/me`의 본인(userPublicId·email) 행이 지정 DB에 없으면 API와 DB가 다른 환경으로 보고 중단.
 - state: 파일에 대상(`name·apiHost·dbHost·dbName`)을 기록하고 현재 대상과 다르면 거부. 대상 기록이 없는 state는 local만 현재 대상으로 받아들이고
   prod는 거부. `--dry-run`은 state를 쓰지 않는다.
@@ -51,6 +52,7 @@ python scripts/demo-seed/seed.py --target local --step verify            # 검�
 4. 허용 단계만 명시해 실행한다. 실행 직전 도메인 입력 프롬프트에 `zslab-mall.duckdns.org`를 직접 입력한다.
 ```
 python scripts/demo-seed/seed.py --target prod --step verify --dry-run   # 가드·교차 검증만
+python scripts/demo-seed/seed.py --target prod --step delivered          # 106 데이터(부족분만) — inquiries·qna도 같은 방식
 python scripts/demo-seed/seed.py --target prod --step verify
 ```
 - 금지: 허용 목록 밖 단계(master·orders·timeshift·settlement·reviews·all — settlement는 정산 생성 API가 전 셀러 대상이라 비데모 셀러 정산까지 PENDING 생성) · `--force`.
@@ -68,7 +70,21 @@ python -m unittest discover -s scripts/demo-seed -p "test_*.py"
 3. `timeshift` — 데모 마커 행만 시각 UPDATE(order·payment·order_item·delivery·claim·refund + 마스터 행) · order_no 날짜부 갱신 · 순서 불변식 검증
 4. `settlement` — 3~8월 정산 생성 → 3~7월 확정 → 3~6월 지급 → 지급 paid_at = 지급예정일 +0~3일(SQL)
 5. `reviews` — 카테고리별 리뷰 키워드 세트 INSERT(키워드 쓰기 API 없음 · code가 있으면 건너뜀) → 클레임 없는 구매확정 품목 약 70%에 구매자 API로 리뷰 작성(별점 분산 · 일부 PIL 사진 1~3장을 1장씩 업로드) · 도움됐어요 → 작성 시각을 구매확정 뒤로 SQL 보정. 가드 = 데모 구매자 리뷰 존재
-6. `verify` — settlement_item 합 = gross/fee, occurred_at = confirmed_at, 월별 주문·클레임 집계, 시각 불변식 재검증
+6. `delivered` — buyer01에게 자동확정 창(배송완료 후 7일) 안의 배송완료 품목(진행 중 클레임 없음)이 없으면 데모 패션랩 상품으로 새 주문 1건 →
+   mock 결제 → 관리자 발송 준비(송장 `DEMO`+8자리) → 배송완료. 시각은 서버 now 그대로(timeshift 없음)
+7. `inquiries` — buyer01 1:1 문의에서 ①답변+확인 ②답변+미확인 ③미답변 ④본인 주문 첨부 중 부족한 조건만 문의 작성 → 관리자 답변 → 구매자 답변 확인
+8. `qna` — 데모 셀러 상품에서 ①답변된 질문 ②미답변 질문 ③숨김 질문 ④여러 문장 설명 상품 중 부족한 조건만 —
+   설명은 셀러 기본정보 수정 API(`PUT /api/v1/seller/products/{prd}` · 상태·옵션·재고·이미지 무변경) · 질문 buyer01 · 답변 셀러 · 숨김 관리자
+9. `verify` — 106 데이터 충족 여부(D2·R1·R2) 출력(판정만 · exit code 무관) · settlement_item 합 = gross/fee, occurred_at = confirmed_at,
+   월별 주문·클레임 집계, 시각 불변식 재검증
+
+### 106 데이터 단계 (D-243)
+- 반복 실행 가능: 가드용 SELECT로 현재 상태를 읽어 **부족한 조건만** 만든다. 모두 충족돼 있으면 건너뛴다. 외부인이 데모 중 구매확정·답변 확인을
+  해서 조건이 깨지면 다시 실행해 채운다(시연 직전 실행 권장).
+- 쓰기는 전부 API 경유(직접 쓰기 SQL 없음) · 계정은 env(state 미사용 · 비밀번호를 state에 기록하지 않는다).
+- inquiries의 주문 첨부는 buyer01의 최근 주문을 쓴다(주문이 없으면 delivered 먼저).
+- 빈 DB에서 `--step all`: master가 셀러 비밀번호를 랜덤으로 만들어 env 셀러 로그인(qna)이 실패한다 → reviews까지 단계별로 실행한 뒤
+  state의 seller02 비밀번호를 `DEMO_SELLER_PASSWORD`로 지정해 delivered·inquiries·qna를 실행한다.
 
 ## 운영 실행 전
 - `mariadb-dump --single-transaction` 백업 + `mall_uploads` 볼륨 스냅샷
