@@ -38,5 +38,7 @@ public enum PolymorphicTargetType {
     /** 구매자 채팅 도우미 FAQ(Track 106-3·관리자 수정·삭제 감사 대상). */
     FAQ,
     /** 운영자 문의(Track 106-4·관리자 답변 등록·수정 감사 대상). */
-    INQUIRY
+    INQUIRY,
+    /** 데모 데이터 적재 실행(D-244·특정 행이 없는 실행 단위 감사라 target_id = 0). */
+    DEMO_SEED
 }
