@@ -28,7 +28,8 @@ export interface ProductDetailPageVm {
   incrementQuantity: () => void
   canAddToCart: boolean
   adding: boolean
-  addSucceeded: boolean
+  /** 담기 성공 신호(FE-99). 성공할 때마다 1씩 오른다 — 스킨은 값 변화로 스낵바·비행·뱃지를 띄운다. */
+  addedSignal: number
   addErrorMessage: string
   handleAddToCart: () => Promise<void>
   /** 옵션 값 품절 표시(현재 다른 그룹 선택값과의 조합 기준·조합 미완료에서도 판단). */

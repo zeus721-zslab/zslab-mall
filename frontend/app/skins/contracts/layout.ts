@@ -14,4 +14,6 @@ export interface LayoutShellVm {
    * 셸이 <768 헤더 카테고리 줄 중복을 숨길 때 쓴다.
    */
   hasPageTabRow: boolean
+  /** 현재 경로가 상품 상세인지 — 셸이 <1024 카테고리 줄을 고정 헤더 밖에 그려 스크롤과 함께 사라지게 한다(FE-99). */
+  hasUnpinnedCategoryRow: boolean
 }

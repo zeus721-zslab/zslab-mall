@@ -128,9 +128,10 @@ const totalPrice = computed<number | null>(() =>
   selectedVariant.value ? currentPrice.value * quantity.value : null,
 )
 
-// 담기 진행/결과 상태. adding으로 중복 클릭을 막고, 성공/실패 문구를 버튼 아래에 노출한다.
+// 담기 진행/결과 상태. adding으로 중복 클릭을 막고, 실패 문구는 버튼 아래에 노출한다.
+// addedSignal: 성공할 때마다 1씩 올리는 신호(FE-99). 같은 상품을 연달아 담아도 매번 새 값이라 스낵바·비행·뱃지가 다시 동작한다.
 const adding = ref<boolean>(false)
-const addSucceeded = ref<boolean>(false)
+const addedSignal = ref<number>(0)
 const addErrorMessage = ref<string>('')
 
 /**
@@ -143,7 +144,6 @@ async function handleAddToCart(): Promise<void> {
   // 담기 가능(variant 확정·미품절)일 때만 버튼이 활성이나, seam 안전을 위해 대상키 부재는 방어한다.
   if (!variantPublicId) return
 
-  addSucceeded.value = false
   addErrorMessage.value = ''
 
   // 인증 게이트: 미인증 또는 비-BUYER면 로그인으로 유도(복귀 경로 전달). 페이지 진입은 막지 않고 클릭 시점에만 건다.
@@ -155,7 +155,7 @@ async function handleAddToCart(): Promise<void> {
   adding.value = true
   try {
     await cart.add(variantPublicId, quantity.value)
-    addSucceeded.value = true
+    addedSignal.value += 1
   } catch (error) {
     // 세션 만료 등으로 서버가 401이면 재로그인 유도, 구매 불가(422·Track 71)는 전용 문구, 그 외(403 권한 부족 등)는 안내만 한다.
     const statusCode = (error as { statusCode?: number }).statusCode
@@ -198,7 +198,7 @@ const vm: ProductDetailPageVm = reactive({
   incrementQuantity,
   canAddToCart,
   adding,
-  addSucceeded,
+  addedSignal,
   addErrorMessage,
   handleAddToCart,
   isOptionValueSoldOut: optionValueSoldOut,

@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import type { ProductDetailPageVm } from '~/skins/contracts/product-detail'
 import { PRODUCT_SECTION_IDS } from '~/lib/constants/product-sections'
+import CartAddedSnackbar from '../components/CartAddedSnackbar.vue'
+import { flyToCart } from '../fly-to-cart'
 import MobileActionBar from '../components/MobileActionBar.vue'
 import ProductGlanceChips from '../components/ProductGlanceChips.vue'
 import ProductQuestionSection from '../components/ProductQuestionSection.vue'
@@ -49,6 +51,15 @@ function formatAmount(value: number): string {
 
 // 본문 담기 버튼: 화면에 없을 때만 모바일 고정 바가 나타난다(FE-71 도킹).
 const addButton = ref<HTMLButtonElement | null>(null)
+
+// 담기 성공마다 대표 이미지가 헤더 장바구니로 날아간다(FE-99). 대표 img는 썸네일 전환 때 바뀌므로 감싼 박스에서 찾는다.
+// flush post: 담기 뒤 장바구니 재조회로 헤더 뱃지가 새로 그려진 다음에 목적지를 잰다.
+const galleryImageBox = ref<HTMLElement | null>(null)
+watch(
+  () => props.vm.addedSignal,
+  () => flyToCart(galleryImageBox.value?.querySelector('img') ?? null),
+  { flush: 'post' },
+)
 </script>
 
 <template>
@@ -72,7 +83,7 @@ const addButton = ref<HTMLButtonElement | null>(null)
         <div class="lg:grid lg:grid-cols-2 lg:items-start lg:gap-12 xl:gap-16">
           <!-- 갤러리 -->
           <div>
-            <div class="relative aspect-square overflow-hidden rounded-(--panel-radius) bg-(--image-placeholder)">
+            <div ref="galleryImageBox" class="relative aspect-square overflow-hidden rounded-(--panel-radius) bg-(--image-placeholder)">
               <!-- 썸네일 전환 시 대표 이미지 페이드(겹쳐서 교차). 대표 이미지가 모바일 LCP라 즉시·높은 우선순위로 요청한다(FE-85). -->
               <Transition v-bind="FADE">
                 <img
@@ -203,26 +214,8 @@ const addButton = ref<HTMLButtonElement | null>(null)
               {{ addButtonLabel }}
             </button>
 
-            <!-- 담기 결과: 성공 카드(이동 없음·장바구니 링크) / 실패 문구 -->
-            <Transition v-bind="FADE">
-              <div
-                v-if="vm.addSucceeded"
-                role="status"
-                class="mt-4 flex items-center gap-3 rounded-card bg-(--pastel-mint-bg) p-4 text-(--pastel-mint-ink)"
-              >
-                <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/70" aria-hidden="true">
-                  <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M5 12.5l4.5 4.5L19 7.5" />
-                  </svg>
-                </span>
-                <span class="flex-1 text-small font-bold">장바구니에 담았습니다.</span>
-                <!-- 띠 면 위 보조 버튼 = 흰 바탕 -->
-                <NuxtLink to="/cart" class="btn btn-md shrink-0 bg-white text-primary hover:bg-surface-muted">
-                  장바구니 보기
-                </NuxtLink>
-              </div>
-            </Transition>
-            <p v-if="!vm.addSucceeded && vm.addErrorMessage" role="alert" class="mt-4 text-small font-bold text-destructive">{{ vm.addErrorMessage }}</p>
+            <!-- 담기 실패 문구. 성공은 화면 하단 스낵바(FE-99). -->
+            <p v-if="vm.addErrorMessage" role="alert" class="mt-4 text-small font-bold text-destructive">{{ vm.addErrorMessage }}</p>
           </div>
         </div>
 
@@ -265,6 +258,9 @@ const addButton = ref<HTMLButtonElement | null>(null)
           :disabled="!vm.canAddToCart || vm.adding"
           @action="vm.handleAddToCart"
         />
+
+        <!-- 담기 성공 스낵바: 하단 바가 보이면 바 바로 위, 아니면 화면 하단 -->
+        <CartAddedSnackbar :signal="vm.addedSignal" />
       </template>
     </div>
   </div>
