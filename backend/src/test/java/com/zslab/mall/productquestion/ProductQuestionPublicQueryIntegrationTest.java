@@ -47,6 +47,10 @@ class ProductQuestionPublicQueryIntegrationTest extends AbstractIntegrationTest 
     private static final long PRODUCT_LONG_DESCRIPTION = 10876L;
     private static final long QUESTION_WATERPROOF = 10877L;
     private static final long REVIEW_WATERPROOF = 10878L;
+    // 동점 유형 우선 테스트: 상품 id는 대역 안 · 질문·리뷰 id는 테이블이 달라 상품 id와 겹쳐도 된다(이 클래스의 질문·리뷰 id와는 겹치지 않는다).
+    private static final long PRODUCT_TIE = 10879L;
+    private static final long QUESTION_TIE = 10876L;
+    private static final long REVIEW_TIE = 10879L;
     /** 서비스의 설명 조각 상한(ProductQuestionSuggestService.FRAGMENT_LIMIT)과 같은 값. */
     private static final int FRAGMENT_LIMIT = 200;
     private static final String DESCRIPTION = "면 100% 소재입니다.\n세탁기 사용이 가능합니다. 건조기는 피해 주세요.";
@@ -118,7 +122,7 @@ class ProductQuestionPublicQueryIntegrationTest extends AbstractIntegrationTest 
     }
 
     @Test
-    @DisplayName("P2 즉시 답: \"세탁이 가능한 제품인가요?\" → 끝 1자 뗀 \"세탁\"·\"가능\"으로 일치 · 점수 순(2점 PRODUCT → 1점 최신순) · 숨김·삭제 질문·리뷰 제외 · QNA는 답변 포함")
+    @DisplayName("P2 즉시 답: \"세탁이 가능한 제품인가요?\" → 끝 1자 뗀 \"세탁\"·\"가능\"으로 일치 · 점수 순(2점 PRODUCT → 1점 QNA → REVIEW) · 숨김·삭제 질문·리뷰 제외 · QNA는 답변 포함")
     void suggest_matchesStemmedTokensAndExcludesHiddenOrDeleted() throws Exception {
         mockMvc.perform(get(suggestUrl(productPid)).param("q", "세탁이 가능한 제품인가요?"))
                 .andExpect(status().isOk())
@@ -130,10 +134,10 @@ class ProductQuestionPublicQueryIntegrationTest extends AbstractIntegrationTest 
                 .andExpect(jsonPath("$[?(@.type == 'PRODUCT')].id").doesNotExist())
                 .andExpect(jsonPath("$[?(@.text =~ /.*숨김.*/)]").isEmpty())
                 .andExpect(jsonPath("$[?(@.text =~ /.*삭제.*/)]").isEmpty())
-                // "세탁기 사용이 가능합니다."만 두 토큰(세탁·가능)이 일치해 점수 2로 맨 앞이고, 1점인 리뷰(더 최근)·질문이 뒤따른다.
+                // "세탁기 사용이 가능합니다."만 두 토큰(세탁·가능)이 일치해 점수 2로 맨 앞이고, 1점 동점은 유형 우선(Q&A → 리뷰)으로 뒤따른다.
                 .andExpect(jsonPath("$[0].type").value("PRODUCT"))
-                .andExpect(jsonPath("$[1].type").value("REVIEW"))
-                .andExpect(jsonPath("$[2].type").value("QNA"));
+                .andExpect(jsonPath("$[1].type").value("QNA"))
+                .andExpect(jsonPath("$[2].type").value("REVIEW"));
     }
 
     @Test
@@ -167,6 +171,25 @@ class ProductQuestionPublicQueryIntegrationTest extends AbstractIntegrationTest 
                 .andExpect(jsonPath("$[?(@.type == 'PRODUCT')]", hasSize(3)))
                 .andExpect(jsonPath("$[?(@.type == 'QNA')].id").value(questionPid))
                 .andExpect(jsonPath("$[?(@.type == 'REVIEW')].id").value(waterproofReviewPid));
+    }
+
+    @Test
+    @DisplayName("P6 동점 유형 우선: 1점 동점 QNA·REVIEW·PRODUCT(상품 수정 시각이 가장 늦어 최신순이면 PRODUCT가 1순위) → QNA → REVIEW → PRODUCT")
+    void suggest_tieBreaksByTypeBeforeRecency() throws Exception {
+        String productPublicId = fixture.seedProduct(PRODUCT_TIE, SELLER, "SALE", "방수 원단입니다.");
+        LocalDateTime earlier = LocalDateTime.now().minusDays(2);
+        String questionPid = fixture.insertQuestion(QUESTION_TIE, PRODUCT_TIE, BUYER, "방수가 되는 제품인가요", "VISIBLE", "생활 방수입니다",
+                SELLER_USER, earlier);
+        String tieReviewPid = fixture.insertReview(REVIEW_TIE, PRODUCT_TIE, BUYER, "비 오는 날 방수 잘 돼요", "VISIBLE", earlier.plusHours(1));
+
+        mockMvc.perform(get(suggestUrl(productPublicId)).param("q", "방수"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(3))
+                .andExpect(jsonPath("$[0].type").value("QNA"))
+                .andExpect(jsonPath("$[0].id").value(questionPid))
+                .andExpect(jsonPath("$[1].type").value("REVIEW"))
+                .andExpect(jsonPath("$[1].id").value(tieReviewPid))
+                .andExpect(jsonPath("$[2].type").value("PRODUCT"));
     }
 
     @Test

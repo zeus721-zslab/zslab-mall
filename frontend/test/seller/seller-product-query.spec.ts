@@ -59,7 +59,7 @@ describe('toSellerProductRouteQuery · toSellerProductApiParams', () => {
 describe('사이드바 상품·재고 활성화(90-C-3)', () => {
   it('상품 → /seller/products · 재고 → /seller/products/inventory · 나머지 미구현 항목은 여전히 비활성', () => {
     const productGroup = SELLER_MENU.find((group) => group.label === '상품')
-    expect(productGroup?.children?.map((child) => [child.label, child.to])).toEqual([['상품', '/seller/products'], ['재고', '/seller/products/inventory']])
+    expect(productGroup?.children?.map((child) => [child.label, child.to])).toEqual([['상품', '/seller/products'], ['재고', '/seller/products/inventory'], ['상품 질문', '/seller/products/questions']])
     // 비활성 = to 없는 항목: 통계 3(90-E) → 3개(90-B-3의 7개에서 상품·재고(90-C-3)·클레임(90-D-1)·비밀번호 변경(90-D-2) 4개 활성화)
     const disabled = SELLER_MENU.flatMap((group) => (group.children ? group.children.filter((child) => !child.to) : group.to ? [] : [group]))
     expect(disabled.map((item) => item.label)).toEqual([])
