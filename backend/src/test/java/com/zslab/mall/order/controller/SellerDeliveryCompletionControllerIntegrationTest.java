@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.zslab.mall.common.security.AuthHeaders;
 import com.zslab.mall.delivery.event.DeliveryCompleted;
+import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -117,6 +118,13 @@ class SellerDeliveryCompletionControllerIntegrationTest extends AbstractIntegrat
         assertThat(itemStatus()).isEqualTo("DELIVERED");
         assertThat(orderStatus()).isEqualTo("DELIVERED");
         assertThat(events.stream(DeliveryCompleted.class).count()).isEqualTo(1L);
+        // D-251: 자동 배송완료와 같은 형태(UPDATE·DELIVERY·status SHIPPING→DELIVERED)로 셀러 사용자 1행
+        Map<String, Object> audit = jdbc.queryForMap("SELECT action, actor_user_id, actor_role, diff_json FROM audit_log "
+                + "WHERE target_type = 'DELIVERY' AND target_id = ?", DELIVERY_ID);
+        assertThat(audit.get("action")).isEqualTo("UPDATE");
+        assertThat(((Number) audit.get("actor_user_id")).longValue()).isEqualTo(SELLER_A_USER);
+        assertThat(audit.get("actor_role")).isEqualTo("SELLER");
+        assertThat((String) audit.get("diff_json")).contains("SHIPPING").contains("DELIVERED");
     }
 
     @Test
@@ -145,6 +153,7 @@ class SellerDeliveryCompletionControllerIntegrationTest extends AbstractIntegrat
         assertThat(deliveryStatus()).isEqualTo("READY");
         assertThat(itemStatus()).isEqualTo("PREPARING");
         assertThat(events.stream(DeliveryCompleted.class).count()).isZero();
+        assertThat(deliveryAuditCount()).isZero(); // 전이 실패(422)는 커밋된 감사 없음(D-251 · 같은 트랜잭션이라 롤백까지 포함해 보장)
     }
 
     @Test
@@ -295,6 +304,7 @@ class SellerDeliveryCompletionControllerIntegrationTest extends AbstractIntegrat
             try {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
                 jdbc.update("DELETE FROM seller_user WHERE user_id IN (?, ?)", SELLER_A_USER, SELLER_B_USER);
+                jdbc.update("DELETE FROM audit_log WHERE target_type = 'DELIVERY' AND target_id = ?", DELIVERY_ID);
                 jdbc.update("DELETE FROM notification_log WHERE recipient_user_id = ?", USER_ID);
                 jdbc.update("DELETE FROM delivery WHERE order_item_id = ?", ORDER_ITEM_ID);
                 jdbc.update("DELETE FROM claim WHERE id = ?", CLAIM_ID);
@@ -322,6 +332,11 @@ class SellerDeliveryCompletionControllerIntegrationTest extends AbstractIntegrat
 
     private String orderStatus() {
         return jdbc.queryForObject("SELECT status FROM `order` WHERE id = ?", String.class, ORDER_ID);
+    }
+
+    private int deliveryAuditCount() {
+        return jdbc.queryForObject("SELECT COUNT(*) FROM audit_log WHERE target_type = 'DELIVERY' AND target_id = ?",
+                Integer.class, DELIVERY_ID);
     }
 
     private String claimStatus() {

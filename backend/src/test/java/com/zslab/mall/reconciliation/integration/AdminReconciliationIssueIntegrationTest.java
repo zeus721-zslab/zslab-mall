@@ -142,6 +142,23 @@ class AdminReconciliationIssueIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("단건(인박스 패널): 관리자 200·목록과 같은 필드 · 미존재 404 · 무쿠키 401 · 셀러 401")
+    void get_single() throws Exception {
+        mockMvc.perform(get(URL + "/" + openDriftIssueId).with(authHeaders.admin(ADMIN_ID)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.issueId").value(openDriftIssueId))
+                .andExpect(jsonPath("$.issueType").value("ITEM_STATE_DRIFT"))
+                .andExpect(jsonPath("$.status").value("OPEN"))
+                .andExpect(jsonPath("$.orderNo").value("ORDRAI-6701"))
+                .andExpect(jsonPath("$.orderId").value(ORDER_PUBLIC_ID))
+                .andExpect(jsonPath("$.detail.reason").value("TEST_REASON"));
+        mockMvc.perform(get(URL + "/" + MISSING_ISSUE_ID).with(authHeaders.admin(ADMIN_ID)))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get(URL + "/" + openDriftIssueId)).andExpect(status().isUnauthorized());
+        mockMvc.perform(get(URL + "/" + openDriftIssueId).with(authHeaders.seller(ADMIN_ID))).andExpect(status().isUnauthorized());
+    }
+
+    @Test
     @DisplayName("주문 상세: 이 주문의 불일치(열림·해결 모두·최신순)만 섹션으로 내려간다")
     void orderDetail_includesOrderIssues() throws Exception {
         mockMvc.perform(get("/api/v1/admin/orders/" + ORDER_PUBLIC_ID).with(authHeaders.admin(ADMIN_ID)))

@@ -9,6 +9,7 @@ import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.delivery.event.DeliveryCompleted;
 import com.zslab.mall.delivery.event.DeliveryStarted;
 import com.zslab.mall.order.enums.OrderItemStatus;
+import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -265,6 +266,32 @@ class AdminDeliveryControllerIntegrationTest extends AbstractIntegrationTest {
         assertThat(deliveryStatus()).isEqualTo("READY");
         assertThat(orderItemStatus()).isEqualTo("PREPARING");
         assertThat(events.stream(DeliveryCompleted.class).count()).isZero();
+        assertThat(deliveryAuditCount()).isZero(); // 전이 실패(422)는 커밋된 감사 없음(D-251 · 같은 트랜잭션이라 롤백까지 포함해 보장)
+    }
+
+    @Test
+    @DisplayName("T10 성공(장기 배송중 · D-251): 원 주문 SHIPPING 배송 → 200·DELIVERED·감사 1행(UPDATE·DELIVERY·관리자·SHIPPING→DELIVERED)")
+    void markDelivered_originalShipping_recordsAdminAudit() throws Exception {
+        seed(() -> {
+            seedCatalog();
+            seedOrder("SHIPPING");
+            seedOrderItem(OrderItemStatus.SHIPPING);
+            seedShippingOriginalDelivery();
+        });
+
+        mockMvc.perform(post("/api/v1/admin/deliveries/" + DELIVERY_PID + "/mark-delivered")
+                        .with(authHeaders.admin(ADMIN)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("DELIVERED"));
+
+        assertThat(deliveryStatus()).isEqualTo("DELIVERED");
+        assertThat(orderItemStatus()).isEqualTo("DELIVERED");
+        Map<String, Object> audit = jdbc.queryForMap("SELECT action, actor_user_id, actor_role, diff_json FROM audit_log "
+                + "WHERE target_type = 'DELIVERY' AND target_id = ?", DELIVERY_ID);
+        assertThat(audit.get("action")).isEqualTo("UPDATE");
+        assertThat(((Number) audit.get("actor_user_id")).longValue()).isEqualTo(ADMIN);
+        assertThat(audit.get("actor_role")).isEqualTo("ADMIN");
+        assertThat((String) audit.get("diff_json")).contains("SHIPPING").contains("DELIVERED");
     }
 
     @Test
@@ -381,6 +408,19 @@ class AdminDeliveryControllerIntegrationTest extends AbstractIntegrationTest {
                 deliveredAt == null ? null : "2026-01-01 09:00:00", deliveredAt);
     }
 
+    /** SHIPPING 원 주문 배송 시드(OUTBOUND·claim_id NULL·4일 전 발송 = 장기 배송중 · D-251 T10). */
+    private void seedShippingOriginalDelivery() {
+        jdbc.update("INSERT INTO delivery (id, public_id, order_item_id, carrier, tracking_no, status, direction, "
+                        + "shipped_at, claim_id, created_at, updated_at) "
+                        + "VALUES (?, ?, ?, 'CJ', ?, 'SHIPPING', 'OUTBOUND', NOW(6) - INTERVAL 4 DAY, NULL, NOW(6), NOW(6))",
+                DELIVERY_ID, DELIVERY_PID, ORDER_ITEM_ID, TRACKING_NO);
+    }
+
+    private int deliveryAuditCount() {
+        return jdbc.queryForObject("SELECT COUNT(*) FROM audit_log WHERE target_type = 'DELIVERY' AND target_id = ?",
+                Integer.class, DELIVERY_ID);
+    }
+
     /** SHIPPING 회수 배송 시드(direction RETURN·claim_id SET·구매자 회수 송장 등록 직후 상태·Track 92-a T7). */
     private void seedShippingReturnDelivery() {
         jdbc.update("INSERT INTO delivery (id, public_id, order_item_id, carrier, tracking_no, status, direction, "
@@ -394,6 +434,7 @@ class AdminDeliveryControllerIntegrationTest extends AbstractIntegrationTest {
             try {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
                 jdbc.update("DELETE FROM notification_log WHERE recipient_user_id = ?", USER_ID);
+                jdbc.update("DELETE FROM audit_log WHERE target_type = 'DELIVERY' AND target_id = ?", DELIVERY_ID);
                 jdbc.update("DELETE FROM delivery WHERE order_item_id = ?", ORDER_ITEM_ID);
                 jdbc.update("DELETE FROM refund WHERE claim_id IN (SELECT id FROM claim WHERE order_item_id = ?)",
                         ORDER_ITEM_ID);

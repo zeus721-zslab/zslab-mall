@@ -19,10 +19,16 @@ const DETAIL = {
   quantity: 1, unitPrice: 32000, totalPrice: 32000, itemStatus: 'PAID',
 }
 
-interface InboxMock { rows: InboxRow[]; shipments: unknown[]; snoozes: unknown[] }
+// 재고 임박 패널(D-251)이 상품명으로 읽는 재고 목록 — ref(var_E2EL)와 같은 행 + 다른 옵션 1행.
+const INVENTORY_ROWS = [
+  { variantPublicId: 'var_E2EX', productPublicId: 'prd_E2EL', productName: 'E2E 주전자', optionLabel: '색상: 화이트', quantityOnHand: 40, quantityReserved: 0, quantityAvailable: 40 },
+  { variantPublicId: 'var_E2EL', productPublicId: 'prd_E2EL', productName: 'E2E 주전자', optionLabel: '색상: 블랙', sellerSku: 'E2E-SKU', quantityOnHand: 4, quantityReserved: 1, quantityAvailable: 3 },
+]
+
+interface InboxMock { rows: InboxRow[]; shipments: unknown[]; snoozes: unknown[]; inventoryQueries: URLSearchParams[]; inbounds: { url: string; body: unknown }[] }
 
 async function mockInbox(page: Page): Promise<InboxMock> {
-  const mock: InboxMock = { rows: [READY, QUESTION, LOW_STOCK], shipments: [], snoozes: [] }
+  const mock: InboxMock = { rows: [READY, QUESTION, LOW_STOCK], shipments: [], snoozes: [], inventoryQueries: [], inbounds: [] }
   const remove = (ref: string): void => { mock.rows = mock.rows.filter((row) => row.ref !== ref) }
   await mockSellerMe(page)
   await page.route((url) => url.pathname.endsWith('/api/v1/seller/inbox'), (route) => {
@@ -51,6 +57,15 @@ async function mockInbox(page: Page): Promise<InboxMock> {
     return route.fulfill({ json: { deliveryPublicId: 'dlv_E2E_NEW', status: 'SHIPPING', carrier: 'CJ', trackingNo: 'E2E-INBOX-0001' } })
   })
   await page.route((url) => url.pathname.endsWith(`/api/v1/seller/order-items/${READY_ID}`), (route) => route.fulfill({ json: DETAIL }))
+  await page.route((url) => url.pathname.endsWith('/api/v1/seller/inventories'), (route) => {
+    mock.inventoryQueries.push(new URL(route.request().url()).searchParams)
+    return route.fulfill({ json: { items: INVENTORY_ROWS, page: 0, size: 100, totalCount: INVENTORY_ROWS.length, hasNext: false } })
+  })
+  await page.route((url) => url.pathname.endsWith('/api/v1/seller/inventories/var_E2EL/mark-inbound'), (route) => {
+    mock.inbounds.push({ url: route.request().url(), body: route.request().postDataJSON() })
+    remove(LOW_STOCK.ref)
+    return route.fulfill({ json: { variantPublicId: 'var_E2EL', quantityOnHand: 14, quantityReserved: 1, quantityAvailable: 13 } })
+  })
   return mock
 }
 
@@ -92,7 +107,7 @@ test.describe('셀러 인박스(FE-101)', () => {
 
     await page.locator('[data-testid="inbox-item"][data-key="LOW_STOCK:var_E2EL"]').click()
     await expect(page.getByTestId('inbox-detail-deadline')).toHaveText('기한 없음')
-    await expect(page.getByTestId('inbox-detail-action')).toHaveCount(0) // 재고 임박은 원래 화면으로
+    await expect(page.getByTestId('inbox-detail-action')).toHaveCount(0) // 재고 임박은 공통 처리 버튼 대신 재고 패널 입고(D-251 · ⑦)
 
     await page.getByTestId('inbox-detail-snooze').click()
     const dialog = page.getByTestId('inbox-snooze-dialog')
@@ -181,5 +196,31 @@ test.describe('셀러 인박스(FE-101)', () => {
     await expect.poll(() => listRequests).toBe(before + 2)
     await expect(page.getByTestId('inbox-item')).toHaveCount(2)
     await expect(page.getByTestId('seller-menu-badge-inbox')).toContainText('2')
+  })
+
+  test('⑦ 재고 임박 패널(D-251): 재고 목록(상품명 검색)에서 ref 행 선택 → 수치 표시 → 입고 다이얼로그 → POST 본문 → 재조회로 빠짐', async ({ page }) => {
+    const mock = await mockInbox(page)
+    await loginAs(page, 'SELLER')
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/seller/inbox?type=LOW_STOCK')
+    await expect(page.getByTestId('inbox-detail-title')).toHaveText('E2E 주전자')
+
+    // 같은 상품의 다른 옵션(가용 40)이 아니라 ref 옵션(가용 3)을 고른다
+    await expect(page.getByTestId('inbox-stock-available')).toHaveText('3')
+    expect(mock.inventoryQueries.at(-1)?.get('keyword')).toBe('E2E 주전자')
+    expect(mock.inventoryQueries.at(-1)?.get('size')).toBe('100')
+
+    await page.getByTestId('inbox-stock-inbound').click()
+    const dialog = page.getByTestId('seller-inventory-adjust-dialog')
+    await expect(dialog.getByTestId('adjust-title')).toHaveText('입고 처리')
+    await expect(dialog.getByTestId('adjust-item')).toContainText('E2E 주전자 (색상: 블랙)')
+    await dialog.getByTestId('adjust-quantity').locator('input').fill('10')
+    await dialog.getByTestId('adjust-reason').locator('input').fill('추가 입고')
+    await dialog.getByTestId('adjust-dialog-ok').click()
+
+    await expect(page.getByTestId('seller-toaster')).toContainText('입고 10개 처리했습니다. 보유 14 · 가용 13')
+    expect(mock.inbounds).toHaveLength(1)
+    expect(mock.inbounds[0]!.body).toEqual({ quantity: 10, reason: '추가 입고' })
+    await expect(page.locator('[data-testid="inbox-item"][data-key="LOW_STOCK:var_E2EL"]')).toHaveCount(0)
   })
 })

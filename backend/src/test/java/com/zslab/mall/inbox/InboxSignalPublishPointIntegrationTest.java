@@ -154,7 +154,7 @@ class InboxSignalPublishPointIntegrationTest extends InboxStreamTestSupport {
         });
         Streams streams = openStreams();
 
-        deliveryService.markDeliveredByAdmin(DELIVERY_ID);
+        deliveryService.markDeliveredByAdmin(DELIVERY_ID, ADMIN);
 
         streams.expect(true, true, true);
     }

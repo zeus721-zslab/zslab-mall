@@ -82,6 +82,7 @@ describe('위험 조작 확인 문구 — 가역성 줄이 항상 마지막', ()
       adminRiskConfirm.memberWithdrawMessage('홍길동', 'a@test.local'),
       adminRiskConfirm.temporaryPasswordMessage('010-0000-0000'),
       adminRiskConfirm.refundInitiateMessage('테스트 상품'),
+      adminRiskConfirm.deliveryCompleteMessage('테스트 상품', 'ORD-1'),
       MARK_DELIVERED_CONFIRM_MESSAGE,
     ]
     for (const message of samples) {

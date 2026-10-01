@@ -16,7 +16,11 @@ const CLAIM_CANCEL = { type: 'CLAIM_REQUESTED', ref: 'clm_E2EC', title: 'E2E 머
 const CLAIM_RETURN = { type: 'CLAIM_REQUESTED', ref: 'clm_E2ER', title: 'E2E 텀블러', subtitle: 'ORD-E2E-3', baseAt: '2026-09-29T11:00:00+09:00', dueAt: '2026-09-30T11:00:00+09:00', overdue: true, targetKey: 'CLAIM', claimType: 'RETURN', suggestion: 'APPROVE' }
 const CLAIM_REVIEW = { type: 'CLAIM_REQUESTED', ref: 'clm_E2EV', title: 'E2E 접시', subtitle: 'ORD-E2E-4', baseAt: '2026-09-29T12:00:00+09:00', dueAt: '2026-09-30T12:00:00+09:00', overdue: true, targetKey: 'CLAIM', claimType: 'RETURN', suggestion: 'REVIEW' }
 
-type InboxRow = typeof INQUIRY_A & { claimType?: string; suggestion?: string }
+// P1c(D-251) — 유형별 패널 시나리오(⑩~)는 today를 직접 넘긴다. 부제 없는 행은 BE non_null 직렬화대로 키를 뺀다.
+const RECONCILIATION = { type: 'RECONCILIATION_OPEN', ref: '9101', title: 'ITEM_STATE_DRIFT', baseAt: '2026-09-29T08:00:00+09:00', dueAt: '2026-09-30T08:00:00+09:00', overdue: true, targetKey: 'RECONCILIATION' }
+const SETTLEMENT_PAYOUT = { type: 'SETTLEMENT_PAYOUT', ref: '7201', title: 'E2E 정산상사', baseAt: '2026-09-30T00:00:00+09:00', dueAt: '2026-09-30T23:59:59.999+09:00', overdue: true, targetKey: 'SETTLEMENT' }
+
+type InboxRow = Omit<typeof INQUIRY_A, 'subtitle'> & { subtitle?: string; claimType?: string; suggestion?: string }
 
 interface InboxMock {
   today: InboxRow[]
@@ -26,6 +30,8 @@ interface InboxMock {
   answers: string[]
   approves: string[]
   bulkBodies: unknown[]
+  /** 처리된 항목을 다음 조회에서 뺀다(유형별 처리 목은 각 시나리오가 단다). */
+  remove: (ref: string) => void
 }
 
 /** 단건 조회 응답(BE AdminClaimDetailResponse) — 행 정보로 만든다. */
@@ -53,13 +59,13 @@ function body(rows: InboxRow[], type: string | null) {
   }
 }
 
-async function mockInbox(page: Page, options: { claims?: boolean } = {}): Promise<InboxMock> {
-  const today: InboxRow[] = options.claims ? [CLAIM_CANCEL, CLAIM_RETURN, CLAIM_REVIEW, INQUIRY_A] : [INQUIRY_A, INQUIRY_B, FOLLOWUP]
-  const mock: InboxMock = { today, upcoming: [PRODUCT], queries: [], snoozes: [], answers: [], approves: [], bulkBodies: [] }
+async function mockInbox(page: Page, options: { claims?: boolean; today?: InboxRow[] } = {}): Promise<InboxMock> {
+  const today: InboxRow[] = options.today ?? (options.claims ? [CLAIM_CANCEL, CLAIM_RETURN, CLAIM_REVIEW, INQUIRY_A] : [INQUIRY_A, INQUIRY_B, FOLLOWUP])
   const remove = (ref: string): void => {
     mock.today = mock.today.filter((row) => row.ref !== ref)
     mock.upcoming = mock.upcoming.filter((row) => row.ref !== ref)
   }
+  const mock: InboxMock = { today, upcoming: [PRODUCT], queries: [], snoozes: [], answers: [], approves: [], bulkBodies: [], remove }
   await page.route((url) => url.pathname.endsWith('/api/v1/admin/inbox'), (route) => {
     const query = new URL(route.request().url()).searchParams
     mock.queries.push(query)
@@ -318,5 +324,71 @@ test.describe('관리자 인박스(FE-101)', () => {
     const result = page.getByTestId('admin-claim-bulk-result-dialog')
     await expect(result.getByTestId('claim-bulk-result-failure-item')).toContainText('E2E 텀블러')
     await expect(result.getByTestId('claim-bulk-result-failure-item')).toContainText('지금은 승인 제안이 아니어서 승인하지 않았습니다.')
+  })
+
+  test('⑩ 정합성 불일치 패널(D-251): 단건 조회 사유·주문 → 해결 다이얼로그(메모 필수) → POST 본문 → 재조회로 빠짐', async ({ page }) => {
+    const mock = await mockInbox(page, { today: [RECONCILIATION, INQUIRY_A] })
+    const resolves: { url: string; body: unknown }[] = []
+    await page.route((url) => url.pathname.endsWith('/api/v1/admin/reconciliation-issues/9101'), (route) => route.fulfill({
+      json: { issueId: 9101, issueType: 'ITEM_STATE_DRIFT', status: 'OPEN', orderNo: 'ORD-E2E-9', detail: { itemStatus: 'PAID' }, detectedAt: '2026-09-29T08:00:00+09:00', resolvedBySystem: false },
+    }))
+    await page.route((url) => url.pathname.endsWith('/api/v1/admin/reconciliation-issues/9101/resolve'), (route) => {
+      resolves.push({ url: route.request().url(), body: route.request().postDataJSON() })
+      mock.remove('9101')
+      return route.fulfill({ json: { issueId: 9101, issueType: 'ITEM_STATE_DRIFT', status: 'RESOLVED', detail: {}, detectedAt: '2026-09-29T08:00:00+09:00', resolvedBySystem: false } })
+    })
+    await loginAs(page, 'ADMIN')
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/admin/inbox')
+    await expect(page.getByTestId('inbox-item')).toHaveCount(2)
+
+    await expect(page.getByTestId('inbox-reconciliation-summary')).toHaveText('품목 상태 어긋남')
+    await expect(page.getByTestId('inbox-reconciliation-panel')).toContainText('ORD-E2E-9')
+    await page.getByTestId('inbox-reconciliation-resolve').click()
+    const dialog = page.getByTestId('admin-reconciliation-resolve-dialog')
+    await expect(dialog.getByTestId('resolve-dialog-ok')).toBeDisabled()
+    await dialog.getByTestId('resolve-memo').locator('textarea').first().fill('PG 확인 후 보정')
+    await dialog.getByTestId('resolve-dialog-ok').click()
+
+    await expect(page.locator('[data-sonner-toast][data-type="success"]')).toContainText('불일치를 해결됨으로 표시했습니다.')
+    expect(resolves).toHaveLength(1)
+    expect(resolves[0]!.body).toEqual({ memo: 'PG 확인 후 보정' })
+    await expect(page.getByTestId('inbox-item')).toHaveCount(1)
+    await expect(page.getByTestId('inbox-detail-title')).toHaveText('E2E 배송이 늦어요')
+  })
+
+  test('⑪ 정산 지급 패널(D-251): 단건 조회 지급액·계좌 → 지급완료 확인(금액·계좌 문구) → POST → 재조회로 빠짐', async ({ page }) => {
+    const mock = await mockInbox(page, { today: [SETTLEMENT_PAYOUT, INQUIRY_A] })
+    const pays: string[] = []
+    await page.route((url) => url.pathname.endsWith('/api/v1/admin/settlements/7201'), (route) => route.fulfill({
+      json: {
+        id: 7201, seller: { publicId: 'slr_E2E', companyName: 'E2E 정산상사' }, periodStart: '2026-08-01T00:00:00+09:00', periodEnd: '2026-08-31T23:59:59+09:00',
+        grossAmount: 100000, feeAmount: 10000, refundAmount: 0, carryoverAmount: 0, netAmount: 90000, status: 'CONFIRMED', scheduledPayDate: '2026-09-30',
+        bankAccountRegistered: true, saleItemCount: 3, refundItemCount: 0, carryoverItemCount: 0,
+        bankAccount: { id: 1, bankCode: '004', accountHolder: 'E2E 정산상사', accountNumberSuffix: '1234', snapshot: false },
+      },
+    }))
+    await page.route((url) => url.pathname.endsWith('/api/v1/admin/settlements/7201/pay'), (route) => {
+      pays.push(route.request().method())
+      mock.remove('7201')
+      return route.fulfill({ json: { settlementId: 7201, status: 'PAID', paidAt: '2026-09-30T10:00:00+09:00' } })
+    })
+    await loginAs(page, 'ADMIN')
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/admin/inbox')
+    await expect(page.getByTestId('inbox-item')).toHaveCount(2)
+
+    await expect(page.getByTestId('inbox-settlement-net')).toHaveText('90,000원')
+    await expect(page.getByTestId('inbox-settlement-confirm')).toHaveCount(0) // 지급 대기는 지급만
+    await page.getByTestId('inbox-settlement-pay').click()
+    const dialog = page.getByTestId('inbox-settlement-pay-dialog')
+    await expect(dialog).toContainText('90,000원')
+    await expect(dialog).toContainText('1234')
+    await dialog.getByTestId('inbox-settlement-pay-dialog-ok').click()
+
+    await expect(page.locator('[data-sonner-toast][data-type="success"]')).toContainText('지급완료로 처리했습니다.')
+    expect(pays).toEqual(['POST'])
+    await expect(page.getByTestId('inbox-item')).toHaveCount(1)
+    await expect(page.getByTestId('inbox-detail-title')).toHaveText('E2E 배송이 늦어요')
   })
 })

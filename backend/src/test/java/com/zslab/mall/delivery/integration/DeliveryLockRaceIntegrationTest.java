@@ -174,7 +174,7 @@ class DeliveryLockRaceIntegrationTest extends AbstractIntegrationTest {
             ready.countDown();
             awaitQuietly(start, RACE_TIMEOUT_SECONDS);
             try {
-                deliveryService.markDeliveredByAdmin(DLV_BOTH_COMPLETE);
+                deliveryService.markDeliveredByAdmin(DLV_BOTH_COMPLETE, AuditContext.of(ADMIN_ACTOR_ID, ADMIN_ROLE));
                 return "MANUAL_OK";
             } catch (RuntimeException exception) {
                 return exception.getClass().getSimpleName();
@@ -212,8 +212,10 @@ class DeliveryLockRaceIntegrationTest extends AbstractIntegrationTest {
         assertThat(deliveryStatus(DLV_BOTH_COMPLETE)).isEqualTo("DELIVERED");
         assertThat(deliveredAt(DLV_BOTH_COMPLETE)).isNotNull();
         assertThat(itemStatus(DLV_BOTH_COMPLETE)).isEqualTo("DELIVERED");
-        // 자동이 이겼을 때만 SYSTEM 감사 1행(수동 경로는 감사 없음) — 어느 쪽이든 2행이 되지 않는다.
+        // 이긴 쪽만 감사 1행(자동 SYSTEM · 수동 ADMIN · D-251) — 진 쪽은 전이하지 않아 감사도 없으므로 합계가 2행이 되지 않는다.
         assertThat(autoCompleteAuditCount(DLV_BOTH_COMPLETE)).isEqualTo(autoWon ? 1L : 0L);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_log WHERE target_type = 'DELIVERY' AND target_id = ? AND actor_role = ?",
+                Long.class, DLV_BOTH_COMPLETE, ADMIN_ROLE)).isEqualTo(manualWon ? 1L : 0L);
     }
 
     // ---------- seed·helpers ----------
