@@ -28,6 +28,7 @@ import com.zslab.mall.delivery.exception.DeliveryInvalidStateException;
 import com.zslab.mall.delivery.exception.DeliveryNotFoundException;
 import com.zslab.mall.faq.exception.FaqNotFoundException;
 import com.zslab.mall.grade.exception.GradePolicyUnavailableException;
+import com.zslab.mall.inbox.exception.InboxItemNotFoundException;
 import com.zslab.mall.inquiry.exception.InquiryInvalidStateException;
 import com.zslab.mall.inquiry.exception.InquiryNotFoundException;
 import com.zslab.mall.inventory.exception.InventoryInvariantViolationException;
@@ -214,6 +215,7 @@ public class GlobalExceptionHandler {
     private static final String CODE_FAQ_NOT_FOUND = "FAQ_NOT_FOUND";
     private static final String CODE_INQUIRY_NOT_FOUND = "INQUIRY_NOT_FOUND";
     private static final String CODE_INQUIRY_INVALID_STATE = "INQUIRY_INVALID_STATE";
+    private static final String CODE_INBOX_ITEM_NOT_FOUND = "INBOX_ITEM_NOT_FOUND";
     private static final String CODE_INTERNAL_ERROR = "INTERNAL_ERROR";
 
     // ===== 400 =====
@@ -380,6 +382,13 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ProblemDetail> handleInquiryNotFound(InquiryNotFoundException exception, HttpServletRequest request) {
         // Track 106-4: 문의 미존재·삭제·타인 문의 수정·삭제·확인(존재 은닉·404).
         return build(HttpStatus.NOT_FOUND, CODE_INQUIRY_NOT_FOUND, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(InboxItemNotFoundException.class)
+    public ResponseEntity<ProblemDetail> handleInboxItemNotFound(InboxItemNotFoundException exception,
+            HttpServletRequest request) {
+        // D-248: 보류 대상이 본인 인박스 대기 항목이 아님(미존재·처리됨·다른 역할 유형·타 셀러 항목 은닉·404).
+        return build(HttpStatus.NOT_FOUND, CODE_INBOX_ITEM_NOT_FOUND, exception.getMessage(), request);
     }
 
     @ExceptionHandler(ClaimNotFoundException.class)
