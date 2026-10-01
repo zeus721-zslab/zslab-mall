@@ -8,6 +8,7 @@ import com.zslab.mall.auth.exception.SelfRoleRevocationException;
 import com.zslab.mall.auth.exception.SuperAdminRequiredException;
 import com.zslab.mall.cart.exception.CartItemNotFoundException;
 import com.zslab.mall.cart.exception.CartItemNotPurchasableException;
+import com.zslab.mall.cart.exception.CartItemQuantityLimitExceededException;
 import com.zslab.mall.cart.exception.EmptyCartCheckoutException;
 import com.zslab.mall.category.exception.CategoryDuplicateException;
 import com.zslab.mall.category.exception.CategoryHasProductsException;
@@ -21,6 +22,7 @@ import com.zslab.mall.claim.exception.ClaimInvalidStateException;
 import com.zslab.mall.claim.exception.ClaimNotFoundException;
 import com.zslab.mall.common.exception.DemoAccountProtectedException;
 import com.zslab.mall.common.exception.MalformedRequestException;
+import com.zslab.mall.common.exception.PublicDemoSessionRestrictedException;
 import com.zslab.mall.file.exception.StoredFileNotFoundException;
 import com.zslab.mall.file.exception.UploadBusyException;
 import com.zslab.mall.common.exception.UnauthenticatedException;
@@ -171,6 +173,7 @@ public class GlobalExceptionHandler {
     private static final String CODE_CATEGORY_HAS_PRODUCTS = "CATEGORY_HAS_PRODUCTS";
     private static final String CODE_CART_ITEM_NOT_FOUND = "CART_ITEM_NOT_FOUND";
     private static final String CODE_CART_ITEM_NOT_PURCHASABLE = "CART_ITEM_NOT_PURCHASABLE";
+    private static final String CODE_CART_ITEM_QUANTITY_LIMIT_EXCEEDED = "CART_ITEM_QUANTITY_LIMIT_EXCEEDED";
     private static final String CODE_PRODUCT_VARIANT_OPTION_CONFLICT = "PRODUCT_VARIANT_OPTION_CONFLICT";
     private static final String CODE_PRODUCT_INVALID_STATE = "PRODUCT_INVALID_STATE";
     private static final String CODE_PRODUCT_STOPPED_BY_ADMIN = "PRODUCT_STOPPED_BY_ADMIN";
@@ -193,6 +196,7 @@ public class GlobalExceptionHandler {
     private static final String CODE_UPLOAD_BUSY = "UPLOAD_BUSY";
     private static final String CODE_FORBIDDEN = "FORBIDDEN";
     private static final String CODE_DEMO_ACCOUNT_PROTECTED = "DEMO_ACCOUNT_PROTECTED";
+    private static final String CODE_DEMO_SESSION_RESTRICTED = "DEMO_SESSION_RESTRICTED";
     private static final String CODE_SETTLEMENT_PERIOD_INVALID = "SETTLEMENT_PERIOD_INVALID";
     private static final String CODE_SETTLEMENT_ALREADY_EXISTS = "SETTLEMENT_ALREADY_EXISTS";
     private static final String CODE_SETTLEMENT_NOT_FOUND = "SETTLEMENT_NOT_FOUND";
@@ -273,6 +277,13 @@ public class GlobalExceptionHandler {
             DemoAccountProtectedException exception, HttpServletRequest request) {
         // D-230: 공개 데모 계정의 로그인을 깨뜨리는 조작 차단(요청자 무관). 권한 부족이 아니라 대상 보호라 전용 코드로 구분한다.
         return build(HttpStatus.FORBIDDEN, CODE_DEMO_ACCOUNT_PROTECTED, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(PublicDemoSessionRestrictedException.class)
+    public ResponseEntity<ProblemDetail> handlePublicDemoSessionRestricted(
+            PublicDemoSessionRestrictedException exception, HttpServletRequest request) {
+        // 최종 점검 K1: 공개 관리자 데모 세션의 계정·권한 변경·시더 차단. 대상 보호(D-230)와 구분되도록 전용 코드를 쓴다.
+        return build(HttpStatus.FORBIDDEN, CODE_DEMO_SESSION_RESTRICTED, exception.getMessage(), request);
     }
 
     @ExceptionHandler(SuperAdminRequiredException.class)
@@ -908,6 +919,14 @@ public class GlobalExceptionHandler {
         // Track 71: 담기 대상이 판매중지·품절 등 구매 불가(422·클라 교정 가능[다른 옵션 선택]).
         log.warn("[Cart] 구매 불가 담기 거부(422): {}", exception.getMessage());
         return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_CART_ITEM_NOT_PURCHASABLE, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(CartItemQuantityLimitExceededException.class)
+    public ResponseEntity<ProblemDetail> handleCartItemQuantityLimitExceeded(
+            CartItemQuantityLimitExceededException exception, HttpServletRequest request) {
+        // 최종 점검 K3: 재담기 합산이 품목 상한 초과(422·클라 교정 가능[수량 줄이기]).
+        log.warn("[Cart] 수량 상한 초과 담기 거부(422): {}", exception.getMessage());
+        return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_CART_ITEM_QUANTITY_LIMIT_EXCEEDED, exception.getMessage(), request);
     }
 
     // ===== 500 (도메인) =====

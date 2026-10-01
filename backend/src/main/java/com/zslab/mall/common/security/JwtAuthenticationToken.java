@@ -15,16 +15,27 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 public class JwtAuthenticationToken extends AbstractAuthenticationToken {
 
     private final Long actorId;
+    private final boolean publicDemo;
 
-    private JwtAuthenticationToken(Long actorId, ActorRole role) {
+    private JwtAuthenticationToken(Long actorId, ActorRole role, boolean publicDemo) {
         super(List.of(new SimpleGrantedAuthority(role.authority())));
         this.actorId = actorId;
+        this.publicDemo = publicDemo;
         setAuthenticated(true);
     }
 
-    /** 인증 완료 토큰 — 필터가 role 기반 단일 권한(ROLE_ 프리픽스)으로 생성한다. */
+    /** 인증 완료 토큰 — 필터가 role 기반 단일 권한(ROLE_ 프리픽스)으로 생성한다. 데모 표식 없음. */
     public static JwtAuthenticationToken authenticated(Long actorId, ActorRole role) {
-        return new JwtAuthenticationToken(actorId, role);
+        return new JwtAuthenticationToken(actorId, role, false);
+    }
+
+    /** @param publicDemo 공개 관리자 데모 세션 표식(최종 점검 K1 · {@link PublicDemoSessionGuard}가 읽는다) */
+    public static JwtAuthenticationToken authenticated(Long actorId, ActorRole role, boolean publicDemo) {
+        return new JwtAuthenticationToken(actorId, role, publicDemo);
+    }
+
+    public boolean isPublicDemo() {
+        return publicDemo;
     }
 
     @Override

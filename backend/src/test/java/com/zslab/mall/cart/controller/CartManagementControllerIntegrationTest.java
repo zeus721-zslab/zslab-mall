@@ -199,6 +199,25 @@ class CartManagementControllerIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("K3 수량변경 상한 — quantity=1000 → 400 VALIDATION_FAILED(수량 2 유지) · 999 → 200")
+    void changeQuantity_overLimit_returns400() throws Exception {
+        seedCartItem(BUYER_USER_ID, VAR_OK, 2, true);
+
+        mockMvc.perform(patch("/api/v1/cart/items/quantity").with(authHeaders.buyer(BUYER_USER_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("variantPublicId", VAR_OK_PID, "quantity", 1000))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+        assertThat(count("SELECT quantity FROM cart_item WHERE user_id=? AND variant_id=?", BUYER_USER_ID, VAR_OK)).isEqualTo(2);
+
+        mockMvc.perform(patch("/api/v1/cart/items/quantity").with(authHeaders.buyer(BUYER_USER_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("variantPublicId", VAR_OK_PID, "quantity", 999))))
+                .andExpect(status().isOk());
+        assertThat(count("SELECT quantity FROM cart_item WHERE user_id=? AND variant_id=?", BUYER_USER_ID, VAR_OK)).isEqualTo(999);
+    }
+
+    @Test
     @DisplayName("T8 수량변경 대상 미담김 → 404 CART_ITEM_NOT_FOUND")
     void changeQuantity_notInCart_returns404() throws Exception {
         mockMvc.perform(patch("/api/v1/cart/items/quantity").with(authHeaders.buyer(BUYER_USER_ID))

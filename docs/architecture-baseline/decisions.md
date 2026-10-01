@@ -14037,3 +14037,36 @@ D-246 §8 정정: '데모 로그인 요청 제한 문서 불일치' 항목 철�
 
 셀프 리뷰: 지적 10건 중 수용 5건
 외부 검토: B / 생략(셀프 리뷰만)
+
+## D-254 최종 점검 보안 — 공개 데모 세션 계정·권한 차단 · 역할 회수 토큰 무효화 · 장바구니 수량 상한 (FE-23 · D-204 · D-230 · D-246 · D-247) (2026-10-02)
+
+### 배경
+- 최종 점검 보안 정찰(docs/track-final-check/recon-report-security.md)의 크리티컬 후보 중 3건을 처리한다. K1 공개 관리자 데모(실제 SUPER_ADMIN 세션)로 비보호 회원 임시 비밀번호를 평문으로 받아 계정을 가져갈 수 있다(D-204). K2 역할을 회수해도 기존 토큰이 만료(기본 1h)까지 관리자 쓰기를 계속한다(필터가 토큰 role 클레임을 믿음). K3 장바구니 재담기 합산이 int 오버플로로 음수가 되어 CHECK 위반 500.
+- D-230·D-246·D-247은 "대상 보호"(누가 요청하든 데모 계정은 건드리지 못함)이고, K1은 "요청자 제한"(데모 세션은 누구도 건드리지 못함)이다. 둘 다 유지한다.
+
+### FE-23 개정
+- "권한 제한 없음(실제 SUPER_ADMIN 그대로)"을 부분 개정한다. 업무 처리는 그대로 허용하고, 아래 차단 9종만 공개 데모 세션에서 403이다. 비밀번호로 직접 로그인한 같은 계정의 세션은 제한하지 않는다.
+
+### 결정
+- 표식 전달: Nuxt `_admin-demo/login.post.ts:29` → `server/lib/demo-login.ts` `loginAsDemo`가 관리자 대행일 때만 본문에 `publicDemo: true` → 기존 관리자 로그인 `LoginRequest.publicDemo`(선택 · 없으면 false) → `AuthService.login`이 ADMIN 로그인에서만 반영 → JWT 클레임 `publicDemo`(false면 생략) → `JwtAuthenticationToken.isPublicDemo`. 신규 엔드포인트 없음.
+- 판정 `PublicDemoSessionGuard.requireNotPublicDemoSession()`을 차단 대상 서비스 메서드 첫 줄에서 호출한다. 응답 403 `DEMO_SESSION_RESTRICTED` "공개 데모 세션에서는 계정·권한 변경과 데모 데이터 생성을 할 수 없습니다."
+- 차단 9종: 임시 비밀번호 발급(`AdminMemberCommandService.resetPassword`) · 회원 탈퇴(`withdrawMember`) · 역할 회수(`RoleRevocationService.revoke`) · ADMIN_OPERATOR 부여(`AdminOperatorProvisioningService.provision`) · 셀러 구성원 추가·제외·역할 변경(`AdminSellerMemberCommandService.add·remove·changeRole`) · 입점 OWNER 지정(`SellerProvisioningService.provision` — owner 지정 요청만) · 시더 API 2개(`DemoProductQuestionSeedService.seed`·`DemoReviewSeedService.seed` — dryRun 포함). 9종 서비스의 호출처는 컨트롤러뿐이다(비HTTP 경로 0).
+- K2: `RoleRevocationService.revoke`가 삭제 성공 후 대상 user에 `markCredentialsChanged`를 기록한다 → `AuthenticatedUserStateVerifier`가 그 이전 iat 토큰을 401. 역할 부여는 변경 없음.
+- K3: 상한 상수 `CartItem.MAX_QUANTITY = 999` 1곳 · 담기·수량 변경 요청 DTO `@Max` → 400 VALIDATION_FAILED · 재담기 합산 초과는 `CartItem.addQuantity`에서 422 `CART_ITEM_QUANTITY_LIMIT_EXCEEDED`(장바구니 업무 예외 422 선례).
+
+### §1-A 갈림길·채택/기각 근거
+- K1 식별 방식: α 세션 표식 【채택】 — 기존 로그인 경로의 선택 필드 1개 + 서비스 첫 줄 가드로 끝난다. 표식은 권한을 줄이기만 하므로 자기 신고를 그대로 받는다. / β 데모 전용 관리자 계정 분리 【기각】 — 데모가 실제 SUPER_ADMIN 업무 화면 전체를 보여 주는 것이 FE-23 목적이라, 분리 계정이 업무는 그대로 하고 9종만 못 하게 하려면 새 역할·세분 인가 축이 필요하다(메서드 인가 0 · SUPER_ADMIN 세분 검사는 서비스 4곳뿐).
+- K1 범위: 업무 처리 허용 · 계정·권한 변경과 시더만 차단 【채택】 — 탈취·권한 상승·시드 오염 경로만 닫고 시연 가치는 유지한다.
+- K2: 대안 검토 없음. 대상의 전 역할 세션이 로그아웃되는 것을 허용한다(credentials_changed_at은 user 축).
+- K3: 기존 상한 상수 없음 → 999. 대안 검토 없음.
+
+### §8 이월
+- 역할 회수와 동시 로그인 경합: 회수 직전에 역할을 조회한 로그인이 회수 후 발급한 토큰은 유효할 수 있다(외부 검토 K2-1).
+- 역할 회수가 대상 user 행을 전 컬럼 UPDATE해, 같은 순간 대상 본인의 비밀번호 변경을 덮을 수 있다(임시 비밀번호·탈퇴 경로와 같은 패턴).
+- `CartItem` 수량 변경 메서드에 상한 불변식이 없다(HTTP 경로는 DTO가 보장). 바로구매 주문 수량 상한은 범위 밖(재고 예약에서 422).
+- FE 장바구니 수량 상한(999) 안내가 없다(초과 시 일반 문구).
+- 배포 직후 최대 1시간은 표식 없는 기존 데모 관리자 토큰이 유효하다.
+- 외부 검토 K1-1(비동기·이벤트·스케줄러 경로에서 SecurityContext 부재로 가드 통과) 기각 — 9종 서비스의 비HTTP 호출처 0건 확인.
+
+셀프 리뷰: 지적 6건 중 수용 1건
+외부 검토: A / 지적 2건 중 수용 0건

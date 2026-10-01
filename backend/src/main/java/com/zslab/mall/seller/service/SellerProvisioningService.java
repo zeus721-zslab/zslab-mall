@@ -8,6 +8,7 @@ import com.zslab.mall.auth.enums.RoleCode;
 import com.zslab.mall.auth.repository.RoleRepository;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
 import com.zslab.mall.common.security.DemoAccountGuard;
+import com.zslab.mall.common.security.PublicDemoSessionGuard;
 import com.zslab.mall.inbox.stream.InboxSignalPublisher;
 import com.zslab.mall.seller.controller.request.SellerProvisioningRequest;
 import com.zslab.mall.seller.controller.response.SellerProvisioningResponse;
@@ -51,6 +52,7 @@ public class SellerProvisioningService {
     private final DemoAccountGuard demoAccountGuard;
     private final AuditRecorder auditRecorder;
     private final InboxSignalPublisher inboxSignalPublisher;
+    private final PublicDemoSessionGuard publicDemoSessionGuard;
 
     public SellerProvisioningService(
             SellerRepository sellerRepository,
@@ -59,7 +61,8 @@ public class SellerProvisioningService {
             UserRepository userRepository,
             DemoAccountGuard demoAccountGuard,
             AuditRecorder auditRecorder,
-            InboxSignalPublisher inboxSignalPublisher) {
+            InboxSignalPublisher inboxSignalPublisher,
+            PublicDemoSessionGuard publicDemoSessionGuard) {
         this.sellerRepository = sellerRepository;
         this.sellerUserRepository = sellerUserRepository;
         this.roleRepository = roleRepository;
@@ -67,6 +70,7 @@ public class SellerProvisioningService {
         this.demoAccountGuard = demoAccountGuard;
         this.auditRecorder = auditRecorder;
         this.inboxSignalPublisher = inboxSignalPublisher;
+        this.publicDemoSessionGuard = publicDemoSessionGuard;
     }
 
     /**
@@ -81,8 +85,13 @@ public class SellerProvisioningService {
      * @throws IllegalStateException SELLER_OWNER Role seed가 없는 경우(내부 오류·500)
      * @throws SellerBusinessNoDuplicateException businessNo가 이미 등록된 경우(409·SLR-1·Track 89-D)
      * @throws SellerUserAlreadyExistsException owner가 이미 다른 판매자에 소속된 경우(409·V12 위반)
+     * @throws com.zslab.mall.common.exception.PublicDemoSessionRestrictedException owner 지정 요청이 공개 관리자 데모 세션(403)
      */
     public SellerProvisioningResponse provision(SellerProvisioningRequest request, AuditContext auditContext) {
+        // 최종 점검 K1: OWNER 지정은 남의 계정에 셀러 권한을 붙이는 조작이라 데모 세션에서 막고, OWNER 없는 입점(업무)은 허용한다.
+        if (request.ownerUserPublicId() != null) {
+            publicDemoSessionGuard.requireNotPublicDemoSession();
+        }
         // Track 89-D: 요청 식별자는 회원 public_id(usr_). 미존재·soft-delete(@SQLRestriction) 모두 404 USER_NOT_FOUND.
         // Track 89-G: owner는 선택(null → 구성원 없이 입점).
         User owner = request.ownerUserPublicId() == null ? null

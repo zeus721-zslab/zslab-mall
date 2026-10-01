@@ -48,9 +48,16 @@ export const XSRF_HEADER_NAME = 'x-xsrf-token'
 /** BE 로그인 호출 시그니처(라우트는 fetch, 테스트는 mock 주입). */
 export type BackendLoginFetcher = (
   url: string,
-  body: { email: string; password: string },
+  body: BackendLoginBody,
   csrf: CsrfForward,
 ) => Promise<BackendLoginResult>
+
+/** BE 역할 로그인 본문. publicDemo는 관리자 데모 대행만 싣는다(BE가 데모 표식 토큰을 발급해 계정·권한 변경과 시더를 막는다·최종 점검 K1). */
+export interface BackendLoginBody {
+  email: string
+  password: string
+  publicDemo?: boolean
+}
 
 /** BE 역할 로그인 경로(D-235 S6). 요청 본문에 role을 싣지 않고 경로가 역할을 정한다. */
 const BACKEND_LOGIN_PATHS: Record<DemoRole, string> = {
@@ -77,12 +84,12 @@ export async function loginAsDemo(
   if (!isDemoConfigured(credentials)) {
     return { ok: false, statusCode: HTTP_NOT_FOUND }
   }
+  // 관리자 데모는 실제 SUPER_ADMIN 계정이라(FE-23) 표식을 실어 세션 권한을 줄인다. 구매자·셀러 데모는 표식이 없다(BE도 관리자 로그인에서만 읽음).
+  const body: BackendLoginBody = role === 'ADMIN'
+    ? { email: credentials.email, password: credentials.password, publicDemo: true }
+    : { email: credentials.email, password: credentials.password }
   try {
-    const response = await fetcher(
-      `${apiInternalBase}${BACKEND_LOGIN_PATHS[role]}`,
-      { email: credentials.email, password: credentials.password },
-      csrf,
-    )
+    const response = await fetcher(`${apiInternalBase}${BACKEND_LOGIN_PATHS[role]}`, body, csrf)
     return { ok: true, body: { passwordChangeRequired: response.passwordChangeRequired === true }, setCookies: response.setCookies }
   } catch (error) {
     // 사유(비번 불일치·계정 탈퇴·BE 다운)는 서버 로그로만 남기고 클라이언트엔 401 단일 응답(자격증명 은닉).

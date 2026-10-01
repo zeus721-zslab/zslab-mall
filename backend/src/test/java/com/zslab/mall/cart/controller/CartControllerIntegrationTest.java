@@ -134,6 +134,48 @@ class CartControllerIntegrationTest extends AbstractIntegrationTest {
         assertThat(count("SELECT COUNT(*) FROM cart_item WHERE user_id=?", BUYER_USER_ID)).isZero();
     }
 
+    // ==================== 수량 상한 999(최종 점검 K3) ====================
+
+    @Test
+    @DisplayName("K3: int 최댓값 담기 → 400 VALIDATION_FAILED(@Max) · 재담기 1 → 201(500 아님) · 저장 수량 1")
+    void addItem_intMax_thenAgain_notServerError() throws Exception {
+        // 재담기 응답을 먼저 단언한다 — 상한이 없으면 첫 담기가 저장되고 재담기 합산이 int 오버플로로 CHECK 위반 500이 된다.
+        ResultActions intMax = add(authHeaders.buyer(BUYER_USER_ID), VARIANT_PUBLIC_ID, Integer.MAX_VALUE);
+        add(authHeaders.buyer(BUYER_USER_ID), VARIANT_PUBLIC_ID, 1)
+                .andExpect(status().isCreated());
+        intMax.andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+
+        assertThat(count("SELECT quantity FROM cart_item WHERE user_id=? AND variant_id=?", BUYER_USER_ID, VARIANT_ID)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("K3: 재담기 합산이 999 초과(600+400) → 422 CART_ITEM_QUANTITY_LIMIT_EXCEEDED · 수량 600 유지 / 합산 999(600+399) → 201")
+    void addItem_accumulatedOverLimit_returns422() throws Exception {
+        add(authHeaders.buyer(BUYER_USER_ID), VARIANT_PUBLIC_ID, 600).andExpect(status().isCreated());
+        add(authHeaders.buyer(BUYER_USER_ID), VARIANT_PUBLIC_ID, 400)
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("CART_ITEM_QUANTITY_LIMIT_EXCEEDED"));
+        assertThat(count("SELECT quantity FROM cart_item WHERE user_id=? AND variant_id=?", BUYER_USER_ID, VARIANT_ID)).isEqualTo(600);
+
+        add(authHeaders.buyer(BUYER_USER_ID), VARIANT_PUBLIC_ID, 399)
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.quantity").value(999));
+    }
+
+    @Test
+    @DisplayName("K3: 단건 담기 1000 → 400 VALIDATION_FAILED · 999 → 201")
+    void addItem_singleOverLimit_returns400() throws Exception {
+        add(authHeaders.buyer(BUYER_USER_ID), VARIANT_PUBLIC_ID, 1000)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+        assertThat(count("SELECT COUNT(*) FROM cart_item WHERE user_id=?", BUYER_USER_ID)).isZero();
+
+        add(authHeaders.buyer(BUYER_USER_ID), VARIANT_PUBLIC_ID, 999)
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.quantity").value(999));
+    }
+
     // ==================== Track 71 구매 불가 담기 거부(422) ====================
 
     @Test

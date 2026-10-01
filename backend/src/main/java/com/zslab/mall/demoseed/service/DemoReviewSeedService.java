@@ -8,6 +8,7 @@ import com.zslab.mall.auth.exception.SuperAdminRequiredException;
 import com.zslab.mall.category.entity.Category;
 import com.zslab.mall.category.repository.CategoryRepository;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
+import com.zslab.mall.common.security.PublicDemoSessionGuard;
 import com.zslab.mall.demoseed.controller.response.DemoSeedReviewResponse;
 import com.zslab.mall.demoseed.controller.response.DemoSeedReviewResponse.FailedItem;
 import com.zslab.mall.demoseed.repository.DemoReviewCandidateRow;
@@ -50,22 +51,26 @@ public class DemoReviewSeedService {
     private final ReviewKeywordRepository reviewKeywordRepository;
     private final DemoReviewWriter writer;
     private final AuditRecorder auditRecorder;
+    private final PublicDemoSessionGuard publicDemoSessionGuard;
 
     public DemoReviewSeedService(DemoSeedAuthorization authorization, DemoSeedRepository demoSeedRepository,
             CategoryRepository categoryRepository, ReviewKeywordRepository reviewKeywordRepository, DemoReviewWriter writer,
-            AuditRecorder auditRecorder) {
+            AuditRecorder auditRecorder, PublicDemoSessionGuard publicDemoSessionGuard) {
         this.authorization = authorization;
         this.demoSeedRepository = demoSeedRepository;
         this.categoryRepository = categoryRepository;
         this.reviewKeywordRepository = reviewKeywordRepository;
         this.writer = writer;
         this.auditRecorder = auditRecorder;
+        this.publicDemoSessionGuard = publicDemoSessionGuard;
     }
 
     /**
      * @throws SuperAdminRequiredException 호출자가 SUPER_ADMIN이 아닐 때(403 · dryRun 포함)
+     * @throws com.zslab.mall.common.exception.PublicDemoSessionRestrictedException 공개 관리자 데모 세션(403 · dryRun 포함)
      */
     public DemoSeedReviewResponse seed(Long callerUserId, boolean dryRun, AuditContext auditContext) {
+        publicDemoSessionGuard.requireNotPublicDemoSession();
         authorization.requireSuperAdmin(callerUserId);
         long publicCountBefore = demoSeedRepository.countDemoPublicReviews(DemoProductQuestionSeedService.DEMO_BUYER_EMAIL_PATTERN,
                 RoleCode.BUYER, ReviewStatus.VISIBLE);

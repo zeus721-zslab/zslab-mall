@@ -8,6 +8,7 @@ import com.zslab.mall.auth.repository.UserRoleRepository;
 import com.zslab.mall.auth.service.LastSuperAdminGuard;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
 import com.zslab.mall.common.security.DemoAccountGuard;
+import com.zslab.mall.common.security.PublicDemoSessionGuard;
 import com.zslab.mall.grade.entity.BuyerGrade;
 import com.zslab.mall.grade.repository.BuyerGradeRepository;
 import com.zslab.mall.notification.enums.NotificationLogStatus;
@@ -69,13 +70,14 @@ public class AdminMemberCommandService {
     private final AuditRecorder auditRecorder;
     private final LastSuperAdminGuard lastSuperAdminGuard;
     private final DemoAccountGuard demoAccountGuard;
+    private final PublicDemoSessionGuard publicDemoSessionGuard;
 
     public AdminMemberCommandService(AdminMemberQueryService adminMemberQueryService, UserRepository userRepository,
             UserRoleRepository userRoleRepository, BuyerProfileRepository buyerProfileRepository,
             BuyerGradeRepository buyerGradeRepository, MemberActivityChecker memberActivityChecker,
             PasswordEncoder passwordEncoder, PasswordPolicy passwordPolicy, TemporaryPasswordGenerator temporaryPasswordGenerator,
             NotificationService notificationService, AuditRecorder auditRecorder, LastSuperAdminGuard lastSuperAdminGuard,
-            DemoAccountGuard demoAccountGuard) {
+            DemoAccountGuard demoAccountGuard, PublicDemoSessionGuard publicDemoSessionGuard) {
         this.adminMemberQueryService = adminMemberQueryService;
         this.userRepository = userRepository;
         this.userRoleRepository = userRoleRepository;
@@ -89,6 +91,7 @@ public class AdminMemberCommandService {
         this.auditRecorder = auditRecorder;
         this.lastSuperAdminGuard = lastSuperAdminGuard;
         this.demoAccountGuard = demoAccountGuard;
+        this.publicDemoSessionGuard = publicDemoSessionGuard;
     }
 
     /**
@@ -117,8 +120,10 @@ public class AdminMemberCommandService {
      * @throws com.zslab.mall.user.exception.MemberActivityInProgressException 진행 중 주문·클레임(409)
      * @throws com.zslab.mall.auth.exception.LastSuperAdminRevocationException 마지막 활성 슈퍼 관리자(409)
      * @throws com.zslab.mall.common.exception.DemoAccountProtectedException 데모 계정(403)
+     * @throws com.zslab.mall.common.exception.PublicDemoSessionRestrictedException 공개 관리자 데모 세션(403)
      */
     public void withdrawMember(String publicId, AuditContext auditContext) {
+        publicDemoSessionGuard.requireNotPublicDemoSession();
         User user = requireActiveBuyer(publicId);
         demoAccountGuard.requireNotProtected(user);
         requireNoAdminRole(user, "관리자 역할이 있는 회원은 탈퇴 처리할 수 없습니다. 권한을 먼저 해제하세요: publicId=" + publicId);
@@ -146,8 +151,10 @@ public class AdminMemberCommandService {
      * @throws MemberPhoneMissingException 연락처 없음(422)
      * @throws TemporaryPasswordDeliveryFailedException SMS 발송 실패(502·롤백)
      * @throws com.zslab.mall.common.exception.DemoAccountProtectedException 데모 계정(403)
+     * @throws com.zslab.mall.common.exception.PublicDemoSessionRestrictedException 공개 관리자 데모 세션(403)
      */
     public TemporaryPasswordResponse resetPassword(String publicId, AuditContext auditContext) {
+        publicDemoSessionGuard.requireNotPublicDemoSession();
         User user = requireActiveBuyer(publicId);
         demoAccountGuard.requireNotProtected(user);
         // 관리자 영역은 변경 강제가 없어(adminAuth 플래그 미저장) 화면에 표시된 임시 비밀번호로 관리자 조작이 무기한 가능해진다 → 차단(D-204).

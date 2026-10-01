@@ -58,7 +58,9 @@ public class AuthService {
         if (!roleAuthorization.isAuthorized(user.getId(), role)) {
             throw fail(user.getId(), "ROLE_MISMATCH");
         }
-        return new LoginResult(tokenProvider.issue(user.getId(), role), user.isPasswordChangeRequired());
+        // 데모 표식은 관리자 토큰에만 심는다(최종 점검 K1). 표식은 권한을 줄이기만 하므로 자기 신고를 그대로 받는다.
+        boolean publicDemo = role == ActorRole.ADMIN && Boolean.TRUE.equals(request.publicDemo());
+        return new LoginResult(tokenProvider.issue(user.getId(), role, publicDemo), user.isPasswordChangeRequired());
     }
 
     /** 실패 사유는 내부 로그로만 구분(이메일·비번 평문 미기록·actorId·사유코드만)하고 외부는 동일 예외로 통일한다. */

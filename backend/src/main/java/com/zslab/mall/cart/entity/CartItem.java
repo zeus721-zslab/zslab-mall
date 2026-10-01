@@ -1,5 +1,6 @@
 package com.zslab.mall.cart.entity;
 
+import com.zslab.mall.cart.exception.CartItemQuantityLimitExceededException;
 import com.zslab.mall.common.entity.AbstractFullAuditableEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -30,6 +31,9 @@ import org.hibernate.type.SqlTypes;
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class CartItem extends AbstractFullAuditableEntity {
+
+    /** 품목당 수량 상한(최종 점검 K3). 담기·수량 변경 요청 DTO의 @Max와 재담기 합산 검사가 같은 값을 쓴다. */
+    public static final int MAX_QUANTITY = 999;
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -74,9 +78,15 @@ public class CartItem extends AbstractFullAuditableEntity {
 
     /**
      * 기존 수량에 추가 수량을 누적한다(M1α·동일 variant 재담기). 저장 호출 없이 필드만 갱신하며 dirty checking으로
-     * flush된다. additionalQuantity 하한(≥1) 방어는 요청 검증(@Min(1))·Service가 담당한다(create()의 CRT-2와 정합).
+     * flush된다. additionalQuantity 하한(≥1)·단건 상한은 요청 검증(@Min(1)·@Max)이 담당하고, 합산 상한은 여기서 막는다.
+     *
+     * @throws CartItemQuantityLimitExceededException 합산 수량이 {@value #MAX_QUANTITY}를 넘을 때(int 오버플로 → CHECK 위반 500 방지·최종 점검 K3)
      */
     public void addQuantity(int additionalQuantity) {
+        if (additionalQuantity > MAX_QUANTITY - this.quantity) {
+            throw new CartItemQuantityLimitExceededException(
+                    "장바구니 품목 수량은 " + MAX_QUANTITY + "개를 넘을 수 없습니다: 현재 " + this.quantity + " · 추가 " + additionalQuantity);
+        }
         this.quantity += additionalQuantity;
     }
 

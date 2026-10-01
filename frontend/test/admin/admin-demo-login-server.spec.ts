@@ -29,14 +29,14 @@ describe('demo-login 서버 코어', () => {
     expect(fetcher).not.toHaveBeenCalled()
   })
 
-  it('성공 → BE 관리자 로그인 경로(/api/v1/admin/auth/login)로 대행 · CSRF 쿠키·헤더 값 그대로 전달 · 본문 { passwordChangeRequired }만 · BE Set-Cookie 원문 전달', async () => {
+  it('성공 → BE 관리자 로그인 경로(/api/v1/admin/auth/login)로 대행 · 데모 표식 publicDemo true(최종 점검 K1) · CSRF 쿠키·헤더 값 그대로 전달 · 본문 { passwordChangeRequired }만 · BE Set-Cookie 원문 전달', async () => {
     const setCookies = ['__Secure-admin_at=cookie-value; Path=/api/v1/admin; HttpOnly', 'XSRF-TOKEN=xsrf-value; Path=/']
     const fetcher = vi.fn<BackendLoginFetcher>().mockResolvedValue({ passwordChangeRequired: false, setCookies })
     expect(isDemoConfigured(configured)).toBe(true)
     const result = await loginAsDemo(configured, 'ADMIN', API_BASE, CSRF, fetcher)
     expect(fetcher).toHaveBeenCalledWith(
       `${API_BASE}/api/v1/admin/auth/login`,
-      { email: configured.email, password: configured.password },
+      { email: configured.email, password: configured.password, publicDemo: true },
       CSRF,
     )
     expect(result).toEqual({ ok: true, body: { passwordChangeRequired: false }, setCookies })
