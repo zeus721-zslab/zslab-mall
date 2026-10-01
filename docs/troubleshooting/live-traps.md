@@ -830,6 +830,18 @@ Playwright 직전에 프론트 컨테이너를 재생성(`up -d --force-recreate
 ### 관련
 - LT-39(재시작 직후 콜드) · LT-40(`.nuxt` 공유 · 재생성)
 
+## LT-42. CAST(id AS CHAR)를 문자열 컬럼과 비교하면 연결 collation과 컬럼 collation이 달라 "Illegal mix of collations" — id형은 숫자로 비교 [ACTIVE]
+**발견 트랙**: 2026-10-01 운영 인박스 P1a(D-248) 통합 테스트
+**원본 결정**: D-248 "구현 중 확정"
+### 증상
+숫자 id를 문자열로 바꿔 문자열 컬럼과 비교하는 쿼리가 500으로 실패한다. 로그: `Illegal mix of collations (utf8mb4_unicode_ci,IMPLICIT) and (utf8mb4_uca1400_ai_ci,IMPLICIT) for operation '='`. 예: 인박스 보류 제외(`inbox_snooze.item_ref = CAST(settlement.id AS CHAR)`).
+### 원인
+MariaDB에서 `CAST(x AS CHAR)` 결과는 연결 collation(MariaDB 11 기본 `utf8mb4_uca1400_ai_ci`)을 따르고, 테이블 컬럼은 `utf8mb4_unicode_ci`다. 둘 다 IMPLICIT 강도라 어느 쪽으로도 맞춰지지 않아 비교 자체가 오류가 된다. JDBC 바인딩 파라미터와의 비교는 파라미터 강도가 약해 오류가 나지 않으므로 파라미터로만 검증한 경로는 통과하고, 컬럼 대 CAST 비교가 실행될 때만 드러난다. Criteria `as(String.class)`는 SQL CAST가 아니라 타입만 바꿔 `ClassCastException`이 난다(CAST가 필요하면 `cast(String.class)`).
+### 처치
+id형 식별자는 숫자끼리 비교한다: 문자열 컬럼 쪽을 BIGINT로 캐스트(`item_ref.cast(Long.class) = id`)하고, 그 컬럼에는 정규형 숫자 문자열만 저장되게 입력을 검증한다(`CriteriaInboxSource` numericId 분기). 연결 collation을 바꾸는 전역 설정은 앱 전체 문자열 비교에 영향을 주므로 쓰지 않는다.
+### 관련
+- D-248(운영 인박스 보류 대조)
+
 ---
 
 ## 부록. 트랩 추가 절차
