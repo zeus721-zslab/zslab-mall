@@ -18,6 +18,8 @@ const SELLER_ERROR_MESSAGES: Record<string, string> = {
   ORDER_NOT_FOUND: '주문 품목을 찾을 수 없습니다(내 품목이 아니거나 미결제 주문).',
   ORDER_ITEM_INVALID_STATE: '현재 품목 상태에서 허용되지 않는 처리입니다(발송은 결제완료 품목만).',
   CLAIM_STATE_INVALID: '클레임이 진행 중인 품목은 발송할 수 없습니다.',
+  // D-248 운영 인박스 보류
+  INBOX_ITEM_NOT_FOUND: '이미 처리됐거나 대기 항목이 아닙니다. 인박스를 새로 불러옵니다.',
   // 배송(D-191·mark-delivered·송장 정정)
   DELIVERY_NOT_FOUND: '배송을 찾을 수 없습니다(내 배송이 아니거나 삭제됨).',
   DELIVERY_INVALID_STATE: '현재 배송 상태에서 허용되지 않는 처리입니다(배송완료·송장 정정은 배송중만).',

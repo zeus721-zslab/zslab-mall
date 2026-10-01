@@ -1,15 +1,8 @@
 import type { ApexOptions } from 'apexcharts'
 import type { AdminDashboardDailyOrders, AdminDashboardMonthlyRevenue, AdminDashboardPending } from '#layers/admin/app/types/admin-dashboard'
-import {
-  ADMIN_CLAIMS_PATH,
-  ADMIN_DELIVERIES_PATH,
-  ADMIN_INQUIRIES_PATH,
-  ADMIN_ORDERS_PATH,
-  ADMIN_PRODUCTS_PATH,
-  ADMIN_RECONCILIATION_PATH,
-  ADMIN_SELLERS_PATH,
-  ADMIN_SETTLEMENTS_PATH,
-} from '#layers/admin/app/lib/admin-back-path'
+import { ADMIN_ORDERS_PATH, ADMIN_PRODUCTS_PATH } from '#layers/admin/app/lib/admin-back-path'
+import { ADMIN_INBOX_PATH } from '#layers/admin/app/lib/constants/admin-menu'
+import type { InboxItemType } from '~/lib/constants/inbox'
 import { formatWon } from '#layers/admin/app/lib/format'
 
 /**
@@ -47,7 +40,14 @@ export interface PendingTile {
 }
 
 /**
- * 처리 대기 10칸 정의. 정산·클레임은 목록의 status 필터, 배송 대기는 주문 목록 status=PAID(BE는 품목 PAID 건수·주문 목록은 주문 단위라 근사).
+ * 인박스 유형 필터 링크(FE-101). 인박스는 기본 오늘 탭이고 보류 항목을 빼므로 칸 건수와 다를 수 있다.
+ */
+function inboxTile(type: InboxItemType): string {
+  return `${ADMIN_INBOX_PATH}?type=${type}`
+}
+
+/**
+ * 처리 대기 10칸 정의. FE-101: 인박스 유형이 있는 8칸은 인박스 유형 필터로, 대응 유형이 없는 배송 대기·재고 임박(셀러 업무)은 기존 목록으로 보낸다. 정산·클레임은 목록의 status 필터, 배송 대기는 주문 목록 status=PAID(BE는 품목 PAID 건수·주문 목록은 주문 단위라 근사).
  * 재고 임박은 상품 목록 stockFilter=LOW(Track 89-A·BE는 variant 건수·목록은 상품 단위라 근사).
  * 상품·셀러 승인 대기(Track 96-2 FE-54·C-01)는 각 목록 status=PENDING(BE 카운트와 목록 필터 조건 동일·삭제 제외).
  * 클레임 처리 대기(Track 96-4 FE-56·C-02)는 클레임 목록 action=FOLLOWUP(BE 카운트와 같은 Specification·후속 액션 5종).
@@ -56,26 +56,26 @@ export interface PendingTile {
  * 미답변 문의(Track 106-4 D-241)는 문의 관리 목록 기본 필터(미답변)와 같은 조건이라 쿼리 없이 목록으로 보낸다.
  */
 export const PENDING_TILES: PendingTile[] = [
-  { key: 'settlementPending', label: '정산 대기', to: `${ADMIN_SETTLEMENTS_PATH}?status=PENDING`, alertTone: 'warning',
-    hint: '확정 대기 정산 · 정산 상세에서 확정' },
-  { key: 'claimRequested', label: '클레임 요청', to: `${ADMIN_CLAIMS_PATH}?status=REQUESTED`, alertTone: 'warning',
-    hint: '요청 상태 클레임 · 클레임 화면에서 승인·거부' },
+  { key: 'settlementPending', label: '정산 대기', to: inboxTile('SETTLEMENT_CONFIRM'), alertTone: 'warning',
+    hint: '확정 대기 정산 · 인박스에서 기한 순으로 확인' },
+  { key: 'claimRequested', label: '클레임 요청', to: inboxTile('CLAIM_REQUESTED'), alertTone: 'warning',
+    hint: '요청 상태 클레임 · 인박스에서 확인 후 클레임 화면에서 승인·거부' },
   { key: 'deliveryReady', label: '배송 대기', to: `${ADMIN_ORDERS_PATH}?status=PAID`, alertTone: 'warning',
     hint: '결제완료 품목 · 주문 화면에서 발송 처리 (품목 수라 주문 목록 건수와 다를 수 있음)' },
   { key: 'lowStock', label: '재고 임박', to: `${ADMIN_PRODUCTS_PATH}?stockFilter=LOW`, alertTone: 'danger',
     hint: '가용 재고 1~5 옵션 · 상품 화면에서 확인 (옵션 수라 상품 목록 건수와 다를 수 있음)' },
-  { key: 'productPending', label: '상품 승인 대기', to: `${ADMIN_PRODUCTS_PATH}?status=PENDING`, alertTone: 'warning',
-    hint: '승인대기 상품 · 상품 화면에서 승인·거부' },
-  { key: 'sellerPending', label: '셀러 승인 대기', to: `${ADMIN_SELLERS_PATH}?status=PENDING`, alertTone: 'warning',
-    hint: '승인 대기 셀러 · 셀러 상세에서 활성으로 전이' },
-  { key: 'claimFollowup', label: '클레임 처리 대기', to: `${ADMIN_CLAIMS_PATH}?action=FOLLOWUP`, alertTone: 'warning',
-    hint: '승인 후 후속 처리가 남은 클레임 · 클레임 화면에서 회수 확인·검수·발송' },
-  { key: 'longShipping', label: '장기 배송중', to: `${ADMIN_DELIVERIES_PATH}?status=SHIPPING`, alertTone: 'warning',
-    hint: '발송 후 3일 이상 배송중 · 배송 화면에서 확인 (목록은 배송중 전체라 건수가 다를 수 있음)' },
-  { key: 'reconciliationOpen', label: '불일치', to: `${ADMIN_RECONCILIATION_PATH}?status=OPEN`, alertTone: 'danger',
-    hint: '결제·주문·환불 기록이 서로 맞지 않는 건 · 불일치 화면에서 확인 후 해결 처리' },
-  { key: 'inquiryUnanswered', label: '미답변 문의', to: ADMIN_INQUIRIES_PATH, alertTone: 'warning',
-    hint: '답변 전 운영자 문의 · 문의 관리에서 답변' },
+  { key: 'productPending', label: '상품 승인 대기', to: inboxTile('PRODUCT_APPROVAL'), alertTone: 'warning',
+    hint: '승인대기 상품 · 인박스에서 확인 후 상품 화면에서 승인·거부' },
+  { key: 'sellerPending', label: '셀러 승인 대기', to: inboxTile('SELLER_REVIEW'), alertTone: 'warning',
+    hint: '승인 대기 셀러 · 인박스에서 바로 활성 전이' },
+  { key: 'claimFollowup', label: '클레임 처리 대기', to: inboxTile('CLAIM_FOLLOWUP'), alertTone: 'warning',
+    hint: '승인 후 후속 처리가 남은 클레임 · 인박스에서 확인 후 클레임 화면에서 회수 확인·검수·발송' },
+  { key: 'longShipping', label: '장기 배송중', to: inboxTile('LONG_SHIPPING'), alertTone: 'warning',
+    hint: '발송 후 3일 이상 배송중 · 인박스는 교환 발송을 빼 건수가 다를 수 있음' },
+  { key: 'reconciliationOpen', label: '불일치', to: inboxTile('RECONCILIATION_OPEN'), alertTone: 'danger',
+    hint: '결제·주문·환불 기록이 서로 맞지 않는 건 · 인박스에서 확인 후 불일치 화면에서 해결' },
+  { key: 'inquiryUnanswered', label: '미답변 문의', to: inboxTile('INQUIRY_UNANSWERED'), alertTone: 'warning',
+    hint: '답변 전 운영자 문의 · 인박스에서 바로 답변' },
 ]
 
 /** 0건은 회색(neutral), 1건 이상은 칸별 주의 톤. */

@@ -51,14 +51,13 @@ describe('기간', () => {
 describe('처리 대기', () => {
   it('배송 대기만 품목 목록(status=PAID) 링크 · 클레임·재고·정산은 링크 없음(화면 부재·PENDING 404) · 힌트 문구', () => {
     const byKey = Object.fromEntries(PENDING_TILES.map((tile) => [tile.key, tile]))
-    expect(byKey.deliveryReady?.to).toBe('/seller/orders?status=PAID')
-    // Track 96-1 C-14: 4칸 전부 링크·"준비 중" 문구 없음
+    // FE-101: 셀러 인박스 유형이 있는 배송 대기·재고 임박·장기 배송중은 인박스 유형 필터 · 클레임 요청·정산 예정은 기존 화면
+    expect(byKey.deliveryReady?.to).toBe('/seller/inbox?type=DELIVERY_READY')
     expect(byKey.claimRequested?.to).toBe('/seller/claims?status=REQUESTED')
-    expect(byKey.lowStock?.to).toBe('/seller/products/inventory')
+    expect(byKey.lowStock?.to).toBe('/seller/inbox?type=LOW_STOCK')
     expect(byKey.settlementPending?.to).toBe('/seller/settlements')
     expect(byKey.settlementPending?.hint).toContain('확정 대기 정산 건수')
-    // Track 99(FE-61·D-210): 장기 배송중 1칸 추가 — 배송 화면 status=SHIPPING
-    expect(byKey.longShipping?.to).toBe('/seller/deliveries?status=SHIPPING')
+    expect(byKey.longShipping?.to).toBe('/seller/inbox?type=LONG_SHIPPING')
     expect(byKey.longShipping?.hint).toContain('3일 이상')
     expect(PENDING_TILES.some((tile) => tile.hint.includes('준비 중'))).toBe(false)
     expect(PENDING_TILES.map((tile) => tile.key)).toEqual(['deliveryReady', 'claimRequested', 'lowStock', 'settlementPending', 'longShipping'])

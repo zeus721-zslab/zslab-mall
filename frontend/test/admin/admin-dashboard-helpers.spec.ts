@@ -53,23 +53,20 @@ describe('증감률', () => {
 })
 
 describe('처리 대기', () => {
-  it('10칸 순서·링크: 정산·클레임·배송·재고 임박·상품 승인·셀러 승인·클레임 처리 대기·장기 배송중·불일치·미답변 문의 전부 목록으로', () => {
+  it('10칸 순서·링크: 인박스 유형이 있는 8칸은 인박스 유형 필터 · 배송 대기·재고 임박은 기존 목록', () => {
     expect(PENDING_TILES.map((tile) => tile.key)).toEqual(['settlementPending', 'claimRequested', 'deliveryReady', 'lowStock', 'productPending', 'sellerPending', 'claimFollowup', 'longShipping', 'reconciliationOpen', 'inquiryUnanswered'])
-    expect(PENDING_TILES[0]!.to).toBe('/admin/settlements?status=PENDING')
-    expect(PENDING_TILES[1]!.to).toBe('/admin/orders/claims?status=REQUESTED')
+    // FE-101: 인박스 유형이 있는 칸은 /admin/inbox?type=…(오늘 탭 · 보류 제외라 칸 건수와 다를 수 있음)
+    expect(PENDING_TILES[0]!.to).toBe('/admin/inbox?type=SETTLEMENT_CONFIRM')
+    expect(PENDING_TILES[1]!.to).toBe('/admin/inbox?type=CLAIM_REQUESTED')
+    // 배송 대기·재고 임박은 관리자 인박스 유형이 없어(셀러 업무) 기존 목록 유지
     expect(PENDING_TILES[2]!.to).toBe('/admin/orders?status=PAID')
     expect(PENDING_TILES[3]!.to).toBe('/admin/products?stockFilter=LOW')
-    // Track 96-2(FE-54·C-01): 승인 대기 2칸은 각 목록의 status=PENDING(목록이 URL query로 필터 복원)
-    expect(PENDING_TILES[4]!.to).toBe('/admin/products?status=PENDING')
-    expect(PENDING_TILES[5]!.to).toBe('/admin/members/sellers?status=PENDING')
-    // Track 96-4(FE-56·C-02): 클레임 처리 대기는 클레임 목록 action=FOLLOWUP(BE 카운트와 같은 Specification)
-    expect(PENDING_TILES[6]!.to).toBe('/admin/orders/claims?action=FOLLOWUP')
-    // Track 99(FE-61·D-210): 장기 배송중은 배송 목록 status=SHIPPING(BE는 발송 후 3일 이상 건수·목록은 배송중 전체라 근사)
-    expect(PENDING_TILES[7]!.to).toBe('/admin/orders/deliveries?status=SHIPPING')
-    // Track 104-2(FE-66·D-216): 불일치는 불일치 목록 status=OPEN(BE 카운트와 같은 조건)
-    expect(PENDING_TILES[8]!.to).toBe('/admin/orders/reconciliation?status=OPEN')
-    // Track 106-4(D-241): 미답변 문의는 문의 관리 목록(기본 필터가 미답변이라 쿼리 없음)·1건 이상 노랑
-    expect(PENDING_TILES[9]!.to).toBe('/admin/inquiries')
+    expect(PENDING_TILES[4]!.to).toBe('/admin/inbox?type=PRODUCT_APPROVAL')
+    expect(PENDING_TILES[5]!.to).toBe('/admin/inbox?type=SELLER_REVIEW')
+    expect(PENDING_TILES[6]!.to).toBe('/admin/inbox?type=CLAIM_FOLLOWUP')
+    expect(PENDING_TILES[7]!.to).toBe('/admin/inbox?type=LONG_SHIPPING')
+    expect(PENDING_TILES[8]!.to).toBe('/admin/inbox?type=RECONCILIATION_OPEN')
+    expect(PENDING_TILES[9]!.to).toBe('/admin/inbox?type=INQUIRY_UNANSWERED')
     expect(pendingChipClass(PENDING_TILES[9]!, 1)).toBe('adm-chip adm-chip--warning')
   })
 

@@ -3,13 +3,16 @@ import {
   mdiAccountGroupOutline,
   mdiCartOutline,
   mdiChartBoxOutline,
+  mdiHeadset,
+  mdiInboxOutline,
   mdiPackageVariantClosed,
   mdiStorefrontOutline,
   mdiViewDashboardOutline,
   mdiWalletOutline,
 } from '@mdi/js'
 import { useDisplay } from 'vuetify'
-import { ADMIN_MENU, resolveActiveMenuPath } from '#layers/admin/app/lib/constants/admin-menu'
+import { ADMIN_MENU, type AdminMenuBadge, resolveActiveMenuPath } from '#layers/admin/app/lib/constants/admin-menu'
+import { useAdminInboxBadge } from '#layers/admin/app/composables/useAdminInboxBadge'
 
 // 사이드바(FE-22c Vuetify·FE-22f Argon형). 열림 상태는 레이아웃이 소유(v-model) — 상단바 토글과 공유.
 // 데스크톱(md 이상)은 가장자리 16px 여백의 흰 카드형 고정(admin-sidebar--card), 모바일은 기존 temporary drawer.
@@ -19,13 +22,29 @@ const { mdAndUp } = useDisplay()
 const route = useRoute()
 
 const GROUP_BADGES: Record<string, { icon: string; color: string }> = {
+  '인박스': { icon: mdiInboxOutline, color: 'error' },
   '대시보드': { icon: mdiViewDashboardOutline, color: 'primary' },
   '회원 관리': { icon: mdiAccountGroupOutline, color: 'info' },
   '주문 관리': { icon: mdiCartOutline, color: 'warning' },
   '상품 관리': { icon: mdiPackageVariantClosed, color: 'success' },
+  '고객센터': { icon: mdiHeadset, color: 'info' },
   '정산 관리': { icon: mdiWalletOutline, color: 'error' },
   '통계': { icon: mdiChartBoxOutline, color: 'secondary' },
 }
+
+// 메뉴 건수 배지(FE-101): 인박스 오늘 탭 건수. 처음 그릴 때와 창 포커스 때 다시 읽고, 인박스 화면은 목록을 읽을 때 같은 값을 갱신한다.
+const inboxBadge = useAdminInboxBadge()
+function badgeCount(badge: AdminMenuBadge | undefined): number | null {
+  return badge === 'INBOX_TODAY' ? inboxBadge.count.value : null
+}
+function onWindowFocus(): void {
+  void inboxBadge.refresh()
+}
+onMounted(() => {
+  void inboxBadge.refresh()
+  window.addEventListener('focus', onWindowFocus)
+})
+onBeforeUnmount(() => window.removeEventListener('focus', onWindowFocus))
 
 // 활성 판정은 resolveActiveMenuPath 1건만(FE-25): 정확 일치 우선·하위 경로(/admin/products/prd_…)는 가장 긴 메뉴 경로 1개만 활성.
 // 단순 prefix 매칭이면 /admin/orders가 /admin/orders/payments에서도 활성돼 두 항목이 동시에 강조되므로 쓰지 않는다.
@@ -65,6 +84,9 @@ function isActive(to: string): boolean {
             </v-avatar>
           </template>
           <v-list-item-title>{{ group.label }}</v-list-item-title>
+          <template v-if="(badgeCount(group.badge) ?? 0) > 0" #append>
+            <v-badge inline color="error" :content="badgeCount(group.badge) ?? 0" data-testid="admin-menu-badge-inbox" />
+          </template>
         </v-list-item>
         <template v-else-if="group.children">
           <div class="adm-group-header">

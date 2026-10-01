@@ -211,14 +211,14 @@ test.describe('관리자 상품 목록(FE-25)', () => {
     await expect(page.getByTestId('filter-stock')).toContainText('재고 임박(1~5)')
     await expect.poll(() => captured.listQueries.at(-1)?.get('stockFilter')).toBe('LOW')
 
-    // Track 96-2(C-01): "상품 승인 대기" 타일 → 상품 목록 status=PENDING(URL·select·API 파라미터 복원)
+    // FE-101: "상품 승인 대기" 타일 → 인박스 유형 필터로 이동(상품 목록 자체는 Track 96-2 status=PENDING select 그대로 유지)
     await page.goto('/admin')
     const pendingTile = page.getByTestId('dashboard-pending-productPending')
-    await expect(pendingTile).toHaveAttribute('href', '/admin/products?status=PENDING')
+    await expect(pendingTile).toHaveAttribute('href', '/admin/inbox?type=PRODUCT_APPROVAL')
     await pendingTile.click()
-    await expect(page).toHaveURL(/\/admin\/products\?status=PENDING$/)
-    await expect(page.getByTestId('filter-status')).toContainText('승인대기')
-    await expect.poll(() => captured.listQueries.at(-1)?.get('status')).toBe('PENDING')
+    // 인박스는 PC 폭에서 첫 항목을 자동 선택해 URL에 &selected=…가 붙을 수 있어 type만 본다(실 BE 데모 데이터 유무와 무관하게 안정)
+    await page.waitForURL((url) => url.pathname === '/admin/inbox' && url.searchParams.get('type') === 'PRODUCT_APPROVAL')
+    await expect(page.getByTestId('inbox-type-chip-PRODUCT_APPROVAL')).toHaveClass(/v-chip--variant-flat/)
   })
 
   test('⑦ 판매중지 주체 라벨(Track 96-5·D-206): STOPPED 행에 "셀러 판매중지"/"관리자 판매중지" · SALE 행은 라벨 없음', async ({ page }) => {
