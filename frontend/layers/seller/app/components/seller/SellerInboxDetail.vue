@@ -13,7 +13,7 @@ import { formatDateTime } from '~/lib/utils/datetime'
 
 /**
  * 셀러 인박스 상세 패널(D-248 · 관리자 AdminInboxDetail 복제 · 레이어 격리). 공통 정보 · 원래 화면 이동 · 보류 · 패널 처리(발송 대기 송장 등록 ·
- * Q&A 답변). 처리 다이얼로그는 기존 컴포넌트를 그대로 쓰고 processed로 페이지에 알린다.
+ * Q&A 답변 · 장기 배송 배송완료·재고 임박 입고 D-251). 처리 다이얼로그는 기존 컴포넌트를 그대로 쓰고 processed로 페이지에 알린다.
  */
 const props = defineProps<{ item: InboxItem | null; nowMs: number }>()
 const emit = defineEmits<{ processed: [outcome: 'done' | 'stale'] }>()
@@ -99,6 +99,16 @@ watch(() => props.item?.key, () => {
             <div class="text-body-2">{{ itemLabel(orderItem) }} · 주문 {{ orderItem.orderNo }}</div>
           </div>
         </template>
+
+        <!-- P1c(D-251): 단건 조회가 없는 유형은 기존 목록에서 원천 행을 찾아 기존 다이얼로그로 처리한다. key = 항목 키(관리자 패널과 같은 이유). -->
+        <SellerInboxDeliveryPanel
+          v-if="action === 'DELIVERY_COMPLETE'"
+          :key="item.key"
+          :delivery-public-id="item.sourceRef"
+          :order-no="item.subtitle"
+          @processed="finish"
+        />
+        <SellerInboxStockPanel v-if="action === 'STOCK_INBOUND'" :key="item.key" :variant-public-id="item.sourceRef" :product-name="item.title" @processed="finish" />
       </v-card-text>
       <v-card-actions class="px-5 pb-5 flex-wrap ga-2">
         <v-btn v-if="action === 'QUESTION_ANSWER' && questionItem" color="primary" variant="flat" data-testid="inbox-detail-action" @click="answerOpen = true">

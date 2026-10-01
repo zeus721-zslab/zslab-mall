@@ -1,5 +1,8 @@
 package com.zslab.mall.order.controller;
 
+import com.zslab.mall.audit.service.AuditContext;
+import com.zslab.mall.common.auth.ActorRoleResolver;
+import com.zslab.mall.common.auth.AuthenticatedUserResolver;
 import com.zslab.mall.common.auth.SellerActorResolver;
 import com.zslab.mall.delivery.controller.response.RegisterExchangeShipmentResponse;
 import com.zslab.mall.delivery.entity.Delivery;
@@ -29,14 +32,20 @@ public class SellerDeliveryCompletionController {
     private final OrderShippingService orderShippingService;
     private final DeliveryRepository deliveryRepository;
     private final SellerActorResolver sellerActorResolver;
+    private final AuthenticatedUserResolver authenticatedUserResolver;
+    private final ActorRoleResolver actorRoleResolver;
 
     public SellerDeliveryCompletionController(
             OrderShippingService orderShippingService,
             DeliveryRepository deliveryRepository,
-            SellerActorResolver sellerActorResolver) {
+            SellerActorResolver sellerActorResolver,
+            AuthenticatedUserResolver authenticatedUserResolver,
+            ActorRoleResolver actorRoleResolver) {
         this.orderShippingService = orderShippingService;
         this.deliveryRepository = deliveryRepository;
         this.sellerActorResolver = sellerActorResolver;
+        this.authenticatedUserResolver = authenticatedUserResolver;
+        this.actorRoleResolver = actorRoleResolver;
     }
 
     /**
@@ -49,9 +58,10 @@ public class SellerDeliveryCompletionController {
             @PathVariable String deliveryPublicId,
             HttpServletRequest httpRequest) {
         Long sellerId = sellerActorResolver.resolve(httpRequest);
+        AuditContext auditContext = AuditContext.of(authenticatedUserResolver.requireUserId(), actorRoleResolver.requireCoarseRole());
         Delivery delivery = deliveryRepository.findByPublicId(deliveryPublicId)
                 .orElseThrow(() -> new DeliveryNotFoundException("배송을 찾을 수 없습니다: publicId=" + deliveryPublicId));
-        orderShippingService.markDeliveredBySeller(sellerId, delivery.getId());
+        orderShippingService.markDeliveredBySeller(sellerId, delivery.getId(), auditContext);
         // OSIV off·서비스 트랜잭션 종료 후 첫 조회 엔티티는 stale(SHIPPING) → 재조회로 DELIVERED 반영(AdminDeliveryController.markDelivered 패턴).
         return deliveryRepository.findByPublicId(deliveryPublicId)
                 .map(RegisterExchangeShipmentResponse::from)

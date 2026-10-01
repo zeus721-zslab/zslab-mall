@@ -14,7 +14,7 @@ import { formatDateTime } from '~/lib/utils/datetime'
 
 /**
  * 관리자 인박스 상세 패널(D-248 · PC 오른쪽 칸 · 모바일 드로어 안). 공통 정보 · 원래 화면 이동 · 보류 · 패널 처리(1:1 문의 답변 · 셀러 입점 심사
- * 상태 전이 · 클레임 접수 승인·거부 D-250). 처리 다이얼로그는 기존 컴포넌트를 그대로 쓰고, 끝나면 processed로 알려 페이지가 재조회·다음 항목 선택을 한다.
+ * 상태 전이 · 클레임 접수 승인·거부 D-250 · 장기 배송·상품 승인·정산·불일치 D-251). 처리 다이얼로그는 기존 컴포넌트를 그대로 쓰고, 끝나면 processed로 알려 페이지가 재조회·다음 항목 선택을 한다.
  */
 type SellerTarget = Exclude<AdminSellerStatus, 'PENDING'>
 
@@ -124,6 +124,11 @@ function onStatusStale(): void {
 
         <!-- 클레임 접수(D-250): 단건 조회로 판단 정보·제안을 보이고 승인·거부한다. -->
         <AdminInboxClaimPanel v-if="action === 'CLAIM_DECISION'" :claim-public-id="item.sourceRef" @processed="(outcome) => emit('processed', outcome)" />
+        <!-- P1c(D-251): 유형별 패널이 단건 조회 → 기존 다이얼로그로 처리한다. key = 항목 키 — 정산 확정 → 지급처럼 ref는 같고 유형만 바뀌어도 새로 읽는다. -->
+        <AdminInboxReconciliationPanel v-if="action === 'RECONCILIATION_RESOLVE'" :key="item.key" :issue-ref="item.sourceRef" @processed="(outcome) => emit('processed', outcome)" />
+        <AdminInboxDeliveryPanel v-if="action === 'DELIVERY_COMPLETE'" :key="item.key" :delivery-public-id="item.sourceRef" @processed="(outcome) => emit('processed', outcome)" />
+        <AdminInboxProductPanel v-if="action === 'PRODUCT_DECISION'" :key="item.key" :product-public-id="item.sourceRef" @processed="(outcome) => emit('processed', outcome)" />
+        <AdminInboxSettlementPanel v-if="action === 'SETTLEMENT_TRANSITION'" :key="item.key" :settlement-ref="item.sourceRef" @processed="(outcome) => emit('processed', outcome)" />
       </v-card-text>
       <v-card-actions class="px-5 pb-5 flex-wrap ga-2">
         <template v-if="action === 'INQUIRY_ANSWER' && inquiryItem">

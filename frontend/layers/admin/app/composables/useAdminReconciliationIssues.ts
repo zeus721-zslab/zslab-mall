@@ -18,11 +18,17 @@ export function useAdminReconciliationIssues() {
     return api<AdminReconciliationIssuePage>('/v1/admin/reconciliation-issues', { query: toReconciliationApiParams(query) })
   }
 
+  /** 단건(인박스 상세 패널 · 미존재 404). */
+  function get(issueId: number): Promise<AdminReconciliationIssue> {
+    const path: string = `/v1/admin/reconciliation-issues/${issueId}`
+    return api<AdminReconciliationIssue>(path)
+  }
+
   function resolve(issueId: number, body: AdminReconciliationResolveBody): Promise<AdminReconciliationIssue> {
     // 템플릿 리터럴 경로는 nitro 타입드 라우트 추론이 과도해(TS2321) string으로 고정한다(useAdminOrders 선례).
     const path: string = `/v1/admin/reconciliation-issues/${issueId}/resolve`
     return api<AdminReconciliationIssue>(path, { method: 'POST', body })
   }
 
-  return { list, resolve }
+  return { list, get, resolve }
 }

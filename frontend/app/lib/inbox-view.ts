@@ -8,6 +8,7 @@ import {
   inboxItemTypeLabel,
 } from '~/lib/constants/inbox'
 import { inboxItemKey } from '~/lib/inbox-query'
+import { INBOX_TARGET_KEYWORD_MAX } from '~/lib/inbox-target'
 
 /**
  * 운영 인박스 표시 규칙 순수 함수(D-248 · 관리자·셀러 공용 · 레이어 CSS·라우트·composable에 묶이지 않는 것만). 응답 정규화 · 기한 표시 ·
@@ -132,14 +133,50 @@ export const INBOX_TRUNCATED_MESSAGE = '항목이 많아 일부만 표시합니�
 
 // ---------- 상세 패널 처리 ----------
 
-/** 상세 패널에서 바로 처리하는 동작(P1b-1 · 클레임 접수 승인·거부는 P2 D-250 · 그 외 유형은 원래 화면으로 이동). */
-export type InboxPanelAction = 'INQUIRY_ANSWER' | 'SELLER_STATUS' | 'CLAIM_DECISION' | 'SHIPMENT' | 'QUESTION_ANSWER'
+/** 상세 패널에서 바로 처리하는 동작(P1b-1 · 클레임 접수 승인·거부는 P2 D-250 · 나머지 7유형은 P1c D-251 · 클레임 후속만 원래 화면으로 이동). */
+export type InboxPanelAction =
+  | 'INQUIRY_ANSWER'
+  | 'SELLER_STATUS'
+  | 'CLAIM_DECISION'
+  | 'RECONCILIATION_RESOLVE'
+  | 'DELIVERY_COMPLETE'
+  | 'PRODUCT_DECISION'
+  | 'SETTLEMENT_TRANSITION'
+  | 'STOCK_INBOUND'
+  | 'SHIPMENT'
+  | 'QUESTION_ANSWER'
 
 const PANEL_ACTIONS: Record<InboxAudience, Partial<Record<InboxItemType, InboxPanelAction>>> = {
-  ADMIN: { INQUIRY_UNANSWERED: 'INQUIRY_ANSWER', SELLER_REVIEW: 'SELLER_STATUS', CLAIM_REQUESTED: 'CLAIM_DECISION' },
-  SELLER: { DELIVERY_READY: 'SHIPMENT', QUESTION_UNANSWERED: 'QUESTION_ANSWER' },
+  ADMIN: {
+    INQUIRY_UNANSWERED: 'INQUIRY_ANSWER',
+    SELLER_REVIEW: 'SELLER_STATUS',
+    CLAIM_REQUESTED: 'CLAIM_DECISION',
+    RECONCILIATION_OPEN: 'RECONCILIATION_RESOLVE',
+    LONG_SHIPPING: 'DELIVERY_COMPLETE',
+    PRODUCT_APPROVAL: 'PRODUCT_DECISION',
+    // 확정·지급 두 유형이 한 패널을 쓴다 — 버튼은 단건 조회 상태로 정한다(정산 상세와 같은 판정).
+    SETTLEMENT_CONFIRM: 'SETTLEMENT_TRANSITION',
+    SETTLEMENT_PAYOUT: 'SETTLEMENT_TRANSITION',
+  },
+  SELLER: { DELIVERY_READY: 'SHIPMENT', QUESTION_UNANSWERED: 'QUESTION_ANSWER', LONG_SHIPPING: 'DELIVERY_COMPLETE', LOW_STOCK: 'STOCK_INBOUND' },
 }
 
 export function inboxPanelAction(audience: InboxAudience, type: InboxItemType): InboxPanelAction | null {
   return PANEL_ACTIONS[audience][type] ?? null
+}
+
+// ---------- 단건 조회가 없는 유형: 기존 목록에서 원천 행 찾기(셀러 장기 배송 · 재고 임박 · D-251) ----------
+
+/** 원천 행을 찾을 때 한 번에 읽는 행 수(BE 셀러 배송·재고 목록 size 상한 100). */
+export const INBOX_LOOKUP_PAGE_SIZE = 100
+
+/** 목록 검색어. 원래 화면 이동과 같이 앞뒤 공백을 빼고 BE 상한(50자)으로 자른다 — 부분 일치 검색이라 앞부분만으로도 원천 행이 걸린다. 비면 null. */
+export function inboxLookupKeyword(value: string | null): string | null {
+  const trimmed = value?.trim() ?? ''
+  return trimmed === '' ? null : trimmed.slice(0, INBOX_TARGET_KEYWORD_MAX)
+}
+
+/** 목록 행 중 인박스 ref와 식별자가 같은 행. 없으면 null — 패널은 처리 없이 "원래 화면에서 열기"만 남긴다. */
+export function findInboxSourceRow<T>(rows: readonly T[], ref: string, idOf: (row: T) => string): T | null {
+  return rows.find((row) => idOf(row) === ref) ?? null
 }

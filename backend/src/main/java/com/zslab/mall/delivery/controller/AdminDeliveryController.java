@@ -148,11 +148,12 @@ public class AdminDeliveryController {
     public RegisterExchangeShipmentResponse markDelivered(
             @PathVariable String deliveryPublicId,
             HttpServletRequest httpRequest) {
-        // X-Admin-Id 존재·형식 검증만 수행한다(전체 접근·식별자 미사용·D-93 Q3). 누락 401·형식 오류 400.
-        adminActorResolver.resolve(httpRequest);
+        // 누락 401·형식 오류 400. 식별자는 감사 행위자로 쓴다(D-251).
+        AuditContext auditContext = AuditContext.of(
+                adminActorResolver.resolve(httpRequest), actorRoleResolver.requireCoarseRole());
         Delivery delivery = deliveryRepository.findByPublicId(deliveryPublicId)
                 .orElseThrow(() -> new DeliveryNotFoundException("배송을 찾을 수 없습니다: publicId=" + deliveryPublicId));
-        deliveryService.markDeliveredByAdmin(delivery.getId());
+        deliveryService.markDeliveredByAdmin(delivery.getId(), auditContext);
         // OSIV off·wrapper 트랜잭션 종료 후 첫 조회 엔티티는 stale(SHIPPING) → 재조회로 DELIVERED 반영(AdminClaimController.toResponse 패턴).
         return deliveryRepository.findByPublicId(deliveryPublicId)
                 .map(RegisterExchangeShipmentResponse::from)
