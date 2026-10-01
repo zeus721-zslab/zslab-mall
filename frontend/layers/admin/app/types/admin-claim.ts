@@ -1,4 +1,12 @@
-import type { ClaimInspectionResult, ClaimRejectReasonCode, ClaimStatus, ClaimType, RefundStatus } from '~/lib/constants/claim'
+import type {
+  ClaimInspectionResult,
+  ClaimRejectReasonCode,
+  ClaimStatus,
+  ClaimSuggestion,
+  ClaimSuggestionRule,
+  ClaimType,
+  RefundStatus,
+} from '~/lib/constants/claim'
 import type { ClaimShipment } from '~/types/claim'
 import type { AdminDeliveryCarrier } from '#layers/admin/app/lib/constants/admin-order'
 import type { AdminOrderSort } from '#layers/admin/app/lib/constants/admin-order'
@@ -66,6 +74,35 @@ export interface AdminClaimSummary {
   exchangeOptionLabel?: string
   /** 반품 사진 첨부 개수(Track 81-B). */
   attachmentCount: number
+}
+
+/** 클레임 처리 제안(BE ClaimSuggestionResponse · D-250). */
+export interface AdminClaimSuggestionView {
+  suggestion: ClaimSuggestion
+  ruleKey: ClaimSuggestionRule
+  /** 근거 문구(규칙별 고정). */
+  reason: string
+}
+
+/** 단건(BE AdminClaimDetailResponse · D-250). 제안은 REQUESTED만(그 외 생략). */
+export interface AdminClaimDetail {
+  claim: AdminClaimSummary
+  suggestion?: AdminClaimSuggestionView
+}
+
+/** 일괄 승인 항목 결과(BE AdminClaimBulkApproveResponse.Item · 성공은 code·message 생략). */
+export interface AdminClaimBulkApproveItem {
+  claimPublicId: string
+  success: boolean
+  code?: string
+  message?: string
+}
+
+/** 일괄 승인 응답(항목 실패가 있어도 200 · 입력 순서). */
+export interface AdminClaimBulkApproveResponse {
+  results: AdminClaimBulkApproveItem[]
+  successCount: number
+  failureCount: number
 }
 
 /** 검수 요청 body(BE ClaimInspectRequest·Track 81-A). PASS는 restock 필수, FAIL은 rejectReasonCode·reshipCarrier·reshipTrackingNo 필수. */

@@ -14,7 +14,7 @@ import { formatDateTime } from '~/lib/utils/datetime'
 
 /**
  * 관리자 인박스 상세 패널(D-248 · PC 오른쪽 칸 · 모바일 드로어 안). 공통 정보 · 원래 화면 이동 · 보류 · 패널 처리(1:1 문의 답변 · 셀러 입점 심사
- * 상태 전이). 처리 다이얼로그는 기존 컴포넌트를 그대로 쓰고, 끝나면 processed로 알려 페이지가 재조회·다음 항목 선택을 한다.
+ * 상태 전이 · 클레임 접수 승인·거부 D-250). 처리 다이얼로그는 기존 컴포넌트를 그대로 쓰고, 끝나면 processed로 알려 페이지가 재조회·다음 항목 선택을 한다.
  */
 type SellerTarget = Exclude<AdminSellerStatus, 'PENDING'>
 
@@ -121,6 +121,9 @@ function onStatusStale(): void {
             <div class="text-body-2 mb-3">{{ sellerStatusLabel(seller.status) }} · 대표 {{ seller.ceoName }}</div>
           </div>
         </template>
+
+        <!-- 클레임 접수(D-250): 단건 조회로 판단 정보·제안을 보이고 승인·거부한다. -->
+        <AdminInboxClaimPanel v-if="action === 'CLAIM_DECISION'" :claim-public-id="item.sourceRef" @processed="(outcome) => emit('processed', outcome)" />
       </v-card-text>
       <v-card-actions class="px-5 pb-5 flex-wrap ga-2">
         <template v-if="action === 'INQUIRY_ANSWER' && inquiryItem">

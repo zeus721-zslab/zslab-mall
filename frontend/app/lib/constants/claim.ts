@@ -64,6 +64,23 @@ export function isClaimType(value: string): value is ClaimType {
   return value === 'CANCEL' || value === 'RETURN' || value === 'EXCHANGE'
 }
 
+/** 클레임 처리 제안(BE ClaimSuggestion · D-250 · 거부 제안은 없다). */
+export type ClaimSuggestion = 'APPROVE' | 'REVIEW'
+
+export const CLAIM_SUGGESTION_LABELS: Record<ClaimSuggestion, string> = {
+  APPROVE: '승인 제안',
+  REVIEW: '검토 필요',
+}
+
+/** 제안 규칙 키(BE ClaimSuggestionRule · D-250 R0~R5). 근거 문구는 BE가 함께 내려준다. */
+export type ClaimSuggestionRule =
+  | 'NO_MATCH'
+  | 'EXCHANGE_STOCK_SHORT'
+  | 'UNSHIPPED_CANCEL'
+  | 'DEFECT_WITH_EVIDENCE'
+  | 'DEFECT_WITHOUT_EVIDENCE'
+  | 'CHANGE_OF_MIND'
+
 /** 클레임 처리 상태 code(BE ClaimStatus enum 4값). */
 export type ClaimStatus = 'REQUESTED' | 'APPROVED' | 'REJECTED' | 'COMPLETED'
 

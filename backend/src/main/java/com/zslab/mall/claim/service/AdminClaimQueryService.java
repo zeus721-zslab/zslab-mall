@@ -4,12 +4,15 @@ import com.zslab.mall.attachment.repository.AttachmentCountProjection;
 import com.zslab.mall.attachment.repository.AttachmentRepository;
 import com.zslab.mall.claim.controller.request.AdminClaimActionFilter;
 import com.zslab.mall.claim.controller.request.AdminClaimSort;
+import com.zslab.mall.claim.controller.response.AdminClaimDetailResponse;
 import com.zslab.mall.claim.controller.response.AdminClaimListResponse;
 import com.zslab.mall.claim.controller.response.AdminClaimSummaryResponse;
+import com.zslab.mall.claim.controller.response.ClaimSuggestionResponse;
 import com.zslab.mall.claim.controller.response.ReturnShipmentResponse;
 import com.zslab.mall.claim.entity.Claim;
 import com.zslab.mall.claim.enums.ClaimStatus;
 import com.zslab.mall.claim.enums.ClaimType;
+import com.zslab.mall.claim.exception.ClaimNotFoundException;
 import com.zslab.mall.claim.repository.AdminClaimSpecifications;
 import com.zslab.mall.claim.repository.ClaimRepository;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
@@ -82,11 +85,13 @@ public class AdminClaimQueryService {
     private final AttachmentRepository attachmentRepository;
     private final ClaimExchangeService claimExchangeService;
     private final AdminMemberQueryService adminMemberQueryService;
+    private final ClaimSuggestionService claimSuggestionService;
 
     public AdminClaimQueryService(ClaimRepository claimRepository, OrderItemRepository orderItemRepository,
             UserRepository userRepository, RefundRepository refundRepository, DeliveryRepository deliveryRepository,
             AttachmentRepository attachmentRepository,
-            ClaimExchangeService claimExchangeService, AdminMemberQueryService adminMemberQueryService) {
+            ClaimExchangeService claimExchangeService, AdminMemberQueryService adminMemberQueryService,
+            ClaimSuggestionService claimSuggestionService) {
         this.claimRepository = claimRepository;
         this.orderItemRepository = orderItemRepository;
         this.userRepository = userRepository;
@@ -95,6 +100,7 @@ public class AdminClaimQueryService {
         this.attachmentRepository = attachmentRepository;
         this.claimExchangeService = claimExchangeService;
         this.adminMemberQueryService = adminMemberQueryService;
+        this.claimSuggestionService = claimSuggestionService;
     }
 
     /**
@@ -138,6 +144,21 @@ public class AdminClaimQueryService {
                 .toList();
         Page<AdminClaimSummaryResponse> rowPage = new PageImpl<>(rows, pageable, claimPage.getTotalElements());
         return AdminClaimListResponse.from(PagedResponse.from(rowPage), pendingCount);
+    }
+
+    /**
+     * 관리자 클레임 단건(D-250 · 인박스 상세 패널). 목록과 같은 조립({@link #enrich}·{@link #toSummary})에 REQUESTED면 처리 제안을 더한다.
+     *
+     * @throws ClaimNotFoundException 미존재(404)
+     */
+    public AdminClaimDetailResponse getClaim(String claimPublicId) {
+        Claim claim = claimRepository.findByPublicId(claimPublicId)
+                .orElseThrow(() -> new ClaimNotFoundException("클레임을 찾을 수 없습니다: publicId=" + claimPublicId));
+        AdminClaimSummaryResponse summary = toSummary(claim, enrich(List.of(claim)));
+        ClaimSuggestionResponse suggestion = claim.getStatus() == ClaimStatus.REQUESTED
+                ? ClaimSuggestionResponse.from(claimSuggestionService.suggest(claim))
+                : null;
+        return new AdminClaimDetailResponse(summary, suggestion);
     }
 
     /** 페이지 내 클레임의 품목·주문 요약·구매자·최신 환불을 배치 조회한다(각 1쿼리·페이지가 비면 0쿼리). */

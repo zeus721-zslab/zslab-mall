@@ -1,5 +1,7 @@
 package com.zslab.mall.inbox.service;
 
+import com.zslab.mall.claim.service.ClaimSuggestionResult;
+import com.zslab.mall.claim.service.ClaimSuggestionService;
 import com.zslab.mall.common.exception.MalformedRequestException;
 import com.zslab.mall.inbox.collector.InboxRow;
 import com.zslab.mall.inbox.collector.InboxSlice;
@@ -39,8 +41,10 @@ public class InboxQueryService {
             .thenComparing(InboxRow::ref);
 
     private final Map<InboxItemType, InboxSource> sources;
+    private final ClaimSuggestionService claimSuggestionService;
 
-    public InboxQueryService(List<InboxSource> sources) {
+    public InboxQueryService(List<InboxSource> sources, ClaimSuggestionService claimSuggestionService) {
+        this.claimSuggestionService = claimSuggestionService;
         this.sources = new EnumMap<>(InboxItemType.class);
         for (InboxSource source : sources) {
             this.sources.put(source.type(), source);
@@ -74,12 +78,31 @@ public class InboxQueryService {
             counts.add(new InboxResponse.TypeCount(source.type(), total));
         }
 
-        List<InboxItemResponse> items = rows.stream()
+        List<InboxRow> listed = rows.stream()
                 .sorted(DUE_ORDER)
                 .limit(MAX_ITEMS)
-                .map(row -> InboxItemResponse.of(row, now))
+                .toList();
+        Map<String, ClaimSuggestionResult> claimSuggestions = claimSuggestions(listed);
+        List<InboxItemResponse> items = listed.stream()
+                .map(row -> toResponse(row, now, claimSuggestions))
                 .toList();
         return new InboxResponse(items, counts, listedTotal > items.size());
+    }
+
+    private static InboxItemResponse toResponse(InboxRow row, LocalDateTime now, Map<String, ClaimSuggestionResult> claimSuggestions) {
+        ClaimSuggestionResult claim = row.type() == InboxItemType.CLAIM_REQUESTED ? claimSuggestions.get(row.ref()) : null;
+        return claim == null
+                ? InboxItemResponse.of(row, now, null, null)
+                : InboxItemResponse.of(row, now, claim.input().type(), claim.suggestion());
+    }
+
+    /** 클레임 접수 행의 유형·제안을 행 목록 단위로 한 번에 계산한다(D-250 · 행마다 조회하지 않는다). */
+    private Map<String, ClaimSuggestionResult> claimSuggestions(List<InboxRow> listed) {
+        List<String> claimRefs = listed.stream()
+                .filter(row -> row.type() == InboxItemType.CLAIM_REQUESTED)
+                .map(InboxRow::ref)
+                .toList();
+        return claimSuggestionService.suggestRequestedByPublicIds(claimRefs);
     }
 
     /** 보류 대상 검증용 — 보는 사람의 인박스에 그 유형이 있을 때만 수집기를 돌려준다. */

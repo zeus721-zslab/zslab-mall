@@ -9,6 +9,7 @@ import { toAdminErrorMessage } from '#layers/admin/app/lib/admin-error-message'
 import { useAdminInbox } from '#layers/admin/app/composables/useAdminInbox'
 import { useAdminInboxBadge } from '#layers/admin/app/composables/useAdminInboxBadge'
 import { useAdminInboxStream } from '#layers/admin/app/composables/useAdminInboxStream'
+import { isBulkApprovable } from '#layers/admin/app/lib/admin-inbox-view'
 
 definePageMeta({ layout: 'admin', middleware: ['admin', 'vuetify'] })
 useSeoMeta({ title: '인박스 · zslab-mall 관리자' })
@@ -34,6 +35,15 @@ const nowMs = ref(Date.now())
 let requestSequence = 0
 
 const selectedItem = computed<InboxItem | null>(() => items.value.find((item) => item.key === query.value.selected) ?? null)
+
+// 클레임 일괄 승인 선택(D-250 · 행 키). 상세 선택과 별개이며 탭·유형이 바뀌면 비운다 · 재조회로 사라진 행은 빠진다.
+const bulkSelected = ref<string[]>([])
+const bulkItems = computed<InboxItem[]>(() => items.value.filter((item) => bulkSelected.value.includes(item.key)))
+
+async function onBulkDone(): Promise<void> {
+  bulkSelected.value = []
+  await reload()
+}
 
 function applyQuery(patch: Partial<InboxQueryState>): void {
   void router.replace({ query: toInboxRouteQuery({ ...query.value, ...patch }) })
@@ -85,6 +95,7 @@ async function load(): Promise<boolean> {
     const response = await inboxApi.list(query.value)
     if (sequence !== requestSequence) return false // 늦게 도착한 이전 요청은 버린다
     items.value = response.items.map(normalizeInboxItem)
+    bulkSelected.value = bulkSelected.value.filter((key) => items.value.some((item) => item.key === key && isBulkApprovable(item)))
     counts.value = response.counts
     truncated.value = response.truncated
     nowMs.value = Date.now()
@@ -101,6 +112,7 @@ async function load(): Promise<boolean> {
 
 // 탭·유형이 바뀌면 다시 읽는다(선택만 바뀌면 읽지 않는다).
 watch(() => [query.value.tab, query.value.type], async () => {
+  bulkSelected.value = []
   if (await load()) reconcileSelection()
 }, { immediate: true })
 
@@ -159,7 +171,9 @@ onBeforeUnmount(() => {
     />
     <v-row>
       <v-col cols="12" md="5">
+        <AdminInboxClaimBulkApprove :items="bulkItems" @done="onBulkDone" @clear="bulkSelected = []" />
         <AdminInboxList
+          v-model:bulk-selected="bulkSelected"
           :items="items"
           :counts="counts"
           :tab="query.tab"
