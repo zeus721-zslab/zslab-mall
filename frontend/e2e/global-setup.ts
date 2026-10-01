@@ -42,6 +42,7 @@ const BUYER_PATHS = [
 
 const ADMIN_PATHS = [
   '/admin',
+  '/admin/inbox',
   '/admin/help',
   '/admin/products',
   '/admin/products/new',
@@ -72,6 +73,7 @@ const ADMIN_PATHS = [
 
 const SELLER_PATHS = [
   '/seller',
+  '/seller/inbox',
   '/seller/help',
   '/seller/products',
   '/seller/products/new',

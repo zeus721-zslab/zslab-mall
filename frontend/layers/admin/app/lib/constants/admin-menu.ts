@@ -1,5 +1,5 @@
 /**
- * 관리자 사이드바 메뉴 단일 소스(FE-22). 순서는 확정 사양 고정(대시보드 → 회원 → 주문 → 상품 → 고객센터(Track 106-3) → 정산 → 통계).
+ * 관리자 사이드바 메뉴 단일 소스(FE-22). 순서는 확정 사양 고정(인박스(FE-101) → 대시보드 → 회원 → 주문 → 상품 → 고객센터(Track 106-3) → 정산 → 통계).
  * 각 항목의 경로는 pages/admin/** 파일과 1:1이며, BE 조회 API가 아직 없는 화면은 공통 "준비 중" 플레이스홀더다.
  */
 export interface AdminMenuItem {
@@ -7,14 +7,22 @@ export interface AdminMenuItem {
   label: string
 }
 
+/** 메뉴 옆 건수 배지 종류(D-248 · 인박스 오늘 탭 건수). */
+export type AdminMenuBadge = 'INBOX_TODAY'
+
 export interface AdminMenuGroup {
   label: string
   /** 그룹 자체가 단일 링크면 to, 하위 항목이 있으면 children(둘 중 하나만). */
   to?: string
   children?: AdminMenuItem[]
+  badge?: AdminMenuBadge
 }
 
+export const ADMIN_INBOX_PATH = '/admin/inbox'
+
 export const ADMIN_MENU: AdminMenuGroup[] = [
+  // FE-101: 처리할 일을 모은 인박스를 맨 위에 둔다(오늘 탭 건수 배지).
+  { label: '인박스', to: ADMIN_INBOX_PATH, badge: 'INBOX_TODAY' },
   { label: '대시보드', to: '/admin' },
   {
     label: '회원 관리',

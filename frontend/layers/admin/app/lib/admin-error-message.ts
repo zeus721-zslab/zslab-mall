@@ -15,6 +15,8 @@ const ADMIN_ERROR_MESSAGES: Record<string, string> = {
   // Track 106-4 관리자 문의 관리
   INQUIRY_NOT_FOUND: '문의를 찾을 수 없습니다(구매자가 삭제했을 수 있습니다). 목록을 새로 불러옵니다.',
   INQUIRY_INVALID_STATE: '현재 상태에서 처리할 수 없는 문의입니다. 목록을 새로 불러옵니다.',
+  // D-248 운영 인박스 보류
+  INBOX_ITEM_NOT_FOUND: '이미 처리됐거나 대기 항목이 아닙니다. 인박스를 새로 불러옵니다.',
   // FE-27 관리자 주문·클레임·배송
   ORDER_NOT_FOUND: '주문 또는 주문 품목을 찾을 수 없습니다.',
   CLAIM_NOT_FOUND: '클레임을 찾을 수 없습니다.',

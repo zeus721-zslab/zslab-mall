@@ -1,5 +1,5 @@
 /**
- * 셀러 사이드바 메뉴 단일 소스(Track 90-A). 순서는 확정 사양 고정(대시보드 → 주문 → 상품 → 통계 → 정산 → 설정).
+ * 셀러 사이드바 메뉴 단일 소스(Track 90-A). 순서는 확정 사양 고정(인박스(FE-101) → 대시보드 → 주문 → 상품 → 통계 → 정산 → 설정).
  * 모든 항목이 pages/seller/** 와 1:1이다(90-B-3: 대시보드·주문·배송·정산 / 90-C-3: 상품·재고 / 90-D-1: 클레임 / 90-D-2: 비밀번호 변경 / 90-D-3: 정산계좌 / 90-E-1~3: 통계 매출·주문클레임·상품). 화면이 없는 항목은 `to` 없이 비활성으로 두는 규칙(SellerSidebar disabled 분기)은 유지한다.
  * 마지막 항목 "설정"은 90-D-2까지 단일 링크 "비밀번호 변경"이었고, 계좌 화면이 들어온 90-D-3에서 그룹(children: 비밀번호 변경·정산계좌)으로 승격했다(FE-50·FE-51).
  * 재고(/seller/products/inventory)는 상품(/seller/products)의 하위 경로지만 resolveActiveSellerMenuPath가 정확 일치를 우선하므로 재고만 활성된다.
@@ -10,14 +10,22 @@ export interface SellerMenuItem {
   to?: string
 }
 
+/** 메뉴 옆 건수 배지 종류(D-248 · 인박스 오늘 탭 건수). */
+export type SellerMenuBadge = 'INBOX_TODAY'
+
 export interface SellerMenuGroup {
   label: string
   /** 그룹 자체가 단일 링크면 to, 하위 항목이 있으면 children. 둘 다 없으면 단일 항목이되 미구현(비활성). */
   to?: string
   children?: SellerMenuItem[]
+  badge?: SellerMenuBadge
 }
 
+export const SELLER_INBOX_PATH = '/seller/inbox'
+
 export const SELLER_MENU: SellerMenuGroup[] = [
+  // FE-101: 처리할 일을 모은 인박스를 맨 위에 둔다(오늘 탭 건수 배지).
+  { label: '인박스', to: SELLER_INBOX_PATH, badge: 'INBOX_TODAY' },
   { label: '대시보드', to: '/seller' },
   {
     label: '주문',

@@ -83,12 +83,13 @@ test.describe('셀러 대시보드(90-B-3)', () => {
     // 대기 5: 5칸 전부 해당 화면 링크(Track 96-1 C-14 4칸 + Track 99 D-210 장기 배송중)·"준비 중" 문구 없음
     const pending = page.getByTestId('dashboard-pending')
     await expect(pending.getByTestId('dashboard-pending-count')).toHaveText(['2건', '0건', '1건', '1건', '3건'])
-    await expect(page.getByTestId('dashboard-pending-deliveryReady')).toHaveAttribute('href', '/seller/orders?status=PAID')
+    // FE-101: 배송 대기·재고 임박·장기 배송중은 인박스 유형 필터 · 클레임 요청·정산 예정은 기존 화면
+    await expect(page.getByTestId('dashboard-pending-deliveryReady')).toHaveAttribute('href', '/seller/inbox?type=DELIVERY_READY')
     await expect(page.getByTestId('dashboard-pending-claimRequested')).toHaveAttribute('href', '/seller/claims?status=REQUESTED')
-    await expect(page.getByTestId('dashboard-pending-lowStock')).toHaveAttribute('href', '/seller/products/inventory')
+    await expect(page.getByTestId('dashboard-pending-lowStock')).toHaveAttribute('href', '/seller/inbox?type=LOW_STOCK')
     await expect(page.getByTestId('dashboard-pending-settlementPending')).toHaveAttribute('href', '/seller/settlements')
     await expect(page.getByTestId('dashboard-pending-settlementPending')).toContainText('확정 대기 정산 건수')
-    await expect(page.getByTestId('dashboard-pending-longShipping')).toHaveAttribute('href', '/seller/deliveries?status=SHIPPING')
+    await expect(page.getByTestId('dashboard-pending-longShipping')).toHaveAttribute('href', '/seller/inbox?type=LONG_SHIPPING')
     await expect(pending).not.toContainText('준비 중')
 
     // 차트 2(apexcharts svg)
