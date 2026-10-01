@@ -46,6 +46,7 @@ function adminTarget(item: InboxItem): InboxTargetRoute {
     case 'INQUIRY_UNANSWERED':
       return { path: '/admin/inquiries', query: {} }
     case 'SELLER_REVIEW':
+    case 'SELLER_DELAY':
       return { path: `/admin/members/sellers/${item.sourceRef}`, query: {} }
     case 'PRODUCT_APPROVAL':
       return { path: '/admin/products', query: { status: 'PENDING', ...keywordOf(item.title) } }

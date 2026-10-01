@@ -14,7 +14,7 @@ import { formatDateTime } from '~/lib/utils/datetime'
 
 /**
  * 관리자 인박스 상세 패널(D-248 · PC 오른쪽 칸 · 모바일 드로어 안). 공통 정보 · 원래 화면 이동 · 보류 · 패널 처리(1:1 문의 답변 · 셀러 입점 심사
- * 상태 전이 · 클레임 접수 승인·거부 D-250 · 장기 배송·상품 승인·정산·불일치 D-251). 처리 다이얼로그는 기존 컴포넌트를 그대로 쓰고, 끝나면 processed로 알려 페이지가 재조회·다음 항목 선택을 한다.
+ * 상태 전이 · 클레임 접수 승인·거부 D-250 · 장기 배송·상품 승인·정산·불일치 D-251 · 셀러 지연 독촉 D-252). 처리 다이얼로그는 기존 컴포넌트를 그대로 쓰고, 끝나면 processed로 알려 페이지가 재조회·다음 항목 선택을 한다.
  */
 type SellerTarget = Exclude<AdminSellerStatus, 'PENDING'>
 
@@ -129,6 +129,8 @@ function onStatusStale(): void {
         <AdminInboxDeliveryPanel v-if="action === 'DELIVERY_COMPLETE'" :key="item.key" :delivery-public-id="item.sourceRef" @processed="(outcome) => emit('processed', outcome)" />
         <AdminInboxProductPanel v-if="action === 'PRODUCT_DECISION'" :key="item.key" :product-public-id="item.sourceRef" @processed="(outcome) => emit('processed', outcome)" />
         <AdminInboxSettlementPanel v-if="action === 'SETTLEMENT_TRANSITION'" :key="item.key" :settlement-ref="item.sourceRef" @processed="(outcome) => emit('processed', outcome)" />
+        <!-- P3(D-252): 셀러 지연 — 유형별 초과 건수·마지막 독촉 · 독촉 1곳. -->
+        <AdminInboxSellerDelayPanel v-if="action === 'SELLER_NUDGE'" :key="item.key" :seller-public-id="item.sourceRef" @processed="(outcome) => emit('processed', outcome)" />
       </v-card-text>
       <v-card-actions class="px-5 pb-5 flex-wrap ga-2">
         <template v-if="action === 'INQUIRY_ANSWER' && inquiryItem">

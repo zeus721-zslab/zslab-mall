@@ -9,6 +9,10 @@ public final class NotificationMessages {
     /** 임시 비밀번호 SMS 본문. {@code %s}에 평문이 들어가며 notification_log 저장본은 호출자가 마스킹 문자열로 치환한다. */
     public static final String TEMPORARY_PASSWORD_SMS = "[zslab-mall] 임시 비밀번호: %s 로그인 후 비밀번호를 변경해 주세요.";
 
+    /** 셀러 지연 독촉 SMS 본문(D-252). {@code %d} 2개 = 기한이 지난 발송 대기·상품 Q&amp;A 미답변 건수. */
+    public static final String SELLER_DELAY_NUDGE_SMS =
+            "[zslab-mall] 처리 기한이 지난 건이 있습니다. 발송 대기 %d건, 상품 Q&A 미답변 %d건. 셀러센터 인박스에서 확인해 주세요.";
+
     private NotificationMessages() {
     }
 }

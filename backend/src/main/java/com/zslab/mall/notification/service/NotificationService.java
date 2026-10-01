@@ -39,6 +39,7 @@ import com.zslab.mall.user.repository.UserRepository;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -428,8 +429,8 @@ public class NotificationService {
         dispatch(notificationLog, eventName, () -> smsSender.send(sms.phoneNumber(), content));
     }
 
-    /** 정산 SMS 수신처(수신 회원 id는 OWNER fallback일 때만·seller.contact_phone이면 null). */
-    private record SellerSmsRecipient(Long recipientUserId, String phoneNumber) {
+    /** 셀러 SMS 수신처(수신 회원 id는 OWNER fallback일 때만·seller.contact_phone이면 null). */
+    public record SellerSmsRecipient(Long recipientUserId, String phoneNumber) {
     }
 
     private static final DateTimeFormatter SETTLEMENT_PERIOD_FORMAT = DateTimeFormatter.ofPattern("yyyy년 M월");
@@ -441,8 +442,10 @@ public class NotificationService {
      */
     public void recordSettlementConfirmed(SettlementConfirmed event) {
         try {
-            SellerSmsRecipient recipient = resolveSellerSmsRecipient(event.sellerId(), event.settlementId());
+            SellerSmsRecipient recipient = resolveSellerSmsRecipient(event.sellerId()).orElse(null);
             if (recipient == null) {
+                log.warn("[Notification] SettlementConfirmed SMS 건너뜀(수신처 없음): settlementId={} sellerId={}", event.settlementId(),
+                        event.sellerId());
                 return;
             }
             String content = "[zslab-mall] " + event.periodStart().format(SETTLEMENT_PERIOD_FORMAT) + " 정산이 확정되었습니다. 정산금액 "
@@ -462,29 +465,52 @@ public class NotificationService {
     }
 
     /**
-     * 셀러 SMS 수신처 3단 fallback: seller.contact_phone → SELLER_OWNER 구성원 user.phone → null(skip+warn).
-     * 탈퇴한 OWNER는 건너뛴다(Track 89-G — seller_user 행은 탈퇴 후에도 남으므로 withdrawn_at으로 걸러야 탈퇴자 번호로 발송되지 않는다).
-     * 활성 OWNER가 0명이면 종전대로 skip+warn.
+     * 셀러 SMS 수신처 3단 fallback: seller.contact_phone → SELLER_OWNER 구성원 user.phone → 없음(warn). 정산 확정 SMS와 셀러 지연
+     * 독촉(D-252)이 같은 규칙을 쓴다. 탈퇴한 OWNER는 건너뛴다(Track 89-G — seller_user 행은 탈퇴 후에도 남으므로 withdrawn_at으로 걸러야
+     * 탈퇴자 번호로 발송되지 않는다). 활성 OWNER가 0명이면 종전대로 없음.
      */
-    private SellerSmsRecipient resolveSellerSmsRecipient(Long sellerId, Long settlementId) {
+    public Optional<SellerSmsRecipient> resolveSellerSmsRecipient(Long sellerId) {
         Seller seller = sellerRepository.findById(sellerId).orElse(null);
         if (seller == null) {
-            log.warn("[Notification] SettlementConfirmed 소비·셀러 미발견 → SMS 건너뜀: settlementId={} sellerId={}", settlementId, sellerId);
-            return null;
+            log.warn("[Notification] 셀러 SMS 수신처 해석·셀러 미발견: sellerId={}", sellerId);
+            return Optional.empty();
         }
         if (seller.getContactPhone() != null && !seller.getContactPhone().isBlank()) {
-            return new SellerSmsRecipient(null, seller.getContactPhone());
+            return Optional.of(new SellerSmsRecipient(null, seller.getContactPhone()));
         }
         List<Long> ownerUserIds = sellerUserRepository.findUserIdsBySellerIdAndRoleCode(sellerId, RoleCode.SELLER_OWNER);
         for (Long ownerUserId : ownerUserIds) {
             User owner = userRepository.findById(ownerUserId).orElse(null);
             if (owner != null && owner.getWithdrawnAt() == null && owner.getPhone() != null && !owner.getPhone().isBlank()) {
-                return new SellerSmsRecipient(owner.getId(), owner.getPhone());
+                return Optional.of(new SellerSmsRecipient(owner.getId(), owner.getPhone()));
             }
         }
-        log.warn("[Notification] SettlementConfirmed 소비·셀러 연락처 없음(contact_phone·OWNER phone) → SMS 건너뜀: settlementId={} sellerId={}",
-                settlementId, sellerId);
-        return null;
+        log.warn("[Notification] 셀러 SMS 수신처 없음(contact_phone·OWNER phone): sellerId={}", sellerId);
+        return Optional.empty();
+    }
+
+    /**
+     * 셀러 지연 독촉 SMS(D-252)를 적재·발송한다. target은 SELLER·sellerId이고 수신 회원 id는 수신처 해석 결과 그대로다. 발송 실패는
+     * 비전파형 {@code dispatch}로 FAILED 기록만 남기고(재throw 없음) 결과 상태를 돌려준다 — 일괄 독촉이 셀러별 결과로 보고한다.
+     *
+     * @return 발송 후 로그 상태(SENT·FAILED)
+     */
+    public NotificationLogStatus sendSellerDelayNudge(Long sellerId, SellerSmsRecipient recipient, String content) {
+        NotificationLog notificationLog = NotificationLog.create(
+                recipient.recipientUserId(), NotificationChannel.SMS, NotificationTemplateCodes.SELLER_DELAY_NUDGE,
+                PolymorphicTargetType.SELLER, sellerId, "처리 지연 안내", content);
+        notificationLogRepository.save(notificationLog);
+        log.info("[Notification] SMS 적재 완료: template={} target_id={} recipient={}",
+                NotificationTemplateCodes.SELLER_DELAY_NUDGE, sellerId, recipient.recipientUserId());
+        dispatch(notificationLog, "SellerDelayNudge", () -> smsSender.send(recipient.phoneNumber(), content));
+        return notificationLog.getStatus();
+    }
+
+    /** 셀러 지연 독촉이 마지막으로 발송된(SENT) 시각 — 쿨다운 판정과 패널 표시에 쓴다(D-252). */
+    public Optional<LocalDateTime> lastSellerDelayNudgeSentAt(Long sellerId) {
+        return notificationLogRepository.findFirstByTargetTypeAndTargetIdAndTemplateCodeAndStatusOrderBySentAtDesc(
+                        PolymorphicTargetType.SELLER, sellerId, NotificationTemplateCodes.SELLER_DELAY_NUDGE, NotificationLogStatus.SENT)
+                .map(NotificationLog::getSentAt);
     }
 
     /**

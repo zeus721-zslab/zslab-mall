@@ -5,15 +5,19 @@ import { INBOX_AUDIENCE_TYPES, INBOX_TAB_LABELS, type InboxItemType, type InboxT
 import { INBOX_TRUNCATED_MESSAGE, type InboxItem, inboxDeadline, inboxEmptyMessage } from '~/lib/inbox-view'
 import { CLAIM_SUGGESTION_LABELS, claimTypeLabel } from '~/lib/constants/claim'
 import {
-  INBOX_BULK_APPROVE_MAX,
+  INBOX_BULK_MAX,
+  type InboxBulkKind,
   adminInboxDeadlineChipClass,
   claimSuggestionChipClass,
-  isBulkApprovable,
+  inboxBulkKind,
+  selectedBulkKind,
+  toggleBulkSelection,
 } from '#layers/admin/app/lib/admin-inbox-view'
 
 /**
  * 관리자 인박스 목록(D-248 · 왼쪽 칸). 탭(오늘·예정) · 유형 필터 칩(건수) · 기한 순 항목. 상태(로딩·오류·빈 목록·잘림)를 여기서 그리고, 데이터와
- * 선택은 페이지가 소유한다(이벤트로만 알린다). 클레임 접수 행은 유형·제안을 보이고, 승인 제안 행만 일괄 승인용으로 체크할 수 있다(D-250 · 최대 20건).
+ * 선택은 페이지가 소유한다(이벤트로만 알린다). 클레임 접수 행은 유형·제안을 보이고, 승인 제안 행은 일괄 승인용(D-250)·셀러 지연 행은 일괄 독촉용(D-252)으로
+ * 체크할 수 있다(각 최대 20건 · 한 번에 한 종류 — 다른 종류를 체크하면 기존 선택이 풀린다).
  */
 const props = defineProps<{
   items: InboxItem[]
@@ -36,12 +40,25 @@ const emit = defineEmits<{
   refresh: []
 }>()
 
-const bulkFull = computed(() => props.bulkSelected.length >= INBOX_BULK_APPROVE_MAX)
+const BULK_FULL_MESSAGES: Record<InboxBulkKind, string> = {
+  CLAIM_APPROVE: `한 번에 최대 ${INBOX_BULK_MAX.CLAIM_APPROVE}건까지 고를 수 있습니다. 승인 후 이어서 고르세요.`,
+  SELLER_NUDGE: `한 번에 최대 ${INBOX_BULK_MAX.SELLER_NUDGE}곳까지 고를 수 있습니다. 독촉 후 이어서 고르세요.`,
+}
+const BULK_CHECK_LABELS: Record<InboxBulkKind, string> = {
+  CLAIM_APPROVE: '일괄 승인 선택',
+  SELLER_NUDGE: '일괄 독촉 선택',
+}
+
+const bulkKind = computed(() => selectedBulkKind(props.items, props.bulkSelected))
+const bulkFull = computed(() => bulkKind.value !== null && props.bulkSelected.length >= INBOX_BULK_MAX[bulkKind.value])
+
+/** 같은 종류가 가득 찼을 때만 막는다 — 다른 종류 행은 체크하면 선택이 그 행으로 바뀐다. */
+function bulkCheckDisabled(item: InboxItem): boolean {
+  return bulkFull.value && inboxBulkKind(item) === bulkKind.value && !props.bulkSelected.includes(item.key)
+}
 
 function toggleBulk(key: string, checked: boolean | null): void {
-  const next = props.bulkSelected.filter((selected) => selected !== key)
-  if (checked) next.push(key)
-  emit('update:bulkSelected', next)
+  emit('update:bulkSelected', toggleBulkSelection(props.items, props.bulkSelected, key, checked === true))
 }
 
 const TABS: InboxTab[] = ['TODAY', 'UPCOMING']
@@ -93,8 +110,8 @@ function onTab(value: unknown): void {
     <v-alert v-if="truncated" type="info" variant="tonal" density="compact" class="ma-4" data-testid="inbox-truncated">
       {{ INBOX_TRUNCATED_MESSAGE }}
     </v-alert>
-    <p v-if="bulkFull" class="text-caption text-medium-emphasis px-4 pt-3 mb-0" data-testid="inbox-bulk-full">
-      한 번에 최대 {{ INBOX_BULK_APPROVE_MAX }}건까지 고를 수 있습니다. 승인 후 이어서 고르세요.
+    <p v-if="bulkFull && bulkKind" class="text-caption text-medium-emphasis px-4 pt-3 mb-0" data-testid="inbox-bulk-full">
+      {{ BULK_FULL_MESSAGES[bulkKind] }}
     </p>
 
     <v-skeleton-loader v-if="showSkeleton" type="list-item-two-line@5" data-testid="inbox-loading" />
@@ -113,13 +130,13 @@ function onTab(value: unknown): void {
         :data-key="item.key"
         @click="emit('select', item.key)"
       >
-        <template v-if="isBulkApprovable(item)" #prepend>
+        <template v-if="inboxBulkKind(item)" #prepend>
           <!-- 체크는 행 선택(상세 열기)과 별개다 — 클릭이 행으로 번지지 않게 막는다 -->
           <v-checkbox-btn
             :model-value="bulkSelected.includes(item.key)"
-            :disabled="bulkFull && !bulkSelected.includes(item.key)"
+            :disabled="bulkCheckDisabled(item)"
             density="compact"
-            :aria-label="`${item.title} 일괄 승인 선택`"
+            :aria-label="`${item.title} ${BULK_CHECK_LABELS[inboxBulkKind(item) ?? 'CLAIM_APPROVE']}`"
             data-testid="inbox-bulk-check"
             @click.stop
             @update:model-value="(checked: boolean | null) => toggleBulk(item.key, checked)"

@@ -133,7 +133,7 @@ export const INBOX_TRUNCATED_MESSAGE = '항목이 많아 일부만 표시합니�
 
 // ---------- 상세 패널 처리 ----------
 
-/** 상세 패널에서 바로 처리하는 동작(P1b-1 · 클레임 접수 승인·거부는 P2 D-250 · 나머지 7유형은 P1c D-251 · 클레임 후속만 원래 화면으로 이동). */
+/** 상세 패널에서 바로 처리하는 동작(P1b-1 · 클레임 접수 승인·거부는 P2 D-250 · 나머지 7유형은 P1c D-251 · 셀러 지연 독촉은 P3 D-252 · 클레임 후속만 원래 화면으로 이동). */
 export type InboxPanelAction =
   | 'INQUIRY_ANSWER'
   | 'SELLER_STATUS'
@@ -145,6 +145,7 @@ export type InboxPanelAction =
   | 'STOCK_INBOUND'
   | 'SHIPMENT'
   | 'QUESTION_ANSWER'
+  | 'SELLER_NUDGE'
 
 const PANEL_ACTIONS: Record<InboxAudience, Partial<Record<InboxItemType, InboxPanelAction>>> = {
   ADMIN: {
@@ -157,6 +158,7 @@ const PANEL_ACTIONS: Record<InboxAudience, Partial<Record<InboxItemType, InboxPa
     // 확정·지급 두 유형이 한 패널을 쓴다 — 버튼은 단건 조회 상태로 정한다(정산 상세와 같은 판정).
     SETTLEMENT_CONFIRM: 'SETTLEMENT_TRANSITION',
     SETTLEMENT_PAYOUT: 'SETTLEMENT_TRANSITION',
+    SELLER_DELAY: 'SELLER_NUDGE',
   },
   SELLER: { DELIVERY_READY: 'SHIPMENT', QUESTION_UNANSWERED: 'QUESTION_ANSWER', LONG_SHIPPING: 'DELIVERY_COMPLETE', LOW_STOCK: 'STOCK_INBOUND' },
 }
