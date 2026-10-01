@@ -20,6 +20,10 @@ const CLAIM_REVIEW = { type: 'CLAIM_REQUESTED', ref: 'clm_E2EV', title: 'E2E 접
 const RECONCILIATION = { type: 'RECONCILIATION_OPEN', ref: '9101', title: 'ITEM_STATE_DRIFT', baseAt: '2026-09-29T08:00:00+09:00', dueAt: '2026-09-30T08:00:00+09:00', overdue: true, targetKey: 'RECONCILIATION' }
 const SETTLEMENT_PAYOUT = { type: 'SETTLEMENT_PAYOUT', ref: '7201', title: 'E2E 정산상사', baseAt: '2026-09-30T00:00:00+09:00', dueAt: '2026-09-30T23:59:59.999+09:00', overdue: true, targetKey: 'SETTLEMENT' }
 
+// P3(D-252) — 셀러 지연 행(ref = sellerPublicId · 부제 = 유형별 초과 건수).
+const SELLER_DELAY_A = { type: 'SELLER_DELAY', ref: 'slr_E2EDA', title: 'E2E 지연상회', subtitle: '발송 대기 2건 · Q&A 미답변 1건', baseAt: '2026-09-28T09:00:00+09:00', dueAt: '2026-09-30T09:00:00+09:00', overdue: true, targetKey: 'SELLER' }
+const SELLER_DELAY_B = { type: 'SELLER_DELAY', ref: 'slr_E2EDB', title: 'E2E 느림상점', subtitle: 'Q&A 미답변 1건', baseAt: '2026-09-28T10:00:00+09:00', dueAt: '2026-09-30T10:00:00+09:00', overdue: true, targetKey: 'SELLER' }
+
 type InboxRow = Omit<typeof INQUIRY_A, 'subtitle'> & { subtitle?: string; claimType?: string; suggestion?: string }
 
 interface InboxMock {
@@ -390,5 +394,56 @@ test.describe('관리자 인박스(FE-101)', () => {
     expect(pays).toEqual(['POST'])
     await expect(page.getByTestId('inbox-item')).toHaveCount(1)
     await expect(page.getByTestId('inbox-detail-title')).toHaveText('E2E 배송이 늦어요')
+  })
+
+  test('⑫ 셀러 지연 일괄 독촉(D-252): 패널 초과 건수 → 클레임 체크 후 셀러 체크하면 선택이 셀러로 바뀜 → 2곳 독촉 확인 → POST 본문 → 결과 토스트·상세', async ({ page }) => {
+    await mockInbox(page, { today: [SELLER_DELAY_A, SELLER_DELAY_B, CLAIM_CANCEL] })
+    const nudgeBodies: unknown[] = []
+    await page.route((url) => url.pathname.endsWith('/api/v1/admin/inbox/seller-delays/slr_E2EDA'), (route) => route.fulfill({
+      json: { sellerPublicId: 'slr_E2EDA', companyName: 'E2E 지연상회', deliveryReadyOverdueCount: 2, questionUnansweredOverdueCount: 1 },
+    }))
+    await page.route((url) => url.pathname.endsWith('/api/v1/admin/inbox/seller-delays/nudge'), (route) => {
+      nudgeBodies.push(route.request().postDataJSON())
+      return route.fulfill({
+        json: {
+          results: [{ sellerPublicId: 'slr_E2EDA', result: 'SENT' }, { sellerPublicId: 'slr_E2EDB', result: 'COOLDOWN' }],
+          sentCount: 1, failedCount: 0, noRecipientCount: 0, cooldownCount: 1, noDelayCount: 0,
+        },
+      })
+    })
+    await loginAs(page, 'ADMIN')
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/admin/inbox')
+    await expect(page.getByTestId('inbox-item')).toHaveCount(3)
+
+    // 첫 행(셀러 지연) 패널: 지금 다시 센 유형별 초과 건수 · 독촉 이력 없음
+    await expect(page.getByTestId('inbox-seller-delay-delivery')).toHaveText('2건')
+    await expect(page.getByTestId('inbox-seller-delay-question')).toHaveText('1건')
+    await expect(page.getByTestId('inbox-seller-delay-last-nudged')).toHaveText('없음')
+
+    // 한 번에 한 종류: 클레임을 고른 뒤 셀러를 고르면 클레임 선택이 풀린다
+    await page.locator('[data-testid="inbox-item"][data-key="CLAIM_REQUESTED:clm_E2EC"]').getByTestId('inbox-bulk-check').click()
+    await expect(page.getByTestId('inbox-bulk-count')).toHaveText('1건 선택 (최대 20건)')
+    await page.locator('[data-testid="inbox-item"][data-key="SELLER_DELAY:slr_E2EDA"]').getByTestId('inbox-bulk-check').click()
+    await expect(page.getByTestId('inbox-bulk-bar')).toHaveCount(0)
+    await page.locator('[data-testid="inbox-item"][data-key="SELLER_DELAY:slr_E2EDB"]').getByTestId('inbox-bulk-check').click()
+    await expect(page.getByTestId('inbox-nudge-count')).toHaveText('셀러 2곳 선택 (최대 20곳)')
+
+    await page.getByTestId('inbox-nudge-send').click()
+    const dialog = page.getByTestId('inbox-nudge-confirm-dialog')
+    await expect(dialog).toContainText('선택한 셀러 2곳에 처리 지연 독촉 SMS를 보냅니다.')
+    await dialog.getByTestId('inbox-nudge-confirm-dialog-ok').click()
+
+    const warningToast = page.locator('[data-sonner-toast][data-type="warning"]')
+    await expect(warningToast).toContainText('셀러 독촉 — 발송 1 / 24시간 내 독촉함 1')
+    expect(nudgeBodies).toEqual([{ sellerPublicIds: ['slr_E2EDA', 'slr_E2EDB'] }])
+    await expect(page.getByTestId('inbox-nudge-bar')).toHaveCount(0)
+
+    await warningToast.getByRole('button', { name: '상세 보기' }).click()
+    const items = page.getByTestId('admin-seller-nudge-result-dialog').getByTestId('seller-nudge-result-item')
+    await expect(items.nth(0)).toContainText('E2E 지연상회')
+    await expect(items.nth(0)).toContainText('발송')
+    await expect(items.nth(1)).toContainText('E2E 느림상점')
+    await expect(items.nth(1)).toContainText('24시간 내 독촉함')
   })
 })

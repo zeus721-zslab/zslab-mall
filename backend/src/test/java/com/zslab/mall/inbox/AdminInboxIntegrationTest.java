@@ -266,7 +266,7 @@ class AdminInboxIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("T8 type 필터: 셀러 유형 400 · 관리자 유형은 그 유형 항목만 + 건수는 관리자 9유형 전부")
+    @DisplayName("T8 type 필터: 셀러 유형 400 · 관리자 유형은 그 유형 항목만 + 건수는 관리자 10유형 전부(셀러 지연 D-252 포함)")
     void typeFilter() throws Exception {
         mockMvc.perform(get(URL).param("type", "DELIVERY_READY").with(authHeaders.admin(ADMIN_A)))
                 .andExpect(status().isBadRequest())
@@ -279,7 +279,7 @@ class AdminInboxIntegrationTest extends AbstractIntegrationTest {
         List<String> countTypes = new ArrayList<>();
         filtered.get("counts").forEach(count -> countTypes.add(count.get("type").asString()));
         assertThat(countTypes).containsExactly("CLAIM_REQUESTED", "CLAIM_FOLLOWUP", "LONG_SHIPPING", "INQUIRY_UNANSWERED",
-                "SELLER_REVIEW", "PRODUCT_APPROVAL", "SETTLEMENT_CONFIRM", "SETTLEMENT_PAYOUT", "RECONCILIATION_OPEN");
+                "SELLER_REVIEW", "PRODUCT_APPROVAL", "SETTLEMENT_CONFIRM", "SETTLEMENT_PAYOUT", "RECONCILIATION_OPEN", "SELLER_DELAY");
     }
 
     @Test

@@ -34,9 +34,10 @@ function response(overrides: Partial<InboxItemResponse> = {}): InboxItemResponse
 }
 
 describe('상수(4층위 (4))', () => {
-  it('유형 12종 · 역할별 목록(관리자 9 · 셀러 4 · 장기 배송중 공용) · 라벨·가드', () => {
-    expect(INBOX_ITEM_TYPES).toHaveLength(12)
-    expect(INBOX_AUDIENCE_TYPES.ADMIN).toHaveLength(9)
+  it('유형 13종 · 역할별 목록(관리자 10 · 셀러 4 · 장기 배송중 공용 · 셀러 지연은 관리자 전용 D-252) · 라벨·가드', () => {
+    expect(INBOX_ITEM_TYPES).toHaveLength(13)
+    expect(INBOX_AUDIENCE_TYPES.ADMIN).toHaveLength(10)
+    expect(INBOX_AUDIENCE_TYPES.ADMIN.at(-1)).toBe('SELLER_DELAY')
     expect(INBOX_AUDIENCE_TYPES.SELLER).toEqual(['LONG_SHIPPING', 'DELIVERY_READY', 'QUESTION_UNANSWERED', 'LOW_STOCK'])
     expect(INBOX_AUDIENCE_TYPES.ADMIN).toContain('LONG_SHIPPING')
     expect(inboxItemTypeLabel('CLAIM_FOLLOWUP')).toBe('클레임 후속')
@@ -44,6 +45,8 @@ describe('상수(4층위 (4))', () => {
     expect(isInboxItemType('LOW_STOCK')).toBe(true)
     expect(isInboxItemType('LOW')).toBe(false)
     expect(isInboxTypeOf('ADMIN', 'DELIVERY_READY')).toBe(false)
+    expect(isInboxTypeOf('SELLER', 'SELLER_DELAY')).toBe(false)
+    expect(inboxItemTypeLabel('SELLER_DELAY')).toBe('셀러 지연')
     expect(isInboxTypeOf('SELLER', 'DELIVERY_READY')).toBe(true)
     expect(isInboxTab('UPCOMING')).toBe(true)
     expect(isInboxTab('TOMORROW')).toBe(false)
@@ -135,7 +138,8 @@ describe('목록', () => {
     expect(inboxEmptyMessage('TODAY', 'LOW_STOCK')).toBe('재고 임박 — 오늘 처리할 일이 없습니다.')
   })
 
-  it('패널 처리 가능 유형: 관리자 문의·셀러 심사·클레임 접수(D-250) · 셀러 발송 대기·Q&A · 7유형(D-251) · 클레임 후속만 이동', () => {
+  it('패널 처리 가능 유형: 관리자 문의·셀러 심사·클레임 접수(D-250) · 셀러 발송 대기·Q&A · 7유형(D-251) · 셀러 지연 독촉(D-252) · 클레임 후속만 이동', () => {
+    expect(inboxPanelAction('ADMIN', 'SELLER_DELAY')).toBe('SELLER_NUDGE')
     expect(inboxPanelAction('ADMIN', 'INQUIRY_UNANSWERED')).toBe('INQUIRY_ANSWER')
     expect(inboxPanelAction('ADMIN', 'SELLER_REVIEW')).toBe('SELLER_STATUS')
     expect(inboxPanelAction('ADMIN', 'CLAIM_REQUESTED')).toBe('CLAIM_DECISION')
@@ -175,6 +179,7 @@ describe('원래 화면 경로', () => {
     expect(inboxTargetRoute('ADMIN', item({ type: 'CLAIM_REQUESTED', ref: 'clm_B', subtitle: 'ORD2', targetKey: 'CLAIM' })))
       .toEqual({ path: '/admin/orders/claims', query: { status: 'REQUESTED', keyword: 'ORD2' } })
     expect(inboxTargetRoute('ADMIN', item({ type: 'SELLER_REVIEW', ref: 'slr_1', targetKey: 'SELLER' })).path).toBe('/admin/members/sellers/slr_1')
+    expect(inboxTargetRoute('ADMIN', item({ type: 'SELLER_DELAY', ref: 'slr_2', targetKey: 'SELLER' }))).toEqual({ path: '/admin/members/sellers/slr_2', query: {} })
     expect(inboxTargetRoute('ADMIN', item({ type: 'SETTLEMENT_PAYOUT', ref: '12', targetKey: 'SETTLEMENT' })).path).toBe('/admin/settlements/12')
     expect(inboxTargetRoute('ADMIN', item({ type: 'RECONCILIATION_OPEN', ref: '7', title: 'ITEM_STATE_DRIFT', targetKey: 'RECONCILIATION' })))
       .toEqual({ path: '/admin/orders/reconciliation', query: { status: 'OPEN', type: 'ITEM_STATE_DRIFT' } })
