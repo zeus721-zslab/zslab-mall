@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect, type Page } from './fixtures'
 import { loginAs } from './helpers/login'
 import { SUSPENDED_PROBLEM, mockSellerMe, pagedResponse, pickOption } from './helpers/seller-mock'
 

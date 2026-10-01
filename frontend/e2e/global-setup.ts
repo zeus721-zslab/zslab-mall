@@ -1,5 +1,6 @@
 import { chromium, type BrowserContext, type FullConfig, type Page, type Request } from '@playwright/test'
 import { gotoClientSide } from './helpers/navigation'
+import { installFakeEventSource } from './helpers/fake-event-source'
 
 /**
  * e2e 전량 실행 전 dev 서버 워밍업(FE-91). dev 서버는 재시작하면 Vite 클라이언트 모듈 변환 결과(메모리)를 잃고 첫 요청 때 다시 변환하는데,
@@ -211,6 +212,8 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
   try {
     const context = await browser.newContext({ baseURL: baseUrl })
     const page = await context.newPage()
+    // 관리자·셀러 레이아웃의 상시 SSE 연결이 networkidle 대기를 막지 않도록 spec 픽스처(e2e/fixtures.ts)와 같은 가짜를 주입한다(FE-103).
+    await installFakeEventSource(page)
     const inflightRequests = trackInflightRequests(page)
     await visitAll(page, inflightRequests, 'BUYER', BUYER_PUBLIC_PATHS)
     await visitFirstProductDetail(page)

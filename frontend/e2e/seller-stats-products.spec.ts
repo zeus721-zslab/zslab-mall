@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect } from './fixtures'
 
 /**
  * 셀러 상품 통계(Track 90-E-3·D-200) E2E. 데모 셀러(env NUXT_SELLER_DEMO_*·seller02·실 API)로 /seller/stats/products를 열어 품절 카드·상위/하위·미판매·

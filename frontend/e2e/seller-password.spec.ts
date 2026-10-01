@@ -1,4 +1,4 @@
-import { test, expect, type APIRequestContext, type Page } from '@playwright/test'
+import { test, expect, type APIRequestContext, type Page } from './fixtures'
 
 /**
  * 셀러 비밀번호 변경(Track 90-D-2·FE-50) E2E — 실 BE(PATCH /api/v1/seller/me/password·셀러 쿠키). 비밀번호를 실제로 바꾸므로 **전용 계정** env

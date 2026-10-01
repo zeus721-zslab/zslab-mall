@@ -18,6 +18,7 @@ import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.enums.OrderStatus;
 import com.zslab.mall.order.event.OrderPlaced;
 import com.zslab.mall.order.repository.OrderRepository;
+import com.zslab.mall.inbox.stream.InboxSignalPublisher;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import java.time.LocalDateTime;
@@ -46,6 +47,9 @@ class OrderServiceTest {
 
     @Mock
     private EntityManager entityManager;
+
+    @Mock
+    private InboxSignalPublisher inboxSignalPublisher;
 
     @InjectMocks
     private OrderService orderService;

@@ -18,6 +18,7 @@ import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.order.service.OrderService;
+import com.zslab.mall.inbox.stream.InboxSignalPublisher;
 import java.time.LocalDateTime;
 import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
@@ -45,6 +46,8 @@ class ClaimRejectedHandlerTest {
     private OrderItemRepository orderItemRepository;
     @Mock
     private OrderService orderService;
+    @Mock
+    private InboxSignalPublisher inboxSignalPublisher;
     @InjectMocks
     private ClaimRejectedHandler handler;
 

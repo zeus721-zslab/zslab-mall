@@ -27,6 +27,7 @@ import com.zslab.mall.settlement.exception.SettlementNotFoundException;
 import com.zslab.mall.settlement.exception.SettlementPeriodInvalidException;
 import com.zslab.mall.settlement.repository.SettlementItemRepository;
 import com.zslab.mall.settlement.repository.SettlementRepository;
+import com.zslab.mall.inbox.stream.InboxSignalPublisher;
 import jakarta.persistence.Query;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -77,6 +78,8 @@ class SettlementCreationServiceTest extends Batch1DataJpaTestBase {
     private RefundRepository refundRepository;
     @MockitoBean
     private AuditRecorder auditRecorder;
+    @MockitoBean
+    private InboxSignalPublisher inboxSignalPublisher;
 
     private int seq = 0;
 

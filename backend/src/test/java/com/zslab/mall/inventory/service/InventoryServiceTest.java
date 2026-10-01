@@ -17,6 +17,7 @@ import com.zslab.mall.inventory.repository.InventoryHistoryRepository;
 import com.zslab.mall.inventory.repository.InventoryRepository;
 import com.zslab.mall.product.repository.ProductRepository;
 import com.zslab.mall.product.repository.ProductVariantRepository;
+import com.zslab.mall.inbox.stream.InboxSignalPublisher;
 import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -55,6 +56,8 @@ class InventoryServiceTest {
     // Track 101-A: 재고 증감 감사 적재(recordAdjustAudit) 의존. 검증 대상이 아닌 케이스에서도 생성자 주입을 채운다.
     @Mock
     private AuditRecorder auditRecorder;
+    @Mock
+    private InboxSignalPublisher inboxSignalPublisher;
     @InjectMocks
     private InventoryService inventoryService;
 

@@ -1,5 +1,6 @@
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect, type Page } from './fixtures'
 import { loginAs } from './helpers/login'
+import { emitInboxSignal, openStreamUrls } from './helpers/fake-event-source'
 
 /**
  * 관리자 운영 인박스(D-248 · FE-101) E2E. 로그인은 loginAs(ADMIN · 실 BE), 인박스 조회·보류·문의 답변은 page.route mock(상태를 가진 목 —
@@ -185,5 +186,26 @@ test.describe('관리자 인박스(FE-101)', () => {
     await expect(drawer).not.toHaveClass(/v-navigation-drawer--active/)
     await page.waitForURL((url) => url.pathname === '/admin/inbox' && !url.searchParams.has('selected'))
     await expect(page.getByTestId('inbox-item')).toHaveCount(3)
+  })
+
+  test('⑦ 변경 신호(FE-103): 탭당 연결 1개(사이드바·인박스 공유) · 신호 → 인박스 목록과 메뉴 배지 재조회', async ({ page }) => {
+    const mock = await mockInbox(page)
+    await loginAs(page, 'ADMIN')
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/admin/inbox')
+    await expect(page.getByTestId('inbox-item')).toHaveCount(3)
+    await expect(page.getByTestId('admin-menu-badge-inbox')).toContainText('3')
+    await expect.poll(() => openStreamUrls(page)).toEqual(['/api/v1/admin/inbox/stream'])
+    await page.waitForLoadState('networkidle') // 마운트 때 배지·목록 첫 조회가 끝난 뒤를 기준으로 센다
+
+    const before = mock.queries.length
+    // 선택되지 않은 항목을 뺀다(선택이 바뀌면 URL 변경으로 목록 조회가 따로 한 번 더 난다)
+    mock.today = mock.today.filter((row) => row.ref !== INQUIRY_B.ref)
+    await emitInboxSignal(page)
+
+    // 인박스 목록 1 + 메뉴 배지 1
+    await expect.poll(() => mock.queries.length).toBe(before + 2)
+    await expect(page.getByTestId('inbox-item')).toHaveCount(2)
+    await expect(page.getByTestId('admin-menu-badge-inbox')).toContainText('2')
   })
 })
