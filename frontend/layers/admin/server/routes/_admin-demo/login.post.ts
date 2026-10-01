@@ -9,7 +9,7 @@ const RATE_LIMIT_ROUTE_KEY = 'admin-demo-login'
 /**
  * 관리자 데모 로그인 대행(FE-23). 비공개 runtimeConfig(NUXT_ADMIN_DEMO_EMAIL/PASSWORD)로 BE 관리자 로그인을
  * 서버에서 수행하고 BE Set-Cookie(관리자 쿠키·XSRF-TOKEN)를 브라우저 응답으로 그대로 전달한다(D-235 F9). 본문은 없다(204 · token 미전달).
- * 미설정 404 · BE 실패 401(일반 문구). 로그인 CSRF는 브라우저의 XSRF-TOKEN 쿠키·헤더를 BE로 전달해 BE가 검증한다(D-235 PR3 K7). 권한 제한 없음(실제 관리자 계정 그대로)은 zslab 결정(포트폴리오 목적·decisions-fe.md FE-23).
+ * 미설정 404 · BE 실패 401(일반 문구). 로그인 CSRF는 브라우저의 XSRF-TOKEN 쿠키·헤더를 BE로 전달해 BE가 검증한다(D-235 PR3 K7). 실제 관리자 계정 그대로(FE-23)이되, 데모 표식(publicDemo)을 실어 계정·권한 변경과 시더만 BE가 막는다(최종 점검 K1 · 업무 처리는 허용).
  * 인증 없이 실제 관리자 쿠키를 발급하는 경로라 rate limit(60초 30회·현 구성에서 키가 gateway 컨테이너 IP라 라우트별 전역 버킷·FE-43b) 초과 시 429 + Retry-After(본문에 사유·자격증명 힌트 없음).
  */
 export default defineEventHandler(async (event): Promise<void> => {

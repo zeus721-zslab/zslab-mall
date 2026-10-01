@@ -8,6 +8,7 @@ import com.zslab.mall.auth.exception.SuperAdminRequiredException;
 import com.zslab.mall.category.entity.Category;
 import com.zslab.mall.category.repository.CategoryRepository;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
+import com.zslab.mall.common.security.PublicDemoSessionGuard;
 import com.zslab.mall.demoseed.controller.response.DemoSeedProductQuestionResponse;
 import com.zslab.mall.demoseed.controller.response.DemoSeedProductQuestionResponse.ExcludedSeller;
 import com.zslab.mall.demoseed.controller.response.DemoSeedProductQuestionResponse.FailedProduct;
@@ -60,10 +61,11 @@ public class DemoProductQuestionSeedService {
     private final DemoSeedRepository demoSeedRepository;
     private final DemoProductQuestionWriter writer;
     private final AuditRecorder auditRecorder;
+    private final PublicDemoSessionGuard publicDemoSessionGuard;
 
     public DemoProductQuestionSeedService(DemoSeedAuthorization authorization, SellerRepository sellerRepository,
             SellerUserRepository sellerUserRepository, CategoryRepository categoryRepository, DemoSeedRepository demoSeedRepository,
-            DemoProductQuestionWriter writer, AuditRecorder auditRecorder) {
+            DemoProductQuestionWriter writer, AuditRecorder auditRecorder, PublicDemoSessionGuard publicDemoSessionGuard) {
         this.authorization = authorization;
         this.sellerRepository = sellerRepository;
         this.sellerUserRepository = sellerUserRepository;
@@ -71,6 +73,7 @@ public class DemoProductQuestionSeedService {
         this.demoSeedRepository = demoSeedRepository;
         this.writer = writer;
         this.auditRecorder = auditRecorder;
+        this.publicDemoSessionGuard = publicDemoSessionGuard;
     }
 
     /** 대상 셀러와 그 소유 구성원(답변자). */
@@ -79,8 +82,10 @@ public class DemoProductQuestionSeedService {
 
     /**
      * @throws SuperAdminRequiredException 호출자가 SUPER_ADMIN이 아닐 때(403 · dryRun 포함)
+     * @throws com.zslab.mall.common.exception.PublicDemoSessionRestrictedException 공개 관리자 데모 세션(403 · dryRun 포함)
      */
     public DemoSeedProductQuestionResponse seed(Long callerUserId, boolean dryRun, AuditContext auditContext) {
+        publicDemoSessionGuard.requireNotPublicDemoSession();
         authorization.requireSuperAdmin(callerUserId);
         List<ExcludedSeller> excluded = new ArrayList<>();
         Map<Long, TargetSeller> targets = selectSellers(excluded);

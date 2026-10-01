@@ -8,6 +8,7 @@ import com.zslab.mall.auth.enums.RoleCode;
 import com.zslab.mall.auth.repository.RoleRepository;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
 import com.zslab.mall.common.security.DemoAccountGuard;
+import com.zslab.mall.common.security.PublicDemoSessionGuard;
 import com.zslab.mall.seller.controller.request.AdminSellerMemberAddRequest;
 import com.zslab.mall.seller.controller.response.AdminSellerDetailResponse;
 import com.zslab.mall.seller.controller.response.AdminSellerMemberAddResponse;
@@ -61,6 +62,7 @@ public class AdminSellerMemberCommandService {
     private final AdminMemberProvisioningService adminMemberProvisioningService;
     private final AuditRecorder auditRecorder;
     private final DemoAccountGuard demoAccountGuard;
+    private final PublicDemoSessionGuard publicDemoSessionGuard;
 
     public AdminSellerMemberCommandService(
             SellerRepository sellerRepository,
@@ -69,7 +71,8 @@ public class AdminSellerMemberCommandService {
             RoleRepository roleRepository,
             AdminMemberProvisioningService adminMemberProvisioningService,
             AuditRecorder auditRecorder,
-            DemoAccountGuard demoAccountGuard) {
+            DemoAccountGuard demoAccountGuard,
+            PublicDemoSessionGuard publicDemoSessionGuard) {
         this.sellerRepository = sellerRepository;
         this.sellerUserRepository = sellerUserRepository;
         this.userRepository = userRepository;
@@ -77,6 +80,7 @@ public class AdminSellerMemberCommandService {
         this.adminMemberProvisioningService = adminMemberProvisioningService;
         this.auditRecorder = auditRecorder;
         this.demoAccountGuard = demoAccountGuard;
+        this.publicDemoSessionGuard = publicDemoSessionGuard;
     }
 
     /**
@@ -90,9 +94,11 @@ public class AdminSellerMemberCommandService {
      * @throws com.zslab.mall.user.exception.EmailAlreadyExistsException 신규 이메일 중복(409)
      * @throws com.zslab.mall.user.exception.TemporaryPasswordDeliveryFailedException 신규 SMS 발송 실패(502·전체 롤백)
      * @throws com.zslab.mall.common.exception.DemoAccountProtectedException 대상 회원 또는 신규 이메일이 데모 계정(403·D-247)
+     * @throws com.zslab.mall.common.exception.PublicDemoSessionRestrictedException 공개 관리자 데모 세션(403)
      */
     public AdminSellerMemberAddResponse add(String sellerPublicId, AdminSellerMemberAddRequest request,
             AuditContext auditContext) {
+        publicDemoSessionGuard.requireNotPublicDemoSession();
         Seller seller = requireSellerForUpdate(sellerPublicId);
         Role role = requireRole(RoleCode.valueOf(request.role()));
         boolean newUserCreated = request.newUser() != null;
@@ -132,8 +138,10 @@ public class AdminSellerMemberCommandService {
      * @throws SellerMemberNotFoundException 이 셀러의 구성원이 아님(404·회원 미존재·타 셀러 소속 모두 같은 코드로 은닉)
      * @throws SellerLastOwnerException 마지막 활성 OWNER(409)
      * @throws com.zslab.mall.common.exception.DemoAccountProtectedException 데모 계정(403)
+     * @throws com.zslab.mall.common.exception.PublicDemoSessionRestrictedException 공개 관리자 데모 세션(403)
      */
     public void remove(String sellerPublicId, String userPublicId, String reason, AuditContext auditContext) {
+        publicDemoSessionGuard.requireNotPublicDemoSession();
         Seller seller = requireSellerForUpdate(sellerPublicId);
         User user = requireMemberUser(userPublicId);
         SellerUser sellerUser = requireMember(seller, user);
@@ -162,9 +170,11 @@ public class AdminSellerMemberCommandService {
      * @throws SellerMemberNotFoundException 이 셀러의 구성원이 아님(404·회원 미존재·타 셀러 소속 모두 같은 코드로 은닉)
      * @throws SellerMemberInvalidStateException 이미 같은 역할(422)
      * @throws SellerLastOwnerException 마지막 활성 OWNER 강등(409)
+     * @throws com.zslab.mall.common.exception.PublicDemoSessionRestrictedException 공개 관리자 데모 세션(403)
      */
     public void changeRole(String sellerPublicId, String userPublicId, RoleCode target, String reason,
             AuditContext auditContext) {
+        publicDemoSessionGuard.requireNotPublicDemoSession();
         Seller seller = requireSellerForUpdate(sellerPublicId);
         User user = requireMemberUser(userPublicId);
         SellerUser sellerUser = requireMember(seller, user);

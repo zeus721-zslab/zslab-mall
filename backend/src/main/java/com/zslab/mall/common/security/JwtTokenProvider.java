@@ -22,6 +22,7 @@ import org.springframework.stereotype.Component;
 public class JwtTokenProvider implements TokenProvider {
 
     private static final String ROLE_CLAIM = "role";
+    private static final String PUBLIC_DEMO_CLAIM = "publicDemo";
     private static final int MIN_SECRET_BYTES = 32; // HS256 최소 256bit
 
     private final SecretKey secretKey;
@@ -41,11 +42,12 @@ public class JwtTokenProvider implements TokenProvider {
     }
 
     @Override
-    public String issue(Long actorId, ActorRole role) {
+    public String issue(Long actorId, ActorRole role, boolean publicDemo) {
         long now = System.currentTimeMillis();
         return Jwts.builder()
                 .subject(String.valueOf(actorId))
                 .claim(ROLE_CLAIM, role.name())
+                .claim(PUBLIC_DEMO_CLAIM, publicDemo ? Boolean.TRUE : null) // null이면 클레임 생략(표식 없는 토큰 형태 무변경)
                 .issuedAt(new Date(now))
                 .expiration(new Date(now + expirationMs))
                 .signWith(secretKey, Jwts.SIG.HS256)
@@ -70,7 +72,8 @@ public class JwtTokenProvider implements TokenProvider {
             if (issuedAt == null) {
                 throw new BadCredentialsException("iat 클레임 누락");
             }
-            return new TokenPayload(actorId, ActorRole.valueOf(roleName), issuedAt.toInstant());
+            boolean publicDemo = Boolean.TRUE.equals(claims.get(PUBLIC_DEMO_CLAIM, Boolean.class));
+            return new TokenPayload(actorId, ActorRole.valueOf(roleName), issuedAt.toInstant(), publicDemo);
         } catch (JwtException | IllegalArgumentException ex) {
             throw new BadCredentialsException("유효하지 않은 인증 토큰", ex);
         }

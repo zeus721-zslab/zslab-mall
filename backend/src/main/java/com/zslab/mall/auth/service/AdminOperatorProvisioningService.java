@@ -14,6 +14,7 @@ import com.zslab.mall.auth.repository.RoleRepository;
 import com.zslab.mall.auth.repository.UserRoleRepository;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
 import com.zslab.mall.common.security.DemoAccountGuard;
+import com.zslab.mall.common.security.PublicDemoSessionGuard;
 import com.zslab.mall.user.entity.User;
 import com.zslab.mall.user.exception.UserNotFoundException;
 import com.zslab.mall.user.repository.UserRepository;
@@ -47,18 +48,21 @@ public class AdminOperatorProvisioningService {
     private final UserRoleRepository userRoleRepository;
     private final DemoAccountGuard demoAccountGuard;
     private final AuditRecorder auditRecorder;
+    private final PublicDemoSessionGuard publicDemoSessionGuard;
 
     public AdminOperatorProvisioningService(
             UserRepository userRepository,
             RoleRepository roleRepository,
             UserRoleRepository userRoleRepository,
             DemoAccountGuard demoAccountGuard,
-            AuditRecorder auditRecorder) {
+            AuditRecorder auditRecorder,
+            PublicDemoSessionGuard publicDemoSessionGuard) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.userRoleRepository = userRoleRepository;
         this.demoAccountGuard = demoAccountGuard;
         this.auditRecorder = auditRecorder;
+        this.publicDemoSessionGuard = publicDemoSessionGuard;
     }
 
     /**
@@ -72,9 +76,11 @@ public class AdminOperatorProvisioningService {
      * @throws com.zslab.mall.common.exception.DemoAccountProtectedException 대상이 데모 보호 계정인 경우(403·D-246)
      * @throws IllegalStateException ADMIN_OPERATOR Role seed가 없는 경우(내부 오류·500)
      * @throws AdminOperatorAlreadyExistsException 대상이 이미 ADMIN_OPERATOR 역할을 보유한 경우(409·uk_user_role 위반)
+     * @throws com.zslab.mall.common.exception.PublicDemoSessionRestrictedException 공개 관리자 데모 세션(403)
      */
     public AdminOperatorProvisioningResponse provision(
             Long callerUserId, AdminOperatorProvisioningRequest request, AuditContext auditContext) {
+        publicDemoSessionGuard.requireNotPublicDemoSession();
         if (!userRoleRepository.existsByUserIdAndRole_Code(callerUserId, RoleCode.SUPER_ADMIN)) {
             log.warn("[AdminOperatorProvisioning] SUPER_ADMIN 아님 차단(403) callerUserId={}", callerUserId);
             throw new SuperAdminRequiredException("SUPER_ADMIN만 운영 관리자를 공급할 수 있습니다.");

@@ -11,8 +11,10 @@ import com.zslab.mall.auth.exception.SuperAdminRequiredException;
 import com.zslab.mall.auth.repository.UserRoleRepository;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
 import com.zslab.mall.common.security.DemoAccountGuard;
+import com.zslab.mall.common.security.PublicDemoSessionGuard;
 import com.zslab.mall.user.entity.User;
 import com.zslab.mall.user.repository.UserRepository;
+import java.time.LocalDateTime;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -53,18 +55,21 @@ public class RoleRevocationService {
     private final LastSuperAdminGuard lastSuperAdminGuard;
     private final DemoAccountGuard demoAccountGuard;
     private final AuditRecorder auditRecorder;
+    private final PublicDemoSessionGuard publicDemoSessionGuard;
 
     public RoleRevocationService(
             UserRepository userRepository,
             UserRoleRepository userRoleRepository,
             LastSuperAdminGuard lastSuperAdminGuard,
             DemoAccountGuard demoAccountGuard,
-            AuditRecorder auditRecorder) {
+            AuditRecorder auditRecorder,
+            PublicDemoSessionGuard publicDemoSessionGuard) {
         this.userRepository = userRepository;
         this.userRoleRepository = userRoleRepository;
         this.lastSuperAdminGuard = lastSuperAdminGuard;
         this.demoAccountGuard = demoAccountGuard;
         this.auditRecorder = auditRecorder;
+        this.publicDemoSessionGuard = publicDemoSessionGuard;
     }
 
     /**
@@ -80,9 +85,11 @@ public class RoleRevocationService {
      * @throws LastSuperAdminRevocationException  마지막 SUPER_ADMIN 역할을 회수하려는 경우(409)
      * @throws com.zslab.mall.common.exception.DemoAccountProtectedException 데모 계정(403)
      * @throws RoleAssignmentNotFoundException   대상 미존재·역할 미보유·경합 선삭제로 삭제 행이 없는 경우(404)
+     * @throws com.zslab.mall.common.exception.PublicDemoSessionRestrictedException 공개 관리자 데모 세션(403)
      */
     public void revoke(Long callerUserId, String targetUserPublicId, RoleCode roleCode, String reason,
             AuditContext auditContext) {
+        publicDemoSessionGuard.requireNotPublicDemoSession();
         if (!userRoleRepository.existsByUserIdAndRole_Code(callerUserId, RoleCode.SUPER_ADMIN)) {
             log.warn("[RoleRevocation] SUPER_ADMIN 아님 차단(403) callerUserId={}", callerUserId);
             throw new SuperAdminRequiredException("SUPER_ADMIN만 권한을 회수할 수 있습니다.");
@@ -108,6 +115,9 @@ public class RoleRevocationService {
             throw new RoleAssignmentNotFoundException(
                     "회수 대상 역할 매핑을 찾을 수 없습니다: userPublicId=" + targetUserPublicId + " roleCode=" + roleCode);
         }
+        // 필터는 토큰의 역할 클레임을 믿으므로 회수 전에 발급된 토큰을 끊는다(최종 점검 K2). 역할 무관하게 대상의 모든 세션이 로그아웃된다.
+        target.markCredentialsChanged(LocalDateTime.now());
+        userRepository.save(target);
 
         auditRecorder.record(auditContext, AuditLogAction.DELETE, PolymorphicTargetType.USER, targetUserId,
                 Map.of("role", roleCode.name()), Map.of("reason", reason));

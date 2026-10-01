@@ -76,7 +76,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private static void setAuthentication(TokenPayload payload) {
         JwtAuthenticationToken authenticated =
-                JwtAuthenticationToken.authenticated(payload.actorId(), payload.role());
+                JwtAuthenticationToken.authenticated(payload.actorId(), payload.role(), payload.publicDemo());
         SecurityContext context = SecurityContextHolder.createEmptyContext();
         context.setAuthentication(authenticated);
         SecurityContextHolder.setContext(context);
