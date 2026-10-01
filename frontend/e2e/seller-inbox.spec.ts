@@ -129,4 +129,32 @@ test.describe('셀러 인박스(FE-101)', () => {
     await drawer.getByTestId('inbox-detail-action').click()
     await expect(page.getByTestId('seller-question-answer-dialog')).toContainText('E2E 사이즈 문의')
   })
+
+  test('⑤ 모바일 드로어 닫기(FE-102): "← 목록" 버튼 · 뒤로가기 — 닫히고 인박스 목록 유지', async ({ page }) => {
+    await mockInbox(page)
+    await loginAs(page, 'SELLER')
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto('/seller/inbox')
+    await expect(page.getByTestId('inbox-item')).toHaveCount(3)
+    const drawer = page.getByTestId('inbox-detail-drawer')
+    const item = page.locator('[data-testid="inbox-item"][data-key="LOW_STOCK:var_E2EL"]')
+
+    // ① "← 목록" 버튼으로 닫힘 → selected 제거 · 목록 그대로 · 머리줄 유형명·손잡이
+    await item.click()
+    await expect(drawer).toHaveClass(/v-navigation-drawer--active/)
+    await expect(drawer.getByTestId('inbox-drawer-header')).toContainText('재고 임박')
+    await expect(drawer.getByTestId('inbox-drawer-handle')).toHaveCount(1)
+    await page.getByRole('button', { name: '목록으로 돌아가기' }).click()
+    await expect(drawer).not.toHaveClass(/v-navigation-drawer--active/)
+    await page.waitForURL((url) => url.pathname === '/seller/inbox' && !url.searchParams.has('selected'))
+    await expect(page.getByTestId('inbox-item')).toHaveCount(3)
+
+    // ② 다시 열고 브라우저 뒤로가기 → 드로어만 닫히고 인박스에 머문다
+    await item.click()
+    await expect(drawer).toHaveClass(/v-navigation-drawer--active/)
+    await page.goBack()
+    await expect(drawer).not.toHaveClass(/v-navigation-drawer--active/)
+    await page.waitForURL((url) => url.pathname === '/seller/inbox' && !url.searchParams.has('selected'))
+    await expect(page.getByTestId('inbox-item')).toHaveCount(3)
+  })
 })

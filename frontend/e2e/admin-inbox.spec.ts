@@ -155,5 +155,35 @@ test.describe('관리자 인박스(FE-101)', () => {
     // 선택은 URL query라 라우트가 바뀌어도 드로어가 스스로 닫히지 않는다(disable-route-watcher)
     await expect(page).toHaveURL(/selected=/)
     await expect(drawer.getByTestId('inbox-detail-open-origin')).toBeVisible()
+    // FE-102: 머리줄 가운데 유형명 · 스와이프 단서 손잡이
+    await expect(drawer.getByTestId('inbox-drawer-header')).toContainText('클레임 후속')
+    await expect(drawer.getByTestId('inbox-drawer-handle')).toHaveCount(1)
+  })
+
+  test('⑥ 모바일 드로어 닫기(FE-102): "← 목록" 버튼 · 뒤로가기 — 닫히고 인박스 목록 유지', async ({ page }) => {
+    await mockInbox(page)
+    await loginAs(page, 'ADMIN')
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto('/admin/inbox')
+    await expect(page.getByTestId('inbox-item')).toHaveCount(3)
+    const drawer = page.getByTestId('inbox-detail-drawer')
+    const item = page.locator('[data-testid="inbox-item"][data-key="INQUIRY_UNANSWERED:inq_E2EB"]')
+
+    // ① "← 목록" 버튼으로 닫힘 → selected 제거 · 목록 그대로
+    await item.click()
+    await expect(drawer).toHaveClass(/v-navigation-drawer--active/)
+    await expect(page.getByRole('button', { name: '목록으로 돌아가기' })).toBeVisible()
+    await page.getByTestId('inbox-drawer-back').click()
+    await expect(drawer).not.toHaveClass(/v-navigation-drawer--active/)
+    await page.waitForURL((url) => url.pathname === '/admin/inbox' && !url.searchParams.has('selected'))
+    await expect(page.getByTestId('inbox-item')).toHaveCount(3)
+
+    // ② 다시 열고 브라우저 뒤로가기 → 드로어만 닫히고 인박스에 머문다(목록을 열 때 쌓은 기록 1건만 소비)
+    await item.click()
+    await expect(drawer).toHaveClass(/v-navigation-drawer--active/)
+    await page.goBack()
+    await expect(drawer).not.toHaveClass(/v-navigation-drawer--active/)
+    await page.waitForURL((url) => url.pathname === '/admin/inbox' && !url.searchParams.has('selected'))
+    await expect(page.getByTestId('inbox-item')).toHaveCount(3)
   })
 })
