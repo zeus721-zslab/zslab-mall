@@ -42,6 +42,12 @@ public class AuthHeaders {
         return roleCookie(id, ActorRole.ADMIN);
     }
 
+    /** 공개 관리자 데모 세션(데모 표식 토큰·최종 점검 K1). */
+    public RequestPostProcessor publicDemoAdmin(long id) {
+        Cookie credential = new Cookie(AuthCookies.ADMIN_COOKIE, tokenProvider.issue(id, ActorRole.ADMIN, true));
+        return request -> addCookieAndCsrf(request, credential);
+    }
+
     /** 인증 없이 CSRF 쿠키+헤더만 싣는다 — 역할 쿠키 없이도 CSRF를 검증하는 로그인 요청용(D-235 PR3 K7). */
     public RequestPostProcessor csrf() {
         return request -> addCookieAndCsrf(request, null);

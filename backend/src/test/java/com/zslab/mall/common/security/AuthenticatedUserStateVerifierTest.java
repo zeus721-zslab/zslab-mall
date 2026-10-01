@@ -74,7 +74,7 @@ class AuthenticatedUserStateVerifierTest {
     }
 
     private static TokenPayload payload(Instant issuedAt) {
-        return new TokenPayload(USER_ID, ActorRole.BUYER, issuedAt);
+        return new TokenPayload(USER_ID, ActorRole.BUYER, issuedAt, false);
     }
 
     private static UserAuthState state(LocalDateTime withdrawnAt, LocalDateTime deletedAt, LocalDateTime credentialsChangedAt) {
