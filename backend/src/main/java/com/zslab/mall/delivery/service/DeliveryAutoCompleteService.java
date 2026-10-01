@@ -9,6 +9,7 @@ import com.zslab.mall.delivery.enums.DeliveryCarrier;
 import com.zslab.mall.delivery.enums.DeliveryDirection;
 import com.zslab.mall.delivery.enums.DeliveryStatus;
 import com.zslab.mall.delivery.repository.DeliveryRepository;
+import com.zslab.mall.inbox.stream.InboxSignalPublisher;
 import com.zslab.mall.order.service.OrderService;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
@@ -48,6 +49,7 @@ public class DeliveryAutoCompleteService {
     private final AuditRecorder auditRecorder;
     private final EntityManager entityManager;
     private final OrderService orderService;
+    private final InboxSignalPublisher inboxSignalPublisher;
 
     /**
      * 배송 1건을 자동 배송완료 처리한다. 행 락 후 재확인에 어긋나면 무처리(false)다.
@@ -87,6 +89,9 @@ public class DeliveryAutoCompleteService {
         }
 
         deliveryService.markDelivered(deliveryId);
+        // 장기 배송중 이탈 — 배송 행만 들고 있어 셀러 전체에 알린다.
+        inboxSignalPublisher.adminChanged();
+        inboxSignalPublisher.allSellersChanged();
         auditRecorder.record(AuditContext.system(), AuditLogAction.UPDATE, PolymorphicTargetType.DELIVERY, deliveryId,
                 Map.of("status", DeliveryStatus.SHIPPING.name()),
                 Map.of("status", DeliveryStatus.DELIVERED.name()));

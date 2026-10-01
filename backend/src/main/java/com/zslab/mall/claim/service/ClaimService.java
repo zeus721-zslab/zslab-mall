@@ -31,6 +31,7 @@ import com.zslab.mall.delivery.enums.DeliveryDirection;
 import com.zslab.mall.delivery.repository.DeliveryRepository;
 import com.zslab.mall.delivery.service.DeliveryService;
 import com.zslab.mall.delivery.service.ReturnWindowPolicy;
+import com.zslab.mall.inbox.stream.InboxSignalPublisher;
 import com.zslab.mall.order.controller.response.PagedResponse;
 import com.zslab.mall.order.entity.Order;
 import com.zslab.mall.order.entity.OrderItem;
@@ -98,6 +99,7 @@ public class ClaimService {
     private final AuditRecorder auditRecorder;
     private final OrderService orderService;
     private final ProductRepository productRepository;
+    private final InboxSignalPublisher inboxSignalPublisher;
 
     public ClaimService(
             ClaimRepository claimRepository,
@@ -113,7 +115,8 @@ public class ClaimService {
             EntityManager entityManager,
             AuditRecorder auditRecorder,
             OrderService orderService,
-            ProductRepository productRepository) {
+            ProductRepository productRepository,
+            InboxSignalPublisher inboxSignalPublisher) {
         this.claimRepository = claimRepository;
         this.orderItemRepository = orderItemRepository;
         this.orderRepository = orderRepository;
@@ -128,6 +131,7 @@ public class ClaimService {
         this.auditRecorder = auditRecorder;
         this.orderService = orderService;
         this.productRepository = productRepository;
+        this.inboxSignalPublisher = inboxSignalPublisher;
     }
 
     /**
@@ -237,6 +241,9 @@ public class ClaimService {
                 claim.getStatus(),
                 claim.getRequestedBy(),
                 LocalDateTime.now()));
+        // 관리자 클레임 접수 진입 · 셀러 발송 대기 이탈(취소 요청)
+        inboxSignalPublisher.adminChanged();
+        inboxSignalPublisher.sellerChanged(orderItem.getSellerId());
         return claim;
     }
 
@@ -324,6 +331,7 @@ public class ClaimService {
         eventPublisher.publishEvent(new ClaimApproved(
                 claim.getId(), claim.getPublicId(), claim.getOrderItemId(),
                 claim.getType(), claim.getStatus(), LocalDateTime.now()));
+        inboxSignalPublisher.adminChanged();
     }
 
     /**
@@ -360,6 +368,7 @@ public class ClaimService {
         eventPublisher.publishEvent(new ClaimRejected(
                 claim.getId(), claim.getPublicId(), claim.getOrderItemId(),
                 claim.getType(), claim.getStatus(), claim.getRejectReasonCode(), LocalDateTime.now()));
+        inboxSignalPublisher.adminChanged();
     }
 
     /**
@@ -464,7 +473,9 @@ public class ClaimService {
         if (claim.getPickedUpAt() != null) {
             throw new ClaimInvalidStateException("이미 회수 확인된 반품입니다: claimId=" + claim.getId());
         }
-        return deliveryService.registerReturnShipment(claim, carrier, trackingNo);
+        Delivery delivery = deliveryService.registerReturnShipment(claim, carrier, trackingNo);
+        inboxSignalPublisher.adminChanged();
+        return delivery;
     }
 
     /**
@@ -674,6 +685,7 @@ public class ClaimService {
         eventPublisher.publishEvent(new ClaimCompleted(
                 claim.getId(), claim.getPublicId(), claim.getOrderItemId(),
                 claim.getType(), claim.getStatus(), LocalDateTime.now()));
+        inboxSignalPublisher.adminChanged();
     }
 
     /**
@@ -704,6 +716,7 @@ public class ClaimService {
         eventPublisher.publishEvent(new ClaimPickedUp(
                 claim.getId(), claim.getPublicId(), claim.getOrderItemId(),
                 claim.getType(), pickedUpAt, LocalDateTime.now()));
+        inboxSignalPublisher.adminChanged();
     }
 
     /**
@@ -753,6 +766,7 @@ public class ClaimService {
             claimRepository.save(claim);
             eventPublisher.publishEvent(new ClaimInspectionPassed(
                     claim.getId(), claim.getPublicId(), claim.getOrderItemId(), restock, LocalDateTime.now()));
+            inboxSignalPublisher.adminChanged();
             return;
         }
         if (reshipCarrier == null || reshipTrackingNo == null || reshipTrackingNo.isBlank()) {
@@ -766,6 +780,7 @@ public class ClaimService {
         eventPublisher.publishEvent(new ClaimRejected(
                 claim.getId(), claim.getPublicId(), claim.getOrderItemId(),
                 claim.getType(), claim.getStatus(), claim.getRejectReasonCode(), LocalDateTime.now()));
+        inboxSignalPublisher.adminChanged(); // 관리자 클레임 후속(검수 단계) 이탈
     }
 
     /** Admin 액터의 반품 검수 진입점(Track 81-A·전체 접근·미존재만 404). */

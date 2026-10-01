@@ -1,5 +1,6 @@
 package com.zslab.mall.inventory.handler;
 
+import com.zslab.mall.inbox.stream.InboxSignalPublisher;
 import com.zslab.mall.inventory.service.InventoryService;
 import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.event.OrderTerminated;
@@ -33,6 +34,7 @@ public class InventoryOrderTerminatedHandler {
 
     private final OrderItemRepository orderItemRepository;
     private final InventoryService inventoryService;
+    private final InboxSignalPublisher inboxSignalPublisher;
 
     @EventListener
     public void handle(OrderTerminated event) {
@@ -41,6 +43,7 @@ public class InventoryOrderTerminatedHandler {
                 .toList();
         for (OrderItem item : items) {
             inventoryService.release(item.getVariantId(), item.getQuantity());
+            inboxSignalPublisher.sellerChanged(item.getSellerId()); // 셀러 재고 임박
             log.info("[Inventory] event=OrderTerminated target_id={} action=release variant_id={} qty={}",
                     item.getId(), item.getVariantId(), item.getQuantity());
         }

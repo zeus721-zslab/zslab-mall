@@ -4,6 +4,7 @@ import com.zslab.mall.audit.enums.AuditLogAction;
 import com.zslab.mall.audit.service.AuditContext;
 import com.zslab.mall.audit.service.AuditRecorder;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
+import com.zslab.mall.inbox.stream.InboxSignalPublisher;
 import com.zslab.mall.inventory.entity.Inventory;
 import com.zslab.mall.inventory.entity.InventoryHistory;
 import com.zslab.mall.inventory.enums.InventoryHistoryChangeType;
@@ -38,6 +39,7 @@ public class InventoryService {
     private final ProductRepository productRepository;
     private final ProductVariantRepository productVariantRepository;
     private final AuditRecorder auditRecorder;
+    private final InboxSignalPublisher inboxSignalPublisher;
 
     /**
      * 상품 등록 시 variant의 초기 재고 행을 생성한다(Track 39 provisioning·생성 전용 진입점·기존 adjust/reserve 계열과 분리).
@@ -146,6 +148,8 @@ public class InventoryService {
         inventoryHistoryRepository.save(
                 InventoryHistory.create(inventory, InventoryHistoryChangeType.ADJUST, quantityDelta, "admin", null, reason));
         recordAdjustAudit(auditContext, inventory, beforeOnHand, quantityDelta, reason);
+        // 셀러 재고 임박 — 관리자 조정은 variantId만 들고 있어 셀러 전체에 알린다.
+        inboxSignalPublisher.allSellersChanged();
         return inventory;
     }
 
@@ -187,6 +191,7 @@ public class InventoryService {
         inventoryHistoryRepository.save(
                 InventoryHistory.create(inventory, InventoryHistoryChangeType.INBOUND, qty, "seller", sellerId, reason));
         recordAdjustAudit(auditContext, inventory, beforeOnHand, qty, reason);
+        inboxSignalPublisher.sellerChanged(sellerId); // 셀러 재고 임박
         return inventory;
     }
 
@@ -213,6 +218,7 @@ public class InventoryService {
         inventoryHistoryRepository.save(
                 InventoryHistory.create(inventory, InventoryHistoryChangeType.OUTBOUND, -qty, "seller", sellerId, reason));
         recordAdjustAudit(auditContext, inventory, beforeOnHand, -qty, reason);
+        inboxSignalPublisher.sellerChanged(sellerId); // 셀러 재고 임박
         return inventory;
     }
 

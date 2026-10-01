@@ -3,6 +3,7 @@ package com.zslab.mall.product.service;
 import com.zslab.mall.category.exception.CategoryNotFoundException;
 import com.zslab.mall.category.repository.CategoryRepository;
 import com.zslab.mall.file.service.ImageUploadService;
+import com.zslab.mall.inbox.stream.InboxSignalPublisher;
 import com.zslab.mall.inventory.service.InventoryService;
 import com.zslab.mall.product.controller.request.ProductOptionGroupRequest;
 import com.zslab.mall.product.controller.request.ProductOptionValueRequest;
@@ -71,6 +72,7 @@ public class ProductRegistrationService {
     private final ProductVariantRepository productVariantRepository;
     private final InventoryService inventoryService;
     private final ImageUploadService imageUploadService; // 셀러 thumbnailUrl 귀속·저장 파일 존재 검증(FileStorage만 의존·순환 없음)
+    private final InboxSignalPublisher inboxSignalPublisher;
 
     /**
      * 셀러 주도 상품 등록(Track 90-C 검토 반영). {@code thumbnailUrl}이 있으면 본인에게 서버가 발급한 업로드 경로이며 실제 저장된 파일인지 먼저 검증하고
@@ -133,6 +135,9 @@ public class ProductRegistrationService {
             inventoryService.initializeInventory(
                     savedVariants.get(i).getId(), product.getId(), variantRequests.get(i).initialStock());
         }
+        // 관리자 상품 승인 진입(PENDING 생성) · 셀러 재고 임박(초기 재고)
+        inboxSignalPublisher.adminChanged();
+        inboxSignalPublisher.sellerChanged(sellerId);
 
         log.info("[ProductRegistration] 등록 완료 sellerId={} productPublicId={} variantCount={}",
                 sellerId, product.getPublicId(), savedVariants.size());

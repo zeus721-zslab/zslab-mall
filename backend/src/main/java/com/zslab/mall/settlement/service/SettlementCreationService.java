@@ -4,6 +4,7 @@ import com.zslab.mall.audit.enums.AuditLogAction;
 import com.zslab.mall.audit.service.AuditContext;
 import com.zslab.mall.audit.service.AuditRecorder;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
+import com.zslab.mall.inbox.stream.InboxSignalPublisher;
 import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.order.repository.SettlementSaleSourceProjection;
@@ -76,11 +77,12 @@ public class SettlementCreationService {
     private final SettlementItemRepository settlementItemRepository;
     private final AuditRecorder auditRecorder;
     private final int payoutOffsetDays;
+    private final InboxSignalPublisher inboxSignalPublisher;
 
     public SettlementCreationService(OrderItemRepository orderItemRepository, RefundRepository refundRepository,
             SellerRepository sellerRepository, SettlementRepository settlementRepository,
             SettlementItemRepository settlementItemRepository, AuditRecorder auditRecorder,
-            @Value("${settlement.payout-offset-days:20}") int payoutOffsetDays) {
+            @Value("${settlement.payout-offset-days:20}") int payoutOffsetDays, InboxSignalPublisher inboxSignalPublisher) {
         this.orderItemRepository = orderItemRepository;
         this.refundRepository = refundRepository;
         this.sellerRepository = sellerRepository;
@@ -88,6 +90,7 @@ public class SettlementCreationService {
         this.settlementItemRepository = settlementItemRepository;
         this.auditRecorder = auditRecorder;
         this.payoutOffsetDays = payoutOffsetDays;
+        this.inboxSignalPublisher = inboxSignalPublisher;
     }
 
     /** seller 1건의 편입 대상 소스(매출·환불·음수 정산 이월). */
@@ -175,6 +178,7 @@ public class SettlementCreationService {
         auditRecorder.record(auditContext, AuditLogAction.DELETE, PolymorphicTargetType.SETTLEMENT, settlementId,
                 deletedSnapshot, Map.of());
         log.info("[Settlement] 재생성 — 기존 정산 삭제: settlementId={} sellerId={} reason={}", settlementId, sellerId, reason);
+        inboxSignalPublisher.adminChanged(); // 관리자 정산 확정: 옛 정산 이탈(재집계 대상이 없으면 삭제만 된다)
 
         SellerSources sources = collectSources(periodEnd, sellerId).get(sellerId);
         if (sources == null) {
@@ -247,6 +251,7 @@ public class SettlementCreationService {
 
         auditRecorder.record(auditContext, AuditLogAction.CREATE, PolymorphicTargetType.SETTLEMENT, saved.getId(),
                 Map.of(), amountSnapshot(saved));
+        inboxSignalPublisher.adminChanged(); // 관리자 정산 확정 진입(PENDING 생성)
         log.info("[Settlement] 정산 생성: settlementId={} sellerId={} gross={} fee={} refund={} carryover={} net={} items={} "
                 + "scheduledPayDate={}", saved.getId(), sellerId, gross, fee, refund, carryover, saved.getNetAmount(), items.size(),
                 scheduledPayDate);

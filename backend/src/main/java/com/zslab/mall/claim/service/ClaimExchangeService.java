@@ -9,6 +9,7 @@ import com.zslab.mall.claim.exception.ClaimNotFoundException;
 import com.zslab.mall.claim.repository.ClaimRepository;
 import com.zslab.mall.common.exception.MalformedRequestException;
 import com.zslab.mall.common.observability.TracedEventPublisher;
+import com.zslab.mall.inbox.stream.InboxSignalPublisher;
 import com.zslab.mall.inventory.service.InventoryService;
 import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.repository.OrderItemRepository;
@@ -49,11 +50,12 @@ public class ClaimExchangeService {
     private final OptionLabelResolver optionLabelResolver;
     private final TracedEventPublisher eventPublisher;
     private final EntityManager entityManager;
+    private final InboxSignalPublisher inboxSignalPublisher;
 
     public ClaimExchangeService(ClaimRepository claimRepository, OrderItemRepository orderItemRepository,
             ProductRepository productRepository, ProductVariantRepository productVariantRepository,
             InventoryService inventoryService, OptionLabelResolver optionLabelResolver, TracedEventPublisher eventPublisher,
-            EntityManager entityManager) {
+            EntityManager entityManager, InboxSignalPublisher inboxSignalPublisher) {
         this.claimRepository = claimRepository;
         this.orderItemRepository = orderItemRepository;
         this.productRepository = productRepository;
@@ -62,6 +64,7 @@ public class ClaimExchangeService {
         this.optionLabelResolver = optionLabelResolver;
         this.eventPublisher = eventPublisher;
         this.entityManager = entityManager;
+        this.inboxSignalPublisher = inboxSignalPublisher;
     }
 
     /**
@@ -116,6 +119,8 @@ public class ClaimExchangeService {
                 .orElseThrow(() -> new IllegalStateException("OrderItem 무결성 위반: orderItemId=" + claim.getOrderItemId()));
         validateExchangeOption(orderItem, claim.getExchangeVariantId(), now);
         inventoryService.reserve(claim.getExchangeVariantId(), orderItem.getQuantity());
+        // 셀러 재고 임박(교환 옵션은 같은 상품이라 품목의 셀러다)
+        inboxSignalPublisher.sellerChanged(orderItem.getSellerId());
         claim.markExchangeReserved(orderItem.getVariantId(), orderItem.getOptionLabel(), now);
         log.info("[ClaimExchange] 교환 옵션 재고 예약 claimId={} variantId={} qty={}", claim.getId(), claim.getExchangeVariantId(),
                 orderItem.getQuantity());
@@ -129,6 +134,7 @@ public class ClaimExchangeService {
         OrderItem orderItem = orderItemRepository.findById(claim.getOrderItemId())
                 .orElseThrow(() -> new IllegalStateException("OrderItem 무결성 위반: orderItemId=" + claim.getOrderItemId()));
         inventoryService.release(claim.getExchangeVariantId(), orderItem.getQuantity());
+        inboxSignalPublisher.sellerChanged(orderItem.getSellerId());
         claim.clearExchangeReserved();
         log.info("[ClaimExchange] 교환 옵션 재고 예약 해제 claimId={} variantId={} qty={}", claim.getId(),
                 claim.getExchangeVariantId(), orderItem.getQuantity());
@@ -180,6 +186,9 @@ public class ClaimExchangeService {
         eventPublisher.publishEvent(new ClaimCompleted(
                 claim.getId(), claim.getPublicId(), claim.getOrderItemId(),
                 claim.getType(), claim.getStatus(), LocalDateTime.now()));
+        // 관리자 클레임 후속(교환품 배송중) 이탈 · 셀러 재고 임박(예약 확정·회수품 재입고)
+        inboxSignalPublisher.adminChanged();
+        inboxSignalPublisher.sellerChanged(orderItem.getSellerId());
         log.info("[ClaimExchange] 교환 종결 claimId={} orderItemId={} {} → {}", claimId, orderItem.getId(),
                 claim.getOriginalVariantId(), exchangeVariant.getId());
     }

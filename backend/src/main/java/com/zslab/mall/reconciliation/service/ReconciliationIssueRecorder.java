@@ -6,6 +6,7 @@ import com.zslab.mall.audit.enums.AuditLogAction;
 import com.zslab.mall.audit.service.AuditContext;
 import com.zslab.mall.audit.service.AuditRecorder;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
+import com.zslab.mall.inbox.stream.InboxSignalPublisher;
 import com.zslab.mall.reconciliation.entity.ReconciliationIssue;
 import com.zslab.mall.reconciliation.enums.ReconciliationIssueStatus;
 import com.zslab.mall.reconciliation.enums.ReconciliationIssueType;
@@ -40,6 +41,7 @@ public class ReconciliationIssueRecorder {
     private final ReconciliationIssueRepository repository;
     private final ObjectMapper objectMapper;
     private final AuditRecorder auditRecorder;
+    private final InboxSignalPublisher inboxSignalPublisher;
 
     /**
      * 불일치 1건을 기록한다.
@@ -56,6 +58,9 @@ public class ReconciliationIssueRecorder {
                 refs.claimId(), refs.deliveryId(), refs.pgTid(), refs.pgRefundId(), toJson(detail), LocalDateTime.now());
         log.warn("[Reconciliation] 불일치 {}: type={} key={} orderId={} detail={}",
                 inserted == 1 ? "기록" : "이미 기록됨(멱등)", type, dedupeKey, refs.orderId(), detail);
+        if (inserted == 1) {
+            inboxSignalPublisher.adminChanged(); // 관리자 정합성 불일치 진입
+        }
         return inserted == 1;
     }
 
@@ -97,6 +102,7 @@ public class ReconciliationIssueRecorder {
                 Map.of(AUDIT_FIELD_STATUS, ReconciliationIssueStatus.OPEN.name()),
                 Map.of(AUDIT_FIELD_STATUS, ReconciliationIssueStatus.RESOLVED.name(), AUDIT_FIELD_MEMO, RESOLVED_BY_RETRY_MEMO));
         log.info("[Reconciliation] 매칭 없던 PG 통지가 같은 종류로 재처리 → 자동 해소: id={} key={}", issueId, dedupeKey);
+        inboxSignalPublisher.adminChanged(); // 관리자 정합성 불일치 이탈(시스템 해소)
         return true;
     }
 

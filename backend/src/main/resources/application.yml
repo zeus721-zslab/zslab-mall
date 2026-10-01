@@ -70,9 +70,10 @@ spring:
     scheduling:
       # D-175·검수 5단계: @Scheduled 7건이 기본 1스레드에서 직렬 실행돼 한 배치 지연이 전체를 막던 구조 → 스케줄러 수 이상으로 분리.
       # Track 96-6 월 정산·등급 재산정 스케줄러 추가로 9건 → 10.
+      # D-249 인박스 SSE 하트비트·정기 신호 추가로 13건 → 13(긴 배치가 하트비트를 밀어 프록시 유휴 타임아웃에 걸리지 않게).
       # 단건 직렬화는 각 서비스의 행 락·조건부 UPDATE가 담당하므로 병렬 실행이 동시성 가정을 바꾸지 않는다.
       pool:
-        size: 10
+        size: 13
       thread-name-prefix: zslab-sched-
 
 server:
@@ -159,6 +160,10 @@ zslab:
   # 기동을 멈춘다(요약은 커밋 후 비동기라 주입 실패로 드러나지 않을 수 있어 직접 검증).
   llm:
     provider: ${LLM_PROVIDER:mock}
+  # D-249 인박스 변경 신호(SSE) 연결 최대 수명. 지나면 서버가 정상 종료하고 브라우저가 재연결한다 — 재연결 때 토큰·셀러 상태를 다시 검사한다.
+  inbox:
+    stream:
+      max-duration: 30m
   # D-230 데모 계정 보호. 쉼표 구분 이메일(대소문자 무시)은 비밀번호 변경·탈퇴·역할 해제·셀러 구성원 제외를 요청자와 무관하게 403으로 막는다.
   # compose가 기존 데모 계정 값 3개(ADMIN_BOOTSTRAP_EMAIL·NUXT_BUYER_DEMO_EMAIL·NUXT_SELLER_DEMO_EMAIL)를 이어 붙여 넘긴다. 비어 있으면 보호 없음.
   demo:

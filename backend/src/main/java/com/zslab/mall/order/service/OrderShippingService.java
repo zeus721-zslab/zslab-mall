@@ -8,6 +8,7 @@ import com.zslab.mall.delivery.exception.DeliveryInvalidStateException;
 import com.zslab.mall.delivery.exception.DeliveryNotFoundException;
 import com.zslab.mall.delivery.repository.DeliveryRepository;
 import com.zslab.mall.delivery.service.DeliveryService;
+import com.zslab.mall.inbox.stream.InboxSignalPublisher;
 import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.exception.OrderNotFoundException;
@@ -46,16 +47,18 @@ public class OrderShippingService {
     private final ClaimRepository claimRepository;
     private final EntityManager entityManager;
     private final OrderService orderService;
+    private final InboxSignalPublisher inboxSignalPublisher;
 
     public OrderShippingService(OrderItemRepository orderItemRepository, DeliveryRepository deliveryRepository,
             DeliveryService deliveryService, ClaimRepository claimRepository, EntityManager entityManager,
-            OrderService orderService) {
+            OrderService orderService, InboxSignalPublisher inboxSignalPublisher) {
         this.orderItemRepository = orderItemRepository;
         this.deliveryRepository = deliveryRepository;
         this.deliveryService = deliveryService;
         this.claimRepository = claimRepository;
         this.entityManager = entityManager;
         this.orderService = orderService;
+        this.inboxSignalPublisher = inboxSignalPublisher;
     }
 
     /**
@@ -143,6 +146,8 @@ public class OrderShippingService {
         } catch (IllegalStateException exception) {
             throw new DeliveryInvalidStateException("배송 개시할 수 없는 주문 품목 상태입니다: " + exception.getMessage());
         }
+        // 셀러 발송 대기 이탈(셀러·관리자 송장 등록 공통 길목)
+        inboxSignalPublisher.sellerChanged(orderItem.getSellerId());
     }
 
     /**
@@ -181,6 +186,9 @@ public class OrderShippingService {
             // 직접 IllegalStateException 매핑은 500 fallback으로 새므로 금지(changeToPreparing 패턴 1:1·M4).
             throw new DeliveryInvalidStateException("배송 완료 처리할 수 없는 배송 상태입니다: " + exception.getMessage());
         }
+        // 장기 배송중 이탈(관리자·해당 셀러)
+        inboxSignalPublisher.adminChanged();
+        inboxSignalPublisher.sellerChanged(sellerId);
     }
 
     /**

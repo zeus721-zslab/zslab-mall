@@ -4,7 +4,8 @@ import { useAdminInbox } from '#layers/admin/app/composables/useAdminInbox'
 
 /**
  * 사이드바 "인박스" 메뉴 배지(오늘 탭 건수 · D-248). 사이드바와 인박스 페이지가 같은 값을 보도록 useState로 공유한다 — 인박스 페이지는 오늘 탭을
- * 읽을 때 set으로 바로 갱신하고, 사이드바는 처음 그릴 때와 창 포커스 때 refresh로 다시 읽는다. 실패하면 배지를 숨긴다(목록 화면이 오류를 보여 준다).
+ * 읽을 때 set으로 바로 갱신하고, 사이드바는 처음 그릴 때와 변경 신호 구독(FE-103) 계기마다 refresh로 다시 읽는다. 실패하면 배지를 숨긴다(목록
+ * 화면이 오류를 보여 준다).
  */
 export function useAdminInboxBadge() {
   const count = useState<number | null>('admin-inbox-today-count', () => null)

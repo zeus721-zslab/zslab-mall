@@ -4,6 +4,7 @@ import com.zslab.mall.category.exception.CategoryNotFoundException;
 import com.zslab.mall.category.repository.CategoryRepository;
 import com.zslab.mall.common.exception.MalformedRequestException;
 import com.zslab.mall.file.service.ImageUploadService;
+import com.zslab.mall.inbox.stream.InboxSignalPublisher;
 import com.zslab.mall.inventory.service.InventoryService;
 import com.zslab.mall.product.controller.request.SellerProductImagesRequest;
 import com.zslab.mall.product.controller.request.SellerProductUpdateRequest;
@@ -78,6 +79,7 @@ public class SellerProductCommandService {
     private final CategoryRepository categoryRepository;
     private final InventoryService inventoryService;
     private final ImageUploadService imageUploadService;
+    private final InboxSignalPublisher inboxSignalPublisher;
 
     /**
      * 기본정보 수정(categoryId·name·description·basePrice). {@link Product#updateBasicInfo}는 전체 치환 시그니처라 셀러가 바꿀 수 없는
@@ -221,6 +223,7 @@ public class SellerProductCommandService {
             log.warn("[SellerProduct] 옵션 조합 중복 차단(409·{}) productPublicId={}: {}", OPTION_COMBINATION_CONSTRAINT, productPublicId, cause);
             throw new ProductVariantOptionConflictException("동일 옵션 조합의 상품 변형이 이미 존재합니다(" + OPTION_COMBINATION_CONSTRAINT + ").");
         }
+        inboxSignalPublisher.sellerChanged(sellerId); // 셀러 재고 임박(옵션 품절·신규 옵션 초기 재고)
         log.info("[SellerProduct] variant 수정 sellerId={} productPublicId={} updated={} created={}",
                 sellerId, productPublicId, updatedCount, createdCount);
     }

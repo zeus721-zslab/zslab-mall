@@ -11,6 +11,7 @@ import com.zslab.mall.audit.service.AuditRecorder;
 import com.zslab.mall.claim.repository.ClaimRepository;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
 import com.zslab.mall.common.observability.TracedEventPublisher;
+import com.zslab.mall.inbox.stream.InboxSignalPublisher;
 import com.zslab.mall.order.service.OrderService;
 import com.zslab.mall.delivery.entity.Delivery;
 import com.zslab.mall.delivery.enums.DeliveryCarrier;
@@ -44,14 +45,17 @@ public class DeliveryService {
     private final TracedEventPublisher eventPublisher;
     private final AuditRecorder auditRecorder;
     private final OrderService orderService;
+    private final InboxSignalPublisher inboxSignalPublisher;
 
     public DeliveryService(DeliveryRepository deliveryRepository, ClaimRepository claimRepository,
-            TracedEventPublisher eventPublisher, AuditRecorder auditRecorder, OrderService orderService) {
+            TracedEventPublisher eventPublisher, AuditRecorder auditRecorder, OrderService orderService,
+            InboxSignalPublisher inboxSignalPublisher) {
         this.deliveryRepository = deliveryRepository;
         this.claimRepository = claimRepository;
         this.eventPublisher = eventPublisher;
         this.auditRecorder = auditRecorder;
         this.orderService = orderService;
+        this.inboxSignalPublisher = inboxSignalPublisher;
     }
 
     /**
@@ -139,6 +143,8 @@ public class DeliveryService {
         eventPublisher.publishEvent(new DeliveryStarted(
                 delivery.getId(), delivery.getOrderItemId(), delivery.getCarrier(),
                 delivery.getTrackingNo(), delivery.getDirection(), delivery.getClaimId(), LocalDateTime.now()));
+        // 관리자 클레임 후속: 교환품 발송 대기 → 교환품 배송중
+        inboxSignalPublisher.adminChanged();
         return delivery;
     }
 
@@ -274,6 +280,9 @@ public class DeliveryService {
             // Track 95 D-201: 비-SHIPPING(READY·이미 DELIVERED) 전이 위반을 셀러 경로(OrderShippingService.markDeliveredBySeller)와 대칭으로 422 흡수한다.
             throw new DeliveryInvalidStateException("배송 완료 처리할 수 없는 배송 상태입니다: " + exception.getMessage());
         }
+        // 장기 배송중 이탈 — 이 경로는 sellerId를 들고 있지 않아 셀러 전체에 알린다.
+        inboxSignalPublisher.adminChanged();
+        inboxSignalPublisher.allSellersChanged();
     }
 
     /**

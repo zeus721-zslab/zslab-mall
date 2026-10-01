@@ -3,6 +3,7 @@ package com.zslab.mall.claim.handler;
 import com.zslab.mall.claim.entity.Claim;
 import com.zslab.mall.claim.event.ClaimRejected;
 import com.zslab.mall.claim.repository.ClaimRepository;
+import com.zslab.mall.inbox.stream.InboxSignalPublisher;
 import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.repository.OrderItemRepository;
@@ -31,12 +32,14 @@ public class ClaimRejectedHandler {
     private final ClaimRepository claimRepository;
     private final OrderItemRepository orderItemRepository;
     private final OrderService orderService;
+    private final InboxSignalPublisher inboxSignalPublisher;
 
     public ClaimRejectedHandler(ClaimRepository claimRepository, OrderItemRepository orderItemRepository,
-            OrderService orderService) {
+            OrderService orderService, InboxSignalPublisher inboxSignalPublisher) {
         this.claimRepository = claimRepository;
         this.orderItemRepository = orderItemRepository;
         this.orderService = orderService;
+        this.inboxSignalPublisher = inboxSignalPublisher;
     }
 
     @EventListener
@@ -59,6 +62,8 @@ public class ClaimRejectedHandler {
         }
         OrderItemStatus snapshot = claim.getPreviousOrderItemStatus();
         orderItem.changeStatus(snapshot);
+        // 취소 거부로 PAID 원복 시 셀러 발송 대기 재진입
+        inboxSignalPublisher.sellerChanged(orderItem.getSellerId());
         Long orderId = orderItemRepository.findOrderIdById(orderItem.getId())
                 .orElseThrow(() -> new IllegalStateException(
                         "OrderItem의 order_id를 해소할 수 없습니다: orderItemId=" + orderItem.getId()));

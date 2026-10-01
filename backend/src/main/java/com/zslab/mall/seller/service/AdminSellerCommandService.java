@@ -6,6 +6,7 @@ import com.zslab.mall.audit.service.AuditRecorder;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
 import com.zslab.mall.common.exception.MalformedRequestException;
 import com.zslab.mall.common.security.DemoAccountGuard;
+import com.zslab.mall.inbox.stream.InboxSignalPublisher;
 import com.zslab.mall.seller.controller.request.AdminSellerUpdateRequest;
 import com.zslab.mall.seller.controller.response.AdminSellerDetailResponse;
 import com.zslab.mall.seller.entity.Seller;
@@ -52,6 +53,7 @@ public class AdminSellerCommandService {
     private final SellerUserRepository sellerUserRepository;
     private final UserRepository userRepository;
     private final DemoAccountGuard demoAccountGuard;
+    private final InboxSignalPublisher inboxSignalPublisher;
 
     public AdminSellerCommandService(
             SellerRepository sellerRepository,
@@ -61,7 +63,8 @@ public class AdminSellerCommandService {
             AuditRecorder auditRecorder,
             SellerUserRepository sellerUserRepository,
             UserRepository userRepository,
-            DemoAccountGuard demoAccountGuard) {
+            DemoAccountGuard demoAccountGuard,
+            InboxSignalPublisher inboxSignalPublisher) {
         this.sellerRepository = sellerRepository;
         this.withdrawnSellerRepository = withdrawnSellerRepository;
         this.sellerTerminationGuard = sellerTerminationGuard;
@@ -70,6 +73,7 @@ public class AdminSellerCommandService {
         this.sellerUserRepository = sellerUserRepository;
         this.userRepository = userRepository;
         this.demoAccountGuard = demoAccountGuard;
+        this.inboxSignalPublisher = inboxSignalPublisher;
     }
 
     /**
@@ -115,6 +119,9 @@ public class AdminSellerCommandService {
             LocalDateTime now = LocalDateTime.now();
             withdrawnSellerRepository.save(
                     WithdrawnSeller.create(seller, trimmedReason, now.plusYears(LEGAL_RETENTION_YEARS)));
+        }
+        if (before == SellerStatus.PENDING) {
+            inboxSignalPublisher.adminChanged(); // 관리자 입점 심사 이탈
         }
         log.info("[AdminSeller] 상태 전이 {} → {} sellerPublicId={} byActor={}",
                 before, target, sellerPublicId, auditContext.actorUserId());

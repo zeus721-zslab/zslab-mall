@@ -1,5 +1,6 @@
 package com.zslab.mall.inquiry.service;
 
+import com.zslab.mall.inbox.stream.InboxSignalPublisher;
 import com.zslab.mall.inquiry.entity.Inquiry;
 import com.zslab.mall.inquiry.enums.InquiryCategory;
 import com.zslab.mall.inquiry.exception.InquiryInvalidStateException;
@@ -24,10 +25,13 @@ public class InquiryService {
 
     private final InquiryRepository inquiryRepository;
     private final OrderRepository orderRepository;
+    private final InboxSignalPublisher inboxSignalPublisher;
 
-    public InquiryService(InquiryRepository inquiryRepository, OrderRepository orderRepository) {
+    public InquiryService(InquiryRepository inquiryRepository, OrderRepository orderRepository,
+            InboxSignalPublisher inboxSignalPublisher) {
         this.inquiryRepository = inquiryRepository;
         this.orderRepository = orderRepository;
+        this.inboxSignalPublisher = inboxSignalPublisher;
     }
 
     /**
@@ -40,6 +44,7 @@ public class InquiryService {
         Long orderId = orderPublicId == null ? null : requireOwnOrder(buyerId, orderPublicId).getId();
         Inquiry inquiry = inquiryRepository.save(Inquiry.create(buyerId, orderId, category, content.trim()));
         log.info("[Inquiry] 등록 inquiryPublicId={} buyerId={} orderId={}", inquiry.getPublicId(), buyerId, orderId);
+        inboxSignalPublisher.adminChanged(); // 관리자 미답변 문의 진입
         return inquiry;
     }
 
@@ -73,6 +78,7 @@ public class InquiryService {
             throw new InquiryInvalidStateException(exception.getMessage() + " inquiryPublicId=" + inquiryPublicId);
         }
         log.info("[Inquiry] 삭제 inquiryPublicId={} buyerId={}", inquiryPublicId, buyerId);
+        inboxSignalPublisher.adminChanged(); // 관리자 미답변 문의 이탈
     }
 
     /**
