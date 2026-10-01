@@ -1,5 +1,6 @@
 import type { InboxResponse, InboxSnoozeBody } from '~/types/inbox'
 import type { InboxQueryState } from '~/lib/inbox-query'
+import type { AdminSellerDelay, AdminSellerNudgeResponse } from '#layers/admin/app/types/admin-seller-delay'
 import { toInboxApiParams } from '~/lib/inbox-query'
 import { useAdminApi } from '#layers/admin/app/composables/useAdminApi'
 
@@ -19,5 +20,15 @@ export function useAdminInbox() {
     return api<void>('/v1/admin/inbox/snoozes', { method: 'PUT', body })
   }
 
-  return { list, snooze }
+  /** 셀러 지연 패널 정보(D-252 · 건수는 조회 시점 재계산). 없는 셀러 404 SELLER_NOT_FOUND. */
+  function sellerDelay(sellerPublicId: string): Promise<AdminSellerDelay> {
+    return api<AdminSellerDelay>(`/v1/admin/inbox/seller-delays/${encodeURIComponent(sellerPublicId)}`)
+  }
+
+  /** 셀러 지연 독촉(D-252 · 1~20곳 · 셀러별 결과와 무관하게 200). */
+  function nudgeSellers(sellerPublicIds: string[]): Promise<AdminSellerNudgeResponse> {
+    return api<AdminSellerNudgeResponse>('/v1/admin/inbox/seller-delays/nudge', { method: 'POST', body: { sellerPublicIds } })
+  }
+
+  return { list, snooze, sellerDelay, nudgeSellers }
 }

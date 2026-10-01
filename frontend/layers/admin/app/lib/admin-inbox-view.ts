@@ -1,5 +1,6 @@
 import type { AdminInquiryListItem } from '#layers/admin/app/types/admin-inquiry'
 import type { AdminClaimBulkApproveResponse } from '#layers/admin/app/types/admin-claim'
+import type { AdminSellerNudgeResponse } from '#layers/admin/app/types/admin-seller-delay'
 import type { AdminSemantic } from '#layers/admin/app/lib/constants/semantic'
 import type { InboxDeadlineTone, InboxItem } from '~/lib/inbox-view'
 import { isInquiryCategory } from '~/lib/constants/inquiry'
@@ -7,7 +8,8 @@ import { CLAIM_TYPE_LABELS, type ClaimSuggestion, type ClaimType } from '~/lib/c
 import { IRREVERSIBLE, riskConfirmMessage } from '~/lib/utils/risk-confirm'
 
 /**
- * 관리자 인박스 표시 규칙(D-248 · 공용 규칙은 app/lib/inbox-view). 레이어 CSS 클래스와 관리자 다이얼로그 입력 변환, 클레임 일괄 승인(D-250) 규칙을 둔다.
+ * 관리자 인박스 표시 규칙(D-248 · 공용 규칙은 app/lib/inbox-view). 레이어 CSS 클래스와 관리자 다이얼로그 입력 변환, 클레임 일괄 승인(D-250)·셀러 지연
+ * 독촉(D-252) 규칙을 둔다.
  */
 
 const DEADLINE_CHIP_SUFFIX: Record<InboxDeadlineTone, string> = {
@@ -84,4 +86,63 @@ const CLAIM_BULK_FAILURE_MESSAGES: Record<string, string> = {
 export function claimBulkFailureMessage(code: string | undefined, message: string | undefined): string {
   if (code && CLAIM_BULK_FAILURE_MESSAGES[code]) return CLAIM_BULK_FAILURE_MESSAGES[code]
   return message && message !== '' ? message : '처리하지 못했습니다.'
+}
+
+// ---------- 일괄 선택 종류(클레임 승인 D-250 · 셀러 독촉 D-252) ----------
+
+/** 한 번에 한 종류만 고른다 — 다른 종류 행을 체크하면 기존 선택을 비우고 그 행부터 다시 고른다. */
+export type InboxBulkKind = 'CLAIM_APPROVE' | 'SELLER_NUDGE'
+
+/** 셀러 독촉 최대 셀러 수(BE SellerDelayNudgeRequest.MAX_SELLERS와 같은 값). */
+export const INBOX_BULK_NUDGE_MAX = 20
+
+export const INBOX_BULK_MAX: Record<InboxBulkKind, number> = {
+  CLAIM_APPROVE: INBOX_BULK_APPROVE_MAX,
+  SELLER_NUDGE: INBOX_BULK_NUDGE_MAX,
+}
+
+/** 행의 일괄 처리 종류(체크 상자를 그리지 않는 행은 null). */
+export function inboxBulkKind(item: InboxItem): InboxBulkKind | null {
+  if (isBulkApprovable(item)) return 'CLAIM_APPROVE'
+  if (item.type === 'SELLER_DELAY') return 'SELLER_NUDGE'
+  return null
+}
+
+/** 지금 선택의 종류(선택이 비었거나 목록에서 사라졌으면 null). */
+export function selectedBulkKind(items: InboxItem[], selected: string[]): InboxBulkKind | null {
+  const first = items.find((item) => selected.includes(item.key))
+  return first ? inboxBulkKind(first) : null
+}
+
+/** 체크 상자 토글 후 선택. 다른 종류를 체크하면 그 행 하나만 남긴다(체크 해제는 그 행만 뺀다). */
+export function toggleBulkSelection(items: InboxItem[], selected: string[], key: string, checked: boolean): string[] {
+  const rest = selected.filter((selectedKey) => selectedKey !== key)
+  if (!checked) return rest
+  const target = items.find((item) => item.key === key)
+  const kind = target ? inboxBulkKind(target) : null
+  if (kind === null) return rest
+  return selectedBulkKind(items, rest) === kind || rest.length === 0 ? [...rest, key] : [key]
+}
+
+// ---------- 셀러 지연 독촉(D-252) ----------
+
+/** 독촉 확인 문구 — 대상 셀러 수(1곳이면 상호) · 24시간 쿨다운 · 마지막 줄은 가역성(SMS는 되돌릴 수 없음). */
+export function sellerNudgeConfirmMessage(companyNames: string[]): string {
+  const target = companyNames.length === 1 ? `${companyNames[0]}에` : `선택한 셀러 ${companyNames.length}곳에`
+  return riskConfirmMessage(
+    `${target} 처리 지연 독촉 SMS를 보냅니다.\n기한이 지난 발송 대기·상품 Q&A 미답변 건수가 문자에 들어갑니다.\n24시간 안에 이미 독촉한 셀러에게는 보내지 않습니다.`,
+    IRREVERSIBLE,
+  )
+}
+
+/** 독촉 결과 토스트: 발송 없음 + 실패 있음 danger · 발송 외 결과가 있으면 warning · 전부 발송 info. */
+export function summarizeSellerNudge(response: AdminSellerNudgeResponse): { message: string; semantic: AdminSemantic; hasIssue: boolean } {
+  const parts = [`발송 ${response.sentCount}`]
+  if (response.failedCount > 0) parts.push(`실패 ${response.failedCount}`)
+  if (response.noRecipientCount > 0) parts.push(`연락처 없음 ${response.noRecipientCount}`)
+  if (response.cooldownCount > 0) parts.push(`24시간 내 독촉함 ${response.cooldownCount}`)
+  if (response.noDelayCount > 0) parts.push(`지연 없음 ${response.noDelayCount}`)
+  const hasIssue = response.sentCount < response.results.length
+  const semantic: AdminSemantic = !hasIssue ? 'info' : response.sentCount === 0 && response.failedCount > 0 ? 'danger' : 'warning'
+  return { message: `셀러 독촉 — ${parts.join(' / ')}`, semantic, hasIssue }
 }

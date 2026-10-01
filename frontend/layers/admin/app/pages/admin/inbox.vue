@@ -9,7 +9,7 @@ import { toAdminErrorMessage } from '#layers/admin/app/lib/admin-error-message'
 import { useAdminInbox } from '#layers/admin/app/composables/useAdminInbox'
 import { useAdminInboxBadge } from '#layers/admin/app/composables/useAdminInboxBadge'
 import { useAdminInboxStream } from '#layers/admin/app/composables/useAdminInboxStream'
-import { isBulkApprovable } from '#layers/admin/app/lib/admin-inbox-view'
+import { inboxBulkKind } from '#layers/admin/app/lib/admin-inbox-view'
 
 definePageMeta({ layout: 'admin', middleware: ['admin', 'vuetify'] })
 useSeoMeta({ title: '인박스 · zslab-mall 관리자' })
@@ -36,9 +36,11 @@ let requestSequence = 0
 
 const selectedItem = computed<InboxItem | null>(() => items.value.find((item) => item.key === query.value.selected) ?? null)
 
-// 클레임 일괄 승인 선택(D-250 · 행 키). 상세 선택과 별개이며 탭·유형이 바뀌면 비운다 · 재조회로 사라진 행은 빠진다.
+// 일괄 처리 선택(행 키 · 클레임 승인 D-250 · 셀러 독촉 D-252 — 한 번에 한 종류). 상세 선택과 별개이며 탭·유형이 바뀌면 비운다 · 재조회로 사라진 행은 빠진다.
 const bulkSelected = ref<string[]>([])
 const bulkItems = computed<InboxItem[]>(() => items.value.filter((item) => bulkSelected.value.includes(item.key)))
+const claimBulkItems = computed<InboxItem[]>(() => bulkItems.value.filter((item) => inboxBulkKind(item) === 'CLAIM_APPROVE'))
+const nudgeBulkItems = computed<InboxItem[]>(() => bulkItems.value.filter((item) => inboxBulkKind(item) === 'SELLER_NUDGE'))
 
 async function onBulkDone(): Promise<void> {
   bulkSelected.value = []
@@ -95,7 +97,7 @@ async function load(): Promise<boolean> {
     const response = await inboxApi.list(query.value)
     if (sequence !== requestSequence) return false // 늦게 도착한 이전 요청은 버린다
     items.value = response.items.map(normalizeInboxItem)
-    bulkSelected.value = bulkSelected.value.filter((key) => items.value.some((item) => item.key === key && isBulkApprovable(item)))
+    bulkSelected.value = bulkSelected.value.filter((key) => items.value.some((item) => item.key === key && inboxBulkKind(item) !== null))
     counts.value = response.counts
     truncated.value = response.truncated
     nowMs.value = Date.now()
@@ -171,7 +173,8 @@ onBeforeUnmount(() => {
     />
     <v-row>
       <v-col cols="12" md="5">
-        <AdminInboxClaimBulkApprove :items="bulkItems" @done="onBulkDone" @clear="bulkSelected = []" />
+        <AdminInboxClaimBulkApprove :items="claimBulkItems" @done="onBulkDone" @clear="bulkSelected = []" />
+        <AdminInboxSellerNudgeBulk :items="nudgeBulkItems" @done="onBulkDone" @clear="bulkSelected = []" />
         <AdminInboxList
           v-model:bulk-selected="bulkSelected"
           :items="items"

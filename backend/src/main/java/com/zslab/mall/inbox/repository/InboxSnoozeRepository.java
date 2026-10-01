@@ -3,6 +3,7 @@ package com.zslab.mall.inbox.repository;
 import com.zslab.mall.inbox.entity.InboxSnooze;
 import com.zslab.mall.inbox.enums.InboxItemType;
 import java.time.LocalDateTime;
+import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -22,4 +23,10 @@ public interface InboxSnoozeRepository extends JpaRepository<InboxSnooze, Long> 
             @Param("untilAt") LocalDateTime untilAt, @Param("reason") String reason, @Param("now") LocalDateTime now);
 
     long deleteByOwnerUserIdAndItemTypeAndItemRef(Long ownerUserId, InboxItemType itemType, String itemRef);
+
+    /** 보는 사람의 유효(만료 전) 보류 대상 ref — 집계 행을 조립하는 수집기(셀러 지연 · D-252)가 쿼리 밖에서 대조한다. */
+    @Query("SELECT s.itemRef FROM InboxSnooze s "
+            + "WHERE s.ownerUserId = :ownerUserId AND s.itemType = :itemType AND s.untilAt > :now")
+    List<String> findActiveItemRefs(@Param("ownerUserId") Long ownerUserId, @Param("itemType") InboxItemType itemType,
+            @Param("now") LocalDateTime now);
 }

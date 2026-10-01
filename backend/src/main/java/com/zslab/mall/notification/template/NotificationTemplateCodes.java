@@ -24,6 +24,8 @@ public final class NotificationTemplateCodes {
     public static final String TEMPORARY_PASSWORD = "TPL_TEMPORARY_PASSWORD";
     /** 정산 정상처리 셀러 SMS(Track 85). */
     public static final String SETTLEMENT_CONFIRMED = "TPL_SETTLEMENT_CONFIRMED";
+    /** 셀러 지연 독촉 SMS(D-252·쿨다운 판정 키). */
+    public static final String SELLER_DELAY_NUDGE = "TPL_SELLER_DELAY_NUDGE";
 
     private NotificationTemplateCodes() {
     }

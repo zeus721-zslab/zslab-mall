@@ -7,6 +7,8 @@ import com.zslab.mall.productquestion.enums.ProductQuestionStatus;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
+import jakarta.persistence.criteria.Expression;
+import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import java.time.LocalDateTime;
 import org.springframework.stereotype.Component;
@@ -27,10 +29,18 @@ public class QuestionUnansweredInboxSource extends TimedInboxSource<ProductQuest
             CriteriaBuilder builder, InboxViewer viewer, LocalDateTime now) {
         Root<Product> product = query.from(Product.class);
         return new InboxSelection<>(
-                builder.and(builder.equal(product.get("id"), root.get("productId")),
-                        builder.equal(product.get("sellerId"), viewer.sellerId()),
-                        builder.equal(root.get("status"), ProductQuestionStatus.VISIBLE),
-                        builder.isNull(root.get("answeredAt"))),
-                root.get("createdAt"), root.get("publicId"), root.get("content"), product.get("name"));
+                builder.and(builder.equal(product.get("sellerId"), viewer.sellerId()), pending(root, product, builder)),
+                base(root), root.get("publicId"), root.get("content"), product.get("name"));
+    }
+
+    /** 셀러 소유 조건을 뺀 대기 조건(상품 조인 포함) — 셀러 지연 집계(D-252)가 같은 식을 쓴다. */
+    static Predicate pending(Root<ProductQuestion> root, Root<Product> product, CriteriaBuilder builder) {
+        return builder.and(builder.equal(product.get("id"), root.get("productId")),
+                builder.equal(root.get("status"), ProductQuestionStatus.VISIBLE),
+                builder.isNull(root.get("answeredAt")));
+    }
+
+    static Expression<LocalDateTime> base(Root<ProductQuestion> root) {
+        return root.get("createdAt");
     }
 }

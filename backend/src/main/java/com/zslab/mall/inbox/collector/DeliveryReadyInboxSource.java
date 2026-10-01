@@ -6,6 +6,8 @@ import com.zslab.mall.order.enums.OrderItemStatus;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
+import jakarta.persistence.criteria.Expression;
+import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import java.time.LocalDateTime;
 import org.springframework.stereotype.Component;
@@ -25,9 +27,16 @@ public class DeliveryReadyInboxSource extends TimedInboxSource<OrderItem> {
     protected InboxSelection<LocalDateTime> select(Root<OrderItem> root, CriteriaQuery<?> query, CriteriaBuilder builder,
             InboxViewer viewer, LocalDateTime now) {
         return new InboxSelection<>(
-                builder.and(builder.equal(root.get("sellerId"), viewer.sellerId()),
-                        builder.equal(root.get("itemStatus"), OrderItemStatus.PAID)),
-                root.get("order").get("paidAt"), root.get("publicId"), root.get("productName"),
-                root.get("order").get("orderNo"));
+                builder.and(builder.equal(root.get("sellerId"), viewer.sellerId()), pending(root, builder)),
+                base(root), root.get("publicId"), root.get("productName"), root.get("order").get("orderNo"));
+    }
+
+    /** 셀러 소유 조건을 뺀 대기 조건 — 셀러 지연 집계(D-252)가 같은 식을 쓴다. */
+    static Predicate pending(Root<OrderItem> root, CriteriaBuilder builder) {
+        return builder.equal(root.get("itemStatus"), OrderItemStatus.PAID);
+    }
+
+    static Expression<LocalDateTime> base(Root<OrderItem> root) {
+        return root.get("order").get("paidAt");
     }
 }

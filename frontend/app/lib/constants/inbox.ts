@@ -1,11 +1,11 @@
 /**
  * 운영 인박스 유형·탭 단일 소스(D-248 · CLAUDE.md 4층위 enum 잠금 (4)프론트). claim.ts 관례(유니온 → 라벨 맵 → 라벨 함수 → is* 가드).
  *
- * 실측 근거: BE InboxItemType(12값 · DB inbox_snooze.item_type CHECK와 동일) · InboxTab(2값). 역할별 유형 목록과 순서는 BE InboxItemType 선언 순서
- * (InboxQueryService가 이 순서로 counts를 내려준다)와 같다. 관리자 9 · 셀러 4(장기 배송중은 공용).
+ * 실측 근거: BE InboxItemType(13값 · DB inbox_snooze.item_type CHECK와 동일 · V46) · InboxTab(2값). 역할별 유형 목록과 순서는 BE InboxItemType 선언 순서
+ * (InboxQueryService가 이 순서로 counts를 내려준다)와 같다. 관리자 10 · 셀러 4(장기 배송중은 공용).
  */
 
-/** 인박스 항목 유형(BE InboxItemType enum 12값). */
+/** 인박스 항목 유형(BE InboxItemType enum 13값). */
 export type InboxItemType =
   | 'CLAIM_REQUESTED'
   | 'CLAIM_FOLLOWUP'
@@ -16,6 +16,7 @@ export type InboxItemType =
   | 'SETTLEMENT_CONFIRM'
   | 'SETTLEMENT_PAYOUT'
   | 'RECONCILIATION_OPEN'
+  | 'SELLER_DELAY'
   | 'DELIVERY_READY'
   | 'QUESTION_UNANSWERED'
   | 'LOW_STOCK'
@@ -30,6 +31,7 @@ export const INBOX_ITEM_TYPES: InboxItemType[] = [
   'SETTLEMENT_CONFIRM',
   'SETTLEMENT_PAYOUT',
   'RECONCILIATION_OPEN',
+  'SELLER_DELAY',
   'DELIVERY_READY',
   'QUESTION_UNANSWERED',
   'LOW_STOCK',
@@ -45,6 +47,7 @@ export const INBOX_ITEM_TYPE_LABELS: Record<InboxItemType, string> = {
   SETTLEMENT_CONFIRM: '정산 확정',
   SETTLEMENT_PAYOUT: '정산 지급',
   RECONCILIATION_OPEN: '정합성 불일치',
+  SELLER_DELAY: '셀러 지연',
   DELIVERY_READY: '발송 대기',
   QUESTION_UNANSWERED: 'Q&A 미답변',
   LOW_STOCK: '재고 임박',
@@ -74,6 +77,7 @@ export const INBOX_AUDIENCE_TYPES: Record<InboxAudience, InboxItemType[]> = {
     'SETTLEMENT_CONFIRM',
     'SETTLEMENT_PAYOUT',
     'RECONCILIATION_OPEN',
+    'SELLER_DELAY',
   ],
   SELLER: ['LONG_SHIPPING', 'DELIVERY_READY', 'QUESTION_UNANSWERED', 'LOW_STOCK'],
 }
@@ -106,6 +110,17 @@ export type InboxTargetKey =
   | 'ORDER_ITEM'
   | 'PRODUCT_QUESTION'
   | 'INVENTORY'
+
+/** 셀러 지연 독촉의 셀러별 결과(BE SellerNudgeResult 5값 · D-252 · 응답 전용). */
+export type SellerNudgeResult = 'SENT' | 'FAILED' | 'NO_RECIPIENT' | 'COOLDOWN' | 'NO_DELAY'
+
+export const SELLER_NUDGE_RESULT_LABELS: Record<SellerNudgeResult, string> = {
+  SENT: '발송',
+  FAILED: '발송 실패',
+  NO_RECIPIENT: '연락처 없음',
+  COOLDOWN: '24시간 내 독촉함',
+  NO_DELAY: '지연 없음',
+}
 
 /** 보류 사유 빠른 선택(직접 입력도 가능). BE 사유 최대 200자(InboxSnooze.MAX_REASON_LENGTH). */
 export const INBOX_SNOOZE_REASON_PRESETS: string[] = ['외부 확인 대기', '고객 회신 대기']
