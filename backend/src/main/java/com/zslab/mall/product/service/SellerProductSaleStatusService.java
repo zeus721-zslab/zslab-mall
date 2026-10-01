@@ -4,6 +4,7 @@ import com.zslab.mall.audit.enums.AuditLogAction;
 import com.zslab.mall.audit.service.AuditContext;
 import com.zslab.mall.audit.service.AuditRecorder;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
+import com.zslab.mall.inbox.stream.InboxSignalPublisher;
 import com.zslab.mall.product.entity.Product;
 import com.zslab.mall.product.enums.ProductStatus;
 import com.zslab.mall.product.enums.SaleStopSource;
@@ -38,6 +39,7 @@ public class SellerProductSaleStatusService {
 
     private final ProductRepository productRepository;
     private final AuditRecorder auditRecorder;
+    private final InboxSignalPublisher inboxSignalPublisher;
 
     /**
      * 판매 상태를 전환한다(SALE ↔ STOPPED). 같은 상태 재요청은 관리자와 같이 422(오조작 감지).
@@ -85,6 +87,7 @@ public class SellerProductSaleStatusService {
         product.changeSoldoutManual(soldOut);
         auditRecorder.record(auditContext, AuditLogAction.UPDATE, PolymorphicTargetType.PRODUCT, product.getId(),
                 Map.of("soldoutManual", before), Map.of("soldoutManual", soldOut));
+        inboxSignalPublisher.sellerChanged(sellerId); // 셀러 재고 임박(수동 품절 제외 조건)
         log.info("[SellerProduct] 수동 품절 변경 sellerId={} publicId={} {} → {}", sellerId, publicId, before, soldOut);
     }
 

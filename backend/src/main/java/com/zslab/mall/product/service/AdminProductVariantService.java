@@ -4,6 +4,7 @@ import com.zslab.mall.audit.enums.AuditLogAction;
 import com.zslab.mall.audit.service.AuditContext;
 import com.zslab.mall.audit.service.AuditRecorder;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
+import com.zslab.mall.inbox.stream.InboxSignalPublisher;
 import com.zslab.mall.inventory.service.InventoryService;
 import com.zslab.mall.product.controller.request.AdminProductVariantsRequest;
 import com.zslab.mall.product.entity.Product;
@@ -59,6 +60,7 @@ public class AdminProductVariantService {
     private final ProductOptionValueRepository productOptionValueRepository;
     private final InventoryService inventoryService;
     private final AuditRecorder auditRecorder;
+    private final InboxSignalPublisher inboxSignalPublisher;
 
     /**
      * variant 목록을 요청대로 치환한다.
@@ -130,6 +132,8 @@ public class AdminProductVariantService {
         auditRecorder.record(auditContext, AuditLogAction.UPDATE, PolymorphicTargetType.PRODUCT, product.getId(),
                 Map.of("variantCount", existingCount),
                 Map.of("variantCount", request.variants().size(), "created", createdCount, "deleted", existingByPublicId.size()));
+        // 셀러 재고 임박(옵션 품절·삭제·신규 옵션 초기 재고)
+        inboxSignalPublisher.sellerChanged(product.getSellerId());
         log.info("[AdminProductVariant] variant 치환 productPublicId={} total={} created={} deleted={}",
                 publicId, request.variants().size(), createdCount, existingByPublicId.size());
     }

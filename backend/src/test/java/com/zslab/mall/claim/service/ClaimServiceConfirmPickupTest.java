@@ -22,6 +22,7 @@ import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.order.repository.OrderRepository;
 import com.zslab.mall.order.service.OrderService;
+import com.zslab.mall.inbox.stream.InboxSignalPublisher;
 import java.time.LocalDateTime;
 import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
@@ -63,6 +64,8 @@ class ClaimServiceConfirmPickupTest {
     private AuditRecorder auditRecorder;
     @Mock
     private OrderService orderService;
+    @Mock
+    private InboxSignalPublisher inboxSignalPublisher;
 
     @InjectMocks
     private ClaimService claimService;

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect } from './fixtures'
 
 /**
  * Browser/SSR Smoke(FE-15 STEP3) — E2E 아님.

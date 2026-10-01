@@ -40,6 +40,7 @@ import com.zslab.mall.order.repository.OrderRepository;
 import com.zslab.mall.order.service.OrderService;
 import com.zslab.mall.product.repository.ProductRepository;
 import com.zslab.mall.refund.repository.RefundRepository;
+import com.zslab.mall.inbox.stream.InboxSignalPublisher;
 import jakarta.persistence.EntityManager;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -101,6 +102,8 @@ class ClaimServiceTest {
     // Track 105-4b: 구매자 클레임 목록 썸네일 배치 조회 의존.
     @Mock
     private ProductRepository productRepository;
+    @Mock
+    private InboxSignalPublisher inboxSignalPublisher;
 
     @InjectMocks
     private ClaimService claimService;

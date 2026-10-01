@@ -7,6 +7,7 @@ import com.zslab.mall.inbox.controller.request.InboxSnoozeRequest;
 import com.zslab.mall.inbox.enums.InboxItemType;
 import com.zslab.mall.inbox.exception.InboxItemNotFoundException;
 import com.zslab.mall.inbox.repository.InboxSnoozeRepository;
+import com.zslab.mall.inbox.stream.InboxSignalPublisher;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import org.springframework.stereotype.Service;
@@ -25,10 +26,13 @@ public class InboxSnoozeService {
 
     private final InboxQueryService inboxQueryService;
     private final InboxSnoozeRepository inboxSnoozeRepository;
+    private final InboxSignalPublisher inboxSignalPublisher;
 
-    public InboxSnoozeService(InboxQueryService inboxQueryService, InboxSnoozeRepository inboxSnoozeRepository) {
+    public InboxSnoozeService(InboxQueryService inboxQueryService, InboxSnoozeRepository inboxSnoozeRepository,
+            InboxSignalPublisher inboxSignalPublisher) {
         this.inboxQueryService = inboxQueryService;
         this.inboxSnoozeRepository = inboxSnoozeRepository;
+        this.inboxSignalPublisher = inboxSignalPublisher;
     }
 
     /**
@@ -45,11 +49,22 @@ public class InboxSnoozeService {
         requirePending(viewer, request.type(), request.ref());
         inboxSnoozeRepository.upsert(viewer.userId(), request.type().name(), request.ref(), untilAt, request.reason().strip(),
                 LocalDateTime.now());
+        signalViewerAudience(viewer);
     }
 
     /** 본인 보류만 지운다. 없으면 아무 일도 하지 않는다(멱등). */
     public void unsnooze(InboxViewer viewer, InboxItemType type, String ref) {
         inboxSnoozeRepository.deleteByOwnerUserIdAndItemTypeAndItemRef(viewer.userId(), type, ref);
+        signalViewerAudience(viewer);
+    }
+
+    /** 보류는 본인 소유지만 같은 사람이 연 다른 탭도 갱신되도록 그 역할 범위(셀러는 소속 셀러)에 알린다. */
+    private void signalViewerAudience(InboxViewer viewer) {
+        if (viewer.isSeller()) {
+            inboxSignalPublisher.sellerChanged(viewer.sellerId());
+        } else {
+            inboxSignalPublisher.adminChanged();
+        }
     }
 
     private void requirePending(InboxViewer viewer, InboxItemType type, String ref) {

@@ -4,17 +4,18 @@ import { useDisplay } from 'vuetify'
 import type { InboxTypeCount } from '~/types/inbox'
 import { type InboxItemType, type InboxTab, inboxItemTypeLabel } from '~/lib/constants/inbox'
 import { type InboxQueryState, parseInboxQuery, toInboxRouteQuery } from '~/lib/inbox-query'
-import { type InboxItem, inboxTotal, msUntilNextKstMidnight, nextInboxSelection, normalizeInboxItem } from '~/lib/inbox-view'
+import { type InboxItem, inboxTotal, nextInboxSelection, normalizeInboxItem } from '~/lib/inbox-view'
 import { toSellerErrorMessage } from '#layers/seller/app/lib/seller-error-message'
 import { useSellerInbox } from '#layers/seller/app/composables/useSellerInbox'
 import { useSellerInboxBadge } from '#layers/seller/app/composables/useSellerInboxBadge'
+import { useSellerInboxStream } from '#layers/seller/app/composables/useSellerInboxStream'
 
 definePageMeta({ layout: 'seller', middleware: ['seller', 'seller-vuetify'] })
 useSeoMeta({ title: '인박스 · zslab-mall 셀러' })
 
 /**
  * 셀러 운영 인박스(D-248 · FE-101 · 관리자 pages/admin/inbox 복제 · 레이어 격리). 자기 셀러의 발송 대기 · Q&A 미답변 · 장기 배송중 · 재고 임박을
- * 기한 순으로 본다. URL query(탭·유형·선택)가 단일 소스이고 PC 2단 · 모바일 오른쪽 드로어. 갱신은 창 포커스 · 다음 KST 자정 · 새로고침 버튼.
+ * 기한 순으로 본다. URL query(탭·유형·선택)가 단일 소스이고 PC 2단 · 모바일 오른쪽 드로어. 갱신은 변경 신호 구독(FE-103 — 신호·재연결·KST 자정·화면 보임) · 새로고침 버튼.
  */
 const route = useRoute()
 const router = useRouter()
@@ -134,36 +135,16 @@ const drawerOpen = computed<boolean>({
   set: (open) => { if (!open) closeDrawer() },
 })
 
-let midnightTimer: ReturnType<typeof setTimeout> | null = null
+// 갱신: 변경 신호 구독(신호·재연결·KST 자정·화면 보임 — 사이드바와 같은 연결) · 1분마다 남은 시간 표시
+useSellerInboxStream(reload)
+
 let clockTimer: ReturnType<typeof setInterval> | null = null
 const CLOCK_TICK_MS = 60 * 1000
-const MIDNIGHT_SLACK_MS = 1000
-
-function scheduleMidnightReload(): void {
-  if (midnightTimer) clearTimeout(midnightTimer)
-  midnightTimer = setTimeout(() => {
-    void reload()
-    scheduleMidnightReload()
-  }, msUntilNextKstMidnight(Date.now()) + MIDNIGHT_SLACK_MS)
-}
-
-function onFocus(): void {
-  void reload()
-}
-function onVisibility(): void {
-  if (document.visibilityState === 'visible') void reload()
-}
 
 onMounted(() => {
-  window.addEventListener('focus', onFocus)
-  document.addEventListener('visibilitychange', onVisibility)
-  scheduleMidnightReload()
   clockTimer = setInterval(() => { nowMs.value = Date.now() }, CLOCK_TICK_MS)
 })
 onBeforeUnmount(() => {
-  window.removeEventListener('focus', onFocus)
-  document.removeEventListener('visibilitychange', onVisibility)
-  if (midnightTimer) clearTimeout(midnightTimer)
   if (clockTimer) clearInterval(clockTimer)
 })
 </script>

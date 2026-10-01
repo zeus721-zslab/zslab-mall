@@ -1,5 +1,6 @@
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect, type Page } from './fixtures'
 import { loginAs } from './helpers/login'
+import { emitInboxSignal, openStreamUrls } from './helpers/fake-event-source'
 import { mockSellerMe, pickOption } from './helpers/seller-mock'
 
 /**
@@ -156,5 +157,29 @@ test.describe('셀러 인박스(FE-101)', () => {
     await expect(drawer).not.toHaveClass(/v-navigation-drawer--active/)
     await page.waitForURL((url) => url.pathname === '/seller/inbox' && !url.searchParams.has('selected'))
     await expect(page.getByTestId('inbox-item')).toHaveCount(3)
+  })
+
+  test('⑥ 변경 신호(FE-103): 탭당 연결 1개(사이드바·인박스 공유) · 신호 → 인박스 목록과 메뉴 배지 재조회', async ({ page }) => {
+    const mock = await mockInbox(page)
+    let listRequests = 0
+    page.on('request', (request) => {
+      if (new URL(request.url()).pathname.endsWith('/api/v1/seller/inbox')) listRequests++
+    })
+    await loginAs(page, 'SELLER')
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/seller/inbox')
+    await expect(page.getByTestId('inbox-item')).toHaveCount(3)
+    await expect(page.getByTestId('seller-menu-badge-inbox')).toContainText('3')
+    await expect.poll(() => openStreamUrls(page)).toEqual(['/api/v1/seller/inbox/stream'])
+    await page.waitForLoadState('networkidle') // 마운트 때 배지·목록 첫 조회가 끝난 뒤를 기준으로 센다
+
+    const before = listRequests
+    mock.rows = mock.rows.filter((row) => row.ref !== QUESTION.ref)
+    await emitInboxSignal(page)
+
+    // 인박스 목록 1 + 메뉴 배지 1
+    await expect.poll(() => listRequests).toBe(before + 2)
+    await expect(page.getByTestId('inbox-item')).toHaveCount(2)
+    await expect(page.getByTestId('seller-menu-badge-inbox')).toContainText('2')
   })
 })

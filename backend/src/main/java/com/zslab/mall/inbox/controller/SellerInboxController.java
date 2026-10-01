@@ -10,8 +10,10 @@ import com.zslab.mall.inbox.enums.InboxItemType;
 import com.zslab.mall.inbox.enums.InboxTab;
 import com.zslab.mall.inbox.service.InboxQueryService;
 import com.zslab.mall.inbox.service.InboxSnoozeService;
+import com.zslab.mall.inbox.stream.InboxStreamRegistry;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -21,6 +23,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
  * 셀러 운영 인박스(D-248). 인가는 SecurityConfig {@code /api/v1/seller/**}→hasRole(SELLER), 셀러 식별·상태 가드는 {@link SellerActorResolver}
@@ -34,13 +37,16 @@ public class SellerInboxController {
     private final InboxSnoozeService inboxSnoozeService;
     private final SellerActorResolver sellerActorResolver;
     private final AuthenticatedUserResolver authenticatedUserResolver;
+    private final InboxStreamRegistry inboxStreamRegistry;
 
     public SellerInboxController(InboxQueryService inboxQueryService, InboxSnoozeService inboxSnoozeService,
-            SellerActorResolver sellerActorResolver, AuthenticatedUserResolver authenticatedUserResolver) {
+            SellerActorResolver sellerActorResolver, AuthenticatedUserResolver authenticatedUserResolver,
+            InboxStreamRegistry inboxStreamRegistry) {
         this.inboxQueryService = inboxQueryService;
         this.inboxSnoozeService = inboxSnoozeService;
         this.sellerActorResolver = sellerActorResolver;
         this.authenticatedUserResolver = authenticatedUserResolver;
+        this.inboxStreamRegistry = inboxStreamRegistry;
     }
 
     /** 탭(기본 오늘)의 대기 항목·유형별 건수. type은 셀러 유형만(그 외 400). */
@@ -48,6 +54,17 @@ public class SellerInboxController {
     public ResponseEntity<InboxResponse> list(@RequestParam(defaultValue = "TODAY") InboxTab tab,
             @RequestParam(required = false) InboxItemType type, HttpServletRequest request) {
         return ResponseEntity.ok(inboxQueryService.collect(viewer(request), tab, type));
+    }
+
+    /**
+     * 인박스 변경 신호 스트림(D-249). 셀러 상태 가드를 연결 시점에 한 번 통과해야 등록되고, 소속 셀러 범위·셀러 전체 신호만 받는다.
+     * 최대 수명이 지나면 서버가 닫고 브라우저가 재연결한다(재연결 때 가드를 다시 지난다).
+     */
+    @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public ResponseEntity<SseEmitter> stream(HttpServletRequest request) {
+        long sellerId = sellerActorResolver.resolve(request);
+        return ResponseEntity.ok().header(InboxStreamRegistry.NO_BUFFERING_HEADER, "no")
+                .body(inboxStreamRegistry.openForSeller(sellerId));
     }
 
     /** 보류 생성·갱신. 자기 셀러의 인박스 대기 항목이 아니면 404(타 셀러 항목 존재 은닉). */

@@ -13,6 +13,7 @@ import {
 import { useDisplay } from 'vuetify'
 import { ADMIN_MENU, type AdminMenuBadge, resolveActiveMenuPath } from '#layers/admin/app/lib/constants/admin-menu'
 import { useAdminInboxBadge } from '#layers/admin/app/composables/useAdminInboxBadge'
+import { useAdminInboxStream } from '#layers/admin/app/composables/useAdminInboxStream'
 
 // 사이드바(FE-22c Vuetify·FE-22f Argon형). 열림 상태는 레이아웃이 소유(v-model) — 상단바 토글과 공유.
 // 데스크톱(md 이상)은 가장자리 16px 여백의 흰 카드형 고정(admin-sidebar--card), 모바일은 기존 temporary drawer.
@@ -32,19 +33,16 @@ const GROUP_BADGES: Record<string, { icon: string; color: string }> = {
   '통계': { icon: mdiChartBoxOutline, color: 'secondary' },
 }
 
-// 메뉴 건수 배지(FE-101): 인박스 오늘 탭 건수. 처음 그릴 때와 창 포커스 때 다시 읽고, 인박스 화면은 목록을 읽을 때 같은 값을 갱신한다.
+// 메뉴 건수 배지(FE-101): 인박스 오늘 탭 건수. 처음 그릴 때 읽고, 이후는 변경 신호 구독(FE-103 — 신호·재연결·자정·화면 보임) 계기마다 다시
+// 읽는다. 사이드바가 관리자 레이아웃 수명 동안 구독하므로 탭당 연결은 여기서 열리고 로그아웃 때 닫힌다. 인박스 화면은 목록을 읽을 때 같은 값을 갱신한다.
 const inboxBadge = useAdminInboxBadge()
 function badgeCount(badge: AdminMenuBadge | undefined): number | null {
   return badge === 'INBOX_TODAY' ? inboxBadge.count.value : null
 }
-function onWindowFocus(): void {
-  void inboxBadge.refresh()
-}
+useAdminInboxStream(() => inboxBadge.refresh())
 onMounted(() => {
   void inboxBadge.refresh()
-  window.addEventListener('focus', onWindowFocus)
 })
-onBeforeUnmount(() => window.removeEventListener('focus', onWindowFocus))
 
 // 활성 판정은 resolveActiveMenuPath 1건만(FE-25): 정확 일치 우선·하위 경로(/admin/products/prd_…)는 가장 긴 메뉴 경로 1개만 활성.
 // 단순 prefix 매칭이면 /admin/orders가 /admin/orders/payments에서도 활성돼 두 항목이 동시에 강조되므로 쓰지 않는다.

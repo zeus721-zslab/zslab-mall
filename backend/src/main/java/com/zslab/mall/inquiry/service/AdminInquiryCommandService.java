@@ -4,6 +4,7 @@ import com.zslab.mall.audit.enums.AuditLogAction;
 import com.zslab.mall.audit.service.AuditContext;
 import com.zslab.mall.audit.service.AuditRecorder;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
+import com.zslab.mall.inbox.stream.InboxSignalPublisher;
 import com.zslab.mall.inquiry.entity.Inquiry;
 import com.zslab.mall.inquiry.exception.InquiryNotFoundException;
 import com.zslab.mall.inquiry.repository.InquiryRepository;
@@ -27,10 +28,13 @@ public class AdminInquiryCommandService {
 
     private final InquiryRepository inquiryRepository;
     private final AuditRecorder auditRecorder;
+    private final InboxSignalPublisher inboxSignalPublisher;
 
-    public AdminInquiryCommandService(InquiryRepository inquiryRepository, AuditRecorder auditRecorder) {
+    public AdminInquiryCommandService(InquiryRepository inquiryRepository, AuditRecorder auditRecorder,
+            InboxSignalPublisher inboxSignalPublisher) {
         this.inquiryRepository = inquiryRepository;
         this.auditRecorder = auditRecorder;
+        this.inboxSignalPublisher = inboxSignalPublisher;
     }
 
     /**
@@ -53,6 +57,7 @@ public class AdminInquiryCommandService {
         auditRecorder.record(auditContext, AuditLogAction.UPDATE, PolymorphicTargetType.INQUIRY, inquiry.getId(),
                 previousAnswer == null ? Map.of() : Map.of("answer", previousAnswer),
                 Map.of("answer", trimmed));
+        inboxSignalPublisher.adminChanged(); // 관리자 미답변 문의 이탈
         log.info("[AdminInquiry] 답변 {} inquiryPublicId={} byActor={}", previousAnswer == null ? "등록" : "수정", inquiryPublicId,
                 auditContext.actorUserId());
     }

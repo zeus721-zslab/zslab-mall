@@ -5,6 +5,7 @@ import com.zslab.mall.audit.service.AuditContext;
 import com.zslab.mall.audit.service.AuditRecorder;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
 import com.zslab.mall.common.observability.TracedEventPublisher;
+import com.zslab.mall.inbox.stream.InboxSignalPublisher;
 import com.zslab.mall.seller.repository.SellerBankAccountRepository;
 import com.zslab.mall.settlement.entity.Settlement;
 import com.zslab.mall.settlement.enums.SettlementStatus;
@@ -48,6 +49,7 @@ public class SettlementTransitionService {
     private final SellerBankAccountRepository sellerBankAccountRepository;
     private final AuditRecorder auditRecorder;
     private final TracedEventPublisher eventPublisher;
+    private final InboxSignalPublisher inboxSignalPublisher;
 
     /**
      * 정산을 정상처리한다(PENDING → CONFIRMED·셀러 공개). 이미 CONFIRMED이면 멱등 no-op(감사·이벤트 미발행). 실제 전이 시 status
@@ -80,6 +82,7 @@ public class SettlementTransitionService {
         eventPublisher.publishEvent(new SettlementConfirmed(settlement.getId(), settlement.getSellerId(),
                 settlement.getPeriodStart(), settlement.getPeriodEnd(), settlement.getNetAmount(),
                 settlement.getScheduledPayDate(), LocalDateTime.now()));
+        inboxSignalPublisher.adminChanged(); // 관리자 정산 확정 이탈 · 정산 지급 진입
         return settlement;
     }
 
@@ -133,6 +136,7 @@ public class SettlementTransitionService {
         auditRecorder.record(auditContext, AuditLogAction.UPDATE, PolymorphicTargetType.SETTLEMENT, settlement.getId(),
                 Map.of("status", before.name()),
                 Map.of("status", settlement.getStatus().name(), "bankAccountId", settlement.getBankAccountId()));
+        inboxSignalPublisher.adminChanged(); // 관리자 정산 지급 이탈
         return settlement;
     }
 }

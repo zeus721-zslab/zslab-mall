@@ -2,6 +2,7 @@ package com.zslab.mall.order.service;
 
 import com.github.f4b6a3.ulid.UlidCreator;
 import com.zslab.mall.common.observability.TracedEventPublisher;
+import com.zslab.mall.inbox.stream.InboxSignalPublisher;
 import com.zslab.mall.order.command.CreateOrderCommand;
 import com.zslab.mall.order.command.OrderItemCommand;
 import com.zslab.mall.order.command.ShippingAddressCommand;
@@ -43,16 +44,19 @@ public class OrderService {
     private final OrderStatusResolver orderStatusResolver;
     private final TracedEventPublisher eventPublisher;
     private final EntityManager entityManager;
+    private final InboxSignalPublisher inboxSignalPublisher;
 
     public OrderService(
             OrderRepository orderRepository,
             OrderStatusResolver orderStatusResolver,
             TracedEventPublisher eventPublisher,
-            EntityManager entityManager) {
+            EntityManager entityManager,
+            InboxSignalPublisher inboxSignalPublisher) {
         this.orderRepository = orderRepository;
         this.orderStatusResolver = orderStatusResolver;
         this.eventPublisher = eventPublisher;
         this.entityManager = entityManager;
+        this.inboxSignalPublisher = inboxSignalPublisher;
     }
 
     /**
@@ -116,6 +120,8 @@ public class OrderService {
                             + ", status=" + order.getStatus());
         }
         order.markPaid(paidAt);
+        // 셀러 발송 대기 진입 — 한 결제가 여러 셀러 품목을 담는다.
+        order.getItems().forEach(item -> inboxSignalPublisher.sellerChanged(item.getSellerId()));
         return order;
     }
 

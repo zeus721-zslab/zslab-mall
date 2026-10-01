@@ -4,6 +4,7 @@ import com.zslab.mall.audit.enums.AuditLogAction;
 import com.zslab.mall.audit.service.AuditContext;
 import com.zslab.mall.audit.service.AuditRecorder;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
+import com.zslab.mall.inbox.stream.InboxSignalPublisher;
 import com.zslab.mall.productquestion.entity.ProductQuestion;
 import com.zslab.mall.productquestion.enums.ProductQuestionStatus;
 import com.zslab.mall.productquestion.exception.ProductQuestionInvalidStateException;
@@ -28,10 +29,13 @@ public class AdminProductQuestionCommandService {
 
     private final ProductQuestionRepository productQuestionRepository;
     private final AuditRecorder auditRecorder;
+    private final InboxSignalPublisher inboxSignalPublisher;
 
-    public AdminProductQuestionCommandService(ProductQuestionRepository productQuestionRepository, AuditRecorder auditRecorder) {
+    public AdminProductQuestionCommandService(ProductQuestionRepository productQuestionRepository, AuditRecorder auditRecorder,
+            InboxSignalPublisher inboxSignalPublisher) {
         this.productQuestionRepository = productQuestionRepository;
         this.auditRecorder = auditRecorder;
+        this.inboxSignalPublisher = inboxSignalPublisher;
     }
 
     /**
@@ -53,6 +57,8 @@ public class AdminProductQuestionCommandService {
         auditRecorder.record(auditContext, AuditLogAction.UPDATE, PolymorphicTargetType.PRODUCT_QUESTION, question.getId(),
                 Map.of("status", before.name()),
                 Map.of("status", target.name(), "reason", trimmedReason));
+        // 셀러 Q&A 미답변 이탈(숨김)·재진입(숨김 해제) — 질문은 productId만 들고 있어 셀러 전체에 알린다.
+        inboxSignalPublisher.allSellersChanged();
         log.info("[AdminProductQuestion] 상태 전이 {} → {} questionPublicId={} byActor={}", before, target, questionPublicId,
                 auditContext.actorUserId());
     }

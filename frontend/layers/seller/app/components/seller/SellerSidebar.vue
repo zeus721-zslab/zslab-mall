@@ -12,6 +12,7 @@ import {
 import { useDisplay } from 'vuetify'
 import { SELLER_MENU, type SellerMenuBadge, resolveActiveSellerMenuPath } from '#layers/seller/app/lib/constants/seller-menu'
 import { useSellerInboxBadge } from '#layers/seller/app/composables/useSellerInboxBadge'
+import { useSellerInboxStream } from '#layers/seller/app/composables/useSellerInboxStream'
 
 // 셀러 사이드바(Track 90-A·관리자 AdminSidebar 동형). 열림 상태는 레이아웃이 소유(v-model) — 상단바 토글과 공유.
 // 데스크톱(md 이상)은 가장자리 16px 여백의 흰 카드형 고정(seller-sidebar--card), 모바일은 temporary drawer.
@@ -30,19 +31,16 @@ const GROUP_BADGES: Record<string, { icon: string; color: string }> = {
   '설정': { icon: mdiCogOutline, color: 'secondary' },
 }
 
-// 메뉴 건수 배지(FE-101): 인박스 오늘 탭 건수. 처음 그릴 때와 창 포커스 때 다시 읽고, 인박스 화면은 목록을 읽을 때 같은 값을 갱신한다.
+// 메뉴 건수 배지(FE-101): 인박스 오늘 탭 건수. 처음 그릴 때 읽고, 이후는 변경 신호 구독(FE-103 — 신호·재연결·자정·화면 보임) 계기마다 다시
+// 읽는다. 사이드바가 셀러 레이아웃 수명 동안 구독하므로 탭당 연결은 여기서 열리고 로그아웃 때 닫힌다. 인박스 화면은 목록을 읽을 때 같은 값을 갱신한다.
 const inboxBadge = useSellerInboxBadge()
 function badgeCount(badge: SellerMenuBadge | undefined): number | null {
   return badge === 'INBOX_TODAY' ? inboxBadge.count.value : null
 }
-function onWindowFocus(): void {
-  void inboxBadge.refresh()
-}
+useSellerInboxStream(() => inboxBadge.refresh())
 onMounted(() => {
   void inboxBadge.refresh()
-  window.addEventListener('focus', onWindowFocus)
 })
-onBeforeUnmount(() => window.removeEventListener('focus', onWindowFocus))
 
 // 활성 판정은 resolveActiveSellerMenuPath 1건만: 정확 일치 우선·하위 경로는 가장 긴 메뉴 경로 1개만 활성(단순 prefix 매칭 금지).
 const activeMenuPath = computed<string | null>(() => resolveActiveSellerMenuPath(route.path))

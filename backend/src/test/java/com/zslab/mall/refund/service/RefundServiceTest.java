@@ -34,6 +34,7 @@ import com.zslab.mall.refund.event.RefundCompleted;
 import com.zslab.mall.refund.exception.RefundIdempotentNoOpException;
 import com.zslab.mall.refund.exception.RefundInvariantViolationException;
 import com.zslab.mall.refund.repository.RefundRepository;
+import com.zslab.mall.inbox.stream.InboxSignalPublisher;
 import java.time.LocalDateTime;
 import java.util.Optional;
 import jakarta.persistence.EntityManager;
@@ -81,6 +82,8 @@ class RefundServiceTest {
     private OrderService orderService;
     @Mock
     private ReconciliationIssueRecorder reconciliationIssueRecorder;
+    @Mock
+    private InboxSignalPublisher inboxSignalPublisher;
 
     @InjectMocks
     private RefundService refundService;

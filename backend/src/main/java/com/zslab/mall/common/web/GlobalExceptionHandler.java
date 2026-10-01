@@ -106,6 +106,7 @@ import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
@@ -951,6 +952,16 @@ public class GlobalExceptionHandler {
         log.warn("[Web] 미지원 Content-Type(415): {} {} contentType={}", request.getMethod(), request.getRequestURI(),
                 exception.getContentType());
         return build(HttpStatus.UNSUPPORTED_MEDIA_TYPE, CODE_UNSUPPORTED_MEDIA_TYPE, "지원하지 않는 Content-Type입니다.", request);
+    }
+
+    /**
+     * 열린 비동기 응답(인박스 SSE·D-249)의 클라이언트가 떠난 경우. 응답은 이미 커밋돼 쓸 수 없으므로 본문 없이 끝낸다 — fallback으로 가면
+     * 탭을 닫을 때마다 500 ERROR가 남는다.
+     */
+    @ExceptionHandler(AsyncRequestNotUsableException.class)
+    public void handleAsyncRequestNotUsable(AsyncRequestNotUsableException exception, HttpServletRequest request) {
+        log.warn("[Web] 비동기 응답 클라이언트 연결 끊김: {} {} reason={}", request.getMethod(), request.getRequestURI(),
+                exception.getMessage());
     }
 
     // ===== 500 (fallback) =====

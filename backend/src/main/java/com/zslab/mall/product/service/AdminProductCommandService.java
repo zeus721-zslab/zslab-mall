@@ -7,6 +7,7 @@ import com.zslab.mall.category.exception.CategoryNotFoundException;
 import com.zslab.mall.category.repository.CategoryRepository;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
 import com.zslab.mall.file.service.ImageUploadService;
+import com.zslab.mall.inbox.stream.InboxSignalPublisher;
 import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.product.controller.request.AdminProductCreateRequest;
 import com.zslab.mall.product.controller.request.AdminProductImagesRequest;
@@ -63,6 +64,7 @@ public class AdminProductCommandService {
     private final ProductRegistrationService productRegistrationService;
     private final ImageUploadService imageUploadService;
     private final AuditRecorder auditRecorder;
+    private final InboxSignalPublisher inboxSignalPublisher;
 
     /**
      * 관리자 상품 등록. 셀러 지정 + 셀러 등록 Service 재사용(PENDING) + 공급가·판매기간 적용.
@@ -181,6 +183,7 @@ public class AdminProductCommandService {
         product.changeSoldoutManual(soldOut);
         auditRecorder.record(auditContext, AuditLogAction.UPDATE, PolymorphicTargetType.PRODUCT, product.getId(),
                 Map.of("soldoutManual", before), Map.of("soldoutManual", soldOut));
+        inboxSignalPublisher.sellerChanged(product.getSellerId()); // 셀러 재고 임박(수동 품절 제외 조건)
         log.info("[AdminProduct] 수동 품절 변경 publicId={} {} → {}", publicId, before, soldOut);
         return product;
     }
@@ -200,6 +203,9 @@ public class AdminProductCommandService {
         product.markDeleted();
         auditRecorder.record(auditContext, AuditLogAction.DELETE, PolymorphicTargetType.PRODUCT, product.getId(),
                 Map.of("deleted", false), Map.of("deleted", true));
+        // 관리자 상품 승인 이탈(PENDING 삭제) · 셀러 Q&A 미답변·재고 임박 이탈
+        inboxSignalPublisher.adminChanged();
+        inboxSignalPublisher.sellerChanged(product.getSellerId());
         log.info("[AdminProduct] soft-delete publicId={}", publicId);
     }
 

@@ -1,5 +1,6 @@
 package com.zslab.mall.productquestion.service;
 
+import com.zslab.mall.inbox.stream.InboxSignalPublisher;
 import com.zslab.mall.order.controller.response.PagedResponse;
 import com.zslab.mall.product.entity.Product;
 import com.zslab.mall.product.repository.ProductRepository;
@@ -37,10 +38,13 @@ public class SellerProductQuestionService {
 
     private final ProductQuestionRepository productQuestionRepository;
     private final ProductRepository productRepository;
+    private final InboxSignalPublisher inboxSignalPublisher;
 
-    public SellerProductQuestionService(ProductQuestionRepository productQuestionRepository, ProductRepository productRepository) {
+    public SellerProductQuestionService(ProductQuestionRepository productQuestionRepository, ProductRepository productRepository,
+            InboxSignalPublisher inboxSignalPublisher) {
         this.productQuestionRepository = productQuestionRepository;
         this.productRepository = productRepository;
+        this.inboxSignalPublisher = inboxSignalPublisher;
     }
 
     /** 자기 상품의 공개 질문 목록(답변 여부 필터·오래된 순). 페이지 질문의 상품은 한 번에 배치 조회한다. */
@@ -84,6 +88,7 @@ public class SellerProductQuestionService {
         } catch (IllegalStateException exception) {
             throw new ProductQuestionInvalidStateException(exception.getMessage() + " questionPublicId=" + questionPublicId);
         }
+        inboxSignalPublisher.sellerChanged(sellerId); // 셀러 Q&A 미답변 이탈
         log.info("[SellerProductQuestion] 답변 questionPublicId={} sellerId={} byUser={}", questionPublicId, sellerId, answererUserId);
     }
 }

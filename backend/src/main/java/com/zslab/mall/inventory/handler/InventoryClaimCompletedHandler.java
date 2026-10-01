@@ -3,6 +3,7 @@ package com.zslab.mall.inventory.handler;
 import com.zslab.mall.claim.entity.Claim;
 import com.zslab.mall.claim.event.ClaimCompleted;
 import com.zslab.mall.claim.repository.ClaimRepository;
+import com.zslab.mall.inbox.stream.InboxSignalPublisher;
 import com.zslab.mall.inventory.enums.InventoryHistoryChangeType;
 import com.zslab.mall.inventory.repository.InventoryHistoryRepository;
 import com.zslab.mall.inventory.service.InventoryService;
@@ -42,6 +43,7 @@ public class InventoryClaimCompletedHandler {
     private final OrderItemRepository orderItemRepository;
     private final InventoryService inventoryService;
     private final InventoryHistoryRepository inventoryHistoryRepository;
+    private final InboxSignalPublisher inboxSignalPublisher;
 
     @EventListener
     public void handle(ClaimCompleted event) {
@@ -74,6 +76,7 @@ public class InventoryClaimCompletedHandler {
             case EXCHANGE -> throw new IllegalStateException(
                     "EXCHANGE 종결 재고 이력이 없습니다(completeExchange 미경유): claimId=" + event.claimId());
         }
+        inboxSignalPublisher.sellerChanged(orderItem.getSellerId()); // 셀러 재고 임박(재입고)
         log.info("[Inventory] event=ClaimCompleted target_id={} action={} variant_id={} qty={}",
                 event.claimId(), claim.getType(), variantId, qty);
     }

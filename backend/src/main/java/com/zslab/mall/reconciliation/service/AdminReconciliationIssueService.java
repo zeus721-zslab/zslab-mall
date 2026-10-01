@@ -7,6 +7,7 @@ import com.zslab.mall.audit.enums.AuditLogAction;
 import com.zslab.mall.audit.service.AuditContext;
 import com.zslab.mall.audit.service.AuditRecorder;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
+import com.zslab.mall.inbox.stream.InboxSignalPublisher;
 import com.zslab.mall.order.controller.response.PagedResponse;
 import com.zslab.mall.order.entity.Order;
 import com.zslab.mall.order.repository.OrderRepository;
@@ -56,6 +57,7 @@ public class AdminReconciliationIssueService {
     private final UserRepository userRepository;
     private final AuditRecorder auditRecorder;
     private final ObjectMapper objectMapper;
+    private final InboxSignalPublisher inboxSignalPublisher;
 
     /** 불일치 목록(최신순). 상태·유형은 null이면 전체. */
     public PagedResponse<AdminReconciliationIssueResponse> list(
@@ -88,6 +90,7 @@ public class AdminReconciliationIssueService {
         auditRecorder.record(auditContext, AuditLogAction.UPDATE, PolymorphicTargetType.RECONCILIATION_ISSUE, issue.getId(),
                 Map.of(AUDIT_FIELD_STATUS, before.name()),
                 Map.of(AUDIT_FIELD_STATUS, issue.getStatus().name(), AUDIT_FIELD_MEMO, memo));
+        inboxSignalPublisher.adminChanged(); // 관리자 정합성 불일치 이탈
         return toResponses(List.of(issue)).get(0);
     }
 

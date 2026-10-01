@@ -4,6 +4,7 @@ import com.zslab.mall.audit.enums.AuditLogAction;
 import com.zslab.mall.audit.service.AuditContext;
 import com.zslab.mall.audit.service.AuditRecorder;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
+import com.zslab.mall.inbox.stream.InboxSignalPublisher;
 import com.zslab.mall.product.entity.Product;
 import com.zslab.mall.product.enums.ProductStatus;
 import com.zslab.mall.product.exception.ProductInvalidStateException;
@@ -37,6 +38,7 @@ public class ProductApprovalService {
 
     private final ProductRepository productRepository;
     private final AuditRecorder auditRecorder;
+    private final InboxSignalPublisher inboxSignalPublisher;
 
     /**
      * 상품을 승인한다(PENDING → SALE). 실제 전이 시 status 변경을 같은 트랜잭션에서 감사 로그로 적재한다(Track 52 Phase 2).
@@ -65,6 +67,7 @@ public class ProductApprovalService {
         }
         auditRecorder.record(auditContext, AuditLogAction.APPROVE, PolymorphicTargetType.PRODUCT, product.getId(),
                 Map.of("status", before.name()), Map.of("status", product.getStatus().name()));
+        inboxSignalPublisher.adminChanged(); // 관리자 상품 승인 이탈
         log.info("[Product] 승인 전이 완료(→SALE): publicId={}", publicId);
         return product;
     }
@@ -96,6 +99,7 @@ public class ProductApprovalService {
         }
         auditRecorder.record(auditContext, AuditLogAction.REJECT, PolymorphicTargetType.PRODUCT, product.getId(),
                 Map.of("status", before.name()), Map.of("status", product.getStatus().name()));
+        inboxSignalPublisher.adminChanged(); // 관리자 상품 승인 이탈
         log.info("[Product] 거부 전이 완료(→REJECTED): publicId={}", publicId);
         return product;
     }
@@ -128,6 +132,7 @@ public class ProductApprovalService {
         auditRecorder.record(auditContext, AuditLogAction.UPDATE, PolymorphicTargetType.PRODUCT, product.getId(),
                 Map.of("status", before.name()),
                 Map.of("status", product.getStatus().name(), "reason", reason));
+        inboxSignalPublisher.adminChanged(); // 관리자 상품 승인 재진입
         log.info("[Product] 거부 철회 완료(→PENDING): publicId={}", publicId);
         return product;
     }

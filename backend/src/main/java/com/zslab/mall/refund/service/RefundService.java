@@ -11,6 +11,7 @@ import com.zslab.mall.audit.service.AuditRecorder;
 import com.zslab.mall.claim.repository.ClaimRepository;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
 import com.zslab.mall.common.observability.TracedEventPublisher;
+import com.zslab.mall.inbox.stream.InboxSignalPublisher;
 import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.order.service.OrderService;
@@ -69,6 +70,7 @@ public class RefundService {
     private final AuditRecorder auditRecorder;
     private final OrderService orderService;
     private final ReconciliationIssueRecorder reconciliationIssueRecorder;
+    private final InboxSignalPublisher inboxSignalPublisher;
 
     public RefundService(
             ClaimRepository claimRepository,
@@ -80,7 +82,8 @@ public class RefundService {
             EntityManager entityManager,
             AuditRecorder auditRecorder,
             OrderService orderService,
-            ReconciliationIssueRecorder reconciliationIssueRecorder) {
+            ReconciliationIssueRecorder reconciliationIssueRecorder,
+            InboxSignalPublisher inboxSignalPublisher) {
         this.claimRepository = claimRepository;
         this.orderItemRepository = orderItemRepository;
         this.paymentRepository = paymentRepository;
@@ -91,6 +94,7 @@ public class RefundService {
         this.auditRecorder = auditRecorder;
         this.orderService = orderService;
         this.reconciliationIssueRecorder = reconciliationIssueRecorder;
+        this.inboxSignalPublisher = inboxSignalPublisher;
     }
 
     /**
@@ -175,6 +179,8 @@ public class RefundService {
                     claimId, refund.getId(), gatewayException.toString());
             refund.markFailed();
         }
+        // 관리자 클레임 후속: 환불 대기 이탈(PG 예외로 FAILED면 그대로 남는다)
+        inboxSignalPublisher.adminChanged();
         return refundRepository.save(refund);
     }
 
@@ -324,6 +330,7 @@ public class RefundService {
             return refund;
         }
         refund.markFailed();
+        inboxSignalPublisher.adminChanged(); // 관리자 클레임 후속: 환불 대기 재진입
         log.warn("[Refund] 환불 실패 처리(FAILED): refundId={}, reason={}", refundId, reason);
         return refundRepository.save(refund);
     }
@@ -377,6 +384,7 @@ public class RefundService {
                     log.warn("[Refund] SUCCESS 콜백 충돌(이미 FAILED): pgRefundId={}, refundId={}", pgRefundId, refund.getId());
                     refund.recordPgRefundSucceeded(LocalDateTime.now());
                     refundRepository.save(refund);
+                    inboxSignalPublisher.adminChanged(); // 관리자 클레임 후속: 환불된 금액으로 세어 이탈
                     Map<String, Object> detail = new LinkedHashMap<>();
                     detail.put("reason", "REFUND_ALREADY_FAILED");
                     detail.put("refundAmount", refund.getAmount());

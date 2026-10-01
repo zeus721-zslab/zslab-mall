@@ -17,6 +17,7 @@ import com.zslab.mall.settlement.exception.SettlementBankAccountMissingException
 import com.zslab.mall.settlement.exception.SettlementInvalidStateException;
 import com.zslab.mall.settlement.exception.SettlementNegativeNetException;
 import com.zslab.mall.settlement.exception.SettlementNotFoundException;
+import com.zslab.mall.inbox.stream.InboxSignalPublisher;
 import jakarta.persistence.Query;
 import java.time.LocalDateTime;
 import org.junit.jupiter.api.AfterEach;
@@ -50,6 +51,8 @@ class SettlementTransitionServiceTest extends Batch1DataJpaTestBase {
     private AuditRecorder auditRecorder;
     @MockitoBean
     private TracedEventPublisher eventPublisher;
+    @MockitoBean
+    private InboxSignalPublisher inboxSignalPublisher;
 
     private long seq = 0;
 

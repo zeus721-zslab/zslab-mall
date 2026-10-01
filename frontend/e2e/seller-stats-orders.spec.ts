@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect } from './fixtures'
 
 /**
  * 셀러 주문·클레임 통계(Track 90-E-2·D-200) E2E. 데모 셀러(env NUXT_SELLER_DEMO_*·seller02·실 API)로 /seller/stats/orders를 열어 퍼널·소요시간·요약·분포·

@@ -8,6 +8,7 @@ import com.zslab.mall.auth.enums.RoleCode;
 import com.zslab.mall.auth.repository.RoleRepository;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
 import com.zslab.mall.common.security.DemoAccountGuard;
+import com.zslab.mall.inbox.stream.InboxSignalPublisher;
 import com.zslab.mall.seller.controller.request.SellerProvisioningRequest;
 import com.zslab.mall.seller.controller.response.SellerProvisioningResponse;
 import com.zslab.mall.seller.entity.Seller;
@@ -49,6 +50,7 @@ public class SellerProvisioningService {
     private final UserRepository userRepository;
     private final DemoAccountGuard demoAccountGuard;
     private final AuditRecorder auditRecorder;
+    private final InboxSignalPublisher inboxSignalPublisher;
 
     public SellerProvisioningService(
             SellerRepository sellerRepository,
@@ -56,13 +58,15 @@ public class SellerProvisioningService {
             RoleRepository roleRepository,
             UserRepository userRepository,
             DemoAccountGuard demoAccountGuard,
-            AuditRecorder auditRecorder) {
+            AuditRecorder auditRecorder,
+            InboxSignalPublisher inboxSignalPublisher) {
         this.sellerRepository = sellerRepository;
         this.sellerUserRepository = sellerUserRepository;
         this.roleRepository = roleRepository;
         this.userRepository = userRepository;
         this.demoAccountGuard = demoAccountGuard;
         this.auditRecorder = auditRecorder;
+        this.inboxSignalPublisher = inboxSignalPublisher;
     }
 
     /**
@@ -141,6 +145,9 @@ public class SellerProvisioningService {
         }
         auditRecorder.record(auditContext, AuditLogAction.CREATE, PolymorphicTargetType.SELLER, seller.getId(),
                 Map.of(), after);
+        if (request.status() == SellerStatus.PENDING) {
+            inboxSignalPublisher.adminChanged(); // 관리자 입점 심사 진입
+        }
         log.info("[SellerProvisioning] 입점 완료 sellerPublicId={} ownerUserId={}",
                 seller.getPublicId(), ownerUserId);
         return new SellerProvisioningResponse(seller.getPublicId());

@@ -11,6 +11,7 @@ import com.zslab.mall.inventory.service.InventoryService;
 import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.event.OrderPlaced;
 import com.zslab.mall.order.repository.OrderItemRepository;
+import com.zslab.mall.inbox.stream.InboxSignalPublisher;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
@@ -40,6 +41,8 @@ class InventoryOrderPlacedHandlerTest {
     private OrderItemRepository orderItemRepository;
     @Mock
     private InventoryService inventoryService;
+    @Mock
+    private InboxSignalPublisher inboxSignalPublisher;
     @InjectMocks
     private InventoryOrderPlacedHandler handler;
 

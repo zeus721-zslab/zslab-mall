@@ -1,5 +1,6 @@
 package com.zslab.mall.productquestion.service;
 
+import com.zslab.mall.inbox.stream.InboxSignalPublisher;
 import com.zslab.mall.product.entity.Product;
 import com.zslab.mall.product.exception.ProductNotFoundException;
 import com.zslab.mall.productquestion.entity.ProductQuestion;
@@ -21,10 +22,13 @@ public class ProductQuestionService {
 
     private final ProductQuestionRepository productQuestionRepository;
     private final ExposedProductReader exposedProductReader;
+    private final InboxSignalPublisher inboxSignalPublisher;
 
-    public ProductQuestionService(ProductQuestionRepository productQuestionRepository, ExposedProductReader exposedProductReader) {
+    public ProductQuestionService(ProductQuestionRepository productQuestionRepository, ExposedProductReader exposedProductReader,
+            InboxSignalPublisher inboxSignalPublisher) {
         this.productQuestionRepository = productQuestionRepository;
         this.exposedProductReader = exposedProductReader;
+        this.inboxSignalPublisher = inboxSignalPublisher;
     }
 
     /**
@@ -36,6 +40,7 @@ public class ProductQuestionService {
         Product product = exposedProductReader.require(productPublicId);
         ProductQuestion question = productQuestionRepository.save(ProductQuestion.create(product.getId(), buyerId, content.trim()));
         log.info("[ProductQuestion] 등록 questionPublicId={} productId={} buyerId={}", question.getPublicId(), product.getId(), buyerId);
+        inboxSignalPublisher.sellerChanged(product.getSellerId()); // 셀러 Q&A 미답변 진입
         return question;
     }
 
@@ -69,6 +74,8 @@ public class ProductQuestionService {
             throw new ProductQuestionInvalidStateException(exception.getMessage() + " questionPublicId=" + questionPublicId);
         }
         log.info("[ProductQuestion] 삭제 questionPublicId={} buyerId={}", questionPublicId, buyerId);
+        // 셀러 Q&A 미답변 이탈 — 질문은 productId만 들고 있어 셀러 전체에 알린다.
+        inboxSignalPublisher.allSellersChanged();
     }
 
     /** 락을 잡고 작성자 대조. 타인 질문도 미존재와 같은 404로 은닉한다. */

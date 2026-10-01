@@ -1,5 +1,6 @@
 package com.zslab.mall.common.security;
 
+import jakarta.servlet.DispatcherType;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -59,6 +60,11 @@ public class SecurityConfig {
                         .authenticationEntryPoint(securityErrorHandler)
                         .accessDeniedHandler(securityErrorHandler))
                 .authorizeHttpRequests(auth -> auth
+                        // 비동기 응답(인박스 SSE·D-249)의 완료·타임아웃 디스패치는 최초 REQUEST 디스패치에서 이미 인가된 같은 요청의 후속 디스패치라 허용한다.
+                        // JWT 필터는 ASYNC 디스패치를 건너뛰어 컨텍스트가 비므로, 재판정하면 열린 스트림 끝에서 거부(Access Denied)가 난다.
+                        // 새 비동기 컨트롤러(SseEmitter·DeferredResult 등)를 추가할 때는 REQUEST 경로의 인가와 이 ASYNC 허용을 함께 검토한다.
+                        .dispatcherTypeMatchers(DispatcherType.ASYNC)
+                        .permitAll()
                         .requestMatchers("/api/webhooks/**")
                         .permitAll()
                         .requestMatchers("/actuator/health", "/actuator/info", "/actuator/prometheus")
