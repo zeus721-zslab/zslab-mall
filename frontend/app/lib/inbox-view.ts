@@ -1,4 +1,5 @@
 import type { InboxItemResponse, InboxTypeCount } from '~/types/inbox'
+import type { ClaimSuggestion, ClaimType } from '~/lib/constants/claim'
 import {
   type InboxAudience,
   type InboxItemType,
@@ -29,6 +30,10 @@ export interface InboxItem {
   dueAt: string | null
   overdue: boolean
   targetKey: InboxTargetKey
+  /** 클레임 유형(클레임 접수만 · 그 외 null · D-250). */
+  claimType: ClaimType | null
+  /** 클레임 처리 제안(클레임 접수만 · 그 외 null · D-250). */
+  suggestion: ClaimSuggestion | null
 }
 
 export function normalizeInboxItem(response: InboxItemResponse): InboxItem {
@@ -45,6 +50,8 @@ export function normalizeInboxItem(response: InboxItemResponse): InboxItem {
     dueAt: response.dueAt ?? null,
     overdue: response.overdue,
     targetKey: response.targetKey,
+    claimType: response.claimType ?? null,
+    suggestion: response.suggestion ?? null,
   }
 }
 
@@ -125,11 +132,11 @@ export const INBOX_TRUNCATED_MESSAGE = '항목이 많아 일부만 표시합니�
 
 // ---------- 상세 패널 처리 ----------
 
-/** 상세 패널에서 바로 처리하는 동작(P1b-1 범위 · 그 외 유형은 원래 화면으로 이동). */
-export type InboxPanelAction = 'INQUIRY_ANSWER' | 'SELLER_STATUS' | 'SHIPMENT' | 'QUESTION_ANSWER'
+/** 상세 패널에서 바로 처리하는 동작(P1b-1 · 클레임 접수 승인·거부는 P2 D-250 · 그 외 유형은 원래 화면으로 이동). */
+export type InboxPanelAction = 'INQUIRY_ANSWER' | 'SELLER_STATUS' | 'CLAIM_DECISION' | 'SHIPMENT' | 'QUESTION_ANSWER'
 
 const PANEL_ACTIONS: Record<InboxAudience, Partial<Record<InboxItemType, InboxPanelAction>>> = {
-  ADMIN: { INQUIRY_UNANSWERED: 'INQUIRY_ANSWER', SELLER_REVIEW: 'SELLER_STATUS' },
+  ADMIN: { INQUIRY_UNANSWERED: 'INQUIRY_ANSWER', SELLER_REVIEW: 'SELLER_STATUS', CLAIM_REQUESTED: 'CLAIM_DECISION' },
   SELLER: { DELIVERY_READY: 'SHIPMENT', QUESTION_UNANSWERED: 'QUESTION_ANSWER' },
 }
 

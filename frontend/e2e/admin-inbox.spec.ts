@@ -11,7 +11,12 @@ const INQUIRY_B = { type: 'INQUIRY_UNANSWERED', ref: 'inq_E2EB', title: 'E2E 교
 const FOLLOWUP = { type: 'CLAIM_FOLLOWUP', ref: 'clm_E2EF:REFUND', title: 'E2E 냄비', subtitle: 'ORD-E2E-1', baseAt: '2026-09-29T12:00:00+09:00', dueAt: '2026-10-01T12:00:00+09:00', overdue: true, targetKey: 'CLAIM' }
 const PRODUCT = { type: 'PRODUCT_APPROVAL', ref: 'prd_E2EP', title: 'E2E 승인 대기 상품', subtitle: 'E2E 셀러샵', baseAt: '2099-01-01T09:00:00+09:00', dueAt: '2099-01-02T09:00:00+09:00', overdue: false, targetKey: 'PRODUCT' }
 
-type InboxRow = typeof INQUIRY_A
+// 클레임 접수(D-250) — 승인 제안 2(취소·반품) · 검토 필요 1. 클레임 시나리오(⑧⑨)만 옵트인으로 싣는다(①~⑦ 건수 불변).
+const CLAIM_CANCEL = { type: 'CLAIM_REQUESTED', ref: 'clm_E2EC', title: 'E2E 머그컵', subtitle: 'ORD-E2E-2', baseAt: '2026-09-29T10:00:00+09:00', dueAt: '2026-09-30T10:00:00+09:00', overdue: true, targetKey: 'CLAIM', claimType: 'CANCEL', suggestion: 'APPROVE' }
+const CLAIM_RETURN = { type: 'CLAIM_REQUESTED', ref: 'clm_E2ER', title: 'E2E 텀블러', subtitle: 'ORD-E2E-3', baseAt: '2026-09-29T11:00:00+09:00', dueAt: '2026-09-30T11:00:00+09:00', overdue: true, targetKey: 'CLAIM', claimType: 'RETURN', suggestion: 'APPROVE' }
+const CLAIM_REVIEW = { type: 'CLAIM_REQUESTED', ref: 'clm_E2EV', title: 'E2E 접시', subtitle: 'ORD-E2E-4', baseAt: '2026-09-29T12:00:00+09:00', dueAt: '2026-09-30T12:00:00+09:00', overdue: true, targetKey: 'CLAIM', claimType: 'RETURN', suggestion: 'REVIEW' }
+
+type InboxRow = typeof INQUIRY_A & { claimType?: string; suggestion?: string }
 
 interface InboxMock {
   today: InboxRow[]
@@ -19,6 +24,23 @@ interface InboxMock {
   queries: URLSearchParams[]
   snoozes: unknown[]
   answers: string[]
+  approves: string[]
+  bulkBodies: unknown[]
+}
+
+/** 단건 조회 응답(BE AdminClaimDetailResponse) — 행 정보로 만든다. */
+function claimDetail(row: InboxRow) {
+  const cancel = row.claimType === 'CANCEL'
+  return {
+    claim: {
+      claimId: row.ref, type: row.claimType, status: 'REQUESTED', requestedAt: row.baseAt, orderNo: row.subtitle, buyerName: 'E2E 구매자',
+      productName: row.title, quantity: 1, amount: 15000, itemRemainingRefundable: 15000, reasonCode: cancel ? 'ORDER_MISTAKE' : 'PRODUCT_DEFECT',
+      pgRefundSucceeded: false, availableActions: ['APPROVE', 'REJECT'], attachmentCount: cancel ? 0 : 1,
+    },
+    suggestion: cancel
+      ? { suggestion: 'APPROVE', ruleKey: 'UNSHIPPED_CANCEL', reason: '미출고 취소 요청' }
+      : { suggestion: row.suggestion, ruleKey: row.suggestion === 'APPROVE' ? 'DEFECT_WITH_EVIDENCE' : 'DEFECT_WITHOUT_EVIDENCE', reason: row.suggestion === 'APPROVE' ? '증빙 첨부' : '증빙 없음' },
+  }
 }
 
 function body(rows: InboxRow[], type: string | null) {
@@ -31,8 +53,9 @@ function body(rows: InboxRow[], type: string | null) {
   }
 }
 
-async function mockInbox(page: Page): Promise<InboxMock> {
-  const mock: InboxMock = { today: [INQUIRY_A, INQUIRY_B, FOLLOWUP], upcoming: [PRODUCT], queries: [], snoozes: [], answers: [] }
+async function mockInbox(page: Page, options: { claims?: boolean } = {}): Promise<InboxMock> {
+  const today: InboxRow[] = options.claims ? [CLAIM_CANCEL, CLAIM_RETURN, CLAIM_REVIEW, INQUIRY_A] : [INQUIRY_A, INQUIRY_B, FOLLOWUP]
+  const mock: InboxMock = { today, upcoming: [PRODUCT], queries: [], snoozes: [], answers: [], approves: [], bulkBodies: [] }
   const remove = (ref: string): void => {
     mock.today = mock.today.filter((row) => row.ref !== ref)
     mock.upcoming = mock.upcoming.filter((row) => row.ref !== ref)
@@ -54,6 +77,34 @@ async function mockInbox(page: Page): Promise<InboxMock> {
     mock.answers.push(inquiryId)
     remove(inquiryId)
     return route.fulfill({ status: 204, body: '' })
+  })
+  // 클레임 단건·승인·일괄 승인(D-250). 일괄 승인은 첫 항목만 성공(제거)하고 나머지는 제안 불일치로 실패시킨다.
+  await page.route((url) => /\/api\/v1\/admin\/claims\/clm_[^/]+$/.test(url.pathname), (route) => {
+    const ref = new URL(route.request().url()).pathname.split('/').at(-1) ?? ''
+    const row = mock.today.find((candidate) => candidate.ref === ref)
+    return row ? route.fulfill({ json: claimDetail(row) }) : route.fulfill({ status: 404, json: { code: 'CLAIM_NOT_FOUND' } })
+  })
+  await page.route((url) => /\/api\/v1\/admin\/claims\/clm_[^/]+\/approve$/.test(url.pathname), (route) => {
+    const ref = route.request().url().match(/claims\/(clm_[^/]+)\/approve/)?.[1] ?? ''
+    mock.approves.push(ref)
+    remove(ref)
+    return route.fulfill({ json: { publicId: ref, status: 'APPROVED' } })
+  })
+  await page.route((url) => url.pathname.endsWith('/api/v1/admin/claims/bulk/approve'), (route) => {
+    const body = route.request().postDataJSON() as { claimPublicIds: string[] }
+    mock.bulkBodies.push(body)
+    const [first, ...rest] = body.claimPublicIds
+    if (first) remove(first)
+    return route.fulfill({
+      json: {
+        results: [
+          { claimPublicId: first, success: true },
+          ...rest.map((claimPublicId) => ({ claimPublicId, success: false, code: 'CLAIM_SUGGESTION_MISMATCH', message: '승인 제안이 아닙니다: 증빙 없음' })),
+        ],
+        successCount: 1,
+        failureCount: rest.length,
+      },
+    })
   })
   return mock
 }
@@ -207,5 +258,65 @@ test.describe('관리자 인박스(FE-101)', () => {
     await expect.poll(() => mock.queries.length).toBe(before + 2)
     await expect(page.getByTestId('inbox-item')).toHaveCount(2)
     await expect(page.getByTestId('admin-menu-badge-inbox')).toContainText('2')
+  })
+
+  test('⑧ 클레임 접수 패널(D-250): 유형·제안 표시 → 단건 조회 근거 → 승인 확인(즉시 환불) → 재조회 · 다음 항목', async ({ page }) => {
+    const mock = await mockInbox(page, { claims: true })
+    await loginAs(page, 'ADMIN')
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/admin/inbox')
+    await expect(page.getByTestId('inbox-item')).toHaveCount(4)
+    const cancelRow = page.locator('[data-testid="inbox-item"][data-key="CLAIM_REQUESTED:clm_E2EC"]')
+    await expect(cancelRow).toContainText('취소')
+    await expect(cancelRow.getByTestId('inbox-item-suggestion')).toHaveText('승인 제안')
+
+    // 첫 항목(취소) 자동 선택 → 패널이 단건 조회로 제안 근거를 보인다
+    await expect(page.getByTestId('inbox-detail-title')).toHaveText('E2E 머그컵')
+    await expect(page.getByTestId('inbox-claim-suggestion-reason')).toHaveText('미출고 취소 요청')
+    await expect(page.getByTestId('inbox-claim-reason')).toHaveText('주문 실수')
+
+    await page.getByTestId('inbox-claim-approve').click()
+    const dialog = page.getByTestId('inbox-claim-approve-dialog')
+    await expect(dialog).toContainText('승인 즉시 환불')
+    await dialog.getByTestId('inbox-claim-approve-dialog-ok').click()
+
+    await expect(page.getByTestId('admin-toaster')).toContainText('취소 요청을 승인했습니다.')
+    expect(mock.approves).toEqual(['clm_E2EC'])
+    await expect(page.getByTestId('inbox-item')).toHaveCount(3)
+    await expect(page.getByTestId('inbox-detail-title')).toHaveText('E2E 텀블러')
+  })
+
+  test('⑨ 일괄 승인(D-250): 승인 제안 행만 체크 → 확인(유형별 건수) → 부분 실패 토스트 → 결과 상세 → 재조회', async ({ page }) => {
+    const mock = await mockInbox(page, { claims: true })
+    await loginAs(page, 'ADMIN')
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/admin/inbox')
+    await expect(page.getByTestId('inbox-item')).toHaveCount(4)
+    // 체크 상자는 승인 제안 행(2)에만 있다 — 검토 필요·문의 행에는 없다
+    await expect(page.getByTestId('inbox-bulk-check')).toHaveCount(2)
+
+    await page.locator('[data-testid="inbox-item"][data-key="CLAIM_REQUESTED:clm_E2EC"]').getByTestId('inbox-bulk-check').click()
+    await page.locator('[data-testid="inbox-item"][data-key="CLAIM_REQUESTED:clm_E2ER"]').getByTestId('inbox-bulk-check').click()
+    await expect(page.getByTestId('inbox-bulk-count')).toHaveText('2건 선택 (최대 20건)')
+    // 체크는 상세 선택을 바꾸지 않는다
+    await expect(page.getByTestId('inbox-detail-title')).toHaveText('E2E 머그컵')
+
+    await page.getByTestId('inbox-bulk-approve').click()
+    const dialog = page.getByTestId('inbox-bulk-confirm-dialog')
+    await expect(dialog).toContainText('선택한 클레임 2건을 승인합니다.')
+    await expect(dialog).toContainText('취소 1건 · 반품 1건')
+    await expect(dialog).toContainText('취소는 승인 즉시 환불이 진행됩니다.')
+    await dialog.getByTestId('inbox-bulk-confirm-dialog-ok').click()
+
+    const warningToast = page.locator('[data-sonner-toast][data-type="warning"]')
+    await expect(warningToast).toContainText('일괄 승인 — 성공 1 / 실패 1')
+    expect(mock.bulkBodies).toEqual([{ claimPublicIds: ['clm_E2EC', 'clm_E2ER'] }])
+    await expect(page.getByTestId('inbox-item')).toHaveCount(3)
+    await expect(page.getByTestId('inbox-bulk-bar')).toHaveCount(0)
+
+    await warningToast.getByRole('button', { name: '상세 보기' }).click()
+    const result = page.getByTestId('admin-claim-bulk-result-dialog')
+    await expect(result.getByTestId('claim-bulk-result-failure-item')).toContainText('E2E 텀블러')
+    await expect(result.getByTestId('claim-bulk-result-failure-item')).toContainText('지금은 승인 제안이 아니어서 승인하지 않았습니다.')
   })
 })

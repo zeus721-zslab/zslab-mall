@@ -1,3 +1,4 @@
+import type { ClaimSuggestion, ClaimType } from '~/lib/constants/claim'
 import type { InboxItemType, InboxTab, InboxTargetKey } from '~/lib/constants/inbox'
 
 /**
@@ -14,6 +15,10 @@ export interface InboxItemResponse {
   dueAt?: string
   overdue: boolean
   targetKey: InboxTargetKey
+  /** 클레임 유형(클레임 접수만 · D-250). */
+  claimType?: ClaimType
+  /** 클레임 처리 제안(클레임 접수만 · D-250). */
+  suggestion?: ClaimSuggestion
 }
 
 export interface InboxTypeCount {

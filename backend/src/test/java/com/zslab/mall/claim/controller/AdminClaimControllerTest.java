@@ -18,6 +18,7 @@ import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.exception.ClaimInvalidStateException;
 import com.zslab.mall.claim.exception.ClaimNotFoundException;
 import com.zslab.mall.claim.repository.ClaimRepository;
+import com.zslab.mall.claim.service.AdminClaimBulkApproveService;
 import com.zslab.mall.claim.service.AdminClaimQueryService;
 import com.zslab.mall.claim.service.ClaimService;
 import com.zslab.mall.audit.service.AdminAuditLogQueryService;
@@ -82,6 +83,10 @@ class AdminClaimControllerTest {
 
     @MockitoBean
     private AdminAuditLogQueryService adminAuditLogQueryService;
+
+    // D-250: 일괄 승인 의존(슬라이스 컨텍스트 로딩용).
+    @MockitoBean
+    private AdminClaimBulkApproveService adminClaimBulkApproveService;
 
     /**
      * Track 101-A: 컨트롤러가 감사 컨텍스트를 조립하므로 coarse role이 반드시 있어야 한다(null이면 AuditContext가 400).

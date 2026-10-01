@@ -75,6 +75,12 @@ describe('응답 정규화', () => {
     const followup = normalizeInboxItem(response({ type: 'CLAIM_FOLLOWUP', ref: 'clm_ABC:REFUND', dueAt: '2026-10-01T10:00:00+09:00', targetKey: 'CLAIM' }))
     expect(followup).toMatchObject({ key: 'CLAIM_FOLLOWUP:clm_ABC:REFUND', sourceRef: 'clm_ABC', step: 'REFUND', dueAt: '2026-10-01T10:00:00+09:00' })
   })
+
+  it('클레임 접수 행의 유형·제안(D-250)은 그대로 · 다른 유형은 null', () => {
+    const claim = normalizeInboxItem(response({ type: 'CLAIM_REQUESTED', ref: 'clm_A', targetKey: 'CLAIM', claimType: 'CANCEL', suggestion: 'APPROVE' }))
+    expect(claim).toMatchObject({ claimType: 'CANCEL', suggestion: 'APPROVE' })
+    expect(normalizeInboxItem(response())).toMatchObject({ claimType: null, suggestion: null })
+  })
 })
 
 describe('기한 표시', () => {
@@ -127,12 +133,13 @@ describe('목록', () => {
     expect(inboxEmptyMessage('TODAY', 'LOW_STOCK')).toBe('재고 임박 — 오늘 처리할 일이 없습니다.')
   })
 
-  it('패널 처리 가능 유형: 관리자 문의·셀러 심사 · 셀러 발송 대기·Q&A · 그 외 이동만', () => {
+  it('패널 처리 가능 유형: 관리자 문의·셀러 심사·클레임 접수(D-250) · 셀러 발송 대기·Q&A · 그 외 이동만', () => {
     expect(inboxPanelAction('ADMIN', 'INQUIRY_UNANSWERED')).toBe('INQUIRY_ANSWER')
     expect(inboxPanelAction('ADMIN', 'SELLER_REVIEW')).toBe('SELLER_STATUS')
+    expect(inboxPanelAction('ADMIN', 'CLAIM_REQUESTED')).toBe('CLAIM_DECISION')
     expect(inboxPanelAction('SELLER', 'DELIVERY_READY')).toBe('SHIPMENT')
     expect(inboxPanelAction('SELLER', 'QUESTION_UNANSWERED')).toBe('QUESTION_ANSWER')
-    for (const type of ['CLAIM_REQUESTED', 'CLAIM_FOLLOWUP', 'LONG_SHIPPING', 'PRODUCT_APPROVAL', 'SETTLEMENT_CONFIRM', 'SETTLEMENT_PAYOUT', 'RECONCILIATION_OPEN'] as const) {
+    for (const type of ['CLAIM_FOLLOWUP', 'LONG_SHIPPING', 'PRODUCT_APPROVAL', 'SETTLEMENT_CONFIRM', 'SETTLEMENT_PAYOUT', 'RECONCILIATION_OPEN'] as const) {
       expect(inboxPanelAction('ADMIN', type)).toBeNull()
     }
     expect(inboxPanelAction('SELLER', 'LONG_SHIPPING')).toBeNull()

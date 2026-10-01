@@ -1,10 +1,13 @@
 package com.zslab.mall.claim.controller;
 
 import com.zslab.mall.claim.controller.request.AdminClaimActionFilter;
+import com.zslab.mall.claim.controller.request.AdminClaimBulkApproveRequest;
 import com.zslab.mall.claim.controller.request.AdminClaimSort;
 import com.zslab.mall.claim.controller.request.ClaimApproveRequest;
 import com.zslab.mall.claim.controller.request.ClaimInspectRequest;
 import com.zslab.mall.claim.controller.request.ClaimRejectRequest;
+import com.zslab.mall.claim.controller.response.AdminClaimBulkApproveResponse;
+import com.zslab.mall.claim.controller.response.AdminClaimDetailResponse;
 import com.zslab.mall.claim.controller.response.AdminClaimListResponse;
 import com.zslab.mall.claim.controller.response.ClaimResponse;
 import com.zslab.mall.claim.entity.Claim;
@@ -12,6 +15,7 @@ import com.zslab.mall.claim.enums.ClaimStatus;
 import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.exception.ClaimNotFoundException;
 import com.zslab.mall.claim.repository.ClaimRepository;
+import com.zslab.mall.claim.service.AdminClaimBulkApproveService;
 import com.zslab.mall.claim.service.AdminClaimQueryService;
 import com.zslab.mall.claim.service.ClaimService;
 import com.zslab.mall.audit.controller.response.AdminAuditLogResponse;
@@ -62,6 +66,7 @@ public class AdminClaimController {
     private final AdminActorResolver adminActorResolver;
     private final ActorRoleResolver actorRoleResolver;
     private final AdminAuditLogQueryService adminAuditLogQueryService;
+    private final AdminClaimBulkApproveService adminClaimBulkApproveService;
 
     public AdminClaimController(
             ClaimService claimService,
@@ -70,7 +75,8 @@ public class AdminClaimController {
             OrderItemRepository orderItemRepository,
             AdminActorResolver adminActorResolver,
             ActorRoleResolver actorRoleResolver,
-            AdminAuditLogQueryService adminAuditLogQueryService) {
+            AdminAuditLogQueryService adminAuditLogQueryService,
+            AdminClaimBulkApproveService adminClaimBulkApproveService) {
         this.claimService = claimService;
         this.adminClaimQueryService = adminClaimQueryService;
         this.claimRepository = claimRepository;
@@ -78,6 +84,7 @@ public class AdminClaimController {
         this.adminActorResolver = adminActorResolver;
         this.actorRoleResolver = actorRoleResolver;
         this.adminAuditLogQueryService = adminAuditLogQueryService;
+        this.adminClaimBulkApproveService = adminClaimBulkApproveService;
     }
 
     /**
@@ -112,6 +119,12 @@ public class AdminClaimController {
         return ResponseEntity.ok(adminClaimQueryService.listClaims(type, status, refundStatus, action, keyword, from, to, buyerPublicId, sort, page, size));
     }
 
+    /** 관리자 클레임 단건(D-250 · 인박스 상세 패널). 목록 행 필드 + REQUESTED면 처리 제안. 미존재 404. */
+    @GetMapping("/{claimPublicId}")
+    public AdminClaimDetailResponse detail(@PathVariable String claimPublicId) {
+        return adminClaimQueryService.getClaim(claimPublicId);
+    }
+
     /**
      * 클레임 처리 이력(Track 101-A). 승인·거부·회수 확인·검수 등 이 클레임에 대한 감사 행을 최신순으로 돌려준다.
      * 연결 배송(회수·교환품·재발송)의 감사 행도 합친다(Track 103).
@@ -141,6 +154,16 @@ public class AdminClaimController {
         Long refundAmount = body != null ? body.refundAmount() : null;
         claimService.approveByAdmin(claim.getId(), LocalDateTime.now(), refundAmount, auditContext);
         return toResponse(claimPublicId);
+    }
+
+    /**
+     * 관리자 클레임 일괄 승인(D-250). 항목별 커밋 · 항목마다 제안을 다시 계산해 승인 제안만 승인한다. 항목 실패가 있어도 200.
+     * 0건·{@value AdminClaimBulkApproveRequest#MAX_ITEMS}건 초과 400.
+     */
+    @PostMapping("/bulk/approve")
+    public AdminClaimBulkApproveResponse bulkApprove(@RequestBody @Valid AdminClaimBulkApproveRequest body,
+            HttpServletRequest request) {
+        return adminClaimBulkApproveService.approve(body.claimPublicIds(), auditContext(request));
     }
 
     /**

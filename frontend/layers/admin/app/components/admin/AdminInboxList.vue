@@ -3,11 +3,17 @@ import { mdiAlertCircleOutline, mdiRefresh } from '@mdi/js'
 import type { InboxTypeCount } from '~/types/inbox'
 import { INBOX_AUDIENCE_TYPES, INBOX_TAB_LABELS, type InboxItemType, type InboxTab, inboxItemTypeLabel } from '~/lib/constants/inbox'
 import { INBOX_TRUNCATED_MESSAGE, type InboxItem, inboxDeadline, inboxEmptyMessage } from '~/lib/inbox-view'
-import { adminInboxDeadlineChipClass } from '#layers/admin/app/lib/admin-inbox-view'
+import { CLAIM_SUGGESTION_LABELS, claimTypeLabel } from '~/lib/constants/claim'
+import {
+  INBOX_BULK_APPROVE_MAX,
+  adminInboxDeadlineChipClass,
+  claimSuggestionChipClass,
+  isBulkApprovable,
+} from '#layers/admin/app/lib/admin-inbox-view'
 
 /**
  * 관리자 인박스 목록(D-248 · 왼쪽 칸). 탭(오늘·예정) · 유형 필터 칩(건수) · 기한 순 항목. 상태(로딩·오류·빈 목록·잘림)를 여기서 그리고, 데이터와
- * 선택은 페이지가 소유한다(이벤트로만 알린다).
+ * 선택은 페이지가 소유한다(이벤트로만 알린다). 클레임 접수 행은 유형·제안을 보이고, 승인 제안 행만 일괄 승인용으로 체크할 수 있다(D-250 · 최대 20건).
  */
 const props = defineProps<{
   items: InboxItem[]
@@ -15,6 +21,7 @@ const props = defineProps<{
   tab: InboxTab
   type: InboxItemType | null
   selectedKey: string | null
+  bulkSelected: string[]
   loading: boolean
   error: string | null
   truncated: boolean
@@ -23,10 +30,19 @@ const props = defineProps<{
 const emit = defineEmits<{
   'update:tab': [tab: InboxTab]
   'update:type': [type: InboxItemType | null]
+  'update:bulkSelected': [keys: string[]]
   select: [key: string]
   retry: []
   refresh: []
 }>()
+
+const bulkFull = computed(() => props.bulkSelected.length >= INBOX_BULK_APPROVE_MAX)
+
+function toggleBulk(key: string, checked: boolean | null): void {
+  const next = props.bulkSelected.filter((selected) => selected !== key)
+  if (checked) next.push(key)
+  emit('update:bulkSelected', next)
+}
 
 const TABS: InboxTab[] = ['TODAY', 'UPCOMING']
 
@@ -77,6 +93,9 @@ function onTab(value: unknown): void {
     <v-alert v-if="truncated" type="info" variant="tonal" density="compact" class="ma-4" data-testid="inbox-truncated">
       {{ INBOX_TRUNCATED_MESSAGE }}
     </v-alert>
+    <p v-if="bulkFull" class="text-caption text-medium-emphasis px-4 pt-3 mb-0" data-testid="inbox-bulk-full">
+      한 번에 최대 {{ INBOX_BULK_APPROVE_MAX }}건까지 고를 수 있습니다. 승인 후 이어서 고르세요.
+    </p>
 
     <v-skeleton-loader v-if="showSkeleton" type="list-item-two-line@5" data-testid="inbox-loading" />
     <div v-else-if="!error && items.length === 0" class="text-body-2 text-medium-emphasis text-center py-10" data-testid="inbox-empty">
@@ -94,10 +113,26 @@ function onTab(value: unknown): void {
         :data-key="item.key"
         @click="emit('select', item.key)"
       >
+        <template v-if="isBulkApprovable(item)" #prepend>
+          <!-- 체크는 행 선택(상세 열기)과 별개다 — 클릭이 행으로 번지지 않게 막는다 -->
+          <v-checkbox-btn
+            :model-value="bulkSelected.includes(item.key)"
+            :disabled="bulkFull && !bulkSelected.includes(item.key)"
+            density="compact"
+            :aria-label="`${item.title} 일괄 승인 선택`"
+            data-testid="inbox-bulk-check"
+            @click.stop
+            @update:model-value="(checked: boolean | null) => toggleBulk(item.key, checked)"
+          />
+        </template>
         <v-list-item-title class="text-body-2 font-weight-medium">{{ item.title }}</v-list-item-title>
         <v-list-item-subtitle>
           <span>{{ inboxItemTypeLabel(item.type) }}</span>
+          <span v-if="item.claimType"> · {{ claimTypeLabel(item.claimType) }}</span>
           <span v-if="item.subtitle"> · {{ item.subtitle }}</span>
+          <span v-if="item.suggestion" :class="claimSuggestionChipClass(item.suggestion)" class="ml-2" data-testid="inbox-item-suggestion">
+            {{ CLAIM_SUGGESTION_LABELS[item.suggestion] }}
+          </span>
         </v-list-item-subtitle>
         <template #append>
           <span :class="adminInboxDeadlineChipClass(inboxDeadline(item.dueAt, nowMs).tone)" data-testid="inbox-item-deadline">

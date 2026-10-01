@@ -25,6 +25,13 @@ public interface InventoryRepository extends JpaRepository<Inventory, Long> {
     List<Inventory> findByVariantIdIn(Collection<Long> variantIds);
 
     /**
+     * 여러 variant의 가용 재고만 값으로 읽는다(D-250 클레임 제안 입력). 엔티티를 영속성 컨텍스트에 올리지 않는다 — 같은 트랜잭션의 이후
+     * {@link #findByVariantIdForUpdate}가 캐시된 옛 상태를 돌려받아 다른 커밋의 예약을 덮어쓰지 않게 한다. 모든 변수는 :variantIds 바인딩이다.
+     */
+    @Query("SELECT i.variantId AS variantId, i.quantityAvailable AS quantityAvailable FROM Inventory i WHERE i.variantId IN :variantIds")
+    List<InventoryAvailableProjection> findAvailableByVariantIdIn(@Param("variantIds") Collection<Long> variantIds);
+
+    /**
      * variant 재고 1행을 비관적 쓰기 락(SELECT ... FOR UPDATE)으로 조회한다(Track 17 D-101 §4). Inventory 도메인
      * 행위(예약·해제·차감·복구) 진입 시 동시 갱신을 직렬화해 oversell을 방지하며 INV-1·INV-3·INV-4를 사전 보호한다.
      * 모든 변수는 :variantId 바인딩이다.

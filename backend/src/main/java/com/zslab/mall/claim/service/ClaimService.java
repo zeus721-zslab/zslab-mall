@@ -8,10 +8,12 @@ import com.zslab.mall.audit.enums.AuditLogAction;
 import com.zslab.mall.audit.service.AuditContext;
 import com.zslab.mall.audit.service.AuditRecorder;
 import com.zslab.mall.claim.entity.Claim;
+import com.zslab.mall.claim.enums.ClaimDecision;
 import com.zslab.mall.claim.enums.ClaimInspectionResult;
 import com.zslab.mall.claim.enums.ClaimReasonCode;
 import com.zslab.mall.claim.enums.ClaimRejectReasonCode;
 import com.zslab.mall.claim.enums.ClaimStatus;
+import com.zslab.mall.claim.enums.ClaimSuggestion;
 import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.event.ClaimApproved;
 import com.zslab.mall.claim.event.ClaimCompleted;
@@ -21,6 +23,7 @@ import com.zslab.mall.claim.event.ClaimRejected;
 import com.zslab.mall.claim.event.ClaimRequested;
 import com.zslab.mall.claim.exception.ClaimInvalidStateException;
 import com.zslab.mall.claim.exception.ClaimNotFoundException;
+import com.zslab.mall.claim.exception.ClaimSuggestionMismatchException;
 import com.zslab.mall.claim.repository.ClaimRepository;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
 import com.zslab.mall.common.exception.MalformedRequestException;
@@ -100,6 +103,7 @@ public class ClaimService {
     private final OrderService orderService;
     private final ProductRepository productRepository;
     private final InboxSignalPublisher inboxSignalPublisher;
+    private final ClaimSuggestionService claimSuggestionService;
 
     public ClaimService(
             ClaimRepository claimRepository,
@@ -116,7 +120,8 @@ public class ClaimService {
             AuditRecorder auditRecorder,
             OrderService orderService,
             ProductRepository productRepository,
-            InboxSignalPublisher inboxSignalPublisher) {
+            InboxSignalPublisher inboxSignalPublisher,
+            ClaimSuggestionService claimSuggestionService) {
         this.claimRepository = claimRepository;
         this.orderItemRepository = orderItemRepository;
         this.orderRepository = orderRepository;
@@ -132,6 +137,7 @@ public class ClaimService {
         this.orderService = orderService;
         this.productRepository = productRepository;
         this.inboxSignalPublisher = inboxSignalPublisher;
+        this.claimSuggestionService = claimSuggestionService;
     }
 
     /**
@@ -503,8 +509,38 @@ public class ClaimService {
      */
     public void approveByAdmin(Long claimId, LocalDateTime processedAt, Long refundAmount, AuditContext auditContext) {
         lockOrderOfClaim(claimId);
-        ClaimStatus before = findClaim(claimId).getStatus();
+        Claim claim = findClaim(claimId);
+        approveWithRecord(claimId, claim.getStatus(), claimSuggestionService.suggest(claim), processedAt, refundAmount, auditContext);
+    }
+
+    /**
+     * 일괄 승인 항목 1건(D-250). 이 트랜잭션 안에서 제안을 다시 계산해 승인 제안일 때만 {@link #approveByAdmin}과 같은 전이·기록을 한다 —
+     * 화면이 본 제안과 지금 상태가 달라졌으면(재고 소진 등) 승인하지 않는다.
+     *
+     * @throws ClaimNotFoundException           클레임이 없는 경우
+     * @throws ClaimInvalidStateException       REQUESTED가 아닌 경우·교환 옵션 부적합
+     * @throws ClaimSuggestionMismatchException 지금 제안이 승인이 아닌 경우
+     * @throws com.zslab.mall.inventory.exception.InventoryInvariantViolationException 교환 옵션 재고 부족
+     */
+    public void approveSuggestedByAdmin(String claimPublicId, LocalDateTime processedAt, AuditContext auditContext) {
+        lockOrderOfClaimPublicId(claimPublicId);
+        Claim claim = claimRepository.findByPublicId(claimPublicId)
+                .orElseThrow(() -> new ClaimNotFoundException("클레임을 찾을 수 없습니다: " + claimPublicId));
+        if (claim.getStatus() != ClaimStatus.REQUESTED) {
+            throw new ClaimInvalidStateException("이미 처리된 클레임입니다: status=" + claim.getStatus());
+        }
+        ClaimSuggestionResult suggestion = claimSuggestionService.suggest(claim);
+        if (suggestion.suggestion() != ClaimSuggestion.APPROVE) {
+            throw new ClaimSuggestionMismatchException("승인 제안이 아닙니다: " + suggestion.rule().reason());
+        }
+        approveWithRecord(claim.getId(), claim.getStatus(), suggestion, processedAt, null, auditContext);
+    }
+
+    /** 승인 전이 + 제안 기록 + 감사. 제안은 전이 전 상태(교환 재고 예약 전)로 계산한 값이다. */
+    private void approveWithRecord(Long claimId, ClaimStatus before, ClaimSuggestionResult suggestion, LocalDateTime processedAt,
+            Long refundAmount, AuditContext auditContext) {
         approve(claimId, processedAt, refundAmount);
+        claimSuggestionService.record(claimId, suggestion, ClaimDecision.APPROVE, auditContext.actorUserId(), processedAt);
         recordClaimAudit(auditContext, AuditLogAction.APPROVE, claimId,
                 Map.of("status", before.name()),
                 Map.of("status", findClaim(claimId).getStatus().name()));
@@ -525,8 +561,11 @@ public class ClaimService {
     public void rejectByAdmin(Long claimId, ClaimRejectReasonCode reasonCode, String memo, LocalDateTime processedAt,
             AuditContext auditContext) {
         lockOrderOfClaim(claimId);
-        ClaimStatus before = findClaim(claimId).getStatus();
+        Claim claim = findClaim(claimId);
+        ClaimStatus before = claim.getStatus();
+        ClaimSuggestionResult suggestion = claimSuggestionService.suggest(claim);
         reject(claimId, reasonCode, memo, processedAt);
+        claimSuggestionService.record(claimId, suggestion, ClaimDecision.REJECT, auditContext.actorUserId(), processedAt);
         Map<String, Object> after = new LinkedHashMap<>();
         after.put("status", findClaim(claimId).getStatus().name());
         after.put("rejectReasonCode", reasonCode.name());

@@ -24,6 +24,9 @@ public interface ClaimRepository extends JpaRepository<Claim, Long>, JpaSpecific
 
     Optional<Claim> findByPublicId(String publicId);
 
+    /** 인박스 클레임 행 제안 배치 조회(D-250). */
+    List<Claim> findByPublicIdIn(Collection<String> publicIds);
+
     /**
      * publicId로 행 락을 잡고 읽는다(Track 101-A 외부 검토 반영·동시 요청 직렬화). {@link Claim}에는 {@code @Version}이 있어
      * 두 트랜잭션이 같은 행을 바꾸면 늦은 쪽이 낙관 락 실패로 걸러지지만, 그 실패는 <b>커밋 시점</b>에야 드러난다 — 그 전까지
