@@ -38,6 +38,13 @@ public interface OrderRepository extends JpaRepository<Order, Long>, JpaSpecific
     @Query("SELECT o.id FROM Order o WHERE o.publicId = :publicId")
     Optional<Long> findIdByPublicId(@Param("publicId") String publicId);
 
+    /**
+     * 주문번호·주문 상태만 스칼라로 조회한다(D-253 답안 초안 근거). 엔티티를 올리지 않아 배송지 스냅샷(수령인·연락처·주소)이 초안 경로에 들어오지
+     * 않는다. 모든 변수는 :id 바인딩이다.
+     */
+    @Query("SELECT o.orderNo AS orderNo, o.status AS status FROM Order o WHERE o.id = :id")
+    Optional<OrderNoStatusProjection> findNoAndStatusById(@Param("id") Long id);
+
     Optional<Order> findByOrderNo(String orderNo);
 
     boolean existsByOrderNo(String orderNo);

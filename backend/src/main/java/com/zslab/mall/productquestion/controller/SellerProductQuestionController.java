@@ -1,5 +1,7 @@
 package com.zslab.mall.productquestion.controller;
 
+import com.zslab.mall.answerdraft.controller.response.AnswerDraftResponse;
+import com.zslab.mall.answerdraft.service.AnswerDraftService;
 import com.zslab.mall.common.auth.AuthenticatedUserResolver;
 import com.zslab.mall.common.auth.SellerActorResolver;
 import com.zslab.mall.order.controller.response.PagedResponse;
@@ -29,12 +31,14 @@ public class SellerProductQuestionController {
     private final SellerProductQuestionService sellerProductQuestionService;
     private final SellerActorResolver sellerActorResolver;
     private final AuthenticatedUserResolver authenticatedUserResolver;
+    private final AnswerDraftService answerDraftService;
 
     public SellerProductQuestionController(SellerProductQuestionService sellerProductQuestionService,
-            SellerActorResolver sellerActorResolver, AuthenticatedUserResolver authenticatedUserResolver) {
+            SellerActorResolver sellerActorResolver, AuthenticatedUserResolver authenticatedUserResolver, AnswerDraftService answerDraftService) {
         this.sellerProductQuestionService = sellerProductQuestionService;
         this.sellerActorResolver = sellerActorResolver;
         this.authenticatedUserResolver = authenticatedUserResolver;
+        this.answerDraftService = answerDraftService;
     }
 
     /** 자기 상품의 공개 질문 목록. answered ALL·UNANSWERED(기본)·ANSWERED(오값 400) · 오래된 순 · size 기본 10(최대 50). */
@@ -45,6 +49,12 @@ public class SellerProductQuestionController {
             @RequestParam(defaultValue = "10") int size,
             HttpServletRequest httpRequest) {
         return ResponseEntity.ok(sellerProductQuestionService.list(sellerActorResolver.resolve(httpRequest), answered, page, size));
+    }
+
+    /** 답안 초안(D-253 · 조회 시 계산 · 저장 없음). 200 · 미존재·삭제·다른 셀러 404 · 정지 셀러 조회 허용(목록과 같음). */
+    @GetMapping("/{questionPublicId}/answer-draft")
+    public ResponseEntity<AnswerDraftResponse> answerDraft(@PathVariable String questionPublicId, HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(answerDraftService.draftForSellerQuestion(sellerActorResolver.resolve(httpRequest), questionPublicId));
     }
 
     /** 답변 등록·수정(덮어쓰기). 204 · 미존재·삭제·다른 셀러 404 · 숨김 422 · 형식 400 · 정지 셀러 403. */

@@ -32,7 +32,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(readOnly = true)
 public class ProductQuestionSuggestService {
 
-    static final int CANDIDATE_LIMIT = 200;
+    /** 답변된 질문·리뷰 후보 상한(최신순). 답안 초안의 답변된 질문 후보도 같은 값을 쓴다(D-253). */
+    public static final int CANDIDATE_LIMIT = 200;
     /** 상품 설명 조각 후보 상한(앞에서부터). 긴 설명이 공개 GET 한 번에 만드는 후보 수를 질문·리뷰 후보와 같은 수준으로 묶는다. */
     static final int FRAGMENT_LIMIT = 200;
     static final int RESULT_LIMIT = 5;

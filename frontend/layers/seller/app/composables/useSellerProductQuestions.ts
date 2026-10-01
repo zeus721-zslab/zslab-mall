@@ -3,6 +3,7 @@ import type {
   SellerProductQuestionListResponse,
 } from '#layers/seller/app/types/seller-product-question'
 import { toSellerProductQuestionApiParams } from '#layers/seller/app/lib/seller-product-question-query'
+import type { AnswerDraftResponse } from '~/types/answer-draft'
 
 /**
  * 셀러 상품 질문 API(Track 106-2). useSellerApi(셀러 쿠키 인증·CSRF 헤더·401/403 SELLER_SUSPENDED 분기) 경유이며 로딩·에러 상태는 호출부가 가진다.
@@ -21,5 +22,11 @@ export function useSellerProductQuestions() {
     return api<void>(path, { method: 'PUT', body: { content } })
   }
 
-  return { list, answer }
+  /** 답안 초안(D-253 · 조회 시 계산 · 저장 없음). 다른 셀러 상품·삭제 404 · 정지 셀러도 조회는 허용. */
+  function answerDraft(questionId: string): Promise<AnswerDraftResponse> {
+    const path: string = `/v1/seller/product-questions/${questionId}/answer-draft`
+    return api<AnswerDraftResponse>(path)
+  }
+
+  return { list, answer, answerDraft }
 }
