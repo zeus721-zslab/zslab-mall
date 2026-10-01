@@ -104,6 +104,9 @@ class ClaimServiceTest {
     private ProductRepository productRepository;
     @Mock
     private InboxSignalPublisher inboxSignalPublisher;
+    // D-250: 관리자 승인·거부 시점 제안 계산·기록 의존. 전이 검증 케이스에서는 호출 여부만 충족하면 된다.
+    @Mock
+    private ClaimSuggestionService claimSuggestionService;
 
     @InjectMocks
     private ClaimService claimService;
