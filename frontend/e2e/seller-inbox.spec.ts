@@ -25,10 +25,16 @@ const INVENTORY_ROWS = [
   { variantPublicId: 'var_E2EL', productPublicId: 'prd_E2EL', productName: 'E2E 주전자', optionLabel: '색상: 블랙', sellerSku: 'E2E-SKU', quantityOnHand: 4, quantityReserved: 1, quantityAvailable: 3 },
 ]
 
-interface InboxMock { rows: InboxRow[]; shipments: unknown[]; snoozes: unknown[]; inventoryQueries: URLSearchParams[]; inbounds: { url: string; body: unknown }[] }
+// 답안 초안(D-253) — 같은 상품의 이전 답변 근거 1건.
+const QUESTION_DRAFT = '안녕하세요, 고객님. 상품에 관심 가져 주셔서 감사합니다.\n\n이전 답변과 안내 내용을 바탕으로 말씀드립니다.\n- 정사이즈로 나왔습니다.'
+
+interface InboxMock {
+  rows: InboxRow[]; shipments: unknown[]; snoozes: unknown[]; inventoryQueries: URLSearchParams[]; inbounds: { url: string; body: unknown }[]
+  answers: { url: string; body: unknown }[]
+}
 
 async function mockInbox(page: Page): Promise<InboxMock> {
-  const mock: InboxMock = { rows: [READY, QUESTION, LOW_STOCK], shipments: [], snoozes: [], inventoryQueries: [], inbounds: [] }
+  const mock: InboxMock = { rows: [READY, QUESTION, LOW_STOCK], shipments: [], snoozes: [], inventoryQueries: [], inbounds: [], answers: [] }
   const remove = (ref: string): void => { mock.rows = mock.rows.filter((row) => row.ref !== ref) }
   await mockSellerMe(page)
   await page.route((url) => url.pathname.endsWith('/api/v1/seller/inbox'), (route) => {
@@ -65,6 +71,14 @@ async function mockInbox(page: Page): Promise<InboxMock> {
     mock.inbounds.push({ url: route.request().url(), body: route.request().postDataJSON() })
     remove(LOW_STOCK.ref)
     return route.fulfill({ json: { variantPublicId: 'var_E2EL', quantityOnHand: 14, quantityReserved: 1, quantityAvailable: 13 } })
+  })
+  await page.route((url) => url.pathname.endsWith(`/api/v1/seller/product-questions/${QUESTION.ref}/answer-draft`), (route) => route.fulfill({
+    json: { draft: QUESTION_DRAFT, evidence: [{ kind: 'ANSWERED_QUESTION', title: '사이즈가 어떤가요?', summary: '정사이즈로 나왔습니다.' }], faqCandidate: false },
+  }))
+  await page.route((url) => url.pathname.endsWith(`/api/v1/seller/product-questions/${QUESTION.ref}/answer`), (route) => {
+    mock.answers.push({ url: route.request().url(), body: route.request().postDataJSON() })
+    remove(QUESTION.ref)
+    return route.fulfill({ status: 204, body: '' })
   })
   return mock
 }
@@ -222,5 +236,28 @@ test.describe('셀러 인박스(FE-101)', () => {
     expect(mock.inbounds).toHaveLength(1)
     expect(mock.inbounds[0]!.body).toEqual({ quantity: 10, reason: '추가 입고' })
     await expect(page.locator('[data-testid="inbox-item"][data-key="LOW_STOCK:var_E2EL"]')).toHaveCount(0)
+  })
+
+  test('⑧ Q&A 답안 초안(D-253): 근거 표시 → 초안 사용 → 답변 제출 → 재조회로 빠짐', async ({ page }) => {
+    const mock = await mockInbox(page)
+    await loginAs(page, 'SELLER')
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/seller/inbox')
+    await page.locator(`[data-testid="inbox-item"][data-key="QUESTION_UNANSWERED:${QUESTION.ref}"]`).click()
+    await expect(page.getByTestId('inbox-detail-title')).toHaveText('E2E 사이즈 문의')
+
+    await page.getByTestId('inbox-detail-action').click()
+    const dialog = page.getByTestId('seller-question-answer-dialog')
+    await expect(dialog.getByTestId('answer-draft-evidence')).toContainText('[이전 답변] 사이즈가 어떤가요?')
+    const answer = dialog.getByTestId('answer-content').locator('textarea').first()
+    await expect(answer).toHaveValue('')
+    await dialog.getByTestId('answer-draft-use').click()
+    await expect(answer).toHaveValue(QUESTION_DRAFT)
+    await dialog.getByTestId('answer-dialog-ok').click()
+
+    await expect(page.getByTestId('seller-toaster')).toContainText('답변을 등록했습니다.')
+    expect(mock.answers).toHaveLength(1)
+    expect(mock.answers[0]!.body).toEqual({ content: QUESTION_DRAFT })
+    await expect(page.locator(`[data-testid="inbox-item"][data-key="QUESTION_UNANSWERED:${QUESTION.ref}"]`)).toHaveCount(0)
   })
 })

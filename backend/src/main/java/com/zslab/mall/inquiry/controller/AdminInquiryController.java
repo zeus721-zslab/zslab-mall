@@ -1,5 +1,7 @@
 package com.zslab.mall.inquiry.controller;
 
+import com.zslab.mall.answerdraft.controller.response.AnswerDraftResponse;
+import com.zslab.mall.answerdraft.service.AnswerDraftService;
 import com.zslab.mall.audit.service.AuditContext;
 import com.zslab.mall.common.auth.ActorRoleResolver;
 import com.zslab.mall.common.auth.AdminActorResolver;
@@ -33,13 +35,15 @@ public class AdminInquiryController {
     private final AdminInquiryCommandService adminInquiryCommandService;
     private final AdminActorResolver adminActorResolver;
     private final ActorRoleResolver actorRoleResolver;
+    private final AnswerDraftService answerDraftService;
 
     public AdminInquiryController(AdminInquiryQueryService adminInquiryQueryService, AdminInquiryCommandService adminInquiryCommandService,
-            AdminActorResolver adminActorResolver, ActorRoleResolver actorRoleResolver) {
+            AdminActorResolver adminActorResolver, ActorRoleResolver actorRoleResolver, AnswerDraftService answerDraftService) {
         this.adminInquiryQueryService = adminInquiryQueryService;
         this.adminInquiryCommandService = adminInquiryCommandService;
         this.adminActorResolver = adminActorResolver;
         this.actorRoleResolver = actorRoleResolver;
+        this.answerDraftService = answerDraftService;
     }
 
     /** 문의 목록. answered ALL·UNANSWERED(기본)·ANSWERED · category 선택(오값 400) · 오래된 순 · size 기본 10(최대 50). */
@@ -50,6 +54,12 @@ public class AdminInquiryController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
         return ResponseEntity.ok(adminInquiryQueryService.list(answered, category, page, size));
+    }
+
+    /** 답안 초안(D-253 · 조회 시 계산 · 저장·감사 없음). 200 · 미존재·삭제 404. */
+    @GetMapping("/{inquiryPublicId}/answer-draft")
+    public ResponseEntity<AnswerDraftResponse> answerDraft(@PathVariable String inquiryPublicId) {
+        return ResponseEntity.ok(answerDraftService.draftForInquiry(inquiryPublicId));
     }
 
     /** 답변 등록·수정(덮어쓰기·수정 시 구매자 미확인 복귀). 204 · 미존재·삭제 404 · 형식 400. */

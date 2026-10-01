@@ -45,7 +45,22 @@ public class FaqQueryService {
      * @throws MalformedRequestException 질의 길이 범위 밖(400)
      */
     public List<FaqResponse> suggest(String query) {
-        List<List<String>> tokenForms = KeywordMatcher.tokenize(KeywordMatcher.requireQuery(query));
+        return rankVisible(KeywordMatcher.tokenize(KeywordMatcher.requireQuery(query)), SUGGEST_RESULT_LIMIT).stream()
+                .map(FaqResponse::from)
+                .toList();
+    }
+
+    /**
+     * 답안 초안 근거(D-253): 즉시 답과 같은 점수·정렬로 고른 공개 FAQ. 문의 본문(최대 500자)을 그대로 받으려고 질의 길이 검사는 하지 않는다 —
+     * 토큰은 {@link KeywordMatcher#tokenize}가 앞에서부터 최대 5개만 쓴다.
+     *
+     * @return 일치 0건이면 빈 목록
+     */
+    public List<Faq> matchVisible(String text, int limit) {
+        return rankVisible(KeywordMatcher.tokenize(text), limit);
+    }
+
+    private List<Faq> rankVisible(List<List<String>> tokenForms, int limit) {
         if (tokenForms.isEmpty()) {
             return List.of();
         }
@@ -54,8 +69,8 @@ public class FaqQueryService {
                 .filter(scored -> scored.score() > 0)
                 .sorted(Comparator.comparingInt(ScoredFaq::score).reversed()
                         .thenComparing(ScoredFaq::faq, DISPLAY_ORDER))
-                .limit(SUGGEST_RESULT_LIMIT)
-                .map(scored -> FaqResponse.from(scored.faq()))
+                .limit(limit)
+                .map(ScoredFaq::faq)
                 .toList();
     }
 

@@ -4165,3 +4165,20 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 - 셀러 지연 패널 단건 독촉은 e2e가 없다(일괄 독촉 e2e만 · 결과 처리 분기는 같은 응답 형태).
 
 외부 검토: B / 생략(셀프 리뷰만)
+
+## FE-107: 답안 초안·FAQ 후보 다이얼로그 (P4 · D-253) (2026-10-02)
+
+기준: D-253 · GET /api/v1/admin/inquiries/{inquiryPublicId}/answer-draft · GET /api/v1/seller/product-questions/{questionPublicId}/answer-draft · 기존 FAQ 등록 POST /api/v1/admin/faqs.
+
+### 결정
+- 초안은 기존 두 답변 다이얼로그(관리자 문의·셀러 Q&A)에만 붙인다 — 인박스 패널과 원래 화면이 같은 다이얼로그를 쓰므로 한 곳에서 같이 동작한다(모바일 드로어 포함). 표시·로드는 base 공용(AnswerDraftBox · useAnswerDraft)이다.
+- 열 때마다 초안을 조회하고(늦게 온 이전 응답은 버림), 기존 답변은 자동으로 덮어쓰지 않으며 "초안 사용"으로만 입력란을 채운다. 근거가 없으면 직접 작성 안내, 조회 실패는 안내 1줄만 보이고 답변은 그대로 가능하다. 다이얼로그 emit 계약(done·stale·cancel)은 바꾸지 않는다.
+- FAQ 후보 문의는 "답변 저장 후 FAQ로 등록"을 고를 수 있다. 고른 채 저장에 성공하면 답변 다이얼로그 안에서 FAQ 등록 다이얼로그를 미리 채워 열고, 저장·취소가 끝나야 done을 보낸다. FAQ 등록 다이얼로그는 선택 prop(prefill) 1개만 늘렸다 — 질문 200자·답변 2000자 초과는 잘라 안내하고, 같은 값 4종은 그대로·기타는 미선택이라 운영자가 골라야 저장된다.
+- 근거 종류 라벨은 app/lib/constants/answer-draft.ts 단일 소스(BE AnswerEvidenceKind 1:1)다.
+
+대안 검토 없음(확정 결정 범위 안의 화면 구성).
+
+### §8 이월
+- 문의·Q&A 원래 화면 e2e(inquiries·product-questions)는 초안 조회를 목으로 막지 않아 실 BE 404 → 실패 안내 경로를 탄다(단언 무영향).
+
+외부 검토: B / 생략(셀프 리뷰만)

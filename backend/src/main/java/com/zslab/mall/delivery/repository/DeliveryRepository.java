@@ -119,4 +119,12 @@ public interface DeliveryRepository extends JpaRepository<Delivery, Long>, JpaSp
 
     /** 관리자 주문 목록·상세 배치 enrich(Track 81-A·발송 Delivery만 — 반품 회수 RETURN은 품목 배송 상태가 아니다). id 내림차순. */
     List<Delivery> findByOrderItemIdInAndDirectionOrderByIdDesc(Collection<Long> orderItemIds, DeliveryDirection direction);
+
+    /**
+     * 주문의 원 발송(claim_id NULL) 배송 상태만 스칼라로 조회한다(D-253 답안 초안 근거 · 품목 순). 교환 재발송·반품 회수는 제외한다. 모든 변수는
+     * :name 바인딩이다.
+     */
+    @Query("SELECT d.status FROM Delivery d, OrderItem oi WHERE oi.id = d.orderItemId AND oi.order.id = :orderId "
+            + "AND d.direction = :direction AND d.claimId IS NULL ORDER BY d.id")
+    List<DeliveryStatus> findOriginalStatusesByOrderId(@Param("orderId") Long orderId, @Param("direction") DeliveryDirection direction);
 }

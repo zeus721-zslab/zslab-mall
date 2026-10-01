@@ -23,6 +23,9 @@ public interface ProductQuestionRepository extends JpaRepository<ProductQuestion
     @Query("SELECT q FROM ProductQuestion q WHERE q.publicId = :publicId")
     Optional<ProductQuestion> findByPublicIdForUpdate(@Param("publicId") String publicId);
 
+    /** 잠금 없는 단건 조회(삭제 제외 · D-253 답안 초안). */
+    Optional<ProductQuestion> findByPublicId(String publicId);
+
     /** 공개 목록(상품·상태 고정·미답변 포함). 정렬은 호출부 Pageable Sort. ix_product_question_product_list 탐색. */
     @Query("SELECT q FROM ProductQuestion q WHERE q.productId = :productId AND q.status = :status")
     Page<ProductQuestion> findPublicPage(

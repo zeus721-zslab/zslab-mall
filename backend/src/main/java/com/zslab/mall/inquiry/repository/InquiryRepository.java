@@ -22,6 +22,9 @@ public interface InquiryRepository extends JpaRepository<Inquiry, Long> {
     @Query("SELECT i FROM Inquiry i WHERE i.publicId = :publicId")
     Optional<Inquiry> findByPublicIdForUpdate(@Param("publicId") String publicId);
 
+    /** 잠금 없는 단건 조회(삭제 제외 · D-253 답안 초안). */
+    Optional<Inquiry> findByPublicId(String publicId);
+
     /** 내 문의(삭제 제외). 정렬은 호출부 Pageable Sort. ix_inquiry_buyer_list 탐색. */
     Page<Inquiry> findByBuyerId(Long buyerId, Pageable pageable);
 

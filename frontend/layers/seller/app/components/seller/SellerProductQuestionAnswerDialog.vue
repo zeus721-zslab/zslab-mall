@@ -4,11 +4,14 @@ import { PRODUCT_QUESTION_ANSWER_MAX } from '~/lib/constants/product-question'
 import { extractErrorCode, isSellerSuspendedError, mapFieldErrors, toSellerErrorMessage } from '#layers/seller/app/lib/seller-error-message'
 import { useSellerProductQuestions } from '#layers/seller/app/composables/useSellerProductQuestions'
 import { useSellerToast } from '#layers/seller/app/composables/useSellerToast'
+import { useAnswerDraft } from '~/composables/useAnswerDraft'
+import AnswerDraftBox from '~/components/common/AnswerDraftBox.vue'
 
 /**
  * 상품 질문 답변 등록·수정 다이얼로그(Track 106-2 · SellerInventoryAdjustDialog 규약). 답변 1~1000자(공백만 불가) · 수정이면 기존 답변을 채워 연다.
  * 성공(204) → success 토스트 후 done(부모가 목록 재조회) · 404(다른 셀러·삭제됨)·422(숨김 질문)는 warning 토스트 후 stale · 400은 필드 오류 ·
- * **403 SELLER_SUSPENDED는 여기서 danger 토스트로 직접 표시**(배너만 남지 않게 · FE-44 §8) 후 cancel.
+ * **403 SELLER_SUSPENDED는 여기서 danger 토스트로 직접 표시**(배너만 남지 않게 · FE-44 §8) 후 cancel. 열 때마다 답안 초안을 조회해 근거와 "초안 사용"을
+ * 보인다(D-253 · 실패해도 답변은 그대로 가능).
  */
 const props = defineProps<{ open: boolean; item: SellerProductQuestionItem | null }>()
 const emit = defineEmits<{ done: []; stale: []; cancel: [] }>()
@@ -19,13 +22,26 @@ const toast = useSellerToast()
 const content = ref('')
 const errors = ref<Record<string, string>>({})
 const submitting = ref(false)
+const {
+  result: draftResult, loading: draftLoading, failed: draftFailed, load: loadDraft, reset: resetDraft,
+} = useAnswerDraft((questionId) => questionsApi.answerDraft(questionId))
 
 watch(() => props.open, (open) => {
-  if (!open) return
+  if (!open) {
+    resetDraft()
+    return
+  }
   content.value = props.item?.answerContent ?? ''
   errors.value = {}
   submitting.value = false
+  if (props.item) void loadDraft(props.item.questionId)
 })
+
+/** "초안 사용"을 눌렀을 때만 입력란을 채운다(D-253 · 기존 답변 자동 덮어쓰기 금지). */
+function applyDraft(draft: string): void {
+  content.value = draft
+  errors.value = { ...errors.value, content: '' }
+}
 
 const editing = computed(() => props.item?.answerContent !== undefined)
 
@@ -71,6 +87,7 @@ async function submit(): Promise<void> {
           <p class="text-caption text-medium-emphasis mb-1">{{ item.productName ?? '삭제된 상품' }}</p>
           <p class="text-body-2 mb-4" style="white-space: pre-line" data-testid="answer-question">Q. {{ item.content }}</p>
         </template>
+        <AnswerDraftBox :result="draftResult" :loading="draftLoading" :failed="draftFailed" :disabled="submitting" @use="applyDraft" />
         <p class="text-caption text-medium-emphasis mb-2">답변은 상품 페이지에 공개됩니다.</p>
         <v-textarea
           v-model="content"

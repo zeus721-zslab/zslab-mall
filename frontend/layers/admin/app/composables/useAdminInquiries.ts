@@ -1,4 +1,5 @@
 import type { AdminInquiryListQuery, AdminInquiryListResponse } from '#layers/admin/app/types/admin-inquiry'
+import type { AnswerDraftResponse } from '~/types/answer-draft'
 import { toAdminInquiryApiParams } from '#layers/admin/app/lib/admin-inquiry-query'
 import { useAdminApi } from '#layers/admin/app/composables/useAdminApi'
 
@@ -20,5 +21,11 @@ export function useAdminInquiries() {
     return api<void>(path, { method: 'PUT', body: { content } })
   }
 
-  return { list, answer }
+  /** 답안 초안(D-253 · 조회 시 계산 · 저장 없음). 미존재·삭제 404 INQUIRY_NOT_FOUND. */
+  function answerDraft(inquiryId: string): Promise<AnswerDraftResponse> {
+    const path: string = `/v1/admin/inquiries/${inquiryId}/answer-draft`
+    return api<AnswerDraftResponse>(path)
+  }
+
+  return { list, answer, answerDraft }
 }

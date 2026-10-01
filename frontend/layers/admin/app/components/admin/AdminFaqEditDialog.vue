@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { AdminFaqItem } from '#layers/admin/app/types/admin-faq'
+import type { AdminFaqItem, AdminFaqPrefill } from '#layers/admin/app/types/admin-faq'
 import { faqCategoryMoved } from '#layers/admin/app/lib/admin-faq-view'
 import { mapFieldErrors } from '#layers/admin/app/lib/admin-order-view'
 import { extractErrorCode, toAdminErrorMessage } from '#layers/admin/app/lib/admin-error-message'
@@ -9,13 +9,16 @@ import { FAQ_ANSWER_MAX, FAQ_CATEGORIES, FAQ_QUESTION_MAX, type FaqCategory, faq
 
 /**
  * FAQ 등록·수정 다이얼로그(Track 106-3 · AdminCategoryEditDialog 선례). 수정은 PUT 전체 치환. 전송 전 trim · 400 VALIDATION_FAILED는 필드 오류,
- * 404 FAQ_NOT_FOUND는 stale(목록 재조회). 수정 중 카테고리를 바꾸면 저장 시 새 카테고리 끝으로 간다는 안내를 보인다.
+ * 404 FAQ_NOT_FOUND는 stale(목록 재조회). 수정 중 카테고리를 바꾸면 저장 시 새 카테고리 끝으로 간다는 안내를 보인다. 등록은 prefill(D-253 · 문의 FAQ
+ * 후보)로 미리 채울 수 있고, 카테고리가 비어 있으면 고를 때까지 저장하지 않는다.
  */
 const props = defineProps<{
   open: boolean
   item: AdminFaqItem | null
   /** 등록 시 기본 카테고리(현재 보고 있는 카테고리). */
   defaultCategory: FaqCategory
+  /** 등록 미리 채우기(D-253 · 문의 답변의 FAQ 후보 · 수정이면 무시). 없으면 기존 동작 그대로. */
+  prefill?: AdminFaqPrefill | null
 }>()
 const emit = defineEmits<{ done: []; stale: []; cancel: [] }>()
 
@@ -24,17 +27,20 @@ const toast = useAdminToast()
 
 const categoryOptions = FAQ_CATEGORIES.map((value) => ({ value, title: faqCategoryLabel(value) }))
 const isEdit = computed(() => props.item !== null)
-const category = ref<FaqCategory>(props.defaultCategory)
+/** null은 미리 채우기에서 대응 카테고리가 없을 때뿐이다(운영자가 골라야 저장된다). */
+const category = ref<FaqCategory | null>(props.defaultCategory)
 const question = ref('')
 const answer = ref('')
 const visible = ref(true)
 const errors = ref<Record<string, string>>({})
 const submitting = ref(false)
+const prefillNotices = computed(() => (props.item === null && props.prefill ? props.prefill.notices : []))
 
 function reset(): void {
-  category.value = props.item?.category ?? props.defaultCategory
-  question.value = props.item?.question ?? ''
-  answer.value = props.item?.answer ?? ''
+  const prefill = props.item === null ? props.prefill ?? null : null
+  category.value = props.item?.category ?? (prefill ? prefill.category : props.defaultCategory)
+  question.value = props.item?.question ?? prefill?.question ?? ''
+  answer.value = props.item?.answer ?? prefill?.answer ?? ''
   visible.value = props.item?.visible ?? true
   errors.value = {}
   submitting.value = false
@@ -45,11 +51,11 @@ function clearError(field: string): void {
   errors.value = { ...errors.value, [field]: '' }
 }
 
-const categoryMoved = computed(() => faqCategoryMoved(props.item, category.value))
-const confirmDisabled = computed(() => submitting.value || question.value.trim() === '' || answer.value.trim() === '')
+const categoryMoved = computed(() => category.value !== null && faqCategoryMoved(props.item, category.value))
+const confirmDisabled = computed(() => submitting.value || category.value === null || question.value.trim() === '' || answer.value.trim() === '')
 
 async function submit(): Promise<void> {
-  if (submitting.value) return
+  if (submitting.value || category.value === null) return
   const body = { category: category.value, question: question.value.trim(), answer: answer.value.trim(), visible: visible.value }
   const localErrors: Record<string, string> = {}
   if (body.question === '') localErrors.question = '질문을 입력하세요.'
@@ -93,6 +99,7 @@ async function submit(): Promise<void> {
     <v-card data-testid="admin-faq-dialog">
       <v-card-title class="text-subtitle-1 font-weight-bold pt-5 px-5">{{ isEdit ? 'FAQ 수정' : 'FAQ 등록' }}</v-card-title>
       <v-card-text class="px-5">
+        <p v-for="notice in prefillNotices" :key="notice" class="text-caption text-warning mb-1" data-testid="faq-prefill-notice">{{ notice }}</p>
         <v-select
           v-model="category"
           :items="categoryOptions"

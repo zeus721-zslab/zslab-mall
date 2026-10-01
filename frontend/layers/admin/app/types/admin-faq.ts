@@ -21,6 +21,17 @@ export interface AdminFaqWriteRequest {
   visible: boolean
 }
 
+/**
+ * 등록 다이얼로그 미리 채우기(D-253 · FE-107 · 문의 답변의 FAQ 후보). category null = 운영자가 직접 골라야 한다(문의 OTHER). notices는 절삭·미선택
+ * 안내 문구다.
+ */
+export interface AdminFaqPrefill {
+  category: FaqCategory | null
+  question: string
+  answer: string
+  notices: string[]
+}
+
 /** 카테고리 안 일괄 정렬 — 해당 카테고리 전체 id(숨김 포함) · index = 노출 순서. */
 export interface AdminFaqReorderRequest {
   category: FaqCategory

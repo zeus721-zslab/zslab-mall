@@ -32,8 +32,12 @@ interface InboxMock {
   queries: URLSearchParams[]
   snoozes: unknown[]
   answers: string[]
+  answerBodies: unknown[]
   approves: string[]
   bulkBodies: unknown[]
+  /** 문의 답안 초안 응답(D-253 · 기본 = 근거 없음 · FAQ 후보 아님 — ②의 흐름을 바꾸지 않는다). */
+  draft: { draft: string | null; evidence: { kind: string; title: string; summary: string }[]; faqCandidate: boolean }
+  faqBodies: unknown[]
   /** 처리된 항목을 다음 조회에서 뺀다(유형별 처리 목은 각 시나리오가 단다). */
   remove: (ref: string) => void
 }
@@ -69,7 +73,10 @@ async function mockInbox(page: Page, options: { claims?: boolean; today?: InboxR
     mock.today = mock.today.filter((row) => row.ref !== ref)
     mock.upcoming = mock.upcoming.filter((row) => row.ref !== ref)
   }
-  const mock: InboxMock = { today, upcoming: [PRODUCT], queries: [], snoozes: [], answers: [], approves: [], bulkBodies: [], remove }
+  const mock: InboxMock = {
+    today, upcoming: [PRODUCT], queries: [], snoozes: [], answers: [], answerBodies: [], approves: [], bulkBodies: [],
+    draft: { draft: null, evidence: [], faqCandidate: false }, faqBodies: [], remove,
+  }
   await page.route((url) => url.pathname.endsWith('/api/v1/admin/inbox'), (route) => {
     const query = new URL(route.request().url()).searchParams
     mock.queries.push(query)
@@ -85,8 +92,14 @@ async function mockInbox(page: Page, options: { claims?: boolean; today?: InboxR
   await page.route((url) => /\/api\/v1\/admin\/inquiries\/inq_[^/]+\/answer$/.test(url.pathname), (route) => {
     const inquiryId = route.request().url().match(/inquiries\/(inq_[^/]+)\/answer/)?.[1] ?? ''
     mock.answers.push(inquiryId)
+    mock.answerBodies.push(route.request().postDataJSON())
     remove(inquiryId)
     return route.fulfill({ status: 204, body: '' })
+  })
+  await page.route((url) => /\/api\/v1\/admin\/inquiries\/inq_[^/]+\/answer-draft$/.test(url.pathname), (route) => route.fulfill({ json: mock.draft }))
+  await page.route((url) => url.pathname.endsWith('/api/v1/admin/faqs'), (route) => {
+    mock.faqBodies.push(route.request().postDataJSON())
+    return route.fulfill({ status: 201, json: { id: 9901 } })
   })
   // 클레임 단건·승인·일괄 승인(D-250). 일괄 승인은 첫 항목만 성공(제거)하고 나머지는 제안 불일치로 실패시킨다.
   await page.route((url) => /\/api\/v1\/admin\/claims\/clm_[^/]+$/.test(url.pathname), (route) => {
@@ -445,5 +458,38 @@ test.describe('관리자 인박스(FE-101)', () => {
     await expect(items.nth(0)).toContainText('발송')
     await expect(items.nth(1)).toContainText('E2E 느림상점')
     await expect(items.nth(1)).toContainText('24시간 내 독촉함')
+  })
+
+  test('⑬ 답안 초안·FAQ 후보(D-253): 근거 표시 → 초안 사용 → FAQ 등록 체크 → 답변 저장 → 미리 채운 FAQ 등록 → 재조회', async ({ page }) => {
+    const mock = await mockInbox(page)
+    const draft = '안녕하세요, 고객님. 배송 관련 문의 주셔서 감사합니다.\n\n확인한 배송 관련 내용을 안내해 드립니다.\n- 주문 상태: 배송중 · 배송 상태: 배송중'
+    mock.draft = { draft, evidence: [{ kind: 'ORDER', title: '주문 ORD-E2E-9', summary: '주문 상태: 배송중 · 배송 상태: 배송중' }], faqCandidate: true }
+    await loginAs(page, 'ADMIN')
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/admin/inbox')
+    await expect(page.getByTestId('inbox-detail-title')).toHaveText('E2E 배송이 늦어요')
+
+    await page.getByTestId('inbox-detail-action').click()
+    const dialog = page.getByTestId('admin-inquiry-answer-dialog')
+    await expect(dialog.getByTestId('answer-draft-evidence')).toContainText('[주문] 주문 ORD-E2E-9')
+    const answer = dialog.getByTestId('answer-content').locator('textarea').first()
+    await expect(answer).toHaveValue('')
+    await dialog.getByTestId('answer-draft-use').click()
+    await expect(answer).toHaveValue(draft)
+    await expect(dialog.getByTestId('answer-faq-candidate')).toContainText('FAQ 후보')
+    await dialog.getByTestId('answer-faq-register').locator('input').check()
+    await dialog.getByTestId('answer-dialog-ok').click()
+
+    await expect(page.getByTestId('admin-toaster')).toContainText('답변을 등록했습니다.')
+    expect(mock.answerBodies).toEqual([{ content: draft }])
+    const faqDialog = page.getByTestId('admin-faq-dialog')
+    await expect(faqDialog.getByTestId('faq-question').locator('input')).toHaveValue('E2E 배송이 늦어요')
+    await expect(faqDialog.getByTestId('faq-answer').locator('textarea').first()).toHaveValue(draft)
+    await faqDialog.getByTestId('faq-dialog-ok').click()
+
+    await expect(page.getByTestId('admin-toaster')).toContainText('FAQ를 등록했습니다.')
+    expect(mock.faqBodies).toEqual([{ category: 'DELIVERY', question: 'E2E 배송이 늦어요', answer: draft, visible: true }])
+    await expect(page.getByTestId('inbox-item')).toHaveCount(2)
+    await expect(page.getByTestId('inbox-detail-title')).toHaveText('E2E 교환 문의')
   })
 })
