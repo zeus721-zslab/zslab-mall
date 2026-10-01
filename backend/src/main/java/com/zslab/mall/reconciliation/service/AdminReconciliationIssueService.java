@@ -76,6 +76,17 @@ public class AdminReconciliationIssueService {
     }
 
     /**
+     * 불일치 단건(인박스 상세 패널).
+     *
+     * @throws ReconciliationIssueNotFoundException 불일치 미존재(404)
+     */
+    public AdminReconciliationIssueResponse get(long issueId) {
+        ReconciliationIssue issue = reconciliationIssueRepository.findById(issueId)
+                .orElseThrow(() -> new ReconciliationIssueNotFoundException("불일치를 찾을 수 없습니다: id=" + issueId));
+        return toResponses(List.of(issue)).get(0);
+    }
+
+    /**
      * 불일치를 해결 처리하고 감사(UPDATE·RECONCILIATION_ISSUE·status OPEN→RESOLVED + memo)를 남긴다.
      *
      * @throws ReconciliationIssueNotFoundException      불일치 미존재(404)

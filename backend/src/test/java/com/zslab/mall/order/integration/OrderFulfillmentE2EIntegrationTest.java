@@ -194,6 +194,9 @@ class OrderFulfillmentE2EIntegrationTest extends AbstractIntegrationTest {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
                 jdbc.update("DELETE FROM notification_log WHERE recipient_user_id = ?", BUYER_ID);
                 jdbc.update("DELETE FROM inventory_history WHERE inventory_id = ?", INVENTORY_ID);
+                // 셀러 배송완료 감사(D-251) — 배송 행보다 먼저 지운다(대상 id를 배송에서 찾는다).
+                jdbc.update("DELETE FROM audit_log WHERE target_type = 'DELIVERY' AND target_id IN (SELECT id FROM delivery WHERE order_item_id IN "
+                        + "(SELECT id FROM order_item WHERE order_id IN (SELECT id FROM `order` WHERE buyer_id = ?)))", BUYER_ID);
                 jdbc.update("DELETE FROM delivery WHERE order_item_id IN "
                         + "(SELECT id FROM order_item WHERE order_id IN (SELECT id FROM `order` WHERE buyer_id = ?))", BUYER_ID);
                 jdbc.update("DELETE FROM payment WHERE order_id IN (SELECT id FROM `order` WHERE buyer_id = ?)", BUYER_ID);

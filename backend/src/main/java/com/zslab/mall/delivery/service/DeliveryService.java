@@ -16,6 +16,7 @@ import com.zslab.mall.order.service.OrderService;
 import com.zslab.mall.delivery.entity.Delivery;
 import com.zslab.mall.delivery.enums.DeliveryCarrier;
 import com.zslab.mall.delivery.enums.DeliveryDirection;
+import com.zslab.mall.delivery.enums.DeliveryStatus;
 import com.zslab.mall.delivery.event.DeliveryCompleted;
 import com.zslab.mall.delivery.event.DeliveryStarted;
 import com.zslab.mall.delivery.exception.DeliveryInvalidStateException;
@@ -261,11 +262,13 @@ public class DeliveryService {
      * primitive markDelivered 1:1 위임·actor 파라미터 비수신.
      * D-102 §5 wrapper 패턴 2회차·D-104 §후속.
      * 회수(RETURN) 배송의 완료는 관리자 confirm-pickup({@link #completeReturnShipment}) 단일 경로다 — 직접 마감은 422(Track 92-a D-197).
+     * 감사는 자동 배송완료(DeliveryAutoCompleteService)와 같은 형태로 관리자 행위자를 남긴다(D-251 — 배송완료 시각이 반품 기한·자동 구매확정의 기점).
      *
+     * @param auditContext 감사 행위자 컨텍스트(관리자)
      * @throws DeliveryInvalidStateException direction이 RETURN인 회수 배송(422)·SHIPPING이 아니어서 DELIVERED 전이 불가한 배송(READY·이미 DELIVERED·422)
      */
     @Transactional
-    public void markDeliveredByAdmin(Long deliveryId) {
+    public void markDeliveredByAdmin(Long deliveryId, AuditContext auditContext) {
         lockOrderOfDelivery(deliveryId);
         // 배송 엔티티의 첫 읽기부터 락을 잡는다 — 락 없이 먼저 읽으면 뒤이은 markDelivered의 락 조회가 1차 캐시(옛 상태)를 돌려준다.
         deliveryRepository.findWithLockById(deliveryId)
@@ -280,6 +283,9 @@ public class DeliveryService {
             // Track 95 D-201: 비-SHIPPING(READY·이미 DELIVERED) 전이 위반을 셀러 경로(OrderShippingService.markDeliveredBySeller)와 대칭으로 422 흡수한다.
             throw new DeliveryInvalidStateException("배송 완료 처리할 수 없는 배송 상태입니다: " + exception.getMessage());
         }
+        auditRecorder.record(auditContext, AuditLogAction.UPDATE, PolymorphicTargetType.DELIVERY, deliveryId,
+                Map.of("status", DeliveryStatus.SHIPPING.name()),
+                Map.of("status", DeliveryStatus.DELIVERED.name()));
         // 장기 배송중 이탈 — 이 경로는 sellerId를 들고 있지 않아 셀러 전체에 알린다.
         inboxSignalPublisher.adminChanged();
         inboxSignalPublisher.allSellersChanged();

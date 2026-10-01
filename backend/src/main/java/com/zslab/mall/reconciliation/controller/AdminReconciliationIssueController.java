@@ -20,10 +20,10 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 관리자 불일치 REST 컨트롤러(Track 104-2 D-216·invariants P6). 목록(상태·유형 필터·페이지)과 해결 처리 2 endpoint. HTTP 책임만 가지며
+ * 관리자 불일치 REST 컨트롤러(Track 104-2 D-216·invariants P6). 목록(상태·유형 필터·페이지)·단건·해결 처리 3 endpoint. HTTP 책임만 가지며
  * 조회·해결·감사는 {@link AdminReconciliationIssueService}에 위임한다. 권한은 {@code /api/v1/admin/**} ADMIN 매처(SecurityConfig)다.
  *
- * <p><b>응답 코드</b>: 목록 200 · 해결 200 / 메모 누락·500자 초과·잘못된 필터 값 400 / 미존재 404 / 이미 해결 422.
+ * <p><b>응답 코드</b>: 목록·단건 200 · 해결 200 / 메모 누락·500자 초과·잘못된 필터 값 400 / 미존재 404 / 이미 해결 422.
  */
 @RestController
 @RequestMapping("/api/v1/admin/reconciliation-issues")
@@ -50,6 +50,12 @@ public class AdminReconciliationIssueController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         return adminReconciliationIssueService.list(status, type, page, size);
+    }
+
+    /** 불일치 단건(인박스 상세 패널). 미존재 404. */
+    @GetMapping("/{issueId}")
+    public AdminReconciliationIssueResponse get(@PathVariable long issueId) {
+        return adminReconciliationIssueService.get(issueId);
     }
 
     /** 불일치 해결 처리(메모 필수·감사 기록). 업무 데이터는 바꾸지 않는다. */

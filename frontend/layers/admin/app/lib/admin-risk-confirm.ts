@@ -1,4 +1,5 @@
 import { IRREVERSIBLE, reversibleBy, riskConfirmMessage } from '~/lib/utils/risk-confirm'
+import { AUTO_CONFIRM_DAYS } from '~/lib/constants/order'
 
 /**
  * 관리자 위험 조작 확인 문구 모음(Track 102 FE-64·순수 함수·vitest 대상).
@@ -22,6 +23,15 @@ export function settlementConfirmMessage(periodLabel: string, companyName: strin
 export function settlementPayMessage(periodLabel: string, companyName: string, amount: string, bankAccountText: string): string {
   return riskConfirmMessage(
     `${periodLabel} ${companyName} 정산 ${amount}을 지급완료로 표시합니다.\n계좌: ${bankAccountText}\n지급 시점의 주 정산계좌가 함께 기록됩니다.`,
+    IRREVERSIBLE,
+  )
+}
+
+/** 장기 배송중 배송완료(인박스 패널 · D-251). 배송완료 시각이 반품 기한·자동 구매확정의 기점이 된다(BE ReturnWindowPolicy 7일). */
+export function deliveryCompleteMessage(productName: string, orderNo: string | null): string {
+  const target = orderNo ? `${productName} (${orderNo})` : productName
+  return riskConfirmMessage(
+    `${target} 배송을 배송완료로 바꿉니다.\n지금 시각부터 반품 기한(${AUTO_CONFIRM_DAYS}일)이 계산되고, 기한이 지나면 자동 구매확정됩니다.`,
     IRREVERSIBLE,
   )
 }

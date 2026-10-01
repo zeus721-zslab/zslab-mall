@@ -10,9 +10,11 @@ import {
 } from '~/lib/constants/inbox'
 import { DEFAULT_INBOX_QUERY, inboxItemKey, parseInboxQuery, toInboxApiParams, toInboxRouteQuery } from '~/lib/inbox-query'
 import {
+  findInboxSourceRow,
   formatDuration,
   inboxDeadline,
   inboxEmptyMessage,
+  inboxLookupKeyword,
   inboxPanelAction,
   inboxTotal,
   msUntilNextKstMidnight,
@@ -133,17 +135,31 @@ describe('목록', () => {
     expect(inboxEmptyMessage('TODAY', 'LOW_STOCK')).toBe('재고 임박 — 오늘 처리할 일이 없습니다.')
   })
 
-  it('패널 처리 가능 유형: 관리자 문의·셀러 심사·클레임 접수(D-250) · 셀러 발송 대기·Q&A · 그 외 이동만', () => {
+  it('패널 처리 가능 유형: 관리자 문의·셀러 심사·클레임 접수(D-250) · 셀러 발송 대기·Q&A · 7유형(D-251) · 클레임 후속만 이동', () => {
     expect(inboxPanelAction('ADMIN', 'INQUIRY_UNANSWERED')).toBe('INQUIRY_ANSWER')
     expect(inboxPanelAction('ADMIN', 'SELLER_REVIEW')).toBe('SELLER_STATUS')
     expect(inboxPanelAction('ADMIN', 'CLAIM_REQUESTED')).toBe('CLAIM_DECISION')
+    expect(inboxPanelAction('ADMIN', 'RECONCILIATION_OPEN')).toBe('RECONCILIATION_RESOLVE')
+    expect(inboxPanelAction('ADMIN', 'LONG_SHIPPING')).toBe('DELIVERY_COMPLETE')
+    expect(inboxPanelAction('ADMIN', 'PRODUCT_APPROVAL')).toBe('PRODUCT_DECISION')
+    expect(inboxPanelAction('ADMIN', 'SETTLEMENT_CONFIRM')).toBe('SETTLEMENT_TRANSITION')
+    expect(inboxPanelAction('ADMIN', 'SETTLEMENT_PAYOUT')).toBe('SETTLEMENT_TRANSITION')
     expect(inboxPanelAction('SELLER', 'DELIVERY_READY')).toBe('SHIPMENT')
     expect(inboxPanelAction('SELLER', 'QUESTION_UNANSWERED')).toBe('QUESTION_ANSWER')
-    for (const type of ['CLAIM_FOLLOWUP', 'LONG_SHIPPING', 'PRODUCT_APPROVAL', 'SETTLEMENT_CONFIRM', 'SETTLEMENT_PAYOUT', 'RECONCILIATION_OPEN'] as const) {
-      expect(inboxPanelAction('ADMIN', type)).toBeNull()
-    }
-    expect(inboxPanelAction('SELLER', 'LONG_SHIPPING')).toBeNull()
-    expect(inboxPanelAction('SELLER', 'LOW_STOCK')).toBeNull()
+    expect(inboxPanelAction('SELLER', 'LONG_SHIPPING')).toBe('DELIVERY_COMPLETE')
+    expect(inboxPanelAction('SELLER', 'LOW_STOCK')).toBe('STOCK_INBOUND')
+    expect(inboxPanelAction('ADMIN', 'CLAIM_FOLLOWUP')).toBeNull()
+  })
+
+  it('목록에서 원천 행 찾기(D-251): 검색어는 trim·50자 자르기·빈 값 null · ref와 식별자가 같은 행 / 없으면 null', () => {
+    expect(inboxLookupKeyword('  ORD-1  ')).toBe('ORD-1')
+    expect(inboxLookupKeyword('가'.repeat(60))).toBe('가'.repeat(INBOX_TARGET_KEYWORD_MAX))
+    expect(inboxLookupKeyword('   ')).toBeNull()
+    expect(inboxLookupKeyword(null)).toBeNull()
+    const rows = [{ deliveryId: 'dlv_A' }, { deliveryId: 'dlv_B' }]
+    expect(findInboxSourceRow(rows, 'dlv_B', (row) => row.deliveryId)).toEqual({ deliveryId: 'dlv_B' })
+    expect(findInboxSourceRow(rows, 'dlv_C', (row) => row.deliveryId)).toBeNull()
+    expect(findInboxSourceRow([], 'dlv_A', (row: { deliveryId: string }) => row.deliveryId)).toBeNull()
   })
 })
 

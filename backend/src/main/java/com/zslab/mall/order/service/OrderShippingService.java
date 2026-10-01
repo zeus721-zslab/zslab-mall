@@ -1,9 +1,14 @@
 package com.zslab.mall.order.service;
 
+import com.zslab.mall.audit.enums.AuditLogAction;
+import com.zslab.mall.audit.service.AuditContext;
+import com.zslab.mall.audit.service.AuditRecorder;
 import com.zslab.mall.claim.exception.ClaimInvalidStateException;
 import com.zslab.mall.claim.repository.ClaimRepository;
+import com.zslab.mall.common.enums.PolymorphicTargetType;
 import com.zslab.mall.delivery.entity.Delivery;
 import com.zslab.mall.delivery.enums.DeliveryCarrier;
+import com.zslab.mall.delivery.enums.DeliveryStatus;
 import com.zslab.mall.delivery.exception.DeliveryInvalidStateException;
 import com.zslab.mall.delivery.exception.DeliveryNotFoundException;
 import com.zslab.mall.delivery.repository.DeliveryRepository;
@@ -15,6 +20,7 @@ import com.zslab.mall.order.exception.OrderNotFoundException;
 import com.zslab.mall.order.repository.OrderItemRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
+import java.util.Map;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -48,10 +54,11 @@ public class OrderShippingService {
     private final EntityManager entityManager;
     private final OrderService orderService;
     private final InboxSignalPublisher inboxSignalPublisher;
+    private final AuditRecorder auditRecorder;
 
     public OrderShippingService(OrderItemRepository orderItemRepository, DeliveryRepository deliveryRepository,
             DeliveryService deliveryService, ClaimRepository claimRepository, EntityManager entityManager,
-            OrderService orderService, InboxSignalPublisher inboxSignalPublisher) {
+            OrderService orderService, InboxSignalPublisher inboxSignalPublisher, AuditRecorder auditRecorder) {
         this.orderItemRepository = orderItemRepository;
         this.deliveryRepository = deliveryRepository;
         this.deliveryService = deliveryService;
@@ -59,6 +66,7 @@ public class OrderShippingService {
         this.entityManager = entityManager;
         this.orderService = orderService;
         this.inboxSignalPublisher = inboxSignalPublisher;
+        this.auditRecorder = auditRecorder;
     }
 
     /**
@@ -162,12 +170,15 @@ public class OrderShippingService {
      * <p><b>클레임 연결 배송 제외(Track 92-a D-197)</b>: claim_id가 연결된 배송(교환품 발송·재발송·회수)의 완료 처리는 관리자 권한이다
      * (D-177 셀러 경로 제외·FE-47 배송완료는 원 발송만). 셀러 마감이 교환 종결·회수 확인 경로를 대신 밟지 않도록 422로 거부한다.
      *
-     * @param sellerId   요청 판매자 식별자(권한 대조)
-     * @param deliveryId 배송 완료 대상 Delivery id
+     * <p><b>감사(D-251)</b>: 자동 배송완료(DeliveryAutoCompleteService)와 같은 형태로 셀러 사용자를 행위자로 1행 남긴다.
+     *
+     * @param sellerId     요청 판매자 식별자(권한 대조)
+     * @param deliveryId   배송 완료 대상 Delivery id
+     * @param auditContext 감사 행위자 컨텍스트(셀러 사용자)
      * @throws DeliveryNotFoundException     배송 미존재 또는 요청 판매자 소유가 아닌 경우(존재 은닉·404)
      * @throws DeliveryInvalidStateException 배송이 SHIPPING이 아니어서 DELIVERED 전이 불가한 경우(배송 완료 불가·422)·클레임 연결 배송(422)
      */
-    public void markDeliveredBySeller(Long sellerId, Long deliveryId) {
+    public void markDeliveredBySeller(Long sellerId, Long deliveryId, AuditContext auditContext) {
         // Track 104-1 D-215(P5): 배송 행보다 주문 쓰기 락을 먼저 잡는다(스칼라로 주문 id만 구해 배송 엔티티는 락 뒤에 적재).
         deliveryRepository.findOrderIdById(deliveryId).ifPresent(orderService::lockForWrite);
         // 배송 엔티티의 첫 읽기부터 행 락을 잡는다(Track 99 외부 검토 4) — 락 없이 먼저 읽으면 뒤이은 markDelivered의 락 조회가
@@ -186,6 +197,9 @@ public class OrderShippingService {
             // 직접 IllegalStateException 매핑은 500 fallback으로 새므로 금지(changeToPreparing 패턴 1:1·M4).
             throw new DeliveryInvalidStateException("배송 완료 처리할 수 없는 배송 상태입니다: " + exception.getMessage());
         }
+        auditRecorder.record(auditContext, AuditLogAction.UPDATE, PolymorphicTargetType.DELIVERY, deliveryId,
+                Map.of("status", DeliveryStatus.SHIPPING.name()),
+                Map.of("status", DeliveryStatus.DELIVERED.name()));
         // 장기 배송중 이탈(관리자·해당 셀러)
         inboxSignalPublisher.adminChanged();
         inboxSignalPublisher.sellerChanged(sellerId);
