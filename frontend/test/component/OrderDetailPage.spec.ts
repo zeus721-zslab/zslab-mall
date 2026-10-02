@@ -327,3 +327,72 @@ describe('pages/orders/[orderPublicId].vue 리뷰 진입점(Track 106-1)', () =>
     expect(wrapper.find('[data-testid="item-review-edit"]').exists()).toBe(false)
   })
 })
+
+// warn PR-2: W2 검수 FAIL 이력 버튼 숨김 · W5 환불 금액 · W7 교환 배송 · W8 미결제 종료 중립 문구.
+describe('pages/orders/[orderPublicId].vue 검수 FAIL·환불 금액·교환 배송·미결제 종료(warn PR-2)', () => {
+  beforeEach(() => {
+    useOrderDetailMock.mockReset()
+  })
+
+  function mountDetail(detail: OrderDetail) {
+    useOrderDetailMock.mockReturnValue({ data: ref(detail), pending: ref(false), error: ref(null), refresh: vi.fn() })
+    return mountSuspended(OrderDetailPage)
+  }
+
+  it('W2 검수 FAIL 이력(inspectionFailed) 배송완료 품목 → 반품·교환 요청 버튼 숨김 · 구매확정은 유지', async () => {
+    const wrapper = await mountDetail(orderWith([
+      orderItem({ orderItemId: 'oit_2', status: { code: 'DELIVERED', label: '배송완료' }, inspectionFailed: true }),
+    ]))
+    const buttons = wrapper.findAll('button').map((button) => button.text())
+    expect(buttons.filter((text) => text === '반품 요청')).toHaveLength(0)
+    expect(buttons.filter((text) => text === '교환 요청')).toHaveLength(0)
+    expect(wrapper.findAll('[data-testid="item-confirm-purchase"]')).toHaveLength(1)
+  })
+
+  it('W5 완료 환불 합 > 0 → 환불 금액 행 · 0이면 행 없음', async () => {
+    const refunded = await mountDetail({
+      ...orderWith([orderItem({})]),
+      payment: { method: 'CARD', paidAt: '2026-09-20T12:05:00+09:00', refundedAmount: 5000 },
+    })
+    expect(refunded.find('[data-testid="order-detail-refunded-amount"]').text()).toBe('5,000원')
+
+    const notRefunded = await mountDetail({
+      ...orderWith([orderItem({})]),
+      payment: { method: 'CARD', paidAt: '2026-09-20T12:05:00+09:00', refundedAmount: 0 },
+    })
+    expect(notRefunded.find('[data-testid="order-detail-refunded-amount"]').exists()).toBe(false)
+  })
+
+  it('W7 교환 배송 있음 → 택배사·송장·배송완료일 표시 · 없으면 블록 없음', async () => {
+    const wrapper = await mountDetail(orderWith([
+      orderItem({
+        orderItemId: 'oit_2',
+        status: { code: 'DELIVERED', label: '배송완료' },
+        exchangeCompleted: true,
+        exchangeDelivery: {
+          carrier: 'POST',
+          trackingNo: 'EXCH-1',
+          status: 'DELIVERED',
+          shippedAt: '2026-09-15T09:00:00+09:00',
+          deliveredAt: '2026-09-17T11:00:00+09:00',
+        },
+      }),
+      orderItem({ orderItemId: 'oit_3', status: { code: 'DELIVERED', label: '배송완료' } }),
+    ]))
+    const blocks = wrapper.findAll('[data-testid="item-exchange-delivery"]')
+    expect(blocks).toHaveLength(1)
+    expect(blocks[0]!.text()).toContain('교환 배송')
+    expect(blocks[0]!.text()).toContain('우체국택배')
+    expect(blocks[0]!.text()).toContain('EXCH-1')
+    expect(blocks[0]!.text()).toContain('배송완료일 2026.09.17 11:00')
+  })
+
+  it('W8 미결제 종료 주문 → 원인 단정 없는 중립 문구', async () => {
+    const detail = orderWith([orderItem({})])
+    detail.status = { code: 'PAYMENT_EXPIRED', label: 'PAYMENT_EXPIRED' }
+    const wrapper = await mountDetail(detail)
+    const notice = wrapper.find('[data-testid="order-payment-expired-notice"]').text()
+    expect(notice).toBe('결제가 완료되지 않아 주문이 종료되었습니다. 다시 구매하려면 장바구니에 담아 새로 주문해 주세요.')
+    expect(notice).not.toContain('30분')
+  })
+})

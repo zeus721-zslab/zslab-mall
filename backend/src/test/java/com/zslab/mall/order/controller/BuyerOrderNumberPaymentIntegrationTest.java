@@ -26,7 +26,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  *
  * <p><b>커버</b>: T1 상세 orderNo·orderedAt·payment(실패 행 뒤 결제 완료 행) · T2 미결제(실패·대기 행만) → payment 키 생략 ·
  * T3 환불(CANCELLED·paidAt 유지) → payment 포함 · T4 목록 orderNo(마이페이지 최근 주문 공용) · T5 다른 구매자 상세 404 불변 ·
- * T6 상세 쿼리 수가 품목 수와 무관(품목 1개 = 3개·상품 모두 다름).
+ * T6 상세 쿼리 수가 품목 수와 무관(품목 1개 = 3개·상품 모두 다름) · T7 환불 금액(COMPLETED 합·W5).
  *
  * <p>시드/정리는 {@link TransactionTemplate} + {@code FOREIGN_KEY_CHECKS=0}(LT-02 try-finally)·id 985400~985429 고정.
  */
@@ -109,6 +109,17 @@ class BuyerOrderNumberPaymentIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("T7 환불 금액(W5): 부분 취소 2건 COMPLETED 합만 refundedAmount(PENDING·FAILED 제외) · 환불 없으면 0")
+    void detail_refundedAmount_sumsCompletedOnly() throws Exception {
+        mockMvc.perform(get(detailUrl(ORDER_PAID)).with(authHeaders.buyer(BUYER_USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.payment.refundedAmount").value(5000));
+        mockMvc.perform(get(detailUrl(ORDER_MULTI_ITEM)).with(authHeaders.buyer(BUYER_USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.payment.refundedAmount").value(0));
+    }
+
+    @Test
     @DisplayName("T4 목록: 항목마다 orderNo(orderId는 그대로)")
     void list_carriesOrderNo() throws Exception {
         mockMvc.perform(get(ORDERS_URL).with(authHeaders.buyer(BUYER_USER)))
@@ -166,6 +177,10 @@ class BuyerOrderNumberPaymentIntegrationTest extends AbstractIntegrationTest {
                 insertItem(ORDER_PAID, ORDER_PAID);
                 insertPayment(ID_BASE, ORDER_PAID, "CARD", "FAILED", null);
                 insertPayment(ID_BASE + 1, ORDER_PAID, "KAKAO", "PAID", PAID_AT);
+                insertRefund(ID_BASE, ID_BASE + 1, 3000, "COMPLETED");
+                insertRefund(ID_BASE + 1, ID_BASE + 1, 2000, "COMPLETED");
+                insertRefund(ID_BASE + 2, ID_BASE + 1, 1000, "PENDING");
+                insertRefund(ID_BASE + 3, ID_BASE + 1, 700, "FAILED");
 
                 insertOrder(ORDER_UNPAID, "PENDING_PAYMENT");
                 insertItem(ORDER_UNPAID, ORDER_UNPAID);
@@ -214,10 +229,19 @@ class BuyerOrderNumberPaymentIntegrationTest extends AbstractIntegrationTest {
                 id, pid("pay_", "BONPPAY" + id), orderId, method, status, paidAt, pid("pat_", "BONPPAT" + id));
     }
 
+    /** 부분 취소 환불 행(claim은 시드하지 않는다 — 금액 합 조회는 payment_id만 본다). COMPLETED는 refunded_at 필수(chk_refund_completed_at). */
+    private void insertRefund(long id, long paymentId, long amount, String status) {
+        String refundedAt = "COMPLETED".equals(status) ? PAID_AT : null;
+        jdbc.update("INSERT INTO refund (id, public_id, claim_id, payment_id, amount, status, refunded_at, created_at, updated_at) "
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?, NOW(6), NOW(6))",
+                id, pid("rfn_", "BONPRFN" + id), DUMMY_FK_ID, paymentId, amount, status, refundedAt);
+    }
+
     private void cleanup() {
         tx.executeWithoutResult(s -> {
             try {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
+                jdbc.update("DELETE FROM refund WHERE id BETWEEN ? AND ?", ID_BASE, ID_LAST);
                 jdbc.update("DELETE FROM payment WHERE id BETWEEN ? AND ?", ID_BASE, ID_LAST);
                 jdbc.update("DELETE FROM order_item WHERE id BETWEEN ? AND ?", ID_BASE, ID_LAST);
                 jdbc.update("DELETE FROM `order` WHERE id BETWEEN ? AND ?", ID_BASE, ID_LAST);

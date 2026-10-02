@@ -114,7 +114,9 @@ describe('결제 재개 노출 조건', () => {
     }
     expect(isPaymentExpired('PAYMENT_EXPIRED')).toBe(true)
     expect(isPaymentExpired('PENDING_PAYMENT')).toBe(false)
-    expect(PAYMENT_EXPIRED_NOTICE).toContain('30분')
+    // W8: 결제창 취소·시간 만료가 같은 상태라 원인(30분 만료)을 단정하지 않는다.
+    expect(PAYMENT_EXPIRED_NOTICE).toContain('결제가 완료되지 않아 주문이 종료되었습니다')
+    expect(PAYMENT_EXPIRED_NOTICE).not.toContain('30분')
   })
 })
 
