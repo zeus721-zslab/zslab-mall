@@ -34,6 +34,12 @@ import org.hibernate.annotations.SQLRestriction;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Product extends AbstractPublicIdSoftDeletableEntity {
 
+    /**
+     * 기본가·옵션 추가금 각각의 입력 상한(원). 품목 금액(단가 ≤ 2e9 × 수량 999)에 정산 수수료식(품목 금액 × 10000)을 적용해도 long 범위 안에
+     * 들도록 둔다. 상품·옵션 요청 DTO의 @Max가 쓴다.
+     */
+    public static final long MAX_PRICE = 1_000_000_000L;
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;

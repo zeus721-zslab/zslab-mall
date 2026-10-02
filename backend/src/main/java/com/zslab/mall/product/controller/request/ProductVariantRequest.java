@@ -1,5 +1,8 @@
 package com.zslab.mall.product.controller.request;
 
+import com.zslab.mall.inventory.entity.Inventory;
+import com.zslab.mall.product.entity.Product;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.PositiveOrZero;
@@ -15,8 +18,8 @@ public record ProductVariantRequest(
         @NotBlank @Size(max = 50) String variantCode, // SoT: ProductVariant.variantCode @Column(length=50)
         @Size(max = 100) String sellerSku, // nullable — SoT: ProductVariant.sellerSku @Column(length=100)
         @Size(max = 100) String barcode, // nullable — SoT: ProductVariant.barcode @Column(length=100)
-        @NotNull @PositiveOrZero Long additionalPrice,
+        @NotNull @PositiveOrZero @Max(Product.MAX_PRICE) Long additionalPrice,
         @PositiveOrZero int displayOrder,
-        @PositiveOrZero int initialStock, // 0 허용(품절 의미 정의는 본 트랙 범위 아님·재고 0 허용만)
+        @PositiveOrZero @Max(Inventory.MAX_QUANTITY_PER_REQUEST) int initialStock, // 0 허용(품절 의미 정의는 본 트랙 범위 아님·재고 0 허용만)
         List<@NotBlank String> optionKeys) { // 빈 배열 허용 = 단순상품 variant(구조 검증은 ProductRegistrationService)
 }

@@ -52,6 +52,7 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import java.time.LocalDateTime;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -768,11 +769,16 @@ public class ClaimService {
      * @throws ClaimInvalidStateException APPROVED가 아닌 경우(CLM-4)
      */
     public void confirmPickupByAdmin(Long claimId, LocalDateTime pickedUpAt, AuditContext auditContext) {
+        // 기존 값은 락 뒤에 읽는다 — 락 전에 클레임을 1차 캐시에 올리면 primitive가 동시 회수 확인의 커밋을 못 본다(lockOrderOfClaim 규약).
+        lockOrderOfClaim(claimId);
+        LocalDateTime previous = findClaim(claimId).getPickedUpAt();
         confirmPickup(claimId, pickedUpAt);
-        // before에 키를 두지 않으면 "값 없음"으로 diff된다. 멱등 no-op(이미 회수 확인)이면 before/after가 같아 적재가 skip된다.
+        // before에 같은 키를 실어야 멱등 no-op(이미 회수 확인)에서 before/after가 같아 적재가 skip된다(W3). 첫 확인의 before는 값 없음(null).
+        Map<String, Object> before = new HashMap<>();
+        before.put("pickedUpAt", previous == null ? null : String.valueOf(previous));
         LocalDateTime confirmed = findClaim(claimId).getPickedUpAt();
         recordClaimAudit(auditContext, AuditLogAction.UPDATE, claimId,
-                Map.of(), Map.of("pickedUpAt", String.valueOf(confirmed)));
+                before, Map.of("pickedUpAt", String.valueOf(confirmed)));
     }
 
     /**

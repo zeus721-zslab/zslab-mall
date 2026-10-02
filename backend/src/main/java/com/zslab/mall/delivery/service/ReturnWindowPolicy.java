@@ -12,8 +12,9 @@ import org.springframework.stereotype.Component;
 /**
  * 배송완료 기준 기한 판정 단일 소스(Track 81-A D-170 보충). 반품 요청 기한(R1)과 81-B 자동 구매확정(R7)이 같은 기준 시각·같은 일수를 쓴다.
  *
- * <p><b>기준 시각</b>: 품목의 원 주문 발송(direction=OUTBOUND·claim_id IS NULL·DELIVERED) 최신 {@code delivered_at}. 교환품 발송·검수 불합격
- * 재발송은 claim_id가 있어 제외된다 — 재발송 배송완료로 기한이 되살아나지 않는다(교환 발송 기준 재설정은 Track 82 판단).
+ * <p><b>기준 시각</b>: 품목의 기준 발송(direction=OUTBOUND·DELIVERED) 최신 {@code delivered_at}. 기준 발송 = 원 주문 발송(claim_id IS NULL) +
+ * EXCHANGE 클레임에 연결된 발송(교환품 발송과 교환 검수 불합격 재발송 모두 — 쿼리는 검수 결과를 보지 않는다). RETURN 클레임에 연결된 검수 불합격
+ * 재발송은 제외된다. 즉 반품 불합격 재발송의 배송완료로는 기한이 되살아나지 않고 교환 불합격 재발송으로는 되살아나는 비대칭이 현행 동작이다(W6).
  */
 @Component
 public class ReturnWindowPolicy {
@@ -28,8 +29,9 @@ public class ReturnWindowPolicy {
     }
 
     /**
-     * 품목의 기준 발송 배송완료 시각(원 주문 발송 또는 교환품 발송 중 최신·Track 83 D-177 결정 6·검수 FAIL 재발송 제외). 배송완료 기록이
-     * 없으면 empty. 교환품 배송완료가 있으면 그 시각부터 반품 기한·자동 구매확정 타이머가 다시 시작된다.
+     * 품목의 기준 발송 배송완료 시각(원 주문 발송 또는 EXCHANGE 클레임 연결 발송 중 최신·Track 83 D-177 결정 6). EXCHANGE 연결 발송에는 교환품
+     * 발송과 교환 검수 FAIL 재발송이 모두 들고 RETURN 검수 FAIL 재발송은 빠진다. 배송완료 기록이 없으면 empty. 기준 발송의 배송완료가 새로 생기면
+     * 그 시각부터 반품 기한·자동 구매확정 타이머가 다시 시작된다.
      */
     public Optional<LocalDateTime> originalDeliveredAt(Long orderItemId) {
         return deliveryRepository

@@ -11,6 +11,7 @@ import com.zslab.mall.refund.controller.response.AdminRefundInitiateResponse;
 import com.zslab.mall.refund.entity.Refund;
 import com.zslab.mall.refund.service.RefundService;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -54,7 +55,7 @@ public class AdminRefundController {
     @PostMapping("/api/v1/admin/claims/{claimPublicId}/initiate-refund")
     public AdminRefundInitiateResponse initiateRefund(
             @PathVariable String claimPublicId,
-            @RequestBody AdminRefundInitiateRequest request,
+            @RequestBody @Valid AdminRefundInitiateRequest request,
             HttpServletRequest httpRequest) {
         // Track 101-A: 그동안 버리던 actorId를 감사 컨텍스트로 쓴다. 누락 401·형식 오류 400은 resolver가 그대로 낸다.
         AuditContext auditContext = AuditContext.of(

@@ -51,13 +51,18 @@ public class FaqQueryService {
     }
 
     /**
-     * 답안 초안 근거(D-253): 즉시 답과 같은 점수·정렬로 고른 공개 FAQ. 문의 본문(최대 500자)을 그대로 받으려고 질의 길이 검사는 하지 않는다 —
-     * 토큰은 {@link KeywordMatcher#tokenize}가 앞에서부터 최대 5개만 쓴다.
+     * 답안 초안 근거(D-253): 즉시 답과 같은 점수·정렬로 고른 공개 FAQ 중 일치 비율 ≥ 0.5({@link KeywordMatcher#meetsDraftMatchRatio})만.
+     * 문의 본문(최대 500자)을 그대로 받으려고 질의 길이 검사는 하지 않는다 — 토큰은 {@link KeywordMatcher#tokenize}가 앞에서부터 최대 5개만 쓴다.
      *
-     * @return 일치 0건이면 빈 목록
+     * <p>점수 내림차순 결과를 limit로 자른 뒤 거르므로 "거른 뒤 limit"와 같은 집합이다(비율 미달은 항상 뒤쪽).
+     *
+     * @return 자격 있는 일치가 없으면 빈 목록
      */
     public List<Faq> matchVisible(String text, int limit) {
-        return rankVisible(KeywordMatcher.tokenize(text), limit);
+        List<List<String>> tokenForms = KeywordMatcher.tokenize(text);
+        return rankVisible(tokenForms, limit).stream()
+                .filter(faq -> KeywordMatcher.meetsDraftMatchRatio(KeywordMatcher.score(matchTextOf(faq), tokenForms), tokenForms.size()))
+                .toList();
     }
 
     private List<Faq> rankVisible(List<List<String>> tokenForms, int limit) {

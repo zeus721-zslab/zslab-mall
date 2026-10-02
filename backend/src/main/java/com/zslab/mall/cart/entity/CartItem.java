@@ -59,6 +59,7 @@ public class CartItem extends AbstractFullAuditableEntity {
 
     /**
      * @throws IllegalArgumentException 필수값 누락 또는 quantity < 1 시
+     * @throws CartItemQuantityLimitExceededException quantity가 {@value #MAX_QUANTITY}를 넘을 때(요청 검증을 거치지 않는 내부 호출 방어)
      */
     public static CartItem create(Long userId, Long variantId, String variantPublicId, Integer quantity) {
         if (userId == null || variantId == null || variantPublicId == null || quantity == null) {
@@ -67,6 +68,7 @@ public class CartItem extends AbstractFullAuditableEntity {
         if (quantity < 1) {
             throw new IllegalArgumentException("CartItem quantity는 1 이상이어야 합니다(CRT-2).");
         }
+        requireWithinMaxQuantity(quantity);
         CartItem cartItem = new CartItem();
         cartItem.userId = userId;
         cartItem.variantId = variantId;
@@ -95,12 +97,21 @@ public class CartItem extends AbstractFullAuditableEntity {
      * 요청 검증(@Min(1))과 함께 엔티티에서도 재검증한다(create()의 CRT-2 경계 정합·팩토리/mutator 동일 불변조건).
      *
      * @throws IllegalArgumentException newQuantity가 1 미만일 때(CRT-2)
+     * @throws CartItemQuantityLimitExceededException newQuantity가 {@value #MAX_QUANTITY}를 넘을 때
      */
     public void changeQuantity(int newQuantity) {
         if (newQuantity < 1) {
             throw new IllegalArgumentException("CartItem quantity는 1 이상이어야 합니다(CRT-2).");
         }
+        requireWithinMaxQuantity(newQuantity);
         this.quantity = newQuantity;
+    }
+
+    private static void requireWithinMaxQuantity(int quantity) {
+        if (quantity > MAX_QUANTITY) {
+            throw new CartItemQuantityLimitExceededException(
+                    "장바구니 품목 수량은 " + MAX_QUANTITY + "개를 넘을 수 없습니다: 요청 " + quantity);
+        }
     }
 
     /** 결제 대상으로 선택한다(Track 45 selected 토글). create() 기본값(true)과 정합. */

@@ -101,7 +101,10 @@ public class AnswerDraftService {
         return new AnswerDraftResponse(draft, evidence, false);
     }
 
-    /** 즉시 답(ProductQuestionSuggestService)과 같은 후보·점수(질문 + 답변 텍스트) · 동점이면 최신순(후보 조회 순서 유지). */
+    /**
+     * 즉시 답(ProductQuestionSuggestService)과 같은 후보·점수(질문 + 답변 텍스트) · 동점이면 최신순(후보 조회 순서 유지). 즉시 답과 달리
+     * 일치 비율 ≥ 0.5({@link KeywordMatcher#meetsDraftMatchRatio})만 근거로 쓴다.
+     */
     private List<AnswerEvidence> answeredQuestionEvidenceOf(ProductQuestion question) {
         List<List<String>> tokenForms = KeywordMatcher.tokenize(question.getContent());
         if (tokenForms.isEmpty()) {
@@ -112,11 +115,12 @@ public class AnswerDraftService {
                 .filter(candidate -> !candidate.getId().equals(question.getId()))
                 .map(candidate -> new ScoredQuestion(candidate, KeywordMatcher.score(
                         (candidate.getContent() + " " + candidate.getAnswerContent()).toLowerCase(Locale.ROOT), tokenForms)))
-                .filter(scored -> scored.score() > 0)
+                .filter(scored -> KeywordMatcher.meetsDraftMatchRatio(scored.score(), tokenForms.size()))
                 .sorted(Comparator.comparingInt(ScoredQuestion::score).reversed())
                 .limit(EVIDENCE_LIMIT_PER_KIND)
                 .map(scored -> new AnswerEvidence(AnswerEvidenceKind.ANSWERED_QUESTION, KeywordMatcher.excerpt(scored.question().getContent()),
-                        KeywordMatcher.excerpt(scored.question().getAnswerContent())))
+                        KeywordMatcher.excerpt(scored.question().getAnswerContent()),
+                        KeywordMatcher.sentenceExcerpt(scored.question().getAnswerContent())))
                 .toList();
     }
 
@@ -124,15 +128,18 @@ public class AnswerDraftService {
         List<AnswerEvidence> evidence = new ArrayList<>();
         for (Faq faq : faqQueryService.matchVisible(content, EVIDENCE_LIMIT_PER_KIND)) {
             evidence.add(new AnswerEvidence(AnswerEvidenceKind.FAQ, KeywordMatcher.excerpt(faq.getQuestion()),
-                    KeywordMatcher.excerpt(faq.getAnswer())));
+                    KeywordMatcher.excerpt(faq.getAnswer()), KeywordMatcher.sentenceExcerpt(faq.getAnswer())));
         }
         return evidence;
     }
 
     /** 주문번호·주문 상태·원 발송 배송 상태(중복 제거 · 품목 순). 주문이 지워졌으면 근거 없음. */
     private Optional<AnswerEvidence> orderEvidenceOf(Long orderId) {
-        return orderRepository.findNoAndStatusById(orderId).map(order -> new AnswerEvidence(AnswerEvidenceKind.ORDER,
-                ORDER_TITLE_PREFIX + order.getOrderNo(), orderSummaryOf(order, deliveryStatusesOf(orderId))));
+        return orderRepository.findNoAndStatusById(orderId).map(order -> {
+            // 주문 요약은 서버가 만든 짧은 문장이라 표시용과 초안용이 같다.
+            String summary = orderSummaryOf(order, deliveryStatusesOf(orderId));
+            return new AnswerEvidence(AnswerEvidenceKind.ORDER, ORDER_TITLE_PREFIX + order.getOrderNo(), summary, summary);
+        });
     }
 
     private List<DeliveryStatus> deliveryStatusesOf(Long orderId) {

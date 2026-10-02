@@ -143,11 +143,11 @@ public class AdminClaimController {
     /**
      * Admin 클레임 승인. 미존재만 404(전체 접근·D-93 Q5). 성공 시 200 + 갱신된 ClaimResponse.
      *
-     * <p>EXCHANGE 차액환불(D-115): body는 선택이며(required=false) 부재 시 refundAmount=null(차액 없음·기존 동작).
+     * <p>body는 선택이며(required=false) 부재·refundAmount=null이 정상 승인이다. refundAmount는 D-177로 폐기돼 값이 오면 400이다.
      */
     @PostMapping("/{claimPublicId}/approve")
     public ClaimResponse approveByAdmin(@PathVariable String claimPublicId,
-            @RequestBody(required = false) ClaimApproveRequest body, HttpServletRequest request) {
+            @RequestBody(required = false) @Valid ClaimApproveRequest body, HttpServletRequest request) {
         AuditContext auditContext = auditContext(request);
         Claim claim = claimRepository.findByPublicId(claimPublicId)
                 .orElseThrow(() -> new ClaimNotFoundException("클레임을 찾을 수 없습니다: publicId=" + claimPublicId));

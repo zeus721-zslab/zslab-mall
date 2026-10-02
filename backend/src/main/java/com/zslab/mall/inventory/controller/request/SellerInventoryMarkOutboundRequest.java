@@ -1,5 +1,7 @@
 package com.zslab.mall.inventory.controller.request;
 
+import com.zslab.mall.inventory.entity.Inventory;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
@@ -12,6 +14,6 @@ import jakarta.validation.constraints.Size;
  * 위해 필수이며 {@code @Size(max=255)}는 V1 {@code inventory_history.reason VARCHAR(255)} 정합이다.
  */
 public record SellerInventoryMarkOutboundRequest(
-        int quantity,
+        @Max(Inventory.MAX_QUANTITY_PER_REQUEST) int quantity,
         @NotBlank @Size(max = 255) String reason) {
 }

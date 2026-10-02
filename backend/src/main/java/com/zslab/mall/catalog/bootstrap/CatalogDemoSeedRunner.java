@@ -24,11 +24,11 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 홈 카탈로그 노출 검증용 데모 상품 부트 시드(FE-04). FE-03에서 공통 레이아웃·홈·ProductCard·SSR 직결은 완성했으나 카탈로그가
- * 비어(items 0) 상품 카드가 렌더되지 않았다. 본 Runner는 "노출 성립 최소 체인"의 데모 상품 2건을 dev 부팅 시 멱등 공급해
- * 홈 카드·반응형·hover의 실물 렌더 검증을 가능하게 한다.
+ * 비어(items 0) 상품 카드가 렌더되지 않았다. 본 Runner는 "노출 성립 최소 체인"의 데모 상품 2건을 부팅 시(dev·운영 모두 활성) 미삭제 상품이
+ * 0건일 때만 공급해 홈 카드·반응형·hover의 실물 렌더 검증과 포폴 데모 노출을 가능하게 한다.
  *
  * <p><b>활성·멱등·전례</b>: {@code catalog.demo-seed.enabled=true}일 때만 빈이 생성된다({@link ConditionalOnProperty}·
- * 프로퍼티 부재 시 기본 OFF·dev 한정 활성은 아래 '테스트·운영 격리' 참조). 활성 시 로직은
+ * 프로퍼티 부재 시 기본 OFF·프로파일별 값은 아래 '테스트·운영 격리' 참조). 활성 시 로직은
  * {@link com.zslab.mall.auth.bootstrap.SuperAdminBootstrapRunner}와 동형이다({@code CommandLineRunner} + 존재 확인 후
  * 없을 때만 생성 + {@code @Transactional} + 도메인 팩토리 경유). 멱등 키는 "카탈로그 상품 존재 여부"
  * ({@code productRepository.count() == 0})이므로 재기동에 안전하다(이미 상품이 있으면 skip). raw SQL·JDBC 직삽입 없이 각
@@ -47,8 +47,9 @@ import org.springframework.transaction.annotation.Transactional;
  * <p><b>테스트·운영 격리</b>: {@code CommandLineRunner}는 {@code @SpringBootTest} 컨텍스트 기동 시에도 실행되므로,
  * 무조건 활성화하면 싱글톤 공유 테스트 컨테이너에 데모 행을 커밋해 전역 상태를 단언하는 테스트를 깨뜨린다
  * ({@code inventory.variant_id} UNIQUE 충돌·{@code product_variant} 전역 count 위반). 이를 {@code catalog.demo-seed.enabled}
- * 플래그로 차단한다 — dev(local 프로파일·application-local.yml true)에서만 켜지고, 테스트는 gradle test 태스크가 false로
- * 명시 차단, 운영은 prod 프로파일에서 미설정이라 빈이 생성되지 않는다.
+ * 플래그로 차단한다 — 테스트는 gradle test 태스크가 false로 명시 차단한다. dev(application-local.yml)와 운영(application-prod.yml ·
+ * 포폴 데모 상품 노출용)은 true라 빈이 생성되며, 운영에서도 미삭제 상품이 1건이라도 있으면 위 멱등 키로 skip한다. {@code Product}의
+ * {@code @SQLRestriction}으로 soft-delete 상품은 세지 않으므로, 상품을 전부 삭제한 뒤 재기동하면 데모 상품이 다시 공급된다.
  */
 @Slf4j
 @Component
