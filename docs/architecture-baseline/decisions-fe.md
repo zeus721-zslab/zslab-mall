@@ -4202,3 +4202,29 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 - 상품 상세 담기 실패 문구는 공용 헬퍼 단위 테스트로 고정했다(페이지 담기 경로 컴포넌트 테스트 없음).
 
 외부 검토: B / 생략(셀프 리뷰 지적 9건 중 수용 3건 + 보류 2건 반영)
+
+## FE-109: 최종 점검 warn — 관리자·셀러 화면 표시·처리 정정 (2026-10-02)
+
+기준: docs/track-final-check/recon-report-warn.md §3(W10 · W12 · W13 · W14 · W17 · P-04) · BE 계약 무변경.
+
+### 결정
+- W10: 정지 셀러의 쓰기 버튼은 비활성 + 툴팁("정지 상태에서는 변경할 수 없습니다"). 판정은 정지 배너와 같은 `sellerAuth.suspended`를 `SellerSuspendedGuard` 한 곳에서 읽는다. 대상은 서버 쓰기를 일으키는 진입·확정 버튼이고, 조회를 겸하는 이동(상품 수정 화면 진입)과 폼 안 로컬 편집(옵션·이미지 영역)은 막지 않고 저장 버튼에서 막는다. 최종 차단은 서버 403 SELLER_SUSPENDED다.
+- W12: 인박스 배송 패널 수령인은 `shippingAddress?.recipientName`. `AdminDeliveryDetail`은 목록 행 타입에서 `recipientName`을 Omit해 재발을 tsc로 막는다(배송 상세 다이얼로그의 같은 폴백도 제거).
+- W13: 관리자·셀러 정산 계좌 표시는 `bankLabel`(lib/constants/bank.ts)을 쓴다. 목록 밖 코드는 원문.
+- W14: 일괄 독촉 완료 뒤 페이지가 nonce를 올려 셀러 지연 패널 key에 넣는다(선택 키가 같아도 패널을 다시 읽는다).
+  - α(채택): 쿨다운은 FE에서 판정하지 않고 서버 COOLDOWN 결과 안내로 둔다.
+  - β(기각): `lastNudgedAt` + 24시간 FE 판정 — BE 상수(NUDGE_COOLDOWN)와 두 군데 소스가 된다.
+- W17 FAQ: 미리 채우기는 저장 답변에서 초안 ORDER 근거 문장 줄(머리표 유무 무관 · 운영자가 고친 줄은 유지)을 빼고 안내 1줄을 띄운다. 미리 채운 FAQ는 숨김(visible=false)으로 시작한다.
+- W17 인박스: 문의 카테고리는 `inquiryCategoryLabel`로 행 부제·목록에 표시한다(`adminInboxSubtitle`).
+  - α(채택): FE 라벨만.
+  - β(기각): 단건 문의 GET API 신설 — BE 계약이 늘고, 그것으로만 풀리는 작성자·주문번호 표시는 이번 범위 밖이다.
+- P-04: onProcessed는 처리 기준(처리 전 키 · 처리한 키)을 `pendingProcessed`에 두고, 성공한 최신 load가 소비해 `nextInboxSelection`을 적용한다(관리자·셀러 같은 구조). 탭·유형 변경과 직접 선택은 기준을 버린다.
+  - 후보 1(채택): 기준 보존 후 최신 load 소비 — 변경 신호 구독·합치기 경로를 건드리지 않는다.
+  - 후보 2·3(기각): onProcessed 중 신호 보류 · 진행 중 reload 대기 — 신호 경로를 바꾼다.
+  - 후보 4(기각): emit 시점 스냅샷 — 처리 쪽 load가 버려지면 다음 선택이 실행되지 않는 문제가 남는다.
+
+### §8 이월
+- W17 인박스 문의 작성자·주문번호 표시(인박스 행 또는 단건 API에 BE 필드 필요).
+- W14 쿨다운 중에도 독촉 버튼은 활성이다(서버 COOLDOWN 거부 안내).
+
+외부 검토: C / 생략
