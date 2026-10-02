@@ -325,7 +325,7 @@ class AdminOrderIntegrationTest extends AbstractIntegrationTest {
     // ===== 조회 =====
 
     @Test
-    @DisplayName("T6 목록: 필터(status·paymentStatus·deliveryStatus)·검색(주문번호·주문자·상품명)·enrich 필드·쿼리 수 ≤ 8")
+    @DisplayName("T6 목록: 필터(status·paymentStatus·deliveryStatus)·검색(주문번호·주문자·상품명)·enrich 필드·쿼리 수 ≤ 9")
     void list_filtersSearchAndEnrich_withBoundedQueries() throws Exception {
         mockMvc.perform(get(URL).with(authHeaders.admin(ADMIN_ID)).param("keyword", "ORDT79" + ORDER_A))
                 .andExpect(status().isOk())

@@ -1,6 +1,7 @@
 package com.zslab.mall.payment.integration;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 
 import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.event.OrderTerminated;
@@ -53,6 +54,8 @@ class PaymentExpiryIntegrationTest extends AbstractIntegrationTest {
     private static final long ORDER_ID = 9701L;
     private static final long ORDER_ITEM_ID = 9701L;
     private static final long PAID_PAYMENT_ID = 9702L;
+    /** 시드하지 않는 결제 id — 배치 조회~잠금 사이 행이 사라진 경우를 재현한다. */
+    private static final long MISSING_PAYMENT_ID = 9703L;
     /** product.category_id·variant.option1_value_id NOT NULL FK 충족용 더미(FK_CHECKS=0 시드로 우회). */
     private static final long DUMMY_FK_ID = 9701L;
     private static final int QTY = 2;
@@ -127,6 +130,21 @@ class PaymentExpiryIntegrationTest extends AbstractIntegrationTest {
         assertThat(paymentStatus(paymentId)).isEqualTo("PENDING");
         assertThat(applicationEvents.stream(OrderTerminated.class).count()).isZero();
         assertThat(reserved()).isEqualTo(QTY);
+    }
+
+    @Test
+    @DisplayName("T5 결제 행 없음 → expireOne 예외 없이 skip → 주문 상태·재고 불변·종료 이벤트 0건")
+    void missingPayment_skipsWithoutException() {
+        seedGraph(QTY);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM payment WHERE id = ?", Integer.class, MISSING_PAYMENT_ID)).isZero();
+
+        assertThatCode(() -> expirePaymentService.expireOne(MISSING_PAYMENT_ID)).doesNotThrowAnyException();
+
+        assertThat(orderStatus()).isEqualTo("PENDING_PAYMENT");
+        assertThat(applicationEvents.stream(OrderTerminated.class).count()).isZero();
+        assertThat(reserved()).isEqualTo(QTY);
+        assertThat(available()).isEqualTo(10 - QTY);
+        assertThat(onHand()).isEqualTo(10);
     }
 
     @Test

@@ -179,7 +179,7 @@ class AdminProductManagementControllerIntegrationTest extends AbstractIntegratio
     }
 
     @Test
-    @DisplayName("목록 N+1 없음: 5건 조회 SQL 수 ≤ 6(상품 페이지·count·variant·inventory·seller·category 배치)")
+    @DisplayName("목록 N+1 없음: 5건 조회 SQL 수 ≤ 7(상품 페이지·count·variant·inventory·seller·category 배치·인증 필터 회원 상태 조회)")
     void list_queryCountIsBounded() throws Exception {
         Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
         statistics.setStatisticsEnabled(true);

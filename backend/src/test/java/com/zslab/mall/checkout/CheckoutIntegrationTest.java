@@ -250,6 +250,14 @@ class CheckoutIntegrationTest extends AbstractIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON).content(createBody(hundredOneItems)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+
+        // 거부된 두 요청은 999 성공 직후 상태(주문 1건·예약 999)를 바꾸지 않는다.
+        Number orderCount = (Number) entityManager
+                .createNativeQuery("SELECT COUNT(*) FROM `order` WHERE buyer_id = 1").getSingleResult();
+        Number reserved = (Number) entityManager
+                .createNativeQuery("SELECT quantity_reserved FROM inventory WHERE variant_id = " + VARIANT_ID).getSingleResult();
+        org.assertj.core.api.Assertions.assertThat(orderCount.longValue()).isEqualTo(1);
+        org.assertj.core.api.Assertions.assertThat(reserved.intValue()).isEqualTo(999);
     }
 
     private static String itemJson(int quantity) {

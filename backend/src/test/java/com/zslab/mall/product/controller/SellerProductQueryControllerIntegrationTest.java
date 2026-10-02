@@ -15,11 +15,14 @@ import com.zslab.mall.product.controller.response.AdminProductDetailResponse;
 import com.zslab.mall.product.controller.response.AdminProductSummaryResponse;
 import com.zslab.mall.seller.enums.SellerStatus;
 import com.zslab.mall.support.AbstractIntegrationTest;
+import jakarta.persistence.EntityManagerFactory;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.RecordComponent;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import org.hibernate.SessionFactory;
+import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -88,6 +91,8 @@ class SellerProductQueryControllerIntegrationTest extends AbstractIntegrationTes
     private static final String VC1_PID = pid("var_", "SPQVC1");
     private static final String VPB_PID = pid("var_", "SPQVPB");
     private static final String KEYWORD_LIMIT_EXCEEDED = "K".repeat(51);
+    /** 상품 페이지 + count + variant·카테고리 등 페이지 단위 배치 + 인증 필터 회원 상태 조회 1(Track 84) — 상품 수와 무관한 상한. */
+    private static final int QUERY_BUDGET_FOR_LIST = 10;
 
     /** 목록 행 키 화이트리스트 — 필드가 늘면 여기와 SellerProductSummaryResponse를 함께 바꿔야 한다. */
     private static final Set<String> SUMMARY_KEYS = Set.of("productPublicId", "name", "categoryId", "categoryName", "status",
@@ -122,6 +127,8 @@ class SellerProductQueryControllerIntegrationTest extends AbstractIntegrationTes
     private PlatformTransactionManager txManager;
     @Autowired
     private ObjectMapper objectMapper;
+    @Autowired
+    private EntityManagerFactory entityManagerFactory;
 
     private TransactionTemplate tx;
 
@@ -252,6 +259,39 @@ class SellerProductQueryControllerIntegrationTest extends AbstractIntegrationTes
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items.length()").value(0))
                 .andExpect(jsonPath("$.totalCount").value(0));
+    }
+
+    @Test
+    @DisplayName("T11 쿼리 수: 상품 1건 페이지(셀러 B)와 3건 페이지(셀러 A)의 쿼리 수가 같고 ≤ 10 · 페이징 필드(size·totalCount·hasNext)")
+    void list_queryCountIndependentOfProductCount() throws Exception {
+        Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+        statistics.setStatisticsEnabled(true);
+        try {
+            // 두 요청 모두 꽉 찬 첫 페이지라 count 쿼리가 똑같이 나간다(덜 찬 첫 페이지는 count를 생략해 비교가 어긋난다).
+            statistics.clear();
+            mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_B)).param("size", "1"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.items.length()").value(1))
+                    .andExpect(jsonPath("$.size").value(1))
+                    .andExpect(jsonPath("$.totalCount").value(1))
+                    .andExpect(jsonPath("$.hasNext").value(false));
+            long singleProductQueries = statistics.getPrepareStatementCount();
+
+            statistics.clear();
+            mockMvc.perform(get(LIST_URL).with(authHeaders.seller(USER_A)).param("size", "3"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.items.length()").value(3))
+                    .andExpect(jsonPath("$.size").value(3))
+                    .andExpect(jsonPath("$.totalCount").value(3))
+                    .andExpect(jsonPath("$.hasNext").value(false));
+            long multiProductQueries = statistics.getPrepareStatementCount();
+
+            assertThat(multiProductQueries).as("상품 1건 %d회 · 3건 %d회", singleProductQueries, multiProductQueries)
+                    .isEqualTo(singleProductQueries);
+            assertThat(multiProductQueries).isLessThanOrEqualTo(QUERY_BUDGET_FOR_LIST);
+        } finally {
+            statistics.setStatisticsEnabled(false);
+        }
     }
 
     @Test

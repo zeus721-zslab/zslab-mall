@@ -1,6 +1,7 @@
 package com.zslab.mall.claim.integration;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -19,7 +20,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
+import com.zslab.mall.common.security.ActorRole;
 import com.zslab.mall.common.security.AuthHeaders;
+import com.zslab.mall.common.security.JwtAuthenticationToken;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
@@ -47,6 +50,7 @@ class AdminClaimIntegrationTest extends AbstractIntegrationTest {
     private static final long ADMIN = 7001L; // Admin 액터 stub(전체 접근·검증 비대상)
     private static final long BUYER = 9501L;
     private static final long SELLER = 9001L; // 품목 소유 셀러(FK 부모 그래프·Admin 검증 비대상)
+    private static final String INSPECT_PASS_RESTOCK = "{\"result\":\"PASS\",\"restock\":true}";
 
     @Autowired
     private MockMvc mockMvc;
@@ -118,6 +122,63 @@ class AdminClaimIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("CLAIM_NOT_FOUND"));
 
+        assertThat(events.stream(ClaimApproved.class).count()).isZero();
+    }
+
+    // ===== I4·I5: 검수(inspect) 인증·미존재 =====
+
+    @Test
+    @DisplayName("I4 검수: 인증 없음 → 401 UNAUTHENTICATED")
+    void inspect_unauthenticated_returns401() throws Exception {
+        mockMvc.perform(post("/api/v1/admin/claims/" + pid("clm_", "AI4NOAUTH") + "/inspect")
+                        .with(authHeaders.csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content(INSPECT_PASS_RESTOCK))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
+    }
+
+    @Test
+    @DisplayName("I5 검수: 미존재 claimPublicId → 404 CLAIM_NOT_FOUND")
+    void inspect_unknownPublicId_returns404() throws Exception {
+        mockMvc.perform(post("/api/v1/admin/claims/" + pid("clm_", "AI5NONE") + "/inspect")
+                        .with(authHeaders.admin(ADMIN))
+                        .contentType(MediaType.APPLICATION_JSON).content(INSPECT_PASS_RESTOCK))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("CLAIM_NOT_FOUND"));
+    }
+
+    // ===== I6: 관리자 외 역할 =====
+
+    @Test
+    @DisplayName("I6 셀러·구매자: 역할 쿠키 → 관리자 경로 401(경로 쿠키만 읽음) · 역할 인증 주입 → 403 FORBIDDEN · 클레임 불변")
+    void nonAdminRoles_cannotApprove() throws Exception {
+        long orderId = 9721L;
+        long orderItemId = 9722L;
+        long claimId = 9723L;
+        String claimPid = pid("clm_", "AI6");
+        seed(() -> {
+            seedOrder(orderId, pid("ord_", "AI6ORD"), BUYER);
+            seedOrderItem(orderItemId, pid("oit_", "AI6OIT"), orderId, SELLER, OrderItemStatus.PAID);
+            seedClaim(claimId, claimPid, orderItemId, ClaimType.CANCEL, ClaimStatus.REQUESTED, BUYER, "역할 차단 대상");
+        });
+        String approveUrl = "/api/v1/admin/claims/" + claimPid + "/approve";
+
+        mockMvc.perform(post(approveUrl).with(authHeaders.seller(SELLER)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
+        mockMvc.perform(post(approveUrl).with(authHeaders.buyer(BUYER)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
+        mockMvc.perform(post(approveUrl).with(authHeaders.csrf())
+                        .with(authentication(JwtAuthenticationToken.authenticated(SELLER, ActorRole.SELLER))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        mockMvc.perform(post(approveUrl).with(authHeaders.csrf())
+                        .with(authentication(JwtAuthenticationToken.authenticated(BUYER, ActorRole.BUYER))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+        assertThat(claimStatus(claimId)).isEqualTo("REQUESTED");
         assertThat(events.stream(ClaimApproved.class).count()).isZero();
     }
 
