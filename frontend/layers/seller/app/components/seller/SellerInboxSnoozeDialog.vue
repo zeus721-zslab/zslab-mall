@@ -124,7 +124,9 @@ async function submit(): Promise<void> {
       <v-card-actions class="px-5 pb-4">
         <v-spacer />
         <v-btn variant="text" :disabled="submitting" data-testid="inbox-snooze-cancel" @click="emit('cancel')">닫기</v-btn>
-        <v-btn color="primary" variant="flat" :loading="submitting" :disabled="submitting || !canSubmit" data-testid="inbox-snooze-submit" @click="submit">보류</v-btn>
+        <SellerSuspendedGuard v-slot="{ suspended }">
+          <v-btn color="primary" variant="flat" :loading="submitting" :disabled="submitting || !canSubmit || suspended" data-testid="inbox-snooze-submit" @click="submit">보류</v-btn>
+        </SellerSuspendedGuard>
       </v-card-actions>
     </v-card>
   </v-dialog>

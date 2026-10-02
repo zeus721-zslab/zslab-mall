@@ -4,7 +4,7 @@ import type { AdminSellerDetail } from '#layers/admin/app/types/admin-seller'
 import type { AdminInquiryListItem } from '#layers/admin/app/types/admin-inquiry'
 import { ADMIN_SELLER_TRANSITION_LABEL, type AdminSellerStatus } from '#layers/admin/app/lib/constants/admin-seller'
 import { availableTransitions, sellerStatusLabel, terminateBlockedReason } from '#layers/admin/app/lib/admin-seller-view'
-import { adminInboxDeadlineChipClass, inboxInquiryAnswerItem } from '#layers/admin/app/lib/admin-inbox-view'
+import { adminInboxDeadlineChipClass, adminInboxSubtitle, inboxInquiryAnswerItem } from '#layers/admin/app/lib/admin-inbox-view'
 import { toAdminErrorMessage } from '#layers/admin/app/lib/admin-error-message'
 import { useAdminSellers } from '#layers/admin/app/composables/useAdminSellers'
 import { inboxItemTypeLabel } from '~/lib/constants/inbox'
@@ -18,7 +18,8 @@ import { formatDateTime } from '~/lib/utils/datetime'
  */
 type SellerTarget = Exclude<AdminSellerStatus, 'PENDING'>
 
-const props = defineProps<{ item: InboxItem | null; nowMs: number }>()
+/** panelNonce: 페이지가 일괄 독촉 뒤 올리는 값 — 셀러 지연 패널 key에 넣어 같은 항목이어도 다시 읽게 한다(warn W14). */
+const props = defineProps<{ item: InboxItem | null; nowMs: number; panelNonce: number }>()
 const emit = defineEmits<{ processed: [outcome: 'done' | 'stale'] }>()
 
 const sellersApi = useAdminSellers()
@@ -100,7 +101,7 @@ function onStatusStale(): void {
       </v-card-title>
       <v-card-text class="px-5">
         <p class="text-body-1 font-weight-medium mb-1" style="white-space: pre-line" data-testid="inbox-detail-title">{{ item.title }}</p>
-        <p v-if="item.subtitle" class="text-body-2 text-medium-emphasis mb-4" data-testid="inbox-detail-subtitle">{{ item.subtitle }}</p>
+        <p v-if="item.subtitle" class="text-body-2 text-medium-emphasis mb-4" data-testid="inbox-detail-subtitle">{{ adminInboxSubtitle(item) }}</p>
         <v-row dense class="mb-2">
           <v-col cols="6">
             <div class="text-caption text-medium-emphasis">기한</div>
@@ -130,7 +131,7 @@ function onStatusStale(): void {
         <AdminInboxProductPanel v-if="action === 'PRODUCT_DECISION'" :key="item.key" :product-public-id="item.sourceRef" @processed="(outcome) => emit('processed', outcome)" />
         <AdminInboxSettlementPanel v-if="action === 'SETTLEMENT_TRANSITION'" :key="item.key" :settlement-ref="item.sourceRef" @processed="(outcome) => emit('processed', outcome)" />
         <!-- P3(D-252): 셀러 지연 — 유형별 초과 건수·마지막 독촉 · 독촉 1곳. -->
-        <AdminInboxSellerDelayPanel v-if="action === 'SELLER_NUDGE'" :key="item.key" :seller-public-id="item.sourceRef" @processed="(outcome) => emit('processed', outcome)" />
+        <AdminInboxSellerDelayPanel v-if="action === 'SELLER_NUDGE'" :key="`${item.key}:${panelNonce}`" :seller-public-id="item.sourceRef" @processed="(outcome) => emit('processed', outcome)" />
       </v-card-text>
       <v-card-actions class="px-5 pb-5 flex-wrap ga-2">
         <template v-if="action === 'INQUIRY_ANSWER' && inquiryItem">

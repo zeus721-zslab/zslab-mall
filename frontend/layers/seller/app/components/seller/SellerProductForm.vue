@@ -230,9 +230,11 @@ defineExpose({ form, dirty })
 
     <div class="d-flex align-center justify-end ga-2 mb-8" data-testid="form-actions">
       <v-btn variant="text" :prepend-icon="mdiArrowLeft" :to="backPath" data-testid="form-back">목록으로</v-btn>
-      <v-btn color="primary" :prepend-icon="mdiContentSave" :loading="saving" :disabled="!canSave" data-testid="form-save" @click="save">
-        {{ anyUploading ? '이미지 업로드 중…' : mode === 'create' ? '등록' : '저장' }}
-      </v-btn>
+      <SellerSuspendedGuard v-slot="{ suspended }">
+        <v-btn color="primary" :prepend-icon="mdiContentSave" :loading="saving" :disabled="!canSave || suspended" data-testid="form-save" @click="save">
+          {{ anyUploading ? '이미지 업로드 중…' : mode === 'create' ? '등록' : '저장' }}
+        </v-btn>
+      </SellerSuspendedGuard>
     </div>
   </div>
 </template>

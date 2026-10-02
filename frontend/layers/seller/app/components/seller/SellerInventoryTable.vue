@@ -94,29 +94,33 @@ function isPending(item: SellerInventorySummary): boolean {
 
     <template #[`item.actions`]="{ item }">
       <div class="d-flex align-center justify-end ga-1">
-        <v-btn
-          size="small"
-          variant="tonal"
-          color="primary"
-          :prepend-icon="mdiTrayArrowDown"
-          :disabled="isPending(item)"
-          :loading="isPending(item)"
-          data-testid="row-inbound"
-          @click="emit('inbound', item)"
-        >
-          입고
-        </v-btn>
-        <v-btn
-          size="small"
-          variant="tonal"
-          color="warning"
-          :prepend-icon="mdiTrayArrowUp"
-          :disabled="isPending(item)"
-          data-testid="row-outbound"
-          @click="emit('outbound', item)"
-        >
-          출고
-        </v-btn>
+        <SellerSuspendedGuard v-slot="{ suspended }">
+          <v-btn
+            size="small"
+            variant="tonal"
+            color="primary"
+            :prepend-icon="mdiTrayArrowDown"
+            :disabled="isPending(item) || suspended"
+            :loading="isPending(item)"
+            data-testid="row-inbound"
+            @click="emit('inbound', item)"
+          >
+            입고
+          </v-btn>
+        </SellerSuspendedGuard>
+        <SellerSuspendedGuard v-slot="{ suspended }">
+          <v-btn
+            size="small"
+            variant="tonal"
+            color="warning"
+            :prepend-icon="mdiTrayArrowUp"
+            :disabled="isPending(item) || suspended"
+            data-testid="row-outbound"
+            @click="emit('outbound', item)"
+          >
+            출고
+          </v-btn>
+        </SellerSuspendedGuard>
       </div>
     </template>
 

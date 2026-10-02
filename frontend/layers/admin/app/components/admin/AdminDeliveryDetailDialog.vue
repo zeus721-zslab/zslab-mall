@@ -76,7 +76,7 @@ function address(detail: AdminDeliveryDetail): string {
           <p class="text-overline text-medium-emphasis mb-1">배송지</p>
           <v-table density="compact" class="mb-4" data-testid="detail-shipping">
             <tbody>
-              <tr><th class="text-medium-emphasis" style="width: 120px">수령인</th><td>{{ shown.shippingAddress?.recipientName ?? shown.recipientName ?? '—' }}</td></tr>
+              <tr><th class="text-medium-emphasis" style="width: 120px">수령인</th><td>{{ shown.shippingAddress?.recipientName ?? '—' }}</td></tr>
               <tr><th class="text-medium-emphasis">연락처</th><td>{{ formatPhone(shown.shippingAddress?.recipientPhone ?? '—') }}</td></tr>
               <tr><th class="text-medium-emphasis">주소</th><td>{{ address(shown) }}</td></tr>
               <tr v-if="shown.shippingAddress?.deliveryMemo"><th class="text-medium-emphasis">배송 메모</th><td>{{ shown.shippingAddress.deliveryMemo }}</td></tr>

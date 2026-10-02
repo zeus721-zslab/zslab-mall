@@ -77,15 +77,18 @@ const headers = [
     </template>
 
     <template #[`item.actions`]="{ item }">
-      <v-btn
-        size="small"
-        :variant="item.answerContent === undefined ? 'flat' : 'outlined'"
-        color="primary"
-        data-testid="row-answer-open"
-        @click="emit('answer', item)"
-      >
-        {{ item.answerContent === undefined ? '답변하기' : '답변 수정' }}
-      </v-btn>
+      <SellerSuspendedGuard v-slot="{ suspended }">
+        <v-btn
+          size="small"
+          :variant="item.answerContent === undefined ? 'flat' : 'outlined'"
+          color="primary"
+          :disabled="suspended"
+          data-testid="row-answer-open"
+          @click="emit('answer', item)"
+        >
+          {{ item.answerContent === undefined ? '답변하기' : '답변 수정' }}
+        </v-btn>
+      </SellerSuspendedGuard>
     </template>
 
     <template #no-data>

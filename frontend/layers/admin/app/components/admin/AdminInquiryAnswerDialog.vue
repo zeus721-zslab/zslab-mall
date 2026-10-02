@@ -77,7 +77,8 @@ async function submit(): Promise<void> {
     if (faqCandidate.value && registerFaq.value) {
       // 답변은 저장됐다 — FAQ 등록(또는 취소)이 끝난 뒤 done을 보낸다. 인박스는 답변 저장의 변경 신호로 먼저 재조회해 이 다이얼로그를 닫을 수 있는데,
       // FAQ 다이얼로그는 faqPrefill로만 열고 닫으므로 그대로 남아 등록을 마칠 수 있다(done은 finishFaq 1회).
-      faqPrefill.value = faqPrefillFromInquiry(props.item.category, props.item.content, trimmed)
+      const orderEvidenceLines = (draftResult.value?.evidence ?? []).filter((evidence) => evidence.kind === 'ORDER').map((evidence) => evidence.summary)
+      faqPrefill.value = faqPrefillFromInquiry(props.item.category, props.item.content, trimmed, orderEvidenceLines)
       return
     }
     emit('done')

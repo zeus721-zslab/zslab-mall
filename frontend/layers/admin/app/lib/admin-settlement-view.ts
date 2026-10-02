@@ -5,6 +5,7 @@ import {
   COMMISSION_RATE_BASIS_POINT_DIVISOR,
   type AdminSettlementStatus,
 } from '#layers/admin/app/lib/constants/admin-settlement'
+import { bankLabel } from '~/lib/constants/bank'
 
 /**
  * 관리자 정산 표시·판정 순수 함수(Track 85 FE·admin-member-view 패턴). 컴포넌트는 표시·배선만, 규칙은 여기서 vitest로 고정한다.
@@ -75,10 +76,10 @@ export function validateRegenerateReason(reason: string): string | null {
   return null
 }
 
-/** 계좌 표시: "004 ···1234 (홍길동)". 계좌 없음은 null(호출부가 안내 문구). */
+/** 계좌 표시: "KB국민은행 ···1234 (홍길동)" · 목록 밖 은행 코드는 코드 그대로. 계좌 없음은 null(호출부가 안내 문구). */
 export function formatBankAccount(account: AdminSettlementBankAccount | null | undefined): string | null {
   if (!account) return null
-  return `${account.bankCode} ···${account.accountNumberSuffix} (${account.accountHolder})`
+  return `${bankLabel(account.bankCode)} ···${account.accountNumberSuffix} (${account.accountHolder})`
 }
 
 /** 계좌 출처 라벨: 지급 시점 스냅샷 vs 셀러의 현재 주계좌(STL-3·D-179 결정 7). */

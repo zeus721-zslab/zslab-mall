@@ -35,8 +35,11 @@ export interface AdminDeliveryListResponse {
   hasNext: boolean
 }
 
-/** 상세(BE AdminDeliveryDetailResponse). 배송지는 관리자 주문 상세와 같은 스냅샷(마스킹 없음). */
-export interface AdminDeliveryDetail extends AdminDeliverySummary {
+/**
+ * 상세(BE AdminDeliveryDetailResponse). 배송지는 관리자 주문 상세와 같은 스냅샷(마스킹 없음). 상세 응답엔 최상위 recipientName이 없고
+ * shippingAddress.recipientName만 있어 목록 행 필드를 상속하지 않는다(warn W12 — 상속으로 tsc가 빈 필드 참조를 통과시켰다).
+ */
+export interface AdminDeliveryDetail extends Omit<AdminDeliverySummary, 'recipientName'> {
   orderItemId?: string
   optionLabel?: string
   quantity: number

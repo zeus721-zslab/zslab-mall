@@ -78,9 +78,11 @@ watch(() => props.deliveryPublicId, () => {
         </v-col>
       </v-row>
       <div class="d-flex flex-wrap ga-2 mb-2">
-        <v-btn v-if="row.status === 'SHIPPING'" color="primary" variant="flat" data-testid="inbox-delivery-complete" @click="completeOpen = true">
-          배송완료 처리
-        </v-btn>
+        <SellerSuspendedGuard v-if="row.status === 'SHIPPING'" v-slot="{ suspended }">
+          <v-btn color="primary" variant="flat" :disabled="suspended" data-testid="inbox-delivery-complete" @click="completeOpen = true">
+            배송완료 처리
+          </v-btn>
+        </SellerSuspendedGuard>
       </div>
     </template>
 

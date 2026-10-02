@@ -140,19 +140,20 @@ function isPending(item: SellerOrderItemSummary): boolean {
     <template #[`item.actions`]="{ item }">
       <div class="d-flex align-center justify-end ga-1">
         <v-btn :icon="mdiOpenInNew" size="small" variant="text" aria-label="상세" data-testid="row-open" @click="emit('open', item)" />
-        <v-btn
-          v-if="canPrepareShipment(item)"
-          size="small"
-          variant="tonal"
-          color="primary"
-          :prepend-icon="mdiTruckDeliveryOutline"
-          :disabled="isPending(item)"
-          :loading="isPending(item)"
-          data-testid="row-prepare-shipment"
-          @click="emit('prepareShipment', item)"
-        >
-          발송
-        </v-btn>
+        <SellerSuspendedGuard v-if="canPrepareShipment(item)" v-slot="{ suspended }">
+          <v-btn
+            size="small"
+            variant="tonal"
+            color="primary"
+            :prepend-icon="mdiTruckDeliveryOutline"
+            :disabled="isPending(item) || suspended"
+            :loading="isPending(item)"
+            data-testid="row-prepare-shipment"
+            @click="emit('prepareShipment', item)"
+          >
+            발송
+          </v-btn>
+        </SellerSuspendedGuard>
       </div>
     </template>
 
