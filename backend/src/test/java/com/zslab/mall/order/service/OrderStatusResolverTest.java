@@ -10,7 +10,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * {@link OrderStatusResolver} 평가 규칙([5]→[6]→[7]→[4]→[3]→[2]·기본 PAID) 검증.
+ * {@link OrderStatusResolver} 평가 규칙([5]→[6]→[7] 후 CANCELLED 제외 품목의 진행 단계로 [4]→[3]→[2]·기본 PAID) 검증.
  */
 class OrderStatusResolverTest {
 
@@ -89,6 +89,38 @@ class OrderStatusResolverTest {
         // PREPARING + SHIPPING 은 PREPARING이 아닌 SHIPPING
         assertThat(resolver.resolve(List.of(OrderItemStatus.PREPARING, OrderItemStatus.SHIPPING)))
                 .isEqualTo(OrderStatus.SHIPPING);
+    }
+
+    @Test
+    @DisplayName("혼합 조합(최종 점검 K1): CANCELLED 제외 품목의 진행 단계로 판정 — PAID로 퇴행하지 않음")
+    void mixedItems_resolveByStage() {
+        assertThat(resolver.resolve(List.of(OrderItemStatus.CANCELLED, OrderItemStatus.DELIVERED)))
+                .isEqualTo(OrderStatus.DELIVERED);
+        assertThat(resolver.resolve(List.of(OrderItemStatus.DELIVERED, OrderItemStatus.CONFIRMED)))
+                .isEqualTo(OrderStatus.DELIVERED);
+        assertThat(resolver.resolve(List.of(OrderItemStatus.RETURN_REQUESTED)))
+                .isEqualTo(OrderStatus.DELIVERED);
+        assertThat(resolver.resolve(List.of(OrderItemStatus.EXCHANGE_REQUESTED, OrderItemStatus.DELIVERED)))
+                .isEqualTo(OrderStatus.DELIVERED);
+        assertThat(resolver.resolve(List.of(OrderItemStatus.DELIVERED, OrderItemStatus.PAID)))
+                .isEqualTo(OrderStatus.SHIPPING);
+        assertThat(resolver.resolve(List.of(OrderItemStatus.CANCELLED, OrderItemStatus.SHIPPING)))
+                .isEqualTo(OrderStatus.SHIPPING);
+        assertThat(resolver.resolve(List.of(OrderItemStatus.CANCELLED, OrderItemStatus.PAID)))
+                .isEqualTo(OrderStatus.PAID);
+        assertThat(resolver.resolve(List.of(OrderItemStatus.CANCEL_REQUESTED, OrderItemStatus.PREPARING)))
+                .isEqualTo(OrderStatus.PREPARING);
+        // 3단계 이상이 하나라도 있으면 PREPARING보다 SHIPPING
+        assertThat(resolver.resolve(List.of(OrderItemStatus.CONFIRMED, OrderItemStatus.PREPARING)))
+                .isEqualTo(OrderStatus.SHIPPING);
+        assertThat(resolver.resolve(List.of(OrderItemStatus.RETURNED, OrderItemStatus.PAID)))
+                .isEqualTo(OrderStatus.SHIPPING);
+        // 취소 요청은 결제 완료 단계
+        assertThat(resolver.resolve(List.of(OrderItemStatus.CANCEL_REQUESTED)))
+                .isEqualTo(OrderStatus.PAID);
+        // 일부 취소 + 확정·배송완료 혼재는 [6]이 아니라 DELIVERED
+        assertThat(resolver.resolve(List.of(OrderItemStatus.CANCELLED, OrderItemStatus.CONFIRMED, OrderItemStatus.DELIVERED)))
+                .isEqualTo(OrderStatus.DELIVERED);
     }
 
     @Test

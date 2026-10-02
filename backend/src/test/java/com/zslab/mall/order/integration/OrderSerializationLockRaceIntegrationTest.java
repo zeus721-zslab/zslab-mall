@@ -142,13 +142,13 @@ class OrderSerializationLockRaceIntegrationTest extends AbstractIntegrationTest 
     }
 
     @Test
-    @DisplayName("S2 환불 완료 체인이 주문 락을 쥔 동안 형제 품목 반품 요청 대기 → 교착 없이 양쪽 종료 · 주문 PAID")
+    @DisplayName("S2 환불 완료 체인이 주문 락을 쥔 동안 형제 품목 반품 요청 대기 → 교착 없이 양쪽 종료 · 주문 DELIVERED")
     void refundChainHoldsOrderLock_siblingReturnRequestWaitsWithoutDeadlock() throws Exception {
         seed("RETURN_REQUESTED", "APPROVED", "PENDING", ITEM_PRICE);
 
         RaceResult result = race(this::refundCompletionOutcome, this::returnRequestItemAOutcome);
 
-        assertThat(orderStatus() + "/" + itemStatus(ITEM_A) + "/" + itemStatus(ITEM_B)).isEqualTo("PAID/RETURN_REQUESTED/RETURNED");
+        assertThat(orderStatus() + "/" + itemStatus(ITEM_A) + "/" + itemStatus(ITEM_B)).isEqualTo("DELIVERED/RETURN_REQUESTED/RETURNED");
         assertThat(result.firstOutcome()).isEqualTo("OK");
         assertThat(result.secondOutcome()).isEqualTo("OK");
         assertThat(result.secondBlocked()).as("반품 요청이 환불 완료 체인의 주문 락에 막혀 대기").isTrue();

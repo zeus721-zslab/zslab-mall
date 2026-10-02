@@ -159,6 +159,9 @@ class ClaimIntegrationTest extends AbstractIntegrationTest {
         String deliveredPid = pid("oit_", "T13DLV");
         String paidPid = pid("oit_", "T13PAID");
         seed(() -> {
+            // 첫 요청 후 [RETURN_REQUESTED, PAID]가 SHIPPING으로 재계산돼 order UPDATE가 생기므로(FK 활성) buyer 행이 실재해야 한다(최종 점검 K1).
+            execute("INSERT INTO `user` (id, public_id, created_at, updated_at) "
+                    + "VALUES (8001, 'usr_CLAIMIT000000000000000T13A', NOW(6), NOW(6))");
             seedOrder(orderId, pid("ord_", "T13ORD"), BUYER_A);
             seedOrderItem(deliveredItemId, deliveredPid, orderId, OrderItemStatus.DELIVERED);
             seedOrderItem(paidItemId, paidPid, orderId, OrderItemStatus.PAID);

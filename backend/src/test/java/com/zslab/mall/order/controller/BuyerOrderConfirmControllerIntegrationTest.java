@@ -24,7 +24,7 @@ import com.zslab.mall.support.AbstractIntegrationTest;
  * DB 흐름을 실 커밋·HTTP 경유로 검증한다(라이브 트랩 차단·{@code SellerDeliveryCompletionControllerIntegrationTest} 패턴 1:1).
  *
  * <p><b>커버</b>: T1 401(무인증)·T2 200(소유 buyer·DELIVERED→CONFIRMED·Order CONFIRMED)·T3 404(타 buyer 존재 은닉)·
- * T4 422(비-DELIVERED SHIPPING 품목)·T5 200 멱등(이미 CONFIRMED·no-op).
+ * T4 422(비-DELIVERED SHIPPING 품목)·T5 200 멱등(이미 CONFIRMED·no-op)·T6 셀러 2곳 중 한 품목만 확정 → Order DELIVERED 유지.
  *
  * <p><b>트랜잭션</b>: 실 커밋으로 전이·재계산을 구동하므로 클래스에 {@code @Transactional}을 두지 않는다. 시드/정리는
  * {@link TransactionTemplate} + {@code FOREIGN_KEY_CHECKS=0}(LT-02 try-finally), 검증은 {@link JdbcTemplate}로 한다.
@@ -41,6 +41,10 @@ class BuyerOrderConfirmControllerIntegrationTest extends AbstractIntegrationTest
     private static final long ORDER_ITEM_ID = 9470L;
     private static final long DUMMY_FK_ID = 9470L;
     private static final long ITEM_PRICE = 10_000L;
+    private static final long OTHER_SELLER_ID = 9472L;  // T6 두 번째 셀러(같은 주문·다른 셀러 품목)
+    private static final long OTHER_PRODUCT_ID = 9472L;
+    private static final long OTHER_VARIANT_ID = 9472L;
+    private static final long OTHER_ORDER_ITEM_ID = 9472L;
 
     private static final String ORDER_PID = pid("ord_", "BOCORD");
     private static final String ITEM_PID = pid("oit_", "BOCOIT");
@@ -131,6 +135,24 @@ class BuyerOrderConfirmControllerIntegrationTest extends AbstractIntegrationTest
         assertThat(itemStatus()).isEqualTo("CONFIRMED");
     }
 
+    @Test
+    @DisplayName("T6 셀러 2곳 주문 둘 다 배송완료 → 한 품목만 구매확정 → Order DELIVERED 유지(최종 점검 K1 · PAID 퇴행 없음)")
+    void confirm_oneOfTwoSellerItems_orderStaysDelivered() throws Exception {
+        seedGraph("DELIVERED");
+        seedOtherSellerItem("DELIVERED");
+        // 재계산이 실제로 돌았는지 가르기 위해 주문 행은 종전 퇴행값(PAID)으로 둔다 — 시드값이 결과와 같으면 재계산 없이도 통과한다.
+        jdbc.update("UPDATE `order` SET status = 'PAID' WHERE id = ?", ORDER_ID);
+
+        mockMvc.perform(post(CONFIRM_URL).with(authHeaders.buyer(BUYER_USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CONFIRMED"));
+
+        assertThat(itemStatus()).isEqualTo("CONFIRMED");
+        assertThat(jdbc.queryForObject("SELECT item_status FROM order_item WHERE id = ?", String.class, OTHER_ORDER_ITEM_ID))
+                .isEqualTo("DELIVERED");
+        assertThat(orderStatus()).isEqualTo("DELIVERED");
+    }
+
     // ---------- seed·helpers (SellerDeliveryCompletionControllerIntegrationTest 패턴 1:1) ----------
 
     // 모든 시드 INSERT는 ? positional 바인딩 + 정적 SQL이다(문자열 concat 없음·SQL injection 위험 없음).
@@ -170,10 +192,40 @@ class BuyerOrderConfirmControllerIntegrationTest extends AbstractIntegrationTest
         });
     }
 
+    /** {@link #seedGraph}의 주문에 다른 셀러 품목 1개를 더한다(T6 · order.status는 seedGraph 값 유지). */
+    private void seedOtherSellerItem(String itemStatus) {
+        tx.executeWithoutResult(s -> {
+            try {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
+                jdbc.update("INSERT INTO seller (id, public_id, company_name, ceo_name, status, created_at, updated_at) "
+                                + "VALUES (?, ?, '트랙47셀러2', '대표', 'ACTIVE', NOW(6), NOW(6))",
+                        OTHER_SELLER_ID, pid("slr_", "BOCSLR2"));
+                jdbc.update("INSERT INTO product (id, public_id, seller_id, category_id, name, status, base_price, "
+                                + "created_at, updated_at) VALUES (?, ?, ?, ?, '트랙47상품2', 'SALE', 10000, NOW(6), NOW(6))",
+                        OTHER_PRODUCT_ID, pid("prd_", "BOCPRD2"), OTHER_SELLER_ID, DUMMY_FK_ID);
+                jdbc.update("INSERT INTO product_variant (id, public_id, product_id, variant_code, additional_price, "
+                                + "status, is_soldout_manual, display_order, option1_value_id, created_at, updated_at) "
+                                + "VALUES (?, ?, ?, 'VCBOC2', 0, 'SALE', 0, 1, ?, NOW(6), NOW(6))",
+                        OTHER_VARIANT_ID, pid("var_", "BOCVAR2"), OTHER_PRODUCT_ID, DUMMY_FK_ID);
+                jdbc.update("INSERT INTO order_item (id, public_id, order_id, product_id, variant_id, seller_id, "
+                                + "quantity, unit_price, total_price, item_status, created_at, updated_at, product_name, commission_rate) "
+                                + "VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, NOW(6), NOW(6), '테스트 상품2', 1000)",
+                        OTHER_ORDER_ITEM_ID, pid("oit_", "BOCOIT2"), ORDER_ID, OTHER_PRODUCT_ID, OTHER_VARIANT_ID,
+                        OTHER_SELLER_ID, ITEM_PRICE, ITEM_PRICE, itemStatus);
+            } finally {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
+            }
+        });
+    }
+
     private void cleanup() {
         tx.executeWithoutResult(s -> {
             try {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
+                jdbc.update("DELETE FROM order_item WHERE id = ?", OTHER_ORDER_ITEM_ID);
+                jdbc.update("DELETE FROM product_variant WHERE id = ?", OTHER_VARIANT_ID);
+                jdbc.update("DELETE FROM product WHERE id = ?", OTHER_PRODUCT_ID);
+                jdbc.update("DELETE FROM seller WHERE id = ?", OTHER_SELLER_ID);
                 jdbc.update("DELETE FROM order_item WHERE id = ?", ORDER_ITEM_ID);
                 jdbc.update("DELETE FROM `order` WHERE id = ?", ORDER_ID);
                 jdbc.update("DELETE FROM product_variant WHERE id = ?", VARIANT_ID);
