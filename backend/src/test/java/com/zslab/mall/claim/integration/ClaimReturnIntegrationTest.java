@@ -285,6 +285,22 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("W3 회수 확인 재호출: 2회 모두 200·두 번째는 멱등 NO-OP → 회수 확인 감사 행 1건")
+    void confirmPickup_twice_recordsSingleAudit() throws Exception {
+        Long claimId = approvedReturn();
+        String claimPid = claimPid(claimId);
+        registerReturnShipment(claimPid);
+
+        for (int call = 0; call < 2; call++) {
+            mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid + "/confirm-pickup").with(authHeaders.admin(ADMIN_ID)))
+                    .andExpect(status().isOk());
+        }
+
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_log WHERE target_type = 'CLAIM' AND target_id = ? "
+                + "AND diff_json LIKE '%pickedUpAt%'", Integer.class, claimId)).isEqualTo(1);
+    }
+
+    @Test
     @DisplayName("T4 PASS(restock=false·불량 폐기): 환불 완료·RETURNED·재고 불변·history 0")
     void pass_noRestock_keepsInventory() throws Exception {
         Long claimId = pickedUpReturn();

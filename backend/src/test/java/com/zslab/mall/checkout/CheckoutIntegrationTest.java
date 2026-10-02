@@ -169,16 +169,35 @@ class CheckoutIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("재결제: 직전 결제 FAILED + 재고 0 → 422 ORDER_NOT_PAYABLE(OUT_OF_STOCK)")
-    void retry_outOfStock_returns422() throws Exception {
+    @DisplayName("재결제: 직전 결제 FAILED + 상품 판매 중지 → 422 ORDER_NOT_PAYABLE(PRODUCT_NOT_ON_SALE)")
+    void retry_productStopped_returns422() throws Exception {
         String orderPublicId = performCheckout(null);
-        failPaymentAndDepleteStock(orderPublicId);
+        execute("UPDATE payment SET status = 'FAILED' WHERE order_id = "
+                + "(SELECT id FROM `order` WHERE public_id = '" + orderPublicId + "')");
+        execute("UPDATE product SET status = 'STOPPED' WHERE id = 1000");
+        entityManager.flush();
+        entityManager.clear();
 
         mockMvc.perform(post("/api/v1/orders/" + orderPublicId + "/payments").with(authHeaders.buyer(1))
                         .contentType(MediaType.APPLICATION_JSON).content("{ \"method\": \"CARD\" }"))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("ORDER_NOT_PAYABLE"))
-                .andExpect(jsonPath("$.detail").value("OUT_OF_STOCK"));
+                .andExpect(jsonPath("$.detail").value("PRODUCT_NOT_ON_SALE"));
+    }
+
+    @Test
+    @DisplayName("재결제: 미결제 종료(PAYMENT_EXPIRED) 주문 → 재고 상태와 무관하게 422 ORDER_NOT_PENDING_PAYMENT(W9 상태 검사 선행)")
+    void retry_expiredOrder_returnsNotPendingPayment() throws Exception {
+        String orderPublicId = performCheckout(null);
+        failPaymentAndDepleteStock(orderPublicId);
+        execute("UPDATE `order` SET status = 'PAYMENT_EXPIRED' WHERE public_id = '" + orderPublicId + "'");
+        entityManager.flush();
+        entityManager.clear();
+
+        mockMvc.perform(post("/api/v1/orders/" + orderPublicId + "/payments").with(authHeaders.buyer(1))
+                        .contentType(MediaType.APPLICATION_JSON).content("{ \"method\": \"CARD\" }"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("ORDER_NOT_PENDING_PAYMENT"));
     }
 
     @Test
@@ -194,6 +213,60 @@ class CheckoutIntegrationTest extends AbstractIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON).content("{ \"method\": \"CARD\" }"))
                 .andExpect(status().isCreated())
                 .andExpect(header().string("Location", org.hamcrest.Matchers.startsWith("/api/v1/payments/pay_")));
+    }
+
+    @Test
+    @DisplayName("재결제: 재고가 품목 수량과 정확히 같은 PENDING 주문(INITIATE_FAILED·결제 행 없음) → 201(자기 예약분 반영)")
+    void retry_exactStockPendingOrder_returns201() throws Exception {
+        execute("UPDATE inventory SET quantity_on_hand = 2, quantity_available = 2 WHERE variant_id = " + VARIANT_ID);
+        entityManager.flush();
+        String orderPublicId = performCheckout(null);
+        // INITIATE_FAILED 모사: 결제 행 없이 PENDING_PAYMENT 주문·예약(reserved=2·available=0)만 남긴다
+        execute("DELETE FROM payment WHERE order_id = "
+                + "(SELECT id FROM `order` WHERE public_id = '" + orderPublicId + "')");
+        entityManager.flush();
+        entityManager.clear();
+
+        mockMvc.perform(post("/api/v1/orders/" + orderPublicId + "/payments").with(authHeaders.buyer(1))
+                        .contentType(MediaType.APPLICATION_JSON).content("{ \"method\": \"CARD\" }"))
+                .andExpect(status().isCreated());
+    }
+
+    @Test
+    @DisplayName("입력 상한: 품목 수량 999 → 201 · 1000 → 400 VALIDATION_FAILED · 품목 101개 → 400 VALIDATION_FAILED")
+    void checkout_inputUpperBounds() throws Exception {
+        execute("UPDATE inventory SET quantity_on_hand = 1000, quantity_available = 1000 WHERE variant_id = " + VARIANT_ID);
+        entityManager.flush();
+
+        mockMvc.perform(post("/api/v1/orders").with(authHeaders.buyer(1))
+                        .contentType(MediaType.APPLICATION_JSON).content(createBody(itemJson(999))))
+                .andExpect(status().isCreated());
+        mockMvc.perform(post("/api/v1/orders").with(authHeaders.buyer(1))
+                        .contentType(MediaType.APPLICATION_JSON).content(createBody(itemJson(1000))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+        String hundredOneItems = String.join(",", java.util.Collections.nCopies(101, itemJson(1)));
+        mockMvc.perform(post("/api/v1/orders").with(authHeaders.buyer(1))
+                        .contentType(MediaType.APPLICATION_JSON).content(createBody(hundredOneItems)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+    }
+
+    private static String itemJson(int quantity) {
+        return "{ \"productId\": \"%s\", \"variantId\": \"%s\", \"quantity\": %d }".formatted(PRODUCT_PID, VARIANT_PID, quantity);
+    }
+
+    private static String createBody(String itemsJson) {
+        return """
+                {
+                  "items": [ %s ],
+                  "shippingAddress": {
+                    "recipientName": "홍길동", "recipientPhone": "010-1234-5678",
+                    "zonecode": "06236", "addressRoad": "서울 강남대로 1", "addressDetail": "101호"
+                  },
+                  "method": "CARD"
+                }
+                """.formatted(itemsJson);
     }
 
     @Test
