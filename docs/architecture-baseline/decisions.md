@@ -14182,3 +14182,15 @@ D-246 §8 정정: '데모 로그인 요청 제한 문서 불일치' 항목 철�
 - 무관 PR도 러너에서 체크아웃·감지만큼 실행 시간을 쓴다.
 
 외부 검토: C / 생략
+
+## D-259 §1-A 기각안 근거 보완 — 자체 평점 8-3 (D-255 개정) (2026-10-03)
+
+### 배경
+- D-255 §1-A의 β안 2건은 【기각】 표기만 있고 기각 근거가 없다. 결정은 바꾸지 않고 근거만 보탠다.
+
+### D-255 개정
+- RETURN_REQUESTED 환산 β 3 기각 근거 — 반품 요청은 DELIVERED 품목만 받는다(`ClaimService.java:271-273`). 3으로 환산하면 배송완료 뒤 반품을 요청한 주문이 "하나라도 3+ → SHIPPING"(`OrderStatusResolver.java:66-67`)에 걸려, 단일 품목이든 [RETURN_REQUESTED, DELIVERED]든 배송중으로 되돌아 보인다. 반품 요청 여부는 품목 상태로 따로 노출된다(`OrderItemResponse.java:38`).
+- 기존 행 β 보정 SQL 기각 근거 — 운영 데이터 보정 SQL은 A 등급(외부 검토 필수 · `review-policy.md:11`)인데 보정할 소비처가 없다. Order.status를 SHIPPING·DELIVERED 값으로 분기하는 운영 코드가 없고, 소비처는 표시·목록 필터와 PENDING_PAYMENT·PAYMENT_EXPIRED·CANCELLED 판정 가드뿐이다(자동확정 후보도 품목 상태로 고른다 · `DeliveryRepository.java:82-97`). 잔존 행은 비종결 품목의 다음 전이 때 `OrderService.recalculateStatus`(:157-169)로 다시 산출된다 — 클레임·배송 핸들러, 수동·자동확정(`OrderAutoConfirmService.java:75` → `BuyerOrderConfirmService.java:106`).
+- 결정 변경 없음(채택안 α 4+ · α 백필 없음 유지).
+
+외부 검토: C / 생략
