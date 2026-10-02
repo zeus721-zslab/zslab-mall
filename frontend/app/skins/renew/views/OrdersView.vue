@@ -43,7 +43,7 @@ function orderItemCount(order: OrderSummary): number | null {
 }
 
 function claimTypesOf(item: OrderSummaryItem) {
-  return props.vm.claimableTypes(item.status.code, item.exchangeCompleted)
+  return props.vm.claimableTypes(item.status.code, item.exchangeCompleted, item.inspectionFailed ?? false)
 }
 function hasActions(item: OrderSummaryItem): boolean {
   return item.status.code === 'DELIVERED' || claimTypesOf(item).length > 0 || props.vm.reviewEditPath(item) !== null

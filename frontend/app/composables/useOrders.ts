@@ -46,13 +46,14 @@ export function useOrderStatusSummary() {
 /**
  * 구매자 주문 단건 조회(GET /api/v1/orders/{orderPublicId}). BUYER 전용이라 구매자 래퍼로 호출. 미존재·타인 주문은 BE가 404
  * (존재 은닉)를 반환하며 useFetch가 error로 노출한다. key는 orderPublicId를 포함해 주문별 캐시를 분리한다.
- * 주문 상세는 상태 전이(결제·배송·클레임)가 잦아 재방문 시 항상 재검증한다(getCachedData로 stale 캐시 반환 차단).
+ * 주문 상세는 상태 전이(결제·배송·클레임)가 잦아 재방문 시 항상 재검증한다. 기본 getCachedData가 그 동작이다 — hydration 중에만
+ * SSR payload를 재사용하고 클라이언트 진입은 다시 조회한다. 예전처럼 `() => undefined`로 덮으면 hydration 중에도 payload를 버려
+ * 첫 렌더가 스켈레톤이 되고 hydration mismatch가 난다(W1).
  */
 export function useOrderDetail(orderPublicId: string) {
   return useFetch<OrderDetail>(`/v1/orders/${orderPublicId}`, {
     key: `order-detail:${orderPublicId}`,
     $fetch: useBuyerApi(),
-    getCachedData: () => undefined,
   })
 }
 

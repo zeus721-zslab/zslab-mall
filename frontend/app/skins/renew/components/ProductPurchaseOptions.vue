@@ -54,5 +54,6 @@ defineProps<{ vm: ProductDetailPageVm; product: ProductDetail }>()
         </button>
       </div>
     </div>
+    <p v-if="vm.quantityNotice" role="status" class="mt-2 text-right text-small text-sub" data-testid="quantity-limit-notice">{{ vm.quantityNotice }}</p>
   </div>
 </template>

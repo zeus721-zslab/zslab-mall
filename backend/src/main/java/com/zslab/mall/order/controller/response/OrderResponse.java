@@ -35,14 +35,18 @@ public record OrderResponse(
         LocalDateTime orderedAt,
         PaymentSummary payment) {
 
-    /** 결제 요약(수단 코드·결제 시각). 결제 시각이 있는 행만 만든다 — 환불로 CANCELLED가 된 행도 paidAt을 유지하므로 포함된다. */
+    /**
+     * 결제 요약(수단 코드·결제 시각). 결제 시각이 있는 행만 만든다 — 환불로 CANCELLED가 된 행도 paidAt을 유지하므로 포함된다.
+     * refundedAmount는 이 결제의 완료(COMPLETED) 환불 합(W5·진행 중 PENDING 제외 — 구매자에게 돌아간 금액만). 환불이 없으면 0. 추가형 필드.
+     */
     public record PaymentSummary(
             PaymentMethod method,
             @JsonSerialize(using = KstOffsetSerializer.class)
-            LocalDateTime paidAt) {
+            LocalDateTime paidAt,
+            long refundedAmount) {
 
-        public static PaymentSummary from(Payment payment) {
-            return payment == null ? null : new PaymentSummary(payment.getMethod(), payment.getPaidAt());
+        public static PaymentSummary from(Payment payment, long refundedAmount) {
+            return payment == null ? null : new PaymentSummary(payment.getMethod(), payment.getPaidAt(), refundedAmount);
         }
     }
 
@@ -51,13 +55,15 @@ public record OrderResponse(
             Map<Long, Product> productById,
             Map<Long, ProductVariant> variantById,
             Map<Long, Seller> sellerById) {
-        return fromOrderWithItems(order, productById, variantById, sellerById, Set.of(), Map.of(), null, Map.of());
+        return fromOrderWithItems(order, productById, variantById, sellerById, Set.of(), Map.of(), null, 0L, Map.of(),
+                Set.of(), Map.of());
     }
 
     /**
      * {@link #fromOrderWithItems(Order, Map, Map, Map)} + 교환 완료 품목 id 집합(Track 83 D-177 보충·exchangeCompleted)
      * + 품목 id별 원 발송 Delivery(Track 96-2 D-203·delivery·없으면 null) + 결제 시각이 있는 최신 결제 행(Track 105-4g-3·없으면 null)
-     * + 품목 id별 리뷰(Track 106-1·삭제 리뷰는 reviewId null·숨김 여부·{@link OrderItemReviewResponse#of}).
+     * 과 그 결제의 완료 환불 합(W5) + 품목 id별 리뷰(Track 106-1·삭제 리뷰는 reviewId null·숨김 여부·{@link OrderItemReviewResponse#of})
+     * + 검수 FAIL 이력 품목 id 집합(W2·inspectionFailed) + 품목 id별 교환 배송 Delivery(W7·exchangeDelivery·없으면 null).
      */
     public static OrderResponse fromOrderWithItems(
             Order order,
@@ -67,7 +73,10 @@ public record OrderResponse(
             Set<Long> exchangeCompletedItemIds,
             Map<Long, Delivery> originalDeliveryByItemId,
             Payment paidPayment,
-            Map<Long, OrderItemReviewResponse.Written> reviewIdByItemId) {
+            long refundedAmount,
+            Map<Long, OrderItemReviewResponse.Written> reviewIdByItemId,
+            Set<Long> inspectionFailedItemIds,
+            Map<Long, Delivery> exchangeDeliveryByItemId) {
         // seller_id 단위 그룹화(삽입 순서 보존). 단일 판매자도 배열 길이 1.
         Map<Long, List<OrderItem>> itemsBySeller = new LinkedHashMap<>();
         for (OrderItem item : order.getItems()) {
@@ -95,7 +104,9 @@ public record OrderResponse(
                         exchangeCompletedItemIds.contains(item.getId()),
                         OrderItemDeliveryResponse.from(originalDeliveryByItemId.get(item.getId())),
                         product != null ? product.getThumbnailUrl() : null,
-                        OrderItemReviewResponse.of(item, reviewIdByItemId)));
+                        OrderItemReviewResponse.of(item, reviewIdByItemId),
+                        inspectionFailedItemIds.contains(item.getId()),
+                        OrderItemDeliveryResponse.from(exchangeDeliveryByItemId.get(item.getId()))));
                 subtotal += item.getTotalPrice();
             }
             sellers.add(new SellerGroupResponse(
@@ -117,6 +128,6 @@ public record OrderResponse(
                 shippingAddress,
                 order.getOrderNo(),
                 order.getOrderedAt(),
-                PaymentSummary.from(paidPayment));
+                PaymentSummary.from(paidPayment, refundedAmount));
     }
 }

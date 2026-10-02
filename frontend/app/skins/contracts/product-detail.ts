@@ -26,6 +26,8 @@ export interface ProductDetailPageVm {
   quantity: number
   decrementQuantity: () => void
   incrementQuantity: () => void
+  /** 수량 상한(999) 초과 시도 안내(P-08). 없으면 빈 문자열. */
+  quantityNotice: string
   canAddToCart: boolean
   adding: boolean
   /** 담기 성공 신호(FE-99). 성공할 때마다 1씩 오른다 — 스킨은 값 변화로 스낵바·비행·뱃지를 띄운다. */

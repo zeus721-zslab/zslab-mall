@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { DEMO_STATUS_PATH, LOGIN_NOTICE_PASSWORD_CHANGED, LOGIN_NOTICE_QUERY } from '~/lib/constants/auth'
 import type { LoginPageVm } from '~/skins/contracts/login'
+import { resolveLoginRedirect } from '~/lib/utils/login-redirect'
 
 // 공개 페이지(permitAll 로그인 엔드포인트 소비)라 definePageMeta 미부착. buyer 몰이므로 role은 BUYER 고정(UI 노출 없음).
 const auth = useAuthStore()
@@ -14,16 +15,9 @@ const password = ref<string>('')
 const submitting = ref<boolean>(false)
 const errorMessage = ref<string>('')
 
-/**
- * 로그인 후 복귀 경로. redirect query가 내부 절대경로일 때만 허용한다.
- * 외부 URL·protocol-relative('//evil.com')는 오픈 리다이렉트 방지로 무시하고 홈으로 보낸다.
- */
+/** 로그인 후 복귀 경로. 내부 절대경로만 허용하고 그 외는 홈(판정은 resolveLoginRedirect · SEC-24). */
 function resolveRedirect(): string {
-  const redirect = route.query.redirect
-  if (typeof redirect === 'string' && redirect.startsWith('/') && !redirect.startsWith('//')) {
-    return redirect
-  }
-  return '/'
+  return resolveLoginRedirect(route.query.redirect)
 }
 
 // 이미 인증된 사용자가 /login에 오면 복귀 경로(또는 홈)로 돌려보낸다(로그인 폼 노출 불필요).

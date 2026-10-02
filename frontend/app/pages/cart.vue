@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import type { CartItemView } from '~/types/cart'
 import type { CartPageVm } from '~/skins/contracts/cart'
+import { CART_ITEM_QUANTITY_MAX, CART_QUANTITY_LIMIT_NOTICE, cartQuantityErrorMessage } from '~/lib/constants/cart'
+import type { CartQuantityErrorLike } from '~/lib/constants/cart'
 
 // BUYER 전용 페이지 — 미인증/비-BUYER는 buyer 미들웨어가 /login으로 유도한다(진입 보호 첫 소비처).
 definePageMeta({ middleware: 'buyer' })
@@ -58,7 +60,8 @@ async function runMutation(action: () => Promise<void>): Promise<void> {
       await navigateTo(`/login?redirect=${encodeURIComponent('/cart')}`)
       return
     }
-    opErrorMessage.value = '요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.'
+    opErrorMessage.value = cartQuantityErrorMessage(mutationError as CartQuantityErrorLike)
+      ?? '요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.'
   } finally {
     busy.value = false
   }
@@ -67,6 +70,11 @@ async function runMutation(action: () => Promise<void>): Promise<void> {
 function changeQuantity(item: CartItemView, delta: number): void {
   const next = item.quantity + delta
   if (next < 1) return
+  // 상한(P-08) 초과는 상한에 머문다(보정) — 요청 없이 안내만 한다.
+  if (next > CART_ITEM_QUANTITY_MAX) {
+    opErrorMessage.value = CART_QUANTITY_LIMIT_NOTICE
+    return
+  }
   runMutation(() => cart.updateQuantity(item.variantPublicId, next))
 }
 function toggleSelected(item: CartItemView, selected: boolean): void {

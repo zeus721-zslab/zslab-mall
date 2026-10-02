@@ -3,6 +3,7 @@ import type { OrderDetailPageVm } from '~/skins/contracts/order-detail'
 import type { OrderItem } from '~/types/order'
 import { formatPhone } from '~/lib/format/phone'
 import { ITEM_CONFIRM_TARGET_CAPTION, itemConfirmTarget } from '~/lib/constants/order'
+import { deliveryCarrierLabel } from '~/lib/constants/delivery'
 import { REVIEW_RATING_MAX } from '~/lib/constants/review'
 import { Star } from '@lucide/vue'
 import MypageFrame from '../components/MypageFrame.vue'
@@ -27,8 +28,11 @@ watch(confirmTargetItem, (item) => {
   if (item) confirmTargetLabel.value = itemConfirmTarget(item.productName, item.optionLabel)
 })
 
+// 완료 환불 합(W5). 미결제·옛 응답이면 0 → 행 미표시.
+const refundedAmount = computed<number>(() => props.vm.data?.payment?.refundedAmount ?? 0)
+
 function claimTypesOf(item: OrderItem) {
-  return props.vm.claimableTypes(item.status.code, item.exchangeCompleted ?? false)
+  return props.vm.claimableTypes(item.status.code, item.exchangeCompleted ?? false, item.inspectionFailed ?? false)
 }
 function onConfirmOpenChange(open: boolean): void {
   if (!open && !props.vm.confirming) props.vm.confirmTargetId = null
@@ -141,6 +145,19 @@ const REVIEW_RATINGS = Array.from({ length: REVIEW_RATING_MAX }, (_, index) => i
 
             <!-- 배송 정보(FE-54·C-05): 원 발송 송장·발송일·배송완료일 / 발송 전이면 "발송 준비 중". 공용 컴포넌트 그대로. -->
             <OrderItemDeliveryInfo :delivery="item.delivery" :item-status-code="item.status.code" />
+            <!-- 교환 배송(W7): 교환품 발송이 있으면 원 발송과 따로 택배사·송장·배송완료일을 보인다(FAIL 재발송은 BE가 제외). -->
+            <div
+              v-if="item.exchangeDelivery"
+              class="space-y-1 rounded-card bg-surface-muted px-4 py-3 text-small text-sub"
+              data-testid="item-exchange-delivery"
+            >
+              <p class="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span class="font-semibold text-ink">교환 배송</span>
+                <span class="text-ink">{{ deliveryCarrierLabel(item.exchangeDelivery.carrier) }}</span>
+                <span v-if="item.exchangeDelivery.trackingNo" class="select-all tabular-nums text-ink">{{ item.exchangeDelivery.trackingNo }}</span>
+              </p>
+              <p v-if="item.exchangeDelivery.deliveredAt">배송완료일 {{ vm.formatDateTime(item.exchangeDelivery.deliveredAt) }}</p>
+            </div>
 
             <!-- 구매확정(배송완료만) · 클레임 진입점(품목 상태가 허용하는 유형만) -->
             <div v-if="claimTypesOf(item).length || item.status.code === 'DELIVERED' || vm.reviewEditPath(item)" class="flex flex-wrap gap-2">
@@ -215,10 +232,16 @@ const REVIEW_RATINGS = Array.from({ length: REVIEW_RATING_MAX }, (_, index) => i
         </div>
       </section>
 
-      <!-- 주문 합계 -->
-      <section :class="[CARD, 'flex items-baseline justify-between gap-4']" aria-label="총 결제금액">
-        <span :class="SECTION_TITLE">총 결제금액</span>
-        <span class="text-ink"><span class="text-h2 tabular-nums">{{ vm.data.totalPrice.toLocaleString('ko-KR') }}</span><span class="ml-0.5 text-small">원</span></span>
+      <!-- 주문 합계 · 환불 금액(W5: 완료 환불 합이 있을 때만) -->
+      <section :class="CARD" aria-label="총 결제금액">
+        <div class="flex items-baseline justify-between gap-4">
+          <span :class="SECTION_TITLE">총 결제금액</span>
+          <span class="text-ink"><span class="text-h2 tabular-nums">{{ vm.data.totalPrice.toLocaleString('ko-KR') }}</span><span class="ml-0.5 text-small">원</span></span>
+        </div>
+        <div v-if="refundedAmount > 0" class="mt-3 flex items-baseline justify-between gap-4 border-t border-line pt-3">
+          <span class="text-body text-sub">환불 금액</span>
+          <span class="text-ink" data-testid="order-detail-refunded-amount"><span class="text-body font-semibold tabular-nums">{{ refundedAmount.toLocaleString('ko-KR') }}</span><span class="ml-0.5 text-small">원</span></span>
+        </div>
       </section>
 
       <!-- 배송지: 스냅샷 부재 시 미표시 · 연락처는 formatPhone(FE-79) -->
