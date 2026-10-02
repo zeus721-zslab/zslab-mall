@@ -4226,5 +4226,6 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 ### §8 이월
 - W17 인박스 문의 작성자·주문번호 표시(인박스 행 또는 단건 API에 BE 필드 필요).
 - W14 쿨다운 중에도 독촉 버튼은 활성이다(서버 COOLDOWN 거부 안내).
+- P-04 잔여 — 처리 응답 도착 전 SSE reload가 먼저 완료되면 reconcile이 첫 항목을 선택하고 처리 기준 키도 첫 항목이 되어 다음 선택이 어긋남(후보 1로 미해결)
 
 외부 검토: C / 생략
