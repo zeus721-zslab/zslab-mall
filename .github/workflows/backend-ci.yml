@@ -1,12 +1,11 @@
 name: Backend CI
 
+# paths 필터를 트리거에 두지 않는다 — 무관한 PR에서 잡이 아예 안 뜨면 브랜치 보호 필수 체크가 대기로 남는다(D-258).
+# 변경 감지는 잡 안에서 하고, 무관하면 테스트 단계만 건너뛰어 잡은 성공으로 끝난다.
 on:
   pull_request:
     branches:
       - main
-    paths:
-      - 'backend/**'
-      - '.github/workflows/backend-ci.yml'
   workflow_dispatch:
 
 # 같은 브랜치에 연속 push 시 이전 run 취소(러너 분 절약).
@@ -16,6 +15,8 @@ concurrency:
 
 permissions:
   contents: read
+  # dorny/paths-filter가 pull_request 이벤트에서 변경 파일 목록을 API로 조회한다.
+  pull-requests: read
 
 jobs:
   test:
@@ -32,9 +33,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # workflow_dispatch에는 비교 대상이 없어 감지를 건너뛰고, 아래 if에서 무조건 테스트한다(deploy.yml과 같은 방식).
+      - name: Detect changes
+        id: changes
+        if: github.event_name != 'workflow_dispatch'
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+              - '.github/workflows/backend-ci.yml'
+
+      - name: Report detection
+        run: echo "event=${{ github.event_name }} backend-changed=${{ steps.changes.outputs.backend }}"
+
       # toolchain 미설정(sourceCompatibility 21)이라 러너 JDK를 그대로 사용. cache: gradle은 의존성·wrapper 캐시만
       # (빌드 캐시는 커밋되지 않음) → test 태스크가 FROM-CACHE로 스킵되지 않는다.
       - name: Setup Java
+        if: github.event_name == 'workflow_dispatch' || steps.changes.outputs.backend == 'true'
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -44,10 +60,11 @@ jobs:
       # DB는 Testcontainers(mariadb:11.4)가 러너 Docker로 기동 — 서비스 컨테이너·Secrets 불필요.
       # 테스트 env(ADMIN_BOOTSTRAP_*)·systemProperty는 build.gradle.kts tasks.test가 주입한다.
       - name: Test
+        if: github.event_name == 'workflow_dispatch' || steps.changes.outputs.backend == 'true'
         run: ./gradlew test --rerun-tasks --no-daemon
 
       - name: Upload test reports
-        if: failure()
+        if: failure() && (github.event_name == 'workflow_dispatch' || steps.changes.outputs.backend == 'true')
         uses: actions/upload-artifact@v4
         with:
           name: backend-test-reports

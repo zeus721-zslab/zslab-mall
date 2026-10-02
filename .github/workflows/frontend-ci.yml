@@ -1,12 +1,16 @@
 name: frontend-ci
 
+# paths 필터를 트리거에 두지 않는다 — 무관한 PR에서 잡이 아예 안 뜨면 브랜치 보호 필수 체크가 대기로 남는다(D-258).
+# 변경 감지는 잡 안에서 하고, 무관하면 검사 단계만 건너뛰어 잡은 성공으로 끝난다.
 on:
   pull_request:
     branches:
       - main
-    paths:
-      - 'frontend/**'
-      - '.github/workflows/frontend-ci.yml'
+
+permissions:
+  contents: read
+  # dorny/paths-filter가 pull_request 이벤트에서 변경 파일 목록을 API로 조회한다.
+  pull-requests: read
 
 jobs:
   frontend-check:
@@ -18,14 +22,28 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Detect changes
+        id: changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            frontend:
+              - 'frontend/**'
+              - '.github/workflows/frontend-ci.yml'
+
+      - name: Report detection
+        run: echo "frontend-changed=${{ steps.changes.outputs.frontend }}"
+
       # action-setup은 Install(pnpm 실행)보다 먼저 와야 한다(pnpm 실행파일 선존재 필요).
       # 버전은 frontend/package.json의 packageManager 핀에서 자동 인식(루트 package.json 없음 → 경로 명시).
       - name: Setup pnpm
+        if: steps.changes.outputs.frontend == 'true'
         uses: pnpm/action-setup@v4
         with:
           package_json_file: frontend/package.json
 
       - name: Setup Node
+        if: steps.changes.outputs.frontend == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -33,6 +51,7 @@ jobs:
       # pnpm store를 러너 쓰기 가능 경로(github.workspace 하위)에 직접 캐싱. setup-node cache:pnpm은
       # 내부 pnpm store path가 pnpm-workspace.yaml storeDir(/app·컨테이너 전용)를 참조해 EACCES라 제거.
       - name: Cache pnpm store
+        if: steps.changes.outputs.frontend == 'true'
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/.pnpm-store
@@ -42,12 +61,15 @@ jobs:
 
       # --config.store-dir(CLI·최고 우선순위)로 workspace storeDir(/app) 오버라이드. env·npmrc는 storeDir에 밀림(실측).
       - name: Install dependencies
+        if: steps.changes.outputs.frontend == 'true'
         run: pnpm install --frozen-lockfile --config.store-dir="${{ github.workspace }}/.pnpm-store"
 
       # typecheck 스크립트가 'nuxt prepare && vue-tsc -b'라 prepare(.nuxt 타입 생성) 선행 포함.
       - name: Typecheck
+        if: steps.changes.outputs.frontend == 'true'
         run: pnpm typecheck
 
       # vitest run — e2e/**는 vitest.config.ts exclude로 미수집(playwright 전용).
       - name: Unit tests (vitest)
+        if: steps.changes.outputs.frontend == 'true'
         run: pnpm test
