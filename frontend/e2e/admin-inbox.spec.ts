@@ -484,11 +484,13 @@ test.describe('관리자 인박스(FE-101)', () => {
     expect(mock.answerBodies).toEqual([{ content: draft }])
     const faqDialog = page.getByTestId('admin-faq-dialog')
     await expect(faqDialog.getByTestId('faq-question').locator('input')).toHaveValue('E2E 배송이 늦어요')
-    await expect(faqDialog.getByTestId('faq-answer').locator('textarea').first()).toHaveValue(draft)
+    // warn W17: ORDER 근거 줄(그 문의 주문 상태)은 FAQ 답변에서 빼고, 미리 채운 FAQ는 숨김으로 시작한다
+    const faqAnswer = '안녕하세요, 고객님. 배송 관련 문의 주셔서 감사합니다.\n\n확인한 배송 관련 내용을 안내해 드립니다.'
+    await expect(faqDialog.getByTestId('faq-answer').locator('textarea').first()).toHaveValue(faqAnswer)
     await faqDialog.getByTestId('faq-dialog-ok').click()
 
     await expect(page.getByTestId('admin-toaster')).toContainText('FAQ를 등록했습니다.')
-    expect(mock.faqBodies).toEqual([{ category: 'DELIVERY', question: 'E2E 배송이 늦어요', answer: draft, visible: true }])
+    expect(mock.faqBodies).toEqual([{ category: 'DELIVERY', question: 'E2E 배송이 늦어요', answer: faqAnswer, visible: false }])
     await expect(page.getByTestId('inbox-item')).toHaveCount(2)
     await expect(page.getByTestId('inbox-detail-title')).toHaveText('E2E 교환 문의')
   })
