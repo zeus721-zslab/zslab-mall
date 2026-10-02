@@ -91,7 +91,7 @@ public class AdminSellerCommandService {
      * @throws SellerNotFoundException 미존재(404)
      * @throws SellerInvalidStateException 불법 전이·같은 상태 재요청(422)
      * @throws com.zslab.mall.seller.exception.SellerActivityInProgressException 종료 가드 위반(409)
-     * @throws com.zslab.mall.common.exception.DemoAccountProtectedException 데모 계정이 소속된 셀러 해지(403)
+     * @throws com.zslab.mall.common.exception.DemoAccountProtectedException 데모 계정이 소속된 셀러 해지·정지(403)
      */
     public AdminSellerDetailResponse changeStatus(
             String sellerPublicId, SellerStatus target, String reason, AuditContext auditContext) {
@@ -103,10 +103,13 @@ public class AdminSellerCommandService {
             throw new SellerInvalidStateException(
                     "판매자 상태를 전환할 수 없습니다: " + before + " → " + target + " sellerPublicId=" + sellerPublicId);
         }
-        if (target == SellerStatus.TERMINATED) {
-            // D-230: 해지는 되돌릴 수 없어 데모 셀러 로그인이 영구히 막힌다 → 보호 계정이 소속된 셀러는 해지 차단(정지는 허용).
+        if (target == SellerStatus.TERMINATED || target == SellerStatus.SUSPENDED) {
+            // D-230: 해지는 데모 셀러 로그인을 영구히 막는다. 최종 점검 K7: 정지도 다음 방문자의 셀러 시연(발송 등 쓰기)을 막는다
+            // → 보호 계정이 소속된 셀러는 세션 종류와 무관하게 해지·정지 모두 차단.
             demoAccountGuard.requireNoProtectedMember(userRepository.findByIdIn(
                     sellerUserRepository.findBySellerId(seller.getId()).stream().map(SellerUser::getUserId).toList()));
+        }
+        if (target == SellerStatus.TERMINATED) {
             sellerTerminationGuard.requireTerminable(seller.getId());
         }
         String trimmedReason = reason.trim();

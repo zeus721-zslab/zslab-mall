@@ -14070,3 +14070,32 @@ D-246 §8 정정: '데모 로그인 요청 제한 문서 불일치' 항목 철�
 
 셀프 리뷰: 지적 6건 중 수용 1건
 외부 검토: A / 지적 2건 중 수용 0건
+
+## D-255 최종 점검 — 주문 상태 Resolver 혼합 조합 단계 환산 · 공개 데모 셀러 정지 차단 (state-machine §5 · ORD-2 · D-214 · D-230 · D-247 · D-254) (2026-10-02)
+
+### 배경
+- 최종 점검 시나리오 시뮬레이션(docs/track-final-check/recon-report-sim.md)의 크리티컬 2건을 처리한다. K1 OrderStatusResolver가 [5]·[6]·[7]·전부 DELIVERED·SHIPPING 포함·PREPARING 포함 외 조합을 기본값 PAID로 산출해, 셀러별 진행이 갈린 주문([CANCELLED, DELIVERED] · [DELIVERED, CONFIRMED] · [*_REQUESTED, DELIVERED])이 PAID로 역행한다. K7 데모 셀러를 정지(SUSPENDED)하면 다음 방문자의 셀러 시연(발송 등 쓰기)이 403으로 막힌다(해지는 D-230이 이미 차단).
+
+### 결정
+- K1 판정(`OrderStatusResolver.java:39-76`): [5] 전부 CANCELLED → CANCELLED · [6] 일부 CANCELLED + 나머지 ∈ {CONFIRMED, RETURNED, EXCHANGED} → PARTIAL_CANCEL · [7] 전부 ∈ {CONFIRMED, RETURNED, EXCHANGED} → CONFIRMED를 먼저 보고, 이후 CANCELLED를 뺀 품목을 단계로 환산한다.
+  - 단계: 1 ORDERED·PAID·CANCEL_REQUESTED / 2 PREPARING / 3 SHIPPING / 4+ DELIVERED·RETURN_REQUESTED·EXCHANGE_REQUESTED·CONFIRMED·RETURNED·EXCHANGED(`DELIVERED_OR_LATER` :28).
+  - 순서: 모두 4+ → DELIVERED(:61) · 하나라도 3+ → SHIPPING(:65) · 하나라도 2 → PREPARING(:70) · 그 외 PAID(:75).
+- K7: `AdminSellerCommandService.changeStatus`가 목표 SUSPENDED도 TERMINATED와 같은 `DemoAccountGuard.requireNoProtectedMember`(:106-110)를 거친다 — 보호 계정이 소속된 셀러는 세션 종류와 무관하게 정지 403 `DEMO_ACCOUNT_PROTECTED`. 종료 가드(`requireTerminable` :113)는 해지만. 정지된 데모 셀러의 ACTIVE 복구는 막지 않는다.
+- D-230·D-247은 대상 보호, D-254는 공개 데모 세션 요청자 제한이다. K7은 대상 보호 축(D-230)을 정지까지 넓힌 것이다.
+
+### §1-A 갈림길·채택/기각 근거
+- RETURN_REQUESTED 환산: α 4+ 【채택】 — 반품 요청은 대부분 배송완료 후 발생한다. 배송 중 반품 요청(SHIPPING → RETURN_REQUESTED) 단일 품목이 DELIVERED로 보이는 것은 감수한다(기존 규칙은 PAID 역행). / β 3 【기각】.
+- 기존 행: α 백필 없음 【채택】 — 금액·재고·정산·자동확정이 Order.status에 의존하지 않는다. 잔존 행은 비종결 품목의 다음 전이(구매확정·자동확정 → `BuyerOrderConfirmService.java:106` 재계산 등) 때 재계산된다. / β 보정 SQL 【기각】.
+- D-214의 "Resolver 기본값 수정 기각(ORD-2와 정산·통계 소비처를 건드린다)" 사유는 소비처 확인으로 성립하지 않아 이번에 수정한다.
+- K7 대상 기준: 보호 계정 소속 셀러(해지 경로와 동일 판정). 대안 검토 없음.
+
+### §8 이월
+- 대시보드 배송 대기 타일 집계(품목 PAID)와 링크(주문 목록 status=PAID · `admin-dashboard-view.ts:63`) 불일치 — [PAID, DELIVERED]류 혼합 주문이 링크 목록에서 빠진다(미발송은 인박스 셀러 지연·장기 배송으로 포착).
+- 자동확정이 꺼진 환경에서는 잔존 역행 행이 수동 처리 전까지 남는다.
+- FE `adminOrderListStatusLabel` 주석이 기존 "주문 PAID = Resolver 기본값이 혼합을 덮는다" 전제를 유지한다(로직은 유효).
+- 테스트 픽스처 일부가 user 행 없이 FK 검사를 끄고 주문을 시드한다 — 주문 UPDATE가 생기면 500(이번에 ClaimIntegrationTest T13만 보강).
+- K7이 OWNER가 아닌 구성원 기준 — 과거 데이터에 보호 계정이 STAFF로만 소속된 셀러도 정지 차단(범위 확대·보안 영향 없음).
+- D-214 §8 "다셀러 혼합 주문 처리 중 표시(미발송 가려짐)" 이월은 본 결정으로 해소한다(혼합 주문이 PAID로 남지 않는다).
+
+셀프 리뷰: 지적 6건 중 수용 4건
+외부 검토: A / 지적 1건 중 수용 0건

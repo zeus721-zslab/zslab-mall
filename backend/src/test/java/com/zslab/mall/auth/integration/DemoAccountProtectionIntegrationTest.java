@@ -243,22 +243,33 @@ class DemoAccountProtectionIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("셀러 해지: 데모 셀러가 소속된 셀러 TERMINATED → 403(상태·아카이브 불변) / 같은 셀러 SUSPENDED → 200(되돌릴 수 있어 허용) / 보호 구성원 없는 셀러 TERMINATED → 200")
+    @DisplayName("셀러 해지: 데모 셀러가 소속된 셀러 TERMINATED → 403(상태·아카이브 불변) / 보호 구성원 없는 셀러 TERMINATED → 200")
     void sellerTermination() throws Exception {
         expectProtected(mockMvc.perform(patch("/api/v1/admin/sellers/" + SELLER_PID + "/status").with(authHeaders.admin(ADMIN_CALLER))
                 .contentType(MediaType.APPLICATION_JSON).content(statusBody("TERMINATED"))));
         assertThat(sellerStatus(SELLER_ID)).isEqualTo("ACTIVE");
         assertThat(withdrawnSellerCount(SELLER_ID)).isZero();
 
-        mockMvc.perform(patch("/api/v1/admin/sellers/" + SELLER_PID + "/status").with(authHeaders.admin(ADMIN_CALLER))
-                        .contentType(MediaType.APPLICATION_JSON).content(statusBody("SUSPENDED")))
-                .andExpect(status().isOk());
-        assertThat(sellerStatus(SELLER_ID)).isEqualTo("SUSPENDED");
-
         mockMvc.perform(patch("/api/v1/admin/sellers/" + NORMAL_SELLER_PID + "/status").with(authHeaders.admin(ADMIN_CALLER))
                         .contentType(MediaType.APPLICATION_JSON).content(statusBody("TERMINATED")))
                 .andExpect(status().isOk());
         assertThat(sellerStatus(NORMAL_SELLER_ID)).isEqualTo("TERMINATED");
+    }
+
+    @Test
+    @DisplayName("셀러 정지(최종 점검 K7): 데모 셀러가 소속된 셀러 SUSPENDED → 공개 데모 세션·직접 로그인 세션 모두 403(상태 불변) / 보호 구성원 없는 셀러 SUSPENDED → 200")
+    void sellerSuspension() throws Exception {
+        expectProtected(mockMvc.perform(patch("/api/v1/admin/sellers/" + SELLER_PID + "/status")
+                .with(authHeaders.publicDemoAdmin(ADMIN_CALLER))
+                .contentType(MediaType.APPLICATION_JSON).content(statusBody("SUSPENDED"))));
+        expectProtected(mockMvc.perform(patch("/api/v1/admin/sellers/" + SELLER_PID + "/status").with(authHeaders.admin(ADMIN_CALLER))
+                .contentType(MediaType.APPLICATION_JSON).content(statusBody("SUSPENDED"))));
+        assertThat(sellerStatus(SELLER_ID)).isEqualTo("ACTIVE");
+
+        mockMvc.perform(patch("/api/v1/admin/sellers/" + NORMAL_SELLER_PID + "/status").with(authHeaders.admin(ADMIN_CALLER))
+                        .contentType(MediaType.APPLICATION_JSON).content(statusBody("SUSPENDED")))
+                .andExpect(status().isOk());
+        assertThat(sellerStatus(NORMAL_SELLER_ID)).isEqualTo("SUSPENDED");
     }
 
     @Test

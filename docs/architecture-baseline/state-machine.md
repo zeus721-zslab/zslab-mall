@@ -143,13 +143,13 @@ ORDERED → PAID → PREPARING → SHIPPING → DELIVERED → CONFIRMED
     → 모든 OrderItem = PAID
     → Order.status = PAID
 
-[2] 최초 OrderItem = PREPARING
+[2] CANCELLED 제외 품목 중 하나라도 단계 2(PREPARING)
     → Order.status = PREPARING
 
-[3] 최초 OrderItem = SHIPPING
+[3] CANCELLED 제외 품목 중 하나라도 단계 3+(SHIPPING 이후)
     → Order.status = SHIPPING
 
-[4] 모든 OrderItem ∈ {DELIVERED}
+[4] CANCELLED 제외 품목이 모두 단계 4+(배송완료 이후)
     → Order.status = DELIVERED
 
 [5] 모든 OrderItem = CANCELLED
@@ -180,9 +180,18 @@ Order.status는 OrderItem 집계 캐시이므로, OrderItem 상태가 변경될 
 | 위치 | **Domain Service** — Order Aggregate 내부 파생 로직(외부 Aggregate 미관여)이므로 Application Service가 아닌 Domain Service에 배치 |
 | 재계산 트리거 | OrderItem 상태 변경(Payment·Delivery·Claim 이벤트 소비 후) |
 
-**평가 순서**: [5] → [6] → [7] → [4] → [3] → [2]
+**평가 순서**: [5] → [6] → [7] → [4] → [3] → [2] → 그 외 PAID (D-255)
 - **종료 상태 우선**: 전체 취소[5]·부분 취소[6]·전체 확정/반품/교환[7]을 먼저 판정해, 진행 중 상태가 종료 케이스를 가리지 않도록 한다.
-- **진행 상태 역순**: 이후 배송완료[4] → 배송중[3] → 준비중[2]을 평가해 "가장 진행된 단계"를 Order.status로 반영한다.
+- **진행 단계 환산**: 이후 CANCELLED를 뺀 품목을 아래 단계로 환산해 [4] 모두 4+ → [3] 하나라도 3+ → [2] 하나라도 2 순으로 평가한다. 어느 것도 아니면(전부 단계 1) PAID.
+
+| 단계 | OrderItem 상태 |
+|---|---|
+| 1 | ORDERED · PAID · CANCEL_REQUESTED |
+| 2 | PREPARING |
+| 3 | SHIPPING |
+| 4+ | DELIVERED · RETURN_REQUESTED · EXCHANGE_REQUESTED · CONFIRMED · RETURNED · EXCHANGED |
+
+- PAID는 "규칙 밖 조합의 기본값"이 아니라 "남은 품목이 모두 결제 완료 단계"일 때만 나온다 — 셀러별 진행이 갈린 혼합 주문은 PAID로 역행하지 않는다(D-255 · 기존 행 백필 없음).
 - [1](PAID)은 결제 이벤트 직후 일괄 적용되므로 재계산 평가 순서에서 제외한다.
 - Claim 처리 완료(OrderItem → CANCELLED/RETURNED · 교환은 DELIVERED 복귀·D-177) 시 재계산 트리거.
 
