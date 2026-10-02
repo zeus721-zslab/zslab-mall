@@ -15,17 +15,25 @@ function faqCategoryOf(category: InquiryCategory): FaqCategory | null {
   }
 }
 
+/** 초안 근거 줄 머리표(BE TemplateAnswerDraftPolicy EVIDENCE_BULLET). */
+const EVIDENCE_BULLET = '- '
+
 /**
  * FAQ 후보 문의 → FAQ 등록 미리 채우기(D-253). 질문 = 문의 본문(200자 초과 절삭) · 답변 = 저장한 답변(2000자 초과 절삭) · 기타 문의는 카테고리
- * 미선택. 절삭·미선택마다 안내 1줄.
+ * 미선택. 절삭·미선택·줄 제외마다 안내 1줄. orderEvidenceLines는 초안의 ORDER 근거 문장 — 그 문의 주문에만 맞는 상태 줄이라 공개 FAQ 답변에서
+ * 뺀다(warn W17).
  */
-export function faqPrefillFromInquiry(category: InquiryCategory, inquiryContent: string, answer: string): AdminFaqPrefill {
+export function faqPrefillFromInquiry(category: InquiryCategory, inquiryContent: string, answer: string, orderEvidenceLines: string[]): AdminFaqPrefill {
   const notices: string[] = []
   const faqCategory = faqCategoryOf(category)
   if (faqCategory === null) notices.push('기타 문의는 대응하는 FAQ 카테고리가 없어 직접 선택해야 합니다.')
   const question = inquiryContent.trim()
   if (question.length > FAQ_QUESTION_MAX) notices.push(`질문이 ${FAQ_QUESTION_MAX}자를 넘어 뒷부분을 잘랐습니다. 다듬어 주세요.`)
-  const trimmedAnswer = answer.trim()
+  const excluded = new Set(orderEvidenceLines.flatMap((line) => [line, EVIDENCE_BULLET + line]))
+  const answerLines = answer.split('\n')
+  const keptLines = answerLines.filter((line) => !excluded.has(line.trim()))
+  if (keptLines.length < answerLines.length) notices.push('이 문의의 주문 상태 줄은 FAQ에 맞지 않아 뺐습니다.')
+  const trimmedAnswer = keptLines.join('\n').trim()
   if (trimmedAnswer.length > FAQ_ANSWER_MAX) notices.push(`답변이 ${FAQ_ANSWER_MAX}자를 넘어 뒷부분을 잘랐습니다. 다듬어 주세요.`)
   return {
     category: faqCategory,

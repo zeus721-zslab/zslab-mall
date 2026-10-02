@@ -87,7 +87,9 @@ watch(() => props.variantPublicId, () => {
         </v-col>
       </v-row>
       <div class="d-flex flex-wrap ga-2 mb-2">
-        <v-btn color="primary" variant="flat" data-testid="inbox-stock-inbound" @click="inboundOpen = true">입고</v-btn>
+        <SellerSuspendedGuard v-slot="{ suspended }">
+          <v-btn color="primary" variant="flat" :disabled="suspended" data-testid="inbox-stock-inbound" @click="inboundOpen = true">입고</v-btn>
+        </SellerSuspendedGuard>
       </div>
     </template>
 

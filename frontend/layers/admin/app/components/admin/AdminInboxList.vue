@@ -8,6 +8,7 @@ import {
   INBOX_BULK_MAX,
   type InboxBulkKind,
   adminInboxDeadlineChipClass,
+  adminInboxSubtitle,
   claimSuggestionChipClass,
   inboxBulkKind,
   selectedBulkKind,
@@ -146,7 +147,7 @@ function onTab(value: unknown): void {
         <v-list-item-subtitle>
           <span>{{ inboxItemTypeLabel(item.type) }}</span>
           <span v-if="item.claimType"> · {{ claimTypeLabel(item.claimType) }}</span>
-          <span v-if="item.subtitle"> · {{ item.subtitle }}</span>
+          <span v-if="item.subtitle"> · {{ adminInboxSubtitle(item) }}</span>
           <span v-if="item.suggestion" :class="claimSuggestionChipClass(item.suggestion)" class="ml-2" data-testid="inbox-item-suggestion">
             {{ CLAIM_SUGGESTION_LABELS[item.suggestion] }}
           </span>

@@ -4,6 +4,7 @@ import {
   SELLER_SETTLEMENT_STATUS_LABEL,
   type SellerSettlementStatus,
 } from '#layers/seller/app/lib/constants/seller-settlement'
+import { bankLabel } from '~/lib/constants/bank'
 
 /** 셀러 정산 표시 순수 함수(Track 90-B-3·관리자 admin-settlement-view 복제·읽기 전용이라 액션 판정은 없다). 컴포넌트는 표시·배선만, 규칙은 여기서 vitest로 고정한다. */
 
@@ -36,10 +37,10 @@ export function isNegativeNet(settlement: Pick<SellerSettlementSummary, 'netAmou
   return settlement.netAmount < 0
 }
 
-/** 계좌 표시: "004 ···1234 (홍길동)". 계좌 없음은 null(호출부가 안내 문구). */
+/** 계좌 표시: "KB국민은행 ···1234 (홍길동)" · 목록 밖 은행 코드는 코드 그대로. 계좌 없음은 null(호출부가 안내 문구). */
 export function formatBankAccount(account: SellerSettlementBankAccount | null | undefined): string | null {
   if (!account) return null
-  return `${account.bankCode} ···${account.accountNumberSuffix} (${account.accountHolder})`
+  return `${bankLabel(account.bankCode)} ···${account.accountNumberSuffix} (${account.accountHolder})`
 }
 
 /** 계좌 출처 라벨: 지급 시점 스냅샷 vs 현재 주계좌(D-179 결정 7). */

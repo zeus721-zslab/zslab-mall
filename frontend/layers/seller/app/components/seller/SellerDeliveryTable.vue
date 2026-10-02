@@ -132,16 +132,18 @@ function isPending(item: SellerDeliverySummary): boolean {
 
     <template #[`item.actions`]="{ item }">
       <div class="d-flex align-center justify-end">
-        <v-menu v-if="hasRowActions(item)">
-          <template #activator="{ props: activatorProps }">
-            <v-btn v-bind="activatorProps" :icon="mdiDotsVertical" size="small" variant="text" :disabled="isPending(item)" :loading="isPending(item)" aria-label="배송 처리" data-testid="row-menu" />
-          </template>
-          <v-list density="compact" min-width="180">
-            <v-list-subheader>배송 처리</v-list-subheader>
-            <v-list-item v-if="canMarkDelivered(item)" title="배송완료 처리" class="op-risk-menu-item" data-testid="row-mark-delivered" @click="emit('markDelivered', item)" />
-            <v-list-item v-if="canCorrectTracking(item.status)" title="송장 정정" data-testid="row-correct-tracking" @click="emit('correctTracking', item)" />
-          </v-list>
-        </v-menu>
+        <SellerSuspendedGuard v-if="hasRowActions(item)" v-slot="{ suspended }">
+          <v-menu>
+            <template #activator="{ props: activatorProps }">
+              <v-btn v-bind="activatorProps" :icon="mdiDotsVertical" size="small" variant="text" :disabled="isPending(item) || suspended" :loading="isPending(item)" aria-label="배송 처리" data-testid="row-menu" />
+            </template>
+            <v-list density="compact" min-width="180">
+              <v-list-subheader>배송 처리</v-list-subheader>
+              <v-list-item v-if="canMarkDelivered(item)" title="배송완료 처리" class="op-risk-menu-item" data-testid="row-mark-delivered" @click="emit('markDelivered', item)" />
+              <v-list-item v-if="canCorrectTracking(item.status)" title="송장 정정" data-testid="row-correct-tracking" @click="emit('correctTracking', item)" />
+            </v-list>
+          </v-menu>
+        </SellerSuspendedGuard>
         <span v-else class="text-caption text-medium-emphasis">—</span>
       </div>
     </template>

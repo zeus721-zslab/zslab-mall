@@ -178,9 +178,11 @@ async function submit(): Promise<void> {
                 data-testid="seller-account-holder"
                 @update:model-value="clearError('accountHolder')"
               />
-              <v-btn type="submit" color="primary" size="large" block :loading="submitting" :disabled="submitting" data-testid="seller-bank-account-submit">
-                계좌 등록
-              </v-btn>
+              <SellerSuspendedGuard v-slot="{ suspended }">
+                <v-btn type="submit" color="primary" size="large" block :loading="submitting" :disabled="submitting || suspended" data-testid="seller-bank-account-submit">
+                  계좌 등록
+                </v-btn>
+              </SellerSuspendedGuard>
             </v-form>
           </v-card-text>
         </v-card>

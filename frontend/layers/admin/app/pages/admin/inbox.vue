@@ -42,9 +42,13 @@ const bulkItems = computed<InboxItem[]>(() => items.value.filter((item) => bulkS
 const claimBulkItems = computed<InboxItem[]>(() => bulkItems.value.filter((item) => inboxBulkKind(item) === 'CLAIM_APPROVE'))
 const nudgeBulkItems = computed<InboxItem[]>(() => bulkItems.value.filter((item) => inboxBulkKind(item) === 'SELLER_NUDGE'))
 
+// 일괄 독촉은 원천을 바꾸지 않아 선택 키가 그대로다 — 열린 셀러 지연 패널이 마지막 독촉 시각을 다시 읽도록 패널 key를 바꾼다(warn W14).
+const panelNonce = ref(0)
+
 async function onBulkDone(): Promise<void> {
   bulkSelected.value = []
   await reload()
+  panelNonce.value++
 }
 
 function applyQuery(patch: Partial<InboxQueryState>): void {
@@ -112,25 +116,39 @@ async function load(): Promise<boolean> {
   }
 }
 
-// 탭·유형이 바뀌면 다시 읽는다(선택만 바뀌면 읽지 않는다).
+// 처리·보류 직후의 기준(처리 전 목록 키 · 처리한 키). 처리 직후 변경 신호로 다른 load가 끼어들면 처리 쪽 load는 시퀀스에서 밀려 버려지므로,
+// 기준을 여기에 두고 성공한 최신 load가 소비해 다음 항목을 고른다(warn P-04).
+let pendingProcessed: { previousKeys: string[]; processedKey: string | null } | null = null
+
+/** 성공한 최신 load 뒤 선택: 처리 기준이 있으면 다음 항목, 없으면 목록과 맞추기. */
+function applyLoadedSelection(): void {
+  const processed = pendingProcessed
+  pendingProcessed = null
+  if (processed === null) {
+    reconcileSelection()
+    return
+  }
+  const next = nextInboxSelection(processed.previousKeys, items.value.map((item) => item.key), processed.processedKey)
+  // 모바일 드로어 안에서 다음 항목으로 바뀌는 것은 replace(기록을 쌓지 않음) · 남은 항목이 없으면 드로어를 닫는다.
+  if (next === null && !mdAndUp.value) closeDrawer()
+  else applyQuery({ selected: next })
+}
+
+// 탭·유형이 바뀌면 다시 읽는다(선택만 바뀌면 읽지 않는다). 이전 탭의 처리 기준은 버린다.
 watch(() => [query.value.tab, query.value.type], async () => {
   bulkSelected.value = []
+  pendingProcessed = null
   if (await load()) reconcileSelection()
 }, { immediate: true })
 
 async function reload(): Promise<void> {
-  if (await load()) reconcileSelection()
+  if (await load()) applyLoadedSelection()
 }
 
 /** 처리·보류 후: 다시 읽고, 처리한 항목 다음 것을 고른다(같은 탭). */
 async function onProcessed(): Promise<void> {
-  const previousKeys = items.value.map((item) => item.key)
-  const processedKey = query.value.selected
-  if (!(await load())) return
-  const next = nextInboxSelection(previousKeys, items.value.map((item) => item.key), processedKey)
-  // 모바일 드로어 안에서 다음 항목으로 바뀌는 것은 replace(기록을 쌓지 않음) · 남은 항목이 없으면 드로어를 닫는다.
-  if (next === null && !mdAndUp.value) closeDrawer()
-  else applyQuery({ selected: next })
+  pendingProcessed = { previousKeys: items.value.map((item) => item.key), processedKey: query.value.selected }
+  await reload()
 }
 
 function onTab(tab: InboxTab): void {
@@ -140,6 +158,7 @@ function onType(type: InboxItemType | null): void {
   applyQuery({ type, selected: null })
 }
 function onSelect(key: string): void {
+  pendingProcessed = null // 운영자가 직접 고른 선택을 남은 처리 기준이 덮지 않게 한다
   if (!mdAndUp.value && query.value.selected === null) openOnMobile(key)
   else applyQuery({ selected: key })
 }
@@ -194,7 +213,7 @@ onBeforeUnmount(() => {
         />
       </v-col>
       <v-col v-if="mdAndUp" md="7">
-        <AdminInboxDetail :item="selectedItem" :now-ms="nowMs" @processed="onProcessed" />
+        <AdminInboxDetail :item="selectedItem" :now-ms="nowMs" :panel-nonce="panelNonce" @processed="onProcessed" />
       </v-col>
     </v-row>
     <v-navigation-drawer
@@ -219,7 +238,7 @@ onBeforeUnmount(() => {
         >목록</v-btn>
         <span class="adm-inbox-drawer-title text-body-2 font-weight-medium">{{ selectedItem ? inboxItemTypeLabel(selectedItem.type) : '' }}</span>
       </div>
-      <AdminInboxDetail :item="selectedItem" :now-ms="nowMs" @processed="onProcessed" />
+      <AdminInboxDetail :item="selectedItem" :now-ms="nowMs" :panel-nonce="panelNonce" @processed="onProcessed" />
     </v-navigation-drawer>
   </div>
 </template>

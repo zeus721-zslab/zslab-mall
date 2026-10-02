@@ -111,16 +111,22 @@ watch(() => props.item?.key, () => {
         <SellerInboxStockPanel v-if="action === 'STOCK_INBOUND'" :key="item.key" :variant-public-id="item.sourceRef" :product-name="item.title" @processed="finish" />
       </v-card-text>
       <v-card-actions class="px-5 pb-5 flex-wrap ga-2">
-        <v-btn v-if="action === 'QUESTION_ANSWER' && questionItem" color="primary" variant="flat" data-testid="inbox-detail-action" @click="answerOpen = true">
-          답변하기
-        </v-btn>
-        <v-btn v-if="action === 'SHIPMENT' && orderItem" color="primary" variant="flat" data-testid="inbox-detail-action" @click="shipmentOpen = true">
-          발송 처리
-        </v-btn>
+        <SellerSuspendedGuard v-if="action === 'QUESTION_ANSWER' && questionItem" v-slot="{ suspended }">
+          <v-btn color="primary" variant="flat" :disabled="suspended" data-testid="inbox-detail-action" @click="answerOpen = true">
+            답변하기
+          </v-btn>
+        </SellerSuspendedGuard>
+        <SellerSuspendedGuard v-if="action === 'SHIPMENT' && orderItem" v-slot="{ suspended }">
+          <v-btn color="primary" variant="flat" :disabled="suspended" data-testid="inbox-detail-action" @click="shipmentOpen = true">
+            발송 처리
+          </v-btn>
+        </SellerSuspendedGuard>
         <v-btn v-if="target" variant="outlined" :prepend-icon="mdiOpenInNew" :to="{ path: target.path, query: target.query }" data-testid="inbox-detail-open-origin">
           원래 화면에서 열기
         </v-btn>
-        <v-btn variant="text" :prepend-icon="mdiSleep" data-testid="inbox-detail-snooze" @click="snoozeOpen = true">보류</v-btn>
+        <SellerSuspendedGuard v-slot="{ suspended }">
+          <v-btn variant="text" :prepend-icon="mdiSleep" :disabled="suspended" data-testid="inbox-detail-snooze" @click="snoozeOpen = true">보류</v-btn>
+        </SellerSuspendedGuard>
       </v-card-actions>
     </template>
     <v-card-text v-else class="text-body-2 text-medium-emphasis text-center py-10" data-testid="inbox-detail-empty">

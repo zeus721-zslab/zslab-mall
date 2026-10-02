@@ -99,22 +99,37 @@ async function load(): Promise<boolean> {
   }
 }
 
+// 처리·보류 직후의 기준(처리 전 목록 키 · 처리한 키). 처리 직후 변경 신호로 다른 load가 끼어들면 처리 쪽 load는 시퀀스에서 밀려 버려지므로,
+// 기준을 여기에 두고 성공한 최신 load가 소비해 다음 항목을 고른다(warn P-04 · 관리자 인박스와 동일).
+let pendingProcessed: { previousKeys: string[]; processedKey: string | null } | null = null
+
+/** 성공한 최신 load 뒤 선택: 처리 기준이 있으면 다음 항목, 없으면 목록과 맞추기. */
+function applyLoadedSelection(): void {
+  const processed = pendingProcessed
+  pendingProcessed = null
+  if (processed === null) {
+    reconcileSelection()
+    return
+  }
+  const next = nextInboxSelection(processed.previousKeys, items.value.map((item) => item.key), processed.processedKey)
+  // 모바일 드로어 안에서 다음 항목으로 바뀌는 것은 replace(기록을 쌓지 않음) · 남은 항목이 없으면 드로어를 닫는다.
+  if (next === null && !mdAndUp.value) closeDrawer()
+  else applyQuery({ selected: next })
+}
+
+// 탭·유형이 바뀌면 다시 읽는다. 이전 탭의 처리 기준은 버린다.
 watch(() => [query.value.tab, query.value.type], async () => {
+  pendingProcessed = null
   if (await load()) reconcileSelection()
 }, { immediate: true })
 
 async function reload(): Promise<void> {
-  if (await load()) reconcileSelection()
+  if (await load()) applyLoadedSelection()
 }
 
 async function onProcessed(): Promise<void> {
-  const previousKeys = items.value.map((item) => item.key)
-  const processedKey = query.value.selected
-  if (!(await load())) return
-  const next = nextInboxSelection(previousKeys, items.value.map((item) => item.key), processedKey)
-  // 모바일 드로어 안에서 다음 항목으로 바뀌는 것은 replace(기록을 쌓지 않음) · 남은 항목이 없으면 드로어를 닫는다.
-  if (next === null && !mdAndUp.value) closeDrawer()
-  else applyQuery({ selected: next })
+  pendingProcessed = { previousKeys: items.value.map((item) => item.key), processedKey: query.value.selected }
+  await reload()
 }
 
 function onTab(tab: InboxTab): void {
@@ -124,6 +139,7 @@ function onType(type: InboxItemType | null): void {
   applyQuery({ type, selected: null })
 }
 function onSelect(key: string): void {
+  pendingProcessed = null // 셀러가 직접 고른 선택을 남은 처리 기준이 덮지 않게 한다
   if (!mdAndUp.value && query.value.selected === null) openOnMobile(key)
   else applyQuery({ selected: key })
 }

@@ -36,3 +36,6 @@ export const SELLER_DEMO_LOGIN_PATH = '/_seller-demo/login'
 
 /** BE 403 ProblemDetail.code — 정지(SUSPENDED) 셀러의 쓰기 요청 거부(D-190). 세션은 유효하므로 로그아웃하지 않고 안내만 한다. */
 export const SELLER_SUSPENDED_ERROR_CODE = 'SELLER_SUSPENDED'
+
+/** 정지 상태에서 비활성화한 쓰기 버튼의 툴팁(SellerSuspendedGuard). */
+export const SELLER_SUSPENDED_WRITE_TOOLTIP = '정지 상태에서는 변경할 수 없습니다'

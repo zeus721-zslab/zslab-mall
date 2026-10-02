@@ -72,32 +72,36 @@ async function toggleSoldOut(next: boolean): Promise<void> {
       </div>
       <div class="d-flex align-center flex-wrap ga-4">
         <template v-if="saleAction.action">
-          <v-btn
-            :color="saleAction.action === 'STOP' ? 'warning' : 'primary'"
-            variant="flat"
-            size="small"
-            :disabled="saleAction.disabled"
-            data-testid="sale-card-action"
-            @click="emit('saleAction', saleAction.action)"
-          >
-            {{ SELLER_SALE_ACTION_LABEL[saleAction.action] }}
-          </v-btn>
+          <SellerSuspendedGuard v-slot="{ suspended }">
+            <v-btn
+              :color="saleAction.action === 'STOP' ? 'warning' : 'primary'"
+              variant="flat"
+              size="small"
+              :disabled="saleAction.disabled || suspended"
+              data-testid="sale-card-action"
+              @click="emit('saleAction', saleAction.action)"
+            >
+              {{ SELLER_SALE_ACTION_LABEL[saleAction.action] }}
+            </v-btn>
+          </SellerSuspendedGuard>
           <span v-if="saleAction.note" class="text-caption text-medium-emphasis" data-testid="sale-card-note">{{ saleAction.note }}</span>
         </template>
         <span v-else class="text-caption text-medium-emphasis" data-testid="sale-card-note">승인·거부는 관리자가 처리합니다. 승인 후 판매중지·재판매를 직접 할 수 있습니다.</span>
         <v-spacer />
-        <v-switch
-          :model-value="soldOut"
-          label="수동 품절"
-          color="error"
-          density="compact"
-          hide-details
-          inset
-          :disabled="soldOutSubmitting"
-          :loading="soldOutSubmitting"
-          data-testid="sale-card-soldout"
-          @update:model-value="(value) => toggleSoldOut(Boolean(value))"
-        />
+        <SellerSuspendedGuard v-slot="{ suspended }">
+          <v-switch
+            :model-value="soldOut"
+            label="수동 품절"
+            color="error"
+            density="compact"
+            hide-details
+            inset
+            :disabled="soldOutSubmitting || suspended"
+            :loading="soldOutSubmitting"
+            data-testid="sale-card-soldout"
+            @update:model-value="(value) => toggleSoldOut(Boolean(value))"
+          />
+        </SellerSuspendedGuard>
       </div>
       <p class="text-caption text-medium-emphasis mt-3 mb-0">
         판매중지·품절은 즉시 반영됩니다(아래 폼의 저장 전 수정 내용은 유지). 옵션별 품절은 옵션 조합표의 품절 스위치로 따로 지정합니다.

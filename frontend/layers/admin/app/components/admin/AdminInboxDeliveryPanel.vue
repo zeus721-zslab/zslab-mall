@@ -90,7 +90,7 @@ watch(() => props.deliveryPublicId, (deliveryPublicId) => {
         </v-col>
         <v-col cols="12">
           <div class="text-caption text-medium-emphasis">옵션 · 수량 · 수령인</div>
-          <div class="text-body-2">{{ delivery.optionLabel ?? '-' }} · {{ delivery.quantity }}개 · {{ delivery.recipientName ?? '-' }}</div>
+          <div class="text-body-2">{{ delivery.optionLabel ?? '-' }} · {{ delivery.quantity }}개 · {{ delivery.shippingAddress?.recipientName ?? '-' }}</div>
         </v-col>
       </v-row>
       <div class="d-flex flex-wrap ga-2 mb-2">

@@ -62,16 +62,18 @@ async function submit(): Promise<void> {
       <v-card-actions class="px-5 pb-4">
         <v-spacer />
         <v-btn variant="text" :disabled="submitting" data-testid="sale-status-close" @click="emit('cancel')">닫기</v-btn>
-        <v-btn
-          :color="action === 'STOP' ? 'warning' : 'primary'"
-          variant="flat"
-          :loading="submitting"
-          :disabled="submitting || !product"
-          data-testid="sale-status-ok"
-          @click="submit"
-        >
-          {{ actionLabel }}
-        </v-btn>
+        <SellerSuspendedGuard v-slot="{ suspended }">
+          <v-btn
+            :color="action === 'STOP' ? 'warning' : 'primary'"
+            variant="flat"
+            :loading="submitting"
+            :disabled="submitting || !product || suspended"
+            data-testid="sale-status-ok"
+            @click="submit"
+          >
+            {{ actionLabel }}
+          </v-btn>
+        </SellerSuspendedGuard>
       </v-card-actions>
     </v-card>
   </v-dialog>

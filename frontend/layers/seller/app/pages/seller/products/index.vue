@@ -97,7 +97,9 @@ function onSaleDone(): void {
   <div data-testid="seller-products">
     <SellerPageHeader title="상품" description="내 상품을 조회합니다. 판매중지·재판매는 행 메뉴에서, 품절은 상품 수정 화면에서 직접 처리합니다. 재고 수량과 입출고는 재고 화면에서, 승인·거부는 관리자가 처리합니다.">
       <template #actions>
-        <v-btn color="primary" :prepend-icon="mdiPlus" data-testid="product-new" @click="openNew">상품 등록</v-btn>
+        <SellerSuspendedGuard v-slot="{ suspended }">
+          <v-btn color="primary" :prepend-icon="mdiPlus" :disabled="suspended" data-testid="product-new" @click="openNew">상품 등록</v-btn>
+        </SellerSuspendedGuard>
       </template>
     </SellerPageHeader>
 
@@ -135,7 +137,9 @@ function onSaleDone(): void {
             <template v-else>
               <p class="text-subtitle-2 font-weight-medium mb-1">등록된 상품이 없습니다</p>
               <p class="text-body-2 text-medium-emphasis mb-3">첫 상품을 등록해 보세요. 승인 후 판매 화면에 노출됩니다.</p>
-              <v-btn size="small" color="primary" variant="flat" :prepend-icon="mdiPlus" data-testid="product-new-empty" @click="openNew">상품 등록</v-btn>
+              <SellerSuspendedGuard v-slot="{ suspended }">
+                <v-btn size="small" color="primary" variant="flat" :prepend-icon="mdiPlus" :disabled="suspended" data-testid="product-new-empty" @click="openNew">상품 등록</v-btn>
+              </SellerSuspendedGuard>
             </template>
           </div>
         </template>

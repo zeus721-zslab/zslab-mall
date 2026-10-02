@@ -41,7 +41,8 @@ function reset(): void {
   category.value = props.item?.category ?? (prefill ? prefill.category : props.defaultCategory)
   question.value = props.item?.question ?? prefill?.question ?? ''
   answer.value = props.item?.answer ?? prefill?.answer ?? ''
-  visible.value = props.item?.visible ?? true
+  // 미리 채운 FAQ는 다듬기 전 공개되지 않게 숨김으로 시작한다(warn W17).
+  visible.value = props.item?.visible ?? prefill === null
   errors.value = {}
   submitting.value = false
 }

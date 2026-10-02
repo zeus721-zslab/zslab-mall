@@ -29,6 +29,8 @@ describe('seller-settlement-view', () => {
     expect(isNegativeNet({ netAmount: -1 })).toBe(true)
     expect(isNegativeNet({ netAmount: 0 })).toBe(false)
     expect(formatBankAccount({ id: 1, bankCode: '004', accountHolder: '홍길동', accountNumberSuffix: '1234', snapshot: true })).toBe('004 ···1234 (홍길동)')
+    // warn W13: 등록 은행 코드는 한글 표시명(bankLabel 단일 소스) · 목록 밖 코드(위 004)는 원문
+    expect(formatBankAccount({ id: 2, bankCode: 'SHINHAN', accountHolder: '홍길동', accountNumberSuffix: '1234', snapshot: false })).toBe('신한은행 ···1234 (홍길동)')
     expect(formatBankAccount(undefined)).toBeNull()
     expect(bankAccountSourceLabel({ snapshot: true })).toBe('지급 시점 계좌(스냅샷)')
     expect(bankAccountSourceLabel({ snapshot: false })).toBe('현재 주 정산계좌')

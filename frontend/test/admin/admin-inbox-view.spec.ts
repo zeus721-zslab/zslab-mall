@@ -4,6 +4,7 @@ import {
   INBOX_BULK_MAX,
   INBOX_BULK_NUDGE_MAX,
   adminInboxDeadlineChipClass,
+  adminInboxSubtitle,
   bulkApproveConfirmMessage,
   claimBulkFailureMessage,
   claimSuggestionChipClass,
@@ -44,6 +45,14 @@ describe('관리자 인박스', () => {
     expect(inboxInquiryAnswerItem(row)).toEqual({ inquiryId: 'inq_1', category: 'DELIVERY', content: '배송이 늦어요', createdAt: '2026-10-01T09:00:00+09:00' })
     expect(inboxInquiryAnswerItem({ ...row, subtitle: 'WHATEVER' })).toBeNull()
     expect(inboxInquiryAnswerItem({ ...row, type: 'SELLER_REVIEW' })).toBeNull()
+  })
+
+  it('warn W17: 행 부제 — 1:1 문의 카테고리 코드는 한글 라벨 · 모르는 코드는 원문 · 다른 유형은 부제 그대로', () => {
+    const row = normalizeInboxItem({ type: 'INQUIRY_UNANSWERED', ref: 'inq_1', title: '배송이 늦어요', subtitle: 'DELIVERY', overdue: false, targetKey: 'INQUIRY' })
+    expect(adminInboxSubtitle(row)).toBe('배송')
+    expect(adminInboxSubtitle({ ...row, subtitle: 'WHATEVER' })).toBe('WHATEVER')
+    expect(adminInboxSubtitle(claimRow('clm_1', 'RETURN', 'APPROVE'))).toBe('ORD1')
+    expect(adminInboxSubtitle(sellerDelayRow('slr_1'))).toBe('발송 대기 1건')
   })
 
   it('클레임 제안 칩: 승인 제안 초록 · 검토 필요 노랑 · 일괄 승인 대상은 클레임 접수의 승인 제안만', () => {

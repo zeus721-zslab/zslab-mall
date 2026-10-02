@@ -128,22 +128,24 @@ function markBroken(productPublicId: string): void {
           data-testid="row-edit"
           @click="emit('edit', item)"
         />
-        <v-menu v-if="saleActionOf(item).action">
-          <template #activator="{ props: activatorProps }">
-            <v-btn v-bind="activatorProps" :icon="mdiDotsVertical" size="small" variant="text" :aria-label="`${item.name} 판매 관리`" data-testid="row-menu" />
-          </template>
-          <v-list density="compact" min-width="220">
-            <v-list-subheader>판매 관리</v-list-subheader>
-            <v-list-item
-              :title="SELLER_SALE_ACTION_LABEL[saleActionOf(item).action!]"
-              :subtitle="saleActionOf(item).note ?? undefined"
-              :disabled="saleActionOf(item).disabled"
-              lines="two"
-              data-testid="row-sale-action"
-              @click="!saleActionOf(item).disabled && emit('saleAction', item, saleActionOf(item).action!)"
-            />
-          </v-list>
-        </v-menu>
+        <SellerSuspendedGuard v-if="saleActionOf(item).action" v-slot="{ suspended }">
+          <v-menu>
+            <template #activator="{ props: activatorProps }">
+              <v-btn v-bind="activatorProps" :icon="mdiDotsVertical" size="small" variant="text" :disabled="suspended" :aria-label="`${item.name} 판매 관리`" data-testid="row-menu" />
+            </template>
+            <v-list density="compact" min-width="220">
+              <v-list-subheader>판매 관리</v-list-subheader>
+              <v-list-item
+                :title="SELLER_SALE_ACTION_LABEL[saleActionOf(item).action!]"
+                :subtitle="saleActionOf(item).note ?? undefined"
+                :disabled="saleActionOf(item).disabled"
+                lines="two"
+                data-testid="row-sale-action"
+                @click="!saleActionOf(item).disabled && emit('saleAction', item, saleActionOf(item).action!)"
+              />
+            </v-list>
+          </v-menu>
+        </SellerSuspendedGuard>
       </div>
     </template>
 

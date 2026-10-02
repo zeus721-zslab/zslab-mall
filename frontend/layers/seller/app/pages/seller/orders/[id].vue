@@ -71,7 +71,9 @@ function closeShipment(refresh: boolean): void {
     <SellerPageHeader title="주문 품목 상세" :description="detail ? `${detail.orderNo} · ${detail.productName}` : undefined">
       <template #actions>
         <v-btn variant="text" :prepend-icon="mdiArrowLeft" :to="backPath" data-testid="order-detail-back">목록</v-btn>
-        <v-btn v-if="shippable" color="primary" variant="flat" :prepend-icon="mdiTruckDeliveryOutline" data-testid="order-detail-prepare-shipment" @click="shipmentOpen = true">발송 처리</v-btn>
+        <SellerSuspendedGuard v-if="shippable" v-slot="{ suspended }">
+          <v-btn color="primary" variant="flat" :prepend-icon="mdiTruckDeliveryOutline" :disabled="suspended" data-testid="order-detail-prepare-shipment" @click="shipmentOpen = true">발송 처리</v-btn>
+        </SellerSuspendedGuard>
       </template>
     </SellerPageHeader>
 

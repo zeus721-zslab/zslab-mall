@@ -3,7 +3,7 @@ import type { AdminClaimBulkApproveResponse } from '#layers/admin/app/types/admi
 import type { AdminSellerNudgeResponse } from '#layers/admin/app/types/admin-seller-delay'
 import type { AdminSemantic } from '#layers/admin/app/lib/constants/semantic'
 import type { InboxDeadlineTone, InboxItem } from '~/lib/inbox-view'
-import { isInquiryCategory } from '~/lib/constants/inquiry'
+import { inquiryCategoryLabel, isInquiryCategory } from '~/lib/constants/inquiry'
 import { CLAIM_TYPE_LABELS, type ClaimSuggestion, type ClaimType } from '~/lib/constants/claim'
 import { IRREVERSIBLE, riskConfirmMessage } from '~/lib/utils/risk-confirm'
 
@@ -30,6 +30,12 @@ export function adminInboxDeadlineChipClass(tone: InboxDeadlineTone): string {
 export function inboxInquiryAnswerItem(item: InboxItem): AdminInquiryListItem | null {
   if (item.type !== 'INQUIRY_UNANSWERED' || !isInquiryCategory(item.subtitle)) return null
   return { inquiryId: item.sourceRef, category: item.subtitle, content: item.title, createdAt: item.baseAt ?? '' }
+}
+
+/** 행 부제 표시: 1:1 문의는 카테고리 코드를 한글 라벨로(warn W17 · 모르는 코드는 원문), 그 외 유형은 부제 그대로. */
+export function adminInboxSubtitle(item: InboxItem): string | null {
+  if (item.type === 'INQUIRY_UNANSWERED' && item.subtitle !== null) return inquiryCategoryLabel(item.subtitle)
+  return item.subtitle
 }
 
 // ---------- 클레임 처리 제안 · 일괄 승인(D-250) ----------

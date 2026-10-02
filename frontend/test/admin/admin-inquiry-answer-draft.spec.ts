@@ -19,6 +19,8 @@ vi.mock('#layers/admin/app/composables/useAdminFaqs', () => ({ useAdminFaqs: () 
 vi.mock('#layers/admin/app/composables/useAdminToast', () => ({ useAdminToast: () => toastMock }))
 
 const DRAFT = '안녕하세요, 고객님. 배송 관련 문의 주셔서 감사합니다.\n\n- 주문 상태: 배송중'
+const DRAFT_WITHOUT_ORDER_LINE = '안녕하세요, 고객님. 배송 관련 문의 주셔서 감사합니다.'
+const ORDER_REMOVED_NOTICE = '이 문의의 주문 상태 줄은 FAQ에 맞지 않아 뺐습니다.'
 const ORDER_ONLY_DRAFT = { draft: DRAFT, evidence: [{ kind: 'ORDER', title: '주문 20261001-A', summary: '주문 상태: 배송중' }], faqCandidate: true }
 
 function item(overrides: Record<string, unknown> = {}) {
@@ -83,10 +85,11 @@ describe('AdminInquiryAnswerDialog — 답안 초안·FAQ 후보(D-253)', () => 
     expect(inquiriesApiMock.answer).toHaveBeenCalledWith('inq_1', DRAFT)
     expect(wrapper.emitted('done')).toBeUndefined()
     expect(query<HTMLInputElement>('[data-testid="faq-question"] input')?.value).toBe('배송이 언제 오나요?')
-    expect(query<HTMLTextAreaElement>('[data-testid="faq-answer"] textarea')?.value).toBe(DRAFT)
+    // warn W17: 그 문의 주문에만 맞는 ORDER 근거 줄은 FAQ 답변에서 빼고, 미리 채운 FAQ는 숨김으로 시작한다
+    expect(query<HTMLTextAreaElement>('[data-testid="faq-answer"] textarea')?.value).toBe(DRAFT_WITHOUT_ORDER_LINE)
 
     await click('faq-dialog-ok')
-    expect(faqsApiMock.create).toHaveBeenCalledWith({ category: 'DELIVERY', question: '배송이 언제 오나요?', answer: DRAFT, visible: true })
+    expect(faqsApiMock.create).toHaveBeenCalledWith({ category: 'DELIVERY', question: '배송이 언제 오나요?', answer: DRAFT_WITHOUT_ORDER_LINE, visible: false })
     expect(wrapper.emitted('done')).toHaveLength(1)
   })
 
@@ -139,7 +142,7 @@ describe('AdminInquiryAnswerDialog — 답안 초안·FAQ 후보(D-253)', () => 
     await click('answer-dialog-ok')
 
     const notices = Array.from(document.body.querySelectorAll('[data-testid="faq-prefill-notice"]')).map((element) => element.textContent)
-    expect(notices).toEqual(['기타 문의는 대응하는 FAQ 카테고리가 없어 직접 선택해야 합니다.', '질문이 200자를 넘어 뒷부분을 잘랐습니다. 다듬어 주세요.'])
+    expect(notices).toEqual(['기타 문의는 대응하는 FAQ 카테고리가 없어 직접 선택해야 합니다.', '질문이 200자를 넘어 뒷부분을 잘랐습니다. 다듬어 주세요.', ORDER_REMOVED_NOTICE])
     expect(query<HTMLInputElement>('[data-testid="faq-question"] input')?.value).toHaveLength(200)
     expect(query<HTMLButtonElement>('[data-testid="faq-dialog-ok"]')?.disabled).toBe(true)
   })
@@ -148,12 +151,24 @@ describe('AdminInquiryAnswerDialog — 답안 초안·FAQ 후보(D-253)', () => 
 describe('faqPrefillFromInquiry', () => {
   it('같은 카테고리 4종은 그대로 · 기타는 null · 2000자 초과 답변 절삭 안내 · 앞뒤 공백 제거', () => {
     for (const category of ['ORDER_PAYMENT', 'DELIVERY', 'CLAIM', 'ACCOUNT'] as const) {
-      expect(faqPrefillFromInquiry(category, ' 질문 ', '답').category).toBe(category)
+      expect(faqPrefillFromInquiry(category, ' 질문 ', '답', []).category).toBe(category)
     }
-    const other = faqPrefillFromInquiry('OTHER', ' 질문 ', ' 답 ')
+    const other = faqPrefillFromInquiry('OTHER', ' 질문 ', ' 답 ', [])
     expect(other).toEqual({ category: null, question: '질문', answer: '답', notices: ['기타 문의는 대응하는 FAQ 카테고리가 없어 직접 선택해야 합니다.'] })
-    const longAnswer = faqPrefillFromInquiry('CLAIM', '질문', '나'.repeat(2100))
+    const longAnswer = faqPrefillFromInquiry('CLAIM', '질문', '나'.repeat(2100), [])
     expect(longAnswer.answer).toHaveLength(2000)
     expect(longAnswer.notices).toEqual(['답변이 2000자를 넘어 뒷부분을 잘랐습니다. 다듬어 주세요.'])
+  })
+
+  it('warn W17: ORDER 근거 문장 줄(머리표 "- " 유무 무관)만 빼고 안내 1줄 · 운영자가 고쳐 쓴 줄·다른 근거 줄은 유지 · 근거 없으면 그대로', () => {
+    const answer = '안녕하세요.\n\n확인한 내용을 안내해 드립니다.\n- 주문 상태: 배송중 · 배송 상태: 배송중\n- 배송은 영업일 2~3일 걸립니다.\n주문 상태: 배송중 · 배송 상태: 배송중\n\n감사합니다.'
+    const prefill = faqPrefillFromInquiry('DELIVERY', '질문', answer, ['주문 상태: 배송중 · 배송 상태: 배송중'])
+    expect(prefill.answer).toBe('안녕하세요.\n\n확인한 내용을 안내해 드립니다.\n- 배송은 영업일 2~3일 걸립니다.\n\n감사합니다.')
+    expect(prefill.notices).toEqual([ORDER_REMOVED_NOTICE])
+
+    const edited = faqPrefillFromInquiry('DELIVERY', '질문', '- 주문 상태: 배송중이며 내일 도착 예정입니다.', ['주문 상태: 배송중 · 배송 상태: 배송중'])
+    expect(edited.answer).toBe('- 주문 상태: 배송중이며 내일 도착 예정입니다.')
+    expect(edited.notices).toEqual([])
+    expect(faqPrefillFromInquiry('DELIVERY', '질문', answer, []).answer).toBe(answer)
   })
 })
