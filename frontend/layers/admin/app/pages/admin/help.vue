@@ -1,16 +1,14 @@
 <script setup lang="ts">
-// 관리자 도움말(Track 102 FE-64). 자리만 먼저 확보한다 — 매뉴얼 본문은 매뉴얼 단계에서 이 화면에 채운다.
+import ManualShell from '~/components/common/manual/ManualShell.vue'
+import { ADMIN_MANUAL } from '#layers/admin/app/lib/admin-manual-content'
+import captures from '~~/public/manual/admin/captures.json'
+
+// 관리자 매뉴얼(C8). 진입 가드는 기존 admin 미들웨어(관리자 세션 확인 → 없으면 /admin/login) 그대로다.
+// 캡처 이미지·좌표는 walkthrough/manual/admin.manual.ts가 public/manual/admin/에 만든다.
 definePageMeta({ layout: 'admin', middleware: ['admin', 'vuetify'] })
 useSeoMeta({ title: '도움말 · zslab-mall 관리자' })
 </script>
 
 <template>
-  <div>
-    <AdminPageHeader title="도움말" description="관리자 화면에서 무엇을 어떻게 처리하는지 안내합니다." />
-    <v-card>
-      <v-card-text class="text-body-2 text-medium-emphasis" data-testid="admin-help-placeholder">
-        준비 중입니다.
-      </v-card-text>
-    </v-card>
-  </div>
+  <ManualShell :document="ADMIN_MANUAL" :captures="captures" />
 </template>

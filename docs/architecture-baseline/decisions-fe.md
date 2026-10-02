@@ -4229,3 +4229,19 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 - P-04 잔여 — 처리 응답 도착 전 SSE reload가 먼저 완료되면 reconcile이 첫 항목을 선택하고 처리 기준 키도 첫 항목이 되어 다음 선택이 어긋남(후보 1로 미해결)
 
 외부 검토: C / 생략
+
+## FE-110: 관리자·셀러 웹 매뉴얼 (C8) (2026-10-02)
+
+기준: docs/track-manual/recon-report.md(정찰 §1 인벤토리 · §2 업무 흐름 · §3 규칙 · §6 캡처 재료 · §7 배치 재료) · BE 계약 무변경.
+
+### 결정
+- 매뉴얼은 기존 도움말 자리(/admin/help · /seller/help)를 셸로 바꿔 둔다. 역할별 문서 = 흐름 섹션 → 단계(설명 · 캡처 · 번호 설명 · 되돌릴 수 없는 동작 경고 · 규칙 메모). 본문은 레이어별 TS 콘텐츠, 셸·타입·좌표 계산은 관리자·셀러 공용(app/components/common/manual · app/types/manual.ts · app/lib/utils/manual.ts).
+- 캡처는 워크스루 체계를 확장한 전용 설정(playwright.manual.config.ts)으로 만든다. 확인 버튼을 누르지 않는 조작만 쓰고, 개인정보 요소는 캡처 직전 CSS blur, 출력은 public/manual/{역할}/ 의 WebP + captures.json.
+- 경고 블록은 위험 조작 시각 규약(risk-action.css)을 그대로 따른다 — 화면의 위험 버튼과 같은 모양이어야 같은 성격으로 읽힌다.
+
+### §1-A 선택이 갈린 결정
+- 배치: α 앱 내 help 페이지 【채택】 — 역할 레이아웃·미들웨어·도움말 진입점을 그대로 쓰고 배포 경로가 바뀌지 않는다 / β 별도 정적 사이트 【기각】 — compose 서비스·gateway location·배포 paths-filter를 새로 만들어야 한다 / γ Nuxt Content·VitePress 【기각】 — 역할당 문서 1개(섹션 10여 개) 규모에 비해 의존성이 늘고 Nuxt 4.5.2 호환이 저장소에서 검증되지 않았다.
+- 영역 표시: α 캡처 시 data-testid boundingBox 좌표 기록 + 화면에서 SVG 오버레이 【채택】 — 이미지 크기가 바뀌어도 비율 좌표로 겹치고, 번호·설명 상호 강조·확대 보기를 같은 좌표로 그린다 / β 이미지에 표시 굽기 【기각】 — hover·포커스 강조를 할 수 없고 문구를 고칠 때마다 다시 캡처해야 한다 / γ driver.js 【기각】 — 실제 DOM 위 투어라 스크린샷 문서에 맞지 않는다 / δ Annotorious 【기각】 — 주석 편집 도구라 읽기 전용 문서에는 무겁고 Vue 래퍼가 없다.
+- 접근: α 역할 세션 화면 가드만(기존 admin·seller 미들웨어) · 캡처 이미지 정적 파일 직접 접근 허용 【채택 · zslab 결정】 / β 서버 라우트로 이미지 리소스 차단 【기각】 — 인가·파일 서빙(A 등급) 비용에 비해, 이미지는 개인정보 blur 후라 노출 위험이 낮다.
+
+외부 검토: C / 생략

@@ -1,0 +1,1199 @@
+{
+  "member-list": {
+    "file": "member-list.webp",
+    "width": 1174,
+    "height": 900,
+    "bytes": 41548,
+    "hash": "c34dd32ffd",
+    "regions": {
+      "keyword": {
+        "x": 40,
+        "y": 160,
+        "width": 727,
+        "height": 48
+      },
+      "sort": {
+        "x": 775,
+        "y": 160,
+        "width": 359,
+        "height": 48
+      },
+      "open": {
+        "x": 1071,
+        "y": 564,
+        "width": 67,
+        "height": 28
+      }
+    }
+  },
+  "member-detail": {
+    "file": "member-detail.webp",
+    "width": 1174,
+    "height": 900,
+    "bytes": 33892,
+    "hash": "58298f36aa",
+    "regions": {
+      "edit": {
+        "x": 861,
+        "y": 184,
+        "width": 70,
+        "height": 28
+      },
+      "resetPassword": {
+        "x": 939,
+        "y": 184,
+        "width": 113,
+        "height": 28
+      },
+      "withdraw": {
+        "x": 1060,
+        "y": 184,
+        "width": 70,
+        "height": 28
+      },
+      "grade": {
+        "x": 304,
+        "y": 393,
+        "width": 70,
+        "height": 28
+      }
+    }
+  },
+  "member-withdrawn": {
+    "file": "member-withdrawn.webp",
+    "width": 1174,
+    "height": 900,
+    "bytes": 16862,
+    "hash": "d28cdd5762",
+    "regions": {
+      "keyword": {
+        "x": 40,
+        "y": 160,
+        "width": 727,
+        "height": 48
+      },
+      "list": {
+        "x": 24,
+        "y": 288,
+        "width": 1126,
+        "height": 171
+      }
+    }
+  },
+  "seller-list": {
+    "file": "seller-list.webp",
+    "width": 1174,
+    "height": 900,
+    "bytes": 32100,
+    "hash": "5fc579b122",
+    "regions": {
+      "provision": {
+        "x": 1044,
+        "y": 64,
+        "width": 106,
+        "height": 36
+      },
+      "status": {
+        "x": 40,
+        "y": 160,
+        "width": 359,
+        "height": 48
+      },
+      "rowStatus": {
+        "x": 732,
+        "y": 565,
+        "width": 40,
+        "height": 26
+      }
+    }
+  },
+  "seller-detail": {
+    "file": "seller-detail.webp",
+    "width": 1174,
+    "height": 900,
+    "bytes": 41170,
+    "hash": "c9b2da3dd6",
+    "regions": {
+      "status": {
+        "x": 112,
+        "y": 377,
+        "width": 41,
+        "height": 26
+      },
+      "edit": {
+        "x": 944,
+        "y": 376,
+        "width": 70,
+        "height": 28
+      },
+      "suspend": {
+        "x": 1022,
+        "y": 378,
+        "width": 50,
+        "height": 28
+      },
+      "terminate": {
+        "x": 1080,
+        "y": 378,
+        "width": 50,
+        "height": 28
+      }
+    }
+  },
+  "seller-cards": {
+    "file": "seller-cards.webp",
+    "width": 1174,
+    "height": 900,
+    "bytes": 39632,
+    "hash": "37bc930130",
+    "regions": {
+      "bank": {
+        "x": 24,
+        "y": 536,
+        "width": 1126,
+        "height": 200
+      },
+      "members": {
+        "x": 24,
+        "y": 752,
+        "width": 1126,
+        "height": 148
+      },
+      "memberAdd": {
+        "x": 1031,
+        "y": 768,
+        "width": 99,
+        "height": 28
+      }
+    }
+  },
+  "admin-operators": {
+    "file": "admin-operators.webp",
+    "width": 1174,
+    "height": 900,
+    "bytes": 17144,
+    "hash": "d1fa9d0ba5",
+    "regions": {
+      "provision": {
+        "x": 1005,
+        "y": 64,
+        "width": 145,
+        "height": 36
+      },
+      "role": {
+        "x": 591,
+        "y": 160,
+        "width": 268,
+        "height": 48
+      },
+      "revoke": {
+        "x": 1068,
+        "y": 356,
+        "width": 70,
+        "height": 28
+      }
+    }
+  },
+  "claim-inbox": {
+    "file": "claim-inbox.webp",
+    "width": 519,
+    "height": 528,
+    "bytes": 25486,
+    "hash": "1ad5d7260c",
+    "regions": {
+      "typeChip": {
+        "x": 109,
+        "y": 101,
+        "width": 84,
+        "height": 26
+      },
+      "todayTab": {
+        "x": 32,
+        "y": 44,
+        "width": 90,
+        "height": 44
+      },
+      "suggestion": {
+        "x": 296,
+        "y": 238,
+        "width": 53,
+        "height": 16
+      },
+      "deadline": {
+        "x": 408,
+        "y": 225,
+        "width": 55,
+        "height": 21
+      }
+    }
+  },
+  "claim-suggestion": {
+    "file": "claim-suggestion.webp",
+    "width": 711,
+    "height": 655,
+    "bytes": 17410,
+    "hash": "7e3c24a48d",
+    "regions": {
+      "suggestion": {
+        "x": 60,
+        "y": 216,
+        "width": 607,
+        "height": 20
+      },
+      "reason": {
+        "x": 60,
+        "y": 316,
+        "width": 300,
+        "height": 20
+      },
+      "approve": {
+        "x": 60,
+        "y": 491,
+        "width": 64,
+        "height": 36
+      },
+      "reject": {
+        "x": 132,
+        "y": 491,
+        "width": 64,
+        "height": 36
+      }
+    }
+  },
+  "claim-bulk": {
+    "file": "claim-bulk.webp",
+    "width": 1174,
+    "height": 900,
+    "bytes": 46134,
+    "hash": "c7c0e4c37e",
+    "regions": {
+      "check": {
+        "x": 43,
+        "y": 454,
+        "width": 28,
+        "height": 28
+      },
+      "count": {
+        "x": 40,
+        "y": 164,
+        "width": 120,
+        "height": 20
+      },
+      "approve": {
+        "x": 379,
+        "y": 156,
+        "width": 84,
+        "height": 36
+      },
+      "clear": {
+        "x": 283,
+        "y": 156,
+        "width": 84,
+        "height": 36
+      }
+    }
+  },
+  "claim-followup": {
+    "file": "claim-followup.webp",
+    "width": 1174,
+    "height": 900,
+    "bytes": 29416,
+    "hash": "5808a4a805",
+    "regions": {
+      "tabs": {
+        "x": 24,
+        "y": 144,
+        "width": 1126,
+        "height": 44
+      },
+      "actionFilter": {
+        "x": 40,
+        "y": 276,
+        "width": 176,
+        "height": 48
+      },
+      "confirmPickup": {
+        "x": 1036,
+        "y": 486,
+        "width": 59,
+        "height": 20
+      },
+      "inspect": {
+        "x": 1099,
+        "y": 486,
+        "width": 39,
+        "height": 20
+      }
+    }
+  },
+  "claim-inspect": {
+    "file": "claim-inspect.webp",
+    "width": 600,
+    "height": 496,
+    "bytes": 18336,
+    "hash": "b8ffcd13e4",
+    "regions": {
+      "pickup": {
+        "x": 60,
+        "y": 182,
+        "width": 480,
+        "height": 62
+      },
+      "result": {
+        "x": 60,
+        "y": 252,
+        "width": 480,
+        "height": 40
+      },
+      "restock": {
+        "x": 60,
+        "y": 300,
+        "width": 480,
+        "height": 72
+      },
+      "confirm": {
+        "x": 468,
+        "y": 404,
+        "width": 72,
+        "height": 36
+      }
+    }
+  },
+  "inquiry-list": {
+    "file": "inquiry-list.webp",
+    "width": 1174,
+    "height": 900,
+    "bytes": 20250,
+    "hash": "bc2a67f8da",
+    "regions": {
+      "answered": {
+        "x": 40,
+        "y": 160,
+        "width": 216,
+        "height": 40
+      },
+      "category": {
+        "x": 40,
+        "y": 212,
+        "width": 1094,
+        "height": 48
+      },
+      "answer": {
+        "x": 1073,
+        "y": 360,
+        "width": 65,
+        "height": 28
+      }
+    }
+  },
+  "inquiry-answer": {
+    "file": "inquiry-answer.webp",
+    "width": 680,
+    "height": 630,
+    "bytes": 15136,
+    "hash": "d0182bd8f2",
+    "regions": {
+      "question": {
+        "x": 60,
+        "y": 133,
+        "width": 560,
+        "height": 20
+      },
+      "draft": {
+        "x": 60,
+        "y": 169,
+        "width": 560,
+        "height": 106
+      },
+      "content": {
+        "x": 60,
+        "y": 315,
+        "width": 560,
+        "height": 151
+      },
+      "confirm": {
+        "x": 556,
+        "y": 538,
+        "width": 64,
+        "height": 36
+      }
+    }
+  },
+  "question-list": {
+    "file": "question-list.webp",
+    "width": 1174,
+    "height": 900,
+    "bytes": 54122,
+    "hash": "79cb554cb3",
+    "regions": {
+      "status": {
+        "x": 40,
+        "y": 160,
+        "width": 359,
+        "height": 48
+      },
+      "rowStatus": {
+        "x": 702,
+        "y": 309,
+        "width": 40,
+        "height": 26
+      },
+      "change": {
+        "x": 1088,
+        "y": 308,
+        "width": 50,
+        "height": 28
+      }
+    }
+  },
+  "review-list": {
+    "file": "review-list.webp",
+    "width": 1174,
+    "height": 900,
+    "bytes": 68350,
+    "hash": "af7bd0c0ae",
+    "regions": {
+      "status": {
+        "x": 40,
+        "y": 160,
+        "width": 359,
+        "height": 48
+      },
+      "rating": {
+        "x": 213,
+        "y": 310,
+        "width": 28,
+        "height": 21
+      },
+      "change": {
+        "x": 1088,
+        "y": 308,
+        "width": 50,
+        "height": 28
+      }
+    }
+  },
+  "review-hide": {
+    "file": "review-hide.webp",
+    "width": 640,
+    "height": 438,
+    "bytes": 15406,
+    "hash": "7f0a9d1e08",
+    "regions": {
+      "target": {
+        "x": 60,
+        "y": 110,
+        "width": 520,
+        "height": 20
+      },
+      "message": {
+        "x": 60,
+        "y": 142,
+        "width": 520,
+        "height": 68
+      },
+      "reason": {
+        "x": 60,
+        "y": 226,
+        "width": 520,
+        "height": 88
+      },
+      "confirm": {
+        "x": 516,
+        "y": 346,
+        "width": 64,
+        "height": 36
+      }
+    }
+  },
+  "faq-list": {
+    "file": "faq-list.webp",
+    "width": 1174,
+    "height": 900,
+    "bytes": 49836,
+    "hash": "c7cc3a1342",
+    "regions": {
+      "create": {
+        "x": 1043,
+        "y": 64,
+        "width": 107,
+        "height": 36
+      },
+      "categories": {
+        "x": 24,
+        "y": 144,
+        "width": 1126,
+        "height": 48
+      },
+      "order": {
+        "x": 86,
+        "y": 270,
+        "width": 32,
+        "height": 32
+      },
+      "visible": {
+        "x": 776,
+        "y": 273,
+        "width": 40,
+        "height": 26
+      },
+      "delete": {
+        "x": 1098,
+        "y": 266,
+        "width": 40,
+        "height": 40
+      }
+    }
+  },
+  "faq-edit": {
+    "file": "faq-edit.webp",
+    "width": 720,
+    "height": 610,
+    "bytes": 12822,
+    "hash": "1d0ac60d85",
+    "regions": {
+      "category": {
+        "x": 60,
+        "y": 110,
+        "width": 600,
+        "height": 70
+      },
+      "question": {
+        "x": 60,
+        "y": 188,
+        "width": 600,
+        "height": 70
+      },
+      "answer": {
+        "x": 60,
+        "y": 258,
+        "width": 600,
+        "height": 172
+      },
+      "visible": {
+        "x": 60,
+        "y": 430,
+        "width": 600,
+        "height": 56
+      }
+    }
+  },
+  "inbox-overview": {
+    "file": "inbox-overview.webp",
+    "width": 1174,
+    "height": 900,
+    "bytes": 46332,
+    "hash": "c8b2eb9c81",
+    "regions": {
+      "tabs": {
+        "x": 32,
+        "y": 148,
+        "width": 90,
+        "height": 44
+      },
+      "chips": {
+        "x": 24,
+        "y": 193,
+        "width": 455,
+        "height": 118
+      },
+      "origin": {
+        "x": 523,
+        "y": 500,
+        "width": 147,
+        "height": 36
+      },
+      "snooze": {
+        "x": 678,
+        "y": 500,
+        "width": 68,
+        "height": 36
+      }
+    }
+  },
+  "inbox-snooze": {
+    "file": "inbox-snooze.webp",
+    "width": 600,
+    "height": 472,
+    "bytes": 12988,
+    "hash": "c2c565e3dc",
+    "regions": {
+      "reason": {
+        "x": 60,
+        "y": 174,
+        "width": 92,
+        "height": 26
+      },
+      "preset": {
+        "x": 220,
+        "y": 314,
+        "width": 84,
+        "height": 26
+      },
+      "submit": {
+        "x": 476,
+        "y": 380,
+        "width": 64,
+        "height": 36
+      }
+    }
+  },
+  "inbox-nudge": {
+    "file": "inbox-nudge.webp",
+    "width": 1174,
+    "height": 900,
+    "bytes": 38896,
+    "hash": "2f198bec0b",
+    "regions": {
+      "check": {
+        "x": 43,
+        "y": 398,
+        "width": 28,
+        "height": 28
+      },
+      "count": {
+        "x": 40,
+        "y": 164,
+        "width": 147,
+        "height": 20
+      },
+      "send": {
+        "x": 379,
+        "y": 156,
+        "width": 84,
+        "height": 36
+      }
+    }
+  },
+  "order-list": {
+    "file": "order-list.webp",
+    "width": 1174,
+    "height": 900,
+    "bytes": 60770,
+    "hash": "f0a05d0a0c",
+    "regions": {
+      "filters": {
+        "x": 24,
+        "y": 144,
+        "width": 1126,
+        "height": 188
+      },
+      "status": {
+        "x": 40,
+        "y": 216,
+        "width": 359,
+        "height": 48
+      },
+      "detail": {
+        "x": 1066,
+        "y": 416,
+        "width": 40,
+        "height": 40
+      },
+      "ship": {
+        "x": 970,
+        "y": 502,
+        "width": 180,
+        "height": 40
+      }
+    }
+  },
+  "order-detail": {
+    "file": "order-detail.webp",
+    "width": 1174,
+    "height": 900,
+    "bytes": 33132,
+    "hash": "1f25e016d7",
+    "regions": {
+      "cancel": {
+        "x": 972,
+        "y": 64,
+        "width": 84,
+        "height": 36
+      },
+      "ship": {
+        "x": 1064,
+        "y": 64,
+        "width": 86,
+        "height": 36
+      },
+      "items": {
+        "x": 24,
+        "y": 694,
+        "width": 1126,
+        "height": 190
+      },
+      "back": {
+        "x": 860,
+        "y": 64,
+        "width": 104,
+        "height": 36
+      }
+    }
+  },
+  "order-cancel": {
+    "file": "order-cancel.webp",
+    "width": 640,
+    "height": 500,
+    "bytes": 10728,
+    "hash": "2f19592595",
+    "regions": {
+      "items": {
+        "x": 60,
+        "y": 137,
+        "width": 520,
+        "height": 48
+      },
+      "reason": {
+        "x": 60,
+        "y": 189,
+        "width": 520,
+        "height": 70
+      },
+      "detail": {
+        "x": 60,
+        "y": 267,
+        "width": 520,
+        "height": 109
+      },
+      "confirm": {
+        "x": 486,
+        "y": 408,
+        "width": 94,
+        "height": 36
+      }
+    }
+  },
+  "delivery-list": {
+    "file": "delivery-list.webp",
+    "width": 1174,
+    "height": 900,
+    "bytes": 57634,
+    "hash": "52d3b9dbba",
+    "regions": {
+      "scope": {
+        "x": 40,
+        "y": 216,
+        "width": 359,
+        "height": 48
+      },
+      "status": {
+        "x": 407,
+        "y": 216,
+        "width": 360,
+        "height": 48
+      },
+      "trackingNo": {
+        "x": 762,
+        "y": 881,
+        "width": 108,
+        "height": 19
+      },
+      "copy": {
+        "x": 874,
+        "y": 875,
+        "width": 32,
+        "height": 25
+      }
+    }
+  },
+  "delivery-tracking": {
+    "file": "delivery-tracking.webp",
+    "width": 600,
+    "height": 514,
+    "bytes": 12708,
+    "hash": "ebb9cc57a9",
+    "regions": {
+      "carrier": {
+        "x": 60,
+        "y": 162,
+        "width": 480,
+        "height": 70
+      },
+      "trackingNo": {
+        "x": 60,
+        "y": 232,
+        "width": 480,
+        "height": 70
+      },
+      "reason": {
+        "x": 60,
+        "y": 302,
+        "width": 480,
+        "height": 88
+      },
+      "confirm": {
+        "x": 476,
+        "y": 422,
+        "width": 64,
+        "height": 36
+      }
+    }
+  },
+  "product-list": {
+    "file": "product-list.webp",
+    "width": 1174,
+    "height": 900,
+    "bytes": 49724,
+    "hash": "0c520a2d73",
+    "regions": {
+      "filters": {
+        "x": 24,
+        "y": 144,
+        "width": 1126,
+        "height": 188
+      },
+      "bulkBar": {
+        "x": 24,
+        "y": 348,
+        "width": 1126,
+        "height": 64
+      },
+      "statusApply": {
+        "x": 352,
+        "y": 362,
+        "width": 85,
+        "height": 36
+      },
+      "soldOut": {
+        "x": 1005,
+        "y": 490,
+        "width": 51,
+        "height": 40
+      }
+    }
+  },
+  "product-menu": {
+    "file": "product-menu.webp",
+    "width": 1174,
+    "height": 900,
+    "bytes": 53030,
+    "hash": "e265fdc6ca",
+    "regions": {
+      "edit": {
+        "x": 1050,
+        "y": 410,
+        "width": 40,
+        "height": 40
+      },
+      "stop": {
+        "x": 954,
+        "y": 536,
+        "width": 180,
+        "height": 40
+      },
+      "delete": {
+        "x": 954,
+        "y": 625,
+        "width": 180,
+        "height": 40
+      }
+    }
+  },
+  "product-new": {
+    "file": "product-new.webp",
+    "width": 1174,
+    "height": 900,
+    "bytes": 23446,
+    "hash": "2b7a0a5009",
+    "regions": {
+      "seller": {
+        "x": 44,
+        "y": 201,
+        "width": 539,
+        "height": 70
+      },
+      "category": {
+        "x": 591,
+        "y": 201,
+        "width": 539,
+        "height": 70
+      },
+      "name": {
+        "x": 44,
+        "y": 279,
+        "width": 1086,
+        "height": 70
+      },
+      "price": {
+        "x": 44,
+        "y": 357,
+        "width": 539,
+        "height": 70
+      }
+    }
+  },
+  "product-category": {
+    "file": "product-category.webp",
+    "width": 1174,
+    "height": 900,
+    "bytes": 26434,
+    "hash": "625536a346",
+    "regions": {
+      "create": {
+        "x": 1020,
+        "y": 64,
+        "width": 130,
+        "height": 36
+      },
+      "order": {
+        "x": 86,
+        "y": 210,
+        "width": 32,
+        "height": 32
+      },
+      "edit": {
+        "x": 1054,
+        "y": 206,
+        "width": 40,
+        "height": 40
+      },
+      "delete": {
+        "x": 1098,
+        "y": 206,
+        "width": 40,
+        "height": 40
+      }
+    }
+  },
+  "settlement-list": {
+    "file": "settlement-list.webp",
+    "width": 1174,
+    "height": 900,
+    "bytes": 39546,
+    "hash": "20888013b9",
+    "regions": {
+      "create": {
+        "x": 1044,
+        "y": 64,
+        "width": 106,
+        "height": 36
+      },
+      "status": {
+        "x": 407,
+        "y": 160,
+        "width": 268,
+        "height": 48
+      },
+      "totals": {
+        "x": 20,
+        "y": 284,
+        "width": 1134,
+        "height": 168
+      },
+      "open": {
+        "x": 1088,
+        "y": 536,
+        "width": 50,
+        "height": 28
+      }
+    }
+  },
+  "settlement-pending": {
+    "file": "settlement-pending.webp",
+    "width": 1174,
+    "height": 900,
+    "bytes": 40908,
+    "hash": "1d7f3d40c4",
+    "regions": {
+      "status": {
+        "x": 156,
+        "y": 185,
+        "width": 64,
+        "height": 26
+      },
+      "confirm": {
+        "x": 1015,
+        "y": 184,
+        "width": 50,
+        "height": 28
+      },
+      "regenerate": {
+        "x": 1073,
+        "y": 184,
+        "width": 57,
+        "height": 28
+      },
+      "net": {
+        "x": 919,
+        "y": 328,
+        "width": 211,
+        "height": 24
+      }
+    }
+  },
+  "settlement-confirmed": {
+    "file": "settlement-confirmed.webp",
+    "width": 1174,
+    "height": 900,
+    "bytes": 39596,
+    "hash": "280957e50b",
+    "regions": {
+      "status": {
+        "x": 156,
+        "y": 185,
+        "width": 40,
+        "height": 26
+      },
+      "pay": {
+        "x": 1061,
+        "y": 184,
+        "width": 69,
+        "height": 28
+      },
+      "bank": {
+        "x": 591,
+        "y": 388,
+        "width": 559,
+        "height": 147
+      }
+    }
+  },
+  "start-login": {
+    "file": "start-login.webp",
+    "width": 486,
+    "height": 264,
+    "bytes": 3522,
+    "hash": "8ff659645f",
+    "regions": {
+      "email": {
+        "x": 40,
+        "y": 40,
+        "width": 406,
+        "height": 48
+      },
+      "password": {
+        "x": 40,
+        "y": 110,
+        "width": 406,
+        "height": 48
+      },
+      "submit": {
+        "x": 40,
+        "y": 180,
+        "width": 406,
+        "height": 44
+      }
+    }
+  },
+  "start-layout": {
+    "file": "start-layout.webp",
+    "width": 1440,
+    "height": 900,
+    "bytes": 57710,
+    "hash": "03d1a39aea",
+    "regions": {
+      "sidebar": {
+        "x": 16,
+        "y": 16,
+        "width": 250,
+        "height": 868
+      },
+      "inboxBadge": {
+        "x": 213,
+        "y": 98,
+        "width": 33,
+        "height": 20
+      },
+      "breadcrumb": {
+        "x": 310,
+        "y": 9,
+        "width": 64,
+        "height": 38
+      },
+      "pending": {
+        "x": 286,
+        "y": 468,
+        "width": 1134,
+        "height": 432
+      },
+      "account": {
+        "x": 1388,
+        "y": 8,
+        "width": 40,
+        "height": 40
+      }
+    }
+  },
+  "start-account-menu": {
+    "file": "start-account-menu.webp",
+    "width": 1174,
+    "height": 900,
+    "bytes": 48412,
+    "hash": "290c37ffe7",
+    "regions": {
+      "account": {
+        "x": 1122,
+        "y": 8,
+        "width": 40,
+        "height": 40
+      },
+      "help": {
+        "x": 942,
+        "y": 111,
+        "width": 220,
+        "height": 40
+      },
+      "logout": {
+        "x": 942,
+        "y": 151,
+        "width": 220,
+        "height": 40
+      }
+    }
+  },
+  "stats-sales": {
+    "file": "stats-sales.webp",
+    "width": 1174,
+    "height": 900,
+    "bytes": 37772,
+    "hash": "dc04db4dda",
+    "regions": {
+      "tabs": {
+        "x": 24,
+        "y": 144,
+        "width": 1126,
+        "height": 44
+      },
+      "period": {
+        "x": 24,
+        "y": 204,
+        "width": 1126,
+        "height": 72
+      },
+      "summary": {
+        "x": 20,
+        "y": 288,
+        "width": 1134,
+        "height": 265
+      }
+    }
+  },
+  "reconciliation": {
+    "file": "reconciliation.webp",
+    "width": 1174,
+    "height": 900,
+    "bytes": 19918,
+    "hash": "1ba7121f26",
+    "regions": {
+      "status": {
+        "x": 40,
+        "y": 184,
+        "width": 200,
+        "height": 40
+      },
+      "type": {
+        "x": 252,
+        "y": 184,
+        "width": 320,
+        "height": 40
+      },
+      "result": {
+        "x": 1071,
+        "y": 284,
+        "width": 59,
+        "height": 20
+      }
+    }
+  }
+}
