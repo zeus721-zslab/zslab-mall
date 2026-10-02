@@ -1,6 +1,8 @@
 package com.zslab.mall.product.controller.request;
 
+import com.zslab.mall.product.entity.Product;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
@@ -17,7 +19,7 @@ public record ProductRegistrationRequest(
         @NotNull Long categoryId, // Category는 public_id 미부여 → DB id 직접 참조
         @NotBlank @Size(max = 200) String name, // SoT: Product.name @Column(length=200)
         String description, // nullable — SoT: Product.description LONGTEXT(길이 무제한·@Size 미부여)
-        @NotNull @PositiveOrZero Long basePrice,
+        @NotNull @PositiveOrZero @Max(Product.MAX_PRICE) Long basePrice,
         @Size(max = 2048) String thumbnailUrl, // nullable — SoT: Product.thumbnailUrl @Column(length=2048)
         @Valid List<ProductOptionGroupRequest> optionGroups, // 빈 배열 허용 = 단순상품(Service가 DEFAULT 옵션 합성·구조 검증 Service 이관)
         @NotEmpty @Valid List<ProductVariantRequest> variants) {

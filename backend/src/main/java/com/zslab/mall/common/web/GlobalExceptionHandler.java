@@ -242,12 +242,28 @@ public class GlobalExceptionHandler {
         return response;
     }
 
-    // Track 85: 필수 쿼리 파라미터 누락(MissingServletRequestParameterException·예: 정산 목록 year/month)도 400 MALFORMED_REQUEST.
-    @ExceptionHandler({HttpMessageNotReadableException.class, MethodArgumentTypeMismatchException.class,
-            MalformedRequestException.class, IllegalArgumentException.class, MissingServletRequestPartException.class,
-            MissingServletRequestParameterException.class})
+    @ExceptionHandler({MalformedRequestException.class, IllegalArgumentException.class})
     public ResponseEntity<ProblemDetail> handleMalformed(Exception exception, HttpServletRequest request) {
         return build(HttpStatus.BAD_REQUEST, CODE_MALFORMED_REQUEST, exception.getMessage(), request);
+    }
+
+    // Track 85: 필수 쿼리 파라미터 누락(MissingServletRequestParameterException·예: 정산 목록 year/month)도 400 MALFORMED_REQUEST.
+    @ExceptionHandler({HttpMessageNotReadableException.class, MethodArgumentTypeMismatchException.class,
+            MissingServletRequestPartException.class, MissingServletRequestParameterException.class})
+    public ResponseEntity<ProblemDetail> handleUnreadableRequest(Exception exception, HttpServletRequest request) {
+        // SEC-25: 파서·바인딩 원문은 내부 클래스명·필드 경로·입력 값(로그인 본문의 비밀번호 조각 포함)을 담는다 — 응답은 고정 문구,
+        // 로그도 예외 유형만 남긴다.
+        log.warn("[Request] 요청 해석 실패(400): {}", exception.getClass().getSimpleName());
+        return build(HttpStatus.BAD_REQUEST, CODE_MALFORMED_REQUEST, unreadableRequestDetailOf(exception), request);
+    }
+
+    private static String unreadableRequestDetailOf(Exception exception) {
+        return switch (exception) {
+            case HttpMessageNotReadableException notReadable -> "요청 본문을 읽을 수 없습니다. 형식을 확인해 주세요.";
+            case MethodArgumentTypeMismatchException typeMismatch -> "요청 값의 형식이 올바르지 않습니다.";
+            case MissingServletRequestPartException missingPart -> "필수 요청 항목이 누락되었습니다.";
+            default -> "필수 요청 파라미터가 누락되었습니다.";
+        };
     }
 
     @ExceptionHandler(SettlementPeriodInvalidException.class)

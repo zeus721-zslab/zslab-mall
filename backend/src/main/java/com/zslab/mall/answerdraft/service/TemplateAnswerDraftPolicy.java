@@ -7,7 +7,8 @@ import org.springframework.stereotype.Component;
 
 /**
  * 규칙·템플릿 답안 초안(D-253). 템플릿은 코드 상수 — 문의 카테고리 5종별 1개 + 상품 Q&A 1개이며 인사 → 근거 요약 → 마무리로 조립한다. 근거 요약은
- * 근거마다 요약 1줄(서비스가 발췌한 값)만 싣는다 — 근거 최대 6건 × 발췌 120자에 템플릿 문구를 더해도 답변 한도(1000자) 안에 든다.
+ * 근거마다 초안용 문장 1줄({@link AnswerEvidence#draftText} · 서비스가 문장 경계로 자른 값 · W15)만 싣는다 — 근거 최대 6건 × 120자에 템플릿 문구를
+ * 더해도 답변 한도(1000자) 안에 든다.
  */
 @Component
 public class TemplateAnswerDraftPolicy implements AnswerDraftPolicy {
@@ -28,7 +29,7 @@ public class TemplateAnswerDraftPolicy implements AnswerDraftPolicy {
         Template template = input.category() == null ? QUESTION_TEMPLATE : templateOf(input.category());
         StringJoiner summaries = new StringJoiner("\n");
         for (AnswerEvidence evidence : input.evidence()) {
-            summaries.add(EVIDENCE_BULLET + evidence.summary());
+            summaries.add(EVIDENCE_BULLET + evidence.draftText());
         }
         return Optional.of(template.greeting() + SECTION_SEPARATOR + template.intro() + "\n" + summaries + SECTION_SEPARATOR
                 + template.closing());

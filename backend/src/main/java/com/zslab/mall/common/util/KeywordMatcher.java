@@ -25,6 +25,8 @@ public final class KeywordMatcher {
     /** 표시 텍스트 발췌 길이(넘으면 잘라 말줄임표를 붙인다). */
     private static final int EXCERPT_LENGTH = 120;
     private static final String ELLIPSIS = "…";
+    /** 답안 초안 근거의 최소 일치 비율(일치 토큰 수 / 질의 토큰 수). 즉시 답은 1토큰 일치도 보여 주지만 초안은 본문 1단어 우연 일치를 거른다. */
+    private static final double DRAFT_MIN_MATCH_RATIO = 0.5;
     private static final Pattern TOKEN_SEPARATOR = Pattern.compile("[\\s\\p{Z}\\p{P}]+");
     /** 본문 조각 경계: 줄바꿈, 또는 문장부호(. ! ? 。) 뒤 공백. */
     private static final Pattern FRAGMENT_SEPARATOR = Pattern.compile("\\R+|(?<=[.!?。])\\s+");
@@ -80,6 +82,16 @@ public final class KeywordMatcher {
         return matched;
     }
 
+    /**
+     * 답안 초안 근거 자격(일치 토큰 수 / 질의 토큰 수 ≥ 0.5). 즉시 답 경로({@link #score} &gt; 0)는 쓰지 않는다.
+     *
+     * @param score {@link #score} 결과
+     * @param tokenCount {@link #tokenize} 결과 크기
+     */
+    public static boolean meetsDraftMatchRatio(int score, int tokenCount) {
+        return tokenCount > 0 && (double) score / tokenCount >= DRAFT_MIN_MATCH_RATIO;
+    }
+
     /** 본문을 줄·문장 단위로 나눈다(빈 조각 제외 · 앞에서부터 최대 limit개). 평문 전제. */
     public static List<String> fragmentsOf(String text, int limit) {
         if (text == null) {
@@ -87,6 +99,30 @@ public final class KeywordMatcher {
         }
         return FRAGMENT_SEPARATOR.splitAsStream(text).map(String::trim).filter(fragment -> !fragment.isEmpty())
                 .limit(limit).toList();
+    }
+
+    /**
+     * 답안 초안 본문용 발췌(W15): 앞에서부터 줄·문장 조각({@link #fragmentsOf})을 공백으로 이어 {@link #excerpt}와 같은 길이 한도 안에서 자른다.
+     * 문장 중간에서 끊지 않고 말줄임표도 붙이지 않는다. 첫 조각이 한도를 넘을 때만 한도에서 자른다(초안 1000자 한도 보장).
+     */
+    public static String sentenceExcerpt(String text) {
+        List<String> fragments = fragmentsOf(text, text.length());
+        if (fragments.isEmpty()) {
+            return "";
+        }
+        String first = fragments.get(0);
+        if (first.codePointCount(0, first.length()) > EXCERPT_LENGTH) {
+            return first.substring(0, first.offsetByCodePoints(0, EXCERPT_LENGTH));
+        }
+        String joined = first;
+        for (String fragment : fragments.subList(1, fragments.size())) {
+            String candidate = joined + " " + fragment;
+            if (candidate.codePointCount(0, candidate.length()) > EXCERPT_LENGTH) {
+                break;
+            }
+            joined = candidate;
+        }
+        return joined;
     }
 
     public static String excerpt(String text) {

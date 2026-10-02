@@ -33,6 +33,11 @@ import lombok.ToString;
 @EqualsAndHashCode(onlyExplicitlyIncluded = true, callSuper = false)
 public class Inventory extends AbstractFullAuditableEntity {
 
+    /** 재고 요청 1건(관리자 조정·셀러 입출고·옵션 초기 재고)의 수량 상한(절댓값). 요청 DTO의 @Min·@Max가 쓴다. */
+    public static final int MAX_QUANTITY_PER_REQUEST = 1_000_000;
+    /** 실물 재고 상한. 증가 경로(조정·입고·복구) 결과가 넘으면 422로 거부한다(INT 컬럼 오버플로 방지). */
+    public static final int MAX_ON_HAND = 1_000_000_000;
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @EqualsAndHashCode.Include
@@ -135,9 +140,11 @@ public class Inventory extends AbstractFullAuditableEntity {
      * 재계산한다. 증가 방향이므로 INV-1·INV-4는 자연 정합한다(D-101 §2·D-08 M-12).
      *
      * @throws IllegalArgumentException qty가 양수가 아닐 때
+     * @throws InventoryInvariantViolationException 복구 결과 실물이 {@link #MAX_ON_HAND}를 넘을 때
      */
     public void restoreStock(int qty) {
         requirePositiveQty(qty, "restoreStock");
+        requireWithinOnHandLimit((long) quantityOnHand + qty, "restoreStock", qty);
         quantityOnHand += qty;
         recalculateAvailable();
     }
@@ -149,12 +156,13 @@ public class Inventory extends AbstractFullAuditableEntity {
      * 계산·검증 후 mutate하여 위반 시 상태를 보존한다({@link #reserve} 패턴 정합).
      *
      * @throws IllegalArgumentException quantityDelta가 0일 때
-     * @throws InventoryInvariantViolationException 조정 결과 실물(INV-4) 또는 가용(INV-1)이 음수일 때
+     * @throws InventoryInvariantViolationException 조정 결과 실물(INV-4) 또는 가용(INV-1)이 음수이거나 실물이 {@link #MAX_ON_HAND}를 넘을 때
      */
     public void adjustStock(int quantityDelta) {
         if (quantityDelta == 0) {
             throw new IllegalArgumentException("adjustStock: quantityDelta는 0이 아니어야 합니다.");
         }
+        requireWithinOnHandLimit((long) quantityOnHand + quantityDelta, "adjustStock", quantityDelta);
         int projectedOnHand = quantityOnHand + quantityDelta;
         if (projectedOnHand < 0) {
             throw new InventoryInvariantViolationException(
@@ -174,6 +182,15 @@ public class Inventory extends AbstractFullAuditableEntity {
     /** available = on_hand - reserved. 가용 재고 재계산은 도메인 내부가 전담한다(D-101 §2 캡슐화). */
     private void recalculateAvailable() {
         quantityAvailable = quantityOnHand - quantityReserved;
+    }
+
+    /** 증가 결과가 실물 상한을 넘으면 거부한다. long으로 받아 int 오버플로(음수 둔갑 → "실물 부족" 오사유)를 상한 위반으로 잡는다. */
+    private void requireWithinOnHandLimit(long projectedOnHand, String action, int qty) {
+        if (projectedOnHand > MAX_ON_HAND) {
+            throw new InventoryInvariantViolationException(
+                    "재고 상한 초과(" + action + "): variantId=" + variantId + ", 요청=" + qty + ", 실물=" + quantityOnHand
+                            + ", 상한=" + MAX_ON_HAND);
+        }
     }
 
     private void requirePositiveQty(int qty, String action) {

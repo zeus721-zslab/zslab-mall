@@ -147,6 +147,23 @@ class SellerProductQuestionAnswerDraftIntegrationTest extends AbstractIntegratio
     }
 
     @Test
+    @DisplayName("Q5 일치 비율(P-02): 질의 4토큰 중 1토큰 일치 답변 Q&A → 근거 제외 · 2토큰(0.5) 일치 → 근거 유지")
+    void answeredQuestionEvidence_requiresHalfTokenMatch() throws Exception {
+        insertQuestion(PRODUCT, TOKENS + " 첫째", "VISIBLE", "답변 1");
+        String oneOfFour = insertQuestion(PRODUCT, "초안큐토큰가 zqxjvk wqpzmn qwmzpx", "VISIBLE", null);
+        mockMvc.perform(get(URL.formatted(oneOfFour)).with(authHeaders.seller(SELLER_USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.evidence").isEmpty());
+
+        String twoOfFour = insertQuestion(PRODUCT, TOKENS + " zqxjvk wqpzmn", "VISIBLE", null);
+        mockMvc.perform(get(URL.formatted(twoOfFour)).with(authHeaders.seller(SELLER_USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.evidence.length()").value(1))
+                .andExpect(jsonPath("$.evidence[0].kind").value("ANSWERED_QUESTION"))
+                .andExpect(jsonPath("$.evidence[0].summary").value("답변 1"));
+    }
+
+    @Test
     @DisplayName("Q4 404: 다른 셀러 상품 질문 · 삭제 질문 · 삭제 상품 질문 · 없는 질문 → PRODUCT_QUESTION_NOT_FOUND(셀러 200 대조)")
     void ownershipAndDeletion_notFound() throws Exception {
         String own = insertQuestion(PRODUCT, TOKENS, "VISIBLE", null);

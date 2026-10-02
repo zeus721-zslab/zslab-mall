@@ -14099,3 +14099,43 @@ D-246 §8 정정: '데모 로그인 요청 제한 문서 불일치' 항목 철�
 
 셀프 리뷰: 지적 6건 중 수용 4건
 외부 검토: A / 지적 1건 중 수용 0건
+
+## D-256 최종 점검 — 재결제 자기 예약분 이중 차감(K8) 수정 · warn BE 하드닝 묶음 (D-60 · D-101 · D-253 · D-177 · D-201) (2026-10-02)
+
+### 배경
+- warn 예외 수정 트랙(docs/track-final-check/recon-report-warn.md §1) 착수 전 W9 관찰을 재현해 크리티컬 K8로 올렸다. 재결제 재검증(D-60)이 품목 수량을 `quantityAvailable`과 비교해, 이 주문 자신의 예약분이 이중으로 빠진다 — 재고가 품목 수량과 같은 PENDING_PAYMENT 주문(결제 시작 실패 · 만료 PENDING 뒤 새 시도)의 재결제가 422 OUT_OF_STOCK으로 막힌다.
+- 같은 PR에 warn BE 묶음(W9 · P-02 · W3 · W15 · 입력 상한 · SEC-23 · SEC-25 · W6 · SEC-31)을 함께 처리한다.
+
+### 결정
+- K8·W9 `CheckoutService.retryPayment`: 본인 확인 → 주문 상태 PENDING_PAYMENT 검사(:141 · 기존 `OrderNotPendingPaymentException` 422 재사용) → 판매 상태 재검증(`ProductPurchasePolicy.saleBlock` :452) → `PaymentService.initiate`. 재고 수량은 재결제에서 다시 보지 않는다(수동품절은 OUT_OF_STOCK 유지).
+- P-02 `KeywordMatcher.meetsDraftMatchRatio`(:91 · 일치 토큰 수 / 질의 토큰 수 ≥ 0.5 :29)를 답안 초안 근거 경로에만 적용 — `FaqQueryService.matchVisible`(:61) · `AnswerDraftService.answeredQuestionEvidenceOf`(:118). `rankVisible`·`score`·`tokenize`와 즉시 답(`FaqQueryService.suggest` · `ProductQuestionSuggestService`)은 불변.
+- W3 `ClaimService.confirmPickupByAdmin`: 주문 락(:773) 뒤 기존 `pickedUpAt`을 읽어 감사 before에 같은 키로 싣는다(:778) — 멱등 NO-OP 재호출은 `AuditRecorder` 빈 diff skip.
+- W15 초안 본문 근거는 `KeywordMatcher.sentenceExcerpt`(:108 · `fragmentsOf` 재사용 · 120자 이내 문장 단위 · 말줄임표 없음 · 첫 문장이 120자를 넘으면 120자에서 절단)로 만든 `AnswerEvidence.draftText`(:14 · `@JsonIgnore`)를 `TemplateAnswerDraftPolicy`(:32)가 쓴다. 표시용 `summary`(발췌 + "…")와 응답 JSON은 불변.
+- 입력 상한: 주문 품목 수량 ≤ 999(`OrderItemRequest` :15 · `CartItem.MAX_QUANTITY`) · 주문 품목 수 ≤ 100(`CreateOrderRequest.MAX_ITEMS` :22) · 기본가·옵션 추가금 각 ≤ 1e9(`Product.MAX_PRICE` :41 · DTO 7곳) · 재고 요청 |qty·delta| ≤ 1e6 · 옵션 초기 재고 ≤ 1e6(`Inventory.MAX_QUANTITY_PER_REQUEST` :37 · DTO 6곳) · 실물 재고 결과 ≤ 1e9(`Inventory.MAX_ON_HAND` :39 · `adjustStock`·`restoreStock` → `requireWithinOnHandLimit` :188) · `CartItem.create`·`changeQuantity`(:71·:106 · `addQuantity`와 같은 예외).
+  - DTO 위반 400 VALIDATION_FAILED · 엔티티 위반 422(장바구니 CART_ITEM_QUANTITY_LIMIT_EXCEEDED · 재고 INVENTORY_INVARIANT_VIOLATION).
+- SEC-23 `AdminClaimController.approveByAdmin`(:150) · `AdminRefundController.initiateRefund`(:58) body에 `@Valid`. 두 DTO는 제약 0이라 동작 불변 · `ClaimApproveRequest` Javadoc을 실제 동작(refundAmount는 D-177로 폐기 · 값이 오면 400)으로 정정.
+- SEC-25 `GlobalExceptionHandler.handleUnreadableRequest`(:253): HttpMessageNotReadable · MethodArgumentTypeMismatch · MissingServletRequestPart · MissingServletRequestParameter는 유형별 고정 detail(:260) · 로그는 예외 유형만. `MalformedRequestException`·`IllegalArgumentException`은 원문 유지(`handleMalformed` :246).
+- W6·SEC-31: 동작 불변 · Javadoc 정정. W6 반품 기한·자동 구매확정 기준 발송(`DeliveryRepository` :64·:85 `claimId IS NULL OR c.type = EXCHANGE`)은 교환 검수 FAIL 재발송 포함 · 반품 검수 FAIL 재발송 제외(`ClaimService.inspect` :822가 두 유형 모두 클레임 연결 OUTBOUND 재발송 생성) — 이 비대칭을 현행 정책으로 확정한다. SEC-31 데모 카탈로그 시더는 prod 활성(`application-prod.yml` :40) · 미삭제 상품 0건일 때만 공급(`CatalogDemoSeedRunner` :83).
+
+### §1-A 갈림길·채택/기각 근거
+- K8 재결제 재고 판정: α 판매 상태(saleBlock)만 재검사 【채택】 / β 가용 + 이 주문의 같은 variant 예약 합으로 보정 【기각】 — 같은 variant 품목 합산 처리가 늘고, 아래 전제상 항상 통과해 의미 없는 산술만 남는다 / γ 별도 크리티컬 PR 【기각】 — W9와 같은 메서드.
+  - 전제(PENDING 주문의 예약분은 실물로 보장): on_hand 감소 경로는 `Inventory.adjustStock`(:161 · 결과 가용 음수 거부 :173)과 `commitReservation`(:123 · on_hand·reserved 동량 감소)뿐이다. reserved 감소는 주문 종료 release·교환 자기 예약 해제·commit뿐이다. inventory를 엔티티 밖에서 바꾸는 SQL 0건 · DB CHECK on_hand·reserved·available ≥ 0(V1__init.sql:502-504).
+  - **D-60 의미 변경**: "재검증 2종(판매 상태 + 재고)" → 재결제는 판매 상태만 재검사하고 재고는 주문 생성 시 예약이 보장한다. 신규 주문의 사전 재고 검증(D-101 §10 α)은 무변경.
+- P-02 초안 근거 기준: α 초안 경로 전용 일치 비율 ≥ 0.5 【채택】 / β 일치 토큰 ≥ 2 【기각】 — "드리고"의 어간 "드리" 같은 2차 우연 일치를 못 거른다 / γ 최소 토큰 길이 3 【기각】 — 2자 핵심어("방수")가 빠진다 / δ 불용어 목록 【기각】 — 목록 유지 비용·누락. 공유 함수에 적용하면 즉시 답의 1토큰 일치 계약이 깨진다.
+- W9 상태 검사 위치: α `retryPayment` 선검사 【채택】 / β `revalidatePayable` 첫 줄 【기각】 — 재검증 의미와 상태 거부가 섞인다 / γ FE 문구만 통일 【기각】 — BE 사유가 계속 틀린다.
+- W3 감사 skip: α 기존 값을 before 같은 키로 【채택】 / β primitive가 변경 여부 반환 【기각】 — primitive 시그니처 변경이 다른 호출처로 번진다 / γ 래퍼 early return 【기각】 — 상태 검사 순서를 바꾼다.
+- W15 초안 근거 길이: α 문장 경계 절단 【채택】 / β 원문 + 근거 수 축소 【기각】 — 1000자 보장이 근거 수에 의존한다 / γ 발췌 길이 상향 【기각】 — 중간 절단이 남는다.
+- SEC-25 고정 문구 범위: α 파서·바인딩 4종만 【채택】 / β IllegalArgumentException까지 【기각】 — 도메인 사용자 안내 문구를 싣는 경로라 일괄 고정 시 안내가 사라진다.
+- 입력 상한 값·계층: 대안 검토 없음. SEC-23: 대안 검토 없음.
+
+### §8 이월
+- W9 거부 사유 우선순위 — 선검사(무락)와 재검증 사이에 만료·실패 콜백이 경합하면 판매 상태 사유로 거부될 수 있다(거부 자체·결제 안전성은 `initiate` 락 뒤 검사가 보장).
+- SEC-25 잔여: `IllegalArgumentException` 원문 노출 유지(일부 도메인 메시지에 내부 식별자 포함).
+- `Inventory.adjustStock`은 엔티티에 요청 단위 상한(1e6)이 없다 — DTO만 막으므로 내부 신규 호출처를 만들 때 주의.
+- on_hand 상한(1e9)이 클레임 완료 재고 복구(취소 복구·반품·교환 원 옵션 재입고)에도 적용 — 상한 근처면 클레임 완료가 422로 롤백(실발생 불가 수준).
+- 장바구니 결제 경로는 선택 품목 수 상한이 없다(금액·수수료 산술은 품목 단위라 오버플로 없음).
+- P-02 질의 토큰은 앞 5개만 본다 — 긴 문의 본문 뒤쪽 핵심어는 비율 계산에 들어가지 않는다.
+- `ClaimService.inspect` `@throws "type != RETURN"` 서술이 EXCHANGE 검수 허용과 불일치(Javadoc).
+
+셀프 리뷰: 지적 12건 중 수용 4건
+외부 검토: A / 지적 1건 중 수용 0건

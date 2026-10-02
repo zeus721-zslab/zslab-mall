@@ -151,6 +151,47 @@ class AdminInquiryAnswerDraftIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("D5 일치 비율(P-02): 질의 4토큰 중 1토큰 일치 → FAQ 근거 0·FAQ 후보 / 2토큰 일치(0.5) → FAQ 근거 유지")
+    void faqEvidence_requiresHalfTokenMatch() throws Exception {
+        String oneOfFour = insertInquiry(null, "OTHER", "초안토큰알파 zqxjvk wqpzmn qwmzpx");
+        mockMvc.perform(get(URL.formatted(oneOfFour)).with(authHeaders.admin(ADMIN)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.evidence").isEmpty())
+                .andExpect(jsonPath("$.faqCandidate").value(true));
+
+        String twoOfFour = insertInquiry(null, "OTHER", FAQ_TOKENS + " zqxjvk wqpzmn");
+        mockMvc.perform(get(URL.formatted(twoOfFour)).with(authHeaders.admin(ADMIN)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.evidence.length()").value(1))
+                .andExpect(jsonPath("$.evidence[0].kind").value("FAQ"))
+                .andExpect(jsonPath("$.faqCandidate").value(false));
+    }
+
+    @Test
+    @DisplayName("D6 긴 근거(W15): 120자 초과 FAQ 답 → 초안 본문은 문장 단위(말줄임표 없음 · 한도 넘는 문장 제외) · 표시용 summary는 발췌+말줄임표 유지")
+    void longEvidence_draftCutsAtSentenceBoundary() throws Exception {
+        String first = "초안토큰감마 초안토큰델타 상품은 수령하신 날로부터 칠 일 이내에 반품을 신청하실 수 있습니다.";
+        String second = "회수 기사님이 방문하면 상품을 원래 포장 상태 그대로 전달해 주시면 됩니다.";
+        String third = "검수가 끝나면 결제 수단으로 환불이 진행되며 영업일 기준 사흘 정도 걸립니다.";
+        String withinLimit = first + " " + second;
+        String longAnswer = withinLimit + " " + third;
+        assertThat(withinLimit.length()).as("앞 두 문장은 발췌 한도(120자) 안").isLessThanOrEqualTo(120);
+        assertThat(longAnswer.length()).as("세 문장은 한도 초과").isGreaterThan(120);
+        fixture.withoutForeignKeys(() -> jdbc.update("INSERT INTO faq (id, category, question, answer, sort_order, visible, created_at, "
+                + "updated_at) VALUES (?, 'CLAIM', '초안토큰감마 초안토큰델타 질문', ?, 999, TRUE, NOW(6), NOW(6))", FAQ + 1, longAnswer));
+        String inquiryPid = insertInquiry(null, "CLAIM", "초안토큰감마 초안토큰델타");
+
+        mockMvc.perform(get(URL.formatted(inquiryPid)).with(authHeaders.admin(ADMIN)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.evidence.length()").value(1))
+                .andExpect(jsonPath("$.evidence[0].summary").value(Matchers.endsWith("…")))
+                .andExpect(jsonPath("$.evidence[0].draftText").doesNotExist())
+                .andExpect(jsonPath("$.draft").value(Matchers.containsString("- " + withinLimit + "\n")))
+                .andExpect(jsonPath("$.draft").value(Matchers.not(Matchers.containsString("…"))))
+                .andExpect(jsonPath("$.draft").value(Matchers.not(Matchers.containsString(third))));
+    }
+
+    @Test
     @DisplayName("D4 404: 없는 문의 · 삭제된 문의 → INQUIRY_NOT_FOUND")
     void notFound() throws Exception {
         String deletedPid = insertInquiry(null, "OTHER", FAQ_TOKENS);

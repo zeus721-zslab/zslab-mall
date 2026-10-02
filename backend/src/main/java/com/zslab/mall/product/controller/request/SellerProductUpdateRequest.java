@@ -1,5 +1,7 @@
 package com.zslab.mall.product.controller.request;
 
+import com.zslab.mall.product.entity.Product;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.PositiveOrZero;
@@ -13,5 +15,5 @@ public record SellerProductUpdateRequest(
         @NotNull Long categoryId,
         @NotBlank @Size(max = 200) String name, // SoT: Product.name @Column(length=200)
         String description, // nullable — LONGTEXT
-        @NotNull @PositiveOrZero Long basePrice) {
+        @NotNull @PositiveOrZero @Max(Product.MAX_PRICE) Long basePrice) {
 }

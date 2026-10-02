@@ -21,12 +21,14 @@ import com.zslab.mall.order.command.OrderItemCommand;
 import com.zslab.mall.order.controller.response.CheckoutResponse;
 import com.zslab.mall.order.entity.Order;
 import com.zslab.mall.order.entity.OrderItem;
+import com.zslab.mall.order.enums.OrderStatus;
 import com.zslab.mall.order.exception.OrderNotFoundException;
 import com.zslab.mall.order.exception.OrderNotPayableException;
 import com.zslab.mall.order.exception.OrderNotPayableReason;
 import com.zslab.mall.order.repository.OrderRepository;
 import com.zslab.mall.order.service.OrderService;
 import com.zslab.mall.payment.enums.PaymentMethod;
+import com.zslab.mall.payment.exception.OrderNotPendingPaymentException;
 import com.zslab.mall.payment.gateway.PaymentGatewayException;
 import com.zslab.mall.payment.service.PaymentInitiation;
 import com.zslab.mall.payment.service.PaymentService;
@@ -124,7 +126,9 @@ public class CheckoutService {
     }
 
     /**
-     * 재결제(POST /api/v1/orders/{orderPublicId}/payments·§6). D-60 재검증(2종) 후 initiate. 멱등성 미적용(§8).
+     * 재결제(POST /api/v1/orders/{orderPublicId}/payments·§6). 주문 상태 검사 → D-60 판매 상태 재검증 후 initiate. 멱등성 미적용(§8).
+     *
+     * @throws OrderNotPendingPaymentException 주문이 PENDING_PAYMENT가 아닐 때(미결제 종료 등 · 판매·재고 사유보다 우선)
      */
     public CheckoutOutcome retryPayment(String orderPublicId, Long buyerId, PaymentMethod method) {
         // 재검증은 items가 필요하므로 먼저 로드(본인 검증 포함). initiate도 본인 검증을 수행하나 정보 노출 회피 위해 동일 404.
@@ -132,6 +136,11 @@ public class CheckoutService {
                 .orElseThrow(() -> new OrderNotFoundException("주문을 찾을 수 없습니다: " + orderPublicId));
         if (!order.getBuyerId().equals(buyerId)) {
             throw new OrderNotFoundException("주문을 찾을 수 없습니다: " + orderPublicId);
+        }
+        // 종료된 주문은 판매·재고 사유가 아니라 "주문 종료"로 거부해야 사용자 안내가 맞다(W9). initiate의 같은 가드는 락 이후 최종 판정으로 유지한다.
+        if (order.getStatus() != OrderStatus.PENDING_PAYMENT) {
+            throw new OrderNotPendingPaymentException(
+                    "결제를 시작할 수 없는 주문 상태입니다(PENDING_PAYMENT 아님): status=" + order.getStatus());
         }
         revalidatePayable(order);
 
@@ -418,8 +427,12 @@ public class CheckoutService {
     }
 
     /**
-     * D-60 재검증(재결제 한정·D-63·Track 76 {@link ProductPurchasePolicy#evaluate} 위임). 상품 비판매(상태·기간·삭제)·variant 비-SALE →
-     * PRODUCT_NOT_ON_SALE, 수동품절·재고부족 → OUT_OF_STOCK(422). 요청 수량은 품목 quantity 기준이다.
+     * D-60 재검증(재결제 한정·D-63·Track 76 {@link ProductPurchasePolicy#saleBlock} 위임). 상품 비판매(상태·기간·삭제)·variant 비-SALE →
+     * PRODUCT_NOT_ON_SALE, 수동품절 → OUT_OF_STOCK(422).
+     *
+     * <p>재고 수량은 다시 보지 않는다(K8): PENDING_PAYMENT 주문의 예약분은 주문 종료(release)·결제 완료(commit) 전까지 유지되고,
+     * on_hand 감소 경로(adjustStock)는 가용 음수를 거부하므로 예약분은 실물로 보장된다. 가용 재고와 비교하면 자기 예약분이 이중 차감돼
+     * 재고가 딱 맞는 주문의 재결제가 OUT_OF_STOCK으로 막힌다.
      */
     private void revalidatePayable(Order order) {
         List<OrderItem> items = order.getItems();
@@ -429,8 +442,6 @@ public class CheckoutService {
                 .collect(Collectors.toMap(Product::getId, Function.identity()));
         Map<Long, ProductVariant> variantById = productVariantRepository.findByIdIn(variantIds).stream()
                 .collect(Collectors.toMap(ProductVariant::getId, Function.identity()));
-        Map<Long, Inventory> inventoryByVariantId = inventoryRepository.findByVariantIdIn(variantIds).stream()
-                .collect(Collectors.toMap(Inventory::getVariantId, Function.identity()));
         // Track 89-D: 재결제도 판매자 ACTIVE 선검사(신규 주문 경로 정합). 미해소 상품(soft-delete)은 아래 정책이 NOT_ON_SALE로 잡는다.
         assertSellersActive(productById.values());
 
@@ -438,8 +449,7 @@ public class CheckoutService {
         for (OrderItem item : items) {
             Product product = productById.get(item.getProductId());
             ProductVariant variant = variantById.get(item.getVariantId());
-            Inventory inventory = inventoryByVariantId.get(item.getVariantId());
-            ProductPurchasePolicy.evaluate(product, variant, inventory, item.getQuantity(), now).ifPresent(reason -> {
+            ProductPurchasePolicy.saleBlock(product, variant, now).ifPresent(reason -> {
                 throw new OrderNotPayableException(toReason(reason),
                         "구매할 수 없는 상품(" + reason + "): productId=" + item.getProductId()
                                 + ", variantId=" + item.getVariantId());

@@ -16,6 +16,8 @@ import org.springframework.test.util.ReflectionTestUtils;
 class InventoryTest {
 
     private static final Long VARIANT_ID = 1L;
+    /** Inventory.MAX_ON_HAND와 같은 값(상수 도입 전 상태로도 컴파일되도록 리터럴 · RED 선증명). */
+    private static final int MAX_ON_HAND = 1_000_000_000;
 
     private Inventory newInventory(int onHand, int reserved, int available) {
         Inventory inventory = new Inventory();
@@ -172,6 +174,50 @@ class InventoryTest {
 
             assertThatThrownBy(() -> inventory.restoreStock(0))
                     .isInstanceOf(IllegalArgumentException.class);
+        }
+    }
+
+    @Nested
+    @DisplayName("on_hand 상한(입력 상한 · MAX_ON_HAND)")
+    class OnHandLimit {
+
+        @Test
+        @DisplayName("restoreStock: 결과가 상한과 같으면 통과 · 1 초과면 InventoryInvariantViolation·상태 보존")
+        void restore_aboveLimit_throws() {
+            Inventory atLimit = newInventory(MAX_ON_HAND - 3, 0, MAX_ON_HAND - 3);
+            atLimit.restoreStock(3);
+            assertThat(atLimit.getQuantityOnHand()).isEqualTo(MAX_ON_HAND);
+
+            Inventory overLimit = newInventory(MAX_ON_HAND - 3, 0, MAX_ON_HAND - 3);
+            assertThatThrownBy(() -> overLimit.restoreStock(4))
+                    .isInstanceOf(InventoryInvariantViolationException.class)
+                    .hasMessageContaining("재고 상한 초과");
+            assertThat(overLimit.getQuantityOnHand()).isEqualTo(MAX_ON_HAND - 3);
+        }
+
+        @Test
+        @DisplayName("adjustStock: 결과가 상한과 같으면 통과 · 1 초과면 InventoryInvariantViolation·상태 보존")
+        void adjust_aboveLimit_throws() {
+            Inventory atLimit = newInventory(MAX_ON_HAND - 5, 2, MAX_ON_HAND - 7);
+            atLimit.adjustStock(5);
+            assertThat(atLimit.getQuantityOnHand()).isEqualTo(MAX_ON_HAND);
+            assertThat(atLimit.getQuantityAvailable()).isEqualTo(MAX_ON_HAND - 2);
+
+            Inventory overLimit = newInventory(MAX_ON_HAND - 5, 2, MAX_ON_HAND - 7);
+            assertThatThrownBy(() -> overLimit.adjustStock(6))
+                    .isInstanceOf(InventoryInvariantViolationException.class)
+                    .hasMessageContaining("재고 상한 초과");
+            assertThat(overLimit.getQuantityOnHand()).isEqualTo(MAX_ON_HAND - 5);
+        }
+
+        @Test
+        @DisplayName("adjustStock: int 오버플로 크기의 증가 → \"실물 부족\" 오사유가 아니라 상한 초과로 거부")
+        void adjust_overflow_reportsLimitNotShortage() {
+            Inventory inventory = newInventory(MAX_ON_HAND, 0, MAX_ON_HAND);
+
+            assertThatThrownBy(() -> inventory.adjustStock(Integer.MAX_VALUE))
+                    .isInstanceOf(InventoryInvariantViolationException.class)
+                    .hasMessageContaining("재고 상한 초과");
         }
     }
 }

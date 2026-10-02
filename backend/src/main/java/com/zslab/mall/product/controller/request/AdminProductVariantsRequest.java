@@ -1,6 +1,9 @@
 package com.zslab.mall.product.controller.request;
 
+import com.zslab.mall.inventory.entity.Inventory;
+import com.zslab.mall.product.entity.Product;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
@@ -21,12 +24,12 @@ public record AdminProductVariantsRequest(@NotEmpty @Valid List<Item> variants) 
             @NotBlank @Size(max = 50) String variantCode,
             @Size(max = 100) String sellerSku,
             @Size(max = 100) String barcode,
-            @NotNull @PositiveOrZero Long additionalPrice,
+            @NotNull @PositiveOrZero @Max(Product.MAX_PRICE) Long additionalPrice,
             @NotBlank @Pattern(regexp = "^(SALE|HIDDEN|STOPPED)$", message = "status는 SALE·HIDDEN·STOPPED만 허용합니다.")
             String status,
             boolean soldoutManual,
             @PositiveOrZero int displayOrder,
-            @PositiveOrZero int initialStock, // 신규 variant 전용(기존은 무시·재고 조정은 inventories/adjust)
+            @PositiveOrZero @Max(Inventory.MAX_QUANTITY_PER_REQUEST) int initialStock, // 신규 variant 전용(기존은 무시·재고 조정은 inventories/adjust)
             @Valid List<Option> options) { // 신규 variant 전용·단순상품은 빈 목록
     }
 

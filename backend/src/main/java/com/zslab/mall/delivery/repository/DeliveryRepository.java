@@ -56,8 +56,8 @@ public interface DeliveryRepository extends JpaRepository<Delivery, Long>, JpaSp
 
     /**
      * 품목의 기준 발송 최신 배송완료 행(Track 81-A·반품 기한·자동 구매확정 기준 시각 / Track 83 D-177 결정 6). 원 주문 발송(claim_id NULL)과
-     * 교환품 발송(EXCHANGE 클레임 연결)을 포함하고 검수 불합격 재발송(RETURN 클레임 연결)은 제외한다. 모든 변수는 :name 바인딩 사용,
-     * SQL injection 위험 없음.
+     * EXCHANGE 클레임에 연결된 발송(교환품 발송·교환 검수 불합격 재발송 — 검수 결과는 보지 않는다)을 포함하고, RETURN 클레임에 연결된 발송(반품
+     * 검수 불합격 재발송)은 제외한다. 모든 변수는 :name 바인딩 사용, SQL injection 위험 없음.
      */
     @Query("SELECT d FROM Delivery d LEFT JOIN Claim c ON c.id = d.claimId "
             + "WHERE d.orderItemId = :orderItemId AND d.direction = :direction AND d.status = :status "
@@ -70,7 +70,8 @@ public interface DeliveryRepository extends JpaRepository<Delivery, Long>, JpaSp
             Pageable pageable);
 
     /**
-     * 자동 구매확정 후보 품목 id(Track 81-B D-171). 원 주문 발송(OUTBOUND·claim_id NULL) 배송완료가 {@code threshold} 이전이고 품목이
+     * 자동 구매확정 후보 품목 id(Track 81-B D-171). 기준 발송(OUTBOUND · claim_id NULL 또는 EXCHANGE 클레임 연결 — {@link #findBaseDeliveredOutbound}와
+     * 같은 조건이라 교환 검수 불합격 재발송 포함·반품 검수 불합격 재발송 제외) 배송완료가 {@code threshold} 이전이고 품목이
      * 아직 DELIVERED인 행 — V24 인덱스 (direction, status, claim_id, delivered_at) 범위 스캔 후 order_item 조인. 확정 여부의 최종 판정은
      * 서비스가 행 락 후 {@code ReturnWindowPolicy}로 재확인한다. 모든 변수는 :name 바인딩 사용, SQL injection 위험 없음.
      *

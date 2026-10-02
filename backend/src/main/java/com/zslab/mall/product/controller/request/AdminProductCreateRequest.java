@@ -1,6 +1,8 @@
 package com.zslab.mall.product.controller.request;
 
+import com.zslab.mall.product.entity.Product;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
@@ -19,7 +21,7 @@ public record AdminProductCreateRequest(
         @NotNull Long categoryId,
         @NotBlank @Size(max = 200) String name,
         String description,
-        @NotNull @PositiveOrZero Long basePrice,
+        @NotNull @PositiveOrZero @Max(Product.MAX_PRICE) Long basePrice,
         @PositiveOrZero Long supplyPrice, // nullable — 표시용 공급가(D-165 D7 α)
         @Size(max = 2048) String thumbnailUrl,
         OffsetDateTime saleStartAt, // nullable = 즉시

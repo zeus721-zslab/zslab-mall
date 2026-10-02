@@ -165,6 +165,34 @@ class AdminInventoryControllerIntegrationTest extends AbstractIntegrationTest {
         assertThat(inventoryDomainEventCount()).isZero();
     }
 
+    @Test
+    @DisplayName("T5 입력 상한: delta 1,000,001 → 400 VALIDATION_FAILED · 결과 on_hand 상한 1e9 초과 → 422 · 상한과 같으면 200")
+    void adjust_upperBounds() throws Exception {
+        int nearLimit = 1_000_000_000 - 5;
+        seed(() -> {
+            seedCatalog();
+            seedInventory(nearLimit, 0, nearLimit);
+        });
+
+        mockMvc.perform(post("/api/v1/admin/inventories/" + VARIANT_PID + "/adjust")
+                        .with(authHeaders.admin(ADMIN)).contentType(MediaType.APPLICATION_JSON)
+                        .content(body(1_000_001, REASON)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+        mockMvc.perform(post("/api/v1/admin/inventories/" + VARIANT_PID + "/adjust")
+                        .with(authHeaders.admin(ADMIN)).contentType(MediaType.APPLICATION_JSON)
+                        .content(body(6, REASON)))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("INVENTORY_INVARIANT_VIOLATION"));
+        assertThat(onHand()).isEqualTo(nearLimit);
+
+        mockMvc.perform(post("/api/v1/admin/inventories/" + VARIANT_PID + "/adjust")
+                        .with(authHeaders.admin(ADMIN)).contentType(MediaType.APPLICATION_JSON)
+                        .content(body(5, REASON)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.quantityOnHand").value(1_000_000_000));
+    }
+
     // ---------- seed·helpers (AdminDeliveryControllerIntegrationTest 패턴 1:1·inventory 그래프 확장) ----------
 
     private void seed(Runnable seedingWork) {

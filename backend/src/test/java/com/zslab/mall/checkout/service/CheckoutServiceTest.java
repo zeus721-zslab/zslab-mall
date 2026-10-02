@@ -29,6 +29,7 @@ import com.zslab.mall.order.controller.response.CheckoutResponse.PaymentView;
 import com.zslab.mall.order.controller.response.StatusView;
 import com.zslab.mall.order.entity.Order;
 import com.zslab.mall.order.entity.OrderItem;
+import com.zslab.mall.order.enums.OrderStatus;
 import com.zslab.mall.order.exception.OrderNotPayableException;
 import com.zslab.mall.order.exception.OrderNotPayableReason;
 import com.zslab.mall.order.repository.OrderRepository;
@@ -36,6 +37,7 @@ import com.zslab.mall.order.service.OrderService;
 import com.zslab.mall.payment.entity.Payment;
 import com.zslab.mall.payment.enums.PaymentMethod;
 import com.zslab.mall.payment.enums.PaymentStatus;
+import com.zslab.mall.payment.exception.OrderNotPendingPaymentException;
 import com.zslab.mall.payment.gateway.PaymentGatewayException;
 import com.zslab.mall.payment.service.PaymentInitiation;
 import com.zslab.mall.payment.service.PaymentService;
@@ -310,7 +312,6 @@ class CheckoutServiceTest {
         lenient().when(product.isWithinSalePeriod(any())).thenReturn(true);
         when(productRepository.findByIdIn(any())).thenReturn(List.of(product));
         when(productVariantRepository.findByIdIn(any())).thenReturn(List.of());
-        when(inventoryRepository.findByVariantIdIn(any())).thenReturn(List.of());
 
         assertThatThrownBy(() -> checkoutService.retryPayment("ord_1", BUYER_ID, PaymentMethod.CARD))
                 .isInstanceOf(OrderNotPayableException.class)
@@ -331,7 +332,6 @@ class CheckoutServiceTest {
         lenient().when(product.isWithinSalePeriod(any())).thenReturn(true);
         when(productRepository.findByIdIn(any())).thenReturn(List.of(product));
         when(productVariantRepository.findByIdIn(any())).thenReturn(List.of());
-        when(inventoryRepository.findByVariantIdIn(any())).thenReturn(List.of());
         stubSellers(SellerStatus.PENDING);
 
         assertThatThrownBy(() -> checkoutService.retryPayment("ord_1", BUYER_ID, PaymentMethod.CARD))
@@ -342,34 +342,21 @@ class CheckoutServiceTest {
     }
 
     @Test
-    @DisplayName("retry: 재고 부족 → 422 ORDER_NOT_PAYABLE(OUT_OF_STOCK)")
-    void retry_outOfStock_throws422() {
+    @DisplayName("retry: 미결제 종료(PAYMENT_EXPIRED) 주문 → OrderNotPendingPayment·판매 재검증·initiate 미호출(W9 상태 검사 선행)")
+    void retry_expiredOrder_throwsNotPendingPaymentBeforeRevalidation() {
         OrderItem item = OrderItem.create(10L, 20L, 99L, "테스트 상품", 2, 5_000L, 10_000L, 1000);
-        when(orderRepository.findByPublicIdWithItems("ord_1")).thenReturn(Optional.of(order(1L, "ord_1", item)));
-        Product product = org.mockito.Mockito.mock(Product.class);
-        when(product.getId()).thenReturn(10L);
-        when(product.getStatus()).thenReturn(ProductStatus.SALE);
-        // Track 76: ProductPurchasePolicy가 판매기간도 보므로 mock은 기간 내로 고정한다.
-        lenient().when(product.isWithinSalePeriod(any())).thenReturn(true);
-        ProductVariant variant = org.mockito.Mockito.mock(ProductVariant.class);
-        when(variant.getId()).thenReturn(20L);
-        when(variant.getStatus()).thenReturn(ProductVariantStatus.SALE); // Track 76: 재결제 재검증도 variant SALE을 본다.
-        when(variant.isSoldoutManual()).thenReturn(false);
-        Inventory inventory = org.mockito.Mockito.mock(Inventory.class);
-        when(inventory.getVariantId()).thenReturn(20L);
-        when(inventory.getQuantityAvailable()).thenReturn(1);   // qty 2 요청 > 가용 1
-        when(productRepository.findByIdIn(any())).thenReturn(List.of(product));
-        when(productVariantRepository.findByIdIn(any())).thenReturn(List.of(variant));
-        when(inventoryRepository.findByVariantIdIn(any())).thenReturn(List.of(inventory));
+        Order expired = order(1L, "ord_1", item);
+        ReflectionTestUtils.setField(expired, "status", OrderStatus.PAYMENT_EXPIRED);
+        when(orderRepository.findByPublicIdWithItems("ord_1")).thenReturn(Optional.of(expired));
 
         assertThatThrownBy(() -> checkoutService.retryPayment("ord_1", BUYER_ID, PaymentMethod.CARD))
-                .isInstanceOf(OrderNotPayableException.class)
-                .extracting(ex -> ((OrderNotPayableException) ex).getReason())
-                .isEqualTo(OrderNotPayableReason.OUT_OF_STOCK);
+                .isInstanceOf(OrderNotPendingPaymentException.class);
+        verify(productRepository, never()).findByIdIn(any());
+        verify(paymentService, never()).initiate(anyString(), any(), any());
     }
 
     @Test
-    @DisplayName("retry: 재검증 통과 → initiate 재호출·forRetry·Location=payment")
+    @DisplayName("retry: 판매 상태 재검증 통과 → 재고 수량 미조회(K8 자기 예약분)·initiate 재호출·forRetry·Location=payment")
     void retry_happy_initiatesAndReturnsPaymentLocation() {
         OrderItem item = OrderItem.create(10L, 20L, 99L, "테스트 상품", 2, 5_000L, 10_000L, 1000);
         when(orderRepository.findByPublicIdWithItems("ord_1")).thenReturn(Optional.of(order(1L, "ord_1", item)));
@@ -382,12 +369,8 @@ class CheckoutServiceTest {
         when(variant.getId()).thenReturn(20L);
         when(variant.getStatus()).thenReturn(ProductVariantStatus.SALE); // Track 76: 재결제 재검증도 variant SALE을 본다.
         when(variant.isSoldoutManual()).thenReturn(false);
-        Inventory inventory = org.mockito.Mockito.mock(Inventory.class);
-        when(inventory.getVariantId()).thenReturn(20L);
-        when(inventory.getQuantityAvailable()).thenReturn(100);
         when(productRepository.findByIdIn(any())).thenReturn(List.of(product));
         when(productVariantRepository.findByIdIn(any())).thenReturn(List.of(variant));
-        when(inventoryRepository.findByVariantIdIn(any())).thenReturn(List.of(inventory));
         Payment retryPayment = paymentMock("pay_RETRY");
         when(paymentService.initiate(eq("ord_1"), eq(BUYER_ID), eq(PaymentMethod.CARD)))
                 .thenReturn(new PaymentInitiation(retryPayment, "https://pg/redirect"));
@@ -397,6 +380,7 @@ class CheckoutServiceTest {
         assertThat(outcome.cached()).isFalse();
         assertThat(outcome.location()).isEqualTo("/api/v1/payments/pay_RETRY");
         assertThat(outcome.response().payment().publicId()).isEqualTo("pay_RETRY");
+        verify(inventoryRepository, never()).findByVariantIdIn(any());
     }
 
     // ===== Phase 1: 장바구니 결제(CartCheckoutCommand) 내부 id 해소(resolveByInternalId) =====
