@@ -14,7 +14,8 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "pixel": "node e2e/tools/pixel.mjs",
-    "walkthrough": "playwright test --config=playwright.walkthrough.config.ts"
+    "walkthrough": "playwright test --config=playwright.walkthrough.config.ts",
+    "manual:capture": "playwright test --config=playwright.manual.config.ts"
   },
   "dependencies": {
     "@lucide/vue": "^1.46.0",

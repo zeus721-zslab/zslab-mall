@@ -1,16 +1,14 @@
 <script setup lang="ts">
-// 셀러 도움말(Track 102 FE-64). 자리만 먼저 확보한다 — 매뉴얼 본문은 매뉴얼 단계에서 이 화면에 채운다.
+import ManualShell from '~/components/common/manual/ManualShell.vue'
+import { SELLER_MANUAL } from '#layers/seller/app/lib/seller-manual-content'
+import captures from '~~/public/manual/seller/captures.json'
+
+// 셀러 매뉴얼(C8). 진입 가드는 기존 seller 미들웨어(셀러 세션 확인 → 없으면 /seller/login) 그대로다.
+// 캡처 이미지·좌표는 walkthrough/manual/seller.manual.ts가 public/manual/seller/에 만든다.
 definePageMeta({ layout: 'seller', middleware: ['seller', 'seller-vuetify'] })
 useSeoMeta({ title: '도움말 · zslab-mall 셀러' })
 </script>
 
 <template>
-  <div>
-    <SellerPageHeader title="도움말" description="셀러 화면에서 무엇을 어떻게 처리하는지 안내합니다." />
-    <v-card>
-      <v-card-text class="text-body-2 text-medium-emphasis" data-testid="seller-help-placeholder">
-        준비 중입니다.
-      </v-card-text>
-    </v-card>
-  </div>
+  <ManualShell :document="SELLER_MANUAL" :captures="captures" />
 </template>
