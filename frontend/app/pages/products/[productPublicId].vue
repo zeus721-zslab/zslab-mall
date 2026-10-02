@@ -3,6 +3,8 @@ import type { ProductImage, ProductSummary, ProductVariant } from '~/types/produ
 import { BUYER_ROLE } from '~/lib/constants/auth'
 import { isOptionValueSoldOut } from '~/lib/utils/product-option-availability'
 import { buyNowCheckoutPath } from '~/lib/utils/buy-now'
+import { CART_ITEM_QUANTITY_MAX, CART_QUANTITY_LIMIT_NOTICE, cartQuantityErrorMessage, clampCartQuantity } from '~/lib/constants/cart'
+import type { CartQuantityErrorLike } from '~/lib/constants/cart'
 import type { ProductDetailPageVm } from '~/skins/contracts/product-detail'
 
 // 라우트 파라미터(prd_)로 상세를 조회한다. permitAll 공개 카탈로그라 인증 없이 SSR/CSR 모두 조회 가능.
@@ -116,11 +118,16 @@ const canAddToCart = computed<boolean>(() => {
 })
 
 const quantity = ref<number>(1)
+// 상한(P-08 · BE 999) 초과 시도 안내. 수량을 줄이면 지운다.
+const quantityNotice = ref<string>('')
 function decrementQuantity(): void {
   if (quantity.value > 1) quantity.value -= 1
+  quantityNotice.value = ''
 }
 function incrementQuantity(): void {
-  quantity.value += 1
+  const requested = quantity.value + 1
+  quantity.value = clampCartQuantity(requested)
+  quantityNotice.value = requested > CART_ITEM_QUANTITY_MAX ? CART_QUANTITY_LIMIT_NOTICE : ''
 }
 
 // 총 상품 금액: 장바구니와 같은 단가(= 확정 variant salePrice = basePrice + additionalPrice) × 수량. 확정 전에는 대표가(최저가)로
@@ -169,6 +176,11 @@ async function handleAddToCart(): Promise<void> {
       addErrorMessage.value = '지금 구매할 수 없는 상품입니다.'
       return
     }
+    const quantityMessage = cartQuantityErrorMessage(error as CartQuantityErrorLike)
+    if (quantityMessage !== null) {
+      addErrorMessage.value = quantityMessage
+      return
+    }
     addErrorMessage.value = '장바구니에 담지 못했습니다. 잠시 후 다시 시도해 주세요.'
   } finally {
     adding.value = false
@@ -207,6 +219,7 @@ const vm: ProductDetailPageVm = reactive({
   quantity,
   decrementQuantity,
   incrementQuantity,
+  quantityNotice,
   canAddToCart,
   adding,
   addedSignal,

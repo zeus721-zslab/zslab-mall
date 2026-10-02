@@ -11,6 +11,7 @@ import java.time.LocalDateTime;
  * 구매자 품목의 원 발송 배송 정보(Track 96-2 D-203·C-05). 원 발송 = OUTBOUND이면서 클레임 미연결(claim_id NULL) Delivery의 최신 1건.
  * 교환품·재발송(claim_id 연결)은 클레임 상세({@code ClaimResponse.reshipment})가 담당하고 반품 회수(RETURN)는 품목 배송이 아니다.
  * 송장 미등록 품목은 null. 식별자(deliveryId)는 구매자 조작이 없어 노출하지 않는다.
+ * 같은 형태를 교환품 발송({@code OrderItemResponse.exchangeDelivery}·W7)에도 쓴다.
  */
 public record OrderItemDeliveryResponse(
         DeliveryCarrier carrier,

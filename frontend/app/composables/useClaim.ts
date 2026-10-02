@@ -43,13 +43,13 @@ export function useClaimList(
 /**
  * 구매자 클레임 단건 조회(GET /api/v1/claims/{claimPublicId}·BUYER 전용). useOrderDetail 패턴 정합: 구매자 래퍼,
  * 미존재·타인 클레임은 BE가 404(존재 은닉)를 반환한다. 클레임은 상태 전이(승인·완료·거부)를 추적하는 화면이라
- * 재방문 시 항상 재검증한다(getCachedData로 stale 캐시 반환 차단·useOrderDetail와 동일 사유).
+ * 재방문 시 항상 재검증한다 — 기본 getCachedData(hydration 중에만 SSR payload 재사용·클라이언트 진입은 재조회)가 그 동작이며,
+ * 덮어쓰면 hydration 중에도 payload를 버려 mismatch가 난다(useOrderDetail와 같은 W1 사유).
  */
 export function useClaimDetail(claimPublicId: string) {
   return useFetch<ClaimDetail>(`/v1/claims/${claimPublicId}`, {
     key: `claim-detail:${claimPublicId}`,
     $fetch: useBuyerApi(),
-    getCachedData: () => undefined,
   })
 }
 

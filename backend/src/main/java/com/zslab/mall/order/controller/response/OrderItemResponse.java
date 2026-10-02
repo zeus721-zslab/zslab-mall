@@ -19,6 +19,12 @@ package com.zslab.mall.order.controller.response;
  * null(NON_NULL로 키 생략). 추가형 필드.
  *
  * <p>review는 품목의 리뷰 상태(Track 106-1·{@link OrderItemReviewResponse}). 추가형 필드.
+ *
+ * <p>inspectionFailed는 이 품목에 검수 불합격(inspection_result FAIL) 이력 클레임이 있는지(W2·유형 무관). 반품·교환 재요청이 422인
+ * 서버 조건(ClaimService 반품·교환 요청 가드)과 같은 기준이며 FE가 반품·교환 버튼을 숨기는 데 쓴다. 추가형 필드.
+ *
+ * <p>exchangeDelivery는 교환 클레임(EXCHANGE·검수 FAIL 아님)에 연결된 OUTBOUND 최신 1건(W7·교환품 발송). 검수 FAIL 재발송은 원 상품을
+ * 되돌려 보내는 배송이라 제외한다. 없으면 null. 추가형 필드.
  */
 public record OrderItemResponse(
         String orderItemId,
@@ -33,5 +39,7 @@ public record OrderItemResponse(
         boolean exchangeCompleted,
         OrderItemDeliveryResponse delivery,
         String thumbnailUrl,
-        OrderItemReviewResponse review) {
+        OrderItemReviewResponse review,
+        boolean inspectionFailed,
+        OrderItemDeliveryResponse exchangeDelivery) {
 }

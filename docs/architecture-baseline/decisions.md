@@ -14139,3 +14139,26 @@ D-246 §8 정정: '데모 로그인 요청 제한 문서 불일치' 항목 철�
 
 셀프 리뷰: 지적 12건 중 수용 4건
 외부 검토: A / 지적 1건 중 수용 0건
+
+## D-257 warn 구매자 화면 — 주문 응답 필드 3종(inspectionFailed · refundedAmount · exchangeDelivery) (D-177 · D-203 · Track 105-4g-3) (2026-10-02)
+
+### 배경
+- warn 트랙 정찰(docs/track-final-check/recon-report-warn.md §2) W2·W5·W7: 구매자 주문 상세가 검수 FAIL 이력 품목에도 반품·교환 버튼을 보이고(서버는 422), 부분 취소·환불 금액을 보이지 않으며, 교환 완료 품목에 원 발송 송장만 보인다(D-203 "원 발송만").
+
+### 결정
+- 추가형 응답 필드 3종(기존 필드·의미 불변). 모두 `BuyerOrderQueryService.getOrder`(:133)가 소유 검증 뒤 조립한다.
+  - 품목 `inspectionFailed`(`OrderItemResponse` :43): 품목에 inspection_result FAIL 클레임이 있는지(유형 무관 · `inspectionFailedItemIdsOf` :245). 반품·교환 요청 422 가드(`ClaimService` :274 `existsByOrderItemIdAndInspectionResult(FAIL)`)와 같은 기준. 주문 목록 품목(`OrderSummaryResponse.ItemSummary` :61)에도 같은 값을 싣는다(:288).
+  - 결제 요약 `refundedAmount`(`OrderResponse.PaymentSummary` :46): 결제 요약 행의 COMPLETED 환불 합(`RefundRepository.sumCompletedByPaymentId` 재사용 · `completedRefundAmountFor` :151). 환불 없으면 0 · 결제 요약이 없으면 조회하지 않는다.
+  - 품목 `exchangeDelivery`(`OrderItemResponse` :44 · `OrderItemDeliveryResponse` 형태 재사용): EXCHANGE 클레임에 연결된 OUTBOUND 중 최신 1건(`exchangeDeliveryByItemIdOf` :210). `delivery`(원 발송·D-203)는 그대로다.
+- 조회: 클레임(`claimsFor` :225)·OUTBOUND(`outboundDeliveriesFor` :188)는 기존 1회 배치 조회를 한 번 받아 교환 완료·검수 FAIL·원 발송·교환 배송을 함께 파생한다. 추가 쿼리는 환불 합 1회(상세)뿐이고 목록은 0회다.
+
+### §1-A 갈림길·채택/기각 근거
+- W7 교환 배송 범위 해석: 검수 FAIL로 종결(REJECTED)된 교환 클레임의 OUTBOUND는 원 상품 재발송(`ClaimService.inspect` → `registerReshipment`)이라 교환 배송에서 제외한다 — 표시 대상이 "교환 완료·진행 품목의 교환품 발송"이기 때문이다.
+- 필드 형태: 대안 검토 없음(확정 결정 — W2 `inspectionFailed` · W5 결제 단위 COMPLETED 합 · W7 `exchangeDelivery`).
+
+### §8 이월
+- 품목 단위 환불액(PENDING 포함 여부 정의 필요)은 싣지 않았다 — 주문 단위 COMPLETED 합만.
+- 검수 FAIL 재발송 송장은 주문 상세에 보이지 않는다(클레임 상세 `reshipment`가 담당).
+
+셀프 리뷰: 지적 9건 중 수용 3건(+ 보류 2건은 결정 후 반영)
+외부 검토: B / 생략(셀프 리뷰 지적 9건 중 수용 3건 + 보류 2건 반영)

@@ -42,6 +42,7 @@ public record OrderSummaryResponse(
      * (null 필드는 전역 NON_NULL로 응답에서 키가 생략된다 — 기존 delivery와 같다).
      * 배송 정보·진행 클레임 id는 넣지 않는다 — 목록 버튼은 구매 확정·클레임 신청만이고 배송 조회·요청 상세는 주문 상세가 담당한다(D-223).
      * review는 품목의 리뷰 상태(Track 106-1·추가형 필드·"리뷰 쓰기" 버튼 판단).
+     * inspectionFailed는 검수 불합격 이력 클레임 존재 여부(W2·주문 상세 OrderItemResponse와 같은 기준·추가형 필드·반품·교환 버튼 숨김).
      */
     public record ItemSummary(
             String orderItemId,
@@ -56,7 +57,8 @@ public record OrderSummaryResponse(
             String productId,
             String variantId,
             boolean exchangeCompleted,
-            OrderItemReviewResponse review) {
+            OrderItemReviewResponse review,
+            boolean inspectionFailed) {
     }
 
     /**
@@ -67,6 +69,7 @@ public record OrderSummaryResponse(
      * @param productById 페이지 품목의 상품(삭제 상품은 없음) · variantById·sellerById도 같은 배치 조회 결과
      * @param exchangeCompletedItemIds 완료된 교환이 있는 품목 id
      * @param reviewIdByItemId 페이지 품목의 리뷰(품목 id → 리뷰·삭제 리뷰는 reviewId null·숨김 여부·Track 106-1)
+     * @param inspectionFailedItemIds 검수 불합격 이력 클레임이 있는 품목 id(W2)
      */
     public static OrderSummaryResponse from(
             Order order,
@@ -75,13 +78,15 @@ public record OrderSummaryResponse(
             Map<Long, ProductVariant> variantById,
             Map<Long, Seller> sellerById,
             Set<Long> exchangeCompletedItemIds,
-            Map<Long, OrderItemReviewResponse.Written> reviewIdByItemId) {
+            Map<Long, OrderItemReviewResponse.Written> reviewIdByItemId,
+            Set<Long> inspectionFailedItemIds) {
         List<OrderItem> orderedItems = order.getItems().stream()
                 .sorted(Comparator.comparing(OrderItem::getCreatedAt).thenComparing(OrderItem::getId))
                 .toList();
         long sellerCount = orderedItems.stream().map(OrderItem::getSellerId).distinct().count();
         List<ItemSummary> items = orderedItems.stream()
-                .map(item -> toItemSummary(item, productById, variantById, sellerById, exchangeCompletedItemIds, reviewIdByItemId))
+                .map(item -> toItemSummary(item, productById, variantById, sellerById, exchangeCompletedItemIds, reviewIdByItemId,
+                        inspectionFailedItemIds))
                 .toList();
         return new OrderSummaryResponse(
                 order.getPublicId(),
@@ -101,7 +106,8 @@ public record OrderSummaryResponse(
             Map<Long, ProductVariant> variantById,
             Map<Long, Seller> sellerById,
             Set<Long> exchangeCompletedItemIds,
-            Map<Long, OrderItemReviewResponse.Written> reviewIdByItemId) {
+            Map<Long, OrderItemReviewResponse.Written> reviewIdByItemId,
+            Set<Long> inspectionFailedItemIds) {
         Product product = productById.get(item.getProductId());
         ProductVariant variant = variantById.get(item.getVariantId());
         Seller seller = sellerById.get(item.getSellerId());
@@ -118,7 +124,8 @@ public record OrderSummaryResponse(
                 product != null ? product.getPublicId() : null,
                 variant != null ? variant.getPublicId() : null,
                 exchangeCompletedItemIds.contains(item.getId()),
-                OrderItemReviewResponse.of(item, reviewIdByItemId));
+                OrderItemReviewResponse.of(item, reviewIdByItemId),
+                inspectionFailedItemIds.contains(item.getId()));
     }
 
     private static String buildPreviewTitle(List<OrderItem> orderedItems) {

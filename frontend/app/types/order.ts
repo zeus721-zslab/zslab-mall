@@ -49,6 +49,8 @@ export interface OrderSummaryItem {
   exchangeCompleted: boolean
   /** 리뷰 작성 자격·작성한 리뷰(Track 106-1). 이 필드 이전 응답(옛 캐시)이면 없다 — 리뷰 진입점을 두지 않는다. */
   review?: OrderItemReview
+  /** 검수 불합격 이력 클레임이 있는 품목인지(W2·주문 상세와 같은 기준). true면 반품·교환 요청 버튼을 숨긴다. */
+  inspectionFailed?: boolean
 }
 
 /** 주문 목록 항목(BE OrderSummaryResponse 대응). previewTitle은 서버 생성 문자열, orderedAt은 ISO 문자열. */
@@ -118,6 +120,10 @@ export interface OrderItem {
   thumbnailUrl?: string
   /** 리뷰 작성 자격·작성한 리뷰(Track 106-1). 이 필드 이전 응답(옛 캐시)이면 없다 — 리뷰 진입점을 두지 않는다. */
   review?: OrderItemReview
+  /** 검수 불합격 이력 클레임이 있는 품목인지(W2). true면 반품·교환 요청 버튼을 숨긴다(재요청 BE 422). */
+  inspectionFailed?: boolean
+  /** 교환품 발송(교환 클레임 연결 OUTBOUND 최신·검수 FAIL 재발송 제외 · W7). 없으면 NON_NULL로 생략된다. */
+  exchangeDelivery?: OrderItemDelivery | null
 }
 
 /** seller 단위 그룹(BE SellerGroupResponse 대응). 단일 판매자 주문도 배열 길이 1. */
@@ -156,4 +162,6 @@ export interface OrderDetail {
 export interface OrderPaymentSummary {
   method: PaymentMethod
   paidAt: string
+  /** 이 결제의 완료(COMPLETED) 환불 합(W5). 환불이 없으면 0 · 이 필드 이전 응답이면 없다. */
+  refundedAmount?: number
 }

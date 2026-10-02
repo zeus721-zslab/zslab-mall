@@ -173,6 +173,21 @@ describe('pages/orders/index.vue 주문 카드(FE-80)', () => {
     const wrapper = await mountSuspended(OrdersPage)
     expect(wrapper.find('[data-testid="order-card-summary"]').text().replace(/\s+/g, ' ')).toBe('총 12,000원')
   })
+
+  it('W2 검수 FAIL 이력(inspectionFailed) 배송완료 품목 → 반품·교환 요청 버튼 숨김 · 이력 없으면 두 버튼 노출', async () => {
+    const failed = deliveredOrder()
+    failed.items![0]!.inspectionFailed = true
+    mockLists(page([failed]))
+    const hidden = await mountSuspended(OrdersPage)
+    expect(hidden.find('[data-testid="order-item-claim-return"]').exists()).toBe(false)
+    expect(hidden.find('[data-testid="order-item-claim-exchange"]').exists()).toBe(false)
+
+    useOrderListMock.mockReset()
+    mockLists(page([deliveredOrder()]))
+    const shown = await mountSuspended(OrdersPage)
+    expect(shown.find('[data-testid="order-item-claim-return"]').exists()).toBe(true)
+    expect(shown.find('[data-testid="order-item-claim-exchange"]').exists()).toBe(true)
+  })
 })
 
 // Track 106-1 PR2: 목록 리뷰 진입점 — 숨김 여부는 품목 review.hidden만으로 배지(작성자 단건 조회 없음) · WRITABLE = 별 5개.

@@ -86,7 +86,7 @@ test.describe('구매자 결제 재개(Track 102)', () => {
     await loginAs(page, 'BUYER')
     await gotoClientSide(page, `/orders/${EXPIRED_ORDER}`)
 
-    await expect(page.getByTestId('order-payment-expired-notice')).toContainText('자동 취소된 주문')
+    await expect(page.getByTestId('order-payment-expired-notice')).toContainText('결제가 완료되지 않아 주문이 종료되었습니다')
     await expect(page.getByTestId('order-resume-payment')).toHaveCount(0)
     await expect(page.getByTestId('order-resume-payment-submit')).toHaveCount(0)
     await expect(page.getByTestId('order-payment-expire-guide')).toHaveCount(0)

@@ -48,6 +48,7 @@ class BuyerOrderItemSummaryIntegrationTest extends AbstractIntegrationTest {
     private static final long ITEM_THIRD = ID_BASE + 1;
     private static final long ITEM_FOURTH = ID_BASE + 3;
     private static final long CLAIM_ID = ID_BASE;
+    private static final long FAILED_CLAIM_ID = ID_BASE + 1;
 
     private static final String ORDER_PID = pid("ord_", "BOISORD");
     private static final String SELLER_NAME = "목록셀러";
@@ -140,6 +141,21 @@ class BuyerOrderItemSummaryIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath(detailItemPath(ITEM_FOURTH) + ".thumbnailUrl").doesNotExist());
     }
 
+    @Test
+    @DisplayName("T5 목록 inspectionFailed(W2): 검수 FAIL 이력 클레임(반품·REJECTED) 품목 true · 교환 완료만 있는 품목·클레임 없는 품목 false")
+    void list_inspectionFailed() throws Exception {
+        tx.executeWithoutResult(s -> jdbc.update("INSERT INTO claim (id, public_id, order_item_id, type, reason_code, status, "
+                        + "requested_by, previous_order_item_status, inspection_result, created_at, updated_at) "
+                        + "VALUES (?, ?, ?, 'RETURN', 'PRODUCT_DEFECT', 'REJECTED', ?, 'DELIVERED', 'FAIL', NOW(6), NOW(6))",
+                FAILED_CLAIM_ID, pid("clm_", "BOISCLM2"), ITEM_FIRST, BUYER_USER));
+
+        mockMvc.perform(get(LIST_URL).with(authHeaders.buyer(BUYER_USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].items[0].inspectionFailed").value(true))
+                .andExpect(jsonPath("$.items[0].items[1].inspectionFailed").value(false))
+                .andExpect(jsonPath("$.items[0].items[3].inspectionFailed").value(false));
+    }
+
     // ---------- seed·helpers (BuyerOrderDeliveryQueryIntegrationTest 패턴) ----------
 
     // 모든 시드 INSERT는 ? positional 바인딩 + 정적 SQL이다(문자열 concat 없음·SQL injection 위험 없음).
@@ -204,7 +220,7 @@ class BuyerOrderItemSummaryIntegrationTest extends AbstractIntegrationTest {
         tx.executeWithoutResult(s -> {
             try {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
-                jdbc.update("DELETE FROM claim WHERE id = ?", CLAIM_ID);
+                jdbc.update("DELETE FROM claim WHERE id IN (?, ?)", CLAIM_ID, FAILED_CLAIM_ID);
                 jdbc.update("DELETE FROM order_item WHERE id BETWEEN ? AND ?", ID_BASE, ID_LAST);
                 jdbc.update("DELETE FROM `order` WHERE id = ?", ORDER_ID);
                 jdbc.update("DELETE FROM product_variant WHERE id BETWEEN ? AND ?", ID_BASE, ID_LAST);

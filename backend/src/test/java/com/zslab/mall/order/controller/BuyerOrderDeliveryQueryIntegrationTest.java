@@ -22,7 +22,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  * 원 발송(OUTBOUND·claim_id NULL) 최신 1건만 담고, 교환품 발송(claim_id 연결)·반품 회수(RETURN)·구 발송은 제외되는지,
  * 미발송 품목은 null(NON_NULL로 생략)인지, 타인 주문 404가 유지되는지 검증한다.
  *
- * <p><b>커버</b>: T1 원 발송만(교환 OUTBOUND·RETURN·구 발송 제외·최신 원 발송) · T2 부분 발송(품목별·미발송 null) · T3 타 buyer 404.
+ * <p><b>커버</b>: T1 원 발송만(교환 OUTBOUND·RETURN·구 발송 제외·최신 원 발송) · T2 부분 발송(품목별·미발송 null) · T3 타 buyer 404 ·
+ * T4 교환 배송(exchangeDelivery·W7) · T5 검수 FAIL 이력(inspectionFailed·W2)·FAIL 재발송 교환 배송 제외.
  *
  * <p>시드/정리는 {@link TransactionTemplate} + {@code FOREIGN_KEY_CHECKS=0}(LT-02 try-finally)·id 9620~9629 고정.
  */
@@ -42,6 +43,8 @@ class BuyerOrderDeliveryQueryIntegrationTest extends AbstractIntegrationTest {
     private static final long DELIVERY_NEW_ORIGINAL = 9621L;
     private static final long DELIVERY_EXCHANGE = 9622L;
     private static final long DELIVERY_RETURN = 9623L;
+    private static final long FAILED_CLAIM_ID = 9621L;
+    private static final long DELIVERY_FAIL_RESHIPMENT = 9624L;
     private static final long DUMMY_FK_ID = 9620L;
     private static final long ITEM_PRICE = 10_000L;
 
@@ -98,6 +101,32 @@ class BuyerOrderDeliveryQueryIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("T4 교환 배송(W7)·검수 FAIL 없음(W2): 교환 완료 품목 exchangeDelivery = 교환 OUTBOUND(택배사·송장·배송완료일) · 일반 품목 생략 · inspectionFailed false")
+    void detail_exchangeDelivery_andNoInspectionFailure() throws Exception {
+        mockMvc.perform(get(ORDER_URL).with(authHeaders.buyer(BUYER_USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(SHIPPED_ITEM_PATH + ".exchangeDelivery.carrier").value("POST"))
+                .andExpect(jsonPath(SHIPPED_ITEM_PATH + ".exchangeDelivery.trackingNo").value("EXCH-1"))
+                .andExpect(jsonPath(SHIPPED_ITEM_PATH + ".exchangeDelivery.deliveredAt").value("2026-09-17T11:00:00+09:00"))
+                .andExpect(jsonPath(SHIPPED_ITEM_PATH + ".inspectionFailed").value(false))
+                .andExpect(jsonPath(UNSHIPPED_ITEM_PATH + ".exchangeDelivery").doesNotExist())
+                .andExpect(jsonPath(UNSHIPPED_ITEM_PATH + ".inspectionFailed").value(false));
+    }
+
+    @Test
+    @DisplayName("T5 검수 FAIL 이력(W2): FAIL 클레임 품목 inspectionFailed true · FAIL 재발송(교환 클레임 연결 OUTBOUND·최신 id)은 교환 배송에서 제외")
+    void detail_inspectionFailed_excludesFailReshipment() throws Exception {
+        seedFailedExchangeWithReshipment();
+
+        mockMvc.perform(get(ORDER_URL).with(authHeaders.buyer(BUYER_USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(SHIPPED_ITEM_PATH + ".inspectionFailed").value(true))
+                .andExpect(jsonPath(SHIPPED_ITEM_PATH + ".exchangeDelivery.trackingNo").value("EXCH-1"))
+                .andExpect(jsonPath(SHIPPED_ITEM_PATH + ".delivery.trackingNo").value("ORIG-NEW"))
+                .andExpect(jsonPath(UNSHIPPED_ITEM_PATH + ".inspectionFailed").value(false));
+    }
+
+    @Test
     @DisplayName("T3 cross-tenant: 타 buyer → 404 ORDER_NOT_FOUND(존재 은닉·배송 정보 미노출)")
     void detail_crossTenant_returns404() throws Exception {
         mockMvc.perform(get(ORDER_URL).with(authHeaders.buyer(OTHER_BUYER)))
@@ -143,10 +172,27 @@ class BuyerOrderDeliveryQueryIntegrationTest extends AbstractIntegrationTest {
                         "2026-09-01 09:00:00", "2026-09-03 10:00:00", null);
                 insertDelivery(DELIVERY_NEW_ORIGINAL, "BODQDLV2", "OUTBOUND", "HANJIN", "ORIG-NEW", "DELIVERED",
                         "2026-09-10 09:00:00", "2026-09-12 15:30:00", null);
-                insertDelivery(DELIVERY_EXCHANGE, "BODQDLV3", "OUTBOUND", "POST", "EXCH-1", "SHIPPING",
-                        "2026-09-15 09:00:00", null, CLAIM_ID);
+                insertDelivery(DELIVERY_EXCHANGE, "BODQDLV3", "OUTBOUND", "POST", "EXCH-1", "DELIVERED",
+                        "2026-09-15 09:00:00", "2026-09-17 11:00:00", CLAIM_ID);
                 insertDelivery(DELIVERY_RETURN, "BODQDLV4", "RETURN", "LOGEN", "RTN-1", "SHIPPING",
                         "2026-09-14 09:00:00", null, CLAIM_ID);
+            } finally {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
+            }
+        });
+    }
+
+    /** 검수 FAIL로 종결된 교환 클레임(REJECTED·inspection_result FAIL) + 그 재발송 OUTBOUND(클레임 연결·가장 큰 id). */
+    private void seedFailedExchangeWithReshipment() {
+        tx.executeWithoutResult(s -> {
+            try {
+                jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
+                jdbc.update("INSERT INTO claim (id, public_id, order_item_id, type, reason_code, status, requested_by, "
+                                + "previous_order_item_status, inspection_result, created_at, updated_at) "
+                                + "VALUES (?, ?, ?, 'EXCHANGE', 'PRODUCT_DEFECT', 'REJECTED', ?, 'DELIVERED', 'FAIL', NOW(6), NOW(6))",
+                        FAILED_CLAIM_ID, pid("clm_", "BODQCLM2"), SHIPPED_ITEM_ID, BUYER_USER);
+                insertDelivery(DELIVERY_FAIL_RESHIPMENT, "BODQDLV5", "OUTBOUND", "CJ", "RESHIP-1", "SHIPPING",
+                        "2026-09-20 09:00:00", null, FAILED_CLAIM_ID);
             } finally {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
             }
@@ -171,8 +217,8 @@ class BuyerOrderDeliveryQueryIntegrationTest extends AbstractIntegrationTest {
         tx.executeWithoutResult(s -> {
             try {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
-                jdbc.update("DELETE FROM delivery WHERE id BETWEEN ? AND ?", DELIVERY_OLD_ORIGINAL, DELIVERY_RETURN);
-                jdbc.update("DELETE FROM claim WHERE id = ?", CLAIM_ID);
+                jdbc.update("DELETE FROM delivery WHERE id BETWEEN ? AND ?", DELIVERY_OLD_ORIGINAL, DELIVERY_FAIL_RESHIPMENT);
+                jdbc.update("DELETE FROM claim WHERE id IN (?, ?)", CLAIM_ID, FAILED_CLAIM_ID);
                 jdbc.update("DELETE FROM order_item WHERE id IN (?, ?)", SHIPPED_ITEM_ID, UNSHIPPED_ITEM_ID);
                 jdbc.update("DELETE FROM `order` WHERE id = ?", ORDER_ID);
                 jdbc.update("DELETE FROM product_variant WHERE id = ?", VARIANT_ID);

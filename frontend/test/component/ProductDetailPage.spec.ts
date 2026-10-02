@@ -57,3 +57,23 @@ describe('pages/products/[productPublicId].vue — 대표 이미지', () => {
     expect(wrapper.find('img[fetchpriority="high"]').attributes('src')).toBe(SUB_IMAGE_URL)
   })
 })
+
+// P-08: 수량 상한 999(BE CartItem.MAX_QUANTITY). 초과 입력은 999로 보정하고 안내한다.
+describe('pages/products/[productPublicId].vue — 수량 상한(P-08)', () => {
+  it('999에서 + → 999 유지 + 상한 안내 · − 누르면 안내 해제', async () => {
+    const wrapper = await mountSuspended(ProductDetailPage)
+    const increment = wrapper.find('button[aria-label="수량 증가"]')
+    for (let click = 1; click < 999; click += 1) {
+      await increment.trigger('click')
+    }
+    expect(wrapper.find('[data-testid="quantity-limit-notice"]').exists()).toBe(false)
+
+    await increment.trigger('click')
+    expect(wrapper.find('button[aria-label="수량 감소"] + span').text()).toBe('999')
+    expect(wrapper.find('[data-testid="quantity-limit-notice"]').text()).toBe('수량은 최대 999개까지 선택할 수 있습니다.')
+
+    await wrapper.find('button[aria-label="수량 감소"]').trigger('click')
+    expect(wrapper.find('button[aria-label="수량 감소"] + span').text()).toBe('998')
+    expect(wrapper.find('[data-testid="quantity-limit-notice"]').exists()).toBe(false)
+  })
+})

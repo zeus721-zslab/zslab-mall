@@ -144,13 +144,19 @@ export const CLAIM_REASON_CODES: ClaimReasonCode[] = [
  * DELIVERED만 허용하므로 SHIPPING → RETURN은 노출하지 않는다(FE-29):
  *   PAID·PREPARING → CANCEL(배송 전 취소) / DELIVERED → RETURN·EXCHANGE(수령 후 반품·교환). 그 외 상태는 요청 불가([] → 버튼 미노출).
  * 교환 완료 품목(exchangeCompleted·FE-30-4·D-177)은 DELIVERED로 돌아오지만 재교환이 422라 EXCHANGE를 뺀다(반품은 유지).
+ * 검수 불합격 이력 품목(inspectionFailed·W2)은 반품·교환 재요청이 모두 422라 둘 다 뺀다(BE 판정 기준과 같음 — 유형 무관 FAIL 이력).
  */
-export function claimableTypes(itemStatusCode: string, exchangeCompleted: boolean = false): ClaimType[] {
+export function claimableTypes(
+  itemStatusCode: string,
+  exchangeCompleted: boolean = false,
+  inspectionFailed: boolean = false,
+): ClaimType[] {
   switch (itemStatusCode) {
     case 'PAID':
     case 'PREPARING':
       return ['CANCEL']
     case 'DELIVERED':
+      if (inspectionFailed) return []
       return exchangeCompleted ? ['RETURN'] : ['RETURN', 'EXCHANGE']
     default:
       return []

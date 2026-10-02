@@ -7,6 +7,7 @@ import com.zslab.mall.order.controller.response.OrderSummaryResponse;
 import com.zslab.mall.order.controller.response.OrderSummaryResponse.ActiveClaimCount;
 import com.zslab.mall.order.controller.response.PagedResponse;
 import com.zslab.mall.claim.entity.Claim;
+import com.zslab.mall.claim.enums.ClaimInspectionResult;
 import com.zslab.mall.claim.enums.ClaimStatus;
 import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.repository.ClaimRepository;
@@ -28,6 +29,7 @@ import com.zslab.mall.product.entity.Product;
 import com.zslab.mall.product.entity.ProductVariant;
 import com.zslab.mall.product.repository.ProductRepository;
 import com.zslab.mall.product.repository.ProductVariantRepository;
+import com.zslab.mall.refund.repository.RefundRepository;
 import com.zslab.mall.review.enums.ReviewStatus;
 import com.zslab.mall.review.repository.ReviewByOrderItemProjection;
 import com.zslab.mall.review.repository.ReviewRepository;
@@ -81,6 +83,7 @@ public class BuyerOrderQueryService {
     private final DeliveryRepository deliveryRepository;
     private final PaymentRepository paymentRepository;
     private final ReviewRepository reviewRepository;
+    private final RefundRepository refundRepository;
 
     public BuyerOrderQueryService(
             OrderRepository orderRepository,
@@ -91,7 +94,8 @@ public class BuyerOrderQueryService {
             ClaimRepository claimRepository,
             DeliveryRepository deliveryRepository,
             PaymentRepository paymentRepository,
-            ReviewRepository reviewRepository) {
+            ReviewRepository reviewRepository,
+            RefundRepository refundRepository) {
         this.orderRepository = orderRepository;
         this.orderItemRepository = orderItemRepository;
         this.productRepository = productRepository;
@@ -101,6 +105,7 @@ public class BuyerOrderQueryService {
         this.deliveryRepository = deliveryRepository;
         this.paymentRepository = paymentRepository;
         this.reviewRepository = reviewRepository;
+        this.refundRepository = refundRepository;
     }
 
     /**
@@ -132,9 +137,19 @@ public class BuyerOrderQueryService {
             throw new OrderNotFoundException("주문을 찾을 수 없습니다: " + orderPublicId);
         }
         List<OrderItem> items = order.getItems();
+        // 클레임·OUTBOUND는 각 1회 배치 조회해 교환 완료·검수 FAIL·원 발송·교환 배송을 함께 파생한다(이 둘은 조회 추가 없음 · 환불 합만 1회 추가).
+        List<Claim> claims = claimsFor(items);
+        List<Delivery> outbounds = outboundDeliveriesFor(items);
+        Payment paidPayment = paidPaymentFor(order);
         return OrderResponse.fromOrderWithItems(
-                order, productsByIdFor(items), variantsByIdFor(items), sellersByIdFor(items), exchangeCompletedItemIdsFor(items),
-                originalDeliveryByItemIdFor(items), paidPaymentFor(order), reviewIdByItemIdFor(items));
+                order, productsByIdFor(items), variantsByIdFor(items), sellersByIdFor(items), exchangeCompletedItemIdsOf(claims),
+                originalDeliveryByItemIdOf(outbounds), paidPayment, completedRefundAmountFor(paidPayment),
+                reviewIdByItemIdFor(items), inspectionFailedItemIdsOf(claims), exchangeDeliveryByItemIdOf(outbounds, claims));
+    }
+
+    /** 결제 요약 대상 결제의 완료 환불 합(W5·{@link RefundRepository#sumCompletedByPaymentId}). 결제 요약이 없으면 조회 없이 0. */
+    private long completedRefundAmountFor(Payment paidPayment) {
+        return paidPayment == null ? 0L : refundRepository.sumCompletedByPaymentId(paidPayment.getId());
     }
 
     /**
@@ -167,31 +182,69 @@ public class BuyerOrderQueryService {
     }
 
     /**
-     * 품목 id별 원 발송 Delivery(Track 96-2 D-203·C-05). 주문 단위 1회 배치 조회(셀러 품목 조회와 같은
-     * {@code findByOrderItemIdInAndDirectionOrderByIdDesc} 재사용·품목별 개별 쿼리 없음). OUTBOUND 중 클레임 미연결(claim_id NULL)만
-     * 원 발송으로 보고 id DESC 정렬의 첫 등장(최신)을 유지한다 — 교환품·재발송은 클레임 상세가 담당한다. 품목이 없으면 조회 없이 빈 맵.
+     * 품목들의 OUTBOUND Delivery(id DESC). 주문 단위 1회 배치 조회(셀러 품목 조회와 같은
+     * {@code findByOrderItemIdInAndDirectionOrderByIdDesc} 재사용·품목별 개별 쿼리 없음). 품목이 없으면 조회 없이 빈 목록.
      */
-    private Map<Long, Delivery> originalDeliveryByItemIdFor(List<OrderItem> items) {
+    private List<Delivery> outboundDeliveriesFor(List<OrderItem> items) {
         if (items.isEmpty()) {
-            return Map.of();
+            return List.of();
         }
         List<Long> itemIds = items.stream().map(OrderItem::getId).toList();
-        return deliveryRepository.findByOrderItemIdInAndDirectionOrderByIdDesc(itemIds, DeliveryDirection.OUTBOUND).stream()
+        return deliveryRepository.findByOrderItemIdInAndDirectionOrderByIdDesc(itemIds, DeliveryDirection.OUTBOUND);
+    }
+
+    /**
+     * 품목 id별 원 발송 Delivery(Track 96-2 D-203·C-05). OUTBOUND 중 클레임 미연결(claim_id NULL)만 원 발송으로 보고 id DESC 정렬의
+     * 첫 등장(최신)을 유지한다 — 교환품은 {@link #exchangeDeliveryByItemIdOf}, FAIL 재발송은 클레임 상세가 담당한다.
+     */
+    private Map<Long, Delivery> originalDeliveryByItemIdOf(List<Delivery> outbounds) {
+        return outbounds.stream()
                 .filter(delivery -> delivery.getClaimId() == null)
                 .collect(Collectors.toMap(Delivery::getOrderItemId, Function.identity(), (latest, older) -> latest));
     }
 
     /**
-     * 완료된 교환(EXCHANGE·COMPLETED)이 있는 품목 id 집합(Track 83 D-177 보충·FE-30-4). 주문 단위 1회 배치 조회(관리자 enrich와 같은
-     * {@code findByOrderItemIdInOrderByIdDesc} 재사용·품목별 개별 쿼리 없음). 품목이 없으면 조회 없이 빈 집합.
+     * 품목 id별 교환품 발송 Delivery(W7). 교환 클레임(EXCHANGE)에 연결된 OUTBOUND 중 최신 1건이며, 검수 FAIL 클레임의 OUTBOUND는
+     * 원 상품 재발송(ClaimService.inspect → registerReshipment)이라 제외한다. 클레임·OUTBOUND 모두 이미 적재된 목록에서 거른다.
      */
-    private Set<Long> exchangeCompletedItemIdsFor(List<OrderItem> items) {
+    private Map<Long, Delivery> exchangeDeliveryByItemIdOf(List<Delivery> outbounds, List<Claim> claims) {
+        Set<Long> exchangeClaimIds = claims.stream()
+                .filter(claim -> claim.getType() == ClaimType.EXCHANGE
+                        && claim.getInspectionResult() != ClaimInspectionResult.FAIL)
+                .map(Claim::getId)
+                .collect(Collectors.toSet());
+        return outbounds.stream()
+                .filter(delivery -> delivery.getClaimId() != null && exchangeClaimIds.contains(delivery.getClaimId()))
+                .collect(Collectors.toMap(Delivery::getOrderItemId, Function.identity(), (latest, older) -> latest));
+    }
+
+    /**
+     * 품목들의 클레임 전체(id DESC). 주문 단위 1회 배치 조회(관리자 enrich와 같은 {@code findByOrderItemIdInOrderByIdDesc} 재사용·
+     * 품목별 개별 쿼리 없음). 품목이 없으면 조회 없이 빈 목록.
+     */
+    private List<Claim> claimsFor(List<OrderItem> items) {
         if (items.isEmpty()) {
-            return Set.of();
+            return List.of();
         }
         List<Long> itemIds = items.stream().map(OrderItem::getId).toList();
-        return claimRepository.findByOrderItemIdInOrderByIdDesc(itemIds).stream()
+        return claimRepository.findByOrderItemIdInOrderByIdDesc(itemIds);
+    }
+
+    /** 완료된 교환(EXCHANGE·COMPLETED)이 있는 품목 id 집합(Track 83 D-177 보충·FE-30-4). */
+    private Set<Long> exchangeCompletedItemIdsOf(List<Claim> claims) {
+        return claims.stream()
                 .filter(claim -> claim.getType() == ClaimType.EXCHANGE && claim.getStatus() == ClaimStatus.COMPLETED)
+                .map(Claim::getOrderItemId)
+                .collect(Collectors.toSet());
+    }
+
+    /**
+     * 검수 불합격(FAIL) 이력 클레임이 있는 품목 id 집합(W2). 유형을 가리지 않는다 — 반품·교환 요청 422 가드
+     * ({@code ClaimRepository.existsByOrderItemIdAndInspectionResult(FAIL)})와 같은 기준이어야 버튼 숨김과 서버 거부가 어긋나지 않는다.
+     */
+    private Set<Long> inspectionFailedItemIdsOf(List<Claim> claims) {
+        return claims.stream()
+                .filter(claim -> claim.getInspectionResult() == ClaimInspectionResult.FAIL)
                 .map(Claim::getOrderItemId)
                 .collect(Collectors.toSet());
     }
@@ -230,7 +283,9 @@ public class BuyerOrderQueryService {
         Map<Long, Product> productById = productsByIdFor(pageItems);
         Map<Long, ProductVariant> variantById = variantsByIdFor(pageItems);
         Map<Long, Seller> sellerById = sellersByIdFor(pageItems);
-        Set<Long> exchangeCompletedItemIds = exchangeCompletedItemIdsFor(pageItems);
+        List<Claim> pageClaims = claimsFor(pageItems);
+        Set<Long> exchangeCompletedItemIds = exchangeCompletedItemIdsOf(pageClaims);
+        Set<Long> inspectionFailedItemIds = inspectionFailedItemIdsOf(pageClaims);
         Map<Long, OrderItemReviewResponse.Written> reviewIdByItemId = reviewIdByItemIdFor(pageItems);
 
         // 페이지 순서(ordered_at DESC) 유지하며 items 로딩본으로 요약 생성(상품명은 order_item 스냅샷·Track 76).
@@ -238,7 +293,7 @@ public class BuyerOrderQueryService {
                 .map(order -> OrderSummaryResponse.from(
                         ordersWithItems.getOrDefault(order.getId(), order),
                         activeClaimsByOrderId.getOrDefault(order.getId(), List.of()),
-                        productById, variantById, sellerById, exchangeCompletedItemIds, reviewIdByItemId))
+                        productById, variantById, sellerById, exchangeCompletedItemIds, reviewIdByItemId, inspectionFailedItemIds))
                 .toList();
         Page<OrderSummaryResponse> summaryPage = new PageImpl<>(summaries, pageable, orders.getTotalElements());
         return PagedResponse.from(summaryPage);

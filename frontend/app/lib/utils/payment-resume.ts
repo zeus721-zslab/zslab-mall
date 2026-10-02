@@ -13,8 +13,11 @@ export function canResumePayment(statusCode: string): boolean {
   return statusCode === ('PENDING_PAYMENT' satisfies OrderStatusCode)
 }
 
-/** 미결제로 닫힌 주문 안내. 결제 버튼 대신 이 문구를 보여 "왜 결제할 수 없는지"를 말한다. */
-export const PAYMENT_EXPIRED_NOTICE = `결제 시간(${PAYMENT_EXPIRE_MINUTES}분)이 지나 자동 취소된 주문입니다. 다시 구매하려면 장바구니에 담아 새로 주문해 주세요.`
+/**
+ * 미결제로 닫힌 주문 안내. 결제 버튼 대신 이 문구를 보여 "왜 결제할 수 없는지"를 말한다.
+ * 원인을 단정하지 않는다(W8) — 결제창 취소·결제 시간 만료가 BE에서 같은 상태(PAYMENT_EXPIRED)로 닫혀 구분할 수 없다.
+ */
+export const PAYMENT_EXPIRED_NOTICE = '결제가 완료되지 않아 주문이 종료되었습니다. 다시 구매하려면 장바구니에 담아 새로 주문해 주세요.'
 
 /** 미결제 종료 안내를 띄울 상태. */
 export function isPaymentExpired(statusCode: string): boolean {
