@@ -4182,3 +4182,23 @@ BE 계약 Track 89-G D-189(`POST /admin/sellers/{slr_}/members` 201(`userPublicI
 - 문의·Q&A 원래 화면 e2e(inquiries·product-questions)는 초안 조회를 목으로 막지 않아 실 BE 404 → 실패 안내 경로를 탄다(단언 무영향).
 
 외부 검토: B / 생략(셀프 리뷰만)
+
+## FE-108: warn 구매자 화면 — hydration · 클레임 버튼 · 환불·교환 배송 표시 · 수량 상한 · 로그인 복귀 경로 (D-257) (2026-10-02)
+
+기준: D-257 응답 필드(inspectionFailed · payment.refundedAmount · exchangeDelivery) · docs/track-final-check/recon-report-warn.md §2 · SEC-24.
+
+### 결정
+- W1: `useOrderDetail`·`useClaimDetail`의 `getCachedData: () => undefined` 덮어쓰기를 제거한다. Nuxt 4.5.2 기본 getCachedData는 hydration 중에만 SSR payload를 재사용하고 클라이언트 진입은 다시 조회하므로(asyncData.js `getDefaultCachedData` — 그 밖엔 프리렌더 전용 static.data) "재방문 시 항상 재검증" 의도가 유지된다. 덮어쓰면 hydration 중에도 payload를 버려 첫 렌더가 스켈레톤 → mismatch였다. 별도 refresh 보완은 두지 않는다.
+- W2: `claimableTypes`에 inspectionFailed(셋째 인자)를 받아 DELIVERED라도 반품·교환을 뺀다. 주문 상세·목록이 같은 함수를 쓴다.
+- W5·W7: 주문 상세 합계 카드에 환불 금액(완료 환불 합 > 0일 때만) · 품목에 교환 배송 블록(택배사·송장·배송완료일 · 원 발송 블록과 별도 testid).
+- W8: 미결제 종료 안내를 원인 단정 없는 문구로 바꾼다 — "결제가 완료되지 않아 주문이 종료되었습니다…"(결제창 취소·시간 만료가 같은 PAYMENT_EXPIRED라 구분 불가).
+- P-08: 품목 수량 상한 999(app/lib/constants/cart.ts 단일 소스 · BE CartItem.MAX_QUANTITY). 상품 상세 스테퍼는 초과 시 999로 보정 + 안내, 장바구니 스테퍼는 999에서 요청 없이 안내. 실패 문구는 `cartQuantityErrorMessage` 공용 — 400 VALIDATION_FAILED(quantity) 단건 상한 문구 · 422 CART_ITEM_QUANTITY_LIMIT_EXCEEDED 합산 상한 문구 · 그 외 기존 일반 문구.
+- SEC-24: 구매자 로그인 복귀 경로(`resolveLoginRedirect`)는 `^/(?![/\\])` 통과 · `%5C`(대소문자) 미포함 · 1회 디코드 후 공백·제어문자(`\s`·U+0000–U+001F·U+007F) 미포함일 때만 허용하고, 그 외(디코드 실패 포함)는 '/'로 보낸다.
+
+대안 검토 없음(확정 결정 범위 안의 화면 구성 · SEC-24 디코드 실패 거부는 판정 불가라 안전 쪽).
+
+### §8 이월
+- W1 운영 확인 예정: 주문 상세 SSR 진입 콘솔 hydration 경고 0(로컬 MCP 확인은 데모 로그인 비활성으로 단위 테스트 — getCachedData 미지정 — 로 갈음).
+- 상품 상세 담기 실패 문구는 공용 헬퍼 단위 테스트로 고정했다(페이지 담기 경로 컴포넌트 테스트 없음).
+
+외부 검토: B / 생략(셀프 리뷰 지적 9건 중 수용 3건 + 보류 2건 반영)
