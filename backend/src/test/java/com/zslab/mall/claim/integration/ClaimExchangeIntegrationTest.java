@@ -17,6 +17,8 @@ import com.zslab.mall.claim.enums.ClaimReasonCode;
 import com.zslab.mall.claim.enums.ClaimRejectReasonCode;
 import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.exception.ClaimInvalidStateException;
+import com.zslab.mall.claim.service.ClaimRequestService;
+import com.zslab.mall.claim.service.ClaimReturnService;
 import com.zslab.mall.claim.service.ClaimService;
 import com.zslab.mall.common.exception.MalformedRequestException;
 import com.zslab.mall.common.security.AuthHeaders;
@@ -120,6 +122,10 @@ class ClaimExchangeIntegrationTest extends AbstractIntegrationTest {
     @Autowired
     private ClaimService claimService;
     @Autowired
+    private ClaimRequestService claimRequestService;
+    @Autowired
+    private ClaimReturnService claimReturnService;
+    @Autowired
     private DeliveryService deliveryService;
     @Autowired
     private ReturnWindowPolicy returnWindowPolicy;
@@ -173,11 +179,11 @@ class ClaimExchangeIntegrationTest extends AbstractIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT original_variant_id FROM claim WHERE id = ?", Long.class, claimId)).isEqualTo(VARIANT_ORIGINAL);
         assertThat(jdbc.queryForObject("SELECT exchange_reserved_at IS NOT NULL FROM claim WHERE id = ?", Boolean.class, claimId)).isTrue();
 
-        claimService.registerReturnShipmentByBuyer(claimPid(claimId), USER_ID, DeliveryCarrier.CJ, "CJ-EXC-RET");
-        claimService.confirmPickup(claimId, LocalDateTime.now());
+        claimReturnService.registerReturnShipmentByBuyer(claimPid(claimId), USER_ID, DeliveryCarrier.CJ, "CJ-EXC-RET");
+        claimReturnService.confirmPickup(claimId, LocalDateTime.now());
         assertThat(deliveryStatus(claimId, "RETURN")).isEqualTo("DELIVERED");
 
-        claimService.inspect(claimId, ClaimInspectionResult.PASS, true, null, null, null, null, LocalDateTime.now());
+        claimReturnService.inspect(claimId, ClaimInspectionResult.PASS, true, null, null, null, null, LocalDateTime.now());
         assertThat(refundRowCount(claimId)).as("교환 검수 PASS는 환불 미생성").isZero();
         assertThat(claimStatus(claimId)).isEqualTo("APPROVED");
 
@@ -215,7 +221,7 @@ class ClaimExchangeIntegrationTest extends AbstractIntegrationTest {
                 .hasMessageContaining("필수");
         assertThatThrownBy(() -> requestExchange(pid("var_", "NOPE"))).isInstanceOf(MalformedRequestException.class)
                 .hasMessageContaining("찾을 수 없습니다");
-        assertThatThrownBy(() -> claimService.request(new ClaimRequestCommand(ORDER_ITEM_PID, ClaimType.RETURN,
+        assertThatThrownBy(() -> claimRequestService.request(new ClaimRequestCommand(ORDER_ITEM_PID, ClaimType.RETURN,
                 ClaimReasonCode.PRODUCT_DEFECT, "반품인데 옵션", USER_ID, LocalDateTime.now(), List.of(), VAR_EXCHANGE_PID)))
                 .isInstanceOf(MalformedRequestException.class).hasMessageContaining("교환 요청에서만");
         assertThat(claimCount()).isZero();
@@ -258,9 +264,9 @@ class ClaimExchangeIntegrationTest extends AbstractIntegrationTest {
         Long failed = requestExchange(VAR_EXCHANGE_PID).getId();
         claimService.approve(failed, LocalDateTime.now(), null);
         assertThat(reserved(VARIANT_EXCHANGE)).isEqualTo(1);
-        claimService.registerReturnShipmentByBuyer(claimPid(failed), USER_ID, DeliveryCarrier.CJ, "CJ-EXC-RET2");
-        claimService.confirmPickup(failed, LocalDateTime.now());
-        claimService.inspect(failed, ClaimInspectionResult.FAIL, null, ClaimRejectReasonCode.INSPECTION_FAILED, "불합격",
+        claimReturnService.registerReturnShipmentByBuyer(claimPid(failed), USER_ID, DeliveryCarrier.CJ, "CJ-EXC-RET2");
+        claimReturnService.confirmPickup(failed, LocalDateTime.now());
+        claimReturnService.inspect(failed, ClaimInspectionResult.FAIL, null, ClaimRejectReasonCode.INSPECTION_FAILED, "불합격",
                 DeliveryCarrier.CJ, "CJ-EXC-RESHIP", LocalDateTime.now());
 
         assertThat(claimStatus(failed)).isEqualTo("REJECTED");
@@ -306,13 +312,13 @@ class ClaimExchangeIntegrationTest extends AbstractIntegrationTest {
         claimService.approve(claimId, LocalDateTime.now(), null);
         assertThatThrownBy(() -> deliveryService.registerExchangeShipment(claimId, DeliveryCarrier.CJ, "X"))
                 .isInstanceOf(ClaimInvalidStateException.class);
-        claimService.registerReturnShipmentByBuyer(claimPid(claimId), USER_ID, DeliveryCarrier.CJ, "CJ-EXC-RET6");
-        claimService.confirmPickup(claimId, LocalDateTime.now());
+        claimReturnService.registerReturnShipmentByBuyer(claimPid(claimId), USER_ID, DeliveryCarrier.CJ, "CJ-EXC-RET6");
+        claimReturnService.confirmPickup(claimId, LocalDateTime.now());
         assertThatThrownBy(() -> deliveryService.registerExchangeShipment(claimId, DeliveryCarrier.CJ, "X"))
                 .isInstanceOf(ClaimInvalidStateException.class);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM delivery WHERE claim_id = ? AND direction = 'OUTBOUND'", Integer.class, claimId)).isZero();
 
-        claimService.inspect(claimId, ClaimInspectionResult.PASS, true, null, null, null, null, LocalDateTime.now());
+        claimReturnService.inspect(claimId, ClaimInspectionResult.PASS, true, null, null, null, null, LocalDateTime.now());
         Delivery shipment = deliveryService.registerExchangeShipment(claimId, DeliveryCarrier.CJ, "CJ-EXC-OUT6");
         assertThatThrownBy(() -> deliveryService.registerExchangeShipment(claimId, DeliveryCarrier.CJ, "DUP"))
                 .isInstanceOf(ClaimInvalidStateException.class).hasMessageContaining("이미 등록");
@@ -349,9 +355,9 @@ class ClaimExchangeIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("T8 반품 동일 검증: 사유 제한(DELIVERY_DELAY 422) / 기한 초과 422 / 단순변심 첨부 400 / 검수 FAIL 이력 422 — RETURN 요청과 같은 결과")
     void sameValidationAsReturn() {
-        assertThatThrownBy(() -> claimService.request(command(ClaimType.EXCHANGE, ClaimReasonCode.DELIVERY_DELAY, VAR_EXCHANGE_PID)))
+        assertThatThrownBy(() -> claimRequestService.request(command(ClaimType.EXCHANGE, ClaimReasonCode.DELIVERY_DELAY, VAR_EXCHANGE_PID)))
                 .isInstanceOf(ClaimInvalidStateException.class).hasMessageContaining("사유");
-        assertThatThrownBy(() -> claimService.request(new ClaimRequestCommand(ORDER_ITEM_PID, ClaimType.EXCHANGE,
+        assertThatThrownBy(() -> claimRequestService.request(new ClaimRequestCommand(ORDER_ITEM_PID, ClaimType.EXCHANGE,
                 ClaimReasonCode.BUYER_CHANGED_MIND, "변심 첨부", USER_ID, LocalDateTime.now(), List.of(pid("att_", "EXCATT")), VAR_EXCHANGE_PID)))
                 .isInstanceOf(MalformedRequestException.class).hasMessageContaining("사진 첨부");
 
@@ -359,7 +365,7 @@ class ClaimExchangeIntegrationTest extends AbstractIntegrationTest {
         jdbc.update("UPDATE delivery SET delivered_at = NOW(6) - INTERVAL 8 DAY WHERE id = ?", OUTBOUND_DELIVERY_ID);
         assertThatThrownBy(() -> requestExchange(VAR_EXCHANGE_PID)).isInstanceOf(ClaimInvalidStateException.class)
                 .hasMessageContaining("가능 기간");
-        assertThatThrownBy(() -> claimService.request(command(ClaimType.RETURN, ClaimReasonCode.PRODUCT_DEFECT, null)))
+        assertThatThrownBy(() -> claimRequestService.request(command(ClaimType.RETURN, ClaimReasonCode.PRODUCT_DEFECT, null)))
                 .isInstanceOf(ClaimInvalidStateException.class).hasMessageContaining("가능 기간");
         jdbc.update("UPDATE delivery SET delivered_at = NOW(6) - INTERVAL 1 DAY WHERE id = ?", OUTBOUND_DELIVERY_ID);
 
@@ -369,7 +375,7 @@ class ClaimExchangeIntegrationTest extends AbstractIntegrationTest {
                         + "'FAIL', NOW(6), NOW(6))", 9499L, pid("clm_", "EXCFAIL"), ORDER_ITEM_ID));
         assertThatThrownBy(() -> requestExchange(VAR_EXCHANGE_PID)).isInstanceOf(ClaimInvalidStateException.class)
                 .hasMessageContaining("불합격 이력");
-        assertThatThrownBy(() -> claimService.request(command(ClaimType.RETURN, ClaimReasonCode.PRODUCT_DEFECT, null)))
+        assertThatThrownBy(() -> claimRequestService.request(command(ClaimType.RETURN, ClaimReasonCode.PRODUCT_DEFECT, null)))
                 .isInstanceOf(ClaimInvalidStateException.class).hasMessageContaining("불합격 이력");
     }
 
@@ -388,12 +394,12 @@ class ClaimExchangeIntegrationTest extends AbstractIntegrationTest {
                 .hasMessageContaining("다시 교환할 수 없습니다");
 
         seed(this::seedPayment);
-        Claim returnClaim = claimService.request(command(ClaimType.RETURN, ClaimReasonCode.PRODUCT_DEFECT, null));
+        Claim returnClaim = claimRequestService.request(command(ClaimType.RETURN, ClaimReasonCode.PRODUCT_DEFECT, null));
         Long returnId = returnClaim.getId();
         claimService.approve(returnId, LocalDateTime.now(), null);
-        claimService.registerReturnShipmentByBuyer(claimPid(returnId), USER_ID, DeliveryCarrier.CJ, "CJ-RET-AFTER");
-        claimService.confirmPickup(returnId, LocalDateTime.now());
-        claimService.inspect(returnId, ClaimInspectionResult.PASS, true, null, null, null, null, LocalDateTime.now());
+        claimReturnService.registerReturnShipmentByBuyer(claimPid(returnId), USER_ID, DeliveryCarrier.CJ, "CJ-RET-AFTER");
+        claimReturnService.confirmPickup(returnId, LocalDateTime.now());
+        claimReturnService.inspect(returnId, ClaimInspectionResult.PASS, true, null, null, null, null, LocalDateTime.now());
         // 환불 완료 콜백 대신 종결 primitive 직접 호출(재고 복구 경로 검증 목적)
         claimService.markCompleted(returnId);
 
@@ -502,9 +508,9 @@ class ClaimExchangeIntegrationTest extends AbstractIntegrationTest {
                 .as("승인 재시도는 스냅샷을 덮어쓰지 않는다").isEqualTo("색상: 빨강");
         seed(() -> jdbc.update("DELETE FROM product_option_value WHERE id = ?", VARIANT_ORIGINAL)); // FK_CHECKS=0 TX(옵션값 삭제 모사)
 
-        claimService.registerReturnShipmentByBuyer(claimPid(claimId), USER_ID, DeliveryCarrier.CJ, "CJ-EXC-RET12");
-        claimService.confirmPickup(claimId, LocalDateTime.now());
-        claimService.inspect(claimId, ClaimInspectionResult.PASS, true, null, null, null, null, LocalDateTime.now());
+        claimReturnService.registerReturnShipmentByBuyer(claimPid(claimId), USER_ID, DeliveryCarrier.CJ, "CJ-EXC-RET12");
+        claimReturnService.confirmPickup(claimId, LocalDateTime.now());
+        claimReturnService.inspect(claimId, ClaimInspectionResult.PASS, true, null, null, null, null, LocalDateTime.now());
         deliveryService.markDelivered(deliveryService.registerExchangeShipment(claimId, DeliveryCarrier.CJ, "CJ-EXC-OUT12").getId());
         assertThat(jdbc.queryForObject("SELECT option_label FROM order_item WHERE id = ?", String.class, ORDER_ITEM_ID)).isEqualTo("색상: 파랑");
 
@@ -610,7 +616,7 @@ class ClaimExchangeIntegrationTest extends AbstractIntegrationTest {
     // ==================== helpers ====================
 
     private Claim requestExchange(String exchangeVariantPid) {
-        return claimService.request(command(ClaimType.EXCHANGE, ClaimReasonCode.PRODUCT_DEFECT, exchangeVariantPid));
+        return claimRequestService.request(command(ClaimType.EXCHANGE, ClaimReasonCode.PRODUCT_DEFECT, exchangeVariantPid));
     }
 
     private static ClaimRequestCommand command(ClaimType type, ClaimReasonCode reasonCode, String exchangeVariantPid) {
@@ -621,9 +627,9 @@ class ClaimExchangeIntegrationTest extends AbstractIntegrationTest {
     private Long runToInspection(boolean restock) {
         Long claimId = requestExchange(VAR_EXCHANGE_PID).getId();
         claimService.approve(claimId, LocalDateTime.now(), null);
-        claimService.registerReturnShipmentByBuyer(claimPid(claimId), USER_ID, DeliveryCarrier.CJ, "CJ-EXC-RET-" + claimId);
-        claimService.confirmPickup(claimId, LocalDateTime.now());
-        claimService.inspect(claimId, ClaimInspectionResult.PASS, restock, null, null, null, null, LocalDateTime.now());
+        claimReturnService.registerReturnShipmentByBuyer(claimPid(claimId), USER_ID, DeliveryCarrier.CJ, "CJ-EXC-RET-" + claimId);
+        claimReturnService.confirmPickup(claimId, LocalDateTime.now());
+        claimReturnService.inspect(claimId, ClaimInspectionResult.PASS, restock, null, null, null, null, LocalDateTime.now());
         return claimId;
     }
 

@@ -19,7 +19,7 @@ import com.zslab.mall.claim.controller.request.ClaimRequestCommand;
 import com.zslab.mall.claim.enums.ClaimReasonCode;
 import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.exception.ClaimInvalidStateException;
-import com.zslab.mall.claim.service.ClaimService;
+import com.zslab.mall.claim.service.ClaimRequestService;
 import com.zslab.mall.common.security.AuthHeaders;
 import com.zslab.mall.delivery.enums.DeliveryCarrier;
 import com.zslab.mall.notification.adapter.SmsSender;
@@ -116,7 +116,7 @@ class Track80CancelFlowIntegrationTest extends AbstractIntegrationTest {
     @Autowired
     private AuthHeaders authHeaders;
     @Autowired
-    private ClaimService claimService;
+    private ClaimRequestService claimRequestService;
     @Autowired
     private OrderShippingService orderShippingService;
     @Autowired
@@ -470,7 +470,7 @@ class Track80CancelFlowIntegrationTest extends AbstractIntegrationTest {
     }
 
     private String requestClaim(String orderItemPid, ClaimType type, ClaimReasonCode reasonCode) {
-        return claimService.request(new ClaimRequestCommand(orderItemPid, type, reasonCode, "테스트", USER_ID,
+        return claimRequestService.request(new ClaimRequestCommand(orderItemPid, type, reasonCode, "테스트", USER_ID,
                 LocalDateTime.now())).getPublicId();
     }
 

@@ -17,6 +17,7 @@ import com.zslab.mall.claim.exception.ClaimNotFoundException;
 import com.zslab.mall.claim.repository.ClaimRepository;
 import com.zslab.mall.claim.service.AdminClaimBulkApproveService;
 import com.zslab.mall.claim.service.AdminClaimQueryService;
+import com.zslab.mall.claim.service.ClaimReturnService;
 import com.zslab.mall.claim.service.ClaimService;
 import com.zslab.mall.audit.controller.response.AdminAuditLogResponse;
 import com.zslab.mall.claim.controller.request.ReturnShipmentRequest;
@@ -60,6 +61,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class AdminClaimController {
 
     private final ClaimService claimService;
+    private final ClaimReturnService claimReturnService;
     private final AdminClaimQueryService adminClaimQueryService;
     private final ClaimRepository claimRepository;
     private final OrderItemRepository orderItemRepository;
@@ -70,6 +72,7 @@ public class AdminClaimController {
 
     public AdminClaimController(
             ClaimService claimService,
+            ClaimReturnService claimReturnService,
             AdminClaimQueryService adminClaimQueryService,
             ClaimRepository claimRepository,
             OrderItemRepository orderItemRepository,
@@ -78,6 +81,7 @@ public class AdminClaimController {
             AdminAuditLogQueryService adminAuditLogQueryService,
             AdminClaimBulkApproveService adminClaimBulkApproveService) {
         this.claimService = claimService;
+        this.claimReturnService = claimReturnService;
         this.adminClaimQueryService = adminClaimQueryService;
         this.claimRepository = claimRepository;
         this.orderItemRepository = orderItemRepository;
@@ -190,7 +194,7 @@ public class AdminClaimController {
     public ReturnShipmentResponse registerReturnShipmentByAdmin(@PathVariable String claimPublicId,
             @RequestBody @Valid ReturnShipmentRequest body, HttpServletRequest request) {
         AuditContext auditContext = auditContext(request);
-        Delivery delivery = claimService.registerReturnShipmentByAdmin(
+        Delivery delivery = claimReturnService.registerReturnShipmentByAdmin(
                 claimPublicId, body.carrier(), body.trackingNo(), auditContext);
         return ReturnShipmentResponse.from(delivery);
     }
@@ -203,7 +207,7 @@ public class AdminClaimController {
         AuditContext auditContext = auditContext(request);
         Claim claim = claimRepository.findByPublicId(claimPublicId)
                 .orElseThrow(() -> new ClaimNotFoundException("클레임을 찾을 수 없습니다: publicId=" + claimPublicId));
-        claimService.confirmPickupByAdmin(claim.getId(), LocalDateTime.now(), auditContext);
+        claimReturnService.confirmPickupByAdmin(claim.getId(), LocalDateTime.now(), auditContext);
         return toResponse(claimPublicId);
     }
 
@@ -217,7 +221,7 @@ public class AdminClaimController {
         AuditContext auditContext = auditContext(request);
         Claim claim = claimRepository.findByPublicId(claimPublicId)
                 .orElseThrow(() -> new ClaimNotFoundException("클레임을 찾을 수 없습니다: publicId=" + claimPublicId));
-        claimService.inspectByAdmin(claim.getId(), body.result(), body.restock(), body.rejectReasonCode(), body.memo(),
+        claimReturnService.inspectByAdmin(claim.getId(), body.result(), body.restock(), body.rejectReasonCode(), body.memo(),
                 body.reshipCarrier(), body.reshipTrackingNo(), LocalDateTime.now(), auditContext);
         return toResponse(claimPublicId);
     }

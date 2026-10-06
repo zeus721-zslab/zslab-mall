@@ -9,6 +9,9 @@ import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.controller.response.ReturnShipmentResponse;
 import com.zslab.mall.claim.entity.Claim;
 import com.zslab.mall.claim.service.ClaimAttachmentService;
+import com.zslab.mall.claim.service.ClaimQueryService;
+import com.zslab.mall.claim.service.ClaimRequestService;
+import com.zslab.mall.claim.service.ClaimReturnService;
 import com.zslab.mall.claim.service.ClaimService;
 import com.zslab.mall.common.auth.BuyerActorResolver;
 import com.zslab.mall.delivery.entity.Delivery;
@@ -43,12 +46,19 @@ import org.springframework.web.multipart.MultipartFile;
 public class BuyerClaimController {
 
     private final ClaimService claimService;
+    private final ClaimQueryService claimQueryService;
+    private final ClaimRequestService claimRequestService;
+    private final ClaimReturnService claimReturnService;
     private final ClaimAttachmentService claimAttachmentService;
     private final BuyerActorResolver buyerActorResolver;
 
-    public BuyerClaimController(ClaimService claimService, ClaimAttachmentService claimAttachmentService,
-            BuyerActorResolver buyerActorResolver) {
+    public BuyerClaimController(ClaimService claimService, ClaimQueryService claimQueryService,
+            ClaimRequestService claimRequestService, ClaimReturnService claimReturnService,
+            ClaimAttachmentService claimAttachmentService, BuyerActorResolver buyerActorResolver) {
         this.claimService = claimService;
+        this.claimQueryService = claimQueryService;
+        this.claimRequestService = claimRequestService;
+        this.claimReturnService = claimReturnService;
         this.claimAttachmentService = claimAttachmentService;
         this.buyerActorResolver = buyerActorResolver;
     }
@@ -63,7 +73,7 @@ public class BuyerClaimController {
             @RequestBody @Valid ReturnShipmentRequest request,
             HttpServletRequest httpRequest) {
         Long buyerId = buyerActorResolver.resolve(httpRequest);
-        Delivery delivery = claimService.registerReturnShipmentByBuyer(claimPublicId, buyerId, request.carrier(), request.trackingNo());
+        Delivery delivery = claimReturnService.registerReturnShipmentByBuyer(claimPublicId, buyerId, request.carrier(), request.trackingNo());
         return ResponseEntity.ok(ReturnShipmentResponse.from(delivery));
     }
 
@@ -83,7 +93,7 @@ public class BuyerClaimController {
     public ResponseEntity<ClaimResponse> request(
             @RequestBody @Valid ClaimRequestRequest request, HttpServletRequest httpRequest) {
         Long buyerId = buyerActorResolver.resolve(httpRequest);
-        Claim claim = claimService.request(request.toCommand(buyerId, LocalDateTime.now()));
+        Claim claim = claimRequestService.request(request.toCommand(buyerId, LocalDateTime.now()));
         ClaimResponse response = ClaimResponse.from(claim, request.orderItemPublicId(),
                 claimAttachmentService.urlsOf(claim.getId()));
         return ResponseEntity.created(URI.create("/api/v1/claims/" + claim.getPublicId())).body(response);
@@ -94,7 +104,7 @@ public class BuyerClaimController {
     public ResponseEntity<ClaimResponse> getOne(
             @PathVariable String claimPublicId, HttpServletRequest httpRequest) {
         Long buyerId = buyerActorResolver.resolve(httpRequest);
-        return ResponseEntity.ok(claimService.getClaim(claimPublicId, buyerId));
+        return ResponseEntity.ok(claimQueryService.getClaim(claimPublicId, buyerId));
     }
 
     /**
@@ -106,7 +116,7 @@ public class BuyerClaimController {
             @PathVariable String claimPublicId, HttpServletRequest httpRequest) {
         Long buyerId = buyerActorResolver.resolve(httpRequest);
         claimService.cancelByBuyer(claimPublicId, buyerId, LocalDateTime.now());
-        return ResponseEntity.ok(claimService.getClaim(claimPublicId, buyerId));
+        return ResponseEntity.ok(claimQueryService.getClaim(claimPublicId, buyerId));
     }
 
     /**
@@ -120,6 +130,6 @@ public class BuyerClaimController {
             @RequestParam(defaultValue = "20") int size,
             HttpServletRequest httpRequest) {
         Long buyerId = buyerActorResolver.resolve(httpRequest);
-        return ResponseEntity.ok(claimService.listClaims(buyerId, type, page, size));
+        return ResponseEntity.ok(claimQueryService.listClaims(buyerId, type, page, size));
     }
 }

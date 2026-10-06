@@ -21,6 +21,9 @@ import com.zslab.mall.claim.controller.response.ClaimResponse;
 import com.zslab.mall.claim.exception.ClaimInvalidStateException;
 import com.zslab.mall.claim.exception.ClaimNotFoundException;
 import com.zslab.mall.claim.service.ClaimAttachmentService;
+import com.zslab.mall.claim.service.ClaimQueryService;
+import com.zslab.mall.claim.service.ClaimRequestService;
+import com.zslab.mall.claim.service.ClaimReturnService;
 import com.zslab.mall.claim.service.ClaimService;
 import com.zslab.mall.common.auth.BuyerActorResolver;
 import com.zslab.mall.common.exception.MalformedRequestException;
@@ -67,6 +70,15 @@ class BuyerClaimControllerTest {
     private ClaimService claimService;
 
     @MockitoBean
+    private ClaimQueryService claimQueryService;
+
+    @MockitoBean
+    private ClaimRequestService claimRequestService;
+
+    @MockitoBean
+    private ClaimReturnService claimReturnService;
+
+    @MockitoBean
     private ClaimAttachmentService claimAttachmentService;
 
     @MockitoBean
@@ -104,7 +116,7 @@ class BuyerClaimControllerTest {
     void request_returns201_withLocation() throws Exception {
         // mockClaim() 내부 when() 호출이 바깥 스터빙 진행 중 실행되지 않도록 먼저 생성한다(중첩 스터빙 회피).
         Claim claim = mockClaim();
-        when(claimService.request(any())).thenReturn(claim);
+        when(claimRequestService.request(any())).thenReturn(claim);
 
         mockMvc.perform(post("/api/v1/claims").header("X-Buyer-Id", BUYER_ID)
                         .contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
@@ -215,7 +227,7 @@ class BuyerClaimControllerTest {
     @Test
     @DisplayName("POST: Service ClaimNotFoundException → 404 CLAIM_NOT_FOUND")
     void request_serviceNotFound_returns404() throws Exception {
-        when(claimService.request(any())).thenThrow(new ClaimNotFoundException("주문 품목을 찾을 수 없습니다"));
+        when(claimRequestService.request(any())).thenThrow(new ClaimNotFoundException("주문 품목을 찾을 수 없습니다"));
 
         mockMvc.perform(post("/api/v1/claims").header("X-Buyer-Id", BUYER_ID)
                         .contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
@@ -226,7 +238,7 @@ class BuyerClaimControllerTest {
     @Test
     @DisplayName("POST: Service ClaimInvalidStateException → 422 CLAIM_STATE_INVALID")
     void request_serviceInvalidState_returns422() throws Exception {
-        when(claimService.request(any())).thenThrow(new ClaimInvalidStateException("취소 요청 불가 상태"));
+        when(claimRequestService.request(any())).thenThrow(new ClaimInvalidStateException("취소 요청 불가 상태"));
 
         mockMvc.perform(post("/api/v1/claims").header("X-Buyer-Id", BUYER_ID)
                         .contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
@@ -239,7 +251,7 @@ class BuyerClaimControllerTest {
     @Test
     @DisplayName("GET 단건: 정상 조회 → 200 + ClaimResponse")
     void getOne_returns200() throws Exception {
-        when(claimService.getClaim(eq(CLAIM_PUBLIC_ID), anyLong())).thenReturn(claimResponse());
+        when(claimQueryService.getClaim(eq(CLAIM_PUBLIC_ID), anyLong())).thenReturn(claimResponse());
 
         mockMvc.perform(get("/api/v1/claims/" + CLAIM_PUBLIC_ID).header("X-Buyer-Id", BUYER_ID))
                 .andExpect(status().isOk())
@@ -261,7 +273,7 @@ class BuyerClaimControllerTest {
     @Test
     @DisplayName("GET 단건: 미존재·타인 → 404 CLAIM_NOT_FOUND(정보 노출 회피·Q8)")
     void getOne_notFound_returns404() throws Exception {
-        when(claimService.getClaim(anyString(), anyLong()))
+        when(claimQueryService.getClaim(anyString(), anyLong()))
                 .thenThrow(new ClaimNotFoundException("클레임을 찾을 수 없습니다"));
 
         mockMvc.perform(get("/api/v1/claims/" + CLAIM_PUBLIC_ID).header("X-Buyer-Id", BUYER_ID))
@@ -272,13 +284,13 @@ class BuyerClaimControllerTest {
     @Test
     @DisplayName("GET 단건: 형식 불일치 publicId → path @Pattern 미적용·Service 도달 후 404(J1)")
     void getOne_malformedPublicId_reachesServiceAnd404() throws Exception {
-        when(claimService.getClaim(eq("not-a-valid-id"), anyLong()))
+        when(claimQueryService.getClaim(eq("not-a-valid-id"), anyLong()))
                 .thenThrow(new ClaimNotFoundException("클레임을 찾을 수 없습니다"));
 
         mockMvc.perform(get("/api/v1/claims/not-a-valid-id").header("X-Buyer-Id", BUYER_ID))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("CLAIM_NOT_FOUND"));
-        verify(claimService).getClaim(eq("not-a-valid-id"), anyLong());
+        verify(claimQueryService).getClaim(eq("not-a-valid-id"), anyLong());
     }
 
     // ===== GET /api/v1/claims =====
@@ -286,7 +298,7 @@ class BuyerClaimControllerTest {
     @Test
     @DisplayName("GET 목록: 정상 → 200 PagedResponse 구조")
     void list_returns200() throws Exception {
-        when(claimService.listClaims(anyLong(), any(), anyInt(), anyInt()))
+        when(claimQueryService.listClaims(anyLong(), any(), anyInt(), anyInt()))
                 .thenReturn(new PagedResponse<>(List.of(), 0, 20, 0L, false));
 
         mockMvc.perform(get("/api/v1/claims").header("X-Buyer-Id", BUYER_ID)
@@ -312,23 +324,23 @@ class BuyerClaimControllerTest {
     @Test
     @DisplayName("GET 목록: size 파라미터 누락 → defaultValue 20 적용")
     void list_defaultSize_returns200() throws Exception {
-        when(claimService.listClaims(anyLong(), any(), anyInt(), anyInt()))
+        when(claimQueryService.listClaims(anyLong(), any(), anyInt(), anyInt()))
                 .thenReturn(new PagedResponse<>(List.of(), 5, 20, 0L, false));
 
         mockMvc.perform(get("/api/v1/claims").header("X-Buyer-Id", BUYER_ID).param("page", "5"))
                 .andExpect(status().isOk());
-        verify(claimService).listClaims(eq(1L), isNull(), eq(5), eq(20));
+        verify(claimQueryService).listClaims(eq(1L), isNull(), eq(5), eq(20));
     }
 
     @Test
     @DisplayName("GET 목록: type=RETURN → 서비스에 유형 필터 전달(Track 101-B 탭)")
     void list_typeFilter_returns200() throws Exception {
-        when(claimService.listClaims(anyLong(), any(), anyInt(), anyInt()))
+        when(claimQueryService.listClaims(anyLong(), any(), anyInt(), anyInt()))
                 .thenReturn(new PagedResponse<>(List.of(), 0, 20, 0L, false));
 
         mockMvc.perform(get("/api/v1/claims").header("X-Buyer-Id", BUYER_ID).param("type", "RETURN"))
                 .andExpect(status().isOk());
-        verify(claimService).listClaims(eq(1L), eq(ClaimType.RETURN), eq(0), eq(20));
+        verify(claimQueryService).listClaims(eq(1L), eq(ClaimType.RETURN), eq(0), eq(20));
     }
 
     @Test
@@ -341,11 +353,11 @@ class BuyerClaimControllerTest {
     @Test
     @DisplayName("GET 목록: page 파라미터 누락 → defaultValue 0 적용")
     void list_defaultPage_returns200() throws Exception {
-        when(claimService.listClaims(anyLong(), any(), anyInt(), anyInt()))
+        when(claimQueryService.listClaims(anyLong(), any(), anyInt(), anyInt()))
                 .thenReturn(new PagedResponse<>(List.of(), 0, 50, 0L, false));
 
         mockMvc.perform(get("/api/v1/claims").header("X-Buyer-Id", BUYER_ID).param("size", "50"))
                 .andExpect(status().isOk());
-        verify(claimService).listClaims(eq(1L), isNull(), eq(0), eq(50));
+        verify(claimQueryService).listClaims(eq(1L), isNull(), eq(0), eq(50));
     }
 }

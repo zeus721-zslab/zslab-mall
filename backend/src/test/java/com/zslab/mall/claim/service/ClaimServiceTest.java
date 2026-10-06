@@ -50,7 +50,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
@@ -108,8 +107,22 @@ class ClaimServiceTest {
     @Mock
     private ClaimSuggestionService claimSuggestionService;
 
-    @InjectMocks
     private ClaimService claimService;
+    private ClaimRequestService claimRequestService;
+    private ClaimQueryService claimQueryService;
+
+    @org.junit.jupiter.api.BeforeEach
+    void createServices() {
+        // D-265 분리: 공용 헬퍼(ClaimAccess)는 실객체로 두고 같은 mock 경계를 공유한다.
+        ClaimAccess claimAccess = new ClaimAccess(claimRepository, orderService);
+        claimService = new ClaimService(claimRepository, eventPublisher, claimExchangeService, entityManager,
+                auditRecorder, inboxSignalPublisher, claimSuggestionService, claimAccess);
+        claimRequestService = new ClaimRequestService(claimRepository, orderItemRepository, orderRepository, eventPublisher,
+                returnWindowPolicy, claimAttachmentService, claimExchangeService, entityManager, orderService,
+                inboxSignalPublisher, claimService);
+        claimQueryService = new ClaimQueryService(claimRepository, orderItemRepository, refundRepository, deliveryRepository,
+                claimAttachmentService, claimExchangeService, productRepository, claimAccess);
+    }
 
     @org.junit.jupiter.api.BeforeEach
     void stubNoExchangeVariant() {
@@ -147,7 +160,7 @@ class ClaimServiceTest {
         when(claimRepository.existsActiveByOrderItemId(ORDER_ITEM_ID)).thenReturn(false);
         when(claimRepository.save(any(Claim.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        Claim result = claimService.request(command(ClaimType.CANCEL));
+        Claim result = claimRequestService.request(command(ClaimType.CANCEL));
 
         assertThat(result.getType()).isEqualTo(ClaimType.CANCEL);
         assertThat(result.getStatus()).isEqualTo(ClaimStatus.REQUESTED);
@@ -163,7 +176,7 @@ class ClaimServiceTest {
     void request_orderItemNotFound_throws() {
         when(orderItemRepository.findByPublicId(ORDER_ITEM_PUBLIC_ID)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> claimService.request(command(ClaimType.CANCEL)))
+        assertThatThrownBy(() -> claimRequestService.request(command(ClaimType.CANCEL)))
                 .isInstanceOf(ClaimNotFoundException.class);
         verify(claimRepository, never()).save(any());
         verify(eventPublisher, never()).publishEvent(any());
@@ -177,7 +190,7 @@ class ClaimServiceTest {
         when(orderItemRepository.findByPublicId(ORDER_ITEM_PUBLIC_ID)).thenReturn(Optional.of(orderItem));
         when(orderItemRepository.findOrderIdById(ORDER_ITEM_ID)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> claimService.request(command(ClaimType.CANCEL)))
+        assertThatThrownBy(() -> claimRequestService.request(command(ClaimType.CANCEL)))
                 .isInstanceOf(ClaimNotFoundException.class);
     }
 
@@ -190,7 +203,7 @@ class ClaimServiceTest {
         when(orderItemRepository.findOrderIdById(ORDER_ITEM_ID)).thenReturn(Optional.of(ORDER_ID));
         when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> claimService.request(command(ClaimType.CANCEL)))
+        assertThatThrownBy(() -> claimRequestService.request(command(ClaimType.CANCEL)))
                 .isInstanceOf(ClaimNotFoundException.class);
     }
 
@@ -205,7 +218,7 @@ class ClaimServiceTest {
         when(order.getBuyerId()).thenReturn(999L);
         when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.of(order));
 
-        assertThatThrownBy(() -> claimService.request(command(ClaimType.CANCEL)))
+        assertThatThrownBy(() -> claimRequestService.request(command(ClaimType.CANCEL)))
                 .isInstanceOf(ClaimNotFoundException.class);
         verify(claimRepository, never()).existsActiveByOrderItemId(any());
     }
@@ -227,7 +240,7 @@ class ClaimServiceTest {
         // Track 81-A: 반품 기한은 원 발송(OUTBOUND·claim_id NULL·DELIVERED) delivered_at + 7일(ReturnWindowPolicy) — 요청 3일 전 배송완료로 스텁
         when(returnWindowPolicy.originalDeliveredAt(ORDER_ITEM_ID)).thenReturn(Optional.of(REQUESTED_AT.minusDays(3)));
 
-        Claim result = claimService.request(command(ClaimType.RETURN));
+        Claim result = claimRequestService.request(command(ClaimType.RETURN));
 
         assertThat(result.getType()).isEqualTo(ClaimType.RETURN);
         assertThat(result.getPreviousOrderItemStatus()).isEqualTo(OrderItemStatus.DELIVERED);
@@ -248,7 +261,7 @@ class ClaimServiceTest {
         when(orderItemRepository.findById(ORDER_ITEM_ID)).thenReturn(Optional.of(orderItem));
         when(claimRepository.existsActiveByOrderItemId(ORDER_ITEM_ID)).thenReturn(true);
 
-        assertThatThrownBy(() -> claimService.request(command(ClaimType.CANCEL)))
+        assertThatThrownBy(() -> claimRequestService.request(command(ClaimType.CANCEL)))
                 .isInstanceOf(ClaimInvalidStateException.class);
         verify(claimRepository, never()).save(any());
     }
@@ -267,7 +280,7 @@ class ClaimServiceTest {
         when(orderItemRepository.findById(ORDER_ITEM_ID)).thenReturn(Optional.of(orderItem));
         when(claimRepository.existsActiveByOrderItemId(ORDER_ITEM_ID)).thenReturn(false);
 
-        assertThatThrownBy(() -> claimService.request(command(ClaimType.CANCEL)))
+        assertThatThrownBy(() -> claimRequestService.request(command(ClaimType.CANCEL)))
                 .isInstanceOf(ClaimInvalidStateException.class);
         verify(claimRepository, never()).save(any());
     }
@@ -287,7 +300,7 @@ class ClaimServiceTest {
         when(claimRepository.existsActiveByOrderItemId(ORDER_ITEM_ID)).thenReturn(false);
         when(claimRepository.save(any(Claim.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        claimService.request(command(ClaimType.CANCEL));
+        claimRequestService.request(command(ClaimType.CANCEL));
 
         InOrder inOrder = inOrder(claimRepository, eventPublisher);
         inOrder.verify(claimRepository).save(any(Claim.class));
@@ -466,7 +479,7 @@ class ClaimServiceTest {
         when(orderItem.getPublicId()).thenReturn(ORDER_ITEM_PUBLIC_ID);
         when(orderItemRepository.findById(ORDER_ITEM_ID)).thenReturn(Optional.of(orderItem));
 
-        ClaimResponse response = claimService.getClaim(CLAIM_PUBLIC_ID, BUYER_ID);
+        ClaimResponse response = claimQueryService.getClaim(CLAIM_PUBLIC_ID, BUYER_ID);
 
         assertThat(response.orderItemPublicId()).isEqualTo(ORDER_ITEM_PUBLIC_ID);
         assertThat(response.claimType()).isEqualTo(ClaimType.CANCEL);
@@ -480,7 +493,7 @@ class ClaimServiceTest {
     void getClaim_notFound_throws() {
         when(claimRepository.findByPublicId(CLAIM_PUBLIC_ID)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> claimService.getClaim(CLAIM_PUBLIC_ID, BUYER_ID))
+        assertThatThrownBy(() -> claimQueryService.getClaim(CLAIM_PUBLIC_ID, BUYER_ID))
                 .isInstanceOf(ClaimNotFoundException.class);
     }
 
@@ -494,7 +507,7 @@ class ClaimServiceTest {
         when(claimRepository.findByPublicId(CLAIM_PUBLIC_ID)).thenReturn(Optional.of(claim));
         when(claimRepository.findOrderBuyerIdByClaimId(1L)).thenReturn(Optional.of(BUYER_ID));
 
-        assertThatThrownBy(() -> claimService.getClaim(CLAIM_PUBLIC_ID, 999L))
+        assertThatThrownBy(() -> claimQueryService.getClaim(CLAIM_PUBLIC_ID, 999L))
                 .isInstanceOf(ClaimNotFoundException.class);
         verify(orderItemRepository, never()).findById(any());
     }
@@ -507,7 +520,7 @@ class ClaimServiceTest {
         when(claimRepository.findByPublicId(CLAIM_PUBLIC_ID)).thenReturn(Optional.of(claim));
         when(claimRepository.findOrderBuyerIdByClaimId(1L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> claimService.getClaim(CLAIM_PUBLIC_ID, BUYER_ID))
+        assertThatThrownBy(() -> claimQueryService.getClaim(CLAIM_PUBLIC_ID, BUYER_ID))
                 .isInstanceOf(ClaimNotFoundException.class);
         verify(orderItemRepository, never()).findById(any());
     }
@@ -521,7 +534,7 @@ class ClaimServiceTest {
         when(claimRepository.findOrderBuyerIdByClaimId(1L)).thenReturn(Optional.of(BUYER_ID));
         when(orderItemRepository.findById(ORDER_ITEM_ID)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> claimService.getClaim(CLAIM_PUBLIC_ID, BUYER_ID))
+        assertThatThrownBy(() -> claimQueryService.getClaim(CLAIM_PUBLIC_ID, BUYER_ID))
                 .isInstanceOf(IllegalStateException.class);
     }
 
@@ -534,7 +547,7 @@ class ClaimServiceTest {
         when(claimRepository.findAllByOrderBuyerId(eq(BUYER_ID), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(claim), PageRequest.of(0, 20), 1));
 
-        PagedResponse<ClaimSummaryResponse> response = claimService.listClaims(BUYER_ID, null, 0, 20);
+        PagedResponse<ClaimSummaryResponse> response = claimQueryService.listClaims(BUYER_ID, null, 0, 20);
 
         assertThat(response.items()).hasSize(1);
         assertThat(response.items().get(0).claimType()).isEqualTo(ClaimType.CANCEL);
@@ -556,7 +569,7 @@ class ClaimServiceTest {
         when(projection.getProductName()).thenReturn("검수용 상품");
         when(orderItemRepository.findOrderSummariesByIdIn(List.of(ORDER_ITEM_ID))).thenReturn(List.of(projection));
 
-        PagedResponse<ClaimSummaryResponse> response = claimService.listClaims(BUYER_ID, null, 0, 20);
+        PagedResponse<ClaimSummaryResponse> response = claimQueryService.listClaims(BUYER_ID, null, 0, 20);
 
         assertThat(response.items().get(0).orderNo()).isEqualTo("ORD20260629001");
         assertThat(response.items().get(0).productName()).isEqualTo("검수용 상품");
@@ -572,7 +585,7 @@ class ClaimServiceTest {
                 .thenReturn(new PageImpl<>(List.of(claim), PageRequest.of(0, 20), 1));
         when(orderItemRepository.findOrderSummariesByIdIn(List.of(ORDER_ITEM_ID))).thenReturn(List.of());
 
-        PagedResponse<ClaimSummaryResponse> response = claimService.listClaims(BUYER_ID, null, 0, 20);
+        PagedResponse<ClaimSummaryResponse> response = claimQueryService.listClaims(BUYER_ID, null, 0, 20);
 
         assertThat(response.items()).hasSize(1);
         assertThat(response.items().get(0).orderNo()).isNull();
@@ -585,7 +598,7 @@ class ClaimServiceTest {
         when(claimRepository.findAllByOrderBuyerIdAndType(eq(BUYER_ID), eq(ClaimType.RETURN), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 20), 0));
 
-        claimService.listClaims(BUYER_ID, ClaimType.RETURN, 0, 20);
+        claimQueryService.listClaims(BUYER_ID, ClaimType.RETURN, 0, 20);
 
         verify(claimRepository).findAllByOrderBuyerIdAndType(eq(BUYER_ID), eq(ClaimType.RETURN), any(Pageable.class));
         verify(claimRepository, never()).findAllByOrderBuyerId(any(), any());
@@ -598,9 +611,9 @@ class ClaimServiceTest {
         when(claimRepository.findAllByOrderBuyerId(eq(BUYER_ID), captor.capture()))
                 .thenReturn(new PageImpl<>(List.of()));
 
-        claimService.listClaims(BUYER_ID, null, 0, 200);
-        claimService.listClaims(BUYER_ID, null, 0, 0);
-        claimService.listClaims(BUYER_ID, null, 0, -1);
+        claimQueryService.listClaims(BUYER_ID, null, 0, 200);
+        claimQueryService.listClaims(BUYER_ID, null, 0, 0);
+        claimQueryService.listClaims(BUYER_ID, null, 0, -1);
 
         List<Pageable> pageables = captor.getAllValues();
         assertThat(pageables.get(0).getPageSize()).isEqualTo(100);

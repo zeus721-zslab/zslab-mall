@@ -12,7 +12,7 @@ import com.zslab.mall.claim.controller.request.ClaimRequestCommand;
 import com.zslab.mall.claim.enums.ClaimReasonCode;
 import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.exception.ClaimInvalidStateException;
-import com.zslab.mall.claim.service.ClaimService;
+import com.zslab.mall.claim.service.ClaimRequestService;
 import com.zslab.mall.common.security.AuthHeaders;
 import com.zslab.mall.delivery.enums.DeliveryDirection;
 import com.zslab.mall.delivery.enums.DeliveryStatus;
@@ -96,7 +96,7 @@ class OrderAutoConfirmIntegrationTest extends AbstractIntegrationTest {
     @Autowired
     private OrderItemRepository orderItemRepository;
     @Autowired
-    private ClaimService claimService;
+    private ClaimRequestService claimRequestService;
     @Autowired
     private ApplicationContext applicationContext;
     @Autowired
@@ -210,7 +210,7 @@ class OrderAutoConfirmIntegrationTest extends AbstractIntegrationTest {
             ready.countDown();
             start.await(10, TimeUnit.SECONDS);
             try {
-                claimService.request(new ClaimRequestCommand(itemPid(ITEM_RACE), ClaimType.RETURN,
+                claimRequestService.request(new ClaimRequestCommand(itemPid(ITEM_RACE), ClaimType.RETURN,
                         ClaimReasonCode.BUYER_CHANGED_MIND, null, USER_ID, LocalDateTime.now()));
                 return "REQUESTED";
             } catch (ClaimInvalidStateException exception) {

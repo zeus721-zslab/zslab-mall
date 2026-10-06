@@ -112,7 +112,7 @@ ORDERED → PAID → PREPARING → SHIPPING → DELIVERED → CONFIRMED
 >
 > **송장 등록 가드(Track 80 D-169·C2)**: `PAID → PREPARING`(prepare-shipment·셀러/관리자 공용 `OrderShippingService.changeToPreparing`)은 진입 전 품목을 `refresh(PESSIMISTIC_WRITE)`로 잠그고 활성 클레임(REQUESTED·APPROVED)이 있으면 `ClaimInvalidStateException`(422 CLAIM_STATE_INVALID)으로 차단한다. `CANCEL_REQUESTED → PREPARING` 매트릭스는 스냅샷 원복 전용이라 무변경이며 상태 전이만으로는 막히지 않으므로 클레임 존재를 직접 검사한다. 이미 발송해야 하는 품목은 관리자가 ALREADY_SHIPPED로 거부(→ PAID 원복) 후 송장을 등록한다.
 >
-> **관리자 취소 경로(Track 79 D-168)**: 결제 후 = 관리자 진입점 `ClaimService.requestByAdmin`이 Claim(CANCEL) 생성 + APPROVED까지 1 TX(`PAID|PREPARING → CANCEL_REQUESTED`는 동기 핸들러가 같은 TX에서 전이)·이후 환불·COMPLETED·CANCELLED는 사용자 경로와 동일 / 미결제 = `OrderAutoCancelService.cancelOne` 재사용(§11)·사유는 audit_log(ORDER). 같은 품목 동시 요청은 `refresh(PESSIMISTIC_WRITE)` + 전이 검증으로 1건만 성립(D).
+> **관리자 취소 경로(Track 79 D-168)**: 결제 후 = 관리자 진입점 `ClaimRequestService.requestByAdmin`이 Claim(CANCEL) 생성 + APPROVED까지 1 TX(`PAID|PREPARING → CANCEL_REQUESTED`는 동기 핸들러가 같은 TX에서 전이)·이후 환불·COMPLETED·CANCELLED는 사용자 경로와 동일 / 미결제 = `OrderAutoCancelService.cancelOne` 재사용(§11)·사유는 audit_log(ORDER). 같은 품목 동시 요청은 `refresh(PESSIMISTIC_WRITE)` + 전이 검증으로 1건만 성립(D).
 
 ---
 

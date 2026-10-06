@@ -14291,3 +14291,18 @@ D-246 §8 정정: '데모 로그인 요청 제한 문서 불일치' 항목 철�
 - 새 DB에서는 V1~V4의 `SET time_zone = '+00:00'`이 같은 Flyway 커넥션의 뒤 마이그레이션에도 남는다 — 이미 적용된 마이그레이션이라 운영 영향 없음 · 운영의 이후 마이그레이션은 init-sqls로 KST.
 
 외부 검토: A / 지적 0건 중 수용 0건
+
+## D-265 ClaimService 3갈래 분리(퀄리티 4-3) (2026-10-07)
+
+### 결정
+- 조회는 `ClaimQueryService`(클래스 readOnly), 요청은 `ClaimRequestService`, 회수·검수는 `ClaimReturnService`로 옮긴다. 승인·거절·구매자 취소·종결은 `ClaimService`에 남긴다. 동작은 바꾸지 않는다.
+- 공용 잠금·조회 헬퍼(주문 쓰기 락 · 클레임 행 락 조회 · 소유 검증)는 `ClaimAccess`(package-private · 트랜잭션 미선언) 한 곳에 둔다.
+- 관리자 취소(`ClaimRequestService.requestByAdmin`)의 승인은 `ClaimService.approve`에 위임한다(의존 방향 ClaimRequestService → ClaimService 하나).
+
+### §1-A 갈림길·채택/기각 근거
+- α 안A 3갈래(조회·신청·회수검수 분리) 【채택】 — 5그룹이 섞인 890줄을 책임별로 나눠 모든 클래스가 500줄 아래로 내려간다.
+- β 안B 승인 래퍼만 분리 【기각】 — 약 800줄이 남아 500줄 초과가 그대로다.
+- 공용 잠금·조회 헬퍼를 클래스마다 복제 【기각】 — P5 잠금 규약(주문 쓰기 락 선행 · 행 락 조회가 첫 클레임 읽기)이 여러 곳으로 갈라진다. `ClaimAccess` 단일 지점으로 둔다.
+- 감사 맵을 조립하는 클래스는 `auditRecorder.record(`를 직접 호출한다 — `AuditFieldMaskingPolicyTest`가 이 호출이 있는 파일만 스캔하므로, 공용 감사 헬퍼로 빼면 그 클래스의 감사 필드가 스캔에서 빠진다.
+- 이전 결정 기록의 ClaimService.<메서드> 표기는 분리 전 위치다(append-only라 본문 무수정). 이동 위치: 조회 → ClaimQueryService · 신청 → ClaimRequestService · 회수·검수 → ClaimReturnService · 공용 잠금·조회 → ClaimAccess
+- 외부 검토: A / 지적 0건 중 수용 0건

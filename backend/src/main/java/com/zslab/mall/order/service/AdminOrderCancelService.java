@@ -6,7 +6,7 @@ import com.zslab.mall.audit.service.AuditRecorder;
 import com.zslab.mall.claim.entity.Claim;
 import com.zslab.mall.claim.enums.ClaimReasonCode;
 import com.zslab.mall.claim.exception.ClaimInvalidStateException;
-import com.zslab.mall.claim.service.ClaimService;
+import com.zslab.mall.claim.service.ClaimRequestService;
 import com.zslab.mall.common.enums.PolymorphicTargetType;
 import com.zslab.mall.order.controller.response.AdminOrderCancelResponse;
 import com.zslab.mall.order.entity.Order;
@@ -32,7 +32,7 @@ import org.springframework.transaction.annotation.Transactional;
  *   <li><b>미결제(PENDING_PAYMENT)</b>: {@link OrderAutoCancelService#cancelOne} 재사용(조건부 UPDATE + 동기 예약 해제). Claim이
  *       없으므로 사유 코드·메모는 {@link AuditRecorder}에 ORDER 대상으로 기록한다(C α·Flyway 무변경). 조건부 전이가 0건(이미 종료·
  *       결제 완료 경합)이면 {@link OptimisticLockingFailureException}(기존 409 매핑)으로 응답한다.</li>
- *   <li><b>결제 후</b>: 항목별 {@link ClaimService#requestByAdmin}(Claim(CANCEL) 생성 + approve 1 TX). 다품목 선택 시 항목별 Claim이며
+ *   <li><b>결제 후</b>: 항목별 {@link ClaimRequestService#requestByAdmin}(Claim(CANCEL) 생성 + approve 1 TX). 다품목 선택 시 항목별 Claim이며
  *       1건이라도 실패(상태 불가·CLM-5)하면 전체 롤백된다. 사유는 Claim 컬럼에 저장되므로 별도 audit 기록은 두지 않는다.</li>
  * </ul>
  */
@@ -43,7 +43,7 @@ public class AdminOrderCancelService {
 
     private final OrderRepository orderRepository;
     private final OrderAutoCancelService orderAutoCancelService;
-    private final ClaimService claimService;
+    private final ClaimRequestService claimRequestService;
     private final AuditRecorder auditRecorder;
     private final OrderService orderService;
 
@@ -105,7 +105,7 @@ public class AdminOrderCancelService {
         LocalDateTime now = LocalDateTime.now();
         List<AdminOrderCancelResponse.CancelledItem> cancelled = new ArrayList<>();
         for (OrderItem item : targets) {
-            Claim claim = claimService.requestByAdmin(item.getId(), reasonCode, reasonDetail, adminUserId, now);
+            Claim claim = claimRequestService.requestByAdmin(item.getId(), reasonCode, reasonDetail, adminUserId, now);
             cancelled.add(new AdminOrderCancelResponse.CancelledItem(claim.getPublicId(), item.getPublicId(), claim.getStatus()));
         }
         log.info("[AdminOrderCancel] 결제 후 취소 승인 완료 orderId={} items={} actor={}",
