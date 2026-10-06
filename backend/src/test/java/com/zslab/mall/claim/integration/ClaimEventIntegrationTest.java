@@ -7,6 +7,7 @@ import com.zslab.mall.claim.enums.ClaimReasonCode;
 import com.zslab.mall.claim.enums.ClaimRejectReasonCode;
 import com.zslab.mall.claim.enums.ClaimStatus;
 import com.zslab.mall.claim.enums.ClaimType;
+import com.zslab.mall.claim.service.ClaimRequestService;
 import com.zslab.mall.claim.service.ClaimService;
 import com.zslab.mall.order.enums.OrderItemStatus;
 import java.time.LocalDateTime;
@@ -55,6 +56,8 @@ class ClaimEventIntegrationTest extends AbstractIntegrationTest {
     @Autowired
     private ClaimService claimService;
     @Autowired
+    private ClaimRequestService claimRequestService;
+    @Autowired
     private JdbcTemplate jdbc;
     @Autowired
     private PlatformTransactionManager txManager;
@@ -81,7 +84,7 @@ class ClaimEventIntegrationTest extends AbstractIntegrationTest {
             seedOrderItem(OrderItemStatus.PAID);
         });
 
-        claimService.request(new ClaimRequestCommand(
+        claimRequestService.request(new ClaimRequestCommand(
                 ORDER_ITEM_PID, ClaimType.CANCEL, ClaimReasonCode.BUYER_CHANGED_MIND, "통합", USER_ID, LocalDateTime.now()));
 
         assertThat(orderItemStatus()).isEqualTo("CANCEL_REQUESTED");

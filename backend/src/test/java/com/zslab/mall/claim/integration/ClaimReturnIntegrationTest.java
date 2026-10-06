@@ -17,6 +17,8 @@ import com.zslab.mall.audit.service.AuditContext;
 import com.zslab.mall.claim.entity.Claim;
 import com.zslab.mall.claim.enums.ClaimReasonCode;
 import com.zslab.mall.claim.enums.ClaimType;
+import com.zslab.mall.claim.service.ClaimRequestService;
+import com.zslab.mall.claim.service.ClaimReturnService;
 import com.zslab.mall.claim.service.ClaimService;
 import com.zslab.mall.common.security.AuthHeaders;
 import com.zslab.mall.delivery.entity.Delivery;
@@ -127,6 +129,10 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
     private AuthHeaders authHeaders;
     @Autowired
     private ClaimService claimService;
+    @Autowired
+    private ClaimRequestService claimRequestService;
+    @Autowired
+    private ClaimReturnService claimReturnService;
     @Autowired
     private JdbcTemplate jdbc;
     @Autowired
@@ -697,7 +703,7 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON).content("{\"carrier\":\"CJ\",\"trackingNo\":\"  RTN-TRACK-0001  \"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.trackingNo").value("RTN-TRACK-0001"));
-        claimService.confirmPickupByAdmin(claimId, LocalDateTime.now(), AuditContext.of(9001L, "ADMIN"));
+        claimReturnService.confirmPickupByAdmin(claimId, LocalDateTime.now(), AuditContext.of(9001L, "ADMIN"));
 
         mockMvc.perform(post(ADMIN_CLAIMS_URL + "/" + claimPid + "/inspect").with(authHeaders.admin(ADMIN_ID))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"result\":\"FAIL\",\"rejectReasonCode\":\"INSPECTION_FAILED\","
@@ -881,7 +887,7 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
     // ---------- 흐름 헬퍼 ----------
 
     private Long requestReturn() {
-        Claim claim = claimService.request(new ClaimRequestCommand(
+        Claim claim = claimRequestService.request(new ClaimRequestCommand(
                 ORDER_ITEM_PID, ClaimType.RETURN, ClaimReasonCode.PRODUCT_DEFECT, "하자", USER_ID, LocalDateTime.now()));
         return claim.getId();
     }
@@ -895,7 +901,7 @@ class ClaimReturnIntegrationTest extends AbstractIntegrationTest {
     private Long pickedUpReturn() throws Exception {
         Long claimId = approvedReturn();
         registerReturnShipment(claimPid(claimId));
-        claimService.confirmPickupByAdmin(claimId, LocalDateTime.now(), AuditContext.of(9001L, "ADMIN"));
+        claimReturnService.confirmPickupByAdmin(claimId, LocalDateTime.now(), AuditContext.of(9001L, "ADMIN"));
         return claimId;
     }
 

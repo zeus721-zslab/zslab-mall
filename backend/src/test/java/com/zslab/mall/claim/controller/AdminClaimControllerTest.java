@@ -20,6 +20,7 @@ import com.zslab.mall.claim.exception.ClaimNotFoundException;
 import com.zslab.mall.claim.repository.ClaimRepository;
 import com.zslab.mall.claim.service.AdminClaimBulkApproveService;
 import com.zslab.mall.claim.service.AdminClaimQueryService;
+import com.zslab.mall.claim.service.ClaimReturnService;
 import com.zslab.mall.claim.service.ClaimService;
 import com.zslab.mall.audit.service.AdminAuditLogQueryService;
 import com.zslab.mall.common.auth.ActorRoleResolver;
@@ -64,6 +65,9 @@ class AdminClaimControllerTest {
 
     @MockitoBean
     private ClaimService claimService;
+
+    @MockitoBean
+    private ClaimReturnService claimReturnService;
 
     @MockitoBean
     private AdminClaimQueryService adminClaimQueryService;

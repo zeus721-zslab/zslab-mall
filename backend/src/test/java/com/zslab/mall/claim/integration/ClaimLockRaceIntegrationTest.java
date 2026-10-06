@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doNothing;
 
 import com.zslab.mall.audit.service.AuditContext;
+import com.zslab.mall.claim.service.ClaimReturnService;
 import com.zslab.mall.claim.service.ClaimService;
 import com.zslab.mall.delivery.enums.DeliveryCarrier;
 import com.zslab.mall.notification.adapter.SmsSender;
@@ -67,6 +68,8 @@ class ClaimLockRaceIntegrationTest extends AbstractIntegrationTest {
 
     @Autowired
     private ClaimService claimService;
+    @Autowired
+    private ClaimReturnService claimReturnService;
     @Autowired
     private JdbcTemplate jdbc;
     @Autowired
@@ -154,7 +157,7 @@ class ClaimLockRaceIntegrationTest extends AbstractIntegrationTest {
         String[] outcomes = race(
                 () -> {
                     try {
-                        claimService.registerReturnShipmentByBuyer(claimPid, USER_ID, DeliveryCarrier.CJ, "RACE-BUYER-0001");
+                        claimReturnService.registerReturnShipmentByBuyer(claimPid, USER_ID, DeliveryCarrier.CJ, "RACE-BUYER-0001");
                         return "OK";
                     } catch (RuntimeException exception) {
                         return exception.getClass().getSimpleName();
@@ -162,7 +165,7 @@ class ClaimLockRaceIntegrationTest extends AbstractIntegrationTest {
                 },
                 () -> {
                     try {
-                        claimService.registerReturnShipmentByAdmin(claimPid, DeliveryCarrier.HANJIN, "RACE-ADMIN-0001",
+                        claimReturnService.registerReturnShipmentByAdmin(claimPid, DeliveryCarrier.HANJIN, "RACE-ADMIN-0001",
                                 AuditContext.of(ADMIN_ACTOR_ID, ADMIN_ROLE));
                         return "OK";
                     } catch (RuntimeException exception) {

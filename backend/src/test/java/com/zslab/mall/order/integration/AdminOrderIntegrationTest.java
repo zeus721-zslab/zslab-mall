@@ -13,7 +13,7 @@ import com.zslab.mall.claim.controller.request.ClaimRequestCommand;
 import com.zslab.mall.claim.enums.ClaimReasonCode;
 import com.zslab.mall.claim.enums.ClaimType;
 import com.zslab.mall.claim.exception.ClaimInvalidStateException;
-import com.zslab.mall.claim.service.ClaimService;
+import com.zslab.mall.claim.service.ClaimRequestService;
 import com.zslab.mall.delivery.entity.Delivery;
 import com.zslab.mall.order.service.AdminOrderCancelService;
 import com.zslab.mall.support.AbstractIntegrationTest;
@@ -103,7 +103,7 @@ class AdminOrderIntegrationTest extends AbstractIntegrationTest {
     @Autowired
     private AuthHeaders authHeaders;
     @Autowired
-    private ClaimService claimService;
+    private ClaimRequestService claimRequestService;
     @Autowired
     private AdminOrderCancelService adminOrderCancelService;
     @Autowired
@@ -133,7 +133,7 @@ class AdminOrderIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("T1 동시 Claim 요청(D): 같은 품목 8스레드 사용자 취소 요청 → 1건 REQUESTED·7건 422(CLM-5/전이 불가)·승인 후 Refund 1건")
     void concurrentClaimRequests_onlyOneSucceeds() throws Exception {
         List<Throwable> failures = runConcurrently(() -> {
-            claimService.request(new ClaimRequestCommand(ITEM_A1_PID, ClaimType.CANCEL, ClaimReasonCode.BUYER_CHANGED_MIND,
+            claimRequestService.request(new ClaimRequestCommand(ITEM_A1_PID, ClaimType.CANCEL, ClaimReasonCode.BUYER_CHANGED_MIND,
                     null, USER_ID, LocalDateTime.now()));
             return null;
         });
@@ -159,7 +159,7 @@ class AdminOrderIntegrationTest extends AbstractIntegrationTest {
         for (int i = 0; i < THREADS; i++) {
             if (i % 2 == 0) {
                 works.add(() -> {
-                    claimService.request(new ClaimRequestCommand(ITEM_A1_PID, ClaimType.CANCEL,
+                    claimRequestService.request(new ClaimRequestCommand(ITEM_A1_PID, ClaimType.CANCEL,
                             ClaimReasonCode.BUYER_CHANGED_MIND, null, USER_ID, LocalDateTime.now()));
                     return null;
                 });
@@ -396,7 +396,7 @@ class AdminOrderIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("T7 상세: 주문자·배송지·결제 이력·항목(배송·클레임 approvable)·actions / 미존재 404")
     void detail_returnsGraph() throws Exception {
         // 사용자 승인형 Claim 1건(REQUESTED) 생성 → approvable=true
-        claimService.request(new ClaimRequestCommand(ITEM_A2_PID, ClaimType.CANCEL, ClaimReasonCode.BUYER_CHANGED_MIND,
+        claimRequestService.request(new ClaimRequestCommand(ITEM_A2_PID, ClaimType.CANCEL, ClaimReasonCode.BUYER_CHANGED_MIND,
                 "변심", USER_ID, LocalDateTime.now()));
 
         mockMvc.perform(get(URL + "/" + ORDER_A_PID).with(authHeaders.admin(ADMIN_ID)))

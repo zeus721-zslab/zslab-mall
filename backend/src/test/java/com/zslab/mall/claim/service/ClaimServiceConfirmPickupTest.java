@@ -25,10 +25,10 @@ import com.zslab.mall.order.service.OrderService;
 import com.zslab.mall.inbox.stream.InboxSignalPublisher;
 import java.time.LocalDateTime;
 import java.util.Optional;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -67,8 +67,14 @@ class ClaimServiceConfirmPickupTest {
     @Mock
     private InboxSignalPublisher inboxSignalPublisher;
 
-    @InjectMocks
-    private ClaimService claimService;
+    private ClaimReturnService claimReturnService;
+
+    @BeforeEach
+    void createService() {
+        // D-265 분리: 이전 @InjectMocks와 같이 mock이 없는 의존성(ClaimExchangeService·EntityManager)은 null, 공용 헬퍼는 실객체로 둔다.
+        claimReturnService = new ClaimReturnService(claimRepository, eventPublisher, deliveryService, null, null,
+                auditRecorder, inboxSignalPublisher, new ClaimAccess(claimRepository, orderService));
+    }
 
     /** APPROVED·RETURN Claim 시드(picked_up_at null). */
     private Claim approvedReturnClaim() {
@@ -86,7 +92,7 @@ class ClaimServiceConfirmPickupTest {
         when(claimRepository.findById(CLAIM_ID)).thenReturn(Optional.of(claim));
         when(claimRepository.save(any(Claim.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        claimService.confirmPickup(CLAIM_ID, PICKED_UP_AT);
+        claimReturnService.confirmPickup(CLAIM_ID, PICKED_UP_AT);
 
         assertThat(claim.getPickedUpAt()).isEqualTo(PICKED_UP_AT);
         verify(claimRepository).save(claim);
@@ -100,7 +106,7 @@ class ClaimServiceConfirmPickupTest {
         ReflectionTestUtils.setField(claim, "pickedUpAt", PICKED_UP_AT.minusHours(1));
         when(claimRepository.findById(CLAIM_ID)).thenReturn(Optional.of(claim));
 
-        claimService.confirmPickup(CLAIM_ID, PICKED_UP_AT);
+        claimReturnService.confirmPickup(CLAIM_ID, PICKED_UP_AT);
 
         verify(claimRepository, never()).save(any());
         verify(eventPublisher, never()).publishEvent(any());
@@ -111,7 +117,7 @@ class ClaimServiceConfirmPickupTest {
     void confirmPickup_notFound_throws() {
         when(claimRepository.findById(CLAIM_ID)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> claimService.confirmPickup(CLAIM_ID, PICKED_UP_AT))
+        assertThatThrownBy(() -> claimReturnService.confirmPickup(CLAIM_ID, PICKED_UP_AT))
                 .isInstanceOf(ClaimNotFoundException.class);
         verify(eventPublisher, never()).publishEvent(any());
     }
@@ -124,7 +130,7 @@ class ClaimServiceConfirmPickupTest {
         ReflectionTestUtils.setField(claim, "id", CLAIM_ID);
         when(claimRepository.findById(CLAIM_ID)).thenReturn(Optional.of(claim));
 
-        assertThatThrownBy(() -> claimService.confirmPickup(CLAIM_ID, PICKED_UP_AT))
+        assertThatThrownBy(() -> claimReturnService.confirmPickup(CLAIM_ID, PICKED_UP_AT))
                 .isInstanceOf(ClaimInvalidStateException.class);
         verify(claimRepository, never()).save(any());
         verify(eventPublisher, never()).publishEvent(any());
@@ -137,7 +143,7 @@ class ClaimServiceConfirmPickupTest {
         when(claimRepository.findById(CLAIM_ID)).thenReturn(Optional.of(claim));
         when(claimRepository.save(any(Claim.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        claimService.confirmPickupByAdmin(CLAIM_ID, PICKED_UP_AT, AUDIT_CONTEXT);
+        claimReturnService.confirmPickupByAdmin(CLAIM_ID, PICKED_UP_AT, AUDIT_CONTEXT);
 
         verify(eventPublisher).publishEvent(any(ClaimPickedUp.class));
         verify(orderItemRepository, never()).findById(any());

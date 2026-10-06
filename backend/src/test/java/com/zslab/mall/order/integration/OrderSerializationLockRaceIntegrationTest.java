@@ -9,7 +9,7 @@ import com.zslab.mall.audit.service.AuditContext;
 import com.zslab.mall.claim.controller.request.ClaimRequestCommand;
 import com.zslab.mall.claim.enums.ClaimReasonCode;
 import com.zslab.mall.claim.enums.ClaimType;
-import com.zslab.mall.claim.service.ClaimService;
+import com.zslab.mall.claim.service.ClaimRequestService;
 import com.zslab.mall.notification.adapter.SmsSender;
 import com.zslab.mall.order.service.BuyerOrderConfirmService;
 import com.zslab.mall.order.service.OrderService;
@@ -92,7 +92,7 @@ class OrderSerializationLockRaceIntegrationTest extends AbstractIntegrationTest 
     @Autowired
     private RefundService refundService;
     @Autowired
-    private ClaimService claimService;
+    private ClaimRequestService claimRequestService;
     @Autowired
     private AdminPaymentCommandService adminPaymentCommandService;
     @Autowired
@@ -207,7 +207,7 @@ class OrderSerializationLockRaceIntegrationTest extends AbstractIntegrationTest 
     }
 
     private String returnRequestItemAOutcome() {
-        return outcome(() -> claimService.request(new ClaimRequestCommand(pid("oit_", "OSLOITA"), ClaimType.RETURN,
+        return outcome(() -> claimRequestService.request(new ClaimRequestCommand(pid("oit_", "OSLOITA"), ClaimType.RETURN,
                 ClaimReasonCode.PRODUCT_DEFECT, null, USER_ID, LocalDateTime.now())));
     }
 
