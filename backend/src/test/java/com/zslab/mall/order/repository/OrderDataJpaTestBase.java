@@ -24,13 +24,22 @@ abstract class OrderDataJpaTestBase extends AbstractDataJpaTest {
                 .executeUpdate();
     }
 
-    /** items 2건·snapshot 1건을 포함한 완전한 Order를 구성한다(미영속). */
+    /**
+     * items 2건을 포함한 Order를 구성한다(미영속). 배송지 스냅샷은 Order가 보유하지 않으므로(cascade 없음)
+     * 필요한 테스트가 {@link #buildSnapshotFor}로 만들어 직접 저장한다.
+     */
     protected Order buildFullOrder(String orderNo) {
         Order order = Order.create(1L, orderNo, 0L, 3_000L);
         order.addItem(OrderItem.create(1L, 1L, 1L, "테스트 상품", 2, 5_000L, 10_000L, 1000));
         order.addItem(OrderItem.create(2L, 2L, 1L, "테스트 상품", 1, 3_000L, 3_000L, 1000));
-        order.attachSnapshot(OrderShippingSnapshot.create(
-                "홍길동", "010-0000-0000", "06236", "서울 강남대로 1", null, "101호", "부재 시 경비실"));
         return order;
+    }
+
+    /** 주어진 주문에 연결된 배송지 스냅샷을 구성한다(미영속). */
+    protected OrderShippingSnapshot buildSnapshotFor(Order order) {
+        OrderShippingSnapshot snapshot = OrderShippingSnapshot.create(
+                "홍길동", "010-0000-0000", "06236", "서울 강남대로 1", null, "101호", "부재 시 경비실");
+        order.attachSnapshot(snapshot);
+        return snapshot;
     }
 }

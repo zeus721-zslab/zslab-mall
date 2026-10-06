@@ -627,8 +627,8 @@ public class ClaimService {
     }
 
     /**
-     * 구매자 상세의 주문·대상 품목(Track 105-4g-3). 주문은 목록과 같은 스칼라 projection 1쿼리(Order 엔티티 적재 시
-     * shippingSnapshot 추가 SELECT 회피·{@link #listClaims} 주석), 썸네일은 목록과 같은 {@link #thumbnailUrlByProductId} 1쿼리 —
+     * 구매자 상세의 주문·대상 품목(Track 105-4g-3). 주문은 목록과 같은 스칼라 projection 1쿼리({@link #listClaims} 주석),
+     * 썸네일은 목록과 같은 {@link #thumbnailUrlByProductId} 1쿼리 —
      * 고정 2쿼리. 상품명·옵션·수량은 이미 적재한 품목 스냅샷이라 추가 조회가 없다.
      */
     private ClaimResponse.OrderContext orderContextOf(Claim claim, OrderItem orderItem) {
@@ -648,8 +648,8 @@ public class ClaimService {
      *
      * <p>enrich는 전부 페이지 단위 배치다 — 환불 상태 1쿼리(Track 80) + 주문·품목 요약 projection 1쿼리(관리자 목록
      * {@code AdminClaimQueryService} 선례). 주문번호와 상품명을 같은 projection에서 읽으므로 품목 엔티티를 따로 적재하지 않는다
-     * (외부 검토 반영·이전에는 같은 itemIds로 {@code findAllById}가 한 번 더 나갔다). 주문도 엔티티로 적재하지 않는다 —
-     * {@code shippingSnapshot}이 OneToOne mappedBy(LAZY 불가)라 주문마다 SELECT가 더 나간다.
+     * (외부 검토 반영·이전에는 같은 itemIds로 {@code findAllById}가 한 번 더 나갔다). 주문도 엔티티로 적재하지 않고 같은
+     * projection에서 읽는다.
      */
     @Transactional(readOnly = true)
     public PagedResponse<ClaimSummaryResponse> listClaims(Long buyerId, ClaimType type, int page, int size) {

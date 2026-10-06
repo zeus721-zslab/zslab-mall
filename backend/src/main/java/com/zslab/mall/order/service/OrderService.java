@@ -13,6 +13,7 @@ import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.enums.OrderStatus;
 import com.zslab.mall.order.event.OrderPlaced;
 import com.zslab.mall.order.repository.OrderRepository;
+import com.zslab.mall.order.repository.OrderShippingSnapshotRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import java.time.LocalDate;
@@ -41,6 +42,7 @@ public class OrderService {
     private static final int ULID_SUFFIX_START = 20;
 
     private final OrderRepository orderRepository;
+    private final OrderShippingSnapshotRepository orderShippingSnapshotRepository;
     private final OrderStatusResolver orderStatusResolver;
     private final TracedEventPublisher eventPublisher;
     private final EntityManager entityManager;
@@ -48,11 +50,13 @@ public class OrderService {
 
     public OrderService(
             OrderRepository orderRepository,
+            OrderShippingSnapshotRepository orderShippingSnapshotRepository,
             OrderStatusResolver orderStatusResolver,
             TracedEventPublisher eventPublisher,
             EntityManager entityManager,
             InboxSignalPublisher inboxSignalPublisher) {
         this.orderRepository = orderRepository;
+        this.orderShippingSnapshotRepository = orderShippingSnapshotRepository;
         this.orderStatusResolver = orderStatusResolver;
         this.eventPublisher = eventPublisher;
         this.entityManager = entityManager;
@@ -60,7 +64,8 @@ public class OrderService {
     }
 
     /**
-     * 주문을 생성한다. OrderItem·OrderShippingSnapshot을 cascade PERSIST로 함께 영속하고 OrderPlaced를 발행한다.
+     * 주문을 생성한다. OrderItem은 cascade PERSIST로, OrderShippingSnapshot은 주문 저장 직후 명시 저장으로 같은 트랜잭션에서
+     * 영속하고 OrderPlaced를 발행한다.
      *
      * @throws IllegalArgumentException OrderItem이 0개(ORD-1)이거나 입력이 불완전한 경우
      * @throws IllegalStateException order_no 생성 충돌이 재시도 한도(1회)를 초과한 경우
@@ -89,10 +94,13 @@ public class OrderService {
                     itemCommand.optionLabel()));
         }
 
-        order.attachSnapshot(toSnapshot(command.shipping()));
+        OrderShippingSnapshot snapshot = toSnapshot(command.shipping());
+        order.attachSnapshot(snapshot);
         order.markOrdered(LocalDateTime.now());   // D-42 목록 정렬 기준·주문 확정 시각
 
         Order saved = orderRepository.save(order);
+        // Order에 스냅샷 필드가 없어 cascade가 없다 — 주문(IDENTITY로 id 확정) 직후 같은 트랜잭션에서 명시 저장한다.
+        orderShippingSnapshotRepository.save(snapshot);
 
         // E1 OrderPlaced — payload는 식별자·시각 3필드 한정(QB-13). 소비 핸들러는 Track 7 이연.
         eventPublisher.publishEvent(new OrderPlaced(saved.getPublicId(), saved.getId(), LocalDateTime.now()));

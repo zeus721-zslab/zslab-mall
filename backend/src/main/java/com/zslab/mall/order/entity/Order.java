@@ -12,7 +12,6 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.OneToMany;
-import jakarta.persistence.OneToOne;
 import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
 import java.time.LocalDateTime;
@@ -27,6 +26,8 @@ import lombok.NoArgsConstructor;
  * 주문(ORD Aggregate Root·ARCHIVE·public_id {@code ord_}).
  *
  * <p>Aggregate 포함: {@link OrderItem}(1:N)·{@link OrderShippingSnapshot}(1:1). 외부 ID 참조는 buyer_id(User.id).
+ * 배송지 스냅샷은 Order 필드로 두지 않는다 — 비소유 측 1:1(mappedBy)은 프록시를 만들 수 없어 주문을 적재할 때마다 스냅샷을
+ * 1회씩 조회했다(퀄리티 B 3-1). 필요한 곳은 {@code OrderShippingSnapshotRepository}로 조회하고, 생성 시 명시 저장한다.
  *
  * <p>equals/hashCode·toString은 {@link AbstractPublicIdFullAuditableEntity}가 publicId 기준으로 제공하므로
  * 본 클래스에서 재선언하지 않는다(Q8=C·base javadoc).
@@ -77,9 +78,6 @@ public class Order extends AbstractPublicIdFullAuditableEntity {
     @OrderBy("id ASC") // 응답 품목 순서를 인덱스 선택(ix_order_item_order_status 등)과 무관하게 id 순으로 고정
     private final List<OrderItem> items = new ArrayList<>();
 
-    @OneToOne(mappedBy = "order", cascade = CascadeType.PERSIST, fetch = FetchType.LAZY)
-    private OrderShippingSnapshot shippingSnapshot;
-
     @Override
     protected String getPublicIdPrefix() {
         return "ord";
@@ -125,13 +123,13 @@ public class Order extends AbstractPublicIdFullAuditableEntity {
     }
 
     /**
-     * 배송지 스냅샷을 연결한다(1:1·QB-10 A'-1). 양측 연결을 설정하며 직접 setter는 노출하지 않는다.
+     * 배송지 스냅샷의 FK(order_id)를 이 주문으로 연결한다(1:1·QB-10 A'-1). 직접 setter는 노출하지 않는다.
+     * 영속은 cascade가 아니라 호출부가 주문 저장 뒤 {@code OrderShippingSnapshotRepository}로 명시 저장한다.
      */
     public void attachSnapshot(OrderShippingSnapshot snapshot) {
         if (snapshot == null) {
             throw new IllegalArgumentException("연결할 OrderShippingSnapshot은 null일 수 없습니다.");
         }
-        this.shippingSnapshot = snapshot;
         snapshot.assignOrder(this);
     }
 

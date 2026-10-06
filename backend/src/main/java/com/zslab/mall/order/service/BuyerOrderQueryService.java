@@ -23,6 +23,7 @@ import com.zslab.mall.order.exception.OrderNotFoundException;
 import com.zslab.mall.order.repository.ItemStatusCountProjection;
 import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.order.repository.OrderRepository;
+import com.zslab.mall.order.repository.OrderShippingSnapshotRepository;
 import com.zslab.mall.payment.entity.Payment;
 import com.zslab.mall.payment.repository.PaymentRepository;
 import com.zslab.mall.product.entity.Product;
@@ -76,6 +77,7 @@ public class BuyerOrderQueryService {
 
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
+    private final OrderShippingSnapshotRepository orderShippingSnapshotRepository;
     private final ProductRepository productRepository;
     private final ProductVariantRepository productVariantRepository;
     private final SellerRepository sellerRepository;
@@ -88,6 +90,7 @@ public class BuyerOrderQueryService {
     public BuyerOrderQueryService(
             OrderRepository orderRepository,
             OrderItemRepository orderItemRepository,
+            OrderShippingSnapshotRepository orderShippingSnapshotRepository,
             ProductRepository productRepository,
             ProductVariantRepository productVariantRepository,
             SellerRepository sellerRepository,
@@ -98,6 +101,7 @@ public class BuyerOrderQueryService {
             RefundRepository refundRepository) {
         this.orderRepository = orderRepository;
         this.orderItemRepository = orderItemRepository;
+        this.orderShippingSnapshotRepository = orderShippingSnapshotRepository;
         this.productRepository = productRepository;
         this.productVariantRepository = productVariantRepository;
         this.sellerRepository = sellerRepository;
@@ -144,7 +148,8 @@ public class BuyerOrderQueryService {
         return OrderResponse.fromOrderWithItems(
                 order, productsByIdFor(items), variantsByIdFor(items), sellersByIdFor(items), exchangeCompletedItemIdsOf(claims),
                 originalDeliveryByItemIdOf(outbounds), paidPayment, completedRefundAmountFor(paidPayment),
-                reviewIdByItemIdFor(items), inspectionFailedItemIdsOf(claims), exchangeDeliveryByItemIdOf(outbounds, claims));
+                reviewIdByItemIdFor(items), inspectionFailedItemIdsOf(claims), exchangeDeliveryByItemIdOf(outbounds, claims),
+                orderShippingSnapshotRepository.findByOrderId(order.getId()).orElse(null));
     }
 
     /** 결제 요약 대상 결제의 완료 환불 합(W5·{@link RefundRepository#sumCompletedByPaymentId}). 결제 요약이 없으면 조회 없이 0. */

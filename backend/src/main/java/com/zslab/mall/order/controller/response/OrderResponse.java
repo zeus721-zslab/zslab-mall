@@ -5,6 +5,7 @@ import com.zslab.mall.common.serialization.KstOffsetSerializer;
 import com.zslab.mall.delivery.entity.Delivery;
 import com.zslab.mall.order.entity.Order;
 import com.zslab.mall.order.entity.OrderItem;
+import com.zslab.mall.order.entity.OrderShippingSnapshot;
 import com.zslab.mall.payment.entity.Payment;
 import com.zslab.mall.payment.enums.PaymentMethod;
 import com.zslab.mall.product.entity.Product;
@@ -56,14 +57,15 @@ public record OrderResponse(
             Map<Long, ProductVariant> variantById,
             Map<Long, Seller> sellerById) {
         return fromOrderWithItems(order, productById, variantById, sellerById, Set.of(), Map.of(), null, 0L, Map.of(),
-                Set.of(), Map.of());
+                Set.of(), Map.of(), null);
     }
 
     /**
      * {@link #fromOrderWithItems(Order, Map, Map, Map)} + 교환 완료 품목 id 집합(Track 83 D-177 보충·exchangeCompleted)
      * + 품목 id별 원 발송 Delivery(Track 96-2 D-203·delivery·없으면 null) + 결제 시각이 있는 최신 결제 행(Track 105-4g-3·없으면 null)
      * 과 그 결제의 완료 환불 합(W5) + 품목 id별 리뷰(Track 106-1·삭제 리뷰는 reviewId null·숨김 여부·{@link OrderItemReviewResponse#of})
-     * + 검수 FAIL 이력 품목 id 집합(W2·inspectionFailed) + 품목 id별 교환 배송 Delivery(W7·exchangeDelivery·없으면 null).
+     * + 검수 FAIL 이력 품목 id 집합(W2·inspectionFailed) + 품목 id별 교환 배송 Delivery(W7·exchangeDelivery·없으면 null)
+     * + 배송지 스냅샷(호출부가 리포지토리로 조회·없으면 null → shippingAddress 키 생략).
      */
     public static OrderResponse fromOrderWithItems(
             Order order,
@@ -76,7 +78,8 @@ public record OrderResponse(
             long refundedAmount,
             Map<Long, OrderItemReviewResponse.Written> reviewIdByItemId,
             Set<Long> inspectionFailedItemIds,
-            Map<Long, Delivery> exchangeDeliveryByItemId) {
+            Map<Long, Delivery> exchangeDeliveryByItemId,
+            OrderShippingSnapshot shippingSnapshot) {
         // seller_id 단위 그룹화(삽입 순서 보존). 단일 판매자도 배열 길이 1.
         Map<Long, List<OrderItem>> itemsBySeller = new LinkedHashMap<>();
         for (OrderItem item : order.getItems()) {
@@ -116,8 +119,8 @@ public record OrderResponse(
                     subtotal));
         }
 
-        ShippingAddressResponse shippingAddress = order.getShippingSnapshot() != null
-                ? ShippingAddressResponse.from(order.getShippingSnapshot())
+        ShippingAddressResponse shippingAddress = shippingSnapshot != null
+                ? ShippingAddressResponse.from(shippingSnapshot)
                 : null;
 
         return new OrderResponse(
