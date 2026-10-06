@@ -18,9 +18,16 @@ import org.springframework.data.repository.query.Param;
  */
 public interface OrderItemRepository extends JpaRepository<OrderItem, Long>, JpaSpecificationExecutor<OrderItem> {
 
-    List<OrderItem> findByOrderId(Long orderId);
+    /**
+     * 주문의 품목을 id 오름차순으로 조회한다. 정렬을 명시하는 이유는 반환 순서가 인덱스 선택(ix_order_item_order_status 등)에 따라
+     * 바뀌지 않게 하기 위해서다. 모든 변수는 :orderId 바인딩이다.
+     */
+    @Query("SELECT oi FROM OrderItem oi WHERE oi.order.id = :orderId ORDER BY oi.id")
+    List<OrderItem> findByOrderId(@Param("orderId") Long orderId);
 
-    List<OrderItem> findByOrderIdIn(Collection<Long> orderIds);
+    /** {@link #findByOrderId}의 다건 판(order_id, id 오름차순). 모든 변수는 :orderIds 바인딩이다. */
+    @Query("SELECT oi FROM OrderItem oi WHERE oi.order.id IN :orderIds ORDER BY oi.order.id, oi.id")
+    List<OrderItem> findByOrderIdIn(@Param("orderIds") Collection<Long> orderIds);
 
     /** 상품에 주문 이력이 있는지(Track 76·관리자 soft-delete 차단 409). 상태 무관·1건이라도 있으면 true. */
     boolean existsByProductId(Long productId);
