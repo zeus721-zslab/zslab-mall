@@ -14,9 +14,10 @@ package com.zslab.mall.order.enums;
  *   <li>역방향·단계 건너뛰기 전이 차단(예: DELIVERED → SHIPPING)</li>
  * </ul>
  *
- * <p><b>Claim 진입 전이 매트릭스(Track 9 PR-A·D-88 Q1~Q4·5건)</b>: PAID·PREPARING → CANCEL_REQUESTED(배송 전 취소)·
- * SHIPPING·DELIVERED → RETURN_REQUESTED(출고 후 반품)·DELIVERED → EXCHANGE_REQUESTED(수령 후 교환).
+ * <p><b>Claim 진입 전이 매트릭스(Track 9 PR-A·D-88 Q1~Q4·D-266·4건)</b>: PAID·PREPARING → CANCEL_REQUESTED(배송 전 취소)·
+ * DELIVERED → RETURN_REQUESTED(수령 후 반품)·DELIVERED → EXCHANGE_REQUESTED(수령 후 교환).
  * 정책 차단(D-88 Q1·Q2·Q3): SHIPPING→CANCEL_REQUESTED·SHIPPING→EXCHANGE_REQUESTED·CONFIRMED→*_REQUESTED 전건 차단.
+ * SHIPPING → RETURN_REQUESTED는 반품 기한(배송완료 기준·D-170)을 셀 수 없어 서비스가 막던 도달 불가 전이라 매트릭스에서 뺐다(D-266).
  * 시그니처(D-88 Q4): {@code canTransitionTo(next)} 단일 인자 유지(ClaimType 무관·책임 분리).
  *
  * <p><b>Claim 복귀 전이(Track 14·D-98 Q7 스냅샷 기반·D-90 Q3 의미 변경)</b>: ClaimRejected 핸들러가
@@ -50,7 +51,7 @@ public enum OrderItemStatus {
             case ORDERED -> next == PAID;
             case PAID -> next == PREPARING || next == CANCEL_REQUESTED;
             case PREPARING -> next == SHIPPING || next == CANCEL_REQUESTED;
-            case SHIPPING -> next == DELIVERED || next == RETURN_REQUESTED;
+            case SHIPPING -> next == DELIVERED;
             case DELIVERED -> next == CONFIRMED || next == RETURN_REQUESTED || next == EXCHANGE_REQUESTED;
             case CANCEL_REQUESTED -> next == CANCELLED || next == PAID || next == PREPARING;
             case RETURN_REQUESTED -> next == RETURNED || next == SHIPPING || next == DELIVERED;

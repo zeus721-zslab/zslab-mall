@@ -197,7 +197,7 @@ public class ClaimRequestService {
 
     /**
      * RETURN·EXCHANGE 요청 조건 검증(Track 81-A D-170·보충 / Track 83 D-177 동일 적용). 사유는 {@link ClaimReasonCode#isApplicableTo}
-     * (단순변심·상품불량·오배송), 품목은 DELIVERED(SHIPPING 중 요청은 매트릭스상 가능하나 배송완료 기준 기한을 셀 수 없어 서비스에서 차단),
+     * (단순변심·상품불량·오배송), 품목은 DELIVERED(SHIPPING 중 요청은 배송완료 기준 기한을 셀 수 없어 차단 · 매트릭스도 D-266부터 불허),
      * 기한은 {@link ReturnWindowPolicy}(기준 발송 delivered_at + 7일·교환 발송 포함·검수 FAIL 재발송 제외), 검수 불합격(FAIL) 이력 품목은
      * 유형 무관 재요청 불가(같은 상품이 이미 불합격 판정을 받았고 재발송됐으므로 재요청은 운영 판단 영역·CLM-2 재요청 허용의 예외).
      *

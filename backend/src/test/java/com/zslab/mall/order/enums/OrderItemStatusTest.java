@@ -20,7 +20,7 @@ class OrderItemStatusTest {
         map.put(OrderItemStatus.ORDERED,           EnumSet.of(OrderItemStatus.PAID));
         map.put(OrderItemStatus.PAID,              EnumSet.of(OrderItemStatus.PREPARING,  OrderItemStatus.CANCEL_REQUESTED));
         map.put(OrderItemStatus.PREPARING,         EnumSet.of(OrderItemStatus.SHIPPING,   OrderItemStatus.CANCEL_REQUESTED));
-        map.put(OrderItemStatus.SHIPPING,          EnumSet.of(OrderItemStatus.DELIVERED,  OrderItemStatus.RETURN_REQUESTED));
+        map.put(OrderItemStatus.SHIPPING,          EnumSet.of(OrderItemStatus.DELIVERED));
         map.put(OrderItemStatus.DELIVERED,         EnumSet.of(OrderItemStatus.CONFIRMED,  OrderItemStatus.RETURN_REQUESTED, OrderItemStatus.EXCHANGE_REQUESTED));
         map.put(OrderItemStatus.CONFIRMED,         EnumSet.noneOf(OrderItemStatus.class));
         map.put(OrderItemStatus.CANCEL_REQUESTED,  EnumSet.of(OrderItemStatus.CANCELLED, OrderItemStatus.PAID, OrderItemStatus.PREPARING));
@@ -96,5 +96,14 @@ class OrderItemStatusTest {
                     .isFalse();
         }
         assertThat(OrderItemStatus.EXCHANGE_REQUESTED.canTransitionTo(OrderItemStatus.DELIVERED)).isTrue();
+    }
+
+    @Test
+    @DisplayName("반품 요청 진입은 DELIVERED만(D-266): SHIPPING → RETURN_REQUESTED 불가 · 스냅샷 원복 RETURN_REQUESTED → SHIPPING·DELIVERED는 유지")
+    void returnRequested_entryOnlyFromDelivered() {
+        assertThat(OrderItemStatus.SHIPPING.canTransitionTo(OrderItemStatus.RETURN_REQUESTED)).isFalse();
+        assertThat(OrderItemStatus.DELIVERED.canTransitionTo(OrderItemStatus.RETURN_REQUESTED)).isTrue();
+        assertThat(OrderItemStatus.RETURN_REQUESTED.canTransitionTo(OrderItemStatus.SHIPPING)).isTrue();
+        assertThat(OrderItemStatus.RETURN_REQUESTED.canTransitionTo(OrderItemStatus.DELIVERED)).isTrue();
     }
 }

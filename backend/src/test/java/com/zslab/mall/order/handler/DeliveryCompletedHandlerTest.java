@@ -2,6 +2,7 @@ package com.zslab.mall.order.handler;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -112,6 +113,32 @@ class DeliveryCompletedHandlerTest {
         handler.onDeliveryCompleted(event());
 
         verify(orderItemRepository, never()).findById(anyLong());
+        verify(orderService, never()).recalculateStatus(anyLong());
+    }
+
+    @Test
+    @DisplayName("onDeliveryCompleted: RETURN_REQUESTED(허용표상 DELIVERED 가능·스냅샷 원복 전용) → 출발 상태 SHIPPING 아님 skip(전이·재계산 없음·D-266)")
+    void onDeliveryCompleted_returnRequested_notShippingSkip() {
+        assertNotShippingSkipped(OrderItemStatus.RETURN_REQUESTED);
+    }
+
+    @Test
+    @DisplayName("onDeliveryCompleted: EXCHANGE_REQUESTED(교환 종결은 ClaimCompleted 경로) → 출발 상태 SHIPPING 아님 skip(전이·재계산 없음·D-266)")
+    void onDeliveryCompleted_exchangeRequested_notShippingSkip() {
+        assertNotShippingSkipped(OrderItemStatus.EXCHANGE_REQUESTED);
+    }
+
+    // 전이가 일어나면 RED에서 예외가 아니라 changeStatus 호출로 실패하도록 재계산 경로 stub을 lenient로 둔다(GREEN에서는 미사용).
+    private void assertNotShippingSkipped(OrderItemStatus status) {
+        OrderItem orderItem = mock(OrderItem.class);
+        lenient().when(orderItem.getId()).thenReturn(ORDER_ITEM_ID);
+        when(orderItem.getItemStatus()).thenReturn(status);
+        when(orderItemRepository.findById(ORDER_ITEM_ID)).thenReturn(Optional.of(orderItem));
+        lenient().when(orderItemRepository.findOrderIdById(ORDER_ITEM_ID)).thenReturn(Optional.of(ORDER_ID));
+
+        handler.onDeliveryCompleted(event());
+
+        verify(orderItem, never()).changeStatus(any());
         verify(orderService, never()).recalculateStatus(anyLong());
     }
 }
