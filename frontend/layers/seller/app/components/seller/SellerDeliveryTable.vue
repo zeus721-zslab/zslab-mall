@@ -15,6 +15,7 @@ import { semanticChipClass } from '#layers/seller/app/lib/constants/semantic'
 // 배송 표(Track 90-B-3·v-data-table-server·관리자 AdminDeliveryTable 복제). 페이지·크기는 부모(URL)가 소유하고 표는 이벤트만 올린다.
 // 주문번호 클릭 → 품목 상세 이동(openOrderItem·orderItemId). 행 액션 메뉴(배송완료·송장 정정)는 SHIPPING 행에만(판정은 lib/seller-delivery-view).
 // 상세 다이얼로그는 없다(셀러 배송 상세 API 부재·행에 필요한 정보가 다 있음). 송장번호 복사는 부모가 클립보드·토스트를 처리한다.
+// 첫 응답 전(로딩 중 · 행 없음)에는 하단 페이지 문구가 "0-0 / 0"으로 보이므로 footer를 숨긴다(FE-111).
 const props = defineProps<{
   items: SellerDeliverySummary[]
   totalCount: number
@@ -64,6 +65,7 @@ function isPending(item: SellerDeliverySummary): boolean {
     :items-per-page="size"
     :items-per-page-options="SELLER_DELIVERY_PAGE_SIZES.map((value) => ({ value, title: String(value) }))"
     :loading="loading"
+    :hide-default-footer="loading && items.length === 0"
     items-per-page-text="페이지당"
     page-text="{0}-{1} / {2}"
     loading-text="불러오는 중…"

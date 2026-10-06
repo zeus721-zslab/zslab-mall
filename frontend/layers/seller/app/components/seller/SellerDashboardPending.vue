@@ -46,8 +46,9 @@ function countOf(key: PendingKey): number {
                   {{ pending ? `${countOf(tile.key).toLocaleString('ko-KR')}건` : '—' }}
                 </p>
               </div>
+              <!-- 응답 전에는 countOf가 0이라 "없음"이 되므로 건수 자리와 같이 "—"로 둔다(FE-111). -->
               <v-chip :class="pendingChipClass(tile, countOf(tile.key))" size="small" variant="flat" :prepend-icon="ICONS[tile.key]">
-                {{ countOf(tile.key) > 0 ? '확인 필요' : '없음' }}
+                {{ pending ? (countOf(tile.key) > 0 ? '확인 필요' : '없음') : '—' }}
               </v-chip>
             </div>
             <p class="text-caption text-medium-emphasis mt-2 mb-0" data-testid="dashboard-pending-hint">{{ tile.hint }}</p>

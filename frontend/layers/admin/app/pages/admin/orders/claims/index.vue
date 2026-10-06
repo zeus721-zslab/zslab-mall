@@ -50,7 +50,8 @@ function selectTab(tab: ClaimTab): void {
 // ---------- 목록 ----------
 const items = ref<AdminClaimSummary[]>([])
 const totalCount = ref(0)
-const pendingCount = ref(0)
+// null = 첫 응답 전. 0으로 시작하면 응답 전에 "처리 대기 0건"이 보인다(FE-111).
+const pendingCount = ref<number | null>(null)
 const loading = ref(false)
 const loadError = ref<string | null>(null)
 let requestSequence = 0
@@ -92,11 +93,12 @@ function resetQuery(): void {
 
 const filtersActive = computed(() => hasActiveClaimFilters(query.value))
 
-/** 처리 대기 chip 문구: 현재 탭 유형 기준(BE pendingCount는 type만 반영). 0건은 중립 톤. */
+/** 처리 대기 chip 문구: 현재 탭 유형 기준(BE pendingCount는 type만 반영). 0건은 중립 톤. 응답 전에는 건수 자리를 "—"로 둔다(대시보드 처리 대기 칸과 같음). */
 const pendingLabel = computed(() => {
   const scope = activeTab.value === ALL_TAB ? '' : `${claimTypeLabel(activeTab.value)} `
-  return `${scope}처리 대기 ${pendingCount.value}건`
+  return `${scope}처리 대기 ${pendingCount.value === null ? '—' : `${pendingCount.value}건`}`
 })
+const hasPending = computed(() => pendingCount.value !== null && pendingCount.value > 0)
 
 function openOrder(item: AdminClaimSummary): void {
   if (!item.orderId) return
@@ -294,8 +296,8 @@ async function runMarkExchangeDelivered(): Promise<void> {
     <AdminPageHeader title="취소·반품·교환" description="클레임 요청을 유형별로 조회하고 승인·거부합니다. 반품은 회수 확인 후 검수(합격 환불·불합격 재발송)까지 처리합니다.">
       <template #actions>
         <v-chip
-          :color="pendingCount > 0 ? 'warning' : undefined"
-          :variant="pendingCount > 0 ? 'flat' : 'tonal'"
+          :color="hasPending ? 'warning' : undefined"
+          :variant="hasPending ? 'flat' : 'tonal'"
           size="small"
           data-testid="claim-pending-chip"
         >

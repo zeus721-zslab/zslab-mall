@@ -48,7 +48,8 @@ const CARD = 'rounded-card bg-white px-5 py-8 shadow-e1 md:px-10 md:py-10'
       <div>
         <p class="text-caption uppercase tracking-[0.12em] text-sub">Reviews</p>
         <h2 id="product-reviews-title" class="mt-1 flex flex-wrap items-center gap-x-3 text-h2 text-ink">
-          <span>리뷰 <span class="tabular-nums" data-testid="product-reviews-count">{{ reviewCount.toLocaleString('ko-KR') }}</span></span>
+          <!-- 건수: 첫 페이지 응답 전 기본값 0을 보이지 않는다(아래 빈 상태의 !reviews.pending과 같은 판정 · FE-111). -->
+          <span>리뷰 <span v-if="!reviews.pending" class="tabular-nums" data-testid="product-reviews-count">{{ reviewCount.toLocaleString('ko-KR') }}</span></span>
           <span v-if="averageRating !== undefined" class="inline-flex items-center gap-1.5 text-h3" data-testid="product-reviews-average">
             <RenewRatingStars :value="averageRating" size="md" />
             <span class="tabular-nums">{{ averageRating.toFixed(1) }}</span>
