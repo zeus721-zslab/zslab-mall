@@ -2,6 +2,7 @@ package com.zslab.mall.order.handler;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -90,6 +91,21 @@ class DeliveryStartedHandlerTest {
         OrderItem orderItem = mock(OrderItem.class);
         when(orderItem.getItemStatus()).thenReturn(OrderItemStatus.DELIVERED);
         when(orderItemRepository.findById(ORDER_ITEM_ID)).thenReturn(Optional.of(orderItem));
+
+        handler.onDeliveryStarted(event());
+
+        verify(orderItem, never()).changeStatus(any());
+        verify(orderService, never()).recalculateStatus(anyLong());
+    }
+
+    @Test
+    @DisplayName("onDeliveryStarted: RETURN_REQUESTED(허용표상 SHIPPING 가능·스냅샷 원복 전용) → 출발 상태 PREPARING 아님 skip(전이·재계산 없음·D-266)")
+    void onDeliveryStarted_returnRequested_notPreparingSkip() {
+        OrderItem orderItem = mock(OrderItem.class);
+        lenient().when(orderItem.getId()).thenReturn(ORDER_ITEM_ID);
+        when(orderItem.getItemStatus()).thenReturn(OrderItemStatus.RETURN_REQUESTED);
+        when(orderItemRepository.findById(ORDER_ITEM_ID)).thenReturn(Optional.of(orderItem));
+        lenient().when(orderItemRepository.findOrderIdById(ORDER_ITEM_ID)).thenReturn(Optional.of(ORDER_ID));
 
         handler.onDeliveryStarted(event());
 

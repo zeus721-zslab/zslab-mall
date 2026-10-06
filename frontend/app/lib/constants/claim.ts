@@ -140,8 +140,8 @@ export const CLAIM_REASON_CODES: ClaimReasonCode[] = [
 
 /**
  * 품목 상태 code에서 구매자가 요청 가능한 클레임 유형 목록을 반환한다.
- * BE OrderItemStatus.canTransitionTo(Claim 진입 전이·D-88)와 정합하되, 반품은 서비스 규칙(D-170·배송완료 기준 기한)상
- * DELIVERED만 허용하므로 SHIPPING → RETURN은 노출하지 않는다(FE-29):
+ * BE OrderItemStatus.canTransitionTo(Claim 진입 전이·D-88)와 정합한다. 반품은 서비스 규칙(D-170·배송완료 기준 기한)상
+ * DELIVERED만 허용하며 매트릭스도 SHIPPING → RETURN_REQUESTED를 뺐다(FE-29 · D-266):
  *   PAID·PREPARING → CANCEL(배송 전 취소) / DELIVERED → RETURN·EXCHANGE(수령 후 반품·교환). 그 외 상태는 요청 불가([] → 버튼 미노출).
  * 교환 완료 품목(exchangeCompleted·FE-30-4·D-177)은 DELIVERED로 돌아오지만 재교환이 422라 EXCHANGE를 뺀다(반품은 유지).
  * 검수 불합격 이력 품목(inspectionFailed·W2)은 반품·교환 재요청이 모두 422라 둘 다 뺀다(BE 판정 기준과 같음 — 유형 무관 FAIL 이력).

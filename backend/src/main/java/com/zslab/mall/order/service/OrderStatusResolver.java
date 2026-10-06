@@ -24,7 +24,7 @@ public class OrderStatusResolver {
     private static final Set<OrderItemStatus> CONFIRMED_LIKE =
             EnumSet.of(OrderItemStatus.CONFIRMED, OrderItemStatus.RETURNED, OrderItemStatus.EXCHANGED);
 
-    /** 배송완료 이후 단계. 반품·교환 요청은 배송 중 반품 요청(SHIPPING → RETURN_REQUESTED)까지 포함해 이 단계로 간주한다(최종 점검 K1 확정 규칙). */
+    /** 배송완료 이후 단계. 반품·교환 요청(RETURN_REQUESTED·EXCHANGE_REQUESTED)은 이 단계로 간주한다(최종 점검 K1 확정 규칙 · 진입은 DELIVERED에서만 · D-266). */
     private static final Set<OrderItemStatus> DELIVERED_OR_LATER = EnumSet.of(
             OrderItemStatus.DELIVERED, OrderItemStatus.RETURN_REQUESTED, OrderItemStatus.EXCHANGE_REQUESTED,
             OrderItemStatus.CONFIRMED, OrderItemStatus.RETURNED, OrderItemStatus.EXCHANGED);

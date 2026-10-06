@@ -19,8 +19,8 @@ import org.springframework.stereotype.Component;
  * <p><b>실행 시점(D-97 Q5·D-29)</b>: {@code @EventListener}로 동기 소비하며 발행자({@code DeliveryService.markDelivered})와
  * 같은 트랜잭션에서 실행된다. 본 핸들러가 실패하면 Delivery 상태 전이까지 함께 롤백된다(OrderItem 상태 = 동기·domain-events §2).
  *
- * <p><b>멱등(D-97 Q8)</b>: OrderItem이 이미 DELIVERED이면 no-op·전이 불가 상태면 {@link OrderItemStatus#canTransitionTo}
- * 가드로 흡수한다(별도 멱등 저장소 미도입). {@code DeliveryStartedHandler} 패턴 1:1.
+ * <p><b>멱등(D-97 Q8)</b>: OrderItem이 이미 DELIVERED이면 no-op·출발 상태가 SHIPPING이 아니면 건너뛴다(D-266 — 허용표만으로
+ * 판정하면 클레임 원복용 쌍까지 통과한다·별도 멱등 저장소 미도입). {@code DeliveryStartedHandler} 패턴 1:1.
  */
 @Slf4j
 @Component
@@ -61,8 +61,9 @@ public class DeliveryCompletedHandler {
             log.info("[Delivery] OrderItem 이미 DELIVERED → 전이 건너뜀: orderItemId={}", event.orderItemId());
             return;
         }
-        if (!orderItem.getItemStatus().canTransitionTo(OrderItemStatus.DELIVERED)) {
-            // 배송 완료 전이 불가 상태 — 데이터 정합 경고 후 차단
+        if (orderItem.getItemStatus() != OrderItemStatus.SHIPPING) {
+            // 발송 완료의 출발 상태는 SHIPPING뿐이다(D-266). RETURN_REQUESTED·EXCHANGE_REQUESTED → DELIVERED는 허용표에 있지만
+            // 클레임 원복·종결 전용이라 배송 이벤트로 전이하지 않는다 — 데이터 정합 경고 후 차단
             log.warn("[Delivery] OrderItem 상태={} → DELIVERED 전이 불가·건너뜀: orderItemId={}",
                     orderItem.getItemStatus(), event.orderItemId());
             return;

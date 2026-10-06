@@ -14306,3 +14306,16 @@ D-246 §8 정정: '데모 로그인 요청 제한 문서 불일치' 항목 철�
 - 감사 맵을 조립하는 클래스는 `auditRecorder.record(`를 직접 호출한다 — `AuditFieldMaskingPolicyTest`가 이 호출이 있는 파일만 스캔하므로, 공용 감사 헬퍼로 빼면 그 클래스의 감사 필드가 스캔에서 빠진다.
 - 이전 결정 기록의 ClaimService.<메서드> 표기는 분리 전 위치다(append-only라 본문 무수정). 이동 위치: 조회 → ClaimQueryService · 신청 → ClaimRequestService · 회수·검수 → ClaimReturnService · 공용 잠금·조회 → ClaimAccess
 - 외부 검토: A / 지적 0건 중 수용 0건
+
+## D-266 도달 불가 상태 전이 정리 — 허용표 · 배송 핸들러 출발 상태 축소(퀄리티 1-1) (2026-10-07)
+
+### 결정
+- `OrderItemStatus` 허용표에서 SHIPPING → RETURN_REQUESTED를 뺀다. 반품·교환 요청은 DELIVERED에서만 들어온다(D-170 서비스 규칙과 같음).
+- `DeliveryCompletedHandler`는 출발 상태 SHIPPING만 DELIVERED로, `DeliveryStartedHandler`는 출발 상태 PREPARING만 SHIPPING으로 전이한다. 그 밖의 출발 상태로 온 이벤트는 예외 없이 경고 로그 후 건너뛴다(기존 skip 방식).
+- 허용표의 RETURN_REQUESTED → DELIVERED · SHIPPING, EXCHANGE_REQUESTED → DELIVERED는 유지한다 — ClaimRejected 스냅샷 원복(D-98 Q7·Q11)과 교환 종결(D-177)이 쓰는 쌍이다. state-machine.md는 바꾸지 않는다(코드가 문서 §3에 맞춰짐).
+
+### §1-A 갈림길·채택/기각 근거
+- (a) 허용표 제거 + 배송 핸들러 출발 상태 축소 【채택】 — 실행되지 않던 전이 4건((SHIPPING, 반품 요청, RETURN_REQUESTED) · (RETURN_REQUESTED, 배송 완료, DELIVERED) · (EXCHANGE_REQUESTED, 배송 완료, DELIVERED) · (RETURN_REQUESTED, 배송 시작, SHIPPING))을 코드에서 없애 문서·코드·실제 동작을 함께 맞춘다. 배송 이벤트의 정상 출발 상태는 일반 배송 하나뿐이고 클레임 연결·회수 배송은 앞 단계에서 이미 빠지므로 실행 동작은 바뀌지 않는다. 원복용 쌍은 허용표에서 뺄 수 없어 이벤트 쪽을 좁힌다.
+- (b) state-machine.md에 기재 【기각】 — 실행되지 않는 전이를 문서화하게 되고, §2의 반품 요청 조건 "품목 DELIVERED"와 충돌한다.
+- (c) 서비스 가드 해제(배송 중 반품 요청 허용) 【기각】 — 배송완료 기준 반품 기한을 판정할 수 없고, 반품 요청 중인 품목이 배송 완료 이벤트로 DELIVERED가 되어 활성 클레임이 남은 채 배송완료 상태가 되는 결함이 생긴다.
+- 외부 검토: A / 지적 0건 중 수용 0건
