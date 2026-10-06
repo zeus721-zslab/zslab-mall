@@ -14219,3 +14219,24 @@ D-246 §8 정정: '데모 로그인 요청 제한 문서 불일치' 항목 철�
 - §1-A 대안 검토 없음.
 
 외부 검토: C / 생략
+
+## D-261 엔티티 UNIQUE 선언 — 자체 평점 3-2(a) (D-85 개정) (2026-10-06)
+
+### D-85 개정
+- Q4 "DDL 신뢰 · @Table uniqueConstraints 생략" → DB 제약을 엔티티에도 선언해 일치시킨다(런타임 DDL 무영향 — `ddl-auto: validate`). 제약의 주체는 여전히 DB(Flyway)다.
+
+### 결정
+- 엔티티 UNIQUE 선언 11건(단일 컬럼은 `@Column(unique = true)`, 복합은 `@Table(uniqueConstraints)`에 마이그레이션의 제약 이름으로):
+  - public_id 6건 — `order` · order_item · payment · delivery · claim · refund (공통 상위 `AbstractPublicIdFullAuditableEntity`에 선언 · 상속 6개 테이블 모두 UNIQUE 보유)
+  - `order`.order_no · payment.payment_attempt_key · refund.pg_refund_id · inventory.variant_id
+  - payment(pg_provider, pg_tid) — `uk_payment_provider_pg_tid`
+- claim.refund_amount(V9) — `Claim`에 읽기 전용 매핑(`insertable = false, updatable = false` · getter 없음). D-177로 폐기된 레거시 컬럼이라 읽거나 쓰는 코드를 두지 않는다.
+
+### §1-A 갈림길·채택/기각 근거
+- UNIQUE: α 엔티티 선언 추가 【채택】 / β DDL 신뢰 유지 【기각】 — 엔티티만 읽는 독자에게 제약이 보이지 않는다.
+- refund_amount: α 읽기 전용 매핑 【채택】 / β V47 DROP 【기각】 — 운영 값 선검증과 A 등급 절차가 필요해 별도 검토(backlog)로 둔다.
+
+### §8 이월
+- 3-2 평가 대상 밖 테이블(D-85 Q4의 원 대상 cart_item 포함)의 UNIQUE 선언은 이번에 하지 않았다.
+
+외부 검토: C / 생략

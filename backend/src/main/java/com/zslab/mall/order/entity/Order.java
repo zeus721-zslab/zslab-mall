@@ -49,7 +49,7 @@ public class Order extends AbstractPublicIdFullAuditableEntity {
     @Column(name = "buyer_id", nullable = false)
     private Long buyerId;
 
-    @Column(name = "order_no", nullable = false, length = 50, updatable = false)
+    @Column(name = "order_no", nullable = false, length = 50, updatable = false, unique = true)
     private String orderNo;
 
     @Enumerated(EnumType.STRING)

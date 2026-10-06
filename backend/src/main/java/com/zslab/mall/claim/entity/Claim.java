@@ -70,6 +70,11 @@ public class Claim extends AbstractPublicIdFullAuditableEntity {
     @Column(name = "processed_at")
     private LocalDateTime processedAt;
 
+    /** D-177로 폐기된 레거시 컬럼 — 스키마 일치용 매핑, 사용 금지. */
+    @Getter(AccessLevel.NONE)
+    @Column(name = "refund_amount", insertable = false, updatable = false)
+    private Long refundAmount;
+
     /** 거부 사유 코드(Track 80 D-169). 거부 시점에만 채워지며 그 외 NULL. */
     @Enumerated(EnumType.STRING)
     @Column(name = "reject_reason_code", length = 50)

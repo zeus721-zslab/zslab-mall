@@ -60,7 +60,7 @@ public class Refund extends AbstractPublicIdFullAuditableEntity {
     @Column(name = "status", nullable = false)
     private RefundStatus status;
 
-    @Column(name = "pg_refund_id", length = 100)
+    @Column(name = "pg_refund_id", length = 100, unique = true)
     private String pgRefundId;
 
     @Column(name = "refunded_at")
