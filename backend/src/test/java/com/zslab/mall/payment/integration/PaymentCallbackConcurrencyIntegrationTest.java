@@ -39,7 +39,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  *
  * <p><b>시드</b>: 주문 A(콜백 대상·수량 1)·주문 B(같은 variant 예약 1)·inventory on_hand 10·reserved 2·available 8.
  * 결과 판정: PAID면 on_hand 9·reserved 1·history 1, 종료(EXPIRED/FAILED)면 on_hand 10·reserved 1·history 0 — 어느 쪽이든
- * reserved 1 = B의 예약분이다. 만료 시각은 DB NOW(6)(UTC) 대신 JVM LocalDateTime 바인딩으로 세팅한다(STEP 248 트랩).
+ * reserved 1 = B의 예약분이다. 만료 시각은 DB NOW(6)(D-264 전에는 UTC 세션) 대신 JVM LocalDateTime 바인딩으로 세팅한다(STEP 248 트랩).
  *
  * <p><b>스케줄러 자동 발화 차단</b>: 만료·자동취소·환불 복구 배치를 끈다(InventoryConcurrencyIntegrationTest 정합).
  */

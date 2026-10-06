@@ -575,7 +575,7 @@ class ClaimPipelineIntegrationTest extends AbstractIntegrationTest {
     }
 
     /**
-     * 시각은 JVM {@link LocalDateTime}으로 바인딩한다 — 스케줄러 threshold가 JVM 시각이라 DB NOW()(세션 타임존 상이)를 섞으면 유예 판정이 어긋난다.
+     * 시각은 JVM {@link LocalDateTime}으로 바인딩한다 — 스케줄러 threshold가 JVM 시각이라 DB NOW()(D-264 전에는 세션 타임존 상이)를 섞으면 유예 판정이 어긋난다.
      */
     private void seedClaim(long claimId, long itemId, String type, String status, String previousStatus, LocalDateTime processedAt) {
         jdbc.update("INSERT INTO claim (id, public_id, order_item_id, type, status, reason_code, requested_by, requested_at, processed_at, "
