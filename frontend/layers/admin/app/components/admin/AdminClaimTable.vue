@@ -21,6 +21,7 @@ import { ADMIN_CLAIM_ACTION_LABEL } from '#layers/admin/app/lib/constants/admin-
 
 // 클레임 표(FE-28·v-data-table-server·AdminOrderTable 패턴). 페이지·크기는 부모(URL)가 소유하고 표는 이벤트만 올린다.
 // 행 액션은 BE availableActions로만 노출한다 — REQUESTED는 APPROVE·REJECT, 반품 승인 후는 CONFIRM_PICKUP·INSPECT(FE-29·Track 81-A).
+// 첫 응답 전(로딩 중 · 행 없음)에는 하단 페이지 문구가 "0-0 / 0"으로 보이므로 footer를 숨긴다(FE-111).
 const props = defineProps<{
   items: AdminClaimSummary[]
   totalCount: number
@@ -89,6 +90,7 @@ function returnCaption(item: AdminClaimSummary): string {
     :items-per-page="size"
     :items-per-page-options="ADMIN_ORDER_PAGE_SIZES.map((value) => ({ value, title: String(value) }))"
     :loading="loading"
+    :hide-default-footer="loading && items.length === 0"
     items-per-page-text="페이지당"
     page-text="{0}-{1} / {2}"
     loading-text="불러오는 중…"

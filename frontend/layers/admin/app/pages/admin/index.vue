@@ -120,7 +120,7 @@ function productTo(row: AdminDashboardTopProduct): string | null {
         <AdminDashboardListCard
           title="최근 주문"
           :all-link="ADMIN_ORDERS_PATH"
-          :rows="data?.recentOrders ?? []"
+          :rows="data?.recentOrders ?? null"
           :row-key="(row) => row.orderPublicId"
           :row-to="orderTo"
           test-id="dashboard-recent-orders"
@@ -143,7 +143,7 @@ function productTo(row: AdminDashboardTopProduct): string | null {
         <AdminDashboardListCard
           title="최근 클레임"
           :all-link="ADMIN_CLAIMS_PATH"
-          :rows="data?.recentClaims ?? []"
+          :rows="data?.recentClaims ?? null"
           :row-key="(row) => row.claimPublicId"
           :row-to="claimTo"
           test-id="dashboard-recent-claims"
@@ -163,7 +163,7 @@ function productTo(row: AdminDashboardTopProduct): string | null {
         <AdminDashboardListCard
           title="이번 달 상위 셀러"
           :all-link="ADMIN_SETTLEMENTS_SELLERS_PATH"
-          :rows="data?.topSellers ?? []"
+          :rows="data?.topSellers ?? null"
           :row-key="(row) => row.sellerPublicId ?? row.sellerName ?? String(row.revenue)"
           :row-to="sellerTo"
           test-id="dashboard-top-sellers"
@@ -183,7 +183,7 @@ function productTo(row: AdminDashboardTopProduct): string | null {
         <AdminDashboardListCard
           title="이번 달 상위 상품"
           :all-link="ADMIN_PRODUCTS_PATH"
-          :rows="data?.topProducts ?? []"
+          :rows="data?.topProducts ?? null"
           :row-key="(row) => row.productPublicId ?? row.productName"
           :row-to="productTo"
           test-id="dashboard-top-products"

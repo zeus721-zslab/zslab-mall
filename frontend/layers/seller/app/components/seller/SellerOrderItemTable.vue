@@ -19,6 +19,7 @@ import { semanticChipClass } from '#layers/seller/app/lib/constants/semantic'
 // 품목 표(Track 90-B-3·v-data-table-server·관리자 AdminOrderTable 복제). 행 = 자기 품목(D-191). 페이지·크기는 부모(URL)가 소유하고 표는 이벤트만 올린다.
 // 발송 버튼은 PAID 품목에만 노출(canPrepareShipment)·부모가 다이얼로그를 연다. 배송완료는 배송 화면(진입점 분리·D-191 §5-2).
 // 클레임 칩(Track 90-D-1)은 최신 1건 유형·상태(+2건 이상이면 건수)이며 클릭 시 부모가 클레임 상세로 보낸다(조회 전용·처리 없음).
+// 첫 응답 전(로딩 중 · 행 없음)에는 하단 페이지 문구가 "0-0 / 0"으로 보이므로 footer를 숨긴다(FE-111).
 const props = defineProps<{
   items: SellerOrderItemSummary[]
   totalCount: number
@@ -66,6 +67,7 @@ function isPending(item: SellerOrderItemSummary): boolean {
     :items-per-page="size"
     :items-per-page-options="SELLER_ORDER_PAGE_SIZES.map((value) => ({ value, title: String(value) }))"
     :loading="loading"
+    :hide-default-footer="loading && items.length === 0"
     items-per-page-text="페이지당"
     page-text="{0}-{1} / {2}"
     loading-text="불러오는 중…"

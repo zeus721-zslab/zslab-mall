@@ -156,7 +156,7 @@ function orderItemTo(row: SellerDashboardRecentOrderItem): string {
         <SellerDashboardListCard
           title="최근 주문 품목"
           :all-link="SELLER_ORDERS_PATH"
-          :rows="data?.recentOrderItems ?? []"
+          :rows="data?.recentOrderItems ?? null"
           :row-key="(row) => row.orderItemId"
           :row-to="orderItemTo"
           empty-text="결제된 주문 품목이 없습니다"
@@ -179,7 +179,7 @@ function orderItemTo(row: SellerDashboardRecentOrderItem): string {
       <v-col cols="12" md="6" lg="4">
         <SellerDashboardListCard
           title="최근 클레임"
-          :rows="data?.recentClaims ?? []"
+          :rows="data?.recentClaims ?? null"
           :row-key="(row) => row.claimPublicId"
           empty-text="접수된 클레임이 없습니다"
           test-id="dashboard-recent-claims"
@@ -198,7 +198,7 @@ function orderItemTo(row: SellerDashboardRecentOrderItem): string {
       <v-col cols="12" md="12" lg="4">
         <SellerDashboardListCard
           title="기간 상위 상품"
-          :rows="data?.topProducts ?? []"
+          :rows="data?.topProducts ?? null"
           :row-key="(row) => row.productPublicId ?? row.productName"
           empty-text="기간 내 판매 상품이 없습니다"
           test-id="dashboard-top-products"

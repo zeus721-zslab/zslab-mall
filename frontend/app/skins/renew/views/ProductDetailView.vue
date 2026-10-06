@@ -37,13 +37,14 @@ const addButtonLabel = computed(() => (props.vm.adding ? '담는 중…' : '장�
 const totalPendingText = computed(() => props.vm.unavailableLabel ?? TOTAL_PENDING_TEXT)
 
 // 섹션 바 알약: 화면에 있는 섹션만(설명 없는 상품 · 스킨이 리뷰·묻기를 선언하지 않은 경우 제외). 건수는 리뷰 요약·질문 목록 총수.
+// 첫 페이지 응답 전에는 기본값 0을 보이지 않게 건수 없이 이름만 둔다(섹션의 pending 판정과 같음 · FE-111).
 const sectionNavItems = computed<ProductSectionNavItem[]>(() => {
   const items: ProductSectionNavItem[] = []
   if (product.value?.description) items.push({ id: PRODUCT_SECTION_IDS.description, label: '상품설명' })
   const reviews = props.vm.reviews
-  if (reviews) items.push({ id: PRODUCT_SECTION_IDS.reviews, label: `리뷰 ${(reviews.summary?.reviewCount ?? reviews.totalCount).toLocaleString('ko-KR')}` })
+  if (reviews) items.push({ id: PRODUCT_SECTION_IDS.reviews, label: reviews.pending ? '리뷰' : `리뷰 ${(reviews.summary?.reviewCount ?? reviews.totalCount).toLocaleString('ko-KR')}` })
   const questions = props.vm.questions
-  if (questions) items.push({ id: PRODUCT_SECTION_IDS.questions, label: `Q&A ${questions.totalCount.toLocaleString('ko-KR')}` })
+  if (questions) items.push({ id: PRODUCT_SECTION_IDS.questions, label: questions.pending ? 'Q&A' : `Q&A ${questions.totalCount.toLocaleString('ko-KR')}` })
   return items
 })
 
