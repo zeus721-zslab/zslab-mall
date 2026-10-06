@@ -17,6 +17,9 @@ spring:
       # 재계산한다. 모든 프로필·테스트가 이 설정을 공유한다(datasource override 없음). 운영 binlog 꺼짐 확인(2026-09-23) — RC와
       # 충돌하는 STATEMENT binlog 조건 없음.
       transaction-isolation: TRANSACTION_READ_COMMITTED
+      # D-264: DB 서버 기본 시간대(SYSTEM=UTC)를 따르던 세션을 KST로 고정해 DB NOW()·수동 조회를 앱 저장값(KST 벽시계)과 맞춘다.
+      # 오프셋 표기라 MariaDB 시간대 테이블이 필요 없다(한국은 서머타임 없음). 커넥션 생성 시 1회 실행 — 모든 프로필·테스트 공유.
+      connection-init-sql: "SET time_zone = '+09:00'"
   jpa:
     hibernate:
       ddl-auto: validate
@@ -27,6 +30,11 @@ spring:
           # KST 통일(JVM·jdbc 동시 정렬·Track 69) — URL serverTimezone 미혼용
           time_zone: Asia/Seoul
   flyway:
+    # D-264: user를 지정하면 Flyway가 앱 Hikari 풀 대신 전용 커넥션을 쓴다(비밀번호·URL은 spring.datasource 값 상속).
+    # 풀 커넥션으로 돌리면 마이그레이션의 세션 SET(V1~V4 "SET time_zone = '+00:00'")이 반납 후에도 남아 KST 고정이 깨진다.
+    user: ${spring.datasource.username}
+    # D-264: 전용 커넥션은 위 hikari init SQL을 거치지 않으므로 Flyway 세션도 KST로 고정(마이그레이션의 NOW()가 앱 저장값과 같은 벽시계).
+    init-sqls: "SET time_zone = '+09:00'"
     enabled: true
     locations: classpath:db/migration
     baseline-on-migrate: false
@@ -36,7 +44,7 @@ spring:
       max-file-size: ${UPLOAD_MAX_SIZE:10485760}
       max-request-size: 220MB
   jackson:
-    # D-49·§15: 응답 null 필드 제외(camelCase는 Jackson 기본). 날짜 UTC Z 포맷은 DTO 필드 @JsonFormat에서 처리.
+    # D-49·§15: 응답 null 필드 제외(camelCase는 Jackson 기본). 날짜는 KST 벽시계에 +09:00 오프셋을 붙여 응답(DTO 필드 @JsonSerialize KstOffsetSerializer).
     default-property-inclusion: non_null
     # D-234 Jackson 3 기본값을 Jackson 2 동작으로 고정(응답·요청 형식 불변). use-jackson2-defaults = MapperBuilder.configureForJackson2()
     # (키 선언 순서·null primitive 허용·enum name·final 필드 mutator·getter-as-setter·FAIL_ON_EMPTY_BEANS 등). 그 밖의 차이는 아래에서 개별 고정.

@@ -390,7 +390,9 @@ def connect_db():
     return pymysql.connect(
         host=env("DB_HOST"), port=int(env("DB_PORT")), user=env("DB_USER"), password=env("DB_PASSWORD"),
         # autocommit: API가 커밋한 행을 REPEATABLE READ 스냅샷 없이 바로 읽기 위함. timeshift만 명시 트랜잭션(begin/commit)
-        database=env("DB_NAME"), charset="utf8mb4", autocommit=True, cursorclass=pymysql.cursors.DictCursor)
+        database=env("DB_NAME"), charset="utf8mb4", autocommit=True, cursorclass=pymysql.cursors.DictCursor,
+        # D-264: 앱 커넥션과 같이 세션을 KST로 고정(DB 서버 기본 SYSTEM=UTC) — SQL NOW()가 앱 저장값(KST 벽시계)과 맞게
+        init_command="SET time_zone = '+09:00'")
 
 
 def query_one(conn, sql: str, params=None):
