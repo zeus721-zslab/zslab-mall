@@ -68,11 +68,11 @@ public interface OrderRepository extends JpaRepository<Order, Long>, JpaSpecific
     Optional<Order> findByIdWithItems(@Param("id") Long id);
 
     /**
-     * public_id로 Order를 items·shippingSnapshot과 함께 fetch join 조회한다(GET 단건 상세·재결제 재검증).
-     * 트랜잭션 밖(CheckoutService)에서도 연관 접근이 안전하도록 선로딩한다.
+     * public_id로 Order를 items와 함께 fetch join 조회한다(GET 단건 상세·재결제 재검증).
+     * 트랜잭션 밖(CheckoutService)에서도 연관 접근이 안전하도록 선로딩한다. 배송지 스냅샷은 필요한 상세 조회만
+     * {@code OrderShippingSnapshotRepository}로 따로 읽는다.
      */
-    @Query("SELECT DISTINCT o FROM Order o LEFT JOIN FETCH o.items LEFT JOIN FETCH o.shippingSnapshot "
-            + "WHERE o.publicId = :publicId")
+    @Query("SELECT DISTINCT o FROM Order o LEFT JOIN FETCH o.items WHERE o.publicId = :publicId")
     Optional<Order> findByPublicIdWithItems(@Param("publicId") String publicId);
 
     /** 여러 Order를 items와 함께 일괄 fetch join 조회한다(목록 enrich·previewTitle/sellerCount·N+1 회피). */

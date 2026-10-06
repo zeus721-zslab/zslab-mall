@@ -30,6 +30,7 @@ import com.zslab.mall.order.enums.OrderStatus;
 import com.zslab.mall.order.exception.OrderNotFoundException;
 import com.zslab.mall.order.repository.AdminOrderSpecifications;
 import com.zslab.mall.order.repository.OrderRepository;
+import com.zslab.mall.order.repository.OrderShippingSnapshotRepository;
 import com.zslab.mall.payment.entity.Payment;
 import com.zslab.mall.payment.enums.PaymentStatus;
 import com.zslab.mall.payment.repository.PaymentRepository;
@@ -84,6 +85,7 @@ public class AdminOrderQueryService {
             Set.of(OrderStatus.CANCELLED, OrderStatus.PAYMENT_EXPIRED);
 
     private final OrderRepository orderRepository;
+    private final OrderShippingSnapshotRepository orderShippingSnapshotRepository;
     private final PaymentRepository paymentRepository;
     private final DeliveryRepository deliveryRepository;
     private final ClaimRepository claimRepository;
@@ -119,8 +121,7 @@ public class AdminOrderQueryService {
         }
         String trimmedKeyword = normalizeKeyword(keyword);
         Specification<Order> specification = Specification
-                .where(AdminOrderSpecifications.fetchShippingSnapshot())
-                .and(AdminOrderSpecifications.keyword(toLikePattern(trimmedKeyword), trimmedKeyword))
+                .where(AdminOrderSpecifications.keyword(toLikePattern(trimmedKeyword), trimmedKeyword))
                 .and(AdminOrderSpecifications.status(status))
                 .and(AdminOrderSpecifications.paymentStatus(paymentStatus))
                 .and(AdminOrderSpecifications.deliveryStatus(deliveryStatus))
@@ -197,7 +198,7 @@ public class AdminOrderQueryService {
         return new AdminOrderDetailResponse(
                 order.getPublicId(), order.getOrderNo(), order.getOrderedAt(), order.getPaidAt(), order.getStatus().name(),
                 buyer == null ? null : new AdminOrderDetailResponse.Buyer(buyer.getPublicId(), buyer.getName(), buyer.getEmail()),
-                order.getShippingSnapshot() == null ? null : ShippingAddressResponse.from(order.getShippingSnapshot()),
+                orderShippingSnapshotRepository.findByOrderId(order.getId()).map(ShippingAddressResponse::from).orElse(null),
                 order.getTotalPrice(), order.getDiscountAmount(), order.getShippingFee(), paymentAmount(order),
                 payments, items, cancelReasons(order.getId()), actions(order, enrichment),
                 adminReconciliationIssueService.listByOrder(order.getId()));

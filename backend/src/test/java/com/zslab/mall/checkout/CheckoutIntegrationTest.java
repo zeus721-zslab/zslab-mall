@@ -143,7 +143,15 @@ class CheckoutIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.sellers[0].companyName").value("테스트샵"))
                 .andExpect(jsonPath("$.sellers[0].items[0].productId").value(PRODUCT_PID))
                 .andExpect(jsonPath("$.sellers[0].items[0].productName").value("테스트상품"))
-                .andExpect(jsonPath("$.sellers[0].subtotal").value(20000));
+                .andExpect(jsonPath("$.sellers[0].subtotal").value(20000))
+                // 퀄리티 B 3-1: 체크아웃 명시 저장 → 상세 리포지토리 조회 경로로 배송지가 그대로 나온다(null 필드는 NON_NULL 생략)
+                .andExpect(jsonPath("$.shippingAddress.recipientName").value("홍길동"))
+                .andExpect(jsonPath("$.shippingAddress.recipientPhone").value("010-1234-5678"))
+                .andExpect(jsonPath("$.shippingAddress.zonecode").value("06236"))
+                .andExpect(jsonPath("$.shippingAddress.addressRoad").value("서울 강남대로 1"))
+                .andExpect(jsonPath("$.shippingAddress.addressDetail").value("101호"))
+                .andExpect(jsonPath("$.shippingAddress.addressJibun").doesNotExist())
+                .andExpect(jsonPath("$.shippingAddress.deliveryMemo").doesNotExist());
     }
 
     @Test

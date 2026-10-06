@@ -21,7 +21,8 @@ import lombok.ToString;
  *
  * <p>public_id 미부여 표준 id 엔티티이며 {@link AbstractFullAuditableEntity}를 상속한다(db-schema §1.1).
  *
- * <p><b>관계(QB-10 A'-1)</b>: 본 엔티티가 FK({@code order_id}) 소유측이다. Order → Snapshot 단방향 탐색만 허용하며
+ * <p><b>관계(QB-10 A'-1)</b>: 본 엔티티가 FK({@code order_id}) 소유측이며 Order는 스냅샷 필드를 두지 않는다(퀄리티 B 3-1 —
+ * 비소유 측 1:1의 주문 적재마다 조회 제거). 조회는 {@code OrderShippingSnapshotRepository}(order_id 기준)로 하고,
  * Snapshot → Order 역참조는 내부 보유·비공개다. {@code order} 필드는 public getter를 노출하지 않고
  * ({@code @Getter(AccessLevel.NONE)}), FK 연결은 {@link com.zslab.mall.order.entity.Order#attachSnapshot} 경유로만 이뤄진다.
  */

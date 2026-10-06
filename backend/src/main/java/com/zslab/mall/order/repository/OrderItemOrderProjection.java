@@ -2,8 +2,8 @@ package com.zslab.mall.order.repository;
 
 /**
  * 주문 품목 id → 소속 주문 요약(id·public_id·주문번호·구매자 id) + 품목 상품명 경량 projection(Track 80 관리자 클레임 목록·
- * {@code OrderItemRepository.findOrderSummariesByIdIn}). Order 엔티티를 적재하면 shippingSnapshot(OneToOne mappedBy·LAZY 불가)이
- * 주문마다 추가 SELECT를 내므로 스칼라 projection으로 읽는다.
+ * {@code OrderItemRepository.findOrderSummariesByIdIn}). 화면에 필요한 스칼라만 읽는다(Order 엔티티를 적재하면 주문마다
+ * shippingSnapshot 추가 SELECT가 나던 사유는 퀄리티 B단계 PR4에서 Order의 스냅샷 매핑을 제거해 사라졌다).
  */
 public interface OrderItemOrderProjection {
 

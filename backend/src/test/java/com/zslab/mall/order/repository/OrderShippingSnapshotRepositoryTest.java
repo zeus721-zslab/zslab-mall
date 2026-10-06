@@ -11,7 +11,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 /**
  * {@link OrderShippingSnapshotRepository} @DataJpaTest.
- * Order 저장 시 cascade PERSIST로 Snapshot이 함께 영속되는지·findByOrderId·belongsTo 검증.
+ * Order 저장 뒤 Snapshot 명시 저장(cascade 없음·퀄리티 B 3-1)·findByOrderId·belongsTo 검증.
  */
 class OrderShippingSnapshotRepositoryTest extends OrderDataJpaTestBase {
 
@@ -22,10 +22,13 @@ class OrderShippingSnapshotRepositoryTest extends OrderDataJpaTestBase {
     private OrderShippingSnapshotRepository snapshotRepository;
 
     @Test
-    @DisplayName("cascade PERSIST: Order 저장 시 Snapshot 자동 영속·findByOrderId 조회")
-    void cascadePersistsSnapshot() {
+    @DisplayName("명시 저장: Order 저장 뒤 Snapshot 저장 → findByOrderId 조회·order_id 귀속")
+    void explicitSavePersistsSnapshot() {
         disableForeignKeyChecks();
-        Order saved = orderRepository.saveAndFlush(buildFullOrder("20260625-SNAP01"));
+        Order order = buildFullOrder("20260625-SNAP01");
+        OrderShippingSnapshot snapshot = buildSnapshotFor(order);
+        Order saved = orderRepository.saveAndFlush(order);
+        snapshotRepository.saveAndFlush(snapshot);
         entityManager.clear();
 
         Optional<OrderShippingSnapshot> found = snapshotRepository.findByOrderId(saved.getId());

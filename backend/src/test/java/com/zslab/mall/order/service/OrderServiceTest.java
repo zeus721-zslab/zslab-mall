@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -14,10 +15,12 @@ import com.zslab.mall.order.command.OrderItemCommand;
 import com.zslab.mall.order.command.ShippingAddressCommand;
 import com.zslab.mall.order.entity.Order;
 import com.zslab.mall.order.entity.OrderItem;
+import com.zslab.mall.order.entity.OrderShippingSnapshot;
 import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.enums.OrderStatus;
 import com.zslab.mall.order.event.OrderPlaced;
 import com.zslab.mall.order.repository.OrderRepository;
+import com.zslab.mall.order.repository.OrderShippingSnapshotRepository;
 import com.zslab.mall.inbox.stream.InboxSignalPublisher;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
@@ -26,9 +29,12 @@ import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 /**
  * {@link OrderService} 오케스트레이션 검증(Mockito). createOrder 가드·정상 흐름·markPaid·recalculateStatus.
@@ -38,6 +44,9 @@ class OrderServiceTest {
 
     @Mock
     private OrderRepository orderRepository;
+
+    @Mock
+    private OrderShippingSnapshotRepository orderShippingSnapshotRepository;
 
     @Mock
     private OrderStatusResolver orderStatusResolver;
@@ -84,11 +93,16 @@ class OrderServiceTest {
         assertThat(result.getBuyerId()).isEqualTo(100L);
         assertThat(result.getItems()).hasSize(2);
         assertThat(result.getTotalPrice()).isEqualTo(20_000L);
-        assertThat(result.getShippingSnapshot()).isNotNull();
         assertThat(result.getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
         assertThat(result.getOrderNo()).matches("\\d{8}-[0-9A-Z]{6}");
-        verify(orderRepository).save(any(Order.class));
-        verify(eventPublisher).publishEvent(any(OrderPlaced.class));
+        // 스냅샷은 cascade가 아니라 주문 저장 직후 명시 저장 — 순서: 주문 저장 → 스냅샷 저장 → OrderPlaced
+        InOrder inOrder = inOrder(orderRepository, orderShippingSnapshotRepository, eventPublisher);
+        inOrder.verify(orderRepository).save(any(Order.class));
+        ArgumentCaptor<OrderShippingSnapshot> snapshotCaptor = ArgumentCaptor.forClass(OrderShippingSnapshot.class);
+        inOrder.verify(orderShippingSnapshotRepository).save(snapshotCaptor.capture());
+        inOrder.verify(eventPublisher).publishEvent(any(OrderPlaced.class));
+        assertThat(snapshotCaptor.getValue().getRecipientName()).isEqualTo("홍길동");
+        assertThat(ReflectionTestUtils.getField(snapshotCaptor.getValue(), "order")).isSameAs(result);
     }
 
     @Test

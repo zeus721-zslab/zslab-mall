@@ -9,7 +9,6 @@ import com.zslab.mall.order.enums.OrderStatus;
 import com.zslab.mall.payment.entity.Payment;
 import com.zslab.mall.payment.enums.PaymentStatus;
 import com.zslab.mall.user.entity.User;
-import jakarta.persistence.criteria.JoinType;
 import jakarta.persistence.criteria.Root;
 import jakarta.persistence.criteria.Subquery;
 import java.time.LocalDateTime;
@@ -23,19 +22,6 @@ import org.springframework.data.jpa.domain.Specification;
 public final class AdminOrderSpecifications {
 
     private AdminOrderSpecifications() {
-    }
-
-    /**
-     * 목록 페이지 쿼리에서 shippingSnapshot(mappedBy OneToOne·LAZY 불가)을 함께 fetch해 주문별 스냅샷 SELECT(N+1)를 막는다.
-     * count 쿼리(결과 타입 Long)에는 fetch를 걸지 않는다. 조건은 없으므로 null(무시)을 반환한다.
-     */
-    public static Specification<Order> fetchShippingSnapshot() {
-        return (root, query, builder) -> {
-            if (query.getResultType() != Long.class && query.getResultType() != long.class) {
-                root.fetch("shippingSnapshot", JoinType.LEFT);
-            }
-            return null;
-        };
     }
 
     public static Specification<Order> status(OrderStatus status) {

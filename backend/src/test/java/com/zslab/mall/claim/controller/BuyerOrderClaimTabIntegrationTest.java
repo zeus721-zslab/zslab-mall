@@ -25,7 +25,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  * 구매자 주문내역 탭 통합(Track 101-B D-213) 통합 테스트(실 MariaDB·HTTP 경유).
  *
  * <p><b>커버</b>: T1 주문 목록 배지 집계(여러 품목·여러 유형·종결 제외) · T2 클레임 목록 기준 전환(관리자 대행 취소 포함) ·
- * T3 타인 주문 제외 · T4 유형 필터 · T5 최신순 정렬 · T6 요약의 주문번호·상품명 · T7 쿼리 수(N+1 없음).
+ * T3 타인 주문 제외 · T4 유형 필터 · T5 최신순 정렬 · T6 요약의 주문번호·상품명 · T7 쿼리 수(N+1 없음) ·
+ * T8 주문 1건·3건 목록 쿼리 수 동일(주문 수 비례 증가 차단) · T9 주문 목록 페이징.
  *
  * <p>시드/정리는 {@link TransactionTemplate} + {@code FOREIGN_KEY_CHECKS=0}(LT-02 try-finally)·id 9930~9949 고정.
  */
@@ -44,6 +45,11 @@ class BuyerOrderClaimTabIntegrationTest extends AbstractIntegrationTest {
     private static final long ITEM_B = 9931L;   // 활성 RETURN 1
     private static final long ITEM_C = 9932L;   // 활성 EXCHANGE 1
     private static final long ITEM_OTHER = 9933L;
+    /** 주문 수 비교용 구매자(T8·T9) — 주문 3건(9932~9934) · 각 품목 1개(9934~9936) · 클레임 없음. */
+    private static final long MULTI_BUYER = 9933L;
+    private static final long MULTI_ORDER_FROM = 9932L;
+    private static final long MULTI_ITEM_FROM = 9934L;
+    private static final int MULTI_ORDER_COUNT = 3;
     private static final long CLAIM_FROM = 9930L;
     private static final long CLAIM_TO = 9939L;
     private static final long DUMMY_FK_ID = 9930L;
@@ -54,8 +60,10 @@ class BuyerOrderClaimTabIntegrationTest extends AbstractIntegrationTest {
      * + Track 105-2d items[] 배치 4 — 상품·variant·셀러·교환 완료 클레임)이며 여유 1을 더해 둔다 — 잡으려는 것은 품목·클레임이
      * 행마다 조회되는 N+1 회귀(그 경우 수십 건이 된다)다. items[] 배치는 페이지당 고정이라 주문 수와 무관하다.
      * Track 106-1 품목 리뷰 상태 배치(findWrittenByOrderItemIdIn 페이지당 1회)로 9 → 10이 되어 상한도 10 → 11로 올린다(여유 1 유지).
+     * 퀄리티 B 3-1(2026-10-06): 주문마다 나가던 배송지 스냅샷 조회를 없애 꽉 찬 첫 페이지(count 포함) 실측이 주문 1건 11 → 10 ·
+     * 3건 13 → 10이 되어 상한을 실측값 10으로 낮춘다. 주문 수 비례 증가는 T8의 1건·3건 동일 단언이 따로 잡는다.
      */
-    private static final int ORDER_LIST_QUERY_BUDGET = 11;
+    private static final int ORDER_LIST_QUERY_BUDGET = 10;
     /**
      * 클레임 목록 1회 호출 쿼리 예산. 실측 4(2026-09-23·목록 select + count + 환불 배치 + 주문·품목 projection)이며 여유 1.
      * 외부 검토 반영으로 품목 엔티티 배치 조회가 주문 projection에 합쳐져 5 → 4가 됐다. Track 105-4b 썸네일 상품 배치
@@ -170,12 +178,67 @@ class BuyerOrderClaimTabIntegrationTest extends AbstractIntegrationTest {
         statistics.setStatisticsEnabled(false);
     }
 
+    @Test
+    @DisplayName("T8 쿼리 수: 주문 1건 페이지(BUYER_USER)와 3건 페이지(MULTI_BUYER)의 쿼리 수가 같고 ≤ 예산 · 페이징 필드(page·size·totalCount·hasNext)")
+    void orderList_queryCountIndependentOfOrderCount() throws Exception {
+        Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+        statistics.setStatisticsEnabled(true);
+        try {
+            // 두 요청 모두 꽉 찬 첫 페이지라 count 쿼리가 똑같이 나간다(덜 찬 첫 페이지는 count를 생략해 비교가 어긋난다).
+            statistics.clear();
+            mockMvc.perform(get(ORDERS_URL).with(authHeaders.buyer(BUYER_USER)).param("size", "1"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.items.length()").value(1))
+                    .andExpect(jsonPath("$.page").value(0))
+                    .andExpect(jsonPath("$.size").value(1))
+                    .andExpect(jsonPath("$.totalCount").value(1))
+                    .andExpect(jsonPath("$.hasNext").value(false));
+            long singleOrderQueries = statistics.getPrepareStatementCount();
+
+            statistics.clear();
+            mockMvc.perform(get(ORDERS_URL).with(authHeaders.buyer(MULTI_BUYER)).param("size", "3"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.items.length()").value(MULTI_ORDER_COUNT))
+                    .andExpect(jsonPath("$.page").value(0))
+                    .andExpect(jsonPath("$.size").value(MULTI_ORDER_COUNT))
+                    .andExpect(jsonPath("$.totalCount").value(MULTI_ORDER_COUNT))
+                    .andExpect(jsonPath("$.hasNext").value(false));
+            long multiOrderQueries = statistics.getPrepareStatementCount();
+
+            assertThat(multiOrderQueries).as("주문 1건 %d회 · 3건 %d회", singleOrderQueries, multiOrderQueries)
+                    .isEqualTo(singleOrderQueries);
+            assertThat(multiOrderQueries).isLessThanOrEqualTo(ORDER_LIST_QUERY_BUDGET);
+        } finally {
+            statistics.setStatisticsEnabled(false);
+        }
+    }
+
+    @Test
+    @DisplayName("T9 페이징: 주문 3건을 size=2로 나누면 0쪽 2건·다음 있음 / 1쪽 1건·다음 없음(totalCount 3)")
+    void orderList_appliesPaging() throws Exception {
+        mockMvc.perform(get(ORDERS_URL).with(authHeaders.buyer(MULTI_BUYER)).param("page", "0").param("size", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(2))
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(2))
+                .andExpect(jsonPath("$.totalCount").value(MULTI_ORDER_COUNT))
+                .andExpect(jsonPath("$.hasNext").value(true));
+        mockMvc.perform(get(ORDERS_URL).with(authHeaders.buyer(MULTI_BUYER)).param("page", "1").param("size", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.page").value(1))
+                .andExpect(jsonPath("$.size").value(2))
+                .andExpect(jsonPath("$.totalCount").value(MULTI_ORDER_COUNT))
+                .andExpect(jsonPath("$.hasNext").value(false));
+    }
+
     // 모든 시드 INSERT는 ? positional 바인딩 + 정적 SQL이다(문자열 concat 없음·SQL injection 위험 없음).
 
     /**
      * 내 주문 1건(품목 3개) + 타인 주문 1건(품목 1개). 내 주문 클레임 5건 — 9930 관리자 대행 CANCEL(활성·requested_by=관리자) ·
      * 9931 RETURN 종결(REJECTED) · 9932 RETURN 종결(COMPLETED) · 9933 RETURN 활성 · 9934 EXCHANGE 활성.
      * 타인 주문 클레임 1건(9935). requested_at을 id 순으로 벌려 정렬 검증이 가능하게 한다.
+     * 주문 수 비교용 구매자(MULTI_BUYER) 주문 3건(품목 각 1개·클레임 없음).
      */
     private void seedGraph() {
         tx.executeWithoutResult(s -> {
@@ -210,6 +273,13 @@ class BuyerOrderClaimTabIntegrationTest extends AbstractIntegrationTest {
                 insertClaim(9933, ITEM_B, "RETURN", "APPROVED", BUYER_USER, "2026-09-04 10:00:00");
                 insertClaim(9934, ITEM_C, "EXCHANGE", "REQUESTED", BUYER_USER, "2026-09-05 10:00:00");
                 insertClaim(9935, ITEM_OTHER, "CANCEL", "REQUESTED", OTHER_BUYER, "2026-09-06 10:00:00");
+                jdbc.update("INSERT INTO `user` (id, public_id, created_at, updated_at) VALUES (?, ?, NOW(6), NOW(6))",
+                        MULTI_BUYER, pid("usr_", "BOCTUSR4"));
+                for (int index = 0; index < MULTI_ORDER_COUNT; index++) {
+                    long orderId = MULTI_ORDER_FROM + index;
+                    insertOrder(orderId, pid("ord_", "BOCTORDM" + index), MULTI_BUYER, "ORDBOCTM" + orderId, ITEM_PRICE);
+                    insertItem(MULTI_ITEM_FROM + index, "BOCTITMM" + index, orderId);
+                }
             } finally {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
             }
@@ -243,11 +313,15 @@ class BuyerOrderClaimTabIntegrationTest extends AbstractIntegrationTest {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
                 jdbc.update("DELETE FROM claim WHERE id BETWEEN ? AND ?", CLAIM_FROM, CLAIM_TO);
                 jdbc.update("DELETE FROM order_item WHERE id IN (?, ?, ?, ?)", ITEM_A, ITEM_B, ITEM_C, ITEM_OTHER);
+                jdbc.update("DELETE FROM order_item WHERE id BETWEEN ? AND ?",
+                        MULTI_ITEM_FROM, MULTI_ITEM_FROM + MULTI_ORDER_COUNT - 1);
                 jdbc.update("DELETE FROM `order` WHERE id IN (?, ?)", ORDER_MINE, ORDER_OTHER);
+                jdbc.update("DELETE FROM `order` WHERE id BETWEEN ? AND ?",
+                        MULTI_ORDER_FROM, MULTI_ORDER_FROM + MULTI_ORDER_COUNT - 1);
                 jdbc.update("DELETE FROM product_variant WHERE id = ?", VARIANT_ID);
                 jdbc.update("DELETE FROM product WHERE id = ?", PRODUCT_ID);
                 jdbc.update("DELETE FROM seller WHERE id = ?", SELLER_ID);
-                jdbc.update("DELETE FROM `user` WHERE id IN (?, ?, ?)", BUYER_USER, OTHER_BUYER, ADMIN_USER);
+                jdbc.update("DELETE FROM `user` WHERE id IN (?, ?, ?, ?)", BUYER_USER, OTHER_BUYER, ADMIN_USER, MULTI_BUYER);
             } finally {
                 jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
             }

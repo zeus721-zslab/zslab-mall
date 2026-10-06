@@ -42,17 +42,19 @@ class OrderTest {
     }
 
     @Test
-    @DisplayName("attachSnapshot: 1:1 연결·양측 설정")
+    @DisplayName("attachSnapshot: 스냅샷 FK(order) 연결 · 귀속 판정(Order는 스냅샷 필드 없음·퀄리티 B 3-1)")
     void attachSnapshot_links() {
         Order order = newOrder();
+        ReflectionTestUtils.setField(order, "id", 7L);
         OrderShippingSnapshot snapshot = OrderShippingSnapshot.create(
                 "홍길동", "010-1234-5678", "06236",
                 "서울 강남대로 1", null, "101호", null);
 
         order.attachSnapshot(snapshot);
 
-        assertThat(order.getShippingSnapshot()).isSameAs(snapshot);
         assertThat(ReflectionTestUtils.getField(snapshot, "order")).isSameAs(order);
+        assertThat(snapshot.belongsTo(7L)).isTrue();
+        assertThat(snapshot.belongsTo(8L)).isFalse();
     }
 
     @Test
