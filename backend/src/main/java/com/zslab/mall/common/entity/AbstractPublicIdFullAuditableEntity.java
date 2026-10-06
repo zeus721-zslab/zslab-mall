@@ -20,7 +20,7 @@ import org.hibernate.type.SqlTypes;
  * 자체 정의 + {@code @PrePersist} 자체 정의 패턴 적용(Track 7).
  *
  * <p>public_id는 {@code @PrePersist}에서 {@link PublicIdGenerator}로 생성한다. prefix는 하위 구체 엔티티가
- * {@link #getPublicIdPrefix()}로 제공한다(예: "ord"). UNIQUE 제약은 DDL(V1) 책임이며 본 클래스에서 unique=true를 선언하지 않는다.
+ * {@link #getPublicIdPrefix()}로 제공한다(예: "ord"). UNIQUE 제약의 주체는 DDL(V1)이며, 엔티티만 읽어도 제약이 보이도록 unique=true를 함께 선언한다(D-261).
  *
  * <p><b>equals/hashCode 가이드 (Q8=C 정합)</b>: publicId가 본 클래스에서 {@code @EqualsAndHashCode.Include}로 처리되므로
  * 하위 Entity는 추가 작업이 필요 없다.
@@ -35,7 +35,7 @@ public abstract class AbstractPublicIdFullAuditableEntity extends AbstractFullAu
     @EqualsAndHashCode.Include
     @ToString.Include
     @JdbcTypeCode(SqlTypes.CHAR)
-    @Column(name = "public_id", length = 30, nullable = false, updatable = false)
+    @Column(name = "public_id", length = 30, nullable = false, updatable = false, unique = true)
     private String publicId;
 
     /**

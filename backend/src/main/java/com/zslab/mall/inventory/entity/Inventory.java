@@ -44,7 +44,7 @@ public class Inventory extends AbstractFullAuditableEntity {
     @ToString.Include
     private Long id;
 
-    @Column(name = "variant_id", nullable = false, updatable = false)
+    @Column(name = "variant_id", nullable = false, updatable = false, unique = true)
     private Long variantId;
 
     @Column(name = "quantity_on_hand", nullable = false)

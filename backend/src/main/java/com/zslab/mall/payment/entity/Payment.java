@@ -13,6 +13,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.Transient;
+import jakarta.persistence.UniqueConstraint;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -41,7 +42,8 @@ import org.hibernate.type.SqlTypes;
  * 1차 키다(D-35). 둘 다 CHAR(30)이며 D-26 정합으로 {@code @JdbcTypeCode(SqlTypes.CHAR)}를 명시한다.
  */
 @Entity
-@Table(name = "payment")
+@Table(name = "payment", uniqueConstraints = @UniqueConstraint(
+        name = "uk_payment_provider_pg_tid", columnNames = {"pg_provider", "pg_tid"}))
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Payment extends AbstractPublicIdFullAuditableEntity {
@@ -54,7 +56,7 @@ public class Payment extends AbstractPublicIdFullAuditableEntity {
     private Long orderId;
 
     @JdbcTypeCode(SqlTypes.CHAR)
-    @Column(name = "payment_attempt_key", length = 30, nullable = false, updatable = false)
+    @Column(name = "payment_attempt_key", length = 30, nullable = false, updatable = false, unique = true)
     private String paymentAttemptKey;
 
     @Enumerated(EnumType.STRING)
