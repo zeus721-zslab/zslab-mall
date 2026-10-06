@@ -45,7 +45,7 @@ REQUESTED ──→ APPROVED ──→ COMPLETED
 |---|---|---|
 | REQUESTED | 구매자 취소/반품/교환 요청 | — |
 | APPROVED | 관리자 승인 (판매자 처리 endpoint는 Track 92 D-196에서 제거·셀러는 조회만) | — |
-| REJECTED | 관리자 거절 (판매자 처리 endpoint는 Track 92 D-196에서 제거) | 재요청 = 새 Claim 행 생성 |
+| REJECTED | 관리자 거절 (판매자 처리 endpoint는 Track 92 D-196에서 제거) 또는 구매자 본인 신청 취소(Track 101-A D-212) | 재요청 = 새 Claim 행 생성 |
 | COMPLETED | 환불/수거/교환발송 완료 | 불가역 |
 
 **Claim.type별 COMPLETED 진입 조건**:
@@ -59,6 +59,8 @@ REQUESTED ──→ APPROVED ──→ COMPLETED
 **REJECTED 처리 정책**: 기존 Claim은 REJECTED 상태로 보존 (이력 추적). 재요청 시 새 Claim 행 생성.
 
 > **거부 사유(Track 80 D-169)**: REQUESTED → REJECTED 전이는 거부 사유 코드 필수·메모 선택이다(`claim.reject_reason_code` CHECK·`reject_memo` ≤500·V23·`ClaimRejectReasonCode` ALREADY_SHIPPED|OUT_OF_POLICY|BUYER_WITHDRAWN|OTHER|INSPECTION_FAILED(V24)). ALREADY_SHIPPED는 CANCEL 전용·INSPECTION_FAILED는 RETURN 검수 전용(도메인 검증 400). 거부 시 품목은 `previous_order_item_status` 스냅샷으로 원복(§3·기존 ClaimRejectedHandler 무변경). 거부·요청 접수·CANCEL/RETURN 완료·RETURN 승인 시점에 구매자 SMS(NotificationLog channel=SMS·AFTER_COMMIT·발송 실패는 전이를 롤백하지 않음).
+>
+> **구매자 신청 취소(Track 101-A D-212)**: `ClaimService.cancelByBuyer`(REQUESTED 한정·본인 소유 확인·소유 위반·미존재는 404 은닉)는 사유 `BUYER_WITHDRAWN`으로 내부적으로 `reject`를 재사용한다. 전이·품목 스냅샷 원복·주문 상태 재계산은 관리자 거절과 완전히 같은 경로를 탄다. 취소 SMS는 사유가 `BUYER_WITHDRAWN`일 때만 `TPL_CLAIM_CANCELLED`로 분기한다(그 외 거부 사유는 `TPL_CLAIM_REJECTED` 유지).
 >
 > **반품 단계(Track 81-A D-170·상태 4값 유지·milestone 컬럼)**:
 > - 요청 조건: 품목 DELIVERED + 사유 `ClaimReasonCode.isApplicableTo(RETURN)`(BUYER_CHANGED_MIND·PRODUCT_DEFECT·WRONG_PRODUCT) + 원 주문 발송(OUTBOUND·claim_id NULL) Delivery `delivered_at` + 7일 이내(`ReturnWindowPolicy`·위반 422 CLAIM_STATE_INVALID). 배송완료 시각 SoT는 delivery(order_item 컬럼 신설 기각). CONFIRMED는 종결이라 요청 불가(기존). 사진 첨부(Track 81-B D-171): RETURN + PRODUCT_DEFECT|WRONG_PRODUCT에서만 `attachmentIds`(att_·최대 5·요청자 업로드·미연결) 허용, 그 외 400.
@@ -339,7 +341,7 @@ PENDING ──→ COMPLETED (불가역)
 | 전이 | 트리거 | 권한 |
 |---|---|---|
 | PENDING → CONFIRMED | 운영자 정산 금액 확정 | ADMIN_OPERATOR 이상 |
-| CONFIRMED → PAID | 실 입금 처리 완료 콜백 또는 운영자 확정 | ADMIN_OPERATOR 이상 |
+| CONFIRMED → PAID | 운영자 확정(markPaid) [정정 D-134 결정 2] — α(채택) 운영자 수동 마킹만: PAID = "외부 송금 완료 사실의 내부 기록". β(기각) 입금 콜백 seam: 실 어댑터 도입 시에만 호출되는 경로라 미구현(기조 4 이연 대상). 구 "실 입금 처리 완료 콜백" 서술 폐기 | ADMIN_OPERATOR 이상 |
 
 **역전 금지**:
 
