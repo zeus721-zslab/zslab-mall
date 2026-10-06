@@ -14194,3 +14194,28 @@ D-246 §8 정정: '데모 로그인 요청 제한 문서 불일치' 항목 철�
 - 결정 변경 없음(채택안 α 4+ · α 백필 없음 유지).
 
 외부 검토: C / 생략
+
+## D-260 결정 원문 정정 — 자체 평점 8-2 (D-153 개정 · D-101 개정) (2026-10-06)
+
+### 배경
+- 자체 평점 8-2(S1 결정 대조) 증거 수집(`zslab-review/self-assessment/evidence-mid/work-8-2-agent.md`)에서 D-153·D-101 원문과 코드가 불일치하는 항목이 나왔다. 전부 코드가 맞다 — 후속 결정(D-154·D-167 보충/보충2·D-177·D-105)이 원문을 바꿨는데 원문 쪽에 개정 표시가 없었을 뿐이다. 결정은 바꾸지 않고 각 항목이 어느 후속 결정으로 바뀌었는지만 표기한다.
+
+### D-153 개정 (미결제 주문 종료 아키텍처·`decisions.md:9515`)
+- §5 `OrderItemStatus.canTransitionTo: ORDERED → PAID | CANCELLED`(:9563) → 코드: `OrderItemStatus.java:50`은 `ORDERED → PAID`만(CANCELLED 없음) → 후속: D-154(OrderItem 무변경·조건부 UPDATE로 대체)
+- §5 `cancelOne`이 품목 CANCELLED·`OrderStatusResolver`로 Order.status 파생(:9567-9569) → 코드: `OrderAutoCancelService.java:48-64`는 `OrderRepository.transitionStatus`(조건부 UPDATE)→재조회→이벤트 발행 — 품목·Resolver 미경유 → 후속: D-154·D-167 Q4(조건부 UPDATE 패턴)
+- §5 이벤트명 `OrderCancelled(orderPublicId·orderId·occurredAt)`(:9570) → 코드: `OrderTerminated.java:12-15`(publicId·orderId·occurredAt — 필드 구성 동일·이름만 다름) → 후속: D-154(§1-A OrderCancelled→OrderTerminated 개명)
+- §5 `InventoryOrderCancelledHandler`: AFTER_COMMIT+REQUIRES_NEW·reserved==0 멱등 skip(:9571-9572) → 코드: `InventoryOrderTerminatedHandler.java:39`는 동기 `@EventListener`·1차 가드 없음 → 후속: D-167 보충2(`decisions.md:10269` 동기화·가드 제거)
+- §8 Payment.status 4값 유지·PENDING→CANCELLED 불법(:9584, "Phase 3에서 재검토"로 열어 둠) → 코드: V19로 EXPIRED 추가(5값·`V19__payment_status_expired.sql`) → 후속: D-154(§1-A Payment FAILED/EXPIRED 2분기)
+- §2(4)·§3 Phase 4 "Payment 만료 스케줄러(`ExpirePaymentScheduler`·`ExpirePaymentService`) 제거"(:9537, :9548) → 코드: `ExpirePaymentScheduler.java:33,48`·`ExpirePaymentService.java:51-70` 존재(삭제되지 않음·PENDING_TTL 만료 경로로 실사용) → 후속: D-154 §8(`decisions.md:9623`) "D-153 Phase 2·3·4는 D-154로 통합 이행 완료·Phase 로드맵 SUPERSEDED" — Phase 4의 스케줄러 제거 계획은 D-154가 승계한 설계에 포함되지 않아 유지된다. **본 항목은 코드 변경 대상이 아니다**(ExpirePaymentScheduler·ExpirePaymentService 삭제 금지).
+- §4 `OrderItem ORDERED→CANCELLED`를 canTransitionTo에 추가·호출부 PENDING_PAYMENT 가드(:9554-9555) → 코드: `OrderItemStatus.java:50`에 CANCELLED 없음·호출부 가드는 조건부 UPDATE로 대체(`OrderAutoCancelService.java:49-50`) → 후속: D-154
+
+### D-101 개정 (Track 17 Inventory 도메인 행위·`decisions.md:5546`)
+- §3 `inventory/handler/` 4종: OrderPlaced·PaymentCompleted·PaymentFailed·ClaimCompleted(:5570-5577) → 코드: `InventoryPaymentFailedHandler` 없음(`InventoryOrderTerminatedHandler`로 대체) → 후속: D-154(§1-A OrderTerminated 단일 구독 수렴)
+- §5 `InventoryService.exchange(...)`: reserve→commitReservation 2단계(:5646-5668) → 코드: `exchange()` 없음. `InventoryService.java:113-132` `commitExchange`(승인 때 reserve·종결 때 commit) → 후속: D-177(교환 BE·Track 83)
+- §6 E1 1차 가드 "item_status != ORDERED면 skip"(:5686) → 코드: `InventoryOrderPlacedHandler.java:35-46` 가드 없음 → 후속: D-167 보충(`decisions.md:10259`)
+- §13 `adjustStock`·`recordInbound`·`recordOutbound` 미신설(OOS·Track 18+ 이연, :5803-5806) → 코드: `Inventory.java:161` adjustStock·`InventoryService.java:143,181,208`(adjustStock·markInboundBySeller·markOutboundBySeller)·`AdminInventoryController.java:53` 엔드포인트 존재 → 후속: D-105(Track 21·§13 carry-over 부분 종결·`decisions.md:6279`)·D-112(Track 27·Seller 입출고 wrapper)
+
+- 결정 변경 없음(코드가 후속 결정을 따른 것을 원문에 반영).
+- §1-A 대안 검토 없음.
+
+외부 검토: C / 생략
