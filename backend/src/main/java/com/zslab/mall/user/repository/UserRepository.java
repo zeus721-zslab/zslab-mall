@@ -1,11 +1,14 @@
 package com.zslab.mall.user.repository;
 
 import com.zslab.mall.user.entity.User;
+import jakarta.persistence.LockModeType;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
 
 public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificationExecutor<User> {
 
@@ -20,4 +23,9 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
 
     /** 관리자 주문 목록 주문자 배치 enrich(Track 79 D-168·N+1 회피). */
     List<User> findByIdIn(Collection<Long> ids);
+
+    /** 회원 행 쓰기 락({@code SELECT ... FOR UPDATE}). 구매자 단위 주문 생성 직렬화용(D-268 SEC-02). */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT u FROM User u WHERE u.id = :id")
+    Optional<User> findByIdForUpdate(Long id);
 }

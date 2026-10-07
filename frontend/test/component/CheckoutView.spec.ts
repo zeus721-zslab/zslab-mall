@@ -9,6 +9,7 @@ import {
   ADDRESS_DETAIL_MAX,
   ADDRESS_JIBUN_MAX,
   ADDRESS_ROAD_MAX,
+  DELIVERY_MEMO_MAX,
   RECIPIENT_NAME_MAX,
   RECIPIENT_PHONE_MAX,
   ZONECODE_MAX,
@@ -52,8 +53,16 @@ function checkoutVm(): CheckoutPageVm {
     ADDRESS_ROAD_MAX,
     ADDRESS_JIBUN_MAX,
     ADDRESS_DETAIL_MAX,
+    DELIVERY_MEMO_MAX,
   })
 }
+
+describe('CheckoutView 배송 메모 상한(D-268 SEC-06)', () => {
+  it('배송 메모 입력에 BE @Size와 같은 maxlength 500이 걸린다', async () => {
+    const wrapper = await mountSuspended(CheckoutView, { props: { vm: checkoutVm() } })
+    expect(wrapper.find('#deliveryMemo').attributes('maxlength')).toBe('500')
+  })
+})
 
 describe('CheckoutView 주소 안내(FE-78 A-2)', () => {
   it('처음 진입·다른 필수 항목이 비면 미표시 · 주소만 비면 표시 · 주소를 고르면 사라짐', async () => {

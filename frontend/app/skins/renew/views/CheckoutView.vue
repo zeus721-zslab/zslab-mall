@@ -152,7 +152,7 @@ const submitButton = ref<HTMLButtonElement | null>(null)
 
             <div class="mt-4 px-1">
               <label for="deliveryMemo" :class="LABEL">배송 메모</label>
-              <input id="deliveryMemo" v-model="vm.deliveryMemo" type="text" :class="INPUT" placeholder="배송 시 요청사항 (선택)" />
+              <input id="deliveryMemo" v-model="vm.deliveryMemo" type="text" :maxlength="vm.DELIVERY_MEMO_MAX" :class="INPUT" placeholder="배송 시 요청사항 (선택)" />
             </div>
 
             <!-- 배송지 저장(FE-16): 새 주소이거나 불러온 주소를 수정했을 때만 -->

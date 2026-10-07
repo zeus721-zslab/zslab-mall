@@ -268,6 +268,134 @@ class CheckoutIntegrationTest extends AbstractIntegrationTest {
         org.assertj.core.api.Assertions.assertThat(reserved.intValue()).isEqualTo(999);
     }
 
+    // ==================== D-268 SEC-02 미결제 주문 한도 ====================
+
+    @Test
+    @DisplayName("SEC-02 바로구매: 미결제 3건 성공 후 4건째 → 422 UNPAID_ORDER_LIMIT_EXCEEDED·주문·예약 불변")
+    void checkout_unpaidOrderLimit_fourthRejected() throws Exception {
+        for (int i = 0; i < 3; i++) {
+            performCheckout(null);
+        }
+
+        mockMvc.perform(post("/api/v1/orders").with(authHeaders.buyer(1))
+                        .contentType(MediaType.APPLICATION_JSON).content(CREATE_BODY))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("UNPAID_ORDER_LIMIT_EXCEEDED"))
+                .andExpect(jsonPath("$.detail").value(
+                        "결제 대기 중인 주문이 3건 있습니다. 주문 내역에서 기존 주문을 결제해 주세요. 결제하지 않은 주문은 30분 후 자동 취소됩니다."));
+
+        assertOrderCountAndReserved(3, 6);
+    }
+
+    @Test
+    @DisplayName("SEC-02 장바구니: 미결제 3건 보유 시 장바구니 결제 → 422 UNPAID_ORDER_LIMIT_EXCEEDED·주문 불변")
+    void checkout_cart_unpaidOrderLimit_rejected() throws Exception {
+        for (int i = 0; i < 3; i++) {
+            performCheckout(null);
+        }
+        execute("INSERT INTO cart_item (user_id, variant_id, variant_public_id, quantity, selected, created_at, updated_at) "
+                + "VALUES (1, " + VARIANT_ID + ", '" + VARIANT_PID + "', 1, 1, NOW(6), NOW(6))");
+        entityManager.flush();
+        entityManager.clear();
+
+        mockMvc.perform(post("/api/v1/cart/checkout").with(authHeaders.buyer(1))
+                        .contentType(MediaType.APPLICATION_JSON).content(CART_CHECKOUT_BODY))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("UNPAID_ORDER_LIMIT_EXCEEDED"));
+
+        assertOrderCountAndReserved(3, 6);
+    }
+
+    @Test
+    @DisplayName("SEC-02 멱등: 한도 거부(422) 후 미결제 1건 종료 → 같은 키 재시도 201(키 삭제로 재처리)")
+    void checkout_unpaidOrderLimit_rejectedKeyRetryableAfterResolved() throws Exception {
+        String key = "idem-key-unpaid-limit-01";
+        String firstOrderPublicId = performCheckout(null);
+        performCheckout(null);
+        performCheckout(null);
+
+        mockMvc.perform(post("/api/v1/orders").with(authHeaders.buyer(1)).header("Idempotency-Key", key)
+                        .contentType(MediaType.APPLICATION_JSON).content(CREATE_BODY))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("UNPAID_ORDER_LIMIT_EXCEEDED"));
+        entityManager.flush();
+        entityManager.clear();
+
+        // 조건 해소: 미결제 1건이 종료되면 한도 아래로 내려간다.
+        execute("UPDATE `order` SET status = 'PAYMENT_EXPIRED' WHERE public_id = '" + firstOrderPublicId + "'");
+        entityManager.flush();
+        entityManager.clear();
+
+        mockMvc.perform(post("/api/v1/orders").with(authHeaders.buyer(1)).header("Idempotency-Key", key)
+                        .contentType(MediaType.APPLICATION_JSON).content(CREATE_BODY))
+                .andExpect(status().isCreated());
+    }
+
+    @Test
+    @DisplayName("SEC-02 멱등: 1건째 키를 미결제 3건 보유 상태에서 재전송 → 200 캐시(한도 검사 미적용·주문 재생성 없음)")
+    void checkout_sameKeyReplay_unaffectedByUnpaidLimit() throws Exception {
+        String key = "idem-key-unpaid-replay-1";
+        performCheckout(key);
+        performCheckout(null);
+        performCheckout(null);
+
+        mockMvc.perform(post("/api/v1/orders").with(authHeaders.buyer(1)).header("Idempotency-Key", key)
+                        .contentType(MediaType.APPLICATION_JSON).content(CREATE_BODY))
+                .andExpect(status().isOk())
+                .andExpect(header().doesNotExist("Location"));
+
+        assertOrderCountAndReserved(3, 6);
+    }
+
+    // ==================== D-268 SEC-06 배송지 길이 상한 ====================
+
+    @Test
+    @DisplayName("SEC-06 배송지: recipientName 51자 → 400 VALIDATION_FAILED · deliveryMemo 501자 → 400 → 같은 키 정상 본문 재요청 201")
+    void checkout_shippingAddressUpperBounds() throws Exception {
+        String key = "idem-key-shipping-len-01";
+        mockMvc.perform(post("/api/v1/orders").with(authHeaders.buyer(1))
+                        .contentType(MediaType.APPLICATION_JSON).content(shippingBody("가".repeat(51), null)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.fieldErrors[0].field").value("shippingAddress.recipientName"));
+
+        mockMvc.perform(post("/api/v1/orders").with(authHeaders.buyer(1)).header("Idempotency-Key", key)
+                        .contentType(MediaType.APPLICATION_JSON).content(shippingBody("홍길동", "가".repeat(501))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.fieldErrors[0].field").value("shippingAddress.deliveryMemo"));
+
+        // 검증 실패는 키 선점 전에 끝나므로 같은 키로 정상 본문(메모 500자 경계 포함)을 보내면 신규 처리된다.
+        mockMvc.perform(post("/api/v1/orders").with(authHeaders.buyer(1)).header("Idempotency-Key", key)
+                        .contentType(MediaType.APPLICATION_JSON).content(shippingBody("가".repeat(50), "가".repeat(500))))
+                .andExpect(status().isCreated());
+    }
+
+    private static String shippingBody(String recipientName, String deliveryMemo) {
+        String memoJson = deliveryMemo == null ? "" : ", \"deliveryMemo\": \"" + deliveryMemo + "\"";
+        return """
+                {
+                  "items": [ { "productId": "%s", "variantId": "%s", "quantity": 2 } ],
+                  "shippingAddress": {
+                    "recipientName": "%s", "recipientPhone": "010-1234-5678",
+                    "zonecode": "06236", "addressRoad": "서울 강남대로 1"%s
+                  },
+                  "method": "CARD"
+                }
+                """.formatted(PRODUCT_PID, VARIANT_PID, recipientName, memoJson);
+    }
+
+    private void assertOrderCountAndReserved(long expectedOrderCount, int expectedReserved) {
+        entityManager.flush();
+        entityManager.clear();
+        Number orderCount = (Number) entityManager
+                .createNativeQuery("SELECT COUNT(*) FROM `order` WHERE buyer_id = 1").getSingleResult();
+        Number reserved = (Number) entityManager
+                .createNativeQuery("SELECT quantity_reserved FROM inventory WHERE variant_id = " + VARIANT_ID).getSingleResult();
+        org.assertj.core.api.Assertions.assertThat(orderCount.longValue()).isEqualTo(expectedOrderCount);
+        org.assertj.core.api.Assertions.assertThat(reserved.intValue()).isEqualTo(expectedReserved);
+    }
+
     private static String itemJson(int quantity) {
         return "{ \"productId\": \"%s\", \"variantId\": \"%s\", \"quantity\": %d }".formatted(PRODUCT_PID, VARIANT_PID, quantity);
     }

@@ -12,8 +12,10 @@ import com.zslab.mall.order.entity.OrderShippingSnapshot;
 import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.enums.OrderStatus;
 import com.zslab.mall.order.event.OrderPlaced;
+import com.zslab.mall.order.exception.UnpaidOrderLimitExceededException;
 import com.zslab.mall.order.repository.OrderRepository;
 import com.zslab.mall.order.repository.OrderShippingSnapshotRepository;
+import com.zslab.mall.user.repository.UserRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import java.time.LocalDate;
@@ -41,12 +43,18 @@ public class OrderService {
     /** ULID(26자) 후미 6자 시작 인덱스(QB-9 order_no 후미). */
     private static final int ULID_SUFFIX_START = 20;
 
+    /**
+     * 구매자당 동시 미결제(PENDING_PAYMENT) 주문 한도(D-268 SEC-02). 미결제 주문이 재고를 예약하므로 남용(재고 선점)을 억제한다.
+     */
+    public static final int MAX_UNPAID_ORDERS_PER_BUYER = 3;
+
     private final OrderRepository orderRepository;
     private final OrderShippingSnapshotRepository orderShippingSnapshotRepository;
     private final OrderStatusResolver orderStatusResolver;
     private final TracedEventPublisher eventPublisher;
     private final EntityManager entityManager;
     private final InboxSignalPublisher inboxSignalPublisher;
+    private final UserRepository userRepository;
 
     public OrderService(
             OrderRepository orderRepository,
@@ -54,13 +62,15 @@ public class OrderService {
             OrderStatusResolver orderStatusResolver,
             TracedEventPublisher eventPublisher,
             EntityManager entityManager,
-            InboxSignalPublisher inboxSignalPublisher) {
+            InboxSignalPublisher inboxSignalPublisher,
+            UserRepository userRepository) {
         this.orderRepository = orderRepository;
         this.orderShippingSnapshotRepository = orderShippingSnapshotRepository;
         this.orderStatusResolver = orderStatusResolver;
         this.eventPublisher = eventPublisher;
         this.entityManager = entityManager;
         this.inboxSignalPublisher = inboxSignalPublisher;
+        this.userRepository = userRepository;
     }
 
     /**
@@ -69,10 +79,19 @@ public class OrderService {
      *
      * @throws IllegalArgumentException OrderItem이 0개(ORD-1)이거나 입력이 불완전한 경우
      * @throws IllegalStateException order_no 생성 충돌이 재시도 한도(1회)를 초과한 경우
+     * @throws UnpaidOrderLimitExceededException 구매자의 미결제 주문이 한도({@value #MAX_UNPAID_ORDERS_PER_BUYER}건)에 도달한 경우
      */
     public Order createOrder(CreateOrderCommand command) {
         if (command == null || command.items() == null || command.items().isEmpty()) {
             throw new IllegalArgumentException("주문에는 최소 1개의 OrderItem이 필요합니다(ORD-1).");
+        }
+        // 무락 건수 확인은 동시 요청이 모두 커밋 전 건수를 보고 통과한다 — 구매자 행을 먼저 잠가 같은 구매자의 주문 생성을 줄 세운다.
+        // 락 뒤 건수는 READ COMMITTED라 앞선 커밋을 본다. 반환값은 쓰지 않는다(행 부재는 orders.buyer_id FK가 막는다).
+        userRepository.findByIdForUpdate(command.buyerId());
+        long unpaidOrderCount = orderRepository.countByBuyerIdAndStatus(command.buyerId(), OrderStatus.PENDING_PAYMENT);
+        if (unpaidOrderCount >= MAX_UNPAID_ORDERS_PER_BUYER) {
+            throw new UnpaidOrderLimitExceededException("결제 대기 중인 주문이 한도에 도달했습니다: buyerId="
+                    + command.buyerId() + ", unpaid=" + unpaidOrderCount + ", limit=" + MAX_UNPAID_ORDERS_PER_BUYER);
         }
 
         Order order = Order.create(

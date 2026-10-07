@@ -2,6 +2,7 @@
 import type { CheckoutRequest, PaymentMethod, ShippingAddress } from '~/types/checkout'
 import type { Address } from '~/types/address'
 import { PAYMENT_METHODS } from '~/lib/constants/payment'
+import { UNPAID_ORDER_LIMIT_EXCEEDED_CODE, UNPAID_ORDER_LIMIT_EXCEEDED_MESSAGE } from '~/lib/constants/checkout'
 import { resolvePaymentRedirect } from '~/lib/payment-redirect'
 import {
   RECIPIENT_NAME_MAX,
@@ -10,6 +11,7 @@ import {
   ADDRESS_ROAD_MAX,
   ADDRESS_JIBUN_MAX,
   ADDRESS_DETAIL_MAX,
+  DELIVERY_MEMO_MAX,
 } from '~/lib/constants/account'
 import { isUnchanged, buildCreateAddressRequest, type CheckoutAddressForm } from '~/lib/utils/address-form'
 import { buildCheckoutSummary, type CheckoutSummary } from '~/lib/utils/checkout-summary'
@@ -237,6 +239,10 @@ async function handleSubmit(): Promise<void> {
       showCartLink.value = true
       return
     }
+    if (statusCode === 422 && code === UNPAID_ORDER_LIMIT_EXCEEDED_CODE) {
+      errorMessage.value = UNPAID_ORDER_LIMIT_EXCEEDED_MESSAGE
+      return
+    }
     if (statusCode === 422) {
       // 재고 부족 등 결제 불가 상태(OUT_OF_STOCK 등).
       errorMessage.value = '선택하신 상품을 지금 주문할 수 없습니다(재고 부족 또는 판매 중지).'
@@ -283,6 +289,7 @@ const vm: CheckoutPageVm = reactive({
   ADDRESS_ROAD_MAX,
   ADDRESS_JIBUN_MAX,
   ADDRESS_DETAIL_MAX,
+  DELIVERY_MEMO_MAX,
 })
 </script>
 

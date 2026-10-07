@@ -52,6 +52,9 @@ public interface OrderRepository extends JpaRepository<Order, Long>, JpaSpecific
     /** 구매자에게 해당 상태의 주문이 있는지(Track 84 탈퇴 가드 결제 전 단계·Track 104-4). 파생 쿼리 바인딩. */
     boolean existsByBuyerIdAndStatus(Long buyerId, OrderStatus status);
 
+    /** 구매자의 해당 상태 주문 건수(D-268 미결제 주문 한도). ix_order_buyer_status 인덱스 사용·파생 쿼리 바인딩. */
+    long countByBuyerIdAndStatus(Long buyerId, OrderStatus status);
+
     /**
      * 구매자별 결제 완료 최근 시각(MAX(paid_at))·관리자 회원 목록 페이지 배치 enrich(Track 84·N+1 회피). paid_at NULL 주문은 제외.
      * 모든 변수는 :buyerIds 바인딩만 사용하며 SQL injection 위험이 없다.
