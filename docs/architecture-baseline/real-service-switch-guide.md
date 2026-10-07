@@ -42,7 +42,7 @@
 |---|---|
 | 선택 프로퍼티 | `backend/src/main/resources/application.yml:110-117` — `zslab.payment.gateway=${PAYMENT_GATEWAY:mock}` · `zslab.notification.sms-sender=${SMS_SENDER:mock}` · `zslab.notification.email-sender=${EMAIL_SENDER:mock}` |
 | compose 전달 | `docker-compose.mall.yml:46-48`(backend environment·기본 mock). 값 변경은 **컨테이너 재생성**(`docker compose … up -d`)이 필요하다 — `docker restart`는 environment를 다시 읽지 않는다 |
-| env 자리 | `.env.example:131-133`(선택 키) · `:153-168`(PG_*·SMTP_*·SMS_API_KEY — 현재 미참조 자리) |
+| env 자리 | `.env.example:114-116`(선택 키) · `:147-164`(PG_*·SMTP_*·SMS_API_KEY — PG_*·SMS_API_KEY는 주석 처리된 자리·SMTP_*는 활성 자리) |
 | Mock 조건 | `@ConditionalOnProperty(name=…, havingValue="mock", matchIfMissing=true)` — `MockPaymentGateway.java:23` · `MockPaymentCallbackController.java:29` · `MockPaymentCallbackService.java:35` · `MockSmsSender.java:16` · `MockNotificationSender.java:17` |
 | 검증 테스트 | `backend/src/test/java/com/zslab/mall/common/config/ExternalServiceSelectionTest.java`(DB 없음·키 3종 × 미지정/mock/실 값) |
 
@@ -70,7 +70,7 @@
 | 데모 시드 | `scripts/demo-seed/seed.py:557-559`(mock-callback SUCCESS) | 실 모드에서는 404 → 시드 결제 단계 재설계 필요 |
 
 ### 1-2. 필요 env
-`.env.example:153-157` `PG_PROVIDER`·`PG_API_KEY`·`PG_SECRET_KEY`(현재 미참조 자리). 실 구현체가 `@Value`/`@ConfigurationProperties`로 읽도록 `application.yml`(+`application-prod.yml` 기본값 없음)·`docker-compose.mall.yml` backend environment에 연결한다. 키 이름은 PG사에 맞춰 바꿔도 된다.
+`.env.example:149-151` `PG_PROVIDER`·`PG_API_KEY`·`PG_SECRET_KEY`(주석 처리된 자리 — 전환 시 주석 해제). 실 구현체가 `@Value`/`@ConfigurationProperties`로 읽도록 `application.yml`(+`application-prod.yml` 기본값 없음)·`docker-compose.mall.yml` backend environment에 연결한다. 키 이름은 PG사에 맞춰 바꿔도 된다.
 
 ### 1-3. 전환 절차
 1. 실 구현체·콜백 어댑터·IT 추가 → `./gradlew.bat test --rerun-tasks` 0 fail.
@@ -111,7 +111,7 @@
 | 문구 | `notification/template/NotificationMessages.java`(임시 비밀번호) · 나머지 SMS 본문은 `NotificationService` 각 record 메서드 인라인 | — |
 
 ### 2-2. 필요 env
-`.env.example:166-168` `SMS_API_KEY`(현재 미참조 자리) + 업체별 추가 키. yml·compose 연결·prod 기본값 없음(§0 fail-fast).
+`.env.example:164` `SMS_API_KEY`(주석 처리된 자리 — 전환 시 주석 해제) + 업체별 추가 키. yml·compose 연결·prod 기본값 없음(§0 fail-fast).
 
 ### 2-3. 전환 절차
 1. 실 구현체 + 단위 테스트(HTTP 클라이언트 mock) 추가.
