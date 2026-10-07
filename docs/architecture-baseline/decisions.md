@@ -14447,3 +14447,8 @@ D-246 §8 정정: '데모 로그인 요청 제한 문서 불일치' 항목 철�
 - OPS-04(D-267 감시 구조 보강): β(외부 업타임 서비스 + ES 알림) 【기각】 — D-267 기각 근거(외부 계정·저장소 밖 설정) 동일 · 알림 채널 서버 메일 【기각】 — 운영 메일이 mock / α(서버 cron 15분 점검 + repository_dispatch로 Actions 실패 메일 재사용 · GitHub 예약 점검은 보조) 【채택】
 - PF-04: β(mall.yml 값 변경) 【기각】 — 운영 up --wait 대기에 영향 / α(dev.yml start_period override) 【채택】
 - OPS-06 · OPS-07 · OPS-08 · OPS-09 · PF-24 · PF-23 · PF-25 · README 알려진 한계 — 대안 검토 없음
+
+## D-273 PF-04 후속 — dev backend start_period 600s (2026-10-08)
+
+### §1-A 갈림길·채택/기각 근거
+- PF-04 후속(300s→600s): 대안 검토 없음
