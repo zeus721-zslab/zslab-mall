@@ -20,6 +20,7 @@ import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.enums.OrderStatus;
 import com.zslab.mall.order.event.OrderPlaced;
 import com.zslab.mall.order.exception.UnpaidOrderLimitExceededException;
+import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.order.repository.OrderRepository;
 import com.zslab.mall.order.repository.OrderShippingSnapshotRepository;
 import com.zslab.mall.inbox.stream.InboxSignalPublisher;
@@ -28,12 +29,12 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import java.time.LocalDateTime;
 import java.util.List;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -43,6 +44,8 @@ import org.springframework.test.util.ReflectionTestUtils;
  */
 @ExtendWith(MockitoExtension.class)
 class OrderServiceTest {
+
+    private static final int MAX_UNPAID_QUANTITY_PER_VARIANT = 20;
 
     @Mock
     private OrderRepository orderRepository;
@@ -65,8 +68,17 @@ class OrderServiceTest {
     @Mock
     private UserRepository userRepository;
 
-    @InjectMocks
+    @Mock
+    private OrderItemRepository orderItemRepository;
+
     private OrderService orderService;
+
+    @BeforeEach
+    void setUp() {
+        // 수량 상한은 설정값(int) 생성자 인자라 @InjectMocks가 채우지 못한다 — 직접 조립한다.
+        orderService = new OrderService(orderRepository, orderShippingSnapshotRepository, orderStatusResolver, eventPublisher,
+                entityManager, inboxSignalPublisher, userRepository, orderItemRepository, MAX_UNPAID_QUANTITY_PER_VARIANT);
+    }
 
     private ShippingAddressCommand shipping() {
         return new ShippingAddressCommand(

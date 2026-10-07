@@ -241,14 +241,16 @@ class CheckoutIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("입력 상한: 품목 수량 999 → 201 · 1000 → 400 VALIDATION_FAILED · 품목 101개 → 400 VALIDATION_FAILED")
+    @DisplayName("입력 상한: 품목 수량 999 → 형식 검증 통과·도메인 상한 422(SEC-02 잔여) · 1000 → 400 VALIDATION_FAILED · 품목 101개 → 400 VALIDATION_FAILED")
     void checkout_inputUpperBounds() throws Exception {
         execute("UPDATE inventory SET quantity_on_hand = 1000, quantity_available = 1000 WHERE variant_id = " + VARIANT_ID);
         entityManager.flush();
 
+        // 999는 @Max(999)를 통과해 서비스까지 들어가고(400 아님), 미결제 옵션 수량 상한(기본 20)에서 거부된다.
         mockMvc.perform(post("/api/v1/orders").with(authHeaders.buyer(1))
                         .contentType(MediaType.APPLICATION_JSON).content(createBody(itemJson(999))))
-                .andExpect(status().isCreated());
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("UNPAID_VARIANT_QUANTITY_LIMIT_EXCEEDED"));
         mockMvc.perform(post("/api/v1/orders").with(authHeaders.buyer(1))
                         .contentType(MediaType.APPLICATION_JSON).content(createBody(itemJson(1000))))
                 .andExpect(status().isBadRequest())
@@ -259,13 +261,13 @@ class CheckoutIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
 
-        // 거부된 두 요청은 999 성공 직후 상태(주문 1건·예약 999)를 바꾸지 않는다.
+        // 거부된 세 요청은 주문·예약을 남기지 않는다.
         Number orderCount = (Number) entityManager
                 .createNativeQuery("SELECT COUNT(*) FROM `order` WHERE buyer_id = 1").getSingleResult();
         Number reserved = (Number) entityManager
                 .createNativeQuery("SELECT quantity_reserved FROM inventory WHERE variant_id = " + VARIANT_ID).getSingleResult();
-        org.assertj.core.api.Assertions.assertThat(orderCount.longValue()).isEqualTo(1);
-        org.assertj.core.api.Assertions.assertThat(reserved.intValue()).isEqualTo(999);
+        org.assertj.core.api.Assertions.assertThat(orderCount.longValue()).isZero();
+        org.assertj.core.api.Assertions.assertThat(reserved.intValue()).isZero();
     }
 
     // ==================== D-268 SEC-02 미결제 주문 한도 ====================

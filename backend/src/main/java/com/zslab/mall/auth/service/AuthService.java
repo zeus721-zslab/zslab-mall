@@ -7,6 +7,8 @@ import com.zslab.mall.common.security.RoleAuthorization;
 import com.zslab.mall.common.security.TokenProvider;
 import com.zslab.mall.user.entity.User;
 import com.zslab.mall.user.repository.UserRepository;
+import java.util.Optional;
+import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -27,6 +29,11 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final RoleAuthorization roleAuthorization;
     private final TokenProvider tokenProvider;
+    /**
+     * 비교 대상이 없는 실패 분기(미존재·비활성·탈퇴)에서도 비밀번호 비교 비용을 치르기 위한 해시(PF-14). 응답 시간 차로 가입 여부가 새지 않게 한다.
+     * 실제 인코더로 만들어 인코더 강도가 바뀌어도 비용이 같다. 평문은 기동마다 임의값이라 어떤 계정과도 대응하지 않는다.
+     */
+    private final String dummyPasswordHash;
 
     public AuthService(
             UserRepository userRepository,
@@ -37,6 +44,7 @@ public class AuthService {
         this.passwordEncoder = passwordEncoder;
         this.roleAuthorization = roleAuthorization;
         this.tokenProvider = tokenProvider;
+        this.dummyPasswordHash = passwordEncoder.encode(UUID.randomUUID().toString());
     }
 
     /**
@@ -46,10 +54,15 @@ public class AuthService {
     @Transactional(readOnly = true)
     public LoginResult login(LoginRequest request, ActorRole role) {
         // @SQLRestriction("deleted_at IS NULL")로 소프트삭제 회원은 조회 자체가 제외된다(→ USER_NOT_FOUND 경로).
-        User user = userRepository.findByEmail(request.email())
-                .orElseThrow(() -> fail(null, "USER_NOT_FOUND"));
+        Optional<User> found = userRepository.findByEmail(request.email());
+        if (found.isEmpty()) {
+            passwordEncoder.matches(request.password(), dummyPasswordHash); // PF-14: 결과는 버린다 — 비교 비용만 맞춘다
+            throw fail(null, "USER_NOT_FOUND");
+        }
+        User user = found.get();
 
         if (user.getPasswordHash() == null || user.getWithdrawnAt() != null) {
+            passwordEncoder.matches(request.password(), dummyPasswordHash); // PF-14: 위와 같은 이유
             throw fail(user.getId(), "ACCOUNT_DISABLED");
         }
         if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {

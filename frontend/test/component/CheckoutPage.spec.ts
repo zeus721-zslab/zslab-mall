@@ -67,6 +67,12 @@ describe('pages/checkout 422 분기(D-268 SEC-02)', () => {
     expect(text).not.toContain('재고 부족 또는 판매 중지')
   })
 
+  it('422 UNPAID_VARIANT_QUANTITY_LIMIT_EXCEEDED → 옵션 수량 상한 전용 문구(SEC-02 잔여)', async () => {
+    const text = await submitWithError({ statusCode: 422, data: { code: 'UNPAID_VARIANT_QUANTITY_LIMIT_EXCEEDED' } })
+    expect(text).toContain('결제 대기 중인 주문을 합쳐 한 옵션을 주문할 수 있는 수량을 넘었습니다. 수량을 줄이거나 기존 주문을 결제해 주세요.')
+    expect(text).not.toContain('재고 부족 또는 판매 중지')
+  })
+
   it('그 밖의 422(ORDER_NOT_PAYABLE) → 기존 문구 유지', async () => {
     const text = await submitWithError({ statusCode: 422, data: { code: 'ORDER_NOT_PAYABLE' } })
     expect(text).toContain('선택하신 상품을 지금 주문할 수 없습니다(재고 부족 또는 판매 중지).')

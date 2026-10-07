@@ -8,3 +8,8 @@ export const SHIPPING_FEE = 0
 export const UNPAID_ORDER_LIMIT_EXCEEDED_CODE = 'UNPAID_ORDER_LIMIT_EXCEEDED'
 export const UNPAID_ORDER_LIMIT_EXCEEDED_MESSAGE =
   '결제 대기 중인 주문이 3건 있습니다. 주문 내역에서 기존 주문을 결제해 주세요. 결제하지 않은 주문은 30분 후 자동 취소됩니다.'
+
+// SEC-02 잔여 미결제 옵션 수량 상한 — SoT: BE GlobalExceptionHandler UNPAID_VARIANT_QUANTITY_LIMIT_EXCEEDED(422)·zslab.order.max-unpaid-quantity-per-variant.
+export const UNPAID_VARIANT_QUANTITY_LIMIT_EXCEEDED_CODE = 'UNPAID_VARIANT_QUANTITY_LIMIT_EXCEEDED'
+export const UNPAID_VARIANT_QUANTITY_LIMIT_EXCEEDED_MESSAGE =
+  '결제 대기 중인 주문을 합쳐 한 옵션을 주문할 수 있는 수량을 넘었습니다. 수량을 줄이거나 기존 주문을 결제해 주세요.'

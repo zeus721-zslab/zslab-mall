@@ -40,6 +40,7 @@ import com.zslab.mall.order.exception.OrderNotFoundException;
 import com.zslab.mall.order.exception.OrderNotPayableException;
 import com.zslab.mall.order.exception.PurchaseConfirmBlockedException;
 import com.zslab.mall.order.exception.UnpaidOrderLimitExceededException;
+import com.zslab.mall.order.exception.UnpaidVariantQuantityLimitExceededException;
 import com.zslab.mall.payment.exception.InvalidCallbackException;
 import com.zslab.mall.payment.exception.OrderNotPendingPaymentException;
 import com.zslab.mall.payment.exception.PaymentAlreadyCompletedException;
@@ -152,6 +153,7 @@ public class GlobalExceptionHandler {
     private static final String CODE_ORDER_NOT_PAYABLE = "ORDER_NOT_PAYABLE";
     private static final String CODE_ORDER_NOT_PENDING_PAYMENT = "ORDER_NOT_PENDING_PAYMENT";
     private static final String CODE_UNPAID_ORDER_LIMIT_EXCEEDED = "UNPAID_ORDER_LIMIT_EXCEEDED";
+    private static final String CODE_UNPAID_VARIANT_QUANTITY_LIMIT_EXCEEDED = "UNPAID_VARIANT_QUANTITY_LIMIT_EXCEEDED";
     private static final String CODE_CHECKOUT_ITEM_MISMATCH = "CHECKOUT_ITEM_MISMATCH";
     private static final String CODE_CART_CHECKOUT_EMPTY = "CART_CHECKOUT_EMPTY";
     private static final String CODE_INVALID_CALLBACK = "INVALID_CALLBACK";
@@ -735,6 +737,17 @@ public class GlobalExceptionHandler {
         log.warn("[Order] 미결제 주문 한도 초과(422): {}", exception.getMessage());
         return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_UNPAID_ORDER_LIMIT_EXCEEDED,
                 "결제 대기 중인 주문이 3건 있습니다. 주문 내역에서 기존 주문을 결제해 주세요. 결제하지 않은 주문은 30분 후 자동 취소됩니다.",
+                request);
+    }
+
+    @ExceptionHandler(UnpaidVariantQuantityLimitExceededException.class)
+    public ResponseEntity<ProblemDetail> handleUnpaidVariantQuantityLimitExceeded(
+            UnpaidVariantQuantityLimitExceededException exception, HttpServletRequest request) {
+        // SEC-02 잔여: 미결제 주문 전체의 같은 옵션 수량 합계 상한 초과(422). 건수 한도와 할 일(수량 줄이기)이 달라 전용 코드로 구분한다.
+        // 예외 메시지의 내부 id·수량은 로그에만 남기고 응답 detail은 고정 문구로 둔다.
+        log.warn("[Order] 미결제 옵션 수량 상한 초과(422): {}", exception.getMessage());
+        return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_UNPAID_VARIANT_QUANTITY_LIMIT_EXCEEDED,
+                "결제 대기 중인 주문을 합쳐 한 옵션을 주문할 수 있는 수량을 넘었습니다. 수량을 줄이거나 기존 주문을 결제해 주세요.",
                 request);
     }
 

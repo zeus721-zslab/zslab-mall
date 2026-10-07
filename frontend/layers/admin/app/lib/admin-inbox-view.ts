@@ -85,6 +85,7 @@ const CLAIM_BULK_FAILURE_MESSAGES: Record<string, string> = {
   CLAIM_STATE_INVALID: '이미 처리됐거나 승인할 수 없는 상태입니다.',
   INVENTORY_INVARIANT_VIOLATION: '교환 옵션 재고가 부족해 승인하지 못했습니다.',
   OPTIMISTIC_LOCK_FAILURE: '다른 처리와 겹쳤습니다. 다시 시도해 주세요.',
+  LOCK_CONFLICT: '다른 처리와 겹쳤습니다. 잠시 후 다시 시도해 주세요.',
   CLAIM_NOT_FOUND: '클레임을 찾을 수 없습니다.',
 }
 

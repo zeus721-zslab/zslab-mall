@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificationExecutor<User> {
 
@@ -24,7 +25,14 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
     /** 관리자 주문 목록 주문자 배치 enrich(Track 79 D-168·N+1 회피). */
     List<User> findByIdIn(Collection<Long> ids);
 
-    /** 회원 행 쓰기 락({@code SELECT ... FOR UPDATE}). 구매자 단위 주문 생성 직렬화용(D-268 SEC-02). */
+    /**
+     * public_id(usr_)로 회원 id만 조회한다(PF-08 관리자 탈퇴의 구매자 행 락 대상 해소). 엔티티를 적재하지 않으므로 락 전에 불러도 1차 캐시에
+     * User가 남지 않는다. {@code @SQLRestriction}으로 소프트삭제 회원 제외. 모든 변수는 :publicId 바인딩이다.
+     */
+    @Query("SELECT u.id FROM User u WHERE u.publicId = :publicId")
+    Optional<Long> findIdByPublicId(@Param("publicId") String publicId);
+
+    /** 회원 행 쓰기 락({@code SELECT ... FOR UPDATE}). 구매자 단위 주문 생성·탈퇴 직렬화용(D-268 SEC-02·PF-08). */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT u FROM User u WHERE u.id = :id")
     Optional<User> findByIdForUpdate(Long id);

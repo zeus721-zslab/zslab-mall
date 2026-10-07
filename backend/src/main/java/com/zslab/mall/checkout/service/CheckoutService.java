@@ -26,6 +26,7 @@ import com.zslab.mall.order.exception.OrderNotFoundException;
 import com.zslab.mall.order.exception.OrderNotPayableException;
 import com.zslab.mall.order.exception.OrderNotPayableReason;
 import com.zslab.mall.order.exception.UnpaidOrderLimitExceededException;
+import com.zslab.mall.order.exception.UnpaidVariantQuantityLimitExceededException;
 import com.zslab.mall.order.repository.OrderRepository;
 import com.zslab.mall.order.service.OrderService;
 import com.zslab.mall.payment.enums.PaymentMethod;
@@ -174,9 +175,9 @@ public class CheckoutService {
         try {
             order = createOrder(command);            // D-52 2단계: TX1
         } catch (CheckoutItemNotFoundException | CheckoutItemMismatchException | OrderNotPayableException
-                | UnpaidOrderLimitExceededException fourXx) {
+                | UnpaidOrderLimitExceededException | UnpaidVariantQuantityLimitExceededException fourXx) {
             // D-66: 클라이언트 교정 가능 4xx(품목 미해소·재고 부족 §10 α 포함) → IN_PROGRESS row 삭제하여 동일 키 재시도 허용
-            // D-268: 미결제 한도 초과도 기존 주문 결제·취소로 해소 가능한 4xx라 같은 키 재시도를 허용한다.
+            // D-268: 미결제 한도 초과도 기존 주문 결제·취소로 해소 가능한 4xx라 같은 키 재시도를 허용한다(옵션 수량 상한 초과도 같다).
             idempotencyRepository.delete(mark);
             throw fourXx;
         }

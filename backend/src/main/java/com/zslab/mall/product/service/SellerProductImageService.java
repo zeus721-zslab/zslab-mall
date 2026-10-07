@@ -41,16 +41,18 @@ public class SellerProductImageService {
 
     private final ProductRepository productRepository;
     private final ProductImageRepository productImageRepository;
+    private final ImageUploadService imageUploadService;
 
     /**
      * 이미지를 상품 끝에 등록한다(Track 59 BL-6). displayOrder는 현재 활성 이미지 수로 append하며, {@code main=true}면
      * 등록 직후 대표로 지정하고 기존 대표를 강등한다.
      *
      * @throws ProductNotFoundException 상품이 없거나 요청 판매자 소유가 아닌 경우(404)
-     * @throws com.zslab.mall.common.exception.MalformedRequestException imageUrl이 서버 발급 상품 이미지 경로가 아닌 경우(400·D-174)
+     * @throws com.zslab.mall.common.exception.MalformedRequestException imageUrl이 요청 셀러에게 발급된 상품 이미지 경로가 아니거나
+     *         저장 파일이 없는 경우(400·SEC-07 — 신규 셀러 경로와 같은 검증)
      */
     public ProductImageResponse add(Long sellerId, Long productId, AddProductImageRequest request) {
-        ImageUploadService.requireServerIssuedProductUrl(request.imageUrl());
+        imageUploadService.requireSellerOwnedProductUrl(request.imageUrl(), sellerId);
         Product product = requireOwnedProduct(sellerId, productId);
         int displayOrder = (int) productImageRepository.countByProductId(productId);
         ProductImage image = productImageRepository.save(
