@@ -14370,3 +14370,36 @@ D-246 §8 정정: '데모 로그인 요청 제한 문서 불일치' 항목 철�
 - SEC-03 Boot 업그레이드 【불가】 — 4.1.x는 4.1.1이 최신이다.
 
 외부 검토: A / 2라운드 · 지적 4건 중 수용 3건
+
+## D-269 구매자 비밀번호 재설정 · 범용 메일 모듈(퀄리티 v3 PR-2 UX-01) (2026-10-08)
+
+기준: docs/frontend/recon-report-quality-v3.md §5 · zslab 결정(2026-10-07 — 지시서의 "소셜 로그인 키 투입 방식" 전제는 저장소에 구현이 없어 아래 1·2로 대체).
+
+### 결정
+- 범용 메일: `NotificationService.sendEmail(EmailMessage)` — 수신 회원 · 제목 · 본문 템플릿(`{{이름}}`)+변수 · sensitive. 포트 `NotificationSender.send(log, body)`(본문 인자 추가) · 구현체 Mock(기본) · `SmtpNotificationSender`(spring-boot-starter-mail). 기존 이벤트 알림 메일(`save()`)도 이 함수를 거친다(sensitive=false · 변수 없음 → 저장·발송 본문 동일).
+- 활성 판정: D-209 `zslab.notification.email-sender` 재사용 — `smtp`면 SMTP 구현체(SMTP_HOST·SMTP_USERNAME 비면 기동 실패), 기본 mock 유지. 재설정은 이 값이 mock이 아닐 때만 열린다. 활성 여부 노출 = 공개 `GET /api/v1/auth/password-reset/availability` — 따를 기존 방식이 없어 신설.
+- sensitive 마스킹: 저장본은 모든 변수를 `****`로 채운다. 기존 결정과의 관계: D-209 §1-A "이메일 계약 `send(NotificationLog)` 유지"를 **본문 인자 추가**로 바꾼다(저장본이 마스킹본이면 로그 content를 발송에 쓸 수 없음). 수신 주소를 어댑터가 `User.email`로 조회하는 D-209 결정 7은 유지. 메일 평문 저장은 sensitive=false(기존 알림)에서 그대로이고, sensitive=true에서만 SMS `sendSensitiveSms`(D-178 결정 8)와 같은 마스킹 규칙을 메일에 적용한다.
+- 토큰: SecureRandom 32바이트(base64url) · DB에는 SHA-256 hex만(V48 `password_reset_token` · 상태 컬럼 없음) · TTL 30분 · 1회 사용 = 조건부 UPDATE(`used_at IS NULL AND expires_at > now`) 1행일 때만 비밀번호 변경 · 새 요청 시 같은 회원의 미사용 토큰 삭제 · 확정 시 대상 재확인 실패면 롤백(사용 처리 포함) · 성공 시 해시 교체 + `markCredentialsChanged` + 변경 강제 해제. Flyway 보상 = `DROP TABLE password_reset_token`(V48 주석 · 손실 범위는 진행 중 링크뿐).
+- 열거 방지: 요청은 형식 검증 후 항상 202·빈 본문. 대상 조회·발급·발송은 서비스 소유 단일 스레드 실행기에서(토큰 커밋 → 메일 발송). 확정 실패는 사유 무관 400 `PASSWORD_RESET_TOKEN_INVALID`.
+- 대상: 구매자 전용 — BUYER · 비밀번호 있음 · 미탈퇴 · 관리자 역할·셀러 구성원 아님 · 데모 보호 계정 아님(발급은 조용히 제외 · 확정은 D-230 403).
+- 링크: `zslab.frontend.base-url = https://${APP_DOMAIN}`(compose 기본값 운영 도메인) + `/reset-password?token=`.
+- 요청 제한: 앱 구현 없음(D-236 gateway 일원화).
+
+### §1-A 갈림길·채택/기각 근거
+- 활성 판정 α D-209 email-sender 재사용 【채택 · zslab 결정】 — 판정 축이 하나이고 설정 누락이 기동 실패로 드러난다 / β SMTP_HOST 유무 자동 판정 【기각】 — D-209 "명시 선택·조용한 폴백 없음"과 판정 축이 둘로 갈린다 / γ FE runtimeConfig 플래그 【기각】 — BE 활성 상태와 어긋날 수 있다.
+- 활성 여부 노출 GET 신설 — 대안 검토 없음(따를 기존 방식 없음).
+- 기준 URL α 기존 APP_DOMAIN 연결 【채택 · zslab 결정】 / β 새 키 【기각】 — 같은 의미 키 중복 / γ 요청 Host 헤더 【기각】 — Host 헤더 주입으로 피싱 링크가 만들어진다.
+- 메일 포트 본문 인자 추가 【채택】 / 로그 content 그대로 발송 【불가】 — 민감 메일이면 마스킹본이 나간다 / 이메일 전용 포트 신설 【기각】 — 이벤트 메일 경로와 포트 2개·Mock 2개가 병존한다.
+- 토큰 해시 SHA-256 【채택】 — 256비트 무작위라 대입 공격이 불가하고 등치 조회가 필요하다 / BCrypt 【기각】 — 조회 키로 쓸 수 없다.
+- 발급 비동기(전용 실행기) 【채택】 — 응답 시간이 발송 여부와 무관해지고 SMTP 지연이 요청 스레드를 붙들지 않는다 / 동기 발급 【기각】 — 구매자일 때만 SMTP 왕복이 붙어 응답 시간으로 가입 여부가 샌다.
+- 이전 토큰 무효 = 미사용 행 삭제 【채택】 / used_at 마킹 【기각】 — 사용과 무효를 같은 컬럼으로 섞는다.
+- 관리자 겸직·셀러 구성원 제외 【채택】 / 포함 【기각】 — 구매자 메일 링크로 관리자·셀러 계정 비밀번호가 바뀌는 경로가 생긴다.
+- 요청 제한 gateway 【채택 · D-236】 / 앱 필터 【기각 · D-236】.
+- trade-off: 링크 토큰이 첫 요청 URL 쿼리로 gateway·SSR 접근 로그에 남을 수 있다 — 1회용·30분 + 화면 진입 즉시 URL에서 제거·no-referrer로 수용.
+
+### §8 이월
+- 머지 후 서버 작업(zslab 승인 후): gateway 로그인 zone(limit_req)에 `POST /api/v1/auth/password-reset/request` 추가.
+- smtp 전환 시: 이벤트 알림 메일이 AFTER_COMMIT 동기 핸들러에서 SMTP를 기다리며 DB 커넥션 보유 → 비동기화·트랜잭션 밖 발송 검토 · 테스트 도메인 발송 차단 · gateway 접근 로그 token 쿼리 마스킹.
+- 판매자·관리자 비밀번호 재설정 미지원.
+
+- 외부 검토: A / 지적 1건 중 수용 0건

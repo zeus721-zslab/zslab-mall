@@ -2,6 +2,7 @@
 import { DEMO_STATUS_PATH, LOGIN_NOTICE_PASSWORD_CHANGED, LOGIN_NOTICE_QUERY } from '~/lib/constants/auth'
 import type { LoginPageVm } from '~/skins/contracts/login'
 import { resolveLoginRedirect } from '~/lib/utils/login-redirect'
+import { LOGIN_NOTICE_PASSWORD_RESET } from '~/lib/constants/password-reset'
 
 // 공개 페이지(permitAll 로그인 엔드포인트 소비)라 definePageMeta 미부착. buyer 몰이므로 role은 BUYER 고정(UI 노출 없음).
 const auth = useAuthStore()
@@ -9,6 +10,8 @@ const route = useRoute()
 
 // 비밀번호 변경 완료 후 재로그인 안내(Track 84·mypage/password.vue가 query로 전달).
 const passwordChangedNotice = computed<boolean>(() => route.query[LOGIN_NOTICE_QUERY] === LOGIN_NOTICE_PASSWORD_CHANGED)
+// 비밀번호 재설정 완료 후 안내(D-269·reset-password.vue가 query로 전달).
+const passwordResetNotice = computed<boolean>(() => route.query[LOGIN_NOTICE_QUERY] === LOGIN_NOTICE_PASSWORD_RESET)
 
 const email = ref<string>('')
 const password = ref<string>('')
@@ -51,6 +54,17 @@ onMounted(async () => {
   }
 })
 
+// 비밀번호 재설정(D-269)은 BE가 실 메일 발송을 켰을 때만 연다. 조회 실패·응답 전은 기존 "준비 중" 안내로 둔다(데모 버튼과 같은 판정).
+const { fetchAvailability } = usePasswordReset()
+const passwordResetEnabled = ref<boolean>(false)
+onMounted(async () => {
+  try {
+    passwordResetEnabled.value = await fetchAvailability()
+  } catch (error) {
+    console.warn('[password-reset] availability check failed', error)
+  }
+})
+
 /**
  * 데모 로그인(FE-43). 서버 라우트가 비공개 env 계정(저권한 BUYER)으로 BE 로그인을 대행해 포트폴리오 방문자가
  * 1클릭으로 둘러보게 한다. 브라우저는 자격증명을 모른다. submitting을 handleSubmit과 공유해 이중클릭·중복 요청을 막는다.
@@ -83,6 +97,8 @@ useSeoMeta({
 
 const vm: LoginPageVm = reactive({
   passwordChangedNotice,
+  passwordResetNotice,
+  passwordResetEnabled,
   email,
   password,
   submitting,

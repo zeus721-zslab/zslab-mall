@@ -26,6 +26,8 @@ public final class NotificationTemplateCodes {
     public static final String SETTLEMENT_CONFIRMED = "TPL_SETTLEMENT_CONFIRMED";
     /** 셀러 지연 독촉 SMS(D-252·쿨다운 판정 키). */
     public static final String SELLER_DELAY_NUDGE = "TPL_SELLER_DELAY_NUDGE";
+    /** 구매자 비밀번호 재설정 링크 메일(D-269·본문은 마스킹 저장). */
+    public static final String PASSWORD_RESET = "TPL_PASSWORD_RESET";
 
     private NotificationTemplateCodes() {
     }

@@ -24,6 +24,8 @@ import MypageInquiriesView from './views/MypageInquiriesView.vue'
 import InquiryNewView from './views/InquiryNewView.vue'
 import LoginView from './views/LoginView.vue'
 import SignupView from './views/SignupView.vue'
+import ForgotPasswordView from './views/ForgotPasswordView.vue'
+import ResetPasswordView from './views/ResetPasswordView.vue'
 import SearchView from './views/SearchView.vue'
 import HelpView from './views/HelpView.vue'
 import ErrorView from './views/ErrorView.vue'
@@ -57,6 +59,8 @@ export const renewViews: SkinViews = {
   InquiryNewView,
   LoginView,
   SignupView,
+  ForgotPasswordView,
+  ResetPasswordView,
   SearchView,
   HelpView,
   ErrorView,

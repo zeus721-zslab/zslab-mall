@@ -7,6 +7,8 @@ import AdminDashboardListCard from '#layers/admin/app/components/admin/AdminDash
 import AdminDashboardPending from '#layers/admin/app/components/admin/AdminDashboardPending.vue'
 import AdminClaimTable from '#layers/admin/app/components/admin/AdminClaimTable.vue'
 import AdminClaimsPage from '#layers/admin/app/pages/admin/orders/claims/index.vue'
+import AdminInboxList from '#layers/admin/app/components/admin/AdminInboxList.vue'
+import type { InboxTypeCount } from '~/types/inbox'
 import type { AdminDashboardPending as AdminDashboardPendingCounts } from '#layers/admin/app/types/admin-dashboard'
 import type { AdminClaimListResponse } from '#layers/admin/app/types/admin-claim'
 
@@ -121,5 +123,26 @@ describe('관리자 응답 대기 중 빈 상태·0건 미표시(FE-111)', () =>
     pending.resolve({ items: [], page: 0, size: 20, totalCount: 0, hasNext: false, pendingCount: 0 })
     await flushPromises()
     expect(chip()).toBe('처리 대기 0건')
+  })
+})
+
+describe('관리자 인박스 유형 칩 건수(UX-02)', () => {
+  const baseProps = {
+    items: [], counts: [] as InboxTypeCount[], tab: 'TODAY' as const, type: null, selectedKey: null, bulkSelected: [],
+    loading: true, error: null as string | null, truncated: false, nowMs: 0,
+  }
+
+  // 조회 실패 시 이전 건수 유지는 페이지(inbox.vue — 성공 시에만 counts 대입)가 책임진다. 컴포넌트는 counts만 본다.
+  it('응답 전(counts 빈 배열)에는 건수 없이 유형명만 → 응답 후 건수 표시', async () => {
+    const wrapper = await mountSuspended(AdminInboxList, { props: baseProps, global: { plugins: [createVuetify()] } })
+    const allChip = () => wrapper.get('[data-testid="inbox-type-chip-ALL"]').text()
+    const claimChip = () => wrapper.get('[data-testid="inbox-type-chip-CLAIM_REQUESTED"]').text()
+    expect(allChip()).toBe('전체')
+    expect(claimChip()).not.toMatch(/\d/)
+
+    const counts: InboxTypeCount[] = [{ type: 'CLAIM_REQUESTED', count: 2 }, { type: 'SELLER_DELAY', count: 1 }]
+    await wrapper.setProps({ counts, loading: false })
+    expect(allChip()).toBe('전체 3')
+    expect(claimChip()).toMatch(/ 2$/)
   })
 })

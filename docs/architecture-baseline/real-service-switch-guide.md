@@ -20,7 +20,7 @@
 | SecurityConfig mock 매처 | `common/security/SecurityConfig.java` BUYER 매처에 mock-callback 경로 잔존 | 무해하지만 제거 | §1-1 |
 | 데모 시드 결제 단계 | `scripts/demo-seed/seed.py`가 mock-callback으로 결제 완료 | 실 모드에서 404 — 시드 결제 단계 재설계 | §1-1 |
 | SMS | `MockSmsSender` · `zslab.notification.sms-sender=mock` | 실 구현체 추가 + `SMS_SENDER=<값>` | §2 |
-| 이메일 | `MockNotificationSender` · `zslab.notification.email-sender=mock` | 실 구현체 추가 + `EMAIL_SENDER=<값>` · 테스트 도메인 발송 차단 | §3 |
+| 이메일 | `MockNotificationSender` · `zslab.notification.email-sender=mock` (실 구현체 `SmtpNotificationSender` 있음·D-269) | `.env` `EMAIL_SENDER=smtp` + `SMTP_*` · 테스트 도메인 발송 차단 | §3 |
 | 배송 조회 | `MockDeliveryTracker`(발송 후 N일 = 배달 완료) · `zslab.delivery.tracker=mock` | 실 택배사 어댑터 추가 + `DELIVERY_TRACKER=<값>` | §4 |
 
 ### 선결 항목(실 서비스로 가기 전 결정·구현)
@@ -30,7 +30,8 @@
 | 웹훅 보안 | 서명 검증·재전송 방지·IP 제한 전부 미구현 | D-198 §8 전 항목 구현 후 gateway 404 해제 | §1-4·§1-5 |
 | 임시 비밀번호 TX 분리 | 발급과 SMS 발송이 같은 트랜잭션 | 실 SMS 도입 시 분리(502 계약 변경 동반) | §2-3·D-178 §8 |
 | 환불 개시 중 주문 락 보유 | 환불 개시가 PG 호출 동안 주문 락 보유(`RefundService.initiate`) | 실 PG 전환 시 PG 호출을 트랜잭션 밖으로 분리 검토 | D-215 §8 |
-| 구매자 비밀번호 찾기 | 미구현(관리자 임시 비밀번호 발급만) | 설계 결정 후 구현 | §5 |
+| 이벤트 알림 메일 동기 발송 | 주문·결제·클레임 등 이벤트 메일이 AFTER_COMMIT 핸들러(REQUIRES_NEW·동기)에서 발송 — mock이면 즉시 반환 | smtp 전환 시 요청 스레드가 SMTP 응답(접속 5초·응답 10초 상한)을 기다리며 DB 커넥션을 보유 → 비동기화·트랜잭션 밖 발송 검토 | §3·D-269 §8 |
+| 구매자 비밀번호 찾기 | 구현됨(D-269) · `EMAIL_SENDER=mock`이면 닫힘 | smtp 전환 시 열림 · gateway 로그인 zone에 `/api/v1/auth/password-reset/request` 추가(D-269 §8) | §5 |
 | `delivered_at` 기준 | 자동 배송완료가 **처리 시각**을 기록 | 실 조회가 알려 주는 **배달 시각**으로 바꿀지 결정(반품 기한·자동 구매확정 기산점이 함께 움직인다) | §4-4 |
 
 **새 목업을 추가하면 이 표에 행을 추가한다** — Mock 어댑터·Mock 전용 엔드포인트·Mock 전용 화면을 새로 만들 때, 그 트랙에서 "목업 항목" 표에 한 줄을 더한다(빠뜨리면 오픈 직전에 찾아야 한다).
@@ -131,10 +132,10 @@
 ### 3-1. 교체 지점
 | 구분 | 파일:라인 | 할 일 |
 |---|---|---|
-| 포트 | `notification/adapter/NotificationSender.java:16-25` `send(NotificationLog)` | **계약 유지**(D-209 §1-A). 수신 주소는 어댑터가 조회 |
-| Mock | `notification/adapter/MockNotificationSender.java:17`(조건) | 그대로 |
-| 실 구현체 추가 | `notification/adapter/SmtpNotificationSender.java`(신규) | `@Component` + `@ConditionalOnProperty(name="zslab.notification.email-sender", havingValue="<값>")`. `notificationLog.getRecipientUserId()`로 `User.email`(`User.java:36`·nullable) 조회 → 주소 없으면 `RuntimeException`으로 FAILED 전이(dispatch가 처리) 또는 skip 정책 결정. `recipient_user_id`는 nullable(`NotificationLog.java:40`·셀러 SMS 경로 null) |
-| 의존성 | `backend/build.gradle.kts`(현재 mail 의존성 없음) | `spring-boot-starter-mail` 등 추가 |
+| 포트 | `notification/adapter/NotificationSender.java` `send(NotificationLog, body)` | D-269에서 본문 인자 추가(민감 메일은 로그 content가 마스킹본이라). 수신 주소는 어댑터가 조회 |
+| Mock | `notification/adapter/MockNotificationSender.java`(조건 mock) | 그대로 |
+| 실 구현체 | `notification/adapter/SmtpNotificationSender.java`(D-269·조건 `smtp`) | 구현됨. `recipientUserId`로 `User.email` 조회 → 주소 없으면 `IllegalStateException`으로 FAILED 전이. SMTP_HOST·SMTP_USERNAME 비면 기동 실패 |
+| 의존성 | `backend/build.gradle.kts` `spring-boot-starter-mail` | 추가됨(D-269) · mail 헬스 지표는 꺼 둠(`management.health.mail.enabled=false`) |
 | 호출부(무변경) | `NotificationService.java:522`(EMAIL 12경로) | — |
 | 문구 | 제목·본문은 `NotificationService` 각 record 메서드 인라인(예 :95·:114). 템플릿 파일 없음 | HTML 템플릿이 필요하면 별도 결정 |
 
@@ -191,7 +192,7 @@ compose environment 변경은 **컨테이너 재생성**이 필요하다(§0).
 
 ---
 
-## 5. 구매자 비밀번호 찾기 — 설계 메모(미구현·추천 없음)
+## 5. 구매자 비밀번호 찾기 — 설계 메모(D-269에서 구현 — 선택 결과는 decisions.md D-269, 아래는 구현 전 메모 원문)
 
 ### 5-1. 있는 것
 | 요소 | 위치 |

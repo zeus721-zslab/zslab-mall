@@ -2,6 +2,7 @@
 import type { LoginPageVm } from '~/skins/contracts/login'
 import RenewAuthFrame from '../components/RenewAuthFrame.vue'
 import RenewNotice from '../components/RenewNotice.vue'
+import { FORGOT_PASSWORD_PAGE, PASSWORD_RESET_MESSAGES } from '~/lib/constants/password-reset'
 
 // renew 로그인(FE-74). 폼 동작·에러 문구·데모 로그인(FE-43)은 classic과 같은 페이지 vm을 쓴다(testid·안내 문구 동일).
 defineProps<{ vm: LoginPageVm }>()
@@ -10,7 +11,7 @@ const LABEL = 'mb-1.5 block text-small font-bold text-ink'
 const INPUT =
   'h-12 w-full rounded-control border border-line bg-white px-4 text-body text-ink transition duration-fast ease-soft placeholder:text-sub focus:border-primary focus:outline-hidden focus:ring-1 focus:ring-primary'
 
-// 비밀번호 찾기는 준비 중 기준(FE-76 · 인증 영역·검토 등급 A)에 해당해 안내만 띄운다(FE-81). 페이지 이동·요청 없음.
+// 비밀번호 찾기: BE가 실 메일 발송을 켰으면(vm.passwordResetEnabled) 재설정 요청 화면으로 이동하고(D-269), 아니면 준비 중 안내만 띄운다(FE-81).
 const forgotPasswordNoticeShown = ref<boolean>(false)
 </script>
 
@@ -24,6 +25,9 @@ const forgotPasswordNoticeShown = ref<boolean>(false)
   >
     <RenewNotice v-if="vm.passwordChangedNotice" tone="success" class="mb-6" data-testid="login-password-changed-notice">
       비밀번호가 변경되었습니다. 다시 로그인해 주세요.
+    </RenewNotice>
+    <RenewNotice v-if="vm.passwordResetNotice" tone="success" class="mb-6" data-testid="login-password-reset-notice">
+      {{ PASSWORD_RESET_MESSAGES.completed }}
     </RenewNotice>
 
     <form class="space-y-5" @submit.prevent="vm.handleSubmit">
@@ -55,7 +59,16 @@ const forgotPasswordNoticeShown = ref<boolean>(false)
         />
         <!-- 3차 버튼의 좌우 여백만큼 당겨 글자 끝을 입력칸 오른쪽 끝에 맞춘다. -->
         <div class="mt-1 flex justify-end">
+          <NuxtLink
+            v-if="vm.passwordResetEnabled"
+            :to="FORGOT_PASSWORD_PAGE"
+            class="btn btn-tertiary btn-sm -mr-4 text-sub max-md:min-h-11"
+            data-testid="login-forgot-password"
+          >
+            비밀번호를 잊으셨나요?
+          </NuxtLink>
           <button
+            v-else
             type="button"
             class="btn btn-tertiary btn-sm -mr-4 text-sub max-md:min-h-11"
             data-testid="login-forgot-password"
@@ -66,8 +79,8 @@ const forgotPasswordNoticeShown = ref<boolean>(false)
         </div>
       </div>
 
-      <RenewNotice v-if="forgotPasswordNoticeShown" tone="info" data-testid="login-forgot-password-notice">
-        비밀번호 찾기는 준비 중입니다.
+      <RenewNotice v-if="forgotPasswordNoticeShown && !vm.passwordResetEnabled" tone="info" data-testid="login-forgot-password-notice">
+        {{ PASSWORD_RESET_MESSAGES.unavailable }}
       </RenewNotice>
 
       <!-- 에러: 사유 무관 단일 문구(계정 열거·자격 노출 방지) -->

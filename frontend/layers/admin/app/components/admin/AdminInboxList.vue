@@ -64,6 +64,11 @@ function toggleBulk(key: string, checked: boolean | null): void {
 
 const TABS: InboxTab[] = ['TODAY', 'UPCOMING']
 
+/** BE는 보이는 유형마다 항상 건수를 주므로 빈 배열은 응답 전이다 — 그때만 건수를 숨긴다(오류 시엔 이전 값이 남는다). */
+const countsKnown = computed(() => props.counts.length > 0)
+function chipLabel(label: string, count: number): string {
+  return countsKnown.value ? `${label} ${count}` : label
+}
 const countByType = computed<Map<InboxItemType, number>>(() => new Map(props.counts.map((count) => [count.type, count.count])))
 const totalCount = computed(() => props.counts.reduce((sum, count) => sum + count.count, 0))
 const showSkeleton = computed(() => props.loading && props.items.length === 0)
@@ -89,7 +94,7 @@ function onTab(value: unknown): void {
         :color="type === null ? 'primary' : undefined"
         data-testid="inbox-type-chip-ALL"
         @click="emit('update:type', null)"
-      >전체 {{ totalCount }}</v-chip>
+      >{{ chipLabel('전체', totalCount) }}</v-chip>
       <v-chip
         v-for="value in INBOX_AUDIENCE_TYPES.ADMIN"
         :key="value"
@@ -98,7 +103,7 @@ function onTab(value: unknown): void {
         :color="type === value ? 'primary' : undefined"
         :data-testid="`inbox-type-chip-${value}`"
         @click="emit('update:type', value)"
-      >{{ inboxItemTypeLabel(value) }} {{ countByType.get(value) ?? 0 }}</v-chip>
+      >{{ chipLabel(inboxItemTypeLabel(value), countByType.get(value) ?? 0) }}</v-chip>
     </div>
     <v-divider />
 
@@ -144,7 +149,7 @@ function onTab(value: unknown): void {
           />
         </template>
         <v-list-item-title class="text-body-2 font-weight-medium">{{ item.title }}</v-list-item-title>
-        <v-list-item-subtitle>
+        <v-list-item-subtitle class="adm-inbox-subtitle">
           <span>{{ inboxItemTypeLabel(item.type) }}</span>
           <span v-if="item.claimType"> · {{ claimTypeLabel(item.claimType) }}</span>
           <span v-if="item.subtitle"> · {{ adminInboxSubtitle(item) }}</span>
@@ -168,5 +173,10 @@ function onTab(value: unknown): void {
 }
 .adm-inbox-item--overdue {
   border-left-color: rgb(var(--v-theme-error));
+}
+/* Vuetify 보조 문구 투명도(medium-emphasis)가 문구와 제안 배지에 곱해져 대비가 기준 미달 — 투명도 대신 색으로 약하게 한다(UX-03). */
+.adm-inbox-subtitle {
+  opacity: 1;
+  color: rgba(var(--v-theme-on-surface), 0.7);
 }
 </style>

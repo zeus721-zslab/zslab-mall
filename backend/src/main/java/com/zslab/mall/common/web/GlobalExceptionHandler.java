@@ -3,6 +3,7 @@ package com.zslab.mall.common.web;
 import com.zslab.mall.auth.exception.AdminOperatorAlreadyExistsException;
 import com.zslab.mall.auth.exception.AuthenticationFailedException;
 import com.zslab.mall.auth.exception.LastSuperAdminRevocationException;
+import com.zslab.mall.auth.exception.PasswordResetTokenInvalidException;
 import com.zslab.mall.auth.exception.RoleAssignmentNotFoundException;
 import com.zslab.mall.auth.exception.SelfRoleRevocationException;
 import com.zslab.mall.auth.exception.SuperAdminRequiredException;
@@ -139,6 +140,7 @@ public class GlobalExceptionHandler {
     private static final String CODE_UNSUPPORTED_MEDIA_TYPE = "UNSUPPORTED_MEDIA_TYPE";
     private static final String CODE_UNAUTHENTICATED = "UNAUTHENTICATED";
     private static final String CODE_AUTHENTICATION_FAILED = "AUTHENTICATION_FAILED";
+    private static final String CODE_PASSWORD_RESET_TOKEN_INVALID = "PASSWORD_RESET_TOKEN_INVALID";
     private static final String CODE_ORDER_NOT_FOUND = "ORDER_NOT_FOUND";
     private static final String CODE_PRODUCT_NOT_FOUND = "PRODUCT_NOT_FOUND";
     private static final String CODE_PRODUCT_IMAGE_NOT_FOUND = "PRODUCT_IMAGE_NOT_FOUND";
@@ -277,6 +279,13 @@ public class GlobalExceptionHandler {
             SettlementPeriodInvalidException exception, HttpServletRequest request) {
         // Track 48 P3: 정산 배치 year/month 범위 위반(월 1~12·연도 2000~2100 밖). 도메인 규칙 검증(Service)·400.
         return build(HttpStatus.BAD_REQUEST, CODE_SETTLEMENT_PERIOD_INVALID, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(PasswordResetTokenInvalidException.class)
+    public ResponseEntity<ProblemDetail> handlePasswordResetTokenInvalid(
+            PasswordResetTokenInvalidException exception, HttpServletRequest request) {
+        // D-269: 없음·만료·사용됨·대상 부적격을 구분하지 않는 단일 400(토큰 상태 비노출). FE는 이 코드로 "링크 만료" 상태를 보인다.
+        return build(HttpStatus.BAD_REQUEST, CODE_PASSWORD_RESET_TOKEN_INVALID, exception.getMessage(), request);
     }
 
     // ===== 401 =====

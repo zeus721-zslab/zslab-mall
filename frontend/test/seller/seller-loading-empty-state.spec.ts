@@ -7,6 +7,8 @@ import SellerDashboardPending from '#layers/seller/app/components/seller/SellerD
 import SellerOrderItemTable from '#layers/seller/app/components/seller/SellerOrderItemTable.vue'
 import SellerDeliveryTable from '#layers/seller/app/components/seller/SellerDeliveryTable.vue'
 import type { SellerDashboardPending as SellerDashboardPendingCounts } from '#layers/seller/app/types/seller-dashboard'
+import SellerInboxList from '#layers/seller/app/components/seller/SellerInboxList.vue'
+import type { InboxTypeCount } from '~/types/inbox'
 
 /**
  * FE-111(퀄리티 9-3) 셀러 화면: 응답 전에는 대시보드 리스트 카드 빈 문구(D6) · 처리 대기 칩 "없음"(D7) · 주문/배송 표 하단 "0-0 / 0"(D3)이
@@ -65,5 +67,26 @@ describe('셀러 응답 대기 중 빈 상태·0건 미표시(FE-111)', () => {
     await wrapper.setProps({ loading: false })
     expect(footerText()).toContain('0-0 / 0')
     wrapper.unmount()
+  })
+})
+
+describe('셀러 인박스 유형 칩 건수(UX-02)', () => {
+  const baseProps = {
+    items: [], counts: [] as InboxTypeCount[], tab: 'TODAY' as const, type: null, selectedKey: null,
+    loading: true, error: null as string | null, truncated: false, nowMs: 0,
+  }
+
+  // 조회 실패 시 이전 건수 유지는 페이지(inbox.vue — 성공 시에만 counts 대입)가 책임진다. 컴포넌트는 counts만 본다.
+  it('응답 전(counts 빈 배열)에는 건수 없이 유형명만 → 응답 후 건수 표시', async () => {
+    const wrapper = await mountSuspended(SellerInboxList, { props: baseProps, global: { plugins: [createVuetify()] } })
+    const allChip = () => wrapper.get('[data-testid="inbox-type-chip-ALL"]').text()
+    const readyChip = () => wrapper.get('[data-testid="inbox-type-chip-DELIVERY_READY"]').text()
+    expect(allChip()).toBe('전체')
+    expect(readyChip()).not.toMatch(/\d/)
+
+    const counts: InboxTypeCount[] = [{ type: 'DELIVERY_READY', count: 4 }, { type: 'LOW_STOCK', count: 1 }]
+    await wrapper.setProps({ counts, loading: false })
+    expect(allChip()).toBe('전체 5')
+    expect(readyChip()).toMatch(/ 4$/)
   })
 })

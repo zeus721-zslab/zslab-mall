@@ -107,4 +107,15 @@ describe('pages/products/[productPublicId].vue — 섹션 바 건수(D5)', () =>
     expect(wrapper.get('[data-testid="section-nav-product-reviews"]').text()).toBe('리뷰 0')
     expect(wrapper.get('[data-testid="section-nav-product-questions"]').text()).toBe('Q&A 0')
   })
+
+  it('UX-02: 첫 페이지 조회 실패 시에도 "리뷰 0" · "Q&A 0" 대신 이름만', async () => {
+    const wrapper = await mountSuspended(ProductDetailPage)
+    reviews!.pending = false
+    reviews!.failed = true
+    questions!.pending = false
+    questions!.failed = true
+    await nextTick()
+    expect(wrapper.get('[data-testid="section-nav-product-reviews"]').text()).toBe('리뷰')
+    expect(wrapper.get('[data-testid="section-nav-product-questions"]').text()).toBe('Q&A')
+  })
 })

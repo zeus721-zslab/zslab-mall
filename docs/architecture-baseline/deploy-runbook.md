@@ -89,7 +89,8 @@ Track 100(D-211)에서 서버 빌드를 걷어낸 뒤의 배포 절차다. 대�
 | `FRONTEND_DOCKERFILE` | `Dockerfile` | 로컬 빌드용 Dockerfile 선택. 운영은 pull만 하므로(`--no-build`) 실효 없음 |
 | `PAYMENT_GATEWAY` | `mock` | 결제 구현체 — 모의 결제(외부 호출 없음) |
 | `SMS_SENDER` | `mock` | SMS 구현체 — 모의 발송 |
-| `EMAIL_SENDER` | `mock` | 메일 구현체 — 모의 발송 |
+| `EMAIL_SENDER` | `mock` | 메일 구현체 — 모의 발송(구매자 비밀번호 재설정도 닫힘·`smtp`로 바꾸면 `SMTP_*` 필요 · D-269) |
+| `APP_DOMAIN` | `zslab-mall.duckdns.org` | 메일 링크(비밀번호 재설정)의 프런트 도메인 — 백엔드 `zslab.frontend.base-url = https://APP_DOMAIN` (D-269) |
 | `DELIVERY_TRACKER` | `mock` | 배송 조회 구현체 — 택배사 API 호출 없음 |
 | `MOCK_DELIVERY_DAYS` | `2` | 모의 배송 조회가 발송 후 며칠이면 배달 완료로 볼지 |
 | `DELIVERY_AUTO_COMPLETE_ENABLED` | `true` | 자동 배송완료 스케줄러 켬 |
