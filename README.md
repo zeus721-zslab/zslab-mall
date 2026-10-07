@@ -227,18 +227,58 @@ stateDiagram-v2
 
 ## 로컬 실행
 
-이 프로젝트는 여러 프로젝트가 함께 쓰는 **공유 인프라(MariaDB 등 컨테이너와 공용 네트워크)** 위에서 동작합니다. 공유 인프라를 먼저 띄운 뒤 아래 순서로 실행합니다.
+운영과 개발 PC는 여러 프로젝트가 함께 쓰는 **공유 인프라(MariaDB 등 컨테이너 · 공용 네트워크 · HTTPS gateway)** 위에서 동작합니다. 공유 인프라는 이 저장소 밖에 있으므로, 처음 복제한 환경에서는 아래 순서로 DB만 따로 띄워 실행합니다. 필요한 것은 Docker(Compose 포함)와 Python 3입니다. 명령은 저장소 루트에서 bash 기준입니다.
+
+> **공유 인프라가 이미 있는 환경(`zslab_mariadb` 컨테이너가 떠 있는 환경)에서는 `docker-compose.local-infra.yml`을 쓰지 마세요.** 같은 네트워크에 `zslab_mariadb`가 둘이 되어 DB 연결 대상이 섞입니다. 그 환경에서는 3단계를 건너뜁니다.
 
 ```bash
-# 1. 환경 변수
-cp .env.example .env        # 값 채우기(설명은 파일 주석 참고)
+# 1. 공용 네트워크(이미 있으면 건너뜀)
+docker network inspect zslab_zslab_net >/dev/null 2>&1 || docker network create zslab_zslab_net
+docker network inspect gateway_net >/dev/null 2>&1 || docker network create gateway_net
 
-# 2. 로컬 도메인·인증서: hosts에 로컬 도메인 등록, mkcert로 인증서 발급
+# 2. 환경 변수
+cp .env.example .env
+```
 
-# 3. 기동 (운영 기본 파일 + 로컬 전용 오버라이드)
-docker compose -f docker-compose.mall.yml -f docker-compose.dev.yml up -d
+`.env`에서 아래 값을 채웁니다. 나머지는 템플릿 값 그대로 둡니다(설명은 파일 주석).
 
-# 4. 테스트
+| 키 | 채울 값 |
+|---|---|
+| `DB_PASSWORD` | 새로 만들 DB 계정 비밀번호(임의 문자열). `DB_NAME`·`DB_USERNAME`은 템플릿 값 그대로 |
+| `JWT_SECRET` | 32바이트 이상 임의 문자열(예 `openssl rand -base64 48`) |
+| `BANK_ACCOUNT_ENCRYPTION_KEY` | `openssl rand -base64 32` 결과(44자) |
+| `ADMIN_BOOTSTRAP_EMAIL` · `ADMIN_BOOTSTRAP_PASSWORD` | 최초 최고관리자 계정(예 `admin@example.com` · `<8~72자 비밀번호>`). 관리자 데모 로그인 버튼도 이 계정을 씁니다 |
+| `DB_HOST_PORT` | 기본 3306. 3306을 쓸 수 없을 때만 주석을 풀고 다른 포트(예 `13306`)로 지정 — 이미 사용 중이거나, Windows에서 3단계가 `ports are not available` 오류로 실패할 때(예약 포트 범위 · `netsh int ipv4 show excludedportrange protocol=tcp`로 확인) |
+
+```bash
+# 3. DB 기동(공유 인프라가 없는 환경만) — healthy가 될 때까지 기다린다
+docker compose -f docker-compose.local-infra.yml up -d --wait
+
+# 4. 앱 기동(운영 기본 파일 + 로컬 전용 오버라이드). 첫 기동은 이미지 빌드와 의존성 내려받기로 수 분 걸린다
+docker compose -f docker-compose.mall.yml -f docker-compose.dev.yml up -d --build
+docker inspect --format '{{.State.Health.Status}}' zslab_mall_backend zslab_mall_frontend   # 둘 다 healthy가 될 때까지 반복 확인
+```
+
+5. 데모 데이터
+   - 관리자: 백엔드 첫 기동 때 `.env`의 `ADMIN_BOOTSTRAP_*`로 최고관리자가 자동 생성됩니다. 카테고리 기본 데이터도 `local` 프로필에서 자동으로 들어갑니다.
+   - 판매자·상품·구매자·주문: 데모 시드 스크립트를 호스트에서 실행합니다. 먼저 첫 단계(`--step master`)의 `--dry-run`으로 연결·관리자 로그인을 확인합니다(쓰기 없음). `--step`을 생략하면 전체 단계(`all`)가 되어 추가 변수(`DEMO_BUYER_*`·`DEMO_SELLER_*`)가 없을 때 바로 중단됩니다. 전체 생성에 필요한 추가 변수와 단계 설명은 [scripts/demo-seed/README.md](scripts/demo-seed/README.md)에 있습니다.
+
+```bash
+python -m pip install -r scripts/demo-seed/requirements.txt
+export API_BASE_URL=http://localhost:3000        # 로컬 프론트 dev 서버가 /api를 백엔드로 넘긴다
+export DB_HOST=127.0.0.1 DB_PORT=3306            # DB_HOST_PORT를 바꿨다면 그 값
+export DB_NAME=zslab_mall DB_USER=zslab_mall DB_PASSWORD='<.env의 DB_PASSWORD>'
+export ADMIN_EMAIL='<.env의 ADMIN_BOOTSTRAP_EMAIL>' ADMIN_PASSWORD='<.env의 ADMIN_BOOTSTRAP_PASSWORD>'
+python scripts/demo-seed/seed.py --target local --step master --dry-run
+```
+
+6. 접속 확인
+   - 구매자 화면: http://localhost:3000
+   - 관리자: http://localhost:3000/admin/login → "관리자 데모 로그인"
+   - 백엔드 헬스: `docker exec zslab_mall_backend curl -s http://localhost:8080/actuator/health` → `"status":"UP"` 포함
+
+```bash
+# 테스트
 cd backend && ./gradlew test          # 백엔드
 # 프론트엔드는 frontend 컨테이너 안에서 pnpm vitest run · pnpm typecheck
 ```

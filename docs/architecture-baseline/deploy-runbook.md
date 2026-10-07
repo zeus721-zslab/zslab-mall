@@ -69,3 +69,33 @@ Track 100(D-211)에서 서버 빌드를 걷어낸 뒤의 배포 절차다. 대�
 | `deploy`가 `denied`로 실패 | 패키지가 private | §2 후반부(public 전환 후 job re-run 또는 서버 `docker login`) |
 | `cleanup`이 실패 | 패키지 미존재(최초 실행) | 무시해도 된다(`continue-on-error`) |
 | 구 이미지로 내렸더니 기동 실패 | Flyway `validate` 불일치 | §3 마지막 문단 |
+
+## 6. 헬스 감시
+
+- 워크플로: `.github/workflows/health-watch.yml` — 15분마다(예약) 또는 Actions 화면의 `Run workflow`로 실행한다.
+- 동작: 운영 메인 페이지(`/`)와 `/api/v1/categories`를 GET으로 확인한다. 2xx가 아니면(연결 실패·타임아웃 포함) 30초 뒤 1회 재시도하고, 그래도 아니면 job이 실패한다. 공개 GET만 쓰므로 시크릿은 없다.
+- 알림 경로: job 실패 시 GitHub Actions 실패 알림 메일로 받는다. 예약 실행의 알림은 워크플로를 마지막으로 수정한 계정에게 가므로, 그 계정의 GitHub → Settings → Notifications → Actions에서 실패 알림(Email)이 켜져 있어야 한다.
+- 예약 지연: GitHub 예약 실행은 부하에 따라 수 분 늦게 시작되거나 건너뛰어질 수 있다. 감지 시각은 정확한 15분 간격이 아니다.
+- 60일 제약: 공개 저장소는 60일간 저장소 활동(커밋 등)이 없으면 예약 워크플로가 자동 비활성된다. 비활성되면 Actions → `Health Watch` → `Enable workflow`로 다시 켠다(비활성 예정 시 GitHub가 메일로 미리 알린다).
+
+## 7. 운영 .env에 없는 키의 실효값
+
+아래 키는 운영 서버 `.env`에 적지 않고 `docker-compose.mall.yml`의 기본값(`${KEY:-기본값}`)으로 동작한다. 서버 `.env`만 봐서는 보이지 않으므로 실제 값은 이 표로 확인한다. 값을 바꿀 때만 서버 `.env`에 키를 추가한다.
+
+| 키 | compose 기본값 | 의미 |
+|---|---|---|
+| `BACKEND_IMAGE_TAG` | `latest` | 백엔드 이미지 태그 — 최신 배포본(롤백 때만 `sha-<7자>` 지정 · §3) |
+| `FRONTEND_IMAGE_TAG` | `latest` | 프론트엔드 이미지 태그 — 위와 같음 |
+| `FRONTEND_DOCKERFILE` | `Dockerfile` | 로컬 빌드용 Dockerfile 선택. 운영은 pull만 하므로(`--no-build`) 실효 없음 |
+| `PAYMENT_GATEWAY` | `mock` | 결제 구현체 — 모의 결제(외부 호출 없음) |
+| `SMS_SENDER` | `mock` | SMS 구현체 — 모의 발송 |
+| `EMAIL_SENDER` | `mock` | 메일 구현체 — 모의 발송 |
+| `DELIVERY_TRACKER` | `mock` | 배송 조회 구현체 — 택배사 API 호출 없음 |
+| `MOCK_DELIVERY_DAYS` | `2` | 모의 배송 조회가 발송 후 며칠이면 배달 완료로 볼지 |
+| `DELIVERY_AUTO_COMPLETE_ENABLED` | `true` | 자동 배송완료 스케줄러 켬 |
+| `RECONCILIATION_CHECK_ENABLED` | `true` | 하루 1회 주문·결제 불일치 점검 스케줄러 켬 |
+| `LLM_PROVIDER` | `mock` | 리뷰 요약 언어 모델 — 규칙·템플릿 요약(외부 호출 없음) |
+| `ES_HOST` | `zslab_elasticsearch` | filebeat 로그 전송 대상 호스트 |
+| `ES_PORT` | `9200` | filebeat 로그 전송 대상 포트 |
+| `NUXT_API_INTERNAL_BASE` | `http://mall-backend:8080` | SSR이 백엔드를 직접 부르는 내부 주소(gateway_net 별칭) |
+| `NUXT_PUBLIC_API_BASE` | (빈 값) | 브라우저 API 베이스 — 비면 동일 Origin 상대경로 `/api` |

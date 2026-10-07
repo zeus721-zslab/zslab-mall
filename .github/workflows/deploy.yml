@@ -92,6 +92,7 @@ jobs:
           push: true
           tags: ${{ steps.backend_meta.outputs.tags }}
           labels: ${{ steps.backend_meta.outputs.labels }}
+          provenance: false
           # scope를 서비스별로 나누지 않으면 두 이미지가 같은 캐시 키를 두고 서로를 축출한다.
           cache-from: type=gha,scope=backend
           cache-to: type=gha,mode=max,scope=backend
@@ -116,6 +117,7 @@ jobs:
           push: true
           tags: ${{ steps.frontend_meta.outputs.tags }}
           labels: ${{ steps.frontend_meta.outputs.labels }}
+          provenance: false
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
 
