@@ -1,0 +1,26 @@
+name: Health Alert
+
+# 운영 서버 cron 감시(docker/ops/health-alert.sh)가 이상을 보내면 실행된다. 요약을 출력하고 실패해 GitHub Actions 실패 알림 메일로 받는다(D-272).
+# 실패 알림은 실행을 일으킨 계정(GH_DISPATCH_TOKEN 소유자)에게 간다(deploy-runbook.md §6).
+on:
+  repository_dispatch:
+    types: [health-alert]
+
+permissions:
+  contents: read
+
+jobs:
+  alert:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Report server health anomaly
+        # 페이로드는 run 본문에 직접 넣지 않고 env로 받는다(스크립트 인젝션 방지).
+        env:
+          ALERT_SUMMARY: ${{ github.event.client_payload.summary }}
+          ALERT_CHECKED_AT: ${{ github.event.client_payload.checked_at }}
+        run: |
+          printf 'checked_at: %s\n' "$ALERT_CHECKED_AT"
+          printf 'summary: %s\n' "$ALERT_SUMMARY"
+          echo "::error::운영 서버 감시 이상 — 위 요약 확인(deploy-runbook.md §6)"
+          exit 1

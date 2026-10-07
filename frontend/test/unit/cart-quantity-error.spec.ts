@@ -7,12 +7,12 @@ describe('cartQuantityErrorMessage', () => {
     expect(cartQuantityErrorMessage({
       statusCode: 400,
       data: { code: 'VALIDATION_FAILED', fieldErrors: [{ field: 'quantity' }] },
-    })).toBe('수량은 최대 999개까지 선택할 수 있습니다.')
+    })).toBe('수량은 최대 20개까지 선택할 수 있습니다.')
   })
 
   it('422 CART_ITEM_QUANTITY_LIMIT_EXCEEDED → 합산 상한 문구', () => {
     expect(cartQuantityErrorMessage({ statusCode: 422, data: { code: 'CART_ITEM_QUANTITY_LIMIT_EXCEEDED' } }))
-      .toBe('장바구니에 담긴 수량과 합쳐 최대 999개까지 담을 수 있습니다.')
+      .toBe('장바구니에 담긴 수량과 합쳐 최대 20개까지 담을 수 있습니다.')
   })
 
   it('수량과 무관한 실패(400 다른 필드·422 다른 코드·500) → null', () => {

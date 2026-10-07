@@ -118,7 +118,7 @@ const canAddToCart = computed<boolean>(() => {
 })
 
 const quantity = ref<number>(1)
-// 상한(P-08 · BE 999) 초과 시도 안내. 수량을 줄이면 지운다.
+// 상한(P-08 · FE-114 20) 초과 시도 안내. 수량을 줄이면 지운다.
 const quantityNotice = ref<string>('')
 function decrementQuantity(): void {
   if (quantity.value > 1) quantity.value -= 1

@@ -1,5 +1,5 @@
-/** 품목 1건 수량 상한(BE CartItem.MAX_QUANTITY · OrderItemRequest @Max와 같은 값 — 장바구니·바로구매 공통). */
-export const CART_ITEM_QUANTITY_MAX = 999
+/** 품목 1건 수량 상한(장바구니·바로구매 공통). BE zslab.order.max-unpaid-quantity-per-variant(20)와 맞춘 값이다(FE-114). */
+export const CART_ITEM_QUANTITY_MAX = 20
 
 /** 상한을 넘기려 할 때·서버가 수량 형식 오류(400)를 돌려줄 때 공통 안내. */
 export const CART_QUANTITY_LIMIT_NOTICE = `수량은 최대 ${CART_ITEM_QUANTITY_MAX}개까지 선택할 수 있습니다.`
