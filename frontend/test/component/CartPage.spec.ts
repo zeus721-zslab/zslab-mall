@@ -47,17 +47,17 @@ describe('pages/cart.vue 옵션 라벨', () => {
   })
 })
 
-// P-08: 수량 상한 999(BE CartItem.MAX_QUANTITY). 상한에서 +는 요청 없이 안내, 서버 400 수량 오류도 같은 안내.
+// P-08: 수량 상한 20(FE-114 · BE 미결제 variant 상한과 같은 값). 상한에서 +는 요청 없이 안내, 서버 400 수량 오류도 같은 안내.
 describe('pages/cart.vue 수량 상한(P-08)', () => {
-  const LIMIT_NOTICE = '수량은 최대 999개까지 선택할 수 있습니다.'
+  const LIMIT_NOTICE = '수량은 최대 20개까지 선택할 수 있습니다.'
 
   beforeEach(() => {
     cartStoreMock.items = []
     cartStoreMock.updateQuantity.mockReset()
   })
 
-  it('999 품목 + → 수량 변경 요청 없음 · 상한 안내', async () => {
-    cartStoreMock.items = [item({ variantPublicId: 'var_max', quantity: 999, quantityAvailable: 2000 })]
+  it('20 품목 + → 수량 변경 요청 없음 · 상한 안내', async () => {
+    cartStoreMock.items = [item({ variantPublicId: 'var_max', quantity: 20, quantityAvailable: 2000 })]
     const wrapper = await mountSuspended(CartPage)
     await wrapper.find('button[aria-label="수량 증가"]').trigger('click')
     await flushPromises()
@@ -65,13 +65,13 @@ describe('pages/cart.vue 수량 상한(P-08)', () => {
     expect(wrapper.text()).toContain(LIMIT_NOTICE)
   })
 
-  it('998 품목 + → 999로 변경 요청(상한 이내)', async () => {
+  it('19 품목 + → 20으로 변경 요청(상한 이내)', async () => {
     cartStoreMock.updateQuantity.mockResolvedValue(undefined)
-    cartStoreMock.items = [item({ variantPublicId: 'var_near', quantity: 998, quantityAvailable: 2000 })]
+    cartStoreMock.items = [item({ variantPublicId: 'var_near', quantity: 19, quantityAvailable: 2000 })]
     const wrapper = await mountSuspended(CartPage)
     await wrapper.find('button[aria-label="수량 증가"]').trigger('click')
     await flushPromises()
-    expect(cartStoreMock.updateQuantity).toHaveBeenCalledWith('var_near', 999)
+    expect(cartStoreMock.updateQuantity).toHaveBeenCalledWith('var_near', 20)
     expect(wrapper.text()).not.toContain(LIMIT_NOTICE)
   })
 
@@ -93,7 +93,7 @@ describe('pages/cart.vue 수량 상한(P-08)', () => {
     const wrapper = await mountSuspended(CartPage)
     await wrapper.find('button[aria-label="수량 증가"]').trigger('click')
     await flushPromises()
-    expect(wrapper.text()).toContain('장바구니에 담긴 수량과 합쳐 최대 999개까지 담을 수 있습니다.')
+    expect(wrapper.text()).toContain('장바구니에 담긴 수량과 합쳐 최대 20개까지 담을 수 있습니다.')
   })
 })
 

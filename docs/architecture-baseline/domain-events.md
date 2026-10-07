@@ -54,19 +54,21 @@
 | 멱등성 | **pgTransactionId** 멱등성 키. 방어선 = PAY-3b (pg_provider,pg_tid) UNIQUE + at-most-once publisher + commitReservation INV-3 backstop 이중화 (1차 item_status 가드는 D-101 §6 A′에서 폐기 — AFTER_COMMIT 시점 item이 이미 PAID여서 commitReservation이 영구 미실행되는 데드코드이기 때문) |
 | 재시도 | 동기 실패 = 롤백 후 PG 콜백 재수신 대기 / 알림 = 재시도·DLQ |
 
-### E3. PaymentFailed
+### E3. OrderTerminated (주문 종료 · 구 PaymentFailed)
+
+`OrderTerminated`는 미결제 주문의 생명주기가 끝났다는 사실 통지다(`order/event/OrderTerminated`). 재고 예약 해제는 이 이벤트 하나로 모은다(D-154 · D-167 "재고는 주문을 따른다"). Payment는 실패·만료 시 결제 상태만 종료하고 도메인 이벤트를 발행하지 않는다 — 초기 설계의 PaymentFailed 이벤트와 그 소비 핸들러는 코드에 없다.
 
 | 항목 | 내용 |
 |---|---|
-| 발행 주체 | Payment (#11) |
-| 트리거 | Payment.status PENDING → FAILED (PG 실패) 또는 결제 만료 |
-| 소비 주체 | Inventory(예약 해제) |
-| 페이로드 | paymentId, orderId, failureCode, occurredAt |
-| 동기/비동기 | 이벤트 발행 = 동기(in-tx) / 소비(Inventory 예약 해제) = AFTER_COMMIT 별도 TX (REQUIRES_NEW·InventoryPaymentFailedHandler) |
-| 멱등성 | orderId 기준 1회. 이미 해제된 예약 재해제 방지(reserved 가드) |
-| 재시도 | 동기 실패 = 롤백·재시도. 결제 만료 자동 해제는 Track 25 D-109 스케줄러(ExpirePaymentScheduler·@Scheduled 5분) 자동 만료 배치로 구현 |
+| 발행 주체 | Order (#10) — 실행체 `OrderAutoCancelService.cancelOne` 하나 |
+| 트리거 | Order.status PENDING_PAYMENT → PAYMENT_EXPIRED 조건부 UPDATE의 영향 행이 1일 때. 호출 경로: 결제 실패·결제창 취소 콜백(`PaymentService`) · 결제 만료 배치(`ExpirePaymentScheduler` → `ExpirePaymentService`) · 미결제 유예 경과 배치(`OrderAutoCancelScheduler`) · 관리자 미결제 주문 취소(`AdminOrderCancelService`) |
+| 소비 주체 | Inventory(예약 해제 · `InventoryOrderTerminatedHandler`) |
+| 페이로드 | publicId, orderId, occurredAt |
+| 동기/비동기 | **동기** — `@EventListener`로 발행 트랜잭션(cancelOne) 안에서 해제한다(D-167 보충2). 해제 실패는 주문 종료 전이까지 롤백한다 |
+| 멱등성 | 조건부 UPDATE(WHERE status = PENDING_PAYMENT)가 주문당 1회 발행을 보장한다. 영향 행 0(이미 종료·결제 완료)이면 미발행 |
+| 재시도 | 동기 실패 = 롤백 → 주문이 PENDING_PAYMENT로 남아 다음 배치 주기(`OrderAutoCancelScheduler`·`ExpirePaymentScheduler` · 각 5분)에 재시도 |
 
-> **소비 주의**: Inventory 예약 해제 핸들러는 이벤트 페이로드에 items[]를 포함하지 않음 — `orderId`로 `OrderItem`을 직접 조회 후 처리. 페이로드 사실 통지 원칙·도메인 상태 복제 방지(D-30).
+> **소비 주의**: 페이로드에 items[]를 싣지 않는다 — 핸들러가 `orderId`로 `OrderItem`을 다시 조회해 variant id 오름차순으로 해제한다(락 순서). 페이로드 사실 통지 원칙·도메인 상태 복제 방지(D-30).
 
 ### E4. DeliveryStarted
 
@@ -100,7 +102,9 @@
 >
 > **구현(Track 13·D-97)**: 발행처 `DeliveryService.markDelivered(deliveryId)` → `Delivery.markDelivered` 전이(DLV-3 shipped_at ≤ delivered_at 검증) 후 save→publish(D-29). 동기 소비 `order/handler/DeliveryCompletedHandler`(@EventListener·OrderItem DELIVERED 전이)·비동기 적재 `notification/handler/NotificationDeliveryCompletedHandler`(AFTER_COMMIT·REQUIRES_NEW). 전이 규칙은 state-machine §6.1 정의 완료.
 
-### E6. PurchaseConfirmed
+### E6. PurchaseConfirmed (미구현 · 설계 단계)
+
+미구현(설계 단계 · 코드에 없음) — 아래 표는 초기 설계이며 PurchaseConfirmed 이벤트와 그 소비 핸들러는 코드에 없다. 구매확정은 이벤트 없이 `BuyerOrderConfirmService`(수동 `confirmPurchase` · 자동 `OrderAutoConfirmScheduler` → `OrderAutoConfirmService.confirmOne` 공용 코어)가 OrderItem을 CONFIRMED로 전이하고 confirmed_at을 기록하며, 정산은 `SettlementCreationService`가 confirmed_at 기준으로 집계한다.
 
 | 항목 | 내용 |
 |---|---|
@@ -156,7 +160,9 @@
 >
 > **type별 종결 분기 (Track 14 PR-1·D-98 Q4)**: `CANCEL → OrderItem CANCELLED`·`RETURN → OrderItem RETURNED`·`EXCHANGE → OrderItem EXCHANGED`. ClaimCompletedHandler가 type별 전이 대상을 분기해 처리. RETURN 흐름: RefundCompleted → ClaimRefundCompletedHandler → markCompleted → ClaimCompleted. EXCHANGE 흐름: DeliveryCompleted(E5) → ExchangeDeliveryCompletedHandler → markCompleted → ClaimCompleted.
 
-### E10. InventoryAdjusted (선택)
+### E10. InventoryAdjusted (선택 · 미구현 · 설계 단계)
+
+미구현(설계 단계 · 코드에 없음) — 아래 표는 초기 설계이며 InventoryAdjusted 이벤트는 코드에 없다. 운영자 입고·출고·조정은 이벤트 없이 `InventoryService`(`adjustStock` · `markInboundBySeller` · `markOutboundBySeller`)가 재고를 바꾸고 InventoryHistory를 기록한다.
 
 | 항목 | 내용 |
 |---|---|
@@ -176,13 +182,13 @@
 |---|---|
 | 발행 주체 | Claim (#13) |
 | 트리거 | `Claim.confirmPickup(pickedUpAt)` 호출 — `status == APPROVED` && `picked_up_at IS NULL` 가드 (milestone 이벤트·상태 전이 없음) |
-| 소비 주체 | Refund (RETURN 자동 환불 트리거·ClaimPickedUpHandler), NotificationLog (NotificationClaimPickedUpHandler·수거 완료 알림) |
+| 소비 주체 | NotificationLog (NotificationClaimPickedUpHandler·수거 완료 알림). RETURN 자동 환불은 이 이벤트가 아니라 검수 합격(`ClaimInspectionPassed` → `ClaimInspectionPassedHandler`)에서 개시한다(Track 81-A D-170 · 구 ClaimPickedUpHandler 대체) |
 | 페이로드 | claimId, claimPublicId, orderItemId, claimType, pickedUpAt, occurredAt |
-| 동기/비동기 | 양자 비동기 (AFTER_COMMIT·REQUIRES_NEW) |
+| 동기/비동기 | 비동기 (AFTER_COMMIT·REQUIRES_NEW) |
 | 멱등성 | `claim.picked_up_at != null` 시 Service no-op + log.info (ClaimService 가드) |
 | 재시도 | 비동기 재시도·DLQ |
 
-> **D-98 Q1·Q2**: 발행 주체는 Seller 우선·Admin override·외부 택배 어댑터는 후속 트랙. status 필드 생략 (milestone 이벤트·D-30 사실 통지·상태 전이 아님). buyerId 미포함 (Seller/Admin 액션). RETURN 한정 RefundService.initiate 자동 트리거·CANCEL/EXCHANGE skip.
+> **D-98 Q1·Q2**: 발행 주체는 Seller 우선·Admin override·외부 택배 어댑터는 후속 트랙. status 필드 생략 (milestone 이벤트·D-30 사실 통지·상태 전이 아님). buyerId 미포함 (Seller/Admin 액션). RETURN 한정 RefundService.initiate 자동 트리거는 D-170에서 검수 합격 시점(ClaimInspectionPassedHandler)으로 옮겨졌다.
 
 ### 멱등성·재시도 정책 요약 (E1~E11)
 
@@ -192,14 +198,14 @@
 |---|---|---|---|
 | E1 | OrderPlaced | order_id — 재예약 방지 | 재고 예약(동기)·롤백 / Cart·알림(비동기)·지수 백오프·DLQ |
 | E2 | PaymentCompleted | pgTransactionId + OrderItem.item_status=PAID 가드 | 동기·롤백 (PG 콜백 재수신 대기) / 알림·비동기·DLQ |
-| E3 | PaymentFailed | orderId 기준·reserved 가드 | 동기·롤백 |
+| E3 | OrderTerminated | 조건부 UPDATE(PENDING_PAYMENT → PAYMENT_EXPIRED) 영향 행 1일 때만 발행 | 동기·롤백 (다음 배치 주기 재시도) |
 | E4 | DeliveryStarted | order_item_id·SHIPPING 이상 skip | 동기·롤백 / 알림·비동기·재시도 |
 | E5 | DeliveryCompleted | order_item_id·DELIVERED 이상 skip | 동기·롤백 / 알림·비동기·재시도 |
-| E6 | PurchaseConfirmed | order_item_id·정산·집계 중복 방지 | 비동기·지수 백오프·DLQ |
+| E6 | PurchaseConfirmed (미구현 · 코드에 없음) | order_item_id·정산·집계 중복 방지 | 비동기·지수 백오프·DLQ |
 | E7 | ClaimRequested | claim_id 기준 1회 | 동기·롤백 |
 | E8 | ClaimRejected | claim_id 기준 1회 | 동기·롤백 |
 | E9 | ClaimCompleted | claim_id + OrderItem.item_status 종결값 가드 | 재고/Order/결제·동기·롤백 / 알림·비동기·재시도 |
-| E10 | InventoryAdjusted | InventoryHistory append 기준 | 비동기·지수 백오프·재시도 |
+| E10 | InventoryAdjusted (미구현 · 코드에 없음) | InventoryHistory append 기준 | 비동기·지수 백오프·재시도 |
 | E11 | ClaimPickedUp | claim.picked_up_at != null 가드 (Service no-op) | 비동기·AFTER_COMMIT·REQUIRES_NEW·재시도·DLQ |
 
 ---
@@ -212,11 +218,11 @@ flowchart TD
     A -->|E1| C[CartItem 소비]
     D[PG 결제 성공] -->|E2 PaymentCompleted| E[OrderItem PAID]
     D -->|E2| F[Inventory 차감 on_hand- reserved-]
-    G[PG 결제 실패/만료] -->|E3 PaymentFailed| H[Inventory 예약 해제 reserved-]
+    G[미결제 종료 - 결제 실패/취소/만료] -->|E3 OrderTerminated| H[Inventory 예약 해제 reserved-]
     I[배송 발송] -->|E4 DeliveryStarted| J[OrderItem SHIPPING]
     K[배송 완료] -->|E5 DeliveryCompleted| L[OrderItem DELIVERED]
-    M[구매 확정] -->|E6 PurchaseConfirmed| N[Settlement 적재]
-    M -->|E6| O[Read Model 갱신 - PR-03 소비]
+    M[구매 확정] -->|E6 PurchaseConfirmed - 미구현 코드에 없음| N[Settlement 적재]
+    M -->|E6 - 미구현 코드에 없음| O[Read Model 갱신 - PR-03 소비]
     P[클레임 요청] -->|E7 ClaimRequested| Q[OrderItem *_REQUESTED]
     R[클레임 거절] -->|E8 ClaimRejected| S[OrderItem 원복]
     T[클레임 완료] -->|E9 ClaimCompleted| U[OrderItem CANCELLED/RETURNED/EXCHANGED]
@@ -224,7 +230,7 @@ flowchart TD
     T -->|E9| W[Payment CANCELLED via Refund]
 ```
 
-순서 요약: 주문(E1·예약) → 결제 성공(E2·차감) / 결제 실패(E3·해제) → 발송(E4) → 배송완료(E5) → 구매확정(E6·정산) / 클레임(E7 요청 → E8 거절·원복 또는 E9 완료·복구).
+순서 요약: 주문(E1·예약) → 결제 성공(E2·차감) / 미결제 종료(E3·해제) → 발송(E4) → 배송완료(E5) → 구매확정(E6·정산 - 미구현(설계 단계 · 코드에 없음)) / 클레임(E7 요청 → E8 거절·원복 또는 E9 완료·복구).
 
 ---
 
@@ -232,6 +238,6 @@ flowchart TD
 
 - **메시지 인프라**: Kafka·RabbitMQ·DB 폴링(transactional outbox) 등 실제 전파 메커니즘 → 구현 단계.
 - **이벤트 스키마 버저닝**: 페이로드 스키마 버전 관리·하위 호환 → 구현 단계.
-- **결제 만료 타이머/배치**: 예약 자동 해제(E3)는 Track 25 D-109 구현 완료(ExpirePaymentScheduler·@Scheduled 5분→PENDING 만료 FAILED 전이→PaymentFailed→Inventory 해제). 미결제 주문 자동 취소(Order.status)는 미구현·별도 트랙 이연.
+- **결제 만료 타이머/배치**: 구현 완료. 결제 만료는 ExpirePaymentScheduler(5분) → ExpirePaymentService가 Payment를 EXPIRED로 종료하고, 미결제 유예 경과 주문은 OrderAutoCancelScheduler(5분)가 처리한다. 두 경로 모두 OrderAutoCancelService.cancelOne으로 주문을 PAYMENT_EXPIRED 종료하고 OrderTerminated(E3)로 재고를 해제한다.
 - **Read Model 정의**: BuyerPurchaseAggregate·SellerSalesDaily 구조·갱신 핸들러 → **PR-03**(본 PR은 소비 표기만).
 - **Delivery·Refund·Settlement 상태 전이 규칙**: 각 도메인 별도 정의 → state-machine.md §6 이연 유지(본 PR은 트리거 참조만).

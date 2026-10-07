@@ -80,7 +80,7 @@ flowchart LR
 ```
 
 - 테스트 게이트는 PR CI에 두고, 이미지 빌드는 테스트를 다시 돌리지 않습니다.
-- 롤백은 서버의 이미지 태그를 이전 커밋 태그로 바꾸는 것으로 끝납니다.
+- 롤백은 서버의 이미지 태그를 패키지(백엔드·프론트엔드)마다 그 패키지에 있는 이전 sha 태그로 바꾸는 것으로 끝납니다. 한쪽만 바뀐 커밋은 다른 패키지에 태그가 없어 두 값이 다를 수 있습니다([배포 런북 §3](docs/architecture-baseline/deploy-runbook.md)).
 
 ## 도메인 설계
 
@@ -112,6 +112,18 @@ stateDiagram-v2
 - 요청이 거부되면 요청 직전 상태로 돌아갑니다. 결제 없이 끝난 주문의 품목은 `ORDERED`로 남습니다.
 - `PREPARING`(상품 준비)만 따로 거는 API는 없습니다. 송장 등록 한 번의 처리 안에서 `PREPARING`을 거쳐 `SHIPPING`(배송 중)까지 갑니다.
 - 교환은 회수한 상품의 검수를 통과해야 교환품을 보내고 끝낼 수 있습니다.
+
+### 주문 처리 진입점
+
+코드를 따라 읽을 때의 출발점입니다. 경로는 `backend/src/main/java/com/zslab/mall/` 기준이고, 아래 핸들러는 모두 발행 트랜잭션 안에서 동기로 실행됩니다. 이벤트별 소비자 전체(알림 등 비동기 포함)는 [도메인 이벤트](docs/architecture-baseline/domain-events.md)에 있습니다.
+
+| 단계 | 컨트롤러(진입) | 서비스 | 이벤트 | 핸들러 |
+|---|---|---|---|---|
+| 주문 생성 | `order/controller/BuyerOrderController` | `checkout/service/CheckoutService` → `order/service/OrderService` | `order/event/OrderPlaced` | `inventory/handler/InventoryOrderPlacedHandler`(재고 예약) |
+| 결제 완료 | `payment/controller/MockPaymentCallbackController`(모의 결제) · `payment/controller/PaymentWebhookController`(PG 콜백) | `payment/service/MockPaymentCallbackService` → `payment/service/PaymentService` | `payment/event/PaymentCompleted` | `payment/handler/OrderEventHandler`(품목 PAID) → `inventory/handler/InventoryPaymentCompletedHandler`(예약분 확정 차감) |
+| 배송 | `order/controller/SellerShippingController` · `order/controller/AdminOrderController` | `order/service/OrderShippingService` → `delivery/service/DeliveryService` | `delivery/event/DeliveryStarted` | `order/handler/DeliveryStartedHandler`(품목 SHIPPING) |
+| 배송 완료 | `order/controller/SellerDeliveryCompletionController` · `delivery/controller/AdminDeliveryController` · `delivery/scheduler/DeliveryAutoCompleteScheduler`(자동) | `order/service/OrderShippingService` · `delivery/service/DeliveryAutoCompleteService` → `delivery/service/DeliveryService` | `delivery/event/DeliveryCompleted` | `order/handler/DeliveryCompletedHandler`(품목 DELIVERED) |
+| 미결제 종료 | `order/scheduler/OrderAutoCancelScheduler` · `payment/scheduler/ExpirePaymentScheduler` · 결제 실패·취소 콜백(결제 완료 행의 컨트롤러) | `payment/service/ExpirePaymentService` · `payment/service/PaymentService` → `order/service/OrderAutoCancelService` | `order/event/OrderTerminated` | `inventory/handler/InventoryOrderTerminatedHandler`(예약 해제) |
 
 ## 핵심 설계 결정
 
@@ -227,7 +239,7 @@ stateDiagram-v2
 
 ## 로컬 실행
 
-운영과 개발 PC는 여러 프로젝트가 함께 쓰는 **공유 인프라(MariaDB 등 컨테이너 · 공용 네트워크 · HTTPS gateway)** 위에서 동작합니다. 공유 인프라는 이 저장소 밖에 있으므로, 처음 복제한 환경에서는 아래 순서로 DB만 따로 띄워 실행합니다. 필요한 것은 Docker(Compose 포함)와 Python 3입니다. 명령은 저장소 루트에서 bash 기준입니다.
+운영과 개발 PC는 여러 프로젝트가 함께 쓰는 **공유 인프라(MariaDB 등 컨테이너 · 공용 네트워크 · HTTPS gateway)** 위에서 동작합니다. 공유 인프라는 이 저장소 밖에 있으므로, 처음 복제한 환경에서는 아래 순서로 DB만 따로 띄워 실행합니다. 필요한 것은 Docker(Compose 포함)와 Python 3이고, 백엔드 테스트를 호스트에서 실행하려면 JDK 21이 추가로 필요합니다. 명령은 저장소 루트에서 bash 기준입니다.
 
 > **공유 인프라가 이미 있는 환경(`zslab_mariadb` 컨테이너가 떠 있는 환경)에서는 `docker-compose.local-infra.yml`을 쓰지 마세요.** 같은 네트워크에 `zslab_mariadb`가 둘이 되어 DB 연결 대상이 섞입니다. 그 환경에서는 3단계를 건너뜁니다.
 
@@ -289,11 +301,33 @@ cd backend && ./gradlew test          # 백엔드
 - **성능:** 모바일 첫 화면 기준 추가 개선 여지(JS 분할·렌더 차단 CSS·폰트 전송량)가 남아 있습니다.
 - **이번 범위에서 제외한 기능:** 찜 · 최근 본 상품 · 재입고 알림 · 알림함
 
+### 알려진 한계
+
+자체 평가(퀄리티 v3)에서 찾았고 아직 고치지 않은 항목입니다. "미착수"는 고칠 방향은 정했지만 아직 손대지 않았다는 뜻입니다.
+
+| 항목 | 내용 | 이유 |
+|---|---|---|
+| 가입 응답의 이메일 노출 (SEC-04) | 회원가입이 이미 가입된 이메일에 409(`EMAIL_ALREADY_EXISTS`)를 돌려줘, 제3자가 특정 이메일의 가입 여부를 확인할 수 있습니다. | 응답을 통일하려면 메일 인증 가입으로 바꿔야 하는데, 운영 메일이 모의 발송이라 그러면 가입을 끝낼 수단이 없어집니다. |
+| 로그아웃 뒤 토큰 유효 (SEC-05 · PF-11) | 로그아웃은 쿠키만 지우고 서버 측 토큰 무효화를 하지 않아, 유출된 토큰은 만료(기본 1시간)까지 쓸 수 있습니다. 비밀번호 변경·탈퇴 때의 세션 무효화는 초 단위 비교라 같은 초에 먼저 발급된 토큰이 최대 1초 남습니다. | 미착수 — 서버 측 토큰 무효화 저장 구조를 새로 만드는 설계 변경이 필요하고, 1초 경계도 같은 무효화 판정이라 함께 다룹니다. |
+| 로그 저장소 무인증 (SEC-08) | 로그를 모으는 Elasticsearch가 인증 없이 동작합니다. 외부 포트는 열려 있지 않고 내부망에서만 접근됩니다. | 미착수 — 여러 프로젝트가 함께 쓰는 공유 인프라라 인증 활성화와 filebeat 자격 증명은 저장소 밖 서버 작업입니다. |
+| CSP 헤더 없음 (SEC-10) | 페이지 응답에 Content-Security-Policy 헤더가 없습니다(HSTS · nosniff · X-Frame-Options는 있음). | 미착수 — Nuxt 또는 gateway에 정책을 새로 정의해야 합니다. |
+| 주문 멱등 키 고착 (PF-01) | 주문 생성 중 서버 오류(5xx)가 나면 그 멱등 키가 "처리 중"으로 남아 같은 키로 다시 시도할 수 없습니다(4xx만 키를 지움). 화면은 요청마다 새 키를 써서 영향이 없고, 키를 재사용하는 API 클라이언트만 해당합니다. | 미착수 — 5xx 때도 키를 지우려면 멱등 처리 결정(D-66)을 바꿔야 합니다. |
+| 재설정 메일 이메일 단위 제한 없음 (PF-12) | 비밀번호 재설정 요청 제한이 gateway의 IP 기준뿐이라, 여러 IP로 한 구매자에게 재설정 메일을 반복 발송할 수 있습니다. 운영 메일이 모의 발송인 동안은 드러나지 않습니다. | 미착수 — 이메일 단위 발급 제한이 필요합니다. |
+| 컨테이너 root 실행 (PF-15) | 백엔드·프론트엔드 런타임 이미지에 USER 지정이 없어 root로 실행됩니다. 원격 코드 실행이 생기면 컨테이너 안에서 root 권한이 됩니다. | 미착수 — 런타임 USER 지정과 업로드 볼륨 소유권 이전을 함께 해야 합니다. |
+| 동시 리뷰 작성 교착 (PF-09) | 같은 품목에 리뷰를 동시에 쓰면 DB 교착이 간헐적으로 생겨 409(`LOCK_CONFLICT`)로 끝나고, 이 경우를 검사하는 통합 테스트(`ReviewCreateIntegrationTest`)가 가끔 실패합니다. | 미착수 — 동시 작성 직렬화와 테스트 안정화가 필요합니다. |
+| 테스트 DB 버전 차이 (PF-22) | CI 통합 테스트는 MariaDB 11.4, 운영·로컬은 10.11이라 10.11에서 안 되는 SQL이 CI를 통과할 수 있습니다(실제 사례는 확인되지 않음). | 미착수 — 테스트 컨테이너 이미지를 10.11로 맞춰야 합니다. |
+| 운영 표 로딩 중 "0-0 / 0" (UX-05) | 판매자·관리자 일부 표(판매자 클레임·재고·정산, 관리자 회원·정산 등)는 응답을 기다리는 동안 표 하단에 "0-0 / 0"이 보입니다. 로딩 중 하단을 숨기는 처리는 판매자 주문·배송과 관리자 클레임 표에만 적용했습니다. | 미착수 — 같은 처리를 나머지 표(판매자 6 · 관리자 15 화면)로 넓혀야 합니다(FE-111에서 이월). |
+| 비로그인 담기 뒤 복귀 (UX-07) | 로그인하지 않고 옵션을 골라 담기를 누르면 로그인 뒤 상품 상세로 돌아오지만, 고른 옵션이 풀리고 담기도 이어지지 않아 다시 해야 합니다. | 미착수 — 로그인 복귀 때 옵션·담기 복원이 필요합니다. |
+| 휴대폰 번호 형식 미검증 (UX-08) | 가입·배송지·주문 연락처의 휴대폰 번호는 비어 있지 않은지와 길이만 검사해 "010123" 같은 값도 저장됩니다. | 미착수 — 백엔드 형식 검증과 화면 검증을 함께 추가해야 합니다. |
+| 인박스 필터 칩 접근성 (UX-09) | 판매자·관리자 인박스의 유형 필터 칩에 역할(role)과 선택 상태(aria-pressed)가 없어, 화면낭독기 사용자는 필터인지와 무엇이 선택됐는지 알 수 없습니다(키보드 조작은 가능). | 미착수 — 칩에 역할·선택 상태 속성이 필요합니다. |
+| 미결제 주문 직접 취소 불가 (PF-07) | 구매자가 미결제 주문을 직접 취소하는 API·화면이 없습니다. 재결제 뒤 결제창에서 취소하거나 자동 종료(최대 약 35분)를 기다려야 합니다. | 미착수 — 구매자 취소 API·화면이 필요하고, 주문 상태 전이를 바꾸는 변경이라 외부 검토 대상입니다. |
+
 ## 문서
 
 - [결정 기록 — 백엔드](docs/architecture-baseline/decisions.md)
 - [결정 기록 — 프론트엔드](docs/architecture-baseline/decisions-fe.md)
 - [도메인 불변식](docs/architecture-baseline/invariants.md)
+- [도메인 이벤트](docs/architecture-baseline/domain-events.md)
 - [배포 런북](docs/architecture-baseline/deploy-runbook.md)
 - [검토 정책](docs/architecture-baseline/review-policy.md)
 - [실서비스 전환 가이드](docs/architecture-baseline/real-service-switch-guide.md)

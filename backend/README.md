@@ -1,6 +1,6 @@
 # zslab-mall Backend
 
-Spring Boot 3.x · Java 21 · Gradle Kotlin DSL · MariaDB · Flyway
+Spring Boot 4.1.1 · Java 21 · Gradle Kotlin DSL · MariaDB · Flyway
 
 ## 실행
 
@@ -28,4 +28,4 @@ SPRING_PROFILES_ACTIVE 환경변수로 전환.
 
 ## 의존성 버전 갱신
 
-Spring Boot(3.4.1)·ulid-creator(5.2.3)·io.spring.dependency-management(1.1.7) 등은 build.gradle.kts에서 핀. mariadb-java-client·flyway·lombok은 Spring Boot BOM 관리. 갱신 시 호환성 확인 필요.
+Spring Boot(4.1.1)·ulid-creator(5.2.3)·io.spring.dependency-management(1.1.7) 등은 build.gradle.kts에서 핀. mariadb-java-client·flyway·lombok은 Spring Boot BOM 관리. 갱신 시 호환성 확인 필요.

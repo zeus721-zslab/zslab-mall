@@ -45,6 +45,10 @@ docs/frontend/scorecard-*.md
 # 인수인계 임시 파일
 docs/handover.md
 
+# 서버 감시 스크립트(docker/ops/health-alert.sh)가 배포 디렉터리에 만드는 상태 파일·cron 로그
+.health-alert.state
+.health-alert.log
+
 # 배포 SSH 키 (서버·GitHub secret 등록분·로컬 커밋 금지)
 zslab-mall-deploy
 zslab-mall-deploy.pub

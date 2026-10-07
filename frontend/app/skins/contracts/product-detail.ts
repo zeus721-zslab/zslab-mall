@@ -26,7 +26,7 @@ export interface ProductDetailPageVm {
   quantity: number
   decrementQuantity: () => void
   incrementQuantity: () => void
-  /** 수량 상한(999) 초과 시도 안내(P-08). 없으면 빈 문자열. */
+  /** 수량 상한(20) 초과 시도 안내(P-08). 없으면 빈 문자열. */
   quantityNotice: string
   canAddToCart: boolean
   adding: boolean

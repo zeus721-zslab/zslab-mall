@@ -63,22 +63,22 @@ describe('pages/products/[productPublicId].vue — 대표 이미지', () => {
   })
 })
 
-// P-08: 수량 상한 999(BE CartItem.MAX_QUANTITY). 초과 입력은 999로 보정하고 안내한다.
+// P-08: 수량 상한 20(FE-114 · BE 미결제 variant 상한과 같은 값). 초과 입력은 20으로 보정하고 안내한다.
 describe('pages/products/[productPublicId].vue — 수량 상한(P-08)', () => {
-  it('999에서 + → 999 유지 + 상한 안내 · − 누르면 안내 해제', async () => {
+  it('20에서 + → 20 유지 + 상한 안내 · − 누르면 안내 해제', async () => {
     const wrapper = await mountSuspended(ProductDetailPage)
     const increment = wrapper.find('button[aria-label="수량 증가"]')
-    for (let click = 1; click < 999; click += 1) {
+    for (let click = 1; click < 20; click += 1) {
       await increment.trigger('click')
     }
     expect(wrapper.find('[data-testid="quantity-limit-notice"]').exists()).toBe(false)
 
     await increment.trigger('click')
-    expect(wrapper.find('button[aria-label="수량 감소"] + span').text()).toBe('999')
-    expect(wrapper.find('[data-testid="quantity-limit-notice"]').text()).toBe('수량은 최대 999개까지 선택할 수 있습니다.')
+    expect(wrapper.find('button[aria-label="수량 감소"] + span').text()).toBe('20')
+    expect(wrapper.find('[data-testid="quantity-limit-notice"]').text()).toBe('수량은 최대 20개까지 선택할 수 있습니다.')
 
     await wrapper.find('button[aria-label="수량 감소"]').trigger('click')
-    expect(wrapper.find('button[aria-label="수량 감소"] + span').text()).toBe('998')
+    expect(wrapper.find('button[aria-label="수량 감소"] + span').text()).toBe('19')
     expect(wrapper.find('[data-testid="quantity-limit-notice"]').exists()).toBe(false)
   })
 })
@@ -113,5 +113,17 @@ describe('pages/products/[productPublicId].vue — 바로구매 버튼(PF-19)', 
     expect(buyNow().attributes('disabled')).toBeUndefined()
     await buyNow().trigger('click')
     expect(navigateToMock).toHaveBeenCalledWith('/checkout?product=prd_TEST&variant=var_BLACK&quantity=1')
+  })
+
+  // FE-114 가드: 상한(20)을 넘겨 눌러도 바로구매 주문서로 넘기는 수량은 20이다.
+  it('수량 + 를 상한 넘게 눌러도 바로구매 경로 수량은 20', async () => {
+    productOverride.value = { variants: [{ variantPublicId: 'var_SINGLE', salePrice: 10000, soldOut: false, options: [] }] }
+    const wrapper = await mountSuspended(ProductDetailPage)
+    const increment = wrapper.find('button[aria-label="수량 증가"]')
+    for (let click = 0; click < 25; click += 1) {
+      await increment.trigger('click')
+    }
+    await wrapper.find('[data-testid="product-buy-now"]').trigger('click')
+    expect(navigateToMock).toHaveBeenCalledWith('/checkout?product=prd_TEST&variant=var_SINGLE&quantity=20')
   })
 })
