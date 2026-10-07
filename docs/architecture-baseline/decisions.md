@@ -14421,3 +14421,22 @@ D-246 §8 정정: '데모 로그인 요청 제한 문서 불일치' 항목 철�
 - 추가: ADMIN_E2E_*·SELLER_E2E_*
 - backend/.env.example은 기존 결정대로 유지(별건)
 - 운영 .env 동기화는 머지 후 서버 작업
+
+## D-271 94안 PR-1 BE 재고·잠금·보안 (2026-10-08)
+
+### 결정
+- SEC-02: 구매자당 variant별 미결제(PENDING_PAYMENT) 수량 합이 `zslab.order.max-unpaid-quantity-per-variant`(기본 20)를 넘으면 422 `UNPAID_VARIANT_QUANTITY_LIMIT_EXCEEDED`로 거부.
+- PF-03: 세션 `innodb_lock_wait_timeout` 5초.
+- SEC-07: 판매자 상품 이미지 URL은 `requireSellerOwnedProductUrl`로 소유·실존 검증.
+- PF-08: 탈퇴 두 경로(관리자·본인) 모두 구매자 행 락 + 주문 생성 쪽 락 획득 뒤 탈퇴 상태 재확인.
+- PF-14: 로그인 실패 응답 시간 차 — 생성자에서 더미 해시를 만들어 미존재·비활성·탈퇴 분기에서도 동일하게 `matches` 수행.
+- PF-05: 일괄 승인 중 항목별 잠금 실패는 항목 코드 `LOCK_CONFLICT` 신설로 응답.
+
+### §1-A 갈림길·채택/기각 근거
+- SEC-02 α(품목 상한 하향) 【기각】 — 같은 variant 중복 줄 우회를 불차단 / β(구매자 락 뒤 미결제 합계 검사) 【채택】
+- PF-03 — 대안 검토 없음
+- SEC-07 β(레거시 API 4개 제거) 【기각】 — 범위 확대 / α(requireSellerOwnedProductUrl 교체) 【채택】
+- PF-08 α(탈퇴 락만) 【기각】 — 탈퇴 커밋 후 대기 주문 진행 순서 잔존 / β(탈퇴 두 경로 구매자 행 락 + 주문 생성 락 뒤 탈퇴 재확인) 【채택】
+- PF-14 β(상수 해시) 【기각】 — 인코더 설정과 비용 불일치 가능 / α(생성자 더미 해시 · 미존재·비활성·탈퇴 분기 matches) 【채택】
+- PF-05 β(OPTIMISTIC_LOCK_FAILURE 흡수) 【기각】 — D-268 기각 근거 동일 / α(항목 코드 LOCK_CONFLICT 신설) 【채택】
+외부 검토: A / 지적 2건 중 수용 0건

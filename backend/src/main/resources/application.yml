@@ -19,7 +19,9 @@ spring:
       transaction-isolation: TRANSACTION_READ_COMMITTED
       # D-264: DB 서버 기본 시간대(SYSTEM=UTC)를 따르던 세션을 KST로 고정해 DB NOW()·수동 조회를 앱 저장값(KST 벽시계)과 맞춘다.
       # 오프셋 표기라 MariaDB 시간대 테이블이 필요 없다(한국은 서머타임 없음). 커넥션 생성 시 1회 실행 — 모든 프로필·테스트 공유.
-      connection-init-sql: "SET time_zone = '+09:00'"
+      # PF-03: 행 락 대기 상한 5초(서버 기본 50초). 대기가 겹치면 풀(10)이 고갈돼 무관한 요청까지 막힌다 — 초과는 409 LOCK_CONFLICT(D-268).
+      # 서버 전역 값은 공유 DB의 다른 프로젝트에 영향이 있어 세션 변수로 둔다.
+      connection-init-sql: "SET time_zone = '+09:00', SESSION innodb_lock_wait_timeout = 5"
   jpa:
     hibernate:
       ddl-auto: validate
@@ -191,6 +193,10 @@ zslab:
   # 기동을 멈춘다(요약은 커밋 후 비동기라 주입 실패로 드러나지 않을 수 있어 직접 검증).
   llm:
     provider: ${LLM_PROVIDER:mock}
+  # SEC-02 잔여: 구매자 1인의 미결제(PENDING_PAYMENT) 주문 전체에 걸친 variant별 수량 합계 상한(이번 요청 포함). 미결제 주문은 재고를 예약하므로
+  # 건수 한도(3건)만으로는 1건 전량·같은 variant 여러 줄 우회를 막지 못한다. 초과는 422 UNPAID_VARIANT_QUANTITY_LIMIT_EXCEEDED.
+  order:
+    max-unpaid-quantity-per-variant: 20
   # D-249 인박스 변경 신호(SSE) 연결 최대 수명. 지나면 서버가 정상 종료하고 브라우저가 재연결한다 — 재연결 때 토큰·셀러 상태를 다시 검사한다.
   inbox:
     stream:

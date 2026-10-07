@@ -88,6 +88,7 @@ describe('관리자 인박스', () => {
     expect(summarizeClaimBulkApprove(result(0, 2)).semantic).toBe('danger')
     expect(claimBulkFailureMessage('CLAIM_SUGGESTION_MISMATCH', '승인 제안이 아닙니다: 증빙 없음')).toBe('지금은 승인 제안이 아니어서 승인하지 않았습니다. 상세에서 확인해 주세요.')
     expect(claimBulkFailureMessage('CLAIM_STATE_INVALID', '이미 처리된 클레임입니다: status=APPROVED')).toBe('이미 처리됐거나 승인할 수 없는 상태입니다.')
+    expect(claimBulkFailureMessage('LOCK_CONFLICT', 'could not execute statement')).toBe('다른 처리와 겹쳤습니다. 잠시 후 다시 시도해 주세요.')
     expect(claimBulkFailureMessage('UNKNOWN', '서버 문구')).toBe('서버 문구')
     expect(claimBulkFailureMessage(undefined, undefined)).toBe('처리하지 못했습니다.')
   })

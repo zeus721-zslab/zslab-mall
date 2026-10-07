@@ -9,18 +9,25 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import tools.jackson.databind.ObjectMapper;
 import com.zslab.mall.common.security.AuthHeaders;
+import com.zslab.mall.file.service.ImageUploadService;
 import com.zslab.mall.product.controller.request.AddProductImageRequest;
 import com.zslab.mall.product.controller.request.ReorderProductImagesRequest;
 import com.zslab.mall.product.controller.response.ProductImageResponse;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
@@ -50,6 +57,15 @@ class SellerProductImageControllerIntegrationTest extends AbstractIntegrationTes
     private static final long CATEGORY_ID = 9643L;
     private static final long PRODUCT_A_ID = 9644L; // seller A 소유
     private static final long PRODUCT_B_ID = 9645L; // seller B 소유
+
+    // SEC-07: 등록 URL은 해당 셀러 네임스페이스의 실제 저장 파일이어야 한다. upload.path를 @TempDir로 덮어써 실 경로를 오염시키지 않는다.
+    @TempDir
+    static Path uploadRoot;
+
+    @DynamicPropertySource
+    static void uploadPath(DynamicPropertyRegistry registry) {
+        registry.add("upload.path", () -> uploadRoot.toString());
+    }
 
     @Autowired
     private MockMvc mockMvc;
@@ -81,7 +97,7 @@ class SellerProductImageControllerIntegrationTest extends AbstractIntegrationTes
     @Test
     @DisplayName("T1 최초 이미지 등록(main=false) → 201 + displayOrder=0·is_main=0")
     void add_firstImage_returns201_displayOrderZero() throws Exception {
-        ProductImageResponse image = add(sellerAAuth(), PRODUCT_A_ID, "/api/v1/files/products/2026/09/cdn-a.jpg", false);
+        ProductImageResponse image = add(sellerAAuth(), PRODUCT_A_ID, ownedUrl(SELLER_A_ID, "cdn-a.jpg"), false);
 
         assertThat(image.displayOrder()).isZero();
         assertThat(image.main()).isFalse();
@@ -92,7 +108,7 @@ class SellerProductImageControllerIntegrationTest extends AbstractIntegrationTes
     @Test
     @DisplayName("T2 main=true 등록 → is_main=1 + product.thumbnail_url 무동기화(독립·결정3)")
     void add_mainTrue_setsMain_doesNotSyncThumbnail() throws Exception {
-        ProductImageResponse image = add(sellerAAuth(), PRODUCT_A_ID, "/api/v1/files/products/2026/09/cdn-main.jpg", true);
+        ProductImageResponse image = add(sellerAAuth(), PRODUCT_A_ID, ownedUrl(SELLER_A_ID, "cdn-main.jpg"), true);
 
         assertThat(image.main()).isTrue();
         assertThat(count("SELECT COUNT(*) FROM product_image WHERE id=? AND is_main=1", image.id())).isEqualTo(1);
@@ -103,9 +119,9 @@ class SellerProductImageControllerIntegrationTest extends AbstractIntegrationTes
     @Test
     @DisplayName("T3 기존 N개 있을 때 append → displayOrder=N 순차 증가(0·1·2)")
     void add_appendsAtEnd_incrementingDisplayOrder() throws Exception {
-        ProductImageResponse first = add(sellerAAuth(), PRODUCT_A_ID, "/api/v1/files/products/2026/09/cdn-1.jpg", false);
-        ProductImageResponse second = add(sellerAAuth(), PRODUCT_A_ID, "/api/v1/files/products/2026/09/cdn-2.jpg", false);
-        ProductImageResponse third = add(sellerAAuth(), PRODUCT_A_ID, "/api/v1/files/products/2026/09/cdn-3.jpg", false);
+        ProductImageResponse first = add(sellerAAuth(), PRODUCT_A_ID, ownedUrl(SELLER_A_ID, "cdn-1.jpg"), false);
+        ProductImageResponse second = add(sellerAAuth(), PRODUCT_A_ID, ownedUrl(SELLER_A_ID, "cdn-2.jpg"), false);
+        ProductImageResponse third = add(sellerAAuth(), PRODUCT_A_ID, ownedUrl(SELLER_A_ID, "cdn-3.jpg"), false);
 
         assertThat(first.displayOrder()).isZero();
         assertThat(second.displayOrder()).isEqualTo(1);
@@ -117,9 +133,9 @@ class SellerProductImageControllerIntegrationTest extends AbstractIntegrationTes
     @Test
     @DisplayName("T4 이미지 3개 순차 대표 지정 → 항상 활성 대표 정확히 1개·직전 대표 강등(단일성 실검증)")
     void designateMain_sequential_keepsExactlyOneMain() throws Exception {
-        Long img1 = add(sellerAAuth(), PRODUCT_A_ID, "/api/v1/files/products/2026/09/cdn-1.jpg", false).id();
-        Long img2 = add(sellerAAuth(), PRODUCT_A_ID, "/api/v1/files/products/2026/09/cdn-2.jpg", false).id();
-        Long img3 = add(sellerAAuth(), PRODUCT_A_ID, "/api/v1/files/products/2026/09/cdn-3.jpg", false).id();
+        Long img1 = add(sellerAAuth(), PRODUCT_A_ID, ownedUrl(SELLER_A_ID, "cdn-1.jpg"), false).id();
+        Long img2 = add(sellerAAuth(), PRODUCT_A_ID, ownedUrl(SELLER_A_ID, "cdn-2.jpg"), false).id();
+        Long img3 = add(sellerAAuth(), PRODUCT_A_ID, ownedUrl(SELLER_A_ID, "cdn-3.jpg"), false).id();
 
         designateMain(sellerAAuth(), PRODUCT_A_ID, img1).andExpect(status().isOk());
         assertThat(mainCount(PRODUCT_A_ID)).isEqualTo(1);
@@ -139,7 +155,7 @@ class SellerProductImageControllerIntegrationTest extends AbstractIntegrationTes
     @Test
     @DisplayName("T5 이미 대표인 이미지 재지정 → 200·멱등(여전히 대표 1개)")
     void designateMain_alreadyMain_isIdempotent() throws Exception {
-        Long img1 = add(sellerAAuth(), PRODUCT_A_ID, "/api/v1/files/products/2026/09/cdn-1.jpg", false).id();
+        Long img1 = add(sellerAAuth(), PRODUCT_A_ID, ownedUrl(SELLER_A_ID, "cdn-1.jpg"), false).id();
 
         designateMain(sellerAAuth(), PRODUCT_A_ID, img1).andExpect(status().isOk());
         designateMain(sellerAAuth(), PRODUCT_A_ID, img1).andExpect(status().isOk());
@@ -185,8 +201,8 @@ class SellerProductImageControllerIntegrationTest extends AbstractIntegrationTes
     @Test
     @DisplayName("T8 삭제 → 204 + deleted_at 마킹·활성 조회 제외(@SQLRestriction)")
     void delete_softDeletes_excludedFromActive() throws Exception {
-        Long img1 = add(sellerAAuth(), PRODUCT_A_ID, "/api/v1/files/products/2026/09/cdn-1.jpg", false).id();
-        Long img2 = add(sellerAAuth(), PRODUCT_A_ID, "/api/v1/files/products/2026/09/cdn-2.jpg", false).id();
+        Long img1 = add(sellerAAuth(), PRODUCT_A_ID, ownedUrl(SELLER_A_ID, "cdn-1.jpg"), false).id();
+        Long img2 = add(sellerAAuth(), PRODUCT_A_ID, ownedUrl(SELLER_A_ID, "cdn-2.jpg"), false).id();
 
         mockMvc.perform(delete(base(PRODUCT_A_ID) + "/" + img1).with(sellerAAuth()))
                 .andExpect(status().isNoContent());
@@ -202,9 +218,9 @@ class SellerProductImageControllerIntegrationTest extends AbstractIntegrationTes
     @Test
     @DisplayName("T9 타 판매자 상품에 이미지 등록 시도 → 404 PRODUCT_NOT_FOUND(2-hop product 스코프)")
     void add_crossTenantProduct_returns404() throws Exception {
-        mockMvc.perform(post(base(PRODUCT_A_ID)).with(sellerBAuth()) // B가 A의 상품에
+        mockMvc.perform(post(base(PRODUCT_A_ID)).with(sellerBAuth()) // B가 A의 상품에(이미지는 B 본인 업로드 파일)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new AddProductImageRequest("/api/v1/files/products/2026/09/cdn-x.jpg", false))))
+                        .content(objectMapper.writeValueAsString(new AddProductImageRequest(ownedUrl(SELLER_B_ID, "cdn-x.jpg"), false))))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("PRODUCT_NOT_FOUND"));
     }
@@ -231,6 +247,39 @@ class SellerProductImageControllerIntegrationTest extends AbstractIntegrationTes
         designateMain(sellerAAuth(), PRODUCT_A_ID, 888888L)
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("PRODUCT_IMAGE_NOT_FOUND"));
+    }
+
+    // ==================== 이미지 URL 소유·실존(SEC-07) ====================
+
+    @Test
+    @DisplayName("T15 SEC-07 셀러 A가 셀러 B 네임스페이스의 실존 파일 URL로 등록 → 400 MALFORMED_REQUEST·행 없음")
+    void add_otherSellerNamespaceUrl_returns400() throws Exception {
+        String otherSellerUrl = ownedUrl(SELLER_B_ID, "cdn-b-owned.jpg");
+
+        postImage(sellerAAuth(), PRODUCT_A_ID, otherSellerUrl)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
+        assertThat(activeCount(PRODUCT_A_ID)).isZero();
+    }
+
+    @Test
+    @DisplayName("T16 SEC-07 셀러 A 본인 네임스페이스지만 업로드된 적 없는 URL → 400 MALFORMED_REQUEST·행 없음")
+    void add_ownNamespaceMissingFile_returns400() throws Exception {
+        String missingUrl = ImageUploadService.URL_PREFIX + "products/sellers/" + SELLER_A_ID + "/2026/09/cdn-missing.jpg";
+
+        postImage(sellerAAuth(), PRODUCT_A_ID, missingUrl)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
+        assertThat(activeCount(PRODUCT_A_ID)).isZero();
+    }
+
+    @Test
+    @DisplayName("T17 SEC-07 관리자 업로드 경로(products/yyyy/MM) URL → 400 MALFORMED_REQUEST·행 없음")
+    void add_adminPathUrl_returns400() throws Exception {
+        postImage(sellerAAuth(), PRODUCT_A_ID, "/api/v1/files/products/2026/09/cdn-admin.jpg")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
+        assertThat(activeCount(PRODUCT_A_ID)).isZero();
     }
 
     // ==================== 인증·검증 ====================
@@ -277,6 +326,22 @@ class SellerProductImageControllerIntegrationTest extends AbstractIntegrationTes
 
     private static String base(long productId) {
         return "/api/v1/seller/products/" + productId + "/images";
+    }
+
+    /** 셀러 네임스페이스(products/sellers/{sellerId}/2026/09/)에 실제 파일을 만들고 그 서버 발급 URL을 돌려준다. */
+    private static String ownedUrl(long sellerId, String fileName) throws IOException {
+        String key = "products/sellers/" + sellerId + "/2026/09/" + fileName;
+        Path file = uploadRoot.resolve(key);
+        Files.createDirectories(file.getParent());
+        Files.write(file, new byte[] {1});
+        return ImageUploadService.URL_PREFIX + key;
+    }
+
+    private org.springframework.test.web.servlet.ResultActions postImage(
+            RequestPostProcessor headers, long productId, String imageUrl) throws Exception {
+        return mockMvc.perform(post(base(productId)).with(headers)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(new AddProductImageRequest(imageUrl, false))));
     }
 
     private ProductImageResponse add(RequestPostProcessor headers, long productId, String imageUrl, boolean main) throws Exception {

@@ -2,7 +2,12 @@
 import type { CheckoutRequest, PaymentMethod, ShippingAddress } from '~/types/checkout'
 import type { Address } from '~/types/address'
 import { PAYMENT_METHODS } from '~/lib/constants/payment'
-import { UNPAID_ORDER_LIMIT_EXCEEDED_CODE, UNPAID_ORDER_LIMIT_EXCEEDED_MESSAGE } from '~/lib/constants/checkout'
+import {
+  UNPAID_ORDER_LIMIT_EXCEEDED_CODE,
+  UNPAID_ORDER_LIMIT_EXCEEDED_MESSAGE,
+  UNPAID_VARIANT_QUANTITY_LIMIT_EXCEEDED_CODE,
+  UNPAID_VARIANT_QUANTITY_LIMIT_EXCEEDED_MESSAGE,
+} from '~/lib/constants/checkout'
 import { resolvePaymentRedirect } from '~/lib/payment-redirect'
 import {
   RECIPIENT_NAME_MAX,
@@ -241,6 +246,10 @@ async function handleSubmit(): Promise<void> {
     }
     if (statusCode === 422 && code === UNPAID_ORDER_LIMIT_EXCEEDED_CODE) {
       errorMessage.value = UNPAID_ORDER_LIMIT_EXCEEDED_MESSAGE
+      return
+    }
+    if (statusCode === 422 && code === UNPAID_VARIANT_QUANTITY_LIMIT_EXCEEDED_CODE) {
+      errorMessage.value = UNPAID_VARIANT_QUANTITY_LIMIT_EXCEEDED_MESSAGE
       return
     }
     if (statusCode === 422) {

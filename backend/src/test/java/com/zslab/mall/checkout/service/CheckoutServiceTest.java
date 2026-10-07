@@ -33,6 +33,7 @@ import com.zslab.mall.order.enums.OrderStatus;
 import com.zslab.mall.order.exception.OrderNotPayableException;
 import com.zslab.mall.order.exception.OrderNotPayableReason;
 import com.zslab.mall.order.exception.UnpaidOrderLimitExceededException;
+import com.zslab.mall.order.exception.UnpaidVariantQuantityLimitExceededException;
 import com.zslab.mall.order.repository.OrderRepository;
 import com.zslab.mall.order.service.OrderService;
 import com.zslab.mall.payment.entity.Payment;
@@ -313,6 +314,22 @@ class CheckoutServiceTest {
 
         assertThatThrownBy(() -> checkoutService.checkout(command("K5")))
                 .isInstanceOf(UnpaidOrderLimitExceededException.class);
+        verify(idempotencyRepository).delete(mark);
+        verify(paymentService, never()).initiate(anyString(), any(), any());
+    }
+
+    @Test
+    @DisplayName("checkout(멱등 키): 미결제 옵션 수량 상한 초과 422 → IN_PROGRESS mark 삭제 후 전파(SEC-02 잔여·동일 키 재시도 허용)")
+    void checkout_idempotentKey_unpaidVariantQuantityLimit_deletesMark() {
+        when(idempotencyRepository.findByBuyerIdAndIdempotencyKey(BUYER_ID, "K6")).thenReturn(Optional.empty());
+        OrderIdempotencyKey mark = OrderIdempotencyKey.startInProgress(BUYER_ID, "K6", LocalDateTime.now());
+        when(idempotencyRepository.saveAndFlush(any())).thenReturn(mark);
+        stubProductResolution(10_000L, 0L, 99L);
+        stubInventoryAvailable(1_000);
+        when(orderService.createOrder(any())).thenThrow(new UnpaidVariantQuantityLimitExceededException("상한 초과"));
+
+        assertThatThrownBy(() -> checkoutService.checkout(command("K6")))
+                .isInstanceOf(UnpaidVariantQuantityLimitExceededException.class);
         verify(idempotencyRepository).delete(mark);
         verify(paymentService, never()).initiate(anyString(), any(), any());
     }

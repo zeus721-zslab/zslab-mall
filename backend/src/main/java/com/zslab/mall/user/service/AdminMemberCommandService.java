@@ -124,6 +124,9 @@ public class AdminMemberCommandService {
      */
     public void withdrawMember(String publicId, AuditContext auditContext) {
         publicDemoSessionGuard.requireNotPublicDemoSession();
+        // PF-08: 주문 생성과 같은 구매자 행 락을 먼저 잡는다. id는 엔티티를 적재하지 않는 스칼라 조회로 구한다 — 락 전에 User를 1차 캐시에
+        // 올리면 락 뒤 조회도 그 옛 인스턴스를 돌려받는다(D-168 트랩). 미존재는 아래 requireActiveBuyer의 404에 맡긴다.
+        userRepository.findIdByPublicId(publicId).ifPresent(userRepository::findByIdForUpdate);
         User user = requireActiveBuyer(publicId);
         demoAccountGuard.requireNotProtected(user);
         requireNoAdminRole(user, "관리자 역할이 있는 회원은 탈퇴 처리할 수 없습니다. 권한을 먼저 해제하세요: publicId=" + publicId);

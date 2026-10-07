@@ -13,8 +13,12 @@ import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.enums.OrderStatus;
 import com.zslab.mall.order.event.OrderPlaced;
 import com.zslab.mall.order.exception.UnpaidOrderLimitExceededException;
+import com.zslab.mall.order.exception.UnpaidVariantQuantityLimitExceededException;
+import com.zslab.mall.order.repository.OrderItemRepository;
 import com.zslab.mall.order.repository.OrderRepository;
 import com.zslab.mall.order.repository.OrderShippingSnapshotRepository;
+import com.zslab.mall.order.repository.VariantQuantityProjection;
+import com.zslab.mall.user.exception.MemberAlreadyWithdrawnException;
 import com.zslab.mall.user.repository.UserRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
@@ -22,7 +26,10 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -55,6 +62,9 @@ public class OrderService {
     private final EntityManager entityManager;
     private final InboxSignalPublisher inboxSignalPublisher;
     private final UserRepository userRepository;
+    private final OrderItemRepository orderItemRepository;
+    /** 구매자 미결제 주문 전체의 variant별 수량 합계 상한(SEC-02 잔여 · 이번 요청 포함). */
+    private final int maxUnpaidQuantityPerVariant;
 
     public OrderService(
             OrderRepository orderRepository,
@@ -63,7 +73,9 @@ public class OrderService {
             TracedEventPublisher eventPublisher,
             EntityManager entityManager,
             InboxSignalPublisher inboxSignalPublisher,
-            UserRepository userRepository) {
+            UserRepository userRepository,
+            OrderItemRepository orderItemRepository,
+            @Value("${zslab.order.max-unpaid-quantity-per-variant}") int maxUnpaidQuantityPerVariant) {
         this.orderRepository = orderRepository;
         this.orderShippingSnapshotRepository = orderShippingSnapshotRepository;
         this.orderStatusResolver = orderStatusResolver;
@@ -71,6 +83,8 @@ public class OrderService {
         this.entityManager = entityManager;
         this.inboxSignalPublisher = inboxSignalPublisher;
         this.userRepository = userRepository;
+        this.orderItemRepository = orderItemRepository;
+        this.maxUnpaidQuantityPerVariant = maxUnpaidQuantityPerVariant;
     }
 
     /**
@@ -80,19 +94,27 @@ public class OrderService {
      * @throws IllegalArgumentException OrderItem이 0개(ORD-1)이거나 입력이 불완전한 경우
      * @throws IllegalStateException order_no 생성 충돌이 재시도 한도(1회)를 초과한 경우
      * @throws UnpaidOrderLimitExceededException 구매자의 미결제 주문이 한도({@value #MAX_UNPAID_ORDERS_PER_BUYER}건)에 도달한 경우
+     * @throws UnpaidVariantQuantityLimitExceededException 미결제 주문 전체의 같은 variant 수량 합계가 상한을 넘는 경우
+     * @throws MemberAlreadyWithdrawnException 구매자 행 락을 얻은 시점에 이미 탈퇴한 회원인 경우(PF-08)
      */
     public Order createOrder(CreateOrderCommand command) {
         if (command == null || command.items() == null || command.items().isEmpty()) {
             throw new IllegalArgumentException("주문에는 최소 1개의 OrderItem이 필요합니다(ORD-1).");
         }
         // 무락 건수 확인은 동시 요청이 모두 커밋 전 건수를 보고 통과한다 — 구매자 행을 먼저 잠가 같은 구매자의 주문 생성을 줄 세운다.
-        // 락 뒤 건수는 READ COMMITTED라 앞선 커밋을 본다. 반환값은 쓰지 않는다(행 부재는 orders.buyer_id FK가 막는다).
-        userRepository.findByIdForUpdate(command.buyerId());
+        // 락 뒤 건수는 READ COMMITTED라 앞선 커밋을 본다. 행 부재는 orders.buyer_id FK가 막는다.
+        // PF-08: 탈퇴도 같은 행을 잠그므로, 탈퇴 커밋을 기다렸다 락을 얻은 요청은 여기서 탈퇴를 다시 본다(인증 필터는 요청 진입 시점 상태만 본다).
+        // 이 트랜잭션에서 User를 처음 적재하는 지점이라 락 뒤 최신 커밋 상태다.
+        if (userRepository.findByIdForUpdate(command.buyerId()).filter(user -> user.getWithdrawnAt() != null).isPresent()) {
+            // 이 예외 메시지는 응답 detail로 나가므로 내부 id를 싣지 않는다.
+            throw new MemberAlreadyWithdrawnException("탈퇴한 회원은 주문할 수 없습니다.");
+        }
         long unpaidOrderCount = orderRepository.countByBuyerIdAndStatus(command.buyerId(), OrderStatus.PENDING_PAYMENT);
         if (unpaidOrderCount >= MAX_UNPAID_ORDERS_PER_BUYER) {
             throw new UnpaidOrderLimitExceededException("결제 대기 중인 주문이 한도에 도달했습니다: buyerId="
                     + command.buyerId() + ", unpaid=" + unpaidOrderCount + ", limit=" + MAX_UNPAID_ORDERS_PER_BUYER);
         }
+        requireUnpaidVariantQuantityWithinLimit(command);
 
         Order order = Order.create(
                 command.buyerId(),
@@ -199,6 +221,28 @@ public class OrderService {
     private Order findOrder(Long orderId) {
         return orderRepository.findById(orderId)
                 .orElseThrow(() -> new IllegalArgumentException("주문을 찾을 수 없습니다: orderId=" + orderId));
+    }
+
+    /**
+     * 이번 요청의 variant별 수량(같은 variant가 여러 줄이면 합침)에 같은 구매자의 미결제 주문에 이미 예약된 수량을 더해 상한을 넘으면 거부한다
+     * (SEC-02 잔여). 구매자 행 락 뒤에 호출되므로 앞서 커밋된 같은 구매자의 주문까지 본다.
+     *
+     * @throws UnpaidVariantQuantityLimitExceededException 어느 한 variant라도 합계가 상한을 넘는 경우
+     */
+    private void requireUnpaidVariantQuantityWithinLimit(CreateOrderCommand command) {
+        Map<Long, Integer> requestedByVariant = command.items().stream()
+                .collect(Collectors.groupingBy(OrderItemCommand::variantId, Collectors.summingInt(OrderItemCommand::quantity)));
+        Map<Long, Long> unpaidByVariant = orderItemRepository
+                .sumQuantityByVariant(command.buyerId(), OrderStatus.PENDING_PAYMENT, requestedByVariant.keySet()).stream()
+                .collect(Collectors.toMap(VariantQuantityProjection::getVariantId, VariantQuantityProjection::getQuantity));
+        for (Map.Entry<Long, Integer> requested : requestedByVariant.entrySet()) {
+            long total = requested.getValue() + unpaidByVariant.getOrDefault(requested.getKey(), 0L);
+            if (total > maxUnpaidQuantityPerVariant) {
+                throw new UnpaidVariantQuantityLimitExceededException("미결제 주문의 variant 수량 합계가 상한을 넘었습니다: buyerId="
+                        + command.buyerId() + ", variantId=" + requested.getKey() + ", total=" + total
+                        + ", limit=" + maxUnpaidQuantityPerVariant);
+            }
+        }
     }
 
     private OrderShippingSnapshot toSnapshot(ShippingAddressCommand shipping) {

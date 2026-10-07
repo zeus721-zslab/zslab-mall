@@ -22,7 +22,7 @@ import org.springframework.beans.factory.annotation.Value;
 
 /**
  * DB 세션 시간대 KST 고정(D-264) 검증. 앱 DataSource에서 꺼낸 커넥션의 세션 시간대와 DB {@code NOW()}가
- * KST(Asia/Seoul) 현재 벽시계와 같은지 확인한다.
+ * KST(Asia/Seoul) 현재 벽시계와 같은지 확인한다. 같은 init SQL이 거는 행 락 대기 상한(PF-03)도 여기서 함께 확인한다.
  *
  * <p>풀 최대 크기만큼 커넥션을 동시에 붙잡아 검사한다 — 이미 풀에 있던 커넥션(기동 중 Flyway가 쓴 것 포함)과
  * 새로 만들어진 커넥션을 모두 거치게 해, 한 커넥션만 우연히 맞는 경우를 통과로 보지 않는다.
@@ -33,6 +33,8 @@ class DbSessionTimeZoneIntegrationTest extends AbstractIntegrationTest {
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     // NOW() 조회와 KST 현재 시각 측정 사이의 실행 지연 허용치. UTC 세션이면 9시간 차이라 이 값으로 충분히 구분된다.
     private static final Duration MAX_CLOCK_GAP = Duration.ofSeconds(5);
+    /** application.yml 커넥션 init SQL의 행 락 대기 상한(PF-03). */
+    private static final long LOCK_WAIT_TIMEOUT_SECONDS = 5L;
 
     @Autowired
     private DataSource dataSource;
@@ -53,6 +55,28 @@ class DbSessionTimeZoneIntegrationTest extends AbstractIntegrationTest {
             }
             for (Connection connection : held) {
                 assertSessionIsKst(connection);
+            }
+        } finally {
+            for (Connection connection : held) {
+                connection.close();
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("PF-03 풀의 모든 커넥션: @@session.innodb_lock_wait_timeout = 5(서버 기본 50초 대기 금지)")
+    void everyPooledConnection_lockWaitTimeoutIsFiveSeconds() throws SQLException {
+        List<Connection> held = new ArrayList<>();
+        try {
+            for (int index = 0; index < maximumPoolSize; index++) {
+                held.add(dataSource.getConnection());
+            }
+            for (Connection connection : held) {
+                try (Statement statement = connection.createStatement();
+                        ResultSet resultSet = statement.executeQuery("SELECT @@session.innodb_lock_wait_timeout")) {
+                    assertThat(resultSet.next()).isTrue();
+                    assertThat(resultSet.getLong(1)).isEqualTo(LOCK_WAIT_TIMEOUT_SECONDS);
+                }
             }
         } finally {
             for (Connection connection : held) {

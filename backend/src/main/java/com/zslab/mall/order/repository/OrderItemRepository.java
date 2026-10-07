@@ -63,6 +63,15 @@ public interface OrderItemRepository extends JpaRepository<OrderItem, Long>, Jpa
     /** 주문에 특정 상태 품목이 있는지(Track 104-2 D-216·확정 품목 있는 전액 환불 판정). 파생 쿼리 바인딩. */
     boolean existsByOrderIdAndItemStatus(Long orderId, OrderItemStatus itemStatus);
 
+    /**
+     * 구매자의 특정 상태 주문에 담긴 품목 수량을 variant별로 합산한다(SEC-02 잔여 · 미결제 주문의 variant별 예약 수량). 미결제 주문의 품목은
+     * 전부 ORDERED(결제 전 부분 취소 없음)라 품목 상태는 거르지 않는다. 모든 변수는 :buyerId·:status·:variantIds 바인딩이다.
+     */
+    @Query("SELECT oi.variantId AS variantId, SUM(oi.quantity) AS quantity FROM OrderItem oi JOIN oi.order o "
+            + "WHERE o.buyerId = :buyerId AND o.status = :status AND oi.variantId IN :variantIds GROUP BY oi.variantId")
+    List<VariantQuantityProjection> sumQuantityByVariant(@Param("buyerId") Long buyerId, @Param("status") OrderStatus status,
+            @Param("variantIds") Collection<Long> variantIds);
+
     /** 구매자 주문에 제외 상태(itemStatuses) 밖의 품목이 있는지(Track 104-4 탈퇴 가드 결제 후 단계·P4). 파생 쿼리 바인딩. */
     boolean existsByOrderBuyerIdAndItemStatusNotIn(Long buyerId, Collection<OrderItemStatus> itemStatuses);
 

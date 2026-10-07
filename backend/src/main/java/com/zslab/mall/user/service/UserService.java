@@ -172,7 +172,8 @@ public class UserService {
      * @throws com.zslab.mall.common.exception.DemoAccountProtectedException 데모 계정(403)
      */
     public void withdraw(Long userId) {
-        User user = userRepository.findById(userId)
+        // PF-08: 주문 생성과 같은 구매자 행 락으로 줄 세운다 — 락 없이 확인하면 확인~커밋 사이에 커밋된 미결제 주문을 못 본다.
+        User user = userRepository.findByIdForUpdate(userId)
                 .orElseThrow(() -> new IllegalStateException("인증된 userId에 해당하는 User가 없습니다: " + userId));
         if (user.getWithdrawnAt() != null) {
             return; // 멱등: 이미 탈퇴한 회원은 가드·갱신 없이 204(기존 계약 유지)
