@@ -8,9 +8,9 @@ services:
     image: zslab-mall-backend-dev
     build:
       dockerfile: Dockerfile.dev
-    # dev 첫 기동은 bootRun 컴파일로 운영 기준 대기(90s)를 넘겨 unhealthy로 보인다. start_period만 늘리고 나머지는 mall.yml 값을 상속한다(D-272).
+    # dev 첫 기동은 bootRun 컴파일로 운영 기준 대기(90s)를 넘겨 unhealthy로 보인다. 기록된 첫 기동 약 4분~400초를 덮는 값으로 start_period만 늘리고 나머지는 mall.yml 값을 상속한다(D-272, D-273).
     healthcheck:
-      start_period: 300s
+      start_period: 600s
     volumes:
       - ./backend:/app
       - mall_gradle_cache:/home/gradle/.gradle
