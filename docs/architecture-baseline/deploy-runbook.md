@@ -80,7 +80,7 @@ Track 100(D-211)에서 서버 빌드를 걷어낸 뒤의 배포 절차다. 대�
 
 ## 7. 운영 .env에 없는 키의 실효값
 
-아래 키는 운영 서버 `.env`에 적지 않고 `docker-compose.mall.yml`의 기본값(`${KEY:-기본값}`)으로 동작한다. 서버 `.env`만 봐서는 보이지 않으므로 실제 값은 이 표로 확인한다. 값을 바꿀 때만 서버 `.env`에 키를 추가한다.
+운영 `.env`에도 아래 키를 두고, 값은 `docker-compose.mall.yml`의 기본값(`${KEY:-기본값}`)과 같게 둔다(D-270). 값을 바꿀 때만 서버 `.env`의 값을 바꾼다.
 
 | 키 | compose 기본값 | 의미 |
 |---|---|---|
@@ -100,3 +100,11 @@ Track 100(D-211)에서 서버 빌드를 걷어낸 뒤의 배포 절차다. 대�
 | `ES_PORT` | `9200` | filebeat 로그 전송 대상 포트 |
 | `NUXT_API_INTERNAL_BASE` | `http://mall-backend:8080` | SSR이 백엔드를 직접 부르는 내부 주소(gateway_net 별칭) |
 | `NUXT_PUBLIC_API_BASE` | (빈 값) | 브라우저 API 베이스 — 비면 동일 Origin 상대경로 `/api` |
+
+## 8. 환경 변수 동기화 (D-270)
+
+- 모든 환경의 `.env`와 `.env.example`은 키 집합이 같아야 한다(값은 환경별).
+- 키를 추가·폐기할 때 `.env.example`과 각 환경 `.env`를 함께 고친다.
+- 확인: `sh docker/env/check-env-keys.sh .env .env.example`(PC는 `docker/env/check-env-keys.ps1`) — 일치 0 · 불일치 1 · 파일 없음 2, 키 이름만 출력한다.
+- 배포 때 키가 일치하지 않으면 Actions에 경고가 나고, 배포는 계속된다(`deploy.yml`).
+- 서버 source 범위: `sparse-checkout` cone 모드 · `backend`·`docker`·`frontend` + 루트 파일(`.env.example` 포함).
