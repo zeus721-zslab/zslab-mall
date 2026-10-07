@@ -32,6 +32,7 @@ import com.zslab.mall.order.entity.OrderItem;
 import com.zslab.mall.order.enums.OrderStatus;
 import com.zslab.mall.order.exception.OrderNotPayableException;
 import com.zslab.mall.order.exception.OrderNotPayableReason;
+import com.zslab.mall.order.exception.UnpaidOrderLimitExceededException;
 import com.zslab.mall.order.repository.OrderRepository;
 import com.zslab.mall.order.service.OrderService;
 import com.zslab.mall.payment.entity.Payment;
@@ -298,6 +299,22 @@ class CheckoutServiceTest {
                 .isInstanceOf(OrderNotPayableException.class);
         verify(idempotencyRepository).delete(mark);
         verify(orderService, never()).createOrder(any());
+    }
+
+    @Test
+    @DisplayName("checkout(멱등 키): 미결제 한도 초과 422 → IN_PROGRESS mark 삭제 후 전파(D-268·동일 키 재시도 허용)")
+    void checkout_idempotentKey_unpaidOrderLimit_deletesMark() {
+        when(idempotencyRepository.findByBuyerIdAndIdempotencyKey(BUYER_ID, "K5")).thenReturn(Optional.empty());
+        OrderIdempotencyKey mark = OrderIdempotencyKey.startInProgress(BUYER_ID, "K5", LocalDateTime.now());
+        when(idempotencyRepository.saveAndFlush(any())).thenReturn(mark);
+        stubProductResolution(10_000L, 0L, 99L);
+        stubInventoryAvailable(1_000);
+        when(orderService.createOrder(any())).thenThrow(new UnpaidOrderLimitExceededException("한도 도달"));
+
+        assertThatThrownBy(() -> checkoutService.checkout(command("K5")))
+                .isInstanceOf(UnpaidOrderLimitExceededException.class);
+        verify(idempotencyRepository).delete(mark);
+        verify(paymentService, never()).initiate(anyString(), any(), any());
     }
 
     @Test

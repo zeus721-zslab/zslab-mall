@@ -6,6 +6,7 @@ import com.zslab.mall.inventory.controller.request.AdminInventoryAdjustRequest;
 import com.zslab.mall.inventory.controller.request.SellerInventoryMarkInboundRequest;
 import com.zslab.mall.inventory.controller.request.SellerInventoryMarkOutboundRequest;
 import com.zslab.mall.order.controller.request.OrderItemRequest;
+import com.zslab.mall.order.controller.request.ShippingAddressRequest;
 import com.zslab.mall.product.controller.request.AdminProductCreateRequest;
 import com.zslab.mall.product.controller.request.AdminProductUpdateRequest;
 import com.zslab.mall.product.controller.request.AdminProductVariantsRequest;
@@ -71,5 +72,24 @@ class RequestInputUpperBoundTest {
     void boundary(Class<?> requestType, String property, Number allowed, Number exceeded) {
         assertThat(validator.validateValue(requestType, property, allowed)).as("경계값은 통과").isEmpty();
         assertThat(validator.validateValue(requestType, property, exceeded)).as("경계 밖은 위반").isNotEmpty();
+    }
+
+    // SEC-06(D-268): 배송지 문자열 상한 = order_shipping_snapshot 컬럼 길이(deliveryMemo는 TEXT라 정책 상한 500).
+    static Stream<Arguments> lengthBoundaries() {
+        return Stream.of(
+                Arguments.of(ShippingAddressRequest.class, "recipientName", 50),
+                Arguments.of(ShippingAddressRequest.class, "recipientPhone", 20),
+                Arguments.of(ShippingAddressRequest.class, "zonecode", 10),
+                Arguments.of(ShippingAddressRequest.class, "addressRoad", 200),
+                Arguments.of(ShippingAddressRequest.class, "addressJibun", 200),
+                Arguments.of(ShippingAddressRequest.class, "addressDetail", 200),
+                Arguments.of(ShippingAddressRequest.class, "deliveryMemo", 500));
+    }
+
+    @ParameterizedTest(name = "{0}.{1}: {2}자 통과 · {2}+1자 위반")
+    @MethodSource("lengthBoundaries")
+    void lengthBoundary(Class<?> requestType, String property, int maxLength) {
+        assertThat(validator.validateValue(requestType, property, "가".repeat(maxLength))).as("경계값은 통과").isEmpty();
+        assertThat(validator.validateValue(requestType, property, "가".repeat(maxLength + 1))).as("경계 밖은 위반").isNotEmpty();
     }
 }

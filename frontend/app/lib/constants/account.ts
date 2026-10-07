@@ -30,6 +30,8 @@ export const ZONECODE_MAX = 10
 export const ADDRESS_ROAD_MAX = 200
 export const ADDRESS_JIBUN_MAX = 200
 export const ADDRESS_DETAIL_MAX = 200
+// 주문 배송 메모 — SoT: ShippingAddressRequest.deliveryMemo @Size(max=500)(D-268)
+export const DELIVERY_MEMO_MAX = 500
 // D-230 데모 계정 보호 — SoT: BE GlobalExceptionHandler DEMO_ACCOUNT_PROTECTED(403)·DemoAccountGuard 문구.
 export const DEMO_ACCOUNT_PROTECTED_CODE = 'DEMO_ACCOUNT_PROTECTED'
 export const DEMO_ACCOUNT_PROTECTED_MESSAGE = '데모 계정은 이 기능을 사용할 수 없습니다.'

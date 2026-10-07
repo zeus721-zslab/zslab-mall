@@ -14345,3 +14345,28 @@ D-246 §8 정정: '데모 로그인 요청 제한 문서 불일치' 항목 철�
 - SEC-09 전용 zone 【기각】 — 따로 정할 수치 근거가 없다.
 
 외부 검토: C / 생략
+
+## D-268 BE 보안·운영 보강 — 미결제 주문 한도 · 배송지 길이 검증 · 비관락 충돌 409 · Jackson 패치(퀄리티 v3 PR-1) (2026-10-07)
+
+### 결정
+- SEC-02: 구매자당 동시 미결제(PENDING_PAYMENT) 주문 3건을 넘는 신규 주문을 `OrderService.createOrder` 시작부에서 422 `UNPAID_ORDER_LIMIT_EXCEEDED`로 거부한다. 한도는 주문 도메인 정책 상수(`OrderService.MAX_UNPAID_ORDERS_PER_BUYER`)다. 이 예외는 D-66 멱등 키 삭제 대상에 넣어 같은 키 재시도를 허용한다. 캐시 응답·복구 경로는 `createOrder`를 다시 부르지 않으므로 한도 검사를 타지 않는다.
+- SEC-06: `ShippingAddressRequest` 각 필드에 `order_shipping_snapshot` 컬럼 길이 그대로 `@Size`, `deliveryMemo`(TEXT)는 500자. 주문서 배송 메모 입력칸에도 같은 상한.
+- OPS-05: `PessimisticLockingFailureException`(잠금 대기 초과 1205·교착 1213 → `CannotAcquireLockException` 계열, jakarta 비관락 예외 포함)을 409 `LOCK_CONFLICT`로 응답한다. 로그는 스택 없이 warn.
+- SEC-03: `jackson-bom` 3.1.7 · `jackson-2-bom` 2.21.7로 BOM 버전을 오버라이드한다.
+
+### §1-A 갈림길·채택/기각 근거
+- SEC-02 응답 β 전용 코드(422 UNPAID_ORDER_LIMIT_EXCEEDED) 【채택】 — 사용자가 할 일(기존 주문 결제·취소)이 달라 FE가 코드로 구분해 안내한다.
+- SEC-02 응답 α ORDER_NOT_PAYABLE 재사용 【기각】 — 재결제·판매 상태 사유와 같은 코드에 묶여 문구 의미가 섞인다.
+- SEC-02 경합 user 행 PESSIMISTIC_WRITE 직렬화 【채택】 / 락 미도입 【기각】 — 무락 count는 동시 요청 수만큼 초과한다(상한 없음, 외부 검토 지적).
+- trade-off: 구매자 user 행 X락이 재고 예약·commit까지 유지되어 같은 구매자의 프로필·비밀번호·탈퇴·장바구니·배송지 쓰기가 그동안 대기 — 3건 상한 보장 비용으로 수용
+- SEC-02 공개 데모 구매자 계정은 방문자가 공유해 최대 약 35분 422 가능 — 예외 처리하면 익명 재고 점유 구멍이 되므로 수용
+- SEC-06 DB 컬럼 길이 @Size · 메모 500자 【채택】 — 저장 실패(500)와 멱등 키 고착을 입력 단계 400으로 막는다.
+- SEC-06 5xx 멱등 키 해제 【범위 제외】 — D-66 유지. 정식 FE는 요청마다 새 키를 쓴다.
+- OPS-05 409 LOCK_CONFLICT 【채택】 — 서버 결함이 아닌 동시 처리 충돌이고, 재시도하면 풀린다.
+- OPS-05 503 + Retry-After 【기각】 — 기존 409 충돌 계열 관례와 맞지 않는다.
+- OPS-05 OPTIMISTIC_LOCK_FAILURE 재사용 【기각】 — 낙관·비관 충돌의 구분이 응답과 로그에서 사라진다.
+- OPS-05 주문 생성 중 LOCK_CONFLICT의 멱등 키 해제 【범위 제외】 — SEC-06의 5xx와 같은 D-66 유지. 정식 FE는 요청마다 새 키를 쓴다.
+- SEC-03 BOM 버전 오버라이드 【채택】 — 같은 minor 안 패치로 CVE를 덮는다.
+- SEC-03 Boot 업그레이드 【불가】 — 4.1.x는 4.1.1이 최신이다.
+
+외부 검토: A / 2라운드 · 지적 4건 중 수용 3건

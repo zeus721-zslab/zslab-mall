@@ -38,6 +38,7 @@ import com.zslab.mall.order.exception.OrderItemInvalidStateException;
 import com.zslab.mall.order.exception.OrderNotFoundException;
 import com.zslab.mall.order.exception.OrderNotPayableException;
 import com.zslab.mall.order.exception.PurchaseConfirmBlockedException;
+import com.zslab.mall.order.exception.UnpaidOrderLimitExceededException;
 import com.zslab.mall.payment.exception.InvalidCallbackException;
 import com.zslab.mall.payment.exception.OrderNotPendingPaymentException;
 import com.zslab.mall.payment.exception.PaymentAlreadyCompletedException;
@@ -91,6 +92,8 @@ import com.zslab.mall.user.exception.MemberAlreadyWithdrawnException;
 import com.zslab.mall.user.exception.MemberPhoneMissingException;
 import com.zslab.mall.user.exception.TemporaryPasswordDeliveryFailedException;
 import com.zslab.mall.user.exception.UserNotFoundException;
+import jakarta.persistence.LockTimeoutException;
+import jakarta.persistence.PessimisticLockException;
 import jakarta.servlet.http.HttpServletRequest;
 import java.net.URI;
 import java.util.List;
@@ -99,6 +102,7 @@ import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
 import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
@@ -141,9 +145,11 @@ public class GlobalExceptionHandler {
     private static final String CODE_IDEMPOTENCY_KEY_IN_PROGRESS = "IDEMPOTENCY_KEY_IN_PROGRESS";
     private static final String CODE_PAYMENT_IN_PROGRESS = "PAYMENT_IN_PROGRESS";
     private static final String CODE_OPTIMISTIC_LOCK_FAILURE = "OPTIMISTIC_LOCK_FAILURE";
+    private static final String CODE_LOCK_CONFLICT = "LOCK_CONFLICT";
     private static final String CODE_PAYMENT_ALREADY_COMPLETED = "PAYMENT_ALREADY_COMPLETED";
     private static final String CODE_ORDER_NOT_PAYABLE = "ORDER_NOT_PAYABLE";
     private static final String CODE_ORDER_NOT_PENDING_PAYMENT = "ORDER_NOT_PENDING_PAYMENT";
+    private static final String CODE_UNPAID_ORDER_LIMIT_EXCEEDED = "UNPAID_ORDER_LIMIT_EXCEEDED";
     private static final String CODE_CHECKOUT_ITEM_MISMATCH = "CHECKOUT_ITEM_MISMATCH";
     private static final String CODE_CART_CHECKOUT_EMPTY = "CART_CHECKOUT_EMPTY";
     private static final String CODE_INVALID_CALLBACK = "INVALID_CALLBACK";
@@ -574,6 +580,17 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.CONFLICT, CODE_OPTIMISTIC_LOCK_FAILURE, "동시 수정 충돌이 발생했습니다.", request);
     }
 
+    @ExceptionHandler({
+            PessimisticLockingFailureException.class, PessimisticLockException.class, LockTimeoutException.class})
+    public ResponseEntity<ProblemDetail> handlePessimisticLock(
+            RuntimeException exception, HttpServletRequest request) {
+        // D-268 OPS-05: 비관락 대기 초과(1205)·교착(1213)은 서버 결함이 아니라 동시 처리 충돌이므로 재시도 가능한 409로 응답한다.
+        // 낙관락(OPTIMISTIC_LOCK_FAILURE)과 형제 계층이라 우선순위 충돌이 없다. 운영상 예측 가능한 충돌이라 스택 없이 남긴다.
+        // EntityManager 직접 호출(refresh(PESSIMISTIC_WRITE) 등)은 @Repository 예외 변환을 거치지 않아 jakarta 예외로 올라오므로 함께 받는다.
+        log.warn("[Lock] 비관락 충돌(409): {} {} cause={}", request.getMethod(), request.getRequestURI(), exception.toString());
+        return build(HttpStatus.CONFLICT, CODE_LOCK_CONFLICT, "다른 처리와 겹쳤습니다. 잠시 후 다시 시도해 주세요.", request);
+    }
+
     @ExceptionHandler(EmailAlreadyExistsException.class)
     public ResponseEntity<ProblemDetail> handleEmailAlreadyExists(
             EmailAlreadyExistsException exception, HttpServletRequest request) {
@@ -699,6 +716,17 @@ public class GlobalExceptionHandler {
             OrderNotPayableException exception, HttpServletRequest request) {
         // §6: detail에 차단 사유 코드(PRODUCT_NOT_ON_SALE·OUT_OF_STOCK) 명시
         return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_ORDER_NOT_PAYABLE, exception.getReason().name(), request);
+    }
+
+    @ExceptionHandler(UnpaidOrderLimitExceededException.class)
+    public ResponseEntity<ProblemDetail> handleUnpaidOrderLimitExceeded(
+            UnpaidOrderLimitExceededException exception, HttpServletRequest request) {
+        // D-268 SEC-02: 미결제 주문 한도 도달(422). ORDER_NOT_PAYABLE(재결제 판매·재고 사유)과 의미가 달라 전용 코드로 구분한다.
+        // 예외 메시지의 내부 buyerId·건수는 로그에만 남기고 응답 detail은 고정 문구로 둔다(외부에는 public_id만 노출).
+        log.warn("[Order] 미결제 주문 한도 초과(422): {}", exception.getMessage());
+        return build(HttpStatus.UNPROCESSABLE_ENTITY, CODE_UNPAID_ORDER_LIMIT_EXCEEDED,
+                "결제 대기 중인 주문이 3건 있습니다. 주문 내역에서 기존 주문을 결제해 주세요. 결제하지 않은 주문은 30분 후 자동 취소됩니다.",
+                request);
     }
 
     @ExceptionHandler(CheckoutItemMismatchException.class)

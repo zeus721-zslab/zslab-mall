@@ -14,6 +14,8 @@ const SELLER_ERROR_MESSAGES: Record<string, string> = {
   VALIDATION_FAILED: '입력값을 확인해 주세요.',
   MALFORMED_REQUEST: '잘못된 요청입니다.',
   INTERNAL_ERROR: '서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.',
+  // D-268 OPS-05: 비관락 대기 초과·교착(409).
+  LOCK_CONFLICT: '다른 처리와 겹쳤습니다. 잠시 후 다시 시도해 주세요.',
   // 주문·발송(D-191·prepare-shipment)
   ORDER_NOT_FOUND: '주문 품목을 찾을 수 없습니다(내 품목이 아니거나 미결제 주문).',
   ORDER_ITEM_INVALID_STATE: '현재 품목 상태에서 허용되지 않는 처리입니다(발송은 결제완료 품목만).',

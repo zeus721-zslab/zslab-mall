@@ -9,6 +9,9 @@ version = "0.1.0-SNAPSHOT"
 
 // D-233: Boot 4.1.1 BOM의 Tomcat 11.0.24에 남는 OSV 권고 3건(DIGEST·긴 경로 constraint·FORM 인증)이 11.0.26에서 0건.
 extra["tomcat.version"] = "11.0.26"
+// D-268: Boot 4.1.1 BOM의 Jackson 3.1.5·2.21.5에 남는 CVE 5건을 덮는 최소 패치(같은 minor). Boot 4.1.x는 4.1.1이 최신이라 Boot 업그레이드로 해결 불가.
+extra["jackson-bom.version"] = "3.1.7"
+extra["jackson-2-bom.version"] = "2.21.7"
 
 java {
     sourceCompatibility = JavaVersion.VERSION_21

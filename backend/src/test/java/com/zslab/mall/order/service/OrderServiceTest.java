@@ -19,9 +19,11 @@ import com.zslab.mall.order.entity.OrderShippingSnapshot;
 import com.zslab.mall.order.enums.OrderItemStatus;
 import com.zslab.mall.order.enums.OrderStatus;
 import com.zslab.mall.order.event.OrderPlaced;
+import com.zslab.mall.order.exception.UnpaidOrderLimitExceededException;
 import com.zslab.mall.order.repository.OrderRepository;
 import com.zslab.mall.order.repository.OrderShippingSnapshotRepository;
 import com.zslab.mall.inbox.stream.InboxSignalPublisher;
+import com.zslab.mall.user.repository.UserRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import java.time.LocalDateTime;
@@ -59,6 +61,9 @@ class OrderServiceTest {
 
     @Mock
     private InboxSignalPublisher inboxSignalPublisher;
+
+    @Mock
+    private UserRepository userRepository;
 
     @InjectMocks
     private OrderService orderService;
@@ -103,6 +108,29 @@ class OrderServiceTest {
         inOrder.verify(eventPublisher).publishEvent(any(OrderPlaced.class));
         assertThat(snapshotCaptor.getValue().getRecipientName()).isEqualTo("홍길동");
         assertThat(ReflectionTestUtils.getField(snapshotCaptor.getValue(), "order")).isSameAs(result);
+    }
+
+    @Test
+    @DisplayName("createOrder: 미결제 주문 3건(한도) → UnpaidOrderLimitExceededException·저장·발행 없음(D-268)")
+    void createOrder_unpaidOrderLimitReached_throws() {
+        when(orderRepository.countByBuyerIdAndStatus(100L, OrderStatus.PENDING_PAYMENT))
+                .thenReturn((long) OrderService.MAX_UNPAID_ORDERS_PER_BUYER);
+
+        assertThatThrownBy(() -> orderService.createOrder(commandWithItems(1)))
+                .isInstanceOf(UnpaidOrderLimitExceededException.class);
+        verify(orderRepository, never()).save(any(Order.class));
+        verify(eventPublisher, never()).publishEvent(any(OrderPlaced.class));
+    }
+
+    @Test
+    @DisplayName("createOrder: 미결제 주문 2건(한도 미만) → 정상 생성(D-268 경계)")
+    void createOrder_belowUnpaidOrderLimit_creates() {
+        when(orderRepository.countByBuyerIdAndStatus(100L, OrderStatus.PENDING_PAYMENT))
+                .thenReturn((long) OrderService.MAX_UNPAID_ORDERS_PER_BUYER - 1);
+        when(orderRepository.existsByOrderNo(anyString())).thenReturn(false);
+        when(orderRepository.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        assertThat(orderService.createOrder(commandWithItems(1))).isNotNull();
     }
 
     @Test
