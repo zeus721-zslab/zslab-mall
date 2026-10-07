@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { afterEach, describe, it, expect, vi } from 'vitest'
 import { computed, ref } from 'vue'
 import { mountSuspended, mockNuxtImport } from '@nuxt/test-utils/runtime'
 import ProductDetailPage from '~/pages/products/[productPublicId].vue'
@@ -11,10 +11,14 @@ import type { ProductDetail } from '~/types/product'
 const MAIN_IMAGE_URL = '/api/v1/files/products/main.png'
 const SUB_IMAGE_URL = '/api/v1/files/products/sub.png'
 
-const { routeMock } = vi.hoisted(() => ({
+const { routeMock, navigateToMock, productOverride } = vi.hoisted(() => ({
   routeMock: { query: {}, params: { productPublicId: 'prd_TEST' }, meta: {} },
+  navigateToMock: vi.fn(),
+  // PF-19 케이스만 옵션·variant를 바꿔 끼운다(나머지 케이스는 기본 상품 그대로).
+  productOverride: { value: {} as Partial<ProductDetail> },
 }))
 mockNuxtImport('useRoute', () => () => routeMock)
+mockNuxtImport('navigateTo', () => navigateToMock)
 mockNuxtImport('useProductDetail', () => () => ({
   data: ref<ProductDetail>({
     productPublicId: 'prd_TEST',
@@ -34,6 +38,7 @@ mockNuxtImport('useProductDetail', () => () => ({
     optionGroups: [],
     variants: [],
     sellerPublicId: 'slr_TEST',
+    ...productOverride.value,
   }),
   pending: ref(false),
   error: ref(null),
@@ -75,5 +80,38 @@ describe('pages/products/[productPublicId].vue — 수량 상한(P-08)', () => {
     await wrapper.find('button[aria-label="수량 감소"]').trigger('click')
     expect(wrapper.find('button[aria-label="수량 감소"] + span').text()).toBe('998')
     expect(wrapper.find('[data-testid="quantity-limit-notice"]').exists()).toBe(false)
+  })
+})
+
+// PF-19: 바로구매는 옵션 유무와 관계없이 본문에 있고, 단일 옵션 상품의 하단 바도 [장바구니 담기][바로구매] 두 버튼이다.
+describe('pages/products/[productPublicId].vue — 바로구매 버튼(PF-19)', () => {
+  const MOBILE_BAR = 'div.fixed.inset-x-0.bottom-0.z-40'
+
+  afterEach(() => {
+    productOverride.value = {}
+    navigateToMock.mockReset()
+  })
+
+  it('단일 옵션 상품: 본문 바로구매 → 주문서 바로구매 경로 · 하단 바에 담기·바로구매', async () => {
+    productOverride.value = { variants: [{ variantPublicId: 'var_SINGLE', salePrice: 10000, soldOut: false, options: [] }] }
+    const wrapper = await mountSuspended(ProductDetailPage)
+    await wrapper.find('[data-testid="product-buy-now"]').trigger('click')
+    expect(navigateToMock).toHaveBeenCalledWith('/checkout?product=prd_TEST&variant=var_SINGLE&quantity=1')
+    const barButtons = wrapper.find(MOBILE_BAR).findAll('button').map((button) => button.text())
+    expect(barButtons).toEqual(['장바구니 담기', '바로구매'])
+  })
+
+  it('옵션 상품: 본문 바로구매는 옵션 확정 전 비활성 · 확정 후 주문서 바로구매 경로', async () => {
+    productOverride.value = {
+      optionGroups: [{ name: '색상', displayOrder: 0, values: [{ value: '블랙', displayOrder: 0 }] }],
+      variants: [{ variantPublicId: 'var_BLACK', salePrice: 12000, soldOut: false, options: [{ groupName: '색상', value: '블랙' }] }],
+    }
+    const wrapper = await mountSuspended(ProductDetailPage)
+    const buyNow = () => wrapper.find('[data-testid="product-buy-now"]')
+    expect(buyNow().attributes('disabled')).toBeDefined()
+    await wrapper.find('button[aria-pressed]:not([aria-label])').trigger('click')
+    expect(buyNow().attributes('disabled')).toBeUndefined()
+    await buyNow().trigger('click')
+    expect(navigateToMock).toHaveBeenCalledWith('/checkout?product=prd_TEST&variant=var_BLACK&quantity=1')
   })
 })

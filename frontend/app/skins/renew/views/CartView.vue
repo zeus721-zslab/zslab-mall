@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { CartPageVm } from '~/skins/contracts/cart'
+import type { CartItemView } from '~/types/cart'
 import FadeAmount from '../components/FadeAmount.vue'
 import MobileActionBar from '../components/MobileActionBar.vue'
 import RenewBadge from '../components/RenewBadge.vue'
@@ -9,7 +10,7 @@ import RenewNotice from '../components/RenewNotice.vue'
 // renew 장바구니(FE-71 · FE-78). 품목 = 목록 행 카드(≥768 왼쪽 정보 / 오른쪽 수량·금액·삭제). ≥1024 = 오른쪽 주문 금액 카드(sticky).
 // <1024 = 금액 카드가 목록 아래로, 하단 고정 바(금액 + 주문하기).
 // 선택·수량·삭제·주문은 모두 페이지 함수(runMutation)를 쓰고, busy 동안 컨트롤을 잠그는 규칙은 classic과 같다.
-defineProps<{ vm: CartPageVm }>()
+const props = defineProps<{ vm: CartPageVm }>()
 
 const CONTAINER = 'mx-auto max-w-[1440px] px-5 md:px-10 lg:px-16'
 const CARD = 'rounded-card bg-white shadow-e1'
@@ -20,6 +21,33 @@ const STEP_BUTTON =
 const CHECKBOX_HIT = '-m-2.5 flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center'
 // 요약 카드의 주문하기: 화면에 없을 때만 하단 고정 바가 나타난다(FE-71 도킹).
 const checkoutButton = ref<HTMLButtonElement | null>(null)
+
+// 삭제 확인 대상(null = 닫힘 · UX-06). 화면 상태만 — 삭제 자체는 페이지 removeItem(runMutation)이 한다.
+const removeTarget = ref<CartItemView | null>(null)
+// 닫힘 애니메이션 동안 설명이 비지 않게 마지막 대상 문구를 남긴다(배송지 삭제 확인과 같은 방식).
+const removeDescription = ref('')
+function requestRemove(item: CartItemView): void {
+  removeTarget.value = item
+  removeDescription.value = [item.productName ?? '상품', item.optionLabel].filter(Boolean).join(' · ')
+}
+function onRemoveOpenChange(open: boolean): void {
+  if (!open) removeTarget.value = null
+}
+function confirmRemove(): void {
+  const target = removeTarget.value
+  removeTarget.value = null
+  if (target) props.vm.removeItem(target)
+}
+
+// 행 조작 실패 문구는 주문 금액 카드 안이라 <1024에서는 목록 아래 — 실패하면 문구 위치로 스크롤한다(PF-17).
+const opErrorNotice = ref<InstanceType<typeof RenewNotice> | null>(null)
+watch(
+  () => props.vm.opErrorMessage,
+  (message) => {
+    if (message) (opErrorNotice.value?.$el as HTMLElement | undefined)?.scrollIntoView({ block: 'center' })
+  },
+  { flush: 'post' },
+)
 </script>
 
 <template>
@@ -122,13 +150,13 @@ const checkoutButton = ref<HTMLButtonElement | null>(null)
                 <p class="ml-auto whitespace-nowrap text-ink md:ml-0 md:min-w-28 md:text-right">
                   <span class="text-h3 font-semibold tabular-nums">{{ (item.displayPrice * item.quantity).toLocaleString('ko-KR') }}</span><span class="ml-0.5 text-small">원</span>
                 </p>
-                <!-- 3차 버튼(위험 글자색) -->
+                <!-- 3차 버튼(위험 글자색) · 확인창을 거쳐 삭제(UX-06) -->
                 <button
                   type="button"
                   class="btn btn-tertiary btn-sm text-destructive max-md:min-h-11"
                   :aria-label="`${item.productName ?? '상품'} 삭제`"
                   :disabled="vm.busy"
-                  @click="vm.removeItem(item)"
+                  @click="requestRemove(item)"
                 >
                   삭제
                 </button>
@@ -158,7 +186,7 @@ const checkoutButton = ref<HTMLButtonElement | null>(null)
           <RenewNotice v-if="vm.hasUnpurchasableSelected" tone="danger" class="mt-4">
             구매할 수 없는 상품이 포함되어 있습니다. 삭제 후 결제해 주세요.
           </RenewNotice>
-          <RenewNotice v-if="vm.opErrorMessage" tone="danger" class="mt-4">{{ vm.opErrorMessage }}</RenewNotice>
+          <RenewNotice v-if="vm.opErrorMessage" ref="opErrorNotice" tone="danger" class="mt-4">{{ vm.opErrorMessage }}</RenewNotice>
           <button ref="checkoutButton" type="button" class="btn btn-primary btn-lg mt-6 w-full" :disabled="!vm.checkoutEnabled" @click="vm.handleCheckout">
             주문하기
           </button>
@@ -176,5 +204,19 @@ const checkoutButton = ref<HTMLButtonElement | null>(null)
         />
       </div>
     </div>
+
+    <!-- 삭제 확인(UX-06): 설명 = 대상 · 확인하면 닫고 페이지 삭제 함수를 부른다(실패 문구는 주문 금액 카드). -->
+    <DialogConfirm
+      :open="removeTarget !== null"
+      title="이 상품을 장바구니에서 삭제하시겠습니까?"
+      :description="removeDescription"
+      confirm-label="삭제하기"
+      tone="danger"
+      content-test-id="cart-remove-dialog"
+      cancel-test-id="cart-remove-cancel"
+      confirm-test-id="cart-remove-confirm"
+      @update:open="onRemoveOpenChange"
+      @confirm="confirmRemove"
+    />
   </div>
 </template>

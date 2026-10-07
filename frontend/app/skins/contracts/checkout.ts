@@ -12,6 +12,12 @@ import type {
 } from '~/lib/constants/account'
 import type { PAYMENT_METHODS } from '~/lib/constants/payment'
 
+/** 주문서 오류 알림의 이동 링크(장바구니 · 주문 내역 · 주문 상세가 한 자리를 쓴다 · PF-21). */
+export interface CheckoutErrorAction {
+  to: string
+  label: string
+}
+
 /**
  * pages/checkout/index.vue → CheckoutView. 배송지 7필드·결제수단·저장 체크는 뷰가 v-model로 쓴다.
  * selectedKey 변경 시 뷰는 onSelectAddress를 호출해 폼을 저장 주소로 채우거나 비운다.
@@ -39,7 +45,8 @@ export interface CheckoutPageVm {
   saveAddress: boolean
   method: PaymentMethod
   errorMessage: string
-  showCartLink: boolean
+  /** 오류 알림에 붙는 링크. 없으면 null. */
+  errorAction: CheckoutErrorAction | null
   submitting: boolean
   canSubmit: boolean
   formatPrice: (value: number) => string

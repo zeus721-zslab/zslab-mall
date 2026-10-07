@@ -4,6 +4,8 @@ export type MockPaymentCallbackType = 'SUCCESS' | 'FAILURE' | 'CANCEL'
 export interface PaymentMockPageVm {
   hasAttemptKey: boolean
   resultMessage: string
+  /** 바로구매 주문이면 실패·취소 후 돌아갈 상품 상세 경로(PF-20), 장바구니 결제면 null. */
+  buyNowProductPath: string | null
   methodLabel: string
   amountLabel: string
   errorMessage: string

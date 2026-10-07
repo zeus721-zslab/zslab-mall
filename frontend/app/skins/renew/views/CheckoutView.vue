@@ -49,6 +49,16 @@ const addressHintShown = computed(
 const submitLabel = computed(() => (props.vm.submitting ? '주문 처리 중…' : '결제하기'))
 // 결제 금액 카드의 결제하기: 화면에 없을 때만 하단 고정 바가 나타난다(FE-71 도킹).
 const submitButton = ref<HTMLButtonElement | null>(null)
+
+// 하단 바에서 제출하면 오류 알림이 화면 밖에 남는다 — 오류가 뜨면 알림 위치로 스크롤한다(PF-17 · 바 높이는 그대로).
+const errorNotice = ref<InstanceType<typeof RenewNotice> | null>(null)
+watch(
+  () => props.vm.errorMessage,
+  (message) => {
+    if (message) (errorNotice.value?.$el as HTMLElement | undefined)?.scrollIntoView({ block: 'center' })
+  },
+  { flush: 'post' },
+)
 </script>
 
 <template>
@@ -252,11 +262,11 @@ const submitButton = ref<HTMLButtonElement | null>(null)
             </p>
           </template>
 
-          <!-- 오류·장바구니 링크: 버튼 바로 위 -->
-          <RenewNotice v-if="vm.errorMessage" tone="danger" class="mt-5">
+          <!-- 오류·이동 링크(장바구니 · 주문 내역 · 주문 상세): 버튼 바로 위 -->
+          <RenewNotice v-if="vm.errorMessage" ref="errorNotice" tone="danger" class="mt-5">
             <p>{{ vm.errorMessage }}</p>
-            <template v-if="vm.showCartLink" #action>
-              <NuxtLink to="/cart" :class="CART_LINK">장바구니로 이동</NuxtLink>
+            <template v-if="vm.errorAction" #action>
+              <NuxtLink :to="vm.errorAction.to" :class="CART_LINK">{{ vm.errorAction.label }}</NuxtLink>
             </template>
           </RenewNotice>
 

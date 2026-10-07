@@ -7,12 +7,14 @@ import { gotoClientSide } from './helpers/navigation'
  * (데모 구매자의 실제 장바구니를 바꾸지 않는다).
  * ① 390px: 카테고리 줄이 헤더 밖 · 하단 바로 담기 → 스낵바가 바 위 · 도우미 버튼이 스낵바 위 · 뱃지 1 · 스크롤하면 섹션 바가 헤더 바로 아래
  * ② 1280px: 본문 버튼으로 담기 → 스낵바 노출
+ * ③ 375px: 하단 바 담기 실패 → 오류 문구가 화면 안(PF-17)
  * 스크린샷 3장 → playwright-report/detail-cart-ux(docs/frontend/screens-detail-cart-ux로 옮긴다).
  */
 const PRODUCT_ID = 'prd_E2E00000000000000000000990'
 const SCREENSHOT_DIR = 'playwright-report/detail-cart-ux'
 const DESKTOP_VIEWPORT = { width: 1280, height: 800 }
 const MOBILE_VIEWPORT = { width: 390, height: 844 }
+const PF17_VIEWPORT = { width: 375, height: 667 }
 const LONG_DESCRIPTION = Array.from({ length: 60 }, (_, index) => `상세 안내 ${index + 1}번째 줄입니다.`).join('\n')
 
 const VARIANT_ID = 'var_E2E990'
@@ -108,5 +110,21 @@ test.describe('상세 담기 피드백·카테고리 줄(FE-99)', () => {
     await expect(snackbarBox(page)).toBeVisible()
     await expect(snackbarBox(page).getByRole('link', { name: '장바구니 보기' })).toHaveAttribute('href', '/cart')
     await page.screenshot({ path: `${SCREENSHOT_DIR}/snackbar-desktop.png` })
+  })
+
+  // PF-17: 하단 바에서 담기가 실패하면 본문 버튼 아래 오류 문구로 스크롤해 화면 안에 보인다.
+  test('③ 375px 하단 바 담기 실패(422) → 오류 문구가 화면 안', async ({ page }) => {
+    await page.route((url) => url.pathname === '/api/v1/cart/items', (route) =>
+      route.fulfill({ status: 422, json: { code: 'CART_ITEM_NOT_PURCHASABLE' } }),
+    )
+    await page.setViewportSize(PF17_VIEWPORT)
+    await gotoClientSide(page, `/products/${PRODUCT_ID}`)
+    await expect(page.getByText(PRODUCT_DETAIL.name).first()).toBeVisible()
+
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
+    await expect(page.locator('body')).toHaveAttribute('data-mobile-action-bar', 'shown')
+    await page.locator('div.fixed.inset-x-0.bottom-0.z-40').getByRole('button', { name: '장바구니 담기' }).click()
+
+    await expect(page.getByRole('alert').filter({ hasText: '지금 구매할 수 없는 상품입니다.' })).toBeInViewport()
   })
 })

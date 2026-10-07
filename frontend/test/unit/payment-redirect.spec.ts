@@ -46,4 +46,15 @@ describe('resolvePaymentRedirect', () => {
     const withOverride = resolvePaymentRedirect(redirectUrl, paymentLocation, 'ord_01ORDER')
     expect(withOverride.kind === 'mock' && withOverride.path).toContain('orderPublicId=ord_01ORDER')
   })
+
+  // PF-20: 바로구매 주문은 출처(상품)를 모의 결제 화면에 넘겨 실패·취소 안내를 장바구니가 아닌 상품 기준으로 보인다.
+  it('바로구매 상품 번호가 있으면 buyNowProduct query를 덧붙이고, 없으면 붙이지 않는다', () => {
+    const redirectUrl = `${MOCK_PG_ORIGIN}/checkout?attemptKey=pat_01XYZ&amount=15000&method=CARD`
+    expect(resolvePaymentRedirect(redirectUrl, LOCATION, undefined, 'prd_01BUY')).toEqual({
+      kind: 'mock',
+      path: '/payment/mock?attemptKey=pat_01XYZ&amount=15000&method=CARD&orderPublicId=ord_01ABC&buyNowProduct=prd_01BUY',
+    })
+    const cartPath = resolvePaymentRedirect(redirectUrl, LOCATION)
+    expect(cartPath.kind === 'mock' && cartPath.path).not.toContain('buyNowProduct')
+  })
 })

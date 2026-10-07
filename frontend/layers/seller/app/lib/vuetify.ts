@@ -1,7 +1,7 @@
 import type { NuxtApp } from '#app'
 
-/** 셀러 Vuetify 테마 primary — 관리자(브랜드 파랑 #2563EB)와 구분되는 teal. 주요 버튼·포커스·링크·활성 메뉴 배지에만 쓴다. */
-const SELLER_PRIMARY_COLOR = '#0D9488'
+/** 셀러 Vuetify 테마 primary — 관리자(브랜드 파랑 #2563EB)와 구분되는 teal. 주요 버튼·포커스·링크·활성 메뉴 배지에만 쓴다. teal-700은 흰 바탕 글자 대비 4.5 이상(PF-02). */
+const SELLER_PRIMARY_COLOR = '#0F766E'
 
 /**
  * 셀러 light 팔레트(D-1 관리자 스타일 확장·자체 테마). 옅은 회색 배경 위 흰 카드(무테두리·radius 16·연한 그림자)는 관리자와 같은 골격이고
@@ -17,10 +17,11 @@ const SELLER_LIGHT_THEME = {
     'on-surface': '#18181B',
     'on-surface-variant': '#52525B', // zinc-600
     secondary: '#71717A', // zinc-500
-    success: '#22C55E',
+    // 상태색은 칩 의미색 글자 토큰(seller-vuetify.css --slr-semantic-*-fg)과 같은 값 — 흰 바탕 글자 대비 4.5 이상(PF-18).
+    success: '#15803D',
     info: '#0EA5E9',
-    warning: '#F97316',
-    error: '#EF4444',
+    warning: '#B45309',
+    error: '#B91C1C',
   },
   variables: {
     'border-color': '#E4E4E7', // zinc-200
