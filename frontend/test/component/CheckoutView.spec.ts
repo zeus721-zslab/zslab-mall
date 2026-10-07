@@ -64,6 +64,22 @@ describe('CheckoutView 배송 메모 상한(D-268 SEC-06)', () => {
   })
 })
 
+describe('CheckoutView 주문 상품 조회 실패(UX-02)', () => {
+  it('cartError면 결제 금액 칸에 "선택된 상품이 없습니다"·금액 없이 주문 상품 칸에 오류만', async () => {
+    const vm = checkoutVm()
+    vm.cartError = new Error('cart fetch failed')
+    const wrapper = await mountSuspended(CheckoutView, { props: { vm } })
+    const aside = wrapper.get('aside[aria-label="결제 금액"]')
+    expect(aside.text()).not.toContain('선택된 상품이 없습니다')
+    expect(aside.text()).not.toContain('총 결제 금액')
+    expect(wrapper.text()).toContain('주문 상품을 불러오지 못했습니다')
+
+    vm.cartError = undefined
+    await wrapper.vm.$nextTick()
+    expect(wrapper.get('aside[aria-label="결제 금액"]').text()).toContain('선택된 상품이 없습니다')
+  })
+})
+
 describe('CheckoutView 주소 안내(FE-78 A-2)', () => {
   it('처음 진입·다른 필수 항목이 비면 미표시 · 주소만 비면 표시 · 주소를 고르면 사라짐', async () => {
     const vm = checkoutVm()

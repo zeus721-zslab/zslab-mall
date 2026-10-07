@@ -156,3 +156,43 @@ describe('ProductGlanceChips — 리뷰·Q&A 칩(D4)', () => {
     expect(mounted.get('[data-testid="glance-questions"]').text()).toBe('궁금한 점 물어보기')
   })
 })
+
+// UX-02: 조회 실패 시에도 기본값 0이 "0개의 상품" · 건수 0 · 빈 상태 칩으로 보이지 않는다(오류 상태만 보인다).
+describe('조회 실패 시 0건·빈 상태 미표시(UX-02)', () => {
+  it('RenewProductListing: 실패 시 "0개의 상품" · 빈 목록 없이 오류 상태만', async () => {
+    const list = listVm(false)
+    list.hasError = true
+    mounted = await mountSuspended(RenewProductListing, { props: { list, categoryId: null } })
+    expect(mounted.text()).not.toContain('개의 상품')
+    expect(mounted.find('[data-testid="listing-count"]').exists()).toBe(false)
+    expect(mounted.find('[data-testid="listing-empty"]').exists()).toBe(false)
+  })
+
+  it('ProductReviewSection: 실패 시 머리말 건수 없음', async () => {
+    const reviews = reviewsVm(false)
+    reviews.failed = true
+    mounted = await mountSuspended(ProductReviewSection, { props: { reviews } })
+    expect(mounted.find('[data-testid="product-reviews-count"]').exists()).toBe(false)
+    expect(mounted.find('#product-reviews-title').text()).toBe('리뷰')
+    expect(mounted.find('[data-testid="product-reviews-empty"]').exists()).toBe(false)
+  })
+
+  it('ProductQuestionSection: 실패 시 목록 머리말 건수 없음', async () => {
+    const questions = questionsVm(false)
+    questions.failed = true
+    mounted = await mountSuspended(ProductQuestionSection, { props: { questions } })
+    expect(mounted.find('[data-testid="product-questions-count"]').exists()).toBe(false)
+    expect(mounted.find('h3').text()).toBe('질문')
+    expect(mounted.find('[data-testid="product-questions-empty"]').exists()).toBe(false)
+  })
+
+  it('ProductGlanceChips: 실패 시 "첫 리뷰를 기다려요" · "궁금한 점 물어보기" 칩 없음', async () => {
+    const reviews = reviewsVm(false)
+    const questions = questionsVm(false)
+    reviews.failed = true
+    questions.failed = true
+    mounted = await mountSuspended(ProductGlanceChips, { props: { reviews, questions, nav: navVm() } })
+    expect(mounted.find('[data-testid="glance-review"]').exists()).toBe(false)
+    expect(mounted.find('[data-testid="glance-questions"]').exists()).toBe(false)
+  })
+})

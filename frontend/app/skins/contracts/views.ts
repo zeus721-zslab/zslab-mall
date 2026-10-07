@@ -16,6 +16,8 @@ export type SkinViewName =
   | 'WithdrawView'
   | 'LoginView'
   | 'SignupView'
+  | 'ForgotPasswordView'
+  | 'ResetPasswordView'
   | 'PasswordView'
   | 'ProfileView'
   | 'OrdersView'

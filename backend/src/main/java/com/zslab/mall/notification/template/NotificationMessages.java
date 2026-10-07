@@ -13,6 +13,21 @@ public final class NotificationMessages {
     public static final String SELLER_DELAY_NUDGE_SMS =
             "[zslab-mall] 처리 기한이 지난 건이 있습니다. 발송 대기 %d건, 상품 Q&A 미답변 %d건. 셀러센터 인박스에서 확인해 주세요.";
 
+    /** 비밀번호 재설정 메일 제목(D-269). */
+    public static final String PASSWORD_RESET_EMAIL_SUBJECT = "[zslab-mall] 비밀번호 재설정 안내";
+
+    /**
+     * 비밀번호 재설정 메일 본문(D-269). {@code %d} = 유효 시간(분·호출자가 formatted로 채움) · {@code {{resetLink}}} = EmailMessage 변수(저장본은 마스킹).
+     */
+    public static final String PASSWORD_RESET_EMAIL_BODY = """
+            비밀번호 재설정을 요청하셨습니다.
+            아래 링크에서 새 비밀번호를 설정해 주세요. 링크는 %d분 동안 한 번만 쓸 수 있습니다.
+
+            {{resetLink}}
+
+            요청하지 않으셨다면 이 메일을 무시하세요. 비밀번호는 바뀌지 않습니다.
+            """;
+
     private NotificationMessages() {
     }
 }

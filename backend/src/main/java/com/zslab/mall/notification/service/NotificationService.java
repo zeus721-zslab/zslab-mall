@@ -39,6 +39,7 @@ import com.zslab.mall.user.repository.UserRepository;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -538,14 +539,28 @@ public class NotificationService {
         return notificationLog.getStatus();
     }
 
-    private void save(Long recipientUserId, String templateCode, PolymorphicTargetType targetType,
-            Long targetId, String title, String content, String eventName) {
+    /**
+     * 범용 메일 발송(D-269). EMAIL 채널 로그를 적재하고 {@link NotificationSender}로 즉시 발송한 뒤 결과 상태를 돌려준다. 민감 메일은 발송은
+     * 원문으로, 저장은 마스킹본으로 한다({@link EmailMessage}). 발송 실패는 FAILED 기록·계측만 하고 던지지 않는다(이벤트 알림과 같은 dispatch).
+     *
+     * @return 발송 후 로그 상태(SENT·FAILED)
+     */
+    public NotificationLogStatus sendEmail(EmailMessage message) {
         NotificationLog notificationLog = NotificationLog.create(
-                recipientUserId, DEFAULT_CHANNEL, templateCode, targetType, targetId, title, content);
+                message.recipientUserId(), DEFAULT_CHANNEL, message.templateCode(), message.targetType(), message.targetId(),
+                message.subject(), message.renderStoredContent());
         notificationLogRepository.save(notificationLog);
         log.info("[Notification] 적재 완료: template={} target_type={} target_id={} recipient={}",
-                templateCode, targetType, targetId, recipientUserId);
-        dispatch(notificationLog, eventName, () -> notificationSender.send(notificationLog));
+                message.templateCode(), message.targetType(), message.targetId(), message.recipientUserId());
+        String body = message.renderBody();
+        dispatch(notificationLog, message.eventName(), () -> notificationSender.send(notificationLog, body));
+        return notificationLog.getStatus();
+    }
+
+    /** 이벤트 알림 메일 — 완성된 본문을 변수 없이 넘기므로 저장·발송 본문이 같다(sensitive=false·D-269 이전과 동일). */
+    private void save(Long recipientUserId, String templateCode, PolymorphicTargetType targetType,
+            Long targetId, String title, String content, String eventName) {
+        sendEmail(new EmailMessage(recipientUserId, title, content, Map.of(), false, templateCode, targetType, targetId, eventName));
     }
 
     /**

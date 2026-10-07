@@ -18,8 +18,8 @@ import org.springframework.stereotype.Component;
 public class MockNotificationSender implements NotificationSender {
 
     @Override
-    public void send(NotificationLog notificationLog) {
-        // Mock: 외부 채널 호출 대신 발송 사실만 로깅하고 성공 반환한다(실 어댑터 진입 시 본 구현만 교체).
+    public void send(NotificationLog notificationLog, String body) {
+        // Mock: 외부 채널 호출 대신 발송 사실만 로깅하고 성공 반환한다. 본문은 민감 정보(재설정 링크)를 담을 수 있어 남기지 않는다(D-269).
         log.info("[MockNotificationSender] 발송 모사: channel={} template={} target_type={} target_id={} recipient={}",
                 notificationLog.getChannel(), notificationLog.getTemplateCode(), notificationLog.getTargetType(),
                 notificationLog.getTargetId(), notificationLog.getRecipientUserId());

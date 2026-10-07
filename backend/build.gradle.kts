@@ -27,6 +27,8 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("org.springframework.boot:spring-boot-starter-security")
+    // D-269: 이메일 실발송(SmtpNotificationSender·EMAIL_SENDER=smtp일 때만 사용). 기본 mock에서는 JavaMailSender를 쓰지 않는다.
+    implementation("org.springframework.boot:spring-boot-starter-mail")
     implementation("io.jsonwebtoken:jjwt-api:0.12.6")
     runtimeOnly("io.jsonwebtoken:jjwt-impl:0.12.6")
     runtimeOnly("io.jsonwebtoken:jjwt-jackson:0.12.6")
@@ -52,6 +54,8 @@ dependencies {
     testImplementation("org.testcontainers:testcontainers-mariadb")
     // Track 106-1: 리뷰 요약 비동기 재계산(커밋 후 전용 실행기) 결과 대기. 버전은 Boot BOM 관리.
     testImplementation("org.awaitility:awaitility")
+    // D-269: 비밀번호 재설정·기존 알림 메일의 실 SMTP 수신 검증(테스트 내 SMTP 서버).
+    testImplementation("com.icegreen:greenmail-junit5:2.1.5")
 }
 
 tasks.test {

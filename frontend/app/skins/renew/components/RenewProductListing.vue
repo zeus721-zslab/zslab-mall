@@ -49,9 +49,9 @@ const tabsEdges = trackScrollEdges(tabsElement)
         <div>
           <p class="text-caption uppercase tracking-[0.12em] opacity-80">Category</p>
           <h1 class="mt-2 text-h1">{{ title }}</h1>
-          <!-- 상품 수: 응답 전에는 기본값 0이 "0개의 상품"으로 보이지 않게 그리드와 같은 스켈레톤 막대로 둔다(FE-111). -->
+          <!-- 상품 수: 응답 전에는 기본값 0이 "0개의 상품"으로 보이지 않게 그리드와 같은 스켈레톤 막대로 둔다(FE-111). 조회 실패 시에도 숨긴다(UX-02 · 검색 화면과 같은 규칙). -->
           <div v-if="list.pending" class="mt-3 h-3 w-24 rounded-full bg-surface-muted" aria-hidden="true" data-testid="listing-count-skeleton"></div>
-          <p v-else class="mt-3 text-small">
+          <p v-else-if="!list.hasError" class="mt-3 text-small" data-testid="listing-count">
             <span class="font-semibold tabular-nums">{{ list.totalCount.toLocaleString('ko-KR') }}</span>개의 상품
           </p>
         </div>

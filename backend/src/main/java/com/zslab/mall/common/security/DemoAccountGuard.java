@@ -86,7 +86,8 @@ public class DemoAccountGuard {
         }
     }
 
-    private boolean isProtected(User user) {
+    /** 보호 대상 데모 계정이면 true — 거부 대신 조용히 건너뛰어야 하는 경로용(비밀번호 재설정 발급·D-269). */
+    public boolean isProtected(User user) {
         return isProtectedEmail(user.getEmail());
     }
 

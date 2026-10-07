@@ -45,7 +45,7 @@ class MockNotificationSenderTest {
         NotificationLog notificationLog = NotificationLog.create(777L, NotificationChannel.EMAIL,
                 "TPL_ORDER_PLACED", PolymorphicTargetType.ORDER, 100L, "주문 접수", "내용");
 
-        sender.send(notificationLog);
+        sender.send(notificationLog, "내용");
 
         assertThat(appender.list).hasSize(1);
         ILoggingEvent event = appender.list.get(0);

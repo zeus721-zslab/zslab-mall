@@ -91,7 +91,7 @@ class NotificationDispatchIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("T2 발송 실패 주입 → NotificationLog FAILED 전이·failed_reason 저장·zslab.notification.failed 계측·원 주문 커밋 유지")
     void orderPlaced_dispatchFailure_marksFailed_recordsMetric() {
-        doThrow(new RuntimeException(FAIL_REASON)).when(notificationSender).send(any());
+        doThrow(new RuntimeException(FAIL_REASON)).when(notificationSender).send(any(), any());
         double failedBefore = notificationFailedCount(EVENT_NAME, CHANNEL);
 
         tx.executeWithoutResult(s -> eventPublisher.publishEvent(
@@ -110,7 +110,7 @@ class NotificationDispatchIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("T3 발송 실패 → dispatch 내부 흡수(재throw 없음)·핸들러 catch 미진입(zslab.event.failed 무증가)·트랜잭션 커밋 유지")
     void orderPlaced_dispatchFailure_doesNotRethrow_handlerCatchNotEntered() {
-        doThrow(new RuntimeException(FAIL_REASON)).when(notificationSender).send(any());
+        doThrow(new RuntimeException(FAIL_REASON)).when(notificationSender).send(any(), any());
         double eventFailedBefore = eventFailedCount(EVENT_NAME);
         double notificationFailedBefore = notificationFailedCount(EVENT_NAME, CHANNEL);
 

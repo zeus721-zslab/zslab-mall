@@ -14,6 +14,8 @@ mockNuxtImport('useRoute', () => () => routeMock)
 mockNuxtImport('navigateTo', () => navigateToMock)
 mockNuxtImport('useAuthStore', () => () => ({ isAuthenticated: true, login: vi.fn(), loginDemo: vi.fn() }))
 mockNuxtImport('$fetch', () => fetchMock)
+// 비밀번호 재설정 사용 가능 조회(D-269)는 이 검증과 무관하다 — 비활성으로 고정한다.
+mockNuxtImport('usePasswordReset', () => () => ({ fetchAvailability: async () => false, requestReset: vi.fn(), confirmReset: vi.fn() }))
 
 async function redirectFor(redirect: string): Promise<string | undefined> {
   routeMock.query = { redirect }

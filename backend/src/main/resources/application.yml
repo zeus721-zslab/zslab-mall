@@ -72,6 +72,21 @@ spring:
           max-nesting-depth: 1000
         write:
           max-nesting-depth: 1000
+  # D-269: SMTP 접속 정보(.env SMTP_* 키). zslab.notification.email-sender=smtp일 때만 SmtpNotificationSender가 쓴다 — 기본 mock에서는 미사용.
+  mail:
+    host: ${SMTP_HOST:}
+    port: ${SMTP_PORT:587}
+    username: ${SMTP_USERNAME:}
+    password: ${SMTP_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+          connectiontimeout: 5000
+          timeout: 10000
+          writetimeout: 10000
   lifecycle:
     timeout-per-shutdown-phase: 20s
   task:
@@ -95,6 +110,10 @@ management:
   endpoint:
     health:
       show-details: never
+  health:
+    # D-269: mail 의존성이 SMTP 접속 헬스 지표를 자동 등록한다. 메일 서버 장애가 앱 healthy 판정(컨테이너 재시작·배포 게이트)을 흔들지 않게 끈다.
+    mail:
+      enabled: false
 
 logging:
   level:
@@ -149,7 +168,11 @@ zslab:
     gateway: ${PAYMENT_GATEWAY:mock}
   notification:
     sms-sender: ${SMS_SENDER:mock}
+    # D-269: smtp = SmtpNotificationSender(spring.mail.* 필요·SMTP_HOST 비면 기동 실패). 이 값이 mock이 아니면 구매자 비밀번호 재설정이 열린다.
     email-sender: ${EMAIL_SENDER:mock}
+  # D-269: 메일 본문 링크의 프런트 기준 URL(비밀번호 재설정 링크). compose가 APP_DOMAIN으로 넘긴다. 요청 Host 헤더로 만들지 않는다.
+  frontend:
+    base-url: https://${APP_DOMAIN:zslab-mall.duckdns.org}
   # Track 99 D-210 배송 조회·자동 배송완료. tracker는 위 3개와 같은 선택 장치이며(mock 외 값은 실 구현체 필수) mock-days는
   # Mock 어댑터가 "발송 후 며칠이면 배달 완료로 본다"로 쓰는 값이다(실 어댑터에서는 무시된다).
   # auto-complete.enabled=false면 자동 배송완료 스케줄러 빈이 생성되지 않는다(수동 배송완료 API는 영향 없음).

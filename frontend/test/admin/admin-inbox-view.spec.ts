@@ -20,6 +20,9 @@ import {
 import { ADMIN_INBOX_PATH, ADMIN_MENU, resolveActiveMenuPath } from '#layers/admin/app/lib/constants/admin-menu'
 import { type InboxItem, normalizeInboxItem } from '~/lib/inbox-view'
 import type { ClaimSuggestion, ClaimType } from '~/lib/constants/claim'
+import { mountSuspended } from '@nuxt/test-utils/runtime'
+import { createVuetify } from 'vuetify'
+import AdminInboxList from '#layers/admin/app/components/admin/AdminInboxList.vue'
 
 function claimRow(ref: string, claimType: ClaimType, suggestion: ClaimSuggestion): InboxItem {
   return normalizeInboxItem({ type: 'CLAIM_REQUESTED', ref, title: '상품', subtitle: 'ORD1', overdue: false, targetKey: 'CLAIM', claimType, suggestion })
@@ -136,5 +139,21 @@ describe('관리자 인박스', () => {
     expect(ADMIN_MENU[1]?.to).toBe('/admin')
     expect(resolveActiveMenuPath('/admin/inbox')).toBe('/admin/inbox')
     expect(ADMIN_MENU.some((group) => group.label === '고객센터')).toBe(true)
+  })
+})
+
+// UX-03 명도 대비: 보조 문구(제안 배지 포함)는 투명도 대신 색(클래스)으로 약하게 한다.
+describe('관리자 인박스 목록 대비(UX-03)', () => {
+  it('보조 문구에 adm-inbox-subtitle 클래스 · 제안 배지는 그 안에 남는다', async () => {
+    const wrapper = await mountSuspended(AdminInboxList, {
+      props: {
+        items: [claimRow('clm_1', 'RETURN', 'APPROVE')], counts: [{ type: 'CLAIM_REQUESTED' as const, count: 1 }], tab: 'TODAY' as const, type: null,
+        selectedKey: null, bulkSelected: [], loading: false, error: null, truncated: false, nowMs: 0,
+      },
+      global: { plugins: [createVuetify()] },
+    })
+    const subtitle = wrapper.get('[data-testid="inbox-item"] .v-list-item-subtitle')
+    expect(subtitle.classes()).toContain('adm-inbox-subtitle')
+    expect(subtitle.find('[data-testid="inbox-item-suggestion"]').exists()).toBe(true)
   })
 })

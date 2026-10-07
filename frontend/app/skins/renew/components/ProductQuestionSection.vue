@@ -104,8 +104,8 @@ const CARD = 'rounded-card bg-white px-5 py-8 shadow-e1 md:px-10 md:py-10'
     <!-- 공개 질문 목록 -->
     <div class="mt-10 border-t border-line pt-6">
       <h3 class="text-h3 text-ink">
-        <!-- 건수: 첫 페이지 응답 전 기본값 0을 보이지 않는다(아래 목록의 pending 분기와 같은 판정 · FE-111). -->
-        질문 <span v-if="!questions.pending" class="tabular-nums" data-testid="product-questions-count">{{ questions.totalCount.toLocaleString('ko-KR') }}</span>
+        <!-- 건수: 첫 페이지 응답 전·조회 실패 시 기본값 0을 보이지 않는다(아래 목록의 pending 분기와 같은 판정 · FE-111 · UX-02). -->
+        질문 <span v-if="!questions.pending && !questions.failed" class="tabular-nums" data-testid="product-questions-count">{{ questions.totalCount.toLocaleString('ko-KR') }}</span>
       </h3>
 
       <div v-if="questions.failed && questions.items.length === 0" class="mt-4">
