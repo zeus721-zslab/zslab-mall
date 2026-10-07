@@ -53,11 +53,12 @@ function progressOf(id: ProductSectionId): number {
 </script>
 
 <template>
+  <!-- ≥768 오른쪽 여백 = 도우미 버튼 폭(56px · FaqAssistant md:right-6) — 1440 등에서 물어보기가 도우미 버튼에 가리지 않게(UX-10) -->
   <nav
     :id="PRODUCT_SECTION_NAV_ID"
     ref="root"
     aria-label="상품 정보 바로가기"
-    class="sticky z-40 -mx-5 mt-16 bg-surface-page/95 px-5 py-2 backdrop-blur-sm md:mx-0 md:px-0"
+    class="sticky z-40 -mx-5 mt-16 bg-surface-page/95 px-5 py-2 backdrop-blur-sm md:mx-0 md:pl-0 md:pr-14"
     :style="{ top: `calc(env(safe-area-inset-top, 0px) + ${nav.stickyTop}px)` }"
     data-testid="product-section-nav"
     @keydown.esc="collapse(true)"

@@ -20,11 +20,17 @@ const CARD = 'rounded-card bg-white shadow-e1'
         <NuxtLink to="/cart" class="btn btn-secondary btn-md mt-4">장바구니로 이동</NuxtLink>
       </div>
 
-      <!-- 결제 종결(실패/취소) -->
+      <!-- 결제 종결(실패/취소): 주문은 종료되므로 다시 담거나 고를 곳으로 돌려보낸다 — 바로구매는 상품, 장바구니 결제는 장바구니(PF-20). -->
       <div v-else-if="vm.resultMessage" :class="[CARD, 'px-5 py-8 text-center md:px-6']">
         <p class="text-h3 text-ink">{{ vm.resultMessage }}</p>
-        <p class="mt-1 text-body text-sub">장바구니 상품은 그대로 보관되어 있습니다.</p>
-        <NuxtLink to="/cart" class="btn btn-secondary btn-md mt-4">장바구니로 돌아가기</NuxtLink>
+        <template v-if="vm.buyNowProductPath">
+          <p class="mt-1 text-body text-sub">상품 페이지에서 다시 주문할 수 있습니다.</p>
+          <NuxtLink :to="vm.buyNowProductPath" class="btn btn-secondary btn-md mt-4">상품으로 돌아가기</NuxtLink>
+        </template>
+        <template v-else>
+          <p class="mt-1 text-body text-sub">장바구니 상품은 그대로 보관되어 있습니다.</p>
+          <NuxtLink to="/cart" class="btn btn-secondary btn-md mt-4">장바구니로 돌아가기</NuxtLink>
+        </template>
       </div>
 
       <!-- 결제 진행: 결제 수단·금액 카드 -->

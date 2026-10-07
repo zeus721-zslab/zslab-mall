@@ -6,6 +6,7 @@ import { gotoClientSide } from './helpers/navigation'
  * 긴 상품 설명으로 리뷰·Q&A가 첫 화면 밖에 있는 상황을 만든다.
  * ① Q&A 칩 → 묻기 섹션이 화면에 들어오고 입력창에 포커스
  * ② 섹션 바 물어보기 → 입력 → 패널에 즉시 답 카드 → 묻기 섹션 입력창에 같은 초안
+ * ③ 1440 섹션 바 물어보기와 도우미 버튼 가로 비겹침(UX-10)
  * 스크린샷 4장(데스크톱·모바일 × 바 고정 · 물어보기 펼침) → playwright-report/track-106-2(docs/frontend/screens-track-106-2로 옮긴다).
  */
 const PRODUCT_ID = 'prd_E2E00000000000000000001063'
@@ -106,5 +107,21 @@ test.describe('상품 상세 내비게이션(Track 106-2)', () => {
     await expect(page.getByTestId('section-nav-ask-input')).toHaveValue('세탁 되나요')
     await expect(page.getByTestId('section-nav-panel').getByTestId('product-question-suggestion')).toHaveCount(3)
     await page.screenshot({ path: `${SCREENSHOT_DIR}/section-nav-ask-mobile.png` })
+  })
+
+  // UX-10: 1440에서 섹션 바 오른쪽 끝 물어보기가 도우미 버튼(fixed · 오른쪽 아래)과 가로로 겹치지 않는다(바가 화면 아래에 있을 때도 안 가린다).
+  test('③ 1440 섹션 바 물어보기 · 도우미 버튼 가로 비겹침', async ({ page }) => {
+    await mockApis(page)
+    await page.setViewportSize(DESKTOP_VIEWPORT)
+    await gotoClientSide(page, `/products/${PRODUCT_ID}`)
+    const launcher = page.getByTestId('faq-launcher')
+    await expect(launcher).toBeVisible()
+    await scrollIntoDescription(page)
+
+    const askBox = await page.getByTestId('section-nav-ask').boundingBox()
+    const launcherBox = await launcher.boundingBox()
+    expect(askBox).not.toBeNull()
+    expect(launcherBox).not.toBeNull()
+    expect(askBox!.x + askBox!.width).toBeLessThanOrEqual(launcherBox!.x)
   })
 })

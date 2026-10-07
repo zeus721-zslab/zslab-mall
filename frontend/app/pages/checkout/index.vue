@@ -21,7 +21,8 @@ import {
 import { isUnchanged, buildCreateAddressRequest, type CheckoutAddressForm } from '~/lib/utils/address-form'
 import { buildCheckoutSummary, type CheckoutSummary } from '~/lib/utils/checkout-summary'
 import { isBuyNowQuery } from '~/lib/utils/buy-now'
-import type { CheckoutPageVm } from '~/skins/contracts/checkout'
+import type { CheckoutErrorAction, CheckoutPageVm } from '~/skins/contracts/checkout'
+import type { CheckoutResult } from '~/composables/useCheckout'
 
 // BUYER 전용 페이지 — 미인증/비-BUYER는 buyer 미들웨어가 /login으로 유도한다(recon §9).
 definePageMeta({ middleware: 'buyer' })
@@ -148,8 +149,18 @@ if (defaultAddress) {
 
 const submitting = ref<boolean>(false)
 const errorMessage = ref<string>('')
-// 빈 카트(CART_CHECKOUT_EMPTY) 시에만 장바구니로 돌아가는 링크를 노출한다.
-const showCartLink = ref<boolean>(false)
+// 오류 알림의 이동 링크: 빈 선택 = 장바구니 · 미결제 한도 = 주문 내역 · 결제 준비 실패 = 생성된 주문 상세(PF-16 · PF-21).
+const errorAction = ref<CheckoutErrorAction | null>(null)
+const CART_ACTION: CheckoutErrorAction = { to: '/cart', label: '장바구니로 이동' }
+const ORDERS_ACTION: CheckoutErrorAction = { to: '/orders', label: '주문 내역으로 이동' }
+// next.retryPaymentUrl(/api/v1/orders/{id}/payments) 또는 Location(/api/v1/orders/{id})에서 주문번호를 뽑는다.
+const ORDER_PATH_PATTERN = /\/orders\/([^/?]+)/
+
+/** 결제 준비 실패 응답에서 생성된 주문번호. 200 멱등 캐시는 Location이 없어 next.retryPaymentUrl을 먼저 본다. */
+function createdOrderPublicId(result: CheckoutResult): string | null {
+  const source = result.data.next?.retryPaymentUrl ?? result.location ?? ''
+  return ORDER_PATH_PATTERN.exec(source)?.[1] ?? null
+}
 
 // 필수값 전부 입력됐는지(공백 제거 후 판정) ∧ 선택 품목 1개 이상 ∧ 선택 중 구매 불가 0개(FE-17·확정 5). 버튼 활성·제출 가드 공용.
 const canSubmit = computed<boolean>(
@@ -167,7 +178,7 @@ const canSubmit = computed<boolean>(
  * orderPublicId를 내부 /payment/mock으로 넘기고(외부 PG 미방문), 실 PG면 결제창 URL로 외부 이동한다. Location = /api/v1/orders/{orderPublicId}.
  */
 async function goToPayment(redirectUrl: string, location: string | null): Promise<void> {
-  const redirect = resolvePaymentRedirect(redirectUrl, location)
+  const redirect = resolvePaymentRedirect(redirectUrl, location, undefined, buyNow?.item?.productPublicId)
   if (redirect.kind === 'external') {
     await navigateTo(redirect.url, { external: true })
     return
@@ -196,7 +207,7 @@ async function handleSubmit(): Promise<void> {
   if (submitting.value || !canSubmit.value) return
   submitting.value = true
   errorMessage.value = ''
-  showCartLink.value = false
+  errorAction.value = null
 
   const shippingAddress: ShippingAddress = {
     recipientName: recipientName.value.trim(),
@@ -221,9 +232,15 @@ async function handleSubmit(): Promise<void> {
     // 확정 8: 주문 생성 성공 직후·결제 준비 실패 분기 판정보다 먼저 저장(결제 이동 전).
     await maybeSaveAddress()
     const payment = result.data.payment
-    // INITIATE_FAILED(2xx·publicId=null): 결제 준비 실패 안내만. retryPaymentUrl 실배선은 FE-12(방어 안내).
+    // INITIATE_FAILED(2xx·publicId=null): 주문은 결제 대기로 이미 생성됐다 — 다시 제출하면 새 주문이 되므로 주문 상세의 결제 재개로 안내한다(PF-16).
     if (payment.publicId === null) {
-      errorMessage.value = '결제 준비에 실패했습니다. 잠시 후 다시 시도해 주세요.'
+      const orderPublicId = createdOrderPublicId(result)
+      if (orderPublicId === null) {
+        errorMessage.value = '결제 준비에 실패했습니다. 잠시 후 다시 시도해 주세요.'
+        return
+      }
+      errorMessage.value = '결제 준비에 실패했습니다. 주문은 접수되었으니 주문 상세에서 결제를 이어 가 주세요.'
+      errorAction.value = { to: `/orders/${encodeURIComponent(orderPublicId)}`, label: '주문 상세에서 결제하기' }
       return
     }
     if (payment.redirectUrl) {
@@ -241,11 +258,12 @@ async function handleSubmit(): Promise<void> {
     }
     if (statusCode === 422 && code === 'CART_CHECKOUT_EMPTY') {
       errorMessage.value = '결제할 선택 품목이 없습니다. 장바구니에서 상품을 선택해 주세요.'
-      showCartLink.value = true
+      errorAction.value = CART_ACTION
       return
     }
     if (statusCode === 422 && code === UNPAID_ORDER_LIMIT_EXCEEDED_CODE) {
       errorMessage.value = UNPAID_ORDER_LIMIT_EXCEEDED_MESSAGE
+      errorAction.value = ORDERS_ACTION
       return
     }
     if (statusCode === 422 && code === UNPAID_VARIANT_QUANTITY_LIMIT_EXCEEDED_CODE) {
@@ -286,7 +304,7 @@ const vm: CheckoutPageVm = reactive({
   saveAddress,
   method,
   errorMessage,
-  showCartLink,
+  errorAction,
   submitting,
   canSubmit,
   formatPrice,

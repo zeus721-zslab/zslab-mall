@@ -7,7 +7,7 @@ import type { CartItemView } from '~/types/cart'
 
 // 장바구니 옵션 라벨(Track 75·FE-21): store items만 mock해 조건부 렌더를 검증한다.
 const { cartStoreMock } = vi.hoisted(() => ({
-  cartStoreMock: { items: [] as CartItemView[], load: vi.fn(async () => {}), updateQuantity: vi.fn() },
+  cartStoreMock: { items: [] as CartItemView[], load: vi.fn(async () => {}), updateQuantity: vi.fn(), remove: vi.fn() },
 }))
 mockNuxtImport('useCartStore', () => () => cartStoreMock)
 mockNuxtImport('useAsyncData', () => () => ({ pending: ref(false), error: ref(null), refresh: vi.fn() }))
@@ -94,5 +94,52 @@ describe('pages/cart.vue 수량 상한(P-08)', () => {
     await wrapper.find('button[aria-label="수량 증가"]').trigger('click')
     await flushPromises()
     expect(wrapper.text()).toContain('장바구니에 담긴 수량과 합쳐 최대 999개까지 담을 수 있습니다.')
+  })
+})
+
+// UX-06: 삭제는 확인창(DialogConfirm · reka Portal → document.body)에서 확인한 뒤에만 서버를 부른다.
+describe('pages/cart.vue 삭제 확인(UX-06)', () => {
+  function dialogPart(testId: string): HTMLElement | null {
+    return document.querySelector<HTMLElement>(`[data-testid="${testId}"]`)
+  }
+
+  beforeEach(() => {
+    cartStoreMock.remove.mockReset()
+    cartStoreMock.remove.mockResolvedValue(undefined)
+    cartStoreMock.items = [item({ variantPublicId: 'var_del', productName: '삭제 상품' })]
+  })
+
+  it('삭제 → 확인창만 열림(호출 없음) · 취소 → 호출 없음 · 확인 → DELETE 1회', async () => {
+    const wrapper = await mountSuspended(CartPage, { attachTo: document.body })
+    await wrapper.find('button[aria-label="삭제 상품 삭제"]').trigger('click')
+    await flushPromises()
+    expect(dialogPart('cart-remove-dialog')?.textContent).toContain('삭제 상품')
+    expect(cartStoreMock.remove).not.toHaveBeenCalled()
+
+    dialogPart('cart-remove-cancel')!.click()
+    await flushPromises()
+    expect(dialogPart('cart-remove-dialog')).toBeNull()
+    expect(cartStoreMock.remove).not.toHaveBeenCalled()
+
+    await wrapper.find('button[aria-label="삭제 상품 삭제"]').trigger('click')
+    await flushPromises()
+    dialogPart('cart-remove-confirm')!.click()
+    await flushPromises()
+    expect(cartStoreMock.remove).toHaveBeenCalledTimes(1)
+    expect(cartStoreMock.remove).toHaveBeenCalledWith(['var_del'])
+    expect(dialogPart('cart-remove-dialog')).toBeNull()
+    wrapper.unmount()
+  })
+
+  // PF-17: 행 조작 실패 문구는 주문 금액 카드 안에 있어 375px에서는 목록 아래 — 실패하면 그 위치로 스크롤한다.
+  it('조작 실패 → 오류 문구 위치로 스크롤', async () => {
+    const scrollSpy = vi.spyOn(Element.prototype, 'scrollIntoView')
+    cartStoreMock.updateQuantity.mockRejectedValue({ statusCode: 500 })
+    const wrapper = await mountSuspended(CartPage)
+    await wrapper.find('button[aria-label="수량 증가"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('요청을 처리하지 못했습니다.')
+    expect(scrollSpy).toHaveBeenCalled()
+    scrollSpy.mockRestore()
   })
 })

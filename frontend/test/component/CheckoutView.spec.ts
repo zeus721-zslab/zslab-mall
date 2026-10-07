@@ -41,7 +41,7 @@ function checkoutVm(): CheckoutPageVm {
     saveAddress: true,
     method: 'CARD',
     errorMessage: '',
-    showCartLink: false,
+    errorAction: null,
     submitting: false,
     canSubmit: false,
     formatPrice: (value: number) => `${value}원`,

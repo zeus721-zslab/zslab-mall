@@ -10,7 +10,7 @@ import AdminClaimsPage from '#layers/admin/app/pages/admin/orders/claims/index.v
 import AdminInboxList from '#layers/admin/app/components/admin/AdminInboxList.vue'
 import type { InboxTypeCount } from '~/types/inbox'
 import type { AdminDashboardPending as AdminDashboardPendingCounts } from '#layers/admin/app/types/admin-dashboard'
-import type { AdminClaimListResponse } from '#layers/admin/app/types/admin-claim'
+import type { AdminClaimListQuery, AdminClaimListResponse } from '#layers/admin/app/types/admin-claim'
 
 /**
  * FE-111(퀄리티 9-3) 관리자 화면: 응답 전에는 대시보드 리스트 카드 "데이터 없음"(D8) · 처리 대기 칩 "없음"(D9) · 클레임 목록 "처리 대기 0건"(D10) ·
@@ -123,6 +123,66 @@ describe('관리자 응답 대기 중 빈 상태·0건 미표시(FE-111)', () =>
     pending.resolve({ items: [], page: 0, size: 20, totalCount: 0, hasNext: false, pendingCount: 0 })
     await flushPromises()
     expect(chip()).toBe('처리 대기 0건')
+  })
+})
+
+describe('관리자 클레임 목록 처리 대기 건수 초기화(UX-04)', () => {
+  const CLAIMS_PAGE_STUBS = {
+    AdminClaimFilterCard: EmptyStub,
+    AdminClaimTable: EmptyStub,
+    AdminConfirmDialog: EmptyStub,
+    AdminClaimRejectDialog: EmptyStub,
+    AdminRefundInitiateDialog: EmptyStub,
+    AdminClaimInspectDialog: EmptyStub,
+    AdminReturnShipmentDialog: EmptyStub,
+    AdminExchangeShipmentDialog: EmptyStub,
+  }
+
+  function claimResponse(pendingCount: number): AdminClaimListResponse {
+    return { items: [], page: 0, size: 20, totalCount: 0, hasNext: false, pendingCount }
+  }
+
+  async function mountClaimsPage(route: string) {
+    const wrapper = await mountSuspended(AdminClaimsPage, { route, global: { plugins: [createVuetify()], stubs: CLAIMS_PAGE_STUBS } })
+    await flushPromises()
+    return { chip: () => wrapper.get('[data-testid="claim-pending-chip"]').text() }
+  }
+
+  beforeEach(() => {
+    claimsApiMock.list.mockReset()
+  })
+
+  // 마운트 시 route 반영으로 조회가 여러 번 일어날 수 있어 호출 순서 대신 조회 조건으로 응답을 고른다.
+  it('탭(유형) 변경 → 새 응답 전까지 이전 탭 건수 대신 "—"', async () => {
+    const next = deferred()
+    claimsApiMock.list.mockImplementation((query: AdminClaimListQuery) =>
+      query.type === 'CANCEL' ? next.promise : Promise.resolve(claimResponse(2)))
+    const { chip } = await mountClaimsPage('/admin/orders/claims')
+    expect(chip()).toBe('처리 대기 2건')
+
+    await useRouter().push('/admin/orders/claims?type=CANCEL')
+    await vi.waitFor(() => expect(claimsApiMock.list).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'CANCEL' })))
+    expect(chip()).toBe('취소 처리 대기 —')
+
+    next.resolve(claimResponse(1))
+    await flushPromises()
+    expect(chip()).toBe('취소 처리 대기 1건')
+  })
+
+  it('같은 탭에서 필터·페이지 변경 → 새 응답 전에도 건수 유지("—" 깜빡임 없음)', async () => {
+    const unresolved = deferred()
+    claimsApiMock.list.mockImplementation((query: AdminClaimListQuery) =>
+      query.status === null && query.page === 0 ? Promise.resolve(claimResponse(2)) : unresolved.promise)
+    const { chip } = await mountClaimsPage('/admin/orders/claims?type=CANCEL')
+    expect(chip()).toBe('취소 처리 대기 2건')
+
+    await useRouter().push('/admin/orders/claims?type=CANCEL&status=REQUESTED')
+    await vi.waitFor(() => expect(claimsApiMock.list).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'REQUESTED', page: 0 })))
+    expect(chip()).toBe('취소 처리 대기 2건')
+
+    await useRouter().push('/admin/orders/claims?type=CANCEL&status=REQUESTED&page=1')
+    await vi.waitFor(() => expect(claimsApiMock.list).toHaveBeenLastCalledWith(expect.objectContaining({ page: 1 })))
+    expect(chip()).toBe('취소 처리 대기 2건')
   })
 })
 

@@ -16,7 +16,7 @@ import RenewProductCard from '../components/RenewProductCard.vue'
 import SectionHeading from '../components/SectionHeading.vue'
 
 // renew 상품 상세(FE-70). ≥1024 = 왼쪽 갤러리 · 오른쪽 구매 영역(sticky), 그 아래 상품 설명 · 셀러의 다른 상품.
-// <1024 = 구매 영역이 이미지 아래로 이어지고 화면 하단 고정 바(총 금액 + 담기)가 붙는다(FE-78 — 768~1023 포함). 담기·옵션·수량은 모두 페이지 함수를 쓴다.
+// <1024 = 구매 영역이 이미지 아래로 이어지고 화면 하단 고정 바(총 금액 + 담기·바로구매)가 붙는다(FE-78 — 768~1023 포함). 담기·옵션·수량은 모두 페이지 함수를 쓴다.
 const props = defineProps<{ vm: ProductDetailPageVm }>()
 
 const CONTAINER = 'mx-auto max-w-[1440px] px-5 md:px-10 lg:px-16'
@@ -67,6 +67,16 @@ function buyFromSheet(): void {
   optionSheetOpen.value = false
   props.vm.handleBuyNow()
 }
+
+// 하단 바·옵션 시트에서 담기가 실패하면 문구(본문 담기 버튼 아래)가 화면 밖이다 — 문구 위치로 스크롤한다(PF-17 · 바 높이는 그대로).
+const addError = ref<HTMLElement | null>(null)
+watch(
+  () => props.vm.addErrorMessage,
+  (message) => {
+    if (message) addError.value?.scrollIntoView({ block: 'center' })
+  },
+  { flush: 'post' },
+)
 
 // 담기 성공마다 대표 이미지가 헤더 장바구니로 날아간다(FE-99). 대표 img는 썸네일 전환 때 바뀌므로 감싼 박스에서 찾는다.
 // flush post: 담기 뒤 장바구니 재조회로 헤더 뱃지가 새로 그려진 다음에 목적지를 잰다.
@@ -185,9 +195,19 @@ watch(
             >
               {{ addButtonLabel }}
             </button>
+            <!-- 바로구매(보조): 옵션 유무와 관계없이 본문에 둔다 — 담기와 같은 비활성 규칙(PF-19). -->
+            <button
+              type="button"
+              class="btn btn-secondary btn-lg mt-2 w-full"
+              :disabled="!vm.canAddToCart || vm.adding"
+              data-testid="product-buy-now"
+              @click="vm.handleBuyNow"
+            >
+              바로구매
+            </button>
 
             <!-- 담기 실패 문구. 성공은 화면 하단 스낵바(FE-99). -->
-            <p v-if="vm.addErrorMessage" role="alert" class="mt-4 text-small font-bold text-destructive">{{ vm.addErrorMessage }}</p>
+            <p v-if="vm.addErrorMessage" ref="addError" role="alert" class="mt-4 text-small font-bold text-destructive">{{ vm.addErrorMessage }}</p>
           </div>
         </div>
 
@@ -220,7 +240,7 @@ watch(
           </div>
         </section>
 
-        <!-- <1024 하단 고정 바: 본문 담기 버튼이 화면에 없을 때만. 단일 옵션 상품 = 같은 담기 함수·같은 비활성 규칙(D2 β) /
+        <!-- <1024 하단 고정 바: 본문 담기 버튼이 화면에 없을 때만. 단일 옵션 상품 = [장바구니 담기][바로구매]가 본문과 같은 함수·같은 비활성 규칙(PF-19) /
              옵션 상품 = [장바구니 담기][바로구매] 모두 옵션 시트를 연다(FE-100 · 판매 불가·담는 중이면 비활성). -->
         <MobileActionBar
           v-if="hasOptions"
@@ -240,9 +260,11 @@ watch(
           label="총 상품 금액"
           :amount="vm.totalPrice"
           :pending-text="totalPendingText"
-          :button-label="addButtonLabel"
+          :secondary-label="addButtonLabel"
+          button-label="바로구매"
           :disabled="!vm.canAddToCart || vm.adding"
-          @action="vm.handleAddToCart"
+          @secondary="vm.handleAddToCart"
+          @action="vm.handleBuyNow"
         />
         <ProductOptionSheet v-if="hasOptions" v-model:open="optionSheetOpen" :vm="vm" :product="product" @add="addFromSheet" @buy="buyFromSheet" />
 

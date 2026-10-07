@@ -5,6 +5,7 @@ import { MOCK_PG_ORIGIN } from '~/lib/constants/payment'
  * - origin이 Mock PG 주소면 쿼리(attemptKey·amount·method)와 Location 헤더의 orderPublicId를 내부 /payment/mock 경로로 옮긴다(외부 PG 미방문).
  * - 그 외 origin은 실 PG 결제창이므로 URL 그대로 외부 이동한다.
  * 재결제(D-60)는 Location이 결제를 가리키므로 호출부가 주문번호를 orderPublicIdOverride로 넘긴다.
+ * 바로구매 주문은 buyNowProductPublicId를 넘겨 모의 결제 화면이 실패·취소 안내를 장바구니가 아닌 상품 기준으로 보이게 한다(PF-20).
  * redirectUrl이 URL로 파싱되지 않으면 `new URL()`이 던지는 TypeError를 그대로 전파한다(기존 goToMockPayment와 동일·호출자 catch가 일반 오류 안내).
  */
 export type PaymentRedirect =
@@ -15,6 +16,7 @@ export function resolvePaymentRedirect(
   redirectUrl: string,
   location: string | null,
   orderPublicIdOverride?: string,
+  buyNowProductPublicId?: string,
 ): PaymentRedirect {
   const url = new URL(redirectUrl)
   if (url.origin !== MOCK_PG_ORIGIN) {
@@ -31,6 +33,7 @@ export function resolvePaymentRedirect(
     path:
       `/payment/mock?attemptKey=${encodeURIComponent(attemptKey)}`
       + `&amount=${encodeURIComponent(amount)}&method=${encodeURIComponent(paymentMethod)}`
-      + `&orderPublicId=${encodeURIComponent(orderPublicId)}`,
+      + `&orderPublicId=${encodeURIComponent(orderPublicId)}`
+      + (buyNowProductPublicId ? `&buyNowProduct=${encodeURIComponent(buyNowProductPublicId)}` : ''),
   }
 }

@@ -17,10 +17,11 @@ const ADMIN_LIGHT_THEME = {
     'on-surface': '#18181B',
     'on-surface-variant': '#52525B', // zinc-600
     secondary: '#71717A', // zinc-500
-    success: '#22C55E',
+    // 상태색은 칩 의미색 글자 토큰(admin-vuetify.css --adm-semantic-*-fg)과 같은 값 — 흰 바탕 글자 대비 4.5 이상(PF-18).
+    success: '#15803D',
     info: '#0EA5E9',
-    warning: '#F97316',
-    error: '#EF4444',
+    warning: '#B45309',
+    error: '#B91C1C',
   },
   variables: {
     'border-color': '#E4E4E7', // zinc-200

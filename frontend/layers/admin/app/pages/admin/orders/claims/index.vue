@@ -77,6 +77,8 @@ async function load(): Promise<void> {
 // router.replace가 반영되기 전에 연속 확정되면 앞 변경이 유실되므로 마지막으로 보낸 상태를 기준으로 합친다(FE-27 동일).
 let pendingQuery: AdminClaimListQuery | null = null
 watch(() => route.query, () => { pendingQuery = null; void load() }, { immediate: true, deep: true })
+// BE pendingCount는 type만 반영하므로 탭이 바뀔 때만 이전 탭 건수를 지운다(필터·페이지 변경 때 "—" 깜빡임 방지 · UX-04).
+watch(() => query.value.type, () => { pendingCount.value = null })
 
 function applyQuery(patch: Partial<AdminClaimListQuery>, resetPage = true): void {
   const next: AdminClaimListQuery = { ...(pendingQuery ?? query.value), ...patch }

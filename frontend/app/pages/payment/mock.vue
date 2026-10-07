@@ -14,6 +14,9 @@ const attemptKey = String(route.query.attemptKey ?? '')
 const amount = String(route.query.amount ?? '')
 const method = String(route.query.method ?? '')
 const orderPublicId = String(route.query.orderPublicId ?? '')
+// 바로구매 출처(PF-20): 주문서가 상품 번호를 넘긴 경우만. 경로 접두를 고정해 외부 이동이 생기지 않는다.
+const buyNowProduct = String(route.query.buyNowProduct ?? '')
+const buyNowProductPath = buyNowProduct === '' ? null : `/products/${encodeURIComponent(buyNowProduct)}`
 
 const hasAttemptKey = computed<boolean>(() => attemptKey !== '')
 
@@ -57,6 +60,7 @@ useSeoMeta({ title: '모의 결제 · zslab-mall' })
 const vm: PaymentMockPageVm = reactive({
   hasAttemptKey,
   resultMessage,
+  buyNowProductPath,
   methodLabel,
   amountLabel,
   errorMessage,
