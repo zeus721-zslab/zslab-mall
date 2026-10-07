@@ -1,0 +1,46 @@
+name: Health Watch
+
+# 운영 공개 GET 2곳을 주기적으로 확인한다. 실패하면 job이 실패해 GitHub Actions 실패 알림 메일로 받는다.
+# 공개 저장소의 예약 실행은 60일간 저장소 활동이 없으면 자동 비활성된다(재활성: deploy-runbook.md "헬스 감시").
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+# 앞 실행이 지연돼 겹치면 새 실행만 남긴다(감시는 최신 결과만 의미 있음).
+concurrency:
+  group: health-watch
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  BASE_URL: https://zslab-mall.duckdns.org
+  REQUEST_TIMEOUT_SECONDS: 10
+  RETRY_DELAY_SECONDS: 30
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check main page and categories API
+        run: |
+          # 2xx면 0, 아니면 1. 연결 실패·타임아웃은 상태 코드 000으로 잡힌다.
+          check_once() {
+            status=$(curl -s -o /dev/null -w '%{http_code}' --max-time "$REQUEST_TIMEOUT_SECONDS" "$1" || true)
+            echo "$1 -> $status"
+            case "$status" in 2??) return 0 ;; *) return 1 ;; esac
+          }
+          failed=0
+          for url in "$BASE_URL/" "$BASE_URL/api/v1/categories"; do
+            if ! check_once "$url"; then
+              sleep "$RETRY_DELAY_SECONDS"
+              if ! check_once "$url"; then
+                echo "::error::$url 응답이 2xx가 아님(재시도 1회 후)"
+                failed=1
+              fi
+            fi
+          done
+          exit "$failed"
