@@ -48,7 +48,7 @@ python scripts/demo-seed/seed.py --target local --step verify            # 검�
 ## 운영(prod) 실행 절차 (운영 확인 2026-10-01)
 운영 서버에서 서버 전용 래퍼 `~/demo-seed/run.sh`(저장소 미포함)로 실행한다.
 - 인자: `verify` | `delivered` | `inquiries` | `qna`(`verify --dry-run` 허용) — 항상 `--target prod`로 실행한다.
-- 동작: `docker run --rm --network zslab_zslab_net python:3.12-slim`에 `~/demo-seed`를 마운트하고 requirements 설치 후 seed.py를 실행한다.
+- 동작: `docker run --rm --network infra_net python:3.12-slim`에 `~/demo-seed`를 마운트하고 requirements 설치 후 seed.py를 실행한다.
   DB는 도커 네트워크 안 이름 `zslab_mariadb:3306`, API는 운영 도메인.
 - 자격증명은 서버 `.env`에서 읽어 넘긴다: `DB_USER`←`DB_USERNAME` · `ADMIN_EMAIL`/`ADMIN_PASSWORD`←`ADMIN_BOOTSTRAP_*` ·
   `DEMO_BUYER_*`←`NUXT_BUYER_DEMO_*` · `DEMO_SELLER_*`←`NUXT_SELLER_DEMO_*`.
