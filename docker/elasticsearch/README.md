@@ -60,7 +60,7 @@ docker run --rm --network <ES_NETWORK> curlimages/curl -s \
 |---|---|---|
 | `ES_HOST` | Elasticsearch 컨테이너 이름 | `zslab_elasticsearch` |
 | `ES_PORT` | Elasticsearch 포트 | `9200` |
-| `ES_NETWORK` | Docker 네트워크 이름 | `zslab_zslab_net` |
+| `ES_NETWORK` | Docker 네트워크 이름 | `infra_net` |
 
 ## 정책 요약
 
