@@ -69,7 +69,7 @@ services:
       # Track 77 업로드 영속 볼륨(named·재생성 안전). dev 오버라이드의 ./backend:/app bind 안에 중첩 마운트된다.
       - mall_uploads:/app/uploads
     networks:
-      zslab_zslab_net: {}
+      infra_net: {}
       gateway_net:
         aliases:
           - mall-backend
@@ -120,7 +120,7 @@ services:
       - ./docker/filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
       - mall_backend_logs:/app/logs:ro
     networks:
-      - zslab_zslab_net
+      - infra_net
     depends_on:
       - zslab_mall_backend
 
@@ -129,7 +129,7 @@ volumes:
   mall_uploads:
 
 networks:
-  zslab_zslab_net:
+  infra_net:
     external: true
   gateway_net:
     external: true
