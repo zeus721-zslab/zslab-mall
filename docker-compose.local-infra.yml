@@ -26,11 +26,11 @@ services:
       retries: 10
       start_period: 30s
     networks:
-      - zslab_zslab_net
+      - infra_net
 
 volumes:
   mariadb_data:
 
 networks:
-  zslab_zslab_net:
+  infra_net:
     external: true

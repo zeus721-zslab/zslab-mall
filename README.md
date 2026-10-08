@@ -241,11 +241,13 @@ stateDiagram-v2
 
 운영과 개발 PC는 여러 프로젝트가 함께 쓰는 **공유 인프라(MariaDB 등 컨테이너 · 공용 네트워크 · HTTPS gateway)** 위에서 동작합니다. 공유 인프라는 이 저장소 밖에 있으므로, 처음 복제한 환경에서는 아래 순서로 DB만 따로 띄워 실행합니다. 필요한 것은 Docker(Compose 포함)와 Python 3이고, 백엔드 테스트를 호스트에서 실행하려면 JDK 21이 추가로 필요합니다. 명령은 저장소 루트에서 bash 기준입니다.
 
+공유 인프라(MariaDB·Elasticsearch·Redis)는 [zslab-infra](https://github.com/zeus721-zslab/zslab-infra) 저장소로 띄우며, 앱과는 `infra_net` 네트워크로 연결됩니다.
+
 > **공유 인프라가 이미 있는 환경(`zslab_mariadb` 컨테이너가 떠 있는 환경)에서는 `docker-compose.local-infra.yml`을 쓰지 마세요.** 같은 네트워크에 `zslab_mariadb`가 둘이 되어 DB 연결 대상이 섞입니다. 그 환경에서는 3단계를 건너뜁니다.
 
 ```bash
 # 1. 공용 네트워크(이미 있으면 건너뜀)
-docker network inspect zslab_zslab_net >/dev/null 2>&1 || docker network create zslab_zslab_net
+docker network inspect infra_net >/dev/null 2>&1 || docker network create infra_net
 docker network inspect gateway_net >/dev/null 2>&1 || docker network create gateway_net
 
 # 2. 환경 변수
